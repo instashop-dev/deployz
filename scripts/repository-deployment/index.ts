@@ -22,7 +22,7 @@ import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 
 import { ANALYSIS_VERSION } from '@deployz/api/analysis';
-import { parseApplicationTemplateUrl } from '@deployz/contracts';
+import { parseApplicationTemplateUrl, SUPPORTED_AWS_REGIONS } from '@deployz/contracts';
 
 import { openAnalysisSession } from '../repository-compatibility/analyse.js';
 import { loadBenchmark, selectEntries, type Benchmark, type BenchmarkEntry } from '../repository-compatibility/manifest.js';
@@ -46,11 +46,11 @@ import { ControlPlane, sleep } from '../version-canary/control-plane.js';
 import { Evidence } from '../version-canary/evidence.js';
 import { destroyThroughProduct, leakAudit, removeCanaryLeftovers } from '../version-canary/teardown.js';
 import { applyCleanupToClassification, cleanupAttempt } from './cleanup.js';
-import { configFor, deploymentClassFor, loadDeployConfig, providedKeys, type DeployConfig, type DeploymentClass, type RepositoryConfig } from './config.js';
+import { configFor, deploymentClassFor, loadDeployConfig, providedKeys, requireSmokeContract, type DeployConfig, type DeploymentClass, type RepositoryConfig } from './config.js';
 import { runRepositoryAttempt, DEFAULT_TIMEOUTS, type DeployDeps } from './deploy.js';
 import { describeDependencies, describeStoppedTasks, describeTaskDefinitionEnv, resourceStillExists, tailApplicationLogs } from './evidence.js';
 import { gateSection } from './gate.js';
-import { listUnfinishedLedgers, openLedger, readSeries, stageBRun, stageBRunId, writeSeries, type StageBRunRecord } from './ledger.js';
+import { activeRunsBlock, listUnfinishedLedgers, openLedger, readSeries, stageBRun, stageBRunId, writeSeries, type StageBRunRecord } from './ledger.js';
 import {
   buildStageBSummary,
   emptyResult,
@@ -98,6 +98,14 @@ export interface RunOptions {
   cacheDir: string;
   evidenceDir: string;
   runsDir: string;
+  /** Overrides AWS_REGION for this process's install (customer) region; validated against SUPPORTED_AWS_REGIONS. */
+  region: string | undefined;
+  /** The global real-AWS concurrency guard across processes sharing the evidence dir. Default 2. */
+  maxActive: number;
+  /** A repository with no smoke contract refuses before creating anything. */
+  requireSmoke: boolean;
+  /** Builds and deploys a second release after the smoke contract passes, then re-runs it. */
+  exerciseUpdate: boolean;
 }
 
 export function parseRunArgs(argv: readonly string[]): RunOptions {
@@ -125,6 +133,10 @@ export function parseRunArgs(argv: readonly string[]): RunOptions {
       cache: { type: 'string' },
       'evidence-dir': { type: 'string' },
       'runs-dir': { type: 'string' },
+      region: { type: 'string' },
+      'max-active': { type: 'string' },
+      'require-smoke': { type: 'boolean', default: false },
+      'exercise-update': { type: 'boolean', default: false },
     },
     strict: true,
   });
@@ -132,6 +144,11 @@ export function parseRunArgs(argv: readonly string[]): RunOptions {
   if (!Number.isInteger(concurrency) || concurrency < 1 || concurrency > 2) throw new Error('--concurrency must be 1 or 2');
   const template = (values.template ?? 'pinned') as TemplateMode;
   if (!TEMPLATE_MODES.includes(template)) throw new Error(`--template must be one of ${TEMPLATE_MODES.join(', ')}`);
+  if (values.region !== undefined && !(SUPPORTED_AWS_REGIONS as readonly string[]).includes(values.region)) {
+    throw new Error(`--region must be one of ${SUPPORTED_AWS_REGIONS.join(', ')}`);
+  }
+  const maxActive = values['max-active'] ? Number(values['max-active']) : 2;
+  if (!Number.isInteger(maxActive) || maxActive < 1) throw new Error('--max-active must be a positive integer');
   const modes = [values.gate, values['dry-run'], values['real-aws'], values['runtime-reuse'], values.cleanup, values.audit].filter(Boolean).length;
   if (modes === 0 && !values.resume) throw new Error('choose a mode: --gate, --dry-run, --real-aws, --runtime-reuse, --cleanup or --audit');
   if (values['real-aws'] && values.gate) throw new Error('--gate and --real-aws are exclusive (the funnel runs the gate itself)');
@@ -158,6 +175,10 @@ export function parseRunArgs(argv: readonly string[]): RunOptions {
     cacheDir: values.cache ? resolve(values.cache) : CACHE_DIR,
     evidenceDir: values['evidence-dir'] ? resolve(values['evidence-dir']) : EVIDENCE_DIR,
     runsDir: values['runs-dir'] ? resolve(values['runs-dir']) : RUNS_DIR,
+    region: values.region,
+    maxActive,
+    requireSmoke: values['require-smoke'] ?? false,
+    exerciseUpdate: values['exercise-update'] ?? false,
   };
 }
 
@@ -384,19 +405,18 @@ async function createAttemptOrganization(api: ControlPlane, name: string): Promi
   return body.id;
 }
 
-function publishPinnedTemplateWith(config: CanaryConfig, region: string) {
+function publishPinnedTemplateWith(controlPlaneRegion: string) {
   return async (imageDigest: string, keyPrefix: string): Promise<string> => {
     const identity = await callerIdentity();
-    const repository = `${identity.account}.dkr.ecr.${region}.amazonaws.com/deployz-images`;
+    const repository = `${identity.account}.dkr.ecr.${controlPlaneRegion}.amazonaws.com/deployz-images`;
     const output = execFileSync(process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm', ['--filter', '@deployz/cdk', 'run', 'publish:application'], {
       cwd: REPO_ROOT,
       encoding: 'utf8',
-      env: { ...process.env, AWS_REGION: region, APP_IMAGE_REPOSITORY: repository, APP_IMAGE_DIGEST: imageDigest, APPLICATION_KEY_PREFIX: keyPrefix },
+      env: { ...process.env, AWS_REGION: controlPlaneRegion, APP_IMAGE_REPOSITORY: repository, APP_IMAGE_DIGEST: imageDigest, APPLICATION_KEY_PREFIX: keyPrefix },
       shell: process.platform === 'win32',
     });
     const templateUrl = parseApplicationTemplateUrl(output);
     if (!templateUrl) throw new Error(`publish:application printed no template URL:\n${output}`);
-    void config;
     return templateUrl;
   };
 }
@@ -414,8 +434,33 @@ async function probe(url: string): Promise<{ status: number | null; error?: stri
   }
 }
 
+async function probeBody(url: string): Promise<{ status: number | null; body: string; error?: string }> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 15_000);
+  try {
+    const response = await fetch(url, { signal: controller.signal, redirect: 'manual' });
+    const text = await response.text();
+    return { status: response.status, body: text.slice(0, 4096) };
+  } catch (error) {
+    return { status: null, body: '', error: String(error) };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/** The install region and the control-plane region a run's AWS calls must route through — split out so the
+ * override precedence (`--region` > `AWS_REGION` > default) and the ECR/template-bucket routing stay testable. */
+export function regionsFor(config: CanaryConfig): { region: string; controlPlaneRegion: string } {
+  return { region: config.region, controlPlaneRegion: config.controlPlaneRegion };
+}
+
+/** Binds an ECR lookup function to the control-plane region — a pure wrapper so the routing is testable without AWS. */
+export function ecrDigestLookup(fn: typeof ecrDigestForTag, controlPlaneRegion: string): (tag: string) => Promise<string | null> {
+  return (tag) => fn(controlPlaneRegion, 'deployz-images', tag);
+}
+
 function realDeps(series: Series, options: RunOptions, templateUrl: string | null): DeployDeps {
-  const region = series.config.region;
+  const { region, controlPlaneRegion } = regionsFor(series.config);
   return {
     api: series.api,
     aws: {
@@ -425,7 +470,7 @@ function realDeps(series: Series, options: RunOptions, templateUrl: string | nul
       describeRunningService: (name) => describeRunningService(region, name),
       targetHealth: (name) => targetHealth(region, name),
       albDnsName: (name) => albDnsName(region, name),
-      ecrDigestForTag: (tag) => ecrDigestForTag(region, 'deployz-images', tag),
+      ecrDigestForTag: ecrDigestLookup(ecrDigestForTag, controlPlaneRegion),
       listStackResources: (name) => listStackResources(region, name),
       describeStoppedTasks: (name) => describeStoppedTasks(region, name),
       tailApplicationLogs: (name) => tailApplicationLogs(region, name),
@@ -433,14 +478,16 @@ function realDeps(series: Series, options: RunOptions, templateUrl: string | nul
       describeTaskDefinitionEnv: (name) => describeTaskDefinitionEnv(region, name),
     },
     probe,
+    probeBody,
     sleep,
     now: Date.now,
     region,
     githubInstallationId: series.config.githubInstallationId,
     templateUrl,
     templateSource: options.template === 'pinned' ? 'stage-b-pinned' : options.template === 'generic' ? 'stage-b-generic' : 'production-default',
-    publishPinnedTemplate: options.template === 'pinned' ? publishPinnedTemplateWith(series.config, region) : undefined,
+    publishPinnedTemplate: options.template === 'pinned' ? publishPinnedTemplateWith(controlPlaneRegion) : undefined,
     reuseApplication: options.reuseApplication,
+    exerciseUpdate: options.exerciseUpdate,
     timeouts: DEFAULT_TIMEOUTS,
     keep: options.keep,
   };
@@ -448,16 +495,23 @@ function realDeps(series: Series, options: RunOptions, templateUrl: string | nul
 
 async function runAttempt(series: Series, options: RunOptions, config: DeployConfig, entry: BenchmarkEntry): Promise<StageBResult> {
   const repoConfig = configFor(config, entry.id);
+  requireSmokeContract(repoConfig, options.requireSmoke);
   const runId = stageBRunId(entry.id);
   const result = emptyResult(identityFor(entry, series.sha, 'deploy', runId));
   result.findingIds = [...repoConfig.findings];
   const evidence = openLedger(
     options.evidenceDir,
     series.config,
-    { repoId: entry.id, repository: entry.repository, commit: entry.commit, deployzCommit: series.sha, cleanupNeeded: false },
+    { repoId: entry.id, repository: entry.repository, commit: entry.commit, deployzCommit: series.sha, controlPlaneRegion: series.config.controlPlaneRegion, cleanupNeeded: false },
     runId,
   );
   console.log(`\n=== ${entry.id} ${entry.repository}@${entry.commit.slice(0, 7)} — run ${runId} (evidence ${evidence.dir})`);
+  // The global real-AWS concurrency guard: two processes share the evidence
+  // dir, and --concurrency only bounds one of them. Checked right after this
+  // attempt's own ledger is opened (so it never counts itself) and before
+  // anything is created in the vendor account.
+  const blocked = activeRunsBlock(listUnfinishedLedgers(options.evidenceDir), options.maxActive);
+  if (blocked) throw new Error(blocked);
   // --reuse-application: a retry re-enters the organization and application
   // the repository's first attempt created, so the release it already built
   // can be redeployed. Everything downstream of the application — customer,
@@ -509,10 +563,20 @@ async function runAttempt(series: Series, options: RunOptions, config: DeployCon
   return result;
 }
 
+/**
+ * The region-scoped config for one ledger: `--cleanup`/`--resume`/`--audit`
+ * must delete a run's resources where it actually created them, not wherever
+ * this process happens to be pointed — two processes can run different
+ * `--region`s at once against the same evidence dir.
+ */
+export function regionalConfig(config: CanaryConfig, run: { region: string; stageB: { controlPlaneRegion?: string } }): CanaryConfig {
+  return { ...config, region: run.region, controlPlaneRegion: run.stageB.controlPlaneRegion ?? config.controlPlaneRegion };
+}
+
 async function cleanupLedger(series: Series, options: RunOptions, runId: string): Promise<void> {
   const evidence = Evidence.open(options.evidenceDir, runId);
   const run = stageBRun(evidence);
-  console.log(`\n=== cleanup ${run.stageB.repoId} — run ${runId}`);
+  console.log(`\n=== cleanup ${run.stageB.repoId} — run ${runId} (region ${run.region})`);
   const result = readResult(options.runsDir, run.stageB.repoId) ?? emptyResult({
     id: run.stageB.repoId,
     repository: run.stageB.repository,
@@ -527,43 +591,52 @@ async function cleanupLedger(series: Series, options: RunOptions, runId: string)
     mode: 'deploy',
     deploymentClass: 'runtime-reuse',
   });
+  const config = regionalConfig(series.config, run);
   if (run.stageB.organizationId) await series.api.request('POST', `/api/organizations/${run.stageB.organizationId}/activate`, {});
-  await cleanupAttempt({ config: series.config, api: series.api, evidence, teardown: { destroyThroughProduct, removeCanaryLeftovers, leakAudit }, now: Date.now, resourceStillExists: (arn) => resourceStillExists(series.config.region, arn) }, result);
+  await cleanupAttempt({ config, api: series.api, evidence, teardown: { destroyThroughProduct, removeCanaryLeftovers, leakAudit }, now: Date.now, resourceStillExists: (arn) => resourceStillExists(config.region, arn) }, result);
   applyCleanupToClassification(result);
   if (readResult(options.runsDir, run.stageB.repoId)) writeResult(options.runsDir, result, { force: true });
   evidence.save();
 }
 
-export async function auditAccount(config: CanaryConfig, evidenceDir: string): Promise<{ runTagged: string[]; installations: Record<string, string[]> }> {
-  const tagged = await resourcesTagged(config.region, CANARY_TAGS.testMode, 'canary');
-  const runTagged = tagged.filter((arn) => !arn.includes(':cluster/') && !arn.includes(':task-definition/') && !arn.includes(':service/'));
-  const installations: Record<string, string[]> = {};
-  for (const ledger of listUnfinishedLedgers(evidenceDir)) {
-    const run = JSON.parse((await import('node:fs')).readFileSync(ledger.path, 'utf8')) as StageBRunRecord;
-    if (!run.installationId) continue;
-    const audit = await auditLeaks(config.region, {
-      installationId: run.installationId,
-      runId: run.runId,
-      bootstrapStackName: run.bootstrapStackName ?? null,
-      applicationStackName: run.applicationStackName ?? null,
-      bootstrapLambdaNames: run.bootstrapLambdaNames ?? [],
-      deploymentId: run.deploymentId ?? null,
-      ecrRepository: 'deployz-images',
-      ecrTags: Object.values(run.releases).map((r) => r.version),
-    });
-    installations[run.runId] = [
-      ...audit.stacks.map((s) => `stack ${s.name} ${s.status}`),
-      ...audit.rdsInstances.map((r) => `rds ${r}`),
-      ...audit.loadBalancers.map((l) => `alb ${l}`),
-      ...audit.buckets.map((b) => `bucket ${b}`),
-      ...audit.secrets.map((s) => `secret ${s}`),
-      ...audit.logGroups.map((l) => `log-group ${l}`),
-      ...audit.ssmParameters.map((p) => `ssm ${p}`),
-      ...audit.certificates.map((c) => `acm ${c}`),
-      ...audit.ecrTags.map((t) => `ecr ${t}`),
-    ];
+export async function auditAccount(config: CanaryConfig, evidenceDir: string): Promise<Record<string, { runTagged: string[]; installations: Record<string, string[]> }>> {
+  const ledgers = listUnfinishedLedgers(evidenceDir);
+  const { readFileSync } = await import('node:fs');
+  const ledgerRuns = ledgers.map((ledger) => JSON.parse(readFileSync(ledger.path, 'utf8')) as StageBRunRecord);
+  const regions = new Set<string>([config.region, ...ledgerRuns.map((run) => run.region)]);
+  const out: Record<string, { runTagged: string[]; installations: Record<string, string[]> }> = {};
+  for (const region of regions) {
+    const tagged = await resourcesTagged(region, CANARY_TAGS.testMode, 'canary');
+    const runTagged = tagged.filter((arn) => !arn.includes(':cluster/') && !arn.includes(':task-definition/') && !arn.includes(':service/'));
+    const installations: Record<string, string[]> = {};
+    for (const run of ledgerRuns.filter((r) => r.region === region)) {
+      if (!run.installationId) continue;
+      const audit = await auditLeaks(region, {
+        installationId: run.installationId,
+        runId: run.runId,
+        bootstrapStackName: run.bootstrapStackName ?? null,
+        applicationStackName: run.applicationStackName ?? null,
+        bootstrapLambdaNames: run.bootstrapLambdaNames ?? [],
+        deploymentId: run.deploymentId ?? null,
+        ecrRepository: 'deployz-images',
+        ecrTags: Object.values(run.releases).map((r) => r.version),
+        ecrRegion: run.stageB.controlPlaneRegion ?? config.controlPlaneRegion,
+      });
+      installations[run.runId] = [
+        ...audit.stacks.map((s) => `stack ${s.name} ${s.status}`),
+        ...audit.rdsInstances.map((r) => `rds ${r}`),
+        ...audit.loadBalancers.map((l) => `alb ${l}`),
+        ...audit.buckets.map((b) => `bucket ${b}`),
+        ...audit.secrets.map((s) => `secret ${s}`),
+        ...audit.logGroups.map((l) => `log-group ${l}`),
+        ...audit.ssmParameters.map((p) => `ssm ${p}`),
+        ...audit.certificates.map((c) => `acm ${c}`),
+        ...audit.ecrTags.map((t) => `ecr ${t}`),
+      ];
+    }
+    out[region] = { runTagged, installations };
   }
-  return { runTagged, installations };
+  return out;
 }
 
 /** Runs items with bounded concurrency; `fn` returns false to stop handing out new items. */
@@ -623,7 +696,7 @@ async function main(): Promise<number> {
 
   requireRealAws(options, process.env);
   if (options.runtimeReuse) assertRuntimeReuseSupported();
-  const canaryConfig = loadConfig(process.env);
+  const canaryConfig: CanaryConfig = { ...loadConfig(process.env), ...(options.region ? { region: options.region } : {}) };
   const identity = await callerIdentity();
   if (identity.account !== canaryConfig.expectedAccountId) {
     throw new Error(`AWS account ${identity.account} is not the expected test account ${canaryConfig.expectedAccountId} — refusing to run`);
@@ -632,7 +705,7 @@ async function main(): Promise<number> {
   if (options.audit) {
     const audit = await auditAccount(canaryConfig, options.evidenceDir);
     console.log(JSON.stringify(audit, null, 2));
-    const leaks = audit.runTagged.length + Object.values(audit.installations).reduce((n, list) => n + list.length, 0);
+    const leaks = Object.values(audit).reduce((n, region) => n + region.runTagged.length + Object.values(region.installations).reduce((m, list) => m + list.length, 0), 0);
     console.log(leaks === 0 ? 'No Stage B resources left.' : `${leaks} resource(s) still attributable to Stage B.`);
     return leaks === 0 ? 0 : 1;
   }
@@ -657,7 +730,9 @@ async function main(): Promise<number> {
 
   const health = await fetch(`${canaryConfig.apiUrl}/health`);
   if (health.status !== 200) throw new Error(`control plane ${canaryConfig.apiUrl}/health answered ${health.status}`);
-  await templateBucketName(canaryConfig.region);
+  // The template bucket only matters when a run publishes its own pinned
+  // template; --template generic/production never touches it.
+  if (options.template === 'pinned') await templateBucketName(canaryConfig.controlPlaneRegion);
 
   const plan = buildPlan(entries, config, existing, options);
   console.log(renderPlan(plan, options));

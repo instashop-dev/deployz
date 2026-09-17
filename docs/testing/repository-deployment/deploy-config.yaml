@@ -11,6 +11,19 @@
 # `dependencies` (which checks to run). `fork` names the copy the vendor
 # GitHub App installation can read; default instashop-dev/<repo>.
 #
+# `smoke`: a list of repository-specific checks run against the live
+# application after HTTPS is ACTIVE. A generic 200 is not enough — each check
+# needs `bodyIncludes` and/or `jsonPath` (a status-only check is refused at
+# load time). Fields: `path` (must start with /), `method` (GET only, the
+# default), `status` (one code or a list of accepted codes), `bodyIncludes`
+# (a substring the response body must contain), `jsonPath` (a dot path into
+# the JSON body, e.g. `data.ok`), `jsonEquals` (the value at `jsonPath` must
+# equal this; when omitted the value must exist and not be null), `exercises`
+# (`postgres` and/or `redis` — a failing check marks that dependency FAIL),
+# `graceSeconds` (wait before the first try, default 0), `retries` (default
+# 3) and `retryDelaySeconds` (default 20). `--require-smoke` refuses a
+# repository with no `smoke` entry before anything is created.
+#
 # Values here are what the Stage A notes establish as the app's own
 # requirements. Nothing here patches a repository; a key the analyser wrongly
 # demands is still provided (a vendor would have to), and the mismatch is the

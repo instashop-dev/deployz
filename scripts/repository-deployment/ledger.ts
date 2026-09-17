@@ -11,6 +11,14 @@ import { join } from 'node:path';
 import { mintRunId, type CanaryConfig } from '../version-canary/config.js';
 import { Evidence, type RunRecord } from '../version-canary/evidence.js';
 
+/** One CloudFormation resource of a stack snapshot — whatever `list-stack-resources` returns. */
+export interface LedgerStackResource {
+  readonly logicalId?: string;
+  readonly type: string;
+  readonly status: string;
+  readonly physicalId: string | null;
+}
+
 export interface StageBRunRecord extends RunRecord {
   stageB: {
     repoId: string;
@@ -21,6 +29,19 @@ export interface StageBRunRecord extends RunRecord {
     organizationId?: string;
     templateSource?: 'production-default' | 'stage-b-generic' | 'stage-b-pinned';
     templateUrl?: string;
+    /**
+     * Where the control-plane-side resources (`deployz-images` ECR, the
+     * template bucket) live for this attempt, next to `region` on the run
+     * record (the install/customer region). `--cleanup`/`--resume`/`--audit`
+     * rebuild a region-scoped config from these two fields, never the
+     * process's own.
+     */
+    controlPlaneRegion?: string;
+    /** Snapshot of both stacks' resources, taken once the application stack is CREATE_COMPLETE. */
+    resources?: {
+      applicationStack: LedgerStackResource[];
+      bootstrapStack: LedgerStackResource[];
+    };
     /** Set once cleanup has fully completed (destroy, purge, leftovers, audit). */
     cleanupCompletedAt?: string;
     /** Set when the attempt is abandoned to cleanup (a failure or an interrupt). */
@@ -71,6 +92,19 @@ export function listUnfinishedLedgers(evidenceDir: string): { runId: string; rep
     out.push({ runId: run.runId ?? name, repoId: run.stageB.repoId, path });
   }
   return out;
+}
+
+/**
+ * The global real-AWS concurrency guard: two processes share the evidence
+ * dir, and `--concurrency` only bounds one of them. Called right after an
+ * attempt's own ledger is opened (so it never counts itself — a freshly
+ * opened ledger has created nothing yet) and before it creates anything in
+ * the vendor account. Returns the refusal message, or null when the attempt
+ * may proceed.
+ */
+export function activeRunsBlock(ledgers: readonly { runId: string }[], maxActive: number): string | null {
+  if (ledgers.length < maxActive) return null;
+  return `${ledgers.length} active real-AWS runs (${ledgers.map((l) => l.runId).join(', ')}) — wait for their cleanup or run --cleanup`;
 }
 
 /** Series-level state shared by every attempt: the vendor session and the published Stage B templates. */

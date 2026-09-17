@@ -323,6 +323,8 @@ export async function auditLeaks(
     deploymentId: string | null;
     ecrRepository: string;
     ecrTags: string[];
+    /** The region `deployz-images` lives in, when it differs from `region` (Stage B's install region). Defaults to `region`. */
+    ecrRegion?: string;
   },
 ): Promise<LeakAudit> {
   const installationTagged = ids.installationId
@@ -395,8 +397,9 @@ export async function auditLeaks(
   ).map((c) => `${c.DomainName} ${c.CertificateArn}`);
 
   const ecrTags: string[] = [];
+  const ecrRegion = ids.ecrRegion ?? region;
   for (const tag of ids.ecrTags) {
-    if ((await ecrDigestForTag(region, ids.ecrRepository, tag)) !== null) ecrTags.push(tag);
+    if ((await ecrDigestForTag(ecrRegion, ids.ecrRepository, tag)) !== null) ecrTags.push(tag);
   }
 
   const taskDefinitions = installationTagged.filter((arn) => arn.includes(':task-definition/'));

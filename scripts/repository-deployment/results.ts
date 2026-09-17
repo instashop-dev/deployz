@@ -157,6 +157,49 @@ export const deploymentResultSchema = z
     installJobState: z.string().nullable(),
     failureCode: z.string().nullable(),
     resourceCount: z.number().int().nonnegative().nullable(),
+    /** Per-CloudFormation-type counts of the application stack's resources. */
+    resourcesByType: z.record(z.string(), z.number().int().nonnegative()).nullable().default(null),
+    /** The install (customer) region — distinct from the control-plane region ECR/the template bucket use. */
+    region: z.string().nullable().default(null),
+    durationMs: z.number().int().nonnegative().nullable(),
+    detail: z.string().nullable(),
+  })
+  .strict();
+
+/** One plan-versus-actual inventory check ("Plan-versus-actual inventory gate"). */
+export const inventoryResultSchema = z
+  .object({
+    status: stageStatus,
+    /** The install plan's CREATE component kinds. */
+    planCreateKinds: z.array(z.string()),
+    /** The kinds the persisted infrastructure inventory expects. */
+    expectedKinds: z.array(z.string()),
+    /** The CloudFormation resource types found in the application stack snapshot. */
+    presentTypes: z.array(z.string()),
+    /** A planned CREATE kind whose AWS resource type is absent from the stack. */
+    missing: z.array(z.string()),
+    /** A kind present in the stack that the plan did not create. */
+    unexpected: z.array(z.string()),
+    detail: z.string().nullable(),
+  })
+  .strict();
+
+const smokeCheckOutcomeSchema = z
+  .object({
+    path: z.string(),
+    status: z.number().int().nullable(),
+    ok: z.boolean(),
+    detail: z.string(),
+    exercises: z.array(z.enum(['postgres', 'redis'])),
+  })
+  .strict();
+
+export const updateResultSchema = z
+  .object({
+    status: stageStatus,
+    releaseId: z.string().nullable(),
+    version: z.string().nullable(),
+    imageDigest: z.string().nullable(),
     durationMs: z.number().int().nonnegative().nullable(),
     detail: z.string().nullable(),
   })
@@ -175,6 +218,8 @@ export const runtimeResultSchema = z
     appUrl: z.string().nullable(),
     runningImageDigest: z.string().nullable(),
     releaseServing: z.boolean().nullable(),
+    /** Repository-specific smoke checks run against the live application (README item 6). */
+    smoke: z.array(smokeCheckOutcomeSchema).default([]),
     observation: z
       .object({
         seconds: z.number().int().nonnegative(),
@@ -201,6 +246,8 @@ export const dependenciesResultSchema = z
   })
   .strict();
 
+const cleanupStepOutcome = z.enum(['PASS', 'FAIL', 'SKIPPED', 'NOT_ATTEMPTED']);
+
 export const cleanupResultSchema = z
   .object({
     status: stageStatus,
@@ -209,6 +256,10 @@ export const cleanupResultSchema = z
     cleanupState: z.string().nullable(),
     bootstrapStackFinal: z.string().nullable(),
     leaks: z.array(z.string()),
+    /** Outcome of "Verify retained state between Disconnect and Purge". */
+    retainedState: cleanupStepOutcome.default('NOT_ATTEMPTED'),
+    /** Outcome of "Verify the retained set is gone after Purge". */
+    purgedState: cleanupStepOutcome.default('NOT_ATTEMPTED'),
     durationMs: z.number().int().nonnegative().nullable(),
     detail: z.string().nullable(),
   })
@@ -239,8 +290,20 @@ export const stageBResultSchema = z
     configuration: configurationResultSchema,
     build: buildResultSchema,
     deployment: deploymentResultSchema,
+    /** Absent in results recorded before the inventory gate existed — defaults to NOT_ATTEMPTED. */
+    inventory: inventoryResultSchema.default({
+      status: 'NOT_ATTEMPTED',
+      planCreateKinds: [],
+      expectedKinds: [],
+      presentTypes: [],
+      missing: [],
+      unexpected: [],
+      detail: null,
+    }),
     runtime: runtimeResultSchema,
     dependencies: dependenciesResultSchema,
+    /** Absent in results recorded before `--exercise-update` existed — defaults to NOT_ATTEMPTED. */
+    update: updateResultSchema.default({ status: 'NOT_ATTEMPTED', releaseId: null, version: null, imageDigest: null, durationMs: null, detail: null }),
     cleanup: cleanupResultSchema,
     classification: z.enum(CLASSIFICATIONS),
     failureStage: z.enum(FAILURE_STAGES).nullable(),
@@ -330,7 +393,18 @@ export function emptyResult(identity: ResultIdentity): StageBResult {
       installJobState: null,
       failureCode: null,
       resourceCount: null,
+      resourcesByType: null,
+      region: null,
       durationMs: null,
+      detail: null,
+    },
+    inventory: {
+      status: 'NOT_ATTEMPTED',
+      planCreateKinds: [],
+      expectedKinds: [],
+      presentTypes: [],
+      missing: [],
+      unexpected: [],
       detail: null,
     },
     runtime: {
@@ -342,6 +416,7 @@ export function emptyResult(identity: ResultIdentity): StageBResult {
       appUrl: null,
       runningImageDigest: null,
       releaseServing: null,
+      smoke: [],
       observation: null,
       detail: null,
     },
@@ -352,6 +427,14 @@ export function emptyResult(identity: ResultIdentity): StageBResult {
       migration: 'NOT_ATTEMPTED',
       detail: null,
     },
+    update: {
+      status: 'NOT_ATTEMPTED',
+      releaseId: null,
+      version: null,
+      imageDigest: null,
+      durationMs: null,
+      detail: null,
+    },
     cleanup: {
       status: 'NOT_ATTEMPTED',
       destroyJobState: null,
@@ -359,6 +442,8 @@ export function emptyResult(identity: ResultIdentity): StageBResult {
       cleanupState: null,
       bootstrapStackFinal: null,
       leaks: [],
+      retainedState: 'NOT_ATTEMPTED',
+      purgedState: 'NOT_ATTEMPTED',
       durationMs: null,
       detail: null,
     },

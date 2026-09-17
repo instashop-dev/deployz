@@ -9,19 +9,22 @@ import { loadConfig } from '../version-canary/config.js';
 import type { DeploymentDetail } from '../version-canary/control-plane.js';
 import { applyCleanupToClassification, cleanupAttempt } from './cleanup.js';
 import { classifyFailure } from './classify.js';
-import { appUrlKeys, configFor, deploymentClassFor, loadDeployConfig, parseDeployConfig, providedKeys } from './config.js';
+import { appUrlKeys, configFor, deploymentClassFor, loadDeployConfig, parseDeployConfig, providedKeys, requireSmokeContract } from './config.js';
 import { defaultDeploymentUrl, generateSecret, runRepositoryAttempt, resolveHealthPath, DEFAULT_TIMEOUTS, nextReleaseVersion, reusableRelease, type AwsLike, type ControlPlaneLike, type DeployDeps, reusableReleaseVersion } from './deploy.js';
 import { applicationContainerDefinition, sanitize, stoppedExit } from './evidence.js';
 import { gateOutcome, manifestFacts, missingKeys, overridesToManifest } from './gate.js';
-import { listUnfinishedLedgers, openLedger, readSeries, stageBRun, stageBRunId, writeSeries } from './ledger.js';
+import { activeRunsBlock, listUnfinishedLedgers, openLedger, readSeries, stageBRun, stageBRunId, writeSeries } from './ledger.js';
 import {
   BENCHMARK_PATH,
   DEPLOY_CONFIG_PATH,
   STAGE_B_DIR,
   assertRuntimeReuseSupported,
   buildPlan,
+  ecrDigestLookup,
   identityFor,
   parseRunArgs,
+  regionalConfig,
+  regionsFor,
   renderPlan,
   repositoryUsedFor,
   requireRealAws,
@@ -263,6 +266,27 @@ describe('selection and CLI', () => {
     expect(parseRunArgs(['--resume']).resume).toBe(true);
   });
 
+  it('accepts a supported --region, rejects an unsupported one, and defaults --max-active/--require-smoke/--exercise-update', () => {
+    const withRegion = parseRunArgs(['--real-aws', '--repo', 'repo-001', '--region', 'eu-north-1']);
+    expect(withRegion.region).toBe('eu-north-1');
+    expect(() => parseRunArgs(['--real-aws', '--region', 'mars-central-1'])).toThrow('--region must be one of');
+    const defaults = parseRunArgs(['--real-aws', '--repo', 'repo-001']);
+    expect(defaults.region).toBeUndefined();
+    expect(defaults.maxActive).toBe(2);
+    expect(defaults.requireSmoke).toBe(false);
+    expect(defaults.exerciseUpdate).toBe(false);
+    expect(parseRunArgs(['--real-aws', '--max-active', '3']).maxActive).toBe(3);
+    expect(() => parseRunArgs(['--real-aws', '--max-active', '0'])).toThrow('--max-active must be a positive integer');
+    expect(parseRunArgs(['--real-aws', '--require-smoke', '--exercise-update']).requireSmoke).toBe(true);
+    expect(parseRunArgs(['--real-aws', '--require-smoke', '--exercise-update']).exerciseUpdate).toBe(true);
+  });
+
+  it('defaults controlPlaneRegion to us-east-1 and lets DEPLOYZ_CONTROL_PLANE_REGION override it, independent of the install region', () => {
+    expect(loadConfig({}).controlPlaneRegion).toBe('us-east-1');
+    expect(loadConfig({ AWS_REGION: 'eu-north-1' }).controlPlaneRegion).toBe('us-east-1');
+    expect(loadConfig({ DEPLOYZ_CONTROL_PLANE_REGION: 'us-west-2' }).controlPlaneRegion).toBe('us-west-2');
+  });
+
   it('needs the environment opt-in for anything that touches AWS, and nothing for the gate or a dry run', () => {
     const base = parseRunArgs(['--gate']);
     expect(() => requireRealAws(base, {})).not.toThrow();
@@ -292,6 +316,42 @@ describe('selection and CLI', () => {
   it('points Deployz at the fork the installation can read', () => {
     expect(repositoryUsedFor(BENCHMARK.repositories[0]!, { id: 'repo-001', findings: [], notes: [] })).toEqual({ repositoryUsed: 'instashop-dev/api', repositoryForm: 'fork' });
     expect(repositoryUsedFor(BENCHMARK.repositories[0]!, { id: 'repo-001', fork: 'instashop-dev/acme-api', findings: [], notes: [] }).repositoryUsed).toBe('instashop-dev/acme-api');
+  });
+});
+
+describe('region routing', () => {
+  it('splits the install region from the control-plane region', () => {
+    const config = loadConfig({ AWS_REGION: 'eu-north-1', DEPLOYZ_CONTROL_PLANE_REGION: 'us-east-1' });
+    expect(regionsFor(config)).toEqual({ region: 'eu-north-1', controlPlaneRegion: 'us-east-1' });
+  });
+
+  it('routes an ECR lookup through the control-plane region, not the install region', async () => {
+    const calls: [string, string, string][] = [];
+    const fake = async (region: string, repository: string, tag: string) => {
+      calls.push([region, repository, tag]);
+      return 'sha256:x';
+    };
+    const digest = await ecrDigestLookup(fake, 'us-east-1')('app-1-v1');
+    expect(digest).toBe('sha256:x');
+    expect(calls).toEqual([['us-east-1', 'deployz-images', 'app-1-v1']]);
+  });
+
+  it('rebuilds a ledger-scoped config from the region the ledger recorded, not the process config', () => {
+    const process_ = loadConfig({ AWS_REGION: 'eu-north-1', DEPLOYZ_CONTROL_PLANE_REGION: 'us-east-1' });
+    const config = regionalConfig(process_, { region: 'ap-southeast-1', stageB: { controlPlaneRegion: 'us-east-1' } });
+    expect(config.region).toBe('ap-southeast-1');
+    expect(config.controlPlaneRegion).toBe('us-east-1');
+    // No controlPlaneRegion recorded on an older ledger: falls back to the process's.
+    const fallback = regionalConfig(process_, { region: 'ap-southeast-1', stageB: {} });
+    expect(fallback.controlPlaneRegion).toBe('us-east-1');
+  });
+});
+
+describe('the global real-AWS concurrency guard (--max-active)', () => {
+  it('refuses at the limit, allows below it, and finished ledgers do not count', () => {
+    expect(activeRunsBlock([{ runId: 'a' }, { runId: 'b' }], 2)).toContain('2 active real-AWS runs (a, b)');
+    expect(activeRunsBlock([{ runId: 'a' }], 2)).toBeNull();
+    expect(activeRunsBlock([], 2)).toBeNull();
   });
 });
 
@@ -563,6 +623,21 @@ interface Script {
   existingReleases?: { id: string; version: string; status: string; failureReason: string | null }[];
   /** Retries reuse the application and any release it already built. */
   reuseApplication?: boolean;
+  infrastructure?: {
+    snapshotState: 'fresh' | 'stale' | 'none';
+    components: { kind: string; status: string; lifecycle: string }[];
+    expectations: { components: { kind: string; expected: boolean; present: boolean }[]; missing: string[]; unexpected: string[] } | null;
+  };
+  plan?: { components: { kind: string; name: string; action: string; lifecycle: string }[] };
+  stackResources?: { logicalId: string; type: string; status: string; physicalId: string | null }[];
+  /** The status POST /deploy answers for the --exercise-update redeploy. */
+  updateDeployStatus?: number;
+  /** Body probeBody() answers in probe order, then the default `{"status":"ok"}` 200. */
+  smokeProbes?: { status: number | null; body: string; error?: string }[];
+  /** --exercise-update: build and deploy a second release after the smoke contract passes. */
+  exerciseUpdate?: boolean;
+  /** Overrides DEFAULT_TIMEOUTS — a short `inventoryMs` keeps a "never settles" test fast. */
+  timeouts?: Partial<typeof DEFAULT_TIMEOUTS>;
 }
 
 function fakes(script: Script): { deps: DeployDeps; calls: string[]; puts: Record<string, unknown>[] } {
@@ -682,6 +757,43 @@ function fakes(script: Script): { deps: DeployDeps; calls: string[]; puts: Recor
     async diagnostics() {
       return { code: script.failureCode ?? null };
     },
+    async infrastructure() {
+      calls.push('infrastructure');
+      return (
+        script.infrastructure ?? {
+          snapshotState: 'fresh',
+          components: [],
+          expectations: {
+            components: [
+              { kind: 'application', expected: true, present: true },
+              { kind: 'endpoint', expected: true, present: true },
+              { kind: 'database', expected: true, present: true },
+              { kind: 'cache', expected: false, present: false },
+              { kind: 'storage', expected: true, present: true },
+            ],
+            missing: [],
+            unexpected: [],
+          },
+        }
+      );
+    },
+    async plan(_deploymentId, action) {
+      calls.push(`plan ${action}`);
+      return (
+        script.plan ?? {
+          components: [
+            { kind: 'application', name: 'Application', action: 'CREATE', lifecycle: 'delete' },
+            { kind: 'endpoint', name: 'Endpoint', action: 'CREATE', lifecycle: 'delete' },
+            { kind: 'database', name: 'Database', action: 'CREATE', lifecycle: 'retain' },
+            { kind: 'storage', name: 'Storage', action: 'CREATE', lifecycle: 'retain' },
+          ],
+        }
+      );
+    },
+    async deploy(_deploymentId, releaseId) {
+      calls.push(`deploy ${releaseId}`);
+      return { status: script.updateDeployStatus ?? 202, jobId: 'job-u', state: 'REQUESTED' };
+    },
   };
   let stackReads = 0;
   let lastStackStatus = script.stackStatus ?? 'CREATE_COMPLETE';
@@ -715,8 +827,16 @@ function fakes(script: Script): { deps: DeployDeps; calls: string[]; puts: Recor
       calls.push(`ecrDigestForTag ${tag}`);
       return 'sha256:deadbeef';
     },
-    async listStackResources() {
-      return [{ type: 'AWS::ECS::Service', status: 'CREATE_COMPLETE', physicalId: 'svc' }];
+    async listStackResources(name) {
+      calls.push(`listStackResources ${name}`);
+      return (
+        script.stackResources ?? [
+          { logicalId: 'Service', type: 'AWS::ECS::Service', status: 'CREATE_COMPLETE', physicalId: 'svc' },
+          { logicalId: 'Alb', type: 'AWS::ElasticLoadBalancingV2::LoadBalancer', status: 'CREATE_COMPLETE', physicalId: 'alb' },
+          { logicalId: 'Db', type: 'AWS::RDS::DBInstance', status: 'CREATE_COMPLETE', physicalId: 'db' },
+          { logicalId: 'Bucket', type: 'AWS::S3::Bucket', status: 'CREATE_COMPLETE', physicalId: 'bucket' },
+        ]
+      );
     },
     async describeStoppedTasks() {
       calls.push('stoppedTasks');
@@ -742,13 +862,17 @@ function fakes(script: Script): { deps: DeployDeps; calls: string[]; puts: Recor
       if (script.httpsProbeStatuses?.length && url.startsWith('https://d-dep-1')) return { status: script.httpsProbeStatuses.shift() ?? null };
       return { status: script.probeStatus === undefined ? 200 : script.probeStatus };
     },
+    probeBody: async () => {
+      if (script.smokeProbes?.length) return script.smokeProbes.shift()!;
+      return { status: 200, body: '{"status":"ok"}' };
+    },
     sleep: async () => {},
     now: Date.now,
     region: 'us-east-1',
     githubInstallationId: '156387233',
     templateUrl: 'https://b/application/stage-b/x/application-template-v1.json',
     templateSource: 'stage-b-generic',
-    timeouts: DEFAULT_TIMEOUTS,
+    timeouts: { ...DEFAULT_TIMEOUTS, ...script.timeouts },
     keep: false,
     generateSecret: () => 'never-stored-secret-value-9f2a',
     pollIntervalMs: 1,
@@ -768,6 +892,7 @@ function attempt(
   const result = emptyResult(identityFor(entry, SHA, 'deploy', runId));
   const { deps, calls, puts } = fakes(script);
   if (script.reuseApplication) deps.reuseApplication = true;
+  if (script.exerciseUpdate) deps.exerciseUpdate = true;
   return {
     run: () =>
       runRepositoryAttempt(deps, {
@@ -925,6 +1050,162 @@ describe('the funnel', () => {
     const out = await run();
     expect(out.dependencies.postgres).toBe('FAIL');
     expect(out.classification).toBe('APPLICATION_ERROR');
+  });
+
+  it('records the resource manifest in the ledger and per-type counts in the result', async () => {
+    const { run, evidence } = attempt(deployable, {});
+    const out = await run();
+    expect(out.deployment.resourcesByType).toEqual({
+      'AWS::ECS::Service': 1,
+      'AWS::ElasticLoadBalancingV2::LoadBalancer': 1,
+      'AWS::RDS::DBInstance': 1,
+      'AWS::S3::Bucket': 1,
+    });
+    expect(out.deployment.region).toBe('us-east-1');
+    expect(stageBRun(evidence).stageB.resources?.applicationStack).toHaveLength(4);
+    expect(stageBRun(evidence).stageB.resources?.bootstrapStack.length).toBeGreaterThan(0);
+  });
+});
+
+describe('inventory gate (plan-versus-actual)', () => {
+  const deployable = BENCHMARK.repositories[0]!;
+
+  it('passes when the plan, the inventory expectations and the stack resources all agree', async () => {
+    const { run } = attempt(deployable, {});
+    const out = await run();
+    expect(out.inventory).toMatchObject({ status: 'PASS', planCreateKinds: ['application', 'database', 'endpoint', 'storage'], missing: [], unexpected: [] });
+  });
+
+  it('fails INFRA_ERROR when the infrastructure expectations never settle', async () => {
+    const { run } = attempt(deployable, {
+      infrastructure: {
+        snapshotState: 'stale',
+        components: [],
+        expectations: { components: [{ kind: 'application', expected: true, present: false }], missing: ['application'], unexpected: [] },
+      },
+      timeouts: { inventoryMs: 5 },
+    });
+    const out = await run();
+    expect(out.classification).toBe('INFRA_ERROR');
+    expect(out.rootCause).toBe('DEPLOYZ_BUG');
+    expect(out.inventory.status).toBe('FAIL');
+  }, 10_000);
+
+  it('fails when a plan CREATE kind has no matching resource in the stack', async () => {
+    const { run } = attempt(deployable, {
+      stackResources: [{ logicalId: 'Service', type: 'AWS::ECS::Service', status: 'CREATE_COMPLETE', physicalId: 'svc' }],
+    });
+    const out = await run();
+    expect(out.classification).toBe('INFRA_ERROR');
+    expect(out.inventory.missing).toEqual(expect.arrayContaining(['endpoint', 'database', 'storage']));
+  });
+
+  it('fails when a resource exists for a kind the plan did not create', async () => {
+    const { run } = attempt(deployable, {
+      plan: {
+        components: [
+          { kind: 'application', name: 'Application', action: 'CREATE', lifecycle: 'delete' },
+          { kind: 'endpoint', name: 'Endpoint', action: 'CREATE', lifecycle: 'delete' },
+          { kind: 'storage', name: 'Storage', action: 'CREATE', lifecycle: 'retain' },
+        ],
+      },
+      infrastructure: {
+        snapshotState: 'fresh',
+        components: [],
+        expectations: {
+          components: [
+            { kind: 'application', expected: true, present: true },
+            { kind: 'endpoint', expected: true, present: true },
+            { kind: 'database', expected: false, present: false },
+            { kind: 'cache', expected: false, present: false },
+            { kind: 'storage', expected: true, present: true },
+          ],
+          missing: [],
+          unexpected: [],
+        },
+      },
+    });
+    const out = await run();
+    expect(out.classification).toBe('INFRA_ERROR');
+    expect(out.inventory.unexpected).toContain('database');
+  });
+});
+
+describe('smoke contracts', () => {
+  const deployable = BENCHMARK.repositories[0]!;
+  const withSmoke = (checks: string) =>
+    configFor(
+      parseDeployConfig(`version: 1\nrepositories:\n  - id: repo-001\n    smoke:\n${checks}\n`),
+      'repo-001',
+    );
+
+  it('rejects a status-only contract at the config-schema level', () => {
+    expect(() => parseDeployConfig('version: 1\nrepositories:\n  - id: repo-001\n    smoke:\n      - { path: /health, status: 200 }\n')).toThrow();
+  });
+
+  it('passes a status + bodyIncludes check', async () => {
+    const config = withSmoke('      - { path: /health, status: 200, bodyIncludes: ok }\n');
+    const { run } = attempt(deployable, { smokeProbes: [{ status: 200, body: '{"status":"ok"}' }] }, config);
+    const out = await run();
+    expect(out.classification).toBe('PASS');
+    expect(out.runtime.smoke).toEqual([{ path: '/health', status: 200, ok: true, detail: 'ok', exercises: [] }]);
+  });
+
+  it('passes and fails on jsonPath/jsonEquals', async () => {
+    const config = withSmoke('      - { path: /health, status: 200, jsonPath: data.ok, jsonEquals: true }\n');
+    const ok = attempt(deployable, { smokeProbes: [{ status: 200, body: '{"data":{"ok":true}}' }] }, config);
+    expect((await ok.run()).classification).toBe('PASS');
+    const bad = attempt(deployable, { smokeProbes: [{ status: 200, body: '{"data":{"ok":false}}' }] }, config);
+    const out = await bad.run();
+    expect(out.classification).toBe('APPLICATION_ERROR');
+    expect(out.runtime.smoke[0]?.ok).toBe(false);
+  });
+
+  it('retries a failing check and succeeds on the third try', async () => {
+    const config = withSmoke('      - { path: /health, status: 200, bodyIncludes: ok, retries: 2, retryDelaySeconds: 1 }\n');
+    const { run } = attempt(
+      deployable,
+      { smokeProbes: [{ status: 500, body: '' }, { status: 500, body: '' }, { status: 200, body: 'ok' }] },
+      config,
+    );
+    const out = await run();
+    expect(out.classification).toBe('PASS');
+    expect(out.runtime.smoke[0]).toMatchObject({ ok: true, status: 200 });
+  });
+
+  it('feeds an exercised dependency FAIL on a failing check without touching the others', async () => {
+    const config = withSmoke('      - { path: /health, status: 200, bodyIncludes: ok, exercises: [postgres], retries: 0 }\n');
+    const { run } = attempt(deployable, { smokeProbes: [{ status: 503, body: '' }] }, config);
+    const out = await run();
+    expect(out.classification).toBe('APPLICATION_ERROR');
+    expect(out.dependencies.postgres).toBe('FAIL');
+  });
+
+  it('--require-smoke refuses a repository with no contract before any create call', () => {
+    expect(() => requireSmokeContract(configFor(DEPLOY_CONFIG, 'repo-001'), true)).toThrow('has no smoke contract');
+    expect(() => requireSmokeContract(configFor(DEPLOY_CONFIG, 'repo-001'), false)).not.toThrow();
+    const config = withSmoke('      - { path: /health, status: 200, bodyIncludes: ok }\n');
+    expect(() => requireSmokeContract(config, true)).not.toThrow();
+  });
+});
+
+describe('--exercise-update', () => {
+  const deployable = BENCHMARK.repositories[0]!;
+
+  it('happy path: builds, deploys and re-verifies a second release', async () => {
+    const { run, calls } = attempt(deployable, { exerciseUpdate: true });
+    const out = await run();
+    expect(out.classification).toBe('PASS');
+    expect(out.update).toMatchObject({ status: 'PASS', imageDigest: 'sha256:deadbeef' });
+    expect(out.update.version?.endsWith('-u2')).toBe(true);
+    expect(calls.some((c) => c.startsWith('deploy '))).toBe(true);
+  });
+
+  it('classifies a failed deploy job as INFRA_ERROR', async () => {
+    const { run } = attempt(deployable, { exerciseUpdate: true, updateDeployStatus: 500 });
+    const out = await run();
+    expect(out.classification).toBe('INFRA_ERROR');
+    expect(out.update.status).toBe('FAIL');
   });
 });
 
@@ -1160,6 +1441,36 @@ describe('cleanup', () => {
     applyCleanupToClassification(result);
     expect(result.classification).toBe('PASS');
     expect(result.failureStage).toBeNull();
+  });
+
+  it('maps the retained-state verification steps to PASS/FAIL/SKIPPED', async () => {
+    const { run, evidence, result } = attempt(deployable, {});
+    await run();
+    const teardown = {
+      destroyThroughProduct: async () => {
+        evidence.run.steps.push({ index: 50, name: 'Verify retained state between Disconnect and Purge', scenario: 'x', startedAt: 't', status: 'PASS', details: {} });
+        evidence.run.steps.push({ index: 51, name: 'Verify the retained set is gone after Purge', scenario: 'x', startedAt: 't', status: 'FAIL', details: {} });
+      },
+      removeCanaryLeftovers: async () => {},
+      leakAudit: async () => {},
+    };
+    const section = await cleanupAttempt({ config: loadConfig({}), api: idleApi(), evidence, teardown, now: Date.now }, result);
+    expect(section.retainedState).toBe('PASS');
+    expect(section.purgedState).toBe('FAIL');
+
+    const { run: run2, evidence: evidence2, result: result2 } = attempt(deployable, {});
+    await run2();
+    const skipped = {
+      destroyThroughProduct: async () => {
+        evidence2.run.steps.push({ index: 50, name: 'Verify retained state between Disconnect and Purge', scenario: 'x', startedAt: 't', status: 'PASS', details: { skipped: 'no installation recorded' } });
+      },
+      removeCanaryLeftovers: async () => {},
+      leakAudit: async () => {},
+    };
+    const section2 = await cleanupAttempt({ config: loadConfig({}), api: idleApi(), evidence: evidence2, teardown: skipped, now: Date.now }, result2);
+    expect(section2.retainedState).toBe('SKIPPED');
+    // Never ran at all — this teardown fake never pushed the step.
+    expect(section2.purgedState).toBe('NOT_ATTEMPTED');
   });
 
   it('still removes a built image when the funnel stopped before the deployment existed', async () => {

@@ -128,6 +128,12 @@ export interface InfrastructureInventory {
   } | null;
 }
 
+/** The GET /api/deployments/:id/plan response, reduced to the fields Stage B
+ * cross-checks against the inventory (`packages/contracts/src/plan.ts`). */
+export interface DeploymentPlanView {
+  readonly components: readonly { readonly kind: string; readonly name: string; readonly action: string; readonly lifecycle: string }[];
+}
+
 export class ControlPlaneError extends Error {
   constructor(
     readonly status: number,
@@ -387,6 +393,11 @@ export class ControlPlane {
       'GET',
       `/api/deployments/${deploymentId}/infrastructure`,
     );
+    return body;
+  }
+
+  async plan(deploymentId: string, action: 'install' | 'update' | 'destroy'): Promise<DeploymentPlanView> {
+    const { body } = await this.request<DeploymentPlanView>('GET', `/api/deployments/${deploymentId}/plan?action=${action}`);
     return body;
   }
 
