@@ -226,18 +226,24 @@ export type PreflightApplicationRow = ManifestApplicationRow & { id: string };
  * Preflight for an application before a deployment exists: the manifest is
  * built fresh from the analysis and the vendor's overrides, provided keys
  * are the vendor defaults plus this customer's overrides when a customer is
- * named.
+ * named. `extraProvidedEnvKeys` adds keys the caller knows are being
+ * supplied in the same breath (the public install confirm body) — they
+ * count as provided exactly like saved configuration would.
  */
 export async function runApplicationPreflight(
   db: RuntimeDb,
   application: PreflightApplicationRow,
   customerId: string | null,
+  extraProvidedEnvKeys: readonly string[] = [],
 ): Promise<{ manifest: DeploymentManifest; result: PreflightResult }> {
   const manifest = normalizeDeploymentManifest(
     { metadata: application.detectedMetadata ?? {} },
     applicationToManifestOverrides(application),
   );
-  const providedEnvKeys = await listProvidedConfigKeys(db, application.id, customerId);
+  const providedEnvKeys = [
+    ...(await listProvidedConfigKeys(db, application.id, customerId)),
+    ...extraProvidedEnvKeys,
+  ];
   const result = evaluatePreflight({
     manifest,
     providedEnvKeys,

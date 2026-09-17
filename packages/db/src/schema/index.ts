@@ -6,5 +6,6 @@ export * from './deploy-links.js';
 export * from './deployment-resources.js';
 export * from './deployments.js';
 export * from './jobs.js';
+export * from './public-install-links.js';
 export * from './stack-events.js';
 export * from './events.js';

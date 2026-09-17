@@ -1,0 +1,621 @@
+import { PGlite } from '@electric-sql/pglite';
+import crypto from 'node:crypto';
+import { and, eq } from 'drizzle-orm';
+import type { FastifyInstance } from 'fastify';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+
+import { applyMigrations, createDb, type Db } from '@deployz/db';
+import * as schema from '@deployz/db/schema';
+import { REGION_LABELS, buildInstallPlan } from '@deployz/contracts';
+
+import { createAuth, type Auth } from './auth.js';
+import { SECRET_MASK } from './config.js';
+import { env } from './env.js';
+import { runApplicationPreflight } from './preflight.js';
+import { buildServer } from './server.js';
+
+// Phase 3 public install links — the customer-side installation review
+// contract: the public resolve projection and the confirm flow (gates,
+// idempotency, config capture through the SAME §31 path, and the no-leak
+// rules for an unauthenticated surface).
+
+const READY_METADATA = {
+  hasDockerfile: true,
+  dockerfilePath: 'Dockerfile',
+  framework: 'express',
+  port: '3000',
+  startupCommands: ['node dist/index.js'],
+  hasStartupCommand: true,
+  usesPostgresql: false,
+  postgres: { required: false, evidence: [] },
+  usesRedis: false,
+  redis: { required: false, confidence: 'low', purposes: [], evidence: [], connectionEnvVars: [], compatibility: { supported: true } },
+  usesS3: false,
+  usesLocalFilesystem: false,
+  usesWorkerProcesses: false,
+  hasMigrationCommand: false,
+  hasEnvVars: true,
+  hasExternalServices: false,
+  hasBuildCommand: false,
+  buildCommands: ['npm run build'],
+  envVars: [],
+  // The §11.2 Phase 7 env model — one customer-required secret, one optional
+  // value, one Deployz-generated internal secret and one managed binding, so
+  // every classification branch of requiredInputs is exercised.
+  envVarModel: [
+    {
+      key: 'STRIPE_API_KEY',
+      required: true,
+      secret: true,
+      classification: 'customer_required',
+      purpose: 'external_credential',
+      confidence: 'high',
+      source: ['.env.example'],
+    },
+    {
+      key: 'SITE_TITLE',
+      required: false,
+      secret: false,
+      classification: 'optional',
+      purpose: 'optional_configuration',
+      confidence: 'high',
+      source: ['.env.example'],
+    },
+    {
+      key: 'SESSION_SECRET',
+      required: true,
+      secret: true,
+      classification: 'deployz_generated',
+      generatable: true,
+      purpose: 'internal_secret',
+      confidence: 'high',
+      source: [],
+    },
+    {
+      key: 'AWS_S3_BUCKET',
+      required: false,
+      secret: false,
+      classification: 'deployz_managed',
+      purpose: 'infrastructure_binding',
+      confidence: 'high',
+      source: [],
+    },
+  ],
+  databaseState: 'none',
+  externalServices: [] as string[],
+} as Record<string, unknown>;
+
+const SECRET_VALUE = 'sk_test_super_secret_value';
+const UUID_SHAPE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+async function signUpAndGetOrg(
+  auth: Auth,
+  db: Db,
+  email: string,
+): Promise<{ userId: string; organizationId: string; cookie: string }> {
+  const password = 'super-secret-1';
+  const signup = await auth.api.signUpEmail({ body: { email, password, name: email.split('@')[0]! } });
+  const signin = await auth.api.signInEmail({ body: { email, password }, asResponse: true });
+  const setCookie = signin.headers.get('set-cookie');
+  if (!setCookie) {
+    throw new Error('sign-in did not set a session cookie');
+  }
+  const memberships = await db
+    .select({ organizationId: schema.member.organizationId })
+    .from(schema.member)
+    .where(eq(schema.member.userId, signup.user.id))
+    .limit(1);
+  const organizationId = memberships[0]?.organizationId;
+  if (!organizationId) {
+    throw new Error('signup did not provision an organization');
+  }
+  return { userId: signup.user.id, organizationId, cookie: setCookie };
+}
+
+async function insertApplication(
+  db: Db,
+  organizationId: string,
+): Promise<typeof schema.applications.$inferSelect> {
+  const [row] = await db
+    .insert(schema.applications)
+    .values({
+      organizationId,
+      name: 'Public Install App',
+      repoFullName: `acme/public-install-${crypto.randomUUID().slice(0, 8)}`,
+      repoUrl: 'https://github.com/acme/public-install',
+      defaultBranch: 'main',
+      detectedMetadata: READY_METADATA,
+    })
+    .returning();
+  return row!;
+}
+
+async function insertReadyRelease(
+  db: Db,
+  applicationId: string,
+  version = '1.0.0',
+): Promise<typeof schema.releases.$inferSelect> {
+  const [row] = await db
+    .insert(schema.releases)
+    .values({
+      applicationId,
+      version,
+      gitSha: crypto.randomUUID().slice(0, 8),
+      imageDigest: 'registry.example.com/acme/app@sha256:' + 'a'.repeat(64),
+      buildStatus: 'SUCCEEDED',
+      releaseStatus: 'READY',
+    })
+    .returning();
+  return row!;
+}
+
+// One live link per application (partial unique index), so every fixture
+// gets its own application + release + enabled link.
+async function insertEnabledLink(
+  db: Db,
+  organizationId: string,
+  withRelease = true,
+): Promise<{ link: typeof schema.publicInstallLinks.$inferSelect; application: typeof schema.applications.$inferSelect }> {
+  const application = await insertApplication(db, organizationId);
+  if (withRelease) {
+    await insertReadyRelease(db, application.id);
+  }
+  const [link] = await db
+    .insert(schema.publicInstallLinks)
+    .values({ organizationId, applicationId: application.id, enabled: true })
+    .returning();
+  return { link: link!, application };
+}
+
+function fullConfig() {
+  return [
+    { key: 'STRIPE_API_KEY', value: SECRET_VALUE, isSecret: true },
+    { key: 'SITE_TITLE', value: 'Acme Reviews', isSecret: false },
+  ];
+}
+
+function confirmPayload(overrides: Record<string, unknown> = {}) {
+  return {
+    idempotencyKey: crypto.randomUUID(),
+    region: 'us-east-1',
+    customer: { name: 'Buyer Co', email: `buyer-${crypto.randomUUID().slice(0, 8)}@example.com` },
+    config: fullConfig(),
+    ...overrides,
+  };
+}
+
+describe('public install links', () => {
+  let client: PGlite | undefined;
+  let db: Db;
+  let auth: Auth;
+  let app: FastifyInstance;
+  let org: { userId: string; organizationId: string; cookie: string };
+  let publisherName: string;
+
+  const resolve = (linkId: string) => app.inject({ method: 'GET', url: `/api/public-install/${linkId}` });
+  const confirm = (linkId: string, payload: Record<string, unknown>, query = '') =>
+    app.inject({
+      method: 'POST',
+      url: `/api/public-install/${linkId}/confirm${query}`,
+      headers: { 'content-type': 'application/json' },
+      payload: JSON.stringify(payload),
+    });
+  const countOrgCustomers = async (): Promise<number> => {
+    const rows = await db
+      .select({ id: schema.customers.id })
+      .from(schema.customers)
+      .where(eq(schema.customers.organizationId, org.organizationId));
+    return rows.length;
+  };
+
+  beforeAll(async () => {
+    client = new PGlite();
+    await applyMigrations(client);
+    db = createDb(client);
+    auth = createAuth(db);
+
+    org = await signUpAndGetOrg(auth, db, 'public-install-vendor@example.com');
+    const [organizationRow] = await db
+      .select({ name: schema.organization.name })
+      .from(schema.organization)
+      .where(eq(schema.organization.id, org.organizationId));
+    publisherName = organizationRow!.name;
+
+    // Confirm always creates a PRODUCTION deployment (the same ACTIVE
+    // subscription gate as POST /api/deployments and deploy links) — this
+    // file is about the public-install contract, not billing, so the org
+    // gets a subscription up front; the 402 path has its own test below.
+    await db.insert(schema.billingSubscriptions).values({
+      organizationId: org.organizationId,
+      providerCustomerId: 'ctm_fixture_public_install',
+      providerSubscriptionId: 'sub_fixture_public_install',
+      status: 'ACTIVE',
+    });
+
+    app = await buildServer({ auth, db });
+  }, 60_000);
+
+  afterAll(async () => {
+    await app?.close();
+    await client?.close();
+  });
+
+  // ── GET /api/public-install/:linkId (resolve) ─────────────────────────────
+
+  it('resolves the review projection: app, publisher, release, regions, requiredInputs, plan', async () => {
+    const { link, application } = await insertEnabledLink(db, org.organizationId);
+    const mutableEnv = env as { deployableAwsRegions: readonly string[] };
+    const prevRegions = mutableEnv.deployableAwsRegions;
+    try {
+      mutableEnv.deployableAwsRegions = ['us-east-1', 'eu-west-1'];
+      const response = await resolve(link.id);
+      expect(response.statusCode, response.body).toBe(200);
+      const body = response.json() as {
+        application: { name: string };
+        publisher: { name: string };
+        release: { version: string; createdAt: string };
+        regions: { value: string; label: string }[];
+        requiredInputs: { key: string; required: boolean; secret: boolean; classification?: string }[];
+        plan: { action: string };
+      };
+      expect(body.application).toEqual({ name: 'Public Install App' });
+      expect(body.publisher).toEqual({ name: publisherName });
+      expect(body.release.version).toBe('1.0.0');
+      expect(body.regions).toEqual([
+        { value: 'us-east-1', label: REGION_LABELS['us-east-1'] },
+        { value: 'eu-west-1', label: REGION_LABELS['eu-west-1'] },
+      ]);
+      // Only the customer-suppliable inputs: the generated internal secret
+      // and the managed binding are minted/injected by the relay and never
+      // asked for.
+      expect(body.requiredInputs).toEqual([
+        { key: 'STRIPE_API_KEY', required: true, secret: true, classification: 'customer_required', purpose: 'external_credential' },
+        { key: 'SITE_TITLE', required: false, secret: false, classification: 'optional', purpose: 'optional_configuration' },
+      ]);
+      // The plan is exactly buildInstallPlan of the application's effective
+      // manifest — the same construction the vendor plan endpoint serves.
+      const { manifest } = await runApplicationPreflight(db, application, null);
+      expect(body.plan).toEqual(buildInstallPlan({ manifest, region: null }));
+
+      // No secrets, no manifest, no template URLs, no internal ids: the
+      // opaque link id is the only identifier this surface ever sees.
+      const serialized = JSON.stringify(body);
+      expect(serialized).not.toContain('SESSION_SECRET');
+      expect(serialized).not.toContain('AWS_S3_BUCKET');
+      expect(serialized).not.toContain('manifest');
+      expect(serialized).not.toContain('template');
+      expect(serialized).not.toContain('amazonaws.com');
+      expect(serialized).not.toContain('enrollmentCode');
+      expect(serialized).not.toContain('organizationId');
+      expect(serialized).not.toContain('applicationId');
+      expect(serialized).not.toContain('customerId');
+    } finally {
+      mutableEnv.deployableAwsRegions = prevRegions;
+    }
+  });
+
+  it('unknown and malformed link ids 404', async () => {
+    expect((await resolve(crypto.randomUUID())).statusCode).toBe(404);
+    expect((await resolve('not-a-uuid')).statusCode).toBe(404);
+  });
+
+  it('a revoked link resolves 410 PUBLIC_INSTALL_LINK_REVOKED', async () => {
+    const { link } = await insertEnabledLink(db, org.organizationId);
+    await db
+      .update(schema.publicInstallLinks)
+      .set({ revokedAt: new Date() })
+      .where(eq(schema.publicInstallLinks.id, link.id));
+    const response = await resolve(link.id);
+    expect(response.statusCode).toBe(410);
+    expect(response.json()).toMatchObject({ error: { code: 'PUBLIC_INSTALL_LINK_REVOKED' } });
+  });
+
+  it('a disabled link resolves 410 with its own code', async () => {
+    const { link } = await insertEnabledLink(db, org.organizationId);
+    await db
+      .update(schema.publicInstallLinks)
+      .set({ enabled: false })
+      .where(eq(schema.publicInstallLinks.id, link.id));
+    const response = await resolve(link.id);
+    expect(response.statusCode).toBe(410);
+    expect(response.json()).toMatchObject({ error: { code: 'PUBLIC_INSTALL_LINK_DISABLED' } });
+  });
+
+  it('a link without a published release resolves 410 RELEASE_NOT_PUBLISHED', async () => {
+    const { link } = await insertEnabledLink(db, org.organizationId, false);
+    const response = await resolve(link.id);
+    expect(response.statusCode).toBe(410);
+    expect(response.json()).toMatchObject({ error: { code: 'RELEASE_NOT_PUBLISHED' } });
+  });
+
+  // ── POST /api/public-install/:linkId/confirm ──────────────────────────────
+
+  it('confirm creates one public_link deployment with the frozen effective manifest, a fresh customer and the config', async () => {
+    const { link, application } = await insertEnabledLink(db, org.organizationId);
+    const payload = confirmPayload();
+    const response = await confirm(link.id, payload);
+    expect(response.statusCode, response.body).toBe(201);
+    const body = response.json() as { installLinkId: string };
+    expect(body.installLinkId).toMatch(UUID_SHAPE);
+
+    const [deployment] = await db
+      .select()
+      .from(schema.deployments)
+      .where(eq(schema.deployments.installLinkId, body.installLinkId));
+    expect(deployment!).toBeDefined();
+    expect(deployment!.source).toBe('public_link');
+    expect(deployment!.state).toBe('NOT_INSTALLED');
+    expect(deployment!.region).toBe('us-east-1');
+    expect(deployment!.publicInstallLinkId).toBe(link.id);
+    expect(deployment!.confirmKey).toBe(payload.idempotencyKey);
+    // The frozen desired state is exactly the application's effective
+    // manifest at confirm time.
+    const { manifest } = await runApplicationPreflight(db, application, null);
+    expect(deployment!.desiredState).toEqual({ manifest });
+
+    // One customer row with the submitted contact details.
+    const [customer] = await db.select().from(schema.customers).where(eq(schema.customers.id, deployment!.customerId));
+    expect(customer!.name).toBe(payload.customer.name);
+    expect(customer!.email).toBe(payload.customer.email);
+
+    // Non-secret config lands as plaintext customer-scoped rows; the secret
+    // persists only as the §31 mask — never the plaintext.
+    const configRows = await db
+      .select()
+      .from(schema.applicationConfigs)
+      .where(
+        and(eq(schema.applicationConfigs.applicationId, application.id), eq(schema.applicationConfigs.customerId, customer!.id)),
+      );
+    const byKey = new Map(configRows.map((row) => [row.key, row]));
+    expect(byKey.get('SITE_TITLE')).toMatchObject({ value: 'Acme Reviews', isSecret: false });
+    expect(byKey.get('STRIPE_API_KEY')).toMatchObject({ value: SECRET_MASK, isSecret: true });
+
+    // The funnel event attributes the public_link origin.
+    const created = await db
+      .select()
+      .from(schema.eventLogs)
+      .where(and(eq(schema.eventLogs.eventType, 'deployment.created'), eq(schema.eventLogs.deploymentId, deployment!.id)));
+    expect(created).toHaveLength(1);
+    expect(created[0]!.payload).toMatchObject({ schemaVersion: 1, source: 'public_link' });
+
+    // The existing install flow already serves the new deployment.
+    const install = await app.inject({ method: 'GET', url: `/api/install/${body.installLinkId}` });
+    expect(install.statusCode).toBe(200);
+  });
+
+  it('a repeated confirm with the same key returns the existing deployment and creates nothing new', async () => {
+    const { link } = await insertEnabledLink(db, org.organizationId);
+    const customersBefore = await countOrgCustomers();
+    const payload = confirmPayload();
+    const first = await confirm(link.id, payload);
+    expect(first.statusCode, first.body).toBe(201);
+    const second = await confirm(link.id, payload);
+    expect(second.statusCode, second.body).toBe(200);
+    expect((second.json() as { installLinkId: string }).installLinkId).toBe(
+      (first.json() as { installLinkId: string }).installLinkId,
+    );
+
+    const deployments = await db
+      .select({ id: schema.deployments.id })
+      .from(schema.deployments)
+      .where(eq(schema.deployments.publicInstallLinkId, link.id));
+    expect(deployments).toHaveLength(1);
+    // Exactly one customer row was created for the (link, key) pair.
+    expect(await countOrgCustomers()).toBe(customersBefore + 1);
+  });
+
+  it('a different key creates a different deployment', async () => {
+    const { link } = await insertEnabledLink(db, org.organizationId);
+    const first = await confirm(link.id, confirmPayload());
+    const second = await confirm(link.id, confirmPayload());
+    expect(first.statusCode).toBe(201);
+    expect(second.statusCode).toBe(201);
+    expect((second.json() as { installLinkId: string }).installLinkId).not.toBe(
+      (first.json() as { installLinkId: string }).installLinkId,
+    );
+    const deployments = await db
+      .select({ id: schema.deployments.id })
+      .from(schema.deployments)
+      .where(eq(schema.deployments.publicInstallLinkId, link.id));
+    expect(deployments).toHaveLength(2);
+  });
+
+  it('two concurrent confirms with the same key create exactly one deployment', async () => {
+    const { link } = await insertEnabledLink(db, org.organizationId);
+    const customersBefore = await countOrgCustomers();
+    const payload = confirmPayload();
+    const [first, second] = await Promise.all([confirm(link.id, payload), confirm(link.id, payload)]);
+    expect(first.statusCode, first.body).toBeLessThan(300);
+    expect(second.statusCode, second.body).toBeLessThan(300);
+    expect((first.json() as { installLinkId: string }).installLinkId).toBe(
+      (second.json() as { installLinkId: string }).installLinkId,
+    );
+    const deployments = await db
+      .select({ id: schema.deployments.id })
+      .from(schema.deployments)
+      .where(eq(schema.deployments.publicInstallLinkId, link.id));
+    expect(deployments).toHaveLength(1);
+    // The loser returns the winner's deployment — no second customer row.
+    expect(await countOrgCustomers()).toBe(customersBefore + 1);
+  });
+
+  it('an unsupported region is refused with 422 REGION_NOT_SUPPORTED', async () => {
+    const { link } = await insertEnabledLink(db, org.organizationId);
+    const mutableEnv = env as { deployableAwsRegions: readonly string[] };
+    const prevRegions = mutableEnv.deployableAwsRegions;
+    try {
+      mutableEnv.deployableAwsRegions = ['us-east-1'];
+      const response = await confirm(link.id, confirmPayload({ region: 'eu-west-1' }));
+      expect(response.statusCode).toBe(422);
+      expect(response.json()).toMatchObject({ error: { code: 'REGION_NOT_SUPPORTED' } });
+      const deployments = await db
+        .select({ id: schema.deployments.id })
+        .from(schema.deployments)
+        .where(eq(schema.deployments.publicInstallLinkId, link.id));
+      expect(deployments).toHaveLength(0);
+    } finally {
+      mutableEnv.deployableAwsRegions = prevRegions;
+    }
+  });
+
+  it('a missing required input is refused with 422 and names the key', async () => {
+    const { link } = await insertEnabledLink(db, org.organizationId);
+    const response = await confirm(link.id, confirmPayload({ config: [{ key: 'SITE_TITLE', value: 'x', isSecret: false }] }));
+    expect(response.statusCode).toBe(422);
+    const body = response.json() as {
+      error: { code: string; message: string; details?: { findings?: { message: string }[] } };
+    };
+    expect(body.error.code).toBe('MANIFEST_NEEDS_CONFIGURATION');
+    // The per-key finding names the missing input.
+    expect(
+      (body.error.details?.findings ?? []).some((finding) => finding.message.includes('STRIPE_API_KEY')),
+    ).toBe(true);
+    const deployments = await db
+      .select({ id: schema.deployments.id })
+      .from(schema.deployments)
+      .where(eq(schema.deployments.publicInstallLinkId, link.id));
+    expect(deployments).toHaveLength(0);
+  });
+
+  it('an unexpected config key is rejected with 422 and the key named', async () => {
+    const { link } = await insertEnabledLink(db, org.organizationId);
+    const response = await confirm(link.id, confirmPayload({ config: [...fullConfig(), { key: 'EVIL_KEY', value: 'x', isSecret: false }] }));
+    expect(response.statusCode).toBe(422);
+    expect(response.json()).toMatchObject({
+      error: { code: 'PUBLIC_INSTALL_CONFIG_INVALID', details: { unexpected: ['EVIL_KEY'] } },
+    });
+    const deployments = await db
+      .select({ id: schema.deployments.id })
+      .from(schema.deployments)
+      .where(eq(schema.deployments.publicInstallLinkId, link.id));
+    expect(deployments).toHaveLength(0);
+  });
+
+  it('disabled, revoked and unpublished links refuse to confirm', async () => {
+    const disabled = await insertEnabledLink(db, org.organizationId);
+    await db
+      .update(schema.publicInstallLinks)
+      .set({ enabled: false })
+      .where(eq(schema.publicInstallLinks.id, disabled.link.id));
+    expect((await confirm(disabled.link.id, confirmPayload())).statusCode).toBe(410);
+
+    const revoked = await insertEnabledLink(db, org.organizationId);
+    await db
+      .update(schema.publicInstallLinks)
+      .set({ revokedAt: new Date() })
+      .where(eq(schema.publicInstallLinks.id, revoked.link.id));
+    expect((await confirm(revoked.link.id, confirmPayload())).statusCode).toBe(410);
+
+    const unpublished = await insertEnabledLink(db, org.organizationId, false);
+    const response = await confirm(unpublished.link.id, confirmPayload());
+    expect(response.statusCode).toBe(410);
+    expect(response.json()).toMatchObject({ error: { code: 'RELEASE_NOT_PUBLISHED' } });
+  });
+
+  it('query parameters are ignored — the body alone decides', async () => {
+    const { link } = await insertEnabledLink(db, org.organizationId);
+    const withQuery = await confirm(
+      link.id,
+      confirmPayload(),
+      `?region=eu-west-1&databaseRequired=true&source=manual&organizationId=other-org`,
+    );
+    expect(withQuery.statusCode, withQuery.body).toBe(201);
+    const [deployment] = await db
+      .select()
+      .from(schema.deployments)
+      .where(eq(schema.deployments.publicInstallLinkId, link.id));
+    expect(deployment!.region).toBe('us-east-1');
+    expect(deployment!.organizationId).toBe(org.organizationId);
+  });
+
+  it('confirm without an ACTIVE subscription is refused 402 and creates no rows', async () => {
+    const brokeOrg = await signUpAndGetOrg(auth, db, 'public-install-broke-vendor@example.com');
+    const { link } = await insertEnabledLink(db, brokeOrg.organizationId);
+
+    const countBrokeOrgCustomers = async (): Promise<number> => {
+      const rows = await db
+        .select({ id: schema.customers.id })
+        .from(schema.customers)
+        .where(eq(schema.customers.organizationId, brokeOrg.organizationId));
+      return rows.length;
+    };
+    const before = await countBrokeOrgCustomers();
+    const response = await confirm(link.id, confirmPayload());
+    expect(response.statusCode, response.body).toBe(402);
+    const body = response.json() as { error: { code: string; details?: { subscriptionStatus: unknown } } };
+    expect(body.error.code).toBe('SUBSCRIPTION_REQUIRED');
+    expect(body.error.details?.subscriptionStatus).toBeNull();
+
+    const deployments = await db
+      .select({ id: schema.deployments.id })
+      .from(schema.deployments)
+      .where(eq(schema.deployments.publicInstallLinkId, link.id));
+    expect(deployments).toHaveLength(0);
+    expect(await countBrokeOrgCustomers()).toBe(before);
+
+    // Once the subscription is ACTIVE, confirming works normally.
+    await db.insert(schema.billingSubscriptions).values({
+      organizationId: brokeOrg.organizationId,
+      providerCustomerId: 'ctm_fixture_public_install_broke',
+      providerSubscriptionId: 'sub_fixture_public_install_broke',
+      status: 'ACTIVE',
+    });
+    const retried = await confirm(link.id, confirmPayload());
+    expect(retried.statusCode, retried.body).toBe(201);
+  });
+
+  it('no secret value appears in the response or in any recorded event payload', async () => {
+    const { link } = await insertEnabledLink(db, org.organizationId);
+    const response = await confirm(link.id, confirmPayload());
+    expect(response.statusCode).toBe(201);
+    expect(response.body).not.toContain(SECRET_VALUE);
+
+    const events = await db
+      .select()
+      .from(schema.eventLogs)
+      .where(eq(schema.eventLogs.organizationId, org.organizationId));
+    expect(events.length).toBeGreaterThan(0);
+    for (const event of events) {
+      expect(JSON.stringify(event.payload)).not.toContain(SECRET_VALUE);
+    }
+
+    // And never in the control-plane config rows.
+    const rows = await db
+      .select()
+      .from(schema.applicationConfigs)
+      .where(eq(schema.applicationConfigs.key, 'STRIPE_API_KEY'));
+    expect(rows.length).toBeGreaterThan(0);
+    for (const row of rows) {
+      expect(row.value).not.toContain(SECRET_VALUE);
+    }
+  });
+
+  it('hostile body keys cannot influence the manifest or the profile', async () => {
+    const { link, application } = await insertEnabledLink(db, org.organizationId);
+    const hostile = await confirm(link.id, {
+      ...confirmPayload(),
+      databaseRequired: true,
+      redisRequired: true,
+      storageRequired: true,
+      source: 'manual',
+      organizationId: 'org-evil',
+      deploymentType: 'TEST',
+    });
+    expect(hostile.statusCode).toBe(400);
+    expect(hostile.json()).toMatchObject({ error: { code: 'VALIDATION_ERROR' } });
+
+    // A subsequent honest confirm still freezes the application's own
+    // effective manifest — nothing from the hostile body stuck.
+    const honest = await confirm(link.id, confirmPayload());
+    expect(honest.statusCode, honest.body).toBe(201);
+    const [deployment] = await db
+      .select()
+      .from(schema.deployments)
+      .where(eq(schema.deployments.publicInstallLinkId, link.id));
+    const { manifest } = await runApplicationPreflight(db, application, null);
+    expect(deployment!.desiredState).toEqual({ manifest });
+    expect(manifest.database.postgres).toBe(false);
+    expect(manifest.redis.required).toBe(false);
+    expect(deployment!.organizationId).toBe(org.organizationId);
+  });
+});

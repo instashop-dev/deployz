@@ -14,6 +14,7 @@ import {
 import { organization } from './auth.js';
 import { auditFields, id } from './common.js';
 import { applications, customers, releases } from './core.js';
+import { publicInstallLinks } from './public-install-links.js';
 
 export const deployments = pgTable(
   'deployments',
@@ -30,10 +31,17 @@ export const deployments = pgTable(
     .references(() => organization.id),
   region: regionEnum('region').notNull(),
   state: deploymentStateEnum('state').notNull().default('NOT_INSTALLED'),
-  // How the deployment row came to be: the vendor's manual flow, or a
-  // customer-facing Deploy Link. Origin attribution only — no semantics
-  // change, the deployment engine treats both identically.
+  // How the deployment row came to be: the vendor's manual flow, a
+  // customer-facing Deploy Link, or a customer's public install link confirm.
+  // Origin attribution only — no semantics change, the deployment engine
+  // treats all three identically.
   source: deploymentSourceEnum('source').notNull().default('manual'),
+  // Public install link origin: the link whose confirm created this row plus
+  // the customer's idempotency key. Null on every other source. The partial
+  // unique index on the pair makes exactly one deployment per (link, key) —
+  // a replayed or raced confirm returns the existing deployment.
+  publicInstallLinkId: uuid('public_install_link_id').references(() => publicInstallLinks.id),
+  confirmKey: text('confirm_key'),
   awsAccountId: text('aws_account_id'),
   currentReleaseId: uuid('current_release_id').references(() => releases.id),
   previousReleaseId: uuid('previous_release_id').references(() => releases.id),
@@ -127,5 +135,10 @@ export const deployments = pgTable(
     uniqueIndex('deployments_one_active_test_per_application_uidx')
       .on(t.applicationId)
       .where(sql`${t.deploymentType} = 'TEST' AND ${t.state} <> 'DELETED'`),
+    // Confirm idempotency for public install links: one deployment per
+    // (link, key) pair. Both columns stay null on every other source.
+    uniqueIndex('deployments_public_install_confirm_uidx')
+      .on(t.publicInstallLinkId, t.confirmKey)
+      .where(sql`${t.publicInstallLinkId} IS NOT NULL AND ${t.confirmKey} IS NOT NULL`),
   ],
 );

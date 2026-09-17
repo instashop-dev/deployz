@@ -111,6 +111,9 @@ export interface CreateDeploymentParams {
   createdBy: string | null;
   updatedBy: string | null;
   source: DeploymentSource;
+  /** Public install link origin (source 'public_link' only): the link + confirm key. */
+  publicInstallLinkId?: string;
+  confirmKey?: string;
 }
 
 export interface CreatedDeployment {
@@ -181,6 +184,8 @@ export async function createDeploymentRecord(
       deploymentType: params.deploymentType,
       createdBy: params.createdBy,
       updatedBy: params.updatedBy,
+      ...(params.publicInstallLinkId !== undefined ? { publicInstallLinkId: params.publicInstallLinkId } : {}),
+      ...(params.confirmKey !== undefined ? { confirmKey: params.confirmKey } : {}),
     })
     .returning();
   await recordEvent(db, {

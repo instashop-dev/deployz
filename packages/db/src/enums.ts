@@ -47,7 +47,7 @@ export const regionEnum = pgEnum('region', [
 ]);
 
 // deployments.source — origin attribution of a deployment row.
-export const deploymentSourceEnum = pgEnum('deployment_source', ['manual', 'deploy_link']);
+export const deploymentSourceEnum = pgEnum('deployment_source', ['manual', 'deploy_link', 'public_link']);
 
 // deployments.deployment_type — provider-independent classification (Paddle
 // migration Phase 2). Replaces the is_test_deployment boolean: a TEST

@@ -5,11 +5,15 @@ import { Loader2 } from 'lucide-react';
 import { InstallLaunchButton } from '@/components/install-launch-button';
 import { InstallProgress } from '@/components/install-progress';
 import { InstallRetryButton } from '@/components/install-retry-button';
+import { PublicInstallFlow } from '@/components/public-install-flow';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { RELAY_STUCK_GUIDANCE } from '@/lib/deployment-vocabulary';
 import { fetchInstallData } from '@/lib/install-data';
 import { installPlanRegionLabel, installPlanRetentionNote, installPlanRows } from '@/lib/install-plan';
+import { fetchPublicInstallData } from '@/lib/public-install-data';
+import { publicInstallErrorMessage } from '@/lib/public-install-types';
 import { fetchInstallStatusServer } from '@/lib/install-status';
 
 // Rendered per request so the install data — including the Quick Create link
@@ -52,6 +56,29 @@ export default async function InstallPage({
   params: Promise<{ installLinkId: string }>;
 }) {
   const { installLinkId } = await params;
+
+  // Public install links expose an app-level review/confirm flow. Try that
+  // surface first; a 404 means this id is a per-deployment install link, so
+  // fall through to the existing flow. A 410 means the public link is known
+  // but unavailable and must show its own error copy.
+  const publicLookup = await fetchPublicInstallData(installLinkId);
+  if (publicLookup?.status === 'ok') {
+    return <PublicInstallFlow linkId={installLinkId} resolve={publicLookup.data} />;
+  }
+  if (publicLookup?.status === 'gone') {
+    return (
+      <div className="flex flex-col gap-4">
+        <h1 className="text-2xl font-semibold tracking-tight">
+          This application cannot be installed
+        </h1>
+        <Alert variant="destructive">
+          <AlertTitle>Installation unavailable</AlertTitle>
+          <AlertDescription>{publicInstallErrorMessage(publicLookup.code)}</AlertDescription>
+        </Alert>
+      </div>
+    );
+  }
+
   // Fetched in parallel: the status projection is a nice-to-have for the
   // first paint (a failed fetch just costs one extra client round trip —
   // see fetchInstallStatusServer), so it never blocks or fails the page.

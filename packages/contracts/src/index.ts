@@ -92,7 +92,7 @@ export function isSupportedRegion(value: string): value is Region {
 }
 
 // deployments.source — origin attribution of a deployment row.
-export const deploymentSourceSchema = z.enum(['manual', 'deploy_link']);
+export const deploymentSourceSchema = z.enum(['manual', 'deploy_link', 'public_link']);
 export type DeploymentSource = z.infer<typeof deploymentSourceSchema>;
 
 // deployments.deployment_type — provider-independent classification (Paddle
