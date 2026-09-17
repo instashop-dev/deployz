@@ -2075,11 +2075,13 @@ export async function buildServer({
         observedState: schema.deployments.observedState,
         relayCredential: schema.deployments.relayCredential,
         desiredState: schema.deployments.desiredState,
+        releaseVersion: schema.releases.version,
       })
       .from(schema.deployments)
       .innerJoin(schema.applications, eq(schema.deployments.applicationId, schema.applications.id))
       .innerJoin(schema.organization, eq(schema.deployments.organizationId, schema.organization.id))
       .innerJoin(schema.customers, eq(schema.deployments.customerId, schema.customers.id))
+      .leftJoin(schema.releases, eq(schema.deployments.currentReleaseId, schema.releases.id))
       .where(eq(schema.deployments.installLinkId, installLinkId))
       .limit(1);
     if (rows.length === 0) {
@@ -2130,6 +2132,11 @@ export async function buildServer({
       plan,
       deploymentId: row.deploymentId,
       deploymentState: row.deploymentState,
+      // The serving release's version — the pointer (current_release_id)
+      // advances only via heartbeat reconciliation, so this is null until a
+      // release is actually live. Version string only: never the image
+      // digest or git SHA on this public surface.
+      releaseVersion: row.releaseVersion,
       domain: domain ? toDomainView(domain) : null,
       routingTarget: domain?.routingTarget ?? null,
       // Same §24 derivation the fleet row uses — one progress model for the
