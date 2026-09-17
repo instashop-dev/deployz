@@ -1,31 +1,30 @@
 # Repository deployment audit — run summary
 
-Deployz commit: `fa0b55d29cf904f1d0be2b082993f909799a53f4`
+Deployz commit: `10cebbd43b5d3839f6dc2300a0d984e326b6244e`
 
 | Metric | Value |
 | --- | --- |
 | Repositories | 120 |
 | Expected deployable | 65 |
 | Expected unsupported | 55 |
-| Gate: correct accept / correct reject | 46 / 49 |
+| Gate: correct accept / correct reject | 45 / 49 |
 | Gate: false acceptance / false rejection | 6 / 18 |
-| Gate: READY with the Stage B configuration | 22 |
-| Build attempted / succeeded / failed | 9 / 8 / 1 |
-| Build success among expected deployable | 12.3% |
-| Infrastructure attempted / succeeded / failed | 8 / 5 / 3 |
+| Gate: READY with the Stage B configuration | 21 |
+| Build attempted / succeeded / failed | 9 / 9 / 0 |
+| Build success among expected deployable | 13.8% |
+| Infrastructure attempted / succeeded / failed | 9 / 5 / 4 |
 | Runtime: ECS running / ALB healthy / HTTPS reachable / application response valid | 5 / 5 / 5 / 4 |
 | Dependencies: PostgreSQL / Redis / storage / migration verified | 4 / 1 / 1 / 1 |
 | **True deployment success / expected deployable** | **4 / 65 (6.2%)** |
-| Cleanup: destroys / failures / leaks / success rate | 9 / 0 / 0 / 100% |
+| Cleanup: destroys / failures / leaks / success rate | 9 / 1 / 1 / 88.9% |
 
 ## By classification
 
 | Classification | Repositories |
 | --- | --- |
 | APPLICATION_ERROR | 1 |
-| BUILD_ERROR | 1 |
 | CONFIG_ERROR | 1 |
-| CONTAINER_START_ERROR | 1 |
+| CONTAINER_START_ERROR | 2 |
 | DATABASE_ERROR | 1 |
 | ENV_BINDING_ERROR | 1 |
 | EXPECTED_UNSUPPORTED | 49 |
@@ -39,7 +38,7 @@ Deployz commit: `fa0b55d29cf904f1d0be2b082993f909799a53f4`
 | ANALYSIS_BUG | 1 |
 | ANALYSIS_MISSING_SIGNAL | 1 |
 | CORRECTLY_UNSUPPORTED | 49 |
-| DEPLOYZ_BUG | 3 |
+| DEPLOYZ_BUG | 2 |
 | TEST_HARNESS_FAILURE | 1 |
 
 ## By finding
@@ -66,7 +65,7 @@ Deployz commit: `fa0b55d29cf904f1d0be2b082993f909799a53f4`
 
 | Set | Repositories | Expected deployable | Expected unsupported | Gate correct | Deployed | True success |
 | --- | --- | --- | --- | --- | --- | --- |
-| improvement | 80 | 46 | 34 | 68 | 5 | 4 |
+| improvement | 80 | 46 | 34 | 67 | 5 | 4 |
 | unseen | 20 | 9 | 11 | 12 | 0 | 0 |
 | unseen2 | 20 | 10 | 10 | 15 | 0 | 0 |
 
@@ -76,7 +75,7 @@ Deployz commit: `fa0b55d29cf904f1d0be2b082993f909799a53f4`
 | --- | --- | --- | --- | --- | --- | --- |
 | boundary | 24 | 2 | 22 | 20 | 0 | 0 |
 | messy | 27 | 18 | 9 | 22 | 0 | 0 |
-| realistic | 69 | 45 | 24 | 53 | 5 | 4 |
+| realistic | 69 | 45 | 24 | 52 | 5 | 4 |
 
 ## By deployment class
 
@@ -91,7 +90,7 @@ Deployz commit: `fa0b55d29cf904f1d0be2b082993f909799a53f4`
 | repo-001 | umami-software/umami@ca661c7 | realistic | READY | NEEDS_CONFIGURATION (correct-accept) | PASS | FAIL | — | PASS | CONTAINER_START_ERROR / DEPLOYZ_BUG | DEPLOY-002, DEPLOY-007 |
 | repo-002 | Unleash/unleash@0429c29 | realistic | READY | NEEDS_CONFIGURATION (correct-accept) | NOT_ATTEMPTED | NOT_ATTEMPTED | — | NOT_ATTEMPTED | PASS | DEPLOY-002 |
 | repo-003 | thedevs-network/kutt@279b491 | realistic | NEEDS_CONFIGURATION | NEEDS_CONFIGURATION (correct-accept) | PASS | FAIL | — | PASS | DATABASE_ERROR / DEPLOYZ_BUG | DEPLOY-005, DEPLOY-007, DEPLOY-009, DEPLOY-010, DEPLOY-011, DEPLOY-012, DEPLOY-013 |
-| repo-004 | miniflux/v2@a84533d | realistic | NEEDS_CONFIGURATION | READY (correct-accept) | FAIL | NOT_ATTEMPTED | — | PASS | BUILD_ERROR / DEPLOYZ_BUG | DEPLOY-008 |
+| repo-004 | miniflux/v2@a84533d | realistic | NEEDS_CONFIGURATION | — (—) | PASS | FAIL | — | FAIL | CONTAINER_START_ERROR | DEPLOY-008 |
 | repo-005 | Flagsmith/flagsmith@4a8a84a | realistic | NEEDS_CONFIGURATION | NOT_COMPATIBLE (false-rejection) | NOT_ATTEMPTED | NOT_ATTEMPTED | — | NOT_ATTEMPTED | GATE_ERROR | DEPLOY-003 |
 | repo-006 | documenso/documenso@3ec877a | realistic | NEEDS_CONFIGURATION | READY (correct-accept) | NOT_ATTEMPTED | NOT_ATTEMPTED | — | NOT_ATTEMPTED | PASS |  |
 | repo-007 | ghostfolio/ghostfolio@73e4f03 | realistic | NEEDS_CONFIGURATION | — (—) | PASS | PASS | HEALTHY/HEALTHY/https PASS | PASS | PASS | DEPLOY-014 |
