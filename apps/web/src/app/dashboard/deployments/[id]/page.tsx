@@ -927,12 +927,8 @@ function DeployUpdateDialog({
                 <span className="font-medium">{selected ? formatReleaseVersion(selected.version) : '—'}</span>
               </div>
               <div className="flex items-center justify-between gap-4">
-                <span className="text-muted-foreground">Application</span>
-                <span className="font-medium">New version</span>
-              </div>
-              <div className="flex items-center justify-between gap-4">
                 <span className="text-muted-foreground">Infrastructure</span>
-                <span className="font-medium">No changes</span>
+                <span className="font-medium">Unchanged for this deployment</span>
               </div>
             </div>
             {requirementDrift.length > 0 ? (
@@ -1571,7 +1567,7 @@ function DisconnectDialog({
           {loading ? (
             <div className="flex items-center gap-2 rounded-md border bg-muted/50 px-3 py-2 text-foreground">
               <Loader2 aria-hidden className="size-4 animate-spin" />
-              <span>Checking retained resources…</span>
+              <span>Preparing the removal plan…</span>
             </div>
           ) : plan.status === 'error' ? (
             <Alert variant="destructive">

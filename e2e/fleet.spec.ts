@@ -236,10 +236,10 @@ test('infrastructure rows appear only for the components the relay reports', asy
   // renders from the persisted resource inventory (§59), not from the
   // `components` health map — a resource only becomes a row once the relay's
   // ListStackResources read is persisted via persistDeploymentResourceSnapshot
-  // (packages/db/src/deployment-resources-persist.ts). This application has
-  // no storage and no Redis cache, so the inventory covers only
-  // application/database/load-balancer resources and the page must not
-  // invent a fourth or fifth row.
+  // (packages/db/src/deployment-resources-persist.ts). The template always
+  // creates the S3 bucket (storage is unconditional in the catalog — see
+  // requiredInfrastructureComponents), so the seeded inventory includes it;
+  // this application has no Redis cache, so only that reads "Not required".
   const health = await page.request.post(`${API_URL}/api/relay/health`, {
     headers: { Authorization: `Bearer ${relayCredential}` },
     data: {
@@ -270,6 +270,12 @@ test('infrastructure rows appear only for the components the relay reports', asy
                 status: 'CREATE_COMPLETE',
                 physicalId: 'e2e-alb',
               },
+              {
+                logicalId: 'Bucket',
+                type: 'AWS::S3::Bucket',
+                status: 'CREATE_COMPLETE',
+                physicalId: 'e2e-app-bucket',
+              },
             ],
           },
         },
@@ -286,11 +292,11 @@ test('infrastructure rows appear only for the components the relay reports', asy
   await expect(infraSection.getByText('Application', { exact: true })).toBeVisible();
   await expect(infraSection.getByText('Database', { exact: true })).toBeVisible();
   await expect(infraSection.getByText('Secure endpoint', { exact: true })).toBeVisible();
-  // No storage or cache resource was reported and the application requires
-  // neither, so each reads "Not required" — never a missing or failed row.
   await expect(infraSection.getByText('Storage', { exact: true })).toBeVisible();
+  // No cache resource was reported and the application does not require
+  // one, so it reads "Not required" — never a missing or failed row.
   await expect(infraSection.getByText('Cache', { exact: true })).toBeVisible();
-  await expect(infraSection.getByText('Not required', { exact: true })).toHaveCount(2);
+  await expect(infraSection.getByText('Not required', { exact: true })).toHaveCount(1);
   // The resource-level inventory stays behind its own disclosure.
   await expect(infraSection.getByText('ECS', { exact: true })).toHaveCount(0);
   await infraSection.getByRole('button', { name: /View \d+ resources?/ }).click();

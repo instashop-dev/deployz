@@ -632,15 +632,11 @@ export function isFieldOverridden(
         application.migrationCommand !== null &&
         application.migrationCommand !== (detected.migrations.command ?? null)
       );
-    case 'databaseRequired':
-      return application.databaseRequired !== detected.database.required;
-    case 'storageRequired': {
-      const detectedStorage =
-        detected.storage.persistentLocalRequired || detected.storage.objectStorageDetected;
-      return application.storageRequired !== detectedStorage;
-    }
-    case 'redisRequired':
-      return application.redisRequired !== detected.redis.required;
+    // databaseRequired/storageRequired/redisRequired are never resolved here:
+    // the server-computed requirements summary (`ApplicationRequirementsSummary`)
+    // is the only source of override state for those three fields — it can
+    // represent an override to false, which this application/detected
+    // comparison could not. See requirementSummaryKeyFor.
     default:
       return false;
   }
@@ -656,9 +652,6 @@ export function effectiveFieldValue(
     if (field === 'containerPort') return application.containerPort?.toString() ?? '';
     if (field === 'healthPath') return application.healthPath ?? '';
     if (field === 'migrationCommand') return application.migrationCommand ?? '';
-    if (field === 'databaseRequired') return application.databaseRequired ? 'Required' : 'Not required';
-    if (field === 'storageRequired') return application.storageRequired ? 'Required' : 'Not required';
-    if (field === 'redisRequired') return application.redisRequired ? 'Required' : 'Not required';
     return '';
   }
   switch (field) {
@@ -672,16 +665,8 @@ export function effectiveFieldValue(
       return application.healthPath ?? detected.healthCheck.path ?? '';
     case 'migrationCommand':
       return application.migrationCommand ?? detected.migrations.command ?? '';
-    case 'databaseRequired':
-      return application.databaseRequired || detected.database.required ? 'Required' : 'Not required';
-    case 'storageRequired':
-      return application.storageRequired ||
-        detected.storage.persistentLocalRequired ||
-        detected.storage.objectStorageDetected
-        ? 'Required'
-        : 'Not required';
-    case 'redisRequired':
-      return application.redisRequired || detected.redis.required ? 'Required' : 'Not required';
+    // databaseRequired/storageRequired/redisRequired are never resolved here
+    // — see the note in isFieldOverridden above.
     default:
       return '';
   }
@@ -764,6 +749,27 @@ const REQUIREMENT_KEY_FOR_SETTING: Record<string, 'database' | 'redis' | 'storag
   redis: 'redis',
   storage: 'storage',
 };
+
+/**
+ * Which `ApplicationRequirementsSummary` field backs an editable requirement
+ * toggle — the single mapping every surface that reads override state for
+ * database/redis/storage must share, so the readiness table and the edit
+ * dialog never disagree about whether a field is overridden.
+ */
+export function requirementSummaryKeyFor(
+  field: EditableReadinessField,
+): 'database' | 'redis' | 'storage' | null {
+  switch (field) {
+    case 'databaseRequired':
+      return 'database';
+    case 'redisRequired':
+      return 'redis';
+    case 'storageRequired':
+      return 'storage';
+    default:
+      return null;
+  }
+}
 
 /**
  * Build the rows for the redesigned deployment-readiness table: settings

@@ -160,6 +160,9 @@ export default async function DeployPage({
   // cannot create duplicates — the deployment already exists; this only
   // flips it into its waiting state, and reopening the link resumes it.
   if (data.deploymentState === 'NOT_INSTALLED') {
+    const retentionNote = installPlanRetentionNote(data.plan);
+    const regionLabel = installPlanRegionLabel(data.region);
+
     return (
       <div className="flex flex-col gap-8">
         <div>
@@ -206,10 +209,8 @@ export default async function DeployPage({
               </Table>
             </div>
           </div>
-          <p className="text-sm text-muted-foreground">Region: {installPlanRegionLabel(data.region)}</p>
-          {installPlanRetentionNote(data.plan) ? (
-            <p className="text-sm text-muted-foreground">{installPlanRetentionNote(data.plan)}</p>
-          ) : null}
+          {regionLabel ? <p className="text-sm text-muted-foreground">Region: {regionLabel}</p> : null}
+          {retentionNote ? <p className="text-sm text-muted-foreground">{retentionNote}</p> : null}
           <p className="text-sm font-medium text-foreground">Your data stays in your AWS account.</p>
         </section>
 

@@ -72,6 +72,7 @@ import {
   fetchReadiness,
   isFieldOverridden,
   readinessHeaderPresentation,
+  requirementSummaryKeyFor,
   type ApplicationReadiness,
   type EditableReadinessField,
   type ReadinessRow,
@@ -957,8 +958,21 @@ function EditDialog({
     }
   }
 
-  const isOverridden = isFieldOverridden(currentField, application, readiness.detected);
-  const detectedValue = detectedFieldValue(currentField, readiness.detected);
+  // Database/redis/storage: the server-computed requirements summary is the
+  // source of truth (it can represent an override to false, which the
+  // detected/override OR-logic below cannot) — the same rule the readiness
+  // table rows use, so the table and this dialog never disagree. Fall back
+  // to the plain detected fact only when the API has not sent requirements.
+  const requirementKey = requirementSummaryKeyFor(currentField);
+  const requirement = requirementKey ? readiness.requirements?.[requirementKey] : undefined;
+  const isOverridden = requirement
+    ? requirement.overridden
+    : isFieldOverridden(currentField, application, readiness.detected);
+  const detectedValue = requirement
+    ? requirement.detected
+      ? 'Required'
+      : 'Not required'
+    : detectedFieldValue(currentField, readiness.detected);
 
   return (
     <Dialog open={currentField !== null} onOpenChange={(open) => !open && onClose()}>
