@@ -300,13 +300,17 @@ export interface ApplicationStackProps extends StackProps {
    */
   readonly secretParameters?: readonly SecretParameterSpec[];
   /**
-   * Environment variable names that each receive the complete PostgreSQL
-   * connection URL as a whole-value ECS secret (Documenso needs the same
-   * URL under two names: `NEXT_PRIVATE_DATABASE_URL` and
-   * `NEXT_PRIVATE_DIRECT_DATABASE_URL`).
+   * ADDITIONAL environment variable names that each receive the complete
+   * PostgreSQL connection URL as a whole-value ECS secret, on top of the
+   * standard `DATABASE_URL` (Documenso needs the same URL under two more
+   * names: `NEXT_PRIVATE_DATABASE_URL` and `NEXT_PRIVATE_DIRECT_DATABASE_URL`).
+   * When `databaseRequired` is true, `DATABASE_URL` is always injected —
+   * this list only adds names, it never replaces the standard one, so every
+   * PostgreSQL application (preset or not) can rely on `DATABASE_URL` (§
+   * DEPLOY-026).
    *
    * Requires `databaseRequired` to be true — synth throws if this is non-empty
-   * with `databaseRequired: false`. When non-empty and valid, a second Secrets
+   * with `databaseRequired: false`. When `databaseRequired` is true, a Secrets
    * Manager secret is created holding the assembled `postgresql://` URL —
    * built at deploy time from the generated master credentials via a
    * CloudFormation dynamic reference, so the password never appears in the
@@ -314,7 +318,7 @@ export interface ApplicationStackProps extends StackProps {
    * Express `primaryContainer`, and the worker container — same parity
    * pattern as `secretParameters`.
    *
-   * Omitted or empty by default — no second secret, byte-identical synth.
+   * Omitted or empty by default — just the standard `DATABASE_URL` name.
    */
   readonly databaseUrlEnvNames?: readonly string[];
   /**
@@ -808,10 +812,14 @@ export class ApplicationStack extends Stack {
     // Complete PostgreSQL connection URL, assembled at deploy time from the
     // generated master credentials via a CloudFormation dynamic reference —
     // the password never appears in the template or task definition.
-    // Phase 2 default: every Postgres deployment gets the generic DATABASE_URL
-    // (whole postgresql:// connection URL as an ECS secret). A caller that
-    // pins its own URL env names (the Documenso preset) keeps exactly those.
-    const databaseUrlEnvNames = props.databaseUrlEnvNames ?? (databaseRequired ? ['DATABASE_URL'] : []);
+    // Every Postgres deployment gets the standard DATABASE_URL — a preset's
+    // databaseUrlEnvNames (e.g. Documenso's NEXT_PRIVATE_DATABASE_URL /
+    // NEXT_PRIVATE_DIRECT_DATABASE_URL) ADDS names, it never replaces the
+    // standard one (DEPLOY-026: the published template bakes DATABASE_URL
+    // and every non-Documenso app reads it).
+    const databaseUrlEnvNames = databaseRequired
+      ? Array.from(new Set(['DATABASE_URL', ...(props.databaseUrlEnvNames ?? [])]))
+      : [];
     if (databaseRequired && databaseUrlEnvNames.length > 0) {
       this.databaseUrlSecret = new Secret(this, 'DatabaseUrlSecret', {
         description:

@@ -1164,6 +1164,75 @@ describe('ApplicationStack', () => {
         ]),
       });
     });
+
+    it('keeps the standard DATABASE_URL alongside the preset names (DEPLOY-026 regression)', () => {
+      // The published production template ships with APP_PRESET=documenso
+      // (docs/testing/aws-full-product-canary.md). Every non-Documenso
+      // PostgreSQL application still reads the standard DATABASE_URL, so the
+      // preset's own env names must ADD to it, never replace it — a preset
+      // that pinned its own names used to leave DATABASE_URL entirely absent
+      // from the task definition, and every such app failed to boot.
+      const { template } = synth(false, { ...DOCUMENSO_APPLICATION_PROPS });
+      const secrets = template.findResources('AWS::SecretsManager::Secret') as Record<
+        string,
+        TemplateResource
+      >;
+      const [urlSecretId] = Object.entries(secrets).find(([, resource]) =>
+        JSON.stringify(resource.Properties?.['SecretString'] ?? '').includes(
+          'postgresql://deployz_app:',
+        ),
+      )!;
+
+      template.hasResourceProperties('AWS::ECS::TaskDefinition', {
+        ContainerDefinitions: Match.arrayWith([
+          Match.objectLike({
+            Name: 'App',
+            Secrets: Match.arrayWith([
+              Match.objectLike({ Name: 'DATABASE_URL', ValueFrom: { Ref: urlSecretId } }),
+              Match.objectLike({
+                Name: 'NEXT_PRIVATE_DATABASE_URL',
+                ValueFrom: { Ref: urlSecretId },
+              }),
+              Match.objectLike({
+                Name: 'NEXT_PRIVATE_DIRECT_DATABASE_URL',
+                ValueFrom: { Ref: urlSecretId },
+              }),
+            ]),
+          }),
+        ]),
+      });
+    });
+
+    it('adds DATABASE_URL to an explicit single-name override too (DEPLOY-026 regression)', () => {
+      const { template } = synth(false, {
+        ...DOCUMENSO_APPLICATION_PROPS,
+        databaseUrlEnvNames: ['NEXT_PRIVATE_DATABASE_URL'],
+      });
+      const secrets = template.findResources('AWS::SecretsManager::Secret') as Record<
+        string,
+        TemplateResource
+      >;
+      const [urlSecretId] = Object.entries(secrets).find(([, resource]) =>
+        JSON.stringify(resource.Properties?.['SecretString'] ?? '').includes(
+          'postgresql://deployz_app:',
+        ),
+      )!;
+
+      template.hasResourceProperties('AWS::ECS::TaskDefinition', {
+        ContainerDefinitions: Match.arrayWith([
+          Match.objectLike({
+            Name: 'App',
+            Secrets: Match.arrayWith([
+              Match.objectLike({ Name: 'DATABASE_URL', ValueFrom: { Ref: urlSecretId } }),
+              Match.objectLike({
+                Name: 'NEXT_PRIVATE_DATABASE_URL',
+                ValueFrom: { Ref: urlSecretId },
+              }),
+            ]),
+          }),
+        ]),
+      });
+    });
   });
 
   describe('Persistent-service hardening (Phase 9)', () => {
