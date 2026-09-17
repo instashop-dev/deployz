@@ -2,6 +2,8 @@
 // components), so the browser-facing origin — mirrors lib/github.ts and
 // lib/deployments.ts.
 
+import type { DeploymentPlan } from '@deployz/contracts';
+
 import { apiRequest } from '@/lib/api-client';
 import { apiUrl } from '@/lib/api-url';
 
@@ -136,4 +138,16 @@ export async function deleteApplication(id: string): Promise<void> {
     (err as { code?: string }).code = body?.error?.code;
     throw err;
   }
+}
+
+/** Fetch the INSTALL plan for an application (Phase 4). Null when analysis is not complete. */
+export async function fetchApplicationPlan(id: string): Promise<DeploymentPlan> {
+  const response = await fetch(`${apiUrl}/api/applications/${encodeURIComponent(id)}/plan`, {
+    credentials: 'include',
+    cache: 'no-store',
+  });
+  if (!response.ok) {
+    throw new Error(`Application plan request failed (${response.status})`);
+  }
+  return (await response.json()) as DeploymentPlan;
 }

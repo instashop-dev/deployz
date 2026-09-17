@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import {
   ONBOARDING_STEPS,
@@ -216,6 +216,7 @@ describe('§19 ApplicationReadiness shape (GET /api/applications/:id/readiness)'
       analyzedCommitSha: null,
       detected: null,
       requirements: null,
+      deploymentRequirementDrift: [],
     };
     expect(pending.state).toBe('ANALYSIS_INCOMPLETE');
     expect(pending.findings).toEqual([]);
@@ -235,6 +236,7 @@ describe('§19 ApplicationReadiness shape (GET /api/applications/:id/readiness)'
       analyzedCommitSha: null,
       detected: null,
       requirements: null,
+      deploymentRequirementDrift: [],
     };
     expect(failed.state).toBe('ANALYSIS_INCOMPLETE');
     expect(failed.failureReason).toBe('Failed to mint a GitHub installation token');
@@ -278,6 +280,7 @@ describe('§19 ApplicationReadiness shape (GET /api/applications/:id/readiness)'
       analyzedCommitSha: 'abc1234',
       detected: null,
       requirements: null,
+      deploymentRequirementDrift: [],
     };
     const required = readiness.findings.filter((f) => f.severity === 'required');
     const recommended = readiness.findings.filter((f) => f.severity === 'recommended');
@@ -326,6 +329,7 @@ describe('§19 ApplicationReadiness shape (GET /api/applications/:id/readiness)'
       analyzedCommitSha: 'def5678',
       detected: null,
       requirements: null,
+      deploymentRequirementDrift: [],
     };
     expect(readiness.findings[0]?.plainEnglishExplanation).toBe('Persistent Redis is required.');
   });
@@ -347,6 +351,7 @@ describe('readinessFailure (FAILED analysis)', () => {
     analyzedCommitSha: null,
     detected: null,
     requirements: null,
+      deploymentRequirementDrift: [],
   });
 
   it('is null while the analysis is still running', () => {
@@ -363,6 +368,7 @@ describe('readinessFailure (FAILED analysis)', () => {
         analyzedCommitSha: null,
         detected: null,
         requirements: null,
+      deploymentRequirementDrift: [],
       }),
     ).toBeNull();
   });
@@ -490,7 +496,9 @@ import {
   isFieldOverridden,
   effectiveFieldValue,
   detectedFieldValue,
+  fetchReadiness,
 } from '../src/lib/readiness';
+import { fetchApplicationPlan } from '../src/lib/applications';
 
 function applicationFixture(overrides: Partial<Application> = {}): Application {
   return {
@@ -545,6 +553,7 @@ function readinessFixture(overrides: Partial<ApplicationReadiness> = {}): Applic
     analyzedCommitSha: 'abc1234',
     detected: detectedFixture(),
     requirements: requirementsFixture(),
+    deploymentRequirementDrift: [],
     ...overrides,
   };
 }
@@ -773,11 +782,29 @@ describe('deriveReadinessRows', () => {
     expect(database).toMatchObject({ value: 'Not required', detectedValue: 'Required', overridden: true });
   });
 
-  it('falls back to the plain detected fact when requirements is null, never inventing an effective value', () => {
+  it('shows Needs review when requirements is null, never inventing an effective value', () => {
     const rows = deriveReadinessRows(applicationFixture(), readinessFixture({ requirements: null }));
     const database = rows.find((r) => r.kind === 'setting' && r.id === 'database');
-    expect(database?.value).toContain('PostgreSQL');
-    expect(database?.overridden).toBe(false);
+    expect(database).toMatchObject({ value: 'Needs review', status: 'needs-review', overridden: false });
+  });
+
+  it('maps each requirement status to the correct status pill', () => {
+    const rows = deriveReadinessRows(
+      applicationFixture(),
+      readinessFixture({
+        requirements: requirementsFixture({
+          database: { detected: true, effective: true, overridden: false },
+          redis: { detected: false, effective: false, overridden: false },
+          storage: { detected: true, effective: false, overridden: true },
+        }),
+      }),
+    );
+    const database = rows.find((r) => r.kind === 'setting' && r.id === 'database') as import('../src/lib/readiness').ReadinessTableSetting | undefined;
+    const redis = rows.find((r) => r.kind === 'setting' && r.id === 'redis') as import('../src/lib/readiness').ReadinessTableSetting | undefined;
+    const storage = rows.find((r) => r.kind === 'setting' && r.id === 'storage') as import('../src/lib/readiness').ReadinessTableSetting | undefined;
+    expect(database?.status).toBe('required');
+    expect(redis?.status).toBe('not-required');
+    expect(storage?.status).toBe('vendor-override');
   });
 });
 
@@ -805,5 +832,55 @@ describe('effective value / override resolution', () => {
   it('reports the detected value as a string', () => {
     expect(detectedFieldValue('containerPort', detectedFixture())).toBe('3000');
     expect(detectedFieldValue('healthPath', detectedFixture())).toBe('/health');
+  });
+});
+
+describe('application page data refetch', () => {
+  it('fetches readiness and the install plan from the expected endpoints', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          analysisStatus: 'COMPLETE',
+          state: 'READY',
+          requiredCount: 0,
+          recommendedCount: 0,
+          summary: null,
+          failureReason: null,
+          findings: [],
+          passed: [],
+          analyzedCommitSha: null,
+          detected: null,
+          requirements: null,
+          deploymentRequirementDrift: [],
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          schemaVersion: 1,
+          action: 'INSTALL',
+          region: null,
+          components: [],
+          requirementDrift: [],
+        }),
+      });
+    global.fetch = fetchMock;
+
+    const readinessPromise = fetchReadiness('app-1');
+    const planPromise = fetchApplicationPlan('app-1');
+
+    await expect(readinessPromise).resolves.toBeDefined();
+    await expect(planPromise).resolves.toBeDefined();
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining('/api/applications/app-1/readiness'),
+      expect.anything(),
+    );
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining('/api/applications/app-1/plan'),
+      expect.anything(),
+    );
   });
 });

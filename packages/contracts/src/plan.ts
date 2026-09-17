@@ -85,7 +85,8 @@ function driftFor(
   return deployed === desired ? null : { kind, deployed, desired };
 }
 
-function requirementDriftFor(
+/** Requirement drift between two profiles — shared by buildUpdatePlan and the readiness API's per-deployment summary. */
+export function requirementDriftFor(
   deployedProfile: InfrastructureProfile,
   desiredProfile: InfrastructureProfile,
 ): DeploymentPlan['requirementDrift'] {

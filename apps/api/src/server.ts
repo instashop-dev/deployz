@@ -53,11 +53,14 @@ import {
   relayCapabilitiesSchema,
   relayCommandProgressSchema,
   requiredInfrastructureComponents,
+  requirementDriftFor,
   resolveBootstrapTemplate,
   summarizeInfrastructureStatus,
   type ApplicationAnalysis,
   type ApplicationRequirementsSummary,
   type BillingSubscriptionStatus,
+  type DeploymentManifest,
+  type DeploymentPlan,
   type InfrastructureComponentStatus,
   type InfrastructureSummaryStatus,
   type VendorStackEvent,
@@ -814,6 +817,19 @@ const SETTLED_JOB_STATES: ReadonlySet<string> = new Set(['SUCCEEDED', 'SUCCESS',
 // Rows analysed before the report existed degrade into equivalent findings
 // built from the legacy `checks` shape. No percentages, ever.
 
+/** One existing deployment's requirement drift vs the application's effective requirements. */
+interface DeploymentRequirementDriftSummary {
+  deploymentId: string;
+  customerName: string;
+  state: DeploymentRow['state'];
+  drift: DeploymentPlan['requirementDrift'];
+}
+
+/** A deployments row joined to its customer label — what the drift summary needs. */
+type DeploymentRequirementDriftRow = Pick<DeploymentRow, 'id' | 'state' | 'desiredState'> & {
+  customerName: string;
+};
+
 /** The `GET /api/applications/:id/readiness` wire shape. */
 interface ReadinessResponse {
   analysisStatus: string;
@@ -832,6 +848,14 @@ interface ReadinessResponse {
   detected: ApplicationAnalysis | null;
   /** Server-computed database/redis/storage truth (Phase 1). Null while analysis is incomplete. */
   requirements: ApplicationRequirementsSummary | null;
+  /**
+   * How each existing deployment's frozen manifest differs from the
+   * application's current effective requirements — reported only, never
+   * repaired (the MVP never changes an existing deployment's topology in
+   * place, so the frozen manifests stay as they are). Empty while analysis
+   * is incomplete.
+   */
+  deploymentRequirementDrift: DeploymentRequirementDriftSummary[];
 }
 
 /** Legacy-row bridge: rebuild findings from the pre-report `checks` shape. */
@@ -889,6 +913,7 @@ function computeReadiness(
     compatibilityStatus: string | null;
     compatibilityReason: string | null;
   },
+  deployments: DeploymentRequirementDriftRow[],
 ): ReadinessResponse {
   if (app.analysisStatus !== 'COMPLETE') {
     return {
@@ -907,6 +932,7 @@ function computeReadiness(
       analyzedCommitSha: null,
       detected: null,
       requirements: null,
+      deploymentRequirementDrift: [],
     };
   }
 
@@ -934,7 +960,19 @@ function computeReadiness(
     analyzedCommitSha,
     detected,
     requirements: computeApplicationRequirements(app, detected),
+    deploymentRequirementDrift: computeDeploymentRequirementDrift(app, deployments),
   };
+}
+
+/**
+ * The application's current effective manifest — the single construction
+ * computeApplicationRequirements and computeDeploymentRequirementDrift share.
+ */
+function effectiveApplicationManifest(app: ManifestApplicationRow): DeploymentManifest {
+  return normalizeDeploymentManifest(
+    { metadata: app.detectedMetadata ?? {} },
+    applicationToManifestOverrides(app),
+  );
 }
 
 /**
@@ -948,10 +986,7 @@ function computeApplicationRequirements(
   app: ManifestApplicationRow,
   detected: ApplicationAnalysis | null,
 ): ApplicationRequirementsSummary | null {
-  const manifest = normalizeDeploymentManifest(
-    { metadata: app.detectedMetadata ?? {} },
-    applicationToManifestOverrides(app),
-  );
+  const manifest = effectiveApplicationManifest(app);
   const overrides = new Set(readVendorOverrides(app.detectedMetadata));
   return {
     schemaVersion: DEPLOYMENT_MANIFEST_SCHEMA_VERSION,
@@ -971,6 +1006,37 @@ function computeApplicationRequirements(
       overridden: overrides.has('storageRequired'),
     },
   };
+}
+
+/**
+ * Requirement drift between each existing deployment's frozen manifest and
+ * the application's current effective manifest (the same construction
+ * computeApplicationRequirements uses) — the vendor-facing "existing
+ * deployments keep their frozen manifest; these deployments now differ"
+ * surface. Reported only, never repaired. DELETED deployments and invalid
+ * stored manifests are skipped; deployments with no drift are omitted.
+ */
+function computeDeploymentRequirementDrift(
+  app: ManifestApplicationRow,
+  deployments: DeploymentRequirementDriftRow[],
+): ReadinessResponse['deploymentRequirementDrift'] {
+  const desiredProfile = infrastructureProfileForManifest(effectiveApplicationManifest(app));
+  const summary: ReadinessResponse['deploymentRequirementDrift'] = [];
+  for (const deployment of deployments) {
+    if (deployment.state === 'DELETED') continue;
+    const manifest = readStoredManifest(deployment.desiredState);
+    if (!manifest) continue;
+    const drift = requirementDriftFor(infrastructureProfileForManifest(manifest), desiredProfile);
+    if (drift.length > 0) {
+      summary.push({
+        deploymentId: deployment.id,
+        customerName: deployment.customerName,
+        state: deployment.state,
+        drift,
+      });
+    }
+  }
+  return summary;
 }
 
 // §25 "deploy to all compatible customers" — deployable means the fleet
@@ -2942,7 +3008,17 @@ export async function buildServer({
     const { id } = request.params as { id: string };
     const organizationId = requireSessionOrganizationId(request);
     const app = await loadOwnedApplication(db, id, organizationId);
-    return computeReadiness(app);
+    const deployments = await db
+      .select({
+        id: schema.deployments.id,
+        customerName: schema.customers.name,
+        state: schema.deployments.state,
+        desiredState: schema.deployments.desiredState,
+      })
+      .from(schema.deployments)
+      .innerJoin(schema.customers, eq(schema.deployments.customerId, schema.customers.id))
+      .where(eq(schema.deployments.applicationId, id));
+    return computeReadiness(app, deployments);
   });
 
   // GET /api/applications/:id/preflight — the pre-deployment gate for this

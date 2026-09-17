@@ -4,10 +4,8 @@ import {
   ArrowLeft,
   ArrowUpRight,
   Check,
-  ChevronDown,
   Pencil,
   RefreshCw,
-  RotateCcw,
   Trash2,
   X,
 } from 'lucide-react';
@@ -19,7 +17,6 @@ import { toast } from 'sonner';
 import { EvaluationNotice } from '@/components/evaluation-notice';
 import { DeploymentStatusBadge } from '@/components/deployment-status-badge';
 import { FixInstructionsDialog } from '@/components/fix-instructions-dialog';
-import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -31,54 +28,37 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from '@/components/ui/alert-dialog';
-import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table';
-import {
   deleteApplication,
   fetchApplication,
+  fetchApplicationPlan,
   triggerAnalysis,
   updateApplication,
   type Application,
-  type UpdateApplicationInput,
 } from '@/lib/applications';
+import type { DeploymentPlan } from '@deployz/contracts';
+
 import { fetchDeploymentsForApplication, type FleetDeployment } from '@/lib/deployments';
 import { DEPLOYMENT_STATE_LABELS } from '@/lib/deployment-vocabulary';
 import {
   deriveLifecycleSteps,
   deriveReadinessRows,
-  detectedFieldValue,
   fetchReadiness,
-  isFieldOverridden,
   readinessHeaderPresentation,
-  requirementSummaryKeyFor,
   type ApplicationReadiness,
   type EditableReadinessField,
-  type ReadinessRow,
-  type ReadinessTableFinding,
-  type ReadinessTablePassed,
-  type ReadinessTableSetting,
 } from '@/lib/readiness';
+import {
+  EditDialog,
+  InstallPlanSection,
+  ReadinessTable,
+  RequirementDriftNotice,
+} from './readiness-components';
 
 /** How often to re-check a still-running analysis (§19). */
 const ANALYSIS_POLL_MS = 2000;
@@ -87,12 +67,25 @@ type PageData = {
   application: Application;
   readiness: ApplicationReadiness;
   deployments: FleetDeployment[];
+  /** INSTALL plan for the application's current effective manifest. Null while analysis is incomplete or the plan cannot be fetched. */
+  plan: DeploymentPlan | null;
 };
 
 type PageState =
   | { status: 'loading' }
   | { status: 'error'; message: string }
   | { status: 'loaded'; data: PageData };
+
+/** Fetch the install plan only when analysis has completed — the endpoint
+ *  returns 409 while analysis is still running. */
+async function fetchPlanIfComplete(id: string, application: Application): Promise<DeploymentPlan | null> {
+  if (application.analysisStatus !== 'COMPLETE') return null;
+  try {
+    return await fetchApplicationPlan(id);
+  } catch {
+    return null;
+  }
+}
 
 // Application readiness page — redesigned into a single deployment-readiness
 // table, a compact four-step lifecycle, and contextual header actions.
@@ -109,7 +102,8 @@ export default function ApplicationReadinessPage() {
         fetchReadiness(id),
         fetchDeploymentsForApplication(id),
       ]);
-      setState({ status: 'loaded', data: { application, readiness, deployments } });
+      const plan = await fetchPlanIfComplete(id, application);
+      setState({ status: 'loaded', data: { application, readiness, deployments, plan } });
     } catch {
       setState({
         status: 'error',
@@ -162,7 +156,8 @@ export default function ApplicationReadinessPage() {
         fetchReadiness(id),
         fetchDeploymentsForApplication(id),
       ]);
-      setState({ status: 'loaded', data: { application, readiness, deployments } });
+      const plan = await fetchPlanIfComplete(id, application);
+      setState({ status: 'loaded', data: { application, readiness, deployments, plan } });
     } catch {
       toast.error("We couldn't refresh this application. Try again in a moment.");
     }
@@ -231,9 +226,10 @@ export default function ApplicationReadinessPage() {
 
 async function fetchAnalysedState(
   id: string,
-): Promise<{ application: Application; readiness: ApplicationReadiness }> {
+): Promise<{ application: Application; readiness: ApplicationReadiness; plan: DeploymentPlan | null }> {
   const [application, readiness] = await Promise.all([fetchApplication(id), fetchReadiness(id)]);
-  return { application, readiness };
+  const plan = await fetchPlanIfComplete(id, application);
+  return { application, readiness, plan };
 }
 
 function ReadinessBody({
@@ -245,7 +241,7 @@ function ReadinessBody({
   onApplicationUpdated: (next: Application) => void;
   onRefresh: () => Promise<void>;
 }) {
-  const { application, readiness, deployments } = data;
+  const { application, readiness, deployments, plan } = data;
   const rows = deriveReadinessRows(application, readiness);
   const [reanalysing, setReanalysing] = useState(false);
   const [fixOpen, setFixOpen] = useState(false);
@@ -401,6 +397,12 @@ function ReadinessBody({
         />
       </section>
 
+      {/* Existing deployments that no longer match the current requirements */}
+      <RequirementDriftNotice drifts={readiness.deploymentRequirementDrift} />
+
+      {/* What a new deployment will create */}
+      <InstallPlanSection plan={plan} />
+
       {/* Latest test deployment */}
       <LatestDeploymentSection application={application} testDeployment={testDeployment} />
 
@@ -422,7 +424,7 @@ function ReadinessBody({
         application={application}
         readiness={readiness}
         onClose={() => setEditingField(null)}
-        onSaved={onApplicationUpdated}
+        onSaved={onRefresh}
       />
     </>
   );
@@ -567,181 +569,6 @@ function LifecycleStepper({
         );
       })}
     </ol>
-  );
-}
-
-function ReadinessTable({
-  rows,
-  application,
-  onEdit,
-  onShowFix,
-}: {
-  rows: ReadinessRow[];
-  application: Application;
-  onEdit: (field: EditableReadinessField) => void;
-  onShowFix: () => void;
-}) {
-  return (
-    <Card>
-      <CardContent className="overflow-x-auto p-0">
-        <Table data-testid="readiness-table">
-          <TableHeader>
-            <TableRow>
-              <TableHead>Check</TableHead>
-              <TableHead>Value</TableHead>
-              <TableHead>Status</TableHead>
-              <TableHead>
-                <span className="sr-only">Action</span>
-              </TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {rows.map((row) => (
-              <ReadinessTableRow
-                key={row.id}
-                row={row}
-                application={application}
-                onEdit={onEdit}
-                onShowFix={onShowFix}
-              />
-            ))}
-          </TableBody>
-        </Table>
-      </CardContent>
-    </Card>
-  );
-}
-
-function ReadinessTableRow({
-  row,
-  application,
-  onEdit,
-  onShowFix,
-}: {
-  row: ReadinessRow;
-  application: Application;
-  onEdit: (field: EditableReadinessField) => void;
-  onShowFix: () => void;
-}) {
-  const [expanded, setExpanded] = useState(false);
-
-  if (row.kind === 'finding') {
-    const finding = (row as ReadinessTableFinding).finding;
-    const isRequired = finding.severity === 'required';
-    return (
-      <TableRow
-        id={`readiness-row-${finding.id}`}
-        data-testid={`readiness-finding-${finding.id}`}
-      >
-        <TableCell>
-          <div className="flex flex-col gap-0.5">
-            <span className="font-medium">{finding.title}</span>
-            <span className="text-xs text-muted-foreground">
-              {finding.plainEnglishExplanation}
-            </span>
-          </div>
-        </TableCell>
-        <TableCell className="text-muted-foreground">{finding.suggestedOutcome}</TableCell>
-        <TableCell>
-          <Badge variant={isRequired ? 'destructive' : 'outline'}>
-            {isRequired ? 'Blocking issue' : 'Recommendation'}
-          </Badge>
-        </TableCell>
-        <TableCell>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={onShowFix}
-            data-testid={`readiness-finding-fix-${finding.id}`}
-          >
-            {isRequired ? 'Fix issue' : 'Show fix'}
-          </Button>
-        </TableCell>
-      </TableRow>
-    );
-  }
-
-  if (row.kind === 'passed') {
-    const check = (row as ReadinessTablePassed).check;
-    return (
-      <TableRow data-testid={`readiness-passed-${check.id}`}>
-        <TableCell>{check.label}</TableCell>
-        <TableCell className="text-muted-foreground">—</TableCell>
-        <TableCell>
-          <Badge variant="default">Passed</Badge>
-        </TableCell>
-        <TableCell />
-      </TableRow>
-    );
-  }
-
-  const setting = row as ReadinessTableSetting;
-
-  return (
-    <TableRow data-testid={`readiness-setting-${setting.id}`}>
-      <TableCell>
-        <div className="flex flex-col gap-0.5">
-          <span className="font-medium">{setting.label}</span>
-          {setting.evidence.length > 0 ? (
-            <Collapsible open={expanded} onOpenChange={setExpanded}>
-              <CollapsibleTrigger asChild>
-                <button
-                  type="button"
-                  className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
-                  data-testid={`readiness-setting-evidence-toggle-${setting.id}`}
-                >
-                  Why Deployz detected this
-                  <ChevronDown
-                    className={`size-3 transition-transform ${expanded ? 'rotate-180' : ''}`}
-                    aria-hidden
-                  />
-                </button>
-              </CollapsibleTrigger>
-              <CollapsibleContent className="mt-1.5 space-y-1">
-                {setting.evidence.map((item, index) => (
-                  <p
-                    key={index}
-                    className="text-xs text-muted-foreground"
-                    data-testid={`readiness-setting-evidence-${setting.id}-${index}`}
-                  >
-                    {item.file ? <code className="font-mono">{item.file}</code> : null}
-                    {item.file ? ' — ' : ''}
-                    {item.reason}
-                  </p>
-                ))}
-              </CollapsibleContent>
-            </Collapsible>
-          ) : null}
-        </div>
-      </TableCell>
-      <TableCell>
-        <div className="flex flex-col gap-0.5">
-          <span>{setting.value}</span>
-          {setting.overridden ? (
-            <span className="text-xs text-muted-foreground">
-              Detected: {setting.detectedValue} · Overridden
-            </span>
-          ) : setting.detectedValue && setting.detectedValue !== setting.value ? (
-            <span className="text-xs text-muted-foreground">Detected: {setting.detectedValue}</span>
-          ) : null}
-        </div>
-      </TableCell>
-      <TableCell>
-        <Badge variant="default">Passed</Badge>
-      </TableCell>
-      <TableCell>
-        {setting.editable && application.analysisStatus === 'COMPLETE' && setting.field ? (
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => onEdit(setting.field as EditableReadinessField)}
-            data-testid={`readiness-setting-edit-${setting.id}`}
-          >
-            Edit
-          </Button>
-        ) : null}
-      </TableCell>
-    </TableRow>
   );
 }
 
@@ -920,215 +747,6 @@ function DangerZone({ application }: { application: Application }) {
       </Card>
     </section>
   );
-}
-
-function EditDialog({
-  field,
-  application,
-  readiness,
-  onClose,
-  onSaved,
-}: {
-  field: EditableReadinessField | null;
-  application: Application;
-  readiness: ApplicationReadiness;
-  onClose: () => void;
-  onSaved: (next: Application) => void;
-}) {
-  const [pendingAction, setPendingAction] = useState<'save' | 'reset' | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [value, setValue] = useState<string | number | boolean>(false);
-
-  useEffect(() => {
-    if (!field) return;
-    setValue(getInitialValue(field, application));
-    setError(null);
-  }, [field, application]);
-
-  if (!field) return null;
-  const currentField = field;
-
-  const config = FIELD_CONFIG[currentField];
-
-  async function handleSave(): Promise<void> {
-    setPendingAction('save');
-    setError(null);
-    try {
-      const input = buildUpdateInput(currentField, value);
-      const next = await updateApplication(application.id, input);
-      onSaved(next);
-      onClose();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "We couldn't save the change. Try again.");
-    } finally {
-      setPendingAction(null);
-    }
-  }
-
-  async function handleReset(): Promise<void> {
-    setPendingAction('reset');
-    setError(null);
-    try {
-      const input: UpdateApplicationInput = { [currentField]: null };
-      const next = await updateApplication(application.id, input);
-      onSaved(next);
-      onClose();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "We couldn't reset the value. Try again.");
-    } finally {
-      setPendingAction(null);
-    }
-  }
-
-  // Database/redis/storage: the server-computed requirements summary is the
-  // source of truth (it can represent an override to false, which the
-  // detected/override OR-logic below cannot) — the same rule the readiness
-  // table rows use, so the table and this dialog never disagree. Fall back
-  // to the plain detected fact only when the API has not sent requirements.
-  const requirementKey = requirementSummaryKeyFor(currentField);
-  const requirement = requirementKey ? readiness.requirements?.[requirementKey] : undefined;
-  const isOverridden = requirement
-    ? requirement.overridden
-    : isFieldOverridden(currentField, application, readiness.detected);
-  const detectedValue = requirement
-    ? requirement.detected
-      ? 'Required'
-      : 'Not required'
-    : detectedFieldValue(currentField, readiness.detected);
-
-  return (
-    <Dialog
-      open={currentField !== null}
-      onOpenChange={(open) => !open && pendingAction === null && onClose()}
-    >
-      <DialogContent data-testid={`edit-dialog-${currentField}`}>
-        <DialogHeader>
-          <DialogTitle>{config.label}</DialogTitle>
-          <DialogDescription>
-            Changes affect future deployments. Existing deployments are not modified.
-          </DialogDescription>
-        </DialogHeader>
-        <div className="flex flex-col gap-4">
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor={`edit-field-${currentField}`}>Use for deployment</Label>
-            {config.type === 'boolean' ? (
-              <label className="flex items-center gap-2 text-sm">
-                <input
-                  type="checkbox"
-                  id={`edit-field-${currentField}`}
-                  checked={Boolean(value)}
-                  onChange={(event) => setValue(event.target.checked)}
-                />
-                {config.booleanLabel}
-              </label>
-            ) : (
-              <Input
-                id={`edit-field-${currentField}`}
-                type={config.type === 'number' ? 'number' : 'text'}
-                value={String(value ?? '')}
-                onChange={(event) =>
-                  setValue(
-                    config.type === 'number'
-                      ? event.target.value === ''
-                        ? ''
-                        : Number(event.target.value)
-                      : event.target.value,
-                  )
-                }
-              />
-            )}
-          </div>
-          <p className="text-sm text-muted-foreground">
-            Detected: {detectedValue || '—'}
-          </p>
-          {error ? (
-            <Alert variant="destructive">
-              <AlertTitle>Error</AlertTitle>
-              <AlertDescription>{error}</AlertDescription>
-            </Alert>
-          ) : null}
-        </div>
-        <DialogFooter className="gap-2">
-          {isOverridden ? (
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => void handleReset()}
-              loading={pendingAction === 'reset'}
-              loadingText="Resetting to detected…"
-              disabled={pendingAction === 'save'}
-              data-testid={`edit-reset-${field}`}
-            >
-              <RotateCcw className="size-3.5" aria-hidden />
-              Reset to detected
-            </Button>
-          ) : null}
-          <Button
-            type="button"
-            onClick={() => void handleSave()}
-            loading={pendingAction === 'save'}
-            loadingText="Saving value…"
-            disabled={pendingAction === 'reset'}
-          >
-            Save
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
-const FIELD_CONFIG: Record<
-  EditableReadinessField,
-  {
-    label: string;
-    type: 'text' | 'number' | 'boolean';
-    booleanLabel?: string;
-  }
-> = {
-  containerPort: { label: 'Container port', type: 'number' },
-  healthPath: { label: 'Health check path', type: 'text' },
-  migrationCommand: { label: 'Migration command', type: 'text' },
-  databaseRequired: { label: 'Database', type: 'boolean', booleanLabel: 'Database required' },
-  storageRequired: { label: 'File storage', type: 'boolean', booleanLabel: 'File storage required' },
-  redisRequired: { label: 'Cache / queue', type: 'boolean', booleanLabel: 'Redis required' },
-};
-
-function getInitialValue(field: EditableReadinessField, application: Application): string | number | boolean {
-  switch (field) {
-    case 'containerPort':
-      return application.containerPort ?? '';
-    case 'healthPath':
-      return application.healthPath ?? '';
-    case 'migrationCommand':
-      return application.migrationCommand ?? '';
-    case 'databaseRequired':
-      return application.databaseRequired;
-    case 'storageRequired':
-      return application.storageRequired;
-    case 'redisRequired':
-      return application.redisRequired;
-  }
-}
-
-function buildUpdateInput(
-  field: EditableReadinessField,
-  value: string | number | boolean,
-): UpdateApplicationInput {
-  switch (field) {
-    case 'containerPort':
-      return { containerPort: value === '' ? null : Number(value) };
-    case 'healthPath':
-      return { healthPath: String(value).trim() || null };
-    case 'migrationCommand':
-      return { migrationCommand: String(value).trim() || null };
-    case 'databaseRequired':
-      return { databaseRequired: Boolean(value) };
-    case 'storageRequired':
-      return { storageRequired: Boolean(value) };
-    case 'redisRequired':
-      return { redisRequired: Boolean(value) };
-  }
 }
 
 function PageSkeleton() {

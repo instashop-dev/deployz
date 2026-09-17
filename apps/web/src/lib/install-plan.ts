@@ -6,6 +6,21 @@
 
 import { INFRASTRUCTURE_COMPONENT_DISPLAY, REGION_LABELS, type DeploymentPlan, type Region } from '@deployz/contracts';
 
+/** "Database: not provisioned here, now required" / the reverse — one line per
+ *  requirement-drift entry (Phase 4's `DeploymentPlan['requirementDrift']`
+ *  and the application-page drift notice). Shared so the wording never
+ *  diverges. */
+export function requirementDriftLine(entry: {
+  kind: 'database' | 'cache' | 'storage';
+  deployed: boolean;
+  desired: boolean;
+}): string {
+  const name = INFRASTRUCTURE_COMPONENT_DISPLAY[entry.kind].name;
+  return entry.desired && !entry.deployed
+    ? `${name}: not provisioned here, now required`
+    : `${name}: provisioned here, no longer required`;
+}
+
 /** One row of the customer "Deployz will create" table. */
 export interface InstallPlanRow {
   kind: string;

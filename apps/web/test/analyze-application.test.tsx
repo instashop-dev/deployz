@@ -113,6 +113,7 @@ function baseReadiness() {
     analyzedCommitSha: null,
     detected: null,
     requirements: null,
+    deploymentRequirementDrift: [],
   };
 }
 

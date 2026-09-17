@@ -1,7 +1,6 @@
 'use client';
 
 import {
-  INFRASTRUCTURE_COMPONENT_DISPLAY,
   REGION_LABELS,
   type DeploymentPlan,
   type Region,
@@ -72,6 +71,7 @@ import {
 import { Skeleton } from '@/components/ui/skeleton';
 import { fetchDeploymentPreflight, type PreflightResult } from '@/lib/preflight';
 import { errorMessage } from '@/lib/api-client';
+import { requirementDriftLine } from '@/lib/install-plan';
 import { deriveHero, operationInFlight, type HeroModel } from '@/lib/deployment-hero';
 import {
   DESTROY_PENDING_STALE_AFTER_MS,
@@ -816,15 +816,6 @@ function OperationError({ error }: { error: string | null }) {
       {error}
     </p>
   );
-}
-
-/** "Cache: not provisioned here, now required" / the reverse — one line per
- *  `requirementDrift` entry (Phase 4's `DeploymentPlan['requirementDrift']`). */
-function requirementDriftLine(entry: DeploymentPlan['requirementDrift'][number]): string {
-  const name = INFRASTRUCTURE_COMPONENT_DISPLAY[entry.kind].name;
-  return entry.desired && !entry.deployed
-    ? `${name}: not provisioned here, now required`
-    : `${name}: provisioned here, no longer required`;
 }
 
 function DeployUpdateDialog({
