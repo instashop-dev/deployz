@@ -145,6 +145,21 @@ const component = (kind: string, name: string, status: string, lifecycle = 'dele
   ],
 });
 
+// Phase 6: the server's expected-vs-present comparison for the default
+// component list — a postgres deployment with neither storage nor Redis.
+const DEFAULT_EXPECTATIONS = {
+  schemaVersion: 1,
+  components: [
+    { kind: 'application', expected: true, present: true },
+    { kind: 'endpoint', expected: true, present: true },
+    { kind: 'database', expected: true, present: true },
+    { kind: 'storage', expected: false, present: false },
+    { kind: 'cache', expected: false, present: false },
+  ],
+  missing: [],
+  unexpected: [],
+};
+
 function infra(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
     provider: 'aws',
@@ -161,6 +176,7 @@ function infra(overrides: Record<string, unknown> = {}): Record<string, unknown>
     ],
     lastUpdatedAt: UPDATED_AT,
     disconnectWarning: null,
+    expectations: DEFAULT_EXPECTATIONS,
     ...overrides,
   };
 }
@@ -552,13 +568,26 @@ test('live over a temporary address: the hero nudges toward a custom domain and 
         component('endpoint', 'Secure endpoint', 'ready', 'delete', 'ELB'),
         component('network', 'Network', 'ready', 'delete', 'VPC'),
       ],
+      expectations: {
+        schemaVersion: 1,
+        components: [
+          { kind: 'application', expected: true, present: true },
+          { kind: 'endpoint', expected: true, present: true },
+          { kind: 'database', expected: true, present: true },
+          { kind: 'storage', expected: false, present: false },
+          { kind: 'cache', expected: false, present: true },
+        ],
+        missing: [],
+        unexpected: ['cache'],
+      },
     }),
   });
 
   await expect(headline).toHaveText('Your application is live');
   await expect(hero).toContainText('Add a custom domain to serve it over HTTPS.');
-  // A provisioned cache is a real row; only storage, which this application
-  // does not require, reads "Not required".
+  // A provisioned cache is a real row (present but not required — no special
+  // copy); only storage, which this application does not require, reads
+  // "Not required".
   await expect(infrastructure.getByText('Cache', { exact: true })).toBeVisible();
   await expect(infrastructure.getByText('Not required', { exact: true })).toHaveCount(1);
   await shoot(page, 'live-temporary-address');

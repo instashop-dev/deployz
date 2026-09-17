@@ -11,13 +11,14 @@ import {
   INFRASTRUCTURE_COMPONENT_NAME,
   RELAY_STATUS_LABEL,
   infrastructureComponentStatusLabel,
+  infrastructureMissingKinds,
+  infrastructureNotRequiredKinds,
   showInfrastructureRows,
   type DeploymentState,
   type RelayStatus,
 } from '@/lib/deployment-vocabulary';
 import type {
   FleetDeploymentDetail,
-  InfrastructureComponentKind,
   InfrastructureComponentStatus,
   InfrastructureResponse,
   InfrastructureSummaryStatus,
@@ -57,15 +58,6 @@ const RELAY_DOT: Record<RelayStatus, string> = {
   DISCONNECTED: 'bg-destructive',
   UNKNOWN: 'bg-muted-foreground',
 };
-
-/** Services the application does not need, so their absence from the
- *  inventory is "Not required", never a missing row. deploymentStatus
- *  component key → inventory component kind. */
-const OPTIONAL_SERVICES: readonly (readonly [key: string, kind: InfrastructureComponentKind])[] = [
-  ['database', 'database'],
-  ['storage', 'storage'],
-  ['redis', 'cache'],
-];
 
 export function InfrastructureSummary({
   detail,
@@ -122,12 +114,16 @@ export function InfrastructureSummary({
     );
   }
 
-  const notRequired = OPTIONAL_SERVICES.filter(
-    ([key, kind]) =>
-      detail.deploymentStatus.components.some(
-        (component) => component.key === key && component.status === 'NOT_REQUIRED',
-      ) && !infrastructure.components.some((component) => component.kind === kind),
-  );
+  // Requirement-aware verification (Phase 6): the server compares what the
+  // deployment's manifest requires (the catalog) against the inventory, so
+  // the page never re-derives infrastructure intent itself (docs/ui-system.md).
+  // A catalog kind absent from the inventory reads "Not required" (the
+  // manifest never asked for it) or, once past the install phase, "Missing"
+  // (the manifest asked for it and it is not there). A kind present but not
+  // required (e.g. a provisioned cache in a stateless deployment) is a real
+  // row already covered by the loop below — no special copy.
+  const notRequiredKinds = infrastructureNotRequiredKinds(infrastructure.expectations);
+  const missingKinds = infrastructureMissingKinds(infrastructure.expectations, state);
   const resourceCount = infrastructure.summary.technicalResourceCount;
 
   return (
@@ -166,13 +162,20 @@ export function InfrastructureSummary({
             </span>
           </li>
         ))}
-        {notRequired.map(([key, kind]) => (
-          <li key={key} className="flex items-center gap-3 px-3 py-2">
+        {notRequiredKinds.map((kind) => (
+          <li key={kind} className="flex items-center gap-3 px-3 py-2">
             <Circle aria-hidden className="size-4 shrink-0 text-muted-foreground/30" />
             <span className="min-w-0 truncate font-medium text-muted-foreground">
               {INFRASTRUCTURE_COMPONENT_NAME[kind]}
             </span>
             <span className="ml-auto shrink-0 text-muted-foreground">Not required</span>
+          </li>
+        ))}
+        {missingKinds.map((kind) => (
+          <li key={kind} className="flex items-center gap-3 px-3 py-2">
+            <AlertCircle aria-hidden className="size-4 shrink-0 text-destructive" />
+            <span className="min-w-0 truncate font-medium">{INFRASTRUCTURE_COMPONENT_NAME[kind]}</span>
+            <span className="ml-auto shrink-0 text-destructive">Missing</span>
           </li>
         ))}
         {relay}

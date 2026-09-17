@@ -39,6 +39,7 @@ import {
   buildDestroyPlan,
   buildInstallPlan,
   buildUpdatePlan,
+  compareInfrastructureExpectations,
   deploymentStateAfterFailedJob,
   deploymentTypeSchema,
   failureCodeSchema,
@@ -50,6 +51,7 @@ import {
   regionSchema,
   relayCapabilitiesSchema,
   relayCommandProgressSchema,
+  requiredInfrastructureComponents,
   resolveBootstrapTemplate,
   summarizeInfrastructureStatus,
   type ApplicationAnalysis,
@@ -5348,6 +5350,25 @@ export async function buildServer({
 
       const lastUpdatedAtIso = lastUpdatedAt?.toISOString() ?? null;
 
+      // Requirement-aware verification (Phase 6): compare what the stored
+      // manifest requires (the catalog, filtered by its infrastructure
+      // profile) against this inventory — a report only, never an
+      // auto-repair. A deployment with no valid stored manifest has no
+      // expectations to compare against.
+      const storedManifest = readStoredManifest(deployment.desiredState);
+      const expectations = storedManifest
+        ? (() => {
+            const expectedKinds = requiredInfrastructureComponents(
+              infrastructureProfileForManifest(storedManifest),
+            ).map((definition) => definition.kind);
+            const comparison = compareInfrastructureExpectations(expectedKinds, components);
+            // A removed component is never "missing" after destroy — once
+            // the deployment is DELETED, the simplest honest rule is that
+            // nothing is missing.
+            return deployment.state === 'DELETED' ? { ...comparison, missing: [] } : comparison;
+          })()
+        : null;
+
       return infrastructureResponseSchema.parse({
         provider: 'aws',
         region: deployment.region,
@@ -5365,6 +5386,7 @@ export async function buildServer({
           !connected && snapshotState !== 'none' && lastUpdatedAt !== null
             ? { lastVerifiedAt: lastUpdatedAtIso }
             : null,
+        expectations,
       });
     },
   );

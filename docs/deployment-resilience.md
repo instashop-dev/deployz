@@ -198,7 +198,8 @@ CloudFormation success alone never marks a deployment healthy: INSTALL
 success leaves the deployment INSTALLING, and only the relay's runtime
 health verification (ECS running counts + ALB target health, reported via
 heartbeat) advances it to HEALTHY. The derived customer/vendor stage shows
-READY only with confirmed health plus an https URL.
+READY only with confirmed health plus an https URL. A missing required
+infrastructure component is reported, never repaired automatically.
 
 ## The trust boundary shapes everything
 

@@ -4270,6 +4270,12 @@ describe('server — infrastructure inventory (§59)', () => {
     }>;
     lastUpdatedAt: string | null;
     disconnectWarning: { lastVerifiedAt: string } | null;
+    expectations: {
+      schemaVersion: 1;
+      components: Array<{ kind: string; expected: boolean; present: boolean }>;
+      missing: string[];
+      unexpected: string[];
+    } | null;
   }
 
   beforeAll(async () => {
@@ -4554,6 +4560,108 @@ describe('server — infrastructure inventory (§59)', () => {
 const body = (await getInfrastructure(deployment.id, { cookie: org.cookie })).json() as InfraBody;
     expect(body.summary).toEqual({ status: 'healthy', componentCount: 1, technicalResourceCount: 1 });
     expect(body.components[0]!.status).toBe('ready');
+  });
+
+  // Phase 6 — requirement-aware verification: the stored manifest's
+  // infrastructure profile compared against the persisted inventory.
+  describe('expectations — the stored manifest compared against the inventory', () => {
+    it('stateless deployment, inventory without RDS: nothing missing', async () => {
+      const deployment = await newDeployment({
+        state: 'HEALTHY',
+        desiredState: { manifest: { ...READY_MANIFEST, database: { postgres: false } } },
+      });
+      await persistRows(
+        deployment.id,
+        [
+          { logicalId: 'Service', type: 'AWS::ECS::Service', status: 'CREATE_COMPLETE' },
+          { logicalId: 'Alb', type: 'AWS::ElasticLoadBalancingV2::LoadBalancer', status: 'CREATE_COMPLETE' },
+          { logicalId: 'AppBucket', type: 'AWS::S3::Bucket', status: 'CREATE_COMPLETE' },
+        ],
+        new Date().toISOString(),
+      );
+
+      const body = (await getInfrastructure(deployment.id, { cookie: org.cookie })).json() as InfraBody;
+      expect(body.expectations?.missing).toEqual([]);
+      expect(body.expectations?.unexpected).toEqual([]);
+      expect(body.expectations?.components.find((c) => c.kind === 'database')).toEqual({
+        kind: 'database',
+        expected: false,
+        present: false,
+      });
+    });
+
+    it('postgres deployment, inventory without RDS: missing database', async () => {
+      const deployment = await newDeployment({
+        state: 'HEALTHY',
+        desiredState: { manifest: READY_MANIFEST },
+      });
+      await persistRows(
+        deployment.id,
+        [
+          { logicalId: 'Service', type: 'AWS::ECS::Service', status: 'CREATE_COMPLETE' },
+          { logicalId: 'Alb', type: 'AWS::ElasticLoadBalancingV2::LoadBalancer', status: 'CREATE_COMPLETE' },
+          { logicalId: 'AppBucket', type: 'AWS::S3::Bucket', status: 'CREATE_COMPLETE' },
+        ],
+        new Date().toISOString(),
+      );
+
+      const body = (await getInfrastructure(deployment.id, { cookie: org.cookie })).json() as InfraBody;
+      expect(body.expectations?.missing).toEqual(['database']);
+    });
+
+    it('redis deployment, inventory without a cache: missing cache', async () => {
+      const deployment = await newDeployment({
+        state: 'HEALTHY',
+        desiredState: {
+          manifest: { ...READY_MANIFEST, redis: { required: true, envBindings: [] } },
+        },
+      });
+      await persistRows(
+        deployment.id,
+        [
+          { logicalId: 'Service', type: 'AWS::ECS::Service', status: 'CREATE_COMPLETE' },
+          { logicalId: 'Alb', type: 'AWS::ElasticLoadBalancingV2::LoadBalancer', status: 'CREATE_COMPLETE' },
+          { logicalId: 'Database', type: 'AWS::RDS::DBInstance', status: 'CREATE_COMPLETE' },
+          { logicalId: 'AppBucket', type: 'AWS::S3::Bucket', status: 'CREATE_COMPLETE' },
+        ],
+        new Date().toISOString(),
+      );
+
+      const body = (await getInfrastructure(deployment.id, { cookie: org.cookie })).json() as InfraBody;
+      expect(body.expectations?.missing).toEqual(['cache']);
+    });
+
+    it('a DELETED deployment always reports missing: [], even for a retain-lifecycle component never provisioned', async () => {
+      const deployment = await newDeployment({
+        state: 'DELETED',
+        deletedAt: new Date(),
+        desiredState: { manifest: READY_MANIFEST },
+      });
+      // No RDS row at all — a postgres deployment whose database never made
+      // it into the inventory before deletion. A failed purge must never
+      // read this as "missing" (retrying a purge only removes retained
+      // resources; a deployment past DELETED reports nothing outstanding).
+      await persistRows(
+        deployment.id,
+        [{ logicalId: 'Service', type: 'AWS::ECS::Service', status: 'CREATE_COMPLETE' }],
+        new Date().toISOString(),
+      );
+
+      const body = (await getInfrastructure(deployment.id, { cookie: org.cookie })).json() as InfraBody;
+      expect(body.expectations?.missing).toEqual([]);
+    });
+
+    it('a deployment with no valid stored manifest: expectations is null', async () => {
+      const deployment = await newDeployment({ state: 'HEALTHY', desiredState: {} });
+      await persistRows(
+        deployment.id,
+        [{ logicalId: 'Service', type: 'AWS::ECS::Service', status: 'CREATE_COMPLETE' }],
+        new Date().toISOString(),
+      );
+
+      const body = (await getInfrastructure(deployment.id, { cookie: org.cookie })).json() as InfraBody;
+      expect(body.expectations).toBeNull();
+    });
   });
 });
 

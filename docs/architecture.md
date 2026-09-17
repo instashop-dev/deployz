@@ -73,6 +73,11 @@ The flow a deployment follows, end to end:
    state, ALB target health, the HTTP probe, and the running digest. The
    control plane promotes the release pointer only when every gate passes
    (rollout COMPLETED, full counts, healthy targets, successful probe).
+   `GET /api/deployments/:id/infrastructure` also compares the infrastructure
+   components the stored manifest requires (the catalog) against the
+   persisted CloudFormation inventory. The API reports any missing or
+   unexpected component; it never scans AWS itself and never repairs
+   anything.
 10. **HTTPS (default URL)** — every deployment gets a permanent Deployz-owned
     URL. The runtime flow: the deployment's ALB exists in the customer account
     after INSTALL; the control plane's default-HTTPS machine reconciles two

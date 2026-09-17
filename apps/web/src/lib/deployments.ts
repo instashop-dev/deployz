@@ -221,6 +221,28 @@ export interface InfrastructureDisconnectWarning {
   lastVerifiedAt: string;
 }
 
+/** One catalog kind's requirement-vs-inventory comparison (Phase 6). */
+export interface InfrastructureExpectationComponent {
+  kind: InfrastructureComponentKind;
+  /** Whether this deployment's manifest requires the component. */
+  expected: boolean;
+  /** Whether the inventory has a non-removed component of this kind. */
+  present: boolean;
+}
+
+/** The server-side comparison of what the stored manifest requires against
+ *  what the inventory shows. Null when the deployment has no valid stored
+ *  manifest to compare against. A report only, never an auto-repair. */
+export interface InfrastructureExpectations {
+  schemaVersion: 1;
+  /** The five catalog kinds, in catalog order. */
+  components: InfrastructureExpectationComponent[];
+  /** expected && !present. */
+  missing: InfrastructureComponentKind[];
+  /** !expected && present among the five catalog kinds. */
+  unexpected: InfrastructureComponentKind[];
+}
+
 export interface InfrastructureResponse {
   provider: 'aws';
   region: string;
@@ -231,6 +253,7 @@ export interface InfrastructureResponse {
   components: InfrastructureComponent[];
   lastUpdatedAt: string | null;
   disconnectWarning: InfrastructureDisconnectWarning | null;
+  expectations: InfrastructureExpectations | null;
 }
 
 /** A single §40 activity-feed event. */
