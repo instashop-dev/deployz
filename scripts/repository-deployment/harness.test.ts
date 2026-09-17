@@ -1445,6 +1445,33 @@ describe('cleanup', () => {
     expect(result.failureStage).toBeNull();
   });
 
+  it('still removes the connector after a failed destroy/purge when no installationId was ever recorded (DEPLOY-023)', async () => {
+    // The bootstrap stack rolled back: the relay never enrolled, no
+    // installation id was ever assigned, so there is nothing retained for
+    // Purge to reach. destroyThroughProduct fails its dead wait on the
+    // relay, but that must not strand this connector forever.
+    const { run, evidence, result } = attempt(deployable, { bootstrapStatus: 'ROLLBACK_COMPLETE' });
+    await run();
+    expect(stageBRun(evidence).deploymentId).toBeTruthy();
+    expect(stageBRun(evidence).installationId).toBeFalsy();
+    const calls: string[] = [];
+    const teardown = {
+      async destroyThroughProduct() {
+        calls.push('destroy');
+        throw new Error('purge left cleanupState null: relay never enrolled');
+      },
+      async removeCanaryLeftovers() {
+        calls.push('leftovers');
+      },
+      async leakAudit() {
+        calls.push('audit');
+      },
+    };
+    const section = await cleanupAttempt({ config: loadConfig({}), api: idleApi(), evidence, teardown, now: Date.now }, result);
+    expect(calls).toEqual(['destroy', 'leftovers', 'audit']);
+    expect(section.bootstrapStackFinal).not.toBe('SKIPPED: purge not complete');
+  });
+
   it('maps the retained-state verification steps to PASS/FAIL/SKIPPED', async () => {
     const { run, evidence, result } = attempt(deployable, {});
     await run();

@@ -163,8 +163,11 @@ a deployment.
    the connector can still be removed. A Stage B ledger never sets
    `run.vendor`, so this guard keys on the deployment/installation ids and
    the product's own state, not on `run.vendor`. When Disconnect or Purge
-   fails, the leftovers step is skipped entirely rather than raced against
-   a retry.
+   fails, the leftovers step is skipped entirely (rather than raced
+   against a retry) only once an installation id was recorded; with no
+   installation id, the leftovers step still runs — removeCanaryLeftovers'
+   own guard already allows it — so a bootstrap stack that rolled back
+   before the relay enrolled is not stranded forever.
 5. After each wave and at the end of Stage B, an account-level scan for the
    Stage B tags and the product's installation tags must return nothing
    disposable. INACTIVE ECS cluster/task-definition ARNs that the tagging

@@ -97,8 +97,13 @@ export async function cleanupAttempt(input: CleanupInput, result: StageBResult):
   // destroy/purge did not complete strands whatever the sweep had not
   // reached yet. Skip the leftovers entirely rather than let a stale
   // connector state race the retry — a later `--cleanup` retries Purge
-  // first, through teardown's own guard.
-  if (destroyPurgeFailed) {
+  // first, through teardown's own guard. That only applies once an
+  // application stack ever existed (run.installationId set) — a run that
+  // failed before the relay enrolled has nothing retained to purge, so
+  // removeCanaryLeftovers must still run (its own guard already allows
+  // the connector deletion when there is no installationId); skipping it
+  // unconditionally would strand that connector's cleanupNeeded forever.
+  if (destroyPurgeFailed && run.installationId) {
     section.bootstrapStackFinal = 'SKIPPED: purge not complete';
   } else {
     try {
