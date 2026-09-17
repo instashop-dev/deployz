@@ -39,11 +39,12 @@ export function SupportModeBanner({ organizationName }: { organizationName: stri
         type="button"
         size="sm"
         variant="secondary"
-        disabled={pending}
+        loading={pending}
+        loadingText="Exiting support mode…"
         onClick={() => void onExit()}
         data-testid="support-banner-exit"
       >
-        {pending ? 'Exiting…' : 'Exit support mode'}
+        Exit support mode
       </Button>
     </div>
   );

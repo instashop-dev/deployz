@@ -2,6 +2,7 @@
 
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
+import { toast } from 'sonner';
 
 import { Button } from '@/components/ui/button';
 import { apiRequest, errorMessage } from '@/lib/api-client';
@@ -25,6 +26,7 @@ export function AcceptInvitationActions({ id }: { id: string }) {
       router.refresh();
     } catch (err) {
       setError(errorMessage(err));
+    } finally {
       setPending(null);
     }
   }
@@ -34,18 +36,22 @@ export function AcceptInvitationActions({ id }: { id: string }) {
       <div className="flex gap-2">
         <Button
           data-testid="invitation-accept"
-          disabled={pending !== null}
+          disabled={pending === 'reject'}
+          loading={pending === 'accept'}
+          loadingText="Accepting invitation…"
           onClick={() => respond('accept')}
         >
-          {pending === 'accept' ? 'Accepting…' : 'Accept'}
+          Accept
         </Button>
         <Button
           data-testid="invitation-decline"
           variant="outline"
-          disabled={pending !== null}
+          disabled={pending === 'accept'}
+          loading={pending === 'reject'}
+          loadingText="Declining invitation…"
           onClick={() => respond('reject')}
         >
-          {pending === 'reject' ? 'Declining…' : 'Decline'}
+          Decline
         </Button>
       </div>
       {error ? (
@@ -64,13 +70,19 @@ export function SignOutButton() {
 
   async function onSignOut(): Promise<void> {
     setPending(true);
-    await authClient.signOut();
-    router.refresh();
+    try {
+      await authClient.signOut();
+      router.refresh();
+    } catch {
+      toast.error("We couldn't sign you out. Try again in a moment.");
+    } finally {
+      setPending(false);
+    }
   }
 
   return (
-    <Button variant="outline" disabled={pending} onClick={onSignOut}>
-      {pending ? 'Signing out…' : 'Sign out'}
+    <Button variant="outline" loading={pending} loadingText="Signing out…" onClick={onSignOut}>
+      Sign out
     </Button>
   );
 }

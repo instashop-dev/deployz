@@ -107,7 +107,7 @@ export function InfrastructureSummary({
 
   if (infrastructure === null) {
     return (
-      <div className="flex flex-col gap-2" data-testid="infrastructure-loading">
+      <div className="flex flex-col gap-2" data-testid="infrastructure-loading" aria-busy="true">
         <Skeleton className="h-4 w-56" />
         <Skeleton className="h-32 w-full rounded-lg" />
       </div>

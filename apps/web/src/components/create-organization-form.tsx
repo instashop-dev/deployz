@@ -24,6 +24,7 @@ export function CreateOrganizationForm() {
       router.refresh();
     } catch (err) {
       setError(errorMessage(err));
+    } finally {
       setPending(false);
     }
   }
@@ -43,9 +44,11 @@ export function CreateOrganizationForm() {
       <Button
         data-testid="create-organization-submit"
         type="submit"
-        disabled={pending || name.trim().length === 0}
+        disabled={name.trim().length === 0}
+        loading={pending}
+        loadingText="Creating organization…"
       >
-        {pending ? 'Creating…' : 'Create organization'}
+        Create organization
       </Button>
       {error ? (
         <p role="alert" className="text-sm text-destructive">

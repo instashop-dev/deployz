@@ -340,7 +340,7 @@ function ErrorState({ message, onRetry }: { message: string; onRetry: () => void
 
 function OverviewSkeleton() {
   return (
-    <div className="flex flex-col gap-6" data-testid="admin-overview-loading">
+    <div className="flex flex-col gap-6" data-testid="admin-overview-loading" aria-busy="true">
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
         {Array.from({ length: 5 }).map((_, i) => (
           <Skeleton key={i} className="h-20 w-full rounded-xl" />

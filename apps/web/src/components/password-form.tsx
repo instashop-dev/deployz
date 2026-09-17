@@ -90,8 +90,13 @@ export function PasswordForm() {
         />
       </div>
       <div className="flex items-center gap-3">
-        <Button data-testid="password-save" type="submit" disabled={pending}>
-          {pending ? 'Saving…' : 'Change password'}
+        <Button
+          data-testid="password-save"
+          type="submit"
+          loading={pending}
+          loadingText="Saving password…"
+        >
+          Change password
         </Button>
         {saved ? (
           <p role="status" className="text-sm text-muted-foreground">

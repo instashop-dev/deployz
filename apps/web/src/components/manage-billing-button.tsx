@@ -44,11 +44,12 @@ export function ManageBillingButton({
       type="button"
       variant={variant}
       size={size}
-      disabled={pending}
+      loading={pending}
+      loadingText="Opening billing portal…"
       onClick={() => void onClick()}
       data-testid={`manage-billing-${target}`}
     >
-      {pending ? 'Opening…' : children}
+      {children}
       <ExternalLink aria-hidden className="size-4" />
     </Button>
   );

@@ -208,7 +208,7 @@ function ErrorState({ message, onRetry }: { message: string; onRetry: () => void
 
 function ListSkeleton() {
   return (
-    <div className="flex flex-col gap-3" data-testid="admin-vendors-loading">
+    <div className="flex flex-col gap-3" data-testid="admin-vendors-loading" aria-busy="true">
       <Skeleton className="h-24 w-full rounded-xl" />
       <Skeleton className="h-24 w-full rounded-xl" />
       <Skeleton className="h-24 w-full rounded-xl" />

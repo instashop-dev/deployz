@@ -47,9 +47,11 @@ export function ProfileForm({ name }: { name: string }) {
         <Button
           data-testid="profile-save"
           type="submit"
-          disabled={pending || value.trim().length === 0}
+          disabled={value.trim().length === 0}
+          loading={pending}
+          loadingText="Saving profile…"
         >
-          {pending ? 'Saving…' : 'Save'}
+          Save
         </Button>
         {saved ? (
           <p role="status" className="text-sm text-muted-foreground">

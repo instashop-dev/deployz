@@ -227,7 +227,7 @@ function DiagnosticsBody({
 
 function DiagnosticsSkeleton() {
   return (
-    <div className="flex flex-col gap-6" data-testid="diagnostics-loading">
+    <div className="flex flex-col gap-6" data-testid="diagnostics-loading" aria-busy="true">
       <div className="flex flex-col gap-2">
         <Skeleton className="h-8 w-40" />
         <Skeleton className="h-4 w-56" />

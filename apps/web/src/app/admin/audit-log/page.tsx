@@ -55,7 +55,7 @@ export default function AdminAuditLogPage() {
 
   useEffect(() => {
     let cancelled = false;
-    setState({ status: 'loading' });
+    setState((current) => (current.status === 'loaded' ? current : { status: 'loading' }));
     async function run(): Promise<void> {
       try {
         const result = await fetchAdminAuditLog({
@@ -187,11 +187,12 @@ export default function AdminAuditLogPage() {
               variant="outline"
               size="sm"
               className="self-center"
-              disabled={state.loadingMore}
+              loading={state.loadingMore}
+              loadingText="Loading older events…"
               onClick={() => void loadMore()}
               data-testid="audit-load-older"
             >
-              {state.loadingMore ? 'Loading…' : 'Load older'}
+              Load older
             </Button>
           ) : null}
         </>
@@ -298,7 +299,7 @@ function ErrorState({ message, onRetry }: { message: string; onRetry: () => void
 
 function ListSkeleton() {
   return (
-    <div className="flex flex-col gap-3" data-testid="admin-audit-log-loading">
+    <div className="flex flex-col gap-3" data-testid="admin-audit-log-loading" aria-busy="true">
       <Skeleton className="h-24 w-full rounded-xl" />
       <Skeleton className="h-24 w-full rounded-xl" />
     </div>

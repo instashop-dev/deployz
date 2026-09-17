@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Spinner } from '@/components/ui/spinner';
 import { apiRequest, errorMessage } from '@/lib/api-client';
 import {
   ASSIGNABLE_ROLES,
@@ -77,6 +78,7 @@ function MemberRow({
 
   const canAct = canActOn(currentUserRole, member.role, isSelf);
   const canTransfer = currentUserRole === 'owner' && !isSelf && member.role !== 'owner';
+  const rowBusy = roleSaving || removePending || transferPending;
 
   async function handleRoleChange(role: 'admin' | 'member'): Promise<void> {
     setRoleSaving(true);
@@ -99,8 +101,9 @@ function MemberRow({
       router.refresh();
     } catch (err) {
       setRemoveError(errorMessage(err));
-      setRemovePending(false);
       setRemoveStep('idle');
+    } finally {
+      setRemovePending(false);
     }
   }
 
@@ -115,8 +118,9 @@ function MemberRow({
       router.refresh();
     } catch (err) {
       setTransferError(errorMessage(err));
-      setTransferPending(false);
       setTransferStep('idle');
+    } finally {
+      setTransferPending(false);
     }
   }
 
@@ -137,19 +141,23 @@ function MemberRow({
         </div>
         <div className="flex items-center gap-2">
           {canAct ? (
-            <select
-              data-testid="member-role-select"
-              value={member.role === 'owner' ? 'admin' : member.role}
-              disabled={roleSaving}
-              onChange={(event) => handleRoleChange(event.target.value as 'admin' | 'member')}
-              className="h-8 rounded-lg border border-input bg-transparent px-2.5 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:opacity-50 dark:bg-input/30"
-            >
-              {ASSIGNABLE_ROLES.map((role) => (
-                <option key={role} value={role}>
-                  {ROLE_LABELS[role]}
-                </option>
-              ))}
-            </select>
+            <div className="flex items-center gap-1.5">
+              <select
+                data-testid="member-role-select"
+                value={member.role === 'owner' ? 'admin' : member.role}
+                disabled={rowBusy}
+                aria-busy={roleSaving || undefined}
+                onChange={(event) => handleRoleChange(event.target.value as 'admin' | 'member')}
+                className="h-8 rounded-lg border border-input bg-transparent px-2.5 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:opacity-50 dark:bg-input/30"
+              >
+                {ASSIGNABLE_ROLES.map((role) => (
+                  <option key={role} value={role}>
+                    {ROLE_LABELS[role]}
+                  </option>
+                ))}
+              </select>
+              {roleSaving ? <Spinner aria-hidden className="size-3.5" /> : null}
+            </div>
           ) : (
             <Badge variant="secondary">{ROLE_LABELS[member.role]}</Badge>
           )}
@@ -159,6 +167,7 @@ function MemberRow({
                 type="button"
                 variant="outline"
                 size="sm"
+                disabled={rowBusy}
                 data-testid="member-remove"
                 onClick={() => setRemoveStep('confirm')}
               >
@@ -170,13 +179,21 @@ function MemberRow({
                   type="button"
                   variant="destructive"
                   size="sm"
-                  disabled={removePending}
+                  disabled={roleSaving || transferPending}
+                  loading={removePending}
+                  loadingText="Removing member…"
                   onClick={handleRemove}
                   data-testid="member-remove-confirm"
                 >
-                  {removePending ? 'Removing…' : 'Confirm remove'}
+                  Confirm remove
                 </Button>
-                <Button type="button" variant="ghost" size="sm" onClick={() => setRemoveStep('idle')}>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  disabled={removePending}
+                  onClick={() => setRemoveStep('idle')}
+                >
                   Cancel
                 </Button>
               </div>
@@ -188,6 +205,7 @@ function MemberRow({
                 type="button"
                 variant="outline"
                 size="sm"
+                disabled={rowBusy}
                 data-testid="transfer-ownership"
                 onClick={() => setTransferStep('confirm')}
               >
@@ -199,13 +217,21 @@ function MemberRow({
                   type="button"
                   variant="destructive"
                   size="sm"
-                  disabled={transferPending}
+                  disabled={roleSaving || removePending}
+                  loading={transferPending}
+                  loadingText="Transferring ownership…"
                   onClick={handleTransfer}
                   data-testid="transfer-ownership-confirm"
                 >
-                  {transferPending ? 'Transferring…' : `Make ${member.name} the owner`}
+                  {`Make ${member.name} the owner`}
                 </Button>
-                <Button type="button" variant="ghost" size="sm" onClick={() => setTransferStep('idle')}>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  disabled={transferPending}
+                  onClick={() => setTransferStep('idle')}
+                >
                   Cancel
                 </Button>
               </div>
@@ -250,8 +276,9 @@ export function LeaveOrganizationButton() {
       router.refresh();
     } catch (err) {
       setError(errorMessage(err));
-      setPending(false);
       setStep('idle');
+    } finally {
+      setPending(false);
     }
   }
 
@@ -277,13 +304,14 @@ export function LeaveOrganizationButton() {
         <Button
           type="button"
           variant="destructive"
-          disabled={pending}
+          loading={pending}
+          loadingText="Leaving organization…"
           onClick={handleLeave}
           data-testid="leave-organization-confirm"
         >
-          {pending ? 'Leaving…' : 'Confirm leave'}
+          Confirm leave
         </Button>
-        <Button type="button" variant="ghost" onClick={() => setStep('idle')}>
+        <Button type="button" variant="ghost" disabled={pending} onClick={() => setStep('idle')}>
           Cancel
         </Button>
       </div>
