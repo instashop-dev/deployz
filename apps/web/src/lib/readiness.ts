@@ -9,6 +9,7 @@ import type { ApplicationRequirementsSummary } from '@deployz/contracts';
 
 import { apiUrl } from '@/lib/api-url';
 import type { Application } from '@/lib/applications';
+import type { DeploymentState } from '@/lib/deployment-vocabulary';
 import type { FleetDeployment } from '@/lib/deployments';
 
 // ── §42 onboarding steps (VERBATIM) ─────────────────────────────────────────
@@ -57,6 +58,21 @@ export interface PassedCheck {
   label: string;
 }
 
+/** One infrastructure requirement difference reported for an existing deployment. */
+export type DeploymentRequirementDriftEntry = {
+  kind: 'database' | 'cache' | 'storage';
+  deployed: boolean;
+  desired: boolean;
+};
+
+/** One existing deployment whose frozen requirements differ from the application's current effective requirements. */
+export interface DeploymentRequirementDriftSummary {
+  deploymentId: string;
+  customerName: string;
+  state: DeploymentState;
+  drift: DeploymentRequirementDriftEntry[];
+}
+
 /**
  * The exact `GET /api/applications/:id/readiness` response shape (§19).
  * When `analysisStatus !== 'COMPLETE'` the state is ANALYSIS_INCOMPLETE and
@@ -78,6 +94,8 @@ export interface ApplicationReadiness {
   detected: DetectedApplication | null;
   /** Server-computed database/redis/storage truth (detected/effective/overridden). Null while analysis is incomplete, or from a legacy API response. */
   requirements: ApplicationRequirementsSummary | null;
+  /** Existing deployments whose frozen manifest differs from the application's current effective requirements. Empty while analysis is incomplete. */
+  deploymentRequirementDrift: DeploymentRequirementDriftSummary[];
 }
 
 // ── Detected facts (mirrors `ApplicationAnalysis` in @deployz/contracts) ────
@@ -701,6 +719,9 @@ export function detectedFieldValue(
 
 // ── Readiness table rows ────────────────────────────────────────────────────
 
+/** Status pill for a database/redis/storage requirement row. */
+export type ReadinessRequirementStatus = 'required' | 'not-required' | 'vendor-override' | 'needs-review';
+
 /** One setting row in the redesigned deployment-readiness table. */
 export interface ReadinessTableSetting {
   kind: 'setting';
@@ -712,6 +733,8 @@ export interface ReadinessTableSetting {
   editable: boolean;
   field: EditableReadinessField | null;
   evidence: AnalysisEvidence[];
+  /** Present for database/redis/storage rows computed from the server requirements summary. */
+  status?: ReadinessRequirementStatus;
 }
 
 /** One passed-check row in the redesigned deployment-readiness table. */
@@ -784,6 +807,7 @@ export function deriveReadinessRows(
       let value = fact.value;
       let detectedValue = fact.value;
       let overridden = false;
+      let status: ReadinessRequirementStatus | undefined;
       if (field) {
         const requirementKey = requirementSummaryKeyFor(field);
         if (requirementKey) {
@@ -794,8 +818,7 @@ export function deriveReadinessRows(
           // secondary text (rendered by the table row) shows the detected
           // state and whether the vendor overrode it. When the API has not
           // sent requirements (analysis incomplete, or a legacy response),
-          // fall back to the plain detected fact — never invent an effective
-          // value.
+          // show "Needs review" — never invent an effective value.
           const requirement = readiness.requirements?.[requirementKey];
           if (requirement) {
             value = requirement.effective ? 'Required' : 'Not required';
@@ -810,6 +833,17 @@ export function deriveReadinessRows(
               detectedValue =
                 'Every deployment gets a storage bucket; this setting controls whether the app is wired to it.';
             }
+            if (overridden) {
+              status = 'vendor-override';
+            } else if (requirement.effective) {
+              status = 'required';
+            } else {
+              status = 'not-required';
+            }
+          } else {
+            value = 'Needs review';
+            detectedValue = '';
+            status = 'needs-review';
           }
         } else {
           value = effectiveFieldValue(field, application, readiness.detected);
@@ -827,6 +861,7 @@ export function deriveReadinessRows(
         editable: field !== null,
         field,
         evidence: fact.evidence,
+        ...(status ? { status } : {}),
       });
     }
   }

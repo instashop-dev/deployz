@@ -2397,6 +2397,7 @@ describe('server — fleet list & deployment detail joins, readiness derivation 
       analyzedCommitSha: null,
       detected: null,
       requirements: null,
+      deploymentRequirementDrift: [],
     });
   });
 
@@ -2472,6 +2473,7 @@ describe('server — fleet list & deployment detail joins, readiness derivation 
         redis: { detected: false, effective: false, overridden: false },
         storage: { detected: false, effective: false, overridden: false },
       },
+      deploymentRequirementDrift: [],
     });
   });
 
@@ -2666,6 +2668,118 @@ describe('server — fleet list & deployment detail joins, readiness derivation 
       });
       expect(response.statusCode).toBe(200);
       expect((response.json() as { requirements: unknown }).requirements).toBeNull();
+    });
+
+    // The vendor-facing drift surface: existing deployments keep their frozen
+    // manifest, and the readiness API reports which ones now differ from the
+    // application's effective requirements. Reported only — never repaired.
+    describe('readiness: deployment requirement drift (frozen manifest vs effective requirements)', () => {
+      // Same detection base as above: the express-api fixture detects a
+      // database naturally; redis is forced off to isolate the database
+      // dimension.
+      const detected = detectedWithRedisRequired(false);
+
+      function readinessBody(applicationId: string) {
+        return app.inject({
+          method: 'GET',
+          url: `/api/applications/${applicationId}/readiness`,
+          headers: { cookie: org.cookie },
+        });
+      }
+
+      it('a vendor override flip after a deployment exists is reported, and desired_state stays byte-identical', async () => {
+        const application = await insertApplication(db, org.organizationId, {
+          analysisStatus: 'COMPLETE',
+          compatibilityStatus: 'READY',
+          databaseRequired: true,
+          detectedMetadata: { application: detected },
+        });
+        const customer = await insertCustomer(db, org.organizationId);
+        // Frozen at creation with the database required (insertDeployment's READY_MANIFEST).
+        const deployment = await insertDeployment(db, org.organizationId, application.id, customer.id);
+        const frozenBefore = JSON.stringify(deployment.desiredState);
+
+        const patch = await sendJson(app, 'PATCH', `/api/applications/${application.id}`, { databaseRequired: false }, { cookie: org.cookie });
+        expect(patch.statusCode, patch.body).toBe(200);
+
+        const response = await readinessBody(application.id);
+        expect(response.statusCode).toBe(200);
+        expect((response.json() as { deploymentRequirementDrift: unknown }).deploymentRequirementDrift).toEqual([
+          {
+            deploymentId: deployment.id,
+            customerName: customer.name,
+            state: 'NOT_INSTALLED',
+            drift: [{ kind: 'database', deployed: true, desired: false }],
+          },
+        ]);
+
+        // Reported, not repaired: the frozen manifest is untouched.
+        const [row] = await db
+          .select({ desiredState: schema.deployments.desiredState })
+          .from(schema.deployments)
+          .where(eq(schema.deployments.id, deployment.id));
+        expect(JSON.stringify(row!.desiredState)).toBe(frozenBefore);
+      });
+
+      it('a frozen manifest aligned with the effective requirements yields an empty array', async () => {
+        const application = await insertApplication(db, org.organizationId, {
+          analysisStatus: 'COMPLETE',
+          compatibilityStatus: 'READY',
+          databaseRequired: true,
+          detectedMetadata: { application: detected },
+        });
+        const customer = await insertCustomer(db, org.organizationId);
+        await insertDeployment(db, org.organizationId, application.id, customer.id);
+
+        const response = await readinessBody(application.id);
+        expect(response.statusCode).toBe(200);
+        expect((response.json() as { deploymentRequirementDrift: unknown }).deploymentRequirementDrift).toEqual([]);
+      });
+
+      it('DELETED deployments are excluded', async () => {
+        // databaseRequired defaults to false, so the frozen manifest (database
+        // true) would drift — but the deployment is gone.
+        const application = await insertApplication(db, org.organizationId, {
+          analysisStatus: 'COMPLETE',
+          compatibilityStatus: 'READY',
+          detectedMetadata: { application: detected },
+        });
+        const customer = await insertCustomer(db, org.organizationId);
+        await insertDeployment(db, org.organizationId, application.id, customer.id, { state: 'DELETED' });
+
+        const response = await readinessBody(application.id);
+        expect(response.statusCode).toBe(200);
+        expect((response.json() as { deploymentRequirementDrift: unknown }).deploymentRequirementDrift).toEqual([]);
+      });
+
+      it('analysis incomplete: requirements is null and deploymentRequirementDrift is [] even with a drifted deployment', async () => {
+        const application = await insertApplication(db, org.organizationId, { analysisStatus: 'ANALYZING' });
+        const customer = await insertCustomer(db, org.organizationId);
+        await insertDeployment(db, org.organizationId, application.id, customer.id);
+
+        const response = await readinessBody(application.id);
+        expect(response.statusCode).toBe(200);
+        const body = response.json() as { requirements: unknown; deploymentRequirementDrift: unknown };
+        expect(body.requirements).toBeNull();
+        expect(body.deploymentRequirementDrift).toEqual([]);
+      });
+
+      it('a deployment with an invalid stored manifest is skipped without error', async () => {
+        const application = await insertApplication(db, org.organizationId, {
+          analysisStatus: 'COMPLETE',
+          compatibilityStatus: 'READY',
+          databaseRequired: true,
+          detectedMetadata: { application: detected },
+        });
+        const customer = await insertCustomer(db, org.organizationId);
+        await insertDeployment(db, org.organizationId, application.id, customer.id, {
+          desiredState: { manifest: { not: 'a manifest' } },
+        });
+
+        const response = await readinessBody(application.id);
+        expect(response.statusCode).toBe(200);
+        expect((response.json() as { deploymentRequirementDrift: unknown }).deploymentRequirementDrift).toEqual([]);
+      });
     });
   });
 });

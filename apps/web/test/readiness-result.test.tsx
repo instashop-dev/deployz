@@ -1,8 +1,34 @@
-import type { ApplicationRequirementsSummary } from '@deployz/contracts';
+import type { ApplicationRequirementsSummary, DeploymentPlan } from '@deployz/contracts';
 import { JSDOM } from 'jsdom';
+import React, { act } from 'react';
+import { createRoot } from 'react-dom/client';
 import { renderToString } from 'react-dom/server';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
+const mocks = vi.hoisted(() => ({
+  updateApplication: vi.fn(),
+}));
+
+vi.mock('@/components/ui/dialog', () => ({
+  Dialog: ({ children, open }: { children: React.ReactNode; open?: boolean }) =>
+    open ? <div data-testid="dialog-mock">{children}</div> : null,
+  DialogContent: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
+  DialogHeader: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
+  DialogTitle: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
+  DialogDescription: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
+  DialogFooter: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
+}));
+
+vi.mock('@/lib/applications', () => ({
+  updateApplication: mocks.updateApplication,
+}));
+
+import {
+  EditDialog,
+  InstallPlanSection,
+  ReadinessTableRow,
+  RequirementDriftNotice,
+} from '../src/app/dashboard/applications/[id]/readiness-components';
 import {
   deriveLifecycleSteps,
   readinessHeaderPresentation,
@@ -14,6 +40,7 @@ import {
   type DetectedApplication,
   type DetectedFact,
   type FactSource,
+  type ReadinessTableSetting,
 } from '../src/lib/readiness';
 
 /**
@@ -102,6 +129,7 @@ function readinessFixture(overrides: Partial<ApplicationReadiness> = {}): Applic
     analyzedCommitSha: 'abc1234',
     detected: detectedFixture(),
     requirements: requirementsFixture(),
+    deploymentRequirementDrift: overrides.deploymentRequirementDrift ?? [],
     ...overrides,
   };
 }
@@ -310,10 +338,10 @@ describe('Deployment readiness table rows', () => {
     expect(database).toMatchObject({ value: 'Not required', detectedValue: 'Required', overridden: true });
   });
 
-  it('falls back to the plain detected fact when requirements is null', () => {
+  it('shows Needs review when requirements is null', () => {
     const rows = deriveReadinessRows(applicationFixture(), readinessFixture({ requirements: null }));
-    const database = rows.find((r) => r.kind === 'setting' && r.id === 'database');
-    expect(database?.value).toContain('PostgreSQL');
+    const database = rows.find((r) => r.kind === 'setting' && r.id === 'database') as import('../src/lib/readiness').ReadinessTableSetting | undefined;
+    expect(database?.value).toBe('Needs review');
     expect(database?.overridden).toBe(false);
   });
 });
@@ -342,5 +370,169 @@ describe('Effective value / override resolution', () => {
   it('reports detected values as strings', () => {
     expect(detectedFieldValue('containerPort', detectedFixture())).toBe('3000');
     expect(detectedFieldValue('healthPath', detectedFixture())).toBe('/health');
+  });
+});
+
+function renderToDocument(element: React.ReactElement): Document {
+  return new JSDOM(renderToString(element)).window.document;
+}
+
+describe('ReadinessTableRow status pills', () => {
+  const baseRow: ReadinessTableSetting = {
+    kind: 'setting',
+    id: 'database',
+    label: 'Database',
+    value: 'Required',
+    detectedValue: 'Required',
+    overridden: false,
+    editable: true,
+    field: 'databaseRequired',
+    evidence: [],
+  };
+
+  it('renders Required for a required, non-overridden requirement', () => {
+    const doc = renderToDocument(
+      <ReadinessTableRow
+        row={{ ...baseRow, status: 'required' }}
+        application={applicationFixture()}
+        onEdit={() => {}}
+        onShowFix={() => {}}
+      />,
+    );
+    expect(doc.body.textContent).toContain('Required');
+  });
+
+  it('renders Not required for a non-required requirement', () => {
+    const doc = renderToDocument(
+      <ReadinessTableRow
+        row={{ ...baseRow, value: 'Not required', status: 'not-required' }}
+        application={applicationFixture()}
+        onEdit={() => {}}
+        onShowFix={() => {}}
+      />,
+    );
+    expect(doc.body.textContent).toContain('Not required');
+  });
+
+  it('renders Vendor override for an overridden requirement', () => {
+    const doc = renderToDocument(
+      <ReadinessTableRow
+        row={{ ...baseRow, value: 'Not required', detectedValue: 'Required', overridden: true, status: 'vendor-override' }}
+        application={applicationFixture()}
+        onEdit={() => {}}
+        onShowFix={() => {}}
+      />,
+    );
+    expect(doc.body.textContent).toContain('Vendor override');
+  });
+
+  it('renders Needs review when analysis has not produced a requirements summary', () => {
+    const doc = renderToDocument(
+      <ReadinessTableRow
+        row={{ ...baseRow, value: 'Needs review', status: 'needs-review' }}
+        application={applicationFixture()}
+        onEdit={() => {}}
+        onShowFix={() => {}}
+      />,
+    );
+    expect(doc.body.textContent).toContain('Needs review');
+  });
+});
+
+describe('RequirementDriftNotice', () => {
+  it('lists each affected deployment with state, drift lines and a link', () => {
+    const doc = renderToDocument(
+      <RequirementDriftNotice
+        drifts={[
+          {
+            deploymentId: 'dep-1',
+            customerName: 'Acme Corp',
+            state: 'HEALTHY',
+            drift: [{ kind: 'cache', deployed: false, desired: true }],
+          },
+        ]}
+      />,
+    );
+    expect(doc.body.textContent).toContain('Acme Corp');
+    expect(doc.body.textContent).toContain('Cache: not provisioned here, now required');
+    expect(doc.querySelector('a[href="/dashboard/deployments/dep-1"]')).not.toBeNull();
+  });
+});
+
+describe('InstallPlanSection', () => {
+  it('renders plan components with action and lifecycle', () => {
+    const plan: DeploymentPlan = {
+      schemaVersion: 1,
+      action: 'INSTALL',
+      region: null,
+      components: [
+        { kind: 'application', name: 'Application', action: 'CREATE', lifecycle: 'delete' },
+        { kind: 'database', name: 'Database', action: 'CREATE', lifecycle: 'retain' },
+      ],
+      requirementDrift: [],
+    };
+    const doc = renderToDocument(<InstallPlanSection plan={plan} />);
+    expect(doc.body.textContent).toContain('Application');
+    expect(doc.body.textContent).toContain('Database');
+    expect(doc.body.textContent).toContain('CREATE');
+    expect(doc.body.textContent).toContain('retain');
+  });
+});
+
+describe('EditDialog needs-review state', () => {
+  it('disables the boolean input when the server requirements summary is null', () => {
+    const readiness = readinessFixture({ requirements: null });
+    const doc = renderToDocument(
+      <EditDialog
+        field="databaseRequired"
+        application={applicationFixture()}
+        readiness={readiness}
+        onClose={() => {}}
+        onSaved={() => {}}
+      />,
+    );
+    const checkbox = doc.querySelector('input[type="checkbox"]');
+    expect(checkbox?.hasAttribute('disabled')).toBe(true);
+    expect(doc.body.textContent).toContain('Needs review');
+  });
+});
+
+describe('EditDialog save path', () => {
+  it('saves the override, then triggers the refresh the page wires to readiness and plan refetch', async () => {
+    mocks.updateApplication.mockReset().mockResolvedValue(applicationFixture());
+    const onSaved = vi.fn().mockResolvedValue(undefined);
+    const { window } = new JSDOM('<!DOCTYPE html><html><body></body></html>');
+    const previousWindow = global.window;
+    const previousDocument = global.document;
+    global.window = window as unknown as Window & typeof globalThis;
+    global.document = window.document;
+    (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+    const container = window.document.createElement('div');
+    window.document.body.appendChild(container);
+    try {
+      await act(async () => {
+        createRoot(container).render(
+          <EditDialog
+            field="databaseRequired"
+            application={applicationFixture()}
+            readiness={readinessFixture()}
+            onClose={() => {}}
+            onSaved={onSaved}
+          />,
+        );
+      });
+      const save = [...window.document.querySelectorAll('button')].find(
+        (button) => button.textContent === 'Save',
+      );
+      expect(save).toBeDefined();
+      await act(async () => {
+        save?.click();
+      });
+      expect(mocks.updateApplication).toHaveBeenCalledWith('app-1', { databaseRequired: true });
+      expect(onSaved).toHaveBeenCalledTimes(1);
+    } finally {
+      global.window = previousWindow;
+      global.document = previousDocument;
+    }
   });
 });
