@@ -106,6 +106,37 @@ export const dependenciesSchema = z
   })
   .strict();
 
+export const SMOKE_EXERCISES = ['postgres', 'redis'] as const;
+export type SmokeExercise = (typeof SMOKE_EXERCISES)[number];
+
+/**
+ * A repository-specific smoke check the harness runs against the live
+ * application after HTTPS is ACTIVE — a generic 200 is not enough. At least
+ * one of `bodyIncludes`/`jsonPath` is required: a status-only contract is
+ * rejected here rather than silently passing on any non-error status.
+ */
+export const smokeCheckSchema = z
+  .object({
+    path: z.string().regex(/^\//),
+    method: z.literal('GET').default('GET'),
+    status: z.union([z.number().int().min(100).max(599), z.array(z.number().int().min(100).max(599)).min(1)]),
+    bodyIncludes: z.string().min(1).optional(),
+    /** A dot path into the JSON body, e.g. `status` or `data.ok`. */
+    jsonPath: z.string().min(1).optional(),
+    /** Compared with strict equality; when `jsonPath` is set without this, the value must exist and be non-null. */
+    jsonEquals: z.union([z.string(), z.number(), z.boolean()]).optional(),
+    /** Which managed dependency this check exercises, when it fails, that dependency is recorded FAIL. */
+    exercises: z.array(z.enum(SMOKE_EXERCISES)).optional(),
+    graceSeconds: z.number().int().min(0).max(600).default(0),
+    retries: z.number().int().min(0).max(10).default(3),
+    retryDelaySeconds: z.number().int().min(1).max(120).default(20),
+  })
+  .strict()
+  .refine((check) => check.bodyIncludes !== undefined || check.jsonPath !== undefined, {
+    message: 'a smoke check needs bodyIncludes or jsonPath — a status-only contract does not prove the application answered',
+  });
+export type SmokeCheck = z.infer<typeof smokeCheckSchema>;
+
 export const repositoryConfigSchema = z
   .object({
     id: z.string().regex(ENTRY_ID_REGEX),
@@ -120,6 +151,7 @@ export const repositoryConfigSchema = z
     secrets: z.array(secretSpecSchema).optional(),
     verify: verifySchema.optional(),
     dependencies: dependenciesSchema.optional(),
+    smoke: z.array(smokeCheckSchema).optional(),
     /** Registry findings (findings.md) that explain this entry's known outcome. */
     findings: z.array(z.string().regex(/^DEPLOY-\d{3}$/)).default([]),
     notes: z.array(z.string()).default([]),
@@ -222,4 +254,15 @@ export function providedKeys(entry: RepositoryConfig): string[] {
 /** The configuration keys whose value must carry the deployment's own address. */
 export function appUrlKeys(entry: RepositoryConfig): string[] {
   return (entry.config ?? []).filter((value) => value.value.includes(APP_URL_TOKEN)).map((value) => value.key);
+}
+
+/**
+ * `--require-smoke`: a repository with no smoke contract must stop before
+ * anything is created, not fail 40 minutes later on a generic 200. Throws
+ * the refusal; does nothing when the flag is off or a contract is configured.
+ */
+export function requireSmokeContract(entry: RepositoryConfig, requireSmoke: boolean): void {
+  if (requireSmoke && (entry.smoke?.length ?? 0) === 0) {
+    throw new Error(`${entry.id} has no smoke contract — refusing under --require-smoke (add a "smoke" entry to its deploy-config.yaml entry)`);
+  }
 }

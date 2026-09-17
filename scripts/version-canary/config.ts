@@ -49,6 +49,15 @@ export interface CanaryConfig {
   /** The dashboard origin, sent as the Origin header (the API only accepts auth calls from it). */
   readonly webUrl: string;
   readonly region: string;
+  /**
+   * Where the control-plane-side resources live — the `deployz-images` ECR
+   * repository and the `Deployz-TemplateBucket` export — which only exist in
+   * us-east-1. `region` is the install (customer) region and can differ from
+   * this when a run targets another region (env `DEPLOYZ_CONTROL_PLANE_REGION`
+   * or `--region` in Stage B). Every customer-side read/write stays on
+   * `region`; only ECR and the template bucket route through this one.
+   */
+  readonly controlPlaneRegion: string;
   readonly expectedAccountId: string;
   readonly githubInstallationId: string;
   readonly fixtureRepo: string;
@@ -141,6 +150,7 @@ export function loadConfig(
     apiUrl: (env['DEPLOYZ_CANARY_API_URL'] ?? 'https://api.deployz.dev').replace(/\/$/, ''),
     webUrl: (env['DEPLOYZ_CANARY_WEB_URL'] ?? 'https://app.deployz.dev').replace(/\/$/, ''),
     region: env['AWS_REGION'] ?? 'us-east-1',
+    controlPlaneRegion: env['DEPLOYZ_CONTROL_PLANE_REGION'] ?? 'us-east-1',
     expectedAccountId: env['DEPLOYZ_CANARY_EXPECTED_ACCOUNT'] ?? '151955775369',
     githubInstallationId: env['DEPLOYZ_CANARY_GITHUB_INSTALLATION_ID'] ?? '156387233',
     // An explicit fixture repo always wins over the profile's default.

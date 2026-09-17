@@ -389,7 +389,7 @@ export async function removeCanaryLeftovers(canary: Canary): Promise<void> {
 
   await evidence.step('Remove run-scoped images, task definitions and template objects', async (details) => {
     const tags = Object.values(run.releases).map((r) => r.imageTag ?? r.version);
-    details['ecrTagsDeleted'] = await deleteEcrTags(config.region, ECR_REPOSITORY, tags);
+    details['ecrTagsDeleted'] = await deleteEcrTags(config.controlPlaneRegion, ECR_REPOSITORY, tags);
     const shaTags = [...new Set(Object.values(run.releases).map((r) => r.gitSha))];
     // The build also tags the image with the git SHA (traceability). Those
     // tags are shared across runs of the same fixture commit — delete only
@@ -398,10 +398,10 @@ export async function removeCanaryLeftovers(canary: Canary): Promise<void> {
     const { ecrDigestForTag } = await import('./aws.js');
     const shaTagsToDelete: string[] = [];
     for (const tag of shaTags) {
-      const digest = await ecrDigestForTag(config.region, ECR_REPOSITORY, tag);
+      const digest = await ecrDigestForTag(config.controlPlaneRegion, ECR_REPOSITORY, tag);
       if (digest && runDigests.has(digest)) shaTagsToDelete.push(tag);
     }
-    details['shaTagsDeleted'] = await deleteEcrTags(config.region, ECR_REPOSITORY, shaTagsToDelete);
+    details['shaTagsDeleted'] = await deleteEcrTags(config.controlPlaneRegion, ECR_REPOSITORY, shaTagsToDelete);
 
     if (run.installationId) {
       const { resourcesTagged } = await import('./aws.js');
@@ -432,6 +432,7 @@ export async function leakAudit(canary: Canary): Promise<LeakAudit> {
       deploymentId: run.deploymentId ?? null,
       ecrRepository: ECR_REPOSITORY,
       ecrTags: Object.values(run.releases).map((r) => r.imageTag ?? r.version),
+      ecrRegion: config.controlPlaneRegion,
     });
     details['audit'] = audit;
     // INACTIVE ECS clusters/task definitions linger in the tagging API after

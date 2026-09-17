@@ -7,10 +7,18 @@
  */
 import type { CanaryConfig } from '../version-canary/config.js';
 import { waitFor, type ControlPlane } from '../version-canary/control-plane.js';
-import type { Evidence } from '../version-canary/evidence.js';
+import type { Evidence, StepRecord } from '../version-canary/evidence.js';
 import type { Canary } from '../version-canary/steps.js';
 import { stageBRun } from './ledger.js';
 import type { StageBResult } from './results.js';
+
+/** PASS/FAIL/SKIPPED/NOT_ATTEMPTED for one of destroyThroughProduct's retained-state
+ * verification steps, from the evidence record it left (absent when the step never ran). */
+function stepOutcome(step: StepRecord | undefined): StageBResult['cleanup']['retainedState'] {
+  if (!step) return 'NOT_ATTEMPTED';
+  if (step.details['skipped']) return 'SKIPPED';
+  return step.status === 'PASS' ? 'PASS' : 'FAIL';
+}
 
 export interface TeardownLike {
   destroyThroughProduct(canary: Canary): Promise<void>;
@@ -90,6 +98,11 @@ export async function cleanupAttempt(input: CleanupInput, result: StageBResult):
   }
   const leftoversStep = [...evidence.run.steps].reverse().find((s) => s.name.startsWith('Remove the connector'));
   section.bootstrapStackFinal = (leftoversStep?.details['bootstrapStackFinal'] as string | undefined) ?? (leftoversStep?.details['bootstrapStack'] as string | undefined) ?? null;
+
+  const retainedStep = [...evidence.run.steps].reverse().find((s) => s.name === 'Verify retained state between Disconnect and Purge');
+  const purgedStep = [...evidence.run.steps].reverse().find((s) => s.name === 'Verify the retained set is gone after Purge');
+  section.retainedState = stepOutcome(retainedStep);
+  section.purgedState = stepOutcome(purgedStep);
 
   try {
     await teardown.leakAudit(canary);

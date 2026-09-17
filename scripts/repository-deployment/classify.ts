@@ -15,8 +15,11 @@ export type FunnelPoint =
   | 'build'
   | 'install'
   | 'auto-deploy'
+  | 'inventory'
   | 'runtime'
   | 'https'
+  | 'smoke'
+  | 'update'
   | 'dependencies'
   | 'cleanup'
   | 'harness';
@@ -228,6 +231,15 @@ export function classifyFailure(evidence: FailureEvidence): ClassifiedFailure {
 
   if (point === 'https') {
     return { failureStage: 'TLS_ERROR', rootCause: null, rootCauseEvidence: `default HTTPS ended ${evidence.httpsStatus ?? 'unknown'}: ${trim(evidence.message)} — decide DEPLOYZ_BUG vs AWS_TRANSIENT_FAILURE` };
+  }
+  if (point === 'inventory') {
+    return { failureStage: 'INFRA_ERROR', rootCause: 'DEPLOYZ_BUG', rootCauseEvidence: `plan-versus-actual inventory disagrees: ${trim(evidence.message)}` };
+  }
+  if (point === 'smoke') {
+    return { failureStage: 'APPLICATION_ERROR', rootCause: null, rootCauseEvidence: `${trim(evidence.message)} — decide DEPLOYZ_BUG vs REPO_CONFIGURATION` };
+  }
+  if (point === 'update') {
+    return { failureStage: 'INFRA_ERROR', rootCause: null, rootCauseEvidence: `the update/redeploy exercise failed: ${trim(evidence.message)} — decide DEPLOYZ_BUG vs AWS_TRANSIENT_FAILURE` };
   }
   if (point === 'runtime' || point === 'dependencies') {
     const appStatuses = (evidence.appStatuses ?? []).filter((s): s is number => s !== null);

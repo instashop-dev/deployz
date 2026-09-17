@@ -13,10 +13,10 @@ import { applicationStackNameForInstallation, releaseImageTag } from '@deployz/c
 
 import type { BenchmarkEntry } from '../repository-compatibility/manifest.js';
 import type { Evidence } from '../version-canary/evidence.js';
-import { ControlPlaneError, describeDeployment, waitFor, type DeploymentDetail } from '../version-canary/control-plane.js';
+import { ControlPlaneError, describeDeployment, waitFor, type DeploymentDetail, type DeploymentPlanView, type InfrastructureInventory } from '../version-canary/control-plane.js';
 import { parseQuickCreateUrl } from '../version-canary/steps.js';
 import { classifyFailure, type FailureEvidence, type FunnelPoint } from './classify.js';
-import { APP_URL_TOKEN, appUrlKeys, providedKeys, secretFormat, secretKey, type RepositoryConfig, type SecretFormat } from './config.js';
+import { APP_URL_TOKEN, appUrlKeys, providedKeys, secretFormat, secretKey, type RepositoryConfig, type SecretFormat, type SmokeCheck } from './config.js';
 import type { DependencyPresence, StoppedTask, TaskDefinitionEnv } from './evidence.js';
 import { stoppedExit } from './evidence.js';
 import { stageBRun } from './ledger.js';
@@ -36,6 +36,8 @@ export interface Timeouts {
   httpsMs: number;
   /** After default HTTPS is ACTIVE: how long the health path may take to answer below 500 through the edge. */
   httpsReadyMs: number;
+  /** How long the persisted infrastructure inventory may take to settle (missing/unexpected both empty) before the inventory gate fails. */
+  inventoryMs: number;
 }
 
 export const DEFAULT_TIMEOUTS: Timeouts = {
@@ -48,6 +50,7 @@ export const DEFAULT_TIMEOUTS: Timeouts = {
   pointerMs: 20 * MINUTE,
   httpsMs: 45 * MINUTE,
   httpsReadyMs: 5 * MINUTE,
+  inventoryMs: 5 * MINUTE,
 };
 
 /** CloudFormation states in which an install stack will never become healthy. */
@@ -137,6 +140,16 @@ export interface ControlPlaneLike {
   markInstallLaunched(installLinkId: string): Promise<{ state: string }>;
   events(deploymentId: string): Promise<{ eventType: string; jobId?: string | null }[]>;
   diagnostics(deploymentId: string): Promise<Record<string, unknown>>;
+  infrastructure(deploymentId: string): Promise<InfrastructureInventory>;
+  plan(deploymentId: string, action: 'install' | 'update' | 'destroy'): Promise<DeploymentPlanView>;
+  deploy(deploymentId: string, releaseId: string): Promise<{ status: number; jobId: string; state: string }>;
+}
+
+export interface StackResourceLike {
+  readonly logicalId?: string;
+  readonly type: string;
+  readonly status: string;
+  readonly physicalId: string | null;
 }
 
 /** The customer-account reads and the one write (the customer's CreateStack). */
@@ -148,7 +161,7 @@ export interface AwsLike {
   targetHealth(stackName: string): Promise<string[]>;
   albDnsName(stackName: string): Promise<string | null>;
   ecrDigestForTag(tag: string): Promise<string | null>;
-  listStackResources(stackName: string): Promise<{ type: string; status: string; physicalId: string | null }[]>;
+  listStackResources(stackName: string): Promise<StackResourceLike[]>;
   describeStoppedTasks(stackName: string): Promise<StoppedTask[]>;
   tailApplicationLogs(stackName: string): Promise<string[]>;
   describeDependencies(stackName: string): Promise<DependencyPresence>;
@@ -159,10 +172,15 @@ export interface Probe {
   (url: string): Promise<{ status: number | null; error?: string }>;
 }
 
+export interface ProbeBody {
+  (url: string): Promise<{ status: number | null; body: string; error?: string }>;
+}
+
 export interface DeployDeps {
   api: ControlPlaneLike;
   aws: AwsLike;
   probe: Probe;
+  probeBody: ProbeBody;
   sleep: (ms: number) => Promise<void>;
   now: () => number;
   region: string;
@@ -184,6 +202,8 @@ export interface DeployDeps {
    * attempt must exercise the create-application path like a real vendor.
    */
   reuseApplication?: boolean | undefined;
+  /** `--exercise-update`: after the smoke contract passes, build and deploy a second release and re-run it. */
+  exerciseUpdate?: boolean | undefined;
 }
 
 export interface RepositoryAttemptInput {
@@ -245,6 +265,93 @@ export function resolveHealthPath(config: RepositoryConfig, manifestPath: string
   if (manifestPath && manifestMode !== 'vendor_required') return { path: manifestPath, source: 'manifest' };
   if (benchmarkNotesPath) return { path: benchmarkNotesPath, source: 'repository-evidence' };
   return { path: '/', source: 'fallback' };
+}
+
+/** Per-CloudFormation-type resource counts, for the result's `deployment.resourcesByType`. */
+function countByType(resources: readonly StackResourceLike[]): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const resource of resources) out[resource.type] = (out[resource.type] ?? 0) + 1;
+  return out;
+}
+
+/** The catalog kind → CloudFormation resource type(s) whose COMPLETE presence proves it exists
+ * (packages/contracts/src/components.ts; cache accepts the legacy single-node type too). */
+const KIND_TO_AWS_TYPES: Record<string, readonly string[]> = {
+  application: ['AWS::ECS::Service'],
+  endpoint: ['AWS::ElasticLoadBalancingV2::LoadBalancer'],
+  database: ['AWS::RDS::DBInstance'],
+  cache: ['AWS::ElastiCache::ReplicationGroup', 'AWS::ElastiCache::CacheCluster'],
+  storage: ['AWS::S3::Bucket'],
+};
+
+/** Evaluates one smoke check against a probe result — pure, so retries just call it again. */
+export function evaluateSmokeCheck(
+  check: SmokeCheck,
+  probe: { status: number | null; body: string; error?: string },
+): { status: number | null; ok: boolean; detail: string } {
+  const statuses = Array.isArray(check.status) ? check.status : [check.status];
+  if (probe.status === null) return { status: null, ok: false, detail: `no response${probe.error ? `: ${probe.error}` : ''}` };
+  if (!statuses.includes(probe.status)) return { status: probe.status, ok: false, detail: `status ${probe.status}, expected ${statuses.join('/')}` };
+  if (check.bodyIncludes !== undefined && !probe.body.includes(check.bodyIncludes)) {
+    return { status: probe.status, ok: false, detail: `body does not include "${check.bodyIncludes}"` };
+  }
+  if (check.jsonPath !== undefined) {
+    let json: unknown;
+    try {
+      json = JSON.parse(probe.body);
+    } catch {
+      return { status: probe.status, ok: false, detail: 'response body is not valid JSON' };
+    }
+    const value = jsonPathValue(json, check.jsonPath);
+    if (check.jsonEquals !== undefined) {
+      if (value !== check.jsonEquals) {
+        return { status: probe.status, ok: false, detail: `${check.jsonPath} is ${JSON.stringify(value)}, expected ${JSON.stringify(check.jsonEquals)}` };
+      }
+    } else if (value === undefined || value === null) {
+      return { status: probe.status, ok: false, detail: `${check.jsonPath} is missing or null` };
+    }
+  }
+  return { status: probe.status, ok: true, detail: 'ok' };
+}
+
+function jsonPathValue(value: unknown, path: string): unknown {
+  return path.split('.').reduce<unknown>((acc, key) => (acc && typeof acc === 'object' ? (acc as Record<string, unknown>)[key] : undefined), value);
+}
+
+/** Runs every configured smoke check against `baseUrl`, retrying a failing one before giving up on it. */
+async function runSmokeChecks(deps: DeployDeps, checks: readonly SmokeCheck[], baseUrl: string): Promise<StageBResult['runtime']['smoke']> {
+  const outcomes: StageBResult['runtime']['smoke'] = [];
+  for (const check of checks) {
+    if (check.graceSeconds > 0) await deps.sleep(check.graceSeconds * 1000);
+    const url = `${baseUrl}${check.path}`;
+    let evaluated: { status: number | null; ok: boolean; detail: string } = { status: null, ok: false, detail: 'not run' };
+    const attempts = check.retries + 1;
+    for (let attempt = 1; attempt <= attempts; attempt++) {
+      const probe = await deps.probeBody(url);
+      evaluated = evaluateSmokeCheck(check, probe);
+      if (evaluated.ok || attempt === attempts) break;
+      await deps.sleep(check.retryDelaySeconds * 1000);
+    }
+    outcomes.push({ path: check.path, status: evaluated.status, ok: evaluated.ok, detail: evaluated.detail, exercises: check.exercises ?? [] });
+  }
+  return outcomes;
+}
+
+/**
+ * A smoke check that exercises a dependency and fails marks that dependency
+ * FAIL in the result — a passing check leaves the binding check's own verdict
+ * alone (README item 6: "do not weaken the existing binding check"). Returns
+ * the failing outcomes, for the caller's assert.
+ */
+function applySmokeFailuresToDependencies(result: StageBResult, outcomes: StageBResult['runtime']['smoke']): StageBResult['runtime']['smoke'] {
+  const failed = outcomes.filter((o) => !o.ok);
+  if (failed.length > 0) {
+    for (const outcome of failed) {
+      for (const dep of outcome.exercises) result.dependencies[dep] = 'FAIL';
+    }
+    result.dependencies.detail = failed.map((f) => `${f.path}: ${f.detail}`).join('; ');
+  }
+  return failed;
 }
 
 /**
@@ -591,8 +698,16 @@ export async function runRepositoryAttempt(deps: DeployDeps, input: RepositoryAt
             : {}),
         });
         assert(appStack?.status === 'CREATE_COMPLETE' || appStack?.status === 'UPDATE_COMPLETE', 'install', `application stack ${appStack?.status ?? 'absent'}`, { stackStatus: appStack?.status ?? null });
+        // Once the application stack is CREATE_COMPLETE, snapshot both stacks'
+        // resources into the ledger — the machine-readable manifest the
+        // inventory gate cross-checks the plan against, without another AWS call.
         const resources = await deps.aws.listStackResources(run.applicationStackName!);
+        const bootstrapResources = run.bootstrapStackName ? await deps.aws.listStackResources(run.bootstrapStackName) : [];
+        run.stageB.resources = { applicationStack: resources, bootstrapStack: bootstrapResources };
+        evidence.save();
         result.deployment.resourceCount = resources.length;
+        result.deployment.resourcesByType = countByType(resources);
+        result.deployment.region = deps.region;
         result.deployment.durationMs = deps.now() - installStarted;
         return detail;
       }),
@@ -628,6 +743,55 @@ export async function runRepositoryAttempt(deps: DeployDeps, input: RepositoryAt
       }),
     );
     void installed;
+
+    // ── Plan-versus-actual inventory ────────────────────────────────────
+    point = 'inventory';
+    await step('inventory', () =>
+      evidence.step('Plan-versus-actual inventory', async (details) => {
+        const inventory = await waitFor(
+          'infrastructure expectations',
+          () => deps.api.infrastructure(deploymentId),
+          (i) => (i.expectations && i.expectations.missing.length === 0 && i.expectations.unexpected.length === 0 ? i : null),
+          {
+            timeoutMs: deps.timeouts.inventoryMs,
+            intervalMs: interval,
+            describe: (i) => (i.expectations ? `missing=[${i.expectations.missing.join(',')}] unexpected=[${i.expectations.unexpected.join(',')}]` : 'no expectations yet'),
+          },
+        );
+        details['infrastructure'] = { snapshotState: inventory.snapshotState, expectations: inventory.expectations };
+        const expectedKinds = (inventory.expectations?.components ?? []).filter((c) => c.expected).map((c) => c.kind).sort();
+        const plan = await deps.api.plan(deploymentId, 'install');
+        const planCreateKinds = plan.components.filter((c) => c.action === 'CREATE').map((c) => c.kind).sort();
+        details['planCreateKinds'] = planCreateKinds;
+        details['expectedKinds'] = expectedKinds;
+        result.inventory.planCreateKinds = planCreateKinds;
+        result.inventory.expectedKinds = expectedKinds;
+        assert(
+          planCreateKinds.length === expectedKinds.length && planCreateKinds.every((k) => expectedKinds.includes(k)),
+          'inventory',
+          `plan CREATE kinds [${planCreateKinds.join(',')}] do not match the expected kinds [${expectedKinds.join(',')}]`,
+        );
+
+        // Cross-check against the resource snapshot taken during install — no new AWS call.
+        const presentTypes = [...new Set((run.stageB.resources?.applicationStack ?? []).map((r) => r.type))];
+        details['presentTypes'] = presentTypes;
+        result.inventory.presentTypes = presentTypes;
+        const missing: string[] = [];
+        const unexpected: string[] = [];
+        for (const [kind, types] of Object.entries(KIND_TO_AWS_TYPES)) {
+          const shouldExist = planCreateKinds.includes(kind);
+          const exists = types.some((type) => presentTypes.includes(type));
+          if (shouldExist && !exists) missing.push(kind);
+          if (!shouldExist && exists) unexpected.push(kind);
+        }
+        result.inventory.missing = missing;
+        result.inventory.unexpected = unexpected;
+        details['missing'] = missing;
+        details['unexpected'] = unexpected;
+        assert(missing.length === 0 && unexpected.length === 0, 'inventory', `application stack resources do not match the plan: missing [${missing.join(',')}] unexpected [${unexpected.join(',')}]`);
+        result.inventory.status = 'PASS';
+      }),
+    );
 
     // ── Runtime health + HTTPS + observation ───────────────────────────
     point = 'runtime';
@@ -697,6 +861,75 @@ export async function runRepositoryAttempt(deps: DeployDeps, input: RepositoryAt
       }),
     );
     result.runtime.https = 'PASS';
+
+    // ── Repository-specific smoke contract ──────────────────────────────
+    point = 'smoke';
+    await step('smoke', () =>
+      evidence.step('Application smoke contract', async (details) => {
+        const outcomes = await runSmokeChecks(deps, config.smoke ?? [], appUrl);
+        result.runtime.smoke = outcomes;
+        details['smoke'] = outcomes;
+        const failed = applySmokeFailuresToDependencies(result, outcomes);
+        assert(failed.length === 0, 'smoke', `smoke contract failed: ${failed.map((f) => `${f.path}: ${f.detail}`).join('; ')}`);
+      }),
+    );
+
+    // ── Optional update/redeploy exercise ───────────────────────────────
+    if (deps.exerciseUpdate) {
+      point = 'update';
+      await step('update', () =>
+        evidence.step('Exercise an update/redeploy', async (details) => {
+          const updateStarted = deps.now();
+          const version = `${release.version}-u2`;
+          const created = await deps.api.createRelease(applicationId, {
+            version,
+            gitSha: benchmark.commit,
+            ...(config.overrides?.migrationCommand ? { migrationCommand: config.overrides.migrationCommand } : {}),
+          });
+          run.releases['update'] = { id: created.id, version, gitSha: benchmark.commit };
+          evidence.save();
+          result.update.releaseId = created.id;
+          result.update.version = version;
+          const settled = await waitFor(
+            `update release ${version} build`,
+            async () => (await deps.api.listReleases(applicationId)).find((r) => r.id === created.id),
+            (r) => (r && r.status !== 'BUILDING' ? r : null),
+            { timeoutMs: deps.timeouts.buildMs, intervalMs: interval, describe: (r) => r?.status ?? 'missing' },
+          );
+          assert(settled.status === 'READY', 'update', `update release build ${settled.status}: ${settled.failureReason ?? ''}`);
+          const imageTag = releaseImageTag(applicationId, version);
+          run.releases['update']!.imageTag = imageTag;
+          const digest = await deps.aws.ecrDigestForTag(imageTag);
+          assert(digest, 'update', `ECR has no image tagged ${imageTag}`);
+          run.releases['update']!.imageDigest = digest;
+          evidence.save();
+          result.update.imageDigest = digest;
+          details['release'] = { id: created.id, version, digest };
+
+          const requested = await deps.api.deploy(deploymentId, created.id);
+          details['deployRequest'] = requested;
+          assert(requested.status === 202, 'update', `deploy of the update release -> ${requested.status}`);
+
+          const detail = await waitFor(
+            'update release pointer',
+            () => deps.api.getDeployment(deploymentId),
+            (d) => (d.currentReleaseId === created.id || d.state === 'FAILED' ? d : null),
+            { timeoutMs: deps.timeouts.pointerMs, intervalMs: interval, describe: describeDeployment },
+          );
+          details['deployment'] = summarize(detail);
+          assert(detail.state !== 'FAILED' && detail.currentReleaseId === created.id, 'update', `update deploy did not settle: state ${detail.state}, currentReleaseId ${detail.currentReleaseId}`);
+          assert(digestSuffix(detail.runningImageDigest) === digestSuffix(digest), 'update', `running digest ${detail.runningImageDigest} != expected ${digest}`);
+          result.update.durationMs = deps.now() - updateStarted;
+          result.update.status = 'PASS';
+
+          const rerun = await runSmokeChecks(deps, config.smoke ?? [], appUrl);
+          result.runtime.smoke = rerun;
+          details['smokeRerun'] = rerun;
+          const rerunFailed = applySmokeFailuresToDependencies(result, rerun);
+          assert(rerunFailed.length === 0, 'smoke', `post-update smoke contract failed: ${rerunFailed.map((f) => `${f.path}: ${f.detail}`).join('; ')}`);
+        }),
+      );
+    }
 
     point = 'runtime';
     await step('runtime', () =>
@@ -836,7 +1069,17 @@ async function recordFailure(deps: DeployDeps, input: RepositoryAttemptInput, st
   };
   const collected: Record<string, unknown> = { point, message: stop.message.slice(0, 2000) };
   let extra: Partial<FailureEvidence> = {};
-  if (run.applicationStackName && (failurePoint === 'install' || failurePoint === 'auto-deploy' || failurePoint === 'runtime' || failurePoint === 'https' || failurePoint === 'dependencies')) {
+  if (
+    run.applicationStackName &&
+    (failurePoint === 'install' ||
+      failurePoint === 'auto-deploy' ||
+      failurePoint === 'inventory' ||
+      failurePoint === 'runtime' ||
+      failurePoint === 'https' ||
+      failurePoint === 'smoke' ||
+      failurePoint === 'update' ||
+      failurePoint === 'dependencies')
+  ) {
     try {
       const stopped = await deps.aws.describeStoppedTasks(run.applicationStackName);
       const logs = await deps.aws.tailApplicationLogs(run.applicationStackName);
@@ -906,6 +1149,15 @@ async function recordFailure(deps: DeployDeps, input: RepositoryAttemptInput, st
     case 'https':
       result.runtime.https = 'FAIL';
       result.runtime.detail = stop.message.slice(0, 500);
+      break;
+    case 'inventory':
+      markFail(result.inventory);
+      break;
+    case 'smoke':
+      result.runtime.detail = stop.message.slice(0, 500);
+      break;
+    case 'update':
+      markFail(result.update);
       break;
     case 'dependencies':
       result.dependencies.detail = stop.message.slice(0, 500);

@@ -155,8 +155,14 @@ a deployment.
 5. After each wave and at the end of Stage B, an account-level scan for the
    Stage B tags and the product's installation tags must return nothing
    disposable. INACTIVE ECS cluster/task-definition ARNs that the tagging
-   API keeps listing are the documented exception.
-6. Control-plane resources (`Deployz` stack, its RDS, `deployz-images`, the
+   API keeps listing are the documented exception. `--audit` scans the
+   union of every region a ledger recorded plus the process's own region,
+   and reports leaks per region.
+6. The global real-AWS concurrency guard (`--max-active`, default 2) stops a
+   new attempt before it creates anything when the evidence dir already
+   holds that many runs whose cleanup has not completed — the safeguard for
+   two processes sharing the same evidence dir.
+7. Control-plane resources (`Deployz` stack, its RDS, `deployz-images`, the
    template buckets, `deployz-e2e-usw2-progress`) are never Stage B-owned
    and are never deleted.
 
@@ -192,6 +198,18 @@ One committed file per repository, `runs/<id>.json`:
   "evidence": {}
 }
 ```
+
+The full schema (`scripts/repository-deployment/results.ts`) also carries:
+`deployment.resourcesByType` (a per-CloudFormation-type count of the
+application stack) and `deployment.region` (the install region); `inventory`
+(the plan-versus-actual gate: `planCreateKinds`, `expectedKinds`,
+`presentTypes`, `missing`, `unexpected`); `runtime.smoke` (one entry per
+configured smoke check: `path`, `status`, `ok`, `detail`, `exercises`);
+`update` (the `--exercise-update` outcome: `status`, `releaseId`, `version`,
+`imageDigest`, `durationMs`); and `cleanup.retainedState` /
+`cleanup.purgedState` (PASS/FAIL/SKIPPED/NOT_ATTEMPTED, from the retained-set
+verification `destroyThroughProduct` already runs between Disconnect and
+Purge). All default to `NOT_ATTEMPTED` / empty so old results still parse.
 
 `classification` is `PASS`, `EXPECTED_UNSUPPORTED`, or the failure stage.
 The failure-stage vocabulary and the root-cause vocabulary are fixed in
@@ -258,6 +276,28 @@ pinned|generic|production` (see `implementation-notes.md`, "Stage B
 decision on the template"; `pinned` until DEPLOY-001 is fixed), `--online`
 (let the gate audit fetch snapshots that are not cached), `--cache`,
 `--evidence-dir`, `--runs-dir`, `--reuse-application`.
+
+Multi-region campaign flags:
+
+- `--region <aws-region>`: overrides `AWS_REGION` for this process's install
+  (customer) region only, validated against the product's supported-region
+  list. Control-plane resources (the `deployz-images` ECR repository, the
+  template bucket) always stay in the control-plane region — `us-east-1` by
+  default, or `DEPLOYZ_CONTROL_PLANE_REGION` when the control plane itself
+  moves. Two processes can run different `--region` values at the same time
+  against the same evidence dir; `--cleanup`, `--resume` and `--audit` always
+  use the region each ledger recorded, never the process's own.
+- `--max-active <n>` (default 2): the global real-AWS concurrency guard.
+  Before an attempt creates anything, the harness counts the unfinished
+  ledgers in the evidence dir (including `--keep` runs and runs whose
+  cleanup has not finished). At the limit, the attempt refuses instead of
+  starting — wait for a cleanup to finish, or run `--cleanup`.
+- `--require-smoke`: a repository with no `smoke` entry in its
+  `deploy-config.yaml` entry refuses before anything is created, instead of
+  passing on a generic 200.
+- `--exercise-update`: after the smoke contract passes, builds and deploys a
+  second release from the same pinned commit and re-runs the smoke contract
+  against it — exercising the product's supported update path.
 
 `--reuse-application` is for a **retry**, never a first attempt. Without it
 every attempt mints a new organization and application, so every attempt runs
