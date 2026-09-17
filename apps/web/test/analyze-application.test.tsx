@@ -71,6 +71,9 @@ vi.mock('@/lib/deployments', async (importOriginal) => {
 
 const ApplicationReadinessPage = (await import('../src/app/dashboard/applications/[id]/page'))
   .default;
+const { ANALYSIS_TAKING_LONGER_MS, READINESS_SUPPORT_TAKING_LONGER } = await import(
+  '../src/lib/readiness'
+);
 
 function baseApplication() {
   return {
@@ -193,5 +196,75 @@ describe('Analyze application', () => {
     expect(button().disabled).toBe(false);
     expect(button().hasAttribute('aria-busy')).toBe(false);
     expect(mocks.toastError).toHaveBeenCalled();
+  });
+});
+
+describe('Analysis in progress', () => {
+  it('shows the server-side run as a busy state and never re-triggers on click', async () => {
+    mocks.fetchApplication.mockResolvedValue({ ...baseApplication(), analysisStatus: 'ANALYZING' });
+    mocks.fetchReadiness.mockResolvedValue({ ...baseReadiness(), analysisStatus: 'ANALYZING' });
+
+    await act(async () => {
+      root.render(<ApplicationReadinessPage />);
+    });
+
+    expect(container.querySelector('[data-testid="readiness-analyze"]')).toBeNull();
+    const busy = container.querySelector('[data-testid="readiness-analyzing"]') as HTMLButtonElement;
+    expect(busy).not.toBeNull();
+    expect(busy.disabled).toBe(true);
+    expect(busy.getAttribute('aria-busy')).toBe('true');
+    expect(busy.querySelector('[data-slot="spinner"]')).not.toBeNull();
+    expect(busy.textContent).toBe('Analyzing application…');
+
+    await act(async () => {
+      busy.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    });
+    expect(mocks.triggerAnalysis).not.toHaveBeenCalled();
+
+    const heading = container.querySelector('[data-testid="readiness-heading"]') as HTMLElement;
+    expect(heading.textContent).toBe('Analyzing application');
+    expect(heading.querySelector('[data-slot="spinner"]')).not.toBeNull();
+
+    const tableBody = container.querySelector('[data-testid="readiness-table"] tbody') as HTMLElement;
+    expect(tableBody.getAttribute('aria-busy')).toBe('true');
+    expect(tableBody.querySelectorAll('[data-testid="readiness-row-skeleton"]')).toHaveLength(3);
+    expect(tableBody.textContent).toContain('Checking deployment readiness…');
+  });
+
+  it('offers a restart once the analysis has run for too long', async () => {
+    vi.useFakeTimers();
+    try {
+      mocks.fetchApplication.mockResolvedValue({ ...baseApplication(), analysisStatus: 'ANALYZING' });
+      mocks.fetchReadiness.mockResolvedValue({ ...baseReadiness(), analysisStatus: 'ANALYZING' });
+      mocks.triggerAnalysis.mockResolvedValue(undefined);
+
+      await act(async () => {
+        root.render(<ApplicationReadinessPage />);
+      });
+      expect(container.querySelector('[data-testid="readiness-restart"]')).toBeNull();
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(ANALYSIS_TAKING_LONGER_MS);
+      });
+
+      const restart = container.querySelector('[data-testid="readiness-restart"]') as HTMLButtonElement;
+      expect(restart).not.toBeNull();
+      expect(restart.textContent).toBe('Restart analysis');
+      expect(restart.disabled).toBe(false);
+      const heading = container.querySelector('[data-testid="readiness-heading"]') as HTMLElement;
+      expect(heading.nextElementSibling?.textContent).toBe(READINESS_SUPPORT_TAKING_LONGER);
+
+      await act(async () => {
+        restart.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+      });
+      expect(mocks.triggerAnalysis).toHaveBeenCalledWith('app-1', { force: true });
+
+      // A restart begins a new wait: the busy state returns until the
+      // threshold elapses again.
+      expect(container.querySelector('[data-testid="readiness-restart"]')).toBeNull();
+      expect(container.querySelector('[data-testid="readiness-analyzing"]')).not.toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

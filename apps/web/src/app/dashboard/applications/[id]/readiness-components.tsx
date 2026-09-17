@@ -22,6 +22,7 @@ import {
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Skeleton } from '@/components/ui/skeleton';
 import {
   Table,
   TableBody,
@@ -30,7 +31,12 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { type Application, type UpdateApplicationInput, updateApplication } from '@/lib/applications';
+import {
+  type AnalysisStatus,
+  type Application,
+  type UpdateApplicationInput,
+  updateApplication,
+} from '@/lib/applications';
 import {
   requirementSummaryKeyFor,
   type ApplicationReadiness,
@@ -55,6 +61,7 @@ export function ReadinessTable({
   onEdit: (field: EditableReadinessField) => void;
   onShowFix: () => void;
 }) {
+  const analyzing = application.analysisStatus === 'ANALYZING';
   return (
     <Card>
       <CardContent className="overflow-x-auto p-0">
@@ -69,7 +76,7 @@ export function ReadinessTable({
               </TableHead>
             </TableRow>
           </TableHeader>
-          <TableBody>
+          <TableBody aria-busy={analyzing || undefined}>
             {rows.map((row) => (
               <ReadinessTableRow
                 key={row.id}
@@ -79,10 +86,59 @@ export function ReadinessTable({
                 onShowFix={onShowFix}
               />
             ))}
+            {rows.length === 0 ? (
+              <ReadinessTablePlaceholder analysisStatus={application.analysisStatus} />
+            ) : null}
           </TableBody>
         </Table>
       </CardContent>
     </Card>
+  );
+}
+
+// The rows only exist once an analysis has completed. While one runs, the
+// table keeps its geometry with skeleton rows; before the first analysis it
+// says what the vendor has to do to fill it.
+function ReadinessTablePlaceholder({ analysisStatus }: { analysisStatus: AnalysisStatus }) {
+  if (analysisStatus === 'ANALYZING') {
+    return (
+      <>
+        <TableRow>
+          <TableCell colSpan={4} className="sr-only" role="status">
+            Checking deployment readiness…
+          </TableCell>
+        </TableRow>
+        {[0, 1, 2].map((index) => (
+          <TableRow key={index} aria-hidden data-testid="readiness-row-skeleton">
+            <TableCell>
+              <div className="flex flex-col gap-1.5">
+                <Skeleton className="h-4 w-32" />
+                <Skeleton className="h-3 w-48" />
+              </div>
+            </TableCell>
+            <TableCell>
+              <Skeleton className="h-4 w-24" />
+            </TableCell>
+            <TableCell>
+              <Skeleton className="h-5 w-20 rounded-full" />
+            </TableCell>
+            <TableCell />
+          </TableRow>
+        ))}
+      </>
+    );
+  }
+
+  const message =
+    analysisStatus === 'FAILED'
+      ? 'The checks will show here after a successful analysis.'
+      : 'Analyze the application to see its deployment checks.';
+  return (
+    <TableRow>
+      <TableCell colSpan={4} className="text-muted-foreground" data-testid="readiness-empty">
+        {message}
+      </TableCell>
+    </TableRow>
   );
 }
 

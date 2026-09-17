@@ -429,6 +429,15 @@ export const READINESS_SUPPORT_READY = 'Your application passed all required dep
 export const READINESS_SUPPORT_RUNNING =
   "We're reading your repository to see if it can be deployed. This usually takes a minute.";
 
+/** How long an analysis may sit at ANALYZING before the page offers a
+ *  restart. The API can leave an application at ANALYZING if the worker
+ *  never picks the job up, so the vendor needs a way out. */
+export const ANALYSIS_TAKING_LONGER_MS = 120_000;
+
+/** Supporting line once the analysis has run past ANALYSIS_TAKING_LONGER_MS. */
+export const READINESS_SUPPORT_TAKING_LONGER =
+  'This is taking longer than usual. You can wait, or restart the analysis.';
+
 /** Supporting line under the fix-instructions CTA (mirrors
  *  @deployz/copy-map). */
 export function readinessFixCtaSupport(issuesCount: number): string {
