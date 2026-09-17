@@ -29,7 +29,6 @@ export function OrganizationDangerZone({ organizationName }: { organizationName:
       router.refresh();
     } catch (err) {
       setError(errorMessage(err));
-    } finally {
       setPending(false);
     }
   }

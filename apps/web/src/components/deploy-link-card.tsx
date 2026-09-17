@@ -121,10 +121,10 @@ export function DeployLinkCard({ customerId }: { customerId: string }) {
       .finally(() => setPending('idle'));
   }
 
-  function onRevoke(linkId: string): void {
+  function onRevoke(linkId: string): Promise<void> {
     setPending('revoking');
     setError(null);
-    revokeDeployLink(linkId)
+    return revokeDeployLink(linkId)
       .then(() => fetchDeployLinks(customerId))
       .then((current) => {
         setLinks(current);
@@ -298,7 +298,7 @@ export function DeployLinkList({
   links: DeployLinkView[];
   revealed: { linkId: string; url: string } | null;
   pending: Pending;
-  onRevoke: (linkId: string) => void;
+  onRevoke: (linkId: string) => Promise<void>;
   onRegenerate: (linkId: string) => void;
 }) {
   const [revoking, setRevoking] = useState<DeployLinkView | null>(null);
@@ -318,7 +318,10 @@ export function DeployLinkList({
           onRegenerate={() => onRegenerate(link.id)}
         />
       ))}
-      <AlertDialog open={revoking !== null} onOpenChange={(open) => !open && setRevoking(null)}>
+      <AlertDialog
+        open={revoking !== null}
+        onOpenChange={(open) => !open && pending !== 'revoking' && setRevoking(null)}
+      >
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Revoke this deploy link?</AlertDialogTitle>
@@ -329,15 +332,19 @@ export function DeployLinkList({
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogCancel disabled={pending === 'revoking'}>Cancel</AlertDialogCancel>
             <AlertDialogAction
               variant="destructive"
               loading={pending === 'revoking'}
               loadingText="Revoking deploy link…"
               data-testid="deploy-link-revoke-confirm"
-              onClick={() => {
-                if (revoking) onRevoke(revoking.id);
-                setRevoking(null);
+              onClick={(event) => {
+                // Keep the dialog open until the request settles so the
+                // action's loading state is visible; Radix closes on click
+                // by default.
+                event.preventDefault();
+                if (!revoking) return;
+                void onRevoke(revoking.id).finally(() => setRevoking(null));
               }}
             >
               Revoke link

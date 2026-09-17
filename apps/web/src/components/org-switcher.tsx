@@ -47,7 +47,6 @@ export function OrgSwitcher({ organizations, activeOrganizationId }: OrgSwitcher
       router.refresh();
     } catch (err) {
       setError(errorMessage(err));
-    } finally {
       setPendingId(null);
     }
   }
@@ -59,6 +58,7 @@ export function OrgSwitcher({ organizations, activeOrganizationId }: OrgSwitcher
           <SidebarMenuButton
             data-testid="org-switcher-trigger"
             disabled={pendingId !== null}
+            aria-busy={pendingId !== null || undefined}
             size="sm"
             className="w-full justify-between gap-2"
             aria-label="Switch organization"

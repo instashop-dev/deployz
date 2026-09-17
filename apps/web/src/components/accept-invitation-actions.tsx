@@ -26,7 +26,6 @@ export function AcceptInvitationActions({ id }: { id: string }) {
       router.refresh();
     } catch (err) {
       setError(errorMessage(err));
-    } finally {
       setPending(null);
     }
   }
@@ -75,7 +74,6 @@ export function SignOutButton() {
       router.refresh();
     } catch {
       toast.error("We couldn't sign you out. Try again in a moment.");
-    } finally {
       setPending(false);
     }
   }

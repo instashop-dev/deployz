@@ -69,7 +69,7 @@ export default function AdminVendorDetailPage() {
   const [state, setState] = useState<DetailState>({ status: 'loading' });
 
   const load = useCallback(async (): Promise<void> => {
-    setState({ status: 'loading' });
+    setState((current) => (current.status === 'loaded' ? current : { status: 'loading' }));
     try {
       const detail = await fetchAdminVendor(id);
       setState({ status: 'loaded', detail });

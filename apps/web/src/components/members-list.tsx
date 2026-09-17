@@ -102,7 +102,6 @@ function MemberRow({
     } catch (err) {
       setRemoveError(errorMessage(err));
       setRemoveStep('idle');
-    } finally {
       setRemovePending(false);
     }
   }
@@ -119,7 +118,6 @@ function MemberRow({
     } catch (err) {
       setTransferError(errorMessage(err));
       setTransferStep('idle');
-    } finally {
       setTransferPending(false);
     }
   }
@@ -156,7 +154,7 @@ function MemberRow({
                   </option>
                 ))}
               </select>
-              {roleSaving ? <Spinner aria-hidden className="size-3.5" /> : null}
+              {roleSaving ? <Spinner aria-label="Saving role" className="size-3.5" /> : null}
             </div>
           ) : (
             <Badge variant="secondary">{ROLE_LABELS[member.role]}</Badge>
@@ -277,7 +275,6 @@ export function LeaveOrganizationButton() {
     } catch (err) {
       setError(errorMessage(err));
       setStep('idle');
-    } finally {
       setPending(false);
     }
   }

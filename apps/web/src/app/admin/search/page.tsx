@@ -31,7 +31,7 @@ export default function AdminSearchPage() {
       return;
     }
     let cancelled = false;
-    setState({ status: 'loading' });
+    setState((current) => (current.status === 'loaded' ? current : { status: 'loading' }));
     async function run(): Promise<void> {
       try {
         const results = await fetchAdminSearch(q);

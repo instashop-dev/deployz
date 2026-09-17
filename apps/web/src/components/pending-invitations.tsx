@@ -75,7 +75,6 @@ function InvitationRow({
     } catch (err) {
       setError(errorMessage(err));
       setRevokeStep('idle');
-    } finally {
       setRevokePending(false);
     }
   }

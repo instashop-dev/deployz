@@ -33,7 +33,6 @@ export function DeleteAccount({ email }: { email: string }) {
       router.push('/sign-in');
     } catch (err) {
       setError(errorMessage(err));
-    } finally {
       setPending(false);
     }
   }
