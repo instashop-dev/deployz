@@ -96,6 +96,14 @@ export type DeploymentEventType =
   | 'deploy_link.retry.requested'
   | 'deploy_link.revoked'
   | 'deploy_link.regenerated'
+  // public-install-link family — the vendor-side lifecycle of the app-level
+  // public install entry points (apps/api/src/public-install.ts). The links
+  // carry no secret, so payloads record ids only.
+  | 'public_install_link.created'
+  | 'public_install_link.enabled'
+  | 'public_install_link.disabled'
+  | 'public_install_link.revoked'
+  | 'public_install_link.regenerated'
   // application/analysis funnel — PR1 telemetry. The application id rides in
   // `payload.applicationId` (event_logs has no application_id column).
   | 'application.created'
