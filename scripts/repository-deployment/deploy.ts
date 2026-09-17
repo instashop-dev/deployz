@@ -638,7 +638,8 @@ export async function runRepositoryAttempt(deps: DeployDeps, input: RepositoryAt
     );
 
     if (secretEntries.length > 0) {
-      await step('configuration', () =>
+      point = 'secrets-delivery';
+      await step('secrets-delivery', () =>
         evidence.step('Deliver vendor secrets to the connected customer', async (details) => {
           // The vendor-scope PUT above only satisfies the gate; the connected
           // relay is the only recipient the CONFIG_UPDATE fan-out has, and a
@@ -652,6 +653,7 @@ export async function runRepositoryAttempt(deps: DeployDeps, input: RepositoryAt
           result.configuration.deliveredAfterEnrollment = deliveredKeys;
         }),
       );
+      point = 'install';
     }
 
     const installed = await step('install', () =>
@@ -1094,6 +1096,7 @@ async function recordFailure(deps: DeployDeps, input: RepositoryAttemptInput, st
   if (
     run.applicationStackName &&
     (failurePoint === 'install' ||
+      failurePoint === 'secrets-delivery' ||
       failurePoint === 'auto-deploy' ||
       failurePoint === 'inventory' ||
       failurePoint === 'runtime' ||
@@ -1154,6 +1157,14 @@ async function recordFailure(deps: DeployDeps, input: RepositoryAttemptInput, st
       break;
     case 'configuration':
       markFail(result.configuration);
+      break;
+    case 'secrets-delivery':
+      // Configuration already reached PASS (the vendor-scope PUT and preflight
+      // both succeeded) before this later, post-enrollment delivery ran, so
+      // markFail's NOT_ATTEMPTED guard would no-op here — record the failure
+      // on the section explicitly instead.
+      result.configuration.status = 'FAIL';
+      result.configuration.detail = stop.message.slice(0, 500);
       break;
     case 'build':
       markFail(result.build);
