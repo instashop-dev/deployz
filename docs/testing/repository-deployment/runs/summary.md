@@ -1,6 +1,6 @@
 # Repository deployment audit — run summary
 
-Deployz commit: `3571f5a4eb829bf2370f33006875485f94c79744`
+Deployz commit: `6cb952bca9843c583ae1c41f529f415722fad81f`
 
 | Metric | Value |
 | --- | --- |
@@ -16,7 +16,7 @@ Deployz commit: `3571f5a4eb829bf2370f33006875485f94c79744`
 | Runtime: ECS running / ALB healthy / HTTPS reachable / application response valid | 5 / 5 / 5 / 4 |
 | Dependencies: PostgreSQL / Redis / storage / migration verified | 4 / 1 / 1 / 1 |
 | **True deployment success / expected deployable** | **4 / 65 (6.2%)** |
-| Cleanup: destroys / failures / leaks / success rate | 8 / 0 / 0 / 100% |
+| Cleanup: destroys / failures / leaks / success rate | 9 / 0 / 0 / 100% |
 
 ## By classification
 
@@ -90,7 +90,7 @@ Deployz commit: `3571f5a4eb829bf2370f33006875485f94c79744`
 | repo-001 | umami-software/umami@ca661c7 | realistic | READY | NEEDS_CONFIGURATION (correct-accept) | PASS | FAIL | — | PASS | CONTAINER_START_ERROR / DEPLOYZ_BUG | DEPLOY-002, DEPLOY-007 |
 | repo-002 | Unleash/unleash@0429c29 | realistic | READY | NEEDS_CONFIGURATION (correct-accept) | NOT_ATTEMPTED | NOT_ATTEMPTED | — | NOT_ATTEMPTED | PASS | DEPLOY-002 |
 | repo-003 | thedevs-network/kutt@279b491 | realistic | NEEDS_CONFIGURATION | NEEDS_CONFIGURATION (correct-accept) | PASS | FAIL | — | PASS | DATABASE_ERROR / DEPLOYZ_BUG | DEPLOY-005, DEPLOY-007, DEPLOY-009, DEPLOY-010, DEPLOY-011, DEPLOY-012, DEPLOY-013 |
-| repo-004 | miniflux/v2@a84533d | realistic | NEEDS_CONFIGURATION | — (—) | PASS | FAIL | — | NOT_ATTEMPTED | CONTAINER_START_ERROR | DEPLOY-008 |
+| repo-004 | miniflux/v2@a84533d | realistic | NEEDS_CONFIGURATION | — (—) | PASS | FAIL | — | PASS | CONTAINER_START_ERROR | DEPLOY-008 |
 | repo-005 | Flagsmith/flagsmith@4a8a84a | realistic | NEEDS_CONFIGURATION | NOT_COMPATIBLE (false-rejection) | NOT_ATTEMPTED | NOT_ATTEMPTED | — | NOT_ATTEMPTED | GATE_ERROR | DEPLOY-003 |
 | repo-006 | documenso/documenso@3ec877a | realistic | NEEDS_CONFIGURATION | READY (correct-accept) | NOT_ATTEMPTED | NOT_ATTEMPTED | — | NOT_ATTEMPTED | PASS |  |
 | repo-007 | ghostfolio/ghostfolio@73e4f03 | realistic | NEEDS_CONFIGURATION | — (—) | PASS | PASS | HEALTHY/HEALTHY/https PASS | PASS | PASS | DEPLOY-014 |

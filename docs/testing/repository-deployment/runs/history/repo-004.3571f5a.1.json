@@ -119,15 +119,15 @@
     "detail": null
   },
   "cleanup": {
-    "status": "PASS",
-    "destroyJobState": "SUCCEEDED",
-    "purgeJobState": "SUCCEEDED",
-    "cleanupState": "COMPLETE",
-    "bootstrapStackFinal": "DELETE_COMPLETE",
+    "status": "NOT_ATTEMPTED",
+    "destroyJobState": null,
+    "purgeJobState": null,
+    "cleanupState": null,
+    "bootstrapStackFinal": null,
     "leaks": [],
-    "retainedState": "PASS",
-    "purgedState": "PASS",
-    "durationMs": 2623011,
+    "retainedState": "NOT_ATTEMPTED",
+    "purgedState": "NOT_ATTEMPTED",
+    "durationMs": null,
     "detail": null
   },
   "classification": "CONTAINER_START_ERROR",

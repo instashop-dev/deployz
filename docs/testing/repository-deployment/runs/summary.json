@@ -1,5 +1,5 @@
 {
-  "deployzCommit": "3571f5a4eb829bf2370f33006875485f94c79744",
+  "deployzCommit": "6cb952bca9843c583ae1c41f529f415722fad81f",
   "total": 120,
   "expectedDeployable": 65,
   "expectedUnsupported": 55,
@@ -44,7 +44,7 @@
   "trueDeploymentSuccess": 4,
   "trueDeploymentSuccessRate": 6.2,
   "cleanup": {
-    "destroys": 8,
+    "destroys": 9,
     "destroyFailures": 0,
     "leaks": 0,
     "successRate": 100
