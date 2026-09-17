@@ -1410,7 +1410,7 @@ describe('cleanup', () => {
     expect(stageBRun(evidence2).stageB.cleanupNeeded).toBe(false);
   });
 
-  it('keeps going after a failed destroy, reports the leak, and turns a PASS into CLEANUP_LEAK', async () => {
+  it('keeps going after a failed destroy, skips the leftovers, reports the leak, and turns a PASS into CLEANUP_LEAK', async () => {
     const { run, evidence, result } = attempt(deployable, {});
     await run();
     const calls: string[] = [];
@@ -1431,7 +1431,9 @@ describe('cleanup', () => {
     const section = await cleanupAttempt({ config: loadConfig({}), api: idleApi(), evidence, teardown, now: Date.now }, result);
     expect(section.status).toBe('FAIL');
     expect(section.leaks).toEqual(['rds db-1']);
-    expect(calls).toEqual(['destroy', 'leftovers', 'audit']);
+    // The connector is never removed while destroy/purge did not complete.
+    expect(calls).toEqual(['destroy', 'audit']);
+    expect(section.bootstrapStackFinal).toBe('SKIPPED: purge not complete');
     expect(stageBRun(evidence).stageB.cleanupNeeded).toBe(true);
     applyCleanupToClassification(result);
     expect(result.classification).toBe('CLEANUP_LEAK');

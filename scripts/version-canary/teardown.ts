@@ -26,6 +26,7 @@ import {
   deleteTaskDefinitions,
   liveInstallationCache,
   liveStackElbResources,
+  type InstallationSecret,
   type LeakAudit,
 } from './aws.js';
 import { describeDeployment, findJob, waitFor } from './control-plane.js';
@@ -33,6 +34,29 @@ import type { Canary } from './steps.js';
 import { ECR_REPOSITORY } from './steps.js';
 
 const MINUTE = 60_000;
+
+/**
+ * True for a live, tagged secret that is one of the retained database
+ * credentials — identified by its CloudFormation logical id, never by a
+ * stack-name prefix: the physical name is `<logicalId>-<random>` with no
+ * stack name in it (BUG-002). AppConfigSecret is delete-by-design, so it is
+ * not a retained-credential kind.
+ */
+export function isRetainedDatabaseSecret(secret: InstallationSecret): boolean {
+  return !secret.deletedDate && /^Database(Secret|UrlSecret)/.test(secret.tags['aws:cloudformation:logical-id'] ?? '');
+}
+
+/**
+ * True for a tagged secret that belongs to the connector (bootstrap stack)
+ * rather than to the retained set — Purge never touches it, so it must be
+ * excluded from the post-purge check by where it comes from, not by name.
+ */
+export function isConnectorSecret(secret: InstallationSecret, bootstrapStackName: string | null | undefined): boolean {
+  return (
+    (!!bootstrapStackName && secret.tags['aws:cloudformation:stack-name'] === bootstrapStackName) ||
+    secret.tags['deployz:component'] === 'bootstrap'
+  );
+}
 
 
 /**
@@ -210,9 +234,7 @@ async function verifyRetainedState(canary: Canary, deploymentId: string): Promis
         logicalId: s.tags['aws:cloudformation:logical-id'] ?? null,
         deletedDate: s.deletedDate,
       }));
-      const retained = secrets.filter(
-        (s) => !s.deletedDate && /^Database(Secret|UrlSecret)/.test(s.tags['aws:cloudformation:logical-id'] ?? ''),
-      );
+      const retained = secrets.filter(isRetainedDatabaseSecret);
       if (retained.length === 0) {
         throw new Error(
           `no live secret tagged deployz:installation=${installationId} with a DatabaseSecret/DatabaseUrlSecret logical id survived Disconnect — ` +
@@ -327,11 +349,7 @@ async function verifyPurgedRetainedState(canary: Canary, deploymentId: string): 
     // touches it (the customer deletes the bootstrap stack later), so it is
     // excluded by its bootstrap stack, not by a name prefix.
     const secrets = (await installationSecretsByTag(config.region, run.installationId)).filter(
-      (s) =>
-        !(
-          (run.bootstrapStackName && s.tags['aws:cloudformation:stack-name'] === run.bootstrapStackName) ||
-          s.tags['deployz:component'] === 'bootstrap'
-        ),
+      (s) => !isConnectorSecret(s, run.bootstrapStackName),
     );
     details['secretsLeft'] = secrets.map((s) => ({
       name: s.name,
@@ -378,15 +396,24 @@ export async function removeCanaryLeftovers(canary: Canary): Promise<void> {
     }
     const stack = await describeStack(config.region, run.bootstrapStackName);
     if (stack && stack.status !== 'DELETE_COMPLETE') {
-      if (run.deploymentId && run.vendor) {
+      if (run.deploymentId) {
         // The purge runs inside the connector's relay: deleting the connector
-        // while a PURGE job is still RUNNING strands the sweep half-way and
-        // leaks whatever it had not reached yet (observed: a VPC and its NAT
-        // gateway). Refuse until the product reports the purge settled.
+        // before the product reports cleanupState COMPLETE — including while
+        // a PURGE job is still active — strands the sweep half-way and leaks
+        // whatever it had not reached yet (observed: a VPC and its NAT
+        // gateway). Keyed on the deploymentId and the product's own state,
+        // never on `run.vendor` — a Stage B ledger never sets it, and this
+        // guard must hold there too.
         const current = await canary.api.getDeployment(run.deploymentId);
         const purge = [...current.jobs].reverse().find((j) => j.type === 'PURGE');
+        details['cleanupState'] = current.cleanupState;
         details['purgeState'] = purge?.state ?? null;
+        if (current.cleanupState !== 'COMPLETE') {
+          details['refused'] = `cleanupState is ${current.cleanupState}, expected COMPLETE`;
+          throw new Error(`cleanupState is ${current.cleanupState} (expected COMPLETE); not deleting the connector stack (rerun cleanup once Purge completes)`);
+        }
         if (purge && !['SUCCEEDED', 'FAILED', 'CANCELLED'].includes(purge.state)) {
+          details['refused'] = `purge job ${purge.id} is still ${purge.state}`;
           throw new Error(`purge job ${purge.id} is still ${purge.state}; not deleting the connector stack (rerun cleanup once it settles)`);
         }
       }

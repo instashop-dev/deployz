@@ -1,18 +1,24 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { canaryTags, loadConfig, mintRunId, releaseVersionFor, requireRealAwsOptIn, validateDigest } from './config.js';
-import { isTerminalJobState, waitFor } from './control-plane.js';
-import { relayFunctionName } from './teardown.js';
-import { renderSummary, type RunRecord } from './evidence.js';
+import { isTerminalJobState, waitFor, type ControlPlane } from './control-plane.js';
+import { isConnectorSecret, isRetainedDatabaseSecret, relayFunctionName, removeCanaryLeftovers } from './teardown.js';
+import { renderSummary, type Evidence, type RunRecord } from './evidence.js';
 import {
   assertSameInfrastructure,
   assertTargetsServing,
   parseQuickCreateUrl,
   probeBaseUrl,
+  type Canary,
   type InfraSnapshot,
 } from './steps.js';
 import { probeLiveApp, writeMarker } from './app.js';
-import { liveNatGateways } from './aws.js';
+import { deleteStack, describeStack, liveNatGateways, type InstallationSecret } from './aws.js';
+
+vi.mock('./aws.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./aws.js')>();
+  return { ...actual, describeStack: vi.fn(), deleteStack: vi.fn() };
+});
 
 describe('real-AWS guard', () => {
   it('refuses without the opt-in, with the shared refusal text', () => {
@@ -351,5 +357,129 @@ describe('teardown nudges the relay', () => {
     );
     expect(settled).toBe('done after 3');
     expect(ticks).toBe(2);
+  });
+});
+
+describe('retained database credential secrets (BUG-002)', () => {
+  const secret = (name: string, tags: Record<string, string>, deletedDate: string | null = null): InstallationSecret => ({
+    name,
+    arn: `arn:aws:secretsmanager:us-east-1:1:secret:${name}`,
+    deletedDate,
+    tags,
+  });
+
+  it('treats an unprefixed, CloudFormation-generated name as retained when its logical id says so', () => {
+    // CloudFormation names this template's secrets `<LogicalId>-<random>`
+    // with no stack-name prefix at all (real run stage-b-repo-004-…).
+    const dbSecret = secret('DatabaseSecret86DBB7B3-VgOM2g2GjldR', {
+      'deployz:installation': '9a8aef85-865d-4583-9a61-7d89ea983b0a',
+      'aws:cloudformation:logical-id': 'DatabaseSecret86DBB7B3',
+    });
+    const urlSecret = secret('DatabaseUrlSecretFA7DE062-cnJ1KWcterKP', {
+      'deployz:installation': '9a8aef85-865d-4583-9a61-7d89ea983b0a',
+      'aws:cloudformation:logical-id': 'DatabaseUrlSecretFA7DE062',
+    });
+    expect(isRetainedDatabaseSecret(dbSecret)).toBe(true);
+    expect(isRetainedDatabaseSecret(urlSecret)).toBe(true);
+  });
+
+  it('does not count the delete-by-design app config secret or the connector credential as retained', () => {
+    const appConfig = secret('AppConfigSecret251CAC1E-abc123', { 'aws:cloudformation:logical-id': 'AppConfigSecret251CAC1E' });
+    const relayCredential = secret('RelayCredentialFromParam-xyz789', { 'aws:cloudformation:logical-id': 'RelayCredentialFromParam' });
+    expect(isRetainedDatabaseSecret(appConfig)).toBe(false);
+    expect(isRetainedDatabaseSecret(relayCredential)).toBe(false);
+  });
+
+  it('still fails the retained check when only non-database secrets survived Disconnect', () => {
+    // Same predicate the real check filters with: an empty result here is
+    // exactly what makes `verifyRetainedState` throw.
+    const secrets = [
+      secret('AppConfigSecret251CAC1E-abc', { 'aws:cloudformation:logical-id': 'AppConfigSecret251CAC1E' }),
+      secret('RelayCredentialFromParam-xyz', { 'aws:cloudformation:logical-id': 'RelayCredentialFromParam' }),
+    ];
+    expect(secrets.filter(isRetainedDatabaseSecret)).toEqual([]);
+  });
+
+  it('excludes a secret already scheduled for deletion', () => {
+    const scheduled = secret(
+      'DatabaseSecret86DBB7B3-VgOM2g2GjldR',
+      { 'aws:cloudformation:logical-id': 'DatabaseSecret86DBB7B3' },
+      '2026-09-24T00:00:00.000Z',
+    );
+    expect(isRetainedDatabaseSecret(scheduled)).toBe(false);
+  });
+});
+
+describe('the purged check ignores the connector secret (BUG-002)', () => {
+  const secret = (name: string, tags: Record<string, string>): InstallationSecret => ({
+    name,
+    arn: `arn:aws:secretsmanager:us-east-1:1:secret:${name}`,
+    deletedDate: null,
+    tags,
+  });
+
+  it('excludes the connector credential by its bootstrap stack, not by a name prefix', () => {
+    const bootstrapStackName = 'deployz-bootstrap-stage-b-repo-004-1306e305';
+    const relayCredential = secret('RelayCredentialFromParam-xyz789', { 'aws:cloudformation:stack-name': bootstrapStackName });
+    expect(isConnectorSecret(relayCredential, bootstrapStackName)).toBe(true);
+  });
+
+  it('also excludes it by the bootstrap component tag when the stack name is unavailable', () => {
+    const relayCredential = secret('RelayCredentialFromParam-xyz789', { 'deployz:component': 'bootstrap' });
+    expect(isConnectorSecret(relayCredential, null)).toBe(true);
+  });
+
+  it('does not exclude a retained-set secret that survived — the purge must have force-deleted it', () => {
+    const dbSecret = secret('DatabaseSecret86DBB7B3-VgOM2g2GjldR', { 'aws:cloudformation:stack-name': 'deployz-app-9a8aef85' });
+    expect(isConnectorSecret(dbSecret, 'deployz-bootstrap-stage-b-repo-004-1306e305')).toBe(false);
+  });
+});
+
+describe('removeCanaryLeftovers never deletes the connector before Purge completes (BUG-003)', () => {
+  afterEach(() => {
+    vi.mocked(describeStack).mockReset();
+    vi.mocked(deleteStack).mockReset();
+  });
+
+  it('refuses while cleanupState is not COMPLETE, even without run.vendor (Stage B never sets it)', async () => {
+    vi.mocked(describeStack).mockResolvedValueOnce({ status: 'UPDATE_COMPLETE' } as never);
+
+    const run = {
+      bootstrapStackName: 'deployz-bootstrap-stage-b-repo-004-1306e305',
+      deploymentId: 'dep-1',
+      releases: {},
+      // No `vendor` — a Stage B ledger never sets it (the vendor lives in
+      // series.json), which is exactly what let BUG-003 through before.
+    } as unknown as RunRecord;
+    const evidence = {
+      run,
+      step: async (_name: string, fn: (details: Record<string, unknown>) => Promise<unknown>) => fn({}),
+    } as unknown as Evidence;
+    const api = { getDeployment: async () => ({ cleanupState: 'PENDING', jobs: [] }) } as unknown as ControlPlane;
+    const canary: Canary = { config: loadConfig({}), evidence, api };
+
+    await expect(removeCanaryLeftovers(canary)).rejects.toThrow('cleanupState is PENDING');
+    expect(deleteStack).not.toHaveBeenCalled();
+  });
+
+  it('also refuses while a PURGE job is still active, even with cleanupState already COMPLETE', async () => {
+    vi.mocked(describeStack).mockResolvedValueOnce({ status: 'UPDATE_COMPLETE' } as never);
+
+    const run = {
+      bootstrapStackName: 'deployz-bootstrap-stage-b-repo-004-1306e305',
+      deploymentId: 'dep-1',
+      releases: {},
+    } as unknown as RunRecord;
+    const evidence = {
+      run,
+      step: async (_name: string, fn: (details: Record<string, unknown>) => Promise<unknown>) => fn({}),
+    } as unknown as Evidence;
+    const api = {
+      getDeployment: async () => ({ cleanupState: 'COMPLETE', jobs: [{ id: 'j1', type: 'PURGE', state: 'RUNNING' }] }),
+    } as unknown as ControlPlane;
+    const canary: Canary = { config: loadConfig({}), evidence, api };
+
+    await expect(removeCanaryLeftovers(canary)).rejects.toThrow('purge job j1 is still RUNNING');
+    expect(deleteStack).not.toHaveBeenCalled();
   });
 });
