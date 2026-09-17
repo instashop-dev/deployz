@@ -127,7 +127,7 @@ repositories:
       - "Campaign 2026-09-18: ca-central-1. SECRET_KEY_BASE is otherwise auto-generated onto the task's ephemeral disk (config/dotenv.rb:179-207); a generated secret keeps sessions and ActiveRecord encryption stable across task replacement. Without REDIS_URL the container forks its own redis-server (lib/puma/plugin/redis_server.rb). / redirects to /setup while no user exists (application_controller.rb:78-80)."
 
   - id: repo-004
-    findings: [DEPLOY-008]
+    findings: [DEPLOY-008, DEPLOY-026, DEPLOY-027, DEPLOY-028]
     fork: instashop-dev/v2
     overrides:
       dockerfilePath: packaging/docker/alpine/Dockerfile

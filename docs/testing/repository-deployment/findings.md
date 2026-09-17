@@ -38,6 +38,9 @@ one of `FIXED`, `MVP_CAPABILITY_GAP`, `CORRECTLY_UNSUPPORTED`,
 | DEPLOY-023 | (cleanup) | TEST_HARNESS_FAILURE | OPEN | every repository whose install fails before the relay enrolls; measured on repo-007 |
 | DEPLOY-024 | INFRA_ERROR (relay never enrols) | DEPLOYZ_BUG | FIXED (the template stores the credential as JSON) | every install carrying a server-established relay credential, i.e. all of them since PR #265 |
 | DEPLOY-025 | CLEANUP_LEAK (false) | TEST_HARNESS_FAILURE | OPEN | every application with a retained database plus another dependency; measured on repo-007 |
+| DEPLOY-026 | CONTAINER_START_ERROR | DEPLOYZ_BUG | FIXED (PR #307 merged 2026-09-17 21:09Z, main b64f52f; application templates republished 21:2xZ; miniflux attempt 2 delivered `DATABASE_URL`) | every non-Documenso PostgreSQL application installed through the production template since the preset publish; measured on repo-004 (regional campaign wave 1) |
+| DEPLOY-027 | CONTAINER_START_ERROR | DEPLOYZ_BUG | OPEN — product decision (changes the §31 write-only secret model); the campaign harness re-delivers generated secrets after enrollment (PR #309) | every application whose first boot needs a customer-facing secret typed before the relay connects, including the public deploy-link confirm flow; measured on repo-004 attempt 2 (`unboundSecretKeys: [ADMIN_PASSWORD]`); predicted repo-016 (minted `SECRET_KEY` is not 64 hex), repo-021 (`ADMIN_PASSWORD`) |
+| DEPLOY-028 | (cleanup) | TEST_HARNESS_FAILURE | FIXED (PR #306 tag-based retained-secret discovery; PR #308 never removes the connector before `cleanupState` is COMPLETE) | every Stage B ledger whose Disconnect/Purge fails; measured on repo-004 attempt 1 (retained RDS, bucket, secrets, subnet group, security group, subnet and VPC stranded and removed by exact id) |
 
 ---
 
@@ -1362,3 +1365,111 @@ cleanup once automatically before recording a leak.
 
 **Note.** DEPLOY-022 compounds this: much of the teardown time is spent
 removing a database the application never needed.
+
+## DEPLOY-026 — The production application template drops the standard `DATABASE_URL` when it is published with a preset
+
+**Stage** CONTAINER_START_ERROR · **Root cause** DEPLOYZ_BUG · **Resolution**
+FIXED (PR #307, main b64f52f, 2026-09-17 21:09Z; `application/v1`
+republished from the fixed dist at 21:2xZ) · **Found** regional campaign,
+wave 1, repo-004 miniflux attempt 1 (2026-09-17 20:25Z, us-east-1, run
+`stage-b-repo-004-20260917-195539-c9c9`).
+
+**Behaviour.** `packages/cdk/src/application/application-stack.ts` derived
+the connection-URL env names as `props.databaseUrlEnvNames ?? ['DATABASE_URL']`.
+A preset that pins its own names (the Documenso preset:
+`NEXT_PRIVATE_DATABASE_URL`, `NEXT_PRIVATE_DIRECT_DATABASE_URL`) therefore
+replaced the standard name. The documented production publish recipe runs
+`publish:application` with `APP_PRESET=documenso`, so every customer install
+since that publish ran a task definition without `DATABASE_URL`. Every earlier
+Stage B PASS used `--template pinned` (a generic template published per run)
+and never measured the production template.
+
+**Effect.** miniflux read the default `DATABASE_URL`, dialled
+`127.0.0.1:5432`, exited 1 on every start; the deployment ended
+`CONTAINER_START_FAILED` ("The application started and then stopped"). The
+relay's binding-alias module documents that the template bakes the standard
+names, so no alias could be derived either.
+
+**Evidence.** Task-definition revisions 113/114 (installation
+`9a8aef85-…`): secrets `DATABASE_PASSWORD, …, NEXT_PRIVATE_DATABASE_URL,
+NEXT_PRIVATE_DIRECT_DATABASE_URL`, no `DATABASE_URL`; container log
+`level=INFO msg="The default value for DATABASE_URL is used"`. Revisions
+107/108 of a concurrent generic-template run carried `DATABASE_URL`.
+
+**Fix.** When `databaseRequired` is true the standard `DATABASE_URL` is always
+injected; a preset's `databaseUrlEnvNames` only adds names. Regression tests
+synthesize the Documenso preset and assert `DATABASE_URL` is bound to the
+`DatabaseUrlSecret` next to the preset names. `deploy-api` redeployed the
+control plane and republished the bootstrap template; the application
+templates were republished by hand with the documented recipe. Verified on
+real AWS: miniflux attempt 2's revision 117 carries `DATABASE_URL` and the
+migrations ran (schema v0 → v134).
+
+---
+
+## DEPLOY-027 — Secret values typed before the customer's relay connects never reach the install, and minted replacements ignore the application's format
+
+**Stage** CONTAINER_START_ERROR · **Root cause** DEPLOYZ_BUG · **Resolution**
+OPEN — a product decision (the §31 write-only secret model) · **Found**
+regional campaign, wave 1, repo-004 miniflux attempt 2 (2026-09-17 21:38Z,
+run `stage-b-repo-004-20260917-211201`).
+
+**Behaviour.** `createRelaySecretWriter` (`apps/api/src/config.ts`) enqueues
+one CONFIG_UPDATE fan-out to the deployments of that customer whose relay is
+connected when the secret is saved. A value typed at the vendor scope before
+any install, at the customer scope before the relay connects, or on the
+public deploy link's confirm step (`apps/api/src/public-install.ts`:
+`setConfig` runs before `createDeploymentRecord`) has no recipient and only
+its mask survives. At install, `buildRelayConfigEntries` mints values for
+app-internal secrets (`randomBytes(32).toString('base64url')`) and never for
+customer-required ones (DEPLOY-013's design).
+
+**Effect.** Customer-facing secrets (admin passwords, licence keys) are absent
+at first boot: miniflux with `CREATE_ADMIN=1` logs `The password must have at
+least 6 characters.` and exits; CONFIG_UPDATE reports
+`unboundSecretKeys: ["ADMIN_PASSWORD"]`, `generatedKeys: []`. Internal
+secrets with a validated format get a value the application rejects (outline
+`SECRET_KEY` must be 64 hexadecimal characters). The customer typed the value,
+the install fails, and nothing says the value was lost.
+
+**Workaround.** Type the secret at the customer scope after the customer's
+relay is CONNECTED; the fan-out delivers it and a delivered value wins over a
+minted one. The Stage B harness emulates this after the enrollment step
+(PR #309). It is not an acceptable customer experience.
+
+**Decision needed.** (a) hold pre-install secret values encrypted in the
+control plane until the first delivery, then discard; (b) carry confirm-time
+values inside the deployment's install payload; (c) format-aware minting from
+the manifest's validation hints. Each changes §31 and needs an explicit
+product decision; none is implemented by this campaign.
+
+---
+
+## DEPLOY-028 — A failed retained-state check removed the connector before Purge and stranded the retained set
+
+**Stage** (cleanup) · **Root cause** TEST_HARNESS_FAILURE · **Resolution**
+FIXED (PR #306 tag-based retained-secret discovery, 2026-09-17 20:29Z;
+PR #308 connector-order guard, 2026-09-17 21:59Z) · **Found** regional
+campaign, wave 1, repo-004 miniflux attempt 1 (2026-09-17 21:05Z).
+
+**Behaviour.** `verifyRetainedState` looked for retained credential secrets
+whose name starts with the application stack name, but CloudFormation names
+this template's secrets `<LogicalId>-<random>` (`DatabaseSecret86DBB7B3-…`,
+`DatabaseUrlSecretFA7DE062-…`) with no stack prefix, so the check failed
+although the secrets existed and carried the installation tag. Because
+`destroyThroughProduct` threw before Purge, `cleanupAttempt` went on to
+`removeCanaryLeftovers`, whose "purge still running" guard was keyed on
+`run.vendor` — never set by a Stage B ledger — and deleted the connector.
+
+**Effect.** With the relay gone the product could no longer purge: a
+deletion-protected `db.t4g.micro` instance and its automated snapshot, a
+versioned bucket, two secrets, an RDS subnet group, a security group, a
+subnet and a VPC stayed behind and were removed by exact id by the operator.
+The gatus lane in eu-north-1 was stopped before the same step; its cleanup
+ran under the fixed harness and its retained-state verification passed.
+
+**Fix.** Retained credentials are identified by their CloudFormation logical
+id and installation tag; the connector is never removed while an
+installation exists and the product's `cleanupState` is not `COMPLETE`; when
+Disconnect or Purge fails for a run that has an installation, the leftovers
+step is skipped and the ledger stays open for `--cleanup`.
