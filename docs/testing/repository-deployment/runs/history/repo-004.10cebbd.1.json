@@ -9,8 +9,8 @@
   "cohort": "realistic",
   "customerRealism": "high",
   "difficulty": 3,
-  "deployzCommit": "3571f5a4eb829bf2370f33006875485f94c79744",
-  "runId": "stage-b-repo-004-20260917-211213-33ac",
+  "deployzCommit": "10cebbd43b5d3839f6dc2300a0d984e326b6244e",
+  "runId": "stage-b-repo-004-20260917-195539-c9c9",
   "stageAExpected": "NEEDS_CONFIGURATION",
   "expectedDeployable": true,
   "mode": "deploy",
@@ -53,23 +53,23 @@
   },
   "build": {
     "status": "PASS",
-    "releaseId": "d03665f5-1d90-4e57-9a34-f8d2baf7443f",
-    "version": "repo-004-20260917-211213-33ac",
+    "releaseId": "0809713a-bcab-4455-bd90-c585fdd403c7",
+    "version": "repo-004-20260917-195539-c9c9",
     "gitSha": "a84533db6ca0a2ff9a47800fbf0326be6d9b3170",
     "dockerfilePath": "packaging/docker/alpine/Dockerfile",
     "buildContext": ".",
-    "imageDigest": "sha256:4f02917c7d88923eb6e1d5420d48c4468e69d2dc98bd9802899c91c4585e77c8",
+    "imageDigest": "sha256:2a737f4c82d23c19ba6a417e97fb60fbe1ab01dfbe9503931caf85ceab39a5e7",
     "buildId": null,
-    "durationMs": 83655,
+    "durationMs": 83663,
     "imageReused": false,
     "detail": null
   },
   "deployment": {
     "status": "FAIL",
-    "deploymentId": "e220fdde-7816-4f48-b60e-287126f0b6e2",
-    "installationId": "c64323b3-07d5-4321-80bf-de1cb9bb9d06",
-    "bootstrapStack": "deployz-bootstrap-stage-b-repo-004-e220fdde",
-    "applicationStack": "deployz-app-c64323b3",
+    "deploymentId": "1306e305-20f6-4ac8-89b7-672d1fef2806",
+    "installationId": "9a8aef85-865d-4583-9a61-7d89ea983b0a",
+    "bootstrapStack": "deployz-bootstrap-stage-b-repo-004-1306e305",
+    "applicationStack": "deployz-app-9a8aef85",
     "stackStatus": "CREATE_COMPLETE",
     "templateSource": "production-default",
     "templateUrl": null,
@@ -119,16 +119,26 @@
     "detail": null
   },
   "cleanup": {
-    "status": "NOT_ATTEMPTED",
-    "destroyJobState": null,
+    "status": "FAIL",
+    "destroyJobState": "SUCCEEDED",
     "purgeJobState": null,
     "cleanupState": null,
-    "bootstrapStackFinal": null,
-    "leaks": [],
-    "retainedState": "NOT_ATTEMPTED",
+    "bootstrapStackFinal": "DELETE_COMPLETE",
+    "leaks": [
+      "rds deployz-app-9a8aef85-databaseb269d8bb-szqvd6l6xfch",
+      "arn:aws:ec2:us-east-1:151955775369:security-group/sg-0ca7c0c550d2b49a3",
+      "arn:aws:rds:us-east-1:151955775369:snapshot:rds:deployz-app-9a8aef85-databaseb269d8bb-szqvd6l6xfch-2026-09-17-20-10",
+      "arn:aws:rds:us-east-1:151955775369:db:deployz-app-9a8aef85-databaseb269d8bb-szqvd6l6xfch",
+      "arn:aws:ec2:us-east-1:151955775369:subnet/subnet-0e015a57a74251792",
+      "arn:aws:secretsmanager:us-east-1:151955775369:secret:DatabaseUrlSecretFA7DE062-cnJ1KWcterKP-pdrM3a",
+      "arn:aws:ec2:us-east-1:151955775369:subnet/subnet-049e67f7ef4ac2036",
+      "arn:aws:ec2:us-east-1:151955775369:vpc/vpc-085bacf35ef27f137",
+      "arn:aws:rds:us-east-1:151955775369:subgrp:deployz-app-9a8aef85-databasesubnetgroup7d60f180-2q5tka1rzplp"
+    ],
+    "retainedState": "FAIL",
     "purgedState": "NOT_ATTEMPTED",
-    "durationMs": null,
-    "detail": null
+    "durationMs": 2437260,
+    "detail": "destroy/purge: no secret named after the application stack survived Disconnect — the retained database credentials (deployz-app-9a8aef85-…) are gone | leak audit: 9 resource(s) left"
   },
   "classification": "CONTAINER_START_ERROR",
   "failureStage": "CONTAINER_START_ERROR",
@@ -138,9 +148,9 @@
     "DEPLOY-008"
   ],
   "timing": {
-    "startedAt": "2026-09-17T21:12:13.722Z",
-    "finishedAt": "2026-09-17T21:47:13.836Z",
-    "totalMs": 2100114
+    "startedAt": "2026-09-17T19:55:40.411Z",
+    "finishedAt": "2026-09-17T20:25:44.361Z",
+    "totalMs": 1803950
   },
   "evidence": {
     "failure": {
@@ -148,10 +158,10 @@
       "message": "install FAILED: The application started and then stopped.",
       "stoppedTasks": [
         {
-          "taskArn": "arn:aws:ecs:us-east-1:151955775369:task/deployz-app-c64323b3-ClusterEB0386A7-TvGwrcfo2SAK/22e2bd7998254343a0796d26890e1136",
+          "taskArn": "arn:aws:ecs:us-east-1:151955775369:task/deployz-app-9a8aef85-ClusterEB0386A7-drNdmoeYaBKz/012b59a5356a4bdfb5b05c8a7f12e23f",
           "stoppedReason": "Essential container in task exited",
           "stopCode": "EssentialContainerExited",
-          "stoppedAt": "2026-09-18T03:15:56.337000+05:30",
+          "stoppedAt": "2026-09-18T01:51:11.180000+05:30",
           "containers": [
             {
               "name": "RdsCaBundle",
@@ -166,10 +176,10 @@
           ]
         },
         {
-          "taskArn": "arn:aws:ecs:us-east-1:151955775369:task/deployz-app-c64323b3-ClusterEB0386A7-TvGwrcfo2SAK/46d9e9f701ae40f8b646a2cdf372fdef",
+          "taskArn": "arn:aws:ecs:us-east-1:151955775369:task/deployz-app-9a8aef85-ClusterEB0386A7-drNdmoeYaBKz/3664137862714936a353cc08c8dbb981",
           "stoppedReason": "Essential container in task exited",
           "stopCode": "EssentialContainerExited",
-          "stoppedAt": "2026-09-18T03:07:40.821000+05:30",
+          "stoppedAt": "2026-09-18T01:50:55.075000+05:30",
           "containers": [
             {
               "name": "App",
@@ -184,25 +194,7 @@
           ]
         },
         {
-          "taskArn": "arn:aws:ecs:us-east-1:151955775369:task/deployz-app-c64323b3-ClusterEB0386A7-TvGwrcfo2SAK/5890c57500e4450fa7310102747dfc2e",
-          "stoppedReason": "Essential container in task exited",
-          "stopCode": "EssentialContainerExited",
-          "stoppedAt": "2026-09-18T03:14:37.836000+05:30",
-          "containers": [
-            {
-              "name": "RdsCaBundle",
-              "exitCode": 0,
-              "reason": null
-            },
-            {
-              "name": "App",
-              "exitCode": 1,
-              "reason": null
-            }
-          ]
-        },
-        {
-          "taskArn": "arn:aws:ecs:us-east-1:151955775369:task/deployz-app-c64323b3-ClusterEB0386A7-TvGwrcfo2SAK/8aeb4cb58d36428191dd2f9ea2993429",
+          "taskArn": "arn:aws:ecs:us-east-1:151955775369:task/deployz-app-9a8aef85-ClusterEB0386A7-drNdmoeYaBKz/39e90ee052ae451e85dfd4b503281e21",
           "stoppedReason": "Essential container in task exited",
           "stopCode": "EssentialContainerExited",
           "stoppedAt": null,
@@ -220,10 +212,10 @@
           ]
         },
         {
-          "taskArn": "arn:aws:ecs:us-east-1:151955775369:task/deployz-app-c64323b3-ClusterEB0386A7-TvGwrcfo2SAK/aa4096db93524645843eb61eb5ba3fc4",
+          "taskArn": "arn:aws:ecs:us-east-1:151955775369:task/deployz-app-9a8aef85-ClusterEB0386A7-drNdmoeYaBKz/9064df98c5824bfcba46b0dfb9ef536d",
           "stoppedReason": "Essential container in task exited",
           "stopCode": "EssentialContainerExited",
-          "stoppedAt": "2026-09-18T03:08:16.963000+05:30",
+          "stoppedAt": null,
           "containers": [
             {
               "name": "RdsCaBundle",
@@ -239,17 +231,17 @@
         }
       ],
       "logTail": [
-        "2026-09-17T21:38:42.665Z level=INFO msg=\"Running database migrations\" current_version=134 latest_version=134",
-        "2026-09-17T21:38:42.671Z The password must have at least 6 characters.",
-        "2026-09-17T21:45:00.971Z level=INFO msg=\"Running database migrations\" current_version=134 latest_version=134",
-        "2026-09-17T21:45:00.982Z The password must have at least 6 characters.",
-        "2026-09-17T21:46:19.925Z level=INFO msg=\"Running database migrations\" current_version=134 latest_version=134",
-        "2026-09-17T21:46:19.930Z The password must have at least 6 characters."
+        "2026-09-17T20:15:46.683Z level=INFO msg=\"The default value for DATABASE_URL is used\"",
+        "2026-09-17T20:15:46.699Z dial tcp 127.0.0.1:5432: connect: connection refused",
+        "2026-09-17T20:21:18.647Z level=INFO msg=\"The default value for DATABASE_URL is used\"",
+        "2026-09-17T20:21:18.665Z dial tcp 127.0.0.1:5432: connect: connection refused",
+        "2026-09-17T20:21:47.233Z level=INFO msg=\"The default value for DATABASE_URL is used\"",
+        "2026-09-17T20:21:47.245Z dial tcp 127.0.0.1:5432: connect: connection refused"
       ],
       "stackFailures": [],
       "targetHealth": [
         "draining",
-        "healthy"
+        "draining"
       ],
       "diagnostics": {
         "failureCode": "CONTAINER_START_FAILED",
@@ -259,27 +251,27 @@
         "fix": "Check the required values on the Configuration screen are all set, then deploy again.",
         "source": "deterministic",
         "confidence": null,
-        "technicalDetail": "4 tasks of the new revision exited with code 1 (Essential container in task exited)",
+        "technicalDetail": "3 tasks of the new revision exited with code 1 (Essential container in task exited)",
         "context": {
-          "deploymentId": "e220fdde-7816-4f48-b60e-287126f0b6e2",
+          "deploymentId": "1306e305-20f6-4ac8-89b7-672d1fef2806",
           "phase": "DEPLOY_RELEASE",
           "attempt": 0,
           "failureCode": "CONTAINER_START_FAILED",
           "reportedFailureCode": null,
           "resourceType": null,
-          "message": "4 tasks of the new revision exited with code 1 (Essential container in task exited)",
+          "message": "3 tasks of the new revision exited with code 1 (Essential container in task exited)",
           "relevantEvents": [],
-          "applicationVersion": "repo-004-20260917-211213-33ac"
+          "applicationVersion": "repo-004-20260917-195539-c9c9"
         },
         "events": [
           {
-            "id": 2059,
-            "occurredAt": "2026-09-17T21:14:36.298Z",
+            "id": 1975,
+            "occurredAt": "2026-09-17T19:57:56.579Z",
             "actorType": "user",
             "actorId": "OAP49yPD0M53O2BpaUoGy4tKPGMJJeNZ",
-            "organizationId": "4ea88b35-419b-4721-8178-e52be3938e15",
-            "customerId": "e5da4b85-98d7-4c61-93a6-133482a99288",
-            "deploymentId": "e220fdde-7816-4f48-b60e-287126f0b6e2",
+            "organizationId": "cbaad9cd-0d11-4642-a434-ddbdca7192ca",
+            "customerId": "dc430793-8984-4415-a965-e277d7280abb",
+            "deploymentId": "1306e305-20f6-4ac8-89b7-672d1fef2806",
             "jobId": null,
             "releaseId": null,
             "eventType": "application.preflight_evaluated",
@@ -289,19 +281,19 @@
             "payload": {
               "result": "pass",
               "warningCount": 1,
-              "applicationId": "b1831233-dab2-4a75-9bfc-8f1aabd42160",
+              "applicationId": "b58c98af-6f38-4cca-9898-422def315df7",
               "blockingCount": 0,
               "schemaVersion": 1
             }
           },
           {
-            "id": 2060,
-            "occurredAt": "2026-09-17T21:14:36.300Z",
+            "id": 1976,
+            "occurredAt": "2026-09-17T19:57:56.581Z",
             "actorType": "user",
             "actorId": "OAP49yPD0M53O2BpaUoGy4tKPGMJJeNZ",
-            "organizationId": "4ea88b35-419b-4721-8178-e52be3938e15",
-            "customerId": "e5da4b85-98d7-4c61-93a6-133482a99288",
-            "deploymentId": "e220fdde-7816-4f48-b60e-287126f0b6e2",
+            "organizationId": "cbaad9cd-0d11-4642-a434-ddbdca7192ca",
+            "customerId": "dc430793-8984-4415-a965-e277d7280abb",
+            "deploymentId": "1306e305-20f6-4ac8-89b7-672d1fef2806",
             "jobId": null,
             "releaseId": null,
             "eventType": "deployment.created",
@@ -314,13 +306,13 @@
             }
           },
           {
-            "id": 2062,
-            "occurredAt": "2026-09-17T21:14:37.103Z",
+            "id": 1978,
+            "occurredAt": "2026-09-17T19:57:57.609Z",
             "actorType": "system",
-            "actorId": "install-link:faf0f7cf-9713-4683-bb10-e97dbe1e2211",
-            "organizationId": "4ea88b35-419b-4721-8178-e52be3938e15",
-            "customerId": "e5da4b85-98d7-4c61-93a6-133482a99288",
-            "deploymentId": "e220fdde-7816-4f48-b60e-287126f0b6e2",
+            "actorId": "install-link:d1f030c6-125c-4d35-89e9-bed690848ee6",
+            "organizationId": "cbaad9cd-0d11-4642-a434-ddbdca7192ca",
+            "customerId": "dc430793-8984-4415-a965-e277d7280abb",
+            "deploymentId": "1306e305-20f6-4ac8-89b7-672d1fef2806",
             "jobId": null,
             "releaseId": null,
             "eventType": "install.launched",
@@ -330,13 +322,13 @@
             "payload": {}
           },
           {
-            "id": 2063,
-            "occurredAt": "2026-09-17T21:14:37.103Z",
+            "id": 1979,
+            "occurredAt": "2026-09-17T19:57:57.609Z",
             "actorType": "system",
-            "actorId": "install-link:faf0f7cf-9713-4683-bb10-e97dbe1e2211",
-            "organizationId": "4ea88b35-419b-4721-8178-e52be3938e15",
-            "customerId": "e5da4b85-98d7-4c61-93a6-133482a99288",
-            "deploymentId": "e220fdde-7816-4f48-b60e-287126f0b6e2",
+            "actorId": "install-link:d1f030c6-125c-4d35-89e9-bed690848ee6",
+            "organizationId": "cbaad9cd-0d11-4642-a434-ddbdca7192ca",
+            "customerId": "dc430793-8984-4415-a965-e277d7280abb",
+            "deploymentId": "1306e305-20f6-4ac8-89b7-672d1fef2806",
             "jobId": null,
             "releaseId": null,
             "eventType": "application.preflight_evaluated",
@@ -346,20 +338,20 @@
             "payload": {
               "result": "pass",
               "warningCount": 1,
-              "applicationId": "b1831233-dab2-4a75-9bfc-8f1aabd42160",
+              "applicationId": "b58c98af-6f38-4cca-9898-422def315df7",
               "blockingCount": 0,
               "schemaVersion": 1
             }
           },
           {
-            "id": 2064,
-            "occurredAt": "2026-09-17T21:21:46.619Z",
+            "id": 1989,
+            "occurredAt": "2026-09-17T20:05:18.873Z",
             "actorType": "relay",
-            "actorId": "c64323b3-07d5-4321-80bf-de1cb9bb9d06",
-            "organizationId": "4ea88b35-419b-4721-8178-e52be3938e15",
-            "customerId": "e5da4b85-98d7-4c61-93a6-133482a99288",
-            "deploymentId": "e220fdde-7816-4f48-b60e-287126f0b6e2",
-            "jobId": "ef7d6a92-aafc-4940-a465-3c546572187d",
+            "actorId": "9a8aef85-865d-4583-9a61-7d89ea983b0a",
+            "organizationId": "cbaad9cd-0d11-4642-a434-ddbdca7192ca",
+            "customerId": "dc430793-8984-4415-a965-e277d7280abb",
+            "deploymentId": "1306e305-20f6-4ac8-89b7-672d1fef2806",
+            "jobId": "c3da6ea5-d0a0-4b0d-9d1b-6acdc68030f1",
             "releaseId": null,
             "eventType": "install.requested",
             "previousState": "WAITING_FOR_RELAY",
@@ -368,13 +360,13 @@
             "payload": {}
           },
           {
-            "id": 2065,
-            "occurredAt": "2026-09-17T21:21:46.619Z",
+            "id": 1990,
+            "occurredAt": "2026-09-17T20:05:18.873Z",
             "actorType": "relay",
-            "actorId": "c64323b3-07d5-4321-80bf-de1cb9bb9d06",
-            "organizationId": "4ea88b35-419b-4721-8178-e52be3938e15",
-            "customerId": "e5da4b85-98d7-4c61-93a6-133482a99288",
-            "deploymentId": "e220fdde-7816-4f48-b60e-287126f0b6e2",
+            "actorId": "9a8aef85-865d-4583-9a61-7d89ea983b0a",
+            "organizationId": "cbaad9cd-0d11-4642-a434-ddbdca7192ca",
+            "customerId": "dc430793-8984-4415-a965-e277d7280abb",
+            "deploymentId": "1306e305-20f6-4ac8-89b7-672d1fef2806",
             "jobId": null,
             "releaseId": null,
             "eventType": "relay.connected",
@@ -386,13 +378,13 @@
             }
           },
           {
-            "id": 2066,
-            "occurredAt": "2026-09-17T21:21:46.619Z",
+            "id": 1991,
+            "occurredAt": "2026-09-17T20:05:18.873Z",
             "actorType": "relay",
-            "actorId": "c64323b3-07d5-4321-80bf-de1cb9bb9d06",
-            "organizationId": "4ea88b35-419b-4721-8178-e52be3938e15",
-            "customerId": "e5da4b85-98d7-4c61-93a6-133482a99288",
-            "deploymentId": "e220fdde-7816-4f48-b60e-287126f0b6e2",
+            "actorId": "9a8aef85-865d-4583-9a61-7d89ea983b0a",
+            "organizationId": "cbaad9cd-0d11-4642-a434-ddbdca7192ca",
+            "customerId": "dc430793-8984-4415-a965-e277d7280abb",
+            "deploymentId": "1306e305-20f6-4ac8-89b7-672d1fef2806",
             "jobId": null,
             "releaseId": null,
             "eventType": "application.preflight_evaluated",
@@ -402,19 +394,19 @@
             "payload": {
               "result": "pass",
               "warningCount": 1,
-              "applicationId": "b1831233-dab2-4a75-9bfc-8f1aabd42160",
+              "applicationId": "b58c98af-6f38-4cca-9898-422def315df7",
               "blockingCount": 0,
               "schemaVersion": 1
             }
           },
           {
-            "id": 2067,
-            "occurredAt": "2026-09-17T21:22:03.403Z",
+            "id": 1993,
+            "occurredAt": "2026-09-17T20:05:35.719Z",
             "actorType": "relay",
-            "actorId": "c64323b3-07d5-4321-80bf-de1cb9bb9d06",
-            "organizationId": "4ea88b35-419b-4721-8178-e52be3938e15",
-            "customerId": "e5da4b85-98d7-4c61-93a6-133482a99288",
-            "deploymentId": "e220fdde-7816-4f48-b60e-287126f0b6e2",
+            "actorId": "9a8aef85-865d-4583-9a61-7d89ea983b0a",
+            "organizationId": "cbaad9cd-0d11-4642-a434-ddbdca7192ca",
+            "customerId": "dc430793-8984-4415-a965-e277d7280abb",
+            "deploymentId": "1306e305-20f6-4ac8-89b7-672d1fef2806",
             "jobId": null,
             "releaseId": null,
             "eventType": "deployment.step_completed",
@@ -423,19 +415,19 @@
             "result": "success",
             "payload": {
               "step": "PREPARING",
-              "startedAt": "2026-09-17T21:21:47.013Z",
-              "completedAt": "2026-09-17T21:21:59.284Z",
-              "durationSeconds": 12
+              "startedAt": "2026-09-17T20:05:19.302Z",
+              "completedAt": "2026-09-17T20:05:30.519Z",
+              "durationSeconds": 11
             }
           },
           {
-            "id": 2068,
-            "occurredAt": "2026-09-17T21:24:15.930Z",
+            "id": 1995,
+            "occurredAt": "2026-09-17T20:08:02.110Z",
             "actorType": "relay",
-            "actorId": "c64323b3-07d5-4321-80bf-de1cb9bb9d06",
-            "organizationId": "4ea88b35-419b-4721-8178-e52be3938e15",
-            "customerId": "e5da4b85-98d7-4c61-93a6-133482a99288",
-            "deploymentId": "e220fdde-7816-4f48-b60e-287126f0b6e2",
+            "actorId": "9a8aef85-865d-4583-9a61-7d89ea983b0a",
+            "organizationId": "cbaad9cd-0d11-4642-a434-ddbdca7192ca",
+            "customerId": "dc430793-8984-4415-a965-e277d7280abb",
+            "deploymentId": "1306e305-20f6-4ac8-89b7-672d1fef2806",
             "jobId": null,
             "releaseId": null,
             "eventType": "deployment.step_completed",
@@ -444,19 +436,19 @@
             "result": "success",
             "payload": {
               "step": "NETWORK",
-              "startedAt": "2026-09-17T21:21:59.284Z",
-              "completedAt": "2026-09-17T21:24:10.834Z",
-              "durationSeconds": 132
+              "startedAt": "2026-09-17T20:05:30.519Z",
+              "completedAt": "2026-09-17T20:08:01.180Z",
+              "durationSeconds": 151
             }
           },
           {
-            "id": 2070,
-            "occurredAt": "2026-09-17T21:28:37.976Z",
+            "id": 1998,
+            "occurredAt": "2026-09-17T20:12:15.826Z",
             "actorType": "relay",
-            "actorId": "c64323b3-07d5-4321-80bf-de1cb9bb9d06",
-            "organizationId": "4ea88b35-419b-4721-8178-e52be3938e15",
-            "customerId": "e5da4b85-98d7-4c61-93a6-133482a99288",
-            "deploymentId": "e220fdde-7816-4f48-b60e-287126f0b6e2",
+            "actorId": "9a8aef85-865d-4583-9a61-7d89ea983b0a",
+            "organizationId": "cbaad9cd-0d11-4642-a434-ddbdca7192ca",
+            "customerId": "dc430793-8984-4415-a965-e277d7280abb",
+            "deploymentId": "1306e305-20f6-4ac8-89b7-672d1fef2806",
             "jobId": null,
             "releaseId": null,
             "eventType": "deployment.step_completed",
@@ -465,9 +457,9 @@
             "result": "success",
             "payload": {
               "step": "DATABASE_STORAGE",
-              "startedAt": "2026-09-17T21:21:59.266Z",
-              "completedAt": "2026-09-17T21:28:36.342Z",
-              "durationSeconds": 397
+              "startedAt": "2026-09-17T20:05:30.491Z",
+              "completedAt": "2026-09-17T20:12:14.456Z",
+              "durationSeconds": 404
             }
           }
         ]
