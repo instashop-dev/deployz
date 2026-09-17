@@ -57,6 +57,7 @@ function resolvedData(overrides: Record<string, unknown> = {}): Record<string, u
     waitingForRelay: false,
     relayStuck: false,
     components: null,
+    releaseVersion: '1.2.0',
     ...overrides,
   };
 }
@@ -111,5 +112,45 @@ describe('InstallPage per-deployment flow', () => {
     expect(doc.body.textContent).toContain('Acme App');
     expect(doc.body.textContent).toContain('setting up inside your AWS account');
     expect(doc.body.textContent).toContain('Still connecting');
+  });
+
+  it('renders the success summary in the READY branch', async () => {
+    mocks.fetchPublicInstallData.mockResolvedValue(null);
+    mocks.fetchInstallData.mockResolvedValue(
+      resolvedData({
+        alreadyInstalled: true,
+        deploymentState: 'HEALTHY',
+      }),
+    );
+
+    const doc = await renderPage();
+
+    expect(doc.body.textContent).toContain('Acme App');
+    expect(doc.body.textContent).toContain('Deployed by Acme Inc');
+    expect(doc.body.textContent).toContain('Release 1.2.0');
+    expect(doc.body.textContent).toContain('US East (N. Virginia)');
+    expect(doc.body.textContent).toContain('Application');
+    expect(doc.body.textContent).toContain('Secure endpoint');
+    expect(doc.body.textContent).toContain('Database');
+    expect(doc.body.textContent).toContain(
+      'PostgreSQL and stored files are retained when the application is disconnected. They can continue to generate AWS charges until they are permanently purged.',
+    );
+    expect(doc.body.textContent).toContain('When this deployment is removed, Database stays in your AWS account.');
+  });
+
+  it('hides the release row when releaseVersion is null', async () => {
+    mocks.fetchPublicInstallData.mockResolvedValue(null);
+    mocks.fetchInstallData.mockResolvedValue(
+      resolvedData({
+        alreadyInstalled: true,
+        deploymentState: 'HEALTHY',
+        releaseVersion: null,
+      }),
+    );
+
+    const doc = await renderPage();
+
+    expect(doc.body.textContent).not.toContain('Release 1.2.0');
+    expect(doc.body.textContent).toContain('Summary');
   });
 });

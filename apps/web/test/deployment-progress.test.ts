@@ -1,9 +1,13 @@
 import { describe, expect, it } from 'vitest';
 
+import type { DeploymentStage, DeploymentStep, VendorDeploymentStatus } from '@deployz/contracts';
+
+import { deriveHero, type HeroInput } from '../src/lib/deployment-hero';
 import {
   formatDurationRange,
   formatElapsedSeconds,
   isTerminalStage,
+  REMOVED_PROGRESS,
   removedProgress,
   stageRank,
   stepWaitingOnInput,
@@ -14,7 +18,6 @@ import {
   stepsFromStatus,
   type ProgressStepState,
 } from '../src/lib/deployment-progress';
-import type { DeploymentStage, DeploymentStep } from '@deployz/contracts';
 
 // Locks the client-side vocabulary map for the server-derived deployment
 // stage/step (see apps/api/src/deployment-status.ts): the client only ever
@@ -246,5 +249,93 @@ describe('stepWaitingOnInput', () => {
   it('names what it is waiting for, with no duration or nudge', () => {
     expect(AWAITING_DOMAIN_STEP_DETAIL).toContain('custom domain');
     expect(AWAITING_DOMAIN_STEP_DETAIL).not.toMatch(/minute|second|usual/i);
+  });
+});
+
+// A removed deployment keeps whatever stage it last earned. These tests pin
+// the removed vocabulary and the guard functions so a removing or removed
+// deployment never reads as a failure.
+describe('REMOVED_PROGRESS', () => {
+  it('describes a deployment that is being removed', () => {
+    expect(REMOVED_PROGRESS.DELETING.title).toBe('Removing deployment');
+    expect(REMOVED_PROGRESS.DELETING.body).toContain("Deployz is removing this deployment's infrastructure");
+  });
+
+  it('describes a deployment that has been removed', () => {
+    expect(REMOVED_PROGRESS.DELETED.title).toBe('Deployment removed');
+    expect(REMOVED_PROGRESS.DELETED.body).toContain('no longer running');
+  });
+
+  it('never uses FAILED vocabulary for removed states', () => {
+    expect(REMOVED_PROGRESS.DELETING.title).not.toMatch(/FAILED/i);
+    expect(REMOVED_PROGRESS.DELETING.body).not.toMatch(/FAILED/i);
+    expect(REMOVED_PROGRESS.DELETED.title).not.toMatch(/FAILED/i);
+    expect(REMOVED_PROGRESS.DELETED.body).not.toMatch(/FAILED/i);
+  });
+});
+
+describe('removed-state guards', () => {
+  it('removedProgress returns the removed copy only for DELETING and DELETED', () => {
+    expect(removedProgress('DELETING')).toEqual(REMOVED_PROGRESS.DELETING);
+    expect(removedProgress('DELETED')).toEqual(REMOVED_PROGRESS.DELETED);
+    expect(removedProgress('NOT_INSTALLED')).toBeNull();
+    expect(removedProgress('HEALTHY')).toBeNull();
+  });
+
+  it('isTerminalStage does not treat removed states as terminal', () => {
+    expect(isTerminalStage('DELETING' as unknown as DeploymentStage)).toBe(false);
+    expect(isTerminalStage('DELETED' as unknown as DeploymentStage)).toBe(false);
+  });
+
+  const baseStatus: VendorDeploymentStatus = {
+    stage: 'READY',
+    updatedAt: '2026-09-01T00:00:00.000Z',
+    currentActivity: 'Live and healthy.',
+    step: 'READY',
+    steps: ['READY'],
+    typicalDurationSeconds: null,
+    takingLongerThanUsual: false,
+    stepStartedAt: null,
+    stepTimings: [],
+    statusUpdatesUnavailable: false,
+    needsDomainSetup: false,
+    components: [],
+    relay: { connected: true, lastSeenAt: null },
+    job: null,
+    aws: { stackStatus: null },
+    health: {
+      status: 'HEALTHY',
+      layers: { infrastructure: 'UNKNOWN', rollout: null, targets: null, http: null, relay: 'CONNECTED' },
+    },
+    url: 'https://app.example.com',
+    failure: null,
+  };
+
+  function heroInput(overrides: Partial<HeroInput> = {}): HeroInput {
+    return {
+      state: 'HEALTHY',
+      currentReleaseId: 'rel-1',
+      version: '1.2.0',
+      cleanupState: null,
+      customerName: 'Acme',
+      relayStatus: 'CONNECTED',
+      jobs: [],
+      deploymentStatus: baseStatus,
+      ...overrides,
+    };
+  }
+
+  it('a removing deployment derives the removing hero, not the failure hero', () => {
+    const hero = deriveHero(heroInput({ state: 'DELETING' }));
+    expect(hero.kind).toBe('deleting');
+    expect(hero.title).toBe(REMOVED_PROGRESS.DELETING.title);
+    expect(hero.tone).toBe('progress');
+  });
+
+  it('a removed deployment derives the removed hero, not the failure hero', () => {
+    const hero = deriveHero(heroInput({ state: 'DELETED' }));
+    expect(hero.kind).toBe('deleted');
+    expect(hero.title).toBe(REMOVED_PROGRESS.DELETED.title);
+    expect(hero.tone).toBe('neutral');
   });
 });

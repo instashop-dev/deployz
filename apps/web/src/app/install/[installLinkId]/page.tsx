@@ -224,14 +224,65 @@ export default async function InstallPage({
           // stage reaches VERIFYING/READY — also renders the Access section
           // and the custom-domain card itself, so this branch doesn't need
           // its own stage logic.
-          <InstallProgress
-            installLinkId={installLinkId}
-            deploymentId={data.deploymentId}
-            initialStatus={initialStatus}
-            quickCreateUrl={data.quickCreateUrl}
-            initialDomain={data.domain}
-            routingTarget={data.routingTarget}
-          />
+          <>
+            <section aria-labelledby="install-summary" className="flex flex-col gap-3">
+              <h2 id="install-summary" className="text-base font-semibold">
+                Summary
+              </h2>
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                {data.releaseVersion ? (
+                  <div>
+                    <h3 className="text-xs font-medium uppercase text-muted-foreground">Release</h3>
+                    <p className="mt-1 text-sm font-medium">Release {data.releaseVersion}</p>
+                  </div>
+                ) : null}
+                {(() => {
+                  const label = installPlanRegionLabel(data.region);
+                  return label ? (
+                    <div>
+                      <h3 className="text-xs font-medium uppercase text-muted-foreground">Region</h3>
+                      <p className="mt-1 text-sm font-medium">{label}</p>
+                    </div>
+                  ) : null;
+                })()}
+              </div>
+              <div className="overflow-x-auto rounded-md border">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Component</TableHead>
+                      <TableHead>What happens</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {installPlanRows(data.plan).map((row) => (
+                      <TableRow key={row.kind}>
+                        <TableCell className="font-medium">{row.name}</TableCell>
+                        <TableCell className="text-muted-foreground">{row.whatHappens}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+              {(() => {
+                const note = installPlanRetentionNote(data.plan);
+                return note ? <p className="text-sm text-muted-foreground">{note}</p> : null;
+              })()}
+              <p className="text-sm font-medium text-foreground">
+                PostgreSQL and stored files are retained when the application is disconnected. They
+                can continue to generate AWS charges until they are permanently purged.
+              </p>
+            </section>
+
+            <InstallProgress
+              installLinkId={installLinkId}
+              deploymentId={data.deploymentId}
+              initialStatus={initialStatus}
+              quickCreateUrl={data.quickCreateUrl}
+              initialDomain={data.domain}
+              routingTarget={data.routingTarget}
+            />
+          </>
         )}
 
         <p className="text-xs text-muted-foreground">

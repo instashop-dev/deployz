@@ -33,6 +33,8 @@ interface InstallData {
   /** The deployment this install link names — needed once installed, to scope the domain card. */
   deploymentId: string;
   deploymentState: string;
+  /** The release currently serving this deployment, if any. */
+  releaseVersion: string | null;
   /** This deployment's active custom domain, if any. */
   domain: CustomDomainView | null;
   /** The CNAME target a customer without a custom domain yet would point at. */

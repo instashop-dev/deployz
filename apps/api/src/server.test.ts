@@ -3487,6 +3487,9 @@ describe('server — organization settings, public install page, and bulk deploy
       // boundary — it's the same scope the link already grants.
       deploymentId: deployment.id,
       deploymentState: 'NOT_INSTALLED',
+      // No release is serving yet — the current_release_id pointer is still
+      // null, so there is no version to name.
+      releaseVersion: null,
       domain: null,
       routingTarget: null,
       // Pre-relay fields: no launch has been recorded yet, so the expected
@@ -3504,6 +3507,39 @@ describe('server — organization settings, public install page, and bulk deploy
     const serialized = JSON.stringify(body);
     expect(serialized).not.toContain('999999999999');
     expect(serialized).not.toContain(org.organizationId);
+  });
+
+  it('GET /api/install/:installationId names the serving release version once the pointer advanced', async () => {
+    const application = await insertApplication(db, org.organizationId, { name: 'Versioned App' });
+    const customer = await insertCustomer(db, org.organizationId);
+    const release = await insertRelease(db, application.id, { releaseStatus: 'READY' });
+    // READY deployment: reconciliation advanced current_release_id to the
+    // release the heartbeat observed serving.
+    const deployment = await insertDeployment(db, org.organizationId, application.id, customer.id, {
+      state: 'HEALTHY',
+      currentReleaseId: release.id,
+    });
+
+    const response = await app.inject({ method: 'GET', url: `/api/install/${deployment.installLinkId}` });
+    expect(response.statusCode).toBe(200);
+    const body = response.json() as { releaseVersion: string | null };
+    expect(body.releaseVersion).toBe(release.version);
+    // Version only — the digest and git SHA stay off the public surface.
+    const serialized = JSON.stringify(body);
+    expect(serialized).not.toContain(release.gitSha);
+  });
+
+  it('GET /api/install/:installationId reports releaseVersion null for a NOT_INSTALLED deployment', async () => {
+    const application = await insertApplication(db, org.organizationId, { name: 'Unreleased App' });
+    const customer = await insertCustomer(db, org.organizationId);
+    const deployment = await insertDeployment(db, org.organizationId, application.id, customer.id, {
+      state: 'NOT_INSTALLED',
+    });
+
+    const response = await app.inject({ method: 'GET', url: `/api/install/${deployment.installLinkId}` });
+    expect(response.statusCode).toBe(200);
+    const body = response.json() as { releaseVersion: string | null };
+    expect(body.releaseVersion).toBeNull();
   });
 
   it('GET /api/install/:installationId lists a Cache component in the install plan only when the stored manifest requires Redis', async () => {
