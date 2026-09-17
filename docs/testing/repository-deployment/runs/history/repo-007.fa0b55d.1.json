@@ -119,13 +119,13 @@
     "detail": null
   },
   "cleanup": {
-    "status": "PASS",
-    "destroyJobState": "SUCCEEDED",
-    "purgeJobState": "SUCCEEDED",
-    "cleanupState": "COMPLETE",
-    "bootstrapStackFinal": "DELETE_COMPLETE",
+    "status": "NOT_ATTEMPTED",
+    "destroyJobState": null,
+    "purgeJobState": null,
+    "cleanupState": null,
+    "bootstrapStackFinal": null,
     "leaks": [],
-    "durationMs": 2876433,
+    "durationMs": null,
     "detail": null
   },
   "classification": "PASS",
