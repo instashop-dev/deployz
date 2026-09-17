@@ -273,3 +273,41 @@ Run these on the same walk, in order; they cost nothing extra in AWS.
    the running release live, and the releases page must show the release
    as "Unavailable" after the next list refresh (at most ten minutes, or
    immediately after the refused deploy).
+
+## 9. Plan and inventory checks
+
+The deployment plan (`GET /api/deployments/:id/plan?action=install|update|
+destroy`) and the infrastructure expectations block (`GET
+/api/deployments/:id/infrastructure`) are both built purely from the
+deployment's stored manifest and the infrastructure component catalog —
+never from a live AWS read. On a real run, cross-check them against what
+AWS actually holds.
+
+1. **Install plan vs. the Infrastructure section.** Before Create Stack, note
+   the install page's "Deployz will create" list (the same `plan` the
+   install page and the Deploy Link page render). After the deployment
+   reaches HEALTHY, `GET /api/deployments/:id/plan?action=install` must list
+   the same components (application, secure endpoint, and — for this preset —
+   database, storage, cache) as CREATE, and the vendor page's Infrastructure
+   section must show each of those components `ready` with no `Missing` row
+   and no `Not required` row for a component the manifest actually requires.
+2. **Destroy plan vs. retained resources.** Before Disconnect, fetch
+   `GET /api/deployments/:id/plan?action=destroy` and note which components
+   read DELETE versus RETAIN. After Disconnect (before Purge), confirm AWS
+   agrees with the RETAIN list — the read-only commands from §3/§5, scoped
+   to this deployment's resources:
+
+   ```bash
+   R=us-east-1
+   aws rds describe-db-instances --region $R --db-instance-identifier <the deployment's RDS id> --query 'DBInstances[].DBInstanceStatus' --output text
+   aws elasticache describe-replication-groups --region $R --replication-group-id <the deployment's cache id> --query 'ReplicationGroups[].Status' --output text
+   aws s3api head-bucket --bucket <the deployment's bucket> && echo "bucket present"
+   aws secretsmanager list-secrets --region $R --query "SecretList[?contains(Name, '<installation id>')].Name" --output text
+   ```
+
+   A RETAIN component (database, storage) must still exist after Disconnect;
+   a DELETE component (application, secure endpoint, and — per the catalog —
+   cache) must not. After Purge, none of the RETAIN resources should remain
+   either, and `infra.expectations.missing` on a re-fetched `GET
+   /api/deployments/:id/infrastructure` must read empty (a `DELETED`
+   deployment never reports a removed component as missing).

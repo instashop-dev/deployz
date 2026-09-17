@@ -337,3 +337,20 @@ capability exists, and all remaining scope is either a documented deferral or
 a listed limitation.
 
 MVP READY WITH LISTED NON-BLOCKING LIMITATIONS
+
+## 12. Addendum — Canonical infrastructure intent (2026-09-17)
+
+PRs #283–#293 consolidated infrastructure intent onto the stored
+`DeploymentManifest`: a versioned manifest schema, one infrastructure
+component catalog, deterministic INSTALL/UPDATE/DESTROY plans, and an
+expected-vs-actual comparison on the infrastructure endpoint. See
+`docs/mvp-implementation-status.md` ("Canonical infrastructure intent") for
+the full breakdown.
+
+The MVP boundary this report describes is unchanged: an UPDATE still never
+changes topology (a requirement difference is reported, not applied), no
+multi-cloud or Azure/GCP surface was added, and no CDK construct or
+published template changed (`packages/cdk/src` and the committed template
+artifacts are the same). This work only made the existing manifest fields
+the single source every layer reads, replacing several places that used to
+re-derive the same requirements independently.

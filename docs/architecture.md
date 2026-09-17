@@ -38,7 +38,9 @@ The flow a deployment follows, end to end:
    `application-analysis.ts`); see `docs/ai-analysis.md`.
 3. **Deployment Manifest** — the READY manifest is stored as the deployment's
    desired state. Phase 3 gates refuse to move a non-READY deployment toward
-   provisioning.
+   provisioning. HTTPS/the public endpoint is not a manifest field: every
+   MVP deployment gets the default HTTPS URL unconditionally (see step 10
+   below), so there is nothing for the manifest to express.
 4. **Readiness and preflight** — one preflight (`apps/api/src/preflight.ts`:
    the manifest gate against the customer's configuration plus the
    readiness warnings) is enforced server-side at deployment creation,
@@ -189,7 +191,9 @@ endpoint, database, cache, and storage. Each entry names its `kind`, the
 (`delete` or `retain`) on destroy, the CloudFormation `primaryResourceType`
 that proves it exists, and the relay `checkName` that verifies it.
 `requiredInfrastructureComponents(profile)` returns the components a given
-profile has.
+profile has. This flat table is the MVP's binding registry — one row per
+component rather than per-resource binding objects; CDK, not the catalog,
+owns how each component is actually constructed.
 
 This one list is the shared semantic catalog for three things: relay
 verification (what must exist), lifecycle presentation (what the customer

@@ -3416,6 +3416,38 @@ describe('server — organization settings, public install page, and bulk deploy
     expect(planComponentNames(stillWithRedis.json())).toEqual(['Application', 'Secure endpoint', 'Storage', 'Cache']);
   });
 
+  it('GET /api/install/:installationId derives observed components from the stored manifest, not the live application requirement columns', async () => {
+    const application = await insertApplication(db, org.organizationId, {
+      name: 'Drift Components App',
+      databaseRequired: true,
+      storageRequired: false,
+      redisRequired: false,
+    });
+    const customer = await insertCustomer(db, org.organizationId);
+    const deployment = await insertDeployment(db, org.organizationId, application.id, customer.id, {
+      desiredState: {
+        manifest: { ...READY_MANIFEST, database: { postgres: true }, redis: { required: false, envBindings: [] } },
+      },
+      enrollmentUsedAt: new Date(),
+      observedState: { components: { application: 'HEALTHY' } },
+    });
+
+    const componentsOf = (body: unknown) => (body as { components: Record<string, string> | null }).components;
+
+    const before = await app.inject({ method: 'GET', url: `/api/install/${deployment.installLinkId}` });
+    expect(componentsOf(before.json())).toEqual({ application: 'HEALTHY', loadBalancer: 'UNKNOWN', database: 'UNKNOWN' });
+
+    // Drift: the live application row changes after the deployment's
+    // manifest was frozen — the reported components must not move.
+    await db
+      .update(schema.applications)
+      .set({ databaseRequired: false, redisRequired: true })
+      .where(eq(schema.applications.id, application.id));
+
+    const after = await app.inject({ method: 'GET', url: `/api/install/${deployment.installLinkId}` });
+    expect(componentsOf(after.json())).toEqual({ application: 'HEALTHY', loadBalancer: 'UNKNOWN', database: 'UNKNOWN' });
+  });
+
   it('GET /api/install/:installationId stops handing out a link once the code is spent', async () => {
     const application = await insertApplication(db, org.organizationId, { name: 'Spent Code App' });
     const customer = await insertCustomer(db, org.organizationId);
@@ -4205,6 +4237,30 @@ describe('server — retry-install (first-install recovery)', () => {
     const response = await postJson(app, `/api/deployments/${deployment.id}/retry-install`, {}, { cookie: org.cookie });
     expect(response.statusCode).toBe(409);
     expect(response.json()).toMatchObject({ error: { code: 'RELAY_DISCONNECTED' } });
+  });
+
+  // The same Phase 3/5 gate the register route runs — without it, a FAILED
+  // deployment with no usable stored manifest fails inside buildInstallPayload
+  // with a bare 422 and no guidance instead of this named error.
+  it('422s MANIFEST_NEEDS_CONFIGURATION when the FAILED deployment has no valid stored manifest — same error as the register route', async () => {
+    const deployment = await seedFailedInstall({ desiredState: {} });
+
+    const response = await postJson(app, `/api/deployments/${deployment.id}/retry-install`, {}, { cookie: org.cookie });
+    expect(response.statusCode).toBe(422);
+    const body = response.json() as { error: { code: string; message: string } };
+    expect(body.error.code).toBe('MANIFEST_NEEDS_CONFIGURATION');
+    expect(body.error.message).toBe(
+      'Deployment has no valid deployment manifest. Run analysis or correct the application configuration first.',
+    );
+
+    // No job or state change from the refused attempt.
+    const [dep] = await db.select().from(schema.deployments).where(eq(schema.deployments.id, deployment.id));
+    expect(dep!.state).toBe('FAILED');
+    const jobs = await db
+      .select()
+      .from(schema.deploymentJobs)
+      .where(and(eq(schema.deploymentJobs.deploymentId, deployment.id), eq(schema.deploymentJobs.type, 'INSTALL')));
+    expect(jobs).toHaveLength(1);
   });
 
   it('409s while a fresh INSTALL attempt is still in flight', async () => {

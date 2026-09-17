@@ -1285,3 +1285,148 @@ persistent volumes, a second worker process, repositories without a
 Dockerfile, MySQL; KEEP_UNSUPPORTED: multi-container stacks, SQLite,
 MongoDB, ClickHouse/H2, Kubernetes-native, IaC and cloud-specific
 deployments, GPU, message brokers.
+
+## Canonical infrastructure intent (PRs #283–#293) (2026-09-17)
+
+This project made the stored `DeploymentManifest` the one source of
+infrastructure intent. No new requirements model was added. The manifest
+already held `database.postgres`, `redis.required` and `storage.required`;
+every layer now reads those fields from the manifest instead of
+re-deriving them from live `applications` columns.
+
+### PR #283 — versioned manifest and effective requirements
+
+- `DeploymentManifest` carries `schemaVersion: 1`
+  (`packages/contracts/src/manifest.ts`). A manifest with no `schemaVersion`
+  is the pre-versioning shape and still parses as version 1, for backward
+  compatibility with manifests stored before this field existed.
+- `infrastructureProfileForManifest` (`packages/contracts/src/index.ts`) is
+  the ONLY place a manifest becomes `{ postgres, redis }`. No other function
+  may re-derive that pair from a manifest.
+- `GET /api/applications/:id/readiness` serves a `requirements` block
+  (`ApplicationRequirementsSummary`): for database, redis and storage, it
+  reports `detected`, `effective`, and `overridden`. This is the
+  server-computed truth. It replaces a client-side OR-derivation that could
+  not represent a vendor override back to `false`.
+
+### PR #284 — the manifest is the only INSTALL intent source
+
+- `buildInstallPayload` (`apps/api/src/install-config.ts`) derives
+  `databaseRequired`/`redisRequired` from the deployment's frozen manifest,
+  never from the live `applications` row. The relay's INSTALL executor
+  reads the same manifest.
+- The relay refuses to provision when no manifest and no pre-resolved
+  requirement flags are available (`settleInstall` in
+  `packages/relay/src/index.ts`): "Deployment manifest missing —
+  infrastructure requirements are unknown, refusing to provision." A
+  resumed install's compacted SSM pending marker keeps only the derived
+  `databaseRequired`/`redisRequired` booleans (the manifest itself is
+  dropped to fit the 4 KB SSM limit) — those still count as "known".
+- `derivationApplicationFor` (`apps/api/src/manifest.ts`) is the one place
+  a deployment's derived application view is built, from the frozen
+  manifest, never live columns. The dashboard, the fleet rows, and the
+  admin queries all read this derivation (`apps/api/src/server.ts`,
+  `apps/api/src/admin/queries.ts`). When the stored manifest is missing or
+  invalid, the derived requirement fields are `null` ("not known"), never a
+  guessed `false`.
+- The public install page and the customer install-info route resolve the
+  same stored manifest.
+- Regression coverage: `apps/api/src/requirements-contract.test.ts` proves
+  the manifest survives byte-for-byte, in effect, from deployment creation
+  through the INSTALL job payload to the relay's template selection and
+  verification — even after the application's live columns change.
+
+### PR #285 — one infrastructure component catalog
+
+- `INFRASTRUCTURE_COMPONENTS` (`packages/contracts/src/components.ts`) is a
+  flat table of five components (application, endpoint, database, storage,
+  cache). Each entry names its `requiredBy` rule, its destroy `lifecycle`
+  (delete or retain), its primary CloudFormation resource type, and its
+  relay verification check name.
+- The relay's `verifyInstallation` (`packages/relay/src/verify.ts`) and the
+  API's requirement-check map (`apps/api/src/deployment-status.ts`) both
+  derive their check lists from this one catalog. Neither keeps its own
+  copy.
+- `packages/cdk/test/lifecycle-parity.test.ts` fails if a catalog
+  `lifecycle` disagrees with the committed application templates'
+  `DeletionPolicy` for that component's primary resource type. This is a
+  parity guard, not a template change: `packages/cdk/src` and the committed
+  template artifacts are unchanged by this project.
+- The catalog is this MVP's "binding registry": a flat table only. CDK
+  still owns actual resource construction; the catalog only describes what
+  CDK already builds.
+
+### PR #287 — deterministic deployment plans
+
+- `packages/contracts/src/plan.ts` builds a plan for one action
+  (INSTALL, UPDATE, or DESTROY) purely from the manifest and the
+  component catalog — never from AWS, never from an LLM.
+- An INSTALL plan lists every required component as CREATE. A DESTROY plan
+  marks each required component DELETE or RETAIN, matching its catalog
+  lifecycle. An UPDATE plan never changes topology: every component keeps
+  its deployed action (UPDATE only for the application, when a newer
+  release exists; UNCHANGED otherwise). Any difference between the deployed
+  and desired infrastructure profile is reported separately as
+  `requirementDrift`, never as a component CREATE/DELETE.
+- New routes: `GET /api/applications/:id/plan` (the INSTALL plan before a
+  deployment exists) and `GET /api/deployments/:id/plan?action=install|
+  update|destroy` (the plan for one action on an existing deployment).
+- The public install page and the Deploy Link response also carry a
+  `plan`, built from the same function, so the two customer-facing surfaces
+  never disagree with the vendor page about what an install creates.
+
+### PR #292 — plan-driven customer and vendor surfaces
+
+- The install page, the Deploy Link page, the disconnect dialog and the
+  deploy-update dialog (`apps/web`) render the server-built plan directly.
+  They no longer derive "what will be created" or "what will be removed"
+  from local UI logic.
+- Readiness rows on these surfaces read the server's `requirements` block
+  (PR #283), not a client-side derivation.
+- Hero copy on the deployment detail page was updated to match.
+
+### PR #293 — expected vs. actual infrastructure
+
+- `GET /api/deployments/:id/infrastructure` now also serves an
+  `expectations` block, computed by
+  `compareInfrastructureExpectations` (`packages/contracts/src/
+  components.ts`): the catalog components the manifest's infrastructure
+  profile requires, compared against the persisted resource inventory. It
+  reports `missing` and `unexpected` kinds — a report only, never an
+  auto-repair. A deployment with no valid stored manifest has no
+  `expectations` to compare against (`null`).
+- A removed component (after a clean destroy) is never read as "missing":
+  once a deployment is `DELETED`, `missing` is always empty.
+- The deployment detail page's Infrastructure section renders "Missing"
+  and "Not required" rows from this block.
+
+### Decisions
+
+- **No new requirements model.** The stored `DeploymentManifest` IS the
+  canonical `ApplicationRequirements`. Nothing else stores or re-derives
+  requirements.
+- **The catalog is this MVP's "binding registry."** It is a flat table,
+  not an abstraction layer. CDK still owns resource construction.
+- **An UPDATE never changes topology.** A profile difference between the
+  deployed and desired manifest is reported as `requirementDrift`; the MVP
+  boundary does not add or remove infrastructure on an existing deployment.
+- **The storage bucket is always provisioned.** `manifest.storage.required`
+  only gates env-var wiring into the container
+  (`packages/cdk/src/application/application-stack.ts`); the S3 bucket
+  itself is created unconditionally, matching the catalog's `storage`
+  entry (`requiredBy: () => true`).
+- **No CDK or template change.** `packages/cdk/src` and the committed
+  template artifacts are unchanged by this project; only the catalog and
+  the plan/expectations logic that describe them are new.
+- **No new AWS scanner.** Expectations compare the manifest's requirements
+  against the already-persisted resource inventory; nothing new reads AWS.
+- **The historical Redis-propagation bug now has regression coverage.**
+  `apps/api/src/requirements-contract.test.ts` and the `redis-success`
+  simulated E2E scenario both prove a Redis requirement survives from
+  analysis through installation without being silently dropped.
+- **The one-repository real-AWS canary is the Phase 8 gate.** repo-007
+  (ghostfolio, PostgreSQL + Redis) via `pnpm benchmark:deploy` is planned
+  as the next real-AWS verification of this pipeline. The most recent
+  recorded run (`docs/testing/repository-deployment/runs/repo-007.json`)
+  predates PR #283, so it does not yet verify this work — a fresh run is
+  still needed.

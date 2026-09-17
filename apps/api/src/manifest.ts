@@ -76,7 +76,9 @@ export function readStoredManifest(desiredState: Record<string, unknown> | null)
  * `redisRequired` come out `null` ("not known", never a guessed `false`)
  * when the stored manifest is missing or invalid; `migrationCommand` stays
  * the live column, since a vendor fixing a broken migration command must
- * take effect on the next deploy without re-installing.
+ * take effect on the next deploy without re-installing. The display layer
+ * (deployment-status.ts) treats a null boolean as "not required" — that is
+ * a rendering fallback only, never a provisioning decision.
  */
 export function derivationApplicationFor(
   desiredState: Record<string, unknown> | null,

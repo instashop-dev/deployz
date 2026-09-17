@@ -801,6 +801,15 @@ export function deriveReadinessRows(
             value = requirement.effective ? 'Required' : 'Not required';
             detectedValue = requirement.detected ? 'Required' : 'Not required';
             overridden = requirement.overridden;
+            // Storage is unlike database/redis: every deployment gets a
+            // bucket regardless of this setting, which only controls
+            // whether the app is wired to it — say so instead of the
+            // generic detected/overridden line, which would otherwise
+            // read as though the bucket itself is conditional.
+            if (fact.id === 'storage' && !requirement.effective) {
+              detectedValue =
+                'Every deployment gets a storage bucket; this setting controls whether the app is wired to it.';
+            }
           }
         } else {
           value = effectiveFieldValue(field, application, readiness.detected);
