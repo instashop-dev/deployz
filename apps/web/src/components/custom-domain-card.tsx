@@ -173,7 +173,9 @@ export function CustomDomainCard(props: {
             {domain ? <StatusLine status={domain.status} /> : null}
           </div>
 
-          {!ready ? <p className="text-sm text-muted-foreground">Loading…</p> : null}
+          {!ready ? (
+            <p className="text-sm text-muted-foreground">Loading domain settings…</p>
+          ) : null}
 
           {ready && loadError ? (
             <p role="alert" className="text-sm text-destructive">
@@ -434,8 +436,16 @@ function CheckAndRemoveRow({
 }) {
   return (
     <div className="flex flex-wrap items-center gap-2">
-      <Button type="button" size="sm" variant="outline" disabled={disabled || checking} onClick={onCheck}>
-        {checking ? 'Checking…' : checkLabel}
+      <Button
+        type="button"
+        size="sm"
+        variant="outline"
+        disabled={disabled}
+        loading={checking}
+        loadingText="Checking domain…"
+        onClick={onCheck}
+      >
+        {checkLabel}
       </Button>
       {canManage ? (
         <Button type="button" size="sm" variant="destructive" disabled={disabled} onClick={onOpenRemove}>
@@ -550,6 +560,7 @@ function AddDomainPanel({
       onAdded(domain);
     } catch (caught) {
       setError(errorMessage(caught));
+    } finally {
       setPending(false);
     }
   }
@@ -575,8 +586,15 @@ function AddDomainPanel({
           ) : null}
         </div>
         <div className="flex items-center gap-2">
-          <Button type="button" size="sm" disabled={pending || !hostname.trim()} onClick={onSubmit}>
-            {pending ? 'Adding…' : 'Add domain'}
+          <Button
+            type="button"
+            size="sm"
+            disabled={!hostname.trim()}
+            loading={pending}
+            loadingText="Adding domain…"
+            onClick={onSubmit}
+          >
+            Add domain
           </Button>
           <Button type="button" size="sm" variant="ghost" disabled={pending} onClick={onCancel}>
             Cancel
@@ -609,6 +627,7 @@ function RemoveDomainPanel({
       onRemoved(domain);
     } catch (caught) {
       setError(errorMessage(caught));
+    } finally {
       setPending(false);
     }
   }
@@ -626,10 +645,11 @@ function RemoveDomainPanel({
             type="button"
             size="sm"
             variant="destructive"
-            disabled={pending}
+            loading={pending}
+            loadingText="Removing domain…"
             onClick={onConfirm}
           >
-            {pending ? 'Removing…' : 'Remove domain'}
+            Remove domain
           </Button>
           <Button type="button" size="sm" variant="ghost" disabled={pending} onClick={onCancel}>
             Cancel

@@ -55,23 +55,23 @@ export function AccountInvitations({ invitations }: { invitations: PendingInvita
                 <Button
                   data-testid="invitation-accept"
                   size="sm"
-                  disabled={pending !== null}
+                  disabled={pending?.id === invitation.id && pending.action === 'reject'}
+                  loading={pending?.id === invitation.id && pending.action === 'accept'}
+                  loadingText="Accepting invitation…"
                   onClick={() => respond(invitation.id, 'accept')}
                 >
-                  {pending?.id === invitation.id && pending.action === 'accept'
-                    ? 'Accepting…'
-                    : 'Accept'}
+                  Accept
                 </Button>
                 <Button
                   data-testid="invitation-decline"
                   size="sm"
                   variant="outline"
-                  disabled={pending !== null}
+                  disabled={pending?.id === invitation.id && pending.action === 'accept'}
+                  loading={pending?.id === invitation.id && pending.action === 'reject'}
+                  loadingText="Declining invitation…"
                   onClick={() => respond(invitation.id, 'reject')}
                 >
-                  {pending?.id === invitation.id && pending.action === 'reject'
-                    ? 'Declining…'
-                    : 'Decline'}
+                  Decline
                 </Button>
               </div>
             </div>

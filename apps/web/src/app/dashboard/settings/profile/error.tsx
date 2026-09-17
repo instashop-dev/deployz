@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, useTransition } from 'react';
 
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -13,6 +13,8 @@ export default function ProfileError({
   error: Error & { digest?: string };
   reset: () => void;
 }) {
+  const [isPending, startTransition] = useTransition();
+
   useEffect(() => {
     console.error(error);
   }, [error]);
@@ -24,7 +26,9 @@ export default function ProfileError({
         <CardDescription>We couldn&apos;t load your profile settings.</CardDescription>
       </CardHeader>
       <CardContent>
-        <Button onClick={reset}>Try again</Button>
+        <Button loading={isPending} loadingText="Trying again…" onClick={() => startTransition(() => reset())}>
+          Try again
+        </Button>
       </CardContent>
     </Card>
   );

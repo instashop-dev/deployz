@@ -48,8 +48,13 @@ export function OrganizationForm({ organization }: { organization: OrganizationI
         />
       </div>
       <div className="flex items-center gap-3">
-        <Button type="submit" disabled={status === 'saving' || name.trim().length === 0}>
-          {status === 'saving' ? 'Saving…' : 'Update Organization'}
+        <Button
+          type="submit"
+          disabled={name.trim().length === 0}
+          loading={status === 'saving'}
+          loadingText="Saving organization…"
+        >
+          Update Organization
         </Button>
         {status === 'saved' ? (
           <p role="status" className="text-sm text-muted-foreground">

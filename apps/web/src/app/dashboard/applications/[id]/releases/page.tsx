@@ -182,8 +182,8 @@ function CreateReleaseForm({
               </p>
             </div>
           <div className="flex items-center gap-3">
-            <Button type="submit" disabled={pending}>
-              {pending ? 'Creating…' : 'Create Release'}
+            <Button type="submit" loading={pending} loadingText="Creating release…">
+              Create Release
             </Button>
             {error ? (
               <p role="alert" className="text-sm text-destructive">
@@ -199,7 +199,7 @@ function CreateReleaseForm({
 
 function LoadingState() {
   return (
-    <div className="flex flex-col gap-3" data-testid="releases-loading">
+    <div className="flex flex-col gap-3" data-testid="releases-loading" aria-busy="true">
       <Skeleton className="h-16 w-full rounded-xl" />
       <Skeleton className="h-16 w-full rounded-xl" />
       <Skeleton className="h-16 w-full rounded-xl" />

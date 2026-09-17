@@ -69,7 +69,7 @@ export default function AdminVendorDetailPage() {
   const [state, setState] = useState<DetailState>({ status: 'loading' });
 
   const load = useCallback(async (): Promise<void> => {
-    setState({ status: 'loading' });
+    setState((current) => (current.status === 'loaded' ? current : { status: 'loading' }));
     try {
       const detail = await fetchAdminVendor(id);
       setState({ status: 'loaded', detail });
@@ -133,6 +133,7 @@ function VendorDetailBody({ detail, onReload }: { detail: AdminVendorDetail; onR
       router.push('/dashboard');
     } catch (caught) {
       toast.error(errorMessage(caught));
+    } finally {
       setPending(false);
     }
   }
@@ -146,11 +147,12 @@ function VendorDetailBody({ detail, onReload }: { detail: AdminVendorDetail; onR
         </div>
         <Button
           data-testid="view-as-vendor"
-          disabled={pending}
+          loading={pending}
+          loadingText="Starting support session…"
           onClick={() => void onViewAsVendor()}
         >
           <Eye aria-hidden />
-          {pending ? 'Starting…' : 'View as Vendor'}
+          View as Vendor
         </Button>
       </div>
 
@@ -372,7 +374,7 @@ function MetaRow({ label, value }: { label: string; value: string }) {
 
 function DetailSkeleton() {
   return (
-    <div className="flex flex-col gap-6" data-testid="vendor-detail-loading">
+    <div className="flex flex-col gap-6" data-testid="vendor-detail-loading" aria-busy="true">
       <Skeleton className="h-8 w-56" />
       <Skeleton className="h-32 w-full rounded-xl" />
       <Skeleton className="h-48 w-full rounded-xl" />
@@ -488,11 +490,12 @@ function VendorBillingSection({
             type="button"
             size="sm"
             variant="outline"
-            disabled={pending}
+            loading={pending}
+            loadingText="Reconciling billing…"
             onClick={() => void onReconcile()}
             data-testid="admin-reconcile-billing"
           >
-            {pending ? 'Reconciling…' : 'Reconcile with Paddle'}
+            Reconcile with Paddle
           </Button>
         ) : null}
       </div>
@@ -602,11 +605,12 @@ function VendorBillingSection({
             </Button>
             <Button
               variant={includedPreview?.direction === 'decrease' ? 'destructive' : 'default'}
-              disabled={includedPending}
+              loading={includedPending}
+              loadingText="Updating allowance…"
               onClick={() => void onConfirmIncludedUpdate()}
               data-testid="admin-included-deployments-confirm"
             >
-              {includedPending ? 'Updating…' : 'Update allowance'}
+              Update allowance
             </Button>
           </DialogFooter>
         </DialogContent>

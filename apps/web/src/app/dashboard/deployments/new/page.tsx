@@ -349,7 +349,9 @@ function NewDeploymentScreen() {
           onReset={() => setInstallLink(null)}
         />
       ) : appsState.status === 'loading' ? (
-        <p className="text-sm text-muted-foreground">Loading your applications…</p>
+        <p className="text-sm text-muted-foreground" role="status">
+          Loading your applications…
+        </p>
       ) : appsState.status === 'empty' ? (
         <section className="rounded-xl border border-dashed px-6 py-16 text-center">
           <h2 className="text-lg font-semibold">Connect an application first</h2>
@@ -446,12 +448,13 @@ function NewDeploymentScreen() {
               ) : null}
 
               <div className="flex items-center gap-3">
-                <Button type="submit" disabled={pending || regionsError || regions.length === 0}>
-                  {pending
-                    ? 'Creating…'
-                    : isTestDeployment
-                      ? 'Run free test deployment'
-                      : 'Create Customer Deployment'}
+                <Button
+                  type="submit"
+                  disabled={regionsError || regions.length === 0}
+                  loading={pending}
+                  loadingText="Creating deployment…"
+                >
+                  {isTestDeployment ? 'Run free test deployment' : 'Create Customer Deployment'}
                 </Button>
                 {error ? (
                   <div role="alert" className="flex flex-col gap-1 text-sm text-destructive">
@@ -564,8 +567,12 @@ function SubscriptionCheckoutCard({
         </CardDescription>
       </CardHeader>
       <CardContent className="flex flex-wrap items-center gap-3">
-        <Button onClick={() => void onContinue()} disabled={status === 'opening'}>
-          {status === 'opening' ? 'Opening checkout…' : 'Continue to checkout'}
+        <Button
+          onClick={() => void onContinue()}
+          loading={status === 'opening'}
+          loadingText="Opening checkout…"
+        >
+          Continue to checkout
         </Button>
         <Button variant="ghost" size="sm" onClick={onCancel}>
           Not now

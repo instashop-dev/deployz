@@ -58,6 +58,7 @@ type LoadState =
 export default function CustomersPage() {
   const [state, setState] = useState<LoadState>({ status: 'loading' });
   const [attempt, setAttempt] = useState(0);
+  const [retrying, setRetrying] = useState(false);
   const [search, setSearch] = useState('');
   const [editing, setEditing] = useState<Customer | null>(null);
   const [deleting, setDeleting] = useState<Customer | null>(null);
@@ -81,6 +82,8 @@ export default function CustomersPage() {
             message: "We couldn't load your customers. Try again in a moment.",
           });
         }
+      } finally {
+        if (!cancelled) setRetrying(false);
       }
     }
     void run();
@@ -148,7 +151,14 @@ export default function CustomersPage() {
 
       {state.status === 'loading' ? <LoadingState /> : null}
       {state.status === 'error' ? (
-        <ErrorState message={state.message} onRetry={() => setAttempt((n) => n + 1)} />
+        <ErrorState
+          message={state.message}
+          retrying={retrying}
+          onRetry={() => {
+            setRetrying(true);
+            setAttempt((n) => n + 1);
+          }}
+        />
       ) : null}
 
       {state.status === 'loaded' ? (
@@ -357,14 +367,22 @@ function RowActions({
 
 function LoadingState() {
   return (
-    <div className="flex flex-col gap-3" data-testid="customers-loading">
+    <div className="flex flex-col gap-3" data-testid="customers-loading" aria-busy="true">
       <Skeleton className="h-10 w-64 rounded-lg" />
       <Skeleton className="h-64 w-full rounded-xl" />
     </div>
   );
 }
 
-function ErrorState({ message, onRetry }: { message: string; onRetry: () => void }) {
+function ErrorState({
+  message,
+  retrying,
+  onRetry,
+}: {
+  message: string;
+  retrying: boolean;
+  onRetry: () => void;
+}) {
   return (
     <section
       aria-labelledby="customers-error"
@@ -374,7 +392,7 @@ function ErrorState({ message, onRetry }: { message: string; onRetry: () => void
         Something went wrong
       </h2>
       <p className="max-w-md text-sm text-muted-foreground">{message}</p>
-      <Button variant="outline" onClick={onRetry}>
+      <Button variant="outline" loading={retrying} loadingText="Trying again…" onClick={onRetry}>
         Try again
       </Button>
     </section>

@@ -62,9 +62,11 @@ export function DeleteAccount({ email }: { email: string }) {
               data-testid="delete-account-submit"
               type="submit"
               variant="destructive"
-              disabled={!canDelete || pending}
+              disabled={!canDelete}
+              loading={pending}
+              loadingText="Deleting account…"
             >
-              {pending ? 'Deleting…' : 'Delete account'}
+              Delete account
             </Button>
           </div>
           {error ? (

@@ -5,7 +5,6 @@ import {
   ArrowUpRight,
   Check,
   ChevronDown,
-  Loader2,
   Pencil,
   RefreshCw,
   RotateCcw,
@@ -101,6 +100,7 @@ export default function ApplicationReadinessPage() {
   const params = useParams();
   const id = Array.isArray(params.id) ? (params.id[0] ?? '') : (params.id ?? '');
   const [state, setState] = useState<PageState>({ status: 'loading' });
+  const [retrying, setRetrying] = useState(false);
 
   const load = async (): Promise<void> => {
     try {
@@ -152,6 +152,9 @@ export default function ApplicationReadinessPage() {
     };
   }, [analysisStatus, id]);
 
+  // A background refresh (re-analysis, or a manual retry from the error
+  // state) must not wipe good content already on screen: on failure it keeps
+  // whatever is currently shown and reports the failure with a toast instead.
   async function refresh(): Promise<void> {
     try {
       const [application, readiness, deployments] = await Promise.all([
@@ -161,10 +164,16 @@ export default function ApplicationReadinessPage() {
       ]);
       setState({ status: 'loaded', data: { application, readiness, deployments } });
     } catch {
-      setState({
-        status: 'error',
-        message: "We couldn't load this application. Try again in a moment.",
-      });
+      toast.error("We couldn't refresh this application. Try again in a moment.");
+    }
+  }
+
+  async function handleRetry(): Promise<void> {
+    setRetrying(true);
+    try {
+      await refresh();
+    } finally {
+      setRetrying(false);
     }
   }
 
@@ -194,7 +203,13 @@ export default function ApplicationReadinessPage() {
             Something went wrong
           </h2>
           <p className="mt-1 text-sm text-muted-foreground">{state.message}</p>
-          <Button variant="outline" className="mt-4" onClick={() => void refresh()}>
+          <Button
+            variant="outline"
+            className="mt-4"
+            onClick={() => void handleRetry()}
+            loading={retrying}
+            loadingText="Trying again…"
+          >
             Try again
           </Button>
         </section>
@@ -265,30 +280,26 @@ function ReadinessBody({
   const primaryAction = (() => {
     if (application.analysisStatus === 'FAILED') {
       return (
-        <Button onClick={() => void handleReanalyse()} disabled={reanalysing} data-testid="readiness-retry">
-          {reanalysing ? (
-            <>
-              <Loader2 className="size-4 animate-spin" aria-hidden />
-              Trying again…
-            </>
-          ) : (
-            'Try analysis again'
-          )}
+        <Button
+          onClick={() => void handleReanalyse()}
+          loading={reanalysing}
+          loadingText="Retrying analysis…"
+          data-testid="readiness-retry"
+        >
+          Try analysis again
         </Button>
       );
     }
 
     if (application.analysisStatus !== 'COMPLETE') {
       return (
-        <Button onClick={() => void handleReanalyse()} disabled={reanalysing} data-testid="readiness-analyze">
-          {reanalysing ? (
-            <>
-              <Loader2 className="size-4 animate-spin" aria-hidden />
-              Analysing…
-            </>
-          ) : (
-            'Analyze application'
-          )}
+        <Button
+          onClick={() => void handleReanalyse()}
+          loading={reanalysing}
+          loadingText="Analyzing application…"
+          data-testid="readiness-analyze"
+        >
+          Analyze application
         </Button>
       );
     }
@@ -352,7 +363,9 @@ function ReadinessBody({
               variant="ghost"
               size="sm"
               onClick={() => void handleReanalyse()}
-              disabled={reanalysing || application.analysisStatus === 'ANALYZING'}
+              loading={reanalysing}
+              loadingText="Analyzing application…"
+              disabled={application.analysisStatus === 'ANALYZING'}
               data-testid="app-details-reanalyse"
             >
               <RefreshCw className="size-3.5" aria-hidden />
@@ -480,12 +493,19 @@ function EditableName({
         autoFocus
         data-testid="app-name-input"
       />
-      <Button size="sm" onClick={() => void save()} disabled={saving} data-testid="app-name-save">
-        {saving ? 'Saving…' : 'Save'}
+      <Button
+        size="sm"
+        onClick={() => void save()}
+        loading={saving}
+        loadingText="Saving name…"
+        data-testid="app-name-save"
+      >
+        Save
       </Button>
       <Button
         variant="ghost"
         size="icon-xs"
+        disabled={saving}
         onClick={() => {
           setEditing(false);
           setValue(application.name);
@@ -886,10 +906,12 @@ function DangerZone({ application }: { application: Application }) {
                 <AlertDialogCancel onClick={() => setConfirmText('')}>Cancel</AlertDialogCancel>
                 <AlertDialogAction
                   onClick={() => void onConfirm()}
-                  disabled={!confirmed || pending}
+                  loading={pending}
+                  loadingText="Removing application…"
+                  disabled={!confirmed}
                   data-testid="delete-app-button"
                 >
-                  {pending ? 'Removing…' : 'Remove application'}
+                  Remove application
                 </AlertDialogAction>
               </AlertDialogFooter>
             </AlertDialogContent>
@@ -913,7 +935,7 @@ function EditDialog({
   onClose: () => void;
   onSaved: (next: Application) => void;
 }) {
-  const [saving, setSaving] = useState(false);
+  const [pendingAction, setPendingAction] = useState<'save' | 'reset' | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [value, setValue] = useState<string | number | boolean>(false);
 
@@ -929,7 +951,7 @@ function EditDialog({
   const config = FIELD_CONFIG[currentField];
 
   async function handleSave(): Promise<void> {
-    setSaving(true);
+    setPendingAction('save');
     setError(null);
     try {
       const input = buildUpdateInput(currentField, value);
@@ -939,12 +961,12 @@ function EditDialog({
     } catch (err) {
       setError(err instanceof Error ? err.message : "We couldn't save the change. Try again.");
     } finally {
-      setSaving(false);
+      setPendingAction(null);
     }
   }
 
   async function handleReset(): Promise<void> {
-    setSaving(true);
+    setPendingAction('reset');
     setError(null);
     try {
       const input: UpdateApplicationInput = { [currentField]: null };
@@ -954,7 +976,7 @@ function EditDialog({
     } catch (err) {
       setError(err instanceof Error ? err.message : "We couldn't reset the value. Try again.");
     } finally {
-      setSaving(false);
+      setPendingAction(null);
     }
   }
 
@@ -975,7 +997,10 @@ function EditDialog({
     : detectedFieldValue(currentField, readiness.detected);
 
   return (
-    <Dialog open={currentField !== null} onOpenChange={(open) => !open && onClose()}>
+    <Dialog
+      open={currentField !== null}
+      onOpenChange={(open) => !open && pendingAction === null && onClose()}
+    >
       <DialogContent data-testid={`edit-dialog-${currentField}`}>
         <DialogHeader>
           <DialogTitle>{config.label}</DialogTitle>
@@ -1029,15 +1054,23 @@ function EditDialog({
               type="button"
               variant="outline"
               onClick={() => void handleReset()}
-              disabled={saving}
+              loading={pendingAction === 'reset'}
+              loadingText="Resetting to detected…"
+              disabled={pendingAction === 'save'}
               data-testid={`edit-reset-${field}`}
             >
               <RotateCcw className="size-3.5" aria-hidden />
               Reset to detected
             </Button>
           ) : null}
-          <Button type="button" onClick={() => void handleSave()} disabled={saving}>
-            {saving ? 'Saving…' : 'Save'}
+          <Button
+            type="button"
+            onClick={() => void handleSave()}
+            loading={pendingAction === 'save'}
+            loadingText="Saving value…"
+            disabled={pendingAction === 'reset'}
+          >
+            Save
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -1100,7 +1133,7 @@ function buildUpdateInput(
 
 function PageSkeleton() {
   return (
-    <div className="flex flex-col gap-6" data-testid="readiness-loading">
+    <div className="flex flex-col gap-6" data-testid="readiness-loading" aria-busy="true">
       <div className="flex flex-col gap-2">
         <Skeleton className="h-8 w-56" />
         <Skeleton className="h-4 w-40" />

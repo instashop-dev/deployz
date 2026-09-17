@@ -167,10 +167,11 @@ function ComponentRow({
               size="sm"
               variant="outline"
               className="self-start"
-              disabled={pending}
+              loading={pending}
+              loadingText="Retrying HTTPS setup…"
               onClick={() => void onRetryHttps()}
             >
-              {pending ? 'Retrying…' : 'Retry HTTPS setup'}
+              Retry HTTPS setup
             </Button>
           ) : (
             <Button asChild size="sm" variant="outline" className="self-start">
@@ -228,7 +229,7 @@ function TechnicalDisclosure({ component }: { component: InfrastructureComponent
 
 function InfrastructureSkeleton() {
   return (
-    <Card>
+    <Card aria-busy="true">
       <CardHeader className="flex-row items-center justify-between gap-2">
         <Skeleton className="h-5 w-48" />
         <Skeleton className="h-5 w-24" />

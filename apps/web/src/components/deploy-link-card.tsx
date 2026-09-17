@@ -121,10 +121,10 @@ export function DeployLinkCard({ customerId }: { customerId: string }) {
       .finally(() => setPending('idle'));
   }
 
-  function onRevoke(linkId: string): void {
+  function onRevoke(linkId: string): Promise<void> {
     setPending('revoking');
     setError(null);
-    revokeDeployLink(linkId)
+    return revokeDeployLink(linkId)
       .then(() => fetchDeployLinks(customerId))
       .then((current) => {
         setLinks(current);
@@ -158,7 +158,7 @@ export function DeployLinkCard({ customerId }: { customerId: string }) {
         <CardHeader>
           <CardTitle className="text-base">Deploy to AWS</CardTitle>
         </CardHeader>
-        <CardContent className="flex flex-col gap-3" data-testid="deploy-link-loading">
+        <CardContent className="flex flex-col gap-3" data-testid="deploy-link-loading" aria-busy="true">
           <Skeleton className="h-9 w-full" />
           <Skeleton className="h-9 w-full" />
         </CardContent>
@@ -275,10 +275,12 @@ function DeployLinkForm({
           type="submit"
           size="sm"
           disabled={pending !== 'idle' || regionsError || regions.length === 0}
+          loading={pending === 'generating'}
+          loadingText="Creating deploy link…"
           data-testid="deploy-link-generate"
         >
           <Link2 aria-hidden />
-          {pending === 'generating' ? 'Creating link…' : 'Generate deploy link'}
+          Generate deploy link
         </Button>
       </div>
     </form>
@@ -296,7 +298,7 @@ export function DeployLinkList({
   links: DeployLinkView[];
   revealed: { linkId: string; url: string } | null;
   pending: Pending;
-  onRevoke: (linkId: string) => void;
+  onRevoke: (linkId: string) => Promise<void>;
   onRegenerate: (linkId: string) => void;
 }) {
   const [revoking, setRevoking] = useState<DeployLinkView | null>(null);
@@ -316,7 +318,10 @@ export function DeployLinkList({
           onRegenerate={() => onRegenerate(link.id)}
         />
       ))}
-      <AlertDialog open={revoking !== null} onOpenChange={(open) => !open && setRevoking(null)}>
+      <AlertDialog
+        open={revoking !== null}
+        onOpenChange={(open) => !open && pending !== 'revoking' && setRevoking(null)}
+      >
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Revoke this deploy link?</AlertDialogTitle>
@@ -327,13 +332,19 @@ export function DeployLinkList({
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogCancel disabled={pending === 'revoking'}>Cancel</AlertDialogCancel>
             <AlertDialogAction
               variant="destructive"
+              loading={pending === 'revoking'}
+              loadingText="Revoking deploy link…"
               data-testid="deploy-link-revoke-confirm"
-              onClick={() => {
-                if (revoking) onRevoke(revoking.id);
-                setRevoking(null);
+              onClick={(event) => {
+                // Keep the dialog open until the request settles so the
+                // action's loading state is visible; Radix closes on click
+                // by default.
+                event.preventDefault();
+                if (!revoking) return;
+                void onRevoke(revoking.id).finally(() => setRevoking(null));
               }}
             >
               Revoke link
@@ -374,7 +385,14 @@ function DeployLinkRow({
           Expires {formatDate(link.expiresAt)}
         </span>
         {canRegenerate ? (
-          <Button size="sm" variant="ghost" disabled={pending !== 'idle'} onClick={onRegenerate}>
+          <Button
+            size="sm"
+            variant="ghost"
+            disabled={pending !== 'idle'}
+            loading={pending === 'regenerating'}
+            loadingText="Creating new link…"
+            onClick={onRegenerate}
+          >
             <RotateCcw aria-hidden />
             Regenerate
           </Button>
@@ -439,11 +457,13 @@ function DeployLinkRow({
             size="sm"
             variant="outline"
             disabled={pending !== 'idle'}
+            loading={pending === 'regenerating'}
+            loadingText="Creating new link…"
             onClick={onRegenerate}
             data-testid="deploy-link-regenerate"
           >
             <RotateCcw aria-hidden />
-            {pending === 'regenerating' ? 'Creating new link…' : 'Regenerate'}
+            Regenerate
           </Button>
         ) : null}
         {link.status === 'active' ? (

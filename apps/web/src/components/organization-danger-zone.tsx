@@ -58,11 +58,13 @@ export function OrganizationDangerZone({ organizationName }: { organizationName:
           <Button
             type="button"
             variant="destructive"
-            disabled={!canDelete || pending}
+            disabled={!canDelete}
+            loading={pending}
+            loadingText="Deleting organization…"
             onClick={handleDelete}
             data-testid="delete-organization-submit"
           >
-            {pending ? 'Deleting…' : 'Delete organization'}
+            Delete organization
           </Button>
         </div>
         {error ? (

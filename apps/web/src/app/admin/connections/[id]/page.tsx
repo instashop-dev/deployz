@@ -210,7 +210,7 @@ function MetaRow({ label, value }: { label: string; value: string }) {
 
 function DetailSkeleton() {
   return (
-    <div className="flex flex-col gap-6" data-testid="admin-connection-detail-loading">
+    <div className="flex flex-col gap-6" data-testid="admin-connection-detail-loading" aria-busy="true">
       <Skeleton className="h-8 w-56" />
       <Skeleton className="h-32 w-full rounded-xl" />
       <Skeleton className="h-48 w-full rounded-xl" />
