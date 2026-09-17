@@ -15,6 +15,8 @@ import {
 import { probeLiveApp, writeMarker } from './app.js';
 import {
   aws,
+  clientRequestTokenFor,
+  createBootstrapStack,
   deleteStack,
   describeStack,
   disableRulesForStack,
@@ -635,5 +637,44 @@ describe('aws() CLI retry', () => {
       'aws cloudformation describe-stacks failed',
     );
     expect(calls).toBe(1);
+  });
+});
+
+describe('createBootstrapStack client-request-token', () => {
+  // A retried create-stack after a lost response (ECONNRESET/getaddrinfo)
+  // must not mint a second stack or throw AlreadyExistsException — a
+  // deterministic token makes CloudFormation dedupe it and hand back the
+  // original StackId instead.
+  it('sanitizes to CloudFormation\'s token pattern, and is a no-op for a name that already fits', () => {
+    expect(clientRequestTokenFor('deployz-bootstrap-app-12345678')).toBe('deployz-bootstrap-app-12345678');
+    expect(clientRequestTokenFor('deployz.bootstrap_app/12345678')).toBe('deployz-bootstrap-app-12345678');
+    expect(clientRequestTokenFor('-leading-dash')).toBe('leading-dash');
+    expect(clientRequestTokenFor('x'.repeat(200))).toHaveLength(128);
+  });
+
+  it('passes the sanitized stack name as --client-request-token to the executor', async () => {
+    let capturedArgs: string[] = [];
+    const exec = async (_command: string, args: string[]) => {
+      capturedArgs = args;
+      return { stdout: '{"StackId":"arn:aws:cloudformation:us-east-1:151955775369:stack/x/abc"}' };
+    };
+
+    const stackId = await createBootstrapStack(
+      'us-east-1',
+      {
+        stackName: 'deployz-bootstrap-app-12345678',
+        templateUrl: 'https://b.s3.us-east-1.amazonaws.com/bootstrap/v1/bootstrap-template-v1.json',
+        parameters: {},
+        runId: 'run-1',
+      },
+      exec,
+      async () => {},
+    );
+
+    expect(stackId).toBe('arn:aws:cloudformation:us-east-1:151955775369:stack/x/abc');
+    const tokenIndex = capturedArgs.indexOf('--client-request-token');
+    expect(tokenIndex).toBeGreaterThan(-1);
+    expect(capturedArgs[tokenIndex + 1]).toBe(clientRequestTokenFor('deployz-bootstrap-app-12345678'));
+    expect(capturedArgs[tokenIndex + 1]).toBe('deployz-bootstrap-app-12345678');
   });
 });

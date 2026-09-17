@@ -170,8 +170,27 @@ export interface CreateStackInput {
   readonly runId: string;
 }
 
+/**
+ * A deterministic CloudFormation client request token for `stackName`. Stack
+ * names already fit CloudFormation's token pattern (`[a-zA-Z0-9][-a-zA-Z0-9]*`,
+ * max 128 chars), but this sanitizes defensively rather than assuming it.
+ * Passing the same token on a retried create-stack (aws()'s own retry, after
+ * a lost response — ECONNRESET/getaddrinfo) makes CloudFormation dedupe the
+ * request and hand back the StackId of the stack it already started, instead
+ * of an AlreadyExistsException that would strand the real stack unrecorded.
+ */
+export function clientRequestTokenFor(stackName: string): string {
+  const sanitized = stackName.replace(/[^a-zA-Z0-9-]/g, '-').replace(/^[^a-zA-Z0-9]+/, '');
+  return (sanitized || 'canary').slice(0, 128);
+}
+
 /** Creates the bootstrap stack exactly as the customer's Quick Create would, plus canary tags. */
-export async function createBootstrapStack(region: string, input: CreateStackInput): Promise<string> {
+export async function createBootstrapStack(
+  region: string,
+  input: CreateStackInput,
+  exec: AwsCliExecutor = defaultAwsCliExecutor,
+  delay: DelayFn = defaultDelay,
+): Promise<string> {
   const tags = canaryTags(input.runId);
   const response = (await aws(
     [
@@ -189,8 +208,12 @@ export async function createBootstrapStack(region: string, input: CreateStackInp
       ...Object.entries(input.parameters).map(([key, value]) => `ParameterKey=${key},ParameterValue=${value}`),
       '--tags',
       ...Object.entries(tags).map(([key, value]) => `Key=${key},Value=${value}`),
+      '--client-request-token',
+      clientRequestTokenFor(input.stackName),
     ],
     region,
+    exec,
+    delay,
   )) as { StackId: string };
   return response.StackId;
 }
