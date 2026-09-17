@@ -33,6 +33,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Spinner } from '@/components/ui/spinner';
 import {
   deleteApplication,
   fetchApplication,
@@ -46,6 +47,8 @@ import type { DeploymentPlan } from '@deployz/contracts';
 import { fetchDeploymentsForApplication, type FleetDeployment } from '@/lib/deployments';
 import { DEPLOYMENT_STATE_LABELS } from '@/lib/deployment-vocabulary';
 import {
+  ANALYSIS_TAKING_LONGER_MS,
+  READINESS_SUPPORT_TAKING_LONGER,
   deriveLifecycleSteps,
   deriveReadinessRows,
   fetchReadiness,
@@ -246,8 +249,25 @@ function ReadinessBody({
   const [reanalysing, setReanalysing] = useState(false);
   const [fixOpen, setFixOpen] = useState(false);
   const [editingField, setEditingField] = useState<EditableReadinessField | null>(null);
+  const [restartCount, setRestartCount] = useState(0);
+  const [takingLonger, setTakingLonger] = useState(false);
+
+  const analyzing = application.analysisStatus === 'ANALYZING';
+
+  // The request loader ends when the API accepts the analysis; the page then
+  // shows the server-side run as an in-progress state. After a while it
+  // offers a restart, because the worker can leave an application at
+  // ANALYZING with no further updates.
+  useEffect(() => {
+    setTakingLonger(false);
+    if (!analyzing) return;
+    const timer = setTimeout(() => setTakingLonger(true), ANALYSIS_TAKING_LONGER_MS);
+    return () => clearTimeout(timer);
+  }, [analyzing, restartCount]);
 
   const header = readinessHeaderPresentation(readiness);
+  const supportingLine =
+    analyzing && takingLonger ? READINESS_SUPPORT_TAKING_LONGER : header.supportingLine;
   const lifecycle = deriveLifecycleSteps({
     analysisStatus: application.analysisStatus,
     readiness,
@@ -265,6 +285,7 @@ function ReadinessBody({
     setReanalysing(true);
     try {
       await triggerAnalysis(application.id, { force: true });
+      setRestartCount((count) => count + 1);
       await onRefresh();
     } catch {
       toast.error("We couldn't start the analysis. Try again in a moment.");
@@ -283,6 +304,27 @@ function ReadinessBody({
           data-testid="readiness-retry"
         >
           Try analysis again
+        </Button>
+      );
+    }
+
+    if (analyzing && takingLonger) {
+      return (
+        <Button
+          onClick={() => void handleReanalyse()}
+          loading={reanalysing}
+          loadingText="Restarting analysis…"
+          data-testid="readiness-restart"
+        >
+          Restart analysis
+        </Button>
+      );
+    }
+
+    if (analyzing) {
+      return (
+        <Button loading loadingText="Analyzing application…" data-testid="readiness-analyzing">
+          Analyze application
         </Button>
       );
     }
@@ -342,11 +384,20 @@ function ReadinessBody({
         </div>
         <p className="text-sm text-muted-foreground">{application.repoFullName}</p>
 
-        <div className="flex flex-col gap-3 rounded-xl border bg-card p-4 shadow-sm">
+        <div
+          className="flex flex-col gap-3 rounded-xl border bg-card p-4 shadow-sm"
+          aria-busy={analyzing || undefined}
+        >
           <div className="flex items-start justify-between gap-4">
             <div className="min-w-0 flex-1">
-              <h1 className="text-2xl font-semibold tracking-tight">{header.heading}</h1>
-              <p className="mt-1 text-sm text-muted-foreground">{header.supportingLine}</p>
+              <h1
+                className="flex items-center gap-2 text-2xl font-semibold tracking-tight"
+                data-testid="readiness-heading"
+              >
+                {analyzing ? <Spinner aria-hidden className="size-5 text-primary" /> : null}
+                {header.heading}
+              </h1>
+              <p className="mt-1 text-sm text-muted-foreground">{supportingLine}</p>
             </div>
             <div className="flex shrink-0 items-center gap-2">{primaryAction}</div>
           </div>
@@ -361,7 +412,7 @@ function ReadinessBody({
               onClick={() => void handleReanalyse()}
               loading={reanalysing}
               loadingText="Analyzing application…"
-              disabled={application.analysisStatus === 'ANALYZING'}
+              disabled={analyzing}
               data-testid="app-details-reanalyse"
             >
               <RefreshCw className="size-3.5" aria-hidden />
