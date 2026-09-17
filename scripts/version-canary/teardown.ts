@@ -16,7 +16,7 @@ import {
   disableRulesForStack,
   installationBuckets,
   installationDbInstance,
-  installationSecrets,
+  installationSecretsByTag,
   invokeRelay,
   deleteEcrTags,
   deleteLogGroupIfExists,
@@ -26,7 +26,6 @@ import {
   deleteTaskDefinitions,
   liveInstallationCache,
   liveStackElbResources,
-  secretDeletionDate,
   type LeakAudit,
 } from './aws.js';
 import { describeDeployment, findJob, waitFor } from './control-plane.js';
@@ -199,22 +198,33 @@ async function verifyRetainedState(canary: Canary, deploymentId: string): Promis
       }
     }
 
-    // The retained database credentials stayed, and nothing found is
-    // scheduled for deletion.
+    // The retained database credentials stayed: installation-tagged secrets
+    // whose CloudFormation logical id names them (the physical names are
+    // generated and carry no stack name). AppConfigSecret is delete-by-design
+    // — it dies with the stack — so it is not required here. Nothing found
+    // may sit in the deletion recovery window.
     if (expects('database')) {
-      const secrets = await installationSecrets(config.region, {
-        installationId,
-        bootstrapStackName: run.bootstrapStackName ?? null,
-        applicationStackName,
-      });
-      details['secrets'] = secrets;
-      const retained = secrets.filter((name) => name.startsWith(applicationStackName));
+      const secrets = await installationSecretsByTag(config.region, installationId);
+      details['secrets'] = secrets.map((s) => ({
+        name: s.name,
+        logicalId: s.tags['aws:cloudformation:logical-id'] ?? null,
+        deletedDate: s.deletedDate,
+      }));
+      const retained = secrets.filter(
+        (s) => !s.deletedDate && /^Database(Secret|UrlSecret)/.test(s.tags['aws:cloudformation:logical-id'] ?? ''),
+      );
       if (retained.length === 0) {
-        throw new Error(`no secret named after the application stack survived Disconnect — the retained database credentials (${applicationStackName}-…) are gone`);
+        throw new Error(
+          `no live secret tagged deployz:installation=${installationId} with a DatabaseSecret/DatabaseUrlSecret logical id survived Disconnect — ` +
+            `the retained database credentials are gone; tag-based discovery found: ${JSON.stringify(details['secrets'])}`,
+        );
       }
-      for (const name of secrets) {
-        const deletionDate = await secretDeletionDate(config.region, name);
-        if (deletionDate) throw new Error(`secret ${name} is scheduled for deletion at ${deletionDate} — Disconnect must retain it`);
+      const scheduled = secrets.filter((s) => s.deletedDate);
+      if (scheduled.length > 0) {
+        throw new Error(
+          `secret(s) tagged deployz:installation=${installationId} are scheduled for deletion — Disconnect must retain them: ` +
+            scheduled.map((s) => `${s.name} at ${s.deletedDate}`).join(', '),
+        );
       }
     }
 
@@ -311,13 +321,29 @@ async function verifyPurgedRetainedState(canary: Canary, deploymentId: string): 
     const liveBuckets = Object.entries(headBucket).filter(([, exists]) => exists).map(([name]) => name);
     if (liveBuckets.length > 0) throw new Error(`bucket(s) survived the Purge: ${liveBuckets.join(', ')}`);
 
-    const secrets = (await installationSecrets(config.region, {
-      installationId: run.installationId,
-      bootstrapStackName: run.bootstrapStackName ?? null,
-      applicationStackName: run.applicationStackName,
-    })).filter((name) => !(run.bootstrapStackName && name.startsWith(run.bootstrapStackName)));
-    details['retainedSecretsLeft'] = secrets;
-    if (secrets.length > 0) throw new Error(`retained secret(s) survived the Purge: ${secrets.join(', ')}`);
+    // The Purge force-deletes without recovery, so nothing tagged for this
+    // installation may remain — not even in the recovery window. The
+    // connector's own credential secret is the exception: the Purge never
+    // touches it (the customer deletes the bootstrap stack later), so it is
+    // excluded by its bootstrap stack, not by a name prefix.
+    const secrets = (await installationSecretsByTag(config.region, run.installationId)).filter(
+      (s) =>
+        !(
+          (run.bootstrapStackName && s.tags['aws:cloudformation:stack-name'] === run.bootstrapStackName) ||
+          s.tags['deployz:component'] === 'bootstrap'
+        ),
+    );
+    details['secretsLeft'] = secrets.map((s) => ({
+      name: s.name,
+      logicalId: s.tags['aws:cloudformation:logical-id'] ?? null,
+      deletedDate: s.deletedDate,
+    }));
+    if (secrets.length > 0) {
+      throw new Error(
+        `secret(s) tagged deployz:installation=${run.installationId} survived the Purge — force-delete leaves nothing behind: ` +
+          secrets.map((s) => `${s.name}${s.deletedDate ? ` (planned deletion ${s.deletedDate})` : ''}`).join(', '),
+      );
+    }
 
     const inventory = await api.infrastructure(deploymentId);
     details['expectations'] = inventory.expectations;
