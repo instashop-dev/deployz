@@ -225,7 +225,13 @@ import {
   mergeComponentState,
   toCustomerDeploymentStatus,
   toVendorDeploymentStatus,
+  type DerivedDeploymentStatus,
 } from './deployment-status.js';
+import {
+  buildCustomerLiveProgress,
+  type CustomerLiveProgress,
+  type LiveHttpsState,
+} from './customer-activity.js';
 import {
   createDeployLink,
   createDeploymentRecord,
@@ -1284,6 +1290,82 @@ async function advanceStepTimingsAfterWrite(
   });
 }
 
+// Shared by both public status routes (GET /api/install/:installLinkId/status
+// and GET /api/deploy-links/:publicId/status) so they can never diverge on
+// what live progress looks like. Stack events are loaded ONLY when the stage
+// can actually use them (PROVISIONING/FAILED) — one bounded query, the latest
+// INSTALL job's events, newest first — since these routes are unauthenticated
+// and rate-limited.
+async function loadCustomerLiveProgress(
+  db: RuntimeDb,
+  derived: DerivedDeploymentStatus,
+  params: {
+    deploymentId: string;
+    jobs: { id: string; type: JobType }[];
+    domain: CustomDomainRow | null;
+    defaultHttps: DefaultHttpsState | null;
+    stepTimings: DeploymentRow['stepTimings'];
+  },
+): Promise<CustomerLiveProgress> {
+  const installJob = [...params.jobs].reverse().find((job) => job.type === 'INSTALL') ?? null;
+
+  // A failure of a later job (a release, a restart) has no stack events of
+  // its own: the install's events would describe a different operation.
+  const stackOperationActive =
+    derived.stage === 'PROVISIONING' ||
+    (derived.stage === 'FAILED' && derived.failure?.jobType === 'INSTALL');
+  let events: StoredStackEvent[] = [];
+  if (stackOperationActive && installJob) {
+    const rows = await db
+      .select({
+        eventAt: schema.deploymentStackEvents.eventAt,
+        logicalResourceId: schema.deploymentStackEvents.logicalResourceId,
+        resourceType: schema.deploymentStackEvents.resourceType,
+        resourceStatus: schema.deploymentStackEvents.resourceStatus,
+        resourceStatusReason: schema.deploymentStackEvents.resourceStatusReason,
+      })
+      .from(schema.deploymentStackEvents)
+      .where(
+        and(
+          eq(schema.deploymentStackEvents.deploymentId, params.deploymentId),
+          eq(schema.deploymentStackEvents.jobId, installJob.id),
+        ),
+      )
+      .orderBy(desc(schema.deploymentStackEvents.eventAt), desc(schema.deploymentStackEvents.id))
+      .limit(200);
+    events = rows;
+  }
+
+  // Same precedence deployment-status.ts's httpsComponentStatus applies: a
+  // custom domain, when present, over the Deployz-owned default endpoint.
+  const https: LiveHttpsState | null = params.domain
+    ? {
+        hostname: params.domain.hostname,
+        status: params.domain.status,
+        lastError: params.domain.lastError,
+        lastCheckedAt: params.domain.lastCheckedAt?.toISOString() ?? null,
+      }
+    : params.defaultHttps
+      ? {
+          hostname: params.defaultHttps.hostname,
+          status: params.defaultHttps.status,
+          lastError: params.defaultHttps.lastError,
+          lastCheckedAt: params.defaultHttps.lastDnsCheckAt ?? null,
+        }
+      : null;
+
+  return buildCustomerLiveProgress({
+    stage: derived.stage,
+    step: derived.step,
+    events,
+    installJobId: installJob?.id ?? null,
+    stepTimings: params.stepTimings,
+    health: derived.health.layers,
+    https,
+    needsDomainSetup: derived.needsDomainSetup,
+  });
+}
+
 /**
  * §46 deployment state a finished job leaves behind. The relay reporting a
  * command result is what actually moves a deployment through its lifecycle —
@@ -2229,7 +2311,14 @@ export async function buildServer({
         defaultHttps,
         appUrl,
       });
-      return toCustomerDeploymentStatus(derived);
+      const live = await loadCustomerLiveProgress(db, derived, {
+        deploymentId: row.deployment.id,
+        jobs,
+        domain,
+        defaultHttps,
+        stepTimings: row.deployment.stepTimings,
+      });
+      return toCustomerDeploymentStatus(derived, live);
     },
   );
 
@@ -3521,7 +3610,14 @@ export async function buildServer({
         defaultHttps,
         appUrl,
       });
-      return toCustomerDeploymentStatus(derived);
+      const live = await loadCustomerLiveProgress(db, derived, {
+        deploymentId: deployment.id,
+        jobs,
+        domain,
+        defaultHttps,
+        stepTimings: deployment.stepTimings,
+      });
+      return toCustomerDeploymentStatus(derived, live);
     },
   );
 

@@ -52,16 +52,19 @@ export function categorizeResourceType(resourceType: string): ProvisioningCatego
 
 /** Boilerplate reasons CloudFormation gives the resources it cancelled in
  *  response to the one that actually failed — same set as install.ts
- *  `CANCELLED_REASONS`. Never the genuine cause of a category failure. */
-const CANCELLED_REASONS: ReadonlySet<string> = new Set([
+ *  `CANCELLED_REASONS`. Never the genuine cause of a category failure.
+ *  Exported for customer-activity.ts, which needs the same debris filter to
+ *  keep a cancelled event from ever being reported as a real failure. */
+export const CANCELLED_REASONS: ReadonlySet<string> = new Set([
   'Resource creation cancelled',
   'Resource update cancelled',
 ]);
 
 /** `DELETE_*`/`ROLLBACK_*` events are teardown debris, not creation
  *  progress — they never mark a category FAILED and never regress one that
- *  already completed. */
-function isDeletePhase(resourceStatus: string): boolean {
+ *  already completed. Exported for customer-activity.ts, which uses the same
+ *  test to recognise a rollback/teardown phase for its own messaging. */
+export function isDeletePhase(resourceStatus: string): boolean {
   return resourceStatus.startsWith('DELETE_') || resourceStatus.startsWith('ROLLBACK_');
 }
 
