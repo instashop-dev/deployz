@@ -1,33 +1,33 @@
 {
-  "deployzCommit": "954b95ce388a67fdf1b21496e7c23bdd6bf9484b",
+  "deployzCommit": "334f3598c781ffd8584240f65c16e671d4558bd3",
   "total": 120,
   "expectedDeployable": 65,
   "expectedUnsupported": 55,
   "byClass": {
     "runtime-reuse": {
       "total": 120,
-      "pass": 90,
-      "fail": 30
+      "pass": 89,
+      "fail": 31
     }
   },
   "gate": {
     "attempted": 120,
-    "correctAccept": 41,
+    "correctAccept": 40,
     "correctReject": 49,
     "falseAcceptance": 6,
     "falseRejection": 18,
-    "configuredReady": 18
+    "configuredReady": 17
   },
   "build": {
-    "attempted": 11,
-    "succeeded": 10,
+    "attempted": 12,
+    "succeeded": 11,
     "failed": 1,
-    "successRateAmongDeployable": 15.4
+    "successRateAmongDeployable": 16.9
   },
   "infrastructure": {
-    "attempted": 10,
+    "attempted": 11,
     "succeeded": 6,
-    "failed": 4
+    "failed": 5
   },
   "runtime": {
     "ecsRunning": 6,
@@ -44,7 +44,7 @@
   "trueDeploymentSuccess": 5,
   "trueDeploymentSuccessRate": 7.7,
   "cleanup": {
-    "destroys": 11,
+    "destroys": 12,
     "destroyFailures": 0,
     "leaks": 0,
     "successRate": 100
@@ -53,17 +53,17 @@
     "APPLICATION_ERROR": 1,
     "BUILD_ERROR": 1,
     "DATABASE_ERROR": 1,
-    "ENV_BINDING_ERROR": 1,
+    "ENV_BINDING_ERROR": 2,
     "EXPECTED_UNSUPPORTED": 49,
     "GATE_ERROR": 24,
     "MIGRATION_ERROR": 2,
-    "PASS": 41
+    "PASS": 40
   },
   "byFailureStage": {
     "APPLICATION_ERROR": 1,
     "BUILD_ERROR": 1,
     "DATABASE_ERROR": 1,
-    "ENV_BINDING_ERROR": 1,
+    "ENV_BINDING_ERROR": 2,
     "EXPECTED_UNSUPPORTED": 49,
     "GATE_ERROR": 24,
     "MIGRATION_ERROR": 2
@@ -185,7 +185,7 @@
       "deployed": 0,
       "trueDeploymentSuccess": 0,
       "expectedUnsupported": 10,
-      "gateCorrect": 15
+      "gateCorrect": 14
     }
   },
   "byCohort": {
@@ -211,7 +211,7 @@
       "deployed": 6,
       "trueDeploymentSuccess": 5,
       "expectedUnsupported": 24,
-      "gateCorrect": 48
+      "gateCorrect": 47
     }
   }
 }

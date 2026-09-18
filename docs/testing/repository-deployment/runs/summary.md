@@ -1,22 +1,22 @@
 # Repository deployment audit — run summary
 
-Deployz commit: `954b95ce388a67fdf1b21496e7c23bdd6bf9484b`
+Deployz commit: `334f3598c781ffd8584240f65c16e671d4558bd3`
 
 | Metric | Value |
 | --- | --- |
 | Repositories | 120 |
 | Expected deployable | 65 |
 | Expected unsupported | 55 |
-| Gate: correct accept / correct reject | 41 / 49 |
+| Gate: correct accept / correct reject | 40 / 49 |
 | Gate: false acceptance / false rejection | 6 / 18 |
-| Gate: READY with the Stage B configuration | 18 |
-| Build attempted / succeeded / failed | 11 / 10 / 1 |
-| Build success among expected deployable | 15.4% |
-| Infrastructure attempted / succeeded / failed | 10 / 6 / 4 |
+| Gate: READY with the Stage B configuration | 17 |
+| Build attempted / succeeded / failed | 12 / 11 / 1 |
+| Build success among expected deployable | 16.9% |
+| Infrastructure attempted / succeeded / failed | 11 / 6 / 5 |
 | Runtime: ECS running / ALB healthy / HTTPS reachable / application response valid | 6 / 6 / 6 / 5 |
 | Dependencies: PostgreSQL / Redis / storage / migration verified | 5 / 1 / 1 / 1 |
 | **True deployment success / expected deployable** | **5 / 65 (7.7%)** |
-| Cleanup: destroys / failures / leaks / success rate | 11 / 0 / 0 / 100% |
+| Cleanup: destroys / failures / leaks / success rate | 12 / 0 / 0 / 100% |
 
 ## By classification
 
@@ -25,11 +25,11 @@ Deployz commit: `954b95ce388a67fdf1b21496e7c23bdd6bf9484b`
 | APPLICATION_ERROR | 1 |
 | BUILD_ERROR | 1 |
 | DATABASE_ERROR | 1 |
-| ENV_BINDING_ERROR | 1 |
+| ENV_BINDING_ERROR | 2 |
 | EXPECTED_UNSUPPORTED | 49 |
 | GATE_ERROR | 24 |
 | MIGRATION_ERROR | 2 |
-| PASS | 41 |
+| PASS | 40 |
 
 ## By root cause
 
@@ -69,7 +69,7 @@ Deployz commit: `954b95ce388a67fdf1b21496e7c23bdd6bf9484b`
 | --- | --- | --- | --- | --- | --- | --- |
 | improvement | 80 | 46 | 34 | 64 | 6 | 5 |
 | unseen | 20 | 9 | 11 | 11 | 0 | 0 |
-| unseen2 | 20 | 10 | 10 | 15 | 0 | 0 |
+| unseen2 | 20 | 10 | 10 | 14 | 0 | 0 |
 
 ## By cohort
 
@@ -77,13 +77,13 @@ Deployz commit: `954b95ce388a67fdf1b21496e7c23bdd6bf9484b`
 | --- | --- | --- | --- | --- | --- | --- |
 | boundary | 24 | 2 | 22 | 20 | 0 | 0 |
 | messy | 27 | 18 | 9 | 22 | 0 | 0 |
-| realistic | 69 | 45 | 24 | 48 | 6 | 5 |
+| realistic | 69 | 45 | 24 | 47 | 6 | 5 |
 
 ## By deployment class
 
 | Class | Repositories | Pass | Fail |
 | --- | --- | --- | --- |
-| runtime-reuse | 120 | 90 | 30 |
+| runtime-reuse | 120 | 89 | 31 |
 
 ## Repositories
 
@@ -191,7 +191,7 @@ Deployz commit: `954b95ce388a67fdf1b21496e7c23bdd6bf9484b`
 | repo-100 | penpot/penpot@034707a | boundary | NOT_COMPATIBLE | NOT_COMPATIBLE (correct-reject) | NOT_ATTEMPTED | NOT_ATTEMPTED | — | NOT_ATTEMPTED | EXPECTED_UNSUPPORTED / CORRECTLY_UNSUPPORTED |  |
 | repo-201 | DIYgod/RSSHub@3e11afc | realistic | READY | READY (correct-accept) | NOT_ATTEMPTED | NOT_ATTEMPTED | — | NOT_ATTEMPTED | PASS |  |
 | repo-202 | element-hq/synapse@a0b5a45 | realistic | NOT_COMPATIBLE | NOT_COMPATIBLE (correct-reject) | NOT_ATTEMPTED | NOT_ATTEMPTED | — | NOT_ATTEMPTED | EXPECTED_UNSUPPORTED / CORRECTLY_UNSUPPORTED |  |
-| repo-203 | getfider/fider@f164f69 | realistic | NEEDS_CONFIGURATION | READY (correct-accept) | NOT_ATTEMPTED | NOT_ATTEMPTED | — | NOT_ATTEMPTED | PASS |  |
+| repo-203 | getfider/fider@f164f69 | realistic | NEEDS_CONFIGURATION | — (—) | PASS | FAIL | — | PASS | ENV_BINDING_ERROR |  |
 | repo-204 | shlinkio/shlink@d012afd | realistic | NEEDS_CONFIGURATION | NOT_COMPATIBLE (false-rejection) | NOT_ATTEMPTED | NOT_ATTEMPTED | — | NOT_ATTEMPTED | GATE_ERROR | DEPLOY-003 |
 | repo-205 | alfio-event/alf.io@6296c0c | realistic | NEEDS_CONFIGURATION | NEEDS_CONFIGURATION (correct-accept) | NOT_ATTEMPTED | NOT_ATTEMPTED | — | NOT_ATTEMPTED | PASS |  |
 | repo-206 | nocobase/nocobase@4901246 | realistic | NEEDS_CONFIGURATION | NOT_COMPATIBLE (false-rejection) | NOT_ATTEMPTED | NOT_ATTEMPTED | — | NOT_ATTEMPTED | GATE_ERROR | DEPLOY-003 |
