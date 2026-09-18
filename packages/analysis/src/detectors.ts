@@ -2433,6 +2433,15 @@ function scanGoEnvReads(content: string): { key: string; needsValue: boolean }[]
     ).test(content);
     found.push({ key, needsValue: options.includes('required') || combined });
   }
+  // envdecode / caarlos0-env struct tags (DEPLOY-032, fider's app/pkg/env):
+  // `env:"KEY"` (optional) or `env:"KEY,required"` — required unless the
+  // options also carry a `default=`, which makes the value optional again.
+  const envTagRegex = /env:"([A-Z][A-Z0-9_]*)(?:,([^"]*))?"/g;
+  while ((match = envTagRegex.exec(content)) !== null) {
+    const key = match[1]!;
+    const options = match[2] ?? '';
+    found.push({ key, needsValue: options.includes('required') && !options.includes('default=') });
+  }
   return found;
 }
 
@@ -3021,7 +3030,9 @@ export function detectBuildCommand(tree: FileTree): DetectorFinding {
 /** The runtime family a base image or dependency manifest belongs to. */
 export type RuntimeFamily = 'node' | 'python' | 'ruby' | 'go' | 'jvm' | 'dotnet' | 'php' | 'elixir' | 'rust';
 
-const DOCKERFILE_FROM_REGEX = /^\s*FROM\s+(?:--platform=\S+\s+)?(\S+)/gim;
+// Captures the base image and, when present, its `AS <name>` stage alias.
+const DOCKERFILE_STAGE_REGEX = /^\s*FROM\s+(?:--platform=\S+\s+)?(\S+)(?:\s+[Aa][Ss]\s+(\S+))?/gim;
+const DOCKERFILE_WORKDIR_REGEX = /^\s*WORKDIR\s+(\S+)/gim;
 
 /** Base-image name → runtime family, matched on the image path without registry or tag. */
 const RUNTIME_IMAGES: { pattern: RegExp; runtime: RuntimeFamily }[] = [
@@ -3059,28 +3070,128 @@ function runtimeFromImage(image: string): RuntimeFamily | null {
   return RUNTIME_IMAGES.find(({ pattern }) => pattern.test(name))?.runtime ?? null;
 }
 
+interface DockerfileStage {
+  name: string | null;
+  image: string;
+  /** This stage's own instructions, from its `FROM` up to the next one. */
+  body: string;
+}
+
+/** Split a Dockerfile into its build stages, each stage's own instructions included. */
+function parseDockerfileStages(content: string): DockerfileStage[] {
+  const matches = [...content.matchAll(DOCKERFILE_STAGE_REGEX)].filter((match) => (match[1] ?? '').length > 0);
+  return matches.map((match, i) => {
+    const start = match.index ?? 0;
+    const end = i + 1 < matches.length ? (matches[i + 1]!.index ?? content.length) : content.length;
+    return { name: match[2] ? match[2].toLowerCase() : null, image: match[1]!, body: content.slice(start, end) };
+  });
+}
+
+/** A stage name or numeric index, resolved against stages declared earlier in the file. */
+function resolveDockerfileStage(ref: string, stages: DockerfileStage[], beforeIndex: number): DockerfileStage | undefined {
+  if (/^\d+$/.test(ref)) return stages[Number(ref)];
+  const name = ref.toLowerCase();
+  for (let i = beforeIndex - 1; i >= 0; i -= 1) {
+    if (stages[i]!.name === name) return stages[i];
+  }
+  return undefined;
+}
+
+interface DockerfileCopyFrom {
+  from: string;
+  sources: string[];
+  dest: string;
+}
+
+/** `COPY --from=<stage> <src>... <dest>` lines within one stage's own body. */
+function parseCopyFromLines(stageBody: string): DockerfileCopyFrom[] {
+  const copies: DockerfileCopyFrom[] = [];
+  for (const line of stageBody.split('\n')) {
+    const copyMatch = /^\s*COPY\s+(.+)$/i.exec(line);
+    if (!copyMatch) continue;
+    const rest = copyMatch[1]!.trim();
+    const fromMatch = /--from=(\S+)/.exec(rest);
+    if (!fromMatch) continue;
+    const tokens = rest.split(/\s+/).filter((token) => !token.startsWith('--'));
+    if (tokens.length < 2) continue;
+    copies.push({ from: fromMatch[1]!, sources: tokens.slice(0, -1), dest: tokens[tokens.length - 1]! });
+  }
+  return copies;
+}
+
+/** The executable path a stage's own CMD/ENTRYPOINT runs, resolved against its WORKDIR. */
+function stageExecutablePath(stageBody: string): string | null {
+  const command = CMD_REGEX.exec(stageBody)?.[1] ?? ENTRYPOINT_REGEX.exec(stageBody)?.[1];
+  if (!command) return null;
+  const firstToken = execFormToShell(command).trim().split(/\s+/)[0] ?? '';
+  if (firstToken.startsWith('/')) return firstToken;
+  if (!firstToken.startsWith('./')) return null;
+  const workdir = [...stageBody.matchAll(DOCKERFILE_WORKDIR_REGEX)].pop()?.[1] ?? '/';
+  return `${workdir.replace(/\/$/, '')}/${firstToken.slice(2)}`;
+}
+
+/** True when a COPY's destination is where the given executable path ends up. */
+function copyProvides(copy: DockerfileCopyFrom, executablePath: string): boolean {
+  if (copy.dest === executablePath) return true;
+  const destDir = copy.dest.endsWith('/') ? copy.dest.slice(0, -1) : copy.dest;
+  const execDir = executablePath.slice(0, executablePath.lastIndexOf('/')) || '/';
+  const execName = executablePath.slice(executablePath.lastIndexOf('/') + 1);
+  return destDir === execDir && copy.sources.some((source) => (source.split('/').pop() ?? '') === execName);
+}
+
+/**
+ * When a multi-stage build's final stage is itself a bare OS image (no
+ * runtime of its own — fider ships its Go binary from `debian:bookworm-slim`),
+ * resolve the runtime through the stage(s) that final stage's own
+ * `COPY --from=` draws on: prefer whichever referenced stage supplies the
+ * file the final stage's CMD/ENTRYPOINT actually runs, otherwise the first
+ * referenced stage (in file order) that maps to a runtime at all.
+ */
+function runtimeFromCopiedStages(finalStage: DockerfileStage, stages: DockerfileStage[]): { runtime: RuntimeFamily; image: string } | null {
+  const finalIndex = stages.length - 1;
+  const referenced = parseCopyFromLines(finalStage.body)
+    .map((copy) => ({ copy, stage: resolveDockerfileStage(copy.from, stages, finalIndex) }))
+    .filter((entry): entry is { copy: DockerfileCopyFrom; stage: DockerfileStage } => entry.stage !== undefined);
+
+  const executablePath = stageExecutablePath(finalStage.body);
+  if (executablePath) {
+    const provider = referenced.find((entry) => copyProvides(entry.copy, executablePath));
+    const runtime = provider ? runtimeFromImage(provider.stage.image) : null;
+    if (runtime) return { runtime, image: provider!.stage.image };
+  }
+  for (const entry of referenced) {
+    const runtime = runtimeFromImage(entry.stage.image);
+    if (runtime) return { runtime, image: entry.stage.image };
+  }
+  return null;
+}
+
 /**
  * Detect the runtime family the deployed container runs. The selected
- * Dockerfile decides first: its LAST recognizable base image (the final
- * stage of a multi-stage build, or the build stage when the final stage is
- * a bare distroless/alpine image). Without one, the shallowest dependency
- * manifest decides — a root `package.json` outranks a nested
- * `requirements.txt`.
+ * Dockerfile decides first: the final stage's own base image when it is
+ * itself a recognizable runtime; otherwise the runtime reached through that
+ * stage's own `COPY --from=` references (see `runtimeFromCopiedStages`).
+ * Without either, the shallowest dependency manifest decides — a root
+ * `package.json` outranks a nested `requirements.txt`.
  */
 export function detectRuntime(tree: FileTree): DetectorFinding {
   const dockerfile = selectedDockerfile(tree);
   if (dockerfile) {
-    const images = [...dockerfile.content.matchAll(DOCKERFILE_FROM_REGEX)]
-      .map((match) => match[1] ?? '')
-      .filter((image) => image.length > 0);
-    for (const image of [...images].reverse()) {
-      const runtime = runtimeFromImage(image);
-      if (runtime) {
+    const stages = parseDockerfileStages(dockerfile.content);
+    const finalStage = stages[stages.length - 1];
+    if (finalStage) {
+      const ownRuntime = runtimeFromImage(finalStage.image);
+      const resolved = ownRuntime
+        ? { runtime: ownRuntime, image: finalStage.image }
+        : stages.length > 1
+          ? runtimeFromCopiedStages(finalStage, stages)
+          : null;
+      if (resolved) {
         return {
           detector: 'runtime',
           detected: true,
-          value: runtime,
-          details: `Base image ${image} in ${dockerfile.path}`,
+          value: resolved.runtime,
+          details: `Base image ${resolved.image} in ${dockerfile.path}`,
           source: 'dockerfile',
         };
       }
