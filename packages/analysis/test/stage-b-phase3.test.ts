@@ -179,6 +179,49 @@ describe('JVM / Go / .NET env reads (COMP-017)', () => {
     expect(byKey.get('PORT')).toMatchObject({ required: false });
   });
 
+  it('Go: envdecode/caarlos0-env `env:"KEY"` struct tags (DEPLOY-032, fider)', () => {
+    const tree: FileTree = {
+      'app/pkg/env/env.go': [
+        'package env',
+        '',
+        'type Config struct {',
+        '  BaseURL   string `env:"BASE_URL"`',
+        '  JWTSecret string `env:"JWT_SECRET,required"`',
+        '  URL       string `env:"DATABASE_URL,required"`',
+        '  NoReply   string `env:"EMAIL_NOREPLY,required"`',
+        '  Region    string `env:"EMAIL_MAILGUN_REGION,default=US"`',
+        '  Port      string `env:"PORT,required" envDefault:"3000"`',
+        '}',
+        '',
+      ].join('\n'),
+    };
+    const byKey = modelByKey(tree);
+    expect(byKey.get('PORT')).toMatchObject({ required: false });
+    expect(byKey.get('JWT_SECRET')).toMatchObject({ required: true, secret: true, purpose: 'internal_secret' });
+    expect(byKey.get('DATABASE_URL')).toMatchObject({ required: true });
+    expect(byKey.get('EMAIL_NOREPLY')).toMatchObject({ required: true, secret: false, purpose: 'optional_configuration' });
+    expect(byKey.get('EMAIL_MAILGUN_REGION')).toMatchObject({ required: false });
+    expect(byKey.get('BASE_URL')).toMatchObject({ required: false });
+  });
+
+  it('Go: an envconfig-only file is unaffected by the envdecode `env:"KEY"` tag scan', () => {
+    const tree: FileTree = {
+      'main.go': [
+        'package main',
+        '',
+        'type Config struct {',
+        '  Port  int    `envconfig:"PORT"`',
+        '  Token string `envconfig:"AUTH_TOKEN,required"`',
+        '}',
+        '',
+      ].join('\n'),
+    };
+    const byKey = modelByKey(tree);
+    expect(byKey.get('AUTH_TOKEN')).toMatchObject({ required: true, secret: true });
+    expect(byKey.get('PORT')).toMatchObject({ required: false });
+    expect(byKey.size).toBe(2);
+  });
+
   it('.NET: GetConnectionString with a ?? throw guard and GetRequiredSection are required', () => {
     const tree: FileTree = {
       'Program.cs': [

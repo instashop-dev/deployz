@@ -108,6 +108,83 @@ describe('detectRuntime', () => {
     expect(detectRuntime(tree)).toMatchObject({ value: 'node', source: 'dockerfile' });
   });
 
+  it('a single-stage golang Dockerfile is go', () => {
+    const tree: FileTree = { Dockerfile: 'FROM golang:1.22\nWORKDIR /app\nCOPY . .\nRUN go build -o app\nCMD ["./app"]' };
+    expect(detectRuntime(tree)).toMatchObject({ detected: true, value: 'go', source: 'dockerfile' });
+  });
+
+  it('a final stage that is itself a runtime image wins over any earlier stage (node:20-alpine)', () => {
+    const tree: FileTree = {
+      Dockerfile: [
+        'FROM golang:1.22 AS build',
+        'RUN go build -o app',
+        'FROM node:20-alpine',
+        'COPY --from=build /app /app',
+        'CMD ["/app"]',
+      ].join('\n'),
+    };
+    expect(detectRuntime(tree)).toMatchObject({ detected: true, value: 'node', source: 'dockerfile' });
+  });
+
+  it('resolves a bare-OS final stage through the COPY --from stage that provides the CMD executable (DEPLOY-032, fider)', () => {
+    const tree: FileTree = {
+      Dockerfile: [
+        'FROM golang:1.25-bookworm AS server-builder',
+        'WORKDIR /server',
+        'RUN go build -o fider .',
+        '',
+        'FROM node:22-bookworm AS ui-builder',
+        'WORKDIR /ui',
+        'RUN npm run build',
+        '',
+        'FROM debian:bookworm-slim',
+        'WORKDIR /app',
+        'COPY --from=server-builder /server/fider /app',
+        'COPY --from=ui-builder /ui/dist /app/dist',
+        'CMD ./fider migrate && ./fider',
+      ].join('\n'),
+    };
+    const finding = detectRuntime(tree);
+    expect(finding).toMatchObject({ detected: true, value: 'go', source: 'dockerfile' });
+    expect(finding.details).toContain('golang:1.25-bookworm');
+  });
+
+  it('reads a line-continued COPY --from instruction as one instruction', () => {
+    const tree: FileTree = {
+      Dockerfile: [
+        'FROM golang:1.25-bookworm AS build',
+        'WORKDIR /src',
+        'RUN go build -o /out/server .',
+        '',
+        'FROM gcr.io/distroless/static',
+        'COPY --from=build \\',
+        '    /out/server /app/server',
+        'ENTRYPOINT ["/app/server"]',
+      ].join('\n'),
+    };
+    expect(detectRuntime(tree)).toMatchObject({ detected: true, value: 'go', source: 'dockerfile' });
+  });
+
+  it('falls back to the first referenced stage with a runtime when no COPY matches the CMD executable (node builder + nginx static)', () => {
+    // Pins current behaviour: the nginx final stage never runs the built
+    // JS, so there is no executable to match against — the detector falls
+    // back to the first (and only) referenced stage that maps to a runtime,
+    // the same "node" result the pre-DEPLOY-032 backward image walk gave.
+    const tree: FileTree = {
+      Dockerfile: [
+        'FROM node:20 AS build',
+        'WORKDIR /app',
+        'COPY . .',
+        'RUN npm run build',
+        '',
+        'FROM nginx:1.27-alpine',
+        'COPY --from=build /app/dist /usr/share/nginx/html',
+        'EXPOSE 80',
+      ].join('\n'),
+    };
+    expect(detectRuntime(tree)).toMatchObject({ detected: true, value: 'node', source: 'dockerfile' });
+  });
+
   it('falls back to the shallowest dependency manifest without a Dockerfile', () => {
     const tree: FileTree = { 'Gemfile': "source 'https://rubygems.org'\ngem 'rails'\n", 'client/package.json': '{}' };
     expect(detectRuntime(tree)).toMatchObject({ detected: true, value: 'ruby', source: 'package-manifest' });

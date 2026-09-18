@@ -160,7 +160,15 @@ type ApplicationRow = typeof schema.applications.$inferSelect;
 // the build fails at CodeBuild with an opaque checksum error; the readiness
 // report now blocks with `build-context-git-metadata` before that happens —
 // stored v21 reports must re-run to pick up the finding.
-export const ANALYSIS_VERSION = 22;
+// Version 23 (DEPLOY-032, fider): `scanGoEnvReads` now also reads envdecode /
+// caarlos0-env struct tags (`env:"KEY,required"`), and `detectRuntime`
+// resolves a multi-stage build's runtime through the final stage's own
+// `COPY --from=` references when that stage's base image is itself a bare
+// OS with no runtime — fider's Go server, copied into a `debian` final
+// stage past a `node` UI-build stage, was rated `node` and its env model was
+// empty, so `JWT_SECRET` was never minted and the container panicked at
+// boot; stored v22 reports must re-run to pick up both fixes.
+export const ANALYSIS_VERSION = 23;
 
 export interface AnalysisRunnerDeps {
   db: RuntimeDb;
