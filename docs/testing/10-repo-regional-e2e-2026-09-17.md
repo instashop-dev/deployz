@@ -82,7 +82,7 @@ HTTPS URL that answered; the smoke contract as executed; total lane time
 | 2 | repo-090 pgweb | eu-west-1 | 2 (…-014354-dbad) | ebd0045 v20 | BUILD_FAILED: `COPY .git/ .` against a tarball source | DEPLOYZ_PRODUCT_BUG **DEPLOY-031** (P2, fixed #315) | — | 1 min, no customer resources; audit PASS |
 | 2 | repo-203 fider @ f164f69 | eu-west-1 | 1 (…-015216-5468) | ebd0045 v20 | CONTAINER_START_FAILED: `JWT_SECRET` missing (env model empty, runtime rated Node) | DEPLOYZ_PRODUCT_BUG **DEPLOY-032** (P1, fixed #316) | — | 26 min; cleanup PASS 50 min |
 | 2 | repo-203 fider | eu-west-1 | 2 (…-030832) | 94f5a61 v23 | v23 model correct for DEPLOY-032 (runtime `go`, `JWT_SECRET` minted); ECS_DEPLOYMENT_FAILED: the relay also minted `EMAIL_AWSSES_ACCESS_KEY_ID`, which switched fider's e-mail provider to SES; it panicked on the missing `EMAIL_AWSSES_REGION` | DEPLOYZ_PRODUCT_BUG **DEPLOY-030 residual** (P2 class, P1 for fider; fixed PR #319) | — | section 4.1 |
-| 2 | **repo-203 fider** | **eu-west-1** | **3** | v24 (PR #319) | **see section 4.1** | pending | section 4.1 | section 4.1 |
+| 2 | **repo-203 fider** | **eu-west-1** | **3 (…-040027-d07c)** | bf9530e v24 | **serving lifecycle PASS**: install, release digest, inventory, health, HTTPS, smoke, observation, dependencies, Destroy (SUCCEEDED, 46 min); **teardown verification interrupted**: the `aws login` session expired at 05:31Z before the retained-state check, Purge verification and leak audit ran (section 4.1) | PASS with cleanup completed after re-authentication (section 4.1) | `https://d-fbcc3498-4c39-4674-8e0d-f8cb8eb938a1.deployz.dev`; `/_health` 200 `status=Healthy` (DB ping); `/signup` 200 "Fider" | 91 min to Destroy complete (HTTPS 14.5 min, Destroy 46 min) |
 
 ### 4.1 Runs that were still in flight when this report was written
 
@@ -91,7 +91,7 @@ branch for the JSON records under `docs/testing/repository-deployment/runs/`).
 
 - repo-001 umami attempt 2: PASS (row above); the audit step printed one phantom subnet ARN that EC2 confirms does not exist (OBS-007); confirmed leak list empty.
 - repo-203 fider attempt 2: FAILED (DEPLOY-030 residual, above); cleanup: PENDING.
-- repo-203 fider attempt 3 (on v24, the last run of the campaign): PENDING.
+- repo-203 fider attempt 3 (on v24, the last run of the campaign): every serving-side step passed on the default analysis with no override beyond the vendor's own config; Destroy SUCCEEDED through the product. The AWS login session expired at 05:31Z, so the harness's retained-state check and leak audit failed on authentication (`Your session has expired`), the ledger stayed open, and the product's Purge was requested through the control plane (job dc48621f). Cleanup completion after re-authentication: CLEANUP_PENDING_REAUTH (updated below when done).
 
 ### 4.2 Repositories not tested
 
@@ -158,7 +158,7 @@ deleted by name pattern; the baseline set was never touched.
 | pgweb 1, 2 | no customer resources | — | — | — | — | clean |
 | fider 1 | product, retain path | PASS | product | PASS | removed | clean |
 | fider 2 | product, retain path | section 4.1 | | | | |
-| fider 3 | section 4.1 | | | | | |
+| fider 3 | product (SUCCEEDED) | not run (session expired) | product (requested via API, job dc48621f) | pending re-auth | pending re-auth | pending re-auth |
 
 Final cross-region audit against the baseline: section 8.
 
