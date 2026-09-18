@@ -76,7 +76,7 @@ HTTPS URL that answered; the smoke contract as executed; total lane time
 | 1 | repo-004 miniflux | us-east-1 | 2 (…-211213-33ac) | b64f52f v19 | CONTAINER_START_FAILED: `ADMIN_PASSWORD` typed before the relay connected never arrived | DEPLOYZ_PRODUCT_BUG **DEPLOY-027** (P1, product decision; harness workaround #309) | — | 35 min; cleanup PASS 44 min |
 | 1 | **repo-004 miniflux** | **us-east-1** | **3 (…-224335-06d6)** | b64f52f v19 | **PASS** incl. **update/redeploy** (new release built and served, 15 min), all lifecycle steps, cleanup PASS | PASS | `https://d-d9d129c3-1f47-4cf4-830e-c241515d0685.deployz.dev`; `/healthcheck` 200 "OK" (DB ping); `/` 200 login | 59 min total; cleanup 50 min |
 | 2 | repo-001 umami @ ca661c7 | us-east-2 | 1 (…-233346-91cd) | b64f52f v19 | MIGRATION_FAILED: invented `npx prisma migrate deploy` in an image without npx | DEPLOYZ_PRODUCT_BUG **DEPLOY-029** (P1, fixed #312) | — | 25 min; cleanup PASS 45 min |
-| 2 | **repo-001 umami** | **us-east-2** | **2 (…-022100-da27)** | ebd0045 v20 at analysis/install (control plane redeployed to v21/v22/v23 during the run; those changes alter classification only, not umami's manifest) | install, release, inventory, health, HTTPS, smoke, observation and dependencies PASS; **Disconnect/Purge/audit: see section 4.1** | pending | `https://d-<id>.deployz.dev` (section 4.1); `/api/heartbeat` 200 `{"ok":true}`; `/login` 200 "Umami" | section 4.1 |
+| 2 | **repo-001 umami** | **us-east-2** | **2 (…-022100-da27)** | ebd0045 v20 at analysis and install (the control plane was redeployed to v21, v22 and v23 during the run; those changes alter classification only, not umami's manifest) | **PASS**: install, release digest, inventory, health (migrations ran at boot), HTTPS, smoke, observation, dependencies, Destroy, retained-state, Purge, purged-state, connector removal, leak audit | PASS | `https://d-06305641-62dd-4cf6-861f-2e93a386f7a9.deployz.dev`; `/api/heartbeat` 200 `{"ok":true}`; `/login` 200 "Umami" | 46 min total; cleanup 49 min |
 | 2 | repo-016 outline @ 0121886 | eu-west-1 | 1 (…-003307-3736) | ebd0045 v20 | MIGRATION_FAILED inside the application's own migration (Node 26 base image) | UPSTREAM_REPOSITORY_OR_NETWORK; also surfaced **DEPLOY-030** (P2, fixed #314) | — | 21 min; cleanup PASS 48 min |
 | 2 | repo-090 pgweb @ e4858a1 | eu-west-1 | 1 (…-014159-f3ab) | ebd0045 v20 | gate asked for a health path: the campaign config put it in the wrong block | TEST_CONFIGURATION_ERROR (campaign) | — | 17 s, no AWS resources |
 | 2 | repo-090 pgweb | eu-west-1 | 2 (…-014354-dbad) | ebd0045 v20 | BUILD_FAILED: `COPY .git/ .` against a tarball source | DEPLOYZ_PRODUCT_BUG **DEPLOY-031** (P2, fixed #315) | — | 1 min, no customer resources; audit PASS |
@@ -89,7 +89,7 @@ HTTPS URL that answered; the smoke contract as executed; total lane time
 Filled in when the ledgers closed (see the final commit on the campaign
 branch for the JSON records under `docs/testing/repository-deployment/runs/`).
 
-- repo-001 umami attempt 2: PENDING.
+- repo-001 umami attempt 2: PASS (row above); the audit step printed one phantom subnet ARN that EC2 confirms does not exist (OBS-007); confirmed leak list empty.
 - repo-203 fider attempt 2: FAILED (DEPLOY-030 residual, above); cleanup: PENDING.
 - repo-203 fider attempt 3 (on v24, the last run of the campaign): PENDING.
 
@@ -153,7 +153,7 @@ deleted by name pattern; the baseline set was never touched.
 | miniflux 2 | product | PASS | product | PASS | removed | clean |
 | miniflux 3 | product | PASS | product | PASS | removed | clean |
 | umami 1 | product | PASS | product | PASS | removed | clean |
-| umami 2 | section 4.1 | | | | | |
+| umami 2 | product, retain path | PASS | product | PASS | removed | clean (one phantom subnet verified absent) |
 | outline 1 | product | PASS | product | PASS | removed | clean |
 | pgweb 1, 2 | no customer resources | — | — | — | — | clean |
 | fider 1 | product, retain path | PASS | product | PASS | removed | clean |
