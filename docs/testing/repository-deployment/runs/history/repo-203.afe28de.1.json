@@ -228,21 +228,23 @@
     "detail": null
   },
   "cleanup": {
-    "status": "PASS",
-    "destroyJobState": "SKIPPED",
-    "purgeJobState": "SKIPPED",
+    "status": "FAIL",
+    "destroyJobState": "SUCCEEDED",
+    "purgeJobState": null,
     "cleanupState": null,
-    "bootstrapStackFinal": "DELETE_COMPLETE",
-    "leaks": [],
-    "retainedState": "SKIPPED",
-    "purgedState": "PASS",
-    "durationMs": 1158458,
-    "detail": null
+    "bootstrapStackFinal": "SKIPPED: purge not complete",
+    "leaks": [
+      "aws resourcegroupstaggingapi get-resources --tag-filters failed: aws: [ERROR]: Your session has expired. Please reauthenticate using 'aws login'."
+    ],
+    "retainedState": "FAIL",
+    "purgedState": "NOT_ATTEMPTED",
+    "durationMs": 2779671,
+    "detail": "destroy/purge: aws cloudformation describe-stacks --stack-name failed: aws: [ERROR]: Your session has expired. Please reauthenticate using 'aws login'. | leak audit: 1 resource(s) left"
   },
-  "classification": "PASS",
-  "failureStage": null,
+  "classification": "CLEANUP_LEAK",
+  "failureStage": "CLEANUP_LEAK",
   "rootCause": null,
-  "rootCauseEvidence": null,
+  "rootCauseEvidence": "destroy/purge: aws cloudformation describe-stacks --stack-name failed: aws: [ERROR]: Your session has expired. Please reauthenticate using 'aws login'. | leak audit: 1 resource(s) left — decide DEPLOYZ_BUG vs AWS_TRANSIENT_FAILURE",
   "findingIds": [],
   "timing": {
     "startedAt": "2026-09-18T04:00:28.387Z",

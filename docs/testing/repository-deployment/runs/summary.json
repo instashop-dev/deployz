@@ -1,13 +1,13 @@
 {
-  "deployzCommit": "afe28de66d08900bc343746d45b7e5f80e79a7fa",
+  "deployzCommit": "65706ac6362bd388afa4fe7b82ed3de1a5a23b2d",
   "total": 120,
   "expectedDeployable": 65,
   "expectedUnsupported": 55,
   "byClass": {
     "runtime-reuse": {
       "total": 120,
-      "pass": 90,
-      "fail": 30
+      "pass": 91,
+      "fail": 29
     }
   },
   "gate": {
@@ -33,7 +33,7 @@
     "ecsRunning": 8,
     "albHealthy": 8,
     "httpsReachable": 8,
-    "applicationResponseValid": 6
+    "applicationResponseValid": 7
   },
   "dependencies": {
     "postgres": 7,
@@ -41,29 +41,27 @@
     "storage": 1,
     "migration": 1
   },
-  "trueDeploymentSuccess": 6,
-  "trueDeploymentSuccessRate": 9.2,
+  "trueDeploymentSuccess": 7,
+  "trueDeploymentSuccessRate": 10.8,
   "cleanup": {
     "destroys": 12,
-    "destroyFailures": 1,
-    "leaks": 1,
-    "successRate": 91.7
+    "destroyFailures": 0,
+    "leaks": 0,
+    "successRate": 100
   },
   "byClassification": {
     "APPLICATION_ERROR": 1,
     "BUILD_ERROR": 1,
-    "CLEANUP_LEAK": 1,
     "DATABASE_ERROR": 1,
     "ENV_BINDING_ERROR": 1,
     "EXPECTED_UNSUPPORTED": 49,
     "GATE_ERROR": 24,
     "MIGRATION_ERROR": 1,
-    "PASS": 41
+    "PASS": 42
   },
   "byFailureStage": {
     "APPLICATION_ERROR": 1,
     "BUILD_ERROR": 1,
-    "CLEANUP_LEAK": 1,
     "DATABASE_ERROR": 1,
     "ENV_BINDING_ERROR": 1,
     "EXPECTED_UNSUPPORTED": 49,
@@ -185,7 +183,7 @@
       "total": 20,
       "expectedDeployable": 10,
       "deployed": 1,
-      "trueDeploymentSuccess": 0,
+      "trueDeploymentSuccess": 1,
       "expectedUnsupported": 10,
       "gateCorrect": 14
     }
@@ -211,7 +209,7 @@
       "total": 69,
       "expectedDeployable": 45,
       "deployed": 8,
-      "trueDeploymentSuccess": 6,
+      "trueDeploymentSuccess": 7,
       "expectedUnsupported": 24,
       "gateCorrect": 47
     }
