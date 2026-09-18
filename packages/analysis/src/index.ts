@@ -33,6 +33,14 @@ export {
   collectScriptsWithDir,
   detectDeclaredWorkerCommand,
   isRuntimeSourcePath,
+  // DEPLOY-029: shared with apps/api's GitHub tree-fetch boundary, which
+  // walks the same Dockerfile CMD/ENTRYPOINT script chain
+  // `detectStartupMigrationEvidence` follows, so it can protect those exact
+  // paths from the ANALYSIS_MAX_FILES trim.
+  extractCmdScriptPaths,
+  CMD_REGEX,
+  ENTRYPOINT_REGEX,
+  CMD_CHAIN_MAX_DEPTH,
 } from './detectors.js';
 export type {
   ExternalServiceDefinition,

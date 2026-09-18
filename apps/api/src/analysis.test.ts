@@ -481,6 +481,24 @@ describe('analysis — migration/worker command resolution (deploy-safe, workspa
     };
   }
 
+  // DEPLOY-029: an umami-shaped tree — the selected Dockerfile's CMD chain
+  // (CMD -> scripts/start-docker.sh -> scripts/check-db.js) migrates the
+  // database at startup, while package.json ALSO carries a deploy-shaped
+  // script (`update-db`) that must not win.
+  function umamiShapedFiles(): Record<string, string> {
+    return {
+      'Dockerfile': ['FROM node:20-alpine', 'WORKDIR /app', 'CMD ["sh", "scripts/start-docker.sh"]'].join('\n'),
+      'scripts/start-docker.sh': ['#!/bin/sh', 'node scripts/check-db.js', 'exec node index.js', ''].join('\n'),
+      'scripts/check-db.js': "const { execSync } = require('child_process');\nexecSync('prisma migrate deploy');\n",
+      'package.json': JSON.stringify({
+        name: 'umami',
+        scripts: { start: 'node index.js', 'update-db': 'prisma migrate deploy' },
+        dependencies: { '@prisma/client': '^5.0.0' },
+      }),
+      'prisma/schema.prisma': 'datasource db {\n  provider = "postgresql"\n  url      = env("DATABASE_URL")\n}\n',
+    };
+  }
+
   it('prefers a deploy-shaped migration script over a dev-shaped one when both exist', async () => {
     const application = await insertApplication(db, orgId, {
       githubInstallationId: 'install-1',
@@ -739,6 +757,66 @@ describe('analysis — migration/worker command resolution (deploy-safe, workspa
       const row = await loadApplication(db, application.id);
       expect(row.migrationCommand).toBe('pnpm prisma migrate deploy');
     });
+  });
+
+  // DEPLOY-029 (production-verified: umami): the selected Dockerfile's own
+  // CMD/ENTRYPOINT chain (CMD -> scripts/start-docker.sh -> scripts/
+  // check-db.js -> `prisma migrate deploy`) proves the built image migrates
+  // itself when it starts. A package.json script that is ALSO deploy-shaped
+  // (`update-db: prisma migrate deploy`) must never turn into a persisted
+  // `migrationCommand` here — re-running it as a one-off pre-deploy step
+  // against umami's runtime image exits 127 (`sh: npx: not found`, the
+  // runner stage removes npm/npx on purpose).
+  it('never persists migrationCommand when the CMD/ENTRYPOINT chain proves the image migrates at startup', async () => {
+    const application = await insertApplication(db, orgId, {
+      githubInstallationId: 'install-1',
+      repoFullName: 'acme/umami-shaped',
+      defaultBranch: 'main',
+    });
+
+    await runApplicationAnalysis(makeDeps(buildTreeFetch(umamiShapedFiles())), application.id);
+
+    const row = await loadApplication(db, application.id);
+    expect(row.analysisStatus).toBe('COMPLETE');
+    expect((row.detectedMetadata as { migrationMode?: string } | null)?.migrationMode).toBe('startup');
+    expect(row.migrationCommand).toBeNull();
+  });
+
+  // A pre-fix (v19) analysis invented `migrationCommand` for exactly this
+  // shape (DEPLOY-029's production incident). Re-analysis under the fix
+  // must not just skip WRITING a new value — it must CLEAR the stale one,
+  // or the relay keeps running the invented command every deploy.
+  it('clears a stale migrationCommand on re-analysis when the CMD/ENTRYPOINT chain proves startup mode', async () => {
+    const application = await insertApplication(db, orgId, {
+      githubInstallationId: 'install-1',
+      repoFullName: 'acme/umami-shaped-stale-command',
+      defaultBranch: 'main',
+      migrationCommand: 'npx prisma migrate deploy',
+    });
+
+    await runApplicationAnalysis(makeDeps(buildTreeFetch(umamiShapedFiles())), application.id);
+
+    const row = await loadApplication(db, application.id);
+    expect(row.analysisStatus).toBe('COMPLETE');
+    expect((row.detectedMetadata as { migrationMode?: string } | null)?.migrationMode).toBe('startup');
+    expect(row.migrationCommand).toBeNull();
+  });
+
+  it('leaves a vendor-owned migrationCommand untouched even when the CMD/ENTRYPOINT chain proves startup mode', async () => {
+    const application = await insertApplication(db, orgId, {
+      githubInstallationId: 'install-1',
+      repoFullName: 'acme/umami-shaped-vendor-owned',
+      defaultBranch: 'main',
+      migrationCommand: 'npx prisma migrate deploy --schema custom/schema.prisma',
+      detectedMetadata: { vendorOverrides: ['migrationCommand'] },
+    });
+
+    await runApplicationAnalysis(makeDeps(buildTreeFetch(umamiShapedFiles())), application.id);
+
+    const row = await loadApplication(db, application.id);
+    expect(row.analysisStatus).toBe('COMPLETE');
+    expect((row.detectedMetadata as { migrationMode?: string } | null)?.migrationMode).toBe('startup');
+    expect(row.migrationCommand).toBe('npx prisma migrate deploy --schema custom/schema.prisma');
   });
 
   it('classifies worker-like code with a resolved worker start command as needs-adaptation, never deployable-as-is', async () => {

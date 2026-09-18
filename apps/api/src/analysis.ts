@@ -140,7 +140,15 @@ type ApplicationRow = typeof schema.applications.$inferSelect;
 // records the key but never a requirement — the env module owns the defaults
 // — so the v17 rule no longer turns `env.CDN_URL` in a call into a gate
 // blocker; stored v17/v18 models over-require and must re-run.
-export const ANALYSIS_VERSION = 19;
+// Version 20 (DEPLOY-029, umami): `detectStartupMigrationEvidence` follows
+// the script(s) the selected Dockerfile's CMD/ENTRYPOINT invoke,
+// transitively up to depth 3, not just the CMD/ENTRYPOINT text itself; that
+// chain now wins mode 'startup' over a package.json deploy-shaped script
+// (an image that migrates itself at boot), and `migrationCommand` is no
+// longer persisted for mode 'startup' — stored v19 rows with a pre_deploy
+// mode and an invented `npx …` migration command for a self-migrating image
+// must re-run.
+export const ANALYSIS_VERSION = 20;
 
 export interface AnalysisRunnerDeps {
   db: RuntimeDb;
@@ -835,7 +843,10 @@ export function resolveWorkerCommand(tree: FileTree): string | undefined {
 interface ContractFieldUpdates {
   containerPort?: number;
   healthPath?: string;
-  migrationCommand?: string;
+  // Startup mode clears a stale detected command (never a vendor one) —
+  // see the DEPLOY-029 handling below — so this is the one field that can
+  // be explicitly nulled out, not just left absent.
+  migrationCommand?: string | null;
   workerCommand?: string;
   databaseRequired?: boolean;
   storageRequired?: boolean;
@@ -915,14 +926,28 @@ function deriveContractFieldUpdates(
     }
   }
 
+  // DEPLOY-029: mode 'startup' means the built image already migrates
+  // itself when it starts (the selected Dockerfile's CMD/ENTRYPOINT chain
+  // carries the evidence — see `analyseRepo`). Persisting a detected
+  // package.json migration script as `migrationCommand` there would run it
+  // a second time as a pre-deploy step against a command the image was
+  // never built to run standalone (umami: `sh: npx: not found`). Never
+  // invented — and a value a PRE-FIX (v19) analysis already invented and
+  // persisted is explicitly cleared on re-analysis, since leaving the
+  // column as-is would keep the relay running it. Only the vendor's own
+  // value is left alone.
   if (!vendorOwned.has('migrationCommand')) {
-    const command = resolveMigrationCommand(tree);
-    if (command) {
-      updates.migrationCommand = command;
-    } else if (aiResolved.includes('migrationCommands')) {
-      const migrationCommands = analysis.metadata['migrationCommands'];
-      if (Array.isArray(migrationCommands) && typeof migrationCommands[0] === 'string') {
-        updates.migrationCommand = migrationCommands[0];
+    if (analysis.metadata['migrationMode'] === 'startup') {
+      updates.migrationCommand = null;
+    } else {
+      const command = resolveMigrationCommand(tree);
+      if (command) {
+        updates.migrationCommand = command;
+      } else if (aiResolved.includes('migrationCommands')) {
+        const migrationCommands = analysis.metadata['migrationCommands'];
+        if (Array.isArray(migrationCommands) && typeof migrationCommands[0] === 'string') {
+          updates.migrationCommand = migrationCommands[0];
+        }
       }
     }
   }

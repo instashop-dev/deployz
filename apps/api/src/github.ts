@@ -2,7 +2,15 @@ import { createHmac, createSign, timingSafeEqual } from 'node:crypto';
 
 import { eq } from 'drizzle-orm';
 
-import { isRuntimeSourcePath, type FileTree } from '@deployz/analysis';
+import {
+  isRuntimeSourcePath,
+  listDockerfileCandidates,
+  extractCmdScriptPaths,
+  CMD_REGEX,
+  ENTRYPOINT_REGEX,
+  CMD_CHAIN_MAX_DEPTH,
+  type FileTree,
+} from '@deployz/analysis';
 import type { RuntimeDb } from '@deployz/db';
 import * as schema from '@deployz/db/schema';
 
@@ -619,8 +627,12 @@ const IGNORED_DIR_SEGMENTS = new Set([
 ]);
 
 // Go joins the source set with the Stage A detectors that read Go route
-// registrations and configuration literals (COMP-005, COMP-013).
-const SOURCE_EXTENSION_REGEX = /\.(ts|js|mjs|cjs|jsx|tsx|py|rb|go)$/i;
+// registrations and configuration literals (COMP-005, COMP-013). `sh` joins
+// it for DEPLOY-029: `detectStartupMigrationEvidence` follows the shell
+// script(s) a Dockerfile CMD/ENTRYPOINT invokes (and every script those call
+// in turn) — without it here, that script is never fetched in real (non-
+// fixture) mode and the detector has nothing to read.
+const SOURCE_EXTENSION_REGEX = /\.(sh|ts|js|mjs|cjs|jsx|tsx|py|rb|go)$/i;
 // A manifest, a Dockerfile or a Prisma schema anywhere in the tree — a
 // workspace repository keeps all three outside the root, and the detectors
 // read every one of them (packages/analysis/src/detectors.ts).
@@ -731,7 +743,14 @@ const ENTRY_FILE_REGEX =
 // tier they would sort alphabetically ahead of a production Dockerfile that
 // then never enters the tree (Stage A COMP-038). A manifest in a test,
 // fixture or tooling directory ranks with the rest of that directory.
-function relevancePriority(path: string): number {
+//
+// `protectedPaths` (DEPLOY-029) ranks above even the Dockerfile itself: the
+// selected Dockerfile's own CMD/ENTRYPOINT script chain — typically living
+// under `scripts/`, `bin/` or `tools/`, so `isRuntimeSourcePath` would
+// otherwise sink it to tier 7 — must never lose its slot to the cap, or
+// `detectStartupMigrationEvidence` has nothing to read on a large repository.
+function relevancePriority(path: string, protectedPaths: ReadonlySet<string>): number {
+  if (protectedPaths.has(path)) return -1;
   if (DOCKERFILE_REGEX.test(path)) return 0;
   if (COMPOSE_REGEX.test(path)) return 0;
   if (ENV_SAMPLE_REGEX.test(path)) return 0;
@@ -745,10 +764,10 @@ function relevancePriority(path: string): number {
   return 6; // other source files
 }
 
-function compareRelevance(a: string, b: string): number {
-  const priorityDiff = relevancePriority(a) - relevancePriority(b);
+function compareRelevance(a: string, b: string, protectedPaths: ReadonlySet<string>): number {
+  const priorityDiff = relevancePriority(a, protectedPaths) - relevancePriority(b, protectedPaths);
   if (priorityDiff !== 0) return priorityDiff;
-  return relevancePriority(a) >= 5 ? a.split('/').length - b.split('/').length : 0;
+  return relevancePriority(a, protectedPaths) >= 5 ? a.split('/').length - b.split('/').length : 0;
 }
 
 export interface RepositoryRef {
@@ -896,6 +915,62 @@ async function fetchBlobContent(
   }
 }
 
+const EMPTY_PROTECTED_PATHS: ReadonlySet<string> = new Set();
+
+// DEPLOY-029: resolve the selected Dockerfile's CMD/ENTRYPOINT script chain
+// — the exact paths `detectStartupMigrationEvidence` follows — against the
+// FULL relevant-path list, before the ANALYSIS_MAX_FILES trim below ever
+// runs. `scripts/`, `bin/` and `tools/` paths rank at tier 7
+// (`isRuntimeSourcePath`), so on a repository at or beyond the cap these
+// specific files could otherwise be dropped and the whole DEPLOY-029 fix
+// becomes inert. Only fetches the handful of blobs the chain actually
+// needs: the Dockerfile itself, then each script it names, transitively,
+// same depth and traversal `extractCmdScriptPaths` uses — never the whole
+// repository. The caller only invokes this once the repository is actually
+// at or beyond the cap — see `buildFileTreeForAnalysis`.
+async function resolveCmdChainProtectedPaths(
+  ref: RepositoryRef,
+  relevantEntries: GitTreeEntry[],
+  installationToken: string,
+  fetchFn: FetchFn,
+): Promise<ReadonlySet<string>> {
+  const protectedPaths = new Set<string>();
+  const knownPaths: FileTree = {};
+  const shaByPath = new Map<string, string>();
+  for (const entry of relevantEntries) {
+    knownPaths[entry.path] = '';
+    shaByPath.set(entry.path, entry.sha);
+  }
+
+  const dockerfilePath = listDockerfileCandidates(knownPaths)[0];
+  const dockerfileSha = dockerfilePath !== undefined ? shaByPath.get(dockerfilePath) : undefined;
+  if (dockerfilePath === undefined || dockerfileSha === undefined) return protectedPaths;
+
+  const dockerfileContent = await fetchBlobContent(ref, dockerfileSha, installationToken, fetchFn);
+  if (dockerfileContent === null) return protectedPaths;
+
+  const dockerDir = dockerfilePath.includes('/') ? dockerfilePath.split('/').slice(0, -1).join('/') : '';
+  const cmd = CMD_REGEX.exec(dockerfileContent)?.[1] ?? '';
+  const entryInstruction = ENTRYPOINT_REGEX.exec(dockerfileContent)?.[1] ?? '';
+  const visited = new Set<string>();
+  let frontier = extractCmdScriptPaths(`${cmd} ${entryInstruction}`, knownPaths, dockerDir, visited);
+
+  for (let depth = 0; depth < CMD_CHAIN_MAX_DEPTH && frontier.length > 0; depth += 1) {
+    const next: string[] = [];
+    for (const path of frontier) {
+      protectedPaths.add(path);
+      const sha = shaByPath.get(path);
+      if (sha === undefined) continue;
+      const content = await fetchBlobContent(ref, sha, installationToken, fetchFn);
+      if (content === null) continue;
+      next.push(...extractCmdScriptPaths(content, knownPaths, dockerDir, visited));
+    }
+    frontier = next;
+  }
+
+  return protectedPaths;
+}
+
 // Builds the FileTree the §18 detectors expect: a small, capped subset of
 // the repository's files, selected by `isRelevantPath` and bounded by
 // ANALYSIS_MAX_FILES / ANALYSIS_MAX_FILE_BYTES. Fetches content for each
@@ -909,10 +984,18 @@ export async function buildFileTreeForAnalysis(
 ): Promise<FileTree> {
   const entries = await fetchRepositoryTreeEntries(ref, installationToken, fetchFn);
 
-  const candidates = entries
-    .filter((entry) => entry.type === 'blob' && isRelevantPath(entry.path))
+  const relevantEntries = entries.filter((entry) => entry.type === 'blob' && isRelevantPath(entry.path));
+  // Below the cap, nothing is ever trimmed, so there is nothing to protect
+  // — skip the extra Dockerfile/script blob fetches entirely on the common
+  // (small-repository) case.
+  const protectedPaths =
+    relevantEntries.length > ANALYSIS_MAX_FILES
+      ? await resolveCmdChainProtectedPaths(ref, relevantEntries, installationToken, fetchFn)
+      : EMPTY_PROTECTED_PATHS;
+
+  const candidates = relevantEntries
     .filter((entry) => entry.size === undefined || entry.size <= ANALYSIS_MAX_FILE_BYTES)
-    .sort((a, b) => compareRelevance(a.path, b.path))
+    .sort((a, b) => compareRelevance(a.path, b.path, protectedPaths))
     .slice(0, ANALYSIS_MAX_FILES);
 
   // Fetched ANALYSIS_FETCH_CONCURRENCY at a time. One-at-a-time turns 200

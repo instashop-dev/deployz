@@ -133,6 +133,81 @@ describe('migration modes (COMP-014)', () => {
 });
 
 // ==========================================================================
+// DEPLOY-029: the CMD/ENTRYPOINT script chain wins over a package.json
+// deploy-shaped script — an image that migrates itself at boot (umami's
+// Dockerfile CMD -> scripts/start-docker.sh -> scripts/check-db.js ->
+// `prisma migrate deploy`) must not also get an invented pre-deploy command.
+// ==========================================================================
+
+/** An umami-shaped tree: CMD runs a script that runs another script that migrates. */
+function umamiApp(checkDbContent: string): FileTree {
+  return {
+    'Dockerfile': ['FROM node:20-alpine', 'EXPOSE 3000', 'CMD ["sh", "scripts/start-docker.sh"]', ''].join('\n'),
+    'scripts/start-docker.sh': ['#!/bin/sh', 'node scripts/check-db.js', 'exec node dist/index.js', ''].join('\n'),
+    'scripts/check-db.js': checkDbContent,
+    'package.json': JSON.stringify({
+      name: 'umami',
+      scripts: { start: 'node dist/index.js', 'update-db': 'prisma migrate deploy' },
+      dependencies: { '@prisma/client': '^5.0.0' },
+    }),
+    'prisma/schema.prisma': 'datasource db {\n  provider = "postgresql"\n}\n',
+  };
+}
+
+describe('startup migration evidence follows the CMD/ENTRYPOINT script chain (DEPLOY-029)', () => {
+  it('finds a migration two hops below CMD (CMD -> start-docker.sh -> check-db.js) and records the script path as the source', () => {
+    const tree = umamiApp("const { execSync } = require('child_process');\nexecSync('prisma migrate deploy');\n");
+    expect(detectStartupMigrationEvidence(tree)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          source: 'scripts/check-db.js',
+          pattern: 'prisma migrate deploy',
+          fromDockerCommand: true,
+        }),
+      ]),
+    );
+  });
+
+  it('the CMD chain wins mode startup even though a deploy-shaped package.json script also exists', () => {
+    const tree = umamiApp("const { execSync } = require('child_process');\nexecSync('prisma migrate deploy');\n");
+    const analysis = analyse(tree);
+    expect((analysis.metadata['postgres'] as { required: boolean }).required).toBe(true);
+    // A pre-deploy candidate really is present — proves this is precedence,
+    // not merely an absence of the old signal.
+    expect(hasPreDeployMigration(tree)).toBe(true);
+    expect(analysis.metadata['migrationMode']).toBe('startup');
+    const evidence = analysis.metadata['migrationStartupEvidence'] as { source: string; pattern: string }[];
+    expect(evidence).toEqual(
+      expect.arrayContaining([expect.objectContaining({ source: 'scripts/check-db.js', pattern: 'prisma migrate deploy' })]),
+    );
+  });
+
+  it('a package.json deploy-shaped script alone (no CMD chain to a migrating script) still maps to pre_deploy', () => {
+    const tree = dbApp({
+      'Dockerfile': ['FROM node:20-alpine', 'EXPOSE 3000', 'CMD ["node", "dist/index.js"]', ''].join('\n'),
+      'package.json': JSON.stringify({
+        name: 'app',
+        scripts: { start: 'node dist/index.js', 'update-db': 'prisma migrate deploy' },
+        dependencies: { express: '^4.18.0', pg: '^8.12.0' },
+      }),
+    });
+    expect(analyse(tree).metadata['migrationMode']).toBe('pre_deploy');
+  });
+
+  it('a CMD script chain with no migration pattern leaves mode unaffected (no false positive)', () => {
+    const tree = umamiApp("const { execSync } = require('child_process');\nexecSync('pg_isready');\n");
+    // The chain (CMD -> start-docker.sh -> check-db.js) has no migration
+    // pattern in it — no evidence, so no spurious startup precedence.
+    expect(detectStartupMigrationEvidence(tree)).toEqual([]);
+    const analysis = analyse(tree);
+    // `update-db: prisma migrate deploy` in package.json is still
+    // deploy-shaped, so the existing order applies unchanged: pre_deploy.
+    expect(hasPreDeployMigration(tree)).toBe(true);
+    expect(analysis.metadata['migrationMode']).toBe('pre_deploy');
+  });
+});
+
+// ==========================================================================
 // Manifest + readiness behaviour
 // ==========================================================================
 
