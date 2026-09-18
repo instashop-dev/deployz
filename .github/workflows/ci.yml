@@ -95,8 +95,11 @@ jobs:
       - name: Run tests (affected packages)
         if: github.event_name == 'pull_request' && needs.plan.outputs.risk != 'critical' && needs.plan.outputs.risk != 'minimal'
         run: |
+          # Run from the workspace root: a package without its own vitest
+          # config would otherwise resolve the root config's relative
+          # `projects` paths against the package directory and fail.
           for pkg in ${{ needs.plan.outputs.unit_packages }}; do
-            pnpm --filter "$pkg" exec vitest run
+            pnpm vitest run --project "$pkg"
           done
           for dir in ${{ needs.plan.outputs.script_units }}; do
             (cd "scripts/$dir" && pnpm exec vitest run)
