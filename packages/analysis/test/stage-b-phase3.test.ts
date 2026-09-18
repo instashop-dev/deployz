@@ -190,11 +190,13 @@ describe('JVM / Go / .NET env reads (COMP-017)', () => {
         '  URL       string `env:"DATABASE_URL,required"`',
         '  NoReply   string `env:"EMAIL_NOREPLY,required"`',
         '  Region    string `env:"EMAIL_MAILGUN_REGION,default=US"`',
+        '  Port      string `env:"PORT,required" envDefault:"3000"`',
         '}',
         '',
       ].join('\n'),
     };
     const byKey = modelByKey(tree);
+    expect(byKey.get('PORT')).toMatchObject({ required: false });
     expect(byKey.get('JWT_SECRET')).toMatchObject({ required: true, secret: true, purpose: 'internal_secret' });
     expect(byKey.get('DATABASE_URL')).toMatchObject({ required: true });
     expect(byKey.get('EMAIL_NOREPLY')).toMatchObject({ required: true, secret: false, purpose: 'optional_configuration' });

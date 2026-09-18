@@ -2434,13 +2434,17 @@ function scanGoEnvReads(content: string): { key: string; needsValue: boolean }[]
     found.push({ key, needsValue: options.includes('required') || combined });
   }
   // envdecode / caarlos0-env struct tags (DEPLOY-032, fider's app/pkg/env):
-  // `env:"KEY"` (optional) or `env:"KEY,required"` — required unless the
-  // options also carry a `default=`, which makes the value optional again.
+  // `env:"KEY"` (optional) or `env:"KEY,required"` — required unless a
+  // default makes the value optional again: envdecode's inline `default=`
+  // option or caarlos0-env's sibling `envDefault:"…"` tag on the same field.
   const envTagRegex = /env:"([A-Z][A-Z0-9_]*)(?:,([^"]*))?"/g;
   while ((match = envTagRegex.exec(content)) !== null) {
     const key = match[1]!;
     const options = match[2] ?? '';
-    found.push({ key, needsValue: options.includes('required') && !options.includes('default=') });
+    const lineEnd = content.indexOf('\n', match.index);
+    const restOfField = content.slice(match.index, lineEnd === -1 ? content.length : lineEnd);
+    const hasDefault = options.includes('default=') || /envDefault:"/.test(restOfField);
+    found.push({ key, needsValue: options.includes('required') && !hasDefault });
   }
   return found;
 }
@@ -3106,7 +3110,7 @@ interface DockerfileCopyFrom {
 /** `COPY --from=<stage> <src>... <dest>` lines within one stage's own body. */
 function parseCopyFromLines(stageBody: string): DockerfileCopyFrom[] {
   const copies: DockerfileCopyFrom[] = [];
-  for (const line of stageBody.split('\n')) {
+  for (const line of stageBody.replace(/\\\r?\n/g, ' ').split('\n')) {
     const copyMatch = /^\s*COPY\s+(.+)$/i.exec(line);
     if (!copyMatch) continue;
     const rest = copyMatch[1]!.trim();

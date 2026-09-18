@@ -149,6 +149,22 @@ describe('detectRuntime', () => {
     expect(finding.details).toContain('golang:1.25-bookworm');
   });
 
+  it('reads a line-continued COPY --from instruction as one instruction', () => {
+    const tree: FileTree = {
+      Dockerfile: [
+        'FROM golang:1.25-bookworm AS build',
+        'WORKDIR /src',
+        'RUN go build -o /out/server .',
+        '',
+        'FROM gcr.io/distroless/static',
+        'COPY --from=build \\',
+        '    /out/server /app/server',
+        'ENTRYPOINT ["/app/server"]',
+      ].join('\n'),
+    };
+    expect(detectRuntime(tree)).toMatchObject({ detected: true, value: 'go', source: 'dockerfile' });
+  });
+
   it('falls back to the first referenced stage with a runtime when no COPY matches the CMD executable (node builder + nginx static)', () => {
     // Pins current behaviour: the nginx final stage never runs the built
     // JS, so there is no executable to match against — the detector falls
