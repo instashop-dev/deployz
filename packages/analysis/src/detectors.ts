@@ -2537,23 +2537,56 @@ const MAIL_CREDENTIAL_SHAPE = /^(?:MAIL|SMTP|EMAIL|MAILER)_(?:PASSWORD|PASS|USER
 const PROVISIONED_CREDENTIAL_SHAPE =
   /^(?:DB|DATABASE|POSTGRES|POSTGRESQL|PG|REDIS|CACHE|VALKEY)_?(?:PASSWORD|PASS|USER(?:NAME)?|SECRET|AUTH)$/i;
 
-/** External-credential double-guard: catalog keys or a generic vendor-credential name shape. */
+/**
+ * A provider-prefixed name belongs to that provider's own credential, never
+ * an application-internal secret Deployz can mint (DEPLOY-030): outline's
+ * AWS_ACCESS_KEY_ID, DROPBOX_APP_KEY, GITHUB_WEBHOOK_SECRET,
+ * SLACK_VERIFICATION_TOKEN and OIDC_TOKEN_URI all contain KEY/SECRET/TOKEN
+ * and matched no external-credential shape below, so the relay minted
+ * garbage values that switched integrations on nobody configured.
+ */
+const PROVIDER_PREFIX_SHAPE =
+  /^(?:AWS|AMAZON|GCP|GOOGLE|AZURE|GITHUB|GITLAB|BITBUCKET|SLACK|DISCORD|DROPBOX|BOX|OIDC|OAUTH|SAML|OKTA|AUTH0|SENTRY|STRIPE|PAYPAL|TWILIO|SENDGRID|MAILGUN|POSTMARK|SES|S3|CLOUDFLARE|DATADOG|NEWRELIC|OPENAI|ANTHROPIC|LINKEDIN|FACEBOOK|TWITTER|APPLE|MICROSOFT|ZOOM|NOTION|LINEAR|JIRA|ATLASSIAN)_/;
+
+/**
+ * TLS material (a certificate/key pair the vendor supplies together, or not
+ * at all) is configuration, never a mintable secret: outline's SSL_KEY
+ * validates `@CannotUseWithout("SSL_CERT")` and exits at boot when only a
+ * minted SSL_KEY is set (DEPLOY-030).
+ */
+const TLS_MATERIAL_SHAPE = /^(?:SSL|TLS|HTTPS)_(?:KEY|CERT|CERTIFICATE|CA|CA_CERT|PRIVATE_KEY|PUBLIC_KEY)(?:_FILE|_PATH)?$/i;
+
+/** External-credential double-guard: catalog keys, a provider prefix, or a generic vendor-credential name shape. */
 export function isExternalCredentialShape(key: string): boolean {
   return (
-    externalServiceCatalogKeys().has(key) || GENERIC_VENDOR_CREDENTIAL_SHAPE.test(key) || MAIL_CREDENTIAL_SHAPE.test(key)
+    externalServiceCatalogKeys().has(key) ||
+    PROVIDER_PREFIX_SHAPE.test(key) ||
+    GENERIC_VENDOR_CREDENTIAL_SHAPE.test(key) ||
+    MAIL_CREDENTIAL_SHAPE.test(key)
   );
 }
 
 /** Deterministic purpose for one env var key. */
 export function classifyEnvVarPurpose(key: string): { purpose: EnvVarPurpose; confidence: 'high' | 'medium' | 'low' } {
-  if (isExternalCredentialShape(key)) {
-    return { purpose: 'external_credential', confidence: 'high' };
-  }
+  // Exact/curated infrastructure-binding names and shapes are checked before
+  // the (deliberately broad) provider-prefix external-credential shape below
+  // — otherwise a Deployz-injected AWS_S3_BUCKET/S3_ATTACHMENTS_BUCKET would
+  // misclassify as an external credential instead of a binding.
   if (INFRA_BINDING_NAMES.has(key)) {
     return { purpose: 'infrastructure_binding', confidence: 'high' };
   }
   if (INFRA_BINDING_ALIAS_REGEX.test(key) || PROVISIONED_CREDENTIAL_SHAPE.test(key)) {
     return { purpose: 'infrastructure_binding', confidence: 'medium' };
+  }
+  // TLS material (SSL_KEY/HTTPS_PRIVATE_KEY/…) is checked before the generic
+  // vendor-credential shape below, which also matches a bare `_PRIVATE_KEY`/
+  // `_PUBLIC_KEY` suffix — the more specific SSL/TLS/HTTPS-prefixed shape
+  // must win so a certificate/key pair is configuration, not a credential.
+  if (TLS_MATERIAL_SHAPE.test(key)) {
+    return { purpose: 'optional_configuration', confidence: 'high' };
+  }
+  if (isExternalCredentialShape(key)) {
+    return { purpose: 'external_credential', confidence: 'high' };
   }
   if (isSecretName(key)) {
     return { purpose: 'internal_secret', confidence: 'medium' };
@@ -2856,9 +2889,16 @@ export function detectEnvVarModel(tree: FileTree, externalServices: string[] = [
   return entries;
 }
 
+/**
+ * A name that itself names a location (a URI/URL/endpoint/host) is never a
+ * secret, even when it contains TOKEN/KEY: outline's OIDC_TOKEN_URI points
+ * at a discovery endpoint, not a credential (DEPLOY-030).
+ */
+const LOCATION_SUFFIX_REGEX = /_(?:URI|URL|ENDPOINT|HOST)$/i;
+
 /** Name-based credential heuristic — value-free, so it can never leak anything. */
 function isSecretName(key: string): boolean {
-  return SECRET_NAME_REGEX.test(key);
+  return SECRET_NAME_REGEX.test(key) && !LOCATION_SUFFIX_REGEX.test(key);
 }
 
 // Variables the runtime, the container platform or a CI/hosting provider

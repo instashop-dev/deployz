@@ -27,6 +27,24 @@ const MANIFEST_ENV = [
   { key: 'OIDC_CLIENT_SECRET', required: false, secret: true, source: [], purpose: 'external_credential', classification: 'optional' },
 ];
 
+// An outline-shaped manifest (DEPLOY-030): the purpose values the FIXED
+// analyser now produces for the real outline minting incident (see
+// packages/analysis/test/stage-b-phase3.test.ts's provider-prefix/TLS/
+// location-suffix assertions). Only SECRET_KEY/UTILS_SECRET stay
+// purpose: internal_secret; the rest reclassify to external_credential or
+// optional_configuration, so mintableKeys's unchanged `secret && purpose ===
+// 'internal_secret'` rule mints only the first two.
+const OUTLINE_MANIFEST_ENV = [
+  { key: 'SECRET_KEY', required: false, secret: true, source: [], purpose: 'internal_secret', classification: 'optional' },
+  { key: 'UTILS_SECRET', required: false, secret: true, source: [], purpose: 'internal_secret', classification: 'unknown' },
+  { key: 'SSL_KEY', required: false, secret: true, source: [], purpose: 'optional_configuration', classification: 'unknown' },
+  { key: 'AWS_ACCESS_KEY_ID', required: false, secret: true, source: [], purpose: 'external_credential', classification: 'unknown' },
+  { key: 'DROPBOX_APP_KEY', required: false, secret: true, source: [], purpose: 'external_credential', classification: 'unknown' },
+  { key: 'GITHUB_WEBHOOK_SECRET', required: false, secret: true, source: [], purpose: 'external_credential', classification: 'unknown' },
+  { key: 'SLACK_VERIFICATION_TOKEN', required: false, secret: true, source: [], purpose: 'external_credential', classification: 'unknown' },
+  { key: 'OIDC_TOKEN_URI', required: false, secret: false, source: [], purpose: 'external_credential', classification: 'unknown' },
+];
+
 function manifest(variables: unknown[] = MANIFEST_ENV) {
   return {
     application: { root: '.', runtime: 'node', framework: 'express', dockerfilePath: 'Dockerfile' },
@@ -245,5 +263,38 @@ describe('post-install configuration', () => {
       })
       .returning();
     expect(await queuePostInstallConfig(db, nothing!, 'install-job-3', createConfigStore(db))).toEqual({ queued: false });
+  });
+
+  it('mints only SECRET_KEY/UTILS_SECRET for an outline manifest produced by the fixed analyser (DEPLOY-030)', async () => {
+    const [application] = await db
+      .insert(schema.applications)
+      .values({
+        organizationId,
+        name: 'Outline',
+        repoFullName: 'acme/outline',
+        repoUrl: 'https://github.com/acme/outline',
+        defaultBranch: 'main',
+        analysisStatus: 'COMPLETE',
+      })
+      .returning();
+    const [deployment] = await db
+      .insert(schema.deployments)
+      .values({
+        organizationId,
+        applicationId: application!.id,
+        customerId,
+        region: 'us-east-1',
+        state: 'INSTALLING',
+        desiredState: { manifest: manifest(OUTLINE_MANIFEST_ENV) },
+        enrollmentCode: 'enrol-outline',
+      })
+      .returning();
+
+    const entries = await buildRelayConfigEntries(db, deployment!, createConfigStore(db));
+
+    expect([...entries].sort((a, b) => a.key.localeCompare(b.key))).toEqual([
+      { key: 'SECRET_KEY', isSecret: true, source: 'generated', generated: true },
+      { key: 'UTILS_SECRET', isSecret: true, source: 'generated', generated: true },
+    ]);
   });
 });

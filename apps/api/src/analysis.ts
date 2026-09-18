@@ -148,7 +148,13 @@ type ApplicationRow = typeof schema.applications.$inferSelect;
 // longer persisted for mode 'startup' — stored v19 rows with a pre_deploy
 // mode and an invented `npx …` migration command for a self-migrating image
 // must re-run.
-export const ANALYSIS_VERSION = 20;
+// Version 21 (DEPLOY-030, outline): `classifyEnvVarPurpose` no longer calls
+// a provider-prefixed name (AWS_/GITHUB_/SLACK_/OIDC_/…), TLS material
+// (SSL_KEY/TLS_CERT/…) or a location-shaped name (*_URI/_URL/_ENDPOINT/
+// _HOST) an internal_secret — those were minted as if they were an
+// application-internal secret, switching on integrations and TLS config the
+// vendor never asked for; stored v20 models must re-run.
+export const ANALYSIS_VERSION = 21;
 
 export interface AnalysisRunnerDeps {
   db: RuntimeDb;
