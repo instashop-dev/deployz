@@ -4,6 +4,7 @@ import { useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Eye, EyeOff } from 'lucide-react';
 
+import { AwsInfrastructureDetails } from '@/components/aws-infrastructure-details';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -242,6 +243,7 @@ export function PublicInstallFlow({ linkId, resolve }: PublicInstallFlowProps) {
             </TableBody>
           </Table>
         </div>
+        <AwsInfrastructureDetails plan={resolve.plan} region={region} />
         {region ? (
           <p className="text-sm text-muted-foreground">
             Region: {installPlanRegionLabel(region) ?? region}

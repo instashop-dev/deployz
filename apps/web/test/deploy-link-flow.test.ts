@@ -33,6 +33,7 @@ describe('fetchDeployLinkData', () => {
         action: 'INSTALL',
         region: 'us-east-1',
         components: [{ kind: 'application', name: 'Application', action: 'CREATE', lifecycle: 'delete' }],
+        awsResources: [],
         requirementDrift: [],
       },
       deploymentState: 'NOT_INSTALLED',

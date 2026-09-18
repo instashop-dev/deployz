@@ -2,6 +2,7 @@ import { z } from 'zod';
 
 import { INFRASTRUCTURE_COMPONENT_DISPLAY } from './infrastructure.js';
 import { INFRASTRUCTURE_COMPONENTS, requiredInfrastructureComponents } from './components.js';
+import { deploymentPlanAwsResourceSchema, requiredAwsResources, toPlanAwsResource } from './aws-resources.js';
 import type { InfrastructureComponentDefinition } from './components.js';
 import type { DeploymentManifest } from './manifest.js';
 // Value imports from './index.js' are used ONLY inside function bodies below
@@ -14,9 +15,9 @@ import type { InfrastructureProfile, Region } from './index.js';
 
 // A deployment plan — the deterministic, derived-only description of what
 // INSTALL/UPDATE/DESTROY will do to a deployment's infrastructure. Built
-// entirely from the manifest and the component catalog (`components.ts`);
-// never from AWS, never from an LLM. See docs/architecture.md "Deployment
-// plans".
+// entirely from the manifest, the component catalog (`components.ts`) and
+// the AWS resource catalog (`aws-resources.ts`); never from AWS, never from
+// an LLM. See docs/architecture.md "Deployment plans".
 
 export const DEPLOYMENT_PLAN_SCHEMA_VERSION = 1 as const;
 
@@ -52,6 +53,10 @@ export const deploymentPlanSchema = z
     action: planActionSchema,
     region: z.lazy(() => regionSchema).nullable(),
     components: z.array(deploymentPlanComponentSchema),
+    /** The meaningful AWS resources behind `components` — the "AWS
+     *  infrastructure details" preview. Same profile rule as the components,
+     *  so the two lists can never disagree. */
+    awsResources: z.array(deploymentPlanAwsResourceSchema),
     /** UPDATE only — requirement differences the current architecture cannot apply in place. Empty otherwise. */
     requirementDrift: z.array(planRequirementDriftSchema),
   })
@@ -103,6 +108,7 @@ export function buildInstallPlan(input: { manifest: DeploymentManifest; region: 
     action: 'INSTALL',
     region: input.region,
     components: requiredInfrastructureComponents(profile).map((component) => toPlanComponent(component, 'CREATE')),
+    awsResources: requiredAwsResources(profile).map(toPlanAwsResource),
     requirementDrift: [],
   };
 }
@@ -130,6 +136,7 @@ export function buildUpdatePlan(input: {
     action: 'UPDATE',
     region: input.region,
     components,
+    awsResources: requiredAwsResources(deployedProfile).map(toPlanAwsResource),
     requirementDrift: requirementDriftFor(deployedProfile, desiredProfile),
   };
 }
@@ -144,6 +151,7 @@ export function buildDestroyPlan(input: { manifest: DeploymentManifest; region: 
     components: requiredInfrastructureComponents(profile).map((component) =>
       toPlanComponent(component, component.lifecycle === 'delete' ? 'DELETE' : 'RETAIN'),
     ),
+    awsResources: requiredAwsResources(profile).map(toPlanAwsResource),
     requirementDrift: [],
   };
 }

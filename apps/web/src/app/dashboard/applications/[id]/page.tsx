@@ -14,6 +14,7 @@ import { useParams, useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 
+import { AwsInfrastructureDetails } from '@/components/aws-infrastructure-details';
 import { EvaluationNotice } from '@/components/evaluation-notice';
 import { DeploymentStatusBadge } from '@/components/deployment-status-badge';
 import { FixInstructionsDialog } from '@/components/fix-instructions-dialog';
@@ -59,7 +60,6 @@ import {
 } from '@/lib/readiness';
 import {
   EditDialog,
-  InstallPlanSection,
   ReadinessTable,
   RequirementDriftNotice,
 } from './readiness-components';
@@ -452,8 +452,8 @@ function ReadinessBody({
       {/* Existing deployments that no longer match the current requirements */}
       <RequirementDriftNotice drifts={readiness.deploymentRequirementDrift} />
 
-      {/* What a new deployment will create */}
-      <InstallPlanSection plan={plan} />
+      {/* AWS resources a new deployment will create */}
+      <AwsInfrastructureDetails plan={plan} />
 
       {/* Latest test deployment */}
       <LatestDeploymentSection application={application} testDeployment={testDeployment} />

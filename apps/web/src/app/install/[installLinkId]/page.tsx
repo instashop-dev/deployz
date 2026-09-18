@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { Loader2 } from 'lucide-react';
 
+import { AwsInfrastructureDetails } from '@/components/aws-infrastructure-details';
 import { InstallLaunchButton } from '@/components/install-launch-button';
 import { InstallProgress } from '@/components/install-progress';
 import { InstallRetryButton } from '@/components/install-retry-button';
@@ -345,6 +346,7 @@ export default async function InstallPage({
             </TableBody>
           </Table>
         </div>
+        <AwsInfrastructureDetails plan={data.plan} region={data.region} />
         {regionLabel ? (
           <p className="text-sm text-muted-foreground">Region: {regionLabel}</p>
         ) : null}
