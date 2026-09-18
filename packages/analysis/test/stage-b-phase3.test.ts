@@ -247,6 +247,47 @@ describe('env-var purpose classification (Stage B phase 3)', () => {
     expect(classifyEnvVarPurpose('JWT_SECRET')).toEqual({ purpose: 'internal_secret', confidence: 'medium' });
   });
 
+  it('never calls a provider-prefixed name, TLS material, or a location-shaped name an internal secret (DEPLOY-030)', () => {
+    // outline's real minting incident: these all contain KEY/SECRET/TOKEN and
+    // matched no external-credential shape, so the relay minted them as if
+    // they were application-internal — switching on integrations and TLS
+    // config nobody configured.
+    expect(classifyEnvVarPurpose('AWS_ACCESS_KEY_ID')).toEqual({ purpose: 'external_credential', confidence: 'high' });
+    expect(classifyEnvVarPurpose('DROPBOX_APP_KEY')).toEqual({ purpose: 'external_credential', confidence: 'high' });
+    expect(classifyEnvVarPurpose('GITHUB_WEBHOOK_SECRET')).toEqual({ purpose: 'external_credential', confidence: 'high' });
+    expect(classifyEnvVarPurpose('SLACK_VERIFICATION_TOKEN')).toEqual({ purpose: 'external_credential', confidence: 'high' });
+    expect(classifyEnvVarPurpose('OIDC_TOKEN_URI')).toEqual({ purpose: 'external_credential', confidence: 'high' });
+    // outline's SSL_KEY: `@CannotUseWithout("SSL_CERT")` — TLS material is
+    // configuration the vendor supplies as a pair, never a mintable secret.
+    expect(classifyEnvVarPurpose('SSL_KEY')).toEqual({ purpose: 'optional_configuration', confidence: 'high' });
+    expect(classifyEnvVarPurpose('TLS_CERT')).toEqual({ purpose: 'optional_configuration', confidence: 'high' });
+    expect(classifyEnvVarPurpose('HTTPS_PRIVATE_KEY')).toEqual({ purpose: 'optional_configuration', confidence: 'high' });
+    // A name ending in URI/URL/ENDPOINT/HOST names a location, never a
+    // secret, even with TOKEN/KEY in it.
+    expect(classifyEnvVarPurpose('OIDC_DISCOVERY_ENDPOINT')).toEqual({ purpose: 'external_credential', confidence: 'high' });
+    // Deployz-injected storage bindings keep their purpose: the provider
+    // prefix shape must not outrank the curated infra-binding names/aliases.
+    expect(classifyEnvVarPurpose('AWS_S3_BUCKET')).toEqual({ purpose: 'infrastructure_binding', confidence: 'high' });
+    expect(classifyEnvVarPurpose('S3_ATTACHMENTS_BUCKET')).toEqual({ purpose: 'infrastructure_binding', confidence: 'medium' });
+    // These stay application-internal secrets — no provider prefix, no TLS
+    // shape, no location suffix.
+    for (const key of [
+      'JWT_SECRET',
+      'SECRET_KEY',
+      'UTILS_SECRET',
+      'APP_SECRET',
+      'SESSION_SECRET',
+      'ENCRYPTION_KEY',
+      'NEXTAUTH_SECRET',
+      'COOKIE_SECRET',
+      'CORE_SECRET',
+      'AUTH_SECRET',
+      'SECRET_KEY_BASE',
+    ]) {
+      expect(classifyEnvVarPurpose(key), key).toEqual({ purpose: 'internal_secret', confidence: 'medium' });
+    }
+  });
+
   it('populates purpose/confidence on the env-var model entries', () => {
     const tree: FileTree = {
       '.env.example': [
