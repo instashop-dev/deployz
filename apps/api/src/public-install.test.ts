@@ -19,7 +19,10 @@ import { buildServer } from './server.js';
 // idempotency, config capture through the SAME §31 path, and the no-leak
 // rules for an unauthenticated surface).
 
+const FIXTURE_SHA = crypto.randomUUID().replace(/-/g, '').slice(0, 40);
+
 const READY_METADATA = {
+  analysisCommitSha: FIXTURE_SHA,
   hasDockerfile: true,
   dockerfilePath: 'Dockerfile',
   framework: 'express',
@@ -687,8 +690,47 @@ describe('public install links', () => {
     expect(created.length).toBeGreaterThan(0);
   });
 
-  it('create without a published release is refused 422 RELEASE_NOT_PUBLISHED', async () => {
+  it('create auto-creates the initial release from the analyzed snapshot', async () => {
     const application = await insertApplication(db, org.organizationId);
+    const response = await createLink(application.id);
+    expect(response.statusCode, response.body).toBe(201);
+
+    const releases = await db
+      .select({ id: schema.releases.id, gitSha: schema.releases.gitSha, version: schema.releases.version })
+      .from(schema.releases)
+      .where(eq(schema.releases.applicationId, application.id));
+    expect(releases).toHaveLength(1);
+    expect(releases[0]!.gitSha).toBe(FIXTURE_SHA);
+    expect(releases[0]!.version).toBe(FIXTURE_SHA.slice(0, 12));
+  });
+
+  it('create reuses an existing release without duplicating it', async () => {
+    const application = await insertApplication(db, org.organizationId);
+    await insertReadyRelease(db, application.id);
+    const before = await db
+      .select({ id: schema.releases.id })
+      .from(schema.releases)
+      .where(eq(schema.releases.applicationId, application.id));
+    expect(before).toHaveLength(1);
+
+    const response = await createLink(application.id);
+    expect(response.statusCode, response.body).toBe(201);
+
+    const after = await db
+      .select({ id: schema.releases.id })
+      .from(schema.releases)
+      .where(eq(schema.releases.applicationId, application.id));
+    expect(after).toHaveLength(1);
+  });
+
+  it('create without an analyzed commit SHA is refused 422 RELEASE_NOT_PUBLISHED', async () => {
+    const application = await insertApplication(db, org.organizationId);
+    // Override detectedMetadata to remove the analysisCommitSha so the
+    // auto-create path cannot derive a commit to build from.
+    await db
+      .update(schema.applications)
+      .set({ detectedMetadata: { ...READY_METADATA, analysisCommitSha: undefined } })
+      .where(eq(schema.applications.id, application.id));
     const response = await createLink(application.id);
     expect(response.statusCode, response.body).toBe(422);
     expect(response.json()).toMatchObject({ error: { code: 'RELEASE_NOT_PUBLISHED' } });
