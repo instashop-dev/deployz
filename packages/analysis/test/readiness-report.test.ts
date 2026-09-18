@@ -176,6 +176,7 @@ describe('buildReadinessReport — state calculation', () => {
     const report = buildReadinessReport(analyseRepo(gitCopyTree));
     expect(report.state).toBe('NEEDS_CHANGES');
     expect(report.findings.find((f) => f.id === 'build-context-git-metadata')?.blocking).toBe(true);
+    expect(report.passed.some((p) => p.id === 'dockerfile-git-copy')).toBe(false);
   });
 
   it('NEEDS_CHANGES wins over a simultaneous fixable-required finding', () => {

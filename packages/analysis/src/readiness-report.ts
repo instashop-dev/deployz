@@ -144,7 +144,7 @@ const PASSED_LABELS: Partial<Record<string, string>> = {
 // as a passed check (they surface as findings instead).
 // `bind-address` is detected when the server binds only to localhost — a
 // problem, never a passed check.
-const NEGATIVE_SIGNAL_DETECTORS = new Set<string>(['local-filesystem', 'bind-address']);
+const NEGATIVE_SIGNAL_DETECTORS = new Set<string>(['local-filesystem', 'bind-address', 'dockerfile-git-copy']);
 
 // `worker` is handled as a finding (blocking or recommended) — see the worker
 // branch in the report builder. It is never a passed check.

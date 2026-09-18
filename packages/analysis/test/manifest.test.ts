@@ -108,6 +108,17 @@ describe('normalizeDeploymentManifest', () => {
     expect(manifest.unsupported.some((r) => r.includes('local filesystem'))).toBe(true);
   });
 
+  it('flags a Dockerfile that copies .git as unsupported, so the install gate blocks it (DEPLOY-031)', () => {
+    const analysis = analyseRepo({
+      'go.mod': 'module example.com/app\n',
+      'main.go': 'package main\nfunc main() {}\n',
+      Dockerfile: 'FROM golang:1.25 AS build\nWORKDIR /build\nCOPY go.mod ./\nCOPY .git/ .\nRUN make build\nFROM debian:trixie-slim\nCOPY --from=build /build/app /usr/bin/app\nEXPOSE 8081\nENTRYPOINT ["/usr/bin/app"]\n',
+    });
+    const manifest = normalizeDeploymentManifest(analysis, {});
+    expect(manifest.unsupported.some((r) => r.includes('.git'))).toBe(true);
+    expect(evaluateManifestReadiness(manifest).state).toBe('NOT_COMPATIBLE');
+  });
+
   it('flags a declared background worker process as needs-adaptation (Phase 8)', () => {
     const analysis = analyseRepo({
       ...READY_TREE,
