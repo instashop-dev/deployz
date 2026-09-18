@@ -5,7 +5,7 @@ benchmark, in ten AWS regions, in five waves of two, through the full
 vendor and customer lifecycle. **The campaign was stopped by decision after
 wave 2.** This report covers waves 1 and 2 only: six repositories were
 attempted (four planned, two transparent replacements), four regions were
-used, seven product defects were found, six were fixed and deployed, and
+used, eight product defects were found, seven were fixed and deployed, and
 every AWS resource the campaign created was removed and audited. Waves 3 to
 5 (six repositories, six regions), the update exercise on a PostgreSQL +
 Redis application, and the two final canaries did not run. No repository is
@@ -14,13 +14,13 @@ named in its row.
 
 ## 1. Versions
 
-| Item | Start (2026-09-17 18:47Z) | End (2026-09-18 03:xxZ) |
+| Item | Start (2026-09-17 18:47Z) | End (2026-09-18 06:20Z) |
 | --- | --- | --- |
-| `main` | 693bb17 (#304) | 03ad2c1 (#317) |
-| Deployed API / web | b42a49c (#303), analysis v19 | 94f5a61 (#316), analysis v23 (deploy-api run 35301266237, 02:58:59Z) |
-| Bootstrap (connector) template | republished 18:38Z from b42a49c into all 17 regional buckets | republished by every deploy-api run; last 02:5xZ from 94f5a61 |
+| `main` | 693bb17 (#304) | bf9530e (#319) |
+| Deployed API / web | b42a49c (#303), analysis v19 | bf9530e (#319), analysis v24 (deploy-api run 35305086831, 03:59:31Z) |
+| Bootstrap (connector) template | republished 18:38Z from b42a49c into all 17 regional buckets | republished by every deploy-api run; last 03:58–03:59Z from bf9530e (object timestamps in the post-campaign scan) |
 | Application templates `application/v1/*` | published 2026-09-09 from #248 | republished by hand 2026-09-17 21:2xZ from the #307 dist (`APP_PRESET=documenso`); no later merge touched `packages/cdk` |
-| Stage B harness | `pnpm benchmark:deploy` at 693bb17 | at 03ad2c1 (#305, #308, #309, #310, #311, #313, #317 merged during the campaign) |
+| Stage B harness | `pnpm benchmark:deploy` at 693bb17 | at bf9530e (#305, #308, #309, #310, #311, #313, #317 merged during the campaign) |
 | Benchmark | `docs/testing/repository-compatibility/benchmark.yaml` (repo-001..100 eligible) | unchanged |
 | Deployable regions | `DEPLOYABLE_AWS_REGIONS` = all 17 | unchanged |
 | Test account | 151955775369 (root, `aws login` session) | same |
@@ -28,7 +28,8 @@ named in its row.
 Control-plane deploys during the campaign, with the analysis version each
 one carried: b64f52f (#307, 21:1xZ, v19) → ebd0045 (#312, 01:25Z, v20) →
 8b3dc5e (#314, 02:35Z, v21) → c9983cd (#315, 02:43Z, v22) → 94f5a61 (#316,
-02:59Z, v23). Every row below names the version its install ran on.
+02:59Z, v23) → bf9530e (#319, 03:59Z, v24). Every row below names the
+version its install ran on.
 
 ## 2. Baseline
 
@@ -82,7 +83,7 @@ HTTPS URL that answered; the smoke contract as executed; total lane time
 | 2 | repo-090 pgweb | eu-west-1 | 2 (…-014354-dbad) | ebd0045 v20 | BUILD_FAILED: `COPY .git/ .` against a tarball source | DEPLOYZ_PRODUCT_BUG **DEPLOY-031** (P2, fixed #315) | — | 1 min, no customer resources; audit PASS |
 | 2 | repo-203 fider @ f164f69 | eu-west-1 | 1 (…-015216-5468) | ebd0045 v20 | CONTAINER_START_FAILED: `JWT_SECRET` missing (env model empty, runtime rated Node) | DEPLOYZ_PRODUCT_BUG **DEPLOY-032** (P1, fixed #316) | — | 26 min; cleanup PASS 50 min |
 | 2 | repo-203 fider | eu-west-1 | 2 (…-030832) | 94f5a61 v23 | v23 model correct for DEPLOY-032 (runtime `go`, `JWT_SECRET` minted); ECS_DEPLOYMENT_FAILED: the relay also minted `EMAIL_AWSSES_ACCESS_KEY_ID`, which switched fider's e-mail provider to SES; it panicked on the missing `EMAIL_AWSSES_REGION` | DEPLOYZ_PRODUCT_BUG **DEPLOY-030 residual** (P2 class, P1 for fider; fixed PR #319) | — | section 4.1 |
-| 2 | **repo-203 fider** | **eu-west-1** | **3 (…-040027-d07c)** | bf9530e v24 | **serving lifecycle PASS**: install, release digest, inventory, health, HTTPS, smoke, observation, dependencies, Destroy (SUCCEEDED, 46 min); **teardown verification interrupted**: the `aws login` session expired at 05:31Z before the retained-state check, Purge verification and leak audit ran (section 4.1) | PASS with cleanup completed after re-authentication (section 4.1) | `https://d-fbcc3498-4c39-4674-8e0d-f8cb8eb938a1.deployz.dev`; `/_health` 200 `status=Healthy` (DB ping); `/signup` 200 "Fider" | 91 min to Destroy complete (HTTPS 14.5 min, Destroy 46 min) |
+| 2 | **repo-203 fider** | **eu-west-1** | **3 (…-040027-d07c)** | bf9530e v24 | **PASS**: install, release digest, inventory, health, HTTPS, smoke, observation, dependencies, Destroy (46 min), retained-state, Purge, purged-state, connector removal, leak audit. The `aws login` session expired at 05:31Z between Destroy and the retained-state check; after re-authentication a second harness pass (`--cleanup`) completed the verification, connector removal and audit on the same ledger | PASS | `https://d-fbcc3498-4c39-4674-8e0d-f8cb8eb938a1.deployz.dev`; `/_health` 200 `status=Healthy` (DB ping); `/signup` 200 "Fider" | 91 min to Destroy complete (HTTPS 14.5 min, Destroy 46 min); cleanup pass 19 min |
 
 ### 4.1 Runs that were still in flight when this report was written
 
@@ -91,7 +92,7 @@ branch for the JSON records under `docs/testing/repository-deployment/runs/`).
 
 - repo-001 umami attempt 2: PASS (row above); the audit step printed one phantom subnet ARN that EC2 confirms does not exist (OBS-007); confirmed leak list empty.
 - repo-203 fider attempt 2: FAILED (DEPLOY-030 residual, above); cleanup: PENDING.
-- repo-203 fider attempt 3 (on v24, the last run of the campaign): every serving-side step passed on the default analysis with no override beyond the vendor's own config; Destroy SUCCEEDED through the product. The AWS login session expired at 05:31Z, so the harness's retained-state check and leak audit failed on authentication (`Your session has expired`), the ledger stayed open, and the product's Purge was requested through the control plane (job dc48621f). Cleanup completion after re-authentication: CLEANUP_PENDING_REAUTH (updated below when done).
+- repo-203 fider attempt 3 (on v24, the last run of the campaign): PASS. Every serving-side step passed on the default analysis with only the vendor's own config (`BASE_URL`, `EMAIL_NOREPLY`, `EMAIL_SMTP_HOST/PORT`; `JWT_SECRET` minted by the product). Destroy SUCCEEDED through the product. The AWS login session expired at 05:31Z, so the harness's retained-state check and leak audit failed on authentication and the ledger stayed open; the product's Purge was requested through the control plane (job dc48621f, SUCCEEDED). After re-authentication the harness's `--cleanup` pass verified the retained state, confirmed the purge, removed the connector and passed the leak audit (05:55–06:14Z). The result record's `destroy`/`purge` fields read SKIPPED because that pass found both already done.
 
 ### 4.2 Repositories not tested
 
@@ -158,7 +159,7 @@ deleted by name pattern; the baseline set was never touched.
 | pgweb 1, 2 | no customer resources | — | — | — | — | clean |
 | fider 1 | product, retain path | PASS | product | PASS | removed | clean |
 | fider 2 | product, retain path | section 4.1 | | | | |
-| fider 3 | product (SUCCEEDED) | not run (session expired) | product (requested via API, job dc48621f) | pending re-auth | pending re-auth | pending re-auth |
+| fider 3 | product (SUCCEEDED) | PASS (second pass after re-auth) | product (requested via API, job dc48621f) | PASS | removed | clean |
 
 Final cross-region audit against the baseline: section 8.
 
@@ -179,10 +180,25 @@ Final cross-region audit against the baseline: section 8.
 
 ## 8. Final zero-leak audit
 
-See the closing commit; the audit re-ran `baseline.sh` for the ten planned
-regions and the global services after the last ledger closed and compared
-the output with `baseline-pre/`. Result recorded in section 4.1's closing
-note.
+After the last ledger closed (06:14Z) the read-only baseline scan was
+re-run for the ten planned regions and the global services (`baseline-post/`)
+and compared with `baseline-pre/`. **Result: zero leaks.** Every difference
+was verified against its service:
+
+| Region | Difference from the baseline | Verification |
+| --- | --- | --- |
+| us-east-1, us-east-2, eu-north-1, eu-west-1 | The tagging index still lists the ECS cluster and service ARNs of every campaign install (and, in us-east-1, four clusters of the concurrent canary session) | `ecs describe-clusters`: every cluster INACTIVE, 0 services, 0 tasks (tagging-index lag for deleted resources) |
+| eu-west-1 | One NAT gateway ARN in the tagging index | `describe-nat-gateways`: NatGatewayNotFound (deleted; the index keeps a deleted NAT for about an hour) |
+| eu-west-1 | Task-definition revisions 8 and 9 tagged | `describe-task-definition`: DELETE_IN_PROGRESS (deregistered and deleted by the harness's leftovers step; ECS deletion is asynchronous) |
+| eu-west-1 | No CloudFormation stacks in any non-deleted state | `list-stacks` empty |
+| eu-north-1, eu-west-1 | Fargate on-demand vCPU applied quota 6 → 30 | AWS raised the applied quota after first use; not a resource |
+| all regions | Bootstrap template object timestamp 2026-09-18 03:58–03:59Z | republished by the last deploy-api run; same size |
+| us-east-1 | Control-plane Lambda and RDS ENI list re-ordered | same set of ENIs (control plane, not campaign) |
+| global | none | S3 bucket list, ECR image count and the `repo-*`/`stage-b` image tags, and the `deployz-bootstrap-*` IAM role list are identical to the baseline |
+
+Nothing from the baseline set was touched. The only resources removed by
+hand during the campaign were the miniflux attempt 1 stranded set
+(DEPLOY-028), each by its exact id.
 
 ## 9. Selection matrix (as planned) and rejected candidates
 
@@ -211,21 +227,22 @@ rejection: RabbitMQ/multi-service/local-fs; would block at the gate).
 
 ## 10. Founder summary
 
-Two of the four planned wave 1–2 repositories completed the full lifecycle
-on real AWS through the product (gatus in eu-north-1, miniflux in us-east-1
-with an update/redeploy); the other two slots each surfaced product defects
-on their first attempt and were rerun on the fixed, redeployed version
-(umami on v20, fider on v23 — outcomes in section 4.1). Every first attempt
+All four wave 1–2 slots ended in a full-lifecycle PASS on real AWS through
+the product: gatus (eu-north-1), miniflux (us-east-1, with an update and
+redeploy), umami (us-east-2, on the DEPLOY-029 fix) and fider (eu-west-1,
+on the fourth analysis version of the night, after outline failed upstream
+and pgweb exposed DEPLOY-031). Every first attempt
 of a fresh PostgreSQL application failed on a Deployz defect, not on the
 application: the production template was missing `DATABASE_URL` for every
 non-Documenso app (DEPLOY-026), secrets typed before the relay connects are
 silently lost (DEPLOY-027, needs a product decision), the analyser invented
 a migration command an image could not run (DEPLOY-029), minted secrets for
-integrations nobody configured (DEPLOY-030), rated a Dockerfile READY that
-can never build (DEPLOY-031), and could not read Go struct-tag environment
-declarations (DEPLOY-032). Six of the seven are fixed and deployed with
-regression coverage; DEPLOY-027 is the one open product decision and it
-affects the public deploy-link flow directly. Cleanup through the product
+integrations nobody configured (DEPLOY-030, twice — the second time through
+a provider token inside the name), rated a Dockerfile READY that can never
+build (DEPLOY-031), and could not read Go struct-tag environment
+declarations (DEPLOY-032). Seven of the eight are fixed and deployed with
+regression coverage (analysis v19 → v24 in one night); DEPLOY-027 is the one
+open product decision and it affects the public deploy-link flow directly. Cleanup through the product
 worked on every run once the harness stopped removing the connector too
 early; Disconnect is slow (30–40 min) whenever CloudFormation has to fail a
 subnet delete before the relay's retain-then-purge recovery runs. The
