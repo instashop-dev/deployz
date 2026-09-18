@@ -203,6 +203,12 @@ export function InstallProgress({
                 }
               />
 
+              {(status.stage === 'WAITING_FOR_AWS' && !beforeLaunch) || status.stage === 'CONNECTING' ? (
+                <p className="text-xs text-muted-foreground">
+                  Live AWS activity appears here when Deployz starts to create your infrastructure.
+                </p>
+              ) : null}
+
               {active && status.recentActivity && status.recentActivity.length > 0 ? (
                 <RecentActivity items={status.recentActivity} stage={status.stage} />
               ) : null}

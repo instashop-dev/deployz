@@ -321,6 +321,9 @@ export interface BuildCustomerLiveProgressInput {
   https: LiveHttpsState | null;
   /** derived.needsDomainSetup — TLS's "customer must act" gate. */
   needsDomainSetup: boolean;
+  /** True when the customer has pressed Deploy to AWS (installStartedAt is
+   *  set). Before that, nothing in AWS is being created. */
+  launched: boolean;
 }
 
 function jobReference(jobId: string | null): string {
@@ -535,5 +538,14 @@ export function buildCustomerLiveProgress(input: BuildCustomerLiveProgressInput)
   if (input.stage === 'FAILED') return buildFailedProgress(input);
   if (input.stage === 'VERIFYING' && input.step === 'HEALTH_CHECK') return buildHealthCheckProgress(input);
   if (input.stage === 'VERIFYING' && input.step === 'TLS') return buildTlsProgress(input);
+  // No relay is connected in these two stages, so AWS reports no events to
+  // Deployz. The shared activity text is written for the vendor; this is the
+  // customer's wording of the same state.
+  if (input.stage === 'WAITING_FOR_AWS' && input.launched) {
+    return { ...empty, currentActivity: 'AWS is creating the Deployz connector in your account.' };
+  }
+  if (input.stage === 'CONNECTING') {
+    return { ...empty, currentActivity: 'The connector is ready. Deployz is preparing the deployment.' };
+  }
   return empty;
 }
