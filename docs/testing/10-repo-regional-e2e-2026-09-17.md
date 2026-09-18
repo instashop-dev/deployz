@@ -82,7 +82,7 @@ HTTPS URL that answered; the smoke contract as executed; total lane time
 | 2 | repo-090 pgweb @ e4858a1 | eu-west-1 | 1 (…-014159-f3ab) | ebd0045 v20 | gate asked for a health path: the campaign config put it in the wrong block | TEST_CONFIGURATION_ERROR (campaign) | — | 17 s, no AWS resources |
 | 2 | repo-090 pgweb | eu-west-1 | 2 (…-014354-dbad) | ebd0045 v20 | BUILD_FAILED: `COPY .git/ .` against a tarball source | DEPLOYZ_PRODUCT_BUG **DEPLOY-031** (P2, fixed #315) | — | 1 min, no customer resources; audit PASS |
 | 2 | repo-203 fider @ f164f69 | eu-west-1 | 1 (…-015216-5468) | ebd0045 v20 | CONTAINER_START_FAILED: `JWT_SECRET` missing (env model empty, runtime rated Node) | DEPLOYZ_PRODUCT_BUG **DEPLOY-032** (P1, fixed #316) | — | 26 min; cleanup PASS 50 min |
-| 2 | repo-203 fider | eu-west-1 | 2 (…-030832) | 94f5a61 v23 | v23 model correct for DEPLOY-032 (runtime `go`, `JWT_SECRET` minted); ECS_DEPLOYMENT_FAILED: the relay also minted `EMAIL_AWSSES_ACCESS_KEY_ID`, which switched fider's e-mail provider to SES; it panicked on the missing `EMAIL_AWSSES_REGION` | DEPLOYZ_PRODUCT_BUG **DEPLOY-030 residual** (P2 class, P1 for fider; fixed PR #319) | — | section 4.1 |
+| 2 | repo-203 fider | eu-west-1 | 2 (…-030832) | 94f5a61 v23 | v23 model correct for DEPLOY-032 (runtime `go`, `JWT_SECRET` minted); ECS_DEPLOYMENT_FAILED: the relay also minted `EMAIL_AWSSES_ACCESS_KEY_ID`, which switched fider's e-mail provider to SES; it panicked on the missing `EMAIL_AWSSES_REGION` | DEPLOYZ_PRODUCT_BUG **DEPLOY-030 residual** (P2 class, P1 for fider; fixed PR #319) | — | 32 min; cleanup PASS 47 min |
 | 2 | **repo-203 fider** | **eu-west-1** | **3 (…-040027-d07c)** | bf9530e v24 | **PASS**: install, release digest, inventory, health, HTTPS, smoke, observation, dependencies, Destroy (46 min), retained-state, Purge, purged-state, connector removal, leak audit. The `aws login` session expired at 05:31Z between Destroy and the retained-state check; after re-authentication a second harness pass (`--cleanup`) completed the verification, connector removal and audit on the same ledger | PASS | `https://d-fbcc3498-4c39-4674-8e0d-f8cb8eb938a1.deployz.dev`; `/_health` 200 `status=Healthy` (DB ping); `/signup` 200 "Fider" | 91 min to Destroy complete (HTTPS 14.5 min, Destroy 46 min); cleanup pass 19 min |
 
 ### 4.1 Runs that were still in flight when this report was written
@@ -91,7 +91,7 @@ Filled in when the ledgers closed (see the final commit on the campaign
 branch for the JSON records under `docs/testing/repository-deployment/runs/`).
 
 - repo-001 umami attempt 2: PASS (row above); the audit step printed one phantom subnet ARN that EC2 confirms does not exist (OBS-007); confirmed leak list empty.
-- repo-203 fider attempt 2: FAILED (DEPLOY-030 residual, above); cleanup: PENDING.
+- repo-203 fider attempt 2: FAILED (DEPLOY-030 residual, above); cleanup PASS (Destroy on the retain path, Purge, verification, connector removal, leak audit clean; 47 min).
 - repo-203 fider attempt 3 (on v24, the last run of the campaign): PASS. Every serving-side step passed on the default analysis with only the vendor's own config (`BASE_URL`, `EMAIL_NOREPLY`, `EMAIL_SMTP_HOST/PORT`; `JWT_SECRET` minted by the product). Destroy SUCCEEDED through the product. The AWS login session expired at 05:31Z, so the harness's retained-state check and leak audit failed on authentication and the ledger stayed open; the product's Purge was requested through the control plane (job dc48621f, SUCCEEDED). After re-authentication the harness's `--cleanup` pass verified the retained state, confirmed the purge, removed the connector and passed the leak audit (05:55–06:14Z). The result record's `destroy`/`purge` fields read SKIPPED because that pass found both already done.
 
 ### 4.2 Repositories not tested
@@ -158,7 +158,7 @@ deleted by name pattern; the baseline set was never touched.
 | outline 1 | product | PASS | product | PASS | removed | clean |
 | pgweb 1, 2 | no customer resources | — | — | — | — | clean |
 | fider 1 | product, retain path | PASS | product | PASS | removed | clean |
-| fider 2 | product, retain path | section 4.1 | | | | |
+| fider 2 | product, retain path | PASS | product | PASS | removed | clean |
 | fider 3 | product (SUCCEEDED) | PASS (second pass after re-auth) | product (requested via API, job dc48621f) | PASS | removed | clean |
 
 Final cross-region audit against the baseline: section 8.
@@ -206,10 +206,10 @@ hand during the campaign were the miniflux attempt 1 stranded set
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | 1 | A | repo-008 TwiN/gatus | 4d15cb7 | Go | no database (sentinel) | eu-north-1 | `/health` 200 `status=UP`; `/` 200 "Gatus" | PASS (attempt 3) |
 | 1 | B | repo-004 miniflux/v2 | a84533d | Go | PostgreSQL | us-east-1 | `/healthcheck` 200 "OK" (DB ping); `/` 200 login | PASS (attempt 3, with update) |
-| 2 | A | repo-001 umami-software/umami | ca661c7 | Node | PostgreSQL | us-east-2 | `/api/heartbeat` 200 `{"ok":true}`; `/login` 200 "Umami" | section 4.1 |
+| 2 | A | repo-001 umami-software/umami | ca661c7 | Node | PostgreSQL | us-east-2 | `/api/heartbeat` 200 `{"ok":true}`; `/login` 200 "Umami" | PASS (attempt 2) |
 | 2 | B | repo-016 outline/outline | 0121886 | Node | PostgreSQL + Redis | eu-west-1 | `/_health` 200 "OK" | upstream failure; replaced |
 | 2 | B' | repo-090 sosedoff/pgweb | e4858a1 | Go | PostgreSQL | eu-west-1 | `/api/info` 200 `app.version`; `/api/databases` 200 "deployz" (PG); `/` 200 "pgweb" | DEPLOY-031; replaced |
-| 2 | B'' | repo-203 getfider/fider | f164f69 | Go (+ Node UI build) | PostgreSQL, migrates at boot | eu-west-1 | `/_health` 200 `status=Healthy` (DB ping); `/signup` 200 "Fider" (tenants table) | section 4.1 |
+| 2 | B'' | repo-203 getfider/fider | f164f69 | Go (+ Node UI build) | PostgreSQL, migrates at boot | eu-west-1 | `/_health` 200 `status=Healthy` (DB ping); `/signup` 200 "Fider" (tenants table) | PASS (attempt 3) |
 | 3 | A | repo-051 docusealco/docuseal | c216e43 | Ruby | PostgreSQL | ca-central-1 | `/up` 200 "green"; `/setup` 200 "DocuSeal" | not run |
 | 3 | B | repo-092 Lissy93/dashy | 1d78e14 | Node | no database | ap-southeast-2 | `/healthz` 200 `status=ok`; `/` 200 "Dashy" | not run |
 | 4 | A | repo-021 directus/directus | ea25ba6 | Node (large monorepo) | PostgreSQL | eu-central-1 | `/server/ping` 200 "pong"; `/server/info` 200 `data.project`; `/admin/login` 200 | not run |
