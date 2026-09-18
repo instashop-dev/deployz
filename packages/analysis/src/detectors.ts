@@ -3223,3 +3223,71 @@ export function detectBindAddress(tree: FileTree): DetectorFinding {
   }
   return { detector: 'bind-address', detected: false };
 }
+
+// 17. Dockerfile git-copy build context
+// ---------------------------------------------------------------------------
+
+// A `COPY`/`ADD` instruction line, any stage (continuations already
+// collapsed to spaces before this runs — see the `RUN … \` handling above).
+const DOCKERFILE_COPY_ADD_REGEX = /^\s*(?:COPY|ADD)\s+([^\n#]+)$/gm;
+// A `--from=` copy reads from another build stage or a named image, never
+// from the build context — the tarball's missing `.git` cannot affect it.
+const COPY_FROM_FLAG_REGEX = /--from=/;
+// The source is `.git` itself or a path inside it (`.git/HEAD`), not a
+// lookalike (`.gitignore`, `.github`, `.gitattributes`, `.gitmodules`).
+const GIT_SOURCE_TOKEN_REGEX = /^(?:\.\/)?\.git(?:\/.*)?$/;
+
+/**
+ * The source tokens of a `COPY`/`ADD` instruction's argument string — every
+ * token but the destination — handling both the JSON array form
+ * (`COPY ["a", "b", "dest"]`) and the plain shell form. Flags (`--chown=`,
+ * `--chmod=`, `--link`) are dropped first.
+ */
+function copyAddSources(args: string): string[] {
+  const trimmed = args.trim();
+  if (trimmed.startsWith('[')) {
+    try {
+      const parsed: unknown = JSON.parse(trimmed);
+      if (Array.isArray(parsed) && parsed.length > 1 && parsed.every((part) => typeof part === 'string')) {
+        return parsed.slice(0, -1);
+      }
+    } catch {
+      // Malformed JSON form — no sources to check.
+    }
+    return [];
+  }
+  const tokens = trimmed.split(/\s+/).filter((token) => !token.startsWith('--'));
+  return tokens.length > 1 ? tokens.slice(0, -1) : [];
+}
+
+/**
+ * Detect a `COPY`/`ADD` instruction in the selected Dockerfile whose source
+ * is the repository's `.git` directory. Deployz builds images from a GitHub
+ * tarball (source-fetch.ts), which never contains `.git`, so the copy fails
+ * the build with a checksum error before the vendor gets a useful message
+ * (DEPLOY-031, sosedoff/pgweb: `COPY .git/ .` feeds a `git rev-parse` in the
+ * Makefile).
+ */
+export function detectGitCopyInDockerfile(tree: FileTree): DetectorFinding {
+  const dockerfile = selectedDockerfile(tree);
+  if (!dockerfile) return { detector: 'dockerfile-git-copy', detected: false };
+
+  const collapsed = dockerfile.content.replace(/\\\r?\n/g, ' ');
+  const matches: string[] = [];
+  for (const match of collapsed.matchAll(DOCKERFILE_COPY_ADD_REGEX)) {
+    const args = match[1] ?? '';
+    if (COPY_FROM_FLAG_REGEX.test(args)) continue;
+    if (copyAddSources(args).some((token) => GIT_SOURCE_TOKEN_REGEX.test(token))) {
+      matches.push(match[0].trim());
+    }
+  }
+
+  if (matches.length === 0) return { detector: 'dockerfile-git-copy', detected: false };
+  return {
+    detector: 'dockerfile-git-copy',
+    detected: true,
+    value: matches,
+    details: `Dockerfile copies .git from the build context, which the tarball build never has: ${matches.join('; ')} (${dockerfile.path})`,
+    source: 'dockerfile',
+  };
+}

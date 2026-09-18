@@ -105,6 +105,13 @@ const localFsTree: FileTree = {
     "import fs from 'fs';\nexport function save(path: string, data: string) { fs.writeFileSync(path, data); }\n",
 };
 
+/** Dockerfile copies .git from the build context (DEPLOY-031) — blocking. */
+const gitCopyTree: FileTree = {
+  ...readyTree,
+  'Dockerfile':
+    'FROM node:20-alpine\nWORKDIR /app\nCOPY . .\nCOPY .git/ .\nEXPOSE 3000\nHEALTHCHECK CMD curl -f http://localhost:3000/health\nCMD ["node", "dist/index.js"]\n',
+};
+
 /** Docker Compose defining two application services — a §11.4 rejection. */
 const multiServiceComposeTree: FileTree = {
   ...readyTree,
@@ -165,6 +172,12 @@ describe('buildReadinessReport — state calculation', () => {
     expect(report.findings.find((f) => f.id === 'local-file-storage')?.blocking).toBe(true);
   });
 
+  it('NEEDS_CHANGES: Dockerfile copies .git (DEPLOY-031) is blocking', () => {
+    const report = buildReadinessReport(analyseRepo(gitCopyTree));
+    expect(report.state).toBe('NEEDS_CHANGES');
+    expect(report.findings.find((f) => f.id === 'build-context-git-metadata')?.blocking).toBe(true);
+  });
+
   it('NEEDS_CHANGES wins over a simultaneous fixable-required finding', () => {
     const tree: FileTree = { ...mysqlTree };
     delete tree['Dockerfile'];
@@ -198,6 +211,14 @@ describe('buildReadinessReport — finding classification', () => {
   it('local filesystem persistence is required + blocking + confirmed', () => {
     const report = buildReadinessReport(analyseRepo(localFsTree));
     const finding = report.findings.find((f) => f.id === 'local-file-storage');
+    expect(finding?.severity).toBe('required');
+    expect(finding?.blocking).toBe(true);
+    expect(finding?.confidence).toBe('confirmed');
+  });
+
+  it('a Dockerfile .git copy is required + blocking + confirmed', () => {
+    const report = buildReadinessReport(analyseRepo(gitCopyTree));
+    const finding = report.findings.find((f) => f.id === 'build-context-git-metadata');
     expect(finding?.severity).toBe('required');
     expect(finding?.blocking).toBe(true);
     expect(finding?.confidence).toBe('confirmed');
@@ -401,6 +422,7 @@ describe('buildReadinessReport — jargon-free copy', () => {
     const trees = [
       mysqlTree,
       localFsTree,
+      gitCopyTree,
       noDockerfileTree,
       noHealthTree,
       noMigrationTree,

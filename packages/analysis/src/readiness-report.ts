@@ -378,6 +378,26 @@ export function buildReadinessReport(
     });
   }
 
+  const gitCopy = finding('dockerfile-git-copy');
+  if (gitCopy?.detected) {
+    findings.push({
+      id: 'build-context-git-metadata',
+      category: 'container',
+      title: 'Dockerfile copies the .git directory',
+      severity: 'required',
+      blocking: true,
+      plainEnglishExplanation:
+        'Deployz builds the image from a source archive that has no git metadata, so COPY .git cannot succeed.',
+      whyItMatters:
+        'Deployz fetches the repository as a GitHub tarball, which never contains a .git directory. A build step that copies or reads it fails every deployment.',
+      technicalEvidence:
+        gitCopy.details ?? `Dockerfile copies .git from the build context: ${String(gitCopy.value ?? '')}`,
+      suggestedOutcome:
+        'Remove the copy of .git from the Dockerfile, or make the version build argument optional.',
+      confidence: 'confirmed',
+    });
+  }
+
   // ── Required (fixable) findings ───────────────────────────────────────────
   if (metadata['hasDockerfile'] !== true) {
     findings.push({

@@ -154,7 +154,13 @@ type ApplicationRow = typeof schema.applications.$inferSelect;
 // _HOST) an internal_secret — those were minted as if they were an
 // application-internal secret, switching on integrations and TLS config the
 // vendor never asked for; stored v20 models must re-run.
-export const ANALYSIS_VERSION = 21;
+// Version 22 (DEPLOY-031, pgweb): a new `dockerfile-git-copy` detector flags
+// a `COPY`/`ADD` instruction whose source is the repository's `.git`
+// directory — Deployz builds from a GitHub tarball that never has one, so
+// the build fails at CodeBuild with an opaque checksum error; the readiness
+// report now blocks with `build-context-git-metadata` before that happens —
+// stored v21 reports must re-run to pick up the finding.
+export const ANALYSIS_VERSION = 22;
 
 export interface AnalysisRunnerDeps {
   db: RuntimeDb;
