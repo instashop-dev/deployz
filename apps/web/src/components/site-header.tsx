@@ -9,7 +9,7 @@ import { SidebarTrigger } from '@/components/ui/sidebar';
 // Longest-prefix route table for the header's page context. Detail routes
 // (e.g. /dashboard/deployments/:id) fall back to their section's label.
 const SECTION_LABELS: readonly (readonly [string, string])[] = [
-  ['/dashboard/deployments/new', 'Deploy customer'],
+  ['/dashboard/deployments/new', 'Create deployment'],
   ['/dashboard/deployments', 'Deployments'],
   ['/dashboard/applications/new', 'Add application'],
   ['/dashboard/applications', 'Applications'],

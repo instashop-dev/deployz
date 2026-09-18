@@ -1,12 +1,13 @@
 'use client';
 
-import { ArrowLeft, Copy, Pencil } from 'lucide-react';
+import { ArrowLeft, Copy, Pencil, Plus } from 'lucide-react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { useCallback, useEffect, useState } from 'react';
 
 import { copyInstallLink } from '@/components/copy-install-link';
 import { DeployLinkCard } from '@/components/deploy-link-card';
+import { DeploymentStatusBadge } from '@/components/deployment-status-badge';
 import { EditCustomerDialog } from '@/components/edit-customer-dialog';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -138,6 +139,12 @@ export default function CustomerDetailPage() {
             <Pencil aria-hidden />
             Edit customer
           </Button>
+          <Button asChild size="sm" variant="outline">
+            <Link href={`/dashboard/deployments/new?customerId=${customerId}`}>
+              <Plus aria-hidden />
+              Create deployment
+            </Link>
+          </Button>
           {installUrl ? (
             <Button size="sm" onClick={() => void copyInstallLink(installUrl)}>
               <Copy aria-hidden />
@@ -160,7 +167,27 @@ export default function CustomerDetailPage() {
               </span>
             ) : null}
           </div>
-          {rollup.deployment ? (
+          {rollup.deployments.length > 1 ? (
+            <ul className="flex flex-col gap-2">
+              {rollup.deployments.map((deployment) => (
+                <li
+                  key={deployment.id}
+                  className="flex flex-wrap items-center justify-between gap-2 rounded-lg border px-3 py-2"
+                >
+                  <div className="flex flex-col">
+                    <span className="text-sm font-medium">{deployment.applicationName}</span>
+                    <span className="text-xs text-muted-foreground">{deployment.region}</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <DeploymentStatusBadge state={deployment.state} />
+                    <Button asChild size="sm" variant="outline">
+                      <Link href={`/dashboard/deployments/${deployment.id}`}>View deployment</Link>
+                    </Button>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          ) : rollup.deployment ? (
             <>
               <dl className="grid gap-x-6 gap-y-2 text-sm sm:grid-cols-2">
                 <MetaRow label="Application" value={rollup.deployment.applicationName} />
@@ -180,17 +207,10 @@ export default function CustomerDetailPage() {
               </div>
             </>
           ) : (
-            <>
-              <p className="text-sm text-muted-foreground">
-                This customer has not deployed yet. Create a deployment to give them an install
-                link.
-              </p>
-              <div>
-                <Button asChild size="sm" variant="outline">
-                  <Link href="/dashboard/deployments/new">Create deployment</Link>
-                </Button>
-              </div>
-            </>
+            <p className="text-sm text-muted-foreground">
+              This customer has not deployed yet. Create a deployment to give them an install
+              link.
+            </p>
           )}
         </CardContent>
       </Card>
