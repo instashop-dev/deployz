@@ -81,7 +81,8 @@ HTTPS URL that answered; the smoke contract as executed; total lane time
 | 2 | repo-090 pgweb @ e4858a1 | eu-west-1 | 1 (…-014159-f3ab) | ebd0045 v20 | gate asked for a health path: the campaign config put it in the wrong block | TEST_CONFIGURATION_ERROR (campaign) | — | 17 s, no AWS resources |
 | 2 | repo-090 pgweb | eu-west-1 | 2 (…-014354-dbad) | ebd0045 v20 | BUILD_FAILED: `COPY .git/ .` against a tarball source | DEPLOYZ_PRODUCT_BUG **DEPLOY-031** (P2, fixed #315) | — | 1 min, no customer resources; audit PASS |
 | 2 | repo-203 fider @ f164f69 | eu-west-1 | 1 (…-015216-5468) | ebd0045 v20 | CONTAINER_START_FAILED: `JWT_SECRET` missing (env model empty, runtime rated Node) | DEPLOYZ_PRODUCT_BUG **DEPLOY-032** (P1, fixed #316) | — | 26 min; cleanup PASS 50 min |
-| 2 | **repo-203 fider** | **eu-west-1** | **2 (…-030832)** | 94f5a61 v23 | v23 model verified (runtime `go`, `JWT_SECRET` minted, `EMAIL_NOREPLY` required); **install and lifecycle: see section 4.1** | pending | section 4.1 | section 4.1 |
+| 2 | repo-203 fider | eu-west-1 | 2 (…-030832) | 94f5a61 v23 | v23 model correct for DEPLOY-032 (runtime `go`, `JWT_SECRET` minted); ECS_DEPLOYMENT_FAILED: the relay also minted `EMAIL_AWSSES_ACCESS_KEY_ID`, which switched fider's e-mail provider to SES; it panicked on the missing `EMAIL_AWSSES_REGION` | DEPLOYZ_PRODUCT_BUG **DEPLOY-030 residual** (P2 class, P1 for fider; fixed PR #319) | — | section 4.1 |
+| 2 | **repo-203 fider** | **eu-west-1** | **3** | v24 (PR #319) | **see section 4.1** | pending | section 4.1 | section 4.1 |
 
 ### 4.1 Runs that were still in flight when this report was written
 
@@ -89,7 +90,8 @@ Filled in when the ledgers closed (see the final commit on the campaign
 branch for the JSON records under `docs/testing/repository-deployment/runs/`).
 
 - repo-001 umami attempt 2: PENDING.
-- repo-203 fider attempt 2: PENDING.
+- repo-203 fider attempt 2: FAILED (DEPLOY-030 residual, above); cleanup: PENDING.
+- repo-203 fider attempt 3 (on v24, the last run of the campaign): PENDING.
 
 ### 4.2 Repositories not tested
 
@@ -118,7 +120,8 @@ control plane was redeployed before any rerun that depends on it.
 | DEPLOY-029 | DEPLOYZ_PRODUCT_BUG (analysis + API) | P1 | umami attempt 1 | A package.json deploy script won over the image's own boot-time migration; the API persisted an invented `npx …` command; the runtime image has no npx | FIXED — PR #312 (ebd0045, v20): CMD/ENTRYPOINT script chain followed, startup evidence wins, no command persisted for mode `startup`; verified on umami attempt 2 (install, health, smoke PASS) |
 | DEPLOY-030 | DEPLOYZ_PRODUCT_BUG (analysis) | P2 | outline attempt 1 | `AWS_ACCESS_KEY_ID`, `DROPBOX_APP_KEY`, `GITHUB_WEBHOOK_SECRET`, `OIDC_TOKEN_URI`, `SLACK_VERIFICATION_TOKEN`, `SSL_KEY` classified as mintable internal secrets; random values switched on integrations and broke TLS validation | FIXED — PR #314 (8b3dc5e, v21). A first approach (mint only required secrets) was dropped because it regressed DEPLOY-013 |
 | DEPLOY-031 | DEPLOYZ_PRODUCT_BUG (analysis, missing signal) | P2 | pgweb attempt 2 | A Dockerfile that copies `.git` is rated READY; the tarball source has no git metadata; the build fails with an opaque checksum error | FIXED — PR #315 (c9983cd, v22): detector + blocking readiness finding + unsupported reason at the install gate. Shipping `.git` in the source archive is a product decision, not implemented |
-| DEPLOY-032 | DEPLOYZ_PRODUCT_BUG (analysis, two missing signals) | P1 | fider attempt 1 | Go `env:"KEY,required"` struct tags were unread (empty env model, `JWT_SECRET` never minted); a Go server with a Node UI-build stage was rated Node | FIXED — PR #316 (94f5a61, v23); v23 model verified on fider attempt 2 (runtime `go`, `JWT_SECRET` minted); install outcome in section 4.1 |
+| DEPLOY-032 | DEPLOYZ_PRODUCT_BUG (analysis, two missing signals) | P1 | fider attempt 1 | Go `env:"KEY,required"` struct tags were unread (empty env model, `JWT_SECRET` never minted); a Go server with a Node UI-build stage was rated Node | FIXED — PR #316 (94f5a61, v23); verified on fider attempt 2 (runtime `go`, `JWT_SECRET` minted, container reached the SES check that DEPLOY-030's residual then broke) |
+| DEPLOY-030 residual | DEPLOYZ_PRODUCT_BUG (analysis) | P2 (P1 for fider) | fider attempt 2 | The #314 provider rule looked only at the start of a name: `EMAIL_AWSSES_ACCESS_KEY_ID`, `BLOB_STORAGE_S3_ACCESS_KEY_ID`, `EMAIL_SMTP_PASSWORD`, `SSL_CERT_KEY` were still minted; the minted SES key made fider select the SES provider and exit | FIXED — PR #319 (v24): a provider token as any `_` segment, nested mail credentials and composite TLS names are never internal secrets; verified on fider attempt 3 (section 4.1) |
 | harness | TEST_HARNESS_BUG | — | gatus attempt 2, all lanes | The `aws login` session's token refresh races between concurrent CLI processes (`CreateOAuth2Token … invalid`); two lanes hit three consecutive failures twice | FIXED — PR #310 (retry transient signatures, `--client-request-token`), PR #317 (five retries up to 40 s) |
 | harness | TEST_HARNESS_BUG | — | gatus attempt 2 | Tagging-index lag reported phantom subnets as leaks | FIXED — PR #311 (confirm ARNs against EC2/RDS/ECS/Logs/ACM/Secrets before calling them leaks). The funnel step still prints the raw list (OBS-007) |
 | CI | CI defect | — | PR #312 | `vitest --project` from a package directory | FIXED — PR #313 |
@@ -154,7 +157,8 @@ deleted by name pattern; the baseline set was never touched.
 | outline 1 | product | PASS | product | PASS | removed | clean |
 | pgweb 1, 2 | no customer resources | — | — | — | — | clean |
 | fider 1 | product, retain path | PASS | product | PASS | removed | clean |
-| fider 2 | section 4.1 | | | | | |
+| fider 2 | product, retain path | section 4.1 | | | | |
+| fider 3 | section 4.1 | | | | | |
 
 Final cross-region audit against the baseline: section 8.
 
