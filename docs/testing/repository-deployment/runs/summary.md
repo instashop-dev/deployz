@@ -1,6 +1,6 @@
 # Repository deployment audit — run summary
 
-Deployz commit: `fc9840e5e29ac1d7564a249d8d025806271256e7`
+Deployz commit: `76ee976d2a4d2e5c9d71851234648a2601dadaae`
 
 | Metric | Value |
 | --- | --- |
@@ -12,10 +12,10 @@ Deployz commit: `fc9840e5e29ac1d7564a249d8d025806271256e7`
 | Gate: READY with the Stage B configuration | 20 |
 | Build attempted / succeeded / failed | 9 / 9 / 0 |
 | Build success among expected deployable | 13.8% |
-| Infrastructure attempted / succeeded / failed | 8 / 4 / 4 |
-| Runtime: ECS running / ALB healthy / HTTPS reachable / application response valid | 4 / 4 / 4 / 3 |
-| Dependencies: PostgreSQL / Redis / storage / migration verified | 3 / 1 / 1 / 1 |
-| **True deployment success / expected deployable** | **3 / 65 (4.6%)** |
+| Infrastructure attempted / succeeded / failed | 8 / 5 / 3 |
+| Runtime: ECS running / ALB healthy / HTTPS reachable / application response valid | 5 / 5 / 5 / 4 |
+| Dependencies: PostgreSQL / Redis / storage / migration verified | 4 / 1 / 1 / 1 |
+| **True deployment success / expected deployable** | **4 / 65 (6.2%)** |
 | Cleanup: destroys / failures / leaks / success rate | 9 / 1 / 1 / 88.9% |
 
 ## By classification
@@ -24,12 +24,12 @@ Deployz commit: `fc9840e5e29ac1d7564a249d8d025806271256e7`
 | --- | --- |
 | APPLICATION_ERROR | 1 |
 | CONFIG_ERROR | 1 |
-| CONTAINER_START_ERROR | 2 |
+| CONTAINER_START_ERROR | 1 |
 | DATABASE_ERROR | 1 |
 | ENV_BINDING_ERROR | 1 |
 | EXPECTED_UNSUPPORTED | 49 |
 | GATE_ERROR | 24 |
-| PASS | 40 |
+| PASS | 41 |
 | TEST_HARNESS_ERROR | 1 |
 
 ## By root cause
@@ -61,12 +61,15 @@ Deployz commit: `fc9840e5e29ac1d7564a249d8d025806271256e7`
 | DEPLOY-014 | 1: repo-007 |
 | DEPLOY-015 | 1: repo-039 |
 | DEPLOY-016 | 1: repo-039 |
+| DEPLOY-026 | 1: repo-004 |
+| DEPLOY-027 | 1: repo-004 |
+| DEPLOY-028 | 1: repo-004 |
 
 ## By set
 
 | Set | Repositories | Expected deployable | Expected unsupported | Gate correct | Deployed | True success |
 | --- | --- | --- | --- | --- | --- | --- |
-| improvement | 80 | 46 | 34 | 66 | 4 | 3 |
+| improvement | 80 | 46 | 34 | 66 | 5 | 4 |
 | unseen | 20 | 9 | 11 | 12 | 0 | 0 |
 | unseen2 | 20 | 10 | 10 | 15 | 0 | 0 |
 
@@ -76,13 +79,13 @@ Deployz commit: `fc9840e5e29ac1d7564a249d8d025806271256e7`
 | --- | --- | --- | --- | --- | --- | --- |
 | boundary | 24 | 2 | 22 | 20 | 0 | 0 |
 | messy | 27 | 18 | 9 | 22 | 0 | 0 |
-| realistic | 69 | 45 | 24 | 51 | 4 | 3 |
+| realistic | 69 | 45 | 24 | 51 | 5 | 4 |
 
 ## By deployment class
 
 | Class | Repositories | Pass | Fail |
 | --- | --- | --- | --- |
-| runtime-reuse | 120 | 89 | 31 |
+| runtime-reuse | 120 | 90 | 30 |
 
 ## Repositories
 
@@ -91,7 +94,7 @@ Deployz commit: `fc9840e5e29ac1d7564a249d8d025806271256e7`
 | repo-001 | umami-software/umami@ca661c7 | realistic | READY | NEEDS_CONFIGURATION (correct-accept) | PASS | FAIL | — | PASS | CONTAINER_START_ERROR / DEPLOYZ_BUG | DEPLOY-002, DEPLOY-007 |
 | repo-002 | Unleash/unleash@0429c29 | realistic | READY | NEEDS_CONFIGURATION (correct-accept) | NOT_ATTEMPTED | NOT_ATTEMPTED | — | NOT_ATTEMPTED | PASS | DEPLOY-002 |
 | repo-003 | thedevs-network/kutt@279b491 | realistic | NEEDS_CONFIGURATION | NEEDS_CONFIGURATION (correct-accept) | PASS | FAIL | — | PASS | DATABASE_ERROR / DEPLOYZ_BUG | DEPLOY-005, DEPLOY-007, DEPLOY-009, DEPLOY-010, DEPLOY-011, DEPLOY-012, DEPLOY-013 |
-| repo-004 | miniflux/v2@a84533d | realistic | NEEDS_CONFIGURATION | — (—) | PASS | FAIL | — | PASS | CONTAINER_START_ERROR | DEPLOY-008 |
+| repo-004 | miniflux/v2@a84533d | realistic | NEEDS_CONFIGURATION | — (—) | PASS | PASS | HEALTHY/HEALTHY/https PASS | PASS | PASS | DEPLOY-008, DEPLOY-026, DEPLOY-027, DEPLOY-028 |
 | repo-005 | Flagsmith/flagsmith@4a8a84a | realistic | NEEDS_CONFIGURATION | NOT_COMPATIBLE (false-rejection) | NOT_ATTEMPTED | NOT_ATTEMPTED | — | NOT_ATTEMPTED | GATE_ERROR | DEPLOY-003 |
 | repo-006 | documenso/documenso@3ec877a | realistic | NEEDS_CONFIGURATION | READY (correct-accept) | NOT_ATTEMPTED | NOT_ATTEMPTED | — | NOT_ATTEMPTED | PASS |  |
 | repo-007 | ghostfolio/ghostfolio@73e4f03 | realistic | NEEDS_CONFIGURATION | — (—) | PASS | PASS | HEALTHY/HEALTHY/https PASS | PASS | PASS | DEPLOY-014 |
