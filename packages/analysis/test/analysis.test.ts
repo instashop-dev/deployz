@@ -14,6 +14,7 @@ import {
   detectMigrationCommand,
   detectPackageManager,
   detectBuildCommand,
+  detectGitCopyInDockerfile,
   type FileTree,
   type DetectorFinding,
 } from '../src/detectors.js';
@@ -1069,6 +1070,67 @@ describe('§18 detectors', () => {
         'package.json': JSON.stringify({ scripts: { start: 'node index.js' } }),
       };
       const result = detectBuildCommand(tree);
+      expect(result.detected).toBe(false);
+    });
+  });
+
+  // ------------------------------------------------------------------
+  // 13. Dockerfile git-copy detector (DEPLOY-031)
+  // ------------------------------------------------------------------
+  describe('detectGitCopyInDockerfile', () => {
+    it('detects a pgweb-shaped multi-stage Dockerfile copying .git into the build stage', () => {
+      const tree: FileTree = {
+        'Dockerfile': [
+          'FROM golang:1.21 AS build',
+          'WORKDIR /build',
+          'COPY . .',
+          'COPY .git/ .',
+          'RUN make build',
+          '',
+          'FROM alpine:3.19',
+          'COPY --from=build /build/pgweb /usr/bin/pgweb',
+          'CMD ["pgweb"]',
+        ].join('\n'),
+      };
+      const result = detectGitCopyInDockerfile(tree);
+      expect(result.detected).toBe(true);
+      expect(result.value).toContain('COPY .git/ .');
+    });
+
+    it('detects a copy of a file inside .git, such as .git/HEAD for a version stamp', () => {
+      const tree: FileTree = {
+        'Dockerfile': ['FROM golang:1.22', 'COPY ./.git/HEAD .git/refs /tmp/git/', 'RUN make build', 'CMD ["./app"]'].join('\n'),
+      };
+      const result = detectGitCopyInDockerfile(tree);
+      expect(result.detected).toBe(true);
+      expect(result.value).toContain('COPY ./.git/HEAD .git/refs /tmp/git/');
+    });
+
+    it('ignores .gitignore and .github, which only look like .git', () => {
+      const tree: FileTree = {
+        'Dockerfile': ['FROM node:20-alpine', 'COPY .gitignore .', 'COPY .github .github', 'CMD ["node", "index.js"]'].join('\n'),
+      };
+      const result = detectGitCopyInDockerfile(tree);
+      expect(result.detected).toBe(false);
+    });
+
+    it('ignores a --from= copy of another stage\'s .git', () => {
+      const tree: FileTree = {
+        'Dockerfile': [
+          'FROM golang:1.21 AS build',
+          'RUN make build',
+          '',
+          'FROM alpine:3.19',
+          'COPY --from=build /build/.git /out/.git',
+          'CMD ["true"]',
+        ].join('\n'),
+      };
+      const result = detectGitCopyInDockerfile(tree);
+      expect(result.detected).toBe(false);
+    });
+
+    it('returns false with no Dockerfile', () => {
+      const result = detectGitCopyInDockerfile({ 'package.json': '{}' });
       expect(result.detected).toBe(false);
     });
   });

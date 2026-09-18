@@ -145,6 +145,13 @@ const localFsTree: FileTree = {
     "import fs from 'fs';\nexport function save(path: string, data: string) { fs.writeFileSync(path, data); }\n",
 };
 
+/** Dockerfile copies .git from the build context (DEPLOY-031). */
+const gitCopyTree: FileTree = {
+  ...readyTree,
+  'Dockerfile':
+    'FROM node:20-alpine\nWORKDIR /app\nCOPY . .\nCOPY .git/ .\nEXPOSE 3000\nHEALTHCHECK CMD curl -f http://localhost:3000/health\nCMD ["node", "dist/index.js"]\n',
+};
+
 /** A rejection AND a fixable-required issue both present (blocking must win the verdict). */
 const rejectPlusAttentionTree: FileTree = { ...unsupportedRedisTree };
 delete rejectPlusAttentionTree['Dockerfile'];
@@ -235,6 +242,13 @@ describe('evaluateCompatibility — blocking rules (→ NOT_COMPATIBLE)', () => 
     const result = evaluateCompatibility(analyseRepo(localFsTree));
     expect(result.verdict).toBe('NOT_COMPATIBLE');
     expect(codes(result)).toEqual(['local-file-storage']);
+    expect(result.reason).toBe(NEEDS_CHANGES_REASON);
+  });
+
+  it('Dockerfile copies .git → NOT_COMPATIBLE (build-context-git-metadata)', () => {
+    const result = evaluateCompatibility(analyseRepo(gitCopyTree));
+    expect(result.verdict).toBe('NOT_COMPATIBLE');
+    expect(codes(result)).toEqual(['build-context-git-metadata']);
     expect(result.reason).toBe(NEEDS_CHANGES_REASON);
   });
 

@@ -27,6 +27,7 @@ export {
   detectStartupCommand,
   detectRuntime,
   detectBindAddress,
+  detectGitCopyInDockerfile,
   detectExternalServices,
   detectExternalServiceRequirements,
   collectScripts,

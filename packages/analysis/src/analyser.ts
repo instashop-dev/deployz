@@ -28,6 +28,7 @@ import {
   detectBuildCommand,
   detectRuntime,
   detectBindAddress,
+  detectGitCopyInDockerfile,
   detectStartupMigrationEvidence,
   hasPreDeployMigration,
 } from './detectors.js';
@@ -111,6 +112,7 @@ const DETECTORS = [
   detectBuildCommand,
   detectRuntime,
   detectBindAddress,
+  detectGitCopyInDockerfile,
 ] as const;
 
 /** All §10 rejection check functions, in order (redis is handled separately — see `analyseRepo`). */
@@ -237,6 +239,10 @@ function buildMetadata(
       case 'bind-address':
         meta['bindsLocalhost'] = f.detected;
         meta['bindAddress'] = f.value ?? null;
+        break;
+      case 'dockerfile-git-copy':
+        meta['copiesGitDirectory'] = f.detected;
+        if (f.detected && f.value) meta['gitCopyInstructions'] = f.value;
         break;
       default:
         meta[key] = f.detected ? f.value ?? true : false;
