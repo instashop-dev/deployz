@@ -1,6 +1,6 @@
 # Repository deployment audit — run summary
 
-Deployz commit: `334f3598c781ffd8584240f65c16e671d4558bd3`
+Deployz commit: `954b95ce388a67fdf1b21496e7c23bdd6bf9484b`
 
 | Metric | Value |
 | --- | --- |
@@ -12,11 +12,11 @@ Deployz commit: `334f3598c781ffd8584240f65c16e671d4558bd3`
 | Gate: READY with the Stage B configuration | 18 |
 | Build attempted / succeeded / failed | 11 / 10 / 1 |
 | Build success among expected deployable | 15.4% |
-| Infrastructure attempted / succeeded / failed | 9 / 5 / 4 |
-| Runtime: ECS running / ALB healthy / HTTPS reachable / application response valid | 5 / 5 / 5 / 4 |
-| Dependencies: PostgreSQL / Redis / storage / migration verified | 4 / 1 / 1 / 1 |
-| **True deployment success / expected deployable** | **4 / 65 (6.2%)** |
-| Cleanup: destroys / failures / leaks / success rate | 11 / 1 / 1 / 90.9% |
+| Infrastructure attempted / succeeded / failed | 10 / 6 / 4 |
+| Runtime: ECS running / ALB healthy / HTTPS reachable / application response valid | 6 / 6 / 6 / 5 |
+| Dependencies: PostgreSQL / Redis / storage / migration verified | 5 / 1 / 1 / 1 |
+| **True deployment success / expected deployable** | **5 / 65 (7.7%)** |
+| Cleanup: destroys / failures / leaks / success rate | 11 / 0 / 0 / 100% |
 
 ## By classification
 
@@ -29,8 +29,7 @@ Deployz commit: `334f3598c781ffd8584240f65c16e671d4558bd3`
 | EXPECTED_UNSUPPORTED | 49 |
 | GATE_ERROR | 24 |
 | MIGRATION_ERROR | 2 |
-| PASS | 40 |
-| TEST_HARNESS_ERROR | 1 |
+| PASS | 41 |
 
 ## By root cause
 
@@ -39,7 +38,7 @@ Deployz commit: `334f3598c781ffd8584240f65c16e671d4558bd3`
 | ANALYSIS_MISSING_SIGNAL | 1 |
 | CORRECTLY_UNSUPPORTED | 49 |
 | DEPLOYZ_BUG | 1 |
-| TEST_HARNESS_FAILURE | 2 |
+| TEST_HARNESS_FAILURE | 1 |
 
 ## By finding
 
@@ -68,7 +67,7 @@ Deployz commit: `334f3598c781ffd8584240f65c16e671d4558bd3`
 
 | Set | Repositories | Expected deployable | Expected unsupported | Gate correct | Deployed | True success |
 | --- | --- | --- | --- | --- | --- | --- |
-| improvement | 80 | 46 | 34 | 64 | 5 | 4 |
+| improvement | 80 | 46 | 34 | 64 | 6 | 5 |
 | unseen | 20 | 9 | 11 | 11 | 0 | 0 |
 | unseen2 | 20 | 10 | 10 | 15 | 0 | 0 |
 
@@ -78,13 +77,13 @@ Deployz commit: `334f3598c781ffd8584240f65c16e671d4558bd3`
 | --- | --- | --- | --- | --- | --- | --- |
 | boundary | 24 | 2 | 22 | 20 | 0 | 0 |
 | messy | 27 | 18 | 9 | 22 | 0 | 0 |
-| realistic | 69 | 45 | 24 | 48 | 5 | 4 |
+| realistic | 69 | 45 | 24 | 48 | 6 | 5 |
 
 ## By deployment class
 
 | Class | Repositories | Pass | Fail |
 | --- | --- | --- | --- |
-| runtime-reuse | 120 | 89 | 31 |
+| runtime-reuse | 120 | 90 | 30 |
 
 ## Repositories
 
@@ -97,7 +96,7 @@ Deployz commit: `334f3598c781ffd8584240f65c16e671d4558bd3`
 | repo-005 | Flagsmith/flagsmith@4a8a84a | realistic | NEEDS_CONFIGURATION | NOT_COMPATIBLE (false-rejection) | NOT_ATTEMPTED | NOT_ATTEMPTED | — | NOT_ATTEMPTED | GATE_ERROR | DEPLOY-003 |
 | repo-006 | documenso/documenso@3ec877a | realistic | NEEDS_CONFIGURATION | READY (correct-accept) | NOT_ATTEMPTED | NOT_ATTEMPTED | — | NOT_ATTEMPTED | PASS |  |
 | repo-007 | ghostfolio/ghostfolio@73e4f03 | realistic | NEEDS_CONFIGURATION | — (—) | PASS | PASS | HEALTHY/HEALTHY/https PASS | PASS | PASS | DEPLOY-014 |
-| repo-008 | TwiN/gatus@4d15cb7 | realistic | READY | — (—) | PASS | NOT_ATTEMPTED | — | FAIL | TEST_HARNESS_ERROR / TEST_HARNESS_FAILURE | DEPLOY-002, DEPLOY-006 |
+| repo-008 | TwiN/gatus@4d15cb7 | realistic | READY | — (—) | PASS | PASS | HEALTHY/HEALTHY/https PASS | PASS | PASS | DEPLOY-002, DEPLOY-006 |
 | repo-009 | heroku/node-js-getting-started@63c6674 | realistic | NEEDS_CONFIGURATION | NEEDS_CONFIGURATION (correct-accept) | NOT_ATTEMPTED | NOT_ATTEMPTED | — | NOT_ATTEMPTED | PASS |  |
 | repo-010 | knadh/listmonk@670c017 | messy | NEEDS_CONFIGURATION | READY (correct-accept) | NOT_ATTEMPTED | NOT_ATTEMPTED | — | NOT_ATTEMPTED | PASS |  |
 | repo-011 | healthchecks/healthchecks@69dbd2a | messy | NEEDS_CONFIGURATION | READY (correct-accept) | NOT_ATTEMPTED | NOT_ATTEMPTED | — | NOT_ATTEMPTED | PASS |  |

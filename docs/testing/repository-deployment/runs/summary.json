@@ -1,13 +1,13 @@
 {
-  "deployzCommit": "334f3598c781ffd8584240f65c16e671d4558bd3",
+  "deployzCommit": "954b95ce388a67fdf1b21496e7c23bdd6bf9484b",
   "total": 120,
   "expectedDeployable": 65,
   "expectedUnsupported": 55,
   "byClass": {
     "runtime-reuse": {
       "total": 120,
-      "pass": 89,
-      "fail": 31
+      "pass": 90,
+      "fail": 30
     }
   },
   "gate": {
@@ -25,29 +25,29 @@
     "successRateAmongDeployable": 15.4
   },
   "infrastructure": {
-    "attempted": 9,
-    "succeeded": 5,
+    "attempted": 10,
+    "succeeded": 6,
     "failed": 4
   },
   "runtime": {
-    "ecsRunning": 5,
-    "albHealthy": 5,
-    "httpsReachable": 5,
-    "applicationResponseValid": 4
+    "ecsRunning": 6,
+    "albHealthy": 6,
+    "httpsReachable": 6,
+    "applicationResponseValid": 5
   },
   "dependencies": {
-    "postgres": 4,
+    "postgres": 5,
     "redis": 1,
     "storage": 1,
     "migration": 1
   },
-  "trueDeploymentSuccess": 4,
-  "trueDeploymentSuccessRate": 6.2,
+  "trueDeploymentSuccess": 5,
+  "trueDeploymentSuccessRate": 7.7,
   "cleanup": {
     "destroys": 11,
-    "destroyFailures": 1,
-    "leaks": 1,
-    "successRate": 90.9
+    "destroyFailures": 0,
+    "leaks": 0,
+    "successRate": 100
   },
   "byClassification": {
     "APPLICATION_ERROR": 1,
@@ -57,8 +57,7 @@
     "EXPECTED_UNSUPPORTED": 49,
     "GATE_ERROR": 24,
     "MIGRATION_ERROR": 2,
-    "PASS": 40,
-    "TEST_HARNESS_ERROR": 1
+    "PASS": 41
   },
   "byFailureStage": {
     "APPLICATION_ERROR": 1,
@@ -67,14 +66,13 @@
     "ENV_BINDING_ERROR": 1,
     "EXPECTED_UNSUPPORTED": 49,
     "GATE_ERROR": 24,
-    "MIGRATION_ERROR": 2,
-    "TEST_HARNESS_ERROR": 1
+    "MIGRATION_ERROR": 2
   },
   "byRootCause": {
     "ANALYSIS_MISSING_SIGNAL": 1,
     "CORRECTLY_UNSUPPORTED": 49,
     "DEPLOYZ_BUG": 1,
-    "TEST_HARNESS_FAILURE": 2
+    "TEST_HARNESS_FAILURE": 1
   },
   "byFinding": {
     "DEPLOY-002": [
@@ -168,8 +166,8 @@
     "improvement": {
       "total": 80,
       "expectedDeployable": 46,
-      "deployed": 5,
-      "trueDeploymentSuccess": 4,
+      "deployed": 6,
+      "trueDeploymentSuccess": 5,
       "expectedUnsupported": 34,
       "gateCorrect": 64
     },
@@ -210,8 +208,8 @@
     "realistic": {
       "total": 69,
       "expectedDeployable": 45,
-      "deployed": 5,
-      "trueDeploymentSuccess": 4,
+      "deployed": 6,
+      "trueDeploymentSuccess": 5,
       "expectedUnsupported": 24,
       "gateCorrect": 48
     }
