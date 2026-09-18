@@ -290,6 +290,19 @@ describe('env-var purpose classification (Stage B phase 3)', () => {
     expect(classifyEnvVarPurpose('JWT_SECRET')).toEqual({ purpose: 'internal_secret', confidence: 'medium' });
   });
 
+  it('never calls a name with an inner provider token, a nested mail credential or composite TLS material an internal secret (DEPLOY-030, fider)', () => {
+    // fider's real minting incident on analysis v23: the provider-prefix rule
+    // only looked at the start of the name.
+    expect(classifyEnvVarPurpose('EMAIL_AWSSES_ACCESS_KEY_ID')).toEqual({ purpose: 'external_credential', confidence: 'high' });
+    expect(classifyEnvVarPurpose('BLOB_STORAGE_S3_ACCESS_KEY_ID')).toEqual({ purpose: 'external_credential', confidence: 'high' });
+    expect(classifyEnvVarPurpose('EMAIL_SMTP_PASSWORD')).toEqual({ purpose: 'external_credential', confidence: 'high' });
+    expect(classifyEnvVarPurpose('EMAIL_MAILGUN_API')).toEqual({ purpose: 'external_credential', confidence: 'high' });
+    expect(classifyEnvVarPurpose('SSL_CERT_KEY')).toEqual({ purpose: 'optional_configuration', confidence: 'high' });
+    expect(classifyEnvVarPurpose('JWT_SECRET')).toEqual({ purpose: 'internal_secret', confidence: 'medium' });
+    expect(classifyEnvVarPurpose('AWS_S3_BUCKET')).toEqual({ purpose: 'infrastructure_binding', confidence: 'high' });
+    expect(classifyEnvVarPurpose('S3_ATTACHMENTS_BUCKET')).toEqual({ purpose: 'infrastructure_binding', confidence: 'medium' });
+  });
+
   it('never calls a provider-prefixed name, TLS material, or a location-shaped name an internal secret (DEPLOY-030)', () => {
     // outline's real minting incident: these all contain KEY/SECRET/TOKEN and
     // matched no external-credential shape, so the relay minted them as if

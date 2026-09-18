@@ -168,7 +168,13 @@ type ApplicationRow = typeof schema.applications.$inferSelect;
 // stage past a `node` UI-build stage, was rated `node` and its env model was
 // empty, so `JWT_SECRET` was never minted and the container panicked at
 // boot; stored v22 reports must re-run to pick up both fixes.
-export const ANALYSIS_VERSION = 23;
+// Version 24 (DEPLOY-030 residual, fider): a provider token anywhere in the
+// name (`EMAIL_AWSSES_ACCESS_KEY_ID`, `BLOB_STORAGE_S3_ACCESS_KEY_ID`), a
+// mail credential with intermediate segments (`EMAIL_SMTP_PASSWORD`) and
+// composite TLS names (`SSL_CERT_KEY`) are no longer mintable internal
+// secrets — a minted `EMAIL_AWSSES_ACCESS_KEY_ID` switched fider's e-mail
+// provider to SES and it exited at boot; stored v23 models must re-run.
+export const ANALYSIS_VERSION = 24;
 
 export interface AnalysisRunnerDeps {
   db: RuntimeDb;
