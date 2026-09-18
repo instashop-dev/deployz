@@ -762,9 +762,47 @@ describe('customerDeploymentStatusSchema', () => {
     expect(() => customerDeploymentStatusSchema.parse({ ...minimal, job: null })).toThrow(ZodError);
   });
 
-  it('rejects stepStartedAt/stepTimings leaking onto the customer shape', () => {
-    expect(() => customerDeploymentStatusSchema.parse({ ...minimal, stepStartedAt: null })).toThrow(ZodError);
+  it('rejects stepTimings leaking onto the customer shape', () => {
     expect(() => customerDeploymentStatusSchema.parse({ ...minimal, stepTimings: [] })).toThrow(ZodError);
+  });
+
+  // The live-provisioning fields are optional: the web app and the API
+  // deploy separately, so a response omitting them (today's shape) and one
+  // carrying them (once the API ships this) must both parse.
+  it('parses without the four live-provisioning fields (today\'s shape)', () => {
+    expect(customerDeploymentStatusSchema.parse(minimal)).toStrictEqual(minimal);
+  });
+
+  it('parses with the four live-provisioning fields populated', () => {
+    const withLive = {
+      ...minimal,
+      stage: 'PROVISIONING',
+      currentActivity: 'Creating the private network.',
+      step: 'NETWORK',
+      stepStartedAt: '2026-08-31T12:00:00.000Z',
+      recentActivity: [
+        { key: 'network', at: '2026-08-31T12:00:00.000Z', message: 'Creating the private network.', state: 'IN_PROGRESS' },
+      ],
+      provisioningIssue: { message: 'AWS could not create the database. Deployz is cleaning up and will show the result here shortly.' },
+      technicalDetails: {
+        reference: 'DEP-ABCDEF12',
+        facts: [{ label: 'Stack name', value: 'stack-1' }],
+        events: [
+          {
+            at: '2026-08-31T12:00:00.000Z',
+            logicalResourceId: 'Vpc',
+            resourceType: 'AWS::EC2::VPC',
+            resourceStatus: 'CREATE_IN_PROGRESS',
+            resourceStatusReason: null,
+          },
+        ],
+      },
+    };
+    expect(customerDeploymentStatusSchema.parse(withLive)).toStrictEqual(withLive);
+  });
+
+  it('stepStartedAt also accepts an explicit null', () => {
+    expect(customerDeploymentStatusSchema.parse({ ...minimal, stepStartedAt: null }).stepStartedAt).toBeNull();
   });
 });
 
