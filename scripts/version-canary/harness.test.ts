@@ -609,7 +609,7 @@ describe('aws() CLI retry', () => {
     expect(delays).toEqual([2000, 5000]);
   });
 
-  it('gives up after three retries and rethrows the last error', async () => {
+  it('gives up after five retries and rethrows the last error', async () => {
     let calls = 0;
     const exec = async () => {
       calls++;
@@ -619,8 +619,8 @@ describe('aws() CLI retry', () => {
     await expect(
       aws(['cloudformation', 'describe-stacks'], 'us-east-1', exec, async () => {}),
     ).rejects.toThrow('aws cloudformation describe-stacks failed');
-    // One initial attempt plus three retries.
-    expect(calls).toBe(4);
+    // One initial attempt plus five retries.
+    expect(calls).toBe(6);
   });
 
   it('never retries a non-transient failure', async () => {

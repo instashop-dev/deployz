@@ -41,9 +41,11 @@ export function isTransientAwsCliError(stderr: string): boolean {
   return TRANSIENT_AWS_CLI_SIGNATURES.some((signature) => stderr.includes(signature));
 }
 
-/** Backoff before each retry (2026-09-17 22:33Z incident: a lost session
- * refresh cleared itself within seconds). Tests inject an instant delay. */
-const RETRY_DELAYS_MS = [2000, 5000, 10000];
+/** Backoff before each retry. A lost session refresh clears itself within
+ * seconds (2026-09-17 22:33Z incident), but two lanes that poll at the same
+ * time collided three times in a row twice on 2026-09-18, so the ladder
+ * reaches past a minute. Tests inject an instant delay. */
+const RETRY_DELAYS_MS = [2000, 5000, 10000, 20000, 40000];
 
 export type AwsCliExecutor = (command: string, args: string[]) => Promise<{ stdout: string }>;
 
