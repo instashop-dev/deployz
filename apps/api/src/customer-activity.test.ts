@@ -43,6 +43,7 @@ function baseLiveInput(overrides: Partial<BuildCustomerLiveProgressInput> = {}):
     health: NO_HEALTH,
     https: null,
     needsDomainSetup: false,
+    launched: true,
     ...overrides,
   };
 }
@@ -331,11 +332,29 @@ describe('buildCustomerLiveProgress — TLS', () => {
 });
 
 describe('buildCustomerLiveProgress — quiet stages', () => {
-  it('WAITING_FOR_AWS / CONNECTING / READY report nothing', () => {
-    for (const stage of ['WAITING_FOR_AWS', 'CONNECTING', 'READY'] as const) {
-      const live = buildCustomerLiveProgress(baseLiveInput({ stage, step: 'AWS_SETUP' }));
-      expect(live).toEqual({ recentActivity: [], provisioningIssue: null, technicalDetails: null });
-    }
+  const nothing = { recentActivity: [], provisioningIssue: null, technicalDetails: null };
+
+  it('READY and a link that is not launched report nothing', () => {
+    expect(buildCustomerLiveProgress(baseLiveInput({ stage: 'READY', step: 'READY' }))).toEqual(nothing);
+    expect(
+      buildCustomerLiveProgress(baseLiveInput({ stage: 'WAITING_FOR_AWS', step: 'AWS_SETUP', launched: false })),
+    ).toEqual(nothing);
+  });
+
+  it('a launched WAITING_FOR_AWS says AWS is at work, with no events', () => {
+    const live = buildCustomerLiveProgress(baseLiveInput({ stage: 'WAITING_FOR_AWS', step: 'AWS_SETUP' }));
+    expect(live).toEqual({
+      ...nothing,
+      currentActivity: 'AWS is creating the Deployz connector in your account.',
+    });
+  });
+
+  it('CONNECTING uses customer wording, with no events', () => {
+    const live = buildCustomerLiveProgress(baseLiveInput({ stage: 'CONNECTING', step: 'RELAY_CONNECT' }));
+    expect(live).toEqual({
+      ...nothing,
+      currentActivity: 'The connector is ready. Deployz is preparing the deployment.',
+    });
   });
 });
 

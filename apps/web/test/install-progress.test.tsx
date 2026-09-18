@@ -283,6 +283,49 @@ describe('InstallProgress — long-running flow', () => {
     expect(text).toContain('elapsed');
   });
 
+  it('says when live AWS activity starts while no connector can report it, and not before launch or after', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-09-18T00:00:00.000Z'));
+    const note = 'Live AWS activity appears here when Deployz starts to create your infrastructure.';
+    const waiting = baseStatus({
+      stage: 'WAITING_FOR_AWS',
+      step: 'AWS_SETUP',
+      currentActivity: 'AWS is creating the Deployz connector in your account.',
+      stepStartedAt: new Date().toISOString(),
+    });
+    mocks.fetchInstallStatus.mockResolvedValue(waiting);
+
+    mount(baseProps({ initialStatus: waiting }));
+    await flush();
+    expect(container!.textContent).toContain('AWS is creating the Deployz connector in your account.');
+    expect(container!.textContent).toContain(note);
+
+    mocks.fetchInstallStatus.mockResolvedValue(
+      baseStatus({ stage: 'CONNECTING', step: 'RELAY_CONNECT', currentActivity: 'The connector is ready.' }),
+    );
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5000);
+    });
+    expect(container!.textContent).toContain(note);
+
+    mocks.fetchInstallStatus.mockResolvedValue(baseStatus());
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5000);
+    });
+    expect(container!.textContent).not.toContain(note);
+  });
+
+  it('does not promise AWS activity before the customer presses Deploy to AWS', async () => {
+    vi.useFakeTimers();
+    const waiting = baseStatus({ stage: 'WAITING_FOR_AWS', step: 'AWS_SETUP' });
+    mocks.fetchInstallStatus.mockResolvedValue(waiting);
+
+    mount(baseProps({ initialStatus: waiting, awaitingLaunch: true }));
+    await flush();
+
+    expect(container!.textContent).not.toContain('Live AWS activity appears here');
+  });
+
   it('a payload without the new optional fields still renders the plain duration line and does not crash', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-09-18T00:00:00.000Z'));

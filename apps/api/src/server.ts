@@ -1295,6 +1295,7 @@ async function loadCustomerLiveProgress(
     domain: CustomDomainRow | null;
     defaultHttps: DefaultHttpsState | null;
     stepTimings: DeploymentRow['stepTimings'];
+    launched: boolean;
   },
 ): Promise<CustomerLiveProgress> {
   const installJob = [...params.jobs].reverse().find((job) => job.type === 'INSTALL') ?? null;
@@ -1353,6 +1354,7 @@ async function loadCustomerLiveProgress(
     health: derived.health.layers,
     https,
     needsDomainSetup: derived.needsDomainSetup,
+    launched: params.launched,
   });
 }
 
@@ -2307,6 +2309,7 @@ export async function buildServer({
         domain,
         defaultHttps,
         stepTimings: row.deployment.stepTimings,
+        launched: row.deployment.installStartedAt !== null,
       });
       return toCustomerDeploymentStatus(derived, live);
     },
@@ -3606,6 +3609,7 @@ export async function buildServer({
         domain,
         defaultHttps,
         stepTimings: deployment.stepTimings,
+        launched: deployment.installStartedAt !== null,
       });
       return toCustomerDeploymentStatus(derived, live);
     },
