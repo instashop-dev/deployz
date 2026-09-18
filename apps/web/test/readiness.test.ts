@@ -863,6 +863,7 @@ describe('application page data refetch', () => {
           action: 'INSTALL',
           region: null,
           components: [],
+          awsResources: [],
           requirementDrift: [],
         }),
       });

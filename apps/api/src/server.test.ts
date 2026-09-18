@@ -14,6 +14,8 @@ import {
   bootstrapStackName,
   DOCUMENSO_PARAMETERS,
   errorEnvelopeSchema,
+  requiredAwsResources,
+  toPlanAwsResource,
 } from '@deployz/contracts';
 import { applyMigrations, createDb, persistDeploymentResourceSnapshot, type Db } from '@deployz/db';
 import * as schema from '@deployz/db/schema';
@@ -3476,6 +3478,7 @@ describe('server — organization settings, public install page, and bulk deploy
           { kind: 'database', name: 'Database', action: 'CREATE', lifecycle: 'retain' },
           { kind: 'storage', name: 'Storage', action: 'CREATE', lifecycle: 'retain' },
         ],
+        awsResources: requiredAwsResources({ postgres: true, redis: false }).map(toPlanAwsResource),
         requirementDrift: [],
       },
       // No BOOTSTRAP_TEMPLATE_URL in the test environment: nothing is

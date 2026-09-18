@@ -1,7 +1,13 @@
 import { describe, expect, it } from 'vitest';
 
 import { buildDestroyPlan, buildInstallPlan, buildUpdatePlan, deploymentPlanSchema } from './plan.js';
+import { requiredAwsResources, toPlanAwsResource } from './aws-resources.js';
 import type { DeploymentManifest } from './manifest.js';
+import type { InfrastructureProfile } from './index.js';
+
+function planAwsResources(profile: InfrastructureProfile) {
+  return requiredAwsResources(profile).map(toPlanAwsResource);
+}
 
 function manifestWith(postgres: boolean, redisRequired: boolean): DeploymentManifest {
   return {
@@ -39,6 +45,7 @@ describe('buildInstallPlan', () => {
         { kind: 'database', name: 'Database', action: 'CREATE', lifecycle: 'retain' },
         { kind: 'storage', name: 'Storage', action: 'CREATE', lifecycle: 'retain' },
       ],
+      awsResources: planAwsResources({ postgres: true, redis: false }),
       requirementDrift: [],
     });
   });
@@ -95,6 +102,7 @@ describe('buildDestroyPlan', () => {
         { kind: 'database', name: 'Database', action: 'RETAIN', lifecycle: 'retain' },
         { kind: 'storage', name: 'Storage', action: 'RETAIN', lifecycle: 'retain' },
       ],
+      awsResources: planAwsResources({ postgres: true, redis: false }),
       requirementDrift: [],
     });
   });
@@ -148,6 +156,7 @@ describe('buildUpdatePlan', () => {
         { kind: 'database', name: 'Database', action: 'UNCHANGED', lifecycle: 'retain' },
         { kind: 'storage', name: 'Storage', action: 'UNCHANGED', lifecycle: 'retain' },
       ],
+      awsResources: planAwsResources({ postgres: true, redis: false }),
       requirementDrift: [],
     });
   });

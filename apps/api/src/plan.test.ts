@@ -5,6 +5,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { applyMigrations, createDb, type Db } from '@deployz/db';
 import * as schema from '@deployz/db/schema';
+import { requiredAwsResources, toPlanAwsResource } from '@deployz/contracts';
 
 import { createAuth, type Auth } from './auth.js';
 import { buildServer } from './server.js';
@@ -185,6 +186,7 @@ describe('deployment plans (Phase 4)', () => {
         { kind: 'database', name: 'Database', action: 'RETAIN', lifecycle: 'retain' },
         { kind: 'storage', name: 'Storage', action: 'RETAIN', lifecycle: 'retain' },
       ],
+      awsResources: requiredAwsResources({ postgres: true, redis: false }).map(toPlanAwsResource),
       requirementDrift: [],
     });
   });

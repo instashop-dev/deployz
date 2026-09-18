@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import { Loader2 } from 'lucide-react';
 
+import { AwsInfrastructureDetails } from '@/components/aws-infrastructure-details';
 import { InstallLaunchButton } from '@/components/install-launch-button';
 import { InstallProgress } from '@/components/install-progress';
 import { InstallRetryButton } from '@/components/install-retry-button';
@@ -209,6 +210,7 @@ export default async function DeployPage({
               </Table>
             </div>
           </div>
+          <AwsInfrastructureDetails plan={data.plan} region={data.region} />
           {regionLabel ? <p className="text-sm text-muted-foreground">Region: {regionLabel}</p> : null}
           {retentionNote ? <p className="text-sm text-muted-foreground">{retentionNote}</p> : null}
           <p className="text-sm font-medium text-foreground">Your data stays in your AWS account.</p>

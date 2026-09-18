@@ -4,7 +4,16 @@
 // manifest — the UI never derives infrastructure intent itself (see
 // docs/ui-system.md).
 
-import { INFRASTRUCTURE_COMPONENT_DISPLAY, REGION_LABELS, type DeploymentPlan, type Region } from '@deployz/contracts';
+import {
+  AWS_RESOURCE_GROUP_DISPLAY,
+  AWS_RESOURCE_GROUP_ORDER,
+  INFRASTRUCTURE_COMPONENT_DISPLAY,
+  REGION_LABELS,
+  type AwsResourceGroup,
+  type DeploymentPlan,
+  type DeploymentPlanAwsResource,
+  type Region,
+} from '@deployz/contracts';
 
 /** "Database: not provisioned here, now required" / the reverse — one line per
  *  requirement-drift entry (Phase 4's `DeploymentPlan['requirementDrift']`
@@ -80,4 +89,30 @@ export function installPlanRetentionNote(plan: DeploymentPlan | null): string | 
  */
 export function installPlanRegionLabel(region: string): string | null {
   return REGION_LABELS[region as Region] ?? null;
+}
+
+/** "Deleted" / "Kept in your AWS account" — the only two removal labels the
+ *  "AWS infrastructure details" table shows for a resource's lifecycle. */
+export function awsResourceRemovalLabel(lifecycle: DeploymentPlanAwsResource['lifecycle']): string {
+  return lifecycle === 'retain' ? 'Kept in your AWS account' : 'Deleted';
+}
+
+/** One heading group of the "AWS infrastructure details" table. */
+export interface AwsResourceGroupRows {
+  group: AwsResourceGroup;
+  label: string;
+  resources: DeploymentPlanAwsResource[];
+}
+
+/**
+ * The plan's AWS resources, grouped and ordered for display (Compute &
+ * Networking, Data, Security & Operations); empty groups are omitted.
+ */
+export function awsResourceGroups(plan: DeploymentPlan | null): AwsResourceGroupRows[] {
+  if (!plan) return [];
+  return AWS_RESOURCE_GROUP_ORDER.map((group) => ({
+    group,
+    label: AWS_RESOURCE_GROUP_DISPLAY[group],
+    resources: plan.awsResources.filter((resource) => resource.group === group),
+  })).filter((entry) => entry.resources.length > 0);
 }

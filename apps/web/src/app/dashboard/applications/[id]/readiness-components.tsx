@@ -4,8 +4,6 @@ import { ChevronDown, RotateCcw, TriangleAlert } from 'lucide-react';
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
 
-import { INFRASTRUCTURE_COMPONENT_DISPLAY, type DeploymentPlan } from '@deployz/contracts';
-
 import { DeploymentStatusBadge } from '@/components/deployment-status-badge';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
@@ -333,55 +331,6 @@ export function RequirementDriftNotice({
           </li>
         ))}
       </ul>
-    </section>
-  );
-}
-
-export function InstallPlanSection({ plan }: { plan: DeploymentPlan | null }) {
-  if (!plan) return null;
-  return (
-    <section aria-labelledby="plan-heading" className="flex flex-col gap-3" data-testid="install-plan-section">
-      <div>
-        <h2 id="plan-heading" className="text-base font-semibold">
-          What a new deployment will create
-        </h2>
-        <p className="text-sm text-muted-foreground">
-          Deployz will provision these components for the next deployment.
-        </p>
-      </div>
-      <Card>
-        <CardContent className="p-0">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Component</TableHead>
-                <TableHead>Action</TableHead>
-                <TableHead>Lifecycle</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {plan.components.map((component) => (
-                <TableRow key={component.kind} data-testid={`install-plan-component-${component.kind}`}>
-                  <TableCell>
-                    <div className="flex flex-col gap-0.5">
-                      <span className="font-medium">
-                        {INFRASTRUCTURE_COMPONENT_DISPLAY[component.kind].name}
-                      </span>
-                      <span className="text-xs text-muted-foreground">
-                        {INFRASTRUCTURE_COMPONENT_DISPLAY[component.kind].purpose}
-                      </span>
-                    </div>
-                  </TableCell>
-                  <TableCell>
-                    <Badge variant="outline">{component.action}</Badge>
-                  </TableCell>
-                  <TableCell className="capitalize">{component.lifecycle}</TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </CardContent>
-      </Card>
     </section>
   );
 }
