@@ -741,6 +741,40 @@ describe('analysis — migration/worker command resolution (deploy-safe, workspa
     });
   });
 
+  // DEPLOY-029 (production-verified: umami): the selected Dockerfile's own
+  // CMD/ENTRYPOINT chain (CMD -> scripts/start-docker.sh -> scripts/
+  // check-db.js -> `prisma migrate deploy`) proves the built image migrates
+  // itself when it starts. A package.json script that is ALSO deploy-shaped
+  // (`update-db: prisma migrate deploy`) must never turn into a persisted
+  // `migrationCommand` here — re-running it as a one-off pre-deploy step
+  // against umami's runtime image exits 127 (`sh: npx: not found`, the
+  // runner stage removes npm/npx on purpose).
+  it('never persists migrationCommand when the CMD/ENTRYPOINT chain proves the image migrates at startup', async () => {
+    const application = await insertApplication(db, orgId, {
+      githubInstallationId: 'install-1',
+      repoFullName: 'acme/umami-shaped',
+      defaultBranch: 'main',
+    });
+    const files = {
+      'Dockerfile': ['FROM node:20-alpine', 'WORKDIR /app', 'CMD ["sh", "scripts/start-docker.sh"]'].join('\n'),
+      'scripts/start-docker.sh': ['#!/bin/sh', 'node scripts/check-db.js', 'exec node index.js', ''].join('\n'),
+      'scripts/check-db.js': "const { execSync } = require('child_process');\nexecSync('prisma migrate deploy');\n",
+      'package.json': JSON.stringify({
+        name: 'umami',
+        scripts: { start: 'node index.js', 'update-db': 'prisma migrate deploy' },
+        dependencies: { '@prisma/client': '^5.0.0' },
+      }),
+      'prisma/schema.prisma': 'datasource db {\n  provider = "postgresql"\n  url      = env("DATABASE_URL")\n}\n',
+    };
+
+    await runApplicationAnalysis(makeDeps(buildTreeFetch(files)), application.id);
+
+    const row = await loadApplication(db, application.id);
+    expect(row.analysisStatus).toBe('COMPLETE');
+    expect((row.detectedMetadata as { migrationMode?: string } | null)?.migrationMode).toBe('startup');
+    expect(row.migrationCommand).toBeNull();
+  });
+
   it('classifies worker-like code with a resolved worker start command as needs-adaptation, never deployable-as-is', async () => {
     const application = await insertApplication(db, orgId, {
       githubInstallationId: 'install-1',

@@ -619,8 +619,12 @@ const IGNORED_DIR_SEGMENTS = new Set([
 ]);
 
 // Go joins the source set with the Stage A detectors that read Go route
-// registrations and configuration literals (COMP-005, COMP-013).
-const SOURCE_EXTENSION_REGEX = /\.(ts|js|mjs|cjs|jsx|tsx|py|rb|go)$/i;
+// registrations and configuration literals (COMP-005, COMP-013). `sh` joins
+// it for DEPLOY-029: `detectStartupMigrationEvidence` follows the shell
+// script(s) a Dockerfile CMD/ENTRYPOINT invokes (and every script those call
+// in turn) — without it here, that script is never fetched in real (non-
+// fixture) mode and the detector has nothing to read.
+const SOURCE_EXTENSION_REGEX = /\.(sh|ts|js|mjs|cjs|jsx|tsx|py|rb|go)$/i;
 // A manifest, a Dockerfile or a Prisma schema anywhere in the tree — a
 // workspace repository keeps all three outside the root, and the detectors
 // read every one of them (packages/analysis/src/detectors.ts).

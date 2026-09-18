@@ -1839,6 +1839,50 @@ export interface MigrationStartupEvidence {
   /** Where the command lives: a script name, Dockerfile CMD/ENTRYPOINT, or a shell script path. */
   readonly source: string;
   readonly pattern: string;
+  /**
+   * True when the evidence is the selected Dockerfile's own CMD/ENTRYPOINT
+   * text, or a script that CMD/ENTRYPOINT invokes (directly or through
+   * another script it calls) — the exact chain the built image runs at
+   * boot. `analyser.ts` gives this evidence precedence over a package.json
+   * deploy-shaped script (DEPLOY-029): the image was built to migrate
+   * itself, so re-running the script as a separate pre-deploy step invents
+   * a command the image never runs standalone.
+   */
+  readonly fromDockerCommand: boolean;
+}
+
+/** A token in Dockerfile CMD/ENTRYPOINT text (or a script it runs) that names a script file. */
+const SCRIPT_PATH_TOKEN_REGEX = /[\w./-]+\.(?:sh|js|mjs|cjs|ts)\b/g;
+
+/** Maximum number of script-to-script hops followed from the CMD/ENTRYPOINT text. */
+const CMD_CHAIN_MAX_DEPTH = 3;
+
+/**
+ * Resolve a script token named in a CMD/ENTRYPOINT (or a script it runs) to
+ * a path that actually exists in the tree — relative to the Dockerfile's own
+ * directory first (`scripts/start-docker.sh` next to `docker/Dockerfile` is
+ * `docker/scripts/start-docker.sh`), then relative to the tree root.
+ */
+function resolveCmdScriptPath(token: string, tree: FileTree, dockerDir: string): string | undefined {
+  const clean = token.replace(/^\.\//, '');
+  const candidates = dockerDir.length > 0 ? [`${dockerDir}/${clean}`, clean] : [clean];
+  for (const candidate of candidates) {
+    if (Object.prototype.hasOwnProperty.call(tree, candidate)) return candidate;
+  }
+  return undefined;
+}
+
+/** Every script path named in `text` that resolves to a tree file, not yet visited. */
+function extractCmdScriptPaths(text: string, tree: FileTree, dockerDir: string, visited: Set<string>): string[] {
+  const found: string[] = [];
+  for (const token of text.match(SCRIPT_PATH_TOKEN_REGEX) ?? []) {
+    const resolved = resolveCmdScriptPath(token, tree, dockerDir);
+    if (resolved && !visited.has(resolved)) {
+      visited.add(resolved);
+      found.push(resolved);
+    }
+  }
+  return found;
 }
 
 /** True when the command text is deploy-shaped and not dev-mode. */
@@ -1864,43 +1908,66 @@ export function hasPreDeployMigration(tree: FileTree): boolean {
 
 /**
  * Migrations that run when the APPLICATION STARTS: the app's own start
- * script, the selected Dockerfile's CMD/ENTRYPOINT, or an entrypoint/start/
- * boot shell script next to the Dockerfile (or at the app root). Evidence
- * only — the command is never invented into the manifest.
+ * script, the selected Dockerfile's CMD/ENTRYPOINT (plus every script that
+ * CMD/ENTRYPOINT invokes, transitively), or an entrypoint/start/boot shell
+ * script next to the Dockerfile (or at the app root). Evidence only — the
+ * command is never invented into the manifest.
  */
 export function detectStartupMigrationEvidence(tree: FileTree): MigrationStartupEvidence[] {
   const evidence: MigrationStartupEvidence[] = [];
-  const consider = (command: string, source: string): void => {
+  const consider = (command: string, source: string, fromDockerCommand: boolean): void => {
     if (MIGRATION_DEV_REGEX.test(command)) return;
     for (const { pattern, name } of STARTUP_MIGRATION_PATTERNS) {
       if (pattern.test(command)) {
-        evidence.push({ source, pattern: name });
+        evidence.push({ source, pattern: name, fromDockerCommand });
         return;
       }
     }
   };
 
   for (const [name, command] of collectScripts(tree)) {
-    if (name === 'start' || name === 'dev') consider(command, `package.json script "${name}"`);
+    if (name === 'start' || name === 'dev') consider(command, `package.json script "${name}"`, false);
   }
 
   const dockerfile = selectedDockerfile(tree);
+  const dockerDir = dockerfile?.path?.includes('/') ? (dockerfile.path.split('/').slice(0, -1).join('/') ?? '') : '';
+  // Files already scanned through the CMD/ENTRYPOINT chain, so the
+  // independent boot-script heuristic below never double-counts them.
+  const chainVisited = new Set<string>();
+
   if (dockerfile) {
     const cmd = CMD_REGEX.exec(dockerfile.content)?.[1];
-    if (cmd) consider(cmd, `CMD (${dockerfile.path})`);
     const entry = ENTRYPOINT_REGEX.exec(dockerfile.content)?.[1];
-    if (entry) consider(entry, `ENTRYPOINT (${dockerfile.path})`);
+    if (cmd) consider(cmd, `CMD (${dockerfile.path})`, true);
+    if (entry) consider(entry, `ENTRYPOINT (${dockerfile.path})`, true);
+
+    // Follow the script(s) CMD/ENTRYPOINT name (`sh scripts/start-docker.sh`,
+    // `["sh", "scripts/start-docker.sh"]`), and every script THOSE scripts
+    // call in turn (`node scripts/check-db.js`), up to depth 3, never
+    // visiting a file twice — the built image runs this exact chain at boot,
+    // regardless of which directory the scripts live in (DEPLOY-029: umami's
+    // migration lived two hops below CMD, under `scripts/`).
+    let frontier = extractCmdScriptPaths(`${cmd ?? ''} ${entry ?? ''}`, tree, dockerDir, chainVisited);
+    for (let depth = 0; depth < CMD_CHAIN_MAX_DEPTH && frontier.length > 0; depth += 1) {
+      const next: string[] = [];
+      for (const path of frontier) {
+        const content = tree[path];
+        if (content === undefined) continue;
+        consider(content, path, true);
+        next.push(...extractCmdScriptPaths(content, tree, dockerDir, chainVisited));
+      }
+      frontier = next;
+    }
   }
 
-  const dockerDir = dockerfile?.path?.includes('/') ? (dockerfile.path.split('/').slice(0, -1).join('/') ?? '') : '';
   for (const [path, content] of Object.entries(tree)) {
-    if (!content || !isRuntimeSourcePath(path)) continue;
+    if (chainVisited.has(path) || !content || !isRuntimeSourcePath(path)) continue;
     const basename = (path.split('/').pop() ?? '').toLowerCase();
     const isBootScript = /^entrypoint(?:\.|$)|^start\.sh$|^boot\.sh$|^startup\.sh$/.test(basename);
     const nearRoot =
       !path.includes('/') || (dockerDir.length > 0 && path.startsWith(`${dockerDir}/`));
     if (!isBootScript || !nearRoot) continue;
-    consider(content, path);
+    consider(content, path, false);
   }
 
   return evidence;

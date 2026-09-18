@@ -313,13 +313,25 @@ export function analyseRepo(tree: FileTree): AnalysisResult {
   } else if (postgresMeta?.required !== true) {
     // A detected-but-unconfirmed database: keep the gentle recommendation.
     metadata['migrationMode'] = 'unknown';
-  } else if (hasPreDeployMigration(tree)) {
-    metadata['migrationMode'] = 'pre_deploy';
   } else {
+    // DEPLOY-029: the selected Dockerfile's own CMD/ENTRYPOINT chain wins
+    // over a package.json deploy-shaped script. When the built image
+    // migrates itself at boot (umami: CMD -> scripts/start-docker.sh ->
+    // scripts/check-db.js -> `prisma migrate deploy`), that is the command
+    // that actually runs — re-running a package.json script as a pre-deploy
+    // step invents a command the image was never built to run standalone
+    // (the runner stage can even remove npx on purpose).
     const startupEvidence = detectStartupMigrationEvidence(tree);
-    metadata['migrationMode'] = startupEvidence.length > 0 ? 'startup' : 'unknown';
-    if (startupEvidence.length > 0) {
+    if (startupEvidence.some((entry) => entry.fromDockerCommand)) {
+      metadata['migrationMode'] = 'startup';
       metadata['migrationStartupEvidence'] = startupEvidence;
+    } else if (hasPreDeployMigration(tree)) {
+      metadata['migrationMode'] = 'pre_deploy';
+    } else {
+      metadata['migrationMode'] = startupEvidence.length > 0 ? 'startup' : 'unknown';
+      if (startupEvidence.length > 0) {
+        metadata['migrationStartupEvidence'] = startupEvidence;
+      }
     }
   }
 
