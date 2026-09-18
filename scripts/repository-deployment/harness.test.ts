@@ -11,7 +11,7 @@ import { applyCleanupToClassification, cleanupAttempt } from './cleanup.js';
 import { classifyFailure } from './classify.js';
 import { appUrlKeys, configFor, deploymentClassFor, loadDeployConfig, parseDeployConfig, providedKeys, requireSmokeContract } from './config.js';
 import { defaultDeploymentUrl, generateSecret, runRepositoryAttempt, resolveHealthPath, DEFAULT_TIMEOUTS, nextReleaseVersion, reusableRelease, type AwsLike, type ControlPlaneLike, type DeployDeps, reusableReleaseVersion } from './deploy.js';
-import { applicationContainerDefinition, sanitize, stoppedExit } from './evidence.js';
+import { applicationContainerDefinition, arnKind, resourceStillExists, sanitize, stoppedExit } from './evidence.js';
 import { gateOutcome, manifestFacts, missingKeys, overridesToManifest } from './gate.js';
 import { activeRunsBlock, listUnfinishedLedgers, openLedger, readSeries, stageBRun, stageBRunId, writeSeries } from './ledger.js';
 import {
@@ -523,6 +523,235 @@ describe('task containers (DEPLOY-014 shape)', () => {
     expect(stoppedExit([{ exitCode: 0, reason: null }, { exitCode: 0, reason: null }])).toEqual({ exitCode: 0, reason: null });
     expect(stoppedExit([{ exitCode: null, reason: 'CannotPullContainerError' }])).toEqual({ exitCode: null, reason: 'CannotPullContainerError' });
     expect(stoppedExit([])).toEqual({ exitCode: null, reason: null });
+  });
+});
+
+describe('arnKind', () => {
+  it('classifies the EC2/RDS/ECS/logs/ACM/secret ARN kinds the leak audit now confirms', () => {
+    expect(arnKind('arn:aws:ec2:eu-north-1:1:subnet/subnet-003c9d119cc40c747')).toBe('subnet');
+    expect(arnKind('arn:aws:ec2:eu-north-1:1:security-group/sg-003c9d119cc40c747')).toBe('security-group');
+    expect(arnKind('arn:aws:ec2:eu-north-1:1:vpc/vpc-003c9d119cc40c747')).toBe('vpc');
+    expect(arnKind('arn:aws:ec2:eu-north-1:1:network-interface/eni-003c9d119cc40c747')).toBe('network-interface');
+    expect(arnKind('arn:aws:ec2:eu-north-1:1:internet-gateway/igw-003c9d119cc40c747')).toBe('internet-gateway');
+    expect(arnKind('arn:aws:ec2:eu-north-1:1:route-table/rtb-003c9d119cc40c747')).toBe('route-table');
+    expect(arnKind('arn:aws:ec2:us-east-1:1:natgateway/nat-1')).toBe('nat-gateway');
+    expect(arnKind('arn:aws:rds:eu-north-1:1:subgrp:deployz-subnets')).toBe('rds-subnet-group');
+    expect(arnKind('arn:aws:ecs:eu-north-1:1:cluster/deployz-x')).toBe('ecs-cluster');
+    expect(arnKind('arn:aws:ecs:eu-north-1:1:task-definition/deployz-x:3')).toBe('ecs-task-definition');
+    expect(arnKind('arn:aws:ecs:eu-north-1:1:service/deployz-x/app')).toBe('ecs-service');
+    expect(arnKind('arn:aws:logs:eu-north-1:1:log-group:/deployz/deployz-x:*')).toBe('log-group');
+    expect(arnKind('arn:aws:acm:eu-north-1:1:certificate/abcd-1234')).toBe('acm-certificate');
+    expect(arnKind('arn:aws:secretsmanager:eu-north-1:1:secret:deployz/x-AbCdEf')).toBe('secret');
+    expect(arnKind('arn:aws:s3:::some-bucket')).toBeNull();
+    expect(arnKind('arn:aws:rds:eu-north-1:1:db:deployz-x')).toBeNull();
+  });
+});
+
+describe('resourceStillExists (leak-audit confirmation)', () => {
+  // Real AWS, 2026-09-17 23:27Z, eu-north-1, run stage-b-repo-008-…: a fully
+  // successful Disconnect/Purge left this subnet audited as a leak while EC2
+  // already answered InvalidSubnetID.NotFound — the tagging index lags.
+  const purgedSubnet = 'arn:aws:ec2:eu-north-1:151955775369:subnet/subnet-003c9d119cc40c747';
+  const notFound = (message: string) =>
+    async () => {
+      throw { stderr: `An error occurred (${message}) when calling the operation: gone` };
+    };
+  const instant = async () => {};
+
+  it('confirms a leaked subnet is gone once EC2 answers InvalidSubnetID.NotFound', async () => {
+    expect(await resourceStillExists('eu-north-1', purgedSubnet, notFound('InvalidSubnetID.NotFound'))).toBe(false);
+  });
+
+  it('confirms a subnet EC2 still describes is present', async () => {
+    const exec = async () => ({ stdout: JSON.stringify({ Subnets: [{ SubnetId: 'subnet-0123456789abcdef0' }] }) });
+    expect(await resourceStillExists('eu-north-1', 'arn:aws:ec2:eu-north-1:1:subnet/subnet-0123456789abcdef0', exec)).toBe(true);
+  });
+
+  it('confirms a security group is gone once EC2 answers InvalidGroup.NotFound', async () => {
+    const exists = await resourceStillExists('eu-north-1', 'arn:aws:ec2:eu-north-1:1:security-group/sg-0123456789abcdef0', notFound('InvalidGroup.NotFound'));
+    expect(exists).toBe(false);
+  });
+
+  it('assumes an unrecognized ARN kind still exists, without calling the AWS CLI', async () => {
+    let calls = 0;
+    const exec = async () => {
+      calls++;
+      return { stdout: '{}' };
+    };
+    expect(await resourceStillExists('eu-north-1', 'arn:aws:s3:::some-bucket', exec)).toBe(true);
+    expect(calls).toBe(0);
+  });
+
+  it('assumes present, not gone, when the CLI call only throttles — a transient failure must never hide a real leak', async () => {
+    const exists = await resourceStillExists('eu-north-1', purgedSubnet, notFound('ThrottlingException'), instant);
+    expect(exists).toBe(true);
+  });
+
+  it('keeps the NAT gateway rule unchanged: gone once EC2 reports NatGatewayNotFound', async () => {
+    const exists = await resourceStillExists('us-east-1', 'arn:aws:ec2:us-east-1:1:natgateway/nat-1', notFound('NatGatewayNotFound'));
+    expect(exists).toBe(false);
+  });
+
+  it('keeps the NAT gateway rule unchanged: present when EC2 still reports a live state', async () => {
+    const exec = async () => ({ stdout: JSON.stringify({ NatGateways: [{ State: 'available' }] }) });
+    expect(await resourceStillExists('us-east-1', 'arn:aws:ec2:us-east-1:1:natgateway/nat-1', exec)).toBe(true);
+  });
+
+  it('confirms a VPC is gone once EC2 answers InvalidVpcID.NotFound', async () => {
+    expect(
+      await resourceStillExists('eu-north-1', 'arn:aws:ec2:eu-north-1:1:vpc/vpc-0123456789abcdef0', notFound('InvalidVpcID.NotFound')),
+    ).toBe(false);
+  });
+
+  it('confirms a VPC EC2 still describes is present', async () => {
+    const exec = async () => ({ stdout: JSON.stringify({ Vpcs: [{ VpcId: 'vpc-0123456789abcdef0' }] }) });
+    expect(await resourceStillExists('eu-north-1', 'arn:aws:ec2:eu-north-1:1:vpc/vpc-0123456789abcdef0', exec)).toBe(true);
+  });
+
+  it('confirms a network interface is gone once EC2 answers InvalidNetworkInterfaceID.NotFound', async () => {
+    expect(
+      await resourceStillExists(
+        'eu-north-1',
+        'arn:aws:ec2:eu-north-1:1:network-interface/eni-0123456789abcdef0',
+        notFound('InvalidNetworkInterfaceID.NotFound'),
+      ),
+    ).toBe(false);
+  });
+
+  it('confirms a network interface EC2 still describes is present', async () => {
+    const exec = async () => ({ stdout: JSON.stringify({ NetworkInterfaces: [{ NetworkInterfaceId: 'eni-0123456789abcdef0' }] }) });
+    expect(await resourceStillExists('eu-north-1', 'arn:aws:ec2:eu-north-1:1:network-interface/eni-0123456789abcdef0', exec)).toBe(true);
+  });
+
+  it('confirms an internet gateway is gone once EC2 answers InvalidInternetGatewayID.NotFound', async () => {
+    expect(
+      await resourceStillExists(
+        'eu-north-1',
+        'arn:aws:ec2:eu-north-1:1:internet-gateway/igw-0123456789abcdef0',
+        notFound('InvalidInternetGatewayID.NotFound'),
+      ),
+    ).toBe(false);
+  });
+
+  it('confirms an internet gateway EC2 still describes is present', async () => {
+    const exec = async () => ({ stdout: JSON.stringify({ InternetGateways: [{ InternetGatewayId: 'igw-0123456789abcdef0' }] }) });
+    expect(await resourceStillExists('eu-north-1', 'arn:aws:ec2:eu-north-1:1:internet-gateway/igw-0123456789abcdef0', exec)).toBe(true);
+  });
+
+  it('confirms a route table is gone once EC2 answers InvalidRouteTableID.NotFound', async () => {
+    expect(
+      await resourceStillExists(
+        'eu-north-1',
+        'arn:aws:ec2:eu-north-1:1:route-table/rtb-0123456789abcdef0',
+        notFound('InvalidRouteTableID.NotFound'),
+      ),
+    ).toBe(false);
+  });
+
+  it('confirms a route table EC2 still describes is present', async () => {
+    const exec = async () => ({ stdout: JSON.stringify({ RouteTables: [{ RouteTableId: 'rtb-0123456789abcdef0' }] }) });
+    expect(await resourceStillExists('eu-north-1', 'arn:aws:ec2:eu-north-1:1:route-table/rtb-0123456789abcdef0', exec)).toBe(true);
+  });
+
+  it('confirms a security group EC2 still describes is present', async () => {
+    const exec = async () => ({ stdout: JSON.stringify({ SecurityGroups: [{ GroupId: 'sg-0123456789abcdef0' }] }) });
+    expect(await resourceStillExists('eu-north-1', 'arn:aws:ec2:eu-north-1:1:security-group/sg-0123456789abcdef0', exec)).toBe(true);
+  });
+
+  it('confirms an RDS subnet group RDS still describes is present', async () => {
+    const exec = async () => ({ stdout: JSON.stringify({ DBSubnetGroups: [{ DBSubnetGroupName: 'deployz-subnets' }] }) });
+    expect(await resourceStillExists('eu-north-1', 'arn:aws:rds:eu-north-1:1:subgrp:deployz-subnets', exec)).toBe(true);
+  });
+
+  it('confirms an RDS subnet group is gone once RDS answers DBSubnetGroupNotFoundFault', async () => {
+    expect(
+      await resourceStillExists('eu-north-1', 'arn:aws:rds:eu-north-1:1:subgrp:deployz-subnets', notFound('DBSubnetGroupNotFoundFault')),
+    ).toBe(false);
+  });
+
+  it('confirms an ECS cluster ECS still describes as ACTIVE is present', async () => {
+    const exec = async () => ({ stdout: JSON.stringify({ clusters: [{ status: 'ACTIVE' }] }) });
+    expect(await resourceStillExists('eu-north-1', 'arn:aws:ecs:eu-north-1:1:cluster/deployz-x', exec)).toBe(true);
+  });
+
+  it('confirms an ECS cluster is gone when ECS lists it in failures and returns no cluster, without throwing', async () => {
+    const exec = async () => ({
+      stdout: JSON.stringify({ clusters: [], failures: [{ arn: 'arn:aws:ecs:eu-north-1:1:cluster/deployz-x', reason: 'MISSING' }] }),
+    });
+    expect(await resourceStillExists('eu-north-1', 'arn:aws:ecs:eu-north-1:1:cluster/deployz-x', exec)).toBe(false);
+  });
+
+  it('confirms an ECS cluster is gone once its status is INACTIVE', async () => {
+    const exec = async () => ({ stdout: JSON.stringify({ clusters: [{ status: 'INACTIVE' }] }) });
+    expect(await resourceStillExists('eu-north-1', 'arn:aws:ecs:eu-north-1:1:cluster/deployz-x', exec)).toBe(false);
+  });
+
+  it('confirms an ECS service ECS still describes as ACTIVE is present', async () => {
+    const exec = async () => ({ stdout: JSON.stringify({ services: [{ status: 'ACTIVE' }] }) });
+    expect(await resourceStillExists('eu-north-1', 'arn:aws:ecs:eu-north-1:1:service/deployz-x/app', exec)).toBe(true);
+  });
+
+  it('confirms an ECS service is gone when ECS lists it in failures and returns no service, without throwing', async () => {
+    const exec = async () => ({
+      stdout: JSON.stringify({ services: [], failures: [{ arn: 'arn:aws:ecs:eu-north-1:1:service/deployz-x/app', reason: 'MISSING' }] }),
+    });
+    expect(await resourceStillExists('eu-north-1', 'arn:aws:ecs:eu-north-1:1:service/deployz-x/app', exec)).toBe(false);
+  });
+
+  it('confirms an ECS service is gone once its status is INACTIVE', async () => {
+    const exec = async () => ({ stdout: JSON.stringify({ services: [{ status: 'INACTIVE' }] }) });
+    expect(await resourceStillExists('eu-north-1', 'arn:aws:ecs:eu-north-1:1:service/deployz-x/app', exec)).toBe(false);
+  });
+
+  it('confirms an ECS task definition is gone once its status is INACTIVE', async () => {
+    const exec = async () => ({ stdout: JSON.stringify({ taskDefinition: { status: 'INACTIVE' } }) });
+    expect(await resourceStillExists('eu-north-1', 'arn:aws:ecs:eu-north-1:1:task-definition/deployz-x:3', exec)).toBe(false);
+  });
+
+  it('confirms a log group is present, matching the exact name and not a longer sibling that shares the prefix', async () => {
+    const exec = async () => ({
+      stdout: JSON.stringify({ logGroups: [{ logGroupName: '/deployz/deployz-x-extra' }, { logGroupName: '/deployz/deployz-x' }] }),
+    });
+    expect(await resourceStillExists('eu-north-1', 'arn:aws:logs:eu-north-1:1:log-group:/deployz/deployz-x:*', exec)).toBe(true);
+  });
+
+  it('confirms a log group is gone once CloudWatch Logs lists nothing under its prefix', async () => {
+    const exec = async () => ({ stdout: JSON.stringify({ logGroups: [] }) });
+    expect(await resourceStillExists('eu-north-1', 'arn:aws:logs:eu-north-1:1:log-group:/deployz/deployz-x:*', exec)).toBe(false);
+  });
+
+  it('confirms an ACM certificate is present, passing the full ARN to ACM', async () => {
+    const certArn = 'arn:aws:acm:eu-north-1:1:certificate/abcd-1234';
+    let seenArgs: string[] = [];
+    const exec = async (_command: string, args: string[]) => {
+      seenArgs = args;
+      return { stdout: JSON.stringify({ Certificate: { CertificateArn: certArn } }) };
+    };
+    expect(await resourceStillExists('eu-north-1', certArn, exec)).toBe(true);
+    expect(seenArgs).toContain(certArn);
+  });
+
+  it('confirms an ACM certificate is gone once ACM answers ResourceNotFoundException', async () => {
+    expect(
+      await resourceStillExists('eu-north-1', 'arn:aws:acm:eu-north-1:1:certificate/abcd-1234', notFound('ResourceNotFoundException')),
+    ).toBe(false);
+  });
+
+  it('confirms a Secrets Manager secret is present', async () => {
+    const exec = async () => ({
+      stdout: JSON.stringify({ ARN: 'arn:aws:secretsmanager:eu-north-1:1:secret:deployz/x-AbCdEf', Name: 'deployz/x' }),
+    });
+    expect(await resourceStillExists('eu-north-1', 'arn:aws:secretsmanager:eu-north-1:1:secret:deployz/x-AbCdEf', exec)).toBe(true);
+  });
+
+  it('confirms a Secrets Manager secret is gone once Secrets Manager answers ResourceNotFoundException', async () => {
+    expect(
+      await resourceStillExists(
+        'eu-north-1',
+        'arn:aws:secretsmanager:eu-north-1:1:secret:deployz/x-AbCdEf',
+        notFound('ResourceNotFoundException'),
+      ),
+    ).toBe(false);
   });
 });
 
