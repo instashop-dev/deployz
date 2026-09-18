@@ -39,10 +39,6 @@ jobs:
     # the purge slow) — budget it beyond the core ladder's 180 minutes.
     timeout-minutes: ${{ inputs.scenario == 'profile' && 240 || 180 }}
     env:
-      # An IAM identity with administrative access to the TEST account only.
-      # The harness refuses any other account (DEPLOYZ_CANARY_EXPECTED_ACCOUNT).
-      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_CANARY_ACCESS_KEY_ID }}
-      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_CANARY_SECRET_ACCESS_KEY }}
       AWS_REGION: us-east-1
       DEPLOYZ_E2E_ALLOW_REAL_AWS: '1'
       GH_TOKEN: ${{ github.token }}
@@ -52,6 +48,21 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+
+      # An IAM identity with administrative access to the TEST account only.
+      # The harness refuses any other account (DEPLOYZ_CANARY_EXPECTED_ACCOUNT).
+      # AWS key values never contain whitespace, so strip any trailing newline
+      # a pasted secret carries — a raw newline corrupts the SigV4 header
+      # (seen live: "Invalid header value ... Credential=***\n/...").
+      - name: Normalize canary credentials
+        env:
+          CANARY_ACCESS_KEY_ID: ${{ secrets.AWS_CANARY_ACCESS_KEY_ID }}
+          CANARY_SECRET_ACCESS_KEY: ${{ secrets.AWS_CANARY_SECRET_ACCESS_KEY }}
+        run: |
+          {
+            echo "AWS_ACCESS_KEY_ID=$(printf '%s' "$CANARY_ACCESS_KEY_ID" | tr -d '[:space:]')"
+            echo "AWS_SECRET_ACCESS_KEY=$(printf '%s' "$CANARY_SECRET_ACCESS_KEY" | tr -d '[:space:]')"
+          } >> "$GITHUB_ENV"
 
       - name: Install pnpm
         uses: pnpm/action-setup@v6
