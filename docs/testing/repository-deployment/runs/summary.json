@@ -1,27 +1,27 @@
 {
-  "deployzCommit": "785b715051f30510ab8cc88778a1feba5cbfea09",
+  "deployzCommit": "334f3598c781ffd8584240f65c16e671d4558bd3",
   "total": 120,
   "expectedDeployable": 65,
   "expectedUnsupported": 55,
   "byClass": {
     "runtime-reuse": {
       "total": 120,
-      "pass": 90,
-      "fail": 30
+      "pass": 89,
+      "fail": 31
     }
   },
   "gate": {
     "attempted": 120,
-    "correctAccept": 42,
+    "correctAccept": 41,
     "correctReject": 49,
     "falseAcceptance": 6,
     "falseRejection": 18,
     "configuredReady": 18
   },
   "build": {
-    "attempted": 10,
+    "attempted": 11,
     "succeeded": 10,
-    "failed": 0,
+    "failed": 1,
     "successRateAmongDeployable": 15.4
   },
   "infrastructure": {
@@ -44,23 +44,25 @@
   "trueDeploymentSuccess": 4,
   "trueDeploymentSuccessRate": 6.2,
   "cleanup": {
-    "destroys": 10,
+    "destroys": 11,
     "destroyFailures": 1,
     "leaks": 1,
-    "successRate": 90
+    "successRate": 90.9
   },
   "byClassification": {
     "APPLICATION_ERROR": 1,
+    "BUILD_ERROR": 1,
     "DATABASE_ERROR": 1,
     "ENV_BINDING_ERROR": 1,
     "EXPECTED_UNSUPPORTED": 49,
     "GATE_ERROR": 24,
     "MIGRATION_ERROR": 2,
-    "PASS": 41,
+    "PASS": 40,
     "TEST_HARNESS_ERROR": 1
   },
   "byFailureStage": {
     "APPLICATION_ERROR": 1,
+    "BUILD_ERROR": 1,
     "DATABASE_ERROR": 1,
     "ENV_BINDING_ERROR": 1,
     "EXPECTED_UNSUPPORTED": 49,
@@ -177,7 +179,7 @@
       "deployed": 0,
       "trueDeploymentSuccess": 0,
       "expectedUnsupported": 11,
-      "gateCorrect": 12
+      "gateCorrect": 11
     },
     "unseen2": {
       "total": 20,
@@ -211,7 +213,7 @@
       "deployed": 5,
       "trueDeploymentSuccess": 4,
       "expectedUnsupported": 24,
-      "gateCorrect": 49
+      "gateCorrect": 48
     }
   }
 }

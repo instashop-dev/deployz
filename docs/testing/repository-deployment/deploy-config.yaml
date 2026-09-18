@@ -76,7 +76,7 @@ b3Repos:
 waves:
   wave-1: [repo-008, repo-001, repo-051, repo-004, repo-035, repo-003, repo-007, repo-021, repo-039, repo-016]
   regional-w1: [repo-008, repo-004]
-  regional-w2: [repo-001, repo-090]
+  regional-w2: [repo-001, repo-203]
   regional-w3: [repo-051, repo-092]
   regional-w4: [repo-021, repo-018]
   regional-w5: [repo-026, repo-012]
@@ -274,6 +274,8 @@ repositories:
     deploymentClass: fresh-full
     findings: [DEPLOY-002]
     fork: instashop-dev/pgweb
+    overrides:
+      healthPath: /
     verify: { healthPath: /, appPath: / }
     smoke:
       - { path: /api/info, status: 200, jsonPath: app.version, graceSeconds: 30 }
@@ -283,6 +285,24 @@ repositories:
       - "Go single binary; the Dockerfile ENTRYPOINT binds 0.0.0.0:8081 (EXPOSE 8081). Reads DATABASE_URL (pkg/command/options.go:88, PGWEB_DATABASE_URL first) and connects BEFORE it listens (pkg/cli/cli.go:58-72, --open-retry 0): an unreachable database exits the process. lib/pq honours sslmode=require without CA verification. No migrations, no required env."
       - "No health route exists; the ALB probes / (the SPA). /api/info is allowlisted without a session; /api/databases answers 400 'Not connected' unless the client is connected, so a 200 naming the deployz database proves the PostgreSQL connection (pkg/api/middleware.go:12-29)."
       - "Campaign 2026-09-18: replaces outline (repo-016) in eu-west-1 after outline's floating base image (Node 26) broke its own migrations upstream."
+  - id: repo-203
+    deploymentClass: fresh-full
+    fork: instashop-dev/fider
+    overrides:
+      healthPath: /_health
+    config:
+      - { key: BASE_URL, value: "${DEPLOYZ_APP_URL}" }
+      - { key: EMAIL_NOREPLY, value: "noreply@example.com" }
+      - { key: EMAIL_SMTP_HOST, value: "localhost" }
+      - { key: EMAIL_SMTP_PORT, value: "25" }
+    verify: { healthPath: /_health, appPath: /signup }
+    smoke:
+      - { path: /_health, status: 200, jsonPath: status, graceSeconds: 30, exercises: [postgres] }
+      - { path: /signup, status: 200, bodyIncludes: "Fider", exercises: [postgres] }
+    notes:
+      - "Go server + webpack UI built by the root multi-stage Dockerfile (BuildKit cache mounts; ARG COMMITHASH/VERSION default empty). EXPOSE 3000; CMD `./fider migrate && ./fider` runs the migrations at boot. env.go: DATABASE_URL and JWT_SECRET are required (JWT_SECRET is an internal secret Deployz mints), BASE_URL must be set and parse as a URL, EMAIL_NOREPLY is required and the inferred smtp provider needs EMAIL_SMTP_HOST/PORT (only used when a sign-up e-mail is sent); BLOB_STORAGE defaults to sql, HOST_MODE to single."
+      - "/_health (app/handlers/common.go) runs dbx.Ping() and answers {\"status\":\"Healthy\"} — a 200 proves the PostgreSQL connection. /signup (single-host mode, no tenant yet) dispatches query.GetFirstTenant against the tenants table and renders the sign-up page."
+      - "Campaign 2026-09-18: replaces pgweb (repo-090) in eu-west-1 after pgweb's Dockerfile `COPY .git/ .` failed against the tarball source (DEPLOY-031); pgweb itself replaced outline (repo-016)."
   - id: repo-092
     deploymentClass: fresh-full
     findings: [DEPLOY-002]

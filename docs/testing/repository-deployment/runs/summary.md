@@ -1,34 +1,35 @@
 # Repository deployment audit — run summary
 
-Deployz commit: `785b715051f30510ab8cc88778a1feba5cbfea09`
+Deployz commit: `334f3598c781ffd8584240f65c16e671d4558bd3`
 
 | Metric | Value |
 | --- | --- |
 | Repositories | 120 |
 | Expected deployable | 65 |
 | Expected unsupported | 55 |
-| Gate: correct accept / correct reject | 42 / 49 |
+| Gate: correct accept / correct reject | 41 / 49 |
 | Gate: false acceptance / false rejection | 6 / 18 |
 | Gate: READY with the Stage B configuration | 18 |
-| Build attempted / succeeded / failed | 10 / 10 / 0 |
+| Build attempted / succeeded / failed | 11 / 10 / 1 |
 | Build success among expected deployable | 15.4% |
 | Infrastructure attempted / succeeded / failed | 9 / 5 / 4 |
 | Runtime: ECS running / ALB healthy / HTTPS reachable / application response valid | 5 / 5 / 5 / 4 |
 | Dependencies: PostgreSQL / Redis / storage / migration verified | 4 / 1 / 1 / 1 |
 | **True deployment success / expected deployable** | **4 / 65 (6.2%)** |
-| Cleanup: destroys / failures / leaks / success rate | 10 / 1 / 1 / 90% |
+| Cleanup: destroys / failures / leaks / success rate | 11 / 1 / 1 / 90.9% |
 
 ## By classification
 
 | Classification | Repositories |
 | --- | --- |
 | APPLICATION_ERROR | 1 |
+| BUILD_ERROR | 1 |
 | DATABASE_ERROR | 1 |
 | ENV_BINDING_ERROR | 1 |
 | EXPECTED_UNSUPPORTED | 49 |
 | GATE_ERROR | 24 |
 | MIGRATION_ERROR | 2 |
-| PASS | 41 |
+| PASS | 40 |
 | TEST_HARNESS_ERROR | 1 |
 
 ## By root cause
@@ -68,7 +69,7 @@ Deployz commit: `785b715051f30510ab8cc88778a1feba5cbfea09`
 | Set | Repositories | Expected deployable | Expected unsupported | Gate correct | Deployed | True success |
 | --- | --- | --- | --- | --- | --- | --- |
 | improvement | 80 | 46 | 34 | 64 | 5 | 4 |
-| unseen | 20 | 9 | 11 | 12 | 0 | 0 |
+| unseen | 20 | 9 | 11 | 11 | 0 | 0 |
 | unseen2 | 20 | 10 | 10 | 15 | 0 | 0 |
 
 ## By cohort
@@ -77,13 +78,13 @@ Deployz commit: `785b715051f30510ab8cc88778a1feba5cbfea09`
 | --- | --- | --- | --- | --- | --- | --- |
 | boundary | 24 | 2 | 22 | 20 | 0 | 0 |
 | messy | 27 | 18 | 9 | 22 | 0 | 0 |
-| realistic | 69 | 45 | 24 | 49 | 5 | 4 |
+| realistic | 69 | 45 | 24 | 48 | 5 | 4 |
 
 ## By deployment class
 
 | Class | Repositories | Pass | Fail |
 | --- | --- | --- | --- |
-| runtime-reuse | 120 | 90 | 30 |
+| runtime-reuse | 120 | 89 | 31 |
 
 ## Repositories
 
@@ -178,7 +179,7 @@ Deployz commit: `785b715051f30510ab8cc88778a1feba5cbfea09`
 | repo-087 | TandoorRecipes/recipes@e160cee | realistic | NEEDS_CONFIGURATION | NOT_COMPATIBLE (false-rejection) | NOT_ATTEMPTED | NOT_ATTEMPTED | — | NOT_ATTEMPTED | GATE_ERROR | DEPLOY-003 |
 | repo-088 | netbox-community/netbox@2d519ec | realistic | NOT_COMPATIBLE | NEEDS_CONFIGURATION (false-acceptance) | NOT_ATTEMPTED | NOT_ATTEMPTED | — | NOT_ATTEMPTED | GATE_ERROR | DEPLOY-004 |
 | repo-089 | Stirling-Tools/Stirling-PDF@153da23 | realistic | NOT_COMPATIBLE | NEEDS_CONFIGURATION (false-acceptance) | NOT_ATTEMPTED | NOT_ATTEMPTED | — | NOT_ATTEMPTED | GATE_ERROR | DEPLOY-004 |
-| repo-090 | sosedoff/pgweb@e4858a1 | realistic | READY | NEEDS_CONFIGURATION (correct-accept) | NOT_ATTEMPTED | NOT_ATTEMPTED | — | NOT_ATTEMPTED | PASS | DEPLOY-002 |
+| repo-090 | sosedoff/pgweb@e4858a1 | realistic | READY | — (—) | FAIL | NOT_ATTEMPTED | — | PASS | BUILD_ERROR | DEPLOY-002 |
 | repo-091 | nextcloud/server@132944d | messy | NEEDS_CONFIGURATION | NEEDS_CONFIGURATION (correct-accept) | NOT_ATTEMPTED | NOT_ATTEMPTED | — | NOT_ATTEMPTED | PASS |  |
 | repo-092 | Lissy93/dashy@1d78e14 | messy | READY | NEEDS_CONFIGURATION (correct-accept) | NOT_ATTEMPTED | NOT_ATTEMPTED | — | NOT_ATTEMPTED | PASS | DEPLOY-002 |
 | repo-093 | thelounge/thelounge@9727b2e | messy | NOT_COMPATIBLE | NOT_COMPATIBLE (correct-reject) | NOT_ATTEMPTED | NOT_ATTEMPTED | — | NOT_ATTEMPTED | EXPECTED_UNSUPPORTED / CORRECTLY_UNSUPPORTED |  |
