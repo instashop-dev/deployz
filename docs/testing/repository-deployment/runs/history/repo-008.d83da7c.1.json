@@ -38,7 +38,6 @@
       "BASE_URL"
     ],
     "generatedKeys": [],
-    "deliveredAfterEnrollment": [],
     "detail": null
   },
   "build": {
@@ -110,17 +109,17 @@
   },
   "cleanup": {
     "status": "FAIL",
-    "destroyJobState": "SKIPPED",
-    "purgeJobState": "SKIPPED",
-    "cleanupState": null,
-    "bootstrapStackFinal": "already gone",
+    "destroyJobState": "SUCCEEDED",
+    "purgeJobState": "SUCCEEDED",
+    "cleanupState": "COMPLETE",
+    "bootstrapStackFinal": null,
     "leaks": [
-      "arn:aws:ec2:eu-north-1:151955775369:subnet/subnet-003c9d119cc40c747"
+      "aws resourcegroupstaggingapi get-resources --tag-filters failed: aws: [ERROR]: An error occurred (ValidationException) when calling the CreateOAuth2Token operation: The provided authorization grant is invalid, expired, revoked, or malformed\r\n\r\nAdditional error details:\r\nerror: INVALID_REQUEST"
     ],
-    "retainedState": "SKIPPED",
+    "retainedState": "PASS",
     "purgedState": "PASS",
-    "durationMs": 190117,
-    "detail": "leak audit: 1 resource(s) left"
+    "durationMs": 3670204,
+    "detail": "leftovers: aws cloudformation describe-stacks --stack-name failed: aws: [ERROR]: An error occurred (ValidationException) when calling the CreateOAuth2Token operation: The provided authorization grant is invalid, expired, revoked, or malformed\r\n\r\nAdditional error details:\r\nerror: INVALID_REQUEST | leak audit: 1 resource(s) left"
   },
   "classification": "TEST_HARNESS_ERROR",
   "failureStage": "TEST_HARNESS_ERROR",

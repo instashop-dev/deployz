@@ -1,22 +1,22 @@
 # Repository deployment audit — run summary
 
-Deployz commit: `6cb952bca9843c583ae1c41f529f415722fad81f`
+Deployz commit: `fc9840e5e29ac1d7564a249d8d025806271256e7`
 
 | Metric | Value |
 | --- | --- |
 | Repositories | 120 |
 | Expected deployable | 65 |
 | Expected unsupported | 55 |
-| Gate: correct accept / correct reject | 45 / 49 |
+| Gate: correct accept / correct reject | 44 / 49 |
 | Gate: false acceptance / false rejection | 6 / 18 |
-| Gate: READY with the Stage B configuration | 21 |
+| Gate: READY with the Stage B configuration | 20 |
 | Build attempted / succeeded / failed | 9 / 9 / 0 |
 | Build success among expected deployable | 13.8% |
-| Infrastructure attempted / succeeded / failed | 9 / 5 / 4 |
-| Runtime: ECS running / ALB healthy / HTTPS reachable / application response valid | 5 / 5 / 5 / 4 |
-| Dependencies: PostgreSQL / Redis / storage / migration verified | 4 / 1 / 1 / 1 |
-| **True deployment success / expected deployable** | **4 / 65 (6.2%)** |
-| Cleanup: destroys / failures / leaks / success rate | 9 / 0 / 0 / 100% |
+| Infrastructure attempted / succeeded / failed | 8 / 4 / 4 |
+| Runtime: ECS running / ALB healthy / HTTPS reachable / application response valid | 4 / 4 / 4 / 3 |
+| Dependencies: PostgreSQL / Redis / storage / migration verified | 3 / 1 / 1 / 1 |
+| **True deployment success / expected deployable** | **3 / 65 (4.6%)** |
+| Cleanup: destroys / failures / leaks / success rate | 9 / 1 / 1 / 88.9% |
 
 ## By classification
 
@@ -29,7 +29,8 @@ Deployz commit: `6cb952bca9843c583ae1c41f529f415722fad81f`
 | ENV_BINDING_ERROR | 1 |
 | EXPECTED_UNSUPPORTED | 49 |
 | GATE_ERROR | 24 |
-| PASS | 41 |
+| PASS | 40 |
+| TEST_HARNESS_ERROR | 1 |
 
 ## By root cause
 
@@ -39,7 +40,7 @@ Deployz commit: `6cb952bca9843c583ae1c41f529f415722fad81f`
 | ANALYSIS_MISSING_SIGNAL | 1 |
 | CORRECTLY_UNSUPPORTED | 49 |
 | DEPLOYZ_BUG | 2 |
-| TEST_HARNESS_FAILURE | 1 |
+| TEST_HARNESS_FAILURE | 2 |
 
 ## By finding
 
@@ -65,7 +66,7 @@ Deployz commit: `6cb952bca9843c583ae1c41f529f415722fad81f`
 
 | Set | Repositories | Expected deployable | Expected unsupported | Gate correct | Deployed | True success |
 | --- | --- | --- | --- | --- | --- | --- |
-| improvement | 80 | 46 | 34 | 67 | 5 | 4 |
+| improvement | 80 | 46 | 34 | 66 | 4 | 3 |
 | unseen | 20 | 9 | 11 | 12 | 0 | 0 |
 | unseen2 | 20 | 10 | 10 | 15 | 0 | 0 |
 
@@ -75,13 +76,13 @@ Deployz commit: `6cb952bca9843c583ae1c41f529f415722fad81f`
 | --- | --- | --- | --- | --- | --- | --- |
 | boundary | 24 | 2 | 22 | 20 | 0 | 0 |
 | messy | 27 | 18 | 9 | 22 | 0 | 0 |
-| realistic | 69 | 45 | 24 | 52 | 5 | 4 |
+| realistic | 69 | 45 | 24 | 51 | 4 | 3 |
 
 ## By deployment class
 
 | Class | Repositories | Pass | Fail |
 | --- | --- | --- | --- |
-| runtime-reuse | 120 | 90 | 30 |
+| runtime-reuse | 120 | 89 | 31 |
 
 ## Repositories
 
@@ -94,7 +95,7 @@ Deployz commit: `6cb952bca9843c583ae1c41f529f415722fad81f`
 | repo-005 | Flagsmith/flagsmith@4a8a84a | realistic | NEEDS_CONFIGURATION | NOT_COMPATIBLE (false-rejection) | NOT_ATTEMPTED | NOT_ATTEMPTED | — | NOT_ATTEMPTED | GATE_ERROR | DEPLOY-003 |
 | repo-006 | documenso/documenso@3ec877a | realistic | NEEDS_CONFIGURATION | READY (correct-accept) | NOT_ATTEMPTED | NOT_ATTEMPTED | — | NOT_ATTEMPTED | PASS |  |
 | repo-007 | ghostfolio/ghostfolio@73e4f03 | realistic | NEEDS_CONFIGURATION | — (—) | PASS | PASS | HEALTHY/HEALTHY/https PASS | PASS | PASS | DEPLOY-014 |
-| repo-008 | TwiN/gatus@4d15cb7 | realistic | READY | NEEDS_CONFIGURATION (correct-accept) | PASS | PASS | HEALTHY/HEALTHY/https PASS | PASS | PASS | DEPLOY-002, DEPLOY-006 |
+| repo-008 | TwiN/gatus@4d15cb7 | realistic | READY | — (—) | PASS | NOT_ATTEMPTED | — | FAIL | TEST_HARNESS_ERROR / TEST_HARNESS_FAILURE | DEPLOY-002, DEPLOY-006 |
 | repo-009 | heroku/node-js-getting-started@63c6674 | realistic | NEEDS_CONFIGURATION | NEEDS_CONFIGURATION (correct-accept) | NOT_ATTEMPTED | NOT_ATTEMPTED | — | NOT_ATTEMPTED | PASS |  |
 | repo-010 | knadh/listmonk@670c017 | messy | NEEDS_CONFIGURATION | READY (correct-accept) | NOT_ATTEMPTED | NOT_ATTEMPTED | — | NOT_ATTEMPTED | PASS |  |
 | repo-011 | healthchecks/healthchecks@69dbd2a | messy | NEEDS_CONFIGURATION | READY (correct-accept) | NOT_ATTEMPTED | NOT_ATTEMPTED | — | NOT_ATTEMPTED | PASS |  |

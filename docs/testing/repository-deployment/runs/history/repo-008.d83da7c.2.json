@@ -119,7 +119,7 @@
     ],
     "retainedState": "SKIPPED",
     "purgedState": "PASS",
-    "durationMs": 190117,
+    "durationMs": 83070,
     "detail": "leak audit: 1 resource(s) left"
   },
   "classification": "TEST_HARNESS_ERROR",
