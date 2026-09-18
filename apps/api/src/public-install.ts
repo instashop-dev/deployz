@@ -1,4 +1,4 @@
-import { and, desc, eq, isNull } from 'drizzle-orm';
+import { and, desc, eq, isNull, or } from 'drizzle-orm';
 import { z } from 'zod';
 
 import { generatedEnvKeys } from '@deployz/analysis';
@@ -20,6 +20,7 @@ import { env } from './env.js';
 import { ApiError, NotFoundError } from './errors.js';
 import { recordEvent } from './events.js';
 import { requirePreflightReady, runApplicationPreflight } from './preflight.js';
+import { createReleaseRecord } from './releases.js';
 
 // Public Install Links — the customer-side installation review surface. A
 // link is vendor-published and credential-free: anyone holding the opaque
@@ -454,16 +455,51 @@ function toCreatedView(link: PublicInstallLinkRow) {
   };
 }
 
-/** A link may only be issued for an application with a published release. */
-async function requirePublishedRelease(db: RuntimeDb, applicationId: string): Promise<void> {
-  const release = await newestPublishedRelease(db, applicationId);
-  if (release === null) {
+/**
+ * Ensure at least one deployable release exists for the application before a
+ * public install link is created. If no published release exists, auto-create
+ * one from the analyzed snapshot so the vendor never needs to publish manually.
+ */
+async function ensureInitialRelease(
+  db: RuntimeDb,
+  application: typeof schema.applications.$inferSelect,
+  userId: string,
+): Promise<void> {
+  const existing = await newestPublishedRelease(db, application.id);
+  if (existing !== null) return;
+
+  const sha: string | undefined = (application.detectedMetadata as Record<string, unknown> | null)?.['analysisCommitSha'] as string | undefined;
+  if (typeof sha !== 'string' || sha.length === 0) {
     throw new ApiError(
       422,
       'RELEASE_NOT_PUBLISHED',
-      'This application has no published release yet. Publish a READY release before creating a public install link.',
+      'This application has no published release and its analysis snapshot is missing a commit SHA. Re-analyse the application first.',
     );
   }
+
+  // Idempotency guard: if a release already exists for this commit (by gitSha
+  // or version) don't create a duplicate — the initial snapshot could still
+  // be building, ready, or failed.
+  const duplicate = await db
+    .select({ id: schema.releases.id })
+    .from(schema.releases)
+    .where(
+      and(
+        eq(schema.releases.applicationId, application.id),
+        or(eq(schema.releases.gitSha, sha), eq(schema.releases.version, sha.slice(0, 12))),
+      ),
+    )
+    .limit(1);
+  if (duplicate.length > 0) return;
+
+  await createReleaseRecord(db, {
+    organizationId: application.organizationId,
+    userId,
+    applicationId: application.id,
+    version: sha.slice(0, 12),
+    gitSha: sha,
+    migrationCommand: null,
+  });
 }
 
 export interface PublicInstallLinkActorParams {
@@ -483,7 +519,7 @@ export async function createPublicInstallLink(
   params: { organizationId: string; userId: string; applicationId: string },
 ) {
   const application = await loadOwnedApplication(db, params.applicationId, params.organizationId);
-  await requirePublishedRelease(db, application.id);
+  await ensureInitialRelease(db, application, params.userId);
   try {
     const link = await db.transaction(async (tx) => {
       const [row] = await tx
@@ -588,11 +624,13 @@ export async function revokePublicInstallLink(db: RuntimeDb, params: PublicInsta
 /**
  * POST /api/public-install-links/:id/regenerate — revoke the current link and
  * issue a fresh one (fresh random id) in one transaction. Same gates as
- * create: a published release, and no OTHER live link for the application.
+ * create: a published release or auto-created one, and no OTHER live link for
+ * the application.
  */
 export async function regeneratePublicInstallLink(db: RuntimeDb, params: PublicInstallLinkActorParams) {
   const link = await loadOwnedLink(db, params.linkId, params.organizationId);
-  await requirePublishedRelease(db, link.applicationId);
+  const application = await loadOwnedApplication(db, link.applicationId, params.organizationId);
+  await ensureInitialRelease(db, application, params.userId);
   try {
     const fresh = await db.transaction(async (tx) => {
       if (link.revokedAt === null) {
