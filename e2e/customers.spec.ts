@@ -91,7 +91,7 @@ test('the empty state invites the first customer', async ({ page }) => {
 
   await expect(page.getByRole('heading', { name: 'Customers', exact: true })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Add your first customer' })).toBeVisible();
-  await expect(page.getByRole('link', { name: 'Add customer' })).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Create deployment' })).toBeVisible();
 });
 
 test('a customer row groups name and email, and shows a vendor-friendly deployment status', async ({
@@ -340,4 +340,37 @@ test('the create-deployment flow captures a company and offers the install link 
     .getByRole('row')
     .filter({ hasText: `New Customer ${suffix}` });
   await expect(row.getByText('New Holdings')).toBeVisible();
+});
+
+test('Create deployment from the customer page preselects the customer and reuses their row, never creating a second one', async ({
+  page,
+}) => {
+  await signUp(page);
+  const customer = await seedCustomer(page);
+  const applicationId = await seedApplication(page);
+  await seedDeployment(page, applicationId, customer.id);
+
+  await page.goto(`/dashboard/customers/${customer.id}`);
+  await page.getByRole('link', { name: 'Create deployment' }).click();
+
+  await expect(page.getByRole('heading', { name: 'Create Customer Deployment' })).toBeVisible();
+  const picker = page.getByRole('combobox', { name: 'Customer' });
+  await expect(picker).toHaveText(customer.name);
+  // The existing-customer path hides the new-customer inputs.
+  await expect(page.getByLabel('Customer name')).toHaveCount(0);
+
+  await page.getByRole('button', { name: 'Create Customer Deployment' }).click();
+  await expect(page.getByText('Deployment created')).toBeVisible();
+
+  const customersResponse = await page.request.get(`${API_URL}/api/customers`);
+  expect(customersResponse.ok()).toBeTruthy();
+  const { customers } = (await customersResponse.json()) as { customers: { email: string }[] };
+  expect(customers.filter((c) => c.email === customer.email)).toHaveLength(1);
+
+  const deploymentsResponse = await page.request.get(`${API_URL}/api/deployments`);
+  expect(deploymentsResponse.ok()).toBeTruthy();
+  const { deployments } = (await deploymentsResponse.json()) as {
+    deployments: { customerId: string }[];
+  };
+  expect(deployments.filter((d) => d.customerId === customer.id)).toHaveLength(2);
 });

@@ -144,7 +144,7 @@ export default function CustomersPage() {
         </div>
         {state.status === 'loaded' && customers.length === 0 ? null : (
           <Button asChild size="sm">
-            <Link href="/dashboard/deployments/new">Add customer</Link>
+            <Link href="/dashboard/deployments/new">Create deployment</Link>
           </Button>
         )}
       </div>
@@ -413,7 +413,7 @@ function EmptyState() {
         account.
       </p>
       <Button asChild>
-        <Link href="/dashboard/deployments/new">Add customer</Link>
+        <Link href="/dashboard/deployments/new">Create deployment</Link>
       </Button>
     </section>
   );

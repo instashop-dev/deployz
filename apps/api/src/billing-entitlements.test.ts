@@ -402,6 +402,62 @@ describe('billing entitlements — free evaluation (Paddle migration Phase 7)', 
     expect(blocked.statusCode).toBe(402);
     expect((blocked.json() as { error: { details?: { subscriptionStatus: unknown } } }).error.details?.subscriptionStatus).toBe('CANCELED');
   });
+
+  // Create-deployment flow change: the vendor now picks an existing customer
+  // for a new deployment, so one customer accumulates many deployments. No
+  // schema constraint ties a customer to a single deployment — this proves
+  // the API path agrees.
+  it('10. two PRODUCTION deployments for the same customer both succeed, stay distinct, and both listings agree', async () => {
+    const multiOrg = await signUpAndGetOrg(auth, db, 'multi-deployment-customer@example.com');
+    await setSubscription(db, multiOrg.organizationId, 'ACTIVE');
+    const application = await insertApplication(db, multiOrg.organizationId);
+    const customer = await insertCustomer(db, multiOrg.organizationId);
+
+    const create = (deploymentType: 'PRODUCTION') =>
+      postJson(
+        app,
+        '/api/deployments',
+        { applicationId: application.id, customerId: customer.id, region: 'us-east-1', deploymentType },
+        { cookie: multiOrg.cookie },
+      );
+
+    const first = await create('PRODUCTION');
+    expect(first.statusCode, first.body).toBe(201);
+    const second = await create('PRODUCTION');
+    expect(second.statusCode, second.body).toBe(201);
+
+    const firstBody = first.json() as { id: string; installLinkId: string; enrollmentCode: string; customerId: string };
+    const secondBody = second.json() as { id: string; installLinkId: string; enrollmentCode: string; customerId: string };
+    expect(secondBody.id).not.toBe(firstBody.id);
+    expect(secondBody.installLinkId).not.toBe(firstBody.installLinkId);
+    expect(secondBody.enrollmentCode).not.toBe(firstBody.enrollmentCode);
+    expect(firstBody.customerId).toBe(customer.id);
+    expect(secondBody.customerId).toBe(customer.id);
+
+    // The second create never inserts a duplicate customer row.
+    const customersList = await app.inject({
+      method: 'GET',
+      url: '/api/customers',
+      headers: { cookie: multiOrg.cookie },
+    });
+    expect(customersList.statusCode).toBe(200);
+    const matchingCustomers = (customersList.json() as { customers: Array<{ id: string }> }).customers.filter(
+      (c) => c.id === customer.id,
+    );
+    expect(matchingCustomers).toHaveLength(1);
+
+    // Both deployments appear when the fleet is filtered to this customer.
+    const deploymentsList = await app.inject({
+      method: 'GET',
+      url: `/api/deployments?customerId=${customer.id}`,
+      headers: { cookie: multiOrg.cookie },
+    });
+    expect(deploymentsList.statusCode).toBe(200);
+    const deploymentIds = (deploymentsList.json() as { deployments: Array<{ id: string }> }).deployments.map(
+      (d) => d.id,
+    );
+    expect(deploymentIds).toEqual(expect.arrayContaining([firstBody.id, secondBody.id]));
+  });
 });
 
 // Fix round 1 (ruling R7-1) — billingFixtureMode: CI's simulated E2E suite

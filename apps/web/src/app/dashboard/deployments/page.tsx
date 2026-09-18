@@ -203,7 +203,7 @@ export default function DeploymentsPage() {
             would show the same button twice on one screen. */}
         {state.status === 'empty' ? null : (
           <Button asChild size="sm">
-            <Link href="/dashboard/deployments/new">Deploy customer</Link>
+            <Link href="/dashboard/deployments/new">Create deployment</Link>
           </Button>
         )}
       </div>
