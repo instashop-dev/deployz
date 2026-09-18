@@ -281,6 +281,10 @@ function ReadinessBody({
 
   const requiredFindings = readiness.findings.filter((f) => f.severity === 'required');
   const firstBlockerId = requiredFindings[0]?.id;
+  const hasBlockers =
+    application.analysisStatus === 'COMPLETE' &&
+    requiredFindings.length > 0 &&
+    firstBlockerId !== undefined;
 
   async function handleReanalyse(): Promise<void> {
     setReanalysing(true);
@@ -343,11 +347,25 @@ function ReadinessBody({
       );
     }
 
-    if (requiredFindings.length > 0 && firstBlockerId) {
+    if (hasBlockers) {
       return (
-        <Button asChild data-testid="readiness-review-blocker">
-          <a href={`#readiness-row-${firstBlockerId}`}>Review blocking issue</a>
-        </Button>
+        <>
+          <Button
+            variant="outline"
+            onClick={() => void handleReanalyse()}
+            loading={reanalysing}
+            loadingText="Analyzing application…"
+            data-testid="app-details-reanalyse"
+          >
+            <RefreshCw aria-hidden />
+            Re-analyse application
+          </Button>
+          <Button asChild data-testid="readiness-review-blocker">
+            <a href={`#readiness-row-${firstBlockerId}`}>
+              {requiredFindings.length > 1 ? 'Review issues' : 'Review issue'}
+            </a>
+          </Button>
+        </>
       );
     }
 
@@ -389,7 +407,7 @@ function ReadinessBody({
           className="flex flex-col gap-3 rounded-xl border bg-card p-4 shadow-sm"
           aria-busy={analyzing || undefined}
         >
-          <div className="flex items-start justify-between gap-4">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
             <div className="min-w-0 flex-1">
               <h1
                 className="flex items-center gap-2 text-2xl font-semibold tracking-tight"
@@ -400,25 +418,27 @@ function ReadinessBody({
               </h1>
               <p className="mt-1 text-sm text-muted-foreground">{supportingLine}</p>
             </div>
-            <div className="flex shrink-0 items-center gap-2">{primaryAction}</div>
+            <div className="flex shrink-0 flex-wrap items-center gap-2">{primaryAction}</div>
           </div>
 
           <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
             <span data-testid="readiness-commit">
               Analysed commit {readiness.analyzedCommitSha?.slice(0, 7) ?? '—'}
             </span>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => void handleReanalyse()}
-              loading={reanalysing}
-              loadingText="Analyzing application…"
-              disabled={analyzing}
-              data-testid="app-details-reanalyse"
-            >
-              <RefreshCw className="size-3.5" aria-hidden />
-              Re-analyse
-            </Button>
+            {hasBlockers ? null : (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => void handleReanalyse()}
+                loading={reanalysing}
+                loadingText="Analyzing application…"
+                disabled={analyzing}
+                data-testid="app-details-reanalyse"
+              >
+                <RefreshCw className="size-3.5" aria-hidden />
+                Re-analyse
+              </Button>
+            )}
           </div>
         </div>
       </section>
