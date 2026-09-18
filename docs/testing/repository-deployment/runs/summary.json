@@ -1,5 +1,5 @@
 {
-  "deployzCommit": "76ee976d2a4d2e5c9d71851234648a2601dadaae",
+  "deployzCommit": "fc9840e5e29ac1d7564a249d8d025806271256e7",
   "total": 120,
   "expectedDeployable": 65,
   "expectedUnsupported": 55,
@@ -12,11 +12,11 @@
   },
   "gate": {
     "attempted": 120,
-    "correctAccept": 44,
+    "correctAccept": 43,
     "correctReject": 49,
     "falseAcceptance": 6,
     "falseRejection": 18,
-    "configuredReady": 20
+    "configuredReady": 19
   },
   "build": {
     "attempted": 9,
@@ -52,29 +52,29 @@
   "byClassification": {
     "APPLICATION_ERROR": 1,
     "CONFIG_ERROR": 1,
-    "CONTAINER_START_ERROR": 1,
     "DATABASE_ERROR": 1,
     "ENV_BINDING_ERROR": 1,
     "EXPECTED_UNSUPPORTED": 49,
     "GATE_ERROR": 24,
+    "MIGRATION_ERROR": 1,
     "PASS": 41,
     "TEST_HARNESS_ERROR": 1
   },
   "byFailureStage": {
     "APPLICATION_ERROR": 1,
     "CONFIG_ERROR": 1,
-    "CONTAINER_START_ERROR": 1,
     "DATABASE_ERROR": 1,
     "ENV_BINDING_ERROR": 1,
     "EXPECTED_UNSUPPORTED": 49,
     "GATE_ERROR": 24,
+    "MIGRATION_ERROR": 1,
     "TEST_HARNESS_ERROR": 1
   },
   "byRootCause": {
     "ANALYSIS_BUG": 1,
     "ANALYSIS_MISSING_SIGNAL": 1,
     "CORRECTLY_UNSUPPORTED": 49,
-    "DEPLOYZ_BUG": 2,
+    "DEPLOYZ_BUG": 1,
     "TEST_HARNESS_FAILURE": 2
   },
   "byFinding": {
@@ -172,7 +172,7 @@
       "deployed": 5,
       "trueDeploymentSuccess": 4,
       "expectedUnsupported": 34,
-      "gateCorrect": 66
+      "gateCorrect": 65
     },
     "unseen": {
       "total": 20,
@@ -214,7 +214,7 @@
       "deployed": 5,
       "trueDeploymentSuccess": 4,
       "expectedUnsupported": 24,
-      "gateCorrect": 51
+      "gateCorrect": 50
     }
   }
 }

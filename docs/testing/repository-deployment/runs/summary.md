@@ -1,15 +1,15 @@
 # Repository deployment audit — run summary
 
-Deployz commit: `76ee976d2a4d2e5c9d71851234648a2601dadaae`
+Deployz commit: `fc9840e5e29ac1d7564a249d8d025806271256e7`
 
 | Metric | Value |
 | --- | --- |
 | Repositories | 120 |
 | Expected deployable | 65 |
 | Expected unsupported | 55 |
-| Gate: correct accept / correct reject | 44 / 49 |
+| Gate: correct accept / correct reject | 43 / 49 |
 | Gate: false acceptance / false rejection | 6 / 18 |
-| Gate: READY with the Stage B configuration | 20 |
+| Gate: READY with the Stage B configuration | 19 |
 | Build attempted / succeeded / failed | 9 / 9 / 0 |
 | Build success among expected deployable | 13.8% |
 | Infrastructure attempted / succeeded / failed | 8 / 5 / 3 |
@@ -24,11 +24,11 @@ Deployz commit: `76ee976d2a4d2e5c9d71851234648a2601dadaae`
 | --- | --- |
 | APPLICATION_ERROR | 1 |
 | CONFIG_ERROR | 1 |
-| CONTAINER_START_ERROR | 1 |
 | DATABASE_ERROR | 1 |
 | ENV_BINDING_ERROR | 1 |
 | EXPECTED_UNSUPPORTED | 49 |
 | GATE_ERROR | 24 |
+| MIGRATION_ERROR | 1 |
 | PASS | 41 |
 | TEST_HARNESS_ERROR | 1 |
 
@@ -39,7 +39,7 @@ Deployz commit: `76ee976d2a4d2e5c9d71851234648a2601dadaae`
 | ANALYSIS_BUG | 1 |
 | ANALYSIS_MISSING_SIGNAL | 1 |
 | CORRECTLY_UNSUPPORTED | 49 |
-| DEPLOYZ_BUG | 2 |
+| DEPLOYZ_BUG | 1 |
 | TEST_HARNESS_FAILURE | 2 |
 
 ## By finding
@@ -69,7 +69,7 @@ Deployz commit: `76ee976d2a4d2e5c9d71851234648a2601dadaae`
 
 | Set | Repositories | Expected deployable | Expected unsupported | Gate correct | Deployed | True success |
 | --- | --- | --- | --- | --- | --- | --- |
-| improvement | 80 | 46 | 34 | 66 | 5 | 4 |
+| improvement | 80 | 46 | 34 | 65 | 5 | 4 |
 | unseen | 20 | 9 | 11 | 12 | 0 | 0 |
 | unseen2 | 20 | 10 | 10 | 15 | 0 | 0 |
 
@@ -79,7 +79,7 @@ Deployz commit: `76ee976d2a4d2e5c9d71851234648a2601dadaae`
 | --- | --- | --- | --- | --- | --- | --- |
 | boundary | 24 | 2 | 22 | 20 | 0 | 0 |
 | messy | 27 | 18 | 9 | 22 | 0 | 0 |
-| realistic | 69 | 45 | 24 | 51 | 5 | 4 |
+| realistic | 69 | 45 | 24 | 50 | 5 | 4 |
 
 ## By deployment class
 
@@ -91,7 +91,7 @@ Deployz commit: `76ee976d2a4d2e5c9d71851234648a2601dadaae`
 
 | Id | Repository | Cohort | Expected | Gate | Build | Deploy | Runtime | Cleanup | Result | Findings |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| repo-001 | umami-software/umami@ca661c7 | realistic | READY | NEEDS_CONFIGURATION (correct-accept) | PASS | FAIL | — | PASS | CONTAINER_START_ERROR / DEPLOYZ_BUG | DEPLOY-002, DEPLOY-007 |
+| repo-001 | umami-software/umami@ca661c7 | realistic | READY | — (—) | PASS | FAIL | — | PASS | MIGRATION_ERROR | DEPLOY-002, DEPLOY-007 |
 | repo-002 | Unleash/unleash@0429c29 | realistic | READY | NEEDS_CONFIGURATION (correct-accept) | NOT_ATTEMPTED | NOT_ATTEMPTED | — | NOT_ATTEMPTED | PASS | DEPLOY-002 |
 | repo-003 | thedevs-network/kutt@279b491 | realistic | NEEDS_CONFIGURATION | NEEDS_CONFIGURATION (correct-accept) | PASS | FAIL | — | PASS | DATABASE_ERROR / DEPLOYZ_BUG | DEPLOY-005, DEPLOY-007, DEPLOY-009, DEPLOY-010, DEPLOY-011, DEPLOY-012, DEPLOY-013 |
 | repo-004 | miniflux/v2@a84533d | realistic | NEEDS_CONFIGURATION | — (—) | PASS | PASS | HEALTHY/HEALTHY/https PASS | PASS | PASS | DEPLOY-008, DEPLOY-026, DEPLOY-027, DEPLOY-028 |
