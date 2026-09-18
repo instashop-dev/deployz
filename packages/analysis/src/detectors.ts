@@ -2539,7 +2539,8 @@ const GENERIC_VENDOR_CREDENTIAL_SHAPE =
  * Without this, a `*_PASSWORD` name read as an internal secret and the
  * relay minted a random SMTP password (DEPLOY-013, kutt).
  */
-const MAIL_CREDENTIAL_SHAPE = /^(?:MAIL|SMTP|EMAIL|MAILER)_(?:PASSWORD|PASS|USER(?:NAME)?|API_KEY|TOKEN|SECRET)$/i;
+const MAIL_CREDENTIAL_SHAPE =
+  /^(?:MAIL|SMTP|EMAIL|MAILER)_(?:[A-Z0-9]+_)*(?:PASSWORD|PASS|USER(?:NAME)?|API_KEY|TOKEN|SECRET)$/i;
 
 /**
  * A credential of a resource Deployz provisions (DB_PASSWORD, REDIS_PASSWORD,
@@ -2551,15 +2552,17 @@ const PROVISIONED_CREDENTIAL_SHAPE =
   /^(?:DB|DATABASE|POSTGRES|POSTGRESQL|PG|REDIS|CACHE|VALKEY)_?(?:PASSWORD|PASS|USER(?:NAME)?|SECRET|AUTH)$/i;
 
 /**
- * A provider-prefixed name belongs to that provider's own credential, never
- * an application-internal secret Deployz can mint (DEPLOY-030): outline's
- * AWS_ACCESS_KEY_ID, DROPBOX_APP_KEY, GITHUB_WEBHOOK_SECRET,
- * SLACK_VERIFICATION_TOKEN and OIDC_TOKEN_URI all contain KEY/SECRET/TOKEN
- * and matched no external-credential shape below, so the relay minted
- * garbage values that switched integrations on nobody configured.
+ * A name that carries a provider token as one of its `_`-separated segments
+ * belongs to that provider's own credential, never an application-internal
+ * secret Deployz can mint (DEPLOY-030): outline's AWS_ACCESS_KEY_ID,
+ * DROPBOX_APP_KEY, GITHUB_WEBHOOK_SECRET, SLACK_VERIFICATION_TOKEN and
+ * OIDC_TOKEN_URI, and fider's EMAIL_AWSSES_ACCESS_KEY_ID and
+ * BLOB_STORAGE_S3_ACCESS_KEY_ID, all contain KEY/SECRET/TOKEN and matched no
+ * external-credential shape below, so the relay minted garbage values that
+ * switched integrations on nobody configured.
  */
 const PROVIDER_PREFIX_SHAPE =
-  /^(?:AWS|AMAZON|GCP|GOOGLE|AZURE|GITHUB|GITLAB|BITBUCKET|SLACK|DISCORD|DROPBOX|BOX|OIDC|OAUTH|SAML|OKTA|AUTH0|SENTRY|STRIPE|PAYPAL|TWILIO|SENDGRID|MAILGUN|POSTMARK|SES|S3|CLOUDFLARE|DATADOG|NEWRELIC|OPENAI|ANTHROPIC|LINKEDIN|FACEBOOK|TWITTER|APPLE|MICROSOFT|ZOOM|NOTION|LINEAR|JIRA|ATLASSIAN)_/;
+  /(?:^|_)(?:AWS|AWSSES|AMAZON|GCP|GCS|GOOGLE|AZURE|GITHUB|GITLAB|BITBUCKET|SLACK|DISCORD|DROPBOX|BOX|OIDC|OAUTH|SAML|OKTA|AUTH0|SENTRY|STRIPE|PAYPAL|TWILIO|SENDGRID|MAILGUN|POSTMARK|SES|S3|MINIO|CLOUDFLARE|DATADOG|NEWRELIC|OPENAI|ANTHROPIC|LINKEDIN|FACEBOOK|TWITTER|APPLE|MICROSOFT|ZOOM|NOTION|LINEAR|JIRA|ATLASSIAN)_/;
 
 /**
  * TLS material (a certificate/key pair the vendor supplies together, or not
@@ -2567,7 +2570,8 @@ const PROVIDER_PREFIX_SHAPE =
  * validates `@CannotUseWithout("SSL_CERT")` and exits at boot when only a
  * minted SSL_KEY is set (DEPLOY-030).
  */
-const TLS_MATERIAL_SHAPE = /^(?:SSL|TLS|HTTPS)_(?:KEY|CERT|CERTIFICATE|CA|CA_CERT|PRIVATE_KEY|PUBLIC_KEY)(?:_FILE|_PATH)?$/i;
+const TLS_MATERIAL_SHAPE =
+  /^(?:SSL|TLS|HTTPS)_(?:[A-Z0-9]+_)*(?:KEY|CERT|CERTIFICATE|CA|CA_CERT|PRIVATE_KEY|PUBLIC_KEY)(?:_FILE|_PATH)?$/i;
 
 /** External-credential double-guard: catalog keys, a provider prefix, or a generic vendor-credential name shape. */
 export function isExternalCredentialShape(key: string): boolean {
