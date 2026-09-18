@@ -843,7 +843,10 @@ export function resolveWorkerCommand(tree: FileTree): string | undefined {
 interface ContractFieldUpdates {
   containerPort?: number;
   healthPath?: string;
-  migrationCommand?: string;
+  // Startup mode clears a stale detected command (never a vendor one) —
+  // see the DEPLOY-029 handling below — so this is the one field that can
+  // be explicitly nulled out, not just left absent.
+  migrationCommand?: string | null;
   workerCommand?: string;
   databaseRequired?: boolean;
   storageRequired?: boolean;
@@ -928,16 +931,23 @@ function deriveContractFieldUpdates(
   // carries the evidence — see `analyseRepo`). Persisting a detected
   // package.json migration script as `migrationCommand` there would run it
   // a second time as a pre-deploy step against a command the image was
-  // never built to run standalone (umami: `sh: npx: not found`). Leave the
-  // field unset — never invented — unless the vendor already owns it.
-  if (!vendorOwned.has('migrationCommand') && analysis.metadata['migrationMode'] !== 'startup') {
-    const command = resolveMigrationCommand(tree);
-    if (command) {
-      updates.migrationCommand = command;
-    } else if (aiResolved.includes('migrationCommands')) {
-      const migrationCommands = analysis.metadata['migrationCommands'];
-      if (Array.isArray(migrationCommands) && typeof migrationCommands[0] === 'string') {
-        updates.migrationCommand = migrationCommands[0];
+  // never built to run standalone (umami: `sh: npx: not found`). Never
+  // invented — and a value a PRE-FIX (v19) analysis already invented and
+  // persisted is explicitly cleared on re-analysis, since leaving the
+  // column as-is would keep the relay running it. Only the vendor's own
+  // value is left alone.
+  if (!vendorOwned.has('migrationCommand')) {
+    if (analysis.metadata['migrationMode'] === 'startup') {
+      updates.migrationCommand = null;
+    } else {
+      const command = resolveMigrationCommand(tree);
+      if (command) {
+        updates.migrationCommand = command;
+      } else if (aiResolved.includes('migrationCommands')) {
+        const migrationCommands = analysis.metadata['migrationCommands'];
+        if (Array.isArray(migrationCommands) && typeof migrationCommands[0] === 'string') {
+          updates.migrationCommand = migrationCommands[0];
+        }
       }
     }
   }

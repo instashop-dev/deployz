@@ -1854,8 +1854,13 @@ export interface MigrationStartupEvidence {
 /** A token in Dockerfile CMD/ENTRYPOINT text (or a script it runs) that names a script file. */
 const SCRIPT_PATH_TOKEN_REGEX = /[\w./-]+\.(?:sh|js|mjs|cjs|ts)\b/g;
 
-/** Maximum number of script-to-script hops followed from the CMD/ENTRYPOINT text. */
-const CMD_CHAIN_MAX_DEPTH = 3;
+/**
+ * Maximum number of script-to-script hops followed from the CMD/ENTRYPOINT
+ * text. Exported so `apps/api`'s GitHub tree-fetch boundary can protect the
+ * same chain from the `ANALYSIS_MAX_FILES` trim (DEPLOY-029) — see
+ * `extractCmdScriptPaths` below.
+ */
+export const CMD_CHAIN_MAX_DEPTH = 3;
 
 /**
  * Resolve a script token named in a CMD/ENTRYPOINT (or a script it runs) to
@@ -1872,8 +1877,17 @@ function resolveCmdScriptPath(token: string, tree: FileTree, dockerDir: string):
   return undefined;
 }
 
-/** Every script path named in `text` that resolves to a tree file, not yet visited. */
-function extractCmdScriptPaths(text: string, tree: FileTree, dockerDir: string, visited: Set<string>): string[] {
+/**
+ * Every script path named in `text` that resolves to a tree file, not yet
+ * visited. Exported (alongside `CMD_REGEX`/`ENTRYPOINT_REGEX`/
+ * `CMD_CHAIN_MAX_DEPTH`) so `apps/api`'s GitHub tree-fetch boundary can walk
+ * the identical CMD/ENTRYPOINT chain — with a lazily-fetched `tree` — to
+ * decide which paths must survive the `ANALYSIS_MAX_FILES` trim
+ * (DEPLOY-029): a value passed here only needs a truthy key for each known
+ * path, not real file content, so a caller that hasn't fetched blobs yet can
+ * still use it for path resolution alone.
+ */
+export function extractCmdScriptPaths(text: string, tree: FileTree, dockerDir: string, visited: Set<string>): string[] {
   const found: string[] = [];
   for (const token of text.match(SCRIPT_PATH_TOKEN_REGEX) ?? []) {
     const resolved = resolveCmdScriptPath(token, tree, dockerDir);
@@ -2003,8 +2017,10 @@ export function detectMigrationCommand(tree: FileTree): DetectorFinding {
 // 11. Startup command
 // ---------------------------------------------------------------------------
 
-const CMD_REGEX = /^CMD\s+(.+)$/m;
-const ENTRYPOINT_REGEX = /^ENTRYPOINT\s+(.+)$/m;
+// Exported alongside `extractCmdScriptPaths`/`CMD_CHAIN_MAX_DEPTH` for
+// apps/api's GitHub tree-fetch boundary (DEPLOY-029) — see there.
+export const CMD_REGEX = /^CMD\s+(.+)$/m;
+export const ENTRYPOINT_REGEX = /^ENTRYPOINT\s+(.+)$/m;
 
 /**
  * Detect the application startup command from the selected Dockerfile's

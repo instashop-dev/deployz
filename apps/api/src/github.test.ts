@@ -534,6 +534,51 @@ describe('github — repository tree fetch (§18 analysis input)', () => {
     expect(tree).toHaveProperty('nested/.env.example');
   });
 
+  it("protects the selected Dockerfile's CMD/ENTRYPOINT script chain from the ANALYSIS_MAX_FILES trim on a large repository (DEPLOY-029)", async () => {
+    // An umami-shaped 250-file repository: CMD -> scripts/start-docker.sh
+    // -> scripts/check-db.js. `scripts/` sinks both to the LOWEST relevance
+    // tier (isRuntimeSourcePath treats a `scripts/` segment as non-runtime,
+    // same as tests/fixtures/tools), so 247 ordinary root-tier source files
+    // — the same in-tree-order flood the other cap tests use — would
+    // otherwise fill every slot before either script ever gets a chance.
+    const filler = Array.from({ length: 247 }, (_, i) => ({
+      path: `src/file${i}.ts`,
+      type: 'blob' as const,
+      sha: `sha-filler-${i}`,
+      size: 10,
+    }));
+    const dockerfileContent = ['FROM node:20-alpine', 'WORKDIR /app', 'CMD ["sh", "scripts/start-docker.sh"]', ''].join('\n');
+    const startScriptContent = ['#!/bin/sh', 'node scripts/check-db.js', 'exec node index.js', ''].join('\n');
+    const checkDbContent = "const { execSync } = require('child_process');\nexecSync('prisma migrate deploy');\n";
+    const contentBySha: Record<string, string> = {
+      'sha-dockerfile': dockerfileContent,
+      'sha-start-script': startScriptContent,
+      'sha-check-db': checkDbContent,
+    };
+    const fetchFn: FetchFn = async (url) => {
+      if (url.includes('/git/trees/')) {
+        return makeFetchResponse(200, {
+          tree: [
+            ...filler,
+            { path: 'Dockerfile', type: 'blob', sha: 'sha-dockerfile', size: 60 },
+            { path: 'scripts/start-docker.sh', type: 'blob', sha: 'sha-start-script', size: 40 },
+            { path: 'scripts/check-db.js', type: 'blob', sha: 'sha-check-db', size: 60 },
+          ],
+        });
+      }
+      const sha = url.split('/').pop() ?? '';
+      const content = contentBySha[sha] ?? `content-${sha}`;
+      return makeFetchResponse(200, { content: Buffer.from(content).toString('base64'), encoding: 'base64' });
+    };
+
+    const tree = await buildFileTreeForAnalysis(REF, 'tok', fetchFn);
+
+    expect(Object.keys(tree)).toHaveLength(ANALYSIS_MAX_FILES);
+    expect(tree).toHaveProperty('Dockerfile', dockerfileContent);
+    expect(tree).toHaveProperty('scripts/start-docker.sh', startScriptContent);
+    expect(tree).toHaveProperty('scripts/check-db.js', checkDbContent);
+  });
+
   it('ranks specs, fixtures and tool configs last so application source survives the cap (COMP-018)', async () => {
     // Enough cypress specs and root tool configs to fill the cap on their own,
     // listed BEFORE the application files — a large repository's source must
