@@ -41,6 +41,10 @@ one of `FIXED`, `MVP_CAPABILITY_GAP`, `CORRECTLY_UNSUPPORTED`,
 | DEPLOY-026 | CONTAINER_START_ERROR | DEPLOYZ_BUG | FIXED (PR #307 merged 2026-09-17 21:09Z, main b64f52f; application templates republished 21:2xZ; miniflux attempt 2 delivered `DATABASE_URL`) | every non-Documenso PostgreSQL application installed through the production template since the preset publish; measured on repo-004 (regional campaign wave 1) |
 | DEPLOY-027 | CONTAINER_START_ERROR | DEPLOYZ_BUG | OPEN — product decision (changes the §31 write-only secret model); the campaign harness re-delivers generated secrets after enrollment (PR #309) | every application whose first boot needs a customer-facing secret typed before the relay connects, including the public deploy-link confirm flow; measured on repo-004 attempt 2 (`unboundSecretKeys: [ADMIN_PASSWORD]`); predicted repo-016 (minted `SECRET_KEY` is not 64 hex), repo-021 (`ADMIN_PASSWORD`) |
 | DEPLOY-028 | (cleanup) | TEST_HARNESS_FAILURE | FIXED (PR #306 tag-based retained-secret discovery; PR #308 never removes the connector before `cleanupState` is COMPLETE) | every Stage B ledger whose Disconnect/Purge fails; measured on repo-004 attempt 1 (retained RDS, bucket, secrets, subnet group, security group, subnet and VPC stranded and removed by exact id) |
+| DEPLOY-029 | MIGRATION_ERROR | DEPLOYZ_BUG | FIXED (PR #312 merged 2026-09-18 01:23Z, main ebd0045, ANALYSIS_VERSION 20; umami attempt 2 installed, migrated at boot and passed its smoke contract) | every PostgreSQL application whose image migrates at start, ships a deploy-shaped package.json script and has no npx; measured on repo-001 (regional campaign wave 2) |
+| DEPLOY-030 | CONFIG_ERROR (install) | DEPLOYZ_BUG | FIXED (PR #314 merged 2026-09-18 02:32Z, main 8b3dc5e, ANALYSIS_VERSION 21) | every application with provider-prefixed, TLS or URI-shaped keys (`AWS_*`, `GITHUB_*`, `SLACK_*`, `SSL_KEY`, `*_URI`); measured on repo-016 outline (`generatedKeys` listed six such keys) |
+| DEPLOY-031 | BUILD_ERROR | DEPLOYZ_BUG | FIXED (PR #315 merged 2026-09-18 02:40Z, main c9983cd, ANALYSIS_VERSION 22; the install gate now blocks before any AWS resource) | every Dockerfile that copies `.git` (Go projects that embed `git rev-parse` output); measured on repo-090 pgweb |
+| DEPLOY-032 | CONTAINER_START_ERROR | DEPLOYZ_BUG | FIXED (PR #316 merged 2026-09-18 02:55Z, main 94f5a61, ANALYSIS_VERSION 23; fider attempt 2's model carries `JWT_SECRET` as a minted secret and runtime `go`) | every Go application declaring its configuration through envdecode / caarlos0-env struct tags, and every multi-stage Dockerfile whose final stage is a bare OS image fed by a Go build stage after a Node UI stage; measured on repo-203 fider |
 
 ---
 
@@ -1473,3 +1477,115 @@ id and installation tag; the connector is never removed while an
 installation exists and the product's `cleanupState` is not `COMPLETE`; when
 Disconnect or Purge fails for a run that has an installation, the leftovers
 step is skipped and the ledger stays open for `--cleanup`.
+
+---
+
+## DEPLOY-029 — A package.json deploy script became a pre-deploy `npx …` command for an image that migrates itself at start
+
+**Stage** MIGRATION_ERROR · **Root cause** DEPLOYZ_BUG (analysis + API) ·
+**Resolution** FIXED (PR #312, main ebd0045, deployed 2026-09-18 01:25Z;
+ANALYSIS_VERSION 20) · **Found** regional campaign, wave 2, repo-001 umami
+attempt 1 (2026-09-17 23:58Z, us-east-2, run
+`stage-b-repo-001-20260917-233346-91cd`).
+
+**Behaviour.** `hasPreDeployMigration` won whenever any package.json script was
+deploy-shaped (`update-db: prisma migrate deploy`), so the startup-migration
+detector was never consulted; that detector also read only the selected
+Dockerfile's CMD/ENTRYPOINT text and a fixed list of boot-script names, not
+the script the CMD invokes. `resolveMigrationCommand` then persisted
+`applyNpxPrefix(command)` whatever the mode.
+
+**Effect.** umami's runtime image removes npm and npx on purpose and migrates
+at boot (`scripts/start-docker.sh` → `scripts/check-db.js`). The relay ran the
+invented `npx prisma migrate deploy` as a one-off task: `sh: npx: not found`,
+exit 127, deployment FAILED `MIGRATION_FAILED`. Every PostgreSQL application
+whose image migrates at boot, ships a deploy-shaped package.json script and
+lacks npx failed its first deploy.
+
+**Fix.** The detector follows the CMD/ENTRYPOINT script chain (depth 3, `.sh`,
+`.js`, `.mjs`, `.cjs`, `.ts`); startup evidence from that chain takes
+precedence over a package.json script → mode `startup`; the API persists no
+migration command for mode `startup` (and clears a stale one) unless the
+vendor owns the field; the file-tree builder keeps the CMD-chain scripts above
+the file cap. Verified on real AWS: umami attempt 2 (see the matrix).
+
+---
+
+## DEPLOY-030 — Provider-prefixed, TLS and URI-shaped keys were classified as mintable internal secrets
+
+**Stage** CONFIG (install) · **Root cause** DEPLOYZ_BUG (analysis) ·
+**Resolution** FIXED (PR #314; ANALYSIS_VERSION 21) · **Found** regional
+campaign, wave 2, repo-016 outline (2026-09-18 00:53Z, eu-west-1, run
+`stage-b-repo-016-20260918-003307-3736`).
+
+**Behaviour.** `classifyEnvVarPurpose` called every name containing
+KEY/SECRET/TOKEN an `internal_secret` unless an external-credential shape
+caught it. `AWS_ACCESS_KEY_ID`, `DROPBOX_APP_KEY`, `GITHUB_WEBHOOK_SECRET`,
+`SLACK_VERIFICATION_TOKEN`, `OIDC_TOKEN_URI` and `SSL_KEY` slipped through, and
+the install minted random values for them (`generatedKeys` in the CONFIG_UPDATE
+result).
+
+**Effect.** outline exits at boot when `SSL_KEY` is set without `SSL_CERT`;
+the other values switch on integrations nobody configured. The customer cannot
+see the keys: the review form hides mintable secrets.
+
+**Fix.** A provider-prefixed name is an external credential; TLS material is
+optional configuration; a name ending in `_URI`, `_URL`, `_ENDPOINT` or `_HOST`
+is never a secret. Minting itself is unchanged (DEPLOY-013 still mints kutt's
+optional `JWT_SECRET`). A first attempt that minted only required secrets was
+dropped because it regressed DEPLOY-013.
+
+---
+
+## DEPLOY-031 — A Dockerfile that copies `.git/` is rated READY, then every build fails against the tarball source
+
+**Stage** BUILD_ERROR · **Root cause** DEPLOYZ_BUG (analysis: missing signal)
+· **Resolution** FIXED (PR #315, main c9983cd, deployed 2026-09-18 02:43Z;
+ANALYSIS_VERSION 22) · **Found** regional campaign,
+wave 2 replacement slot, repo-090 pgweb (2026-09-18 01:44Z, eu-west-1, run
+`stage-b-repo-090-20260918-014354-dbad`).
+
+**Behaviour.** The source pipeline fetches the GitHub tarball
+(`packages/cdk/src/pipeline/source-fetch.ts`), which has no `.git`. pgweb's
+Dockerfile runs `COPY .git/ .` so `make build` can embed the commit; the
+analyser does not inspect COPY/ADD sources, so the readiness report said READY.
+
+**Effect.** CodeBuild: `failed to calculate checksum … "/.git": not found`;
+the vendor sees only "The image build did not produce an image". Any Go-style
+Dockerfile that copies `.git` fails the same way with no path inside Deployz.
+
+**Fix.** A Dockerfile detector records `COPY`/`ADD` sources that name
+`.git` or a path inside it (any stage, `--from=` copies and `.gitignore`-style
+lookalikes excluded); the readiness report adds the blocking finding
+`build-context-git-metadata` with the fix text; the manifest carries an
+unsupported reason so the install gate blocks before any AWS resource.
+Shipping `.git` in the archive is a product decision (source-fetch
+architecture), not implemented here.
+
+---
+
+## DEPLOY-032 — Go struct-tag environment declarations were invisible and a Go server with a JavaScript UI stage was rated Node
+
+**Stage** CONTAINER_START_ERROR · **Root cause** DEPLOYZ_BUG (analysis: two
+missing signals) · **Resolution** FIXED (PR #316; ANALYSIS_VERSION 23) ·
+**Found** regional campaign, wave 2 replacement slot, repo-203 fider
+(2026-09-18 02:12Z, eu-west-1, run `stage-b-repo-203-20260918-015205`).
+
+**Behaviour.** fider declares its configuration as envdecode struct tags
+(`env:"JWT_SECRET,required"`, `env:"EMAIL_NOREPLY,required"`, …). The Go
+scanner read only `os.Getenv` and `envconfig:"…"` tags, so the manifest had
+no env model at all. The runtime detector walked the Dockerfile's FROM
+images from the last stage backwards and stopped at the `node` UI-build
+stage because the final stage is a bare `debian` image.
+
+**Effect.** `JWT_SECRET` was never minted; the container panicked at boot
+(`the environment variable "JWT_SECRET" is missing`); deployment FAILED
+`CONTAINER_START_FAILED`. Nothing in the readiness report told the vendor to
+declare the secret.
+
+**Fix.** `scanGoEnvReads` reads `env:"KEY[,required][,default=…]"` tags (a
+sibling `envDefault:"…"` tag also makes the value optional). When the final
+stage's base image has no runtime, `detectRuntime` resolves it through the
+final stage's `COPY --from=` references, preferring the stage that supplies
+the CMD/ENTRYPOINT executable; line-continued COPY instructions are joined.
+Verified on real AWS: fider attempt 2 (see the matrix).
