@@ -1,6 +1,6 @@
 # Repository deployment audit — run summary
 
-Deployz commit: `334f3598c781ffd8584240f65c16e671d4558bd3`
+Deployz commit: `a18537540a0029f41f4e50deed9945945a45842e`
 
 | Metric | Value |
 | --- | --- |
@@ -12,10 +12,10 @@ Deployz commit: `334f3598c781ffd8584240f65c16e671d4558bd3`
 | Gate: READY with the Stage B configuration | 17 |
 | Build attempted / succeeded / failed | 12 / 11 / 1 |
 | Build success among expected deployable | 16.9% |
-| Infrastructure attempted / succeeded / failed | 11 / 6 / 5 |
-| Runtime: ECS running / ALB healthy / HTTPS reachable / application response valid | 6 / 6 / 6 / 5 |
-| Dependencies: PostgreSQL / Redis / storage / migration verified | 5 / 1 / 1 / 1 |
-| **True deployment success / expected deployable** | **5 / 65 (7.7%)** |
+| Infrastructure attempted / succeeded / failed | 11 / 7 / 4 |
+| Runtime: ECS running / ALB healthy / HTTPS reachable / application response valid | 7 / 7 / 7 / 6 |
+| Dependencies: PostgreSQL / Redis / storage / migration verified | 6 / 2 / 1 / 1 |
+| **True deployment success / expected deployable** | **6 / 65 (9.2%)** |
 | Cleanup: destroys / failures / leaks / success rate | 12 / 0 / 0 / 100% |
 
 ## By classification
@@ -28,8 +28,8 @@ Deployz commit: `334f3598c781ffd8584240f65c16e671d4558bd3`
 | ENV_BINDING_ERROR | 2 |
 | EXPECTED_UNSUPPORTED | 49 |
 | GATE_ERROR | 24 |
-| MIGRATION_ERROR | 2 |
-| PASS | 40 |
+| MIGRATION_ERROR | 1 |
+| PASS | 41 |
 
 ## By root cause
 
@@ -67,7 +67,7 @@ Deployz commit: `334f3598c781ffd8584240f65c16e671d4558bd3`
 
 | Set | Repositories | Expected deployable | Expected unsupported | Gate correct | Deployed | True success |
 | --- | --- | --- | --- | --- | --- | --- |
-| improvement | 80 | 46 | 34 | 64 | 6 | 5 |
+| improvement | 80 | 46 | 34 | 64 | 7 | 6 |
 | unseen | 20 | 9 | 11 | 11 | 0 | 0 |
 | unseen2 | 20 | 10 | 10 | 14 | 0 | 0 |
 
@@ -77,19 +77,19 @@ Deployz commit: `334f3598c781ffd8584240f65c16e671d4558bd3`
 | --- | --- | --- | --- | --- | --- | --- |
 | boundary | 24 | 2 | 22 | 20 | 0 | 0 |
 | messy | 27 | 18 | 9 | 22 | 0 | 0 |
-| realistic | 69 | 45 | 24 | 47 | 6 | 5 |
+| realistic | 69 | 45 | 24 | 47 | 7 | 6 |
 
 ## By deployment class
 
 | Class | Repositories | Pass | Fail |
 | --- | --- | --- | --- |
-| runtime-reuse | 120 | 89 | 31 |
+| runtime-reuse | 120 | 90 | 30 |
 
 ## Repositories
 
 | Id | Repository | Cohort | Expected | Gate | Build | Deploy | Runtime | Cleanup | Result | Findings |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| repo-001 | umami-software/umami@ca661c7 | realistic | READY | — (—) | PASS | FAIL | — | PASS | MIGRATION_ERROR | DEPLOY-002, DEPLOY-007 |
+| repo-001 | umami-software/umami@ca661c7 | realistic | READY | — (—) | PASS | PASS | HEALTHY/HEALTHY/https PASS | PASS | PASS | DEPLOY-002, DEPLOY-007 |
 | repo-002 | Unleash/unleash@0429c29 | realistic | READY | NEEDS_CONFIGURATION (correct-accept) | NOT_ATTEMPTED | NOT_ATTEMPTED | — | NOT_ATTEMPTED | PASS | DEPLOY-002 |
 | repo-003 | thedevs-network/kutt@279b491 | realistic | NEEDS_CONFIGURATION | NEEDS_CONFIGURATION (correct-accept) | PASS | FAIL | — | PASS | DATABASE_ERROR / DEPLOYZ_BUG | DEPLOY-005, DEPLOY-007, DEPLOY-009, DEPLOY-010, DEPLOY-011, DEPLOY-012, DEPLOY-013 |
 | repo-004 | miniflux/v2@a84533d | realistic | NEEDS_CONFIGURATION | — (—) | PASS | PASS | HEALTHY/HEALTHY/https PASS | PASS | PASS | DEPLOY-008, DEPLOY-026, DEPLOY-027, DEPLOY-028 |

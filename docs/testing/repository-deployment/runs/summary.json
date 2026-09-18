@@ -1,13 +1,13 @@
 {
-  "deployzCommit": "334f3598c781ffd8584240f65c16e671d4558bd3",
+  "deployzCommit": "a18537540a0029f41f4e50deed9945945a45842e",
   "total": 120,
   "expectedDeployable": 65,
   "expectedUnsupported": 55,
   "byClass": {
     "runtime-reuse": {
       "total": 120,
-      "pass": 89,
-      "fail": 31
+      "pass": 90,
+      "fail": 30
     }
   },
   "gate": {
@@ -26,23 +26,23 @@
   },
   "infrastructure": {
     "attempted": 11,
-    "succeeded": 6,
-    "failed": 5
+    "succeeded": 7,
+    "failed": 4
   },
   "runtime": {
-    "ecsRunning": 6,
-    "albHealthy": 6,
-    "httpsReachable": 6,
-    "applicationResponseValid": 5
+    "ecsRunning": 7,
+    "albHealthy": 7,
+    "httpsReachable": 7,
+    "applicationResponseValid": 6
   },
   "dependencies": {
-    "postgres": 5,
-    "redis": 1,
+    "postgres": 6,
+    "redis": 2,
     "storage": 1,
     "migration": 1
   },
-  "trueDeploymentSuccess": 5,
-  "trueDeploymentSuccessRate": 7.7,
+  "trueDeploymentSuccess": 6,
+  "trueDeploymentSuccessRate": 9.2,
   "cleanup": {
     "destroys": 12,
     "destroyFailures": 0,
@@ -56,8 +56,8 @@
     "ENV_BINDING_ERROR": 2,
     "EXPECTED_UNSUPPORTED": 49,
     "GATE_ERROR": 24,
-    "MIGRATION_ERROR": 2,
-    "PASS": 40
+    "MIGRATION_ERROR": 1,
+    "PASS": 41
   },
   "byFailureStage": {
     "APPLICATION_ERROR": 1,
@@ -66,7 +66,7 @@
     "ENV_BINDING_ERROR": 2,
     "EXPECTED_UNSUPPORTED": 49,
     "GATE_ERROR": 24,
-    "MIGRATION_ERROR": 2
+    "MIGRATION_ERROR": 1
   },
   "byRootCause": {
     "ANALYSIS_MISSING_SIGNAL": 1,
@@ -166,8 +166,8 @@
     "improvement": {
       "total": 80,
       "expectedDeployable": 46,
-      "deployed": 6,
-      "trueDeploymentSuccess": 5,
+      "deployed": 7,
+      "trueDeploymentSuccess": 6,
       "expectedUnsupported": 34,
       "gateCorrect": 64
     },
@@ -208,8 +208,8 @@
     "realistic": {
       "total": 69,
       "expectedDeployable": 45,
-      "deployed": 6,
-      "trueDeploymentSuccess": 5,
+      "deployed": 7,
+      "trueDeploymentSuccess": 6,
       "expectedUnsupported": 24,
       "gateCorrect": 47
     }
