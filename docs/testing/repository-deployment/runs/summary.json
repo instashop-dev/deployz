@@ -1,5 +1,5 @@
 {
-  "deployzCommit": "fc9840e5e29ac1d7564a249d8d025806271256e7",
+  "deployzCommit": "785b715051f30510ab8cc88778a1feba5cbfea09",
   "total": 120,
   "expectedDeployable": 65,
   "expectedUnsupported": 55,
@@ -12,22 +12,22 @@
   },
   "gate": {
     "attempted": 120,
-    "correctAccept": 43,
+    "correctAccept": 42,
     "correctReject": 49,
     "falseAcceptance": 6,
     "falseRejection": 18,
-    "configuredReady": 19
+    "configuredReady": 18
   },
   "build": {
-    "attempted": 9,
-    "succeeded": 9,
+    "attempted": 10,
+    "succeeded": 10,
     "failed": 0,
-    "successRateAmongDeployable": 13.8
+    "successRateAmongDeployable": 15.4
   },
   "infrastructure": {
-    "attempted": 8,
+    "attempted": 9,
     "succeeded": 5,
-    "failed": 3
+    "failed": 4
   },
   "runtime": {
     "ecsRunning": 5,
@@ -44,34 +44,31 @@
   "trueDeploymentSuccess": 4,
   "trueDeploymentSuccessRate": 6.2,
   "cleanup": {
-    "destroys": 9,
+    "destroys": 10,
     "destroyFailures": 1,
     "leaks": 1,
-    "successRate": 88.9
+    "successRate": 90
   },
   "byClassification": {
     "APPLICATION_ERROR": 1,
-    "CONFIG_ERROR": 1,
     "DATABASE_ERROR": 1,
     "ENV_BINDING_ERROR": 1,
     "EXPECTED_UNSUPPORTED": 49,
     "GATE_ERROR": 24,
-    "MIGRATION_ERROR": 1,
+    "MIGRATION_ERROR": 2,
     "PASS": 41,
     "TEST_HARNESS_ERROR": 1
   },
   "byFailureStage": {
     "APPLICATION_ERROR": 1,
-    "CONFIG_ERROR": 1,
     "DATABASE_ERROR": 1,
     "ENV_BINDING_ERROR": 1,
     "EXPECTED_UNSUPPORTED": 49,
     "GATE_ERROR": 24,
-    "MIGRATION_ERROR": 1,
+    "MIGRATION_ERROR": 2,
     "TEST_HARNESS_ERROR": 1
   },
   "byRootCause": {
-    "ANALYSIS_BUG": 1,
     "ANALYSIS_MISSING_SIGNAL": 1,
     "CORRECTLY_UNSUPPORTED": 49,
     "DEPLOYZ_BUG": 1,
@@ -172,7 +169,7 @@
       "deployed": 5,
       "trueDeploymentSuccess": 4,
       "expectedUnsupported": 34,
-      "gateCorrect": 65
+      "gateCorrect": 64
     },
     "unseen": {
       "total": 20,
@@ -214,7 +211,7 @@
       "deployed": 5,
       "trueDeploymentSuccess": 4,
       "expectedUnsupported": 24,
-      "gateCorrect": 50
+      "gateCorrect": 49
     }
   }
 }

@@ -1,34 +1,33 @@
 # Repository deployment audit — run summary
 
-Deployz commit: `fc9840e5e29ac1d7564a249d8d025806271256e7`
+Deployz commit: `785b715051f30510ab8cc88778a1feba5cbfea09`
 
 | Metric | Value |
 | --- | --- |
 | Repositories | 120 |
 | Expected deployable | 65 |
 | Expected unsupported | 55 |
-| Gate: correct accept / correct reject | 43 / 49 |
+| Gate: correct accept / correct reject | 42 / 49 |
 | Gate: false acceptance / false rejection | 6 / 18 |
-| Gate: READY with the Stage B configuration | 19 |
-| Build attempted / succeeded / failed | 9 / 9 / 0 |
-| Build success among expected deployable | 13.8% |
-| Infrastructure attempted / succeeded / failed | 8 / 5 / 3 |
+| Gate: READY with the Stage B configuration | 18 |
+| Build attempted / succeeded / failed | 10 / 10 / 0 |
+| Build success among expected deployable | 15.4% |
+| Infrastructure attempted / succeeded / failed | 9 / 5 / 4 |
 | Runtime: ECS running / ALB healthy / HTTPS reachable / application response valid | 5 / 5 / 5 / 4 |
 | Dependencies: PostgreSQL / Redis / storage / migration verified | 4 / 1 / 1 / 1 |
 | **True deployment success / expected deployable** | **4 / 65 (6.2%)** |
-| Cleanup: destroys / failures / leaks / success rate | 9 / 1 / 1 / 88.9% |
+| Cleanup: destroys / failures / leaks / success rate | 10 / 1 / 1 / 90% |
 
 ## By classification
 
 | Classification | Repositories |
 | --- | --- |
 | APPLICATION_ERROR | 1 |
-| CONFIG_ERROR | 1 |
 | DATABASE_ERROR | 1 |
 | ENV_BINDING_ERROR | 1 |
 | EXPECTED_UNSUPPORTED | 49 |
 | GATE_ERROR | 24 |
-| MIGRATION_ERROR | 1 |
+| MIGRATION_ERROR | 2 |
 | PASS | 41 |
 | TEST_HARNESS_ERROR | 1 |
 
@@ -36,7 +35,6 @@ Deployz commit: `fc9840e5e29ac1d7564a249d8d025806271256e7`
 
 | Root cause | Repositories |
 | --- | --- |
-| ANALYSIS_BUG | 1 |
 | ANALYSIS_MISSING_SIGNAL | 1 |
 | CORRECTLY_UNSUPPORTED | 49 |
 | DEPLOYZ_BUG | 1 |
@@ -69,7 +67,7 @@ Deployz commit: `fc9840e5e29ac1d7564a249d8d025806271256e7`
 
 | Set | Repositories | Expected deployable | Expected unsupported | Gate correct | Deployed | True success |
 | --- | --- | --- | --- | --- | --- | --- |
-| improvement | 80 | 46 | 34 | 65 | 5 | 4 |
+| improvement | 80 | 46 | 34 | 64 | 5 | 4 |
 | unseen | 20 | 9 | 11 | 12 | 0 | 0 |
 | unseen2 | 20 | 10 | 10 | 15 | 0 | 0 |
 
@@ -79,7 +77,7 @@ Deployz commit: `fc9840e5e29ac1d7564a249d8d025806271256e7`
 | --- | --- | --- | --- | --- | --- | --- |
 | boundary | 24 | 2 | 22 | 20 | 0 | 0 |
 | messy | 27 | 18 | 9 | 22 | 0 | 0 |
-| realistic | 69 | 45 | 24 | 50 | 5 | 4 |
+| realistic | 69 | 45 | 24 | 49 | 5 | 4 |
 
 ## By deployment class
 
@@ -106,7 +104,7 @@ Deployz commit: `fc9840e5e29ac1d7564a249d8d025806271256e7`
 | repo-013 | louislam/uptime-kuma@5df2a3c | boundary | NOT_COMPATIBLE | NOT_COMPATIBLE (correct-reject) | NOT_ATTEMPTED | NOT_ATTEMPTED | — | NOT_ATTEMPTED | EXPECTED_UNSUPPORTED / CORRECTLY_UNSUPPORTED |  |
 | repo-014 | automatisch/automatisch@41f3c56 | boundary | NOT_COMPATIBLE | NOT_COMPATIBLE (correct-reject) | NOT_ATTEMPTED | NOT_ATTEMPTED | — | NOT_ATTEMPTED | EXPECTED_UNSUPPORTED / CORRECTLY_UNSUPPORTED |  |
 | repo-015 | immich-app/immich@6d85f20 | boundary | NOT_COMPATIBLE | NOT_COMPATIBLE (correct-reject) | NOT_ATTEMPTED | NOT_ATTEMPTED | — | NOT_ATTEMPTED | EXPECTED_UNSUPPORTED / CORRECTLY_UNSUPPORTED |  |
-| repo-016 | outline/outline@0121886 | realistic | NEEDS_CONFIGURATION | READY (correct-accept) | NOT_ATTEMPTED | NOT_ATTEMPTED | — | NOT_REQUIRED | CONFIG_ERROR / ANALYSIS_BUG | DEPLOY-005 |
+| repo-016 | outline/outline@0121886 | realistic | NEEDS_CONFIGURATION | — (—) | PASS | FAIL | — | PASS | MIGRATION_ERROR | DEPLOY-005 |
 | repo-017 | lukevella/rallly@d374ed4 | realistic | NEEDS_CONFIGURATION | NEEDS_CONFIGURATION (correct-accept) | NOT_ATTEMPTED | NOT_ATTEMPTED | — | NOT_ATTEMPTED | PASS |  |
 | repo-018 | docmost/docmost@5b85464 | realistic | NEEDS_CONFIGURATION | NEEDS_CONFIGURATION (correct-accept) | NOT_ATTEMPTED | NOT_ATTEMPTED | — | NOT_ATTEMPTED | PASS |  |
 | repo-019 | linkwarden/linkwarden@789aa2b | realistic | NEEDS_CONFIGURATION | NEEDS_CONFIGURATION (correct-accept) | NOT_ATTEMPTED | NOT_ATTEMPTED | — | NOT_ATTEMPTED | PASS |  |
