@@ -1,17 +1,17 @@
 {
   "schemaVersion": 1,
-  "id": "repo-008",
-  "repository": "TwiN/gatus",
-  "commit": "4d15cb7eed6225ac0b03da3d2ab50c424b81c34c",
+  "id": "repo-203",
+  "repository": "getfider/fider",
+  "commit": "f164f69172002aba6296980c27160a196191dbd6",
   "repositoryForm": "fork",
-  "repositoryUsed": "instashop-dev/gatus",
-  "set": "improvement",
+  "repositoryUsed": "instashop-dev/fider",
+  "set": "unseen2",
   "cohort": "realistic",
   "customerRealism": "high",
-  "difficulty": 1,
-  "deployzCommit": "954b95ce388a67fdf1b21496e7c23bdd6bf9484b",
-  "runId": "stage-b-repo-008-20260918-004854-5330",
-  "stageAExpected": "READY",
+  "difficulty": 2,
+  "deployzCommit": "afe28de66d08900bc343746d45b7e5f80e79a7fa",
+  "runId": "stage-b-repo-203-20260918-040027-d07c",
+  "stageAExpected": "NEEDS_CONFIGURATION",
   "expectedDeployable": true,
   "mode": "deploy",
   "deploymentClass": "runtime-reuse",
@@ -33,9 +33,14 @@
   },
   "configuration": {
     "status": "PASS",
-    "overrides": {},
+    "overrides": {
+      "healthPath": "/_health"
+    },
     "keys": [
-      "BASE_URL"
+      "BASE_URL",
+      "EMAIL_NOREPLY",
+      "EMAIL_SMTP_HOST",
+      "EMAIL_SMTP_PORT"
     ],
     "generatedKeys": [],
     "deliveredAfterEnrollment": [],
@@ -43,23 +48,23 @@
   },
   "build": {
     "status": "PASS",
-    "releaseId": "29a6b0b0-b24e-4981-9148-c3324800ccdb",
-    "version": "repo-008-20260918-004854-5330",
-    "gitSha": "4d15cb7eed6225ac0b03da3d2ab50c424b81c34c",
+    "releaseId": "c6da16ea-08af-44c0-bb9c-ea576085758c",
+    "version": "repo-203-20260918-040027-d07c",
+    "gitSha": "f164f69172002aba6296980c27160a196191dbd6",
     "dockerfilePath": "Dockerfile",
     "buildContext": null,
-    "imageDigest": "sha256:4b71d650fccef776100b42b2bf455f00a389b24964f44a203a5421e387722adc",
+    "imageDigest": "sha256:79909b3e6ec9650ed84a6540051d7103612feb8b5adbf56e3a45d9cdccf49713",
     "buildId": null,
-    "durationMs": 104428,
+    "durationMs": 146252,
     "imageReused": false,
     "detail": null
   },
   "deployment": {
     "status": "PASS",
-    "deploymentId": "9cde07fe-4d7e-49ac-846a-a12047aabd5c",
-    "installationId": "ce259d65-dd46-4b6d-a614-aed6a19dfa2e",
-    "bootstrapStack": "deployz-bootstrap-stage-b-repo-008-9cde07fe",
-    "applicationStack": "deployz-app-ce259d65",
+    "deploymentId": "fbcc3498-4c39-4674-8e0d-f8cb8eb938a1",
+    "installationId": "cc7cfe69-a438-4b06-ac3f-be65f892709f",
+    "bootstrapStack": "deployz-bootstrap-stage-b-repo-203-fbcc3498",
+    "applicationStack": "deployz-app-cc7cfe69",
     "stackStatus": "CREATE_COMPLETE",
     "templateSource": "production-default",
     "templateUrl": null,
@@ -96,8 +101,8 @@
       "AWS::EC2::NatGateway": 1,
       "AWS::EC2::VPCGatewayAttachment": 1
     },
-    "region": "eu-north-1",
-    "durationMs": 1377197,
+    "region": "eu-west-1",
+    "durationMs": 1349361,
     "detail": null
   },
   "inventory": {
@@ -152,25 +157,29 @@
     "ecs": "HEALTHY",
     "alb": "HEALTHY",
     "https": "PASS",
-    "healthPath": "/health",
+    "healthPath": "/_health",
     "healthPathSource": "stage-b",
-    "appUrl": "https://d-9cde07fe-4d7e-49ac-846a-a12047aabd5c.deployz.dev",
-    "runningImageDigest": "sha256:4b71d650fccef776100b42b2bf455f00a389b24964f44a203a5421e387722adc",
+    "appUrl": "https://d-fbcc3498-4c39-4674-8e0d-f8cb8eb938a1.deployz.dev",
+    "runningImageDigest": "sha256:79909b3e6ec9650ed84a6540051d7103612feb8b5adbf56e3a45d9cdccf49713",
     "releaseServing": true,
     "smoke": [
       {
-        "path": "/health",
+        "path": "/_health",
         "status": 200,
         "ok": true,
         "detail": "ok",
-        "exercises": []
+        "exercises": [
+          "postgres"
+        ]
       },
       {
-        "path": "/",
+        "path": "/signup",
         "status": 200,
         "ok": true,
         "detail": "ok",
-        "exercises": []
+        "exercises": [
+          "postgres"
+        ]
       }
     ],
     "observation": {
@@ -219,29 +228,28 @@
     "detail": null
   },
   "cleanup": {
-    "status": "PASS",
+    "status": "FAIL",
     "destroyJobState": "SUCCEEDED",
-    "purgeJobState": "SUCCEEDED",
-    "cleanupState": "COMPLETE",
-    "bootstrapStackFinal": "DELETE_COMPLETE",
-    "leaks": [],
-    "retainedState": "PASS",
-    "purgedState": "PASS",
-    "durationMs": 2760551,
-    "detail": null
+    "purgeJobState": null,
+    "cleanupState": null,
+    "bootstrapStackFinal": "SKIPPED: purge not complete",
+    "leaks": [
+      "aws resourcegroupstaggingapi get-resources --tag-filters failed: aws: [ERROR]: Your session has expired. Please reauthenticate using 'aws login'."
+    ],
+    "retainedState": "FAIL",
+    "purgedState": "NOT_ATTEMPTED",
+    "durationMs": 2779671,
+    "detail": "destroy/purge: aws cloudformation describe-stacks --stack-name failed: aws: [ERROR]: Your session has expired. Please reauthenticate using 'aws login'. | leak audit: 1 resource(s) left"
   },
-  "classification": "PASS",
-  "failureStage": null,
+  "classification": "CLEANUP_LEAK",
+  "failureStage": "CLEANUP_LEAK",
   "rootCause": null,
-  "rootCauseEvidence": null,
-  "findingIds": [
-    "DEPLOY-002",
-    "DEPLOY-006"
-  ],
+  "rootCauseEvidence": "destroy/purge: aws cloudformation describe-stacks --stack-name failed: aws: [ERROR]: Your session has expired. Please reauthenticate using 'aws login'. | leak audit: 1 resource(s) left — decide DEPLOYZ_BUG vs AWS_TRANSIENT_FAILURE",
+  "findingIds": [],
   "timing": {
-    "startedAt": "2026-09-18T00:48:54.613Z",
-    "finishedAt": "2026-09-18T01:33:34.473Z",
-    "totalMs": 2679860
+    "startedAt": "2026-09-18T04:00:28.387Z",
+    "finishedAt": "2026-09-18T04:45:01.032Z",
+    "totalMs": 2672645
   },
   "evidence": {}
 }

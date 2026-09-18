@@ -9,14 +9,14 @@
   "cohort": "realistic",
   "customerRealism": "medium",
   "difficulty": 2,
-  "deployzCommit": "334f3598c781ffd8584240f65c16e671d4558bd3",
-  "runId": "stage-b-repo-090-20260918-014354-dbad",
+  "deployzCommit": "981d487505fc5142d9d9b161e21467f780ae3e3f",
+  "runId": "stage-b-repo-090-20260918-014159-f3ab",
   "stageAExpected": "READY",
   "expectedDeployable": true,
   "mode": "deploy",
   "deploymentClass": "runtime-reuse",
   "gate": {
-    "status": "PASS",
+    "status": "NOT_ATTEMPTED",
     "verdict": null,
     "analysisVerdict": null,
     "outcome": null,
@@ -32,27 +32,25 @@
     "detail": null
   },
   "configuration": {
-    "status": "PASS",
-    "overrides": {
-      "healthPath": "/"
-    },
+    "status": "FAIL",
+    "overrides": {},
     "keys": [],
     "generatedKeys": [],
     "deliveredAfterEnrollment": [],
-    "detail": null
+    "detail": "the control plane's gate still needs configuration: health-path-required: No health check route or container health check was found, so Deployz does not know when the app is ready. Expose a health route (for example /health) or add a container health check before deploying."
   },
   "build": {
-    "status": "FAIL",
-    "releaseId": "164e0d45-5df6-4221-929f-9fb8fc6465b8",
-    "version": "repo-090-20260918-014354-dbad",
-    "gitSha": "e4858a16d8e032730055289596ea9059a91bca64",
-    "dockerfilePath": "Dockerfile",
+    "status": "NOT_ATTEMPTED",
+    "releaseId": null,
+    "version": null,
+    "gitSha": null,
+    "dockerfilePath": null,
     "buildContext": null,
     "imageDigest": null,
     "buildId": null,
-    "durationMs": 42366,
+    "durationMs": null,
     "imageReused": false,
-    "detail": "release build FAILED: CodeBuild reported FAILED — BUILD: COMMAND_EXECUTION_ERROR: Error while executing command: if [ \"$(cat /tmp/deployz-build-outcome 2>/dev/null)\" != ok ]; then echo \"The image build did not produce an image\" >&2; exit 1; fi. Reason: exit status 1"
+    "detail": null
   },
   "deployment": {
     "status": "NOT_ATTEMPTED",
@@ -109,7 +107,7 @@
     "detail": null
   },
   "cleanup": {
-    "status": "PASS",
+    "status": "NOT_REQUIRED",
     "destroyJobState": null,
     "purgeJobState": null,
     "cleanupState": null,
@@ -117,25 +115,25 @@
     "leaks": [],
     "retainedState": "NOT_ATTEMPTED",
     "purgedState": "NOT_ATTEMPTED",
-    "durationMs": 44572,
-    "detail": null
+    "durationMs": null,
+    "detail": "no AWS resources were created"
   },
-  "classification": "BUILD_ERROR",
-  "failureStage": "BUILD_ERROR",
+  "classification": "CONFIG_ERROR",
+  "failureStage": "CONFIG_ERROR",
   "rootCause": null,
-  "rootCauseEvidence": "CodeBuild reported FAILED — BUILD: COMMAND_EXECUTION_ERROR: Error while executing command: if [ \"$(cat /tmp/deployz-build-outcome 2>/dev/null)\" != ok ]; then echo \"The image build did not produce an image\" >&2; exit 1; fi. Reason: exit stat — decide UPSTREAM_REPO_FAILURE (the Dockerfile does not build at the pinned commit) vs DEPLOYZ_BUG (build environment) vs AWS_TRANSIENT_FAILURE",
+  "rootCauseEvidence": "the gate still refuses with the Stage B configuration: the control plane's gate still needs configuration: health-path-required: No health check route or container health check was found, so Deployz does not know when the app is ready. Expose a health route (for example /health) or add a contai — decide REPO_CONFIGURATION (fix the config) vs ANALYSIS_BUG (a required key the app does not need)",
   "findingIds": [
     "DEPLOY-002"
   ],
   "timing": {
-    "startedAt": "2026-09-18T01:43:54.702Z",
-    "finishedAt": "2026-09-18T01:44:54.389Z",
-    "totalMs": 59687
+    "startedAt": "2026-09-18T01:42:00.435Z",
+    "finishedAt": "2026-09-18T01:42:17.729Z",
+    "totalMs": 17294
   },
   "evidence": {
     "failure": {
-      "point": "build",
-      "message": "release build FAILED: CodeBuild reported FAILED — BUILD: COMMAND_EXECUTION_ERROR: Error while executing command: if [ \"$(cat /tmp/deployz-build-outcome 2>/dev/null)\" != ok ]; then echo \"The image build did not produce an image\" >&2; exit 1; fi. Reason: exit status 1"
+      "point": "configuration",
+      "message": "the control plane's gate still needs configuration: health-path-required: No health check route or container health check was found, so Deployz does not know when the app is ready. Expose a health route (for example /health) or add a container health check before deploying."
     }
   }
 }

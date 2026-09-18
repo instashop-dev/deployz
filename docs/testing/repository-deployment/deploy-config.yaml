@@ -75,6 +75,11 @@ b3Repos:
 
 waves:
   wave-1: [repo-008, repo-001, repo-051, repo-004, repo-035, repo-003, repo-007, repo-021, repo-039, repo-016]
+  regional-w1: [repo-008, repo-004]
+  regional-w2: [repo-001, repo-203]
+  regional-w3: [repo-051, repo-092]
+  regional-w4: [repo-021, repo-018]
+  regional-w5: [repo-026, repo-012]
 
 repositories:
   - id: repo-008
@@ -82,9 +87,13 @@ repositories:
     config:
       - { key: BASE_URL, value: "${DEPLOYZ_APP_URL}" }
     verify: { healthPath: /health, appPath: / }
+    smoke:
+      - { path: /health, status: 200, jsonPath: status, jsonEquals: UP }
+      - { path: /, status: 200, bodyIncludes: "Health Dashboard | Gatus" }
     notes:
       - "Go binary in a scratch image (no shell, no curl); config.yaml baked in. Port 8080 from ENV PORT / EXPOSE; health api/api.go /health."
       - "BASE_URL is demanded by the gate (COMP-016 residual); the app does not need it. Provided so the funnel measures the deployment path."
+      - "Campaign 2026-09-18: sentinel, eu-north-1. /health body {\"status\":\"UP\"} (TwiN/health, api/api.go:95-98); / title from config/ui/ui.go:13."
 
   - id: repo-001
     findings: [DEPLOY-002, DEPLOY-007]
@@ -95,20 +104,30 @@ repositories:
       - { key: KAFKA_BROKER, value: "" }
       - { key: KAFKA_MAX_MESSAGE_BYTES, value: "" }
     verify: { healthPath: /api/heartbeat, appPath: /login }
+    smoke:
+      - { path: /api/heartbeat, status: 200, bodyIncludes: "\"ok\":true" }
+      - { path: /login, status: 200, bodyIncludes: "Login | Umami", graceSeconds: 60 }
     notes:
       - "Next.js + Prisma; boots on DATABASE_URL alone (APP_SECRET falls back to it). Migrations run by scripts/start-docker.sh at boot."
       - "The gate demands the optional ClickHouse/Kafka/cloud-mode keys (COMP-023 residual); empty values keep those integrations off, as the app treats an unset key."
+      - "Campaign 2026-09-18: us-east-2. @prisma/adapter-pg (node-postgres) — the RDS CA bundle path (DEPLOY-007) is exercised by scripts/check-db.js before prisma migrate deploy."
 
   - id: repo-051
     findings: [DEPLOY-002]
     fork: instashop-dev/docuseal
-    secrets: [SIDEKIQ_BASIC_AUTH_PASSWORD]
-    verify: { healthPath: /up, appPath: / }
+    secrets:
+      - SIDEKIQ_BASIC_AUTH_PASSWORD
+      - { key: SECRET_KEY_BASE, format: hex64 }
+    verify: { healthPath: /up, appPath: /setup }
+    smoke:
+      - { path: /up, status: 200, bodyIncludes: "green" }
+      - { path: /setup, status: 200, bodyIncludes: "DocuSeal", exercises: [postgres], graceSeconds: 60 }
     notes:
       - "Rails; reads DATABASE_HOST/PORT/USER/PASSWORD/NAME (Deployz's own names). Migrations at boot (config/initializers/migrate.rb). Storage stays on local disk (S3 is optional via S3_ATTACHMENTS_BUCKET)."
+      - "Campaign 2026-09-18: ca-central-1. SECRET_KEY_BASE is otherwise auto-generated onto the task's ephemeral disk (config/dotenv.rb:179-207); a generated secret keeps sessions and ActiveRecord encryption stable across task replacement. Without REDIS_URL the container forks its own redis-server (lib/puma/plugin/redis_server.rb). / redirects to /setup while no user exists (application_controller.rb:78-80)."
 
   - id: repo-004
-    findings: [DEPLOY-008]
+    findings: [DEPLOY-008, DEPLOY-026, DEPLOY-027, DEPLOY-028]
     fork: instashop-dev/v2
     overrides:
       dockerfilePath: packaging/docker/alpine/Dockerfile
@@ -123,8 +142,12 @@ repositories:
     secrets:
       - { key: ADMIN_PASSWORD, format: password }
     verify: { healthPath: /healthcheck, appPath: / }
+    smoke:
+      - { path: /healthcheck, status: 200, bodyIncludes: "OK", exercises: [postgres] }
+      - { path: /, status: 200, bodyIncludes: "login" }
     notes:
       - "Go; reads DATABASE_URL. The Dockerfile under packaging/docker/alpine copies the repository root, so the build context is the root, not the Dockerfile's directory."
+      - "Campaign 2026-09-18: us-east-1. /healthcheck answers OK only after store.Ping() (internal/http/server/healthcheck.go:12-27); lib/pq sslmode=require does not verify the CA."
 
   - id: repo-035
     findings: []
@@ -157,19 +180,27 @@ repositories:
 
   - id: repo-021
     findings: [DEPLOY-005]
+    overrides:
+      healthPath: /server/ping
     config:
       - { key: DB_CLIENT, value: pg }
       - { key: DB_SSL, value: "true" }
       - { key: DB_SSL__REJECT_UNAUTHORIZED, value: "false" }
       - { key: ADMIN_EMAIL, value: admin@example.com }
       - { key: PUBLIC_URL, value: "${DEPLOYZ_APP_URL}" }
+      - { key: PM2_EXEC_MODE, value: fork }
     secrets:
-      - KEY
-      - SECRET
+      - { key: KEY, format: hex32 }
+      - { key: SECRET, format: hex64 }
       - { key: ADMIN_PASSWORD, format: password }
-    verify: { healthPath: /server/health, appPath: /admin/login }
+    verify: { healthPath: /server/ping, appPath: /admin/login }
+    smoke:
+      - { path: /server/ping, status: 200, bodyIncludes: pong }
+      - { path: /server/info, status: 200, jsonPath: data.project, exercises: [postgres], graceSeconds: 30 }
+      - { path: /admin/login, status: 200, bodyIncludes: Directus }
     notes:
-      - "Node; PostgreSQL via DB_CLIENT=pg with DB_HOST/DB_PORT/DB_DATABASE/DB_USER/DB_PASSWORD (or DB_CONNECTION_STRING). Migrations run at boot. Port 8055."
+      - "Node; PostgreSQL via DB_CLIENT=pg with DB_HOST/DB_PORT/DB_DATABASE/DB_USER/DB_PASSWORD (or DB_CONNECTION_STRING). Migrations run at boot (docker-entrypoint.cjs runs directus bootstrap). Port 8055."
+      - "Campaign 2026-09-18: eu-central-1. /server/health answers 403 to unauthenticated callers (api/src/services/server.ts:223-225; upstream e2e health.test.ts:42-50), so the health path is /server/ping (api/src/app.ts:319). /server/info is public and reads directus_settings (services/server.ts:57-62). PM2_EXEC_MODE=fork avoids pm2 cluster's second Node process."
 
   - id: repo-039
     findings: [DEPLOY-005, DEPLOY-008, DEPLOY-015, DEPLOY-016]
@@ -190,15 +221,19 @@ repositories:
       - { key: URL, value: "${DEPLOYZ_APP_URL}" }
       - { key: FORCE_HTTPS, value: "false" }
       - { key: FILE_STORAGE, value: local }
+      - { key: WEB_CONCURRENCY, value: "1" }
     secrets:
       - { key: SECRET_KEY, format: hex64 }
       - UTILS_SECRET
     dependencies: { storage: skip }
     verify: { healthPath: /_health, appPath: / }
+    smoke:
+      - { path: /_health, status: 200, bodyIncludes: "OK", exercises: [postgres, redis], graceSeconds: 60 }
     notes:
-      - "Node (Koa/Sequelize); reads DATABASE_URL and REDIS_URL, needs URL, SECRET_KEY (64 hex) and UTILS_SECRET at boot. Migrations via `sequelize db:migrate` (pre-deploy). Wave 1 keeps FILE_STORAGE=local so the PostgreSQL + Redis path is measured on its own; S3 (AWS_S3_UPLOAD_BUCKET_NAME) is a later wave."
+      - "Node (Koa/Sequelize); reads DATABASE_URL and REDIS_URL, needs URL, SECRET_KEY (64 hex) and UTILS_SECRET at boot. Migrations run automatically by the throng master before the workers start (server/index.ts:33-36, server/scripts/checkMigrations.ts)."
+      - "FILE_STORAGE code default is s3 (server/env.ts:722-724); local is explicit so the PostgreSQL + Redis path is measured on its own. WEB_CONCURRENCY=1 stops throng from forking one worker per host CPU."
+      - "Campaign 2026-09-18: eu-west-1. /_health runs SELECT 1 and a Redis PING (server/main.ts:78-90). Upstream Dockerfile is FROM outlinewiki/outline-base (untagged): the deployed code may trail the pinned commit — an upstream characteristic."
 
-  # Entries below only attribute a gate-audit outcome to a registry finding (no vendor configuration yet).
   - id: repo-002
     findings: [DEPLOY-002]
   - id: repo-005
@@ -236,9 +271,55 @@ repositories:
   - id: repo-089
     findings: [DEPLOY-004]
   - id: repo-090
+    deploymentClass: fresh-full
     findings: [DEPLOY-002]
+    fork: instashop-dev/pgweb
+    overrides:
+      healthPath: /
+    verify: { healthPath: /, appPath: / }
+    smoke:
+      - { path: /api/info, status: 200, jsonPath: app.version, graceSeconds: 30 }
+      - { path: /api/databases, status: 200, bodyIncludes: deployz, exercises: [postgres] }
+      - { path: /, status: 200, bodyIncludes: "<title>pgweb</title>" }
+    notes:
+      - "Go single binary; the Dockerfile ENTRYPOINT binds 0.0.0.0:8081 (EXPOSE 8081). Reads DATABASE_URL (pkg/command/options.go:88, PGWEB_DATABASE_URL first) and connects BEFORE it listens (pkg/cli/cli.go:58-72, --open-retry 0): an unreachable database exits the process. lib/pq honours sslmode=require without CA verification. No migrations, no required env."
+      - "No health route exists; the ALB probes / (the SPA). /api/info is allowlisted without a session; /api/databases answers 400 'Not connected' unless the client is connected, so a 200 naming the deployz database proves the PostgreSQL connection (pkg/api/middleware.go:12-29)."
+      - "Campaign 2026-09-18: replaces outline (repo-016) in eu-west-1 after outline's floating base image (Node 26) broke its own migrations upstream."
+  - id: repo-203
+    deploymentClass: fresh-full
+    fork: instashop-dev/fider
+    overrides:
+      healthPath: /_health
+    config:
+      - { key: BASE_URL, value: "${DEPLOYZ_APP_URL}" }
+      - { key: EMAIL_NOREPLY, value: "noreply@example.com" }
+      - { key: EMAIL_SMTP_HOST, value: "localhost" }
+      - { key: EMAIL_SMTP_PORT, value: "25" }
+    verify: { healthPath: /_health, appPath: /signup }
+    smoke:
+      - { path: /_health, status: 200, jsonPath: status, graceSeconds: 30, exercises: [postgres] }
+      - { path: /signup, status: 200, bodyIncludes: "Fider", exercises: [postgres] }
+    notes:
+      - "Go server + webpack UI built by the root multi-stage Dockerfile (BuildKit cache mounts; ARG COMMITHASH/VERSION default empty). EXPOSE 3000; CMD `./fider migrate && ./fider` runs the migrations at boot. env.go: DATABASE_URL and JWT_SECRET are required (JWT_SECRET is an internal secret Deployz mints), BASE_URL must be set and parse as a URL, EMAIL_NOREPLY is required and the inferred smtp provider needs EMAIL_SMTP_HOST/PORT (only used when a sign-up e-mail is sent); BLOB_STORAGE defaults to sql, HOST_MODE to single."
+      - "/_health (app/handlers/common.go) runs dbx.Ping() and answers {\"status\":\"Healthy\"} — a 200 proves the PostgreSQL connection. /signup (single-host mode, no tenant yet) dispatches query.GetFirstTenant against the tenants table and renders the sign-up page."
+      - "Campaign 2026-09-18: replaces pgweb (repo-090) in eu-west-1 after pgweb's Dockerfile `COPY .git/ .` failed against the tarball source (DEPLOY-031); pgweb itself replaced outline (repo-016)."
   - id: repo-092
+    deploymentClass: fresh-full
     findings: [DEPLOY-002]
+    fork: instashop-dev/dashy
+    config:
+      - { key: API_TOKEN, value: "" }
+      - { key: IS_SERVER, value: "" }
+      - { key: VUE_APP_CONFIG_VALID, value: "" }
+    verify: { healthPath: /healthz, appPath: / }
+    smoke:
+      - { path: /healthz, status: 200, jsonPath: status, jsonEquals: ok }
+      - { path: /, status: 200, bodyIncludes: "<title>Dashy</title>" }
+    notes:
+      - "Node (Express) serving a prebuilt Vue SPA; no database, no Redis, no required env (services/app.js). Port 8080 (Dockerfile ENV PORT=8080). Health /healthz returns {status:ok,uptime,version} (services/app.js:249-255)."
+      - "The gate demands API_TOKEN / IS_SERVER / VUE_APP_CONFIG_VALID (DEPLOY-002 residual); empty values are the unset behaviour."
+      - "Campaign 2026-09-18: ap-southeast-2. The one no-database case whose analysis is correct (postgres:false)."
+
   - id: repo-094
     findings: [DEPLOY-003]
   - id: repo-097
@@ -253,3 +334,65 @@ repositories:
     findings: [DEPLOY-003]
   - id: repo-220
     findings: [DEPLOY-003]
+
+  - id: repo-018
+    deploymentClass: fresh-full
+    findings: []
+    fork: instashop-dev/docmost
+    overrides:
+      healthPath: /api/health
+    config:
+      - { key: APP_URL, value: "${DEPLOYZ_APP_URL}" }
+    secrets:
+      - { key: APP_SECRET, format: hex32 }
+    dependencies: { storage: skip }
+    verify: { healthPath: /api/health, appPath: /api/health/live }
+    smoke:
+      - { path: /api/health, status: 200, jsonPath: status, jsonEquals: ok, exercises: [postgres, redis], graceSeconds: 60 }
+      - { path: /api/health/live, status: 200, jsonPath: data, jsonEquals: ok }
+    notes:
+      - "Node (Nest/Fastify, pnpm + nx monorepo); reads DATABASE_URL and REDIS_URL verbatim (apps/server/src/integrations/environment/environment.service.ts:48-60); APP_SECRET >= 32 chars (environment.validation.ts:43-46). Migrations run in onApplicationBootstrap when NODE_ENV=production (database.module.ts:131-137). Port 3000."
+      - "postgres.js with sslmode=require does not verify the CA (DEPLOY-007 moot). STORAGE_DRIVER stays local for this campaign (S3 needs AWS_S3_REGION/AWS_S3_BUCKET)."
+      - "Campaign 2026-09-18: ap-south-1. /api/health pings PostgreSQL and Redis (health.controller.ts:19-22); the analyser's health path was / (manifest) — overridden to /api/health."
+
+  - id: repo-012
+    deploymentClass: fresh-full
+    findings: []
+    fork: instashop-dev/zipline
+    config:
+      - { key: FFMPEG_PATH, value: "" }
+      - { key: ZIPLINE_OVERRIDE_DISABLED_WORKER_LOG, value: "" }
+    secrets:
+      - { key: CORE_SECRET, format: hex64 }
+    dependencies: { storage: skip }
+    verify: { healthPath: /api/healthcheck, appPath: /dashboard }
+    smoke:
+      - { path: /api/healthcheck, status: 200, jsonPath: pass, jsonEquals: true, exercises: [postgres] }
+      - { path: /api/setup, status: 200, jsonPath: firstSetup, jsonEquals: true, exercises: [postgres] }
+      - { path: /dashboard, status: 200, bodyIncludes: "<title>Zipline</title>" }
+    notes:
+      - "Node; reads DATABASE_URL first (src/lib/db/index.ts:19-26) over drizzle + node-postgres 8.16 — the RDS CA bundle path (DEPLOY-007) is required. CORE_SECRET >= 32 chars (src/lib/config/validate.ts:97-110). Migrations run in-process before listen (src/server/index.ts:36-46). Port 3000."
+      - "DATASOURCE_TYPE stays local: the S3 datasource hard-codes static credentials (src/lib/datasource/S3.ts:48-51) and cannot use the task role."
+      - "The gate demands FFMPEG_PATH / ZIPLINE_OVERRIDE_DISABLED_WORKER_LOG (DEPLOY-002 residual); empty values are the unset behaviour."
+      - "Campaign 2026-09-18: ap-southeast-1. /api/setup answers firstSetup:true only while no admin exists (routes/api/setup.ts:37-40)."
+
+  - id: repo-026
+    deploymentClass: fresh-full
+    findings: []
+    fork: instashop-dev/reactive-resume
+    overrides:
+      healthPath: /api/health
+    config:
+      - { key: APP_URL, value: "${DEPLOYZ_APP_URL}" }
+    secrets:
+      - { key: AUTH_SECRET, format: hex64 }
+    dependencies: { storage: skip }
+    verify: { healthPath: /api/health, appPath: / }
+    smoke:
+      - { path: /api/health, status: 200, jsonPath: status, jsonEquals: healthy, exercises: [postgres], graceSeconds: 60 }
+      - { path: /, status: 200, bodyIncludes: "Reactive Resume" }
+      - { path: /schema.json, status: 200, jsonPath: type, jsonEquals: object }
+    notes:
+      - "Node (Hono API serving the Vite SPA, pnpm + turborepo); reads DATABASE_URL only (packages/env/src/server.ts:26) over drizzle + node-postgres — the RDS CA bundle path (DEPLOY-007) is required. APP_URL and AUTH_SECRET are required with no default. Migrations run before the server listens (apps/server/src/startup/checks.ts:80-84). Port 3000."
+      - "Storage stays on LOCAL_STORAGE_PATH (/app/data): S3 needs static S3_ACCESS_KEY_ID/S3_SECRET_ACCESS_KEY (checks.ts:46). REDIS_URL and ENCRYPTION_SECRET are optional."
+      - "Campaign 2026-09-18: us-west-2. The app has no /health; the ALB path is /api/health (apps/server/src/http/app.ts:41), which runs SELECT 1 and a storage check."
