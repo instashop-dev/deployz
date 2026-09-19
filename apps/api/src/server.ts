@@ -1086,7 +1086,7 @@ const REPEATED_DESTROY_FAILURES_REQUIRED = 2;
 // evidence (redacted error, container verdict, failed resources) can sharpen
 // the deterministic copy. Every other code names an account or infrastructure
 // cause the copy map already answers unambiguously — those never reach AI.
-export const AI_EXPLAINABLE_FAILURE_CODES: ReadonlySet<string> = new Set([
+export const AI_EXPLAINABLE_FAILURE_CODES: ReadonlySet<FailureCode> = new Set([
   'UNKNOWN',
   'CONTAINER_START_FAILED',
   'IMAGE_HEALTH_CHECK_FAILED',

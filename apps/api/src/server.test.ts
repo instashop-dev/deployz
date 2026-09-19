@@ -1685,28 +1685,36 @@ describe('server — relay bearer auth, INSTALL job, and command/result/health f
     // ECS_DEPLOYMENT_FAILED is outside AI_EXPLAINABLE_FAILURE_CODES on
     // purpose: it was just served deterministically by the test above, so
     // the two stay in sync with the gate.
-    // Set the failure state directly so the test does not depend on which
-    // other tests in this file have already run; finishedAt stays in the
-    // past so this job never shadows the later UNKNOWN-code test's job.
-    for (const [index, code] of ['AWS_PERMISSION_DENIED', 'ECS_DEPLOYMENT_FAILED'].entries()) {
+    // A dedicated deployment keeps the latest-failed-job pick hermetic: the
+    // shared deployment accumulates FAILED jobs from earlier flow tests with
+    // real timestamps, which outrank this test's deliberately-past jobs.
+    const isolated = await insertDeployment(db, org.organizationId, deployment.applicationId, deployment.customerId, {
+      state: 'FAILED',
+      installationId: 'inst-outside-ai-set',
+      enrollmentCode: crypto.randomUUID(),
+      enrollmentUsedAt: new Date(),
+      relayTokenHash: hashRelayToken('relay-outside-ai-set-token'),
+      relayStatus: 'CONNECTED',
+    });
+    for (const [index, code] of (['AWS_PERMISSION_DENIED', 'ECS_DEPLOYMENT_FAILED'] as const).entries()) {
       await db.insert(schema.deploymentJobs).values({
-        deploymentId: deployment.id,
+        deploymentId: isolated.id,
         type: 'DEPLOY_RELEASE',
         state: 'FAILED',
         failureCode: code,
         finishedAt: new Date(Date.now() - (2 - index) * 1000),
-        idempotencyKey: `${deployment.id}:DEPLOY_RELEASE:deterministic-${index}`,
+        idempotencyKey: `${isolated.id}:DEPLOY_RELEASE:deterministic-${index}`,
         payload: {},
       });
     }
     await db
       .update(schema.deployments)
       .set({ state: 'FAILED' })
-      .where(eq(schema.deployments.id, deployment.id));
+      .where(eq(schema.deployments.id, isolated.id));
 
     const response = await countingApp.inject({
       method: 'GET',
-      url: `/api/deployments/${deployment.id}/diagnostics`,
+      url: `/api/deployments/${isolated.id}/diagnostics`,
       headers: { cookie: org.cookie },
     });
 
