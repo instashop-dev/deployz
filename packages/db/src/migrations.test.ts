@@ -18,7 +18,7 @@ describe('migrations', () => {
     await client?.close();
   });
 
-  it('creates all 25 core tables', async () => {
+  it('creates all 26 core tables', async () => {
     const { rows } = await client!.query<{ table_name: string }>(
       `SELECT table_name FROM information_schema.tables
        WHERE table_schema = 'public' AND table_type = 'BASE TABLE'
@@ -42,6 +42,7 @@ describe('migrations', () => {
       'event_logs',
       'github_installations',
       'invitation',
+      'jev_failure_classifications',
       'jev_shadow_verifications',
       'member',
       'organization',
