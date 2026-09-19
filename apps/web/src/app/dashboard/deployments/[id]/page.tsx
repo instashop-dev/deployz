@@ -232,20 +232,25 @@ export default function DeploymentDetailPage() {
   // Lazy, non-blocking fetch of diagnostics once the deployment is a failure.
   // Evidence chips and the retry hint are best-effort: a failed fetch must
   // never regress the page, which already renders from the deployment itself.
+  // Keyed on the failure *state* (a primitive boolean + the route id), not the
+  // whole `state` object: the status poll replaces `state` with a fresh object
+  // every tick, so depending on `state` re-runs this effect on every tick,
+  // which cancels the in-flight fetch via the cleanup while the
+  // `diagnosticsFetchedFor` guard suppresses the retry — leaving diagnostics
+  // (and the evidence/retry affordances they drive) permanently unloaded.
+  const deploymentFailed = state.status === 'loaded' && state.detail.state === 'FAILED';
   useEffect(() => {
-    if (state.status !== 'loaded') return;
-    const detail = state.detail;
-    if (detail.state !== 'FAILED') {
+    if (!deploymentFailed) {
       if (diagnosticsFetchedFor.current !== null) {
         diagnosticsFetchedFor.current = null;
         setDiagnostics(null);
       }
       return;
     }
-    if (diagnosticsFetchedFor.current === detail.id) return;
-    diagnosticsFetchedFor.current = detail.id;
+    if (diagnosticsFetchedFor.current === id) return;
+    diagnosticsFetchedFor.current = id;
     let cancelled = false;
-    fetchDiagnostics(detail.id)
+    fetchDiagnostics(id)
       .then((result) => {
         if (!cancelled) setDiagnostics(result);
       })
@@ -255,7 +260,7 @@ export default function DeploymentDetailPage() {
     return () => {
       cancelled = true;
     };
-  }, [state, id]);
+  }, [deploymentFailed, id]);
 
   // Silent background refresh of the deployment's derived status. Only the
   // `detail` object is replaced — open dialogs and in-flight actions keep
