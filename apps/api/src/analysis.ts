@@ -33,6 +33,7 @@ import {
   parseRepoFullName,
   type FetchFn,
 } from './github.js';
+import type { JevShadowRunner } from './jev-shadow.js';
 
 // §18/§19/§20 analysis orchestrator — the ONLY caller of `analyseRepo` /
 // `evaluateCompatibility` outside their own package tests. Wires:
@@ -184,6 +185,8 @@ export interface AnalysisRunnerDeps {
   githubFixtureMode: boolean;
   /** §15 AI repository-analysis fallback — only invoked when a real question is left unresolved. */
   aiGateway: AiGateway;
+  /** Jev requirements/plan shadow verifier — fire-and-forget telemetry only, never awaited. */
+  jevShadow?: JevShadowRunner | undefined;
   /** Injectable clock for JWT iat/exp — defaults to Date.now. */
   now?: (() => number) | undefined;
 }
@@ -320,6 +323,23 @@ export async function runApplicationAnalysis(
       aiResolved,
       resolvedMigrationCommand: resolveMigrationCommand(tree) ?? null,
     });
+    // The metadata record this run persists — extracted once so the Jev
+    // shadow below judges exactly the state that lands in the row.
+    const detectedMetadata: Record<string, unknown> = {
+      ...metadata,
+      // Phase 8: the resolved worker command rides the metadata so the
+      // deployment manifest's worker gate reads CURRENT analysis output
+      // (this record is replaced wholesale each run) instead of the
+      // sticky worker_command column, which positive-only writes never
+      // clear. Null when no worker script resolves.
+      resolvedWorkerCommand,
+      readiness,
+      application: applicationAnalysis,
+      vendorOverrides,
+      ...(manifestOverrides !== undefined ? { manifestOverrides } : {}),
+      analysisVersion: ANALYSIS_VERSION,
+      ...(headSha !== undefined ? { analysisCommitSha: headSha } : {}),
+    };
     // The stored report keeps every finding; the persisted verdict reads the
     // report the way the page does — with the vendor's port and start
     // command applied — so the list badge and the readiness page agree.
@@ -330,6 +350,21 @@ export async function runApplicationAnalysis(
     const outcomeVerdict = verdictFromReadiness(outcomeReadiness.state);
     const durationMs = Date.now() - runStartedMs;
 
+    // Jev requirements/plan shadow (PR 2): fire-and-forget telemetry beside
+    // the persist step. The runner swallows its own errors; it can never
+    // touch the production state written below.
+    void deps.jevShadow
+      ?.run({
+        applicationId,
+        commitSha: headSha ?? 'unknown',
+        application,
+        contractFieldUpdates,
+        detectedMetadata,
+        analysis: mergedAnalysis,
+        tree,
+      })
+      .catch(() => {});
+
     await deps.db.transaction(async (tx) => {
       await tx
         .update(schema.applications)
@@ -337,21 +372,7 @@ export async function runApplicationAnalysis(
           analysisStatus: 'COMPLETE',
           compatibilityStatus: outcomeVerdict,
           compatibilityReason: outcomeReadiness.summary,
-          detectedMetadata: {
-            ...metadata,
-            // Phase 8: the resolved worker command rides the metadata so the
-            // deployment manifest's worker gate reads CURRENT analysis output
-            // (this record is replaced wholesale each run) instead of the
-            // sticky worker_command column, which positive-only writes never
-            // clear. Null when no worker script resolves.
-            resolvedWorkerCommand,
-            readiness,
-            application: applicationAnalysis,
-            vendorOverrides,
-            ...(manifestOverrides !== undefined ? { manifestOverrides } : {}),
-            analysisVersion: ANALYSIS_VERSION,
-            ...(headSha !== undefined ? { analysisCommitSha: headSha } : {}),
-          },
+          detectedMetadata,
           ...contractFieldUpdates,
         })
         .where(eq(schema.applications.id, applicationId));
@@ -866,7 +887,7 @@ export function resolveWorkerCommand(tree: FileTree): string | undefined {
   return match?.[1] ?? detectDeclaredWorkerCommand(tree)?.command;
 }
 
-interface ContractFieldUpdates {
+export interface ContractFieldUpdates {
   containerPort?: number;
   healthPath?: string;
   // Startup mode clears a stale detected command (never a vendor one) —

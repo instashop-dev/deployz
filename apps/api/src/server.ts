@@ -130,6 +130,7 @@ import {
   type FetchFn,
   type GithubWebhookEvent,
 } from './github.js';
+import { createJevShadowRunnerFromEnv } from './jev-shadow.js';
 import { createEmailSender, type EmailSender } from './email.js';
 import type { EcrClient } from './ecr-grants.js';
 import {
@@ -1809,6 +1810,9 @@ export async function buildServer({
       githubAppPrivateKey,
       githubFixtureMode: githubFixtureMode ?? env.githubFixtureMode,
       aiGateway,
+      // Shadow-only: a disabled/partial Jev config resolves to the noop
+      // runner, and the runner never affects the analysis outcome.
+      jevShadow: createJevShadowRunnerFromEnv({ db }, env.jev),
     });
   app.post('/api/github/webhook', async (request, reply) => {
     const webhookSecret = githubWebhookSecret ?? env.githubWebhookSecret;
