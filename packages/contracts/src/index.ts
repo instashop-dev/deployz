@@ -652,6 +652,19 @@ export const customerDeploymentStatusSchema = z
     // is FAILED — a rollback can take many minutes to settle.
     provisioningIssue: z.object({ message: z.string() }).strict().nullable().optional(),
     technicalDetails: customerTechnicalDetailsSchema.nullable().optional(),
+    // Populated only once the deployment is READY (enrolled): non-secret,
+    // stored-deployment data. The endpoint comes from the existing `url`
+    // field and last-verified from the existing `updatedAt` field, so they
+    // are deliberately not duplicated here.
+    awsSummary: z
+      .object({
+        applicationStackName: z.string(),
+        region: z.string(),
+        releaseVersion: z.string().nullable(),
+      })
+      .strict()
+      .nullable()
+      .optional(),
     failure: z
       .object({
         // Whether the failure belongs to the application's own

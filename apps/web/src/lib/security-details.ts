@@ -154,24 +154,6 @@ export const DENIED_LOG_READ_ACTIONS = [
 ] as const;
 
 /**
- * §45 "exact AWS resources created" — distinct from the IAM action lists
- * above. These are the actual resources the bootstrap + application stacks
- * provision inside the customer account.
- */
-export const AWS_RESOURCES_CREATED = [
-  'A dedicated private network (subnets, an internet gateway, route tables)',
-  'A load balancer with an HTTPS listener',
-  'A managed container service running the application',
-  'An RDS PostgreSQL database (when the application requires one)',
-  'A managed cache for sessions, queues and temporary data',
-  'An S3 bucket (when the application requires file storage)',
-  'A Secrets Manager secret for the relay’s own credentials, plus one per configured application secret',
-  'CloudWatch log groups and alarms for the application and the relay',
-  'The Deployz relay (a small scheduled job that runs in your account)',
-  'A dedicated execution role for the relay, bounded by the permissions boundary described below',
-] as const;
-
-/**
  * §16/§45 "data sent to Deployz" — operational metadata only. Mirrors §16's
  * list verbatim.
  */
@@ -211,6 +193,16 @@ export const REVOKE_STEPS = [
   'The relay immediately loses the ability to call out to Deployz — there is no inbound path for Deployz to re-establish contact.',
   'Deployz marks the deployment Disconnected once it stops hearing from the relay, and it stops being billed.',
 ] as const;
+
+/**
+ * Ownership clarification — the software provider operates the deployment
+ * through Deployz; the customer keeps their AWS account, data, charges, and
+ * the revoke procedure described by REVOKE_STEPS. Shared by the Security
+ * Details content and the READY-view AWS summary so the wording never
+ * diverges.
+ */
+export const OWNERSHIP_NOTE =
+  'Your software provider manages releases and updates through Deployz. You retain ownership of your AWS account, data, AWS charges, and the ability to revoke Deployz access.';
 
 /** §45 "how deletion works" — mirrors §63's distinctions. */
 export const DELETION_STEPS = [

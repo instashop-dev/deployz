@@ -27,10 +27,12 @@ import {
 } from '@/lib/deployment-progress';
 import { fetchDeployLinkStatus, type DeployLinkToken } from '@/lib/deploy-link-flow';
 import { fetchInstallStatus } from '@/lib/install-status';
+import { cloudFormationStacksUrl } from '@/lib/aws-console';
 import {
   STARTUP_FAILURE_CUSTOMER_NOTE,
   STARTUP_FAILURE_TITLE,
 } from '@/lib/diagnostic-vocabulary';
+import { OWNERSHIP_NOTE } from '@/lib/security-details';
 import { useStatusPoll } from '@/lib/use-status-poll';
 
 /**
@@ -300,6 +302,78 @@ export function InstallProgress({
           />
         </>
       ) : null}
+
+      {status.stage === 'READY' && status.awsSummary ? (
+        <AwsDeploymentDetails summary={status.awsSummary} url={status.url} updatedAt={status.updatedAt} />
+      ) : null}
+    </div>
+  );
+}
+
+/**
+ * The READY-only summary of the deployment's AWS footprint: a quiet,
+ * collapsed disclosure of the few server-verifiable, non-secret facts the
+ * status carries (stored data only — no raw CloudFormation state). The
+ * ownership note below it states who owns what.
+ */
+function AwsDeploymentDetails({
+  summary,
+  url,
+  updatedAt,
+}: {
+  summary: NonNullable<CustomerDeploymentStatus['awsSummary']>;
+  url: string | null;
+  updatedAt: string;
+}) {
+  return (
+    <div className="flex flex-col gap-2" data-testid="aws-deployment-details">
+      <Collapsible className="rounded-md border">
+        <CollapsibleTrigger className="group flex w-full items-center justify-between gap-4 px-4 py-3 text-left text-sm">
+          <span className="font-medium">AWS deployment details</span>
+          <ChevronDown
+            aria-hidden
+            className="size-4 shrink-0 transition-transform group-data-[state=open]:rotate-180"
+          />
+        </CollapsibleTrigger>
+        <CollapsibleContent>
+          <div className="flex flex-col gap-2 border-t px-4 py-3 text-sm">
+            <div className="flex items-start justify-between gap-3">
+              <span className="text-muted-foreground">Application stack name</span>
+              <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-xs">
+                {summary.applicationStackName}
+              </code>
+            </div>
+            <DetailRow label="AWS region" value={summary.region} />
+            {summary.releaseVersion !== null ? (
+              <DetailRow label="Installed release" value={summary.releaseVersion} />
+            ) : null}
+            {url ? (
+              <div className="flex items-start justify-between gap-3">
+                <span className="text-muted-foreground">Application endpoint</span>
+                <a
+                  className="min-w-0 break-words text-right font-mono text-xs underline underline-offset-4"
+                  href={url}
+                >
+                  {url}
+                </a>
+              </div>
+            ) : null}
+            <div className="flex items-start justify-between gap-3">
+              <span className="text-muted-foreground">Last checked</span>
+              <span className="text-right font-mono text-xs">{formatEventTime(updatedAt)}</span>
+            </div>
+            <a
+              className="self-start font-medium underline underline-offset-4"
+              href={cloudFormationStacksUrl(summary.region, summary.applicationStackName)}
+              target="_blank"
+              rel="noreferrer"
+            >
+              View in AWS CloudFormation
+            </a>
+          </div>
+        </CollapsibleContent>
+      </Collapsible>
+      <p className="text-xs text-muted-foreground">{OWNERSHIP_NOTE}</p>
     </div>
   );
 }

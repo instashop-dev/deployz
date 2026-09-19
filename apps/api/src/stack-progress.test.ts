@@ -5,7 +5,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { applyMigrations, createDb, type Db } from '@deployz/db';
 import * as schema from '@deployz/db/schema';
-import { customerDeploymentStatusSchema } from '@deployz/contracts';
+import { applicationStackNameForInstallation, customerDeploymentStatusSchema } from '@deployz/contracts';
 
 import { createAuth, type Auth } from './auth.js';
 import { hashRelayToken } from './relay-store.js';
@@ -560,6 +560,65 @@ describe('POST /api/relay/commands/:id/progress', () => {
     expect(body.stage).toBe('PROVISIONING');
     expect(body.step).toBe('PREPARING');
     expect(body.currentActivity).not.toMatch(/ROLLBACK|CloudFormation|AWS::/i);
+  });
+
+  it('a READY install status carries the awsSummary; a non-READY or unenrolled one does not', async () => {
+    const installationId = `inst-${crypto.randomUUID()}`;
+    const [release] = await db
+      .insert(schema.releases)
+      .values({
+        applicationId,
+        version: `v2.0.0-${crypto.randomUUID().slice(0, 8)}`,
+        gitSha: 'feedface',
+      })
+      .returning();
+    const ready = await insertDeployment({
+      state: 'HEALTHY',
+      healthStatus: 'HEALTHY',
+      installationId,
+      currentReleaseId: release!.id,
+      defaultHttps: { hostname: 'd-summary.deployz.dev', status: 'ACTIVE' },
+    });
+    const readyResponse = await app.inject({
+      method: 'GET',
+      url: `/api/install/${ready.installLinkId}/status`,
+    });
+    expect(readyResponse.statusCode).toBe(200);
+    const readyBody = customerDeploymentStatusSchema.parse(readyResponse.json());
+    expect(readyBody.stage).toBe('READY');
+    expect(readyBody.awsSummary).toEqual({
+      applicationStackName: applicationStackNameForInstallation(installationId),
+      region: 'us-east-1',
+      releaseVersion: release!.version,
+    });
+
+    // READY but never enrolled: no application stack exists to name.
+    const unenrolled = await insertDeployment({
+      state: 'HEALTHY',
+      healthStatus: 'HEALTHY',
+      installationId: null,
+      defaultHttps: { hostname: 'd-unenrolled.deployz.dev', status: 'ACTIVE' },
+    });
+    const unenrolledBody = customerDeploymentStatusSchema.parse(
+      (await app.inject({ method: 'GET', url: `/api/install/${unenrolled.installLinkId}/status` })).json(),
+    );
+    expect(unenrolledBody.stage).toBe('READY');
+    expect(unenrolledBody.awsSummary).toBeUndefined();
+
+    // Still provisioning: no summary before READY.
+    const provisioning = await insertDeployment({ state: 'INSTALLING' });
+    await db.insert(schema.deploymentJobs).values({
+      deploymentId: provisioning.id,
+      type: 'INSTALL',
+      state: 'RUNNING',
+      idempotencyKey: `${provisioning.id}:INSTALL`,
+      payload: {},
+    });
+    const provisioningBody = customerDeploymentStatusSchema.parse(
+      (await app.inject({ method: 'GET', url: `/api/install/${provisioning.installLinkId}/status` })).json(),
+    );
+    expect(provisioningBody.stage).toBe('PROVISIONING');
+    expect(provisioningBody.awsSummary).toBeUndefined();
   });
 });
 

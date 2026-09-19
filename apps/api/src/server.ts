@@ -40,6 +40,7 @@ import {
   buildInstallPlan,
   buildUpdatePlan,
   compareInfrastructureExpectations,
+  applicationStackNameForInstallation,
   deploymentPlanSchema,
   deploymentStateAfterFailedJob,
   deploymentTypeSchema,
@@ -60,6 +61,7 @@ import {
   type ApplicationAnalysis,
   type ApplicationRequirementsSummary,
   type BillingSubscriptionStatus,
+  type CustomerDeploymentStatus,
   type DeploymentManifest,
   type DeploymentPlan,
   type InfrastructureComponentStatus,
@@ -1375,6 +1377,37 @@ async function loadCustomerLiveProgress(
   });
 }
 
+// Also shared by both public status routes: the READY-only AWS summary of the
+// customer's own deployment — stored, non-secret facts, nothing derived from
+// live AWS state. Undefined unless the stage is READY (before that there is
+// no settled AWS footprint to summarize) and unless the relay enrolled (no
+// installationId → no application stack to name). releaseVersion is the same
+// source GET /api/install/:installLinkId uses for InstallData.releaseVersion
+// — the releases row behind current_release_id, version string only. The
+// endpoint and the last-verified time are deliberately absent: `url` and
+// `updatedAt` already carry them.
+async function loadCustomerAwsSummary(
+  db: RuntimeDb,
+  derived: DerivedDeploymentStatus,
+  deployment: Pick<DeploymentRow, 'installationId' | 'region' | 'currentReleaseId'>,
+): Promise<CustomerDeploymentStatus['awsSummary']> {
+  if (derived.stage !== 'READY' || !deployment.installationId) {
+    return undefined;
+  }
+  const releases = deployment.currentReleaseId
+    ? await db
+        .select({ version: schema.releases.version })
+        .from(schema.releases)
+        .where(eq(schema.releases.id, deployment.currentReleaseId))
+        .limit(1)
+    : [];
+  return {
+    applicationStackName: applicationStackNameForInstallation(deployment.installationId),
+    region: deployment.region,
+    releaseVersion: releases[0]?.version ?? null,
+  };
+}
+
 /**
  * §46 deployment state a finished job leaves behind. The relay reporting a
  * command result is what actually moves a deployment through its lifecycle —
@@ -2328,7 +2361,9 @@ export async function buildServer({
         stepTimings: row.deployment.stepTimings,
         launched: row.deployment.installStartedAt !== null,
       });
-      return toCustomerDeploymentStatus(derived, live);
+      const status = toCustomerDeploymentStatus(derived, live);
+      const awsSummary = await loadCustomerAwsSummary(db, derived, row.deployment);
+      return awsSummary ? { ...status, awsSummary } : status;
     },
   );
 
@@ -3628,7 +3663,9 @@ export async function buildServer({
         stepTimings: deployment.stepTimings,
         launched: deployment.installStartedAt !== null,
       });
-      return toCustomerDeploymentStatus(derived, live);
+      const status = toCustomerDeploymentStatus(derived, live);
+      const awsSummary = await loadCustomerAwsSummary(db, derived, deployment);
+      return awsSummary ? { ...status, awsSummary } : status;
     },
   );
 

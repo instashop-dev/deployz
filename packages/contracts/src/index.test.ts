@@ -812,6 +812,38 @@ describe('customerDeploymentStatusSchema', () => {
   it('stepStartedAt also accepts an explicit null', () => {
     expect(customerDeploymentStatusSchema.parse({ ...minimal, stepStartedAt: null }).stepStartedAt).toBeNull();
   });
+
+  it('parses awsSummary, an explicit null awsSummary, and its absence', () => {
+    const withSummary = {
+      ...minimal,
+      stage: 'READY',
+      awsSummary: { applicationStackName: 'deployz-app-1a2b3c4d', region: 'us-east-1', releaseVersion: 'v1.0.0' },
+    };
+    expect(customerDeploymentStatusSchema.parse(withSummary)).toStrictEqual(withSummary);
+
+    const nullRelease = {
+      ...withSummary,
+      awsSummary: { ...withSummary.awsSummary, releaseVersion: null },
+    };
+    expect(customerDeploymentStatusSchema.parse(nullRelease)).toStrictEqual(nullRelease);
+
+    expect(customerDeploymentStatusSchema.parse(minimal).awsSummary).toBeUndefined();
+    expect(customerDeploymentStatusSchema.parse({ ...minimal, awsSummary: null }).awsSummary).toBeNull();
+  });
+
+  it('rejects extra keys inside awsSummary (strict)', () => {
+    expect(() =>
+      customerDeploymentStatusSchema.parse({
+        ...minimal,
+        awsSummary: {
+          applicationStackName: 'deployz-app-1a2b3c4d',
+          region: 'us-east-1',
+          releaseVersion: null,
+          stackStatus: 'CREATE_COMPLETE',
+        },
+      }),
+    ).toThrow(ZodError);
+  });
 });
 
 describe('vendorDeploymentStatusSchema', () => {
