@@ -1,10 +1,12 @@
 'use client';
 
 import { ChevronDown } from 'lucide-react';
+import { useState } from 'react';
 
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
 import type { Diagnostic, DiagnosticContext, DiagnosticEvent } from '@/lib/diagnostics';
+import { cn } from '@/lib/utils';
 import {
   AI_CONFIDENCE_COPY,
   AI_EXPLANATION_SOURCE_NOTE,
@@ -27,6 +29,7 @@ export function DiagnosticCard({ diagnostic }: { diagnostic: Diagnostic }) {
   const what = diagnostic.explanation?.what ?? copy.description;
   const why = diagnostic.explanation?.why ?? EXPLANATION_FALLBACK.why;
   const fix = diagnostic.explanation?.fix ?? EXPLANATION_FALLBACK.fix;
+  const isAi = diagnostic.explanationSource === 'ai';
 
   return (
     <Card data-testid="diagnostic-card">
@@ -54,8 +57,11 @@ export function DiagnosticCard({ diagnostic }: { diagnostic: Diagnostic }) {
 
         <dl className="flex flex-col gap-2">
           <ExplanationRow title="What happened" text={what} />
-          <ExplanationRow title="Why it happened" text={why} />
-          <ExplanationRow title="How to fix it" text={fix} />
+          {/* §16 AI copy reads as tentative, never a verdict — "Likely cause"
+              and "Suggested fix" name the model's uncertainty; deterministic
+              copy keeps the direct What/Why/Fix. */}
+          <ExplanationRow title={isAi ? 'Likely cause' : 'Why it happened'} text={why} />
+          <ExplanationRow title={isAi ? 'Suggested fix' : 'How to fix it'} text={fix} />
         </dl>
         {diagnostic.explanationSource === 'ai' ? (
           <p className="text-xs text-muted-foreground" data-testid="diagnostic-source">
@@ -71,7 +77,9 @@ export function DiagnosticCard({ diagnostic }: { diagnostic: Diagnostic }) {
           ]}
         </p>
 
-        <details className="group rounded-lg border">
+        <StartupEvidence diagnostic={diagnostic} />
+
+        <details className="group rounded-lg border" data-testid="diagnostic-technical">
           <summary className="flex cursor-pointer list-none items-center justify-between px-3 py-2 text-sm font-medium [&::-webkit-details-marker]:hidden">
             Technical detail
             <ChevronDown
@@ -95,6 +103,94 @@ function ExplanationRow({ title, text }: { title: string; text: string }) {
     <div>
       <dt className="text-sm font-medium">{title}</dt>
       <dd className="text-sm text-muted-foreground">{text}</dd>
+    </div>
+  );
+}
+
+/**
+ * "Startup evidence" — an expandable block that shows the container stop
+ * evidence (Phase 1) and the first failed resource from the normalised
+ * context, so a vendor sees what the application actually did before it died.
+ * Collapsed by default; text is the redacted + truncated reason, never logs.
+ */
+function StartupEvidence({ diagnostic }: { diagnostic: Diagnostic }) {
+  const container = diagnostic.evidence?.container ?? null;
+  const firstResource = diagnostic.context?.relevantEvents?.[0] ?? null;
+  const hasContainer =
+    container !== null &&
+    (container.exitCode !== null ||
+      container.stopCode !== null ||
+      container.stoppedReason !== null ||
+      container.stoppedTaskCount !== null);
+  const hasEvidence = hasContainer || firstResource !== null;
+
+  return (
+    <details className="group rounded-lg border" id="startup-evidence" data-testid="startup-evidence">
+      <summary className="flex cursor-pointer list-none items-center justify-between px-3 py-2 text-sm font-medium [&::-webkit-details-marker]:hidden">
+        Startup evidence
+        <ChevronDown
+          aria-hidden
+          className="size-4 text-muted-foreground transition-transform group-open:rotate-180"
+        />
+      </summary>
+      <div className="flex flex-col gap-2 border-t px-3 py-2.5 text-xs text-muted-foreground">
+        {!hasEvidence ? (
+          <p>No startup evidence was captured for this failure.</p>
+        ) : (
+          <>
+            {hasContainer ? (
+              <div className="flex flex-col gap-1.5" data-testid="startup-evidence-container">
+                {container.exitCode !== null ? (
+                  <DetailRow label="Exit code" value={String(container.exitCode)} />
+                ) : null}
+                {container.stopCode !== null ? (
+                  <DetailRow label="Stop code" value={container.stopCode} />
+                ) : null}
+                {container.stoppedTaskCount !== null ? (
+                  <DetailRow label="Restart count" value={String(container.stoppedTaskCount)} />
+                ) : null}
+                {container.stoppedReason !== null ? (
+                  <StoppedReason reason={container.stoppedReason} />
+                ) : null}
+              </div>
+            ) : null}
+            {firstResource !== null ? (
+              <div className="flex flex-col gap-0.5" data-testid="startup-evidence-resource">
+                <span className="font-medium text-foreground">Failed resource</span>
+                <code className="break-all rounded bg-muted px-1.5 py-0.5 font-mono">
+                  {firstResource.logicalResourceId} · {firstResource.resourceType}
+                  {firstResource.reason ? ` — ${firstResource.reason}` : ''}
+                </code>
+              </div>
+            ) : null}
+          </>
+        )}
+      </div>
+    </details>
+  );
+}
+
+/** The container's free-text stop reason: a muted mono block, line-clamped with an expand toggle. */
+function StoppedReason({ reason }: { reason: string }) {
+  const [expanded, setExpanded] = useState(false);
+  return (
+    <div className="flex flex-col gap-0.5">
+      <span className="font-medium text-foreground">Stopped reason</span>
+      <code
+        className={cn(
+          'break-all rounded bg-muted px-1.5 py-0.5 font-mono',
+          !expanded && 'line-clamp-2',
+        )}
+      >
+        {reason}
+      </code>
+      <button
+        type="button"
+        onClick={() => setExpanded((value) => !value)}
+        className="self-start text-xs font-medium text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
+      >
+        {expanded ? 'Show less' : 'Show more'}
+      </button>
     </div>
   );
 }

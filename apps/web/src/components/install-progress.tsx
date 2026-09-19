@@ -26,6 +26,10 @@ import {
 } from '@/lib/deployment-progress';
 import { fetchDeployLinkStatus, type DeployLinkToken } from '@/lib/deploy-link-flow';
 import { fetchInstallStatus } from '@/lib/install-status';
+import {
+  STARTUP_FAILURE_CUSTOMER_NOTE,
+  STARTUP_FAILURE_TITLE,
+} from '@/lib/diagnostic-vocabulary';
 import { useStatusPoll } from '@/lib/use-status-poll';
 
 /**
@@ -253,15 +257,33 @@ export function InstallProgress({
   );
 }
 
-function FailureDetails({ failure }: { failure: CustomerDeploymentStatus['failure'] }) {
+/**
+ * The customer failure projection, plus the derived startup flag the API
+ * computes from the §61 code behind the message. The raw code itself never
+ * reaches this unauthenticated surface (§65). The flag is optional here so
+ * an older cached response that predates it still renders today's exact
+ * behavior.
+ */
+type CustomerFailure = NonNullable<CustomerDeploymentStatus['failure']> & {
+  ownedByApplication?: boolean;
+};
+
+function FailureDetails({ failure }: { failure: CustomerFailure | null }) {
   if (!failure) return null;
   const technical = failure.technical;
+  // The app-owned startup failures are the vendor's to fix — the customer is
+  // told it is not their fault. Gated strictly on the derived flag; "What
+  // happened" stays for every other failure.
+  const startup = failure.ownedByApplication === true;
   return (
     <div className="flex flex-col gap-3">
       <Alert variant="destructive">
         <AlertTriangle aria-hidden />
-        <AlertTitle>What happened</AlertTitle>
-        <AlertDescription>{failure.customerMessage}</AlertDescription>
+        <AlertTitle>{startup ? STARTUP_FAILURE_TITLE : 'What happened'}</AlertTitle>
+        <AlertDescription>
+          {failure.customerMessage}
+          {startup ? <span className="mt-1 block">{STARTUP_FAILURE_CUSTOMER_NOTE}</span> : null}
+        </AlertDescription>
       </Alert>
       <Collapsible>
         <CollapsibleTrigger className="group flex items-center gap-1 self-start text-sm font-medium text-muted-foreground hover:text-foreground">

@@ -180,6 +180,44 @@ describe('deriveHero', () => {
     expect(hero.liveReleaseNote).toBeNull();
   });
 
+  it('reads "Application couldn\'t start" for an app-owned startup failure', () => {
+    const hero = deriveHero(
+      input({
+        state: 'FAILED',
+        currentReleaseId: null,
+        version: null,
+        jobs: [job({ type: 'INSTALL', failureCode: 'CONTAINER_START_FAILED' })],
+        deploymentStatus: status({
+          stage: 'FAILED',
+          health: { ...status().health, status: 'UNKNOWN' },
+          url: null,
+          failure: { ...FAILURE, code: 'CONTAINER_START_FAILED', message: 'The application stopped shortly after starting.' },
+        }),
+      }),
+    );
+    expect(hero.kind).toBe('install-failed');
+    expect(hero.title).toBe("Application couldn't start");
+  });
+
+  it('keeps "Deployment failed" for a non-startup first-install failure', () => {
+    const hero = deriveHero(
+      input({
+        state: 'FAILED',
+        currentReleaseId: null,
+        version: null,
+        jobs: [job({ type: 'INSTALL', failureCode: 'STACK_CREATE_FAILED' })],
+        deploymentStatus: status({
+          stage: 'FAILED',
+          health: { ...status().health, status: 'UNKNOWN' },
+          url: null,
+          failure: { ...FAILURE, code: 'STACK_CREATE_FAILED', message: 'The initial setup could not complete.' },
+        }),
+      }),
+    );
+    expect(hero.kind).toBe('install-failed');
+    expect(hero.title).toBe('Deployment failed');
+  });
+
   it('a failed update on a live stage says the previous release is unaffected', () => {
     const hero = deriveHero(
       input({

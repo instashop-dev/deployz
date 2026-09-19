@@ -2,15 +2,20 @@
  * §61 failure-code vocabulary + §65 copy mapping for the diagnostics surface.
  *
  * The UI must render each failure in what/why/fix form with a jargon-free top
- * level (§65) — NEVER raw AWS/ECS/CFN/IAM terms. This module is the single
- * source of truth for the code → label/description/severity mapping, so the
- * copy sweep (todo 34) can migrate it into packages/copy-map without touching
- * pages.
+ * level (§65) — NEVER raw AWS/ECS/CFN/IAM terms. The code →
+ * label/description/severity copy is sourced from @deployz/copy-map (the
+ * vetted single source) so it can never drift; pages keep importing from
+ * this module.
  *
  * The §61 codes mirror `failureCodeEnum` (packages/db) and the classifier's
  * `FAILURE_CODES` (packages/cdk) verbatim, following the same web-local
  * pattern as `deployment-vocabulary.ts` (todo 19).
  */
+
+import {
+  APP_OWNED_STARTUP_FAILURE_CODES as COPY_MAP_APP_OWNED_STARTUP_FAILURE_CODES,
+  FAILURE_CODE_COPY as COPY_MAP_FAILURE_CODE_COPY,
+} from '@deployz/copy-map';
 
 // ── §61 failure codes ───────────────────────────────────────────────────────
 
@@ -61,133 +66,14 @@ export interface FailureCopy {
 }
 
 /**
- * Human-readable §65 copy for every §61 failure code. The label + description
- * are plain English — never "AWS Service Control Policy", "ECS", "RDS", or
+ * Human-readable §65 copy for every §61 failure code — @deployz/copy-map's
+ * vetted record, re-exported under this module's stable API so pages never
+ * import copy strings from anywhere else. The label + description are plain
+ * English — never "AWS Service Control Policy", "ECS", "RDS", or
  * "CloudFormation" at the top level (§65). The raw code lives behind the
  * expandable technical-detail layer.
  */
-export const FAILURE_CODE_COPY: Record<FailureCode, FailureCopy> = {
-  AWS_SCP_BLOCKED: {
-    label: 'Cloud policy blocks this',
-    description: "A policy in your organization's cloud account is blocking the setup.",
-    severity: 'critical',
-  },
-  PORT_MISMATCH: {
-    label: 'Port conflict',
-    description: 'Your app listens on one port, but the service expects another.',
-    severity: 'warning',
-  },
-  REGION_NOT_SUPPORTED: {
-    label: 'Region not supported',
-    description: "The chosen region isn't one we can deploy to yet.",
-    severity: 'warning',
-  },
-  QUOTA_EXCEEDED: {
-    label: 'Account limit reached',
-    description: 'Your cloud account has hit a resource limit.',
-    severity: 'warning',
-  },
-  IMAGE_HEALTH_CHECK_FAILED: {
-    label: 'Health check failing',
-    description: "The app started, but its health check isn't passing.",
-    severity: 'warning',
-  },
-  MIGRATION_FAILED: {
-    label: 'Migration failed',
-    description: "A database migration step didn't finish successfully.",
-    severity: 'critical',
-  },
-  RELAY_DISCONNECTED: {
-    label: 'Helper disconnected',
-    description: 'The helper in your cloud account is no longer checking in.',
-    severity: 'critical',
-  },
-  ECS_DEPLOYMENT_FAILED: {
-    label: 'Deployment failed',
-    description: "The new version couldn't be rolled out.",
-    severity: 'critical',
-  },
-  RDS_UNAVAILABLE: {
-    label: 'Database unreachable',
-    description: "The database isn't reachable right now.",
-    severity: 'critical',
-  },
-  AWS_PERMISSION_DENIED: {
-    label: 'Permission denied',
-    description: "Your cloud account doesn't allow this action.",
-    severity: 'critical',
-  },
-  STACK_CREATE_FAILED: {
-    label: 'Setup failed',
-    description: "The initial setup couldn't complete.",
-    severity: 'critical',
-  },
-  STACK_DELETE_FAILED: {
-    label: 'Disconnect failed',
-    description: "The removal couldn't complete. Your data is safe.",
-    severity: 'critical',
-  },
-  DATABASE_CREATE_FAILED: {
-    label: 'Database setup failed',
-    description: "The database couldn't be created.",
-    severity: 'critical',
-  },
-  DATABASE_CONNECTION_FAILED: {
-    label: 'Database connection failed',
-    description: "The app can't reach the database.",
-    severity: 'critical',
-  },
-  IMAGE_PULL_FAILED: {
-    label: 'Image pull failed',
-    description: "The app image couldn't be loaded.",
-    severity: 'critical',
-  },
-  CONTAINER_START_FAILED: {
-    label: 'App failed to start',
-    description: "The app container started but didn't stay running.",
-    severity: 'critical',
-  },
-  MISSING_SECRET: {
-    label: 'Missing secret',
-    description: 'A required secret is not configured.',
-    severity: 'warning',
-  },
-  TEMPLATE_UNAVAILABLE: {
-    label: 'Installation template unavailable',
-    description: "The installation template couldn't be fetched from the cloud region.",
-    severity: 'critical',
-  },
-  UNSUPPORTED_ARCHITECTURE: {
-    label: 'Unsupported architecture',
-    description: "This app's architecture isn't supported yet.",
-    severity: 'warning',
-  },
-  UNKNOWN: {
-    label: 'Unknown issue',
-    description: "Something failed and we couldn't pin down the cause.",
-    severity: 'critical',
-  },
-  REDIS_PROVISIONING_FAILED: {
-    label: 'Cache setup failed',
-    description: "The cache this application needs couldn't be set up.",
-    severity: 'critical',
-  },
-  REDIS_CONNECTION_FAILED: {
-    label: "App can't reach its cache",
-    description: "The app started, but it can't reach its cache.",
-    severity: 'critical',
-  },
-  DOMAIN_OPERATION_TIMEOUT: {
-    label: 'Custom domain update timed out',
-    description: 'The custom domain change did not finish in time. It can be retried.',
-    severity: 'warning',
-  },
-  RELAY_STATE_WRITE_FAILED: {
-    label: 'Deployz lost track of the install',
-    description: 'The Deployz connector could not save its progress, even though setup was still running.',
-    severity: 'critical',
-  },
-};
+export const FAILURE_CODE_COPY: Record<FailureCode, FailureCopy> = COPY_MAP_FAILURE_CODE_COPY;
 
 /**
  * Generic fallback for the why/fix sections when the AI explanation isn't
@@ -218,6 +104,34 @@ export const FAILURE_SEVERITY_DOT: Record<FailureSeverity, string> = {
 export function failureCodeCopy(code: string): FailureCopy {
   return FAILURE_CODE_COPY[code as FailureCode] ?? FAILURE_CODE_COPY.UNKNOWN;
 }
+
+// ── App-owned startup failures ──────────────────────────────────────────────
+
+/**
+ * The §61 codes that name the application's own startup/config work — the
+ * vendor must fix the app before a retry can succeed; Deployz and the customer
+ * have nothing to do. The vendor detail hero and the customer install card
+ * both headline these as "Application couldn't start".
+ */
+export const APP_OWNED_STARTUP_FAILURE_CODES: ReadonlySet<string> =
+  COPY_MAP_APP_OWNED_STARTUP_FAILURE_CODES;
+
+/** True when a failure code names the application's own startup. */
+export function isAppOwnedStartupFailure(
+  code: string | null | undefined,
+): code is FailureCode {
+  return (
+    code !== null &&
+    code !== undefined &&
+    APP_OWNED_STARTUP_FAILURE_CODES.has(code)
+  );
+}
+
+/** §65 headline for a failed first install whose app could not start. */
+export const STARTUP_FAILURE_TITLE = "Application couldn't start";
+
+/** §65 reassurance on the customer card — the vendor owns this, not them. */
+export const STARTUP_FAILURE_CUSTOMER_NOTE = 'No action is required from you.';
 
 // ── §61 recoverability (mirrors @deployz/copy-map verbatim) ─────────────────
 

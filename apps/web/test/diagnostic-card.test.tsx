@@ -15,6 +15,8 @@ const diagnostic: Diagnostic = {
   explanationSource: 'deterministic',
   confidence: null,
   recoverability: 'USER_ACTION',
+  evidence: null,
+  retryEligibility: null,
   occurredAt: '2026-09-05T00:00:00.000Z',
   event: { source: 'deployment', action: 'INSTALL' },
   explanation: {
@@ -40,10 +42,20 @@ function render(input: Diagnostic): Document {
   return new JSDOM(renderToString(<DiagnosticCard diagnostic={input} />)).window.document;
 }
 
+// An AI-sourced reading of the same failure — module scope so every describe
+// block (confidence hedge + tentative labelling) can share the same fixture.
+const aiDiagnostic: Diagnostic = {
+  ...diagnostic,
+  failureCode: 'UNKNOWN',
+  explanationSource: 'ai',
+  confidence: 'low',
+  explanation: { what: 'The most relevant failure was the database step.', why: 'A limit may have been hit.', fix: 'Check the limits and retry.' },
+};
+
 describe('DiagnosticCard — technical context', () => {
   it('keeps the context behind the disclosure and the top level jargon-free', () => {
     const doc = render(diagnostic);
-    const details = doc.querySelector('details');
+    const details = doc.querySelector('[data-testid="diagnostic-technical"]');
     expect(details?.textContent).toContain('INSTALL (attempt 2)');
     expect(details?.textContent).toContain('STACK_CREATE_FAILED');
     expect(details?.textContent).toContain('v1.2.0');
@@ -57,19 +69,13 @@ describe('DiagnosticCard — technical context', () => {
   it('renders without a context (older responses)', () => {
     const doc = render({ ...diagnostic, context: null });
     expect(doc.querySelector('[data-testid="diagnostic-failed-resources"]')).toBeNull();
-    expect(doc.querySelector('details')?.textContent).toContain('DATABASE_CREATE_FAILED');
+    expect(doc.querySelector('[data-testid="diagnostic-technical"]')?.textContent).toContain(
+      'DATABASE_CREATE_FAILED',
+    );
   });
 });
 
 describe('DiagnosticCard — AI confidence (Phase 7)', () => {
-  const aiDiagnostic: Diagnostic = {
-    ...diagnostic,
-    failureCode: 'UNKNOWN',
-    explanationSource: 'ai',
-    confidence: 'low',
-    explanation: { what: 'The most relevant failure was the database step.', why: 'A limit may have been hit.', fix: 'Check the limits and retry.' },
-  };
-
   it('hedges a low-confidence AI reading before the text and names the source', () => {
     const doc = render(aiDiagnostic);
     const hedge = doc.querySelector('[data-testid="diagnostic-confidence"]');
@@ -84,5 +90,50 @@ describe('DiagnosticCard — AI confidence (Phase 7)', () => {
     const deterministic = render({ ...aiDiagnostic, explanationSource: 'deterministic', confidence: null });
     expect(deterministic.querySelector('[data-testid="diagnostic-confidence"]')).toBeNull();
     expect(deterministic.querySelector('[data-testid="diagnostic-source"]')).toBeNull();
+  });
+});
+
+describe('DiagnosticCard — AI tentative labelling', () => {
+  it('relabels the AI why/fix as tentative, and keeps deterministic What/Why/Fix', () => {
+    const ai = render(aiDiagnostic);
+    expect(ai.querySelector('dl')?.textContent).toContain('Likely cause');
+    expect(ai.querySelector('dl')?.textContent).toContain('Suggested fix');
+    expect(ai.querySelector('dl')?.textContent).not.toContain('Why it happened');
+    expect(ai.querySelector('dl')?.textContent).not.toContain('How to fix it');
+
+    const deterministic = render(diagnostic);
+    expect(deterministic.querySelector('dl')?.textContent).toContain('Why it happened');
+    expect(deterministic.querySelector('dl')?.textContent).toContain('How to fix it');
+    expect(deterministic.querySelector('dl')?.textContent).not.toContain('Likely cause');
+  });
+});
+
+describe('DiagnosticCard — startup evidence', () => {
+  it('shows the empty state when there is neither container evidence nor a failed resource', () => {
+    const doc = render({ ...diagnostic, context: null, evidence: null });
+    const section = doc.querySelector('[data-testid="startup-evidence"]');
+    expect(section?.textContent).toContain('No startup evidence was captured for this failure.');
+  });
+
+  it('renders the container rows and the first failed resource inside the disclosure', () => {
+    const doc = render({
+      ...diagnostic,
+      evidence: {
+        container: {
+          exitCode: 1,
+          stopCode: 'EssentialContainerExited',
+          stoppedReason: 'connect ECONNREFUSED 10.0.1.5:5432',
+          stoppedTaskCount: 3,
+        },
+      },
+    });
+    const section = doc.querySelector('[data-testid="startup-evidence"]');
+    expect(section?.textContent).toContain('Exit code');
+    expect(section?.textContent).toContain('Stop code');
+    expect(section?.textContent).toContain('Restart count');
+    expect(section?.textContent).toContain('Stopped reason');
+    expect(section?.textContent).toContain('connect ECONNREFUSED 10.0.1.5:5432');
+    // The first failed resource from the normalised context, without the raw status.
+    expect(section?.textContent).toContain('Database · AWS::RDS::DBInstance — quota reached');
   });
 });
