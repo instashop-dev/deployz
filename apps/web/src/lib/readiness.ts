@@ -9,8 +9,10 @@ import type { ApplicationRequirementsSummary } from '@deployz/contracts';
 
 import { apiUrl } from '@/lib/api-url';
 import type { Application } from '@/lib/applications';
+import type { BadgeVariant } from '@/components/ui/badge';
 import type { DeploymentState } from '@/lib/deployment-vocabulary';
 import type { FleetDeployment } from '@/lib/deployments';
+import { TONE_BADGE, type Tone } from '@/lib/status-tone';
 
 // ── §42 onboarding steps (VERBATIM) ─────────────────────────────────────────
 
@@ -378,6 +380,20 @@ export const READINESS_STATE_PRESENTATION: Record<ReadinessState, ReadinessState
   NEEDS_CHANGES: { label: 'Changes needed', tone: 'incompatible' },
   ANALYSIS_INCOMPLETE: { label: 'Checking…', tone: 'pending' },
 };
+
+/** The semantic tone each readiness presentation tone renders as. */
+const READINESS_TONE: Record<ReadinessStatePresentation['tone'], Tone> = {
+  ready: 'positive',
+  attention: 'attention',
+  incompatible: 'negative',
+  pending: 'neutral',
+};
+
+/** Badge variant for a readiness state, wired through the shared tone
+ *  system — READY is green (§19), never communicated by color alone. */
+export function readinessBadgeVariant(state: ReadinessState): BadgeVariant {
+  return TONE_BADGE[READINESS_TONE[READINESS_STATE_PRESENTATION[state].tone]];
+}
 
 /** Map a persisted §19 verdict onto the semantic readiness state (mirrors
  *  @deployz/copy-map) — for surfaces that only have `compatibilityStatus`. */

@@ -26,9 +26,9 @@ vi.mock('../src/lib/public-install-links', () => ({
   ...linkMocks,
   publicInstallHtmlSnippet: (url: string) => `<a href="${url}">Deploy to AWS with Deployz</a>`,
   publicInstallLinkStatusBadge: (status: string) => {
-    if (status === 'active') return { label: 'Active', variant: 'default' as const };
+    if (status === 'active') return { label: 'Active', variant: 'success' as const };
     if (status === 'disabled') return { label: 'Disabled', variant: 'secondary' as const };
-    return { label: 'Revoked', variant: 'outline' as const };
+    return { label: 'Revoked', variant: 'secondary' as const };
   },
 }));
 
@@ -269,7 +269,7 @@ describe('PublicInstallLinkCard', () => {
     expect(url.textContent).toBe(newLink.url);
   });
 
-  it('shows actionable copy when the application has no published release', async () => {
+  it('shows the generic error when release creation fails', async () => {
     linkMocks.fetchPublicInstallLinks.mockResolvedValue([]);
     linkMocks.createPublicInstallLink.mockRejectedValue(
       new ApiRequestError('RELEASE_NOT_PUBLISHED', 'Release not published'),
@@ -285,7 +285,33 @@ describe('PublicInstallLinkCard', () => {
     await act(async () => Promise.resolve());
 
     const error = document.querySelector('[data-testid="public-install-link-error"]') as HTMLElement;
-    expect(error.textContent).toContain('Publish a release before');
+    expect(error.textContent).toContain('Release not published');
+    expect(error.textContent).not.toContain('Publish a release before');
+  });
+
+  it('shows the new loading text while creating the release and link', async () => {
+    let resolvePromise!: (value: PublicInstallLinkCreated) => void;
+    const deferred = new Promise<PublicInstallLinkCreated>((resolve) => { resolvePromise = resolve; });
+    linkMocks.fetchPublicInstallLinks.mockResolvedValueOnce([]);
+    linkMocks.createPublicInstallLink.mockReturnValue(deferred);
+
+    renderCard();
+    await act(async () => Promise.resolve());
+
+    const createButton = document.querySelector('[data-testid="public-install-link-create"]') as HTMLButtonElement;
+    await act(async () => {
+      click(createButton);
+    });
+
+    expect(document.body.textContent).toContain('Preparing application for deployment…');
+    expect(createButton.disabled).toBe(true);
+
+    // Resolve the create, then mock the refresh call.
+    linkMocks.fetchPublicInstallLinks.mockResolvedValueOnce([activeLink()]);
+    resolvePromise!(createdLink());
+    await flushPromises();
+
+    expect(document.querySelector('[data-testid="public-install-link-active"]')).not.toBeNull();
   });
 
   it('shows the existing live link when a create conflict occurs', async () => {

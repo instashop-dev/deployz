@@ -163,7 +163,7 @@ function ConfigBody({
                     className="flex items-center gap-1.5 rounded bg-muted px-2 py-0.5 font-mono text-xs"
                   >
                     {entry.key}
-                    <Badge variant="outline" className="h-4 px-1 text-[10px]">
+                    <Badge variant="secondary" className="h-4 px-1 text-[10px]">
                       {entry.isSecret ? 'Secret' : 'Plain'}
                     </Badge>
                   </code>
@@ -311,7 +311,7 @@ function EnvPlanRows({ rows, icon }: { rows: EnvPlanRow[]; icon: (row: EnvPlanRo
             {row.classification === 'customer_required' ? (row.provided ? 'Provided' : 'Missing') : row.reason}
           </span>
           {row.secret ? (
-            <Badge variant="outline" className="h-4 px-1 text-[10px]">
+            <Badge variant="secondary" className="h-4 px-1 text-[10px]">
               Secret
             </Badge>
           ) : null}
@@ -576,8 +576,8 @@ function ConfigField({
         <Label htmlFor={inputId} className="font-mono">
           {entry.key}
         </Label>
-        {entry.isSecret ? <Badge variant="outline">Secret</Badge> : null}
-        {removed ? <Badge variant="destructive">Removing</Badge> : null}
+        {entry.isSecret ? <Badge variant="secondary">Secret</Badge> : null}
+        {removed ? <Badge variant="warning">Removing</Badge> : null}
         {onToggleRemove ? (
           <Button
             type="button"
@@ -645,7 +645,7 @@ function DraftField({
     <div className="flex flex-col gap-3 rounded-lg border border-dashed p-4" data-testid="config-draft">
       <div className="flex items-center gap-2">
         <p className="text-sm font-medium">New {draft.isSecret ? 'secret' : 'value'}</p>
-        {draft.isSecret ? <Badge variant="outline">Secret</Badge> : null}
+        {draft.isSecret ? <Badge variant="secondary">Secret</Badge> : null}
       </div>
       <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
         <div className="flex flex-1 flex-col gap-2">

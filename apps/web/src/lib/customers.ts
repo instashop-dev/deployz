@@ -193,3 +193,31 @@ export function matchesCustomerSearch(customer: Customer, search: string): boole
     .toLowerCase()
     .includes(needle);
 }
+
+// ── Create-deployment customer picker ───────────────────────────────────────
+
+/** The customer picker's sentinel value for "create a new customer" — never
+ *  a real customer id, so it can share the same string field as one. */
+export const NEW_CUSTOMER_VALUE = '__new_customer__';
+
+/** The picker's default selection: the `?customerId=` from the URL when it
+ *  names a customer the organization actually has, else "create new" — an
+ *  unknown or missing id must never leave the picker pointing at nothing. */
+export function initialCustomerSelection(
+  customers: Customer[],
+  preselectedCustomerId: string | null,
+): string {
+  if (preselectedCustomerId && customers.some((customer) => customer.id === preselectedCustomerId)) {
+    return preselectedCustomerId;
+  }
+  return NEW_CUSTOMER_VALUE;
+}
+
+/** The existing customer whose email matches the one just typed (trimmed,
+ *  case-insensitive), for the create-deployment form's non-blocking duplicate
+ *  hint — null when the field is empty or nothing matches. */
+export function matchingCustomerByEmail(customers: Customer[], email: string): Customer | null {
+  const needle = email.trim().toLowerCase();
+  if (needle === '') return null;
+  return customers.find((customer) => customer.email.trim().toLowerCase() === needle) ?? null;
+}

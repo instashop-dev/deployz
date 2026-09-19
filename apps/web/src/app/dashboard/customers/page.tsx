@@ -1,6 +1,6 @@
 'use client';
 
-import { Copy, Eye, MoreHorizontal, Pencil, Search, Trash2 } from 'lucide-react';
+import { Copy, Eye, Info, MoreHorizontal, Pencil, Search, Trash2 } from 'lucide-react';
 import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
 
@@ -18,6 +18,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { Input } from '@/components/ui/input';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
   Table,
@@ -144,7 +145,7 @@ export default function CustomersPage() {
         </div>
         {state.status === 'loaded' && customers.length === 0 ? null : (
           <Button asChild size="sm">
-            <Link href="/dashboard/deployments/new">Add customer</Link>
+            <Link href="/dashboard/deployments/new">Create deployment</Link>
           </Button>
         )}
       </div>
@@ -234,7 +235,7 @@ function CustomerTable({
   onDelete: (customer: Customer) => void;
 }) {
   return (
-    <Card>
+    <Card className="py-0">
       <CardContent className="overflow-x-auto p-0">
         <Table data-testid="customer-list">
           <TableHeader>
@@ -254,24 +255,56 @@ function CustomerTable({
             {rows.map(({ customer, rollup }) => (
               <TableRow key={customer.id}>
                 <TableCell>
-                  <Link
-                    href={`/dashboard/customers/${customer.id}`}
-                    className="font-medium hover:underline"
-                  >
-                    {customer.name}
-                  </Link>
-                  <p className="text-xs text-muted-foreground">{customer.email}</p>
-                  {customer.company ? (
-                    <p className="text-xs text-muted-foreground">{customer.company}</p>
-                  ) : null}
+                  <div className="flex items-center gap-1.5">
+                    <Link
+                      href={`/dashboard/customers/${customer.id}`}
+                      className="font-medium hover:underline"
+                    >
+                      {customer.name}
+                    </Link>
+                    <Popover>
+                      <PopoverTrigger asChild>
+                        <Button
+                          variant="ghost"
+                          size="icon-xs"
+                          aria-label={`Contact details for ${customer.name}`}
+                          className="text-muted-foreground"
+                        >
+                          <Info aria-hidden />
+                        </Button>
+                      </PopoverTrigger>
+                      <PopoverContent align="start" className="w-64">
+                        <p className="text-sm text-muted-foreground">{customer.email}</p>
+                        {customer.company ? (
+                          <p className="mt-1 text-sm text-muted-foreground">{customer.company}</p>
+                        ) : null}
+                      </PopoverContent>
+                    </Popover>
+                  </div>
                 </TableCell>
                 <TableCell>
-                  <Badge variant={rollup.badge}>{rollup.label}</Badge>
-                  {rollup.deployment ? (
-                    <p className="mt-0.5 text-xs text-muted-foreground">
-                      {rollup.deployment.applicationName}
-                    </p>
-                  ) : null}
+                  <div className="flex items-center gap-1.5">
+                    <Badge variant={rollup.badge}>{rollup.label}</Badge>
+                    {rollup.deployment ? (
+                      <Popover>
+                        <PopoverTrigger asChild>
+                          <Button
+                            variant="ghost"
+                            size="icon-xs"
+                            aria-label={`Deployment details for ${customer.name}`}
+                            className="text-muted-foreground"
+                          >
+                            <Info aria-hidden />
+                          </Button>
+                        </PopoverTrigger>
+                        <PopoverContent align="start" className="w-64">
+                          <p className="text-sm text-muted-foreground">
+                            {rollup.deployment.applicationName}
+                          </p>
+                        </PopoverContent>
+                      </Popover>
+                    ) : null}
+                  </div>
                 </TableCell>
                 <TableCell className="whitespace-nowrap text-muted-foreground">
                   {/* data-testid: masked in visual regression — relative time
@@ -413,7 +446,7 @@ function EmptyState() {
         account.
       </p>
       <Button asChild>
-        <Link href="/dashboard/deployments/new">Add customer</Link>
+        <Link href="/dashboard/deployments/new">Create deployment</Link>
       </Button>
     </section>
   );

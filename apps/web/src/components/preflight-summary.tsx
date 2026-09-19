@@ -4,6 +4,7 @@ import { Check, ChevronDown, CircleAlert, CircleX } from 'lucide-react';
 
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { preflightPresentation, type PreflightCheck, type PreflightResult } from '@/lib/preflight';
+import { TONE_DOT, TONE_TEXT, type Tone } from '@/lib/status-tone';
 import { cn } from '@/lib/utils';
 
 // Preflight summary (AI MVP Phase 5) — the deterministic pre-deployment gate
@@ -11,24 +12,30 @@ import { cn } from '@/lib/utils';
 // blocked. Shown before a deployment is created and beside the install
 // link. The API enforces the same gate; this only shows it earlier.
 
-const TONE_DOT = {
-  ready: 'bg-primary',
-  attention: 'bg-muted-foreground',
-  blocked: 'bg-destructive',
-} as const;
-
-const TONE_HEADING = {
-  ready: 'text-primary',
-  attention: 'text-foreground',
-  blocked: 'text-destructive',
-} as const;
+// Routes the preflight tones through the shared tone system: ready is
+// green, warnings amber, blocked red — always paired with the label text.
+const PREFLIGHT_TONE: Record<'ready' | 'attention' | 'blocked', Tone> = {
+  ready: 'positive',
+  attention: 'attention',
+  blocked: 'negative',
+};
 
 const STATUS_ORDER: Record<PreflightCheck['status'], number> = { blocked: 0, warning: 1, passed: 2 };
 
+const STATUS_ICON_TEXT: Record<PreflightCheck['status'], string> = {
+  blocked: 'text-destructive',
+  warning: TONE_TEXT.attention,
+  passed: TONE_TEXT.positive,
+};
+
 function StatusIcon({ status }: { status: PreflightCheck['status'] }) {
-  if (status === 'blocked') return <CircleX aria-hidden className="size-4 shrink-0 text-destructive" />;
-  if (status === 'warning') return <CircleAlert aria-hidden className="size-4 shrink-0 text-muted-foreground" />;
-  return <Check aria-hidden className="size-4 shrink-0 text-primary" />;
+  if (status === 'blocked') {
+    return <CircleX aria-hidden className={cn('size-4 shrink-0', STATUS_ICON_TEXT[status])} />;
+  }
+  if (status === 'warning') {
+    return <CircleAlert aria-hidden className={cn('size-4 shrink-0', STATUS_ICON_TEXT[status])} />;
+  }
+  return <Check aria-hidden className={cn('size-4 shrink-0', STATUS_ICON_TEXT[status])} />;
 }
 
 const STATUS_LABEL: Record<PreflightCheck['status'], string> = {
@@ -39,6 +46,7 @@ const STATUS_LABEL: Record<PreflightCheck['status'], string> = {
 
 export function PreflightSummary({ result, title = 'Deployment preflight' }: { result: PreflightResult; title?: string }) {
   const presentation = preflightPresentation(result);
+  const tone = PREFLIGHT_TONE[presentation.tone];
   const checks = [...result.checks].sort((a, b) => STATUS_ORDER[a.status] - STATUS_ORDER[b.status]);
   const attention = checks.filter((check) => check.status !== 'passed');
   const passed = checks.filter((check) => check.status === 'passed');
@@ -48,8 +56,8 @@ export function PreflightSummary({ result, title = 'Deployment preflight' }: { r
       <CardHeader>
         <p className="text-sm font-semibold">{title}</p>
         <div className="flex items-center gap-2.5">
-          <span aria-hidden className={cn('size-2.5 shrink-0 rounded-full', TONE_DOT[presentation.tone])} />
-          <h3 className={cn('font-heading text-base font-medium', TONE_HEADING[presentation.tone])} data-testid="preflight-heading">
+          <span aria-hidden className={cn('size-2.5 shrink-0 rounded-full', TONE_DOT[tone])} />
+          <h3 className={cn('font-heading text-base font-medium', TONE_TEXT[tone])} data-testid="preflight-heading">
             {presentation.heading}
           </h3>
         </div>
@@ -90,7 +98,16 @@ function CheckRow({ check }: { check: PreflightCheck }) {
       <div className="flex min-w-0 flex-1 flex-col">
         <span className="flex flex-wrap items-center gap-2">
           <span className="font-medium">{check.label}</span>
-          <span className={cn('text-xs', check.status === 'blocked' ? 'text-destructive' : 'text-muted-foreground')}>
+          <span
+            className={cn(
+              'text-xs',
+              check.status === 'blocked'
+                ? 'text-destructive'
+                : check.status === 'passed'
+                  ? TONE_TEXT.positive
+                  : 'text-muted-foreground',
+            )}
+          >
             {STATUS_LABEL[check.status]}
           </span>
         </span>

@@ -1,6 +1,6 @@
 'use client';
 
-import { Eye, MoreHorizontal, Search, Stethoscope } from 'lucide-react';
+import { Eye, Info, MoreHorizontal, Search, Stethoscope } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useEffect, useMemo, useState } from 'react';
@@ -16,6 +16,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { Input } from '@/components/ui/input';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import {
   Select,
   SelectContent,
@@ -203,7 +204,7 @@ export default function DeploymentsPage() {
             would show the same button twice on one screen. */}
         {state.status === 'empty' ? null : (
           <Button asChild size="sm">
-            <Link href="/dashboard/deployments/new">Deploy customer</Link>
+            <Link href="/dashboard/deployments/new">Create deployment</Link>
           </Button>
         )}
       </div>
@@ -377,7 +378,7 @@ function EmptyState() {
 
 function FleetTable({ deployments }: { deployments: FleetDeployment[] }) {
   return (
-    <Card>
+    <Card className="py-0">
       <CardContent className="overflow-x-auto p-0">
         <Table data-testid="deployment-list">
           <TableHeader>
@@ -416,23 +417,21 @@ function FleetTable({ deployments }: { deployments: FleetDeployment[] }) {
                 </TableCell>
                 <TableCell className="text-muted-foreground">{deployment.region}</TableCell>
                 <TableCell>
-                  <DeploymentStatusBadge state={deployment.state} />
-                  <p className="mt-0.5 text-xs text-muted-foreground">
-                    {removedProgress(deployment.state)?.body ??
-                      `${STAGE_LABEL[deployment.deploymentStatus.stage]} · ${progressDetail(deployment.deploymentStatus)}`}
-                  </p>
-                  {relativeTime(deployment.deploymentStatus.updatedAt) ? (
-                    // data-testid: masked in visual regression — relative
-                    // time drifts with the clock.
-                    <p className="text-xs text-muted-foreground" data-testid="status-updated">
-                      Updated {relativeTime(deployment.deploymentStatus.updatedAt)}
-                    </p>
-                  ) : null}
-                  {/* Relay connectivity is observed (last check-in), never
-                      inferred from the lifecycle state above. */}
-                  {deployment.relayStatus === 'DISCONNECTED' ? (
-                    <p className="mt-0.5 text-xs text-destructive">Relay offline</p>
-                  ) : null}
+                  <div className="flex items-center gap-1.5">
+                    <DeploymentStatusBadge state={deployment.state} />
+                    {/* Relay connectivity is observed (last check-in), never
+                        inferred from the lifecycle state above. The inline dot
+                        keeps it visible on one line; the accessible text lives
+                        in the details popover. */}
+                    {deployment.relayStatus === 'DISCONNECTED' ? (
+                      <span
+                        role="img"
+                        aria-label="Relay offline"
+                        className="size-2 shrink-0 rounded-full bg-destructive"
+                      />
+                    ) : null}
+                    <StatusDetails deployment={deployment} />
+                  </div>
                 </TableCell>
                 <TableCell className="w-10">
                   <RowActions deploymentId={deployment.id} />
@@ -443,6 +442,43 @@ function FleetTable({ deployments }: { deployments: FleetDeployment[] }) {
         </Table>
       </CardContent>
     </Card>
+  );
+}
+
+// The status column is one line: the badge (plus an optional relay dot)
+// with a single info affordance for the stage detail, last-updated time and
+// relay state. These used to stack under the badge and made rows uneven.
+function StatusDetails({ deployment }: { deployment: FleetDeployment }) {
+  const detail =
+    removedProgress(deployment.state)?.body ??
+    `${STAGE_LABEL[deployment.deploymentStatus.stage]} · ${progressDetail(deployment.deploymentStatus)}`;
+  const updated = relativeTime(deployment.deploymentStatus.updatedAt);
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <Button
+          variant="ghost"
+          size="icon-xs"
+          aria-label={`Status details for ${deployment.customerName}`}
+          className="text-muted-foreground"
+        >
+          <Info aria-hidden />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent align="start" className="w-72 space-y-1.5">
+        <p className="text-sm">{detail}</p>
+        {updated ? (
+          // data-testid: masked in visual regression — relative time drifts
+          // with the clock.
+          <p className="text-xs text-muted-foreground" data-testid="status-updated">
+            Updated {updated}
+          </p>
+        ) : null}
+        {deployment.relayStatus === 'DISCONNECTED' ? (
+          <p className="text-xs font-medium text-destructive">Relay offline</p>
+        ) : null}
+      </PopoverContent>
+    </Popover>
   );
 }
 

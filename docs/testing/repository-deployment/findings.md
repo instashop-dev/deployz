@@ -38,6 +38,13 @@ one of `FIXED`, `MVP_CAPABILITY_GAP`, `CORRECTLY_UNSUPPORTED`,
 | DEPLOY-023 | (cleanup) | TEST_HARNESS_FAILURE | OPEN | every repository whose install fails before the relay enrolls; measured on repo-007 |
 | DEPLOY-024 | INFRA_ERROR (relay never enrols) | DEPLOYZ_BUG | FIXED (the template stores the credential as JSON) | every install carrying a server-established relay credential, i.e. all of them since PR #265 |
 | DEPLOY-025 | CLEANUP_LEAK (false) | TEST_HARNESS_FAILURE | OPEN | every application with a retained database plus another dependency; measured on repo-007 |
+| DEPLOY-026 | CONTAINER_START_ERROR | DEPLOYZ_BUG | FIXED (PR #307 merged 2026-09-17 21:09Z, main b64f52f; application templates republished 21:2xZ; miniflux attempt 2 delivered `DATABASE_URL`) | every non-Documenso PostgreSQL application installed through the production template since the preset publish; measured on repo-004 (regional campaign wave 1) |
+| DEPLOY-027 | CONTAINER_START_ERROR | DEPLOYZ_BUG | OPEN — product decision (changes the §31 write-only secret model); the campaign harness re-delivers generated secrets after enrollment (PR #309) | every application whose first boot needs a customer-facing secret typed before the relay connects, including the public deploy-link confirm flow; measured on repo-004 attempt 2 (`unboundSecretKeys: [ADMIN_PASSWORD]`); predicted repo-016 (minted `SECRET_KEY` is not 64 hex), repo-021 (`ADMIN_PASSWORD`) |
+| DEPLOY-028 | (cleanup) | TEST_HARNESS_FAILURE | FIXED (PR #306 tag-based retained-secret discovery; PR #308 never removes the connector before `cleanupState` is COMPLETE) | every Stage B ledger whose Disconnect/Purge fails; measured on repo-004 attempt 1 (retained RDS, bucket, secrets, subnet group, security group, subnet and VPC stranded and removed by exact id) |
+| DEPLOY-029 | MIGRATION_ERROR | DEPLOYZ_BUG | FIXED (PR #312 merged 2026-09-18 01:23Z, main ebd0045, ANALYSIS_VERSION 20; umami attempt 2 installed, migrated at boot and passed its smoke contract) | every PostgreSQL application whose image migrates at start, ships a deploy-shaped package.json script and has no npx; measured on repo-001 (regional campaign wave 2) |
+| DEPLOY-030 | CONFIG_ERROR (install) | DEPLOYZ_BUG | FIXED (PR #314 merged 2026-09-18 02:32Z, main 8b3dc5e, ANALYSIS_VERSION 21) | every application with provider-prefixed, TLS or URI-shaped keys (`AWS_*`, `GITHUB_*`, `SLACK_*`, `SSL_KEY`, `*_URI`); measured on repo-016 outline (`generatedKeys` listed six such keys) |
+| DEPLOY-031 | BUILD_ERROR | DEPLOYZ_BUG | FIXED (PR #315 merged 2026-09-18 02:40Z, main c9983cd, ANALYSIS_VERSION 22; the install gate now blocks before any AWS resource) | every Dockerfile that copies `.git` (Go projects that embed `git rev-parse` output); measured on repo-090 pgweb |
+| DEPLOY-032 | CONTAINER_START_ERROR | DEPLOYZ_BUG | FIXED (PR #316 merged 2026-09-18 02:55Z, main 94f5a61, ANALYSIS_VERSION 23; fider attempt 2's model carries `JWT_SECRET` as a minted secret and runtime `go`) | every Go application declaring its configuration through envdecode / caarlos0-env struct tags, and every multi-stage Dockerfile whose final stage is a bare OS image fed by a Go build stage after a Node UI stage; measured on repo-203 fider |
 
 ---
 
@@ -1362,3 +1369,223 @@ cleanup once automatically before recording a leak.
 
 **Note.** DEPLOY-022 compounds this: much of the teardown time is spent
 removing a database the application never needed.
+
+## DEPLOY-026 — The production application template drops the standard `DATABASE_URL` when it is published with a preset
+
+**Stage** CONTAINER_START_ERROR · **Root cause** DEPLOYZ_BUG · **Resolution**
+FIXED (PR #307, main b64f52f, 2026-09-17 21:09Z; `application/v1`
+republished from the fixed dist at 21:2xZ) · **Found** regional campaign,
+wave 1, repo-004 miniflux attempt 1 (2026-09-17 20:25Z, us-east-1, run
+`stage-b-repo-004-20260917-195539-c9c9`).
+
+**Behaviour.** `packages/cdk/src/application/application-stack.ts` derived
+the connection-URL env names as `props.databaseUrlEnvNames ?? ['DATABASE_URL']`.
+A preset that pins its own names (the Documenso preset:
+`NEXT_PRIVATE_DATABASE_URL`, `NEXT_PRIVATE_DIRECT_DATABASE_URL`) therefore
+replaced the standard name. The documented production publish recipe runs
+`publish:application` with `APP_PRESET=documenso`, so every customer install
+since that publish ran a task definition without `DATABASE_URL`. Every earlier
+Stage B PASS used `--template pinned` (a generic template published per run)
+and never measured the production template.
+
+**Effect.** miniflux read the default `DATABASE_URL`, dialled
+`127.0.0.1:5432`, exited 1 on every start; the deployment ended
+`CONTAINER_START_FAILED` ("The application started and then stopped"). The
+relay's binding-alias module documents that the template bakes the standard
+names, so no alias could be derived either.
+
+**Evidence.** Task-definition revisions 113/114 (installation
+`9a8aef85-…`): secrets `DATABASE_PASSWORD, …, NEXT_PRIVATE_DATABASE_URL,
+NEXT_PRIVATE_DIRECT_DATABASE_URL`, no `DATABASE_URL`; container log
+`level=INFO msg="The default value for DATABASE_URL is used"`. Revisions
+107/108 of a concurrent generic-template run carried `DATABASE_URL`.
+
+**Fix.** When `databaseRequired` is true the standard `DATABASE_URL` is always
+injected; a preset's `databaseUrlEnvNames` only adds names. Regression tests
+synthesize the Documenso preset and assert `DATABASE_URL` is bound to the
+`DatabaseUrlSecret` next to the preset names. `deploy-api` redeployed the
+control plane and republished the bootstrap template; the application
+templates were republished by hand with the documented recipe. Verified on
+real AWS: miniflux attempt 2's revision 117 carries `DATABASE_URL` and the
+migrations ran (schema v0 → v134).
+
+---
+
+## DEPLOY-027 — Secret values typed before the customer's relay connects never reach the install, and minted replacements ignore the application's format
+
+**Stage** CONTAINER_START_ERROR · **Root cause** DEPLOYZ_BUG · **Resolution**
+OPEN — a product decision (the §31 write-only secret model) · **Found**
+regional campaign, wave 1, repo-004 miniflux attempt 2 (2026-09-17 21:38Z,
+run `stage-b-repo-004-20260917-211201`).
+
+**Behaviour.** `createRelaySecretWriter` (`apps/api/src/config.ts`) enqueues
+one CONFIG_UPDATE fan-out to the deployments of that customer whose relay is
+connected when the secret is saved. A value typed at the vendor scope before
+any install, at the customer scope before the relay connects, or on the
+public deploy link's confirm step (`apps/api/src/public-install.ts`:
+`setConfig` runs before `createDeploymentRecord`) has no recipient and only
+its mask survives. At install, `buildRelayConfigEntries` mints values for
+app-internal secrets (`randomBytes(32).toString('base64url')`) and never for
+customer-required ones (DEPLOY-013's design).
+
+**Effect.** Customer-facing secrets (admin passwords, licence keys) are absent
+at first boot: miniflux with `CREATE_ADMIN=1` logs `The password must have at
+least 6 characters.` and exits; CONFIG_UPDATE reports
+`unboundSecretKeys: ["ADMIN_PASSWORD"]`, `generatedKeys: []`. Internal
+secrets with a validated format get a value the application rejects (outline
+`SECRET_KEY` must be 64 hexadecimal characters). The customer typed the value,
+the install fails, and nothing says the value was lost.
+
+**Workaround.** Type the secret at the customer scope after the customer's
+relay is CONNECTED; the fan-out delivers it and a delivered value wins over a
+minted one. The Stage B harness emulates this after the enrollment step
+(PR #309). It is not an acceptable customer experience.
+
+**Decision needed.** (a) hold pre-install secret values encrypted in the
+control plane until the first delivery, then discard; (b) carry confirm-time
+values inside the deployment's install payload; (c) format-aware minting from
+the manifest's validation hints. Each changes §31 and needs an explicit
+product decision; none is implemented by this campaign.
+
+---
+
+## DEPLOY-028 — A failed retained-state check removed the connector before Purge and stranded the retained set
+
+**Stage** (cleanup) · **Root cause** TEST_HARNESS_FAILURE · **Resolution**
+FIXED (PR #306 tag-based retained-secret discovery, 2026-09-17 20:29Z;
+PR #308 connector-order guard, 2026-09-17 21:59Z) · **Found** regional
+campaign, wave 1, repo-004 miniflux attempt 1 (2026-09-17 21:05Z).
+
+**Behaviour.** `verifyRetainedState` looked for retained credential secrets
+whose name starts with the application stack name, but CloudFormation names
+this template's secrets `<LogicalId>-<random>` (`DatabaseSecret86DBB7B3-…`,
+`DatabaseUrlSecretFA7DE062-…`) with no stack prefix, so the check failed
+although the secrets existed and carried the installation tag. Because
+`destroyThroughProduct` threw before Purge, `cleanupAttempt` went on to
+`removeCanaryLeftovers`, whose "purge still running" guard was keyed on
+`run.vendor` — never set by a Stage B ledger — and deleted the connector.
+
+**Effect.** With the relay gone the product could no longer purge: a
+deletion-protected `db.t4g.micro` instance and its automated snapshot, a
+versioned bucket, two secrets, an RDS subnet group, a security group, a
+subnet and a VPC stayed behind and were removed by exact id by the operator.
+The gatus lane in eu-north-1 was stopped before the same step; its cleanup
+ran under the fixed harness and its retained-state verification passed.
+
+**Fix.** Retained credentials are identified by their CloudFormation logical
+id and installation tag; the connector is never removed while an
+installation exists and the product's `cleanupState` is not `COMPLETE`; when
+Disconnect or Purge fails for a run that has an installation, the leftovers
+step is skipped and the ledger stays open for `--cleanup`.
+
+---
+
+## DEPLOY-029 — A package.json deploy script became a pre-deploy `npx …` command for an image that migrates itself at start
+
+**Stage** MIGRATION_ERROR · **Root cause** DEPLOYZ_BUG (analysis + API) ·
+**Resolution** FIXED (PR #312, main ebd0045, deployed 2026-09-18 01:25Z;
+ANALYSIS_VERSION 20) · **Found** regional campaign, wave 2, repo-001 umami
+attempt 1 (2026-09-17 23:58Z, us-east-2, run
+`stage-b-repo-001-20260917-233346-91cd`).
+
+**Behaviour.** `hasPreDeployMigration` won whenever any package.json script was
+deploy-shaped (`update-db: prisma migrate deploy`), so the startup-migration
+detector was never consulted; that detector also read only the selected
+Dockerfile's CMD/ENTRYPOINT text and a fixed list of boot-script names, not
+the script the CMD invokes. `resolveMigrationCommand` then persisted
+`applyNpxPrefix(command)` whatever the mode.
+
+**Effect.** umami's runtime image removes npm and npx on purpose and migrates
+at boot (`scripts/start-docker.sh` → `scripts/check-db.js`). The relay ran the
+invented `npx prisma migrate deploy` as a one-off task: `sh: npx: not found`,
+exit 127, deployment FAILED `MIGRATION_FAILED`. Every PostgreSQL application
+whose image migrates at boot, ships a deploy-shaped package.json script and
+lacks npx failed its first deploy.
+
+**Fix.** The detector follows the CMD/ENTRYPOINT script chain (depth 3, `.sh`,
+`.js`, `.mjs`, `.cjs`, `.ts`); startup evidence from that chain takes
+precedence over a package.json script → mode `startup`; the API persists no
+migration command for mode `startup` (and clears a stale one) unless the
+vendor owns the field; the file-tree builder keeps the CMD-chain scripts above
+the file cap. Verified on real AWS: umami attempt 2 (see the matrix).
+
+---
+
+## DEPLOY-030 — Provider-prefixed, TLS and URI-shaped keys were classified as mintable internal secrets
+
+**Stage** CONFIG (install) · **Root cause** DEPLOYZ_BUG (analysis) ·
+**Resolution** FIXED (PR #314; ANALYSIS_VERSION 21) · **Found** regional
+campaign, wave 2, repo-016 outline (2026-09-18 00:53Z, eu-west-1, run
+`stage-b-repo-016-20260918-003307-3736`).
+
+**Behaviour.** `classifyEnvVarPurpose` called every name containing
+KEY/SECRET/TOKEN an `internal_secret` unless an external-credential shape
+caught it. `AWS_ACCESS_KEY_ID`, `DROPBOX_APP_KEY`, `GITHUB_WEBHOOK_SECRET`,
+`SLACK_VERIFICATION_TOKEN`, `OIDC_TOKEN_URI` and `SSL_KEY` slipped through, and
+the install minted random values for them (`generatedKeys` in the CONFIG_UPDATE
+result).
+
+**Effect.** outline exits at boot when `SSL_KEY` is set without `SSL_CERT`;
+the other values switch on integrations nobody configured. The customer cannot
+see the keys: the review form hides mintable secrets.
+
+**Fix.** A provider-prefixed name is an external credential; TLS material is
+optional configuration; a name ending in `_URI`, `_URL`, `_ENDPOINT` or `_HOST`
+is never a secret. Minting itself is unchanged (DEPLOY-013 still mints kutt's
+optional `JWT_SECRET`). A first attempt that minted only required secrets was
+dropped because it regressed DEPLOY-013.
+
+---
+
+## DEPLOY-031 — A Dockerfile that copies `.git/` is rated READY, then every build fails against the tarball source
+
+**Stage** BUILD_ERROR · **Root cause** DEPLOYZ_BUG (analysis: missing signal)
+· **Resolution** FIXED (PR #315, main c9983cd, deployed 2026-09-18 02:43Z;
+ANALYSIS_VERSION 22) · **Found** regional campaign,
+wave 2 replacement slot, repo-090 pgweb (2026-09-18 01:44Z, eu-west-1, run
+`stage-b-repo-090-20260918-014354-dbad`).
+
+**Behaviour.** The source pipeline fetches the GitHub tarball
+(`packages/cdk/src/pipeline/source-fetch.ts`), which has no `.git`. pgweb's
+Dockerfile runs `COPY .git/ .` so `make build` can embed the commit; the
+analyser does not inspect COPY/ADD sources, so the readiness report said READY.
+
+**Effect.** CodeBuild: `failed to calculate checksum … "/.git": not found`;
+the vendor sees only "The image build did not produce an image". Any Go-style
+Dockerfile that copies `.git` fails the same way with no path inside Deployz.
+
+**Fix.** A Dockerfile detector records `COPY`/`ADD` sources that name
+`.git` or a path inside it (any stage, `--from=` copies and `.gitignore`-style
+lookalikes excluded); the readiness report adds the blocking finding
+`build-context-git-metadata` with the fix text; the manifest carries an
+unsupported reason so the install gate blocks before any AWS resource.
+Shipping `.git` in the archive is a product decision (source-fetch
+architecture), not implemented here.
+
+---
+
+## DEPLOY-032 — Go struct-tag environment declarations were invisible and a Go server with a JavaScript UI stage was rated Node
+
+**Stage** CONTAINER_START_ERROR · **Root cause** DEPLOYZ_BUG (analysis: two
+missing signals) · **Resolution** FIXED (PR #316; ANALYSIS_VERSION 23) ·
+**Found** regional campaign, wave 2 replacement slot, repo-203 fider
+(2026-09-18 02:12Z, eu-west-1, run `stage-b-repo-203-20260918-015205`).
+
+**Behaviour.** fider declares its configuration as envdecode struct tags
+(`env:"JWT_SECRET,required"`, `env:"EMAIL_NOREPLY,required"`, …). The Go
+scanner read only `os.Getenv` and `envconfig:"…"` tags, so the manifest had
+no env model at all. The runtime detector walked the Dockerfile's FROM
+images from the last stage backwards and stopped at the `node` UI-build
+stage because the final stage is a bare `debian` image.
+
+**Effect.** `JWT_SECRET` was never minted; the container panicked at boot
+(`the environment variable "JWT_SECRET" is missing`); deployment FAILED
+`CONTAINER_START_FAILED`. Nothing in the readiness report told the vendor to
+declare the secret.
+
+**Fix.** `scanGoEnvReads` reads `env:"KEY[,required][,default=…]"` tags (a
+sibling `envDefault:"…"` tag also makes the value optional). When the final
+stage's base image has no runtime, `detectRuntime` resolves it through the
+final stage's `COPY --from=` references, preferring the stage that supplies
+the CMD/ENTRYPOINT executable; line-continued COPY instructions are joined.
+Verified on real AWS: fider attempt 2 (see the matrix).

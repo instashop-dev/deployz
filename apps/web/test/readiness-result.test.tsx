@@ -1,4 +1,4 @@
-import type { ApplicationRequirementsSummary, DeploymentPlan } from '@deployz/contracts';
+import type { ApplicationRequirementsSummary } from '@deployz/contracts';
 import { JSDOM } from 'jsdom';
 import React, { act } from 'react';
 import { createRoot } from 'react-dom/client';
@@ -25,7 +25,6 @@ vi.mock('@/lib/applications', () => ({
 
 import {
   EditDialog,
-  InstallPlanSection,
   ReadinessTableRow,
   RequirementDriftNotice,
 } from '../src/app/dashboard/applications/[id]/readiness-components';
@@ -456,26 +455,6 @@ describe('RequirementDriftNotice', () => {
     expect(doc.body.textContent).toContain('Acme Corp');
     expect(doc.body.textContent).toContain('Cache: not provisioned here, now required');
     expect(doc.querySelector('a[href="/dashboard/deployments/dep-1"]')).not.toBeNull();
-  });
-});
-
-describe('InstallPlanSection', () => {
-  it('renders plan components with action and lifecycle', () => {
-    const plan: DeploymentPlan = {
-      schemaVersion: 1,
-      action: 'INSTALL',
-      region: null,
-      components: [
-        { kind: 'application', name: 'Application', action: 'CREATE', lifecycle: 'delete' },
-        { kind: 'database', name: 'Database', action: 'CREATE', lifecycle: 'retain' },
-      ],
-      requirementDrift: [],
-    };
-    const doc = renderToDocument(<InstallPlanSection plan={plan} />);
-    expect(doc.body.textContent).toContain('Application');
-    expect(doc.body.textContent).toContain('Database');
-    expect(doc.body.textContent).toContain('CREATE');
-    expect(doc.body.textContent).toContain('retain');
   });
 });
 

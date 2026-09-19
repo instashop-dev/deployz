@@ -1,50 +1,50 @@
 {
-  "deployzCommit": "fa0b55d29cf904f1d0be2b082993f909799a53f4",
+  "deployzCommit": "65706ac6362bd388afa4fe7b82ed3de1a5a23b2d",
   "total": 120,
   "expectedDeployable": 65,
   "expectedUnsupported": 55,
   "byClass": {
     "runtime-reuse": {
       "total": 120,
-      "pass": 90,
-      "fail": 30
+      "pass": 91,
+      "fail": 29
     }
   },
   "gate": {
     "attempted": 120,
-    "correctAccept": 46,
+    "correctAccept": 40,
     "correctReject": 49,
     "falseAcceptance": 6,
     "falseRejection": 18,
-    "configuredReady": 22
+    "configuredReady": 17
   },
   "build": {
-    "attempted": 9,
-    "succeeded": 8,
+    "attempted": 12,
+    "succeeded": 11,
     "failed": 1,
-    "successRateAmongDeployable": 12.3
+    "successRateAmongDeployable": 16.9
   },
   "infrastructure": {
-    "attempted": 8,
-    "succeeded": 5,
+    "attempted": 11,
+    "succeeded": 8,
     "failed": 3
   },
   "runtime": {
-    "ecsRunning": 5,
-    "albHealthy": 5,
-    "httpsReachable": 5,
-    "applicationResponseValid": 4
+    "ecsRunning": 8,
+    "albHealthy": 8,
+    "httpsReachable": 8,
+    "applicationResponseValid": 7
   },
   "dependencies": {
-    "postgres": 4,
-    "redis": 1,
+    "postgres": 7,
+    "redis": 2,
     "storage": 1,
     "migration": 1
   },
-  "trueDeploymentSuccess": 4,
-  "trueDeploymentSuccessRate": 6.2,
+  "trueDeploymentSuccess": 7,
+  "trueDeploymentSuccessRate": 10.8,
   "cleanup": {
-    "destroys": 9,
+    "destroys": 12,
     "destroyFailures": 0,
     "leaks": 0,
     "successRate": 100
@@ -52,29 +52,26 @@
   "byClassification": {
     "APPLICATION_ERROR": 1,
     "BUILD_ERROR": 1,
-    "CONFIG_ERROR": 1,
-    "CONTAINER_START_ERROR": 1,
     "DATABASE_ERROR": 1,
     "ENV_BINDING_ERROR": 1,
     "EXPECTED_UNSUPPORTED": 49,
     "GATE_ERROR": 24,
-    "PASS": 41
+    "MIGRATION_ERROR": 1,
+    "PASS": 42
   },
   "byFailureStage": {
     "APPLICATION_ERROR": 1,
     "BUILD_ERROR": 1,
-    "CONFIG_ERROR": 1,
-    "CONTAINER_START_ERROR": 1,
     "DATABASE_ERROR": 1,
     "ENV_BINDING_ERROR": 1,
     "EXPECTED_UNSUPPORTED": 49,
-    "GATE_ERROR": 24
+    "GATE_ERROR": 24,
+    "MIGRATION_ERROR": 1
   },
   "byRootCause": {
-    "ANALYSIS_BUG": 1,
     "ANALYSIS_MISSING_SIGNAL": 1,
     "CORRECTLY_UNSUPPORTED": 49,
-    "DEPLOYZ_BUG": 3,
+    "DEPLOYZ_BUG": 1,
     "TEST_HARNESS_FAILURE": 1
   },
   "byFinding": {
@@ -154,16 +151,25 @@
     ],
     "DEPLOY-016": [
       "repo-039"
+    ],
+    "DEPLOY-026": [
+      "repo-004"
+    ],
+    "DEPLOY-027": [
+      "repo-004"
+    ],
+    "DEPLOY-028": [
+      "repo-004"
     ]
   },
   "bySet": {
     "improvement": {
       "total": 80,
       "expectedDeployable": 46,
-      "deployed": 5,
-      "trueDeploymentSuccess": 4,
+      "deployed": 7,
+      "trueDeploymentSuccess": 6,
       "expectedUnsupported": 34,
-      "gateCorrect": 68
+      "gateCorrect": 64
     },
     "unseen": {
       "total": 20,
@@ -171,15 +177,15 @@
       "deployed": 0,
       "trueDeploymentSuccess": 0,
       "expectedUnsupported": 11,
-      "gateCorrect": 12
+      "gateCorrect": 11
     },
     "unseen2": {
       "total": 20,
       "expectedDeployable": 10,
-      "deployed": 0,
-      "trueDeploymentSuccess": 0,
+      "deployed": 1,
+      "trueDeploymentSuccess": 1,
       "expectedUnsupported": 10,
-      "gateCorrect": 15
+      "gateCorrect": 14
     }
   },
   "byCohort": {
@@ -202,10 +208,10 @@
     "realistic": {
       "total": 69,
       "expectedDeployable": 45,
-      "deployed": 5,
-      "trueDeploymentSuccess": 4,
+      "deployed": 8,
+      "trueDeploymentSuccess": 7,
       "expectedUnsupported": 24,
-      "gateCorrect": 53
+      "gateCorrect": 47
     }
   }
 }

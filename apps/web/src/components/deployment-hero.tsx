@@ -22,14 +22,17 @@ import { COMPONENT_PROGRESS_LABEL } from '@/lib/deployment-progress';
 import { JOB_STATE_LABEL, JOB_TYPE_LABEL } from '@/lib/deployment-vocabulary';
 import type { FleetDeploymentDetail } from '@/lib/deployments';
 import { relativeTime } from '@/lib/diagnostics';
+import { TONE_TEXT } from '@/lib/status-tone';
 import { cn } from '@/lib/utils';
 
+// Hero tone icons share the tone system's colors so they agree with the
+// badges: success green, warning amber, failure red.
 const TONE_ICON: Record<HeroTone, ReactNode> = {
   neutral: <Clock aria-hidden className="size-5 text-muted-foreground" />,
   progress: <Loader2 aria-hidden className="size-5 animate-spin text-primary" />,
-  success: <CheckCircle2 aria-hidden className="size-5 text-primary" />,
-  warning: <AlertTriangle aria-hidden className="size-5 text-destructive" />,
-  destructive: <AlertCircle aria-hidden className="size-5 text-destructive" />,
+  success: <CheckCircle2 aria-hidden className={cn('size-5', TONE_TEXT.positive)} />,
+  warning: <AlertTriangle aria-hidden className={cn('size-5', TONE_TEXT.attention)} />,
+  destructive: <AlertCircle aria-hidden className={cn('size-5', TONE_TEXT.negative)} />,
 };
 
 /**

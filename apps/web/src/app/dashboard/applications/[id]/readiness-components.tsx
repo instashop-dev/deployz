@@ -1,17 +1,14 @@
 'use client';
 
-import { ChevronDown, RotateCcw, TriangleAlert } from 'lucide-react';
+import { Info, RotateCcw, TriangleAlert } from 'lucide-react';
 import Link from 'next/link';
-import { useEffect, useState } from 'react';
-
-import { INFRASTRUCTURE_COMPONENT_DISPLAY, type DeploymentPlan } from '@deployz/contracts';
+import { useEffect, useState, type ReactNode } from 'react';
 
 import { DeploymentStatusBadge } from '@/components/deployment-status-badge';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import {
   Dialog,
   DialogContent,
@@ -22,6 +19,7 @@ import {
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
   Table,
@@ -63,7 +61,7 @@ export function ReadinessTable({
 }) {
   const analyzing = application.analysisStatus === 'ANALYZING';
   return (
-    <Card>
+    <Card className="py-0">
       <CardContent className="overflow-x-auto p-0">
         <Table data-testid="readiness-table">
           <TableHeader>
@@ -153,8 +151,6 @@ export function ReadinessTableRow({
   onEdit: (field: EditableReadinessField) => void;
   onShowFix: () => void;
 }) {
-  const [expanded, setExpanded] = useState(false);
-
   if (row.kind === 'finding') {
     const finding = (row as ReadinessTableFinding).finding;
     const isRequired = finding.severity === 'required';
@@ -164,16 +160,16 @@ export function ReadinessTableRow({
         data-testid={`readiness-finding-${finding.id}`}
       >
         <TableCell>
-          <div className="flex flex-col gap-0.5">
+          <div className="flex items-center gap-1.5">
             <span className="font-medium">{finding.title}</span>
-            <span className="text-xs text-muted-foreground">
-              {finding.plainEnglishExplanation}
-            </span>
+            <InfoPopover label={`Details for ${finding.title}`}>
+              <p className="text-sm text-muted-foreground">{finding.plainEnglishExplanation}</p>
+            </InfoPopover>
           </div>
         </TableCell>
         <TableCell className="text-muted-foreground">{finding.suggestedOutcome}</TableCell>
         <TableCell>
-          <Badge variant={isRequired ? 'destructive' : 'outline'}>
+          <Badge variant={isRequired ? 'destructive' : 'warning'}>
             {isRequired ? 'Blocking issue' : 'Recommendation'}
           </Badge>
         </TableCell>
@@ -198,7 +194,7 @@ export function ReadinessTableRow({
         <TableCell>{check.label}</TableCell>
         <TableCell className="text-muted-foreground">—</TableCell>
         <TableCell>
-          <Badge variant="default">Passed</Badge>
+          <Badge variant="success">Passed</Badge>
         </TableCell>
         <TableCell />
       </TableRow>
@@ -210,49 +206,36 @@ export function ReadinessTableRow({
   return (
     <TableRow data-testid={`readiness-setting-${setting.id}`}>
       <TableCell>
-        <div className="flex flex-col gap-0.5">
+        <div className="flex items-center gap-1.5">
           <span className="font-medium">{setting.label}</span>
           {setting.evidence.length > 0 ? (
-            <Collapsible open={expanded} onOpenChange={setExpanded}>
-              <CollapsibleTrigger asChild>
-                <button
-                  type="button"
-                  className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
-                  data-testid={`readiness-setting-evidence-toggle-${setting.id}`}
+            <InfoPopover label={`Why Deployz detected ${setting.label}`}>
+              {setting.evidence.map((item, index) => (
+                <p
+                  key={index}
+                  className="text-sm text-muted-foreground"
+                  data-testid={`readiness-setting-evidence-${setting.id}-${index}`}
                 >
-                  Why Deployz detected this
-                  <ChevronDown
-                    className={`size-3 transition-transform ${expanded ? 'rotate-180' : ''}`}
-                    aria-hidden
-                  />
-                </button>
-              </CollapsibleTrigger>
-              <CollapsibleContent className="mt-1.5 space-y-1">
-                {setting.evidence.map((item, index) => (
-                  <p
-                    key={index}
-                    className="text-xs text-muted-foreground"
-                    data-testid={`readiness-setting-evidence-${setting.id}-${index}`}
-                  >
-                    {item.file ? <code className="font-mono">{item.file}</code> : null}
-                    {item.file ? ' — ' : ''}
-                    {item.reason}
-                  </p>
-                ))}
-              </CollapsibleContent>
-            </Collapsible>
+                  {item.file ? <code className="font-mono">{item.file}</code> : null}
+                  {item.file ? ' — ' : ''}
+                  {item.reason}
+                </p>
+              ))}
+            </InfoPopover>
           ) : null}
         </div>
       </TableCell>
       <TableCell>
-        <div className="flex flex-col gap-0.5">
+        <div className="flex items-center gap-1.5">
           <span>{setting.value}</span>
-          {setting.overridden ? (
-            <span className="text-xs text-muted-foreground">
-              Detected: {setting.detectedValue} · Overridden
-            </span>
-          ) : setting.detectedValue && setting.detectedValue !== setting.value ? (
-            <span className="text-xs text-muted-foreground">Detected: {setting.detectedValue}</span>
+          {setting.overridden ||
+          (setting.detectedValue && setting.detectedValue !== setting.value) ? (
+            <InfoPopover label={`Detected value for ${setting.label}`}>
+              <p className="text-sm text-muted-foreground">
+                Detected: {setting.detectedValue}
+                {setting.overridden ? ' · Overridden' : ''}
+              </p>
+            </InfoPopover>
           ) : null}
         </div>
       </TableCell>
@@ -260,7 +243,7 @@ export function ReadinessTableRow({
         {setting.status ? (
           <ReadinessStatusBadge status={setting.status} />
         ) : (
-          <Badge variant="default">Passed</Badge>
+          <Badge variant="success">Passed</Badge>
         )}
       </TableCell>
       <TableCell>
@@ -279,16 +262,37 @@ export function ReadinessTableRow({
   );
 }
 
+// A single-line info affordance for a row's secondary text. The finding's
+// plain-English explanation, a setting's "why" evidence, and a detected-vs-
+// overridden value all collapse behind it so each row stays one line.
+function InfoPopover({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <Button
+          variant="ghost"
+          size="icon-xs"
+          aria-label={label}
+          className="text-muted-foreground"
+        >
+          <Info aria-hidden />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent align="start" className="w-72 space-y-1.5">{children}</PopoverContent>
+    </Popover>
+  );
+}
+
 function ReadinessStatusBadge({ status }: { status: ReadinessRequirementStatus }) {
   switch (status) {
     case 'required':
-      return <Badge variant="default">Required</Badge>;
+      return <Badge variant="secondary">Required</Badge>;
     case 'not-required':
       return <Badge variant="secondary">Not required</Badge>;
     case 'vendor-override':
-      return <Badge variant="outline">Vendor override</Badge>;
+      return <Badge variant="warning">Vendor override</Badge>;
     case 'needs-review':
-      return <Badge variant="outline">Needs review</Badge>;
+      return <Badge variant="warning">Needs review</Badge>;
   }
 }
 
@@ -333,55 +337,6 @@ export function RequirementDriftNotice({
           </li>
         ))}
       </ul>
-    </section>
-  );
-}
-
-export function InstallPlanSection({ plan }: { plan: DeploymentPlan | null }) {
-  if (!plan) return null;
-  return (
-    <section aria-labelledby="plan-heading" className="flex flex-col gap-3" data-testid="install-plan-section">
-      <div>
-        <h2 id="plan-heading" className="text-base font-semibold">
-          What a new deployment will create
-        </h2>
-        <p className="text-sm text-muted-foreground">
-          Deployz will provision these components for the next deployment.
-        </p>
-      </div>
-      <Card>
-        <CardContent className="p-0">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Component</TableHead>
-                <TableHead>Action</TableHead>
-                <TableHead>Lifecycle</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {plan.components.map((component) => (
-                <TableRow key={component.kind} data-testid={`install-plan-component-${component.kind}`}>
-                  <TableCell>
-                    <div className="flex flex-col gap-0.5">
-                      <span className="font-medium">
-                        {INFRASTRUCTURE_COMPONENT_DISPLAY[component.kind].name}
-                      </span>
-                      <span className="text-xs text-muted-foreground">
-                        {INFRASTRUCTURE_COMPONENT_DISPLAY[component.kind].purpose}
-                      </span>
-                    </div>
-                  </TableCell>
-                  <TableCell>
-                    <Badge variant="outline">{component.action}</Badge>
-                  </TableCell>
-                  <TableCell className="capitalize">{component.lifecycle}</TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </CardContent>
-      </Card>
     </section>
   );
 }

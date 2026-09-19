@@ -208,6 +208,21 @@ each template must contain exactly the components its infrastructure
 profile predicts. The test fails when the catalog and the templates
 disagree.
 
+`AWS_RESOURCES` (`packages/contracts/src/aws-resources.ts`) is the
+customer-facing AWS resource catalog. It lists the meaningful AWS resources
+a deployment's application stack creates. Each row has a customer name, a
+one-sentence purpose, a display `group`, the `componentKind` it binds to,
+its CloudFormation `resourceType`, and its `lifecycle` on destroy.
+It leaves out CloudFormation objects with no customer meaning, such as route
+tables and listeners. `requiredAwsResources(profile)` returns the rows one
+infrastructure profile creates, in catalog order.
+`packages/cdk/test/lifecycle-parity.test.ts` also guards this catalog: each
+row must appear in the four committed templates exactly where its
+`requiredBy` rule predicts, with the same lifecycle and the same
+`componentKind` as `classifyResource` reports. The one exception is the
+security-groups row: it spans every security group in the stack, which
+`classifyResource` binds per component.
+
 ### Deployment plans
 
 A deployment plan (`packages/contracts/src/plan.ts`) states what one action
@@ -235,6 +250,11 @@ current effective manifest) and `GET /api/deployments/:id/plan?action=…`
 (a plan for an existing deployment) serve this to the vendor. The public
 install page's "Deployz will create" list is derived from the same INSTALL
 plan, so the two can never disagree.
+
+Every plan also carries `awsResources` (`AWS_RESOURCES`, filtered by the
+same infrastructure profile as `components`). The vendor application page
+and the customer install pages both render their "AWS infrastructure
+details" section from this list.
 
 ## The MVP support boundary
 

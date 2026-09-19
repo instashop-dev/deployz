@@ -280,3 +280,76 @@ describe('Analysis in progress', () => {
     }
   });
 });
+
+function blocker(id: string) {
+  return {
+    id,
+    category: 'runtime',
+    title: `Blocker ${id}`,
+    severity: 'required' as const,
+    blocking: true,
+    plainEnglishExplanation: 'The application cannot start.',
+    whyItMatters: 'The deployment fails.',
+    technicalEvidence: 'Dockerfile',
+    suggestedOutcome: 'Fix the start command.',
+    confidence: 'confirmed' as const,
+  };
+}
+
+function blockedReadiness(ids: string[]) {
+  return {
+    ...baseReadiness(),
+    analysisStatus: 'COMPLETE' as const,
+    state: 'NEEDS_CHANGES' as const,
+    requiredCount: ids.length,
+    findings: ids.map(blocker),
+    analyzedCommitSha: 'abcdef1234567',
+  };
+}
+
+async function reviewButton(): Promise<HTMLElement> {
+  return vi.waitFor(() => {
+    const button = container.querySelector('[data-testid="readiness-review-blocker"]');
+    if (!(button instanceof HTMLElement)) throw new Error('The page is still loading.');
+    return button;
+  });
+}
+
+describe('Blocking issues', () => {
+  beforeEach(() => {
+    mocks.fetchApplication.mockResolvedValue({ ...baseApplication(), analysisStatus: 'COMPLETE' });
+  });
+
+  it('shows Review issue with Re-analyse application beside it, and no second re-analyse control', async () => {
+    mocks.fetchReadiness.mockResolvedValue(blockedReadiness(['a']));
+    mocks.triggerAnalysis.mockResolvedValue(undefined);
+
+    await act(async () => {
+      root.render(<ApplicationReadinessPage />);
+    });
+
+    const review = await reviewButton();
+    expect(review.textContent).toBe('Review issue');
+    expect(review.getAttribute('href')).toBe('#readiness-row-a');
+
+    const reanalyse = container.querySelectorAll('[data-testid="app-details-reanalyse"]');
+    expect(reanalyse).toHaveLength(1);
+    expect(reanalyse[0]?.textContent).toContain('Re-analyse application');
+    expect(reanalyse[0]?.parentElement).toBe(review.parentElement);
+
+    await act(async () => {
+      (reanalyse[0] as HTMLButtonElement).click();
+    });
+    expect(mocks.triggerAnalysis).toHaveBeenCalledWith('app-1', { force: true });
+  });
+
+  it('says Review issues when there is more than one blocker', async () => {
+    mocks.fetchReadiness.mockResolvedValue(blockedReadiness(['a', 'b']));
+
+    await act(async () => {
+      root.render(<ApplicationReadinessPage />);
+    });
+
+    expect((await reviewButton()).textContent).toBe('Review issues');
+  });
+});

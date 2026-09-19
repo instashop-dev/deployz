@@ -14,8 +14,10 @@ export interface ProgressStep {
   key: string;
   label: string;
   state: ProgressStepState;
-  /** Optional muted line rendered under the label — timing/slow-step context. */
-  detail?: string | undefined;
+  /** Optional muted line rendered under the label — timing/slow-step context.
+   *  A node rather than a string so the customer page's live-ticking step
+   *  detail (LiveStepDetail) can render here. */
+  detail?: ReactNode | undefined;
   /** Optional right-aligned timing content (vendor card only — e.g. elapsed/duration;
    *  a node rather than a string so a live-ticking elapsed counter can live here). */
   meta?: ReactNode | undefined;
@@ -242,6 +244,76 @@ export function stepWaitingOnInput(input: {
 
 /** What that waiting step says instead of a duration or a nudge. */
 export const AWAITING_DOMAIN_STEP_DETAIL = 'Waiting for a custom domain to be added.';
+
+/** The customer install page's exact reassuring sentence for a step running
+ *  longer than its typical range — AWS jargon-free, never a percentage. */
+export const TAKING_LONGER_MESSAGE =
+  'Taking longer than usual. AWS is still working and Deployz is continuing to check.';
+
+/**
+ * Elapsed time since `stepStartedAt`, formatted for display, or null when no
+ * start time is known — the live step detail never invents an elapsed
+ * duration. `nowMs` is passed in so the caller's own ticker drives it.
+ */
+export function elapsedLabel(stepStartedAt: string | null | undefined, nowMs: number): string | null {
+  if (!stepStartedAt) return null;
+  const startedMs = Date.parse(stepStartedAt);
+  if (Number.isNaN(startedMs)) return null;
+  return formatElapsedSeconds((nowMs - startedMs) / 1000);
+}
+
+/**
+ * The live step detail's duration line: the typical-range or slow-step
+ * sentence with the live elapsed time appended after " · ", elapsed alone
+ * when neither the typical range nor the slow-step nudge applies, and
+ * undefined when nothing is known yet.
+ */
+export function liveDurationLine({
+  takingLongerThanUsual,
+  typicalDurationSeconds,
+  elapsed,
+}: {
+  takingLongerThanUsual: boolean;
+  typicalDurationSeconds: { min: number; max: number } | null;
+  elapsed: string | null;
+}): string | undefined {
+  const base = takingLongerThanUsual
+    ? TAKING_LONGER_MESSAGE
+    : typicalDurationSeconds
+      ? `Usually takes ${formatDurationRange(typicalDurationSeconds)}`
+      : undefined;
+  if (base) return elapsed ? `${base} · ${elapsed} elapsed` : base;
+  return elapsed ? `${elapsed} elapsed` : undefined;
+}
+
+/**
+ * 'Checked just now' | 'Checked N seconds ago' | 'Checked N minutes ago' —
+ * from the poll's last successful fetch (`useStatusPoll`'s `checkedAt`).
+ * Null until the first client fetch has completed.
+ */
+export function checkedLabel(checkedAt: number | null, nowMs: number): string | null {
+  if (checkedAt === null) return null;
+  const seconds = Math.max(0, Math.round((nowMs - checkedAt) / 1000));
+  if (seconds < 5) return 'Checked just now';
+  if (seconds < 60) return `Checked ${seconds} second${seconds === 1 ? '' : 's'} ago`;
+  const minutes = Math.round(seconds / 60);
+  return `Checked ${minutes} minute${minutes === 1 ? '' : 's'} ago`;
+}
+
+/** 'just now' | 'N min ago' | 'N hr ago' | 'N day(s) ago' — the Recent
+ *  activity list's compact relative time for one real event. */
+export function recentActivityTimeLabel(at: string, nowMs: number): string {
+  const then = Date.parse(at);
+  if (Number.isNaN(then)) return '';
+  const seconds = Math.max(0, Math.round((nowMs - then) / 1000));
+  if (seconds < 60) return 'just now';
+  const minutes = Math.round(seconds / 60);
+  if (minutes < 60) return `${minutes} min ago`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return `${hours} hr ago`;
+  const days = Math.round(hours / 24);
+  return `${days} day${days === 1 ? '' : 's'} ago`;
+}
 
 /** True once the stage can no longer advance on its own — polling slows down
  * here rather than stopping, because FAILED can recover via a retried install

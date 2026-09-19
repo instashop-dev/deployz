@@ -3,9 +3,10 @@
 import { ArrowLeft, CheckCircle2, Copy, ExternalLink } from 'lucide-react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
-import { Suspense, useEffect, useState, type FormEvent } from 'react';
+import { Suspense, useEffect, useRef, useState, type FormEvent } from 'react';
 
 import { copyInstallLink } from '@/components/copy-install-link';
+import { CustomerPicker } from '@/components/customer-picker';
 import { ManageBillingButton } from '@/components/manage-billing-button';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -36,6 +37,13 @@ import {
   readinessFindingMessages,
   type RememberedCustomer,
 } from '@/lib/deployments';
+import {
+  fetchCustomers,
+  initialCustomerSelection,
+  matchingCustomerByEmail,
+  NEW_CUSTOMER_VALUE,
+  type Customer,
+} from '@/lib/customers';
 import { fetchApplicationPreflight, type PreflightResult } from '@/lib/preflight';
 import { fetchRegions, type RegionOption } from '@/lib/regions';
 import { PreflightSummary } from '@/components/preflight-summary';
@@ -87,12 +95,26 @@ type AppsState =
   | { status: 'empty' }
   | { status: 'loaded'; applications: Application[] };
 
+type CustomersState =
+  | { status: 'loading' }
+  | { status: 'error' }
+  | { status: 'loaded'; customers: Customer[] };
+
 function NewDeploymentScreen() {
   const searchParams = useSearchParams();
   const preselectedApplicationId = searchParams.get('applicationId');
+  const preselectedCustomerId = searchParams.get('customerId');
   const isTestDeployment = searchParams.get('test') === 'true';
 
   const [appsState, setAppsState] = useState<AppsState>({ status: 'loading' });
+  const [customersState, setCustomersState] = useState<CustomersState>({ status: 'loading' });
+  const [selectedCustomerId, setSelectedCustomerId] = useState<string>(NEW_CUSTOMER_VALUE);
+  const [customerSelectionInitialized, setCustomerSelectionInitialized] = useState(false);
+  const [customerEmailInput, setCustomerEmailInput] = useState('');
+  // Guards a duplicate submit fired before React re-renders the disabled
+  // submit button — `pending` state alone lags one tick behind a fast second
+  // click.
+  const submittingRef = useRef(false);
   const [regions, setRegions] = useState<RegionOption[]>([]);
   const [regionsError, setRegionsError] = useState(false);
   const [installLink, setInstallLink] = useState<string | null>(null);
@@ -146,6 +168,32 @@ function NewDeploymentScreen() {
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function load(): Promise<void> {
+      try {
+        const customers = await fetchCustomers();
+        if (!cancelled) setCustomersState({ status: 'loaded', customers });
+      } catch {
+        // The new-customer path still works without the list.
+        if (!cancelled) setCustomersState({ status: 'error' });
+      }
+    }
+    void load();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // The customer list decides the default selection: the `?customerId=` from
+  // the URL when it names a real customer, else "create new" — set once, the
+  // same pattern as the application default below.
+  useEffect(() => {
+    if (customersState.status !== 'loaded' || customerSelectionInitialized) return;
+    setSelectedCustomerId(initialCustomerSelection(customersState.customers, preselectedCustomerId));
+    setCustomerSelectionInitialized(true);
+  }, [customersState, customerSelectionInitialized, preselectedCustomerId]);
 
   useEffect(() => {
     if (isTestDeployment) return;
@@ -215,8 +263,32 @@ function NewDeploymentScreen() {
     };
   }, []);
 
+  // A `?customerId=` preselection is not known until the list loads. The
+  // new-customer inputs stay hidden until then, so they do not flash.
+  const awaitingPreselection =
+    preselectedCustomerId !== null && customersState.status === 'loading';
+  const usingExistingCustomer = selectedCustomerId !== NEW_CUSTOMER_VALUE;
+  const duplicateCustomer =
+    !usingExistingCustomer && customersState.status === 'loaded'
+      ? matchingCustomerByEmail(customersState.customers, customerEmailInput)
+      : null;
+
+  function resetCustomerSelection(): void {
+    setSelectedCustomerId(
+      initialCustomerSelection(
+        customersState.status === 'loaded' ? customersState.customers : [],
+        preselectedCustomerId,
+      ),
+    );
+    setCustomerEmailInput('');
+  }
+
   async function onSubmit(event: FormEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault();
+    // A second submit while the first is still in flight must do nothing —
+    // `pending` alone can lag a tick behind a fast double click.
+    if (submittingRef.current) return;
+    submittingRef.current = true;
     setError(null);
     setReadinessApplicationId(null);
     setReadinessFindings([]);
@@ -232,12 +304,22 @@ function NewDeploymentScreen() {
     const region = String(form.get('region') ?? regions[0]?.value ?? '');
 
     // Declared outside the try so the subscription branch below can reach the
-    // customer this attempt created.
+    // customer this attempt used, and the checkout hand-off gets the right name.
     let customerId: string | null = null;
+    let checkoutCustomerName = customerName;
     try {
-      // A prior failed attempt may already have created this customer — reuse
-      // it rather than inserting a duplicate (CANARY-004).
-      if (matchesRememberedCustomer(rememberedCustomer, customerName, customerEmail)) {
+      if (usingExistingCustomer) {
+        // The vendor picked a customer that already exists — never create a
+        // second row for them.
+        customerId = selectedCustomerId;
+        const existing =
+          customersState.status === 'loaded'
+            ? customersState.customers.find((customer) => customer.id === selectedCustomerId)
+            : undefined;
+        checkoutCustomerName = existing?.name ?? '';
+      } else if (matchesRememberedCustomer(rememberedCustomer, customerName, customerEmail)) {
+        // A prior failed attempt may already have created this customer —
+        // reuse it rather than inserting a duplicate (CANARY-004).
         customerId = rememberedCustomer.id;
       } else {
         const customer = await createCustomerRecord({
@@ -246,6 +328,15 @@ function NewDeploymentScreen() {
           company: customerCompany || null,
         });
         customerId = customer.id;
+        // "Create another" must offer this customer in the picker.
+        setCustomersState((current) =>
+          current.status === 'loaded'
+            ? {
+                status: 'loaded',
+                customers: [...current.customers, { ...customer, updatedAt: customer.createdAt }],
+              }
+            : current,
+        );
         setRememberedCustomer({ id: customer.id, name: customerName, email: customerEmail });
       }
       const deployment = await createDeploymentRecord({
@@ -275,11 +366,12 @@ function NewDeploymentScreen() {
         if (status === 'PAST_DUE' || status === 'PAUSED') {
           setPortalRequired(status);
         } else {
-          setCheckoutRequest({ applicationId, customerId, region, customerName });
+          setCheckoutRequest({ applicationId, customerId, region, customerName: checkoutCustomerName });
         }
       }
     } finally {
       setPending(false);
+      submittingRef.current = false;
     }
   }
 
@@ -301,7 +393,7 @@ function NewDeploymentScreen() {
         <p className="mt-1 text-sm text-muted-foreground">
           {isTestDeployment
             ? 'Deploy your own app as a free test deployment. It does not affect billing.'
-            : 'Add a customer and generate their install link. The customer opens the link and signs in to their own cloud account — their credentials never touch Deployz.'}
+            : 'Select a customer or add a new one, then generate their install link. The customer opens the link and signs in to their own cloud account — their credentials never touch Deployz.'}
         </p>
         {!isTestDeployment && subscriptionStatus !== undefined ? (
           <p className="mt-2 text-sm text-muted-foreground" data-testid="deployment-billing-impact">
@@ -346,7 +438,10 @@ function NewDeploymentScreen() {
           link={installLink}
           customerId={createdCustomerId}
           applicationId={createdApplicationId}
-          onReset={() => setInstallLink(null)}
+          onReset={() => {
+            setInstallLink(null);
+            resetCustomerSelection();
+          }}
         />
       ) : appsState.status === 'loading' ? (
         <p className="text-sm text-muted-foreground" role="status">
@@ -377,20 +472,58 @@ function NewDeploymentScreen() {
           </CardHeader>
           <CardContent>
             <form onSubmit={onSubmit} className="flex flex-col gap-5">
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                <div className="flex flex-col gap-2">
-                  <Label htmlFor="customerName">Customer name</Label>
-                  <Input id="customerName" name="customerName" required />
-                </div>
-                <div className="flex flex-col gap-2">
-                  <Label htmlFor="customerEmail">Customer email</Label>
-                  <Input id="customerEmail" name="customerEmail" type="email" required />
-                </div>
-                <div className="flex flex-col gap-2">
-                  <Label htmlFor="customerCompany">Company (optional)</Label>
-                  <Input id="customerCompany" name="customerCompany" />
-                </div>
+              <div className="flex flex-col gap-2">
+                <CustomerPicker
+                  customers={customersState.status === 'loaded' ? customersState.customers : []}
+                  value={selectedCustomerId}
+                  onChange={setSelectedCustomerId}
+                  disabled={pending}
+                  loading={customersState.status === 'loading'}
+                />
+                {customersState.status === 'error' ? (
+                  <p className="text-sm text-muted-foreground">
+                    We couldn&apos;t load your customers. You can still create a new customer.
+                  </p>
+                ) : null}
               </div>
+
+              {usingExistingCustomer || awaitingPreselection ? null : (
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                  <div className="flex flex-col gap-2">
+                    <Label htmlFor="customerName">Customer name</Label>
+                    <Input id="customerName" name="customerName" required />
+                  </div>
+                  <div className="flex flex-col gap-2">
+                    <Label htmlFor="customerEmail">Customer email</Label>
+                    <Input
+                      id="customerEmail"
+                      name="customerEmail"
+                      type="email"
+                      required
+                      value={customerEmailInput}
+                      onChange={(event) => setCustomerEmailInput(event.currentTarget.value)}
+                    />
+                    {duplicateCustomer ? (
+                      <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
+                        <span>A customer with this email already exists.</span>
+                        <Button
+                          type="button"
+                          variant="link"
+                          size="sm"
+                          className="h-auto p-0"
+                          onClick={() => setSelectedCustomerId(duplicateCustomer.id)}
+                        >
+                          Use existing customer
+                        </Button>
+                      </div>
+                    ) : null}
+                  </div>
+                  <div className="flex flex-col gap-2">
+                    <Label htmlFor="customerCompany">Company (optional)</Label>
+                    <Input id="customerCompany" name="customerCompany" />
+                  </div>
+                </div>
+              )}
 
               <Separator />
 
@@ -450,7 +583,7 @@ function NewDeploymentScreen() {
               <div className="flex items-center gap-3">
                 <Button
                   type="submit"
-                  disabled={regionsError || regions.length === 0}
+                  disabled={regionsError || regions.length === 0 || awaitingPreselection}
                   loading={pending}
                   loadingText="Creating deployment…"
                 >

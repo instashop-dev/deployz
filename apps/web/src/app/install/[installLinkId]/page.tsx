@@ -2,10 +2,12 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { Loader2 } from 'lucide-react';
 
+import { AwsInfrastructureDetails } from '@/components/aws-infrastructure-details';
 import { InstallLaunchButton } from '@/components/install-launch-button';
 import { InstallProgress } from '@/components/install-progress';
 import { InstallRetryButton } from '@/components/install-retry-button';
 import { PublicInstallFlow } from '@/components/public-install-flow';
+import { TablePanel } from '@/components/table-panel';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
@@ -246,7 +248,7 @@ export default async function InstallPage({
                   ) : null;
                 })()}
               </div>
-              <div className="overflow-x-auto rounded-md border">
+              <TablePanel>
                 <Table>
                   <TableHeader>
                     <TableRow>
@@ -263,7 +265,7 @@ export default async function InstallPage({
                     ))}
                   </TableBody>
                 </Table>
-              </div>
+              </TablePanel>
               {(() => {
                 const note = installPlanRetentionNote(data.plan);
                 return note ? <p className="text-sm text-muted-foreground">{note}</p> : null;
@@ -327,7 +329,7 @@ export default async function InstallPage({
         <h2 id="will-create" className="text-base font-semibold">
           Deployz will create
         </h2>
-        <div className="overflow-x-auto rounded-md border">
+        <TablePanel>
           <Table>
             <TableHeader>
               <TableRow>
@@ -344,7 +346,8 @@ export default async function InstallPage({
               ))}
             </TableBody>
           </Table>
-        </div>
+        </TablePanel>
+        <AwsInfrastructureDetails plan={data.plan} region={data.region} />
         {regionLabel ? (
           <p className="text-sm text-muted-foreground">Region: {regionLabel}</p>
         ) : null}

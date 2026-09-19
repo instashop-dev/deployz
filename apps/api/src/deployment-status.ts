@@ -1265,8 +1265,23 @@ export function deriveDeploymentStatus(input: DeriveDeploymentStatusInput): Deri
  * are dropped rather than shown as a stalled-looking PENDING step (see
  * statusFromMerged) — https is exempt because its own PENDING IS the
  * positive signal ("domain setup is next").
+ *
+ * `live` is the optional live-provisioning projection from apps/api/src/
+ * customer-activity.ts (buildCustomerLiveProgress) — a read-time-only
+ * addition layered on top of the same `derived` object, never a new input to
+ * the stage/step/failure derivation above. Omitted, the output is byte-for-
+ * byte what this function has always returned (the web app and the API
+ * deploy separately, so callers must keep working without it).
  */
-export function toCustomerDeploymentStatus(derived: DerivedDeploymentStatus): CustomerDeploymentStatus {
+export function toCustomerDeploymentStatus(
+  derived: DerivedDeploymentStatus,
+  live?: {
+    currentActivity?: string;
+    recentActivity: CustomerDeploymentStatus['recentActivity'];
+    provisioningIssue: CustomerDeploymentStatus['provisioningIssue'];
+    technicalDetails: CustomerDeploymentStatus['technicalDetails'];
+  },
+): CustomerDeploymentStatus {
   const noSignalStages: DeploymentStage[] = ['VERIFYING', 'READY', 'FAILED'];
   const components = derived.components.filter((component) => {
     if (component.status === 'NOT_REQUIRED') return false;
@@ -1277,7 +1292,7 @@ export function toCustomerDeploymentStatus(derived: DerivedDeploymentStatus): Cu
   return {
     stage: derived.stage,
     updatedAt: derived.updatedAt,
-    currentActivity: derived.currentActivity,
+    currentActivity: live?.currentActivity ?? derived.currentActivity,
     step: derived.step,
     steps: derived.steps,
     typicalDurationSeconds: derived.typicalDurationSeconds,
@@ -1287,6 +1302,14 @@ export function toCustomerDeploymentStatus(derived: DerivedDeploymentStatus): Cu
     needsDomainSetup: derived.needsDomainSetup,
     components,
     url: derived.result?.url ?? null,
+    ...(live
+      ? {
+          stepStartedAt: derived.stepStartedAt,
+          recentActivity: live.recentActivity,
+          provisioningIssue: live.provisioningIssue,
+          technicalDetails: live.technicalDetails,
+        }
+      : {}),
     failure: derived.failure
       ? {
           // §65: the raw §61 code never reaches the unauthenticated

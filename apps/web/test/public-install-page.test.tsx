@@ -53,6 +53,24 @@ function planFixture(): DeploymentPlan {
       { kind: 'endpoint', name: 'Secure endpoint', action: 'CREATE', lifecycle: 'delete' as const },
       { kind: 'database', name: 'Database', action: 'CREATE', lifecycle: 'retain' as const },
     ],
+    awsResources: [
+      {
+        id: 'ecs_service',
+        name: 'ECS Fargate service',
+        purpose: 'Runs the application container and restarts it if it stops',
+        group: 'compute_networking' as const,
+        componentKind: 'application' as const,
+        lifecycle: 'delete' as const,
+      },
+      {
+        id: 'database',
+        name: 'RDS PostgreSQL database',
+        purpose: 'Stores persistent application data',
+        group: 'data' as const,
+        componentKind: 'database' as const,
+        lifecycle: 'retain' as const,
+      },
+    ],
     requirementDrift: [],
   };
 }

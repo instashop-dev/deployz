@@ -83,9 +83,9 @@ export function publicInstallHtmlSnippet(url: string): string {
 /** Badge label + shadcn variant for a link status. */
 export function publicInstallLinkStatusBadge(status: PublicInstallLinkStatus): {
   label: string;
-  variant: 'default' | 'secondary' | 'outline';
+  variant: 'success' | 'secondary';
 } {
-  if (status === 'active') return { label: 'Active', variant: 'default' };
+  if (status === 'active') return { label: 'Active', variant: 'success' };
   if (status === 'disabled') return { label: 'Disabled', variant: 'secondary' };
-  return { label: 'Revoked', variant: 'outline' };
+  return { label: 'Revoked', variant: 'secondary' };
 }

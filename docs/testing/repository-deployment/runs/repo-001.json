@@ -9,66 +9,26 @@
   "cohort": "realistic",
   "customerRealism": "high",
   "difficulty": 3,
-  "deployzCommit": "05848da4c41a97f797127df4891ee8a73eb829bb",
-  "runId": "stage-b-repo-001-20260906-164757-d3a6",
+  "deployzCommit": "a18537540a0029f41f4e50deed9945945a45842e",
+  "runId": "stage-b-repo-001-20260918-022100-da27",
   "stageAExpected": "READY",
   "expectedDeployable": true,
   "mode": "deploy",
+  "deploymentClass": "runtime-reuse",
   "gate": {
     "status": "PASS",
-    "verdict": "NEEDS_CONFIGURATION",
-    "analysisVerdict": "READY",
-    "outcome": "correct-accept",
-    "gateFindings": [
-      "required-env-vars-missing"
-    ],
-    "requiredKeys": [
-      "CLICKHOUSE_URL",
-      "CLOUD_MODE",
-      "DATABASE_URL",
-      "KAFKA_BROKER",
-      "KAFKA_MAX_MESSAGE_BYTES",
-      "KAFKA_URL",
-      "REDIS_URL"
-    ],
-    "missingKeys": [
-      "CLICKHOUSE_URL",
-      "CLOUD_MODE",
-      "KAFKA_BROKER",
-      "KAFKA_MAX_MESSAGE_BYTES",
-      "KAFKA_URL"
-    ],
+    "verdict": null,
+    "analysisVerdict": null,
+    "outcome": null,
+    "gateFindings": [],
+    "requiredKeys": [],
+    "missingKeys": [],
     "unsupported": [],
-    "configuredVerdict": "READY",
+    "configuredVerdict": null,
     "configuredFindings": [],
-    "source": "in-process",
-    "analysisVersion": 19,
-    "manifest": {
-      "dockerfilePath": "Dockerfile",
-      "buildContext": ".",
-      "appRoot": ".",
-      "port": 3000,
-      "healthPath": "/api/heartbeat",
-      "healthMode": "explicit",
-      "migrationCommand": "npx prisma migrate deploy",
-      "migrationMode": "pre_deploy",
-      "postgres": true,
-      "redis": true,
-      "storage": false,
-      "databaseBindings": [
-        "DATABASE_HOST",
-        "DATABASE_NAME",
-        "DATABASE_PASSWORD",
-        "DATABASE_PORT",
-        "DATABASE_URL",
-        "DATABASE_USER"
-      ],
-      "redisBindings": [
-        "REDIS_URL"
-      ],
-      "storageBindings": [],
-      "generatedKeys": []
-    },
+    "source": "control-plane",
+    "analysisVersion": null,
+    "manifest": null,
     "detail": null
   },
   "configuration": {
@@ -82,52 +42,190 @@
       "KAFKA_URL"
     ],
     "generatedKeys": [],
+    "deliveredAfterEnrollment": [],
     "detail": null
   },
   "build": {
     "status": "PASS",
-    "releaseId": "824b32e4-ddfb-4fa2-a294-63fb4e1414a3",
-    "version": "repo-001-20260906-164757-d3a6",
+    "releaseId": "5c67b9ba-4ef0-44c3-912b-1fd2cbb0fcdc",
+    "version": "repo-001-20260918-022100-da27",
     "gitSha": "ca661c7057984aa98ed4f7083d84dae2f65bfcb0",
     "dockerfilePath": "Dockerfile",
     "buildContext": null,
-    "imageDigest": "sha256:eac01bb64691506e619c7cb2fc2ce05becde5a3a6f99dcebd7ec56e798fa349f",
+    "imageDigest": "sha256:e9eaae5526f10a84abd9c919cbc5a88e25bc88d3136120b5632095ec5c416d29",
     "buildId": null,
-    "durationMs": 187033,
+    "durationMs": 187248,
+    "imageReused": false,
     "detail": null
   },
   "deployment": {
-    "status": "FAIL",
-    "deploymentId": "56659de0-9912-40dd-ab20-f0c05549d8a2",
-    "installationId": "4abe7c01-ff35-4899-b6a8-839ee7858ad4",
-    "bootstrapStack": "deployz-bootstrap-stage-b-repo-001-56659de0",
-    "applicationStack": "deployz-app-4abe7c01",
-    "stackStatus": "ROLLBACK_FAILED",
-    "templateSource": "stage-b-pinned",
-    "templateUrl": "https://deployz-templatebucket88a95323-jozlev0tiasb.s3.us-east-1.amazonaws.com/application/stage-b/stage-b-repo-001-20260906-164757-d3a6/application-template-v1.json",
-    "installJobState": "RUNNING",
+    "status": "PASS",
+    "deploymentId": "06305641-62dd-4cf6-861f-2e93a386f7a9",
+    "installationId": "a6e62f90-5fd1-4a68-a8df-869cad38d4bd",
+    "bootstrapStack": "deployz-bootstrap-stage-b-repo-001-06305641",
+    "applicationStack": "deployz-app-a6e62f90",
+    "stackStatus": "CREATE_COMPLETE",
+    "templateSource": "production-default",
+    "templateUrl": null,
+    "installJobState": "SUCCEEDED",
     "failureCode": null,
-    "resourceCount": null,
-    "durationMs": null,
-    "detail": "install stack ROLLBACK_FAILED: no reason"
+    "resourceCount": 50,
+    "resourcesByType": {
+      "AWS::SecretsManager::Secret": 3,
+      "AWS::Logs::LogGroup": 1,
+      "AWS::S3::Bucket": 1,
+      "AWS::S3::BucketPolicy": 1,
+      "AWS::ElastiCache::ReplicationGroup": 1,
+      "AWS::ECS::Cluster": 1,
+      "AWS::RDS::DBInstance": 1,
+      "AWS::SecretsManager::SecretTargetAttachment": 1,
+      "AWS::RDS::DBSubnetGroup": 1,
+      "AWS::EC2::SecurityGroupIngress": 2,
+      "AWS::EC2::SecurityGroup": 4,
+      "AWS::ElasticLoadBalancingV2::LoadBalancer": 1,
+      "AWS::ElasticLoadBalancingV2::Listener": 1,
+      "AWS::ElasticLoadBalancingV2::TargetGroup": 1,
+      "AWS::EC2::SecurityGroupEgress": 1,
+      "AWS::ElastiCache::SubnetGroup": 1,
+      "AWS::ECS::Service": 1,
+      "AWS::ECS::TaskDefinition": 1,
+      "AWS::IAM::Role": 2,
+      "AWS::IAM::Policy": 2,
+      "AWS::CloudWatch::Alarm": 1,
+      "AWS::EC2::VPC": 1,
+      "AWS::EC2::InternetGateway": 1,
+      "AWS::EC2::Route": 4,
+      "AWS::EC2::SubnetRouteTableAssociation": 4,
+      "AWS::EC2::RouteTable": 4,
+      "AWS::EC2::Subnet": 4,
+      "AWS::EC2::EIP": 1,
+      "AWS::EC2::NatGateway": 1,
+      "AWS::EC2::VPCGatewayAttachment": 1
+    },
+    "region": "us-east-2",
+    "durationMs": 1721568,
+    "detail": null
+  },
+  "inventory": {
+    "status": "PASS",
+    "planCreateKinds": [
+      "application",
+      "cache",
+      "database",
+      "endpoint",
+      "storage"
+    ],
+    "expectedKinds": [
+      "application",
+      "cache",
+      "database",
+      "endpoint",
+      "storage"
+    ],
+    "presentTypes": [
+      "AWS::SecretsManager::Secret",
+      "AWS::Logs::LogGroup",
+      "AWS::S3::Bucket",
+      "AWS::S3::BucketPolicy",
+      "AWS::ElastiCache::ReplicationGroup",
+      "AWS::ECS::Cluster",
+      "AWS::RDS::DBInstance",
+      "AWS::SecretsManager::SecretTargetAttachment",
+      "AWS::RDS::DBSubnetGroup",
+      "AWS::EC2::SecurityGroupIngress",
+      "AWS::EC2::SecurityGroup",
+      "AWS::ElasticLoadBalancingV2::LoadBalancer",
+      "AWS::ElasticLoadBalancingV2::Listener",
+      "AWS::ElasticLoadBalancingV2::TargetGroup",
+      "AWS::EC2::SecurityGroupEgress",
+      "AWS::ElastiCache::SubnetGroup",
+      "AWS::ECS::Service",
+      "AWS::ECS::TaskDefinition",
+      "AWS::IAM::Role",
+      "AWS::IAM::Policy",
+      "AWS::CloudWatch::Alarm",
+      "AWS::EC2::VPC",
+      "AWS::EC2::InternetGateway",
+      "AWS::EC2::Route",
+      "AWS::EC2::SubnetRouteTableAssociation",
+      "AWS::EC2::RouteTable",
+      "AWS::EC2::Subnet",
+      "AWS::EC2::EIP",
+      "AWS::EC2::NatGateway",
+      "AWS::EC2::VPCGatewayAttachment"
+    ],
+    "missing": [],
+    "unexpected": [],
+    "detail": null
   },
   "runtime": {
-    "ecs": "NOT_ATTEMPTED",
-    "alb": "NOT_ATTEMPTED",
-    "https": "NOT_ATTEMPTED",
-    "healthPath": null,
-    "healthPathSource": null,
-    "appUrl": null,
-    "runningImageDigest": null,
-    "releaseServing": null,
-    "observation": null,
+    "ecs": "HEALTHY",
+    "alb": "HEALTHY",
+    "https": "PASS",
+    "healthPath": "/api/heartbeat",
+    "healthPathSource": "stage-b",
+    "appUrl": "https://d-06305641-62dd-4cf6-861f-2e93a386f7a9.deployz.dev",
+    "runningImageDigest": "sha256:e9eaae5526f10a84abd9c919cbc5a88e25bc88d3136120b5632095ec5c416d29",
+    "releaseServing": true,
+    "smoke": [
+      {
+        "path": "/api/heartbeat",
+        "status": 200,
+        "ok": true,
+        "detail": "ok",
+        "exercises": []
+      },
+      {
+        "path": "/login",
+        "status": 200,
+        "ok": true,
+        "detail": "ok",
+        "exercises": []
+      }
+    ],
+    "observation": {
+      "seconds": 180,
+      "samples": 6,
+      "healthStatuses": [
+        301,
+        301,
+        301,
+        301,
+        301,
+        301
+      ],
+      "appStatuses": [
+        200,
+        200,
+        200,
+        200,
+        200,
+        200
+      ],
+      "httpsHealthStatuses": [
+        200,
+        200,
+        200,
+        200,
+        200,
+        200
+      ]
+    },
     "detail": null
   },
   "dependencies": {
-    "postgres": "NOT_ATTEMPTED",
-    "redis": "NOT_ATTEMPTED",
-    "storage": "NOT_ATTEMPTED",
-    "migration": "NOT_ATTEMPTED",
+    "postgres": "PASS",
+    "redis": "PASS",
+    "storage": "NOT_REQUIRED",
+    "migration": "NOT_REQUIRED",
+    "detail": null
+  },
+  "update": {
+    "status": "NOT_ATTEMPTED",
+    "releaseId": null,
+    "version": null,
+    "imageDigest": null,
+    "durationMs": null,
     "detail": null
   },
   "cleanup": {
@@ -137,333 +235,23 @@
     "cleanupState": "COMPLETE",
     "bootstrapStackFinal": "DELETE_COMPLETE",
     "leaks": [],
-    "durationMs": 3154671,
+    "retainedState": "PASS",
+    "purgedState": "PASS",
+    "durationMs": 2934445,
     "detail": null
   },
-  "classification": "CONTAINER_START_ERROR",
-  "failureStage": "CONTAINER_START_ERROR",
-  "rootCause": "DEPLOYZ_BUG",
-  "rootCauseEvidence": "four attempts, each the same shape: the App container exits 1 about five minutes after start with no log line (the process emits nothing), the circuit breaker rolls the install back. The last attempt ran before the RDS CA bundle (DEPLOY-007, PR #213) and before the configured first start (DEPLOY-009, PR #207); umami's check-db.js opens Postgres through @prisma/adapter-pg with sslmode=require, the exact node-postgres path kutt attempt 6 proved fails on the RDS chain, so DEPLOY-007 is the attributed cause. Not confirmed by a log line and not rerun: the audit was stopped after Wave 1.",
+  "classification": "PASS",
+  "failureStage": null,
+  "rootCause": null,
+  "rootCauseEvidence": null,
   "findingIds": [
     "DEPLOY-002",
     "DEPLOY-007"
   ],
   "timing": {
-    "startedAt": "2026-09-06T16:47:58.093Z",
-    "finishedAt": "2026-09-06T17:49:31.158Z",
-    "totalMs": 3693065
+    "startedAt": "2026-09-18T02:21:01.405Z",
+    "finishedAt": "2026-09-18T03:07:04.394Z",
+    "totalMs": 2762989
   },
-  "evidence": {
-    "failure": {
-      "point": "install",
-      "message": "install stack ROLLBACK_FAILED: no reason",
-      "stoppedTasks": [
-        {
-          "taskArn": "arn:aws:ecs:us-east-1:151955775369:task/deployz-app-4abe7c01-ClusterEB0386A7-nPb6JmU2j3G0/11289fad603048449deccba147d80d80",
-          "stoppedReason": "Essential container in task exited",
-          "stopCode": "EssentialContainerExited",
-          "stoppedAt": "2026-09-06T22:43:15.258000+05:30",
-          "containers": [
-            {
-              "name": "App",
-              "exitCode": 1,
-              "reason": null
-            }
-          ]
-        },
-        {
-          "taskArn": "arn:aws:ecs:us-east-1:151955775369:task/deployz-app-4abe7c01-ClusterEB0386A7-nPb6JmU2j3G0/4398146838c54de9ae60d7cf5da39b91",
-          "stoppedReason": "Essential container in task exited",
-          "stopCode": "EssentialContainerExited",
-          "stoppedAt": "2026-09-06T22:55:53.971000+05:30",
-          "containers": [
-            {
-              "name": "App",
-              "exitCode": 1,
-              "reason": null
-            }
-          ]
-        },
-        {
-          "taskArn": "arn:aws:ecs:us-east-1:151955775369:task/deployz-app-4abe7c01-ClusterEB0386A7-nPb6JmU2j3G0/6623f3fc154746689805ec2456e56203",
-          "stoppedReason": "Essential container in task exited",
-          "stopCode": "EssentialContainerExited",
-          "stoppedAt": "2026-09-06T22:43:53.164000+05:30",
-          "containers": [
-            {
-              "name": "App",
-              "exitCode": 1,
-              "reason": null
-            }
-          ]
-        },
-        {
-          "taskArn": "arn:aws:ecs:us-east-1:151955775369:task/deployz-app-4abe7c01-ClusterEB0386A7-nPb6JmU2j3G0/ae25f6683d4148cdaeb97683aaf010b9",
-          "stoppedReason": "Essential container in task exited",
-          "stopCode": "EssentialContainerExited",
-          "stoppedAt": "2026-09-06T22:50:03.933000+05:30",
-          "containers": [
-            {
-              "name": "App",
-              "exitCode": 1,
-              "reason": null
-            }
-          ]
-        },
-        {
-          "taskArn": "arn:aws:ecs:us-east-1:151955775369:task/deployz-app-4abe7c01-ClusterEB0386A7-nPb6JmU2j3G0/e18b91203bef45a28c1e10f2bfd499fe",
-          "stoppedReason": "Essential container in task exited",
-          "stopCode": "EssentialContainerExited",
-          "stoppedAt": "2026-09-06T22:49:13.775000+05:30",
-          "containers": [
-            {
-              "name": "App",
-              "exitCode": 1,
-              "reason": null
-            }
-          ]
-        }
-      ],
-      "logTail": [],
-      "stackFailures": [
-        "AWS::EC2::SecurityGroup DELETE_FAILED",
-        "AWS::EC2::Subnet DELETE_FAILED"
-      ],
-      "targetHealth": [],
-      "diagnostics": {
-        "failureCode": "CONTAINER_START_FAILED",
-        "recoverability": "USER_ACTION",
-        "what": "The application started and then stopped.",
-        "why": "It exited during startup — usually a missing setting or an error before it began serving.",
-        "fix": "Check the required values on the Configuration screen are all set, then deploy again.",
-        "source": "deterministic",
-        "confidence": null,
-        "technicalDetail": "Stack \"deployz-app-4abe7c01\" finished in ROLLBACK_FAILED — The following resource(s) failed to delete: [DbSecurityGroupE9D701AD, VpcPrivateSubnet2Subnet3788AAA1].  — ServiceD69D759B (AWS::ECS::Service): Resource handler returned message: \"Error occurred during operation 'ECS Deployment Circuit Breaker was triggered'.\" (RequestToken: a1cc3fb6-dd92-48c1-38a4-35b4819b8786, HandlerErrorCode: GeneralServiceException)",
-        "context": {
-          "deploymentId": "56659de0-9912-40dd-ab20-f0c05549d8a2",
-          "phase": "INSTALL",
-          "attempt": 0,
-          "failureCode": "CONTAINER_START_FAILED",
-          "reportedFailureCode": "STACK_CREATE_FAILED",
-          "resourceType": "AWS::ECS::Service",
-          "message": "Stack \"deployz-app-4abe7c01\" finished in ROLLBACK_FAILED — The following resource(s) failed to delete: [DbSecurityGroupE9D701AD, VpcPrivateSubnet2Subnet3788AAA1].  — ServiceD69D759B (AWS::ECS::Service): Resource handler returned message: \"Error occurred during operation 'ECS Deployment Circuit Breaker was triggered'.\" (RequestToken: a1cc3fb6-dd92-48c1-38a4-35b4819b8786, HandlerErrorCode: GeneralServiceException)",
-          "relevantEvents": [
-            {
-              "logicalResourceId": "ServiceD69D759B",
-              "resourceType": "AWS::ECS::Service",
-              "resourceStatus": "CREATE_FAILED",
-              "reason": "Resource handler returned message: \"Error occurred during operation 'ECS Deployment Circuit Breaker was triggered'.\" (RequestToken: a1cc3fb6-dd92-48c1-38a4-35b4819b8786, HandlerErrorCode: GeneralServiceException)"
-            },
-            {
-              "logicalResourceId": "DbSecurityGroupE9D701AD",
-              "resourceType": "AWS::EC2::SecurityGroup",
-              "resourceStatus": "DELETE_FAILED",
-              "reason": "resource sg-0c8d4b18b8267fefd has a dependent object (Service: Ec2, Status Code: 400, Request ID: 5e3e46a3-f659-495a-9062-395cd74b04db) (SDK Attempt Count: 1)"
-            }
-          ],
-          "applicationVersion": null
-        },
-        "events": [
-          {
-            "id": 641,
-            "occurredAt": "2026-09-06T16:52:05.375Z",
-            "actorType": "user",
-            "actorId": "qg3smdKPYiX8xB2ThOLqmh5RyVfK5OTE",
-            "organizationId": "07ddfe6f-af94-4c7c-8c04-adac2d21d4b5",
-            "customerId": "1ef3ee06-5748-4dc3-8891-42216983996f",
-            "deploymentId": "56659de0-9912-40dd-ab20-f0c05549d8a2",
-            "jobId": null,
-            "releaseId": null,
-            "eventType": "application.preflight_evaluated",
-            "previousState": null,
-            "requestedState": null,
-            "result": "success",
-            "payload": {
-              "result": "pass",
-              "warningCount": 0,
-              "applicationId": "68db3f49-654d-4214-af48-8cc1b4d108e4",
-              "blockingCount": 0,
-              "schemaVersion": 1
-            }
-          },
-          {
-            "id": 642,
-            "occurredAt": "2026-09-06T16:52:05.377Z",
-            "actorType": "user",
-            "actorId": "qg3smdKPYiX8xB2ThOLqmh5RyVfK5OTE",
-            "organizationId": "07ddfe6f-af94-4c7c-8c04-adac2d21d4b5",
-            "customerId": "1ef3ee06-5748-4dc3-8891-42216983996f",
-            "deploymentId": "56659de0-9912-40dd-ab20-f0c05549d8a2",
-            "jobId": null,
-            "releaseId": null,
-            "eventType": "deployment.created",
-            "previousState": null,
-            "requestedState": null,
-            "result": "success",
-            "payload": {
-              "source": "manual",
-              "schemaVersion": 1
-            }
-          },
-          {
-            "id": 643,
-            "occurredAt": "2026-09-06T16:52:05.885Z",
-            "actorType": "system",
-            "actorId": "install-link:79e1e15a-030a-4f51-8d1f-28842fc0e2f9",
-            "organizationId": "07ddfe6f-af94-4c7c-8c04-adac2d21d4b5",
-            "customerId": "1ef3ee06-5748-4dc3-8891-42216983996f",
-            "deploymentId": "56659de0-9912-40dd-ab20-f0c05549d8a2",
-            "jobId": null,
-            "releaseId": null,
-            "eventType": "install.launched",
-            "previousState": "NOT_INSTALLED",
-            "requestedState": "WAITING_FOR_RELAY",
-            "result": "success",
-            "payload": {}
-          },
-          {
-            "id": 644,
-            "occurredAt": "2026-09-06T16:52:05.885Z",
-            "actorType": "system",
-            "actorId": "install-link:79e1e15a-030a-4f51-8d1f-28842fc0e2f9",
-            "organizationId": "07ddfe6f-af94-4c7c-8c04-adac2d21d4b5",
-            "customerId": "1ef3ee06-5748-4dc3-8891-42216983996f",
-            "deploymentId": "56659de0-9912-40dd-ab20-f0c05549d8a2",
-            "jobId": null,
-            "releaseId": null,
-            "eventType": "application.preflight_evaluated",
-            "previousState": null,
-            "requestedState": null,
-            "result": "success",
-            "payload": {
-              "result": "pass",
-              "warningCount": 0,
-              "applicationId": "68db3f49-654d-4214-af48-8cc1b4d108e4",
-              "blockingCount": 0,
-              "schemaVersion": 1
-            }
-          },
-          {
-            "id": 645,
-            "occurredAt": "2026-09-06T16:59:10.117Z",
-            "actorType": "relay",
-            "actorId": "4abe7c01-ff35-4899-b6a8-839ee7858ad4",
-            "organizationId": "07ddfe6f-af94-4c7c-8c04-adac2d21d4b5",
-            "customerId": "1ef3ee06-5748-4dc3-8891-42216983996f",
-            "deploymentId": "56659de0-9912-40dd-ab20-f0c05549d8a2",
-            "jobId": "b110dd14-4ad9-4f78-8205-909277b75c47",
-            "releaseId": null,
-            "eventType": "install.requested",
-            "previousState": "WAITING_FOR_RELAY",
-            "requestedState": "INSTALLING",
-            "result": "pending",
-            "payload": {}
-          },
-          {
-            "id": 646,
-            "occurredAt": "2026-09-06T16:59:10.117Z",
-            "actorType": "relay",
-            "actorId": "4abe7c01-ff35-4899-b6a8-839ee7858ad4",
-            "organizationId": "07ddfe6f-af94-4c7c-8c04-adac2d21d4b5",
-            "customerId": "1ef3ee06-5748-4dc3-8891-42216983996f",
-            "deploymentId": "56659de0-9912-40dd-ab20-f0c05549d8a2",
-            "jobId": null,
-            "releaseId": null,
-            "eventType": "relay.connected",
-            "previousState": null,
-            "requestedState": null,
-            "result": "success",
-            "payload": {
-              "schemaVersion": 1
-            }
-          },
-          {
-            "id": 647,
-            "occurredAt": "2026-09-06T16:59:10.117Z",
-            "actorType": "relay",
-            "actorId": "4abe7c01-ff35-4899-b6a8-839ee7858ad4",
-            "organizationId": "07ddfe6f-af94-4c7c-8c04-adac2d21d4b5",
-            "customerId": "1ef3ee06-5748-4dc3-8891-42216983996f",
-            "deploymentId": "56659de0-9912-40dd-ab20-f0c05549d8a2",
-            "jobId": null,
-            "releaseId": null,
-            "eventType": "application.preflight_evaluated",
-            "previousState": null,
-            "requestedState": null,
-            "result": "success",
-            "payload": {
-              "result": "pass",
-              "warningCount": 0,
-              "applicationId": "68db3f49-654d-4214-af48-8cc1b4d108e4",
-              "blockingCount": 0,
-              "schemaVersion": 1
-            }
-          },
-          {
-            "id": 648,
-            "occurredAt": "2026-09-06T16:59:22.047Z",
-            "actorType": "relay",
-            "actorId": "4abe7c01-ff35-4899-b6a8-839ee7858ad4",
-            "organizationId": "07ddfe6f-af94-4c7c-8c04-adac2d21d4b5",
-            "customerId": "1ef3ee06-5748-4dc3-8891-42216983996f",
-            "deploymentId": "56659de0-9912-40dd-ab20-f0c05549d8a2",
-            "jobId": null,
-            "releaseId": null,
-            "eventType": "deployment.step_completed",
-            "previousState": null,
-            "requestedState": null,
-            "result": "success",
-            "payload": {
-              "step": "PREPARING",
-              "startedAt": "2026-09-06T16:59:10.500Z",
-              "completedAt": "2026-09-06T16:59:21.573Z",
-              "durationSeconds": 11
-            }
-          },
-          {
-            "id": 649,
-            "occurredAt": "2026-09-06T17:04:14.123Z",
-            "actorType": "relay",
-            "actorId": "4abe7c01-ff35-4899-b6a8-839ee7858ad4",
-            "organizationId": "07ddfe6f-af94-4c7c-8c04-adac2d21d4b5",
-            "customerId": "1ef3ee06-5748-4dc3-8891-42216983996f",
-            "deploymentId": "56659de0-9912-40dd-ab20-f0c05549d8a2",
-            "jobId": null,
-            "releaseId": null,
-            "eventType": "deployment.step_completed",
-            "previousState": null,
-            "requestedState": null,
-            "result": "success",
-            "payload": {
-              "step": "NETWORK",
-              "startedAt": "2026-09-06T16:59:21.573Z",
-              "completedAt": "2026-09-06T17:02:20.176Z",
-              "durationSeconds": 179
-            }
-          },
-          {
-            "id": 650,
-            "occurredAt": "2026-09-06T17:05:59.317Z",
-            "actorType": "relay",
-            "actorId": "4abe7c01-ff35-4899-b6a8-839ee7858ad4",
-            "organizationId": "07ddfe6f-af94-4c7c-8c04-adac2d21d4b5",
-            "customerId": "1ef3ee06-5748-4dc3-8891-42216983996f",
-            "deploymentId": "56659de0-9912-40dd-ab20-f0c05549d8a2",
-            "jobId": null,
-            "releaseId": null,
-            "eventType": "deployment.step_completed",
-            "previousState": null,
-            "requestedState": null,
-            "result": "success",
-            "payload": {
-              "step": "DATABASE_STORAGE",
-              "startedAt": "2026-09-06T16:59:21.687Z",
-              "completedAt": "2026-09-06T17:05:58.494Z",
-              "durationSeconds": 397
-            }
-          }
-        ]
-      }
-    }
-  }
+  "evidence": {}
 }

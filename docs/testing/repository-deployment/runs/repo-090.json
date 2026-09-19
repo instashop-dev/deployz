@@ -3,80 +3,56 @@
   "id": "repo-090",
   "repository": "sosedoff/pgweb",
   "commit": "e4858a16d8e032730055289596ea9059a91bca64",
-  "repositoryForm": null,
-  "repositoryUsed": null,
+  "repositoryForm": "fork",
+  "repositoryUsed": "instashop-dev/pgweb",
   "set": "unseen",
   "cohort": "realistic",
   "customerRealism": "medium",
   "difficulty": 2,
-  "deployzCommit": "32f2620a519b9bf64279192571770fc56f21e316",
-  "runId": null,
+  "deployzCommit": "334f3598c781ffd8584240f65c16e671d4558bd3",
+  "runId": "stage-b-repo-090-20260918-014354-dbad",
   "stageAExpected": "READY",
   "expectedDeployable": true,
-  "mode": "gate",
+  "mode": "deploy",
+  "deploymentClass": "runtime-reuse",
   "gate": {
     "status": "PASS",
-    "verdict": "NEEDS_CONFIGURATION",
-    "analysisVerdict": "NEEDS_ATTENTION",
-    "outcome": "correct-accept",
-    "gateFindings": [
-      "health-path-required",
-      "migration-command-missing"
-    ],
+    "verdict": null,
+    "analysisVerdict": null,
+    "outcome": null,
+    "gateFindings": [],
     "requiredKeys": [],
     "missingKeys": [],
     "unsupported": [],
-    "configuredVerdict": "NEEDS_CONFIGURATION",
-    "configuredFindings": [
-      "health-path-required",
-      "migration-command-missing"
-    ],
-    "source": "in-process",
-    "analysisVersion": 19,
-    "manifest": {
-      "dockerfilePath": "Dockerfile",
-      "buildContext": ".",
-      "appRoot": ".",
-      "port": 8081,
-      "healthPath": "/",
-      "healthMode": "vendor_required",
-      "migrationCommand": null,
-      "migrationMode": "unknown",
-      "postgres": true,
-      "redis": false,
-      "storage": false,
-      "databaseBindings": [
-        "DATABASE_HOST",
-        "DATABASE_NAME",
-        "DATABASE_PASSWORD",
-        "DATABASE_PORT",
-        "DATABASE_URL",
-        "DATABASE_USER"
-      ],
-      "redisBindings": [],
-      "storageBindings": [],
-      "generatedKeys": []
-    },
+    "configuredVerdict": null,
+    "configuredFindings": [],
+    "source": "control-plane",
+    "analysisVersion": null,
+    "manifest": null,
     "detail": null
   },
   "configuration": {
-    "status": "NOT_ATTEMPTED",
-    "overrides": {},
+    "status": "PASS",
+    "overrides": {
+      "healthPath": "/"
+    },
     "keys": [],
     "generatedKeys": [],
+    "deliveredAfterEnrollment": [],
     "detail": null
   },
   "build": {
-    "status": "NOT_ATTEMPTED",
-    "releaseId": null,
-    "version": null,
-    "gitSha": null,
-    "dockerfilePath": null,
+    "status": "FAIL",
+    "releaseId": "164e0d45-5df6-4221-929f-9fb8fc6465b8",
+    "version": "repo-090-20260918-014354-dbad",
+    "gitSha": "e4858a16d8e032730055289596ea9059a91bca64",
+    "dockerfilePath": "Dockerfile",
     "buildContext": null,
     "imageDigest": null,
     "buildId": null,
-    "durationMs": null,
-    "detail": null
+    "durationMs": 42366,
+    "imageReused": false,
+    "detail": "release build FAILED: CodeBuild reported FAILED — BUILD: COMMAND_EXECUTION_ERROR: Error while executing command: if [ \"$(cat /tmp/deployz-build-outcome 2>/dev/null)\" != ok ]; then echo \"The image build did not produce an image\" >&2; exit 1; fi. Reason: exit status 1"
   },
   "deployment": {
     "status": "NOT_ATTEMPTED",
@@ -85,12 +61,23 @@
     "bootstrapStack": null,
     "applicationStack": null,
     "stackStatus": null,
-    "templateSource": null,
+    "templateSource": "production-default",
     "templateUrl": null,
     "installJobState": null,
     "failureCode": null,
     "resourceCount": null,
+    "resourcesByType": null,
+    "region": null,
     "durationMs": null,
+    "detail": null
+  },
+  "inventory": {
+    "status": "NOT_ATTEMPTED",
+    "planCreateKinds": [],
+    "expectedKinds": [],
+    "presentTypes": [],
+    "missing": [],
+    "unexpected": [],
     "detail": null
   },
   "runtime": {
@@ -102,6 +89,7 @@
     "appUrl": null,
     "runningImageDigest": null,
     "releaseServing": null,
+    "smoke": [],
     "observation": null,
     "detail": null
   },
@@ -112,27 +100,42 @@
     "migration": "NOT_ATTEMPTED",
     "detail": null
   },
-  "cleanup": {
+  "update": {
     "status": "NOT_ATTEMPTED",
+    "releaseId": null,
+    "version": null,
+    "imageDigest": null,
+    "durationMs": null,
+    "detail": null
+  },
+  "cleanup": {
+    "status": "PASS",
     "destroyJobState": null,
     "purgeJobState": null,
     "cleanupState": null,
     "bootstrapStackFinal": null,
     "leaks": [],
-    "durationMs": null,
+    "retainedState": "NOT_ATTEMPTED",
+    "purgedState": "NOT_ATTEMPTED",
+    "durationMs": 44572,
     "detail": null
   },
-  "classification": "PASS",
-  "failureStage": null,
+  "classification": "BUILD_ERROR",
+  "failureStage": "BUILD_ERROR",
   "rootCause": null,
-  "rootCauseEvidence": null,
+  "rootCauseEvidence": "CodeBuild reported FAILED — BUILD: COMMAND_EXECUTION_ERROR: Error while executing command: if [ \"$(cat /tmp/deployz-build-outcome 2>/dev/null)\" != ok ]; then echo \"The image build did not produce an image\" >&2; exit 1; fi. Reason: exit stat — decide UPSTREAM_REPO_FAILURE (the Dockerfile does not build at the pinned commit) vs DEPLOYZ_BUG (build environment) vs AWS_TRANSIENT_FAILURE",
   "findingIds": [
     "DEPLOY-002"
   ],
   "timing": {
-    "startedAt": null,
-    "finishedAt": null,
-    "totalMs": null
+    "startedAt": "2026-09-18T01:43:54.702Z",
+    "finishedAt": "2026-09-18T01:44:54.389Z",
+    "totalMs": 59687
   },
-  "evidence": {}
+  "evidence": {
+    "failure": {
+      "point": "build",
+      "message": "release build FAILED: CodeBuild reported FAILED — BUILD: COMMAND_EXECUTION_ERROR: Error while executing command: if [ \"$(cat /tmp/deployz-build-outcome 2>/dev/null)\" != ok ]; then echo \"The image build did not produce an image\" >&2; exit 1; fi. Reason: exit status 1"
+    }
+  }
 }

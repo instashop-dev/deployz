@@ -11,9 +11,12 @@ import type { Customer } from '../src/lib/customers';
 import {
   customerDeployment,
   deploymentsByCustomer,
+  initialCustomerSelection,
   installLinkDeployment,
   installLinkUrl,
   matchesCustomerSearch,
+  matchingCustomerByEmail,
+  NEW_CUSTOMER_VALUE,
   singleDeploymentDestination,
 } from '../src/lib/customers';
 import type { FleetDeployment } from '../src/lib/deployments';
@@ -127,7 +130,7 @@ describe('customerDeployment', () => {
     const rollup = customerDeployment([deployment({ state: 'FAILED' })]);
     expect(rollup.status).toBe('NEEDS_ATTENTION');
     expect(rollup.label).toBe('Needs attention');
-    expect(rollup.badge).toBe('destructive');
+    expect(rollup.badge).toBe('warning');
   });
 
   it('rolls a DISCONNECTED deployment up to NEEDS_ATTENTION', () => {
@@ -315,5 +318,36 @@ describe('matchesCustomerSearch', () => {
     expect(() => matchesCustomerSearch(c, 'jane')).not.toThrow();
     expect(matchesCustomerSearch(c, 'jane')).toBe(true);
     expect(matchesCustomerSearch(c, 'example.com')).toBe(true);
+  });
+});
+
+describe('initialCustomerSelection', () => {
+  it('preselects the ?customerId= customer when it is in the list', () => {
+    const customers = [customer({ id: 'cus-1' }), customer({ id: 'cus-2' })];
+    expect(initialCustomerSelection(customers, 'cus-2')).toBe('cus-2');
+  });
+
+  it('falls back to the new-customer sentinel for an unknown id', () => {
+    const customers = [customer({ id: 'cus-1' })];
+    expect(initialCustomerSelection(customers, 'cus-missing')).toBe(NEW_CUSTOMER_VALUE);
+  });
+
+  it('falls back to the new-customer sentinel when no id is given', () => {
+    const customers = [customer({ id: 'cus-1' })];
+    expect(initialCustomerSelection(customers, null)).toBe(NEW_CUSTOMER_VALUE);
+  });
+});
+
+describe('matchingCustomerByEmail', () => {
+  it('matches an existing customer email, trimmed and case-insensitively', () => {
+    const customers = [customer({ id: 'cus-1', email: 'jane@example.com' })];
+    expect(matchingCustomerByEmail(customers, '  JANE@example.com  ')?.id).toBe('cus-1');
+  });
+
+  it('returns null for an empty field or no match', () => {
+    const customers = [customer({ id: 'cus-1', email: 'jane@example.com' })];
+    expect(matchingCustomerByEmail(customers, '')).toBeNull();
+    expect(matchingCustomerByEmail(customers, '   ')).toBeNull();
+    expect(matchingCustomerByEmail(customers, 'nobody@example.com')).toBeNull();
   });
 });

@@ -82,18 +82,25 @@ export const DEPLOYMENT_STATE_LABELS: Record<DeploymentState, string> = {
 };
 
 /** Badge variant per state (maps to shadcn/ui Badge variants). */
-export type DeploymentBadgeVariant = 'default' | 'secondary' | 'destructive' | 'outline';
+export type DeploymentBadgeVariant =
+  | 'default'
+  | 'secondary'
+  | 'destructive'
+  | 'outline'
+  | 'success'
+  | 'warning'
+  | 'info';
 
 export const DEPLOYMENT_STATE_BADGE: Record<DeploymentState, DeploymentBadgeVariant> = {
   NOT_INSTALLED: 'secondary',
-  WAITING_FOR_RELAY: 'outline',
-  INSTALLING: 'outline',
-  HEALTHY: 'default',
-  UPDATING: 'outline',
+  WAITING_FOR_RELAY: 'secondary',
+  INSTALLING: 'info',
+  HEALTHY: 'success',
+  UPDATING: 'info',
   UPDATE_AVAILABLE: 'secondary',
   FAILED: 'destructive',
   DISCONNECTED: 'destructive',
-  DELETING: 'outline',
+  DELETING: 'info',
   DELETED: 'secondary',
 };
 
@@ -135,10 +142,10 @@ export const CUSTOMER_DEPLOYMENT_STATUS_BADGE: Record<
   DeploymentBadgeVariant
 > = {
   NOT_INSTALLED: 'secondary',
-  INSTALLING: 'outline',
-  LIVE: 'default',
-  NEEDS_ATTENTION: 'destructive',
-  REMOVING: 'outline',
+  INSTALLING: 'info',
+  LIVE: 'success',
+  NEEDS_ATTENTION: 'warning',
+  REMOVING: 'secondary',
   REMOVED: 'secondary',
 };
 
@@ -675,17 +682,17 @@ export const FAILURE_REMEDIATION: Record<FailureCode, FailureRemediation> = {
 };
 
 /** Badge variant for a severity (maps to shadcn/ui Badge variants). */
-export type FailureBadgeVariant = 'destructive' | 'secondary';
+export type FailureBadgeVariant = 'destructive' | 'warning';
 
 export const FAILURE_SEVERITY_BADGE: Record<FailureSeverity, FailureBadgeVariant> = {
   critical: 'destructive',
-  warning: 'secondary',
+  warning: 'warning',
 };
 
 /** Status dot tone class for a severity. */
 export const FAILURE_SEVERITY_DOT: Record<FailureSeverity, string> = {
   critical: 'bg-destructive',
-  warning: 'bg-muted-foreground',
+  warning: 'bg-amber-500',
 };
 
 /**

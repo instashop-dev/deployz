@@ -5,6 +5,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { applyMigrations, createDb, type Db } from '@deployz/db';
 import * as schema from '@deployz/db/schema';
+import { customerDeploymentStatusSchema } from '@deployz/contracts';
 
 import { createAuth, type Auth } from './auth.js';
 import { hashRelayToken } from './relay-store.js';
@@ -198,6 +199,80 @@ describe('POST /api/relay/commands/:id/progress', () => {
     const body = status.json() as { stage: string; step: string };
     expect(body.stage).toBe('PROVISIONING');
     expect(body.step).toBe('NETWORK');
+  });
+
+  // Task: live-provisioning feedback (apps/api/src/customer-activity.ts) —
+  // the RUNNING/FAILED branches of the customer status route wired through
+  // toCustomerDeploymentStatus's new optional `live` argument.
+  it('a RUNNING install job with stored events carries stepStartedAt, translated recentActivity and technicalDetails, and still parses as customerDeploymentStatusSchema', async () => {
+    const { deployment, token, installationId, job, stackName } = await setupInstallJob();
+    const t0 = new Date();
+    const response = await postJson(
+      app,
+      `/api/relay/commands/${job.id}/progress`,
+      {
+        commandId: job.id,
+        installationId,
+        stackName,
+        events: [
+          {
+            eventId: 'evt-live-vpc',
+            timestamp: t0.toISOString(),
+            logicalResourceId: 'Vpc',
+            resourceType: 'AWS::EC2::VPC',
+            resourceStatus: 'CREATE_IN_PROGRESS',
+          },
+        ],
+      },
+      { authorization: `Bearer ${token}` },
+    );
+    expect(response.statusCode).toBe(200);
+
+    const status = await app.inject({ method: 'GET', url: `/api/install/${deployment.installLinkId}/status` });
+    expect(status.statusCode).toBe(200);
+    const body = customerDeploymentStatusSchema.parse(status.json());
+    expect(body.stepStartedAt).not.toBeUndefined();
+    expect(body.recentActivity).toEqual([
+      { key: 'network', at: t0.toISOString(), message: 'Creating the private network.', state: 'IN_PROGRESS' },
+    ]);
+    expect(body.technicalDetails).not.toBeNull();
+    expect(body.technicalDetails!.reference).toMatch(/^DEP-/);
+    expect(body.provisioningIssue).toBeNull();
+  });
+
+  it('a genuine CREATE_FAILED event sets provisioningIssue while the job is still RUNNING and the stage stays PROVISIONING', async () => {
+    const { deployment, token, installationId, job, stackName } = await setupInstallJob();
+    const response = await postJson(
+      app,
+      `/api/relay/commands/${job.id}/progress`,
+      {
+        commandId: job.id,
+        installationId,
+        stackName,
+        events: [
+          {
+            eventId: 'evt-db-failed',
+            timestamp: new Date().toISOString(),
+            logicalResourceId: 'Db',
+            resourceType: 'AWS::RDS::DBInstance',
+            resourceStatus: 'CREATE_FAILED',
+            resourceStatusReason: 'Password authentication failed for user "app"',
+          },
+        ],
+      },
+      { authorization: `Bearer ${token}` },
+    );
+    expect(response.statusCode).toBe(200);
+
+    const [updatedJob] = await db.select().from(schema.deploymentJobs).where(eq(schema.deploymentJobs.id, job.id));
+    expect(updatedJob!.state).toBe('RUNNING');
+
+    const status = await app.inject({ method: 'GET', url: `/api/install/${deployment.installLinkId}/status` });
+    const body = customerDeploymentStatusSchema.parse(status.json());
+    expect(body.stage).toBe('PROVISIONING');
+    expect(body.provisioningIssue).toEqual({
+      message: 'AWS could not create the database. Deployz is cleaning up and will show the result here shortly.',
+    });
   });
 
   it('the snapshot fold is scoped to the current job: a stray row from another job on the same deployment is not summarized', async () => {

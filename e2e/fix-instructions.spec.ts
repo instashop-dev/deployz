@@ -39,11 +39,13 @@ test('generating fix instructions never resolves findings — re-analysis recomp
   await expect(page.getByRole('heading', { name: 'Action required before deployment' })).toBeVisible();
   await expect(page.getByText('1 blocking issue')).toBeVisible();
 
-  // The finding is visible with its plain-English line in the readiness table.
+  // The finding is visible with its plain-English line behind the info
+  // affordance in the readiness table.
   const finding = page.getByTestId('readiness-finding-health-check');
   await expect(finding).toBeVisible();
+  await finding.getByRole('button', { name: /Details for/ }).click();
   await expect(
-    finding.getByText('Deployz needs a reliable way to know when your app is running and ready.'),
+    page.getByText('Deployz needs a reliable way to know when your app is running and ready.'),
   ).toBeVisible();
   const technicalDetail = finding.getByText(
     'No health endpoint or container health check was found',
