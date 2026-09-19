@@ -148,7 +148,7 @@ function OverviewBody({
         {overview.recentFailures.length === 0 ? (
           <EmptySection message="No failed deployments." />
         ) : (
-          <Card>
+          <Card className="py-0">
             <CardContent className="overflow-x-auto p-0">
               <Table data-testid="overview-recent-failures">
                 <TableHeader>
@@ -197,7 +197,7 @@ function OverviewBody({
         {overview.stuckJobs.length === 0 ? (
           <EmptySection message="No stuck jobs." />
         ) : (
-          <Card>
+          <Card className="py-0">
             <CardContent className="overflow-x-auto p-0">
               <Table data-testid="overview-stuck-jobs">
                 <TableHeader>
@@ -251,7 +251,7 @@ function OverviewBody({
         {overview.disconnectedConnections.length === 0 ? (
           <EmptySection message="No disconnected connections." />
         ) : (
-          <Card>
+          <Card className="py-0">
             <CardContent className="overflow-x-auto p-0">
               <Table data-testid="overview-disconnected-connections">
                 <TableHeader>

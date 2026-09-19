@@ -20,7 +20,7 @@ export function DeploymentList({
   showApplication: boolean;
 }) {
   return (
-    <Card>
+    <Card className="py-0">
       <CardContent className="overflow-x-auto p-0">
         <Table data-testid="home-deployment-list">
           <TableHeader>

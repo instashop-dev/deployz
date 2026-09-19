@@ -107,11 +107,13 @@ test('a customer row groups name and email, and shows a vendor-friendly deployme
   await expect(list).toBeVisible();
 
   // Identity is one column: the name links to the customer, the email and
-  // company sit under it — there is no separate Email or Company column.
+  // company open behind an info affordance — there is no separate Email or
+  // Company column.
   const row = list.getByRole('row').filter({ hasText: customer.name });
   await expect(row.getByRole('link', { name: customer.name })).toBeVisible();
-  await expect(row.getByText(customer.email)).toBeVisible();
-  await expect(row.getByText('Acme Holdings')).toBeVisible();
+  await row.getByRole('button', { name: `Contact details for ${customer.name}` }).click();
+  await expect(page.getByText(customer.email)).toBeVisible();
+  await expect(page.getByText('Acme Holdings')).toBeVisible();
   await expect(list.getByRole('columnheader', { name: 'Email' })).toHaveCount(0);
   await expect(list.getByRole('columnheader', { name: 'Company' })).toHaveCount(0);
 
@@ -339,7 +341,8 @@ test('the create-deployment flow captures a company and offers the install link 
     .getByTestId('customer-list')
     .getByRole('row')
     .filter({ hasText: `New Customer ${suffix}` });
-  await expect(row.getByText('New Holdings')).toBeVisible();
+  await row.getByRole('button', { name: `Contact details for New Customer ${suffix}` }).click();
+  await expect(page.getByText('New Holdings')).toBeVisible();
 });
 
 test('Create deployment from the customer page preselects the customer and reuses their row, never creating a second one', async ({
