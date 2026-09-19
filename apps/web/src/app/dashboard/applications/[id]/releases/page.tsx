@@ -1,6 +1,6 @@
 'use client';
 
-import { ArrowLeft } from 'lucide-react';
+import { ArrowLeft, Info } from 'lucide-react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { useEffect, useState, type FormEvent } from 'react';
@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { releaseBuildFailureSummary } from '@deployz/copy-map';
@@ -246,28 +247,14 @@ function ReleaseTable({ releases, running }: { releases: Release[]; running: Set
               <TableRow key={release.id}>
                 <TableCell className="font-mono font-medium">{release.version}</TableCell>
                 <TableCell>
-                  <Badge variant={RELEASE_STATUS_BADGE[release.status]}>
-                    {releaseStatusLabel(release.status)}
-                  </Badge>
-                  {release.status === 'FAILED' ? (
-                    <div className="mt-1 max-w-xs text-xs text-muted-foreground" data-testid={`release-failure-${release.id}`}>
-                      <p>{releaseBuildFailureSummary(release.failureReason)}</p>
-                      {release.failureReason ? (
-                        <details className="mt-0.5">
-                          <summary className="cursor-pointer">Technical detail</summary>
-                          <code className="mt-0.5 block break-all rounded bg-muted px-1.5 py-0.5 font-mono">{release.failureReason}</code>
-                        </details>
-                      ) : null}
-                    </div>
-                  ) : null}
-                  {release.status === 'UNAVAILABLE' ? (
-                    <p
-                      className="mt-1 max-w-xs text-xs text-muted-foreground"
-                      data-testid={`release-unavailable-${release.id}`}
-                    >
-                      {RELEASE_UNAVAILABLE_COPY}
-                    </p>
-                  ) : null}
+                  <div className="flex items-center gap-1.5">
+                    <Badge variant={RELEASE_STATUS_BADGE[release.status]}>
+                      {releaseStatusLabel(release.status)}
+                    </Badge>
+                    {release.status === 'FAILED' || release.status === 'UNAVAILABLE' ? (
+                      <ReleaseStatusDetails release={release} />
+                    ) : null}
+                  </div>
                 </TableCell>
                 <TableCell>
                   {running.has(release.id) ? <Badge variant="info">Running</Badge> : null}
@@ -285,5 +272,43 @@ function ReleaseTable({ releases, running }: { releases: Release[]; running: Set
         </Table>
       </CardContent>
     </Card>
+  );
+}
+
+// A FAILED or UNAVAILABLE release collapses its reason into a single info
+// affordance next to the badge so the row stays one line.
+function ReleaseStatusDetails({ release }: { release: Release }) {
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <Button
+          variant="ghost"
+          size="icon-xs"
+          aria-label={`Status details for release ${release.version}`}
+          className="text-muted-foreground"
+        >
+          <Info aria-hidden />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent align="start" className="w-80 space-y-1.5">
+        {release.status === 'FAILED' ? (
+          <>
+            <p className="text-sm text-muted-foreground" data-testid={`release-failure-${release.id}`}>
+              {releaseBuildFailureSummary(release.failureReason)}
+            </p>
+            {release.failureReason ? (
+              <code className="block break-all rounded bg-muted px-1.5 py-0.5 font-mono text-xs">
+                {release.failureReason}
+              </code>
+            ) : null}
+          </>
+        ) : null}
+        {release.status === 'UNAVAILABLE' ? (
+          <p className="text-sm text-muted-foreground" data-testid={`release-unavailable-${release.id}`}>
+            {RELEASE_UNAVAILABLE_COPY}
+          </p>
+        ) : null}
+      </PopoverContent>
+    </Popover>
   );
 }

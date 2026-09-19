@@ -203,7 +203,7 @@ export default function AdminAuditLogPage() {
 
 function AuditTable({ events }: { events: AdminEventLogRow[] }) {
   return (
-    <Card>
+    <Card className="py-0">
       <CardContent className="overflow-x-auto p-0">
         <Table data-testid="admin-audit-log-table">
           <TableHeader>
@@ -249,7 +249,9 @@ function AuditRow({ event }: { event: AdminEventLogRow }) {
         <TableCell className="text-muted-foreground">
           {targetType && targetId ? `${targetType} · ${targetId.slice(0, 8)}` : '—'}
         </TableCell>
-        <TableCell className="text-muted-foreground">{reason ?? '—'}</TableCell>
+        <TableCell className="max-w-60 truncate text-muted-foreground" title={reason ?? undefined}>
+          {reason ?? '—'}
+        </TableCell>
         <TableCell className="text-muted-foreground">{auditOutcomeLabel(event.result)}</TableCell>
         <TableCell>
           <Collapsible open={open} onOpenChange={setOpen}>

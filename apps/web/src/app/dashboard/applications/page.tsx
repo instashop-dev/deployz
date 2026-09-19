@@ -130,7 +130,7 @@ export default function ApplicationsPage() {
 
 function ApplicationList({ applications }: { applications: Application[] }) {
   return (
-    <Card>
+    <Card className="py-0">
       <CardContent className="overflow-x-auto p-0">
         <Table>
           <TableHeader>

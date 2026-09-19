@@ -1,15 +1,14 @@
 'use client';
 
-import { ChevronDown, RotateCcw, TriangleAlert } from 'lucide-react';
+import { Info, RotateCcw, TriangleAlert } from 'lucide-react';
 import Link from 'next/link';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 
 import { DeploymentStatusBadge } from '@/components/deployment-status-badge';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import {
   Dialog,
   DialogContent,
@@ -20,6 +19,7 @@ import {
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
   Table,
@@ -61,7 +61,7 @@ export function ReadinessTable({
 }) {
   const analyzing = application.analysisStatus === 'ANALYZING';
   return (
-    <Card>
+    <Card className="py-0">
       <CardContent className="overflow-x-auto p-0">
         <Table data-testid="readiness-table">
           <TableHeader>
@@ -151,8 +151,6 @@ export function ReadinessTableRow({
   onEdit: (field: EditableReadinessField) => void;
   onShowFix: () => void;
 }) {
-  const [expanded, setExpanded] = useState(false);
-
   if (row.kind === 'finding') {
     const finding = (row as ReadinessTableFinding).finding;
     const isRequired = finding.severity === 'required';
@@ -162,11 +160,11 @@ export function ReadinessTableRow({
         data-testid={`readiness-finding-${finding.id}`}
       >
         <TableCell>
-          <div className="flex flex-col gap-0.5">
+          <div className="flex items-center gap-1.5">
             <span className="font-medium">{finding.title}</span>
-            <span className="text-xs text-muted-foreground">
-              {finding.plainEnglishExplanation}
-            </span>
+            <InfoPopover label={`Details for ${finding.title}`}>
+              <p className="text-sm text-muted-foreground">{finding.plainEnglishExplanation}</p>
+            </InfoPopover>
           </div>
         </TableCell>
         <TableCell className="text-muted-foreground">{finding.suggestedOutcome}</TableCell>
@@ -208,49 +206,36 @@ export function ReadinessTableRow({
   return (
     <TableRow data-testid={`readiness-setting-${setting.id}`}>
       <TableCell>
-        <div className="flex flex-col gap-0.5">
+        <div className="flex items-center gap-1.5">
           <span className="font-medium">{setting.label}</span>
           {setting.evidence.length > 0 ? (
-            <Collapsible open={expanded} onOpenChange={setExpanded}>
-              <CollapsibleTrigger asChild>
-                <button
-                  type="button"
-                  className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
-                  data-testid={`readiness-setting-evidence-toggle-${setting.id}`}
+            <InfoPopover label={`Why Deployz detected ${setting.label}`}>
+              {setting.evidence.map((item, index) => (
+                <p
+                  key={index}
+                  className="text-sm text-muted-foreground"
+                  data-testid={`readiness-setting-evidence-${setting.id}-${index}`}
                 >
-                  Why Deployz detected this
-                  <ChevronDown
-                    className={`size-3 transition-transform ${expanded ? 'rotate-180' : ''}`}
-                    aria-hidden
-                  />
-                </button>
-              </CollapsibleTrigger>
-              <CollapsibleContent className="mt-1.5 space-y-1">
-                {setting.evidence.map((item, index) => (
-                  <p
-                    key={index}
-                    className="text-xs text-muted-foreground"
-                    data-testid={`readiness-setting-evidence-${setting.id}-${index}`}
-                  >
-                    {item.file ? <code className="font-mono">{item.file}</code> : null}
-                    {item.file ? ' — ' : ''}
-                    {item.reason}
-                  </p>
-                ))}
-              </CollapsibleContent>
-            </Collapsible>
+                  {item.file ? <code className="font-mono">{item.file}</code> : null}
+                  {item.file ? ' — ' : ''}
+                  {item.reason}
+                </p>
+              ))}
+            </InfoPopover>
           ) : null}
         </div>
       </TableCell>
       <TableCell>
-        <div className="flex flex-col gap-0.5">
+        <div className="flex items-center gap-1.5">
           <span>{setting.value}</span>
-          {setting.overridden ? (
-            <span className="text-xs text-muted-foreground">
-              Detected: {setting.detectedValue} · Overridden
-            </span>
-          ) : setting.detectedValue && setting.detectedValue !== setting.value ? (
-            <span className="text-xs text-muted-foreground">Detected: {setting.detectedValue}</span>
+          {setting.overridden ||
+          (setting.detectedValue && setting.detectedValue !== setting.value) ? (
+            <InfoPopover label={`Detected value for ${setting.label}`}>
+              <p className="text-sm text-muted-foreground">
+                Detected: {setting.detectedValue}
+                {setting.overridden ? ' · Overridden' : ''}
+              </p>
+            </InfoPopover>
           ) : null}
         </div>
       </TableCell>
@@ -274,6 +259,27 @@ export function ReadinessTableRow({
         ) : null}
       </TableCell>
     </TableRow>
+  );
+}
+
+// A single-line info affordance for a row's secondary text. The finding's
+// plain-English explanation, a setting's "why" evidence, and a detected-vs-
+// overridden value all collapse behind it so each row stays one line.
+function InfoPopover({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <Button
+          variant="ghost"
+          size="icon-xs"
+          aria-label={label}
+          className="text-muted-foreground"
+        >
+          <Info aria-hidden />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent align="start" className="w-72 space-y-1.5">{children}</PopoverContent>
+    </Popover>
   );
 }
 

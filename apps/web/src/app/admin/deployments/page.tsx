@@ -146,7 +146,7 @@ export default function AdminDeploymentsPage() {
 
 function DeploymentsTable({ deployments }: { deployments: AdminDeploymentListRow[] }) {
   return (
-    <Card>
+    <Card className="py-0">
       <CardContent className="overflow-x-auto p-0">
         <Table data-testid="admin-deployments-table">
           <TableHeader>
