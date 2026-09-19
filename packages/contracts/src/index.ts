@@ -4,6 +4,7 @@ export * from './infrastructure.js';
 export * from './manifest.js';
 export * from './application-analysis.js';
 export * from './components.js';
+export * from './aws-resources.js';
 export * from './plan.js';
 
 import type { DeploymentManifest } from './manifest.js';
@@ -547,15 +548,58 @@ export const componentProgressSchema = z
   .strict();
 export type ComponentProgress = z.infer<typeof componentProgressSchema>;
 
+/** One line of the install page's recent-activity list: a real AWS or Deployz
+ *  event, never an invented one. `message` is customer copy — never a raw
+ *  CloudFormation status or resource type. */
+export const customerActivityItemSchema = z
+  .object({
+    key: z.string(),
+    at: z.iso.datetime(),
+    message: z.string(),
+    state: z.enum(['IN_PROGRESS', 'COMPLETE', 'FAILED']),
+  })
+  .strict();
+export type CustomerActivityItem = z.infer<typeof customerActivityItemSchema>;
+
+/**
+ * The raw facts behind the install page's collapsed "Technical details":
+ * `facts` are label/value rows for the active step (stack name and status,
+ * service rollout, certificate state, ...), `events` are raw CloudFormation
+ * events. The customer owns the AWS account these come from, and the install
+ * link is their credential. Status reasons are secret-redacted at ingest.
+ * Never render any of this in the main UI.
+ */
+export const customerTechnicalDetailsSchema = z
+  .object({
+    reference: z.string(),
+    facts: z.array(z.object({ label: z.string(), value: z.string() }).strict()).max(12),
+    events: z
+      .array(
+        z
+          .object({
+            at: z.iso.datetime(),
+            logicalResourceId: z.string(),
+            resourceType: z.string(),
+            resourceStatus: z.string(),
+            resourceStatusReason: z.string().nullable(),
+          })
+          .strict(),
+      )
+      .max(8),
+  })
+  .strict();
+export type CustomerTechnicalDetails = z.infer<typeof customerTechnicalDetailsSchema>;
+
 /**
  * The public install-status wire shape (GET /api/install/:installLinkId/
  * status). Unauthenticated by design, so this is the ONLY place deployment
  * progress reaches an anonymous caller — no relay identity, no job payloads,
- * no raw AWS/CFN status beyond the single word failure.technical.awsStatus
- * allows, no NOT_REQUIRED components (nothing to show for a component the
- * app never asked for). Deliberately no `stepStartedAt`/`stepTimings`
- * either — those give elapsed-time precision the anonymous surface has no
- * business exposing; the vendor projection below carries both.
+ * no NOT_REQUIRED components (nothing to show for a component the app never
+ * asked for), no `stepTimings`. Raw AWS/CFN detail is confined to
+ * `technicalDetails`; every other field is customer copy.
+ *
+ * The four live-provisioning fields are optional: the web app and the API
+ * deploy separately, so the page must work with a response that omits them.
  */
 export const customerDeploymentStatusSchema = z
   .object({
@@ -574,6 +618,15 @@ export const customerDeploymentStatusSchema = z
     needsDomainSetup: z.boolean(),
     components: z.array(componentProgressSchema),
     url: z.string().nullable(),
+    // When the active step started — the install page's elapsed time.
+    stepStartedAt: z.iso.datetime().nullable().optional(),
+    // Latest meaningful real events for the active step, newest first,
+    // deduplicated. Empty when AWS or Deployz has reported none.
+    recentActivity: z.array(customerActivityItemSchema).max(5).optional(),
+    // Set as soon as AWS reports a resource failure, before the job itself
+    // is FAILED — a rollback can take many minutes to settle.
+    provisioningIssue: z.object({ message: z.string() }).strict().nullable().optional(),
+    technicalDetails: customerTechnicalDetailsSchema.nullable().optional(),
     failure: z
       .object({
         customerMessage: z.string(),

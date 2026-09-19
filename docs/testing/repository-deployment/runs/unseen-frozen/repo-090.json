@@ -1,0 +1,139 @@
+{
+  "schemaVersion": 1,
+  "id": "repo-090",
+  "repository": "sosedoff/pgweb",
+  "commit": "e4858a16d8e032730055289596ea9059a91bca64",
+  "repositoryForm": "fork",
+  "repositoryUsed": "instashop-dev/pgweb",
+  "set": "unseen",
+  "cohort": "realistic",
+  "customerRealism": "medium",
+  "difficulty": 2,
+  "deployzCommit": "981d487505fc5142d9d9b161e21467f780ae3e3f",
+  "runId": "stage-b-repo-090-20260918-014159-f3ab",
+  "stageAExpected": "READY",
+  "expectedDeployable": true,
+  "mode": "deploy",
+  "deploymentClass": "runtime-reuse",
+  "gate": {
+    "status": "NOT_ATTEMPTED",
+    "verdict": null,
+    "analysisVerdict": null,
+    "outcome": null,
+    "gateFindings": [],
+    "requiredKeys": [],
+    "missingKeys": [],
+    "unsupported": [],
+    "configuredVerdict": null,
+    "configuredFindings": [],
+    "source": "control-plane",
+    "analysisVersion": null,
+    "manifest": null,
+    "detail": null
+  },
+  "configuration": {
+    "status": "FAIL",
+    "overrides": {},
+    "keys": [],
+    "generatedKeys": [],
+    "deliveredAfterEnrollment": [],
+    "detail": "the control plane's gate still needs configuration: health-path-required: No health check route or container health check was found, so Deployz does not know when the app is ready. Expose a health route (for example /health) or add a container health check before deploying."
+  },
+  "build": {
+    "status": "NOT_ATTEMPTED",
+    "releaseId": null,
+    "version": null,
+    "gitSha": null,
+    "dockerfilePath": null,
+    "buildContext": null,
+    "imageDigest": null,
+    "buildId": null,
+    "durationMs": null,
+    "imageReused": false,
+    "detail": null
+  },
+  "deployment": {
+    "status": "NOT_ATTEMPTED",
+    "deploymentId": null,
+    "installationId": null,
+    "bootstrapStack": null,
+    "applicationStack": null,
+    "stackStatus": null,
+    "templateSource": "production-default",
+    "templateUrl": null,
+    "installJobState": null,
+    "failureCode": null,
+    "resourceCount": null,
+    "resourcesByType": null,
+    "region": null,
+    "durationMs": null,
+    "detail": null
+  },
+  "inventory": {
+    "status": "NOT_ATTEMPTED",
+    "planCreateKinds": [],
+    "expectedKinds": [],
+    "presentTypes": [],
+    "missing": [],
+    "unexpected": [],
+    "detail": null
+  },
+  "runtime": {
+    "ecs": "NOT_ATTEMPTED",
+    "alb": "NOT_ATTEMPTED",
+    "https": "NOT_ATTEMPTED",
+    "healthPath": null,
+    "healthPathSource": null,
+    "appUrl": null,
+    "runningImageDigest": null,
+    "releaseServing": null,
+    "smoke": [],
+    "observation": null,
+    "detail": null
+  },
+  "dependencies": {
+    "postgres": "NOT_ATTEMPTED",
+    "redis": "NOT_ATTEMPTED",
+    "storage": "NOT_ATTEMPTED",
+    "migration": "NOT_ATTEMPTED",
+    "detail": null
+  },
+  "update": {
+    "status": "NOT_ATTEMPTED",
+    "releaseId": null,
+    "version": null,
+    "imageDigest": null,
+    "durationMs": null,
+    "detail": null
+  },
+  "cleanup": {
+    "status": "NOT_REQUIRED",
+    "destroyJobState": null,
+    "purgeJobState": null,
+    "cleanupState": null,
+    "bootstrapStackFinal": null,
+    "leaks": [],
+    "retainedState": "NOT_ATTEMPTED",
+    "purgedState": "NOT_ATTEMPTED",
+    "durationMs": null,
+    "detail": "no AWS resources were created"
+  },
+  "classification": "CONFIG_ERROR",
+  "failureStage": "CONFIG_ERROR",
+  "rootCause": null,
+  "rootCauseEvidence": "the gate still refuses with the Stage B configuration: the control plane's gate still needs configuration: health-path-required: No health check route or container health check was found, so Deployz does not know when the app is ready. Expose a health route (for example /health) or add a contai — decide REPO_CONFIGURATION (fix the config) vs ANALYSIS_BUG (a required key the app does not need)",
+  "findingIds": [
+    "DEPLOY-002"
+  ],
+  "timing": {
+    "startedAt": "2026-09-18T01:42:00.435Z",
+    "finishedAt": "2026-09-18T01:42:17.729Z",
+    "totalMs": 17294
+  },
+  "evidence": {
+    "failure": {
+      "point": "configuration",
+      "message": "the control plane's gate still needs configuration: health-path-required: No health check route or container health check was found, so Deployz does not know when the app is ready. Expose a health route (for example /health) or add a container health check before deploying."
+    }
+  }
+}

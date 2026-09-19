@@ -4,9 +4,13 @@ import type { DeploymentStage, DeploymentStep, VendorDeploymentStatus } from '@d
 
 import { deriveHero, type HeroInput } from '../src/lib/deployment-hero';
 import {
+  checkedLabel,
+  elapsedLabel,
   formatDurationRange,
   formatElapsedSeconds,
   isTerminalStage,
+  liveDurationLine,
+  recentActivityTimeLabel,
   REMOVED_PROGRESS,
   removedProgress,
   stageRank,
@@ -16,6 +20,7 @@ import {
   PRE_LAUNCH_HEADLINE,
   STAGE_HEADLINE,
   stepsFromStatus,
+  TAKING_LONGER_MESSAGE,
   type ProgressStepState,
 } from '../src/lib/deployment-progress';
 
@@ -337,5 +342,106 @@ describe('removed-state guards', () => {
     expect(hero.kind).toBe('deleted');
     expect(hero.title).toBe(REMOVED_PROGRESS.DELETED.title);
     expect(hero.tone).toBe('neutral');
+  });
+});
+
+// The live-progress-feedback pure formatters shared by LiveStepDetail (the
+// customer install page's ticking active-step detail) and RecentActivity.
+// nowMs is always passed in explicitly rather than read from Date.now(), so
+// these stay pure and the ticker's own ticks are the only source of "now".
+
+describe('elapsedLabel', () => {
+  const now = Date.parse('2026-09-18T00:10:00.000Z');
+
+  it('formats the time since stepStartedAt using formatElapsedSeconds', () => {
+    expect(elapsedLabel('2026-09-18T00:05:48.000Z', now)) // 4m 12s earlier
+      .toBe('4m 12s');
+  });
+
+  it('is null when stepStartedAt is missing — never invents an elapsed duration', () => {
+    expect(elapsedLabel(null, now)).toBeNull();
+    expect(elapsedLabel(undefined, now)).toBeNull();
+  });
+
+  it('is null for an unparsable timestamp', () => {
+    expect(elapsedLabel('not-a-date', now)).toBeNull();
+  });
+});
+
+describe('liveDurationLine', () => {
+  it('composes the typical-range line with the live elapsed time', () => {
+    expect(
+      liveDurationLine({
+        takingLongerThanUsual: false,
+        typicalDurationSeconds: { min: 180, max: 600 },
+        elapsed: '4m 12s',
+      }),
+    ).toBe('Usually takes 3–10 minutes · 4m 12s elapsed');
+  });
+
+  it('uses the exact reassuring sentence when taking longer than usual, with elapsed appended', () => {
+    expect(
+      liveDurationLine({
+        takingLongerThanUsual: true,
+        typicalDurationSeconds: { min: 180, max: 600 },
+        elapsed: '14m 2s',
+      }),
+    ).toBe(`${TAKING_LONGER_MESSAGE} · 14m 2s elapsed`);
+  });
+
+  it('is elapsed alone when there is no typical range and it is not taking longer than usual', () => {
+    expect(
+      liveDurationLine({ takingLongerThanUsual: false, typicalDurationSeconds: null, elapsed: '4m 12s' }),
+    ).toBe('4m 12s elapsed');
+  });
+
+  it('is the base line alone when elapsed is unknown', () => {
+    expect(
+      liveDurationLine({ takingLongerThanUsual: false, typicalDurationSeconds: { min: 180, max: 600 }, elapsed: null }),
+    ).toBe('Usually takes 3–10 minutes');
+    expect(
+      liveDurationLine({ takingLongerThanUsual: true, typicalDurationSeconds: null, elapsed: null }),
+    ).toBe(TAKING_LONGER_MESSAGE);
+  });
+
+  it('is undefined when nothing is known at all', () => {
+    expect(
+      liveDurationLine({ takingLongerThanUsual: false, typicalDurationSeconds: null, elapsed: null }),
+    ).toBeUndefined();
+  });
+});
+
+describe('checkedLabel', () => {
+  it('is null until the first client fetch completes', () => {
+    expect(checkedLabel(null, Date.now())).toBeNull();
+  });
+
+  it('reads "Checked just now" under 5 seconds', () => {
+    const checkedAt = Date.now();
+    expect(checkedLabel(checkedAt, checkedAt + 4_000)).toBe('Checked just now');
+  });
+
+  it('reads seconds between 5 and 59', () => {
+    const checkedAt = Date.now();
+    expect(checkedLabel(checkedAt, checkedAt + 12_000)).toBe('Checked 12 seconds ago');
+    expect(checkedLabel(checkedAt, checkedAt + 6_000)).toBe('Checked 6 seconds ago');
+  });
+
+  it('reads minutes once a minute has passed', () => {
+    const checkedAt = Date.now();
+    expect(checkedLabel(checkedAt, checkedAt + 60_000)).toBe('Checked 1 minute ago');
+    expect(checkedLabel(checkedAt, checkedAt + 5 * 60_000)).toBe('Checked 5 minutes ago');
+  });
+});
+
+describe('recentActivityTimeLabel', () => {
+  it('reads "just now" under a minute', () => {
+    const at = new Date('2026-09-18T00:00:00.000Z').toISOString();
+    expect(recentActivityTimeLabel(at, Date.parse(at) + 30_000)).toBe('just now');
+  });
+
+  it('reads a compact "N min ago" for minutes', () => {
+    const at = new Date('2026-09-18T00:00:00.000Z').toISOString();
+    expect(recentActivityTimeLabel(at, Date.parse(at) + 2 * 60_000)).toBe('2 min ago');
   });
 });

@@ -562,6 +562,11 @@ Deployz should rely heavily on managed AWS services instead of operating infrast
 
 ## Customer installation flow
 
+> **⚠️ [SUPERSEDED]** The CTA is now **Create deployment**, which opens
+> `/dashboard/deployments/new`. The flow starts with customer selection (an
+> existing customer, or **Create new customer**); `?customerId=<id>`
+> preselects a customer. One customer can have many deployments.
+
 Vendor clicks:
 
 **Add Customer**

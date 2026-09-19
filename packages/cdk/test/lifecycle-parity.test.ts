@@ -4,6 +4,8 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import {
+  AWS_RESOURCES,
+  awsResourceMatches,
   classifyResource,
   INFRASTRUCTURE_COMPONENTS,
   requiredInfrastructureComponents,
@@ -91,4 +93,53 @@ describe('lifecycle parity between classifyResource and the committed templates'
       expect(new Set(presentComponentTypes)).toEqual(new Set(expectedTypes));
     });
   }
+});
+
+/**
+ * Guards the customer-facing AWS resource catalog (`aws-resources.ts`)
+ * against the same four templates: each row must be present exactly where
+ * its `requiredBy` predicts, its `lifecycle` must agree with the template's
+ * DeletionPolicy wherever it matches, and `classifyResource`'s componentKind
+ * for every matching resource must agree with the row's `componentKind`
+ * (except the security-groups row, which spans several components).
+ */
+describe('AWS_RESOURCES catalog parity with the committed templates', () => {
+  for (const { file, profile } of TEMPLATES) {
+    it(`${file}: each catalog row is present exactly when required, with matching lifecycle and componentKind`, () => {
+      const template = readTemplate(file);
+      const entries = Object.entries(template.Resources);
+      for (const resource of AWS_RESOURCES) {
+        const matches = entries.filter(([logicalId, r]) => awsResourceMatches(resource, r.Type, logicalId));
+        if (resource.requiredBy(profile)) {
+          expect(matches.length, `${file}: ${resource.id} should be present`).toBeGreaterThan(0);
+        } else {
+          expect(matches.length, `${file}: ${resource.id} should be absent`).toBe(0);
+        }
+        for (const [logicalId, r] of matches) {
+          expect(templateLifecycle(r), `${file}: ${resource.id} (${logicalId})`).toBe(resource.lifecycle);
+          // The one 'security_groups' row spans every security group, which
+          // classifyResource binds per component by logical id.
+          if (resource.id === 'security_groups') continue;
+          expect(
+            classifyResource(r.Type, logicalId).componentKind,
+            `${file}: ${resource.id} (${logicalId})`,
+          ).toBe(resource.componentKind);
+        }
+      }
+    });
+  }
+
+  it('the two SecretsManager::Secret rows together account for every Secret in each template', () => {
+    const secretRows = AWS_RESOURCES.filter((resource) => resource.resourceType === 'AWS::SecretsManager::Secret');
+    expect(secretRows.map((resource) => resource.id).sort()).toEqual(['app_config_secret', 'database_secrets']);
+
+    for (const { file } of TEMPLATES) {
+      const template = readTemplate(file);
+      for (const [logicalId, resource] of Object.entries(template.Resources)) {
+        if (resource.Type !== 'AWS::SecretsManager::Secret') continue;
+        const matchingRows = secretRows.filter((row) => awsResourceMatches(row, resource.Type, logicalId));
+        expect(matchingRows.length, `${file}: ${logicalId} should match exactly one Secret row`).toBe(1);
+      }
+    }
+  });
 });

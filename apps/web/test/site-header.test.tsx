@@ -38,7 +38,7 @@ describe('sectionLabel', () => {
     expect(sectionLabel('/dashboard/applications/app-1')).toBe('Applications');
     expect(sectionLabel('/dashboard/applications/new')).toBe('Add application');
     expect(sectionLabel('/dashboard/deployments/dep-1')).toBe('Deployments');
-    expect(sectionLabel('/dashboard/deployments/new')).toBe('Deploy customer');
+    expect(sectionLabel('/dashboard/deployments/new')).toBe('Create deployment');
     expect(sectionLabel('/dashboard/customers/cust-1')).toBe('Customers');
     expect(sectionLabel('/dashboard/settings/profile')).toBe('Profile');
     expect(sectionLabel('/dashboard/settings/billing')).toBe('Billing');

@@ -2,12 +2,13 @@
 
 import { useEffect, useRef } from 'react';
 
-import type { CustomerDeploymentStatus } from '@deployz/contracts';
-import { AlertTriangle, ChevronDown, ExternalLink } from 'lucide-react';
+import type { CustomerActivityItem, CustomerDeploymentStatus, CustomerTechnicalDetails } from '@deployz/contracts';
+import { AlertCircle, AlertTriangle, CheckCircle2, ChevronDown, ExternalLink, Loader2 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 
 import { DeploymentProgressSteps } from '@/components/deployment-progress-steps';
 import { CustomDomainCard } from '@/components/custom-domain-card';
+import { LiveStepDetail } from '@/components/live-step-detail';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -17,8 +18,8 @@ import type { CustomDomainView } from '@/lib/domains';
 import {
   isTerminalStage,
   PRE_LAUNCH_HEADLINE,
+  recentActivityTimeLabel,
   STAGE_HEADLINE,
-  stepDetailLine,
   stepWaitingOnInput,
   stepsBeforeLaunch,
   AWAITING_DOMAIN_STEP_DETAIL,
@@ -29,14 +30,22 @@ import { fetchInstallStatus } from '@/lib/install-status';
 import { useStatusPoll } from '@/lib/use-status-poll';
 
 /**
- * The customer's step list with a compact detail line on the active step
- * only: a slow-step nudge when the install is running long, otherwise the
- * step's typical duration when one exists. Completed and upcoming steps
- * never carry a detail — no percentages, no countdowns, no per-step ETAs.
+ * The customer's step list with a live, ticking detail on the active step
+ * only (LiveStepDetail — current activity, duration/slow-step line with
+ * elapsed time, last-checked time). Completed and upcoming steps never carry
+ * a detail — no percentages, no countdowns, no per-step ETAs.
  */
-function activeStepDetail(status: CustomerDeploymentStatus) {
-  // HTTPS waits for a domain, not for AWS: the nudge below would otherwise
-  // promise that "AWS is still working" on a step nothing is working on.
+function activeStepDetail({
+  status,
+  checkedAt,
+  active,
+}: {
+  status: CustomerDeploymentStatus;
+  checkedAt: number | null;
+  active: boolean;
+}) {
+  // HTTPS waits for a domain, not for AWS: LiveStepDetail's "still working"
+  // nudge and elapsed counter would otherwise promise work nothing is doing.
   const waitingOnInput = stepWaitingOnInput({
     step: status.step,
     needsDomainSetup: status.needsDomainSetup,
@@ -46,12 +55,16 @@ function activeStepDetail(status: CustomerDeploymentStatus) {
     if (waitingOnInput) return { ...step, detail: AWAITING_DOMAIN_STEP_DETAIL };
     return {
       ...step,
-      detail: stepDetailLine({
-        takingLongerThanUsual: status.takingLongerThanUsual,
-        typicalDurationSeconds: status.typicalDurationSeconds,
-        longerMessage: 'Taking longer than usual, but AWS is still working.',
-        typicalLabel: (range) => `Usually takes ${range}`,
-      }),
+      detail: (
+        <LiveStepDetail
+          currentActivity={status.currentActivity}
+          takingLongerThanUsual={status.takingLongerThanUsual}
+          typicalDurationSeconds={status.typicalDurationSeconds}
+          stepStartedAt={status.stepStartedAt ?? null}
+          checkedAt={checkedAt}
+          active={active}
+        />
+      ),
     };
   });
 }
@@ -103,7 +116,11 @@ export function InstallProgress({
         ? fetchDeployLinkStatus(deployLink.publicId, deployLink.token)
         : fetchInstallStatus(installLinkId),
     intervalMs: 5000,
-    terminalIntervalMs: 60000,
+    // Stop polling once the stage is terminal — the visibility-
+    // change refresh still fires and resumes the loop if it ever returns a
+    // non-terminal value (a retried install after FAILED, health lost after
+    // READY).
+    terminalIntervalMs: null,
     isTerminal: (status) => isTerminalStage(status.stage),
     initialData: initialStatus,
   });
@@ -142,6 +159,7 @@ export function InstallProgress({
   // client-side fetch failures get the same treatment.
   const stale = status.statusUpdatesUnavailable || poll.stale;
   const canAccess = status.stage === 'READY' || status.stage === 'VERIFYING';
+  const active = !isTerminalStage(status.stage);
 
   return (
     <div className="flex flex-col gap-6">
@@ -163,12 +181,41 @@ export function InstallProgress({
           ) : null}
 
           {status.stage === 'FAILED' ? (
-            <FailureDetails failure={status.failure} />
+            <FailureDetails failure={status.failure} technicalDetails={status.technicalDetails} />
           ) : (
             <>
+              {/* AWS can report a resource failure well before the job
+                  itself lands on FAILED (a rollback can take many minutes) —
+                  this says so immediately instead of leaving the page silent. */}
+              {status.provisioningIssue ? (
+                <Alert variant="destructive">
+                  <AlertTriangle aria-hidden />
+                  <AlertTitle>AWS reported a problem</AlertTitle>
+                  <AlertDescription>{status.provisioningIssue.message}</AlertDescription>
+                </Alert>
+              ) : null}
+
               <DeploymentProgressSteps
-                steps={beforeLaunch ? stepsBeforeLaunch(status.steps) : activeStepDetail(status)}
+                steps={
+                  beforeLaunch
+                    ? stepsBeforeLaunch(status.steps)
+                    : activeStepDetail({ status, checkedAt: poll.checkedAt, active })
+                }
               />
+
+              {(status.stage === 'WAITING_FOR_AWS' && !beforeLaunch) || status.stage === 'CONNECTING' ? (
+                <p className="text-xs text-muted-foreground">
+                  Live AWS activity appears here when Deployz starts to create your infrastructure.
+                </p>
+              ) : null}
+
+              {active && status.recentActivity && status.recentActivity.length > 0 ? (
+                <RecentActivity items={status.recentActivity} stage={status.stage} />
+              ) : null}
+
+              {status.technicalDetails ? (
+                <ActiveTechnicalDetails technicalDetails={status.technicalDetails} />
+              ) : null}
 
               {status.stage === 'WAITING_FOR_AWS' && !beforeLaunch && quickCreateUrl ? (
                 <Button asChild variant="outline" size="sm" className="self-start">
@@ -253,7 +300,13 @@ export function InstallProgress({
   );
 }
 
-function FailureDetails({ failure }: { failure: CustomerDeploymentStatus['failure'] }) {
+function FailureDetails({
+  failure,
+  technicalDetails,
+}: {
+  failure: CustomerDeploymentStatus['failure'];
+  technicalDetails: CustomerDeploymentStatus['technicalDetails'];
+}) {
   if (!failure) return null;
   const technical = failure.technical;
   return (
@@ -278,17 +331,119 @@ function FailureDetails({ failure }: { failure: CustomerDeploymentStatus['failur
               phrase before it reaches this projection (§65). */}
           {technical?.awsStatus ? <DetailRow label="Infrastructure" value={technical.awsStatus} /> : null}
           <DetailRow label="Reference" value={failure.reference} />
+          {technicalDetails ? (
+            <>
+              {technicalDetails.facts.map((fact) => (
+                <DetailRow key={fact.label} label={fact.label} value={fact.value} />
+              ))}
+              <TechnicalEvents events={technicalDetails.events} />
+            </>
+          ) : null}
         </CollapsibleContent>
       </Collapsible>
     </div>
   );
 }
 
+/**
+ * The active-stage (non-FAILED) counterpart to FailureDetails' collapsible —
+ * same closed-by-default "Technical details" disclosure, built from the raw
+ * facts/events the API attaches once it has them. Renders nothing until
+ * `technicalDetails` arrives, so a deployment stays jargon-free by default.
+ */
+function ActiveTechnicalDetails({ technicalDetails }: { technicalDetails: CustomerTechnicalDetails }) {
+  return (
+    <Collapsible>
+      <CollapsibleTrigger className="group flex items-center gap-1 self-start text-sm font-medium text-muted-foreground hover:text-foreground">
+        Technical details
+        <ChevronDown
+          aria-hidden
+          className="size-4 transition-transform group-data-[state=open]:rotate-180"
+        />
+      </CollapsibleTrigger>
+      <CollapsibleContent className="flex flex-col gap-1.5 pt-2 text-sm">
+        <DetailRow label="Reference" value={technicalDetails.reference} />
+        {technicalDetails.facts.map((fact) => (
+          <DetailRow key={fact.label} label={fact.label} value={fact.value} />
+        ))}
+        <TechnicalEvents events={technicalDetails.events} />
+      </CollapsibleContent>
+    </Collapsible>
+  );
+}
+
+/** Raw CloudFormation events, compact monospace rows — customer-owned AWS
+ *  account detail, shown only inside the collapsed Technical details. */
+function TechnicalEvents({ events }: { events: CustomerTechnicalDetails['events'] }) {
+  if (events.length === 0) return null;
+  return (
+    <div className="flex flex-col gap-1 pt-1">
+      {events.map((event) => (
+        <p
+          key={`${event.at}-${event.logicalResourceId}-${event.resourceStatus}`}
+          className="font-mono text-xs text-muted-foreground"
+        >
+          {formatEventTime(event.at)} · {event.logicalResourceId} · {event.resourceType} ·{' '}
+          {event.resourceStatus}
+          {event.resourceStatusReason ? ` · ${event.resourceStatusReason}` : ''}
+        </p>
+      ))}
+    </div>
+  );
+}
+
+function formatEventTime(iso: string): string {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return iso;
+  return date.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+}
+
+/**
+ * The active step list's real-event feed: the latest few AWS/Deployz events,
+ * already translated to customer copy and deduplicated by the API. Hidden
+ * entirely while empty — the heartbeat lines in LiveStepDetail keep the page
+ * from looking frozen on their own, so nothing here is ever fabricated.
+ */
+function RecentActivity({
+  items,
+  stage,
+}: {
+  items: CustomerActivityItem[];
+  stage: CustomerDeploymentStatus['stage'];
+}) {
+  const now = Date.now();
+  return (
+    <div className="flex flex-col gap-2">
+      <h3 className="text-sm font-medium">{stage === 'PROVISIONING' ? 'Recent AWS activity' : 'Recent activity'}</h3>
+      <ul className="flex flex-col gap-1.5">
+        {items.slice(0, 5).map((item) => (
+          <li key={item.key} className="flex items-start gap-2 text-xs text-muted-foreground">
+            <ActivityIcon state={item.state} />
+            <span className="flex-1">{item.message}</span>
+            <span className="shrink-0 tabular-nums">{recentActivityTimeLabel(item.at, now)}</span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+function ActivityIcon({ state }: { state: CustomerActivityItem['state'] }) {
+  switch (state) {
+    case 'COMPLETE':
+      return <CheckCircle2 aria-hidden className="mt-0.5 size-3.5 shrink-0 text-primary" />;
+    case 'FAILED':
+      return <AlertCircle aria-hidden className="mt-0.5 size-3.5 shrink-0 text-destructive" />;
+    case 'IN_PROGRESS':
+      return <Loader2 aria-hidden className="mt-0.5 size-3.5 shrink-0 animate-spin text-primary" />;
+  }
+}
+
 function DetailRow({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex justify-between gap-3">
       <span className="text-muted-foreground">{label}</span>
-      <span className="font-mono text-xs">{value}</span>
+      <span className="min-w-0 break-words text-right font-mono text-xs">{value}</span>
     </div>
   );
 }

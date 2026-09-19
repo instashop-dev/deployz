@@ -157,9 +157,9 @@ import {
   revokePublicInstallLink,
   setPublicInstallLinkEnabled,
 } from './public-install.js';
+import { createReleaseRecord } from './releases.js';
 import {
   createOrReuseJob,
-  flipHealthyDeploymentsToUpdateAvailable,
   hasStartedInstall,
   newerReadyReleaseExists,
 } from './jobs.js';
@@ -225,7 +225,13 @@ import {
   mergeComponentState,
   toCustomerDeploymentStatus,
   toVendorDeploymentStatus,
+  type DerivedDeploymentStatus,
 } from './deployment-status.js';
+import {
+  buildCustomerLiveProgress,
+  type CustomerLiveProgress,
+  type LiveHttpsState,
+} from './customer-activity.js';
 import {
   createDeployLink,
   createDeploymentRecord,
@@ -653,16 +659,6 @@ interface DeployPayload {
   /** Present only when a migration command resolves — see requireDeployableRelease. */
   migrationCommand?: string;
   [key: string]: unknown;
-}
-
-// BUILD_FIXTURE_MODE: a deterministic fake `repository@sha256:…` digest so
-// the E2E lifecycle scenarios can drive deploy/rollback without a live
-// CodeBuild/ECR — same shape any real IMAGE_DIGEST has (see the regex below).
-// Reuses hashRelayToken's sha256-hex helper rather than adding a new one;
-// different release ids (one per version) hash to different digests.
-const FIXTURE_IMAGE_REPOSITORY = '123456789012.dkr.ecr.us-east-1.amazonaws.com/deployz-fixture';
-function fixtureImageDigest(releaseId: string): string {
-  return `${FIXTURE_IMAGE_REPOSITORY}@sha256:${hashRelayToken(releaseId)}`;
 }
 
 async function requireDeployableRelease(
@@ -1281,6 +1277,84 @@ async function advanceStepTimingsAfterWrite(
         },
       });
     }
+  });
+}
+
+// Shared by both public status routes (GET /api/install/:installLinkId/status
+// and GET /api/deploy-links/:publicId/status) so they can never diverge on
+// what live progress looks like. Stack events are loaded ONLY when the stage
+// can actually use them (PROVISIONING/FAILED) — one bounded query, the latest
+// INSTALL job's events, newest first — since these routes are unauthenticated
+// and rate-limited.
+async function loadCustomerLiveProgress(
+  db: RuntimeDb,
+  derived: DerivedDeploymentStatus,
+  params: {
+    deploymentId: string;
+    jobs: { id: string; type: JobType }[];
+    domain: CustomDomainRow | null;
+    defaultHttps: DefaultHttpsState | null;
+    stepTimings: DeploymentRow['stepTimings'];
+    launched: boolean;
+  },
+): Promise<CustomerLiveProgress> {
+  const installJob = [...params.jobs].reverse().find((job) => job.type === 'INSTALL') ?? null;
+
+  // A failure of a later job (a release, a restart) has no stack events of
+  // its own: the install's events would describe a different operation.
+  const stackOperationActive =
+    derived.stage === 'PROVISIONING' ||
+    (derived.stage === 'FAILED' && derived.failure?.jobType === 'INSTALL');
+  let events: StoredStackEvent[] = [];
+  if (stackOperationActive && installJob) {
+    const rows = await db
+      .select({
+        eventAt: schema.deploymentStackEvents.eventAt,
+        logicalResourceId: schema.deploymentStackEvents.logicalResourceId,
+        resourceType: schema.deploymentStackEvents.resourceType,
+        resourceStatus: schema.deploymentStackEvents.resourceStatus,
+        resourceStatusReason: schema.deploymentStackEvents.resourceStatusReason,
+      })
+      .from(schema.deploymentStackEvents)
+      .where(
+        and(
+          eq(schema.deploymentStackEvents.deploymentId, params.deploymentId),
+          eq(schema.deploymentStackEvents.jobId, installJob.id),
+        ),
+      )
+      .orderBy(desc(schema.deploymentStackEvents.eventAt), desc(schema.deploymentStackEvents.id))
+      .limit(200);
+    events = rows;
+  }
+
+  // Same precedence deployment-status.ts's httpsComponentStatus applies: a
+  // custom domain, when present, over the Deployz-owned default endpoint.
+  const https: LiveHttpsState | null = params.domain
+    ? {
+        hostname: params.domain.hostname,
+        status: params.domain.status,
+        lastError: params.domain.lastError,
+        lastCheckedAt: params.domain.lastCheckedAt?.toISOString() ?? null,
+      }
+    : params.defaultHttps
+      ? {
+          hostname: params.defaultHttps.hostname,
+          status: params.defaultHttps.status,
+          lastError: params.defaultHttps.lastError,
+          lastCheckedAt: params.defaultHttps.lastDnsCheckAt ?? null,
+        }
+      : null;
+
+  return buildCustomerLiveProgress({
+    stage: derived.stage,
+    step: derived.step,
+    events,
+    installJobId: installJob?.id ?? null,
+    stepTimings: params.stepTimings,
+    health: derived.health.layers,
+    https,
+    needsDomainSetup: derived.needsDomainSetup,
+    launched: params.launched,
   });
 }
 
@@ -2229,7 +2303,15 @@ export async function buildServer({
         defaultHttps,
         appUrl,
       });
-      return toCustomerDeploymentStatus(derived);
+      const live = await loadCustomerLiveProgress(db, derived, {
+        deploymentId: row.deployment.id,
+        jobs,
+        domain,
+        defaultHttps,
+        stepTimings: row.deployment.stepTimings,
+        launched: row.deployment.installStartedAt !== null,
+      });
+      return toCustomerDeploymentStatus(derived, live);
     },
   );
 
@@ -3521,7 +3603,15 @@ export async function buildServer({
         defaultHttps,
         appUrl,
       });
-      return toCustomerDeploymentStatus(derived);
+      const live = await loadCustomerLiveProgress(db, derived, {
+        deploymentId: deployment.id,
+        jobs,
+        domain,
+        defaultHttps,
+        stepTimings: deployment.stepTimings,
+        launched: deployment.installStartedAt !== null,
+      });
+      return toCustomerDeploymentStatus(derived, live);
     },
   );
 
@@ -3682,10 +3772,11 @@ export async function buildServer({
   // ── Public install links — vendor management (org-scoped) ──────────────
 
   // POST /api/applications/:id/public-install-links — create + enable the
-  // application's live public install link. A PUBLISHED release is required
-  // (422 RELEASE_NOT_PUBLISHED) and only one live link per application
-  // exists (409 PUBLIC_INSTALL_LINK_EXISTS, the existing id in details). The
-  // snippet is server-built with a FIXED anchor text — only the opaque URL is
+  // application's live public install link. If no published release exists the
+  // API auto-creates one from the analyzed snapshot, so the vendor never needs
+  // to publish manually. Only one live link per application exists
+  // (409 PUBLIC_INSTALL_LINK_EXISTS, the existing id in details). The snippet
+  // is server-built with a FIXED anchor text — only the opaque URL is
   // interpolated, never the application name.
   app.post(
     '/api/applications/:id/public-install-links',
@@ -4018,54 +4109,14 @@ export async function buildServer({
       );
     }
 
-    const row = await db.transaction(async (tx) => {
-      const [inserted] = await tx
-        .insert(schema.releases)
-        .values({
-          applicationId: id,
-          version: body.version,
-          gitSha: body.gitSha,
-          migrationCommand: body.migrationCommand ?? null,
-          buildStatus: 'PENDING',
-          createdBy: request.user?.id ?? null,
-          updatedBy: request.user?.id ?? null,
-        })
-        .returning();
-      await recordEvent(tx, {
-        organizationId,
-        eventType: 'release.created',
-        actorType: 'user',
-        actorId: request.user!.id,
-        releaseId: inserted!.id,
-        payload: { schemaVersion: 1, applicationId: id },
-      });
-      return inserted;
+    const row = await createReleaseRecord(db, {
+      organizationId,
+      userId: request.user?.id ?? null,
+      applicationId: id,
+      version: body.version,
+      gitSha: body.gitSha,
+      migrationCommand: body.migrationCommand ?? null,
     });
-    // A release with no build is a release that can never deploy: the
-    // §21 image digest only exists once CodeBuild has pushed the image.
-    // The worker fetches the repository source and starts that build.
-    if (row) {
-      if (env.buildFixtureMode) {
-        // BUILD_FIXTURE_MODE: locally JOB_QUEUE_URL is never configured, so
-        // enqueue() no-ops and the release could never reach READY — every
-        // deploy/rollback would 409 forever. Skip the queue and mark the
-        // release built immediately, so E2E lifecycle scenarios can exercise
-        // the real deploy/rollback/destroy routes end-to-end.
-        await db
-          .update(schema.releases)
-          .set({
-            imageDigest: fixtureImageDigest(row.id),
-            buildStatus: 'SUCCEEDED',
-            releaseStatus: 'READY',
-          })
-          .where(eq(schema.releases.id, row.id));
-        // Same fleet flip the worker's recordBuildResult performs in
-        // production — the fixture build path must stay truthful (DZ-AUDIT-007).
-        await flipHealthyDeploymentsToUpdateAvailable(db, id);
-      } else {
-        await enqueue({ type: 'BUILD_RELEASE', releaseId: row.id });
-      }
-    }
 
     return reply.code(201).send(row);
   });

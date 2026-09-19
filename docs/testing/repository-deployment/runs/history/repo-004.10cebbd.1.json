@@ -1,0 +1,469 @@
+{
+  "schemaVersion": 1,
+  "id": "repo-004",
+  "repository": "miniflux/v2",
+  "commit": "a84533db6ca0a2ff9a47800fbf0326be6d9b3170",
+  "repositoryForm": "fork",
+  "repositoryUsed": "instashop-dev/v2",
+  "set": "improvement",
+  "cohort": "realistic",
+  "customerRealism": "high",
+  "difficulty": 3,
+  "deployzCommit": "10cebbd43b5d3839f6dc2300a0d984e326b6244e",
+  "runId": "stage-b-repo-004-20260917-195539-c9c9",
+  "stageAExpected": "NEEDS_CONFIGURATION",
+  "expectedDeployable": true,
+  "mode": "deploy",
+  "deploymentClass": "runtime-reuse",
+  "gate": {
+    "status": "PASS",
+    "verdict": null,
+    "analysisVerdict": null,
+    "outcome": null,
+    "gateFindings": [],
+    "requiredKeys": [],
+    "missingKeys": [],
+    "unsupported": [],
+    "configuredVerdict": null,
+    "configuredFindings": [],
+    "source": "control-plane",
+    "analysisVersion": null,
+    "manifest": null,
+    "detail": null
+  },
+  "configuration": {
+    "status": "PASS",
+    "overrides": {
+      "containerPort": 8080,
+      "healthPath": "/healthcheck",
+      "dockerfilePath": "packaging/docker/alpine/Dockerfile",
+      "buildContext": "."
+    },
+    "keys": [
+      "ADMIN_PASSWORD",
+      "ADMIN_USERNAME",
+      "BASE_URL",
+      "CREATE_ADMIN",
+      "RUN_MIGRATIONS"
+    ],
+    "generatedKeys": [
+      "ADMIN_PASSWORD"
+    ],
+    "detail": null
+  },
+  "build": {
+    "status": "PASS",
+    "releaseId": "0809713a-bcab-4455-bd90-c585fdd403c7",
+    "version": "repo-004-20260917-195539-c9c9",
+    "gitSha": "a84533db6ca0a2ff9a47800fbf0326be6d9b3170",
+    "dockerfilePath": "packaging/docker/alpine/Dockerfile",
+    "buildContext": ".",
+    "imageDigest": "sha256:2a737f4c82d23c19ba6a417e97fb60fbe1ab01dfbe9503931caf85ceab39a5e7",
+    "buildId": null,
+    "durationMs": 83663,
+    "imageReused": false,
+    "detail": null
+  },
+  "deployment": {
+    "status": "FAIL",
+    "deploymentId": "1306e305-20f6-4ac8-89b7-672d1fef2806",
+    "installationId": "9a8aef85-865d-4583-9a61-7d89ea983b0a",
+    "bootstrapStack": "deployz-bootstrap-stage-b-repo-004-1306e305",
+    "applicationStack": "deployz-app-9a8aef85",
+    "stackStatus": "CREATE_COMPLETE",
+    "templateSource": "production-default",
+    "templateUrl": null,
+    "installJobState": "SUCCEEDED",
+    "failureCode": "CONTAINER_START_FAILED",
+    "resourceCount": null,
+    "resourcesByType": null,
+    "region": null,
+    "durationMs": null,
+    "detail": "install FAILED: The application started and then stopped."
+  },
+  "inventory": {
+    "status": "NOT_ATTEMPTED",
+    "planCreateKinds": [],
+    "expectedKinds": [],
+    "presentTypes": [],
+    "missing": [],
+    "unexpected": [],
+    "detail": null
+  },
+  "runtime": {
+    "ecs": "NOT_ATTEMPTED",
+    "alb": "NOT_ATTEMPTED",
+    "https": "NOT_ATTEMPTED",
+    "healthPath": null,
+    "healthPathSource": null,
+    "appUrl": null,
+    "runningImageDigest": null,
+    "releaseServing": null,
+    "smoke": [],
+    "observation": null,
+    "detail": null
+  },
+  "dependencies": {
+    "postgres": "NOT_ATTEMPTED",
+    "redis": "NOT_ATTEMPTED",
+    "storage": "NOT_ATTEMPTED",
+    "migration": "NOT_ATTEMPTED",
+    "detail": null
+  },
+  "update": {
+    "status": "NOT_ATTEMPTED",
+    "releaseId": null,
+    "version": null,
+    "imageDigest": null,
+    "durationMs": null,
+    "detail": null
+  },
+  "cleanup": {
+    "status": "FAIL",
+    "destroyJobState": "SUCCEEDED",
+    "purgeJobState": null,
+    "cleanupState": null,
+    "bootstrapStackFinal": "DELETE_COMPLETE",
+    "leaks": [
+      "rds deployz-app-9a8aef85-databaseb269d8bb-szqvd6l6xfch",
+      "arn:aws:ec2:us-east-1:151955775369:security-group/sg-0ca7c0c550d2b49a3",
+      "arn:aws:rds:us-east-1:151955775369:snapshot:rds:deployz-app-9a8aef85-databaseb269d8bb-szqvd6l6xfch-2026-09-17-20-10",
+      "arn:aws:rds:us-east-1:151955775369:db:deployz-app-9a8aef85-databaseb269d8bb-szqvd6l6xfch",
+      "arn:aws:ec2:us-east-1:151955775369:subnet/subnet-0e015a57a74251792",
+      "arn:aws:secretsmanager:us-east-1:151955775369:secret:DatabaseUrlSecretFA7DE062-cnJ1KWcterKP-pdrM3a",
+      "arn:aws:ec2:us-east-1:151955775369:subnet/subnet-049e67f7ef4ac2036",
+      "arn:aws:ec2:us-east-1:151955775369:vpc/vpc-085bacf35ef27f137",
+      "arn:aws:rds:us-east-1:151955775369:subgrp:deployz-app-9a8aef85-databasesubnetgroup7d60f180-2q5tka1rzplp"
+    ],
+    "retainedState": "FAIL",
+    "purgedState": "NOT_ATTEMPTED",
+    "durationMs": 2437260,
+    "detail": "destroy/purge: no secret named after the application stack survived Disconnect — the retained database credentials (deployz-app-9a8aef85-…) are gone | leak audit: 9 resource(s) left"
+  },
+  "classification": "CONTAINER_START_ERROR",
+  "failureStage": "CONTAINER_START_ERROR",
+  "rootCause": null,
+  "rootCauseEvidence": "container exited 1 (Essential container in task exited) — read the log tail; decide ANALYSIS_BUG (start command) vs REPO_CONFIGURATION vs UPSTREAM_REPO_FAILURE",
+  "findingIds": [
+    "DEPLOY-008"
+  ],
+  "timing": {
+    "startedAt": "2026-09-17T19:55:40.411Z",
+    "finishedAt": "2026-09-17T20:25:44.361Z",
+    "totalMs": 1803950
+  },
+  "evidence": {
+    "failure": {
+      "point": "install",
+      "message": "install FAILED: The application started and then stopped.",
+      "stoppedTasks": [
+        {
+          "taskArn": "arn:aws:ecs:us-east-1:151955775369:task/deployz-app-9a8aef85-ClusterEB0386A7-drNdmoeYaBKz/012b59a5356a4bdfb5b05c8a7f12e23f",
+          "stoppedReason": "Essential container in task exited",
+          "stopCode": "EssentialContainerExited",
+          "stoppedAt": "2026-09-18T01:51:11.180000+05:30",
+          "containers": [
+            {
+              "name": "RdsCaBundle",
+              "exitCode": 0,
+              "reason": null
+            },
+            {
+              "name": "App",
+              "exitCode": 1,
+              "reason": null
+            }
+          ]
+        },
+        {
+          "taskArn": "arn:aws:ecs:us-east-1:151955775369:task/deployz-app-9a8aef85-ClusterEB0386A7-drNdmoeYaBKz/3664137862714936a353cc08c8dbb981",
+          "stoppedReason": "Essential container in task exited",
+          "stopCode": "EssentialContainerExited",
+          "stoppedAt": "2026-09-18T01:50:55.075000+05:30",
+          "containers": [
+            {
+              "name": "App",
+              "exitCode": 1,
+              "reason": null
+            },
+            {
+              "name": "RdsCaBundle",
+              "exitCode": 0,
+              "reason": null
+            }
+          ]
+        },
+        {
+          "taskArn": "arn:aws:ecs:us-east-1:151955775369:task/deployz-app-9a8aef85-ClusterEB0386A7-drNdmoeYaBKz/39e90ee052ae451e85dfd4b503281e21",
+          "stoppedReason": "Essential container in task exited",
+          "stopCode": "EssentialContainerExited",
+          "stoppedAt": null,
+          "containers": [
+            {
+              "name": "App",
+              "exitCode": 1,
+              "reason": null
+            },
+            {
+              "name": "RdsCaBundle",
+              "exitCode": 0,
+              "reason": null
+            }
+          ]
+        },
+        {
+          "taskArn": "arn:aws:ecs:us-east-1:151955775369:task/deployz-app-9a8aef85-ClusterEB0386A7-drNdmoeYaBKz/9064df98c5824bfcba46b0dfb9ef536d",
+          "stoppedReason": "Essential container in task exited",
+          "stopCode": "EssentialContainerExited",
+          "stoppedAt": null,
+          "containers": [
+            {
+              "name": "RdsCaBundle",
+              "exitCode": 0,
+              "reason": null
+            },
+            {
+              "name": "App",
+              "exitCode": 1,
+              "reason": null
+            }
+          ]
+        }
+      ],
+      "logTail": [
+        "2026-09-17T20:15:46.683Z level=INFO msg=\"The default value for DATABASE_URL is used\"",
+        "2026-09-17T20:15:46.699Z dial tcp 127.0.0.1:5432: connect: connection refused",
+        "2026-09-17T20:21:18.647Z level=INFO msg=\"The default value for DATABASE_URL is used\"",
+        "2026-09-17T20:21:18.665Z dial tcp 127.0.0.1:5432: connect: connection refused",
+        "2026-09-17T20:21:47.233Z level=INFO msg=\"The default value for DATABASE_URL is used\"",
+        "2026-09-17T20:21:47.245Z dial tcp 127.0.0.1:5432: connect: connection refused"
+      ],
+      "stackFailures": [],
+      "targetHealth": [
+        "draining",
+        "draining"
+      ],
+      "diagnostics": {
+        "failureCode": "CONTAINER_START_FAILED",
+        "recoverability": "USER_ACTION",
+        "what": "The application started and then stopped.",
+        "why": "It exited during startup — usually a missing setting or an error before it began serving.",
+        "fix": "Check the required values on the Configuration screen are all set, then deploy again.",
+        "source": "deterministic",
+        "confidence": null,
+        "technicalDetail": "3 tasks of the new revision exited with code 1 (Essential container in task exited)",
+        "context": {
+          "deploymentId": "1306e305-20f6-4ac8-89b7-672d1fef2806",
+          "phase": "DEPLOY_RELEASE",
+          "attempt": 0,
+          "failureCode": "CONTAINER_START_FAILED",
+          "reportedFailureCode": null,
+          "resourceType": null,
+          "message": "3 tasks of the new revision exited with code 1 (Essential container in task exited)",
+          "relevantEvents": [],
+          "applicationVersion": "repo-004-20260917-195539-c9c9"
+        },
+        "events": [
+          {
+            "id": 1975,
+            "occurredAt": "2026-09-17T19:57:56.579Z",
+            "actorType": "user",
+            "actorId": "OAP49yPD0M53O2BpaUoGy4tKPGMJJeNZ",
+            "organizationId": "cbaad9cd-0d11-4642-a434-ddbdca7192ca",
+            "customerId": "dc430793-8984-4415-a965-e277d7280abb",
+            "deploymentId": "1306e305-20f6-4ac8-89b7-672d1fef2806",
+            "jobId": null,
+            "releaseId": null,
+            "eventType": "application.preflight_evaluated",
+            "previousState": null,
+            "requestedState": null,
+            "result": "success",
+            "payload": {
+              "result": "pass",
+              "warningCount": 1,
+              "applicationId": "b58c98af-6f38-4cca-9898-422def315df7",
+              "blockingCount": 0,
+              "schemaVersion": 1
+            }
+          },
+          {
+            "id": 1976,
+            "occurredAt": "2026-09-17T19:57:56.581Z",
+            "actorType": "user",
+            "actorId": "OAP49yPD0M53O2BpaUoGy4tKPGMJJeNZ",
+            "organizationId": "cbaad9cd-0d11-4642-a434-ddbdca7192ca",
+            "customerId": "dc430793-8984-4415-a965-e277d7280abb",
+            "deploymentId": "1306e305-20f6-4ac8-89b7-672d1fef2806",
+            "jobId": null,
+            "releaseId": null,
+            "eventType": "deployment.created",
+            "previousState": null,
+            "requestedState": null,
+            "result": "success",
+            "payload": {
+              "source": "manual",
+              "schemaVersion": 1
+            }
+          },
+          {
+            "id": 1978,
+            "occurredAt": "2026-09-17T19:57:57.609Z",
+            "actorType": "system",
+            "actorId": "install-link:d1f030c6-125c-4d35-89e9-bed690848ee6",
+            "organizationId": "cbaad9cd-0d11-4642-a434-ddbdca7192ca",
+            "customerId": "dc430793-8984-4415-a965-e277d7280abb",
+            "deploymentId": "1306e305-20f6-4ac8-89b7-672d1fef2806",
+            "jobId": null,
+            "releaseId": null,
+            "eventType": "install.launched",
+            "previousState": "NOT_INSTALLED",
+            "requestedState": "WAITING_FOR_RELAY",
+            "result": "success",
+            "payload": {}
+          },
+          {
+            "id": 1979,
+            "occurredAt": "2026-09-17T19:57:57.609Z",
+            "actorType": "system",
+            "actorId": "install-link:d1f030c6-125c-4d35-89e9-bed690848ee6",
+            "organizationId": "cbaad9cd-0d11-4642-a434-ddbdca7192ca",
+            "customerId": "dc430793-8984-4415-a965-e277d7280abb",
+            "deploymentId": "1306e305-20f6-4ac8-89b7-672d1fef2806",
+            "jobId": null,
+            "releaseId": null,
+            "eventType": "application.preflight_evaluated",
+            "previousState": null,
+            "requestedState": null,
+            "result": "success",
+            "payload": {
+              "result": "pass",
+              "warningCount": 1,
+              "applicationId": "b58c98af-6f38-4cca-9898-422def315df7",
+              "blockingCount": 0,
+              "schemaVersion": 1
+            }
+          },
+          {
+            "id": 1989,
+            "occurredAt": "2026-09-17T20:05:18.873Z",
+            "actorType": "relay",
+            "actorId": "9a8aef85-865d-4583-9a61-7d89ea983b0a",
+            "organizationId": "cbaad9cd-0d11-4642-a434-ddbdca7192ca",
+            "customerId": "dc430793-8984-4415-a965-e277d7280abb",
+            "deploymentId": "1306e305-20f6-4ac8-89b7-672d1fef2806",
+            "jobId": "c3da6ea5-d0a0-4b0d-9d1b-6acdc68030f1",
+            "releaseId": null,
+            "eventType": "install.requested",
+            "previousState": "WAITING_FOR_RELAY",
+            "requestedState": "INSTALLING",
+            "result": "pending",
+            "payload": {}
+          },
+          {
+            "id": 1990,
+            "occurredAt": "2026-09-17T20:05:18.873Z",
+            "actorType": "relay",
+            "actorId": "9a8aef85-865d-4583-9a61-7d89ea983b0a",
+            "organizationId": "cbaad9cd-0d11-4642-a434-ddbdca7192ca",
+            "customerId": "dc430793-8984-4415-a965-e277d7280abb",
+            "deploymentId": "1306e305-20f6-4ac8-89b7-672d1fef2806",
+            "jobId": null,
+            "releaseId": null,
+            "eventType": "relay.connected",
+            "previousState": null,
+            "requestedState": null,
+            "result": "success",
+            "payload": {
+              "schemaVersion": 1
+            }
+          },
+          {
+            "id": 1991,
+            "occurredAt": "2026-09-17T20:05:18.873Z",
+            "actorType": "relay",
+            "actorId": "9a8aef85-865d-4583-9a61-7d89ea983b0a",
+            "organizationId": "cbaad9cd-0d11-4642-a434-ddbdca7192ca",
+            "customerId": "dc430793-8984-4415-a965-e277d7280abb",
+            "deploymentId": "1306e305-20f6-4ac8-89b7-672d1fef2806",
+            "jobId": null,
+            "releaseId": null,
+            "eventType": "application.preflight_evaluated",
+            "previousState": null,
+            "requestedState": null,
+            "result": "success",
+            "payload": {
+              "result": "pass",
+              "warningCount": 1,
+              "applicationId": "b58c98af-6f38-4cca-9898-422def315df7",
+              "blockingCount": 0,
+              "schemaVersion": 1
+            }
+          },
+          {
+            "id": 1993,
+            "occurredAt": "2026-09-17T20:05:35.719Z",
+            "actorType": "relay",
+            "actorId": "9a8aef85-865d-4583-9a61-7d89ea983b0a",
+            "organizationId": "cbaad9cd-0d11-4642-a434-ddbdca7192ca",
+            "customerId": "dc430793-8984-4415-a965-e277d7280abb",
+            "deploymentId": "1306e305-20f6-4ac8-89b7-672d1fef2806",
+            "jobId": null,
+            "releaseId": null,
+            "eventType": "deployment.step_completed",
+            "previousState": null,
+            "requestedState": null,
+            "result": "success",
+            "payload": {
+              "step": "PREPARING",
+              "startedAt": "2026-09-17T20:05:19.302Z",
+              "completedAt": "2026-09-17T20:05:30.519Z",
+              "durationSeconds": 11
+            }
+          },
+          {
+            "id": 1995,
+            "occurredAt": "2026-09-17T20:08:02.110Z",
+            "actorType": "relay",
+            "actorId": "9a8aef85-865d-4583-9a61-7d89ea983b0a",
+            "organizationId": "cbaad9cd-0d11-4642-a434-ddbdca7192ca",
+            "customerId": "dc430793-8984-4415-a965-e277d7280abb",
+            "deploymentId": "1306e305-20f6-4ac8-89b7-672d1fef2806",
+            "jobId": null,
+            "releaseId": null,
+            "eventType": "deployment.step_completed",
+            "previousState": null,
+            "requestedState": null,
+            "result": "success",
+            "payload": {
+              "step": "NETWORK",
+              "startedAt": "2026-09-17T20:05:30.519Z",
+              "completedAt": "2026-09-17T20:08:01.180Z",
+              "durationSeconds": 151
+            }
+          },
+          {
+            "id": 1998,
+            "occurredAt": "2026-09-17T20:12:15.826Z",
+            "actorType": "relay",
+            "actorId": "9a8aef85-865d-4583-9a61-7d89ea983b0a",
+            "organizationId": "cbaad9cd-0d11-4642-a434-ddbdca7192ca",
+            "customerId": "dc430793-8984-4415-a965-e277d7280abb",
+            "deploymentId": "1306e305-20f6-4ac8-89b7-672d1fef2806",
+            "jobId": null,
+            "releaseId": null,
+            "eventType": "deployment.step_completed",
+            "previousState": null,
+            "requestedState": null,
+            "result": "success",
+            "payload": {
+              "step": "DATABASE_STORAGE",
+              "startedAt": "2026-09-17T20:05:30.491Z",
+              "completedAt": "2026-09-17T20:12:14.456Z",
+              "durationSeconds": 404
+            }
+          }
+        ]
+      }
+    }
+  }
+}

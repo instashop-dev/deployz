@@ -1,0 +1,144 @@
+{
+  "schemaVersion": 1,
+  "id": "repo-008",
+  "repository": "TwiN/gatus",
+  "commit": "4d15cb7eed6225ac0b03da3d2ab50c424b81c34c",
+  "repositoryForm": "fork",
+  "repositoryUsed": "instashop-dev/gatus",
+  "set": "improvement",
+  "cohort": "realistic",
+  "customerRealism": "high",
+  "difficulty": 1,
+  "deployzCommit": "d83da7c4509c9d981e7a239058effeeccde49112",
+  "runId": "stage-b-repo-008-20260917-221129-049b",
+  "stageAExpected": "READY",
+  "expectedDeployable": true,
+  "mode": "deploy",
+  "deploymentClass": "runtime-reuse",
+  "gate": {
+    "status": "PASS",
+    "verdict": null,
+    "analysisVerdict": null,
+    "outcome": null,
+    "gateFindings": [],
+    "requiredKeys": [],
+    "missingKeys": [],
+    "unsupported": [],
+    "configuredVerdict": null,
+    "configuredFindings": [],
+    "source": "control-plane",
+    "analysisVersion": null,
+    "manifest": null,
+    "detail": null
+  },
+  "configuration": {
+    "status": "PASS",
+    "overrides": {},
+    "keys": [
+      "BASE_URL"
+    ],
+    "generatedKeys": [],
+    "deliveredAfterEnrollment": [],
+    "detail": null
+  },
+  "build": {
+    "status": "PASS",
+    "releaseId": "fe5d8e14-9b83-4fc8-b69a-4d3172300338",
+    "version": "repo-008-20260917-221129-049b",
+    "gitSha": "4d15cb7eed6225ac0b03da3d2ab50c424b81c34c",
+    "dockerfilePath": "Dockerfile",
+    "buildContext": null,
+    "imageDigest": "sha256:e85bddf54100ecd6f6fd85d6168b692d97c0f1043f6411706862f8e87cbda59c",
+    "buildId": null,
+    "durationMs": 104361,
+    "imageReused": false,
+    "detail": null
+  },
+  "deployment": {
+    "status": "NOT_ATTEMPTED",
+    "deploymentId": "aaebbef0-e30f-47f0-92c3-fdd78584e23d",
+    "installationId": "ea6429f8-9c83-4b3a-b201-b0334b7938a5",
+    "bootstrapStack": "deployz-bootstrap-stage-b-repo-008-aaebbef0",
+    "applicationStack": "deployz-app-ea6429f8",
+    "stackStatus": null,
+    "templateSource": "production-default",
+    "templateUrl": null,
+    "installJobState": null,
+    "failureCode": null,
+    "resourceCount": null,
+    "resourcesByType": null,
+    "region": null,
+    "durationMs": null,
+    "detail": null
+  },
+  "inventory": {
+    "status": "NOT_ATTEMPTED",
+    "planCreateKinds": [],
+    "expectedKinds": [],
+    "presentTypes": [],
+    "missing": [],
+    "unexpected": [],
+    "detail": null
+  },
+  "runtime": {
+    "ecs": "NOT_ATTEMPTED",
+    "alb": "NOT_ATTEMPTED",
+    "https": "NOT_ATTEMPTED",
+    "healthPath": null,
+    "healthPathSource": null,
+    "appUrl": null,
+    "runningImageDigest": null,
+    "releaseServing": null,
+    "smoke": [],
+    "observation": null,
+    "detail": null
+  },
+  "dependencies": {
+    "postgres": "NOT_ATTEMPTED",
+    "redis": "NOT_ATTEMPTED",
+    "storage": "NOT_ATTEMPTED",
+    "migration": "NOT_ATTEMPTED",
+    "detail": null
+  },
+  "update": {
+    "status": "NOT_ATTEMPTED",
+    "releaseId": null,
+    "version": null,
+    "imageDigest": null,
+    "durationMs": null,
+    "detail": null
+  },
+  "cleanup": {
+    "status": "FAIL",
+    "destroyJobState": "SKIPPED",
+    "purgeJobState": "SKIPPED",
+    "cleanupState": null,
+    "bootstrapStackFinal": "already gone",
+    "leaks": [
+      "arn:aws:ec2:eu-north-1:151955775369:subnet/subnet-003c9d119cc40c747"
+    ],
+    "retainedState": "SKIPPED",
+    "purgedState": "PASS",
+    "durationMs": 190117,
+    "detail": "leak audit: 1 resource(s) left"
+  },
+  "classification": "TEST_HARNESS_ERROR",
+  "failureStage": "TEST_HARNESS_ERROR",
+  "rootCause": "TEST_HARNESS_FAILURE",
+  "rootCauseEvidence": "Error: aws cloudformation describe-stacks --stack-name failed: aws: [ERROR]: An error occurred (ValidationException) when calling the CreateOAuth2Token operation: The provided authorization grant is invalid, expired, revoked, or malformed A",
+  "findingIds": [
+    "DEPLOY-002",
+    "DEPLOY-006"
+  ],
+  "timing": {
+    "startedAt": "2026-09-17T22:11:30.211Z",
+    "finishedAt": "2026-09-17T22:24:22.573Z",
+    "totalMs": 772362
+  },
+  "evidence": {
+    "failure": {
+      "point": "install",
+      "message": "Error: aws cloudformation describe-stacks --stack-name failed: aws: [ERROR]: An error occurred (ValidationException) when calling the CreateOAuth2Token operation: The provided authorization grant is invalid, expired, revoked, or malformed\r\n\r\nAdditional error details:\r\nerror: INVALID_REQUEST\n    at aws (C:\\Users\\Tejas\\Desktop\\deployz\\.claude\\worktrees\\deployz-mvp-pipeline-60ea37\\scripts\\version-canary\\aws.ts:30:11)\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at async describeStack (C:\\Users\\Tejas\\Desktop\\deployz\\.claude\\worktrees\\deployz-mvp-pipeline-60ea37\\scripts\\version-canary\\aws.ts:58:23)\n    at async <anonymous> (C:\\Users\\Tejas\\Desktop\\deployz\\.claude\\worktrees\\deployz-mvp-pipeline-60ea37\\scripts\\repository-deployment\\deploy.ts:650:29)\n    at async waitFor (C:\\Users\\Tejas\\Desktop\\deployz\\.claude\\worktrees\\deployz-mvp-pipeline-60ea37\\scripts\\version-canary\\control-plane.ts:441:12)\n    at async <anonymous> (C:\\Users\\Tejas\\Desktop\\deployz\\.claude\\worktrees\\deployz-mvp-pipeline-60ea37\\scripts\\repository-deployment\\deploy.ts:646:41)\n    at async Evidence.step (C:\\Users\\Tejas\\Desktop\\deployz\\.claude\\worktrees\\deployz-mvp-pipeline-60ea37\\scripts\\version-canary\\evidence.ts:102:22)\n    at async step (C:\\Users\\Tejas\\Desktop\\deployz\\.claude\\worktrees\\deployz-mvp-pipeline-60ea37\\scripts\\repository-deployment\\deploy.ts:252:12)\n    at async runRepositoryAttempt (C:\\Users\\Tejas\\Desktop\\deployz\\.claude\\worktrees\\deployz-mvp-pipeline-60ea37\\scripts\\repository-deployment\\deploy.ts:635:23)\n    at async runAttempt (C:\\Users\\Tejas\\Desktop\\deployz\\.claude\\worktrees\\deployz-mvp-pipeline-60ea37\\scripts\\repository-deployment\\index.ts:530:5)"
+    }
+  }
+}

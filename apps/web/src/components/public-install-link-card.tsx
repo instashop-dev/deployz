@@ -105,10 +105,6 @@ export function PublicInstallLinkCard({
       })
       .catch((cause: unknown) => {
         if (cause instanceof ApiRequestError) {
-          if (cause.code === 'RELEASE_NOT_PUBLISHED') {
-            setError('This application has no published release. Publish a release before you create a public install link.');
-            return;
-          }
           if (cause.code === 'PUBLIC_INSTALL_LINK_EXISTS') {
             setError('A live public install link already exists for this application.');
             void refresh();
@@ -200,8 +196,7 @@ export function PublicInstallLinkCard({
       <CardHeader>
         <CardTitle className="text-base">Deploy to AWS</CardTitle>
         <CardDescription>
-          Publish a public installation link. Anyone with the link can review the
-          offer and install the application into their own AWS account.
+          Anyone with the link can review the offer and install the application into their own AWS account.
         </CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-4">
@@ -240,13 +235,13 @@ function PublicInstallLinkEmpty({
   return (
     <div className="flex flex-col items-start gap-3" data-testid="public-install-link-empty">
       <p className="text-sm text-muted-foreground">
-        Create a public installation link to let customers install this application from a shared URL.
+        Create a public installation link that lets customers deploy this application to their AWS account.
       </p>
       <Button
         size="sm"
         onClick={onCreate}
         loading={pending === 'creating'}
-        loadingText="Creating public install link…"
+        loadingText="Preparing application for deployment…"
         data-testid="public-install-link-create"
       >
         <Link2 aria-hidden />
