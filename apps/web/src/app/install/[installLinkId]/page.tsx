@@ -12,6 +12,7 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { RELAY_STUCK_GUIDANCE } from '@/lib/deployment-vocabulary';
+import { cloudFormationStacksUrl } from '@/lib/aws-console';
 import { fetchInstallData } from '@/lib/install-data';
 import { installPlanRegionLabel, installPlanRetentionNote, installPlanRows } from '@/lib/install-plan';
 import { fetchPublicInstallData } from '@/lib/public-install-data';
@@ -108,7 +109,7 @@ export default async function InstallPage({
   // only when a relay actually connects, so this state needs no "already
   // used" warning.
   if (data.waitingForRelay) {
-    const cloudFormationUrl = `https://${data.region}.console.aws.amazon.com/cloudformation/home?region=${data.region}#/stacks`;
+    const cloudFormationUrl = cloudFormationStacksUrl(data.region);
     return (
       <div className="flex flex-col gap-8">
         <div>
@@ -160,6 +161,11 @@ export default async function InstallPage({
                 Open AWS CloudFormation
               </a>
             </Button>
+            <Button asChild variant="ghost" size="lg">
+              <Link href={`/install/${encodeURIComponent(installLinkId)}/security`}>
+                Security details
+              </Link>
+            </Button>
           </div>
         </section>
 
@@ -209,7 +215,7 @@ export default async function InstallPage({
                 <div>
                   <Button asChild variant="outline">
                     <a
-                      href={`https://${data.region}.console.aws.amazon.com/cloudformation/home?region=${data.region}#/stacks?filteringText=${encodeURIComponent(data.bootstrapStackName)}`}
+                      href={cloudFormationStacksUrl(data.region, data.bootstrapStackName ?? undefined)}
                       target="_blank"
                       rel="noreferrer"
                     >
@@ -286,6 +292,14 @@ export default async function InstallPage({
             />
           </>
         )}
+
+        {/* Security Details stays reachable in every post-launch state —
+            installing, ready, failed, and removed alike. */}
+        <Button asChild variant="ghost" size="lg">
+          <Link href={`/install/${encodeURIComponent(installLinkId)}/security`}>
+            Security details
+          </Link>
+        </Button>
 
         <p className="text-xs text-muted-foreground">
           {/* The link is consumed as soon as the connector trades its

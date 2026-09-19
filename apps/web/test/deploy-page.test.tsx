@@ -27,6 +27,11 @@ const DeployPage = (await import('../src/app/deploy/[publicId]/page')).default;
 const PUBLIC_ID = 'b7e2a91c-1f3a-4c5d-8e9f-0a1b2c3d4e5f';
 const TOKEN = 'a'.repeat(64);
 const QUICK_CREATE = 'https://console.aws.amazon.com/cloudformation/quickcreate';
+const SECURITY_HREF = `/deploy/${PUBLIC_ID}/security?token=${TOKEN}`;
+
+function securityLink(doc: Document): Element | undefined {
+  return [...doc.querySelectorAll('a')].find((anchor) => anchor.textContent === 'Security details');
+}
 
 function resolvedData(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
@@ -105,6 +110,7 @@ describe('DeployPage', () => {
     expect(doc.body.textContent).toContain('Region: US East (N. Virginia)');
     expect(doc.body.textContent).toContain('Powered by Deployz');
     expect(doc.querySelector('a[href="' + QUICK_CREATE + '"]')?.textContent).toBe('Deploy to AWS');
+    expect(securityLink(doc)?.getAttribute('href')).toBe(SECURITY_HREF);
     // No internal identifiers in the page.
     expect(doc.body.textContent).not.toContain(PUBLIC_ID);
   });
@@ -127,6 +133,7 @@ describe('DeployPage', () => {
     expect(doc.body.textContent).toContain('deployz-bootstrap-acme-analytics-1');
     expect(doc.body.textContent).toContain('Still connecting');
     expect(doc.body.textContent).toContain('Retry deployment');
+    expect(securityLink(doc)?.getAttribute('href')).toBe(SECURITY_HREF);
   });
 
   it('renders the resume/progress view for a launched deployment', async () => {
@@ -143,6 +150,7 @@ describe('DeployPage', () => {
 
     expect(doc.body.textContent).toContain('runs inside your AWS account');
     expect(doc.querySelector('[data-testid="deploy-link-url"]')).toBeNull();
+    expect(securityLink(doc)?.getAttribute('href')).toBe(SECURITY_HREF);
   });
 
   it('renders friendly states for revoked and expired links', async () => {

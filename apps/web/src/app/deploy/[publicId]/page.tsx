@@ -1,7 +1,9 @@
 import type { Metadata } from 'next';
+import Link from 'next/link';
 import { Loader2 } from 'lucide-react';
 
 import { AwsInfrastructureDetails } from '@/components/aws-infrastructure-details';
+import { DeployLinkInvalidState, PoweredBy } from '@/components/deploy-link-invalid-state';
 import { InstallLaunchButton } from '@/components/install-launch-button';
 import { InstallProgress } from '@/components/install-progress';
 import { InstallRetryButton } from '@/components/install-retry-button';
@@ -12,6 +14,7 @@ import {
   fetchDeployLinkData,
   fetchDeployLinkStatusServer,
 } from '@/lib/deploy-link-flow';
+import { cloudFormationStacksUrl } from '@/lib/aws-console';
 import { RELAY_STUCK_GUIDANCE } from '@/lib/deployment-vocabulary';
 import { installPlanRegionLabel, installPlanRetentionNote, installPlanRows } from '@/lib/install-plan';
 
@@ -33,40 +36,6 @@ export const metadata: Metadata = {
 // connection, progress, domain and retry experiences are the install page's,
 // with resolve/launch/retry/status calls re-keyed to the deploy link.
 
-const INVALID_COPY: Record<string, { title: string; body: string }> = {
-  invalid: {
-    title: "This deployment link isn't valid",
-    body: 'It may have been revoked, replaced, or entered incorrectly. Please request a new link from the software provider.',
-  },
-  revoked: {
-    title: 'This deployment link is no longer valid',
-    body: 'The software provider revoked this link. Please request a new link to deploy.',
-  },
-  expired: {
-    title: 'This deployment link has expired',
-    body: 'Please request a new link from the software provider.',
-  },
-  unavailable: {
-    title: 'We couldn\u2019t load this deployment',
-    body: 'Try again in a moment. If it keeps failing, contact the software provider.',
-  },
-};
-
-function InvalidState({ reason }: { reason: string }) {
-  const copy = INVALID_COPY[reason] ?? INVALID_COPY.invalid!;
-  return (
-    <div className="flex flex-col gap-4">
-      <h1 className="text-2xl font-semibold tracking-tight">{copy.title}</h1>
-      <p className="max-w-md text-sm text-muted-foreground">{copy.body}</p>
-      <PoweredBy />
-    </div>
-  );
-}
-
-function PoweredBy() {
-  return <p className="text-xs text-muted-foreground">Powered by Deployz</p>;
-}
-
 export default async function DeployPage({
   params,
   searchParams,
@@ -78,7 +47,7 @@ export default async function DeployPage({
   const { token } = await searchParams;
 
   if (!token) {
-    return <InvalidState reason="invalid" />;
+    return <DeployLinkInvalidState reason="invalid" />;
   }
 
   // Fetched in parallel: the status projection is a nice-to-have for the
@@ -90,16 +59,17 @@ export default async function DeployPage({
   ]);
 
   if (!result.ok) {
-    return <InvalidState reason={result.reason} />;
+    return <DeployLinkInvalidState reason={result.reason} />;
   }
   const data = result.data;
   const deployLink = { publicId, token };
+  const securityHref = `/deploy/${encodeURIComponent(publicId)}/security?token=${encodeURIComponent(token)}`;
 
   // The customer pressed "Deploy to AWS" and the control plane is waiting
   // for the relay to enroll. Never a failure: past the staleness window the
   // page shows guidance and a retry instead.
   if (data.waitingForRelay) {
-    const cloudFormationUrl = `https://${data.region}.console.aws.amazon.com/cloudformation/home?region=${data.region}#/stacks`;
+    const cloudFormationUrl = cloudFormationStacksUrl(data.region);
     return (
       <div className="flex flex-col gap-8">
         <div>
@@ -148,6 +118,9 @@ export default async function DeployPage({
               <a href={cloudFormationUrl} target="_blank" rel="noreferrer">
                 Open AWS CloudFormation
               </a>
+            </Button>
+            <Button asChild variant="ghost">
+              <Link href={securityHref}>Security details</Link>
             </Button>
           </div>
         </section>
@@ -235,6 +208,9 @@ export default async function DeployPage({
               </p>
             </div>
           )}
+          <Button asChild variant="ghost">
+            <Link href={securityHref}>Security details</Link>
+          </Button>
         </section>
 
         {/* Starts at WAITING_FOR_AWS — small and unobtrusive under the CTA
@@ -277,6 +253,10 @@ export default async function DeployPage({
         routingTarget={data.routingTarget}
         deployLink={deployLink}
       />
+
+      <Button asChild variant="ghost">
+        <Link href={securityHref}>Security details</Link>
+      </Button>
 
       <PoweredBy />
     </div>

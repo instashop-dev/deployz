@@ -4,6 +4,7 @@ import { and, eq, inArray } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
+import { applicationStackNameForInstallation } from '@deployz/contracts';
 import { applyMigrations, createDb, type Db } from '@deployz/db';
 import * as schema from '@deployz/db/schema';
 
@@ -875,6 +876,99 @@ describe('deploy links', () => {
     const body = response.json() as { stage: string; statusUpdatesUnavailable: boolean };
     expect(body.stage).not.toBe('FAILED');
     expect(body.statusUpdatesUnavailable).toBe(true);
+  });
+
+  it('status carries awsSummary only once the deployment is READY and enrolled', async () => {
+    const { publicId, token, deploymentId } = await createLink();
+    const installationId = 'inst-aws-summary';
+    const fetchBody = async () =>
+      (await status(publicId, token)).json() as {
+        stage: string;
+        awsSummary?: { applicationStackName: string; region: string; releaseVersion: string | null } | null;
+      };
+
+    // Enrolled but still connecting: no summary before READY.
+    await db
+      .update(schema.deployments)
+      .set({ state: 'WAITING_FOR_RELAY', enrollmentUsedAt: new Date(), installationId })
+      .where(eq(schema.deployments.id, deploymentId));
+    const connecting = await fetchBody();
+    expect(connecting.stage).toBe('CONNECTING');
+    expect(connecting.awsSummary).toBeUndefined();
+
+    // READY needs confirmed health plus an https URL — the stored
+    // default-HTTPS state supplies the address, the release pointer the
+    // version.
+    const [release] = await db
+      .insert(schema.releases)
+      .values({
+        applicationId: application.id,
+        version: `v1.2.3-${crypto.randomUUID().slice(0, 8)}`,
+        gitSha: 'deadbee',
+      })
+      .returning();
+    await db
+      .update(schema.deployments)
+      .set({
+        state: 'HEALTHY',
+        healthStatus: 'HEALTHY',
+        currentReleaseId: release!.id,
+        defaultHttps: { hostname: 'd-summary.deployz.dev', status: 'ACTIVE' },
+      })
+      .where(eq(schema.deployments.id, deploymentId));
+    const ready = await fetchBody();
+    expect(ready.stage).toBe('READY');
+    expect(ready.awsSummary).toEqual({
+      applicationStackName: applicationStackNameForInstallation(installationId),
+      region: 'us-east-1',
+      releaseVersion: release!.version,
+    });
+
+    // FAILED never carries a summary, whatever it enrolled before.
+    await db
+      .update(schema.deployments)
+      .set({ state: 'FAILED', currentReleaseId: null, defaultHttps: null })
+      .where(eq(schema.deployments.id, deploymentId));
+    const failed = await fetchBody();
+    expect(failed.stage).toBe('FAILED');
+    expect(failed.awsSummary).toBeUndefined();
+  });
+
+  it('a READY deployment with no installationId or no release pointer degrades the summary away', async () => {
+    const { publicId, token, deploymentId } = await createLink();
+
+    // READY but never enrolled: no application stack exists to name, so the
+    // whole summary is omitted.
+    await db
+      .update(schema.deployments)
+      .set({
+        state: 'HEALTHY',
+        healthStatus: 'HEALTHY',
+        installationId: null,
+        defaultHttps: { hostname: 'd-unenrolled.deployz.dev', status: 'ACTIVE' },
+      })
+      .where(eq(schema.deployments.id, deploymentId));
+    const unenrolled = (await status(publicId, token)).json() as {
+      stage: string;
+      awsSummary?: unknown;
+    };
+    expect(unenrolled.stage).toBe('READY');
+    expect(unenrolled.awsSummary).toBeUndefined();
+
+    // Enrolled with no serving release yet: the summary names the stack and
+    // region, releaseVersion null.
+    await db
+      .update(schema.deployments)
+      .set({ installationId: 'inst-no-release' })
+      .where(eq(schema.deployments.id, deploymentId));
+    const noRelease = (await status(publicId, token)).json() as {
+      awsSummary?: { applicationStackName: string; region: string; releaseVersion: string | null };
+    };
+    expect(noRelease.awsSummary).toEqual({
+      applicationStackName: applicationStackNameForInstallation('inst-no-release'),
+      region: 'us-east-1',
+      releaseVersion: null,
+    });
   });
 
   it('the deploy-link token grants no relay (AWS) permissions', async () => {

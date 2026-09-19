@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { CustomerDeploymentStatus, DeploymentStep } from '@deployz/contracts';
 
 import { TAKING_LONGER_MESSAGE } from '../src/lib/deployment-progress';
+import { OWNERSHIP_NOTE } from '../src/lib/security-details';
 
 // react-dom/client's act() checks this flag before running; without it, every
 // act() call warns even though the assertions below pass.
@@ -402,5 +403,92 @@ describe('InstallProgress — failure flow', () => {
     });
     expect(text()).toContain('ROLLBACK_COMPLETE');
     expect(text()).toContain('is not a valid password');
+  });
+});
+
+describe('InstallProgress — AWS deployment details (READY)', () => {
+  const summary = {
+    applicationStackName: 'deployz-app-abcd1234',
+    region: 'us-east-1',
+    releaseVersion: 'v1.4.2',
+  };
+
+  function readyStatus(overrides: Partial<CustomerDeploymentStatus> = {}): CustomerDeploymentStatus {
+    return baseStatus({ stage: 'READY', step: 'READY', url: 'https://app.example.com', ...overrides });
+  }
+
+  async function openSummaryTrigger(): Promise<() => string> {
+    const trigger = Array.from(container!.querySelectorAll('[data-slot="collapsible-trigger"]')).find((element) =>
+      element.textContent?.includes('AWS deployment details'),
+    ) as HTMLElement | undefined;
+    expect(trigger).toBeDefined();
+    await act(async () => {
+      click(trigger!);
+    });
+    return () => container!.textContent ?? '';
+  }
+
+  it('READY with awsSummary renders the collapsed summary, the CloudFormation link, and the ownership note', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-09-18T00:00:00.000Z'));
+    const status = readyStatus({ awsSummary: summary });
+    mocks.fetchInstallStatus.mockResolvedValue(status);
+    mocks.fetchDomainAccess.mockResolvedValue({ canManage: false, domain: null });
+
+    mount(baseProps({ initialStatus: status }));
+    await flush();
+
+    const closedText = container!.textContent ?? '';
+    // Collapsed by default: the trigger and the note, none of the rows.
+    expect(closedText).toContain('AWS deployment details');
+    expect(closedText).toContain(OWNERSHIP_NOTE);
+    expect(closedText).not.toContain(summary.applicationStackName);
+
+    const text = await openSummaryTrigger();
+    expect(text()).toContain(summary.applicationStackName);
+    expect(text()).toContain('us-east-1');
+    expect(text()).toContain(summary.releaseVersion);
+    expect(text()).toContain('Last checked');
+    expect(text()).toContain('https://app.example.com');
+
+    const consoleLink = Array.from(container!.querySelectorAll('a')).find((anchor) =>
+      anchor.getAttribute('href')?.includes('cloudformation'),
+    );
+    expect(consoleLink).toBeDefined();
+    expect(consoleLink!.getAttribute('href')).toBe(
+      `https://us-east-1.console.aws.amazon.com/cloudformation/home?region=us-east-1#/stacks?filteringText=${summary.applicationStackName}`,
+    );
+    expect(consoleLink!.getAttribute('target')).toBe('_blank');
+    expect(consoleLink!.getAttribute('rel')).toBe('noreferrer');
+  });
+
+  it('READY without awsSummary renders no summary section', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-09-18T00:00:00.000Z'));
+    const status = readyStatus();
+    mocks.fetchInstallStatus.mockResolvedValue(status);
+    mocks.fetchDomainAccess.mockResolvedValue({ canManage: false, domain: null });
+
+    mount(baseProps({ initialStatus: status }));
+    await flush();
+
+    const text = () => container!.textContent ?? '';
+    expect(text()).not.toContain('AWS deployment details');
+    expect(text()).not.toContain(OWNERSHIP_NOTE);
+  });
+
+  it('a non-READY stage renders no summary, even when awsSummary is present', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-09-18T00:00:00.000Z'));
+    const status = baseStatus({ awsSummary: summary });
+    mocks.fetchInstallStatus.mockResolvedValue(status);
+
+    mount(baseProps({ initialStatus: status }));
+    await flush();
+
+    const text = () => container!.textContent ?? '';
+    expect(text()).not.toContain('AWS deployment details');
+    expect(text()).not.toContain(summary.applicationStackName);
+    expect(text()).not.toContain(OWNERSHIP_NOTE);
   });
 });

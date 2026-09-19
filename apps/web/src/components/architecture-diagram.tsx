@@ -1,9 +1,18 @@
 import type { ReactNode } from 'react';
 
+import type { DeploymentPlan } from '@deployz/contracts';
+
 // §45 "infrastructure diagram" — a clean semantic diagram (not an image file)
 // of the §11 standard customer architecture. Plain divs + Tailwind so it
-// follows the app's existing light/dark theme tokens automatically.
-export function ArchitectureDiagram() {
+// follows the app's existing light/dark theme tokens automatically. The
+// optional services (Database, Cache, Storage) render only when the
+// deployment's plan includes them — the diagram never guesses infrastructure
+// the manifest doesn't ask for.
+export function ArchitectureDiagram({ plan }: { plan: DeploymentPlan }) {
+  const includes = (kind: 'database' | 'cache' | 'storage'): boolean =>
+    plan.components.some((component) => component.kind === kind) ||
+    plan.awsResources.some((resource) => resource.id === kind);
+
   return (
     <figure aria-label="Deployz standard customer architecture diagram" className="not-prose">
       <div className="rounded-xl border-2 border-dashed p-4">
@@ -16,8 +25,9 @@ export function ArchitectureDiagram() {
           <DiagramBox>Application container</DiagramBox>
           <Arrow />
           <div className="flex flex-wrap items-center justify-center gap-3">
-            <DiagramBox small>Database</DiagramBox>
-            <DiagramBox small>Storage</DiagramBox>
+            {includes('database') ? <DiagramBox small>Database</DiagramBox> : null}
+            {includes('cache') ? <DiagramBox small>Cache</DiagramBox> : null}
+            {includes('storage') ? <DiagramBox small>Storage</DiagramBox> : null}
             <DiagramBox small>Secrets</DiagramBox>
             <DiagramBox small>Monitoring</DiagramBox>
           </div>
