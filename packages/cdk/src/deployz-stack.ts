@@ -381,6 +381,13 @@ function collectEnvVars(): Record<string, string> {
     'AI_MODEL',
     'AI_PROVIDER_API_KEY',
     'AI_GATEWAY_TOKEN',
+    // Jev shadow client — its gateway token is the shared AI_GATEWAY_TOKEN
+    // above (same Cloudflare AI Gateway), so no separate JEV token var exists.
+    'JEV_ENABLED',
+    'JEV_GATEWAY_URL',
+    'JEV_API_KEY',
+    'JEV_MODEL',
+    'JEV_TIMEOUT_MS',
     'AWS_SES_ACCESS_KEY_ID',
     'AWS_SES_SECRET_ACCESS_KEY',
     'CLOUDFLARE_ZONE_ID',
