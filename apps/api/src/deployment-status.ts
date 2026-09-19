@@ -1,4 +1,10 @@
-import { FAILURE_REMEDIATION, customerStackStatusLabel, failureCodeCopy, type FailureCode } from '@deployz/copy-map';
+import {
+  APP_OWNED_STARTUP_FAILURE_CODES,
+  FAILURE_REMEDIATION,
+  customerStackStatusLabel,
+  failureCodeCopy,
+  type FailureCode,
+} from '@deployz/copy-map';
 import {
   DEPLOYMENT_STEP_ORDER,
   INFRASTRUCTURE_COMPONENTS,
@@ -1283,6 +1289,11 @@ export function toCustomerDeploymentStatus(derived: DerivedDeploymentStatus): Cu
     url: derived.result?.url ?? null,
     failure: derived.failure
       ? {
+          // §65: the raw §61 code never reaches the unauthenticated
+          // customer surface — only the derived, jargon-free fact that the
+          // application's own startup/config work is what failed.
+          ownedByApplication:
+            derived.failure.code !== null && APP_OWNED_STARTUP_FAILURE_CODES.has(derived.failure.code),
           customerMessage: derived.failure.customerMessage,
           component: derived.failure.component,
           reference: derived.failure.reference,

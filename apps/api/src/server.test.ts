@@ -31,7 +31,7 @@ import {
   createFixtureReleaseImageClient,
   type FixtureReleaseImageClient,
 } from './release-images.js';
-import { buildServer, redactClaimedPayload } from './server.js';
+import { AI_EXPLAINABLE_FAILURE_CODES, buildServer, redactClaimedPayload } from './server.js';
 
 // ── Shared test helpers (used by the describe blocks below) ────────────────
 
@@ -1645,7 +1645,7 @@ describe('server — relay bearer auth, INSTALL job, and command/result/health f
     await postJson(
       app,
       `/api/relay/commands/${job!.id}/result`,
-      { success: false, failureCode: 'IMAGE_HEALTH_CHECK_FAILED' },
+      { success: false, failureCode: 'ECS_DEPLOYMENT_FAILED' },
       { authorization: `Bearer ${token}` },
     );
 
@@ -1664,12 +1664,13 @@ describe('server — relay bearer auth, INSTALL job, and command/result/health f
       headers: { cookie: org.cookie },
     });
     expect(diagnostics.statusCode).toBe(200);
-    expect(diagnostics.json()).toMatchObject({ failureCode: 'IMAGE_HEALTH_CHECK_FAILED', source: 'deterministic', confidence: null });
+    expect(diagnostics.json()).toMatchObject({ failureCode: 'ECS_DEPLOYMENT_FAILED', source: 'deterministic', confidence: null });
   });
 
-  // §22/§23/§42: known failure codes bypass AI entirely — the deterministic
-  // §65 copy map is authoritative and the gateway must never be invoked.
-  it('a known failure code returns remediation copy directly, without calling the AI gateway', async () => {
+  // §22/§23/§42: codes outside the AI-explained set bypass AI entirely — the
+  // deterministic §65 copy map is authoritative and the gateway must never
+  // be invoked.
+  it('a failure code outside the AI-explained set returns remediation copy directly, without calling the AI gateway', async () => {
     let calls = 0;
     const countingApp = await buildServer({
       auth,
@@ -1677,21 +1678,27 @@ describe('server — relay bearer auth, INSTALL job, and command/result/health f
       aiGateway: {
         async generate() {
           calls += 1;
-          throw new Error('AI gateway must not be called for a known failure code');
+          throw new Error('AI gateway must not be called for a code outside the AI-explained set');
         },
       },
     });
+    // ECS_DEPLOYMENT_FAILED is outside AI_EXPLAINABLE_FAILURE_CODES on
+    // purpose: it was just served deterministically by the test above, so
+    // the two stay in sync with the gate.
     // Set the failure state directly so the test does not depend on which
-    // other tests in this file have already run.
-    await db.insert(schema.deploymentJobs).values({
-      deploymentId: deployment.id,
-      type: 'DEPLOY_RELEASE',
-      state: 'FAILED',
-      failureCode: 'PORT_MISMATCH',
-      finishedAt: new Date(),
-      idempotencyKey: `${deployment.id}:DEPLOY_RELEASE:known-code`,
-      payload: {},
-    });
+    // other tests in this file have already run; finishedAt stays in the
+    // past so this job never shadows the later UNKNOWN-code test's job.
+    for (const [index, code] of ['AWS_PERMISSION_DENIED', 'ECS_DEPLOYMENT_FAILED'].entries()) {
+      await db.insert(schema.deploymentJobs).values({
+        deploymentId: deployment.id,
+        type: 'DEPLOY_RELEASE',
+        state: 'FAILED',
+        failureCode: code,
+        finishedAt: new Date(Date.now() - (2 - index) * 1000),
+        idempotencyKey: `${deployment.id}:DEPLOY_RELEASE:deterministic-${index}`,
+        payload: {},
+      });
+    }
     await db
       .update(schema.deployments)
       .set({ state: 'FAILED' })
@@ -1703,10 +1710,12 @@ describe('server — relay bearer auth, INSTALL job, and command/result/health f
       headers: { cookie: org.cookie },
     });
 
-    const body = response.json() as { failureCode: string; what: string; fix: string };
-    expect(body.failureCode).toBe('PORT_MISMATCH');
+    const body = response.json() as { failureCode: string; source: string; confidence: string | null; what: string; fix: string };
+    expect(body.failureCode).toBe('ECS_DEPLOYMENT_FAILED');
+    expect(body.source).toBe('deterministic');
+    expect(body.confidence).toBeNull();
     // Code-specific guidance, not the old one-size-fits-all placeholder.
-    expect(body.what).toContain('port');
+    expect(body.what).toContain('rolled out');
     expect(body.what).not.toBe('Deployment failed');
     expect(body.fix.length).toBeGreaterThan(0);
     expect(calls).toBe(0);
@@ -1770,6 +1779,77 @@ describe('server — relay bearer auth, INSTALL job, and command/result/health f
     expect(capturedPrompt).toContain('[REDACTED]');
     expect(capturedPrompt).not.toContain('u:p');
     await aiApp.close();
+  });
+
+  // The widened gate: every code in AI_EXPLAINABLE_FAILURE_CODES gets an AI
+  // explanation (one call per attempt, deterministic code preserved); the
+  // set itself is pinned so adding a code here forces a test decision.
+  it('every AI-explainable code gets AI text with the deterministic failureCode preserved', async () => {
+    let calls = 0;
+    const aiApp = await buildServer({
+      auth,
+      db,
+      aiGateway: {
+        async generate() {
+          calls += 1;
+          return {
+            object: {
+              failureCode: 'UNKNOWN',
+              what: 'AI reading of the app-owned failure.',
+              why: 'AI why',
+              fix: 'AI fix',
+              confidence: 'low',
+            },
+            usage: { promptTokens: 20, completionTokens: 10 },
+          };
+        },
+      },
+    });
+    const application = await insertApplication(db, org.organizationId);
+    const customer = await insertCustomer(db, org.organizationId);
+    const fresh = await insertDeployment(db, org.organizationId, application.id, customer.id, {
+      state: 'FAILED',
+    });
+
+    const codes = [...AI_EXPLAINABLE_FAILURE_CODES];
+    for (const [index, code] of codes.entries()) {
+      await db.insert(schema.deploymentJobs).values({
+        deploymentId: fresh.id,
+        type: 'DEPLOY_RELEASE',
+        state: 'FAILED',
+        failureCode: code,
+        finishedAt: new Date(Date.now() - (codes.length - index) * 1000),
+        idempotencyKey: `${fresh.id}:DEPLOY_RELEASE:ai-set-${index}`,
+        payload: {},
+      });
+
+      const response = await aiApp.inject({
+        method: 'GET',
+        url: `/api/deployments/${fresh.id}/diagnostics`,
+        headers: { cookie: org.cookie },
+      });
+      const body = response.json() as { failureCode: string; source: string; confidence: string | null; what: string };
+      expect(body.failureCode, `code ${code}`).toBe(code);
+      expect(body.source, `code ${code}`).toBe('ai');
+      expect(body.confidence, `code ${code}`).toBe('low');
+      expect(body.what, `code ${code}`).toBe('AI reading of the app-owned failure.');
+    }
+    expect(calls).toBe(codes.length);
+    await aiApp.close();
+  });
+
+  it('AI_EXPLAINABLE_FAILURE_CODES is the widened app-owned set', () => {
+    expect([...AI_EXPLAINABLE_FAILURE_CODES].sort()).toEqual(
+      [
+        'UNKNOWN',
+        'CONTAINER_START_FAILED',
+        'IMAGE_HEALTH_CHECK_FAILED',
+        'DATABASE_CONNECTION_FAILED',
+        'MISSING_SECRET',
+        'PORT_MISMATCH',
+        'MIGRATION_FAILED',
+      ].sort(),
+    );
   });
 
   // §31 config writes are non-disruptive — they must not disturb the lifecycle.

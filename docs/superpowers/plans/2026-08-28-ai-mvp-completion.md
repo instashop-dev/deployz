@@ -311,6 +311,7 @@ export function mergeAiAnalysis(
 - Consumes: `normalizeErrorText` (Task 2), existing `resolveExplanation`, `FAILURE_REMEDIATION`.
 - Behavior change (spec §22/§23/§42 — "Known errors should bypass AI. Unknown/ambiguous failures should use AI."):
   - When `failureCode !== 'UNKNOWN'`: return the `FAILURE_REMEDIATION[failureCode]` copy directly. Do NOT call `resolveExplanation`. The response shape is unchanged.
+  - **2026-09-19 amendment:** the gate widened from `UNKNOWN`-only to the app-owned evidence-rich set (`AI_EXPLAINABLE_FAILURE_CODES`: `UNKNOWN`, `CONTAINER_START_FAILED`, `IMAGE_HEALTH_CHECK_FAILED`, `DATABASE_CONNECTION_FAILED`, `MISSING_SECRET`, `PORT_MISMATCH`, `MIGRATION_FAILED`). Every code outside the set still bypasses AI exactly as specified.
   - When `failureCode === 'UNKNOWN'` and a failed job exists: build the `StructuredEvent` as today, but additionally set `error: { message: normalizeErrorText(jobResult.error, { maxLength: 500 }) }` when `jobResult?.error` is a non-empty string — this is the evidence the AI diagnosis needs (§23), it is the one free-text field the §16 boundary permits, and it is redacted by construction. Then call `resolveExplanation` as today.
   - `technicalDetail` in the response: keep returning the raw `jobResult?.error` to the vendor (their own data, §16 keeps it out of AI only).
 - [ ] **Step 1: Write/adjust failing tests** in `apps/api/src/server.test.ts`:

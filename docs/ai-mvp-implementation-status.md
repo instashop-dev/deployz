@@ -34,7 +34,7 @@ and the existing AI documentation. Nothing was changed by the audit.
 | Env-var model | `detectEnvVarModel` (`detectors.ts`), `application_configs`, `apps/web/src/app/dashboard/applications/[id]/config/page.tsx` | Live. `key/required/secret/source`; masked write-only secrets; required-env gate at deployment creation |
 | Failure taxonomy | `packages/db/src/enums.ts`, `packages/copy-map/src/index.ts`, `apps/api/src/failure-classification.ts`, `packages/relay/src/deploy.ts` | Live. 23 failure codes mirrored in five places with parity tests; relay classifies at the executor boundary, the API refines coarse codes from stack events and error text |
 | Sanitisation | `packages/analysis/src/redact.ts` | Live. Applied at stack-event ingest and inside every AI prompt builder |
-| AI failure diagnosis | `packages/analysis/src/diagnostic-explainer.ts`, `apps/api/src/ai-explanation.ts`, `GET /api/deployments/:id/diagnostics` | Live. Deterministic what/why/fix for every known code; AI only for `UNKNOWN`; cached per job with single-flight claim |
+| AI failure diagnosis | `packages/analysis/src/diagnostic-explainer.ts`, `apps/api/src/ai-explanation.ts`, `GET /api/deployments/:id/diagnostics` | Live. Deterministic what/why/fix for every code outside the AI set; AI for `UNKNOWN` plus the app-owned startup/config codes (`AI_EXPLAINABLE_FAILURE_CODES`); cached per job with single-flight claim |
 | Jargon boundary | `packages/copy-map`, `docs/ui-system.md`, ESLint rule in `eslint.config.mjs` | Live. Raw CloudFormation/ECS text reaches vendor UI only behind "Advanced details" / "Technical detail" disclosures; customer surfaces get translated phrases |
 | Test corpus | `packages/analysis/test/*`, `apps/api/src/github.ts` fixture repos, `docs/testing/repository-compatibility/` (100 pinned repositories, Documenso = repo-006) | Live |
 
@@ -56,7 +56,7 @@ and the existing AI documentation. Nothing was changed by the audit.
 | Canonical analysis | | ✓ | | Storage is a flat JSONB record; per-field evidence and confidence exist only for Postgres and Redis. Add one typed `ApplicationAnalysis` projection built at analysis time and served on the readiness endpoint (1) |
 | Compatibility blockers | ✓ | | | Severity/blocking model and stable ids exist. Add the findings the deployment gate enforces but the report never shows (`port-unresolved`, `start-command-missing`) and the new `localhost-binding` finding; show detected facts on the readiness page (2) |
 | Fix guidance | ✓ | | | Regenerated on every request. Add a cache keyed on commit SHA, analysis version and the finding set (3) |
-| Failure diagnosis | ✓ | | | AI output is `what/why/fix` with no confidence. Add `confidence` and the low-confidence wording; keep AI limited to `UNKNOWN` (7) |
+| Failure diagnosis | ✓ | | | AI output is `what/why/fix` with no confidence. Add `confidence` and the low-confidence wording; keep AI limited to `UNKNOWN` (7). 2026-09-19: gate widened to the app-owned evidence-rich set — see the component table above |
 | Error simplification | ✓ | | | Vendor and customer surfaces already translate. Audit the remaining interpolated raw values (release build failure text names CodeBuild; admin progress card) (8) |
 | Preflight | | ✓ | | The manifest gate runs at three boundaries, but the required-env check runs only at creation and there is no preflight endpoint or pre-deploy summary. Add one `evaluatePreflight` used by all three boundaries and by a `GET .../preflight` route with a UI summary (5) |
 | Error normalisation | ✓ | | | `refineFailureCode` + `StructuredEvent` + redaction. Add a regional-artifact mismatch mapping if a code fits without a new enum value; otherwise record the mapping table (6) |
@@ -477,7 +477,8 @@ PR #180.
    never count), and the version a deploy targeted. `toStructuredEvent`
    derives the AI explainer's bounded event from that context only.
 2. **Diagnostics route** — serves the context as `context` and feeds the AI
-   (still only for `UNKNOWN`) from it. The web diagnostics mapping carries
+   (still only for `UNKNOWN` at the time; widened 2026-09-19 to the
+   app-owned evidence-rich set) from it. The web diagnostics mapping carries
    it into the card's "Technical detail" disclosure: operation, attempt,
    the helper's original code, version, failed resource and failed events.
    Nothing new reaches the top level.
@@ -507,6 +508,8 @@ PR #181.
   attempt behind an atomic claim and cached on `deployment_jobs`; every
   failure mode degrades to the deterministic copy. The model's echoed
   failure code is always overridden by the deterministic one.
+  (2026-09-19: the gate widened to the app-owned evidence-rich set,
+  `AI_EXPLAINABLE_FAILURE_CODES` — see the component table.)
 - The prompt is built from the Phase 6 context only — never raw logs.
 
 ### Added
@@ -628,7 +631,7 @@ install, not a defect.
 |---|---|---|
 | Repository analysis | once per analysed commit, only when one of seven questions is open | ≤8 files / 24k chars, 6k prompt / 2.5k output tokens, 30 s |
 | Fix instructions | once per commit + analysis version + finding set (cached; explicit regenerate) | 3k / 2.5k tokens, 25 s |
-| Failure explanation | once per failed attempt, only for `UNKNOWN` (cached, single-flight) | 700 / 800 tokens, 10 s |
+| Failure explanation | once per failed attempt, only for `UNKNOWN` (cached, single-flight). 2026-09-19: widened to the app-owned evidence-rich set | 700 / 800 tokens, 10 s |
 | Preflight, readiness reads, activity feed, lifecycle events, heartbeats | never call the model | — |
 
 No polling loop calls the model; the gateway retries at most once on a

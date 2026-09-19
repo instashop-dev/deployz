@@ -35,6 +35,7 @@ export const FAILURE_CODES = [
   'IMAGE_PULL_FAILED',
   'CONTAINER_START_FAILED',
   'MISSING_SECRET',
+  'TEMPLATE_UNAVAILABLE',
   'ECS_DEPLOYMENT_FAILED',
   'RDS_UNAVAILABLE',
   'UNSUPPORTED_ARCHITECTURE',
@@ -45,7 +46,7 @@ export const FAILURE_CODES = [
   'RELAY_STATE_WRITE_FAILED',
 ] as const;
 
-/** A §61 failure code — exactly the twenty values in `FAILURE_CODES`. */
+/** A §61 failure code — exactly the values in `FAILURE_CODES`. */
 export type FailureCode = (typeof FAILURE_CODES)[number];
 
 // ── Structured event (§16) ────────────────────────────────────────────────

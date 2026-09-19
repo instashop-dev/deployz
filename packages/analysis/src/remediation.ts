@@ -315,6 +315,18 @@ const REMEDIATION_TABLE: Record<FailureCode, Omit<Remediation, 'code'>> = {
     automatic: false,
   },
 
+  // TEMPLATE_UNAVAILABLE (same meaning as copy-map's TEMPLATE_UNAVAILABLE copy)
+  TEMPLATE_UNAVAILABLE: {
+    summary: 'The installation template for this region could not be fetched.',
+    steps: [
+      'Contact Deployz support — the regional template must be published before installs can proceed.',
+      'Retry the deployment after support confirms the template is available.',
+    ],
+    technicalDetail: [],
+    requiresManual: true,
+    automatic: false,
+  },
+
   // 18. UNSUPPORTED_ARCHITECTURE
   UNSUPPORTED_ARCHITECTURE: {
     summary: 'The container image uses an unsupported processor architecture.',

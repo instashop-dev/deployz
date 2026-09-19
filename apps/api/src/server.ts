@@ -1081,6 +1081,21 @@ const INSTALL_JOB_STALE_AFTER_MS = 30 * 60 * 1000;
 // on a connected relay mean the delete itself is wedged.
 const REPEATED_DESTROY_FAILURES_REQUIRED = 2;
 
+// The failure codes the diagnostics route may spend a model call on:
+// UNKNOWN plus the app-owned startup/config failures, where the §16-bounded
+// evidence (redacted error, container verdict, failed resources) can sharpen
+// the deterministic copy. Every other code names an account or infrastructure
+// cause the copy map already answers unambiguously — those never reach AI.
+export const AI_EXPLAINABLE_FAILURE_CODES: ReadonlySet<string> = new Set([
+  'UNKNOWN',
+  'CONTAINER_START_FAILED',
+  'IMAGE_HEALTH_CHECK_FAILED',
+  'DATABASE_CONNECTION_FAILED',
+  'MISSING_SECRET',
+  'PORT_MISMATCH',
+  'MIGRATION_FAILED',
+]);
+
 /** 409s a deploy/rollback/restart aimed at a deployment that has nothing to
  *  deploy into — the single-deployment mirror of the skip reason deploy-bulk
  *  gives. A FAILED deployment that never completed a first successful
@@ -5475,12 +5490,14 @@ export async function buildServer({
     // the store (same rule technicalDetail follows).
     const contextEvidence = failureContext?.evidence ?? null;
 
-    // §22/§23/§42: a KNOWN failure code is unambiguous — the deterministic
-    // §65 copy map is the whole answer and AI is never consulted. Only
-    // UNKNOWN, where the deterministic classifier had nothing to go on, is
-    // worth spending a model call on.
+    // §22/§23/§42: a code that names an account or infrastructure cause is
+    // unambiguous — the deterministic §65 copy map is the whole answer and AI
+    // is never consulted. Only the app-owned evidence-rich set
+    // (AI_EXPLAINABLE_FAILURE_CODES — UNKNOWN plus the startup/config
+    // failures) is worth a model call, because the bounded §16 evidence can
+    // sharpen what/why/fix for a failure that lives in the application.
     let explanation: ExplanationText = { ...remediation, confidence: null };
-    if (failedJob && failureContext && failureCode === 'UNKNOWN') {
+    if (failedJob && failureContext && AI_EXPLAINABLE_FAILURE_CODES.has(failureCode)) {
       // §16: the AI explanation is built from the deterministic code plus
       // the sanitised failure context only — the relay's error redacted and
       // truncated, the first failed resources, the attempt and the version.

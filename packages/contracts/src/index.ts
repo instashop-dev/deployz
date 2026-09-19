@@ -601,6 +601,12 @@ export const customerDeploymentStatusSchema = z
     url: z.string().nullable(),
     failure: z
       .object({
+        // Whether the failure belongs to the application's own
+        // startup/config work — the one fact the customer card needs to say
+        // "the vendor must fix this, no action is required from you". The
+        // raw §61 code stays OFF this unauthenticated surface (§65); the
+        // vendor projection carries it.
+        ownedByApplication: z.boolean(),
         customerMessage: z.string(),
         component: z.string().nullable(),
         reference: z.string(),
