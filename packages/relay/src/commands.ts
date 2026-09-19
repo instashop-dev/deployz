@@ -9,6 +9,8 @@
  * Unknown commands are rejected with an event logged, no side effects.
  */
 
+import type { FailureEvidence } from '@deployz/contracts';
+
 // ── Command vocabulary (§39) ────────────────────────────────────────────────
 
 /** The command types the relay understands. */
@@ -62,6 +64,12 @@ export interface RelayCommandResult {
    * remediation copy — this field is the load-bearing link to that.
    */
   readonly failureCode?: string;
+  /**
+   * Phase 1 structured failure evidence — what the stopped containers said
+   * and what the health checks counted, set on classified failures that
+   * observed any. The control plane redacts its free text at ingest.
+   */
+  readonly evidence?: FailureEvidence;
   /**
    * The command was started but has not finished — no verdict yet.
    *

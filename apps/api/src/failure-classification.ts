@@ -1,4 +1,4 @@
-import type { FailureCode } from '@deployz/contracts';
+import type { FailureCode, FailureEvidence } from '@deployz/contracts';
 
 /**
  * §61 server-side failure refinement — deterministic, ordered rules that
@@ -46,6 +46,20 @@ const CANCELLATION_NOISE = /resource creation cancelled|resource update cancelle
  */
 const RELAY_STATE_WRITE_FAILURE = /could not record that it must report back|install could not run:/;
 
+/**
+ * Phase 1 container-exit signatures — sharper than "the container exited":
+ * what the exiting process said, whether that rode the relay's structured
+ * evidence or the free text it was flattened into. Prior art:
+ * scripts/repository-deployment/classify.ts.
+ */
+/** A refused Postgres connection — port 5432, or a postgres host refusing. */
+const DATABASE_CONNECTION_SIGNATURE =
+  /ECONNREFUSED[^\n]{0,120}(?::5432\b|\bpostgres\b)|\bpostgres\b[^\n]{0,120}ECONNREFUSED/i;
+/** A required variable the container itself says is absent (case-sensitive). */
+const MISSING_SECRET_SIGNATURE = /Error: [A-Z][A-Z0-9_]{3,} (?:is|was) (?:not set|not|missing|required)/;
+/** The port the container wants is taken or not permitted. */
+const PORT_SIGNATURE = /EADDRINUSE|listen EACCES|address already in use|port already in use/i;
+
 function isFailedEvent(event: FailureStackEvent): boolean {
   return (
     /(_FAILED)$/.test(event.resourceStatus) &&
@@ -54,12 +68,18 @@ function isFailedEvent(event: FailureStackEvent): boolean {
   );
 }
 
-function textEvidence(errorText: string | null, events: FailureStackEvent[]): string {
+function textEvidence(
+  errorText: string | null,
+  evidence: FailureEvidence | null | undefined,
+  events: FailureStackEvent[],
+): string {
   const reasons = events
     .filter(isFailedEvent)
     .map((event) => event.resourceStatusReason ?? '')
     .join('\n');
-  return `${errorText ?? ''}\n${reasons}`.toLowerCase();
+  const stoppedReason = evidence?.container?.stoppedReason ?? '';
+  // Case preserved: the missing-variable signature is case-sensitive.
+  return `${errorText ?? ''}\n${stoppedReason}\n${reasons}`;
 }
 
 /**
@@ -72,12 +92,15 @@ export function refineFailureCode(input: {
   reported: FailureCode | null;
   errorText: string | null;
   stackEvents: readonly FailureStackEvent[];
+  /** Phase 1 structured evidence, already redacted at ingest. Absent on old relays. */
+  evidence?: FailureEvidence | null;
 }): FailureCode | null {
   const { reported, errorText } = input;
   if (reported !== null && !REFINABLE_CODES.has(reported)) return reported;
 
   const events = [...input.stackEvents];
-  const text = textEvidence(errorText, events);
+  const signatureText = textEvidence(errorText, input.evidence, events);
+  const text = signatureText.toLowerCase();
   const firstFailed = events.find(isFailedEvent);
   const failedType = firstFailed?.resourceType ?? '';
   const failedReason = (firstFailed?.resourceStatusReason ?? '').toLowerCase();
@@ -118,7 +141,16 @@ export function refineFailureCode(input: {
     return 'TEMPLATE_UNAVAILABLE';
   }
 
-  // 4c. The container itself — ECS wording for a task that never became
+  // 4d. Container-exit signatures (Phase 1) — what the exiting process
+  //     said, checked BEFORE the generic exit rule so a signature always
+  //     outranks "the container exited". Every rule is gated on its own
+  //     signature: a plain non-zero exit with none of them keeps today's
+  //     behavior below, unchanged.
+  if (DATABASE_CONNECTION_SIGNATURE.test(signatureText)) return 'DATABASE_CONNECTION_FAILED';
+  if (MISSING_SECRET_SIGNATURE.test(signatureText)) return 'MISSING_SECRET';
+  if (PORT_SIGNATURE.test(signatureText)) return 'PORT_MISMATCH';
+
+  // 4e. The container itself — ECS wording for a task that never became
   //     healthy versus one whose process exited.
   if (/failed (?:elb|container) health checks|health checks? failed/.test(text)) return 'IMAGE_HEALTH_CHECK_FAILED';
   if (/essential container in task exited|exited with code|container exited|outofmemory/.test(text)) {

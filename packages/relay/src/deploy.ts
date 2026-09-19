@@ -31,6 +31,7 @@
  * auto-reversed.
  */
 
+import type { FailureEvidence } from '@deployz/contracts';
 import type { CommandExecutor, RelayCommand, RelayCommandResult } from './commands.js';
 import type { PendingStore } from './pending.js';
 import type { CloudFormationReader } from './verify.js';
@@ -195,7 +196,13 @@ export function readDeployRequest(payload: Record<string, unknown>): DeployReque
 
 type EcsDeployOutcome =
   | { readonly state: 'succeeded'; readonly alreadyRunning: boolean }
-  | { readonly state: 'failed'; readonly reason: string; readonly failureCode?: string }
+  | {
+      readonly state: 'failed';
+      readonly reason: string;
+      readonly failureCode?: string;
+      /** Phase 1 structured evidence for the classified failure, when any was observed. */
+      readonly evidence?: FailureEvidence;
+    }
   | {
       readonly state: 'in-progress';
       readonly migration?: PendingMigration;
@@ -370,6 +377,16 @@ export async function settleEcsDeploy(
         state: 'failed',
         reason: `${crashed.count} tasks of the new revision exited with code ${crashed.exitCode} (${crashed.stoppedReason})`,
         failureCode: 'CONTAINER_START_FAILED',
+        // Phase 1: the same stopped-task facts as the free text, structured —
+        // built from data already read, so it cannot throw.
+        evidence: {
+          container: {
+            exitCode: crashed.exitCode,
+            stopCode: crashed.stopCode,
+            stoppedReason: crashed.stoppedReason.length > 0 ? crashed.stoppedReason : null,
+            stoppedTaskCount: crashed.count,
+          },
+        },
       };
     }
   }
@@ -399,6 +416,7 @@ export async function settleEcsDeploy(
         state: 'failed',
         reason: outcome.reason,
         failureCode: outcome.failureCode ?? 'MIGRATION_FAILED',
+        ...(outcome.evidence ? { evidence: outcome.evidence } : {}),
       };
     }
     if (outcome.state === 'in-progress') {
@@ -472,6 +490,8 @@ type MigrationOutcome =
        * when the migration itself failed, which stays MIGRATION_FAILED.
        */
       readonly failureCode?: string;
+      /** Phase 1 structured evidence for the stopped migration task. */
+      readonly evidence?: FailureEvidence;
     };
 
 /**
@@ -643,6 +663,16 @@ async function settleMigration(
         ...(isImagePullFailure(task.stoppedReason)
           ? { failureCode: 'IMAGE_PULL_FAILED' }
           : {}),
+        // Phase 1: the stopped task's own facts, structured — read from the
+        // task already described, so it cannot throw.
+        evidence: {
+          container: {
+            exitCode: exitCode ?? null,
+            stopCode: task.stopCode ?? null,
+            stoppedReason: task.stoppedReason ?? null,
+            stoppedTaskCount: 1,
+          },
+        },
       };
     }
     const completedAt = (deps.now ?? (() => new Date().toISOString()))();
@@ -769,12 +799,13 @@ async function crashedTasksOfRevision(
   cluster: string,
   serviceArn: string,
   taskDefinitionArn: string,
-): Promise<{ count: number; exitCode: number | null; stoppedReason: string }> {
+): Promise<{ count: number; exitCode: number | null; stopCode: string | null; stoppedReason: string }> {
   const { taskArns } = await deps.ecs.listTasks({ cluster, serviceName: serviceArn, desiredStatus: 'STOPPED' });
-  if (taskArns.length === 0) return { count: 0, exitCode: null, stoppedReason: '' };
+  if (taskArns.length === 0) return { count: 0, exitCode: null, stopCode: null, stoppedReason: '' };
   const { tasks } = await deps.ecs.describeTasks({ cluster, tasks: taskArns.slice(0, 20) });
   let count = 0;
   let exitCode: number | null = null;
+  let stopCode: string | null = null;
   let stoppedReason = '';
   for (const task of tasks) {
     if (task.taskDefinitionArn !== taskDefinitionArn || task.stopCode !== 'EssentialContainerExited') continue;
@@ -782,9 +813,10 @@ async function crashedTasksOfRevision(
     if (!failed) continue;
     count += 1;
     exitCode = failed.exitCode ?? null;
+    stopCode = task.stopCode ?? stopCode;
     stoppedReason = task.stoppedReason ?? stoppedReason;
   }
-  return { count, exitCode, stoppedReason };
+  return { count, exitCode, stopCode, stoppedReason };
 }
 
 async function findServiceArn(deps: EcsDeployDeps): Promise<string | null> {
@@ -833,7 +865,12 @@ export function replaceApplicationImages(
 function result(
   command: RelayCommand,
   success: boolean,
-  extra: { output?: Record<string, unknown>; error?: string; failureCode?: string } = {},
+  extra: {
+    output?: Record<string, unknown>;
+    error?: string;
+    failureCode?: string;
+    evidence?: FailureEvidence;
+  } = {},
 ): RelayCommandResult {
   return {
     commandId: command.id,
@@ -900,6 +937,7 @@ export function createEcsDeployExecutor(deps: EcsDeployDeps): CommandExecutor {
       return result(command, false, {
         error: outcome.reason,
         ...(outcome.failureCode ? { failureCode: outcome.failureCode } : {}),
+        ...(outcome.evidence ? { evidence: outcome.evidence } : {}),
       });
     }
 
@@ -1029,6 +1067,7 @@ export function createEcsDeployResumer(deps: EcsDeployDeps): () => Promise<Relay
             success: false,
             error: outcome.reason,
             ...(outcome.failureCode ? { failureCode: outcome.failureCode } : {}),
+            ...(outcome.evidence ? { evidence: outcome.evidence } : {}),
           },
     ];
   };

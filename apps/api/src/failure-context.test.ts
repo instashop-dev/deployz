@@ -110,3 +110,55 @@ describe('toStructuredEvent', () => {
     });
   });
 });
+
+describe('buildFailureContext — Phase 1 evidence', () => {
+  const evidenceResult = {
+    success: false,
+    error: 'stack rolled back',
+    evidence: {
+      container: {
+        exitCode: 1,
+        stopCode: 'EssentialContainerExited',
+        stoppedReason: 'connect ECONNREFUSED postgres://user:sup3r-secret@host:5432/db',
+        stoppedTaskCount: 3,
+      },
+    },
+  };
+
+  it('exposes the stored evidence redacted and bounded', () => {
+    const context = buildFailureContext({
+      ...base,
+      stackEvents: [],
+      job: { type: 'INSTALL', failureCode: 'DATABASE_CONNECTION_FAILED', result: evidenceResult },
+    });
+    expect(context.evidence).toEqual({
+      container: {
+        exitCode: 1,
+        stopCode: 'EssentialContainerExited',
+        stoppedReason: 'connect ECONNREFUSED postgres://[REDACTED]@host:5432/db',
+        stoppedTaskCount: 3,
+      },
+    });
+    expect(context.evidence?.container?.stoppedReason).not.toContain('sup3r-secret');
+  });
+
+  it('reports evidence null when the result carries none', () => {
+    const context = buildFailureContext({
+      ...base,
+      stackEvents: [],
+      job: { type: 'INSTALL', failureCode: 'UNKNOWN', result: { error: 'boom' } },
+    });
+    expect(context.evidence).toBeNull();
+  });
+
+  it('carries the evidence into the AI structured event, sanitised', () => {
+    const context = buildFailureContext({
+      ...base,
+      stackEvents: [],
+      job: { type: 'INSTALL', failureCode: 'UNKNOWN', result: evidenceResult },
+    });
+    const event = toStructuredEvent(context, 'FAILED');
+    expect(event.context?.['evidence']).toEqual(context.evidence);
+    expect(JSON.stringify(event)).not.toContain('sup3r-secret');
+  });
+});
