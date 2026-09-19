@@ -110,7 +110,8 @@ import {
   showHealthBadge,
 } from '@/lib/deployment-vocabulary';
 import { DOMAIN_STATUS_LABEL } from '@/lib/domains';
-import { relativeTime } from '@/lib/diagnostics';
+import { relativeTime, containerEvidenceChips, fetchDiagnostics, retryCta, type Diagnostic, type RetryEligibility } from '@/lib/diagnostics';
+import { isAppOwnedStartupFailure } from '@/lib/diagnostic-vocabulary';
 import {
   NO_DEPLOYABLE_RELEASES_COPY,
   deployableReleases,
@@ -168,6 +169,10 @@ export default function DeploymentDetailPage() {
   const id = Array.isArray(params.id) ? (params.id[0] ?? '') : (params.id ?? '');
   const [state, setState] = useState<DetailState>({ status: 'loading' });
   const [infrastructure, setInfrastructure] = useState<InfrastructureState>({ status: 'loading' });
+  // Startup evidence + retry eligibility for a failed first install. Fetched
+  // lazily (the detail page load must not wait on it) and kept null otherwise.
+  const [diagnostics, setDiagnostics] = useState<Diagnostic[] | null>(null);
+  const diagnosticsFetchedFor = useRef<string | null>(null);
   // Signature of the last (stage, state) pair the poll observed — refetching
   // the activity feed on every 5s tick would hammer it for nothing, so it
   // only happens when this actually moved.
@@ -223,6 +228,39 @@ export default function DeploymentDetailPage() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  // Lazy, non-blocking fetch of diagnostics once the deployment is a failure.
+  // Evidence chips and the retry hint are best-effort: a failed fetch must
+  // never regress the page, which already renders from the deployment itself.
+  // Keyed on the failure *state* (a primitive boolean + the route id), not the
+  // whole `state` object: the status poll replaces `state` with a fresh object
+  // every tick, so depending on `state` re-runs this effect on every tick,
+  // which cancels the in-flight fetch via the cleanup while the
+  // `diagnosticsFetchedFor` guard suppresses the retry — leaving diagnostics
+  // (and the evidence/retry affordances they drive) permanently unloaded.
+  const deploymentFailed = state.status === 'loaded' && state.detail.state === 'FAILED';
+  useEffect(() => {
+    if (!deploymentFailed) {
+      if (diagnosticsFetchedFor.current !== null) {
+        diagnosticsFetchedFor.current = null;
+        setDiagnostics(null);
+      }
+      return;
+    }
+    if (diagnosticsFetchedFor.current === id) return;
+    diagnosticsFetchedFor.current = id;
+    let cancelled = false;
+    fetchDiagnostics(id)
+      .then((result) => {
+        if (!cancelled) setDiagnostics(result);
+      })
+      .catch(() => {
+        // Leave `diagnostics` null — the page keeps its existing copy.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [deploymentFailed, id]);
 
   // Silent background refresh of the deployment's derived status. Only the
   // `detail` object is replaced — open dialogs and in-flight actions keep
@@ -296,6 +334,7 @@ export default function DeploymentDetailPage() {
           events={state.events}
           releases={state.releases}
           infrastructure={infrastructure}
+          diagnostics={diagnostics}
           onChanged={load}
         />
       ) : null}
@@ -308,12 +347,14 @@ function DetailBody({
   events,
   releases,
   infrastructure,
+  diagnostics,
   onChanged,
 }: {
   detail: FleetDeploymentDetail;
   events: ActivityEvent[] | null;
   releases: ReleasesState;
   infrastructure: InfrastructureState;
+  diagnostics: Diagnostic[] | null;
   onChanged: () => void;
 }) {
   const previousVersion =
@@ -322,6 +363,13 @@ function DetailBody({
       : null;
   const hero = deriveHero(detail);
   const inventory = infrastructure.status === 'loaded' ? infrastructure.data : null;
+  const diagnostic = diagnostics?.[0] ?? null;
+  const evidenceChips = containerEvidenceChips(diagnostic?.evidence ?? null);
+  // The startup-evidence affordances only belong to a failed first install
+  // whose failure is the application's own — never an infra/account failure.
+  const startupFailure =
+    hero.kind === 'install-failed' &&
+    isAppOwnedStartupFailure(detail.deploymentStatus.failure?.code);
 
   return (
     <>
@@ -355,12 +403,15 @@ function DetailBody({
         <DeploymentHero
           detail={detail}
           hero={hero}
+          evidenceChips={evidenceChips}
           actions={
             <DeploymentActions
               detail={detail}
               hero={hero}
               releases={releases}
               previousVersion={previousVersion}
+              retryEligibility={diagnostic?.retryEligibility ?? null}
+              startupFailure={startupFailure}
               onChanged={onChanged}
             />
           }
@@ -571,12 +622,16 @@ function DeploymentActions({
   hero,
   releases,
   previousVersion,
+  retryEligibility,
+  startupFailure,
   onChanged,
 }: {
   detail: FleetDeploymentDetail;
   hero: HeroModel;
   releases: ReleasesState;
   previousVersion: string | null;
+  retryEligibility: RetryEligibility | null;
+  startupFailure: boolean;
   onChanged: () => void;
 }) {
   const [open, setOpen] = useState<
@@ -616,6 +671,7 @@ function DeploymentActions({
   // Recovery for a failed FIRST install: the API refuses it once any install
   // has succeeded, so it is offered exactly where the day-2 actions are not.
   const canRetryInstall = detail.state === 'FAILED' && !everRan;
+  const retryCtaKind = canRetryInstall ? retryCta(retryEligibility) : null;
   // Capability copy applies only while the deployment would otherwise be
   // actionable — an offline/busy/removed deployment reports its own reason.
   const anyCapabilityGatedOff =
@@ -659,10 +715,16 @@ function DeploymentActions({
         Actions
       </h2>
       <div className="flex flex-wrap items-center gap-2">
-        {canRetryInstall ? (
+        {retryCtaKind === 'retry' || retryCtaKind === 'legacy' ? (
           <Button size="sm" onClick={() => setOpen(open === 'retryInstall' ? null : 'retryInstall')}>
             Retry deployment
           </Button>
+        ) : null}
+        {retryCtaKind === 'contact-support' ? (
+          <span className="text-sm text-muted-foreground">Contact Deployz support</span>
+        ) : null}
+        {retryCtaKind === 'wait' ? (
+          <span className="text-sm text-muted-foreground">Check again</span>
         ) : null}
         {hero.kind === 'removal-failed' ? (
           <Button
@@ -682,6 +744,13 @@ function DeploymentActions({
             onClick={() => setOpen(open === 'deploy' ? null : 'deploy')}
           >
             Deploy Update
+          </Button>
+        ) : null}
+        {startupFailure ? (
+          <Button asChild size="sm" variant="outline">
+            <Link href={`/dashboard/deployments/${detail.id}/diagnostics#startup-evidence`}>
+              View startup evidence
+            </Link>
           </Button>
         ) : null}
         <Button asChild size="sm" variant="outline">

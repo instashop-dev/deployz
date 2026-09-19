@@ -36,7 +36,8 @@ Repository (GitHub tree, bounded)
   → AWS (customer account, through the relay only)
   → Structured job results, CloudFormation events, heartbeats
   → refineFailureCode → DeploymentFailureContext
-  → Copy-map explanation; AI explanation only for UNKNOWN, with confidence
+  → Copy-map explanation; AI explanation for the app-owned evidence-rich
+    set (UNKNOWN + startup/config codes), with confidence
   → Vendor and customer UI (plain words; raw detail behind disclosures)
 ```
 
@@ -161,9 +162,12 @@ the preflight calls the model.
    bounded, redacted representation: phase, attempt, settled and reported
    codes, blamed resource, ≤5 failed events, version. The diagnostics
    response serves it as `context` for the technical layer.
-3. **Explanation** — every known code is answered from the copy map without
-   a model call. Only `UNKNOWN` asks the AI, with the structured event
-   derived from the context, a strict `{what, why, fix, confidence}` schema,
+3. **Explanation** — every code that names an account or infrastructure
+   cause is answered from the copy map without a model call. The app-owned
+   evidence-rich set (`AI_EXPLAINABLE_FAILURE_CODES` in the diagnostics
+   route: `UNKNOWN` plus the startup/config failure codes) asks the AI,
+   with the structured event derived from the context, a strict
+   `{what, why, fix, confidence}` schema,
    the deterministic code always overriding the echoed one, one generation
    per attempt cached on `deployment_jobs`, and deterministic copy on any
    failure. Confidence below `high` is hedged on the card ("Deployz could
@@ -187,7 +191,8 @@ diagnostic-vocabulary.ts`) plus a migration.
   on transient errors and malformed output, never on 4xx.
 - Calls per lifecycle: at most one repository call per analysed commit (and
   only for an open question), one fix-instructions call per commit and
-  finding set, one explanation per failed attempt with an UNKNOWN code.
+  finding set, one explanation per failed attempt whose code is in the
+  AI-explained set (`UNKNOWN` plus the app-owned startup/config codes).
   Never on the deploy button, never per lifecycle event, never in a loop.
 
 ## Testing AI changes

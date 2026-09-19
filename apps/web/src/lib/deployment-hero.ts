@@ -3,6 +3,7 @@ import type { VendorDeploymentStatus } from '@deployz/contracts';
 import { REMOVED_PROGRESS } from './deployment-progress';
 import type { DeploymentState } from './deployment-vocabulary';
 import { everInstalled } from './deployment-vocabulary';
+import { isAppOwnedStartupFailure, STARTUP_FAILURE_TITLE } from './diagnostic-vocabulary';
 import type { DeploymentJob, FleetDeploymentDetail } from './deployments';
 import { formatReleaseVersion } from './release-version';
 
@@ -192,7 +193,9 @@ export function deriveHero(detail: HeroInput): HeroModel {
     return {
       kind: 'install-failed',
       tone: 'destructive',
-      title: 'Deployment failed',
+      title: isAppOwnedStartupFailure(status.failure?.code)
+        ? STARTUP_FAILURE_TITLE
+        : 'Deployment failed',
       description: failure?.message ?? 'The first install did not complete.',
       liveReleaseNote: null,
       showSteps: true,

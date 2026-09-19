@@ -1,5 +1,9 @@
 import { normalizeErrorText, redactSecrets, type StructuredEvent } from '@deployz/analysis';
-import type { FailureCode } from '@deployz/contracts';
+import {
+  failureEvidenceSchema,
+  type FailureCode,
+  type FailureEvidence,
+} from '@deployz/contracts';
 
 // Deployment failure context (AI MVP Phase 6) — the ONE bounded, sanitised
 // representation of a failed operation that both the diagnostics response
@@ -37,6 +41,8 @@ export interface DeploymentFailureContext {
   relevantEvents: FailureContextEvent[];
   /** The release version this operation targeted, when known. */
   applicationVersion: string | null;
+  /** Phase 1 structured evidence the relay attached to its failure; null when none. */
+  evidence: FailureEvidence | null;
 }
 
 export interface FailureContextInput {
@@ -80,6 +86,29 @@ function readString(value: unknown, key: string): string | null {
   return typeof field === 'string' && field.length > 0 ? field : null;
 }
 
+/** The stored result's evidence block, when it is present and well-formed. */
+function readEvidence(result: unknown): FailureEvidence | null {
+  if (typeof result !== 'object' || result === null) return null;
+  const parsed = failureEvidenceSchema.safeParse((result as Record<string, unknown>)['evidence']);
+  return parsed.success ? parsed.data : null;
+}
+
+/** Defence in depth: ingest already redacted the free text; bound it here regardless. */
+function sanitizedEvidence(evidence: FailureEvidence): FailureEvidence {
+  return {
+    container:
+      evidence.container === null
+        ? null
+        : {
+            ...evidence.container,
+            stoppedReason:
+              evidence.container.stoppedReason !== null
+                ? normalizeErrorText(evidence.container.stoppedReason, { maxLength: MAX_REASON_CHARS })
+                : null,
+          },
+  };
+}
+
 /**
  * Build the context. Pure: the same job, events and version always give the
  * same context. The relay's original code is kept only when refinement
@@ -98,6 +127,7 @@ export function buildFailureContext(input: FailureContextInput): DeploymentFailu
   }));
   const rawMessage = readString(input.job.result, 'error');
   const reported = readString(input.job.result, 'failureCode') as FailureCode | null;
+  const rawEvidence = readEvidence(input.job.result);
   const failureCode = input.job.failureCode ?? 'UNKNOWN';
   return {
     deploymentId: input.deploymentId,
@@ -109,6 +139,7 @@ export function buildFailureContext(input: FailureContextInput): DeploymentFailu
     message: rawMessage !== null ? normalizeErrorText(rawMessage, { maxLength: MAX_MESSAGE_CHARS }) : null,
     relevantEvents,
     applicationVersion: input.applicationVersion !== null ? redactSecrets(input.applicationVersion) : null,
+    evidence: rawEvidence !== null ? sanitizedEvidence(rawEvidence) : null,
   };
 }
 
@@ -132,6 +163,7 @@ export function toStructuredEvent(context: DeploymentFailureContext, deploymentS
       ...(context.resourceType !== null ? { resourceType: context.resourceType } : {}),
       ...(failedResources.length > 0 ? { failedResources } : {}),
       ...(context.applicationVersion !== null ? { applicationVersion: context.applicationVersion } : {}),
+      ...(context.evidence !== null ? { evidence: context.evidence } : {}),
     },
   };
 }

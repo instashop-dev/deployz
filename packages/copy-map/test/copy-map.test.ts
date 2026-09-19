@@ -249,6 +249,29 @@ describe('§61 failure codes', () => {
     }
   });
 
+  it('customer descriptions for the app-owned failure codes name the vendor as the actor', () => {
+    expect(FAILURE_CODE_COPY.CONTAINER_START_FAILED.description).toBe(
+      'The application stopped shortly after starting. The vendor needs to fix the application before deployment can continue.',
+    );
+    expect(FAILURE_CODE_COPY.IMAGE_HEALTH_CHECK_FAILED.description).toBe(
+      "The app started, but its health check isn't passing. The vendor needs to fix the application before deployment can continue.",
+    );
+    expect(FAILURE_CODE_COPY.DATABASE_CONNECTION_FAILED.description).toBe(
+      "The app can't reach the database. The vendor needs to fix the application before deployment can continue.",
+    );
+    expect(FAILURE_CODE_COPY.MIGRATION_FAILED.description).toBe(
+      "A database migration step didn't finish successfully. The vendor needs to fix the application before deployment can continue.",
+    );
+    // Configuration-class codes keep their accurate first clause; the
+    // who-acts sentence is adapted so it never contradicts the fix guidance.
+    expect(FAILURE_CODE_COPY.MISSING_SECRET.description).toBe(
+      'A required secret is not configured. The vendor needs to set it before deployment can continue.',
+    );
+    expect(FAILURE_CODE_COPY.PORT_MISMATCH.description).toBe(
+      'Your app listens on one port, but the service expects another. The vendor needs to correct it before deployment can continue.',
+    );
+  });
+
   it('gives every §61 code non-empty, jargon-free what/why/fix remediation', () => {
     for (const code of FAILURE_CODES) {
       const remediation = FAILURE_REMEDIATION[code];

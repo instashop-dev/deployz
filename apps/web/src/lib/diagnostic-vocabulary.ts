@@ -4,10 +4,11 @@ import { TONE_DOT } from '@/lib/status-tone';
  * §61 failure-code vocabulary + §65 copy mapping for the diagnostics surface.
  *
  * The UI must render each failure in what/why/fix form with a jargon-free top
- * level (§65) — NEVER raw AWS/ECS/CFN/IAM terms. This module is the single
- * source of truth for the code → label/description/severity mapping, so the
- * copy sweep (todo 34) can migrate it into packages/copy-map without touching
- * pages.
+ * level (§65) — NEVER raw AWS/ECS/CFN/IAM terms. This module is the web-local
+ * mirror of the code → label/description/severity mapping; it deliberately
+ * does NOT value-import @deployz/copy-map (a value import pulls the package
+ * into every route's module graph and inflates next-dev compilation), and
+ * copy-map-parity.test.ts fails when the mirror drifts from the package.
  *
  * The §61 codes mirror `failureCodeEnum` (packages/db) and the classifier's
  * `FAILURE_CODES` (packages/cdk) verbatim, following the same web-local
@@ -63,9 +64,10 @@ export interface FailureCopy {
 }
 
 /**
- * Human-readable §65 copy for every §61 failure code. The label + description
- * are plain English — never "AWS Service Control Policy", "ECS", "RDS", or
- * "CloudFormation" at the top level (§65). The raw code lives behind the
+ * Human-readable §65 copy for every §61 failure code — a web-local mirror of
+ * @deployz/copy-map's FAILURE_CODE_COPY (current values; the parity test
+ * fails on drift). The label + description are plain English — never raw AWS
+ * service names at the top level (§65). The raw code lives behind the
  * expandable technical-detail layer.
  */
 export const FAILURE_CODE_COPY: Record<FailureCode, FailureCopy> = {
@@ -76,7 +78,8 @@ export const FAILURE_CODE_COPY: Record<FailureCode, FailureCopy> = {
   },
   PORT_MISMATCH: {
     label: 'Port conflict',
-    description: 'Your app listens on one port, but the service expects another.',
+    description:
+      'Your app listens on one port, but the service expects another. The vendor needs to correct it before deployment can continue.',
     severity: 'warning',
   },
   REGION_NOT_SUPPORTED: {
@@ -91,12 +94,14 @@ export const FAILURE_CODE_COPY: Record<FailureCode, FailureCopy> = {
   },
   IMAGE_HEALTH_CHECK_FAILED: {
     label: 'Health check failing',
-    description: "The app started, but its health check isn't passing.",
+    description:
+      "The app started, but its health check isn't passing. The vendor needs to fix the application before deployment can continue.",
     severity: 'warning',
   },
   MIGRATION_FAILED: {
     label: 'Migration failed',
-    description: "A database migration step didn't finish successfully.",
+    description:
+      "A database migration step didn't finish successfully. The vendor needs to fix the application before deployment can continue.",
     severity: 'critical',
   },
   RELAY_DISCONNECTED: {
@@ -136,7 +141,8 @@ export const FAILURE_CODE_COPY: Record<FailureCode, FailureCopy> = {
   },
   DATABASE_CONNECTION_FAILED: {
     label: 'Database connection failed',
-    description: "The app can't reach the database.",
+    description:
+      "The app can't reach the database. The vendor needs to fix the application before deployment can continue.",
     severity: 'critical',
   },
   IMAGE_PULL_FAILED: {
@@ -146,12 +152,14 @@ export const FAILURE_CODE_COPY: Record<FailureCode, FailureCopy> = {
   },
   CONTAINER_START_FAILED: {
     label: 'App failed to start',
-    description: "The app container started but didn't stay running.",
+    description:
+      'The application stopped shortly after starting. The vendor needs to fix the application before deployment can continue.',
     severity: 'critical',
   },
   MISSING_SECRET: {
     label: 'Missing secret',
-    description: 'A required secret is not configured.',
+    description:
+      'A required secret is not configured. The vendor needs to set it before deployment can continue.',
     severity: 'warning',
   },
   TEMPLATE_UNAVAILABLE: {
@@ -220,6 +228,43 @@ export const FAILURE_SEVERITY_DOT: Record<FailureSeverity, string> = {
 export function failureCodeCopy(code: string): FailureCopy {
   return FAILURE_CODE_COPY[code as FailureCode] ?? FAILURE_CODE_COPY.UNKNOWN;
 }
+
+// ── App-owned startup failures ──────────────────────────────────────────────
+
+/**
+ * The §61 codes that name the application's own startup/config work — the
+ * vendor must fix the app before a retry can succeed; Deployz and the customer
+ * have nothing to do. The vendor detail hero and the customer install card
+ * both headline these as "Application couldn't start".
+ */
+export const APP_OWNED_STARTUP_FAILURE_CODES = [
+  'CONTAINER_START_FAILED',
+  'IMAGE_HEALTH_CHECK_FAILED',
+  'DATABASE_CONNECTION_FAILED',
+  'MIGRATION_FAILED',
+  'MISSING_SECRET',
+  'PORT_MISMATCH',
+] as const satisfies readonly FailureCode[];
+
+/** An app-owned startup failure code. */
+export type AppOwnedStartupFailureCode = (typeof APP_OWNED_STARTUP_FAILURE_CODES)[number];
+
+/** True when a failure code names the application's own startup. */
+export function isAppOwnedStartupFailure(
+  code: string | null | undefined,
+): code is AppOwnedStartupFailureCode {
+  return (
+    code !== null &&
+    code !== undefined &&
+    (APP_OWNED_STARTUP_FAILURE_CODES as readonly string[]).includes(code)
+  );
+}
+
+/** §65 headline for a failed first install whose app could not start. */
+export const STARTUP_FAILURE_TITLE = "Application couldn't start";
+
+/** §65 reassurance on the customer card — the vendor owns this, not them. */
+export const STARTUP_FAILURE_CUSTOMER_NOTE = 'No action is required from you.';
 
 // ── §61 recoverability (mirrors @deployz/copy-map verbatim) ─────────────────
 

@@ -14,6 +14,7 @@ import type { ReactNode } from 'react';
 import { DeploymentUrlCard } from '@/components/deployment-url-card';
 import { ElapsedTime, PROGRESS_DOT, timedSteps } from '@/components/deployment-progress-card';
 import { DeploymentProgressSteps } from '@/components/deployment-progress-steps';
+import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardFooter } from '@/components/ui/card';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import type { HeroModel, HeroTone } from '@/lib/deployment-hero';
@@ -45,6 +46,7 @@ export function DeploymentHero({
   hero,
   actions,
   children,
+  evidenceChips,
 }: {
   detail: FleetDeploymentDetail;
   hero: HeroModel;
@@ -52,6 +54,8 @@ export function DeploymentHero({
   actions: ReactNode;
   /** State-specific extra content (disconnect progress, retained-resource alerts). */
   children?: ReactNode;
+  /** Compact startup-evidence chips (exit code, stop code, restarts) for the failure area. */
+  evidenceChips?: string[];
 }) {
   const status = detail.deploymentStatus;
   const failure = status.failure;
@@ -107,6 +111,19 @@ export function DeploymentHero({
             <code className="rounded bg-muted px-1 py-0.5 font-mono">{failure.reference}</code>
             {' · '}Diagnostics has the full explanation and the recommended fix.
           </p>
+        ) : null}
+
+        {evidenceChips && evidenceChips.length > 0 ? (
+          <div className="flex flex-col gap-1.5">
+            <div className="flex flex-wrap items-center gap-2">
+              {evidenceChips.map((chip) => (
+                <Badge key={chip} variant="outline" className="font-mono text-xs text-muted-foreground">
+                  {chip}
+                </Badge>
+              ))}
+            </div>
+            <p className="text-xs text-muted-foreground">Raw container logs are not collected.</p>
+          </div>
         ) : null}
 
         {children}

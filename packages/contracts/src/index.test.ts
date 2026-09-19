@@ -746,6 +746,7 @@ describe('customerDeploymentStatusSchema', () => {
       ...minimal,
       stage: 'FAILED',
       failure: {
+        ownedByApplication: true,
         customerMessage: 'The application image could not be downloaded.',
         component: 'runtime',
         reference: 'DEP-ABCDEF12',
@@ -753,6 +754,13 @@ describe('customerDeploymentStatusSchema', () => {
       },
     };
     expect(customerDeploymentStatusSchema.parse(withFailure)).toStrictEqual(withFailure);
+    // The flag is required and plain boolean — false for every failure the
+    // application's own startup/config work did not cause.
+    const notAppOwned = {
+      ...withFailure,
+      failure: { ...withFailure.failure, ownedByApplication: false },
+    };
+    expect(customerDeploymentStatusSchema.parse(notAppOwned)).toStrictEqual(notAppOwned);
   });
 
   it('rejects a relay/job/aws field leaking onto the customer shape', () => {

@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   buildInstallParametersFromManifest,
   CONTAINER_PORT_PARAMETER,
+  describeStoppedTaskEvidence,
   firstFailureEvent,
   HEALTH_CHECK_PATH_PARAMETER,
   installApplicationStack,
@@ -806,5 +807,127 @@ describe('toInstaller', () => {
     const send = vi.fn().mockRejectedValue(new Error('Throttling'));
 
     await expect(toInstaller({ send }).describeStackEvents('deployz-app')).resolves.toEqual([]);
+  });
+});
+
+describe('install failure evidence (Phase 1)', () => {
+  const SERVICE_ARN = 'arn:aws:ecs:us-east-1:151955775369:service/app-cluster/app-service';
+
+  function cfnWithService() {
+    return {
+      async describeStackResources() {
+        return [
+          { logicalId: 'Service', type: 'AWS::ECS::Service', status: 'CREATE_COMPLETE', physicalId: SERVICE_ARN },
+        ];
+      },
+    };
+  }
+
+  function ecsWithStoppedTasks(
+    tasks: { taskDefinitionArn?: string; exitCode?: number; stopCode?: string; stoppedReason?: string }[],
+    failDescribe = false,
+  ) {
+    return {
+      async listTasks() {
+        return { taskArns: tasks.map((_, index) => `stopped-${index}`) };
+      },
+      async describeTasks() {
+        if (failDescribe) throw new Error('AccessDenied');
+        return {
+          tasks: tasks.map((task) => ({
+            lastStatus: 'STOPPED',
+            stopCode: task.stopCode,
+            stoppedReason: task.stoppedReason,
+            taskDefinitionArn: task.taskDefinitionArn,
+            containers: [{ exitCode: task.exitCode }],
+          })),
+        };
+      },
+    };
+  }
+
+  it("attaches the collector's evidence to a failed install", async () => {
+    const installer = scriptedInstaller([null, { status: 'ROLLBACK_COMPLETE', statusReason: 'rolled back', outputs: {} }]);
+
+    const outcome = await installApplicationStack({
+      installer,
+      installationId: 'inst-1',
+      templateUrl: 'https://example.com/app.json',
+      ...NEVER_SLEEP,
+      stoppedTaskEvidence: async () => ({
+        container: {
+          exitCode: 1,
+          stopCode: 'EssentialContainerExited',
+          stoppedReason: 'connect ECONNREFUSED 127.0.0.1:5432',
+          stoppedTaskCount: 3,
+        },
+      }),
+    });
+
+    expect(outcome.state).toBe('failed');
+    expect(outcome.state === 'failed' && outcome.evidence).toEqual({
+      container: {
+        exitCode: 1,
+        stopCode: 'EssentialContainerExited',
+        stoppedReason: 'connect ECONNREFUSED 127.0.0.1:5432',
+        stoppedTaskCount: 3,
+      },
+    });
+  });
+
+  it('omits evidence when the collector throws — the failure itself is unchanged', async () => {
+    const installer = scriptedInstaller([null, { status: 'ROLLBACK_COMPLETE', statusReason: 'rolled back', outputs: {} }]);
+
+    const outcome = await installApplicationStack({
+      installer,
+      installationId: 'inst-1',
+      templateUrl: 'https://example.com/app.json',
+      ...NEVER_SLEEP,
+      stoppedTaskEvidence: async () => {
+        throw new Error('AccessDenied');
+      },
+    });
+
+    expect(outcome.state).toBe('failed');
+    expect(outcome.state === 'failed' && outcome.reason).toContain('ROLLBACK_COMPLETE');
+    expect(outcome.state === 'failed' && outcome.evidence).toBeUndefined();
+  });
+
+  it('describeStoppedTaskEvidence takes the most common stopped task', async () => {
+    const evidence = await describeStoppedTaskEvidence(
+      {
+        cfn: cfnWithService(),
+        ecs: ecsWithStoppedTasks([
+          { exitCode: 1, stopCode: 'EssentialContainerExited', stoppedReason: 'connect ECONNREFUSED 127.0.0.1:5432' },
+          { exitCode: 1, stopCode: 'EssentialContainerExited', stoppedReason: 'connect ECONNREFUSED 127.0.0.1:5432' },
+          { exitCode: 137, stopCode: 'ServiceSchedulerInitiated', stoppedReason: 'task scaled down' },
+        ]),
+      },
+      'deployz-app',
+    );
+
+    expect(evidence).toEqual({
+      container: {
+        exitCode: 1,
+        stopCode: 'EssentialContainerExited',
+        stoppedReason: 'connect ECONNREFUSED 127.0.0.1:5432',
+        stoppedTaskCount: 2,
+      },
+    });
+  });
+
+  it('describeStoppedTaskEvidence returns null on any error or when nothing stopped', async () => {
+    await expect(
+      describeStoppedTaskEvidence({ cfn: cfnWithService(), ecs: ecsWithStoppedTasks([], true) }, 'deployz-app'),
+    ).resolves.toBeNull();
+    await expect(
+      describeStoppedTaskEvidence({ cfn: cfnWithService(), ecs: ecsWithStoppedTasks([]) }, 'deployz-app'),
+    ).resolves.toBeNull();
+    await expect(
+      describeStoppedTaskEvidence(
+        { cfn: { async describeStackResources() { return []; } }, ecs: ecsWithStoppedTasks([]) },
+        'deployz-app',
+      ),
+    ).resolves.toBeNull();
   });
 });

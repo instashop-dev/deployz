@@ -18,7 +18,7 @@
  * relay is the only thing that can remember it.
  */
 
-import type { RelayCommandProgress } from '@deployz/contracts';
+import type { FailureEvidence, RelayCommandProgress } from '@deployz/contracts';
 
 import type { RelayCommand, RelayCommandResult } from './commands.js';
 import { dispatchCommand, IdempotencyStore, type CommandExecutor } from './commands.js';
@@ -54,6 +54,7 @@ interface CommandReportPayload {
   output?: Record<string, unknown>;
   error?: string;
   failureCode?: string;
+  evidence?: FailureEvidence;
 }
 
 /** Payload for POST /api/relay/health (§59 desired-vs-observed) */
@@ -331,6 +332,7 @@ async function reportCommandResult(
     ...(result.output ? { output: result.output } : {}),
     ...(result.error ? { error: result.error } : {}),
     ...(result.failureCode ? { failureCode: result.failureCode } : {}),
+    ...(result.evidence ? { evidence: result.evidence } : {}),
   };
 
   try {

@@ -82,6 +82,7 @@ import {
 import {
   buildInstallParametersFromManifest,
   createStackInstaller,
+  describeStoppedTaskEvidence,
   installApplicationStack,
   type InstallOptions,
   type InstallOutcome,
@@ -134,6 +135,7 @@ import {
   infrastructureProfileForManifest,
   resolveApplicationTemplateUrl,
   type DeploymentManifest,
+  type FailureEvidence,
   type InfrastructureProfile,
 } from '@deployz/contracts';
 
@@ -652,6 +654,15 @@ export interface InstallExecutorDeps {
     stackName: string;
     resumeAfter?: string;
   }) => StackEventCollector;
+  /**
+   * Phase 1 stopped-task evidence for an install that reached a complete
+   * stack but failed runtime verification — the one failure class where
+   * the service and its stopped tasks still exist (the stack-level
+   * failure branch's collector often runs after CloudFormation already
+   * deleted the service). Guarded: a rejection here can never change the
+   * install outcome.
+   */
+  readonly stoppedTaskEvidence?: (stackName: string) => Promise<FailureEvidence | null>;
 }
 
 /** What `install` is asked for — `InstallOptions` minus the client seam. */
@@ -683,6 +694,8 @@ async function settleInstall(
       readonly deferred: false;
       readonly success: boolean;
       readonly error?: string;
+      /** Phase 1 structured evidence for a failure, when any was observed. */
+      readonly evidence?: FailureEvidence;
       readonly output: Record<string, unknown>;
     }
 > {
@@ -783,6 +796,7 @@ async function settleInstall(
       deferred: false,
       success: false,
       error: outcome.reason,
+      ...(outcome.evidence ? { evidence: outcome.evidence } : {}),
       output: { stackStatus: outcome.status ?? null, outputs: outcome.outputs },
     };
   }
@@ -832,12 +846,26 @@ async function settleInstall(
     }
   }
 
+  // Phase 1: a complete stack that failed verification still has its
+  // service and its stopped tasks, so the container's own verdict is
+  // collectable here. Best-effort — a throwing collector is the same as
+  // one that found nothing, and never blocks settlement.
+  let evidence: FailureEvidence | null = null;
+  if (!verification.verified && deps.stoppedTaskEvidence) {
+    try {
+      evidence = await deps.stoppedTaskEvidence(request.stackName);
+    } catch {
+      evidence = null;
+    }
+  }
+
   return {
     deferred: false,
     success: verification.verified,
     ...(verification.verified
       ? {}
       : { error: verification.reason ?? 'Installation could not be verified' }),
+    ...(evidence !== null ? { evidence } : {}),
     output: {
       stackStatus: outcome.status,
       outputs: outcome.outputs,
@@ -953,6 +981,7 @@ export function createInstallExecutor(deps: InstallExecutorDeps): CommandExecuto
             success: false,
             error: settled.error ?? 'Installation could not be verified',
             failureCode: 'STACK_CREATE_FAILED',
+            ...(settled.evidence ? { evidence: settled.evidence } : {}),
             output,
           };
     }
@@ -1136,6 +1165,7 @@ export function createInstallResumer(
             success: false,
             error: settled.error ?? 'Installation could not be verified',
             failureCode: 'STACK_CREATE_FAILED',
+            ...(settled.evidence ? { evidence: settled.evidence } : {}),
             output: settled.output,
           },
     ];
@@ -1340,15 +1370,25 @@ function createDefaultInstallDeps(
   const budget = Number(process.env['DEPLOYZ_INSTALL_BUDGET_MS'] ?? '');
   const budgetMs = Number.isFinite(budget) && budget > 0 ? budget : undefined;
   const executionRoleArn = process.env['DEPLOYZ_APPLICATION_EXECUTION_ROLE_ARN'];
+  // Phase 1: stopped-task evidence for a failed install, on the same ECS
+  // reads (and IAM) the deploy path's crash-loop detector uses — both for
+  // the stack-failure branch and the verification-failure branch.
+  const stoppedTaskEvidence = (stackName: string) =>
+    describeStoppedTaskEvidence(
+      { cfn: getCloudFormationReader(), ecs: getEcsDeployClient() },
+      stackName,
+    );
 
   return {
     installationId,
     templateUrl: process.env['DEPLOYZ_APPLICATION_TEMPLATE_URL'] ?? '',
     ...(executionRoleArn ? { executionRoleArn } : {}),
+    stoppedTaskEvidence,
     install: (options) =>
       installApplicationStack({
         ...options,
         installer: getStackInstaller(),
+        stoppedTaskEvidence,
         ...(budgetMs !== undefined ? { budgetMs } : {}),
       }),
     verify: (options) => verifyInstallation({ ...options, cfn: getCloudFormationReader() }),

@@ -822,6 +822,66 @@ describe('createInstallExecutor', () => {
     expect(result.error).toContain('ECS service');
   });
 
+  // Phase 1: a CREATE_COMPLETE stack that failed verification still has
+  // its service and stopped tasks, so the collector is wired there too —
+  // not only on the stack-level failure branch, where the service is
+  // often already deleted.
+  it('attaches stopped-task evidence when CloudFormation says complete but verification disagrees', async () => {
+    const stoppedTaskEvidence = vi.fn(async () => ({
+      container: {
+        exitCode: 1,
+        stopCode: 'EssentialContainerExited',
+        stoppedReason: 'connect ECONNREFUSED 10.0.1.5:5432',
+        stoppedTaskCount: 2,
+      },
+    }));
+
+    const result = await createInstallExecutor(
+      makeInstallDeps({
+        stoppedTaskEvidence,
+        verify: async () => ({
+          verified: false,
+          checks: [{ name: 'compute', passed: false, detail: 'No complete ECS service' }],
+          reason: 'No complete ECS service',
+        }),
+      }),
+    )(command);
+
+    expect(result.success).toBe(false);
+    expect(stoppedTaskEvidence).toHaveBeenCalledExactlyOnceWith('deployz-app');
+    expect(result.evidence).toEqual({
+      container: {
+        exitCode: 1,
+        stopCode: 'EssentialContainerExited',
+        stoppedReason: 'connect ECONNREFUSED 10.0.1.5:5432',
+        stoppedTaskCount: 2,
+      },
+    });
+  });
+
+  it('omits verification-failure evidence when the collector throws — the failure itself is unchanged', async () => {
+    const stoppedTaskEvidence = vi.fn(async () => {
+      throw new Error('AccessDenied');
+    });
+
+    const result = await createInstallExecutor(
+      makeInstallDeps({
+        stoppedTaskEvidence,
+        verify: async () => ({
+          verified: false,
+          checks: [{ name: 'compute', passed: false, detail: 'No complete ECS service' }],
+          reason: 'No complete ECS service',
+        }),
+      }),
+    )(command);
+
+    expect(result.success).toBe(false);
+    expect(result.failureCode).toBe('STACK_CREATE_FAILED');
+    expect(result.error).toContain('ECS service');
+    expect(stoppedTaskEvidence).toHaveBeenCalledOnce();
+    expect(result.evidence).toBeUndefined();
+  });
+
   it('defers - reporting nothing - while the stack is still creating', async () => {
     const result = await createInstallExecutor(
       makeInstallDeps({
