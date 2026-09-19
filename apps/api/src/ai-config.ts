@@ -67,3 +67,62 @@ export function describeAiGatewayConfig(source: Record<string, string | undefine
     problem: undefined,
   };
 }
+
+// Jev shadow-mode client configuration, resolved from the same environment.
+
+/** The default Jev model id. Override with `JEV_MODEL`. */
+export const JEV_MODEL_DEFAULT = 'jev-latest';
+
+/** How long a single Jev attempt may take. Override with `JEV_TIMEOUT_MS`. */
+export const JEV_TIMEOUT_MS_DEFAULT = 10_000;
+
+/**
+ * Jev resolved as far as the environment allows. `enabled` is false unless
+ * JEV_ENABLED=true AND both JEV_GATEWAY_URL and JEV_API_KEY are set — the
+ * client is shadow-mode only, so a partial configuration disables it with a
+ * warning rather than failing per request later.
+ */
+export interface JevConfig {
+  readonly enabled: boolean;
+  readonly baseUrl?: string | undefined;
+  readonly apiKey?: string | undefined;
+  readonly model: string;
+  readonly gatewayToken?: string | undefined;
+  readonly timeoutMs: number;
+}
+
+function parseJevTimeoutMs(value: string | undefined): number {
+  if (value === undefined || value.trim() === '') return JEV_TIMEOUT_MS_DEFAULT;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : JEV_TIMEOUT_MS_DEFAULT;
+}
+
+/**
+ * Build the Jev config. A PARTIAL configuration (one of URL/key missing while
+ * JEV_ENABLED) is treated as disabled on purpose, mirroring the AI gateway's
+ * rule — half-wired credentials fail at request time, an absent configuration
+ * degrades cleanly.
+ */
+export function resolveJevConfig(source: Record<string, string | undefined>): JevConfig {
+  const baseUrl = source.JEV_GATEWAY_URL;
+  const apiKey = source.JEV_API_KEY;
+  // Jev routes through the same Cloudflare AI Gateway as the AI explanations,
+  // so the gateway's own token is the same shared AI_GATEWAY_TOKEN.
+  const gatewayToken = source.AI_GATEWAY_TOKEN || undefined;
+  const model = source.JEV_MODEL ?? JEV_MODEL_DEFAULT;
+  const timeoutMs = parseJevTimeoutMs(source.JEV_TIMEOUT_MS);
+
+  if (source.JEV_ENABLED !== 'true') {
+    return { enabled: false, model, gatewayToken, timeoutMs };
+  }
+
+  if (!baseUrl || !apiKey) {
+    console.warn(
+      '[jev] JEV_ENABLED=true but JEV_GATEWAY_URL/JEV_API_KEY are not both set — ' +
+        'the Jev shadow client stays disabled. Set them in .env.',
+    );
+    return { enabled: false, model, gatewayToken, timeoutMs };
+  }
+
+  return { enabled: true, baseUrl, apiKey, model, gatewayToken, timeoutMs };
+}

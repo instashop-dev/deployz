@@ -3,7 +3,11 @@ import { config } from 'dotenv';
 import { SUPPORTED_AWS_REGIONS } from '@deployz/contracts';
 import type { AiGatewayConfig } from '@deployz/analysis';
 
-import { describeAiGatewayConfig } from './ai-config.js';
+import {
+  describeAiGatewayConfig,
+  resolveJevConfig,
+  type JevConfig,
+} from './ai-config.js';
 import { parseTeamAdminEmails } from './admin/auth.js';
 
 import { findEnvFile } from './find-env-file.js';
@@ -178,8 +182,17 @@ function readAiGatewayConfig(): AiGatewayConfig | undefined {
   return config;
 }
 
+// Jev shadow-mode client (PR 1 foundation — nothing consumes it yet). Default
+// OFF: JEV_ENABLED=true is required, and a partial URL/key configuration
+// stays disabled with a warning (resolveJevConfig) rather than failing per
+// request later.
+function readJevConfig(): JevConfig {
+  return resolveJevConfig(process.env);
+}
+
 export const env = {
   aiGateway: readAiGatewayConfig(),
+  jev: readJevConfig(),
   apiPort,
   apiUrl,
   webUrl,
