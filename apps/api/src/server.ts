@@ -44,6 +44,7 @@ import {
   deploymentStateAfterFailedJob,
   deploymentTypeSchema,
   failureCodeSchema,
+  failureEvidenceSchema,
   healthComponentsSchema,
   healthStatusSchema,
   httpProbeSchema,
@@ -145,6 +146,7 @@ import {
   type ReleaseImageClient,
 } from './release-images.js';
 import { buildFailureContext, toStructuredEvent } from './failure-context.js';
+import { retryEligibilityFor } from './retry-eligibility.js';
 import { buildInstallPayload, buildRelayConfigEntries, queuePostInstallConfig } from './install-config.js';
 import { requirePreflightReady, runApplicationPreflight, runDeploymentPreflight } from './preflight.js';
 import {
@@ -1074,6 +1076,21 @@ const INSTALL_JOB_STALE_AFTER_MS = 30 * 60 * 1000;
 // still reads online. One failure is retryable by the vendor; two failures
 // on a connected relay mean the delete itself is wedged.
 const REPEATED_DESTROY_FAILURES_REQUIRED = 2;
+
+// The failure codes the diagnostics route may spend a model call on:
+// UNKNOWN plus the app-owned startup/config failures, where the §16-bounded
+// evidence (redacted error, container verdict, failed resources) can sharpen
+// the deterministic copy. Every other code names an account or infrastructure
+// cause the copy map already answers unambiguously — those never reach AI.
+export const AI_EXPLAINABLE_FAILURE_CODES: ReadonlySet<FailureCode> = new Set([
+  'UNKNOWN',
+  'CONTAINER_START_FAILED',
+  'IMAGE_HEALTH_CHECK_FAILED',
+  'DATABASE_CONNECTION_FAILED',
+  'MISSING_SECRET',
+  'PORT_MISMATCH',
+  'MIGRATION_FAILED',
+]);
 
 /** 409s a deploy/rollback/restart aimed at a deployment that has nothing to
  *  deploy into — the single-deployment mirror of the skip reason deploy-bulk
@@ -5454,7 +5471,16 @@ export async function buildServer({
       .orderBy(desc(schema.deploymentJobs.createdAt))
       .limit(1);
     if (deployment.state !== 'FAILED' && latestMutating?.state !== 'FAILED') {
-      return { failureCode: null, recoverability: null, what: null, why: null, fix: null, events: [] };
+      return {
+        failureCode: null,
+        recoverability: null,
+        what: null,
+        why: null,
+        fix: null,
+        evidence: null,
+        retryEligibility: null,
+        events: [],
+      };
     }
     const events = await db
       .select()
@@ -5510,13 +5536,19 @@ export async function buildServer({
     // What the relay said, verbatim. Stored on the job all along and never
     // surfaced, which left "Technical detail" empty on every failure.
     const jobResult = failedJob?.result as { error?: string } | null;
+    // Phase 1: the relay's structured evidence, redacted again on the way
+    // out — ingest already sanitised it, but the serve path never trusts
+    // the store (same rule technicalDetail follows).
+    const contextEvidence = failureContext?.evidence ?? null;
 
-    // §22/§23/§42: a KNOWN failure code is unambiguous — the deterministic
-    // §65 copy map is the whole answer and AI is never consulted. Only
-    // UNKNOWN, where the deterministic classifier had nothing to go on, is
-    // worth spending a model call on.
+    // §22/§23/§42: a code that names an account or infrastructure cause is
+    // unambiguous — the deterministic §65 copy map is the whole answer and AI
+    // is never consulted. Only the app-owned evidence-rich set
+    // (AI_EXPLAINABLE_FAILURE_CODES — UNKNOWN plus the startup/config
+    // failures) is worth a model call, because the bounded §16 evidence can
+    // sharpen what/why/fix for a failure that lives in the application.
     let explanation: ExplanationText = { ...remediation, confidence: null };
-    if (failedJob && failureContext && failureCode === 'UNKNOWN') {
+    if (failedJob && failureContext && AI_EXPLAINABLE_FAILURE_CODES.has(failureCode)) {
       // §16: the AI explanation is built from the deterministic code plus
       // the sanitised failure context only — the relay's error redacted and
       // truncated, the first failed resources, the attempt and the version.
@@ -5534,11 +5566,24 @@ export async function buildServer({
       );
     }
 
+    // Phase 2: safe-retry eligibility for the deployment + its latest failed
+    // job — a manual-retry signal for the card, never an automatic retry.
+    // Null when there is no failed job.
+    const retryEligibility = failedJob
+      ? retryEligibilityFor({
+          state: deployment.state,
+          relayStatus: deployment.relayStatus,
+          installSucceeded: await hasSucceededInstall(db, id),
+          failureCode,
+        })
+      : null;
+
     return {
       failureCode,
       // §61 recoverability — which affordance the UI should lead with
       // (wait/reconcile, fix-then-retry, contact support, or none).
       recoverability: failureRecoverability(failureCode),
+      retryEligibility,
       what: explanation.what,
       why: explanation.why,
       fix: explanation.fix,
@@ -5550,6 +5595,24 @@ export async function buildServer({
       // Verbatim in length and wording, but never a secret: the same
       // redaction the context applies, without its truncation.
       technicalDetail: typeof jobResult?.error === 'string' ? redactSecrets(jobResult.error) : null,
+      // Phase 1: structured container evidence, redacted on
+      // the way out regardless of what ingest did — null when the relay
+      // sent none (every relay built before evidence existed).
+      evidence:
+        contextEvidence === null
+          ? null
+          : {
+              container:
+                contextEvidence.container === null
+                  ? null
+                  : {
+                      ...contextEvidence.container,
+                      stoppedReason:
+                        contextEvidence.container.stoppedReason !== null
+                          ? redactSecrets(contextEvidence.container.stoppedReason)
+                          : null,
+                    },
+            },
       // Phase 6: the normalised context — phase, codes, blamed resource, the
       // failed events — for the card's technical layer.
       context: failureContext,
@@ -6472,6 +6535,7 @@ export async function buildServer({
       error?: string;
       output?: Record<string, unknown>;
       failureCode?: string;
+      evidence?: unknown;
     };
     const state = body.success === false ? 'FAILED' : 'SUCCEEDED';
     const failureCodeParsed = state === 'FAILED' ? failureCodeSchema.safeParse(body.failureCode) : undefined;
@@ -6483,6 +6547,36 @@ export async function buildServer({
       state === 'FAILED' && body.failureCode !== undefined && !failureCodeParsed?.success
         ? body.failureCode
         : undefined;
+
+    // Phase 1 structured failure evidence: the relay's stopped-container
+    // verdict, sanitised before it is persisted or classified — its free
+    // text gets the same redaction + truncation stack-event reasons get at
+    // ingest. A block that does not parse is dropped (never stored raw);
+    // relays built before evidence existed send nothing at all.
+    const evidenceParsed =
+      body.evidence !== undefined ? failureEvidenceSchema.safeParse(body.evidence) : undefined;
+    const failureEvidence =
+      evidenceParsed !== undefined && evidenceParsed.success
+        ? {
+            container:
+              evidenceParsed.data.container === null
+                ? null
+                : {
+                    ...evidenceParsed.data.container,
+                    stoppedReason:
+                      evidenceParsed.data.container.stoppedReason !== null
+                        ? redactSecrets(evidenceParsed.data.container.stoppedReason).slice(0, 500)
+                        : null,
+                  },
+          }
+        : null;
+    if (body.evidence !== undefined) {
+      if (failureEvidence !== null) {
+        body.evidence = failureEvidence;
+      } else {
+        delete body.evidence;
+      }
+    }
 
     // §61 server-side refinement: the relay hardcodes coarse defaults (every
     // INSTALL failure is STACK_CREATE_FAILED, most thrown exceptions become
@@ -6513,6 +6607,7 @@ export async function buildServer({
         reported: reportedFailureCode,
         errorText: body.error ?? null,
         stackEvents,
+        evidence: failureEvidence,
       });
     }
 

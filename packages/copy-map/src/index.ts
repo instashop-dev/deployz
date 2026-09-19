@@ -398,7 +398,8 @@ export const FAILURE_CODE_COPY: Record<FailureCode, FailureCopy> = {
   },
   PORT_MISMATCH: {
     label: 'Port conflict',
-    description: 'Your app listens on one port, but the service expects another.',
+    description:
+      'Your app listens on one port, but the service expects another. The vendor needs to correct it before deployment can continue.',
     severity: 'warning',
   },
   REGION_NOT_SUPPORTED: {
@@ -413,12 +414,14 @@ export const FAILURE_CODE_COPY: Record<FailureCode, FailureCopy> = {
   },
   IMAGE_HEALTH_CHECK_FAILED: {
     label: 'Health check failing',
-    description: "The app started, but its health check isn't passing.",
+    description:
+      "The app started, but its health check isn't passing. The vendor needs to fix the application before deployment can continue.",
     severity: 'warning',
   },
   MIGRATION_FAILED: {
     label: 'Migration failed',
-    description: "A database migration step didn't finish successfully.",
+    description:
+      "A database migration step didn't finish successfully. The vendor needs to fix the application before deployment can continue.",
     severity: 'critical',
   },
   RELAY_DISCONNECTED: {
@@ -458,7 +461,8 @@ export const FAILURE_CODE_COPY: Record<FailureCode, FailureCopy> = {
   },
   DATABASE_CONNECTION_FAILED: {
     label: 'Database connection failed',
-    description: "The app can't reach the database.",
+    description:
+      "The app can't reach the database. The vendor needs to fix the application before deployment can continue.",
     severity: 'critical',
   },
   IMAGE_PULL_FAILED: {
@@ -468,12 +472,14 @@ export const FAILURE_CODE_COPY: Record<FailureCode, FailureCopy> = {
   },
   CONTAINER_START_FAILED: {
     label: 'App failed to start',
-    description: "The app container started but didn't stay running.",
+    description:
+      'The application stopped shortly after starting. The vendor needs to fix the application before deployment can continue.',
     severity: 'critical',
   },
   MISSING_SECRET: {
     label: 'Missing secret',
-    description: 'A required secret is not configured.',
+    description:
+      'A required secret is not configured. The vendor needs to set it before deployment can continue.',
     severity: 'warning',
   },
   TEMPLATE_UNAVAILABLE: {
@@ -512,6 +518,21 @@ export const FAILURE_CODE_COPY: Record<FailureCode, FailureCopy> = {
     severity: 'critical',
   },
 };
+
+/**
+ * The §61 codes that name the application's own startup/config work — the
+ * vendor must fix the app (or its configuration) before a retry can
+ * succeed; Deployz and the customer have nothing to do. The single source
+ * for both the server's customer-projection flag and any web-side gating.
+ */
+export const APP_OWNED_STARTUP_FAILURE_CODES: ReadonlySet<FailureCode> = new Set([
+  'CONTAINER_START_FAILED',
+  'IMAGE_HEALTH_CHECK_FAILED',
+  'DATABASE_CONNECTION_FAILED',
+  'MIGRATION_FAILED',
+  'MISSING_SECRET',
+  'PORT_MISMATCH',
+]);
 
 /** §29 what happened / why / how to fix, per failure code. */
 export interface FailureRemediation {

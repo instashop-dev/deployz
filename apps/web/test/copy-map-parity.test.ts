@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  APP_OWNED_STARTUP_FAILURE_CODES as COPY_MAP_APP_OWNED_STARTUP_FAILURE_CODES,
   COMPATIBILITY_VERDICTS,
   CUSTOMER_DEPLOYMENT_STATUS_BADGE,
   CUSTOMER_DEPLOYMENT_STATUS_LABELS,
@@ -47,6 +48,7 @@ import {
 } from '../src/lib/deployment-vocabulary';
 
 import {
+  APP_OWNED_STARTUP_FAILURE_CODES as WEB_APP_OWNED_STARTUP_FAILURE_CODES,
   FAILURE_CODE_COPY as WEB_FAILURE_CODE_COPY,
   FAILURE_CODES as WEB_FAILURE_CODES,
   FAILURE_RECOVERABILITY as WEB_FAILURE_RECOVERABILITY,
@@ -174,6 +176,12 @@ describe('§61 failure code vocabulary parity (web ↔ copy-map)', () => {
       expect(webCopy.description, `description for ${code}`).toBe(copyMapCopy.description);
       expect(webCopy.severity, `severity for ${code}`).toBe(copyMapCopy.severity);
     }
+  });
+
+  it('app-owned startup failure code sets match', () => {
+    expect([...WEB_APP_OWNED_STARTUP_FAILURE_CODES].sort()).toEqual(
+      [...COPY_MAP_APP_OWNED_STARTUP_FAILURE_CODES].sort(),
+    );
   });
 
   it('failure recoverability mappings and copy match', () => {

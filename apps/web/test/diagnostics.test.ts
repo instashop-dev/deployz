@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 
-import { toDiagnostics, type DiagnosticEvent } from '../src/lib/diagnostics';
+import {
+  containerEvidenceChips,
+  retryCta,
+  toDiagnostics,
+  type DiagnosticEvent,
+} from '../src/lib/diagnostics';
 
 // §14.3 diagnostics plumbing: the API serves the relay's verbatim error as
 // `technicalDetail`, and the card's expandable "Technical detail" disclosure
@@ -75,5 +80,65 @@ describe('toDiagnostics — explanation source and confidence (Phase 7)', () => 
       confidence: 'low',
     });
     expect(toDiagnostics({ ...base, failureCode: 'UNKNOWN', source: 'ai' })[0]?.confidence).toBe('medium');
+  });
+});
+
+describe('toDiagnostics — evidence and retry eligibility', () => {
+  it('carries evidence and retry eligibility through, and leaves both null when absent', () => {
+    const evidence = {
+      container: {
+        exitCode: 1,
+        stopCode: 'EssentialContainerExited',
+        stoppedReason: 'connect ECONNREFUSED 10.0.1.5:5432',
+        stoppedTaskCount: 3,
+      },
+    };
+    const retryEligibility = { action: 'RETRY_INSTALL', retryable: true, whoMustAct: 'VENDOR' };
+    const [diagnostic] = toDiagnostics({ ...base, evidence, retryEligibility });
+    expect(diagnostic.evidence).toEqual(evidence);
+    expect(diagnostic.retryEligibility).toEqual(retryEligibility);
+    expect(toDiagnostics({ ...base })[0]?.evidence).toBeNull();
+    expect(toDiagnostics({ ...base })[0]?.retryEligibility).toBeNull();
+  });
+});
+
+describe('containerEvidenceChips', () => {
+  it('lists only the non-null fields, and never the stopped reason', () => {
+    expect(
+      containerEvidenceChips({
+        container: {
+          exitCode: 1,
+          stopCode: 'EssentialContainerExited',
+          stoppedReason: 'secret-ish text',
+          stoppedTaskCount: 3,
+        },
+      }),
+    ).toEqual(['Exit code 1', 'Stop code EssentialContainerExited', '3 restarts']);
+  });
+
+  it('pluralises restart count and handles the minimal/absent shapes', () => {
+    expect(
+      containerEvidenceChips({
+        container: { exitCode: null, stopCode: null, stoppedReason: null, stoppedTaskCount: 1 },
+      }),
+    ).toEqual(['1 restart']);
+    expect(containerEvidenceChips({ container: null })).toEqual([]);
+    expect(containerEvidenceChips(null)).toEqual([]);
+  });
+});
+
+describe('retryCta', () => {
+  it('keeps the legacy retry button when there is no eligibility signal', () => {
+    expect(retryCta(null)).toBe('legacy');
+  });
+
+  it('maps each eligibility action onto the hero affordance', () => {
+    expect(retryCta({ action: 'RETRY_INSTALL', retryable: true, whoMustAct: 'VENDOR' })).toBe('retry');
+    expect(retryCta({ action: 'DEPLOY_AGAIN', retryable: true, whoMustAct: 'VENDOR' })).toBe('retry');
+    expect(retryCta({ action: 'CONTACT_DEPLOYZ', retryable: false, whoMustAct: 'DEPLOYZ' })).toBe(
+      'contact-support',
+    );
+    expect(retryCta({ action: 'WAIT', retryable: false, whoMustAct: null })).toBe('wait');
+    expect(retryCta({ action: 'NONE', retryable: false, whoMustAct: null })).toBe('none');
   });
 });

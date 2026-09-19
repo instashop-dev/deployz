@@ -218,3 +218,110 @@ describe('refineFailureCode — Phase 6 signatures', () => {
     ).toBe('AWS_PERMISSION_DENIED');
   });
 });
+
+describe('refineFailureCode — Phase 1 evidence signatures', () => {
+  const dbRefusal = {
+    container: {
+      exitCode: 1,
+      stopCode: 'EssentialContainerExited',
+      stoppedReason: 'connect ECONNREFUSED 10.0.1.5:5432',
+      stoppedTaskCount: 3,
+    },
+  };
+
+  it('DATABASE_CONNECTION_FAILED outranks the generic exit rule when the stopped task names ECONNREFUSED to postgres/5432', () => {
+    expect(
+      refineFailureCode({
+        reported: 'STACK_CREATE_FAILED',
+        errorText: 'Stack "deployz-app" finished in ROLLBACK_COMPLETE',
+        stackEvents: [
+          {
+            resourceType: 'AWS::ECS::Service',
+            resourceStatus: 'CREATE_FAILED',
+            resourceStatusReason: 'Resource creation cancelled',
+          },
+        ],
+        evidence: dbRefusal,
+      }),
+    ).toBe('DATABASE_CONNECTION_FAILED');
+    expect(
+      refineFailureCode({
+        reported: 'UNKNOWN',
+        errorText: '3 tasks of the new revision exited with code 1 (connect ECONNREFUSED 127.0.0.1:5432)',
+        stackEvents: [],
+      }),
+    ).toBe('DATABASE_CONNECTION_FAILED');
+  });
+
+  it('a plain non-zero exit with no signature keeps the generic CONTAINER_START_FAILED behavior', () => {
+    expect(
+      refineFailureCode({
+        reported: 'UNKNOWN',
+        errorText: '3 tasks of the new revision exited with code 1 (Essential container in task exited)',
+        stackEvents: [],
+        evidence: {
+          container: {
+            exitCode: 1,
+            stopCode: 'EssentialContainerExited',
+            stoppedReason: 'Essential container in task exited',
+            stoppedTaskCount: 3,
+          },
+        },
+      }),
+    ).toBe('CONTAINER_START_FAILED');
+  });
+
+  it('never downgrades a specific relay code, even with a database-refusal signature present', () => {
+    expect(
+      refineFailureCode({
+        reported: 'IMAGE_PULL_FAILED',
+        errorText: 'connect ECONNREFUSED 127.0.0.1:5432',
+        stackEvents: [],
+        evidence: dbRefusal,
+      }),
+    ).toBe('IMAGE_PULL_FAILED');
+  });
+
+  it('MISSING_SECRET fires on the missing-variable signature in the stopped reason', () => {
+    expect(
+      refineFailureCode({
+        reported: 'STACK_CREATE_FAILED',
+        errorText: 'Stack "deployz-app" finished in ROLLBACK_COMPLETE',
+        stackEvents: [],
+        evidence: {
+          container: {
+            exitCode: 1,
+            stopCode: 'EssentialContainerExited',
+            stoppedReason: 'Error: DATABASE_URL is not set',
+            stoppedTaskCount: 2,
+          },
+        },
+      }),
+    ).toBe('MISSING_SECRET');
+  });
+
+  it('PORT_MISMATCH fires on the port-in-use signature', () => {
+    expect(
+      refineFailureCode({
+        reported: 'UNKNOWN',
+        errorText: 'Error: listen EADDRINUSE: address already in use 0.0.0.0:3000',
+        stackEvents: [],
+      }),
+    ).toBe('PORT_MISMATCH');
+    expect(
+      refineFailureCode({
+        reported: 'STACK_CREATE_FAILED',
+        errorText: null,
+        stackEvents: [],
+        evidence: {
+          container: {
+            exitCode: 1,
+            stopCode: 'EssentialContainerExited',
+            stoppedReason: 'Error: listen EACCES 0.0.0.0:80',
+            stoppedTaskCount: 1,
+          },
+        },
+      }),
+    ).toBe('PORT_MISMATCH');
+  });
+});

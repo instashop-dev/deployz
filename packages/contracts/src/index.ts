@@ -241,6 +241,31 @@ export const failureCodeSchema = z.enum([
 ]);
 export type FailureCode = z.infer<typeof failureCodeSchema>;
 
+/**
+ * Phase 1 structured failure evidence a relay MAY attach to a failed
+ * command result: what the stopped containers said. Every field is
+ * nullable so a relay that observed only part of the picture can say
+ * exactly that, and the whole block is absent on relays built before
+ * evidence existed. Server-side use only — the result route safeParses
+ * it at ingest (parse failures are tolerated and dropped, never
+ * persisted raw) and redacts its free text before storage.
+ */
+export const failureEvidenceSchema = z.object({
+  container: z
+    .object({
+      /** The essential container's process exit code; null when ECS reported none. */
+      exitCode: z.number().nullable(),
+      /** ECS's own stop code, e.g. 'EssentialContainerExited'. */
+      stopCode: z.string().nullable(),
+      /** ECS's free-text stop reason — redacted at ingest before it is persisted. */
+      stoppedReason: z.string().nullable(),
+      /** How many stopped tasks share this verdict. */
+      stoppedTaskCount: z.number().nullable(),
+    })
+    .nullable(),
+});
+export type FailureEvidence = z.infer<typeof failureEvidenceSchema>;
+
 export const relayStatusSchema = z.enum(['CONNECTED', 'DISCONNECTED', 'UNKNOWN']);
 export type RelayStatus = z.infer<typeof relayStatusSchema>;
 
@@ -629,6 +654,12 @@ export const customerDeploymentStatusSchema = z
     technicalDetails: customerTechnicalDetailsSchema.nullable().optional(),
     failure: z
       .object({
+        // Whether the failure belongs to the application's own
+        // startup/config work — the one fact the customer card needs to say
+        // "the vendor must fix this, no action is required from you". The
+        // raw §61 code stays OFF this unauthenticated surface (§65); the
+        // vendor projection carries it.
+        ownedByApplication: z.boolean(),
         customerMessage: z.string(),
         component: z.string().nullable(),
         reference: z.string(),

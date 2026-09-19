@@ -522,6 +522,33 @@ describe('createEcsDeployExecutor', () => {
     expect(await d.pending.read()).toBeNull();
   });
 
+  it('attaches the stopped task as structured evidence alongside the migration free text (Phase 1)', async () => {
+    const state = baseState();
+    state.migrationTask = {
+      lastStatus: 'STOPPED',
+      stopCode: 'EssentialContainerExited',
+      stoppedReason: 'Error: DATABASE_URL is not set',
+      exitCode: 1,
+    };
+    const result = await run(
+      createEcsDeployExecutor(deps(state)),
+      deployCommand({
+        imageRepository: REPO,
+        imageDigest: DIGEST_V3,
+        migrationCommand: 'node migrate.js up',
+      }),
+    );
+    expect(result.success).toBe(false);
+    expect(result.evidence).toEqual({
+      container: {
+        exitCode: 1,
+        stopCode: 'EssentialContainerExited',
+        stoppedReason: 'Error: DATABASE_URL is not set',
+        stoppedTaskCount: 1,
+      },
+    });
+  });
+
   it('classifies a migration task that could not pull the image as IMAGE_PULL_FAILED, not MIGRATION_FAILED', async () => {
     const state = baseState();
     // The migration container never started: no exit code, stopped reason is
@@ -778,6 +805,45 @@ describe('createEcsDeployExecutor', () => {
     // A configured first start goes back to zero tasks.
     expect(state.updates).toEqual([{ cluster: 'app-cluster', service: SERVICE_ARN, desiredCount: 0 }]);
     expect(await d.pending.read()).toBeNull();
+  });
+
+  it('attaches the crash-loop stopped tasks as structured evidence alongside the free text (Phase 1)', async () => {
+    const state = baseState();
+    state.taskDefinition.containerDefinitions[0] = { name: 'app', image: `${REPO}@${DIGEST_V3}` };
+    state.runningDigest = null;
+    state.stoppedTasks = [
+      {
+        taskDefinitionArn: BASE_DEF_ARN,
+        exitCode: 1,
+        stopCode: 'EssentialContainerExited',
+        stoppedReason: 'connect ECONNREFUSED 10.0.1.5:5432',
+      },
+      { taskDefinitionArn: BASE_DEF_ARN, exitCode: 1, stoppedReason: 'connect ECONNREFUSED 10.0.1.5:5432' },
+      { taskDefinitionArn: BASE_DEF_ARN, exitCode: 1 },
+    ];
+    const d = deps(state);
+    await d.pending.write({
+      commandId: 'job-1',
+      idempotencyKey: 'dep-1:DEPLOY_RELEASE',
+      type: 'DEPLOY_RELEASE',
+      stackName: 'deployz-app',
+      startedAt: new Date().toISOString(),
+      payload: { imageRepository: REPO, imageDigest: DIGEST_V3 },
+    });
+
+    const results = await createEcsDeployResumer(d)();
+    expect(results).toHaveLength(1);
+    expect(results[0]!.failureCode).toBe('CONTAINER_START_FAILED');
+    expect(results[0]!.evidence).toEqual({
+      container: {
+        exitCode: 1,
+        stopCode: 'EssentialContainerExited',
+        // The loop keeps the last matching task's reason — the fake's
+        // default when a stopped task carries none.
+        stoppedReason: 'Essential container in task exited',
+        stoppedTaskCount: 3,
+      },
+    });
   });
 
   it('does not count another revision\'s exits or the scheduler\'s own stops as a crash loop', async () => {

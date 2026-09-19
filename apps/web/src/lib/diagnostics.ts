@@ -61,6 +61,33 @@ export interface DiagnosticContext {
 
 export type DiagnosticConfidence = 'high' | 'medium' | 'low';
 
+/** Container stop evidence the relay observed (Phase 1), redacted before it reaches the wire. */
+export interface ContainerEvidence {
+  exitCode: number | null;
+  stopCode: string | null;
+  stoppedReason: string | null;
+  stoppedTaskCount: number | null;
+}
+
+/** Structured startup evidence attached to a failed install; null when the relay sent none. */
+export interface DiagnosticEvidence {
+  container: ContainerEvidence | null;
+}
+
+/** The manual-retry action the API derived for the latest failure (Phase 2). */
+export type RetryEligibilityAction =
+  | 'RETRY_INSTALL'
+  | 'DEPLOY_AGAIN'
+  | 'CONTACT_DEPLOYZ'
+  | 'WAIT'
+  | 'NONE';
+
+export interface RetryEligibility {
+  action: RetryEligibilityAction;
+  retryable: boolean;
+  whoMustAct: 'VENDOR' | 'DEPLOYZ' | null;
+}
+
 export interface Diagnostic {
   failureCode: FailureCode;
   /** Where the what/why/fix text came from. */
@@ -71,6 +98,10 @@ export interface Diagnostic {
   context: DiagnosticContext | null;
   /** §61 recoverability class — which affordance the card leads with. */
   recoverability: FailureRecoverability | null;
+  /** Structured container evidence; null when the relay observed none. */
+  evidence: DiagnosticEvidence | null;
+  /** The manual-retry signal; null when there is no failed job. */
+  retryEligibility: RetryEligibility | null;
   event: DiagnosticEvent;
   explanation: DiagnosticExplanation | null;
   occurredAt: string;
@@ -91,6 +122,10 @@ interface DiagnosticsApiResponse {
   context?: DiagnosticContext | null;
   source?: 'deterministic' | 'ai';
   confidence?: DiagnosticConfidence | null;
+  /** Structured container evidence (Phase 1), redacted. Null when the relay sent none. */
+  evidence?: DiagnosticEvidence | null;
+  /** Manual-retry eligibility (Phase 2); null when there is no failed job. */
+  retryEligibility?: RetryEligibility | null;
   events: Array<{
     occurredAt: string;
     eventType: string;
@@ -119,6 +154,8 @@ export function toDiagnostics(body: DiagnosticsApiResponse): Diagnostic[] {
       confidence: body.source === 'ai' ? (body.confidence ?? 'medium') : null,
       context: body.context ?? null,
       recoverability: (body.recoverability as FailureRecoverability | undefined) ?? null,
+      evidence: body.evidence ?? null,
+      retryEligibility: body.retryEligibility ?? null,
       occurredAt: latestEvent?.occurredAt ?? new Date().toISOString(),
       event: {
         source: 'deployment',
@@ -153,6 +190,51 @@ export async function fetchDiagnostics(id: string): Promise<Diagnostic[]> {
   if (!response.ok) throw new Error(`Diagnostics request failed (${response.status})`);
   const body = (await response.json()) as DiagnosticsApiResponse;
   return toDiagnostics(body);
+}
+
+// ── Startup evidence + retry presentation helpers ───────────────────────────
+
+/**
+ * §65 evidence chips for the vendor hero: one compact label per non-null
+ * container field. The redacted free-text `stoppedReason` is deliberately NOT
+ * a chip — it only ever belongs inside the expandable evidence section.
+ */
+export function containerEvidenceChips(evidence: DiagnosticEvidence | null): string[] {
+  const container = evidence?.container ?? null;
+  if (container === null) return [];
+  const chips: string[] = [];
+  if (container.exitCode !== null) chips.push(`Exit code ${container.exitCode}`);
+  if (container.stopCode !== null) chips.push(`Stop code ${container.stopCode}`);
+  if (container.stoppedTaskCount !== null) {
+    chips.push(
+      `${container.stoppedTaskCount} restart${container.stoppedTaskCount === 1 ? '' : 's'}`,
+    );
+  }
+  return chips;
+}
+
+/** How the vendor hero's retry area should present, from the API's eligibility. */
+export type RetryCtaKind = 'retry' | 'contact-support' | 'wait' | 'none' | 'legacy';
+
+/**
+ * Map retryEligibility onto the hero's retry affordance. Null (no fetch yet, or
+ * no failed job) keeps the existing "Retry deployment" button; the action value
+ * then upgrades/replaces it: CONTACT_DEPLOYZ → a quiet support pointer, WAIT →
+ * "Check again", RETRY_INSTALL/DEPLOY_AGAIN → the retry button, NONE → nothing.
+ */
+export function retryCta(eligibility: RetryEligibility | null): RetryCtaKind {
+  if (eligibility === null) return 'legacy';
+  switch (eligibility.action) {
+    case 'CONTACT_DEPLOYZ':
+      return 'contact-support';
+    case 'WAIT':
+      return 'wait';
+    case 'RETRY_INSTALL':
+    case 'DEPLOY_AGAIN':
+      return 'retry';
+    case 'NONE':
+      return 'none';
+  }
 }
 
 // ── Relay-observed infrastructure checks ─────────────────────────────────────

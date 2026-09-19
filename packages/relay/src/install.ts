@@ -42,7 +42,10 @@ import {
 import {
   DEFAULT_APPLICATION_STACK_NAME,
   type DeploymentManifest,
+  type FailureEvidence,
 } from '@deployz/contracts';
+import type { EcsDeployClient } from './deploy.js';
+import type { CloudFormationReader } from './verify.js';
 
 /** CFN logical id of the template's container-port parameter (CDK strips the underscore from `param_ContainerPort`). */
 export const CONTAINER_PORT_PARAMETER = 'paramContainerPort';
@@ -167,6 +170,13 @@ export interface InstallOptions {
    * outcome.
    */
   readonly onPoll?: (stackName: string) => Promise<void>;
+  /**
+   * Phase 1 failure evidence: called only when the stack settles in a
+   * failure status, to describe the service's stopped tasks (see
+   * `describeStoppedTaskEvidence`). Guarded: a rejection here can never
+   * change the install outcome — evidence is enrichment, not a verdict.
+   */
+  readonly stoppedTaskEvidence?: (stackName: string) => Promise<FailureEvidence | null>;
 }
 
 export type InstallOutcome =
@@ -180,6 +190,8 @@ export type InstallOutcome =
       readonly status?: string;
       readonly reason: string;
       readonly outputs: Readonly<Record<string, string>>;
+      /** Phase 1 structured evidence from the service's stopped tasks, when any were described. */
+      readonly evidence?: FailureEvidence;
     }
   | { readonly state: 'in-progress'; readonly status: string };
 
@@ -284,7 +296,7 @@ async function run(options: InstallOptions): Promise<InstallOutcome> {
   // INSTALL safe: an existing stack is adopted, never duplicated.
   const existing = await installer.describeStack(stackName);
   if (existing !== null) {
-    const settled = await settle(existing, stackName, installer);
+    const settled = await settle(existing, stackName, installer, options.stoppedTaskEvidence);
     if (settled) return settled;
   } else {
     const refused = await createStack();
@@ -344,7 +356,7 @@ async function run(options: InstallOptions): Promise<InstallOutcome> {
 
     unreadable = 0;
     last = state;
-    const settled = await settle(state, stackName, installer);
+    const settled = await settle(state, stackName, installer, options.stoppedTaskEvidence);
     if (settled) {
       // One more collection pass now that the stack has a verdict, so the
       // tail events between the last tick and the terminal state are not
@@ -415,11 +427,82 @@ async function withResourceFailureDetail(
   );
 }
 
+/**
+ * Phase 1 container evidence for a failed install — the service's stopped
+ * tasks, described with the same reads and the same IAM the deploy path's
+ * crash-loop detector already uses (stack resources → service → stopped
+ * tasks; never logs — the relay role is denied log reads by design). The
+ * most common stopped task is the verdict. Never throws: any error means
+ * no evidence, and the failure settlement proceeds unchanged.
+ */
+export async function describeStoppedTaskEvidence(
+  deps: {
+    readonly cfn: Pick<CloudFormationReader, 'describeStackResources'>;
+    readonly ecs: Pick<EcsDeployClient, 'listTasks' | 'describeTasks'>;
+  },
+  stackName: string,
+): Promise<FailureEvidence | null> {
+  try {
+    const resources = await deps.cfn.describeStackResources(stackName);
+    const serviceArn =
+      resources.find((resource) => resource.type === 'AWS::ECS::Service')?.physicalId ?? null;
+    const cluster = serviceArn?.split('/')[1] ?? null;
+    if (serviceArn === null || cluster === null) return null;
+    const { taskArns } = await deps.ecs.listTasks({
+      cluster,
+      serviceName: serviceArn,
+      desiredStatus: 'STOPPED',
+    });
+    if (taskArns.length === 0) return null;
+    const { tasks } = await deps.ecs.describeTasks({ cluster, tasks: taskArns.slice(0, 20) });
+    const stopped = new Map<
+      string,
+      { count: number; exitCode: number | null; stopCode: string | null; stoppedReason: string | null }
+    >();
+    for (const task of tasks) {
+      const containers = task.containers ?? [];
+      const exited =
+        containers.find((container) => container.exitCode !== undefined && container.exitCode !== 0) ??
+        containers.find((container) => container.exitCode !== undefined);
+      const exitCode = exited?.exitCode ?? null;
+      const signature = `${exitCode ?? ''}\n${task.stopCode ?? ''}\n${task.stoppedReason ?? ''}`;
+      const existing = stopped.get(signature);
+      if (existing) {
+        existing.count += 1;
+        continue;
+      }
+      stopped.set(signature, {
+        count: 1,
+        exitCode,
+        stopCode: task.stopCode ?? null,
+        stoppedReason: task.stoppedReason ?? null,
+      });
+    }
+    let common: { count: number; exitCode: number | null; stopCode: string | null; stoppedReason: string | null } | null =
+      null;
+    for (const entry of stopped.values()) {
+      if (common === null || entry.count > common.count) common = entry;
+    }
+    if (common === null) return null;
+    return {
+      container: {
+        exitCode: common.exitCode,
+        stopCode: common.stopCode,
+        stoppedReason: common.stoppedReason,
+        stoppedTaskCount: common.count,
+      },
+    };
+  } catch {
+    return null;
+  }
+}
+
 /** A verdict, or `undefined` while the stack is still moving. */
 async function settle(
   state: StackState,
   stackName: string,
   installer: StackInstaller,
+  stoppedTaskEvidence?: (stackName: string) => Promise<FailureEvidence | null>,
 ): Promise<InstallOutcome | undefined> {
   if (SUCCESS_STATUSES.has(state.status)) {
     return { state: 'succeeded', status: state.status, outputs: state.outputs };
@@ -431,11 +514,23 @@ async function settle(
       stackName,
       installer,
     );
+    // Phase 1: describe the service's stopped tasks best-effort — the
+    // stack-level reason never says why the container exited. A throwing
+    // collector is the same as one that found nothing.
+    let evidence: FailureEvidence | null = null;
+    if (stoppedTaskEvidence) {
+      try {
+        evidence = await stoppedTaskEvidence(stackName);
+      } catch {
+        evidence = null;
+      }
+    }
     return {
       state: 'failed',
       status: state.status,
       reason,
       outputs: state.outputs,
+      ...(evidence !== null ? { evidence } : {}),
     };
   }
   return undefined;

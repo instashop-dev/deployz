@@ -528,6 +528,26 @@ describe('failure mapping', () => {
     });
     const customer = toCustomerDeploymentStatus(status);
     expect(customer.failure?.customerMessage).toBe('Deployment needs attention.');
+    expect(customer.failure?.ownedByApplication).toBe(false);
+  });
+
+  it('flags app-owned startup failures on the customer failure object, never the raw code', () => {
+    const startup = toCustomerDeploymentStatus(
+      derive({
+        deployment: makeDeployment({ state: 'FAILED' }),
+        jobs: [makeJob({ state: 'FAILED', failureCode: 'CONTAINER_START_FAILED' })],
+      }),
+    );
+    expect(startup.failure?.ownedByApplication).toBe(true);
+    expect(JSON.stringify(startup.failure)).not.toContain('CONTAINER_START_FAILED');
+
+    const notAppOwned = toCustomerDeploymentStatus(
+      derive({
+        deployment: makeDeployment({ state: 'FAILED' }),
+        jobs: [makeJob({ state: 'FAILED', failureCode: 'AWS_PERMISSION_DENIED' })],
+      }),
+    );
+    expect(notAppOwned.failure?.ownedByApplication).toBe(false);
   });
 
   it('reference is DEP- plus the failed job id\'s first 8 hex characters, uppercased', () => {
