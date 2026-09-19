@@ -32,6 +32,10 @@
       "types": "./dist/github.d.ts",
       "import": "./dist/github.js"
     },
+    "./jev-shadow": {
+      "types": "./dist/jev-shadow.d.ts",
+      "import": "./dist/jev-shadow.js"
+    },
     "./manifest": {
       "types": "./dist/manifest.d.ts",
       "import": "./dist/manifest.js"

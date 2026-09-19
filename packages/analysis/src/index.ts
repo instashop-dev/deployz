@@ -42,6 +42,7 @@ export {
   CMD_REGEX,
   ENTRYPOINT_REGEX,
   CMD_CHAIN_MAX_DEPTH,
+  collectDependencyNames,
 } from './detectors.js';
 export type {
   ExternalServiceDefinition,
@@ -213,3 +214,28 @@ export {
   analyseRepositoryWithAi,
   mergeAiAnalysis,
 } from './repository-ai.js';
+
+export type { JevEvidence, JevEvidenceInput } from './jev/evidence.js';
+export {
+  JEV_EVIDENCE_SCHEMA_VERSION,
+  buildJevEvidence,
+  fingerprintJevEvidence,
+  jevEvidenceSchema,
+  sanitizeSnippet,
+} from './jev/evidence.js';
+
+export { JEV_DECISION_SET_VERSION, REQUIREMENTS_NOUL_IDS, buildRequirementsQuestions } from './jev/questions.js';
+
+export type {
+  JevAgreement,
+  JevCapabilityDecision,
+  JevRequirementsShadowInput,
+  JevRequirementsShadowResult,
+} from './jev/verify.js';
+export { runJevRequirementsShadow } from './jev/verify.js';
+
+export type { JevClient, JevClientConfig } from './jev/client.js';
+export { createJevClient } from './jev/client.js';
+export { createFixtureJevClient } from './jev/fixture.js';
+export { createJevCircuitBreaker } from './jev/circuit-breaker.js';
+export { JevError } from './jev/errors.js';

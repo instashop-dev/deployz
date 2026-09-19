@@ -288,6 +288,13 @@
       "when": 1789600000000,
       "tag": "0040_public_install_links",
       "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "7",
+      "when": 1789700000000,
+      "tag": "0041_jev_shadow_verifications",
+      "breakpoints": true
     }
   ]
 }
