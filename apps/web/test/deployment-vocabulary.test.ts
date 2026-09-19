@@ -60,9 +60,9 @@ describe('§46 deployment states', () => {
 });
 
 describe('WAITING_FOR_RELAY grouping', () => {
-  it('uses the copy-map wording and outline badge', () => {
+  it('uses the copy-map wording and the neutral badge', () => {
     expect(DEPLOYMENT_STATE_LABELS.WAITING_FOR_RELAY).toBe('Waiting for AWS');
-    expect(DEPLOYMENT_STATE_BADGE.WAITING_FOR_RELAY).toBe('outline');
+    expect(DEPLOYMENT_STATE_BADGE.WAITING_FOR_RELAY).toBe('secondary');
   });
 
   it('has not completed an install — grouped with NOT_INSTALLED', () => {

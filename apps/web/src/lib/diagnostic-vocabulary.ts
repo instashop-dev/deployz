@@ -1,3 +1,5 @@
+import { TONE_DOT } from '@/lib/status-tone';
+
 /**
  * §61 failure-code vocabulary + §65 copy mapping for the diagnostics surface.
  *
@@ -201,17 +203,17 @@ export const EXPLANATION_FALLBACK = {
 // ── Presentation helpers ────────────────────────────────────────────────────
 
 /** Badge variant for a severity (maps to the shadcn/ui Badge variants). */
-export type FailureBadgeVariant = 'destructive' | 'secondary';
+export type FailureBadgeVariant = 'destructive' | 'warning';
 
 export const FAILURE_SEVERITY_BADGE: Record<FailureSeverity, FailureBadgeVariant> = {
   critical: 'destructive',
-  warning: 'secondary',
+  warning: 'warning',
 };
 
 /** Status dot tone class for a severity. */
 export const FAILURE_SEVERITY_DOT: Record<FailureSeverity, string> = {
-  critical: 'bg-destructive',
-  warning: 'bg-muted-foreground',
+  critical: TONE_DOT.negative,
+  warning: TONE_DOT.attention,
 };
 
 /** §65 lookup for a failure code — falls back safely to UNKNOWN copy. */

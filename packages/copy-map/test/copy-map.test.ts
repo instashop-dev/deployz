@@ -80,7 +80,7 @@ describe('§46 deployment states', () => {
   });
 
   it('maps every state to a valid badge variant', () => {
-    const validVariants = ['default', 'secondary', 'destructive', 'outline'];
+    const validVariants = ['default', 'secondary', 'destructive', 'outline', 'success', 'warning', 'info'];
     for (const state of DEPLOYMENT_STATES) {
       expect(validVariants, `badge for ${state}`).toContain(DEPLOYMENT_STATE_BADGE[state]);
     }

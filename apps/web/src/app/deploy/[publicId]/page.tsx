@@ -4,6 +4,7 @@ import { Loader2 } from 'lucide-react';
 import { InstallLaunchButton } from '@/components/install-launch-button';
 import { InstallProgress } from '@/components/install-progress';
 import { InstallRetryButton } from '@/components/install-retry-button';
+import { TablePanel } from '@/components/table-panel';
 import { Button } from '@/components/ui/button';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import {
@@ -190,7 +191,7 @@ export default async function DeployPage({
           </dl>
           <div>
             <h3 className="text-sm font-medium">Deployz will create</h3>
-            <div className="mt-1.5 overflow-x-auto rounded-md border">
+            <TablePanel className="mt-1.5">
               <Table>
                 <TableHeader>
                   <TableRow>
@@ -207,7 +208,7 @@ export default async function DeployPage({
                   ))}
                 </TableBody>
               </Table>
-            </div>
+            </TablePanel>
           </div>
           {regionLabel ? <p className="text-sm text-muted-foreground">Region: {regionLabel}</p> : null}
           {retentionNote ? <p className="text-sm text-muted-foreground">{retentionNote}</p> : null}

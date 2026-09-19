@@ -26,9 +26,9 @@ vi.mock('../src/lib/public-install-links', () => ({
   ...linkMocks,
   publicInstallHtmlSnippet: (url: string) => `<a href="${url}">Deploy to AWS with Deployz</a>`,
   publicInstallLinkStatusBadge: (status: string) => {
-    if (status === 'active') return { label: 'Active', variant: 'default' as const };
+    if (status === 'active') return { label: 'Active', variant: 'success' as const };
     if (status === 'disabled') return { label: 'Disabled', variant: 'secondary' as const };
-    return { label: 'Revoked', variant: 'outline' as const };
+    return { label: 'Revoked', variant: 'secondary' as const };
   },
 }));
 

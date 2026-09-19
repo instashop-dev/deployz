@@ -6,13 +6,17 @@ import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 
 import { RepositoryPicker } from '@/components/repository-picker';
-import { Badge } from '@/components/ui/badge';
+import { Badge, type BadgeVariant } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Skeleton } from '@/components/ui/skeleton';
 import { fetchApplications, type Application } from '@/lib/applications';
-import { READINESS_STATE_PRESENTATION, readinessStateFromVerdict } from '@/lib/readiness';
+import {
+  READINESS_STATE_PRESENTATION,
+  readinessBadgeVariant,
+  readinessStateFromVerdict,
+} from '@/lib/readiness';
 
 type AppsState =
   | { status: 'loading' }
@@ -175,7 +179,7 @@ function ApplicationRow({ application }: { application: Application }) {
       </TableCell>
       <TableCell className="text-muted-foreground">{application.repoFullName}</TableCell>
       <TableCell>
-        <Badge variant="secondary" data-testid={`app-card-badge-${application.id}`}>
+        <Badge variant={applicationBadgeVariant(application)} data-testid={`app-card-badge-${application.id}`}>
           {label}
         </Badge>
       </TableCell>
@@ -198,4 +202,12 @@ function applicationBadgeLabel(app: Application): string {
   }
   if (app.analysisStatus === 'FAILED') return 'Analysis failed';
   return 'Analysing';
+}
+
+function applicationBadgeVariant(app: Application): BadgeVariant {
+  if (app.compatibilityStatus) {
+    return readinessBadgeVariant(readinessStateFromVerdict(app.compatibilityStatus));
+  }
+  if (app.analysisStatus === 'FAILED') return 'destructive';
+  return 'info';
 }

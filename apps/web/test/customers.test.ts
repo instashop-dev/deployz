@@ -127,7 +127,7 @@ describe('customerDeployment', () => {
     const rollup = customerDeployment([deployment({ state: 'FAILED' })]);
     expect(rollup.status).toBe('NEEDS_ATTENTION');
     expect(rollup.label).toBe('Needs attention');
-    expect(rollup.badge).toBe('destructive');
+    expect(rollup.badge).toBe('warning');
   });
 
   it('rolls a DISCONNECTED deployment up to NEEDS_ATTENTION', () => {

@@ -57,9 +57,9 @@ describe('deployLinkUrl', () => {
 
 describe('deployLinkStatusBadge', () => {
   it('maps each status to a label and a badge variant', () => {
-    expect(deployLinkStatusBadge('active')).toEqual({ label: 'Active', variant: 'default' });
+    expect(deployLinkStatusBadge('active')).toEqual({ label: 'Active', variant: 'success' });
     expect(deployLinkStatusBadge('expired')).toEqual({ label: 'Expired', variant: 'secondary' });
-    expect(deployLinkStatusBadge('revoked')).toEqual({ label: 'Revoked', variant: 'outline' });
+    expect(deployLinkStatusBadge('revoked')).toEqual({ label: 'Revoked', variant: 'secondary' });
   });
 });
 

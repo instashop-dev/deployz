@@ -48,6 +48,7 @@ export default tseslint.config(
       // The single sanctioned raw-palette spot: status tones with no
       // semantic theme token (amber for "degraded", emerald for "ready").
       'apps/web/src/lib/deployment-vocabulary.ts',
+      'apps/web/src/lib/status-tone.ts',
       'apps/web/src/components/readiness-result.tsx',
     ],
     rules: {

@@ -125,18 +125,18 @@ describe('infrastructure expectations (Phase 6)', () => {
 });
 
 describe('infrastructure status vocabulary', () => {
-  it('ready and retained are positive', () => {
-    expect(INFRASTRUCTURE_STATUS_BADGE.ready).toBe('default');
-    expect(INFRASTRUCTURE_STATUS_BADGE.retained).toBe('default');
+  it('ready is positive; retained is neutral', () => {
+    expect(INFRASTRUCTURE_STATUS_BADGE.ready).toBe('success');
+    expect(INFRASTRUCTURE_STATUS_BADGE.retained).toBe('secondary');
   });
 
-  it('provisioning and updating are info/outline', () => {
-    expect(INFRASTRUCTURE_STATUS_BADGE.provisioning).toBe('outline');
-    expect(INFRASTRUCTURE_STATUS_BADGE.updating).toBe('outline');
+  it('provisioning, updating, and deleting are info', () => {
+    expect(INFRASTRUCTURE_STATUS_BADGE.provisioning).toBe('info');
+    expect(INFRASTRUCTURE_STATUS_BADGE.updating).toBe('info');
   });
 
-  it('deleting is warn/outline', () => {
-    expect(INFRASTRUCTURE_STATUS_BADGE.deleting).toBe('outline');
+  it('deleting is info/progress', () => {
+    expect(INFRASTRUCTURE_STATUS_BADGE.deleting).toBe('info');
   });
 
   it('failed is destructive', () => {
@@ -170,8 +170,15 @@ describe('infrastructure status vocabulary', () => {
 
 describe('infrastructure summary status vocabulary', () => {
   it('healthy is positive and failed is destructive', () => {
-    expect(INFRASTRUCTURE_SUMMARY_STATUS_BADGE.healthy).toBe('default');
+    expect(INFRASTRUCTURE_SUMMARY_STATUS_BADGE.healthy).toBe('success');
     expect(INFRASTRUCTURE_SUMMARY_STATUS_BADGE.failed).toBe('destructive');
+  });
+
+  it('degraded is attention and provisioning/updating/deleting are info', () => {
+    expect(INFRASTRUCTURE_SUMMARY_STATUS_BADGE.degraded).toBe('warning');
+    expect(INFRASTRUCTURE_SUMMARY_STATUS_BADGE.provisioning).toBe('info');
+    expect(INFRASTRUCTURE_SUMMARY_STATUS_BADGE.updating).toBe('info');
+    expect(INFRASTRUCTURE_SUMMARY_STATUS_BADGE.deleting).toBe('info');
   });
 
   it('retained and unknown are muted', () => {
