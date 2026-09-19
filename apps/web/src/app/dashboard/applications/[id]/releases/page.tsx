@@ -11,6 +11,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { releaseBuildFailureSummary } from '@deployz/copy-map';
 
 import { fetchDeploymentsForApplication } from '@/lib/deployments';
@@ -230,21 +231,21 @@ function ReleaseTable({ releases, running }: { releases: Release[]; running: Set
         <CardTitle>Release history</CardTitle>
         <CardDescription>{releases.length} {releases.length === 1 ? 'release' : 'releases'}</CardDescription>
       </CardHeader>
-      <CardContent>
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="border-b text-left">
-              <th className="pb-2 font-medium">Version</th>
-              <th className="pb-2 font-medium">Status</th>
-              <th className="pb-2 font-medium">Runtime</th>
-              <th className="pb-2 font-medium">Created</th>
-            </tr>
-          </thead>
-          <tbody>
+      <CardContent className="overflow-x-auto p-0">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Version</TableHead>
+              <TableHead>Status</TableHead>
+              <TableHead>Runtime</TableHead>
+              <TableHead>Created</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
             {releases.map((release) => (
-              <tr key={release.id} className="border-b last:border-0">
-                <td className="py-2.5 font-mono font-medium">{release.version}</td>
-                <td className="py-2.5">
+              <TableRow key={release.id}>
+                <TableCell className="font-mono font-medium">{release.version}</TableCell>
+                <TableCell>
                   <Badge variant={RELEASE_STATUS_BADGE[release.status]}>
                     {releaseStatusLabel(release.status)}
                   </Badge>
@@ -267,21 +268,21 @@ function ReleaseTable({ releases, running }: { releases: Release[]; running: Set
                       {RELEASE_UNAVAILABLE_COPY}
                     </p>
                   ) : null}
-                </td>
-                <td className="py-2.5">
-                  {running.has(release.id) ? <Badge variant="outline">Running</Badge> : null}
-                </td>
-                <td className="py-2.5 text-muted-foreground">
+                </TableCell>
+                <TableCell>
+                  {running.has(release.id) ? <Badge variant="info">Running</Badge> : null}
+                </TableCell>
+                <TableCell className="text-muted-foreground">
                   {new Date(release.createdAt).toLocaleDateString('en-US', {
                     month: 'short',
                     day: 'numeric',
                     year: 'numeric',
                   })}
-                </td>
-              </tr>
+                </TableCell>
+              </TableRow>
             ))}
-          </tbody>
-        </table>
+          </TableBody>
+        </Table>
       </CardContent>
     </Card>
   );

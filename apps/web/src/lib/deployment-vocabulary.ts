@@ -10,6 +10,8 @@
 
 import type { JobState, JobType } from '@deployz/contracts';
 
+import { TONE_DOT } from '@/lib/status-tone';
+
 // ── §46 deployment states ─────────────────────────────────────────────────
 
 /** The 10 product-vocabulary deployment states (§46). Mirrors the contracts enum. */
@@ -43,18 +45,25 @@ export const DEPLOYMENT_STATE_LABELS: Record<DeploymentState, string> = {
 };
 
 /** Badge variant per state (maps to the shadcn/ui Badge variants). */
-export type DeploymentBadgeVariant = 'default' | 'secondary' | 'destructive' | 'outline';
+export type DeploymentBadgeVariant =
+  | 'default'
+  | 'secondary'
+  | 'destructive'
+  | 'outline'
+  | 'success'
+  | 'warning'
+  | 'info';
 
 export const DEPLOYMENT_STATE_BADGE: Record<DeploymentState, DeploymentBadgeVariant> = {
   NOT_INSTALLED: 'secondary',
-  WAITING_FOR_RELAY: 'outline',
-  INSTALLING: 'outline',
-  HEALTHY: 'default',
-  UPDATING: 'outline',
+  WAITING_FOR_RELAY: 'secondary',
+  INSTALLING: 'info',
+  HEALTHY: 'success',
+  UPDATING: 'info',
   UPDATE_AVAILABLE: 'secondary',
   FAILED: 'destructive',
   DISCONNECTED: 'destructive',
-  DELETING: 'outline',
+  DELETING: 'info',
   DELETED: 'secondary',
 };
 
@@ -86,11 +95,11 @@ export const COMPONENT_STATE_LABEL: Record<ComponentState, string> = {
 
 /** Status dot color per component state — paired with the label, never color alone. */
 export const COMPONENT_STATE_DOT: Record<ComponentState, string> = {
-  HEALTHY: 'bg-primary',
-  DEGRADED: 'bg-amber-500',
-  UNHEALTHY: 'bg-destructive',
-  UNKNOWN: 'bg-muted-foreground',
-  NOT_PROVISIONED: 'bg-muted-foreground',
+  HEALTHY: TONE_DOT.positive,
+  DEGRADED: TONE_DOT.attention,
+  UNHEALTHY: TONE_DOT.negative,
+  UNKNOWN: TONE_DOT.neutral,
+  NOT_PROVISIONED: TONE_DOT.neutral,
 };
 
 /** Measured-health labels — the only user-facing wording for health. */
@@ -101,9 +110,12 @@ export const HEALTH_STATUS_LABEL: Record<HealthStatus, string> = {
   UNKNOWN: 'Health unknown',
 };
 
-export const HEALTH_STATUS_BADGE: Record<HealthStatus, 'default' | 'secondary' | 'destructive' | 'outline'> = {
-  HEALTHY: 'default',
-  DEGRADED: 'outline',
+export const HEALTH_STATUS_BADGE: Record<
+  HealthStatus,
+  'success' | 'warning' | 'destructive' | 'secondary'
+> = {
+  HEALTHY: 'success',
+  DEGRADED: 'warning',
   UNHEALTHY: 'destructive',
   UNKNOWN: 'secondary',
 };
@@ -114,10 +126,10 @@ export const HEALTH_STATUS_BADGE: Record<HealthStatus, 'default' | 'secondary' |
  * theme token. Paired with the text label; never color alone.
  */
 export const HEALTH_STATUS_DOT: Record<HealthStatus, string> = {
-  UNKNOWN: 'bg-muted-foreground',
-  HEALTHY: 'bg-primary',
-  DEGRADED: 'bg-amber-500',
-  UNHEALTHY: 'bg-destructive',
+  UNKNOWN: TONE_DOT.neutral,
+  HEALTHY: TONE_DOT.positive,
+  DEGRADED: TONE_DOT.attention,
+  UNHEALTHY: TONE_DOT.negative,
 };
 
 /**
@@ -394,7 +406,12 @@ export const INFRASTRUCTURE_COMPONENT_PURPOSE: Record<InfrastructureComponentKin
   other: '',
 };
 
-export type InfrastructureStatusBadgeVariant = 'default' | 'secondary' | 'destructive' | 'outline';
+export type InfrastructureStatusBadgeVariant =
+  | 'success'
+  | 'secondary'
+  | 'destructive'
+  | 'info'
+  | 'warning';
 
 /** Badge variant per component status — paired with the label, never color alone. */
 export const INFRASTRUCTURE_STATUS_BADGE: Record<
@@ -402,12 +419,12 @@ export const INFRASTRUCTURE_STATUS_BADGE: Record<
   InfrastructureStatusBadgeVariant
 > = {
   pending: 'secondary',
-  provisioning: 'outline',
-  ready: 'default',
-  updating: 'outline',
-  deleting: 'outline',
+  provisioning: 'info',
+  ready: 'success',
+  updating: 'info',
+  deleting: 'info',
   failed: 'destructive',
-  retained: 'default',
+  retained: 'secondary',
   removed: 'secondary',
   unknown: 'secondary',
 };
@@ -504,12 +521,12 @@ export const INFRASTRUCTURE_SUMMARY_STATUS_BADGE: Record<
   InfrastructureSummaryStatus,
   InfrastructureStatusBadgeVariant
 > = {
-  healthy: 'default',
-  provisioning: 'outline',
-  updating: 'outline',
-  degraded: 'outline',
+  healthy: 'success',
+  provisioning: 'info',
+  updating: 'info',
+  degraded: 'warning',
   failed: 'destructive',
-  deleting: 'outline',
+  deleting: 'info',
   retained: 'secondary',
   unknown: 'secondary',
 };

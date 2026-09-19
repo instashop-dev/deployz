@@ -70,9 +70,9 @@ export function deployLinkUrl(linkId: string, token: string, origin: string): st
 /** Badge label + shadcn variant for a link status. */
 export function deployLinkStatusBadge(status: DeployLinkStatus): {
   label: string;
-  variant: 'default' | 'secondary' | 'outline';
+  variant: 'success' | 'secondary';
 } {
-  if (status === 'active') return { label: 'Active', variant: 'default' };
+  if (status === 'active') return { label: 'Active', variant: 'success' };
   if (status === 'expired') return { label: 'Expired', variant: 'secondary' };
-  return { label: 'Revoked', variant: 'outline' };
+  return { label: 'Revoked', variant: 'secondary' };
 }

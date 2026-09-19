@@ -7,12 +7,19 @@
  */
 
 import type { ConnectionState, VendorConnection } from '@/lib/admin';
-import { HEALTH_STATUS_DOT } from '@/lib/deployment-vocabulary';
 import { FAILURE_CODES, failureCodeCopy } from '@/lib/diagnostic-vocabulary';
+import { TONE_DOT } from '@/lib/status-tone';
 
 // ── Per-deployment connection state ─────────────────────────────────────────
 
-export type AdminBadgeVariant = 'default' | 'secondary' | 'destructive' | 'outline';
+export type AdminBadgeVariant =
+  | 'default'
+  | 'secondary'
+  | 'destructive'
+  | 'outline'
+  | 'success'
+  | 'warning'
+  | 'info';
 
 export const CONNECTION_STATE_LABEL: Record<ConnectionState, string> = {
   CONNECTED: 'Connected',
@@ -23,21 +30,21 @@ export const CONNECTION_STATE_LABEL: Record<ConnectionState, string> = {
 };
 
 export const CONNECTION_STATE_BADGE: Record<ConnectionState, AdminBadgeVariant> = {
-  CONNECTED: 'default',
-  DEGRADED: 'outline',
+  CONNECTED: 'success',
+  DEGRADED: 'warning',
   DISCONNECTED: 'destructive',
   BOOTSTRAP_INCOMPLETE: 'secondary',
   UNKNOWN: 'secondary',
 };
 
 export const CONNECTION_STATE_DOT: Record<ConnectionState, string> = {
-  CONNECTED: 'bg-primary',
+  CONNECTED: TONE_DOT.positive,
   // Reuses deployment-vocabulary.ts's DEGRADED tone — the one sanctioned raw
   // Tailwind color for a status with no semantic theme token (docs/ui-system.md).
-  DEGRADED: HEALTH_STATUS_DOT.DEGRADED,
-  DISCONNECTED: 'bg-destructive',
-  BOOTSTRAP_INCOMPLETE: 'bg-muted-foreground',
-  UNKNOWN: 'bg-muted-foreground',
+  DEGRADED: TONE_DOT.attention,
+  DISCONNECTED: TONE_DOT.negative,
+  BOOTSTRAP_INCOMPLETE: TONE_DOT.neutral,
+  UNKNOWN: TONE_DOT.neutral,
 };
 
 /**
@@ -76,7 +83,7 @@ export const VENDOR_CONNECTION_LABEL: Record<VendorConnection, string> = {
 };
 
 export const VENDOR_CONNECTION_BADGE: Record<VendorConnection, AdminBadgeVariant> = {
-  CONNECTED: 'default',
+  CONNECTED: 'success',
   DISCONNECTED: 'destructive',
   NONE: 'secondary',
   UNKNOWN: 'secondary',
@@ -85,7 +92,7 @@ export const VENDOR_CONNECTION_BADGE: Record<VendorConnection, AdminBadgeVariant
 // ── STUCK presentation (shared job/deployment flag) ─────────────────────────
 
 export const STUCK_LABEL = 'Stuck';
-export const STUCK_BADGE: AdminBadgeVariant = 'destructive';
+export const STUCK_BADGE: AdminBadgeVariant = 'warning';
 export const STUCK_EXPLANATION =
   'This has not made progress in longer than expected for its type and may need a recovery action.';
 
@@ -115,10 +122,10 @@ export const JOB_PRESENTATION_LABEL: Record<AdminJobPresentationState, string> =
 };
 
 export const JOB_PRESENTATION_BADGE: Record<AdminJobPresentationState, AdminBadgeVariant> = {
-  QUEUED: 'secondary',
-  RUNNING: 'outline',
+  QUEUED: 'info',
+  RUNNING: 'info',
   STUCK: STUCK_BADGE,
-  SUCCEEDED: 'default',
+  SUCCEEDED: 'success',
   FAILED: 'destructive',
   CANCELLED: 'secondary',
 };

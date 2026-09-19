@@ -16,6 +16,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { TablePanel } from '@/components/table-panel';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { installPlanRegionLabel, installPlanRetentionNote, installPlanRows } from '@/lib/install-plan';
 import { confirmPublicInstall } from '@/lib/public-install-confirm';
@@ -225,7 +226,7 @@ export function PublicInstallFlow({ linkId, resolve }: PublicInstallFlowProps) {
         <h2 id="public-review" className="text-base font-semibold">
           Review
         </h2>
-        <div className="overflow-x-auto rounded-md border">
+        <TablePanel>
           <Table>
             <TableHeader>
               <TableRow>
@@ -242,7 +243,7 @@ export function PublicInstallFlow({ linkId, resolve }: PublicInstallFlowProps) {
               ))}
             </TableBody>
           </Table>
-        </div>
+        </TablePanel>
         <AwsInfrastructureDetails plan={resolve.plan} region={region} />
         {region ? (
           <p className="text-sm text-muted-foreground">

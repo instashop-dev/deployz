@@ -50,8 +50,9 @@ describe('connection state vocabulary', () => {
   });
 
   it('CONNECTED is a positive badge; DISCONNECTED is destructive', () => {
-    expect(CONNECTION_STATE_BADGE.CONNECTED).toBe('default');
+    expect(CONNECTION_STATE_BADGE.CONNECTED).toBe('success');
     expect(CONNECTION_STATE_BADGE.DISCONNECTED).toBe('destructive');
+    expect(CONNECTION_STATE_BADGE.DEGRADED).toBe('warning');
   });
 
   it('every non-CONNECTED state has a problem callout with heading and body', () => {
@@ -144,7 +145,15 @@ describe('STUCK presentation', () => {
   it('STUCK label and badge match the shared constants', () => {
     expect(JOB_PRESENTATION_LABEL.STUCK).toBe(STUCK_LABEL);
     expect(JOB_PRESENTATION_BADGE.STUCK).toBe(STUCK_BADGE);
-    expect(STUCK_BADGE).toBe('destructive');
+    expect(STUCK_BADGE).toBe('warning');
+  });
+
+  it('job presentation badges follow the tone system', () => {
+    expect(JOB_PRESENTATION_BADGE.QUEUED).toBe('info');
+    expect(JOB_PRESENTATION_BADGE.RUNNING).toBe('info');
+    expect(JOB_PRESENTATION_BADGE.SUCCEEDED).toBe('success');
+    expect(JOB_PRESENTATION_BADGE.FAILED).toBe('destructive');
+    expect(JOB_PRESENTATION_BADGE.CANCELLED).toBe('secondary');
   });
 });
 

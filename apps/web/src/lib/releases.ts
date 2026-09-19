@@ -76,9 +76,9 @@ export async function createRelease(
   };
 }
 
-export const RELEASE_STATUS_BADGE: Record<ReleaseStatus, 'default' | 'secondary' | 'destructive'> = {
-  BUILDING: 'secondary',
-  READY: 'default',
+export const RELEASE_STATUS_BADGE: Record<ReleaseStatus, 'success' | 'info' | 'destructive' | 'secondary'> = {
+  BUILDING: 'info',
+  READY: 'success',
   FAILED: 'destructive',
   UNAVAILABLE: 'secondary',
 };

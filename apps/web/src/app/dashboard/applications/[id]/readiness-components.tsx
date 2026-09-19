@@ -171,7 +171,7 @@ export function ReadinessTableRow({
         </TableCell>
         <TableCell className="text-muted-foreground">{finding.suggestedOutcome}</TableCell>
         <TableCell>
-          <Badge variant={isRequired ? 'destructive' : 'outline'}>
+          <Badge variant={isRequired ? 'destructive' : 'warning'}>
             {isRequired ? 'Blocking issue' : 'Recommendation'}
           </Badge>
         </TableCell>
@@ -196,7 +196,7 @@ export function ReadinessTableRow({
         <TableCell>{check.label}</TableCell>
         <TableCell className="text-muted-foreground">—</TableCell>
         <TableCell>
-          <Badge variant="default">Passed</Badge>
+          <Badge variant="success">Passed</Badge>
         </TableCell>
         <TableCell />
       </TableRow>
@@ -258,7 +258,7 @@ export function ReadinessTableRow({
         {setting.status ? (
           <ReadinessStatusBadge status={setting.status} />
         ) : (
-          <Badge variant="default">Passed</Badge>
+          <Badge variant="success">Passed</Badge>
         )}
       </TableCell>
       <TableCell>
@@ -280,13 +280,13 @@ export function ReadinessTableRow({
 function ReadinessStatusBadge({ status }: { status: ReadinessRequirementStatus }) {
   switch (status) {
     case 'required':
-      return <Badge variant="default">Required</Badge>;
+      return <Badge variant="secondary">Required</Badge>;
     case 'not-required':
       return <Badge variant="secondary">Not required</Badge>;
     case 'vendor-override':
-      return <Badge variant="outline">Vendor override</Badge>;
+      return <Badge variant="warning">Vendor override</Badge>;
     case 'needs-review':
-      return <Badge variant="outline">Needs review</Badge>;
+      return <Badge variant="warning">Needs review</Badge>;
   }
 }
 

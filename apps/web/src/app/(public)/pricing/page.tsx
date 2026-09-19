@@ -6,6 +6,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Separator } from '@/components/ui/separator';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 
 export const metadata: Metadata = {
   title: 'Pricing',
@@ -80,23 +81,23 @@ export default function PricingPage() {
                 Base subscription is $49/month. Each live deployment adds $19/month.
               </CardDescription>
             </CardHeader>
-            <CardContent>
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b text-left">
-                    <th className="pb-2 font-medium">Deployments</th>
-                    <th className="pb-2 text-right font-medium">Monthly total</th>
-                  </tr>
-                </thead>
-                <tbody>
+            <CardContent className="overflow-x-auto p-0">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Deployments</TableHead>
+                    <TableHead className="text-right">Monthly total</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
                   {USAGE_ROWS.map((row) => (
-                    <tr key={row.count} className="border-b last:border-0">
-                      <td className="py-2.5">{row.deployments}</td>
-                      <td className="py-2.5 text-right font-medium tabular-nums">{row.total}</td>
-                    </tr>
+                    <TableRow key={row.count}>
+                      <TableCell>{row.deployments}</TableCell>
+                      <TableCell className="text-right font-medium tabular-nums">{row.total}</TableCell>
+                    </TableRow>
                   ))}
-                </tbody>
-              </table>
+                </TableBody>
+              </Table>
             </CardContent>
           </Card>
         </section>
