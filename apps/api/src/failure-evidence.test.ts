@@ -84,6 +84,7 @@ describe('relay result evidence ingest and serving', () => {
       evidence: {
         container: { exitCode: number | null; stopCode: string | null; stoppedReason: string | null; stoppedTaskCount: number | null } | null;
       } | null;
+      retryEligibility: { action: string; retryable: boolean; whoMustAct: string | null } | null;
     };
   }
 
@@ -172,6 +173,12 @@ describe('relay result evidence ingest and serving', () => {
     });
     expect(diagnostics.evidence?.container?.stoppedReason).toContain('[REDACTED]@host:5432/db');
     expect(diagnostics.evidence?.container?.stoppedReason).not.toContain('user:pass');
+
+    expect(diagnostics.retryEligibility).toEqual({
+      action: 'RETRY_INSTALL',
+      retryable: true,
+      whoMustAct: 'VENDOR',
+    });
   });
 
   it('drops an unparseable evidence block instead of persisting it raw', async () => {
@@ -235,5 +242,12 @@ describe('relay result evidence ingest and serving', () => {
 
     const diagnostics = await getDiagnostics(deployment.id);
     expect(diagnostics.evidence).toBeNull();
+  });
+
+  it('reports retryEligibility null when there is no failed job', async () => {
+    const deployment = await seedDeployment();
+
+    const diagnostics = await getDiagnostics(deployment.id);
+    expect(diagnostics.retryEligibility).toBeNull();
   });
 });

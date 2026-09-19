@@ -146,6 +146,7 @@ import {
   type ReleaseImageClient,
 } from './release-images.js';
 import { buildFailureContext, toStructuredEvent } from './failure-context.js';
+import { retryEligibilityFor } from './retry-eligibility.js';
 import { buildInstallPayload, buildRelayConfigEntries, queuePostInstallConfig } from './install-config.js';
 import { requirePreflightReady, runApplicationPreflight, runDeploymentPreflight } from './preflight.js';
 import {
@@ -5404,7 +5405,16 @@ export async function buildServer({
       .orderBy(desc(schema.deploymentJobs.createdAt))
       .limit(1);
     if (deployment.state !== 'FAILED' && latestMutating?.state !== 'FAILED') {
-      return { failureCode: null, recoverability: null, what: null, why: null, fix: null, evidence: null, events: [] };
+      return {
+        failureCode: null,
+        recoverability: null,
+        what: null,
+        why: null,
+        fix: null,
+        evidence: null,
+        retryEligibility: null,
+        events: [],
+      };
     }
     const events = await db
       .select()
@@ -5488,11 +5498,24 @@ export async function buildServer({
       );
     }
 
+    // Phase 2: safe-retry eligibility for the deployment + its latest failed
+    // job — a manual-retry signal for the card, never an automatic retry.
+    // Null when there is no failed job.
+    const retryEligibility = failedJob
+      ? retryEligibilityFor({
+          state: deployment.state,
+          relayStatus: deployment.relayStatus,
+          installSucceeded: await hasSucceededInstall(db, id),
+          failureCode,
+        })
+      : null;
+
     return {
       failureCode,
       // §61 recoverability — which affordance the UI should lead with
       // (wait/reconcile, fix-then-retry, contact support, or none).
       recoverability: failureRecoverability(failureCode),
+      retryEligibility,
       what: explanation.what,
       why: explanation.why,
       fix: explanation.fix,
