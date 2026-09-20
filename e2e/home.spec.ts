@@ -127,8 +127,8 @@ test('D — the only deployment is followed while it is still being set up', asy
 test('E — several deployments switch the homepage to the fleet view', async ({ page }) => {
   await signUp(page);
   const application = await seedApplication(page);
-  const first = await seedDeployment(page, application.id);
-  const second = await seedDeployment(page, application.id);
+  await seedDeployment(page, application.id);
+  await seedDeployment(page, application.id);
 
   await page.goto('/dashboard');
   await expect(page.getByRole('heading', { name: 'Deployments', exact: true })).toBeVisible();
@@ -137,21 +137,13 @@ test('E — several deployments switch the homepage to the fleet view', async ({
   const summary = page.getByTestId('fleet-summary');
   await expect(summary).toContainText('2');
   await expect(summary).toContainText('Waiting to install');
-
-  const list = page.getByTestId('home-deployment-list');
-  await expect(list.locator('tbody tr')).toHaveCount(2);
-  await expect(list).toContainText(first.customerName);
-  await expect(list).toContainText(second.customerName);
-
-  await list.getByRole('link', { name: new RegExp(second.customerName) }).click();
-  await page.waitForURL(`**/dashboard/deployments/${second.id}`);
 });
 
-test('a failed deployment is surfaced before the list', async ({ page }) => {
+test('a failed deployment is surfaced in the fleet summary', async ({ page }) => {
   await signUp(page);
   const application = await seedApplication(page);
-  const healthy = await seedDeployment(page, application.id);
   const broken = await seedDeployment(page, application.id);
+  await seedDeployment(page, application.id);
 
   await page.route(`${API_URL}/api/deployments`, async (route) => {
     const response = await route.fetch();
@@ -165,10 +157,8 @@ test('a failed deployment is surfaced before the list', async ({ page }) => {
   });
 
   await page.goto('/dashboard');
-  const attention = page.getByTestId('needs-attention');
-  await expect(attention).toContainText(broken.customerName);
-  await expect(attention).toContainText('Deployment failed');
-  await expect(attention).not.toContainText(healthy.customerName);
+  const summary = page.getByTestId('fleet-summary');
+  await expect(summary).toContainText('Needs attention');
   await expect(page.getByText('All deployments healthy')).toBeHidden();
 });
 
@@ -190,7 +180,7 @@ test('the homepage fits a phone without sideways scrolling', async ({ page }) =>
   await seedDeployment(page, application.id);
 
   await page.goto('/dashboard');
-  await expect(page.getByTestId('home-deployment-list')).toBeVisible();
+  await expect(page.getByTestId('fleet-summary')).toBeVisible();
   const overflows = await page.evaluate(
     () => document.documentElement.scrollWidth > document.documentElement.clientWidth,
   );

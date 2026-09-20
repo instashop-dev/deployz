@@ -10,8 +10,7 @@ import { SidebarTrigger } from '@/components/ui/sidebar';
 import { UserMenu } from '@/components/user-menu';
 
 // Team Admin's header: sidebar trigger, the prominent global search (submits
-// to /admin/search?q=…), and the reused UserMenu. Mirrors SiteHeader's
-// layout, but the search bar replaces the section label — global search is
+// to /admin/search?q=…), and the reused UserMenu. Global search is
 // the primary cross-tenant lookup tool, not a secondary affordance.
 export function AdminHeader({ user }: { user: { name: string; email: string } }) {
   const router = useRouter();
