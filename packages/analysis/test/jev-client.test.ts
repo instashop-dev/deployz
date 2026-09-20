@@ -21,7 +21,7 @@ interface RecordedRequest {
 const config: JevClientConfig = {
   // Trailing slash on purpose: the client must strip it before joining
   // /v1/systemone.
-  baseUrl: 'https://gateway.ai.cloudflare.com/v1/acct-123/gw-456/custom-typesafe/',
+  baseUrl: 'https://gateway.ai.cloudflare.com/v1/acct-123/gw-456/custom-typesafe-ai/',
   apiKey: 'jev-key-aaa',
   model: 'jev-test',
   gatewayToken: 'gateway-token-bbb',
@@ -126,7 +126,7 @@ describe('createJevClient — endpoint and headers', () => {
     await client.evaluate(state, questions, { label: 'test' });
 
     expect(recorded[0]?.url).toBe(
-      'https://gateway.ai.cloudflare.com/v1/acct-123/gw-456/custom-typesafe/v1/systemone',
+      'https://gateway.ai.cloudflare.com/v1/acct-123/gw-456/custom-typesafe-ai/v1/systemone',
     );
     expect(recorded[0]?.method).toBe('POST');
   });
@@ -210,8 +210,34 @@ describe('createJevClient — success', () => {
 
     expect(result.model).toBe('jev-test');
     expect(result.usage).toEqual({ input_tokens: 12, output_tokens: 34 });
+    // Absent extras stay valid: no id/provider/usage cost in the canned body.
+    expect(result.usageCost).toBeUndefined();
     expect(result.attempts).toBe(1);
     expect(result.latencyMs).toBeGreaterThanOrEqual(0);
+  });
+
+  it('returns and logs the usage cost when the response carries one, echoing the resolved model', async () => {
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const { fetchFn } = scriptedFetch([
+      () =>
+        jsonResponse(200, {
+          id: 'gen-dec-test',
+          provider: 'TypeSafe',
+          // TypeSafe resolves the jev-latest alias to the versioned id.
+          model: 'jev-1.13-20260917',
+          answers: successBody.answers,
+          usage: { input_tokens: 12, output_tokens: 34, cost: 0.000126 },
+        }),
+    ]);
+    const client = createJevClient({ ...config, fetchImpl: fetchFn });
+
+    const result = await client.evaluate(state, questions, { label: 'cost-test' });
+
+    // The RESOLVED versioned id, never the requested model alias.
+    expect(result.model).toBe('jev-1.13-20260917');
+    expect(result.usageCost).toBe(0.000126);
+    const line = JSON.parse(String(log.mock.calls[0]?.[0])) as Record<string, unknown>;
+    expect(line.costUsd).toBe(0.000126);
   });
 });
 
@@ -268,6 +294,18 @@ describe('createJevClient — non-retryable failures', () => {
   it('classifies a non-JSON body as malformed with exactly one attempt', async () => {
     const { fetchFn, callCount } = scriptedFetch([
       () => new Response('not json', { status: 200, headers: { 'content-type': 'application/json' } }),
+    ]);
+    const client = createJevClient({ ...config, fetchImpl: fetchFn, sleep: noSleep });
+
+    await expect(client.evaluate(state, questions, { label: 'test' })).rejects.toMatchObject({
+      kind: 'malformed',
+    });
+    expect(callCount()).toBe(1);
+  });
+
+  it('still rejects an unknown top-level key as malformed', async () => {
+    const { fetchFn, callCount } = scriptedFetch([
+      () => jsonResponse(200, { ...successBody, extra: 'not part of the contract' }),
     ]);
     const client = createJevClient({ ...config, fetchImpl: fetchFn, sleep: noSleep });
 

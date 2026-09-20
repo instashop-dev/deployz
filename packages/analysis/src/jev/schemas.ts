@@ -112,12 +112,22 @@ export const jevUsageSchema = z
   .object({
     input_tokens: z.number().int().nonnegative(),
     output_tokens: z.number().int().nonnegative(),
+    /** Usage cost in USD. Optional — only the OpenRouter route reports it. */
+    cost: z.number().optional(),
   })
   .strict();
 export type JevUsage = z.infer<typeof jevUsageSchema>;
 
 export const jevResponseSchema = z
   .object({
+    /** The provider's response id (e.g. "gen-dec-..."). Optional. */
+    id: z.string().optional(),
+    /** The provider behind the decision (e.g. "TypeSafe"). Optional. */
+    provider: z.string().optional(),
+    /**
+     * The model that RAN the decision — the provider's RESOLVED versioned
+     * slug, which is not necessarily the requested model id.
+     */
     model: z.string(),
     answers: z.record(z.string(), jevAnswerSchema),
     usage: jevUsageSchema,

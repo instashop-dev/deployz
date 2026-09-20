@@ -1,8 +1,9 @@
 /**
  * The Jev client seam — a typed decision model behind the Cloudflare AI
- * Gateway's custom-provider endpoint, structured to mirror `ai-gateway.ts`:
- * per-attempt timeout, bounded retry with fixed backoff, and ONE structured
- * log line per evaluate call.
+ * Gateway's `typesafe-ai` custom provider, on TypeSafe's native typed
+ * decisions API, structured to mirror `ai-gateway.ts`: per-attempt timeout,
+ * bounded retry with fixed backoff, and ONE structured log line per evaluate
+ * call.
  *
  * PR 1 foundation: shadow-mode only, nothing in production calls it yet.
  * Everything is injectable (`fetchImpl`, `sleep`, `breaker`) so tests drive
@@ -35,8 +36,9 @@ const ENDPOINT_PATH = '/v1/systemone';
 export interface JevClientConfig {
   /**
    * The custom-provider base, e.g.
-   * `https://gateway.ai.cloudflare.com/v1/{account}/{gateway}/custom-typesafe`.
-   * A trailing slash is stripped; `/v1/systemone` is appended once.
+   * `https://gateway.ai.cloudflare.com/v1/{account}/{gateway}/custom-typesafe-ai`.
+   * A trailing slash is stripped; `/v1/systemone` is appended once — correct
+   * for any custom provider rooted at `https://api.typesafe.ai`.
    */
   readonly baseUrl: string;
   /** The Jev API key. Sent as `Authorization: Bearer`. */
@@ -70,6 +72,8 @@ export interface JevEvaluateResult {
   readonly answers: Record<string, JevAnswer>;
   readonly model: string;
   readonly usage: JevUsage;
+  /** Reported usage cost in USD — present only when the provider reports one. */
+  readonly usageCost?: number | undefined;
   readonly latencyMs: number;
   readonly attempts: number;
 }
@@ -195,16 +199,19 @@ export function createJevClient(config: JevClientConfig): JevClient {
           if (!parsed.success) {
             throw new JevError('malformed', { attempts: attempt });
           }
+          const usageCost = parsed.data.usage.cost;
 
           config.breaker?.recordSuccess();
           emit(true, attempt, {
             inputTokens: parsed.data.usage.input_tokens,
             outputTokens: parsed.data.usage.output_tokens,
+            ...(usageCost !== undefined ? { costUsd: usageCost } : {}),
           });
           return {
             answers: parsed.data.answers,
             model: parsed.data.model,
             usage: parsed.data.usage,
+            ...(usageCost !== undefined ? { usageCost } : {}),
             latencyMs: Date.now() - start,
             attempts: attempt,
           };
