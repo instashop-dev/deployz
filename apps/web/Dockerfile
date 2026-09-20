@@ -84,10 +84,11 @@ ENV HOSTNAME=0.0.0.0
 # outputFileTracingRoot is the repo root, so the standalone tree mirrors the
 # workspace layout: the entry point is apps/web/server.js with node_modules
 # hoisted to the tree root. .next/static is deliberately NOT part of the
-# standalone output and has to be copied separately. There is no
-# apps/web/public directory in this repo, so nothing is copied from one.
+# standalone output and has to be copied separately. The same applies to
+# apps/web/public, which holds the brand icons that the web manifest uses.
 COPY --from=build /repo/apps/web/.next/standalone ./
 COPY --from=build /repo/apps/web/.next/static ./apps/web/.next/static
+COPY --from=build /repo/apps/web/public ./apps/web/public
 
 USER node
 EXPOSE 3000

@@ -1,0 +1,12 @@
+{
+  "masterPathSha256": "522c16962b5101765597d0bcbd2176ed21ae8945e7b8d9545294e0d324bf3907",
+  "raster": {
+    "src/app/favicon.ico": "90c69b7512eaf0beb60cf0b44067e86d9e5d7a3941d8ae702c1324025865015c",
+    "src/app/apple-icon.png": "939ed19e59f8005a0760cc6e0afee4adbe0d337086df4b2115aedc44aa0396ea",
+    "public/brand/deployz/android-chrome-192x192.png": "b9764f4a9bb4502520360e678bb841634de77e4af4eed492be42114e958021b9",
+    "public/brand/deployz/android-chrome-512x512.png": "8d9a1fdf2ed4fd647cc87eb6921fa207d9d5a1eb501480d4ad4c05733f1253c6",
+    "public/brand/deployz/maskable-icon-192x192.png": "fc4fd18922617d7965789f0f845f6e6fd5d8b1c88b6d08dd176472fd369df4dc",
+    "public/brand/deployz/maskable-icon-512x512.png": "54389c9ece4651ce1fe913c3daacd2a3596687a3facdaf3539971db34cd54721",
+    "public/brand/deployz/deployz-icon-512.png": "6496c25656ecd0005ceafd072e891ab4e3472799c1f02b46bc859d8c308e7a24"
+  }
+}

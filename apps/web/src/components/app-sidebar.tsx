@@ -3,6 +3,7 @@
 import Link from 'next/link';
 
 import { DashboardNav } from '@/components/dashboard-nav';
+import { DeployzBrand } from '@/components/deployz-brand';
 import { OrgSwitcher } from '@/components/org-switcher';
 import { SidebarUserMenu } from '@/components/user-menu';
 import {
@@ -30,11 +31,8 @@ export function AppSidebar({
     <Sidebar collapsible="icon">
       <SidebarHeader>
         <div className="flex flex-col gap-1 px-2 py-2">
-          <Link
-            href="/dashboard"
-            className="font-heading text-base font-semibold tracking-tight group-data-[collapsible=icon]:hidden"
-          >
-            Deployz
+          <Link href="/dashboard" aria-label="Deployz" className="inline-flex">
+            <DeployzBrand size="sm" />
           </Link>
           <OrgSwitcher
             organizations={organizations}
