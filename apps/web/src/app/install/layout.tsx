@@ -1,5 +1,7 @@
 import type { ReactNode } from 'react';
 
+import { DeployzBrand } from '@/components/deployz-brand';
+
 // Public install layout — deliberately distinct from the auth layout (a
 // centered form card) and the dashboard shell (sidebar + user menu). The
 // visitor is a CUSTOMER of a Deployz vendor holding a unique link; they have
@@ -11,7 +13,7 @@ export default function InstallLayout({ children }: { children: ReactNode }) {
     <div className="flex min-h-screen flex-col">
       <header className="border-b">
         <div className="mx-auto flex h-14 w-full max-w-2xl items-center justify-between px-4">
-          <span className="font-heading text-lg font-semibold tracking-tight">Deployz</span>
+          <DeployzBrand size="sm" />
           <span className="text-xs text-muted-foreground">Private install link</span>
         </div>
       </header>

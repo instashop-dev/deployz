@@ -21,12 +21,13 @@
     "e2e:fresh": "node scripts/e2e.mjs --mode=fresh",
     "e2e:canary:versions": "node scripts/e2e.mjs --mode=canary-versions",
     "lint": "turbo run lint",
-    "typecheck:scripts": "tsc --noEmit -p scripts/customer-reset/tsconfig.json && tsc --noEmit -p scripts/repository-compatibility/tsconfig.json && tsc --noEmit -p scripts/repository-deployment/tsconfig.json && tsc --noEmit -p scripts/version-canary/tsconfig.json",
+    "typecheck:scripts": "tsc --noEmit -p scripts/customer-reset/tsconfig.json && tsc --noEmit -p scripts/repository-compatibility/tsconfig.json && tsc --noEmit -p scripts/repository-deployment/tsconfig.json && tsc --noEmit -p scripts/version-canary/tsconfig.json && tsc --noEmit -p scripts/jev-eval/tsconfig.json",
     "dev": "turbo run dev",
     "admin:customer-cleanup": "tsx scripts/customer-reset/index.ts",
     "canary:fixture-repo": "tsx scripts/version-canary/fixture-repo.ts",
     "benchmark:compat": "tsx scripts/repository-compatibility/index.ts",
-    "benchmark:deploy": "tsx scripts/repository-deployment/index.ts"
+    "benchmark:deploy": "tsx scripts/repository-deployment/index.ts",
+    "jev:eval": "tsx scripts/jev-eval/index.ts"
   },
   "devDependencies": {
     "@aws-sdk/client-cloudformation": "^3.1115.0",

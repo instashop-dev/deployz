@@ -70,7 +70,7 @@ export function describeAiGatewayConfig(source: Record<string, string | undefine
 
 // Jev shadow-mode client configuration, resolved from the same environment.
 
-/** The default Jev model id. Override with `JEV_MODEL`. */
+/** The default model id — a TypeSafe native alias that resolves to the current version. Override with `JEV_MODEL`. */
 export const JEV_MODEL_DEFAULT = 'jev-latest';
 
 /** How long a single Jev attempt may take. Override with `JEV_TIMEOUT_MS`. */

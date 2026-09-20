@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import type { ReactNode } from 'react';
 
+import { DeployzBrand } from '@/components/deployz-brand';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { apiUrl } from '@/lib/api-url';
@@ -57,8 +58,8 @@ export default async function GithubSetupPage({
 function SetupCard({ title, children }: { title: string; children: ReactNode }) {
   return (
     <main className="flex min-h-screen flex-col items-center justify-center gap-6 px-4 py-8">
-      <Link href="/" className="font-heading text-xl font-semibold tracking-tight">
-        Deployz
+      <Link href="/" className="inline-flex">
+        <DeployzBrand size="lg" />
       </Link>
       <Card className="w-full max-w-sm">
         <CardHeader>

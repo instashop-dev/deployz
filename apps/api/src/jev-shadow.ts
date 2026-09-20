@@ -163,17 +163,27 @@ interface ShadowInputs {
 }
 
 /**
- * Everything the verifier needs, derived with the production builders only:
- * the manifest through the exact chain `effectiveApplicationManifest`
- * (server.ts) uses — `normalizeDeploymentManifest` over the fresh metadata and
- * the effective post-run overrides — then `buildInstallPlan` (region null:
- * components and resources are region-independent) and the PR 1 evidence
- * model with dependency names from `collectDependencyNames`.
+ * The pure derivation, exported for offline evaluation: everything the
+ * verifier needs, derived with the production builders only and with no db
+ * or application-row context — the manifest through the exact chain
+ * `effectiveApplicationManifest` (server.ts) uses — `normalizeDeploymentManifest`
+ * over the fresh metadata and the effective post-run overrides — then
+ * `buildInstallPlan` (region null: components and resources are
+ * region-independent) and the PR 1 evidence model with dependency names from
+ * `collectDependencyNames`.
  */
-function deriveShadowInputs(params: JevShadowParams): ShadowInputs {
+export function deriveJevShadowInputs(input: {
+  /** The detected_metadata record the analysis persisted (or will persist). */
+  detectedMetadata: Record<string, unknown>;
+  /** The effective manifest-override fields — a post-§35-backfill application row. */
+  overrides: Omit<ManifestApplicationRow, 'detectedMetadata'>;
+  /** The merged (post-AI-fallback) analysis the run produced. */
+  analysis: AnalysisResult;
+  tree: FileTree;
+}): ShadowInputs {
   const manifest = normalizeDeploymentManifest(
-    { metadata: params.detectedMetadata },
-    applicationToManifestOverrides(effectiveRow(params)),
+    { metadata: input.detectedMetadata },
+    applicationToManifestOverrides({ ...input.overrides, detectedMetadata: input.detectedMetadata }),
   );
   const deployzRequirements = {
     postgres: manifest.database.postgres,
@@ -181,16 +191,16 @@ function deriveShadowInputs(params: JevShadowParams): ShadowInputs {
     storageRequired: manifest.storage.required,
   };
   const plan = buildInstallPlan({ manifest, region: null });
-  const metadata = params.analysis.metadata;
+  const metadata = input.analysis.metadata;
   const evidence = buildJevEvidence({
-    findings: params.analysis.findings,
-    evidence: collectRepositoryEvidence(params.tree, params.analysis),
+    findings: input.analysis.findings,
+    evidence: collectRepositoryEvidence(input.tree, input.analysis),
     ambiguities: typedArray<AnalysisAmbiguity>(metadata['ambiguities']),
-    dependencies: collectDependencyNames(params.tree),
+    dependencies: collectDependencyNames(input.tree),
     envVariables: typedArray<ManifestEnvVariable>(metadata['envVarModel']),
     requirements: deployzRequirements,
     bindings: typedArray<InfrastructureBinding>(metadata['infrastructureBindings']),
-    rejections: params.analysis.rejections,
+    rejections: input.analysis.rejections,
   });
   return {
     evidence,
@@ -201,6 +211,16 @@ function deriveShadowInputs(params: JevShadowParams): ShadowInputs {
       awsResources: plan.awsResources.map((resource) => resource.id),
     },
   };
+}
+
+function deriveShadowInputs(params: JevShadowParams): ShadowInputs {
+  const { detectedMetadata: _detectedMetadata, ...overrides } = effectiveRow(params);
+  return deriveJevShadowInputs({
+    detectedMetadata: params.detectedMetadata,
+    overrides,
+    analysis: params.analysis,
+    tree: params.tree,
+  });
 }
 
 // ── Runner ───────────────────────────────────────────────────────────────────

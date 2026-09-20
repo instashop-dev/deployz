@@ -43,10 +43,20 @@ describe('AppSidebar footer account menu', () => {
     expect(trigger?.textContent).toContain('E2E User');
   });
 
-  it('hides the brand wordmark in the collapsed icon rail', () => {
+  it('keeps the brand icon and hides only the wordmark in the collapsed icon rail', () => {
     const doc = renderSidebar();
 
     const brand = doc.querySelector('[data-sidebar="header"] a[href="/dashboard"]');
-    expect(brand?.className).toContain('group-data-[collapsible=icon]:hidden');
+    expect(brand?.getAttribute('aria-label')).toBe('Deployz');
+    expect(brand?.className).not.toContain('group-data-[collapsible=icon]:hidden');
+
+    const icon = brand?.querySelector('svg');
+    expect(icon?.getAttribute('aria-hidden')).toBe('true');
+    expect(icon?.closest('[class*="group-data-[collapsible=icon]:hidden"]')).toBeNull();
+
+    const wordmark = [...(brand?.querySelectorAll('span') ?? [])].find(
+      (span) => span.textContent === 'Deployz' && span.children.length === 0,
+    );
+    expect(wordmark?.className).toContain('group-data-[collapsible=icon]:hidden');
   });
 });

@@ -1,3 +1,5 @@
+import { DeployzIcon } from '@/components/deployz-brand';
+
 // The fail-closed states shared by the tokenized /deploy page and its
 // Security Details sub-page — one copy source so the wording never diverges
 // between the two surfaces that carry the same link credential.
@@ -33,5 +35,11 @@ export function DeployLinkInvalidState({ reason }: { reason: string }) {
 }
 
 export function PoweredBy() {
-  return <p className="text-xs text-muted-foreground">Powered by Deployz</p>;
+  return (
+    <p className="text-xs text-muted-foreground">
+      Powered by{' '}
+      <DeployzIcon className="mr-1 inline size-3 align-[-0.125em]" />
+      Deployz
+    </p>
+  );
 }
