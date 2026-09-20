@@ -1,20 +1,25 @@
 import {
   JEV_DECISION_SET_VERSION,
   JEV_EVIDENCE_SCHEMA_VERSION,
+  JEV_FAILURE_DECISION_SET_VERSION,
+  JEV_FAILURE_EVIDENCE_SCHEMA_VERSION,
   JevError,
   buildJevEvidence,
+  buildJevFailureEvidence,
   collectDependencyNames,
   collectRepositoryEvidence,
   createJevCircuitBreaker,
   createJevClient,
   fingerprintJevEvidence,
   normalizeDeploymentManifest,
+  runJevFailureClassification,
   runJevRequirementsShadow,
   type AnalysisAmbiguity,
   type AnalysisResult,
   type FileTree,
   type InfrastructureBinding,
   type JevClient,
+  type JevFailureEvidenceInput,
   type JevRequirementsShadowInput,
 } from '@deployz/analysis';
 import { buildInstallPlan, type ManifestEnvVariable } from '@deployz/contracts';
@@ -24,14 +29,16 @@ import * as schema from '@deployz/db/schema';
 import type { JevConfig } from './ai-config.js';
 import { applicationToManifestOverrides, type ManifestApplicationRow } from './manifest.js';
 
-// Jev requirements/plan shadow runner — PR 2 wiring beside the analysis flow.
+// Jev shadow runners — PR 2 (requirements/plan, beside the analysis flow) and
+// PR 3 (UNKNOWN-failure classification, beside deployment-failure settlement).
 //
-// Shadow-only by contract: `run` is fired detached from `runApplicationAnalysis`
-// after the analysis succeeded, appends at most ONE telemetry row
-// (`jev_shadow_verifications`), and NEVER throws — a Jev failure, a derivation
-// failure, or a failed telemetry insert is swallowed here and leaves every
-// piece of production state (analysisStatus, compatibilityStatus,
-// detectedMetadata, manifest, plan, event_logs) untouched.
+// Shadow-only by contract: `run` is fired detached after the production write
+// committed, appends at most ONE telemetry row (`jev_shadow_verifications` /
+// `jev_failure_classifications`), and NEVER throws — a Jev failure, a
+// derivation failure, or a failed telemetry insert is swallowed here and
+// leaves every piece of production state untouched. The deterministic
+// pipeline (refineFailureCode, deploymentStateAfterFailedJob, watchdog
+// settlement) stays the single source of truth.
 
 /** What the analysis hook point has in hand when the shadow fires. */
 export interface JevShadowParams {
@@ -87,26 +94,27 @@ export function createJevShadowRunner(deps: JevShadowDeps): JevShadowRunner {
   return { run: (params) => runShadow(deps, client, params) };
 }
 
+/** The env-configured client, shared by both runners' FromEnv constructors. */
+function jevClientFromConfig(config: JevConfig): JevClient | undefined {
+  if (!config.enabled || config.baseUrl === undefined || config.apiKey === undefined) return undefined;
+  return createJevClient({
+    baseUrl: config.baseUrl,
+    apiKey: config.apiKey,
+    model: config.model,
+    gatewayToken: config.gatewayToken,
+    timeoutMs: config.timeoutMs,
+    breaker: sharedJevCircuitBreaker(),
+  });
+}
+
 /**
  * From the resolved env config — a disabled or partial configuration yields
  * the noop runner (`resolveJevConfig` guarantees the URL/key pair whenever
  * `enabled` is true, so the guard only defends the type).
  */
 export function createJevShadowRunnerFromEnv(deps: { db: Pick<RuntimeDb, 'insert'> }, config: JevConfig): JevShadowRunner {
-  if (!config.enabled || config.baseUrl === undefined || config.apiKey === undefined) {
-    return createJevShadowRunner({ db: deps.db });
-  }
-  return createJevShadowRunner({
-    db: deps.db,
-    client: createJevClient({
-      baseUrl: config.baseUrl,
-      apiKey: config.apiKey,
-      model: config.model,
-      gatewayToken: config.gatewayToken,
-      timeoutMs: config.timeoutMs,
-      breaker: sharedJevCircuitBreaker(),
-    }),
-  });
+  const client = jevClientFromConfig(config);
+  return client === undefined ? createJevShadowRunner({ db: deps.db }) : createJevShadowRunner({ db: deps.db, client });
 }
 
 // ── Derivation ──────────────────────────────────────────────────────────────
@@ -256,6 +264,86 @@ async function runShadow(deps: JevShadowDeps, client: JevClient, params: JevShad
       ...base,
       evidenceFingerprint: derived.fingerprint,
       deployzRequirements: derived.deployzRequirements,
+      ok: false,
+      errorKind: error instanceof JevError ? error.kind : 'internal',
+    });
+  }
+}
+
+// ── UNKNOWN-failure shadow runner (PR 3) ────────────────────────────────────
+
+/** The settled failure plus the raw signals `buildJevFailureEvidence` accepts. */
+export type JevFailureShadowParams = {
+  readonly deploymentId: string;
+  readonly jobId: string;
+} & JevFailureEvidenceInput;
+
+export interface JevFailureShadowRunner {
+  run(params: JevFailureShadowParams): Promise<void>;
+}
+
+/** Same contract as `createJevShadowRunner`: without a client, a noop. */
+export function createJevFailureShadowRunner(deps: JevShadowDeps): JevFailureShadowRunner {
+  const client = deps.client;
+  if (!client) return { run: async () => {} };
+  return { run: (params) => runFailureShadow(deps, client, params) };
+}
+
+/** Same env rule as `createJevShadowRunnerFromEnv`. */
+export function createJevFailureShadowRunnerFromEnv(
+  deps: { db: Pick<RuntimeDb, 'insert'> },
+  config: JevConfig,
+): JevFailureShadowRunner {
+  const client = jevClientFromConfig(config);
+  return client === undefined
+    ? createJevFailureShadowRunner({ db: deps.db })
+    : createJevFailureShadowRunner({ db: deps.db, client });
+}
+
+type FailureRow = typeof schema.jevFailureClassifications.$inferInsert;
+
+/** Append one telemetry row; a failed append is dropped — shadow-only. */
+async function recordFailure(deps: JevShadowDeps, row: FailureRow): Promise<void> {
+  try {
+    await deps.db.insert(schema.jevFailureClassifications).values(row);
+  } catch {
+    // Telemetry must never fail the failure-handling flow.
+  }
+}
+
+async function runFailureShadow(
+  deps: JevShadowDeps,
+  client: JevClient,
+  params: JevFailureShadowParams,
+): Promise<void> {
+  const base = {
+    deploymentId: params.deploymentId,
+    jobId: params.jobId,
+    deploymentStage: params.deploymentStage,
+    evidenceSchemaVersion: JEV_FAILURE_EVIDENCE_SCHEMA_VERSION,
+    decisionSetVersion: JEV_FAILURE_DECISION_SET_VERSION,
+    deployzFailureCode: params.deployzFailureCode,
+    createdAt: new Date(deps.now?.() ?? Date.now()),
+  };
+
+  try {
+    // buildJevFailureEvidence sanitizes before anything leaves: the free text
+    // is redacted and capped here, so no credential reaches Jev or the row.
+    const result = await runJevFailureClassification(client, {
+      failureEvidence: buildJevFailureEvidence(params),
+    });
+    await recordFailure(deps, {
+      ...base,
+      classification: { ...result },
+      ok: true,
+      latencyMs: result.latencyMs,
+      model: result.model,
+      inputTokens: result.usage.inputTokens,
+      outputTokens: result.usage.outputTokens,
+    });
+  } catch (error) {
+    await recordFailure(deps, {
+      ...base,
       ok: false,
       errorKind: error instanceof JevError ? error.kind : 'internal',
     });

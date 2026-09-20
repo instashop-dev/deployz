@@ -30,6 +30,7 @@ import type { PaddleBilling } from '@deployz/api/paddle';
 import type { QueueMessage } from '@deployz/api/queue';
 import { releaseImageTag } from '@deployz/contracts';
 import { JOB_TIMEOUTS_MS, RELAY_STALE_AFTER_MS, deploymentStateAfterFailedJob } from '@deployz/contracts';
+import type { JevFailureShadowRunner } from '@deployz/api/jev-shadow';
 import type { RuntimeDb } from '@deployz/db';
 import * as schema from '@deployz/db/schema';
 
@@ -678,7 +679,11 @@ const ACTIVE_MUTATING_STATES = ['REQUESTED', 'QUEUED', 'WAITING', 'RUNNING'] as 
  * operation on a deployment with a running release never marks the whole
  * deployment FAILED.
  */
-export async function sweepStuckJobs(db: RuntimeDb, now: Date = new Date()): Promise<number> {
+export async function sweepStuckJobs(
+  db: RuntimeDb,
+  now: Date = new Date(),
+  failureShadow?: JevFailureShadowRunner,
+): Promise<number> {
   const rows = await db
     .select({ job: schema.deploymentJobs, deployment: schema.deployments })
     .from(schema.deploymentJobs)
@@ -757,6 +762,7 @@ export async function sweepStuckJobs(db: RuntimeDb, now: Date = new Date()): Pro
           ? 'DOMAIN_OPERATION_TIMEOUT'
           : 'UNKNOWN',
         evidence,
+        failureShadow,
       );
       settled += 1;
       continue;
@@ -793,7 +799,7 @@ export async function sweepStuckJobs(db: RuntimeDb, now: Date = new Date()): Pro
     }
 
     if (now.getTime() - lastSignal.getTime() > timeout + RELAY_WAIT_GRACE_MS) {
-      await failStuckJob(db, job, deployment, now, 'RELAY_DISCONNECTED', evidence);
+      await failStuckJob(db, job, deployment, now, 'RELAY_DISCONNECTED', evidence, failureShadow);
       settled += 1;
     }
   }
@@ -807,6 +813,7 @@ async function failStuckJob(
   now: Date,
   failureCode: 'UNKNOWN' | 'RELAY_DISCONNECTED' | 'DOMAIN_OPERATION_TIMEOUT',
   evidence: Record<string, unknown>,
+  failureShadow?: JevFailureShadowRunner,
 ): Promise<void> {
   // Phase 5 §9.3: a domain job timeout must never fail the DEPLOYMENT —
   // the domain is a separate lifecycle (same rule as the relay result
@@ -834,6 +841,7 @@ async function failStuckJob(
         ),
       });
 
+  let settledHere = false;
   await db.transaction(async (tx) => {
     const failed = await tx
       .update(schema.deploymentJobs)
@@ -852,6 +860,7 @@ async function failStuckJob(
       .returning({ id: schema.deploymentJobs.id });
     // Job already settled by the result route — skip all side effects.
     if (failed.length === 0) return;
+    settledHere = true;
 
     if (nextState !== null) {
       await tx
@@ -897,6 +906,27 @@ async function failStuckJob(
       payload: evidence,
     });
   });
+
+  // Jev UNKNOWN-failure shadow (PR 3): fire-and-forget telemetry after the
+  // settlement — only when this call was the one that settled the job and
+  // the code stayed UNKNOWN. The runner swallows its own errors; the
+  // watchdog's own behavior is unchanged.
+  if (settledHere && failureCode === 'UNKNOWN') {
+    const lastSignal = job.lastProgressAt ?? job.startedAt ?? job.createdAt;
+    void failureShadow
+      ?.run({
+        deploymentId: deployment.id,
+        jobId: job.id,
+        deploymentStage: job.type,
+        failureReason: `Watchdog failed the job after exhausting re-offers: relayStatus=${String(evidence['relayStatus'])}, reconcileCount=${String(evidence['reconcileCount'])}, lastProgressAt=${String(evidence['lastProgressAt'] ?? 'never')}.`,
+        healthStatus: deployment.healthStatus,
+        relayStatus: deployment.relayStatus,
+        elapsedMs: now.getTime() - lastSignal.getTime(),
+        retryCount: job.reconcileCount,
+        deployzFailureCode: 'UNKNOWN',
+      })
+      .catch(() => {});
+  }
 }
 
 // ── Relay-liveness sweep ──────────────────────────────────────────────────

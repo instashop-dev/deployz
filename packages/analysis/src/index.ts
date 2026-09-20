@@ -221,6 +221,7 @@ export {
   buildJevEvidence,
   fingerprintJevEvidence,
   jevEvidenceSchema,
+  redactText,
   sanitizeSnippet,
 } from './jev/evidence.js';
 
@@ -239,3 +240,22 @@ export { createJevClient } from './jev/client.js';
 export { createFixtureJevClient } from './jev/fixture.js';
 export { createJevCircuitBreaker } from './jev/circuit-breaker.js';
 export { JevError } from './jev/errors.js';
+
+export type { JevFailureEvidence, JevFailureEvidenceInput } from './jev/failure-evidence.js';
+export {
+  JEV_FAILURE_EVIDENCE_SCHEMA_VERSION,
+  buildJevFailureEvidence,
+  jevFailureEvidenceSchema,
+} from './jev/failure-evidence.js';
+
+export type {
+  JevFailureClassificationResult,
+  JevFailureDomain,
+  JevFailureShadowInput,
+} from './jev/failure-classify.js';
+export {
+  FAILURE_DOMAINS,
+  JEV_FAILURE_DECISION_SET_VERSION,
+  buildFailureQuestions,
+  runJevFailureClassification,
+} from './jev/failure-classify.js';

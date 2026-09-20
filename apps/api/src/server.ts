@@ -130,7 +130,11 @@ import {
   type FetchFn,
   type GithubWebhookEvent,
 } from './github.js';
-import { createJevShadowRunnerFromEnv } from './jev-shadow.js';
+import {
+  createJevFailureShadowRunnerFromEnv,
+  createJevShadowRunnerFromEnv,
+  type JevFailureShadowRunner,
+} from './jev-shadow.js';
 import { createEmailSender, type EmailSender } from './email.js';
 import type { EcrClient } from './ecr-grants.js';
 import {
@@ -322,6 +326,10 @@ export interface ServerDeps {
   // env-configured Cloudflare AI Gateway, which degrades to a throwing stub
   // when unconfigured so diagnostics fall back to deterministic remediation.
   aiGateway?: AiGateway | undefined;
+  // Injectable Jev UNKNOWN-failure shadow runner (telemetry only). Defaults to
+  // the env-configured Jev client, which degrades to a noop when Jev is
+  // disabled — the failure flow is identical either way.
+  jevFailureShadow?: JevFailureShadowRunner | undefined;
   // Injectable custom-domains MVP DNS/HTTPS-probe seam (runDomainCheck).
   // Defaults to env.domainFixtureMode's real-vs-fixture split; tests inject a
   // fake so no real DNS lookup or HTTPS probe ever leaves the machine.
@@ -1527,6 +1535,7 @@ export async function buildServer({
   githubAppId: injectedGithubAppId,
   githubAppPrivateKey: injectedGithubAppPrivateKey,
   aiGateway = env.aiFixtureMode ? createFixtureAiGateway() : createAiGateway(env.aiGateway),
+  jevFailureShadow = createJevFailureShadowRunnerFromEnv({ db }, env.jev),
   domainCheckDeps = env.domainFixtureMode ? createFixtureDomainCheckDeps() : createRealDomainCheckDeps(),
   defaultHttpsDeps: injectedDefaultHttpsDeps,
   teamAdminEmails = env.teamAdminEmails,
@@ -6625,25 +6634,36 @@ export async function buildServer({
     // persisted CloudFormation events for this job, so remediation copy
     // matches the real cause — for every installation, old relays included.
     const reportedFailureCode = failureCodeParsed?.success ? failureCodeParsed.data : null;
+    // The persisted CloudFormation events for this job — §61 refinement's
+    // input and, below, the Jev UNKNOWN-failure shadow's evidence. Loaded for
+    // INSTALL/DESTROY only, the two job types that wait on a stack.
+    const stackEvents: {
+      resourceType: string;
+      logicalResourceId: string;
+      resourceStatus: string;
+      resourceStatusReason: string | null;
+      eventAt: Date;
+    }[] =
+      state === 'FAILED' && (job.type === 'INSTALL' || job.type === 'DESTROY')
+        ? await db
+            .select({
+              resourceType: schema.deploymentStackEvents.resourceType,
+              logicalResourceId: schema.deploymentStackEvents.logicalResourceId,
+              resourceStatus: schema.deploymentStackEvents.resourceStatus,
+              resourceStatusReason: schema.deploymentStackEvents.resourceStatusReason,
+              eventAt: schema.deploymentStackEvents.eventAt,
+            })
+            .from(schema.deploymentStackEvents)
+            .where(
+              and(
+                eq(schema.deploymentStackEvents.deploymentId, deployment.id),
+                eq(schema.deploymentStackEvents.jobId, job.id),
+              ),
+            )
+            .orderBy(schema.deploymentStackEvents.eventAt)
+        : [];
     let effectiveFailureCode = reportedFailureCode;
     if (state === 'FAILED') {
-      const stackEvents =
-        job.type === 'INSTALL' || job.type === 'DESTROY'
-          ? await db
-              .select({
-                resourceType: schema.deploymentStackEvents.resourceType,
-                resourceStatus: schema.deploymentStackEvents.resourceStatus,
-                resourceStatusReason: schema.deploymentStackEvents.resourceStatusReason,
-              })
-              .from(schema.deploymentStackEvents)
-              .where(
-                and(
-                  eq(schema.deploymentStackEvents.deploymentId, deployment.id),
-                  eq(schema.deploymentStackEvents.jobId, job.id),
-                ),
-              )
-              .orderBy(schema.deploymentStackEvents.eventAt)
-          : [];
       effectiveFailureCode = refineFailureCode({
         reported: reportedFailureCode,
         errorText: body.error ?? null,
@@ -6932,6 +6952,43 @@ export async function buildServer({
           }
         }
       }
+    }
+
+    // Jev UNKNOWN-failure shadow (PR 3): fire-and-forget telemetry after all
+    // settlement work — only when the job actually settled above (an
+    // alreadySettled duplicate returned early) AND the effective code stayed
+    // UNKNOWN after refinement. Known or refined codes never reach Jev, and
+    // the runner can never touch the state written above.
+    if (state === 'FAILED' && effectiveFailureCode === 'UNKNOWN') {
+      void jevFailureShadow
+        .run({
+          deploymentId: deployment.id,
+          jobId: job.id,
+          deploymentStage: job.type,
+          failureReason: body.error ?? '',
+          ...(stackEvents.length > 0
+            ? {
+                recentEvents: stackEvents.map((event) => ({
+                  resourceType: event.resourceType,
+                  logicalResourceId: event.logicalResourceId,
+                  resourceStatus: event.resourceStatus,
+                  ...(event.resourceStatusReason !== null
+                    ? { resourceStatusReason: event.resourceStatusReason }
+                    : {}),
+                  eventAt: event.eventAt.toISOString(),
+                })),
+              }
+            : {}),
+          ...(failureEvidence?.container?.stoppedReason
+            ? { ecsStoppedReason: failureEvidence.container.stoppedReason }
+            : {}),
+          healthStatus: deployment.healthStatus,
+          relayStatus: deployment.relayStatus,
+          ...(job.startedAt ? { elapsedMs: Date.now() - job.startedAt.getTime() } : {}),
+          retryCount: job.reconcileCount,
+          deployzFailureCode: 'UNKNOWN',
+        })
+        .catch(() => {});
     }
 
     return reply.code(200).send({ received: true });

@@ -18,6 +18,7 @@ import {
   type CodeBuildStateChangeEvent,
   type WorkerDeps,
 } from '../src/lambda/worker.js';
+import type { JevFailureShadowParams } from '@deployz/api/jev-shadow';
 
 // The worker is what makes a queued job actually happen. Every case below is
 // a step that silently did nothing before it existed: an analysis that never
@@ -1228,7 +1229,7 @@ describe('sweepStuckJobs', () => {
   // ── DZ-AUDIT-006: watchdog must not overwrite a job the result route settled ──
 
   it('DZ-AUDIT-006: does not overwrite a job already settled by the result route', async () => {
-    const { jobId, deploymentId } = await seedJobAndDeployment('DEPLOY_RELEASE', 'RUNNING', 30, 25, {
+    const { jobId } = await seedJobAndDeployment('DEPLOY_RELEASE', 'RUNNING', 30, 25, {
       relayStatus: 'CONNECTED',
       reconcileCount: 3,
     });
@@ -1559,3 +1560,145 @@ describe('sweepStuckBuilds', () => {
   });
 
   });
+
+// Jev UNKNOWN-failure shadow (PR 3): the watchdog's failStuckJob fires the
+// shadow exactly once for the job it settled, with the in-scope evidence
+// input — and the stub changes no job, deployment or event transitions.
+describe('sweepStuckJobs — Jev UNKNOWN-failure shadow hook', () => {
+  let client: PGlite | undefined;
+  let db: Db;
+  let organizationId: string;
+  let applicationId: string;
+  let customerId: string;
+
+  beforeAll(async () => {
+    client = new PGlite();
+    await applyMigrations(client);
+    db = createDb(client);
+
+    const [org] = await db
+      .insert(schema.organization)
+      .values({ id: 'org-jev-watchdog', name: 'Jev Watchdog Org', slug: 'jev-watchdog-org' })
+      .returning();
+    organizationId = org!.id;
+
+    const [application] = await db
+      .insert(schema.applications)
+      .values({
+        organizationId,
+        name: 'App',
+        repoFullName: 'acme/jev-watchdog-app',
+        repoUrl: 'https://github.com/acme/jev-watchdog-app',
+        defaultBranch: 'main',
+      })
+      .returning();
+    applicationId = application!.id;
+
+    const [customer] = await db
+      .insert(schema.customers)
+      .values({ organizationId, name: 'Cust', email: 'jev-watchdog@example.test' })
+      .returning();
+    customerId = customer!.id;
+  }, 60_000);
+
+  afterAll(async () => {
+    await client?.close();
+  });
+
+  /** An INSTALL job past every clock with exhausted re-offers → watchdog UNKNOWN. */
+  async function seedExhaustedInstall(): Promise<{ jobId: string; deploymentId: string }> {
+    const [deployment] = await db
+      .insert(schema.deployments)
+      .values({
+        organizationId,
+        applicationId,
+        customerId,
+        region: 'us-east-1',
+        state: 'INSTALLING',
+        relayStatus: 'CONNECTED',
+        installationId: `inst-${randomUUID()}`,
+        enrollmentCode: randomUUID(),
+      })
+      .returning();
+
+    const [job] = await db
+      .insert(schema.deploymentJobs)
+      .values({
+        deploymentId: deployment!.id,
+        type: 'INSTALL',
+        state: 'RUNNING',
+        idempotencyKey: `jev-watchdog:${randomUUID()}`,
+        payload: {},
+        startedAt: new Date(Date.now() - 200 * 60 * 1000),
+        lastProgressAt: new Date(Date.now() - 190 * 60 * 1000),
+        reconcileCount: 3,
+      })
+      .returning();
+
+    return { jobId: job!.id, deploymentId: deployment!.id };
+  }
+
+  it('records the UNKNOWN evidence input once and changes no job transitions', async () => {
+    const withStub = await seedExhaustedInstall();
+
+    const captured: JevFailureShadowParams[] = [];
+    const stub = {
+      run: async (params: JevFailureShadowParams): Promise<void> => {
+        captured.push(params);
+      },
+    };
+
+    await sweepStuckJobs(db, new Date(), stub);
+
+    const withoutStub = await seedExhaustedInstall();
+    await sweepStuckJobs(db);
+
+    // Both jobs settled identically — the stub changes nothing.
+    const rows = await db
+      .select()
+      .from(schema.deploymentJobs)
+      .where(inArray(schema.deploymentJobs.id, [withStub.jobId, withoutStub.jobId]));
+    const byId = new Map(rows.map((row) => [row.id, row]));
+    const stubbedJob = byId.get(withStub.jobId)!;
+    const plainJob = byId.get(withoutStub.jobId)!;
+    expect(stubbedJob.state).toBe('FAILED');
+    expect(stubbedJob.state).toBe(plainJob.state);
+    expect(stubbedJob.failureCode).toBe('UNKNOWN');
+    expect(stubbedJob.failureCode).toBe(plainJob.failureCode);
+    expect(JSON.stringify(stubbedJob.result)).toBe(JSON.stringify(plainJob.result));
+
+    const [stubbedDeployment] = await db
+      .select()
+      .from(schema.deployments)
+      .where(eq(schema.deployments.id, withStub.deploymentId));
+    const [plainDeployment] = await db
+      .select()
+      .from(schema.deployments)
+      .where(eq(schema.deployments.id, withoutStub.deploymentId));
+    expect(stubbedDeployment!.state).toBe('FAILED');
+    expect(stubbedDeployment!.state).toBe(plainDeployment!.state);
+
+    const stubbedEvents = await db
+      .select()
+      .from(schema.eventLogs)
+      .where(eq(schema.eventLogs.jobId, withStub.jobId));
+    const plainEvents = await db
+      .select()
+      .from(schema.eventLogs)
+      .where(eq(schema.eventLogs.jobId, withoutStub.jobId));
+    expect(stubbedEvents.map((event) => event.eventType)).toEqual(plainEvents.map((event) => event.eventType));
+
+    // The shadow fired exactly once, with the watchdog's evidence input.
+    expect(captured).toHaveLength(1);
+    const params = captured[0]!;
+    expect(params.deploymentId).toBe(withStub.deploymentId);
+    expect(params.jobId).toBe(withStub.jobId);
+    expect(params.deploymentStage).toBe('INSTALL');
+    expect(params.deployzFailureCode).toBe('UNKNOWN');
+    expect(params.retryCount).toBe(3);
+    expect(typeof params.elapsedMs).toBe('number');
+    expect(params.elapsedMs).toBeGreaterThan(0);
+    expect(params.relayStatus).toBe('CONNECTED');
+    expect(params.failureReason).toContain('reconcileCount=3');
+  });
+});

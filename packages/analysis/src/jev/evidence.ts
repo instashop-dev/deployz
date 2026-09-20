@@ -171,21 +171,26 @@ const ASSIGNMENT_REGEX = /\b([A-Za-z_][A-Za-z0-9_-]*)\s*=\s*("[^"]*"|'[^']*'|[^\
 const ELLIPSIS = '...';
 
 /**
- * Redact secret-looking content from a snippet excerpt — assignments,
- * keyword-named credentials, credentialed URIs and long base64/hex runs, on
- * top of the shared `redactSecrets` shapes — then collapse whitespace and cap
- * at `MAX_SNIPPET_CHARS` with a trailing ellipsis. Redaction runs before the
- * cap so a cut can never expose a fragment of a secret.
+ * Redact secret-looking content — assignments, keyword-named credentials,
+ * credentialed URIs and long base64/hex runs, on top of the shared
+ * `redactSecrets` shapes — then collapse whitespace and cap at `maxLength`
+ * with a trailing ellipsis. Redaction runs before the cap so a cut can never
+ * expose a fragment of a secret.
  */
-export function sanitizeSnippet(text: string): string {
+export function redactText(text: string, maxLength: number): string {
   let result = redactSecrets(text);
   result = result.replace(KEYWORD_VALUE_REGEX, '$1$2[REDACTED]');
   result = result.replace(OPAQUE_RUN_REGEX, '[REDACTED]');
   result = result.replace(ASSIGNMENT_REGEX, '$1=[REDACTED]');
   const collapsed = result.replace(/\s+/g, ' ').trim();
-  return collapsed.length > MAX_SNIPPET_CHARS
-    ? collapsed.slice(0, MAX_SNIPPET_CHARS - ELLIPSIS.length) + ELLIPSIS
+  return collapsed.length > maxLength
+    ? collapsed.slice(0, maxLength - ELLIPSIS.length) + ELLIPSIS
     : collapsed;
+}
+
+/** A snippet excerpt, sanitized by the shared redaction core at the snippet budget. */
+export function sanitizeSnippet(text: string): string {
+  return redactText(text, MAX_SNIPPET_CHARS);
 }
 
 // ── Mapping ─────────────────────────────────────────────────────────────────

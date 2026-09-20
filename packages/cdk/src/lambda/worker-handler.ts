@@ -14,7 +14,7 @@ import { PutObjectCommand, S3Client as SdkS3Client } from '@aws-sdk/client-s3';
 import { createAiGateway } from '@deployz/analysis';
 import { resolveAiGatewayConfig, resolveJevConfig } from '@deployz/api/ai-config';
 import { createAnalysisRunner } from '@deployz/api/analysis';
-import { createJevShadowRunnerFromEnv } from '@deployz/api/jev-shadow';
+import { createJevShadowRunnerFromEnv, createJevFailureShadowRunnerFromEnv } from '@deployz/api/jev-shadow';
 import { createPaddle } from '@deployz/api/paddle';
 import type { QueueMessage } from '@deployz/api/queue';
 
@@ -165,7 +165,10 @@ export async function handler(event: WorkerEvent): Promise<BatchResponse | void>
       await recordBuildResult(db, event);
     }
     if (event['detail-type'] === 'Scheduled Event') {
-      const failed = await sweepStuckJobs(db);
+      // Shadow-only, noop when Jev is disabled — same construction as the
+      // analysis runner's wiring in createDeps below.
+      const jevFailureShadow = createJevFailureShadowRunnerFromEnv({ db }, resolveJevConfig(process.env));
+      const failed = await sweepStuckJobs(db, new Date(), jevFailureShadow);
       const relaysDisconnected = await sweepRelayLiveness(db);
       // A build-sweep failure (e.g. a CodeBuild API error) must not fail the
       // whole scheduled invoke — the job sweep above already committed, and
