@@ -6,6 +6,7 @@ import type { ReactNode } from 'react';
 
 import { AdminHeader } from '@/components/admin-header';
 import { AdminNav } from '@/components/admin-nav';
+import { DeployzBrand } from '@/components/deployz-brand';
 import {
   Sidebar,
   SidebarContent,
@@ -34,8 +35,11 @@ export function AdminShell({ user, children }: AdminShellProps) {
       <Sidebar>
         <SidebarHeader>
           <div className="flex flex-col gap-1 px-2 py-2">
-            <Link href="/admin" className="font-heading text-base font-semibold tracking-tight">
-              Deployz · Team Admin
+            <Link href="/admin" className="inline-flex items-center gap-1.5">
+              <DeployzBrand size="sm" />{' '}
+              <span className="text-sm text-muted-foreground">
+                <span aria-hidden>· </span>Team Admin
+              </span>
             </Link>
           </div>
         </SidebarHeader>

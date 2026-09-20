@@ -46,6 +46,15 @@ feature/domain components only where repeated logic justifies them
 - No parallel custom responsive navigation; mobile behavior comes from the
   shadcn Sidebar.
 
+## Brand
+
+- Use `DeployzBrand` (icon + "Deployz") or `DeployzIcon` from
+  `components/deployz-brand.tsx` for each brand mark. Do not paste the SVG
+  into a different component and do not use a letter as a placeholder mark.
+- The symbol uses `currentColor`. It follows the text color in light and dark
+  mode.
+- The asset rules and the drift test are in `apps/web/brand/deployz/README.md`.
+
 ## Status vocabulary
 
 - User-facing deployment states come from

@@ -1,6 +1,7 @@
 import { ArrowRight, CheckCircle2, Cloud, GitBranch, HeartPulse, ShieldCheck } from 'lucide-react';
 import Link from 'next/link';
 
+import { DeployzBrand } from '@/components/deployz-brand';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardTitle } from '@/components/ui/card';
@@ -38,7 +39,7 @@ export default function LandingPage() {
     <div className="flex min-h-screen flex-col">
       <header className="border-b">
         <div className="mx-auto flex h-14 w-full max-w-5xl items-center justify-between px-4">
-          <span className="font-heading text-lg font-semibold tracking-tight">Deployz</span>
+          <DeployzBrand />
           <div className="flex items-center gap-2">
             <Button asChild variant="ghost" size="sm">
               <Link href="/sign-in" prefetch={false}>Sign In</Link>
