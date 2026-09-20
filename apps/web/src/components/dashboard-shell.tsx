@@ -3,7 +3,6 @@
 import type { ReactNode } from 'react';
 
 import { AppSidebar } from '@/components/app-sidebar';
-import { SiteHeader } from '@/components/site-header';
 import { SidebarInset, SidebarProvider } from '@/components/ui/sidebar';
 import type { OrganizationSummary } from '@/lib/organization-vocabulary';
 
@@ -14,11 +13,11 @@ interface DashboardShellProps {
   children: ReactNode;
 }
 
-// App shell on the shadcn Sidebar architecture: AppSidebar (brand, org
-// switcher, navigation, account menu) plus a SiteHeader carrying the sidebar
-// trigger. Session data arrives as props from the server layout, which
-// re-validates it against the API on every render. Pages get their padding
-// and base spacing from the single <main> here, not from each page.
+// App shell on the shadcn Sidebar architecture: AppSidebar (brand, sidebar
+// trigger, org switcher, navigation, account menu). Session data arrives as
+// props from the server layout, which re-validates it against the API on
+// every render. Pages get their padding and base spacing from the single
+// <main> here, not from each page.
 export function DashboardShell({
   user,
   organizations,
@@ -33,7 +32,6 @@ export function DashboardShell({
         activeOrganizationId={activeOrganizationId}
       />
       <SidebarInset>
-        <SiteHeader />
         <main className="flex flex-1 flex-col gap-6 p-4 pb-16 md:p-6 md:pb-16 lg:p-8">
           {children}
         </main>

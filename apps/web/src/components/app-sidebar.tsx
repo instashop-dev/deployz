@@ -11,10 +11,11 @@ import {
   SidebarContent,
   SidebarFooter,
   SidebarHeader,
+  SidebarTrigger,
 } from '@/components/ui/sidebar';
 import type { OrganizationSummary } from '@/lib/organization-vocabulary';
 
-// The application sidebar: brand + organization switcher in the header, the
+// The application sidebar: brand and sidebar trigger in the header, the
 // grouped navigation in the content, and the account menu in the footer.
 // Mobile and collapsible behavior come from the shadcn Sidebar primitives —
 // there is no parallel custom nav.
@@ -31,9 +32,15 @@ export function AppSidebar({
     <Sidebar collapsible="icon">
       <SidebarHeader>
         <div className="flex flex-col gap-1 px-2 py-2">
-          <Link href="/dashboard" aria-label="Deployz" className="inline-flex">
-            <DeployzBrand size="sm" />
-          </Link>
+          <div className="flex items-center group-data-[collapsible=icon]:flex-col">
+            <Link href="/dashboard" aria-label="Deployz" className="inline-flex">
+              <DeployzBrand size="sm" />
+            </Link>
+            <SidebarTrigger
+              aria-label="Toggle sidebar"
+              className="ml-auto group-data-[collapsible=icon]:ml-0"
+            />
+          </div>
           <OrgSwitcher
             organizations={organizations}
             activeOrganizationId={activeOrganizationId}

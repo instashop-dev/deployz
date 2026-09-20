@@ -2,13 +2,13 @@ import { Card, CardContent } from '@/components/ui/card';
 import type { FleetSummary as FleetSummaryCounts } from '@/lib/home-state';
 import { cn } from '@/lib/utils';
 
-// The fleet health summary above the homepage deployment list, as a row of
-// compact cards. Deployment outcomes only — no vanity metrics, no charts.
+// The fleet health summary on the homepage, as a row of compact cards.
+// Deployment outcomes only — no vanity metrics, no charts.
 // Counts that are zero are left out so the row stays quiet when nothing
 // needs saying. Composed directly from Card — no metric-card abstraction.
 export function FleetSummary({ summary }: { summary: FleetSummaryCounts }) {
   const items: { label: string; value: number; tone?: 'attention' }[] = [
-    { label: summary.total === 1 ? 'Customer' : 'Customers', value: summary.total },
+    { label: summary.total === 1 ? 'Deployment' : 'Deployments', value: summary.total },
     { label: 'Healthy', value: summary.healthy },
   ];
   if (summary.attention > 0) {

@@ -184,7 +184,6 @@ export type HomeState =
       showApplication: boolean;
     };
 
-/** Rows shown on the homepage before "View all deployments" takes over. */
 /**
  * Headline and supporting line for the homepage's single-deployment card.
  *
@@ -215,11 +214,6 @@ export function firstDeploymentCopy(input: {
     body: 'Setting up this deployment in your customer’s AWS account.',
   };
 }
-
-export const HOMEPAGE_DEPLOYMENT_LIMIT = 5;
-
-/** Attention items shown on the homepage; the rest live on the deployments page. */
-export const HOMEPAGE_ATTENTION_LIMIT = 3;
 
 export function deriveHomeState(input: {
   applications: Application[];

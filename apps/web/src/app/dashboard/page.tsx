@@ -1,27 +1,20 @@
 'use client';
 
-import { AlertTriangle, ArrowRight, Check } from 'lucide-react';
+import { AlertTriangle, Check } from 'lucide-react';
 import Link from 'next/link';
 import { useCallback, useState } from 'react';
 
 import { ApplicationPreparingCard } from '@/components/application-preparing-card';
 import { ApplicationReadyCard } from '@/components/application-ready-card';
-import { DeploymentList } from '@/components/deployment-list';
 import { EvaluationNotice } from '@/components/evaluation-notice';
 import { FirstDeploymentCard } from '@/components/first-deployment-card';
 import { FleetSummary } from '@/components/fleet-summary';
 import { GetStartedCard } from '@/components/get-started-card';
-import { NeedsAttentionList } from '@/components/needs-attention-list';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { fetchApplications } from '@/lib/applications';
 import { fetchDeployments } from '@/lib/deployments';
-import {
-  deriveHomeState,
-  HOMEPAGE_ATTENTION_LIMIT,
-  HOMEPAGE_DEPLOYMENT_LIMIT,
-  type HomeState,
-} from '@/lib/home-state';
+import { deriveHomeState, type HomeState } from '@/lib/home-state';
 import { useStatusPoll } from '@/lib/use-status-poll';
 
 /** How often to re-check while something is still being set up. */
@@ -87,9 +80,6 @@ function homeStateContent(home: HomeState) {
 }
 
 function OperationalHome({ home }: { home: Extract<HomeState, { kind: 'operational' }> }) {
-  const attention = home.attention.slice(0, HOMEPAGE_ATTENTION_LIMIT);
-  const rows = home.deployments.slice(0, HOMEPAGE_DEPLOYMENT_LIMIT);
-
   return (
     <div className="flex flex-col gap-6">
       <div className="flex flex-wrap items-center justify-between gap-4">
@@ -106,7 +96,6 @@ function OperationalHome({ home }: { home: Extract<HomeState, { kind: 'operation
 
       <FleetSummary summary={home.summary} />
 
-      {attention.length > 0 ? <NeedsAttentionList items={attention} /> : null}
       {/* Only claimed when it is true of every deployment — a fleet that is
           still installing is not yet healthy. */}
       {home.summary.attention === 0 && home.summary.healthy === home.summary.total ? (
@@ -115,22 +104,6 @@ function OperationalHome({ home }: { home: Extract<HomeState, { kind: 'operation
           All deployments healthy
         </p>
       ) : null}
-
-      <section aria-labelledby="customer-deployments" className="flex flex-col gap-3">
-        <h2 id="customer-deployments" className="text-base font-semibold">
-          Customer deployments
-        </h2>
-        <DeploymentList deployments={rows} showApplication={home.showApplication} />
-        {/* Always offered: the homepage shows the first few rows and the most
-            urgent attention items, never the whole fleet. */}
-        <Link
-          href="/dashboard/deployments"
-          className="inline-flex items-center gap-1 self-start rounded-md text-sm font-medium underline-offset-4 outline-none hover:underline focus-visible:ring-3 focus-visible:ring-ring/50"
-        >
-          View all deployments
-          <ArrowRight className="size-3.5" aria-hidden />
-        </Link>
-      </section>
     </div>
   );
 }

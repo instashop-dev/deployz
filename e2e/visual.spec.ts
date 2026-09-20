@@ -391,7 +391,7 @@ test.describe('dashboard visual regression', () => {
       }),
     ]);
     await page.goto('/dashboard');
-    await expect(page.getByTestId('home-deployment-list')).toBeVisible();
+    await expect(page.getByTestId('fleet-summary')).toBeVisible();
     await expect(page).toHaveScreenshot('home-operational.png', {
       mask: [page.getByTestId('org-name'), page.getByTestId('status-updated')],
     });
@@ -412,7 +412,7 @@ test.describe('dashboard visual regression', () => {
       }),
     ]);
     await page.goto('/dashboard');
-    await expect(page.getByTestId('needs-attention')).toBeVisible();
+    await expect(page.getByTestId('fleet-summary')).toContainText('Needs attention');
     await expect(page).toHaveScreenshot('home-attention.png', {
       mask: [page.getByTestId('org-name'), page.getByTestId('status-updated')],
     });
@@ -477,7 +477,7 @@ test.describe('dashboard visual regression', () => {
       }),
     ]);
     await page.goto('/dashboard');
-    await expect(page.getByTestId('home-deployment-list')).toBeVisible();
+    await expect(page.getByTestId('fleet-summary')).toBeVisible();
     await expect(page).toHaveScreenshot('home-operational-mobile.png', {
       mask: [page.getByTestId('org-name'), page.getByTestId('status-updated')],
     });
