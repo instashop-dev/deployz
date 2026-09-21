@@ -3610,6 +3610,9 @@ describe('server — organization settings, public install page, and bulk deploy
       }),
       waitingForRelay: false,
       relayStuck: false,
+      // Invitation lifecycle: a link created by insertDeployment (not the
+      // deploy-links creation path) has no expiry set.
+      installLinkExpiresAt: null,
     });
     const serialized = JSON.stringify(body);
     expect(serialized).not.toContain('999999999999');
