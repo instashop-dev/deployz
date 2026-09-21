@@ -40,7 +40,7 @@ export function InstallLaunchButton({
           });
         }}
       >
-        Deploy to AWS
+        Review setup in AWS
       </a>
     </Button>
   );

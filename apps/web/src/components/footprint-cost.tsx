@@ -12,7 +12,13 @@ import { formatMonthlyRange, footprintCostLines } from '@/lib/footprint';
 // server's; this component only formats. An incomplete estimate says so; a
 // fully unpriceable footprint says so; neither ever blocks the deployment.
 export function FootprintCost({ estimate }: { estimate: FootprintCostEstimate | null | undefined }) {
-  if (!estimate) return null;
+  if (!estimate) {
+    return (
+      <p className="text-sm text-muted-foreground" data-testid="footprint-cost-unavailable">
+        AWS cost estimate unavailable.
+      </p>
+    );
+  }
 
   const range = formatMonthlyRange(estimate.monthlyMin, estimate.monthlyMax);
   const lines = footprintCostLines(estimate);

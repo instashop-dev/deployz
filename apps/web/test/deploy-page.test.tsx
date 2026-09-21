@@ -114,7 +114,7 @@ describe('DeployPage', () => {
     expect(doc.body.textContent).toContain('Stores persistent application data');
     expect(doc.body.textContent).toContain('Region: US East (N. Virginia)');
     expect(doc.body.textContent).toContain('Powered by Deployz');
-    expect(doc.querySelector('a[href="' + QUICK_CREATE + '"]')?.textContent).toBe('Deploy to AWS');
+    expect(doc.querySelector('a[href="' + QUICK_CREATE + '"]')?.textContent).toBe('Review setup in AWS');
     expect(securityLink(doc)?.getAttribute('href')).toBe(SECURITY_HREF);
     // No internal identifiers in the page.
     expect(doc.body.textContent).not.toContain(PUBLIC_ID);

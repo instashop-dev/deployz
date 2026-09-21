@@ -1,21 +1,22 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
-import { Loader2 } from 'lucide-react';
+import { ChevronDown, Loader2 } from 'lucide-react';
 
-import { AwsInfrastructureDetails } from '@/components/aws-infrastructure-details';
 import { FootprintCost } from '@/components/footprint-cost';
-import { FootprintSummary } from '@/components/footprint-summary';
 import { InstallLaunchButton } from '@/components/install-launch-button';
+import { InstallPlanTable } from '@/components/install-plan-table';
 import { InstallProgress } from '@/components/install-progress';
 import { InstallRetryButton } from '@/components/install-retry-button';
 import { PublicInstallFlow } from '@/components/public-install-flow';
 import { TablePanel } from '@/components/table-panel';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { RELAY_STUCK_GUIDANCE } from '@/lib/deployment-vocabulary';
 import { cloudFormationStacksUrl } from '@/lib/aws-console';
 import { fetchInstallData } from '@/lib/install-data';
+import { formatMonthlyRange } from '@/lib/footprint';
 import { installPlanRegionLabel, installPlanRetentionNote, installPlanRows } from '@/lib/install-plan';
 import { fetchPublicInstallData } from '@/lib/public-install-data';
 import { publicInstallErrorMessage } from '@/lib/public-install-types';
@@ -30,23 +31,6 @@ export const metadata: Metadata = {
   // Unique private links must stay out of search indexes.
   robots: { index: false, follow: false },
 };
-
-const CAN_DO = [
-  'Deploy application releases',
-  'Check deployment status',
-  'Perform health checks',
-  'Update the application',
-  'Roll back the application version',
-  'Manage the resources Deployz created',
-] as const;
-
-const CANNOT_DO = [
-  "Access AWS resources outside what it created",
-  'Access your AWS account credentials',
-  'Administer applications unrelated to Deployz',
-  'Access your application data directly',
-  'Modify infrastructure outside the Deployz stack',
-] as const;
 
 // §44 install page: a vendor hands their customer this unique link. The
 // customer needs NO Deployz account — they sign in to their OWN cloud account
@@ -315,130 +299,160 @@ export default async function InstallPage({
 
   const retentionNote = installPlanRetentionNote(data.plan);
   const regionLabel = installPlanRegionLabel(data.region);
+  const costRange = formatMonthlyRange(
+    data.plan?.costEstimate?.monthlyMin ?? null,
+    data.plan?.costEstimate?.monthlyMax ?? null,
+  );
+  const expiryLabel = data.installLinkExpiresAt
+    ? new Date(data.installLinkExpiresAt).toLocaleDateString(undefined, { dateStyle: 'medium' })
+    : null;
 
   return (
-    <div className="flex flex-col gap-10">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight">
-          {data.publisherName} wants to deploy inside your AWS account
-        </h1>
-        <p className="mt-2 text-sm text-muted-foreground">
-          You&apos;ve been given a private setup link. Three steps, about five minutes — and you
-          sign in only with your own cloud provider.
-        </p>
-      </div>
-
-      <section aria-labelledby="app-details" className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-        <div>
-          <h2 id="app-details" className="text-xs font-medium uppercase text-muted-foreground">
-            Application
-          </h2>
-          <p className="mt-1 text-sm font-medium">{data.applicationName}</p>
+    <div className="mx-auto flex w-full max-w-3xl flex-col gap-10">
+      <header className="flex flex-col gap-4">
+        <div className="flex flex-col gap-2">
+          <h1 className="text-3xl font-semibold tracking-tight">
+            Deploy {data.applicationName} to your AWS account
+          </h1>
+          <p className="text-sm text-muted-foreground">
+            Requested by {data.publisherName} · Unlisted deployment link
+          </p>
         </div>
-        <div>
-          <h2 className="text-xs font-medium uppercase text-muted-foreground">Publisher</h2>
-          <p className="mt-1 text-sm font-medium">{data.publisherName}</p>
-        </div>
-      </section>
-
-      <section aria-labelledby="will-create" className="flex flex-col gap-3">
-        <h2 id="will-create" className="text-base font-semibold">
-          Deployz will create
-        </h2>
-        <TablePanel>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Component</TableHead>
-                <TableHead>What happens</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {installPlanRows(data.plan).map((row) => (
-                <TableRow key={row.kind}>
-                  <TableCell className="font-medium">{row.name}</TableCell>
-                  <TableCell className="text-muted-foreground">{row.whatHappens}</TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </TablePanel>
-        <FootprintSummary footprint={data.plan?.footprint} stage="planned" />
-        <AwsInfrastructureDetails plan={data.plan} region={data.region} />
-        {regionLabel ? (
-          <p className="text-sm text-muted-foreground">Region: {regionLabel}</p>
+        <dl className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <div>
+            <dt className="text-xs font-medium uppercase text-muted-foreground">Application</dt>
+            <dd className="mt-1 text-sm font-medium">{data.applicationName}</dd>
+          </div>
+          <div>
+            <dt className="text-xs font-medium uppercase text-muted-foreground">Publisher</dt>
+            <dd className="mt-1 text-sm font-medium">{data.publisherName}</dd>
+          </div>
+          {regionLabel ? (
+            <div>
+              <dt className="text-xs font-medium uppercase text-muted-foreground">Region</dt>
+              <dd className="mt-1 text-sm font-medium">{regionLabel}</dd>
+            </div>
+          ) : null}
+          {data.releaseVersion ? (
+            <div>
+              <dt className="text-xs font-medium uppercase text-muted-foreground">Release</dt>
+              <dd className="mt-1 text-sm font-medium">{data.releaseVersion}</dd>
+            </div>
+          ) : null}
+          <div>
+            <dt className="text-xs font-medium uppercase text-muted-foreground">
+              Estimated monthly AWS cost
+            </dt>
+            <dd className="mt-1 text-sm font-medium">
+              {costRange ?? 'Estimate unavailable'}
+            </dd>
+          </div>
+          {expiryLabel ? (
+            <div>
+              <dt className="text-xs font-medium uppercase text-muted-foreground">
+                Invitation expires
+              </dt>
+              <dd className="mt-1 text-sm font-medium">{expiryLabel}</dd>
+            </div>
+          ) : null}
+        </dl>
+        {retentionNote ? (
+          <p className="text-sm text-muted-foreground" data-testid="install-retention-warning">
+            {retentionNote} Retained resources keep accruing AWS charges until the publisher
+            permanently purges them or you delete them.
+          </p>
         ) : null}
-        {retentionNote ? <p className="text-sm text-muted-foreground">{retentionNote}</p> : null}
-        <FootprintCost estimate={data.plan?.costEstimate} />
-        <p className="text-sm font-medium text-foreground">
-          Your data stays in your AWS account.
+      </header>
+
+      <section aria-labelledby="infrastructure" className="flex flex-col gap-3">
+        <h2 id="infrastructure" className="text-base font-semibold">
+          What Deployz will create
+        </h2>
+        <InstallPlanTable plan={data.plan} regionLabel={regionLabel} />
+        <p className="text-sm text-muted-foreground">
+          Retained resources stay in your AWS account when the application is disconnected. Delete
+          them from the AWS console, or ask {data.publisherName} to purge them, to stop their
+          charges.
         </p>
+        <FootprintCost estimate={data.plan?.costEstimate} />
       </section>
 
-      <section aria-labelledby="can-do" className="flex flex-col gap-3">
-        <h2 id="can-do" className="text-base font-semibold">
-          What Deployz can do
+      <section aria-labelledby="what-happens-next" className="flex flex-col gap-3">
+        <h2 id="what-happens-next" className="text-base font-semibold">
+          What happens next
         </h2>
-        <ul className="flex list-disc flex-col gap-1.5 pl-5 text-sm text-muted-foreground">
-          {CAN_DO.map((item) => (
-            <li key={item}>{item}</li>
-          ))}
-        </ul>
-      </section>
-
-      <section aria-labelledby="cannot-do" className="flex flex-col gap-3">
-        <h2 id="cannot-do" className="text-base font-semibold">
-          What Deployz cannot do
-        </h2>
-        <ul className="flex list-disc flex-col gap-1.5 pl-5 text-sm text-muted-foreground">
-          {CANNOT_DO.map((item) => (
-            <li key={item}>{item}</li>
-          ))}
-        </ul>
-      </section>
-
-      <section aria-labelledby="what-happens" className="flex flex-col gap-3">
-        <h2 id="what-happens" className="text-base font-semibold">
-          What will happen
-        </h2>
-        <ol className="flex list-decimal flex-col gap-3 pl-5 text-sm text-muted-foreground">
-          <li>
-            Select <strong className="font-medium text-foreground">Deploy to AWS</strong> below.
-            You&apos;ll leave this page and land on a setup screen inside your own AWS account.
-          </li>
-          <li>
-            <strong className="font-medium text-foreground">AWS auth happens at AWS.</strong> You
-            sign in to your own AWS account — Deployz never sees, asks for, or stores your AWS
-            credentials.
-          </li>
-          <li>
-            Review what will be created, then confirm. AWS shows you the full list before anything
-            happens, and you can cancel at any point.
-          </li>
+        <ol className="flex list-decimal flex-col gap-2 pl-5 text-sm text-muted-foreground">
+          <li>Review the setup in AWS.</li>
+          <li>Approve creation of the Deployz connector.</li>
+          <li>Deployz prepares the infrastructure, starts the application and verifies HTTPS.</li>
         </ol>
       </section>
 
-      <section aria-labelledby="what-is-relay" className="flex flex-col gap-3">
-        <h2 id="what-is-relay" className="text-base font-semibold">
-          What is the &ldquo;relay&rdquo;?
+      <section aria-labelledby="security-facts" className="flex flex-col gap-3">
+        <h2 id="security-facts" className="text-base font-semibold">
+          Your security and access
         </h2>
-        <p className="text-sm text-muted-foreground">
-          A relay is a small helper that runs in your cloud account and keeps us in sync. It calls
-          out to Deployz on a schedule to ask for work — Deployz never calls in. That&apos;s how
-          your app gets installed and kept up to date without you handing anyone your account
-          keys.
-        </p>
+        <ul className="flex list-disc flex-col gap-1.5 pl-5 text-sm text-muted-foreground">
+          <li>Your AWS credentials stay in your AWS account — Deployz never sees or stores them.</li>
+          <li>
+            Your application data stays in your AWS account. Retained data survives a disconnect
+            until the publisher purges it or you delete it.
+          </li>
+          <li>
+            The Deployz connector only calls out to Deployz on a schedule. No inbound access to
+            your account is required.
+          </li>
+        </ul>
+        <Collapsible>
+          <CollapsibleTrigger asChild>
+            <Button variant="outline" size="sm" className="w-fit">
+              Security and access details
+              <ChevronDown aria-hidden className="ml-2 size-4" />
+            </Button>
+          </CollapsibleTrigger>
+          <CollapsibleContent className="flex flex-col gap-5 pt-4">
+            <div className="flex flex-col gap-2">
+              <h3 className="text-sm font-medium">Access granted to Deployz</h3>
+              <p className="text-sm text-muted-foreground">
+                The Deployz connector can deploy application releases, check deployment status, run
+                health checks, update the application, roll back the application version, and manage
+                the resources Deployz created for this deployment.
+              </p>
+            </div>
+            <div className="flex flex-col gap-2">
+              <h3 className="text-sm font-medium">Access boundaries</h3>
+              <p className="text-sm text-muted-foreground">
+                Deployz cannot read your AWS account credentials, cannot access AWS resources it did
+                not create, cannot administer applications unrelated to Deployz, and cannot read your
+                application data directly. Its permissions are scoped to the resources this
+                deployment creates.
+              </p>
+            </div>
+            <div className="flex flex-col gap-2">
+              <h3 className="text-sm font-medium">How the Deployz connector works</h3>
+              <p className="text-sm text-muted-foreground">
+                The connector runs as an AWS Lambda function in your account and calls out to Deployz
+                on a schedule to ask for work — Deployz never connects in. Its credential is stored in
+                a Secrets Manager secret in your account. It performs install, update, rollback,
+                restart, configuration and teardown work through your own AWS APIs. Only deployment
+                status and metadata leave your account; application data and logs stay in your
+                CloudWatch. The connector is reused for future deployments of this application into
+                this account, and it is removed when you delete its CloudFormation stack. If Deployz
+                is temporarily offline, your application keeps running — the connector simply waits
+                for the next check-in.
+              </p>
+            </div>
+            <Button asChild variant="outline" size="sm" className="w-fit">
+              <Link href={`/install/${encodeURIComponent(installLinkId)}/security`}>
+                Inspect the template and permissions
+              </Link>
+            </Button>
+          </CollapsibleContent>
+        </Collapsible>
       </section>
 
-      <section aria-label="Install actions" className="flex flex-col gap-4">
+      <section aria-label="Install actions" className="flex flex-col gap-3">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-          {/* External handoff to the customer's own AWS console — a plain
-              anchor, not a Next Link. Opens in a new tab so this page stays
-              open behind it: it's what starts showing live deployment
-              progress once AWS hands off to the relay. Disabled rather than
-              broken when the publisher has not published a bootstrap
-              template yet: a link to a template AWS cannot fetch fails
-              inside the customer's console with nothing to act on. */}
           {data.quickCreateUrl ? (
             <InstallLaunchButton
               installLinkId={installLinkId}
@@ -446,15 +460,18 @@ export default async function InstallPage({
             />
           ) : (
             <Button size="lg" disabled>
-              Deploy to AWS
+              Review setup in AWS
             </Button>
           )}
-          <Button asChild variant="ghost" size="lg">
-            <Link href={`/install/${encodeURIComponent(installLinkId)}/security`}>
-              Security details
-            </Link>
-          </Button>
         </div>
+        <p className="text-sm text-muted-foreground">
+          You&apos;ll review the CloudFormation setup in AWS before anything is created. No Deployz
+          account is required.
+        </p>
+        <p className="text-xs text-muted-foreground">
+          Requires an AWS identity that can create CloudFormation stacks and the resources listed
+          above.
+        </p>
         {!data.quickCreateUrl && (
           <p className="text-xs text-muted-foreground">
             {data.publisherName} hasn&apos;t published a setup template yet. Contact them for a
@@ -466,21 +483,6 @@ export default async function InstallPage({
           <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-xs">{installLinkId}</code>
         </p>
       </section>
-
-      {/* Starts at WAITING_FOR_AWS — small and unobtrusive under the CTA
-          above. Polling picks up relay registration on its own, so if the
-          customer stays on this page through the whole install, the same
-          card grows into the full progress view without a reload. */}
-      <InstallProgress
-        installLinkId={installLinkId}
-        deploymentId={data.deploymentId}
-        initialStatus={initialStatus}
-        quickCreateUrl={data.quickCreateUrl}
-        initialDomain={data.domain}
-        routingTarget={data.routingTarget}
-        preinstall
-        awaitingLaunch
-      />
     </div>
   );
 }

@@ -43,6 +43,8 @@ interface InstallData {
   bootstrapStackName: string;
   /** The customer launched the install and Deployz is waiting for the relay. */
   waitingForRelay: boolean;
+  /** When this invitation stops accepting new installations (ISO). Null = no limit. */
+  installLinkExpiresAt: string | null;
   /** waitingForRelay past the relay-staleness window — guidance, never a failure. */
   relayStuck: boolean;
   /** §24 component view, same derivation the fleet row uses. Null until enrolled. */
