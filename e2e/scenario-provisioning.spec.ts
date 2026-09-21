@@ -177,6 +177,17 @@ test.describe('database-failure', () => {
       })
       .toBe('FAILED');
 
+    // The terminal ROLLBACK_COMPLETE status follows the settlement on a
+    // later progress batch while AWS finishes the rollback.
+    await expect
+      .poll(
+        async () =>
+          ((await api.getDeployment(deploymentId)) as unknown as DeploymentResponse).deploymentStatus.failure
+            ?.awsStatus,
+        { timeout: 15_000, message: 'waiting for the terminal rollback stack status' },
+      )
+      .toBe('ROLLBACK_COMPLETE');
+
     const deployment = (await api.getDeployment(deploymentId)) as unknown as DeploymentResponse;
     expect(deployment.deploymentStatus.stage).toBe('FAILED');
     // Refinement: the failed resource is the RDS instance.
@@ -222,6 +233,17 @@ test.describe('redis-failure', () => {
         message: 'waiting for deployment.state to reach FAILED',
       })
       .toBe('FAILED');
+
+    // The terminal ROLLBACK_COMPLETE status follows the settlement on a
+    // later progress batch while AWS finishes the rollback.
+    await expect
+      .poll(
+        async () =>
+          ((await api.getDeployment(deploymentId)) as unknown as DeploymentResponse).deploymentStatus.failure
+            ?.awsStatus,
+        { timeout: 15_000, message: 'waiting for the terminal rollback stack status' },
+      )
+      .toBe('ROLLBACK_COMPLETE');
 
     const deployment = (await api.getDeployment(deploymentId)) as unknown as DeploymentResponse;
     expect(deployment.deploymentStatus.stage).toBe('FAILED');

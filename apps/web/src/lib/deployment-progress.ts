@@ -95,7 +95,7 @@ export const STAGE_HEADLINE: Record<DeploymentStage, { title: string; body: stri
     body: 'Everything is set up and your application passed its health checks.',
   },
   FAILED: {
-    title: 'Deployment needs attention',
+    title: 'Deployment failed',
     body: "The deployment couldn't finish. The details below explain what happened.",
   },
 };
@@ -118,27 +118,78 @@ export function stepsBeforeLaunch(steps: DeploymentStep[] | undefined): Progress
 
 /**
  * Copy per deployment step, keyed by the step's own state: `pending` (not
- * reached yet), `active` (in progress, or the interrupted step on FAILED),
- * `done` (behind us). The server decides WHICH step is active and which
- * steps apply (`steps`/`step` on the status wire shapes) — this map only
- * supplies the words.
+ * reached yet), `active` (in progress), `failed` (the step a terminal
+ * failure interrupted), `done` (behind us). The server decides WHICH step
+ * is active and which steps apply (`steps`/`step` on the status wire
+ * shapes) — this map only supplies the words.
  */
-export const STEP_LABEL: Record<DeploymentStep, { pending: string; active: string; done: string }> = {
-  AWS_SETUP: { pending: 'AWS setup', active: 'Setting up AWS connection', done: 'AWS connected' },
-  RELAY_CONNECT: { pending: 'Connect to Deployz', active: 'Connecting to Deployz', done: 'Connected to Deployz' },
-  PREPARING: { pending: 'Prepare deployment', active: 'Preparing deployment', done: 'Deployment prepared' },
-  NETWORK: { pending: 'Network', active: 'Creating network', done: 'Network created' },
+export const STEP_LABEL: Record<DeploymentStep, { pending: string; active: string; failed: string; done: string }> = {
+  AWS_SETUP: {
+    pending: 'AWS setup',
+    active: 'Setting up AWS connection',
+    failed: 'Setting up AWS connection failed',
+    done: 'AWS connected',
+  },
+  RELAY_CONNECT: {
+    pending: 'Connect to Deployz',
+    active: 'Connecting to Deployz',
+    failed: 'Connecting to Deployz failed',
+    done: 'Connected to Deployz',
+  },
+  PREPARING: {
+    pending: 'Prepare deployment',
+    active: 'Preparing deployment',
+    failed: 'Preparing deployment failed',
+    done: 'Deployment prepared',
+  },
+  NETWORK: {
+    pending: 'Network',
+    active: 'Creating network',
+    failed: 'Creating network failed',
+    done: 'Network created',
+  },
   DATABASE_STORAGE: {
     pending: 'Database & storage',
     active: 'Creating database & storage',
+    failed: 'Creating database & storage failed',
     done: 'Database & storage created',
   },
-  REDIS: { pending: 'Redis cache', active: 'Creating Redis cache', done: 'Redis cache created' },
-  MIGRATION: { pending: 'Run migrations', active: 'Running migrations', done: 'Migrations applied' },
-  APPLICATION: { pending: 'Start application', active: 'Starting application', done: 'Application started' },
-  HEALTH_CHECK: { pending: 'Check application', active: 'Checking application', done: 'Health checks passed' },
-  TLS: { pending: 'Set up HTTPS', active: 'Setting up HTTPS', done: 'HTTPS set up' },
-  READY: { pending: 'Ready', active: 'Ready', done: 'Ready' },
+  REDIS: {
+    pending: 'Redis cache',
+    active: 'Creating Redis cache',
+    failed: 'Creating Redis cache failed',
+    done: 'Redis cache created',
+  },
+  MIGRATION: {
+    pending: 'Run migrations',
+    active: 'Running migrations',
+    failed: 'Running migrations failed',
+    done: 'Migrations applied',
+  },
+  APPLICATION: {
+    pending: 'Start application',
+    active: 'Starting application',
+    failed: 'Starting application failed',
+    done: 'Application started',
+  },
+  HEALTH_CHECK: {
+    pending: 'Check application',
+    active: 'Checking application',
+    failed: 'Checking application failed',
+    done: 'Health checks passed',
+  },
+  TLS: {
+    pending: 'Set up HTTPS',
+    active: 'Setting up HTTPS',
+    failed: 'Setting up HTTPS failed',
+    done: 'HTTPS set up',
+  },
+  READY: {
+    pending: 'Ready',
+    active: 'Ready',
+    failed: 'Deployment failed',
+    done: 'Ready',
+  },
 };
 
 /**
@@ -174,7 +225,14 @@ export function stepsFromStatus({
               : 'current'
             : 'waiting';
     const labels = STEP_LABEL[candidate];
-    const label = state === 'waiting' ? labels.pending : state === 'done' ? labels.done : labels.active;
+    const label =
+      state === 'waiting'
+        ? labels.pending
+        : state === 'done'
+          ? labels.done
+          : state === 'attention'
+            ? labels.failed
+            : labels.active;
     return { key: candidate, label, state };
   });
 }
@@ -193,7 +251,9 @@ export interface StepperStep extends ProgressStep {
 
 /** The customer stepper's seven display steps, in order. Labels are static:
  *  the state lives in the marker, the sr-only wording, and the active step's
- *  live detail — never in a re-worded label. */
+ *  live detail — never in a re-worded label. One exception, by design: a
+ *  FAILED main step names the failure ("Starting application failed") so a
+ *  terminal failure never reads as a step still running. */
 const STEPPER_GROUPS: readonly {
   key: string;
   label: string;
@@ -241,10 +301,16 @@ export function customerStepperSteps(steps: ProgressStep[]): StepperStep[] {
     const substeps = (group.substeps ?? [])
       .map((key) => byKey.get(key))
       .filter((step): step is ProgressStep => step !== undefined);
+    // A failed MAIN step becomes the rung's title ("Starting application
+    // failed"); a failed substep keeps the static rung title and carries its
+    // own failed wording in its sub-row.
+    const failedMain = group.steps
+      .map((key) => byKey.get(key))
+      .find((step) => step?.state === 'attention');
     return [
       {
         key: group.key,
-        label: group.label,
+        label: failedMain?.label ?? group.label,
         state: stepperGroupState(members),
         detail: activeMember?.detail,
         ...(substeps.length > 0 ? { substeps } : {}),

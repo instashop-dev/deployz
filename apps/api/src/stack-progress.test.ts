@@ -505,7 +505,7 @@ describe('POST /api/relay/commands/:id/progress', () => {
     expect(updatedDeployment!.observedState).toEqual({ untouched: 'marker' });
   });
 
-  it('a stack-level ROLLBACK_IN_PROGRESS event keeps the existing rollback copy, no jargon, and does not flip stage on its own', async () => {
+  it('a stack-level ROLLBACK_IN_PROGRESS event settles the install as FAILED with cleanup in progress', async () => {
     const { deployment, installationId, token, job, stackName } = await setupInstallJob();
 
     const first = await postJson(
@@ -517,11 +517,11 @@ describe('POST /api/relay/commands/:id/progress', () => {
         stackName,
         events: [
           {
-            eventId: 'evt-network-progress',
+            eventId: 'evt-settle-network',
             timestamp: new Date().toISOString(),
             logicalResourceId: 'Vpc',
             resourceType: 'AWS::EC2::VPC',
-            resourceStatus: 'CREATE_IN_PROGRESS',
+            resourceStatus: 'CREATE_COMPLETE',
           },
         ],
       },
@@ -538,7 +538,7 @@ describe('POST /api/relay/commands/:id/progress', () => {
         stackName,
         events: [
           {
-            eventId: 'evt-stack-rollback',
+            eventId: 'evt-settle-rollback',
             timestamp: new Date(Date.now() + 1000).toISOString(),
             logicalResourceId: stackName,
             resourceType: 'AWS::CloudFormation::Stack',
@@ -550,16 +550,189 @@ describe('POST /api/relay/commands/:id/progress', () => {
     );
     expect(rollback.statusCode).toBe(200);
 
+    // CloudFormation's own rollback verdict settles the attempt even when
+    // the relay never reports /result: the job is FAILED, the deployment is
+    // FAILED, and the audit trail records install.failed.
+    const [updatedJob] = await db.select().from(schema.deploymentJobs).where(eq(schema.deploymentJobs.id, job.id));
+    expect(updatedJob!.state).toBe('FAILED');
+    expect(updatedJob!.failureCode).toBe('STACK_CREATE_FAILED');
+    // The synthesized result carries the stack status the relay's own report
+    // would have delivered — the vendor failure card's "AWS status" row and
+    // the read-side awsStatus derivation depend on it.
+    expect((updatedJob!.result as { output?: { stackStatus?: string } }).output?.stackStatus).toBe(
+      'ROLLBACK_IN_PROGRESS',
+    );
+
+    const [updatedDeployment] = await db.select().from(schema.deployments).where(eq(schema.deployments.id, deployment.id));
+    expect(updatedDeployment!.state).toBe('FAILED');
+
+    const logRows = await db.select().from(schema.eventLogs).where(eq(schema.eventLogs.jobId, job.id));
+    expect(logRows.some((row) => row.eventType === 'install.failed')).toBe(true);
+
+    // The customer page flips to the terminal state, cleanup in progress,
+    // and the activity line stays jargon-free.
+    const status = await app.inject({ method: 'GET', url: `/api/install/${deployment.installLinkId}/status` });
+    const body = customerDeploymentStatusSchema.parse(status.json());
+    expect(body.stage).toBe('FAILED');
+    expect(body.cleanup).toBe('IN_PROGRESS');
+    expect(body.failure).not.toBeNull();
+    expect(body.currentActivity).not.toMatch(/ROLLBACK|CloudFormation|AWS::/i);
+
+    // The rollback continues in AWS: a later batch carrying the terminal
+    // ROLLBACK_COMPLETE updates the settled result's stack status without
+    // re-settling the job or duplicating the audit event, and the customer
+    // cleanup state moves from in progress to resources-may-remain.
+    const rollbackComplete = await postJson(
+      app,
+      `/api/relay/commands/${job.id}/progress`,
+      {
+        commandId: job.id,
+        installationId,
+        stackName,
+        events: [
+          {
+            eventId: 'evt-settle-rollback-complete',
+            timestamp: new Date(Date.now() + 2000).toISOString(),
+            logicalResourceId: stackName,
+            resourceType: 'AWS::CloudFormation::Stack',
+            resourceStatus: 'ROLLBACK_COMPLETE',
+          },
+        ],
+      },
+      { authorization: `Bearer ${token}` },
+    );
+    expect(rollbackComplete.statusCode).toBe(200);
+
+    const [terminalJob] = await db.select().from(schema.deploymentJobs).where(eq(schema.deploymentJobs.id, job.id));
+    expect(terminalJob!.state).toBe('FAILED');
+    expect((terminalJob!.result as { output?: { stackStatus?: string } }).output?.stackStatus).toBe(
+      'ROLLBACK_COMPLETE',
+    );
+    const terminalLogRows = await db.select().from(schema.eventLogs).where(eq(schema.eventLogs.jobId, job.id));
+    expect(terminalLogRows.filter((row) => row.eventType === 'install.failed')).toHaveLength(1);
+
+    const terminalStatus = await app.inject({ method: 'GET', url: `/api/install/${deployment.installLinkId}/status` });
+    const terminalBody = customerDeploymentStatusSchema.parse(terminalStatus.json());
+    expect(terminalBody.stage).toBe('FAILED');
+    expect(terminalBody.cleanup).toBe('RETAINED');
+  });
+
+  it('settlement is idempotent: a late duplicate batch and a late relay success result cannot change the terminal state', async () => {
+    const { deployment, installationId, token, job, stackName } = await setupInstallJob();
+    const stackPayload = (eventId: string) => ({
+      commandId: job.id,
+      installationId,
+      stackName,
+      events: [
+        {
+          eventId,
+          timestamp: new Date().toISOString(),
+          logicalResourceId: stackName,
+          resourceType: 'AWS::CloudFormation::Stack',
+          resourceStatus: 'ROLLBACK_COMPLETE',
+        },
+      ],
+    });
+
+    const first = await postJson(app, `/api/relay/commands/${job.id}/progress`, stackPayload('evt-idem-1'), {
+      authorization: `Bearer ${token}`,
+    });
+    expect(first.statusCode).toBe(200);
+
+    const [afterFirst] = await db.select().from(schema.deploymentJobs).where(eq(schema.deploymentJobs.id, job.id));
+    expect(afterFirst!.state).toBe('FAILED');
+
+    const failureEvents = async () =>
+      (await db.select().from(schema.eventLogs).where(eq(schema.eventLogs.jobId, job.id))).filter(
+        (row) => row.eventType === 'install.failed',
+      );
+    expect(await failureEvents()).toHaveLength(1);
+
+    // A late duplicate progress batch: rows accepted, no re-settlement.
+    const duplicate = await postJson(app, `/api/relay/commands/${job.id}/progress`, stackPayload('evt-idem-2'), {
+      authorization: `Bearer ${token}`,
+    });
+    expect(duplicate.statusCode).toBe(200);
+    expect(await failureEvents()).toHaveLength(1);
+
+    // The relay's own late success result: first writer wins, FAILED stays.
+    const lateResult = await postJson(
+      app,
+      `/api/relay/commands/${job.id}/result`,
+      { success: true, output: {} },
+      { authorization: `Bearer ${token}` },
+    );
+    expect(lateResult.statusCode).toBe(200);
+    expect(lateResult.json()).toEqual({ received: true, alreadySettled: true });
+
+    const [afterLate] = await db.select().from(schema.deploymentJobs).where(eq(schema.deploymentJobs.id, job.id));
+    expect(afterLate!.state).toBe('FAILED');
+    const [deploymentAfter] = await db.select().from(schema.deployments).where(eq(schema.deployments.id, deployment.id));
+    expect(deploymentAfter!.state).toBe('FAILED');
+    expect(await failureEvents()).toHaveLength(1);
+  });
+
+  it('a stack-level CREATE_COMPLETE never settles anything: the install keeps waiting for its own result', async () => {
+    const { deployment, installationId, token, job, stackName } = await setupInstallJob();
+    const response = await postJson(
+      app,
+      `/api/relay/commands/${job.id}/progress`,
+      {
+        commandId: job.id,
+        installationId,
+        stackName,
+        events: [
+          {
+            eventId: 'evt-create-complete',
+            timestamp: new Date().toISOString(),
+            logicalResourceId: stackName,
+            resourceType: 'AWS::CloudFormation::Stack',
+            resourceStatus: 'CREATE_COMPLETE',
+          },
+        ],
+      },
+      { authorization: `Bearer ${token}` },
+    );
+    expect(response.statusCode).toBe(200);
+
     const [updatedJob] = await db.select().from(schema.deploymentJobs).where(eq(schema.deploymentJobs.id, job.id));
     expect(updatedJob!.state).toBe('RUNNING');
 
     const status = await app.inject({ method: 'GET', url: `/api/install/${deployment.installLinkId}/status` });
-    const body = status.json() as { stage: string; step: string; currentActivity: string };
-    // Stage still comes from the job's own state (still RUNNING), not from
-    // the snapshot — a rollback/failed category never flips it on its own.
+    const body = status.json() as { stage: string };
     expect(body.stage).toBe('PROVISIONING');
-    expect(body.step).toBe('PREPARING');
-    expect(body.currentActivity).not.toMatch(/ROLLBACK|CloudFormation|AWS::/i);
+  });
+
+  it('a terminal CREATE_FAILED stack settles with the resources-may-remain cleanup state', async () => {
+    const { deployment, installationId, token, job, stackName } = await setupInstallJob();
+    const response = await postJson(
+      app,
+      `/api/relay/commands/${job.id}/progress`,
+      {
+        commandId: job.id,
+        installationId,
+        stackName,
+        events: [
+          {
+            eventId: 'evt-create-failed-stack',
+            timestamp: new Date().toISOString(),
+            logicalResourceId: stackName,
+            resourceType: 'AWS::CloudFormation::Stack',
+            resourceStatus: 'CREATE_FAILED',
+          },
+        ],
+      },
+      { authorization: `Bearer ${token}` },
+    );
+    expect(response.statusCode).toBe(200);
+
+    const [updatedJob] = await db.select().from(schema.deploymentJobs).where(eq(schema.deploymentJobs.id, job.id));
+    expect(updatedJob!.state).toBe('FAILED');
+
+    const status = await app.inject({ method: 'GET', url: `/api/install/${deployment.installLinkId}/status` });
+    const body = customerDeploymentStatusSchema.parse(status.json());
+    expect(body.stage).toBe('FAILED');
+    expect(body.cleanup).toBe('RETAINED');
   });
 
   it('a READY install status carries the awsSummary; a non-READY or unenrolled one does not', async () => {

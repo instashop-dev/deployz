@@ -347,7 +347,7 @@ test.describe('cloudformation-rollback (browser)', () => {
     // ── Customer install page: the failure shown honestly, no stuck spinner,
     // never a false Healthy/Ready.
     await page.goto(`/install/${installLinkId}`);
-    await expect(page.getByRole('heading', { name: 'Deployment needs attention' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Deployment failed' })).toBeVisible();
     await expect(page.getByText('What happened', { exact: true })).toBeVisible();
     // Refined server-side to DATABASE_CREATE_FAILED — the customer sees the
     // database description, not the generic stack one.

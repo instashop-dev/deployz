@@ -144,9 +144,10 @@ describe('stepsFromStatus', () => {
     expect(stateOf(FULL_STEPS, 'DATABASE_STORAGE', 'FAILED', 'NETWORK')).toBe('done');
     expect(stateOf(FULL_STEPS, 'DATABASE_STORAGE', 'FAILED', 'DATABASE_STORAGE')).toBe('attention');
     expect(stateOf(FULL_STEPS, 'DATABASE_STORAGE', 'FAILED', 'REDIS')).toBe('waiting');
-    // Still mid-sentence copy, not the completed form — the step never finished.
+    // The failed step names the failure — never the in-progress or completed
+    // form: the step never finished.
     const rendered = stepsFromStatus({ steps: FULL_STEPS, step: 'DATABASE_STORAGE', stage: 'FAILED' });
-    expect(rendered.find((step) => step.key === 'DATABASE_STORAGE')!.label).toBe('Creating database & storage');
+    expect(rendered.find((step) => step.key === 'DATABASE_STORAGE')!.label).toBe('Creating database & storage failed');
   });
 
   it('READY: every step renders done, with done copy', () => {

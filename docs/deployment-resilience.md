@@ -47,8 +47,8 @@ known state, and provides a deterministic path forward.
 ## A failed update is not a failed deployment
 
 The core semantic rule (`deploymentStateAfterFailedJob` in
-`@deployz/contracts`, applied identically by the relay result route and the
-watchdog):
+`@deployz/contracts`, applied identically by the relay result route, the
+watchdog, and the stack-event progress route's settlement backstop):
 
 - A failed **day-2 operation** (deploy/rollback/restart) on a deployment
   with a running release returns the deployment to `UPDATE_AVAILABLE` (a

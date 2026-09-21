@@ -149,6 +149,19 @@ test.describe('cloudformation-rollback', () => {
       })
       .toBe('FAILED');
 
+    // The deployment is FAILED from the moment CloudFormation's rollback
+    // verdict arrives (stack-event settlement); the terminal
+    // ROLLBACK_COMPLETE status follows on a later progress batch while AWS
+    // finishes the rollback — poll for it instead of racing one read.
+    await expect
+      .poll(
+        async () =>
+          ((await api.getDeployment(deploymentId)) as unknown as DeploymentResponse).deploymentStatus.failure
+            ?.awsStatus,
+        { timeout: 15_000, message: 'waiting for the terminal rollback stack status' },
+      )
+      .toBe('ROLLBACK_COMPLETE');
+
     const deployment = (await api.getDeployment(deploymentId)) as unknown as DeploymentResponse;
     expect(deployment.deploymentStatus.stage).toBe('FAILED');
     expect(deployment.deploymentStatus.failure).not.toBeNull();
@@ -181,6 +194,17 @@ test.describe('ecs-failure', () => {
         message: 'waiting for deployment.state to reach FAILED',
       })
       .toBe('FAILED');
+
+    // The terminal ROLLBACK_COMPLETE status follows the settlement on a
+    // later progress batch while AWS finishes the rollback.
+    await expect
+      .poll(
+        async () =>
+          ((await api.getDeployment(deploymentId)) as unknown as DeploymentResponse).deploymentStatus.failure
+            ?.awsStatus,
+        { timeout: 15_000, message: 'waiting for the terminal rollback stack status' },
+      )
+      .toBe('ROLLBACK_COMPLETE');
 
     const deployment = (await api.getDeployment(deploymentId)) as unknown as DeploymentResponse;
     expect(deployment.deploymentStatus.stage).toBe('FAILED');

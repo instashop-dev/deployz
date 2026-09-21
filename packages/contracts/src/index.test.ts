@@ -747,6 +747,7 @@ describe('customerDeploymentStatusSchema', () => {
       stage: 'FAILED',
       failure: {
         ownedByApplication: true,
+        customerActionRequired: false,
         customerMessage: 'The application image could not be downloaded.',
         component: 'runtime',
         reference: 'DEP-ABCDEF12',
@@ -754,11 +755,12 @@ describe('customerDeploymentStatusSchema', () => {
       },
     };
     expect(customerDeploymentStatusSchema.parse(withFailure)).toStrictEqual(withFailure);
-    // The flag is required and plain boolean — false for every failure the
-    // application's own startup/config work did not cause.
+    // The flags are required and plain booleans — false for every failure the
+    // application's own startup/config work did not cause, true when a
+    // customer-side change must precede any retry.
     const notAppOwned = {
       ...withFailure,
-      failure: { ...withFailure.failure, ownedByApplication: false },
+      failure: { ...withFailure.failure, ownedByApplication: false, customerActionRequired: true },
     };
     expect(customerDeploymentStatusSchema.parse(notAppOwned)).toStrictEqual(notAppOwned);
   });

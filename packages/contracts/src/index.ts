@@ -652,6 +652,13 @@ export const customerDeploymentStatusSchema = z
     // Set as soon as AWS reports a resource failure, before the job itself
     // is FAILED — a rollback can take many minutes to settle.
     provisioningIssue: z.object({ message: z.string() }).strict().nullable().optional(),
+    // Cleanup of a failed install — deliberately independent of the lifecycle
+    // stage, so a cleanup still running can never keep the deployment looking
+    // in-progress. IN_PROGRESS: AWS is still removing the failed attempt's
+    // resources. COMPLETE: a later verified cleanup removed them. RETAINED:
+    // terminal, and some resources may intentionally remain. Null when no
+    // failed attempt is being cleaned up.
+    cleanup: z.enum(['IN_PROGRESS', 'COMPLETE', 'RETAINED']).nullable().optional(),
     technicalDetails: customerTechnicalDetailsSchema.nullable().optional(),
     // Populated only once the deployment is READY (enrolled): non-secret,
     // stored-deployment data. The endpoint comes from the existing `url`
@@ -674,6 +681,12 @@ export const customerDeploymentStatusSchema = z
         // raw §61 code stays OFF this unauthenticated surface (§65); the
         // vendor projection carries it.
         ownedByApplication: z.boolean(),
+        // True when the §61 recoverability class is USER_ACTION and the
+        // failure is not application-owned: something in the customer's AWS
+        // account or inputs must change before a retry can succeed, so the
+        // page shows an actionable next step instead of the default
+        // "no action required" copy.
+        customerActionRequired: z.boolean(),
         customerMessage: z.string(),
         component: z.string().nullable(),
         reference: z.string(),

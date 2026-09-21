@@ -445,7 +445,7 @@ test('failure path: a failed INSTALL shows a customer-safe message with no jargo
     .toBe('FAILED');
 
   await page.goto(`/install/${installLinkId}`);
-  await expect(page.getByRole('heading', { name: 'Deployment needs attention' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Deployment failed' })).toBeVisible();
   await expect(page.getByText('What happened', { exact: true })).toBeVisible();
   await expect(page.getByText("The database couldn't be created.")).toBeVisible();
 
