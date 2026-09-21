@@ -353,3 +353,54 @@ describe('Blocking issues', () => {
     expect((await reviewButton()).textContent).toBe('Review issues');
   });
 });
+
+describe('Delete application', () => {
+  const HISTORY_MESSAGE =
+    'This application has deployment history and cannot be removed. Applications can only be removed before their first deployment.';
+
+  const byTestId = (id: string) => document.body.querySelector(`[data-testid="${id}"]`);
+
+  async function click(element: Element | null): Promise<void> {
+    await act(async () => {
+      element?.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    });
+  }
+
+  it('keeps the dialog open and shows the backend error immediately when removal is rejected', async () => {
+    const deletion = deferred<void>();
+    mocks.deleteApplication.mockReturnValue(deletion.promise);
+
+    await act(async () => {
+      root.render(<ApplicationReadinessPage />);
+    });
+
+    await click(byTestId('delete-app-trigger'));
+    const input = byTestId('delete-app-confirm') as HTMLInputElement;
+    expect(input).not.toBeNull();
+
+    await act(async () => {
+      const setValue = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!;
+      setValue.call(input, 'acme/api');
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+
+    await click(byTestId('delete-app-button'));
+
+    // The request is in flight: the dialog stays open and the button is busy.
+    expect(byTestId('delete-app-confirm')).not.toBeNull();
+    expect(byTestId('delete-app-button')?.getAttribute('aria-busy')).toBe('true');
+
+    await act(async () => {
+      deletion.reject(
+        Object.assign(new Error(HISTORY_MESSAGE), { code: 'APPLICATION_HAS_DEPLOYMENTS' }),
+      );
+      await deletion.promise.catch(() => undefined);
+    });
+
+    const alert = document.body.querySelector('[role="alert"]');
+    expect(byTestId('delete-app-confirm')).not.toBeNull();
+    expect(alert?.textContent).toBe(HISTORY_MESSAGE);
+    expect(byTestId('delete-app-button')?.hasAttribute('aria-busy')).toBe(false);
+    expect(mocks.push).not.toHaveBeenCalled();
+  });
+});

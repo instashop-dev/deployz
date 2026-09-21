@@ -766,7 +766,13 @@ function DangerZone({ application }: { application: Application }) {
             This permanently removes the application and its releases from Deployz. This cannot be
             undone.
           </p>
-          <AlertDialog open={open} onOpenChange={setOpen}>
+          <AlertDialog
+            open={open}
+            onOpenChange={(next) => {
+              if (!next) setError(null);
+              setOpen(next);
+            }}
+          >
             <AlertDialogTrigger asChild>
               <Button
                 variant="outline"
@@ -807,7 +813,12 @@ function DangerZone({ application }: { application: Application }) {
               <AlertDialogFooter>
                 <AlertDialogCancel onClick={() => setConfirmText('')}>Cancel</AlertDialogCancel>
                 <AlertDialogAction
-                  onClick={() => void onConfirm()}
+                  onClick={(event) => {
+                    // The action closes the dialog by default; the request needs it
+                    // open until the API has answered.
+                    event.preventDefault();
+                    void onConfirm();
+                  }}
                   loading={pending}
                   loadingText="Removing application…"
                   disabled={!confirmed}
