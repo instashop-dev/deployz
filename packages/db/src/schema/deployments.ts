@@ -86,6 +86,11 @@ export const deployments = pgTable(
   attemptNumber: integer('attempt_number').notNull().default(0),
   bootstrapStackName: text('bootstrap_stack_name'),
   installStartedAt: timestamp('install_started_at', { withTimezone: true }),
+  // Invitation lifecycle: the customer-facing link is time-limited and
+  // vendor-revocable. NULL expiry = no limit (links created before this
+  // field existed stay valid, so existing installations are untouched).
+  installLinkExpiresAt: timestamp('install_link_expires_at', { withTimezone: true }),
+  installLinkRevokedAt: timestamp('install_link_revoked_at', { withTimezone: true }),
   // Phase 5 §9.6: the identifiers a relay/reset REPLACED. A reset nulls
   // installationId and may rename the bootstrap stack, so the previous
   // stack's retained resources stay attributable to this deployment — a

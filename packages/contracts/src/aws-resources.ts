@@ -18,17 +18,19 @@ import type { InfrastructureProfile } from './index.js';
 // `requiredBy` predicts, and its `lifecycle` must match the template's
 // DeletionPolicy.
 
-export const awsResourceGroupSchema = z.enum(['compute_networking', 'data', 'security_operations']);
+export const awsResourceGroupSchema = z.enum(['connector', 'compute_networking', 'data', 'security_operations']);
 export type AwsResourceGroup = z.infer<typeof awsResourceGroupSchema>;
 
 /** Group headings in display order. The only source the UI renders group names from. */
 export const AWS_RESOURCE_GROUP_DISPLAY: Readonly<Record<AwsResourceGroup, string>> = {
+  connector: 'Deployz connector',
   compute_networking: 'Compute & Networking',
   data: 'Data',
   security_operations: 'Security & Operations',
 };
 
 export const AWS_RESOURCE_GROUP_ORDER: readonly AwsResourceGroup[] = [
+  'connector',
   'compute_networking',
   'data',
   'security_operations',
@@ -212,6 +214,68 @@ export const AWS_RESOURCES: readonly AwsResourceDefinition[] = [
 /** The AWS resources a deployment with this profile creates, in catalog order. */
 export function requiredAwsResources(profile: InfrastructureProfile): readonly AwsResourceDefinition[] {
   return AWS_RESOURCES.filter((resource) => resource.requiredBy(profile));
+}
+
+/**
+ * The bootstrap ("Deployz connector") stack's customer-meaningful resources —
+ * the same shape as `AWS_RESOURCES` but a separate list on purpose: the
+ * connector stack is created by the customer's own Quick Create, lives until
+ * the customer deletes it, and is NOT part of the application stack whose
+ * expected-vs-actual inventory `requiredAwsResources` verifies. The install
+ * surface renders both lists together; verification consumes only the
+ * application catalog.
+ */
+export const CONNECTOR_RESOURCES: readonly AwsResourceDefinition[] = [
+  {
+    id: 'connector_lambda',
+    name: 'Deployz connector (AWS Lambda)',
+    purpose: 'Runs the Deployz connector — it checks in with Deployz and performs deployment work in your account',
+    group: 'connector',
+    componentKind: 'other',
+    resourceType: 'AWS::Lambda::Function',
+    lifecycle: 'retain',
+    requiredBy: ALWAYS,
+  },
+  {
+    id: 'connector_role',
+    name: 'Connector IAM role',
+    purpose: 'Limits the connector to the deployment actions described on this page',
+    group: 'connector',
+    componentKind: 'other',
+    resourceType: 'AWS::IAM::Role',
+    lifecycle: 'retain',
+    requiredBy: ALWAYS,
+  },
+  {
+    id: 'connector_credential',
+    name: 'Connector credential (Secrets Manager)',
+    purpose: 'Stores the credential the connector uses to identify itself with Deployz',
+    group: 'connector',
+    componentKind: 'other',
+    resourceType: 'AWS::SecretsManager::Secret',
+    lifecycle: 'retain',
+    requiredBy: ALWAYS,
+  },
+  {
+    id: 'connector_schedule',
+    name: 'Connector schedule (EventBridge)',
+    purpose: 'Wakes the connector so it can pick up deployment work',
+    group: 'connector',
+    componentKind: 'other',
+    resourceType: 'AWS::Events::Rule',
+    lifecycle: 'retain',
+    requiredBy: ALWAYS,
+  },
+] as const;
+
+/**
+ * The install surface's resource rows: the connector stack first, then the
+ * application stack resources for this profile. One source for the install
+ * page's infrastructure table, the retention messaging and future cost
+ * breakdowns — never a hardcoded UI list.
+ */
+export function installSurfaceResources(profile: InfrastructureProfile): readonly AwsResourceDefinition[] {
+  return [...CONNECTOR_RESOURCES, ...requiredAwsResources(profile)];
 }
 
 /** Whether a CloudFormation resource (type + logical id) is the one a catalog row names. */

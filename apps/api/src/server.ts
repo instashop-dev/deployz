@@ -2201,6 +2201,33 @@ export async function buildServer({
   // history, so it must not double as the identifier that authenticates a
   // relay. The enrollment code it returns is single-use and is what the
   // customer's bootstrap stack carries.
+  /**
+   * Invitation lifecycle gate for the public install routes: a revoked or
+   * expired link can no longer START an installation. A link whose install
+   * has already started keeps working — the customer must still reach the
+   * progress view for what already exists in their account.
+   */
+  function installLinkGate(row: {
+    enrollmentUsedAt: Date | null;
+    installLinkRevokedAt: Date | null;
+    installLinkExpiresAt: Date | null;
+  }): { code: 'INSTALL_LINK_REVOKED' | 'INSTALL_LINK_EXPIRED'; message: string } | null {
+    if (row.enrollmentUsedAt !== null) return null;
+    if (row.installLinkRevokedAt !== null) {
+      return {
+        code: 'INSTALL_LINK_REVOKED',
+        message: 'This installation link was revoked by the publisher.',
+      };
+    }
+    if (row.installLinkExpiresAt !== null && row.installLinkExpiresAt.getTime() <= Date.now()) {
+      return {
+        code: 'INSTALL_LINK_EXPIRED',
+        message: 'This installation link has expired. Ask the publisher for a new one.',
+      };
+    }
+    return null;
+  }
+
   app.get(
     '/api/install/:installLinkId',
     { config: { rateLimit: PUBLIC_INSTALL_RATE_LIMIT } },
@@ -2220,6 +2247,8 @@ export async function buildServer({
         attemptNumber: schema.deployments.attemptNumber,
         bootstrapStackName: schema.deployments.bootstrapStackName,
         installStartedAt: schema.deployments.installStartedAt,
+        installLinkExpiresAt: schema.deployments.installLinkExpiresAt,
+        installLinkRevokedAt: schema.deployments.installLinkRevokedAt,
         observedState: schema.deployments.observedState,
         relayCredential: schema.deployments.relayCredential,
         desiredState: schema.deployments.desiredState,
@@ -2240,6 +2269,12 @@ export async function buildServer({
     // set up" state instead — so stop handing the credential to anyone who
     // replays the link out of a mailbox or browser history.
     const alreadyInstalled = row.enrollmentUsedAt !== null;
+    // Invitation lifecycle (DZ-AUDIT-013 follow-up): a revoked or expired
+    // link stops new installs; a started one keeps its progress view.
+    const gate = installLinkGate(row);
+    if (gate) {
+      throw new ApiError(410, gate.code, gate.message);
+    }
     // §16.1: the customer-visible "Deployz will create" table — same shape
     // `GET /api/deployments/:id/plan?action=install` serves once the
     // deployment exists. Null only when the stored manifest is missing or
@@ -2297,6 +2332,8 @@ export async function buildServer({
       bootstrapStackName: stackName,
       waitingForRelay,
       relayStuck,
+      // The invitation's own expiry, so the page can state it above the fold.
+      installLinkExpiresAt: row.installLinkExpiresAt,
       // The Quick Create link is built HERE, not in the web app: only the
       // control plane knows which template is currently published, which
       // region this customer's deployment targets, and this deployment's
@@ -2409,6 +2446,11 @@ export async function buildServer({
       throw new NotFoundError('Installation not found');
     }
     const { deployment, applicationName } = rows[0]!;
+    // Invitation lifecycle: a revoked or expired link cannot start an install.
+    const launchGate = installLinkGate(deployment);
+    if (launchGate) {
+      throw new ApiError(410, launchGate.code, launchGate.message);
+    }
     // Phase 3/5 gate: the install link is a second boundary where a
     // non-READY manifest — or a required value removed since creation — must
     // be stopped before any AWS provisioning.
@@ -2521,6 +2563,11 @@ export async function buildServer({
       throw new NotFoundError('Installation not found');
     }
     const { deployment, applicationName } = rows[0]!;
+    // Invitation lifecycle: a revoked or expired link cannot re-arm an install.
+    const retryGate = installLinkGate(deployment);
+    if (retryGate) {
+      throw new ApiError(410, retryGate.code, retryGate.message);
+    }
     if (await hasSucceededInstall(db, deployment.id)) {
       throw new ApiError(
         409,
