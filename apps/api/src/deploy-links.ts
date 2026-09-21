@@ -176,6 +176,10 @@ export async function createDeploymentRecord(
       source: params.source,
       desiredState: { manifest },
       enrollmentCode: mintEnrollmentCode(),
+      // Invitation lifecycle: every newly issued link is time-limited (30
+      // days). Links created before this column existed keep NULL = no limit,
+      // so in-flight installations are untouched.
+      installLinkExpiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
       // DZ-AUDIT-013: server-established relay credential stored alongside
       // its hash. Delivered through the Quick Create URL and NULLed after
       // the relay's first successful registration.

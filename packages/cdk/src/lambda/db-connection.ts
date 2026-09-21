@@ -67,6 +67,7 @@ import migration0037 from '../../../db/drizzle/0037_billing_checkout_intents.sql
 import migration0038 from '../../../db/drizzle/0038_included_production_deployments.sql';
 import migration0039 from '../../../db/drizzle/0039_old_iron_man.sql';
 import migration0040 from '../../../db/drizzle/0040_public_install_links.sql';
+import migration0043 from '../../../db/drizzle/0043_install_link_lifecycle.sql';
 import migration0041 from '../../../db/drizzle/0041_jev_shadow_verifications.sql';
 import migration0042 from '../../../db/drizzle/0042_jev_failure_classifications.sql';
 import journal from '../../../db/drizzle/meta/_journal.json';
@@ -123,6 +124,7 @@ const MIGRATION_SQL: Record<string, string> = {
   '0038_included_production_deployments': migration0038,
   '0039_old_iron_man': migration0039,
   '0040_public_install_links': migration0040,
+  '0043_install_link_lifecycle': migration0043,
   '0041_jev_shadow_verifications': migration0041,
   '0042_jev_failure_classifications': migration0042,
 };
