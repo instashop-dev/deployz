@@ -68,15 +68,22 @@ function joinNames(names: string[]): string {
 }
 
 /**
+ * The plan's retained components, in plan order — the single source both the
+ * retention note and the deploy page's collapsed "Data retention" section
+ * read from, so the two can never name different components.
+ */
+export function installPlanRetainedComponents(plan: DeploymentPlan | null): DeploymentPlan['components'] {
+  if (!plan) return [];
+  return plan.components.filter((component) => component.lifecycle === 'retain');
+}
+
+/**
  * "When this deployment is removed, Database and Storage stay in your AWS
  * account." Null when the plan is unavailable or nothing is retained — a
  * fully stateless deployment has nothing to disclose here.
  */
 export function installPlanRetentionNote(plan: DeploymentPlan | null): string | null {
-  if (!plan) return null;
-  const retainedNames = plan.components
-    .filter((component) => component.lifecycle === 'retain')
-    .map((component) => component.name);
+  const retainedNames = installPlanRetainedComponents(plan).map((component) => component.name);
   if (retainedNames.length === 0) return null;
   const verb = retainedNames.length === 1 ? 'stays' : 'stay';
   return `When this deployment is removed, ${joinNames(retainedNames)} ${verb} in your AWS account.`;

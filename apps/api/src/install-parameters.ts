@@ -24,7 +24,8 @@ export const DESIRED_COUNT_PARAMETER = 'paramDesiredCount';
  * - imageReference (DEPLOY-001) is the deployment's application's newest
  *   READY release with a known image (`imageUnavailableAt` null); when no
  *   such release exists the key is omitted and the template falls back to
- *   its publish-time default image.
+ *   its publish-time default image. `releaseId` names the selected release
+ *   (for the deployment identity tags) or null when none was.
  * - publicUrl follows the preferred-URL model (Phase 7): an ACTIVE custom
  *   domain, else the ACTIVE default-HTTPS hostname, else a pre-created custom
  *   domain's hostname (legacy install-time behavior). When no URL applies the
@@ -48,7 +49,7 @@ export async function buildInstallParameters(
      */
     startAfterConfig?: boolean;
   } = {},
-): Promise<Record<string, string>> {
+): Promise<{ parameters: Record<string, string>; releaseId: string | null }> {
   const rows = await db
     .select({
       applicationId: schema.deployments.applicationId,
@@ -66,6 +67,7 @@ export async function buildInstallParameters(
     [DOCUMENSO_PARAMETERS.encryptionKey]: generateSecret(),
     [DOCUMENSO_PARAMETERS.encryptionSecondaryKey]: generateSecret(),
   };
+  let releaseId: string | null = null;
   if (manifest) {
     // The canonical, manifest-resolved health path (Phase 2) — the same
     // value the ALB target group and container health checks probe via the
@@ -81,7 +83,7 @@ export async function buildInstallParameters(
     // unavailable), newest first; no such release leaves the key absent so
     // the template's publish-time default applies.
     const releaseRows = await db
-      .select({ imageDigest: schema.releases.imageDigest })
+      .select({ id: schema.releases.id, imageDigest: schema.releases.imageDigest })
       .from(schema.releases)
       .where(
         and(
@@ -96,6 +98,7 @@ export async function buildInstallParameters(
     const imageDigest = releaseRows[0]?.imageDigest;
     if (imageDigest) {
       parameters[IMAGE_REFERENCE_PARAMETER] = imageDigest;
+      releaseId = releaseRows[0]?.id ?? null;
       if (options.startAfterConfig === true) {
         parameters[DESIRED_COUNT_PARAMETER] = '0';
       }
@@ -119,5 +122,5 @@ export async function buildInstallParameters(
   if (publicUrl) {
     parameters[DOCUMENSO_PARAMETERS.publicUrl] = publicUrl;
   }
-  return parameters;
+  return { parameters, releaseId };
 }

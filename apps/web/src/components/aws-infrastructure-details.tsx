@@ -24,9 +24,13 @@ import { awsResourceGroups, awsResourceRemovalLabel, installPlanRegionLabel } fr
 export function AwsInfrastructureDetails({
   plan,
   region,
+  triggerLabel,
 }: {
   plan: DeploymentPlan | null;
   region?: string | null;
+  /** Optional replacement trigger label — the deploy page's resource summary
+   *  links into this same inventory as "View all AWS resources (N)". */
+  triggerLabel?: string;
 }) {
   if (!plan || plan.awsResources.length === 0) return null;
 
@@ -40,9 +44,9 @@ export function AwsInfrastructureDetails({
   return (
     <Collapsible className="rounded-md border" data-testid="aws-infrastructure-details">
       <CollapsibleTrigger className="group flex w-full items-center justify-between gap-4 px-4 py-3 text-left text-sm">
-        <span className="font-medium">AWS infrastructure details</span>
+        <span className="font-medium">{triggerLabel ?? 'AWS infrastructure details'}</span>
         <span className="flex items-center gap-2 text-xs text-muted-foreground">
-          {summary}
+          {triggerLabel ? null : summary}
           <ChevronDown
             aria-hidden
             className="size-4 shrink-0 transition-transform group-data-[state=open]:rotate-180"

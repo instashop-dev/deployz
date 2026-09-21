@@ -30,7 +30,12 @@ const QUICK_CREATE = 'https://console.aws.amazon.com/cloudformation/quickcreate'
 const SECURITY_HREF = `/deploy/${PUBLIC_ID}/security?token=${TOKEN}`;
 
 function securityLink(doc: Document): Element | undefined {
-  return [...doc.querySelectorAll('a')].find((anchor) => anchor.textContent === 'Security details');
+  // The waiting/review layouts link straight to the security page; the
+  // launched layout's quiet disclosure row carries an "Open security
+  // details" action next to its collapsible trigger.
+  return [...doc.querySelectorAll('a')].find(
+    (anchor) => anchor.textContent === 'Security details' || anchor.textContent === 'Open security details',
+  );
 }
 
 function resolvedData(overrides: Record<string, unknown> = {}): Record<string, unknown> {

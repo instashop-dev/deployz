@@ -185,7 +185,7 @@ describe('buildInstallParameters', () => {
       createdBy: org.userId,
     });
 
-    const parameters = await buildInstallParameters(db, deployment.id);
+    const { parameters } = await buildInstallParameters(db, deployment.id);
 
     expect(parameters[DOCUMENSO_PARAMETERS.publicUrl]).toBe('https://docs.example.com');
     expect(parameters[DOCUMENSO_PARAMETERS.nextauthSecret]).toMatch(SECRET_SHAPE);
@@ -213,10 +213,14 @@ describe('buildInstallParameters', () => {
     const first = await buildInstallParameters(db, deployment.id);
     const second = await buildInstallParameters(db, deployment.id);
 
-    expect(first[DOCUMENSO_PARAMETERS.nextauthSecret]).not.toBe(second[DOCUMENSO_PARAMETERS.nextauthSecret]);
-    expect(first[DOCUMENSO_PARAMETERS.encryptionKey]).not.toBe(second[DOCUMENSO_PARAMETERS.encryptionKey]);
-    expect(first[DOCUMENSO_PARAMETERS.encryptionSecondaryKey]).not.toBe(
-      second[DOCUMENSO_PARAMETERS.encryptionSecondaryKey],
+    expect(first.parameters[DOCUMENSO_PARAMETERS.nextauthSecret]).not.toBe(
+      second.parameters[DOCUMENSO_PARAMETERS.nextauthSecret],
+    );
+    expect(first.parameters[DOCUMENSO_PARAMETERS.encryptionKey]).not.toBe(
+      second.parameters[DOCUMENSO_PARAMETERS.encryptionKey],
+    );
+    expect(first.parameters[DOCUMENSO_PARAMETERS.encryptionSecondaryKey]).not.toBe(
+      second.parameters[DOCUMENSO_PARAMETERS.encryptionSecondaryKey],
     );
   });
 
@@ -225,7 +229,7 @@ describe('buildInstallParameters', () => {
     const customer = await insertCustomer(db, org.organizationId);
     const deployment = await insertDeployment(db, org.organizationId, application.id, customer.id);
 
-    const parameters = await buildInstallParameters(db, deployment.id);
+    const { parameters } = await buildInstallParameters(db, deployment.id);
 
     expect(parameters[DOCUMENSO_PARAMETERS.publicUrl]).toBeUndefined();
   });
@@ -253,7 +257,7 @@ describe('buildInstallParameters', () => {
       createdBy: org.userId,
     });
 
-    const parameters = await buildInstallParameters(db, deployment.id);
+    const { parameters } = await buildInstallParameters(db, deployment.id);
 
     expect(parameters[DOCUMENSO_PARAMETERS.publicUrl]).toBe('https://active.example.com');
   });
@@ -269,7 +273,7 @@ describe('buildInstallParameters', () => {
       .set({ defaultHttps: { hostname, status: 'ACTIVE', checkCycle: 0, lastError: null } })
       .where(eq(schema.deployments.id, deployment.id));
 
-    const parameters = await buildInstallParameters(db, deployment.id);
+    const { parameters } = await buildInstallParameters(db, deployment.id);
 
     expect(parameters[DOCUMENSO_PARAMETERS.publicUrl]).toBe(`https://${hostname}`);
   });
@@ -297,7 +301,7 @@ describe('buildInstallParameters', () => {
       createdBy: org.userId,
     });
 
-    const parameters = await buildInstallParameters(db, deployment.id);
+    const { parameters } = await buildInstallParameters(db, deployment.id);
 
     // Default HTTPS is not ACTIVE yet, so it never becomes the public URL; the
     // pre-existing install-time custom-domain value is preserved.
@@ -317,9 +321,11 @@ describe('buildInstallParameters', () => {
       createdAt: new Date('2026-02-01T00:00:00Z'),
     });
 
-    const parameters = await buildInstallParameters(db, deployment.id);
+    const { parameters, releaseId } = await buildInstallParameters(db, deployment.id);
 
     expect(parameters[IMAGE_REFERENCE_PARAMETER]).toBe(newest.imageDigest);
+    // The selected release id feeds the deployment identity tags.
+    expect(releaseId).toBe(newest.id);
   });
 
   it('skips an UNAVAILABLE or BUILDING release in favor of the newest usable READY one', async () => {
@@ -339,7 +345,7 @@ describe('buildInstallParameters', () => {
       imageDigest: null,
     });
 
-    const parameters = await buildInstallParameters(db, deployment.id);
+    const { parameters } = await buildInstallParameters(db, deployment.id);
 
     expect(parameters[IMAGE_REFERENCE_PARAMETER]).toBe(usable.imageDigest);
   });
@@ -349,9 +355,10 @@ describe('buildInstallParameters', () => {
     const customer = await insertCustomer(db, org.organizationId);
     const deployment = await insertDeployment(db, org.organizationId, application.id, customer.id);
 
-    const parameters = await buildInstallParameters(db, deployment.id);
+    const { parameters, releaseId } = await buildInstallParameters(db, deployment.id);
 
     expect(parameters[IMAGE_REFERENCE_PARAMETER]).toBeUndefined();
+    expect(releaseId).toBeNull();
   });
 
   // ── DEPLOY-009: configuration reaches the task before its first start ───
@@ -363,10 +370,10 @@ describe('buildInstallParameters', () => {
     await insertRelease(db, application.id, {});
 
     const deferred = await buildInstallParameters(db, deployment.id, { startAfterConfig: true });
-    expect(deferred[DESIRED_COUNT_PARAMETER]).toBe('0');
+    expect(deferred.parameters[DESIRED_COUNT_PARAMETER]).toBe('0');
 
     const plain = await buildInstallParameters(db, deployment.id);
-    expect(plain[DESIRED_COUNT_PARAMETER]).toBeUndefined();
+    expect(plain.parameters[DESIRED_COUNT_PARAMETER]).toBeUndefined();
   });
 
   it('never defers the first start when the application has no usable release', async () => {
@@ -374,7 +381,7 @@ describe('buildInstallParameters', () => {
     const customer = await insertCustomer(db, org.organizationId);
     const deployment = await insertDeployment(db, org.organizationId, application.id, customer.id);
 
-    const parameters = await buildInstallParameters(db, deployment.id, { startAfterConfig: true });
+    const { parameters } = await buildInstallParameters(db, deployment.id, { startAfterConfig: true });
 
     expect(parameters[DESIRED_COUNT_PARAMETER]).toBeUndefined();
   });

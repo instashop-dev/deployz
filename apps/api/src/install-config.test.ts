@@ -140,14 +140,17 @@ describe('post-install configuration', () => {
 
   it('marks the INSTALL payload startAfterConfig with a zero task count when configuration waits and a release exists (DEPLOY-009)', async () => {
     const [deployment] = await db.select().from(schema.deployments).where(eq(schema.deployments.id, deploymentId));
-    await db.insert(schema.releases).values({
-      applicationId,
-      version: '1.0.0',
-      gitSha: 'abc1234',
-      imageDigest: '111122223333.dkr.ecr.us-east-1.amazonaws.com/deployz-images@sha256:' + 'a'.repeat(64),
-      buildStatus: 'SUCCEEDED',
-      releaseStatus: 'READY',
-    });
+    const [release] = await db
+      .insert(schema.releases)
+      .values({
+        applicationId,
+        version: '1.0.0',
+        gitSha: 'abc1234',
+        imageDigest: '111122223333.dkr.ecr.us-east-1.amazonaws.com/deployz-images@sha256:' + 'a'.repeat(64),
+        buildStatus: 'SUCCEEDED',
+        releaseStatus: 'READY',
+      })
+      .returning();
 
     const payload = await buildInstallPayload(db, deployment!, createConfigStore(db));
 
@@ -155,6 +158,54 @@ describe('post-install configuration', () => {
     expect((payload['parameters'] as Record<string, string>)['paramDesiredCount']).toBe('0');
     expect(payload['redisRequired']).toBe(false);
     expect(payload['manifest']).toMatchObject({ web: { port: 3000 } });
+    // Control-plane-minted identity tags — stable internal ids only, with the
+    // selected release named because one exists.
+    expect(payload['tags']).toEqual({
+      'deployz:managed-by': 'deployz',
+      'deployz:deployment-id': deploymentId,
+      'deployz:application-id': applicationId,
+      'deployz:customer-id': customerId,
+      'deployz:vendor-id': organizationId,
+      'deployz:release-id': release!.id,
+      'deployz:environment': 'production',
+    });
+  });
+
+  it('omits the release-id tag when no release was selected', async () => {
+    const [application] = await db
+      .insert(schema.applications)
+      .values({
+        organizationId,
+        name: 'Releaseless',
+        repoFullName: 'acme/releaseless',
+        repoUrl: 'https://github.com/acme/releaseless',
+        defaultBranch: 'main',
+        analysisStatus: 'COMPLETE',
+      })
+      .returning();
+    const [deployment] = await db
+      .insert(schema.deployments)
+      .values({
+        organizationId,
+        applicationId: application!.id,
+        customerId,
+        region: 'us-east-1',
+        state: 'INSTALLING',
+        desiredState: { manifest: manifest([MANIFEST_ENV[0]!]) },
+        enrollmentCode: 'enrol-releaseless',
+      })
+      .returning();
+
+    const payload = await buildInstallPayload(db, deployment!, createConfigStore(db));
+
+    expect(payload['tags']).toEqual({
+      'deployz:managed-by': 'deployz',
+      'deployz:deployment-id': deployment.id,
+      'deployz:application-id': application!.id,
+      'deployz:customer-id': customerId,
+      'deployz:vendor-id': organizationId,
+      'deployz:environment': 'production',
+    });
   });
 
   it('starts the install normally when nothing waits to be configured', async () => {

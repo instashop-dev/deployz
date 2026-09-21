@@ -54,11 +54,19 @@
         "Tags": [
           {
             "Key": "deployz:component",
-            "Value": "application"
+            "Value": "network"
+          },
+          {
+            "Key": "deployz:environment",
+            "Value": "production"
           },
           {
             "Key": "deployz:managed",
             "Value": "true"
+          },
+          {
+            "Key": "deployz:managed-by",
+            "Value": "deployz"
           },
           {
             "Key": "deployz:scope",
@@ -95,11 +103,19 @@
           },
           {
             "Key": "deployz:component",
-            "Value": "application"
+            "Value": "network"
+          },
+          {
+            "Key": "deployz:environment",
+            "Value": "production"
           },
           {
             "Key": "deployz:managed",
             "Value": "true"
+          },
+          {
+            "Key": "deployz:managed-by",
+            "Value": "deployz"
           },
           {
             "Key": "deployz:scope",
@@ -121,11 +137,19 @@
         "Tags": [
           {
             "Key": "deployz:component",
-            "Value": "application"
+            "Value": "network"
+          },
+          {
+            "Key": "deployz:environment",
+            "Value": "production"
           },
           {
             "Key": "deployz:managed",
             "Value": "true"
+          },
+          {
+            "Key": "deployz:managed-by",
+            "Value": "deployz"
           },
           {
             "Key": "deployz:scope",
@@ -174,11 +198,19 @@
         "Tags": [
           {
             "Key": "deployz:component",
-            "Value": "application"
+            "Value": "network"
+          },
+          {
+            "Key": "deployz:environment",
+            "Value": "production"
           },
           {
             "Key": "deployz:managed",
             "Value": "true"
+          },
+          {
+            "Key": "deployz:managed-by",
+            "Value": "deployz"
           },
           {
             "Key": "deployz:scope",
@@ -206,11 +238,19 @@
         "Tags": [
           {
             "Key": "deployz:component",
-            "Value": "application"
+            "Value": "network"
+          },
+          {
+            "Key": "deployz:environment",
+            "Value": "production"
           },
           {
             "Key": "deployz:managed",
             "Value": "true"
+          },
+          {
+            "Key": "deployz:managed-by",
+            "Value": "deployz"
           },
           {
             "Key": "deployz:scope",
@@ -251,11 +291,19 @@
           },
           {
             "Key": "deployz:component",
-            "Value": "application"
+            "Value": "network"
+          },
+          {
+            "Key": "deployz:environment",
+            "Value": "production"
           },
           {
             "Key": "deployz:managed",
             "Value": "true"
+          },
+          {
+            "Key": "deployz:managed-by",
+            "Value": "deployz"
           },
           {
             "Key": "deployz:scope",
@@ -277,11 +325,19 @@
         "Tags": [
           {
             "Key": "deployz:component",
-            "Value": "application"
+            "Value": "network"
+          },
+          {
+            "Key": "deployz:environment",
+            "Value": "production"
           },
           {
             "Key": "deployz:managed",
             "Value": "true"
+          },
+          {
+            "Key": "deployz:managed-by",
+            "Value": "deployz"
           },
           {
             "Key": "deployz:scope",
@@ -347,11 +403,19 @@
           },
           {
             "Key": "deployz:component",
-            "Value": "application"
+            "Value": "network"
+          },
+          {
+            "Key": "deployz:environment",
+            "Value": "production"
           },
           {
             "Key": "deployz:managed",
             "Value": "true"
+          },
+          {
+            "Key": "deployz:managed-by",
+            "Value": "deployz"
           },
           {
             "Key": "deployz:scope",
@@ -373,11 +437,19 @@
         "Tags": [
           {
             "Key": "deployz:component",
-            "Value": "application"
+            "Value": "network"
+          },
+          {
+            "Key": "deployz:environment",
+            "Value": "production"
           },
           {
             "Key": "deployz:managed",
             "Value": "true"
+          },
+          {
+            "Key": "deployz:managed-by",
+            "Value": "deployz"
           },
           {
             "Key": "deployz:scope",
@@ -440,11 +512,19 @@
           },
           {
             "Key": "deployz:component",
-            "Value": "application"
+            "Value": "network"
+          },
+          {
+            "Key": "deployz:environment",
+            "Value": "production"
           },
           {
             "Key": "deployz:managed",
             "Value": "true"
+          },
+          {
+            "Key": "deployz:managed-by",
+            "Value": "deployz"
           },
           {
             "Key": "deployz:scope",
@@ -466,11 +546,19 @@
         "Tags": [
           {
             "Key": "deployz:component",
-            "Value": "application"
+            "Value": "network"
+          },
+          {
+            "Key": "deployz:environment",
+            "Value": "production"
           },
           {
             "Key": "deployz:managed",
             "Value": "true"
+          },
+          {
+            "Key": "deployz:managed-by",
+            "Value": "deployz"
           },
           {
             "Key": "deployz:scope",
@@ -515,11 +603,19 @@
         "Tags": [
           {
             "Key": "deployz:component",
-            "Value": "application"
+            "Value": "network"
+          },
+          {
+            "Key": "deployz:environment",
+            "Value": "production"
           },
           {
             "Key": "deployz:managed",
             "Value": "true"
+          },
+          {
+            "Key": "deployz:managed-by",
+            "Value": "deployz"
           },
           {
             "Key": "deployz:scope",
@@ -566,11 +662,19 @@
         "Tags": [
           {
             "Key": "deployz:component",
-            "Value": "application"
+            "Value": "app"
+          },
+          {
+            "Key": "deployz:environment",
+            "Value": "production"
           },
           {
             "Key": "deployz:managed",
             "Value": "true"
+          },
+          {
+            "Key": "deployz:managed-by",
+            "Value": "deployz"
           },
           {
             "Key": "deployz:scope",
@@ -620,11 +724,19 @@
         "Tags": [
           {
             "Key": "deployz:component",
-            "Value": "application"
+            "Value": "storage"
+          },
+          {
+            "Key": "deployz:environment",
+            "Value": "production"
           },
           {
             "Key": "deployz:managed",
             "Value": "true"
+          },
+          {
+            "Key": "deployz:managed-by",
+            "Value": "deployz"
           },
           {
             "Key": "deployz:scope",
@@ -692,11 +804,19 @@
         "Tags": [
           {
             "Key": "deployz:component",
-            "Value": "application"
+            "Value": "app"
+          },
+          {
+            "Key": "deployz:environment",
+            "Value": "production"
           },
           {
             "Key": "deployz:managed",
             "Value": "true"
+          },
+          {
+            "Key": "deployz:managed-by",
+            "Value": "deployz"
           },
           {
             "Key": "deployz:scope",
@@ -722,11 +842,19 @@
         "Tags": [
           {
             "Key": "deployz:component",
-            "Value": "application"
+            "Value": "redis"
+          },
+          {
+            "Key": "deployz:environment",
+            "Value": "production"
           },
           {
             "Key": "deployz:managed",
             "Value": "true"
+          },
+          {
+            "Key": "deployz:managed-by",
+            "Value": "deployz"
           },
           {
             "Key": "deployz:scope",
@@ -763,11 +891,19 @@
         "Tags": [
           {
             "Key": "deployz:component",
-            "Value": "application"
+            "Value": "redis"
+          },
+          {
+            "Key": "deployz:environment",
+            "Value": "production"
           },
           {
             "Key": "deployz:managed",
             "Value": "true"
+          },
+          {
+            "Key": "deployz:managed-by",
+            "Value": "deployz"
           },
           {
             "Key": "deployz:scope",
@@ -803,11 +939,19 @@
         "Tags": [
           {
             "Key": "deployz:component",
-            "Value": "application"
+            "Value": "redis"
+          },
+          {
+            "Key": "deployz:environment",
+            "Value": "production"
           },
           {
             "Key": "deployz:managed",
             "Value": "true"
+          },
+          {
+            "Key": "deployz:managed-by",
+            "Value": "deployz"
           },
           {
             "Key": "deployz:scope",
@@ -826,11 +970,19 @@
         "Tags": [
           {
             "Key": "deployz:component",
-            "Value": "application"
+            "Value": "app"
+          },
+          {
+            "Key": "deployz:environment",
+            "Value": "production"
           },
           {
             "Key": "deployz:managed",
             "Value": "true"
+          },
+          {
+            "Key": "deployz:managed-by",
+            "Value": "deployz"
           },
           {
             "Key": "deployz:scope",
@@ -873,11 +1025,19 @@
         "Tags": [
           {
             "Key": "deployz:component",
-            "Value": "application"
+            "Value": "app"
+          },
+          {
+            "Key": "deployz:environment",
+            "Value": "production"
           },
           {
             "Key": "deployz:managed",
             "Value": "true"
+          },
+          {
+            "Key": "deployz:managed-by",
+            "Value": "deployz"
           },
           {
             "Key": "deployz:scope",
@@ -945,11 +1105,19 @@
         "Tags": [
           {
             "Key": "deployz:component",
-            "Value": "application"
+            "Value": "app"
+          },
+          {
+            "Key": "deployz:environment",
+            "Value": "production"
           },
           {
             "Key": "deployz:managed",
             "Value": "true"
+          },
+          {
+            "Key": "deployz:managed-by",
+            "Value": "deployz"
           },
           {
             "Key": "deployz:scope",
@@ -1169,12 +1337,16 @@
         },
         "Tags": [
           {
-            "Key": "deployz:component",
-            "Value": "application"
+            "Key": "deployz:environment",
+            "Value": "production"
           },
           {
             "Key": "deployz:managed",
             "Value": "true"
+          },
+          {
+            "Key": "deployz:managed-by",
+            "Value": "deployz"
           },
           {
             "Key": "deployz:scope",
@@ -1252,11 +1424,19 @@
         "Tags": [
           {
             "Key": "deployz:component",
-            "Value": "application"
+            "Value": "app"
+          },
+          {
+            "Key": "deployz:environment",
+            "Value": "production"
           },
           {
             "Key": "deployz:managed",
             "Value": "true"
+          },
+          {
+            "Key": "deployz:managed-by",
+            "Value": "deployz"
           },
           {
             "Key": "deployz:scope",
@@ -1288,11 +1468,19 @@
         "Tags": [
           {
             "Key": "deployz:component",
-            "Value": "application"
+            "Value": "app"
+          },
+          {
+            "Key": "deployz:environment",
+            "Value": "production"
           },
           {
             "Key": "deployz:managed",
             "Value": "true"
+          },
+          {
+            "Key": "deployz:managed-by",
+            "Value": "deployz"
           },
           {
             "Key": "deployz:scope",
@@ -1366,11 +1554,19 @@
         "Tags": [
           {
             "Key": "deployz:component",
-            "Value": "application"
+            "Value": "network"
+          },
+          {
+            "Key": "deployz:environment",
+            "Value": "production"
           },
           {
             "Key": "deployz:managed",
             "Value": "true"
+          },
+          {
+            "Key": "deployz:managed-by",
+            "Value": "deployz"
           },
           {
             "Key": "deployz:scope",
@@ -1409,11 +1605,19 @@
         "Tags": [
           {
             "Key": "deployz:component",
-            "Value": "application"
+            "Value": "network"
+          },
+          {
+            "Key": "deployz:environment",
+            "Value": "production"
           },
           {
             "Key": "deployz:managed",
             "Value": "true"
+          },
+          {
+            "Key": "deployz:managed-by",
+            "Value": "deployz"
           },
           {
             "Key": "deployz:scope",
@@ -1469,11 +1673,19 @@
         "Tags": [
           {
             "Key": "deployz:component",
-            "Value": "application"
+            "Value": "network"
+          },
+          {
+            "Key": "deployz:environment",
+            "Value": "production"
           },
           {
             "Key": "deployz:managed",
             "Value": "true"
+          },
+          {
+            "Key": "deployz:managed-by",
+            "Value": "deployz"
           },
           {
             "Key": "deployz:scope",
@@ -1495,11 +1707,19 @@
         "Tags": [
           {
             "Key": "deployz:component",
-            "Value": "application"
+            "Value": "network"
+          },
+          {
+            "Key": "deployz:environment",
+            "Value": "production"
           },
           {
             "Key": "deployz:managed",
             "Value": "true"
+          },
+          {
+            "Key": "deployz:managed-by",
+            "Value": "deployz"
           },
           {
             "Key": "deployz:scope",
@@ -1592,12 +1812,16 @@
         "Statistic": "Average",
         "Tags": [
           {
-            "Key": "deployz:component",
-            "Value": "application"
+            "Key": "deployz:environment",
+            "Value": "production"
           },
           {
             "Key": "deployz:managed",
             "Value": "true"
+          },
+          {
+            "Key": "deployz:managed-by",
+            "Value": "deployz"
           },
           {
             "Key": "deployz:scope",

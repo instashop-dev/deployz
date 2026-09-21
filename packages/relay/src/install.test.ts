@@ -1,5 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 
+import { DEPLOYZ_INSTALLATION_TAG } from '@deployz/contracts';
+
 import {
   buildInstallParametersFromManifest,
   CONTAINER_PORT_PARAMETER,
@@ -7,7 +9,6 @@ import {
   firstFailureEvent,
   HEALTH_CHECK_PATH_PARAMETER,
   installApplicationStack,
-  INSTALLATION_TAG,
   toInstaller,
   type StackFailureEvent,
   type StackInstaller,
@@ -89,7 +90,32 @@ describe('installApplicationStack', () => {
     });
 
     expect(installer.createCalls[0]).toMatchObject({
-      tags: { [INSTALLATION_TAG]: 'inst-42' },
+      tags: { [DEPLOYZ_INSTALLATION_TAG]: 'inst-42' },
+    });
+  });
+
+  it('merges the control plane deployment tags under the installation tag', async () => {
+    const installer = scriptedInstaller([null, complete()]);
+
+    await installApplicationStack({
+      installer,
+      installationId: 'inst-42',
+      templateUrl: 'https://example.com/app.json',
+      deploymentTags: {
+        'deployz:managed-by': 'deployz',
+        'deployz:deployment-id': 'dep-9',
+        'deployz:environment': 'production',
+      },
+      ...NEVER_SLEEP,
+    });
+
+    expect(installer.createCalls[0]).toMatchObject({
+      tags: {
+        'deployz:managed-by': 'deployz',
+        'deployz:deployment-id': 'dep-9',
+        'deployz:environment': 'production',
+        [DEPLOYZ_INSTALLATION_TAG]: 'inst-42',
+      },
     });
   });
 

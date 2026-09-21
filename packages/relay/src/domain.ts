@@ -30,6 +30,8 @@ import {
   RemoveListenerCertificatesCommand,
 } from '@aws-sdk/client-elastic-load-balancing-v2';
 
+import { DEPLOYZ_COMPONENT_TAG, DEPLOYZ_INSTALLATION_TAG } from '@deployz/contracts';
+
 import type { CommandExecutor, RelayCommand, RelayCommandResult } from './commands.js';
 
 // ── Injectable AWS seams ─────────────────────────────────────────────────────
@@ -115,8 +117,6 @@ interface DomainExecutorDeps {
   sleep?: (ms: number) => Promise<void>;
 }
 
-const INSTALLATION_TAG_KEY = 'deployz:installation';
-
 // ACM keeps a certificate's listener association alive for a short time
 // after DeleteListener/RemoveListenerCertificates returns, so a
 // DeleteCertificate issued right after can still see it as in use
@@ -153,11 +153,16 @@ async function configureDomain(command: RelayCommand, deps: DomainExecutorDeps):
       (await deps.acm.requestCertificate({
         domainName: payload.hostname,
         idempotencyToken: payload.domainId.replace(/-/g, ''),
-        tags: { [INSTALLATION_TAG_KEY]: deps.installationId },
+        // The certificate is the one component the pre-synthesized template
+        // cannot tag — it is requested here, at domain-configuration time.
+        tags: {
+          [DEPLOYZ_INSTALLATION_TAG]: deps.installationId,
+          [DEPLOYZ_COMPONENT_TAG]: 'tls',
+        },
       }));
 
     const certificate = await deps.acm.describeCertificate(certificateArn);
-    const loadBalancer = await deps.elb.findTaggedLoadBalancer(INSTALLATION_TAG_KEY, deps.installationId);
+    const loadBalancer = await deps.elb.findTaggedLoadBalancer(DEPLOYZ_INSTALLATION_TAG, deps.installationId);
 
     let httpsConfigured = false;
 
@@ -174,14 +179,14 @@ async function configureDomain(command: RelayCommand, deps: DomainExecutorDeps):
             loadBalancerArn: loadBalancer.arn,
             certificateArn,
             targetGroupArn,
-            tagKey: INSTALLATION_TAG_KEY,
+            tagKey: DEPLOYZ_INSTALLATION_TAG,
             tagValue: deps.installationId,
           });
           httpsConfigured = true;
         }
       } else {
         if (httpsListener.defaultCertificateArn !== certificateArn) {
-          await deps.elb.ensureListenerTag(httpsListener.arn, INSTALLATION_TAG_KEY, deps.installationId);
+          await deps.elb.ensureListenerTag(httpsListener.arn, DEPLOYZ_INSTALLATION_TAG, deps.installationId);
           await deps.elb.addListenerCertificate(httpsListener.arn, certificateArn);
         }
         httpsConfigured = true;
@@ -233,7 +238,7 @@ async function removeDomain(command: RelayCommand, deps: DomainExecutorDeps): Pr
     let detachedFromListener = false;
 
     if (payload.certificateArn) {
-      const loadBalancer = await deps.elb.findTaggedLoadBalancer(INSTALLATION_TAG_KEY, deps.installationId);
+      const loadBalancer = await deps.elb.findTaggedLoadBalancer(DEPLOYZ_INSTALLATION_TAG, deps.installationId);
 
       if (loadBalancer) {
         const listeners = await deps.elb.describeListeners(loadBalancer.arn);
@@ -241,7 +246,7 @@ async function removeDomain(command: RelayCommand, deps: DomainExecutorDeps): Pr
 
         if (httpsListener) {
           if (httpsListener.defaultCertificateArn === payload.certificateArn) {
-            await deps.elb.ensureListenerTag(httpsListener.arn, INSTALLATION_TAG_KEY, deps.installationId);
+            await deps.elb.ensureListenerTag(httpsListener.arn, DEPLOYZ_INSTALLATION_TAG, deps.installationId);
             await deps.elb.deleteListener(httpsListener.arn);
             detachedFromListener = true;
 
