@@ -593,8 +593,6 @@ export function assembleFixInstructions(
     '- Every file changed, with a one-line summary per file.',
     '- The validation steps actually run and their results; do not claim success for steps not run.',
     '- Assumptions made, unresolved risks, and any blocker left ambiguous.',
-    '',
-    'After pushing, re-run the Deployz analysis to confirm the blockers are resolved.',
   );
 
   return lines.join('\n');
