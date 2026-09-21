@@ -303,17 +303,31 @@ const UNSUPPORTED_DATABASE_GUIDANCE = [
   'Inspect actual usage first. Move the data layer to PostgreSQL reusing the existing schema and migration approach, or remove the dependency when it is unused.',
 ];
 
+/** Package-manager clause for the container-setup step — accurate per manager. */
+function packageManagerClause(packageManager: string | null): string {
+  if (!packageManager) return '';
+  if (packageManager === 'npm') {
+    return ' (`npm` — match the Node and npm versions from `engines`/`.nvmrc`; Corepack does not apply to npm)';
+  }
+  return ` (\`${packageManager}\`, via Corepack when package.json declares \`packageManager\`)`;
+}
+
 /**
  * Concise, repo-adapted guidance every blocker carries regardless of what the
  * model returns. Phrased as verify-then-implement; existing valid
  * implementations are preserved, never replaced.
  */
 const DETERMINISTIC_GUIDANCE: Record<string, (facts: FixInstructionsFacts) => string[]> = {
-  'container-setup': (facts) => [
-    'Check existing deployment files first (Dockerfile, compose, CI build); when one already packages this app correctly, keep it and report that instead of adding a new file.',
-    `Add a Dockerfile${facts.workingDirectory && facts.workingDirectory !== '.' ? ` with \`${facts.workingDirectory}\` as the build context` : ''} that installs dependencies with the repository's pinned package manager${facts.packageManager ? ` (\`${facts.packageManager}\`, via Corepack when package.json declares \`packageManager\`)` : ''}, runs the production build${facts.buildCommand ? ` (\`${facts.buildCommand}\`)` : ''}, and starts the app${facts.startCommand ? ` with \`${facts.startCommand}\`` : ''}.`,
-    `${facts.framework ? `Use the \`${facts.framework}\` production mode, not the development server; serve a static export when the framework is configured that way. ` : ''}Include build tooling only when native dependencies require it; reuse the repository's private-registry mechanism when present.`,
-  ],
+  'container-setup': (facts) => {
+    const staticNote = facts.startCommand
+      ? ''
+      : 'When the build produces static output (no server start detected), serve the built files with a production-grade static server — never a dev or preview server. ';
+    return [
+      'Check existing deployment files first (Dockerfile, compose, CI build); when one already packages this app correctly, keep it and report that instead of adding a new file.',
+      `Add a Dockerfile${facts.workingDirectory && facts.workingDirectory !== '.' ? ` with \`${facts.workingDirectory}\` as the build context` : ''} that installs dependencies with the repository's pinned package manager${packageManagerClause(facts.packageManager)}, runs the production build${facts.buildCommand ? ` (\`${facts.buildCommand}\`)` : ''}, and starts the app${facts.startCommand ? ` with \`${facts.startCommand}\`` : ''}.`,
+      `${facts.framework ? `Use the \`${facts.framework}\` production mode, not the development server; serve a static export when the framework is configured that way. ` : ''}${staticNote}Include build tooling only when native dependencies require it; reuse the repository's private-registry mechanism when present.`,
+    ];
+  },
   'port-unresolved': (facts) => [
     `Declare the port the app already listens on: an EXPOSE or ENV PORT instruction in ${facts.dockerfilePath ?? 'the Dockerfile'}.`,
   ],
@@ -387,22 +401,30 @@ function guidanceFor(finding: ReadinessFinding, facts: FixInstructionsFacts): st
 export function buildFixInstructionsAiPrompt(context: FixInstructionsContext): string {
   const blockers = promptFindings(context.findings);
   const lines: string[] = [
-    'You write implementation guidance for a coding agent that will fix the deployment blockers',
-    'below in one repository. The guidance is inserted into a deterministic prompt, so keep it',
-    'short, concrete, and specific to the detected stack. Phrase everything as verify, then',
-    'implement — the agent checks each blocker against the real repository before changing code.',
+    'You supplement a deterministic fix prompt with repository-specific implementation guidance.',
+    'A coding agent will fix the deployment blockers below; the deterministic steps that agent',
+    'already received are listed under each blocker. Your guidance must ADD concrete detail those',
+    'steps lack — never restate, summarize, or contradict them.',
     '',
     'Rules:',
-    '- Respect the detected runtime, framework, package manager, workspace layout, versions, and',
-    '  existing deployment configuration; never contradict the facts, and never replace a valid',
-    '  existing implementation.',
-    '- Prefer package-manager versions the repository itself declares (packageManager field,',
-    '  lockfiles, Corepack) over installing new ones.',
+    '- The agent already inspects the repository and verifies every blocker; do not repeat that',
+    '  work in your guidance. Start directly with the most concrete repo-specific detail: exact',
+    '  files, versions, commands, and output paths.',
+    '- Respect the detected facts; never contradict them and never invent repository details:',
+    '  do not state a specific version, file, or script as fact unless it appears above. Refer to',
+    '  declared versions generically (engines, .nvmrc, lockfile) and let the agent read them.',
+    '  Corepack applies to pnpm and yarn only, never npm.',
     '- Account for monorepo build contexts, custom servers, static exports, framework-specific',
     '  production modes, native dependencies, and private registries when the facts imply them.',
-    '- Readiness endpoints: reuse a suitable existing route first; otherwise add the smallest',
-    '  unauthenticated route. No redirects, no auth, no expensive work, no external dependency',
-    '  checks. Do not require a Dockerfile HEALTHCHECK.',
+    '- Serving rules: never recommend a development or preview server of any kind (vite preview,',
+    '  npm run preview, next dev, npm run dev) as the production start. When the build output is',
+    '  static files and no server start is detected, instruct serving the built output inside the',
+    '  container with a production-grade static server.',
+    '- Stay in scope: cover only the listed blockers. Never mention readiness endpoints, health',
+    '  checks, or any other topic that no listed blocker requires.',
+    '- Readiness endpoints (only when a health blocker is listed): reuse a suitable existing',
+    '  route first; otherwise add the smallest unauthenticated route. No redirects, no auth, no',
+    '  expensive work, no external dependency checks. Do not require a Dockerfile HEALTHCHECK.',
     '- Distinguish build-time from runtime environment-variable requirements; never invent',
     '  values or mention secret values.',
     '- Do not prescribe AWS, DNS, TLS, load balancer, Terraform, Kubernetes, or Deployz-side',
@@ -424,16 +446,18 @@ export function buildFixInstructionsAiPrompt(context: FixInstructionsContext): s
       `  evidence: ${finding.technicalEvidence}`,
       `  required outcome: ${finding.suggestedOutcome}`,
       `  confidence: ${finding.confidence}`,
+      '  deterministic steps already given to the agent:',
+      ...guidanceFor(finding, context.facts).map((step) => `    - ${step}`),
     );
   }
 
   lines.push(
     '',
     'Respond with JSON matching: {"perFinding": [{"id", "guidance"}], "generalNotes": [string]}.',
-    'Cover every blocker id listed above. Keep each guidance to at most three sentences',
-    '(about 60 words) with no code blocks. Keep generalNotes to at most three short items, or',
-    'an empty array. Do not pretty-print the JSON. Respond with only JSON — no prose, no',
-    'markdown outside the JSON.',
+    'Cover every blocker id listed above; return generalNotes as an empty array. Keep each',
+    'guidance to at most three sentences and at most 60 words, with no code blocks, and do',
+    'not repeat the deterministic steps. Do not pretty-print the JSON. Respond with only',
+    'JSON — no prose, no markdown outside the JSON.',
   );
 
   return lines.join('\n');
@@ -478,7 +502,7 @@ function validationLines(facts: FixInstructionsFacts, ids: Set<string>): string[
     ids.has('localhost-binding')
   ) {
     lines.push(
-      `- Start the app (or the built container) and confirm it listens on ${facts.port ? `port ${facts.port}` : 'the declared port'} on all interfaces.`,
+      `- Start the app (or the built container) and confirm it listens on ${facts.port ? `port ${facts.port}` : 'the port the Dockerfile declares'} on all interfaces.`,
     );
   }
   if (ids.has('health-check') || ids.has('localhost-binding')) {
@@ -542,9 +566,10 @@ export function assembleFixInstructions(
     if (aiGuidance) lines.push(`   ${aiGuidance}`);
   });
 
-  if (ai.generalNotes.length > 0) {
-    lines.push('', 'Notes:', ...ai.generalNotes.map((note) => `- ${note}`));
-  }
+  // Live-tested finding: free-form model notes are the one channel through
+  // which out-of-scope advice entered the document (readiness endpoints no
+  // blocker asked for). The AI prompt now demands an empty array; anything
+  // the model returns anyway is intentionally not rendered.
 
   lines.push(
     '',

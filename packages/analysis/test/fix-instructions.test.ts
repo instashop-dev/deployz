@@ -188,13 +188,23 @@ describe('buildFixInstructionsAiPrompt', () => {
     );
   });
 
-  it('carries the coding-agent rules (health endpoint, versions, infrastructure, ambiguity)', () => {
+  it('carries the coding-agent rules (serving, invented details, scope, infrastructure, ambiguity)', () => {
     const prompt = buildFixInstructionsAiPrompt(baseContext);
     expect(prompt).toContain('Do not require a Dockerfile HEALTHCHECK');
-    expect(prompt).toContain('Corepack');
+    expect(prompt).toContain('Corepack applies to pnpm and yarn only, never npm');
+    expect(prompt).toContain('never invent repository details');
+    expect(prompt).toContain('npm run preview');
+    expect(prompt).toContain('Never mention readiness endpoints');
     expect(prompt).toContain('Terraform, Kubernetes');
-    expect(prompt).toContain('report');
     expect(prompt).toContain('ambiguity instead of guessing');
+  });
+
+  it('embeds the deterministic steps and demands an empty generalNotes array', () => {
+    const prompt = buildFixInstructionsAiPrompt(baseContext);
+    expect(prompt).toContain('deterministic steps already given to the agent:');
+    expect(prompt).toContain('Check existing deployment files first');
+    expect(prompt).toContain('return generalNotes as an empty array');
+    expect(prompt).toContain('never restate, summarize, or contradict them');
   });
 
   it('bounds the guidance length so the completion fits the synchronous request budget', () => {
@@ -292,6 +302,12 @@ describe('assembleFixInstructions', () => {
     const doc = assembleFixInstructions(baseContext, aiOutput);
     expect(doc).toContain('Check existing deployment files first');
     expect(doc).toContain('Add a multi-stage Dockerfile that builds and runs the app.');
+  });
+
+  it('never renders AI generalNotes (the scope-creep channel stays closed)', () => {
+    const doc = assembleFixInstructions(baseContext, aiOutput);
+    expect(doc).not.toContain('Notes:');
+    expect(doc).not.toContain('Double-check the Node version');
   });
 
   it('remains a complete document when perFinding is empty', () => {
@@ -450,6 +466,32 @@ describe('assembleFixInstructions — representative repository shapes', () => {
     );
     expect(doc).toContain('- Application directory (workspace): apps/web');
     expect(doc).toContain('with `apps/web` as the build context');
+  });
+
+  it('npm: version guidance comes from engines/.nvmrc, not Corepack', () => {
+    const doc = assembleFixInstructions(
+      { ...baseContext, facts: { ...postgresFacts, packageManager: 'npm', buildCommand: 'npm run build' } },
+      emptyAi,
+    );
+    expect(doc).toContain('match the Node and npm versions from `engines`/`.nvmrc`');
+    expect(doc).not.toContain('via Corepack');
+  });
+
+  it('no detected start command: static-output serving guidance', () => {
+    const doc = assembleFixInstructions(
+      { ...baseContext, facts: { ...postgresFacts, startCommand: null } },
+      emptyAi,
+    );
+    expect(doc).toContain('serve the built files with a production-grade static server');
+    expect(doc).toContain('never a dev or preview server');
+  });
+
+  it('unknown port: validation points at the Dockerfile as the declaration point', () => {
+    const doc = assembleFixInstructions(
+      { ...baseContext, facts: { ...postgresFacts, port: null }, findings: [containerFinding] },
+      emptyAi,
+    );
+    expect(doc).toContain('the port the Dockerfile declares');
   });
 
   it('build-time and runtime env requirements render separately with platform-provided names', () => {
