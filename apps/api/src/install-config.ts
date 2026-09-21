@@ -1,5 +1,9 @@
 import { generatedEnvKeys } from '@deployz/analysis';
-import { infrastructureProfileForManifest, type DeploymentManifest } from '@deployz/contracts';
+import {
+  buildDeploymentResourceTags,
+  infrastructureProfileForManifest,
+  type DeploymentManifest,
+} from '@deployz/contracts';
 import type { RuntimeDb } from '@deployz/db';
 
 import { getConfig, type ConfigStore, type EffectiveConfigEntry } from './config.js';
@@ -94,8 +98,9 @@ export async function configPrecedesFirstStart(
 
 /**
  * The INSTALL job's payload: the template parameters, the Redis/database
- * flags, the canonical manifest and — when configuration must precede the
- * first start and there is a release to run — `startAfterConfig`, the marker
+ * flags, the deployment identity tags, the canonical manifest and — when
+ * configuration must precede the first start and there is a release to
+ * run — `startAfterConfig`, the marker
  * that this install starts no task by itself (the service is created with
  * `param_DesiredCount=0`; the post-install CONFIG_UPDATE and the auto-deploy
  * that follow are the first start).
@@ -108,7 +113,13 @@ export async function configPrecedesFirstStart(
  */
 export async function buildInstallPayload(
   db: RuntimeDb,
-  deployment: { id: string; applicationId: string; customerId: string; desiredState: Record<string, unknown> | null },
+  deployment: {
+    id: string;
+    applicationId: string;
+    customerId: string;
+    organizationId: string;
+    desiredState: Record<string, unknown> | null;
+  },
   store: ConfigStore,
 ): Promise<Record<string, unknown>> {
   const manifest = readStoredManifest(deployment.desiredState);
@@ -121,11 +132,24 @@ export async function buildInstallPayload(
   }
   const profile = infrastructureProfileForManifest(manifest);
   const startAfterConfig = await configPrecedesFirstStart(db, deployment, store);
-  const parameters = await buildInstallParameters(db, deployment.id, { startAfterConfig });
+  const { parameters, releaseId } = await buildInstallParameters(db, deployment.id, {
+    startAfterConfig,
+  });
   return {
     parameters,
     databaseRequired: profile.postgres,
     redisRequired: profile.redis,
+    // Control-plane-minted deployz identity tags. The relay applies them as
+    // stack-level CreateStack tags, so CloudFormation propagates them to every
+    // taggable resource. Stable internal ids only (vendorId is the owning
+    // organization's id) — never names/emails/secrets/PII.
+    tags: buildDeploymentResourceTags({
+      deploymentId: deployment.id,
+      applicationId: deployment.applicationId,
+      customerId: deployment.customerId,
+      vendorId: deployment.organizationId,
+      ...(releaseId !== null ? { releaseId } : {}),
+    }),
     // The canonical manifest this deployment was created with — the relay
     // derives port/health/binding parameters from it (Phase 2).
     manifest,

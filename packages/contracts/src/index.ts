@@ -6,6 +6,7 @@ export * from './application-analysis.js';
 export * from './components.js';
 export * from './aws-resources.js';
 export * from './plan.js';
+export * from './tags.js';
 
 import type { DeploymentManifest } from './manifest.js';
 

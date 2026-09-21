@@ -199,7 +199,7 @@ describe('createDomainExecutors — CONFIGURE_DOMAIN', () => {
     expect(acm.requestCalls[0]).toEqual({
       domainName: 'custom.example.com',
       idempotencyToken: domainId.replace(/-/g, ''),
-      tags: { 'deployz:installation': INSTALLATION_ID },
+      tags: { 'deployz:installation': INSTALLATION_ID, 'deployz:component': 'tls' },
     });
     // 32-char idempotency token: uuid sans dashes — ACM's IdempotencyToken limit.
     expect(acm.requestCalls[0]?.idempotencyToken).toHaveLength(32);

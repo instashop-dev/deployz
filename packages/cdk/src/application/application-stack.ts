@@ -119,8 +119,9 @@ import {
   BucketEncryption,
 } from 'aws-cdk-lib/aws-s3';
 import { Secret, type ISecret } from 'aws-cdk-lib/aws-secretsmanager';
-import { Construct } from 'constructs';
+import { Construct, type IConstruct } from 'constructs';
 import { resolveRedisEnvBindings } from '@deployz/analysis';
+import { DEPLOYZ_COMPONENT_TAG, DEPLOYZ_ENVIRONMENT_TAG_VALUE } from '@deployz/contracts';
 
 /** One install-time NoEcho parameter surfaced to the container as an ECS secret. */
 export interface SecretParameterSpec {
@@ -1039,6 +1040,7 @@ export class ApplicationStack extends Stack {
     this.appSecret.grantRead(taskRole);
 
     // ── 2/3. ECS + ALB (branch on expressMode) ────────────────────────────
+    let expressInfrastructureRole: Role | undefined;
     let publicEndpoint: string;
     if (expressMode) {
       // Express Mode — ECS manages ALB/target-group/security-group/auto-scaling.
@@ -1048,6 +1050,7 @@ export class ApplicationStack extends Stack {
           'Allows ECS Express to manage the load balancer, target groups, ' +
           'security groups and auto-scaling for the customer application.',
       });
+      expressInfrastructureRole = infrastructureRole;
       infrastructureRole.addToPolicy(
         new PolicyStatement({
           effect: Effect.ALLOW,
@@ -1426,103 +1429,101 @@ const dbEnv =
     }
 
     // ── deployz: tags (§15) ───────────────────────────────────────────────
-    // deployz:component is static — applied to every taggable resource.
-    // deployz:application / deployz:vendor / deployz:installation are all
-    // applied the same way, in-construct, from the corresponding optional
-    // props — §15 requires all three for predictable resource identification.
-    Tags.of(this).add('deployz:component', 'application');
+    // Stack-level tags (deployz:managed / deployz:scope / deployz:managed-by /
+    // deployz:environment) propagate to every resource. The per-deployment
+    // identity tags (deployz:application / deployz:vendor /
+    // deployz:installation + deployz:application-id) are applied in-construct
+    // from the corresponding optional props — §15 requires all three for
+    // predictable resource identification. deployz:component names the major
+    // infrastructure component each resource belongs to (network / app /
+    // database / redis / storage; the TLS certificate lives outside the
+    // template and is tagged 'tls' by the relay). The relay additionally
+    // applies the control plane's identity tags as stack-level CreateStack
+    // tags, which propagate everywhere the optional props cannot.
     Tags.of(this).add('deployz:managed', 'true');
     Tags.of(this).add('deployz:scope', 'customer');
+    Tags.of(this).add('deployz:managed-by', 'deployz');
+    Tags.of(this).add('deployz:environment', DEPLOYZ_ENVIRONMENT_TAG_VALUE);
 
-    if (props.applicationId !== undefined) {
-      for (const c of [
-        this,
-        this.vpc,
-        this.database,
-        this.databaseSecret,
-        this.databaseUrlSecret,
-        this.appSecret,
-        this.storageBucket,
-        this.cluster,
-        logGroup,
-        dbSecurityGroup,
-        taskExecutionRole,
-        taskRole,
-        this.loadBalancer,
-        this.fargateService,
-        this.expressService,
-        this.workerService,
-        this.workerLogGroup,
-        redisSubnetGroup,
-        redisSecurityGroup,
-        this.cache,
-      ]) {
-        if (c !== undefined) {
-          Tags.of(c).add('deployz:application', props.applicationId);
+    /** Applies one set of tags to every defined construct in the list. */
+    const tagConstructs = (constructs: readonly (IConstruct | undefined)[], tags: Record<string, string>): void => {
+      for (const construct of constructs) {
+        if (construct === undefined) continue;
+        for (const [key, value] of Object.entries(tags)) {
+          Tags.of(construct).add(key, value);
         }
       }
+    };
+
+    const identityTagTargets: readonly (IConstruct | undefined)[] = [
+      this,
+      this.vpc,
+      this.database,
+      this.databaseSecret,
+      this.databaseUrlSecret,
+      this.appSecret,
+      this.storageBucket,
+      this.cluster,
+      logGroup,
+      dbSecurityGroup,
+      taskExecutionRole,
+      taskRole,
+      this.loadBalancer,
+      this.fargateService,
+      this.expressService,
+      this.workerService,
+      this.workerLogGroup,
+      redisSubnetGroup,
+      redisSecurityGroup,
+      this.cache,
+    ];
+
+    if (props.applicationId !== undefined) {
+      tagConstructs(identityTagTargets, { 'deployz:application': props.applicationId });
     }
 
     if (props.vendorId !== undefined) {
-      for (const c of [
-        this,
-        this.vpc,
-        this.database,
-        this.databaseSecret,
-        this.databaseUrlSecret,
-        this.appSecret,
-        this.storageBucket,
-        this.cluster,
-        logGroup,
-        dbSecurityGroup,
-        taskExecutionRole,
-        taskRole,
-        this.loadBalancer,
-        this.fargateService,
-        this.expressService,
-        this.workerService,
-        this.workerLogGroup,
-        redisSubnetGroup,
-        redisSecurityGroup,
-        this.cache,
-      ]) {
-        if (c !== undefined) {
-          Tags.of(c).add('deployz:vendor', props.vendorId);
-        }
-      }
+      tagConstructs(identityTagTargets, { 'deployz:vendor': props.vendorId });
     }
 
     if (props.installationId !== undefined) {
-      for (const c of [
-        this,
-        this.vpc,
-        this.database,
-        this.databaseSecret,
-        this.databaseUrlSecret,
-        this.appSecret,
-        this.storageBucket,
+      tagConstructs(identityTagTargets, {
+        'deployz:installation': props.installationId,
+        ...(props.applicationId !== undefined
+          ? { 'deployz:application-id': props.applicationId }
+          : {}),
+      });
+    }
+
+    // Per-resource component tags. Tags.of on a parent construct covers its
+    // children, so the VPC entry also tags the subnets/route tables/NAT
+    // gateway, and the service entries also tag their security groups.
+    tagConstructs([this.vpc, this.loadBalancer], {
+      [DEPLOYZ_COMPONENT_TAG]: 'network',
+    });
+    tagConstructs(
+      [
         this.cluster,
         logGroup,
-        dbSecurityGroup,
+        this.workerLogGroup,
         taskExecutionRole,
         taskRole,
-        this.loadBalancer,
+        expressInfrastructureRole,
         this.fargateService,
         this.expressService,
         this.workerService,
-        this.workerLogGroup,
-        redisSubnetGroup,
-        redisSecurityGroup,
-        this.cache,
-      ]) {
-        if (c !== undefined) {
-          Tags.of(c).add('deployz:installation', props.installationId);
-          if (props.applicationId !== undefined) {
-            Tags.of(c).add('deployz:application-id', props.applicationId);
-          }
-        }
-      }
-    }
+        this.appSecret,
+      ],
+      { [DEPLOYZ_COMPONENT_TAG]: 'app' },
+    );
+    tagConstructs(
+      [this.database, this.databaseSecret, this.databaseUrlSecret, dbSecurityGroup],
+      { [DEPLOYZ_COMPONENT_TAG]: 'database' },
+    );
+    tagConstructs([this.cache, redisSubnetGroup, redisSecurityGroup], {
+      [DEPLOYZ_COMPONENT_TAG]: 'redis',
+    });
+    tagConstructs([this.storageBucket], { [DEPLOYZ_COMPONENT_TAG]: 'storage' });
 
     // ── Stack outputs ─────────────────────────────────────────────────────
     // Plain outputs, NOT Fn::Export values: this template is synthesized once

@@ -41,6 +41,7 @@ import {
 } from '@aws-sdk/client-cloudformation';
 import {
   DEFAULT_APPLICATION_STACK_NAME,
+  DEPLOYZ_INSTALLATION_TAG,
   type DeploymentManifest,
   type FailureEvidence,
 } from '@deployz/contracts';
@@ -51,9 +52,6 @@ import type { CloudFormationReader } from './verify.js';
 export const CONTAINER_PORT_PARAMETER = 'paramContainerPort';
 /** CFN logical id of the template's health-check-path parameter (CDK strips the underscore from `param_HealthCheckPath`). */
 export const HEALTH_CHECK_PATH_PARAMETER = 'paramHealthCheckPath';
-
-/** The stack tag both the relay's IAM condition and the verifier read. */
-export const INSTALLATION_TAG = 'deployz:installation';
 
 /**
  * The application stack creates IAM roles for the ECS tasks, so
@@ -153,6 +151,13 @@ export interface InstallOptions {
   readonly stackName?: string;
   /** Template parameter values, by parameter name. */
   readonly parameters?: Readonly<Record<string, string>>;
+  /**
+   * Control-plane-minted deployz identity tags, applied as stack-level tags
+   * so CloudFormation propagates them to every taggable resource — including
+   * the retained RDS instance and S3 bucket. Absent for payloads minted by
+   * older control planes; the relay never updates tags in place.
+   */
+  readonly deploymentTags?: Readonly<Record<string, string>>;
   /** CloudFormation execution role ARN (`role/deployz/*`). */
   readonly executionRoleArn?: string;
   /** How long to watch before answering `in-progress`. Defaults to 3 minutes. */
@@ -276,8 +281,10 @@ async function run(options: InstallOptions): Promise<InstallOutcome> {
       stackName,
       templateUrl,
       parameters,
-      // The single tag both the IAM condition and the verifier depend on.
-      tags: { [INSTALLATION_TAG]: installationId },
+      // The control plane's identity tags ride the same stack-level Tags
+      // parameter; the installation tag itself is the single tag both the
+      // IAM condition and the verifier depend on, so it wins any collision.
+      tags: { ...(options.deploymentTags ?? {}), [DEPLOYZ_INSTALLATION_TAG]: installationId },
       capabilities: [...CAPABILITIES],
       ...(options.executionRoleArn !== undefined ? { roleArn: options.executionRoleArn } : {}),
     });
