@@ -1,36 +1,38 @@
 // @vitest-environment jsdom
-
-import { JSDOM } from 'jsdom';
-import { renderToString } from 'react-dom/server';
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import type {
-  PublicInstallLinkCreated,
-  PublicInstallLinkView,
-} from '../src/lib/public-install-links';
+import type { InstallLinkPresentation } from '../src/lib/application-state';
 import { ApiRequestError } from '../src/lib/api-client';
+import type { PublicInstallLinkCreated, PublicInstallLinkView } from '../src/lib/public-install-links';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
+// InstallLinkControls / PublicInstallLinkCard render purely from the
+// `installLink` presentation the caller passes in — they never fetch. This
+// locks each presentation `kind` to its visible shape, that a mutation only
+// ever runs after the explicit click (regenerate/revoke behind their
+// confirmation dialogs), and that `onChanged` (the page's refresh) always
+// follows a successful mutation.
+
 const linkMocks = vi.hoisted(() => ({
   createPublicInstallLink: vi.fn(),
-  fetchPublicInstallLinks: vi.fn(),
   setPublicInstallLinkEnabled: vi.fn(),
   revokePublicInstallLink: vi.fn(),
   regeneratePublicInstallLink: vi.fn(),
 }));
 
-vi.mock('../src/lib/public-install-links', () => ({
-  ...linkMocks,
-  publicInstallHtmlSnippet: (url: string) => `<a href="${url}">Deploy to AWS with Deployz</a>`,
-  publicInstallLinkStatusBadge: (status: string) => {
-    if (status === 'active') return { label: 'Active', variant: 'success' as const };
-    if (status === 'disabled') return { label: 'Disabled', variant: 'secondary' as const };
-    return { label: 'Revoked', variant: 'secondary' as const };
-  },
-}));
+vi.mock('../src/lib/public-install-links', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../src/lib/public-install-links')>();
+  return {
+    ...actual,
+    createPublicInstallLink: linkMocks.createPublicInstallLink,
+    setPublicInstallLinkEnabled: linkMocks.setPublicInstallLinkEnabled,
+    revokePublicInstallLink: linkMocks.revokePublicInstallLink,
+    regeneratePublicInstallLink: linkMocks.regeneratePublicInstallLink,
+  };
+});
 
 vi.mock('sonner', () => ({
   toast: {
@@ -39,7 +41,36 @@ vi.mock('sonner', () => ({
   },
 }));
 
-const { PublicInstallLinkCard } = await import('../src/components/public-install-link-card');
+// The dropdown menu itself (open/close, positioning, focus trapping,
+// portalling to document.body) is Radix's own behavior, exercised
+// elsewhere. Mocked here to a plain always-rendered structure — matching the
+// pattern in test/multi-action-loading.test.tsx — so this file can reach the
+// overflow items without simulating Radix's pointer-driven open sequence in
+// jsdom.
+vi.mock('../src/components/ui/dropdown-menu', () => ({
+  DropdownMenu: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+  DropdownMenuTrigger: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+  DropdownMenuContent: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
+  DropdownMenuItem: ({
+    children,
+    onClick,
+    disabled,
+    variant: _variant,
+    ...props
+  }: Record<string, unknown> & {
+    children: React.ReactNode;
+    onClick?: () => void;
+    disabled?: boolean;
+    variant?: string;
+  }) => (
+    <div role="menuitem" data-disabled={disabled || undefined} onClick={disabled ? undefined : onClick} {...props}>
+      {children}
+    </div>
+  ),
+}));
+
+const { InstallLinkControls, PublicInstallLinkCard } = await import('../src/components/public-install-link-card');
+const { toast } = await import('sonner');
 
 const APP_ID = 'app-1';
 
@@ -58,277 +89,266 @@ function createdLink(overrides: Partial<PublicInstallLinkCreated> = {}): PublicI
   return {
     id: '11111111-1111-1111-1111-111111111111',
     url: 'https://app.deployz.dev/install/11111111-1111-1111-1111-111111111111',
-    htmlSnippet: '<a href="https://app.deployz.dev/install/11111111-1111-1111-1111-111111111111">Deploy to AWS with Deployz</a>',
+    htmlSnippet:
+      '<a href="https://app.deployz.dev/install/11111111-1111-1111-1111-111111111111">Deploy to AWS with Deployz</a>',
     enabled: true,
     createdAt: '2026-09-04T00:00:00.000Z',
     ...overrides,
   };
 }
 
-function click(element: HTMLElement): void {
-  element.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+function liveLink(link: PublicInstallLinkView, warning: string | null = null): InstallLinkPresentation {
+  const status = link.status === 'active' || link.status === 'disabled' ? link.status : 'unknown';
+  return { kind: 'live', link, status, warning };
 }
 
-async function flushPromises(): Promise<void> {
+function click(element: Element | null): void {
+  element?.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+}
+
+async function flush(): Promise<void> {
   await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
 }
 
-function renderCard(): HTMLElement {
-  const container = document.createElement('div');
-  document.body.appendChild(container);
-  const root = createRoot(container);
-  act(() => {
-    root.render(<PublicInstallLinkCard applicationId={APP_ID} />);
-  });
-  cleanups.push(() => {
-    act(() => {
-      root.unmount();
-    });
-    container.remove();
-  });
-  return container;
-}
-
-const cleanups: Array<() => void> = [];
+let container: HTMLElement;
+let root: Root;
 
 beforeEach(() => {
+  vi.clearAllMocks();
   vi.stubGlobal('navigator', {
     clipboard: {
       writeText: vi.fn().mockResolvedValue(undefined),
     },
   });
+  container = document.createElement('div');
+  document.body.appendChild(container);
+  root = createRoot(container);
 });
 
 afterEach(() => {
-  while (cleanups.length) {
-    cleanups.pop()?.();
-  }
-  document.body.innerHTML = '';
+  act(() => {
+    root.unmount();
+  });
+  container.remove();
   vi.unstubAllGlobals();
-  linkMocks.createPublicInstallLink.mockReset();
-  linkMocks.fetchPublicInstallLinks.mockReset();
-  linkMocks.setPublicInstallLinkEnabled.mockReset();
-  linkMocks.revokePublicInstallLink.mockReset();
-  linkMocks.regeneratePublicInstallLink.mockReset();
 });
 
-describe('PublicInstallLinkCard', () => {
-  it('renders the loading card while its data is being fetched', () => {
-    linkMocks.fetchPublicInstallLinks.mockReturnValue(new Promise(() => {}));
-    const { window } = new JSDOM(renderToString(<PublicInstallLinkCard applicationId={APP_ID} />));
-    const doc = window.document;
+function renderControls(installLink: InstallLinkPresentation, onChanged = vi.fn().mockResolvedValue(undefined)) {
+  act(() => {
+    root.render(
+      <InstallLinkControls applicationId={APP_ID} installLink={installLink} onChanged={onChanged} />,
+    );
+  });
+  return { onChanged };
+}
 
-    expect(doc.querySelector('[data-testid="public-install-link-card"]')).not.toBeNull();
-    expect(doc.querySelector('[data-testid="public-install-link-loading"]')).not.toBeNull();
+describe('InstallLinkControls visibility per kind', () => {
+  it('shows a skeleton while loading', () => {
+    renderControls({ kind: 'loading' });
+    expect(container.querySelector('[data-testid="public-install-link-loading"]')).not.toBeNull();
   });
 
-  it('shows the empty state, creates a link, and displays the active link', async () => {
-    linkMocks.fetchPublicInstallLinks
-      .mockResolvedValueOnce([])
-      .mockResolvedValueOnce([activeLink()]);
+  it('shows an inline destructive alert on error', () => {
+    renderControls({ kind: 'error', message: "We couldn't load the customer install link." });
+    const alert = container.querySelector('[data-testid="public-install-link-error"]');
+    expect(alert?.textContent).toBe("We couldn't load the customer install link.");
+  });
+
+  it('shows the reason text when unavailable', () => {
+    renderControls({ kind: 'unavailable', reason: 'Available after a successful test deployment.' });
+    expect(container.textContent).toContain('Available after a successful test deployment.');
+    expect(container.querySelector('button')).toBeNull();
+  });
+
+  it('shows nothing for the hidden kind', () => {
+    renderControls({ kind: 'hidden' });
+    expect(container.textContent).toBe('');
+  });
+
+  it('shows the create button and an optional note', () => {
+    renderControls({ kind: 'create', note: 'The previous link was revoked. Create a new link to share the application.' });
+    expect(container.querySelector('[data-testid="public-install-link-create"]')).not.toBeNull();
+    expect(container.textContent).toContain('The previous link was revoked');
+  });
+
+  it('shows the status badge and controls for a live link', () => {
+    renderControls(liveLink(activeLink()));
+    expect(container.querySelector('[data-testid="public-install-link-status"]')?.textContent).toBe('Active');
+    expect(container.querySelector('[data-testid="public-install-link-copy-url"]')).not.toBeNull();
+    expect(container.querySelector('[data-testid="public-install-link-preview"]')).not.toBeNull();
+    expect(container.querySelector('[data-testid="public-install-link-menu"]')).not.toBeNull();
+  });
+
+  it('shows Disabled and disables Copy link when the link is disabled', () => {
+    renderControls(liveLink(activeLink({ status: 'disabled' })));
+    expect(container.querySelector('[data-testid="public-install-link-status"]')?.textContent).toBe('Disabled');
+    expect(
+      (container.querySelector('[data-testid="public-install-link-copy-url"]') as HTMLButtonElement).disabled,
+    ).toBe(true);
+  });
+
+  it('shows "Needs review" for an unknown status', () => {
+    renderControls(liveLink(activeLink({ status: 'revoked' as never })));
+    expect(container.querySelector('[data-testid="public-install-link-status"]')?.textContent).toBe(
+      'Needs review',
+    );
+  });
+
+  it('shows the early-link warning', () => {
+    renderControls(liveLink(activeLink(), 'This link is live, but the application is not ready to share.'));
+    expect(container.textContent).toContain('This link is live, but the application is not ready to share.');
+  });
+
+  it('never renders the raw URL as text', () => {
+    renderControls(liveLink(activeLink()));
+    expect(container.querySelector('[data-testid="public-install-link-url"]')).toBeNull();
+    expect(container.textContent).not.toContain('https://app.deployz.dev/install/');
+  });
+});
+
+describe('InstallLinkControls actions', () => {
+  it('creates a link and calls onChanged', async () => {
     linkMocks.createPublicInstallLink.mockResolvedValue(createdLink());
-
-    renderCard();
-    await act(async () => Promise.resolve());
-
-    expect(document.body.textContent).toContain('Create public install link');
-
-    const createButton = document.querySelector('[data-testid="public-install-link-create"]') as HTMLButtonElement;
-    expect(createButton).not.toBeNull();
+    const { onChanged } = renderControls({ kind: 'create', note: null });
 
     await act(async () => {
-      click(createButton);
+      click(container.querySelector('[data-testid="public-install-link-create"]'));
     });
+    await flush();
 
-    await act(async () => Promise.resolve());
-
-    expect(document.querySelector('[data-testid="public-install-link-active"]')).not.toBeNull();
-    expect(document.querySelector('[data-testid="public-install-link-url"]')?.textContent).toBe(activeLink().url);
-    expect(document.querySelector('[data-testid="public-install-link-copy-url"]')).not.toBeNull();
-    expect(document.querySelector('[data-testid="public-install-link-copy-snippet"]')).not.toBeNull();
-    expect(document.querySelector('[data-testid="public-install-link-preview"]')).not.toBeNull();
-    expect(document.querySelector('[data-testid="public-install-link-switch"]')).not.toBeNull();
-    expect(document.querySelector('[data-testid="public-install-link-regenerate"]')).not.toBeNull();
-    expect(document.querySelector('[data-testid="public-install-link-revoke"]')).not.toBeNull();
+    expect(linkMocks.createPublicInstallLink).toHaveBeenCalledWith(APP_ID);
+    expect(onChanged).toHaveBeenCalledTimes(1);
+    expect(toast.success).toHaveBeenCalledWith('Public install link created.');
   });
 
-  it('copies the direct URL and the HTML snippet to the clipboard', async () => {
-    linkMocks.fetchPublicInstallLinks.mockResolvedValue([activeLink()]);
-
-    renderCard();
-    await act(async () => Promise.resolve());
-
-    const copyUrlButton = document.querySelector('[data-testid="public-install-link-copy-url"]') as HTMLButtonElement;
-    const copySnippetButton = document.querySelector('[data-testid="public-install-link-copy-snippet"]') as HTMLButtonElement;
-
+  it('copies the direct link and reports success', async () => {
+    renderControls(liveLink(activeLink()));
     await act(async () => {
-      click(copyUrlButton);
+      click(container.querySelector('[data-testid="public-install-link-copy-url"]'));
     });
     expect(navigator.clipboard.writeText).toHaveBeenCalledWith(activeLink().url);
+    expect(toast.success).toHaveBeenCalledWith('Public install link copied.');
+  });
 
+  it('reports a clipboard failure without throwing', async () => {
+    vi.stubGlobal('navigator', { clipboard: { writeText: vi.fn().mockRejectedValue(new Error('denied')) } });
+    renderControls(liveLink(activeLink()));
     await act(async () => {
-      click(copySnippetButton);
+      click(container.querySelector('[data-testid="public-install-link-copy-url"]'));
+    });
+    await flush();
+    expect(toast.error).toHaveBeenCalledWith('We could not copy the text. Copy it by hand.');
+  });
+
+  it('copies the HTML snippet from the overflow menu', async () => {
+    renderControls(liveLink(activeLink()));
+    await act(async () => {
+      click(container.querySelector('[data-testid="public-install-link-menu"]'));
+    });
+    await act(async () => {
+      click(document.querySelector('[data-testid="public-install-link-copy-snippet"]'));
     });
     expect(navigator.clipboard.writeText).toHaveBeenCalledWith(
       '<a href="https://app.deployz.dev/install/11111111-1111-1111-1111-111111111111">Deploy to AWS with Deployz</a>',
     );
+    expect(toast.success).toHaveBeenCalledWith('HTML snippet copied.');
   });
 
-  it('toggles the link enabled and disabled', async () => {
-    linkMocks.fetchPublicInstallLinks
-      .mockResolvedValueOnce([activeLink()])
-      .mockResolvedValueOnce([activeLink({ status: 'disabled' })])
-      .mockResolvedValueOnce([activeLink()]);
+  it('disables and enables the link from the overflow menu', async () => {
     linkMocks.setPublicInstallLinkEnabled.mockResolvedValue({ link: activeLink({ status: 'disabled' }) });
-
-    renderCard();
-    await act(async () => Promise.resolve());
-
-    const switchControl = document.querySelector('[data-testid="public-install-link-switch"]') as HTMLElement;
-    expect(switchControl).not.toBeNull();
-    expect(document.body.textContent).toContain('Enabled');
+    const { onChanged } = renderControls(liveLink(activeLink()));
 
     await act(async () => {
-      click(switchControl);
+      click(container.querySelector('[data-testid="public-install-link-menu"]'));
     });
+    await act(async () => {
+      click(document.querySelector('[data-testid="public-install-link-toggle"]'));
+    });
+    await flush();
 
     expect(linkMocks.setPublicInstallLinkEnabled).toHaveBeenCalledWith(activeLink().id, false);
-    await act(async () => Promise.resolve());
-
-    expect(document.body.textContent).toContain('Disabled');
-
-    linkMocks.setPublicInstallLinkEnabled.mockResolvedValue({ link: activeLink() });
-
-    await act(async () => {
-      click(switchControl);
-    });
-
-    expect(linkMocks.setPublicInstallLinkEnabled).toHaveBeenCalledWith(activeLink().id, true);
+    expect(onChanged).toHaveBeenCalledTimes(1);
+    expect(toast.success).toHaveBeenCalledWith('Public install link disabled.');
   });
 
-  it('revokes the link after confirming the dialog', async () => {
-    linkMocks.fetchPublicInstallLinks
-      .mockResolvedValueOnce([activeLink()])
-      .mockResolvedValueOnce([]);
-    linkMocks.revokePublicInstallLink.mockResolvedValue({ link: activeLink({ status: 'revoked' }) });
+  it('requires confirmation before regenerating', async () => {
+    linkMocks.regeneratePublicInstallLink.mockResolvedValue(createdLink());
+    const { onChanged } = renderControls(liveLink(activeLink()));
 
-    renderCard();
-    await act(async () => Promise.resolve());
-
-    const revokeButton = document.querySelector('[data-testid="public-install-link-revoke"]') as HTMLButtonElement;
     await act(async () => {
-      click(revokeButton);
+      click(container.querySelector('[data-testid="public-install-link-menu"]'));
     });
-
-    expect(document.body.textContent).toContain('Revoke this public install link?');
-    expect(document.body.textContent).toContain('No AWS resources are destroyed');
-
-    const confirmButton = document.querySelector('[data-testid="public-install-link-revoke-confirm"]') as HTMLButtonElement;
     await act(async () => {
-      click(confirmButton);
-    });
-
-    expect(linkMocks.revokePublicInstallLink).toHaveBeenCalledWith(activeLink().id);
-    await act(async () => Promise.resolve());
-
-    expect(document.querySelector('[data-testid="public-install-link-empty"]')).not.toBeNull();
-  });
-
-  it('regenerates the link after confirming the dialog and swaps the id', async () => {
-    const oldLink = activeLink();
-    const newLink = activeLink({
-      id: '22222222-2222-2222-2222-222222222222',
-      url: 'https://app.deployz.dev/install/22222222-2222-2222-2222-222222222222',
-    });
-
-    linkMocks.fetchPublicInstallLinks
-      .mockResolvedValueOnce([oldLink])
-      .mockResolvedValueOnce([newLink]);
-    linkMocks.regeneratePublicInstallLink.mockResolvedValue(createdLink(newLink));
-
-    renderCard();
-    await act(async () => Promise.resolve());
-
-    const regenerateButton = document.querySelector('[data-testid="public-install-link-regenerate"]') as HTMLButtonElement;
-    await act(async () => {
-      click(regenerateButton);
+      click(document.querySelector('[data-testid="public-install-link-regenerate"]'));
     });
 
     expect(document.body.textContent).toContain('Regenerate this public install link?');
-    expect(document.body.textContent).toContain('old link stops working');
+    expect(linkMocks.regeneratePublicInstallLink).not.toHaveBeenCalled();
 
-    const confirmButton = document.querySelector('[data-testid="public-install-link-regenerate-confirm"]') as HTMLButtonElement;
     await act(async () => {
-      click(confirmButton);
+      click(document.querySelector('[data-testid="public-install-link-regenerate-confirm"]'));
     });
+    await flush();
 
-    expect(linkMocks.regeneratePublicInstallLink).toHaveBeenCalledWith(oldLink.id);
-    await act(async () => Promise.resolve());
-
-    const url = document.querySelector('[data-testid="public-install-link-url"]') as HTMLElement;
-    expect(url.textContent).toBe(newLink.url);
+    expect(linkMocks.regeneratePublicInstallLink).toHaveBeenCalledWith(activeLink().id);
+    expect(onChanged).toHaveBeenCalledTimes(1);
   });
 
-  it('shows the generic error when release creation fails', async () => {
-    linkMocks.fetchPublicInstallLinks.mockResolvedValue([]);
-    linkMocks.createPublicInstallLink.mockRejectedValue(
-      new ApiRequestError('RELEASE_NOT_PUBLISHED', 'Release not published'),
-    );
+  it('requires confirmation before revoking', async () => {
+    linkMocks.revokePublicInstallLink.mockResolvedValue({ link: activeLink({ status: 'revoked' }) });
+    const { onChanged } = renderControls(liveLink(activeLink()));
 
-    renderCard();
-    await act(async () => Promise.resolve());
-
-    const createButton = document.querySelector('[data-testid="public-install-link-create"]') as HTMLButtonElement;
     await act(async () => {
-      click(createButton);
+      click(container.querySelector('[data-testid="public-install-link-menu"]'));
     });
-    await act(async () => Promise.resolve());
-
-    const error = document.querySelector('[data-testid="public-install-link-error"]') as HTMLElement;
-    expect(error.textContent).toContain('Release not published');
-    expect(error.textContent).not.toContain('Publish a release before');
-  });
-
-  it('shows the new loading text while creating the release and link', async () => {
-    let resolvePromise!: (value: PublicInstallLinkCreated) => void;
-    const deferred = new Promise<PublicInstallLinkCreated>((resolve) => { resolvePromise = resolve; });
-    linkMocks.fetchPublicInstallLinks.mockResolvedValueOnce([]);
-    linkMocks.createPublicInstallLink.mockReturnValue(deferred);
-
-    renderCard();
-    await act(async () => Promise.resolve());
-
-    const createButton = document.querySelector('[data-testid="public-install-link-create"]') as HTMLButtonElement;
     await act(async () => {
-      click(createButton);
+      click(document.querySelector('[data-testid="public-install-link-revoke"]'));
     });
 
-    expect(document.body.textContent).toContain('Preparing application for deployment…');
-    expect(createButton.disabled).toBe(true);
+    expect(document.body.textContent).toContain('Revoke this public install link?');
+    expect(linkMocks.revokePublicInstallLink).not.toHaveBeenCalled();
 
-    // Resolve the create, then mock the refresh call.
-    linkMocks.fetchPublicInstallLinks.mockResolvedValueOnce([activeLink()]);
-    resolvePromise!(createdLink());
-    await flushPromises();
+    await act(async () => {
+      click(document.querySelector('[data-testid="public-install-link-revoke-confirm"]'));
+    });
+    await flush();
 
-    expect(document.querySelector('[data-testid="public-install-link-active"]')).not.toBeNull();
+    expect(linkMocks.revokePublicInstallLink).toHaveBeenCalledWith(activeLink().id);
+    expect(onChanged).toHaveBeenCalledTimes(1);
   });
 
-  it('shows the existing live link when a create conflict occurs', async () => {
-    linkMocks.fetchPublicInstallLinks.mockResolvedValueOnce([]).mockResolvedValueOnce([activeLink()]);
+  it('shows the API error inline instead of a toast', async () => {
     linkMocks.createPublicInstallLink.mockRejectedValue(
       new ApiRequestError('PUBLIC_INSTALL_LINK_EXISTS', 'Link exists'),
     );
+    const { onChanged } = renderControls({ kind: 'create', note: null });
 
-    renderCard();
-    await act(async () => Promise.resolve());
-
-    const createButton = document.querySelector('[data-testid="public-install-link-create"]') as HTMLButtonElement;
     await act(async () => {
-      click(createButton);
+      click(container.querySelector('[data-testid="public-install-link-create"]'));
     });
-    await flushPromises();
+    await flush();
 
-    expect(document.querySelector('[data-testid="public-install-link-active"]')).not.toBeNull();
+    expect(container.querySelector('[data-testid="public-install-link-error"]')?.textContent).toBe(
+      'A live public install link already exists for this application.',
+    );
+    expect(onChanged).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('PublicInstallLinkCard', () => {
+  it('renders a titled card wrapping the controls', () => {
+    act(() => {
+      root.render(
+        <PublicInstallLinkCard
+          applicationId={APP_ID}
+          installLink={liveLink(activeLink())}
+          onChanged={vi.fn().mockResolvedValue(undefined)}
+        />,
+      );
+    });
+    const card = container.querySelector('[data-testid="public-install-link-card"]');
+    expect(card).not.toBeNull();
+    expect(card?.textContent).toContain('Customer install link');
+    expect(card?.querySelector('[data-testid="public-install-link-status"]')).not.toBeNull();
   });
 });

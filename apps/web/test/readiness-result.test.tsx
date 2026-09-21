@@ -25,12 +25,9 @@ vi.mock('@/lib/applications', () => ({
 
 import {
   EditDialog,
-  ReadinessTableRow,
   RequirementDriftNotice,
 } from '../src/app/dashboard/applications/[id]/readiness-components';
 import {
-  deriveLifecycleSteps,
-  readinessHeaderPresentation,
   deriveReadinessRows,
   isFieldOverridden,
   effectiveFieldValue,
@@ -39,15 +36,13 @@ import {
   type DetectedApplication,
   type DetectedFact,
   type FactSource,
-  type ReadinessTableSetting,
 } from '../src/lib/readiness';
 
 /**
- * Component/DOM tests for the redesigned readiness page surfaces.
- *
- * The old ReadinessResult card is gone; its responsibilities now live in the
- * page header, the lifecycle stepper, and the deployment-readiness table.
- * These tests lock down the derivation logic that drives those surfaces.
+ * Component/DOM tests for the Configuration tab's readiness surfaces: the
+ * deployment-readiness table rows, the requirement-drift notice, and the
+ * override edit dialog. The page heading and setup lifecycle now live in
+ * `lib/application-state.ts`, covered by `application-state.test.ts`.
  */
 
 const fact = <T,>(value: T, source: FactSource = 'dockerfile'): DetectedFact<T> => ({
@@ -132,145 +127,6 @@ function readinessFixture(overrides: Partial<ApplicationReadiness> = {}): Applic
     ...overrides,
   };
 }
-
-function render(input: ApplicationReadiness): Document {
-  const header = readinessHeaderPresentation(input);
-  const html = renderToString(
-    <div>
-      <h1>{header.heading}</h1>
-      <p>{header.supportingLine}</p>
-    </div>,
-  );
-  const { window } = new JSDOM(html);
-  return window.document;
-}
-
-describe('Readiness page header — redesigned', () => {
-  it('says the app is ready for test deployment when all required checks pass', () => {
-    const doc = render(readinessFixture({ state: 'READY' }));
-    expect(doc.body.textContent).toContain('Ready for test deployment');
-    expect(doc.body.textContent).toContain('4 required checks passed');
-  });
-
-  it('never shows "X of Y" counts when the only gap is a recommendation', () => {
-    const doc = render(
-      readinessFixture({
-        state: 'ALMOST_READY',
-        recommendedCount: 1,
-        findings: [
-          {
-            id: 'logging',
-            category: 'observability',
-            title: 'Structured logging recommended',
-            severity: 'recommended',
-            blocking: false,
-            plainEnglishExplanation: 'Logs are not structured as JSON.',
-            whyItMatters: 'Structured logs are easier to search.',
-            technicalEvidence: 'Log lines are plain text.',
-            suggestedOutcome: 'Emit logs as JSON.',
-            confidence: 'likely',
-          },
-        ],
-      }),
-    );
-    expect(doc.body.textContent).not.toMatch(/\d+ of \d+ checks passed/);
-    expect(doc.body.textContent).toContain('recommendation');
-  });
-
-  it('shows blocker summary when required findings exist', () => {
-    const doc = render(
-      readinessFixture({
-        state: 'NEEDS_CHANGES',
-        requiredCount: 3,
-        findings: [
-          {
-            id: 'health-check',
-            category: 'health',
-            title: 'Health endpoint missing',
-            severity: 'required',
-            blocking: true,
-            plainEnglishExplanation: 'Deployz requires an HTTP health endpoint.',
-            whyItMatters: 'Without it, Deployz cannot tell if your app is running.',
-            technicalEvidence: 'No route responded on /health.',
-            suggestedOutcome: 'Add a GET /health route that returns HTTP 200.',
-            confidence: 'confirmed',
-          },
-        ],
-      }),
-    );
-    expect(doc.body.textContent).toContain('Action required before deployment');
-    expect(doc.body.textContent).toContain('2 of 3 required checks passed');
-    expect(doc.body.textContent).toContain('1 blocking issue');
-  });
-
-  it('shows the failed analysis heading with the API reason', () => {
-    const doc = render(
-      readinessFixture({
-        analysisStatus: 'FAILED',
-        state: 'ANALYSIS_INCOMPLETE',
-        failureReason: 'Failed to read the repository.',
-      }),
-    );
-    expect(doc.body.textContent).toContain("We couldn't check deployment readiness");
-    expect(doc.body.textContent).toContain('Failed to read the repository.');
-  });
-});
-
-describe('Lifecycle stepper — redesigned', () => {
-  it('marks analysis as done when complete', () => {
-    const steps = deriveLifecycleSteps({
-      analysisStatus: 'COMPLETE',
-      readiness: readinessFixture(),
-      deployments: [],
-    });
-    expect(steps.Analyze.state).toBe('done');
-    expect(steps.Prepare.state).toBe('done');
-    expect(steps['Customer ready'].state).toBe('pending');
-  });
-
-  it('marks test as verified when the latest test deployment is healthy', () => {
-    const deployment = {
-      id: 'dep-1',
-      state: 'HEALTHY',
-      deploymentType: 'TEST',
-      createdAt: '2026-09-01T10:00:00Z',
-    } as unknown as import('../src/lib/deployments').FleetDeployment;
-    const steps = deriveLifecycleSteps({
-      analysisStatus: 'COMPLETE',
-      readiness: readinessFixture(),
-      deployments: [deployment],
-    });
-    expect(steps.Test.state).toBe('done');
-    expect(steps.Test.label).toBe('Verified');
-    expect(steps['Customer ready'].state).toBe('done');
-  });
-
-  it('marks prepare as current when required findings exist', () => {
-    const steps = deriveLifecycleSteps({
-      analysisStatus: 'COMPLETE',
-      readiness: readinessFixture({
-        state: 'NEEDS_CHANGES',
-        findings: [
-          {
-            id: 'health-check',
-            category: 'health',
-            title: 'Health endpoint missing',
-            severity: 'required',
-            blocking: true,
-            plainEnglishExplanation: 'Deployz requires an HTTP health endpoint.',
-            whyItMatters: 'Without it, Deployz cannot tell if your app is running.',
-            technicalEvidence: 'No route responded on /health.',
-            suggestedOutcome: 'Add a GET /health route that returns HTTP 200.',
-            confidence: 'confirmed',
-          },
-        ],
-      }),
-      deployments: [],
-    });
-    expect(steps.Prepare.state).toBe('current');
-    expect(steps.Prepare.label).toBe('Action required');
-  });
-});
 
 describe('Deployment readiness table rows', () => {
   it('creates a setting row for every detected fact', () => {
@@ -376,67 +232,10 @@ function renderToDocument(element: React.ReactElement): Document {
   return new JSDOM(renderToString(element)).window.document;
 }
 
-describe('ReadinessTableRow status pills', () => {
-  const baseRow: ReadinessTableSetting = {
-    kind: 'setting',
-    id: 'database',
-    label: 'Database',
-    value: 'Required',
-    detectedValue: 'Required',
-    overridden: false,
-    editable: true,
-    field: 'databaseRequired',
-    evidence: [],
-  };
-
-  it('renders Required for a required, non-overridden requirement', () => {
-    const doc = renderToDocument(
-      <ReadinessTableRow
-        row={{ ...baseRow, status: 'required' }}
-        application={applicationFixture()}
-        onEdit={() => {}}
-        onShowFix={() => {}}
-      />,
-    );
-    expect(doc.body.textContent).toContain('Required');
-  });
-
-  it('renders Not required for a non-required requirement', () => {
-    const doc = renderToDocument(
-      <ReadinessTableRow
-        row={{ ...baseRow, value: 'Not required', status: 'not-required' }}
-        application={applicationFixture()}
-        onEdit={() => {}}
-        onShowFix={() => {}}
-      />,
-    );
-    expect(doc.body.textContent).toContain('Not required');
-  });
-
-  it('renders Vendor override for an overridden requirement', () => {
-    const doc = renderToDocument(
-      <ReadinessTableRow
-        row={{ ...baseRow, value: 'Not required', detectedValue: 'Required', overridden: true, status: 'vendor-override' }}
-        application={applicationFixture()}
-        onEdit={() => {}}
-        onShowFix={() => {}}
-      />,
-    );
-    expect(doc.body.textContent).toContain('Vendor override');
-  });
-
-  it('renders Needs review when analysis has not produced a requirements summary', () => {
-    const doc = renderToDocument(
-      <ReadinessTableRow
-        row={{ ...baseRow, value: 'Needs review', status: 'needs-review' }}
-        application={applicationFixture()}
-        onEdit={() => {}}
-        onShowFix={() => {}}
-      />,
-    );
-    expect(doc.body.textContent).toContain('Needs review');
-  });
-});
+// The old ReadinessTableRow status-pill tests moved to
+// test/application-configuration.test.ts, which covers the Configuration
+// tab's own Ready / Not used / Change required / Recommended / Needs review
+// vocabulary that replaced Required / Not required / Vendor override.
 
 describe('RequirementDriftNotice', () => {
   it('lists each affected deployment with state, drift lines and a link', () => {

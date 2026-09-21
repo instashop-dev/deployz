@@ -1,10 +1,10 @@
 'use client';
 
-import { ArrowLeft, Check, ChevronDown, CircleAlert, Sparkles, Square } from 'lucide-react';
-import Link from 'next/link';
+import { Check, ChevronDown, CircleAlert, Sparkles, Square } from 'lucide-react';
 import { useParams, useSearchParams } from 'next/navigation';
 import { Suspense, useEffect, useState, type FormEvent } from 'react';
 
+import { PlannedInfrastructure } from '@/components/planned-infrastructure';
 import { SecretInput } from '@/components/secret-input';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -23,6 +23,10 @@ import {
 import { buildEnvPlan, envPlanSummary, type EnvPlanRow } from '@/lib/env-plan';
 import { fetchReadiness, type DetectedApplication } from '@/lib/readiness';
 import { cn } from '@/lib/utils';
+
+import { useApplicationPage } from '../application-page-context';
+import { DeploymentConfiguration } from './deployment-configuration';
+import { GeneralSettings } from './general-settings';
 
 type PageState =
   | { status: 'loading' }
@@ -56,6 +60,7 @@ function ConfigScreen() {
   const id = Array.isArray(params.id) ? (params.id[0] ?? '') : (params.id ?? '');
   const customerId = searchParams.get('customer');
   const [state, setState] = useState<PageState>({ status: 'loading' });
+  const { data: pageData } = useApplicationPage();
 
   useEffect(() => {
     let cancelled = false;
@@ -86,14 +91,8 @@ function ConfigScreen() {
 
   return (
     <div className="flex flex-col gap-6">
-      <div className="flex items-center gap-2">
-        <Button asChild variant="ghost" size="sm" className="-ml-2">
-          <Link href={`/dashboard/applications/${id}`}>
-            <ArrowLeft aria-hidden className="size-4" />
-            Application
-          </Link>
-        </Button>
-      </div>
+      <DeploymentConfiguration />
+      <PlannedInfrastructure plan={pageData?.plan ?? null} />
 
       {state.status === 'loading' ? <PageSkeleton /> : null}
       {state.status === 'error' ? (
@@ -114,6 +113,8 @@ function ConfigScreen() {
           onSaved={(next) => setState({ status: 'loaded', data: next, detected: state.detected })}
         />
       ) : null}
+
+      <GeneralSettings />
     </div>
   );
 }
@@ -133,11 +134,12 @@ function ConfigBody({
   return (
     <>
       <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Configuration</h1>
+        <h2 id="environment" className="text-base font-semibold">
+          Environment variables
+        </h2>
         <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
-          The values your app needs to run. Defaults apply to every customer; overrides apply to
-          one customer and take precedence over the defaults. Secrets are write-only — you can
-          replace a secret, but you can never see its current value.
+          Defaults apply to every customer. Overrides apply to one customer and take precedence.
+          Secrets are write-only — you can replace one, but never see its current value.
         </p>
       </div>
 

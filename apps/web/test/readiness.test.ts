@@ -484,14 +484,12 @@ describe('fixInstructionsGeneratedLabel', () => {
   });
 });
 
-// ── Redesigned readiness page helpers ─────────────────────────────────────
+// ── Configuration table helpers ─────────────────────────────────────────────
 
 import type { ApplicationRequirementsSummary } from '@deployz/contracts';
 
 import type { Application } from '../src/lib/applications';
 import {
-  deriveLifecycleSteps,
-  readinessHeaderPresentation,
   deriveReadinessRows,
   isFieldOverridden,
   effectiveFieldValue,
@@ -557,162 +555,6 @@ function readinessFixture(overrides: Partial<ApplicationReadiness> = {}): Applic
     ...overrides,
   };
 }
-
-describe('deriveLifecycleSteps', () => {
-  it('marks analysis done when complete', () => {
-    const steps = deriveLifecycleSteps({
-      analysisStatus: 'COMPLETE',
-      readiness: readinessFixture(),
-      deployments: [],
-    });
-    expect(steps.Analyze.state).toBe('done');
-  });
-
-  it('marks analysis current when running', () => {
-    const steps = deriveLifecycleSteps({
-      analysisStatus: 'ANALYZING',
-      readiness: readinessFixture({ analysisStatus: 'ANALYZING', state: 'ANALYSIS_INCOMPLETE' }),
-      deployments: [],
-    });
-    expect(steps.Analyze.state).toBe('current');
-  });
-
-  it('marks analysis failed when the API reports a failure', () => {
-    const steps = deriveLifecycleSteps({
-      analysisStatus: 'FAILED',
-      readiness: readinessFixture({ analysisStatus: 'FAILED', state: 'ANALYSIS_INCOMPLETE' }),
-      deployments: [],
-    });
-    expect(steps.Analyze.state).toBe('failed');
-  });
-
-  it('prepare is current when required findings exist', () => {
-    const steps = deriveLifecycleSteps({
-      analysisStatus: 'COMPLETE',
-      readiness: readinessFixture({
-        state: 'NEEDS_CHANGES',
-        findings: [
-          {
-            id: 'health-check',
-            category: 'health',
-            title: 'Health endpoint missing',
-            severity: 'required',
-            blocking: true,
-            plainEnglishExplanation: 'Deployz requires an HTTP health endpoint.',
-            whyItMatters: 'Without it, Deployz cannot tell if your app is running.',
-            technicalEvidence: 'No route responded on /health.',
-            suggestedOutcome: 'Add a GET /health route that returns HTTP 200.',
-            confidence: 'confirmed',
-          },
-        ],
-      }),
-      deployments: [],
-    });
-    expect(steps.Prepare.state).toBe('current');
-    expect(steps.Prepare.label).toBe('Action required');
-  });
-
-  it('test step is done when the latest test deployment is healthy', () => {
-    const deployment = {
-      id: 'dep-1',
-      state: 'HEALTHY',
-      deploymentType: 'TEST',
-      createdAt: '2026-09-01T10:00:00Z',
-    } as unknown as import('../src/lib/deployments').FleetDeployment;
-    const steps = deriveLifecycleSteps({
-      analysisStatus: 'COMPLETE',
-      readiness: readinessFixture(),
-      deployments: [deployment],
-    });
-    expect(steps.Test.state).toBe('done');
-    expect(steps.Test.label).toBe('Verified');
-  });
-
-  it('customer ready is done only when analysis, readiness and test deployment are all healthy', () => {
-    const deployment = {
-      id: 'dep-1',
-      state: 'HEALTHY',
-      deploymentType: 'TEST',
-      createdAt: '2026-09-01T10:00:00Z',
-    } as unknown as import('../src/lib/deployments').FleetDeployment;
-    const steps = deriveLifecycleSteps({
-      analysisStatus: 'COMPLETE',
-      readiness: readinessFixture(),
-      deployments: [deployment],
-    });
-    expect(steps['Customer ready'].state).toBe('done');
-  });
-});
-
-describe('readinessHeaderPresentation', () => {
-  it('shows the ready heading when all required checks pass', () => {
-    const header = readinessHeaderPresentation(readinessFixture({ state: 'READY' }));
-    expect(header.heading).toBe('Ready for test deployment');
-    expect(header.supportingLine).toBe('4 required checks passed');
-  });
-
-  it('appends recommendation count only when recommendations exist', () => {
-    const header = readinessHeaderPresentation(
-      readinessFixture({
-        state: 'ALMOST_READY',
-        recommendedCount: 1,
-        findings: [
-          {
-            id: 'logging',
-            category: 'observability',
-            title: 'Structured logging recommended',
-            severity: 'recommended',
-            blocking: false,
-            plainEnglishExplanation: 'Logs are not structured as JSON.',
-            whyItMatters: 'Structured logs are easier to search.',
-            technicalEvidence: 'Log lines are plain text.',
-            suggestedOutcome: 'Emit logs as JSON.',
-            confidence: 'likely',
-          },
-        ],
-      }),
-    );
-    expect(header.heading).toBe('Recommendation');
-    expect(header.supportingLine).toBe('4 required checks passed · 1 recommendation');
-  });
-
-  it('shows blocker summary when required findings exist', () => {
-    const header = readinessHeaderPresentation(
-      readinessFixture({
-        state: 'NEEDS_CHANGES',
-        requiredCount: 3,
-        findings: [
-          {
-            id: 'health-check',
-            category: 'health',
-            title: 'Health endpoint missing',
-            severity: 'required',
-            blocking: true,
-            plainEnglishExplanation: 'Deployz requires an HTTP health endpoint.',
-            whyItMatters: 'Without it, Deployz cannot tell if your app is running.',
-            technicalEvidence: 'No route responded on /health.',
-            suggestedOutcome: 'Add a GET /health route that returns HTTP 200.',
-            confidence: 'confirmed',
-          },
-        ],
-      }),
-    );
-    expect(header.heading).toBe('Action required before deployment');
-    expect(header.supportingLine).toBe('2 of 3 required checks passed · 1 blocking issue');
-  });
-
-  it('shows the failed heading with the API reason', () => {
-    const header = readinessHeaderPresentation(
-      readinessFixture({
-        analysisStatus: 'FAILED',
-        state: 'ANALYSIS_INCOMPLETE',
-        failureReason: 'Failed to read the repository.',
-      }),
-    );
-    expect(header.heading).toBe("We couldn't check deployment readiness");
-    expect(header.supportingLine).toBe('Failed to read the repository.');
-  });
-});
 
 describe('deriveReadinessRows', () => {
   it('creates a setting row for every detected fact', () => {

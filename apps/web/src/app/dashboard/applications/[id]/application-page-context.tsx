@@ -1,0 +1,134 @@
+'use client';
+
+import type { DeploymentPlan } from '@deployz/contracts';
+import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { toast } from 'sonner';
+
+import {
+  deriveApplicationPresentation,
+  TEST_DEPLOYMENT_POLL_MS,
+  type ApplicationPresentation,
+  type InstallLinksInput,
+} from '@/lib/application-state';
+import { fetchApplication, fetchApplicationPlan, triggerAnalysis, type Application } from '@/lib/applications';
+import { fetchDeploymentsForApplication, type FleetDeployment } from '@/lib/deployments';
+import { fetchPublicInstallLinks } from '@/lib/public-install-links';
+import { ANALYSIS_TAKING_LONGER_MS, fetchReadiness, type ApplicationReadiness } from '@/lib/readiness';
+import { useStatusPoll } from '@/lib/use-status-poll';
+
+export interface ApplicationPageData {
+  application: Application;
+  readiness: ApplicationReadiness;
+  deployments: FleetDeployment[];
+  /** INSTALL plan for the current effective manifest. Null while analysis is
+   *  incomplete or the plan cannot be fetched. */
+  plan: DeploymentPlan | null;
+  installLinks: Exclude<InstallLinksInput, null>;
+}
+
+export interface ApplicationPageContextValue {
+  id: string;
+  /** Null until the first load succeeds. */
+  data: ApplicationPageData | null;
+  /** True only while the first load is in flight. */
+  loading: boolean;
+  /** The one derived state every section of the page renders from. */
+  presentation: ApplicationPresentation;
+  /** Re-fetch everything now. Keeps the content on screen if it fails. */
+  refresh: () => Promise<void>;
+  /** Start a forced analysis, then refresh. */
+  reanalyse: () => Promise<void>;
+  reanalysing: boolean;
+}
+
+const ApplicationPageContext = createContext<ApplicationPageContextValue | null>(null);
+
+export function useApplicationPage(): ApplicationPageContextValue {
+  const value = useContext(ApplicationPageContext);
+  if (!value) throw new Error('useApplicationPage must be used inside ApplicationPageProvider');
+  return value;
+}
+
+async function loadApplicationPage(id: string): Promise<ApplicationPageData> {
+  const [application, readiness, deployments, installLinks] = await Promise.all([
+    fetchApplication(id),
+    fetchReadiness(id),
+    fetchDeploymentsForApplication(id),
+    // The link is one card on the page: its failure must not take the page down.
+    fetchPublicInstallLinks(id).catch(() => 'error' as const),
+  ]);
+  // The plan endpoint returns 409 while analysis is still running.
+  const plan =
+    application.analysisStatus === 'COMPLETE' ? await fetchApplicationPlan(id).catch(() => null) : null;
+  return { application, readiness, deployments, plan, installLinks };
+}
+
+function present(
+  data: ApplicationPageData | null,
+  loading: boolean,
+  stale: boolean,
+  analysisTakingLonger: boolean,
+): ApplicationPresentation {
+  return deriveApplicationPresentation({
+    data,
+    installLinks: data ? data.installLinks : loading ? null : 'error',
+    stale,
+    analysisTakingLonger,
+  });
+}
+
+export function ApplicationPageProvider({ id, children }: { id: string; children: ReactNode }) {
+  const [reanalysing, setReanalysing] = useState(false);
+  const [restartCount, setRestartCount] = useState(0);
+  const [takingLonger, setTakingLonger] = useState(false);
+  const [intervalMs, setIntervalMs] = useState(TEST_DEPLOYMENT_POLL_MS);
+
+  const fetcher = useCallback(() => loadApplicationPage(id), [id]);
+  const poll = useStatusPoll<ApplicationPageData>({
+    fetcher,
+    intervalMs,
+    // A settled state arms no timer: loaders and polling stop at once. A
+    // return to the tab, `refresh()` or `reanalyse()` starts the loop again.
+    terminalIntervalMs: null,
+    isTerminal: (data) => present(data, false, false, false).polling === null,
+  });
+
+  const presentation = useMemo(
+    () => present(poll.data, poll.loading, poll.stale, takingLonger),
+    [poll.data, poll.loading, poll.stale, takingLonger],
+  );
+
+  const nextIntervalMs = presentation.polling?.intervalMs ?? TEST_DEPLOYMENT_POLL_MS;
+  useEffect(() => setIntervalMs(nextIntervalMs), [nextIntervalMs]);
+
+  // The API can leave an application at ANALYZING when the worker never picks
+  // the job up, so after a while the page offers a restart.
+  const analysing = poll.data?.readiness.analysisStatus === 'ANALYZING';
+  useEffect(() => {
+    setTakingLonger(false);
+    if (!analysing) return;
+    const timer = setTimeout(() => setTakingLonger(true), ANALYSIS_TAKING_LONGER_MS);
+    return () => clearTimeout(timer);
+  }, [analysing, restartCount]);
+
+  const { refresh } = poll;
+  const reanalyse = useCallback(async (): Promise<void> => {
+    setReanalysing(true);
+    try {
+      await triggerAnalysis(id, { force: true });
+      setRestartCount((count) => count + 1);
+      await refresh();
+    } catch {
+      toast.error("We couldn't start the analysis. Try again in a moment.");
+    } finally {
+      setReanalysing(false);
+    }
+  }, [id, refresh]);
+
+  const value = useMemo<ApplicationPageContextValue>(
+    () => ({ id, data: poll.data, loading: poll.loading, presentation, refresh, reanalyse, reanalysing }),
+    [id, poll.data, poll.loading, presentation, refresh, reanalyse, reanalysing],
+  );
+
+  return <ApplicationPageContext.Provider value={value}>{children}</ApplicationPageContext.Provider>;
+}

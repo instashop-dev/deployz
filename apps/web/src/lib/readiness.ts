@@ -11,7 +11,6 @@ import { apiUrl } from '@/lib/api-url';
 import type { Application } from '@/lib/applications';
 import type { BadgeVariant } from '@/components/ui/badge';
 import type { DeploymentState } from '@/lib/deployment-vocabulary';
-import type { FleetDeployment } from '@/lib/deployments';
 import { TONE_BADGE, type Tone } from '@/lib/status-tone';
 
 // ── §42 onboarding steps (VERBATIM) ─────────────────────────────────────────
@@ -450,10 +449,6 @@ export const READINESS_SUPPORT_RUNNING =
  *  never picks the job up, so the vendor needs a way out. */
 export const ANALYSIS_TAKING_LONGER_MS = 120_000;
 
-/** Supporting line once the analysis has run past ANALYSIS_TAKING_LONGER_MS. */
-export const READINESS_SUPPORT_TAKING_LONGER =
-  'This is taking longer than usual. You can wait, or restart the analysis.';
-
 /** Supporting line under the fix-instructions CTA (mirrors
  *  @deployz/copy-map). */
 export function readinessFixCtaSupport(issuesCount: number): string {
@@ -494,149 +489,7 @@ export async function fetchReadiness(applicationId: string): Promise<Application
   return (await response.json()) as ApplicationReadiness;
 }
 
-// ── Application readiness page redesign helpers ───────────────────────────
-
-/** The four lifecycle steps shown at the top of the redesigned readiness page. */
-export type LifecycleStep = 'Analyze' | 'Prepare' | 'Test' | 'Customer ready';
-
-export type LifecycleStepState =
-  | { state: 'pending'; label: string }
-  | { state: 'current'; label: string }
-  | { state: 'done'; label: string }
-  | { state: 'failed'; label: string };
-
-function latestTestDeployment(deployments: FleetDeployment[]): FleetDeployment | null {
-  const testDeployments = deployments
-    .filter((d) => d.deploymentType === 'TEST' && !d.deletedAt)
-    .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt));
-  return testDeployments[0] ?? null;
-}
-
-function testDeploymentStepLabel(deployment: FleetDeployment | null): LifecycleStepState {
-  if (!deployment) return { state: 'pending', label: 'Not started' };
-  if (deployment.state === 'HEALTHY') return { state: 'done', label: 'Verified' };
-  if (deployment.state === 'FAILED') return { state: 'failed', label: 'Failed' };
-  if (
-    deployment.state === 'NOT_INSTALLED' ||
-    deployment.state === 'WAITING_FOR_RELAY' ||
-    deployment.state === 'INSTALLING' ||
-    deployment.state === 'UPDATING'
-  ) {
-    return { state: 'current', label: 'Deploying' };
-  }
-  return { state: 'pending', label: 'Not started' };
-}
-
-/**
- * Derive the four-step lifecycle for the redesigned readiness page.
- * The first three steps can be pending/current/done/failed; the last step is
- * only done when every prerequisite is met.
- */
-export function deriveLifecycleSteps(input: {
-  analysisStatus: AnalysisStatus;
-  readiness: ApplicationReadiness;
-  deployments: FleetDeployment[];
-}): Record<LifecycleStep, LifecycleStepState> {
-  const { analysisStatus, readiness, deployments } = input;
-
-  let analyze: LifecycleStepState;
-  if (analysisStatus === 'FAILED') {
-    analyze = { state: 'failed', label: 'Failed' };
-  } else if (analysisStatus === 'COMPLETE') {
-    analyze = { state: 'done', label: 'Done' };
-  } else if (analysisStatus === 'ANALYZING') {
-    analyze = { state: 'current', label: 'Analyzing' };
-  } else {
-    analyze = { state: 'pending', label: 'Analyze' };
-  }
-
-  const requiredFindings = readiness.findings.filter((f) => f.severity === 'required');
-  let prepare: LifecycleStepState;
-  if (analysisStatus !== 'COMPLETE') {
-    prepare = { state: 'pending', label: 'Prepare' };
-  } else if (requiredFindings.length > 0) {
-    prepare = { state: 'current', label: 'Action required' };
-  } else {
-    prepare = { state: 'done', label: 'Ready' };
-  }
-
-  const testDeployment = latestTestDeployment(deployments);
-  const testStep = testDeploymentStepLabel(testDeployment);
-
-  let customerReady: LifecycleStepState;
-  if (
-    analysisStatus === 'COMPLETE' &&
-    requiredFindings.length === 0 &&
-    testDeployment?.state === 'HEALTHY'
-  ) {
-    customerReady = { state: 'done', label: 'Ready' };
-  } else {
-    customerReady = { state: 'pending', label: 'Customer ready' };
-  }
-
-  return {
-    Analyze: analyze,
-    Prepare: prepare,
-    Test: testStep,
-    'Customer ready': customerReady,
-  };
-}
-
-/** Header copy for the redesigned readiness page. */
-export interface ReadinessHeaderPresentation {
-  heading: string;
-  supportingLine: string;
-}
-
-/** What the redesigned readiness page header should say for a given state. */
-export function readinessHeaderPresentation(
-  readiness: ApplicationReadiness,
-): ReadinessHeaderPresentation {
-  if (readiness.analysisStatus === 'FAILED') {
-    return {
-      heading: "We couldn't check deployment readiness",
-      supportingLine:
-        readiness.failureReason ?? 'Something went wrong while reading your repository.',
-    };
-  }
-
-  if (readiness.analysisStatus !== 'COMPLETE') {
-    return {
-      heading: 'Analyzing application',
-      supportingLine: READINESS_SUPPORT_RUNNING,
-    };
-  }
-
-  const requiredFindings = readiness.findings.filter((f) => f.severity === 'required');
-  const requiredPassed = Math.max(0, readiness.requiredCount - requiredFindings.length);
-  const recommendedFindings = readiness.findings.filter((f) => f.severity === 'recommended');
-
-  if (requiredFindings.length > 0) {
-    const issueWord = requiredFindings.length === 1 ? 'issue' : 'issues';
-    return {
-      heading: 'Action required before deployment',
-      supportingLine: `${requiredPassed} of ${readiness.requiredCount} required checks passed · ${requiredFindings.length} blocking ${issueWord}`,
-    };
-  }
-
-  let supportingLine = `${readiness.requiredCount} required checks passed`;
-  if (recommendedFindings.length > 0) {
-    const recWord = recommendedFindings.length === 1 ? 'recommendation' : 'recommendations';
-    supportingLine += ` · ${recommendedFindings.length} ${recWord}`;
-  }
-
-  if (readiness.state === 'READY') {
-    return {
-      heading: 'Ready for test deployment',
-      supportingLine,
-    };
-  }
-
-  return {
-    heading: 'Recommendation',
-    supportingLine,
-  };
-}
+// ── Configuration table helpers ─────────────────────────────────────────────
 
 /** Editable fields the readiness table lets a vendor override. */
 export type EditableReadinessField =

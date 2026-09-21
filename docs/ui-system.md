@@ -105,6 +105,53 @@ status page, not a console. Top to bottom:
    the only failure text at the top level; the relay's raw error stays inside
    the row's disclosure.
 
+## Application page
+
+The vendor application page (`app/dashboard/applications/[id]`) has three
+route tabs, controlled by the URL (shadcn `Tabs`, `role="tab"` links, not
+plain links):
+
+1. **Overview** — one state-aware card (the primary card), the compact
+   customer install-link card when the card's own primary action is not the
+   link, and at most one recent-event line.
+2. **Releases** — version history only.
+3. **Configuration** — the deployment-configuration table, planned
+   infrastructure, environment variables, and general settings (rename,
+   danger zone).
+
+`lib/application-state.ts` (`deriveApplicationPresentation`) is the single
+source of the page's state: badge, heading, message, actions, the setup
+lifecycle, polling, the install-link presentation, and notices. No section
+reads `analysisStatus`, a readiness finding, or a deployment `state` for
+itself — extend the mapper when a case is missing, never add a second
+derivation. Precedence: an active operation (analysis running, a test
+deployment installing or removing) always wins over readiness data, because
+readiness is only as new as the last analysis while the operation is
+happening now.
+
+- The primary card's heading is the page's only `aria-live` region.
+- The setup lifecycle (Analyse → Configure → Test → Share) shows only before
+  the first verified test deployment or customer deployment exists. After
+  that it is `null` — never a completed stepper sitting on the page forever.
+- Readiness copy never shows a passed-check count. It says "Ready to test",
+  "No blocking issues", or "N changes required" — the same rule as the
+  Configuration table.
+- The Configuration table's result vocabulary is Ready / Not used / Change
+  required / Recommended / Needs review — never "Passed", never a percentage.
+  Its action column reads Add for an unset optional field and Edit once a
+  value exists. Raw detection evidence (file + reason) lives only under the
+  collapsed "Analysis details" disclosure, never in the table itself.
+- Planned infrastructure comes from the plan's `footprint` through
+  `footprintComponentRows` (`lib/footprint.ts`), generic over `service`/
+  `category` — a new resource kind renders through the same rows with no
+  page change.
+- The install-link card shows one status badge, Copy link, Preview, and an
+  overflow menu (copy HTML snippet, toggle enabled/disabled, regenerate,
+  revoke). Regenerate and revoke both require confirmation. A live link on
+  an application that is not ready to share shows a warning — it is never
+  hidden or invalidated silently.
+- Billing notices do not belong on this page.
+
 ## List views (Customers, Deployments)
 
 The two lists answer different questions. Customers answers "which

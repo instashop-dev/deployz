@@ -79,13 +79,3 @@ export function regeneratePublicInstallLink(
 export function publicInstallHtmlSnippet(url: string): string {
   return `<a href="${url}">Deploy to AWS with Deployz</a>`;
 }
-
-/** Badge label + shadcn variant for a link status. */
-export function publicInstallLinkStatusBadge(status: PublicInstallLinkStatus): {
-  label: string;
-  variant: 'success' | 'secondary';
-} {
-  if (status === 'active') return { label: 'Active', variant: 'success' };
-  if (status === 'disabled') return { label: 'Disabled', variant: 'secondary' };
-  return { label: 'Revoked', variant: 'secondary' };
-}

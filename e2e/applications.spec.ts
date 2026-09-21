@@ -142,6 +142,10 @@ test('editing application details persists the change', async ({ page }) => {
   await page.getByRole('button', { name: 'Select' }).first().click();
   await page.waitForURL(/\/dashboard\/applications\/[0-9a-f-]{36}$/);
 
+  // The readiness table lives on the Configuration tab.
+  await page.getByRole('tab', { name: 'Configuration' }).click();
+  await page.waitForURL('**/config');
+
   // Edit the containerPort field from the readiness table.
   await page.getByTestId('readiness-setting-edit-port').click();
   const dialog = page.getByTestId('edit-dialog-containerPort');
@@ -166,6 +170,10 @@ test('deleting an application removes it from the list', async ({ page }) => {
   // The fixture repo is deployz-demo/express-api — it appears as muted text
   // on the detail page.
   const repoFullName = 'deployz-demo/express-api';
+
+  // The danger zone lives in General settings, on the Configuration tab.
+  await page.getByRole('tab', { name: 'Configuration' }).click();
+  await page.waitForURL('**/config');
 
   // Open the danger-zone dialog, type the repo name, and confirm deletion.
   await page.getByTestId('delete-app-trigger').click();
@@ -201,8 +209,11 @@ test('delete is blocked when the application has a deployment', async ({ page })
     headers: { cookie },
   });
 
-  // Now try to delete — the 409 should block it.
+  // Now try to delete — the 409 should block it. The danger zone lives in
+  // General settings, on the Configuration tab.
   const repoFullName = 'deployz-demo/express-api';
+  await page.getByRole('tab', { name: 'Configuration' }).click();
+  await page.waitForURL('**/config');
   await page.getByTestId('delete-app-trigger').click();
   await page.getByTestId('delete-app-confirm').fill(repoFullName);
   await page.getByTestId('delete-app-button').click();
