@@ -8,16 +8,14 @@ import { InstallPlanTable } from '@/components/install-plan-table';
 import { InstallProgress } from '@/components/install-progress';
 import { InstallRetryButton } from '@/components/install-retry-button';
 import { PublicInstallFlow } from '@/components/public-install-flow';
-import { TablePanel } from '@/components/table-panel';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { RELAY_STUCK_GUIDANCE } from '@/lib/deployment-vocabulary';
 import { cloudFormationStacksUrl } from '@/lib/aws-console';
 import { fetchInstallData } from '@/lib/install-data';
 import { formatMonthlyRange } from '@/lib/footprint';
-import { installPlanRegionLabel, installPlanRetentionNote, installPlanRows } from '@/lib/install-plan';
+import { installPlanRegionLabel, installPlanRetentionNote } from '@/lib/install-plan';
 import { fetchPublicInstallData } from '@/lib/public-install-data';
 import { publicInstallErrorMessage } from '@/lib/public-install-types';
 import { fetchInstallStatusServer } from '@/lib/install-status';
@@ -71,12 +69,26 @@ export default async function InstallPage({
   // Fetched in parallel: the status projection is a nice-to-have for the
   // first paint (a failed fetch just costs one extra client round trip —
   // see fetchInstallStatusServer), so it never blocks or fails the page.
-  const [data, initialStatus] = await Promise.all([
+  const [lookup, initialStatus] = await Promise.all([
     fetchInstallData(installLinkId),
     fetchInstallStatusServer(installLinkId),
   ]);
 
-  if (!data) {
+  // Invitation lifecycle: an expired or revoked link gets its own honest
+  // customer state instead of the generic invalid-link copy.
+  if (lookup.status === 'unavailable') {
+    const revoked = lookup.code === 'INSTALL_LINK_REVOKED';
+    return (
+      <div className="flex flex-col gap-4">
+        <h1 className="text-2xl font-semibold tracking-tight">
+          {revoked ? 'This installation link was revoked' : 'This installation link has expired'}
+        </h1>
+        <p className="max-w-md text-sm text-muted-foreground">{lookup.message}</p>
+      </div>
+    );
+  }
+
+  if (lookup.status === 'not_found') {
     return (
       <div className="flex flex-col gap-4">
         <h1 className="text-2xl font-semibold tracking-tight">This link isn&apos;t valid</h1>
@@ -88,6 +100,8 @@ export default async function InstallPage({
       </div>
     );
   }
+
+  const data = lookup.data;
 
   // The customer pressed "Deploy to AWS" and the control plane is waiting
   // for the relay to enroll. Never a failure: past the staleness window the
@@ -219,55 +233,6 @@ export default async function InstallPage({
           // and the custom-domain card itself, so this branch doesn't need
           // its own stage logic.
           <>
-            <section aria-labelledby="install-summary" className="flex flex-col gap-3">
-              <h2 id="install-summary" className="text-base font-semibold">
-                Summary
-              </h2>
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                {data.releaseVersion ? (
-                  <div>
-                    <h3 className="text-xs font-medium uppercase text-muted-foreground">Release</h3>
-                    <p className="mt-1 text-sm font-medium">Release {data.releaseVersion}</p>
-                  </div>
-                ) : null}
-                {(() => {
-                  const label = installPlanRegionLabel(data.region);
-                  return label ? (
-                    <div>
-                      <h3 className="text-xs font-medium uppercase text-muted-foreground">Region</h3>
-                      <p className="mt-1 text-sm font-medium">{label}</p>
-                    </div>
-                  ) : null;
-                })()}
-              </div>
-              <TablePanel>
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Component</TableHead>
-                      <TableHead>What happens</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {installPlanRows(data.plan).map((row) => (
-                      <TableRow key={row.kind}>
-                        <TableCell className="font-medium">{row.name}</TableCell>
-                        <TableCell className="text-muted-foreground">{row.whatHappens}</TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </TablePanel>
-              {(() => {
-                const note = installPlanRetentionNote(data.plan);
-                return note ? <p className="text-sm text-muted-foreground">{note}</p> : null;
-              })()}
-              <p className="text-sm font-medium text-foreground">
-                PostgreSQL and stored files are retained when the application is disconnected. They
-                can continue to generate AWS charges until they are permanently purged.
-              </p>
-            </section>
-
             <InstallProgress
               installLinkId={installLinkId}
               deploymentId={data.deploymentId}
@@ -436,10 +401,10 @@ export default async function InstallPage({
                 a Secrets Manager secret in your account. It performs install, update, rollback,
                 restart, configuration and teardown work through your own AWS APIs. Only deployment
                 status and metadata leave your account; application data and logs stay in your
-                CloudWatch. The connector is reused for future deployments of this application into
-                this account, and it is removed when you delete its CloudFormation stack. If Deployz
-                is temporarily offline, your application keeps running — the connector simply waits
-                for the next check-in.
+                CloudWatch. The connector belongs to this deployment only and is created once during
+                setup — a new deployment gets its own connector. It is removed when you delete its
+                CloudFormation stack. If Deployz is temporarily offline, your application keeps running
+                — the connector simply waits for the next check-in.
               </p>
             </div>
             <Button asChild variant="outline" size="sm" className="w-fit">

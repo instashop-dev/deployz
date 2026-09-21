@@ -272,9 +272,9 @@ export function PublicInstallFlow({ linkId, resolve }: PublicInstallFlowProps) {
           type="submit"
           disabled={!canSubmit || pending}
           loading={pending}
-          loadingText="Starting deployment…"
+          loadingText="Preparing deployment…"
         >
-          Deploy to AWS
+          Continue to setup
         </Button>
         {error ? (
           <Alert variant="destructive">
