@@ -25,7 +25,11 @@
  * nothing is registered.
  */
 
-import type { DeploymentManifest, ManifestEnvBinding } from '@deployz/contracts';
+import {
+  DEPLOYZ_INSTALLATION_TAG,
+  type DeploymentManifest,
+  type ManifestEnvBinding,
+} from '@deployz/contracts';
 
 import type { EcsDeployClient, RegisterTaskDefinitionInput } from './deploy.js';
 import type { CloudFormationReader } from './verify.js';
@@ -273,7 +277,7 @@ export function createBindingAliasApplier(
         containerDefinitions: updatedContainers,
         ...(taskDefinition.volumes ? { volumes: taskDefinition.volumes } : {}),
         // Same request-tag boundary as the deploy/config-update registers.
-        tags: [{ key: 'deployz:installation', value: deps.installationId }],
+        tags: [{ key: DEPLOYZ_INSTALLATION_TAG, value: deps.installationId }],
       };
 
       const registered = await deps.ecs.registerTaskDefinition(nextDefinition);

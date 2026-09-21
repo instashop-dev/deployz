@@ -12,6 +12,7 @@ import {
   createRelayHandler,
   createVerifyingExecutor,
   readDeploymentManifest,
+  readDeploymentTagsFromPayload,
   readInstallParametersFromPayload,
   readTemplateParameterNames,
   readVerifyOptionsFromPayload,
@@ -1607,6 +1608,31 @@ describe('readInstallParametersFromPayload', () => {
   });
 });
 
+describe('readDeploymentTagsFromPayload', () => {
+  it('forwards the control plane string tags', () => {
+    expect(
+      readDeploymentTagsFromPayload({
+        tags: { 'deployz:managed-by': 'deployz', 'deployz:deployment-id': 'dep-1' },
+      }),
+    ).toEqual({ 'deployz:managed-by': 'deployz', 'deployz:deployment-id': 'dep-1' });
+  });
+
+  it('is undefined when the payload carries no tags (older control planes)', () => {
+    expect(readDeploymentTagsFromPayload({})).toBeUndefined();
+  });
+
+  it('drops empty-string keys and values and non-string entries', () => {
+    expect(
+      readDeploymentTagsFromPayload({ tags: { 'deployz:environment': 'production', '': 'x', empty: '', n: 7 } }),
+    ).toEqual({ 'deployz:environment': 'production' });
+  });
+
+  it('is undefined for a tags field that is not a plain object', () => {
+    expect(readDeploymentTagsFromPayload({ tags: 'nope' })).toBeUndefined();
+    expect(readDeploymentTagsFromPayload({ tags: ['nope'] })).toBeUndefined();
+  });
+});
+
 // ── Phase 2: the canonical manifest rides the INSTALL payload ───────────────
 
 function manifestPayload(overrides: Record<string, unknown> = {}) {
@@ -1695,6 +1721,26 @@ describe('settleInstall derives parameters and the Redis variant from the manife
         paramContainerPort: '8080',
         paramAppApiKey: 'k',
       },
+    });
+  });
+
+  it('passes the payload deployment tags through to the install call', async () => {
+    const install = vi.fn(async () => ({
+      state: 'succeeded' as const,
+      status: 'CREATE_COMPLETE',
+      outputs: {},
+    }));
+
+    await createInstallExecutor(makeInstallDeps(install))({
+      ...command,
+      payload: {
+        manifest: manifestPayload(),
+        tags: { 'deployz:managed-by': 'deployz', 'deployz:deployment-id': 'dep-1' },
+      },
+    });
+
+    expect(install.mock.calls[0]![0]).toMatchObject({
+      deploymentTags: { 'deployz:managed-by': 'deployz', 'deployz:deployment-id': 'dep-1' },
     });
   });
 

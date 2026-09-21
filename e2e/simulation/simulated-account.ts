@@ -24,8 +24,8 @@
  * `/install`, `/stack-events`, `/ecs-health`).
  */
 
+import { DEPLOYZ_INSTALLATION_TAG } from '@deployz/contracts';
 import {
-  INSTALLATION_TAG,
   type CreateStackInput,
   type CreateStackOutcome,
   type StackFailureEvent,
@@ -223,7 +223,7 @@ export class SimulatedCustomerAccount {
       // the retry INSTALL can create a fresh one.
       if (this.deleteStartRealMs !== null && !this.scenario.destroy) {
         this.stackNameValue = input.stackName;
-        this.installationTag = input.tags[INSTALLATION_TAG] ?? '';
+        this.installationTag = input.tags[DEPLOYZ_INSTALLATION_TAG] ?? '';
         this.deleteStartRealMs = null;
         return { created: true, stackId: this.stackIdValue };
       }
@@ -232,7 +232,7 @@ export class SimulatedCustomerAccount {
       return { created: false, alreadyExists: true };
     }
     this.stackNameValue = input.stackName;
-    this.installationTag = input.tags[INSTALLATION_TAG] ?? '';
+    this.installationTag = input.tags[DEPLOYZ_INSTALLATION_TAG] ?? '';
     return { created: true, stackId: this.stackIdValue };
   }
 

@@ -41,7 +41,8 @@ function appParameters(template: Template): Record<string, Record<string, unknow
 }
 
 /**
- * Resource types that carry a `deployz:component` tag via Tags.of(this).
+ * Resource types that carry a `deployz:component` tag (per-construct
+ * Tags.of, including the parent construct's children).
  * Non-taggable CloudFormation types (Route/RouteTableAssociation/
  * VPCGatewayAttachment/SecretTargetAttachment/BucketPolicy/SecurityGroup
  * Ingress+Egress) and CDK inline IAM Policies are intentionally excluded.
@@ -241,8 +242,28 @@ describe('ApplicationStack', () => {
     });
   });
 
-  it('tags every taggable resource with deployz:component=application', () => {
+  it('tags every taggable resource with a per-component deployz:component value', () => {
     const { template } = synth();
+    // §15 component values. Tags.of on a parent construct covers its
+    // children, so the VPC entry tags the subnets/route tables/EIP/NAT/
+    // Internet gateway, the ALB entry its security group and target groups,
+    // and the service entries their security groups.
+    const EXPECTED_BY_TYPE: Record<string, string> = {
+      'AWS::EC2::VPC': 'network',
+      'AWS::EC2::Subnet': 'network',
+      'AWS::EC2::RouteTable': 'network',
+      'AWS::EC2::EIP': 'network',
+      'AWS::EC2::NatGateway': 'network',
+      'AWS::EC2::InternetGateway': 'network',
+      'AWS::ECS::Cluster': 'app',
+      'AWS::RDS::DBInstance': 'database',
+      'AWS::RDS::DBSubnetGroup': 'database',
+      'AWS::S3::Bucket': 'storage',
+      'AWS::Logs::LogGroup': 'app',
+      'AWS::IAM::Role': 'app',
+      'AWS::ElastiCache::ReplicationGroup': 'redis',
+      'AWS::ElastiCache::SubnetGroup': 'redis',
+    };
     for (const type of TAGGABLE_TYPES) {
       const resources = template.findResources(type) as Record<
         string,
@@ -251,7 +272,29 @@ describe('ApplicationStack', () => {
       for (const [logicalId, resource] of Object.entries(resources)) {
         const tags = (resource.Properties?.['Tags'] as Array<Record<string, unknown>>) ?? [];
         const component = tags.find((t) => t['Key'] === 'deployz:component');
-        expect(component?.['Value'], `${type} ${logicalId}`).toBe('application');
+        if (type === 'AWS::EC2::SecurityGroup') {
+          // Security groups follow their owning component: the DB SG is
+          // 'database', the Redis SG 'redis'; the ALB's and the services'
+          // inherit from their parent constructs ('network' / 'app').
+          const value = String(component?.['Value']);
+          if (logicalId.includes('Db')) {
+            expect(value, `${type} ${logicalId}`).toBe('database');
+          } else if (logicalId.includes('Redis')) {
+            expect(value, `${type} ${logicalId}`).toBe('redis');
+          } else {
+            expect(['network', 'app'], `${type} ${logicalId}`).toContain(value);
+          }
+          continue;
+        }
+        if (type === 'AWS::SecretsManager::Secret') {
+          // Secrets follow what they hold: DB credentials and the connection
+          // URL are 'database'; the app config secret 'app'.
+          expect(component?.['Value'], `${type} ${logicalId}`).toBe(
+            logicalId.includes('Database') ? 'database' : 'app',
+          );
+          continue;
+        }
+        expect(component?.['Value'], `${type} ${logicalId}`).toBe(EXPECTED_BY_TYPE[type]);
       }
     }
   });
@@ -700,7 +743,7 @@ describe('ApplicationStack', () => {
         for (const [logicalId, resource] of Object.entries(resources)) {
           const tags = (resource.Properties?.['Tags'] as Array<Record<string, unknown>>) ?? [];
           const byKey = Object.fromEntries(tags.map((t) => [t['Key'], t['Value']]));
-          expect(byKey['deployz:component'], `${type} ${logicalId}`).toBe('application');
+          expect(byKey['deployz:component'], `${type} ${logicalId}`).toBe('redis');
           expect(byKey['deployz:application'], `${type} ${logicalId}`).toBe('app-1');
           expect(byKey['deployz:vendor'], `${type} ${logicalId}`).toBe('vendor-1');
           expect(byKey['deployz:installation'], `${type} ${logicalId}`).toBe('inst-1');

@@ -774,11 +774,14 @@ async function settleInstall(
     }
   }
 
+  const deploymentTags = readDeploymentTagsFromPayload(request.payload);
+
   const outcome = await deps.install({
     installationId: deps.installationId,
     templateUrl,
     stackName: request.stackName,
     parameters,
+    ...(deploymentTags ? { deploymentTags } : {}),
     ...(deps.executionRoleArn !== undefined ? { executionRoleArn: deps.executionRoleArn } : {}),
     ...(collector ? { onPoll: (stackName: string) => collector.poll(stackName) } : {}),
   });
@@ -1227,6 +1230,29 @@ export function readInstallParametersFromPayload(
 }
 
 /**
+ * Extract the control-plane-minted deployz identity tags from a command's
+ * payload. Same defensive-validation rule as `readInstallParametersFromPayload`:
+ * `payload` is shaped by the control plane, not by this module, so only a
+ * plain object with non-empty string keys and values is accepted. Undefined
+ * when the payload carries no usable tags — installs from an older control
+ * plane deploy without them rather than fail.
+ */
+export function readDeploymentTagsFromPayload(
+  payload: Record<string, unknown>,
+): Record<string, string> | undefined {
+  const tags = payload['tags'];
+  if (typeof tags !== 'object' || tags === null || Array.isArray(tags)) {
+    return undefined;
+  }
+
+  const out: Record<string, string> = {};
+  for (const [key, value] of Object.entries(tags as Record<string, unknown>)) {
+    if (key.length > 0 && typeof value === 'string' && value.length > 0) out[key] = value;
+  }
+  return Object.keys(out).length > 0 ? out : undefined;
+}
+
+/**
  * The parameter names the published application template declares, read
  * from the same public URL CloudFormation fetches it from. Null on any
  * failure (unreachable, non-JSON, no `Parameters` object) so the caller
@@ -1318,6 +1344,9 @@ export function readVerifyOptionsFromPayload(
  * this runs, `settleInstall` has already refused to proceed without a
  * manifest, so this is total in practice; a manifest-less payload (a caller
  * that bypasses `settleInstall`) simply omits both flags rather than guess.
+ *
+ * The control plane's identity `tags` survive compaction via `...rest` — a
+ * few hundred bytes, no interaction with the SSM size cap.
  */
 export function compactPendingInstallPayload(
   payload: Record<string, unknown>,
