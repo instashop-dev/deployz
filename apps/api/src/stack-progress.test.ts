@@ -556,6 +556,12 @@ describe('POST /api/relay/commands/:id/progress', () => {
     const [updatedJob] = await db.select().from(schema.deploymentJobs).where(eq(schema.deploymentJobs.id, job.id));
     expect(updatedJob!.state).toBe('FAILED');
     expect(updatedJob!.failureCode).toBe('STACK_CREATE_FAILED');
+    // The synthesized result carries the stack status the relay's own report
+    // would have delivered — the vendor failure card's "AWS status" row and
+    // the read-side awsStatus derivation depend on it.
+    expect((updatedJob!.result as { output?: { stackStatus?: string } }).output?.stackStatus).toBe(
+      'ROLLBACK_IN_PROGRESS',
+    );
 
     const [updatedDeployment] = await db.select().from(schema.deployments).where(eq(schema.deployments.id, deployment.id));
     expect(updatedDeployment!.state).toBe('FAILED');

@@ -7140,6 +7140,11 @@ export async function buildServer({
                 success: false,
                 failureCode: effectiveFailureCode,
                 error: `CloudFormation stack status: ${stackStatus}`,
+                // Mirror the relay's own failed-install result shape, so the
+                // status derivation's failure.awsStatus (extractStackStatus)
+                // finds the stack status a late /result can no longer deliver
+                // (alreadySettled discards its output).
+                output: { stackStatus },
                 settledFrom: 'stack-event-progress',
               },
               finishedAt: now,
