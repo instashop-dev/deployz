@@ -5,6 +5,8 @@ import { useRouter } from 'next/navigation';
 import { Eye, EyeOff } from 'lucide-react';
 
 import { AwsInfrastructureDetails } from '@/components/aws-infrastructure-details';
+import { FootprintCost } from '@/components/footprint-cost';
+import { FootprintSummary } from '@/components/footprint-summary';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -244,6 +246,7 @@ export function PublicInstallFlow({ linkId, resolve }: PublicInstallFlowProps) {
             </TableBody>
           </Table>
         </TablePanel>
+        <FootprintSummary footprint={resolve.plan?.footprint} stage="planned" />
         <AwsInfrastructureDetails plan={resolve.plan} region={region} />
         {region ? (
           <p className="text-sm text-muted-foreground">
@@ -255,9 +258,7 @@ export function PublicInstallFlow({ linkId, resolve }: PublicInstallFlowProps) {
           PostgreSQL and stored files are retained when the application is disconnected. They can
           continue to generate AWS charges until they are permanently purged.
         </p>
-        <p className="text-sm text-muted-foreground">
-          AWS bills your account for the resources this deployment creates.
-        </p>
+        <FootprintCost estimate={resolve.plan?.costEstimate} />
         <p className="text-sm text-muted-foreground">
           {canSubmit
             ? 'All required values are filled. You can deploy.'

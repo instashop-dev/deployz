@@ -2,11 +2,19 @@ import { describe, expect, it } from 'vitest';
 
 import { buildDestroyPlan, buildInstallPlan, buildUpdatePlan, deploymentPlanSchema } from './plan.js';
 import { requiredAwsResources, toPlanAwsResource } from './aws-resources.js';
+import { estimateFootprintCost } from './pricing.js';
+import { resolveDeploymentFootprint } from './footprint.js';
 import type { DeploymentManifest } from './manifest.js';
-import type { InfrastructureProfile } from './index.js';
+import type { InfrastructureProfile, Region } from './index.js';
 
 function planAwsResources(profile: InfrastructureProfile) {
   return requiredAwsResources(profile).map(toPlanAwsResource);
+}
+
+/** The footprint + estimate fields every plan now carries, derived the same way the builders do. */
+function planExtras(manifest: DeploymentManifest, region: Region | null) {
+  const footprint = resolveDeploymentFootprint({ manifest, region });
+  return { footprint, costEstimate: estimateFootprintCost(footprint) };
 }
 
 function manifestWith(postgres: boolean, redisRequired: boolean): DeploymentManifest {
@@ -46,6 +54,7 @@ describe('buildInstallPlan', () => {
         { kind: 'storage', name: 'Storage', action: 'CREATE', lifecycle: 'retain' },
       ],
       awsResources: planAwsResources({ postgres: true, redis: false }),
+      ...planExtras(POSTGRES_ONLY, 'us-east-1'),
       requirementDrift: [],
     });
   });
@@ -103,6 +112,7 @@ describe('buildDestroyPlan', () => {
         { kind: 'storage', name: 'Storage', action: 'RETAIN', lifecycle: 'retain' },
       ],
       awsResources: planAwsResources({ postgres: true, redis: false }),
+      ...planExtras(POSTGRES_ONLY, 'us-east-1'),
       requirementDrift: [],
     });
   });
@@ -157,6 +167,7 @@ describe('buildUpdatePlan', () => {
         { kind: 'storage', name: 'Storage', action: 'UNCHANGED', lifecycle: 'retain' },
       ],
       awsResources: planAwsResources({ postgres: true, redis: false }),
+      ...planExtras(POSTGRES_ONLY, 'us-east-1'),
       requirementDrift: [],
     });
   });
