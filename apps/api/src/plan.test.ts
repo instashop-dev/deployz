@@ -10,6 +10,7 @@ import {
   requiredAwsResources,
   resolveDeploymentFootprint,
   toPlanAwsResource,
+  type DeploymentManifest,
 } from '@deployz/contracts';
 
 import { createAuth, type Auth } from './auth.js';
@@ -81,7 +82,7 @@ async function insertCustomer(
 }
 
 /** A stored manifest with a PostgreSQL database and no Redis, no Storage need. */
-const POSTGRES_MANIFEST = {
+const POSTGRES_MANIFEST: DeploymentManifest = {
   schemaVersion: 1,
   application: { root: '.', runtime: 'node', framework: 'express', dockerfilePath: 'Dockerfile' },
   build: { command: 'npm run build', context: '.' },
