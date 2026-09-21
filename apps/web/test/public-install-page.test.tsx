@@ -212,21 +212,24 @@ describe('InstallPage public resolution', () => {
   it('falls through to the per-deployment flow when the public link is unknown', async () => {
     pageMocks.fetchPublicInstallData.mockResolvedValue(null);
     pageMocks.fetchInstallData.mockResolvedValue({
-      applicationName: 'Existing App',
-      publisherName: 'Existing Publisher',
-      customerName: 'Customer',
-      region: 'us-east-1',
-      plan: null,
-      quickCreateUrl: 'https://quick.create',
-      alreadyInstalled: false,
-      deploymentId: 'dep-1',
-      deploymentState: 'NOT_INSTALLED',
-      domain: null,
-      routingTarget: null,
-      bootstrapStackName: 'bootstrap',
-      waitingForRelay: false,
-      relayStuck: false,
-      components: null,
+      status: 'ok',
+      data: {
+        applicationName: 'Existing App',
+        publisherName: 'Existing Publisher',
+        customerName: 'Customer',
+        region: 'us-east-1',
+        plan: null,
+        quickCreateUrl: 'https://quick.create',
+        alreadyInstalled: false,
+        deploymentId: 'dep-1',
+        deploymentState: 'NOT_INSTALLED',
+        domain: null,
+        routingTarget: null,
+        bootstrapStackName: 'bootstrap',
+        waitingForRelay: false,
+        relayStuck: false,
+        components: null,
+      },
     });
 
     const doc = await renderServer();

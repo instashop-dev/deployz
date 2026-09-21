@@ -17,15 +17,22 @@ export default async function SecurityDetailsPage({
   // Resolve the link first: this page used to render the full security story
   // for any id at all, including ones the parent route had already told the
   // reader were invalid.
-  const data = await fetchInstallData(installLinkId);
+  const lookup = await fetchInstallData(installLinkId);
 
-  if (!data) {
+  if (lookup.status !== 'ok') {
+    const heading =
+      lookup.status === 'unavailable' && lookup.code === 'INSTALL_LINK_EXPIRED'
+        ? 'This installation link has expired'
+        : lookup.status === 'unavailable' && lookup.code === 'INSTALL_LINK_REVOKED'
+          ? 'This installation link was revoked'
+          : "This link isn't valid";
     return (
       <div className="flex flex-col gap-4">
-        <h1 className="text-2xl font-semibold tracking-tight">This link isn&apos;t valid</h1>
+        <h1 className="text-2xl font-semibold tracking-tight">{heading}</h1>
         <p className="max-w-md text-sm text-muted-foreground">
-          This installation link doesn&apos;t match an active deployment. Contact whoever sent you
-          this link for a new one.
+          {lookup.status === 'unavailable'
+            ? lookup.message
+            : "This installation link doesn't match an active deployment. Contact whoever sent you this link for a new one."}
         </p>
       </div>
     );
@@ -33,7 +40,7 @@ export default async function SecurityDetailsPage({
 
   return (
     <SecurityDetailsContent
-      plan={data.plan}
+      plan={lookup.data.plan}
       backHref={`/install/${encodeURIComponent(installLinkId)}`}
     />
   );

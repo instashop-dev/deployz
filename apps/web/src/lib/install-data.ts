@@ -51,16 +51,32 @@ interface InstallData {
   components: Record<string, string> | null;
 }
 
-/** Fetch the public install page data. Returns null on a 404 (unknown/invalid link). */
-export async function fetchInstallData(installLinkId: string): Promise<InstallData | null> {
+/** The outcome of resolving a public install link. */
+export type InstallLinkLookup =
+  | { status: 'ok'; data: InstallData }
+  | { status: 'not_found' }
+  | { status: 'unavailable'; code: string; message: string };
+
+/** Fetch the public install page data, distinguishing invalid, expired and
+ *  revoked links (the API returns 410 with a code for the latter two). */
+export async function fetchInstallData(installLinkId: string): Promise<InstallLinkLookup> {
   const response = await fetch(`${serverApiUrl()}/api/install/${encodeURIComponent(installLinkId)}`, {
     cache: 'no-store',
   });
-  if (response.status === 404) return null;
+  if (response.status === 404) return { status: 'not_found' };
   if (!response.ok) {
-    throw new Error(`Install request failed (${response.status})`);
+    let code = 'INSTALL_LINK_UNAVAILABLE';
+    let message = 'This installation link is no longer available.';
+    try {
+      const body = (await response.json()) as { error?: { code?: string; message?: string } };
+      code = body?.error?.code ?? code;
+      message = body?.error?.message ?? message;
+    } catch {
+      // Non-JSON error body — keep the generic copy.
+    }
+    return { status: 'unavailable', code, message };
   }
-  return (await response.json()) as InstallData;
+  return { status: 'ok', data: (await response.json()) as InstallData };
 }
 
 // ── Pre-relay install lifecycle (public, no-auth — keyed on the link) ──────
