@@ -1,0 +1,396 @@
+// @vitest-environment jsdom
+import { act } from 'react';
+import { createRoot, type Root } from 'react-dom/client';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+import { TEST_DEPLOYMENT_POLL_MS } from '../src/lib/application-state';
+import type { ApplicationReadiness, ReadinessFinding } from '../src/lib/readiness';
+import { fleetDeployment } from './fixtures/fleet-deployment';
+
+(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+
+// The Overview tab renders exclusively from `presentation` — this file locks
+// the whole assembly (layout header + tabs + the Overview page) against the
+// documented state matrix in test/application-state.test.ts, so a component
+// cannot quietly drift from what the mapper derives.
+
+const mocks = vi.hoisted(() => ({
+  push: vi.fn(),
+  replace: vi.fn(),
+  refresh: vi.fn(),
+  pathname: '/dashboard/applications/app-1',
+  fetchApplication: vi.fn(),
+  triggerAnalysis: vi.fn(),
+  fetchApplicationPlan: vi.fn(),
+  fetchReadiness: vi.fn(),
+  fetchDeploymentsForApplication: vi.fn(),
+  fetchPublicInstallLinks: vi.fn(),
+}));
+
+vi.mock('next/navigation', () => ({
+  useParams: () => ({ id: 'app-1' }),
+  usePathname: () => mocks.pathname,
+  useRouter: () => ({ push: mocks.push, replace: mocks.replace, refresh: mocks.refresh }),
+}));
+
+vi.mock('sonner', () => ({
+  toast: { error: vi.fn(), success: vi.fn() },
+}));
+
+vi.mock('@/lib/applications', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../src/lib/applications')>();
+  return {
+    ...actual,
+    fetchApplication: mocks.fetchApplication,
+    triggerAnalysis: mocks.triggerAnalysis,
+    fetchApplicationPlan: mocks.fetchApplicationPlan,
+  };
+});
+
+vi.mock('@/lib/readiness', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../src/lib/readiness')>();
+  return {
+    ...actual,
+    fetchReadiness: mocks.fetchReadiness,
+  };
+});
+
+vi.mock('@/lib/deployments', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../src/lib/deployments')>();
+  return {
+    ...actual,
+    fetchDeploymentsForApplication: mocks.fetchDeploymentsForApplication,
+  };
+});
+
+vi.mock('@/lib/public-install-links', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../src/lib/public-install-links')>();
+  return {
+    ...actual,
+    fetchPublicInstallLinks: mocks.fetchPublicInstallLinks,
+  };
+});
+
+const ApplicationLayout = (await import('../src/app/dashboard/applications/[id]/layout')).default;
+const ApplicationOverviewPage = (await import('../src/app/dashboard/applications/[id]/page')).default;
+
+function baseApplication(overrides: Record<string, unknown> = {}) {
+  return {
+    id: 'app-1',
+    organizationId: 'org-1',
+    name: 'Acme API',
+    githubInstallationId: 'inst-1',
+    repoFullName: 'acme/api',
+    repoUrl: 'https://github.com/acme/api',
+    defaultBranch: 'main',
+    containerPort: null,
+    healthPath: null,
+    migrationCommand: null,
+    workerCommand: null,
+    databaseRequired: false,
+    storageRequired: false,
+    redisRequired: false,
+    analysisStatus: 'COMPLETE' as const,
+    compatibilityStatus: null,
+    compatibilityReason: null,
+    detectedMetadata: null,
+    createdAt: '2026-01-01T00:00:00.000Z',
+    updatedAt: '2026-01-01T00:00:00.000Z',
+    ...overrides,
+  };
+}
+
+function requiredFinding(overrides: Partial<ReadinessFinding> = {}): ReadinessFinding {
+  return {
+    id: 'health-endpoint',
+    category: 'health',
+    title: 'Health endpoint missing',
+    severity: 'required',
+    blocking: true,
+    plainEnglishExplanation: 'Deployz requires an HTTP health endpoint.',
+    whyItMatters: 'Without it, Deployz cannot tell if your app is running.',
+    technicalEvidence: 'No route responded on /health.',
+    suggestedOutcome: 'Add a GET /health route that returns HTTP 200.',
+    confidence: 'confirmed',
+    ...overrides,
+  };
+}
+
+function baseReadiness(overrides: Partial<ApplicationReadiness> = {}): ApplicationReadiness {
+  return {
+    analysisStatus: 'COMPLETE',
+    state: 'READY',
+    requiredCount: 0,
+    recommendedCount: 0,
+    summary: null,
+    failureReason: null,
+    findings: [],
+    passed: [{ id: 'docker', label: 'Docker container detected' }],
+    analyzedCommitSha: 'abc1234',
+    detected: null,
+    requirements: null,
+    deploymentRequirementDrift: [],
+    ...overrides,
+  };
+}
+
+let container: HTMLElement;
+let root: Root;
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  mocks.pathname = '/dashboard/applications/app-1';
+  mocks.fetchApplicationPlan.mockResolvedValue(null);
+  mocks.fetchPublicInstallLinks.mockResolvedValue([]);
+
+  container = document.createElement('div');
+  document.body.appendChild(container);
+  root = createRoot(container);
+});
+
+afterEach(() => {
+  act(() => {
+    root.unmount();
+  });
+  container.remove();
+  vi.useRealTimers();
+});
+
+function renderPage(): void {
+  root.render(
+    <ApplicationLayout>
+      <ApplicationOverviewPage />
+    </ApplicationLayout>,
+  );
+}
+
+async function waitForHeading(): Promise<HTMLElement> {
+  return vi.waitFor(() => {
+    const el = container.querySelector('[data-testid="application-state-heading"]');
+    if (!(el instanceof HTMLElement) || !el.textContent) throw new Error('still loading');
+    return el;
+  });
+}
+
+interface Case {
+  name: string;
+  badgeLabel: string;
+  arrange: () => void;
+  installLinkPlacement: 'primary' | 'card' | 'none';
+  hasLifecycle: boolean;
+}
+
+const CASES: Case[] = [
+  {
+    name: 'analysing',
+    badgeLabel: 'Analysing',
+    arrange: () => {
+      mocks.fetchApplication.mockResolvedValue(baseApplication({ analysisStatus: 'ANALYZING' }));
+      mocks.fetchReadiness.mockResolvedValue(baseReadiness({ analysisStatus: 'ANALYZING', state: 'ANALYSIS_INCOMPLETE' }));
+      mocks.fetchDeploymentsForApplication.mockResolvedValue([]);
+    },
+    installLinkPlacement: 'card',
+    hasLifecycle: true,
+  },
+  {
+    name: 'configuration-required',
+    badgeLabel: 'Changes required',
+    arrange: () => {
+      mocks.fetchApplication.mockResolvedValue(baseApplication());
+      mocks.fetchReadiness.mockResolvedValue(
+        baseReadiness({ state: 'NEEDS_CHANGES', requiredCount: 1, findings: [requiredFinding()] }),
+      );
+      mocks.fetchDeploymentsForApplication.mockResolvedValue([]);
+    },
+    installLinkPlacement: 'card',
+    hasLifecycle: true,
+  },
+  {
+    name: 'ready-to-test',
+    badgeLabel: 'Ready to test',
+    arrange: () => {
+      mocks.fetchApplication.mockResolvedValue(baseApplication());
+      mocks.fetchReadiness.mockResolvedValue(baseReadiness());
+      mocks.fetchDeploymentsForApplication.mockResolvedValue([]);
+    },
+    installLinkPlacement: 'card',
+    hasLifecycle: true,
+  },
+  {
+    name: 'test-deploying',
+    badgeLabel: 'Test deploying',
+    arrange: () => {
+      mocks.fetchApplication.mockResolvedValue(baseApplication());
+      mocks.fetchReadiness.mockResolvedValue(baseReadiness());
+      mocks.fetchDeploymentsForApplication.mockResolvedValue([
+        fleetDeployment({ deploymentType: 'TEST', state: 'INSTALLING' }),
+      ]);
+    },
+    installLinkPlacement: 'card',
+    hasLifecycle: true,
+  },
+  {
+    name: 'test-failed',
+    badgeLabel: 'Test failed',
+    arrange: () => {
+      mocks.fetchApplication.mockResolvedValue(baseApplication());
+      mocks.fetchReadiness.mockResolvedValue(baseReadiness());
+      mocks.fetchDeploymentsForApplication.mockResolvedValue([
+        fleetDeployment({ deploymentType: 'TEST', state: 'FAILED' }),
+      ]);
+    },
+    installLinkPlacement: 'card',
+    hasLifecycle: true,
+  },
+  {
+    name: 'ready-to-share',
+    badgeLabel: 'Ready to share',
+    arrange: () => {
+      mocks.fetchApplication.mockResolvedValue(baseApplication());
+      mocks.fetchReadiness.mockResolvedValue(baseReadiness());
+      mocks.fetchDeploymentsForApplication.mockResolvedValue([
+        fleetDeployment({ deploymentType: 'TEST', state: 'HEALTHY' }),
+      ]);
+    },
+    installLinkPlacement: 'primary',
+    hasLifecycle: false,
+  },
+  {
+    name: 'customers-active',
+    badgeLabel: 'Live with customers',
+    arrange: () => {
+      mocks.fetchApplication.mockResolvedValue(baseApplication());
+      mocks.fetchReadiness.mockResolvedValue(baseReadiness());
+      mocks.fetchDeploymentsForApplication.mockResolvedValue([
+        fleetDeployment({ deploymentType: 'PRODUCTION', state: 'HEALTHY' }),
+      ]);
+    },
+    installLinkPlacement: 'card',
+    hasLifecycle: false,
+  },
+  {
+    name: 'unavailable',
+    badgeLabel: 'Unavailable',
+    arrange: () => {
+      mocks.fetchApplication.mockRejectedValue(new Error('boom'));
+      mocks.fetchReadiness.mockRejectedValue(new Error('boom'));
+      mocks.fetchDeploymentsForApplication.mockRejectedValue(new Error('boom'));
+      mocks.fetchPublicInstallLinks.mockRejectedValue(new Error('boom'));
+    },
+    installLinkPlacement: 'none',
+    hasLifecycle: false,
+  },
+];
+
+describe.each(CASES)('$name state', ({ badgeLabel, arrange, installLinkPlacement, hasLifecycle }) => {
+  beforeEach(() => {
+    arrange();
+  });
+
+  it('renders one heading, the matching badge, and no leaked vocabulary', async () => {
+    await act(async () => {
+      renderPage();
+    });
+    await waitForHeading();
+
+    // Exactly one state heading, no duplicate "Latest test deployment" or
+    // other section headings competing with it.
+    expect(container.querySelectorAll('[data-testid="application-state-heading"]')).toHaveLength(1);
+    expect(container.querySelector('#latest-deployment-heading')).toBeNull();
+    expect(container.textContent).not.toContain('Latest test deployment');
+
+    const badge = container.querySelector('[data-testid="application-status-badge"]');
+    expect(badge?.textContent).toBe(badgeLabel);
+
+    expect(container.textContent).not.toMatch(/checks? passed/i);
+    expect(container.textContent).not.toContain('Not installed');
+    expect(container.querySelector('[data-testid="evaluation-notice"]')).toBeNull();
+  });
+
+  it(`shows the setup lifecycle ${hasLifecycle ? '' : 'not '}during this state`, async () => {
+    await act(async () => {
+      renderPage();
+    });
+    await waitForHeading();
+    const lifecycle = container.querySelector('[data-testid="lifecycle-steps"]');
+    if (hasLifecycle) expect(lifecycle).not.toBeNull();
+    else expect(lifecycle).toBeNull();
+  });
+
+  it(`places the install link as '${installLinkPlacement}'`, async () => {
+    await act(async () => {
+      renderPage();
+    });
+    await waitForHeading();
+
+    const card = container.querySelector('[data-testid="public-install-link-card"]');
+    if (installLinkPlacement === 'card') {
+      expect(card).not.toBeNull();
+    } else {
+      expect(card).toBeNull();
+    }
+
+    if (installLinkPlacement === 'primary') {
+      // The install-link controls take over the state card's own footer.
+      expect(container.querySelector('[data-testid="public-install-link-create"]')).not.toBeNull();
+    }
+  });
+});
+
+describe('Application tabs', () => {
+  it('render the three sections with the right hrefs and mark the active one', async () => {
+    CASES.find((c) => c.name === 'ready-to-test')!.arrange();
+    await act(async () => {
+      renderPage();
+    });
+    await waitForHeading();
+
+    const tabs = Array.from(container.querySelectorAll('[role="tab"]'));
+    expect(tabs.map((tab) => tab.textContent)).toEqual(['Overview', 'Releases', 'Configuration']);
+    expect(tabs.map((tab) => tab.getAttribute('href'))).toEqual([
+      '/dashboard/applications/app-1',
+      '/dashboard/applications/app-1/releases',
+      '/dashboard/applications/app-1/config',
+    ]);
+
+    const selected = tabs.filter((tab) => tab.getAttribute('aria-selected') === 'true');
+    expect(selected).toHaveLength(1);
+    expect(selected[0]?.textContent).toBe('Overview');
+  });
+});
+
+describe('Active to terminal polling', () => {
+  it('stops polling once a test deployment settles from installing to healthy', async () => {
+    vi.useFakeTimers();
+    mocks.fetchApplication.mockResolvedValue(baseApplication());
+    mocks.fetchReadiness.mockResolvedValue(baseReadiness());
+    mocks.fetchDeploymentsForApplication
+      .mockResolvedValueOnce([fleetDeployment({ deploymentType: 'TEST', state: 'INSTALLING' })])
+      .mockResolvedValue([fleetDeployment({ deploymentType: 'TEST', state: 'HEALTHY' })]);
+
+    await act(async () => {
+      renderPage();
+    });
+    await act(async () => Promise.resolve());
+
+    let heading = container.querySelector('[data-testid="application-state-heading"]') as HTMLElement;
+    expect(heading.textContent).toBe('Test deployment in progress');
+    expect(heading.querySelector('[data-slot="spinner"]')).not.toBeNull();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(TEST_DEPLOYMENT_POLL_MS);
+    });
+
+    heading = container.querySelector('[data-testid="application-state-heading"]') as HTMLElement;
+    expect(heading.textContent).toBe('Ready to share with customers');
+    expect(heading.querySelector('[data-slot="spinner"]')).toBeNull();
+
+    const callsAtSettle = mocks.fetchDeploymentsForApplication.mock.calls.length;
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(60_000);
+    });
+
+    expect(mocks.fetchDeploymentsForApplication.mock.calls.length).toBe(callsAtSettle);
+  });
+});

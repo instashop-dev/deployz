@@ -50,7 +50,12 @@ test('choosing a repository creates a real application and opens its readiness p
   // fixture-repo-* id.
   await page.waitForURL(/\/dashboard\/applications\/[0-9a-f-]{36}$/);
 
+  // The setup lifecycle lives on the Overview tab.
   await expect(page.getByTestId('lifecycle-steps')).toBeVisible();
+
+  // The readiness table lives on the Configuration tab.
+  await page.getByRole('tab', { name: 'Configuration' }).click();
+  await page.waitForURL('**/config');
   await expect(page.getByTestId('readiness-table')).toBeVisible();
 });
 
@@ -62,10 +67,13 @@ test('a freshly-analysed application shows the real §19 COMPLETE verdict', asyn
 
   // The fixture repo (deployz-demo/express-api) analyses as fully READY —
   // analysis completes near-instantly in fixture mode, so the page renders
-  // the real verdict, not the pending state. The redesigned page shows the
-  // verdict in the page header and the readiness table.
-  await expect(page.getByRole('heading', { name: 'Ready for test deployment' })).toBeVisible();
-  await expect(page.getByText('Checking deployment readiness…')).toHaveCount(0);
+  // the real verdict, not the pending state. The single state card carries
+  // the verdict; the detected facts live in the Configuration tab's table.
+  await expect(page.getByTestId('application-state-heading')).toHaveText('Ready for a test deployment');
+  await expect(page.getByText('Analysing your application')).toHaveCount(0);
+
+  await page.getByRole('tab', { name: 'Configuration' }).click();
+  await page.waitForURL('**/config');
 
   const table = page.getByTestId('readiness-table');
   await expect(table).toBeVisible();
@@ -73,12 +81,12 @@ test('a freshly-analysed application shows the real §19 COMPLETE verdict', asyn
   await expect(page.getByTestId('readiness-setting-runtime')).toContainText('Node.js');
   await expect(page.getByTestId('readiness-setting-port')).toContainText('3000');
   await expect(page.getByTestId('readiness-setting-health')).toContainText('/health');
-  // Phase 5: the database row's primary value is the server-computed
-  // effective requirement ("Required"/"Not required"), not the rich
-  // detected-fact text — the fixture app's `pg` dependency makes it Required.
+  // The database row's value comes from the server-computed effective
+  // requirement, not the rich detected-fact text — the fixture app's `pg`
+  // dependency makes it used, so the row reads "PostgreSQL database".
   const databaseRow = page.getByTestId('readiness-setting-database');
-  await expect(databaseRow).toContainText('Required');
-  await expect(databaseRow).not.toContainText('Not required');
+  await expect(databaseRow).toContainText('PostgreSQL database');
+  await expect(databaseRow).not.toContainText('Not used');
 });
 
 test('readiness page top-level copy is jargon-free (§65)', async ({ page }) => {
@@ -87,6 +95,8 @@ test('readiness page top-level copy is jargon-free (§65)', async ({ page }) => 
   await page.getByRole('button', { name: 'Select' }).first().click();
   await page.waitForURL(/\/dashboard\/applications\/[0-9a-f-]{36}$/);
 
+  await page.getByRole('tab', { name: 'Configuration' }).click();
+  await page.waitForURL('**/config');
   await expect(page.getByTestId('readiness-table')).toBeVisible();
   const text = await page.locator('body').innerText();
   expect(text).not.toMatch(JARGON);
@@ -99,9 +109,11 @@ test('re-analysing settles the button back to Re-analyse and refreshes the appli
   await page.goto('/dashboard/applications');
   await page.getByRole('button', { name: 'Select' }).first().click();
   await page.waitForURL(/\/dashboard\/applications\/[0-9a-f-]{36}$/);
+  await page.getByRole('tab', { name: 'Configuration' }).click();
+  await page.waitForURL('**/config');
   await expect(page.getByTestId('readiness-table')).toBeVisible();
 
-  const applicationId = page.url().split('/').pop()!;
+  const applicationId = page.url().split('/').filter(Boolean).at(-2)!;
   // Stand in for the change a real re-analysis persists: the row moves
   // underneath the page while it is on screen.
   const renamed = await page.request.patch(
@@ -115,6 +127,33 @@ test('re-analysing settles the button back to Re-analyse and refreshes the appli
   // The button must come back — analysis settles, so it can be run again.
   await expect(page.getByTestId('app-details-reanalyse')).toBeEnabled({ timeout: 20_000 });
   await expect(page.getByTestId('app-details-reanalyse')).toHaveText('Re-analyse');
-  // ...and the page shows the row as it now is, without a manual reload.
+  // ...and the page shows the row as it now is, without a manual reload. The
+  // application name heading lives in the layout, shared by every tab.
   await expect(page.getByRole('heading', { name: 'Renamed Elsewhere' })).toBeVisible();
+});
+
+test('the Overview tab never shows a passed-check count, and the three tabs deep-link correctly', async ({
+  page,
+}) => {
+  await signUp(page);
+  await page.goto('/dashboard/applications');
+  await page.getByRole('button', { name: 'Select' }).first().click();
+  await page.waitForURL(/\/dashboard\/applications\/[0-9a-f-]{36}$/);
+
+  // §65: the Overview never reduces readiness to a passed-check count.
+  await expect(page.getByText(/checks passed/i)).toHaveCount(0);
+
+  const applicationId = page.url().split('/').filter(Boolean).at(-1)!;
+  const tabs = page.getByRole('tab');
+  await expect(tabs).toHaveCount(3);
+  await expect(page.getByRole('tab', { name: 'Overview' })).toBeVisible();
+  await expect(page.getByRole('tab', { name: 'Releases' })).toBeVisible();
+  await expect(page.getByRole('tab', { name: 'Configuration' })).toBeVisible();
+
+  // Deep links load directly into the right tab.
+  await page.goto(`/dashboard/applications/${applicationId}/config`);
+  await expect(page.getByRole('tab', { name: 'Configuration' })).toHaveAttribute('aria-selected', 'true');
+
+  await page.goto(`/dashboard/applications/${applicationId}/releases`);
+  await expect(page.getByRole('tab', { name: 'Releases' })).toHaveAttribute('aria-selected', 'true');
 });

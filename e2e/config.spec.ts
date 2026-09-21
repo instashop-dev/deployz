@@ -96,10 +96,11 @@ test('application detail page links to the configuration screen', async ({ page 
   const application = (await appResponse.json()) as { id: string };
 
   await page.goto(`/dashboard/applications/${application.id}`);
-  await page.getByRole('link', { name: 'Configuration' }).click();
+  await page.getByRole('tab', { name: 'Configuration' }).click();
   await page.waitForURL(`**/dashboard/applications/${application.id}/config`);
 
-  await expect(page.getByRole('heading', { name: 'Configuration' })).toBeVisible();
+  await expect(page.getByRole('tab', { name: 'Configuration' })).toHaveAttribute('aria-selected', 'true');
+  await expect(page.getByRole('heading', { name: 'Deployment configuration' })).toBeVisible();
 });
 
 test('config screen renders vendor defaults and customer overrides', async ({ page }) => {
@@ -107,7 +108,7 @@ test('config screen renders vendor defaults and customer overrides', async ({ pa
   const { applicationId, customerId } = await seedAppWithConfig(page);
   await page.goto(`/dashboard/applications/${applicationId}/config?customer=${customerId}`);
 
-  await expect(page.getByRole('heading', { name: 'Configuration' })).toBeVisible();
+  await expect(page.getByRole('tab', { name: 'Configuration' })).toHaveAttribute('aria-selected', 'true');
 
   const defaults = page.getByTestId('config-vendor-defaults');
   await expect(defaults.getByLabel('DATABASE_URL')).toBeVisible();

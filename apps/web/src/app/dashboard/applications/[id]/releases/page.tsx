@@ -1,7 +1,6 @@
 'use client';
 
-import { ArrowLeft, Info } from 'lucide-react';
-import Link from 'next/link';
+import { Info } from 'lucide-react';
 import { useParams } from 'next/navigation';
 import { useEffect, useState, type FormEvent } from 'react';
 
@@ -78,18 +77,9 @@ export default function ReleasesPage() {
 
   return (
     <div className="flex flex-col gap-6">
-      <div className="flex items-center gap-2">
-        <Button asChild variant="ghost" size="sm" className="-ml-2">
-          <Link href={`/dashboard/applications/${id}`}>
-            <ArrowLeft aria-hidden className="size-4" />
-            Application
-          </Link>
-        </Button>
-      </div>
-
       <div className="flex items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Releases</h1>
+          <h2 className="text-base font-semibold">Releases</h2>
           <p className="mt-1 text-sm text-muted-foreground">
             Version history for this application.
           </p>

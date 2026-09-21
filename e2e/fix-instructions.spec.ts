@@ -35,13 +35,19 @@ test('generating fix instructions never resolves findings — re-analysis recomp
   await page.waitForURL(/\/dashboard\/applications\/[0-9a-f-]{36}$/);
 
   // ── The readiness verdict: ALMOST_READY, one required change. ──────────────
-  await expect(page.getByTestId('readiness-table')).toBeVisible();
-  await expect(page.getByRole('heading', { name: 'Action required before deployment' })).toBeVisible();
-  await expect(page.getByText('1 blocking issue')).toBeVisible();
+  await expect(page.getByTestId('application-state-heading')).toHaveText('1 change required');
 
-  // The finding is visible with its plain-English line behind the info
-  // affordance in the readiness table.
-  const finding = page.getByTestId('readiness-finding-health-check');
+  // The readiness table and the finding live on the Configuration tab.
+  await page.getByRole('tab', { name: 'Configuration' }).click();
+  await page.waitForURL('**/config');
+  await expect(page.getByTestId('readiness-table')).toBeVisible();
+  await expect(page.getByText('1 change required')).toBeVisible();
+
+  // The finding is a 'health'-category finding, so it folds into the Health
+  // check row rather than rendering as its own row
+  // (application-configuration.ts) — its plain-English line sits behind that
+  // row's info affordance.
+  const finding = page.getByTestId('readiness-setting-health');
   await expect(finding).toBeVisible();
   await finding.getByRole('button', { name: /Details for/ }).click();
   await expect(
@@ -82,6 +88,5 @@ test('generating fix instructions never resolves findings — re-analysis recomp
   await page.getByTestId('fix-instructions-reanalyse').click();
   await expect(dialog).toBeHidden();
 
-  await expect(page.getByRole('heading', { name: 'Action required before deployment' })).toBeVisible();
-  await expect(page.getByText('1 blocking issue')).toBeVisible();
+  await expect(page.getByText('1 change required')).toBeVisible();
 });

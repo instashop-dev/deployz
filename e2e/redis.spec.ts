@@ -152,11 +152,19 @@ test('bullmq-worker: analyses as ready with the managed Redis passed check, then
   // in the collapsed Passed checks group — never a fabricated verdict, this
   // is the real §18/§19 analyser run against the fixture file tree.
   await page.goto(`/dashboard/applications/${applicationId}`);
+  // The single state card shows the verdict. Recommended findings never
+  // block readiness, so the heading is ready.
+  await expect(page.getByTestId('application-state-heading')).toHaveText('Ready for a test deployment');
+
+  // The readiness table lives on the Configuration tab.
+  await page.getByRole('tab', { name: 'Configuration' }).click();
+  await page.waitForURL('**/config');
   await expect(page.getByTestId('readiness-table')).toBeVisible();
-  // The redesigned page shows the verdict in the page header and the readiness
-  // table. Recommended findings never block READY, so the heading is ready.
-  await expect(page.getByRole('heading', { name: 'Ready for test deployment' })).toBeVisible();
-  await expect(page.getByText('required checks passed')).toBeVisible();
+  // Scoped to the Configuration tab's own section: the header badge above
+  // also reads "Ready to test", and an unscoped getByText matches both.
+  await expect(
+    page.getByRole('region', { name: 'Deployment configuration' }).getByText('Ready to test'),
+  ).toBeVisible();
   await expect(
     page
       .getByTestId('readiness-table')
@@ -233,16 +241,21 @@ test('legacy-redis: analyses as unsupported — "Your app uses Redis features De
   );
 
   await page.goto(`/dashboard/applications/${applicationId}`);
-  await expect(page.getByTestId('readiness-table')).toBeVisible();
   // The unsupported Redis setup is a blocking rejection, so the state is
-  // NEEDS_CHANGES (packages/analysis/src/readiness-report.ts's REDIS_COPY)
-  // and the heading reads out the blocking change count.
+  // configuration-required (packages/analysis/src/readiness-report.ts's
+  // REDIS_COPY) and the heading reads out the required-change count.
+  await expect(page.getByTestId('application-state-heading')).toHaveText(/change[s]? required/);
+
+  // The readiness table lives on the Configuration tab. The rejection is a
+  // 'cache'-category finding, so it folds into the Cache / queue row rather
+  // than rendering as its own row (application-configuration.ts).
+  await page.getByRole('tab', { name: 'Configuration' }).click();
+  await page.waitForURL('**/config');
+  const redisRow = page.getByTestId('readiness-setting-redis');
+  await expect(redisRow).toBeVisible();
+  await expect(redisRow).toContainText('Change required');
+  await redisRow.getByRole('button', { name: /Details for/ }).click();
   await expect(
-    page.getByRole('heading', { name: 'Action required before deployment' }),
-  ).toBeVisible();
-  await expect(
-    page
-      .getByTestId('readiness-table')
-      .getByText("Your app uses Redis features Deployz can't provide", { exact: true }),
+    page.getByText('This app uses Redis features Deployz cannot provide', { exact: false }),
   ).toBeVisible();
 });

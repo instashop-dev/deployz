@@ -85,6 +85,86 @@ export function footprintRows(footprint: DeploymentFootprint): FootprintRow[] {
   return [...footprint.workloads.map(workloadRow), ...footprint.resources.map(resourceRow)];
 }
 
+/** One row of the simplified "Planned infrastructure" table (vendor Configuration tab). */
+export interface FootprintComponentRow {
+  id: string;
+  /** The item's label, prefixed with "N × " only when more than one is provisioned. */
+  component: string;
+  /** What it runs as — the resolved engine (with version) or the AWS service name. */
+  provisionedAs: string;
+  /** Exact meaningful sizing, joined with " · "; null when nothing meaningful exists. */
+  configuration: string | null;
+  retention: 'Removed' | 'Retained';
+}
+
+function componentLabel(label: string, quantity: number): string {
+  return quantity > 1 ? `${quantity} × ${label}` : label;
+}
+
+/** "PostgreSQL 16", "Redis (Valkey)" — null when the configuration has no known engine. */
+function engineProvisionedAs(configuration: Record<string, unknown>): string | null {
+  const engine = configuration['engine'];
+  if (typeof engine !== 'string') return null;
+  const display = FOOTPRINT_ENGINE_DISPLAY[engine];
+  if (display === undefined) return null;
+  const version = configuration['engineVersion'];
+  return typeof version === 'string' || typeof version === 'number' ? `${display} ${version}` : display;
+}
+
+// Friendly formatting for the known sizing keys a resource configuration may
+// carry. `engine`/`engineVersion` are handled by `engineProvisionedAs` above,
+// so they are intentionally absent here; any other key (known scalar or not)
+// has no formatter and is silently skipped — configuration never dumps raw
+// keys for a resource type this table doesn't know about.
+const CONFIGURATION_KEY_FORMATTERS: Readonly<Record<string, (value: unknown) => string | null>> = {
+  instanceType: (value) => (typeof value === 'string' ? value : null),
+  nodeType: (value) => (typeof value === 'string' ? value : null),
+  storageGb: (value) => (typeof value === 'number' ? `${value} GB storage` : null),
+  nodes: (value) => (typeof value === 'number' ? `${value} node${value === 1 ? '' : 's'}` : null),
+};
+
+function resourceConfigurationParts(configuration: Record<string, unknown>): string[] {
+  const parts: string[] = [];
+  for (const [key, value] of Object.entries(configuration)) {
+    const formatted = CONFIGURATION_KEY_FORMATTERS[key]?.(value) ?? null;
+    if (formatted !== null) parts.push(formatted);
+  }
+  return parts;
+}
+
+function workloadComponentRow(workload: FootprintWorkload): FootprintComponentRow {
+  const vcpu = workload.compute.cpuUnits / 1024;
+  const memoryGb = workload.compute.memoryMiB / 1024;
+  return {
+    id: workload.id,
+    component: componentLabel(workload.label, workload.quantity),
+    provisionedAs: serviceDisplay(workload.compute.service),
+    configuration: `${vcpu} vCPU · ${memoryGb} GB memory`,
+    retention: 'Removed',
+  };
+}
+
+function resourceComponentRow(resource: FootprintResource): FootprintComponentRow {
+  const parts = resourceConfigurationParts(resource.configuration);
+  return {
+    id: resource.id,
+    component: componentLabel(resource.label, resource.quantity),
+    provisionedAs: engineProvisionedAs(resource.configuration) ?? serviceDisplay(resource.service),
+    configuration: parts.length > 0 ? parts.join(' · ') : null,
+    retention: resource.lifecycle.retainOnDelete ? 'Retained' : 'Removed',
+  };
+}
+
+/**
+ * Simplified component rows for the vendor "Planned infrastructure" section —
+ * one row per workload, then one per resource, in footprint order. Generic
+ * over `service`/`category`: a future resource type renders through this same
+ * path with no code change here.
+ */
+export function footprintComponentRows(footprint: DeploymentFootprint): FootprintComponentRow[] {
+  return [...footprint.workloads.map(workloadComponentRow), ...footprint.resources.map(resourceComponentRow)];
+}
+
 /** "~$65–95/month"; null parts degrade gracefully to one-sided ranges. */
 export function formatMonthlyRange(monthlyMin: number | null, monthlyMax: number | null): string | null {
   const format = (value: number): string => `${Math.round(value)}`;
