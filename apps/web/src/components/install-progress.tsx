@@ -2,11 +2,17 @@
 
 import { useEffect, useRef } from 'react';
 
-import type { CustomerActivityItem, CustomerDeploymentStatus, CustomerTechnicalDetails } from '@deployz/contracts';
+import type {
+  CustomerActivityItem,
+  CustomerDeploymentStatus,
+  CustomerTechnicalDetails,
+  DeploymentPlan,
+} from '@deployz/contracts';
 import { AlertCircle, AlertTriangle, CheckCircle2, ChevronDown, ExternalLink, Loader2 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 
-import { DeploymentProgressSteps } from '@/components/deployment-progress-steps';
+import { DeploymentStepper } from '@/components/deployment-stepper';
+import { AwsInfrastructureDetails } from '@/components/aws-infrastructure-details';
 import { CustomDomainCard } from '@/components/custom-domain-card';
 import { LiveStepDetail } from '@/components/live-step-detail';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
@@ -16,6 +22,8 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/component
 import { Skeleton } from '@/components/ui/skeleton';
 import type { CustomDomainView } from '@/lib/domains';
 import {
+  COMPONENT_PROGRESS_LABEL,
+  COMPONENT_STATUS_TONE,
   isTerminalStage,
   PRE_LAUNCH_HEADLINE,
   recentActivityTimeLabel,
@@ -23,6 +31,7 @@ import {
   stepWaitingOnInput,
   stepsBeforeLaunch,
   AWAITING_DOMAIN_STEP_DETAIL,
+  customerStepperSteps,
   stepsFromStatus,
 } from '@/lib/deployment-progress';
 import { fetchDeployLinkStatus, type DeployLinkToken } from '@/lib/deploy-link-flow';
@@ -33,11 +42,13 @@ import {
   STARTUP_FAILURE_TITLE,
 } from '@/lib/diagnostic-vocabulary';
 import { OWNERSHIP_NOTE } from '@/lib/security-details';
+import { TONE_DOT, TONE_TEXT } from '@/lib/status-tone';
+import { cn } from '@/lib/utils';
 import { useStatusPoll } from '@/lib/use-status-poll';
 
 /**
- * The customer's step list with a live, ticking detail on the active step
- * only (LiveStepDetail — current activity, duration/slow-step line with
+ * The customer's grouped stepper with a live, ticking detail on the active
+ * step only (LiveStepDetail — current activity, duration/slow-step line with
  * elapsed time, last-checked time). Completed and upcoming steps never carry
  * a detail — no percentages, no countdowns, no per-step ETAs.
  */
@@ -56,23 +67,25 @@ function activeStepDetail({
     step: status.step,
     needsDomainSetup: status.needsDomainSetup,
   });
-  return stepsFromStatus({ steps: status.steps, step: status.step, stage: status.stage }).map((step) => {
-    if (step.state !== 'current') return step;
-    if (waitingOnInput) return { ...step, detail: AWAITING_DOMAIN_STEP_DETAIL };
-    return {
-      ...step,
-      detail: (
-        <LiveStepDetail
-          currentActivity={status.currentActivity}
-          takingLongerThanUsual={status.takingLongerThanUsual}
-          typicalDurationSeconds={status.typicalDurationSeconds}
-          stepStartedAt={status.stepStartedAt ?? null}
-          checkedAt={checkedAt}
-          active={active}
-        />
-      ),
-    };
-  });
+  return customerStepperSteps(
+    stepsFromStatus({ steps: status.steps, step: status.step, stage: status.stage }).map((step) => {
+      if (step.state !== 'current') return step;
+      if (waitingOnInput) return { ...step, detail: AWAITING_DOMAIN_STEP_DETAIL };
+      return {
+        ...step,
+        detail: (
+          <LiveStepDetail
+            currentActivity={status.currentActivity}
+            takingLongerThanUsual={status.takingLongerThanUsual}
+            typicalDurationSeconds={status.typicalDurationSeconds}
+            stepStartedAt={status.stepStartedAt ?? null}
+            checkedAt={checkedAt}
+            active={active}
+          />
+        ),
+      };
+    }),
+  );
 }
 
 /**
@@ -85,6 +98,14 @@ function activeStepDetail({
  * naturally grows into the full progress view, then — for READY/VERIFYING —
  * also surfaces the Access section and the custom-domain card, so a customer
  * who stays on the page never needs to reload it to see their app come up.
+ *
+ * Layout, top to bottom: the dominant progress card (headline + grouped
+ * vertical stepper), then the always-visible "Live AWS activity" feed with
+ * the raw AWS events behind their own collapsed disclosure, then the compact
+ * per-component "Resources" summary with the plan's full AWS inventory
+ * behind "View all AWS resources (N)", and finally the collapsed "Technical
+ * details". Everything technical is closed by default — the page stays
+ * jargon-free until the reader asks for more.
  */
 export function InstallProgress({
   installLinkId,
@@ -93,6 +114,7 @@ export function InstallProgress({
   quickCreateUrl,
   initialDomain,
   routingTarget,
+  plan = null,
   preinstall = false,
   awaitingLaunch = false,
   deployLink = null,
@@ -103,6 +125,10 @@ export function InstallProgress({
   quickCreateUrl: string | null;
   initialDomain: CustomDomainView | null;
   routingTarget: string | null;
+  /** The deployment's plan — supplies the "View all AWS resources (N)"
+   *  inventory on the deploy page; the install page renders its own review
+   *  table above and passes nothing. */
+  plan?: DeploymentPlan | null;
   /** True when mounted under the pre-install page layout, whose surrounding
    *  server-rendered content (the Deploy to AWS CTA, capability lists) is only
    *  correct while nothing has enrolled yet. */
@@ -166,6 +192,7 @@ export function InstallProgress({
   const stale = status.statusUpdatesUnavailable || poll.stale;
   const canAccess = status.stage === 'READY' || status.stage === 'VERIFYING';
   const active = !isTerminalStage(status.stage);
+  const failed = status.stage === 'FAILED';
 
   return (
     <div className="flex flex-col gap-6">
@@ -186,7 +213,7 @@ export function InstallProgress({
             </p>
           ) : null}
 
-          {status.stage === 'FAILED' ? (
+          {failed ? (
             <FailureDetails failure={status.failure} technicalDetails={status.technicalDetails} />
           ) : (
             <>
@@ -201,27 +228,13 @@ export function InstallProgress({
                 </Alert>
               ) : null}
 
-              <DeploymentProgressSteps
+              <DeploymentStepper
                 steps={
                   beforeLaunch
-                    ? stepsBeforeLaunch(status.steps)
+                    ? customerStepperSteps(stepsBeforeLaunch(status.steps))
                     : activeStepDetail({ status, checkedAt: poll.checkedAt, active })
                 }
               />
-
-              {(status.stage === 'WAITING_FOR_AWS' && !beforeLaunch) || status.stage === 'CONNECTING' ? (
-                <p className="text-xs text-muted-foreground">
-                  Live AWS activity appears here when Deployz starts to create your infrastructure.
-                </p>
-              ) : null}
-
-              {active && status.recentActivity && status.recentActivity.length > 0 ? (
-                <RecentActivity items={status.recentActivity} stage={status.stage} />
-              ) : null}
-
-              {status.technicalDetails ? (
-                <ActiveTechnicalDetails technicalDetails={status.technicalDetails} />
-              ) : null}
 
               {status.stage === 'WAITING_FOR_AWS' && !beforeLaunch && quickCreateUrl ? (
                 <Button asChild variant="outline" size="sm" className="self-start">
@@ -250,6 +263,21 @@ export function InstallProgress({
           )}
         </CardContent>
       </Card>
+
+      {active && !beforeLaunch ? (
+        <LiveAwsActivity
+          items={status.recentActivity ?? []}
+          technicalDetails={status.technicalDetails}
+          stale={stale}
+          showSetupHint={status.stage === 'WAITING_FOR_AWS' || status.stage === 'CONNECTING'}
+        />
+      ) : null}
+
+      {!failed ? <ResourcesSummary components={status.components} plan={plan} /> : null}
+
+      {!failed && status.technicalDetails ? (
+        <ActiveTechnicalDetails technicalDetails={status.technicalDetails} />
+      ) : null}
 
       {canAccess ? (
         <>
@@ -307,6 +335,130 @@ export function InstallProgress({
         <AwsDeploymentDetails summary={status.awsSummary} url={status.url} updatedAt={status.updatedAt} />
       ) : null}
     </div>
+  );
+}
+
+/**
+ * The always-visible activity feed while the deployment runs: the latest few
+ * human-readable AWS events (already translated to customer copy and
+ * deduplicated by the API), a subtle live/freshness cue, and the raw
+ * CloudFormation events tucked behind their own collapsed disclosure so the
+ * feed itself stays jargon-free. Hidden once the stage is terminal or before
+ * the first launch — nothing is live then.
+ */
+function LiveAwsActivity({
+  items,
+  technicalDetails,
+  stale,
+  showSetupHint,
+}: {
+  items: CustomerActivityItem[];
+  technicalDetails: CustomerTechnicalDetails | null | undefined;
+  stale: boolean;
+  showSetupHint: boolean;
+}) {
+  const now = Date.now();
+  const events = technicalDetails?.events ?? [];
+  return (
+    <section aria-labelledby="deployment-activity" className="flex flex-col gap-3">
+      <div className="flex items-center gap-2">
+        <span
+          aria-hidden
+          className={cn(
+            'size-1.5 shrink-0 rounded-full',
+            stale ? TONE_DOT.attention : TONE_DOT.progress,
+            !stale && 'animate-pulse',
+          )}
+        />
+        <h2 id="deployment-activity" className="text-base font-semibold">
+          Live AWS activity
+        </h2>
+        <span className="text-xs text-muted-foreground">{stale ? 'Last confirmed update' : 'Live'}</span>
+      </div>
+      {items.length > 0 ? (
+        <ul className="flex flex-col gap-1.5">
+          {items.slice(0, 5).map((item) => (
+            <li key={item.key} className="flex items-start gap-2 text-xs text-muted-foreground">
+              <ActivityIcon state={item.state} />
+              <span className="flex-1">{item.message}</span>
+              <span className="shrink-0 tabular-nums">{recentActivityTimeLabel(item.at, now)}</span>
+            </li>
+          ))}
+        </ul>
+      ) : showSetupHint ? (
+        <p className="text-sm text-muted-foreground">
+          Live AWS activity appears here when Deployz starts to create your infrastructure.
+        </p>
+      ) : (
+        <p className="text-sm text-muted-foreground">No AWS activity reported yet.</p>
+      )}
+      {events.length > 0 ? (
+        <Collapsible>
+          <CollapsibleTrigger className="group flex items-center gap-1 self-start text-sm font-medium text-muted-foreground hover:text-foreground">
+            View raw AWS events
+            <ChevronDown
+              aria-hidden
+              className="size-4 transition-transform group-data-[state=open]:rotate-180"
+            />
+          </CollapsibleTrigger>
+          <CollapsibleContent>
+            <TechnicalEvents events={events} />
+          </CollapsibleContent>
+        </Collapsible>
+      ) : null}
+    </section>
+  );
+}
+
+/**
+ * The compact per-component summary below the progress card: one clean row
+ * per component this deployment actually requires — the backend's component
+ * labels are the only AWS naming shown, never a client-side guess — with the
+ * plan's full AWS inventory behind "View all AWS resources (N)". Components
+ * the deployment does not need are never listed (the API already omits
+ * them; NOT_REQUIRED rows are dropped defensively too).
+ */
+function ResourcesSummary({
+  components,
+  plan,
+}: {
+  components: CustomerDeploymentStatus['components'];
+  plan: DeploymentPlan | null;
+}) {
+  const rows = components.filter((component) => component.status !== 'NOT_REQUIRED');
+  const resourceCount = plan?.awsResources.length ?? 0;
+  if (rows.length === 0 && resourceCount === 0) return null;
+  return (
+    <section aria-labelledby="deployment-resources" className="flex flex-col gap-3">
+      <h2 id="deployment-resources" className="text-base font-semibold">
+        Resources
+      </h2>
+      {rows.length > 0 ? (
+        <ul>
+          {rows.map((component, index) => (
+            <li
+              key={component.key}
+              className={cn(
+                'flex items-center justify-between gap-3 py-2',
+                index < rows.length - 1 && 'border-b',
+              )}
+            >
+              <span className="min-w-0 text-sm">{component.label}</span>
+              <span className="flex shrink-0 items-center gap-2 text-xs text-muted-foreground">
+                <span
+                  aria-hidden
+                  className={cn('size-1.5 rounded-full', TONE_DOT[COMPONENT_STATUS_TONE[component.status]])}
+                />
+                {COMPONENT_PROGRESS_LABEL[component.status]}
+              </span>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+      {resourceCount > 0 ? (
+        <AwsInfrastructureDetails plan={plan} triggerLabel={`View all AWS resources (${resourceCount})`} />
+      ) : null}
+    </section>
   );
 }
 
@@ -443,8 +595,10 @@ function FailureDetails({
 
 /**
  * The active-stage (non-FAILED) counterpart to FailureDetails' collapsible —
- * same closed-by-default "Technical details" disclosure, built from the raw
- * facts/events the API attaches once it has them. Renders nothing until
+ * the same closed-by-default "Technical details" disclosure, holding the
+ * deployment reference and the raw facts the API attaches once it has them.
+ * The raw CloudFormation events live one section up, behind "View raw AWS
+ * events", so no fact is ever listed twice. Renders nothing until
  * `technicalDetails` arrives, so a deployment stays jargon-free by default.
  */
 function ActiveTechnicalDetails({ technicalDetails }: { technicalDetails: CustomerTechnicalDetails }) {
@@ -462,14 +616,13 @@ function ActiveTechnicalDetails({ technicalDetails }: { technicalDetails: Custom
         {technicalDetails.facts.map((fact) => (
           <DetailRow key={fact.label} label={fact.label} value={fact.value} />
         ))}
-        <TechnicalEvents events={technicalDetails.events} />
       </CollapsibleContent>
     </Collapsible>
   );
 }
 
 /** Raw CloudFormation events, compact monospace rows — customer-owned AWS
- *  account detail, shown only inside the collapsed Technical details. */
+ *  account detail, shown only inside a collapsed disclosure. */
 function TechnicalEvents({ events }: { events: CustomerTechnicalDetails['events'] }) {
   if (events.length === 0) return null;
   return (
@@ -494,44 +647,14 @@ function formatEventTime(iso: string): string {
   return date.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', second: '2-digit' });
 }
 
-/**
- * The active step list's real-event feed: the latest few AWS/Deployz events,
- * already translated to customer copy and deduplicated by the API. Hidden
- * entirely while empty — the heartbeat lines in LiveStepDetail keep the page
- * from looking frozen on their own, so nothing here is ever fabricated.
- */
-function RecentActivity({
-  items,
-  stage,
-}: {
-  items: CustomerActivityItem[];
-  stage: CustomerDeploymentStatus['stage'];
-}) {
-  const now = Date.now();
-  return (
-    <div className="flex flex-col gap-2">
-      <h3 className="text-sm font-medium">{stage === 'PROVISIONING' ? 'Recent AWS activity' : 'Recent activity'}</h3>
-      <ul className="flex flex-col gap-1.5">
-        {items.slice(0, 5).map((item) => (
-          <li key={item.key} className="flex items-start gap-2 text-xs text-muted-foreground">
-            <ActivityIcon state={item.state} />
-            <span className="flex-1">{item.message}</span>
-            <span className="shrink-0 tabular-nums">{recentActivityTimeLabel(item.at, now)}</span>
-          </li>
-        ))}
-      </ul>
-    </div>
-  );
-}
-
 function ActivityIcon({ state }: { state: CustomerActivityItem['state'] }) {
   switch (state) {
     case 'COMPLETE':
-      return <CheckCircle2 aria-hidden className="mt-0.5 size-3.5 shrink-0 text-primary" />;
+      return <CheckCircle2 aria-hidden className={cn('mt-0.5 size-3.5 shrink-0', TONE_TEXT.positive)} />;
     case 'FAILED':
       return <AlertCircle aria-hidden className="mt-0.5 size-3.5 shrink-0 text-destructive" />;
     case 'IN_PROGRESS':
-      return <Loader2 aria-hidden className="mt-0.5 size-3.5 shrink-0 animate-spin text-primary" />;
+      return <Loader2 aria-hidden className={cn('mt-0.5 size-3.5 shrink-0 animate-spin', TONE_TEXT.progress)} />;
   }
 }
 

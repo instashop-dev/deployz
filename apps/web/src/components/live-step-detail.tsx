@@ -3,6 +3,8 @@
 import { useEffect, useState } from 'react';
 
 import { checkedLabel, elapsedLabel, liveDurationLine } from '@/lib/deployment-progress';
+import { TONE_TEXT } from '@/lib/status-tone';
+import { cn } from '@/lib/utils';
 
 /**
  * The customer install page's ticking detail under the active step: what
@@ -43,7 +45,11 @@ export function LiveStepDetail({
   return (
     <>
       <span className="block">{currentActivity}</span>
-      {durationLine ? <span className="block">{durationLine}</span> : null}
+      {durationLine ? (
+        // The slow-step sentence is a warning: it gets the attention tone so
+        // it reads as amber, not as another muted timing line.
+        <span className={cn('block', takingLongerThanUsual && TONE_TEXT.attention)}>{durationLine}</span>
+      ) : null}
       {checked ? <span className="block">{checked}</span> : null}
     </>
   );

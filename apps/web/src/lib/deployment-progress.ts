@@ -180,6 +180,80 @@ export function stepsFromStatus({
 }
 
 /**
+ * One rung of the customer pages' vertical stepper: a display step that may
+ * group several server-sent wire steps (AWS_SETUP + RELAY_CONNECT → "AWS
+ * account connected") and may carry the data/cache/migration wire steps as
+ * sub-detail rows under it ("Starting application").
+ */
+export interface StepperStep extends ProgressStep {
+  /** Wire steps rendered as compact rows under the label — only the ones the
+   *  server actually sent for this deployment. */
+  substeps?: ProgressStep[];
+}
+
+/** The customer stepper's seven display steps, in order. Labels are static:
+ *  the state lives in the marker, the sr-only wording, and the active step's
+ *  live detail — never in a re-worded label. */
+const STEPPER_GROUPS: readonly {
+  key: string;
+  label: string;
+  steps: readonly DeploymentStep[];
+  substeps?: readonly DeploymentStep[];
+}[] = [
+  { key: 'account', label: 'AWS account connected', steps: ['AWS_SETUP', 'RELAY_CONNECT'] },
+  { key: 'infrastructure', label: 'Infrastructure prepared', steps: ['PREPARING'] },
+  { key: 'network', label: 'Network ready', steps: ['NETWORK'] },
+  {
+    key: 'application',
+    label: 'Starting application',
+    steps: ['APPLICATION'],
+    substeps: ['DATABASE_STORAGE', 'REDIS', 'MIGRATION'],
+  },
+  { key: 'health', label: 'Health check', steps: ['HEALTH_CHECK'] },
+  { key: 'https', label: 'Configure HTTPS', steps: ['TLS'] },
+  { key: 'ready', label: 'Ready', steps: ['READY'] },
+];
+
+function stepperGroupState(members: ProgressStep[]): ProgressStepState {
+  if (members.some((member) => member.state === 'attention')) return 'attention';
+  if (members.some((member) => member.state === 'current')) return 'current';
+  if (members.every((member) => member.state === 'done')) return 'done';
+  return 'waiting';
+}
+
+/**
+ * Folds the server-sent step list into the customer stepper's grouped rungs.
+ * A group is `attention` when any member failed, `current` while any member
+ * (including a substep) is active — inheriting that member's live detail —
+ * `done` once every present member finished, and `waiting` otherwise. Groups
+ * none of whose wire steps apply are dropped, exactly like the flat list.
+ */
+export function customerStepperSteps(steps: ProgressStep[]): StepperStep[] {
+  const byKey = new Map(steps.map((step) => [step.key, step]));
+  return STEPPER_GROUPS.flatMap((group) => {
+    const members = [...(group.substeps ?? []), ...group.steps]
+      .map((key) => byKey.get(key))
+      .filter((step): step is ProgressStep => step !== undefined);
+    if (members.length === 0) return [];
+    const activeMember = members.find(
+      (member) => member.state === 'current' || member.state === 'attention',
+    );
+    const substeps = (group.substeps ?? [])
+      .map((key) => byKey.get(key))
+      .filter((step): step is ProgressStep => step !== undefined);
+    return [
+      {
+        key: group.key,
+        label: group.label,
+        state: stepperGroupState(members),
+        detail: activeMember?.detail,
+        ...(substeps.length > 0 ? { substeps } : {}),
+      },
+    ];
+  });
+}
+
+/**
  * '3–8 minutes' (en dash) for a genuine range, or 'about N minutes' once
  * rounding collapses min and max to the same whole minute. The only place
  * either projection may turn TYPICAL_STEP_DURATION_SECONDS into words.
@@ -328,4 +402,18 @@ export const COMPONENT_PROGRESS_LABEL: Record<CustomerDeploymentStatus['componen
   READY: 'Ready',
   FAILED: 'Needs attention',
   NOT_REQUIRED: 'Not required',
+};
+
+/** The status-tone mapping for the customer resource summary's status dots —
+ *  green ready, blue creating, grey waiting, red failed. Text (the label
+ *  above) always carries the state as well, never the color alone. */
+export const COMPONENT_STATUS_TONE: Record<
+  CustomerDeploymentStatus['components'][number]['status'],
+  import('@/lib/status-tone').Tone
+> = {
+  PENDING: 'neutral',
+  IN_PROGRESS: 'progress',
+  READY: 'positive',
+  FAILED: 'negative',
+  NOT_REQUIRED: 'neutral',
 };

@@ -3,7 +3,7 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import type { CustomerDeploymentStatus, DeploymentStep } from '@deployz/contracts';
+import type { CustomerDeploymentStatus, DeploymentPlan, DeploymentStep } from '@deployz/contracts';
 
 import { TAKING_LONGER_MESSAGE } from '../src/lib/deployment-progress';
 import { OWNERSHIP_NOTE } from '../src/lib/security-details';
@@ -94,6 +94,14 @@ function click(element: Element): void {
   element.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
 }
 
+function findTrigger(label: string): HTMLElement {
+  const trigger = Array.from(container!.querySelectorAll('[data-slot="collapsible-trigger"]')).find(
+    (element) => element.textContent?.includes(label),
+  ) as HTMLElement | undefined;
+  expect(trigger).toBeDefined();
+  return trigger!;
+}
+
 async function flush(): Promise<void> {
   await act(async () => {
     await vi.advanceTimersByTimeAsync(0);
@@ -153,24 +161,29 @@ describe('InstallProgress — success flow', () => {
     expect(text()).toContain('Usually takes 3–10 minutes');
     expect(text()).toContain('4m 12s elapsed');
     expect(text()).toContain('Checked just now');
-    expect(text()).toContain('Recent AWS activity');
+    expect(text()).toContain('Live AWS activity');
     expect(text()).toContain('Network created.');
 
-    // Jargon confined to the collapsed disclosure: closed by default, Radix
-    // does not render its children, so none of the raw facts/events show up
+    // Jargon confined to the collapsed disclosures: closed by default, Radix
+    // does not render their children, so none of the raw facts/events show up
     // in the visible text yet.
     expect(text()).not.toContain('CREATE_IN_PROGRESS');
     expect(text()).not.toContain('DatabaseInstance');
     expect(text()).not.toContain('REF-123');
 
-    const trigger = container!.querySelector('[data-slot="collapsible-trigger"]') as HTMLElement;
-    expect(trigger).not.toBeNull();
+    // Raw CloudFormation events live behind their own disclosure inside the
+    // activity section; the reference/facts sit in Technical details.
     await act(async () => {
-      click(trigger);
+      click(findTrigger('View raw AWS events'));
     });
     expect(text()).toContain('CREATE_IN_PROGRESS');
-    expect(text()).toContain('REF-123');
     expect(text()).toContain('DatabaseInstance');
+    expect(text()).not.toContain('REF-123');
+
+    await act(async () => {
+      click(findTrigger('Technical details'));
+    });
+    expect(text()).toContain('REF-123');
 
     // The deployment finishes: the next poll returns READY.
     current = baseStatus({ stage: 'READY', step: 'READY', url: 'https://app.example.com', removed: false });
@@ -179,7 +192,7 @@ describe('InstallProgress — success flow', () => {
     });
 
     expect(text()).not.toContain('elapsed');
-    expect(text()).not.toContain('Recent AWS activity');
+    expect(text()).not.toContain('Live AWS activity');
     expect(text()).toContain('Your application is ready');
     expect(text()).toContain('Access');
     const callsAtReady = mocks.fetchInstallStatus.mock.calls.length;
@@ -341,7 +354,8 @@ describe('InstallProgress — long-running flow', () => {
     const text = container!.textContent ?? '';
     expect(text).toContain('Usually takes 3–10 minutes');
     expect(text).not.toContain('elapsed');
-    expect(text).not.toContain('Recent AWS activity');
+    // No events reported: the feed stays visible with its honest empty line.
+    expect(text).toContain('No AWS activity reported yet.');
   });
 });
 
@@ -490,5 +504,77 @@ describe('InstallProgress — AWS deployment details (READY)', () => {
     expect(text()).not.toContain('AWS deployment details');
     expect(text()).not.toContain(summary.applicationStackName);
     expect(text()).not.toContain(OWNERSHIP_NOTE);
+  });
+});
+
+describe('InstallProgress — resources summary', () => {
+  const plan: DeploymentPlan = {
+    schemaVersion: 1,
+    action: 'INSTALL',
+    region: 'us-east-1',
+    components: [
+      { kind: 'application', name: 'Application', action: 'CREATE', lifecycle: 'delete' },
+      { kind: 'database', name: 'Database', action: 'CREATE', lifecycle: 'retain' },
+    ],
+    awsResources: [
+      {
+        id: 'ecs_service',
+        name: 'ECS Fargate service',
+        purpose: 'Runs the application container',
+        group: 'compute_networking',
+        componentKind: 'application',
+        lifecycle: 'delete',
+      },
+      {
+        id: 'database',
+        name: 'RDS PostgreSQL database',
+        purpose: 'Stores persistent application data',
+        group: 'data',
+        componentKind: 'database',
+        lifecycle: 'retain',
+      },
+    ],
+    requirementDrift: [],
+  };
+
+  it('renders one row per required component with its status, drops NOT_REQUIRED, and links the plan inventory', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-09-18T00:00:00.000Z'));
+    const status = baseStatus({
+      components: [
+        { key: 'runtime', label: 'Application runtime', status: 'READY' },
+        { key: 'database', label: 'PostgreSQL database', status: 'IN_PROGRESS' },
+        { key: 'redis', label: 'Redis', status: 'NOT_REQUIRED' },
+      ],
+    });
+    mocks.fetchInstallStatus.mockResolvedValue(status);
+
+    mount(baseProps({ initialStatus: status, plan }));
+    await flush();
+
+    const text = container!.textContent ?? '';
+    expect(text).toContain('Resources');
+    expect(text).toContain('Application runtime');
+    expect(text).toContain('Ready');
+    expect(text).toContain('PostgreSQL database');
+    expect(text).toContain('Creating');
+    // A component this deployment does not require is never listed.
+    expect(text).not.toContain('Redis');
+    expect(text).not.toContain('Not required');
+    // The plan's inventory stays behind its collapsed trigger, counted.
+    expect(text).toContain('View all AWS resources (2)');
+    expect(text).not.toContain('RDS PostgreSQL database');
+  });
+
+  it('renders no resources section when no component applies and no plan carries an inventory', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-09-18T00:00:00.000Z'));
+    const status = baseStatus({ components: [] });
+    mocks.fetchInstallStatus.mockResolvedValue(status);
+
+    mount(baseProps({ initialStatus: status }));
+    await flush();
+
+    expect(container!.textContent ?? '').not.toContain('Resources');
   });
 });

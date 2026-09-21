@@ -1,14 +1,16 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
-import { Loader2 } from 'lucide-react';
+import { ChevronDown, Loader2 } from 'lucide-react';
 
 import { AwsInfrastructureDetails } from '@/components/aws-infrastructure-details';
+import { DataRetentionCard } from '@/components/data-retention-card';
 import { DeployLinkInvalidState, PoweredBy } from '@/components/deploy-link-invalid-state';
 import { InstallLaunchButton } from '@/components/install-launch-button';
 import { InstallProgress } from '@/components/install-progress';
 import { InstallRetryButton } from '@/components/install-retry-button';
 import { TablePanel } from '@/components/table-panel';
 import { Button } from '@/components/ui/button';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import {
   fetchDeployLinkData,
@@ -16,7 +18,7 @@ import {
 } from '@/lib/deploy-link-flow';
 import { cloudFormationStacksUrl } from '@/lib/aws-console';
 import { RELAY_STUCK_GUIDANCE } from '@/lib/deployment-vocabulary';
-import { installPlanRegionLabel, installPlanRetentionNote, installPlanRows } from '@/lib/install-plan';
+import { installPlanRegionLabel, installPlanRows } from '@/lib/install-plan';
 
 // Rendered per request so the resolve — including the Quick Create link the
 // control plane builds for this deployment's region — is always fresh.
@@ -35,6 +37,40 @@ export const metadata: Metadata = {
 // deployment flow and never becomes a session. Reuse rule: the review, AWS
 // connection, progress, domain and retry experiences are the install page's,
 // with resolve/launch/retry/status calls re-keyed to the deploy link.
+//
+// Layout top to bottom: app name, the dominant live progress (stepper, AWS
+// activity, resources), then the quiet secondary disclosures — data
+// retention, security — and the vendor footer.
+
+/** The quiet security row: one collapsed paragraph of what Deployz can and
+ *  cannot do, with the full security page one click away. The link sits in
+ *  the header row (not inside the collapsible) so it is reachable — and
+ *  server-rendered — without expanding anything. */
+function SecurityDetailsDisclosure({ href }: { href: string }) {
+  return (
+    <Collapsible className="rounded-md border">
+      <div className="flex items-center justify-between gap-4 px-4 py-3">
+        <CollapsibleTrigger className="group flex items-center gap-1 text-left text-sm font-medium">
+          Security details
+          <ChevronDown
+            aria-hidden
+            className="size-4 shrink-0 text-muted-foreground transition-transform group-data-[state=open]:rotate-180"
+          />
+        </CollapsibleTrigger>
+        <Button asChild variant="ghost" size="sm">
+          <Link href={href}>Open security details</Link>
+        </Button>
+      </div>
+      <CollapsibleContent>
+        <p className="border-t px-4 py-3 text-sm text-muted-foreground">
+          Deployz signs in to nothing: a small helper in your AWS account keeps your deployment in
+          sync. See exactly which AWS resources are created, what the helper can and cannot do,
+          and how to revoke access.
+        </p>
+      </CollapsibleContent>
+    </Collapsible>
+  );
+}
 
 export default async function DeployPage({
   params,
@@ -71,7 +107,7 @@ export default async function DeployPage({
   if (data.waitingForRelay) {
     const cloudFormationUrl = cloudFormationStacksUrl(data.region);
     return (
-      <div className="flex flex-col gap-8">
+      <div className="flex flex-col gap-6">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">{data.application.name}</h1>
           <p className="mt-2 text-sm text-muted-foreground">
@@ -86,6 +122,7 @@ export default async function DeployPage({
           quickCreateUrl={data.quickCreateUrl}
           initialDomain={data.domain}
           routingTarget={data.routingTarget}
+          plan={data.plan}
           preinstall
           deployLink={deployLink}
         />
@@ -119,11 +156,10 @@ export default async function DeployPage({
                 Open AWS CloudFormation
               </a>
             </Button>
-            <Button asChild variant="ghost">
-              <Link href={securityHref}>Security details</Link>
-            </Button>
           </div>
         </section>
+
+        <SecurityDetailsDisclosure href={securityHref} />
 
         <PoweredBy />
       </div>
@@ -135,11 +171,10 @@ export default async function DeployPage({
   // cannot create duplicates — the deployment already exists; this only
   // flips it into its waiting state, and reopening the link resumes it.
   if (data.deploymentState === 'NOT_INSTALLED') {
-    const retentionNote = installPlanRetentionNote(data.plan);
     const regionLabel = installPlanRegionLabel(data.region);
 
     return (
-      <div className="flex flex-col gap-8">
+      <div className="flex flex-col gap-6">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">{data.application.name}</h1>
           <p className="mt-2 text-sm font-medium">Deploy privately to your AWS</p>
@@ -186,8 +221,6 @@ export default async function DeployPage({
           </div>
           <AwsInfrastructureDetails plan={data.plan} region={data.region} />
           {regionLabel ? <p className="text-sm text-muted-foreground">Region: {regionLabel}</p> : null}
-          {retentionNote ? <p className="text-sm text-muted-foreground">{retentionNote}</p> : null}
-          <p className="text-sm font-medium text-foreground">Your data stays in your AWS account.</p>
         </section>
 
         <section aria-label="Deploy actions" className="flex flex-col gap-3">
@@ -208,9 +241,6 @@ export default async function DeployPage({
               </p>
             </div>
           )}
-          <Button asChild variant="ghost">
-            <Link href={securityHref}>Security details</Link>
-          </Button>
         </section>
 
         {/* Starts at WAITING_FOR_AWS — small and unobtrusive under the CTA
@@ -222,10 +252,15 @@ export default async function DeployPage({
           quickCreateUrl={data.quickCreateUrl}
           initialDomain={data.domain}
           routingTarget={data.routingTarget}
+          plan={data.plan}
           preinstall
           awaitingLaunch
           deployLink={deployLink}
         />
+
+        <DataRetentionCard plan={data.plan} />
+
+        <SecurityDetailsDisclosure href={securityHref} />
 
         <PoweredBy />
       </div>
@@ -236,7 +271,7 @@ export default async function DeployPage({
   // terminal FAILED, all live in the same progress view the install page
   // uses. The link stays usable to resume — reopening it lands here.
   return (
-    <div className="flex flex-col gap-8">
+    <div className="flex flex-col gap-6">
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">{data.application.name}</h1>
         <p className="mt-2 text-sm text-muted-foreground">
@@ -251,12 +286,13 @@ export default async function DeployPage({
         quickCreateUrl={data.quickCreateUrl}
         initialDomain={data.domain}
         routingTarget={data.routingTarget}
+        plan={data.plan}
         deployLink={deployLink}
       />
 
-      <Button asChild variant="ghost">
-        <Link href={securityHref}>Security details</Link>
-      </Button>
+      <DataRetentionCard plan={data.plan} />
+
+      <SecurityDetailsDisclosure href={securityHref} />
 
       <PoweredBy />
     </div>
