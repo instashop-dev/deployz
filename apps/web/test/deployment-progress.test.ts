@@ -5,6 +5,7 @@ import type { DeploymentStage, DeploymentStep, VendorDeploymentStatus } from '@d
 import { deriveHero, type HeroInput } from '../src/lib/deployment-hero';
 import {
   checkedLabel,
+  customerStepperSteps,
   elapsedLabel,
   formatDurationRange,
   formatElapsedSeconds,
@@ -162,6 +163,95 @@ describe('stepsFromStatus', () => {
     expect(stateOf(FULL_STEPS, 'HEALTH_CHECK', 'VERIFYING', 'HEALTH_CHECK')).toBe('current');
     expect(stateOf(FULL_STEPS, 'TLS', 'VERIFYING', 'HEALTH_CHECK')).toBe('done');
     expect(stateOf(FULL_STEPS, 'TLS', 'VERIFYING', 'TLS')).toBe('current');
+  });
+});
+
+// The customer pages fold the server-sent wire steps into seven grouped
+// rungs for the vertical stepper (AWS_SETUP+RELAY_CONNECT → one "AWS account
+// connected" rung, the data/cache/migration steps as sub-rows under
+// "Starting application"). The server stays the only source of which steps
+// apply — grouping only reshapes what it sent.
+describe('customerStepperSteps', () => {
+  const flat = (step: DeploymentStep, stage: DeploymentStage) =>
+    stepsFromStatus({ steps: FULL_STEPS, step, stage });
+
+  it('folds the wire steps into the seven customer groups, in order, with static labels', () => {
+    const grouped = customerStepperSteps(flat('DATABASE_STORAGE', 'PROVISIONING'));
+    expect(grouped.map((step) => step.key)).toEqual([
+      'account',
+      'infrastructure',
+      'network',
+      'application',
+      'health',
+      'https',
+      'ready',
+    ]);
+    expect(grouped.map((step) => step.label)).toEqual([
+      'AWS account connected',
+      'Infrastructure prepared',
+      'Network ready',
+      'Starting application',
+      'Health check',
+      'Configure HTTPS',
+      'Ready',
+    ]);
+  });
+
+  it('groups before the active wire step are done, the rest wait — an active substep makes its group current', () => {
+    const grouped = customerStepperSteps(flat('DATABASE_STORAGE', 'PROVISIONING'));
+    expect(grouped.find((step) => step.key === 'account')!.state).toBe('done');
+    expect(grouped.find((step) => step.key === 'application')!.state).toBe('current');
+    expect(grouped.find((step) => step.key === 'health')!.state).toBe('waiting');
+    expect(grouped.find((step) => step.key === 'ready')!.state).toBe('waiting');
+  });
+
+  it('carries only the substeps the server sent, in wire order', () => {
+    // FULL_STEPS carries DATABASE_STORAGE, REDIS and MIGRATION.
+    const application = customerStepperSteps(flat('DATABASE_STORAGE', 'PROVISIONING')).find(
+      (step) => step.key === 'application',
+    )!;
+    expect(application.substeps?.map((step) => step.key)).toEqual(['DATABASE_STORAGE', 'REDIS', 'MIGRATION']);
+
+    const noSubsteps = customerStepperSteps(
+      stepsFromStatus({
+        steps: FULL_STEPS.filter(
+          (step) => step !== 'DATABASE_STORAGE' && step !== 'REDIS' && step !== 'MIGRATION',
+        ),
+        step: 'APPLICATION',
+        stage: 'PROVISIONING',
+      }),
+    ).find((step) => step.key === 'application')!;
+    expect(noSubsteps.substeps).toBeUndefined();
+  });
+
+  it('inherits the active member detail (the live step detail attaches to the group)', () => {
+    const withDetail = flat('DATABASE_STORAGE', 'PROVISIONING').map((step) =>
+      step.key === 'DATABASE_STORAGE' ? { ...step, detail: 'live detail' } : step,
+    );
+    expect(customerStepperSteps(withDetail).find((step) => step.key === 'application')!.detail).toBe(
+      'live detail',
+    );
+  });
+
+  it('FAILED marks the interrupted group attention and later groups waiting', () => {
+    const grouped = customerStepperSteps(flat('DATABASE_STORAGE', 'FAILED'));
+    expect(grouped.find((step) => step.key === 'application')!.state).toBe('attention');
+    expect(grouped.find((step) => step.key === 'health')!.state).toBe('waiting');
+  });
+
+  it('READY renders every group done', () => {
+    const grouped = customerStepperSteps(flat('READY', 'READY'));
+    expect(grouped.every((step) => step.state === 'done')).toBe(true);
+  });
+
+  it('groups the pre-launch list as seven waiting rungs', () => {
+    const grouped = customerStepperSteps(stepsBeforeLaunch(FULL_STEPS));
+    expect(grouped).toHaveLength(7);
+    expect(grouped.every((step) => step.state === 'waiting')).toBe(true);
+  });
+
+  it('renders no rungs when an older API omits steps', () => {
+    expect(customerStepperSteps([])).toEqual([]);
   });
 });
 
