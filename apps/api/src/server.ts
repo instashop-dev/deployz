@@ -7192,6 +7192,54 @@ export async function buildServer({
           }
         });
       }
+    } else if (job.type === 'INSTALL' && job.state === 'FAILED') {
+      // The AWS rollback keeps running after settlement and the relay keeps
+      // streaming its events — but a late /result can no longer deliver the
+      // terminal stack status (alreadySettled discards its output). Keep the
+      // settled result's stack status current from the same events, so the
+      // failure surfaces the terminal AWS status exactly as the relay's own
+      // report would have. An interim status never downgrades a terminal one
+      // (the /result-won case already carries the terminal status).
+      const settledRows = await db
+        .select()
+        .from(schema.deploymentStackEvents)
+        .where(
+          and(
+            eq(schema.deploymentStackEvents.deploymentId, deployment.id),
+            eq(schema.deploymentStackEvents.jobId, job.id),
+          ),
+        )
+        .orderBy(schema.deploymentStackEvents.eventAt, schema.deploymentStackEvents.id);
+      const settledEvents: StoredStackEvent[] = settledRows.map((row) => ({
+        eventAt: row.eventAt,
+        logicalResourceId: row.logicalResourceId,
+        resourceType: row.resourceType,
+        resourceStatus: row.resourceStatus,
+        resourceStatusReason: row.resourceStatusReason,
+      }));
+      const settledSnapshot = summarizeStackEvents(body.stackName, settledEvents, now.toISOString());
+      const latestStatus =
+        settledSnapshot !== null && typeof settledSnapshot['stackStatus'] === 'string'
+          ? settledSnapshot['stackStatus']
+          : null;
+      const recordedStatus = (job.result as { output?: { stackStatus?: string } } | null | undefined)?.output
+        ?.stackStatus;
+      const interimStatus = latestStatus === 'ROLLBACK_IN_PROGRESS' || latestStatus === 'DELETE_IN_PROGRESS';
+      const downgrade =
+        interimStatus && recordedStatus !== null && recordedStatus !== 'ROLLBACK_IN_PROGRESS' && recordedStatus !== 'DELETE_IN_PROGRESS';
+      if (
+        latestStatus !== null &&
+        !downgrade &&
+        INSTALL_FAILURE_STACK_STATUSES.has(latestStatus) &&
+        recordedStatus !== latestStatus
+      ) {
+        const result = (job.result ?? {}) as Record<string, unknown>;
+        const output = (result['output'] ?? {}) as Record<string, unknown>;
+        await db
+          .update(schema.deploymentJobs)
+          .set({ result: { ...result, output: { ...output, stackStatus: latestStatus } } })
+          .where(eq(schema.deploymentJobs.id, job.id));
+      }
     }
 
     request.log.info({

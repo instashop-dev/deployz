@@ -339,7 +339,7 @@ test('failure path: a genuine CREATE_FAILED stack event stays vendor-only while 
 
   // Customer: friendly failure copy, no jargon, no raw reason leaked.
   await page.goto(`/install/${installLinkId}`);
-  await expect(page.getByRole('heading', { name: 'Deployment needs attention' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Deployment failed' })).toBeVisible();
   await expect(page.getByText("The database couldn't be created.")).toBeVisible();
   const bodyText = await page.locator('body').innerText();
   expect(bodyText).not.toMatch(JARGON);
