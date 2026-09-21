@@ -231,7 +231,7 @@ describe('InstallPage public resolution', () => {
 
     const doc = await renderServer();
 
-    expect(doc.body.textContent).toContain('wants to deploy inside your AWS account');
+    expect(doc.body.textContent).toContain('to your AWS account');
     expect(pageMocks.fetchInstallData).toHaveBeenCalledWith(LINK_ID);
   });
 });

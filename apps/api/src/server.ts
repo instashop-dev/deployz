@@ -211,6 +211,7 @@ import {
   type OrganizationDeps,
 } from './organizations.js';
 import { recordEvent, type DeploymentEventType } from './events.js';
+import { revokeInstallLink, rotateInstallLink } from './install-link-lifecycle.js';
 import { createFixtureDomainCheckDeps, createRealDomainCheckDeps, type DomainCheckDeps } from './domain-check.js';
 import {
   createDefaultHttpsFixtureProvider,
@@ -2202,6 +2203,40 @@ export async function buildServer({
   // relay. The enrollment code it returns is single-use and is what the
   // customer's bootstrap stack carries.
   /**
+   * Vendor install-link lifecycle controls: view/revoke/replace the customer
+   * invitation without touching the running deployment.
+   */
+  app.post(
+    '/api/deployments/:id/install-link/revoke',
+    { preHandler: requireAuth },
+    async (request) => {
+      const { id } = request.params as { id: string };
+      const organizationId = requireSessionOrganizationId(request);
+      const deployment = await loadOwnedDeployment(db, id, organizationId);
+      return await revokeInstallLink(db, deployment, request.user!.id);
+    },
+  );
+
+  app.post(
+    '/api/deployments/:id/install-link/rotate',
+    { preHandler: requireAuth },
+    async (request) => {
+      const { id } = request.params as { id: string };
+      const organizationId = requireSessionOrganizationId(request);
+      const deployment = await loadOwnedDeployment(db, id, organizationId);
+      const result = await rotateInstallLink(db, deployment, request.user!.id);
+      if ('refused' in result) {
+        throw new ApiError(
+          409,
+          'INSTALL_ALREADY_STARTED',
+          'This deployment has already been installed, so the link cannot be replaced.',
+        );
+      }
+      return result;
+    },
+  );
+
+  /**
    * Invitation lifecycle gate for the public install routes: a revoked or
    * expired link can no longer START an installation. A link whose install
    * has already started keeps working — the customer must still reach the
@@ -2244,6 +2279,8 @@ export async function buildServer({
         enrollmentUsedAt: schema.deployments.enrollmentUsedAt,
         deploymentId: schema.deployments.id,
         deploymentState: schema.deployments.state,
+        organizationId: schema.deployments.organizationId,
+        customerId: schema.deployments.customerId,
         attemptNumber: schema.deployments.attemptNumber,
         bootstrapStackName: schema.deployments.bootstrapStackName,
         installStartedAt: schema.deployments.installStartedAt,
@@ -2275,6 +2312,17 @@ export async function buildServer({
     if (gate) {
       throw new ApiError(410, gate.code, gate.message);
     }
+    // Structured analytics: the invitation was opened. Ids only — no secrets,
+    // no AWS data (mirrors the deploy_link.opened precedent).
+    await recordEvent(db, {
+      organizationId: row.organizationId,
+      eventType: 'install_link.opened',
+      actorType: 'system',
+      actorId: `install-link:${installLinkId}`,
+      deploymentId: row.deploymentId,
+      customerId: row.customerId,
+      payload: { schemaVersion: 1, alreadyInstalled },
+    });
     // §16.1: the customer-visible "Deployz will create" table — same shape
     // `GET /api/deployments/:id/plan?action=install` serves once the
     // deployment exists. Null only when the stored manifest is missing or

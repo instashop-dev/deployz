@@ -104,6 +104,12 @@ export type DeploymentEventType =
   | 'public_install_link.disabled'
   | 'public_install_link.revoked'
   | 'public_install_link.regenerated'
+  // install-link family — the per-deployment customer invitation lifecycle
+  // (apps/api/src/install-link-lifecycle.ts). `opened` is recorded by the
+  // public GET route; revoke/rotate are vendor actions.
+  | 'install_link.opened'
+  | 'install_link.revoked'
+  | 'install_link.rotated'
   // application/analysis funnel — PR1 telemetry. The application id rides in
   // `payload.applicationId` (event_logs has no application_id column).
   | 'application.created'

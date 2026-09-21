@@ -7,6 +7,7 @@
 import {
   AWS_RESOURCE_GROUP_DISPLAY,
   AWS_RESOURCE_GROUP_ORDER,
+  CONNECTOR_RESOURCES,
   INFRASTRUCTURE_COMPONENT_DISPLAY,
   REGION_LABELS,
   type AwsResourceGroup,
@@ -122,4 +123,80 @@ export function awsResourceGroups(plan: DeploymentPlan | null): AwsResourceGroup
     label: AWS_RESOURCE_GROUP_DISPLAY[group],
     resources: plan.awsResources.filter((resource) => resource.group === group),
   })).filter((entry) => entry.resources.length > 0);
+}
+
+/** The only two removal labels the install page's infrastructure table shows. */
+export const INSTALL_RESOURCE_REMOVAL_LABEL = {
+  delete: 'Removed automatically',
+  retain: 'Retained in your AWS account',
+} as const;
+
+/** One row of the install page's single infrastructure table. */
+export interface InstallResourceRow {
+  id: string;
+  name: string;
+  /** The AWS service plus exact sizing/configuration where the footprint has it. */
+  serviceAndConfiguration: string;
+  purpose: string;
+  onRemoval: string;
+}
+
+/** One heading group of the install page's single infrastructure table. */
+export interface InstallResourceGroupRows {
+  group: AwsResourceGroup;
+  label: string;
+  rows: InstallResourceRow[];
+}
+
+/**
+ * The install page's ONE infrastructure table: the Deployz connector's
+ * resources first, then the application's — grouped by the shared catalog
+ * order, with exact sizing read from the plan's deployment footprint where the
+ * footprint provides it. Never invents a size: a row without a footprint match
+ * shows its service name only.
+ */
+export function installPlanResourceGroups(plan: DeploymentPlan | null): InstallResourceGroupRows[] {
+  const footprint = plan?.footprint ?? null;
+  const workload = footprint?.workloads?.[0] ?? null;
+  const resourceByRole = new Map((footprint?.resources ?? []).map((resource) => [resource.role, resource]));
+
+  const sizingFor = (kind: DeploymentPlanAwsResource['componentKind']): string | null => {
+    if (kind === 'application' && workload) {
+      return `${workload.quantity} × ${workload.compute.sizeLabel} · ${workload.compute.cpuUnits / 1024} vCPU · ${workload.compute.memoryMiB} MB`;
+    }
+    const resource = resourceByRole.get(kind);
+    if (!resource) return null;
+    return resource.quantity > 1 ? `${resource.quantity} × ${resource.label}` : resource.label;
+  };
+
+  const rows: InstallResourceRow[] = [
+    ...CONNECTOR_RESOURCES.map((resource) => ({
+      id: resource.id,
+      name: resource.name,
+      serviceAndConfiguration: resource.name,
+      purpose: resource.purpose,
+      onRemoval: INSTALL_RESOURCE_REMOVAL_LABEL[resource.lifecycle],
+    })),
+    ...(plan?.awsResources ?? []).map((resource) => {
+      const sizing = sizingFor(resource.componentKind);
+      return {
+        id: resource.id,
+        name: resource.name,
+        serviceAndConfiguration: sizing ? `${resource.name} · ${sizing}` : resource.name,
+        purpose: resource.purpose,
+        onRemoval: INSTALL_RESOURCE_REMOVAL_LABEL[resource.lifecycle],
+      };
+    }),
+  ];
+
+  return AWS_RESOURCE_GROUP_ORDER.map((group) => ({
+    group,
+    label: AWS_RESOURCE_GROUP_DISPLAY[group],
+    rows: rows.filter((row) => {
+      if (group === 'connector') return CONNECTOR_RESOURCES.some((resource) => resource.id === row.id);
+      return (plan?.awsResources ?? []).some(
+        (resource) => resource.id === row.id && resource.group === group,
+      );
+    }),
+  })).filter((entry) => entry.rows.length > 0);
 }

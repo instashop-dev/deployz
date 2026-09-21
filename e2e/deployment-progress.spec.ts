@@ -210,7 +210,7 @@ test('happy path: WAITING_FOR_AWS -> CONNECTING -> PROVISIONING -> VERIFYING -> 
     vendorLabel: 'Waiting for your customer to install',
   });
   await page.goto(`/install/${installLinkId}`);
-  await expect(page.getByRole('link', { name: 'Deploy to AWS' })).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Review setup in AWS' })).toBeVisible();
 
   // ── 2. Relay registers (spends the enrollment code, creates the INSTALL
   // job in REQUESTED state).
@@ -230,7 +230,7 @@ test('happy path: WAITING_FOR_AWS -> CONNECTING -> PROVISIONING -> VERIFYING -> 
   // The enrollment code is spent — running the setup again would fail after
   // the customer already approved a stack, so the CTA is gone entirely.
   await page.goto(`/install/${installLinkId}`);
-  await expect(page.getByRole('link', { name: 'Deploy to AWS' })).toHaveCount(0);
+  await expect(page.getByRole('link', { name: 'Review setup in AWS' })).toHaveCount(0);
 
   // ── 3. Relay polls for commands: the queued INSTALL job flips to RUNNING.
   const round1 = await fetchRelayCommands(page, installationId, relayAuth);

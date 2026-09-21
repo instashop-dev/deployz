@@ -101,9 +101,9 @@ describe('InstallPage per-deployment flow', () => {
 
     const doc = await renderPage();
 
-    expect(doc.body.textContent).toContain('Acme Inc wants to deploy inside your AWS account');
+    expect(doc.body.textContent).toContain('to your AWS account');
     expect(doc.body.textContent).toContain('Application');
-    expect(doc.body.textContent).toContain('Deploy to AWS');
+    expect(doc.body.textContent).toContain('Review setup in AWS');
   });
 
   it('renders a not-found message when the link is invalid', async () => {
