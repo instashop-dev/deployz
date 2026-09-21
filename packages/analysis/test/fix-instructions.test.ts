@@ -15,6 +15,7 @@ import {
   assembleFixInstructions,
   buildFixInstructionsAiPrompt,
   generateFixInstructions,
+  summariseEnvRequirements,
   type FixInstructionsAiOutput,
   type FixInstructionsContext,
   type FixInstructionsFacts,
@@ -26,6 +27,7 @@ import type { ReadinessFinding } from '../src/readiness-report.js';
 // ==========================================================================
 
 const postgresFacts: FixInstructionsFacts = {
+  runtime: 'node',
   framework: 'express',
   packageManager: 'pnpm',
   buildCommand: 'pnpm build',
@@ -37,6 +39,7 @@ const postgresFacts: FixInstructionsFacts = {
   healthPath: '/health',
   redisRequired: false,
   workingDirectory: null,
+  envRequirements: null,
 };
 
 const noDbFacts: FixInstructionsFacts = {
@@ -58,7 +61,7 @@ const containerFinding: ReadinessFinding = {
   confidence: 'confirmed',
 };
 
-/** Recommended finding (database-migrations). */
+/** Recommended finding (database-migrations, unknown mode). */
 const migrationFinding: ReadinessFinding = {
   id: 'database-migrations',
   category: 'database',
@@ -74,6 +77,15 @@ const migrationFinding: ReadinessFinding = {
   confidence: 'likely',
 };
 
+/** Informational finding (migrations run at startup — nothing to do). */
+const informationalFinding: ReadinessFinding = {
+  ...migrationFinding,
+  title: 'Database migrations run when the application starts',
+  technicalEvidence: 'Migrations run at startup: migrate on boot (src/index.ts).',
+  suggestedOutcome: 'No action needed — migrations run on application startup.',
+  confidence: 'likely',
+};
+
 const baseContext: FixInstructionsContext = {
   repoFullName: 'acme/widget-api',
   commitSha: 'abc123def456',
@@ -86,11 +98,76 @@ function fixtureGateway(response: AiGatewayResponse): AiGateway {
 }
 
 // ==========================================================================
+// summariseEnvRequirements
+// ==========================================================================
+
+describe('summariseEnvRequirements', () => {
+  it('returns null for a missing or non-array model', () => {
+    expect(summariseEnvRequirements(undefined)).toBeNull();
+    expect(summariseEnvRequirements(null)).toBeNull();
+    expect(summariseEnvRequirements('nope')).toBeNull();
+    expect(summariseEnvRequirements([])).toBeNull();
+  });
+
+  it('puts required vars read in code or required by a service at runtime', () => {
+    const summary = summariseEnvRequirements([
+      { key: 'STRIPE_SECRET_KEY', required: true, source: ['read in src/billing.ts'] },
+      { key: 'SMTP_URL', required: true, source: ['smtp requires SMTP_URL'] },
+    ]);
+    expect(summary).toEqual({
+      buildTime: [],
+      runtime: ['SMTP_URL', 'STRIPE_SECRET_KEY'],
+      platformInjected: [],
+    });
+  });
+
+  it('puts required vars declared only in a build-context file at build time', () => {
+    const summary = summariseEnvRequirements([
+      { key: 'NPM_TOKEN', required: true, source: ['Dockerfile declares NPM_TOKEN'] },
+    ]);
+    expect(summary?.buildTime).toEqual(['NPM_TOKEN']);
+    expect(summary?.runtime).toEqual([]);
+  });
+
+  it('keeps a Dockerfile-declared var at runtime when the code also reads it', () => {
+    const summary = summariseEnvRequirements([
+      {
+        key: 'GA_ID',
+        required: true,
+        source: ['Dockerfile declares GA_ID', 'read in src/analytics.ts'],
+      },
+    ]);
+    expect(summary?.runtime).toEqual(['GA_ID']);
+    expect(summary?.buildTime).toEqual([]);
+  });
+
+  it('fails safe: a required var declared only outside build context lands at runtime', () => {
+    const summary = summariseEnvRequirements([
+      { key: 'FEATURE_TOKEN', required: true, source: ['.env declares FEATURE_TOKEN'] },
+    ]);
+    expect(summary?.runtime).toEqual(['FEATURE_TOKEN']);
+  });
+
+  it('routes platform-managed and platform-generated names to platformInjected', () => {
+    const summary = summariseEnvRequirements([
+      { key: 'DATABASE_URL', required: true, source: ['read in src/db.ts'], classification: 'deployz_managed' },
+      { key: 'SESSION_SECRET', required: true, source: ['read in src/auth.ts'], classification: 'deployz_generated' },
+      { key: 'STRIPE_KEY', required: true, source: ['read in src/billing.ts'] },
+    ]);
+    expect(summary).toEqual({
+      buildTime: [],
+      runtime: ['STRIPE_KEY'],
+      platformInjected: ['DATABASE_URL', 'SESSION_SECRET'],
+    });
+  });
+});
+
+// ==========================================================================
 // buildFixInstructionsAiPrompt
 // ==========================================================================
 
 describe('buildFixInstructionsAiPrompt', () => {
-  it('contains the detected facts', () => {
+  it('contains the detected facts relevant to the blockers', () => {
     const prompt = buildFixInstructionsAiPrompt(baseContext);
     expect(prompt).toContain('express');
     expect(prompt).toContain('pnpm');
@@ -100,14 +177,24 @@ describe('buildFixInstructionsAiPrompt', () => {
     expect(prompt).toContain('PostgreSQL');
   });
 
-  it('contains every finding id and its evidence', () => {
+  it('contains every blocker id, its accurate name, and its evidence', () => {
     const prompt = buildFixInstructionsAiPrompt(baseContext);
     expect(prompt).toContain('id: container-setup');
+    expect(prompt).toContain('name: Container packaging missing');
     expect(prompt).toContain('No Dockerfile was found in the repository.');
     expect(prompt).toContain('id: database-migrations');
     expect(prompt).toContain(
       'A PostgreSQL library is present (pg) but no migration script was found in any package.json.',
     );
+  });
+
+  it('carries the coding-agent rules (health endpoint, versions, infrastructure, ambiguity)', () => {
+    const prompt = buildFixInstructionsAiPrompt(baseContext);
+    expect(prompt).toContain('Do not require a Dockerfile HEALTHCHECK');
+    expect(prompt).toContain('Corepack');
+    expect(prompt).toContain('Terraform, Kubernetes');
+    expect(prompt).toContain('report');
+    expect(prompt).toContain('ambiguity instead of guessing');
   });
 
   it('bounds the guidance length so the completion fits the synchronous request budget', () => {
@@ -128,6 +215,15 @@ describe('buildFixInstructionsAiPrompt', () => {
     expect(prompt).not.toContain('import express');
     expect(prompt).not.toContain('app.listen(');
   });
+
+  it('skips informational findings whose outcome requires no action', () => {
+    const prompt = buildFixInstructionsAiPrompt({
+      ...baseContext,
+      findings: [containerFinding, informationalFinding],
+    });
+    expect(prompt).toContain('id: container-setup');
+    expect(prompt).not.toContain('Migrations run at startup');
+  });
 });
 
 // ==========================================================================
@@ -145,46 +241,276 @@ describe('assembleFixInstructions', () => {
     expect(doc).toContain(FIX_INSTRUCTIONS_GUARDRAIL);
   });
 
-  it('contains the objective line', () => {
+  it('is structured around the six required sections in order', () => {
     const doc = assembleFixInstructions(baseContext, aiOutput);
-    expect(doc).toContain('Prepare this repository for deployment through Deployz');
+    const sections = [
+      '## Repository facts',
+      '## Blocking issues',
+      '## Required outcome',
+      '## Implementation guidance',
+      '## Validation',
+      '## Completion report',
+    ];
+    let cursor = 0;
+    for (const section of sections) {
+      const at = doc.indexOf(section);
+      expect(at).toBeGreaterThan(-1);
+      expect(at).toBeGreaterThan(cursor);
+      cursor = at;
+    }
   });
 
-  it('contains a per-finding section with a severity label for every finding', () => {
+  it('names blockers accurately instead of the plain-English UI titles', () => {
     const doc = assembleFixInstructions(baseContext, aiOutput);
-    expect(doc).toContain('### 1. Deployz doesn\'t know how to start your app (REQUIRED)');
-    expect(doc).toContain('### 2. Give Deployz a way to update your database (RECOMMENDED)');
+    expect(doc).toContain('**Container packaging missing**');
+    expect(doc).toContain('**Database migration command missing** (recommended)');
+    expect(doc).not.toContain("Deployz doesn't know how to start your app");
+    expect(doc).not.toContain('Give Deployz a way to update your database');
   });
 
-  it('includes the disposable-database validation line only when database is postgres', () => {
-    const withDb = assembleFixInstructions(baseContext, aiOutput);
-    expect(withDb).toContain('Validate the migration command against a disposable local database only');
-
-    const withoutDb = assembleFixInstructions({ ...baseContext, facts: noDbFacts }, aiOutput);
-    expect(withoutDb).not.toContain('Validate the migration command against a disposable local database only');
+  it('grounds each blocker in evidence and a required outcome', () => {
+    const doc = assembleFixInstructions(baseContext, aiOutput);
+    expect(doc).toContain('Evidence: No Dockerfile was found in the repository.');
+    expect(doc).toContain(
+      'Container packaging missing: Add container build instructions (a Dockerfile) that install, build, and start the app.',
+    );
   });
 
-  it('contains a completion-report section', () => {
+  it('adds a verify note only for non-confirmed blockers', () => {
     const doc = assembleFixInstructions(baseContext, aiOutput);
-    expect(doc).toContain('## Completion report');
-    expect(doc).toContain('Do not claim success for tests or validations that were not actually run.');
+    expect(doc).toContain('verify first: static analysis can miss an existing solution');
+    expect(doc).not.toContain('confirm this applies before changing anything');
+
+    const ambiguous = assembleFixInstructions(
+      { ...baseContext, findings: [{ ...containerFinding, confidence: 'needs_confirmation' }] },
+      { perFinding: [], generalNotes: [] },
+    );
+    expect(ambiguous).toContain('confirm this applies before changing anything');
   });
 
-  it('embeds AI guidance for a finding whose id matches', () => {
+  it('carries deterministic guidance and embeds AI guidance under the same blocker', () => {
     const doc = assembleFixInstructions(baseContext, aiOutput);
-    expect(doc).toContain('Implementation guidance: Add a multi-stage Dockerfile that builds and runs the app.');
+    expect(doc).toContain('Check existing deployment files first');
+    expect(doc).toContain('Add a multi-stage Dockerfile that builds and runs the app.');
   });
 
   it('remains a complete document when perFinding is empty', () => {
     const emptyAi: FixInstructionsAiOutput = { perFinding: [], generalNotes: [] };
     const doc = assembleFixInstructions(baseContext, emptyAi);
 
-    expect(doc).not.toContain('Implementation guidance:');
+    expect(doc).toContain('Check existing deployment files first');
     expect(doc).toContain(FIX_INSTRUCTIONS_GUARDRAIL);
-    expect(doc).toContain('### 1. Deployz doesn\'t know how to start your app (REQUIRED)');
-    expect(doc).toContain('### 2. Give Deployz a way to update your database (RECOMMENDED)');
+    expect(doc).toContain('**Container packaging missing**');
     expect(doc).toContain('## Validation');
     expect(doc).toContain('## Completion report');
+  });
+
+  it('omits informational findings that require no action', () => {
+    const doc = assembleFixInstructions(
+      { ...baseContext, findings: [containerFinding, informationalFinding] },
+      aiOutput,
+    );
+    expect(doc).not.toContain('No action needed');
+    expect(doc).not.toContain('Migrations run at startup');
+  });
+
+  it('renders only detected facts the included blockers justify', () => {
+    const doc = assembleFixInstructions(
+      { ...baseContext, findings: [containerFinding], facts: { ...noDbFacts, migrationCommand: null } },
+      aiOutput,
+    );
+    // Packaging-relevant facts are in…
+    expect(doc).toContain('- Runtime:');
+    expect(doc).toContain('- Package manager: pnpm');
+    // …and unrequested or undetected ones stay out.
+    expect(doc).not.toContain('Migration command');
+    expect(doc).not.toContain('not detected');
+  });
+
+  it('includes the disposable-database validation line only for the migration blocker', () => {
+    const withMigration = assembleFixInstructions(baseContext, aiOutput);
+    expect(withMigration).toContain('disposable local database only');
+
+    const containerOnly = assembleFixInstructions(
+      { ...baseContext, findings: [containerFinding] },
+      aiOutput,
+    );
+    expect(containerOnly).not.toContain('disposable local database only');
+  });
+
+  it('contains a completion-report section', () => {
+    const doc = assembleFixInstructions(baseContext, aiOutput);
+    expect(doc).toContain('## Completion report');
+    expect(doc).toContain('do not claim success for steps not run');
+  });
+});
+
+// ==========================================================================
+// Representative repository shapes
+// ==========================================================================
+
+describe('assembleFixInstructions — representative repository shapes', () => {
+  const emptyAi: FixInstructionsAiOutput = { perFinding: [], generalNotes: [] };
+
+  it('missing container packaging: names the blocker and pins the detected toolchain', () => {
+    const doc = assembleFixInstructions(
+      { ...baseContext, facts: postgresFacts, findings: [containerFinding] },
+      emptyAi,
+    );
+    expect(doc).toContain('**Container packaging missing**');
+    expect(doc).toContain('(`pnpm`, via Corepack when package.json declares `packageManager`)');
+    expect(doc).toContain('(`pnpm build`)');
+    expect(doc).toContain('with `node dist/index.js`');
+    expect(doc).toContain('- Build the container image when Docker is available.');
+  });
+
+  it('missing readiness endpoint: reuse first, smallest route second, no Dockerfile HEALTHCHECK', () => {
+    const healthFinding: ReadinessFinding = {
+      id: 'health-check',
+      category: 'health',
+      title: 'Give Deployz a way to check your app',
+      severity: 'required',
+      blocking: false,
+      plainEnglishExplanation: 'Deployz needs a reliable way to know when your app is running and ready.',
+      whyItMatters: 'Deployz waits for a health signal during deployments.',
+      technicalEvidence: 'No health endpoint or container health check was found.',
+      suggestedOutcome: 'Expose a lightweight route that returns success once the app is ready.',
+      confidence: 'likely',
+    };
+    const doc = assembleFixInstructions(
+      { ...baseContext, facts: noDbFacts, findings: [healthFinding] },
+      emptyAi,
+    );
+    expect(doc).toContain('**Readiness endpoint missing**');
+    expect(doc).toContain('reuse a suitable one instead of adding a new route');
+    expect(doc).toContain('no redirect, no auth, no expensive work');
+    expect(doc).toContain('A Dockerfile HEALTHCHECK instruction is not required');
+    expect(doc).toContain('confirm a direct HTTP 2xx response with no redirect');
+  });
+
+  it('existing valid Dockerfile: treated as evidence, referenced by name', () => {
+    const startFinding: ReadinessFinding = {
+      id: 'start-command-missing',
+      category: 'container',
+      title: 'Tell Deployz how to start your app',
+      severity: 'required',
+      blocking: false,
+      plainEnglishExplanation: 'Deployz found container instructions but no command that starts the app.',
+      whyItMatters: 'Without a start command the container exits immediately.',
+      technicalEvidence: 'The Dockerfile has no CMD or ENTRYPOINT instruction.',
+      suggestedOutcome: 'Add a CMD or ENTRYPOINT instruction to the Dockerfile.',
+      confidence: 'confirmed',
+    };
+    const doc = assembleFixInstructions(
+      {
+        ...baseContext,
+        facts: { ...postgresFacts, dockerfilePath: 'Dockerfile' },
+        findings: [startFinding],
+      },
+      emptyAi,
+    );
+    expect(doc).toContain('- Container build file: Dockerfile');
+    expect(doc).toContain('Add a CMD or ENTRYPOINT to Dockerfile');
+    expect(doc).toContain('(`node dist/index.js`)');
+  });
+
+  it('existing health endpoint: validation reuses the configured path', () => {
+    const healthFinding: ReadinessFinding = {
+      id: 'health-check',
+      category: 'health',
+      title: 'Give Deployz a way to check your app',
+      severity: 'required',
+      blocking: false,
+      plainEnglishExplanation: 'Deployz needs a reliable way to know when your app is running and ready.',
+      whyItMatters: 'Deployz waits for a health signal during deployments.',
+      technicalEvidence: 'No health endpoint or container health check was found.',
+      suggestedOutcome: 'Expose a lightweight route that returns success once the app is ready.',
+      confidence: 'likely',
+    };
+    const doc = assembleFixInstructions(
+      {
+        ...baseContext,
+        facts: { ...noDbFacts, healthPath: '/api/status' },
+        findings: [healthFinding],
+      },
+      emptyAi,
+    );
+    expect(doc).toContain('- Configured health path: /api/status');
+    expect(doc).toContain('(`/api/status`)');
+  });
+
+  it('monorepo workspace: build context and application directory render', () => {
+    const doc = assembleFixInstructions(
+      {
+        ...baseContext,
+        facts: { ...postgresFacts, workingDirectory: 'apps/web' },
+        findings: [containerFinding],
+      },
+      emptyAi,
+    );
+    expect(doc).toContain('- Application directory (workspace): apps/web');
+    expect(doc).toContain('with `apps/web` as the build context');
+  });
+
+  it('build-time and runtime env requirements render separately with platform-provided names', () => {
+    const doc = assembleFixInstructions(
+      {
+        ...baseContext,
+        facts: {
+          ...postgresFacts,
+          envRequirements: {
+            buildTime: ['NPM_TOKEN'],
+            runtime: ['STRIPE_SECRET_KEY'],
+            platformInjected: ['DATABASE_URL', 'PORT'],
+          },
+        },
+        findings: [containerFinding],
+      },
+      emptyAi,
+    );
+    expect(doc).toContain('- Required at build time (names only): NPM_TOKEN');
+    expect(doc).toContain('- Required at runtime (names only): STRIPE_SECRET_KEY');
+    expect(doc).toContain('- Provided by the platform at runtime (names only): DATABASE_URL, PORT');
+  });
+
+  it('env requirements stay out when no packaging blocker justifies them', () => {
+    const healthFinding: ReadinessFinding = {
+      id: 'health-check',
+      category: 'health',
+      title: 'Give Deployz a way to check your app',
+      severity: 'required',
+      blocking: false,
+      plainEnglishExplanation: 'Deployz needs a reliable way to know when your app is running and ready.',
+      whyItMatters: 'Deployz waits for a health signal during deployments.',
+      technicalEvidence: 'No health endpoint or container health check was found.',
+      suggestedOutcome: 'Expose a lightweight route that returns success once the app is ready.',
+      confidence: 'likely',
+    };
+    const doc = assembleFixInstructions(
+      {
+        ...baseContext,
+        facts: {
+          ...noDbFacts,
+          envRequirements: { buildTime: ['NPM_TOKEN'], runtime: ['STRIPE_SECRET_KEY'], platformInjected: [] },
+        },
+        findings: [healthFinding],
+      },
+      emptyAi,
+    );
+    expect(doc).not.toContain('NPM_TOKEN');
+    expect(doc).not.toContain('STRIPE_SECRET_KEY');
+  });
+
+  it('ambiguous blockers instruct the agent to report instead of guess', () => {
+    const doc = assembleFixInstructions(
+      {
+        ...baseContext,
+        findings: [{ ...migrationFinding, confidence: 'needs_confirmation' }],
+      },
+      emptyAi,
+    );
+    expect(doc).toContain('confirm this applies before changing anything');
+    expect(doc).toContain('report the ambiguity instead of guessing');
   });
 });
 
@@ -210,7 +536,7 @@ describe('generateFixInstructions', () => {
     const doc = await generateFixInstructions(baseContext, gateway);
 
     expect(doc).toContain(FIX_INSTRUCTIONS_GUARDRAIL);
-    expect(doc).toContain('Implementation guidance: Add a Dockerfile that builds and runs the app.');
+    expect(doc).toContain('Add a Dockerfile that builds and runs the app.');
     expect(seenOptions?.label).toBe('fix-instructions');
     expect(seenOptions?.maxOutputTokens).toBe(FIX_INSTRUCTIONS_MAX_OUTPUT_TOKENS);
     expect(seenOptions?.reasoning).toBe(false);

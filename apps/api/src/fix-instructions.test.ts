@@ -205,6 +205,30 @@ describe('fix-instructions — buildFixInstructionsContext', () => {
     expect(context!.facts.dockerfilePath).toBe('Dockerfile');
     expect(context!.facts.workingDirectory).toBe('apps/api');
   });
+
+  it('summarises env requirements from the env-var model (names only, split by phase)', () => {
+    const app = source({
+      detectedMetadata: {
+        readiness: report(),
+        envVarModel: [
+          { key: 'NPM_TOKEN', required: true, source: ['Dockerfile declares NPM_TOKEN'] },
+          { key: 'STRIPE_SECRET_KEY', required: true, source: ['read in src/billing.ts'] },
+          { key: 'DATABASE_URL', required: true, source: ['read in src/db.ts'], classification: 'deployz_managed' },
+        ],
+      },
+    });
+
+    expect(buildFixInstructionsContext(app)!.facts.envRequirements).toEqual({
+      buildTime: ['NPM_TOKEN'],
+      runtime: ['STRIPE_SECRET_KEY'],
+      platformInjected: ['DATABASE_URL'],
+    });
+  });
+
+  it('envRequirements is null when the row carries no env-var model', () => {
+    const context = buildFixInstructionsContext(source({ detectedMetadata: { readiness: report() } }));
+    expect(context!.facts.envRequirements).toBeNull();
+  });
 });
 
 describe('fix-instructions — createFixtureAiGateway', () => {

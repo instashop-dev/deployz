@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 
 import {
   reconcileReadiness,
+  summariseEnvRequirements,
   type FixInstructionsContext,
   type ReadinessFinding,
   type ReadinessReport,
@@ -142,6 +143,7 @@ export function buildFixInstructionsContext(
       healthPath: application.healthPath,
       redisRequired: application.redisRequired || redis?.required === true,
       workingDirectory: asString(metadata?.['workingDirectory']),
+      envRequirements: summariseEnvRequirements(metadata?.['envVarModel']),
     },
     findings: report.findings as ReadinessFinding[],
   };

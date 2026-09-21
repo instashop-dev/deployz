@@ -110,12 +110,17 @@ gate must enforce it — the matching check in `manifest.ts` /
 
 ## Fix instructions
 
-`POST /api/applications/:id/fix-instructions` builds a deterministic
-document (facts, per-finding Problem / Why this matters / Detected /
-Desired outcome / Confidence, guardrails, validation, completion report)
-around AI guidance per finding. The document is cached on the row keyed by
-commit, analysis version, facts and findings; `{regenerate: true}`
-bypasses. A resolved finding never reaches the document.
+`POST /api/applications/:id/fix-instructions` builds a deterministic prompt
+for the vendor's own coding agent, structured as: repository facts (only
+those the included blockers justify), blocking issues (accurate names plus
+evidence), required outcome, implementation guidance (deterministic
+per-blocker steps plus AI guidance), validation (only applicable checks),
+and a completion report. Informational findings that need no action are
+filtered out. `summariseEnvRequirements` splits the env-var model into
+build-time, runtime, and platform-injected names — never values. The
+document is cached on the row keyed by commit, analysis version, facts and
+findings; `{regenerate: true}` bypasses. A resolved finding never reaches
+the document.
 
 ## Environment variables
 
