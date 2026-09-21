@@ -1,12 +1,13 @@
 'use client';
 
-import { Copy, Eye, Info, MoreHorizontal, Pencil, Search, Trash2 } from 'lucide-react';
+import { Copy, Eye, MoreHorizontal, Pencil, Trash2 } from 'lucide-react';
 import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
 
 import { copyInstallLink } from '@/components/copy-install-link';
 import { DeleteCustomerDialog } from '@/components/delete-customer-dialog';
 import { EditCustomerDialog } from '@/components/edit-customer-dialog';
+import { ListLoadingState, ListSearchInput, NoMatchesState, SortableHead } from '@/components/list-controls';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -17,9 +18,13 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { Input } from '@/components/ui/input';
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { Skeleton } from '@/components/ui/skeleton';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import {
   Table,
   TableBody,
@@ -29,27 +34,40 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import {
-  customerDeployment,
+  CUSTOMER_SORT_NATURAL,
+  CUSTOMER_STATE_FILTERS,
+  CUSTOMER_STATE_FILTER_LABELS,
+  DEFAULT_CUSTOMER_SORT,
+  customerListRow,
   deploymentsByCustomer,
   fetchCustomers,
+  filterCustomerRows,
   formatDate,
+  hasActiveCustomerFilters,
   installLinkDeployment,
   installLinkUrl,
-  matchesCustomerSearch,
+  parseCustomerQuery,
   singleDeploymentDestination,
+  sortCustomerRows,
   type Customer,
   type CustomerDeployment,
+  type CustomerListRow,
+  type CustomerSortKey,
 } from '@/lib/customers';
+import { CUSTOMER_BUCKET_BADGE } from '@/lib/deployment-status-groups';
 import { fetchDeployments, type FleetDeployment } from '@/lib/deployments';
 import { relativeTime } from '@/lib/diagnostics';
+import { formatDateTime, nextSort, sortParams, type SortState } from '@/lib/list-view';
+import { useListParams } from '@/lib/use-list-params';
 
-// The Customers screen answers three questions per row: who is this customer,
-// have they deployed, and what should I do next. Identity lives in one column
-// so the answer to the second question gets the room it needs; the deployment
-// column is a rollup of the customer's §46 states (lib/customers), never a raw
-// AWS status. Search is client-side over the same rows the table already has —
-// the fleet a vendor manages is small, and a round trip per keystroke would
-// make the screen feel slower, not faster.
+// The Customers screen answers: who are my customers, and which relationships
+// need attention? One row per customer. The deployment column is a
+// customer-level summary counted from that customer's deployments
+// (lib/deployment-status-groups) — never one deployment's status standing in
+// for the rest, and never a raw AWS status. Search, filters and sorting are
+// client-side over the rows the table already has — the fleet a vendor manages
+// is small, and a round trip per keystroke would make the screen feel slower,
+// not faster — and live in the URL so Back restores the view.
 
 type LoadState =
   | { status: 'loading' }
@@ -60,9 +78,10 @@ export default function CustomersPage() {
   const [state, setState] = useState<LoadState>({ status: 'loading' });
   const [attempt, setAttempt] = useState(0);
   const [retrying, setRetrying] = useState(false);
-  const [search, setSearch] = useState('');
   const [editing, setEditing] = useState<Customer | null>(null);
   const [deleting, setDeleting] = useState<Customer | null>(null);
+  const { params, setParams } = useListParams();
+  const parsed = useMemo(() => parseCustomerQuery(params), [params]);
 
   useEffect(() => {
     let cancelled = false;
@@ -93,22 +112,43 @@ export default function CustomersPage() {
     };
   }, [attempt]);
 
-  const customers = state.status === 'loaded' ? state.customers : [];
-  const grouped = useMemo(
-    () => deploymentsByCustomer(state.status === 'loaded' ? state.deployments : []),
-    [state],
+  const customers = useMemo(() => (state.status === 'loaded' ? state.customers : []), [state]);
+  const allRows = useMemo(() => {
+    const grouped = deploymentsByCustomer(state.status === 'loaded' ? state.deployments : []);
+    return customers.map((customer) => customerListRow(customer, grouped.get(customer.id) ?? []));
+  }, [state, customers]);
+
+  const applications = useMemo(
+    () => [...new Set(allRows.flatMap((row) => row.applications))].sort(),
+    [allRows],
+  );
+
+  // A link naming an application this fleet no longer has would filter to
+  // nothing behind a blank select, so it is treated as "all".
+  const query = useMemo(
+    () => ({
+      ...parsed,
+      application:
+        parsed.application !== null && applications.includes(parsed.application)
+          ? parsed.application
+          : null,
+    }),
+    [parsed, applications],
   );
 
   const rows = useMemo(
-    () =>
-      customers
-        .filter((customer) => matchesCustomerSearch(customer, search))
-        .map((customer) => ({
-          customer,
-          rollup: customerDeployment(grouped.get(customer.id) ?? []),
-        })),
-    [customers, grouped, search],
+    () => sortCustomerRows(filterCustomerRows(allRows, query), query.sort),
+    [allRows, query],
   );
+  const filtersActive = hasActiveCustomerFilters(query);
+
+  function clearFilters(): void {
+    setParams({ q: null, state: null, application: null });
+  }
+
+  function onSort(key: CustomerSortKey): void {
+    setParams(sortParams(nextSort(query.sort, key, CUSTOMER_SORT_NATURAL), DEFAULT_CUSTOMER_SORT));
+  }
 
   function applySaved(saved: Customer): void {
     setState((current) =>
@@ -140,7 +180,7 @@ export default function CustomersPage() {
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Customers</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            Manage customers and their private deployments.
+            Manage customers who deploy your applications.
           </p>
         </div>
         {state.status === 'loaded' && customers.length === 0 ? null : (
@@ -150,7 +190,7 @@ export default function CustomersPage() {
         )}
       </div>
 
-      {state.status === 'loading' ? <LoadingState /> : null}
+      {state.status === 'loading' ? <ListLoadingState testId="customers-loading" /> : null}
       {state.status === 'error' ? (
         <ErrorState
           message={state.message}
@@ -167,31 +207,67 @@ export default function CustomersPage() {
           <EmptyState />
         ) : (
           <>
-            <div className="flex flex-wrap items-center gap-3">
-              <div className="relative">
-                <Search
-                  className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
-                  aria-hidden
-                />
-                <Input
-                  value={search}
-                  onChange={(event) => setSearch(event.target.value)}
-                  placeholder="Search customers..."
-                  aria-label="Search customers"
-                  className="w-full pl-8 sm:w-64"
-                />
-              </div>
-              <p className="text-sm text-muted-foreground" data-testid="customer-count">
+            <div className="flex flex-wrap items-center gap-2">
+              <ListSearchInput
+                value={query.search}
+                onCommit={(value) => setParams({ q: value })}
+                placeholder="Search customers"
+                label="Search customers"
+              />
+              <Select
+                value={query.state ?? 'all'}
+                onValueChange={(value) => setParams({ state: value === 'all' ? null : value })}
+              >
+                <SelectTrigger aria-label="Filter by deployment state" className="w-full sm:w-52">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All deployment states</SelectItem>
+                  {CUSTOMER_STATE_FILTERS.map((filter) => (
+                    <SelectItem key={filter} value={filter}>
+                      {CUSTOMER_STATE_FILTER_LABELS[filter]}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {applications.length > 1 ? (
+                <Select
+                  value={query.application ?? 'all'}
+                  onValueChange={(value) =>
+                    setParams({ application: value === 'all' ? null : value })
+                  }
+                >
+                  <SelectTrigger aria-label="Filter by application" className="w-full sm:w-44">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All applications</SelectItem>
+                    {applications.map((name) => (
+                      <SelectItem key={name} value={name}>
+                        {name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              ) : null}
+              {filtersActive ? (
+                <Button variant="ghost" size="sm" onClick={clearFilters}>
+                  Clear filters
+                </Button>
+              ) : null}
+              <p className="text-sm text-muted-foreground sm:ml-auto" data-testid="customer-count">
                 {rows.length} of {customers.length}{' '}
                 {customers.length === 1 ? 'customer' : 'customers'}
               </p>
             </div>
 
             {rows.length === 0 ? (
-              <SearchEmptyState />
+              <NoMatchesState heading="No customers match these filters." onClear={clearFilters} />
             ) : (
               <CustomerTable
                 rows={rows}
+                activeSort={query.sort}
+                onSort={onSort}
                 onEdit={setEditing}
                 onDelete={setDeleting}
               />
@@ -220,116 +296,139 @@ export default function CustomersPage() {
   );
 }
 
-interface CustomerRow {
-  customer: Customer;
-  rollup: CustomerDeployment;
-}
-
 function CustomerTable({
   rows,
+  activeSort,
+  onSort,
   onEdit,
   onDelete,
 }: {
-  rows: CustomerRow[];
+  rows: CustomerListRow[];
+  activeSort: SortState<CustomerSortKey>;
+  onSort: (key: CustomerSortKey) => void;
   onEdit: (customer: Customer) => void;
   onDelete: (customer: Customer) => void;
 }) {
+  const direction = (key: CustomerSortKey) => (activeSort.key === key ? activeSort.dir : null);
   return (
-    <Card className="py-0">
+    // A container query, not a viewport one: the sidebar takes 256px at
+    // tablet widths, so the table's own width says how many columns fit.
+    <Card className="@container py-0">
       <CardContent className="overflow-x-auto p-0">
         <Table data-testid="customer-list">
           <TableHeader>
             <TableRow>
-              <TableHead>Customer</TableHead>
-              <TableHead>Deployment</TableHead>
-              <TableHead>Last activity</TableHead>
-              {/* Created is the first thing to go when the screen narrows —
+              <SortableHead label="Customer" direction={direction('customer')} onSort={() => onSort('customer')} />
+              <TableHead className="hidden @4xl:table-cell">Applications</TableHead>
+              <TableHead>Deployment summary</TableHead>
+              <SortableHead
+                label="Last activity"
+                direction={direction('activity')}
+                onSort={() => onSort('activity')}
+                className="hidden @2xl:table-cell"
+              />
+              {/* Created is the first thing to go when the table narrows —
                   it is the least useful column for deciding what to do next. */}
-              <TableHead className="hidden lg:table-cell">Created</TableHead>
+              <SortableHead
+                label="Created"
+                direction={direction('created')}
+                onSort={() => onSort('created')}
+                className="hidden @4xl:table-cell"
+              />
               <TableHead>
                 <span className="sr-only">Actions</span>
               </TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
-            {rows.map(({ customer, rollup }) => (
-              <TableRow key={customer.id}>
-                <TableCell>
-                  <div className="flex items-center gap-1.5">
-                    <Link
-                      href={`/dashboard/customers/${customer.id}`}
-                      className="font-medium hover:underline"
-                    >
-                      {customer.name}
-                    </Link>
-                    <Popover>
-                      <PopoverTrigger asChild>
-                        <Button
-                          variant="ghost"
-                          size="icon-xs"
-                          aria-label={`Contact details for ${customer.name}`}
-                          className="text-muted-foreground"
-                        >
-                          <Info aria-hidden />
-                        </Button>
-                      </PopoverTrigger>
-                      <PopoverContent align="start" className="w-64">
-                        <p className="text-sm text-muted-foreground">{customer.email}</p>
-                        {customer.company ? (
-                          <p className="mt-1 text-sm text-muted-foreground">{customer.company}</p>
-                        ) : null}
-                      </PopoverContent>
-                    </Popover>
-                  </div>
-                </TableCell>
-                <TableCell>
-                  <div className="flex items-center gap-1.5">
-                    <Badge variant={rollup.badge}>{rollup.label}</Badge>
-                    {rollup.deployment ? (
-                      <Popover>
-                        <PopoverTrigger asChild>
-                          <Button
-                            variant="ghost"
-                            size="icon-xs"
-                            aria-label={`Deployment details for ${customer.name}`}
-                            className="text-muted-foreground"
-                          >
-                            <Info aria-hidden />
-                          </Button>
-                        </PopoverTrigger>
-                        <PopoverContent align="start" className="w-64">
-                          <p className="text-sm text-muted-foreground">
-                            {rollup.deployment.applicationName}
-                          </p>
-                        </PopoverContent>
-                      </Popover>
-                    ) : null}
-                  </div>
-                </TableCell>
-                <TableCell className="whitespace-nowrap text-muted-foreground">
-                  {/* data-testid: masked in visual regression — relative time
-                      drifts with the clock. */}
-                  <span className="text-sm" data-testid="customer-activity">
-                    {relativeTime(rollup.lastActivityAt) ?? '—'}
-                  </span>
-                </TableCell>
-                <TableCell className="hidden text-sm text-muted-foreground lg:table-cell">
-                  {formatDate(customer.createdAt)}
-                </TableCell>
-                <TableCell className="w-10">
-                  <RowActions
-                    customer={customer}
-                    rollup={rollup}
-                    onEdit={onEdit}
-                    onDelete={onDelete}
-                  />
-                </TableCell>
-              </TableRow>
+            {rows.map((row) => (
+              <CustomerRow key={row.customer.id} row={row} onEdit={onEdit} onDelete={onDelete} />
             ))}
           </TableBody>
         </Table>
       </CardContent>
     </Card>
+  );
+}
+
+function CustomerRow({
+  row,
+  onEdit,
+  onDelete,
+}: {
+  row: CustomerListRow;
+  onEdit: (customer: Customer) => void;
+  onDelete: (customer: Customer) => void;
+}) {
+  const { customer, summary, applications, rollup, lastActivityAt } = row;
+  return (
+    <TableRow>
+      <TableCell>
+        <Link
+          href={`/dashboard/customers/${customer.id}`}
+          title={customer.name}
+          className="block max-w-28 truncate font-medium hover:underline @sm:max-w-56"
+        >
+          {customer.name}
+        </Link>
+        <p
+          className="max-w-28 truncate text-xs text-muted-foreground @sm:max-w-56"
+          title={customer.company ? `${customer.email} · ${customer.company}` : customer.email}
+        >
+          {customer.email}
+        </p>
+      </TableCell>
+      <TableCell className="hidden @4xl:table-cell">
+        <ApplicationsCell names={applications} />
+      </TableCell>
+      <TableCell>
+        <div className="flex flex-wrap items-center gap-1.5" data-testid="customer-summary">
+          {summary.parts.map((part) => (
+            <Badge key={part.text} variant={CUSTOMER_BUCKET_BADGE[part.bucket]}>
+              {part.text}
+            </Badge>
+          ))}
+        </div>
+        {/* Last activity is a column only when the table is wide enough. */}
+        <p className="mt-1 text-xs text-muted-foreground @2xl:hidden" data-testid="customer-activity">
+          {relativeTime(lastActivityAt) ?? '—'}
+        </p>
+      </TableCell>
+      <TableCell className="hidden whitespace-nowrap text-muted-foreground @2xl:table-cell">
+        {/* data-testid: masked in visual regression — relative time drifts
+            with the clock. */}
+        <time dateTime={lastActivityAt} title={formatDateTime(lastActivityAt)} data-testid="customer-activity">
+          {relativeTime(lastActivityAt) ?? '—'}
+        </time>
+      </TableCell>
+      <TableCell className="hidden whitespace-nowrap text-muted-foreground @4xl:table-cell">
+        {formatDate(customer.createdAt)}
+      </TableCell>
+      <TableCell className="w-10">
+        <RowActions customer={customer} rollup={rollup} onEdit={onEdit} onDelete={onDelete} />
+      </TableCell>
+    </TableRow>
+  );
+}
+
+// The first application by name, then a "+N" for the rest — the full list is
+// in the tooltip and read out for screen readers, so a customer on many
+// applications never widens the row.
+function ApplicationsCell({ names }: { names: string[] }) {
+  const [first, ...rest] = names;
+  if (first === undefined) return <span className="text-muted-foreground">—</span>;
+  return (
+    <div className="flex items-center gap-1.5 text-muted-foreground">
+      <span className="max-w-40 truncate" title={names.join(', ')}>
+        {first}
+      </span>
+      {rest.length > 0 ? (
+        <Badge variant="secondary" title={names.join(', ')}>
+          +{rest.length}
+          <span className="sr-only"> more: {rest.join(', ')}</span>
+        </Badge>
+      ) : null}
+    </div>
   );
 }
 
@@ -398,15 +497,6 @@ function RowActions({
   );
 }
 
-function LoadingState() {
-  return (
-    <div className="flex flex-col gap-3" data-testid="customers-loading" aria-busy="true">
-      <Skeleton className="h-10 w-64 rounded-lg" />
-      <Skeleton className="h-64 w-full rounded-xl" />
-    </div>
-  );
-}
-
 function ErrorState({
   message,
   retrying,
@@ -448,19 +538,6 @@ function EmptyState() {
       <Button asChild>
         <Link href="/dashboard/deployments/new">Create deployment</Link>
       </Button>
-    </section>
-  );
-}
-
-function SearchEmptyState() {
-  return (
-    <section
-      aria-labelledby="customers-no-results"
-      className="flex flex-col items-center gap-2 rounded-xl border border-dashed px-6 py-12 text-center"
-    >
-      <h2 id="customers-no-results" className="text-sm font-medium">
-        No customers match your search.
-      </h2>
     </section>
   );
 }

@@ -367,7 +367,7 @@ test.describe('dashboard visual regression', () => {
     await page.goto('/dashboard');
     await expect(page.getByRole('heading', { name: 'Get your first customer deployed' })).toBeVisible();
     await expect(page).toHaveScreenshot('home-setup.png', {
-      mask: [page.getByTestId('org-name'), page.getByTestId('status-updated')],
+      mask: [page.getByTestId('org-name'), page.getByTestId('deployment-updated'), page.getByTestId('customer-activity')],
     });
   });
 
@@ -393,7 +393,7 @@ test.describe('dashboard visual regression', () => {
     await page.goto('/dashboard');
     await expect(page.getByTestId('fleet-summary')).toBeVisible();
     await expect(page).toHaveScreenshot('home-operational.png', {
-      mask: [page.getByTestId('org-name'), page.getByTestId('status-updated')],
+      mask: [page.getByTestId('org-name'), page.getByTestId('deployment-updated'), page.getByTestId('customer-activity')],
     });
   });
 
@@ -414,7 +414,7 @@ test.describe('dashboard visual regression', () => {
     await page.goto('/dashboard');
     await expect(page.getByTestId('fleet-summary')).toContainText('Needs attention');
     await expect(page).toHaveScreenshot('home-attention.png', {
-      mask: [page.getByTestId('org-name'), page.getByTestId('status-updated')],
+      mask: [page.getByTestId('org-name'), page.getByTestId('deployment-updated'), page.getByTestId('customer-activity')],
     });
   });
 
@@ -442,7 +442,7 @@ test.describe('dashboard visual regression', () => {
     await page.goto('/dashboard/deployments');
     await expect(page.getByTestId('deployment-list')).toBeVisible();
     await expect(page).toHaveScreenshot('deployments-list.png', {
-      mask: [page.getByTestId('org-name'), page.getByTestId('status-updated')],
+      mask: [page.getByTestId('org-name'), page.getByTestId('deployment-updated'), page.getByTestId('customer-activity')],
     });
   });
 
@@ -459,7 +459,7 @@ test.describe('dashboard visual regression', () => {
       await page.goto(`/dashboard/deployments/${detail.id}`);
       await expect(page.getByRole('heading', { name: 'Documenso' })).toBeVisible();
       await expect(page).toHaveScreenshot(`detail-${name}.png`, {
-        mask: [page.getByTestId('org-name'), page.getByTestId('status-updated')],
+        mask: [page.getByTestId('org-name'), page.getByTestId('deployment-updated'), page.getByTestId('customer-activity')],
       });
     });
   }
@@ -479,7 +479,7 @@ test.describe('dashboard visual regression', () => {
     await page.goto('/dashboard');
     await expect(page.getByTestId('fleet-summary')).toBeVisible();
     await expect(page).toHaveScreenshot('home-operational-mobile.png', {
-      mask: [page.getByTestId('org-name'), page.getByTestId('status-updated')],
+      mask: [page.getByTestId('org-name'), page.getByTestId('deployment-updated'), page.getByTestId('customer-activity')],
     });
   });
 });

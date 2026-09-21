@@ -1,11 +1,10 @@
 'use client';
 
-import { Eye, Info, MoreHorizontal, Search, Stethoscope } from 'lucide-react';
+import { Eye, Info, MoreHorizontal, Stethoscope } from 'lucide-react';
 import Link from 'next/link';
-import { useRouter, useSearchParams } from 'next/navigation';
 import { useEffect, useMemo, useState } from 'react';
 
-import { DeploymentStatusBadge } from '@/components/deployment-status-badge';
+import { ListLoadingState, ListSearchInput, NoMatchesState, SortableHead } from '@/components/list-controls';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -15,7 +14,6 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { Input } from '@/components/ui/input';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import {
   Select,
@@ -24,7 +22,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { Skeleton } from '@/components/ui/skeleton';
 import {
   Table,
   TableBody,
@@ -36,11 +33,27 @@ import {
 import type { VendorDeploymentStatus } from '@deployz/contracts';
 
 import { isTestDeployment } from '@/lib/deployment-billing';
-import { fetchDeployments, listedUnderStatus, type FleetDeployment } from '@/lib/deployments';
-import { DEPLOYMENT_STATES, deploymentStateLabel } from '@/lib/deployment-vocabulary';
+import {
+  DEFAULT_DEPLOYMENT_SORT,
+  DEPLOYMENT_SORT_NATURAL,
+  deploymentUpdatedAt,
+  filterDeployments,
+  hasActiveFilters,
+  parseDeploymentQuery,
+  sortDeployments,
+  type DeploymentSortKey,
+} from '@/lib/deployment-list';
 import { STAGE_LABEL, STEP_LABEL, removedProgress } from '@/lib/deployment-progress';
+import {
+  STATUS_FILTER_GROUPS,
+  STATUS_GROUP_LABELS,
+  deploymentDisplayStatus,
+} from '@/lib/deployment-status-groups';
+import { fetchDeployments, type FleetDeployment } from '@/lib/deployments';
 import { relativeTime } from '@/lib/diagnostics';
-import { attentionReason } from '@/lib/home-state';
+import { formatDateTime, nextSort, sortParams, type SortState } from '@/lib/list-view';
+import { regionName, regionOptionLabel } from '@/lib/regions';
+import { useListParams } from '@/lib/use-list-params';
 import { useStatusPoll } from '@/lib/use-status-poll';
 
 type LoadState =
@@ -48,24 +61,6 @@ type LoadState =
   | { status: 'error'; message: string }
   | { status: 'empty' }
   | { status: 'loaded'; deployments: FleetDeployment[] };
-
-// Status filter values: the §46 states plus "attention", the homepage's
-// needs-attention classification, so both views speak about the same fleet
-// the same way.
-type StatusFilter = (typeof DEPLOYMENT_STATES)[number] | 'attention';
-
-const STATUS_FILTER_OPTIONS: { value: StatusFilter; label: string }[] = [
-  { value: 'attention', label: 'Needs attention' },
-  ...DEPLOYMENT_STATES.map((state) => ({
-    value: state as StatusFilter,
-    label: state === 'DELETED' ? 'Removed' : deploymentStateLabel(state),
-  })),
-];
-
-function matchesStatus(deployment: FleetDeployment, filter: StatusFilter): boolean {
-  if (filter === 'attention') return attentionReason(deployment) !== null;
-  return listedUnderStatus(deployment, filter);
-}
 
 /** True once a deployment's derived stage can no longer advance on its own —
  *  the list slows its poll cadence the same way the detail page does. */
@@ -86,22 +81,20 @@ function progressDetail(status: VendorDeploymentStatus): string {
   return status.currentActivity;
 }
 
-// The fleet dashboard — the vendor's primary recurring-value view. Customer /
-// Application / Version / Region / Status with client-side search and filters
-// persisted in the URL (e.g. /dashboard/deployments?status=attention), all
-// derived from data the list already carries. §46 vocabulary only; bulk deploy
-// is not MVP scope, so the list carries no selection controls.
+// The fleet dashboard — the vendor's primary recurring-value view: what is
+// happening in each customer's environment. Customer / Application / Version /
+// Region / Status / Updated, with client-side search, filters and sorting kept
+// in the URL (e.g. /dashboard/deployments?status=attention&sort=updated), all
+// derived from data the list already carries. Statuses come from
+// lib/deployment-status-groups, the same classification the Customers list
+// summarises; bulk deploy is not MVP scope, so the list carries no selection
+// controls.
 export default function DeploymentsPage() {
   const [state, setState] = useState<LoadState>({ status: 'loading' });
   const [attempt, setAttempt] = useState(0);
   const [retrying, setRetrying] = useState(false);
-  const router = useRouter();
-  const searchParams = useSearchParams();
-
-  const search = searchParams.get('q') ?? '';
-  const status = searchParams.get('status') ?? 'all';
-  const application = searchParams.get('application') ?? 'all';
-  const region = searchParams.get('region') ?? 'all';
+  const { params, setParams } = useListParams();
+  const parsed = useMemo(() => parseDeploymentQuery(params), [params]);
 
   useEffect(() => {
     let cancelled = false;
@@ -151,17 +144,10 @@ export default function DeploymentsPage() {
     );
   }, [poll.data]);
 
-  function setFilter(key: string, value: string): void {
-    const params = new URLSearchParams(searchParams.toString());
-    if (value === 'all' || value === '') params.delete(key);
-    else params.set(key, value);
-    const query = params.toString();
-    router.replace(query ? `/dashboard/deployments?${query}` : '/dashboard/deployments', {
-      scroll: false,
-    });
-  }
-
-  const deployments = state.status === 'loaded' ? state.deployments : [];
+  const deployments = useMemo(
+    () => (state.status === 'loaded' ? state.deployments : []),
+    [state],
+  );
 
   const applications = useMemo(
     () => [...new Set(deployments.map((deployment) => deployment.applicationName))].sort(),
@@ -172,24 +158,35 @@ export default function DeploymentsPage() {
     [deployments],
   );
 
-  const filtered = useMemo(() => {
-    if (state.status !== 'loaded') return [];
-    const needle = search.trim().toLowerCase();
-    return deployments.filter((deployment) => {
-      if (!matchesStatus(deployment, status as StatusFilter)) return false;
-      if (application !== 'all' && deployment.applicationName !== application) return false;
-      if (region !== 'all' && deployment.region !== region) return false;
-      if (needle !== '') {
-        const haystack =
-          `${deployment.customerName} ${deployment.applicationName} ${deployment.version ?? ''}`.toLowerCase();
-        if (!haystack.includes(needle)) return false;
-      }
-      return true;
-    });
-  }, [state, deployments, search, status, application, region]);
+  // A link naming an application or region this fleet no longer has would
+  // filter to nothing behind a blank select, so it is treated as "all".
+  const query = useMemo(
+    () => ({
+      ...parsed,
+      application:
+        parsed.application !== null && applications.includes(parsed.application)
+          ? parsed.application
+          : null,
+      region: parsed.region !== null && regions.includes(parsed.region) ? parsed.region : null,
+    }),
+    [parsed, applications, regions],
+  );
 
-  const hasFilters = search !== '' || status !== 'all' || application !== 'all' || region !== 'all';
+  const rows = useMemo(
+    () => sortDeployments(filterDeployments(deployments, query), query.sort),
+    [deployments, query],
+  );
+
+  const filtersActive = hasActiveFilters(query);
   const removedCount = deployments.filter((deployment) => deployment.state === 'DELETED').length;
+
+  function clearFilters(): void {
+    setParams({ q: null, status: null, application: null, region: null });
+  }
+
+  function onSort(key: DeploymentSortKey): void {
+    setParams(sortParams(nextSort(query.sort, key, DEPLOYMENT_SORT_NATURAL), DEFAULT_DEPLOYMENT_SORT));
+  }
 
   return (
     <div className="flex flex-col gap-6">
@@ -197,7 +194,7 @@ export default function DeploymentsPage() {
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Deployments</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            Every customer installation of your app, in one place.
+            Monitor every customer deployment and its health.
           </p>
         </div>
         {/* The empty state owns the sole call to action; a header copy of it
@@ -209,7 +206,7 @@ export default function DeploymentsPage() {
         )}
       </div>
 
-      {state.status === 'loading' ? <LoadingState /> : null}
+      {state.status === 'loading' ? <ListLoadingState testId="deployments-loading" /> : null}
       {state.status === 'error' ? (
         <ErrorState
           message={state.message}
@@ -224,38 +221,34 @@ export default function DeploymentsPage() {
       {state.status === 'loaded' ? (
         <>
           <div className="flex flex-wrap items-center gap-2">
-            <div className="relative">
-              <Search
-                className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
-                aria-hidden
-              />
-              <Input
-                value={search}
-                onChange={(event) => setFilter('q', event.target.value)}
-                placeholder="Search customers"
-                aria-label="Search deployments"
-                className="w-full pl-8 sm:w-56"
-              />
-            </div>
-            <Select value={status} onValueChange={(value) => setFilter('status', value)}>
-              <SelectTrigger aria-label="Filter by status" className="w-full sm:w-40">
+            <ListSearchInput
+              value={query.search}
+              onCommit={(value) => setParams({ q: value })}
+              placeholder="Search deployments"
+              label="Search deployments"
+            />
+            <Select
+              value={query.status ?? 'all'}
+              onValueChange={(value) => setParams({ status: value === 'all' ? null : value })}
+            >
+              <SelectTrigger aria-label="Filter by status" className="w-full sm:w-48">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">All statuses</SelectItem>
-                {STATUS_FILTER_OPTIONS.map((option) => (
-                  <SelectItem key={option.value} value={option.value}>
-                    {option.label}
+                {STATUS_FILTER_GROUPS.map((group) => (
+                  <SelectItem key={group} value={group}>
+                    {STATUS_GROUP_LABELS[group]}
                   </SelectItem>
                 ))}
               </SelectContent>
             </Select>
             {applications.length > 1 ? (
               <Select
-                value={application}
-                onValueChange={(value) => setFilter('application', value)}
+                value={query.application ?? 'all'}
+                onValueChange={(value) => setParams({ application: value === 'all' ? null : value })}
               >
-                <SelectTrigger aria-label="Filter by application" className="w-full sm:w-40">
+                <SelectTrigger aria-label="Filter by application" className="w-full sm:w-44">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -269,34 +262,40 @@ export default function DeploymentsPage() {
               </Select>
             ) : null}
             {regions.length > 1 ? (
-              <Select value={region} onValueChange={(value) => setFilter('region', value)}>
-                <SelectTrigger aria-label="Filter by region" className="w-full sm:w-40">
+              <Select
+                value={query.region ?? 'all'}
+                onValueChange={(value) => setParams({ region: value === 'all' ? null : value })}
+              >
+                <SelectTrigger aria-label="Filter by region" className="w-full sm:w-52">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">All regions</SelectItem>
-                  {regions.map((name) => (
-                    <SelectItem key={name} value={name}>
-                      {name}
+                  {regions.map((code) => (
+                    <SelectItem key={code} value={code}>
+                      {regionOptionLabel(code)}
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
             ) : null}
+            {filtersActive ? (
+              <Button variant="ghost" size="sm" onClick={clearFilters}>
+                Clear filters
+              </Button>
+            ) : null}
           </div>
 
-          {filtered.length === 0 ? (
-            hasFilters ? (
-              <p className="px-1 text-sm text-muted-foreground">
-                No deployments match these filters.
-              </p>
+          {rows.length === 0 ? (
+            filtersActive ? (
+              <NoMatchesState heading="No deployments match these filters." onClear={clearFilters} />
             ) : removedCount > 0 ? (
               <p className="px-1 text-sm text-muted-foreground">
                 No active deployments.{' '}
                 <button
                   type="button"
                   className="underline underline-offset-4"
-                  onClick={() => setFilter('status', 'DELETED')}
+                  onClick={() => setParams({ status: 'removed' })}
                 >
                   {removedCount === 1
                     ? '1 removed deployment may still have retained resources.'
@@ -305,20 +304,14 @@ export default function DeploymentsPage() {
               </p>
             ) : null
           ) : (
-            <FleetTable deployments={filtered} />
+            <FleetTable
+              deployments={rows}
+              activeSort={query.sort}
+              onSort={onSort}
+            />
           )}
         </>
       ) : null}
-    </div>
-  );
-}
-
-function LoadingState() {
-  return (
-    <div className="flex flex-col gap-3" data-testid="deployments-loading" aria-busy="true">
-      <Skeleton className="h-24 w-full rounded-xl" />
-      <Skeleton className="h-24 w-full rounded-xl" />
-      <Skeleton className="h-24 w-full rounded-xl" />
     </div>
   );
 }
@@ -376,18 +369,45 @@ function EmptyState() {
   );
 }
 
-function FleetTable({ deployments }: { deployments: FleetDeployment[] }) {
+function FleetTable({
+  deployments,
+  activeSort,
+  onSort,
+}: {
+  deployments: FleetDeployment[];
+  activeSort: SortState<DeploymentSortKey>;
+  onSort: (key: DeploymentSortKey) => void;
+}) {
+  const direction = (key: DeploymentSortKey) => (activeSort.key === key ? activeSort.dir : null);
   return (
-    <Card className="py-0">
+    // A container query, not a viewport one: the sidebar takes 256px at
+    // tablet widths, so the table's own width says how many columns fit.
+    <Card className="@container py-0">
       <CardContent className="overflow-x-auto p-0">
         <Table data-testid="deployment-list">
           <TableHeader>
             <TableRow>
-              <TableHead>Customer</TableHead>
-              <TableHead>Application</TableHead>
-              <TableHead>Version</TableHead>
-              <TableHead>Region</TableHead>
-              <TableHead>Status</TableHead>
+              <SortableHead label="Customer" direction={direction('customer')} onSort={() => onSort('customer')} />
+              <SortableHead
+                label="Application"
+                direction={direction('application')}
+                onSort={() => onSort('application')}
+                className="hidden @4xl:table-cell"
+              />
+              <TableHead className="hidden @4xl:table-cell">Version</TableHead>
+              <SortableHead
+                label="Region"
+                direction={direction('region')}
+                onSort={() => onSort('region')}
+                className="hidden @4xl:table-cell"
+              />
+              <SortableHead label="Status" direction={direction('status')} onSort={() => onSort('status')} />
+              <SortableHead
+                label="Updated"
+                direction={direction('updated')}
+                onSort={() => onSort('updated')}
+                className="hidden @2xl:table-cell"
+              />
               <TableHead>
                 <span className="sr-only">Actions</span>
               </TableHead>
@@ -395,48 +415,7 @@ function FleetTable({ deployments }: { deployments: FleetDeployment[] }) {
           </TableHeader>
           <TableBody>
             {deployments.map((deployment) => (
-              <TableRow key={deployment.id}>
-                <TableCell>
-                  <Link
-                    href={`/dashboard/deployments/${deployment.id}`}
-                    className="font-medium hover:underline"
-                  >
-                    {deployment.customerName}
-                  </Link>
-                  {isTestDeployment(deployment) ? (
-                    <Badge variant="secondary" className="ml-2">
-                      Test · Free
-                    </Badge>
-                  ) : null}
-                </TableCell>
-                <TableCell className="text-muted-foreground">
-                  {deployment.applicationName}
-                </TableCell>
-                <TableCell className="text-muted-foreground tabular-nums">
-                  {deployment.version ?? '—'}
-                </TableCell>
-                <TableCell className="text-muted-foreground">{deployment.region}</TableCell>
-                <TableCell>
-                  <div className="flex items-center gap-1.5">
-                    <DeploymentStatusBadge state={deployment.state} />
-                    {/* Relay connectivity is observed (last check-in), never
-                        inferred from the lifecycle state above. The inline dot
-                        keeps it visible on one line; the accessible text lives
-                        in the details popover. */}
-                    {deployment.relayStatus === 'DISCONNECTED' ? (
-                      <span
-                        role="img"
-                        aria-label="Relay offline"
-                        className="size-2 shrink-0 rounded-full bg-destructive"
-                      />
-                    ) : null}
-                    <StatusDetails deployment={deployment} />
-                  </div>
-                </TableCell>
-                <TableCell className="w-10">
-                  <RowActions deploymentId={deployment.id} />
-                </TableCell>
-              </TableRow>
+              <FleetRow key={deployment.id} deployment={deployment} />
             ))}
           </TableBody>
         </Table>
@@ -445,14 +424,83 @@ function FleetTable({ deployments }: { deployments: FleetDeployment[] }) {
   );
 }
 
-// The status column is one line: the badge (plus an optional relay dot)
-// with a single info affordance for the stage detail, last-updated time and
-// relay state. These used to stack under the badge and made rows uneven.
+function FleetRow({ deployment }: { deployment: FleetDeployment }) {
+  const status = deploymentDisplayStatus(deployment);
+  const region = regionName(deployment.region);
+  const updatedAt = deploymentUpdatedAt(deployment);
+  return (
+    <TableRow>
+      <TableCell>
+        <div className="flex min-w-0 items-center gap-2">
+          <Link
+            href={`/dashboard/deployments/${deployment.id}`}
+            title={deployment.customerName}
+            className="max-w-24 truncate font-medium hover:underline @sm:max-w-48"
+          >
+            {deployment.customerName}
+          </Link>
+          {isTestDeployment(deployment) ? (
+            <Badge variant="secondary" className="shrink-0">
+              Test · Free
+            </Badge>
+          ) : null}
+        </div>
+        {/* Application and Updated are columns only when the table is wide
+            enough; below that they sit beneath the customer instead. */}
+        <p className="max-w-24 truncate text-xs text-muted-foreground @sm:max-w-48 @4xl:hidden">
+          {deployment.applicationName}
+          <span className="@2xl:hidden" data-testid="deployment-updated">
+            {updatedAt ? ` · ${relativeTime(updatedAt)}` : null}
+          </span>
+        </p>
+      </TableCell>
+      <TableCell className="hidden text-muted-foreground @4xl:table-cell">
+        <span className="block max-w-44 truncate" title={deployment.applicationName}>
+          {deployment.applicationName}
+        </span>
+      </TableCell>
+      <TableCell className="hidden text-muted-foreground tabular-nums @4xl:table-cell">
+        {deployment.version ?? '—'}
+      </TableCell>
+      <TableCell className="hidden @4xl:table-cell">
+        <div className="flex flex-col leading-tight">
+          <span className="text-muted-foreground">{region ?? deployment.region}</span>
+          {region ? <span className="text-xs text-muted-foreground/80">{deployment.region}</span> : null}
+        </div>
+      </TableCell>
+      <TableCell>
+        <div className="flex items-center gap-1.5">
+          <Badge variant={status.badge} className="whitespace-nowrap">
+            {status.label}
+          </Badge>
+          <StatusDetails deployment={deployment} />
+        </div>
+      </TableCell>
+      <TableCell className="hidden whitespace-nowrap text-muted-foreground @2xl:table-cell">
+        {updatedAt ? (
+          // data-testid: masked in visual regression — relative time drifts
+          // with the clock.
+          <time dateTime={updatedAt} title={formatDateTime(updatedAt)} data-testid="deployment-updated">
+            {relativeTime(updatedAt)}
+          </time>
+        ) : (
+          '—'
+        )}
+      </TableCell>
+      <TableCell className="w-10">
+        <RowActions deploymentId={deployment.id} />
+      </TableCell>
+    </TableRow>
+  );
+}
+
+// One info affordance next to the status badge: the stage detail behind the
+// label, and relay connectivity, which is observed (last check-in) and never
+// inferred from the lifecycle state.
 function StatusDetails({ deployment }: { deployment: FleetDeployment }) {
   const detail =
     removedProgress(deployment.state)?.body ??
     `${STAGE_LABEL[deployment.deploymentStatus.stage]} · ${progressDetail(deployment.deploymentStatus)}`;
-  const updated = relativeTime(deployment.deploymentStatus.updatedAt);
   return (
     <Popover>
       <PopoverTrigger asChild>
@@ -460,20 +508,13 @@ function StatusDetails({ deployment }: { deployment: FleetDeployment }) {
           variant="ghost"
           size="icon-xs"
           aria-label={`Status details for ${deployment.customerName}`}
-          className="text-muted-foreground"
+          className="hidden text-muted-foreground @2xl:inline-flex"
         >
           <Info aria-hidden />
         </Button>
       </PopoverTrigger>
       <PopoverContent align="start" className="w-72 space-y-1.5">
         <p className="text-sm">{detail}</p>
-        {updated ? (
-          // data-testid: masked in visual regression — relative time drifts
-          // with the clock.
-          <p className="text-xs text-muted-foreground" data-testid="status-updated">
-            Updated {updated}
-          </p>
-        ) : null}
         {deployment.relayStatus === 'DISCONNECTED' ? (
           <p className="text-xs font-medium text-destructive">Relay offline</p>
         ) : null}

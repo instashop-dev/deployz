@@ -6,7 +6,6 @@ import {
   actionErrorMessage,
   createDeploymentErrorMessage,
   existingTestDeploymentId,
-  listedUnderStatus,
   matchesRememberedCustomer,
   readinessFindingMessages,
   type RememberedCustomer,
@@ -138,18 +137,5 @@ describe('existingTestDeploymentId', () => {
       existingTestDeploymentId(new ApiRequestError('SUBSCRIPTION_REQUIRED', 'blocked', { subscriptionStatus: null })),
     ).toBeNull();
     expect(existingTestDeploymentId(new Error('nope'))).toBeNull();
-  });
-});
-
-describe('listedUnderStatus', () => {
-  it('keeps removed deployments out of the live fleet', () => {
-    expect(listedUnderStatus({ state: 'DELETED' }, 'all')).toBe(false);
-    expect(listedUnderStatus({ state: 'HEALTHY' }, 'all')).toBe(true);
-  });
-
-  it('lists removed deployments under the Removed filter only', () => {
-    expect(listedUnderStatus({ state: 'DELETED' }, 'DELETED')).toBe(true);
-    expect(listedUnderStatus({ state: 'HEALTHY' }, 'DELETED')).toBe(false);
-    expect(listedUnderStatus({ state: 'HEALTHY' }, 'HEALTHY')).toBe(true);
   });
 });
