@@ -14,6 +14,7 @@ import { useRouter } from 'next/navigation';
 import { DeploymentStepper } from '@/components/deployment-stepper';
 import { AwsInfrastructureDetails } from '@/components/aws-infrastructure-details';
 import { CustomDomainCard } from '@/components/custom-domain-card';
+import { FootprintSummary } from '@/components/footprint-summary';
 import { LiveStepDetail } from '@/components/live-step-detail';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
@@ -284,7 +285,9 @@ export function InstallProgress({
         />
       ) : null}
 
-      {!failed ? <ResourcesSummary components={status.components} plan={plan} /> : null}
+      {!failed ? (
+        <ResourcesSummary components={status.components} plan={plan} stage={status.stage} />
+      ) : null}
 
       {!failed && status.technicalDetails ? (
         <ActiveTechnicalDetails technicalDetails={status.technicalDetails} />
@@ -432,9 +435,11 @@ function LiveAwsActivity({
 function ResourcesSummary({
   components,
   plan,
+  stage,
 }: {
   components: CustomerDeploymentStatus['components'];
   plan: DeploymentPlan | null;
+  stage: CustomerDeploymentStatus['stage'];
 }) {
   const rows = components.filter((component) => component.status !== 'NOT_REQUIRED');
   const resourceCount = plan?.awsResources.length ?? 0;
@@ -444,6 +449,10 @@ function ResourcesSummary({
       <h2 id="deployment-resources" className="text-base font-semibold">
         Resources
       </h2>
+      <FootprintSummary
+        footprint={plan?.footprint}
+        stage={stage === 'READY' ? 'deployed' : 'planned'}
+      />
       {rows.length > 0 ? (
         <ul>
           {rows.map((component, index) => (

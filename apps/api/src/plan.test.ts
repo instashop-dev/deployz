@@ -5,7 +5,12 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { applyMigrations, createDb, type Db } from '@deployz/db';
 import * as schema from '@deployz/db/schema';
-import { requiredAwsResources, toPlanAwsResource } from '@deployz/contracts';
+import {
+  estimateFootprintCost,
+  requiredAwsResources,
+  resolveDeploymentFootprint,
+  toPlanAwsResource,
+} from '@deployz/contracts';
 
 import { createAuth, type Auth } from './auth.js';
 import { buildServer } from './server.js';
@@ -90,7 +95,7 @@ const POSTGRES_MANIFEST = {
   environment: { variables: [] },
   externalServices: [],
   unsupported: [],
-} as const;
+};
 
 async function insertDeployment(
   db: Db,
@@ -176,6 +181,7 @@ describe('deployment plans (Phase 4)', () => {
       headers: { cookie: org.cookie },
     });
     expect(response.statusCode, response.body).toBe(200);
+    const footprint = resolveDeploymentFootprint({ manifest: POSTGRES_MANIFEST, region: 'us-east-1' });
     expect(response.json()).toStrictEqual({
       schemaVersion: 1,
       action: 'DESTROY',
@@ -187,6 +193,8 @@ describe('deployment plans (Phase 4)', () => {
         { kind: 'storage', name: 'Storage', action: 'RETAIN', lifecycle: 'retain' },
       ],
       awsResources: requiredAwsResources({ postgres: true, redis: false }).map(toPlanAwsResource),
+      footprint,
+      costEstimate: estimateFootprintCost(footprint),
       requirementDrift: [],
     });
   });

@@ -121,7 +121,7 @@ import {
 import { Secret, type ISecret } from 'aws-cdk-lib/aws-secretsmanager';
 import { Construct, type IConstruct } from 'constructs';
 import { resolveRedisEnvBindings } from '@deployz/analysis';
-import { DEPLOYZ_COMPONENT_TAG, DEPLOYZ_ENVIRONMENT_TAG_VALUE } from '@deployz/contracts';
+import { DEPLOYMENT_SIZING, DEPLOYZ_COMPONENT_TAG, DEPLOYZ_ENVIRONMENT_TAG_VALUE } from '@deployz/contracts';
 
 /** One install-time NoEcho parameter surfaced to the container as an ECS secret. */
 export interface SecretParameterSpec {
@@ -401,8 +401,8 @@ const HEALTH_CHECK_PATH = '/health';
 const DB_NAME = 'deployz';
 const DB_USER = 'deployz_app';
 const DB_PORT = 5432;
-const REDIS_ENGINE = 'valkey';
-const REDIS_NODE_TYPE = 'cache.t4g.micro';
+const REDIS_ENGINE = DEPLOYMENT_SIZING.cache.engine;
+const REDIS_NODE_TYPE = DEPLOYMENT_SIZING.cache.nodeType;
 const REDIS_PORT = 6379;
 // Phase 9 S3 lifecycle: non-current object versions (from versioned
 // overwrites) expire 30 days after they become non-current, and a multipart
@@ -795,7 +795,7 @@ export class ApplicationStack extends Stack {
         securityGroups: [dbSecurityGroup],
         credentials: Credentials.fromSecret(this.databaseSecret as unknown as ISecret, DB_USER),
         databaseName: DB_NAME,
-        allocatedStorage: 20,
+        allocatedStorage: DEPLOYMENT_SIZING.database.storageGb,
         maxAllocatedStorage: 100,
         storageEncrypted: true,
         backupRetention: Duration.days(7),
@@ -1147,8 +1147,8 @@ export class ApplicationStack extends Stack {
     } else {
       // Plain Fargate — explicit task definition, service and ALB.
       const taskDefinition = new FargateTaskDefinition(this, 'TaskDefinition', {
-        memoryLimitMiB: props.taskMemoryMiB ?? 512,
-        cpu: props.taskCpu ?? 256,
+        memoryLimitMiB: props.taskMemoryMiB ?? DEPLOYMENT_SIZING.workload.web.memoryMiB,
+        cpu: props.taskCpu ?? DEPLOYMENT_SIZING.workload.web.cpuUnits,
         // Without this, CDK auto-creates a second execution role and grants
         // it only what it can infer. `ContainerImage.fromRegistry` is an
         // opaque string, so CDK cannot tell the image lives in ECR and
@@ -1352,8 +1352,8 @@ const dbEnv =
           this,
           'WorkerTaskDefinition',
           {
-            memoryLimitMiB: 512,
-            cpu: 256,
+            memoryLimitMiB: DEPLOYMENT_SIZING.workload.worker.memoryMiB,
+            cpu: DEPLOYMENT_SIZING.workload.worker.cpuUnits,
             executionRole: taskExecutionRole,
             taskRole,
             runtimePlatform: {

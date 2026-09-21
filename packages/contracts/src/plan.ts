@@ -3,6 +3,10 @@ import { z } from 'zod';
 import { INFRASTRUCTURE_COMPONENT_DISPLAY } from './infrastructure.js';
 import { INFRASTRUCTURE_COMPONENTS, requiredInfrastructureComponents } from './components.js';
 import { deploymentPlanAwsResourceSchema, requiredAwsResources, toPlanAwsResource } from './aws-resources.js';
+import { resolveDeploymentFootprint, deploymentFootprintSchema } from './footprint.js';
+import type { DeploymentFootprint } from './footprint.js';
+import { estimateFootprintCost, footprintCostEstimateSchema } from './pricing.js';
+import type { FootprintCostEstimate } from './pricing.js';
 import type { InfrastructureComponentDefinition } from './components.js';
 import type { DeploymentManifest } from './manifest.js';
 // Value imports from './index.js' are used ONLY inside function bodies below
@@ -57,6 +61,15 @@ export const deploymentPlanSchema = z
      *  infrastructure details" preview. Same profile rule as the components,
      *  so the two lists can never disagree. */
     awsResources: z.array(deploymentPlanAwsResourceSchema),
+    /** The resolved Deployment Footprint (workloads + managed resources with
+     *  exact sizing) for the same manifest — optional so payloads built
+     *  before the field existed stay valid. Lazy for the same init-order
+     *  reason as `region`: footprint.ts is initialized through the
+     *  index.ts cycle and must not be read while plan.ts is evaluating. */
+    footprint: z.lazy(() => deploymentFootprintSchema).nullable().optional(),
+    /** Baseline monthly AWS cost estimate for `footprint`. Optional for the
+     *  same reason; display stays approximate and never blocks deployment. */
+    costEstimate: z.lazy(() => footprintCostEstimateSchema).nullable().optional(),
     /** UPDATE only — requirement differences the current architecture cannot apply in place. Empty otherwise. */
     requirementDrift: z.array(planRequirementDriftSchema),
   })
@@ -100,8 +113,31 @@ export function requirementDriftFor(
   );
 }
 
+/**
+ * The footprint + baseline cost estimate every plan carries. Derived from the
+ * SAME manifest and region as the plan itself, so the displayed sizing can
+ * never disagree with the plan's components. Pricing is decorative — nothing
+ * in provisioning reads it, and a pricing adapter gap degrades the estimate,
+ * never the plan.
+ */
+function footprintFor(input: { manifest: DeploymentManifest; region: Region | null; infraVersion: string | null }): {
+  footprint: DeploymentFootprint;
+  costEstimate: FootprintCostEstimate;
+} {
+  const footprint = resolveDeploymentFootprint({
+    manifest: input.manifest,
+    region: input.region,
+    infraVersion: input.infraVersion,
+  });
+  return { footprint, costEstimate: estimateFootprintCost(footprint) };
+}
+
 /** INSTALL plan — every required component is CREATE. */
-export function buildInstallPlan(input: { manifest: DeploymentManifest; region: Region | null }): DeploymentPlan {
+export function buildInstallPlan(input: {
+  manifest: DeploymentManifest;
+  region: Region | null;
+  infraVersion?: string | null;
+}): DeploymentPlan {
   const profile = infrastructureProfileForManifest(input.manifest);
   return {
     schemaVersion: DEPLOYMENT_PLAN_SCHEMA_VERSION,
@@ -109,6 +145,7 @@ export function buildInstallPlan(input: { manifest: DeploymentManifest; region: 
     region: input.region,
     components: requiredInfrastructureComponents(profile).map((component) => toPlanComponent(component, 'CREATE')),
     awsResources: requiredAwsResources(profile).map(toPlanAwsResource),
+    ...footprintFor({ manifest: input.manifest, region: input.region, infraVersion: input.infraVersion ?? null }),
     requirementDrift: [],
   };
 }
@@ -125,6 +162,7 @@ export function buildUpdatePlan(input: {
   desiredManifest: DeploymentManifest;
   region: Region;
   newRelease: boolean;
+  infraVersion?: string | null;
 }): DeploymentPlan {
   const deployedProfile = infrastructureProfileForManifest(input.deployedManifest);
   const desiredProfile = infrastructureProfileForManifest(input.desiredManifest);
@@ -137,12 +175,21 @@ export function buildUpdatePlan(input: {
     region: input.region,
     components,
     awsResources: requiredAwsResources(deployedProfile).map(toPlanAwsResource),
+    ...footprintFor({
+      manifest: input.deployedManifest,
+      region: input.region,
+      infraVersion: input.infraVersion ?? null,
+    }),
     requirementDrift: requirementDriftFor(deployedProfile, desiredProfile),
   };
 }
 
 /** DESTROY plan — required components DELETE (lifecycle 'delete') or RETAIN (lifecycle 'retain'). */
-export function buildDestroyPlan(input: { manifest: DeploymentManifest; region: Region }): DeploymentPlan {
+export function buildDestroyPlan(input: {
+  manifest: DeploymentManifest;
+  region: Region;
+  infraVersion?: string | null;
+}): DeploymentPlan {
   const profile = infrastructureProfileForManifest(input.manifest);
   return {
     schemaVersion: DEPLOYMENT_PLAN_SCHEMA_VERSION,
@@ -152,6 +199,7 @@ export function buildDestroyPlan(input: { manifest: DeploymentManifest; region: 
       toPlanComponent(component, component.lifecycle === 'delete' ? 'DELETE' : 'RETAIN'),
     ),
     awsResources: requiredAwsResources(profile).map(toPlanAwsResource),
+    ...footprintFor({ manifest: input.manifest, region: input.region, infraVersion: input.infraVersion ?? null }),
     requirementDrift: [],
   };
 }

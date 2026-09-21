@@ -18,6 +18,7 @@ import { AwsInfrastructureDetails } from '@/components/aws-infrastructure-detail
 import { EvaluationNotice } from '@/components/evaluation-notice';
 import { DeploymentStatusBadge } from '@/components/deployment-status-badge';
 import { FixInstructionsDialog } from '@/components/fix-instructions-dialog';
+import { FootprintSummary } from '@/components/footprint-summary';
 import { PublicInstallLinkCard } from '@/components/public-install-link-card';
 import {
   AlertDialog,
@@ -472,8 +473,17 @@ function ReadinessBody({
       {/* Existing deployments that no longer match the current requirements */}
       <RequirementDriftNotice drifts={readiness.deploymentRequirementDrift} />
 
-      {/* AWS resources a new deployment will create */}
-      <AwsInfrastructureDetails plan={plan} />
+      {/* Infrastructure every customer deployment will get */}
+      <section aria-labelledby="infrastructure-heading" className="flex flex-col gap-3">
+        <h2 id="infrastructure-heading" className="text-base font-semibold">
+          Infrastructure
+        </h2>
+        <p className="text-sm text-muted-foreground">
+          Every deployment of this application creates this infrastructure in the customer&apos;s AWS account.
+        </p>
+        <FootprintSummary footprint={plan?.footprint} stage="planned" />
+        <AwsInfrastructureDetails plan={plan} />
+      </section>
 
       {/* Latest test deployment */}
       <LatestDeploymentSection application={application} testDeployment={testDeployment} />

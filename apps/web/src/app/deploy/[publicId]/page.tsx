@@ -5,6 +5,8 @@ import { ChevronDown, Loader2 } from 'lucide-react';
 import { AwsInfrastructureDetails } from '@/components/aws-infrastructure-details';
 import { DataRetentionCard } from '@/components/data-retention-card';
 import { DeployLinkInvalidState, PoweredBy } from '@/components/deploy-link-invalid-state';
+import { FootprintCost } from '@/components/footprint-cost';
+import { FootprintSummary } from '@/components/footprint-summary';
 import { InstallLaunchButton } from '@/components/install-launch-button';
 import { InstallProgress } from '@/components/install-progress';
 import { InstallRetryButton } from '@/components/install-retry-button';
@@ -219,8 +221,10 @@ export default async function DeployPage({
               </Table>
             </TablePanel>
           </div>
+          <FootprintSummary footprint={data.plan?.footprint} stage="planned" />
           <AwsInfrastructureDetails plan={data.plan} region={data.region} />
           {regionLabel ? <p className="text-sm text-muted-foreground">Region: {regionLabel}</p> : null}
+          <FootprintCost estimate={data.plan?.costEstimate} />
         </section>
 
         <section aria-label="Deploy actions" className="flex flex-col gap-3">
