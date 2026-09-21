@@ -187,7 +187,20 @@ export function InstallProgress({
           ) : null}
 
           {status.stage === 'FAILED' ? (
-            <FailureDetails failure={status.failure} technicalDetails={status.technicalDetails} />
+            <>
+              <FailureDetails
+                failure={status.failure}
+                technicalDetails={status.technicalDetails}
+                cleanup={status.cleanup ?? null}
+              />
+              {/* The attempt's own ladder stays visible after the failure:
+                  completed steps remain done, the interrupted step is the
+                  failed one, later steps stay not started — the failure must
+                  never read as "still deploying". */}
+              <DeploymentProgressSteps
+                steps={stepsFromStatus({ steps: status.steps, step: status.step, stage: status.stage })}
+              />
+            </>
           ) : (
             <>
               {/* AWS can report a resource failure well before the job
@@ -387,14 +400,31 @@ function AwsDeploymentDetails({
  */
 type CustomerFailure = NonNullable<CustomerDeploymentStatus['failure']> & {
   ownedByApplication?: boolean;
+  customerActionRequired?: boolean;
 };
+
+/** Cleanup copy for a failed install — which of the three states applies is
+ *  derived server-side from the live stack status and cleanupState; the
+ *  page never guesses. */
+const CLEANUP_COPY: Record<NonNullable<CustomerDeploymentStatus['cleanup']>, string> = {
+  IN_PROGRESS: 'Deployz has stopped the deployment and is cleaning up resources created during this attempt.',
+  COMPLETE: 'The failed deployment has been cleaned up.',
+  RETAINED: 'Some data or resources may remain in your AWS account. The technical details below have more information.',
+};
+
+/** The default customer next step after a failed install: the vendor owns
+ *  the retry, and the customer is explicitly told no action is needed. */
+const DEFAULT_NEXT_STEPS =
+  'No action is required right now. Your software provider has been notified and can retry the deployment after reviewing the issue.';
 
 function FailureDetails({
   failure,
   technicalDetails,
+  cleanup,
 }: {
   failure: CustomerFailure | null;
   technicalDetails: CustomerDeploymentStatus['technicalDetails'];
+  cleanup: CustomerDeploymentStatus['cleanup'];
 }) {
   if (!failure) return null;
   const technical = failure.technical;
@@ -402,6 +432,10 @@ function FailureDetails({
   // told it is not their fault. Gated strictly on the derived flag; "What
   // happened" stays for every other failure.
   const startup = failure.ownedByApplication === true;
+  // A USER_ACTION failure that is not the application's own needs a change
+  // on the customer side before a retry can succeed — the default
+  // "no action required" copy would then be wrong.
+  const actionRequired = failure.customerActionRequired === true;
   return (
     <div className="flex flex-col gap-3">
       <Alert variant="destructive">
@@ -412,6 +446,15 @@ function FailureDetails({
           {startup ? <span className="mt-1 block">{STARTUP_FAILURE_CUSTOMER_NOTE}</span> : null}
         </AlertDescription>
       </Alert>
+      {cleanup ? <p className="text-sm text-muted-foreground">{CLEANUP_COPY[cleanup]}</p> : null}
+      <div className="flex flex-col gap-1">
+        <h3 className="text-sm font-medium">What happens next</h3>
+        <p className="text-sm text-muted-foreground">
+          {actionRequired
+            ? 'Your software provider can retry the deployment once the change described above has been made.'
+            : DEFAULT_NEXT_STEPS}
+        </p>
+      </div>
       <Collapsible>
         <CollapsibleTrigger className="group flex items-center gap-1 self-start text-sm font-medium text-muted-foreground hover:text-foreground">
           Technical details

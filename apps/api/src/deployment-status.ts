@@ -3,6 +3,7 @@ import {
   FAILURE_REMEDIATION,
   customerStackStatusLabel,
   failureCodeCopy,
+  failureRecoverability,
   type FailureCode,
 } from '@deployz/copy-map';
 import {
@@ -1279,6 +1280,7 @@ export function toCustomerDeploymentStatus(
     currentActivity?: string;
     recentActivity: CustomerDeploymentStatus['recentActivity'];
     provisioningIssue: CustomerDeploymentStatus['provisioningIssue'];
+    cleanup: CustomerDeploymentStatus['cleanup'];
     technicalDetails: CustomerDeploymentStatus['technicalDetails'];
   },
 ): CustomerDeploymentStatus {
@@ -1307,6 +1309,7 @@ export function toCustomerDeploymentStatus(
           stepStartedAt: derived.stepStartedAt,
           recentActivity: live.recentActivity,
           provisioningIssue: live.provisioningIssue,
+          cleanup: live.cleanup,
           technicalDetails: live.technicalDetails,
         }
       : {}),
@@ -1317,6 +1320,14 @@ export function toCustomerDeploymentStatus(
           // application's own startup/config work is what failed.
           ownedByApplication:
             derived.failure.code !== null && APP_OWNED_STARTUP_FAILURE_CODES.has(derived.failure.code),
+          // §61 USER_ACTION failures that are not the application's own
+          // startup work need a change in the customer's AWS account or
+          // inputs before a retry can succeed — the page then shows an
+          // actionable next step instead of the default "no action" copy.
+          customerActionRequired:
+            derived.failure.code !== null &&
+            !APP_OWNED_STARTUP_FAILURE_CODES.has(derived.failure.code) &&
+            failureRecoverability(derived.failure.code) === 'USER_ACTION',
           customerMessage: derived.failure.customerMessage,
           component: derived.failure.component,
           reference: derived.failure.reference,

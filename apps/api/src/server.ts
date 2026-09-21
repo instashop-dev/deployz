@@ -287,7 +287,11 @@ import {
   verifyRelayToken,
   verifyRelayTokenWithRotation,
 } from './relay-store.js';
-import { summarizeStackEvents, type StoredStackEvent } from './stack-event-progress.js';
+import {
+  INSTALL_FAILURE_STACK_STATUSES,
+  summarizeStackEvents,
+  type StoredStackEvent,
+} from './stack-event-progress.js';
 import { createRequireAuth, requireRole, type OrganizationRow } from './require-auth.js';
 import { createRequireTeamAdmin, isTeamAdmin } from './admin/auth.js';
 import { registerAdminRoutes } from './admin/routes.js';
@@ -1323,6 +1327,7 @@ async function loadCustomerLiveProgress(
     domain: CustomDomainRow | null;
     defaultHttps: DefaultHttpsState | null;
     stepTimings: DeploymentRow['stepTimings'];
+    cleanupState: DeploymentRow['cleanupState'];
     launched: boolean;
   },
 ): Promise<CustomerLiveProgress> {
@@ -1379,6 +1384,7 @@ async function loadCustomerLiveProgress(
     events,
     installJobId: installJob?.id ?? null,
     stepTimings: params.stepTimings,
+    cleanupState: params.cleanupState,
     health: derived.health.layers,
     https,
     needsDomainSetup: derived.needsDomainSetup,
@@ -2372,6 +2378,7 @@ export async function buildServer({
         domain,
         defaultHttps,
         stepTimings: row.deployment.stepTimings,
+        cleanupState: row.deployment.cleanupState,
         launched: row.deployment.installStartedAt !== null,
       });
       const status = toCustomerDeploymentStatus(derived, live);
@@ -3674,6 +3681,7 @@ export async function buildServer({
         domain,
         defaultHttps,
         stepTimings: deployment.stepTimings,
+        cleanupState: deployment.cleanupState,
         launched: deployment.installStartedAt !== null,
       });
       const status = toCustomerDeploymentStatus(derived, live);
@@ -7090,6 +7098,94 @@ export async function buildServer({
         } catch (error) {
           request.log.warn({ err: error }, 'step-timings advance failed');
         }
+      }
+
+      // A failure-determined stack status is CloudFormation's own verdict
+      // that this install cannot succeed: the create failed and AWS is
+      // already tearing down (or has torn down) what it created. Normally
+      // the relay executor reports that verdict via /result; a lost deferred
+      // report (pending marker gone) would instead leave the job RUNNING
+      // and the deployment INSTALLING forever — the heartbeat keeps the
+      // watchdog's staleness clock fresh, so nothing canonical ever lands
+      // FAILED while the customer page already shows the error. Settle here
+      // from the same evidence /result would use: the same rule
+      // (deploymentStateAfterFailedJob), the same first-writer-wins guard
+      // on the job's state, and the same server-side refinement.
+      const stackStatus =
+        snapshot !== null && typeof snapshot['stackStatus'] === 'string' ? snapshot['stackStatus'] : null;
+      if (stackStatus !== null && INSTALL_FAILURE_STACK_STATUSES.has(stackStatus)) {
+        const effectiveFailureCode =
+          refineFailureCode({
+            reported: 'STACK_CREATE_FAILED',
+            errorText: null,
+            stackEvents: storedEvents,
+            evidence: null,
+          }) ?? 'STACK_CREATE_FAILED';
+        const nextState = deploymentStateAfterFailedJob({
+          jobType: 'INSTALL',
+          hasCurrentRelease:
+            deployment.currentReleaseId !== null || (await hasStartedInstall(db, deployment.id)),
+          newerReadyReleaseExists: await newerReadyReleaseExists(
+            db,
+            deployment.applicationId,
+            deployment.currentReleaseId,
+          ),
+        });
+        await db.transaction(async (tx) => {
+          const settled = await tx
+            .update(schema.deploymentJobs)
+            .set({
+              state: 'FAILED',
+              result: {
+                success: false,
+                failureCode: effectiveFailureCode,
+                error: `CloudFormation stack status: ${stackStatus}`,
+                settledFrom: 'stack-event-progress',
+              },
+              finishedAt: now,
+              lastProgressAt: now,
+              failureCode: effectiveFailureCode,
+            })
+            .where(
+              and(
+                eq(schema.deploymentJobs.id, job.id),
+                inArray(schema.deploymentJobs.state, ['REQUESTED', 'QUEUED', 'WAITING', 'RUNNING']),
+              ),
+            )
+            .returning();
+          // First writer wins: /result (or an earlier batch) already settled
+          // this job — its state transition and event stand unchanged.
+          if (settled.length === 0) return;
+          if (nextState) {
+            await tx
+              .update(schema.deployments)
+              .set({ state: nextState })
+              .where(eq(schema.deployments.id, deployment.id));
+          }
+          const eventType = JOB_RESULT_EVENT[job.type]?.failed;
+          if (eventType) {
+            await recordEvent(tx, {
+              organizationId: deployment.organizationId,
+              eventType,
+              actorType: 'relay',
+              actorId: deployment.installationId ?? deployment.id,
+              deploymentId: deployment.id,
+              customerId: deployment.customerId,
+              jobId: job.id,
+              previousState: deployment.state,
+              requestedState: nextState ?? null,
+              result: 'failure',
+              payload: {
+                failureCode: effectiveFailureCode,
+                ...(effectiveFailureCode !== 'STACK_CREATE_FAILED'
+                  ? { reportedFailureCode: 'STACK_CREATE_FAILED' }
+                  : {}),
+                stackStatus,
+                settledFrom: 'stack-event-progress',
+              },
+            });
+          }
+        });
       }
     }
 

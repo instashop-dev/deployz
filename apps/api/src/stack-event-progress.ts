@@ -68,6 +68,24 @@ export function isDeletePhase(resourceStatus: string): boolean {
   return resourceStatus.startsWith('DELETE_') || resourceStatus.startsWith('ROLLBACK_');
 }
 
+/** Stack-level statuses that make an install's outcome final: CloudFormation
+ *  itself has decided the create failed and is tearing down (or has torn
+ *  down) what it created. Settlement of the INSTALL job may proceed on this
+ *  evidence — it is the stack's own verdict, not a timeout guess.
+ *  `ROLLBACK_IN_PROGRESS` is included on purpose: for a first install the
+ *  rollback is cleanup of a failed attempt, never a chance of success.
+ *  `UPDATE_*`/`IMPORT_*` statuses cannot occur during an install's CREATE
+ *  and are left out; `DELETE_IN_PROGRESS` belongs to explicit teardown jobs,
+ *  not to a create. */
+export const INSTALL_FAILURE_STACK_STATUSES: ReadonlySet<string> = new Set([
+  'ROLLBACK_IN_PROGRESS',
+  'CREATE_FAILED',
+  'ROLLBACK_COMPLETE',
+  'ROLLBACK_FAILED',
+  'DELETE_COMPLETE',
+  'DELETE_FAILED',
+]);
+
 function summarizeCategory(byResource: ReadonlyMap<string, StoredStackEvent[]>): CategoryProgress {
   let earliest: Date | null = null;
   let latestComplete: Date | null = null;

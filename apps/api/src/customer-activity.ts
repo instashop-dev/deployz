@@ -20,7 +20,7 @@ import type {
   RuntimeHealthLayers,
 } from '@deployz/contracts';
 
-import { CANCELLED_REASONS, isDeletePhase } from './stack-event-progress.js';
+import { CANCELLED_REASONS, INSTALL_FAILURE_STACK_STATUSES, isDeletePhase } from './stack-event-progress.js';
 
 export interface StackEventLike {
   readonly eventAt: Date;
@@ -291,6 +291,8 @@ export interface CustomerLiveProgress {
   recentActivity: CustomerActivityItem[];
   provisioningIssue: { message: string } | null;
   technicalDetails: CustomerTechnicalDetails | null;
+  /** Cleanup of a failed install — null unless the stage is FAILED. */
+  cleanup: 'IN_PROGRESS' | 'COMPLETE' | 'RETAINED' | null;
 }
 
 /** The HTTPS state machine driving TLS — a custom domain (apps/api/src/
@@ -324,6 +326,10 @@ export interface BuildCustomerLiveProgressInput {
   /** True when the customer has pressed Deploy to AWS (installStartedAt is
    *  set). Before that, nothing in AWS is being created. */
   launched: boolean;
+  /** deployments.cleanup_state — COMPLETE means a later verified purge
+   *  removed every retained resource, which outranks anything the stack
+   *  status implies. Null on an ordinary failed install (no purge ran). */
+  cleanupState?: 'SKIPPED_RELAY_OFFLINE' | 'PURGE_FAILED' | 'COMPLETE' | null;
 }
 
 function jobReference(jobId: string | null): string {
@@ -380,6 +386,7 @@ function buildProvisioningProgress(input: BuildCustomerLiveProgressInput): Custo
     ...(newestInProgress ? { currentActivity: newestInProgress.message } : {}),
     recentActivity,
     provisioningIssue,
+    cleanup: null,
     technicalDetails:
       input.events.length > 0
         ? { reference: jobReference(input.installJobId), facts: facts.slice(0, 12), events: rawEventsForTechnicalDetails(input.events) }
@@ -391,6 +398,21 @@ function buildFailedProgress(input: BuildCustomerLiveProgressInput): CustomerLiv
   const failure = earliestGenuineFailure(input.events);
   const stack = rootStackEvent(input.events);
   const newest = newestEvent(input.events);
+
+  // Cleanup is deliberately separate from the failed lifecycle: a
+  // rolling-back stack is still removing the failed attempt's resources
+  // (IN_PROGRESS), a terminal failed status means some resources may
+  // intentionally remain (RETAINED), and only a later verified purge
+  // (cleanupState COMPLETE) proves everything was removed.
+  let cleanup: CustomerLiveProgress['cleanup'] = null;
+  if (stack && (stack.resourceStatus === 'ROLLBACK_IN_PROGRESS' || stack.resourceStatus === 'DELETE_IN_PROGRESS')) {
+    cleanup = 'IN_PROGRESS';
+  } else if (stack && INSTALL_FAILURE_STACK_STATUSES.has(stack.resourceStatus)) {
+    cleanup = 'RETAINED';
+  }
+  if (input.cleanupState === 'COMPLETE') {
+    cleanup = 'COMPLETE';
+  }
 
   const facts: CustomerTechnicalDetails['facts'] = [];
   if (stack) {
@@ -407,6 +429,7 @@ function buildFailedProgress(input: BuildCustomerLiveProgressInput): CustomerLiv
   return {
     recentActivity: [],
     provisioningIssue: null,
+    cleanup,
     technicalDetails:
       input.events.length > 0
         ? { reference: jobReference(input.installJobId), facts: facts.slice(0, 12), events: rawEventsForTechnicalDetails(input.events) }
@@ -482,6 +505,7 @@ function buildHealthCheckProgress(input: BuildCustomerLiveProgressInput): Custom
     ...(currentActivity ? { currentActivity } : {}),
     recentActivity,
     provisioningIssue: null,
+    cleanup: null,
     technicalDetails: { reference: jobReference(input.installJobId), facts: facts.slice(0, 12), events: [] },
   };
 }
@@ -521,6 +545,7 @@ function buildTlsProgress(input: BuildCustomerLiveProgressInput): CustomerLivePr
     ...(currentActivity ? { currentActivity } : {}),
     recentActivity,
     provisioningIssue: null,
+    cleanup: null,
     technicalDetails: facts.length > 0 ? { reference: jobReference(input.installJobId), facts: facts.slice(0, 12), events: [] } : null,
   };
 }
@@ -533,7 +558,7 @@ function buildTlsProgress(input: BuildCustomerLiveProgressInput): CustomerLivePr
  * existing stage copy stands unchanged.
  */
 export function buildCustomerLiveProgress(input: BuildCustomerLiveProgressInput): CustomerLiveProgress {
-  const empty: CustomerLiveProgress = { recentActivity: [], provisioningIssue: null, technicalDetails: null };
+  const empty: CustomerLiveProgress = { recentActivity: [], provisioningIssue: null, cleanup: null, technicalDetails: null };
   if (input.stage === 'PROVISIONING') return buildProvisioningProgress(input);
   if (input.stage === 'FAILED') return buildFailedProgress(input);
   if (input.stage === 'VERIFYING' && input.step === 'HEALTH_CHECK') return buildHealthCheckProgress(input);

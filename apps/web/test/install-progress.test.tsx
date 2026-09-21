@@ -367,6 +367,8 @@ describe('InstallProgress — failure flow', () => {
       stage: 'FAILED',
       step: 'DATABASE_STORAGE',
       failure: {
+        ownedByApplication: false,
+        customerActionRequired: false,
         customerMessage: 'Deployz could not finish setting up your infrastructure.',
         component: 'database',
         reference: 'REF-999',
@@ -392,8 +394,19 @@ describe('InstallProgress — failure flow', () => {
     await flush();
 
     const text = () => container!.textContent ?? '';
-    expect(text()).toContain('Deployment needs attention');
+    expect(text()).toContain('Deployment failed');
     expect(text()).toContain('Deployz could not finish setting up your infrastructure.');
+    // The ladder stays visible after the failure: completed steps stay done,
+    // the failed step names the failure, later steps stay not started — and
+    // no step reads as in progress.
+    expect(text()).toContain('Network created');
+    expect(text()).toContain('Creating database & storage failed');
+    expect(text()).toContain('Start application');
+    expect(text()).not.toContain('Starting application');
+    expect(text()).toContain('Set up HTTPS');
+    // Default next steps: the vendor owns the retry.
+    expect(text()).toContain('What happens next');
+    expect(text()).toContain('No action is required right now.');
     expect(text()).not.toContain('ROLLBACK_COMPLETE');
     expect(text()).not.toContain('is not a valid password');
 
@@ -403,6 +416,62 @@ describe('InstallProgress — failure flow', () => {
     });
     expect(text()).toContain('ROLLBACK_COMPLETE');
     expect(text()).toContain('is not a valid password');
+  });
+
+  it('a FAILED payload with cleanup in progress and customer action shows the cleanup sentence and the actionable next step', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-09-18T00:00:00.000Z'));
+    const status = baseStatus({
+      stage: 'FAILED',
+      step: 'APPLICATION',
+      cleanup: 'IN_PROGRESS',
+      failure: {
+        ownedByApplication: false,
+        customerActionRequired: true,
+        customerMessage: 'AWS could not grant Deployz the permissions it needs.',
+        component: null,
+        reference: 'REF-424',
+        technical: null,
+      },
+    });
+    mocks.fetchInstallStatus.mockResolvedValue(status);
+
+    mount(baseProps({ initialStatus: status }));
+    await flush();
+
+    const text = () => container!.textContent ?? '';
+    expect(text()).toContain('Deployment failed');
+    expect(text()).toContain('Starting application failed');
+    expect(text()).toContain('Deployz has stopped the deployment and is cleaning up resources created during this attempt.');
+    expect(text()).toContain('What happens next');
+    expect(text()).toContain('Your software provider can retry the deployment once the change described above has been made.');
+    expect(text()).not.toContain('No action is required right now.');
+  });
+
+  it('a FAILED payload whose resources may remain shows the retained-resources cleanup sentence', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-09-18T00:00:00.000Z'));
+    const status = baseStatus({
+      stage: 'FAILED',
+      step: 'APPLICATION',
+      cleanup: 'RETAINED',
+      failure: {
+        ownedByApplication: false,
+        customerActionRequired: false,
+        customerMessage: 'Deployz could not finish setting up your infrastructure.',
+        component: null,
+        reference: 'REF-425',
+        technical: null,
+      },
+    });
+    mocks.fetchInstallStatus.mockResolvedValue(status);
+
+    mount(baseProps({ initialStatus: status }));
+    await flush();
+
+    const text = () => container!.textContent ?? '';
+    expect(text()).toContain('Some data or resources may remain in your AWS account.');
+    expect(text()).toContain('No action is required right now.');
   });
 });
 

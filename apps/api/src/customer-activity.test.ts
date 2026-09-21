@@ -169,11 +169,14 @@ describe('translateStackEvents / findProvisioningIssue — failure flow', () => 
     });
   });
 
-  it('the FAILED stage keeps the raw failing event in technicalDetails and sets no provisioningIssue', () => {
+  it('the FAILED stage keeps the raw failing event in technicalDetails, sets no provisioningIssue, and reports cleanup in progress', () => {
     const live = buildCustomerLiveProgress(
       baseLiveInput({ stage: 'FAILED', step: 'DATABASE_STORAGE', events, installJobId: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee' }),
     );
     expect(live.provisioningIssue).toBeNull();
+    // The stack row in this fixture is ROLLBACK_IN_PROGRESS: the failed
+    // attempt is still being cleaned up.
+    expect(live.cleanup).toBe('IN_PROGRESS');
     expect(live.recentActivity).toEqual([]);
     expect(live.technicalDetails).not.toBeNull();
     expect(live.technicalDetails!.reference).toBe('DEP-AAAAAAAA');
@@ -188,6 +191,56 @@ describe('translateStackEvents / findProvisioningIssue — failure flow', () => 
 
   it('returns null when there is no genuine failure', () => {
     expect(findProvisioningIssue([event({ logicalResourceId: 'Vpc', resourceType: 'AWS::EC2::VPC', resourceStatus: 'CREATE_COMPLETE' })])).toBeNull();
+  });
+});
+
+describe('buildCustomerLiveProgress — cleanup of a failed install', () => {
+  const stackRow = (resourceStatus: string): StackEventLike =>
+    event({ logicalResourceId: 'my-stack', resourceType: 'AWS::CloudFormation::Stack', resourceStatus });
+
+  it('a rolling-back stack reports cleanup in progress', () => {
+    const live = buildCustomerLiveProgress(
+      baseLiveInput({ stage: 'FAILED', step: 'APPLICATION', events: [stackRow('ROLLBACK_IN_PROGRESS')] }),
+    );
+    expect(live.cleanup).toBe('IN_PROGRESS');
+  });
+
+  it('a deleting stack reports cleanup in progress', () => {
+    const live = buildCustomerLiveProgress(
+      baseLiveInput({ stage: 'FAILED', step: 'APPLICATION', events: [stackRow('DELETE_IN_PROGRESS')] }),
+    );
+    expect(live.cleanup).toBe('IN_PROGRESS');
+  });
+
+  it('a terminally failed stack reports that resources may remain', () => {
+    const rolledBack = buildCustomerLiveProgress(
+      baseLiveInput({ stage: 'FAILED', step: 'APPLICATION', events: [stackRow('ROLLBACK_COMPLETE')] }),
+    );
+    expect(rolledBack.cleanup).toBe('RETAINED');
+    const createFailed = buildCustomerLiveProgress(
+      baseLiveInput({ stage: 'FAILED', step: 'APPLICATION', events: [stackRow('CREATE_FAILED')] }),
+    );
+    expect(createFailed.cleanup).toBe('RETAINED');
+  });
+
+  it('a verified cleanup outranks the stack status', () => {
+    const live = buildCustomerLiveProgress({
+      ...baseLiveInput({ stage: 'FAILED', step: 'APPLICATION', events: [stackRow('ROLLBACK_COMPLETE')] }),
+      cleanupState: 'COMPLETE',
+    });
+    expect(live.cleanup).toBe('COMPLETE');
+  });
+
+  it('no stack row and no verified cleanup means nothing to say', () => {
+    const live = buildCustomerLiveProgress(baseLiveInput({ stage: 'FAILED', step: 'APPLICATION', events: [] }));
+    expect(live.cleanup).toBeNull();
+  });
+
+  it('a non-FAILED stage never reports cleanup', () => {
+    const live = buildCustomerLiveProgress(
+      baseLiveInput({ stage: 'PROVISIONING', step: 'APPLICATION', events: [stackRow('ROLLBACK_IN_PROGRESS')] }),
+    );
+    expect(live.cleanup).toBeNull();
   });
 });
 
@@ -332,7 +385,7 @@ describe('buildCustomerLiveProgress — TLS', () => {
 });
 
 describe('buildCustomerLiveProgress — quiet stages', () => {
-  const nothing = { recentActivity: [], provisioningIssue: null, technicalDetails: null };
+  const nothing = { recentActivity: [], provisioningIssue: null, cleanup: null, technicalDetails: null };
 
   it('READY and a link that is not launched report nothing', () => {
     expect(buildCustomerLiveProgress(baseLiveInput({ stage: 'READY', step: 'READY' }))).toEqual(nothing);
