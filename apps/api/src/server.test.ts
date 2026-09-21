@@ -14,7 +14,9 @@ import {
   bootstrapStackName,
   DOCUMENSO_PARAMETERS,
   errorEnvelopeSchema,
+  estimateFootprintCost,
   requiredAwsResources,
+  resolveDeploymentFootprint,
   toPlanAwsResource,
 } from '@deployz/contracts';
 import { applyMigrations, createDb, persistDeploymentResourceSnapshot, type Db } from '@deployz/db';
@@ -3547,6 +3549,18 @@ describe('server — organization settings, public install page, and bulk deploy
     const response = await app.inject({ method: 'GET', url: `/api/install/${deployment.installLinkId}` });
     expect(response.statusCode).toBe(200);
     const body = response.json() as Record<string, unknown>;
+    const footprint = resolveDeploymentFootprint({
+      manifest: {
+        ...READY_MANIFEST,
+        schemaVersion: 1,
+        redis: { required: false, envBindings: [] },
+        storage: { required: false, envBindings: [] },
+        environment: { variables: [] },
+        externalServices: [],
+        unsupported: [],
+      },
+      region: 'eu-west-1',
+    });
     expect(body).toStrictEqual({
       applicationName: 'Analytics Cloud',
       publisherName: orgRow!.name,
@@ -3567,6 +3581,8 @@ describe('server — organization settings, public install page, and bulk deploy
           { kind: 'storage', name: 'Storage', action: 'CREATE', lifecycle: 'retain' },
         ],
         awsResources: requiredAwsResources({ postgres: true, redis: false }).map(toPlanAwsResource),
+        footprint,
+        costEstimate: estimateFootprintCost(footprint),
         requirementDrift: [],
       },
       // No BOOTSTRAP_TEMPLATE_URL in the test environment: nothing is
