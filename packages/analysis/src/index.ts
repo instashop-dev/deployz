@@ -139,6 +139,7 @@ export {
 } from './env-classification.js';
 
 export type {
+  FixInstructionsEnvRequirements,
   FixInstructionsFacts,
   FixInstructionsContext,
   FixInstructionsAiOutput,
@@ -153,6 +154,7 @@ export {
   assembleFixInstructions,
   fixInstructionsAiSchema,
   generateFixInstructions,
+  summariseEnvRequirements,
 } from './fix-instructions.js';
 
 export type { FailureCode, StructuredEvent } from './failure-codes.js';

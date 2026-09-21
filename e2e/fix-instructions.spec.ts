@@ -61,7 +61,8 @@ test('generating fix instructions never resolves findings — re-analysis recomp
   await expect(dialog.getByText('coding agent', { exact: false }).first()).toBeVisible();
 
   const content = page.getByTestId('fix-instructions-content');
-  await expect(content).toContainText('Prepare this repository for deployment through Deployz');
+  await expect(content).toContainText('Fix deployment blockers');
+  await expect(content).toContainText('Readiness endpoint missing');
   await expect(content).toContainText('Do not assume Deployz findings are correct');
   await expect(page.getByTestId('fix-instructions-generated')).toContainText('Generated');
 
