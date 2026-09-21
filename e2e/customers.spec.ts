@@ -106,20 +106,18 @@ test('a customer row groups name and email, and shows a vendor-friendly deployme
   const list = page.getByTestId('customer-list');
   await expect(list).toBeVisible();
 
-  // Identity is one column: the name links to the customer, the email and
-  // company open behind an info affordance — there is no separate Email or
-  // Company column.
+  // Identity is one column: the name links to the customer and the email sits
+  // beneath it as muted text — there is no separate Email or Company column.
   const row = list.getByRole('row').filter({ hasText: customer.name });
   await expect(row.getByRole('link', { name: customer.name })).toBeVisible();
-  await row.getByRole('button', { name: `Contact details for ${customer.name}` }).click();
-  await expect(page.getByText(customer.email)).toBeVisible();
-  await expect(page.getByText('Acme Holdings')).toBeVisible();
+  await expect(row.getByText(customer.email)).toBeVisible();
   await expect(list.getByRole('columnheader', { name: 'Email' })).toHaveCount(0);
   await expect(list.getByRole('columnheader', { name: 'Company' })).toHaveCount(0);
 
-  // A deployment nobody has installed yet reads as "Not installed", never as
-  // a lifecycle state or an AWS status.
-  await expect(row.getByText('Not installed')).toBeVisible();
+  // The row says one thing about the customer: their deployment summary. A
+  // deployment nobody has installed yet is "Setup pending", never a lifecycle
+  // state or an AWS status.
+  await expect(row.getByTestId('customer-summary')).toHaveText('Setup pending');
 
   const body = await page.locator('body').innerText();
   expect(body).not.toMatch(JARGON);
@@ -158,7 +156,8 @@ test('search filters by name, by email and by company, and says so when nothing 
   await expect(list.getByText(second.name)).toBeVisible();
 
   await search.fill('nobody-by-that-name');
-  await expect(page.getByText('No customers match your search.')).toBeVisible();
+  await expect(page.getByText('No customers match these filters.')).toBeVisible();
+  await expect(page.getByText('Try changing your search or clearing the filters.')).toBeVisible();
 
   await search.fill('');
   await expect(list.getByText(first.name)).toBeVisible();
@@ -341,7 +340,7 @@ test('the create-deployment flow captures a company and offers the install link 
     .getByTestId('customer-list')
     .getByRole('row')
     .filter({ hasText: `New Customer ${suffix}` });
-  await row.getByRole('button', { name: `Contact details for New Customer ${suffix}` }).click();
+  await row.getByRole('link', { name: `New Customer ${suffix}` }).click();
   await expect(page.getByText('New Holdings')).toBeVisible();
 });
 

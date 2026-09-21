@@ -13,8 +13,18 @@ import {
 } from '@deployz/copy-map';
 
 import { apiRequest } from '@/lib/api-client';
+import { deploymentUpdatedAt } from '@/lib/deployment-list';
+import { CUSTOMER_BUCKETS, customerBucket, type CustomerBucket } from '@/lib/deployment-status-groups';
 import type { FleetDeployment } from '@/lib/deployments';
-import { attentionReason } from '@/lib/home-state';
+import {
+  compareText,
+  compareTime,
+  matchesSearch,
+  parseSort,
+  withDirection,
+  type SortDirection,
+  type SortState,
+} from '@/lib/list-view';
 
 export interface Customer {
   id: string;
@@ -96,22 +106,27 @@ const ROLLUP_RANK: Record<CustomerDeploymentRollup, number> = {
  * The §46 `state` is the anchor — the same column the fleet list badges — not
  * the derived progress stage: a deployment can be HEALTHY while its stage is
  * still VERIFYING (READY additionally waits on HTTPS), and a customer whose
- * application is up must read as Live, not as still installing. Attention is
- * the one overlay on top, from the same `attentionReason` the homepage and the
- * fleet list classify with. An update in flight stays under Installing: the
- * screen is operational, and "work is happening here" is the useful answer.
+ * application is up must read as Live, not as still installing. The buckets
+ * come from `customerBucket`, the classification the Customers list and the
+ * Deployments list share, so none of them can disagree about a deployment.
  */
 function rollupFor(deployment: FleetDeployment): CustomerDeploymentRollup {
-  if (deployment.state === 'DELETED') return 'REMOVED';
-  if (deployment.state === 'DELETING') return 'REMOVING';
-  if (attentionReason(deployment) !== null) return 'NEEDS_ATTENTION';
-  if (deployment.state === 'NOT_INSTALLED') return 'NOT_INSTALLED';
-  if (deployment.state === 'HEALTHY' || deployment.state === 'UPDATE_AVAILABLE') return 'LIVE';
-  return 'INSTALLING';
+  switch (customerBucket(deployment)) {
+    case 'removed':
+      return 'REMOVED';
+    case 'removing':
+      return 'REMOVING';
+    case 'attention':
+      return 'NEEDS_ATTENTION';
+    case 'active':
+      return 'LIVE';
+    case 'pending':
+      return deployment.state === 'NOT_INSTALLED' ? 'NOT_INSTALLED' : 'INSTALLING';
+  }
 }
 
 function activityAt(deployment: FleetDeployment): string {
-  return deployment.deploymentStatus.updatedAt;
+  return deploymentUpdatedAt(deployment) ?? deployment.createdAt;
 }
 
 /** Roll one customer's deployments up into the single answer the list shows. */
@@ -187,11 +202,186 @@ export function formatDate(iso: string): string {
 
 /** Matches a customer against the list's search box: name, email, company. */
 export function matchesCustomerSearch(customer: Customer, search: string): boolean {
-  const needle = search.trim().toLowerCase();
-  if (needle === '') return true;
-  return `${customer.name} ${customer.email} ${customer.company ?? ''}`
-    .toLowerCase()
-    .includes(needle);
+  return matchesSearch([customer.name, customer.email, customer.company], search);
+}
+
+// ── Customers list view ─────────────────────────────────────────────────────
+
+/** How many of a customer's deployments sit in each bucket, and the sentence
+ *  the list shows for it. Derived from deployments on every render — there is
+ *  no second status to keep in step. */
+export interface CustomerSummary {
+  counts: Record<CustomerBucket, number>;
+  /** The badges the summary reads as, most important first. */
+  parts: { bucket: CustomerBucket; text: string }[];
+  /** The same as one sentence — "1 active · 1 needs attention". */
+  text: string;
+}
+
+function summaryPart(bucket: CustomerBucket, count: number, onlyOne: boolean): string {
+  switch (bucket) {
+    case 'active':
+      return `${count} active`;
+    case 'attention':
+      return `${count} needs attention`;
+    case 'pending':
+      // A lone pending deployment reads as a state, not a count.
+      return onlyOne && count === 1 ? 'Setup pending' : `${count} setup pending`;
+    case 'removing':
+      return `${count} removing`;
+    case 'removed':
+      return `${count} removed`;
+  }
+}
+
+/** Aggregates a customer's deployments into counts and one line of text.
+ *  Removed deployments are history: they only speak when nothing else does. */
+export function customerSummary(deployments: FleetDeployment[]): CustomerSummary {
+  const counts: Record<CustomerBucket, number> = {
+    active: 0,
+    attention: 0,
+    pending: 0,
+    removing: 0,
+    removed: 0,
+  };
+  for (const deployment of deployments) counts[customerBucket(deployment)] += 1;
+
+  const shown = CUSTOMER_BUCKETS.filter((bucket) => bucket !== 'removed' && counts[bucket] > 0);
+  const parts = shown.map((bucket) => ({
+    bucket,
+    text: summaryPart(bucket, counts[bucket], shown.length === 1),
+  }));
+  if (parts.length === 0) {
+    parts.push({
+      bucket: 'removed',
+      text: deployments.length === 0 ? 'No deployments' : 'Removed',
+    });
+  }
+  return { counts, parts, text: parts.map((part) => part.text).join(' · ') };
+}
+
+export const CUSTOMER_STATE_FILTERS = ['active', 'attention', 'pending', 'none', 'removed'] as const;
+export type CustomerStateFilter = (typeof CUSTOMER_STATE_FILTERS)[number];
+
+export const CUSTOMER_STATE_FILTER_LABELS: Record<CustomerStateFilter, string> = {
+  active: 'Active',
+  attention: 'Needs attention',
+  pending: 'Setup pending',
+  none: 'No active deployments',
+  removed: 'Removed',
+};
+
+export function isCustomerStateFilter(value: string): value is CustomerStateFilter {
+  return (CUSTOMER_STATE_FILTERS as readonly string[]).includes(value);
+}
+
+/** A customer matches a bucket filter when any deployment is in it. "No active
+ *  deployments" is the customers with nothing running or being set up —
+ *  including the ones whose every deployment was removed. */
+export function matchesCustomerState(summary: CustomerSummary, filter: CustomerStateFilter): boolean {
+  const { counts } = summary;
+  const live = counts.active + counts.attention + counts.pending;
+  const total = live + counts.removing + counts.removed;
+  switch (filter) {
+    case 'active':
+    case 'attention':
+    case 'pending':
+      return counts[filter] > 0;
+    case 'none':
+      return live === 0;
+    case 'removed':
+      return total > 0 && live === 0;
+  }
+}
+
+export interface CustomerListRow {
+  customer: Customer;
+  rollup: CustomerDeployment;
+  summary: CustomerSummary;
+  /** The applications this customer uses: live ones, or every one when all were removed. */
+  applications: string[];
+  /** The newest deployment change, else when the customer was created. */
+  lastActivityAt: string;
+}
+
+export function customerListRow(customer: Customer, deployments: FleetDeployment[]): CustomerListRow {
+  const rollup = customerDeployment(deployments);
+  const live = deployments.filter((deployment) => deployment.state !== 'DELETED');
+  const source = live.length > 0 ? live : deployments;
+  // `rollup.deployments` is newest first, so the first application named is
+  // the one most recently active.
+  const named = rollup.deployments.filter((deployment) => source.includes(deployment));
+  return {
+    customer,
+    rollup,
+    summary: customerSummary(deployments),
+    applications: [...new Set(named.map((deployment) => deployment.applicationName))],
+    lastActivityAt: rollup.lastActivityAt ?? customer.createdAt,
+  };
+}
+
+export const CUSTOMER_SORT_KEYS = ['activity', 'customer', 'created'] as const;
+export type CustomerSortKey = (typeof CUSTOMER_SORT_KEYS)[number];
+
+export const CUSTOMER_SORT_NATURAL: Record<CustomerSortKey, SortDirection> = {
+  activity: 'desc',
+  customer: 'asc',
+  created: 'desc',
+};
+
+export const DEFAULT_CUSTOMER_SORT: SortState<CustomerSortKey> = { key: 'activity', dir: 'desc' };
+
+export interface CustomerListQuery {
+  search: string;
+  state: CustomerStateFilter | null;
+  application: string | null;
+  sort: SortState<CustomerSortKey>;
+}
+
+export function parseCustomerQuery(params: URLSearchParams): CustomerListQuery {
+  const state = params.get('state') ?? '';
+  return {
+    search: params.get('q') ?? '',
+    state: isCustomerStateFilter(state) ? state : null,
+    application: params.get('application') || null,
+    sort: parseSort(params, CUSTOMER_SORT_KEYS, DEFAULT_CUSTOMER_SORT, CUSTOMER_SORT_NATURAL),
+  };
+}
+
+export function hasActiveCustomerFilters(query: CustomerListQuery): boolean {
+  return query.search.trim() !== '' || query.state !== null || query.application !== null;
+}
+
+export function filterCustomerRows(rows: CustomerListRow[], query: CustomerListQuery): CustomerListRow[] {
+  return rows.filter(
+    (row) =>
+      matchesCustomerSearch(row.customer, query.search) &&
+      (query.state === null || matchesCustomerState(row.summary, query.state)) &&
+      (query.application === null || row.applications.includes(query.application)),
+  );
+}
+
+const CUSTOMER_COMPARATORS: Record<
+  CustomerSortKey,
+  (a: CustomerListRow, b: CustomerListRow) => number
+> = {
+  activity: (a, b) => compareTime(a.lastActivityAt, b.lastActivityAt),
+  customer: (a, b) => compareText(a.customer.name, b.customer.name),
+  created: (a, b) => compareTime(a.customer.createdAt, b.customer.createdAt),
+};
+
+/** A total order: ties fall back to name, then id, so the list never reshuffles. */
+export function sortCustomerRows(
+  rows: CustomerListRow[],
+  sort: SortState<CustomerSortKey>,
+): CustomerListRow[] {
+  const compare = CUSTOMER_COMPARATORS[sort.key];
+  return [...rows].sort(
+    (a, b) =>
+      withDirection(compare(a, b), sort.dir) ||
+      compareText(a.customer.name, b.customer.name) ||
+      compareText(a.customer.id, b.customer.id),
+  );
 }
 
 // ── Create-deployment customer picker ───────────────────────────────────────

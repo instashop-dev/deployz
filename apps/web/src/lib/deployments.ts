@@ -310,14 +310,6 @@ export async function fetchDeployments(
   return body.deployments ?? [];
 }
 
-/** Whether a fleet row belongs under a status filter: `all` is the live
- *  fleet (removed deployments excluded, as on Home), `DELETED` lists only the
- *  removed ones, any other value matches that exact state. */
-export function listedUnderStatus(deployment: { state: string }, filter: string): boolean {
-  if (filter === 'all') return deployment.state !== 'DELETED';
-  return deployment.state === filter;
-}
-
 /** Fetch one application's deployments (used to check for a test deployment, §25 bulk deploy). */
 export async function fetchDeploymentsForApplication(
   applicationId: string,

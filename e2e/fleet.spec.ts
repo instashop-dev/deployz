@@ -178,9 +178,12 @@ test('fleet dashboard lists a real deployment with Customer/Version/Region/Statu
   await page.goto('/dashboard/deployments');
   await expect(page.getByTestId('deployment-list')).toBeVisible();
   await expect(page.getByText(customerName, { exact: true })).toBeVisible();
-  await expect(page.getByText(applicationName, { exact: true })).toBeVisible();
+  // The application is named twice in the DOM (a column, and a subline for
+  // narrow screens); only one is displayed at any width.
+  await expect(page.getByText(applicationName, { exact: true }).locator('visible=true')).toHaveCount(1);
   await expect(page.getByText('us-east-1', { exact: true }).first()).toBeVisible();
-  await expect(page.getByText('Not installed', { exact: true })).toBeVisible();
+  await expect(page.getByText('Waiting for customer', { exact: true })).toBeVisible();
+  await expect(page.getByRole('columnheader', { name: 'Updated' })).toBeVisible();
 });
 
 test('deployment detail page renders the §24 overview, infrastructure rows, and actions', async ({

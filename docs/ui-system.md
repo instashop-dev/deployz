@@ -34,9 +34,9 @@ feature/domain components only where repeated logic justifies them
 ## Shell
 
 - `DashboardShell` composes `SidebarProvider > AppSidebar + SidebarInset`.
-- `AppSidebar` carries the brand, `OrgSwitcher` (SidebarHeader),
-  `DashboardNav` (SidebarContent, groups: main + Management), and the account
-  menu (SidebarFooter).
+- `AppSidebar` carries the brand (SidebarHeader), `OrgSwitcher` and
+  `DashboardNav` (SidebarContent: the organization row, then groups: main +
+  Management), and the account menu (SidebarFooter).
 - `SiteHeader` carries the `SidebarTrigger` and a compact section label on
   nested routes only — index routes where the label would repeat the page's
   own title suppress it, and the top bar carries no user identity. No
@@ -104,6 +104,34 @@ status page, not a console. Top to bottom:
    activity" for the rest. The classified failure's plain-English summary is
    the only failure text at the top level; the relay's raw error stays inside
    the row's disclosure.
+
+## List views (Customers, Deployments)
+
+The two lists answer different questions. Customers answers "which
+relationships need attention?" with one row per customer. Deployments answers
+"what is happening in each customer environment?" with one row per deployment.
+
+- The status words come from `lib/deployment-status-groups`. That module holds
+  the precise label of one deployment, the filter group of the status filter,
+  the default sort rank, and the customer-level bucket the Customers summary
+  counts. Do not classify a status anywhere else.
+- The Customers summary is a projection of the customer's deployments. It is
+  never a stored status.
+- A state that the app does not know shows as "Unknown status" and counts as
+  "Needs attention". It never shows a raw enum value.
+- Search, filters, and sort live in the URL query (`q`, `status` or `state`,
+  `application`, `region`, `sort`, `dir`). Use `useListParams`. A default value
+  leaves no trace in the URL. Back from a detail page restores the view.
+- Search waits 250 ms before it writes to the URL (`ListSearchInput`). Filters
+  and sort apply at once. "Clear filters" shows only when a filter is active.
+- A list that has no rows because of a filter shows `NoMatchesState`. A list
+  that is empty shows its own first-use state. Never mix the two.
+- Region codes show with a friendly name (`lib/regions`). An unknown region
+  shows its code.
+- Tables choose their columns from their own width with container queries
+  (`@container`, `@2xl:`, `@4xl:`), not from the viewport, because the sidebar
+  changes the space that is available. A hidden column moves under the
+  customer instead of disappearing.
 
 ## Plan-driven surfaces
 
