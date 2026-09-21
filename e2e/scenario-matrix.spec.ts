@@ -192,12 +192,15 @@ test.describe('repairable-local-filesystem (E)', () => {
     expect(body.error.details?.findings?.some((f) => f.id === 'unsupported')).toBe(true);
 
     // The coding-agent repair guidance surfaces through the real
-    // fix-instructions route: the deterministic document carries the
-    // finding's plain-English explanation and the object-storage outcome.
+    // fix-instructions route: the document carries the finding's
+    // plain-English explanation and the object-storage outcome. The rebuilt
+    // gateway prompt phrases the finding's title as "Persistent data written
+    // to local disk" while the deterministic fallback keeps the readiness
+    // title — both name the same blocker, so either title is accepted here.
     const fix = await request.post(`${API_URL}/api/applications/${applicationId}/fix-instructions`);
     expect(fix.ok()).toBeTruthy();
     const { instructions } = (await fix.json()) as { instructions: string };
-    expect(instructions).toContain('Files stored on local disk');
+    expect(instructions).toMatch(/Files stored on local disk|Persistent data written to local disk/);
     expect(instructions).toContain(
       'Store uploaded and persistent files in object storage instead of the local disk.',
     );
