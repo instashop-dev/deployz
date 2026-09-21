@@ -3,7 +3,7 @@
 import type { ReactNode } from 'react';
 
 import { AppSidebar } from '@/components/app-sidebar';
-import { SidebarInset, SidebarProvider } from '@/components/ui/sidebar';
+import { SidebarInset, SidebarProvider, SidebarTrigger } from '@/components/ui/sidebar';
 import type { OrganizationSummary } from '@/lib/organization-vocabulary';
 
 interface DashboardShellProps {
@@ -14,8 +14,9 @@ interface DashboardShellProps {
 }
 
 // App shell on the shadcn Sidebar architecture: AppSidebar (brand, sidebar
-// trigger, org switcher, navigation, account menu). Session data arrives as
-// props from the server layout, which re-validates it against the API on
+// trigger, org switcher, navigation, account menu). Below md the sidebar is a
+// sheet, so a slim bar carries the trigger that opens it. Session data arrives
+// as props from the server layout, which re-validates it against the API on
 // every render. Pages get their padding and base spacing from the single
 // <main> here, not from each page.
 export function DashboardShell({
@@ -32,6 +33,9 @@ export function DashboardShell({
         activeOrganizationId={activeOrganizationId}
       />
       <SidebarInset>
+        <div className="sticky top-0 z-10 flex h-12 items-center border-b bg-background px-4 md:hidden">
+          <SidebarTrigger aria-label="Open sidebar" />
+        </div>
         <main className="flex flex-1 flex-col gap-6 p-4 pb-16 md:p-6 md:pb-16 lg:p-8">
           {children}
         </main>

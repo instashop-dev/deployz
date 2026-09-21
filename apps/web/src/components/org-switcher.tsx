@@ -1,6 +1,6 @@
 'use client';
 
-import { Check, ChevronsUpDown, Plus } from 'lucide-react';
+import { Check, ChevronDown, Plus } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
@@ -12,7 +12,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { SidebarMenuButton, useSidebar } from '@/components/ui/sidebar';
+import { SidebarMenu, SidebarMenuButton, SidebarMenuItem } from '@/components/ui/sidebar';
 import { Spinner } from '@/components/ui/spinner';
 import { apiRequest, errorMessage } from '@/lib/api-client';
 import { ROLE_LABELS, type OrganizationSummary } from '@/lib/organization-vocabulary';
@@ -23,13 +23,13 @@ interface OrgSwitcherProps {
   activeOrganizationId: string | null;
 }
 
-// Sidebar-header tenant switcher: lists every organization the user belongs
+// Sidebar tenant switcher row: lists every organization the user belongs
 // to and switches the active tenant through the API. The trigger's org-name
 // span keeps showing the active organization's name at all times — Playwright
 // asserts its text content — so the pending state is shown on the icon only.
+// The sidebar hides this row when collapsed to icons.
 export function OrgSwitcher({ organizations, activeOrganizationId }: OrgSwitcherProps) {
   const router = useRouter();
-  const { isMobile, state } = useSidebar();
   const [pendingId, setPendingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -52,61 +52,57 @@ export function OrgSwitcher({ organizations, activeOrganizationId }: OrgSwitcher
   }
 
   return (
-    <div className="flex flex-col gap-1">
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <SidebarMenuButton
-            data-testid="org-switcher-trigger"
-            disabled={pendingId !== null}
-            aria-busy={pendingId !== null || undefined}
-            size="sm"
-            className="w-full justify-between gap-2"
-            aria-label="Switch organization"
-          >
-            <span data-testid="org-name" className="truncate text-xs text-muted-foreground">
-              {activeOrganization?.name ?? 'Select organization'}
-            </span>
-            {pendingId !== null ? (
-              <Spinner aria-hidden className="size-3.5 shrink-0 text-muted-foreground" />
-            ) : (
-              <ChevronsUpDown className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />
-            )}
-          </SidebarMenuButton>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent
-          side={isMobile || state === 'expanded' ? 'bottom' : 'right'}
-          align="start"
-          className="w-64"
-        >
-          {organizations.map((org) => (
-            <DropdownMenuItem
-              key={org.id}
-              data-testid="org-switcher-item"
+    <SidebarMenu>
+      <SidebarMenuItem>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <SidebarMenuButton
+              data-testid="org-switcher-trigger"
               disabled={pendingId !== null}
-              onSelect={() => onSwitch(org.id)}
+              aria-busy={pendingId !== null || undefined}
+              aria-label="Switch organization"
             >
-              <Check
-                className={cn('size-4', org.id === activeOrganizationId ? 'opacity-100' : 'opacity-0')}
-                aria-hidden
-              />
-              <span className="flex-1 truncate">{org.name}</span>
-              <span className="text-xs text-muted-foreground">{ROLE_LABELS[org.role]}</span>
+              <span data-testid="org-name" className="truncate">
+                {activeOrganization?.name ?? 'Select organization'}
+              </span>
+              {pendingId !== null ? (
+                <Spinner aria-hidden className="ml-auto text-muted-foreground" />
+              ) : (
+                <ChevronDown className="ml-auto text-muted-foreground" aria-hidden />
+              )}
+            </SidebarMenuButton>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent side="bottom" align="start" className="w-64">
+            {organizations.map((org) => (
+              <DropdownMenuItem
+                key={org.id}
+                data-testid="org-switcher-item"
+                disabled={pendingId !== null}
+                onSelect={() => onSwitch(org.id)}
+              >
+                <Check
+                  className={cn('size-4', org.id === activeOrganizationId ? 'opacity-100' : 'opacity-0')}
+                  aria-hidden
+                />
+                <span className="flex-1 truncate">{org.name}</span>
+                <span className="text-xs text-muted-foreground">{ROLE_LABELS[org.role]}</span>
+              </DropdownMenuItem>
+            ))}
+            <DropdownMenuSeparator />
+            <DropdownMenuItem data-testid="org-switcher-create" asChild>
+              <Link href="/organizations/new">
+                <Plus aria-hidden />
+                Create organization
+              </Link>
             </DropdownMenuItem>
-          ))}
-          <DropdownMenuSeparator />
-          <DropdownMenuItem data-testid="org-switcher-create" asChild>
-            <Link href="/organizations/new">
-              <Plus aria-hidden />
-              Create organization
-            </Link>
-          </DropdownMenuItem>
-        </DropdownMenuContent>
-      </DropdownMenu>
-      {error ? (
-        <p role="alert" className="px-2 text-xs text-destructive">
-          {error}
-        </p>
-      ) : null}
-    </div>
+          </DropdownMenuContent>
+        </DropdownMenu>
+        {error ? (
+          <p role="alert" className="px-2 pt-1 text-xs text-destructive">
+            {error}
+          </p>
+        ) : null}
+      </SidebarMenuItem>
+    </SidebarMenu>
   );
 }

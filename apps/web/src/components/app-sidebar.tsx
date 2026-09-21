@@ -10,13 +10,15 @@ import {
   Sidebar,
   SidebarContent,
   SidebarFooter,
+  SidebarGroup,
   SidebarHeader,
   SidebarTrigger,
 } from '@/components/ui/sidebar';
 import type { OrganizationSummary } from '@/lib/organization-vocabulary';
 
 // The application sidebar: brand and sidebar trigger in the header, the
-// grouped navigation in the content, and the account menu in the footer.
+// organization selector and grouped navigation in the content, and the
+// account menu in the footer.
 // Mobile and collapsible behavior come from the shadcn Sidebar primitives —
 // there is no parallel custom nav.
 export function AppSidebar({
@@ -31,23 +33,23 @@ export function AppSidebar({
   return (
     <Sidebar collapsible="icon">
       <SidebarHeader>
-        <div className="flex flex-col gap-1 px-2 py-2">
-          <div className="flex items-center group-data-[collapsible=icon]:flex-col">
-            <Link href="/dashboard" aria-label="Deployz" className="inline-flex">
-              <DeployzBrand size="sm" />
-            </Link>
-            <SidebarTrigger
-              aria-label="Toggle sidebar"
-              className="ml-auto group-data-[collapsible=icon]:ml-0"
-            />
-          </div>
-          <OrgSwitcher
-            organizations={organizations}
-            activeOrganizationId={activeOrganizationId}
+        <div className="flex items-center px-2 py-2 group-data-[collapsible=icon]:flex-col">
+          <Link href="/dashboard" aria-label="Deployz" className="inline-flex">
+            <DeployzBrand size="sm" />
+          </Link>
+          <SidebarTrigger
+            aria-label="Toggle sidebar"
+            className="ml-auto group-data-[collapsible=icon]:ml-0"
           />
         </div>
       </SidebarHeader>
       <SidebarContent>
+        <SidebarGroup className="pb-0 group-data-[collapsible=icon]:hidden">
+          <OrgSwitcher
+            organizations={organizations}
+            activeOrganizationId={activeOrganizationId}
+          />
+        </SidebarGroup>
         <DashboardNav />
       </SidebarContent>
       <SidebarFooter>
