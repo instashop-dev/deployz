@@ -71,12 +71,26 @@ export default async function InstallPage({
   // Fetched in parallel: the status projection is a nice-to-have for the
   // first paint (a failed fetch just costs one extra client round trip —
   // see fetchInstallStatusServer), so it never blocks or fails the page.
-  const [data, initialStatus] = await Promise.all([
+  const [lookup, initialStatus] = await Promise.all([
     fetchInstallData(installLinkId),
     fetchInstallStatusServer(installLinkId),
   ]);
 
-  if (!data) {
+  // Invitation lifecycle: an expired or revoked link gets its own honest
+  // customer state instead of the generic invalid-link copy.
+  if (lookup.status === 'unavailable') {
+    const revoked = lookup.code === 'INSTALL_LINK_REVOKED';
+    return (
+      <div className="flex flex-col gap-4">
+        <h1 className="text-2xl font-semibold tracking-tight">
+          {revoked ? 'This installation link was revoked' : 'This installation link has expired'}
+        </h1>
+        <p className="max-w-md text-sm text-muted-foreground">{lookup.message}</p>
+      </div>
+    );
+  }
+
+  if (lookup.status === 'not_found') {
     return (
       <div className="flex flex-col gap-4">
         <h1 className="text-2xl font-semibold tracking-tight">This link isn&apos;t valid</h1>
@@ -88,6 +102,8 @@ export default async function InstallPage({
       </div>
     );
   }
+
+  const data = lookup.data;
 
   // The customer pressed "Deploy to AWS" and the control plane is waiting
   // for the relay to enroll. Never a failure: past the staleness window the
@@ -436,10 +452,10 @@ export default async function InstallPage({
                 a Secrets Manager secret in your account. It performs install, update, rollback,
                 restart, configuration and teardown work through your own AWS APIs. Only deployment
                 status and metadata leave your account; application data and logs stay in your
-                CloudWatch. The connector is reused for future deployments of this application into
-                this account, and it is removed when you delete its CloudFormation stack. If Deployz
-                is temporarily offline, your application keeps running — the connector simply waits
-                for the next check-in.
+                CloudWatch. The connector belongs to this deployment only and is created once during
+                setup — a new deployment gets its own connector. It is removed when you delete its
+                CloudFormation stack. If Deployz is temporarily offline, your application keeps running
+                — the connector simply waits for the next check-in.
               </p>
             </div>
             <Button asChild variant="outline" size="sm" className="w-fit">
