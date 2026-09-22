@@ -515,7 +515,15 @@ describe('regional-certificates service', () => {
       const { row } = await ensureRegionalCertificate(db, ensureInput(deployment, customer.dnsScope), deps());
       await db
         .update(schema.customerRegionalCertificates)
-        .set({ certificateStatus: 'ERROR', lastError: 'CERTIFICATE_FAILED: CAA_ERROR', attempts: 3 })
+        .set({
+          certificateStatus: 'ERROR',
+          lastError: 'CERTIFICATE_FAILED: CAA_ERROR',
+          attempts: 3,
+          certificateArn: 'arn:aws:acm:us-east-1:123456789012:certificate/failed',
+          validationRecordName: '_dead.c-scope.deployz.dev',
+          validationRecordValue: '_dead.acm-validations.aws',
+          requestedAt: new Date(),
+        })
         .where(eq(schema.customerRegionalCertificates.id, row.id));
 
       const retried = await retryRegionalCertificate(db, row.id);
@@ -523,6 +531,12 @@ describe('regional-certificates service', () => {
       expect(retried.lastError).toBeNull();
       expect(retried.attempts).toBe(0);
       expect(retried.checkCycle).toBe(row.checkCycle + 1);
+      // A terminally failed certificate is forgotten so the next ENSURE
+      // requests a replacement instead of re-describing the dead ARN.
+      expect(retried.certificateArn).toBeNull();
+      expect(retried.validationRecordName).toBeNull();
+      expect(retried.validationRecordValue).toBeNull();
+      expect(retried.requestedAt).toBeNull();
     });
   });
 

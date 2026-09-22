@@ -552,6 +552,19 @@ export async function retryRegionalCertificate(db: RuntimeDb, rowId: string): Pr
       lastError: null,
       checkCycle: sql`${schema.customerRegionalCertificates.checkCycle} + 1`,
       attempts: 0,
+      // A terminally failed ACM certificate can never validate at the same
+      // ARN, so the retry forgets it (and its validation record) and the
+      // next ENSURE cycle requests a replacement; the slow/timeout clocks
+      // restart with that request.
+      certificateArn: null,
+      validationRecordName: null,
+      validationRecordValue: null,
+      validationRecordType: null,
+      cloudflareRecordId: null,
+      requestedAt: null,
+      validationDnsReadyAt: null,
+      issuedAt: null,
+      lastVerifiedAt: null,
     })
     .where(eq(schema.customerRegionalCertificates.id, rowId))
     .returning();
