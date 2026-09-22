@@ -263,6 +263,7 @@ export async function applyEnsureCertificateResult(
   rowId: string,
   job: { type: string },
   body: { success?: boolean; output?: Record<string, unknown>; failureCode?: string },
+  context: { deploymentId?: string } = {},
 ): Promise<{ row: RegionalCertificateRow; transition: RegionalCertificateTransition | null } | null> {
   void job;
   const rows = await tx
@@ -289,6 +290,7 @@ export async function applyEnsureCertificateResult(
       await recordDefaultHttpsEvent(tx, {
         organizationId: row.organizationId,
         customerId: row.customerId,
+        ...(context.deploymentId ? { deploymentId: context.deploymentId } : {}),
         eventType: 'certificate_failed',
         actorType: 'relay',
         awsAccountId: row.awsAccountId,
@@ -390,6 +392,7 @@ export async function applyEnsureCertificateResult(
     await recordDefaultHttpsEvent(tx, {
       organizationId: row.organizationId,
       customerId: row.customerId,
+      ...(context.deploymentId ? { deploymentId: context.deploymentId } : {}),
       eventType: 'certificate_issued',
       actorType: 'relay',
       awsAccountId: row.awsAccountId,
@@ -401,6 +404,7 @@ export async function applyEnsureCertificateResult(
     await recordDefaultHttpsEvent(tx, {
       organizationId: row.organizationId,
       customerId: row.customerId,
+      ...(context.deploymentId ? { deploymentId: context.deploymentId } : {}),
       eventType: 'certificate_failed',
       actorType: 'relay',
       awsAccountId: row.awsAccountId,

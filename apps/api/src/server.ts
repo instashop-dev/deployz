@@ -7185,7 +7185,7 @@ export async function buildServer({
           // `<deploymentId>:ENSURE_CERTIFICATE:<rowId>:<cycle>`.
           const rowId = job.idempotencyKey.split(':')[2];
           if (rowId) {
-            const outcome = await applyEnsureCertificateResult(tx, rowId, job, body);
+            const outcome = await applyEnsureCertificateResult(tx, rowId, job, body, { deploymentId: deployment.id });
             if (outcome) {
               ensureCertificateRowId = rowId;
             }
