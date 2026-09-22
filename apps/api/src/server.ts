@@ -159,6 +159,7 @@ import { buildInstallPayload, buildRelayConfigEntries, queuePostInstallConfig } 
 import { requirePreflightReady, runApplicationPreflight, runDeploymentPreflight } from './preflight.js';
 import {
   confirmPublicInstall,
+  createInstallationInvitation,
   createPublicInstallLink,
   listPublicInstallLinks,
   publicInstallConfirmBodySchema,
@@ -2993,6 +2994,16 @@ export async function buildServer({
     region: regionSchema,
   });
 
+  // Installation invitation targets the SESSION org's customer (path) and
+  // application (body). `recommendedRegion` is optional — the customer makes
+  // the final Region choice at confirmation.
+  const createInvitationBodySchema = z
+    .object({
+      applicationId: z.string().uuid(),
+      recommendedRegion: regionSchema.optional(),
+    })
+    .strict();
+
   const createReleaseBodySchema = z.object({
     version: z.string().min(1),
     gitSha: z.string().min(1),
@@ -3530,6 +3541,33 @@ export async function buildServer({
     },
   );
 
+  // POST /api/customers/:customerId/invitations — create a TARGETED
+  // installation invitation WITHOUT creating a deployment. The vendor may
+  // recommend a Region; the customer makes the final choice at confirmation.
+  // Returns the one-time token exactly once — it is never retrievable again.
+  app.post(
+    '/api/customers/:customerId/invitations',
+    { preHandler: requireAuth },
+    async (request, reply) => {
+      const { customerId } = request.params as { customerId: string };
+      const body = createInvitationBodySchema.parse(request.body);
+      const organizationId = requireSessionOrganizationId(request);
+      const { link, token } = await createInstallationInvitation(db, {
+        organizationId,
+        userId: requireActor(request).id,
+        customerId,
+        applicationId: body.applicationId,
+        ...(body.recommendedRegion !== undefined ? { recommendedRegion: body.recommendedRegion } : {}),
+      });
+      return reply.code(201).send({
+        id: link.id,
+        token,
+        expiresAt: link.expiresAt,
+        recommendedRegion: link.recommendedRegion,
+      });
+    },
+  );
+
   // GET /api/customers/:customerId/deploy-links — Link state for the vendor
   // panel: newest first, with the derived status ('active' | 'revoked' |
   // 'expired') and the linked deployment's state/region.
@@ -3920,7 +3958,8 @@ export async function buildServer({
     { config: { rateLimit: PUBLIC_INSTALL_RATE_LIMIT } },
     async (request) => {
       const { linkId } = request.params as { linkId: string };
-      return resolvePublicInstall(db, linkId);
+      const token = firstHeaderValue(request.headers['x-deployz-token']);
+      return resolvePublicInstall(db, linkId, token);
     },
   );
 
@@ -3936,7 +3975,8 @@ export async function buildServer({
     async (request, reply) => {
       const { linkId } = request.params as { linkId: string };
       const body = publicInstallConfirmBodySchema.parse(request.body);
-      const result = await confirmPublicInstall(db, linkId, body);
+      const token = firstHeaderValue(request.headers['x-deployz-token']);
+      const result = await confirmPublicInstall(db, linkId, body, token);
       return reply.code(result.created ? 201 : 200).send({ installLinkId: result.installLinkId });
     },
   );

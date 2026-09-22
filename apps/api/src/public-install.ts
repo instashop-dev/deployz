@@ -15,12 +15,13 @@ import * as schema from '@deployz/db/schema';
 
 import { createConfigStore, createRelaySecretWriter, setConfig } from './config.js';
 import { assertProductionDeploymentAllowed } from './billing-entitlements.js';
-import { createDeploymentRecord, loadOwnedApplication } from './deploy-links.js';
+import { createDeploymentRecord, loadOwnedApplication, loadOwnedCustomer, mintDeployLinkToken } from './deploy-links.js';
 import { env } from './env.js';
 import { ApiError, NotFoundError } from './errors.js';
 import { recordEvent } from './events.js';
 import { requirePreflightReady, runApplicationPreflight } from './preflight.js';
 import { createReleaseRecord } from './releases.js';
+import { hashRelayToken, verifyRelayToken } from './relay-store.js';
 
 // Public Install Links — the customer-side installation review surface. A
 // link is vendor-published and credential-free: anyone holding the opaque
@@ -37,6 +38,9 @@ import { createReleaseRecord } from './releases.js';
 // /install flow, which owns everything after this point).
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** How long a freshly minted targeted invitation stays valid. */
+export const DEFAULT_INVITATION_TTL_DAYS = 30;
 
 export type PublicInstallLinkRow = typeof schema.publicInstallLinks.$inferSelect;
 type ApplicationRow = typeof schema.applications.$inferSelect;
@@ -57,12 +61,15 @@ export const publicInstallConfirmBodySchema = z
   .object({
     idempotencyKey: z.string().uuid(),
     region: z.string().min(1),
+    // Required only for a credential-free reusable link (no target customer);
+    // a targeted invitation already names its customer and must not supply it.
     customer: z
       .object({
         name: z.string().trim().min(1),
         email: z.string().trim().email(),
       })
-      .strict(),
+      .strict()
+      .optional(),
     config: z
       .array(
         z
@@ -96,7 +103,7 @@ interface ActivePublicInstallLink {
  * revoked link 410, a disabled link 410 with its own code (so the page can
  * say the vendor turned it off rather than guess at a broken URL).
  */
-async function loadActiveLink(db: RuntimeDb, linkId: string): Promise<ActivePublicInstallLink> {
+async function loadActiveLink(db: RuntimeDb, linkId: string, token?: string): Promise<ActivePublicInstallLink> {
   requireUuidId(linkId);
   const rows = await db
     .select({
@@ -113,10 +120,24 @@ async function loadActiveLink(db: RuntimeDb, linkId: string): Promise<ActivePubl
     throw new NotFoundError('Install link not found');
   }
   const row = rows[0]!;
+  const targeted = row.link.tokenHash !== null;
+  if (targeted) {
+    // Private invitation: the secret authorizes review + confirmation only.
+    // Missing/mismatched token is the same 404 as an unknown id — the caller
+    // can never learn which failed.
+    if (token === undefined || !verifyRelayToken(row.link.tokenHash, token)) {
+      throw new NotFoundError('Install link not found');
+    }
+  }
   if (row.link.revokedAt !== null) {
     throw new ApiError(410, 'PUBLIC_INSTALL_LINK_REVOKED', 'This installation link has been revoked.');
   }
-  if (!row.link.enabled) {
+  if (row.link.expiresAt !== null && row.link.expiresAt.getTime() < Date.now()) {
+    throw new ApiError(410, 'PUBLIC_INSTALL_LINK_EXPIRED', 'This installation link has expired.');
+  }
+  // `enabled` only gates the credential-free reusable link; a targeted
+  // invitation is token-gated and has no enabled concept.
+  if (!targeted && !row.link.enabled) {
     throw new ApiError(
       410,
       'PUBLIC_INSTALL_LINK_DISABLED',
@@ -189,17 +210,23 @@ export function publicInstallInputs(manifest: DeploymentManifest): PublicInstall
  * (runApplicationPreflight), so the public page can never disagree with the
  * vendor surfaces about what an install creates.
  */
-export async function resolvePublicInstall(db: RuntimeDb, linkId: string) {
-  const { application, publisherName, link } = await loadActiveLink(db, linkId);
+export async function resolvePublicInstall(db: RuntimeDb, linkId: string, token?: string) {
+  const { application, publisherName, link } = await loadActiveLink(db, linkId, token);
+  // A consumed targeted invitation is not re-reviewable (a reusable link is).
+  if (link.customerId !== null && link.confirmedAt !== null) {
+    throw new ApiError(410, 'PUBLIC_INSTALL_LINK_USED', 'This installation link has already been used.');
+  }
   const release = await newestPublishedRelease(db, link.applicationId);
   if (release === null) {
     throw new ApiError(410, 'RELEASE_NOT_PUBLISHED', 'This application has no published release yet.');
   }
-  const { manifest } = await runApplicationPreflight(db, application, null);
+  const { manifest } = await runApplicationPreflight(db, application, link.customerId);
   return {
     application: { name: application.name },
     publisher: { name: publisherName },
     release: { version: release.version, createdAt: release.createdAt },
+    recommendedRegion: link.recommendedRegion ?? null,
+    regionSelection: link.regionSelection,
     regions: SUPPORTED_AWS_REGIONS.filter((region) => env.deployableAwsRegions.includes(region)).map(
       (region) => ({ value: region, label: REGION_LABELS[region] }),
     ),
@@ -259,8 +286,9 @@ export async function confirmPublicInstall(
   db: RuntimeDb,
   linkId: string,
   body: PublicInstallConfirmBody,
+  token?: string,
 ): Promise<{ installLinkId: string; created: boolean }> {
-  const { application, link } = await loadActiveLink(db, linkId);
+  const { application, link } = await loadActiveLink(db, linkId, token);
   const release = await newestPublishedRelease(db, link.applicationId);
   if (release === null) {
     throw new ApiError(410, 'RELEASE_NOT_PUBLISHED', 'This application has no published release yet.');
@@ -272,8 +300,12 @@ export async function confirmPublicInstall(
       `Region ${body.region} is not available for installation yet.`,
     );
   }
+  // A reusable link must name its customer; a targeted invitation already does.
+  if (link.customerId === null && body.customer === undefined) {
+    throw new ApiError(422, 'PUBLIC_INSTALL_CUSTOMER_REQUIRED', 'A customer name and email are required.');
+  }
   const bodyKeys = [...new Set(body.config.map((entry) => entry.key))];
-  const { manifest, result } = await runApplicationPreflight(db, application, null, bodyKeys);
+  const { manifest, result } = await runApplicationPreflight(db, application, link.customerId, bodyKeys);
   requirePreflightReady(result);
   const inputs = publicInstallInputs(manifest);
   const inputKeys = new Set(inputs.map((input) => input.key));
@@ -295,6 +327,13 @@ export async function confirmPublicInstall(
     return { installLinkId: existing, created: false };
   }
 
+  // A consumed targeted invitation cannot create another deployment — but a
+  // replay of the SAME idempotency key already returned above, so only a
+  // DIFFERENT key on a consumed invitation reaches this check.
+  if (link.customerId !== null && link.confirmedAt !== null) {
+    throw new ApiError(410, 'PUBLIC_INSTALL_LINK_USED', 'This installation link has already been used.');
+  }
+
   // PRODUCTION deployments require an ACTIVE subscription — the same gate as
   // POST /api/deployments and createDeployLink, run before any row is created.
   await assertProductionDeploymentAllowed(db, link.organizationId, env.billingEnforcementPaused);
@@ -302,30 +341,34 @@ export async function confirmPublicInstall(
   const actorId = `public-install:${link.id}`;
   try {
     const deployment = await db.transaction(async (tx) => {
-      const [customer] = await tx
-        .insert(schema.customers)
-        .values({
+      let customerId = link.customerId;
+      if (customerId === null) {
+        const [customer] = await tx
+          .insert(schema.customers)
+          .values({
+            organizationId: link.organizationId,
+            name: body.customer!.name,
+            email: body.customer!.email,
+          })
+          .returning();
+        customerId = customer!.id;
+        await recordEvent(tx, {
           organizationId: link.organizationId,
-          name: body.customer.name,
-          email: body.customer.email,
-        })
-        .returning();
-      await recordEvent(tx, {
-        organizationId: link.organizationId,
-        eventType: 'customer.created',
-        actorType: 'system',
-        actorId,
-        customerId: customer!.id,
-        payload: { schemaVersion: 1, customerId: customer!.id },
-      });
-      await setConfig(link.applicationId, customer!.id, body.config, {
+          eventType: 'customer.created',
+          actorType: 'system',
+          actorId,
+          customerId: customerId,
+          payload: { schemaVersion: 1, customerId: customerId },
+        });
+      }
+      await setConfig(link.applicationId, customerId, body.config, {
         store: createConfigStore(tx),
         secretWriter: createRelaySecretWriter(),
       });
       const { deployment } = await createDeploymentRecord(tx, {
         organizationId: link.organizationId,
         applicationId: link.applicationId,
-        customerId: customer!.id,
+        customerId,
         region: body.region as Region,
         deploymentType: 'PRODUCTION',
         createdBy: null,
@@ -334,6 +377,14 @@ export async function confirmPublicInstall(
         publicInstallLinkId: link.id,
         confirmKey: body.idempotencyKey,
       });
+      // Consume a targeted invitation: it can never create another
+      // deployment. A reusable link stays open for more customers.
+      if (link.customerId !== null) {
+        await tx
+          .update(schema.publicInstallLinks)
+          .set({ confirmedAt: new Date(), updatedBy: null })
+          .where(eq(schema.publicInstallLinks.id, link.id));
+      }
       return deployment;
     });
     return { installLinkId: deployment.installLinkId, created: true };
@@ -508,14 +559,66 @@ export interface PublicInstallLinkActorParams {
   linkId: string;
 }
 
+export interface CreateInstallationInvitationParams {
+  organizationId: string;
+  userId: string;
+  applicationId: string;
+  customerId: string;
+  /** Optional vendor recommendation — never the final Region choice. */
+  recommendedRegion?: Region;
+}
+
+/**
+ * POST /api/customers/:customerId/invitations — create a TARGETED invitation
+ * for a customer + application WITHOUT creating a deployment. The vendor may
+ * recommend a Region; the customer makes the final choice at confirmation.
+ * Returns the one-time token (stored only as its sha256); the URL is
+ * reconstructable from `link.id` + `token` and is never re-revealed.
+ */
+export async function createInstallationInvitation(
+  db: RuntimeDb,
+  params: CreateInstallationInvitationParams,
+): Promise<{ link: PublicInstallLinkRow; token: string }> {
+  await loadOwnedApplication(db, params.applicationId, params.organizationId);
+  await loadOwnedCustomer(db, params.customerId, params.organizationId);
+  const token = mintDeployLinkToken();
+  const [link] = await db
+    .insert(schema.publicInstallLinks)
+    .values({
+      organizationId: params.organizationId,
+      applicationId: params.applicationId,
+      customerId: params.customerId,
+      recommendedRegion: params.recommendedRegion ?? null,
+      regionSelection: 'customer',
+      tokenHash: hashRelayToken(token),
+      expiresAt: new Date(Date.now() + DEFAULT_INVITATION_TTL_DAYS * 24 * 60 * 60 * 1000),
+      enabled: false,
+      createdBy: params.userId,
+      updatedBy: params.userId,
+    })
+    .returning();
+  await recordEvent(db, {
+    organizationId: params.organizationId,
+    eventType: 'public_install_link.created',
+    actorType: 'user',
+    actorId: params.userId,
+    customerId: params.customerId,
+    payload: {
+      applicationId: params.applicationId,
+      linkId: link!.id,
+      recommendedRegion: params.recommendedRegion ?? null,
+    },
+  });
+  return { link: link!, token };
+}
+
 /**
  * POST /api/applications/:id/public-install-links — create + enable the
  * application's live link. The partial unique index admits exactly one live
  * link per application; the loser of the insert race gets the existing link's
  * id in the 409 details.
  */
-export async function createPublicInstallLink(
-  db: RuntimeDb,
+export async function createPublicInstallLink(  db: RuntimeDb,
   params: { organizationId: string; userId: string; applicationId: string },
 ) {
   const application = await loadOwnedApplication(db, params.applicationId, params.organizationId);
