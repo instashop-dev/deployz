@@ -208,3 +208,27 @@ Small controlled test against the deployed control plane and test account
 
 All test resources are removed afterwards (Disconnect, Purge, bootstrap
 stacks, Cloudflare records, ECR tags).
+
+## Live verification (2026-09-22, test account 151955775369)
+
+Production control plane running this branch; customer namespace
+`c-fc6e64c9d5e0`; times are UTC.
+
+| Scenario | Relay connected | Certificate requested | Certificate issued | Install done | HTTPS active | Certificate jobs |
+|---|---|---|---|---|---|---|
+| A — first deployment (us-west-2) | 11:39:00 | 11:39:01 | 11:47:02 | 11:49:00 | 12:29:00 (see note) | 3 ENSURE, 1 ATTACH |
+| B — second deployment, same scope (us-west-2) | 12:55:06 | none | reused | 13:05:05 | 13:15:05 | none (attached during INSTALL) |
+
+Note on A: the certificate was issued eight minutes after the request, in
+parallel with the stack build. The first live run then exposed a defect:
+ACM reports the validation CNAME target with a trailing dot and Cloudflare
+stores it without one, so the second reconcile refused the record as a
+conflict and the row went to `ERROR`. The value is now normalised before
+comparison, and a DNS-side retry keeps the issued certificate; after the
+vendor retry the attach and the probe each took one relay poll. Both
+hostnames serve the same certificate (same serial), HTTP redirects to
+HTTPS, and the chain validates from the public internet.
+
+Second-deployment HTTPS therefore costs one heartbeat after INSTALL (the
+install executor attaches the certificate itself) instead of the
+three-to-four polls of the per-deployment model.
