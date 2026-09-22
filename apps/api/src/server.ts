@@ -284,6 +284,7 @@ import {
   reconcileValidationRecord,
   recordDefaultHttpsEvent,
   regionalCertificatesForPurge,
+  remainingScopeDeployments,
   resolveCustomerScope,
   retryRegionalCertificate,
   type RegionalCertificateRow,
@@ -7411,7 +7412,40 @@ export async function buildServer({
             .select()
             .from(schema.customerRegionalCertificates)
             .where(inArray(schema.customerRegionalCertificates.certificateArn, purgedArns));
-          await completeRegionalCertificateRemoval(db, defaultHttpsDeps, rows);
+          // The last-in-scope check ran when the PURGE was queued; a sibling
+          // deployment may have enrolled and adopted the row since. Such a row
+          // is kept (its ARN re-verified on the sibling's next ENSURE cycle
+          // — a deleted certificate is then replaced) instead of torn down
+          // underneath the sibling.
+          const removable: typeof rows = [];
+          for (const row of rows) {
+            const remaining = await remainingScopeDeployments(db, {
+              customerId: row.customerId,
+              awsAccountId: row.awsAccountId,
+              region: row.region,
+              excludeDeploymentId: deployment.id,
+            });
+            if (remaining === 0) {
+              removable.push(row);
+              continue;
+            }
+            await db
+              .update(schema.customerRegionalCertificates)
+              .set({ lastVerifiedAt: null })
+              .where(eq(schema.customerRegionalCertificates.id, row.id));
+            request.log.warn(
+              {
+                deploymentId: deployment.id,
+                customerId: row.customerId,
+                awsAccountId: row.awsAccountId,
+                region: row.region,
+                certificateArn: row.certificateArn,
+                remaining,
+              },
+              'default-https: regional certificate kept — a sibling deployment adopted it during the purge',
+            );
+          }
+          await completeRegionalCertificateRemoval(db, defaultHttpsDeps, removable);
         } catch (error) {
           request.log.warn(
             { err: error, deploymentId: deployment.id },

@@ -96,6 +96,19 @@ export interface CanaryConfig {
    */
   readonly customerId: string | null;
   /**
+   * Full run reuse (`--reuse-customer-from <runId>` only — `--customer-id`
+   * alone leaves this null): the vendor/application/v1-release/template
+   * setup is skipped and copied from `runId`'s evidence instead, in
+   * addition to `customerId` above. Scenario B (same customer+region) and C
+   * (a new region for that customer) both need the SAME image+template the
+   * original run already built and published — signing up a second vendor
+   * org would make `createDeployment` refuse the reused customer id anyway
+   * (a customer belongs to one org). `null` — the default — keeps the
+   * legacy behaviour: every run signs up its own vendor and builds its own
+   * v1.
+   */
+  readonly reuseRunId: string | null;
+  /**
    * Whether the leak audit should treat a retained regional certificate
    * (tagged `deployz:customer-scope`) as a leak. Default false: a shared
    * wildcard certificate is correctly retained after a single
@@ -158,7 +171,10 @@ function loadProfile(env: NodeJS.ProcessEnv, overrideName?: string): CanaryProfi
 export function loadConfig(
   env: NodeJS.ProcessEnv,
   overrides: Partial<
-    Pick<CanaryConfig, 'runId' | 'keep' | 'existingImageDigest' | 'reuseStack' | 'customerId' | 'expectRegionalCertRemoved'>
+    Pick<
+      CanaryConfig,
+      'runId' | 'keep' | 'existingImageDigest' | 'reuseStack' | 'customerId' | 'reuseRunId' | 'expectRegionalCertRemoved'
+    >
   > & {
     /** The profile name from `--profile`; wins over DEPLOYZ_CANARY_PROFILE. */
     profileName?: string;
@@ -183,6 +199,7 @@ export function loadConfig(
     reuseStack: overrides.reuseStack ?? false,
     profile,
     customerId: overrides.customerId || env['DEPLOYZ_CANARY_CUSTOMER_ID'] || null,
+    reuseRunId: overrides.reuseRunId || env['DEPLOYZ_CANARY_REUSE_RUN_ID'] || null,
     expectRegionalCertRemoved: overrides.expectRegionalCertRemoved ?? false,
   };
 }

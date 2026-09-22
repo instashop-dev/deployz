@@ -16,8 +16,13 @@
  *   --customer-id <uuid> | --reuse-customer-from <runId>   (core, profile)
  *       deploy for an EXISTING customer instead of minting a throwaway one —
  *       scenario B (same customer+region, certificate reused) and C (a new
- *       region for that customer). --reuse-customer-from reads the customer
- *       id out of a prior run's evidence.
+ *       region for that customer). --customer-id alone only reuses the
+ *       customer id. --reuse-customer-from implies the fuller reuse
+ *       scenario B/C actually needs: it reads the customer id AND signs in
+ *       as that run's vendor AND copies its applicationId/v1 release/
+ *       template instead of building them again — a second deployment for
+ *       the same customer must be the same vendor org (a customer belongs
+ *       to one org) and, for B/C's purpose, the same image + template.
  *   pnpm e2e:canary:versions wait-https --run-id <id> [--timeout <min>]
  *       waits for an existing deployment's default HTTPS to reach ACTIVE and
  *       records installSucceededAt/httpsActiveAt/httpsSetupSeconds plus the
@@ -98,12 +103,16 @@ async function main(): Promise<void> {
     expectRegionalCertRemoved: values['expect-regional-cert-removed'],
   });
   // --reuse-customer-from resolves against a prior run's evidence, so it
-  // needs config.resultsDir first; --customer-id (above) always wins.
+  // needs config.resultsDir first; --customer-id (above) always wins and
+  // does NOT imply the fuller reuse below (reuseRunId stays null) — a
+  // deliberate simplification: reuse-customer-from is the one flag for
+  // "make this run scenario B/C", customer-id alone stays the lighter,
+  // customer-only override it always was.
   if (!config.customerId && values['reuse-customer-from']) {
     const priorRunId = values['reuse-customer-from'];
     const priorCustomerId = Evidence.open(config.resultsDir, priorRunId).run.customerId;
     if (!priorCustomerId) throw new Error(`Run ${priorRunId} recorded no customerId in its evidence`);
-    config = { ...config, customerId: priorCustomerId };
+    config = { ...config, customerId: priorCustomerId, reuseRunId: priorRunId };
   }
 
   switch (command) {

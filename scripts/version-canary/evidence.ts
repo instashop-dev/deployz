@@ -64,6 +64,16 @@ export interface RunRecord {
   regionalCertificates?: { arn: string; status: string; domain: string; createdAt: string | null }[];
   /** ARNs the `delete-regional-certificate` recovery command actually deleted (scenario D). */
   deletedRegionalCertificates?: string[];
+  /**
+   * Set when this run's vendor/application/v1-release/template were copied
+   * from another run's evidence (`--reuse-customer-from`, scenario B/C)
+   * instead of created fresh. `releases.v1`, `canaryTemplateUrl` and
+   * `canaryTemplateKeyPrefix` are then a SHARED artifact this run does not
+   * own — `removeCanaryLeftovers`/`leakAudit` must never delete or flag
+   * them; only the original run's cleanup does, and only once nothing else
+   * reuses it.
+   */
+  reusedFromRunId?: string;
 }
 
 export class Evidence {

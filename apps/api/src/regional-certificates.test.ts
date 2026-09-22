@@ -319,13 +319,13 @@ describe('regional-certificates service', () => {
     }
 
     it('PENDING_VALIDATION → DNS_VALIDATION_PENDING, persisting the validation record fields', async () => {
-      const { row, job } = await ensured();
+      const { customer, row, job } = await ensured();
       const result = await applyEnsureCertificateResult(db, row.id, job, {
         success: true,
         output: {
           certificateArn: 'arn:aws:acm:us-east-1:1:certificate/abc',
           certificateStatus: 'PENDING_VALIDATION',
-          validationRecordName: `_x1.c-scope.${apex}.`,
+          validationRecordName: `_x1.c-${customer.dnsScope}.${apex}.`,
           validationRecordValue: '_y1.acm-validations.aws.',
           validationRecordType: 'CNAME',
         },
@@ -333,8 +333,27 @@ describe('regional-certificates service', () => {
       expect(result?.row.certificateStatus).toBe('DNS_VALIDATION_PENDING');
       expect(result?.row.certificateArn).toBe('arn:aws:acm:us-east-1:1:certificate/abc');
       // The trailing dot ACM reports is stripped before it is persisted.
-      expect(result?.row.validationRecordName).toBe(`_x1.c-scope.${apex}`);
+      expect(result?.row.validationRecordName).toBe(`_x1.c-${customer.dnsScope}.${apex}`);
       expect(result?.row.lastError).toBeNull();
+    });
+
+    it('refuses a validation record name outside the row namespace (relay output is untrusted)', async () => {
+      const { row, job } = await ensured();
+      const result = await applyEnsureCertificateResult(db, row.id, job, {
+        success: true,
+        output: {
+          certificateArn: 'arn:aws:acm:us-east-1:1:certificate/abc',
+          certificateStatus: 'PENDING_VALIDATION',
+          validationRecordName: `_x1.c-victim00.${apex}.`,
+          validationRecordValue: '_evil.acm-validations.aws.',
+          validationRecordType: 'CNAME',
+        },
+      });
+      expect(result?.row.lastError).toBe('VALIDATION_RECORD_INVALID');
+      expect(result?.row.validationRecordName).toBeNull();
+      expect(result?.row.validationRecordValue).toBeNull();
+      expect(result?.row.certificateArn).toBeNull();
+      expect(result?.row.certificateStatus).toBe('REQUESTING');
     });
 
     it('ISSUED sets issuedAt once and lastVerifiedAt on every success', async () => {

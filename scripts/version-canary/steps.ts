@@ -42,7 +42,7 @@ import {
   waitFor,
   type DeploymentDetail,
 } from './control-plane.js';
-import type { Evidence } from './evidence.js';
+import { Evidence } from './evidence.js';
 import { FIXTURE_RELEASES, type FixtureRelease } from './fixture-repo.js';
 
 export const ECR_REPOSITORY = 'deployz-images';
@@ -82,7 +82,12 @@ export async function preflight(canary: Canary): Promise<void> {
     details['controlPlaneHealth'] = health.status;
     assert(health.status === 200, `control plane ${config.apiUrl}/health answered ${health.status}`);
 
-    const bucket = await templateBucketName(config.region);
+    // The control plane's 'Deployz' stack (and its TemplateBucket export)
+    // lives in config.controlPlaneRegion, never the install region — the
+    // same distinction buildRelease/publishCanaryTemplate's ECR lookups
+    // make below (docs/https-regional-certificates.md scenario C: a new
+    // install region reuses this one control-plane-region artifact).
+    const bucket = await templateBucketName(config.controlPlaneRegion);
     details['templateBucket'] = bucket;
     evidence.run.templateBucket = bucket;
 
@@ -194,6 +199,56 @@ export async function setUpVendorAndApplication(canary: Canary): Promise<string>
   return applicationId;
 }
 
+/**
+ * Scenario B/C (docs/https-regional-certificates.md Verification plan): a
+ * second deployment for the SAME customer needs the SAME vendor org (a
+ * customer belongs to one org — signing up a fresh vendor and reusing only
+ * `customerId` makes `createDeployment` refuse it) and, for scenario B/C's
+ * purpose, the exact same image and application template `setUpVendorAndApplication`
+ * + `buildRelease('v1')` + `publishCanaryTemplate('v1')` would otherwise
+ * build again. This signs in as `runId`'s vendor instead of signing up, and
+ * copies its applicationId/fixtureTags/v1 release/template into THIS run's
+ * evidence — `runProfile`/`runCore` skip the build+publish head entirely
+ * when `config.reuseRunId` is set.
+ *
+ * Only v1 is copied (the install head); v2/v3/v4 in `runCore`'s ladder are
+ * still built fresh by every run. The copied fields make this run's v1 an
+ * artifact it does NOT own — `removeCanaryLeftovers`/`leakAudit` key off
+ * `evidence.run.reusedFromRunId` to never delete or flag it; only the
+ * original run's own cleanup does, once nothing else still reuses it.
+ */
+export async function reuseVendorApplicationAndRelease(canary: Canary, reuseRunId: string): Promise<void> {
+  const { config, evidence, api } = canary;
+  await evidence.step(`Reuse vendor, application and release from run ${reuseRunId}`, async (details) => {
+    const prior = Evidence.open(config.resultsDir, reuseRunId).run;
+    assert(prior.vendor, `run ${reuseRunId} recorded no vendor credentials to sign in with`);
+    assert(prior.applicationId, `run ${reuseRunId} recorded no applicationId`);
+    const v1 = prior.releases['v1'];
+    assert(v1?.imageDigest, `run ${reuseRunId} has no built v1 release with a digest`);
+    assert(prior.canaryTemplateUrl, `run ${reuseRunId} has no published canary application template`);
+
+    await api.signIn(prior.vendor);
+    evidence.run.vendor = prior.vendor;
+    evidence.run.applicationId = prior.applicationId;
+    // exactOptionalPropertyTypes: only assign the optional fields prior
+    // actually recorded — an explicit `undefined` is not the same as an
+    // absent property.
+    if (prior.fixtureTags) evidence.run.fixtureTags = prior.fixtureTags;
+    evidence.run.releases['v1'] = v1;
+    if (prior.templateBucket) evidence.run.templateBucket = prior.templateBucket;
+    evidence.run.canaryTemplateUrl = prior.canaryTemplateUrl;
+    if (prior.canaryTemplateKeyPrefix) evidence.run.canaryTemplateKeyPrefix = prior.canaryTemplateKeyPrefix;
+    evidence.run.reusedFromRunId = reuseRunId;
+    evidence.save();
+
+    details['reusedFromRunId'] = reuseRunId;
+    details['vendorEmail'] = prior.vendor.email;
+    details['applicationId'] = prior.applicationId;
+    details['v1Release'] = v1;
+    details['canaryTemplateUrl'] = prior.canaryTemplateUrl;
+  });
+}
+
 // ── Releases ───────────────────────────────────────────────────────────────
 
 export async function buildRelease(canary: Canary, fixtureTag: string): Promise<{ id: string; digest: string }> {
@@ -233,7 +288,10 @@ export async function buildRelease(canary: Canary, fixtureTag: string): Promise<
     assert(ready.status === 'READY', `release ${version} build ${ready.status}: ${ready.failureReason ?? ''}`);
 
     const imageTag = releaseImageTag(applicationId, version);
-    const digest = await ecrDigestForTag(config.region, ECR_REPOSITORY, imageTag);
+    // deployz-images lives in the control-plane account/region, not the
+    // install region (config.ts's controlPlaneRegion doc comment) — a
+    // release built for a customer in another region still resolves here.
+    const digest = await ecrDigestForTag(config.controlPlaneRegion, ECR_REPOSITORY, imageTag);
     assert(digest, `ECR has no image tagged ${imageTag}`);
     details['ecrDigest'] = digest;
     evidence.run.releases[fixtureTag]!.imageDigest = digest;
@@ -294,7 +352,16 @@ export async function publishCanaryTemplate(canary: Canary, pinnedTag: string): 
     assert(release?.imageDigest, `release ${pinnedTag} has no digest yet`);
     const keyPrefix = `application/canary-${config.runId}`;
     const identity = await callerIdentity();
-    const repository = `${identity.account}.dkr.ecr.${config.region}.amazonaws.com/${ECR_REPOSITORY}`;
+    // The application template and deployz-images both live in the
+    // control-plane account/region (config.ts's controlPlaneRegion doc
+    // comment), never the install region: publish-application.mjs looks up
+    // the 'Deployz' stack's TemplateBucket export there, and there is only
+    // one deployz-images repository account-wide. The template itself has
+    // no region-bound assets (unlike the bootstrap template's Lambda code,
+    // packages/cdk/src/quick-create/publish.ts's per-region fan-out
+    // comment), so the SAME published template + image serve an install in
+    // ANY region — nothing here needs to vary by config.region.
+    const repository = `${identity.account}.dkr.ecr.${config.controlPlaneRegion}.amazonaws.com/${ECR_REPOSITORY}`;
     const output = execFileSync(
       process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm',
       ['--filter', '@deployz/cdk', 'run', 'publish:application'],
@@ -303,7 +370,7 @@ export async function publishCanaryTemplate(canary: Canary, pinnedTag: string): 
         encoding: 'utf8',
         env: {
           ...process.env,
-          AWS_REGION: config.region,
+          AWS_REGION: config.controlPlaneRegion,
           APP_IMAGE_REPOSITORY: repository,
           APP_IMAGE_DIGEST: release.imageDigest,
           APPLICATION_KEY_PREFIX: keyPrefix,

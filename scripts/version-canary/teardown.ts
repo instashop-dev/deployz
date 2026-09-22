@@ -451,13 +451,22 @@ export async function removeCanaryLeftovers(canary: Canary): Promise<void> {
   });
 
   await evidence.step('Remove run-scoped images, task definitions and template objects', async (details) => {
-    const tags = Object.values(run.releases).map((r) => r.imageTag ?? r.version);
+    // A reused run's v1 (--reuse-customer-from, scenario B/C) is the
+    // ORIGINAL run's artifact — its image tag and the published template
+    // are still live and still reused by that run until ITS OWN cleanup
+    // runs. This run only ever owns the releases it built itself.
+    details['reusedFromRunId'] = run.reusedFromRunId ?? null;
+    const ownReleases = run.reusedFromRunId
+      ? Object.entries(run.releases).filter(([tag]) => tag !== 'v1')
+      : Object.entries(run.releases);
+
+    const tags = ownReleases.map(([, r]) => r.imageTag ?? r.version);
     details['ecrTagsDeleted'] = await deleteEcrTags(config.controlPlaneRegion, ECR_REPOSITORY, tags);
-    const shaTags = [...new Set(Object.values(run.releases).map((r) => r.gitSha))];
+    const shaTags = [...new Set(ownReleases.map(([, r]) => r.gitSha))];
     // The build also tags the image with the git SHA (traceability). Those
     // tags are shared across runs of the same fixture commit — delete only
-    // when the digest is one of this run's.
-    const runDigests = new Set(Object.values(run.releases).flatMap((r) => (r.imageDigest ? [r.imageDigest] : [])));
+    // when the digest is one of this run's OWN releases.
+    const runDigests = new Set(ownReleases.flatMap(([, r]) => (r.imageDigest ? [r.imageDigest] : [])));
     const { ecrDigestForTag } = await import('./aws.js');
     const shaTagsToDelete: string[] = [];
     for (const tag of shaTags) {
@@ -475,7 +484,12 @@ export async function removeCanaryLeftovers(canary: Canary): Promise<void> {
       details['taskDefinitionsDeleted'] = taskDefinitions;
     }
 
-    if (run.templateBucket && run.canaryTemplateKeyPrefix) {
+    if (run.reusedFromRunId) {
+      // The whole prefix (application/canary-<originalRunId>) belongs to
+      // the original run — deleting it here would pull the template out
+      // from under any sibling deployment still installing against it.
+      details['templateObjectsSkipped'] = `inherited from run ${run.reusedFromRunId} — its own cleanup removes them, once nothing else reuses it`;
+    } else if (run.templateBucket && run.canaryTemplateKeyPrefix) {
       details['templateObjectsDeleted'] = await deleteS3Prefix(run.templateBucket, `${run.canaryTemplateKeyPrefix}/`);
     }
   });
@@ -486,6 +500,13 @@ export async function leakAudit(canary: Canary): Promise<LeakAudit> {
   const { config, evidence } = canary;
   const run = evidence.run;
   return evidence.step('AWS leak audit', async (details) => {
+    // A reused run's v1 (run.reusedFromRunId) is the original run's still-
+    // live artifact by design — this run's own cleanup never deletes it
+    // (removeCanaryLeftovers above), so the audit must not flag it as left
+    // behind either.
+    const ownReleases = run.reusedFromRunId
+      ? Object.entries(run.releases).filter(([tag]) => tag !== 'v1')
+      : Object.entries(run.releases);
     const audit = await auditLeaks(config.region, {
       installationId: run.installationId ?? null,
       runId: run.runId,
@@ -494,7 +515,7 @@ export async function leakAudit(canary: Canary): Promise<LeakAudit> {
       bootstrapLambdaNames: run.bootstrapLambdaNames ?? [],
       deploymentId: run.deploymentId ?? null,
       ecrRepository: ECR_REPOSITORY,
-      ecrTags: Object.values(run.releases).map((r) => r.imageTag ?? r.version),
+      ecrTags: ownReleases.map(([, r]) => r.imageTag ?? r.version),
       ecrRegion: config.controlPlaneRegion,
       customerDnsScope: run.customerDnsScope ?? null,
     });

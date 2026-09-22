@@ -20,7 +20,11 @@ import { and, desc, eq, inArray, like, ne, sql } from 'drizzle-orm';
 
 import type { RuntimeDb } from '@deployz/db';
 import * as schema from '@deployz/db/schema';
-import { ensureCertificateResultSchema, regionalCertificateDomain } from '@deployz/contracts';
+import {
+  ensureCertificateResultSchema,
+  isScopeValidationRecordName,
+  regionalCertificateDomain,
+} from '@deployz/contracts';
 
 import { CloudflareDnsError, stripTrailingDot, type CloudflareDnsClient } from './cloudflare-records.js';
 import { createOrReuseJob } from './jobs.js';
@@ -320,6 +324,18 @@ export async function applyEnsureCertificateResult(
   }
   if (result.validationRecordName) {
     const strippedName = stripTrailingDot(result.validationRecordName);
+    // The relay runs in the customer's account (a lower trust boundary):
+    // a validation name outside this row's own `c-<scope>` namespace is
+    // refused rather than persisted, whatever else the result says.
+    const rowScope = dnsScopeFromCertificateDomain(row.certificateDomain);
+    if (!rowScope || !isScopeValidationRecordName(strippedName, rowScope, apexOf(row.certificateDomain))) {
+      const [updated] = await tx
+        .update(schema.customerRegionalCertificates)
+        .set({ lastError: 'VALIDATION_RECORD_INVALID' })
+        .where(eq(schema.customerRegionalCertificates.id, rowId))
+        .returning();
+      return { row: updated ?? row, transition: null };
+    }
     if (strippedName !== row.validationRecordName) updates.validationRecordName = strippedName;
   }
   if (result.validationRecordValue && result.validationRecordValue !== row.validationRecordValue) {
@@ -425,11 +441,10 @@ export async function reconcileValidationRecord(
   if (!row.validationRecordName || !row.validationRecordValue) {
     return row;
   }
-  // dnsScope is embedded in the certificate domain (`*.c-<scope>.<zone>`),
-  // not stored on the row directly — derive it from the validation name's
-  // own namespace suffix instead of re-deriving it from certificateDomain,
-  // since the validation name is what the DNS client actually guards on.
-  const dnsScope = dnsScopeFromValidationName(row.validationRecordName, deps.apex);
+  // The namespace comes from the server-minted certificate domain; the DNS
+  // client then refuses any validation name outside `c-<scope>.<zone>`, so
+  // a relay-reported name can never reach another customer's namespace.
+  const dnsScope = dnsScopeFromCertificateDomain(row.certificateDomain);
   if (!dnsScope) {
     // Should never happen for a row this module wrote itself — defensive.
     return row;
@@ -501,17 +516,21 @@ export async function reconcileValidationRecord(
   }
 }
 
-/** Recovers the `c-<scope>` namespace from a validation record name shaped
- *  `_<digest>.c-<scope>.<zone>` (or its FQDN form with a trailing dot). */
-function dnsScopeFromValidationName(validationName: string, apex: string): string | null {
-  const stripped = stripTrailingDot(validationName);
-  const suffix = `.${apex}`;
-  if (!stripped.toLowerCase().endsWith(suffix)) return null;
-  const withoutZone = stripped.slice(0, -suffix.length);
-  const parts = withoutZone.split('.');
-  const scopeLabel = parts[parts.length - 1];
-  if (!scopeLabel || !scopeLabel.startsWith('c-')) return null;
-  return scopeLabel.slice(2);
+/** The `c-<scope>` namespace of a certificate row, read from the
+ *  server-minted `certificateDomain` (`*.c-<scope>.<zone>`) — never from
+ *  relay-reported fields, so a relay can only ever address its own
+ *  customer's namespace. */
+export function dnsScopeFromCertificateDomain(certificateDomain: string): string | null {
+  const withoutWildcard = certificateDomain.replace(/^\*\./, '');
+  if (!withoutWildcard.startsWith('c-')) return null;
+  const label = withoutWildcard.slice(2).split('.')[0];
+  return label ? label : null;
+}
+
+/** The zone a certificate domain (`*.c-<scope>.<zone>`) was minted under. */
+function apexOf(certificateDomain: string): string {
+  const withoutWildcard = certificateDomain.replace(/^\*\./, '');
+  return withoutWildcard.slice(withoutWildcard.indexOf('.') + 1);
 }
 
 // ── slow / timeout helpers ───────────────────────────────────────────────────
@@ -660,7 +679,7 @@ export async function completeRegionalCertificateRemoval(
           ),
         );
       if (siblings.length === 0) {
-        const dnsScope = dnsScopeFromValidationName(row.validationRecordName, deps.apex);
+        const dnsScope = dnsScopeFromCertificateDomain(row.certificateDomain);
         if (dnsScope) {
           try {
             await deps.dns.deleteScopeValidationRecord(dnsScope, row.validationRecordName);
