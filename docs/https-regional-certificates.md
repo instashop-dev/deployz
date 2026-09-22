@@ -218,6 +218,8 @@ Production control plane running this branch; customer namespace
 |---|---|---|---|---|---|---|
 | A — first deployment (us-west-2) | 11:39:00 | 11:39:01 | 11:47:02 | 11:49:00 | 12:29:00 (see note) | 3 ENSURE, 1 ATTACH |
 | B — second deployment, same scope (us-west-2) | 12:55:06 | none | reused | 13:05:05 | 13:15:05 | none (attached during INSTALL) |
+| C — new region, same customer (us-east-1) | 13:27:11 | 13:27:11 | during install | 13:37:09 | 13:47:10 | 2 ENSURE, 1 ATTACH |
+| D — recovery after the certificate was deleted out of band (new us-east-1 deployment) | 15:00:30 | 15:10:31 (replacement) | 15:15:34 | 15:10:29 | 15:30:29 | 2 ENSURE, 2 failed ATTACH, 1 ATTACH |
 
 Note on A: the certificate was issued eight minutes after the request, in
 parallel with the stack build. The first live run then exposed a defect:
@@ -228,6 +230,8 @@ comparison, and a DNS-side retry keeps the issued certificate; after the
 vendor retry the attach and the probe each took one relay poll. Both
 hostnames serve the same certificate (same serial), HTTP redirects to
 HTTPS, and the chain validates from the public internet.
+
+D: the deployment enrolled believing the deleted certificate was still issued; the attach failed with `CertificateNotFoundException`, the control plane dropped the row's freshness, the next ENSURE found no certificate and requested a replacement, which ACM issued in five minutes because the validation CNAME (shared by both regions of the same account) was already in place. No vendor action was needed. A purge with a live sibling kept the shared certificate; the last purge in a region removed it.
 
 Second-deployment HTTPS therefore costs one heartbeat after INSTALL (the
 install executor attaches the certificate itself) instead of the
