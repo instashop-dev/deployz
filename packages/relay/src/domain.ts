@@ -100,7 +100,7 @@ function readPayload(command: RelayCommand): DomainCommandPayload {
 }
 
 /** Does this AWS error look like an access-denied rejection? */
-function isAccessDenied(err: unknown): boolean {
+export function isAccessDenied(err: unknown): boolean {
   const name = typeof (err as { name?: unknown } | undefined)?.name === 'string' ? (err as { name: string }).name : '';
   const code =
     typeof (err as { Code?: unknown } | undefined)?.Code === 'string' ? (err as { Code: string }).Code : '';
@@ -124,15 +124,15 @@ interface DomainExecutorDeps {
 // attempts ten seconds apart comfortably fits the relay Lambda's five-
 // minute timeout (see RelayFunction in bootstrap-stack.ts) alongside the
 // rest of the command's work.
-const CERTIFICATE_DELETE_RETRY_ATTEMPTS = 6;
-const CERTIFICATE_DELETE_RETRY_DELAY_MS = 10_000;
+export const CERTIFICATE_DELETE_RETRY_ATTEMPTS = 6;
+export const CERTIFICATE_DELETE_RETRY_DELAY_MS = 10_000;
 
-function defaultSleep(ms: number): Promise<void> {
+export function defaultSleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 /** Does this AWS error mean ACM still has the certificate attached to a listener? */
-function isCertificateInUse(err: unknown): boolean {
+export function isCertificateInUse(err: unknown): boolean {
   const name = typeof (err as { name?: unknown } | undefined)?.name === 'string' ? (err as { name: string }).name : '';
   const type =
     typeof (err as { __type?: unknown } | undefined)?.__type === 'string' ? (err as { __type: string }).__type : '';
@@ -142,6 +142,77 @@ function isCertificateInUse(err: unknown): boolean {
     type.includes('ResourceInUseException') ||
     message.includes('ResourceInUseException')
   );
+}
+
+export interface EnsureHttpsListenerParams {
+  loadBalancerArn: string;
+  certificateArn: string;
+  /** Tag stamped on a newly created listener, and on an existing one this
+   *  call retags before modifying (PR #172 — heals a listener that
+   *  predates the tag). */
+  tagKey: string;
+  tagValue: string;
+}
+
+export interface EnsureHttpsListenerResult {
+  httpsConfigured: boolean;
+  /** The 443 listener's ARN, when known — absent when a brand-new listener
+   *  was just created and the fresh ARN could not be re-read. */
+  listenerArn?: string;
+}
+
+/**
+ * Wire a certificate into the load balancer's 443 listener: create it
+ * (tagged) if none exists yet, or add the certificate to an existing one
+ * (retagging it first) when its default certificate differs; flips the 80
+ * listener to an HTTPS redirect once 443 is configured. Idempotent and
+ * describe-first, like every other relay AWS mutation.
+ *
+ * Shared by the per-deployment custom-domain flow (`configureDomain` below)
+ * and the regional-certificate ATTACH_CERTIFICATE executor
+ * (`./regional-certificate.ts`) — extracted so the two never drift apart.
+ */
+export async function ensureHttpsListener(
+  elb: ElbClient,
+  params: EnsureHttpsListenerParams,
+): Promise<EnsureHttpsListenerResult> {
+  const listeners = await elb.describeListeners(params.loadBalancerArn);
+  const httpListener = listeners.find((listener) => listener.port === 80);
+  const httpsListener = listeners.find((listener) => listener.port === 443);
+
+  let httpsConfigured = false;
+  let listenerArn = httpsListener?.arn;
+
+  if (!httpsListener) {
+    const targetGroupArn =
+      httpListener?.forwardTargetGroupArn ?? (await elb.describeTargetGroups(params.loadBalancerArn))[0];
+    if (targetGroupArn) {
+      await elb.createHttpsListener({
+        loadBalancerArn: params.loadBalancerArn,
+        certificateArn: params.certificateArn,
+        targetGroupArn,
+        tagKey: params.tagKey,
+        tagValue: params.tagValue,
+      });
+      httpsConfigured = true;
+      // createHttpsListener doesn't hand back the new listener's ARN — a
+      // cheap re-describe is the only way to report it.
+      const refreshed = await elb.describeListeners(params.loadBalancerArn);
+      listenerArn = refreshed.find((listener) => listener.port === 443)?.arn;
+    }
+  } else {
+    if (httpsListener.defaultCertificateArn !== params.certificateArn) {
+      await elb.ensureListenerTag(httpsListener.arn, params.tagKey, params.tagValue);
+      await elb.addListenerCertificate(httpsListener.arn, params.certificateArn);
+    }
+    httpsConfigured = true;
+  }
+
+  if (httpsConfigured && httpListener && !httpListener.redirectsToHttps) {
+    await elb.setHttpRedirect(httpListener.arn);
+  }
+
+  return { httpsConfigured, ...(listenerArn ? { listenerArn } : {}) };
 }
 
 async function configureDomain(command: RelayCommand, deps: DomainExecutorDeps): Promise<RelayCommandResult> {
@@ -167,34 +238,13 @@ async function configureDomain(command: RelayCommand, deps: DomainExecutorDeps):
     let httpsConfigured = false;
 
     if (certificate.status === 'ISSUED' && loadBalancer) {
-      const listeners = await deps.elb.describeListeners(loadBalancer.arn);
-      const httpListener = listeners.find((listener) => listener.port === 80);
-      const httpsListener = listeners.find((listener) => listener.port === 443);
-
-      if (!httpsListener) {
-        const targetGroupArn =
-          httpListener?.forwardTargetGroupArn ?? (await deps.elb.describeTargetGroups(loadBalancer.arn))[0];
-        if (targetGroupArn) {
-          await deps.elb.createHttpsListener({
-            loadBalancerArn: loadBalancer.arn,
-            certificateArn,
-            targetGroupArn,
-            tagKey: DEPLOYZ_INSTALLATION_TAG,
-            tagValue: deps.installationId,
-          });
-          httpsConfigured = true;
-        }
-      } else {
-        if (httpsListener.defaultCertificateArn !== certificateArn) {
-          await deps.elb.ensureListenerTag(httpsListener.arn, DEPLOYZ_INSTALLATION_TAG, deps.installationId);
-          await deps.elb.addListenerCertificate(httpsListener.arn, certificateArn);
-        }
-        httpsConfigured = true;
-      }
-
-      if (httpsConfigured && httpListener && !httpListener.redirectsToHttps) {
-        await deps.elb.setHttpRedirect(httpListener.arn);
-      }
+      const wired = await ensureHttpsListener(deps.elb, {
+        loadBalancerArn: loadBalancer.arn,
+        certificateArn,
+        tagKey: DEPLOYZ_INSTALLATION_TAG,
+        tagValue: deps.installationId,
+      });
+      httpsConfigured = wired.httpsConfigured;
     }
 
     const output: Record<string, unknown> = {
@@ -340,7 +390,7 @@ function getElbSdkClient(): ElasticLoadBalancingV2Client {
 }
 
 /** Does this AWS error look like a "resource not found" rejection? */
-function isNotFound(err: unknown): boolean {
+export function isNotFound(err: unknown): boolean {
   const name = typeof (err as { name?: unknown } | undefined)?.name === 'string' ? (err as { name: string }).name : '';
   return name.includes('NotFound');
 }

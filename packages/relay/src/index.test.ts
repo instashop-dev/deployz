@@ -1061,6 +1061,99 @@ describe('createInstallExecutor', () => {
   });
 });
 
+describe('INSTALL attaches a regional certificate (docs/https-regional-certificates.md decision 4)', () => {
+  const command = {
+    id: 'cmd-1',
+    deploymentId: 'dep-1',
+    type: 'INSTALL' as const,
+    idempotencyKey: 'dep-1:INSTALL',
+    payload: {
+      redisRequired: false,
+      databaseRequired: true,
+      regionalCertificateArn: 'arn:aws:acm:us-east-1:123456789012:certificate/regional-abc',
+    },
+  };
+
+  const verified: VerificationResult = {
+    verified: true,
+    checks: [{ name: 'stack-exists', passed: true, detail: 'Stack "deployz-app" found' }],
+  };
+
+  function makeInstallDeps(overrides: Partial<InstallExecutorDeps> = {}): InstallExecutorDeps {
+    return {
+      installationId: 'inst-1',
+      templateUrl: 'https://example.com/application-template-v1.json',
+      install: async () => ({ state: 'succeeded', status: 'CREATE_COMPLETE', outputs: {} }),
+      verify: async () => verified,
+      pending: memoryPendingStore(),
+      now: () => '2026-08-26T12:00:00.000Z',
+      ...overrides,
+    };
+  }
+
+  it('attaches the certificate and reports it in the output once the install verifies', async () => {
+    const attachRegionalCertificate = vi.fn(async (certificateArn: string) => {
+      expect(certificateArn).toBe('arn:aws:acm:us-east-1:123456789012:certificate/regional-abc');
+      return { routingTarget: 'app-alb-123.us-east-1.elb.amazonaws.com', httpsConfigured: true };
+    });
+
+    const result = await createInstallExecutor(makeInstallDeps({ attachRegionalCertificate }))(command);
+
+    expect(attachRegionalCertificate).toHaveBeenCalledOnce();
+    expect(result.success).toBe(true);
+    expect(result.output).toMatchObject({
+      regionalCertificate: {
+        certificateArn: 'arn:aws:acm:us-east-1:123456789012:certificate/regional-abc',
+        httpsConfigured: true,
+        routingTarget: 'app-alb-123.us-east-1.elb.amazonaws.com',
+      },
+    });
+  });
+
+  it('never fails the install when the attach throws — reports httpsConfigured: false instead', async () => {
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const attachRegionalCertificate = vi.fn(async () => {
+      throw new Error('AccessDeniedException: not yet propagated');
+    });
+
+    const result = await createInstallExecutor(makeInstallDeps({ attachRegionalCertificate }))(command);
+
+    expect(result.success).toBe(true);
+    expect(result.output).toMatchObject({
+      regionalCertificate: {
+        certificateArn: 'arn:aws:acm:us-east-1:123456789012:certificate/regional-abc',
+        httpsConfigured: false,
+      },
+    });
+    expect(logSpy).toHaveBeenCalledWith(
+      expect.stringContaining('"event":"relay:regional-certificate-attach-failed"'),
+    );
+    logSpy.mockRestore();
+  });
+
+  it('skips the attach entirely when the payload carries no regionalCertificateArn', async () => {
+    const attachRegionalCertificate = vi.fn(async () => ({
+      routingTarget: 'app-alb-123.us-east-1.elb.amazonaws.com',
+      httpsConfigured: true,
+    }));
+
+    const result = await createInstallExecutor(makeInstallDeps({ attachRegionalCertificate }))({
+      ...command,
+      payload: { redisRequired: false, databaseRequired: true },
+    });
+
+    expect(attachRegionalCertificate).not.toHaveBeenCalled();
+    expect(result.output).not.toHaveProperty('regionalCertificate');
+  });
+
+  it('skips the attach when no attachRegionalCertificate dep is wired (older wiring, tests)', async () => {
+    const result = await createInstallExecutor(makeInstallDeps())(command);
+
+    expect(result.success).toBe(true);
+    expect(result.output).not.toHaveProperty('regionalCertificate');
+  });
+});
+
 describe('createInstallResumer', () => {
   // A resumed install's pending marker is always a COMPACTED payload
   // (compactPendingInstallPayload drops the manifest to fit SSM's size
@@ -1908,6 +2001,20 @@ describe('compactPendingInstallPayload', () => {
       stackName: 'deployz-app-staging',
       recovery: { neverInstalled: true },
     });
+  });
+
+  it('keeps regionalCertificateArn across compaction (docs/https-regional-certificates.md decision 4)', () => {
+    // The pending marker is what a RESUMED install's settleInstall reads —
+    // an ARN dropped here would mean a deferred first install never
+    // attaches the certificate it was handed.
+    const compacted = compactPendingInstallPayload({
+      stackName: 'deployz-app',
+      regionalCertificateArn: 'arn:aws:acm:us-east-1:123456789012:certificate/regional-abc',
+    });
+
+    expect(compacted['regionalCertificateArn']).toBe(
+      'arn:aws:acm:us-east-1:123456789012:certificate/regional-abc',
+    );
   });
 });
 

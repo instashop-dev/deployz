@@ -86,6 +86,7 @@ function activeStepDetail({
         ),
       };
     }),
+    { httpsProgress: status.httpsProgress },
   );
 }
 

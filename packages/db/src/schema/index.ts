@@ -9,5 +9,6 @@ export * from './jobs.js';
 export * from './jev-failures.js';
 export * from './jev-shadow.js';
 export * from './public-install-links.js';
+export * from './regional-certificates.js';
 export * from './stack-events.js';
 export * from './events.js';

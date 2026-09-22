@@ -1,3 +1,4 @@
+import { sql } from 'drizzle-orm';
 import { boolean, integer, jsonb, pgTable, text, timestamp, unique, uuid } from 'drizzle-orm/pg-core';
 
 import { analysisStatusEnum, buildStatusEnum, compatibilityStatusEnum, releaseStatusEnum } from '../enums.js';
@@ -94,6 +95,9 @@ export const customers = pgTable('customers', {
   email: text('email').notNull(),
   company: text('company'),
   externalReference: text('external_reference'),
+  // Opaque, DNS-safe customer namespace label (`c-<dns_scope>.deployz.dev`).
+  // Minted once at creation, never derived from email or company, never changed.
+  dnsScope: text('dns_scope').notNull().unique().default(sql`substr(replace(gen_random_uuid()::text, '-', ''), 1, 12)`),
   createdAt: createdAt(),
   updatedAt: updatedAt(),
 });

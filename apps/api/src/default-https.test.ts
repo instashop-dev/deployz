@@ -6,17 +6,21 @@ import { applyMigrations, createDb, type Db } from '@deployz/db';
 import * as schema from '@deployz/db/schema';
 
 import {
+  applyAttachCertificateResult,
   applyDefaultHttpsJobResult,
+  applyRegionalInstallSuccess,
   assertMutableDefaultHostname,
   beginDefaultHttpsRemoval,
   DEFAULT_HTTPS_APEX,
   DEFAULT_HTTPS_FIXTURE_APEX,
   defaultHttpsHostname,
+  ensureAttachCertificateJob,
   ensureDefaultHttpsConfigureJob,
   getDefaultDeploymentHostname,
   getDefaultDeploymentUrl,
   isDefaultDeploymentHostname,
   isDefaultHttpsJob,
+  isRegionalCertificateJobType,
   MAX_DEFAULT_HTTPS_CONFIGURE_CYCLES,
   parseDefaultDeploymentId,
   parseDefaultHttps,
@@ -24,6 +28,8 @@ import {
   RESERVED_DEFAULT_HOSTNAMES,
   resolvePreferredPublicUrl,
   runDefaultHttpsCheck,
+  runRegionalDefaultHttpsCheck,
+  startRegionalDefaultHttps,
   type DefaultHttpsDeps,
   type DefaultHostnameConfig,
 } from './default-https.js';
@@ -121,8 +127,12 @@ describe('default-https service', () => {
     return parseDefaultHttps(rows[0]?.defaultHttps ?? null);
   }
 
-  async function jobsFor(deploymentId: string) {
-    return db.select().from(schema.deploymentJobs).where(eq(schema.deploymentJobs.deploymentId, deploymentId));
+  async function jobsFor(deploymentId: string, type?: (typeof schema.deploymentJobs.$inferSelect)['type']) {
+    const rows = await db
+      .select()
+      .from(schema.deploymentJobs)
+      .where(eq(schema.deploymentJobs.deploymentId, deploymentId));
+    return type ? rows.filter((row) => row.type === type) : rows;
   }
 
   const apex = 'deployz.test';
@@ -151,6 +161,27 @@ describe('default-https service', () => {
       return { op: 'deleted' as const };
     }
     listDefaultRecords = async () => [];
+    // Regional HTTPS certificates (docs/https-regional-certificates.md) —
+    // the scoped counterparts, tracked in the same upserts/deletes arrays
+    // so a regional test can assert against them the same way.
+    async upsertScopedDeploymentRecord(deploymentId: string, dnsScope: string, target: string) {
+      if (this.failUpserts) throw new Error('boom');
+      this.upserts.push({ name: `d-${deploymentId}.c-${dnsScope}.${apex}`, value: target });
+      return { op: 'noop' as const, record: null };
+    }
+    async deleteScopedDeploymentRecord(deploymentId: string, dnsScope: string) {
+      this.deletes.push(`d-${deploymentId}.c-${dnsScope}.${apex}`);
+      return { op: 'deleted' as const };
+    }
+    async upsertScopeValidationRecord(_dnsScope: string, validationName: string, validationValue: string) {
+      if (this.failUpserts) throw new Error('boom');
+      this.upserts.push({ name: validationName, value: validationValue });
+      return { op: 'noop' as const, record: null };
+    }
+    async deleteScopeValidationRecord(_dnsScope: string, validationName: string) {
+      this.deletes.push(validationName);
+      return { op: 'deleted' as const };
+    }
   }
 
   function deps(overrides: Partial<DefaultHttpsDeps> = {}): DefaultHttpsDeps {
@@ -1072,6 +1103,10 @@ describe('default-https service', () => {
           fake.upsertDefaultValidationRecord(id, name, value),
         deleteDefaultDeploymentRecord: async (id) => fake.deleteDefaultDeploymentRecord(id),
         deleteDefaultValidationRecord: async (id, name) => fake.deleteDefaultValidationRecord(id, name),
+        upsertScopedDeploymentRecord: async (id, scope, target) => fake.upsertScopedDeploymentRecord(id, scope, target),
+        deleteScopedDeploymentRecord: async (id, scope) => fake.deleteScopedDeploymentRecord(id, scope),
+        upsertScopeValidationRecord: async (scope, name, value) => fake.upsertScopeValidationRecord(scope, name, value),
+        deleteScopeValidationRecord: async (scope, name) => fake.deleteScopeValidationRecord(scope, name),
         listDefaultRecords: async () => {
           throw new CloudflareDnsError('boom', 'CLOUDFLARE_UNAVAILABLE');
         },
@@ -1090,6 +1125,238 @@ describe('default-https service', () => {
       expect(parseDefaultDeploymentId('d-dep-1.deployz.dev')).toBeNull(); // not a uuid
       expect(parseDefaultDeploymentId('app.deployz.dev')).toBeNull(); // not d-
       expect(parseDefaultDeploymentId(`d-${uuid}.evil.example`)).toBeNull(); // wrong zone
+    });
+  });
+
+  // Regional HTTPS certificates (docs/https-regional-certificates.md) — the
+  // per-deployment half of the machine: the scoped hostname, the ALB
+  // attach, and the HTTPS probe. The shared certificate row itself is
+  // exercised in regional-certificates.test.ts; here it is stood in for by
+  // a bare object carrying only the fields runRegionalDefaultHttpsCheck reads.
+  describe('regional mode (docs/https-regional-certificates.md)', () => {
+    const dnsScope = 'abc123def456';
+    const certificateId = crypto.randomUUID();
+
+    it('isRegionalCertificateJobType recognises exactly the two regional job types', () => {
+      expect(isRegionalCertificateJobType('ENSURE_CERTIFICATE')).toBe(true);
+      expect(isRegionalCertificateJobType('ATTACH_CERTIFICATE')).toBe(true);
+      expect(isRegionalCertificateJobType('CONFIGURE_DOMAIN')).toBe(false);
+      expect(isRegionalCertificateJobType('INSTALL')).toBe(false);
+    });
+
+    it('startRegionalDefaultHttps persists a PENDING regional state with the scoped hostname, once', async () => {
+      const deployment = await seedDeployment();
+      const state = await startRegionalDefaultHttps(db, deployment, { dnsScope, certificateId, apex });
+      expect(state.mode).toBe('regional');
+      expect(state.status).toBe('PENDING');
+      expect(state.hostname).toBe(`d-${deployment.id}.c-${dnsScope}.${apex}`);
+      expect(state.dnsScope).toBe(dnsScope);
+      expect(state.certificateId).toBe(certificateId);
+      expect(state.bootstrapReadyAt).toBeTruthy();
+
+      // A repeat call never overwrites the persisted state.
+      const again = await startRegionalDefaultHttps(db, deployment, {
+        dnsScope: 'different-scope',
+        certificateId: crypto.randomUUID(),
+        apex,
+      });
+      expect(again.dnsScope).toBe(dnsScope);
+      expect(await stateOf(deployment.id)).toMatchObject({ dnsScope });
+    });
+
+    it('runDefaultHttpsCheck (legacy entry point) never touches a regional deployment', async () => {
+      const deployment = await seedDeployment();
+      await startRegionalDefaultHttps(db, deployment, { dnsScope, certificateId, apex });
+      await runDefaultHttpsCheck(db, deployment, deps());
+      const state = await stateOf(deployment.id);
+      expect(state?.mode).toBe('regional');
+      expect(state?.status).toBe('PENDING');
+      const jobs = (await jobsFor(deployment.id)).filter((job) => job.type === 'CONFIGURE_DOMAIN');
+      expect(jobs).toHaveLength(0);
+    });
+
+    it('applyRegionalInstallSuccess writes the scoped DNS record and records albReadyAt/deploymentDnsCreatedAt', async () => {
+      const deployment = await seedDeployment();
+      await startRegionalDefaultHttps(db, deployment, { dnsScope, certificateId, apex });
+      const dns = new FakeDnsClient();
+
+      const { needsAttach } = await applyRegionalInstallSuccess(
+        db,
+        deployment,
+        { routingTarget: 'alb.us-east-1.elb.amazonaws.com' },
+        { dns },
+      );
+      expect(needsAttach).toBe(true); // the install executor did not report httpsConfigured
+      expect(dns.upserts).toEqual([
+        { name: `d-${deployment.id}.c-${dnsScope}.${apex}`, value: 'alb.us-east-1.elb.amazonaws.com' },
+      ]);
+      const state = await stateOf(deployment.id);
+      expect(state?.status).toBe('PENDING'); // still waiting on the certificate
+      expect(state?.routingTarget).toBe('alb.us-east-1.elb.amazonaws.com');
+      expect(state?.albReadyAt).toBeTruthy();
+      expect(state?.deploymentDnsCreatedAt).toBeTruthy();
+    });
+
+    it('applyRegionalInstallSuccess advances straight to CONFIGURING when the install executor already attached the certificate', async () => {
+      const deployment = await seedDeployment();
+      await startRegionalDefaultHttps(db, deployment, { dnsScope, certificateId, apex });
+      const dns = new FakeDnsClient();
+
+      const { needsAttach } = await applyRegionalInstallSuccess(
+        db,
+        deployment,
+        {
+          routingTarget: 'alb.us-east-1.elb.amazonaws.com',
+          installOutput: { regionalCertificate: { httpsConfigured: true } },
+        },
+        { dns },
+      );
+      expect(needsAttach).toBe(false);
+      const state = await stateOf(deployment.id);
+      expect(state?.status).toBe('CONFIGURING');
+      expect(state?.httpsListenerReadyAt).toBeTruthy();
+    });
+
+    describe('ATTACH_CERTIFICATE flow', () => {
+      async function installedRegional() {
+        const deployment = await seedDeployment();
+        await startRegionalDefaultHttps(db, deployment, { dnsScope, certificateId, apex });
+        await applyRegionalInstallSuccess(
+          db,
+          deployment,
+          { routingTarget: 'alb.us-east-1.elb.amazonaws.com' },
+          { dns: new FakeDnsClient() },
+        );
+        return deployment;
+      }
+
+      it('ensureAttachCertificateJob mints one job with the documented key and payload', async () => {
+        const deployment = await installedRegional();
+        const state = (await stateOf(deployment.id))!;
+        const created = await ensureAttachCertificateJob(db, deployment, state, 'arn:aws:acm:us-east-1:1:certificate/x');
+        expect(created).toBe(true);
+        const jobs = (await jobsFor(deployment.id)).filter((job) => job.type === 'ATTACH_CERTIFICATE');
+        expect(jobs).toHaveLength(1);
+        expect(jobs[0]!.idempotencyKey).toBe(`${deployment.id}:ATTACH_CERTIFICATE:0`);
+        expect(jobs[0]!.payload).toEqual({
+          certificateArn: 'arn:aws:acm:us-east-1:1:certificate/x',
+          hostname: state.hostname,
+        });
+      });
+
+      it('runRegionalDefaultHttpsCheck ensures ATTACH once the certificate is ISSUED, and does nothing while it is not', async () => {
+        const deployment = await installedRegional();
+        await runRegionalDefaultHttpsCheck(db, deployment, { certificateStatus: 'DNS_VALIDATION_PENDING', certificateArn: null }, {
+          probeHttps: async () => ({ ok: true }),
+        });
+        expect((await jobsFor(deployment.id, 'ATTACH_CERTIFICATE'))).toHaveLength(0);
+
+        await runRegionalDefaultHttpsCheck(
+          db,
+          deployment,
+          { certificateStatus: 'ISSUED', certificateArn: 'arn:aws:acm:us-east-1:1:certificate/y' },
+          { probeHttps: async () => ({ ok: true }) },
+        );
+        const jobs = await jobsFor(deployment.id, 'ATTACH_CERTIFICATE');
+        expect(jobs).toHaveLength(1);
+      });
+
+      it('applyAttachCertificateResult success sets CONFIGURING + routingTarget + httpsListenerReadyAt', async () => {
+        const deployment = await installedRegional();
+        const state = (await stateOf(deployment.id))!;
+        await ensureAttachCertificateJob(db, deployment, state, 'arn:aws:acm:us-east-1:1:certificate/x');
+        const jobs = await jobsFor(deployment.id, 'ATTACH_CERTIFICATE');
+
+        await applyAttachCertificateResult(db, deployment.id, jobs[0]!, {
+          success: true,
+          output: { routingTarget: 'alb-2.us-east-1.elb.amazonaws.com', httpsConfigured: true },
+        });
+        const next = await stateOf(deployment.id);
+        expect(next?.status).toBe('CONFIGURING');
+        expect(next?.routingTarget).toBe('alb-2.us-east-1.elb.amazonaws.com');
+        expect(next?.httpsListenerReadyAt).toBeTruthy();
+      });
+
+      it('applyAttachCertificateResult AWS_PERMISSION_DENIED sets ERROR immediately', async () => {
+        const deployment = await installedRegional();
+        const state = (await stateOf(deployment.id))!;
+        await ensureAttachCertificateJob(db, deployment, state, 'arn:aws:acm:us-east-1:1:certificate/x');
+        const jobs = await jobsFor(deployment.id, 'ATTACH_CERTIFICATE');
+
+        await applyAttachCertificateResult(db, deployment.id, jobs[0]!, {
+          success: false,
+          failureCode: 'AWS_PERMISSION_DENIED',
+        });
+        const next = await stateOf(deployment.id);
+        expect(next?.status).toBe('ERROR');
+        expect(next?.lastError).toBe('AWS_PERMISSION_DENIED');
+      });
+
+      it('applyAttachCertificateResult ordinary failure keeps PENDING and bumps configureAttempts for a retry', async () => {
+        const deployment = await installedRegional();
+        const state = (await stateOf(deployment.id))!;
+        await ensureAttachCertificateJob(db, deployment, state, 'arn:aws:acm:us-east-1:1:certificate/x');
+        const jobs = await jobsFor(deployment.id, 'ATTACH_CERTIFICATE');
+
+        await applyAttachCertificateResult(db, deployment.id, jobs[0]!, { success: false });
+        const next = await stateOf(deployment.id);
+        expect(next?.status).toBe('PENDING');
+        expect(next?.lastError).toBe('ATTACH_FAILED');
+        expect(next?.configureAttempts).toBe(1);
+      });
+    });
+
+    describe('probe → ACTIVE', () => {
+      it('runRegionalDefaultHttpsCheck moves CONFIGURING to ACTIVE once the probe succeeds', async () => {
+        const deployment = await installedRegionalConfiguring();
+        await runRegionalDefaultHttpsCheck(db, deployment, { certificateStatus: 'ISSUED', certificateArn: 'arn:x' }, {
+          probeHttps: async () => ({ ok: true }),
+        });
+        const state = await stateOf(deployment.id);
+        expect(state?.status).toBe('ACTIVE');
+        expect(state?.httpsFirstSuccessAt).toBeTruthy();
+        expect(state?.activatedAt).toBeTruthy();
+        expect(state?.deploymentDnsResolvedAt).toBeTruthy();
+      });
+
+      it('runRegionalDefaultHttpsCheck stays CONFIGURING with the probe reason on failure', async () => {
+        const deployment = await installedRegionalConfiguring();
+        await runRegionalDefaultHttpsCheck(db, deployment, { certificateStatus: 'ISSUED', certificateArn: 'arn:x' }, {
+          probeHttps: async () => ({ ok: false, reason: 'DNS_UNRESOLVED' }),
+        });
+        const state = await stateOf(deployment.id);
+        expect(state?.status).toBe('CONFIGURING');
+        expect(state?.lastError).toBe('DNS_UNRESOLVED');
+      });
+
+      async function installedRegionalConfiguring() {
+        const deployment = await seedDeployment();
+        await startRegionalDefaultHttps(db, deployment, { dnsScope, certificateId, apex });
+        await applyRegionalInstallSuccess(
+          db,
+          deployment,
+          {
+            routingTarget: 'alb.us-east-1.elb.amazonaws.com',
+            installOutput: { regionalCertificate: { httpsConfigured: true } },
+          },
+          { dns: new FakeDnsClient() },
+        );
+        return deployment;
+      }
+    });
+
+    it('beginDefaultHttpsRemoval sets REMOVING and mints NO REMOVE_DOMAIN job', async () => {
+      const deployment = await seedDeployment();
+      const state = await startRegionalDefaultHttps(db, deployment, { dnsScope, certificateId, apex });
+      await beginDefaultHttpsRemoval(db, deployment, state);
+      const next = await stateOf(deployment.id);
+      expect(next?.status).toBe('REMOVING');
+      const jobs = (await jobsFor(deployment.id)).filter((job) => job.type === 'REMOVE_DOMAIN');
+      expect(jobs).toHaveLength(0);
+
+      // Idempotent repeat.
+      await beginDefaultHttpsRemoval(db, deployment, next!);
+      expect((await stateOf(deployment.id))?.status).toBe('REMOVING');
     });
   });
 });

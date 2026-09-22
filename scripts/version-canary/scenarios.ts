@@ -61,11 +61,14 @@ async function setupReuseStack(canary: Canary): Promise<void> {
     evidence.run.applicationStackName = applicationStackNameForInstallation(installationId);
     evidence.save();
 
-    // Create a customer + deployment (per-run resources for the control plane).
-    const customer = await api.createCustomer({
-      name: `Canary customer ${config.runId}`,
-      email: `customer-${config.runId.toLowerCase()}@deployz-canary.example.com`,
-    });
+    // Create a customer + deployment (per-run resources for the control
+    // plane) — or reuse an existing customer (config.customerId, scenario B).
+    const customer = config.customerId
+      ? { id: config.customerId }
+      : await api.createCustomer({
+          name: `Canary customer ${config.runId}`,
+          email: `customer-${config.runId.toLowerCase()}@deployz-canary.example.com`,
+        });
     evidence.run.customerId = customer.id;
     const deployment = await api.createDeployment({ applicationId: evidence.run.applicationId!, customerId: customer.id, region: config.region });
     evidence.run.deploymentId = deployment.id;

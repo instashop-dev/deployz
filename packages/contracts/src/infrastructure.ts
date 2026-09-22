@@ -243,6 +243,39 @@ export const infrastructureHttpsStateSchema = z.enum([
 ]);
 export type InfrastructureHttpsState = z.infer<typeof infrastructureHttpsStateSchema>;
 
+/**
+ * Regional HTTPS certificates (docs/https-regional-certificates.md) — the
+ * three sub-steps the customer/vendor status projections render under the
+ * TLS rung's "Preparing secure access" copy, plus the `slow` hint after the
+ * documented 30-minute mark.
+ */
+export const httpsSubStepSchema = z.enum([
+  'CERTIFICATE_REQUESTED',
+  'DOMAIN_VERIFICATION_CONFIGURED',
+  'WAITING_FOR_READY',
+]);
+export type HttpsSubStep = z.infer<typeof httpsSubStepSchema>;
+
+/** Read-time HTTPS progress overlay for the TLS rung — `mode` says whether
+ *  this deployment reuses the customer's regional certificate, the legacy
+ *  per-deployment one, or a vendor's custom domain. */
+export const httpsProgressSchema = z
+  .object({
+    state: infrastructureHttpsStateSchema,
+    mode: z.enum(['regional', 'legacy', 'custom']),
+    substeps: z.array(
+      z
+        .object({
+          key: httpsSubStepSchema,
+          state: z.enum(['done', 'current', 'waiting', 'attention']),
+        })
+        .strict(),
+    ),
+    slow: z.boolean(),
+  })
+  .strict();
+export type HttpsProgress = z.infer<typeof httpsProgressSchema>;
+
 export interface InfrastructureComponentSummary {
   readonly kind: InfrastructureComponentKind;
   readonly name: string;

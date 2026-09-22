@@ -230,6 +230,7 @@ import {
 } from './domains.js';
 import {
   deriveDeploymentStatus,
+  deriveHttpsProgress,
   endpointHttpsState,
   endpointStatusForHttpsState,
   mergeComponentState,
@@ -260,20 +261,40 @@ import {
   DEFAULT_HTTPS_APEX,
   DEFAULT_HTTPS_FIXTURE_APEX,
   applyDefaultHttpsJobResult,
+  applyAttachCertificateResult,
+  applyRegionalInstallSuccess,
   beginDefaultHttpsRemoval,
+  ensureAttachCertificateJob,
   isDefaultHttpsJob,
+  isRegionalCertificateJobType,
   parseDefaultHttps,
   reconcileOrphanedDefaultRecords,
   runDefaultHttpsCheck,
+  runRegionalDefaultHttpsCheck,
+  startRegionalDefaultHttps,
   type DefaultHttpsDeps,
   type DefaultHttpsState,
+  type RegionalInstallOutput,
 } from './default-https.js';
+import {
+  applyEnsureCertificateResult,
+  completeRegionalCertificateRemoval,
+  ensureRegionalCertificate,
+  hasRegionalCertificateTimedOut,
+  reconcileValidationRecord,
+  recordDefaultHttpsEvent,
+  regionalCertificatesForPurge,
+  resolveCustomerScope,
+  retryRegionalCertificate,
+  type RegionalCertificateRow,
+} from './regional-certificates.js';
 import {
   createCloudflareDnsClient,
   createDnsClientFromNameWriter,
   noopDnsRecordClient,
 } from './cloudflare-records.js';
 import {
+  albEndpointFromResult,
   resolveAppUrl,
   resolveDefaultUrl,
   toFleetRow,
@@ -619,6 +640,7 @@ function deployLinkQuickCreateUrl(input: {
   enrollmentCode: string;
   enrollmentUsedAt: Date | null;
   relayCredential?: string | null;
+  customerScope?: string | null;
 }): string | null {
   if (input.enrollmentUsedAt !== null) return null;
   const stackName =
@@ -639,9 +661,43 @@ function deployLinkQuickCreateUrl(input: {
         controlPlaneUrl: env.apiUrl,
         enrollmentCode: input.enrollmentCode,
         relayCredential: input.relayCredential ?? undefined,
+        customerScope: input.customerScope ?? undefined,
         stackName,
       })
     : null;
+}
+
+// Regional HTTPS certificates (docs/https-regional-certificates.md decision
+// 6): a relay's reported RelayCapabilities may carry an OPTIONAL
+// `regionalCertificate` boolean — older relays never send it — which is not
+// directly assignable to the `relay_capabilities` jsonb column's
+// `Record<string, boolean>` type (an optional property's value type includes
+// `undefined`, which the index signature rejects). Normalizing to a concrete
+// `false` here is both the type fix and the correct default: a relay that
+// never reported the capability cannot run it.
+function normalizeRelayCapabilities(capabilities: {
+  [key: string]: boolean | undefined;
+  regionalCertificate?: boolean | undefined;
+}): Record<string, boolean> {
+  return { ...capabilities, regionalCertificate: capabilities.regionalCertificate ?? false };
+}
+
+// Regional HTTPS certificates: the shared customer+account+region
+// certificate row a deployment's default_https.certificateId points at, or
+// null when the deployment is not in regional mode (or has none yet).
+async function loadRegionalCertificateRow(
+  db: RuntimeDb,
+  defaultHttps: DefaultHttpsState | null,
+): Promise<RegionalCertificateRow | null> {
+  if (!defaultHttps || defaultHttps.mode !== 'regional' || !defaultHttps.certificateId) {
+    return null;
+  }
+  const rows = await db
+    .select()
+    .from(schema.customerRegionalCertificates)
+    .where(eq(schema.customerRegionalCertificates.id, defaultHttps.certificateId))
+    .limit(1);
+  return rows[0] ?? null;
 }
 
 /**
@@ -1266,8 +1322,17 @@ async function advanceStepTimingsAfterWrite(
   const domain = knownDomain !== undefined ? knownDomain : await findActiveDomain(db, freshDeployment.id);
   const defaultHttps = parseDefaultHttps(freshDeployment.defaultHttps);
   const appUrl = resolveAppUrl(jobs, domain, defaultHttps);
+  const regionalCertificate = await loadRegionalCertificateRow(db, defaultHttps);
 
-  const derived = deriveDeploymentStatus({ deployment: freshDeployment, application, jobs, domain, defaultHttps, appUrl });
+  const derived = deriveDeploymentStatus({
+    deployment: freshDeployment,
+    application,
+    jobs,
+    domain,
+    defaultHttps,
+    regionalCertificate,
+    appUrl,
+  });
 
   // Paddle migration Phase 2 (R0-2): the first observed READY stage is the
   // billing-activation signal. Independent of the step-timings write below —
@@ -2274,6 +2339,7 @@ export async function buildServer({
         applicationName: schema.applications.name,
         publisherName: schema.organization.name,
         customerName: schema.customers.name,
+        customerDnsScope: schema.customers.dnsScope,
         region: schema.deployments.region,
         enrollmentCode: schema.deployments.enrollmentCode,
         enrollmentUsedAt: schema.deployments.enrollmentUsedAt,
@@ -2406,6 +2472,7 @@ export async function buildServer({
                     controlPlaneUrl: env.apiUrl,
                     enrollmentCode: row.enrollmentCode,
                     relayCredential: row.relayCredential ?? undefined,
+                    customerScope: row.customerDnsScope,
                     stackName,
                   })
                 : null;
@@ -2449,12 +2516,14 @@ export async function buildServer({
       const domain = await findActiveDomain(db, row.deployment.id);
       const defaultHttps = parseDefaultHttps(row.deployment.defaultHttps);
       const appUrl = resolveAppUrl(jobs, domain, defaultHttps);
+      const regionalCertificate = await loadRegionalCertificateRow(db, defaultHttps);
       const derived = deriveDeploymentStatus({
         deployment: row.deployment,
         application: derivationApplicationFor(row.deployment.desiredState, row),
         jobs,
         domain,
         defaultHttps,
+        regionalCertificate,
         appUrl,
       });
       const live = await loadCustomerLiveProgress(db, derived, {
@@ -2466,7 +2535,8 @@ export async function buildServer({
         cleanupState: row.deployment.cleanupState,
         launched: row.deployment.installStartedAt !== null,
       });
-      const status = toCustomerDeploymentStatus(derived, live);
+      const httpsProgress = deriveHttpsProgress({ domain, defaultHttps, regionalCertificate });
+      const status = { ...toCustomerDeploymentStatus(derived, live), ...(httpsProgress ? { httpsProgress } : {}) };
       const awsSummary = await loadCustomerAwsSummary(db, derived, row.deployment);
       return awsSummary ? { ...status, awsSummary } : status;
     },
@@ -2602,15 +2672,20 @@ export async function buildServer({
     const { installLinkId } = request.params as { installLinkId: string };
     requireUuidId(installLinkId);
     const rows = await db
-      .select({ deployment: schema.deployments, applicationName: schema.applications.name })
+      .select({
+        deployment: schema.deployments,
+        applicationName: schema.applications.name,
+        customerDnsScope: schema.customers.dnsScope,
+      })
       .from(schema.deployments)
       .innerJoin(schema.applications, eq(schema.deployments.applicationId, schema.applications.id))
+      .innerJoin(schema.customers, eq(schema.deployments.customerId, schema.customers.id))
       .where(eq(schema.deployments.installLinkId, installLinkId))
       .limit(1);
     if (rows.length === 0) {
       throw new NotFoundError('Installation not found');
     }
-    const { deployment, applicationName } = rows[0]!;
+    const { deployment, applicationName, customerDnsScope } = rows[0]!;
     // Invitation lifecycle: a revoked or expired link cannot re-arm an install.
     const retryGate = installLinkGate(deployment);
     if (retryGate) {
@@ -2701,6 +2776,7 @@ export async function buildServer({
               controlPlaneUrl: env.apiUrl,
               enrollmentCode,
               relayCredential,
+              customerScope: customerDnsScope,
               stackName,
             })
           : null,
@@ -3637,6 +3713,7 @@ export async function buildServer({
           enrollmentCode: deployment.enrollmentCode,
           enrollmentUsedAt: deployment.enrollmentUsedAt,
           relayCredential: deployment.relayCredential,
+          customerScope: customer.dnsScope,
         }),
         domain: domain ? toDomainView(domain) : null,
         routingTarget: domain?.routingTarget ?? null,
@@ -3762,12 +3839,14 @@ export async function buildServer({
       const domain = await findActiveDomain(db, deployment.id);
       const defaultHttps = parseDefaultHttps(deployment.defaultHttps);
       const appUrl = resolveAppUrl(jobs, domain, defaultHttps);
+      const regionalCertificate = await loadRegionalCertificateRow(db, defaultHttps);
       const derived = deriveDeploymentStatus({
         deployment,
         application: derivationApplicationFor(deployment.desiredState, application),
         jobs,
         domain,
         defaultHttps,
+        regionalCertificate,
         appUrl,
       });
       const live = await loadCustomerLiveProgress(db, derived, {
@@ -3779,7 +3858,8 @@ export async function buildServer({
         cleanupState: deployment.cleanupState,
         launched: deployment.installStartedAt !== null,
       });
-      const status = toCustomerDeploymentStatus(derived, live);
+      const httpsProgress = deriveHttpsProgress({ domain, defaultHttps, regionalCertificate });
+      const status = { ...toCustomerDeploymentStatus(derived, live), ...(httpsProgress ? { httpsProgress } : {}) };
       const awsSummary = await loadCustomerAwsSummary(db, derived, deployment);
       return awsSummary ? { ...status, awsSummary } : status;
     },
@@ -3796,7 +3876,7 @@ export async function buildServer({
     async (request) => {
       const { publicId } = request.params as { publicId: string };
       const token = firstHeaderValue(request.headers['x-deployz-token']);
-      const { deployment, application } = await resolveDeployLink(db, publicId, token);
+      const { deployment, application, customer } = await resolveDeployLink(db, publicId, token);
       if (await hasSucceededInstall(db, deployment.id)) {
         throw new ApiError(
           409,
@@ -3883,6 +3963,7 @@ export async function buildServer({
           enrollmentCode,
           enrollmentUsedAt: null,
           relayCredential,
+          customerScope: customer.dnsScope,
         }),
       };
     },
@@ -4181,19 +4262,60 @@ export async function buildServer({
         : [];
     const domainByDeployment = new Map(domainRows.map((domain) => [domain.deploymentId, domain]));
 
+    // Regional HTTPS certificates: batch-load every distinct shared
+    // certificate row the fleet's regional-mode deployments reference, one
+    // round trip regardless of fleet size (mirrors the jobs/domains batching
+    // above) rather than a per-row query.
+    const defaultHttpsByDeployment = new Map(
+      rows.map((row) => [row.deployment.id, parseDefaultHttps(row.deployment.defaultHttps)]),
+    );
+    const regionalCertificateIds = [
+      ...new Set(
+        [...defaultHttpsByDeployment.values()]
+          .filter((state): state is DefaultHttpsState => state?.mode === 'regional' && Boolean(state.certificateId))
+          .map((state) => state.certificateId!),
+      ),
+    ];
+    const regionalCertificateRows =
+      regionalCertificateIds.length > 0
+        ? await db
+            .select()
+            .from(schema.customerRegionalCertificates)
+            .where(inArray(schema.customerRegionalCertificates.id, regionalCertificateIds))
+        : [];
+    const regionalCertificateById = new Map(regionalCertificateRows.map((row) => [row.id, row]));
+
     return {
       deployments: rows.map((row) => {
         const jobs = jobsByDeployment.get(row.deployment.id) ?? [];
         const domain = domainByDeployment.get(row.deployment.id) ?? null;
-        const defaultHttps = parseDefaultHttps(row.deployment.defaultHttps);
+        const defaultHttps = defaultHttpsByDeployment.get(row.deployment.id) ?? null;
         const appUrl = resolveAppUrl(jobs, domain, defaultHttps);
+        const regionalCertificate = defaultHttps?.certificateId
+          ? regionalCertificateById.get(defaultHttps.certificateId) ?? null
+          : null;
         // Phase 2: the requirement booleans come from the deployment's frozen
         // manifest, never the live `applications` columns above — so the
         // fleet's component list and derived status can never disagree with
         // what this deployment was actually created with.
         const derivedRow = { ...row, ...derivationApplicationFor(row.deployment.desiredState, row) };
-        const derived = deriveDeploymentStatus({ deployment: row.deployment, application: derivedRow, jobs, domain, defaultHttps, appUrl });
-        return { ...toFleetRow(derivedRow), deploymentStatus: toVendorDeploymentStatus(derived) };
+        const derived = deriveDeploymentStatus({
+          deployment: row.deployment,
+          application: derivedRow,
+          jobs,
+          domain,
+          defaultHttps,
+          regionalCertificate,
+          appUrl,
+        });
+        const httpsProgress = deriveHttpsProgress({ domain, defaultHttps, regionalCertificate });
+        return {
+          ...toFleetRow(derivedRow),
+          deploymentStatus: {
+            ...toVendorDeploymentStatus(derived),
+            ...(httpsProgress ? { httpsProgress } : {}),
+          },
+        };
       }),
     };
   });
@@ -4233,6 +4355,7 @@ export async function buildServer({
     const defaultHttps = parseDefaultHttps(rows[0]!.deployment.defaultHttps);
     const appUrl = resolveAppUrl(jobs, domain, defaultHttps);
     const defaultUrl = resolveDefaultUrl(defaultHttps);
+    const regionalCertificate = await loadRegionalCertificateRow(db, defaultHttps);
     // Phase 2: derive the requirement booleans from the deployment's frozen
     // manifest, never the live `applications` columns selected above.
     const derivedRow = { ...rows[0]!, ...derivationApplicationFor(rows[0]!.deployment.desiredState, rows[0]!) };
@@ -4242,15 +4365,20 @@ export async function buildServer({
       jobs,
       domain,
       defaultHttps,
+      regionalCertificate,
       appUrl,
     });
+    const httpsProgress = deriveHttpsProgress({ domain, defaultHttps, regionalCertificate });
     return {
       ...toFleetRow(derivedRow),
       jobs,
       customDomain,
       appUrl,
       defaultUrl,
-      deploymentStatus: toVendorDeploymentStatus(derived),
+      deploymentStatus: {
+        ...toVendorDeploymentStatus(derived),
+        ...(httpsProgress ? { httpsProgress } : {}),
+      },
     };
   });
 
@@ -4980,22 +5108,36 @@ export async function buildServer({
 
     // Phase 11: best-effort drop of the deployz-zone CNAMEs on the same
     // force-complete (the DB state was cleared inside the transaction).
+    // Regional mode (docs/https-regional-certificates.md decision 5): only
+    // the scoped deployment record is this deployment's own to drop — the
+    // shared certificate and its validation record ride PURGE instead.
     if (preForceDefaultHttps) {
-      try {
-        await defaultHttpsDeps.dns.deleteDefaultDeploymentRecord(deployment.id);
-      } catch (error) {
-        // swallowed — purge is the authoritative cleanup if this fails.
-        console.error(JSON.stringify({ event: 'default-https:force-complete-record-cleanup-failed', name: 'default-record', error: String(error) }));
-      }
-      if (preForceDefaultHttps.validationName) {
+      if (preForceDefaultHttps.mode === 'regional') {
+        if (preForceDefaultHttps.dnsScope) {
+          try {
+            await defaultHttpsDeps.dns.deleteScopedDeploymentRecord(deployment.id, preForceDefaultHttps.dnsScope);
+          } catch (error) {
+            // swallowed — purge is the authoritative cleanup if this fails.
+            console.error(JSON.stringify({ event: 'default-https:force-complete-record-cleanup-failed', name: 'scoped-record', error: String(error) }));
+          }
+        }
+      } else {
         try {
-          await defaultHttpsDeps.dns.deleteDefaultValidationRecord(
-            deployment.id,
-            preForceDefaultHttps.validationName,
-          );
+          await defaultHttpsDeps.dns.deleteDefaultDeploymentRecord(deployment.id);
         } catch (error) {
           // swallowed — purge is the authoritative cleanup if this fails.
-          console.error(JSON.stringify({ event: 'default-https:force-complete-record-cleanup-failed', name: preForceDefaultHttps.validationName, error: String(error) }));
+          console.error(JSON.stringify({ event: 'default-https:force-complete-record-cleanup-failed', name: 'default-record', error: String(error) }));
+        }
+        if (preForceDefaultHttps.validationName) {
+          try {
+            await defaultHttpsDeps.dns.deleteDefaultValidationRecord(
+              deployment.id,
+              preForceDefaultHttps.validationName,
+            );
+          } catch (error) {
+            // swallowed — purge is the authoritative cleanup if this fails.
+            console.error(JSON.stringify({ event: 'default-https:force-complete-record-cleanup-failed', name: preForceDefaultHttps.validationName, error: String(error) }));
+          }
         }
       }
     }
@@ -5048,6 +5190,14 @@ export async function buildServer({
       firstHeaderValue(request.headers['idempotency-key']) ??
       (await retryAwareIdempotencyKey(db, deployment.id, 'PURGE', `${deployment.id}:PURGE`));
     await requireDeploymentIdle(db, deployment.id, idempotencyKey);
+    // Regional HTTPS certificates (docs/https-regional-certificates.md
+    // decision 5): only non-empty when this is the LAST non-DELETED
+    // deployment in its customer+account+region scope — deleting a
+    // certificate out from under a sibling deployment would break it.
+    const certificateRowsForPurge = await regionalCertificatesForPurge(db, deployment);
+    const regionalCertificatesPayload = certificateRowsForPurge
+      .filter((row): row is RegionalCertificateRow & { certificateArn: string } => row.certificateArn !== null)
+      .map((row) => ({ certificateArn: row.certificateArn }));
     const { job, created } = await createOrReuseJob(db, {
       deploymentId: deployment.id,
       type: 'PURGE',
@@ -5062,6 +5212,9 @@ export async function buildServer({
           : {}),
         ...(deployment.previousBootstrapStackName
           ? { previousBootstrapStackName: deployment.previousBootstrapStackName }
+          : {}),
+        ...(regionalCertificatesPayload.length > 0
+          ? { regionalCertificates: regionalCertificatesPayload }
           : {}),
       },
       requestedBy: request.user?.id ?? null,
@@ -5092,19 +5245,33 @@ export async function buildServer({
         .update(schema.deployments)
         .set({ defaultHttps: null })
         .where(eq(schema.deployments.id, deployment.id));
-      try {
-        await defaultHttpsDeps.dns.deleteDefaultDeploymentRecord(deployment.id);
-      } catch (error) {
-        request.log.warn({ err: error }, 'default-https record cleanup on purge failed');
-      }
-      if (leftoverDefaultHttps.validationName) {
+      if (leftoverDefaultHttps.mode === 'regional') {
+        // Regional mode: only this deployment's own scoped record is dropped
+        // here — the shared certificate and validation record are handled by
+        // the PURGE job's own result (completeRegionalCertificateRemoval),
+        // since they may still be owned by a sibling deployment.
+        if (leftoverDefaultHttps.dnsScope) {
+          try {
+            await defaultHttpsDeps.dns.deleteScopedDeploymentRecord(deployment.id, leftoverDefaultHttps.dnsScope);
+          } catch (error) {
+            request.log.warn({ err: error }, 'default-https regional scoped record cleanup on purge failed');
+          }
+        }
+      } else {
         try {
-          await defaultHttpsDeps.dns.deleteDefaultValidationRecord(
-            deployment.id,
-            leftoverDefaultHttps.validationName,
-          );
+          await defaultHttpsDeps.dns.deleteDefaultDeploymentRecord(deployment.id);
         } catch (error) {
           request.log.warn({ err: error }, 'default-https record cleanup on purge failed');
+        }
+        if (leftoverDefaultHttps.validationName) {
+          try {
+            await defaultHttpsDeps.dns.deleteDefaultValidationRecord(
+              deployment.id,
+              leftoverDefaultHttps.validationName,
+            );
+          } catch (error) {
+            request.log.warn({ err: error }, 'default-https record cleanup on purge failed');
+          }
         }
       }
     }
@@ -5486,6 +5653,56 @@ export async function buildServer({
     const organizationId = requireSessionOrganizationId(request);
     const deployment = await loadOwnedDeployment(db, id, organizationId);
     const parsed = parseDefaultHttps(deployment.defaultHttps);
+    if (parsed?.mode === 'regional') {
+      // Regional mode: the ERROR may be this deployment's own machine
+      // (ATTACH_TIMEOUT, AWS_PERMISSION_DENIED) or the shared certificate row
+      // (VALIDATION_TIMEOUT, CERTIFICATE_FAILED) — either is retryable here.
+      const certRow = await loadRegionalCertificateRow(db, parsed);
+      const certInError = certRow?.certificateStatus === 'ERROR';
+      if (parsed.status !== 'ERROR' && !certInError) {
+        throw new ApiError(409, 'NOT_IN_ERROR', 'Default HTTPS is not in an error state.');
+      }
+      if (certInError && certRow) {
+        await retryRegionalCertificate(db, certRow.id);
+      }
+      const reset: DefaultHttpsState = {
+        ...parsed,
+        status: 'PENDING',
+        configureAttempts: 0,
+        lastError: null,
+      };
+      await db
+        .update(schema.deployments)
+        .set({ defaultHttps: reset as unknown as Record<string, unknown> })
+        .where(eq(schema.deployments.id, deployment.id));
+      try {
+        let freshCertRow = await loadRegionalCertificateRow(db, parsed);
+        if (deployment.awsAccountId) {
+          const { row: ensured } = await ensureRegionalCertificate(
+            db,
+            {
+              deployment: {
+                id: deployment.id,
+                customerId: deployment.customerId,
+                organizationId: deployment.organizationId,
+                awsAccountId: deployment.awsAccountId,
+                region: deployment.region,
+              },
+              dnsScope: parsed.dnsScope!,
+            },
+            defaultHttpsDeps,
+          );
+          freshCertRow = ensured;
+        }
+        await runRegionalDefaultHttpsCheck(db, deployment, freshCertRow, defaultHttpsDeps);
+      } catch (error) {
+        request.log.warn(
+          { err: error, deploymentId: deployment.id },
+          'default-https: regional retry follow-up failed',
+        );
+      }
+      return { status: 'retrying' };
+    }
     if (!parsed || parsed.status !== 'ERROR') {
       throw new ApiError(409, 'NOT_IN_ERROR', 'Default HTTPS is not in an error state.');
     }
@@ -6356,6 +6573,11 @@ export async function buildServer({
       relayVersion?: string;
       bootstrapVersion?: string;
       capabilities?: unknown;
+      // Regional HTTPS certificates (docs/https-regional-certificates.md
+      // decision 6): the customer DNS scope baked into the bootstrap stack
+      // via DEPLOYZ_CUSTOMER_SCOPE, when the regional flow applies. Null/
+      // absent for a relay enrolled without one — the legacy flow runs.
+      customerScope?: string | null;
     };
     if (!body?.enrollmentCode || !body?.installationId) {
       throw new ApiError(
@@ -6513,7 +6735,7 @@ export async function buildServer({
           ...(body.awsAccountId ? { awsAccountId: body.awsAccountId } : {}),
           ...(typeof body.relayVersion === 'string' ? { relayVersion: body.relayVersion } : {}),
           ...(typeof body.bootstrapVersion === 'string' ? { bootstrapVersion: body.bootstrapVersion } : {}),
-          ...(capabilitiesParsed.success ? { relayCapabilities: capabilitiesParsed.data } : {}),
+          ...(capabilitiesParsed.success ? { relayCapabilities: normalizeRelayCapabilities(capabilitiesParsed.data) } : {}),
           ...(deployment.state === 'NOT_INSTALLED' || deployment.state === 'WAITING_FOR_RELAY'
             ? { state: 'INSTALLING' as const }
             : {}),
@@ -6577,6 +6799,66 @@ export async function buildServer({
       await grantPullToCustomer(ecrGrantDeps, body.installationId!, body.awsAccountId);
     }
 
+    // Regional HTTPS certificates (docs/https-regional-certificates.md
+    // decision 7): the regional flow is selected only when this relay
+    // reported the customer's OWN dns_scope, an AWS account id, and the
+    // default-HTTPS feature is actually configured (Cloudflare or the
+    // fixture). Anything else keeps the legacy per-deployment flow —
+    // nothing happens here at all. Best-effort and after the transaction:
+    // enrollment must never fail because of it.
+    if (
+      typeof body.customerScope === 'string' &&
+      body.customerScope.length > 0 &&
+      typeof body.awsAccountId === 'string' &&
+      body.awsAccountId.length > 0 &&
+      defaultHttpsDeps.enabled
+    ) {
+      try {
+        const customerScope = await resolveCustomerScope(db, deployment.customerId);
+        if (customerScope === body.customerScope) {
+          const { row: certRow, jobCreated } = await ensureRegionalCertificate(
+            db,
+            {
+              deployment: {
+                id: deployment.id,
+                customerId: deployment.customerId,
+                organizationId: deployment.organizationId,
+                awsAccountId: body.awsAccountId,
+                region: deployment.region,
+              },
+              dnsScope: customerScope,
+            },
+            defaultHttpsDeps,
+          );
+          // No-op once default_https already exists (e.g. a relay re-enrolling
+          // after an admin reset) — startRegionalDefaultHttps never overwrites
+          // a machine already in flight.
+          await startRegionalDefaultHttps(db, deployment, {
+            dnsScope: customerScope,
+            certificateId: certRow.id,
+            apex: defaultHttpsDeps.apex,
+          });
+          request.log.info(
+            {
+              deploymentId: deployment.id,
+              customerId: deployment.customerId,
+              awsAccountId: body.awsAccountId,
+              region: deployment.region,
+              certificateArn: certRow.certificateArn,
+            },
+            jobCreated
+              ? 'default-https: regional certificate requested at enrollment'
+              : 'default-https: regional certificate reused at enrollment',
+          );
+        }
+      } catch (error) {
+        request.log.warn(
+          { err: error, deploymentId: deployment.id },
+          'default-https: regional enrollment failed',
+        );
+      }
+    }
+
     return reply.code(200).send({ registered: true });
   });
 
@@ -6606,6 +6888,15 @@ export async function buildServer({
         )
         .returning()
     ).sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
+    // Regional HTTPS certificates: ENSURE_CERTIFICATE/ATTACH_CERTIFICATE are
+    // cheap, seconds-long relay calls that unblock every deployment in the
+    // scope — claim them ahead of the slower INSTALL/DEPLOY_RELEASE/etc. jobs
+    // in the same poll. Array.prototype.sort is stable, so this keeps the
+    // createdAt order the sort above already established within each group.
+    jobs.sort(
+      (a, b) =>
+        (isRegionalCertificateJobType(a.type) ? 0 : 1) - (isRegionalCertificateJobType(b.type) ? 0 : 1),
+    );
 
     // Payload redaction rides the claim: the relay reads the value ONCE from
     // this response (built from the pre-redaction rows below); the stored row
@@ -6643,6 +6934,13 @@ export async function buildServer({
       .orderBy(schema.deploymentJobs.createdAt);
     const activeDomain = await findActiveDomain(db, deployment.id);
     const defaultHttps = parseDefaultHttps(deployment.defaultHttps);
+    // Regional HTTPS certificates decision 4: an INSTALL command for a
+    // regional-mode deployment whose shared certificate is already ISSUED
+    // carries the ARN so the relay's install executor can attach it right
+    // after the stack succeeds, saving one ATTACH_CERTIFICATE round trip.
+    // The stored job row is never rewritten — this only decorates the
+    // response.
+    const regionalCertRow = await loadRegionalCertificateRow(db, defaultHttps);
 
     return {
       commands: jobs.map((job) => ({
@@ -6650,7 +6948,12 @@ export async function buildServer({
         deploymentId: deployment.id,
         type: job.type,
         idempotencyKey: job.idempotencyKey,
-        payload: job.payload,
+        payload:
+          job.type === 'INSTALL' &&
+          regionalCertRow?.certificateStatus === 'ISSUED' &&
+          regionalCertRow.certificateArn
+            ? { ...(job.payload as Record<string, unknown>), regionalCertificateArn: regionalCertRow.certificateArn }
+            : job.payload,
       })),
       deployment: {
         ...(profile ? { databaseRequired: profile.postgres, redisRequired: profile.redis } : {}),
@@ -6787,7 +7090,7 @@ export async function buildServer({
     // install also counts as a running workload — unless it was a zero-task
     // install waiting for configuration (DEPLOY-009), whose first deploy is
     // the first start.
-    const nextState = isDomainJobType(job.type)
+    const nextState = isDomainJobType(job.type) || isRegionalCertificateJobType(job.type)
       ? undefined
       : state === 'FAILED'
         ? (deploymentStateAfterFailedJob({
@@ -6830,6 +7133,12 @@ export async function buildServer({
 
     let billingStopped = false;
     let alreadySettled = false;
+    // Regional HTTPS certificates: the certificate row id (from the
+    // ENSURE_CERTIFICATE idempotency key) captured inside the transaction
+    // below, so the after-tx follow-up (DNS reconciliation, chasing the next
+    // ENSURE cycle, minting ATTACH jobs) knows which row to re-load fresh.
+    let ensureCertificateRowId: string | null = null;
+    let attachCertificateSucceeded = false;
     await db.transaction(async (tx) => {
       const updated = await tx
         .update(schema.deploymentJobs)
@@ -6864,6 +7173,25 @@ export async function buildServer({
           await applyDefaultHttpsJobResult(tx, deployment.id, job, body);
         } else {
           await applyDomainJobResult(tx, deployment, job, body);
+        }
+      } else if (isRegionalCertificateJobType(job.type)) {
+        // Regional HTTPS certificates: like the domain jobs above, these
+        // never touch deployments.state (see the nextState gate) — they
+        // drive the shared customer_regional_certificates row and this
+        // deployment's own default_https machine instead.
+        if (job.type === 'ENSURE_CERTIFICATE') {
+          // The certificate row id rides the idempotency key:
+          // `<deploymentId>:ENSURE_CERTIFICATE:<rowId>:<cycle>`.
+          const rowId = job.idempotencyKey.split(':')[2];
+          if (rowId) {
+            const outcome = await applyEnsureCertificateResult(tx, rowId, job, body);
+            if (outcome) {
+              ensureCertificateRowId = rowId;
+            }
+          }
+        } else if (job.type === 'ATTACH_CERTIFICATE') {
+          await applyAttachCertificateResult(tx, deployment.id, job, body);
+          attachCertificateSucceeded = state === 'SUCCEEDED';
         }
       }
 
@@ -7015,17 +7343,159 @@ export async function buildServer({
     // the default-HTTPS machine so the deployment earns its own HTTPS URL
     // without any customer DNS input. Best-effort: the heartbeat driver is
     // the cadence that keeps it moving, this is just the earliest kick.
+    // Regional mode (docs/https-regional-certificates.md) writes the scoped
+    // deployment CNAME and, when the install executor did not already
+    // attach an ISSUED certificate itself, mints the ATTACH_CERTIFICATE job;
+    // legacy mode keeps the existing per-deployment machine unchanged.
     if (job.type === 'INSTALL' && state === 'SUCCEEDED') {
-      try {
-        await runDefaultHttpsCheck(db, { ...deployment, state: 'HEALTHY' }, defaultHttpsDeps);
-      } catch (error) {
-        request.log.warn({ err: error }, 'default-https start after install failed');
+      if (preTxDefaultHttps?.mode === 'regional') {
+        try {
+          const routingTarget = albEndpointFromResult(body as unknown as DeploymentJobRow['result']);
+          if (routingTarget) {
+            const { needsAttach } = await applyRegionalInstallSuccess(
+              db,
+              deployment,
+              {
+                routingTarget,
+                ...(body.output ? { installOutput: body.output as RegionalInstallOutput } : {}),
+              },
+              { dns: defaultHttpsDeps.dns },
+            );
+            if (needsAttach) {
+              const certRow = await loadRegionalCertificateRow(db, preTxDefaultHttps);
+              if (certRow?.certificateStatus === 'ISSUED' && certRow.certificateArn) {
+                const freshRows = await db
+                  .select({ defaultHttps: schema.deployments.defaultHttps })
+                  .from(schema.deployments)
+                  .where(eq(schema.deployments.id, deployment.id))
+                  .limit(1);
+                const freshState = parseDefaultHttps(freshRows[0]?.defaultHttps ?? null);
+                if (freshState) {
+                  await ensureAttachCertificateJob(db, deployment, freshState, certRow.certificateArn);
+                }
+              }
+            }
+          }
+        } catch (error) {
+          request.log.warn(
+            { err: error, deploymentId: deployment.id },
+            'default-https: regional install follow-up failed',
+          );
+        }
+      } else {
+        try {
+          await runDefaultHttpsCheck(db, { ...deployment, state: 'HEALTHY' }, defaultHttpsDeps);
+        } catch (error) {
+          request.log.warn({ err: error }, 'default-https start after install failed');
+        }
       }
     }
     if ((job.type === 'DESTROY' || job.type === 'PURGE') && state === 'SUCCEEDED') {
       const installationId = deployment.installationId;
       if (installationId) {
         await revokePullFromCustomer(ecrGrantDeps, installationId);
+      }
+    }
+    // Regional HTTPS certificates: a successful PURGE that carried
+    // regionalCertificates (decision 5 — only the last non-DELETED
+    // deployment in the scope's payload does) is what finally removes the
+    // shared certificate row and its validation CNAME.
+    if (job.type === 'PURGE' && state === 'SUCCEEDED') {
+      const purgedArns = (
+        (job.payload as { regionalCertificates?: { certificateArn: string }[] } | null)
+          ?.regionalCertificates ?? []
+      ).map((entry) => entry.certificateArn);
+      if (purgedArns.length > 0) {
+        try {
+          const rows = await db
+            .select()
+            .from(schema.customerRegionalCertificates)
+            .where(inArray(schema.customerRegionalCertificates.certificateArn, purgedArns));
+          await completeRegionalCertificateRemoval(db, defaultHttpsDeps, rows);
+        } catch (error) {
+          request.log.warn(
+            { err: error, deploymentId: deployment.id },
+            'default-https: regional certificate purge cleanup failed',
+          );
+        }
+      }
+    }
+    // Regional HTTPS certificates: apply the ENSURE_CERTIFICATE result's
+    // follow-up outside the settlement transaction (DNS I/O + possibly
+    // minting more jobs) — reconcile the shared validation CNAME, chase the
+    // next ENSURE cycle while not yet ISSUED/ERROR, and once ISSUED, mint
+    // ATTACH_CERTIFICATE for every deployment in the scope that is ready
+    // for it.
+    if (job.type === 'ENSURE_CERTIFICATE' && ensureCertificateRowId) {
+      try {
+        const rows = await db
+          .select()
+          .from(schema.customerRegionalCertificates)
+          .where(eq(schema.customerRegionalCertificates.id, ensureCertificateRowId))
+          .limit(1);
+        let certRow = rows[0];
+        if (certRow) {
+          certRow = await reconcileValidationRecord(db, certRow, defaultHttpsDeps);
+          if (certRow.certificateStatus !== 'ISSUED' && certRow.certificateStatus !== 'ERROR') {
+            const scope = await resolveCustomerScope(db, certRow.customerId);
+            await ensureRegionalCertificate(
+              db,
+              {
+                deployment: {
+                  id: deployment.id,
+                  customerId: certRow.customerId,
+                  organizationId: certRow.organizationId,
+                  awsAccountId: certRow.awsAccountId,
+                  region: certRow.region,
+                },
+                dnsScope: scope,
+              },
+              defaultHttpsDeps,
+            );
+          } else if (certRow.certificateStatus === 'ISSUED') {
+            const scopeDeployments = await db
+              .select({ deployment: schema.deployments })
+              .from(schema.deployments)
+              .where(
+                and(
+                  eq(schema.deployments.customerId, certRow.customerId),
+                  eq(schema.deployments.awsAccountId, certRow.awsAccountId),
+                  eq(schema.deployments.region, certRow.region),
+                  ne(schema.deployments.state, 'DELETED'),
+                ),
+              );
+            for (const { deployment: scopeDeployment } of scopeDeployments) {
+              const scopeState = parseDefaultHttps(scopeDeployment.defaultHttps);
+              if (
+                scopeState?.mode === 'regional' &&
+                scopeState.status === 'PENDING' &&
+                scopeState.routingTarget &&
+                certRow.certificateArn
+              ) {
+                await ensureAttachCertificateJob(db, scopeDeployment, scopeState, certRow.certificateArn);
+              }
+            }
+          }
+        }
+      } catch (error) {
+        request.log.warn(
+          { err: error, deploymentId: deployment.id },
+          'default-https: regional ensure-certificate follow-up failed',
+        );
+      }
+    }
+    // Regional HTTPS certificates: an ATTACH_CERTIFICATE success may already
+    // pass an HTTPS probe on the very first try — run the check once
+    // immediately instead of waiting for the next heartbeat.
+    if (job.type === 'ATTACH_CERTIFICATE' && attachCertificateSucceeded) {
+      try {
+        const certRow = await loadRegionalCertificateRow(db, preTxDefaultHttps);
+        await runRegionalDefaultHttpsCheck(db, deployment, certRow, defaultHttpsDeps);
+      } catch (error) {
+        request.log.warn(
+          { err: error, deploymentId: deployment.id },
+          'default-https: regional attach-certificate follow-up failed',
+        );
       }
     }
     // Phase 11 record teardown (see preTxDefaultHttps above): the deployz-zone
@@ -7039,19 +7509,33 @@ export async function buildServer({
         state === 'SUCCEEDED' &&
         (job.type === 'DESTROY' || (job.type === 'REMOVE_DOMAIN' && isDefaultHttpsJob(job)));
       if (certificateGone) {
-        try {
-          await defaultHttpsDeps.dns.deleteDefaultDeploymentRecord(deployment.id);
-        } catch (error) {
-          request.log.warn({ err: error }, 'default-https record cleanup failed');
-        }
-        if (preTxDefaultHttps.validationName) {
+        if (preTxDefaultHttps.mode === 'regional') {
+          // Regional mode (docs/https-regional-certificates.md decision 5):
+          // the shared certificate and its validation record outlive this
+          // one deployment — only the scoped deployment CNAME is this
+          // deployment's own to remove; the certificate rides PURGE.
+          if (preTxDefaultHttps.dnsScope) {
+            try {
+              await defaultHttpsDeps.dns.deleteScopedDeploymentRecord(deployment.id, preTxDefaultHttps.dnsScope);
+            } catch (error) {
+              request.log.warn({ err: error }, 'default-https regional scoped record cleanup failed');
+            }
+          }
+        } else {
           try {
-            await defaultHttpsDeps.dns.deleteDefaultValidationRecord(
-              deployment.id,
-              preTxDefaultHttps.validationName,
-            );
+            await defaultHttpsDeps.dns.deleteDefaultDeploymentRecord(deployment.id);
           } catch (error) {
             request.log.warn({ err: error }, 'default-https record cleanup failed');
+          }
+          if (preTxDefaultHttps.validationName) {
+            try {
+              await defaultHttpsDeps.dns.deleteDefaultValidationRecord(
+                deployment.id,
+                preTxDefaultHttps.validationName,
+              );
+            } catch (error) {
+              request.log.warn({ err: error }, 'default-https record cleanup failed');
+            }
           }
         }
       }
@@ -7361,6 +7845,12 @@ export async function buildServer({
         relayVersion?: string;
         bootstrapVersion?: string;
         capabilities?: unknown;
+        // Regional HTTPS certificates: rides every heartbeat alongside the
+        // rest of identity, but the flow is selected only once, at
+        // enrollment (POST /api/relay/register) — parsed here for shape
+        // parity only, since deployments carries no column for it (the
+        // selected mode lives on default_https.dnsScope once chosen).
+        customerScope?: string | null;
       };
     };
     const deployment = await requireRelayDeployment(
@@ -7487,7 +7977,7 @@ export async function buildServer({
           ...(typeof identity?.bootstrapVersion === 'string'
             ? { bootstrapVersion: identity.bootstrapVersion }
             : {}),
-          ...(capabilitiesParsed?.success ? { relayCapabilities: capabilitiesParsed.data } : {}),
+          ...(capabilitiesParsed?.success ? { relayCapabilities: normalizeRelayCapabilities(capabilitiesParsed.data) } : {}),
         })
         .where(eq(schema.deployments.id, deployment.id));
 
@@ -7607,11 +8097,73 @@ export async function buildServer({
     // on an installed deployment nudges the machine one step (request the
     // cert, write the deployz-zone records, re-describe, probe, activate).
     // Best-effort for the same reason as the custom-domain check above.
+    // Regional mode (docs/https-regional-certificates.md) drives the shared
+    // certificate row instead of a per-deployment CONFIGURE_DOMAIN job:
+    // fail a row that has been stuck too long, else chase it toward ISSUED
+    // (safe on every heartbeat — the row insert/in-flight-job guard makes a
+    // repeat call cheap, and the same call re-verifies an already-ISSUED row
+    // once its 6h freshness window lapses), reconcile its validation CNAME,
+    // then let runRegionalDefaultHttpsCheck advance this deployment's own
+    // attach/probe steps. The called lane functions record their own
+    // certificate_failed/active/failed events on the transitions they make.
     if (['HEALTHY', 'UPDATING', 'UPDATE_AVAILABLE'].includes(deployment.state)) {
-      try {
-        await runDefaultHttpsCheck(db, deployment, defaultHttpsDeps);
-      } catch {
-        // swallowed — heartbeat must succeed regardless
+      const heartbeatDefaultHttps = parseDefaultHttps(deployment.defaultHttps);
+      if (heartbeatDefaultHttps?.mode === 'regional' && heartbeatDefaultHttps.certificateId && deployment.awsAccountId) {
+        try {
+          let certRow = await loadRegionalCertificateRow(db, heartbeatDefaultHttps);
+          if (certRow) {
+            if (hasRegionalCertificateTimedOut(certRow)) {
+              const [updated] = await db
+                .update(schema.customerRegionalCertificates)
+                .set({ certificateStatus: 'ERROR', lastError: 'VALIDATION_TIMEOUT' })
+                .where(eq(schema.customerRegionalCertificates.id, certRow.id))
+                .returning();
+              if (updated) {
+                certRow = updated;
+                await recordDefaultHttpsEvent(db, {
+                  organizationId: deployment.organizationId,
+                  deploymentId: deployment.id,
+                  customerId: deployment.customerId,
+                  eventType: 'certificate_failed',
+                  actorType: 'system',
+                  awsAccountId: deployment.awsAccountId,
+                  region: deployment.region,
+                  certificateDomain: certRow.certificateDomain,
+                  certificateArn: certRow.certificateArn,
+                });
+              }
+            } else {
+              const { row: ensured } = await ensureRegionalCertificate(
+                db,
+                {
+                  deployment: {
+                    id: deployment.id,
+                    customerId: deployment.customerId,
+                    organizationId: deployment.organizationId,
+                    awsAccountId: deployment.awsAccountId,
+                    region: deployment.region,
+                  },
+                  dnsScope: heartbeatDefaultHttps.dnsScope!,
+                },
+                defaultHttpsDeps,
+              );
+              certRow = ensured;
+            }
+            certRow = await reconcileValidationRecord(db, certRow, defaultHttpsDeps);
+            await runRegionalDefaultHttpsCheck(db, deployment, certRow, defaultHttpsDeps);
+          }
+        } catch (error) {
+          request.log.warn(
+            { err: error, deploymentId: deployment.id },
+            'default-https: regional heartbeat step failed',
+          );
+        }
+      } else {
+        try {
+          await runDefaultHttpsCheck(db, deployment, defaultHttpsDeps);
+        } catch {
+          // swallowed — heartbeat must succeed regardless
+        }
       }
     }
 

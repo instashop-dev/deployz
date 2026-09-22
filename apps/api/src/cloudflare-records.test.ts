@@ -4,6 +4,8 @@ import {
   CloudflareDnsError,
   CLOUDFLARE_RECORD_COMMENT,
   CLOUDFLARE_VALIDATION_RECORD_COMMENT,
+  CLOUDFLARE_SCOPED_RECORD_COMMENT,
+  CLOUDFLARE_SCOPE_VALIDATION_RECORD_COMMENT,
   createCloudflareDnsClient,
   createFakeCloudflareDnsClient,
   type CloudflareDnsRecord,
@@ -652,6 +654,199 @@ describe('listDefaultRecords (Phase 11 sweep)', () => {
     expect(result.every((entry) => entry.name.startsWith('d-'))).toBe(true);
 
     expect(await fake.listDefaultRecords({ perPage: 2, maxPages: 2 })).toHaveLength(4);
+  });
+});
+
+// Regional HTTPS certificates (docs/https-regional-certificates.md) — the
+// customer-namespace-scoped records: the DNS-only deployment routing CNAME
+// (`d-<id>.c-<scope>.<zone>`) and the shared wildcard certificate's
+// validation CNAME, which refuses to overwrite a conflicting value instead
+// of reconciling like every other record type.
+describe('createCloudflareDnsClient — regional scoped records', () => {
+  const SCOPE = 'abc12345def6';
+  const SCOPED_HOSTNAME = `d-dep-1.c-${SCOPE}.${ZONE_NAME}`;
+  const SCOPE_VALIDATION_NAME = `_scopeval.c-${SCOPE}.${ZONE_NAME}`;
+  const SCOPE_VALIDATION_VALUE = '_sv.acm-validations.aws.';
+
+  const scopedRecord = (id: string, overrides: Partial<CloudflareDnsRecord> = {}): CloudflareDnsRecord => ({
+    id,
+    type: 'CNAME',
+    name: SCOPED_HOSTNAME,
+    content: TARGET,
+    ttl: 60,
+    proxied: false,
+    comment: CLOUDFLARE_SCOPED_RECORD_COMMENT,
+    ...overrides,
+  });
+
+  const scopeValidationRecord = (
+    id: string,
+    overrides: Partial<CloudflareDnsRecord> = {},
+  ): CloudflareDnsRecord => ({
+    id,
+    type: 'CNAME',
+    name: SCOPE_VALIDATION_NAME,
+    content: SCOPE_VALIDATION_VALUE,
+    ttl: 1,
+    proxied: false,
+    comment: CLOUDFLARE_SCOPE_VALIDATION_RECORD_COMMENT,
+    ...overrides,
+  });
+
+  it('creates the scoped deployment CNAME DNS-only (proxied:false, ttl 60)', async () => {
+    const { client, calls } = makeClient(async (_url, init) => {
+      if (init.method === 'GET') return okList();
+      if (init.method === 'POST') return okResult(scopedRecord('rec-scoped'));
+      throw new Error(`unexpected ${init.method}`);
+    });
+
+    const result = await client.upsertScopedDeploymentRecord('dep-1', SCOPE, TARGET);
+
+    expect(result.op).toBe('created');
+    const post = calls[1]!;
+    expect(JSON.parse(post.body!)).toEqual({
+      type: 'CNAME',
+      name: SCOPED_HOSTNAME,
+      content: TARGET,
+      ttl: 60,
+      proxied: false,
+      comment: CLOUDFLARE_SCOPED_RECORD_COMMENT,
+    });
+  });
+
+  it('deletes the scoped deployment CNAME by its Cloudflare id; a miss is a noop', async () => {
+    const { client, calls } = makeClient(async (_url, init) => {
+      if (init.method === 'GET') return okList(scopedRecord('rec-scoped'));
+      if (init.method === 'DELETE') return okResult(scopedRecord('rec-scoped'));
+      throw new Error(`unexpected ${init.method}`);
+    });
+
+    expect(await client.deleteScopedDeploymentRecord('dep-1', SCOPE)).toEqual({ op: 'deleted' });
+    expect(calls[1]!.url).toBe(`${API_BASE_URL}/zones/${ZONE_ID}/dns_records/rec-scoped`);
+  });
+
+  it('creates the scope validation CNAME unproxied with the scope-validation comment', async () => {
+    const { client, calls } = makeClient(async (_url, init) => {
+      if (init.method === 'GET') return okList();
+      if (init.method === 'POST') return okResult(scopeValidationRecord('rec-sv'));
+      throw new Error(`unexpected ${init.method}`);
+    });
+
+    const result = await client.upsertScopeValidationRecord(SCOPE, SCOPE_VALIDATION_NAME, SCOPE_VALIDATION_VALUE);
+
+    expect(result.op).toBe('created');
+    expect(JSON.parse(calls[1]!.body!)).toMatchObject({
+      name: SCOPE_VALIDATION_NAME,
+      content: SCOPE_VALIDATION_VALUE,
+      proxied: false,
+      comment: CLOUDFLARE_SCOPE_VALIDATION_RECORD_COMMENT,
+    });
+  });
+
+  it('accepts the absolute (trailing-dot) form and writes it dot-less', async () => {
+    const { client, calls } = makeClient(async (_url, init) => {
+      if (init.method === 'GET') return okList();
+      if (init.method === 'POST') return okResult(scopeValidationRecord('rec-sv'));
+      throw new Error(`unexpected ${init.method}`);
+    });
+
+    await client.upsertScopeValidationRecord(SCOPE, `${SCOPE_VALIDATION_NAME}.`, SCOPE_VALIDATION_VALUE);
+    expect(JSON.parse(calls[1]!.body!)).toMatchObject({ name: SCOPE_VALIDATION_NAME });
+  });
+
+  it('an identical existing scope validation record → noop (list call only)', async () => {
+    const { client, calls } = makeClient(async (_url, init) => {
+      if (init.method === 'GET') return okList(scopeValidationRecord('rec-sv'));
+      throw new Error(`unexpected ${init.method}`);
+    });
+
+    const result = await client.upsertScopeValidationRecord(SCOPE, SCOPE_VALIDATION_NAME, SCOPE_VALIDATION_VALUE);
+    expect(result).toEqual({ op: 'noop', record: scopeValidationRecord('rec-sv') });
+    expect(calls.map((call) => call.method)).toEqual(['GET']);
+  });
+
+  it('a DIFFERENT existing scope validation value → CLOUDFLARE_DNS_CONFLICT, never a PUT', async () => {
+    const { client, calls } = makeClient(async (_url, init) => {
+      if (init.method === 'GET') return okList(scopeValidationRecord('rec-sv', { content: 'some-other-value.' }));
+      throw new Error(`a PUT must never be attempted: ${init.method}`);
+    });
+
+    const error = await failure(
+      client.upsertScopeValidationRecord(SCOPE, SCOPE_VALIDATION_NAME, SCOPE_VALIDATION_VALUE),
+    );
+    expect(error.code).toBe('CLOUDFLARE_DNS_CONFLICT');
+    // Only the value's length is named — never the value itself.
+    expect(error.message).not.toContain('some-other-value');
+    expect(calls.map((call) => call.method)).toEqual(['GET']);
+  });
+
+  it('a proxied:true drift on the scoped routing record is still reconciled with a PUT (no refusal)', async () => {
+    const seenBodies: string[] = [];
+    const { client, calls } = makeClient(async (_url, init) => {
+      if (init.method === 'GET') return okList(scopedRecord('rec-scoped', { content: 'old-alb.example.com' }));
+      if (init.method === 'PUT') {
+        seenBodies.push(init.body as string);
+        return okResult(scopedRecord('rec-scoped'));
+      }
+      throw new Error(`unexpected ${init.method}`);
+    });
+
+    const result = await client.upsertScopedDeploymentRecord('dep-1', SCOPE, TARGET);
+    expect(result.op).toBe('updated');
+    expect(calls.map((call) => call.method)).toEqual(['GET', 'PUT']);
+    expect(JSON.parse(seenBodies[0]!)).toMatchObject({ content: TARGET, proxied: false, ttl: 60 });
+  });
+
+  it('deletes the scope validation record by its Cloudflare id; a miss is a noop', async () => {
+    const { client, calls } = makeClient(async (_url, init) => {
+      if (init.method === 'GET') return okList(scopeValidationRecord('rec-sv'));
+      if (init.method === 'DELETE') return okResult(scopeValidationRecord('rec-sv'));
+      throw new Error(`unexpected ${init.method}`);
+    });
+
+    expect(await client.deleteScopeValidationRecord(SCOPE, SCOPE_VALIDATION_NAME)).toEqual({ op: 'deleted' });
+    expect(calls[1]!.url).toBe(`${API_BASE_URL}/zones/${ZONE_ID}/dns_records/rec-sv`);
+  });
+
+  it('refuses a scope validation name that is not one label under the customer namespace', async () => {
+    const { client, calls } = makeClient(async () => {
+      throw new Error('the transport must never be reached');
+    });
+    const hostileNames = [
+      `www.deployz.dev`, // bare reserved name, no scope label
+      `_x.too.many.labels.c-${SCOPE}.${ZONE_NAME}`, // more than one label under the namespace
+      `c-${SCOPE}.${ZONE_NAME}`, // no label at all
+      `_x.c-${SCOPE}.evil.com`, // wrong zone
+    ];
+    for (const name of hostileNames) {
+      expect((await failure(client.upsertScopeValidationRecord(SCOPE, name, SCOPE_VALIDATION_VALUE))).code).toBe(
+        'CLOUDFLARE_DNS_CONFLICT',
+      );
+      expect((await failure(client.deleteScopeValidationRecord(SCOPE, name))).code).toBe('CLOUDFLARE_DNS_CONFLICT');
+    }
+    expect(calls).toHaveLength(0);
+  });
+
+  it('the in-memory fake mirrors create/reconcile/conflict/delete', async () => {
+    const fake = createFakeCloudflareDnsClient({ zoneId: ZONE_ID, zoneName: ZONE_NAME });
+
+    const created = await fake.upsertScopedDeploymentRecord('dep-1', SCOPE, TARGET);
+    expect(created).toMatchObject({ op: 'created', record: { proxied: false, ttl: 60 } });
+
+    const vCreated = await fake.upsertScopeValidationRecord(SCOPE, SCOPE_VALIDATION_NAME, SCOPE_VALIDATION_VALUE);
+    expect(vCreated.op).toBe('created');
+
+    const vNoop = await fake.upsertScopeValidationRecord(SCOPE, SCOPE_VALIDATION_NAME, SCOPE_VALIDATION_VALUE);
+    expect(vNoop.op).toBe('noop');
+
+    const conflictError = await failure(
+      fake.upsertScopeValidationRecord(SCOPE, SCOPE_VALIDATION_NAME, 'a-different-value.'),
+    );
+    expect(conflictError.code).toBe('CLOUDFLARE_DNS_CONFLICT');
+
+    expect(await fake.deleteScopedDeploymentRecord('dep-1', SCOPE)).toEqual({ op: 'deleted' });
+    expect(await fake.deleteScopeValidationRecord(SCOPE, SCOPE_VALIDATION_NAME)).toEqual({ op: 'deleted' });
+    expect(await fake.deleteScopeValidationRecord(SCOPE, SCOPE_VALIDATION_NAME)).toEqual({ op: 'noop' });
   });
 });
 

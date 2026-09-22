@@ -18,14 +18,17 @@ import {
   installationDbInstance,
   installationSecretsByTag,
   invokeRelay,
+  deleteAcmCertificate,
   deleteEcrTags,
   deleteLogGroupIfExists,
   deleteS3Prefix,
   deleteSsmParameterIfExists,
   deleteStack,
   deleteTaskDefinitions,
+  describeRegionalCertificates,
   liveInstallationCache,
   liveStackElbResources,
+  CertificateInUseError,
   type InstallationSecret,
   type LeakAudit,
 } from './aws.js';
@@ -493,8 +496,17 @@ export async function leakAudit(canary: Canary): Promise<LeakAudit> {
       ecrRepository: ECR_REPOSITORY,
       ecrTags: Object.values(run.releases).map((r) => r.imageTag ?? r.version),
       ecrRegion: config.controlPlaneRegion,
+      customerDnsScope: run.customerDnsScope ?? null,
     });
     details['audit'] = audit;
+    // A retained regional certificate is correct after a single
+    // Disconnect/Purge while sibling deployments still exist in the scope
+    // (docs/https-regional-certificates.md decision 5) — only a run told
+    // its scope should be empty (--expect-regional-cert-removed) treats it
+    // as a leak. Otherwise it is recorded for visibility, never thrown on.
+    if (audit.regionalCertificates.length > 0 && !config.expectRegionalCertRemoved) {
+      details['regionalCertificatesRetained'] = audit.regionalCertificates;
+    }
     // INACTIVE ECS clusters/task definitions linger in the tagging API after
     // deletion and cost nothing (documented in aws-full-product-canary.md).
     const disposable = [
@@ -506,6 +518,7 @@ export async function leakAudit(canary: Canary): Promise<LeakAudit> {
       ...audit.logGroups.map((l) => `log-group ${l}`),
       ...audit.ssmParameters.map((p) => `ssm ${p}`),
       ...audit.certificates.map((c) => `acm ${c}`),
+      ...(config.expectRegionalCertRemoved ? audit.regionalCertificates.map((c) => `regional-acm ${c}`) : []),
       ...audit.ecrTags.map((t) => `ecr ${t}`),
       // A NAT gateway lingers in the tagging index after deletion too, but it
       // is the one costly resource here, so it is checked against EC2 rather
@@ -524,5 +537,49 @@ export async function leakAudit(canary: Canary): Promise<LeakAudit> {
       throw new Error(`${disposable.length} resource(s) left after teardown:\n${disposable.join('\n')}`);
     }
     return audit;
+  });
+}
+
+/**
+ * Recovery scenario D helper (docs/https-regional-certificates.md
+ * Verification plan): deletes the regional certificate(s) for `scope`
+ * out of band, so the next reconcile cycle observes a missing ARN and
+ * requests a replacement. Confirms the `deployz:customer-scope` tag before
+ * deleting anything (never a name-pattern delete) and refuses — clearly,
+ * without retrying — a certificate ACM reports as still in use.
+ */
+export async function deleteRegionalCertificate(canary: Canary, scope: string, region?: string): Promise<void> {
+  const { config, evidence } = canary;
+  const targetRegion = region ?? config.region;
+  await evidence.step(`Delete regional certificate(s) for customer scope ${scope} (recovery scenario D)`, async (details) => {
+    const certs = await describeRegionalCertificates(targetRegion, scope);
+    details['found'] = certs;
+    if (certs.length === 0) {
+      details['skipped'] = `no certificate tagged deployz:customer-scope=${scope} in ${targetRegion}`;
+      return;
+    }
+    const deleted: string[] = [];
+    const inUse: string[] = [];
+    for (const cert of certs) {
+      try {
+        const result = await deleteAcmCertificate(targetRegion, cert.arn);
+        if (result === 'deleted') deleted.push(cert.arn);
+      } catch (error) {
+        if (error instanceof CertificateInUseError) {
+          inUse.push(cert.arn);
+        } else {
+          throw error;
+        }
+      }
+    }
+    details['deleted'] = deleted;
+    details['inUse'] = inUse;
+    evidence.run.deletedRegionalCertificates = [...(evidence.run.deletedRegionalCertificates ?? []), ...deleted];
+    evidence.save();
+    if (inUse.length > 0) {
+      throw new Error(
+        `certificate(s) still in use, ACM refused deletion: ${inUse.join(', ')} — detach the listener first, or wait for the scope's last deployment to Purge`,
+      );
+    }
   });
 }

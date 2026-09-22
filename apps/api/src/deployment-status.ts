@@ -20,6 +20,8 @@ import {
   type HealthStatus,
   type HealthTargets,
   type HttpProbe,
+  type HttpsProgress,
+  type HttpsSubStep,
   type InfrastructureComponentStatus,
   type InfrastructureHttpsState,
   type JobState,
@@ -28,6 +30,8 @@ import {
   type RuntimeHealthLayers,
   type VendorDeploymentStatus,
 } from '@deployz/contracts';
+
+import { isRegionalCertificateSlow, type RegionalCertificateRow } from './regional-certificates.js';
 
 // Unified deployment status — the read-time derivation described in
 // packages/contracts/src/index.ts above customerDeploymentStatusSchema.
@@ -174,6 +178,21 @@ export interface DerivationDomain {
 export interface DerivationDefaultHttps {
   hostname: string;
   status: string;
+  /** Regional HTTPS certificates (docs/https-regional-certificates.md);
+   *  missing/'legacy' = the pre-regional per-deployment flow. */
+  mode?: 'legacy' | 'regional';
+  /** Legacy per-deployment certificate ARN — regional mode carries its ARN
+   *  on the certificate row instead (see `regionalCertificate` below). */
+  certificateArn?: string | null;
+}
+
+/** The shared regional certificate row's fields deriveHttpsProgress reads —
+ *  regional mode only (docs/https-regional-certificates.md). */
+export interface DerivationRegionalCertificate {
+  certificateStatus: RegionalCertificateRow['certificateStatus'];
+  certificateArn?: string | null;
+  validationDnsReadyAt?: Date | string | null;
+  requestedAt: Date | string | null | undefined;
 }
 
 export interface DeriveDeploymentStatusInput {
@@ -184,6 +203,11 @@ export interface DeriveDeploymentStatusInput {
   domain: DerivationDomain | null;
   /** Phase 11 Deployz-owned HTTPS endpoint, or null when not configured. */
   defaultHttps?: DerivationDefaultHttps | null;
+  /** The shared regional certificate row (docs/https-regional-certificates.md)
+   *  — regional mode only; the route lane passes it through so the
+   *  `https` component and `httpsProgress` can read the certificate's own
+   *  status, not just this deployment's machine status. */
+  regionalCertificate?: DerivationRegionalCertificate | null;
   /**
    * resolveAppUrl(jobs, domain) — https when a custom domain is ACTIVE (its
    * only preferred state), else the default-HTTPS URL once ACTIVE/CONFIGURING,
@@ -421,6 +445,7 @@ function httpsComponentStatus(
   domain: DerivationDomain | null,
   needsDomainSetup: boolean,
   defaultHttps: DerivationDefaultHttps | null,
+  regionalCertificate?: DerivationRegionalCertificate | null,
 ): ComponentProgressStatus | null {
   if (domain) {
     switch (domain.status) {
@@ -438,6 +463,13 @@ function httpsComponentStatus(
       default:
         return 'IN_PROGRESS';
     }
+  }
+  if (defaultHttps?.mode === 'regional') {
+    // The certificate row's own ERROR is this component's failure too —
+    // not just the deployment's own machine status.
+    if (defaultHttps.status === 'ACTIVE') return 'READY';
+    if (defaultHttps.status === 'ERROR' || regionalCertificate?.certificateStatus === 'ERROR') return 'FAILED';
+    return 'IN_PROGRESS';
   }
   if (defaultHttps) {
     switch (defaultHttps.status) {
@@ -468,8 +500,23 @@ function httpsComponentStatus(
 export function endpointHttpsState(
   domain: DerivationDomain | null,
   defaultHttps: DerivationDefaultHttps | null,
+  regionalCertificate?: DerivationRegionalCertificate | null,
 ): InfrastructureHttpsState {
   if (domain?.status === 'ACTIVE' || defaultHttps?.status === 'ACTIVE') return 'READY';
+
+  if (defaultHttps?.mode === 'regional') {
+    // Regional mapping (docs/https-regional-certificates.md): the shared
+    // certificate row's status and this deployment's own machine status
+    // both matter — either can be the reason the endpoint is not READY yet.
+    if (defaultHttps.status === 'REMOVING') return 'REMOVING';
+    if (defaultHttps.status === 'ERROR' || regionalCertificate?.certificateStatus === 'ERROR') return 'FAILED';
+    if (regionalCertificate?.certificateStatus === 'ISSUED' || defaultHttps.status === 'CONFIGURING') {
+      return 'ACTIVATING';
+    }
+    if (regionalCertificate?.certificateStatus === 'DNS_VALIDATION_PENDING') return 'WAITING_FOR_CERTIFICATE';
+    return 'SETTING_UP';
+  }
+
   const status = defaultHttps?.status ?? domain?.status ?? null;
   switch (status) {
     case 'PENDING':
@@ -501,6 +548,88 @@ export function endpointStatusForHttpsState(state: InfrastructureHttpsState): In
   }
 }
 
+// ---------------------------------------------------------------------------
+// httpsProgress — the TLS rung's three sub-steps + slow hint
+// (docs/https-regional-certificates.md UX section).
+// ---------------------------------------------------------------------------
+
+export interface DeriveHttpsProgressInput {
+  domain: DerivationDomain | null;
+  defaultHttps: DerivationDefaultHttps | null;
+  /** The shared regional certificate row — regional mode only. */
+  regionalCertificate?: DerivationRegionalCertificate | null;
+  now?: Date;
+}
+
+const HTTPS_SUBSTEP_ORDER: readonly HttpsSubStep[] = [
+  'CERTIFICATE_REQUESTED',
+  'DOMAIN_VERIFICATION_CONFIGURED',
+  'WAITING_FOR_READY',
+];
+
+/**
+ * The TLS rung's read-time progress overlay: which of the three sub-steps
+ * are done, which is current, and a "taking longer than usual" hint.
+ * `undefined` when no default-HTTPS state exists yet (nothing to render).
+ * A serving custom domain always renders `mode: 'custom'` with every
+ * sub-step done, regardless of what the default-HTTPS machine underneath is
+ * doing — the custom domain is what the customer actually sees.
+ */
+export function deriveHttpsProgress(input: DeriveHttpsProgressInput): HttpsProgress | undefined {
+  const { domain, defaultHttps, regionalCertificate = null, now = new Date() } = input;
+  if (!defaultHttps) return undefined;
+
+  const customServing = domain?.status === 'ACTIVE';
+  const isRegional = defaultHttps.mode === 'regional';
+  const mode: HttpsProgress['mode'] = customServing ? 'custom' : isRegional ? 'regional' : 'legacy';
+  const state = endpointHttpsState(domain, defaultHttps, regionalCertificate);
+
+  const certificateRequested =
+    customServing ||
+    (isRegional ? Boolean(regionalCertificate?.certificateArn) : Boolean(defaultHttps.certificateArn));
+  const domainVerificationConfigured =
+    customServing ||
+    (isRegional
+      ? Boolean(regionalCertificate?.validationDnsReadyAt) || regionalCertificate?.certificateStatus === 'ISSUED'
+      : defaultHttps.status === 'WAITING_FOR_DNS' ||
+        defaultHttps.status === 'CONFIGURING' ||
+        defaultHttps.status === 'ACTIVE');
+  const waitingForReady = customServing || defaultHttps.status === 'ACTIVE';
+
+  const done: Record<HttpsSubStep, boolean> = {
+    CERTIFICATE_REQUESTED: certificateRequested,
+    DOMAIN_VERIFICATION_CONFIGURED: domainVerificationConfigured,
+    WAITING_FOR_READY: waitingForReady,
+  };
+
+  const failed = state === 'FAILED';
+  let currentAssigned = false;
+  const substeps = HTTPS_SUBSTEP_ORDER.map((key) => {
+    const isDone = done[key];
+    let subState: 'done' | 'current' | 'waiting' | 'attention';
+    if (isDone) {
+      subState = 'done';
+    } else if (failed) {
+      subState = 'attention';
+    } else if (!currentAssigned) {
+      subState = 'current';
+      currentAssigned = true;
+    } else {
+      subState = 'waiting';
+    }
+    return { key, state: subState };
+  });
+
+  // Regional: the certificate row's own requestedAt (isRegionalCertificateSlow).
+  // Legacy: no requested-at timestamp is tracked on the machine itself — the
+  // deployment-wide `takingLongerThanUsual` step timer is the closest signal
+  // there, so this narrower hint stays false rather than guess.
+  const slow =
+    isRegional && regionalCertificate ? isRegionalCertificateSlow(regionalCertificate, now) : false;
+
+  return { state, mode, substeps, slow };
+}
+
 function buildComponents(params: {
   stage: DeploymentStage;
   observedState: Record<string, unknown> | null;
@@ -508,6 +637,7 @@ function buildComponents(params: {
   domain: DerivationDomain | null;
   needsDomainSetup: boolean;
   defaultHttps: DerivationDefaultHttps | null;
+  regionalCertificate?: DerivationRegionalCertificate | null;
   failureResult: Record<string, unknown> | null | undefined;
 }): ComponentProgress[] {
   const merged = mergeComponentState(params.observedState, params.application) ?? {};
@@ -527,7 +657,12 @@ function buildComponents(params: {
   push('storage', 'storage', params.application.storageRequired ?? false);
   push('redis', 'redis', params.application.redisRequired ?? false);
 
-  const httpsStatus = httpsComponentStatus(params.domain, params.needsDomainSetup, params.defaultHttps);
+  const httpsStatus = httpsComponentStatus(
+    params.domain,
+    params.needsDomainSetup,
+    params.defaultHttps,
+    params.regionalCertificate,
+  );
   if (httpsStatus !== null) {
     components.push({ key: 'https', label: COMPONENT_LABELS.https!, status: httpsStatus });
   }
@@ -978,7 +1113,16 @@ function buildHealthLayers(
  * chrome around a real last-known stage instead of a placeholder.
  */
 export function deriveDeploymentStatus(input: DeriveDeploymentStatusInput): DerivedDeploymentStatus {
-  const { deployment, application, jobs, domain, defaultHttps = null, appUrl, now = new Date() } = input;
+  const {
+    deployment,
+    application,
+    jobs,
+    domain,
+    defaultHttps = null,
+    regionalCertificate = null,
+    appUrl,
+    now = new Date(),
+  } = input;
 
   // deployments.state 'DISCONNECTED' is a valid enum value that nothing in
   // this codebase currently writes (the persisted liveness sweep flips
@@ -1169,6 +1313,7 @@ export function deriveDeploymentStatus(input: DeriveDeploymentStatusInput): Deri
     domain,
     needsDomainSetup,
     defaultHttps,
+    regionalCertificate,
     failureResult: latestFailed?.result,
   });
 

@@ -80,6 +80,13 @@ import {
 import type { CommandExecutor, RelayCommand, RelayCommandResult } from './commands.js';
 import type { PendingStore } from './pending.js';
 import {
+  CERTIFICATE_DELETE_RETRY_ATTEMPTS,
+  CERTIFICATE_DELETE_RETRY_DELAY_MS,
+  defaultSleep,
+  isCertificateInUse,
+  isNotFound,
+} from './domain.js';
+import {
   clearDeleteBlockersAndRetryDelete,
   createRealCacheCleanupClient,
   createRealRdsCleanupClient,
@@ -203,6 +210,43 @@ export interface PurgeDeps {
   readonly network: NetworkPurgeClient;
   readonly now?: () => string;
   readonly wait?: WaitOptions;
+  /**
+   * Regional HTTPS certificates (docs/https-regional-certificates.md
+   * decision 5) — the customer-scoped wildcard certificate ARN(s) to
+   * delete, present only when this purge is the last non-DELETED
+   * deployment in its scope. These carry `deployz:customer-scope`, not
+   * `deployz:installation`, so `AcmPurgeClient.listOwnedCertificates`
+   * above never returns them — the control plane supplies the ARNs
+   * directly because the relay has no other way to discover them.
+   */
+  readonly regionalCertificates?: Array<{ certificateArn: string }>;
+  /** Delay between `DeleteCertificate` retries on a still-attached regional
+   *  certificate. Defaults to a real timer — same idiom as domain.ts. */
+  readonly sleep?: (ms: number) => Promise<void>;
+}
+
+/**
+ * Extract the regional-certificate ARNs to delete from a PURGE command's
+ * payload (or its pending-marker copy, which carries the same payload
+ * unchanged — see `createPurgeExecutor`). `payload` is control-plane-shaped,
+ * not validated here by a shared contract schema, so only well-formed
+ * entries survive; an absent or malformed field means "nothing to delete",
+ * not an error.
+ */
+export function readRegionalCertificatesFromPayload(
+  payload: Record<string, unknown>,
+): Array<{ certificateArn: string }> | undefined {
+  const raw = payload['regionalCertificates'];
+  if (!Array.isArray(raw)) return undefined;
+  const out: Array<{ certificateArn: string }> = [];
+  for (const entry of raw) {
+    const certificateArn =
+      entry && typeof entry === 'object' ? (entry as { certificateArn?: unknown }).certificateArn : undefined;
+    if (typeof certificateArn === 'string' && certificateArn.length > 0) {
+      out.push({ certificateArn });
+    }
+  }
+  return out.length > 0 ? out : undefined;
 }
 
 type PurgeOutcome =
@@ -211,6 +255,18 @@ type PurgeOutcome =
   | { readonly state: 'purging' };
 
 const INSTALLATION_TAG = 'deployz:installation';
+
+/**
+ * Regional HTTPS certificates (docs/https-regional-certificates.md decision
+ * 5, IAM policy-size adjustment) — the customer-scoped wildcard certificate
+ * now carries the requesting relay's `deployz:installation` tag too (so
+ * `RequestCertificate` is authorized through the same installation-tag ACM
+ * statement every other request uses), which would otherwise make it look
+ * owned by the general certificate sweep below. Any certificate carrying
+ * this tag is excluded from that sweep — it is deleted only via the
+ * explicitly listed `regionalCertificates` ARNs, never swept by tag.
+ */
+const CUSTOMER_SCOPE_TAG = 'deployz:customer-scope';
 
 /**
  * Whether an AWS error is a permission rejection (AccessDenied /
@@ -378,6 +434,43 @@ export async function settlePurge(deps: PurgeDeps): Promise<PurgeOutcome> {
       await deps.acm.deleteCertificate(certificateArn);
     }
     return { state: 'purging' };
+  }
+
+  // Regional HTTPS certificates (docs/https-regional-certificates.md
+  // decision 5) — the customer-scoped wildcard certificate(s), listed by
+  // ARN because they carry `deployz:customer-scope` rather than this
+  // installation's tag, so the owned-certificate sweep above can never see
+  // them. Deletion is synchronous, unlike the async sweeps above, so a
+  // clean delete (or an ARN already gone) falls through to the next phase
+  // in the same pass instead of waiting for a later one to confirm it —
+  // only a certificate still attached after every retry defers.
+  if (deps.regionalCertificates && deps.regionalCertificates.length > 0) {
+    const sleep = deps.sleep ?? defaultSleep;
+    for (const { certificateArn } of deps.regionalCertificates) {
+      for (let attempt = 1; ; attempt++) {
+        try {
+          await deps.acm.deleteCertificate(certificateArn);
+          break;
+        } catch (error) {
+          if (isNotFound(error)) break;
+          if (!isCertificateInUse(error)) throw error;
+          if (attempt >= CERTIFICATE_DELETE_RETRY_ATTEMPTS) {
+            // Still attached after every retry — a later poll tries again,
+            // same as every other in-flight purge phase.
+            return { state: 'purging' };
+          }
+          console.log(
+            JSON.stringify({
+              event: 'relay:certificate-still-in-use',
+              certificateArn,
+              attempt,
+              maxAttempts: CERTIFICATE_DELETE_RETRY_ATTEMPTS,
+            }),
+          );
+          await sleep(CERTIFICATE_DELETE_RETRY_DELAY_MS);
+        }
+      }
+    }
   }
 
   // Phase 2e — the RETAIN-ed RDS subnet group (CANARY-015). Only removable
@@ -895,7 +988,12 @@ export function createRealPurgeClients(
               const tags = await acm.send(
                 new ListTagsForCertificateCommand({ CertificateArn: certificate.CertificateArn }),
               );
-              if (owns(tags.Tags ?? [])) owned.push(certificate.CertificateArn);
+              const certificateTags = tags.Tags ?? [];
+              // Never sweep a regional (customer-scoped) certificate here —
+              // it carries the installation tag too now, but its lifecycle
+              // is decision 5's explicit ARN list, not this tag sweep.
+              const isRegionalCertificate = certificateTags.some((tag) => tag.Key === CUSTOMER_SCOPE_TAG);
+              if (owns(certificateTags) && !isRegionalCertificate) owned.push(certificate.CertificateArn);
             } catch (error) {
               // Same rule: an access-denied while reading tags must fail the
               // purge, not be silently treated as "not ours".

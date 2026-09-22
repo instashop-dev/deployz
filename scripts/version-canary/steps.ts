@@ -11,13 +11,19 @@
 import { execFileSync } from 'node:child_process';
 import { resolve } from 'node:path';
 
-import { applicationStackNameForInstallation, parseApplicationTemplateUrl, releaseImageTag } from '@deployz/contracts';
+import {
+  applicationStackNameForInstallation,
+  parseApplicationTemplateUrl,
+  parseScopedDeploymentHostname,
+  releaseImageTag,
+} from '@deployz/contracts';
 
 import { probeLiveApp, readMarker, sampleLiveApp, writeMarker } from './app.js';
 import {
   albDnsName,
   callerIdentity,
   createBootstrapStack,
+  describeRegionalCertificates,
   describeRunningService,
   describeStack,
   ecrDigestForTag,
@@ -327,11 +333,20 @@ export async function createDeploymentAndInstall(canary: Canary): Promise<string
   assert(templateUrl, 'no canary application template yet');
 
   const deploymentId = await evidence.step('Create customer deployment and launch the install', async (details) => {
-    const customer = await api.createCustomer({
-      name: `Canary customer ${config.runId}`,
-      email: `customer-${config.runId.toLowerCase()}@deployz-canary.example.com`,
-    });
+    // Scenario B (docs/https-regional-certificates.md Verification plan):
+    // a second deployment for the SAME customer + region reuses the
+    // already-issued regional certificate. config.customerId carries an
+    // existing customer id (--customer-id, or --reuse-customer-from's
+    // resolved id) straight through instead of minting a throwaway one.
+    const customer = config.customerId
+      ? { id: config.customerId }
+      : await api.createCustomer({
+          name: `Canary customer ${config.runId}`,
+          email: `customer-${config.runId.toLowerCase()}@deployz-canary.example.com`,
+        });
     evidence.run.customerId = customer.id;
+    details['customerId'] = customer.id;
+    details['customerReused'] = config.customerId !== null;
     const deployment = await api.createDeployment({ applicationId, customerId: customer.id, region: config.region });
     evidence.run.deploymentId = deployment.id;
     evidence.run.installLinkId = deployment.installLinkId;
@@ -403,6 +418,9 @@ export async function createDeploymentAndInstall(canary: Canary): Promise<string
     const installJob = detail.jobs.find((j) => j.type === 'INSTALL');
     assert(installJob && (installJob.state === 'SUCCEEDED' || installJob.state === 'SUCCESS'), 'INSTALL job not settled successfully');
     recordJob(canary, installJob.id, 'INSTALL');
+    evidence.run.installSucceededAt = new Date().toISOString();
+    evidence.save();
+    details['installSucceededAt'] = evidence.run.installSucceededAt;
 
     const appStack = await describeStack(config.region, evidence.run.applicationStackName!);
     assert(appStack?.status === 'CREATE_COMPLETE', `application stack ${appStack?.status ?? 'absent'}`);
@@ -433,7 +451,72 @@ export async function createDeploymentAndInstall(canary: Canary): Promise<string
     details['infrastructure'] = { snapshotState: inventory.snapshotState, expectations: inventory.expectations };
   });
 
+  await waitForHttpsActive(canary);
+
   return deploymentId;
+}
+
+/**
+ * Waits for `defaultHttps.status` to settle ACTIVE (or ERROR), records the
+ * timing evidence a first-vs-second deployment comparison needs
+ * (`installSucceededAt` → `httpsActiveAt`, docs/https-regional-certificates.md
+ * Verification plan scenarios A/B), and — once a scoped hostname
+ * (`d-<id>.c-<scope>.deployz.dev`) is issued — the regional certificate
+ * facts for that scope. Reusable on its own against an existing deployment
+ * (the `wait-https` CLI command), not only right after install: scenario D's
+ * recovery cycle and a standalone re-check both call it the same way.
+ */
+export async function waitForHttpsActive(
+  canary: Canary,
+  timeoutMs = 20 * MINUTE,
+): Promise<{ detail: DeploymentDetail; httpsActiveAt: string; httpsSetupSeconds: number | null }> {
+  const { config, evidence, api } = canary;
+  const deploymentId = evidence.run.deploymentId;
+  assert(deploymentId, 'no deployment yet');
+  return evidence.step('Default HTTPS becomes ACTIVE and timings/certificate evidence are recorded', async (details) => {
+    const detail = await waitFor(
+      'default HTTPS',
+      () => api.getDeployment(deploymentId),
+      (d) => (d.defaultHttps?.status === 'ACTIVE' || d.defaultHttps?.status === 'ERROR' ? d : null),
+      { timeoutMs, describe: (d) => `${d.defaultHttps?.status ?? 'none'} ${describeDeployment(d)}` },
+    );
+    const https = detail.defaultHttps;
+    details['defaultHttps'] = https;
+    assert(https?.status === 'ACTIVE', `default HTTPS ${https?.status ?? 'none'}: ${https?.lastError ?? ''}`);
+
+    const httpsActiveAt = new Date().toISOString();
+    evidence.run.httpsActiveAt = httpsActiveAt;
+    let httpsSetupSeconds: number | null = null;
+    if (evidence.run.installSucceededAt) {
+      httpsSetupSeconds = Math.round(
+        (new Date(httpsActiveAt).getTime() - new Date(evidence.run.installSucceededAt).getTime()) / 1000,
+      );
+      evidence.run.httpsSetupSeconds = httpsSetupSeconds;
+    }
+    details['httpsActiveAt'] = httpsActiveAt;
+    details['httpsSetupSeconds'] = httpsSetupSeconds;
+
+    if (detail.deploymentStatus.httpsProgress) {
+      details['httpsProgress'] = detail.deploymentStatus.httpsProgress;
+    }
+
+    // Regional certificate evidence, once the issued hostname parses as
+    // scoped (d-<id>.c-<scope>.deployz.dev) — a legacy-flow hostname
+    // (grandfathered deployment, docs/https-regional-certificates.md
+    // decision 7) has no scope to look one up by.
+    if (https?.hostname) {
+      const scoped = parseScopedDeploymentHostname(https.hostname);
+      if (scoped) {
+        evidence.run.customerDnsScope = scoped.dnsScope;
+        const certs = await describeRegionalCertificates(config.region, scoped.dnsScope);
+        evidence.run.regionalCertificates = certs;
+        details['regionalCertificates'] = certs;
+      }
+    }
+    evidence.save();
+
+    return { detail, httpsActiveAt, httpsSetupSeconds };
+  });
 }
 
 export function parseQuickCreateUrl(url: string): {

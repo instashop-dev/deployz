@@ -151,7 +151,7 @@ export const CUSTOMER_DEPLOYMENT_STATUS_BADGE: Record<
 
 // ── §40 event families ──────────────────────────────────────────────────────
 
-/** The §40 event families (§65): install/deploy/rollback/config/destroy/health/relay/redis. */
+/** The §40 event families (§65): install/deploy/rollback/config/destroy/health/relay/redis/default_https. */
 export const EVENT_FAMILIES = [
   'install',
   'deploy',
@@ -161,6 +161,9 @@ export const EVENT_FAMILIES = [
   'health',
   'relay',
   'redis',
+  // Phase 11 legacy machine + regional HTTPS certificates
+  // (docs/https-regional-certificates.md) — the deployment's secure address.
+  'default_https',
 ] as const;
 
 export type EventFamily = (typeof EVENT_FAMILIES)[number];
@@ -183,6 +186,7 @@ const FAMILY_LABELS: Record<EventFamily, string> = {
   health: 'Health',
   relay: 'Helper',
   redis: 'Cache',
+  default_https: 'Secure address',
 };
 
 /**
@@ -251,6 +255,18 @@ const EVENT_TYPE_LABELS: Record<string, string> = {
   'operation.timeout': 'Operation took too long',
   'operation.waiting_for_relay': 'Waiting for AWS connection',
   'operation.requeued': 'Operation resumed after an interruption',
+
+  // default_https family — Phase 11 legacy machine and the regional HTTPS
+  // certificates driver (docs/https-regional-certificates.md).
+  'default_https.certificate_requested': 'Security certificate requested',
+  'default_https.validation_dns_ready': 'Domain verification configured',
+  'default_https.certificate_issued': 'Security certificate issued',
+  'default_https.certificate_failed': 'Security certificate failed',
+  'default_https.listener_ready': 'Secure listener ready',
+  'default_https.dns_created': 'Secure address created',
+  'default_https.active': 'Secure access ready',
+  'default_https.failed': 'Secure access failed',
+  'default_https.certificate_removed': 'Security certificate removed',
 };
 
 /** Human-readable label for an event type (§65). */

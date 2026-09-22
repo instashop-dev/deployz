@@ -71,6 +71,15 @@ export interface BootstrapStackProps extends StackProps {
    * contact and is worthless afterwards.
    */
   readonly enrollmentCode?: string;
+  /**
+   * Opaque customer namespace shared by every installation of this customer
+   * in this AWS account and region (`customers.dns_scope`). Lets sibling
+   * installations reuse one regional wildcard certificate instead of each
+   * requesting its own. Defaults to 'none' (no regional certificate) — a
+   * value no real scope, 12 lowercase hex characters, can ever equal. Not a
+   * credential.
+   */
+  readonly customerScope?: string;
   /** Deployz application identifier — applied as `deployz:application` tag. */
   readonly applicationId?: string;
   /** Deployz vendor identifier — applied as `deployz:vendor` tag. */
@@ -616,6 +625,12 @@ export class BootstrapStack extends Stack {
   public readonly credentialSecretArn: string;
   public readonly permissionsBoundary: ManagedPolicy;
   public readonly provisionerPolicy: ManagedPolicy;
+  /**
+   * The purge/discovery half of the phase 2 grant, split out from
+   * `provisionerPolicy` purely to stay under the per-managed-policy IAM size
+   * quota (see the comment above their construction).
+   */
+  public readonly provisionerPurgePolicy: ManagedPolicy;
   /** CloudFormation execution role for the application stack (`role/deployz/*`). */
   public readonly applicationExecutionRole: Role;
   /** Deploy-time token resolving to the minted installation UUID. */
@@ -649,6 +664,28 @@ export class BootstrapStack extends Stack {
       description:
         'Single-use code from your install link. Ties this installation to your deployment.',
       default: props.enrollmentCode ?? '',
+    });
+
+    // ── Customer scope (non-secret parameter, regional certificates) ────
+    //
+    // Opaque Deployz customer namespace shared by every installation of this
+    // customer in this AWS account and region. Lets the relay reuse one
+    // regional certificate. NOT a credential.
+    //
+    // Default 'none', not '': a real scope is 12 lowercase hex characters
+    // minted by the control plane, so 'none' can never collide with one — an
+    // installation left at the default is inert for the regional-manage
+    // statement below (matches nothing) without needing a CfnCondition or an
+    // Fn::If sentinel to keep the permissions boundary under the IAM
+    // managed-policy size quota (6,144 chars; see IAM_MANAGED_POLICY_MAX_CHARS).
+    const customerScopeParam = new CfnParameter(this, 'CustomerScope', {
+      type: 'String',
+      description:
+        'Opaque Deployz customer namespace shared by every installation of ' +
+        'this customer in this AWS account and region. Lets the relay reuse ' +
+        'one regional certificate. NOT a credential.',
+      default: props.customerScope ?? 'none',
+      allowedPattern: '^[a-z0-9]{0,32}$',
     });
 
     // ── Application template URL (non-secret parameter) ─────────────────
@@ -880,6 +917,48 @@ export class BootstrapStack extends Stack {
       conditions: {
         StringEquals: {
           'aws:ResourceTag/deployz:installation': this.installationId,
+        },
+      },
+    });
+
+    // Phase 2 — regional wildcard certificate lifecycle (regional HTTPS
+    // certificates: docs/https-regional-certificates.md). A regional
+    // certificate is shared by every sibling installation of one customer in
+    // this AWS account and region, so it carries a `deployz:customer-scope`
+    // tag alongside its `deployz:installation` tag (the tag of whichever
+    // installation happened to request it).
+    //
+    // No new REQUEST statement: `ProvisionerAcmRequest` above carries no
+    // `aws:TagKeys` restriction, so the relay can already tag a regional
+    // certificate it requests with `deployz:customer-scope=<scope>` in
+    // addition to the `deployz:installation` request tag that statement
+    // requires — the same call that requests a per-installation certificate
+    // covers a regional one too.
+    //
+    // Only a MANAGE statement is added, scoped by the customer-scope resource
+    // tag (mirroring `ProvisionerAcmManage`'s installation-tag scoping), so a
+    // sibling installation — one that did not request the certificate and so
+    // cannot match on `deployz:installation` — can still describe/delete it.
+    // `acm:ListCertificates` and `acm:ListTagsForCertificate` need no grant
+    // here: `RelayPurgeAcmDiscover` above already covers discovery,
+    // condition-free.
+    //
+    // The condition value is a plain `Ref`, not `Fn::If`: `CustomerScope`
+    // defaults to 'none', which — unlike a real 12-lowercase-hex scope — can
+    // never match a resource tag, so an unscoped installation's statement is
+    // already inert without a CfnCondition/sentinel. That also keeps the
+    // permissions boundary under the IAM managed-policy size quota (6,144
+    // chars; see IAM_MANAGED_POLICY_MAX_CHARS) — the boundary hit it once
+    // already with the purge sweeps, and the more verbose Fn::If form did not
+    // fit.
+    const phase2RegionalAcmManage = new PolicyStatement({
+      sid: 'ProvisionerRegionalAcmManage',
+      effect: Effect.ALLOW,
+      actions: ['acm:DescribeCertificate', 'acm:DeleteCertificate'],
+      resources: ['*'],
+      conditions: {
+        StringEquals: {
+          'aws:ResourceTag/deployz:customer-scope': customerScopeParam.valueAsString,
         },
       },
     });
@@ -1188,6 +1267,19 @@ export class BootstrapStack extends Stack {
       },
     });
 
+    // The purge/discovery group, split into its own managed policy below
+    // purely to stay under the per-policy IAM size quota (see the boundary
+    // and provisioner-policy comments further down). Otherwise these are
+    // ordinary phase 2 grants — same tag boundary, same two-phase mechanic.
+    const phase2PurgeGroupStatements = [
+      phase2PurgeStorage,
+      phase2PurgeRdsDiscover,
+      phase2PurgeSecretsList,
+      phase2PurgeAcmDiscover,
+      phase2PurgeNetworkDiscover,
+      phase2PurgeNetworkDelete,
+    ];
+
     const phase2Statements = [
       phase2CreateStacks,
       phase2ManageStacks,
@@ -1195,6 +1287,7 @@ export class BootstrapStack extends Stack {
       phase2AppResources,
       phase2AcmRequest,
       phase2AcmManage,
+      phase2RegionalAcmManage,
       phase2DomainIngressDescribe,
       phase2DomainIngressWrite,
       phase2DomainIngressTag,
@@ -1205,25 +1298,20 @@ export class BootstrapStack extends Stack {
       phase4DeployPassRole,
       phase2CacheManage,
       phase2CacheDescribe,
-      phase2PurgeStorage,
-      phase2PurgeRdsDiscover,
-      phase2PurgeSecretsList,
+      ...phase2PurgeGroupStatements,
       phase2InstallationSecrets,
-      phase2PurgeAcmDiscover,
-      phase2PurgeNetworkDiscover,
-      phase2PurgeNetworkDelete,
     ];
 
     // The permissions boundary is the CEILING for the relay role: the union of
     // phase 1 + phase 2. The role can never exceed it, even after the control
-    // plane attaches the provisioner policy post-first-contact.
+    // plane attaches the provisioner policies post-first-contact.
     //
     // The boundary is ONE managed policy and IAM caps a managed policy at
     // 6,144 non-whitespace characters. With the purge sweeps it reached 6,350
     // and CreateStack failed for every new install ("Cannot exceed quota for
     // PolicySize"). Statement ids are documentation, and the provisioner
-    // policy below keeps them; the boundary carries the same statements
-    // without them (~550 characters). bootstrap-stack.test.ts pins both
+    // policies below keep them; the boundary carries the same statements
+    // without them (~550 characters). bootstrap-stack.test.ts pins all three
     // policies under the quota.
     this.permissionsBoundary = new ManagedPolicy(this, 'PermissionsBoundary', {
       description:
@@ -1237,14 +1325,30 @@ export class BootstrapStack extends Stack {
       ].map(withoutSid),
     });
 
-    // Phase 2 provisioner policy — DEFINED but NOT attached at install time.
+    // Phase 2 provisioner grant — DEFINED but NOT attached at install time.
     // The control plane attaches it to the relay role after the relay's first
-    // contact (the two-phase mechanic). Exported so the control plane can find it.
+    // contact (the two-phase mechanic). Split across TWO managed policies —
+    // `ProvisionerPolicy` (provisioning) and `ProvisionerPurgePolicy` (purge/
+    // discovery) — purely because the combined statement set (with Sids kept
+    // for documentation, unlike the boundary above) no longer fits under the
+    // 6,144-char IAM managed-policy size quota on its own; there is no
+    // permission-scoping reason for the split, and the permissions boundary
+    // above still authorizes the same union regardless of which policy a
+    // statement lives in. Both are exported so the control plane can find them.
     this.provisionerPolicy = new ManagedPolicy(this, 'ProvisionerPolicy', {
       description:
         'Post-first-contact provisioner permissions for the relay (phase 2). ' +
         'All within the deployz: tag boundary. Attached by the control plane.',
-      statements: phase2Statements,
+      statements: phase2Statements.filter((s) => !phase2PurgeGroupStatements.includes(s)),
+    });
+
+    this.provisionerPurgePolicy = new ManagedPolicy(this, 'ProvisionerPurgePolicy', {
+      description:
+        'Post-first-contact PURGE/discovery permissions for the relay (phase ' +
+        '2), split from ProvisionerPolicy to stay under the IAM managed-policy ' +
+        'size quota. All within the deployz: tag boundary. Attached by the ' +
+        'control plane.',
+      statements: phase2PurgeGroupStatements,
     });
 
     this.relayRole = new Role(this, 'RelayRole', {
@@ -1269,6 +1373,10 @@ export class BootstrapStack extends Stack {
     // boundary above, which is the union of phase 1 and phase 2 and which
     // the role can never exceed, is what actually caps the grant.
     this.relayRole.addManagedPolicy(this.provisionerPolicy);
+    // Purge/discovery statements live in a second managed policy purely for
+    // the per-policy IAM size quota (see its construction above) — attach it
+    // the same way, right after the first.
+    this.relayRole.addManagedPolicy(this.provisionerPurgePolicy);
 
     // ── 3b. CloudFormation execution role for the application stack ─────
     //
@@ -1451,6 +1559,7 @@ export class BootstrapStack extends Stack {
         DEPLOYZ_CREDENTIAL_SECRET_ARN: this.credentialSecretArn,
         DEPLOYZ_CONTROL_PLANE_URL: controlPlaneUrlParam.valueAsString,
         DEPLOYZ_ENROLLMENT_CODE: enrollmentCodeParam.valueAsString,
+        DEPLOYZ_CUSTOMER_SCOPE: customerScopeParam.valueAsString,
         DEPLOYZ_APPLICATION_TEMPLATE_URL: applicationTemplateUrlParam.valueAsString,
         DEPLOYZ_APPLICATION_EXECUTION_ROLE_ARN: this.applicationExecutionRole.roleArn,
         // The relay purges its own bootstrap stack (destroy flow). Ref

@@ -83,6 +83,20 @@ export type DeploymentEventType =
   | 'domain.activated'
   | 'domain.failed'
   | 'domain.removed'
+  // default_https family — Phase 11 legacy machine and the regional HTTPS
+  // certificates driver (docs/https-regional-certificates.md). Payload
+  // carries { awsAccountId, region, certificateArn, certificateDomain,
+  // hostname } — never secrets. Written by
+  // apps/api/src/regional-certificates.ts's recordDefaultHttpsEvent.
+  | 'default_https.certificate_requested'
+  | 'default_https.validation_dns_ready'
+  | 'default_https.certificate_issued'
+  | 'default_https.certificate_failed'
+  | 'default_https.listener_ready'
+  | 'default_https.dns_created'
+  | 'default_https.active'
+  | 'default_https.failed'
+  | 'default_https.certificate_removed'
   // purge family — explicit removal of retained AWS resources on an
   // already-disconnected deployment.
   | 'purge.requested'

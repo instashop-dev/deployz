@@ -31,6 +31,8 @@ import {
   CloudflareDnsError,
   CLOUDFLARE_RECORD_COMMENT,
   CLOUDFLARE_VALIDATION_RECORD_COMMENT,
+  CLOUDFLARE_SCOPED_RECORD_COMMENT,
+  CLOUDFLARE_SCOPE_VALIDATION_RECORD_COMMENT,
   type CloudflareDnsClient,
   type CloudflareDnsRecord,
 } from './cloudflare-records.js';
@@ -68,6 +70,10 @@ export function createDefaultHttpsFixtureProvider(apex: string, prefix = 'd-'): 
 
   function hostnameFor(deploymentId: string): string {
     return `${prefix}${deploymentId}.${apex}`;
+  }
+
+  function scopedHostnameFor(deploymentId: string, dnsScope: string): string {
+    return `${prefix}${deploymentId}.c-${dnsScope}.${apex}`;
   }
 
   function save(record: CloudflareDnsRecord): void {
@@ -184,6 +190,81 @@ export function createDefaultHttpsFixtureProvider(apex: string, prefix = 'd-'): 
     },
     listDefaultRecords: async () =>
       list().filter((record) => record.type === 'CNAME' && record.name.toLowerCase().startsWith(prefix)),
+    upsertScopedDeploymentRecord: async (deploymentId, dnsScope, target) => {
+      maybeFail(deploymentId);
+      const name = scopedHostnameFor(deploymentId, dnsScope);
+      const existing = store.get(name.toLowerCase());
+      if (!existing) {
+        const record = {
+          id: `rec-${nextId++}`,
+          type: 'CNAME' as const,
+          name,
+          content: target,
+          ttl: 60,
+          proxied: false,
+          comment: CLOUDFLARE_SCOPED_RECORD_COMMENT,
+        };
+        save(record);
+        opResult('scoped-routing', name, 'created');
+        return { op: 'created' as const, record };
+      }
+      if (existing.content === target && !existing.proxied) {
+        opResult('scoped-routing', name, 'noop');
+        return { op: 'noop' as const, record: existing };
+      }
+      const updated = { ...existing, content: target, proxied: false };
+      save(updated);
+      opResult('scoped-routing', name, 'updated');
+      return { op: 'updated' as const, record: updated };
+    },
+    deleteScopedDeploymentRecord: async (deploymentId, dnsScope) => {
+      maybeFail(deploymentId);
+      const name = scopedHostnameFor(deploymentId, dnsScope);
+      const existing = store.get(name.toLowerCase());
+      if (!existing) {
+        opResult('scoped-routing', name, 'noop');
+        return { op: 'noop' as const };
+      }
+      store.delete(name.toLowerCase());
+      opResult('scoped-routing', name, 'deleted');
+      return { op: 'deleted' as const };
+    },
+    upsertScopeValidationRecord: async (_dnsScope, validationName, validationValue) => {
+      const existing = store.get(validationName.toLowerCase());
+      if (existing && existing.content !== validationValue) {
+        opResult('scope-validation', validationName, 'conflict');
+        throw new CloudflareDnsError(
+          `Refusing to overwrite ${JSON.stringify(validationName)}: an existing value of length ${existing.content.length} differs from the expected one.`,
+          'CLOUDFLARE_DNS_CONFLICT',
+        );
+      }
+      if (!existing) {
+        const record = {
+          id: `rec-${nextId++}`,
+          type: 'CNAME' as const,
+          name: validationName,
+          content: validationValue,
+          ttl: 1,
+          proxied: false,
+          comment: CLOUDFLARE_SCOPE_VALIDATION_RECORD_COMMENT,
+        };
+        save(record);
+        opResult('scope-validation', validationName, 'created');
+        return { op: 'created' as const, record };
+      }
+      opResult('scope-validation', validationName, 'noop');
+      return { op: 'noop' as const, record: existing };
+    },
+    deleteScopeValidationRecord: async (_dnsScope, validationName) => {
+      const existing = store.get(validationName.toLowerCase());
+      if (!existing) {
+        opResult('scope-validation', validationName, 'noop');
+        return { op: 'noop' as const };
+      }
+      store.delete(validationName.toLowerCase());
+      opResult('scope-validation', validationName, 'deleted');
+      return { op: 'deleted' as const };
+    },
   };
 
   return {

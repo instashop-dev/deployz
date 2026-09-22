@@ -8,7 +8,7 @@
  * (todo 34) can migrate it into packages/copy-map without touching pages.
  */
 
-import type { JobState, JobType } from '@deployz/contracts';
+import type { HttpsSubStep, JobState, JobType } from '@deployz/contracts';
 
 import { TONE_DOT } from '@/lib/status-tone';
 
@@ -310,6 +310,10 @@ export const JOB_TYPE_LABEL: Record<JobType, string> = {
   HEALTH_CHECK: 'Health check',
   CONFIGURE_DOMAIN: 'Domain setup',
   REMOVE_DOMAIN: 'Domain removal',
+  // Regional HTTPS certificates (docs/https-regional-certificates.md
+  // decision 4) — the relay's two certificate job types.
+  ENSURE_CERTIFICATE: 'Prepare secure access',
+  ATTACH_CERTIFICATE: 'Activate secure access',
   PURGE: 'Resource purge',
 };
 
@@ -453,6 +457,21 @@ export const INFRASTRUCTURE_HTTPS_STATE_LABEL: Record<InfrastructureHttpsState, 
 };
 
 /**
+ * Regional HTTPS certificates (docs/https-regional-certificates.md) — the
+ * three sub-step labels rendered under the customer stepper's "Preparing
+ * secure access" rung, and the note shown while a sub-step is taking longer
+ * than usual.
+ */
+export const HTTPS_SUBSTEP_LABEL: Record<HttpsSubStep, string> = {
+  CERTIFICATE_REQUESTED: 'Security certificate requested',
+  DOMAIN_VERIFICATION_CONFIGURED: 'Domain verification configured',
+  WAITING_FOR_READY: 'Waiting for secure access to become ready',
+};
+
+export const HTTPS_SLOW_NOTE =
+  'This AWS step can occasionally take several minutes. No action is required.';
+
+/**
  * The label to show on an infrastructure component's badge. The `endpoint`
  * component's `status` enum only ever says provisioning/ready/failed/
  * deleting — when the API has applied the truthful HTTPS state, that state
@@ -544,6 +563,9 @@ export const EVENT_FAMILIES = [
   'relay',
   'redis',
   'deploy_link',
+  // Phase 11 legacy machine + regional HTTPS certificates
+  // (docs/https-regional-certificates.md) — the deployment's secure address.
+  'default_https',
 ] as const;
 
 export type EventFamily = (typeof EVENT_FAMILIES)[number];
@@ -567,6 +589,7 @@ const FAMILY_LABELS: Record<EventFamily, string> = {
   relay: 'Helper',
   redis: 'Cache',
   deploy_link: 'Deploy link',
+  default_https: 'Secure address',
 };
 
 /**
@@ -653,6 +676,18 @@ const EVENT_TYPE_LABELS: Record<string, string> = {
   'deploy_link.retry.requested': 'Customer retried the deployment',
   'deploy_link.revoked': 'Deploy link revoked',
   'deploy_link.regenerated': 'Deploy link regenerated',
+
+  // default_https family — Phase 11 legacy machine and the regional HTTPS
+  // certificates driver (docs/https-regional-certificates.md).
+  'default_https.certificate_requested': 'Security certificate requested',
+  'default_https.validation_dns_ready': 'Domain verification configured',
+  'default_https.certificate_issued': 'Security certificate issued',
+  'default_https.certificate_failed': 'Security certificate failed',
+  'default_https.listener_ready': 'Secure listener ready',
+  'default_https.dns_created': 'Secure address created',
+  'default_https.active': 'Secure access ready',
+  'default_https.failed': 'Secure access failed',
+  'default_https.certificate_removed': 'Security certificate removed',
 };
 
 /** Human-readable label for an event type (§65). */

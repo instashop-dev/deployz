@@ -68,6 +68,31 @@ describe('resolveAppUrl — preferred-URL precedence (Phase 7)', () => {
     expect(resolveAppUrl([], null, null)).toBeNull();
     expect(resolveAppUrl([], CUSTOM, null)).toBe('https://app.customer.com');
   });
+
+  // Regional HTTPS certificates (docs/https-regional-certificates.md
+  // decision 9): the scoped hostname is DNS-only, so — unlike legacy —
+  // CONFIGURING never serves it; only ACTIVE (a confirmed HTTPS probe) does.
+  describe('regional mode (docs/https-regional-certificates.md)', () => {
+    const REGIONAL = { hostname: 'd-dep-1.c-abc123.deployz.dev', status: 'ACTIVE', mode: 'regional' as const };
+
+    it('uses the scoped URL once ACTIVE', () => {
+      expect(resolveAppUrl(INSTALLS, null, REGIONAL)).toBe('https://d-dep-1.c-abc123.deployz.dev');
+    });
+
+    it('falls back to the ALB endpoint while CONFIGURING — unlike legacy', () => {
+      expect(resolveAppUrl(INSTALLS, null, { ...REGIONAL, status: 'CONFIGURING' })).toBe(ALB_ENDPOINT);
+    });
+
+    it('falls back to the ALB endpoint for every other non-ACTIVE regional state', () => {
+      for (const status of ['PENDING', 'ERROR', 'REMOVING']) {
+        expect(resolveAppUrl(INSTALLS, null, { ...REGIONAL, status }), status).toBe(ALB_ENDPOINT);
+      }
+    });
+
+    it('an ACTIVE custom domain still wins over an ACTIVE regional endpoint', () => {
+      expect(resolveAppUrl(INSTALLS, CUSTOM, REGIONAL)).toBe('https://app.customer.com');
+    });
+  });
 });
 
 describe('resolveDefaultUrl — canonical Deployz address (Phase 9 completion)', () => {

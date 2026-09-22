@@ -127,6 +127,23 @@ describe('§40 event families', () => {
     expect(eventTypeLabel('redis.something.unmapped')).toBe('Cache');
   });
 
+  it('classifies the default_https family and maps its nine known event types (docs/https-regional-certificates.md)', () => {
+    expect(eventFamily('default_https.certificate_requested')).toBe('default_https');
+    expect(eventTypeLabel('default_https.certificate_requested')).toBe('Security certificate requested');
+    expect(eventTypeLabel('default_https.validation_dns_ready')).toBe('Domain verification configured');
+    expect(eventTypeLabel('default_https.certificate_issued')).toBe('Security certificate issued');
+    expect(eventTypeLabel('default_https.certificate_failed')).toBe('Security certificate failed');
+    expect(eventTypeLabel('default_https.listener_ready')).toBe('Secure listener ready');
+    expect(eventTypeLabel('default_https.dns_created')).toBe('Secure address created');
+    expect(eventTypeLabel('default_https.active')).toBe('Secure access ready');
+    expect(eventTypeLabel('default_https.failed')).toBe('Secure access failed');
+    expect(eventTypeLabel('default_https.certificate_removed')).toBe('Security certificate removed');
+  });
+
+  it('falls back to the default_https family label for an unknown event (never raw)', () => {
+    expect(eventTypeLabel('default_https.something.unmapped')).toBe('Secure address');
+  });
+
   it('produces no raw AWS terms for any known or fallback label', () => {
     const allTypes = [
       'install.preflight.region',
@@ -157,6 +174,15 @@ describe('§40 event families', () => {
       'redis.provision.started',
       'redis.provision.succeeded',
       'redis.provision.failed',
+      'default_https.certificate_requested',
+      'default_https.validation_dns_ready',
+      'default_https.certificate_issued',
+      'default_https.certificate_failed',
+      'default_https.listener_ready',
+      'default_https.dns_created',
+      'default_https.active',
+      'default_https.failed',
+      'default_https.certificate_removed',
     ];
     for (const type of allTypes) {
       expect(eventTypeLabel(type), `label for ${type}`).not.toMatch(JARGON_PATTERN);

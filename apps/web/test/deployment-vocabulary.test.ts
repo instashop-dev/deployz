@@ -353,3 +353,23 @@ describe('deploy link events', () => {
     expect(eventFamily('deploy_link.revoked')).toBe('deploy_link');
   });
 });
+
+describe('default_https events (docs/https-regional-certificates.md)', () => {
+  it('labels every default_https event type in jargon-free copy', () => {
+    expect(eventTypeLabel('default_https.certificate_requested')).toBe('Security certificate requested');
+    expect(eventTypeLabel('default_https.validation_dns_ready')).toBe('Domain verification configured');
+    expect(eventTypeLabel('default_https.certificate_issued')).toBe('Security certificate issued');
+    expect(eventTypeLabel('default_https.certificate_failed')).toBe('Security certificate failed');
+    expect(eventTypeLabel('default_https.listener_ready')).toBe('Secure listener ready');
+    expect(eventTypeLabel('default_https.dns_created')).toBe('Secure address created');
+    expect(eventTypeLabel('default_https.active')).toBe('Secure access ready');
+    expect(eventTypeLabel('default_https.failed')).toBe('Secure access failed');
+    expect(eventTypeLabel('default_https.certificate_removed')).toBe('Security certificate removed');
+  });
+
+  it('groups default_https events under one family', () => {
+    expect(eventFamily('default_https.certificate_requested')).toBe('default_https');
+    expect(eventFamily('default_https.active')).toBe('default_https');
+    expect(eventFamily('default_https.certificate_removed')).toBe('default_https');
+  });
+});

@@ -23,12 +23,15 @@ describe('accountIdFromArn', () => {
 describe('readRelayIdentity', () => {
   const originalRegion = process.env['AWS_REGION'];
   const originalBootstrap = process.env['DEPLOYZ_BOOTSTRAP_VERSION'];
+  const originalCustomerScope = process.env['DEPLOYZ_CUSTOMER_SCOPE'];
 
   afterEach(() => {
     if (originalRegion === undefined) delete process.env['AWS_REGION'];
     else process.env['AWS_REGION'] = originalRegion;
     if (originalBootstrap === undefined) delete process.env['DEPLOYZ_BOOTSTRAP_VERSION'];
     else process.env['DEPLOYZ_BOOTSTRAP_VERSION'] = originalBootstrap;
+    if (originalCustomerScope === undefined) delete process.env['DEPLOYZ_CUSTOMER_SCOPE'];
+    else process.env['DEPLOYZ_CUSTOMER_SCOPE'] = originalCustomerScope;
   });
 
   it('derives account and region from the Lambda context', () => {
@@ -54,6 +57,22 @@ describe('readRelayIdentity', () => {
     process.env['DEPLOYZ_BOOTSTRAP_VERSION'] = '2026-08-28.1';
     expect(readRelayIdentity(undefined).bootstrapVersion).toBe('2026-08-28.1');
   });
+
+  it('reports the customer DNS scope when the env carries one, null otherwise', () => {
+    delete process.env['DEPLOYZ_CUSTOMER_SCOPE'];
+    expect(readRelayIdentity(undefined).customerScope).toBeNull();
+    process.env['DEPLOYZ_CUSTOMER_SCOPE'] = 'ab12cd34ef56';
+    expect(readRelayIdentity(undefined).customerScope).toBe('ab12cd34ef56');
+  });
+
+  it('reports null for an empty-string or "none" customer scope (no scope on this installation)', () => {
+    process.env['DEPLOYZ_CUSTOMER_SCOPE'] = '';
+    expect(readRelayIdentity(undefined).customerScope).toBeNull();
+    // The bootstrap template's CustomerScope parameter defaults to the
+    // literal 'none' (CloudFormation conditions need a non-empty default).
+    process.env['DEPLOYZ_CUSTOMER_SCOPE'] = 'none';
+    expect(readRelayIdentity(undefined).customerScope).toBeNull();
+  });
 });
 
 describe('RELAY_CAPABILITIES', () => {
@@ -64,5 +83,6 @@ describe('RELAY_CAPABILITIES', () => {
     expect(RELAY_CAPABILITIES.restart).toBe(true);
     expect(RELAY_CAPABILITIES.configUpdate).toBe(true);
     expect(RELAY_CAPABILITIES.destroy).toBe(true);
+    expect(RELAY_CAPABILITIES.regionalCertificate).toBe(true);
   });
 });

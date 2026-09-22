@@ -28,10 +28,18 @@ import { and, desc, eq, inArray, isNull, like } from 'drizzle-orm';
 
 import type { RuntimeDb } from '@deployz/db';
 import * as schema from '@deployz/db/schema';
+import {
+  attachCertificateResultSchema,
+  legacyDefaultDeploymentHostname,
+  parseLegacyDefaultDeploymentHostname,
+  parseScopedDeploymentHostname,
+  scopedDeploymentHostname,
+} from '@deployz/contracts';
 
 import type { CloudflareDnsClient } from './cloudflare-records.js';
 import type { HttpsProbeResult } from './domain-check.js';
 import { createOrReuseJob } from './jobs.js';
+import { recordDefaultHttpsEvent, type RegionalCertificateRow } from './regional-certificates.js';
 
 // ── State shape ──────────────────────────────────────────────────────────────
 
@@ -65,6 +73,33 @@ export interface DefaultHttpsState {
    *  retries explicitly via the retry route, which resets the budget.
    *  Absent = 0. */
   configureAttempts?: number;
+  /** Regional HTTPS certificates (docs/https-regional-certificates.md).
+   *  Missing/'legacy' = the pre-regional per-deployment flow above; absent
+   *  entirely for every state written before this field existed. */
+  mode?: 'legacy' | 'regional';
+  /** The owning customer's DNS namespace label (`dns_scope`, no `c-`
+   *  prefix) — regional mode only. */
+  dnsScope?: string;
+  /** The `customer_regional_certificates` row id this deployment's
+   *  certificate lives on — regional mode only. */
+  certificateId?: string;
+  /** ISO timestamp — the bootstrap relay enrolled and the regional flow
+   *  started (set once, at creation). */
+  bootstrapReadyAt?: string;
+  /** ISO timestamp — the INSTALL job reported the ALB endpoint. */
+  albReadyAt?: string;
+  /** ISO timestamp — ATTACH_CERTIFICATE reported the 443 listener wired. */
+  httpsListenerReadyAt?: string;
+  /** ISO timestamp — the scoped deployment CNAME was written (DNS-only). */
+  deploymentDnsCreatedAt?: string;
+  /** ISO timestamp — the HTTPS probe against the scoped hostname first
+   *  resolved DNS successfully (set alongside ACTIVE). */
+  deploymentDnsResolvedAt?: string;
+  /** ISO timestamp — the HTTPS probe against the scoped hostname first
+   *  succeeded end to end. */
+  httpsFirstSuccessAt?: string;
+  /** ISO timestamp — the machine reached ACTIVE. */
+  activatedAt?: string;
 }
 
 /**
@@ -97,22 +132,16 @@ export const DEFAULT_HOSTNAME_PREFIX = 'd-';
 
 const DNS_SAFE_ID = /^[a-z0-9-]+$/;
 
-function normalizedDeploymentId(deploymentId: string): string {
-  const normalized = deploymentId.toLowerCase();
-  if (!DNS_SAFE_ID.test(normalized)) {
-    throw new Error(`Invalid deployment id for a default hostname: ${JSON.stringify(deploymentId)}`);
-  }
-  return normalized;
-}
-
-/** The deterministic default hostname for a deployment: `d-<id>.deployz.dev`. */
+/** The deterministic default hostname for a deployment: `d-<id>.deployz.dev`.
+ *  Delegates to @deployz/contracts's legacyDefaultDeploymentHostname so this
+ *  shape has exactly one implementation. */
 export function getDefaultDeploymentHostname(
   deploymentId: string,
   config: DefaultHostnameConfig = {},
 ): string {
   const prefix = config.prefix ?? DEFAULT_HOSTNAME_PREFIX;
   const zone = config.zone ?? DEFAULT_HTTPS_APEX;
-  return `${prefix}${normalizedDeploymentId(deploymentId)}.${zone}`;
+  return legacyDefaultDeploymentHostname(deploymentId, { prefix, zone });
 }
 
 /** The default HTTPS URL for a deployment: `https://d-<id>.deployz.dev`. */
@@ -156,25 +185,20 @@ export function assertMutableDefaultHostname(
   }
 }
 
-// Deployment ids are uuids (lowercased by the hostname model). Only names that
-// carry a real uuid may ever be treated as owning a live deployment row.
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
-
 /** The deployment id embedded in a default hostname (`d-<id>.<zone>`), or
  *  null when the name is not a well-formed `d-<uuid>.<zone>` hostname (wrong
  *  prefix/zone, a reserved or non-uuid id). Pure — the parse gate the purge
  *  orphan reconciliation deletes through: unparseable names are skipped,
- *  never deleted. */
+ *  never deleted. Delegates to @deployz/contracts's
+ *  parseLegacyDefaultDeploymentHostname so this shape has exactly one
+ *  implementation. */
 export function parseDefaultDeploymentId(
   hostname: string,
   config: DefaultHostnameConfig = {},
 ): string | null {
   const prefix = config.prefix ?? DEFAULT_HOSTNAME_PREFIX;
   const zone = config.zone ?? DEFAULT_HTTPS_APEX;
-  const lower = hostname.toLowerCase();
-  if (!lower.startsWith(prefix) || !lower.endsWith(`.${zone}`)) return null;
-  const id = lower.slice(prefix.length, -(`.${zone}`.length));
-  return UUID_RE.test(id) ? id : null;
+  return parseLegacyDefaultDeploymentHostname(hostname, { prefix, zone });
 }
 
 /** The candidate URLs a deployment can serve, resolved by the plan's
@@ -229,6 +253,16 @@ export function parseDefaultHttps(raw: unknown): DefaultHttpsState | null {
   const routingTarget = readString('routingTarget');
   const lastDnsCheckAt = readString('lastDnsCheckAt');
   const lastError = typeof record['lastError'] === 'string' ? record['lastError'] : null;
+  const mode = record['mode'] === 'regional' ? 'regional' : record['mode'] === 'legacy' ? 'legacy' : undefined;
+  const dnsScope = readString('dnsScope');
+  const certificateId = readString('certificateId');
+  const bootstrapReadyAt = readString('bootstrapReadyAt');
+  const albReadyAt = readString('albReadyAt');
+  const httpsListenerReadyAt = readString('httpsListenerReadyAt');
+  const deploymentDnsCreatedAt = readString('deploymentDnsCreatedAt');
+  const deploymentDnsResolvedAt = readString('deploymentDnsResolvedAt');
+  const httpsFirstSuccessAt = readString('httpsFirstSuccessAt');
+  const activatedAt = readString('activatedAt');
   return {
     hostname: record['hostname'],
     status: record['status'] as DefaultHttpsStatus,
@@ -240,6 +274,16 @@ export function parseDefaultHttps(raw: unknown): DefaultHttpsState | null {
     lastError,
     configureAttempts: typeof record['configureAttempts'] === 'number' ? record['configureAttempts'] : 0,
     ...(lastDnsCheckAt ? { lastDnsCheckAt } : {}),
+    ...(mode ? { mode } : {}),
+    ...(dnsScope ? { dnsScope } : {}),
+    ...(certificateId ? { certificateId } : {}),
+    ...(bootstrapReadyAt ? { bootstrapReadyAt } : {}),
+    ...(albReadyAt ? { albReadyAt } : {}),
+    ...(httpsListenerReadyAt ? { httpsListenerReadyAt } : {}),
+    ...(deploymentDnsCreatedAt ? { deploymentDnsCreatedAt } : {}),
+    ...(deploymentDnsResolvedAt ? { deploymentDnsResolvedAt } : {}),
+    ...(httpsFirstSuccessAt ? { httpsFirstSuccessAt } : {}),
+    ...(activatedAt ? { activatedAt } : {}),
   };
 }
 
@@ -262,6 +306,19 @@ function removeJobPrefix(deploymentId: string): string {
   return `${deploymentId}:REMOVE_DOMAIN:${JOB_KEY_PREFIX}:`;
 }
 
+/** Whether a job type belongs to the regional HTTPS certificates flow
+ *  (docs/https-regional-certificates.md) — ENSURE_CERTIFICATE requests/
+ *  adopts the customer-scoped wildcard certificate, ATTACH_CERTIFICATE wires
+ *  it into the relay's ALB listener. Both ride outside a deployment's own
+ *  lifecycle (deploymentStateAfterFailedJob), exactly like the domain jobs. */
+export function isRegionalCertificateJobType(type: string): type is 'ENSURE_CERTIFICATE' | 'ATTACH_CERTIFICATE' {
+  return type === 'ENSURE_CERTIFICATE' || type === 'ATTACH_CERTIFICATE';
+}
+
+function attachJobKeyPrefix(deploymentId: string): string {
+  return `${deploymentId}:ATTACH_CERTIFICATE:`;
+}
+
 // ── Persistence ──────────────────────────────────────────────────────────────
 
 function stateToRecord(state: DefaultHttpsState): Record<string, unknown> {
@@ -276,6 +333,16 @@ function stateToRecord(state: DefaultHttpsState): Record<string, unknown> {
     lastError: state.lastError,
     configureAttempts: state.configureAttempts ?? 0,
     ...(state.lastDnsCheckAt ? { lastDnsCheckAt: state.lastDnsCheckAt } : {}),
+    ...(state.mode ? { mode: state.mode } : {}),
+    ...(state.dnsScope ? { dnsScope: state.dnsScope } : {}),
+    ...(state.certificateId ? { certificateId: state.certificateId } : {}),
+    ...(state.bootstrapReadyAt ? { bootstrapReadyAt: state.bootstrapReadyAt } : {}),
+    ...(state.albReadyAt ? { albReadyAt: state.albReadyAt } : {}),
+    ...(state.httpsListenerReadyAt ? { httpsListenerReadyAt: state.httpsListenerReadyAt } : {}),
+    ...(state.deploymentDnsCreatedAt ? { deploymentDnsCreatedAt: state.deploymentDnsCreatedAt } : {}),
+    ...(state.deploymentDnsResolvedAt ? { deploymentDnsResolvedAt: state.deploymentDnsResolvedAt } : {}),
+    ...(state.httpsFirstSuccessAt ? { httpsFirstSuccessAt: state.httpsFirstSuccessAt } : {}),
+    ...(state.activatedAt ? { activatedAt: state.activatedAt } : {}),
   };
 }
 
@@ -375,6 +442,17 @@ export async function beginDefaultHttpsRemoval(
   deployment: { id: string },
   state: DefaultHttpsState,
 ): Promise<void> {
+  if (state.mode === 'regional') {
+    // Regional mode never mints a REMOVE_DOMAIN job — there is no
+    // per-deployment certificate or listener to tear down (the shared
+    // regional certificate rides PURGE, decision 5); only the scoped
+    // deployment DNS record needs removing, and that has no relay job of
+    // its own either. REMOVING is a terminal marker the customer/vendor
+    // views read; a repeat call is a harmless no-op.
+    if (state.status === 'REMOVING') return;
+    await persistState(db, deployment.id, { ...state, status: 'REMOVING', lastError: null });
+    return;
+  }
   const prefix = removeJobPrefix(deployment.id);
   const newest = await newestMachineJob(db, deployment.id, 'REMOVE_DOMAIN', prefix);
   if (newest && IN_FLIGHT_JOB_STATES.has(newest.state)) {
@@ -420,6 +498,12 @@ export async function applyDefaultHttpsJobResult(
 ): Promise<void> {
   const state = await reloadState(tx, deploymentId);
   if (!state) {
+    return;
+  }
+  if (state.mode === 'regional') {
+    // Regional mode never mints CONFIGURE_DOMAIN/REMOVE_DOMAIN jobs — a
+    // result reaching here for one would be a routing bug upstream, not
+    // something this machine should ever act on.
     return;
   }
   const isSuccess = body.success !== false;
@@ -480,6 +564,329 @@ export async function applyDefaultHttpsJobResult(
   }
   if (changed) {
     await persistState(tx, deploymentId, update);
+  }
+}
+
+// ── Regional mode (docs/https-regional-certificates.md) ─────────────────────
+//
+// The customer-scoped flow: one persistent wildcard certificate per
+// customer+account+region (apps/api/src/regional-certificates.ts) reused by
+// every deployment. This machine only tracks the per-deployment half — the
+// scoped DNS record, the ALB attach, and the HTTPS probe — never a
+// per-deployment certificate.
+
+async function loadDeploymentRefs(
+  db: RuntimeDb,
+  deploymentId: string,
+): Promise<{ organizationId: string; customerId: string } | null> {
+  const rows = await db
+    .select({ organizationId: schema.deployments.organizationId, customerId: schema.deployments.customerId })
+    .from(schema.deployments)
+    .where(eq(schema.deployments.id, deploymentId))
+    .limit(1);
+  return rows[0] ?? null;
+}
+
+/**
+ * Starts the regional default-HTTPS machine for a deployment — called by the
+ * route lane right after enrollment selects the regional flow (relay-
+ * reported customerScope matches the customer's dns_scope). Persisted only
+ * when `default_https` is still null; a repeat call is a no-op that returns
+ * the ALREADY-persisted state, never overwrites it.
+ */
+export async function startRegionalDefaultHttps(
+  db: RuntimeDb,
+  deployment: { id: string },
+  input: { dnsScope: string; certificateId: string; apex: string; now?: () => Date },
+): Promise<DefaultHttpsState> {
+  const existing = await reloadState(db, deployment.id);
+  if (existing) {
+    return existing;
+  }
+  const now = (input.now ?? (() => new Date()))();
+  const initial: DefaultHttpsState = {
+    hostname: scopedDeploymentHostname(deployment.id, input.dnsScope, { zone: input.apex }),
+    status: 'PENDING',
+    checkCycle: 0,
+    lastError: null,
+    mode: 'regional',
+    dnsScope: input.dnsScope,
+    certificateId: input.certificateId,
+    bootstrapReadyAt: now.toISOString(),
+  };
+  await persistState(db, deployment.id, initial);
+  return initial;
+}
+
+/** The regional certificate facts an INSTALL result MAY carry (decision 4:
+ *  the install executor can attach an already-ISSUED certificate itself,
+ *  saving one poll round trip). */
+export interface RegionalInstallOutput {
+  regionalCertificate?: {
+    httpsConfigured?: boolean;
+    routingTarget?: string;
+  };
+}
+
+/**
+ * Applies a successful INSTALL result to the regional machine: records the
+ * ALB endpoint, writes the scoped deployment CNAME (DNS-only), and — when
+ * the install executor already attached an ISSUED certificate itself —
+ * advances straight to CONFIGURING. A no-op (returns `needsAttach: false`)
+ * when this deployment is not in regional mode (nothing to do here; the
+ * legacy CONFIGURE_DOMAIN flow owns it instead).
+ */
+export async function applyRegionalInstallSuccess(
+  db: RuntimeDb,
+  deployment: { id: string },
+  input: { routingTarget: string; installOutput?: RegionalInstallOutput },
+  deps: { dns: CloudflareDnsClient },
+): Promise<{ needsAttach: boolean }> {
+  const state = await reloadState(db, deployment.id);
+  if (!state || state.mode !== 'regional' || !state.dnsScope) {
+    return { needsAttach: false };
+  }
+  if (state.status === 'REMOVING' || state.status === 'ERROR') {
+    return { needsAttach: false };
+  }
+
+  const nowIso = new Date().toISOString();
+  await deps.dns.upsertScopedDeploymentRecord(deployment.id, state.dnsScope, input.routingTarget);
+
+  const httpsConfigured = input.installOutput?.regionalCertificate?.httpsConfigured === true;
+  let next: DefaultHttpsState = {
+    ...state,
+    albReadyAt: state.albReadyAt ?? nowIso,
+    routingTarget: input.routingTarget,
+    deploymentDnsCreatedAt: state.deploymentDnsCreatedAt ?? nowIso,
+  };
+  if (httpsConfigured && next.status === 'PENDING') {
+    next = { ...next, status: 'CONFIGURING', httpsListenerReadyAt: next.httpsListenerReadyAt ?? nowIso, lastError: null };
+  }
+  await persistState(db, deployment.id, next);
+
+  const refs = await loadDeploymentRefs(db, deployment.id);
+  if (refs) {
+    await recordDefaultHttpsEvent(db, {
+      organizationId: refs.organizationId,
+      deploymentId: deployment.id,
+      customerId: refs.customerId,
+      eventType: 'dns_created',
+      actorType: 'system',
+      hostname: next.hostname,
+    });
+  }
+
+  // The relay already attached the certificate as part of INSTALL — no
+  // separate ATTACH_CERTIFICATE round trip needed.
+  return { needsAttach: !httpsConfigured };
+}
+
+/**
+ * Ensures exactly one in-flight ATTACH_CERTIFICATE job for this deployment
+ * — the regional analog of ensureDefaultHttpsConfigureJob's cycle
+ * bookkeeping, keyed per-deployment (unlike ENSURE_CERTIFICATE, which is
+ * keyed per certificate row across the whole scope: only ONE deployment's
+ * relay needs to wire its own ALB listener).
+ */
+export async function ensureAttachCertificateJob(
+  db: RuntimeDb,
+  deployment: { id: string },
+  state: DefaultHttpsState,
+  certificateArn: string,
+): Promise<boolean> {
+  const prefix = attachJobKeyPrefix(deployment.id);
+  const jobs = await db
+    .select()
+    .from(schema.deploymentJobs)
+    .where(
+      and(
+        eq(schema.deploymentJobs.deploymentId, deployment.id),
+        eq(schema.deploymentJobs.type, 'ATTACH_CERTIFICATE'),
+        like(schema.deploymentJobs.idempotencyKey, `${prefix}%`),
+      ),
+    )
+    .orderBy(desc(schema.deploymentJobs.createdAt))
+    .limit(1);
+  const newest = jobs[0];
+  if (newest && IN_FLIGHT_JOB_STATES.has(newest.state)) {
+    return false;
+  }
+  const newestCycle = newest ? Number(newest.idempotencyKey.slice(prefix.length)) : undefined;
+  const cycle = newest !== undefined && newestCycle === state.checkCycle ? state.checkCycle + 1 : state.checkCycle;
+  if (cycle !== state.checkCycle) {
+    await db
+      .update(schema.deployments)
+      .set({ defaultHttps: { ...stateToRecord(state), checkCycle: cycle } })
+      .where(eq(schema.deployments.id, deployment.id));
+    state.checkCycle = cycle;
+  }
+  const { created } = await createOrReuseJob(db, {
+    deploymentId: deployment.id,
+    type: 'ATTACH_CERTIFICATE',
+    idempotencyKey: `${prefix}${cycle}`,
+    payload: { certificateArn, hostname: state.hostname },
+    requestedBy: null,
+  });
+  return created;
+}
+
+/**
+ * Applies one ATTACH_CERTIFICATE relay job result — called from the relay
+ * result route in the same transaction that finishes the job row, exactly
+ * like applyDefaultHttpsJobResult. A stale/late result never knocks a
+ * live (ACTIVE) or already-removing endpoint over.
+ */
+export async function applyAttachCertificateResult(
+  tx: RuntimeDb,
+  deploymentId: string,
+  job: { type: string },
+  body: { success?: boolean; output?: Record<string, unknown>; failureCode?: string },
+): Promise<void> {
+  void job;
+  const state = await reloadState(tx, deploymentId);
+  if (!state || state.mode !== 'regional') return;
+  if (state.status === 'REMOVING' || state.status === 'ACTIVE') return;
+
+  const isSuccess = body.success !== false;
+  if (!isSuccess) {
+    const permissionDenied = body.failureCode === 'AWS_PERMISSION_DENIED';
+    const attempts = (state.configureAttempts ?? 0) + (permissionDenied ? 0 : 1);
+    const timedOut = !permissionDenied && attempts >= MAX_DEFAULT_HTTPS_CONFIGURE_CYCLES;
+    const next: DefaultHttpsState =
+      permissionDenied || timedOut
+        ? { ...state, status: 'ERROR', lastError: permissionDenied ? 'AWS_PERMISSION_DENIED' : 'ATTACH_TIMEOUT', configureAttempts: attempts }
+        : { ...state, status: 'PENDING', lastError: 'ATTACH_FAILED', configureAttempts: attempts };
+    await persistState(tx, deploymentId, next);
+    if (next.status === 'ERROR') {
+      const refs = await loadDeploymentRefs(tx, deploymentId);
+      if (refs) {
+        await recordDefaultHttpsEvent(tx, {
+          organizationId: refs.organizationId,
+          deploymentId,
+          customerId: refs.customerId,
+          eventType: 'failed',
+          actorType: 'relay',
+          hostname: state.hostname,
+        });
+      }
+    }
+    return;
+  }
+
+  const parsed = attachCertificateResultSchema.safeParse(body.output ?? {});
+  if (!parsed.success) {
+    await persistState(tx, deploymentId, {
+      ...state,
+      lastError: 'ATTACH_FAILED',
+      configureAttempts: (state.configureAttempts ?? 0) + 1,
+    });
+    return;
+  }
+  const result = parsed.data;
+  const nowIso = new Date().toISOString();
+  const next: DefaultHttpsState = {
+    ...state,
+    status: 'CONFIGURING',
+    routingTarget: result.routingTarget,
+    httpsListenerReadyAt: state.httpsListenerReadyAt ?? nowIso,
+    lastError: null,
+  };
+  await persistState(tx, deploymentId, next);
+  const refs = await loadDeploymentRefs(tx, deploymentId);
+  if (refs) {
+    await recordDefaultHttpsEvent(tx, {
+      organizationId: refs.organizationId,
+      deploymentId,
+      customerId: refs.customerId,
+      eventType: 'listener_ready',
+      actorType: 'relay',
+      hostname: state.hostname,
+    });
+  }
+}
+
+/** Injected deps for the regional heartbeat/driver step. */
+export interface RegionalDefaultHttpsDeps {
+  probeHttps: (hostname: string) => Promise<HttpsProbeResult>;
+}
+
+/**
+ * Drives the regional machine one step forward — the per-deployment half of
+ * the heartbeat pass (the route lane calls ensureRegionalCertificate and
+ * reconcileValidationRecord from apps/api/src/regional-certificates.ts
+ * alongside this, since those operate on the shared certificate row rather
+ * than a deployment's own state). Idempotent, one step per call, mirroring
+ * runDefaultHttpsCheck's contract for the legacy flow.
+ */
+export async function runRegionalDefaultHttpsCheck(
+  db: RuntimeDb,
+  deployment: { id: string },
+  certRow: Pick<RegionalCertificateRow, 'certificateStatus' | 'certificateArn'> | null,
+  deps: RegionalDefaultHttpsDeps,
+): Promise<void> {
+  const state = await reloadState(db, deployment.id);
+  if (!state || state.mode !== 'regional') return;
+  if (state.status === 'ERROR' || state.status === 'REMOVING') return;
+
+  if (state.status === 'PENDING') {
+    if (!state.routingTarget) {
+      // INSTALL has not reported the ALB endpoint yet — nothing to attach.
+      return;
+    }
+    if (certRow?.certificateStatus === 'ISSUED' && certRow.certificateArn) {
+      const attempts = state.configureAttempts ?? 0;
+      if (attempts >= MAX_DEFAULT_HTTPS_CONFIGURE_CYCLES) {
+        await persistState(db, deployment.id, { ...state, status: 'ERROR', lastError: 'ATTACH_TIMEOUT' });
+        const refs = await loadDeploymentRefs(db, deployment.id);
+        if (refs) {
+          await recordDefaultHttpsEvent(db, {
+            organizationId: refs.organizationId,
+            deploymentId: deployment.id,
+            customerId: refs.customerId,
+            eventType: 'failed',
+            actorType: 'system',
+            hostname: state.hostname,
+          });
+        }
+        return;
+      }
+      const created = await ensureAttachCertificateJob(db, deployment, state, certRow.certificateArn);
+      if (created) {
+        await persistState(db, deployment.id, { ...state, configureAttempts: attempts + 1 });
+      }
+      return;
+    }
+    // Waiting for the shared certificate to reach ISSUED — not an error.
+    return;
+  }
+
+  if (state.status === 'CONFIGURING') {
+    const probe = await deps.probeHttps(state.hostname);
+    const nowIso = new Date().toISOString();
+    if (probe.ok) {
+      await persistState(db, deployment.id, {
+        ...state,
+        status: 'ACTIVE',
+        lastError: null,
+        httpsFirstSuccessAt: state.httpsFirstSuccessAt ?? nowIso,
+        activatedAt: state.activatedAt ?? nowIso,
+        deploymentDnsResolvedAt: state.deploymentDnsResolvedAt ?? nowIso,
+      });
+      const refs = await loadDeploymentRefs(db, deployment.id);
+      if (refs) {
+        await recordDefaultHttpsEvent(db, {
+          organizationId: refs.organizationId,
+          deploymentId: deployment.id,
+          customerId: refs.customerId,
+          eventType: 'active',
+          actorType: 'system',
+          hostname: state.hostname,
+        });
+      }
+    } else {
+      await persistState(db, deployment.id, { ...state, lastError: probe.reason });
+    }
   }
 }
 
@@ -550,6 +957,13 @@ export async function runDefaultHttpsCheck(
   }
 
   const state = await reloadState(db, deployment.id);
+
+  if (state?.mode === 'regional') {
+    // A regional deployment's own progression is driven by
+    // runRegionalDefaultHttpsCheck (needs the shared certificate row, which
+    // this legacy entry point has no seam for) — never by this machine.
+    return;
+  }
 
   if (!state) {
     // Nothing requested yet. The default URL is permanent (Phase 7): it keeps
@@ -709,37 +1123,57 @@ export interface OrphanedDefaultRecordReconciliation {
  * so the caller logs and continues on the next purge pass; no DB row is
  * written by this function.
  */
+interface OrphanCandidate {
+  deploymentId: string;
+  /** Present for a regional scoped hostname (`d-<id>.c-<scope>.<zone>`);
+   *  absent for a legacy hostname (`d-<id>.<zone>`). */
+  dnsScope?: string;
+}
+
 export async function reconcileOrphanedDefaultRecords(
   db: RuntimeDb,
   dns: CloudflareDnsClient,
   config: DefaultHostnameConfig = {},
 ): Promise<OrphanedDefaultRecordReconciliation> {
+  // Cloudflare's own `name.startswith=d-` filter (listDefaultRecords) already
+  // excludes every validation record (`_<digest>.…`) — legacy or regional —
+  // so this sweep never even sees one to accidentally touch.
   const records = await dns.listDefaultRecords();
   let deleted = 0;
   let kept = 0;
-  const candidateIds: string[] = [];
+  const candidates: OrphanCandidate[] = [];
   for (const record of records) {
-    const id = parseDefaultDeploymentId(record.name, config);
-    if (!id) {
-      kept += 1;
+    const legacyId = parseDefaultDeploymentId(record.name, config);
+    if (legacyId) {
+      candidates.push({ deploymentId: legacyId });
       continue;
     }
-    candidateIds.push(id);
+    const scoped = parseScopedDeploymentHostname(record.name, config);
+    if (scoped) {
+      candidates.push({ deploymentId: scoped.deploymentId, dnsScope: scoped.dnsScope });
+      continue;
+    }
+    kept += 1;
   }
-  if (candidateIds.length === 0) {
+  if (candidates.length === 0) {
     return { deleted, kept };
   }
+  const candidateIds = candidates.map((candidate) => candidate.deploymentId);
   const liveRows = await db
     .select({ id: schema.deployments.id })
     .from(schema.deployments)
     .where(and(inArray(schema.deployments.id, candidateIds), isNull(schema.deployments.deletedAt)));
   const live = new Set(liveRows.map((row) => row.id));
-  for (const id of candidateIds) {
-    if (live.has(id)) {
+  for (const candidate of candidates) {
+    if (live.has(candidate.deploymentId)) {
       kept += 1;
       continue;
     }
-    await dns.deleteDefaultDeploymentRecord(id);
+    if (candidate.dnsScope) {
+      await dns.deleteScopedDeploymentRecord(candidate.deploymentId, candidate.dnsScope);
+    } else {
+      await dns.deleteDefaultDeploymentRecord(candidate.deploymentId);
+    }
     deleted += 1;
   }
   return { deleted, kept };

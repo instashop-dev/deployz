@@ -18,7 +18,7 @@ describe('migrations', () => {
     await client?.close();
   });
 
-  it('creates all 26 core tables', async () => {
+  it('creates all 27 core tables', async () => {
     const { rows } = await client!.query<{ table_name: string }>(
       `SELECT table_name FROM information_schema.tables
        WHERE table_schema = 'public' AND table_type = 'BASE TABLE'
@@ -33,6 +33,7 @@ describe('migrations', () => {
       'billing_reconciliation_events',
       'billing_subscriptions',
       'custom_domains',
+      'customer_regional_certificates',
       'customers',
       'deploy_links',
       'deployment_jobs',
@@ -54,7 +55,7 @@ describe('migrations', () => {
     ]);
   });
 
-  it('creates the 25 enum types', async () => {
+  it('creates the 26 enum types', async () => {
     const { rows } = await client!.query<{ typname: string }>(
       `SELECT typname FROM pg_type
        WHERE typtype = 'e' AND typnamespace = 'public'::regnamespace
@@ -85,6 +86,7 @@ describe('migrations', () => {
       'job_state',
       'job_type',
       'region',
+      'regional_certificate_status',
       'relay_status',
       'release_status',
     ]);

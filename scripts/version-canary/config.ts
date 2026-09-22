@@ -85,6 +85,26 @@ export interface CanaryConfig {
    * analysis, default fixture repo.
    */
   readonly profile: CanaryProfile | null;
+  /**
+   * Reuse an existing customer instead of creating a throwaway one — the
+   * second-deployment scenario (docs/https-regional-certificates.md
+   * Verification plan, scenario B: same customer and region, same regional
+   * certificate). Set via `--customer-id <uuid>`, or `--reuse-customer-from
+   * <runId>` resolved against a prior run's evidence (index.ts). `null` —
+   * the default — keeps the legacy behaviour: every run creates its own
+   * customer.
+   */
+  readonly customerId: string | null;
+  /**
+   * Whether the leak audit should treat a retained regional certificate
+   * (tagged `deployz:customer-scope`) as a leak. Default false: a shared
+   * wildcard certificate is correctly retained after a single
+   * Disconnect/Purge while sibling deployments still exist in the scope
+   * (docs/https-regional-certificates.md decision 5). Set only for a run
+   * that purged the last deployment in its scope. Set via
+   * `--expect-regional-cert-removed`.
+   */
+  readonly expectRegionalCertRemoved: boolean;
 }
 
 export function mintRunId(now: Date = new Date()): string {
@@ -137,7 +157,9 @@ function loadProfile(env: NodeJS.ProcessEnv, overrideName?: string): CanaryProfi
 
 export function loadConfig(
   env: NodeJS.ProcessEnv,
-  overrides: Partial<Pick<CanaryConfig, 'runId' | 'keep' | 'existingImageDigest' | 'reuseStack'>> & {
+  overrides: Partial<
+    Pick<CanaryConfig, 'runId' | 'keep' | 'existingImageDigest' | 'reuseStack' | 'customerId' | 'expectRegionalCertRemoved'>
+  > & {
     /** The profile name from `--profile`; wins over DEPLOYZ_CANARY_PROFILE. */
     profileName?: string;
   } = {},
@@ -160,6 +182,8 @@ export function loadConfig(
     existingImageDigest: validateDigest(overrides.existingImageDigest ?? env['DEPLOYZ_E2E_EXISTING_IMAGE_DIGEST'] ?? null),
     reuseStack: overrides.reuseStack ?? false,
     profile,
+    customerId: overrides.customerId || env['DEPLOYZ_CANARY_CUSTOMER_ID'] || null,
+    expectRegionalCertRemoved: overrides.expectRegionalCertRemoved ?? false,
   };
 }
 

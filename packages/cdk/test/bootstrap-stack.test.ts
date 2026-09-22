@@ -252,6 +252,20 @@ describe('BootstrapStack', () => {
     expect(stack.provisionerPolicy).toBeDefined();
   });
 
+  it('attaches BOTH provisioner managed policies to the relay role (ProvisionerPolicy + ProvisionerPurgePolicy)', () => {
+    const { stack, template } = synth();
+    const resources = allResources(template);
+    const relayRole = Object.values(resources).find(
+      (r) => r.Type === 'AWS::IAM::Role' && r.Properties?.['PermissionsBoundary'],
+    );
+    const arns = (relayRole?.Properties?.['ManagedPolicyArns'] as unknown[]) ?? [];
+    // Split purely for the per-policy IAM size quota — the role still needs
+    // both attached to have the full phase 2 grant.
+    expect(arns).toHaveLength(2);
+    expect(arns).toContainEqual(stack.resolve(stack.provisionerPolicy.managedPolicyArn));
+    expect(arns).toContainEqual(stack.resolve(stack.provisionerPurgePolicy.managedPolicyArn));
+  });
+
   it('constrains the provisioner policy to the deployz: tag boundary', () => {
     const { stack } = synth();
     const statements = stack.provisionerPolicy.document.toJSON()[
@@ -351,6 +365,70 @@ describe('BootstrapStack', () => {
         'ForAllValues:StringEquals'
       ]?.['aws:TagKeys'],
     ).toEqual(['deployz:installation']);
+  });
+
+  it('grants the relay least-privilege regional ACM permissions, tagged by customer scope (regional HTTPS certificates)', () => {
+    const { stack } = synth();
+    const statements = stack.provisionerPolicy.document.toJSON()[
+      'Statement'
+    ] as Array<Record<string, unknown>>;
+    const findBySid = (sid: string) => statements.find((s) => s['Sid'] === sid);
+
+    // No separate regional REQUEST statement: ProvisionerAcmRequest carries
+    // no aws:TagKeys restriction, so the relay can already tag a regional
+    // certificate it requests with deployz:customer-scope in addition to the
+    // deployz:installation request tag that statement requires.
+    expect(findBySid('ProvisionerRegionalAcmRequest')).toBeUndefined();
+    const acmRequestConditionKeys = Object.keys(
+      (findBySid('ProvisionerAcmRequest')?.['Condition'] as Record<string, Record<string, unknown>>)?.[
+        'StringEquals'
+      ] ?? {},
+    );
+    expect(acmRequestConditionKeys).toEqual(['aws:RequestTag/deployz:installation']);
+    expect(findBySid('ProvisionerAcmRequest')?.['Condition']).not.toHaveProperty(
+      'ForAllValues:StringEquals',
+    );
+
+    // Only a MANAGE statement is added, scoped by the customer-scope resource
+    // tag, so a sibling installation that did not request the certificate can
+    // still describe/delete it.
+    const regionalManageStatement = findBySid('ProvisionerRegionalAcmManage');
+    expect(regionalManageStatement).toBeDefined();
+    // acm:ListTagsForCertificate is deliberately left out here — it is
+    // already granted, condition-free, by RelayPurgeAcmDiscover — to keep
+    // the permissions boundary under the IAM policy-size quota.
+    expect(collectActions([regionalManageStatement]).sort()).toEqual(
+      ['acm:DescribeCertificate', 'acm:DeleteCertificate'].sort(),
+    );
+    // A plain Ref, not Fn::If: the CustomerScope default ('none') can never
+    // match a real 12-lowercase-hex scope, so an unscoped installation's
+    // statement is already inert without a sentinel condition. The value is
+    // an unresolved CDK token here (stack.provisionerPolicy.document.toJSON()
+    // does not run through the stack's token resolver), so resolve it first.
+    const regionalManageConditionValue = stack.resolve(
+      (regionalManageStatement?.['Condition'] as Record<string, Record<string, unknown>>)?.[
+        'StringEquals'
+      ]?.['aws:ResourceTag/deployz:customer-scope'],
+    );
+    expect(regionalManageConditionValue).toEqual({ Ref: 'CustomerScope' });
+
+    // Never tagged deployz:installation — that would defeat sharing across
+    // sibling installations of the same customer.
+    expect(
+      Object.keys(
+        (regionalManageStatement?.['Condition'] as Record<string, Record<string, unknown>>)?.[
+          'StringEquals'
+        ] ?? {},
+      ),
+    ).not.toContain('aws:ResourceTag/deployz:installation');
+
+    // The permissions boundary (the ceiling) carries the same grant.
+    const boundaryActions = collectActions(
+      stack.permissionsBoundary.document.toJSON()['Statement'],
+    );
+    for (const action of collectActions([regionalManageStatement])) {
+      expect(boundaryActions).toContain(action);
+    }
   });
 
   it('grants the ELB lookups the domain executor makes unconditionally', () => {
@@ -540,9 +618,12 @@ describe('BootstrapStack', () => {
 
   it('grants the relay the Phase 9 purge discovery reads and tag-scoped retained-credential deletion', () => {
     const { stack } = synth();
-    const statements = stack.provisionerPolicy.document.toJSON()[
-      'Statement'
-    ] as Array<Record<string, unknown>>;
+    // Purge/discovery statements live in provisionerPurgePolicy (split from
+    // provisionerPolicy purely for the IAM size quota); search the union.
+    const statements = [
+      ...(stack.provisionerPolicy.document.toJSON()['Statement'] as Array<Record<string, unknown>>),
+      ...(stack.provisionerPurgePolicy.document.toJSON()['Statement'] as Array<Record<string, unknown>>),
+    ];
     const findBySid = (sid: string) => statements.find((s) => s['Sid'] === sid);
     const actionsOf = (sid: string) => collectActions([findBySid(sid)]);
 
@@ -622,15 +703,41 @@ describe('BootstrapStack', () => {
         expect(param['Default']).toBe('');
       } else {
         expect(param['NoEcho'], `parameter ${name} must not be NoEcho`).not.toBe(true);
-        expect(['ControlPlaneUrl', 'EnrollmentCode', 'ApplicationTemplateUrl']).toContain(name);
+        expect(['ControlPlaneUrl', 'EnrollmentCode', 'ApplicationTemplateUrl', 'CustomerScope']).toContain(
+          name,
+        );
       }
     }
     expect(Object.keys(appParams).sort()).toEqual([
       'ApplicationTemplateUrl',
       'ControlPlaneUrl',
+      'CustomerScope',
       'EnrollmentCode',
       'RelayCredential',
     ]);
+  });
+
+  it('declares the CustomerScope parameter, defaulting to the inert sentinel "none", and threads it into the relay environment (regional HTTPS certificates)', () => {
+    const { template } = synth();
+    const json = template.toJSON();
+    const params = (json['Parameters'] ?? {}) as Record<string, Record<string, unknown>>;
+
+    // 'none' — not '' — because a real scope is 12 lowercase hex characters
+    // and can never equal it, so an installation left at the default is
+    // inert for ProvisionerRegionalAcmManage without a CfnCondition/Fn::If.
+    expect(params['CustomerScope']).toMatchObject({
+      Type: 'String',
+      Default: 'none',
+    });
+    expect(params['CustomerScope']?.['AllowedPattern']).toBe('^[a-z0-9]{0,32}$');
+
+    template.hasResourceProperties('AWS::Lambda::Function', {
+      Environment: Match.objectLike({
+        Variables: Match.objectLike({
+          DEPLOYZ_CUSTOMER_SCOPE: { Ref: 'CustomerScope' },
+        }),
+      }),
+    });
   });
 
   it('publishes plain stack outputs with no Export blocks', () => {
@@ -1009,31 +1116,47 @@ describe('BootstrapStack — application provisioning', () => {
     for (const action of collectActions(stack.provisionerPolicy.document.toJSON()['Statement'])) {
       expect(boundary).toContain(action);
     }
+    for (const action of collectActions(stack.provisionerPurgePolicy.document.toJSON()['Statement'])) {
+      expect(boundary).toContain(action);
+    }
   });
 
   // IAM refuses a managed policy over 6,144 non-whitespace characters, and
   // CloudFormation reports it as a failed CreateStack for every new install
   // ("Cannot exceed quota for PolicySize") — seen live once the purge sweeps
-  // pushed the boundary to 6,350. Measured on the synthesized template, the
-  // same document CloudFormation submits.
-  it('keeps both managed policies under the IAM policy-size quota', () => {
+  // pushed the boundary to 6,350, and again once the regional-certificate
+  // grant pushed the (Sid-carrying) provisioner policy over on its own,
+  // which is why the purge/discovery statements now live in their own
+  // ProvisionerPurgePolicy. Measured on the synthesized template, the same
+  // document CloudFormation submits — covers all three managed policies
+  // (PermissionsBoundary, ProvisionerPolicy, ProvisionerPurgePolicy)
+  // generically, so a fourth split would be covered too.
+  it('keeps all three managed policies under the IAM policy-size quota', () => {
     const { template } = synth();
     const policies = template.findResources('AWS::IAM::ManagedPolicy');
-    expect(Object.keys(policies).length).toBeGreaterThanOrEqual(2);
+    expect(Object.keys(policies).length).toBeGreaterThanOrEqual(3);
     for (const [logicalId, resource] of Object.entries(policies)) {
       const size = JSON.stringify(resource['Properties']?.['PolicyDocument']).replace(/\s/g, '').length;
       expect(size, `${logicalId} policy document is ${size} chars`).toBeLessThan(IAM_MANAGED_POLICY_MAX_CHARS);
     }
   });
 
-  it('carries the same grants in the boundary as in the provisioner policy, without statement ids', () => {
+  it('carries the same grants in the boundary as in the union of both provisioner policies, without statement ids', () => {
     const { stack } = synth();
     const boundaryStatements = stack.permissionsBoundary.document.toJSON()['Statement'] as Record<string, unknown>[];
     expect(boundaryStatements.every((s) => s['Sid'] === undefined)).toBe(true);
     const provisionerStatements = stack.provisionerPolicy.document.toJSON()['Statement'] as Record<string, unknown>[];
+    const provisionerPurgeStatements = stack.provisionerPurgePolicy.document.toJSON()[
+      'Statement'
+    ] as Record<string, unknown>[];
     expect(provisionerStatements.every((s) => typeof s['Sid'] === 'string')).toBe(true);
+    expect(provisionerPurgeStatements.every((s) => typeof s['Sid'] === 'string')).toBe(true);
+    // The split is purely for the size quota — the boundary must still carry
+    // the union of both provisioner policies' grants.
     expect(collectActions(boundaryStatements)).toEqual(
-      expect.arrayContaining(collectActions(provisionerStatements)),
+      expect.arrayContaining(
+        collectActions([...provisionerStatements, ...provisionerPurgeStatements]),
+      ),
     );
   });
 });

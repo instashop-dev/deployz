@@ -148,7 +148,7 @@ test.describe('scenario-ui browser suite', () => {
     await expect(page.getByText(/^Database & storage created/)).toBeVisible();
     await expect(page.getByText(/^Starting application/)).toBeVisible();
     await expect(page.getByText(/^Health check/)).toBeVisible();
-    await expect(page.getByText(/^Configure HTTPS/)).toBeVisible();
+    await expect(page.getByText(/^Preparing secure access/)).toBeVisible();
     await expect(page.getByText('Waiting for a custom domain to be added.')).toBeVisible();
     await expect(page.getByRole('heading', { name: 'Access' })).toBeVisible();
     const customerBodyText = await page.locator('body').innerText();

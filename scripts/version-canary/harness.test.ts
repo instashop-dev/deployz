@@ -17,11 +17,14 @@ import {
   aws,
   clientRequestTokenFor,
   createBootstrapStack,
+  deleteAcmCertificate,
   deleteStack,
+  describeRegionalCertificates,
   describeStack,
   disableRulesForStack,
   isTransientAwsCliError,
   liveNatGateways,
+  CertificateInUseError,
   type InstallationSecret,
 } from './aws.js';
 
@@ -86,6 +89,121 @@ describe('Quick Create URL', () => {
     expect(() => parseQuickCreateUrl('https://console.aws.amazon.com/#/stacks/create/review?stackName=x')).toThrow(
       'lacks templateURL/stackName',
     );
+  });
+
+  it('carries CustomerScope through generically — no per-parameter allowlist (docs/https-regional-certificates.md decision 6)', () => {
+    const parsed = parseQuickCreateUrl(
+      'https://us-east-1.console.aws.amazon.com/cloudformation/home?region=us-east-1#/stacks/create/review' +
+        '?templateURL=https%3A%2F%2Fb.s3.us-east-1.amazonaws.com%2Fbootstrap%2Fv1%2Fbootstrap-template-v1.json' +
+        '&stackName=deployz-bootstrap-app-12345678&param_ControlPlaneUrl=https%3A%2F%2Fapi.deployz.dev' +
+        '&param_EnrollmentCode=abc&param_CustomerScope=abc123def456',
+    );
+    // createBootstrapStack (aws.ts) spreads every parsed `parameters` entry
+    // straight into `--parameters`, so capturing it here is enough to prove
+    // CustomerScope reaches create-stack once the install link starts
+    // emitting param_CustomerScope — no code change needed in the harness.
+    expect(parsed.parameters).toEqual({
+      ControlPlaneUrl: 'https://api.deployz.dev',
+      EnrollmentCode: 'abc',
+      CustomerScope: 'abc123def456',
+    });
+  });
+});
+
+describe('customer reuse (docs/https-regional-certificates.md scenario B/C)', () => {
+  it('is unset by default — every run creates its own customer', () => {
+    expect(loadConfig({}).customerId).toBeNull();
+  });
+
+  it('reads --customer-id through the runId override plumbing, and the env var', () => {
+    const id = '11111111-1111-1111-1111-111111111111';
+    expect(loadConfig({}, { customerId: id }).customerId).toBe(id);
+    expect(loadConfig({ DEPLOYZ_CANARY_CUSTOMER_ID: id }).customerId).toBe(id);
+  });
+
+  it('prefers the override to the env var', () => {
+    const overrideId = '22222222-2222-2222-2222-222222222222';
+    const config = loadConfig({ DEPLOYZ_CANARY_CUSTOMER_ID: '11111111-1111-1111-1111-111111111111' }, { customerId: overrideId });
+    expect(config.customerId).toBe(overrideId);
+  });
+});
+
+describe('regional-certificate-removed expectation config', () => {
+  it('is false by default — a retained shared certificate is correct after one Disconnect/Purge', () => {
+    expect(loadConfig({}).expectRegionalCertRemoved).toBe(false);
+  });
+
+  it('accepts the override for a run that purged the last deployment in its scope', () => {
+    expect(loadConfig({}, { expectRegionalCertRemoved: true }).expectRegionalCertRemoved).toBe(true);
+  });
+});
+
+describe('describeRegionalCertificates', () => {
+  const domain = '*.c-abc123def456.deployz.dev';
+
+  function fakeExec(responses: Record<string, unknown>): (command: string, args: string[]) => Promise<{ stdout: string }> {
+    return async (_command, args) => {
+      // aws() prepends --output/--region, so find the operation by its
+      // position right after the 'acm' service name rather than an index.
+      const op = args[args.indexOf('acm') + 1];
+      const body = responses[op as string];
+      if (body === undefined) throw new Error(`unexpected acm operation: ${op}`);
+      return { stdout: JSON.stringify(body) };
+    };
+  }
+
+  it('returns a certificate tagged with the matching customer scope', async () => {
+    const exec = fakeExec({
+      'list-certificates': { CertificateSummaryList: [{ CertificateArn: 'arn:cert-1', DomainName: domain }] },
+      'list-tags-for-certificate': { Tags: [{ Key: 'deployz:customer-scope', Value: 'abc123def456' }] },
+      'describe-certificate': {
+        Certificate: { Status: 'ISSUED', DomainName: domain, CreatedAt: '2026-09-22T00:00:00.000Z' },
+      },
+    });
+    const certs = await describeRegionalCertificates('us-east-1', 'abc123def456', exec, async () => {});
+    expect(certs).toEqual([{ arn: 'arn:cert-1', status: 'ISSUED', domain, createdAt: '2026-09-22T00:00:00.000Z' }]);
+  });
+
+  it('excludes a certificate for the same domain tagged with a different scope', async () => {
+    const exec = fakeExec({
+      'list-certificates': { CertificateSummaryList: [{ CertificateArn: 'arn:cert-other', DomainName: domain }] },
+      'list-tags-for-certificate': { Tags: [{ Key: 'deployz:customer-scope', Value: 'someone-elses-scope' }] },
+    });
+    const certs = await describeRegionalCertificates('us-east-1', 'abc123def456', exec, async () => {});
+    expect(certs).toEqual([]);
+  });
+
+  it('excludes a certificate for a different domain entirely', async () => {
+    const exec = fakeExec({
+      'list-certificates': { CertificateSummaryList: [{ CertificateArn: 'arn:cert-x', DomainName: '*.c-other.deployz.dev' }] },
+    });
+    const certs = await describeRegionalCertificates('us-east-1', 'abc123def456', exec, async () => {});
+    expect(certs).toEqual([]);
+  });
+});
+
+describe('deleteAcmCertificate', () => {
+  it('deletes a certificate that is not in use', async () => {
+    const exec = async () => ({ stdout: '' });
+    await expect(deleteAcmCertificate('us-east-1', 'arn:cert-1', exec, async () => {})).resolves.toBe('deleted');
+  });
+
+  it('treats an already-gone certificate as a clean no-op', async () => {
+    const exec = async () => {
+      throw Object.assign(new Error('Command failed'), {
+        stderr: 'An error occurred (ResourceNotFoundException) when calling the DeleteCertificate operation',
+      });
+    };
+    await expect(deleteAcmCertificate('us-east-1', 'arn:cert-1', exec, async () => {})).resolves.toBe('not-found');
+  });
+
+  it('reports — never retries — a certificate ACM says is still in use', async () => {
+    const exec = async () => {
+      throw Object.assign(new Error('Command failed'), {
+        stderr: 'An error occurred (ResourceInUseException) when calling the DeleteCertificate operation',
+      });
+    };
+    await expect(deleteAcmCertificate('us-east-1', 'arn:cert-1', exec, async () => {})).rejects.toThrow(CertificateInUseError);
   });
 });
 

@@ -1,5 +1,6 @@
 'use client';
 
+import { legacyDefaultDeploymentHostname } from '@deployz/contracts';
 import { AlertCircle, ExternalLink } from 'lucide-react';
 import Link from 'next/link';
 import { useState } from 'react';
@@ -14,9 +15,11 @@ import type { FleetDeploymentDetail } from '@/lib/deployments';
  * FALLBACK ONLY. The API sends the real default-HTTPS hostname as
  * `detail.defaultUrl`; this projection exists for stale cached payloads that
  * predate that field (the card always prefers `detail.defaultUrl` when the
- * API provides one). */
+ * API provides one). Uses the centralized legacy hostname helper
+ * (docs/https-regional-certificates.md decision 2) rather than constructing
+ * the `d-<id>.deployz.dev` shape itself. */
 export function defaultDeployzUrl(deploymentId: string): string {
-  return `https://d-${deploymentId}.deployz.dev`;
+  return `https://${legacyDefaultDeploymentHostname(deploymentId)}`;
 }
 
 /** The customer-facing status label for a custom domain in the URL card. */

@@ -70,6 +70,8 @@ import migration0040 from '../../../db/drizzle/0040_public_install_links.sql';
 import migration0043 from '../../../db/drizzle/0043_install_link_lifecycle.sql';
 import migration0041 from '../../../db/drizzle/0041_jev_shadow_verifications.sql';
 import migration0042 from '../../../db/drizzle/0042_jev_failure_classifications.sql';
+import migration0044 from '../../../db/drizzle/0044_regional_certificate_types.sql';
+import migration0045 from '../../../db/drizzle/0045_regional_certificates.sql';
 import journal from '../../../db/drizzle/meta/_journal.json';
 
 /**
@@ -127,6 +129,8 @@ const MIGRATION_SQL: Record<string, string> = {
   '0043_install_link_lifecycle': migration0043,
   '0041_jev_shadow_verifications': migration0041,
   '0042_jev_failure_classifications': migration0042,
+  '0044_regional_certificate_types': migration0044,
+  '0045_regional_certificates': migration0045,
 };
 
 interface RdsSecret {
