@@ -238,4 +238,33 @@ describe('targeted installation invitations', () => {
     expect((differentKey.json() as { error: { code: string } }).error.code).toBe('PUBLIC_INSTALL_LINK_USED');
     expect(await deploymentCount()).toBe(1);
   });
+
+  it('plan preview returns region-specific cost, estimate-unavailable for wrong Region, and 422 for unknown profile', async () => {
+    const { id, token } = (await createInvitation()).json() as { id: string; token: string };
+    const plan = (region: string, profile?: string) =>
+      app.inject({
+        method: 'GET',
+        url: `/api/public-install/${id}/plan?region=${region}${profile ? `&profile=${profile}` : ''}`,
+        headers: { 'x-deployz-token': token },
+      });
+
+    // Deployable region: a real estimate with that region.
+    const deployable = await plan('eu-west-1');
+    expect(deployable.statusCode, deployable.body).toBe(200);
+    const deployableBody = deployable.json() as { region: string | null; costEstimate: unknown };
+    expect(deployableBody.region).toBe('eu-west-1');
+    expect(deployableBody.costEstimate).not.toBeNull();
+
+    // Supported but NOT deployable: estimate unavailable, never a guess.
+    const undeployable = await plan('us-west-1');
+    expect(undeployable.statusCode, undeployable.body).toBe(200);
+    const undeployableBody = undeployable.json() as { region: string | null; costEstimate: unknown };
+    expect(undeployableBody.region).toBeNull();
+    expect(undeployableBody.costEstimate).toBeNull();
+
+    // Unknown profile: 422.
+    const unknownProfile = await plan('eu-west-1', 'large');
+    expect(unknownProfile.statusCode).toBe(422);
+    expect((unknownProfile.json() as { error: { code: string } }).error.code).toBe('UNKNOWN_PROFILE');
+  });
 });

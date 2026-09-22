@@ -165,6 +165,7 @@ import {
   publicInstallConfirmBodySchema,
   regeneratePublicInstallLink,
   resolvePublicInstall,
+  resolvePublicInstallPlan,
   revokePublicInstallLink,
   setPublicInstallLinkEnabled,
 } from './public-install.js';
@@ -3960,6 +3961,24 @@ export async function buildServer({
       const { linkId } = request.params as { linkId: string };
       const token = firstHeaderValue(request.headers['x-deployz-token']);
       return resolvePublicInstall(db, linkId, token);
+    },
+  );
+
+  // GET /api/public-install/:linkId/plan?region=…&profile=… — the canonical
+  // INSTALL plan for a customer-selected Region + size profile. Pricing stays
+  // on the server; an undeployable/unsupported Region returns an "estimate
+  // unavailable" plan (region/cost null), never a guessed cost.
+  app.get(
+    '/api/public-install/:linkId/plan',
+    { config: { rateLimit: PUBLIC_INSTALL_RATE_LIMIT } },
+    async (request) => {
+      const { linkId } = request.params as { linkId: string };
+      const { region, profile } = request.query as { region?: string; profile?: string };
+      const token = firstHeaderValue(request.headers['x-deployz-token']);
+      if (region === undefined) {
+        throw new ApiError(422, 'REGION_REQUIRED', 'A region is required.');
+      }
+      return resolvePublicInstallPlan(db, linkId, region, profile, token);
     },
   );
 

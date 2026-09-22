@@ -6,7 +6,11 @@ import {
   REGION_LABELS,
   SUPPORTED_AWS_REGIONS,
   buildInstallPlan,
+  defaultInfrastructureSizeProfile,
+  isSupportedRegion,
+  resolveInfrastructureSizeProfile,
   type DeploymentManifest,
+  type DeploymentPlan,
   type EnvVariableClassification,
   type Region,
 } from '@deployz/contracts';
@@ -233,6 +237,38 @@ export async function resolvePublicInstall(db: RuntimeDb, linkId: string, token?
     requiredInputs: publicInstallInputs(manifest),
     plan: buildInstallPlan({ manifest, region: null }),
   };
+}
+
+/**
+ * GET /api/public-install/:linkId/plan?region=…&profile=… — the canonical
+ * INSTALL plan for a selected Region + size profile. Same footprint/pricing
+ * logic as deployment creation; pricing stays on the server. An undeployable
+ * or unsupported Region returns the plan with `region: null` and
+ * `costEstimate: null` ("Estimate unavailable"), never a guessed cost.
+ */
+export async function resolvePublicInstallPlan(
+  db: RuntimeDb,
+  linkId: string,
+  region: string,
+  profileId: string | undefined,
+  token?: string,
+): Promise<DeploymentPlan> {
+  const { application, link } = await loadActiveLink(db, linkId, token);
+  if (link.customerId !== null && link.confirmedAt !== null) {
+    throw new ApiError(410, 'PUBLIC_INSTALL_LINK_USED', 'This installation link has already been used.');
+  }
+  const profile =
+    profileId !== undefined ? resolveInfrastructureSizeProfile(profileId, 1) : defaultInfrastructureSizeProfile();
+  if (profile === undefined) {
+    throw new ApiError(422, 'UNKNOWN_PROFILE', `Unknown infrastructure profile "${profileId}".`);
+  }
+  const { manifest } = await runApplicationPreflight(db, application, link.customerId);
+  const deployable = isSupportedRegion(region) && env.deployableAwsRegions.includes(region);
+  const plan = buildInstallPlan({ manifest, region: deployable ? (region as Region) : null, profile });
+  if (!deployable) {
+    return { ...plan, region: null, costEstimate: null };
+  }
+  return plan;
 }
 
 async function findConfirmedInstallLinkId(
