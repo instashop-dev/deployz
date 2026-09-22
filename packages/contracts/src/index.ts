@@ -274,12 +274,12 @@ export function deploymentStateAfterFailedJob(input: {
       // release newer than the one running is exactly what UPDATE_AVAILABLE
       // means (the failed candidate itself qualifies).
       return input.newerReadyReleaseExists ? 'UPDATE_AVAILABLE' : 'HEALTHY';
-    case 'CONFIG_UPDATE':
-    case 'PURGE':
     // Regional HTTPS certificates ride the relay channel outside a
     // deployment's own lifecycle (docs/https-regional-certificates.md
     // decision 4) — a failed certificate operation never touches
-    // deployment state, same as the domain jobs.
+    // deployment state, same as CONFIG_UPDATE/PURGE and the domain jobs.
+    case 'CONFIG_UPDATE':
+    case 'PURGE':
     case 'ENSURE_CERTIFICATE':
     case 'ATTACH_CERTIFICATE':
       return null;

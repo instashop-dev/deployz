@@ -49,7 +49,10 @@ The flow a deployment follows, end to end:
 5. **Release Build** — a release is built by CodeBuild into an immutable
    ECR image digest; a deploy always targets `repository@sha256:…`.
 6. **Install Infrastructure** — the customer opens the install link and runs
-    the Quick Create. The bootstrap stack brings the relay up; the relay claims
+    the Quick Create. The Quick Create also carries a `CustomerScope`
+    parameter (the customer's DNS scope, or `none` when unscoped), which
+    authorizes the relay to manage that customer's regional certificate (see
+    step 10). The bootstrap stack brings the relay up; the relay claims
     the INSTALL job, resolves the correct published application template variant
     from the deployment manifest's infrastructure requirements, and provisions
     it (VPC, ALB, ECS/Fargate service, and S3 — plus RDS PostgreSQL when the
@@ -81,15 +84,23 @@ The flow a deployment follows, end to end:
    unexpected component; it never scans AWS itself and never repairs
    anything.
 10. **HTTPS (default URL)** — every deployment gets a permanent Deployz-owned
-    URL. The runtime flow: the deployment's ALB exists in the customer account
-    after INSTALL; the control plane's default-HTTPS machine reconciles two
-    CNAMEs into the deployz.dev Cloudflare zone (an unproxied ACM DNS-01
-    validation record and a proxied routing record `d-<deployment-id>.deployz.dev`
-    → the ALB), the customer-account ACM certificate is DNS-validated through
-    that record, and once the HTTPS probe verifies the endpoint the machine is
-    ACTIVE and the deployment is READY behind
-    `https://d-<deployment-id>.deployz.dev` — zero customer DNS input. URL
-    model: `defaultUrl` is the permanent `d-*` address once the machine starts
+    URL. New deployments use the regional model
+    (`docs/https-regional-certificates.md`): at relay enrollment the control
+    plane requests, or reuses, one wildcard ACM certificate per customer +
+    AWS account + region (`*.c-<scope>.deployz.dev`), in parallel with
+    INSTALL, and the deployment's hostname is
+    `d-<deployment-id>.c-<scope>.deployz.dev`. Older, still-live deployments
+    keep the legacy per-deployment flow unchanged (grandfathered): the
+    control plane's default-HTTPS machine reconciles two CNAMEs into the
+    deployz.dev Cloudflare zone (an unproxied ACM DNS-01 validation record and
+    a proxied routing record `d-<deployment-id>.deployz.dev` → the ALB), and
+    a per-deployment ACM certificate is DNS-validated through that record.
+    Regional-model records are DNS-only (unproxied) — Cloudflare Universal SSL
+    only covers one label below the zone, so the browser talks to the ALB
+    directly and the wildcard certificate terminates TLS end to end. In both
+    models the deployment is READY only once the HTTPS probe verifies the
+    real endpoint — zero customer DNS input either way. URL model:
+    `defaultUrl` is the permanent `d-*` address once the machine starts
     (any status); `resolveAppUrl` surfaces the preferred URL — the custom
     domain only once it is ACTIVE and healthy, otherwise the default URL once
     ACTIVE/CONFIGURING, otherwise the bare ALB endpoint. The infrastructure
@@ -97,18 +108,23 @@ The flow a deployment follows, end to end:
     Setting up → Waiting for certificate → Activating HTTPS → Ready /
     Failed) and is Ready only once a custom domain or the default address is
     ACTIVE — never from the load balancer's CloudFormation status alone. See
-    `docs/mvp-default-https-status.md` for the full phase record.
+    `docs/mvp-default-https-status.md` for the full phase record and
+    `docs/https-regional-certificates.md` for the regional model's design.
 11. **Day-2 Operations** — config updates, further deploys, rollback, restart,
     and relay re-enrollment run through the same command queue, gated on relay
     connectivity and operation exclusivity.
 12. **Delete / Purge** — Disconnect (DESTROY) removes the application stack but
     **retains** the database, its credentials, and the stored files (Phase 9
-    RETAIN decision — no final snapshot is ever taken). Purge (PURGE) deletes
-    the retained database, credentials, stored files, and network orphans; the
-    customer deletes the bootstrap stack itself in CloudFormation
-    (CANARY-014). Default-HTTPS teardown removes both deployz-zone CNAMEs
-    (routing + validation) as the deployment is destroyed, and the purge
-    backstop reconciles any orphaned records.
+    RETAIN decision — no final snapshot is ever taken); DESTROY never touches
+    a certificate. Purge (PURGE) deletes the retained database, credentials,
+    stored files, and network orphans; the customer deletes the bootstrap
+    stack itself in CloudFormation (CANARY-014). For a legacy deployment,
+    default-HTTPS teardown removes both deployz-zone CNAMEs (routing +
+    validation) as the deployment is destroyed, and the purge backstop
+    reconciles any orphaned records. For a regional deployment the wildcard
+    certificate is retained across Disconnect — other deployments in the same
+    customer scope may still need it — and is removed only by the Purge of
+    the last remaining deployment in that customer + account + region scope.
 
 ## Application template selection
 
@@ -295,6 +311,8 @@ removed), never raw CloudFormation enums.
   `docs/ai-analysis.md` (reference) and `docs/ai-mvp-implementation-status.md`
   (per-phase record)
 - Failure/recovery invariants: `docs/deployment-resilience.md`
+- Regional HTTPS certificates (design and implementation notes):
+  `docs/https-regional-certificates.md`
 - Test hierarchy and canary escalation: `docs/testing/README.md`,
   `docs/testing/ai-agent-testing-guide.md`
 - Redis support details: `docs/redis-mvp-implementation.md`

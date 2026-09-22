@@ -127,6 +127,42 @@ pipeline's own image-pull failure and the circuit breaker stay honest
   re-delivered or re-offered command converges on real AWS state instead of
   duplicating a mutation.
 
+## Regional certificate invariants
+
+Regional HTTPS (`docs/https-regional-certificates.md`) shares one wildcard
+ACM certificate across every deployment in a customer + AWS account + region
+scope, so its concurrency rules sit beside the ones above rather than
+replacing them:
+
+- The `customer_regional_certificates` row's unique `(customer_id,
+  aws_account_id, region)` index is the lock: the `ON CONFLICT DO NOTHING`
+  insert is what makes concurrent first deployments in the same scope
+  converge on one row instead of racing a request each.
+- **One in-flight `ENSURE_CERTIFICATE` job per scope, across every
+  deployment in it** — not per deployment. `ATTACH_CERTIFICATE` stays
+  per-deployment (each deployment's own listener needs its own attach).
+  Both job types are outside the one-active-mutating-job index like the
+  legacy domain jobs, and neither ever changes `deployments.state` on
+  failure.
+- The relay always describes before it requests: describe the stored ARN
+  (NotFound → treat as absent), else list certificates for the domain
+  tagged `deployz:customer-scope=<scope>` and adopt one, else
+  `RequestCertificate`. A re-delivered or re-offered `ENSURE_CERTIFICATE`
+  therefore converges on the real AWS state instead of requesting a
+  duplicate certificate.
+- DESTROY never touches the certificate or its validation record — only
+  PURGE does, and only conditionally: the purge payload carries
+  `regionalCertificates` only when the purged deployment is the last
+  non-DELETED deployment in its scope. The purge sweep never deletes a
+  certificate tagged `deployz:customer-scope`.
+- A slow ACM `PENDING_VALIDATION` is not a failure: it stays in progress
+  with a "taking longer than usual" hint after 30 minutes and only becomes
+  `ERROR` (`VALIDATION_TIMEOUT`) after 4 hours, retryable through the
+  existing retry route.
+- Tested in `apps/api/src/regional-certificates.test.ts`,
+  `apps/api/src/regional-https.server.test.ts`, and
+  `packages/relay/src/regional-certificate.test.ts`.
+
 ## Reconciliation: the watchdog repairs, it does not guess
 
 `sweepStuckJobs` (worker Lambda, 15-minute schedule) runs two clocks per

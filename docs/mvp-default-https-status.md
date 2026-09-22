@@ -339,3 +339,32 @@ and never reads or prints a secret value and never makes a provider call.
 Automated implementation testing does not modify the production Cloudflare
 zone. Cloudflare API behavior is covered through provider mocks and simulated
 E2E tests.
+
+## Regional certificates (2026-09-22)
+
+Full design in `docs/https-regional-certificates.md`. Summary of the delta
+from the per-deployment model this document otherwise describes:
+
+- One wildcard ACM certificate per customer + AWS account + region
+  (`*.c-<scope>.deployz.dev`), requested at relay enrollment in parallel with
+  INSTALL, instead of one certificate per deployment. Deployment hostnames
+  become `d-<deployment-id>.c-<scope>.deployz.dev`.
+- The customer namespace comes from a new `customers.dns_scope` column;
+  hostname construction is centralized in `@deployz/contracts`
+  (`packages/contracts/src/hostnames.ts`).
+- Deployment DNS records are DNS-only (unproxied) — the wildcard certificate
+  terminates TLS at the ALB, not at Cloudflare's edge.
+- The certificate is retained across Disconnect and removed only by the
+  Purge of the last remaining deployment in its scope, carried on the purge
+  job payload (`regionalCertificates`).
+- Flow selection is backwards compatible: the control plane only takes the
+  regional path when the relay reports a `customerScope` matching the
+  customer's `dns_scope`; every other deployment keeps the legacy
+  `d-<deployment-id>.deployz.dev` flow this document's Phase 1–16 record
+  describes, grandfathered unchanged.
+- The Phase 14 simulated-provider suite for the legacy model stays as
+  written; regional coverage today is `apps/api/src/regional-certificates.test.ts`,
+  `apps/api/src/regional-https.server.test.ts`, and
+  `packages/relay/src/regional-certificate.test.ts`, plus the real-AWS
+  `scripts/version-canary` scenarios A–D described in the design doc's
+  verification plan.

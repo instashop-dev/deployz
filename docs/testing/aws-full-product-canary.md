@@ -127,11 +127,16 @@ never canary-owned.
     the app yourself: `curl http://<ALB DNS>/api/health` (use curl — the ALB
     is plain HTTP until the HTTPS endpoint is active, and HTTPS-First
     browsers refuse http). Since Phase 11, HTTPS is provisioned automatically
-    on the permanent Deployz-owned hostname `d-<deployment-id>.deployz.dev`
-    (reconciled through the deployz.dev Cloudflare zone, configured by the
-    `CLOUDFLARE_ZONE_*` deploy env) with zero customer DNS; a customer custom
-    domain, once ACTIVE, takes precedence. The vendor detail shows *Open app*
-    and the URL once the deployment is READY.
+    with zero customer DNS (reconciled through the deployz.dev Cloudflare
+    zone, configured by the `CLOUDFLARE_ZONE_*` deploy env); a customer custom
+    domain, once ACTIVE, takes precedence. For a new deployment the hostname
+    is the regional shape, `d-<deployment-id>.c-<scope>.deployz.dev`
+    (`docs/https-regional-certificates.md`) — the wildcard certificate is
+    shared per customer + AWS account + region, so a second deployment for
+    the same customer in the same account/region reuses the certificate
+    instead of requesting a new one. A deployment still running the legacy
+    per-deployment flow keeps `d-<deployment-id>.deployz.dev`. The vendor
+    detail shows *Open app* and the URL once the deployment is READY.
 6. **Inventory**: `aws cloudformation list-stack-resources` per-type counts
    must equal the vendor *Infrastructure* section / `deployment_resources`
    rows (50 for the Redis variant of the documenso preset).
@@ -178,11 +183,50 @@ Re-run the baseline commands and diff against the ledger. Specifically:
 - SSM: no `/deployz/<installationId>/*` parameter.
 - ECR: delete the release image tag you built
   (`aws ecr batch-delete-image --image-ids imageTag=<version>`).
+- Regional certificate (only for a deployment that ran the regional flow):
+  the certificate and its `_<hash>.c-<scope>.deployz.dev` validation CNAME
+  are removed by the Purge of the *last* deployment in the customer's scope
+  — a certificate that is still retained after a single Disconnect is
+  correct as long as sibling deployments in the same scope still exist.
+  Verify with `aws acm list-certificates --region <region>` filtered by tag
+  `deployz:customer-scope` (`aws acm list-tags-for-certificate
+  --certificate-arn <arn>`); once the scope's last deployment is purged, no
+  certificate should carry that customer's scope tag.
 - Anything you created to diagnose (probe Lambdas, roles, their log groups).
 - `aws resourcegroupstaggingapi get-resources --tag-filters
   Key=deployz:installation,Values=<installationId>` returns nothing except
   INACTIVE ECS clusters/task definitions, which the tagging API keeps
   listing after deletion and which cost nothing.
+
+### Regional certificate scenarios (A–D)
+
+`scripts/version-canary` drives the regional-certificate scenarios from the
+design doc's verification plan (`docs/https-regional-certificates.md`)
+end to end, instead of walking them by hand:
+
+```bash
+# A — first deployment for a fresh customer: certificate requested, HTTPS on
+# the scoped hostname.
+DEPLOYZ_E2E_ALLOW_REAL_AWS=1 pnpm e2e:canary:versions core
+
+# B — second deployment, same customer and region: reuses run A's customer
+# (and its certificate) instead of minting a new one.
+DEPLOYZ_E2E_ALLOW_REAL_AWS=1 pnpm e2e:canary:versions core --reuse-customer-from <runA id>
+# or a fixed customer: --customer-id <uuid>
+
+# C — new region for that customer: AWS_REGION picks the install region, the
+# customer scope is the same, so a second certificate row is expected.
+AWS_REGION=<other region> DEPLOYZ_E2E_ALLOW_REAL_AWS=1 pnpm e2e:canary:versions core --reuse-customer-from <runA id>
+
+# D — recovery: delete the regional certificate out of band, then confirm the
+# deployment's HTTPS machine requests a replacement and returns to ACTIVE.
+DEPLOYZ_E2E_ALLOW_REAL_AWS=1 pnpm e2e:canary:versions delete-regional-certificate --run-id <runA id>
+DEPLOYZ_E2E_ALLOW_REAL_AWS=1 pnpm e2e:canary:versions wait-https --run-id <runA id> [--timeout <min>]
+
+# Leak audit after cleanup — for the run that purged the LAST deployment in
+# its scope, assert the certificate is actually gone:
+DEPLOYZ_E2E_ALLOW_REAL_AWS=1 pnpm e2e:canary:versions audit --run-id <id> --expect-regional-cert-removed
+```
 
 ## 6. Failure cases seen on real AWS (and what now guards them)
 

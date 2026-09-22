@@ -648,7 +648,26 @@ const JOB_MAX_RUNTIME_MS: Partial<Record<(typeof schema.deploymentJobs.$inferSel
   PURGE: 90 * 60 * 1000,
   CONFIGURE_DOMAIN: 90 * 60 * 1000,
   REMOVE_DOMAIN: 90 * 60 * 1000,
+  // Regional HTTPS certificates: seconds-long, describe-first relay calls
+  // whose result can only be lost to a relay crash — re-offer them fast.
+  ENSURE_CERTIFICATE: 15 * 60 * 1000,
+  ATTACH_CERTIFICATE: 15 * 60 * 1000,
 };
+
+/**
+ * Domain and regional-certificate jobs share one settlement rule: their
+ * timeout never fails the DEPLOYMENT (the same guard the relay result route
+ * applies) — the failure surfaces on the custom_domains row / the
+ * default_https machine instead.
+ */
+function isCertificateLifecycleJob(type: (typeof schema.deploymentJobs.$inferSelect)['type']): boolean {
+  return (
+    type === 'CONFIGURE_DOMAIN' ||
+    type === 'REMOVE_DOMAIN' ||
+    type === 'ENSURE_CERTIFICATE' ||
+    type === 'ATTACH_CERTIFICATE'
+  );
+}
 
 /** Re-offers per job before the watchdog concludes the operation is wedged. */
 const MAX_RECONCILE_REQUEUES = 3;
@@ -758,7 +777,7 @@ export async function sweepStuckJobs(
         job,
         deployment,
         now,
-        job.type === 'CONFIGURE_DOMAIN' || job.type === 'REMOVE_DOMAIN'
+        isCertificateLifecycleJob(job.type)
           ? 'DOMAIN_OPERATION_TIMEOUT'
           : 'UNKNOWN',
         evidence,
@@ -820,7 +839,7 @@ async function failStuckJob(
   // route's isDomainJobType guard). Its failure surfaces on the
   // custom_domains row instead, and the next heartbeat nudge opens a fresh
   // retry cycle.
-  const isDomainJob = job.type === 'CONFIGURE_DOMAIN' || job.type === 'REMOVE_DOMAIN';
+  const isDomainJob = isCertificateLifecycleJob(job.type);
   // Same settlement rule as the relay result route: a timed-out day-2
   // operation on a deployment with a running release must not mark the
   // whole deployment FAILED — the previous release is still serving.
