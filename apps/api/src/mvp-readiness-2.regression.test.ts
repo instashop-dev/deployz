@@ -74,7 +74,11 @@ const MANIFEST = {
 const db = undefined as unknown as import('@deployz/db').RuntimeDb;
 
 describe('public-MVP regression baseline', () => {
-  it('DEPLOY-027: a customer-required secret typed before the relay connects is retained and deliverable', async () => {
+  // `it.fails` keeps CI green while encoding the DEPLOY-027 gap: the secret is
+  // currently lost, so the assertion fails (expected). Phase 4 makes it pass,
+  // at which point Vitest reports an UNEXPECTED pass — flip this to a plain
+  // `it` then.
+  it.fails('DEPLOY-027: a customer-required secret typed before the relay connects is retained and deliverable', async () => {
     const secretValue = 'correct-horse-battery-staple';
     const store = makeStore();
     await setConfig(

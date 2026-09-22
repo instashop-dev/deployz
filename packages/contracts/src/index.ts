@@ -8,6 +8,7 @@ export * from './aws-resources.js';
 export * from './plan.js';
 export * from './footprint.js';
 export * from './pricing.js';
+export * from './profile.js';
 export * from './tags.js';
 
 import type { DeploymentManifest } from './manifest.js';

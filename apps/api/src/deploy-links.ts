@@ -3,6 +3,7 @@ import crypto from 'node:crypto';
 import { and, desc, eq } from 'drizzle-orm';
 
 import type { DeploymentType, Region } from '@deployz/contracts';
+import { defaultInfrastructureSizeProfile } from '@deployz/contracts';
 import type { RuntimeDb } from '@deployz/db';
 import * as schema from '@deployz/db/schema';
 
@@ -174,7 +175,17 @@ export async function createDeploymentRecord(
       region: params.region,
       state: 'NOT_INSTALLED',
       source: params.source,
-      desiredState: { manifest },
+      // Frozen desired state: the canonical manifest PLUS the immutable
+      // infrastructure-size profile this deployment was created with. The
+      // profile reference is written once and never mutated — a later
+      // `minimal`/`large` profile is a NEW deployment, not an edit here.
+      desiredState: {
+        manifest,
+        infrastructureProfile: {
+          id: defaultInfrastructureSizeProfile().id,
+          version: defaultInfrastructureSizeProfile().version,
+        },
+      },
       enrollmentCode: mintEnrollmentCode(),
       // Invitation lifecycle: every newly issued link is time-limited (30
       // days). Links created before this column existed keep NULL = no limit,

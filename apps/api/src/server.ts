@@ -57,6 +57,7 @@ import {
   requiredInfrastructureComponents,
   requirementDriftFor,
   resolveBootstrapTemplate,
+  resolveStoredInfrastructureSizeProfile,
   summarizeInfrastructureStatus,
   type ApplicationAnalysis,
   type ApplicationRequirementsSummary,
@@ -3616,6 +3617,7 @@ export async function buildServer({
         appUrl: null,
       });
       const resolveManifest = readStoredManifest(deployment.desiredState);
+      const deploymentProfile = resolveStoredInfrastructureSizeProfile(deployment.desiredState);
       return {
         link: { status: 'active' },
         application: { name: application.name },
@@ -3623,7 +3625,7 @@ export async function buildServer({
         region: deployment.region,
         // The same install plan the install page serves, so the two customer
         // surfaces never disagree about what a deployment creates.
-        plan: resolveManifest ? buildInstallPlan({ manifest: resolveManifest, region: deployment.region }) : null,
+        plan: resolveManifest ? buildInstallPlan({ manifest: resolveManifest, region: deployment.region, ...(deploymentProfile ? { profile: deploymentProfile } : {}) }) : null,
         deploymentState: deployment.state,
         bootstrapStackName: stackName,
         waitingForRelay,
@@ -5578,18 +5580,19 @@ export async function buildServer({
         'Deployment has no valid deployment manifest. Run analysis or correct the application configuration first.',
       );
     }
+    const profile = resolveStoredInfrastructureSizeProfile(deployment.desiredState);
     if (action === 'install') {
-      return deploymentPlanSchema.parse(buildInstallPlan({ manifest, region: deployment.region }));
+      return deploymentPlanSchema.parse(buildInstallPlan({ manifest, region: deployment.region, ...(profile ? { profile } : {}) }));
     }
     if (action === 'destroy') {
-      return deploymentPlanSchema.parse(buildDestroyPlan({ manifest, region: deployment.region }));
+      return deploymentPlanSchema.parse(buildDestroyPlan({ manifest, region: deployment.region, ...(profile ? { profile } : {}) }));
     }
     if (action === 'update') {
       const application = await loadOwnedApplication(db, deployment.applicationId, organizationId);
       const { manifest: desiredManifest } = await runApplicationPreflight(db, application, null);
       const newRelease = await newerReadyReleaseExists(db, deployment.applicationId, deployment.currentReleaseId);
       return deploymentPlanSchema.parse(
-        buildUpdatePlan({ deployedManifest: manifest, desiredManifest, region: deployment.region, newRelease }),
+        buildUpdatePlan({ deployedManifest: manifest, desiredManifest, region: deployment.region, newRelease, ...(profile ? { profile } : {}) }),
       );
     }
     throw new ApiError(400, 'INVALID_REQUEST', 'action must be "install", "update", or "destroy".');
