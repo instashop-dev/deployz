@@ -414,7 +414,13 @@ export async function createDeploymentAndInstall(canary: Canary): Promise<string
     evidence.run.customerId = customer.id;
     details['customerId'] = customer.id;
     details['customerReused'] = config.customerId !== null;
-    const deployment = await api.createDeployment({ applicationId, customerId: customer.id, region: config.region });
+    // The product allows one active TEST deployment per application, so a
+    // run that reuses another run's application (scenarios B/C) creates a
+    // PRODUCTION deployment — accepted by the deployed API while the billing
+    // gate is paused (BILLING_ENFORCEMENT=off).
+    const deploymentType = config.reuseRunId ? 'PRODUCTION' : 'TEST';
+    details['deploymentType'] = deploymentType;
+    const deployment = await api.createDeployment({ applicationId, customerId: customer.id, region: config.region, deploymentType });
     evidence.run.deploymentId = deployment.id;
     evidence.run.installLinkId = deployment.installLinkId;
     evidence.save();

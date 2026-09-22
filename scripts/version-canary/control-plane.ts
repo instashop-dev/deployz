@@ -336,10 +336,12 @@ export class ControlPlane {
     applicationId: string;
     customerId: string;
     region: string;
+    deploymentType?: 'TEST' | 'PRODUCTION';
   }): Promise<{ id: string; installLinkId: string }> {
+    const { deploymentType = 'TEST', ...rest } = input;
     const { body } = await this.request<{ id: string; installLinkId: string }>('POST', '/api/deployments', {
-      ...input,
-      deploymentType: 'TEST',
+      ...rest,
+      deploymentType,
     });
     return body;
   }
