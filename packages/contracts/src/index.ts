@@ -100,6 +100,12 @@ export function isSupportedRegion(value: string): value is Region {
 export const deploymentSourceSchema = z.enum(['manual', 'deploy_link', 'public_link']);
 export type DeploymentSource = z.infer<typeof deploymentSourceSchema>;
 
+// Region ownership for an installation entry point (MVP Readiness 2, Phase 2).
+// 'customer' = the customer makes the final Region choice at confirmation;
+// 'legacy_publisher_fixed' = a pre-existing link whose Region the vendor fixed.
+export const regionSelectionSchema = z.enum(['customer', 'legacy_publisher_fixed']);
+export type RegionSelection = z.infer<typeof regionSelectionSchema>;
+
 // deployments.deployment_type — provider-independent classification (Paddle
 // migration Phase 2). Replaces is_test_deployment: a TEST deployment never
 // becomes billable (apps/api/src/billing-domain.ts).

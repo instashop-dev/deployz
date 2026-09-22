@@ -21,6 +21,7 @@ import {
   jobStateSchema,
   jobTypeSchema,
   regionSchema,
+  regionSelectionSchema,
   releaseStatusSchema,
 } from '@deployz/contracts';
 
@@ -45,6 +46,7 @@ import {
   jobStateEnum,
   jobTypeEnum,
   regionEnum,
+  regionSelectionEnum,
   releaseStatusEnum,
 } from './enums.js';
 
@@ -63,6 +65,7 @@ describe('enum parity with @deployz/contracts zod schemas', () => {
     ['compatibilityStatus', compatibilityStatusEnum, compatibilityStatusSchema.options],
     ['releaseStatus', releaseStatusEnum, releaseStatusSchema.options],
     ['region', regionEnum, regionSchema.options],
+    ['regionSelection', regionSelectionEnum, regionSelectionSchema.options],
     ['deploymentState', deploymentStateEnum, deploymentStateSchema.options],
     ['deploymentSource', deploymentSourceEnum, deploymentSourceSchema.options],
     ['deploymentType', deploymentTypeEnum, deploymentTypeSchema.options],
