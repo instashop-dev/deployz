@@ -706,6 +706,63 @@ describe('regional HTTPS certificates — server wiring (docs/https-regional-cer
         expect(substep.state).toBe('done');
       }
     });
+    it('failure keeps PENDING and drops the certificate row freshness so the next heartbeat re-verifies the ARN', async () => {
+      const { customer, deployment } = await seedCustomerDeployment({
+        awsAccountId: AWS_ACCOUNT_ID,
+        state: 'HEALTHY',
+        healthStatus: 'HEALTHY',
+      });
+      const certRow = await insertRegionalCertificateRow(db, {
+        organizationId: org.organizationId,
+        customerId: customer.id,
+        certificateDomain: regionalCertificateDomain(customer.dnsScope, APEX),
+        certificateStatus: 'ISSUED',
+        certificateArn: 'arn:aws:acm:us-east-1:123456789012:certificate/attach-gone',
+        issuedAt: new Date(),
+        lastVerifiedAt: new Date(),
+        validationDnsReadyAt: new Date(),
+      });
+      const token = `relay-token-${crypto.randomUUID()}`;
+      await db
+        .update(schema.deployments)
+        .set({
+          relayTokenHash: hashRelayToken(token),
+          relayStatus: 'CONNECTED',
+          defaultHttps: regionalDefaultHttps(deployment.id, customer.dnsScope, certRow.id, {
+            status: 'PENDING',
+            routingTarget: 'alb-attach.us-east-1.elb.amazonaws.com',
+          }),
+        })
+        .where(eq(schema.deployments.id, deployment.id));
+      const [job] = await db
+        .insert(schema.deploymentJobs)
+        .values({
+          deploymentId: deployment.id,
+          type: 'ATTACH_CERTIFICATE',
+          state: 'RUNNING',
+          idempotencyKey: `${deployment.id}:ATTACH_CERTIFICATE:0`,
+          payload: { certificateArn: certRow.certificateArn, hostname: 'placeholder' },
+        })
+        .returning();
+
+      const response = await postJson(
+        app,
+        `/api/relay/commands/${job!.id}/result`,
+        { success: false, error: 'CertificateNotFound', failureCode: 'UNKNOWN' },
+        { authorization: `Bearer ${token}` },
+      );
+      expect(response.statusCode).toBe(200);
+
+      const [dep] = await db.select().from(schema.deployments).where(eq(schema.deployments.id, deployment.id));
+      expect(dep!.state).toBe('HEALTHY');
+      expect((dep!.defaultHttps as { status: string }).status).toBe('PENDING');
+      const [row] = await db
+        .select()
+        .from(schema.customerRegionalCertificates)
+        .where(eq(schema.customerRegionalCertificates.id, certRow.id));
+      expect(row!.certificateStatus).toBe('ISSUED');
+      expect(row!.lastVerifiedAt).toBeNull();
+    });
   });
 
   // ── (f) scope reuse ──────────────────────────────────────────────────────

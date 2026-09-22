@@ -7193,6 +7193,17 @@ export async function buildServer({
         } else if (job.type === 'ATTACH_CERTIFICATE') {
           await applyAttachCertificateResult(tx, deployment.id, job, body);
           attachCertificateSucceeded = state === 'SUCCEEDED';
+          // A failed attach is the earliest sign the shared certificate may
+          // be gone (deleted out of band): drop the row's freshness so the
+          // next heartbeat's ENSURE re-describes the ARN and requests a
+          // replacement when it no longer exists, instead of retrying the
+          // attach against a dead certificate for the whole attempt budget.
+          if (!attachCertificateSucceeded && preTxDefaultHttps?.certificateId) {
+            await tx
+              .update(schema.customerRegionalCertificates)
+              .set({ lastVerifiedAt: null })
+              .where(eq(schema.customerRegionalCertificates.id, preTxDefaultHttps.certificateId));
+          }
         }
       }
 
