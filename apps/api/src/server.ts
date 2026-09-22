@@ -7566,6 +7566,17 @@ export async function buildServer({
               request.log.warn({ err: error }, 'default-https regional scoped record cleanup failed');
             }
           }
+          // No REMOVE_DOMAIN job ever clears a regional machine (legacy
+          // mode's does): the DESTROY success is the end of this
+          // deployment's own HTTPS lifecycle, so the machine is cleared here
+          // — otherwise the endpoint component would read as still
+          // removing after the stack is gone.
+          if (job.type === 'DESTROY') {
+            await db
+              .update(schema.deployments)
+              .set({ defaultHttps: null })
+              .where(eq(schema.deployments.id, deployment.id));
+          }
         } else {
           try {
             await defaultHttpsDeps.dns.deleteDefaultDeploymentRecord(deployment.id);

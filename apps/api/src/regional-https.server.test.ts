@@ -895,6 +895,11 @@ describe('regional HTTPS certificates — server wiring (docs/https-regional-cer
         .from(schema.customerRegionalCertificates)
         .where(eq(schema.customerRegionalCertificates.id, certRow.id));
       expect(survivingCert).toBeDefined();
+      // The deployment's own HTTPS lifecycle ends with the stack: the
+      // regional machine is cleared (no REMOVE_DOMAIN job does it in
+      // regional mode), so the endpoint never reads as still removing.
+      const [destroyed] = await db.select().from(schema.deployments).where(eq(schema.deployments.id, deployment.id));
+      expect(destroyed!.defaultHttps).toBeNull();
     });
 
     it('purging the last deployment in a scope carries regionalCertificates and removes the row + validation record on success', async () => {
