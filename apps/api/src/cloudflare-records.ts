@@ -629,7 +629,11 @@ export function createCloudflareDnsClient(options: CloudflareDnsClientOptions): 
     upsertScopeValidationRecord: async (dnsScope, validationName, validationValue) => {
       const name = stripTrailingDot(validationName);
       assertScopeValidationRecordName(dnsScope, zoneName, name);
-      return ensureRecord(name, validationValue, false, CLOUDFLARE_SCOPE_VALIDATION_RECORD_COMMENT, {
+      // ACM reports the CNAME target as an FQDN with a trailing dot; Cloudflare
+      // stores it without one. Compare and write the normalised form, or the
+      // second reconcile of a record this client wrote itself reads as a
+      // conflict (production-verified on the first regional certificate).
+      return ensureRecord(name, stripTrailingDot(validationValue), false, CLOUDFLARE_SCOPE_VALIDATION_RECORD_COMMENT, {
         refuseMismatch: true,
       });
     },
@@ -754,7 +758,7 @@ export function createFakeCloudflareDnsClient(options: {
       deleteRecord(scopedHostnameFor(deploymentId, dnsScope)),
     upsertScopeValidationRecord: async (dnsScope, validationName, validationValue) => {
       assertScopeValidationRecordName(dnsScope, zoneName, validationName);
-      return upsertRecord(validationName, validationValue, false, CLOUDFLARE_SCOPE_VALIDATION_RECORD_COMMENT, {
+      return upsertRecord(validationName, stripTrailingDot(validationValue), false, CLOUDFLARE_SCOPE_VALIDATION_RECORD_COMMENT, {
         refuseMismatch: true,
       });
     },

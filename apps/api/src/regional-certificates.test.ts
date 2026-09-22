@@ -468,7 +468,7 @@ describe('regional-certificates service', () => {
       expect(updated.certificateStatus).toBe('ERROR');
       expect(updated.lastError).toBe('DNS_VALIDATION_CONFLICT');
       // Never overwritten — the planted value is still there.
-      expect(fake.listRecords().find((r) => r.name === validationName)?.content).toBe('conflicting-value.');
+      expect(fake.listRecords().find((r) => r.name === validationName)?.content).toBe('conflicting-value');
     });
 
     it('a rate-limited write only sets lastError; the next cycle can still succeed', async () => {
@@ -529,6 +529,29 @@ describe('regional-certificates service', () => {
   });
 
   describe('retryRegionalCertificate', () => {
+    it('keeps the certificate when the ERROR was DNS-side (the same certificate can still validate)', async () => {
+      const { customer, deployment } = await seedScope();
+      const { row } = await ensureRegionalCertificate(db, ensureInput(deployment, customer.dnsScope), deps());
+      await db
+        .update(schema.customerRegionalCertificates)
+        .set({
+          certificateStatus: 'ERROR',
+          lastError: 'DNS_VALIDATION_CONFLICT',
+          certificateArn: 'arn:aws:acm:us-east-1:123456789012:certificate/alive',
+          validationRecordName: `_ok.c-${customer.dnsScope}.${apex}`,
+          validationRecordValue: '_ok.acm-validations.aws',
+          lastVerifiedAt: new Date(),
+        })
+        .where(eq(schema.customerRegionalCertificates.id, row.id));
+
+      const retried = await retryRegionalCertificate(db, row.id);
+      expect(retried.certificateStatus).toBe('REQUESTING');
+      expect(retried.lastError).toBeNull();
+      expect(retried.certificateArn).toBe('arn:aws:acm:us-east-1:123456789012:certificate/alive');
+      expect(retried.validationRecordName).toBe(`_ok.c-${customer.dnsScope}.${apex}`);
+      expect(retried.lastVerifiedAt).toBeNull();
+    });
+
     it('resets ERROR → REQUESTING, clears lastError, bumps the cycle', async () => {
       const { customer, deployment } = await seedScope();
       const { row } = await ensureRegionalCertificate(db, ensureInput(deployment, customer.dnsScope), deps());

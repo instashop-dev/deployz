@@ -193,6 +193,7 @@ async function main(): Promise<void> {
       const evidence = Evidence.open(config.resultsDir, values['run-id']);
       evidence.run.scenario = 'wait-https';
       const canary: Canary = { config, evidence, api: new ControlPlane(config.apiUrl, config.webUrl) };
+      if (evidence.run.vendor) await canary.api.signIn(evidence.run.vendor);
       const timeoutMs = values.timeout ? Number(values.timeout) * 60_000 : undefined;
       try {
         await (timeoutMs ? waitForHttpsActive(canary, timeoutMs) : waitForHttpsActive(canary));

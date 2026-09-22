@@ -666,7 +666,7 @@ describe('createCloudflareDnsClient — regional scoped records', () => {
   const SCOPE = 'abc12345def6';
   const SCOPED_HOSTNAME = `d-dep-1.c-${SCOPE}.${ZONE_NAME}`;
   const SCOPE_VALIDATION_NAME = `_scopeval.c-${SCOPE}.${ZONE_NAME}`;
-  const SCOPE_VALIDATION_VALUE = '_sv.acm-validations.aws.';
+  const SCOPE_VALIDATION_VALUE = '_sv.acm-validations.aws';
 
   const scopedRecord = (id: string, overrides: Partial<CloudflareDnsRecord> = {}): CloudflareDnsRecord => ({
     id,
@@ -762,6 +762,17 @@ describe('createCloudflareDnsClient — regional scoped records', () => {
 
     const result = await client.upsertScopeValidationRecord(SCOPE, SCOPE_VALIDATION_NAME, SCOPE_VALIDATION_VALUE);
     expect(result).toEqual({ op: 'noop', record: scopeValidationRecord('rec-sv') });
+    expect(calls.map((call) => call.method)).toEqual(['GET']);
+  });
+
+  it('an ACM value with a trailing dot matches the dot-less record Cloudflare stores → noop, no conflict', async () => {
+    const { client, calls } = makeClient(async (_url, init) => {
+      if (init.method === 'GET') return okList(scopeValidationRecord('rec-sv'));
+      throw new Error(`unexpected ${init.method}`);
+    });
+
+    const result = await client.upsertScopeValidationRecord(SCOPE, `${SCOPE_VALIDATION_NAME}.`, `${SCOPE_VALIDATION_VALUE}.`);
+    expect(result.op).toBe('noop');
     expect(calls.map((call) => call.method)).toEqual(['GET']);
   });
 

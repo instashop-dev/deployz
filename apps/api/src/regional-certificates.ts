@@ -563,7 +563,21 @@ export function hasRegionalCertificateTimedOut(row: RegionalCertificateTiming, n
 
 /** The vendor's explicit retry: ERROR → REQUESTING, budget reset. Mirrors
  *  the legacy default-HTTPS retry route's contract. */
+/** Errors that mean the certificate itself is dead at its ARN (a terminal
+ *  ACM status or our own validation timeout), as opposed to a DNS-side
+ *  problem the same certificate can recover from. */
+const DEAD_CERTIFICATE_ERROR = /^(CERTIFICATE_|VALIDATION_TIMEOUT)/;
+
 export async function retryRegionalCertificate(db: RuntimeDb, rowId: string): Promise<RegionalCertificateRow> {
+  const [current] = await db
+    .select()
+    .from(schema.customerRegionalCertificates)
+    .where(eq(schema.customerRegionalCertificates.id, rowId))
+    .limit(1);
+  if (!current) {
+    throw new Error(`Regional certificate row not found: ${rowId}`);
+  }
+  const dead = DEAD_CERTIFICATE_ERROR.test(current.lastError ?? '');
   const [updated] = await db
     .update(schema.customerRegionalCertificates)
     .set({
@@ -571,19 +585,24 @@ export async function retryRegionalCertificate(db: RuntimeDb, rowId: string): Pr
       lastError: null,
       checkCycle: sql`${schema.customerRegionalCertificates.checkCycle} + 1`,
       attempts: 0,
+      lastVerifiedAt: null,
       // A terminally failed ACM certificate can never validate at the same
       // ARN, so the retry forgets it (and its validation record) and the
       // next ENSURE cycle requests a replacement; the slow/timeout clocks
-      // restart with that request.
-      certificateArn: null,
-      validationRecordName: null,
-      validationRecordValue: null,
-      validationRecordType: null,
-      cloudflareRecordId: null,
-      requestedAt: null,
-      validationDnsReadyAt: null,
-      issuedAt: null,
-      lastVerifiedAt: null,
+      // restart with that request. A DNS-side failure keeps the certificate:
+      // the next cycle re-describes it and reconciles the record again.
+      ...(dead
+        ? {
+            certificateArn: null,
+            validationRecordName: null,
+            validationRecordValue: null,
+            validationRecordType: null,
+            cloudflareRecordId: null,
+            requestedAt: null,
+            validationDnsReadyAt: null,
+            issuedAt: null,
+          }
+        : {}),
     })
     .where(eq(schema.customerRegionalCertificates.id, rowId))
     .returning();
