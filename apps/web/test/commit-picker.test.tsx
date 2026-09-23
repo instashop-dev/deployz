@@ -416,7 +416,7 @@ describe('CommitPicker on the New release form', () => {
     await submit(container);
     await flushMicrotasks();
 
-    expect(container.textContent).toContain('Enter 7 to 40 hexadecimal characters.');
+    expect(container.textContent).toContain('Paste a commit SHA from GitHub: 7 to 40 letters (a–f) and digits.');
     expect(mocks.createRelease).not.toHaveBeenCalled();
   });
 

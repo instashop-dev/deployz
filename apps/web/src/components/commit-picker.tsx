@@ -146,7 +146,7 @@ export const CommitPicker = forwardRef<
       }
       const typed = manualValue.trim().toLowerCase();
       if (!MANUAL_SHA_PATTERN.test(typed)) {
-        setManualError('Enter 7 to 40 hexadecimal characters.');
+        setManualError('Paste a commit SHA from GitHub: 7 to 40 letters (a–f) and digits.');
         return null;
       }
       setManualError(null);
@@ -162,7 +162,7 @@ export const CommitPicker = forwardRef<
             return null;
           }
           if (code === 'INVALID_COMMIT_SHA') {
-            setManualError('Enter 7 to 40 hexadecimal characters.');
+            setManualError('Paste a commit SHA from GitHub: 7 to 40 letters (a–f) and digits.');
             return null;
           }
         }
