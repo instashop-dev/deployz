@@ -261,6 +261,17 @@ describe('pending-secret delivery simulated-E2E (DEPLOY-027 Phase 4)', () => {
     )[0]!;
     applicationId = application.id;
 
+    // The relay-register path refuses an INSTALL without a built release
+    // (PR #353: 409 RELEASE_NOT_PUBLISHED) — the fixture must publish one.
+    await db.insert(schema.releases).values({
+      applicationId: application.id,
+      version: '1.0.0',
+      gitSha: crypto.randomUUID().slice(0, 8),
+      imageDigest: 'registry.example.com/acme/app@sha256:' + 'a'.repeat(64),
+      buildStatus: 'SUCCEEDED',
+      releaseStatus: 'READY',
+    });
+
     const customer = (
       await db
         .insert(schema.customers)
