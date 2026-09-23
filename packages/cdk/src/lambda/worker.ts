@@ -1142,3 +1142,22 @@ export async function sweepBilling(
 
   return { promoted, unstuck: unstuck.length, reconciled: organizationsToReconcile.size };
 }
+
+/**
+ * DEPLOY-027 (Phase 4): TTL sweep over pending_secrets. Plain SQL DELETE,
+ * no KMS — the sweep just drops ciphertext the API can no longer decrypt
+ * because the customer never enrolled within `DEFAULT_PENDING_SECRET_TTL_MS`.
+ * Both tiers go (staged and bound): a staged row older than the TTL was
+ * never materialized, and a bound row older than the TTL belongs to a
+ * deployment whose relay never enrolled.
+ */
+export async function sweepExpiredPendingSecrets(
+  db: RuntimeDb,
+  now: Date = new Date(),
+): Promise<number> {
+  const deleted = await db
+    .delete(schema.pendingSecrets)
+    .where(lt(schema.pendingSecrets.expiresAt, now))
+    .returning();
+  return deleted.length;
+}

@@ -308,4 +308,9 @@ export const env = {
   paddlePricePlatform,
   paddlePriceDeployment,
   paddleEnvironment: paddleEnvironment as 'sandbox' | 'production',
+  // DEPLOY-027 (Phase 4): KMS key ARN used to encrypt at-rest secret values.
+  // Unset in local dev and tests → the API falls back to the in-memory cipher
+  // stub; production requires it (the worker sweep keeps encrypting new rows
+  // even if the API never decrypts).
+  kmsKeyArn: process.env.DEPLOYZ_KMS_KEY_ARN,
 } as const;

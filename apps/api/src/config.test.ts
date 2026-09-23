@@ -8,16 +8,73 @@ import {
   setConfig,
   setConfigBodySchema,
   toMaskedEntry,
+  type ConfigDeps,
   type ConfigEntry,
   type ConfigSecretWriter,
   type ConfigStore,
 } from './config.js';
 import { enqueue } from './queue.js';
 import { ApiError } from './errors.js';
+import { createCipherStub } from './pending-secrets.js';
 
 // enqueue is only ever called by createRelaySecretWriter (below) — mocking
 // it here affects no other test in this file.
 vi.mock('./queue.js');
+
+// DEPLOY-027 (Phase 4): the existing config.test.ts unit tests still need
+// to exercise setConfig's masking / write-through logic without dragging in
+// real KMS or DB lookups. A no-op ConfigDeps factory keeps the test surface
+// identical — every assertion is on the SAME behaviour the tests already
+// lock — while giving setConfig the new cipher/pendingSecrets/findScope
+// seams it now requires.
+//
+// The brief changes one observable behaviour: when the scope has zero
+// CLAIMABLE deployments (anything outside NOT_INSTALLED / WAITING_FOR_RELAY
+// / DELETING / DELETED), setConfig skips the relay write-through enqueue —
+// the worker would no-op anyway, and the value lives encrypted in
+// pending_secrets for the next createDeploymentRecord to materialize. The
+// mocks below default to a single HEALTHY claimable deployment so the
+// existing assertions on the write-through continue to hold.
+function buildDeps(store: ConfigStore, secretWriter: ConfigSecretWriter): ConfigDeps {
+  return buildDepsWithDeployments(store, secretWriter, [
+    { id: 'deployment-1', organizationId: 'org-1', state: 'HEALTHY' },
+  ]);
+}
+
+function buildDepsWithDeployments(
+  store: ConfigStore,
+  secretWriter: ConfigSecretWriter,
+  deployments: ReadonlyArray<{ id: string; organizationId: string; state: 'HEALTHY' | 'INSTALLING' | 'NOT_INSTALLED' }>,
+): ConfigDeps {
+  const cipher = createCipherStub();
+  return {
+    store,
+    secretWriter,
+    cipher,
+    pendingSecrets: {
+      async upsertStaged() {},
+      async upsertBound() {},
+      async materializeForDeployment() {
+        return [];
+      },
+      async listBoundForDeployment() {
+        return [];
+      },
+      async deleteBoundForDeployment() {},
+      async deleteStagedForScope() {},
+      async sweepExpired() {
+        return 0;
+      },
+      async stampDelivery() {},
+    },
+    async findScopeDeployments() {
+      return deployments.map((d) => ({ id: d.id, organizationId: d.organizationId, state: d.state }));
+    },
+    async findApplicationOrganizationId() {
+      return 'org-1';
+    },
+  };
+}
 
 // Todo 26 — application configuration API logic. The DB boundary
 // (ConfigStore) and the §31 relay write-through (ConfigSecretWriter) are
@@ -238,10 +295,7 @@ describe('config — unknown application', () => {
     const store = createMockStore({ exists: false });
     const secretWriter = createMockWriter();
     await expect(
-      setConfig('no-such-app', null, [{ key: 'LOG_LEVEL', value: 'debug', isSecret: false }], {
-        store,
-        secretWriter,
-      }),
+      setConfig('no-such-app', null, [{ key: 'LOG_LEVEL', value: 'debug', isSecret: false }], buildDeps(store, secretWriter)),
     ).rejects.toMatchObject({ statusCode: 404, code: 'NOT_FOUND' });
     expect(store.written).toEqual([]);
     expect(secretWriter.calls).toEqual([]);
@@ -257,7 +311,7 @@ describe('config — setConfig writes', () => {
       APP_ID,
       null,
       [{ key: 'LOG_LEVEL', value: 'debug', isSecret: false }],
-      { store, secretWriter },
+      buildDeps(store, secretWriter),
     );
 
     expect(store.written).toEqual([
@@ -277,7 +331,7 @@ describe('config — setConfig writes', () => {
       APP_ID,
       CUSTOMER_ID,
       [{ key: 'DATABASE_URL', value: PLAINTEXT_SECRET, isSecret: true }],
-      { store, secretWriter },
+      buildDeps(store, secretWriter),
     );
 
     // The relay seam receives the plaintext (it writes the customer's
@@ -306,7 +360,7 @@ describe('config — setConfig writes', () => {
       APP_ID,
       null,
       [{ key: 'DATABASE_URL', value: PLAINTEXT_SECRET, isSecret: true }],
-      { store, secretWriter },
+      buildDeps(store, secretWriter),
     );
 
     // No customer account exists for vendor defaults — nothing to write to.
@@ -330,7 +384,7 @@ describe('config — setConfig writes', () => {
         { key: 'DATABASE_URL', value: '', isSecret: true },
         { key: 'LOG_LEVEL', value: 'debug', isSecret: false },
       ],
-      { store, secretWriter },
+      buildDeps(store, secretWriter),
     );
 
     // The changed plain value rides the write-through (a plain-only save
@@ -360,7 +414,7 @@ describe('config — setConfig writes', () => {
           { key: 'DATABASE_URL', value: PLAINTEXT_SECRET, isSecret: true },
           { key: 'LOG_LEVEL', value: 'debug', isSecret: false },
         ],
-        { store, secretWriter },
+        buildDeps(store, secretWriter),
       ),
     ).rejects.toMatchObject({ statusCode: 502, code: 'CONFIG_WRITE_FAILED' });
     expect(store.written).toEqual([]);
@@ -379,7 +433,7 @@ describe('config — write validation', () => {
           { key: 'LOG_LEVEL', value: 'info', isSecret: false },
           { key: 'LOG_LEVEL', value: 'debug', isSecret: false },
         ],
-        { store, secretWriter },
+        buildDeps(store, secretWriter),
       ),
     ).rejects.toMatchObject({ statusCode: 400, code: 'INVALID_CONFIG' });
     expect(store.written).toEqual([]);
@@ -389,7 +443,7 @@ describe('config — write validation', () => {
     const store = createMockStore({});
     const secretWriter = createMockWriter();
     await expect(
-      setConfig(APP_ID, null, [{ key: '', value: 'x', isSecret: false }], { store, secretWriter }),
+      setConfig(APP_ID, null, [{ key: '', value: 'x', isSecret: false }], buildDeps(store, secretWriter)),
     ).rejects.toMatchObject({ statusCode: 400, code: 'INVALID_CONFIG' });
   });
 
@@ -400,7 +454,7 @@ describe('config — write validation', () => {
       APP_ID,
       null,
       [{ key: '', value: 'x', isSecret: false }],
-      { store, secretWriter },
+      buildDeps(store, secretWriter),
     ).catch((error: unknown) => error);
     expect(failure).toBeInstanceOf(ApiError);
   });
@@ -449,7 +503,7 @@ describe('config — removing a value', () => {
         { key: 'DATABSE_URL', value: 'oops', isSecret: false },
       ],
     });
-    const view = await setConfig(APP_ID, null, [], { store, secretWriter: createMockWriter() }, [
+    const view = await setConfig(APP_ID, null, [], buildDeps(store, createMockWriter()), [
       'DATABSE_URL',
     ]);
 
@@ -462,7 +516,7 @@ describe('config — removing a value', () => {
       overrides: { [CUSTOMER_ID]: [{ key: 'API_TOKEN', value: SECRET_MASK, isSecret: true }] },
     });
     const writer = createMockWriter();
-    await setConfig(APP_ID, CUSTOMER_ID, [], { store, secretWriter: writer }, ['API_TOKEN']);
+    await setConfig(APP_ID, CUSTOMER_ID, [], buildDeps(store, writer), ['API_TOKEN']);
 
     // The control plane never held the plaintext, so the relay is the only
     // thing that can remove it from the customer's account.
@@ -477,7 +531,7 @@ describe('config — removing a value', () => {
         APP_ID,
         null,
         [{ key: 'LOG_LEVEL', value: 'info', isSecret: false }],
-        { store, secretWriter: createMockWriter() },
+        buildDeps(store, createMockWriter()),
         ['LOG_LEVEL'],
       ),
     ).rejects.toMatchObject({ code: 'CONFIG_CONFLICTING_WRITE' });

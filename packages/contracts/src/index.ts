@@ -1158,6 +1158,13 @@ export const DEFAULT_BOOTSTRAP_STACK_NAME = 'deployz-bootstrap';
  */
 export const DESTROY_PENDING_STALE_AFTER_MS = 60 * 60 * 1000;
 
+// DEPLOY-027 (Phase 4): the TTL of an at-rest pending_secrets row. A row
+// older than this can no longer be decrypted — its KMS ciphertext is dropped
+// by the worker's sweep and the vendor/customer value is lost by design. The
+// constant is shared so the API write path (24h from the moment of write)
+// and the worker's expiry sweep never disagree about what counts as expired.
+export const DEFAULT_PENDING_SECRET_TTL_MS = 24 * 60 * 60 * 1000;
+
 /**
  * CloudFormation stack name for a customer's application stack.
  *

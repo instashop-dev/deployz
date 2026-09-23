@@ -17,14 +17,15 @@ import {
 import type { RuntimeDb } from '@deployz/db';
 import * as schema from '@deployz/db/schema';
 
-import { createConfigStore, createRelaySecretWriter, setConfig } from './config.js';
+import { createConfigStore, createRelaySecretWriter, createScopeDeploymentsFinder, type ConfigDeps, setConfig } from './config.js';
 import { assertProductionDeploymentAllowed } from './billing-entitlements.js';
-import { createDeploymentRecord, loadOwnedApplication, loadOwnedCustomer, mintDeployLinkToken } from './deploy-links.js';
+import { createDeploymentRecord, loadOwnedApplication, loadOwnedCustomer, materializePendingSecretsForDeployment, mintDeployLinkToken } from './deploy-links.js';
 import { env } from './env.js';
 import { ApiError, NotFoundError } from './errors.js';
 import { recordEvent } from './events.js';
 import { requirePreflightReady, runApplicationPreflight } from './preflight.js';
 import { createReleaseRecord } from './releases.js';
+import { createDrizzlePendingSecretStore } from './pending-secrets.js';
 import { hashRelayToken, verifyRelayToken } from './relay-store.js';
 
 // Public Install Links — the customer-side installation review surface. A
@@ -322,6 +323,7 @@ export async function confirmPublicInstall(
   db: RuntimeDb,
   linkId: string,
   body: PublicInstallConfirmBody,
+  configDeps: ConfigDeps,
   token?: string,
 ): Promise<{ installLinkId: string; created: boolean }> {
   const { application, link } = await loadActiveLink(db, linkId, token);
@@ -397,9 +399,23 @@ export async function confirmPublicInstall(
           payload: { schemaVersion: 1, customerId: customerId },
         });
       }
+      // Every dep here must read through THIS transaction: PGlite is
+      // single-connection, so the shared (outer-db) pending-secrets store or
+      // scope finder would deadlock against the tx's own lock.
       await setConfig(link.applicationId, customerId, body.config, {
+        ...configDeps,
         store: createConfigStore(tx),
         secretWriter: createRelaySecretWriter(),
+        pendingSecrets: createDrizzlePendingSecretStore(tx, configDeps.cipher),
+        findScopeDeployments: createScopeDeploymentsFinder(tx),
+        findApplicationOrganizationId: async (applicationId) => {
+          const rows = await tx
+            .select({ organizationId: schema.applications.organizationId })
+            .from(schema.applications)
+            .where(eq(schema.applications.id, applicationId))
+            .limit(1);
+          return rows[0]?.organizationId;
+        },
       });
       const { deployment } = await createDeploymentRecord(tx, {
         organizationId: link.organizationId,
@@ -423,6 +439,20 @@ export async function confirmPublicInstall(
       }
       return deployment;
     });
+    // DEPLOY-027 (Phase 4) materialization hook: every staged row in the new
+    // deployment's scope (vendor + this customer) becomes a bound row
+    // encrypted with the deployment context. Runs OUTSIDE the tx so the
+    // pending-secrets store's drizzle queries do not contend with the
+    // connection the tx holds.
+    await materializePendingSecretsForDeployment(
+      { pendingSecrets: configDeps.pendingSecrets, cipher: configDeps.cipher },
+      {
+        organizationId: link.organizationId,
+        id: deployment.id,
+        applicationId: link.applicationId,
+        customerId: deployment.customerId,
+      },
+    );
     return { installLinkId: deployment.installLinkId, created: true };
   } catch (error) {
     // Two concurrent confirms with the same key can both pass the pre-check;

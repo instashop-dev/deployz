@@ -23,6 +23,7 @@ import {
   handleMessage,
   recordBuildResult,
   sweepBilling,
+  sweepExpiredPendingSecrets,
   sweepRelayLiveness,
   sweepStuckBuilds,
   sweepStuckJobs,
@@ -184,6 +185,14 @@ export async function handler(event: WorkerEvent): Promise<BatchResponse | void>
         console.error('sweepBilling failed', error);
         return { promoted: 0, unstuck: 0, reconciled: 0 };
       });
+      // DEPLOY-027 (Phase 4): drop pending_secrets rows whose TTL expired
+      // before any relay picked them up. Swallow errors the same way as the
+      // other sweeps — a future tick will retry, and a failed sweep must
+      // never fail the scheduled invoke.
+      const sweptExpiredSecrets = await sweepExpiredPendingSecrets(db).catch((error: unknown) => {
+        console.error('sweepExpiredPendingSecrets failed', error);
+        return 0;
+      });
       console.log(
         JSON.stringify({
           event: 'watchdog:sweep-complete',
@@ -193,6 +202,7 @@ export async function handler(event: WorkerEvent): Promise<BatchResponse | void>
           billingPromoted: billing.promoted,
           billingEventsUnstuck: billing.unstuck,
           billingReconciled: billing.reconciled,
+          sweptExpiredSecrets,
         }),
       );
     }

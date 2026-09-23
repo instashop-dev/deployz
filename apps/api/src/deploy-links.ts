@@ -2,7 +2,7 @@ import crypto from 'node:crypto';
 
 import { and, desc, eq } from 'drizzle-orm';
 
-import type { DeploymentType, Region } from '@deployz/contracts';
+import { DEFAULT_PENDING_SECRET_TTL_MS, type DeploymentType, type Region } from '@deployz/contracts';
 import { defaultInfrastructureSizeProfile } from '@deployz/contracts';
 import type { RuntimeDb } from '@deployz/db';
 import * as schema from '@deployz/db/schema';
@@ -11,6 +11,7 @@ import { assertProductionDeploymentAllowed } from './billing-entitlements.js';
 import { env } from './env.js';
 import { ApiError, NotFoundError } from './errors.js';
 import { recordEvent } from './events.js';
+import type { PendingSecretStore, SecretCipher } from './pending-secrets.js';
 import { requirePreflightReady, runApplicationPreflight } from './preflight.js';
 import { hashRelayToken, mintEnrollmentCode, mintRelayCredential, verifyRelayToken } from './relay-store.js';
 
@@ -120,6 +121,16 @@ export interface CreateDeploymentParams {
 export interface CreatedDeployment {
   deployment: DeploymentRow;
   application: ApplicationRow;
+}
+
+/**
+ * DEPLOY-027 (Phase 4) materialization deps. Optional so callers that do not
+ * care about secret delivery (unit tests, fixtures) can omit them and rely on
+ * a no-op fallback.
+ */
+export interface MaterializationDeps {
+  readonly pendingSecrets: PendingSecretStore;
+  readonly cipher: SecretCipher;
 }
 
 /**
@@ -234,6 +245,42 @@ export async function createDeploymentRecord(
   return { deployment: row!, application };
 }
 
+/**
+ * Reads every staged row for the new deployment's scope, decrypts each
+ * with its stored context, re-encrypts with the deployment-scoped context,
+ * and upserts the resulting bound row. Called from every deployment-creation
+ * path (manual POST /api/deployments, deploy-link, public-install confirm,
+ * billing-checkout completion) AFTER the tx that creates the deployment
+ * commits — running this inside the tx deadlocks PGlite's single connection.
+ */
+export async function materializePendingSecretsForDeployment(
+  deps: MaterializationDeps,
+  deployment: { organizationId: string; id: string; applicationId: string; customerId: string },
+): Promise<void> {
+  const rows = await deps.pendingSecrets.materializeForDeployment(deployment);
+  if (rows.length === 0) return;
+  const expiresAt = new Date(Date.now() + DEFAULT_PENDING_SECRET_TTL_MS);
+  for (const { key, plaintext } of rows) {
+    const boundContext: Record<string, string> = {
+      organizationId: deployment.organizationId,
+      applicationId: deployment.applicationId,
+      deploymentId: deployment.id,
+      key,
+      customerId: deployment.customerId,
+    };
+    const { ciphertext } = await deps.cipher.encrypt(plaintext, boundContext);
+    await deps.pendingSecrets.upsertBound({
+      organizationId: deployment.organizationId,
+      applicationId: deployment.applicationId,
+      deploymentId: deployment.id,
+      key,
+      ciphertext,
+      encryptionContext: boundContext,
+      expiresAt,
+    });
+  }
+}
+
 // ── Link lifecycle ──────────────────────────────────────────────────────────
 
 export interface CreateDeployLinkParams {
@@ -247,6 +294,7 @@ export interface CreateDeployLinkParams {
 export async function createDeployLink(
   db: RuntimeDb,
   params: CreateDeployLinkParams,
+  materialization?: MaterializationDeps,
 ): Promise<{ link: DeployLinkRow; deployment: DeploymentRow; application: ApplicationRow; token: string }> {
   // Same fail-closed gate as POST /api/deployments: a link may only target a
   // region whose bootstrap artifacts are CONFIRMED published.
@@ -262,6 +310,7 @@ export async function createDeployLink(
   // flow. Checked before createDeploymentRecord and before the deploy_links
   // row exists.
   await assertProductionDeploymentAllowed(db, params.organizationId, env.billingEnforcementPaused);
+
   const token = mintDeployLinkToken();
   const result = await db.transaction(async (tx) => {
     const { deployment, application } = await createDeploymentRecord(tx, {
@@ -297,6 +346,19 @@ export async function createDeployLink(
     });
     return { link: link!, deployment, application };
   });
+  // DEPLOY-027 (Phase 4): the materialization hook runs OUTSIDE the
+  // transaction so the pending-secrets store's drizzle queries do not contend
+  // with the connection the tx already holds (PGlite is single-connection).
+  // The secrets are encrypted ciphertext — a commit failure here leaves a
+  // staged row that the next createDeploymentRecord would re-materialize.
+  if (materialization !== undefined) {
+    await materializePendingSecretsForDeployment(materialization, {
+      organizationId: params.organizationId,
+      id: result.deployment.id,
+      applicationId: params.applicationId,
+      customerId: params.customerId,
+    });
+  }
   return { ...result, token };
 }
 

@@ -4,7 +4,7 @@ import type { Region } from '@deployz/contracts';
 import type { RuntimeDb } from '@deployz/db';
 import * as schema from '@deployz/db/schema';
 
-import { createDeploymentRecord, loadOwnedApplication, loadOwnedCustomer } from './deploy-links.js';
+import { createDeploymentRecord, loadOwnedApplication, loadOwnedCustomer, materializePendingSecretsForDeployment } from './deploy-links.js';
 import { ApiError } from './errors.js';
 import { recordEvent } from './events.js';
 import { getSubscriptionStatus } from './organizations.js';
@@ -31,6 +31,8 @@ const CHECKOUT_INTENT_EXPIRY_MS = 24 * 60 * 60 * 1000;
 export interface CheckoutDeps {
   db: RuntimeDb;
   paddle: PaddleBilling | null;
+  /** DEPLOY-027 (Phase 4) — materialization seam (see deploy-links.ts). */
+  materialization?: import('./deploy-links.js').MaterializationDeps;
   now?: () => Date;
 }
 
@@ -198,6 +200,10 @@ export interface CompletedCheckoutIntent {
   checkoutIntentId: string;
   status: 'COMPLETED' | 'FAILED';
   deploymentId?: string;
+  // Internal-only fields used by the DEPLOY-027 materialization hook — never
+  // surfaced to callers, kept optional so the public shape is unchanged.
+  applicationId?: string;
+  customerId?: string;
   error?: string;
 }
 
@@ -226,7 +232,7 @@ export async function completePendingCheckoutIntent(
   const now = deps.now ?? (() => new Date());
   let intentId: string | undefined;
   try {
-    return await db.transaction(async (tx) => {
+    const completed: CompletedCheckoutIntent | null = await db.transaction(async (tx) => {
       const [intent] = await tx
         .select()
         .from(schema.billingCheckoutIntents)
@@ -272,8 +278,20 @@ export async function completePendingCheckoutIntent(
         customerId: intent.customerId,
         payload: { schemaVersion: 1, checkoutIntentId: intent.id, deploymentId: deployment.id },
       });
-      return { checkoutIntentId: intent.id, status: 'COMPLETED' as const, deploymentId: deployment.id };
+      return { checkoutIntentId: intent.id, status: 'COMPLETED' as const, deploymentId: deployment.id, applicationId: intent.applicationId, customerId: intent.customerId };
     });
+    // DEPLOY-027 (Phase 4): materialization runs OUTSIDE the tx so the
+    // pending-secrets drizzle queries do not contend with the connection
+    // the tx holds.
+    if (completed !== null && deps.materialization !== undefined) {
+      await materializePendingSecretsForDeployment(deps.materialization, {
+        organizationId,
+        id: completed.deploymentId!,
+        applicationId: completed.applicationId!,
+        customerId: completed.customerId!,
+      });
+    }
+    return completed;
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     if (!intentId) return null;
