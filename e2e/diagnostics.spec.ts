@@ -147,10 +147,9 @@ test('detail page links to diagnostics and a non-failed deployment shows the no-
   await page.waitForURL(`**/dashboard/deployments/${deploymentId}/diagnostics`);
 
   await expect(page.getByRole('heading', { name: 'Diagnostics', exact: true })).toBeVisible();
-  await expect(page.getByRole('heading', { name: 'No issues found', exact: true })).toBeVisible();
-  // A freshly seeded deployment is NOT_INSTALLED, which gets its own empty-
-  // state sentence (see DiagnosticsBody in the diagnostics page) rather than
-  // the "healthy" one, which only applies once a deployment has installed.
+  // A freshly seeded deployment is NOT_INSTALLED: no infrastructure check
+  // has run, so the page says there is nothing to check — never a pass.
+  await expect(page.getByTestId('infra-check-outcome')).toContainText('Nothing to check yet');
   await expect(
     page.getByText('This deployment has not been installed yet, so there is nothing to diagnose.'),
   ).toBeVisible();

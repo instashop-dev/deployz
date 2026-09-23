@@ -874,7 +874,7 @@ export interface RelayCheckCopy {
  */
 export const RELAY_CHECK_COPY: Record<RelayCheckName, RelayCheckCopy> = {
   'stack-exists': {
-    label: 'Application infrastructure',
+    label: 'Infrastructure present',
     passed: "Found in the customer's AWS account",
     failed: {
       problem: "Deployz could not find this deployment's infrastructure in the customer's AWS account.",
@@ -882,15 +882,15 @@ export const RELAY_CHECK_COPY: Record<RelayCheckName, RelayCheckCopy> = {
     },
   },
   'stack-complete': {
-    label: 'Infrastructure setup',
-    passed: 'Setup finished',
+    label: 'Infrastructure provisioning',
+    passed: 'Completed',
     failed: {
       problem: 'The infrastructure setup did not finish successfully.',
-      nextAction: 'Open the issues below for the cause, or retry the installation from the deployment page.',
+      nextAction: 'Check the deployment page for the cause, or retry the installation from there.',
     },
   },
   'stack-tagged': {
-    label: 'Infrastructure ownership',
+    label: 'Installation ownership',
     passed: 'Belongs to this deployment',
     failed: {
       problem: 'The infrastructure found in AWS belongs to a different installation.',
@@ -902,7 +902,7 @@ export const RELAY_CHECK_COPY: Record<RelayCheckName, RelayCheckCopy> = {
     passed: 'Running',
     failed: {
       problem: 'The application service was not created.',
-      nextAction: 'Wait for the current operation to finish. If this stays, open the issues below.',
+      nextAction: 'Wait for the current operation to finish. If this stays, check the deployment page for the cause.',
     },
   },
   ingress: {
@@ -910,7 +910,7 @@ export const RELAY_CHECK_COPY: Record<RelayCheckName, RelayCheckCopy> = {
     passed: 'Running',
     failed: {
       problem: 'The load balancer was not created.',
-      nextAction: 'Wait for the current operation to finish. If this stays, open the issues below.',
+      nextAction: 'Wait for the current operation to finish. If this stays, check the deployment page for the cause.',
     },
   },
   database: {
@@ -918,7 +918,7 @@ export const RELAY_CHECK_COPY: Record<RelayCheckName, RelayCheckCopy> = {
     passed: 'Available',
     failed: {
       problem: 'The database was not created.',
-      nextAction: 'Wait for the current operation to finish. If this stays, open the issues below.',
+      nextAction: 'Wait for the current operation to finish. If this stays, check the deployment page for the cause.',
     },
   },
   storage: {
@@ -926,7 +926,7 @@ export const RELAY_CHECK_COPY: Record<RelayCheckName, RelayCheckCopy> = {
     passed: 'Available',
     failed: {
       problem: 'The storage bucket was not created.',
-      nextAction: 'Wait for the current operation to finish. If this stays, open the issues below.',
+      nextAction: 'Wait for the current operation to finish. If this stays, check the deployment page for the cause.',
     },
   },
   cache: {
@@ -934,9 +934,9 @@ export const RELAY_CHECK_COPY: Record<RelayCheckName, RelayCheckCopy> = {
     passed: 'Available',
     failed: {
       problem: 'The cache was not created.',
-      nextAction: 'Wait for the current operation to finish. If this stays, open the issues below.',
+      nextAction: 'Wait for the current operation to finish. If this stays, check the deployment page for the cause.',
     },
-    notRequired: 'Not provisioned (this application does not require a cache)',
+    notRequired: 'Not required',
   },
   'verification-error': {
     label: 'Verification',
@@ -954,7 +954,7 @@ export const RELAY_CHECK_FALLBACK_COPY: RelayCheckCopy = {
   passed: 'Passed',
   failed: {
     problem: "A check on the deployment's infrastructure did not pass.",
-    nextAction: 'Open the issues below for the cause, or wait for the next check.',
+    nextAction: 'Wait for the next check. If this stays, check the deployment page for the cause.',
   },
 };
 

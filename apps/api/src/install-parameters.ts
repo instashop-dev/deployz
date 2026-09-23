@@ -8,6 +8,7 @@ import * as schema from '@deployz/db/schema';
 
 import { parseDefaultHttps } from './default-https.js';
 import { findActiveDomain } from './domains.js';
+import { ApiError } from './errors.js';
 import { readStoredManifest } from './manifest.js';
 
 function generateSecret(): string {
@@ -18,14 +19,47 @@ function generateSecret(): string {
 export const DESIRED_COUNT_PARAMETER = 'paramDesiredCount';
 
 /**
+ * The newest release an install can run: READY, image digest recorded, and
+ * not known-unavailable. Same selection as autoDeploySelectedRelease.
+ */
+export async function newestDeployableRelease(
+  db: RuntimeDb,
+  applicationId: string,
+): Promise<{ id: string; imageDigest: string } | null> {
+  const rows = await db
+    .select({ id: schema.releases.id, imageDigest: schema.releases.imageDigest })
+    .from(schema.releases)
+    .where(
+      and(
+        eq(schema.releases.applicationId, applicationId),
+        eq(schema.releases.releaseStatus, 'READY'),
+        isNull(schema.releases.imageUnavailableAt),
+        isNotNull(schema.releases.imageDigest),
+      ),
+    )
+    .orderBy(desc(schema.releases.createdAt))
+    .limit(1);
+  const row = rows[0];
+  return row?.imageDigest ? { id: row.id, imageDigest: row.imageDigest } : null;
+}
+
+export function releaseRequiredError(): ApiError {
+  return new ApiError(
+    409,
+    'RELEASE_NOT_PUBLISHED',
+    'This application has no built release yet. Build a release on the Releases page, then try again.',
+  );
+}
+
+/**
  * Builds the CloudFormation parameter values for an INSTALL job (§31).
  * Phase 1: the runtime-v1 template is Documenso-shaped, so every install
  * receives these; unrelated images simply ignore the injected env vars.
  * - imageReference (DEPLOY-001) is the deployment's application's newest
  *   READY release with a known image (`imageUnavailableAt` null); when no
- *   such release exists the key is omitted and the template falls back to
- *   its publish-time default image. `releaseId` names the selected release
- *   (for the deployment identity tags) or null when none was.
+ *   such release exists the install is refused with RELEASE_NOT_PUBLISHED.
+ *   `releaseId` names the selected release (for the deployment identity
+ *   tags).
  * - publicUrl follows the preferred-URL model (Phase 7): an ACTIVE custom
  *   domain, else the ACTIVE default-HTTPS hostname, else a pre-created custom
  *   domain's hostname (legacy install-time behavior). When no URL applies the
@@ -78,30 +112,15 @@ export async function buildInstallParameters(
   }
   if (rows[0]?.applicationId) {
     // DEPLOY-001 — a fresh install must run the application's own release,
-    // not the image the template happened to be published with. Same
-    // selection as autoDeploySelectedRelease (READY, image not known
-    // unavailable), newest first; no such release leaves the key absent so
-    // the template's publish-time default applies.
-    const releaseRows = await db
-      .select({ id: schema.releases.id, imageDigest: schema.releases.imageDigest })
-      .from(schema.releases)
-      .where(
-        and(
-          eq(schema.releases.applicationId, rows[0].applicationId),
-          eq(schema.releases.releaseStatus, 'READY'),
-          isNull(schema.releases.imageUnavailableAt),
-          isNotNull(schema.releases.imageDigest),
-        ),
-      )
-      .orderBy(desc(schema.releases.createdAt))
-      .limit(1);
-    const imageDigest = releaseRows[0]?.imageDigest;
-    if (imageDigest) {
-      parameters[IMAGE_REFERENCE_PARAMETER] = imageDigest;
-      releaseId = releaseRows[0]?.id ?? null;
-      if (options.startAfterConfig === true) {
-        parameters[DESIRED_COUNT_PARAMETER] = '0';
-      }
+    // never the image the template happened to be published with: that
+    // default is another application's image, so installing it fails at
+    // container start. No usable release refuses the install.
+    const release = await newestDeployableRelease(db, rows[0].applicationId);
+    if (!release) throw releaseRequiredError();
+    parameters[IMAGE_REFERENCE_PARAMETER] = release.imageDigest;
+    releaseId = release.id;
+    if (options.startAfterConfig === true) {
+      parameters[DESIRED_COUNT_PARAMETER] = '0';
     }
   }
   // Phase 7 — publicUrl follows the plan's preferred-URL model so a (re)install

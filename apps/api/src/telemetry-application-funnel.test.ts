@@ -89,6 +89,14 @@ describe('application/analysis funnel events (PR1)', () => {
     // One analysed READY application, shared by the preflight-gate tests.
     readyApplicationId = await createApplication(READY_REPO);
     await runAnalysis(readyApplicationId);
+    // A built release: deploy-link creation refuses without one.
+    await db.insert(schema.releases).values({
+      applicationId: readyApplicationId,
+      version: '1.0.0',
+      gitSha: 'a'.repeat(40),
+      releaseStatus: 'READY',
+      imageDigest: `123456789012.dkr.ecr.us-east-1.amazonaws.com/deployz-fixture@sha256:${'b'.repeat(64)}`,
+    });
   }, 120_000);
 
   afterAll(async () => {

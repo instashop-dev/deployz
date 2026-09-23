@@ -7,6 +7,7 @@ import * as schema from '@deployz/db/schema';
 import { createDeploymentRecord, loadOwnedApplication, loadOwnedCustomer, materializePendingSecretsForDeployment } from './deploy-links.js';
 import { ApiError } from './errors.js';
 import { recordEvent } from './events.js';
+import { newestDeployableRelease, releaseRequiredError } from './install-parameters.js';
 import { getSubscriptionStatus } from './organizations.js';
 import type { PaddleBilling } from './paddle.js';
 import { requirePreflightReady, runApplicationPreflight } from './preflight.js';
@@ -72,8 +73,8 @@ async function expireStalePendingIntents(
  * Parks a production deployment request and opens a Paddle transaction for
  * it. Everything that can be checked before the vendor pays is checked here
  * — organization ownership of the application and the customer, and the same
- * preflight gate createDeploymentRecord runs — so a completed checkout does
- * not land on a request that was never going to work.
+ * preflight and built-release gates createDeploymentRecord runs — so a
+ * completed checkout does not land on a request that was never going to work.
  *
  * Pressing the button twice is safe: an organization has at most one PENDING
  * intent (partial unique index), so a second call updates that row with the
@@ -121,6 +122,7 @@ export async function createCheckoutIntent(
   await loadOwnedCustomer(db, params.customerId, params.organizationId);
   const { result } = await runApplicationPreflight(db, application, params.customerId);
   requirePreflightReady(result);
+  if (!(await newestDeployableRelease(db, params.applicationId))) throw releaseRequiredError();
 
   const startedAt = now();
   await expireStalePendingIntents(db, params.organizationId, startedAt);

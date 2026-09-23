@@ -1,6 +1,6 @@
 import type { APIRequestContext, Page } from '@playwright/test';
 
-import { API_URL, expect, test } from './simulation/fixtures.js';
+import { API_URL, expect, test, waitForInstallAutoDeploy } from './simulation/fixtures.js';
 
 /**
  * Phase E: browser-level UI coverage for the simulated scenarios — the same
@@ -325,13 +325,14 @@ test.describe('cloudformation-rollback (browser)', () => {
     // shown on failed installs so the vendor can debug. The redesigned
     // section leads with the plain-English service summary (Database,
     // Network, Relay), and the deeper per-component inventory — lifecycle
-    // copy included — sits behind the "View N resources" disclosure.
+    // copy included — sits behind the "View components and N AWS resources"
+    // disclosure.
     const infrastructureSection = page.locator('section[aria-labelledby="infrastructure"]');
     await expect(infrastructureSection.getByText('Database', { exact: true })).toBeVisible();
     await expect(infrastructureSection.getByText('Network', { exact: true })).toBeVisible();
     await expect(infrastructureSection.getByText('Deployz Relay', { exact: true })).toBeVisible();
     await infrastructureSection
-      .getByRole('button', { name: /View \d+ resource/ })
+      .getByRole('button', { name: /View components and \d+ AWS resource/ })
       .click();
     await expect(
       infrastructureSection.getByText('Retained when deployment is removed.'),
@@ -361,8 +362,8 @@ test.describe('cloudformation-rollback (browser)', () => {
 });
 
 test.describe('update-failure then rollback-success (browser)', () => {
-  // rollback-success's `updateRollouts` ([succeed, fail, succeed]) is exactly
-  // update-failure's own setup plus the rollback outcome this test needs —
+  // rollback-success's `updateRollouts` ([succeed, succeed, fail, succeed]) is
+  // exactly update-failure's own setup plus the rollback outcome this test needs —
   // one scenario definition covers both halves of this flow.
   test.use({ deployzScenario: 'rollback-success' });
   // The most expensive of the four: three real relay job round trips
@@ -390,6 +391,7 @@ test.describe('update-failure then rollback-success (browser)', () => {
         message: 'waiting for install to reach HEALTHY',
       })
       .toBe('HEALTHY');
+    await waitForInstallAutoDeploy(api, deploymentId);
     const installed = await getDeployment(page, deploymentId);
     const applicationId = installed.applicationId;
 
@@ -477,19 +479,20 @@ test.describe('update-failure then rollback-success (browser)', () => {
     await expect(page.getByText('v1.0.0', { exact: true }).first()).toBeVisible();
 
     // The Rollback button targets `previousReleaseId` — production's own
-    // "roll back one step" semantics — which stays null here because v2's
-    // deploy never succeeded (only a SUCCEEDED job ever advances the release
-    // pointers, per apps/api/src/server.ts's job-result handler). There is
-    // genuinely no button on this page that can target "roll back to v1"
-    // specifically, even though v1 is exactly what is still running behind
-    // the load balancer. This is a real product/UI gap, not a harness
-    // limitation, so this test falls back to the API (as
-    // scenario-lifecycle.spec.ts's rollback-success test does) for the
-    // rollback itself, after first pinning the honest disabled state.
+    // "roll back one step" semantics — which is the release v1 replaced (the
+    // post-install auto-deployed 0.1.0), because v2's deploy never succeeded
+    // (only a SUCCEEDED job ever advances the release pointers, per
+    // apps/api/src/server.ts's job-result handler). There is genuinely no
+    // button on this page that can target "roll back to v1" specifically,
+    // even though v1 is exactly what is still running behind the load
+    // balancer. This is a real product/UI gap, not a harness limitation, so
+    // this test falls back to the API (as scenario-lifecycle.spec.ts's
+    // rollback-success test does) for the rollback itself, after first
+    // pinning what the button honestly offers.
     await actionsSection.getByRole('button', { name: 'More actions' }).click();
     const rollbackItem = page.getByRole('menuitem', { name: /Rollback/ });
-    await expect(rollbackItem).toBeDisabled();
-    await expect(rollbackItem).toContainText('No previous successful release to roll back to.');
+    await expect(rollbackItem).toBeEnabled();
+    await expect(rollbackItem).toContainText('Rollback to v0.1.0');
     await page.keyboard.press('Escape');
 
     const rollbackResponse = await request.post(`${API_URL}/api/deployments/${deploymentId}/rollback`, {

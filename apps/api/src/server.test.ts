@@ -1,5 +1,5 @@
 import { PGlite } from '@electric-sql/pglite';
-import { and, eq, inArray } from 'drizzle-orm';
+import { and, eq, inArray, sql } from 'drizzle-orm';
 import { createHmac, generateKeyPairSync } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -140,6 +140,17 @@ async function insertRelease(
     })
     .returning();
   return row!;
+}
+
+/** A READY release with an image: deployment creation and every INSTALL refuse without one. */
+async function insertDeployableRelease(
+  db: Db,
+  applicationId: string,
+): Promise<typeof schema.releases.$inferSelect> {
+  return insertRelease(db, applicationId, {
+    releaseStatus: 'READY',
+    imageDigest: `151955775369.dkr.ecr.us-east-1.amazonaws.com/deployz-images@sha256:${'c'.repeat(64)}`,
+  });
 }
 
 async function insertDeployment(
@@ -524,6 +535,7 @@ describe('server — organization identity comes from the session, not the clien
         databaseState: 'none',
       },
     });
+    await insertDeployableRelease(db, application.id);
     const customer = await insertCustomer(db, orgA.organizationId);
 
     const response = await postJson(
@@ -694,6 +706,7 @@ describe('server — organization identity comes from the session, not the clien
         ],
       },
     });
+    await insertDeployableRelease(db, application.id);
     const customer = await insertCustomer(db, orgA.organizationId);
     // The vendor configured the value as an application default (§31) — the
     // deployment gate now sees a provided key and lets the deployment through.
@@ -1180,6 +1193,7 @@ describe('server — relay bearer auth, INSTALL job, and command/result/health f
     app = await buildServer({ auth, db });
 
     const application = await insertApplication(db, org.organizationId);
+    await insertDeployableRelease(db, application.id);
     const customer = await insertCustomer(db, org.organizationId);
     deployment = await insertDeployment(db, org.organizationId, application.id, customer.id, {
       state: 'NOT_INSTALLED',
@@ -1427,7 +1441,10 @@ describe('server — relay bearer auth, INSTALL job, and command/result/health f
   });
 
   it('success:true marks the job SUCCEEDED and stores the result/finishedAt', async () => {
-    const [job] = await db.select().from(schema.deploymentJobs).where(eq(schema.deploymentJobs.deploymentId, deployment.id));
+    const [job] = await db
+      .select()
+      .from(schema.deploymentJobs)
+      .where(and(eq(schema.deploymentJobs.deploymentId, deployment.id), eq(schema.deploymentJobs.type, 'INSTALL')));
     const response = await postJson(
       app,
       `/api/relay/commands/${job!.id}/result`,
@@ -1443,6 +1460,12 @@ describe('server — relay bearer auth, INSTALL job, and command/result/health f
   });
 
   it('success:false with a valid failureCode marks the job FAILED with that code', async () => {
+    // The INSTALL success above auto-queued a deploy of the READY release;
+    // clear it so the job below is the deployment's only active mutation.
+    await db
+      .update(schema.deploymentJobs)
+      .set({ state: 'CANCELLED' })
+      .where(and(eq(schema.deploymentJobs.deploymentId, deployment.id), eq(schema.deploymentJobs.type, 'DEPLOY_RELEASE')));
     const [freshJob] = await db
       .insert(schema.deploymentJobs)
       .values({
@@ -1614,6 +1637,63 @@ describe('server — relay bearer auth, INSTALL job, and command/result/health f
     expect(updated!.previousReleaseId).toBeNull();
     // Promotion resolved UPDATE_AVAILABLE → HEALTHY: the promoted release is
     // the newest READY one, so no update remains available.
+    expect(updated!.state).toBe('HEALTHY');
+  });
+
+  it('promoting the newest release resolves UPDATE_AVAILABLE even when created_at has microseconds', async () => {
+    // Production Postgres keeps microseconds; a JS Date keeps milliseconds.
+    // The newest release must not count as newer than itself.
+    const token = 'relay-microsecond-token';
+    const installationId = 'inst-microsecond';
+    const application = await insertApplication(db, org.organizationId);
+    const fresh = await insertDeployment(db, org.organizationId, application.id, deployment.customerId, {
+      state: 'INSTALLING',
+      installationId,
+      enrollmentCode: crypto.randomUUID(),
+      enrollmentUsedAt: new Date(),
+      relayTokenHash: hashRelayToken(token),
+      relayStatus: 'CONNECTED',
+    });
+    const digest = 'sha256:' + '9'.repeat(64);
+    const release = await insertRelease(db, application.id, {
+      imageDigest: `acme/app@${digest}`,
+      releaseStatus: 'READY',
+    });
+    await db
+      .update(schema.releases)
+      .set({ createdAt: sql`'2026-09-23T09:43:56.141234Z'::timestamptz` })
+      .where(eq(schema.releases.id, release.id));
+    const [job] = await db
+      .insert(schema.deploymentJobs)
+      .values({
+        deploymentId: fresh.id,
+        type: 'DEPLOY_RELEASE',
+        state: 'RUNNING',
+        idempotencyKey: `${fresh.id}:DEPLOY_RELEASE:${release.id}`,
+        payload: { releaseId: release.id },
+      })
+      .returning();
+
+    await postJson(app, `/api/relay/commands/${job!.id}/result`, { success: true }, { authorization: `Bearer ${token}` });
+    await postJson(
+      app,
+      '/api/relay/health',
+      {
+        installationId,
+        healthStatus: 'HEALTHY',
+        runningImageDigest: digest,
+        observedState: {
+          deploymentRolloutState: 'COMPLETED',
+          desiredCount: 1,
+          runningCount: 1,
+          httpProbe: { ok: true, statusCode: 200, latencyMs: 12, checkedAt: new Date().toISOString() },
+        },
+      },
+      { authorization: `Bearer ${token}` },
+    );
+
+    const [updated] = await db.select().from(schema.deployments).where(eq(schema.deployments.id, fresh.id));
+    expect(updated!.currentReleaseId).toBe(release.id);
     expect(updated!.state).toBe('HEALTHY');
   });
 
@@ -1945,6 +2025,7 @@ describe('server — relay bearer auth, INSTALL job, and command/result/health f
     // Simulation: a deployment after relay/reset — state NOT_INSTALLED,
     // no enrollment, but a FAILED INSTALL job from a previous registration.
     const auditApp = await insertApplication(db, org.organizationId, { name: 'Audit Fail' });
+    await insertDeployableRelease(db, auditApp.id);
     const auditCustomer = await insertCustomer(db, org.organizationId);
     const auditDeployment = await insertDeployment(db, org.organizationId, auditApp.id, auditCustomer.id, {
       state: 'NOT_INSTALLED',
@@ -2003,6 +2084,7 @@ describe('server — relay bearer auth, INSTALL job, and command/result/health f
 
   it('DZ-AUDIT-001: registration while a legitimate INSTALL job is REQUESTED does NOT create a second job', async () => {
     const auditApp = await insertApplication(db, org.organizationId, { name: 'Audit Active' });
+    await insertDeployableRelease(db, auditApp.id);
     const auditCustomer = await insertCustomer(db, org.organizationId);
     const auditDeployment = await insertDeployment(db, org.organizationId, auditApp.id, auditCustomer.id, {
       state: 'NOT_INSTALLED',
@@ -2047,6 +2129,7 @@ describe('server — relay bearer auth, INSTALL job, and command/result/health f
     // After relay/reset cancelled the previous INSTALL, re-registration must
     // produce a new job.
     const auditApp = await insertApplication(db, org.organizationId, { name: 'Audit Cancel' });
+    await insertDeployableRelease(db, auditApp.id);
     const auditCustomer = await insertCustomer(db, org.organizationId);
     const auditDeployment = await insertDeployment(db, org.organizationId, auditApp.id, auditCustomer.id, {
       state: 'NOT_INSTALLED',
@@ -3979,6 +4062,7 @@ describe('server — pre-relay install lifecycle (waiting-for-relay and retry)',
 
   async function seedWaiting(overrides: Partial<typeof schema.deployments.$inferInsert> = {}): Promise<Seeded> {
     const application = await insertApplication(db, org.organizationId, { name: 'Widget Suite' });
+    await insertDeployableRelease(db, application.id);
     const customer = await insertCustomer(db, org.organizationId, { name: 'Widgets Inc' });
     const deployment = await insertDeployment(db, org.organizationId, application.id, customer.id, {
       installationId: null,
@@ -4101,6 +4185,7 @@ describe('server — pre-relay install lifecycle (waiting-for-relay and retry)',
       databaseRequired: true,
       storageRequired: false,
     });
+    await insertDeployableRelease(db, application.id);
     const customer = await insertCustomer(db, org.organizationId);
     const deployment = await insertDeployment(db, org.organizationId, application.id, customer.id, {
       installationId: null,
@@ -4140,6 +4225,7 @@ describe('server — pre-relay install lifecycle (waiting-for-relay and retry)',
       databaseRequired: true,
       storageRequired: false,
     });
+    await insertDeployableRelease(db, application.id);
     const customer = await insertCustomer(db, org.organizationId);
     const deployment = await insertDeployment(db, org.organizationId, application.id, customer.id, {
       installationId: null,
@@ -4666,6 +4752,7 @@ describe('server — retry-install (first-install recovery)', () => {
     jobOverrides: Partial<typeof schema.deploymentJobs.$inferInsert> = {},
   ): Promise<typeof schema.deployments.$inferSelect> {
     const application = await insertApplication(db, org.organizationId);
+    await insertDeployableRelease(db, application.id);
     const customer = await insertCustomer(db, org.organizationId);
     const deployment = await insertDeployment(db, org.organizationId, application.id, customer.id, {
       state: 'FAILED',
@@ -4899,6 +4986,7 @@ describe('server — infrastructure inventory (§59)', () => {
 
     const application = await insertApplication(db, org.organizationId);
     applicationId = application.id;
+    await insertDeployableRelease(db, applicationId);
     const customer = await insertCustomer(db, org.organizationId);
     customerId = customer.id;
   }, 60_000);
@@ -5390,6 +5478,7 @@ describe('server — Phase 1.1 ECR pull grants and auto-deploy on install', () =
 
   it('relay registration grants the customer account pull access for the installation', async () => {
     const application = await insertApplication(db, org.organizationId);
+    await seedReadyRelease(application.id);
     const customer = await insertCustomer(db, org.organizationId);
     const deployment = await insertDeployment(db, org.organizationId, application.id, customer.id, {
       state: 'NOT_INSTALLED',
@@ -5482,14 +5571,17 @@ describe('server — Phase 1.1 ECR pull grants and auto-deploy on install', () =
     expect(events).toHaveLength(1);
   });
 
-  it('skips the auto-deploy when the newest release is not READY yet', async () => {
+  it('skips a newest release that is not READY yet: the auto-deploy rolls the newest READY one', async () => {
     const application = await insertApplication(db, org.organizationId);
     const customer = await insertCustomer(db, org.organizationId);
     const deployment = await insertDeployment(db, org.organizationId, application.id, customer.id, {
       state: 'NOT_INSTALLED',
       installationId: null,
     });
-    // A release still building — nothing deployable to roll yet.
+    // The INSTALL itself needs a READY release, so the not-READY release is
+    // the newer of two.
+    const ready = await seedReadyRelease(application.id);
+    // A release still building — never a deploy target.
     await insertRelease(db, application.id, { buildStatus: 'BUILDING' });
     const installationId = `inst-noready-${crypto.randomUUID()}`;
 
@@ -5517,7 +5609,8 @@ describe('server — Phase 1.1 ECR pull grants and auto-deploy on install', () =
           eq(schema.deploymentJobs.type, 'DEPLOY_RELEASE'),
         ),
       );
-    expect(deployJobs).toHaveLength(0);
+    expect(deployJobs).toHaveLength(1);
+    expect(deployJobs[0]!.payload).toMatchObject({ releaseId: ready.id });
   });
 
   it('does not auto-enqueue a DEPLOY_RELEASE when the INSTALL fails', async () => {
@@ -6265,5 +6358,238 @@ describe('server — P0 hardening', () => {
       expect(checks[1]!.detail).not.toContain('hunter2');
       expect(checks[1]!.detail).toContain('[REDACTED]');
     });
+  });
+});
+
+// ── Commit selector (releases) — real (non-fixture) GitHub routes ──────────
+describe('server — commit selector (releases)', () => {
+  let client: PGlite | undefined;
+  let db: Db;
+  let auth: Auth;
+  let app: FastifyInstance;
+  let org: { userId: string; organizationId: string; cookie: string };
+  let other: { userId: string; organizationId: string; cookie: string };
+  let applicationId: string;
+
+  const FULL_SHA = 'a'.repeat(40);
+
+  const githubFetch = (async (url: string) => {
+    if (url.includes('/access_tokens')) {
+      return {
+        status: 200,
+        headers: { get: () => null },
+        json: async () => ({ token: 'commit-installation-token', expires_at: new Date().toISOString() }),
+      };
+    }
+    if (url.includes(`/commits/${FULL_SHA}`)) {
+      return {
+        status: 200,
+        headers: { get: () => null },
+        json: async () => ({
+          sha: FULL_SHA,
+          commit: { message: 'Fix the thing', author: { name: 'Jane', date: '2026-09-23T10:00:00Z' } },
+        }),
+      };
+    }
+    if (url.includes('/commits/')) {
+      return { status: 404, headers: { get: () => null }, json: async () => ({ message: 'No commit found' }) };
+    }
+    if (url.includes('/repos/acme/widgets/commits?sha=main')) {
+      return {
+        status: 200,
+        headers: { get: () => null },
+        json: async () =>
+          Array.from({ length: 30 }, (_, i) => ({
+            sha: i.toString(16).padStart(40, '0'),
+            commit: { message: `Commit ${i}`, author: { name: 'Jane', date: '2026-09-23T10:00:00Z' } },
+          })),
+      };
+    }
+    return { status: 404, headers: { get: () => null }, json: async () => ({ message: 'Not Found' }) };
+  }) as unknown as Parameters<typeof buildServer>[0]['githubFetch'];
+
+  beforeAll(async () => {
+    client = new PGlite();
+    await applyMigrations(client);
+    db = createDb(client);
+    auth = createAuth(db);
+    app = await buildServer({
+      auth,
+      db,
+      githubFixtureMode: false,
+      githubFetch,
+      githubAppId: 'test-app-id',
+      githubAppPrivateKey: generateKeyPairSync('rsa', {
+        modulusLength: 2048,
+        privateKeyEncoding: { type: 'pkcs1', format: 'pem' },
+        publicKeyEncoding: { type: 'spki', format: 'pem' },
+      }).privateKey,
+    });
+    org = await signUpAndGetOrg(auth, db, 'commits-owner@example.com');
+    other = await signUpAndGetOrg(auth, db, 'commits-other@example.com');
+    await db.insert(schema.githubInstallations).values({
+      id: 'inst-commits-owner',
+      organizationId: org.organizationId,
+      accountLogin: 'acme',
+      accountType: 'Organization',
+    });
+    await db.insert(schema.githubInstallations).values({
+      id: 'inst-commits-other',
+      organizationId: other.organizationId,
+      accountLogin: 'other-org',
+      accountType: 'Organization',
+    });
+    const application = await insertApplication(db, org.organizationId, {
+      githubInstallationId: 'inst-commits-owner',
+      repoFullName: 'acme/widgets',
+      defaultBranch: 'main',
+    });
+    applicationId = application.id;
+  }, 60_000);
+
+  afterAll(async () => {
+    await app?.close();
+    await client?.close();
+  });
+
+  it('lists a real page of commits scoped to the application repo/branch', async () => {
+    const response = await app.inject({
+      method: 'GET',
+      url: `/api/applications/${applicationId}/commits?page=1`,
+      headers: { cookie: org.cookie },
+    });
+    expect(response.statusCode, response.body).toBe(200);
+    const body = response.json() as {
+      repoFullName: string;
+      branch: string;
+      commits: unknown[];
+      nextPage: number | null;
+    };
+    expect(body.repoFullName).toBe('acme/widgets');
+    expect(body.branch).toBe('main');
+    expect(body.commits).toHaveLength(30);
+    expect(body.nextPage).toBe(2);
+  });
+
+  it('404s a cross-org application (authorization boundary)', async () => {
+    const response = await app.inject({
+      method: 'GET',
+      url: `/api/applications/${applicationId}/commits`,
+      headers: { cookie: other.cookie },
+    });
+    expect(response.statusCode).toBe(404);
+  });
+
+  it('rejects unauthenticated access with 401', async () => {
+    const response = await app.inject({ method: 'GET', url: `/api/applications/${applicationId}/commits` });
+    expect(response.statusCode).toBe(401);
+  });
+
+  it('409s GITHUB_NOT_CONNECTED when the application has no githubInstallationId', async () => {
+    const unconnected = await insertApplication(db, org.organizationId, {
+      repoFullName: 'acme/unconnected',
+      defaultBranch: 'main',
+    });
+    const response = await app.inject({
+      method: 'GET',
+      url: `/api/applications/${unconnected.id}/commits`,
+      headers: { cookie: org.cookie },
+    });
+    expect(response.statusCode).toBe(409);
+    expect(errorEnvelopeSchema.parse(response.json()).error.code).toBe('GITHUB_NOT_CONNECTED');
+  });
+
+  it('409s GITHUB_NOT_CONNECTED when the installation is owned by a different org', async () => {
+    const orphan = await insertApplication(db, org.organizationId, {
+      githubInstallationId: 'inst-commits-other',
+      repoFullName: 'acme/orphan',
+      defaultBranch: 'main',
+    });
+    const response = await app.inject({
+      method: 'GET',
+      url: `/api/applications/${orphan.id}/commits`,
+      headers: { cookie: org.cookie },
+    });
+    expect(response.statusCode).toBe(409);
+    expect(errorEnvelopeSchema.parse(response.json()).error.code).toBe('GITHUB_NOT_CONNECTED');
+  });
+
+  it('resolves a valid full sha via the manual-entry route', async () => {
+    const response = await app.inject({
+      method: 'GET',
+      url: `/api/applications/${applicationId}/commits/${FULL_SHA}`,
+      headers: { cookie: org.cookie },
+    });
+    expect(response.statusCode, response.body).toBe(200);
+    const body = response.json() as { commit: { sha: string; title: string } };
+    expect(body.commit.sha).toBe(FULL_SHA);
+    expect(body.commit.title).toBe('Fix the thing');
+  });
+
+  it('rejects a branch name as an invalid sha format with 400 INVALID_COMMIT_SHA', async () => {
+    const response = await app.inject({
+      method: 'GET',
+      url: `/api/applications/${applicationId}/commits/main`,
+      headers: { cookie: org.cookie },
+    });
+    expect(response.statusCode).toBe(400);
+    expect(errorEnvelopeSchema.parse(response.json()).error.code).toBe('INVALID_COMMIT_SHA');
+  });
+
+  it('404s COMMIT_NOT_FOUND for a well-formed but unknown sha', async () => {
+    const response = await app.inject({
+      method: 'GET',
+      url: `/api/applications/${applicationId}/commits/${'b'.repeat(40)}`,
+      headers: { cookie: org.cookie },
+    });
+    expect(response.statusCode).toBe(404);
+    expect(errorEnvelopeSchema.parse(response.json()).error.code).toBe('COMMIT_NOT_FOUND');
+  });
+});
+
+// ── Releases list — gitSha field (commit selector, §22 additive change) ────
+describe('server — releases list includes gitSha', () => {
+  let client: PGlite | undefined;
+  let db: Db;
+  let auth: Auth;
+  let app: FastifyInstance;
+  let org: { userId: string; organizationId: string; cookie: string };
+  let applicationId: string;
+
+  const LEGACY_GIT_SHA = 'sha-1.0.0';
+  const FULL_GIT_SHA = 'c'.repeat(40);
+
+  beforeAll(async () => {
+    client = new PGlite();
+    await applyMigrations(client);
+    db = createDb(client);
+    auth = createAuth(db);
+    app = await buildServer({ auth, db });
+    org = await signUpAndGetOrg(auth, db, 'releases-gitsha@example.com');
+    const application = await insertApplication(db, org.organizationId);
+    applicationId = application.id;
+  }, 60_000);
+
+  afterAll(async () => {
+    await app?.close();
+    await client?.close();
+  });
+
+  it('returns gitSha for each release, including a legacy non-hex value', async () => {
+    await insertRelease(db, applicationId, { version: 'v1.0.0', gitSha: FULL_GIT_SHA });
+    // Backwards compatibility: releases created before the commit selector
+    // stored arbitrary strings (e.g. e2e fixtures posting "sha-1.0.0") and the
+    // create route still accepts them — the list route must not choke on one.
+    await insertRelease(db, applicationId, { version: LEGACY_GIT_SHA, gitSha: LEGACY_GIT_SHA });
+
+    const response = await app.inject({
+      method: 'GET',
+      url: `/api/applications/${applicationId}/releases`,
+      headers: { cookie: org.cookie },
+    });
+    expect(response.statusCode, response.body).toBe(200);
+    const releases = (response.json() as { releases: Array<{ version: string; gitSha: string }> }).releases;
+    expect(releases.find((r) => r.version === 'v1.0.0')?.gitSha).toBe(FULL_GIT_SHA);
+    expect(releases.find((r) => r.version === LEGACY_GIT_SHA)?.gitSha).toBe(LEGACY_GIT_SHA);
   });
 });

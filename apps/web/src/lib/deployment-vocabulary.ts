@@ -377,6 +377,7 @@ import type {
   InfrastructureExpectations,
   InfrastructureHttpsState,
   InfrastructureLifecycle,
+  InfrastructureResponse,
   InfrastructureSummaryStatus,
 } from './deployments';
 
@@ -390,7 +391,7 @@ export const INFRASTRUCTURE_COMPONENT_NAME: Record<InfrastructureComponentKind, 
   network: 'Network',
   monitoring: 'Monitoring',
   container_registry: 'Container registry',
-  other: 'Other',
+  other: 'Supporting resources',
 };
 
 /** Plain-English purpose for each logical infrastructure component kind. */
@@ -403,7 +404,7 @@ export const INFRASTRUCTURE_COMPONENT_PURPOSE: Record<InfrastructureComponentKin
   network: 'Isolates application infrastructure',
   monitoring: 'Collects logs and health information',
   container_registry: 'Stores application images',
-  other: '',
+  other: 'Configuration secrets and other supporting resources',
 };
 
 export type InfrastructureStatusBadgeVariant =
@@ -466,6 +467,57 @@ export function infrastructureComponentStatusLabel(
     return INFRASTRUCTURE_HTTPS_STATE_LABEL[component.httpsState];
   }
   return INFRASTRUCTURE_STATUS_LABEL[component.status];
+}
+
+/**
+ * The resources to list and count for a component. The inventory keeps the
+ * rows of an earlier, rolled-back attempt; while the deployment exists, the
+ * ones CloudFormation already deleted are history, not infrastructure. A
+ * removed deployment keeps the full record.
+ */
+export function visibleResources<T extends { status: string }>(
+  resources: readonly T[],
+  deploymentState: string,
+): T[] {
+  if (deploymentState === 'DELETED') return [...resources];
+  return resources.filter((resource) => resource.status !== 'DELETE_COMPLETE');
+}
+
+/**
+ * A component's operational status while the deployment exists. A resource
+ * that CloudFormation kept (DELETE_SKIPPED, e.g. the bucket of a failed first
+ * attempt) makes the API roll the whole component up to 'retained', even
+ * when its current resources run. Retention is a removal policy (shown from
+ * `lifecycle`), never a health state — so a component with current resources
+ * reads as ready until the deployment is removed.
+ */
+export function operationalComponentStatus(
+  component: Pick<InfrastructureComponent, 'status' | 'resources'>,
+  deploymentState: string,
+): InfrastructureComponentStatus {
+  if (component.status !== 'retained' || deploymentState === 'DELETED' || deploymentState === 'DELETING') {
+    return component.status;
+  }
+  return visibleResources(component.resources, deploymentState).some(
+    (resource) => resource.status !== 'DELETE_SKIPPED',
+  )
+    ? 'ready'
+    : 'retained';
+}
+
+/** The summary status with the same operational reading as the components. */
+export function operationalSummaryStatus(
+  data: Pick<InfrastructureResponse, 'summary' | 'components'>,
+  deploymentState: string,
+): InfrastructureSummaryStatus {
+  if (data.summary.status !== 'retained' || deploymentState === 'DELETED' || deploymentState === 'DELETING') {
+    return data.summary.status;
+  }
+  return data.components.every(
+    (component) => operationalComponentStatus(component, deploymentState) !== 'retained',
+  )
+    ? 'healthy'
+    : 'retained';
 }
 
 /**
@@ -609,6 +661,15 @@ const EVENT_TYPE_LABELS: Record<string, string> = {
   'install.completed': 'Installed and healthy',
   'install.failed': 'Installation failed',
   'install.enrollment.rejected': 'Another helper tried to connect',
+  'install.retry.requested': 'Installation retried',
+  'install_link.opened': 'Customer opened the install link',
+  'deployment.created': 'Deployment created',
+  'application.preflight_evaluated': 'Pre-deployment checks',
+  'relay.connected': 'Deployz connector connected',
+  'default_https.certificate_requested': 'HTTPS certificate requested',
+  'default_https.certificate_issued': 'HTTPS certificate issued',
+  'default_https.dns_created': 'Application address created',
+  'default_https.active': 'HTTPS active',
   'deploy.requested': 'Update started',
   'deploy.completed': 'Update complete',
   'deploy.failed': 'Update failed',

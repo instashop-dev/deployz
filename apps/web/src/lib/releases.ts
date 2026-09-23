@@ -12,6 +12,8 @@ export interface Release {
   status: ReleaseStatus;
   /** Why the build failed; null unless status is FAILED. */
   failureReason: string | null;
+  /** The commit this release was built from (full 40-char SHA). */
+  gitSha: string;
   createdAt: string;
 }
 
@@ -65,6 +67,7 @@ export async function createRelease(
     version: string;
     releaseStatus: ReleaseStatus;
     failureReason: string | null;
+    gitSha: string;
     createdAt: string;
   };
   return {
@@ -72,6 +75,7 @@ export async function createRelease(
     version: row.version,
     status: row.releaseStatus,
     failureReason: row.failureReason ?? null,
+    gitSha: row.gitSha,
     createdAt: row.createdAt,
   };
 }
@@ -103,6 +107,37 @@ export const NO_DEPLOYABLE_RELEASES_COPY =
   'No deployable releases yet. A release must build successfully first.';
 
 /**
+ * What a new deployment would install. An install runs the newest READY
+ * release; without one the API refuses the deployment, so the create screen
+ * says so up front: `building` while the newest release is still building,
+ * `none` when nothing is built (or every build failed).
+ */
+export type InstallReleaseState =
+  | { kind: 'ready'; release: Release }
+  | { kind: 'building'; release: Release }
+  | { kind: 'none' };
+
+export function installReleaseState(releases: readonly Release[]): InstallReleaseState {
+  const newestFirst = [...releases].sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt));
+  const ready = newestFirst.find((r) => r.status === 'READY');
+  if (ready) return { kind: 'ready', release: ready };
+  const building = newestFirst.find((r) => r.status === 'BUILDING');
+  if (building) return { kind: 'building', release: building };
+  return { kind: 'none' };
+}
+
+/**
+ * The first release of an application, built from the commit its analysis
+ * read — the same version scheme the public install link uses (the first 12
+ * characters of the SHA). Null when the analysis recorded no commit.
+ */
+export function firstReleaseInput(detectedMetadata: Record<string, unknown> | null): CreateReleaseInput | null {
+  const sha = detectedMetadata?.analysisCommitSha;
+  if (typeof sha !== 'string' || sha.length === 0) return null;
+  return { version: sha.slice(0, 12), gitSha: sha };
+}
+
+/**
  * Releases the deploy picker may offer: READY only (BUILDING may still
  * fail, FAILED cannot run), excluding the release already running, newest
  * first.
@@ -117,6 +152,25 @@ export function deployableReleases(
 }
 
 /**
+ * The newest READY release created after the running one — the release that
+ * makes a deployment UPDATE_AVAILABLE (mirrors newerReadyReleaseExists in
+ * apps/api/src/jobs.ts). Null when the running release is not in the list,
+ * so the page never guesses a target version.
+ */
+export function updateTargetRelease(
+  releases: readonly Release[],
+  currentReleaseId: string | null,
+): Release | null {
+  const current = releases.find((r) => r.id === currentReleaseId);
+  if (!current) return null;
+  const since = Date.parse(current.createdAt);
+  return (
+    deployableReleases(releases, currentReleaseId).find((r) => Date.parse(r.createdAt) > since) ??
+    null
+  );
+}
+
+/**
  * The release ids currently deployed by any live deployment of the
  * application — the releases the Runtime column marks as Running.
  */
@@ -128,5 +182,44 @@ export function runningReleaseIds(
       .filter((d) => d.state !== 'DELETED' && d.currentReleaseId !== null)
       .map((d) => d.currentReleaseId!),
   );
+}
+
+const SEMVER_PATTERN = /^(v?)(\d+)\.(\d+)\.(\d+)$/;
+
+/**
+ * A default value for the New release form's Version field: the newest
+ * release's version with its patch number incremented, keeping the `v`
+ * prefix when the newest version has one. Returns '' when there is no
+ * release yet or its version is not plain semver — the field stays
+ * editable either way.
+ */
+export function suggestNextVersion(
+  releases: readonly Pick<Release, 'version' | 'createdAt'>[],
+): string {
+  if (releases.length === 0) return '';
+  const newest = releases.reduce((latest, release) =>
+    Date.parse(release.createdAt) > Date.parse(latest.createdAt) ? release : latest,
+  );
+  const match = SEMVER_PATTERN.exec(newest.version);
+  if (!match) return '';
+  const [, prefix, major, minor, patch] = match;
+  return `${prefix}${major}.${minor}.${Number(patch) + 1}`;
+}
+
+/**
+ * Existing releases already built from `sha` (or from a commit `sha` is a
+ * prefix/extension of, so a short manual SHA still matches a full stored
+ * one) — shown as unobtrusive "Already released as vX" context under the
+ * commit field. Never blocks submit.
+ */
+export function alreadyReleasedVersions(releases: readonly Release[], sha: string): string[] {
+  const needle = sha.trim().toLowerCase();
+  if (needle.length < 7) return [];
+  return releases
+    .filter((release) => {
+      const gitSha = release.gitSha.toLowerCase();
+      return gitSha.length >= 7 && (gitSha.startsWith(needle) || needle.startsWith(gitSha));
+    })
+    .map((release) => release.version);
 }
 

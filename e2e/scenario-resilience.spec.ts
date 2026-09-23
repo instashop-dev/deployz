@@ -12,7 +12,7 @@
 
 import type { APIRequestContext } from '@playwright/test';
 
-import { API_URL, expect, expectPlanMatchesInventory, test } from './simulation/fixtures.js';
+import { API_URL, expect, expectPlanMatchesInventory, test, waitForInstallAutoDeploy } from './simulation/fixtures.js';
 
 interface DeploymentResponse {
   state: string;
@@ -22,6 +22,7 @@ interface DeploymentResponse {
 
 interface EventRow {
   eventType: string;
+  releaseId: string | null;
 }
 
 async function getEvents(request: APIRequestContext, deploymentId: string): Promise<EventRow[]> {
@@ -65,6 +66,7 @@ test.describe('duplicate-request', () => {
         message: 'waiting for install to reach HEALTHY',
       })
       .toBe('HEALTHY');
+    await waitForInstallAutoDeploy(api, deploymentId);
     const installed = (await api.getDeployment(deploymentId)) as unknown as DeploymentResponse;
 
     const releaseId = await createRelease(request, installed.applicationId, '1.0.0');
@@ -106,7 +108,8 @@ test.describe('duplicate-request', () => {
         message: 'waiting for the deploy to settle',
       })
       .toBe('UPDATE_AVAILABLE');
-    const events = await getEvents(request, deploymentId);
+    // Only this release's events: the post-install auto-deploy has its own.
+    const events = (await getEvents(request, deploymentId)).filter((e) => e.releaseId === releaseId);
     expect(events.filter((e) => e.eventType === 'deploy.requested')).toHaveLength(1);
     expect(events.filter((e) => e.eventType === 'deploy.completed')).toHaveLength(1);
   });

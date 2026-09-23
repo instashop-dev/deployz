@@ -107,6 +107,14 @@ describe('requirements contract: manifest survives API -> job -> relay unchanged
         ...overrides,
       })
       .returning();
+    // A built release: the INSTALL payload refuses without one.
+    await db.insert(schema.releases).values({
+      applicationId: row!.id,
+      version: '1.0.0',
+      gitSha: 'a'.repeat(40),
+      releaseStatus: 'READY',
+      imageDigest: `123456789012.dkr.ecr.us-east-1.amazonaws.com/deployz-fixture@sha256:${'b'.repeat(64)}`,
+    });
     return row!;
   }
 

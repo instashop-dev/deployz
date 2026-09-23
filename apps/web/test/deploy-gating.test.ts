@@ -97,7 +97,7 @@ describe('deployableReleases', () => {
     createdAt: string,
     failureReason: string | null = null,
   ): Release {
-    return { id, version: `v-${id}`, status, failureReason, createdAt };
+    return { id, version: `v-${id}`, status, failureReason, gitSha: 'a'.repeat(40), createdAt };
   }
 
   const releases = [

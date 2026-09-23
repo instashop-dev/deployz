@@ -113,12 +113,13 @@ export async function newerReadyReleaseExists(
       .limit(1);
     return any !== undefined;
   }
-  const current = await db
+  // Compared inside Postgres: created_at keeps microseconds, a JS Date only
+  // milliseconds, so a round-tripped value makes the current release look
+  // newer than itself. An unknown current release yields NULL — no match.
+  const currentCreatedAt = db
     .select({ createdAt: schema.releases.createdAt })
     .from(schema.releases)
-    .where(eq(schema.releases.id, currentReleaseId))
-    .limit(1);
-  if (current.length === 0) return false;
+    .where(eq(schema.releases.id, currentReleaseId));
   const newer = await db
     .select({ id: schema.releases.id })
     .from(schema.releases)
@@ -126,7 +127,7 @@ export async function newerReadyReleaseExists(
       and(
         eq(schema.releases.applicationId, applicationId),
         eq(schema.releases.releaseStatus, 'READY'),
-        gt(schema.releases.createdAt, current[0]!.createdAt),
+        gt(schema.releases.createdAt, currentCreatedAt),
       ),
     )
     .limit(1);

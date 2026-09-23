@@ -1,34 +1,55 @@
 'use client';
 
-import { ArrowLeft, ChevronDown } from 'lucide-react';
+import {
+  AlertCircle,
+  AlertTriangle,
+  CheckCircle2,
+  ChevronDown,
+  CircleMinus,
+  Info,
+} from 'lucide-react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 
 import { DiagnosticCard } from '@/components/diagnostic-card';
-import { Button } from '@/components/ui/button';
-import { Card, CardContent } from '@/components/ui/card';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import {
+  Breadcrumb,
+  BreadcrumbItem,
+  BreadcrumbLink,
+  BreadcrumbList,
+  BreadcrumbPage,
+  BreadcrumbSeparator,
+} from '@/components/ui/breadcrumb';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
   fetchDiagnostics,
-  infraCheckIsIssue,
   infraCheckPresentation,
+  infraCheckReport,
   readInfraChecks,
   relativeTime,
   type Diagnostic,
+  type InfraCheck,
+  type InfraCheckOutcome,
 } from '@/lib/diagnostics';
 import { fetchDeployment, type FleetDeploymentDetail } from '@/lib/deployments';
+import { formatReleaseVersion } from '@/lib/release-version';
+import { TONE_TEXT } from '@/lib/status-tone';
+import { cn } from '@/lib/utils';
 
 type DiagnosticsState =
   | { status: 'loading' }
   | { status: 'error'; message: string }
   | { status: 'loaded'; detail: FleetDeploymentDetail; diagnostics: Diagnostic[] };
 
-// Diagnostics — the plain-English read of a deployment's failures. Each issue
-// renders as a what/why/fix card (§65 top level) with the raw §61 code +
-// structured event behind the expandable technical detail. Code-driven only:
-// no diagnostic bundles, no log export (S3). Healthy deployments get the
-// "no issues" empty state.
+// Diagnostics — the plain-English read of a deployment's failures and of the
+// relay's latest infrastructure check. Each failure renders as a
+// what/why/fix card (§65 top level) with the raw §61 code + structured event
+// behind the expandable technical detail. Code-driven only: no diagnostic
+// bundles, no log export (S3). The infrastructure check never stands in for
+// application health — that stays on the deployment page.
 export default function DiagnosticsPage() {
   const params = useParams();
   const id = Array.isArray(params.id) ? (params.id[0] ?? '') : (params.id ?? '');
@@ -60,15 +81,28 @@ export default function DiagnosticsPage() {
   }, [id]);
 
   return (
-    <div className="flex flex-col gap-6">
-      <div className="flex items-center gap-2">
-        <Button asChild variant="ghost" size="sm" className="-ml-2">
-          <Link href={`/dashboard/deployments/${id}`}>
-            <ArrowLeft aria-hidden className="size-4" />
-            Deployment
-          </Link>
-        </Button>
-      </div>
+    <div className="flex max-w-3xl flex-col gap-6">
+      <Breadcrumb>
+        <BreadcrumbList>
+          <BreadcrumbItem>
+            <BreadcrumbLink asChild>
+              <Link href="/dashboard/deployments">Deployments</Link>
+            </BreadcrumbLink>
+          </BreadcrumbItem>
+          <BreadcrumbSeparator />
+          <BreadcrumbItem>
+            <BreadcrumbLink asChild>
+              <Link href={`/dashboard/deployments/${id}`}>
+                {state.status === 'loaded' ? state.detail.applicationName : 'Deployment'}
+              </Link>
+            </BreadcrumbLink>
+          </BreadcrumbItem>
+          <BreadcrumbSeparator />
+          <BreadcrumbItem>
+            <BreadcrumbPage>Diagnostics</BreadcrumbPage>
+          </BreadcrumbItem>
+        </BreadcrumbList>
+      </Breadcrumb>
 
       {state.status === 'loading' ? <DiagnosticsSkeleton /> : null}
       {state.status === 'error' ? (
@@ -97,117 +131,28 @@ function DiagnosticsBody({
   diagnostics: Diagnostic[];
 }) {
   const checks = readInfraChecks(detail.observedState);
-  const lastChecked = relativeTime(detail.lastHealthAt);
 
   return (
     <>
-      <div>
+      <div className="flex flex-col gap-3">
         <h1 className="text-2xl font-semibold tracking-tight">Diagnostics</h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          {detail.applicationName} · {detail.customerName}
-        </p>
+        <dl className="flex flex-wrap gap-x-8 gap-y-2 text-sm">
+          <Fact label="Application" value={detail.applicationName} />
+          <Fact label="Customer" value={detail.customerName} />
+          <Fact
+            label="Running release"
+            value={
+              detail.version ? (
+                <span className="tabular-nums">{formatReleaseVersion(detail.version)}</span>
+              ) : (
+                'Not deployed yet'
+              )
+            }
+          />
+        </dl>
       </div>
 
-      {checks.length > 0 ? (
-        <section aria-labelledby="relay-report" className="flex flex-col gap-3">
-          <h2 id="relay-report" className="text-base font-semibold">
-            Last relay report
-          </h2>
-          {lastChecked ? (
-            <p className="text-sm text-muted-foreground" data-testid="relay-last-checked">
-              Last checked {lastChecked}
-            </p>
-          ) : null}
-          <Card>
-            <CardContent className="flex flex-col gap-4 py-4">
-              {checks.some((check) => infraCheckIsIssue(check)) ? (
-                <ul className="flex flex-col gap-3" data-testid="relay-report-issues">
-                  {checks
-                    .filter((check) => infraCheckIsIssue(check))
-                    .map((check) => {
-                      const presentation = infraCheckPresentation(check);
-                      return (
-                        <li key={check.name} className="flex flex-col gap-0.5">
-                          <span className="text-sm font-medium">{presentation.label}</span>
-                          <span className="text-sm text-muted-foreground">{presentation.problem}</span>
-                          <span className="text-sm text-muted-foreground">
-                            What to do next: {presentation.nextAction}
-                          </span>
-                        </li>
-                      );
-                    })}
-                </ul>
-              ) : null}
-
-              <ul className="flex flex-col gap-1.5">
-                {checks.map((check) => {
-                  const presentation = infraCheckPresentation(check);
-                  return (
-                    <li key={check.name} className="flex items-baseline gap-3">
-                      <span
-                        aria-hidden
-                        className={`mt-1.5 size-2 shrink-0 rounded-full ${
-                          presentation.outcome === 'passed'
-                            ? 'bg-primary'
-                            : presentation.outcome === 'issue'
-                              ? 'bg-destructive'
-                              : 'bg-muted-foreground'
-                        }`}
-                      />
-                      <span className="text-sm font-medium">{presentation.label}</span>
-                      <span className="ml-auto text-right text-xs text-muted-foreground">
-                        {presentation.statusText}
-                      </span>
-                    </li>
-                  );
-                })}
-              </ul>
-              {checks.every((check) => !infraCheckIsIssue(check)) ? (
-                <p className="text-sm text-muted-foreground">No active issues.</p>
-              ) : null}
-
-              <details className="group rounded-lg border">
-                <summary className="flex cursor-pointer list-none items-center justify-between px-3 py-2 text-sm font-medium [&::-webkit-details-marker]:hidden">
-                  Technical detail
-                  <ChevronDown
-                    aria-hidden
-                    className="size-4 text-muted-foreground transition-transform group-open:rotate-180"
-                  />
-                </summary>
-                <div
-                  className="flex flex-col gap-2 border-t px-3 py-2.5 text-xs text-muted-foreground"
-                  data-testid="relay-report-technical"
-                >
-                  {checks.map((check) => (
-                    <div key={check.name} className="flex flex-col gap-0.5">
-                      <span className="font-medium text-foreground">{check.name}</span>
-                      <code className="break-all rounded bg-muted px-1.5 py-0.5 font-mono">
-                        {check.detail}
-                      </code>
-                    </div>
-                  ))}
-                </div>
-              </details>
-            </CardContent>
-          </Card>
-        </section>
-      ) : null}
-
-      {diagnostics.length === 0 ? (
-        <section
-          aria-labelledby="diagnostics-empty"
-          className="rounded-xl border border-dashed px-6 py-16 text-center"
-        >
-          <h2 id="diagnostics-empty" className="text-lg font-semibold">
-            No issues found
-          </h2>
-          <p className="mt-1 text-sm text-muted-foreground">
-            {detail.state === 'NOT_INSTALLED' || detail.state === 'WAITING_FOR_RELAY'
-              ? 'This deployment has not been installed yet, so there is nothing to diagnose.'
-              : 'This deployment is healthy, so there is nothing to diagnose.'}
-          </p>
-        </section>
-      ) : (
+      {diagnostics.length > 0 ? (
         <section aria-labelledby="issues" className="flex flex-col gap-3">
           <h2 id="issues" className="text-base font-semibold">
             Issues
@@ -220,8 +165,193 @@ function DiagnosticsBody({
             ))}
           </ul>
         </section>
-      )}
+      ) : null}
+
+      <InfrastructureCheck detail={detail} checks={checks} />
     </>
+  );
+}
+
+function InfrastructureCheck({
+  detail,
+  checks,
+}: {
+  detail: FleetDeploymentDetail;
+  checks: InfraCheck[];
+}) {
+  const report = infraCheckReport(checks, detail.lastHealthAt, detail.relayStatus);
+  const checkedAgo = relativeTime(detail.lastHealthAt);
+  const checkedAt = detail.lastHealthAt ? new Date(detail.lastHealthAt).toLocaleString() : undefined;
+  const checkedLine = checkedAgo ? (
+    <span data-testid="relay-last-checked" title={checkedAt}>
+      Checked {checkedAgo}.
+    </span>
+  ) : null;
+  const notInstalled = detail.state === 'NOT_INSTALLED' || detail.state === 'WAITING_FOR_RELAY';
+
+  return (
+    <section aria-labelledby="infra-check" className="flex flex-col gap-3">
+      <h2 id="infra-check" className="text-base font-semibold">
+        Latest infrastructure check
+      </h2>
+
+      {report.kind === 'passed' ? (
+        <Alert data-testid="infra-check-outcome">
+          <CheckCircle2 aria-hidden className={TONE_TEXT.positive} />
+          <AlertTitle>No issues found in the latest infrastructure check.</AlertTitle>
+          <AlertDescription>
+            <p>
+              {checkedLine} This check covers the AWS infrastructure only. Application health is
+              on the deployment page.
+            </p>
+          </AlertDescription>
+        </Alert>
+      ) : null}
+
+      {report.kind === 'stale' ? (
+        <Alert data-testid="infra-check-outcome">
+          <AlertTriangle aria-hidden className={TONE_TEXT.attention} />
+          <AlertTitle>The latest infrastructure check is out of date.</AlertTitle>
+          <AlertDescription>
+            <p>
+              {checkedLine} The Deployz connector has not sent a new report since then, so these
+              results may no longer match the customer&apos;s AWS account.
+            </p>
+          </AlertDescription>
+        </Alert>
+      ) : null}
+
+      {report.kind === 'issues' ? (
+        <Alert variant="destructive" data-testid="infra-check-outcome">
+          <AlertCircle aria-hidden />
+          <AlertTitle>
+            {report.issues.length === 1
+              ? '1 issue found in the latest infrastructure check.'
+              : `${report.issues.length} issues found in the latest infrastructure check.`}
+          </AlertTitle>
+          <AlertDescription>
+            <ul className="flex flex-col gap-2" data-testid="relay-report-issues">
+              {report.issues.map((check) => {
+                const presentation = infraCheckPresentation(check);
+                return (
+                  <li key={check.name} className="flex flex-col gap-0.5">
+                    <span className="font-medium text-foreground">{presentation.label}</span>
+                    <span>{presentation.problem}</span>
+                    <span>Next step: {presentation.nextAction}</span>
+                  </li>
+                );
+              })}
+            </ul>
+            <p>
+              {checkedLine}
+              {report.stale ? ' The Deployz connector has not reported since then.' : null}
+            </p>
+          </AlertDescription>
+        </Alert>
+      ) : null}
+
+      {report.kind === 'unavailable' ? (
+        <Alert data-testid="infra-check-outcome">
+          <Info aria-hidden />
+          <AlertTitle>
+            {notInstalled ? 'Nothing to check yet' : 'No infrastructure check has completed yet'}
+          </AlertTitle>
+          <AlertDescription>
+            <p>
+              {notInstalled
+                ? 'This deployment has not been installed yet, so there is nothing to diagnose.'
+                : detail.relayStatus === 'CONNECTED'
+                  ? 'Results appear here after the Deployz connector reports on the infrastructure.'
+                  : 'The Deployz connector is not connected, so it cannot check the infrastructure. The deployment page shows the connection status.'}
+            </p>
+          </AlertDescription>
+        </Alert>
+      ) : null}
+
+      {checks.length > 0 ? (
+        <>
+          <div className="overflow-hidden rounded-lg border">
+            <table className="w-full text-sm">
+              <thead className="bg-muted/50 text-left text-xs text-muted-foreground">
+                <tr>
+                  <th scope="col" className="px-3 py-2 font-medium">
+                    Check
+                  </th>
+                  <th scope="col" className="px-3 py-2 font-medium">
+                    Result
+                  </th>
+                </tr>
+              </thead>
+              <tbody className="divide-y">
+                {checks.map((check) => {
+                  const presentation = infraCheckPresentation(check);
+                  return (
+                    <tr key={check.name}>
+                      <th scope="row" className="px-3 py-2 text-left align-top font-medium">
+                        {presentation.label}
+                      </th>
+                      <td className="px-3 py-2 align-top">
+                        <span className="inline-flex items-start gap-1.5">
+                          {RESULT_ICON[presentation.outcome]}
+                          <span
+                            className={cn(
+                              presentation.outcome === 'issue' && 'text-destructive',
+                              presentation.outcome === 'not_required' && 'text-muted-foreground',
+                            )}
+                          >
+                            {presentation.statusText}
+                          </span>
+                        </span>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+
+          <Collapsible>
+            <CollapsibleTrigger className="group flex items-center gap-1 self-start text-sm font-medium text-muted-foreground hover:text-foreground">
+              Technical check details
+              <ChevronDown
+                aria-hidden
+                className="size-4 transition-transform group-data-[state=open]:rotate-180"
+              />
+            </CollapsibleTrigger>
+            <CollapsibleContent>
+              <div
+                className="mt-2 flex flex-col gap-2 rounded-lg border px-3 py-2.5 text-xs text-muted-foreground"
+                data-testid="relay-report-technical"
+              >
+                {checks.map((check) => (
+                  <div key={check.name} className="flex flex-col gap-0.5">
+                    <span className="font-medium text-foreground">{check.name}</span>
+                    <code className="break-all rounded bg-muted px-1.5 py-0.5 font-mono">
+                      {check.detail}
+                    </code>
+                  </div>
+                ))}
+              </div>
+            </CollapsibleContent>
+          </Collapsible>
+        </>
+      ) : null}
+    </section>
+  );
+}
+
+const RESULT_ICON: Record<InfraCheckOutcome, ReactNode> = {
+  passed: <CheckCircle2 aria-hidden className={cn('mt-0.5 size-4 shrink-0', TONE_TEXT.positive)} />,
+  issue: <AlertCircle aria-hidden className="mt-0.5 size-4 shrink-0 text-destructive" />,
+  not_required: <CircleMinus aria-hidden className="mt-0.5 size-4 shrink-0 text-muted-foreground" />,
+};
+
+function Fact({ label, value }: { label: string; value: ReactNode }) {
+  return (
+    <div className="flex min-w-0 flex-col gap-0.5">
+      <dt className="text-muted-foreground">{label}</dt>
+      <dd className="min-w-0 break-words font-medium">{value}</dd>
+    </div>
   );
 }
 
@@ -232,7 +362,7 @@ function DiagnosticsSkeleton() {
         <Skeleton className="h-8 w-40" />
         <Skeleton className="h-4 w-56" />
       </div>
-      <Skeleton className="h-48 w-full rounded-xl" />
+      <Skeleton className="h-24 w-full rounded-xl" />
       <Skeleton className="h-48 w-full rounded-xl" />
     </div>
   );

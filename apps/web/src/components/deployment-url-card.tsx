@@ -1,6 +1,6 @@
 'use client';
 
-import { AlertCircle, ExternalLink } from 'lucide-react';
+import { AlertCircle, ExternalLink, Lock } from 'lucide-react';
 import Link from 'next/link';
 import { useState } from 'react';
 
@@ -33,56 +33,22 @@ interface DeploymentUrlCardProps {
 }
 
 /**
- * The access section of the deployment-detail hero. Always shows the
- * application URL; when a custom domain is configured, it also shows the
- * permanent Deployz address and the custom domain's status.
+ * The access block of the deployment-detail hero: the one place the page
+ * shows the application's address, its Open/Copy actions, whether HTTPS
+ * serves, and the custom domain. "HTTPS active" appears only when the
+ * server's HTTPS component is READY — a successful HTTPS probe of the
+ * address shown — never inferred from the URL scheme alone.
  */
 export function DeploymentUrlCard({ detail }: DeploymentUrlCardProps) {
   const custom = detail.customDomain;
   const defaultUrl = detail.defaultUrl ?? defaultDeployzUrl(detail.id);
   const appUrl = detail.appUrl ?? defaultUrl;
   const customActive = custom?.status === 'active';
-
-  const primaryUrl = customActive ? `https://${custom.hostname}` : appUrl;
-  const primaryLabel = customActive ? 'Application URL' : custom ? 'Deployz address' : 'Application URL';
-  const primarySecure = primaryUrl.startsWith('https://');
-  const healthy = detail.healthStatus === 'HEALTHY';
-
-  return (
-    <div className="flex flex-col gap-3">
-      <UrlBlock
-        label={primaryLabel}
-        url={primaryUrl}
-        healthy={healthy}
-        secure={primarySecure}
-        active={!customActive && custom !== null}
-      />
-
-      {customActive ? (
-        <UrlBlock label="Deployz address" url={defaultUrl} secure healthy={false} active showOpen={false} />
-      ) : null}
-
-      <CustomDomainSection detail={detail} />
-    </div>
-  );
-}
-
-function UrlBlock({
-  label,
-  url,
-  healthy,
-  secure,
-  active,
-  showOpen = true,
-}: {
-  label: string;
-  url: string;
-  healthy: boolean;
-  secure: boolean;
-  active: boolean;
-  /** The secondary Deployz address is an address, not a duplicate CTA. */
-  showOpen?: boolean;
-}) {
+  const url = customActive ? `https://${custom.hostname}` : appUrl;
+  const httpsReady =
+    detail.deploymentStatus.components.find((component) => component.key === 'https')?.status ===
+    'READY';
+  const httpsActive = url.startsWith('https://') && httpsReady;
   const [copied, setCopied] = useState(false);
 
   async function copy(): Promise<void> {
@@ -97,131 +63,96 @@ function UrlBlock({
   }
 
   return (
-    <div
-      className="flex flex-col gap-3 rounded-lg bg-muted/50 px-3 py-2.5 sm:flex-row sm:items-center"
-      data-testid="app-url"
-    >
-      <div className="min-w-0 flex-1">
-        <p className="text-xs font-medium text-muted-foreground">{label}</p>
-        <a
-          href={url}
-          target="_blank"
-          rel="noreferrer"
-          className="inline-flex min-w-0 max-w-full items-center gap-1 text-sm font-medium text-primary underline-offset-4 hover:underline"
-        >
-          <span className="truncate">{url}</span>
-          <ExternalLink aria-hidden className="size-3.5 shrink-0" />
-        </a>
-      </div>
-      <div className="flex flex-wrap items-center gap-2">
-        {active ? <Badge variant="secondary">Active</Badge> : null}
-        {healthy ? <Badge variant="secondary">Healthy</Badge> : null}
-        {secure ? <Badge variant="secondary">Secure</Badge> : null}
-        {showOpen ? (
+    <div className="flex flex-col gap-3 rounded-lg border px-3 py-3" data-testid="app-url">
+      <div className="flex flex-col gap-3 md:flex-row md:items-center">
+        <div className="flex min-w-0 flex-1 flex-col gap-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <p className="text-xs font-medium text-muted-foreground">Application URL</p>
+            {httpsActive ? (
+              <Badge variant="success">
+                <Lock aria-hidden />
+                HTTPS active
+              </Badge>
+            ) : null}
+          </div>
+          <a
+            href={url}
+            target="_blank"
+            rel="noreferrer"
+            className="min-w-0 text-sm font-medium break-all text-primary underline-offset-4 hover:underline"
+          >
+            {url}
+          </a>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
           <Button asChild size="sm">
             <a href={url} target="_blank" rel="noreferrer">
               Open application
               <ExternalLink aria-hidden className="size-3.5" />
             </a>
           </Button>
+          <Button type="button" size="sm" variant="outline" onClick={copy}>
+            {copied ? 'Copied' : 'Copy URL'}
+          </Button>
+        </div>
+      </div>
+
+      <div className="flex flex-col gap-1 border-t pt-3 text-sm">
+        <CustomDomainLine detail={detail} />
+        {customActive ? (
+          <p className="text-xs text-muted-foreground">
+            Also available at <span className="break-all">{defaultUrl}</span>
+          </p>
         ) : null}
-        <Button type="button" size="sm" variant="outline" onClick={copy}>
-          {copied ? 'Copied' : 'Copy'}
-        </Button>
       </div>
     </div>
   );
 }
 
-function CustomDomainSection({ detail }: { detail: FleetDeploymentDetail }) {
+function CustomDomainLine({ detail }: { detail: FleetDeploymentDetail }) {
   const custom = detail.customDomain;
-  const defaultUrl = detail.defaultUrl ?? defaultDeployzUrl(detail.id);
+  const manageHref = `/install/${detail.installLinkId}`;
+  const linkClass =
+    'rounded-md font-medium text-primary underline-offset-4 outline-none hover:underline focus-visible:ring-3 focus-visible:ring-ring/50';
 
   if (!custom) {
     return (
-      <div className="rounded-lg border px-3 py-2.5">
-        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <p className="text-xs font-medium text-muted-foreground">Custom domain</p>
-            <p className="text-sm text-muted-foreground">Not configured</p>
-          </div>
-          <Button asChild size="sm" variant="outline">
-            <Link href={`/install/${detail.installLinkId}`}>Add custom domain</Link>
-          </Button>
-        </div>
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+        <span className="text-muted-foreground">Custom domain</span>
+        <span className="text-muted-foreground">Not configured</span>
+        <Link href={manageHref} className={linkClass}>
+          Add custom domain
+        </Link>
       </div>
     );
   }
-
-  const url = `https://${custom.hostname}`;
-  const statusLabel = CUSTOM_DOMAIN_STATUS_LABEL[custom.status] ?? DOMAIN_STATUS_LABEL[custom.status];
 
   if (custom.status === 'error') {
     return (
-      <div
-        className="rounded-lg border border-destructive/40 bg-destructive/5 px-3 py-2.5"
-        data-testid="custom-domain-error"
-      >
-        <div className="flex flex-col gap-2">
-          <div className="flex items-start gap-2">
-            <AlertCircle aria-hidden className="mt-0.5 size-4 shrink-0 text-destructive" />
-            <div className="min-w-0 flex-1">
-              <p className="text-sm font-medium text-destructive">Custom domain needs attention</p>
-              <p className="text-sm text-muted-foreground">
-                Your application remains available at:{" "}
-                <a
-                  href={defaultUrl}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="text-primary underline-offset-4 hover:underline"
-                >
-                  {defaultUrl}
-                </a>
-              </p>
-            </div>
-          </div>
-          <Button asChild size="sm" variant="outline" className="self-start">
-            <Link href={`/install/${detail.installLinkId}`}>Manage custom domain</Link>
-          </Button>
-        </div>
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1" data-testid="custom-domain-error">
+        <span className="text-muted-foreground">Custom domain</span>
+        <span className="min-w-0 font-medium break-all">{custom.hostname}</span>
+        <span className="inline-flex items-center gap-1 font-medium text-destructive">
+          <AlertCircle aria-hidden className="size-4 shrink-0" />
+          Needs attention
+        </span>
+        <Link href={manageHref} className={linkClass}>
+          Manage custom domain
+        </Link>
       </div>
     );
   }
 
-  const pending = custom.status === 'pending' || custom.status === 'waiting_for_dns' || custom.status === 'configuring';
-
   return (
-    <div className="rounded-lg border px-3 py-2.5">
-      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-        <div className="min-w-0 flex-1">
-          <p className="text-xs font-medium text-muted-foreground">Custom domain</p>
-          <div className="flex flex-wrap items-center gap-2">
-            {custom.status === 'active' ? (
-              <a
-                href={url}
-                target="_blank"
-                rel="noreferrer"
-                className="text-sm font-medium text-primary underline-offset-4 hover:underline"
-              >
-                {url}
-              </a>
-            ) : (
-              <span className="text-sm font-medium text-foreground">{url}</span>
-            )}
-            <Badge variant={custom.status === 'active' ? 'secondary' : 'outline'}>
-              {statusLabel}
-            </Badge>
-          </div>
-          {pending ? (
-            <p className="mt-1 text-xs text-muted-foreground">Waiting for domain setup</p>
-          ) : null}
-        </div>
-        <Button asChild size="sm" variant="outline" className="self-start sm:self-auto">
-          <Link href={`/install/${detail.installLinkId}`}>
-            {custom.status === 'active' ? 'Manage custom domain' : 'Check custom domain'}
-          </Link>
-        </Button>
-      </div>
+    <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+      <span className="text-muted-foreground">Custom domain</span>
+      <span className="min-w-0 font-medium break-all">{custom.hostname}</span>
+      <Badge variant={custom.status === 'active' ? 'success' : 'outline'}>
+        {CUSTOM_DOMAIN_STATUS_LABEL[custom.status] ?? DOMAIN_STATUS_LABEL[custom.status]}
+      </Badge>
+      <Link href={manageHref} className={linkClass}>
+        {custom.status === 'active' ? 'Manage custom domain' : 'Check custom domain'}
+      </Link>
     </div>
   );
 }

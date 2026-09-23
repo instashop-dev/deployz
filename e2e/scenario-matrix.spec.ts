@@ -25,9 +25,10 @@
 
 import type { APIRequestContext } from '@playwright/test';
 
+import { createReadyRelease } from './seed-ready-manifest.js';
 import { extractQuickCreateParam, startSimulatedRelay } from './simulation/relay-harness.js';
 import { getScenario } from './simulation/scenarios/index.js';
-import { API_URL, buildApi, expect, expectPlanMatchesInventory, test } from './simulation/fixtures.js';
+import { API_URL, buildApi, expect, expectPlanMatchesInventory, test, waitForInstallAutoDeploy } from './simulation/fixtures.js';
 
 interface ReadinessResponse {
   analysisStatus: string;
@@ -234,6 +235,10 @@ test.describe('redis-success (B)', () => {
         message: 'waiting for the Redis install to reach HEALTHY',
       })
       .toBe('HEALTHY');
+    // The post-install auto-deploy is a real DEPLOY_RELEASE too: it runs the
+    // migration once.
+    await waitForInstallAutoDeploy(api, deploymentId);
+    expect(relay!.account.migrationRuns).toBe(1);
 
     await expect
       .poll(
@@ -281,7 +286,7 @@ test.describe('redis-success (B)', () => {
         message: 'waiting for the deploy to advance the release pointer',
       })
       .toBe(release.id);
-    expect(relay!.account.migrationRuns).toBe(1);
+    expect(relay!.account.migrationRuns).toBe(2);
 
     // Phase 6 expectation gate after the successful update rollout: the
     // inventory still matches the plan.
@@ -316,6 +321,7 @@ test.describe('monorepo-classified-deploy (C)', () => {
       data: { healthPath: '/health' },
     });
     expect(healthPatch.ok()).toBeTruthy();
+    await createReadyRelease(request, applicationId);
 
     const customerId = await createCustomer(request, suffix);
     const deploymentResponse = await request.post(`${API_URL}/api/deployments`, {
@@ -361,6 +367,7 @@ test.describe('monorepo-classified-deploy (C)', () => {
           { timeout: 30_000, message: 'waiting for the monorepo install to reach HEALTHY' },
         )
         .toBe('HEALTHY');
+      await waitForInstallAutoDeploy(buildApi(request), deployment.id);
 
       const releaseResponse = await request.post(`${API_URL}/api/applications/${applicationId}/releases`, {
         data: { version: '1.0.0', gitSha: 'sha-1.0.0' },
