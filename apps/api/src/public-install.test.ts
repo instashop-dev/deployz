@@ -8,10 +8,13 @@ import { applyMigrations, createDb, type Db } from '@deployz/db';
 import * as schema from '@deployz/db/schema';
 import { REGION_LABELS, buildInstallPlan } from '@deployz/contracts';
 
+import type { DeploymentManifest, EnvironmentSetting } from '@deployz/contracts';
+
 import { createAuth, type Auth } from './auth.js';
 import { SECRET_MASK } from './config.js';
 import { env } from './env.js';
 import { runApplicationPreflight } from './preflight.js';
+import { publicInstallInputs } from './public-install.js';
 import { buildServer } from './server.js';
 
 // Phase 3 public install links — the customer-side installation review
@@ -171,10 +174,10 @@ async function insertEnabledLink(
 }
 
 function fullConfig() {
-  return [
-    { key: 'STRIPE_API_KEY', value: SECRET_VALUE, isSecret: true },
-    { key: 'SITE_TITLE', value: 'Acme Reviews', isSecret: false },
-  ];
+  // SITE_TITLE is optional (classification 'optional') — the env-var setup
+  // spec's legacy resolution no longer asks the customer for it, so it is
+  // not part of what confirm accepts.
+  return [{ key: 'STRIPE_API_KEY', value: SECRET_VALUE, isSecret: true }];
 }
 
 function confirmPayload(overrides: Record<string, unknown> = {}) {
@@ -288,10 +291,9 @@ describe('public install links', () => {
       ]);
       // Only the customer-suppliable inputs: the generated internal secret
       // and the managed binding are minted/injected by the relay and never
-      // asked for.
+      // asked for; an optional key (SITE_TITLE) is not asked either.
       expect(body.requiredInputs).toEqual([
         { key: 'STRIPE_API_KEY', required: true, secret: true, classification: 'customer_required', purpose: 'external_credential' },
-        { key: 'SITE_TITLE', required: false, secret: false, classification: 'optional', purpose: 'optional_configuration' },
       ]);
       // The plan is exactly buildInstallPlan of the application's effective
       // manifest — the same construction the vendor plan endpoint serves.
@@ -388,7 +390,6 @@ describe('public install links', () => {
         and(eq(schema.applicationConfigs.applicationId, application.id), eq(schema.applicationConfigs.customerId, customer!.id)),
       );
     const byKey = new Map(configRows.map((row) => [row.key, row]));
-    expect(byKey.get('SITE_TITLE')).toMatchObject({ value: 'Acme Reviews', isSecret: false });
     expect(byKey.get('STRIPE_API_KEY')).toMatchObject({ value: SECRET_MASK, isSecret: true });
 
     // The funnel event attributes the public_link origin.
@@ -836,5 +837,95 @@ describe('public install links', () => {
       [firstId, 'revoked'],
     ]);
     expect(links[1]!.revokedAt).not.toBeNull();
+  });
+});
+
+// publicInstallInputs — pure, no DB. Env-var setup: only customer-scope
+// runtime keys (a saved 'customer' setting, or legacy "unreviewed required")
+// are asked; optional/vendor/deployz/build keys are not.
+describe('publicInstallInputs', () => {
+  function inputsManifest(): DeploymentManifest {
+    return {
+      application: { root: '.', runtime: 'node', framework: 'express', dockerfilePath: 'Dockerfile' },
+      build: { command: 'tsc', context: '.' },
+      web: { command: 'node dist/index.js', port: 3000 },
+      health: { path: '/health' },
+      database: { postgres: false },
+      redis: { required: false, envBindings: [] },
+      storage: { required: false, envBindings: [] },
+      migration: { command: null },
+      worker: { command: null },
+      environment: {
+        variables: [
+          { key: 'DATABASE_URL', required: true, secret: false, source: [], classification: 'deployz_managed' },
+          { key: 'STRIPE_SECRET_KEY', required: true, secret: true, source: [], classification: 'customer_required' },
+          { key: 'LOG_LEVEL', required: false, secret: false, source: [], classification: 'optional' },
+        ],
+      },
+      externalServices: [],
+      unsupported: [],
+    };
+  }
+
+  it('legacy (no settings): asks only for the unreviewed required key, optional keys are not asked', () => {
+    const inputs = publicInstallInputs(inputsManifest(), null);
+    expect(inputs.map((input) => input.key)).toEqual(['STRIPE_SECRET_KEY']);
+    expect(inputs[0]).toMatchObject({ required: true, secret: true });
+  });
+
+  it('a saved provider:none setting is not asked, even though the key is required in the manifest', () => {
+    const settings: EnvironmentSetting[] = [
+      { key: 'STRIPE_SECRET_KEY', stage: 'runtime', required: false, secret: true, provider: 'none' },
+    ];
+    const inputs = publicInstallInputs(inputsManifest(), settings);
+    expect(inputs).toEqual([]);
+  });
+
+  it('a saved provider:customer setting passes its label and help through', () => {
+    const settings: EnvironmentSetting[] = [
+      {
+        key: 'STRIPE_SECRET_KEY',
+        stage: 'runtime',
+        required: true,
+        secret: true,
+        provider: 'customer',
+        label: 'Stripe secret key',
+        help: 'Found in the Stripe dashboard under API keys.',
+      },
+    ];
+    const inputs = publicInstallInputs(inputsManifest(), settings);
+    expect(inputs).toEqual([
+      expect.objectContaining({
+        key: 'STRIPE_SECRET_KEY',
+        required: true,
+        secret: true,
+        label: 'Stripe secret key',
+        help: 'Found in the Stripe dashboard under API keys.',
+      }),
+    ]);
+  });
+
+  it('a saved provider:vendor setting is not asked (the vendor supplies it)', () => {
+    const settings: EnvironmentSetting[] = [
+      { key: 'STRIPE_SECRET_KEY', stage: 'runtime', required: true, secret: true, provider: 'vendor' },
+    ];
+    expect(publicInstallInputs(inputsManifest(), settings)).toEqual([]);
+  });
+
+  it('an explicit provider:customer setting asks for a key the mintable heuristic would otherwise skip', () => {
+    const manifest = inputsManifest();
+    manifest.environment.variables.push({
+      key: 'LICENSE_KEY',
+      required: true,
+      secret: true,
+      source: [],
+      purpose: 'internal_secret',
+      classification: 'customer_required',
+    });
+    expect(publicInstallInputs(manifest, null).map((input) => input.key)).toEqual(['STRIPE_SECRET_KEY']);
+    const settings: EnvironmentSetting[] = [
+      { key: 'LICENSE_KEY', stage: 'runtime', required: true, secret: true, provider: 'customer', label: 'License key' },
+    ];
+    expect(publicInstallInputs(manifest, settings).map((input) => input.key)).toEqual(['STRIPE_SECRET_KEY', 'LICENSE_KEY']);
   });
 });

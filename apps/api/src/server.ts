@@ -41,10 +41,13 @@ import {
   buildUpdatePlan,
   compareInfrastructureExpectations,
   applicationStackNameForInstallation,
+  deployzProvidableKeys,
   deploymentPlanSchema,
   deploymentStateAfterFailedJob,
   deploymentTypeSchema,
+  environmentSettingsSchema,
   failureCodeSchema,
+  validateEnvironmentSettings,
   failureEvidenceSchema,
   healthComponentsSchema,
   healthStatusSchema,
@@ -114,6 +117,8 @@ import {
   createRelaySecretWriter,
   createScopeDeploymentsFinder,
   getConfig,
+  listProvidedConfigKeys,
+  listVendorValues,
   SECRET_MASK,
   setConfig,
   setConfigBodySchema,
@@ -182,7 +187,8 @@ import {
   revokePublicInstallLink,
   setPublicInstallLinkEnabled,
 } from './public-install.js';
-import { createReleaseRecord } from './releases.js';
+import { createReleaseRecord, ensureBuildConfigurationReady } from './releases.js';
+import { evaluateForApplication, readEnvironmentSettings } from './environment-setup.js';
 import {
   createOrReuseJob,
   hasStartedInstall,
@@ -902,6 +908,14 @@ interface ReadinessResponse {
    * is incomplete.
    */
   deploymentRequirementDrift: DeploymentRequirementDriftSummary[];
+  /** Env-var setup counts (docs/environment-variables.md). Null while analysis is incomplete. */
+  environmentSetup: {
+    needsDecision: number;
+    missingValue: number;
+    missingBuildValue: number;
+    customer: number;
+    total: number;
+  } | null;
 }
 
 /** Legacy-row bridge: rebuild findings from the pre-report `checks` shape. */
@@ -953,14 +967,17 @@ function legacyReadiness(app: {
   };
 }
 
-function computeReadiness(
+async function computeReadiness(
+  db: RuntimeDb,
   app: ManifestApplicationRow & {
+    id: string;
     analysisStatus: string;
     compatibilityStatus: string | null;
     compatibilityReason: string | null;
+    environmentSettings?: unknown;
   },
   deployments: DeploymentRequirementDriftRow[],
-): ReadinessResponse {
+): Promise<ReadinessResponse> {
   if (app.analysisStatus !== 'COMPLETE') {
     return {
       analysisStatus: app.analysisStatus,
@@ -979,6 +996,7 @@ function computeReadiness(
       detected: null,
       requirements: null,
       deploymentRequirementDrift: [],
+      environmentSetup: null,
     };
   }
 
@@ -998,6 +1016,7 @@ function computeReadiness(
       }
     : legacyReadiness(app);
   const detected = readApplicationAnalysis(app.detectedMetadata);
+  const environmentSetup = await evaluateForApplication(db, app);
 
   return {
     analysisStatus: app.analysisStatus,
@@ -1007,6 +1026,13 @@ function computeReadiness(
     detected,
     requirements: computeApplicationRequirements(app, detected),
     deploymentRequirementDrift: computeDeploymentRequirementDrift(app, deployments),
+    environmentSetup: {
+      needsDecision: environmentSetup.counts.needsDecision,
+      missingValue: environmentSetup.counts.missingValue,
+      missingBuildValue: environmentSetup.counts.missingBuildValue,
+      customer: environmentSetup.counts.customer,
+      total: environmentSetup.counts.total,
+    },
   };
 }
 
@@ -2831,6 +2857,61 @@ export async function buildServer({
     return { ...view, customerName: scope.customerName };
   });
 
+  // Vendor decisions for how each detected env var gets its value
+  // (docs/environment-variables.md). Does NOT rerun analysis —
+  // it reads the manifest analysis already produced. Vendor VALUES are still
+  // saved with the existing PUT /api/applications/:id/config (vendor scope).
+  async function environmentSettingsView(app: typeof schema.applications.$inferSelect) {
+    const manifest = effectiveApplicationManifest(app);
+    const vendorValueKeys = await listProvidedConfigKeys(db, app.id, null);
+    return {
+      settings: readEnvironmentSettings(app),
+      variables: manifest.environment.variables,
+      deployzKeys: [...deployzProvidableKeys(manifest.environment.variables)],
+      vendorValueKeys,
+    };
+  }
+
+  app.get('/api/applications/:id/environment-settings', { preHandler: requireAuth }, async (request) => {
+    const { id } = request.params as { id: string };
+    const organizationId = requireSessionOrganizationId(request);
+    const app = await loadOwnedApplication(db, id, organizationId);
+    return environmentSettingsView(app);
+  });
+
+  app.put('/api/applications/:id/environment-settings', { preHandler: requireAuth }, async (request) => {
+    const { id } = request.params as { id: string };
+    const organizationId = requireSessionOrganizationId(request);
+    const app = await loadOwnedApplication(db, id, organizationId);
+    const parsedBody = z.object({ settings: environmentSettingsSchema }).strict().safeParse(request.body);
+    if (!parsedBody.success) {
+      throw new ApiError(400, 'INVALID_ENVIRONMENT_SETTINGS', 'The submitted settings are invalid.', {
+        issues: parsedBody.error.issues,
+      });
+    }
+    const manifest = effectiveApplicationManifest(app);
+    const problems = validateEnvironmentSettings(
+      parsedBody.data.settings,
+      deployzProvidableKeys(manifest.environment.variables),
+    );
+    if (problems.length > 0) {
+      throw new ApiError(422, 'ENVIRONMENT_SETTINGS_INVALID', problems.join(' '), { problems });
+    }
+    const [updated] = await db
+      .update(schema.applications)
+      .set({ environmentSettings: parsedBody.data.settings })
+      .where(and(eq(schema.applications.id, id), eq(schema.applications.organizationId, organizationId)))
+      .returning();
+    await recordEvent(db, {
+      organizationId,
+      eventType: 'application.environment_settings_saved',
+      actorType: 'user',
+      actorId: request.user!.id,
+      payload: { schemaVersion: 1, applicationId: id, settingCount: parsedBody.data.settings.length },
+    });
+    return environmentSettingsView(updated!);
+  });
+
   // The GitHub App's Setup URL. GitHub sends the vendor here right after they
   // install (or reconfigure) the App, with `installation_id` in the query —
   // this is the one moment where the GitHub installation and the vendor's
@@ -3337,7 +3418,7 @@ export async function buildServer({
       .from(schema.deployments)
       .innerJoin(schema.customers, eq(schema.deployments.customerId, schema.customers.id))
       .where(eq(schema.deployments.applicationId, id));
-    return computeReadiness(app, deployments);
+    return computeReadiness(db, app, deployments);
   });
 
   // GET /api/applications/:id/preflight — the pre-deployment gate for this
@@ -4387,7 +4468,8 @@ export async function buildServer({
   app.post('/api/applications/:id/releases', { preHandler: requireAuth }, async (request, reply) => {
     const { id } = request.params as { id: string };
     const organizationId = requireSessionOrganizationId(request);
-    await loadOwnedApplication(db, id, organizationId);
+    const application = await loadOwnedApplication(db, id, organizationId);
+    await ensureBuildConfigurationReady(db, application);
     const body = createReleaseBodySchema.parse(request.body);
 
     // §36 one immutable record per version. Two releases called 1.0.0 make
@@ -7946,6 +8028,14 @@ export async function buildServer({
       },
       async stampDelivery(deploymentId, key) {
         await pendingSecrets.stampDelivery(deploymentId, key);
+      },
+      // VENDOR-scope secrets never bind a pending-secret row (that path is
+      // customer-only) — they decrypt straight off the application_configs
+      // ciphertext (apps/api/src/config.ts's listVendorValues does the same
+      // decrypt for build variables).
+      async readVendorSecret(applicationId, key) {
+        const values = await listVendorValues(db, applicationId, [key], cipher);
+        return values[key];
       },
     });
     return { entries };

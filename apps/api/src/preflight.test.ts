@@ -3,6 +3,8 @@ import { describe, expect, it } from 'vitest';
 import type { ReadinessReport } from '@deployz/analysis';
 import type { DeploymentManifest } from '@deployz/contracts';
 
+import type { EnvironmentSetting } from '@deployz/contracts';
+
 import { evaluatePreflight, requirePreflightReady } from './preflight.js';
 
 // AI MVP Phase 5 — the preflight gate: manifest gate + this customer's
@@ -148,6 +150,55 @@ describe('evaluatePreflight', () => {
   it('is deterministic', () => {
     const input = { manifest: manifest(), providedEnvKeys: [], readiness: readiness([healthFinding]) };
     expect(evaluatePreflight(input)).toEqual(evaluatePreflight(input));
+  });
+});
+
+describe('evaluatePreflight — env-var setup settings', () => {
+  function setting(overrides: Partial<EnvironmentSetting>): EnvironmentSetting {
+    return { key: 'STRIPE_SECRET_KEY', stage: 'runtime', required: true, secret: true, provider: 'customer', ...overrides };
+  }
+
+  it('a vendor-optional setting never blocks deployment even with no value', () => {
+    const result = evaluatePreflight({
+      manifest: manifest(),
+      providedEnvKeys: [],
+      readiness: readiness(),
+      settings: [setting({ provider: 'none', required: false })],
+    });
+    expect(result.state).toBe('READY');
+    expect(result.checks.find((check) => check.id === 'customer-variables')?.detail).toBe('Nothing for you to provide');
+  });
+
+  it('a customer-required runtime setting still blocks deployment without a value', () => {
+    const result = evaluatePreflight({
+      manifest: manifest(),
+      providedEnvKeys: [],
+      readiness: readiness(),
+      settings: [setting({ provider: 'customer', required: true })],
+    });
+    expect(result.state).toBe('ACTION_REQUIRED');
+    expect(result.blockers.map((finding) => finding.id)).toEqual(['required-env-vars-missing']);
+    expect(result.checks.find((check) => check.id === 'customer-variables')).toMatchObject({
+      status: 'blocked',
+      detail: 'Missing: STRIPE_SECRET_KEY',
+    });
+  });
+
+  it('a build-stage vendor setting is skipped by the runtime gate regardless of value', () => {
+    const result = evaluatePreflight({
+      manifest: manifest(),
+      providedEnvKeys: [],
+      readiness: readiness(),
+      settings: [setting({ provider: 'vendor', stage: 'build', required: true, secret: false })],
+    });
+    expect(result.state).toBe('READY');
+  });
+
+  it('legacy behaviour (no settings) is unchanged: the old classification rule still applies', () => {
+    const withSettings = evaluatePreflight({ manifest: manifest(), providedEnvKeys: [], readiness: readiness(), settings: null });
+    const withoutSettings = evaluatePreflight({ manifest: manifest(), providedEnvKeys: [], readiness: readiness() });
+    expect(withSettings).toEqual(withoutSettings);
+    expect(withSettings.state).toBe('ACTION_REQUIRED');
   });
 });
 

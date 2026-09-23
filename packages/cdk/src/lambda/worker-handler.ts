@@ -16,11 +16,13 @@ import { resolveAiGatewayConfig, resolveJevConfig } from '@deployz/api/ai-config
 import { createAnalysisRunner } from '@deployz/api/analysis';
 import { createJevShadowRunnerFromEnv, createJevFailureShadowRunnerFromEnv } from '@deployz/api/jev-shadow';
 import { createPaddle } from '@deployz/api/paddle';
+import { createCipherStub, createKmsCipher } from '@deployz/api/pending-secrets';
 import type { QueueMessage } from '@deployz/api/queue';
 
 import { connectDb, type LambdaDb } from './db-connection.js';
 import {
   handleMessage,
+  loadBuildVariablesFromDb,
   recordBuildResult,
   sweepBilling,
   sweepExpiredPendingSecrets,
@@ -151,6 +153,15 @@ function createDeps(db: LambdaDb): WorkerDeps {
       // disabled or partially configured, one shared breaker per process.
       jevShadow: createJevShadowRunnerFromEnv({ db }, resolveJevConfig(process.env)),
     }),
+    // Same cipher construction as the API server (apps/api/src/server.ts):
+    // a configured KMS key ARN gets the real cipher, otherwise the in-memory
+    // stub (local dev / no key provisioned yet).
+    loadBuildVariables: (db, applicationId) =>
+      loadBuildVariablesFromDb(
+        db,
+        applicationId,
+        process.env.DEPLOYZ_KMS_KEY_ARN ? createKmsCipher(process.env.DEPLOYZ_KMS_KEY_ARN) : createCipherStub(),
+      ),
   };
 }
 

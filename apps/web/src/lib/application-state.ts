@@ -21,6 +21,7 @@ export const APPLICATION_STATES = [
   'analysing',
   'analysis-failed',
   'configuration-required',
+  'configuration-review',
   'ready-to-test',
   'test-queued',
   'test-deploying',
@@ -230,6 +231,7 @@ const BADGES: Record<ApplicationState, { label: string; variant: ApplicationBadg
   analysing: { label: 'Analysing', variant: 'info' },
   'analysis-failed': { label: 'Analysis failed', variant: 'destructive' },
   'configuration-required': { label: 'Changes required', variant: 'warning' },
+  'configuration-review': { label: 'Needs review', variant: 'warning' },
   'ready-to-test': { label: 'Ready to test', variant: 'info' },
   'test-queued': { label: 'Test not started', variant: 'secondary' },
   'test-deploying': { label: 'Test deploying', variant: 'info' },
@@ -249,6 +251,18 @@ const INSTALL_LINK_REVOKED_NOTE = 'The previous link was revoked. Create a new l
 
 function changesRequired(count: number): string {
   return `${count} ${count === 1 ? 'change' : 'changes'} required`;
+}
+
+// ── Environment setup ────────────────────────────────────────────────────────
+
+type EnvironmentSetupCounts = NonNullable<ApplicationReadiness['environmentSetup']>;
+
+function environmentReviewMessage(counts: EnvironmentSetupCounts): string {
+  const variables = (count: number) => `${count} ${count === 1 ? 'environment variable needs' : 'environment variables need'}`;
+  if (counts.needsDecision === 0) return `Analysis finished. ${variables(counts.missingValue)} a value.`;
+  const decision = `Analysis finished. ${variables(counts.needsDecision)} a decision.`;
+  if (counts.missingValue === 0) return decision;
+  return `${decision} ${counts.missingValue} ${counts.missingValue === 1 ? 'needs' : 'need'} a value.`;
 }
 
 // ── Release copy ─────────────────────────────────────────────────────────────
@@ -441,6 +455,9 @@ export function deriveApplicationPresentation(input: ApplicationStateInput): App
   const analysed = analysisStatus === 'COMPLETE';
   const required = analysed ? readiness.findings.filter((f) => f.severity === 'required') : [];
   const recommended = analysed ? readiness.findings.filter((f) => f.severity === 'recommended') : [];
+  const environmentSetup = analysed ? (readiness.environmentSetup ?? null) : null;
+  const needsEnvReview =
+    environmentSetup !== null && environmentSetup.needsDecision + environmentSetup.missingValue > 0;
   const test = latestTestDeployment(deployments);
   const phase = testDeploymentPhase(test);
   const customers = customerDeployments(deployments);
@@ -564,6 +581,25 @@ export function deriveApplicationPresentation(input: ApplicationStateInput): App
         polling: null,
         lifecycle: lifecycle('done', 'current', 'pending'),
         linkUnavailableReason: 'The customer install link becomes available after the required changes and a successful test deployment.',
+        cardShowsTest: false,
+      };
+    }
+
+    if (needsEnvReview && customers.length === 0) {
+      return {
+        state: 'configuration-review',
+        heading: 'Configuration needs review',
+        message: environmentReviewMessage(environmentSetup!),
+        busy: false,
+        primaryAction: action(
+          'review-configuration',
+          'Review configuration',
+          `${configurationHref}#environment-variables`,
+        ),
+        secondaryActions: [],
+        polling: null,
+        lifecycle: lifecycle('done', 'current', 'pending'),
+        linkUnavailableReason: 'The customer install link becomes available after the configuration review and a successful test deployment.',
         cardShowsTest: false,
       };
     }
@@ -693,6 +729,9 @@ export function deriveApplicationPresentation(input: ApplicationStateInput): App
   if (input.stale) notices.push({ tone: 'warning', text: STALE_NOTICE });
   if (core.state === 'customers-active' && phase === 'failed') {
     notices.push({ tone: 'warning', text: 'The test deployment needs attention.' });
+  }
+  if (core.state === 'customers-active' && needsEnvReview) {
+    notices.push({ tone: 'warning', text: environmentReviewMessage(environmentSetup!) });
   }
   if (core.releaseNotice) notices.push(core.releaseNotice);
 

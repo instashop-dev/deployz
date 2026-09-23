@@ -1,4 +1,4 @@
-import { and, eq, isNull, or, type SQL } from 'drizzle-orm';
+import { and, eq, inArray, isNull, or, type SQL } from 'drizzle-orm';
 import { z } from 'zod';
 
 import { DEFAULT_PENDING_SECRET_TTL_MS } from '@deployz/contracts';
@@ -32,6 +32,18 @@ export interface ConfigEntry {
   readonly key: string;
   readonly value: string;
   readonly isSecret: boolean;
+  /**
+   * VENDOR-scope only: ciphertext of the real secret value, produced by
+   * `deps.cipher.encrypt` (the same SecretCipher DEPLOY-027's pending-secret
+   * vault uses) with a deterministic context — present only when Deployz can
+   * actually deliver this secret later (build args, post-install
+   * CONFIG_UPDATE). `value` still carries SECRET_MASK for these rows.
+   * CUSTOMER-scope secrets never populate this column — they travel through
+   * the pending-secret vault instead (apps/api/src/pending-secrets.ts).
+   * Undefined/null for plain values and for legacy secret rows written
+   * before this column existed.
+   */
+  readonly encryptedValue?: string | null;
 }
 
 /** A config entry as the API returns it — secrets NEVER carry a value. */
@@ -45,6 +57,13 @@ export interface MaskedConfigEntry {
    * did not type it. Derived from the stored marker, never from plaintext.
    */
   readonly generated?: boolean;
+  /**
+   * True for a VENDOR-scope secret row with no ciphertext (legacy, written
+   * before secure storage existed): its plaintext was already discarded, so
+   * it can never be delivered to a build or a deployment. The vendor has to
+   * type it again — the UI surfaces this instead of quietly staying "ready".
+   */
+  readonly needsReentry?: boolean;
 }
 
 /** The effective entry after merging vendor defaults with customer overrides. */
@@ -147,12 +166,20 @@ export const SECRET_MASK = '***';
  */
 export const GENERATED_SECRET_MASK = '***deployz-generated***';
 
-/** Mask one entry for the API boundary — secrets lose their value entirely. */
-export function toMaskedEntry(entry: ConfigEntry): MaskedConfigEntry {
+/**
+ * Mask one entry for the API boundary — secrets lose their value entirely.
+ * `isVendorScope` flags a vendor-default row (customer_id NULL) so a legacy
+ * secret with no ciphertext (written before secure storage existed) can be
+ * surfaced as `needsReentry` — it is undeliverable, unlike a customer-scope
+ * masked row which may already live in that customer's own Secrets Manager.
+ */
+export function toMaskedEntry(entry: ConfigEntry, isVendorScope = false): MaskedConfigEntry {
   if (!entry.isSecret) return { key: entry.key, isSecret: false, value: entry.value };
   const generated = entry.value === GENERATED_SECRET_MASK;
-  return generated
-    ? { key: entry.key, isSecret: true, value: null, generated: true }
+  if (generated) return { key: entry.key, isSecret: true, value: null, generated: true };
+  const needsReentry = isVendorScope && (entry.encryptedValue === null || entry.encryptedValue === undefined);
+  return needsReentry
+    ? { key: entry.key, isSecret: true, value: null, needsReentry: true }
     : { key: entry.key, isSecret: true, value: null };
 }
 
@@ -173,11 +200,11 @@ export function mergeConfigEntries(
 
   for (const row of vendorDefaults) {
     order.push(row.key);
-    byKey.set(row.key, { ...toMaskedEntry(row), source: 'vendor', vendorValue: null });
+    byKey.set(row.key, { ...toMaskedEntry(row, true), source: 'vendor', vendorValue: null });
   }
   for (const row of customerOverrides) {
     const vendor = byKey.get(row.key);
-    const masked = toMaskedEntry(row);
+    const masked = toMaskedEntry(row, false);
     if (vendor) {
       byKey.set(row.key, { ...masked, source: 'customer', vendorValue: vendor.value });
     } else {
@@ -216,8 +243,8 @@ export async function getConfig(
   return {
     applicationId,
     customerId,
-    vendorDefaults: vendorDefaults.map(toMaskedEntry),
-    customerOverrides: customerOverrides.map(toMaskedEntry),
+    vendorDefaults: vendorDefaults.map((entry) => toMaskedEntry(entry, true)),
+    customerOverrides: customerOverrides.map((entry) => toMaskedEntry(entry, false)),
     effective: mergeConfigEntries(vendorDefaults, customerOverrides),
   };
 }
@@ -359,9 +386,48 @@ export async function setConfig(
 
   for (const entry of entries) {
     if (entry.isSecret && entry.value.length === 0) continue; // untouched secret
-    const stored: ConfigEntry = entry.isSecret
-      ? { key: entry.key, value: SECRET_MASK, isSecret: true }
-      : entry;
+    // VENDOR-scope secrets have no pending-secret vault to bind to (that
+    // path is customer-only, see `encryptedSecrets` above) — the ciphertext
+    // that makes them deliverable later (build args, post-install
+    // CONFIG_UPDATE) lives directly on the row, encrypted with the same
+    // SecretCipher and a deterministic, reconstructible context. CUSTOMER-
+    // scope secrets never populate this column: they travel through the
+    // pending-secret vault instead, so the row here carries the mask only.
+    let stored: ConfigEntry;
+    if (entry.isSecret && customerId === null) {
+      if (Buffer.byteLength(entry.value, 'utf8') > 4096) {
+        throw new ApiError(
+          422,
+          'SECRET_VALUE_TOO_LARGE',
+          `Secret value for key "${entry.key}" exceeds the KMS 4096-byte plaintext limit.`,
+        );
+      }
+      const vendorOrganizationId = applicationOrganizationId;
+      if (vendorOrganizationId === undefined) {
+        throw new ApiError(
+          502,
+          'CONFIG_WRITE_FAILED',
+          'The configuration could not be written. Try again in a moment.',
+        );
+      }
+      try {
+        const { ciphertext } = await deps.cipher.encrypt(
+          entry.value,
+          vendorSecretContext(vendorOrganizationId, applicationId, entry.key),
+        );
+        stored = { key: entry.key, value: SECRET_MASK, isSecret: true, encryptedValue: ciphertext };
+      } catch {
+        throw new ApiError(
+          502,
+          'CONFIG_WRITE_FAILED',
+          'The configuration could not be written. Try again in a moment.',
+        );
+      }
+    } else if (entry.isSecret) {
+      stored = { key: entry.key, value: SECRET_MASK, isSecret: true, encryptedValue: null };
+    } else {
+      stored = { ...entry, encryptedValue: null };
+    }
     await deps.store.upsert(applicationId, customerId, stored);
   }
 
@@ -516,6 +582,24 @@ function validateEntries(entries: readonly ConfigEntry[]): void {
   }
 }
 
+/**
+ * The deterministic EncryptionContext for a VENDOR-scope secret row. Unlike
+ * the pending-secret vault's per-row context, this one is never stored —
+ * `organizationId` + `applicationId` + `key` are exactly the values already
+ * on hand at decrypt time (`listVendorValues`, the relay's vendor-secret
+ * read in `buildRelayConfigEntries`), so recomputing it is simpler than
+ * persisting a second column. `scope: 'vendor'` keeps it from ever
+ * colliding with a customer-scope pending-secret context that happens to
+ * share the same organization/application/key.
+ */
+function vendorSecretContext(
+  organizationId: string,
+  applicationId: string,
+  key: string,
+): Record<string, string> {
+  return { organizationId, applicationId, key, scope: 'vendor' };
+}
+
 // ── Real seams ────────────────────────────────────────────────────────────
 
 // application_configs.application_id is uuid-keyed: fixture/dev ids are not
@@ -557,6 +641,7 @@ export function createConfigStore(db: RuntimeDb): ConfigStore {
           key: schema.applicationConfigs.key,
           value: schema.applicationConfigs.value,
           isSecret: schema.applicationConfigs.isSecret,
+          encryptedValue: schema.applicationConfigs.encryptedValue,
         })
         .from(schema.applicationConfigs)
         .where(scopeWhere(applicationId, customerId))
@@ -575,7 +660,7 @@ export function createConfigStore(db: RuntimeDb): ConfigStore {
       if (existing.length > 0) {
         await db
           .update(schema.applicationConfigs)
-          .set({ value: entry.value, isSecret: entry.isSecret })
+          .set({ value: entry.value, isSecret: entry.isSecret, encryptedValue: entry.encryptedValue ?? null })
           .where(scopeWhere(applicationId, customerId, entry.key));
         return;
       }
@@ -585,6 +670,7 @@ export function createConfigStore(db: RuntimeDb): ConfigStore {
         key: entry.key,
         value: entry.value,
         isSecret: entry.isSecret,
+        encryptedValue: entry.encryptedValue ?? null,
       });
     },
 
@@ -685,6 +771,13 @@ function createApplicationOrganizationIdFinder(
  * defaults for the application plus this customer's overrides (§31 merge
  * order). Used by the §11.2 readiness gate at deployment creation to decide
  * which required env vars are already provided.
+ *
+ * A VENDOR-scope secret row with no ciphertext (legacy, written before
+ * secure storage existed) is excluded — its plaintext was already discarded,
+ * so it can never actually reach a build or a deployment. Counting it as
+ * "provided" is exactly the readiness-says-ready-but-nothing-arrives gap
+ * this module closes. A customer-scope masked row stays counted: it may
+ * already live in that customer's own Secrets Manager from an earlier write.
  */
 export async function listProvidedConfigKeys(
   db: RuntimeDb,
@@ -693,7 +786,12 @@ export async function listProvidedConfigKeys(
 ): Promise<string[]> {
   if (!UUID_PATTERN.test(applicationId) || (customerId !== null && !UUID_PATTERN.test(customerId))) return [];
   const rows = await db
-    .select({ key: schema.applicationConfigs.key })
+    .select({
+      key: schema.applicationConfigs.key,
+      customerId: schema.applicationConfigs.customerId,
+      isSecret: schema.applicationConfigs.isSecret,
+      encryptedValue: schema.applicationConfigs.encryptedValue,
+    })
     .from(schema.applicationConfigs)
     .where(
       and(
@@ -703,5 +801,62 @@ export async function listProvidedConfigKeys(
           : or(isNull(schema.applicationConfigs.customerId), eq(schema.applicationConfigs.customerId, customerId)),
       ),
     );
-  return [...new Set(rows.map((row) => row.key))];
+  const deliverable = rows.filter(
+    (row) => !(row.customerId === null && row.isSecret && row.encryptedValue === null),
+  );
+  return [...new Set(deliverable.map((row) => row.key))];
+}
+
+/**
+ * Decrypted (or plain) vendor-default values for the given keys, for the
+ * given application. Used by the build worker to fill build-time variables
+ * (packages/cdk/src/lambda/worker.ts's `loadBuildVariables`) — vendor
+ * defaults only; a build has no customer to scope to.
+ */
+export async function listVendorValues(
+  db: RuntimeDb,
+  applicationId: string,
+  keys: readonly string[],
+  cipher: SecretCipher,
+): Promise<Record<string, string>> {
+  if (!UUID_PATTERN.test(applicationId) || keys.length === 0) return {};
+  const [application] = await db
+    .select({ organizationId: schema.applications.organizationId })
+    .from(schema.applications)
+    .where(eq(schema.applications.id, applicationId))
+    .limit(1);
+  if (application === undefined) return {};
+  const rows = await db
+    .select({
+      key: schema.applicationConfigs.key,
+      value: schema.applicationConfigs.value,
+      isSecret: schema.applicationConfigs.isSecret,
+      encryptedValue: schema.applicationConfigs.encryptedValue,
+    })
+    .from(schema.applicationConfigs)
+    .where(
+      and(
+        eq(schema.applicationConfigs.applicationId, applicationId),
+        isNull(schema.applicationConfigs.customerId),
+        inArray(schema.applicationConfigs.key, [...keys]),
+      ),
+    );
+
+  const result: Record<string, string> = {};
+  for (const row of rows) {
+    if (row.isSecret) {
+      if (!row.encryptedValue) continue; // legacy, undeliverable — see listProvidedConfigKeys
+      try {
+        result[row.key] = await cipher.decrypt(
+          row.encryptedValue,
+          vendorSecretContext(application.organizationId, applicationId, row.key),
+        );
+      } catch {
+        continue; // decrypt failure: omit the value, same as a legacy row
+      }
+    } else {
+      result[row.key] = row.value;
+    }
+  }
+  return result;
 }

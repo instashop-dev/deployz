@@ -710,12 +710,17 @@ describe('server — organization identity comes from the session, not the clien
     const customer = await insertCustomer(db, orgA.organizationId);
     // The vendor configured the value as an application default (§31) — the
     // deployment gate now sees a provided key and lets the deployment through.
+    // A vendor-scope secret only counts as deliverable with an encrypted
+    // value — a legacy masked-only row would not.
     await db.insert(schema.applicationConfigs).values({
       applicationId: application.id,
       customerId: null,
       key: 'STRIPE_SECRET_KEY',
       value: '***',
       isSecret: true,
+      // listProvidedConfigKeys only checks encryptedValue !== null (a real
+      // ciphertext is not needed for this readiness-gate assertion).
+      encryptedValue: 'enc:stub:sk_test_vendor_default',
     });
 
     const response = await postJson(
@@ -913,6 +918,232 @@ describe('server — config scope resolution (§31,§65)', () => {
       .from(schema.applicationConfigs)
       .where(eq(schema.applicationConfigs.customerId, otherOrgCustomer.id));
     expect(rows).toHaveLength(0);
+  });
+});
+
+// ── Env-var setup: GET/PUT /api/applications/:id/environment-settings,
+// the release build gate, and the readiness environmentSetup counts ────────
+describe('server — env-var setup (environment-settings route, release gate, readiness counts)', () => {
+  let client: PGlite | undefined;
+  let db: Db;
+  let auth: Auth;
+  let app: FastifyInstance;
+  let org: { userId: string; organizationId: string; cookie: string };
+  let otherOrg: { userId: string; organizationId: string; cookie: string };
+
+  // One customer_required secret, one build-prefixed key, one optional key.
+  const ENV_SETUP_METADATA = {
+    hasDockerfile: true,
+    dockerfilePath: 'Dockerfile',
+    framework: 'express',
+    port: '3000',
+    startupCommands: ['node dist/index.js'],
+    hasStartupCommand: true,
+    envVarModel: [
+      { key: 'STRIPE_SECRET_KEY', required: true, secret: true, classification: 'customer_required', purpose: 'external_credential', source: [] },
+      { key: 'NEXT_PUBLIC_API_URL', required: true, secret: false, classification: 'customer_required', purpose: 'external_credential', source: [] },
+      { key: 'LOG_LEVEL', required: false, secret: false, classification: 'optional', purpose: 'optional_configuration', source: [] },
+    ],
+  } as Record<string, unknown>;
+
+  beforeAll(async () => {
+    client = new PGlite();
+    await applyMigrations(client);
+    db = createDb(client);
+    auth = createAuth(db);
+    org = await signUpAndGetOrg(auth, db, 'env-setup-a@example.com');
+    otherOrg = await signUpAndGetOrg(auth, db, 'env-setup-b@example.com');
+    app = await buildServer({ auth, db });
+  }, 60_000);
+
+  afterAll(async () => {
+    await app?.close();
+    await client?.close();
+  });
+
+  it('GET returns null settings, the effective manifest variables, and the deployz-providable keys (legacy application)', async () => {
+    const application = await insertApplication(db, org.organizationId, { detectedMetadata: ENV_SETUP_METADATA });
+    const response = await app.inject({
+      method: 'GET',
+      url: `/api/applications/${application.id}/environment-settings`,
+      headers: { cookie: org.cookie },
+    });
+    expect(response.statusCode, response.body).toBe(200);
+    const body = response.json() as {
+      settings: unknown;
+      variables: { key: string }[];
+      deployzKeys: string[];
+      vendorValueKeys: string[];
+    };
+    expect(body.settings).toBeNull();
+    expect(body.variables.map((v) => v.key).sort()).toEqual(['LOG_LEVEL', 'NEXT_PUBLIC_API_URL', 'STRIPE_SECRET_KEY']);
+    expect(body.deployzKeys).toEqual([]);
+    expect(body.vendorValueKeys).toEqual([]);
+  });
+
+  it('PUT rejects a malformed setting with 400 INVALID_ENVIRONMENT_SETTINGS', async () => {
+    const application = await insertApplication(db, org.organizationId, { detectedMetadata: ENV_SETUP_METADATA });
+    const response = await sendJson(
+      app,
+      'PUT',
+      `/api/applications/${application.id}/environment-settings`,
+      // A customer cannot supply a build-stage value — the schema itself refuses this.
+      { settings: [{ key: 'NEXT_PUBLIC_API_URL', stage: 'build', required: true, secret: false, provider: 'customer' }] },
+      { cookie: org.cookie },
+    );
+    expect(response.statusCode, response.body).toBe(400);
+    expect(response.json()).toMatchObject({ error: { code: 'INVALID_ENVIRONMENT_SETTINGS' } });
+  });
+
+  it('PUT rejects provider:deployz on a key the manifest does not allow with 422 ENVIRONMENT_SETTINGS_INVALID', async () => {
+    const application = await insertApplication(db, org.organizationId, { detectedMetadata: ENV_SETUP_METADATA });
+    const response = await sendJson(
+      app,
+      'PUT',
+      `/api/applications/${application.id}/environment-settings`,
+      { settings: [{ key: 'STRIPE_SECRET_KEY', stage: 'runtime', required: true, secret: true, provider: 'deployz' }] },
+      { cookie: org.cookie },
+    );
+    expect(response.statusCode, response.body).toBe(422);
+    const body = response.json() as { error: { code: string; details?: { problems?: string[] } } };
+    expect(body.error.code).toBe('ENVIRONMENT_SETTINGS_INVALID');
+    expect(body.error.details?.problems?.[0]).toContain('STRIPE_SECRET_KEY');
+  });
+
+  it('PUT saves valid settings and GET reflects them back, recording a counts-only event', async () => {
+    const application = await insertApplication(db, org.organizationId, { detectedMetadata: ENV_SETUP_METADATA });
+    const settings = [
+      { key: 'STRIPE_SECRET_KEY', stage: 'runtime', required: true, secret: true, provider: 'customer' },
+      { key: 'NEXT_PUBLIC_API_URL', stage: 'build', required: true, secret: false, provider: 'vendor' },
+      { key: 'LOG_LEVEL', stage: 'runtime', required: false, secret: false, provider: 'none' },
+    ];
+    const putResponse = await sendJson(
+      app,
+      'PUT',
+      `/api/applications/${application.id}/environment-settings`,
+      { settings },
+      { cookie: org.cookie },
+    );
+    expect(putResponse.statusCode, putResponse.body).toBe(200);
+    expect((putResponse.json() as { settings: unknown }).settings).toEqual(settings);
+
+    const getResponse = await app.inject({
+      method: 'GET',
+      url: `/api/applications/${application.id}/environment-settings`,
+      headers: { cookie: org.cookie },
+    });
+    expect((getResponse.json() as { settings: unknown }).settings).toEqual(settings);
+
+    const events = await db
+      .select()
+      .from(schema.eventLogs)
+      .where(eq(schema.eventLogs.eventType, 'application.environment_settings_saved'));
+    expect(events).toHaveLength(1);
+    expect(events[0]!.payload).toMatchObject({ applicationId: application.id, settingCount: 3 });
+    expect(JSON.stringify(events[0]!.payload)).not.toContain('STRIPE_SECRET_KEY');
+  });
+
+  it('a cross-org application 404s on both routes', async () => {
+    const application = await insertApplication(db, otherOrg.organizationId, { detectedMetadata: ENV_SETUP_METADATA });
+    const get = await app.inject({
+      method: 'GET',
+      url: `/api/applications/${application.id}/environment-settings`,
+      headers: { cookie: org.cookie },
+    });
+    expect(get.statusCode).toBe(404);
+    const put = await sendJson(
+      app,
+      'PUT',
+      `/api/applications/${application.id}/environment-settings`,
+      { settings: [] },
+      { cookie: org.cookie },
+    );
+    expect(put.statusCode).toBe(404);
+  });
+
+  it('the release build gate refuses BUILD_CONFIGURATION_MISSING when a required build-stage vendor value is missing', async () => {
+    const application = await insertApplication(db, org.organizationId, {
+      detectedMetadata: { ...ENV_SETUP_METADATA, analysisCommitSha: 'a'.repeat(40) },
+    });
+    await sendJson(
+      app,
+      'PUT',
+      `/api/applications/${application.id}/environment-settings`,
+      { settings: [{ key: 'NEXT_PUBLIC_API_URL', stage: 'build', required: true, secret: false, provider: 'vendor' }] },
+      { cookie: org.cookie },
+    );
+    const response = await sendJson(
+      app,
+      'POST',
+      `/api/applications/${application.id}/releases`,
+      { version: '1.0.0', gitSha: 'a'.repeat(40) },
+      { cookie: org.cookie },
+    );
+    expect(response.statusCode, response.body).toBe(422);
+    const body = response.json() as { error: { code: string; details?: { keys?: string[] } } };
+    expect(body.error.code).toBe('BUILD_CONFIGURATION_MISSING');
+    expect(body.error.details?.keys).toEqual(['NEXT_PUBLIC_API_URL']);
+  });
+
+  it('the release build gate lets the release through once the vendor value is saved', async () => {
+    const application = await insertApplication(db, org.organizationId, {
+      detectedMetadata: { ...ENV_SETUP_METADATA, analysisCommitSha: 'b'.repeat(40) },
+    });
+    await sendJson(
+      app,
+      'PUT',
+      `/api/applications/${application.id}/environment-settings`,
+      { settings: [{ key: 'NEXT_PUBLIC_API_URL', stage: 'build', required: true, secret: false, provider: 'vendor' }] },
+      { cookie: org.cookie },
+    );
+    await sendJson(
+      app,
+      'PUT',
+      `/api/applications/${application.id}/config`,
+      { entries: [{ key: 'NEXT_PUBLIC_API_URL', value: 'https://api.example.com', isSecret: false }] },
+      { cookie: org.cookie },
+    );
+    const response = await sendJson(
+      app,
+      'POST',
+      `/api/applications/${application.id}/releases`,
+      { version: '1.0.0', gitSha: 'b'.repeat(40) },
+      { cookie: org.cookie },
+    );
+    expect(response.statusCode, response.body).toBe(201);
+  });
+
+  it('readiness gains environmentSetup counts once analysis is COMPLETE, null otherwise', async () => {
+    const incomplete = await insertApplication(db, org.organizationId, { detectedMetadata: ENV_SETUP_METADATA });
+    const incompleteReadiness = await app.inject({
+      method: 'GET',
+      url: `/api/applications/${incomplete.id}/readiness`,
+      headers: { cookie: org.cookie },
+    });
+    expect((incompleteReadiness.json() as { environmentSetup: unknown }).environmentSetup).toBeNull();
+
+    const complete = await insertApplication(db, org.organizationId, {
+      detectedMetadata: ENV_SETUP_METADATA,
+      analysisStatus: 'COMPLETE',
+    });
+    await sendJson(
+      app,
+      'PUT',
+      `/api/applications/${complete.id}/environment-settings`,
+      { settings: [{ key: 'STRIPE_SECRET_KEY', stage: 'runtime', required: true, secret: true, provider: 'customer' }] },
+      { cookie: org.cookie },
+    );
+    const completeReadiness = await app.inject({
+      method: 'GET',
+      url: `/api/applications/${complete.id}/readiness`,
+      headers: { cookie: org.cookie },
+    });
+    const body = completeReadiness.json() as {
+      environmentSetup: { needsDecision: number; missingValue: number; missingBuildValue: number; customer: number; total: number };
+    };
+    // STRIPE_SECRET_KEY → customer (saved); NEXT_PUBLIC_API_URL → still
+    // "unreviewed required" (needs a decision); LOG_LEVEL → optional.
+    expect(body.environmentSetup).toEqual({ needsDecision: 1, missingValue: 0, missingBuildValue: 0, customer: 1, total: 3 });
   });
 });
 
@@ -2573,6 +2804,7 @@ describe('server — fleet list & deployment detail joins, readiness derivation 
       detected: null,
       requirements: null,
       deploymentRequirementDrift: [],
+      environmentSetup: null,
     });
   });
 
@@ -2649,6 +2881,7 @@ describe('server — fleet list & deployment detail joins, readiness derivation 
         storage: { detected: false, effective: false, overridden: false },
       },
       deploymentRequirementDrift: [],
+      environmentSetup: { needsDecision: 0, missingValue: 0, missingBuildValue: 0, customer: 0, total: 0 },
     });
   });
 

@@ -25,7 +25,21 @@ import { fleetDeployment } from './fixtures/fleet-deployment';
 
 // ── Fixtures ─────────────────────────────────────────────────────────────────
 
-function readiness(overrides: Partial<ApplicationReadiness> = {}): ApplicationReadiness {
+/** `environmentSetup` is added to `ApplicationReadiness` by a companion
+ *  change; widen the fixture type locally so tests can set it without
+ *  waiting for that change to land (see `application-state.ts`'s
+ *  `environmentSetupOf` accessor). */
+interface EnvironmentSetupCounts {
+  needsDecision: number;
+  missingValue: number;
+  missingBuildValue: number;
+  customer: number;
+  total: number;
+}
+type ReadinessFixture = ApplicationReadiness & { environmentSetup?: EnvironmentSetupCounts | null };
+type ReadinessOverrides = Partial<ReadinessFixture>;
+
+function readiness(overrides: ReadinessOverrides = {}): ReadinessFixture {
   return {
     analysisStatus: 'COMPLETE',
     state: 'READY',
@@ -39,8 +53,13 @@ function readiness(overrides: Partial<ApplicationReadiness> = {}): ApplicationRe
     detected: null,
     requirements: null,
     deploymentRequirementDrift: [],
+    environmentSetup: null,
     ...overrides,
   };
+}
+
+function environmentSetup(overrides: Partial<EnvironmentSetupCounts> = {}): EnvironmentSetupCounts {
+  return { needsDecision: 0, missingValue: 0, missingBuildValue: 0, customer: 0, total: 0, ...overrides };
 }
 
 function requiredFinding(overrides: Partial<ReadinessFinding> = {}): ReadinessFinding {
@@ -110,7 +129,7 @@ function link(overrides: Partial<PublicInstallLinkView> = {}): PublicInstallLink
 
 function makeInput(
   opts: {
-    readiness?: Partial<ApplicationReadiness>;
+    readiness?: ReadinessOverrides;
     deployments?: FleetDeployment[];
     installLinks?: ApplicationStateInput['installLinks'];
     releases?: Release[] | 'error';
@@ -218,6 +237,19 @@ const STATE_CASES: Record<ApplicationState, StateCase> = {
     }),
     badgeLabel: 'Changes required',
     heading: '1 change required before you can deploy',
+    primaryActionId: 'review-configuration',
+    polling: null,
+    busy: false,
+    lifecycle: lifecycleSteps('done', 'current', 'pending'),
+    installLinkAvailable: false,
+    installLinkPlacement: 'none',
+  },
+  'configuration-review': {
+    input: makeInput({
+      readiness: { environmentSetup: environmentSetup({ needsDecision: 2, total: 2 }) },
+    }),
+    badgeLabel: 'Needs review',
+    heading: 'Configuration needs review',
     primaryActionId: 'review-configuration',
     polling: null,
     busy: false,
@@ -977,6 +1009,78 @@ describe('customers-active', () => {
     expect(result.primaryAction).toMatchObject({
       id: 'view-customer-deployments',
       href: '/dashboard/deployments?application=Acme%20%26%20Co',
+    });
+  });
+});
+
+// ── Environment setup review ──────────────────────────────────────────────────
+
+describe('configuration-review (environment setup)', () => {
+  it('COMPLETE analysis + needsDecision > 0 → configuration-review, with the missing-value count named', () => {
+    const result = deriveApplicationPresentation(
+      makeInput({
+        readiness: { environmentSetup: environmentSetup({ needsDecision: 2, missingValue: 1, total: 3 }) },
+      }),
+    );
+    expect(result.state).toBe('configuration-review');
+    expect(result.badge.label).toBe('Needs review');
+    expect(result.heading).toBe('Configuration needs review');
+    expect(result.message).toBe(
+      'Analysis finished. 2 environment variables need a decision. 1 needs a value.',
+    );
+    expect(result.primaryAction).toMatchObject({
+      id: 'review-configuration',
+      label: 'Review configuration',
+      href: '/dashboard/applications/app-1/config#environment-variables',
+    });
+  });
+
+  it('a missing vendor value alone → configuration-review', () => {
+    const result = deriveApplicationPresentation(
+      makeInput({ readiness: { environmentSetup: environmentSetup({ missingValue: 2, total: 2 }) } }),
+    );
+    expect(result.state).toBe('configuration-review');
+    expect(result.message).toBe('Analysis finished. 2 environment variables need a value.');
+  });
+
+  it('a genuine analysis FAILED is unaffected by environmentSetup', () => {
+    const result = deriveApplicationPresentation(
+      makeInput({
+        readiness: {
+          analysisStatus: 'FAILED',
+          state: 'ANALYSIS_INCOMPLETE',
+          failureReason: 'Boom',
+          environmentSetup: environmentSetup({ needsDecision: 5, total: 5 }),
+        },
+      }),
+    );
+    expect(result.state).toBe('analysis-failed');
+    expect(result.heading).toBe("We couldn't analyse your application");
+  });
+
+  it('needsDecision === 0 leaves existing ready states untouched', () => {
+    const result = deriveApplicationPresentation(
+      makeInput({ readiness: { environmentSetup: environmentSetup({ needsDecision: 0, total: 3 }) } }),
+    );
+    expect(result.state).toBe('ready-to-test');
+  });
+
+  it('null environmentSetup (not yet on the response) never throws and behaves like today', () => {
+    const result = deriveApplicationPresentation(makeInput({ readiness: { environmentSetup: null } }));
+    expect(result.state).toBe('ready-to-test');
+  });
+
+  it('with customer deployments present, the state stays customers-active and a notice is added instead', () => {
+    const result = deriveApplicationPresentation(
+      makeInput({
+        deployments: [customer({ state: 'HEALTHY' })],
+        readiness: { environmentSetup: environmentSetup({ needsDecision: 1, total: 1 }) },
+      }),
+    );
+    expect(result.state).toBe('customers-active');
+    expect(result.notices).toContainEqual({
+      tone: 'warning',
+      text: 'Analysis finished. 1 environment variable needs a decision.',
     });
   });
 });

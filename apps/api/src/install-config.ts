@@ -44,6 +44,15 @@ export interface PendingSecretVault {
   readBound(deploymentId: string, key: string): Promise<string | undefined>;
   /** Stamp delivery for every successful decrypt in this read cycle. */
   stampDelivery(deploymentId: string, key: string): Promise<void>;
+  /**
+   * VENDOR-scope secrets never enter the pending-secret vault (they persist
+   * as ciphertext directly on the `application_configs` row instead — see
+   * apps/api/src/config.ts's `listVendorValues`). This is the same
+   * decryption for the one other reader that needs it: a vendor secret an
+   * effective-config entry resolves to, with no bound customer-scope value
+   * to overlay. Optional so the unit-test path (no vault) is unchanged.
+   */
+  readVendorSecret?(applicationId: string, key: string): Promise<string | undefined>;
 }
 
 /**
@@ -68,6 +77,26 @@ export async function buildRelayConfigEntries(
     if (entry.isSecret && vault !== undefined && deployment.id !== undefined) {
       try {
         const plaintext = await vault.readBound(deployment.id, entry.key);
+        if (plaintext !== undefined) {
+          entries.push({
+            key: entry.key,
+            isSecret: true,
+            value: plaintext,
+            source: entry.source,
+          });
+          continue;
+        }
+      } catch {
+        // Decrypt failure: omit the value, keep the row, return the masked
+        // entry — the relay's next cycle retries.
+      }
+    }
+    // A vendor secret never binds a pending-secret row (see
+    // `PendingSecretVault.readVendorSecret`'s doc) — it decrypts straight
+    // off the application_configs ciphertext instead.
+    if (entry.isSecret && entry.source === 'vendor' && vault?.readVendorSecret !== undefined) {
+      try {
+        const plaintext = await vault.readVendorSecret(deployment.applicationId, entry.key);
         if (plaintext !== undefined) {
           entries.push({
             key: entry.key,

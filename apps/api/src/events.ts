@@ -133,6 +133,7 @@ export type DeploymentEventType =
   | 'application.analysis_failed'
   | 'application.preflight_evaluated'
   | 'application.configuration_saved'
+  | 'application.environment_settings_saved'
   | 'customer.created'
   // release/build telemetry. `release.created` is written by the release
   // route; `release.build_*` by the cdk worker (packages/cdk/src/lambda/

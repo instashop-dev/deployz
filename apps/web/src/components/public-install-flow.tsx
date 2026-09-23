@@ -25,7 +25,11 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { installPlanRegionLabel, installPlanRetentionNote, installPlanRows } from '@/lib/install-plan';
 import { fetchPublicInstallPlan } from '@/lib/public-install-data';
 import { confirmPublicInstall } from '@/lib/public-install-confirm';
-import { publicInstallErrorMessage, type PublicInstallResolve } from '@/lib/public-install-types';
+import {
+  publicInstallErrorMessage,
+  type PublicInstallInput,
+  type PublicInstallResolve,
+} from '@/lib/public-install-types';
 import type { DeploymentPlan } from '@deployz/contracts';
 
 interface PublicInstallFlowProps {
@@ -45,6 +49,7 @@ export function PublicInstallFlow({ linkId, resolve }: PublicInstallFlowProps) {
   const [customerEmail, setCustomerEmail] = useState('');
   const [configValues, setConfigValues] = useState<Record<string, string>>({});
   const [showSecret, setShowSecret] = useState<Record<string, boolean>>({});
+  const [touched, setTouched] = useState<Record<string, boolean>>({});
   const [idempotencyKey] = useState(generateIdempotencyKey);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -79,15 +84,26 @@ export function PublicInstallFlow({ linkId, resolve }: PublicInstallFlowProps) {
   const planRows = useMemo(() => installPlanRows(plan), [plan]);
   const retentionNote = useMemo(() => installPlanRetentionNote(plan), [plan]);
 
-  const requiredFilled = resolve.requiredInputs.every(
-    (input) => !input.required || (configValues[input.key]?.trim() ?? '') !== '',
+  const settingErrors = useMemo(
+    () =>
+      Object.fromEntries(
+        resolve.requiredInputs.map((input) => [input.key, settingFieldError(input, configValues[input.key] ?? '')]),
+      ),
+    [resolve.requiredInputs, configValues],
   );
+  const settingsValid = resolve.requiredInputs.every((input) => settingErrors[input.key] === null);
+  const settingsCompleteCount = resolve.requiredInputs.filter((input) => settingErrors[input.key] === null).length;
+  const settingsTotal = resolve.requiredInputs.length;
+
   const canSubmit =
-    region !== '' && customerName.trim() !== '' && customerEmail.trim() !== '' && requiredFilled;
+    region !== '' && customerName.trim() !== '' && customerEmail.trim() !== '' && settingsValid;
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!canSubmit || pending) return;
+    if (!canSubmit || pending) {
+      setTouched(Object.fromEntries(resolve.requiredInputs.map((input) => [input.key, true])));
+      return;
+    }
 
     setPending(true);
     setError(null);
@@ -184,57 +200,78 @@ export function PublicInstallFlow({ linkId, resolve }: PublicInstallFlowProps) {
         </Select>
       </section>
 
-      <section aria-labelledby="public-config" className="flex flex-col gap-4">
-        <h2 id="public-config" className="text-base font-semibold">
-          Required configuration
-        </h2>
-        <div className="flex flex-col gap-4">
-          {resolve.requiredInputs.map((input) => (
-            <div key={input.key} className="flex flex-col gap-2">
-              <Label htmlFor={input.key}>
-                {input.key}{' '}
-                {input.required ? (
-                  <span className="text-destructive">*</span>
-                ) : (
-                  <span className="text-muted-foreground">(Optional)</span>
-                )}
-              </Label>
-              <div className="flex items-center gap-2">
-                <Input
-                  id={input.key}
-                  type={input.secret && !showSecret[input.key] ? 'password' : 'text'}
-                  value={configValues[input.key] ?? ''}
-                  onChange={(event) => {
-                    const value = event.target.value;
-                    setConfigValues((previous) => ({
-                      ...previous,
-                      [input.key]: value,
-                    }));
-                  }}
-                  className="flex-1"
-                  aria-required={input.required}
-                />
-                {input.secret ? (
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon"
-                    onClick={() =>
-                      setShowSecret((previous) => ({
-                        ...previous,
-                        [input.key]: !previous[input.key],
-                      }))
-                    }
-                    aria-label={showSecret[input.key] ? 'Hide value' : 'Show value'}
-                  >
-                    {showSecret[input.key] ? <EyeOff /> : <Eye />}
-                  </Button>
-                ) : null}
-              </div>
-            </div>
-          ))}
-        </div>
-      </section>
+      {settingsTotal > 0 ? (
+        <section aria-labelledby="public-config" className="flex flex-col gap-4">
+          <div className="flex items-baseline justify-between gap-2">
+            <h2 id="public-config" className="text-base font-semibold">
+              Application settings
+            </h2>
+            <p className="text-xs text-muted-foreground" data-testid="settings-completion">
+              {settingsCompleteCount === settingsTotal
+                ? 'All settings complete'
+                : `${settingsCompleteCount} of ${settingsTotal} settings complete`}
+            </p>
+          </div>
+          <div className="flex flex-col gap-4">
+            {resolve.requiredInputs.map((input) => {
+              const fieldError = settingErrors[input.key];
+              const showError = touched[input.key] === true && fieldError !== null;
+              return (
+                <div key={input.key} className="flex flex-col gap-1.5">
+                  <div className="flex items-baseline justify-between gap-2">
+                    <Label htmlFor={input.key}>{input.label ?? humanizeSettingKey(input.key)}</Label>
+                    <span className="text-xs text-muted-foreground">
+                      {input.required ? 'Required' : 'Optional'}
+                    </span>
+                  </div>
+                  {input.help ? <p className="text-xs text-muted-foreground">{input.help}</p> : null}
+                  <div className="flex items-center gap-2">
+                    <Input
+                      id={input.key}
+                      type={input.secret && !showSecret[input.key] ? 'password' : 'text'}
+                      value={configValues[input.key] ?? ''}
+                      onChange={(event) => {
+                        const value = event.target.value;
+                        setConfigValues((previous) => ({
+                          ...previous,
+                          [input.key]: value,
+                        }));
+                      }}
+                      onBlur={() => setTouched((previous) => ({ ...previous, [input.key]: true }))}
+                      className="flex-1"
+                      autoComplete="off"
+                      aria-required={input.required}
+                      aria-invalid={showError || undefined}
+                    />
+                    {input.secret ? (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        onClick={() =>
+                          setShowSecret((previous) => ({
+                            ...previous,
+                            [input.key]: !previous[input.key],
+                          }))
+                        }
+                        aria-label={showSecret[input.key] ? 'Hide value' : 'Show value'}
+                      >
+                        {showSecret[input.key] ? <EyeOff /> : <Eye />}
+                      </Button>
+                    ) : null}
+                  </div>
+                  <p className="font-mono text-[11px] text-muted-foreground">{input.key}</p>
+                  {showError ? (
+                    <p role="alert" className="text-xs text-destructive">
+                      {fieldError}
+                    </p>
+                  ) : null}
+                </div>
+              );
+            })}
+          </div>
+        </section>
+      ) : null}
 
       <section aria-labelledby="public-customer" className="flex flex-col gap-4">
         <h2 id="public-customer" className="text-base font-semibold">
@@ -331,6 +368,11 @@ export function PublicInstallFlow({ linkId, resolve }: PublicInstallFlowProps) {
         >
           Continue to setup
         </Button>
+        {!settingsValid ? (
+          <p className="text-sm text-muted-foreground">
+            Complete the required application settings to continue.
+          </p>
+        ) : null}
         {error ? (
           <Alert variant="destructive">
             <AlertTitle>Installation failed</AlertTitle>
@@ -340,6 +382,47 @@ export function PublicInstallFlow({ linkId, resolve }: PublicInstallFlowProps) {
       </section>
     </form>
   );
+}
+
+/** "DATABASE_URL" → "Database url" — used only when the vendor set no label. */
+function humanizeSettingKey(key: string): string {
+  const words = key.toLowerCase().split('_').filter((word) => word.length > 0);
+  if (words.length === 0) return key;
+  return words.map((word, index) => (index === 0 ? word.charAt(0).toUpperCase() + word.slice(1) : word)).join(' ');
+}
+
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+/** An absolute URL of any scheme (https://, postgres://, redis://, …). */
+function isAbsoluteUrl(value: string): boolean {
+  try {
+    return new URL(value).protocol !== 'javascript:';
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Presence + safe-format validation for one application setting. Trims
+ * whitespace for non-secret values (a secret's exact bytes matter). Returns
+ * a short plain-English error, or null when the value is acceptable.
+ */
+function settingFieldError(input: PublicInstallInput, rawValue: string): string | null {
+  const value = input.secret ? rawValue : rawValue.trim();
+  if (input.required && value === '') return 'This value is required.';
+  if (value === '') return null;
+  if (value.length > 4096) return 'This value must be 4096 characters or fewer.';
+  if (/_URL$|_URI$/.test(input.key)) {
+    if (!isAbsoluteUrl(value)) return 'Enter a full URL, for example https://example.com.';
+  } else if (/_EMAIL$/.test(input.key)) {
+    if (!EMAIL_PATTERN.test(value)) return 'Enter a valid email address.';
+  } else if (/_PORT$/.test(input.key)) {
+    const port = Number(value);
+    if (!Number.isInteger(port) || port < 1 || port > 65535) {
+      return 'Enter a port number from 1 to 65535.';
+    }
+  }
+  return null;
 }
 
 function generateIdempotencyKey(): string {

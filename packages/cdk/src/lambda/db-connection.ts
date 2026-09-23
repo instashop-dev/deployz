@@ -72,6 +72,7 @@ import migration0044 from '../../../db/drizzle/0044_installation_invitations.sql
 import migration0045 from '../../../db/drizzle/0045_pending_secrets.sql';
 import migration0041 from '../../../db/drizzle/0041_jev_shadow_verifications.sql';
 import migration0042 from '../../../db/drizzle/0042_jev_failure_classifications.sql';
+import migration0046 from '../../../db/drizzle/0046_environment_setup.sql';
 import journal from '../../../db/drizzle/meta/_journal.json';
 
 /**
@@ -131,6 +132,7 @@ const MIGRATION_SQL: Record<string, string> = {
   '0045_pending_secrets': migration0045,
   '0041_jev_shadow_verifications': migration0041,
   '0042_jev_failure_classifications': migration0042,
+  '0046_environment_setup': migration0046,
 };
 
 interface RdsSecret {

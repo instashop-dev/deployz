@@ -43,6 +43,11 @@ export const applications = pgTable('applications', {
   compatibilityStatus: compatibilityStatusEnum('compatibility_status'),
   compatibilityReason: text('compatibility_reason'),
   detectedMetadata: jsonb('detected_metadata').$type<Record<string, unknown>>(),
+  // Vendor env-var decisions (build/runtime stage, who provides each key).
+  // Nullable: no saved settings means "use the legacy classification-derived
+  // default" (docs/environment-variables.md) — existing applications
+  // keep working unchanged. Shape is validated at the API boundary, not here.
+  environmentSettings: jsonb('environment_settings').$type<unknown[]>(),
   ...auditFields(),
 }, (t) => [
   // One application per repository per organization. Choosing the same repo
@@ -112,6 +117,14 @@ export const applicationConfigs = pgTable(
     key: text('key').notNull(),
     value: text('value').notNull(),
     isSecret: boolean('is_secret').notNull().default(false),
+    // VENDOR-scope only: ciphertext from the same SecretCipher the
+    // DEPLOY-027 pending-secret vault uses (apps/api's config.ts /
+    // pending-secrets.ts), present only for a vendor secret row whose
+    // plaintext Deployz can actually deliver later (build args, post-install
+    // CONFIG_UPDATE). `value` still carries SECRET_MASK for these rows.
+    // CUSTOMER-scope secrets never populate this column — they travel
+    // through the pending-secret vault instead.
+    encryptedValue: text('encrypted_value'),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },

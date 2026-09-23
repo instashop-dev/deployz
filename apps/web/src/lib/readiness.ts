@@ -97,6 +97,20 @@ export interface ApplicationReadiness {
   requirements: ApplicationRequirementsSummary | null;
   /** Existing deployments whose frozen manifest differs from the application's current effective requirements. Empty while analysis is incomplete. */
   deploymentRequirementDrift: DeploymentRequirementDriftSummary[];
+  /**
+   * Environment-variables setup counts (docs/environment-variables.md). Null when analysis
+   * is not COMPLETE. Optional in the type (not just possibly null) so
+   * existing readiness fixtures across the test suite, written before this
+   * field existed, keep compiling unchanged; the config page treats a
+   * missing field the same as null.
+   */
+  environmentSetup?: {
+    needsDecision: number;
+    missingValue: number;
+    missingBuildValue: number;
+    customer: number;
+    total: number;
+  } | null;
 }
 
 // ── Detected facts (mirrors `ApplicationAnalysis` in @deployz/contracts) ────

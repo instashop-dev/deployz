@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act } from 'react';
+import { act, forwardRef, useEffect, useImperativeHandle } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -11,6 +11,7 @@ import type { FleetDeployment } from '../src/lib/deployments';
 const mocks = vi.hoisted(() => ({
   fetchReleases: vi.fn(),
   fetchDeploymentsForApplication: vi.fn(),
+  createRelease: vi.fn(),
 }));
 
 vi.mock('next/navigation', () => ({
@@ -22,6 +23,7 @@ vi.mock('../src/lib/releases', async (importOriginal) => {
   return {
     ...actual,
     fetchReleases: mocks.fetchReleases,
+    createRelease: mocks.createRelease,
   };
 });
 
@@ -32,6 +34,21 @@ vi.mock('@/lib/deployments', async (importOriginal) => {
     fetchDeploymentsForApplication: mocks.fetchDeploymentsForApplication,
   };
 });
+
+// The New release form's commit field talks to GitHub; stub it out with a
+// field that is always "ready" and resolves to a fixed SHA, so these tests
+// only exercise submission and the BUILD_CONFIGURATION_MISSING error path.
+vi.mock('@/components/commit-picker', () => ({
+  CommitPicker: forwardRef((props: { onReadyChange?: (ready: boolean) => void }, ref) => {
+    useImperativeHandle(ref, () => ({
+      resolveGitSha: async () => 'a'.repeat(40),
+    }));
+    useEffect(() => {
+      props.onReadyChange?.(true);
+    }, [props]);
+    return null;
+  }),
+}));
 
 // CreateReleaseForm reads useApplicationPage() for the default branch, but
 // the page itself now also reads it for the application's repo, to link a
@@ -256,5 +273,56 @@ describe('Releases table', () => {
     });
 
     expect(container.textContent).toContain("We couldn't load releases");
+  });
+});
+
+describe('Create release form', () => {
+  beforeEach(() => {
+    mocks.fetchReleases.mockResolvedValue([]);
+    mocks.fetchDeploymentsForApplication.mockResolvedValue([]);
+  });
+
+  async function openForm(): Promise<void> {
+    await act(async () => {
+      renderPage();
+    });
+    await vi.waitFor(() => {
+      const el = container.querySelector('#empty-releases');
+      if (!el) throw new Error('still loading');
+      return el;
+    });
+    const toggle = Array.from(container.querySelectorAll('button')).find(
+      (button) => button.textContent === 'Create Release',
+    ) as HTMLButtonElement;
+    await act(async () => {
+      toggle.click();
+    });
+  }
+
+  it('shows the BUILD_CONFIGURATION_MISSING message and a link to Configuration when a release cannot build', async () => {
+    const { BuildConfigurationMissingError } = await import('../src/lib/releases');
+    mocks.createRelease.mockRejectedValue(new BuildConfigurationMissingError(['STRIPE_SECRET', 'SENTRY_DSN']));
+
+    await openForm();
+
+    const form = container.querySelector('[data-testid="create-release-form"]') as HTMLElement;
+    const versionInput = form.querySelector('#version') as HTMLInputElement;
+    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!;
+    setter.call(versionInput, 'v1.0.0');
+    versionInput.dispatchEvent(new Event('input', { bubbles: true }));
+
+    const submitButton = Array.from(form.querySelectorAll('button')).find(
+      (button) => button.textContent === 'Create Release',
+    ) as HTMLButtonElement;
+
+    await act(async () => {
+      submitButton.click();
+    });
+
+    expect(container.textContent).toContain(
+      'Set these build values before you build a release: STRIPE_SECRET, SENTRY_DSN.',
+    );
+    const link = container.querySelector('a[href="/dashboard/applications/app-1/config#environment-variables"]');
+    expect(link?.textContent).toBe('Review configuration');
   });
 });

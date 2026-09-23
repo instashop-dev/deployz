@@ -23,6 +23,8 @@ export interface MaskedConfigEntry {
   isSecret: boolean;
   /** Null for secrets (write-only, §31); the plaintext value otherwise. */
   value: string | null;
+  /** True for a vendor-scope legacy secret with no deliverable value — the vendor must re-enter it. */
+  needsReentry?: boolean;
 }
 
 /** The effective entry after merging vendor defaults with customer overrides. */

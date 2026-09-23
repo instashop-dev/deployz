@@ -1,6 +1,7 @@
 'use client';
 
 import { ChevronRight, ExternalLink } from 'lucide-react';
+import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 
@@ -34,6 +35,7 @@ import {
   runningOnLabel,
   shortSha,
   suggestNextVersion,
+  BuildConfigurationMissingError,
   type Release,
 } from '@/lib/releases';
 
@@ -142,6 +144,7 @@ function CreateReleaseForm({
 }) {
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [missingBuildKeys, setMissingBuildKeys] = useState<string[] | null>(null);
   const [commitReady, setCommitReady] = useState(false);
   const { data } = useApplicationPage();
   const commitPickerRef = useRef<CommitPickerHandle>(null);
@@ -153,6 +156,7 @@ function CreateReleaseForm({
     const migrationCommand = String(form.get('migrationCommand') ?? '').trim();
     setPending(true);
     setError(null);
+    setMissingBuildKeys(null);
     try {
       const gitSha = await commitPickerRef.current?.resolveGitSha();
       if (!gitSha) {
@@ -164,8 +168,13 @@ function CreateReleaseForm({
         migrationCommand: migrationCommand.length > 0 ? migrationCommand : null,
       });
       onCreated(release);
-    } catch {
-      setError("We couldn't create this release. Try again in a moment.");
+    } catch (err) {
+      if (err instanceof BuildConfigurationMissingError) {
+        setError(`Set these build values before you build a release: ${err.keys.join(', ')}.`);
+        setMissingBuildKeys(err.keys);
+      } else {
+        setError("We couldn't create this release. Try again in a moment.");
+      }
     } finally {
       setPending(false);
     }
@@ -217,6 +226,17 @@ function CreateReleaseForm({
             {error ? (
               <p role="alert" className="text-sm text-destructive">
                 {error}
+                {missingBuildKeys ? (
+                  <>
+                    {' '}
+                    <Link
+                      href={`/dashboard/applications/${applicationId}/config#environment-variables`}
+                      className="underline underline-offset-4"
+                    >
+                      Review configuration
+                    </Link>
+                  </>
+                ) : null}
               </p>
             ) : null}
           </div>

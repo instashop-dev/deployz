@@ -516,11 +516,14 @@ export function evaluateManifestReadiness(
       .filter((variable) => variable.required && !autoProvided.has(variable.key))
       .map((variable) => variable.key);
     if (missing.length > 0) {
+      const shown = missing.slice(0, 5);
+      const more = missing.length - shown.length;
+      const list = more > 0 ? `${shown.join(', ')}, and ${more} more` : shown.join(', ');
       errors.push({
         id: 'required-env-vars-missing',
         category: 'configuration',
         severity: 'error',
-        message: `This app requires environment variables that have no value yet: ${missing.join(', ')}. Set them in the application's Configuration screen before deploying.`,
+        message: `This app requires environment variables that have no value yet: ${list}. Set them in the application's Configuration screen before deploying.`,
       });
     }
   }

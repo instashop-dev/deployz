@@ -67,6 +67,14 @@
     "./queue": {
       "types": "./dist/queue.d.ts",
       "import": "./dist/queue.js"
+    },
+    "./config": {
+      "types": "./dist/config.d.ts",
+      "import": "./dist/config.js"
+    },
+    "./pending-secrets": {
+      "types": "./dist/pending-secrets.d.ts",
+      "import": "./dist/pending-secrets.js"
     }
   },
   "scripts": {

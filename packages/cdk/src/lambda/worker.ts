@@ -19,7 +19,9 @@ import { and, eq, inArray, isNotNull, isNull, lt, notInArray, or, sql } from 'dr
 
 import { reconcileBilling } from '@deployz/api/billing';
 import { markDeploymentLive } from '@deployz/api/billing-lifecycle';
+import { listVendorValues } from '@deployz/api/config';
 import { mintInstallationToken } from '@deployz/api/github';
+import type { SecretCipher } from '@deployz/api/pending-secrets';
 import {
   createOrReuseJob,
   flipHealthyDeploymentsToUpdateAvailable,
@@ -28,7 +30,7 @@ import {
 } from '@deployz/api/jobs';
 import type { PaddleBilling } from '@deployz/api/paddle';
 import type { QueueMessage } from '@deployz/api/queue';
-import { releaseImageTag } from '@deployz/contracts';
+import { buildStageVendorKeys, environmentSettingsSchema, releaseImageTag } from '@deployz/contracts';
 import { JOB_TIMEOUTS_MS, RELAY_STALE_AFTER_MS, deploymentStateAfterFailedJob } from '@deployz/contracts';
 import type { JevFailureShadowRunner } from '@deployz/api/jev-shadow';
 import type { RuntimeDb } from '@deployz/db';
@@ -173,6 +175,13 @@ export interface WorkerDeps {
     }[]
   >;
   readonly runAnalysis: (applicationId: string, options?: { force?: boolean }) => Promise<void>;
+  /**
+   * Build-time variables a vendor configured for this application (§31 env
+   * setup) — decrypted where secret. Injectable so buildRelease is testable
+   * without the real SecretCipher/KMS seam; see `loadBuildVariablesFromDb`
+   * for the default implementation.
+   */
+  readonly loadBuildVariables: (db: RuntimeDb, applicationId: string) => Promise<{ name: string; value: string }[]>;
 }
 
 // ── Seams ────────────────────────────────────────────────────────────────
@@ -210,6 +219,64 @@ function requireEnv(name: string): string {
     throw new Error(`${name} is not set`);
   }
   return value;
+}
+
+// ── Build-stage vendor variables (§31 env setup) ───────────────────────────
+
+/**
+ * Names a vendor-configured build variable must never collide with — the
+ * ids the control plane itself passes to CodeBuild, plus every namespace
+ * CodeBuild/AWS reserve for their own environment. A collision is silently
+ * dropped rather than failing the whole build; only the NAME is logged
+ * (never a value — these entries may be secret).
+ */
+const RESERVED_BUILD_VARIABLE_NAMES = new Set<string>([
+  'SOURCE_S3_URI',
+  'RELEASE_VERSION',
+  'GIT_SHA',
+  'RELEASE_ID',
+  'DOCKERFILE_PATH',
+  'BUILD_CONTEXT',
+  'DEPLOYZ_BUILD_ARG_NAMES',
+]);
+
+function isReservedBuildVariableName(name: string): boolean {
+  return (
+    RESERVED_BUILD_VARIABLE_NAMES.has(name) || name.startsWith('CODEBUILD_') || name.startsWith('AWS_')
+  );
+}
+
+/**
+ * The vendor-configured build-stage keys for this application
+ * (docs/environment-variables.md), with their current values resolved (decrypted where secret) via
+ * apps/api's config store. Reserved names are dropped — only the name is
+ * logged, a value never is.
+ */
+export async function loadBuildVariablesFromDb(
+  db: RuntimeDb,
+  applicationId: string,
+  cipher: SecretCipher,
+): Promise<{ name: string; value: string }[]> {
+  const rows = await db
+    .select({ environmentSettings: schema.applications.environmentSettings })
+    .from(schema.applications)
+    .where(eq(schema.applications.id, applicationId))
+    .limit(1);
+  const parsed = environmentSettingsSchema.safeParse(rows[0]?.environmentSettings);
+  if (!parsed.success) return [];
+
+  const keys: string[] = [];
+  for (const key of buildStageVendorKeys(parsed.data)) {
+    if (isReservedBuildVariableName(key)) {
+      console.warn(`skipping build variable "${key}" — reserved name`);
+      continue;
+    }
+    keys.push(key);
+  }
+  if (keys.length === 0) return [];
+
+  const values = await listVendorValues(db, applicationId, keys, cipher);
+  return keys.filter((key) => key in values).map((key) => ({ name: key, value: values[key]! }));
 }
 
 // ── BUILD_RELEASE ────────────────────────────────────────────────────────
@@ -285,6 +352,19 @@ async function buildRelease(deps: WorkerDeps, releaseId: string): Promise<void> 
     ];
     if (buildContext !== undefined) {
       environmentVariables.push({ name: 'BUILD_CONTEXT', value: buildContext });
+    }
+
+    // §31 env setup: vendor-configured build-stage variables become
+    // `--build-arg NAME` in the buildspec (build-pipeline.ts), which reads
+    // each value straight out of the CodeBuild environment — the name list
+    // is the only thing that travels as its own variable, never a value.
+    const buildVariables = await deps.loadBuildVariables(db, application.id);
+    if (buildVariables.length > 0) {
+      environmentVariables.push(...buildVariables);
+      environmentVariables.push({
+        name: 'DEPLOYZ_BUILD_ARG_NAMES',
+        value: buildVariables.map((variable) => variable.name).join(' '),
+      });
     }
 
     const buildId = await deps.startBuild({
