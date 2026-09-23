@@ -25,6 +25,9 @@ import {
   INFRASTRUCTURE_SUMMARY_STATUS_BADGE,
   INFRASTRUCTURE_SUMMARY_STATUS_LABEL,
   infrastructureComponentStatusLabel,
+  operationalComponentStatus,
+  operationalSummaryStatus,
+  visibleResources,
 } from '@/lib/deployment-vocabulary';
 
 interface InfrastructureSectionProps {
@@ -43,6 +46,7 @@ export function InfrastructureSection({
   }
 
   const headerTitle = deploymentState === 'DELETED' ? 'Deployment removed' : `AWS · ${data.region}`;
+  const summaryStatus = operationalSummaryStatus(data, deploymentState ?? '');
 
   return (
     <Card>
@@ -60,8 +64,8 @@ export function InfrastructureSection({
             </span>
           ) : null}
         </div>
-        <Badge variant={INFRASTRUCTURE_SUMMARY_STATUS_BADGE[data.summary.status]}>
-          {INFRASTRUCTURE_SUMMARY_STATUS_LABEL[data.summary.status]}
+        <Badge variant={INFRASTRUCTURE_SUMMARY_STATUS_BADGE[summaryStatus]}>
+          {INFRASTRUCTURE_SUMMARY_STATUS_LABEL[summaryStatus]}
         </Badge>
       </CardHeader>
       <CardContent className="flex flex-col gap-4">
@@ -96,6 +100,7 @@ export function InfrastructureSection({
                   key={component.kind}
                   component={component}
                   deploymentId={deploymentId}
+                  deploymentState={deploymentState ?? ''}
                 />
               ))}
             </ul>
@@ -109,10 +114,14 @@ export function InfrastructureSection({
 function ComponentRow({
   component,
   deploymentId,
+  deploymentState,
 }: {
   component: InfrastructureComponent;
   deploymentId: string;
+  deploymentState: string;
 }) {
+  const status = operationalComponentStatus(component, deploymentState);
+  const resources = visibleResources(component.resources, deploymentState);
   const failingReason = firstFailingReason(component);
   const [pending, setPending] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
@@ -146,8 +155,8 @@ function ComponentRow({
             {INFRASTRUCTURE_COMPONENT_PURPOSE[component.kind] ?? component.purpose}
           </span>
         </div>
-        <Badge variant={INFRASTRUCTURE_STATUS_BADGE[component.status]}>
-          {infrastructureComponentStatusLabel(component)}
+        <Badge variant={INFRASTRUCTURE_STATUS_BADGE[status]}>
+          {infrastructureComponentStatusLabel({ ...component, status })}
         </Badge>
       </div>
       <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-muted-foreground">
@@ -183,19 +192,17 @@ function ComponentRow({
           {notice ? <p className="text-xs text-muted-foreground">{notice}</p> : null}
         </div>
       ) : null}
-      {component.resources.length > 0 ? (
-        <TechnicalDisclosure component={component} />
-      ) : null}
+      {resources.length > 0 ? <TechnicalDisclosure resources={resources} /> : null}
     </li>
   );
 }
 
-function TechnicalDisclosure({ component }: { component: InfrastructureComponent }) {
+function TechnicalDisclosure({ resources }: { resources: InfrastructureComponent['resources'] }) {
   return (
     <Collapsible>
       <CollapsibleTrigger className="group flex items-center gap-1 self-start text-xs font-medium text-muted-foreground hover:text-foreground">
-        View {component.resources.length} technical AWS resource
-        {component.resources.length === 1 ? '' : 's'}
+        View {resources.length} technical AWS resource
+        {resources.length === 1 ? '' : 's'}
         <ChevronDown
           aria-hidden
           className="size-4 transition-transform group-data-[state=open]:rotate-180"
@@ -203,9 +210,9 @@ function TechnicalDisclosure({ component }: { component: InfrastructureComponent
       </CollapsibleTrigger>
       <CollapsibleContent>
         <ul className="mt-2 flex flex-col gap-2">
-          {component.resources.map((resource) => (
+          {resources.map((resource) => (
             <li
-              key={resource.logicalId}
+              key={`${resource.logicalId}-${resource.physicalId ?? ''}`}
               className="flex flex-col gap-1 rounded-md bg-muted px-2 py-1.5 text-xs"
             >
               <div className="flex flex-wrap items-center justify-between gap-2">
@@ -214,7 +221,7 @@ function TechnicalDisclosure({ component }: { component: InfrastructureComponent
               </div>
               <span className="text-muted-foreground">{resource.type}</span>
               {resource.physicalId ? (
-                <span className="truncate text-muted-foreground">{resource.physicalId}</span>
+                <span className="break-all text-muted-foreground">{resource.physicalId}</span>
               ) : null}
               {resource.statusReason ? (
                 <span className="text-destructive">{resource.statusReason}</span>

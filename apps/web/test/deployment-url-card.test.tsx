@@ -90,20 +90,46 @@ function render(d: FleetDeploymentDetail): Document {
   return window.document;
 }
 
+function withHttps(httpsStatus: 'READY' | 'IN_PROGRESS'): FleetDeploymentDetail['deploymentStatus'] {
+  return {
+    ...status(),
+    components: [{ key: 'https', label: 'Secure access (HTTPS)', status: httpsStatus }],
+  } as unknown as FleetDeploymentDetail['deploymentStatus'];
+}
+
+function text(doc: Document): string {
+  return doc.body.textContent ?? '';
+}
+
 describe('DeploymentUrlCard', () => {
-  it('shows the Deployz address as the application URL when no custom domain is configured', () => {
-    const doc = render(detail());
+  it('shows the application URL once, with open/copy actions and no custom domain', () => {
+    const doc = render(detail({ deploymentStatus: withHttps('READY') }));
 
-    expect(doc.body.textContent).toContain('Application URL');
-    expect(doc.body.textContent).toContain('https://d-dep-9f1c.deployz.dev');
-    expect(doc.body.textContent).toContain('Healthy');
-    expect(doc.body.textContent).toContain('Secure');
-    expect(doc.body.textContent).toContain('Open application');
-    expect(doc.body.textContent).toContain('Copy');
+    expect(text(doc)).toContain('Application URL');
+    expect(text(doc)).toContain('https://d-dep-9f1c.deployz.dev');
+    expect(text(doc)).toContain('HTTPS active');
+    expect(text(doc)).toContain('Open application');
+    expect(text(doc)).toContain('Copy URL');
+    // Health lives in the page header, never in the access block.
+    expect(text(doc)).not.toContain('Healthy');
+    expect(text(doc)).not.toContain('Secure');
 
-    expect(doc.body.textContent).toContain('Custom domain');
-    expect(doc.body.textContent).toContain('Not configured');
+    expect(text(doc)).toContain('Custom domain');
+    expect(text(doc)).toContain('Not configured');
     expect(doc.querySelector('a[href="/install/link-1"]')?.textContent).toBe('Add custom domain');
+  });
+
+  it('claims HTTPS only when the server confirmed it serves', () => {
+    expect(text(render(detail()))).not.toContain('HTTPS active');
+    expect(text(render(detail({ deploymentStatus: withHttps('IN_PROGRESS') })))).not.toContain(
+      'HTTPS active',
+    );
+    // A READY HTTPS component never upgrades a plain-HTTP address.
+    const http = detail({
+      appUrl: 'http://deployz-alb-1a2b.us-east-2.elb.amazonaws.com',
+      deploymentStatus: withHttps('READY'),
+    });
+    expect(text(render(http))).not.toContain('HTTPS active');
   });
 
   it('renders the API-provided defaultUrl rather than a client-minted hostname', () => {
@@ -115,25 +141,21 @@ describe('DeploymentUrlCard', () => {
     });
     const doc = render(d);
 
-    expect(doc.body.textContent).toContain('https://d-from-api.deployz.dev');
-    expect(doc.body.textContent).not.toContain('https://d-dep-9f1c.deployz.dev');
+    expect(text(doc)).toContain('https://d-from-api.deployz.dev');
+    expect(text(doc)).not.toContain('https://d-dep-9f1c.deployz.dev');
   });
 
-  it('shows a pending custom domain alongside the active Deployz address', () => {
+  it('keeps the Deployz address primary while a custom domain is pending', () => {
     const d = detail({
       appUrl: 'https://d-dep-9f1c.deployz.dev',
       customDomain: { hostname: 'app.customer.com', status: 'waiting_for_dns' },
     });
     const doc = render(d);
 
-    expect(doc.body.textContent).toContain('Deployz address');
-    expect(doc.body.textContent).toContain('https://d-dep-9f1c.deployz.dev');
-    expect(doc.body.textContent).toContain('Active');
-    expect(doc.body.textContent).toContain('Open application');
-
-    expect(doc.body.textContent).toContain('Custom domain');
-    expect(doc.body.textContent).toContain('https://app.customer.com');
-    expect(doc.body.textContent).toContain('Waiting for domain setup');
+    const open = [...doc.querySelectorAll('a')].find((a) => a.textContent?.includes('Open application'));
+    expect(open?.getAttribute('href')).toBe('https://d-dep-9f1c.deployz.dev');
+    expect(text(doc)).toContain('app.customer.com');
+    expect(text(doc)).toContain('Waiting for domain setup');
     expect(doc.querySelector('a[href="/install/link-1"]')?.textContent).toBe('Check custom domain');
   });
 
@@ -141,28 +163,22 @@ describe('DeploymentUrlCard', () => {
     const d = detail({
       appUrl: 'https://app.customer.com',
       customDomain: { hostname: 'app.customer.com', status: 'active' },
+      deploymentStatus: withHttps('READY'),
     });
     const doc = render(d);
 
-    expect(doc.body.textContent).toContain('Application URL');
-    expect(doc.body.textContent).toContain('https://app.customer.com');
-    expect(doc.body.textContent).toContain('Healthy');
-    expect(doc.body.textContent).toContain('Secure');
-    expect(doc.body.textContent).toContain('Open application');
+    expect(text(doc)).toContain('https://app.customer.com');
+    expect(text(doc)).toContain('HTTPS active');
+    expect(text(doc)).toContain('Also available at https://d-dep-9f1c.deployz.dev');
 
-    expect(doc.body.textContent).toContain('Deployz address');
-    expect(doc.body.textContent).toContain('https://d-dep-9f1c.deployz.dev');
-
-    // The secondary Deployz address is an address, not a duplicate CTA:
-    // exactly one "Open application" affordance, pointing at the primary URL.
+    // Exactly one "Open application" affordance, pointing at the primary URL.
     const openLinks = [...doc.querySelectorAll('a')].filter((a) =>
       a.textContent?.includes('Open application'),
     );
     expect(openLinks).toHaveLength(1);
     expect(openLinks[0]?.getAttribute('href')).toBe('https://app.customer.com');
 
-    expect(doc.body.textContent).toContain('Custom domain');
-    expect(doc.body.textContent).toContain('Active');
+    expect(text(doc)).toContain('Active');
     expect(doc.querySelector('a[href="/install/link-1"]')?.textContent).toBe('Manage custom domain');
   });
 
@@ -173,13 +189,10 @@ describe('DeploymentUrlCard', () => {
     });
     const doc = render(d);
 
-    expect(doc.body.textContent).toContain('Deployz address');
-    expect(doc.body.textContent).toContain('https://d-dep-9f1c.deployz.dev');
-    expect(doc.body.textContent).toContain('Active');
-
-    expect(doc.body.textContent).toContain('Custom domain needs attention');
-    expect(doc.body.textContent).toContain('Your application remains available at:');
-    expect(doc.body.textContent).toContain('https://d-dep-9f1c.deployz.dev');
+    expect(text(doc)).toContain('https://d-dep-9f1c.deployz.dev');
+    expect(doc.querySelector('[data-testid="custom-domain-error"]')?.textContent).toContain(
+      'Needs attention',
+    );
     expect(doc.querySelector('a[href="/install/link-1"]')?.textContent).toBe('Manage custom domain');
   });
 
@@ -190,10 +203,7 @@ describe('DeploymentUrlCard', () => {
     });
     const doc = render(d);
 
-    expect(doc.body.textContent).toContain('Deployz address');
-    expect(doc.body.textContent).toContain('https://d-dep-9f1c.deployz.dev');
-
-    expect(doc.body.textContent).toContain('Custom domain');
-    expect(doc.body.textContent).toContain('Removing domain…');
+    expect(text(doc)).toContain('https://d-dep-9f1c.deployz.dev');
+    expect(text(doc)).toContain('Removing domain…');
   });
 });

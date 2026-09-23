@@ -5,7 +5,7 @@ import {
   type DeploymentPlan,
   type Region,
 } from '@deployz/contracts';
-import { AlertTriangle, ChevronDown, ExternalLink, Loader2, MoreHorizontal } from 'lucide-react';
+import { AlertTriangle, ChevronDown, Loader2, MoreHorizontal } from 'lucide-react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
@@ -109,13 +109,13 @@ import {
   relayWaitingStuck,
   showHealthBadge,
 } from '@/lib/deployment-vocabulary';
-import { DOMAIN_STATUS_LABEL } from '@/lib/domains';
 import { relativeTime, containerEvidenceChips, fetchDiagnostics, retryCta, type Diagnostic, type RetryEligibility } from '@/lib/diagnostics';
 import { isAppOwnedStartupFailure } from '@/lib/diagnostic-vocabulary';
 import {
   NO_DEPLOYABLE_RELEASES_COPY,
   deployableReleases,
   fetchReleases,
+  updateTargetRelease,
   type Release,
 } from '@/lib/releases';
 import { formatReleaseVersion } from '@/lib/release-version';
@@ -371,29 +371,39 @@ function DetailBody({
     hero.kind === 'install-failed' &&
     isAppOwnedStartupFailure(detail.deploymentStatus.failure?.code);
 
+  // Health and update availability are separate answers: a live deployment
+  // shows its measured health, and — only from the §46 state — whether a
+  // newer release is ready. The target version comes from the releases
+  // list; while it is unknown, the badge says only that an update exists.
+  const live = detail.state === 'HEALTHY' || detail.state === 'UPDATE_AVAILABLE';
+  const updateTarget =
+    detail.state === 'UPDATE_AVAILABLE' && releases.status === 'loaded'
+      ? updateTargetRelease(releases.data, detail.currentReleaseId)
+      : null;
+
   return (
     <>
-      <div className="flex flex-col gap-1">
+      <div className="flex flex-col gap-4">
         <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
           <h1 className="min-w-0 break-words text-2xl font-semibold tracking-tight">
             {detail.applicationName}
           </h1>
-          <DeploymentStatusBadge state={detail.state} />
+          {live ? null : <DeploymentStatusBadge state={detail.state} />}
           {showHealthBadge(detail.state, detail.currentReleaseId) ? (
             <Badge variant={HEALTH_STATUS_BADGE[detail.healthStatus]}>
               {HEALTH_STATUS_LABEL[detail.healthStatus]}
             </Badge>
           ) : null}
-        </div>
-        <p className="text-sm text-muted-foreground">
-          {detail.customerName}
-          {detail.version ? (
-            <>
-              {' · '}
-              <span className="tabular-nums">{formatReleaseVersion(detail.version)}</span>
-            </>
+          {detail.state === 'UPDATE_AVAILABLE' ? (
+            <Badge variant="info" data-testid="update-available">
+              {updateTarget
+                ? `Update available: ${formatReleaseVersion(updateTarget.version)}`
+                : 'Update available'}
+            </Badge>
           ) : null}
-        </p>
+          {detail.state === 'HEALTHY' ? <Badge variant="outline">Up to date</Badge> : null}
+        </div>
+        <DeploymentMetadata detail={detail} />
       </div>
 
       <section aria-labelledby="deployment-progress" className="flex flex-col gap-3">
@@ -410,6 +420,7 @@ function DetailBody({
               hero={hero}
               releases={releases}
               previousVersion={previousVersion}
+              updateVersion={updateTarget?.version ?? null}
               retryEligibility={diagnostic?.retryEligibility ?? null}
               startupFailure={startupFailure}
               onChanged={onChanged}
@@ -432,8 +443,6 @@ function DetailBody({
       {detail.state === 'NOT_INSTALLED' || detail.state === 'WAITING_FOR_RELAY' ? (
         <InstallLinkCard detail={detail} />
       ) : null}
-
-      <DeploymentMetadata detail={detail} />
 
       <section aria-labelledby="infrastructure" className="flex flex-col gap-3">
         <h2 id="infrastructure" className="text-base font-semibold">
@@ -465,24 +474,61 @@ function DetailBody({
 }
 
 /**
- * Compact vendor-level facts. The AWS account, stack status and version
- * identifiers live under Advanced details — nothing here needs AWS knowledge.
+ * The deployment's facts, each shown once. The address and custom domain
+ * live in the hero's access block; the AWS account, stack status and
+ * version identifiers live under Advanced details.
  */
 function DeploymentMetadata({ detail }: { detail: FleetDeploymentDetail }) {
   const created = new Date(detail.createdAt);
-  const domain = detail.customDomain;
+  const regionName = REGION_LABELS[detail.region as Region];
 
   return (
-    <section aria-labelledby="overview" className="flex flex-col gap-3">
+    <section aria-labelledby="overview">
       <h2 id="overview" className="sr-only">
-        Overview
+        Deployment details
       </h2>
-      <dl className="grid gap-x-8 gap-y-3 text-sm sm:grid-cols-2 lg:grid-cols-4">
+      <dl className="grid grid-cols-2 gap-x-8 gap-y-3 text-sm sm:grid-cols-3 lg:grid-cols-5">
         <MetaRow label="Customer" value={detail.customerName} />
-        <MetaRow label="Region" value={REGION_LABELS[detail.region as Region] ?? detail.region} />
         <MetaRow
-          label="Release"
-          value={detail.version ? <span className="tabular-nums">{formatReleaseVersion(detail.version)}</span> : 'Not deployed yet'}
+          label="AWS region"
+          value={
+            regionName ? (
+              <>
+                {regionName}{' '}
+                <span className="font-normal whitespace-nowrap text-muted-foreground">{detail.region}</span>
+              </>
+            ) : (
+              detail.region
+            )
+          }
+        />
+        <MetaRow
+          label="Running release"
+          value={
+            detail.version ? (
+              <span className="tabular-nums">{formatReleaseVersion(detail.version)}</span>
+            ) : (
+              'Not deployed yet'
+            )
+          }
+        />
+        {/* Paddle migration Phase 11 — the vendor's one-line answer to "what
+            does this cost me?". Reads the deployment's billing state, never
+            its health: a temporarily unhealthy deployment is still billed. */}
+        <MetaRow
+          label="Deployment type"
+          value={
+            detail.deploymentType === 'TEST' ? (
+              deploymentBillingLabel(detail)
+            ) : (
+              <>
+                Production
+                <span className="block text-xs font-normal text-muted-foreground">
+                  {deploymentBillingLabel(detail)}
+                </span>
+              </>
+            )
+          }
         />
         <MetaRow
           label="Created"
@@ -492,32 +538,6 @@ function DeploymentMetadata({ detail }: { detail: FleetDeploymentDetail }) {
             </time>
           }
         />
-        {/* Paddle migration Phase 11 — the vendor's one-line answer to "what
-            does this cost me?". Reads the deployment's billing state, never
-            its health: a temporarily unhealthy deployment is still billed. */}
-        <MetaRow label="Billing" value={deploymentBillingLabel(detail)} />
-        {detail.appUrl ? <AppUrlRow url={detail.appUrl} /> : null}
-        <div className="flex min-w-0 flex-col gap-0.5 sm:col-span-2">
-          <dt className="text-muted-foreground">Custom domain</dt>
-          <dd className="flex min-w-0 flex-wrap items-center gap-2">
-            {domain ? (
-              <>
-                <span className="min-w-0 truncate font-medium">{domain.hostname}</span>
-                <Badge variant={domain.status === 'error' ? 'destructive' : 'secondary'}>
-                  {DOMAIN_STATUS_LABEL[domain.status]}
-                </Badge>
-              </>
-            ) : (
-              <span className="text-muted-foreground">None</span>
-            )}
-            <Link
-              href={`/install/${detail.installLinkId}`}
-              className="inline-flex items-center gap-1 rounded-md text-sm font-medium text-primary underline-offset-4 outline-none hover:underline focus-visible:ring-3 focus-visible:ring-ring/50"
-            >
-              {domain ? 'Manage →' : 'Add domain →'}
-            </Link>
-          </dd>
-        </div>
       </dl>
     </section>
   );
@@ -553,7 +573,6 @@ function AdvancedDetails({
             <CardContent>
               <dl className="grid gap-x-8 gap-y-3 text-sm sm:grid-cols-2">
                 <MetaRow label="AWS account" value={detail.awsAccountId ?? 'Not connected yet'} />
-                <MetaRow label="AWS region" value={detail.region} />
                 <MetaRow label="Infrastructure version" value={detail.infraVersion} />
                 {detail.relayVersion ? (
                   <MetaRow label="Connector version" value={detail.relayVersion} />
@@ -622,6 +641,7 @@ function DeploymentActions({
   hero,
   releases,
   previousVersion,
+  updateVersion,
   retryEligibility,
   startupFailure,
   onChanged,
@@ -630,6 +650,8 @@ function DeploymentActions({
   hero: HeroModel;
   releases: ReleasesState;
   previousVersion: string | null;
+  /** The release UPDATE_AVAILABLE points at, when the releases list names it. */
+  updateVersion: string | null;
   retryEligibility: RetryEligibility | null;
   startupFailure: boolean;
   onChanged: () => void;
@@ -702,7 +724,7 @@ function DeploymentActions({
         </h2>
         <div className="flex flex-wrap items-center gap-2">
           <Button asChild size="sm" variant="outline">
-            <Link href={`/dashboard/deployments/${detail.id}/diagnostics`}>View Diagnostics</Link>
+            <Link href={`/dashboard/deployments/${detail.id}/diagnostics`}>View diagnostics</Link>
           </Button>
         </div>
       </section>
@@ -743,19 +765,11 @@ function DeploymentActions({
             disabled={!canDeploy}
             onClick={() => setOpen(open === 'deploy' ? null : 'deploy')}
           >
-            Deploy Update
+            {updateVersion && detail.state === 'UPDATE_AVAILABLE'
+              ? `Deploy update to ${formatReleaseVersion(updateVersion)}`
+              : 'Deploy update'}
           </Button>
         ) : null}
-        {startupFailure ? (
-          <Button asChild size="sm" variant="outline">
-            <Link href={`/dashboard/deployments/${detail.id}/diagnostics#startup-evidence`}>
-              View startup evidence
-            </Link>
-          </Button>
-        ) : null}
-        <Button asChild size="sm" variant="outline">
-          <Link href={`/dashboard/deployments/${detail.id}/diagnostics`}>View Diagnostics</Link>
-        </Button>
         {everRan ? (
           canConfig ? (
             <Button asChild size="sm" variant="outline">
@@ -771,6 +785,16 @@ function DeploymentActions({
             </Button>
           )
         ) : null}
+        {startupFailure ? (
+          <Button asChild size="sm" variant="outline">
+            <Link href={`/dashboard/deployments/${detail.id}/diagnostics#startup-evidence`}>
+              View startup evidence
+            </Link>
+          </Button>
+        ) : null}
+        <Button asChild size="sm" variant="outline">
+          <Link href={`/dashboard/deployments/${detail.id}/diagnostics`}>View diagnostics</Link>
+        </Button>
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button size="icon-sm" variant="outline" aria-label="More actions" className="ml-auto">
@@ -1735,41 +1759,6 @@ function MetaRow({ label, value }: { label: string; value: ReactNode }) {
     <div className="flex min-w-0 flex-col gap-0.5">
       <dt className="text-muted-foreground">{label}</dt>
       <dd className="min-w-0 break-words font-medium">{value}</dd>
-    </div>
-  );
-}
-
-function AppUrlRow({ url }: { url: string }) {
-  const [copied, setCopied] = useState(false);
-
-  async function copy(): Promise<void> {
-    try {
-      await navigator.clipboard.writeText(url);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    } catch {
-      // Clipboard access can fail (permissions, insecure context); the link
-      // below still lets the user open or select the URL by hand.
-    }
-  }
-
-  return (
-    <div className="flex min-w-0 flex-col gap-0.5 sm:col-span-2">
-      <dt className="text-muted-foreground">URL</dt>
-      <dd className="flex min-w-0 items-center gap-2">
-        <a
-          href={url}
-          target="_blank"
-          rel="noreferrer"
-          className="inline-flex min-w-0 items-center gap-1 font-medium text-primary underline-offset-4 hover:underline"
-        >
-          <span className="truncate">{url}</span>
-          <ExternalLink aria-hidden className="size-3.5 shrink-0" />
-        </a>
-        <Button type="button" size="xs" variant="outline" onClick={copy}>
-          {copied ? 'Copied' : 'Copy'}
-        </Button>
-      </dd>
     </div>
   );
 }

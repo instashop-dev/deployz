@@ -13,7 +13,10 @@ import {
   infrastructureComponentStatusLabel,
   infrastructureMissingKinds,
   infrastructureNotRequiredKinds,
+  operationalComponentStatus,
+  operationalSummaryStatus,
   showInfrastructureRows,
+  visibleResources,
   type DeploymentState,
   type RelayStatus,
 } from '@/lib/deployment-vocabulary';
@@ -24,11 +27,14 @@ import type {
   InfrastructureSummaryStatus,
 } from '@/lib/deployments';
 import { relativeTime } from '@/lib/diagnostics';
+import { TONE_TEXT } from '@/lib/status-tone';
+import { cn } from '@/lib/utils';
 
-// The default Infrastructure view: one line per logical service with a
-// plain-English status, the connector's connectivity, and — behind "View N
-// resources" — the full resource inventory (InfrastructureSection). Vendors
-// see "Database · Ready", never a stack of AWS resource cards, unless they ask.
+// The default Infrastructure view: one plain-English summary line, a compact
+// line of services with their status, and the connector's connectivity.
+// Behind "View components and N AWS resources" sit the per-component rows
+// and the full resource inventory (InfrastructureSection). Vendors see
+// "Database ✓", never a stack of AWS resource cards, unless they ask.
 
 const SUMMARY_LINE: Record<InfrastructureSummaryStatus, string> = {
   healthy: 'All required services are ready.',
@@ -41,9 +47,20 @@ const SUMMARY_LINE: Record<InfrastructureSummaryStatus, string> = {
   unknown: 'Service status is not available right now.',
 };
 
+const SUMMARY_ICON: Record<InfrastructureSummaryStatus, ReactNode> = {
+  healthy: <CheckCircle2 aria-hidden className={cn('size-4 shrink-0', TONE_TEXT.positive)} />,
+  provisioning: <Loader2 aria-hidden className="size-4 shrink-0 animate-spin text-primary" />,
+  updating: <Loader2 aria-hidden className="size-4 shrink-0 animate-spin text-primary" />,
+  degraded: <AlertTriangle aria-hidden className={cn('size-4 shrink-0', TONE_TEXT.attention)} />,
+  failed: <AlertCircle aria-hidden className="size-4 shrink-0 text-destructive" />,
+  deleting: <Loader2 aria-hidden className="size-4 shrink-0 animate-spin text-muted-foreground" />,
+  retained: <Circle aria-hidden className="size-4 shrink-0 text-muted-foreground" />,
+  unknown: <Circle aria-hidden className="size-4 shrink-0 text-muted-foreground/50" />,
+};
+
 const STATUS_ICON: Record<InfrastructureComponentStatus, ReactNode> = {
-  ready: <CheckCircle2 aria-hidden className="size-4 shrink-0 text-primary" />,
-  retained: <CheckCircle2 aria-hidden className="size-4 shrink-0 text-muted-foreground" />,
+  ready: <CheckCircle2 aria-hidden className={cn('size-4 shrink-0', TONE_TEXT.positive)} />,
+  retained: <Circle aria-hidden className="size-4 shrink-0 text-muted-foreground" />,
   failed: <AlertCircle aria-hidden className="size-4 shrink-0 text-destructive" />,
   provisioning: <Loader2 aria-hidden className="size-4 shrink-0 animate-spin text-primary" />,
   updating: <Loader2 aria-hidden className="size-4 shrink-0 animate-spin text-primary" />,
@@ -72,12 +89,12 @@ export function InfrastructureSummary({
   const state = detail.state as DeploymentState;
   const listable = showInfrastructureRows(state, detail.currentReleaseId) || state === 'DELETED';
   const relay = (
-    <RelayRow status={detail.relayStatus} lastContact={relativeTime(detail.lastHealthAt)} />
+    <RelayLine status={detail.relayStatus} lastContact={relativeTime(detail.lastHealthAt)} />
   );
 
   if (!listable) {
     return (
-      <div className="flex flex-col gap-3">
+      <SummaryCard>
         <p className="text-sm text-muted-foreground">
           {state === 'NOT_INSTALLED' || state === 'WAITING_FOR_RELAY'
             ? 'This deployment has not been installed yet.'
@@ -85,8 +102,8 @@ export function InfrastructureSummary({
               ? "This deployment isn't running, so there's nothing to report."
               : 'This deployment has been removed.'}
         </p>
-        <ul className="flex flex-col divide-y rounded-lg border text-sm">{relay}</ul>
-      </div>
+        {relay}
+      </SummaryCard>
     );
   }
 
@@ -100,7 +117,7 @@ export function InfrastructureSummary({
             The deployment itself is unaffected. This section refreshes automatically.
           </AlertDescription>
         </Alert>
-        <ul className="flex flex-col divide-y rounded-lg border text-sm">{relay}</ul>
+        <SummaryCard>{relay}</SummaryCard>
       </div>
     );
   }
@@ -109,7 +126,7 @@ export function InfrastructureSummary({
     return (
       <div className="flex flex-col gap-2" data-testid="infrastructure-loading" aria-busy="true">
         <Skeleton className="h-4 w-56" />
-        <Skeleton className="h-32 w-full rounded-lg" />
+        <Skeleton className="h-24 w-full rounded-lg" />
       </div>
     );
   }
@@ -119,71 +136,85 @@ export function InfrastructureSummary({
   // the page never re-derives infrastructure intent itself (docs/ui-system.md).
   // A catalog kind absent from the inventory reads "Not required" (the
   // manifest never asked for it) or, once past the install phase, "Missing"
-  // (the manifest asked for it and it is not there). A kind present but not
-  // required (e.g. a provisioned cache in a stateless deployment) is a real
-  // row already covered by the loop below — no special copy.
+  // (the manifest asked for it and it is not there).
   const notRequiredKinds = infrastructureNotRequiredKinds(infrastructure.expectations);
   const missingKinds = infrastructureMissingKinds(infrastructure.expectations, state);
-  const resourceCount = infrastructure.summary.technicalResourceCount;
+  const summaryStatus = operationalSummaryStatus(infrastructure, state);
+  const resourceCount = infrastructure.components.reduce(
+    (total, component) => total + visibleResources(component.resources, state).length,
+    0,
+  );
 
   return (
     <div className="flex flex-col gap-3">
-      {infrastructure.snapshotState === 'none' ? (
-        // A failed install that never created a stack's worth of resources
-        // has nothing the inventory could add — say so honestly (the hero
-        // and activity above carry the failure itself). Live states get the
-        // "details appear as they are created" line instead.
-        <p className="text-sm text-muted-foreground">
-          {state === 'FAILED'
-            ? "This deployment isn't running, so there's nothing to report."
-            : 'Service details appear as they are created.'}
-        </p>
-      ) : (
-        <p className="text-sm text-muted-foreground">{SUMMARY_LINE[infrastructure.summary.status]}</p>
-      )}
-      {infrastructure.connectionState === 'disconnected' ? (
-        <p className="text-sm text-muted-foreground">
-          Showing the last verified state
-          {infrastructure.disconnectWarning
-            ? ` (${relativeTime(infrastructure.disconnectWarning.lastVerifiedAt)})`
-            : ''}
-          .
-        </p>
-      ) : null}
-      <ul className="flex flex-col divide-y rounded-lg border text-sm">
-        {infrastructure.components.map((component) => (
-          <li key={component.kind} className="flex items-center gap-3 px-3 py-2">
-            {STATUS_ICON[component.status]}
-            <span className="min-w-0 truncate font-medium">
-              {INFRASTRUCTURE_COMPONENT_NAME[component.kind] ?? component.name}
-            </span>
-            <span className="ml-auto shrink-0 text-muted-foreground">
-              {infrastructureComponentStatusLabel(component)}
-            </span>
-          </li>
-        ))}
-        {notRequiredKinds.map((kind) => (
-          <li key={kind} className="flex items-center gap-3 px-3 py-2">
-            <Circle aria-hidden className="size-4 shrink-0 text-muted-foreground/30" />
-            <span className="min-w-0 truncate font-medium text-muted-foreground">
-              {INFRASTRUCTURE_COMPONENT_NAME[kind]}
-            </span>
-            <span className="ml-auto shrink-0 text-muted-foreground">Not required</span>
-          </li>
-        ))}
-        {missingKinds.map((kind) => (
-          <li key={kind} className="flex items-center gap-3 px-3 py-2">
-            <AlertCircle aria-hidden className="size-4 shrink-0 text-destructive" />
-            <span className="min-w-0 truncate font-medium">{INFRASTRUCTURE_COMPONENT_NAME[kind]}</span>
-            <span className="ml-auto shrink-0 text-destructive">Missing</span>
-          </li>
-        ))}
+      <SummaryCard>
+        {infrastructure.snapshotState === 'none' ? (
+          // A failed install that never created a stack's worth of resources
+          // has nothing the inventory could add — say so honestly (the hero
+          // and activity above carry the failure itself). Live states get the
+          // "details appear as they are created" line instead.
+          <p className="text-sm text-muted-foreground">
+            {state === 'FAILED'
+              ? "This deployment isn't running, so there's nothing to report."
+              : 'Service details appear as they are created.'}
+          </p>
+        ) : (
+          <p className="flex items-center gap-2 text-sm font-medium">
+            {SUMMARY_ICON[summaryStatus]}
+            {SUMMARY_LINE[summaryStatus]}
+          </p>
+        )}
+        {infrastructure.connectionState === 'disconnected' ? (
+          <p className="text-sm text-muted-foreground">
+            Showing the last verified state
+            {infrastructure.disconnectWarning
+              ? ` (${relativeTime(infrastructure.disconnectWarning.lastVerifiedAt)})`
+              : ''}
+            .
+          </p>
+        ) : null}
+        {infrastructure.components.length > 0 || notRequiredKinds.length > 0 || missingKinds.length > 0 ? (
+          <ul aria-label="Services" className="flex flex-wrap gap-x-5 gap-y-2 text-sm">
+            {infrastructure.components.map((component) => {
+              const status = operationalComponentStatus(component, state);
+              const label = infrastructureComponentStatusLabel({ ...component, status });
+              return (
+                <li key={component.kind} className="inline-flex min-w-0 items-center gap-1.5">
+                  {STATUS_ICON[status]}
+                  <span className="min-w-0 break-words">
+                    {INFRASTRUCTURE_COMPONENT_NAME[component.kind] ?? component.name}
+                  </span>
+                  {/* Ready is the icon; any other status is spelled out. */}
+                  {status === 'ready' && label === 'Ready' ? (
+                    <span className="sr-only">{label}</span>
+                  ) : (
+                    <span className="text-muted-foreground">{label}</span>
+                  )}
+                </li>
+              );
+            })}
+            {missingKinds.map((kind) => (
+              <li key={kind} className="inline-flex items-center gap-1.5">
+                <AlertCircle aria-hidden className="size-4 shrink-0 text-destructive" />
+                <span>{INFRASTRUCTURE_COMPONENT_NAME[kind]}</span>
+                <span className="text-destructive">Missing</span>
+              </li>
+            ))}
+            {notRequiredKinds.map((kind) => (
+              <li key={kind} className="inline-flex items-center gap-1.5 text-muted-foreground">
+                <Circle aria-hidden className="size-4 shrink-0 text-muted-foreground/40" />
+                <span>{INFRASTRUCTURE_COMPONENT_NAME[kind]}</span>
+                <span>Not required</span>
+              </li>
+            ))}
+          </ul>
+        ) : null}
         {relay}
-      </ul>
+      </SummaryCard>
       {infrastructure.components.length > 0 ? (
         <Collapsible>
           <CollapsibleTrigger className="group flex items-center gap-1 self-start text-sm font-medium text-muted-foreground hover:text-foreground">
-            View {resourceCount} resource{resourceCount === 1 ? '' : 's'}
+            View components and {resourceCount} AWS resource{resourceCount === 1 ? '' : 's'}
             <ChevronDown
               aria-hidden
               className="size-4 transition-transform group-data-[state=open]:rotate-180"
@@ -202,14 +233,18 @@ export function InfrastructureSummary({
   );
 }
 
-function RelayRow({ status, lastContact }: { status: RelayStatus; lastContact: string | null }) {
+function SummaryCard({ children }: { children: ReactNode }) {
+  return <div className="flex flex-col gap-3 rounded-lg border px-3 py-3">{children}</div>;
+}
+
+function RelayLine({ status, lastContact }: { status: RelayStatus; lastContact: string | null }) {
   return (
-    <li className="flex items-center gap-3 px-3 py-2">
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-t pt-3 text-sm first:border-t-0 first:pt-0">
       <span className={`mx-1 size-2 shrink-0 rounded-full ${RELAY_DOT[status]}`} aria-hidden />
       <span className="font-medium">Deployz Relay</span>
       <span className="ml-auto text-right text-muted-foreground" data-testid="status-updated">
         {lastContact ? `${RELAY_STATUS_LABEL[status]} · ${lastContact}` : RELAY_STATUS_LABEL[status]}
       </span>
-    </li>
+    </div>
   );
 }

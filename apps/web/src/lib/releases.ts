@@ -152,6 +152,25 @@ export function deployableReleases(
 }
 
 /**
+ * The newest READY release created after the running one — the release that
+ * makes a deployment UPDATE_AVAILABLE (mirrors newerReadyReleaseExists in
+ * apps/api/src/jobs.ts). Null when the running release is not in the list,
+ * so the page never guesses a target version.
+ */
+export function updateTargetRelease(
+  releases: readonly Release[],
+  currentReleaseId: string | null,
+): Release | null {
+  const current = releases.find((r) => r.id === currentReleaseId);
+  if (!current) return null;
+  const since = Date.parse(current.createdAt);
+  return (
+    deployableReleases(releases, currentReleaseId).find((r) => Date.parse(r.createdAt) > since) ??
+    null
+  );
+}
+
+/**
  * The release ids currently deployed by any live deployment of the
  * application — the releases the Runtime column marks as Running.
  */

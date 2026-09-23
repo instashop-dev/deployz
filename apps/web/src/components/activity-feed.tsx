@@ -7,12 +7,13 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
   ACTIVITY_PREVIEW_COUNT,
+  activityEventLabel,
   activityFailureSummary,
   activityRawError,
   newestFirst,
 } from '@/lib/activity';
 import type { ActivityEvent } from '@/lib/deployments';
-import { eventResultLabel, eventTypeLabel } from '@/lib/deployment-vocabulary';
+import { eventResultLabel } from '@/lib/deployment-vocabulary';
 
 // Reusable activity feed — renders a deployment's §40 event timeline,
 // newest first. The top level is §65 jargon-free (human event label, a
@@ -89,7 +90,7 @@ function ActivityFeedItem({ event }: { event: ActivityEvent }) {
           {formatTime(event.occurredAt)}
         </time>
         <span className="min-w-0 flex-1">
-          <span className="block text-sm font-medium">{eventTypeLabel(event.eventType)}</span>
+          <span className="block text-sm font-medium">{activityEventLabel(event)}</span>
           {summary ? (
             <span className="block text-xs text-muted-foreground">{summary}</span>
           ) : null}

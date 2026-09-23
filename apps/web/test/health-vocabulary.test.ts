@@ -57,9 +57,9 @@ describe('measured health vocabulary', () => {
 
 describe('relay infra checks', () => {
   it('maps raw check names to friendly, jargon-free names', () => {
-    expect(infraCheckLabel('stack-exists')).toBe('Application infrastructure');
-    expect(infraCheckLabel('stack-complete')).toBe('Infrastructure setup');
-    expect(infraCheckLabel('stack-tagged')).toBe('Infrastructure ownership');
+    expect(infraCheckLabel('stack-exists')).toBe('Infrastructure present');
+    expect(infraCheckLabel('stack-complete')).toBe('Infrastructure provisioning');
+    expect(infraCheckLabel('stack-tagged')).toBe('Installation ownership');
     expect(infraCheckLabel('compute')).toBe('Application service');
     expect(infraCheckLabel('ingress')).toBe('Load balancer');
     expect(infraCheckLabel('database')).toBe('Database');
@@ -117,7 +117,7 @@ describe('infraCheckPresentation', () => {
     expect(presentation.statusText).toBe('Needs attention');
     expect(presentation.problem).toBe('The database was not created.');
     expect(presentation.nextAction).toBe(
-      'Wait for the current operation to finish. If this stays, open the issues below.',
+      'Wait for the current operation to finish. If this stays, check the deployment page for the cause.',
     );
   });
 
@@ -131,7 +131,7 @@ describe('infraCheckPresentation', () => {
     expect(presentation).toEqual({
       label: 'Cache',
       outcome: 'not_required',
-      statusText: 'Not provisioned (this application does not require a cache)',
+      statusText: 'Not required',
       problem: null,
       nextAction: null,
     });
@@ -147,7 +147,7 @@ describe('infraCheckPresentation', () => {
     expect(presentation.outcome).toBe('issue');
     expect(presentation.problem).toBe("A check on the deployment's infrastructure did not pass.");
     expect(presentation.nextAction).toBe(
-      'Open the issues below for the cause, or wait for the next check.',
+      'Wait for the next check. If this stays, check the deployment page for the cause.',
     );
   });
 });

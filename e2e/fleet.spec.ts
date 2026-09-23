@@ -317,7 +317,7 @@ test('infrastructure rows appear only for the components the relay reports', asy
   await expect(infraSection.getByText('Not required', { exact: true })).toHaveCount(1);
   // The resource-level inventory stays behind its own disclosure.
   await expect(infraSection.getByText('ECS', { exact: true })).toHaveCount(0);
-  await infraSection.getByRole('button', { name: /View \d+ resources?/ }).click();
+  await infraSection.getByRole('button', { name: /View components and \d+ AWS resources?/ }).click();
   await expect(infraSection.getByText('Runs your application', { exact: true })).toBeVisible();
 });
 

@@ -1,4 +1,7 @@
-import { eventFailureReason } from './deployment-vocabulary';
+import type { DeploymentStep } from '@deployz/contracts';
+
+import { STEP_LABEL } from './deployment-progress';
+import { eventFailureReason, eventTypeLabel } from './deployment-vocabulary';
 import type { ActivityEvent } from './deployments';
 import { FAILURE_CODE_COPY, type FailureCode } from './diagnostic-vocabulary';
 
@@ -17,6 +20,19 @@ export function newestFirst(events: ActivityEvent[]): ActivityEvent[] {
       return diff !== 0 ? diff : b.index - a.index;
     })
     .map(({ event }) => event);
+}
+
+/**
+ * The row label for an event. A completed install step names the step
+ * ("Network created") from its payload, so a run of step events never
+ * reads as the same generic line.
+ */
+export function activityEventLabel(event: ActivityEvent): string {
+  const step = event.payload['step'];
+  if (event.eventType === 'deployment.step_completed' && typeof step === 'string' && step in STEP_LABEL) {
+    return STEP_LABEL[step as DeploymentStep].done;
+  }
+  return eventTypeLabel(event.eventType);
 }
 
 /** How many events the feed shows before "View full activity". */

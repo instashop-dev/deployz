@@ -59,15 +59,11 @@ export function DeploymentHero({
 }) {
   const status = detail.deploymentStatus;
   const failure = status.failure;
-  // The address shows whenever the application is (or is believed to be)
-  // serving — including after a failed update, when the previous release is
-  // exactly what the vendor may want to check.
-  const showUrl =
-    (hero.kind === 'live' ||
-      hero.kind === 'operation-failed' ||
-      hero.kind === 'degraded' ||
-      hero.kind === 'lost-contact') &&
-    detail.appUrl !== null;
+  // The address shows whenever the API has one and the deployment still
+  // exists — including after a failed update or while health checks fail,
+  // when the running release is exactly what the vendor may want to check.
+  // This is the page's only place for the URL and the custom domain.
+  const showUrl = hero.kind !== 'deleting' && hero.kind !== 'deleted' && detail.appUrl !== null;
 
   return (
     <Card>
@@ -99,7 +95,7 @@ export function DeploymentHero({
           </div>
         </div>
 
-        {showUrl && detail.appUrl ? <DeploymentUrlCard detail={detail} /> : null}
+        {showUrl ? <DeploymentUrlCard detail={detail} /> : null}
 
         {hero.kind === 'updating' ? <OperationProgress detail={detail} /> : null}
 
