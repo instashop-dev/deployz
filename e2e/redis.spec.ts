@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { createReadyRelease } from './seed-ready-manifest.js';
 import { extractQuickCreateParam, fetchInstallCredentials } from './simulation/relay-harness.js';
 
 // Redis Support MVP (tasks 1-9): §7 Redis detection + §8 the managed,
@@ -72,6 +73,7 @@ async function seedCustomerAndDeployment(
   });
   expect(customerResponse.ok()).toBeTruthy();
   const customer = (await customerResponse.json()) as { id: string };
+  await createReadyRelease(page.request, applicationId);
 
   const deploymentResponse = await page.request.post(`${API_URL}/api/deployments`, {
     data: { applicationId, customerId: customer.id, region: 'us-east-1' },

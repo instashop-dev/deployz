@@ -155,6 +155,14 @@ async function insertApplication(
       detectedMetadata: READY_METADATA,
     })
     .returning();
+  // A built release: checkout and the parked deployment both refuse without one.
+  await db.insert(schema.releases).values({
+    applicationId: row!.id,
+    version: '1.0.0',
+    gitSha: 'a'.repeat(40),
+    releaseStatus: 'READY',
+    imageDigest: `123456789012.dkr.ecr.us-east-1.amazonaws.com/deployz-fixture@sha256:${'b'.repeat(64)}`,
+  });
   return row!;
 }
 
@@ -383,6 +391,36 @@ describe('POST /api/billing/checkout (Paddle migration Phase 8)', () => {
       );
       expect(response.statusCode).toBe(422);
       expect(response.json()).toMatchObject({ error: { code: 'REGION_NOT_SUPPORTED' } });
+      expect(await pendingIntents(db, org.organizationId)).toHaveLength(before.length);
+    } finally {
+      await app.close();
+    }
+  });
+
+  it('409s RELEASE_NOT_PUBLISHED when the application has no built release, before any intent or Paddle call', async () => {
+    let paddleCalled = false;
+    const app = await buildServer({
+      auth,
+      db,
+      paddle: buildPaddle(async () => {
+        paddleCalled = true;
+        return { id: 'txn_should_not_exist' };
+      }),
+    });
+    try {
+      const application = await insertApplication(db, org.organizationId);
+      await db.delete(schema.releases).where(eq(schema.releases.applicationId, application.id));
+      const customer = await insertCustomer(db, org.organizationId);
+      const before = await pendingIntents(db, org.organizationId);
+      const response = await postJson(
+        app,
+        '/api/billing/checkout',
+        { applicationId: application.id, customerId: customer.id, region: 'us-east-1' },
+        { cookie: org.cookie },
+      );
+      expect(response.statusCode).toBe(409);
+      expect(response.json()).toMatchObject({ error: { code: 'RELEASE_NOT_PUBLISHED' } });
+      expect(paddleCalled).toBe(false);
       expect(await pendingIntents(db, org.organizationId)).toHaveLength(before.length);
     } finally {
       await app.close();

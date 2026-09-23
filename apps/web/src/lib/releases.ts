@@ -103,6 +103,37 @@ export const NO_DEPLOYABLE_RELEASES_COPY =
   'No deployable releases yet. A release must build successfully first.';
 
 /**
+ * What a new deployment would install. An install runs the newest READY
+ * release; without one the API refuses the deployment, so the create screen
+ * says so up front: `building` while the newest release is still building,
+ * `none` when nothing is built (or every build failed).
+ */
+export type InstallReleaseState =
+  | { kind: 'ready'; release: Release }
+  | { kind: 'building'; release: Release }
+  | { kind: 'none' };
+
+export function installReleaseState(releases: readonly Release[]): InstallReleaseState {
+  const newestFirst = [...releases].sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt));
+  const ready = newestFirst.find((r) => r.status === 'READY');
+  if (ready) return { kind: 'ready', release: ready };
+  const building = newestFirst.find((r) => r.status === 'BUILDING');
+  if (building) return { kind: 'building', release: building };
+  return { kind: 'none' };
+}
+
+/**
+ * The first release of an application, built from the commit its analysis
+ * read — the same version scheme the public install link uses (the first 12
+ * characters of the SHA). Null when the analysis recorded no commit.
+ */
+export function firstReleaseInput(detectedMetadata: Record<string, unknown> | null): CreateReleaseInput | null {
+  const sha = detectedMetadata?.analysisCommitSha;
+  if (typeof sha !== 'string' || sha.length === 0) return null;
+  return { version: sha.slice(0, 12), gitSha: sha };
+}
+
+/**
  * Releases the deploy picker may offer: READY only (BUILDING may still
  * fail, FAILED cannot run), excluding the release already running, newest
  * first.

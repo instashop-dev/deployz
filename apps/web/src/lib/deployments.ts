@@ -386,6 +386,9 @@ export function actionErrorMessage(caught: unknown, fallback: string): string {
   if (caught instanceof DeploymentActionError && caught.code === 'RELEASE_UNAVAILABLE') {
     return 'This version can no longer be deployed because its build is no longer available. Create a new release to deploy it again.';
   }
+  if (caught instanceof DeploymentActionError && caught.code === 'RELEASE_NOT_PUBLISHED') {
+    return 'This application has no built release yet. Build a release on the Releases page, then try again.';
+  }
   return fallback;
 }
 

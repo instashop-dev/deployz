@@ -243,6 +243,8 @@ describe('Team Admin: safe recovery actions (API)', () => {
         state: 'FAILED',
         idempotencyKey: `${deployment.id}:INSTALL`,
       });
+      // The INSTALL needs a built release to run.
+      await insertDeployableRelease(db, application.id);
 
       const response = await postReq(
         app,

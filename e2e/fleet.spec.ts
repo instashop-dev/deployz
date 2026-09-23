@@ -143,6 +143,21 @@ async function driveDeploymentToHealthy(
     },
   });
   expect(healthResponse.ok()).toBeTruthy();
+
+  // A successful INSTALL queues the deploy of the newest READY release. The
+  // relay runs it next, so no operation still owns the deployment.
+  const followUpResponse = await page.request.get(
+    `${API_URL}/api/relay/commands?installationId=${installationId}`,
+    { headers: authHeaders },
+  );
+  const followUp = (await followUpResponse.json()) as { commands: { id: string; type: string }[] };
+  const autoDeployJob = followUp.commands.find((command) => command.type === 'DEPLOY_RELEASE');
+  expect(autoDeployJob).toBeDefined();
+  const autoDeployResult = await page.request.post(
+    `${API_URL}/api/relay/commands/${autoDeployJob!.id}/result`,
+    { headers: authHeaders, data: { success: true } },
+  );
+  expect(autoDeployResult.ok()).toBeTruthy();
 }
 
 test('fleet dashboard shows the §43 empty state for a fresh org', async ({ page }) => {

@@ -1,5 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
 
+import { createReadyRelease } from './seed-ready-manifest.js';
+
 const API_URL = `http://localhost:${process.env.API_PORT ?? 3001}`;
 
 // §42 application management lifecycle: list, edit, delete, delete-blocked,
@@ -203,6 +205,7 @@ test('delete is blocked when the application has a deployment', async ({ page })
     headers: { cookie },
   });
   const customer = await customerRes.json();
+  await createReadyRelease(page.request, appId);
 
   await page.request.post(`${API_URL}/api/deployments`, {
     data: { applicationId: appId, customerId: customer.id, region: 'us-east-1' },

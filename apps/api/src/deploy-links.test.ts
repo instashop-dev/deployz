@@ -82,6 +82,14 @@ async function insertApplication(
       ...overrides,
     })
     .returning();
+  // A built release: creating a deployment refuses without one.
+  await db.insert(schema.releases).values({
+    applicationId: row!.id,
+    version: '1.0.0',
+    gitSha: 'a'.repeat(40),
+    releaseStatus: 'READY',
+    imageDigest: `123456789012.dkr.ecr.us-east-1.amazonaws.com/deployz-fixture@sha256:${'b'.repeat(64)}`,
+  });
   return row!;
 }
 
@@ -555,6 +563,29 @@ describe('deploy links', () => {
     expect(created[0]!.payload).toMatchObject({ schemaVersion: 1, source: 'manual' });
     expect(created[0]!.actorType).toBe('user');
     expect(created[0]!.actorId).toBe(orgA.userId);
+  });
+
+  it('POST /api/deployments refuses an application with no built release (409 RELEASE_NOT_PUBLISHED) and creates no deployment', async () => {
+    const unbuilt = await insertApplication(db, orgA.organizationId);
+    await db
+      .update(schema.releases)
+      .set({ releaseStatus: 'BUILDING', imageDigest: null })
+      .where(eq(schema.releases.applicationId, unbuilt.id));
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/deployments',
+      headers: { cookie: orgA.cookie, 'content-type': 'application/json' },
+      payload: JSON.stringify({ applicationId: unbuilt.id, customerId: customer.id, region: 'us-east-1' }),
+    });
+    expect(response.statusCode).toBe(409);
+    expect(response.json()).toMatchObject({ error: { code: 'RELEASE_NOT_PUBLISHED' } });
+
+    const rows = await db
+      .select({ id: schema.deployments.id })
+      .from(schema.deployments)
+      .where(eq(schema.deployments.applicationId, unbuilt.id));
+    expect(rows).toEqual([]);
   });
 
   // ── Phase 3: the hosted customer page's public flow routes ────────────────

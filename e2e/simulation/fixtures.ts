@@ -14,6 +14,7 @@
 
 import { expect, test as base, type APIRequestContext, type Page } from '@playwright/test';
 
+import { createReadyRelease } from '../seed-ready-manifest.js';
 import { extractQuickCreateParam, startSimulatedRelay, type SimulatedRelayHandle } from './relay-harness.js';
 import { getScenario } from './scenarios/index.js';
 
@@ -185,6 +186,24 @@ export async function expectPlanMatchesInventory(
   ).toEqual([]);
 }
 
+/** A successful INSTALL auto-deploys the application's newest READY release
+ *  (the one `seedAppAndCustomer` builds). Waits until that deploy has set the
+ *  release pointer, so a test's own deploys start on a settled deployment.
+ *  That deploy consumes the first of the scenario's `updateRollouts`.
+ *  Returns the auto-deployed release id. */
+export async function waitForInstallAutoDeploy(
+  api: Pick<DeployzApi, 'getDeployment'>,
+  deploymentId: string,
+): Promise<string> {
+  await expect
+    .poll(async () => (await api.getDeployment(deploymentId)).currentReleaseId ?? null, {
+      timeout: 15_000,
+      message: 'waiting for the post-install auto-deploy to set the release pointer',
+    })
+    .not.toBeNull();
+  return (await api.getDeployment(deploymentId)).currentReleaseId as string;
+}
+
 async function signUp(request: APIRequestContext, suffix: string): Promise<void> {
   const email = `e2e-scenario-${suffix}@example.com`;
   const response = await request.post(`${API_URL}/api/auth/sign-up/email`, {
@@ -244,6 +263,7 @@ async function seedAppAndCustomer(
   if (!patchResponse.ok()) {
     throw new Error(`patch application failed: ${patchResponse.status()} ${await patchResponse.text()}`);
   }
+  await createReadyRelease(request, application.id);
 
   const customerResponse = await request.post(`${API_URL}/api/customers`, {
     data: {

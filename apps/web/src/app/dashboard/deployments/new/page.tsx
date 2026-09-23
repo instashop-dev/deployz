@@ -1,6 +1,6 @@
 'use client';
 
-import { ArrowLeft, CheckCircle2, Copy, ExternalLink } from 'lucide-react';
+import { ArrowLeft, CheckCircle2, Copy, ExternalLink, PackageX } from 'lucide-react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { Suspense, useEffect, useRef, useState, type FormEvent } from 'react';
@@ -8,11 +8,13 @@ import { Suspense, useEffect, useRef, useState, type FormEvent } from 'react';
 import { copyInstallLink } from '@/components/copy-install-link';
 import { CustomerPicker } from '@/components/customer-picker';
 import { ManageBillingButton } from '@/components/manage-billing-button';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Separator } from '@/components/ui/separator';
+import { Spinner } from '@/components/ui/spinner';
 import { ApiRequestError, errorMessage } from '@/lib/api-client';
 import { fetchApplications, type Application } from '@/lib/applications';
 import {
@@ -46,6 +48,13 @@ import {
 } from '@/lib/customers';
 import { fetchApplicationPreflight, type PreflightResult } from '@/lib/preflight';
 import { fetchRegions, type RegionOption } from '@/lib/regions';
+import {
+  createRelease,
+  fetchReleases,
+  firstReleaseInput,
+  installReleaseState,
+  type InstallReleaseState,
+} from '@/lib/releases';
 import { PreflightSummary } from '@/components/preflight-summary';
 
 /** Readiness rejection codes the "Review the application's readiness
@@ -68,7 +77,9 @@ const READINESS_ERROR_CODES = new Set(['MANIFEST_NOT_COMPATIBLE', 'MANIFEST_NEED
 // vendor submits — the same deterministic gate the API enforces on creation,
 // evaluated against the vendor defaults (the customer does not exist yet).
 // It never disables the button: the API is the authority, and a refusal
-// still lists its own findings below the button.
+// still lists its own findings below the button. A missing built release is
+// different: nothing can install without one, so the button waits for it and
+// the screen offers to build it.
 
 const selectClass =
   'h-8 w-full min-w-0 rounded-lg border border-input bg-transparent px-2.5 py-1 text-base transition-colors outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:cursor-not-allowed disabled:bg-input/50 disabled:opacity-50 md:text-sm dark:bg-input/30';
@@ -149,6 +160,8 @@ function NewDeploymentScreen() {
   const [deploymentCounts, setDeploymentCounts] = useState<ProductionDeploymentCounts | null>(null);
   const [selectedApplicationId, setSelectedApplicationId] = useState<string | null>(preselectedApplicationId);
   const [preflight, setPreflight] = useState<PreflightResult | null>(null);
+  // Null while unknown (or unloadable): the API stays the authority then.
+  const [releaseState, setReleaseState] = useState<InstallReleaseState | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -268,6 +281,10 @@ function NewDeploymentScreen() {
   const awaitingPreselection =
     preselectedCustomerId !== null && customersState.status === 'loading';
   const usingExistingCustomer = selectedCustomerId !== NEW_CUSTOMER_VALUE;
+  const selectedApplication =
+    appsState.status === 'loaded'
+      ? appsState.applications.find((app) => app.id === selectedApplicationId)
+      : undefined;
   const duplicateCustomer =
     !usingExistingCustomer && customersState.status === 'loaded'
       ? matchingCustomerByEmail(customersState.customers, customerEmailInput)
@@ -580,10 +597,23 @@ function NewDeploymentScreen() {
                 />
               ) : null}
 
+              {selectedApplication ? (
+                <ReleaseRequirement
+                  key={selectedApplication.id}
+                  application={selectedApplication}
+                  onStateChange={setReleaseState}
+                />
+              ) : null}
+
               <div className="flex items-center gap-3">
                 <Button
                   type="submit"
-                  disabled={regionsError || regions.length === 0 || awaitingPreselection}
+                  disabled={
+                    regionsError ||
+                    regions.length === 0 ||
+                    awaitingPreselection ||
+                    (releaseState !== null && releaseState.kind !== 'ready')
+                  }
                   loading={pending}
                   loadingText="Creating deployment…"
                 >
@@ -623,6 +653,129 @@ function NewDeploymentScreen() {
         </Card>
       )}
     </div>
+  );
+}
+
+/** How often a building release is re-checked. */
+const RELEASE_POLL_MS = 10_000;
+
+/**
+ * The release a new deployment installs. The install runs the application's
+ * newest built release, so an application with none cannot be deployed yet:
+ * say which release will run, or offer to build the first one and follow the
+ * build until it is ready.
+ */
+function ReleaseRequirement({
+  application,
+  onStateChange,
+}: {
+  application: Application;
+  onStateChange: (state: InstallReleaseState | null) => void;
+}) {
+  const [state, setState] = useState<InstallReleaseState | null>(null);
+  const [lastFailed, setLastFailed] = useState(false);
+  const [building, setBuilding] = useState(false);
+  const [buildError, setBuildError] = useState(false);
+  const [reloadTick, setReloadTick] = useState(0);
+  const firstRelease = firstReleaseInput(application.detectedMetadata);
+  const releasesHref = `/dashboard/applications/${application.id}/releases`;
+
+  useEffect(() => {
+    onStateChange(state);
+  }, [state, onStateChange]);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetchReleases(application.id)
+      .then((releases) => {
+        if (cancelled) return;
+        setState(installReleaseState(releases));
+        setLastFailed(releases.some((r) => r.status === 'FAILED'));
+      })
+      .catch(() => {
+        // Unknown is not "none": the API still refuses a deployment without a release.
+        if (!cancelled) setState(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [application.id, reloadTick]);
+
+  useEffect(() => {
+    if (state?.kind !== 'building') return;
+    const timer = setTimeout(() => setReloadTick((tick) => tick + 1), RELEASE_POLL_MS);
+    return () => clearTimeout(timer);
+  }, [state]);
+
+  async function onBuild(): Promise<void> {
+    if (!firstRelease) return;
+    setBuilding(true);
+    setBuildError(false);
+    try {
+      const release = await createRelease(application.id, firstRelease);
+      setState(installReleaseState([release]));
+    } catch {
+      setBuildError(true);
+    } finally {
+      setBuilding(false);
+    }
+  }
+
+  if (state === null) return null;
+
+  if (state.kind === 'ready') {
+    return (
+      <p className="text-sm text-muted-foreground" data-testid="install-release">
+        Installs release {state.release.version}, the newest built release of {application.name}.
+      </p>
+    );
+  }
+
+  if (state.kind === 'building') {
+    return (
+      <Alert data-testid="install-release-building">
+        <Spinner aria-hidden />
+        <AlertTitle>Release {state.release.version} is building</AlertTitle>
+        <AlertDescription>
+          You can create the deployment when the build is ready. This page updates automatically.
+        </AlertDescription>
+      </Alert>
+    );
+  }
+
+  return (
+    <Alert data-testid="install-release-missing">
+      <PackageX aria-hidden />
+      <AlertTitle>{application.name} has no built release</AlertTitle>
+      <AlertDescription>
+        <p>
+          {lastFailed
+            ? 'The last build failed. A deployment installs a built release of the application, so build a new one first.'
+            : 'A deployment installs a built release of the application, so build one first.'}
+        </p>
+        {buildError ? (
+          <p className="text-destructive">
+            We couldn&apos;t start the build. Try again, or create the release from the Releases page.
+          </p>
+        ) : null}
+        <div className="mt-2 flex flex-wrap items-center gap-3">
+          {firstRelease ? (
+            <Button
+              type="button"
+              size="sm"
+              onClick={() => void onBuild()}
+              loading={building}
+              loadingText="Starting build…"
+            >
+              Build release from commit {firstRelease.gitSha.slice(0, 7)}
+            </Button>
+          ) : null}
+          <Button asChild type="button" size="sm" variant={firstRelease ? 'ghost' : 'default'}>
+            <Link href={releasesHref}>Go to Releases</Link>
+          </Button>
+        </div>
+      </AlertDescription>
+    </Alert>
   );
 }
 
