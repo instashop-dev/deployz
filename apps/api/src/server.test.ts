@@ -35,7 +35,6 @@ import {
   createFixtureReleaseImageClient,
   type FixtureReleaseImageClient,
 } from './release-images.js';
-import { encryptConfigValue } from './config-crypto.js';
 import { AI_EXPLAINABLE_FAILURE_CODES, buildServer, redactClaimedPayload } from './server.js';
 
 // ── Shared test helpers (used by the describe blocks below) ────────────────
@@ -719,7 +718,9 @@ describe('server — organization identity comes from the session, not the clien
       key: 'STRIPE_SECRET_KEY',
       value: '***',
       isSecret: true,
-      encryptedValue: await encryptConfigValue('sk_test_vendor_default'),
+      // listProvidedConfigKeys only checks encryptedValue !== null (a real
+      // ciphertext is not needed for this readiness-gate assertion).
+      encryptedValue: 'enc:stub:sk_test_vendor_default',
     });
 
     const response = await postJson(

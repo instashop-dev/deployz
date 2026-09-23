@@ -6,9 +6,9 @@ import { useParams } from 'next/navigation';
 import { useCallback, useEffect, useState } from 'react';
 
 import { copyInstallLink } from '@/components/copy-install-link';
-import { DeployLinkCard } from '@/components/deploy-link-card';
 import { DeploymentStatusBadge } from '@/components/deployment-status-badge';
 import { EditCustomerDialog } from '@/components/edit-customer-dialog';
+import { InvitationDialog } from '@/components/invitation-form';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -16,14 +16,16 @@ import { Skeleton } from '@/components/ui/skeleton';
 import {
   customerDeployment,
   fetchCustomer,
+  fetchCustomerInvitations,
   formatDate,
-  installLinkDeployment,
   installLinkUrl,
   type Customer,
   type CustomerDeployment,
+  type CustomerInvitation,
 } from '@/lib/customers';
 import { fetchDeploymentsForCustomer } from '@/lib/deployments';
 import { relativeTime } from '@/lib/diagnostics';
+import { regionOptionLabel } from '@/lib/regions';
 
 // One customer, compact: who they are, whether they have deployed, and the
 // link that gets them deployed. Everything a deployment can do stays on the
@@ -42,6 +44,9 @@ export default function CustomerDetailPage() {
   const [attempt, setAttempt] = useState(0);
   const [retrying, setRetrying] = useState(false);
   const [editing, setEditing] = useState(false);
+  const [creatingInstallation, setCreatingInstallation] = useState(false);
+  const [invitations, setInvitations] = useState<CustomerInvitation[] | null>(null);
+  const [invitationAttempt, setInvitationAttempt] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -71,10 +76,30 @@ export default function CustomerDetailPage() {
     };
   }, [customerId, attempt]);
 
+  useEffect(() => {
+    let cancelled = false;
+    async function run(): Promise<void> {
+      try {
+        const loaded = await fetchCustomerInvitations(customerId);
+        if (!cancelled) setInvitations(loaded);
+      } catch {
+        if (!cancelled) setInvitations([]);
+      }
+    }
+    void run();
+    return () => {
+      cancelled = true;
+    };
+  }, [customerId, invitationAttempt]);
+
   const onSaved = useCallback((saved: Customer) => {
     setState((current) =>
       current.status === 'loaded' ? { ...current, customer: saved } : current,
     );
+  }, []);
+
+  const onInvitationCreated = useCallback(() => {
+    setInvitationAttempt((n) => n + 1);
   }, []);
 
   if (state.status === 'loading') {
@@ -116,11 +141,6 @@ export default function CustomerDetailPage() {
   }
 
   const { customer, rollup } = state;
-  const linkDeployment = installLinkDeployment(rollup);
-  const installUrl =
-    linkDeployment && typeof window !== 'undefined'
-      ? installLinkUrl(linkDeployment, window.location.origin)
-      : null;
 
   return (
     <div className="flex flex-col gap-6">
@@ -139,24 +159,16 @@ export default function CustomerDetailPage() {
             <Pencil aria-hidden />
             Edit customer
           </Button>
-          <Button asChild size="sm" variant="outline">
-            <Link href={`/dashboard/deployments/new?customerId=${customerId}`}>
-              <Plus aria-hidden />
-              Create deployment
-            </Link>
+          <Button size="sm" onClick={() => setCreatingInstallation(true)}>
+            <Plus aria-hidden />
+            Create installation
           </Button>
-          {installUrl ? (
-            <Button size="sm" onClick={() => void copyInstallLink(installUrl)}>
-              <Copy aria-hidden />
-              Copy install link
-            </Button>
-          ) : null}
         </div>
       </div>
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">Deployment</CardTitle>
+          <CardTitle className="text-base">Deployments</CardTitle>
         </CardHeader>
         <CardContent className="flex flex-col gap-3">
           <div className="flex flex-wrap items-center gap-2">
@@ -180,6 +192,16 @@ export default function CustomerDetailPage() {
                   </div>
                   <div className="flex items-center gap-2">
                     <DeploymentStatusBadge state={deployment.state} />
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() =>
+                        void copyInstallLink(installLinkUrl(deployment, window.location.origin))
+                      }
+                    >
+                      <Copy aria-hidden />
+                      Copy customer link
+                    </Button>
                     <Button asChild size="sm" variant="outline">
                       <Link href={`/dashboard/deployments/${deployment.id}`}>View deployment</Link>
                     </Button>
@@ -198,7 +220,17 @@ export default function CustomerDetailPage() {
                 />
                 <MetaRow label="Added" value={formatDate(customer.createdAt)} />
               </dl>
-              <div>
+              <div className="flex flex-wrap items-center gap-2">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() =>
+                    void copyInstallLink(installLinkUrl(rollup.deployment!, window.location.origin))
+                  }
+                >
+                  <Copy aria-hidden />
+                  Copy customer link
+                </Button>
                 <Button asChild size="sm" variant="outline">
                   <Link href={`/dashboard/deployments/${rollup.deployment.id}`}>
                     View deployment
@@ -207,41 +239,21 @@ export default function CustomerDetailPage() {
               </div>
             </>
           ) : (
-            <p className="text-sm text-muted-foreground">
-              This customer has not deployed yet. Create a deployment to give them an install
-              link.
-            </p>
+            <div className="flex flex-col items-start gap-3">
+              <p className="text-sm text-muted-foreground">No installations yet</p>
+              <Button size="sm" onClick={() => setCreatingInstallation(true)}>
+                <Plus aria-hidden />
+                Create installation
+              </Button>
+            </div>
           )}
         </CardContent>
       </Card>
 
-      {installUrl ? (
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Install link</CardTitle>
-          </CardHeader>
-          <CardContent className="flex flex-col gap-3">
-            <p className="text-sm text-muted-foreground">
-              Send this to {customer.name} to deploy your application into their AWS account.
-              Editing their contact details never changes this link.
-            </p>
-            <code
-              data-testid="customer-install-link"
-              className="block truncate rounded-lg border bg-muted px-3 py-2 font-mono text-xs"
-            >
-              {installUrl}
-            </code>
-            <div className="flex flex-wrap gap-2">
-              <Button size="sm" onClick={() => void copyInstallLink(installUrl)}>
-                <Copy aria-hidden />
-                Copy install link
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
-      ) : null}
-
-      <DeployLinkCard customerId={customerId} />
+      <PendingInstallationsCard
+        invitations={invitations}
+        onCreate={() => setCreatingInstallation(true)}
+      />
 
       <EditCustomerDialog
         customer={customer}
@@ -249,8 +261,75 @@ export default function CustomerDetailPage() {
         onOpenChange={setEditing}
         onSaved={onSaved}
       />
+      <InvitationDialog
+        customerId={customerId}
+        open={creatingInstallation}
+        onOpenChange={setCreatingInstallation}
+        onCreated={onInvitationCreated}
+      />
     </div>
   );
+}
+
+function PendingInstallationsCard({
+  invitations,
+  onCreate,
+}: {
+  invitations: CustomerInvitation[] | null;
+  onCreate: () => void;
+}) {
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base">Pending installations</CardTitle>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-3">
+        {invitations === null ? (
+          <div className="flex flex-col gap-2" aria-busy="true">
+            <Skeleton className="h-9 w-full" />
+            <Skeleton className="h-9 w-full" />
+          </div>
+        ) : invitations.length === 0 ? (
+          <div className="flex flex-col items-start gap-3">
+            <p className="text-sm text-muted-foreground">No pending installations</p>
+            <Button size="sm" onClick={onCreate}>
+              <Plus aria-hidden />
+              Create installation
+            </Button>
+          </div>
+        ) : (
+          <ul className="flex flex-col gap-2">
+            {invitations.map((invitation) => (
+              <li
+                key={invitation.id}
+                className="flex flex-wrap items-center justify-between gap-2 rounded-lg border px-3 py-2"
+              >
+                <div className="flex flex-col">
+                  <span className="text-sm font-medium">{invitation.applicationName}</span>
+                  <span className="text-xs text-muted-foreground">
+                    {invitation.recommendedRegion ? regionOptionLabel(invitation.recommendedRegion) : '—'}
+                  </span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <InvitationStatusBadge status={invitation.status} />
+                  <span className="text-xs text-muted-foreground">
+                    Expires {invitation.expiresAt ? formatDate(invitation.expiresAt) : '—'}
+                  </span>
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function InvitationStatusBadge({ status }: { status: CustomerInvitation['status'] }) {
+  const variant =
+    status === 'used' ? 'success' : status === 'active' ? 'default' : 'secondary';
+  const label = status.charAt(0).toUpperCase() + status.slice(1);
+  return <Badge variant={variant}>{label}</Badge>;
 }
 
 function BackLink() {

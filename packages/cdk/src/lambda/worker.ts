@@ -21,6 +21,7 @@ import { reconcileBilling } from '@deployz/api/billing';
 import { markDeploymentLive } from '@deployz/api/billing-lifecycle';
 import { listVendorValues } from '@deployz/api/config';
 import { mintInstallationToken } from '@deployz/api/github';
+import type { SecretCipher } from '@deployz/api/pending-secrets';
 import {
   createOrReuseJob,
   flipHealthyDeploymentsToUpdateAvailable,
@@ -177,8 +178,8 @@ export interface WorkerDeps {
   /**
    * Build-time variables a vendor configured for this application (§31 env
    * setup) — decrypted where secret. Injectable so buildRelease is testable
-   * without the real config-crypto/Secrets Manager seam; see
-   * `loadBuildVariablesFromDb` for the default implementation.
+   * without the real SecretCipher/KMS seam; see `loadBuildVariablesFromDb`
+   * for the default implementation.
    */
   readonly loadBuildVariables: (db: RuntimeDb, applicationId: string) => Promise<{ name: string; value: string }[]>;
 }
@@ -254,6 +255,7 @@ function isReservedBuildVariableName(name: string): boolean {
 export async function loadBuildVariablesFromDb(
   db: RuntimeDb,
   applicationId: string,
+  cipher: SecretCipher,
 ): Promise<{ name: string; value: string }[]> {
   const rows = await db
     .select({ environmentSettings: schema.applications.environmentSettings })
@@ -273,7 +275,7 @@ export async function loadBuildVariablesFromDb(
   }
   if (keys.length === 0) return [];
 
-  const values = await listVendorValues(db, applicationId, keys);
+  const values = await listVendorValues(db, applicationId, keys, cipher);
   return keys.filter((key) => key in values).map((key) => ({ name: key, value: values[key]! }));
 }
 
@@ -1219,4 +1221,23 @@ export async function sweepBilling(
   }
 
   return { promoted, unstuck: unstuck.length, reconciled: organizationsToReconcile.size };
+}
+
+/**
+ * DEPLOY-027 (Phase 4): TTL sweep over pending_secrets. Plain SQL DELETE,
+ * no KMS — the sweep just drops ciphertext the API can no longer decrypt
+ * because the customer never enrolled within `DEFAULT_PENDING_SECRET_TTL_MS`.
+ * Both tiers go (staged and bound): a staged row older than the TTL was
+ * never materialized, and a bound row older than the TTL belongs to a
+ * deployment whose relay never enrolled.
+ */
+export async function sweepExpiredPendingSecrets(
+  db: RuntimeDb,
+  now: Date = new Date(),
+): Promise<number> {
+  const deleted = await db
+    .delete(schema.pendingSecrets)
+    .where(lt(schema.pendingSecrets.expiresAt, now))
+    .returning();
+  return deleted.length;
 }

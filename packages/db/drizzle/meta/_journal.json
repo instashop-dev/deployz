@@ -314,7 +314,21 @@
       "idx": 44,
       "version": "7",
       "when": 1790000000000,
-      "tag": "0044_environment_setup",
+      "tag": "0044_installation_invitations",
+      "breakpoints": true
+    },
+    {
+      "idx": 45,
+      "version": "7",
+      "when": 1790100000000,
+      "tag": "0045_pending_secrets",
+      "breakpoints": true
+    },
+    {
+      "idx": 46,
+      "version": "7",
+      "when": 1790200000000,
+      "tag": "0046_environment_setup",
       "breakpoints": true
     }
   ]

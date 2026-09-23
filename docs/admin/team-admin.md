@@ -159,7 +159,7 @@ disagree.
 ## Pilot Insights
 
 The Overview carries a small **Pilot Insights** section: a pilot funnel,
-deployment quality, common deterministic failures, Deploy Link funnel, and
+deployment quality, common deterministic failures, invitation funnel, and
 the support-intervention signal, over a trailing 7/30/90-day window
 (`GET /api/admin/overview?days=…` returns the `pilotInsights` block). It
 exists so the Deployz team can answer whether a vendor can reach HEALTHY

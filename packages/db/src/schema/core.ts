@@ -117,11 +117,13 @@ export const applicationConfigs = pgTable(
     key: text('key').notNull(),
     value: text('value').notNull(),
     isSecret: boolean('is_secret').notNull().default(false),
-    // AES-256-GCM ciphertext (apps/api's config-crypto.ts), present only for
-    // a secret row whose plaintext Deployz can actually deliver (vendor
-    // build/runtime secrets and customer overrides). `value` still carries
-    // SECRET_MASK for these rows — this column is the only place plaintext
-    // is ever recoverable, and only the control plane's key can do it.
+    // VENDOR-scope only: ciphertext from the same SecretCipher the
+    // DEPLOY-027 pending-secret vault uses (apps/api's config.ts /
+    // pending-secrets.ts), present only for a vendor secret row whose
+    // plaintext Deployz can actually deliver later (build args, post-install
+    // CONFIG_UPDATE). `value` still carries SECRET_MASK for these rows.
+    // CUSTOMER-scope secrets never populate this column — they travel
+    // through the pending-secret vault instead.
     encryptedValue: text('encrypted_value'),
     createdAt: createdAt(),
     updatedAt: updatedAt(),

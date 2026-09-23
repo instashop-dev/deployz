@@ -16,6 +16,7 @@ import { resolveAiGatewayConfig, resolveJevConfig } from '@deployz/api/ai-config
 import { createAnalysisRunner } from '@deployz/api/analysis';
 import { createJevShadowRunnerFromEnv, createJevFailureShadowRunnerFromEnv } from '@deployz/api/jev-shadow';
 import { createPaddle } from '@deployz/api/paddle';
+import { createCipherStub, createKmsCipher } from '@deployz/api/pending-secrets';
 import type { QueueMessage } from '@deployz/api/queue';
 
 import { connectDb, type LambdaDb } from './db-connection.js';
@@ -24,6 +25,7 @@ import {
   loadBuildVariablesFromDb,
   recordBuildResult,
   sweepBilling,
+  sweepExpiredPendingSecrets,
   sweepRelayLiveness,
   sweepStuckBuilds,
   sweepStuckJobs,
@@ -151,7 +153,15 @@ function createDeps(db: LambdaDb): WorkerDeps {
       // disabled or partially configured, one shared breaker per process.
       jevShadow: createJevShadowRunnerFromEnv({ db }, resolveJevConfig(process.env)),
     }),
-    loadBuildVariables: loadBuildVariablesFromDb,
+    // Same cipher construction as the API server (apps/api/src/server.ts):
+    // a configured KMS key ARN gets the real cipher, otherwise the in-memory
+    // stub (local dev / no key provisioned yet).
+    loadBuildVariables: (db, applicationId) =>
+      loadBuildVariablesFromDb(
+        db,
+        applicationId,
+        process.env.DEPLOYZ_KMS_KEY_ARN ? createKmsCipher(process.env.DEPLOYZ_KMS_KEY_ARN) : createCipherStub(),
+      ),
   };
 }
 
@@ -186,6 +196,14 @@ export async function handler(event: WorkerEvent): Promise<BatchResponse | void>
         console.error('sweepBilling failed', error);
         return { promoted: 0, unstuck: 0, reconciled: 0 };
       });
+      // DEPLOY-027 (Phase 4): drop pending_secrets rows whose TTL expired
+      // before any relay picked them up. Swallow errors the same way as the
+      // other sweeps — a future tick will retry, and a failed sweep must
+      // never fail the scheduled invoke.
+      const sweptExpiredSecrets = await sweepExpiredPendingSecrets(db).catch((error: unknown) => {
+        console.error('sweepExpiredPendingSecrets failed', error);
+        return 0;
+      });
       console.log(
         JSON.stringify({
           event: 'watchdog:sweep-complete',
@@ -195,6 +213,7 @@ export async function handler(event: WorkerEvent): Promise<BatchResponse | void>
           billingPromoted: billing.promoted,
           billingEventsUnstuck: billing.unstuck,
           billingReconciled: billing.reconciled,
+          sweptExpiredSecrets,
         }),
       );
     }

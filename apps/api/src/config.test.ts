@@ -6,28 +6,84 @@ import { applyMigrations, createDb, type Db } from '@deployz/db';
 import * as schema from '@deployz/db/schema';
 
 import {
-  createConfigStore,
+  createConfigDeps,
   createRelaySecretWriter,
   GENERATED_SECRET_MASK,
   SECRET_MASK,
   getConfig,
-  listDeliverableSecretValues,
   listProvidedConfigKeys,
   listVendorValues,
   mergeConfigEntries,
   setConfig,
   setConfigBodySchema,
   toMaskedEntry,
+  type ConfigDeps,
   type ConfigEntry,
   type ConfigSecretWriter,
   type ConfigStore,
 } from './config.js';
 import { enqueue } from './queue.js';
 import { ApiError } from './errors.js';
+import { createCipherStub, createDrizzlePendingSecretStore } from './pending-secrets.js';
 
 // enqueue is only ever called by createRelaySecretWriter (below) — mocking
 // it here affects no other test in this file.
 vi.mock('./queue.js');
+
+// DEPLOY-027 (Phase 4): the existing config.test.ts unit tests still need
+// to exercise setConfig's masking / write-through logic without dragging in
+// real KMS or DB lookups. A no-op ConfigDeps factory keeps the test surface
+// identical — every assertion is on the SAME behaviour the tests already
+// lock — while giving setConfig the new cipher/pendingSecrets/findScope
+// seams it now requires.
+//
+// The brief changes one observable behaviour: when the scope has zero
+// CLAIMABLE deployments (anything outside NOT_INSTALLED / WAITING_FOR_RELAY
+// / DELETING / DELETED), setConfig skips the relay write-through enqueue —
+// the worker would no-op anyway, and the value lives encrypted in
+// pending_secrets for the next createDeploymentRecord to materialize. The
+// mocks below default to a single HEALTHY claimable deployment so the
+// existing assertions on the write-through continue to hold.
+function buildDeps(store: ConfigStore, secretWriter: ConfigSecretWriter): ConfigDeps {
+  return buildDepsWithDeployments(store, secretWriter, [
+    { id: 'deployment-1', organizationId: 'org-1', state: 'HEALTHY' },
+  ]);
+}
+
+function buildDepsWithDeployments(
+  store: ConfigStore,
+  secretWriter: ConfigSecretWriter,
+  deployments: ReadonlyArray<{ id: string; organizationId: string; state: 'HEALTHY' | 'INSTALLING' | 'NOT_INSTALLED' }>,
+): ConfigDeps {
+  const cipher = createCipherStub();
+  return {
+    store,
+    secretWriter,
+    cipher,
+    pendingSecrets: {
+      async upsertStaged() {},
+      async upsertBound() {},
+      async materializeForDeployment() {
+        return [];
+      },
+      async listBoundForDeployment() {
+        return [];
+      },
+      async deleteBoundForDeployment() {},
+      async deleteStagedForScope() {},
+      async sweepExpired() {
+        return 0;
+      },
+      async stampDelivery() {},
+    },
+    async findScopeDeployments() {
+      return deployments.map((d) => ({ id: d.id, organizationId: d.organizationId, state: d.state }));
+    },
+    async findApplicationOrganizationId() {
+      return 'org-1';
+    },
+  };
+}
 
 // Todo 26 — application configuration API logic. The DB boundary
 // (ConfigStore) and the §31 relay write-through (ConfigSecretWriter) are
@@ -248,10 +304,7 @@ describe('config — unknown application', () => {
     const store = createMockStore({ exists: false });
     const secretWriter = createMockWriter();
     await expect(
-      setConfig('no-such-app', null, [{ key: 'LOG_LEVEL', value: 'debug', isSecret: false }], {
-        store,
-        secretWriter,
-      }),
+      setConfig('no-such-app', null, [{ key: 'LOG_LEVEL', value: 'debug', isSecret: false }], buildDeps(store, secretWriter)),
     ).rejects.toMatchObject({ statusCode: 404, code: 'NOT_FOUND' });
     expect(store.written).toEqual([]);
     expect(secretWriter.calls).toEqual([]);
@@ -267,7 +320,7 @@ describe('config — setConfig writes', () => {
       APP_ID,
       null,
       [{ key: 'LOG_LEVEL', value: 'debug', isSecret: false }],
-      { store, secretWriter },
+      buildDeps(store, secretWriter),
     );
 
     expect(store.written).toEqual([
@@ -287,7 +340,7 @@ describe('config — setConfig writes', () => {
       APP_ID,
       CUSTOMER_ID,
       [{ key: 'DATABASE_URL', value: PLAINTEXT_SECRET, isSecret: true }],
-      { store, secretWriter },
+      buildDeps(store, secretWriter),
     );
 
     // The relay seam receives the plaintext (it writes the customer's
@@ -295,14 +348,14 @@ describe('config — setConfig writes', () => {
     expect(secretWriter.calls).toEqual([
       { customerId: CUSTOMER_ID, entries: [{ key: 'DATABASE_URL', value: PLAINTEXT_SECRET, isSecret: true }] },
     ]);
-    // …but the control-plane DB stores ONLY the mask (plus the ciphertext,
-    // which is why this can be delivered later — never plaintext)…
+    // …but the control-plane DB stores ONLY the mask — a CUSTOMER-scope
+    // secret never gets an application_configs ciphertext; it travels
+    // through the pending-secret vault instead (DEPLOY-027)…
     expect(store.written).toHaveLength(1);
     expect(store.written[0]).toMatchObject({
       customerId: CUSTOMER_ID,
-      entry: { key: 'DATABASE_URL', value: SECRET_MASK, isSecret: true },
+      entry: { key: 'DATABASE_URL', value: SECRET_MASK, isSecret: true, encryptedValue: null },
     });
-    expect(store.written[0]?.entry.encryptedValue).toMatch(/^v1:/);
     expect(JSON.stringify(store.written)).not.toContain(PLAINTEXT_SECRET);
     // …and the API response never carries the plaintext.
     expect(JSON.stringify(view)).not.toContain(PLAINTEXT_SECRET);
@@ -320,7 +373,7 @@ describe('config — setConfig writes', () => {
       APP_ID,
       null,
       [{ key: 'DATABASE_URL', value: PLAINTEXT_SECRET, isSecret: true }],
-      { store, secretWriter },
+      buildDeps(store, secretWriter),
     );
 
     // No customer account exists for vendor defaults — nothing to write to.
@@ -330,9 +383,11 @@ describe('config — setConfig writes', () => {
       customerId: null,
       entry: { key: 'DATABASE_URL', value: SECRET_MASK, isSecret: true },
     });
-    // A vendor-scope secret is ALSO encrypted now (secure storage) — this is
-    // exactly what makes it deliverable later, unlike before.
-    expect(store.written[0]?.entry.encryptedValue).toMatch(/^v1:/);
+    // A vendor-scope secret is encrypted with the SecretCipher (secure
+    // storage) — this is exactly what makes it deliverable later, unlike
+    // before. The stub's format is `enc:<context hash>:<body>`.
+    expect(store.written[0]?.entry.encryptedValue).toMatch(/^enc:/);
+    expect(JSON.stringify(store.written)).not.toContain(PLAINTEXT_SECRET);
   });
 
   it('untouched secrets (empty value) are excluded from the write-through and never re-written', async () => {
@@ -349,7 +404,7 @@ describe('config — setConfig writes', () => {
         { key: 'DATABASE_URL', value: '', isSecret: true },
         { key: 'LOG_LEVEL', value: 'debug', isSecret: false },
       ],
-      { store, secretWriter },
+      buildDeps(store, secretWriter),
     );
 
     // The changed plain value rides the write-through (a plain-only save
@@ -379,7 +434,7 @@ describe('config — setConfig writes', () => {
           { key: 'DATABASE_URL', value: PLAINTEXT_SECRET, isSecret: true },
           { key: 'LOG_LEVEL', value: 'debug', isSecret: false },
         ],
-        { store, secretWriter },
+        buildDeps(store, secretWriter),
       ),
     ).rejects.toMatchObject({ statusCode: 502, code: 'CONFIG_WRITE_FAILED' });
     expect(store.written).toEqual([]);
@@ -398,7 +453,7 @@ describe('config — write validation', () => {
           { key: 'LOG_LEVEL', value: 'info', isSecret: false },
           { key: 'LOG_LEVEL', value: 'debug', isSecret: false },
         ],
-        { store, secretWriter },
+        buildDeps(store, secretWriter),
       ),
     ).rejects.toMatchObject({ statusCode: 400, code: 'INVALID_CONFIG' });
     expect(store.written).toEqual([]);
@@ -408,7 +463,7 @@ describe('config — write validation', () => {
     const store = createMockStore({});
     const secretWriter = createMockWriter();
     await expect(
-      setConfig(APP_ID, null, [{ key: '', value: 'x', isSecret: false }], { store, secretWriter }),
+      setConfig(APP_ID, null, [{ key: '', value: 'x', isSecret: false }], buildDeps(store, secretWriter)),
     ).rejects.toMatchObject({ statusCode: 400, code: 'INVALID_CONFIG' });
   });
 
@@ -419,7 +474,7 @@ describe('config — write validation', () => {
       APP_ID,
       null,
       [{ key: '', value: 'x', isSecret: false }],
-      { store, secretWriter },
+      buildDeps(store, secretWriter),
     ).catch((error: unknown) => error);
     expect(failure).toBeInstanceOf(ApiError);
   });
@@ -468,7 +523,7 @@ describe('config — removing a value', () => {
         { key: 'DATABSE_URL', value: 'oops', isSecret: false },
       ],
     });
-    const view = await setConfig(APP_ID, null, [], { store, secretWriter: createMockWriter() }, [
+    const view = await setConfig(APP_ID, null, [], buildDeps(store, createMockWriter()), [
       'DATABSE_URL',
     ]);
 
@@ -481,7 +536,7 @@ describe('config — removing a value', () => {
       overrides: { [CUSTOMER_ID]: [{ key: 'API_TOKEN', value: SECRET_MASK, isSecret: true }] },
     });
     const writer = createMockWriter();
-    await setConfig(APP_ID, CUSTOMER_ID, [], { store, secretWriter: writer }, ['API_TOKEN']);
+    await setConfig(APP_ID, CUSTOMER_ID, [], buildDeps(store, writer), ['API_TOKEN']);
 
     // The control plane never held the plaintext, so the relay is the only
     // thing that can remove it from the customer's account.
@@ -496,7 +551,7 @@ describe('config — removing a value', () => {
         APP_ID,
         null,
         [{ key: 'LOG_LEVEL', value: 'info', isSecret: false }],
-        { store, secretWriter: createMockWriter() },
+        buildDeps(store, createMockWriter()),
         ['LOG_LEVEL'],
       ),
     ).rejects.toMatchObject({ code: 'CONFIG_CONFLICTING_WRITE' });
@@ -573,16 +628,20 @@ describe('config — relay write-through queue message', () => {
 // ── DB-backed: secure storage roundtrip through the real store (§31) ───────
 //
 // Everything above exercises the pure logic with in-memory mocks. These
-// tests go through createConfigStore against a real (PGlite) schema so the
-// encrypted_value column, listProvidedConfigKeys's legacy-secret exclusion,
-// and the two decrypting readers (listDeliverableSecretValues,
-// listVendorValues) are proven against the actual persisted rows, not a
-// mock's approximation of them.
+// tests go through createConfigStore/createConfigDeps against a real
+// (PGlite) schema so the encrypted_value column, listProvidedConfigKeys's
+// legacy-secret exclusion, and the decrypting reader (listVendorValues) are
+// proven against the actual persisted rows, not a mock's approximation of
+// them. Only VENDOR-scope secrets populate encrypted_value — CUSTOMER-scope
+// secrets travel through the pending-secret vault (see
+// pending-secret-delivery.integration.test.ts), so this suite writes vendor
+// defaults only.
 describe('config — secure storage against a real store', () => {
   let client: PGlite | undefined;
   let db: Db;
   let applicationId: string;
   let customerId: string;
+  let deps: ConfigDeps;
 
   beforeAll(async () => {
     client = new PGlite();
@@ -604,6 +663,8 @@ describe('config — secure storage against a real store', () => {
       .values({ organizationId: 'org-config-crypto', name: 'Buyer', email: 'buyer@example.com' })
       .returning();
     customerId = customer!.id;
+    const cipher = createCipherStub();
+    deps = createConfigDeps(db, createDrizzlePendingSecretStore(db, cipher), cipher);
   }, 60_000);
 
   afterAll(async () => {
@@ -611,23 +672,17 @@ describe('config — secure storage against a real store', () => {
   });
 
   it('setConfig -> createConfigStore round-trips a vendor secret through real ciphertext', async () => {
-    const store = createConfigStore(db);
-    await setConfig(
-      applicationId,
-      null,
-      [{ key: 'STRIPE_KEY', value: 'sk_live_real_secret', isSecret: true }],
-      { store, secretWriter: createRelaySecretWriter() },
-    );
+    await setConfig(applicationId, null, [{ key: 'STRIPE_KEY', value: 'sk_live_real_secret', isSecret: true }], deps);
 
     const rows = await db
       .select()
       .from(schema.applicationConfigs)
       .where(eqAppKey(applicationId, 'STRIPE_KEY'));
     expect(rows[0]?.value).toBe(SECRET_MASK);
-    expect(rows[0]?.encryptedValue).toMatch(/^v1:/);
+    expect(rows[0]?.encryptedValue).toMatch(/^enc:/);
     expect(rows[0]?.encryptedValue).not.toContain('sk_live_real_secret');
 
-    const values = await listVendorValues(db, applicationId, ['STRIPE_KEY']);
+    const values = await listVendorValues(db, applicationId, ['STRIPE_KEY'], deps.cipher);
     expect(values).toEqual({ STRIPE_KEY: 'sk_live_real_secret' });
   });
 
@@ -659,28 +714,6 @@ describe('config — secure storage against a real store', () => {
     expect(keys).toContain('LEGACY_CUSTOMER_SECRET');
   });
 
-  it('listDeliverableSecretValues decrypts a vendor default and a customer override, customer wins on overlap', async () => {
-    const store = createConfigStore(db);
-    const writer = createRelaySecretWriter();
-    await setConfig(applicationId, null, [{ key: 'SHARED_KEY', value: 'vendor-value', isSecret: true }], {
-      store,
-      secretWriter: writer,
-    });
-    await setConfig(applicationId, customerId, [{ key: 'SHARED_KEY', value: 'customer-value', isSecret: true }], {
-      store,
-      secretWriter: writer,
-    });
-    await setConfig(applicationId, customerId, [{ key: 'CUSTOMER_ONLY', value: 'only-mine', isSecret: true }], {
-      store,
-      secretWriter: writer,
-    });
-
-    const delivered = await listDeliverableSecretValues(db, applicationId, customerId);
-    const byKey = Object.fromEntries(delivered.map((entry) => [entry.key, entry.value]));
-    expect(byKey['SHARED_KEY']).toBe('customer-value');
-    expect(byKey['CUSTOMER_ONLY']).toBe('only-mine');
-  });
-
   it('listVendorValues skips a legacy secret with no ciphertext and returns plain values untouched', async () => {
     await db.insert(schema.applicationConfigs).values([
       { applicationId, customerId: null, key: 'PLAIN_BUILD_VAR', value: 'plain', isSecret: false },
@@ -694,7 +727,7 @@ describe('config — secure storage against a real store', () => {
       },
     ]);
 
-    const values = await listVendorValues(db, applicationId, ['PLAIN_BUILD_VAR', 'UNDELIVERABLE_SECRET']);
+    const values = await listVendorValues(db, applicationId, ['PLAIN_BUILD_VAR', 'UNDELIVERABLE_SECRET'], deps.cipher);
     expect(values).toEqual({ PLAIN_BUILD_VAR: 'plain' });
   });
 });

@@ -44,6 +44,23 @@ export interface CustomerContactInput {
   company: string | null;
 }
 
+export interface CustomerInvitation {
+  id: string;
+  applicationName: string;
+  recommendedRegion: string | null;
+  regionSelection: 'customer' | 'legacy_publisher_fixed';
+  status: 'active' | 'expired' | 'revoked' | 'used';
+  expiresAt: string | null;
+  createdAt: string;
+}
+
+export async function fetchCustomerInvitations(customerId: string): Promise<CustomerInvitation[]> {
+  const body = await apiRequest<{ invitations?: CustomerInvitation[] }>(
+    `/api/customers/${encodeURIComponent(customerId)}/invitations`,
+  );
+  return body.invitations ?? [];
+}
+
 export async function fetchCustomers(): Promise<Customer[]> {
   const body = await apiRequest<{ customers?: Customer[] }>('/api/customers');
   return body.customers ?? [];

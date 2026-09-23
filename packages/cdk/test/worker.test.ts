@@ -6,8 +6,9 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { applyMigrations, createDb, type Db } from '@deployz/db';
 import * as schema from '@deployz/db/schema';
 
-import { createConfigStore, createRelaySecretWriter, setConfig } from '@deployz/api/config';
+import { createConfigDeps, setConfig } from '@deployz/api/config';
 import type { JevFailureShadowParams } from '@deployz/api/jev-shadow';
+import { createCipherStub, createDrizzlePendingSecretStore } from '@deployz/api/pending-secrets';
 
 import {
   buildFailureDetail,
@@ -348,8 +349,7 @@ describe('worker handler', () => {
       })
       .returning();
 
-    const configStore = createConfigStore(db);
-    const writer = createRelaySecretWriter();
+    const cipher = createCipherStub();
     await setConfig(
       application!.id,
       null,
@@ -357,7 +357,7 @@ describe('worker handler', () => {
         { key: 'BUILD_TIME_FLAG', value: 'enabled', isSecret: false },
         { key: 'BUILD_TIME_SECRET', value: 'sk_build_secret', isSecret: true },
       ],
-      { store: configStore, secretWriter: writer },
+      createConfigDeps(db, createDrizzlePendingSecretStore(db, cipher), cipher),
     );
 
     const [release] = await db
@@ -365,7 +365,10 @@ describe('worker handler', () => {
       .values({ applicationId: application!.id, version: 'v1.0.0', gitSha: 'buildargsha' })
       .returning();
 
-    const buildArgsDeps: WorkerDeps = { ...deps(), loadBuildVariables: loadBuildVariablesFromDb };
+    const buildArgsDeps: WorkerDeps = {
+      ...deps(),
+      loadBuildVariables: (buildDb, applicationId) => loadBuildVariablesFromDb(buildDb, applicationId, createCipherStub()),
+    };
     await handleMessage(buildArgsDeps, { type: 'BUILD_RELEASE', releaseId: release!.id }, 'msg-build-args');
 
     const build = started[started.length - 1];
@@ -378,7 +381,7 @@ describe('worker handler', () => {
   });
 
   it('loadBuildVariablesFromDb returns nothing for an application with no build/vendor settings', async () => {
-    const values = await loadBuildVariablesFromDb(db, applicationId);
+    const values = await loadBuildVariablesFromDb(db, applicationId, createCipherStub());
     expect(values).toEqual([]);
   });
 

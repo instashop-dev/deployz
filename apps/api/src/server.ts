@@ -60,6 +60,7 @@ import {
   requiredInfrastructureComponents,
   requirementDriftFor,
   resolveBootstrapTemplate,
+  resolveStoredInfrastructureSizeProfile,
   summarizeInfrastructureStatus,
   type ApplicationAnalysis,
   type ApplicationRequirementsSummary,
@@ -114,11 +115,14 @@ import { createPaddle, type PaddleBilling } from './paddle.js';
 import {
   createConfigStore,
   createRelaySecretWriter,
+  createScopeDeploymentsFinder,
   getConfig,
   listProvidedConfigKeys,
+  listVendorValues,
   SECRET_MASK,
   setConfig,
   setConfigBodySchema,
+  type ConfigDeps,
 } from './config.js';
 import { env } from './env.js';
 import { ApiError, NotFoundError, UnauthorizedError, toErrorEnvelope } from './errors.js';
@@ -162,16 +166,24 @@ import {
   type ReleaseImageClient,
 } from './release-images.js';
 import { buildFailureContext, toStructuredEvent } from './failure-context.js';
+import {
+  createCipherStub,
+  createDrizzlePendingSecretStore,
+  createKmsCipher,
+} from './pending-secrets.js';
 import { retryEligibilityFor } from './retry-eligibility.js';
 import { buildInstallPayload, buildRelayConfigEntries, queuePostInstallConfig } from './install-config.js';
 import { requirePreflightReady, runApplicationPreflight, runDeploymentPreflight } from './preflight.js';
 import {
   confirmPublicInstall,
+  createInstallationInvitation,
   createPublicInstallLink,
+  listCustomerInvitations,
   listPublicInstallLinks,
   publicInstallConfirmBodySchema,
   regeneratePublicInstallLink,
   resolvePublicInstall,
+  resolvePublicInstallPlan,
   revokePublicInstallLink,
   setPublicInstallLinkEnabled,
 } from './public-install.js';
@@ -256,6 +268,7 @@ import {
   createDeployLink,
   createDeploymentRecord,
   listDeployLinks,
+  materializePendingSecretsForDeployment,
   regenerateDeployLink,
   resolveDeployLink,
   revokeDeployLink,
@@ -2750,6 +2763,27 @@ export async function buildServer({
   // before persisting the masked placeholder in the control plane.
   const configStore = createConfigStore(db);
   const configSecretWriter = createRelaySecretWriter();
+  // DEPLOY-027 (Phase 4): the cipher + the at-rest pending_secrets store +
+  // the scope-deployments query, wired from env so production uses KMS and
+  // local/test environments degrade to the cipher stub. buildServer owns the
+  // construction so every route below shares one instance.
+  const cipher = env.kmsKeyArn ? createKmsCipher(env.kmsKeyArn) : createCipherStub();
+  const pendingSecrets = createDrizzlePendingSecretStore(db, cipher);
+  const configDeps: ConfigDeps = {
+    store: configStore,
+    secretWriter: configSecretWriter,
+    pendingSecrets,
+    cipher,
+    findScopeDeployments: createScopeDeploymentsFinder(db),
+    findApplicationOrganizationId: async (applicationId) => {
+      const rows = await db
+        .select({ organizationId: schema.applications.organizationId })
+        .from(schema.applications)
+        .where(eq(schema.applications.id, applicationId))
+        .limit(1);
+      return rows[0]?.organizationId;
+    },
+  };
 
   app.get('/api/applications/:id/config', { preHandler: requireAuth }, async (request) => {
     const { id } = request.params as { id: string };
@@ -2802,7 +2836,7 @@ export async function buildServer({
       id,
       scope.customerId,
       body.entries,
-      { store: configStore, secretWriter: configSecretWriter },
+      configDeps,
       body.deletes ?? [],
     );
     // Keys actually written by this save: entries minus untouched secrets
@@ -3081,6 +3115,16 @@ export async function buildServer({
     applicationId: z.string().uuid(),
     region: regionSchema,
   });
+
+  // Installation invitation targets the SESSION org's customer (path) and
+  // application (body). `recommendedRegion` is optional — the customer makes
+  // the final Region choice at confirmation.
+  const createInvitationBodySchema = z
+    .object({
+      applicationId: z.string().uuid(),
+      recommendedRegion: regionSchema.optional(),
+    })
+    .strict();
 
   const createReleaseBodySchema = z.object({
     version: z.string().min(1),
@@ -3610,12 +3654,56 @@ export async function buildServer({
         customerId,
         applicationId: body.applicationId,
         region: body.region,
+      }, {
+        pendingSecrets,
+        cipher,
       });
       return reply.code(201).send({
         link: toDeployLinkView({ link, application, deployment }),
         deployment,
         token,
       });
+    },
+  );
+
+  // POST /api/customers/:customerId/invitations — create a TARGETED
+  // installation invitation WITHOUT creating a deployment. The vendor may
+  // recommend a Region; the customer makes the final choice at confirmation.
+  // Returns the one-time token exactly once — it is never retrievable again.
+  app.post(
+    '/api/customers/:customerId/invitations',
+    { preHandler: requireAuth },
+    async (request, reply) => {
+      const { customerId } = request.params as { customerId: string };
+      const body = createInvitationBodySchema.parse(request.body);
+      const organizationId = requireSessionOrganizationId(request);
+      const { link, token } = await createInstallationInvitation(db, {
+        organizationId,
+        userId: requireActor(request).id,
+        customerId,
+        applicationId: body.applicationId,
+        ...(body.recommendedRegion !== undefined ? { recommendedRegion: body.recommendedRegion } : {}),
+      });
+      return reply.code(201).send({
+        id: link.id,
+        token,
+        expiresAt: link.expiresAt,
+        recommendedRegion: link.recommendedRegion,
+      });
+    },
+  );
+
+  // GET /api/customers/:customerId/invitations — the customer's targeted
+  // installation invitations, newest first, with the derived status
+  // ('active' | 'expired' | 'revoked' | 'used'). Never carries the token.
+  app.get(
+    '/api/customers/:customerId/invitations',
+    { preHandler: requireAuth },
+    async (request) => {
+      const { customerId } = request.params as { customerId: string };
+      const organizationId = requireSessionOrganizationId(request);
+      await loadOwnedCustomer(db, customerId, organizationId); // 404s on cross-org
+      return { invitations: await listCustomerInvitations(db, organizationId, customerId) };
     },
   );
 
@@ -3706,6 +3794,7 @@ export async function buildServer({
         appUrl: null,
       });
       const resolveManifest = readStoredManifest(deployment.desiredState);
+      const deploymentProfile = resolveStoredInfrastructureSizeProfile(deployment.desiredState);
       return {
         link: { status: 'active' },
         application: { name: application.name },
@@ -3713,7 +3802,7 @@ export async function buildServer({
         region: deployment.region,
         // The same install plan the install page serves, so the two customer
         // surfaces never disagree about what a deployment creates.
-        plan: resolveManifest ? buildInstallPlan({ manifest: resolveManifest, region: deployment.region }) : null,
+        plan: resolveManifest ? buildInstallPlan({ manifest: resolveManifest, region: deployment.region, ...(deploymentProfile ? { profile: deploymentProfile } : {}) }) : null,
         deploymentState: deployment.state,
         bootstrapStackName: stackName,
         waitingForRelay,
@@ -4008,7 +4097,26 @@ export async function buildServer({
     { config: { rateLimit: PUBLIC_INSTALL_RATE_LIMIT } },
     async (request) => {
       const { linkId } = request.params as { linkId: string };
-      return resolvePublicInstall(db, linkId);
+      const token = firstHeaderValue(request.headers['x-deployz-token']);
+      return resolvePublicInstall(db, linkId, token);
+    },
+  );
+
+  // GET /api/public-install/:linkId/plan?region=…&profile=… — the canonical
+  // INSTALL plan for a customer-selected Region + size profile. Pricing stays
+  // on the server; an undeployable/unsupported Region returns an "estimate
+  // unavailable" plan (region/cost null), never a guessed cost.
+  app.get(
+    '/api/public-install/:linkId/plan',
+    { config: { rateLimit: PUBLIC_INSTALL_RATE_LIMIT } },
+    async (request) => {
+      const { linkId } = request.params as { linkId: string };
+      const { region, profile } = request.query as { region?: string; profile?: string };
+      const token = firstHeaderValue(request.headers['x-deployz-token']);
+      if (region === undefined) {
+        throw new ApiError(422, 'REGION_REQUIRED', 'A region is required.');
+      }
+      return resolvePublicInstallPlan(db, linkId, region, profile, token);
     },
   );
 
@@ -4024,7 +4132,8 @@ export async function buildServer({
     async (request, reply) => {
       const { linkId } = request.params as { linkId: string };
       const body = publicInstallConfirmBodySchema.parse(request.body);
-      const result = await confirmPublicInstall(db, linkId, body);
+      const token = firstHeaderValue(request.headers['x-deployz-token']);
+      const result = await confirmPublicInstall(db, linkId, body, configDeps, token);
       return reply.code(result.created ? 201 : 200).send({ installLinkId: result.installLinkId });
     },
   );
@@ -4167,6 +4276,15 @@ export async function buildServer({
         updatedBy: request.user?.id ?? null,
         source: 'manual',
       }));
+      // DEPLOY-027 (Phase 4): materialization runs after the deployment row
+      // is durable — same pattern as createDeployLink / public-install /
+      // completePendingCheckoutIntent.
+      await materializePendingSecretsForDeployment({ pendingSecrets, cipher }, {
+        organizationId,
+        id: deployment.id,
+        applicationId: deployment.applicationId,
+        customerId: deployment.customerId,
+      });
     } catch (error) {
       // Two concurrent creates can both pass assertTestDeploymentSlot before
       // either inserts — the partial unique index catches the loser here.
@@ -4934,6 +5052,12 @@ export async function buildServer({
         // relay job to accept it later.
         billingStopped = await markDeploymentRemoved(tx, deployment, new Date(), removalActor);
       });
+      // DEPLOY-027 (Phase 4): drop any pending secret rows for a deployment
+      // that never had a relay to consume them — they would otherwise sit
+      // until the worker sweep at TTL. Runs OUTSIDE the tx so the
+      // pending-secrets drizzle queries do not contend with the connection
+      // the tx holds (PGlite is single-connection).
+      await pendingSecrets.deleteBoundForDeployment(deployment.id);
       // Phase 9: outside the transaction — a Paddle round trip must never
       // hold the connection the delete just used.
       if (billingStopped) {
@@ -5180,6 +5304,11 @@ export async function buildServer({
     if (billingStopped) {
       await reconcileAfterBillingChange(db, paddle, deployment.organizationId);
     }
+
+    // DEPLOY-027 (Phase 4): force-completed deployments never had a
+    // successful relay poll; the bound rows would otherwise linger until
+    // the TTL sweep.
+    await pendingSecrets.deleteBoundForDeployment(deployment.id);
 
     // Phase 11: best-effort drop of the deployz-zone CNAMEs on the same
     // force-complete (the DB state was cleared inside the transaction).
@@ -5781,18 +5910,19 @@ export async function buildServer({
         'Deployment has no valid deployment manifest. Run analysis or correct the application configuration first.',
       );
     }
+    const profile = resolveStoredInfrastructureSizeProfile(deployment.desiredState);
     if (action === 'install') {
-      return deploymentPlanSchema.parse(buildInstallPlan({ manifest, region: deployment.region }));
+      return deploymentPlanSchema.parse(buildInstallPlan({ manifest, region: deployment.region, ...(profile ? { profile } : {}) }));
     }
     if (action === 'destroy') {
-      return deploymentPlanSchema.parse(buildDestroyPlan({ manifest, region: deployment.region }));
+      return deploymentPlanSchema.parse(buildDestroyPlan({ manifest, region: deployment.region, ...(profile ? { profile } : {}) }));
     }
     if (action === 'update') {
       const application = await loadOwnedApplication(db, deployment.applicationId, organizationId);
       const { manifest: desiredManifest } = await runApplicationPreflight(db, application, null);
       const newRelease = await newerReadyReleaseExists(db, deployment.applicationId, deployment.currentReleaseId);
       return deploymentPlanSchema.parse(
-        buildUpdatePlan({ deployedManifest: manifest, desiredManifest, region: deployment.region, newRelease }),
+        buildUpdatePlan({ deployedManifest: manifest, desiredManifest, region: deployment.region, newRelease, ...(profile ? { profile } : {}) }),
       );
     }
     throw new ApiError(400, 'INVALID_REQUEST', 'action must be "install", "update", or "destroy".');
@@ -6236,7 +6366,7 @@ export async function buildServer({
         onSubscriptionChanged: async ({ organizationId, status, checkoutIntentId }) => {
           if (status !== 'ACTIVE') return;
           const completed = await completePendingCheckoutIntent(
-            { db, paddle },
+            { db, paddle, materialization: { pendingSecrets, cipher } },
             organizationId,
             checkoutIntentId,
           );
@@ -7170,6 +7300,20 @@ export async function buildServer({
       return reply.code(200).send({ received: true, alreadySettled: true });
     }
 
+    // DEPLOY-027 (Phase 4): a successful CONFIG_UPDATE ack means the relay
+    // fetched every bound row, applied the secrets to the customer, and is
+    // done with them. The deployment never polls again with the same key,
+    // so we drop the bound tier — the values live only in the customer's
+    // Secrets Manager from here on. Same idea for PURGE success: the relay
+    // has confirmed the customer account is fully released, no relay will
+    // ever poll again.
+    if (job.type === 'CONFIG_UPDATE' && state === 'SUCCEEDED') {
+      await pendingSecrets.deleteBoundForDeployment(deployment.id);
+    }
+    if (job.type === 'PURGE' && state === 'SUCCEEDED') {
+      await pendingSecrets.deleteBoundForDeployment(deployment.id);
+    }
+
     // Best-effort step-timings follow-up (see advanceStepTimingsAfterWrite) —
     // Phase 9: outside the transaction, and only when this backstop was the
     // write that actually stopped billing.
@@ -7860,7 +8004,41 @@ export async function buildServer({
 
     // Phase 4: generated keys ride along as `generated: true` entries (no
     // value — the relay mints them inside the customer's account).
-    return { entries: await buildRelayConfigEntries(db, deployment, configStore) };
+    // DEPLOY-027 (Phase 4): the vault is the relay's only decryption seam.
+    // It lists bound rows, decrypts per key with the stored KMS context, and
+    // stamps delivery on every successful decrypt. A decrypt failure logs
+    // ids only, omits the value, and keeps the row so the next relay cycle
+    // can retry — plaintext never appears in this response's envelope.
+    const entries = await buildRelayConfigEntries(db, deployment, configStore, {
+      async readBound(deploymentId, key) {
+        const rows = await pendingSecrets.listBoundForDeployment(deploymentId);
+        const row = rows.find((candidate) => candidate.key === key);
+        if (row === undefined) return undefined;
+        try {
+          const plaintext = await cipher.decrypt(row.ciphertext, row.encryptionContext);
+          await pendingSecrets.stampDelivery(deploymentId, key);
+          return plaintext;
+        } catch (error) {
+          request.log.warn(
+            { err: error, deploymentId, key },
+            'pending-secret decrypt failed; omitting value, keeping row',
+          );
+          return undefined;
+        }
+      },
+      async stampDelivery(deploymentId, key) {
+        await pendingSecrets.stampDelivery(deploymentId, key);
+      },
+      // VENDOR-scope secrets never bind a pending-secret row (that path is
+      // customer-only) — they decrypt straight off the application_configs
+      // ciphertext (apps/api/src/config.ts's listVendorValues does the same
+      // decrypt for build variables).
+      async readVendorSecret(applicationId, key) {
+        const values = await listVendorValues(db, applicationId, [key], cipher);
+        return values[key];
+      },
+    });
+    return { entries };
   });
 
   return app;

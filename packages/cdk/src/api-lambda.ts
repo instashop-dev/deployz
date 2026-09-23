@@ -14,12 +14,6 @@ export interface ApiLambdaProps {
   /** ARN of the RDS master secret in Secrets Manager. The Lambda fetches
    * credentials at runtime — never hardcoded in the env. */
   readonly dbSecretArn: string;
-  /**
-   * ARN of the control-plane config-encryption key secret (§31 secure
-   * storage — apps/api/src/config-crypto.ts). The Lambda fetches it at
-   * runtime, same pattern as the DB secret; never hardcoded in the env.
-   */
-  readonly configEncryptionSecretArn: string;
   /** Extra environment variables passed from the repo-root .env. */
   readonly environment?: Record<string, string>;
 }
@@ -57,7 +51,6 @@ export class ApiLambda extends Construct {
       securityGroups: [props.dbSecurityGroup],
       environment: {
         DB_SECRET_ARN: props.dbSecretArn,
-        CONFIG_ENCRYPTION_SECRET_ARN: props.configEncryptionSecretArn,
         NODE_ENV: 'production',
         ...props.environment,
       },
@@ -75,13 +68,5 @@ export class ApiLambda extends Construct {
     // Grant Lambda read access to the RDS secret in Secrets Manager.
     const dbSecret = Secret.fromSecretCompleteArn(this, 'DbSecret', props.dbSecretArn);
     dbSecret.grantRead(this.function);
-
-    // Grant Lambda read access to the config-encryption key secret.
-    const configEncryptionSecret = Secret.fromSecretCompleteArn(
-      this,
-      'ConfigEncryptionSecret',
-      props.configEncryptionSecretArn,
-    );
-    configEncryptionSecret.grantRead(this.function);
   }
 }

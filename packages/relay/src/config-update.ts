@@ -256,6 +256,15 @@ async function settleConfigUpdate(
       }
     }
     let changed = false;
+    // Pending pre-relay values arrive in the desired entries (the vault
+    // overlay on /api/relay/config), not the command payload. A same-key
+    // value in the payload is the newer vendor intent and wins over it.
+    for (const entry of desiredSecrets) {
+      if (typeof entry.value === 'string' && entry.value.length > 0 && merged[entry.key] !== entry.value) {
+        merged[entry.key] = entry.value;
+        changed = true;
+      }
+    }
     for (const [key, value] of Object.entries(secretValues)) {
       if (merged[key] !== value) {
         merged[key] = value;

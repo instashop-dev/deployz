@@ -2,10 +2,10 @@ import { describe, expect, it } from 'vitest';
 
 import { estimateFootprintCost } from './pricing.js';
 import {
-  DEPLOYMENT_SIZING,
   deploymentFootprintSchema,
   resolveDeploymentFootprint,
 } from './footprint.js';
+import { defaultInfrastructureSizeProfile } from './profile.js';
 import type { DeploymentFootprint, FootprintResource, FootprintWorkload } from './footprint.js';
 import type { DeploymentManifest } from './manifest.js';
 
@@ -41,7 +41,7 @@ describe('resolveDeploymentFootprint', () => {
     const web = footprint.workloads[0]!;
     expect(web.id).toBe('web');
     expect(web.role).toBe('web');
-    expect(web.quantity).toBe(DEPLOYMENT_SIZING.workload.web.quantity);
+    expect(web.quantity).toBe(defaultInfrastructureSizeProfile().workload.desiredCount);
     expect(web.compute).toEqual({
       provider: 'aws',
       service: 'ecs-fargate',
@@ -65,6 +65,7 @@ describe('resolveDeploymentFootprint', () => {
       engineVersion: '16',
       instanceType: 'db.t4g.micro',
       storageGb: 20,
+      maxStorageGb: 100,
     });
     expect(database.lifecycle).toEqual({ persistent: true, retainOnDelete: true });
   });
@@ -93,17 +94,18 @@ describe('resolveDeploymentFootprint', () => {
   it('a manifest worker command resolves a second workload from the sizing table', () => {
     const footprint = resolveDeploymentFootprint({ manifest: WITH_WORKER, region: null });
     const worker = footprint.workloads.find((workload) => workload.id === 'worker');
+    const sizing = defaultInfrastructureSizeProfile().workload;
     expect(worker).toEqual({
       id: 'worker',
       role: 'worker',
       label: 'Background worker',
-      quantity: DEPLOYMENT_SIZING.workload.worker.quantity,
+      quantity: sizing.desiredCount,
       compute: {
         provider: 'aws',
         service: 'ecs-fargate',
-        cpuUnits: DEPLOYMENT_SIZING.workload.worker.cpuUnits,
-        memoryMiB: DEPLOYMENT_SIZING.workload.worker.memoryMiB,
-        sizeLabel: DEPLOYMENT_SIZING.workload.worker.sizeLabel,
+        cpuUnits: sizing.cpuUnits,
+        memoryMiB: sizing.memoryMiB,
+        sizeLabel: defaultInfrastructureSizeProfile().label,
       },
       lifecycle: { persistent: false },
     });

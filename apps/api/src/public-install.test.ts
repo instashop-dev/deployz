@@ -374,7 +374,7 @@ describe('public install links', () => {
     // The frozen desired state is exactly the application's effective
     // manifest at confirm time.
     const { manifest } = await runApplicationPreflight(db, application, null);
-    expect(deployment!.desiredState).toEqual({ manifest });
+    expect(deployment!.desiredState).toEqual({ manifest, infrastructureProfile: { id: 'small', version: 1 } });
 
     // One customer row with the submitted contact details.
     const [customer] = await db.select().from(schema.customers).where(eq(schema.customers.id, deployment!.customerId));
@@ -635,7 +635,7 @@ describe('public install links', () => {
       .from(schema.deployments)
       .where(eq(schema.deployments.publicInstallLinkId, link.id));
     const { manifest } = await runApplicationPreflight(db, application, null);
-    expect(deployment!.desiredState).toEqual({ manifest });
+    expect(deployment!.desiredState).toEqual({ manifest, infrastructureProfile: { id: 'small', version: 1 } });
     expect(manifest.database.postgres).toBe(false);
     expect(manifest.redis.required).toBe(false);
     expect(deployment!.organizationId).toBe(org.organizationId);

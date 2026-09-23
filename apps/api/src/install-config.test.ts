@@ -5,9 +5,9 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { applyMigrations, createDb, type Db } from '@deployz/db';
 import * as schema from '@deployz/db/schema';
 
-import { createConfigStore, createRelaySecretWriter, setConfig } from './config.js';
+import { createConfigDeps, createConfigStore, listVendorValues, setConfig } from './config.js';
 import { buildInstallPayload, buildRelayConfigEntries, queuePostInstallConfig } from './install-config.js';
-import { redactClaimedPayload } from './server.js';
+import { createCipherStub, createDrizzlePendingSecretStore } from './pending-secrets.js';
 
 // AI MVP Phase 4 — the first configuration pass after a successful INSTALL:
 // the relay's effective-config view carries every saved entry (plain values
@@ -266,7 +266,7 @@ describe('post-install configuration', () => {
     expect(JSON.stringify(jobs[0]!.payload)).not.toContain('debug');
   });
 
-  it('carries deliverable secret VALUES in the payload, scrubbed once the relay claims the job', async () => {
+  it('a vendor secret with no bound pending-secret value decrypts through vault.readVendorSecret, never through the job payload', async () => {
     const [application] = await db
       .insert(schema.applications)
       .values({
@@ -296,32 +296,50 @@ describe('post-install configuration', () => {
       .returning();
 
     // A vendor-typed secret saved through setConfig (so it is actually
-    // encrypted) BEFORE this install exists:
-    // the value had nowhere to go until this install's post-install pass.
+    // encrypted onto application_configs.encrypted_value) BEFORE this install
+    // exists — it has no pending-secret vault row (that path is customer-
+    // only), so the only way it can ever reach a deployment is the relay's
+    // GET /api/relay/config read decrypting it directly.
     const store = createConfigStore(db);
-    await setConfig(application!.id, null, [{ key: 'API_SECRET', value: 'sk_live_delivered', isSecret: true }], {
-      store,
-      secretWriter: createRelaySecretWriter(),
-    });
+    const cipher = createCipherStub();
+    await setConfig(
+      application!.id,
+      null,
+      [{ key: 'API_SECRET', value: 'sk_live_delivered', isSecret: true }],
+      createConfigDeps(db, createDrizzlePendingSecretStore(db, cipher), cipher),
+    );
 
+    // queuePostInstallConfig never carries secret values — only key names.
     const { queued } = await queuePostInstallConfig(db, deployment!, 'install-job-secret-delivery', store);
     expect(queued).toBe(true);
-
     const [job] = await db
       .select()
       .from(schema.deploymentJobs)
       .where(and(eq(schema.deploymentJobs.deploymentId, deployment!.id), eq(schema.deploymentJobs.type, 'CONFIG_UPDATE')));
-    const payload = job!.payload as { secrets?: { key: string; value: string }[] };
-    expect(payload.secrets).toEqual([{ key: 'API_SECRET', value: 'sk_live_delivered' }]);
-
-    // The moment the relay claims the job, redactClaimedPayload scrubs the
-    // value to a key stub — the plaintext never sits in the DB durably.
-    const redacted = redactClaimedPayload({ type: 'CONFIG_UPDATE', payload: job!.payload as Record<string, unknown> });
-    expect(redacted).toEqual({
-      ...payload,
-      secrets: [{ key: 'API_SECRET' }],
+    expect(job!.payload).toEqual({
+      reason: 'install',
+      changedKeys: expect.arrayContaining(['API_SECRET']),
     });
-    expect(JSON.stringify(redacted)).not.toContain('sk_live_delivered');
+    expect(JSON.stringify(job!.payload)).not.toContain('sk_live_delivered');
+
+    // The relay's own read (buildRelayConfigEntries with a vault) is the one
+    // place the plaintext surfaces.
+    const entries = await buildRelayConfigEntries(db, deployment!, store, {
+      async readBound() {
+        return undefined; // no customer-scope pending-secret row for this key
+      },
+      async stampDelivery() {},
+      async readVendorSecret(applicationId, key) {
+        const values = await listVendorValues(db, applicationId, [key], cipher);
+        return values[key];
+      },
+    });
+    expect(entries.find((entry) => entry.key === 'API_SECRET')).toEqual({
+      key: 'API_SECRET',
+      isSecret: true,
+      value: 'sk_live_delivered',
+      source: 'vendor',
+    });
   });
 
   it('queues nothing when there is nothing to apply', async () => {

@@ -1,4 +1,13 @@
-# Deploy Links
+# Deploy Links (legacy)
+
+> **Status: legacy.** Deploy Links are superseded by installation invitations
+> (`docs/installation-invitations.md`). The `deploy_links` table and the
+> `/deploy/:publicId` route still work for links created before the
+> invitation model shipped; they are marked `region_selection =
+> 'legacy_publisher_fixed'` and continue to resolve through the shared
+> pipeline. New customer entry points use invitations, not deploy links.
+> The legacy path will be removed post-MVP after all existing deploy links
+> have expired or their deployments have been destroyed.
 
 A Deploy Link lets a vendor generate a secure, customer-specific "Deploy to
 AWS" URL for an existing customer + application pair. The customer opens the

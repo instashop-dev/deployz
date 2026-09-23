@@ -6,7 +6,7 @@ import {
 } from '@deployz/contracts';
 import type { RuntimeDb } from '@deployz/db';
 
-import { getConfig, listDeliverableSecretValues, type ConfigStore, type EffectiveConfigEntry } from './config.js';
+import { getConfig, type ConfigStore, type EffectiveConfigEntry } from './config.js';
 import { ApiError } from './errors.js';
 import { DESIRED_COUNT_PARAMETER, buildInstallParameters } from './install-parameters.js';
 import { createOrReuseJob } from './jobs.js';
@@ -34,32 +34,93 @@ export interface RelayConfigEntry {
 }
 
 /**
+ * DEPLOY-027 (Phase 4): the relay's only decryption seam. Given a
+ * deployment id and a key, returns the plaintext or undefined if no row
+ * exists. Without a vault (the unit-test path), behavior is unchanged —
+ * secrets travel without a value. With a vault (production), decrypted
+ * values are overlaid onto the secret entries.
+ */
+export interface PendingSecretVault {
+  readBound(deploymentId: string, key: string): Promise<string | undefined>;
+  /** Stamp delivery for every successful decrypt in this read cycle. */
+  stampDelivery(deploymentId: string, key: string): Promise<void>;
+  /**
+   * VENDOR-scope secrets never enter the pending-secret vault (they persist
+   * as ciphertext directly on the `application_configs` row instead — see
+   * apps/api/src/config.ts's `listVendorValues`). This is the same
+   * decryption for the one other reader that needs it: a vendor secret an
+   * effective-config entry resolves to, with no bound customer-scope value
+   * to overlay. Optional so the unit-test path (no vault) is unchanged.
+   */
+  readVendorSecret?(applicationId: string, key: string): Promise<string | undefined>;
+}
+
+/**
  * The entries the relay applies: every effective config entry (plain values
  * travel, secret values never do) plus, for each generated key without a
- * vendor or customer value, an entry the relay mints.
+ * vendor or customer value, an entry the relay mints. When a `vault` is
+ * passed (production path), pending-secrets rows are decrypted in this
+ * seam — values the vendor typed before the relay enrolled reach the
+ * customer via this read, not via the queue message.
  */
 export async function buildRelayConfigEntries(
   db: RuntimeDb,
-  deployment: { applicationId: string; customerId: string; desiredState: Record<string, unknown> | null },
+  deployment: { id?: string; applicationId: string; customerId: string; desiredState: Record<string, unknown> | null },
   store: ConfigStore,
+  vault?: PendingSecretVault,
 ): Promise<RelayConfigEntry[]> {
   const view = await getConfig(deployment.applicationId, deployment.customerId, store);
   const manifest = readStoredManifest(deployment.desiredState);
   const mintable = new Set<string>(manifest ? mintableKeys(manifest) : []);
-  // A secret the vendor typed is write-only (§31): its value reached only
-  // the deployments whose relay was connected at the time, and a deployment
-  // installed later has nothing to bind. For an app-internal secret the
-  // relay may mint one — it keeps any value already in the customer's
-  // store, so a delivered vendor value always wins (DEPLOY-013).
-  const entries: RelayConfigEntry[] = view.effective.map((entry) => ({
-    key: entry.key,
-    isSecret: entry.isSecret,
-    ...(entry.isSecret ? {} : { value: entry.value ?? '' }),
-    source: entry.source,
-    ...(entry.isSecret && mintable.has(entry.key) ? { generated: true as const } : {}),
-  }));
+  const entries: RelayConfigEntry[] = [];
+  for (const entry of view.effective) {
+    if (entry.isSecret && vault !== undefined && deployment.id !== undefined) {
+      try {
+        const plaintext = await vault.readBound(deployment.id, entry.key);
+        if (plaintext !== undefined) {
+          entries.push({
+            key: entry.key,
+            isSecret: true,
+            value: plaintext,
+            source: entry.source,
+          });
+          continue;
+        }
+      } catch {
+        // Decrypt failure: omit the value, keep the row, return the masked
+        // entry — the relay's next cycle retries.
+      }
+    }
+    // A vendor secret never binds a pending-secret row (see
+    // `PendingSecretVault.readVendorSecret`'s doc) — it decrypts straight
+    // off the application_configs ciphertext instead.
+    if (entry.isSecret && entry.source === 'vendor' && vault?.readVendorSecret !== undefined) {
+      try {
+        const plaintext = await vault.readVendorSecret(deployment.applicationId, entry.key);
+        if (plaintext !== undefined) {
+          entries.push({
+            key: entry.key,
+            isSecret: true,
+            value: plaintext,
+            source: entry.source,
+          });
+          continue;
+        }
+      } catch {
+        // Decrypt failure: omit the value, keep the row, return the masked
+        // entry — the relay's next cycle retries.
+      }
+    }
+    entries.push({
+      key: entry.key,
+      isSecret: entry.isSecret,
+      ...(entry.isSecret ? {} : { value: entry.value ?? '' }),
+      source: entry.source,
+      ...(entry.isSecret && mintable.has(entry.key) ? { generated: true as const } : {}),
+    });
+  }
   const configured = new Set(entries.map((entry) => entry.key));
-  for (const key of mintable) {
+for (const key of mintable) {
     if (configured.has(key)) continue;
     entries.push({ key, isSecret: true, source: 'generated', generated: true });
   }
@@ -171,21 +232,11 @@ export async function queuePostInstallConfig(
 ): Promise<{ queued: boolean }> {
   const entries = await buildRelayConfigEntries(db, deployment, store);
   if (entries.length === 0) return { queued: false };
-  // Vendor + customer secret VALUES ride this job transiently (same
-  // transport-only path as the values editor's CONFIG_UPDATE) — the only
-  // moment a vendor-typed secret can reach a deployment that did not exist
-  // when it was entered. `redactClaimedPayload` scrubs them to key
-  // stubs the instant the relay claims the job.
-  const secrets = await listDeliverableSecretValues(db, deployment.applicationId, deployment.customerId);
   const { created } = await createOrReuseJob(db, {
     deploymentId: deployment.id,
     type: 'CONFIG_UPDATE',
     idempotencyKey: `${deployment.id}:CONFIG_UPDATE:install:${installJobId}`,
-    payload: {
-      reason: 'install',
-      changedKeys: entries.map((entry) => entry.key),
-      ...(secrets.length > 0 ? { secrets } : {}),
-    },
+    payload: { reason: 'install', changedKeys: entries.map((entry) => entry.key) },
     requestedBy: null,
   });
   return { queued: created };

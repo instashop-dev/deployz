@@ -1,12 +1,14 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Eye, EyeOff } from 'lucide-react';
 
 import { AwsInfrastructureDetails } from '@/components/aws-infrastructure-details';
+import { Badge } from '@/components/ui/badge';
 import { FootprintCost } from '@/components/footprint-cost';
 import { FootprintSummary } from '@/components/footprint-summary';
+import { Spinner } from '@/components/ui/spinner';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -21,12 +23,14 @@ import {
 import { TablePanel } from '@/components/table-panel';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { installPlanRegionLabel, installPlanRetentionNote, installPlanRows } from '@/lib/install-plan';
+import { fetchPublicInstallPlan } from '@/lib/public-install-data';
 import { confirmPublicInstall } from '@/lib/public-install-confirm';
 import {
   publicInstallErrorMessage,
   type PublicInstallInput,
   type PublicInstallResolve,
 } from '@/lib/public-install-types';
+import type { DeploymentPlan } from '@deployz/contracts';
 
 interface PublicInstallFlowProps {
   linkId: string;
@@ -36,7 +40,11 @@ interface PublicInstallFlowProps {
 export function PublicInstallFlow({ linkId, resolve }: PublicInstallFlowProps) {
   const router = useRouter();
 
-  const [region, setRegion] = useState(resolve.regions[0]?.value ?? '');
+  const [region, setRegion] = useState(
+    resolve.recommendedRegion && resolve.regions.some((option) => option.value === resolve.recommendedRegion)
+      ? resolve.recommendedRegion
+      : (resolve.regions[0]?.value ?? ''),
+  );
   const [customerName, setCustomerName] = useState('');
   const [customerEmail, setCustomerEmail] = useState('');
   const [configValues, setConfigValues] = useState<Record<string, string>>({});
@@ -46,8 +54,35 @@ export function PublicInstallFlow({ linkId, resolve }: PublicInstallFlowProps) {
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const planRows = useMemo(() => installPlanRows(resolve.plan), [resolve.plan]);
-  const retentionNote = useMemo(() => installPlanRetentionNote(resolve.plan), [resolve.plan]);
+  // The plan is re-derived per selected Region (Phase 3): pricing stays on
+  // the server; the client only renders it. `fetchedFor` is the region the
+  // in-flight (or last applied) fetch belongs to, so a slow older response
+  // can never override a newer selection.
+  const [plan, setPlan] = useState<DeploymentPlan>(resolve.plan);
+  const [planLoading, setPlanLoading] = useState(false);
+  const [estimateUnavailable, setEstimateUnavailable] = useState(resolve.plan.costEstimate == null);
+  const requestedRegionRef = useRef<string | null>(region);
+
+  useEffect(() => {
+    if (region === '') return;
+    requestedRegionRef.current = region;
+    const requested = region;
+    setPlanLoading(true);
+    void fetchPublicInstallPlan(linkId, region).then((freshPlan) => {
+      if (requestedRegionRef.current !== requested) return; // stale response
+      setPlanLoading(false);
+      if (freshPlan === null) {
+        // Keep the previous infrastructure preview; only the estimate degrades.
+        setEstimateUnavailable(true);
+        return;
+      }
+      setPlan(freshPlan);
+      setEstimateUnavailable(freshPlan.costEstimate == null);
+    });
+  }, [linkId, region]);
+
+  const planRows = useMemo(() => installPlanRows(plan), [plan]);
+  const retentionNote = useMemo(() => installPlanRetentionNote(plan), [plan]);
 
   const settingErrors = useMemo(
     () =>
@@ -143,6 +178,11 @@ export function PublicInstallFlow({ linkId, resolve }: PublicInstallFlowProps) {
         <h2 id="public-region" className="text-base font-semibold">
           AWS region
         </h2>
+        {resolve.recommendedRegion ? (
+          <p className="text-sm text-muted-foreground">
+            {resolve.publisher.name} recommends {installPlanRegionLabel(resolve.recommendedRegion) ?? resolve.recommendedRegion}. You make the final choice.
+          </p>
+        ) : null}
         <Select value={region} onValueChange={setRegion}>
           <SelectTrigger className="w-full sm:w-[360px]">
             <SelectValue placeholder="Select a region" />
@@ -150,7 +190,10 @@ export function PublicInstallFlow({ linkId, resolve }: PublicInstallFlowProps) {
           <SelectContent>
             {resolve.regions.map((regionOption) => (
               <SelectItem key={regionOption.value} value={regionOption.value}>
-                {regionOption.label}
+                <span className="flex items-center gap-2">
+                  {regionOption.label}
+                  {regionOption.value === resolve.recommendedRegion ? <Badge variant="secondary">Recommended</Badge> : null}
+                </span>
               </SelectItem>
             ))}
           </SelectContent>
@@ -283,11 +326,16 @@ export function PublicInstallFlow({ linkId, resolve }: PublicInstallFlowProps) {
             </TableBody>
           </Table>
         </TablePanel>
-        <FootprintSummary footprint={resolve.plan?.footprint} stage="planned" />
-        <AwsInfrastructureDetails plan={resolve.plan} region={region} />
+        <FootprintSummary footprint={plan.footprint} stage="planned" />
+        <AwsInfrastructureDetails plan={plan} region={region} />
         {region ? (
           <p className="text-sm text-muted-foreground">
             Region: {installPlanRegionLabel(region) ?? region}
+          </p>
+        ) : null}
+        {planLoading ? (
+          <p className="flex items-center gap-2 text-sm text-muted-foreground" aria-live="polite">
+            <Spinner aria-hidden /> Updating estimate…
           </p>
         ) : null}
         {retentionNote ? <p className="text-sm text-muted-foreground">{retentionNote}</p> : null}
@@ -295,7 +343,11 @@ export function PublicInstallFlow({ linkId, resolve }: PublicInstallFlowProps) {
           PostgreSQL and stored files are retained when the application is disconnected. They can
           continue to generate AWS charges until they are permanently purged.
         </p>
-        <FootprintCost estimate={resolve.plan?.costEstimate} />
+        {estimateUnavailable ? (
+          <p className="text-sm text-muted-foreground">Estimate unavailable for this Region.</p>
+        ) : (
+          <FootprintCost estimate={plan.costEstimate} />
+        )}
         <p className="text-sm text-muted-foreground">
           {canSubmit
             ? 'All required values are filled. You can deploy.'
@@ -304,6 +356,9 @@ export function PublicInstallFlow({ linkId, resolve }: PublicInstallFlowProps) {
       </section>
 
       <section aria-label="Deploy actions" className="flex flex-col gap-4">
+        <p className="text-sm text-muted-foreground">
+          Verify your AWS account and Region in the AWS console before stack creation.
+        </p>
         <Button
           size="lg"
           type="submit"

@@ -65,20 +65,26 @@ come from well-known name prefixes (`NEXT_PUBLIC_`, `VITE_`,
 
 ## Where values go
 
+Both secret paths below share one `SecretCipher` seam
+(`apps/api/src/pending-secrets.ts`): a KMS-backed cipher in production
+(`DEPLOYZ_KMS_KEY_ARN`), an in-memory stub in local dev/tests. Open item:
+the control-plane CDK does not provision the KMS key or set
+`DEPLOYZ_KMS_KEY_ARN` yet, so deployed Lambdas fall back to the stub until
+that is done. Neither path
+ever returns plaintext from an API except the relay's own authenticated
+`GET /api/relay/config` read.
+
 | Value | Stored | Reaches |
 |---|---|---|
-| Vendor plain value | `application_configs.value` | Build: CodeBuild environment + `--build-arg NAME`. Runtime: post-install CONFIG_UPDATE (task definition environment). |
-| Vendor secret | `application_configs.encrypted_value` (AES-256-GCM) | Build: same as plain. Runtime: post-install CONFIG_UPDATE payload `secrets` → customer's `AppConfigSecret`. |
-| Customer value (install page) | Customer-scope row; secrets encrypted | Post-install CONFIG_UPDATE for that customer's deployment. |
-| Customer override (vendor edits) | Customer-scope row | That customer's running deployment (CONFIG_UPDATE write-through). |
+| Vendor plain value | `application_configs.value` | Build: worker decrypts (trivially, not a secret) and passes it to CodeBuild as an environment var + `--build-arg NAME`. Runtime: served on `GET /api/relay/config`, applied by the post-install CONFIG_UPDATE executor. |
+| Vendor secret | `application_configs.encrypted_value` — ciphertext from `SecretCipher.encrypt`, deterministic context (`organizationId` + `applicationId` + `key` + `scope: 'vendor'`, never stored) | Build: the worker decrypts with the same cipher (`listVendorValues`) before handing CodeBuild the build args. Runtime: the relay's `GET /api/relay/config` decrypts it the same way (`readVendorSecret`) and serves the plaintext over that authenticated channel only — never in a job payload. |
+| Customer value (install page) | DEPLOY-027 pending-secret vault (`pending_secrets` table, see `docs/pending-secret-delivery.md`) — staged before a deployment exists, bound to a deployment once one does | The relay's `GET /api/relay/config` decrypts the bound row and applies it via the post-install CONFIG_UPDATE executor. |
+| Customer override (vendor edits) | Customer-scope `application_configs` row (masked; plaintext never stored — it rides the relay write-through/pending-secret vault instead) | That customer's running deployment (CONFIG_UPDATE write-through), or the pending-secret vault when no relay can act on it yet. |
 
-- The encryption key is the control-plane secret `ConfigEncryptionKey`
-  (Secrets Manager, CDK-generated, `RETAIN`). The API and worker Lambdas can
-  read it (`CONFIG_ENCRYPTION_SECRET_ARN`). Local development uses
-  `CONFIG_ENCRYPTION_KEY` or a fixed development key outside Lambda.
 - Secret values are never returned by an API, logged, written to events or
-  telemetry, or sent to an AI prompt. The CONFIG_UPDATE payload is scrubbed
-  when the relay claims the job (`redactClaimedPayload`).
+  telemetry, or sent to an AI prompt. The CONFIG_UPDATE job payload never
+  carries a value — only key names; the one plaintext-bearing response is
+  the relay's authenticated `GET /api/relay/config` read.
 - A vendor secret saved before encrypted storage existed has no value that
   Deployz can deliver. The page flags it **Re-enter this secret**, and it
   does not count as provided.
@@ -86,8 +92,10 @@ come from well-known name prefixes (`NEXT_PUBLIC_`, `VITE_`,
 ## Effect of later edits
 
 - Decisions and vendor values apply to **new release builds** (build
-  values) and **new installations** (runtime values). Existing customer
-  deployments do not change.
+  values) and **new installations** (runtime values). Saving them does not
+  start an update on existing customer deployments. A changed vendor
+  default reaches an existing deployment only at its next configuration
+  update (for example, when a customer override for it is saved).
 - A customer override that the vendor edits reaches that customer's running
   deployment.
 

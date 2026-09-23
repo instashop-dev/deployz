@@ -110,6 +110,21 @@ export type DeploymentEventType =
   | 'install_link.opened'
   | 'install_link.revoked'
   | 'install_link.rotated'
+  // invitation family — targeted installation invitations (MVP Readiness 2,
+  // Phase 6; written by apps/api/src/public-install.ts). One event per step of
+  // the invitation lifecycle: created by the vendor; opened, region chosen,
+  // and confirmed by the customer; deployment + configuration delivery
+  // recorded inside the confirm transaction. Payloads carry ids and counts
+  // only — never the token, the resolved URL, config values, or customer
+  // name/email.
+  | 'invitation.created'
+  | 'invitation.opened'
+  | 'invitation.regenerated'
+  | 'invitation.revoked'
+  | 'invitation.confirmed'
+  | 'invitation.region_selected'
+  | 'invitation.deployment_created'
+  | 'invitation.configuration_delivered'
   // application/analysis funnel — PR1 telemetry. The application id rides in
   // `payload.applicationId` (event_logs has no application_id column).
   | 'application.created'

@@ -7,8 +7,12 @@ import {
   SUPPORTED_AWS_REGIONS,
   buildInstallPlan,
   customerInputRows,
+  defaultInfrastructureSizeProfile,
   evaluateEnvironmentSetup,
+  isSupportedRegion,
+  resolveInfrastructureSizeProfile,
   type DeploymentManifest,
+  type DeploymentPlan,
   type EnvVariableClassification,
   type EnvironmentSetting,
   type Region,
@@ -16,15 +20,17 @@ import {
 import type { RuntimeDb } from '@deployz/db';
 import * as schema from '@deployz/db/schema';
 
-import { createConfigStore, createRelaySecretWriter, setConfig } from './config.js';
+import { createConfigStore, createRelaySecretWriter, createScopeDeploymentsFinder, type ConfigDeps, setConfig } from './config.js';
 import { assertProductionDeploymentAllowed } from './billing-entitlements.js';
-import { createDeploymentRecord, loadOwnedApplication } from './deploy-links.js';
+import { createDeploymentRecord, loadOwnedApplication, loadOwnedCustomer, materializePendingSecretsForDeployment, mintDeployLinkToken } from './deploy-links.js';
 import { env } from './env.js';
 import { ApiError, NotFoundError } from './errors.js';
 import { readEnvironmentSettings } from './environment-setup.js';
 import { recordEvent } from './events.js';
 import { requirePreflightReady, runApplicationPreflight } from './preflight.js';
 import { createReleaseRecord, ensureBuildConfigurationReady } from './releases.js';
+import { createDrizzlePendingSecretStore } from './pending-secrets.js';
+import { hashRelayToken, verifyRelayToken } from './relay-store.js';
 
 // Public Install Links — the customer-side installation review surface. A
 // link is vendor-published and credential-free: anyone holding the opaque
@@ -41,6 +47,17 @@ import { createReleaseRecord, ensureBuildConfigurationReady } from './releases.j
 // /install flow, which owns everything after this point).
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** How long a freshly minted targeted invitation stays valid. */
+export const DEFAULT_INVITATION_TTL_DAYS = 30;
+
+// The invitation.opened event is throttled in memory — the schema has no
+// last-used column to throttle on (deploy-links.ts writes last_used_at; here
+// an in-memory Map keyed by link id stands in). Same 60s cadence as
+// deploy-links.ts's LAST_USED_THROTTLE_MS: a page that polls or reloads
+// within the window does not flood event_logs.
+const OPENED_THROTTLE_MS = 60_000;
+const lastOpenedAtByLinkId = new Map<string, number>();
 
 export type PublicInstallLinkRow = typeof schema.publicInstallLinks.$inferSelect;
 type ApplicationRow = typeof schema.applications.$inferSelect;
@@ -64,12 +81,15 @@ export const publicInstallConfirmBodySchema = z
   .object({
     idempotencyKey: z.string().uuid(),
     region: z.string().min(1),
+    // Required only for a credential-free reusable link (no target customer);
+    // a targeted invitation already names its customer and must not supply it.
     customer: z
       .object({
         name: z.string().trim().min(1),
         email: z.string().trim().email(),
       })
-      .strict(),
+      .strict()
+      .optional(),
     config: z
       .array(
         z
@@ -103,7 +123,7 @@ interface ActivePublicInstallLink {
  * revoked link 410, a disabled link 410 with its own code (so the page can
  * say the vendor turned it off rather than guess at a broken URL).
  */
-async function loadActiveLink(db: RuntimeDb, linkId: string): Promise<ActivePublicInstallLink> {
+async function loadActiveLink(db: RuntimeDb, linkId: string, token?: string): Promise<ActivePublicInstallLink> {
   requireUuidId(linkId);
   const rows = await db
     .select({
@@ -120,10 +140,24 @@ async function loadActiveLink(db: RuntimeDb, linkId: string): Promise<ActivePubl
     throw new NotFoundError('Install link not found');
   }
   const row = rows[0]!;
+  const targeted = row.link.tokenHash !== null;
+  if (targeted) {
+    // Private invitation: the secret authorizes review + confirmation only.
+    // Missing/mismatched token is the same 404 as an unknown id — the caller
+    // can never learn which failed.
+    if (token === undefined || !verifyRelayToken(row.link.tokenHash, token)) {
+      throw new NotFoundError('Install link not found');
+    }
+  }
   if (row.link.revokedAt !== null) {
     throw new ApiError(410, 'PUBLIC_INSTALL_LINK_REVOKED', 'This installation link has been revoked.');
   }
-  if (!row.link.enabled) {
+  if (row.link.expiresAt !== null && row.link.expiresAt.getTime() < Date.now()) {
+    throw new ApiError(410, 'PUBLIC_INSTALL_LINK_EXPIRED', 'This installation link has expired.');
+  }
+  // `enabled` only gates the credential-free reusable link; a targeted
+  // invitation is token-gated and has no enabled concept.
+  if (!targeted && !row.link.enabled) {
     throw new ApiError(
       410,
       'PUBLIC_INSTALL_LINK_DISABLED',
@@ -207,23 +241,76 @@ export function publicInstallInputs(
  * (runApplicationPreflight), so the public page can never disagree with the
  * vendor surfaces about what an install creates.
  */
-export async function resolvePublicInstall(db: RuntimeDb, linkId: string) {
-  const { application, publisherName, link } = await loadActiveLink(db, linkId);
+export async function resolvePublicInstall(db: RuntimeDb, linkId: string, token?: string) {
+  const { application, publisherName, link } = await loadActiveLink(db, linkId, token);
+  // The opened event is throttled: a page that polls within the window does
+  // not spam the log. Payload records ids only — the token is verified inside
+  // loadActiveLink and is never written anywhere.
+  const lastOpenedAt = lastOpenedAtByLinkId.get(link.id);
+  if (lastOpenedAt === undefined || Date.now() - lastOpenedAt >= OPENED_THROTTLE_MS) {
+    lastOpenedAtByLinkId.set(link.id, Date.now());
+    await recordEvent(db, {
+      organizationId: link.organizationId,
+      eventType: 'invitation.opened',
+      actorType: 'system',
+      actorId: `public-install:${link.id}`,
+      ...(link.customerId !== null ? { customerId: link.customerId } : {}),
+      payload: { schemaVersion: 1, invitationId: link.id, applicationId: link.applicationId },
+    });
+  }
+  // A consumed targeted invitation is not re-reviewable (a reusable link is).
+  if (link.customerId !== null && link.confirmedAt !== null) {
+    throw new ApiError(410, 'PUBLIC_INSTALL_LINK_USED', 'This installation link has already been used.');
+  }
   const release = await newestPublishedRelease(db, link.applicationId);
   if (release === null) {
     throw new ApiError(410, 'RELEASE_NOT_PUBLISHED', 'This application has no published release yet.');
   }
-  const { manifest } = await runApplicationPreflight(db, application, null);
+  const { manifest } = await runApplicationPreflight(db, application, link.customerId);
   return {
     application: { name: application.name },
     publisher: { name: publisherName },
     release: { version: release.version, createdAt: release.createdAt },
+    recommendedRegion: link.recommendedRegion ?? null,
+    regionSelection: link.regionSelection,
     regions: SUPPORTED_AWS_REGIONS.filter((region) => env.deployableAwsRegions.includes(region)).map(
       (region) => ({ value: region, label: REGION_LABELS[region] }),
     ),
     requiredInputs: publicInstallInputs(manifest, readEnvironmentSettings(application)),
     plan: buildInstallPlan({ manifest, region: null }),
   };
+}
+
+/**
+ * GET /api/public-install/:linkId/plan?region=…&profile=… — the canonical
+ * INSTALL plan for a selected Region + size profile. Same footprint/pricing
+ * logic as deployment creation; pricing stays on the server. An undeployable
+ * or unsupported Region returns the plan with `region: null` and
+ * `costEstimate: null` ("Estimate unavailable"), never a guessed cost.
+ */
+export async function resolvePublicInstallPlan(
+  db: RuntimeDb,
+  linkId: string,
+  region: string,
+  profileId: string | undefined,
+  token?: string,
+): Promise<DeploymentPlan> {
+  const { application, link } = await loadActiveLink(db, linkId, token);
+  if (link.customerId !== null && link.confirmedAt !== null) {
+    throw new ApiError(410, 'PUBLIC_INSTALL_LINK_USED', 'This installation link has already been used.');
+  }
+  const profile =
+    profileId !== undefined ? resolveInfrastructureSizeProfile(profileId, 1) : defaultInfrastructureSizeProfile();
+  if (profile === undefined) {
+    throw new ApiError(422, 'UNKNOWN_PROFILE', `Unknown infrastructure profile "${profileId}".`);
+  }
+  const { manifest } = await runApplicationPreflight(db, application, link.customerId);
+  const deployable = isSupportedRegion(region) && env.deployableAwsRegions.includes(region);
+  const plan = buildInstallPlan({ manifest, region: deployable ? (region as Region) : null, profile });
+  if (!deployable) {
+    return { ...plan, region: null, costEstimate: null };
+  }
+  return plan;
 }
 
 async function findConfirmedInstallLinkId(
@@ -277,8 +364,10 @@ export async function confirmPublicInstall(
   db: RuntimeDb,
   linkId: string,
   body: PublicInstallConfirmBody,
+  configDeps: ConfigDeps,
+  token?: string,
 ): Promise<{ installLinkId: string; created: boolean }> {
-  const { application, link } = await loadActiveLink(db, linkId);
+  const { application, link } = await loadActiveLink(db, linkId, token);
   const release = await newestPublishedRelease(db, link.applicationId);
   if (release === null) {
     throw new ApiError(410, 'RELEASE_NOT_PUBLISHED', 'This application has no published release yet.');
@@ -290,8 +379,12 @@ export async function confirmPublicInstall(
       `Region ${body.region} is not available for installation yet.`,
     );
   }
+  // A reusable link must name its customer; a targeted invitation already does.
+  if (link.customerId === null && body.customer === undefined) {
+    throw new ApiError(422, 'PUBLIC_INSTALL_CUSTOMER_REQUIRED', 'A customer name and email are required.');
+  }
   const bodyKeys = [...new Set(body.config.map((entry) => entry.key))];
-  const { manifest, result } = await runApplicationPreflight(db, application, null, bodyKeys);
+  const { manifest, result } = await runApplicationPreflight(db, application, link.customerId, bodyKeys);
   requirePreflightReady(result);
   const inputs = publicInstallInputs(manifest, readEnvironmentSettings(application));
   const inputKeys = new Set(inputs.map((input) => input.key));
@@ -313,6 +406,13 @@ export async function confirmPublicInstall(
     return { installLinkId: existing, created: false };
   }
 
+  // A consumed targeted invitation cannot create another deployment — but a
+  // replay of the SAME idempotency key already returned above, so only a
+  // DIFFERENT key on a consumed invitation reaches this check.
+  if (link.customerId !== null && link.confirmedAt !== null) {
+    throw new ApiError(410, 'PUBLIC_INSTALL_LINK_USED', 'This installation link has already been used.');
+  }
+
   // PRODUCTION deployments require an ACTIVE subscription — the same gate as
   // POST /api/deployments and createDeployLink, run before any row is created.
   await assertProductionDeploymentAllowed(db, link.organizationId, env.billingEnforcementPaused);
@@ -320,30 +420,65 @@ export async function confirmPublicInstall(
   const actorId = `public-install:${link.id}`;
   try {
     const deployment = await db.transaction(async (tx) => {
-      const [customer] = await tx
-        .insert(schema.customers)
-        .values({
+      let customerId = link.customerId;
+      if (customerId === null) {
+        const [customer] = await tx
+          .insert(schema.customers)
+          .values({
+            organizationId: link.organizationId,
+            name: body.customer!.name,
+            email: body.customer!.email,
+          })
+          .returning();
+        customerId = customer!.id;
+        await recordEvent(tx, {
           organizationId: link.organizationId,
-          name: body.customer.name,
-          email: body.customer.email,
-        })
-        .returning();
-      await recordEvent(tx, {
-        organizationId: link.organizationId,
-        eventType: 'customer.created',
-        actorType: 'system',
-        actorId,
-        customerId: customer!.id,
-        payload: { schemaVersion: 1, customerId: customer!.id },
-      });
-      await setConfig(link.applicationId, customer!.id, body.config, {
+          eventType: 'customer.created',
+          actorType: 'system',
+          actorId,
+          customerId: customerId,
+          payload: { schemaVersion: 1, customerId: customerId },
+        });
+      }
+      // Every dep here must read through THIS transaction: PGlite is
+      // single-connection, so the shared (outer-db) pending-secrets store or
+      // scope finder would deadlock against the tx's own lock.
+      await setConfig(link.applicationId, customerId, body.config, {
+        ...configDeps,
         store: createConfigStore(tx),
         secretWriter: createRelaySecretWriter(),
+        pendingSecrets: createDrizzlePendingSecretStore(tx, configDeps.cipher),
+        findScopeDeployments: createScopeDeploymentsFinder(tx),
+        findApplicationOrganizationId: async (applicationId) => {
+          const rows = await tx
+            .select({ organizationId: schema.applications.organizationId })
+            .from(schema.applications)
+            .where(eq(schema.applications.id, applicationId))
+            .limit(1);
+          return rows[0]?.organizationId;
+        },
+      });
+      // Delivery receipt for the pre-relay configuration the customer typed:
+      // counts only, never the values.
+      await recordEvent(tx, {
+        organizationId: link.organizationId,
+        eventType: 'invitation.configuration_delivered',
+        actorType: 'system',
+        actorId,
+        customerId,
+        payload: {
+          schemaVersion: 1,
+          invitationId: link.id,
+          applicationId: link.applicationId,
+          customerId,
+          inputKeyCount: body.config.length,
+          secretInputCount: body.config.filter((entry) => entry.isSecret).length,
+        },
       });
       const { deployment } = await createDeploymentRecord(tx, {
         organizationId: link.organizationId,
         applicationId: link.applicationId,
-        customerId: customer!.id,
+        customerId,
         region: body.region as Region,
         deploymentType: 'PRODUCTION',
         createdBy: null,
@@ -352,8 +487,62 @@ export async function confirmPublicInstall(
         publicInstallLinkId: link.id,
         confirmKey: body.idempotencyKey,
       });
+      await recordEvent(tx, {
+        organizationId: link.organizationId,
+        eventType: 'invitation.confirmed',
+        actorType: 'system',
+        actorId,
+        customerId,
+        payload: {
+          schemaVersion: 1,
+          invitationId: link.id,
+          applicationId: link.applicationId,
+          customerId,
+          idempotencyKey: body.idempotencyKey,
+        },
+      });
+      await recordEvent(tx, {
+        organizationId: link.organizationId,
+        eventType: 'invitation.region_selected',
+        actorType: 'system',
+        actorId,
+        customerId,
+        deploymentId: deployment.id,
+        payload: { schemaVersion: 1, invitationId: link.id, region: body.region },
+      });
+      await recordEvent(tx, {
+        organizationId: link.organizationId,
+        eventType: 'invitation.deployment_created',
+        actorType: 'system',
+        actorId,
+        customerId,
+        deploymentId: deployment.id,
+        payload: { schemaVersion: 1, invitationId: link.id, deploymentId: deployment.id },
+      });
+      // Consume a targeted invitation: it can never create another
+      // deployment. A reusable link stays open for more customers.
+      if (link.customerId !== null) {
+        await tx
+          .update(schema.publicInstallLinks)
+          .set({ confirmedAt: new Date(), updatedBy: null })
+          .where(eq(schema.publicInstallLinks.id, link.id));
+      }
       return deployment;
     });
+    // DEPLOY-027 (Phase 4) materialization hook: every staged row in the new
+    // deployment's scope (vendor + this customer) becomes a bound row
+    // encrypted with the deployment context. Runs OUTSIDE the tx so the
+    // pending-secrets store's drizzle queries do not contend with the
+    // connection the tx holds.
+    await materializePendingSecretsForDeployment(
+      { pendingSecrets: configDeps.pendingSecrets, cipher: configDeps.cipher },
+      {
+        organizationId: link.organizationId,
+        id: deployment.id,
+        applicationId: link.applicationId,
+        customerId: deployment.customerId,
+      },
+    );
     return { installLinkId: deployment.installLinkId, created: true };
   } catch (error) {
     // Two concurrent confirms with the same key can both pass the pre-check;
@@ -528,14 +717,69 @@ export interface PublicInstallLinkActorParams {
   linkId: string;
 }
 
+export interface CreateInstallationInvitationParams {
+  organizationId: string;
+  userId: string;
+  applicationId: string;
+  customerId: string;
+  /** Optional vendor recommendation — never the final Region choice. */
+  recommendedRegion?: Region;
+}
+
+/**
+ * POST /api/customers/:customerId/invitations — create a TARGETED invitation
+ * for a customer + application WITHOUT creating a deployment. The vendor may
+ * recommend a Region; the customer makes the final choice at confirmation.
+ * Returns the one-time token (stored only as its sha256); the URL is
+ * reconstructable from `link.id` + `token` and is never re-revealed.
+ */
+export async function createInstallationInvitation(
+  db: RuntimeDb,
+  params: CreateInstallationInvitationParams,
+): Promise<{ link: PublicInstallLinkRow; token: string }> {
+  await loadOwnedApplication(db, params.applicationId, params.organizationId);
+  await loadOwnedCustomer(db, params.customerId, params.organizationId);
+  const token = mintDeployLinkToken();
+  const [link] = await db
+    .insert(schema.publicInstallLinks)
+    .values({
+      organizationId: params.organizationId,
+      applicationId: params.applicationId,
+      customerId: params.customerId,
+      recommendedRegion: params.recommendedRegion ?? null,
+      regionSelection: 'customer',
+      tokenHash: hashRelayToken(token),
+      expiresAt: new Date(Date.now() + DEFAULT_INVITATION_TTL_DAYS * 24 * 60 * 60 * 1000),
+      enabled: false,
+      createdBy: params.userId,
+      updatedBy: params.userId,
+    })
+    .returning();
+  await recordEvent(db, {
+    organizationId: params.organizationId,
+    eventType: 'invitation.created',
+    actorType: 'user',
+    actorId: params.userId,
+    customerId: params.customerId,
+    payload: {
+      schemaVersion: 1,
+      applicationId: params.applicationId,
+      invitationId: link!.id,
+      customerId: params.customerId,
+      recommendedRegion: params.recommendedRegion ?? null,
+      expiresAt: link!.expiresAt,
+    },
+  });
+  return { link: link!, token };
+}
+
 /**
  * POST /api/applications/:id/public-install-links — create + enable the
  * application's live link. The partial unique index admits exactly one live
  * link per application; the loser of the insert race gets the existing link's
  * id in the 409 details.
  */
-export async function createPublicInstallLink(
-  db: RuntimeDb,
+export async function createPublicInstallLink(  db: RuntimeDb,
   params: { organizationId: string; userId: string; applicationId: string },
 ) {
   const application = await loadOwnedApplication(db, params.applicationId, params.organizationId);
@@ -574,6 +818,54 @@ export async function listPublicInstallLinks(db: RuntimeDb, organizationId: stri
     )
     .orderBy(desc(schema.publicInstallLinks.createdAt));
   return rows.map(toLinkView);
+}
+
+/** Derived customer-side invitation status — nothing is persisted. */
+export type InvitationStatus = 'active' | 'expired' | 'revoked' | 'used';
+
+/**
+ * GET /api/customers/:customerId/invitations — the customer's TARGETED
+ * invitations (customer_id set), org-scoped, newest first, each with the
+ * derived status. tokenHash and confirmedAt are never returned; the derived
+ * status carries the state.
+ */
+export async function listCustomerInvitations(db: RuntimeDb, organizationId: string, customerId: string) {
+  const rows = await db
+    .select({
+      id: schema.publicInstallLinks.id,
+      applicationName: schema.applications.name,
+      recommendedRegion: schema.publicInstallLinks.recommendedRegion,
+      regionSelection: schema.publicInstallLinks.regionSelection,
+      expiresAt: schema.publicInstallLinks.expiresAt,
+      createdAt: schema.publicInstallLinks.createdAt,
+      confirmedAt: schema.publicInstallLinks.confirmedAt,
+      revokedAt: schema.publicInstallLinks.revokedAt,
+    })
+    .from(schema.publicInstallLinks)
+    .innerJoin(schema.applications, eq(schema.publicInstallLinks.applicationId, schema.applications.id))
+    .where(
+      and(
+        eq(schema.publicInstallLinks.organizationId, organizationId),
+        eq(schema.publicInstallLinks.customerId, customerId),
+      ),
+    )
+    .orderBy(desc(schema.publicInstallLinks.createdAt));
+  const now = Date.now();
+  return rows.map((row) => {
+    let status: InvitationStatus = 'active';
+    if (row.confirmedAt !== null) status = 'used';
+    else if (row.revokedAt !== null) status = 'revoked';
+    else if (row.expiresAt !== null && row.expiresAt.getTime() < now) status = 'expired';
+    return {
+      id: row.id,
+      applicationName: row.applicationName,
+      recommendedRegion: row.recommendedRegion,
+      regionSelection: row.regionSelection,
+      status,
+      expiresAt: row.expiresAt,
+      createdAt: row.createdAt,
+    };
+  });
 }
 
 /**
@@ -638,6 +930,13 @@ export async function revokePublicInstallLink(db: RuntimeDb, params: PublicInsta
     actorId: params.userId,
     payload: { applicationId: link.applicationId, linkId: link.id },
   });
+  await recordEvent(db, {
+    organizationId: params.organizationId,
+    eventType: 'invitation.revoked',
+    actorType: 'user',
+    actorId: params.userId,
+    payload: { schemaVersion: 1, applicationId: link.applicationId, invitationId: link.id },
+  });
   return toLinkView(updated!);
 }
 
@@ -669,6 +968,18 @@ export async function regeneratePublicInstallLink(db: RuntimeDb, params: PublicI
         actorType: 'user',
         actorId: params.userId,
         payload: { applicationId: link.applicationId, linkId: row!.id, replacedLinkId: link.id },
+      });
+      await recordEvent(tx, {
+        organizationId: params.organizationId,
+        eventType: 'invitation.regenerated',
+        actorType: 'user',
+        actorId: params.userId,
+        payload: {
+          schemaVersion: 1,
+          applicationId: link.applicationId,
+          invitationId: row!.id,
+          replacedLinkId: link.id,
+        },
       });
       return row!;
     });

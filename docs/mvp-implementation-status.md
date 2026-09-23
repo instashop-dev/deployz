@@ -1425,8 +1425,30 @@ re-deriving them from live `applications` columns.
   simulated E2E scenario both prove a Redis requirement survives from
   analysis through installation without being silently dropped.
 - **The one-repository real-AWS canary is the Phase 8 gate.** repo-007
-  (ghostfolio, PostgreSQL + Redis) via `pnpm benchmark:deploy` is planned
-  as the next real-AWS verification of this pipeline. The most recent
-  recorded run (`docs/testing/repository-deployment/runs/repo-007.json`)
-  predates PR #283, so it does not yet verify this work — a fresh run is
-  still needed.
+   (ghostfolio, PostgreSQL + Redis) via `pnpm benchmark:deploy` is planned
+   as the next real-AWS verification of this pipeline. The most recent
+   recorded run (`docs/testing/repository-deployment/runs/repo-007.json`)
+   predates PR #283, so it does not yet verify this work — a fresh run is
+   still needed.
+
+## MVP Readiness 2 (2026-09-23)
+
+The public-MVP changes: invitations replace pre-created deploy links as the
+customer entry point, the customer owns the Region selection, infrastructure
+size is a frozen profile, pre-relay secrets are encrypted in a pending-secrets
+vault (DEPLOY-027 closed), and the customer page consolidates around
+deployments and pending invitations.
+
+| Phase | Commit | Summary | Test suites added |
+| --- | --- | --- | --- |
+| 0 — Regression baseline | `ee7a5af` | Public-MVP regression baseline and audit note (`docs/mvp-readiness-2-implementation-note.md`); the DEPLOY-027 case started as a red test proving the secret was lost. | `apps/api/src/mvp-readiness-2.regression.test.ts` |
+| 1 — Immutable infrastructure-size profile registry | `4150096` | `small-v1` profile (`packages/contracts/src/profile.ts`); footprint/plan/pricing resolve from frozen manifest + Region + profile id/version + infra version; deployments freeze `{id,version}` in `desired_state.infrastructureProfile`; CDK provisions from the profile. | `packages/cdk/test/sizing-parity.test.ts`, `packages/contracts/src/profile.test.ts` |
+| 2 — Installation invitations (unified link model) | `776e8c4`, `f4237b7` | `public_install_links` becomes the unified invitation table: reusable public link OR targeted invitation (`customer_id` + `token_hash` + `recommended_region` + `expires_at` + `confirmed_at`); `region_selection` enum; legacy `deploy_links` marked `legacy_publisher_fixed` and still work; `POST /api/customers/:customerId/invitations` creates an invitation WITHOUT a deployment; confirm creates exactly ONE deployment (idempotent per key; consumed 410 USED; different-key replay refused). Migration `0044`. | `apps/api/src/installation-invitations.test.ts`, `apps/api/src/public-install.test.ts` |
+| 3 — Region-specific plan preview + customer Region selection | `65afafe`, `558d688` | `GET /api/public-install/:linkId/plan?region=…&profile=…` resolves region-specific plan + server-side pricing ("Estimate unavailable" for undeployable Region, 422 UNKNOWN_PROFILE); customer UI shows the vendor Recommended badge but requires explicit customer Region selection, refetches the plan per Region with stale-response guards; vendor dialog takes an optional "Recommended AWS Region" ("Your customer will make the final Region selection before deployment."). | `apps/api/src/installation-invitations.test.ts` (plan-preview case), `apps/web/test/public-install-page.test.tsx` |
+| 4 — Encrypted pending-secret vault (DEPLOY-027) | `9afea37` | `pending_secrets` table stores KMS-encrypted ciphertext only; encryption context binds org/deployment/key; TTL 24h; delivered ONLY while answering authenticated relay (`GET /api/relay/config`); deleted on CONFIG_UPDATE ack / destroy / force-complete / purge; expired by watchdog sweep; `DEPLOYZ_KMS_KEY_ARN` selects real KMS vs dev stub; redaction proven by integration tests. Migration `0045`. | `apps/api/src/pending-secret-delivery.integration.test.ts` |
+| 5 — Customer page consolidation | `3c43396` | Header keeps Edit customer + Create installation (opens InvitationDialog); Install-link card, header Copy install link, Create deployment and the Deploy Link generator are GONE; Deployments section with per-row "Copy customer link" (the deployment's OWN `/install/:installLinkId`); Pending installations section (`GET /api/customers/:id/invitations`) with active/expired/revoked/used status; deploy-link-card component deleted; customers list CTAs renamed "Create installation". | updated `apps/web/test/customers.test.ts` + `customer-list.test.ts`; `apps/web/test/deploy-links.test.tsx` deleted with the component |
+| 6 — Invitation lifecycle audit events | `94b6c49` | `invitation.*` audit events (created/opened/regenerated/revoked/confirmed/region_selected/deployment_created/configuration_delivered) — ids and counts only, never tokens/values; copy-map + web vocabulary labels. | `apps/api/src/installation-invitations.test.ts` (list + events cases) |
+
+Full documentation: `docs/installation-invitations.md`,
+`docs/pending-secret-delivery.md`, `docs/infrastructure-profiles.md`,
+`docs/architecture.md` (Installation invitations + Secret delivery sections).

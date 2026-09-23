@@ -1,5 +1,6 @@
 import { pgTable, text, timestamp, unique, uuid } from 'drizzle-orm/pg-core';
 
+import { regionSelectionEnum } from '../enums.js';
 import { organization } from './auth.js';
 import { createdAt, id, updatedAt } from './common.js';
 import { applications, customers } from './core.js';
@@ -34,6 +35,10 @@ export const deployLinks = pgTable(
     expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
     revokedAt: timestamp('revoked_at', { withTimezone: true }),
     lastUsedAt: timestamp('last_used_at', { withTimezone: true }),
+    // Legacy deploy links fixed the Region at creation (the vendor selected it
+    // before the customer-confirmed invitation model existed). New links are
+    // invitations (`public_install_links`) with region_selection 'customer'.
+    regionSelection: regionSelectionEnum('region_selection').notNull().default('legacy_publisher_fixed'),
     createdBy: text('created_by').notNull(),
     createdAt: createdAt(),
     updatedAt: updatedAt(),

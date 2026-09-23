@@ -5,6 +5,8 @@ import { requiredInfrastructureComponents } from './components.js';
 import type { InfrastructureProfile, Region } from './index.js';
 import { infrastructureProfileForManifest, regionSchema } from './index.js';
 import type { DeploymentManifest } from './manifest.js';
+import { defaultInfrastructureSizeProfile } from './profile.js';
+import type { InfrastructureSizeProfile } from './profile.js';
 
 // The canonical Deployment Footprint — the resolved infrastructure one
 // deployment creates: workloads (things that run vendor code) and managed
@@ -20,31 +22,18 @@ import type { DeploymentManifest } from './manifest.js';
 
 export const FOOTPRINT_SCHEMA_VERSION = 1 as const;
 
-/**
- * The ONE sizing table for a published application template generation.
- * `packages/cdk/src/application/application-stack.ts` provisions from these
- * values and `packages/cdk/test/sizing-parity.test.ts` pins them to the four
- * committed template artifacts — editing a value without republishing the
- * templates fails CI, so display and CloudFormation cannot drift.
- * Ceiling: when a second sizing generation ships, this needs a
- * per-`infraVersion` registry (see docs/footprint-implementation-note.md).
- */
-export const DEPLOYMENT_SIZING = {
-  workload: {
-    web: { cpuUnits: 256, memoryMiB: 512, quantity: 1, sizeLabel: 'Small' },
-    worker: { cpuUnits: 256, memoryMiB: 512, quantity: 1, sizeLabel: 'Small' },
-  },
-  database: {
-    engine: 'postgres',
-    engineVersion: '16',
-    instanceType: 'db.t4g.micro',
-    storageGb: 20,
-  },
-  cache: {
-    engine: 'valkey',
-    nodeType: 'cache.t4g.micro',
-  },
-} as const;
+// Sizing now lives in the immutable profile registry (`profile.ts`) — the ONE
+// sizing table for a published application-template generation.
+// `packages/cdk/src/application/application-stack.ts` provisions from the
+// resolved profile and `packages/cdk/test/sizing-parity.test.ts` pins it to
+// the four committed template artifacts — editing a value without
+// republishing the templates fails CI, so display and CloudFormation cannot
+// drift. Engine/engineVersion stay manifest-driven constants (PostgreSQL 16,
+// Valkey) — a size profile only carries sizes, never engines. Exported so
+// the template-parity test and the CDK stack share the same strings.
+export const DATABASE_ENGINE = 'postgres';
+export const DATABASE_ENGINE_VERSION = '16';
+export const CACHE_ENGINE = 'valkey';
 
 export const footprintCategorySchema = z.enum(['database', 'cache', 'storage', 'queue', 'network', 'other']);
 export type FootprintCategory = z.infer<typeof footprintCategorySchema>;
@@ -168,7 +157,7 @@ interface FootprintResourceHandler {
   readonly role: string;
   readonly label: string;
   readonly requiredBy: (profile: InfrastructureProfile) => boolean;
-  readonly configuration: () => Record<string, unknown>;
+  readonly configuration: (profile: InfrastructureSizeProfile) => Record<string, unknown>;
   /** True when the resource outlives a deployment removal. */
   readonly persistent: boolean;
 }
@@ -186,11 +175,12 @@ const FOOTPRINT_RESOURCES: readonly FootprintResourceHandler[] = [
     role: 'database',
     label: INFRASTRUCTURE_COMPONENT_DISPLAY.database.name,
     requiredBy: (profile) => profile.postgres,
-    configuration: () => ({
-      engine: DEPLOYMENT_SIZING.database.engine,
-      engineVersion: DEPLOYMENT_SIZING.database.engineVersion,
-      instanceType: DEPLOYMENT_SIZING.database.instanceType,
-      storageGb: DEPLOYMENT_SIZING.database.storageGb,
+    configuration: (profile) => ({
+      engine: DATABASE_ENGINE,
+      engineVersion: DATABASE_ENGINE_VERSION,
+      instanceType: profile.database.instanceClass,
+      storageGb: profile.database.storageGb,
+      maxStorageGb: profile.database.maxStorageGb,
     }),
     persistent: true,
   },
@@ -201,10 +191,10 @@ const FOOTPRINT_RESOURCES: readonly FootprintResourceHandler[] = [
     role: 'cache',
     label: INFRASTRUCTURE_COMPONENT_DISPLAY.cache.name,
     requiredBy: (profile) => profile.redis,
-    configuration: () => ({
-      engine: DEPLOYMENT_SIZING.cache.engine,
-      nodeType: DEPLOYMENT_SIZING.cache.nodeType,
-      nodes: 1,
+    configuration: (profile) => ({
+      engine: CACHE_ENGINE,
+      nodeType: profile.cache.nodeType,
+      nodes: profile.cache.nodeCount,
     }),
     persistent: false,
   },
@@ -259,17 +249,25 @@ export function resolveDeploymentFootprint(input: {
   manifest: DeploymentManifest;
   region: Region | null;
   infraVersion?: string | null;
+  profile?: InfrastructureSizeProfile;
 }): DeploymentFootprint {
-  const profile = infrastructureProfileForManifest(input.manifest);
-  const workloads: FootprintWorkload[] = [workloadFrom('web', 'web', 'Web application', DEPLOYMENT_SIZING.workload.web)];
+  const graphProfile = infrastructureProfileForManifest(input.manifest);
+  const sizeProfile = input.profile ?? defaultInfrastructureSizeProfile();
+  const workloadSizing = {
+    cpuUnits: sizeProfile.workload.cpuUnits,
+    memoryMiB: sizeProfile.workload.memoryMiB,
+    quantity: sizeProfile.workload.desiredCount,
+    sizeLabel: sizeProfile.label,
+  };
+  const workloads: FootprintWorkload[] = [workloadFrom('web', 'web', 'Web application', workloadSizing)];
   if (input.manifest.worker.command !== null) {
-    workloads.push(workloadFrom('worker', 'worker', 'Background worker', DEPLOYMENT_SIZING.workload.worker));
+    workloads.push(workloadFrom('worker', 'worker', 'Background worker', workloadSizing));
   }
   return {
     version: FOOTPRINT_SCHEMA_VERSION,
     region: input.region,
     workloads,
-    resources: FOOTPRINT_RESOURCES.filter((handler) => handler.requiredBy(profile)).map((handler) => ({
+    resources: FOOTPRINT_RESOURCES.filter((handler) => handler.requiredBy(graphProfile)).map((handler) => ({
       id: handler.id,
       category: handler.category,
       provider: 'aws' as const,
@@ -277,8 +275,8 @@ export function resolveDeploymentFootprint(input: {
       role: handler.role,
       label: handler.label,
       quantity: 1,
-      configuration: handler.configuration(),
-      lifecycle: resourceLifecycle(handler, profile),
+      configuration: handler.configuration(sizeProfile),
+      lifecycle: resourceLifecycle(handler, graphProfile),
     })),
     generatedFrom: { infraVersion: input.infraVersion ?? null },
   };

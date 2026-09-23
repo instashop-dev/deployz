@@ -1,10 +1,9 @@
 'use client';
 
-import { Copy, Eye, MoreHorizontal, Pencil, Trash2 } from 'lucide-react';
+import { Eye, MoreHorizontal, Pencil, Trash2 } from 'lucide-react';
 import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
 
-import { copyInstallLink } from '@/components/copy-install-link';
 import { DeleteCustomerDialog } from '@/components/delete-customer-dialog';
 import { EditCustomerDialog } from '@/components/edit-customer-dialog';
 import { ListLoadingState, ListSearchInput, NoMatchesState, SortableHead } from '@/components/list-controls';
@@ -44,8 +43,6 @@ import {
   filterCustomerRows,
   formatDate,
   hasActiveCustomerFilters,
-  installLinkDeployment,
-  installLinkUrl,
   parseCustomerQuery,
   singleDeploymentDestination,
   sortCustomerRows,
@@ -185,7 +182,7 @@ export default function CustomersPage() {
         </div>
         {state.status === 'loaded' && customers.length === 0 ? null : (
           <Button asChild size="sm">
-            <Link href="/dashboard/deployments/new">Create deployment</Link>
+            <Link href="/dashboard/deployments/new">Create installation</Link>
           </Button>
         )}
       </div>
@@ -446,7 +443,6 @@ function RowActions({
   onEdit: (customer: Customer) => void;
   onDelete: (customer: Customer) => void;
 }) {
-  const linkDeployment = installLinkDeployment(rollup);
   const destination = singleDeploymentDestination(rollup);
   const deletable = rollup.deployments.length === 0;
 
@@ -463,14 +459,6 @@ function RowActions({
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-48">
-        {linkDeployment ? (
-          <DropdownMenuItem
-            onSelect={() => void copyInstallLink(installLinkUrl(linkDeployment, window.location.origin))}
-          >
-            <Copy aria-hidden />
-            Copy install link
-          </DropdownMenuItem>
-        ) : null}
         {destination ? (
           <DropdownMenuItem asChild>
             <Link href={`/dashboard/deployments/${destination.id}`}>
@@ -536,7 +524,7 @@ function EmptyState() {
         account.
       </p>
       <Button asChild>
-        <Link href="/dashboard/deployments/new">Create deployment</Link>
+        <Link href="/dashboard/deployments/new">Create installation</Link>
       </Button>
     </section>
   );

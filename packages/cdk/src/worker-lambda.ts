@@ -17,11 +17,6 @@ export interface WorkerLambdaProps {
   readonly dbSecurityGroup: ISecurityGroup;
   /** ARN of the RDS master secret in Secrets Manager. */
   readonly dbSecretArn: string;
-  /**
-   * ARN of the control-plane config-encryption key secret (§31 secure
-   * storage) — the worker decrypts build-time vendor secrets with it.
-   */
-  readonly configEncryptionSecretArn: string;
   /** The job queue this worker consumes. */
   readonly queue: IQueue;
   /** Extra environment variables (credentials + resource names). */
@@ -58,7 +53,6 @@ export class WorkerLambda extends Construct {
       securityGroups: [props.dbSecurityGroup],
       environment: {
         DB_SECRET_ARN: props.dbSecretArn,
-        CONFIG_ENCRYPTION_SECRET_ARN: props.configEncryptionSecretArn,
         NODE_ENV: 'production',
         ...props.environment,
       },
@@ -92,12 +86,5 @@ export class WorkerLambda extends Construct {
 
     const dbSecret = Secret.fromSecretCompleteArn(this, 'DbSecret', props.dbSecretArn);
     dbSecret.grantRead(this.function);
-
-    const configEncryptionSecret = Secret.fromSecretCompleteArn(
-      this,
-      'ConfigEncryptionSecret',
-      props.configEncryptionSecretArn,
-    );
-    configEncryptionSecret.grantRead(this.function);
   }
 }
