@@ -129,6 +129,14 @@ describe('deployment lifecycle — states, events, and removal', () => {
         },
       })
       .where(eq(schema.applications.id, applicationId));
+    // Deployment creation also requires a built release.
+    await db.insert(schema.releases).values({
+      applicationId,
+      version: '1.0.0',
+      gitSha: 'a'.repeat(40),
+      releaseStatus: 'READY',
+      imageDigest: `123456789012.dkr.ecr.us-east-1.amazonaws.com/deployz-fixture@sha256:${'b'.repeat(64)}`,
+    });
   }, 60_000);
 
   afterAll(async () => {

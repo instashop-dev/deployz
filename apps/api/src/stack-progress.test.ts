@@ -134,6 +134,14 @@ describe('POST /api/relay/commands/:id/progress', () => {
       })
       .returning();
     applicationId = application!.id;
+    // A built release: the INSTALL that registration creates refuses without one.
+    await db.insert(schema.releases).values({
+      applicationId,
+      version: '1.0.0',
+      gitSha: 'a'.repeat(40),
+      releaseStatus: 'READY',
+      imageDigest: `123456789012.dkr.ecr.us-east-1.amazonaws.com/deployz-fixture@sha256:${'b'.repeat(64)}`,
+    });
 
     const [customer] = await db
       .insert(schema.customers)

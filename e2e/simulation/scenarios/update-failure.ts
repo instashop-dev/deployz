@@ -8,14 +8,14 @@ import { happyPath } from './happy-path.js';
  *
  * `updateRollouts` is consumed one outcome per UpdateService call — see
  * deploy.ts's `settleEcsDeploy` and ../simulated-account.ts's
- * `ecsDeployClient`. The test drives two real deploys against this
- * deployment (v1, then v2): the FIRST UpdateService call (v1's own deploy)
- * always succeeds, the SECOND (v2's) fails.
+ * `ecsDeployClient`. The FIRST UpdateService call is the post-install
+ * auto-deploy of the seeded release. The test then drives two real deploys
+ * against this deployment (v1, then v2): v1's deploy succeeds, v2's fails.
  */
 export const updateFailure: ScenarioDefinition = {
   ...happyPath,
   id: 'update-failure',
   description:
     'Install reaches HEALTHY; a second release deploy rolls out and the ECS deployment circuit breaker trips.',
-  updateRollouts: ['succeed', 'fail'],
+  updateRollouts: ['succeed', 'succeed', 'fail'],
 };

@@ -1,6 +1,6 @@
 import type { APIRequestContext } from '@playwright/test';
 
-import { API_URL, expect, test } from './simulation/fixtures.js';
+import { API_URL, expect, test, waitForInstallAutoDeploy } from './simulation/fixtures.js';
 
 /**
  * P0: a READY release whose image no longer exists in the registry is not a
@@ -58,9 +58,9 @@ test.describe('release-unavailable browser suite', () => {
         message: 'waiting for install to reach HEALTHY',
       })
       .toBe('HEALTHY');
-    const installed = (await api.getDeployment(deploymentId)) as { applicationId: string; currentReleaseId: string | null };
+    const runningBefore = await waitForInstallAutoDeploy(api, deploymentId);
+    const installed = (await api.getDeployment(deploymentId)) as { applicationId: string };
     const applicationId = installed.applicationId;
-    const runningBefore = installed.currentReleaseId;
 
     // The release exists and its image exists: the vendor page lists it READY.
     const releaseId = await createRelease(request, applicationId, '1.0.0');
@@ -97,8 +97,9 @@ test.describe('release-unavailable browser suite', () => {
     expect(after.state).toBe(stateBefore);
     expect(after.currentReleaseId).toBe(runningBefore);
     const events = await request.get(`${API_URL}/api/deployments/${deploymentId}/events`);
-    const eventTypes = ((await events.json()) as { events: Array<{ eventType: string }> }).events.map((e) => e.eventType);
-    expect(eventTypes).not.toContain('deploy.requested');
+    const eventRows = ((await events.json()) as { events: Array<{ eventType: string; releaseId: string | null }> }).events;
+    // The post-install auto-deploy has its own deploy.requested; the refused release has none.
+    expect(eventRows.filter((e) => e.eventType === 'deploy.requested' && e.releaseId === releaseId)).toEqual([]);
 
     // The list now reads UNAVAILABLE and the picker no longer offers it.
     expect((await listReleases(request, applicationId)).find((r) => r.id === releaseId)?.status).toBe('UNAVAILABLE');

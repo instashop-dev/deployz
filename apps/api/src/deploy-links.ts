@@ -10,6 +10,7 @@ import { assertProductionDeploymentAllowed } from './billing-entitlements.js';
 import { env } from './env.js';
 import { ApiError, NotFoundError } from './errors.js';
 import { recordEvent } from './events.js';
+import { newestDeployableRelease, releaseRequiredError } from './install-parameters.js';
 import { requirePreflightReady, runApplicationPreflight } from './preflight.js';
 import { hashRelayToken, mintEnrollmentCode, mintRelayCredential, verifyRelayToken } from './relay-store.js';
 
@@ -164,6 +165,9 @@ export async function createDeploymentRecord(
     });
   }
   requirePreflightReady(result);
+  // Refuse up front what the INSTALL would refuse later: without a built
+  // release there is no image to run.
+  if (!(await newestDeployableRelease(db, params.applicationId))) throw releaseRequiredError();
   const relayCredential = mintRelayCredential();
   const [row] = await db
     .insert(schema.deployments)
