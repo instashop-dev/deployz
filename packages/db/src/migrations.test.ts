@@ -1,7 +1,41 @@
 import type { PGlite } from '@electric-sql/pglite';
+import { readdirSync, readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { createTestDb } from './test-utils.js';
+
+// The drizzle journal is the Lambda migrator's ONLY source of truth (it
+// applies an entry when its `when` stamp exceeds the single max created_at
+// recorded in drizzle.__drizzle_migrations). A hand-edited journal that
+// drops an entry, breaks idx/when ordering, or drifts from the .sql files
+// silently skips migrations in production — the deploy gate cannot see it
+// because /health/ready never touches the database. These invariants are
+// therefore checked here, on every test run.
+describe('drizzle journal invariants', () => {
+  const migrationsDir = join(dirname(fileURLToPath(import.meta.url)), '..', 'drizzle');
+  const journal = JSON.parse(
+    readFileSync(join(migrationsDir, 'meta', '_journal.json'), 'utf8'),
+  ) as { entries: Array<{ idx: number; when: number; tag: string }> };
+  const sqlFiles = readdirSync(migrationsDir)
+    .filter((file) => file.endsWith('.sql'))
+    .sort();
+
+  it('idx and when are strictly increasing — the migrator applies by when-order', () => {
+    for (let i = 1; i < journal.entries.length; i += 1) {
+      const prev = journal.entries[i - 1]!;
+      const current = journal.entries[i]!;
+      expect(current.idx, `idx must increase at entry ${current.tag}`).toBeGreaterThan(prev.idx);
+      expect(current.when, `when must increase at entry ${current.tag}`).toBeGreaterThan(prev.when);
+    }
+  });
+
+  it('every journal tag has a .sql file and vice versa', () => {
+    const journalTags = journal.entries.map((entry) => `${entry.tag}.sql`);
+    expect([...journalTags].sort()).toEqual(sqlFiles);
+  });
+});
 
 // Smoke tests: the generated SQL migrations apply cleanly to a fresh
 // ephemeral Postgres (PGlite) and produce the expected catalog shape.
