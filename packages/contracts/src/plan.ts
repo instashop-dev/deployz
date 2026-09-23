@@ -16,6 +16,7 @@ import type { DeploymentManifest } from './manifest.js';
 // reachable from a lazy schema for the same reason.
 import { infrastructureProfileForManifest, regionSchema } from './index.js';
 import type { InfrastructureProfile, Region } from './index.js';
+import type { InfrastructureSizeProfile } from './profile.js';
 
 // A deployment plan — the deterministic, derived-only description of what
 // INSTALL/UPDATE/DESTROY will do to a deployment's infrastructure. Built
@@ -120,7 +121,12 @@ export function requirementDriftFor(
  * in provisioning reads it, and a pricing adapter gap degrades the estimate,
  * never the plan.
  */
-function footprintFor(input: { manifest: DeploymentManifest; region: Region | null; infraVersion: string | null }): {
+function footprintFor(input: {
+  manifest: DeploymentManifest;
+  region: Region | null;
+  infraVersion: string | null;
+  profile?: InfrastructureSizeProfile;
+}): {
   footprint: DeploymentFootprint;
   costEstimate: FootprintCostEstimate;
 } {
@@ -128,6 +134,7 @@ function footprintFor(input: { manifest: DeploymentManifest; region: Region | nu
     manifest: input.manifest,
     region: input.region,
     infraVersion: input.infraVersion,
+    ...(input.profile !== undefined ? { profile: input.profile } : {}),
   });
   return { footprint, costEstimate: estimateFootprintCost(footprint) };
 }
@@ -137,6 +144,7 @@ export function buildInstallPlan(input: {
   manifest: DeploymentManifest;
   region: Region | null;
   infraVersion?: string | null;
+  profile?: InfrastructureSizeProfile;
 }): DeploymentPlan {
   const profile = infrastructureProfileForManifest(input.manifest);
   return {
@@ -145,7 +153,12 @@ export function buildInstallPlan(input: {
     region: input.region,
     components: requiredInfrastructureComponents(profile).map((component) => toPlanComponent(component, 'CREATE')),
     awsResources: requiredAwsResources(profile).map(toPlanAwsResource),
-    ...footprintFor({ manifest: input.manifest, region: input.region, infraVersion: input.infraVersion ?? null }),
+    ...footprintFor({
+      manifest: input.manifest,
+      region: input.region,
+      infraVersion: input.infraVersion ?? null,
+      ...(input.profile !== undefined ? { profile: input.profile } : {}),
+    }),
     requirementDrift: [],
   };
 }
@@ -163,6 +176,7 @@ export function buildUpdatePlan(input: {
   region: Region;
   newRelease: boolean;
   infraVersion?: string | null;
+  profile?: InfrastructureSizeProfile;
 }): DeploymentPlan {
   const deployedProfile = infrastructureProfileForManifest(input.deployedManifest);
   const desiredProfile = infrastructureProfileForManifest(input.desiredManifest);
@@ -179,6 +193,7 @@ export function buildUpdatePlan(input: {
       manifest: input.deployedManifest,
       region: input.region,
       infraVersion: input.infraVersion ?? null,
+      ...(input.profile !== undefined ? { profile: input.profile } : {}),
     }),
     requirementDrift: requirementDriftFor(deployedProfile, desiredProfile),
   };
@@ -189,6 +204,7 @@ export function buildDestroyPlan(input: {
   manifest: DeploymentManifest;
   region: Region;
   infraVersion?: string | null;
+  profile?: InfrastructureSizeProfile;
 }): DeploymentPlan {
   const profile = infrastructureProfileForManifest(input.manifest);
   return {
@@ -199,7 +215,12 @@ export function buildDestroyPlan(input: {
       toPlanComponent(component, component.lifecycle === 'delete' ? 'DELETE' : 'RETAIN'),
     ),
     awsResources: requiredAwsResources(profile).map(toPlanAwsResource),
-    ...footprintFor({ manifest: input.manifest, region: input.region, infraVersion: input.infraVersion ?? null }),
+    ...footprintFor({
+      manifest: input.manifest,
+      region: input.region,
+      infraVersion: input.infraVersion ?? null,
+      ...(input.profile !== undefined ? { profile: input.profile } : {}),
+    }),
     requirementDrift: [],
   };
 }

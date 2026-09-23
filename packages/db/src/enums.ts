@@ -49,6 +49,14 @@ export const regionEnum = pgEnum('region', [
 // deployments.source — origin attribution of a deployment row.
 export const deploymentSourceEnum = pgEnum('deployment_source', ['manual', 'deploy_link', 'public_link']);
 
+// Region ownership for an installation entry point (MVP Readiness 2, Phase 2).
+//   customer              — the customer makes the final Region choice at
+//                           confirmation (new invitations + public links).
+//   legacy_publisher_fixed — a pre-existing link whose Region was fixed by the
+//                           vendor before the customer-confirmed model existed
+//                           (legacy deploy links). Never written for new links.
+export const regionSelectionEnum = pgEnum('region_selection', ['customer', 'legacy_publisher_fixed']);
+
 // deployments.deployment_type — provider-independent classification (Paddle
 // migration Phase 2). Replaces the is_test_deployment boolean: a TEST
 // deployment never becomes billable (apps/api/src/billing-domain.ts).

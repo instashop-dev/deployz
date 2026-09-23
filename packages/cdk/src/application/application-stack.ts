@@ -121,7 +121,12 @@ import {
 import { Secret, type ISecret } from 'aws-cdk-lib/aws-secretsmanager';
 import { Construct, type IConstruct } from 'constructs';
 import { resolveRedisEnvBindings } from '@deployz/analysis';
-import { DEPLOYMENT_SIZING, DEPLOYZ_COMPONENT_TAG, DEPLOYZ_ENVIRONMENT_TAG_VALUE } from '@deployz/contracts';
+import {
+  CACHE_ENGINE,
+  DEPLOYZ_COMPONENT_TAG,
+  DEPLOYZ_ENVIRONMENT_TAG_VALUE,
+  defaultInfrastructureSizeProfile,
+} from '@deployz/contracts';
 
 /** One install-time NoEcho parameter surfaced to the container as an ECS secret. */
 export interface SecretParameterSpec {
@@ -401,8 +406,17 @@ const HEALTH_CHECK_PATH = '/health';
 const DB_NAME = 'deployz';
 const DB_USER = 'deployz_app';
 const DB_PORT = 5432;
-const REDIS_ENGINE = DEPLOYMENT_SIZING.cache.engine;
-const REDIS_NODE_TYPE = DEPLOYMENT_SIZING.cache.nodeType;
+const PROFILE = defaultInfrastructureSizeProfile();
+const REDIS_ENGINE = CACHE_ENGINE;
+const REDIS_NODE_TYPE = PROFILE.cache.nodeType;
+// The size profile stores instance classes as strings (db.t4g.micro); CDK
+// needs InstanceType objects. This map is the single translation point, and
+// sizing-parity.test.ts pins the profile string to the committed template —
+// a mismatch fails CI rather than silently drifting provisioning from display.
+const RDS_INSTANCE_TYPE_BY_CLASS: Record<string, InstanceType> = {
+  'db.t4g.micro': InstanceType.of(InstanceClass.T4G, InstanceSize.MICRO),
+};
+const DEFAULT_RDS_INSTANCE_TYPE = InstanceType.of(InstanceClass.T4G, InstanceSize.MICRO);
 const REDIS_PORT = 6379;
 // Phase 9 S3 lifecycle: non-current object versions (from versioned
 // overwrites) expire 30 days after they become non-current, and a multipart
@@ -789,14 +803,14 @@ export class ApplicationStack extends Stack {
         engine: DatabaseInstanceEngine.postgres({
           version: PostgresEngineVersion.VER_16,
         }),
-        instanceType: InstanceType.of(InstanceClass.T4G, InstanceSize.MICRO),
+        instanceType: RDS_INSTANCE_TYPE_BY_CLASS[PROFILE.database.instanceClass] ?? DEFAULT_RDS_INSTANCE_TYPE,
         vpc: this.vpc as unknown as IVpc,
         vpcSubnets: { subnetType: SubnetType.PRIVATE_WITH_EGRESS },
         securityGroups: [dbSecurityGroup],
         credentials: Credentials.fromSecret(this.databaseSecret as unknown as ISecret, DB_USER),
         databaseName: DB_NAME,
-        allocatedStorage: DEPLOYMENT_SIZING.database.storageGb,
-        maxAllocatedStorage: 100,
+        allocatedStorage: PROFILE.database.storageGb,
+        maxAllocatedStorage: PROFILE.database.maxStorageGb,
         storageEncrypted: true,
         backupRetention: Duration.days(7),
         preferredBackupWindow: '03:00-05:00',
@@ -1147,8 +1161,8 @@ export class ApplicationStack extends Stack {
     } else {
       // Plain Fargate — explicit task definition, service and ALB.
       const taskDefinition = new FargateTaskDefinition(this, 'TaskDefinition', {
-        memoryLimitMiB: props.taskMemoryMiB ?? DEPLOYMENT_SIZING.workload.web.memoryMiB,
-        cpu: props.taskCpu ?? DEPLOYMENT_SIZING.workload.web.cpuUnits,
+        memoryLimitMiB: props.taskMemoryMiB ?? PROFILE.workload.memoryMiB,
+        cpu: props.taskCpu ?? PROFILE.workload.cpuUnits,
         // Without this, CDK auto-creates a second execution role and grants
         // it only what it can infer. `ContainerImage.fromRegistry` is an
         // opaque string, so CDK cannot tell the image lives in ECR and
@@ -1352,8 +1366,8 @@ const dbEnv =
           this,
           'WorkerTaskDefinition',
           {
-            memoryLimitMiB: DEPLOYMENT_SIZING.workload.worker.memoryMiB,
-            cpu: DEPLOYMENT_SIZING.workload.worker.cpuUnits,
+            memoryLimitMiB: PROFILE.workload.memoryMiB,
+            cpu: PROFILE.workload.cpuUnits,
             executionRole: taskExecutionRole,
             taskRole,
             runtimePlatform: {

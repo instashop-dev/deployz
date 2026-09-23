@@ -1,10 +1,12 @@
 import { and, eq, isNull, or, type SQL } from 'drizzle-orm';
 import { z } from 'zod';
 
+import { DEFAULT_PENDING_SECRET_TTL_MS } from '@deployz/contracts';
 import type { RuntimeDb } from '@deployz/db';
 import * as schema from '@deployz/db/schema';
 
 import { ApiError, NotFoundError } from './errors.js';
+import type { PendingSecretStore, SecretCipher } from './pending-secrets.js';
 import { enqueue } from './queue.js';
 
 // §31 application configuration API — vendor defaults (customer_id NULL)
@@ -113,6 +115,24 @@ export interface ConfigSecretWriter {
 export interface ConfigDeps {
   readonly store: ConfigStore;
   readonly secretWriter: ConfigSecretWriter;
+  /** DEPLOY-027 (Phase 4) at-rest KMS-backed secret store. */
+  readonly pendingSecrets: PendingSecretStore;
+  /** Cipher used to encrypt/decrypt values before persisting to pending_secrets. */
+  readonly cipher: SecretCipher;
+  /**
+   * Scope-deployments query seam. Production wires this to a drizzle query
+   * over deployments filtered by (applicationId, customerId); tests inject
+   * a fake so no DB is needed.
+   */
+  readonly findScopeDeployments: (applicationId: string, customerId: string) => Promise<
+    ReadonlyArray<{ id: string; organizationId: string; state: typeof schema.deployments.$inferSelect['state'] }>
+  >;
+  /**
+   * Lookup seam for the application's organization. The DEPLOY-027 staged
+   * rows need an organizationId even when the scope has zero deployments —
+   * the application's own row is the canonical source.
+   */
+  readonly findApplicationOrganizationId: (applicationId: string) => Promise<string | undefined>;
 }
 
 // ── Secret masking (§31 write-only) ───────────────────────────────────────
@@ -216,6 +236,15 @@ export async function getConfig(
  * secret means "leave unchanged". Vendor-scope secrets have no customer
  * account to write to, so they persist as masked placeholders only.
  *
+ * DEPLOY-027 (Phase 4): a customer-required secret typed before the relay
+ * connects must survive until a deployment is ready to consume it. The
+ * staged/bound pending_secrets rows are the durable transport: pre-relay
+ * deployments get per-deployment bound ciphertext immediately, the
+ * "no deployment yet" path persists a staged row that the next
+ * createDeploymentRecord materializes. Plaintext is encrypted ONCE per key
+ * with the staged context, then bound rows re-encrypt with the deployment
+ * context — only the relay config fetch ever decrypts.
+ *
  * All-or-nothing: a failed relay write aborts before any DB write.
  */
 export async function setConfig(
@@ -248,7 +277,75 @@ export async function setConfig(
   // saw it while the screen promised it would "within a few minutes"
   // (verified live). Untouched secrets (empty value) are not changes.
   const changedEntries = entries.filter((entry) => !(entry.isSecret && entry.value.length === 0));
-  if (customerId !== null && changedEntries.length > 0) {
+
+  // DEPLOY-027 (Phase 4): one query splits the scope's deployments into
+  // claimable (a relay can act on them today — anything outside the four
+  // pre-relay states) and pre-relay (NOT_INSTALLED, WAITING_FOR_RELAY,
+  // DELETING, DELETED). The exact filter mirrors packages/cdk/src/lambda/worker.ts:420-428.
+  const scopeDeployments =
+    customerId === null
+      ? { claimable: [] as { id: string; organizationId: string }[], preRelay: [] as { id: string; organizationId: string }[] }
+      : splitScopeDeployments(await deps.findScopeDeployments(applicationId, customerId));
+  // DEPLOY-027 (Phase 4): the org id comes from the application's own row
+  // when the scope has no deployments — staged rows need it, and the worker's
+  // CONFIG_UPDATE fanout already trusts that every deployment in scope shares
+  // an application.organization_id.
+  const applicationOrganizationId = await deps.findApplicationOrganizationId(applicationId);
+  const organizationId =
+    scopeDeployments.claimable[0]?.organizationId ??
+    scopeDeployments.preRelay[0]?.organizationId ??
+    applicationOrganizationId;
+
+  // Encrypt each non-empty secret value ONCE per key, with the staged
+  // context. A bind failure here is a hard 502 — we never persist a half-
+  // encrypted state. The cap (4096 bytes) matches KMS Encrypt's plaintext
+  // limit. Vendor-scope secrets have no customer account to bind to, so they
+  // skip this path entirely (the row carries SECRET_MASK only).
+  const encryptedSecrets: Array<{
+    entry: ConfigEntry;
+    ciphertext: string;
+    encryptionContext: Record<string, string>;
+  }> = [];
+  if (customerId !== null) {
+    if (organizationId !== undefined) {
+      for (const entry of changedEntries) {
+        if (!entry.isSecret) continue;
+        if (Buffer.byteLength(entry.value, 'utf8') > 4096) {
+          throw new ApiError(
+            422,
+            'SECRET_VALUE_TOO_LARGE',
+            `Secret value for key "${entry.key}" exceeds the KMS 4096-byte plaintext limit.`,
+          );
+        }
+        const stagedContext: Record<string, string> = {
+          organizationId,
+          applicationId,
+          key: entry.key,
+          customerId,
+        };
+        try {
+          const { ciphertext, encryptionContext } = await deps.cipher.encrypt(
+            entry.value,
+            stagedContext,
+          );
+          encryptedSecrets.push({ entry, ciphertext, encryptionContext });
+        } catch {
+          throw new ApiError(
+            502,
+            'CONFIG_WRITE_FAILED',
+            'The configuration could not be written. Try again in a moment.',
+          );
+        }
+      }
+    }
+  }
+
+  // The relay write-through is for deployments the worker can act on today
+  // (claimable). When zero claimable deployments exist we skip the enqueue:
+  // every candidate is pre-relay, the worker would no-op, and the bound
+  // ciphertext rows below deliver via GET /api/relay/config as soon as the
+  // relay enrolls.
+  if (customerId !== null && changedEntries.length > 0 && scopeDeployments.claimable.length > 0) {
     try {
       await deps.secretWriter.writeSecrets(customerId, changedEntries);
     } catch {
@@ -266,6 +363,71 @@ export async function setConfig(
       ? { key: entry.key, value: SECRET_MASK, isSecret: true }
       : entry;
     await deps.store.upsert(applicationId, customerId, stored);
+  }
+
+  // DEPLOY-027 (Phase 4): persist the at-rest secret rows.
+  //   * Zero claimable deployments AND at least one pre-relay deployment →
+  //     staged rows persist for every encrypted key. The next
+  //     createDeploymentRecord call materializes them.
+  //   * One or more pre-relay deployments → bound rows per deployment,
+  //     re-encrypted with the deployment context. The relay picks them up
+  //     the moment its /api/relay/config fetch runs for that deployment.
+  // The encryption context binds the row to its scope so a stolen row's
+  // ciphertext cannot be reused against an unrelated tenant.
+  const expiresAt = new Date(Date.now() + DEFAULT_PENDING_SECRET_TTL_MS);
+  if (customerId !== null) {
+    if (organizationId !== undefined) {
+      if (scopeDeployments.preRelay.length > 0) {
+        for (const { entry } of encryptedSecrets) {
+          for (const deployment of scopeDeployments.preRelay) {
+            // Re-bind with the deployment context so a relay holding this
+            // row can only decrypt it for the matching deployment.
+            const boundContext: Record<string, string> = {
+              organizationId: deployment.organizationId,
+              applicationId,
+              deploymentId: deployment.id,
+              key: entry.key,
+              customerId,
+            };
+            let boundCiphertext: string;
+            try {
+              ({ ciphertext: boundCiphertext } = await deps.cipher.encrypt(entry.value, boundContext));
+            } catch {
+              throw new ApiError(
+                502,
+                'CONFIG_WRITE_FAILED',
+                'The configuration could not be written. Try again in a moment.',
+              );
+            }
+            await deps.pendingSecrets.upsertBound({
+              organizationId: deployment.organizationId,
+              applicationId,
+              deploymentId: deployment.id,
+              key: entry.key,
+              ciphertext: boundCiphertext,
+              encryptionContext: boundContext,
+              expiresAt,
+            });
+          }
+        }
+      }
+      // No claimable AND no pre-relay deployments (yet): persist staged rows
+      // so the first deployment to land materializes them.
+      if (scopeDeployments.claimable.length === 0 && scopeDeployments.preRelay.length === 0) {
+        for (const { entry, ciphertext, encryptionContext } of encryptedSecrets) {
+          await deps.pendingSecrets.upsertStaged({
+            organizationId,
+            applicationId,
+            customerId,
+            key: entry.key,
+            ciphertext,
+            encryptionContext,
+            expiresAt,
+            createdBy: null,
+          });
+        }
+      }
+    }
   }
 
   if (deletes.length > 0) {
@@ -287,9 +449,51 @@ export async function setConfig(
     for (const key of deletes) {
       await deps.store.remove(applicationId, customerId, key);
     }
+    // Drop any staged rows for the deleted keys and any pre-relay bound rows
+    // (they are not encrypted with the same value the relay now has to
+    // remove, so the simplest correct action is to drop them — the relay
+    // config fetch will simply not see them).
+    if (customerId !== null) {
+      for (const key of deletes) {
+        await deps.pendingSecrets.deleteStagedForScope({
+          applicationId,
+          customerId,
+          key,
+        });
+      }
+      for (const deployment of scopeDeployments.preRelay) {
+        for (const key of deletes) {
+          await deps.pendingSecrets.deleteStagedForScope({
+            applicationId,
+            customerId: deployment.id,
+            key,
+          });
+        }
+        await deps.pendingSecrets.deleteBoundForDeployment(deployment.id);
+      }
+    }
   }
 
   return getConfig(applicationId, customerId, deps.store);
+}
+
+const PRE_RELAY_STATES = new Set([
+  'NOT_INSTALLED',
+  'WAITING_FOR_RELAY',
+  'DELETING',
+  'DELETED',
+]);
+
+function splitScopeDeployments(
+  rows: ReadonlyArray<{ id: string; organizationId: string; state: typeof schema.deployments.$inferSelect['state'] }>,
+): { claimable: { id: string; organizationId: string }[]; preRelay: { id: string; organizationId: string }[] } {
+  const claimable: { id: string; organizationId: string }[] = [];
+  const preRelay: { id: string; organizationId: string }[] = [];
+  for (const row of rows) {
+    const bucket = PRE_RELAY_STATES.has(row.state) ? preRelay : claimable;
+    bucket.push({ id: row.id, organizationId: row.organizationId });
+  }
+  return { claimable, preRelay };
 }
 
 /** Empty keys and duplicate keys within one write are rejected (§31). */
@@ -421,6 +625,58 @@ export function createRelaySecretWriter(): ConfigSecretWriter {
     async removeSecrets(customerId, keys) {
       await enqueue({ type: 'CONFIG_UPDATE', customerId, removedKeys: [...keys] });
     },
+  };
+}
+
+/** DEPLOY-027 (Phase 4): default scope-deployments lookup over the db. */
+export function createScopeDeploymentsFinder(
+  db: RuntimeDb,
+): ConfigDeps['findScopeDeployments'] {
+  return async (applicationId, customerId) => {
+    if (!UUID_PATTERN.test(applicationId) || !UUID_PATTERN.test(customerId)) return [];
+    return db
+      .select({
+        id: schema.deployments.id,
+        organizationId: schema.deployments.organizationId,
+        state: schema.deployments.state,
+      })
+      .from(schema.deployments)
+      .where(
+        and(
+          eq(schema.deployments.applicationId, applicationId),
+          eq(schema.deployments.customerId, customerId),
+        ),
+      );
+  };
+}
+
+/** DEPLOY-027 (Phase 4): the default ConfigDeps for the live API. */
+export function createConfigDeps(
+  db: RuntimeDb,
+  pendingSecrets: PendingSecretStore,
+  cipher: SecretCipher,
+): ConfigDeps {
+  return {
+    store: createConfigStore(db),
+    secretWriter: createRelaySecretWriter(),
+    pendingSecrets,
+    cipher,
+    findScopeDeployments: createScopeDeploymentsFinder(db),
+    findApplicationOrganizationId: createApplicationOrganizationIdFinder(db),
+  };
+}
+
+function createApplicationOrganizationIdFinder(
+  db: RuntimeDb,
+): ConfigDeps['findApplicationOrganizationId'] {
+  return async (applicationId) => {
+    if (!UUID_PATTERN.test(applicationId)) return undefined;
+    const rows = await db
+      .select({ organizationId: schema.applications.organizationId })
+      .from(schema.applications)
+      .where(eq(schema.applications.id, applicationId))
+      .limit(1);
+    return rows[0]?.organizationId;
   };
 }
 

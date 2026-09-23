@@ -34,32 +34,64 @@ export interface RelayConfigEntry {
 }
 
 /**
+ * DEPLOY-027 (Phase 4): the relay's only decryption seam. Given a
+ * deployment id and a key, returns the plaintext or undefined if no row
+ * exists. Without a vault (the unit-test path), behavior is unchanged —
+ * secrets travel without a value. With a vault (production), decrypted
+ * values are overlaid onto the secret entries.
+ */
+export interface PendingSecretVault {
+  readBound(deploymentId: string, key: string): Promise<string | undefined>;
+  /** Stamp delivery for every successful decrypt in this read cycle. */
+  stampDelivery(deploymentId: string, key: string): Promise<void>;
+}
+
+/**
  * The entries the relay applies: every effective config entry (plain values
  * travel, secret values never do) plus, for each generated key without a
- * vendor or customer value, an entry the relay mints.
+ * vendor or customer value, an entry the relay mints. When a `vault` is
+ * passed (production path), pending-secrets rows are decrypted in this
+ * seam — values the vendor typed before the relay enrolled reach the
+ * customer via this read, not via the queue message.
  */
 export async function buildRelayConfigEntries(
   db: RuntimeDb,
-  deployment: { applicationId: string; customerId: string; desiredState: Record<string, unknown> | null },
+  deployment: { id?: string; applicationId: string; customerId: string; desiredState: Record<string, unknown> | null },
   store: ConfigStore,
+  vault?: PendingSecretVault,
 ): Promise<RelayConfigEntry[]> {
   const view = await getConfig(deployment.applicationId, deployment.customerId, store);
   const manifest = readStoredManifest(deployment.desiredState);
   const mintable = new Set<string>(manifest ? mintableKeys(manifest) : []);
-  // A secret the vendor typed is write-only (§31): its value reached only
-  // the deployments whose relay was connected at the time, and a deployment
-  // installed later has nothing to bind. For an app-internal secret the
-  // relay may mint one — it keeps any value already in the customer's
-  // store, so a delivered vendor value always wins (DEPLOY-013).
-  const entries: RelayConfigEntry[] = view.effective.map((entry) => ({
-    key: entry.key,
-    isSecret: entry.isSecret,
-    ...(entry.isSecret ? {} : { value: entry.value ?? '' }),
-    source: entry.source,
-    ...(entry.isSecret && mintable.has(entry.key) ? { generated: true as const } : {}),
-  }));
+  const entries: RelayConfigEntry[] = [];
+  for (const entry of view.effective) {
+    if (entry.isSecret && vault !== undefined && deployment.id !== undefined) {
+      try {
+        const plaintext = await vault.readBound(deployment.id, entry.key);
+        if (plaintext !== undefined) {
+          entries.push({
+            key: entry.key,
+            isSecret: true,
+            value: plaintext,
+            source: entry.source,
+          });
+          continue;
+        }
+      } catch {
+        // Decrypt failure: omit the value, keep the row, return the masked
+        // entry — the relay's next cycle retries.
+      }
+    }
+    entries.push({
+      key: entry.key,
+      isSecret: entry.isSecret,
+      ...(entry.isSecret ? {} : { value: entry.value ?? '' }),
+      source: entry.source,
+      ...(entry.isSecret && mintable.has(entry.key) ? { generated: true as const } : {}),
+    });
+  }
   const configured = new Set(entries.map((entry) => entry.key));
-  for (const key of mintable) {
+for (const key of mintable) {
     if (configured.has(key)) continue;
     entries.push({ key, isSecret: true, source: 'generated', generated: true });
   }

@@ -8,6 +8,7 @@ export * from './aws-resources.js';
 export * from './plan.js';
 export * from './footprint.js';
 export * from './pricing.js';
+export * from './profile.js';
 export * from './tags.js';
 
 import type { DeploymentManifest } from './manifest.js';
@@ -98,6 +99,12 @@ export function isSupportedRegion(value: string): value is Region {
 // deployments.source — origin attribution of a deployment row.
 export const deploymentSourceSchema = z.enum(['manual', 'deploy_link', 'public_link']);
 export type DeploymentSource = z.infer<typeof deploymentSourceSchema>;
+
+// Region ownership for an installation entry point (MVP Readiness 2, Phase 2).
+// 'customer' = the customer makes the final Region choice at confirmation;
+// 'legacy_publisher_fixed' = a pre-existing link whose Region the vendor fixed.
+export const regionSelectionSchema = z.enum(['customer', 'legacy_publisher_fixed']);
+export type RegionSelection = z.infer<typeof regionSelectionSchema>;
 
 // deployments.deployment_type — provider-independent classification (Paddle
 // migration Phase 2). Replaces is_test_deployment: a TEST deployment never
@@ -1150,6 +1157,13 @@ export const DEFAULT_BOOTSTRAP_STACK_NAME = 'deployz-bootstrap';
  * disagree about when the escape hatch opens.
  */
 export const DESTROY_PENDING_STALE_AFTER_MS = 60 * 60 * 1000;
+
+// DEPLOY-027 (Phase 4): the TTL of an at-rest pending_secrets row. A row
+// older than this can no longer be decrypted — its KMS ciphertext is dropped
+// by the worker's sweep and the vendor/customer value is lost by design. The
+// constant is shared so the API write path (24h from the moment of write)
+// and the worker's expiry sweep never disagree about what counts as expired.
+export const DEFAULT_PENDING_SECRET_TTL_MS = 24 * 60 * 60 * 1000;
 
 /**
  * CloudFormation stack name for a customer's application stack.

@@ -1,0 +1,355 @@
+import { PGlite } from '@electric-sql/pglite';
+import crypto from 'node:crypto';
+import { eq } from 'drizzle-orm';
+import type { FastifyInstance } from 'fastify';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+
+import { applyMigrations, createDb, type Db } from '@deployz/db';
+import * as schema from '@deployz/db/schema';
+
+import { createAuth, type Auth } from './auth.js';
+import { env } from './env.js';
+import { buildServer } from './server.js';
+
+// Phase 2 — targeted installation invitations: a vendor creates an invitation
+// WITHOUT a deployment; the customer (already named) selects the final Region
+// and confirms; confirmation creates exactly one deployment and consumes the
+// invitation.
+
+const FIXTURE_SHA = crypto.randomUUID().replace(/-/g, '').slice(0, 40);
+
+const READY_METADATA = {
+  analysisCommitSha: FIXTURE_SHA,
+  hasDockerfile: true,
+  dockerfilePath: 'Dockerfile',
+  framework: 'express',
+  port: '3000',
+  startupCommands: ['node dist/index.js'],
+  hasStartupCommand: true,
+  usesPostgresql: false,
+  postgres: { required: false, evidence: [] },
+  usesRedis: false,
+  redis: { required: false, confidence: 'low', purposes: [], evidence: [], connectionEnvVars: [], compatibility: { supported: true } },
+  usesS3: false,
+  usesLocalFilesystem: false,
+  usesWorkerProcesses: false,
+  hasMigrationCommand: false,
+  hasEnvVars: true,
+  hasExternalServices: false,
+  hasBuildCommand: false,
+  buildCommands: ['npm run build'],
+  envVars: [],
+  envVarModel: [
+    {
+      key: 'STRIPE_API_KEY',
+      required: true,
+      secret: true,
+      classification: 'customer_required',
+      purpose: 'external_credential',
+      confidence: 'high',
+      source: ['.env.example'],
+    },
+  ],
+  databaseState: 'none',
+  externalServices: [] as string[],
+} as Record<string, unknown>;
+
+async function signUpAndGetOrg(
+  auth: Auth,
+  db: Db,
+  email: string,
+): Promise<{ userId: string; organizationId: string; cookie: string }> {
+  const password = 'super-secret-1';
+  const signup = await auth.api.signUpEmail({ body: { email, password, name: email.split('@')[0]! } });
+  const signin = await auth.api.signInEmail({ body: { email, password }, asResponse: true });
+  const setCookie = signin.headers.get('set-cookie');
+  if (!setCookie) throw new Error('sign-in did not set a session cookie');
+  const memberships = await db
+    .select({ organizationId: schema.member.organizationId })
+    .from(schema.member)
+    .where(eq(schema.member.userId, signup.user.id))
+    .limit(1);
+  const organizationId = memberships[0]?.organizationId;
+  if (!organizationId) throw new Error('signup did not provision an organization');
+  return { userId: signup.user.id, organizationId, cookie: setCookie };
+}
+
+describe('targeted installation invitations', () => {
+  let client: PGlite | undefined;
+  let db: Db;
+  let auth: Auth;
+  let app: FastifyInstance;
+  let org: { userId: string; organizationId: string; cookie: string };
+  let applicationId: string;
+  let customerId: string;
+
+  beforeAll(async () => {
+    client = new PGlite();
+    await applyMigrations(client);
+    db = createDb(client);
+    auth = createAuth(db);
+    org = await signUpAndGetOrg(auth, db, 'invitation-vendor@example.com');
+
+    const [application] = await db
+      .insert(schema.applications)
+      .values({
+        organizationId: org.organizationId,
+        name: 'Invited App',
+        repoFullName: `acme/invited-${crypto.randomUUID().slice(0, 8)}`,
+        repoUrl: 'https://github.com/acme/invited',
+        defaultBranch: 'main',
+        detectedMetadata: READY_METADATA,
+      })
+      .returning();
+    applicationId = application!.id;
+
+    await db.insert(schema.releases).values({
+      applicationId,
+      version: '1.0.0',
+      gitSha: crypto.randomUUID().slice(0, 8),
+      imageDigest: 'registry.example.com/acme/app@sha256:' + 'a'.repeat(64),
+      buildStatus: 'SUCCEEDED',
+      releaseStatus: 'READY',
+    });
+
+    const [customer] = await db
+      .insert(schema.customers)
+      .values({ organizationId: org.organizationId, name: 'Target Customer', email: 'target@example.com' })
+      .returning();
+    customerId = customer!.id;
+
+    await db.insert(schema.billingSubscriptions).values({
+      organizationId: org.organizationId,
+      providerCustomerId: 'ctm_fixture_invitation',
+      providerSubscriptionId: 'sub_fixture_invitation',
+      status: 'ACTIVE',
+    });
+
+    app = await buildServer({ auth, db });
+    // The customer must be able to choose a non-default deployable region.
+    (env as { deployableAwsRegions: string[] }).deployableAwsRegions = ['us-east-1', 'eu-west-1'];
+  }, 60_000);
+
+  afterAll(async () => {
+    await app?.close();
+    await client?.close();
+  });
+
+  async function createInvitation(recommendedRegion?: string) {
+    return app.inject({
+      method: 'POST',
+      url: `/api/customers/${customerId}/invitations`,
+      headers: { 'content-type': 'application/json', cookie: org.cookie },
+      payload: JSON.stringify({ applicationId, ...(recommendedRegion ? { recommendedRegion } : {}) }),
+    });
+  }
+
+  async function deploymentCount(): Promise<number> {
+    const rows = await db.select({ id: schema.deployments.id }).from(schema.deployments);
+    return rows.length;
+  }
+
+  it('creates an invitation with a one-time token and NO deployment', async () => {
+    const response = await createInvitation('ap-south-1');
+    expect(response.statusCode, response.body).toBe(201);
+    const body = response.json() as { id: string; token: string; recommendedRegion: string | null };
+    expect(body.id).toMatch(/^[0-9a-f-]{36}$/);
+    expect(body.token).toHaveLength(64);
+    expect(body.recommendedRegion).toBe('ap-south-1');
+    expect(await deploymentCount()).toBe(0);
+
+    // The token is stored only as a hash — never the plaintext.
+    const [row] = await db
+      .select({ tokenHash: schema.publicInstallLinks.tokenHash })
+      .from(schema.publicInstallLinks)
+      .where(eq(schema.publicInstallLinks.id, body.id));
+    expect(row!.tokenHash).not.toContain(body.token);
+  });
+
+  it('requires the secret token to resolve; a missing token 404s', async () => {
+    const { id, token } = (await createInvitation()).json() as { id: string; token: string };
+
+    const noToken = await app.inject({ method: 'GET', url: `/api/public-install/${id}` });
+    expect(noToken.statusCode).toBe(404);
+
+    const withToken = await app.inject({
+      method: 'GET',
+      url: `/api/public-install/${id}`,
+      headers: { 'x-deployz-token': token },
+    });
+    expect(withToken.statusCode, withToken.body).toBe(200);
+    const body = withToken.json() as { recommendedRegion: string | null; regionSelection: string };
+    expect(body.regionSelection).toBe('customer');
+    expect(body.recommendedRegion).toBeNull();
+  });
+
+  it('confirmation creates exactly one deployment on the target customer and consumes the invitation', async () => {
+    const { id, token } = (await createInvitation('us-east-1')).json() as { id: string; token: string };
+    const key = crypto.randomUUID();
+    const payload = {
+      idempotencyKey: key,
+      region: 'eu-west-1', // customer overrides the recommendation
+      config: [{ key: 'STRIPE_API_KEY', value: 'sk_live_fixture', isSecret: true }],
+    };
+
+    const confirm = await app.inject({
+      method: 'POST',
+      url: `/api/public-install/${id}/confirm`,
+      headers: { 'content-type': 'application/json', 'x-deployz-token': token },
+      payload: JSON.stringify(payload),
+    });
+    expect(confirm.statusCode, confirm.body).toBe(201);
+    expect(await deploymentCount()).toBe(1);
+
+    const [deployment] = await db
+      .select()
+      .from(schema.deployments)
+      .where(eq(schema.deployments.publicInstallLinkId, id));
+    expect(deployment!.customerId).toBe(customerId);
+    expect(deployment!.region).toBe('eu-west-1');
+    expect(deployment!.source).toBe('public_link');
+
+    const [link] = await db
+      .select({ confirmedAt: schema.publicInstallLinks.confirmedAt })
+      .from(schema.publicInstallLinks)
+      .where(eq(schema.publicInstallLinks.id, id));
+    expect(link!.confirmedAt).not.toBeNull();
+
+    // Replay with the SAME key is idempotent (200, same install link id).
+    const replay = await app.inject({
+      method: 'POST',
+      url: `/api/public-install/${id}/confirm`,
+      headers: { 'content-type': 'application/json', 'x-deployz-token': token },
+      payload: JSON.stringify(payload),
+    });
+    expect(replay.statusCode, replay.body).toBe(200);
+    expect((replay.json() as { installLinkId: string }).installLinkId).toBe(
+      (confirm.json() as { installLinkId: string }).installLinkId,
+    );
+
+    // A DIFFERENT key on a consumed invitation is refused (410 USED).
+    const differentKey = await app.inject({
+      method: 'POST',
+      url: `/api/public-install/${id}/confirm`,
+      headers: { 'content-type': 'application/json', 'x-deployz-token': token },
+      payload: JSON.stringify({ ...payload, idempotencyKey: crypto.randomUUID() }),
+    });
+    expect(differentKey.statusCode).toBe(410);
+    expect((differentKey.json() as { error: { code: string } }).error.code).toBe('PUBLIC_INSTALL_LINK_USED');
+    expect(await deploymentCount()).toBe(1);
+  });
+
+  it('plan preview returns region-specific cost, estimate-unavailable for wrong Region, and 422 for unknown profile', async () => {
+    const { id, token } = (await createInvitation()).json() as { id: string; token: string };
+    const plan = (region: string, profile?: string) =>
+      app.inject({
+        method: 'GET',
+        url: `/api/public-install/${id}/plan?region=${region}${profile ? `&profile=${profile}` : ''}`,
+        headers: { 'x-deployz-token': token },
+      });
+
+    // Deployable region: a real estimate with that region.
+    const deployable = await plan('eu-west-1');
+    expect(deployable.statusCode, deployable.body).toBe(200);
+    const deployableBody = deployable.json() as { region: string | null; costEstimate: unknown };
+    expect(deployableBody.region).toBe('eu-west-1');
+    expect(deployableBody.costEstimate).not.toBeNull();
+
+    // Supported but NOT deployable: estimate unavailable, never a guess.
+    const undeployable = await plan('us-west-1');
+    expect(undeployable.statusCode, undeployable.body).toBe(200);
+    const undeployableBody = undeployable.json() as { region: string | null; costEstimate: unknown };
+    expect(undeployableBody.region).toBeNull();
+    expect(undeployableBody.costEstimate).toBeNull();
+
+    // Unknown profile: 422.
+    const unknownProfile = await plan('eu-west-1', 'large');
+    expect(unknownProfile.statusCode).toBe(422);
+    expect((unknownProfile.json() as { error: { code: string } }).error.code).toBe('UNKNOWN_PROFILE');
+  });
+
+  it('lists the customer invitations with derived status and no token material', async () => {
+    const active = (await createInvitation()).json() as { id: string };
+    const toUse = (await createInvitation('us-east-1')).json() as { id: string; token: string };
+    const confirm = await app.inject({
+      method: 'POST',
+      url: `/api/public-install/${toUse.id}/confirm`,
+      headers: { 'content-type': 'application/json', 'x-deployz-token': toUse.token },
+      payload: JSON.stringify({
+        idempotencyKey: crypto.randomUUID(),
+        region: 'us-east-1',
+        config: [{ key: 'STRIPE_API_KEY', value: 'sk_list_fixture', isSecret: true }],
+      }),
+    });
+    expect(confirm.statusCode, confirm.body).toBe(201);
+
+    const list = await app.inject({
+      method: 'GET',
+      url: `/api/customers/${customerId}/invitations`,
+      headers: { cookie: org.cookie },
+    });
+    expect(list.statusCode, list.body).toBe(200);
+    const rows = (list.json() as {
+      invitations: Array<{
+        id: string;
+        status: string;
+        applicationName: string;
+        recommendedRegion: string | null;
+      }>;
+    }).invitations;
+    const byId = new Map(rows.map((row) => [row.id, row]));
+    expect(byId.get(toUse.id)?.status).toBe('used');
+    expect(byId.get(active.id)?.status).toBe('active');
+    expect(byId.get(active.id)?.applicationName).toBe('Invited App');
+    expect(byId.get(active.id)?.recommendedRegion).toBeNull();
+    // The stored hash and raw token never reach this surface.
+    expect(JSON.stringify(rows)).not.toContain('tokenHash');
+    expect(JSON.stringify(rows)).not.toContain(toUse.token);
+  });
+
+  it('emits the invitation lifecycle events without ever logging values or tokens', async () => {
+    const { id, token } = (await createInvitation('us-east-1')).json() as { id: string; token: string };
+    // Opening the invitation emits invitation.opened (throttled in memory).
+    const opened = await app.inject({
+      method: 'GET',
+      url: `/api/public-install/${id}`,
+      headers: { 'x-deployz-token': token },
+    });
+    expect(opened.statusCode, opened.body).toBe(200);
+
+    const secretValue = 'sk_events_fixture_value';
+    const confirm = await app.inject({
+      method: 'POST',
+      url: `/api/public-install/${id}/confirm`,
+      headers: { 'content-type': 'application/json', 'x-deployz-token': token },
+      payload: JSON.stringify({
+        idempotencyKey: crypto.randomUUID(),
+        region: 'eu-west-1', // differs from the recommendation on purpose
+        config: [{ key: 'STRIPE_API_KEY', value: secretValue, isSecret: true }],
+      }),
+    });
+    expect(confirm.statusCode, confirm.body).toBe(201);
+
+    const events = await db
+      .select({ eventType: schema.eventLogs.eventType, payload: schema.eventLogs.payload })
+      .from(schema.eventLogs)
+      .where(eq(schema.eventLogs.customerId, customerId));
+    const types = new Set(events.map((row) => row.eventType));
+    for (const expected of [
+      'invitation.created',
+      'invitation.opened',
+      'invitation.confirmed',
+      'invitation.region_selected',
+      'invitation.deployment_created',
+      'invitation.configuration_delivered',
+    ]) {
+      expect(types, `missing ${expected}`).toContain(expected);
+    }
+    // Neither the secret value nor the one-time token reaches any payload.
+    expect(JSON.stringify(events)).not.toContain(secretValue);
+    expect(JSON.stringify(events)).not.toContain(token);
+    // region_selected records the CUSTOMER's region, not the recommendation.
+    const regionEvent = events.find((row) => row.eventType === 'invitation.region_selected');
+    expect((regionEvent!.payload as Record<string, unknown>)['region']).toBe('eu-west-1');
+  });
+});

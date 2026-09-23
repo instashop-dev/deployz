@@ -66,7 +66,7 @@ Integration tests: `billing-entitlements.test.ts` (tests 4–9),
 
 | Action | Evaluation (no row) | ACTIVE | PAST_DUE | PAUSED | CANCELED |
 |---|---|---|---|---|---|
-| New customer deployment (manual / deploy link) | 402 → checkout | ✅ | 402 → card form | 402 → portal | 402 → checkout |
+| New customer deployment (manual / invitation) | 402 → checkout | ✅ | 402 → card form | 402 → portal | 402 → checkout |
 | Start a checkout (`POST /api/billing/checkout`) | ✅ | 409 `SUBSCRIPTION_ALREADY_ACTIVE` | 409 `SUBSCRIPTION_NEEDS_ATTENTION` | 409 `SUBSCRIPTION_NEEDS_ATTENTION` | ✅ (new subscription) |
 | Deploy / rollback / restart / config / destroy an EXISTING deployment | ✅ | ✅ | ✅ | ✅ | ✅ |
 | TEST deployment, analysis, configuration, customers, releases | ✅ | ✅ | ✅ | ✅ | ✅ |

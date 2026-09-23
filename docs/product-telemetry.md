@@ -54,7 +54,7 @@ that critical queries need it.
 ## Privacy rules
 
 Telemetry payloads never contain: environment variable values, generated
-secrets, database passwords, AWS credentials, relay tokens, Deploy Link raw
+secrets, database passwords, AWS credentials, relay tokens, invitation raw
 tokens, GitHub tokens, customer secrets, raw application logs, unredacted
 relay diagnostics, or raw AI prompts/responses. Counts, stable codes, and
 ids that already exist as row columns are the only payload content — for
@@ -83,23 +83,26 @@ implemented in `getOverviewPilotInsights` (`apps/api/src/admin/queries.ts`):
   `application.analysis_completed` (repeated analyses count once).
 - Ready to provision — distinct applications with ≥ 1 **pass**
   `application.preflight_evaluated`.
-- AWS launched — distinct deployments with `install.launched` or
-  `deploy_link.launched`.
+- AWS launched — distinct deployments with `install.launched`,
+  `deploy_link.launched`, or `invitation.confirmed`.
 - Relay connected — distinct deployments with `relay.connected`.
 - Healthy — distinct deployments with `install.completed` and
   `result: 'success'` (a failed install then successful retry counts once,
   in both numerator and denominator).
-- Deploy Link funnel — the same milestones restricted to deployments that
-  have a `deploy_link.created` (links are 1:1 with deployments, so the
-  `deployment_id` is the link's join key).
+- Invitation funnel — the same milestones restricted to deployments that
+  originated from an invitation (`invitation.created` → `invitation.confirmed`
+  → `install.launched` → `install.completed`). Legacy deploy-link
+  deployments are tracked through the `deploy_link.*` milestones until the
+  legacy path is removed.
 
 ## Origin attribution
 
-`deployments.source` (`manual` | `deploy_link`) is written once at creation.
-`deployment.created` mirrors it in `payload.source`, so funnel queries can
-split manual vs Deploy Link performance without a join. Deploy Link
-performance is read from the `deploy_link.*` milestones; there is no parallel
-source-of-truth field.
+`deployments.source` (`manual` | `deploy_link` | `public_link`) is written
+once at creation. `deployment.created` mirrors it in `payload.source`, so
+funnel queries can split manual vs invitation vs legacy deploy-link
+performance without a join. Invitation performance is read from the
+`invitation.*` milestones; legacy deploy-link performance from the
+`deploy_link.*` milestones.
 
 ## Support intervention
 
@@ -135,7 +138,7 @@ per-step provisioning timings.
 
 A compact section on the Team Admin Overview (`/admin`) — five cards:
 pilot funnel (with stage conversion), deployment quality, common failures,
-Deploy Links, support. `7d | 30d | 90d` toggle (default 30) drives
+invitations, support. `7d | 30d | 90d` toggle (default 30) drives
 `GET /api/admin/overview?days=…`, which returns the `pilotInsights` block.
 Team-admin only (`requireTeamAdmin`); no telemetry is vendor-visible. The
 funnel counts use the semantics above, so retries and repeated opens cannot
