@@ -113,7 +113,10 @@ plain links):
 
 1. **Overview** — one state-aware card (the primary card), the compact
    customer install-link card when the card's own primary action is not the
-   link, and at most one recent-event line.
+   link and a live link exists, and at most one recent-event line. An
+   application that has never had an eligible install link (still inside the
+   setup lifecycle, no live link yet) gets no separate card at all — the
+   primary card names the reason in one line near the lifecycle instead.
 2. **Releases** — version history only.
 3. **Configuration** — the deployment-configuration table, planned
    infrastructure, environment variables, and general settings (rename,
@@ -138,18 +141,36 @@ happening now.
   Configuration table.
 - The Configuration table's result vocabulary is Ready / Not used / Change
   required / Recommended / Needs review — never "Passed", never a percentage.
-  Its action column reads Add for an unset optional field and Edit once a
-  value exists. Raw detection evidence (file + reason) lives only under the
+  Ready and Not used show no badge, because the value already says it. Its
+  action column reads Add for an unset optional field and Edit once a value
+  exists. Raw detection evidence (file + reason) lives only under the
   collapsed "Analysis details" disclosure, never in the table itself.
+- Required findings also show in a "Required changes" panel above the table
+  (`#required-changes`, focused when the URL has that hash). Fix routes by
+  `requiredChangeFix`: only `port-unresolved` opens a setting editor; every
+  other finding needs a repository change and a new analysis, so it opens the
+  fix instructions.
 - Planned infrastructure comes from the plan's `footprint` through
   `footprintComponentRows` (`lib/footprint.ts`), generic over `service`/
   `category` — a new resource kind renders through the same rows with no
   page change.
 - The install-link card shows one status badge, Copy link, Preview, and an
   overflow menu (copy HTML snippet, toggle enabled/disabled, regenerate,
-  revoke). Regenerate and revoke both require confirmation. A live link on
-  an application that is not ready to share shows a warning — it is never
-  hidden or invalidated silently.
+  revoke) behind a visible "Manage" button. Regenerate and revoke both require confirmation. A live
+  link stays visible in every state except the page's own `unavailable`/
+  `unknown` states — it is never hidden or invalidated silently. On an
+  application that is not ready to share, its warning states what a
+  customer gets right now from the newest READY release (or that installs
+  are refused when there is none), never a claim that a test must pass
+  again.
+- Configuration-required shows the required findings as plain-language
+  labels (`requiredChangeLabel`) and one action, "Review required changes",
+  linking to the Configuration tab's `#required-changes` anchor.
+- Ready-to-share and customers-active name the release customers actually
+  get (the newest READY release) when releases loaded successfully; a newer
+  release that failed to build is called out as a separate notice, never
+  implied to be what customers get. Releases that failed to load are never
+  guessed at.
 - Billing notices do not belong on this page.
 
 ## List views (Customers, Deployments)

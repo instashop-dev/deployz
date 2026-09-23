@@ -1,7 +1,7 @@
 'use client';
 
-import { ChevronDown, Info, RefreshCw } from 'lucide-react';
-import { useState, type ReactNode } from 'react';
+import { ChevronDown, Info, RefreshCw, TriangleAlert } from 'lucide-react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 
 import { FixInstructionsDialog } from '@/components/fix-instructions-dialog';
 import { Badge } from '@/components/ui/badge';
@@ -15,14 +15,22 @@ import type { AnalysisStatus } from '@/lib/applications';
 import {
   deriveAnalysisDetails,
   deriveConfigurationRows,
+  deriveRequiredChanges,
   isSettingRowId,
   type AnalysisDetail,
   type ConfigurationRow,
+  type RequiredChange,
 } from '@/lib/application-configuration';
 import type { EditableReadinessField } from '@/lib/readiness';
 
 import { useApplicationPage } from '../application-page-context';
 import { EditDialog, RequirementDriftNotice } from '../readiness-components';
+
+// Commands can be long (a chained shell script, a full drizzle-kit
+// invocation) — these rows get the abbreviated + "Show full command"
+// treatment instead of wrapping or overflowing the table.
+const COMMAND_ROW_IDS = new Set(['build', 'start', 'migrations', 'worker']);
+const LONG_VALUE_THRESHOLD = 32;
 
 // The Configuration tab's readiness surface — everything that used to live on
 // the overview page's "Deployment readiness" table, now framed around what a
@@ -32,20 +40,74 @@ export function DeploymentConfiguration() {
   const { data, loading, presentation, refresh, reanalyse, reanalysing } = useApplicationPage();
   const [editingField, setEditingField] = useState<EditableReadinessField | null>(null);
   const [fixOpen, setFixOpen] = useState(false);
+  const panelRef = useRef<HTMLDivElement | null>(null);
+  const headingRef = useRef<HTMLHeadingElement | null>(null);
+  // The dialogs open from state, not from a Radix trigger, so Radix has no
+  // element to return focus to on close — keep the opener and restore it.
+  const openerRef = useRef<HTMLElement | null>(null);
+
+  const rows = data ? deriveConfigurationRows(data.application, data.readiness) : [];
+  const requiredChanges = data ? deriveRequiredChanges(data.readiness) : [];
+
+  // A link into this page (from the Overview tab, or a bookmarked URL) can
+  // carry `#required-changes` — on load, and whenever the hash changes again
+  // without a full navigation, scroll to and focus the panel. When there is
+  // nothing required (the vendor already fixed everything, or arrived here
+  // straight after a re-analysis), focus the section heading instead of a
+  // panel that no longer exists.
+  useEffect(() => {
+    if (!data) return;
+    function focusRequiredChanges(): void {
+      if (window.location.hash !== '#required-changes') return;
+      const target = requiredChanges.length > 0 ? panelRef.current : headingRef.current;
+      // jsdom (unit tests) has no `scrollIntoView` implementation — guard it
+      // rather than skip the real browser behaviour.
+      target?.scrollIntoView?.({ block: 'start' });
+      target?.focus();
+    }
+    focusRequiredChanges();
+    window.addEventListener('hashchange', focusRequiredChanges);
+    return () => window.removeEventListener('hashchange', focusRequiredChanges);
+  }, [data, requiredChanges.length]);
 
   if (loading) return <DeploymentConfigurationSkeleton />;
   if (!data) return null;
 
   const { application, readiness } = data;
-  const rows = deriveConfigurationRows(application, readiness);
   const details = deriveAnalysisDetails(readiness);
   const analyzing = application.analysisStatus === 'ANALYZING';
 
+  function rememberOpener(): void {
+    openerRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+  }
+
+  function restoreFocus(): void {
+    const opener = openerRef.current;
+    requestAnimationFrame(() => opener?.focus());
+  }
+
+  function openFix(): void {
+    rememberOpener();
+    setFixOpen(true);
+  }
+
+  function openEdit(field: EditableReadinessField): void {
+    rememberOpener();
+    setEditingField(field);
+  }
+
   return (
     <section aria-labelledby="deployment-configuration" className="flex flex-col gap-3">
+      <RequiredChangesPanel
+        ref={panelRef}
+        changes={requiredChanges}
+        onEdit={openEdit}
+        onShowFix={openFix}
+      />
+
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h2 id="deployment-configuration" className="scroll-mt-20 text-base font-semibold">
+          <h2 id="deployment-configuration" ref={headingRef} tabIndex={-1} className="scroll-mt-20 text-base font-semibold">
             Deployment configuration
           </h2>
           {presentation.readinessSummary ? (
@@ -87,8 +149,8 @@ export function DeploymentConfiguration() {
                 <ConfigurationTableRow
                   key={row.id}
                   row={row}
-                  onEdit={setEditingField}
-                  onShowFix={() => setFixOpen(true)}
+                  onEdit={openEdit}
+                  onShowFix={openFix}
                 />
               ))}
               {rows.length === 0 ? <ConfigurationTablePlaceholder analysisStatus={application.analysisStatus} /> : null}
@@ -104,7 +166,10 @@ export function DeploymentConfiguration() {
       <FixInstructionsDialog
         open={fixOpen}
         applicationId={application.id}
-        onClose={() => setFixOpen(false)}
+        onClose={() => {
+          setFixOpen(false);
+          restoreFocus();
+        }}
         onReanalyse={() => {
           void reanalyse();
           setFixOpen(false);
@@ -115,10 +180,94 @@ export function DeploymentConfiguration() {
         field={editingField}
         application={application}
         readiness={readiness}
-        onClose={() => setEditingField(null)}
+        onClose={() => {
+          setEditingField(null);
+          restoreFocus();
+        }}
         onSaved={refresh}
       />
     </section>
+  );
+}
+
+// The panel a vendor lands on from the Overview tab's "N changes required"
+// link (`#required-changes`) or scrolls to on their own — every blocking
+// finding in one place, each routed to the same fix (edit dialog or
+// instructions) the table row below uses.
+function RequiredChangesPanel({
+  ref,
+  changes,
+  onEdit,
+  onShowFix,
+}: {
+  ref: React.Ref<HTMLDivElement>;
+  changes: RequiredChange[];
+  onEdit: (field: EditableReadinessField) => void;
+  onShowFix: () => void;
+}) {
+  if (changes.length === 0) return null;
+  return (
+    <div
+      ref={ref}
+      id="required-changes"
+      tabIndex={-1}
+      className="scroll-mt-20 rounded-xl border border-destructive/40 bg-card outline-none"
+      aria-labelledby="required-changes-heading"
+    >
+      <div className="flex flex-col gap-3 p-4">
+        <div className="flex items-center gap-2">
+          <TriangleAlert className="size-4 shrink-0 text-destructive" aria-hidden />
+          <h2 id="required-changes-heading" className="text-base font-semibold">
+            Required changes
+          </h2>
+        </div>
+        <p className="text-sm text-muted-foreground">
+          {changes.length} {changes.length === 1 ? 'change' : 'changes'} needed before this application is ready to
+          deploy.
+        </p>
+        <ul className="flex flex-col gap-2">
+          {changes.map((change) => {
+            const fix = change.fix;
+            return (
+              <li
+                key={change.finding.id}
+                className="flex flex-wrap items-start justify-between gap-3 rounded-lg border p-3"
+                data-testid={`required-change-${change.finding.id}`}
+              >
+                <div className="flex flex-col gap-0.5">
+                  <p className="text-sm font-medium">{change.label}</p>
+                  <p className="text-sm text-muted-foreground">{change.explanation}</p>
+                  {fix.kind === 'instructions' ? (
+                    <p className="text-xs text-muted-foreground">Change your repository, then re-analyse.</p>
+                  ) : null}
+                </div>
+                {fix.kind === 'edit' ? (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="shrink-0"
+                    onClick={() => onEdit(fix.field)}
+                    data-testid={`required-change-fix-${change.finding.id}`}
+                  >
+                    Fix
+                  </Button>
+                ) : (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="shrink-0"
+                    onClick={onShowFix}
+                    data-testid={`required-change-fix-${change.finding.id}`}
+                  >
+                    Get fix instructions
+                  </Button>
+                )}
+              </li>
+            );
+          })}
+        </ul>
+      </div>
+    </div>
   );
 }
 
@@ -149,13 +298,23 @@ function ConfigurationTableRow({
         </div>
       </TableCell>
       <TableCell>
-        <div className="flex flex-col">
-          <span>{row.value}</span>
+        <div className="flex min-w-0 flex-col gap-0.5">
+          {COMMAND_ROW_IDS.has(row.id) && row.value.length > LONG_VALUE_THRESHOLD ? (
+            <CommandValue value={row.value} />
+          ) : (
+            <span>{row.value}</span>
+          )}
           {row.detail ? <span className="text-xs text-muted-foreground">{row.detail}</span> : null}
         </div>
       </TableCell>
       <TableCell>
-        <Badge variant={row.result.variant}>{row.result.label}</Badge>
+        {/* Ready and Not used are already spelled out by the value cell next
+            to them — a pill repeating the same word adds noise, not
+            information. Change required / Recommended / Needs review keep
+            their badge because the value cell alone does not say that. */}
+        {row.result.label === 'Ready' || row.result.label === 'Not used' ? null : (
+          <Badge variant={row.result.variant}>{row.result.label}</Badge>
+        )}
       </TableCell>
       <TableCell>
         {action?.kind === 'edit' ? (
@@ -179,6 +338,44 @@ function ConfigurationTableRow({
         ) : null}
       </TableCell>
     </TableRow>
+  );
+}
+
+// A long build/start/migration/worker command: one abbreviated monospace
+// line (CSS truncation, not JS measurement) plus a popover with the exact
+// text and a copy button — keyboard-accessible without widening the table or
+// wrapping every other row.
+function CommandValue({ value }: { value: string }) {
+  const [copied, setCopied] = useState(false);
+
+  return (
+    <div className="flex min-w-0 items-center gap-1">
+      <code className="block max-w-56 truncate font-mono text-sm" title={value}>
+        {value}
+      </code>
+      <Popover onOpenChange={(open) => !open && setCopied(false)}>
+        <PopoverTrigger asChild>
+          <Button variant="ghost" size="sm" className="h-6 shrink-0 px-1.5 text-xs text-muted-foreground">
+            Show full command
+          </Button>
+        </PopoverTrigger>
+        <PopoverContent align="start" className="w-80 space-y-2">
+          <code className="block max-h-40 overflow-auto rounded-md border bg-muted px-2.5 py-2 font-mono text-xs break-all whitespace-pre-wrap">
+            {value}
+          </code>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              void navigator.clipboard.writeText(value).then(() => setCopied(true));
+            }}
+          >
+            {copied ? 'Copied' : 'Copy'}
+          </Button>
+        </PopoverContent>
+      </Popover>
+    </div>
   );
 }
 

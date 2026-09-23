@@ -25,6 +25,7 @@ const mocks = vi.hoisted(() => ({
   fetchReadiness: vi.fn(),
   fetchDeploymentsForApplication: vi.fn(),
   fetchPublicInstallLinks: vi.fn(),
+  fetchReleases: vi.fn(),
 }));
 
 vi.mock('next/navigation', () => ({
@@ -68,6 +69,14 @@ vi.mock('@/lib/public-install-links', async (importOriginal) => {
   return {
     ...actual,
     fetchPublicInstallLinks: mocks.fetchPublicInstallLinks,
+  };
+});
+
+vi.mock('@/lib/releases', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../src/lib/releases')>();
+  return {
+    ...actual,
+    fetchReleases: mocks.fetchReleases,
   };
 });
 
@@ -142,6 +151,7 @@ beforeEach(() => {
   mocks.pathname = '/dashboard/applications/app-1';
   mocks.fetchApplicationPlan.mockResolvedValue(null);
   mocks.fetchPublicInstallLinks.mockResolvedValue([]);
+  mocks.fetchReleases.mockResolvedValue([]);
 
   container = document.createElement('div');
   document.body.appendChild(container);
@@ -189,7 +199,7 @@ const CASES: Case[] = [
       mocks.fetchReadiness.mockResolvedValue(baseReadiness({ analysisStatus: 'ANALYZING', state: 'ANALYSIS_INCOMPLETE' }));
       mocks.fetchDeploymentsForApplication.mockResolvedValue([]);
     },
-    installLinkPlacement: 'card',
+    installLinkPlacement: 'none',
     hasLifecycle: true,
   },
   {
@@ -202,7 +212,7 @@ const CASES: Case[] = [
       );
       mocks.fetchDeploymentsForApplication.mockResolvedValue([]);
     },
-    installLinkPlacement: 'card',
+    installLinkPlacement: 'none',
     hasLifecycle: true,
   },
   {
@@ -213,7 +223,7 @@ const CASES: Case[] = [
       mocks.fetchReadiness.mockResolvedValue(baseReadiness());
       mocks.fetchDeploymentsForApplication.mockResolvedValue([]);
     },
-    installLinkPlacement: 'card',
+    installLinkPlacement: 'none',
     hasLifecycle: true,
   },
   {
@@ -226,7 +236,7 @@ const CASES: Case[] = [
         fleetDeployment({ deploymentType: 'TEST', state: 'INSTALLING' }),
       ]);
     },
-    installLinkPlacement: 'card',
+    installLinkPlacement: 'none',
     hasLifecycle: true,
   },
   {
@@ -239,7 +249,7 @@ const CASES: Case[] = [
         fleetDeployment({ deploymentType: 'TEST', state: 'FAILED' }),
       ]);
     },
-    installLinkPlacement: 'card',
+    installLinkPlacement: 'none',
     hasLifecycle: true,
   },
   {
@@ -276,6 +286,7 @@ const CASES: Case[] = [
       mocks.fetchReadiness.mockRejectedValue(new Error('boom'));
       mocks.fetchDeploymentsForApplication.mockRejectedValue(new Error('boom'));
       mocks.fetchPublicInstallLinks.mockRejectedValue(new Error('boom'));
+      mocks.fetchReleases.mockRejectedValue(new Error('boom'));
     },
     installLinkPlacement: 'none',
     hasLifecycle: false,
@@ -334,6 +345,61 @@ describe.each(CASES)('$name state', ({ badgeLabel, arrange, installLinkPlacement
       // The install-link controls take over the state card's own footer.
       expect(container.querySelector('[data-testid="public-install-link-create"]')).not.toBeNull();
     }
+  });
+});
+
+describe('configuration-required action and Share note', () => {
+  it('the primary action links to the Configuration tab required-changes anchor', async () => {
+    CASES.find((c) => c.name === 'configuration-required')!.arrange();
+    await act(async () => {
+      renderPage();
+    });
+    await waitForHeading();
+
+    const action = container.querySelector('[data-testid="readiness-review-blocker"]');
+    expect(action?.getAttribute('href')).toBe('/dashboard/applications/app-1/config#required-changes');
+    expect(action?.textContent).toBe('Review required changes');
+  });
+
+  it('never-eligible states show a short Share note instead of the inactive install-link card', async () => {
+    CASES.find((c) => c.name === 'ready-to-test')!.arrange();
+    await act(async () => {
+      renderPage();
+    });
+    await waitForHeading();
+
+    expect(container.querySelector('[data-testid="public-install-link-card"]')).toBeNull();
+    expect(container.textContent).toContain('The customer install link becomes available');
+  });
+});
+
+describe('ready-to-share with a live link', () => {
+  it('shows Copy link as primary and a visible Manage button instead of an icon-only menu', async () => {
+    mocks.fetchApplication.mockResolvedValue(baseApplication());
+    mocks.fetchReadiness.mockResolvedValue(baseReadiness());
+    mocks.fetchDeploymentsForApplication.mockResolvedValue([
+      fleetDeployment({ deploymentType: 'TEST', state: 'HEALTHY' }),
+    ]);
+    mocks.fetchPublicInstallLinks.mockResolvedValue([
+      {
+        id: 'link-1',
+        url: 'https://deployz.dev/i/abc123',
+        status: 'active',
+        createdAt: '2026-08-01T00:00:00.000Z',
+        revokedAt: null,
+      },
+    ]);
+
+    await act(async () => {
+      renderPage();
+    });
+    await waitForHeading();
+
+    expect(container.querySelector('[data-testid="public-install-link-copy-url"]')?.textContent).toContain(
+      'Copy link',
+    );
+    const menuButton = container.querySelector('[data-testid="public-install-link-menu"]');
+    expect(menuButton?.textContent).toContain('Manage');
   });
 });
 

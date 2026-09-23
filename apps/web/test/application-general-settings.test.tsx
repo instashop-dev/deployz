@@ -65,11 +65,12 @@ function applicationFixture(overrides: Partial<Application> = {}): Application {
 }
 
 let currentApplication = applicationFixture();
+let currentDeployments: unknown[] = [];
 
 vi.mock('../src/app/dashboard/applications/[id]/application-page-context', () => ({
   useApplicationPage: () => ({
     id: currentApplication.id,
-    data: { application: currentApplication, readiness: null, deployments: [], plan: null, installLinks: [] },
+    data: { application: currentApplication, readiness: null, deployments: currentDeployments, plan: null, installLinks: [] },
     loading: false,
     presentation: {},
     refresh: mocks.refresh,
@@ -98,6 +99,7 @@ let root: Root;
 beforeEach(() => {
   vi.clearAllMocks();
   currentApplication = applicationFixture();
+  currentDeployments = [];
   mocks.refresh.mockResolvedValue(undefined);
   container = document.createElement('div');
   document.body.appendChild(container);
@@ -281,5 +283,18 @@ describe('Delete application', () => {
       "We couldn't remove this application. Try again in a moment.",
     );
     expect(mocks.push).not.toHaveBeenCalled();
+  });
+
+  it('shows removal as unavailable, with no trigger, once the application has any deployment', async () => {
+    currentDeployments = [{ id: 'deployment-1' }];
+
+    await act(async () => {
+      root.render(<GeneralSettings />);
+    });
+
+    expect(byTestId('delete-app-unavailable')?.textContent).toContain(
+      "This application has deployment history, so it can't be removed.",
+    );
+    expect(byTestId('delete-app-trigger')).toBeNull();
   });
 });

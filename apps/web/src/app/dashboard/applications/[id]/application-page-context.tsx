@@ -14,6 +14,7 @@ import { fetchApplication, fetchApplicationPlan, triggerAnalysis, type Applicati
 import { fetchDeploymentsForApplication, type FleetDeployment } from '@/lib/deployments';
 import { fetchPublicInstallLinks } from '@/lib/public-install-links';
 import { ANALYSIS_TAKING_LONGER_MS, fetchReadiness, type ApplicationReadiness } from '@/lib/readiness';
+import { fetchReleases, type Release } from '@/lib/releases';
 import { useStatusPoll } from '@/lib/use-status-poll';
 
 export interface ApplicationPageData {
@@ -24,6 +25,9 @@ export interface ApplicationPageData {
    *  incomplete or the plan cannot be fetched. */
   plan: DeploymentPlan | null;
   installLinks: Exclude<InstallLinksInput, null>;
+  /** 'error' when the releases fetch failed: the page says nothing about
+   *  releases rather than guessing. */
+  releases: Release[] | 'error';
 }
 
 export interface ApplicationPageContextValue {
@@ -50,17 +54,20 @@ export function useApplicationPage(): ApplicationPageContextValue {
 }
 
 async function loadApplicationPage(id: string): Promise<ApplicationPageData> {
-  const [application, readiness, deployments, installLinks] = await Promise.all([
+  const [application, readiness, deployments, installLinks, releases] = await Promise.all([
     fetchApplication(id),
     fetchReadiness(id),
     fetchDeploymentsForApplication(id),
     // The link is one card on the page: its failure must not take the page down.
     fetchPublicInstallLinks(id).catch(() => 'error' as const),
+    // Same for releases: the state mapper says nothing about them rather
+    // than taking the whole page down.
+    fetchReleases(id).catch(() => 'error' as const),
   ]);
   // The plan endpoint returns 409 while analysis is still running.
   const plan =
     application.analysisStatus === 'COMPLETE' ? await fetchApplicationPlan(id).catch(() => null) : null;
-  return { application, readiness, deployments, plan, installLinks };
+  return { application, readiness, deployments, plan, installLinks, releases };
 }
 
 function present(

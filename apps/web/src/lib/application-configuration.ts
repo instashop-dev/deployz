@@ -30,7 +30,7 @@ export interface ConfigurationRowResult {
 }
 
 export type ConfigurationRowAction =
-  | { label: 'Edit' | 'Add'; kind: 'edit'; field: EditableReadinessField }
+  | { label: 'Edit' | 'Add' | 'Fix' | 'Connect'; kind: 'edit'; field: EditableReadinessField }
   | { label: 'Fix'; kind: 'fix' }
   | null;
 
@@ -58,8 +58,15 @@ const CHANGE_REQUIRED: ConfigurationRowResult = { label: 'Change required', vari
 const RECOMMENDED: ConfigurationRowResult = { label: 'Recommended', variant: 'warning' };
 const NEEDS_REVIEW: ConfigurationRowResult = { label: 'Needs review', variant: 'warning' };
 
-const STORAGE_NOT_WIRED_HELP =
-  'Every deployment gets a storage bucket; this setting controls whether the app is wired to it.';
+// Every deployment gets an S3 bucket regardless of this setting — it is
+// always created and kept if the deployment is uninstalled. The setting only
+// controls whether Deployz passes the bucket name to the app as environment
+// variables, so the help text (and the value words) say "connected", never
+// "used" — "Not used" would wrongly suggest no bucket exists.
+const STORAGE_HELP =
+  'Every deployment gets a storage bucket, kept if the deployment is uninstalled. This setting controls whether Deployz passes the bucket name to your app.';
+const STORAGE_CONNECTED_VALUE = 'Connected (bucket name passed to the app)';
+const STORAGE_NOT_CONNECTED_VALUE = 'Bucket created, not connected';
 
 const CATEGORY_TO_ROW_ID: Record<string, string | undefined> = {
   database: 'database',
@@ -185,18 +192,18 @@ function buildOptionalFieldRow(
   };
 }
 
-/** Database/cache/storage: the server-computed requirements summary is the
- *  only source of truth for effective/detected/overridden — reading it
- *  directly here (rather than the display text `deriveReadinessRows` builds
- *  for the old readiness table) keeps the "Not used" / help copy correct even
- *  when a vendor override disagrees with what was detected. */
+/** Database/cache: the server-computed requirements summary is the only
+ *  source of truth for effective/detected/overridden — reading it directly
+ *  here (rather than the display text `deriveReadinessRows` builds for the
+ *  old readiness table) keeps the "Not used" copy correct even when a vendor
+ *  override disagrees with what was detected. (Storage has its own row
+ *  builder below — a bucket always exists, so its value/help words differ.) */
 function buildRequirementRow(
-  id: 'database' | 'redis' | 'storage',
+  id: 'database' | 'redis',
   label: string,
   field: EditableReadinessField,
   usedValue: string,
   requirements: ApplicationReadiness['requirements'],
-  notUsedHelp: string | null,
 ): ConfigurationRow {
   const requirement = requirements?.[id];
   if (!requirement) {
@@ -224,7 +231,43 @@ function buildRequirementRow(
     result: requirement.overridden || used ? READY : NOT_USED,
     action: { label: used ? 'Edit' : 'Add', kind: 'edit', field },
     blocking: false,
-    help: used ? null : notUsedHelp,
+    help: null,
+    findingIds: [],
+  };
+}
+
+/** File storage: every deployment gets an S3 bucket regardless of this
+ *  setting (always created, retained on uninstall) — only whether Deployz
+ *  passes its name to the app as environment variables is optional. The
+ *  value words and help text always say so, unlike the other requirement
+ *  rows where "Not used" is accurate on its own. */
+function buildStorageRow(requirements: ApplicationReadiness['requirements']): ConfigurationRow {
+  const requirement = requirements?.storage;
+  if (!requirement) {
+    return {
+      id: 'storage',
+      label: 'File storage',
+      value: 'Needs review',
+      detail: null,
+      result: NEEDS_REVIEW,
+      action: { label: 'Connect', kind: 'edit', field: 'storageRequired' },
+      blocking: false,
+      help: STORAGE_HELP,
+      findingIds: [],
+    };
+  }
+  const used = requirement.effective;
+  const valueFor = (connected: boolean): string => (connected ? STORAGE_CONNECTED_VALUE : STORAGE_NOT_CONNECTED_VALUE);
+  const detail = requirement.overridden ? `Set by you · detected: ${valueFor(requirement.detected)}` : null;
+  return {
+    id: 'storage',
+    label: 'File storage',
+    value: valueFor(used),
+    detail,
+    result: requirement.overridden || used ? READY : NOT_USED,
+    action: { label: used ? 'Edit' : 'Connect', kind: 'edit', field: 'storageRequired' },
+    blocking: false,
+    help: STORAGE_HELP,
     findingIds: [],
   };
 }
@@ -243,15 +286,25 @@ function buildWorkerRow(workerCommand: string): ConfigurationRow {
   };
 }
 
+/** The Fix action for a row carrying a required finding: an editable field
+ *  when `requiredChangeFix` resolves to one (only `port-unresolved` today),
+ *  otherwise the Fix-instructions dialog. A recommended-only row always
+ *  opens the instructions dialog — there is no "recommended edit" shortcut. */
+function fixAction(required: ReadinessFinding | undefined): ConfigurationRowAction {
+  if (!required) return { label: 'Fix', kind: 'fix' };
+  const fix = requiredChangeFix(required);
+  return fix.kind === 'edit' ? { label: 'Fix', kind: 'edit', field: fix.field } : { label: 'Fix', kind: 'fix' };
+}
+
 function buildExtraFindingRow(finding: ReadinessFinding): ConfigurationRow {
   const required = finding.severity === 'required';
   return {
     id: `finding-${finding.id}`,
-    label: finding.title,
+    label: requiredChangeLabel(finding),
     value: finding.suggestedOutcome,
     detail: null,
     result: required ? CHANGE_REQUIRED : RECOMMENDED,
-    action: { label: 'Fix', kind: 'fix' },
+    action: fixAction(required ? finding : undefined),
     blocking: required,
     help: finding.plainEnglishExplanation,
     findingIds: [finding.id],
@@ -259,8 +312,9 @@ function buildExtraFindingRow(finding: ReadinessFinding): ConfigurationRow {
 }
 
 /** Fold a row's mapped findings in: a required finding always wins the
- *  result and always points at Fix instructions — keeping this simple avoids
- *  a second "is this editable field enough to resolve it" judgement call. */
+ *  result and routes Fix the same way the required-changes panel does
+ *  (`requiredChangeFix`) — a health row's Fix opens instructions, a port
+ *  row's Fix opens the port editor, never the other way round. */
 function applyFindings(row: ConfigurationRow, findings: ReadinessFinding[]): ConfigurationRow {
   if (findings.length === 0) return row;
   const required = findings.find((finding) => finding.severity === 'required');
@@ -269,7 +323,7 @@ function applyFindings(row: ConfigurationRow, findings: ReadinessFinding[]): Con
     ...row,
     result: required ? CHANGE_REQUIRED : RECOMMENDED,
     blocking: required !== undefined,
-    action: { label: 'Fix', kind: 'fix' },
+    action: fixAction(required),
     help: chosen.plainEnglishExplanation,
     findingIds: findings.map((finding) => finding.id),
   };
@@ -307,16 +361,9 @@ export function deriveConfigurationRows(application: Application, readiness: App
     buildFactRow('start', 'Start command', facts),
     buildPortRow(settings),
     buildOptionalFieldRow('health', 'Health check', 'healthPath', 'Not set', settings),
-    buildRequirementRow('database', 'Database', 'databaseRequired', 'PostgreSQL database', readiness.requirements, null),
-    buildRequirementRow('redis', 'Cache / queue', 'redisRequired', 'Redis cache', readiness.requirements, null),
-    buildRequirementRow(
-      'storage',
-      'File storage',
-      'storageRequired',
-      'Object storage bucket',
-      readiness.requirements,
-      STORAGE_NOT_WIRED_HELP,
-    ),
+    buildRequirementRow('database', 'Database', 'databaseRequired', 'PostgreSQL database', readiness.requirements),
+    buildRequirementRow('redis', 'Cache / queue', 'redisRequired', 'Redis cache', readiness.requirements),
+    buildStorageRow(readiness.requirements),
     buildOptionalFieldRow('migrations', 'Database migrations', 'migrationCommand', 'None', settings),
   ];
   if (application.workerCommand) rows.push(buildWorkerRow(application.workerCommand));
@@ -338,6 +385,56 @@ export function deriveConfigurationRows(application: Application, readiness: App
 
   const settingRows = rows.map((row) => applyFindings(row, findingsByRow.get(row.id) ?? []));
   return sortRows([...settingRows, ...extraRows]);
+}
+
+/** How a required finding is resolved: an application setting the API
+ *  reconciles on save, or a repository change followed by a new analysis. */
+export type RequiredChangeFix = { kind: 'edit'; field: EditableReadinessField } | { kind: 'instructions' };
+
+const REQUIRED_CHANGE_LABELS: Record<string, string> = {
+  'container-setup': 'Add container build instructions (Dockerfile)',
+  'health-check': 'Add a health check route',
+  'port-unresolved': 'Set the port your app listens on',
+  'start-command-missing': 'Add a start command to the Dockerfile',
+  'localhost-binding': 'Listen on all network interfaces, not only localhost',
+  'local-file-storage': 'Store files in object storage, not on the local disk',
+  'build-context-git-metadata': 'Stop copying .git into the container build',
+};
+
+/** A plain-language label for a finding. Unknown findings keep their own title. */
+export function requiredChangeLabel(finding: Pick<ReadinessFinding, 'id' | 'title'>): string {
+  return REQUIRED_CHANGE_LABELS[finding.id] ?? finding.title;
+}
+
+/** Only `port-unresolved` clears when a setting is saved (the API's
+ *  RESOLVABLE_FINDINGS). Every other finding needs a repository change and a
+ *  new analysis — a health path or start-command edit alone does not clear it. */
+export function requiredChangeFix(finding: Pick<ReadinessFinding, 'id'>): RequiredChangeFix {
+  return finding.id === 'port-unresolved' ? { kind: 'edit', field: 'containerPort' } : { kind: 'instructions' };
+}
+
+/** One entry in the "Required changes" panel at the top of the Configuration
+ *  tab — every finding that blocks deployment, independent of the settings
+ *  table row layout below it. */
+export interface RequiredChange {
+  finding: ReadinessFinding;
+  label: string;
+  explanation: string;
+  fix: RequiredChangeFix;
+}
+
+/** Every required (blocking) finding, in the order the API returned them.
+ *  Empty before analysis has completed — there is nothing to require yet. */
+export function deriveRequiredChanges(readiness: ApplicationReadiness): RequiredChange[] {
+  if (readiness.analysisStatus !== 'COMPLETE') return [];
+  return readiness.findings
+    .filter((finding) => finding.severity === 'required')
+    .map((finding) => ({
+      finding,
+      label: requiredChangeLabel(finding),
+      explanation: finding.plainEnglishExplanation || finding.suggestedOutcome,
+      fix: requiredChangeFix(finding),
+    }));
 }
 
 /**

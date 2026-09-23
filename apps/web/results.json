@@ -1,0 +1,224 @@
+[
+  {
+    "scenario": "A",
+    "check": "overview: no console errors",
+    "pass": true,
+    "detail": ""
+  },
+  {
+    "scenario": "A",
+    "check": "overview heading present",
+    "pass": true,
+    "detail": "2 changes required before you can deploy"
+  },
+  {
+    "scenario": "A",
+    "check": "primary action href ends with /config#required-changes",
+    "pass": true,
+    "detail": "/dashboard/applications/app-a/config#required-changes"
+  },
+  {
+    "scenario": "A",
+    "check": "clicking review-required-changes scrolls #required-changes into view",
+    "pass": true,
+    "detail": "{\"inViewport\":true,\"focused\":true}"
+  },
+  {
+    "scenario": "A",
+    "check": "#required-changes is document.activeElement after click",
+    "pass": true,
+    "detail": "{\"inViewport\":true,\"focused\":true}"
+  },
+  {
+    "scenario": "A",
+    "check": "required changes panel lists two plain labels",
+    "pass": true,
+    "detail": "[\"Add container build instructions (Dockerfile)\",\"Add a health check route\"]"
+  },
+  {
+    "scenario": "A",
+    "check": "table shows no Ready/Not used pills",
+    "pass": true,
+    "detail": "[\"Change required\",\"Change required\",\"Needs review\"]"
+  },
+  {
+    "scenario": "A",
+    "check": "Get fix instructions opens dialog",
+    "pass": true,
+    "detail": ""
+  },
+  {
+    "scenario": "A",
+    "check": "Escape closes fix-instructions dialog",
+    "pass": true,
+    "detail": ""
+  },
+  {
+    "scenario": "A",
+    "check": "focus returns after Escape (some element focused, not body)",
+    "pass": true,
+    "detail": "before=null after=required-change-fix-container-setup"
+  },
+  {
+    "scenario": "A",
+    "check": "long command Show full command popover opens via keyboard",
+    "pass": true,
+    "detail": ""
+  },
+  {
+    "scenario": "A",
+    "check": "overview mobile: no horizontal scroll at 375",
+    "pass": true,
+    "detail": "scrollWidth=375"
+  },
+  {
+    "scenario": "A",
+    "check": "config mobile: no horizontal scroll at 375",
+    "pass": true,
+    "detail": "scrollWidth=375"
+  },
+  {
+    "scenario": "B",
+    "check": "overview: no console errors",
+    "pass": true,
+    "detail": ""
+  },
+  {
+    "scenario": "B",
+    "check": "overview heading is ready-to-test",
+    "pass": true,
+    "detail": "Ready for a test deployment"
+  },
+  {
+    "scenario": "B",
+    "check": "one release listed",
+    "pass": true,
+    "detail": "count=1"
+  },
+  {
+    "scenario": "B",
+    "check": "overview mobile: no horizontal scroll at 375",
+    "pass": true,
+    "detail": "scrollWidth=375"
+  },
+  {
+    "scenario": "C",
+    "check": "overview: no console errors",
+    "pass": true,
+    "detail": ""
+  },
+  {
+    "scenario": "C",
+    "check": "overview heading is ready-to-share",
+    "pass": true,
+    "detail": "Ready to share with customers"
+  },
+  {
+    "scenario": "C",
+    "check": "Create install link button shown (no link yet)",
+    "pass": true,
+    "detail": "count=1"
+  },
+  {
+    "scenario": "C",
+    "check": "Open test application link present (observedState.url)",
+    "pass": true,
+    "detail": "count=1"
+  },
+  {
+    "scenario": "C",
+    "check": "overview mobile: no horizontal scroll at 375",
+    "pass": true,
+    "detail": "scrollWidth=375"
+  },
+  {
+    "scenario": "D",
+    "check": "overview: no console errors",
+    "pass": false,
+    "detail": "Failed to load resource: the server responded with a status of 404 (Not Found)"
+  },
+  {
+    "scenario": "D",
+    "check": "Overview names v0.1.0 as what customers get",
+    "pass": true,
+    "detail": ""
+  },
+  {
+    "scenario": "D",
+    "check": "Overview shows separate failure notice for v0.1.1",
+    "pass": true,
+    "detail": ""
+  },
+  {
+    "scenario": "D",
+    "check": "Copy link button present",
+    "pass": true,
+    "detail": "count=1"
+  },
+  {
+    "scenario": "D",
+    "check": "Manage button present",
+    "pass": true,
+    "detail": "count=1"
+  },
+  {
+    "scenario": "D",
+    "check": "Releases newest first (v0.1.1 first)",
+    "pass": true,
+    "detail": "v0.1.1ff11ee2FailedThe version build failed.—Sep 5, 2026, 5:30 PM"
+  },
+  {
+    "scenario": "D",
+    "check": "Customer installs marker present on v0.1.0",
+    "pass": true,
+    "detail": "count=2"
+  },
+  {
+    "scenario": "D",
+    "check": "visible failure line on v0.1.1",
+    "pass": true,
+    "detail": "count=1"
+  },
+  {
+    "scenario": "D",
+    "check": "release row expands via keyboard (Tab+Enter)",
+    "pass": true,
+    "detail": ""
+  },
+  {
+    "scenario": "D",
+    "check": "expanded row shows full SHA",
+    "pass": true,
+    "detail": ""
+  },
+  {
+    "scenario": "D",
+    "check": "releases mobile: no horizontal scroll at 375",
+    "pass": true,
+    "detail": "scrollWidth=375"
+  },
+  {
+    "scenario": "D",
+    "check": "overview mobile: no horizontal scroll at 375",
+    "pass": true,
+    "detail": "scrollWidth=375"
+  },
+  {
+    "scenario": "E",
+    "check": "application 500 shows unavailable state",
+    "pass": true,
+    "detail": ""
+  },
+  {
+    "scenario": "E",
+    "check": "no console errors on unavailable page (app-level)",
+    "pass": true,
+    "detail": "(non-blocking; fetch errors expected)"
+  },
+  {
+    "scenario": "E",
+    "check": "releases 500 shows error state on Releases page",
+    "pass": true,
+    "detail": ""
+  }
+]

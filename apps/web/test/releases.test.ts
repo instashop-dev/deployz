@@ -4,6 +4,11 @@ import {
   deployableReleases,
   firstReleaseInput,
   installReleaseState,
+  installSummaryLine,
+  newestFirst,
+  runningOn,
+  runningOnLabel,
+  shortSha,
   suggestNextVersion,
   type Release,
 } from '../src/lib/releases';
@@ -85,6 +90,78 @@ describe('installReleaseState', () => {
         makeRelease({ status: 'UNAVAILABLE' }),
       ]),
     ).toEqual({ kind: 'none' });
+  });
+});
+
+describe('newestFirst', () => {
+  it('sorts releases by createdAt descending', () => {
+    const releases: Release[] = [
+      makeRelease({ id: 'old', createdAt: '2026-09-01T00:00:00.000Z' }),
+      makeRelease({ id: 'newest', createdAt: '2026-09-10T00:00:00.000Z' }),
+      makeRelease({ id: 'middle', createdAt: '2026-09-05T00:00:00.000Z' }),
+    ];
+    expect(newestFirst(releases).map((r) => r.id)).toEqual(['newest', 'middle', 'old']);
+  });
+});
+
+describe('shortSha', () => {
+  it('takes the first 7 characters of a full SHA', () => {
+    expect(shortSha('b2806f9010820a5659899cd0ce0b98d31561041')).toBe('b2806f9');
+  });
+});
+
+describe('runningOn', () => {
+  it('counts live test and customer deployments separately, excluding deleted ones', () => {
+    const result = runningOn(
+      [
+        { currentReleaseId: 'rel-1', state: 'HEALTHY', deploymentType: 'TEST' },
+        { currentReleaseId: 'rel-1', state: 'HEALTHY', deploymentType: 'PRODUCTION' },
+        { currentReleaseId: 'rel-1', state: 'HEALTHY', deploymentType: 'PRODUCTION' },
+        { currentReleaseId: 'rel-1', state: 'DELETED', deploymentType: 'PRODUCTION' },
+        { currentReleaseId: 'rel-2', state: 'HEALTHY', deploymentType: 'PRODUCTION' },
+      ],
+      'rel-1',
+    );
+    expect(result).toEqual({ test: 1, customer: 2 });
+  });
+});
+
+describe('runningOnLabel', () => {
+  it('describes test and customer counts together, pluralizing as needed', () => {
+    expect(runningOnLabel({ test: 0, customer: 0 })).toBeNull();
+    expect(runningOnLabel({ test: 1, customer: 0 })).toBe('Test deployment');
+    expect(runningOnLabel({ test: 0, customer: 2 })).toBe('2 customer deployments');
+    expect(runningOnLabel({ test: 1, customer: 2 })).toBe('Test deployment · 2 customer deployments');
+  });
+});
+
+describe('installSummaryLine', () => {
+  it('names the newest READY release as what customers install', () => {
+    const releases = [
+      makeRelease({ version: 'v0.1.0', gitSha: 'b2806f9010820a5659899cd0ce0b98d31561041', createdAt: '2026-09-01T00:00:00.000Z' }),
+    ];
+    expect(installSummaryLine(releases)).toBe('Customer installs get v0.1.0 (commit b2806f9).');
+  });
+
+  it('still names the older READY release when a newer one failed', () => {
+    const releases = [
+      makeRelease({ id: 'ready', version: 'v0.1.0', status: 'READY', createdAt: '2026-09-01T00:00:00.000Z' }),
+      makeRelease({ id: 'failed', version: 'v0.1.1', status: 'FAILED', createdAt: '2026-09-10T00:00:00.000Z' }),
+    ];
+    expect(installSummaryLine(releases)).toContain('v0.1.0');
+  });
+
+  it('says a release is building when nothing is ready yet', () => {
+    expect(installSummaryLine([makeRelease({ version: 'v0.1.0', status: 'BUILDING' })])).toBe(
+      'v0.1.0 is building — customers cannot install until it finishes.',
+    );
+  });
+
+  it('says no release is ready when there is none', () => {
+    expect(installSummaryLine([])).toBe('No release is ready yet — customers cannot install.');
+    expect(installSummaryLine([makeRelease({ status: 'FAILED' })])).toBe(
+      'No release is ready yet — customers cannot install.',
+    );
   });
 });
 

@@ -48,7 +48,7 @@ export function GeneralSettings() {
         </Card>
       </section>
 
-      <DangerZone application={data.application} />
+      <DangerZone application={data.application} hasDeployments={data.deployments.length > 0} />
     </div>
   );
 }
@@ -113,7 +113,14 @@ function RepositoryDetails({ application }: { application: Application }) {
   );
 }
 
-function DangerZone({ application }: { application: Application }) {
+// Removing an application (DELETE /api/applications/:id) is refused by the
+// API whenever any deployment record exists for it — even a removed one —
+// because it deletes the application's configs and releases in Deployz, and
+// never touches anything in a customer's AWS account. Once the page's own
+// data already shows a deployment, there is no point sending the vendor into
+// a dialog that only the server will reject — `hasDeployments` says so up
+// front instead.
+function DangerZone({ application, hasDeployments }: { application: Application; hasDeployments: boolean }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [confirmText, setConfirmText] = useState('');
@@ -138,6 +145,25 @@ function DangerZone({ application }: { application: Application }) {
     }
   }
 
+  if (hasDeployments) {
+    return (
+      <section aria-labelledby="danger-heading" className="flex flex-col gap-3">
+        <h3 id="danger-heading" className="text-base font-semibold">
+          Danger zone
+        </h3>
+        <Card className="border-destructive/40">
+          <CardContent className="flex flex-col gap-2 py-4" data-testid="delete-app-unavailable">
+            <p className="text-sm font-medium">Removal unavailable</p>
+            <p className="text-sm text-muted-foreground">
+              This application has deployment history, so it can&apos;t be removed. Applications can
+              only be removed before their first deployment.
+            </p>
+          </CardContent>
+        </Card>
+      </section>
+    );
+  }
+
   return (
     <section aria-labelledby="danger-heading" className="flex flex-col gap-3">
       <h3 id="danger-heading" className="text-base font-semibold">
@@ -147,8 +173,9 @@ function DangerZone({ application }: { application: Application }) {
         <CardContent className="flex flex-col gap-3 py-4">
           <p className="text-sm font-medium text-destructive">Remove this application?</p>
           <p className="text-sm text-muted-foreground">
-            This permanently removes the application and its releases from Deployz. This cannot be
-            undone.
+            This permanently removes the application, its releases, and its saved environment
+            variables from Deployz. This cannot be undone, and is only possible before the
+            application&apos;s first deployment.
           </p>
           <AlertDialog
             open={open}
@@ -172,8 +199,8 @@ function DangerZone({ application }: { application: Application }) {
               <AlertDialogHeader>
                 <AlertDialogTitle>Remove this application?</AlertDialogTitle>
                 <AlertDialogDescription>
-                  This permanently removes the application and its releases from Deployz. This
-                  cannot be undone.
+                  This permanently removes the application, its releases, and its saved environment
+                  variables from Deployz. This cannot be undone.
                 </AlertDialogDescription>
               </AlertDialogHeader>
               <div className="flex flex-col gap-1.5">

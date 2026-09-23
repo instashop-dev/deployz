@@ -23,6 +23,7 @@ const mocks = vi.hoisted(() => ({
   fetchReadiness: vi.fn(),
   fetchDeploymentsForApplication: vi.fn(),
   fetchPublicInstallLinks: vi.fn(),
+  fetchReleases: vi.fn(),
   toastError: vi.fn(),
   toastSuccess: vi.fn(),
 }));
@@ -62,6 +63,14 @@ vi.mock('@/lib/public-install-links', async (importOriginal) => {
   return {
     ...actual,
     fetchPublicInstallLinks: mocks.fetchPublicInstallLinks,
+  };
+});
+
+vi.mock('@/lib/releases', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../src/lib/releases')>();
+  return {
+    ...actual,
+    fetchReleases: mocks.fetchReleases,
   };
 });
 
@@ -138,6 +147,7 @@ beforeEach(() => {
   mocks.fetchReadiness.mockResolvedValue(baseReadiness());
   mocks.fetchDeploymentsForApplication.mockResolvedValue([]);
   mocks.fetchPublicInstallLinks.mockResolvedValue([]);
+  mocks.fetchReleases.mockResolvedValue([]);
   // Only reached when analysisStatus is COMPLETE, but stubbed unconditionally
   // so any test that flips to COMPLETE does not need to remember it too.
   mocks.fetchApplicationPlan.mockResolvedValue(null);
@@ -302,7 +312,7 @@ describe('Blocking issues', () => {
     mocks.fetchApplication.mockResolvedValue({ ...baseApplication(), analysisStatus: 'COMPLETE' });
   });
 
-  it('shows the required-changes count and a Review configuration link to the Configuration tab', async () => {
+  it('shows the required-changes count and a Review required changes link to the Configuration tab', async () => {
     mocks.fetchReadiness.mockResolvedValue(blockedReadiness(['a', 'b']));
 
     await act(async () => {
@@ -314,11 +324,11 @@ describe('Blocking issues', () => {
       if (!(el instanceof HTMLElement) || !el.textContent) throw new Error('still loading');
       return el;
     });
-    expect(heading.textContent).toBe('2 changes required');
+    expect(heading.textContent).toBe('2 changes required before you can deploy');
 
     const review = await reviewLink();
-    expect(review.textContent).toBe('Review configuration');
-    expect(review.getAttribute('href')).toBe('/dashboard/applications/app-1/config');
+    expect(review.textContent).toBe('Review required changes');
+    expect(review.getAttribute('href')).toBe('/dashboard/applications/app-1/config#required-changes');
 
     const items = container.querySelectorAll('[data-testid="application-state-heading"]');
     expect(items).toHaveLength(1);

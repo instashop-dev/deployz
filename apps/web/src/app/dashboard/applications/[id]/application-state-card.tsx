@@ -187,6 +187,12 @@ export function ApplicationStateCard({
         ) : null}
 
         {presentation.lifecycle ? <SetupLifecycle items={presentation.lifecycle} /> : null}
+
+        {presentation.lifecycle &&
+        presentation.installLink.kind === 'unavailable' &&
+        presentation.installLinkPlacement === 'none' ? (
+          <p className="text-xs text-muted-foreground">{presentation.installLink.reason}</p>
+        ) : null}
       </CardContent>
       {hasFooterContent ? (
         <CardFooter className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
