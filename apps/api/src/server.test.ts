@@ -1,5 +1,5 @@
 import { PGlite } from '@electric-sql/pglite';
-import { and, eq, inArray } from 'drizzle-orm';
+import { and, eq, inArray, sql } from 'drizzle-orm';
 import { createHmac, generateKeyPairSync } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -1637,6 +1637,63 @@ describe('server — relay bearer auth, INSTALL job, and command/result/health f
     expect(updated!.previousReleaseId).toBeNull();
     // Promotion resolved UPDATE_AVAILABLE → HEALTHY: the promoted release is
     // the newest READY one, so no update remains available.
+    expect(updated!.state).toBe('HEALTHY');
+  });
+
+  it('promoting the newest release resolves UPDATE_AVAILABLE even when created_at has microseconds', async () => {
+    // Production Postgres keeps microseconds; a JS Date keeps milliseconds.
+    // The newest release must not count as newer than itself.
+    const token = 'relay-microsecond-token';
+    const installationId = 'inst-microsecond';
+    const application = await insertApplication(db, org.organizationId);
+    const fresh = await insertDeployment(db, org.organizationId, application.id, deployment.customerId, {
+      state: 'INSTALLING',
+      installationId,
+      enrollmentCode: crypto.randomUUID(),
+      enrollmentUsedAt: new Date(),
+      relayTokenHash: hashRelayToken(token),
+      relayStatus: 'CONNECTED',
+    });
+    const digest = 'sha256:' + '9'.repeat(64);
+    const release = await insertRelease(db, application.id, {
+      imageDigest: `acme/app@${digest}`,
+      releaseStatus: 'READY',
+    });
+    await db
+      .update(schema.releases)
+      .set({ createdAt: sql`'2026-09-23T09:43:56.141234Z'::timestamptz` })
+      .where(eq(schema.releases.id, release.id));
+    const [job] = await db
+      .insert(schema.deploymentJobs)
+      .values({
+        deploymentId: fresh.id,
+        type: 'DEPLOY_RELEASE',
+        state: 'RUNNING',
+        idempotencyKey: `${fresh.id}:DEPLOY_RELEASE:${release.id}`,
+        payload: { releaseId: release.id },
+      })
+      .returning();
+
+    await postJson(app, `/api/relay/commands/${job!.id}/result`, { success: true }, { authorization: `Bearer ${token}` });
+    await postJson(
+      app,
+      '/api/relay/health',
+      {
+        installationId,
+        healthStatus: 'HEALTHY',
+        runningImageDigest: digest,
+        observedState: {
+          deploymentRolloutState: 'COMPLETED',
+          desiredCount: 1,
+          runningCount: 1,
+          httpProbe: { ok: true, statusCode: 200, latencyMs: 12, checkedAt: new Date().toISOString() },
+        },
+      },
+      { authorization: `Bearer ${token}` },
+    );
+
+    const [updated] = await db.select().from(schema.deployments).where(eq(schema.deployments.id, fresh.id));
+    expect(updated!.currentReleaseId).toBe(release.id);
     expect(updated!.state).toBe('HEALTHY');
   });
 
