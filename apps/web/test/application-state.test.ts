@@ -8,6 +8,7 @@ import {
   customerDeployments,
   deriveApplicationPresentation,
   latestTestDeployment,
+  releaseReadiness,
   testDeploymentPhase,
   type ApplicationState,
   type ApplicationStateInput,
@@ -259,7 +260,7 @@ const STATE_CASES: Record<ApplicationState, StateCase> = {
   },
   'ready-to-test': {
     input: makeInput(),
-    badgeLabel: 'Ready to test',
+    badgeLabel: 'Analysis complete',
     heading: 'Ready for a test deployment',
     primaryActionId: 'start-test',
     polling: null,
@@ -576,10 +577,10 @@ describe('readiness summary, blockers and recommendations', () => {
     expect(result.blockers).toEqual(findings.map((f) => ({ id: f.id, title: f.title })));
   });
 
-  it('reads "Ready to test" in ready-to-test', () => {
+  it('reads "No blocking issues" in ready-to-test — the analysis result, not release readiness', () => {
     const result = deriveApplicationPresentation(makeInput());
     expect(result.state).toBe('ready-to-test');
-    expect(result.readinessSummary).toBe('Ready to test');
+    expect(result.readinessSummary).toBe('No blocking issues');
   });
 
   it('reads "No blocking issues" after analysis once there is no blocking finding and the card is not ready-to-test', () => {
@@ -1139,5 +1140,67 @@ describe('customerDeployments', () => {
       deployment({ id: 't1', state: 'HEALTHY' }),
     ];
     expect(customerDeployments(list).map((d) => d.id)).toEqual(['c1']);
+  });
+});
+
+describe('release readiness is shown apart from the analysis state', () => {
+  function release(overrides: Partial<Release> = {}): Release {
+    return {
+      id: 'rel-1',
+      version: 'v1.0.0',
+      status: 'READY',
+      failureReason: null,
+      gitSha: 'a'.repeat(40),
+      createdAt: '2026-09-01T00:00:00.000Z',
+      ...overrides,
+    };
+  }
+  function withReleases(releases: Release[] | 'error', deployments: FleetDeployment[] = []) {
+    const input = makeInput({ deployments });
+    return deriveApplicationPresentation({ ...input, data: { ...input.data!, releases } });
+  }
+
+  it('does not offer a test deployment when the only release failed', () => {
+    const result = withReleases([release({ status: 'FAILED' })]);
+    expect(result.state).toBe('ready-to-test');
+    expect(result.badge.label).toBe('Analysis complete');
+    expect(result.releaseBadge).toEqual({ label: 'Release build failed', variant: 'destructive' });
+    expect(result.heading).toBe('No release is ready to test');
+    expect(result.primaryAction).toMatchObject({ id: 'view-releases', href: '/dashboard/applications/app-1/releases' });
+  });
+
+  it('keeps an older READY release deployable when a newer build failed', () => {
+    const result = withReleases([
+      release({ id: 'old', status: 'READY', createdAt: '2026-09-01T00:00:00.000Z' }),
+      release({ id: 'new', status: 'FAILED', createdAt: '2026-09-02T00:00:00.000Z' }),
+    ]);
+    expect(result.releaseBadge?.label).toBe('Release ready');
+    expect(result.primaryAction?.id).toBe('start-test');
+  });
+
+  it('waits and polls while the release builds', () => {
+    const result = withReleases([release({ status: 'BUILDING' })]);
+    expect(result.releaseBadge?.label).toBe('Release building');
+    expect(result.heading).toBe('Building a release');
+    expect(result.polling).toEqual({ intervalMs: TEST_DEPLOYMENT_POLL_MS });
+  });
+
+  it('keeps the create-page path when there is no release yet, and shows no badge when releases are unknown', () => {
+    expect(withReleases([]).primaryAction?.id).toBe('start-test');
+    expect(withReleases([]).releaseBadge?.label).toBe('No release yet');
+    expect(withReleases('error').releaseBadge).toBeNull();
+    expect(withReleases('error').primaryAction?.id).toBe('start-test');
+  });
+
+  it('never changes a later state because a release failed', () => {
+    const result = withReleases([release({ status: 'FAILED' })], [deployment({ state: 'INSTALLING' })]);
+    expect(result.state).toBe('test-deploying');
+    expect(result.releaseBadge?.label).toBe('Release build failed');
+  });
+
+  it('maps every release mix to one readiness', () => {
+    expect(releaseReadiness([])).toBe('none');
+    expect(releaseReadiness([release({ status: 'UNAVAILABLE' })])).toBe('unavailable');
+    expect(releaseReadiness([release({ status: 'UNAVAILABLE' }), release({ id: 'f', status: 'FAILED' })])).toBe('failed');
   });
 });

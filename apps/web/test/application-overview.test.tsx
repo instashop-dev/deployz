@@ -242,7 +242,7 @@ const CASES: Case[] = [
   },
   {
     name: 'ready-to-test',
-    badgeLabel: 'Ready to test',
+    badgeLabel: 'Analysis complete',
     arrange: () => {
       mocks.fetchApplication.mockResolvedValue(baseApplication());
       mocks.fetchReadiness.mockResolvedValue(baseReadiness());
@@ -425,6 +425,36 @@ describe('ready-to-share with a live link', () => {
     );
     const menuButton = container.querySelector('[data-testid="public-install-link-menu"]');
     expect(menuButton?.textContent).toContain('Manage');
+  });
+});
+
+describe('Release readiness', () => {
+  it('never offers a test deployment when the only release failed to build', async () => {
+    CASES.find((c) => c.name === 'ready-to-test')!.arrange();
+    mocks.fetchReleases.mockResolvedValue([
+      {
+        id: 'rel-1',
+        version: 'efa70adbc63e',
+        status: 'FAILED',
+        failureReason: 'CodeBuild reported FAILED — BUILD: The image build did not produce an image',
+        gitSha: 'efa70adbc63e'.padEnd(40, '0'),
+        createdAt: '2026-09-23T17:22:39.781Z',
+      },
+    ]);
+    await act(async () => {
+      renderPage();
+    });
+    const heading = await waitForHeading();
+
+    expect(heading.textContent).toBe('No release is ready to test');
+    expect(container.querySelector('[data-testid="application-status-badge"]')?.textContent).toBe('Analysis complete');
+    expect(container.querySelector('[data-testid="application-release-badge"]')?.textContent).toBe(
+      'Release build failed',
+    );
+    expect(container.textContent).not.toContain('Start test deployment');
+    expect(container.textContent).not.toContain('Ready to test');
+    const review = Array.from(container.querySelectorAll('a')).find((a) => a.textContent === 'Review failed build');
+    expect(review?.getAttribute('href')).toBe('/dashboard/applications/app-1/releases');
   });
 });
 

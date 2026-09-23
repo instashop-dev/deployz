@@ -1011,11 +1011,14 @@ export function releaseBuildFailureSummary(reason: string | null): string {
     return 'The container registry temporarily limited image downloads. Start the build again in a few minutes.';
   }
   if (/timed_out|timed out|timeout/.test(text)) return 'The version build ran out of time.';
-  if (/download_source|could not fetch|clone/.test(text)) return 'The build could not fetch the repository.';
+  if (/download_source|could not fetch|repo tarball|clone/.test(text)) return 'The build could not fetch the repository.';
   if (/post_build|docker push|denied: requested access|upload_artifacts/.test(text)) {
     return 'The version was built but could not be stored in the image registry.';
   }
   if (/provisioning|install|queued|submitted/.test(text)) return 'The build could not start.';
+  // The buildspec's final check says only that no image exists. It names no
+  // cause, so the summary must not blame the repository.
+  if (/did not produce an image/.test(text)) return 'The image build failed. This message does not show the cause.';
   if (/build:|command_execution_error|docker build|pre_build/.test(text)) {
     return 'The version could not be built from the repository.';
   }

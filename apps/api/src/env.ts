@@ -235,6 +235,9 @@ export const env = {
   // Created by the BuildPipeline (default `deployz-images`); the stack wires
   // the real name into the Lambda environment so a rename cannot drift.
   ecrRepositoryName: process.env.DEPLOYZ_ECR_REPOSITORY_NAME ?? 'deployz-images',
+  // The release build project's log group, read for failed-build evidence.
+  // Unset (local, E2E) → build logs read as unavailable; nothing else changes.
+  buildLogGroupName: process.env.BUILD_LOG_GROUP_NAME,
   // Phase 1 Cloudflare runtime config — the deployz.dev zone lives on
   // Cloudflare and is where the default-HTTPS flow writes each deployment's
   // DNS-validation and routing CNAMEs. Zone id/name are public; the API token

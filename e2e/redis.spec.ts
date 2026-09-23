@@ -162,10 +162,10 @@ test('bullmq-worker: analyses as ready with the managed Redis passed check, then
   await page.getByRole('tab', { name: 'Configuration' }).click();
   await page.waitForURL('**/config');
   await expect(page.getByTestId('readiness-table')).toBeVisible();
-  // Scoped to the Configuration tab's own section: the header badge above
-  // also reads "Ready to test", and an unscoped getByText matches both.
+  // Scoped to the Configuration tab's own section: the analysis summary. The
+  // header's release badge says separately whether a release can deploy.
   await expect(
-    page.getByRole('region', { name: 'Deployment configuration' }).getByText('Ready to test'),
+    page.getByRole('region', { name: 'Deployment configuration' }).getByText('No blocking issues'),
   ).toBeVisible();
   await expect(
     page

@@ -178,6 +178,17 @@ the preflight calls the model.
    failure. Confidence below `high` is hedged on the card ("Deployz could
    not determine the exact cause…").
 
+Failed release builds (`apps/api/src/release-build-failure.ts`) follow
+the same rules outside the deployment flow. Deployz reads the failed build's
+log, redacts it, finds the earliest meaningful error, and classifies who most
+likely has to act only when a log line supports it — never from the final
+check or an exit code alone. "Explain with AI"
+(`POST …/releases/:releaseId/build-failure/explain`) runs only on request,
+sends at most 60 redacted log lines fenced as untrusted data, and keeps only
+supporting line numbers that exist in that excerpt, shown with the log's own
+text. It is not cached. Without log lines it makes no model call; on any AI
+failure it answers 503 and the failure details stay usable.
+
 Adding a signature: add the rule in `refineFailureCode` (order matters —
 specific before generic), a test in `failure-classification.test.ts`, and
 only if no existing code fits, a new code in all five mirrors

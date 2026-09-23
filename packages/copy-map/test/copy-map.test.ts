@@ -553,6 +553,12 @@ describe('releaseBuildFailureSummary (Phase 8)', () => {
         'CodeBuild reported FAILED — BUILD: COMMAND_EXECUTION_ERROR: Error while executing command: if [ "$(cat /tmp/deployz-build-outcome)" = rate_limited ]; then echo "Docker Hub rate limit (HTTP 429) blocked the base image download" >&2; exit 1; fi',
         'The container registry temporarily limited image downloads. Start the build again in a few minutes.',
       ],
+      // The final check names no cause: the summary must not blame the repository.
+      [
+        'CodeBuild reported FAILED — BUILD: COMMAND_EXECUTION_ERROR: Error while executing command: if [ "$(cat /tmp/deployz-build-outcome 2>/dev/null)" != ok ]; then echo "The image build did not produce an image" >&2; exit 1; fi. Reason: exit status 1',
+        'The image build failed. This message does not show the cause.',
+      ],
+      ['Failed to fetch repo tarball for acme/site (ref: sadsad22): HTTP 404 — 404: Not Found', 'The build could not fetch the repository.'],
       ['CodeBuild reported TIMED_OUT', 'The version build ran out of time.'],
       ['CodeBuild reported FAILED — DOWNLOAD_SOURCE: CLIENT_ERROR', 'The build could not fetch the repository.'],
       ['CodeBuild reported FAILED — PROVISIONING: fault', 'The build could not start.'],

@@ -319,6 +319,14 @@ import {
 import { createRequireAuth, requireRole, type OrganizationRow } from './require-auth.js';
 import { createRequireTeamAdmin, isTeamAdmin } from './admin/auth.js';
 import { registerAdminRoutes } from './admin/routes.js';
+import {
+  BUILD_EXPLANATION_TIMEOUT_MS,
+  buildFailureDetails,
+  createCloudWatchBuildLogReader,
+  explainBuildFailure,
+  readReleaseBuildLog,
+  type BuildLogReader,
+} from './release-build-failure.js';
 
 export interface ServerDeps {
   auth: Auth;
@@ -379,6 +387,10 @@ export interface ServerDeps {
   // to the real registry client in the deployed Lambda and to the scriptable
   // fixture everywhere else; tests inject a fake.
   releaseImages?: ReleaseImageClient | undefined;
+  // Injectable failed-build log seam (release-build-failure.ts). Defaults to
+  // the real log reader when BUILD_LOG_GROUP_NAME is set (the deployed
+  // Lambda) and to none elsewhere; tests inject a fake. Null means no reader.
+  buildLogReader?: BuildLogReader | null | undefined;
   // Injectable Phase 5 Paddle billing seam (paddle.ts). Defaults to
   // env-configured createPaddle(), which is null when PADDLE_API_KEY is
   // unset; tests inject a fake PaddleBilling so no real Paddle call ever
@@ -411,6 +423,12 @@ const PUBLIC_INSTALL_RATE_LIMIT = { max: 300, timeWindow: '1 minute' } as const;
 // well under GitHub's own per-installation rate limits while comfortably
 // covering normal use (opening the release picker, paging, typing a sha).
 const GITHUB_COMMITS_RATE_LIMIT = { max: 60, timeWindow: '1 minute' } as const;
+
+// Failed-build evidence reads the build log (a few log-service calls per
+// request); the AI explanation spends model tokens. Both are on-demand
+// clicks, so these caps only bound a script, never a person.
+const BUILD_FAILURE_RATE_LIMIT = { max: 30, timeWindow: '1 minute' } as const;
+const BUILD_EXPLANATION_RATE_LIMIT = { max: 5, timeWindow: '1 minute' } as const;
 
 // A refused relay retries registration indefinitely, so only the first
 // blocked preflight evaluation per window is recorded per deployment — the
@@ -1586,6 +1604,7 @@ export async function buildServer({
   emailSender,
   ecrClient,
   releaseImages: injectedReleaseImages,
+  buildLogReader = env.buildLogGroupName ? createCloudWatchBuildLogReader(env.buildLogGroupName) : null,
   githubFetch: injectedGithubFetch,
   githubAppId: injectedGithubAppId,
   githubAppPrivateKey: injectedGithubAppPrivateKey,
@@ -4525,6 +4544,85 @@ export async function buildServer({
       })),
     };
   });
+
+  // ── Failed release builds (release-build-failure.ts) ────────────────────
+  //
+  // Evidence for ONE failed release of an application the caller's
+  // organization owns: the redacted build log, the earliest errors in it,
+  // and the on-demand AI reading of those lines. Read-only — nothing here
+  // changes the release or starts a build.
+  async function loadFailedRelease(
+    applicationId: string,
+    releaseId: string,
+    organizationId: string,
+  ): Promise<{ application: ApplicationRow; release: typeof schema.releases.$inferSelect }> {
+    const application = await loadOwnedApplication(db, applicationId, organizationId);
+    requireUuidId(releaseId);
+    const [release] = await db
+      .select()
+      .from(schema.releases)
+      .where(and(eq(schema.releases.id, releaseId), eq(schema.releases.applicationId, application.id)))
+      .limit(1);
+    if (!release) {
+      throw new NotFoundError('Release not found');
+    }
+    if (release.releaseStatus !== 'FAILED') {
+      throw new ApiError(409, 'RELEASE_NOT_FAILED', 'Build failure details exist only for a release whose build failed.');
+    }
+    return { application, release };
+  }
+
+  async function loadBuildFailureDetails(request: FastifyRequest) {
+    const { id, releaseId } = request.params as { id: string; releaseId: string };
+    const { application, release } = await loadFailedRelease(id, releaseId, requireSessionOrganizationId(request));
+    const log = await readReleaseBuildLog(buildLogReader, release.currentBuildId);
+    return { details: buildFailureDetails({ release, application, log }), log };
+  }
+
+  // GET /api/applications/:id/releases/:releaseId/build-failure
+  app.get(
+    '/api/applications/:id/releases/:releaseId/build-failure',
+    { preHandler: requireAuth, config: { rateLimit: BUILD_FAILURE_RATE_LIMIT } },
+    async (request) => (await loadBuildFailureDetails(request)).details,
+  );
+
+  // GET /api/applications/:id/releases/:releaseId/build-log — the redacted,
+  // bounded build log the details panel links to.
+  app.get(
+    '/api/applications/:id/releases/:releaseId/build-log',
+    { preHandler: requireAuth, config: { rateLimit: BUILD_FAILURE_RATE_LIMIT } },
+    async (request) => {
+      const { log } = await loadBuildFailureDetails(request);
+      return log.status === 'available'
+        ? { status: log.status, lines: log.log.lines, truncated: log.log.truncated }
+        : { status: log.status, lines: [], truncated: false };
+    },
+  );
+
+  // POST /api/applications/:id/releases/:releaseId/build-failure/explain —
+  // on demand only. Any AI failure is a retryable 503; the details and logs
+  // above never depend on it.
+  app.post(
+    '/api/applications/:id/releases/:releaseId/build-failure/explain',
+    { preHandler: requireAuth, config: { rateLimit: BUILD_EXPLANATION_RATE_LIMIT } },
+    async (request) => {
+      const { details } = await loadBuildFailureDetails(request);
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), BUILD_EXPLANATION_TIMEOUT_MS);
+      try {
+        return await explainBuildFailure(details, aiGateway, { abortSignal: controller.signal });
+      } catch (error) {
+        request.log.warn({ err: error }, 'release build explanation failed');
+        throw new ApiError(
+          503,
+          'BUILD_EXPLANATION_UNAVAILABLE',
+          'The AI explanation is not available right now. The failure details and build logs are not affected.',
+        );
+      } finally {
+        clearTimeout(timer);
+      }
+    },
+  );
 
   // ── Commit selector (releases) ──────────────────────────────────────────
   //

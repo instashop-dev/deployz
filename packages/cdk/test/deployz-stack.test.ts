@@ -222,6 +222,28 @@ describe('DeployzStack', () => {
     });
   });
 
+  // Failed-release evidence: the API reads the release build project's log
+  // group, and only that group, and only GetLogEvents.
+  it('lets the API read only the release build log group', () => {
+    const policies = Object.values(baseline.findResources('AWS::IAM::Policy'));
+    const logStatements = policies.flatMap((policy) =>
+      ((policy.Properties as { PolicyDocument: { Statement: Array<{ Action: unknown; Resource: unknown }> } })
+        .PolicyDocument.Statement).filter((statement) => JSON.stringify(statement.Action).includes('logs:Get')),
+    );
+    expect(logStatements).toHaveLength(1);
+    expect(logStatements[0]!.Action).toBe('logs:GetLogEvents');
+    expect(JSON.stringify(logStatements[0]!.Resource)).toContain(':log-group:/aws/codebuild/');
+    expect(JSON.stringify(logStatements[0]!.Resource)).toContain(':log-stream:*');
+
+    baseline.hasResourceProperties('AWS::Lambda::Function', {
+      Environment: Match.objectLike({
+        Variables: Match.objectLike({
+          BUILD_LOG_GROUP_NAME: Match.objectLike({ 'Fn::Join': Match.arrayWith([Match.arrayWith(['/aws/codebuild/'])]) }),
+        }),
+      }),
+    });
+  });
+
   it('exports stack outputs', () => {
     const app = new App();
     const stack = new DeployzStack(app, 'DeployzTest');

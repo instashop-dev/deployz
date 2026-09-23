@@ -38,13 +38,18 @@ export function ApplicationHeader() {
 
   return (
     <div className="flex flex-col gap-1">
-      <div className="flex items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         <h1 id="app-name" className="text-2xl font-semibold tracking-tight">
           {application.name}
         </h1>
         <Badge variant={presentation.badge.variant} data-testid="application-status-badge">
           {presentation.badge.label}
         </Badge>
+        {presentation.releaseBadge ? (
+          <Badge variant={presentation.releaseBadge.variant} data-testid="application-release-badge">
+            {presentation.releaseBadge.label}
+          </Badge>
+        ) : null}
       </div>
       <p className="text-sm text-muted-foreground">
         {application.repoFullName}
