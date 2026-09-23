@@ -271,14 +271,21 @@ export function deriveHero(detail: HeroInput): HeroModel {
       // its own, saying "add a custom domain" would ask for work nobody
       // needs to do.
       const secure = status.url !== null && status.url.startsWith('https://');
+      // A terminal certificate failure never fails the deployment
+      // (docs/https-regional-certificates.md) — the hero still says the
+      // deployment is live, but points at the retry action instead of the
+      // routine "being set up" line.
+      const httpsFailed = status.httpsProgress?.state === 'FAILED';
       const description =
         state === 'UPDATE_AVAILABLE'
           ? `${releaseLabel(detail.version)} is running and healthy. A newer release is ready to deploy.`
           : secure
             ? `${releaseLabel(detail.version)} is running and passing health checks.`
-            : status.needsDomainSetup
-              ? `${releaseLabel(detail.version)} is running and healthy over a temporary address. Add a custom domain to serve it over HTTPS.`
-              : `${releaseLabel(detail.version)} is running and healthy over a temporary address. A secure address is being set up.`;
+            : httpsFailed
+              ? `${releaseLabel(detail.version)} is running and healthy over a temporary address. The secure address needs attention — retry HTTPS setup below.`
+              : status.needsDomainSetup
+                ? `${releaseLabel(detail.version)} is running and healthy over a temporary address. Add a custom domain to serve it over HTTPS.`
+                : `${releaseLabel(detail.version)} is running and healthy over a temporary address. A secure address is being set up.`;
       return {
         kind: 'live',
         tone: 'success',

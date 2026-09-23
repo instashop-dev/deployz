@@ -1,6 +1,8 @@
 import type { ReactNode } from 'react';
 
-import type { CustomerDeploymentStatus, DeploymentStage, DeploymentStep } from '@deployz/contracts';
+import type { CustomerDeploymentStatus, DeploymentStage, DeploymentStep, HttpsProgress } from '@deployz/contracts';
+
+import { HTTPS_SLOW_NOTE, HTTPS_SUBSTEP_LABEL } from '@/lib/deployment-vocabulary';
 
 // Client-side vocabulary for the server-derived deployment stage/step. The
 // server (deriveDeploymentStatus in the API) is the only place lifecycle
@@ -179,10 +181,10 @@ export const STEP_LABEL: Record<DeploymentStep, { pending: string; active: strin
     done: 'Health checks passed',
   },
   TLS: {
-    pending: 'Set up HTTPS',
-    active: 'Setting up HTTPS',
-    failed: 'Setting up HTTPS failed',
-    done: 'HTTPS set up',
+    pending: 'Prepare secure access',
+    active: 'Preparing secure access',
+    failed: 'Preparing secure access failed',
+    done: 'Secure access ready',
   },
   READY: {
     pending: 'Ready',
@@ -270,7 +272,7 @@ const STEPPER_GROUPS: readonly {
     substeps: ['DATABASE_STORAGE', 'REDIS', 'MIGRATION'],
   },
   { key: 'health', label: 'Health check', steps: ['HEALTH_CHECK'] },
-  { key: 'https', label: 'Configure HTTPS', steps: ['TLS'] },
+  { key: 'https', label: 'Preparing secure access', steps: ['TLS'] },
   { key: 'ready', label: 'Ready', steps: ['READY'] },
 ];
 
@@ -287,14 +289,50 @@ function stepperGroupState(members: ProgressStep[]): ProgressStepState {
  * (including a substep) is active — inheriting that member's live detail —
  * `done` once every present member finished, and `waiting` otherwise. Groups
  * none of whose wire steps apply are dropped, exactly like the flat list.
+ *
+ * Regional HTTPS certificates (docs/https-regional-certificates.md): when
+ * `httpsProgress` is present and its `mode` is not `custom` (a vendor custom
+ * domain has no sub-step detail), the `https` rung renders `httpsProgress`'s
+ * own three sub-steps instead of the plain TLS row. A terminal certificate
+ * failure (`httpsProgress.state === 'FAILED'`) puts the rung and every
+ * not-yet-done sub-step in `attention` even when the wire `stage` is not
+ * FAILED — a default-HTTPS error never fails the deployment — which also
+ * stops the rung from ever picking up the wire TLS step's live detail.
  */
-export function customerStepperSteps(steps: ProgressStep[]): StepperStep[] {
+export function customerStepperSteps(
+  steps: ProgressStep[],
+  options?: { httpsProgress?: HttpsProgress | undefined },
+): StepperStep[] {
   const byKey = new Map(steps.map((step) => [step.key, step]));
+  const httpsProgress = options?.httpsProgress;
   return STEPPER_GROUPS.flatMap((group) => {
     const members = [...(group.substeps ?? []), ...group.steps]
       .map((key) => byKey.get(key))
       .filter((step): step is ProgressStep => step !== undefined);
     if (members.length === 0) return [];
+
+    if (group.key === 'https' && httpsProgress && httpsProgress.mode !== 'custom') {
+      const failed = httpsProgress.state === 'FAILED';
+      const substeps: ProgressStep[] = httpsProgress.substeps.map((substep) => ({
+        key: substep.key,
+        label: HTTPS_SUBSTEP_LABEL[substep.key],
+        state: failed && substep.state !== 'done' ? 'attention' : substep.state,
+      }));
+      const state: ProgressStepState = failed ? 'attention' : stepperGroupState(substeps);
+      const tlsMember = byKey.get('TLS');
+      const detail =
+        state === 'current' ? (httpsProgress.slow ? HTTPS_SLOW_NOTE : tlsMember?.detail) : undefined;
+      return [
+        {
+          key: group.key,
+          label: failed ? STEP_LABEL.TLS.failed : group.label,
+          state,
+          detail,
+          substeps,
+        },
+      ];
+    }
+
     const activeMember = members.find(
       (member) => member.state === 'current' || member.state === 'attention',
     );

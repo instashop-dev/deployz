@@ -19,6 +19,11 @@ import {
   billingSubscriptionStatusSchema,
   bootstrapStackName,
   bootstrapTemplateBucketName,
+  buildBootstrapQuickCreateUrl,
+  CONTROL_PLANE_URL_PARAMETER,
+  ENROLLMENT_CODE_PARAMETER,
+  RELAY_CREDENTIAL_PARAMETER,
+  CUSTOMER_SCOPE_PARAMETER,
   componentProgressStatusSchema,
   customDomainStatusSchema,
   customerDeploymentStatusSchema,
@@ -974,6 +979,17 @@ describe('deploymentStateAfterFailedJob', () => {
     }
   });
 
+  // Regional HTTPS certificates (docs/https-regional-certificates.md
+  // decision 4) ride the relay channel outside deployment lifecycle, same
+  // as CONFIG_UPDATE/PURGE.
+  it('never touches the deployment state for ENSURE_CERTIFICATE or ATTACH_CERTIFICATE failures', () => {
+    for (const jobType of ['ENSURE_CERTIFICATE', 'ATTACH_CERTIFICATE'] as const) {
+      expect(
+        deploymentStateAfterFailedJob({ jobType, hasCurrentRelease: true, newerReadyReleaseExists: true }),
+      ).toBeNull();
+    }
+  });
+
   it('fails the deployment for INSTALL and DESTROY', () => {
     for (const jobType of ['INSTALL', 'DESTROY'] as const) {
       expect(
@@ -987,5 +1003,38 @@ describe('releaseImageTag', () => {
   it('namespaces the tag by application, so two applications can share a version', () => {
     expect(releaseImageTag('app-1', 'v1.0.0')).toBe('app-1-v1.0.0');
     expect(releaseImageTag('app-2', 'v1.0.0')).not.toBe(releaseImageTag('app-1', 'v1.0.0'));
+  });
+});
+
+// Regional HTTPS certificates (docs/https-regional-certificates.md decision
+// 6): CustomerScope rides the Quick Create URL exactly like the enrollment
+// code and relay credential.
+describe('buildBootstrapQuickCreateUrl CustomerScope param', () => {
+  const base = {
+    region: 'us-east-1',
+    templateUrl: 'https://example.com/template.json',
+    controlPlaneUrl: 'https://api.deployz.dev',
+  };
+
+  it('omits param_CustomerScope when customerScope is not given', () => {
+    const url = buildBootstrapQuickCreateUrl(base);
+    expect(url).not.toContain(`param_${CUSTOMER_SCOPE_PARAMETER}`);
+  });
+
+  it('sets param_CustomerScope after the relay credential param, preserving existing param order', () => {
+    const url = buildBootstrapQuickCreateUrl({
+      ...base,
+      enrollmentCode: 'code-123',
+      relayCredential: 'cred-456',
+      customerScope: 'abc123def456',
+    });
+    expect(url).toContain(`param_${CUSTOMER_SCOPE_PARAMETER}=abc123def456`);
+    const relayIndex = url.indexOf(`param_${RELAY_CREDENTIAL_PARAMETER}`);
+    const scopeIndex = url.indexOf(`param_${CUSTOMER_SCOPE_PARAMETER}`);
+    expect(relayIndex).toBeGreaterThan(-1);
+    expect(scopeIndex).toBeGreaterThan(relayIndex);
+    // Existing params keep their prior order/values.
+    expect(url).toContain(`param_${CONTROL_PLANE_URL_PARAMETER}=https%3A%2F%2Fapi.deployz.dev`);
+    expect(url).toContain(`param_${ENROLLMENT_CODE_PARAMETER}=code-123`);
   });
 });

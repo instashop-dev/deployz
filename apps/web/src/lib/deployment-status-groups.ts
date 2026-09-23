@@ -81,7 +81,7 @@ const INSTALL_STEP_LABEL: Partial<Record<DeploymentStep, string>> = {
   MIGRATION: 'Running migrations',
   APPLICATION: 'Starting application',
   HEALTH_CHECK: 'Checking health',
-  TLS: 'Setting up HTTPS',
+  TLS: 'Preparing secure access',
 };
 
 // Mirrors `attentionReason`'s own order, so the label names the same cause the

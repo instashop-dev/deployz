@@ -194,6 +194,13 @@ jobs:
         if: github.event_name == 'push' || needs.plan.outputs.risk == 'critical' || needs.plan.outputs.risk == 'targeted-web'
         run: DEPLOYZ_DEFAULT_HTTPS_FIXTURE=true node scripts/e2e.mjs e2e/scenario-default-https.spec.ts
 
+      # The regional-certificate suite (scenarios RA–RF) rides the same
+      # fixture machine; RC installs into a second region, which the API
+      # only accepts when that region is advertised as deployable.
+      - name: Regional-HTTPS simulated scenarios
+        if: github.event_name == 'push' || needs.plan.outputs.risk == 'critical' || needs.plan.outputs.risk == 'targeted-web'
+        run: DEPLOYZ_DEFAULT_HTTPS_FIXTURE=true DEPLOYABLE_AWS_REGIONS=us-east-1,us-west-2 node scripts/e2e.mjs e2e/scenario-regional-https.spec.ts
+
       - name: Upload traces on failure
         uses: actions/upload-artifact@v4
         if: failure()

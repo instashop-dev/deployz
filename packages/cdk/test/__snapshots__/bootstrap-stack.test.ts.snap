@@ -84,6 +84,12 @@ exports[`BootstrapStack > matches the committed snapshot 1`] = `
       "Description": "Base URL of the Deployz control plane the relay polls. NOT a credential.",
       "Type": "String",
     },
+    "CustomerScope": {
+      "AllowedPattern": "^[a-z0-9]{0,32}$",
+      "Default": "none",
+      "Description": "Opaque Deployz customer namespace shared by every installation of this customer in this AWS account and region. Lets the relay reuse one regional certificate. NOT a credential.",
+      "Type": "String",
+    },
     "EnrollmentCode": {
       "Default": "",
       "Description": "Single-use code from your install link. Ties this installation to your deployment.",
@@ -663,6 +669,21 @@ exports[`BootstrapStack > matches the committed snapshot 1`] = `
             },
             {
               "Action": [
+                "acm:DescribeCertificate",
+                "acm:DeleteCertificate",
+              ],
+              "Condition": {
+                "StringEquals": {
+                  "aws:ResourceTag/deployz:customer-scope": {
+                    "Ref": "CustomerScope",
+                  },
+                },
+              },
+              "Effect": "Allow",
+              "Resource": "*",
+            },
+            {
+              "Action": [
                 "elasticloadbalancing:DescribeLoadBalancers",
                 "elasticloadbalancing:DescribeTargetGroups",
                 "elasticloadbalancing:DescribeTargetHealth",
@@ -842,25 +863,6 @@ exports[`BootstrapStack > matches the committed snapshot 1`] = `
             },
             {
               "Action": [
-                "secretsmanager:DeleteSecret",
-                "secretsmanager:GetSecretValue",
-                "secretsmanager:PutSecretValue",
-              ],
-              "Condition": {
-                "StringEquals": {
-                  "aws:ResourceTag/deployz:installation": {
-                    "Fn::GetAtt": [
-                      "InstallationId",
-                      "InstallationId",
-                    ],
-                  },
-                },
-              },
-              "Effect": "Allow",
-              "Resource": "*",
-            },
-            {
-              "Action": [
                 "acm:ListCertificates",
                 "acm:ListTagsForCertificate",
               ],
@@ -891,6 +893,25 @@ exports[`BootstrapStack > matches the committed snapshot 1`] = `
                 "ec2:DetachInternetGateway",
                 "ec2:DeleteNatGateway",
                 "rds:DeleteDBSubnetGroup",
+              ],
+              "Condition": {
+                "StringEquals": {
+                  "aws:ResourceTag/deployz:installation": {
+                    "Fn::GetAtt": [
+                      "InstallationId",
+                      "InstallationId",
+                    ],
+                  },
+                },
+              },
+              "Effect": "Allow",
+              "Resource": "*",
+            },
+            {
+              "Action": [
+                "secretsmanager:DeleteSecret",
+                "secretsmanager:GetSecretValue",
+                "secretsmanager:PutSecretValue",
               ],
               "Condition": {
                 "StringEquals": {
@@ -1345,6 +1366,22 @@ exports[`BootstrapStack > matches the committed snapshot 1`] = `
             },
             {
               "Action": [
+                "acm:DescribeCertificate",
+                "acm:DeleteCertificate",
+              ],
+              "Condition": {
+                "StringEquals": {
+                  "aws:ResourceTag/deployz:customer-scope": {
+                    "Ref": "CustomerScope",
+                  },
+                },
+              },
+              "Effect": "Allow",
+              "Resource": "*",
+              "Sid": "ProvisionerRegionalAcmManage",
+            },
+            {
+              "Action": [
                 "elasticloadbalancing:DescribeLoadBalancers",
                 "elasticloadbalancing:DescribeTargetGroups",
                 "elasticloadbalancing:DescribeTargetHealth",
@@ -1506,6 +1543,38 @@ exports[`BootstrapStack > matches the committed snapshot 1`] = `
             },
             {
               "Action": [
+                "secretsmanager:DeleteSecret",
+                "secretsmanager:GetSecretValue",
+                "secretsmanager:PutSecretValue",
+              ],
+              "Condition": {
+                "StringEquals": {
+                  "aws:ResourceTag/deployz:installation": {
+                    "Fn::GetAtt": [
+                      "InstallationId",
+                      "InstallationId",
+                    ],
+                  },
+                },
+              },
+              "Effect": "Allow",
+              "Resource": "*",
+              "Sid": "RelayInstallationSecrets",
+            },
+          ],
+          "Version": "2012-10-17",
+        },
+      },
+      "Type": "AWS::IAM::ManagedPolicy",
+    },
+    "ProvisionerPurgePolicyC455CF5B": {
+      "Properties": {
+        "Description": "Post-first-contact PURGE/discovery permissions for the relay (phase 2), split from ProvisionerPolicy to stay under the IAM managed-policy size quota. All within the deployz: tag boundary. Attached by the control plane.",
+        "Path": "/",
+        "PolicyDocument": {
+          "Statement": [
+            {
+              "Action": [
                 "s3:ListAllMyBuckets",
                 "s3:GetBucketTagging",
                 "s3:ListBucketVersions",
@@ -1534,26 +1603,6 @@ exports[`BootstrapStack > matches the committed snapshot 1`] = `
               "Effect": "Allow",
               "Resource": "*",
               "Sid": "RelayPurgeSecretsList",
-            },
-            {
-              "Action": [
-                "secretsmanager:DeleteSecret",
-                "secretsmanager:GetSecretValue",
-                "secretsmanager:PutSecretValue",
-              ],
-              "Condition": {
-                "StringEquals": {
-                  "aws:ResourceTag/deployz:installation": {
-                    "Fn::GetAtt": [
-                      "InstallationId",
-                      "InstallationId",
-                    ],
-                  },
-                },
-              },
-              "Effect": "Allow",
-              "Resource": "*",
-              "Sid": "RelayInstallationSecrets",
             },
             {
               "Action": [
@@ -1727,6 +1776,9 @@ exports[`BootstrapStack > matches the committed snapshot 1`] = `
                   "Ref": "RelayCredentialGenerated",
                 },
               ],
+            },
+            "DEPLOYZ_CUSTOMER_SCOPE": {
+              "Ref": "CustomerScope",
             },
             "DEPLOYZ_ENROLLMENT_CODE": {
               "Ref": "EnrollmentCode",
@@ -1909,6 +1961,9 @@ exports[`BootstrapStack > matches the committed snapshot 1`] = `
         "ManagedPolicyArns": [
           {
             "Ref": "ProvisionerPolicyCCE83F9D",
+          },
+          {
+            "Ref": "ProvisionerPurgePolicyC455CF5B",
           },
         ],
         "PermissionsBoundary": {

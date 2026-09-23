@@ -1,33 +1,72 @@
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { canaryTags, loadConfig, mintRunId, releaseVersionFor, requireRealAwsOptIn, validateDigest } from './config.js';
 import { isTerminalJobState, waitFor, type ControlPlane } from './control-plane.js';
 import { isConnectorSecret, isRetainedDatabaseSecret, relayFunctionName, removeCanaryLeftovers } from './teardown.js';
-import { renderSummary, type Evidence, type RunRecord } from './evidence.js';
+import { Evidence, renderSummary, type RunRecord } from './evidence.js';
 import {
   assertSameInfrastructure,
   assertTargetsServing,
   parseQuickCreateUrl,
   probeBaseUrl,
+  buildRelease,
+  publishCanaryTemplate,
+  reuseVendorApplicationAndRelease,
+  setUpVendorAndApplication,
   type Canary,
   type InfraSnapshot,
 } from './steps.js';
+import { setUpOrReuseVendorApplicationAndV1 } from './scenarios.js';
 import { probeLiveApp, writeMarker } from './app.js';
 import {
   aws,
   clientRequestTokenFor,
   createBootstrapStack,
+  deleteAcmCertificate,
+  deleteS3Prefix,
   deleteStack,
+  describeRegionalCertificates,
   describeStack,
   disableRulesForStack,
   isTransientAwsCliError,
   liveNatGateways,
+  CertificateInUseError,
   type InstallationSecret,
 } from './aws.js';
 
 vi.mock('./aws.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('./aws.js')>();
-  return { ...actual, describeStack: vi.fn(), deleteStack: vi.fn(), disableRulesForStack: vi.fn() };
+  return {
+    ...actual,
+    describeStack: vi.fn(),
+    deleteStack: vi.fn(),
+    disableRulesForStack: vi.fn(),
+    // Only stubbed so the reuse-cleanup tests below can exercise the
+    // "not reused, deletes its own template" branch without a real S3 call
+    // — every other test that touches template deletion recorded no
+    // templateBucket/canaryTemplateKeyPrefix, so this never fires for them.
+    deleteS3Prefix: vi.fn(),
+  };
+});
+
+// setUpVendorAndApplication/buildRelease/publishCanaryTemplate/
+// reuseVendorApplicationAndRelease are wrapped (not replaced) so
+// setUpOrReuseVendorApplicationAndV1's dispatch tests can assert which ones
+// ran without exercising real network/AWS calls — every other test in this
+// file that imports from steps.js still gets the real implementation.
+vi.mock('./steps.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./steps.js')>();
+  return {
+    ...actual,
+    setUpVendorAndApplication: vi.fn(actual.setUpVendorAndApplication),
+    buildRelease: vi.fn(actual.buildRelease),
+    publishCanaryTemplate: vi.fn(actual.publishCanaryTemplate),
+    reuseVendorApplicationAndRelease: vi.fn(actual.reuseVendorApplicationAndRelease),
+  };
 });
 
 describe('real-AWS guard', () => {
@@ -86,6 +125,121 @@ describe('Quick Create URL', () => {
     expect(() => parseQuickCreateUrl('https://console.aws.amazon.com/#/stacks/create/review?stackName=x')).toThrow(
       'lacks templateURL/stackName',
     );
+  });
+
+  it('carries CustomerScope through generically — no per-parameter allowlist (docs/https-regional-certificates.md decision 6)', () => {
+    const parsed = parseQuickCreateUrl(
+      'https://us-east-1.console.aws.amazon.com/cloudformation/home?region=us-east-1#/stacks/create/review' +
+        '?templateURL=https%3A%2F%2Fb.s3.us-east-1.amazonaws.com%2Fbootstrap%2Fv1%2Fbootstrap-template-v1.json' +
+        '&stackName=deployz-bootstrap-app-12345678&param_ControlPlaneUrl=https%3A%2F%2Fapi.deployz.dev' +
+        '&param_EnrollmentCode=abc&param_CustomerScope=abc123def456',
+    );
+    // createBootstrapStack (aws.ts) spreads every parsed `parameters` entry
+    // straight into `--parameters`, so capturing it here is enough to prove
+    // CustomerScope reaches create-stack once the install link starts
+    // emitting param_CustomerScope — no code change needed in the harness.
+    expect(parsed.parameters).toEqual({
+      ControlPlaneUrl: 'https://api.deployz.dev',
+      EnrollmentCode: 'abc',
+      CustomerScope: 'abc123def456',
+    });
+  });
+});
+
+describe('customer reuse (docs/https-regional-certificates.md scenario B/C)', () => {
+  it('is unset by default — every run creates its own customer', () => {
+    expect(loadConfig({}).customerId).toBeNull();
+  });
+
+  it('reads --customer-id through the runId override plumbing, and the env var', () => {
+    const id = '11111111-1111-1111-1111-111111111111';
+    expect(loadConfig({}, { customerId: id }).customerId).toBe(id);
+    expect(loadConfig({ DEPLOYZ_CANARY_CUSTOMER_ID: id }).customerId).toBe(id);
+  });
+
+  it('prefers the override to the env var', () => {
+    const overrideId = '22222222-2222-2222-2222-222222222222';
+    const config = loadConfig({ DEPLOYZ_CANARY_CUSTOMER_ID: '11111111-1111-1111-1111-111111111111' }, { customerId: overrideId });
+    expect(config.customerId).toBe(overrideId);
+  });
+});
+
+describe('regional-certificate-removed expectation config', () => {
+  it('is false by default — a retained shared certificate is correct after one Disconnect/Purge', () => {
+    expect(loadConfig({}).expectRegionalCertRemoved).toBe(false);
+  });
+
+  it('accepts the override for a run that purged the last deployment in its scope', () => {
+    expect(loadConfig({}, { expectRegionalCertRemoved: true }).expectRegionalCertRemoved).toBe(true);
+  });
+});
+
+describe('describeRegionalCertificates', () => {
+  const domain = '*.c-abc123def456.deployz.dev';
+
+  function fakeExec(responses: Record<string, unknown>): (command: string, args: string[]) => Promise<{ stdout: string }> {
+    return async (_command, args) => {
+      // aws() prepends --output/--region, so find the operation by its
+      // position right after the 'acm' service name rather than an index.
+      const op = args[args.indexOf('acm') + 1];
+      const body = responses[op as string];
+      if (body === undefined) throw new Error(`unexpected acm operation: ${op}`);
+      return { stdout: JSON.stringify(body) };
+    };
+  }
+
+  it('returns a certificate tagged with the matching customer scope', async () => {
+    const exec = fakeExec({
+      'list-certificates': { CertificateSummaryList: [{ CertificateArn: 'arn:cert-1', DomainName: domain }] },
+      'list-tags-for-certificate': { Tags: [{ Key: 'deployz:customer-scope', Value: 'abc123def456' }] },
+      'describe-certificate': {
+        Certificate: { Status: 'ISSUED', DomainName: domain, CreatedAt: '2026-09-22T00:00:00.000Z' },
+      },
+    });
+    const certs = await describeRegionalCertificates('us-east-1', 'abc123def456', exec, async () => {});
+    expect(certs).toEqual([{ arn: 'arn:cert-1', status: 'ISSUED', domain, createdAt: '2026-09-22T00:00:00.000Z' }]);
+  });
+
+  it('excludes a certificate for the same domain tagged with a different scope', async () => {
+    const exec = fakeExec({
+      'list-certificates': { CertificateSummaryList: [{ CertificateArn: 'arn:cert-other', DomainName: domain }] },
+      'list-tags-for-certificate': { Tags: [{ Key: 'deployz:customer-scope', Value: 'someone-elses-scope' }] },
+    });
+    const certs = await describeRegionalCertificates('us-east-1', 'abc123def456', exec, async () => {});
+    expect(certs).toEqual([]);
+  });
+
+  it('excludes a certificate for a different domain entirely', async () => {
+    const exec = fakeExec({
+      'list-certificates': { CertificateSummaryList: [{ CertificateArn: 'arn:cert-x', DomainName: '*.c-other.deployz.dev' }] },
+    });
+    const certs = await describeRegionalCertificates('us-east-1', 'abc123def456', exec, async () => {});
+    expect(certs).toEqual([]);
+  });
+});
+
+describe('deleteAcmCertificate', () => {
+  it('deletes a certificate that is not in use', async () => {
+    const exec = async () => ({ stdout: '' });
+    await expect(deleteAcmCertificate('us-east-1', 'arn:cert-1', exec, async () => {})).resolves.toBe('deleted');
+  });
+
+  it('treats an already-gone certificate as a clean no-op', async () => {
+    const exec = async () => {
+      throw Object.assign(new Error('Command failed'), {
+        stderr: 'An error occurred (ResourceNotFoundException) when calling the DeleteCertificate operation',
+      });
+    };
+    await expect(deleteAcmCertificate('us-east-1', 'arn:cert-1', exec, async () => {})).resolves.toBe('not-found');
+  });
+
+  it('reports — never retries — a certificate ACM says is still in use', async () => {
+    const exec = async () => {
+      throw Object.assign(new Error('Command failed'), {
+        stderr: 'An error occurred (ResourceInUseException) when calling the DeleteCertificate operation',
+      });
+    };
+    await expect(deleteAcmCertificate('us-east-1', 'arn:cert-1', exec, async () => {})).rejects.toThrow(CertificateInUseError);
   });
 });
 
@@ -676,5 +830,210 @@ describe('createBootstrapStack client-request-token', () => {
     expect(tokenIndex).toBeGreaterThan(-1);
     expect(capturedArgs[tokenIndex + 1]).toBe(clientRequestTokenFor('deployz-bootstrap-app-12345678'));
     expect(capturedArgs[tokenIndex + 1]).toBe('deployz-bootstrap-app-12345678');
+  });
+});
+
+describe('reuseVendorApplicationAndRelease (docs/https-regional-certificates.md scenario B/C)', () => {
+  function baseRun(overrides: Partial<RunRecord> = {}): RunRecord {
+    return {
+      runId: 'prior-run',
+      startedAt: '2026-09-22T00:00:00.000Z',
+      apiUrl: 'https://api.deployz.dev',
+      region: 'us-east-1',
+      accountId: '151955775369',
+      scenario: 'profile-pg',
+      releases: {},
+      markers: [],
+      jobs: [],
+      steps: [],
+      ...overrides,
+    };
+  }
+
+  it('signs in as the prior vendor instead of signing up, and copies applicationId/fixtureTags/v1/template', async () => {
+    const resultsDir = mkdtempSync(join(tmpdir(), 'canary-reuse-'));
+    try {
+      const prior = baseRun({
+        vendor: { email: 'vendor@deployz-canary.example.com', password: 'Canary-prior-run-xyz' },
+        applicationId: 'app-1',
+        customerId: 'cust-1',
+        fixtureTags: { v1: { sha: 'sha1', contentSha: 'content1' } },
+        releases: {
+          v1: { id: 'rel-1', version: 'v1-prior-run', gitSha: 'sha1', imageDigest: 'repo@sha256:aaa', imageTag: 'app-1:v1-prior-run' },
+        },
+        templateBucket: 'deployz-templates',
+        canaryTemplateUrl: 'https://deployz-templates.s3.us-east-1.amazonaws.com/application/canary-prior-run/base/template.json',
+        canaryTemplateKeyPrefix: 'application/canary-prior-run',
+      });
+      new Evidence(resultsDir, prior);
+
+      const evidence = new Evidence(resultsDir, baseRun({ runId: 'new-run' }));
+      const signInCalls: unknown[] = [];
+      const api = { signIn: async (input: unknown) => { signInCalls.push(input); } } as unknown as ControlPlane;
+      const config = { ...loadConfig({}), resultsDir };
+      const canary: Canary = { config, evidence, api };
+
+      await reuseVendorApplicationAndRelease(canary, 'prior-run');
+
+      expect(signInCalls).toEqual([{ email: 'vendor@deployz-canary.example.com', password: 'Canary-prior-run-xyz' }]);
+      expect(evidence.run.vendor).toEqual(prior.vendor);
+      expect(evidence.run.applicationId).toBe('app-1');
+      expect(evidence.run.fixtureTags).toEqual({ v1: { sha: 'sha1', contentSha: 'content1' } });
+      expect(evidence.run.releases['v1']).toEqual(prior.releases['v1']);
+      expect(evidence.run.templateBucket).toBe('deployz-templates');
+      expect(evidence.run.canaryTemplateUrl).toBe(prior.canaryTemplateUrl);
+      expect(evidence.run.canaryTemplateKeyPrefix).toBe('application/canary-prior-run');
+      expect(evidence.run.reusedFromRunId).toBe('prior-run');
+    } finally {
+      rmSync(resultsDir, { recursive: true, force: true });
+    }
+  });
+
+  it('refuses to reuse a run that never built a v1 release', async () => {
+    const resultsDir = mkdtempSync(join(tmpdir(), 'canary-reuse-'));
+    try {
+      const prior = baseRun({
+        vendor: { email: 'vendor@deployz-canary.example.com', password: 'pw' },
+        applicationId: 'app-1',
+        releases: {}, // no v1
+      });
+      new Evidence(resultsDir, prior);
+
+      const evidence = new Evidence(resultsDir, baseRun({ runId: 'new-run' }));
+      const api = { signIn: async () => {} } as unknown as ControlPlane;
+      const config = { ...loadConfig({}), resultsDir };
+      const canary: Canary = { config, evidence, api };
+
+      await expect(reuseVendorApplicationAndRelease(canary, 'prior-run')).rejects.toThrow('no built v1 release');
+    } finally {
+      rmSync(resultsDir, { recursive: true, force: true });
+    }
+  });
+
+  it('refuses to reuse a run with no vendor credentials to sign in with', async () => {
+    const resultsDir = mkdtempSync(join(tmpdir(), 'canary-reuse-'));
+    try {
+      const prior = baseRun({
+        applicationId: 'app-1',
+        releases: { v1: { id: 'rel-1', version: 'v1-prior-run', gitSha: 'sha1', imageDigest: 'repo@sha256:aaa' } },
+        canaryTemplateUrl: 'https://template',
+      });
+      new Evidence(resultsDir, prior);
+
+      const evidence = new Evidence(resultsDir, baseRun({ runId: 'new-run' }));
+      const api = { signIn: async () => {} } as unknown as ControlPlane;
+      const config = { ...loadConfig({}), resultsDir };
+      const canary: Canary = { config, evidence, api };
+
+      await expect(reuseVendorApplicationAndRelease(canary, 'prior-run')).rejects.toThrow('no vendor credentials');
+    } finally {
+      rmSync(resultsDir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('setUpOrReuseVendorApplicationAndV1 dispatch (scenario B/C)', () => {
+  afterEach(() => {
+    vi.mocked(setUpVendorAndApplication).mockClear();
+    vi.mocked(buildRelease).mockClear();
+    vi.mocked(publishCanaryTemplate).mockClear();
+    vi.mocked(reuseVendorApplicationAndRelease).mockClear();
+  });
+
+  it('reuses the prior run instead of signing up/building/publishing fresh when reuseRunId is set', async () => {
+    vi.mocked(reuseVendorApplicationAndRelease).mockImplementationOnce(async () => {});
+    const evidence = { run: {}, step: async (_n: string, fn: (d: Record<string, unknown>) => Promise<unknown>) => fn({}) } as unknown as Evidence;
+    const config = loadConfig({}, { reuseRunId: 'prior-run' });
+    const canary: Canary = { config, evidence, api: {} as unknown as ControlPlane };
+
+    await setUpOrReuseVendorApplicationAndV1(canary);
+
+    expect(reuseVendorApplicationAndRelease).toHaveBeenCalledWith(canary, 'prior-run');
+    expect(setUpVendorAndApplication).not.toHaveBeenCalled();
+    expect(buildRelease).not.toHaveBeenCalled();
+    expect(publishCanaryTemplate).not.toHaveBeenCalled();
+  });
+
+  it('signs up and builds/publishes v1 fresh when reuseRunId is unset — legacy behaviour', async () => {
+    vi.mocked(setUpVendorAndApplication).mockImplementationOnce(async () => 'app-1');
+    vi.mocked(buildRelease).mockImplementationOnce(async () => ({ id: 'rel-1', digest: 'sha256:aaa' }));
+    vi.mocked(publishCanaryTemplate).mockImplementationOnce(async () => 'https://template');
+    const evidence = { run: {}, step: async (_n: string, fn: (d: Record<string, unknown>) => Promise<unknown>) => fn({}) } as unknown as Evidence;
+    const config = loadConfig({});
+    const canary: Canary = { config, evidence, api: {} as unknown as ControlPlane };
+
+    await setUpOrReuseVendorApplicationAndV1(canary);
+
+    expect(setUpVendorAndApplication).toHaveBeenCalledWith(canary);
+    expect(buildRelease).toHaveBeenCalledWith(canary, 'v1');
+    expect(publishCanaryTemplate).toHaveBeenCalledWith(canary, 'v1');
+    expect(reuseVendorApplicationAndRelease).not.toHaveBeenCalled();
+  });
+});
+
+describe('cleanup of a reusing run never deletes the shared v1 image or template (scenario B/C)', () => {
+  afterEach(() => {
+    vi.mocked(deleteS3Prefix).mockClear();
+  });
+
+  it('skips ECR tag deletion and the S3 template-prefix deletion for a reused v1', async () => {
+    const stepCalls: { name: string; details: Record<string, unknown> }[] = [];
+    const run = {
+      reusedFromRunId: 'prior-run',
+      // bootstrapStackName unset: the first step returns early, so this
+      // test only ever exercises the run-scoped-images step below.
+      releases: {
+        v1: { id: 'rel-1', version: 'v1-prior-run', gitSha: 'sha1', imageDigest: 'repo@sha256:aaa', imageTag: 'app-1:v1-prior-run' },
+      },
+      templateBucket: 'deployz-templates',
+      canaryTemplateKeyPrefix: 'application/canary-prior-run',
+    } as unknown as RunRecord;
+    const evidence = {
+      run,
+      step: async (name: string, fn: (details: Record<string, unknown>) => Promise<unknown>) => {
+        const details: Record<string, unknown> = {};
+        stepCalls.push({ name, details });
+        return fn(details);
+      },
+    } as unknown as Evidence;
+    const canary: Canary = { config: loadConfig({}), evidence, api: {} as unknown as ControlPlane };
+
+    await removeCanaryLeftovers(canary);
+
+    const imagesStep = stepCalls.find((s) => s.name.includes('Remove run-scoped images'));
+    expect(imagesStep).toBeDefined();
+    expect(imagesStep!.details['ecrTagsDeleted']).toEqual([]);
+    expect(imagesStep!.details['shaTagsDeleted']).toEqual([]);
+    expect(imagesStep!.details['templateObjectsSkipped']).toMatch(/inherited from run prior-run/);
+    expect(imagesStep!.details['templateObjectsDeleted']).toBeUndefined();
+    expect(deleteS3Prefix).not.toHaveBeenCalled();
+  });
+
+  it('still removes its own releases and template when this run did not reuse anything', async () => {
+    const stepCalls: { name: string; details: Record<string, unknown> }[] = [];
+    const run = {
+      // reusedFromRunId unset.
+      releases: {},
+      templateBucket: 'deployz-templates',
+      canaryTemplateKeyPrefix: 'application/canary-this-run',
+    } as unknown as RunRecord;
+    const evidence = {
+      run,
+      step: async (name: string, fn: (details: Record<string, unknown>) => Promise<unknown>) => {
+        const details: Record<string, unknown> = {};
+        stepCalls.push({ name, details });
+        return fn(details);
+      },
+    } as unknown as Evidence;
+    const canary: Canary = { config: loadConfig({}), evidence, api: {} as unknown as ControlPlane };
+
+    await removeCanaryLeftovers(canary);
+
+    const imagesStep = stepCalls.find((s) => s.name.includes('Remove run-scoped images'));
+    // No releases at all here, so this path has nothing to prove about ECR
+    // — the point is that the reuse guard did NOT suppress the template
+    // deletion this run owns.
+    expect(imagesStep!.details['templateObjectsSkipped']).toBeUndefined();
+    expect(deleteS3Prefix).toHaveBeenCalledWith('deployz-templates', 'application/canary-this-run/');
   });
 });

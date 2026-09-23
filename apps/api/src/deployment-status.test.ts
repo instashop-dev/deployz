@@ -4,6 +4,7 @@ import { FAILURE_CODES } from '@deployz/copy-map';
 
 import {
   deriveDeploymentStatus,
+  deriveHttpsProgress,
   endpointHttpsState,
   endpointStatusForHttpsState,
   mergeComponentState,
@@ -14,6 +15,7 @@ import {
   type DerivationDeployment,
   type DerivationDomain,
   type DerivationJob,
+  type DerivationRegionalCertificate,
   type DeriveDeploymentStatusInput,
 } from './deployment-status.js';
 
@@ -1509,6 +1511,54 @@ describe('deriveDeploymentStatus — default HTTPS (Phase 11)', () => {
   });
 });
 
+// Regional HTTPS certificates (docs/https-regional-certificates.md) — the
+// scoped hostname is DNS-only (decision 8/9), so unlike legacy the READY
+// gate requires ACTIVE specifically; CONFIGURING keeps VERIFYING on TLS.
+describe('deriveDeploymentStatus — regional mode (docs/https-regional-certificates.md)', () => {
+  const HTTP_ALB = 'http://alb-123.us-east-1.elb.amazonaws.com';
+  const regionalHttps = (status: string) => ({
+    hostname: 'd-dep-1.c-abc123.deployz.dev',
+    status,
+    mode: 'regional' as const,
+  });
+
+  it('CONFIGURING (attached, not yet probed) holds VERIFYING on the TLS step — appUrl still the bare ALB', () => {
+    const status = derive({
+      deployment: makeDeployment({ state: 'HEALTHY', healthStatus: 'HEALTHY' }),
+      jobs: [makeJob({ state: 'SUCCEEDED' })],
+      defaultHttps: regionalHttps('CONFIGURING'),
+      appUrl: HTTP_ALB,
+    });
+    expect(status.stage).toBe('VERIFYING');
+    expect(status.step).toBe('TLS');
+    expect(status.needsDomainSetup).toBe(false);
+    expect(status.components.find((c) => c.key === 'https')?.status).toBe('IN_PROGRESS');
+  });
+
+  it('ACTIVE + HEALTHY → READY, serving the scoped hostname', () => {
+    const status = derive({
+      deployment: makeDeployment({ state: 'HEALTHY', healthStatus: 'HEALTHY' }),
+      jobs: [makeJob({ state: 'SUCCEEDED' })],
+      defaultHttps: regionalHttps('ACTIVE'),
+      appUrl: 'https://d-dep-1.c-abc123.deployz.dev',
+    });
+    expect(status.stage).toBe('READY');
+    expect(status.result).toEqual({ url: 'https://d-dep-1.c-abc123.deployz.dev' });
+    expect(status.components.find((c) => c.key === 'https')?.status).toBe('READY');
+  });
+
+  it('a certificate-row ERROR fails the https component even while the machine itself is still PENDING', () => {
+    const status = derive({
+      deployment: makeDeployment({ state: 'HEALTHY', healthStatus: 'HEALTHY' }),
+      jobs: [makeJob({ state: 'SUCCEEDED' })],
+      defaultHttps: regionalHttps('PENDING'),
+      regionalCertificate: { certificateStatus: 'ERROR', requestedAt: NOW },
+      appUrl: HTTP_ALB,
+    });
+    expect(status.components.find((c) => c.key === 'https')?.status).toBe('FAILED');
+  });
+});
+
 // Phase 5 — the internal→plan vocabulary mapper (item 2). Pure view-layer
 // translation; the internal machine enums stay untouched.
 describe('toPlanHttpsState — plan HTTPS vocabulary (Phase 5)', () => {
@@ -1647,5 +1697,149 @@ describe('endpointHttpsState — infrastructure secure endpoint truth', () => {
     for (const state of ['SETTING_UP', 'WAITING_FOR_CERTIFICATE', 'ACTIVATING'] as const) {
       expect(endpointStatusForHttpsState(state)).toBe('provisioning');
     }
+  });
+
+  // Regional HTTPS certificates (docs/https-regional-certificates.md) — the
+  // shared certificate row's status matters as much as this deployment's
+  // own machine status; either can be the reason it is not READY yet.
+  describe('regional mapping', () => {
+    const regionalHost = 'd-dep-1.c-abc123.deployz.dev';
+    const regional = (status: string) => ({ hostname: regionalHost, status, mode: 'regional' as const });
+    const cert = (certificateStatus: string) => ({ certificateStatus, requestedAt: NOW });
+
+    it('maps the certificate row REQUESTING to SETTING_UP', () => {
+      expect(endpointHttpsState(null, regional('PENDING'), cert('REQUESTING'))).toBe('SETTING_UP');
+    });
+
+    it('maps DNS_VALIDATION_PENDING to WAITING_FOR_CERTIFICATE', () => {
+      expect(endpointHttpsState(null, regional('PENDING'), cert('DNS_VALIDATION_PENDING'))).toBe(
+        'WAITING_FOR_CERTIFICATE',
+      );
+    });
+
+    it('maps a certificate ISSUED, or the machine CONFIGURING, to ACTIVATING', () => {
+      expect(endpointHttpsState(null, regional('PENDING'), cert('ISSUED'))).toBe('ACTIVATING');
+      expect(endpointHttpsState(null, regional('CONFIGURING'), cert('DNS_VALIDATION_PENDING'))).toBe('ACTIVATING');
+    });
+
+    it('maps the machine ACTIVE to READY regardless of the certificate row', () => {
+      expect(endpointHttpsState(null, regional('ACTIVE'), cert('ISSUED'))).toBe('READY');
+    });
+
+    it('maps the machine or the certificate ERROR to FAILED', () => {
+      expect(endpointHttpsState(null, regional('ERROR'), cert('ISSUED'))).toBe('FAILED');
+      expect(endpointHttpsState(null, regional('PENDING'), cert('ERROR'))).toBe('FAILED');
+    });
+
+    it('maps the machine REMOVING to REMOVING', () => {
+      expect(endpointHttpsState(null, regional('REMOVING'), cert('ISSUED'))).toBe('REMOVING');
+    });
+
+    it('an ACTIVE custom domain still outranks a regional endpoint', () => {
+      expect(endpointHttpsState({ hostname: 'app.acme.com', status: 'ACTIVE' }, regional('PENDING'), cert('ERROR'))).toBe(
+        'READY',
+      );
+    });
+  });
+});
+
+// Regional HTTPS certificates (docs/https-regional-certificates.md) — the
+// TLS rung's httpsProgress overlay: three sub-steps + a slow hint.
+describe('deriveHttpsProgress', () => {
+  const legacyHost = 'd-dep-1.deployz.dev';
+  const regionalHost = 'd-dep-1.c-abc123.deployz.dev';
+
+  it('is undefined when no default-HTTPS state exists yet', () => {
+    expect(deriveHttpsProgress({ domain: null, defaultHttps: null })).toBeUndefined();
+  });
+
+  it('legacy: CERTIFICATE_REQUESTED done once a certificate ARN is on record', () => {
+    const progress = deriveHttpsProgress({
+      domain: null,
+      defaultHttps: { hostname: legacyHost, status: 'WAITING_FOR_DNS', certificateArn: 'arn:aws:acm:1:1:certificate/x' },
+    });
+    expect(progress?.mode).toBe('legacy');
+    expect(progress?.substeps.find((s) => s.key === 'CERTIFICATE_REQUESTED')?.state).toBe('done');
+    expect(progress?.substeps.find((s) => s.key === 'DOMAIN_VERIFICATION_CONFIGURED')?.state).toBe('done');
+    expect(progress?.substeps.find((s) => s.key === 'WAITING_FOR_READY')?.state).toBe('current');
+  });
+
+  it('legacy: ACTIVE marks every substep done', () => {
+    const progress = deriveHttpsProgress({
+      domain: null,
+      defaultHttps: { hostname: legacyHost, status: 'ACTIVE', certificateArn: 'arn:aws:acm:1:1:certificate/x' },
+    });
+    expect(progress?.state).toBe('READY');
+    expect(progress?.substeps.every((s) => s.state === 'done')).toBe(true);
+  });
+
+  it('legacy: ERROR marks every not-yet-done substep as attention', () => {
+    const progress = deriveHttpsProgress({
+      domain: null,
+      defaultHttps: { hostname: legacyHost, status: 'ERROR' },
+    });
+    expect(progress?.state).toBe('FAILED');
+    expect(progress?.substeps.map((s) => s.state)).toEqual(['attention', 'attention', 'attention']);
+  });
+
+  it('regional: reusing an ISSUED certificate renders the first two substeps done immediately', () => {
+    const regionalCertificate: DerivationRegionalCertificate = {
+      certificateStatus: 'ISSUED',
+      certificateArn: 'arn:aws:acm:1:1:certificate/shared',
+      validationDnsReadyAt: NOW,
+      requestedAt: NOW,
+    };
+    const progress = deriveHttpsProgress({
+      domain: null,
+      defaultHttps: { hostname: regionalHost, status: 'PENDING', mode: 'regional' },
+      regionalCertificate,
+    });
+    expect(progress?.mode).toBe('regional');
+    expect(progress?.substeps.find((s) => s.key === 'CERTIFICATE_REQUESTED')?.state).toBe('done');
+    expect(progress?.substeps.find((s) => s.key === 'DOMAIN_VERIFICATION_CONFIGURED')?.state).toBe('done');
+    expect(progress?.substeps.find((s) => s.key === 'WAITING_FOR_READY')?.state).toBe('current');
+  });
+
+  it('regional: a fresh certificate request has no substeps done yet', () => {
+    const regionalCertificate: DerivationRegionalCertificate = {
+      certificateStatus: 'REQUESTING',
+      certificateArn: null,
+      validationDnsReadyAt: null,
+      requestedAt: NOW,
+    };
+    const progress = deriveHttpsProgress({
+      domain: null,
+      defaultHttps: { hostname: regionalHost, status: 'PENDING', mode: 'regional' },
+      regionalCertificate,
+    });
+    expect(progress?.substeps.map((s) => s.state)).toEqual(['current', 'waiting', 'waiting']);
+  });
+
+  it('regional: slow reflects isRegionalCertificateSlow on the certificate row', () => {
+    const now = new Date(NOW.getTime() + 40 * 60_000); // 40 minutes after requestedAt
+    const regionalCertificate: DerivationRegionalCertificate = {
+      certificateStatus: 'REQUESTING',
+      certificateArn: null,
+      validationDnsReadyAt: null,
+      requestedAt: NOW,
+    };
+    const progress = deriveHttpsProgress({
+      domain: null,
+      defaultHttps: { hostname: regionalHost, status: 'PENDING', mode: 'regional' },
+      regionalCertificate,
+      now,
+    });
+    expect(progress?.slow).toBe(true);
+  });
+
+  it('a serving custom domain always renders mode custom with every substep done', () => {
+    const progress = deriveHttpsProgress({
+      domain: { hostname: 'app.customer.com', status: 'ACTIVE' },
+      defaultHttps: { hostname: regionalHost, status: 'PENDING', mode: 'regional' },
+      regionalCertificate: { certificateStatus: 'REQUESTING', requestedAt: null },
+    });
+    expect(progress?.mode).toBe('custom');
+    expect(progress?.state).toBe('READY');
+    expect(progress?.substeps.every((s) => s.state === 'done')).toBe(true);
   });
 });

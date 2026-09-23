@@ -81,6 +81,26 @@ export interface DeploymentDetail {
   cleanupState: string | null;
   runningImageDigest: string | null;
   appUrl: string | null;
+  /** The deployment's permanent Deployz-owned URL regardless of a custom domain
+   *  (`resolveDefaultUrl` in apps/api/src/fleet-row.ts) — null until the
+   *  default-HTTPS machine has started. */
+  defaultUrl?: string | null;
+  /**
+   * Raw `deployments.default_https` JSON, spread onto the response as-is
+   * (apps/api/src/fleet-row.ts toFleetRow spreads the row) — `status`/
+   * `hostname` plus whatever regional-certificate telemetry the driver has
+   * recorded (docs/https-regional-certificates.md Telemetry section:
+   * `mode`, `bootstrapReadyAt`, `albReadyAt`, …). Optional and partial: the
+   * API may omit it before the machine starts, and its shape grows with the
+   * regional rollout, so callers read fields defensively.
+   */
+  defaultHttps?: {
+    status?: string;
+    hostname?: string;
+    mode?: 'regional' | 'legacy';
+    lastError?: string | null;
+    [key: string]: unknown;
+  } | null;
   jobs: DeploymentJob[];
   deploymentStatus: {
     stage: string;
@@ -95,6 +115,15 @@ export interface DeploymentDetail {
       awsStatus: string | null;
     } | null;
     job: { type: string; status: string } | null;
+    /** The TLS rung's regional-certificate sub-step detail
+     *  (packages/contracts/src/infrastructure.ts httpsProgressSchema) —
+     *  optional, absent until the driver has something to report. */
+    httpsProgress?: {
+      state?: string;
+      mode?: string;
+      substeps?: { key: string; state: string }[];
+      slow?: boolean;
+    } | null;
   };
 }
 
@@ -307,10 +336,12 @@ export class ControlPlane {
     applicationId: string;
     customerId: string;
     region: string;
+    deploymentType?: 'TEST' | 'PRODUCTION';
   }): Promise<{ id: string; installLinkId: string }> {
+    const { deploymentType = 'TEST', ...rest } = input;
     const { body } = await this.request<{ id: string; installLinkId: string }>('POST', '/api/deployments', {
-      ...input,
-      deploymentType: 'TEST',
+      ...rest,
+      deploymentType,
     });
     return body;
   }

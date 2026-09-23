@@ -47,6 +47,11 @@ import {
 } from './commands.js';
 import { createDomainExecutors, createRealDomainAwsClients } from './domain.js';
 import {
+  attachCertificateToLoadBalancer,
+  createRegionalCertificateExecutors,
+  createRealRegionalAcmClient,
+} from './regional-certificate.js';
+import {
   createEcsDeployExecutor,
   createEcsDeployResumer,
   createRestartExecutor,
@@ -66,6 +71,7 @@ import {
   createPurgeExecutor,
   createPurgeResumer,
   createRealPurgeClients,
+  readRegionalCertificatesFromPayload,
   type AcmPurgeClient,
   type CachePurgeClient,
   type NetworkPurgeClient,
@@ -663,6 +669,18 @@ export interface InstallExecutorDeps {
    * install outcome.
    */
   readonly stoppedTaskEvidence?: (stackName: string) => Promise<FailureEvidence | null>;
+  /**
+   * Regional HTTPS certificates (docs/https-regional-certificates.md
+   * decision 4) — wires an already-issued customer-scoped certificate into
+   * this relay's ALB listener right after a verified install. Optional:
+   * absent wiring (older callers, tests) simply skips the attach, and a
+   * separate ATTACH_CERTIFICATE command still catches it later. Never
+   * throws into the install outcome — `settleInstall` catches and reports
+   * `httpsConfigured: false` instead.
+   */
+  readonly attachRegionalCertificate?: (
+    certificateArn: string,
+  ) => Promise<{ routingTarget: string; httpsConfigured: boolean }>;
 }
 
 /** What `install` is asked for — `InstallOptions` minus the client seam. */
@@ -824,6 +842,14 @@ async function settleInstall(
     };
   }
 
+  // Regional HTTPS certificates (docs/https-regional-certificates.md
+  // decision 4) — set only when a verified install attaches an
+  // already-issued customer-scoped certificate right away, saving one poll
+  // round trip versus waiting for a separate ATTACH_CERTIFICATE command.
+  let regionalCertificate:
+    | { certificateArn: string; httpsConfigured: boolean; routingTarget?: string }
+    | undefined;
+
   if (verification.verified) {
     // Stage B phase 2: a fresh dynamic install must carry the manifest's
     // binding aliases, which the pre-published template cannot know about.
@@ -845,6 +871,29 @@ async function settleInstall(
             applied.reason ?? 'Installed, but the binding aliases could not be registered',
           output: { stackStatus: outcome.status, outputs: outcome.outputs },
         };
+      }
+    }
+
+    const regionalCertificateArn = request.payload['regionalCertificateArn'];
+    if (
+      typeof regionalCertificateArn === 'string' &&
+      regionalCertificateArn.length > 0 &&
+      deps.attachRegionalCertificate
+    ) {
+      try {
+        const attached = await deps.attachRegionalCertificate(regionalCertificateArn);
+        regionalCertificate = {
+          certificateArn: regionalCertificateArn,
+          httpsConfigured: attached.httpsConfigured,
+          ...(attached.routingTarget ? { routingTarget: attached.routingTarget } : {}),
+        };
+      } catch (err) {
+        // Never fails the install — a later ATTACH_CERTIFICATE command (or
+        // the next INSTALL retry) gets another chance.
+        console.log(
+          JSON.stringify({ event: 'relay:regional-certificate-attach-failed', error: String(err) }),
+        );
+        regionalCertificate = { certificateArn: regionalCertificateArn, httpsConfigured: false };
       }
     }
   }
@@ -873,6 +922,7 @@ async function settleInstall(
       stackStatus: outcome.status,
       outputs: outcome.outputs,
       checks: verification.checks,
+      ...(regionalCertificate ? { regionalCertificate } : {}),
     },
   };
 }
@@ -1421,6 +1471,14 @@ function createDefaultInstallDeps(
         ...(budgetMs !== undefined ? { budgetMs } : {}),
       }),
     verify: (options) => verifyInstallation({ ...options, cfn: getCloudFormationReader() }),
+    // Regional HTTPS certificates (docs/https-regional-certificates.md
+    // decision 4) — the same real ELB client the domain/regional-certificate
+    // executors use, keyed to this relay's own ALB.
+    attachRegionalCertificate: (certificateArn) =>
+      attachCertificateToLoadBalancer(
+        { elb: createRealDomainAwsClients().elb, installationId },
+        certificateArn,
+      ),
     // Stage B phase 2: after a verified fresh install, copy the standard
     // injected env/secret values onto the manifest's alias names on a new
     // task-definition revision (see ./binding-alias.ts).
@@ -1531,6 +1589,16 @@ function createDefaultExecutors(installDeps: InstallExecutorDeps): Record<string
     installationId: installDeps.installationId,
   });
 
+  // Regional HTTPS certificates (docs/https-regional-certificates.md): the
+  // ELB half is the same real client the domain executors use (each relay
+  // only ever touches its own ALB); the ACM half is its own real client
+  // since the certificate itself is customer-scoped, not installation-scoped.
+  const regionalCertificateExecutors = createRegionalCertificateExecutors({
+    acm: createRealRegionalAcmClient(),
+    elb: createRealDomainAwsClients().elb,
+    installationId: installDeps.installationId,
+  });
+
   // The deploy executors share the ECS write seam behind a lazy SDK client
   // (same construct-on-first-use rule as the readers above). The target
   // health reader is the settle gate's second half.
@@ -1586,19 +1654,22 @@ function createDefaultExecutors(installDeps: InstallExecutorDeps): Record<string
       const prevId = typeof command.payload?.previousInstallationId === 'string'
         ? command.payload.previousInstallationId
         : undefined;
-      const deps: PurgeDeps = prevId
-        ? {
-            ...purgeDeps,
-            previousInstallationId: prevId,
-            ...getPurgeClients(installDeps.installationId, prevId),
-          }
-        : purgeDeps;
+      const regionalCertificates = readRegionalCertificatesFromPayload(command.payload);
+      const deps: PurgeDeps = {
+        ...purgeDeps,
+        ...(prevId
+          ? { previousInstallationId: prevId, ...getPurgeClients(installDeps.installationId, prevId) }
+          : {}),
+        ...(regionalCertificates ? { regionalCertificates } : {}),
+      };
       return createPurgeExecutor(deps)(command);
     },
     MIGRATE: noop,
     REFRESH_METADATA: noop,
     CONFIGURE_DOMAIN: domainExecutors.CONFIGURE_DOMAIN,
     REMOVE_DOMAIN: domainExecutors.REMOVE_DOMAIN,
+    ENSURE_CERTIFICATE: regionalCertificateExecutors.ENSURE_CERTIFICATE,
+    ATTACH_CERTIFICATE: regionalCertificateExecutors.ATTACH_CERTIFICATE,
   };
 }
 
@@ -1887,6 +1958,10 @@ export function createRelayHandler(deps: RelayHandlerDeps) {
             typeof purgePending.payload?.previousInstallationId === 'string'
               ? purgePending.payload.previousInstallationId
               : undefined;
+          const purgeRegionalCertificates =
+            purgePending?.type === 'PURGE'
+              ? readRegionalCertificatesFromPayload(purgePending.payload)
+              : undefined;
           return createPurgeResumer({
             cfn: getCloudFormationReader(),
             deleter: getStackDeleter(),
@@ -1895,6 +1970,7 @@ export function createRelayHandler(deps: RelayHandlerDeps) {
             stackName: relayApplicationStackName(),
             bootstrapStackName: relayBootstrapStackName(),
             ...getPurgeClients(installationId, purgePrevId),
+            ...(purgeRegionalCertificates ? { regionalCertificates: purgeRegionalCertificates } : {}),
           })();
         }),
       identity: deps.identity ?? readRelayIdentity(context),

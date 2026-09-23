@@ -10,6 +10,12 @@
       "Default": "",
       "Description": "Single-use code from your install link. Ties this installation to your deployment."
     },
+    "CustomerScope": {
+      "Type": "String",
+      "Default": "none",
+      "AllowedPattern": "^[a-z0-9]{0,32}$",
+      "Description": "Opaque Deployz customer namespace shared by every installation of this customer in this AWS account and region. Lets the relay reuse one regional certificate. NOT a credential."
+    },
     "ApplicationTemplateUrl": {
       "Type": "String",
       "Default": "",
@@ -526,6 +532,21 @@
             },
             {
               "Action": [
+                "acm:DescribeCertificate",
+                "acm:DeleteCertificate"
+              ],
+              "Condition": {
+                "StringEquals": {
+                  "aws:ResourceTag/deployz:customer-scope": {
+                    "Ref": "CustomerScope"
+                  }
+                }
+              },
+              "Effect": "Allow",
+              "Resource": "*"
+            },
+            {
+              "Action": [
                 "elasticloadbalancing:DescribeLoadBalancers",
                 "elasticloadbalancing:DescribeTargetGroups",
                 "elasticloadbalancing:DescribeTargetHealth",
@@ -705,25 +726,6 @@
             },
             {
               "Action": [
-                "secretsmanager:DeleteSecret",
-                "secretsmanager:GetSecretValue",
-                "secretsmanager:PutSecretValue"
-              ],
-              "Condition": {
-                "StringEquals": {
-                  "aws:ResourceTag/deployz:installation": {
-                    "Fn::GetAtt": [
-                      "InstallationId",
-                      "InstallationId"
-                    ]
-                  }
-                }
-              },
-              "Effect": "Allow",
-              "Resource": "*"
-            },
-            {
-              "Action": [
                 "acm:ListCertificates",
                 "acm:ListTagsForCertificate"
               ],
@@ -754,6 +756,25 @@
                 "ec2:DetachInternetGateway",
                 "ec2:DeleteNatGateway",
                 "rds:DeleteDBSubnetGroup"
+              ],
+              "Condition": {
+                "StringEquals": {
+                  "aws:ResourceTag/deployz:installation": {
+                    "Fn::GetAtt": [
+                      "InstallationId",
+                      "InstallationId"
+                    ]
+                  }
+                }
+              },
+              "Effect": "Allow",
+              "Resource": "*"
+            },
+            {
+              "Action": [
+                "secretsmanager:DeleteSecret",
+                "secretsmanager:GetSecretValue",
+                "secretsmanager:PutSecretValue"
               ],
               "Condition": {
                 "StringEquals": {
@@ -896,6 +917,22 @@
               "Effect": "Allow",
               "Resource": "*",
               "Sid": "ProvisionerAcmManage"
+            },
+            {
+              "Action": [
+                "acm:DescribeCertificate",
+                "acm:DeleteCertificate"
+              ],
+              "Condition": {
+                "StringEquals": {
+                  "aws:ResourceTag/deployz:customer-scope": {
+                    "Ref": "CustomerScope"
+                  }
+                }
+              },
+              "Effect": "Allow",
+              "Resource": "*",
+              "Sid": "ProvisionerRegionalAcmManage"
             },
             {
               "Action": [
@@ -1060,6 +1097,38 @@
             },
             {
               "Action": [
+                "secretsmanager:DeleteSecret",
+                "secretsmanager:GetSecretValue",
+                "secretsmanager:PutSecretValue"
+              ],
+              "Condition": {
+                "StringEquals": {
+                  "aws:ResourceTag/deployz:installation": {
+                    "Fn::GetAtt": [
+                      "InstallationId",
+                      "InstallationId"
+                    ]
+                  }
+                }
+              },
+              "Effect": "Allow",
+              "Resource": "*",
+              "Sid": "RelayInstallationSecrets"
+            }
+          ],
+          "Version": "2012-10-17"
+        }
+      }
+    },
+    "ProvisionerPurgePolicyC455CF5B": {
+      "Type": "AWS::IAM::ManagedPolicy",
+      "Properties": {
+        "Description": "Post-first-contact PURGE/discovery permissions for the relay (phase 2), split from ProvisionerPolicy to stay under the IAM managed-policy size quota. All within the deployz: tag boundary. Attached by the control plane.",
+        "Path": "/",
+        "PolicyDocument": {
+          "Statement": [
+            {
+              "Action": [
                 "s3:ListAllMyBuckets",
                 "s3:GetBucketTagging",
                 "s3:ListBucketVersions",
@@ -1088,26 +1157,6 @@
               "Effect": "Allow",
               "Resource": "*",
               "Sid": "RelayPurgeSecretsList"
-            },
-            {
-              "Action": [
-                "secretsmanager:DeleteSecret",
-                "secretsmanager:GetSecretValue",
-                "secretsmanager:PutSecretValue"
-              ],
-              "Condition": {
-                "StringEquals": {
-                  "aws:ResourceTag/deployz:installation": {
-                    "Fn::GetAtt": [
-                      "InstallationId",
-                      "InstallationId"
-                    ]
-                  }
-                }
-              },
-              "Effect": "Allow",
-              "Resource": "*",
-              "Sid": "RelayInstallationSecrets"
             },
             {
               "Action": [
@@ -1182,6 +1231,9 @@
         "ManagedPolicyArns": [
           {
             "Ref": "ProvisionerPolicyCCE83F9D"
+          },
+          {
+            "Ref": "ProvisionerPurgePolicyC455CF5B"
           }
         ],
         "PermissionsBoundary": {
@@ -1661,7 +1713,7 @@
           "S3Bucket": {
             "Fn::Sub": "cdk-hnb659fds-assets-${AWS::AccountId}-${AWS::Region}"
           },
-          "S3Key": "6633d84bf000c37d0b2ae6e1fa6e68a40e38ed404d9424c89b5add751629a178.zip"
+          "S3Key": "430c9ff70efb950b3d220e60393c42485e46964ab85f2c266b9d434e7ad2d215.zip"
         },
         "Environment": {
           "Variables": {
@@ -1687,6 +1739,9 @@
             },
             "DEPLOYZ_ENROLLMENT_CODE": {
               "Ref": "EnrollmentCode"
+            },
+            "DEPLOYZ_CUSTOMER_SCOPE": {
+              "Ref": "CustomerScope"
             },
             "DEPLOYZ_APPLICATION_TEMPLATE_URL": {
               "Ref": "ApplicationTemplateUrl"

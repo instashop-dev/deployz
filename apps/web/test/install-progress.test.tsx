@@ -417,7 +417,7 @@ describe('InstallProgress — failure flow', () => {
     expect(text()).toContain('Creating database & storage failed');
     expect(text()).toContain('Starting application');
     expect(text()).not.toContain('(in progress)');
-    expect(text()).toContain('Configure HTTPS');
+    expect(text()).toContain('Preparing secure access');
     expect(text()).toContain('Ready');
     // Default next steps: the vendor owns the retry.
     expect(text()).toContain('What happens next');

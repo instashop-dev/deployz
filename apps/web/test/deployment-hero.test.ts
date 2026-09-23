@@ -143,6 +143,37 @@ describe('deriveHero', () => {
     expect(automatic.description).not.toContain('custom domain');
   });
 
+  // Regional HTTPS certificates (docs/https-regional-certificates.md): a
+  // terminal certificate failure never fails the deployment itself — the
+  // hero still reads "live", but the description points at the retry action
+  // instead of the routine "being set up" sentence.
+  it('a terminal certificate failure keeps the deployment live and points at the retry action', () => {
+    const hero = deriveHero(
+      input({
+        deploymentStatus: status({
+          stage: 'VERIFYING',
+          needsDomainSetup: false,
+          url: 'http://alb.example',
+          httpsProgress: {
+            state: 'FAILED',
+            mode: 'regional',
+            substeps: [
+              { key: 'CERTIFICATE_REQUESTED', state: 'done' },
+              { key: 'DOMAIN_VERIFICATION_CONFIGURED', state: 'attention' },
+              { key: 'WAITING_FOR_READY', state: 'waiting' },
+            ],
+            slow: false,
+          },
+        }),
+      }),
+    );
+    expect(hero.kind).toBe('live');
+    expect(hero.description).toContain('temporary address');
+    expect(hero.description).toContain('needs attention');
+    expect(hero.description).toContain('retry HTTPS setup');
+    expect(hero.description).not.toContain('being set up');
+  });
+
   it('says nothing about addresses once the app is on an HTTPS URL', () => {
     const hero = deriveHero(input({ deploymentStatus: status({ url: 'https://app.example.com' }) }));
     expect(hero.description).toBe('Release v1.2.0 is running and passing health checks.');

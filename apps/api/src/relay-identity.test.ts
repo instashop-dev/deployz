@@ -186,7 +186,7 @@ describe('relay identity + deployment serialization', () => {
     expect(row!.awsAccountId).toBe('151955775369');
     expect(row!.relayVersion).toBe('0.2.0');
     expect(row!.bootstrapVersion).toBe('2026-08-28.1');
-    expect(row!.relayCapabilities).toEqual({ ...CAPABILITIES });
+    expect(row!.relayCapabilities).toEqual({ ...CAPABILITIES, regionalCertificate: false });
   });
 
   it('fleet rows expose relay identity for capability gating', async () => {
@@ -241,7 +241,7 @@ describe('relay identity + deployment serialization', () => {
       .limit(1);
     expect(row!.awsAccountId).toBe('151955775369');
     expect(row!.relayVersion).toBe('0.2.0');
-    expect(row!.relayCapabilities).toEqual({ ...CAPABILITIES });
+    expect(row!.relayCapabilities).toEqual({ ...CAPABILITIES, regionalCertificate: false });
   });
 
   it('heartbeat without identity leaves stored identity untouched', async () => {

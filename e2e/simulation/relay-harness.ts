@@ -34,6 +34,7 @@ import {
 import {
   createPurgeExecutor,
   createPurgeResumer,
+  readRegionalCertificatesFromPayload,
   type AcmPurgeClient,
   type CachePurgeClient,
   type NetworkPurgeClient,
@@ -59,14 +60,31 @@ import { buildProvisioningSnapshot } from '@deployz/relay/provision-progress';
 import { listAllStackResources } from '@deployz/relay/stack-resources';
 import { createStackEventCollector } from '@deployz/relay/stack-events';
 import { verifyInstallation } from '@deployz/relay/verify';
-import { APPLICATION_TEMPLATE_KEY, DEFAULT_APPLICATION_STACK_NAME } from '@deployz/contracts';
+import {
+  APPLICATION_TEMPLATE_KEY,
+  DEFAULT_APPLICATION_STACK_NAME,
+  attachCertificatePayloadSchema,
+  ensureCertificatePayloadSchema,
+} from '@deployz/contracts';
 
 import { SimulatedCustomerAccount } from './simulated-account.js';
+import { SimulatedAcmRegistry } from './simulated-acm-registry.js';
 import type { ScenarioDefinition } from './types.js';
 
 /** The ALB DNS name every simulated CONFIGURE_DOMAIN reports as the routing
  *  target — a fixture-zone hostname the control plane may safely CNAME to. */
 const DEFAULT_FIXTURE_ALB_TARGET = 'e2e-alb.deployz-fixture.test';
+
+/** Regional HTTPS certificates (docs/https-regional-certificates.md): the
+ *  AWS account id a relay reports at enrollment when the test gives a
+ *  `customerScope` but no explicit `awsAccountId` — matches the account id
+ *  every simulated ARN/physical id in simulated-account.ts already uses. */
+const DEFAULT_SIMULATED_AWS_ACCOUNT_ID = '123456789012';
+
+/** Regional HTTPS certificates: the region a relay's deployment belongs to
+ *  when the test gives no explicit `region` — same default every other
+ *  simulated scenario implicitly runs in. */
+const DEFAULT_SIMULATED_REGION = 'us-east-1';
 
 /**
  * Empty orphan-purge clients for the simulated account. A simulated
@@ -260,6 +278,40 @@ export interface StartSimulatedRelayOptions {
    * hostname still follows the healthy two-phase ACM flow below.
    */
   readonly failConfigureForHostnameRegex?: string;
+  /**
+   * Regional HTTPS certificates (docs/https-regional-certificates.md):
+   * the customer's `dns_scope`, reported in this relay's register/heartbeat
+   * identity exactly like the real relay's `DEPLOYZ_CUSTOMER_SCOPE`-derived
+   * `customerScope` (packages/relay/src/identity.ts). Absent by default —
+   * every existing scenario keeps the legacy per-deployment flow unchanged.
+   * When given, the harness also reports `awsAccountId` (defaulting to
+   * `DEFAULT_SIMULATED_AWS_ACCOUNT_ID`), since the control plane's register
+   * route only selects the regional flow when both are present and match
+   * the customer's own scope.
+   */
+  readonly customerScope?: string;
+  /** See `customerScope` above. Defaults to `DEFAULT_SIMULATED_AWS_ACCOUNT_ID`
+   *  when `customerScope` is given. */
+  readonly awsAccountId?: string;
+  /** The deployment's AWS region — only meaningful alongside `customerScope`
+   *  (it keys the shared `acmRegistry`'s per-region certificates, mirroring
+   *  ACM's own region-scoped certificates). Defaults to
+   *  `DEFAULT_SIMULATED_REGION`. */
+  readonly region?: string;
+  /**
+   * The shared simulated ACM registry (./simulated-acm-registry.ts) this
+   * relay's ENSURE_CERTIFICATE/ATTACH_CERTIFICATE commands — and a
+   * verified INSTALL's inline certificate attach — read and write. Pass the
+   * SAME instance to every `startSimulatedRelay` call for deployments that
+   * belong to one simulated customer AWS account, so sibling relays (a
+   * second deployment in the same scope, or a relay in a different region)
+   * observe the same certificate state a real shared ACM account would.
+   * Required for the regional flow to do anything useful; omitted, the
+   * ENSURE_CERTIFICATE/ATTACH_CERTIFICATE executors fail every command
+   * (the control plane never sends them without a matching `customerScope`
+   * anyway, so ordinary scenarios never notice).
+   */
+  readonly acmRegistry?: SimulatedAcmRegistry;
 }
 
 export interface InstallSettlement {
@@ -348,6 +400,22 @@ export function startSimulatedRelay(options: StartSimulatedRelayOptions): Simula
       }),
     verify: (request) => verifyInstallation({ ...request, cfn: account.cloudFormationReader() }),
     pending,
+    // Regional HTTPS certificates (docs/https-regional-certificates.md
+    // decision 4): when the control plane's INSTALL payload already carries
+    // an ISSUED certificate's ARN, `settleInstall` (packages/relay's index.ts)
+    // attaches it right after the stack succeeds via this dep — mirrors
+    // production's `attachCertificateToLoadBalancer` wiring
+    // (createDefaultInstallDeps), over the shared simulated registry instead
+    // of a real ELB client. Omitted when no registry was given: an ordinary
+    // scenario's INSTALL payload never carries `regionalCertificateArn`
+    // anyway (the control plane only injects it for a matching
+    // `customerScope`), so the absence is never noticed.
+    ...(options.acmRegistry
+      ? {
+          attachRegionalCertificate: (certificateArn: string) =>
+            Promise.resolve(options.acmRegistry!.attach(certificateArn, installationId)),
+        }
+      : {}),
     createStackEventCollector: ({ commandId, operationStartedAt, stackName, resumeAfter }) =>
       createStackEventCollector({
         reader: account.stackEventsReader(),
@@ -435,6 +503,27 @@ export function startSimulatedRelay(options: StartSimulatedRelayOptions): Simula
     },
     bootstrapStackName: `deployz-bootstrap-${installationId}`,
     ...emptyPurgeClients(),
+    // Regional HTTPS certificates (docs/https-regional-certificates.md
+    // decision 5): the purge executor's ACM client — wired to the shared
+    // registry so a PURGE that carries `regionalCertificates` (the last
+    // non-DELETED deployment in its scope) actually deletes them there,
+    // observable by the spec. `listOwnedCertificates` stays empty: the
+    // regional certificate carries `deployz:customer-scope`, not this
+    // installation's tag, so the real purge sweep never finds it that way
+    // either (deletion rides the explicit `regionalCertificates` list only
+    // — see `readRegionalCertificatesFromPayload` below).
+    ...(options.acmRegistry
+      ? {
+          acm: {
+            async listOwnedCertificates() {
+              return [];
+            },
+            async deleteCertificate(certificateArn: string) {
+              options.acmRegistry!.delete(certificateArn);
+            },
+          },
+        }
+      : {}),
   };
 
   let settlement: InstallSettlement | null = null;
@@ -512,7 +601,27 @@ export function startSimulatedRelay(options: StartSimulatedRelayOptions): Simula
         configUpdate: true,
         destroy: true,
         domainManagement: true,
+        // Regional HTTPS certificates: this harness genuinely runs the
+        // ENSURE_CERTIFICATE/ATTACH_CERTIFICATE executors below whenever a
+        // customerScope is configured — reported unconditionally, same as
+        // every other capability above, since an unscoped registration never
+        // triggers the regional flow regardless of what it claims.
+        regionalCertificate: true,
       },
+      // Regional HTTPS certificates (docs/https-regional-certificates.md
+      // decision 6/7): spread onto the register body's top level exactly
+      // like the real relay's identity (registerInstallation in auth.ts
+      // spreads `identity` onto the request body) — the control plane only
+      // selects the regional flow when BOTH are present and `customerScope`
+      // matches the customer's own `dns_scope`. Omitted entirely (not even
+      // `null`) when the test gave no `customerScope`, so every existing
+      // scenario's register call is byte-for-byte unchanged.
+      ...(options.customerScope
+        ? {
+            customerScope: options.customerScope,
+            awsAccountId: options.awsAccountId ?? DEFAULT_SIMULATED_AWS_ACCOUNT_ID,
+          }
+        : {}),
     },
     executors: {
       INSTALL: trackLatest(installExecutor),
@@ -522,8 +631,19 @@ export function startSimulatedRelay(options: StartSimulatedRelayOptions): Simula
       // Phase 14: PURGE — the post-DESTROY retained-resource sweep, executed
       // by the same real executor production composes (see the `purgeDeps`
       // comment). Over the simulated account the orphan lists are empty, so a
-      // PURGE of a cleanly-deleted deployment settles to success.
-      PURGE: trackLatest(createPurgeExecutor(purgeDeps)),
+      // PURGE of a cleanly-deleted deployment settles to success. Regional
+      // HTTPS certificates (decision 5): `regionalCertificates` is read from
+      // EACH command's own payload here — mirroring production's per-command
+      // PURGE wiring (packages/relay/src/index.ts) — rather than baked into
+      // the fixed `purgeDeps` above, since the control plane only includes it
+      // on the last non-DELETED deployment's purge.
+      PURGE: trackLatest((command) => {
+        const regionalCertificates = readRegionalCertificatesFromPayload(command.payload);
+        return createPurgeExecutor({
+          ...purgeDeps,
+          ...(regionalCertificates ? { regionalCertificates } : {}),
+        })(command);
+      }),
       // AI MVP Phase 4: a successful INSTALL queues one CONFIG_UPDATE job (the
       // first configuration pass — saved values plus the app-internal secrets
       // Deployz generates). The simulated account has no Secrets Manager, so
@@ -597,6 +717,85 @@ export function startSimulatedRelay(options: StartSimulatedRelayOptions): Simula
         success: true,
         output: { removed: true },
       })),
+      // Regional HTTPS certificates (docs/https-regional-certificates.md) —
+      // the customer-scoped shared wildcard certificate, over the shared
+      // `SimulatedAcmRegistry` instead of production's real ACM client
+      // (packages/relay/src/regional-certificate.ts's own executors, which
+      // this harness does not import — no `@deployz/relay` subpath exports
+      // them — so this mirrors their contract directly, same idiom as
+      // CONFIGURE_DOMAIN/REMOVE_DOMAIN above).
+      ENSURE_CERTIFICATE: trackLatest(async (command) => {
+        const parsed = ensureCertificatePayloadSchema.safeParse(command.payload);
+        if (!parsed.success) {
+          return {
+            commandId: command.id,
+            idempotencyKey: command.idempotencyKey,
+            success: false,
+            error: `Invalid ENSURE_CERTIFICATE payload: ${parsed.error.message}`,
+            failureCode: 'UNKNOWN',
+          };
+        }
+        if (!options.acmRegistry) {
+          return {
+            commandId: command.id,
+            idempotencyKey: command.idempotencyKey,
+            success: false,
+            error: 'No SimulatedAcmRegistry configured for this relay (pass acmRegistry to startSimulatedRelay)',
+            failureCode: 'UNKNOWN',
+          };
+        }
+        const payload = parsed.data;
+        const output = options.acmRegistry.ensure({
+          certificateDomain: payload.certificateDomain,
+          customerScope: payload.customerScope,
+          region: options.region ?? DEFAULT_SIMULATED_REGION,
+          ...(payload.certificateArn ? { certificateArn: payload.certificateArn } : {}),
+        });
+        return {
+          commandId: command.id,
+          idempotencyKey: command.idempotencyKey,
+          success: true,
+          output,
+        };
+      }),
+      ATTACH_CERTIFICATE: trackLatest(async (command) => {
+        const parsed = attachCertificatePayloadSchema.safeParse(command.payload);
+        if (!parsed.success) {
+          return {
+            commandId: command.id,
+            idempotencyKey: command.idempotencyKey,
+            success: false,
+            error: `Invalid ATTACH_CERTIFICATE payload: ${parsed.error.message}`,
+            failureCode: 'UNKNOWN',
+          };
+        }
+        if (!options.acmRegistry) {
+          return {
+            commandId: command.id,
+            idempotencyKey: command.idempotencyKey,
+            success: false,
+            error: 'No SimulatedAcmRegistry configured for this relay (pass acmRegistry to startSimulatedRelay)',
+            failureCode: 'UNKNOWN',
+          };
+        }
+        try {
+          const output = options.acmRegistry.attach(parsed.data.certificateArn, installationId);
+          return {
+            commandId: command.id,
+            idempotencyKey: command.idempotencyKey,
+            success: true,
+            output,
+          };
+        } catch (err) {
+          return {
+            commandId: command.id,
+            idempotencyKey: command.idempotencyKey,
+            success: false,
+            error: String(err),
+            failureCode: 'UNKNOWN',
+          };
+        }
+      }),
     },
     idempotency,
     // Mirrors createRelayHandler's default observe hook, over the simulated
@@ -668,7 +867,18 @@ export function startSimulatedRelay(options: StartSimulatedRelayOptions): Simula
       let results = await createInstallResumer(installDeps)();
       if (results.length === 0) results = await createEcsDeployResumer(deployDeps)();
       if (results.length === 0) results = await createDestroyResumer(destroyDeps)();
-      if (results.length === 0) results = await createPurgeResumer(purgeDeps)();
+      if (results.length === 0) {
+        // Regional HTTPS certificates: the pending record's own payload
+        // carries `regionalCertificates` when this deferred PURGE is the
+        // last non-DELETED deployment in its scope — same source production
+        // reads from (packages/relay/src/index.ts's `resume` composition).
+        const regionalCertificates =
+          pendingBefore?.type === 'PURGE' ? readRegionalCertificatesFromPayload(pendingBefore.payload) : undefined;
+        results = await createPurgeResumer({
+          ...purgeDeps,
+          ...(regionalCertificates ? { regionalCertificates } : {}),
+        })();
+      }
       if (results.length > 0 && pendingBefore) {
         recordLatestSettlement(pendingBefore.type, results[0]!.success);
       }

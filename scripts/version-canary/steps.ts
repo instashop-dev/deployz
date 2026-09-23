@@ -11,13 +11,19 @@
 import { execFileSync } from 'node:child_process';
 import { resolve } from 'node:path';
 
-import { applicationStackNameForInstallation, parseApplicationTemplateUrl, releaseImageTag } from '@deployz/contracts';
+import {
+  applicationStackNameForInstallation,
+  parseApplicationTemplateUrl,
+  parseScopedDeploymentHostname,
+  releaseImageTag,
+} from '@deployz/contracts';
 
 import { probeLiveApp, readMarker, sampleLiveApp, writeMarker } from './app.js';
 import {
   albDnsName,
   callerIdentity,
   createBootstrapStack,
+  describeRegionalCertificates,
   describeRunningService,
   describeStack,
   ecrDigestForTag,
@@ -36,7 +42,7 @@ import {
   waitFor,
   type DeploymentDetail,
 } from './control-plane.js';
-import type { Evidence } from './evidence.js';
+import { Evidence } from './evidence.js';
 import { FIXTURE_RELEASES, type FixtureRelease } from './fixture-repo.js';
 
 export const ECR_REPOSITORY = 'deployz-images';
@@ -76,7 +82,12 @@ export async function preflight(canary: Canary): Promise<void> {
     details['controlPlaneHealth'] = health.status;
     assert(health.status === 200, `control plane ${config.apiUrl}/health answered ${health.status}`);
 
-    const bucket = await templateBucketName(config.region);
+    // The control plane's 'Deployz' stack (and its TemplateBucket export)
+    // lives in config.controlPlaneRegion, never the install region — the
+    // same distinction buildRelease/publishCanaryTemplate's ECR lookups
+    // make below (docs/https-regional-certificates.md scenario C: a new
+    // install region reuses this one control-plane-region artifact).
+    const bucket = await templateBucketName(config.controlPlaneRegion);
     details['templateBucket'] = bucket;
     evidence.run.templateBucket = bucket;
 
@@ -188,6 +199,56 @@ export async function setUpVendorAndApplication(canary: Canary): Promise<string>
   return applicationId;
 }
 
+/**
+ * Scenario B/C (docs/https-regional-certificates.md Verification plan): a
+ * second deployment for the SAME customer needs the SAME vendor org (a
+ * customer belongs to one org — signing up a fresh vendor and reusing only
+ * `customerId` makes `createDeployment` refuse it) and, for scenario B/C's
+ * purpose, the exact same image and application template `setUpVendorAndApplication`
+ * + `buildRelease('v1')` + `publishCanaryTemplate('v1')` would otherwise
+ * build again. This signs in as `runId`'s vendor instead of signing up, and
+ * copies its applicationId/fixtureTags/v1 release/template into THIS run's
+ * evidence — `runProfile`/`runCore` skip the build+publish head entirely
+ * when `config.reuseRunId` is set.
+ *
+ * Only v1 is copied (the install head); v2/v3/v4 in `runCore`'s ladder are
+ * still built fresh by every run. The copied fields make this run's v1 an
+ * artifact it does NOT own — `removeCanaryLeftovers`/`leakAudit` key off
+ * `evidence.run.reusedFromRunId` to never delete or flag it; only the
+ * original run's own cleanup does, once nothing else still reuses it.
+ */
+export async function reuseVendorApplicationAndRelease(canary: Canary, reuseRunId: string): Promise<void> {
+  const { config, evidence, api } = canary;
+  await evidence.step(`Reuse vendor, application and release from run ${reuseRunId}`, async (details) => {
+    const prior = Evidence.open(config.resultsDir, reuseRunId).run;
+    assert(prior.vendor, `run ${reuseRunId} recorded no vendor credentials to sign in with`);
+    assert(prior.applicationId, `run ${reuseRunId} recorded no applicationId`);
+    const v1 = prior.releases['v1'];
+    assert(v1?.imageDigest, `run ${reuseRunId} has no built v1 release with a digest`);
+    assert(prior.canaryTemplateUrl, `run ${reuseRunId} has no published canary application template`);
+
+    await api.signIn(prior.vendor);
+    evidence.run.vendor = prior.vendor;
+    evidence.run.applicationId = prior.applicationId;
+    // exactOptionalPropertyTypes: only assign the optional fields prior
+    // actually recorded — an explicit `undefined` is not the same as an
+    // absent property.
+    if (prior.fixtureTags) evidence.run.fixtureTags = prior.fixtureTags;
+    evidence.run.releases['v1'] = v1;
+    if (prior.templateBucket) evidence.run.templateBucket = prior.templateBucket;
+    evidence.run.canaryTemplateUrl = prior.canaryTemplateUrl;
+    if (prior.canaryTemplateKeyPrefix) evidence.run.canaryTemplateKeyPrefix = prior.canaryTemplateKeyPrefix;
+    evidence.run.reusedFromRunId = reuseRunId;
+    evidence.save();
+
+    details['reusedFromRunId'] = reuseRunId;
+    details['vendorEmail'] = prior.vendor.email;
+    details['applicationId'] = prior.applicationId;
+    details['v1Release'] = v1;
+    details['canaryTemplateUrl'] = prior.canaryTemplateUrl;
+  });
+}
+
 // ── Releases ───────────────────────────────────────────────────────────────
 
 export async function buildRelease(canary: Canary, fixtureTag: string): Promise<{ id: string; digest: string }> {
@@ -227,7 +288,10 @@ export async function buildRelease(canary: Canary, fixtureTag: string): Promise<
     assert(ready.status === 'READY', `release ${version} build ${ready.status}: ${ready.failureReason ?? ''}`);
 
     const imageTag = releaseImageTag(applicationId, version);
-    const digest = await ecrDigestForTag(config.region, ECR_REPOSITORY, imageTag);
+    // deployz-images lives in the control-plane account/region, not the
+    // install region (config.ts's controlPlaneRegion doc comment) — a
+    // release built for a customer in another region still resolves here.
+    const digest = await ecrDigestForTag(config.controlPlaneRegion, ECR_REPOSITORY, imageTag);
     assert(digest, `ECR has no image tagged ${imageTag}`);
     details['ecrDigest'] = digest;
     evidence.run.releases[fixtureTag]!.imageDigest = digest;
@@ -288,7 +352,16 @@ export async function publishCanaryTemplate(canary: Canary, pinnedTag: string): 
     assert(release?.imageDigest, `release ${pinnedTag} has no digest yet`);
     const keyPrefix = `application/canary-${config.runId}`;
     const identity = await callerIdentity();
-    const repository = `${identity.account}.dkr.ecr.${config.region}.amazonaws.com/${ECR_REPOSITORY}`;
+    // The application template and deployz-images both live in the
+    // control-plane account/region (config.ts's controlPlaneRegion doc
+    // comment), never the install region: publish-application.mjs looks up
+    // the 'Deployz' stack's TemplateBucket export there, and there is only
+    // one deployz-images repository account-wide. The template itself has
+    // no region-bound assets (unlike the bootstrap template's Lambda code,
+    // packages/cdk/src/quick-create/publish.ts's per-region fan-out
+    // comment), so the SAME published template + image serve an install in
+    // ANY region — nothing here needs to vary by config.region.
+    const repository = `${identity.account}.dkr.ecr.${config.controlPlaneRegion}.amazonaws.com/${ECR_REPOSITORY}`;
     const output = execFileSync(
       process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm',
       ['--filter', '@deployz/cdk', 'run', 'publish:application'],
@@ -297,7 +370,7 @@ export async function publishCanaryTemplate(canary: Canary, pinnedTag: string): 
         encoding: 'utf8',
         env: {
           ...process.env,
-          AWS_REGION: config.region,
+          AWS_REGION: config.controlPlaneRegion,
           APP_IMAGE_REPOSITORY: repository,
           APP_IMAGE_DIGEST: release.imageDigest,
           APPLICATION_KEY_PREFIX: keyPrefix,
@@ -327,12 +400,27 @@ export async function createDeploymentAndInstall(canary: Canary): Promise<string
   assert(templateUrl, 'no canary application template yet');
 
   const deploymentId = await evidence.step('Create customer deployment and launch the install', async (details) => {
-    const customer = await api.createCustomer({
-      name: `Canary customer ${config.runId}`,
-      email: `customer-${config.runId.toLowerCase()}@deployz-canary.example.com`,
-    });
+    // Scenario B (docs/https-regional-certificates.md Verification plan):
+    // a second deployment for the SAME customer + region reuses the
+    // already-issued regional certificate. config.customerId carries an
+    // existing customer id (--customer-id, or --reuse-customer-from's
+    // resolved id) straight through instead of minting a throwaway one.
+    const customer = config.customerId
+      ? { id: config.customerId }
+      : await api.createCustomer({
+          name: `Canary customer ${config.runId}`,
+          email: `customer-${config.runId.toLowerCase()}@deployz-canary.example.com`,
+        });
     evidence.run.customerId = customer.id;
-    const deployment = await api.createDeployment({ applicationId, customerId: customer.id, region: config.region });
+    details['customerId'] = customer.id;
+    details['customerReused'] = config.customerId !== null;
+    // The product allows one active TEST deployment per application, so a
+    // run that reuses another run's application (scenarios B/C) creates a
+    // PRODUCTION deployment — accepted by the deployed API while the billing
+    // gate is paused (BILLING_ENFORCEMENT=off).
+    const deploymentType = config.reuseRunId ? 'PRODUCTION' : 'TEST';
+    details['deploymentType'] = deploymentType;
+    const deployment = await api.createDeployment({ applicationId, customerId: customer.id, region: config.region, deploymentType });
     evidence.run.deploymentId = deployment.id;
     evidence.run.installLinkId = deployment.installLinkId;
     evidence.save();
@@ -403,6 +491,9 @@ export async function createDeploymentAndInstall(canary: Canary): Promise<string
     const installJob = detail.jobs.find((j) => j.type === 'INSTALL');
     assert(installJob && (installJob.state === 'SUCCEEDED' || installJob.state === 'SUCCESS'), 'INSTALL job not settled successfully');
     recordJob(canary, installJob.id, 'INSTALL');
+    evidence.run.installSucceededAt = new Date().toISOString();
+    evidence.save();
+    details['installSucceededAt'] = evidence.run.installSucceededAt;
 
     const appStack = await describeStack(config.region, evidence.run.applicationStackName!);
     assert(appStack?.status === 'CREATE_COMPLETE', `application stack ${appStack?.status ?? 'absent'}`);
@@ -433,7 +524,72 @@ export async function createDeploymentAndInstall(canary: Canary): Promise<string
     details['infrastructure'] = { snapshotState: inventory.snapshotState, expectations: inventory.expectations };
   });
 
+  await waitForHttpsActive(canary);
+
   return deploymentId;
+}
+
+/**
+ * Waits for `defaultHttps.status` to settle ACTIVE (or ERROR), records the
+ * timing evidence a first-vs-second deployment comparison needs
+ * (`installSucceededAt` → `httpsActiveAt`, docs/https-regional-certificates.md
+ * Verification plan scenarios A/B), and — once a scoped hostname
+ * (`d-<id>.c-<scope>.deployz.dev`) is issued — the regional certificate
+ * facts for that scope. Reusable on its own against an existing deployment
+ * (the `wait-https` CLI command), not only right after install: scenario D's
+ * recovery cycle and a standalone re-check both call it the same way.
+ */
+export async function waitForHttpsActive(
+  canary: Canary,
+  timeoutMs = 20 * MINUTE,
+): Promise<{ detail: DeploymentDetail; httpsActiveAt: string; httpsSetupSeconds: number | null }> {
+  const { config, evidence, api } = canary;
+  const deploymentId = evidence.run.deploymentId;
+  assert(deploymentId, 'no deployment yet');
+  return evidence.step('Default HTTPS becomes ACTIVE and timings/certificate evidence are recorded', async (details) => {
+    const detail = await waitFor(
+      'default HTTPS',
+      () => api.getDeployment(deploymentId),
+      (d) => (d.defaultHttps?.status === 'ACTIVE' || d.defaultHttps?.status === 'ERROR' ? d : null),
+      { timeoutMs, describe: (d) => `${d.defaultHttps?.status ?? 'none'} ${describeDeployment(d)}` },
+    );
+    const https = detail.defaultHttps;
+    details['defaultHttps'] = https;
+    assert(https?.status === 'ACTIVE', `default HTTPS ${https?.status ?? 'none'}: ${https?.lastError ?? ''}`);
+
+    const httpsActiveAt = new Date().toISOString();
+    evidence.run.httpsActiveAt = httpsActiveAt;
+    let httpsSetupSeconds: number | null = null;
+    if (evidence.run.installSucceededAt) {
+      httpsSetupSeconds = Math.round(
+        (new Date(httpsActiveAt).getTime() - new Date(evidence.run.installSucceededAt).getTime()) / 1000,
+      );
+      evidence.run.httpsSetupSeconds = httpsSetupSeconds;
+    }
+    details['httpsActiveAt'] = httpsActiveAt;
+    details['httpsSetupSeconds'] = httpsSetupSeconds;
+
+    if (detail.deploymentStatus.httpsProgress) {
+      details['httpsProgress'] = detail.deploymentStatus.httpsProgress;
+    }
+
+    // Regional certificate evidence, once the issued hostname parses as
+    // scoped (d-<id>.c-<scope>.deployz.dev) — a legacy-flow hostname
+    // (grandfathered deployment, docs/https-regional-certificates.md
+    // decision 7) has no scope to look one up by.
+    if (https?.hostname) {
+      const scoped = parseScopedDeploymentHostname(https.hostname);
+      if (scoped) {
+        evidence.run.customerDnsScope = scoped.dnsScope;
+        const certs = await describeRegionalCertificates(config.region, scoped.dnsScope);
+        evidence.run.regionalCertificates = certs;
+        details['regionalCertificates'] = certs;
+      }
+    }
+    evidence.save();
+
+    return { detail, httpsActiveAt, httpsSetupSeconds };
+  });
 }
 
 export function parseQuickCreateUrl(url: string): {

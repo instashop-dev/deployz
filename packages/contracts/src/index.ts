@@ -1,6 +1,9 @@
 import { z } from 'zod';
 
+import { httpsProgressSchema } from './infrastructure.js';
+
 export * from './infrastructure.js';
+export * from './hostnames.js';
 export * from './manifest.js';
 export * from './application-analysis.js';
 export * from './components.js';
@@ -155,9 +158,74 @@ export const jobTypeSchema = z.enum([
   'HEALTH_CHECK',
   'CONFIGURE_DOMAIN',
   'REMOVE_DOMAIN',
+  // Regional HTTPS certificates (docs/https-regional-certificates.md):
+  // ENSURE_CERTIFICATE requests/adopts the customer-scoped wildcard ACM
+  // certificate; ATTACH_CERTIFICATE wires it into the relay's ALB listener.
+  'ENSURE_CERTIFICATE',
+  'ATTACH_CERTIFICATE',
   'PURGE',
 ]);
 export type JobType = z.infer<typeof jobTypeSchema>;
+
+// Regional HTTPS certificates (docs/https-regional-certificates.md decision
+// 4) — payload/result shapes for the two relay job types above.
+
+/** ENSURE_CERTIFICATE payload: describe/adopt/request the customer-scoped
+ *  wildcard certificate. `certificateArn` is the stored ARN to verify, when
+ *  one is already on record. */
+export const ensureCertificatePayloadSchema = z
+  .object({
+    certificateDomain: z.string(), // *.c-<scope>.<zone>
+    customerScope: z.string(), // the dns scope (no c- prefix)
+    certificateArn: z.string().optional(),
+    idempotencyToken: z.string().regex(/^[A-Za-z0-9_-]{1,32}$/),
+  })
+  .strict();
+export type EnsureCertificatePayload = z.infer<typeof ensureCertificatePayloadSchema>;
+
+/** ACM certificate lifecycle states the relay may report. */
+export const acmCertificateStatusSchema = z.enum([
+  'PENDING_VALIDATION',
+  'ISSUED',
+  'INACTIVE',
+  'EXPIRED',
+  'VALIDATION_TIMED_OUT',
+  'REVOKED',
+  'FAILED',
+]);
+export type AcmCertificateStatus = z.infer<typeof acmCertificateStatusSchema>;
+
+export const ensureCertificateResultSchema = z
+  .object({
+    certificateArn: z.string(),
+    certificateStatus: acmCertificateStatusSchema,
+    validationRecordName: z.string().optional(),
+    validationRecordValue: z.string().optional(),
+    validationRecordType: z.string().optional(), // 'CNAME'
+    failureReason: z.string().optional(), // ACM FailureReason when FAILED
+    adopted: z.boolean().optional(), // true when found by tag instead of requested
+  })
+  .strict();
+export type EnsureCertificateResult = z.infer<typeof ensureCertificateResultSchema>;
+
+/** ATTACH_CERTIFICATE payload: wire an issued certificate into the relay's
+ *  ALB 443 listener. */
+export const attachCertificatePayloadSchema = z
+  .object({
+    certificateArn: z.string(),
+    hostname: z.string(),
+  })
+  .strict();
+export type AttachCertificatePayload = z.infer<typeof attachCertificatePayloadSchema>;
+
+export const attachCertificateResultSchema = z
+  .object({
+    routingTarget: z.string(), // ALB DNS name
+    httpsConfigured: z.boolean(),
+    listenerArn: z.string().optional(),
+  })
+  .strict();
+export type AttachCertificateResult = z.infer<typeof attachCertificateResultSchema>;
 
 // §39 job states. WAITING semantics: the job is waiting on customer approval
 // OR on relay pickup — the payload/result disambiguates which.
@@ -206,8 +274,14 @@ export function deploymentStateAfterFailedJob(input: {
       // release newer than the one running is exactly what UPDATE_AVAILABLE
       // means (the failed candidate itself qualifies).
       return input.newerReadyReleaseExists ? 'UPDATE_AVAILABLE' : 'HEALTHY';
+    // Regional HTTPS certificates ride the relay channel outside a
+    // deployment's own lifecycle (docs/https-regional-certificates.md
+    // decision 4) — a failed certificate operation never touches
+    // deployment state, same as CONFIG_UPDATE/PURGE and the domain jobs.
     case 'CONFIG_UPDATE':
     case 'PURGE':
+    case 'ENSURE_CERTIFICATE':
+    case 'ATTACH_CERTIFICATE':
       return null;
     default:
       return 'FAILED';
@@ -285,6 +359,11 @@ export const relayCapabilitiesSchema = z
     configUpdate: z.boolean(),
     destroy: z.boolean(),
     domainManagement: z.boolean(),
+    // Regional HTTPS certificates (docs/https-regional-certificates.md):
+    // the relay can run ENSURE_CERTIFICATE/ATTACH_CERTIFICATE. Optional so
+    // older relays' payloads (built before this capability existed) still
+    // parse — the enrollment flow treats a missing/false value as "legacy".
+    regionalCertificate: z.boolean().optional(),
   })
   .strict();
 export type RelayCapabilities = z.infer<typeof relayCapabilitiesSchema>;
@@ -297,6 +376,10 @@ export const relayIdentitySchema = z
     relayVersion: z.string(),
     bootstrapVersion: z.string().nullable(),
     capabilities: relayCapabilitiesSchema,
+    // The customer DNS scope (customers.dns_scope) baked into the bootstrap
+    // stack, when the regional flow selected it. Null/absent for a relay
+    // enrolled without a customer scope — the legacy flow runs unchanged.
+    customerScope: z.string().nullable().optional(),
   })
   .strict();
 export type RelayIdentity = z.infer<typeof relayIdentitySchema>;
@@ -644,6 +727,10 @@ export const customerDeploymentStatusSchema = z
     removed: z.boolean(),
     statusUpdatesUnavailable: z.boolean(),
     needsDomainSetup: z.boolean(),
+    // Regional HTTPS certificates (docs/https-regional-certificates.md) —
+    // the TLS rung's sub-step detail. Optional: absent until the driver has
+    // something to report.
+    httpsProgress: httpsProgressSchema.optional(),
     components: z.array(componentProgressSchema),
     url: z.string().nullable(),
     // When the active step started — the install page's elapsed time.
@@ -742,6 +829,10 @@ export const vendorDeploymentStatusSchema = z
     ),
     statusUpdatesUnavailable: z.boolean(),
     needsDomainSetup: z.boolean(),
+    // Regional HTTPS certificates (docs/https-regional-certificates.md) —
+    // the TLS rung's sub-step detail. Optional: absent until the driver has
+    // something to report.
+    httpsProgress: httpsProgressSchema.optional(),
     components: z.array(componentProgressSchema),
     relay: z
       .object({
@@ -814,6 +905,10 @@ export const JOB_TIMEOUTS_MS: Partial<Record<JobType, number>> = {
   // (cert issuance + ALB listener work is a single invocation) then fail.
   CONFIGURE_DOMAIN: 60 * 60 * 1000,
   REMOVE_DOMAIN: 60 * 60 * 1000,
+  // Regional HTTPS certificates ride the same relay channel as the domain
+  // jobs — same generous window before a stuck job is failed.
+  ENSURE_CERTIFICATE: 60 * 60 * 1000,
+  ATTACH_CERTIFICATE: 60 * 60 * 1000,
 };
 
 /** Job states the STUCK definition (and the worker's sweep) ever consider. */
@@ -1356,6 +1451,10 @@ export const CONTROL_PLANE_URL_PARAMETER = 'ControlPlaneUrl';
 /** The bootstrap stack's single-use enrollment parameter. */
 export const ENROLLMENT_CODE_PARAMETER = 'EnrollmentCode';
 export const RELAY_CREDENTIAL_PARAMETER = 'RelayCredential';
+/** Regional HTTPS certificates (docs/https-regional-certificates.md decision
+ *  6): the customer's DNS scope, baked into the relay as
+ *  DEPLOYZ_CUSTOMER_SCOPE when non-empty. */
+export const CUSTOMER_SCOPE_PARAMETER = 'CustomerScope';
 
 /**
  * Deterministic public bucket that carries one supported region's bootstrap
@@ -1451,6 +1550,14 @@ export interface BootstrapQuickCreateOptions {
    * one inside the customer account.
    */
   readonly relayCredential?: string | undefined;
+  /**
+   * Regional HTTPS certificates (docs/https-regional-certificates.md
+   * decision 6): the customer's DNS scope, when the regional flow applies.
+   * Delivered through the Quick Create URL exactly like the enrollment code
+   * and relay credential; absent for a customer minted before this feature
+   * or when the regional flow does not apply.
+   */
+  readonly customerScope?: string | undefined;
   /** CloudFormation stack name. Defaults to `deployz-bootstrap`. */
   readonly stackName?: string | undefined;
 }
@@ -1464,6 +1571,7 @@ export interface BootstrapQuickCreateOptions {
  *     &stackName={stackName}
  *     &param_ControlPlaneUrl={controlPlaneUrl}
  *     &param_EnrollmentCode={enrollmentCode}
+ *     &param_CustomerScope={customerScope}
  *
  * The relay's communication credential is never here — CloudFormation mints
  * it inside the customer's account. The enrollment code is not that
@@ -1489,6 +1597,9 @@ export function buildBootstrapQuickCreateUrl(options: BootstrapQuickCreateOption
   }
   if (options.relayCredential !== undefined) {
     query.set(`param_${RELAY_CREDENTIAL_PARAMETER}`, options.relayCredential);
+  }
+  if (options.customerScope !== undefined) {
+    query.set(`param_${CUSTOMER_SCOPE_PARAMETER}`, options.customerScope);
   }
 
   return `${base}?${query.toString()}`;

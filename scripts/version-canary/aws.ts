@@ -12,6 +12,8 @@
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 
+import { regionalCertificateDomain } from '@deployz/contracts';
+
 import { CANARY_TAGS, canaryTags } from './config.js';
 
 const execFileAsync = promisify(execFile);
@@ -383,6 +385,15 @@ export interface LeakAudit {
   readonly logGroups: string[];
   readonly ssmParameters: string[];
   readonly certificates: string[];
+  /**
+   * Regional wildcard certificates (docs/https-regional-certificates.md) for
+   * `ids.customerDnsScope`, formatted like `certificates`. Reported
+   * separately: unlike a legacy per-deployment certificate, one of these is
+   * correctly retained across a single Disconnect/Purge while sibling
+   * deployments still exist in the scope, so the caller decides whether it
+   * is a leak (`--expect-regional-cert-removed`) rather than this audit.
+   */
+  readonly regionalCertificates: string[];
   readonly ecrTags: string[];
   readonly taskDefinitions: string[];
   readonly natGateways: string[];
@@ -407,6 +418,8 @@ export async function auditLeaks(
     ecrTags: string[];
     /** The region `deployz-images` lives in, when it differs from `region` (Stage B's install region). Defaults to `region`. */
     ecrRegion?: string;
+    /** The customer's DNS scope, when the run learned one (a scoped default-HTTPS hostname was issued) — drives the `regionalCertificates` check. `null` skips it (nothing to key on). */
+    customerDnsScope?: string | null;
   },
 ): Promise<LeakAudit> {
   const installationTagged = ids.installationId
@@ -485,6 +498,12 @@ export async function auditLeaks(
     (c) => ids.deploymentId !== null && c.DomainName.includes(ids.deploymentId),
   ).map((c) => `${c.DomainName} ${c.CertificateArn}`);
 
+  const regionalCertificates = ids.customerDnsScope
+    ? (await describeRegionalCertificates(region, ids.customerDnsScope)).map(
+        (c) => `${c.domain} ${c.arn} (${c.status})`,
+      )
+    : [];
+
   const ecrTags: string[] = [];
   const ecrRegion = ids.ecrRegion ?? region;
   for (const tag of ids.ecrTags) {
@@ -509,10 +528,99 @@ export async function auditLeaks(
     logGroups: [...new Set(logGroups)],
     ssmParameters,
     certificates,
+    regionalCertificates,
     ecrTags,
     taskDefinitions,
     natGateways,
   };
+}
+
+// ── Regional HTTPS certificates ────────────────────────────────────────────
+
+export interface RegionalCertificateFact {
+  readonly arn: string;
+  readonly status: string;
+  readonly domain: string;
+  readonly createdAt: string | null;
+}
+
+/**
+ * The regional wildcard certificate(s) (docs/https-regional-certificates.md)
+ * for a customer scope: `acm list-certificates` for the domain
+ * `*.c-<scope>.deployz.dev`, cross-checked with `list-tags-for-certificate`
+ * against the `deployz:customer-scope=<scope>` tag ENSURE_CERTIFICATE
+ * stamps — never `deployz:installation`, which is how this differs from the
+ * legacy per-deployment certificate check. Ordinarily zero or one result
+ * (unique per customer+account+region); more than one only while a replaced
+ * certificate has not finished deleting.
+ */
+export async function describeRegionalCertificates(
+  region: string,
+  scope: string,
+  exec: AwsCliExecutor = defaultAwsCliExecutor,
+  delay: DelayFn = defaultDelay,
+): Promise<RegionalCertificateFact[]> {
+  const domain = regionalCertificateDomain(scope);
+  const list = (await aws(['acm', 'list-certificates'], region, exec, delay)) as {
+    CertificateSummaryList: { CertificateArn: string; DomainName: string }[];
+  };
+  const candidates = list.CertificateSummaryList.filter((c) => c.DomainName === domain);
+  const out: RegionalCertificateFact[] = [];
+  for (const cert of candidates) {
+    const tags = (await aws(
+      ['acm', 'list-tags-for-certificate', '--certificate-arn', cert.CertificateArn],
+      region,
+      exec,
+      delay,
+    )) as { Tags: { Key: string; Value: string }[] };
+    if (tags.Tags.find((t) => t.Key === 'deployz:customer-scope')?.Value !== scope) continue;
+    const described = (await aws(
+      ['acm', 'describe-certificate', '--certificate-arn', cert.CertificateArn],
+      region,
+      exec,
+      delay,
+    )) as { Certificate: { Status: string; CreatedAt?: string; DomainName: string } };
+    out.push({
+      arn: cert.CertificateArn,
+      status: described.Certificate.Status,
+      domain: described.Certificate.DomainName,
+      createdAt: described.Certificate.CreatedAt ?? null,
+    });
+  }
+  return out;
+}
+
+/** Thrown by `deleteAcmCertificate` when ACM refuses because the
+ *  certificate is still attached to a listener (`ResourceInUseException`) —
+ *  the caller reports it rather than forcing a detach. */
+export class CertificateInUseError extends Error {}
+
+/**
+ * Deletes one ACM certificate. `'not-found'` when it is already gone
+ * (idempotent — a retried recovery run is safe); throws
+ * `CertificateInUseError` when ACM reports `ResourceInUseException` (still
+ * attached to a listener), which the caller must surface clearly rather than
+ * retry blindly.
+ */
+export async function deleteAcmCertificate(
+  region: string,
+  certificateArn: string,
+  exec: AwsCliExecutor = defaultAwsCliExecutor,
+  delay: DelayFn = defaultDelay,
+): Promise<'deleted' | 'not-found'> {
+  try {
+    await aws(['acm', 'delete-certificate', '--certificate-arn', certificateArn], region, exec, delay);
+    return 'deleted';
+  } catch (error) {
+    const message = String(error);
+    if (/ResourceNotFoundException/.test(message)) return 'not-found';
+    if (/ResourceInUseException/.test(message)) {
+      throw new CertificateInUseError(
+        `certificate ${certificateArn} is still in use (attached to a listener) — ACM refused deletion`,
+      );
+    }
+    throw error;
+  }
 }
 
 /**

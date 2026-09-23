@@ -95,12 +95,24 @@ export function albEndpointFromResult(result: DeploymentJobRow['result']): strin
 export function resolveAppUrl(
   jobs: ReadonlyArray<Pick<DeploymentJobRow, 'type' | 'state' | 'result'>>,
   domain: Pick<CustomDomainRow, 'hostname' | 'status'> | null,
-  defaultHttps?: Pick<{ hostname: string; status: string }, 'hostname' | 'status'> | null,
+  defaultHttps?: Pick<
+    { hostname: string; status: string; mode?: 'legacy' | 'regional' },
+    'hostname' | 'status' | 'mode'
+  > | null,
 ): string | null {
   if (domain?.status === 'ACTIVE') {
     return `https://${domain.hostname}`;
   }
-  if (defaultHttps?.status === 'ACTIVE' || defaultHttps?.status === 'CONFIGURING') {
+  // Regional mode (docs/https-regional-certificates.md decision 9): the
+  // scoped hostname is DNS-only, so it only actually serves once the
+  // machine's own HTTPS probe confirms ACTIVE — unlike legacy, where
+  // CONFIGURING already has a working (if unverified) listener behind a
+  // proxied Cloudflare record.
+  if (defaultHttps?.mode === 'regional') {
+    if (defaultHttps.status === 'ACTIVE') {
+      return `https://${defaultHttps.hostname}`;
+    }
+  } else if (defaultHttps?.status === 'ACTIVE' || defaultHttps?.status === 'CONFIGURING') {
     return `https://${defaultHttps.hostname}`;
   }
   const installs = jobs.filter(

@@ -45,7 +45,7 @@ describe('deploymentDisplayStatus — precise labels', () => {
     ['MIGRATION', 'Running migrations'],
     ['APPLICATION', 'Starting application'],
     ['HEALTH_CHECK', 'Checking health'],
-    ['TLS', 'Setting up HTTPS'],
+    ['TLS', 'Preparing secure access'],
   ])('an install on step %s reads "%s" and stays in progress', (step, label) => {
     const status = deploymentDisplayStatus(
       withState('INSTALLING', { deploymentStatus: { stage: 'PROVISIONING', step } as never }),

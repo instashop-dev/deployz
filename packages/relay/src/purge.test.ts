@@ -1,9 +1,12 @@
+import { ACMClient, ListCertificatesCommand, ListTagsForCertificateCommand } from '@aws-sdk/client-acm';
 import { describe, expect, it, vi } from 'vitest';
 
 import {
   createPurgeExecutor,
   createPurgeResumer,
+  createRealPurgeClients,
   isAccessDenied,
+  readRegionalCertificatesFromPayload,
   settlePurge,
   toNetworkPurgeClient,
   type AcmPurgeClient,
@@ -408,6 +411,154 @@ describe('settlePurge — orphan sweep', () => {
     expect(outcome).toEqual({ state: 'purging' });
     expect(calls).toEqual(['s3:empty:bucket-1', 's3:delete:bucket-1']);
     expect(calls).not.toContain('acm:delete:arn:aws:acm:us-east-1:1:certificate/abc');
+  });
+
+  // ── Regional HTTPS certificates (docs/https-regional-certificates.md
+  // decision 5) — the customer-scoped wildcard certificate(s) listed by ARN
+  // in the purge payload, deleted alongside (but independently of) the
+  // tag-verified owned-certificate sweep above. ──────────────────────────
+
+  it('deletes every listed regional-certificate ARN and completes the purge in the same pass', async () => {
+    // Deletion is synchronous, unlike the async RDS/cache/S3 sweeps, so a
+    // clean delete does not need a further pass to confirm — the purge
+    // reaches `succeeded` immediately once nothing else remains.
+    const calls: string[] = [];
+    const deps = depsWith(cfnAppAbsent(), calls, {
+      regionalCertificates: [{ certificateArn: 'arn:aws:acm:us-east-1:1:certificate/regional-abc' }],
+    });
+
+    const outcome = await settlePurge(deps);
+    expect(outcome).toEqual({ state: 'succeeded' });
+    expect(calls).toContain('acm:delete:arn:aws:acm:us-east-1:1:certificate/regional-abc');
+  });
+
+  it('tolerates a regional certificate that is already gone (NotFound)', async () => {
+    const calls: string[] = [];
+    const acm: AcmPurgeClient = {
+      async listOwnedCertificates() {
+        return [];
+      },
+      async deleteCertificate(certificateArn) {
+        calls.push(`acm:delete:${certificateArn}`);
+        throw Object.assign(new Error('no such certificate'), { name: 'ResourceNotFoundException' });
+      },
+    };
+    const deps = depsWith(cfnAppAbsent(), calls, {
+      acm,
+      regionalCertificates: [{ certificateArn: 'arn:aws:acm:us-east-1:1:certificate/already-gone' }],
+    });
+
+    const outcome = await settlePurge(deps);
+    expect(outcome).toEqual({ state: 'succeeded' });
+  });
+
+  it('retries a still-attached regional certificate (ResourceInUseException) and succeeds once it releases', async () => {
+    const calls: string[] = [];
+    let attempts = 0;
+    const acm: AcmPurgeClient = {
+      async listOwnedCertificates() {
+        return [];
+      },
+      async deleteCertificate(certificateArn) {
+        attempts += 1;
+        calls.push(`acm:delete:${certificateArn}`);
+        if (attempts < 3) {
+          throw Object.assign(new Error('still in use'), { name: 'ResourceInUseException' });
+        }
+      },
+    };
+    const sleeps: number[] = [];
+    const deps = depsWith(cfnAppAbsent(), calls, {
+      acm,
+      regionalCertificates: [{ certificateArn: 'arn:aws:acm:us-east-1:1:certificate/in-use' }],
+      sleep: async (ms) => {
+        sleeps.push(ms);
+      },
+    });
+
+    const outcome = await settlePurge(deps);
+    expect(outcome).toEqual({ state: 'succeeded' });
+    expect(attempts).toBe(3);
+    expect(sleeps).toHaveLength(2);
+  });
+
+  it('returns purging (never fails the purge) when a regional certificate is still in use after every retry', async () => {
+    const calls: string[] = [];
+    const acm: AcmPurgeClient = {
+      async listOwnedCertificates() {
+        return [];
+      },
+      async deleteCertificate(certificateArn) {
+        calls.push(`acm:delete:${certificateArn}`);
+        throw Object.assign(new Error('still in use'), { name: 'ResourceInUseException' });
+      },
+    };
+    const deps = depsWith(cfnAppAbsent(), calls, {
+      acm,
+      regionalCertificates: [{ certificateArn: 'arn:aws:acm:us-east-1:1:certificate/stuck' }],
+      sleep: async () => {},
+    });
+
+    const outcome = await settlePurge(deps);
+    expect(outcome).toEqual({ state: 'purging' });
+  });
+
+  it('never sweeps a certificate tagged only deployz:customer-scope through the owned-certificate sweep', async () => {
+    // The real client's `owns()` filter only matches `deployz:installation`
+    // (see `createRealPurgeClients`), so a certificate carrying only
+    // `deployz:customer-scope` is invisible to `listOwnedCertificates` by
+    // construction — it is never returned, and this purge completes
+    // without ever calling `acm:delete` for it. Only an ARN explicitly
+    // listed in `regionalCertificates` (the control plane's own record of
+    // the shared certificate) is ever deleted.
+    const calls: string[] = [];
+    const deps = depsWith(cfnAppAbsent(), calls, {
+      acm: clients(calls, { certificates: [] }).acm,
+    });
+
+    const outcome = await settlePurge(deps);
+    expect(outcome).toEqual({ state: 'succeeded' });
+    expect(calls).toEqual([]);
+  });
+
+  it('real client: excludes a certificate carrying both the installation tag and a customer-scope tag, but still sweeps one with only the installation tag', async () => {
+    // IAM policy-size adjustment: RequestCertificate for the regional
+    // certificate now stamps the requesting relay's own installation tag
+    // too, so `owns()` alone would wrongly treat it as swept-by-default —
+    // `createRealPurgeClients` must explicitly exclude anything carrying
+    // `deployz:customer-scope`.
+    const sendSpy = vi.spyOn(ACMClient.prototype, 'send').mockImplementation(async (command: unknown) => {
+      if (command instanceof ListCertificatesCommand) {
+        return {
+          CertificateSummaryList: [
+            { CertificateArn: 'arn:aws:acm:us-east-1:1:certificate/regional', DomainName: '*.c-scope1.deployz.dev' },
+            { CertificateArn: 'arn:aws:acm:us-east-1:1:certificate/legacy', DomainName: 'd-1.deployz.dev' },
+          ],
+        };
+      }
+      if (command instanceof ListTagsForCertificateCommand) {
+        const arn = (command as ListTagsForCertificateCommand).input.CertificateArn;
+        if (arn === 'arn:aws:acm:us-east-1:1:certificate/regional') {
+          return {
+            Tags: [
+              { Key: 'deployz:installation', Value: INSTALLATION_ID },
+              { Key: 'deployz:customer-scope', Value: 'scope1' },
+            ],
+          };
+        }
+        if (arn === 'arn:aws:acm:us-east-1:1:certificate/legacy') {
+          return { Tags: [{ Key: 'deployz:installation', Value: INSTALLATION_ID }] };
+        }
+      }
+      throw new Error(`unexpected ACM command in test: ${String(command)}`);
+    });
+
+    try {
+      const owned = await createRealPurgeClients(INSTALLATION_ID).acm.listOwnedCertificates();
+      expect(owned).toEqual(['arn:aws:acm:us-east-1:1:certificate/legacy']);
+    } finally {
+      sendSpy.mockRestore();
+    }
   });
 
   it('leaves the retained DB-credential secrets untouched while the retained database is still being deleted', async () => {
@@ -1595,5 +1746,31 @@ describe('createPurgeResumer — previous installation id from pending payload',
     expect(results).toHaveLength(0); // still purging
     expect(calls).toContain('rds:unprotect:db-prev');
     expect(calls).toContain('rds:delete:db-prev');
+  });
+});
+
+describe('readRegionalCertificatesFromPayload', () => {
+  it('extracts well-formed entries', () => {
+    expect(
+      readRegionalCertificatesFromPayload({
+        regionalCertificates: [{ certificateArn: 'arn:aws:acm:us-east-1:1:certificate/a' }],
+      }),
+    ).toEqual([{ certificateArn: 'arn:aws:acm:us-east-1:1:certificate/a' }]);
+  });
+
+  it('drops malformed entries and returns undefined when nothing survives', () => {
+    expect(readRegionalCertificatesFromPayload({})).toBeUndefined();
+    expect(readRegionalCertificatesFromPayload({ regionalCertificates: 'not-an-array' })).toBeUndefined();
+    expect(
+      readRegionalCertificatesFromPayload({ regionalCertificates: [{ certificateArn: 123 }, {}] }),
+    ).toBeUndefined();
+  });
+
+  it('keeps only the well-formed entries out of a mixed list', () => {
+    expect(
+      readRegionalCertificatesFromPayload({
+        regionalCertificates: [{ certificateArn: 'arn:good' }, { certificateArn: '' }, null, 'nope'],
+      }),
+    ).toEqual([{ certificateArn: 'arn:good' }]);
   });
 });

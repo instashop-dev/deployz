@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import type { DeploymentStage, DeploymentStep, VendorDeploymentStatus } from '@deployz/contracts';
+import type { DeploymentStage, DeploymentStep, HttpsProgress, VendorDeploymentStatus } from '@deployz/contracts';
 
 import { deriveHero, type HeroInput } from '../src/lib/deployment-hero';
 import {
@@ -24,6 +24,7 @@ import {
   TAKING_LONGER_MESSAGE,
   type ProgressStepState,
 } from '../src/lib/deployment-progress';
+import { HTTPS_SLOW_NOTE, HTTPS_SUBSTEP_LABEL } from '../src/lib/deployment-vocabulary';
 
 // Locks the client-side vocabulary map for the server-derived deployment
 // stage/step (see apps/api/src/deployment-status.ts): the client only ever
@@ -193,7 +194,7 @@ describe('customerStepperSteps', () => {
       'Network ready',
       'Starting application',
       'Health check',
-      'Configure HTTPS',
+      'Preparing secure access',
       'Ready',
     ]);
   });
@@ -253,6 +254,93 @@ describe('customerStepperSteps', () => {
 
   it('renders no rungs when an older API omits steps', () => {
     expect(customerStepperSteps([])).toEqual([]);
+  });
+});
+
+// Regional HTTPS certificates (docs/https-regional-certificates.md): once
+// the server sends `httpsProgress` for a non-custom-domain flow, the
+// `https` rung renders httpsProgress's own three sub-steps instead of the
+// plain TLS row.
+describe('customerStepperSteps — httpsProgress', () => {
+  const flat = (step: DeploymentStep, stage: DeploymentStage) =>
+    stepsFromStatus({ steps: FULL_STEPS, step, stage });
+
+  function httpsProgress(overrides: Partial<HttpsProgress> = {}): HttpsProgress {
+    return {
+      state: 'WAITING_FOR_CERTIFICATE',
+      mode: 'regional',
+      substeps: [
+        { key: 'CERTIFICATE_REQUESTED', state: 'done' },
+        { key: 'DOMAIN_VERIFICATION_CONFIGURED', state: 'current' },
+        { key: 'WAITING_FOR_READY', state: 'waiting' },
+      ],
+      slow: false,
+      ...overrides,
+    };
+  }
+
+  it('a first regional deployment renders the three sub-steps with their labels and the slow note while current', () => {
+    const grouped = customerStepperSteps(flat('TLS', 'VERIFYING'), {
+      httpsProgress: httpsProgress({ slow: true }),
+    });
+    const https = grouped.find((step) => step.key === 'https')!;
+    expect(https.label).toBe('Preparing secure access');
+    expect(https.state).toBe('current');
+    expect(https.substeps?.map((step) => step.key)).toEqual([
+      'CERTIFICATE_REQUESTED',
+      'DOMAIN_VERIFICATION_CONFIGURED',
+      'WAITING_FOR_READY',
+    ]);
+    expect(https.substeps?.map((step) => step.label)).toEqual([
+      HTTPS_SUBSTEP_LABEL.CERTIFICATE_REQUESTED,
+      HTTPS_SUBSTEP_LABEL.DOMAIN_VERIFICATION_CONFIGURED,
+      HTTPS_SUBSTEP_LABEL.WAITING_FOR_READY,
+    ]);
+    expect(https.substeps?.map((step) => step.state)).toEqual(['done', 'current', 'waiting']);
+    expect(https.detail).toBe(HTTPS_SLOW_NOTE);
+  });
+
+  it('a reused certificate moves the rung through two done sub-steps to a current third — no spinner on the done rows', () => {
+    const grouped = customerStepperSteps(flat('TLS', 'VERIFYING'), {
+      httpsProgress: httpsProgress({
+        substeps: [
+          { key: 'CERTIFICATE_REQUESTED', state: 'done' },
+          { key: 'DOMAIN_VERIFICATION_CONFIGURED', state: 'done' },
+          { key: 'WAITING_FOR_READY', state: 'current' },
+        ],
+      }),
+    });
+    const https = grouped.find((step) => step.key === 'https')!;
+    expect(https.state).toBe('current');
+    expect(https.substeps?.map((step) => step.state)).toEqual(['done', 'done', 'current']);
+  });
+
+  it('a terminal certificate failure puts the rung and its unfinished sub-steps in attention, never current, even while the wire stage is not FAILED', () => {
+    const grouped = customerStepperSteps(flat('TLS', 'VERIFYING'), {
+      httpsProgress: httpsProgress({
+        state: 'FAILED',
+        substeps: [
+          { key: 'CERTIFICATE_REQUESTED', state: 'done' },
+          { key: 'DOMAIN_VERIFICATION_CONFIGURED', state: 'attention' },
+          { key: 'WAITING_FOR_READY', state: 'waiting' },
+        ],
+      }),
+    });
+    const https = grouped.find((step) => step.key === 'https')!;
+    expect(https.label).toBe('Preparing secure access failed');
+    expect(https.state).toBe('attention');
+    expect(https.substeps?.map((step) => step.state)).toEqual(['done', 'attention', 'attention']);
+    expect(https.detail).toBeUndefined();
+    expect(grouped.some((step) => step.state === 'current')).toBe(false);
+  });
+
+  it('a vendor custom-domain deployment ignores httpsProgress and keeps the plain TLS row', () => {
+    const grouped = customerStepperSteps(flat('TLS', 'VERIFYING'), {
+      httpsProgress: httpsProgress({ mode: 'custom' }),
+    });
+    const https = grouped.find((step) => step.key === 'https')!;
+    expect(https.substeps).toBeUndefined();
+    expect(https.label).toBe('Preparing secure access');
   });
 });
 

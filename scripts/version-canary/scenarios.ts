@@ -30,6 +30,7 @@ import {
   deployExpectingFailure,
   preflight,
   publishCanaryTemplate,
+  reuseVendorApplicationAndRelease,
   rollbackAndVerify,
   seedMarker,
   setUpVendorAndApplication,
@@ -61,11 +62,14 @@ async function setupReuseStack(canary: Canary): Promise<void> {
     evidence.run.applicationStackName = applicationStackNameForInstallation(installationId);
     evidence.save();
 
-    // Create a customer + deployment (per-run resources for the control plane).
-    const customer = await api.createCustomer({
-      name: `Canary customer ${config.runId}`,
-      email: `customer-${config.runId.toLowerCase()}@deployz-canary.example.com`,
-    });
+    // Create a customer + deployment (per-run resources for the control
+    // plane) — or reuse an existing customer (config.customerId, scenario B).
+    const customer = config.customerId
+      ? { id: config.customerId }
+      : await api.createCustomer({
+          name: `Canary customer ${config.runId}`,
+          email: `customer-${config.runId.toLowerCase()}@deployz-canary.example.com`,
+        });
     evidence.run.customerId = customer.id;
     const deployment = await api.createDeployment({ applicationId: evidence.run.applicationId!, customerId: customer.id, region: config.region });
     evidence.run.deploymentId = deployment.id;
@@ -92,14 +96,29 @@ async function teardownOrSkipInfrastructure(canary: Canary): Promise<void> {
   await leakAudit(canary);
 }
 
+/**
+ * The install head shared by `runCore`/`runProfile`: a fresh vendor +
+ * application + built/published v1 release, or — when `config.reuseRunId`
+ * is set (`--reuse-customer-from`, scenario B/C) — that exact vendor,
+ * application and v1 copied from the reused run instead, so the second
+ * deployment installs the SAME image behind the SAME application template.
+ */
+export async function setUpOrReuseVendorApplicationAndV1(canary: Canary): Promise<void> {
+  if (canary.config.reuseRunId) {
+    await reuseVendorApplicationAndRelease(canary, canary.config.reuseRunId);
+    return;
+  }
+  await setUpVendorAndApplication(canary);
+  await buildRelease(canary, 'v1');
+  await publishCanaryTemplate(canary, 'v1');
+}
+
 export async function runCore(canary: Canary): Promise<void> {
   const { evidence, api } = canary;
   await preflight(canary);
-  await setUpVendorAndApplication(canary);
 
-  // Phase 4 — v1.
-  await buildRelease(canary, 'v1');
-  await publishCanaryTemplate(canary, 'v1');
+  // Phase 4 — v1 (fresh, or reused — see setUpOrReuseVendorApplicationAndV1).
+  await setUpOrReuseVendorApplicationAndV1(canary);
 
   // Reuse-stack: skip bootstrap stack creation/install; use the standing stack.
   if (canary.config.reuseStack) {
@@ -182,17 +201,19 @@ export async function runCore(canary: Canary): Promise<void> {
 
 /**
  * A single-profile certification run: the core ladder's install head —
- * vendor/application, v1 build, canary template, install to HEALTHY with the
+ * vendor/application, v1 build, canary template (fresh, or reused — see
+ * setUpOrReuseVendorApplicationAndV1), install to HEALTHY with the
  * plan-vs-inventory gate — under a configured infrastructure profile
  * (config.profile), then the full teardown with its retained-state checks.
  * No markers and no update/rollback ladder: the question is whether the
- * product provisions and tears down THIS shape.
+ * product provisions and tears down THIS shape. `--customer-id`/
+ * `--reuse-customer-from` make this run scenario B/C: the same shape for a
+ * second deployment on an existing customer (docs/https-regional-
+ * certificates.md Verification plan).
  */
 export async function runProfile(canary: Canary): Promise<void> {
   await preflight(canary);
-  await setUpVendorAndApplication(canary);
-  await buildRelease(canary, 'v1');
-  await publishCanaryTemplate(canary, 'v1');
+  await setUpOrReuseVendorApplicationAndV1(canary);
   await createDeploymentAndInstall(canary);
   await teardownOrSkipInfrastructure(canary);
 }

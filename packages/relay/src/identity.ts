@@ -12,7 +12,7 @@ import type { RelayCapabilities, RelayIdentity } from '@deployz/contracts';
  * the relay bundle carries no package metadata at runtime, so this constant
  * is the version.
  */
-export const RELAY_VERSION = '0.2.0';
+export const RELAY_VERSION = '0.3.0';
 
 /**
  * What this relay build can execute. Flips to true per capability as the
@@ -25,12 +25,25 @@ export const RELAY_CAPABILITIES: RelayCapabilities = {
   configUpdate: true,
   destroy: true,
   domainManagement: true,
+  // Regional HTTPS certificates (docs/https-regional-certificates.md): this
+  // relay can run ENSURE_CERTIFICATE/ATTACH_CERTIFICATE.
+  regionalCertificate: true,
 };
 
 /** Extracts the account id from a Lambda ARN (arn:aws:lambda:REGION:ACCOUNT:...). */
 export function accountIdFromArn(arn: string): string | null {
   const parts = arn.split(':');
   return /^\d{12}$/.test(parts[4] ?? '') ? parts[4]! : null;
+}
+
+/**
+ * `DEPLOYZ_CUSTOMER_SCOPE`, normalized: unset, empty, and the bootstrap
+ * template's literal 'none' default all mean "this installation has no
+ * customer scope".
+ */
+function readCustomerScope(): string | null {
+  const value = process.env['DEPLOYZ_CUSTOMER_SCOPE'];
+  return value && value !== 'none' ? value : null;
 }
 
 /**
@@ -45,6 +58,12 @@ export function readRelayIdentity(context?: {
     relayVersion: RELAY_VERSION,
     bootstrapVersion: process.env['DEPLOYZ_BOOTSTRAP_VERSION'] ?? null,
     capabilities: RELAY_CAPABILITIES,
+    // The customer DNS scope baked into the bootstrap stack. The
+    // CustomerScope template parameter defaults to the literal 'none' (not
+    // empty — CloudFormation conditions need a non-empty default), so
+    // unset, empty, and 'none' all mean "no scope" — null tells the control
+    // plane "no regional flow", same as an older relay that never reports it.
+    customerScope: readCustomerScope(),
   };
   const accountId = context?.invokedFunctionArn
     ? accountIdFromArn(context.invokedFunctionArn)

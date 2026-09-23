@@ -9,7 +9,12 @@
  */
 import { createHash, randomBytes } from 'node:crypto';
 
-import { applicationStackNameForInstallation, releaseImageTag } from '@deployz/contracts';
+import {
+  applicationStackNameForInstallation,
+  parseLegacyDefaultDeploymentHostname,
+  parseScopedDeploymentHostname,
+  releaseImageTag,
+} from '@deployz/contracts';
 
 import type { BenchmarkEntry } from '../repository-compatibility/manifest.js';
 import type { Evidence } from '../version-canary/evidence.js';
@@ -853,17 +858,32 @@ export async function runRepositoryAttempt(deps: DeployDeps, input: RepositoryAt
         const detail = await waitFor(
           'default HTTPS',
           () => deps.api.getDeployment(deploymentId),
-          (d) => {
-            const https = (d as unknown as { defaultHttps?: { status?: string; hostname?: string } | null }).defaultHttps;
-            return https?.status === 'ACTIVE' || https?.status === 'ERROR' ? d : null;
-          },
-          { timeoutMs: deps.timeouts.httpsMs, intervalMs: interval, describe: (d) => `${(d as unknown as { defaultHttps?: { status?: string } | null }).defaultHttps?.status ?? 'none'} ${describeDeployment(d)}` },
+          (d) => (d.defaultHttps?.status === 'ACTIVE' || d.defaultHttps?.status === 'ERROR' ? d : null),
+          { timeoutMs: deps.timeouts.httpsMs, intervalMs: interval, describe: (d) => `${d.defaultHttps?.status ?? 'none'} ${describeDeployment(d)}` },
         );
-        const https = (detail as unknown as { defaultHttps?: { status?: string; hostname?: string; lastError?: string | null } | null }).defaultHttps;
+        const https = detail.defaultHttps;
         details['defaultHttps'] = https;
         assert(https?.status === 'ACTIVE', 'https', `default HTTPS ${https?.status ?? 'none'}: ${https?.lastError ?? ''}`, { httpsStatus: https?.status ?? null });
         const url = `https://${https.hostname}`;
-        assert(appUrlKeys(config).length === 0 || url === defaultDeploymentUrl(deploymentId), 'harness', `the configured app URL ${defaultDeploymentUrl(deploymentId)} differs from the issued hostname ${url}`);
+        // Regional certificates (docs/https-regional-certificates.md) issue
+        // `d-<id>.c-<scope>.deployz.dev`; a grandfathered deployment keeps
+        // the legacy `d-<id>.deployz.dev` shape (decision 7). Parse the
+        // issued hostname instead of building one literal, so either shape
+        // passes as long as it names THIS deployment.
+        const scoped = https.hostname ? parseScopedDeploymentHostname(https.hostname) : null;
+        const legacyId = https.hostname ? parseLegacyDefaultDeploymentHostname(https.hostname) : null;
+        const hostnameMatches =
+          scoped?.deploymentId === deploymentId.toLowerCase() ||
+          legacyId === deploymentId.toLowerCase() ||
+          // Synthetic non-UUID deployment ids (harness tests) never parse as
+          // either shape — fall back to the literal legacy comparison so a
+          // test double stays valid without needing a real uuid.
+          url === defaultDeploymentUrl(deploymentId);
+        assert(
+          appUrlKeys(config).length === 0 || hostnameMatches,
+          'harness',
+          `the issued hostname ${https.hostname} does not resolve to deployment ${deploymentId} (checked the regional and legacy shapes)`,
+        );
         result.runtime.appUrl = url;
         details['appUrl'] = url;
         // ACTIVE is the product's word; the edge in front of the ALB can lag

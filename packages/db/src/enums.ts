@@ -95,6 +95,11 @@ export const jobTypeEnum = pgEnum('job_type', [
   'HEALTH_CHECK',
   'CONFIGURE_DOMAIN',
   'REMOVE_DOMAIN',
+  // Regional HTTPS certificates (docs/https-regional-certificates.md):
+  // ENSURE_CERTIFICATE requests/adopts the customer-scoped wildcard ACM
+  // certificate; ATTACH_CERTIFICATE wires it into the relay's ALB listener.
+  'ENSURE_CERTIFICATE',
+  'ATTACH_CERTIFICATE',
   'PURGE',
 ]);
 
@@ -288,4 +293,15 @@ export const infrastructureComponentStatusEnum = pgEnum('infrastructure_componen
   'retained',
   'removed',
   'unknown',
+]);
+
+// customer_regional_certificates.certificate_status (docs/https-regional-
+// certificates.md decision 3) — one row per (customer, aws account, region).
+// No row = not created. ERROR is retryable IN PLACE: the next driver pass
+// re-requests against the same row rather than minting a new one.
+export const regionalCertificateStatusEnum = pgEnum('regional_certificate_status', [
+  'REQUESTING',
+  'DNS_VALIDATION_PENDING',
+  'ISSUED',
+  'ERROR',
 ]);

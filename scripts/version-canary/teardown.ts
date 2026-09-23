@@ -18,14 +18,17 @@ import {
   installationDbInstance,
   installationSecretsByTag,
   invokeRelay,
+  deleteAcmCertificate,
   deleteEcrTags,
   deleteLogGroupIfExists,
   deleteS3Prefix,
   deleteSsmParameterIfExists,
   deleteStack,
   deleteTaskDefinitions,
+  describeRegionalCertificates,
   liveInstallationCache,
   liveStackElbResources,
+  CertificateInUseError,
   type InstallationSecret,
   type LeakAudit,
 } from './aws.js';
@@ -448,13 +451,22 @@ export async function removeCanaryLeftovers(canary: Canary): Promise<void> {
   });
 
   await evidence.step('Remove run-scoped images, task definitions and template objects', async (details) => {
-    const tags = Object.values(run.releases).map((r) => r.imageTag ?? r.version);
+    // A reused run's v1 (--reuse-customer-from, scenario B/C) is the
+    // ORIGINAL run's artifact — its image tag and the published template
+    // are still live and still reused by that run until ITS OWN cleanup
+    // runs. This run only ever owns the releases it built itself.
+    details['reusedFromRunId'] = run.reusedFromRunId ?? null;
+    const ownReleases = run.reusedFromRunId
+      ? Object.entries(run.releases).filter(([tag]) => tag !== 'v1')
+      : Object.entries(run.releases);
+
+    const tags = ownReleases.map(([, r]) => r.imageTag ?? r.version);
     details['ecrTagsDeleted'] = await deleteEcrTags(config.controlPlaneRegion, ECR_REPOSITORY, tags);
-    const shaTags = [...new Set(Object.values(run.releases).map((r) => r.gitSha))];
+    const shaTags = [...new Set(ownReleases.map(([, r]) => r.gitSha))];
     // The build also tags the image with the git SHA (traceability). Those
     // tags are shared across runs of the same fixture commit — delete only
-    // when the digest is one of this run's.
-    const runDigests = new Set(Object.values(run.releases).flatMap((r) => (r.imageDigest ? [r.imageDigest] : [])));
+    // when the digest is one of this run's OWN releases.
+    const runDigests = new Set(ownReleases.flatMap(([, r]) => (r.imageDigest ? [r.imageDigest] : [])));
     const { ecrDigestForTag } = await import('./aws.js');
     const shaTagsToDelete: string[] = [];
     for (const tag of shaTags) {
@@ -472,7 +484,12 @@ export async function removeCanaryLeftovers(canary: Canary): Promise<void> {
       details['taskDefinitionsDeleted'] = taskDefinitions;
     }
 
-    if (run.templateBucket && run.canaryTemplateKeyPrefix) {
+    if (run.reusedFromRunId) {
+      // The whole prefix (application/canary-<originalRunId>) belongs to
+      // the original run — deleting it here would pull the template out
+      // from under any sibling deployment still installing against it.
+      details['templateObjectsSkipped'] = `inherited from run ${run.reusedFromRunId} — its own cleanup removes them, once nothing else reuses it`;
+    } else if (run.templateBucket && run.canaryTemplateKeyPrefix) {
       details['templateObjectsDeleted'] = await deleteS3Prefix(run.templateBucket, `${run.canaryTemplateKeyPrefix}/`);
     }
   });
@@ -483,6 +500,13 @@ export async function leakAudit(canary: Canary): Promise<LeakAudit> {
   const { config, evidence } = canary;
   const run = evidence.run;
   return evidence.step('AWS leak audit', async (details) => {
+    // A reused run's v1 (run.reusedFromRunId) is the original run's still-
+    // live artifact by design — this run's own cleanup never deletes it
+    // (removeCanaryLeftovers above), so the audit must not flag it as left
+    // behind either.
+    const ownReleases = run.reusedFromRunId
+      ? Object.entries(run.releases).filter(([tag]) => tag !== 'v1')
+      : Object.entries(run.releases);
     const audit = await auditLeaks(config.region, {
       installationId: run.installationId ?? null,
       runId: run.runId,
@@ -491,10 +515,19 @@ export async function leakAudit(canary: Canary): Promise<LeakAudit> {
       bootstrapLambdaNames: run.bootstrapLambdaNames ?? [],
       deploymentId: run.deploymentId ?? null,
       ecrRepository: ECR_REPOSITORY,
-      ecrTags: Object.values(run.releases).map((r) => r.imageTag ?? r.version),
+      ecrTags: ownReleases.map(([, r]) => r.imageTag ?? r.version),
       ecrRegion: config.controlPlaneRegion,
+      customerDnsScope: run.customerDnsScope ?? null,
     });
     details['audit'] = audit;
+    // A retained regional certificate is correct after a single
+    // Disconnect/Purge while sibling deployments still exist in the scope
+    // (docs/https-regional-certificates.md decision 5) — only a run told
+    // its scope should be empty (--expect-regional-cert-removed) treats it
+    // as a leak. Otherwise it is recorded for visibility, never thrown on.
+    if (audit.regionalCertificates.length > 0 && !config.expectRegionalCertRemoved) {
+      details['regionalCertificatesRetained'] = audit.regionalCertificates;
+    }
     // INACTIVE ECS clusters/task definitions linger in the tagging API after
     // deletion and cost nothing (documented in aws-full-product-canary.md).
     const disposable = [
@@ -506,6 +539,7 @@ export async function leakAudit(canary: Canary): Promise<LeakAudit> {
       ...audit.logGroups.map((l) => `log-group ${l}`),
       ...audit.ssmParameters.map((p) => `ssm ${p}`),
       ...audit.certificates.map((c) => `acm ${c}`),
+      ...(config.expectRegionalCertRemoved ? audit.regionalCertificates.map((c) => `regional-acm ${c}`) : []),
       ...audit.ecrTags.map((t) => `ecr ${t}`),
       // A NAT gateway lingers in the tagging index after deletion too, but it
       // is the one costly resource here, so it is checked against EC2 rather
@@ -524,5 +558,49 @@ export async function leakAudit(canary: Canary): Promise<LeakAudit> {
       throw new Error(`${disposable.length} resource(s) left after teardown:\n${disposable.join('\n')}`);
     }
     return audit;
+  });
+}
+
+/**
+ * Recovery scenario D helper (docs/https-regional-certificates.md
+ * Verification plan): deletes the regional certificate(s) for `scope`
+ * out of band, so the next reconcile cycle observes a missing ARN and
+ * requests a replacement. Confirms the `deployz:customer-scope` tag before
+ * deleting anything (never a name-pattern delete) and refuses — clearly,
+ * without retrying — a certificate ACM reports as still in use.
+ */
+export async function deleteRegionalCertificate(canary: Canary, scope: string, region?: string): Promise<void> {
+  const { config, evidence } = canary;
+  const targetRegion = region ?? config.region;
+  await evidence.step(`Delete regional certificate(s) for customer scope ${scope} (recovery scenario D)`, async (details) => {
+    const certs = await describeRegionalCertificates(targetRegion, scope);
+    details['found'] = certs;
+    if (certs.length === 0) {
+      details['skipped'] = `no certificate tagged deployz:customer-scope=${scope} in ${targetRegion}`;
+      return;
+    }
+    const deleted: string[] = [];
+    const inUse: string[] = [];
+    for (const cert of certs) {
+      try {
+        const result = await deleteAcmCertificate(targetRegion, cert.arn);
+        if (result === 'deleted') deleted.push(cert.arn);
+      } catch (error) {
+        if (error instanceof CertificateInUseError) {
+          inUse.push(cert.arn);
+        } else {
+          throw error;
+        }
+      }
+    }
+    details['deleted'] = deleted;
+    details['inUse'] = inUse;
+    evidence.run.deletedRegionalCertificates = [...(evidence.run.deletedRegionalCertificates ?? []), ...deleted];
+    evidence.save();
+    if (inUse.length > 0) {
+      throw new Error(
+        `certificate(s) still in use, ACM refused deletion: ${inUse.join(', ')} — detach the listener first, or wait for the scope's last deployment to Purge`,
+      );
+    }
   });
 }

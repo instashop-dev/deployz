@@ -84,7 +84,12 @@ this flow), ACM-validates the per-deployment certificate through them, and
 promotes the deployment to READY once the HTTPS probe verifies the endpoint.
 A customer custom domain, once ACTIVE and healthy, takes precedence as the
 deployment's preferred URL; the default URL remains the permanent fallback and
-is never disabled while the custom domain exists. See
+is never disabled while the custom domain exists. New deployments instead get
+a customer-scoped regional hostname,
+`https://d-<deployment-id>.c-<scope>.deployz.dev`, backed by one wildcard
+certificate shared per customer + AWS account + region (see
+[`docs/https-regional-certificates.md`](docs/https-regional-certificates.md));
+older deployments keep the shape above unchanged. See
 [`docs/mvp-default-https-status.md`](docs/mvp-default-https-status.md) for the
 full phase record.
 

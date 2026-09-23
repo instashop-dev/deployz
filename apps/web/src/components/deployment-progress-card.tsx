@@ -14,12 +14,13 @@ import {
   COMPONENT_PROGRESS_LABEL,
   formatElapsedSeconds,
   stepDetailLine,
+  STEP_LABEL,
   stepWaitingOnInput,
   stepsFromStatus,
   STAGE_LABEL,
   removedProgress,
 } from '@/lib/deployment-progress';
-import { JOB_STATE_LABEL, JOB_TYPE_LABEL } from '@/lib/deployment-vocabulary';
+import { HTTPS_SLOW_NOTE, JOB_STATE_LABEL, JOB_TYPE_LABEL } from '@/lib/deployment-vocabulary';
 
 /** Live elapsed time since `startedAt`, ticking every second — isolated here
  *  so only this small counter re-renders on each tick, not the whole card. */
@@ -49,12 +50,30 @@ export function timedSteps(status: VendorDeploymentStatus) {
     step: status.step,
     needsDomainSetup: status.needsDomainSetup,
   });
-  return stepsFromStatus({ steps: status.steps, step: status.step, stage: status.stage }).map((step) => {
+  // Regional HTTPS certificates (docs/https-regional-certificates.md): a
+  // terminal certificate failure never fails the deployment itself, so the
+  // wire TLS step can still read `current` while httpsProgress already knows
+  // it failed — surface that here so the vendor flat list agrees with the
+  // customer stepper (customerStepperSteps applies the same override).
+  const httpsProgress = status.httpsProgress;
+  const httpsFailed = httpsProgress?.state === 'FAILED';
+  return stepsFromStatus({ steps: status.steps, step: status.step, stage: status.stage }).map((rawStep) => {
+    const step =
+      httpsFailed && rawStep.key === 'TLS' && rawStep.state === 'current'
+        ? { ...rawStep, state: 'attention' as const, label: STEP_LABEL.TLS.failed }
+        : rawStep;
     if (step.state === 'current') {
       // No elapsed counter while a step waits on someone: a ticking clock
       // there reads as Deployz stalling on work nothing is doing.
       if (waitingOnInput) {
         return { ...step, detail: AWAITING_DOMAIN_STEP_DETAIL };
+      }
+      if (step.key === 'TLS' && httpsProgress?.slow) {
+        return {
+          ...step,
+          detail: HTTPS_SLOW_NOTE,
+          meta: status.stepStartedAt ? <ElapsedTime startedAt={status.stepStartedAt} /> : undefined,
+        };
       }
       return {
         ...step,

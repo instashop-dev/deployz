@@ -2,7 +2,7 @@ import { JSDOM } from 'jsdom';
 import { renderToString } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 
-import { DeploymentUrlCard } from '../src/components/deployment-url-card';
+import { defaultDeployzUrl, DeploymentUrlCard } from '../src/components/deployment-url-card';
 import type { FleetDeploymentDetail, HealthStatus } from '../src/lib/deployments';
 
 /**
@@ -104,6 +104,17 @@ describe('DeploymentUrlCard', () => {
     expect(doc.body.textContent).toContain('Custom domain');
     expect(doc.body.textContent).toContain('Not configured');
     expect(doc.querySelector('a[href="/install/link-1"]')?.textContent).toBe('Add custom domain');
+  });
+
+  it('falls back to the centralized legacy hostname helper when the API sends no defaultUrl', () => {
+    // A stale cached payload predating `defaultUrl` still renders the
+    // right address — built from @deployz/contracts' legacyDefaultDeploymentHostname,
+    // never a literal `d-<id>.deployz.dev` template string.
+    expect(defaultDeployzUrl('dep-9f1c')).toBe('https://d-dep-9f1c.deployz.dev');
+
+    const d = detail({ appUrl: null, defaultUrl: null });
+    const doc = render(d);
+    expect(doc.body.textContent).toContain('https://d-dep-9f1c.deployz.dev');
   });
 
   it('renders the API-provided defaultUrl rather than a client-minted hostname', () => {

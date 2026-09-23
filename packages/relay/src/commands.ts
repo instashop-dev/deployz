@@ -2,7 +2,7 @@
  * Relay command vocabulary — the fixed set of commands the relay can execute.
  *
  * The relay is a fixed-vocabulary actor, not a general-purpose agent. It
- * understands exactly twelve command types (§39). Every command carries an
+ * understands exactly fourteen command types (§39). Every command carries an
  * idempotency key; re-delivery of the same key produces the same result with
  * no side effects.
  *
@@ -27,6 +27,11 @@ export const RELAY_COMMAND_TYPES = [
   'REFRESH_METADATA',
   'CONFIGURE_DOMAIN',
   'REMOVE_DOMAIN',
+  // Regional HTTPS certificates (docs/https-regional-certificates.md):
+  // ENSURE_CERTIFICATE requests/adopts the customer-scoped wildcard ACM
+  // certificate; ATTACH_CERTIFICATE wires it into the relay's ALB listener.
+  'ENSURE_CERTIFICATE',
+  'ATTACH_CERTIFICATE',
 ] as const;
 
 export type RelayCommandType = (typeof RELAY_COMMAND_TYPES)[number];
