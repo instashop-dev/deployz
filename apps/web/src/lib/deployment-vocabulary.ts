@@ -544,6 +544,7 @@ export const EVENT_FAMILIES = [
   'relay',
   'redis',
   'deploy_link',
+  'invitation',
 ] as const;
 
 export type EventFamily = (typeof EVENT_FAMILIES)[number];
@@ -567,6 +568,7 @@ const FAMILY_LABELS: Record<EventFamily, string> = {
   relay: 'Helper',
   redis: 'Cache',
   deploy_link: 'Deploy link',
+  invitation: 'Invitation',
 };
 
 /**
@@ -653,6 +655,18 @@ const EVENT_TYPE_LABELS: Record<string, string> = {
   'deploy_link.retry.requested': 'Customer retried the deployment',
   'deploy_link.revoked': 'Deploy link revoked',
   'deploy_link.regenerated': 'Deploy link regenerated',
+
+  // Installation invitations (MVP Readiness 2): the vendor-created customer
+  // entry points. The deployment outcome itself still reports through the
+  // standard install/deploy events — the invitation only opens the door.
+  'invitation.created': 'Invitation created',
+  'invitation.opened': 'Customer opened the invitation',
+  'invitation.regenerated': 'Invitation regenerated',
+  'invitation.revoked': 'Invitation revoked',
+  'invitation.confirmed': 'Invitation confirmed',
+  'invitation.region_selected': 'Region selected',
+  'invitation.deployment_created': 'Deployment created',
+  'invitation.configuration_delivered': 'Configuration delivered',
 };
 
 /** Human-readable label for an event type (§65). */

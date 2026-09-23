@@ -47,6 +47,14 @@ const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{
 /** How long a freshly minted targeted invitation stays valid. */
 export const DEFAULT_INVITATION_TTL_DAYS = 30;
 
+// The invitation.opened event is throttled in memory — the schema has no
+// last-used column to throttle on (deploy-links.ts writes last_used_at; here
+// an in-memory Map keyed by link id stands in). Same 60s cadence as
+// deploy-links.ts's LAST_USED_THROTTLE_MS: a page that polls or reloads
+// within the window does not flood event_logs.
+const OPENED_THROTTLE_MS = 60_000;
+const lastOpenedAtByLinkId = new Map<string, number>();
+
 export type PublicInstallLinkRow = typeof schema.publicInstallLinks.$inferSelect;
 type ApplicationRow = typeof schema.applications.$inferSelect;
 
@@ -217,6 +225,21 @@ export function publicInstallInputs(manifest: DeploymentManifest): PublicInstall
  */
 export async function resolvePublicInstall(db: RuntimeDb, linkId: string, token?: string) {
   const { application, publisherName, link } = await loadActiveLink(db, linkId, token);
+  // The opened event is throttled: a page that polls within the window does
+  // not spam the log. Payload records ids only — the token is verified inside
+  // loadActiveLink and is never written anywhere.
+  const lastOpenedAt = lastOpenedAtByLinkId.get(link.id);
+  if (lastOpenedAt === undefined || Date.now() - lastOpenedAt >= OPENED_THROTTLE_MS) {
+    lastOpenedAtByLinkId.set(link.id, Date.now());
+    await recordEvent(db, {
+      organizationId: link.organizationId,
+      eventType: 'invitation.opened',
+      actorType: 'system',
+      actorId: `public-install:${link.id}`,
+      ...(link.customerId !== null ? { customerId: link.customerId } : {}),
+      payload: { schemaVersion: 1, invitationId: link.id, applicationId: link.applicationId },
+    });
+  }
   // A consumed targeted invitation is not re-reviewable (a reusable link is).
   if (link.customerId !== null && link.confirmedAt !== null) {
     throw new ApiError(410, 'PUBLIC_INSTALL_LINK_USED', 'This installation link has already been used.');
@@ -417,6 +440,23 @@ export async function confirmPublicInstall(
           return rows[0]?.organizationId;
         },
       });
+      // Delivery receipt for the pre-relay configuration the customer typed:
+      // counts only, never the values.
+      await recordEvent(tx, {
+        organizationId: link.organizationId,
+        eventType: 'invitation.configuration_delivered',
+        actorType: 'system',
+        actorId,
+        customerId,
+        payload: {
+          schemaVersion: 1,
+          invitationId: link.id,
+          applicationId: link.applicationId,
+          customerId,
+          inputKeyCount: body.config.length,
+          secretInputCount: body.config.filter((entry) => entry.isSecret).length,
+        },
+      });
       const { deployment } = await createDeploymentRecord(tx, {
         organizationId: link.organizationId,
         applicationId: link.applicationId,
@@ -428,6 +468,38 @@ export async function confirmPublicInstall(
         source: 'public_link',
         publicInstallLinkId: link.id,
         confirmKey: body.idempotencyKey,
+      });
+      await recordEvent(tx, {
+        organizationId: link.organizationId,
+        eventType: 'invitation.confirmed',
+        actorType: 'system',
+        actorId,
+        customerId,
+        payload: {
+          schemaVersion: 1,
+          invitationId: link.id,
+          applicationId: link.applicationId,
+          customerId,
+          idempotencyKey: body.idempotencyKey,
+        },
+      });
+      await recordEvent(tx, {
+        organizationId: link.organizationId,
+        eventType: 'invitation.region_selected',
+        actorType: 'system',
+        actorId,
+        customerId,
+        deploymentId: deployment.id,
+        payload: { schemaVersion: 1, invitationId: link.id, region: body.region },
+      });
+      await recordEvent(tx, {
+        organizationId: link.organizationId,
+        eventType: 'invitation.deployment_created',
+        actorType: 'system',
+        actorId,
+        customerId,
+        deploymentId: deployment.id,
+        payload: { schemaVersion: 1, invitationId: link.id, deploymentId: deployment.id },
       });
       // Consume a targeted invitation: it can never create another
       // deployment. A reusable link stays open for more customers.
@@ -665,14 +737,17 @@ export async function createInstallationInvitation(
     .returning();
   await recordEvent(db, {
     organizationId: params.organizationId,
-    eventType: 'public_install_link.created',
+    eventType: 'invitation.created',
     actorType: 'user',
     actorId: params.userId,
     customerId: params.customerId,
     payload: {
+      schemaVersion: 1,
       applicationId: params.applicationId,
-      linkId: link!.id,
+      invitationId: link!.id,
+      customerId: params.customerId,
       recommendedRegion: params.recommendedRegion ?? null,
+      expiresAt: link!.expiresAt,
     },
   });
   return { link: link!, token };
@@ -723,6 +798,54 @@ export async function listPublicInstallLinks(db: RuntimeDb, organizationId: stri
     )
     .orderBy(desc(schema.publicInstallLinks.createdAt));
   return rows.map(toLinkView);
+}
+
+/** Derived customer-side invitation status — nothing is persisted. */
+export type InvitationStatus = 'active' | 'expired' | 'revoked' | 'used';
+
+/**
+ * GET /api/customers/:customerId/invitations — the customer's TARGETED
+ * invitations (customer_id set), org-scoped, newest first, each with the
+ * derived status. tokenHash and confirmedAt are never returned; the derived
+ * status carries the state.
+ */
+export async function listCustomerInvitations(db: RuntimeDb, organizationId: string, customerId: string) {
+  const rows = await db
+    .select({
+      id: schema.publicInstallLinks.id,
+      applicationName: schema.applications.name,
+      recommendedRegion: schema.publicInstallLinks.recommendedRegion,
+      regionSelection: schema.publicInstallLinks.regionSelection,
+      expiresAt: schema.publicInstallLinks.expiresAt,
+      createdAt: schema.publicInstallLinks.createdAt,
+      confirmedAt: schema.publicInstallLinks.confirmedAt,
+      revokedAt: schema.publicInstallLinks.revokedAt,
+    })
+    .from(schema.publicInstallLinks)
+    .innerJoin(schema.applications, eq(schema.publicInstallLinks.applicationId, schema.applications.id))
+    .where(
+      and(
+        eq(schema.publicInstallLinks.organizationId, organizationId),
+        eq(schema.publicInstallLinks.customerId, customerId),
+      ),
+    )
+    .orderBy(desc(schema.publicInstallLinks.createdAt));
+  const now = Date.now();
+  return rows.map((row) => {
+    let status: InvitationStatus = 'active';
+    if (row.confirmedAt !== null) status = 'used';
+    else if (row.revokedAt !== null) status = 'revoked';
+    else if (row.expiresAt !== null && row.expiresAt.getTime() < now) status = 'expired';
+    return {
+      id: row.id,
+      applicationName: row.applicationName,
+      recommendedRegion: row.recommendedRegion,
+      regionSelection: row.regionSelection,
+      status,
+      expiresAt: row.expiresAt,
+      createdAt: row.createdAt,
+    };
+  });
 }
 
 /**
@@ -787,6 +910,13 @@ export async function revokePublicInstallLink(db: RuntimeDb, params: PublicInsta
     actorId: params.userId,
     payload: { applicationId: link.applicationId, linkId: link.id },
   });
+  await recordEvent(db, {
+    organizationId: params.organizationId,
+    eventType: 'invitation.revoked',
+    actorType: 'user',
+    actorId: params.userId,
+    payload: { schemaVersion: 1, applicationId: link.applicationId, invitationId: link.id },
+  });
   return toLinkView(updated!);
 }
 
@@ -818,6 +948,18 @@ export async function regeneratePublicInstallLink(db: RuntimeDb, params: PublicI
         actorType: 'user',
         actorId: params.userId,
         payload: { applicationId: link.applicationId, linkId: row!.id, replacedLinkId: link.id },
+      });
+      await recordEvent(tx, {
+        organizationId: params.organizationId,
+        eventType: 'invitation.regenerated',
+        actorType: 'user',
+        actorId: params.userId,
+        payload: {
+          schemaVersion: 1,
+          applicationId: link.applicationId,
+          invitationId: row!.id,
+          replacedLinkId: link.id,
+        },
       });
       return row!;
     });

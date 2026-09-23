@@ -168,6 +168,7 @@ import {
   confirmPublicInstall,
   createInstallationInvitation,
   createPublicInstallLink,
+  listCustomerInvitations,
   listPublicInstallLinks,
   publicInstallConfirmBodySchema,
   regeneratePublicInstallLink,
@@ -3598,6 +3599,20 @@ export async function buildServer({
         expiresAt: link.expiresAt,
         recommendedRegion: link.recommendedRegion,
       });
+    },
+  );
+
+  // GET /api/customers/:customerId/invitations — the customer's targeted
+  // installation invitations, newest first, with the derived status
+  // ('active' | 'expired' | 'revoked' | 'used'). Never carries the token.
+  app.get(
+    '/api/customers/:customerId/invitations',
+    { preHandler: requireAuth },
+    async (request) => {
+      const { customerId } = request.params as { customerId: string };
+      const organizationId = requireSessionOrganizationId(request);
+      await loadOwnedCustomer(db, customerId, organizationId); // 404s on cross-org
+      return { invitations: await listCustomerInvitations(db, organizationId, customerId) };
     },
   );
 

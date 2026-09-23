@@ -267,4 +267,89 @@ describe('targeted installation invitations', () => {
     expect(unknownProfile.statusCode).toBe(422);
     expect((unknownProfile.json() as { error: { code: string } }).error.code).toBe('UNKNOWN_PROFILE');
   });
+
+  it('lists the customer invitations with derived status and no token material', async () => {
+    const active = (await createInvitation()).json() as { id: string };
+    const toUse = (await createInvitation('us-east-1')).json() as { id: string; token: string };
+    const confirm = await app.inject({
+      method: 'POST',
+      url: `/api/public-install/${toUse.id}/confirm`,
+      headers: { 'content-type': 'application/json', 'x-deployz-token': toUse.token },
+      payload: JSON.stringify({
+        idempotencyKey: crypto.randomUUID(),
+        region: 'us-east-1',
+        config: [{ key: 'STRIPE_API_KEY', value: 'sk_list_fixture', isSecret: true }],
+      }),
+    });
+    expect(confirm.statusCode, confirm.body).toBe(201);
+
+    const list = await app.inject({
+      method: 'GET',
+      url: `/api/customers/${customerId}/invitations`,
+      headers: { cookie: org.cookie },
+    });
+    expect(list.statusCode, list.body).toBe(200);
+    const rows = (list.json() as {
+      invitations: Array<{
+        id: string;
+        status: string;
+        applicationName: string;
+        recommendedRegion: string | null;
+      }>;
+    }).invitations;
+    const byId = new Map(rows.map((row) => [row.id, row]));
+    expect(byId.get(toUse.id)?.status).toBe('used');
+    expect(byId.get(active.id)?.status).toBe('active');
+    expect(byId.get(active.id)?.applicationName).toBe('Invited App');
+    expect(byId.get(active.id)?.recommendedRegion).toBeNull();
+    // The stored hash and raw token never reach this surface.
+    expect(JSON.stringify(rows)).not.toContain('tokenHash');
+    expect(JSON.stringify(rows)).not.toContain(toUse.token);
+  });
+
+  it('emits the invitation lifecycle events without ever logging values or tokens', async () => {
+    const { id, token } = (await createInvitation('us-east-1')).json() as { id: string; token: string };
+    // Opening the invitation emits invitation.opened (throttled in memory).
+    const opened = await app.inject({
+      method: 'GET',
+      url: `/api/public-install/${id}`,
+      headers: { 'x-deployz-token': token },
+    });
+    expect(opened.statusCode, opened.body).toBe(200);
+
+    const secretValue = 'sk_events_fixture_value';
+    const confirm = await app.inject({
+      method: 'POST',
+      url: `/api/public-install/${id}/confirm`,
+      headers: { 'content-type': 'application/json', 'x-deployz-token': token },
+      payload: JSON.stringify({
+        idempotencyKey: crypto.randomUUID(),
+        region: 'eu-west-1', // differs from the recommendation on purpose
+        config: [{ key: 'STRIPE_API_KEY', value: secretValue, isSecret: true }],
+      }),
+    });
+    expect(confirm.statusCode, confirm.body).toBe(201);
+
+    const events = await db
+      .select({ eventType: schema.eventLogs.eventType, payload: schema.eventLogs.payload })
+      .from(schema.eventLogs)
+      .where(eq(schema.eventLogs.customerId, customerId));
+    const types = new Set(events.map((row) => row.eventType));
+    for (const expected of [
+      'invitation.created',
+      'invitation.opened',
+      'invitation.confirmed',
+      'invitation.region_selected',
+      'invitation.deployment_created',
+      'invitation.configuration_delivered',
+    ]) {
+      expect(types, `missing ${expected}`).toContain(expected);
+    }
+    // Neither the secret value nor the one-time token reaches any payload.
+    expect(JSON.stringify(events)).not.toContain(secretValue);
+    expect(JSON.stringify(events)).not.toContain(token);
+    // region_selected records the CUSTOMER's region, not the recommendation.
+    const regionEvent = events.find((row) => row.eventType === 'invitation.region_selected');
+    expect((regionEvent!.payload as Record<string, unknown>)['region']).toBe('eu-west-1');
+  });
 });

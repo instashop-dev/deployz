@@ -151,7 +151,7 @@ export const CUSTOMER_DEPLOYMENT_STATUS_BADGE: Record<
 
 // ── §40 event families ──────────────────────────────────────────────────────
 
-/** The §40 event families (§65): install/deploy/rollback/config/destroy/health/relay/redis. */
+/** The §40 event families (§65): install/deploy/rollback/config/destroy/health/relay/redis/invitation. */
 export const EVENT_FAMILIES = [
   'install',
   'deploy',
@@ -161,6 +161,7 @@ export const EVENT_FAMILIES = [
   'health',
   'relay',
   'redis',
+  'invitation',
 ] as const;
 
 export type EventFamily = (typeof EVENT_FAMILIES)[number];
@@ -183,6 +184,7 @@ const FAMILY_LABELS: Record<EventFamily, string> = {
   health: 'Health',
   relay: 'Helper',
   redis: 'Cache',
+  invitation: 'Invitation',
 };
 
 /**
@@ -251,6 +253,18 @@ const EVENT_TYPE_LABELS: Record<string, string> = {
   'operation.timeout': 'Operation took too long',
   'operation.waiting_for_relay': 'Waiting for AWS connection',
   'operation.requeued': 'Operation resumed after an interruption',
+
+  // Installation invitations (MVP Readiness 2): the vendor-created customer
+  // entry points. The deployment outcome itself still reports through the
+  // standard install/deploy events — the invitation only opens the door.
+  'invitation.created': 'Invitation created',
+  'invitation.opened': 'Customer opened the invitation',
+  'invitation.regenerated': 'Invitation regenerated',
+  'invitation.revoked': 'Invitation revoked',
+  'invitation.confirmed': 'Invitation confirmed',
+  'invitation.region_selected': 'Region selected',
+  'invitation.deployment_created': 'Deployment created',
+  'invitation.configuration_delivered': 'Configuration delivered',
 };
 
 /** Human-readable label for an event type (§65). */
