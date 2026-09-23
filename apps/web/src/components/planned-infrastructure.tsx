@@ -35,7 +35,8 @@ export function PlannedInfrastructure({ plan }: { plan: DeploymentPlan | null })
       ) : (
         <>
           <p className="text-sm text-muted-foreground">
-            Each customer deployment gets these components in the customer&apos;s AWS account.
+            Each customer deployment gets these components in the customer&apos;s AWS account. One
+            component can group several AWS resources — see the details below for the exact list.
           </p>
           <Card className="py-0">
             <CardContent className="overflow-x-auto p-0">
@@ -45,7 +46,7 @@ export function PlannedInfrastructure({ plan }: { plan: DeploymentPlan | null })
                     <TableHead>Component</TableHead>
                     <TableHead>Provisioned as</TableHead>
                     <TableHead>Configuration</TableHead>
-                    <TableHead>Retention</TableHead>
+                    <TableHead>On uninstall</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -56,7 +57,7 @@ export function PlannedInfrastructure({ plan }: { plan: DeploymentPlan | null })
                       <TableCell className="text-muted-foreground">{row.configuration ?? 'Standard'}</TableCell>
                       <TableCell>
                         <Badge variant={row.retention === 'Retained' ? 'secondary' : 'outline'}>
-                          {row.retention}
+                          {row.retention === 'Retained' ? 'Kept' : 'Removed'}
                         </Badge>
                       </TableCell>
                     </TableRow>
@@ -65,6 +66,10 @@ export function PlannedInfrastructure({ plan }: { plan: DeploymentPlan | null })
               </Table>
             </CardContent>
           </Card>
+          <p className="text-xs text-muted-foreground">
+            &quot;On uninstall&quot; describes what happens to each component when a customer
+            uninstalls the deployment — kept components stay in the customer&apos;s AWS account.
+          </p>
           <AwsInfrastructureDetails
             plan={plan}
             triggerLabel={`AWS resource details · ${resourceCount} resource${resourceCount === 1 ? '' : 's'}`}

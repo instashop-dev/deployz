@@ -242,13 +242,9 @@ export function InstallLinkControls({ applicationId, installLink, onChanged, pri
         </Button>
         <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
           <DropdownMenuTrigger asChild>
-            <Button
-              size="icon-sm"
-              variant="outline"
-              aria-label="More install link actions"
-              data-testid="public-install-link-menu"
-            >
+            <Button size="sm" variant="outline" data-testid="public-install-link-menu">
               <MoreHorizontal aria-hidden />
+              Manage
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">

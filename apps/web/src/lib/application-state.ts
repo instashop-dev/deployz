@@ -7,10 +7,12 @@
 // Nothing here is persisted and nothing is invented: the inputs are the API's
 // own application, readiness, deployment and install-link responses.
 
+import { requiredChangeLabel } from '@/lib/application-configuration';
 import { deploymentDisplayStatus } from '@/lib/deployment-status-groups';
 import type { FleetDeployment } from '@/lib/deployments';
 import type { PublicInstallLinkView } from '@/lib/public-install-links';
 import type { ApplicationReadiness } from '@/lib/readiness';
+import { installReleaseState, type Release } from '@/lib/releases';
 
 // ── Canonical states ────────────────────────────────────────────────────────
 
@@ -56,7 +58,8 @@ export type ApplicationActionId =
   | 'create-install-link'
   | 'copy-install-link'
   | 'preview-install-link'
-  | 'view-customer-deployments';
+  | 'view-customer-deployments'
+  | 'view-releases';
 
 export interface ApplicationAction {
   id: ApplicationActionId;
@@ -157,6 +160,9 @@ export interface ApplicationStateInput {
     application: { id: string; name: string };
     readiness: ApplicationReadiness;
     deployments: FleetDeployment[];
+    /** 'error' when the releases fetch failed: the mapper says nothing about
+     *  releases rather than guessing. */
+    releases: Release[] | 'error';
   } | null;
   installLinks: InstallLinksInput;
   /** True after repeated failed refreshes: the data on screen may be old. */
@@ -237,14 +243,76 @@ const BADGES: Record<ApplicationState, { label: string; variant: ApplicationBadg
 export const STALE_NOTICE = 'Live updates are paused. Deployz keeps trying in the background.';
 
 const INSTALL_LINK_LOAD_ERROR = "We couldn't load the customer install link. Try again in a moment.";
-const INSTALL_LINK_EARLY_WARNING =
-  'This link is live, but the application is not ready to share. Disable the link until a test deployment passes.';
 const INSTALL_LINK_UNKNOWN_WARNING =
   "Deployz doesn't recognise this link's status. Regenerate the link to get a working one.";
 const INSTALL_LINK_REVOKED_NOTE = 'The previous link was revoked. Create a new link to share the application.';
 
 function changesRequired(count: number): string {
   return `${count} ${count === 1 ? 'change' : 'changes'} required`;
+}
+
+// ── Release copy ─────────────────────────────────────────────────────────────
+
+function releaseLabel(release: Release): string {
+  return `${release.version} (commit ${release.gitSha.slice(0, 7)})`;
+}
+
+function newestReleaseOverall(releases: readonly Release[]): Release | null {
+  if (releases.length === 0) return null;
+  return releases.reduce((latest, r) => (Date.parse(r.createdAt) > Date.parse(latest.createdAt) ? r : latest));
+}
+
+/** What an active link tells the vendor it currently does — never a claim
+ *  that a test must pass again, only what installs right now. */
+function activeEarlyLinkWarning(releases: Release[] | 'error'): string {
+  let outcome: string;
+  if (releases === 'error') {
+    outcome = 'Deployz cannot confirm what customers get right now.';
+  } else {
+    const state = installReleaseState(releases);
+    outcome =
+      state.kind === 'ready'
+        ? `Customers who use it now get release ${releaseLabel(state.release)}.`
+        : 'Customers who use it now are refused: there is no built release yet.';
+  }
+  return `This link is live. ${outcome} Disable it if you do not want installs right now.`;
+}
+
+interface ShareReleaseInfo {
+  /** Null when releases are 'error': the mapper says nothing rather than guessing. */
+  message: string | null;
+  notice: ApplicationNotice | null;
+  action: ApplicationAction | null;
+}
+
+/** What customers get from the install link once the application is ready to
+ *  share — the newest READY release, a warning when a newer release since
+ *  failed to build, or a pointer to Releases when nothing is built yet. */
+function describeReleaseForShare(releases: Release[] | 'error', applicationId: string): ShareReleaseInfo {
+  if (releases === 'error') return { message: null, notice: null, action: null };
+  const state = installReleaseState(releases);
+  if (state.kind !== 'ready') {
+    return {
+      message: 'Customers cannot install yet: there is no built release.',
+      notice: null,
+      action: action('view-releases', 'View releases', `/dashboard/applications/${applicationId}/releases`),
+    };
+  }
+  const newest = newestReleaseOverall(releases);
+  const notice: ApplicationNotice | null =
+    newest && newest.status === 'FAILED' && Date.parse(newest.createdAt) > Date.parse(state.release.createdAt)
+      ? { tone: 'warning', text: `Release ${newest.version} failed to build. Customers still get ${state.release.version}.` }
+      : null;
+  return { message: `Customers who install get release ${releaseLabel(state.release)}.`, notice, action: null };
+}
+
+/** A short note naming the release a test deployment installs. Empty string
+ *  when there is nothing to say (no ready release, or the releases fetch
+ *  failed) so callers can append it without a conditional. */
+function testReleaseNote(releases: Release[] | 'error'): string {
+  if (releases === 'error') return '';
+  const state = installReleaseState(releases);
+  return state.kind === 'ready' ? ` The test deployment uses release ${releaseLabel(state.release)}.` : '';
 }
 
 function countLabel(count: number, singular: string, plural: string): string {
@@ -275,6 +343,7 @@ function deriveInstallLink(
   links: InstallLinksInput,
   available: boolean,
   unavailableReason: string | null,
+  releases: Release[] | 'error',
 ): InstallLinkPresentation {
   if (unavailableReason === null && !available) return { kind: 'hidden' };
   if (links === null) return { kind: 'loading' };
@@ -286,7 +355,7 @@ function deriveInstallLink(
       live.status === 'active' || live.status === 'disabled' ? live.status : 'unknown';
     let warning: string | null = null;
     if (status === 'unknown') warning = INSTALL_LINK_UNKNOWN_WARNING;
-    else if (!available && status === 'active') warning = INSTALL_LINK_EARLY_WARNING;
+    else if (!available && status === 'active') warning = activeEarlyLinkWarning(releases);
     return { kind: 'live', link: live, status, warning };
   }
   if (!available) return { kind: 'unavailable', reason: unavailableReason ?? '' };
@@ -320,6 +389,9 @@ type Core = Pick<
   linkUnavailableReason: string | null;
   /** True when the primary card already tells the test deployment's story. */
   cardShowsTest: boolean;
+  /** A newer release that failed to build after the one customers actually
+   *  get — set only in the ready-to-share/customers-active states. */
+  releaseNotice?: ApplicationNotice | null;
 };
 
 /**
@@ -364,7 +436,7 @@ export function deriveApplicationPresentation(input: ApplicationStateInput): App
     };
   }
 
-  const { application, readiness, deployments } = input.data;
+  const { application, readiness, deployments, releases } = input.data;
   const analysisStatus = readiness.analysisStatus as string;
   const analysed = analysisStatus === 'COMPLETE';
   const required = analysed ? readiness.findings.filter((f) => f.severity === 'required') : [];
@@ -398,7 +470,7 @@ export function deriveApplicationPresentation(input: ApplicationStateInput): App
         secondaryActions: [],
         polling: { intervalMs: ANALYSIS_POLL_MS },
         lifecycle: lifecycle('current', 'pending', 'pending'),
-        linkUnavailableReason: 'Available after the analysis and a successful test deployment.',
+        linkUnavailableReason: 'The customer install link becomes available after the analysis and a successful test deployment.',
         cardShowsTest: false,
       };
     }
@@ -413,7 +485,7 @@ export function deriveApplicationPresentation(input: ApplicationStateInput): App
         secondaryActions: [],
         polling: { intervalMs: TEST_DEPLOYMENT_POLL_MS },
         lifecycle: lifecycle('done', configureStep, 'current'),
-        linkUnavailableReason: 'Available after a successful test deployment.',
+        linkUnavailableReason: 'The customer install link becomes available after a successful test deployment.',
         cardShowsTest: true,
       };
     }
@@ -428,7 +500,7 @@ export function deriveApplicationPresentation(input: ApplicationStateInput): App
         secondaryActions: [],
         polling: { intervalMs: TEST_DEPLOYMENT_POLL_MS },
         lifecycle: lifecycle('done', configureStep, 'current'),
-        linkUnavailableReason: 'Available after a successful test deployment.',
+        linkUnavailableReason: 'The customer install link becomes available after a successful test deployment.',
         cardShowsTest: true,
       };
     }
@@ -443,7 +515,7 @@ export function deriveApplicationPresentation(input: ApplicationStateInput): App
         secondaryActions: [],
         polling: { intervalMs: TEST_DEPLOYMENT_POLL_MS },
         lifecycle: lifecycle('done', configureStep, 'pending'),
-        linkUnavailableReason: 'Available after a successful test deployment.',
+        linkUnavailableReason: 'The customer install link becomes available after a successful test deployment.',
         cardShowsTest: true,
       };
     }
@@ -458,7 +530,7 @@ export function deriveApplicationPresentation(input: ApplicationStateInput): App
         secondaryActions: [],
         polling: null,
         lifecycle: lifecycle('failed', 'pending', 'pending'),
-        linkUnavailableReason: 'Available after the analysis and a successful test deployment.',
+        linkUnavailableReason: 'The customer install link becomes available after the analysis and a successful test deployment.',
         cardShowsTest: false,
       };
     }
@@ -481,41 +553,43 @@ export function deriveApplicationPresentation(input: ApplicationStateInput): App
     if (required.length > 0) {
       return {
         state: 'configuration-required',
-        heading: changesRequired(required.length),
+        heading: `${changesRequired(required.length)} before you can deploy`,
         message:
           customers.length > 0
             ? 'New deployments are blocked until these are resolved. Existing customer deployments are not affected.'
-            : 'Resolve these before you deploy the application.',
+            : 'Analysis finished. Deployz found changes to make before a test deployment.',
         busy: false,
-        primaryAction: action('review-configuration', 'Review configuration', configurationHref),
+        primaryAction: action('review-configuration', 'Review required changes', `${configurationHref}#required-changes`),
         secondaryActions: [],
         polling: null,
         lifecycle: lifecycle('done', 'current', 'pending'),
-        linkUnavailableReason: 'Available after the required changes and a successful test deployment.',
+        linkUnavailableReason: 'The customer install link becomes available after the required changes and a successful test deployment.',
         cardShowsTest: false,
       };
     }
 
     if (customers.length > 0) {
       const attention = customers.filter((d) => deploymentDisplayStatus(d).group === 'attention').length;
+      const shareInfo = attention === 0 ? describeReleaseForShare(releases, application.id) : null;
       return {
         state: 'customers-active',
         heading: countLabel(customers.length, 'customer deployment', 'customer deployments'),
         message:
           attention > 0
             ? `${countLabel(attention, 'deployment needs', 'deployments need')} attention.`
-            : 'Customers are running this application in their AWS accounts.',
+            : (shareInfo?.message ?? 'Customers are running this application in their AWS accounts.'),
         busy: false,
         primaryAction: action(
           'view-customer-deployments',
           'View deployments',
           `/dashboard/deployments?application=${encodeURIComponent(application.name)}`,
         ),
-        secondaryActions: [],
+        secondaryActions: shareInfo?.action ? [shareInfo.action] : [],
         polling: null,
         lifecycle: null,
         linkUnavailableReason: null,
         cardShowsTest: false,
+        releaseNotice: shareInfo?.notice ?? null,
       };
     }
 
@@ -532,17 +606,20 @@ export function deriveApplicationPresentation(input: ApplicationStateInput): App
         secondaryActions: [],
         polling: null,
         lifecycle: lifecycle('done', 'done', 'failed'),
-        linkUnavailableReason: 'Available after a successful test deployment.',
+        linkUnavailableReason: 'The customer install link becomes available after a successful test deployment.',
         cardShowsTest: true,
       };
     }
 
     if (test && phase === 'verified') {
       const url = deploymentUrl(test);
+      const shareInfo = describeReleaseForShare(releases, application.id);
       return {
         state: 'ready-to-share',
         heading: 'Ready to share with customers',
-        message: 'Your test deployment passed. Send the install link to your customers.',
+        message: shareInfo.message
+          ? `Your test deployment passed. ${shareInfo.message}`
+          : 'Your test deployment passed. Send the install link to your customers.',
         busy: false,
         // The install-link controls render in the card itself (placement
         // 'primary'); these actions name them for surfaces without the link.
@@ -550,11 +627,13 @@ export function deriveApplicationPresentation(input: ApplicationStateInput): App
         secondaryActions: [
           ...(url ? [action('open-application', 'Open test application', url, true)] : []),
           action('view-test-deployment', 'View test deployment', deploymentHref(test)),
+          ...(shareInfo.action ? [shareInfo.action] : []),
         ],
         polling: null,
         lifecycle: null,
         linkUnavailableReason: null,
         cardShowsTest: true,
+        releaseNotice: shareInfo.notice,
       };
     }
 
@@ -562,13 +641,13 @@ export function deriveApplicationPresentation(input: ApplicationStateInput): App
       return {
         state: 'ready-to-test',
         heading: 'Ready for a test deployment',
-        message: 'Deploy the application to your own AWS account to check it before customers install it.',
+        message: `Deploy the application to your own AWS account to check it before customers install it.${testReleaseNote(releases)}`,
         busy: false,
         primaryAction: action('start-test', 'Start test deployment', startTestHref),
         secondaryActions: [],
         polling: null,
         lifecycle: lifecycle('done', 'done', 'current'),
-        linkUnavailableReason: 'Available after a successful test deployment.',
+        linkUnavailableReason: 'The customer install link becomes available after a successful test deployment.',
         cardShowsTest: true,
       };
     }
@@ -588,10 +667,16 @@ export function deriveApplicationPresentation(input: ApplicationStateInput): App
   })();
 
   const installLinkAvailable = core.state === 'ready-to-share' || core.state === 'customers-active';
-  const installLink = deriveInstallLink(input.installLinks, installLinkAvailable, core.linkUnavailableReason);
+  const installLink = deriveInstallLink(input.installLinks, installLinkAvailable, core.linkUnavailableReason, releases);
+  const finalLifecycle = setupComplete ? null : core.lifecycle;
 
   let primaryAction = core.primaryAction;
-  let installLinkPlacement: InstallLinkPlacement = installLink.kind === 'hidden' ? 'none' : 'card';
+  // A live link stays visible in every state except 'hidden' (unavailable/
+  // unknown page states). An application that has never had an eligible
+  // link ('unavailable', still inside the setup lifecycle) gets no separate
+  // inactive card — the state card names the reason near Share instead.
+  let installLinkPlacement: InstallLinkPlacement =
+    installLink.kind === 'hidden' || (installLink.kind === 'unavailable' && finalLifecycle !== null) ? 'none' : 'card';
   if (core.state === 'ready-to-share') {
     installLinkPlacement = 'primary';
     if (installLink.kind === 'create') primaryAction = action('create-install-link', 'Create install link');
@@ -609,6 +694,7 @@ export function deriveApplicationPresentation(input: ApplicationStateInput): App
   if (core.state === 'customers-active' && phase === 'failed') {
     notices.push({ tone: 'warning', text: 'The test deployment needs attention.' });
   }
+  if (core.releaseNotice) notices.push(core.releaseNotice);
 
   let readinessSummary: string | null = null;
   if (analysed) {
@@ -635,10 +721,11 @@ export function deriveApplicationPresentation(input: ApplicationStateInput): App
     busy: core.busy,
     primaryAction,
     secondaryActions,
-    blockers: core.state === 'configuration-required' ? required.map((f) => ({ id: f.id, title: f.title })) : [],
+    blockers:
+      core.state === 'configuration-required' ? required.map((f) => ({ id: f.id, title: requiredChangeLabel(f) })) : [],
     readinessSummary,
     recommendationCount: recommended.length,
-    lifecycle: setupComplete ? null : core.lifecycle,
+    lifecycle: finalLifecycle,
     polling: core.polling,
     installLinkAvailable,
     installLink,

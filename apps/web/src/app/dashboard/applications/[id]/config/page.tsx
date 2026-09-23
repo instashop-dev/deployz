@@ -1,8 +1,9 @@
 'use client';
 
 import { Check, ChevronDown, CircleAlert, Sparkles, Square } from 'lucide-react';
+import Link from 'next/link';
 import { useParams, useSearchParams } from 'next/navigation';
-import { Suspense, useEffect, useState, type FormEvent } from 'react';
+import { Suspense, useEffect, useState, type FormEvent, type ReactNode } from 'react';
 
 import { PlannedInfrastructure } from '@/components/planned-infrastructure';
 import { SecretInput } from '@/components/secret-input';
@@ -110,6 +111,7 @@ function ConfigScreen() {
         <ConfigBody
           data={state.data}
           detected={state.detected}
+          applicationName={pageData?.application.name ?? null}
           onSaved={(next) => setState({ status: 'loaded', data: next, detected: state.detected })}
         />
       ) : null}
@@ -122,10 +124,12 @@ function ConfigScreen() {
 function ConfigBody({
   data,
   detected,
+  applicationName,
   onSaved,
 }: {
   data: ApplicationConfig;
   detected: DetectedApplication | null;
+  applicationName: string | null;
   onSaved: (next: ApplicationConfig) => void;
 }) {
   const effectiveCount = data.effective.length;
@@ -150,50 +154,41 @@ function ConfigBody({
         />
       ) : null}
 
-      <Card data-testid="config-runtime-summary">
-        <CardContent className="flex flex-col gap-2 py-4">
-          {effectiveCount > 0 ? (
-            <>
-              <p className="text-sm font-medium">
-                {effectiveCount} {effectiveCount === 1 ? 'variable' : 'variables'} managed by Deployz
-                {secretCount > 0 ? ` (${secretCount} ${secretCount === 1 ? 'secret' : 'secrets'})` : ''}
-              </p>
-              <div className="flex flex-wrap gap-2">
-                {data.effective.map((entry) => (
-                  <code
-                    key={entry.key}
-                    className="flex items-center gap-1.5 rounded bg-muted px-2 py-0.5 font-mono text-xs"
-                  >
-                    {entry.key}
-                    <Badge variant="secondary" className="h-4 px-1 text-[10px]">
-                      {entry.isSecret ? 'Secret' : 'Plain'}
-                    </Badge>
-                  </code>
-                ))}
-              </div>
-            </>
-          ) : (
-            <p className="text-sm text-muted-foreground">
-              No Deployz-managed variables yet. Values set at installation (like database
-              connections) are managed by the installation template and are not listed here.
+      {effectiveCount > 0 ? (
+        <Card data-testid="config-runtime-summary">
+          <CardContent className="flex flex-col gap-2 py-4">
+            <p className="text-sm font-medium">
+              {effectiveCount} {effectiveCount === 1 ? 'variable' : 'variables'} managed by Deployz
+              {secretCount > 0 ? ` (${secretCount} ${secretCount === 1 ? 'secret' : 'secrets'})` : ''}
             </p>
-          )}
-          <p className="text-xs text-muted-foreground">
-            Saved changes reach any running deployment within a few minutes. A deployment that
-            isn&apos;t running yet applies them once it starts.
-          </p>
-        </CardContent>
-      </Card>
+            <div className="flex flex-wrap gap-2">
+              {data.effective.map((entry) => (
+                <code
+                  key={entry.key}
+                  className="flex items-center gap-1.5 rounded bg-muted px-2 py-0.5 font-mono text-xs"
+                >
+                  {entry.key}
+                  <Badge variant="secondary" className="h-4 px-1 text-[10px]">
+                    {entry.isSecret ? 'Secret' : 'Plain'}
+                  </Badge>
+                </code>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      ) : null}
 
       <ConfigSection
         title="Defaults"
         description="Apply to every customer unless a customer overrides them."
+        helpText="Apply to new deployments — running deployments keep their current values."
         testId="config-vendor-defaults"
         applicationId={data.applicationId}
         customerId={null}
         entries={data.vendorDefaults}
         vendorDefaults={data.vendorDefaults}
         editable
+        emptyMessage="No defaults set yet."
         onSaved={(saved) =>
           onSaved({
             ...data,
@@ -206,12 +201,33 @@ function ConfigBody({
       <ConfigSection
         title="Customer overrides"
         description={customerScopeDescription(data)}
+        helpText={
+          data.customerId !== null
+            ? "Saved overrides reach this customer's running deployment within a few minutes."
+            : null
+        }
         testId="config-customer-overrides"
         applicationId={data.applicationId}
         customerId={data.customerId}
         entries={data.customerOverrides}
         vendorDefaults={data.vendorDefaults}
         editable={data.customerId !== null}
+        emptyMessage={
+          data.customerId !== null ? (
+            'No overrides for this customer yet.'
+          ) : (
+            <>
+              No customer is selected.{' '}
+              <Link
+                href={`/dashboard/deployments${applicationName ? `?application=${encodeURIComponent(applicationName)}` : ''}`}
+                className="underline underline-offset-2 hover:text-foreground"
+              >
+                Open a customer deployment
+              </Link>{' '}
+              to edit its overrides.
+            </>
+          )
+        }
         onSaved={onSaved}
       />
     </>
@@ -344,22 +360,29 @@ interface DraftEntry {
 function ConfigSection({
   title,
   description,
+  helpText,
   testId,
   applicationId,
   customerId,
   entries,
   vendorDefaults,
   editable,
+  emptyMessage,
   onSaved,
 }: {
   title: string;
   description: string;
+  /** Short note on what saving this section actually does — scoped to what
+   *  is true for this section (defaults vs. overrides), never a generic
+   *  claim that covers both. Null when there is nothing accurate to add. */
+  helpText: string | null;
   testId: string;
   applicationId: string;
   customerId: string | null;
   entries: MaskedConfigEntry[];
   vendorDefaults: MaskedConfigEntry[];
   editable: boolean;
+  emptyMessage: ReactNode;
   onSaved: (next: ApplicationConfig) => void;
 }) {
   const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
@@ -429,15 +452,6 @@ function ConfigSection({
   }
 
   const empty = entries.length === 0 && drafts.length === 0;
-  // Keyed on the SECTION, not on customerId — the overrides card also has a
-  // null customerId when no customer is selected, so it used to show the
-  // defaults card's copy: "No defaults set yet." inside Customer overrides.
-  const emptyMessage =
-    title === 'Defaults'
-      ? 'No defaults set yet.'
-      : customerId === null
-        ? 'Open a deployment to set overrides for one customer.'
-        : 'No overrides for this customer yet.';
 
   return (
     <Card data-testid={testId}>
@@ -447,6 +461,8 @@ function ConfigSection({
       </CardHeader>
       <CardContent>
         <form key={version} onSubmit={handleSubmit} className="flex flex-col gap-5">
+          {helpText ? <p className="text-xs text-muted-foreground">{helpText}</p> : null}
+
           {empty ? (
             <p className="rounded-lg border border-dashed px-4 py-6 text-center text-sm text-muted-foreground">
               {emptyMessage}

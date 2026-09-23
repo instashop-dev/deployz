@@ -35,7 +35,7 @@ test('generating fix instructions never resolves findings — re-analysis recomp
   await page.waitForURL(/\/dashboard\/applications\/[0-9a-f-]{36}$/);
 
   // ── The readiness verdict: ALMOST_READY, one required change. ──────────────
-  await expect(page.getByTestId('application-state-heading')).toHaveText('1 change required');
+  await expect(page.getByTestId('application-state-heading')).toHaveText('1 change required before you can deploy');
 
   // The readiness table and the finding live on the Configuration tab.
   await page.getByRole('tab', { name: 'Configuration' }).click();
@@ -51,7 +51,7 @@ test('generating fix instructions never resolves findings — re-analysis recomp
   await expect(finding).toBeVisible();
   await finding.getByRole('button', { name: /Details for/ }).click();
   await expect(
-    page.getByText('Deployz needs a reliable way to know when your app is running and ready.'),
+    page.getByRole('dialog').getByText('Deployz needs a reliable way to know when your app is running and ready.'),
   ).toBeVisible();
   const technicalDetail = finding.getByText(
     'No health endpoint or container health check was found',

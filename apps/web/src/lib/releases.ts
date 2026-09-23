@@ -184,6 +184,73 @@ export function runningReleaseIds(
   );
 }
 
+/** Newest first — the order the Releases table and history render in. */
+export function newestFirst(releases: readonly Release[]): Release[] {
+  return [...releases].sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt));
+}
+
+/** The first 7 characters of a commit SHA — the short form shown in tables. */
+export function shortSha(gitSha: string): string {
+  return gitSha.slice(0, 7);
+}
+
+export interface RunningOn {
+  test: number;
+  customer: number;
+}
+
+/**
+ * How many live deployments run a release, split by deployment type — the
+ * Releases table's "Running on" column. Deleted deployments never count,
+ * mirroring runningReleaseIds.
+ */
+export function runningOn(
+  deployments: readonly { currentReleaseId: string | null; state: string; deploymentType: 'TEST' | 'PRODUCTION' }[],
+  releaseId: string,
+): RunningOn {
+  const live = deployments.filter((d) => d.state !== 'DELETED' && d.currentReleaseId === releaseId);
+  return {
+    test: live.filter((d) => d.deploymentType === 'TEST').length,
+    customer: live.filter((d) => d.deploymentType === 'PRODUCTION').length,
+  };
+}
+
+/** "Test deployment", "2 customer deployments", or null when nothing runs it. */
+export function runningOnLabel(counts: RunningOn): string | null {
+  const parts: string[] = [];
+  if (counts.test > 0) {
+    parts.push(counts.test === 1 ? 'Test deployment' : `${counts.test} test deployments`);
+  }
+  if (counts.customer > 0) {
+    parts.push(counts.customer === 1 ? 'Customer deployment' : `${counts.customer} customer deployments`);
+  }
+  return parts.length > 0 ? parts.join(' · ') : null;
+}
+
+/** Plain-English explanation for a build that is not FAILED or UNAVAILABLE
+ *  (those have their own copy: releaseBuildFailureSummary and
+ *  RELEASE_UNAVAILABLE_COPY). */
+export const RELEASE_STATUS_EXPLANATION: Record<'BUILDING' | 'READY', string> = {
+  BUILDING: 'Deployz is building this release from its commit.',
+  READY: 'This build finished successfully and can be installed.',
+};
+
+/** Actionable next step shown with a FAILED release's raw failure reason. */
+export const RELEASE_FAILURE_NEXT_STEP =
+  'Fix the cause above (for example a missing commit or a failing Docker build), push the fix to GitHub, then create a new release.';
+
+/** The Releases page's summary line: what a new customer install runs now. */
+export function installSummaryLine(releases: readonly Release[]): string {
+  const install = installReleaseState(releases);
+  if (install.kind === 'ready') {
+    return `Customer installs get ${install.release.version} (commit ${shortSha(install.release.gitSha)}).`;
+  }
+  if (install.kind === 'building') {
+    return `${install.release.version} is building — customers cannot install until it finishes.`;
+  }
+  return 'No release is ready yet — customers cannot install.';
+}
+
 const SEMVER_PATTERN = /^(v?)(\d+)\.(\d+)\.(\d+)$/;
 
 /**

@@ -9,7 +9,7 @@ import type {
   FactSource,
   ReadinessFinding,
 } from '../src/lib/readiness';
-import { deriveAnalysisDetails, deriveConfigurationRows } from '../src/lib/application-configuration';
+import { deriveAnalysisDetails, deriveConfigurationRows, deriveRequiredChanges } from '../src/lib/application-configuration';
 
 /**
  * The Configuration tab's own vocabulary: one row per vendor-relevant
@@ -206,13 +206,21 @@ describe('Vocabulary', () => {
     }
   });
 
-  it('carries the real storage explanation as help when storage is not wired', () => {
+  it('always carries the storage explanation as help, and never calls a connected bucket "Not used"', () => {
     const rows = deriveConfigurationRows(applicationFixture(), readinessFixture());
     const storage = rows.find((row) => row.id === 'storage')!;
-    expect(storage.value).toBe('Not used');
+    expect(storage.value).toBe('Bucket created, not connected');
     expect(storage.help).toBe(
-      'Every deployment gets a storage bucket; this setting controls whether the app is wired to it.',
+      'Every deployment gets a storage bucket, kept if the deployment is uninstalled. This setting controls whether Deployz passes the bucket name to your app.',
     );
+
+    const connected = deriveConfigurationRows(
+      applicationFixture(),
+      readinessFixture({ requirements: requirementsFixture({ storage: { detected: true, effective: true, overridden: false } }) }),
+    );
+    const connectedStorage = connected.find((row) => row.id === 'storage')!;
+    expect(connectedStorage.value).toBe('Connected (bucket name passed to the app)');
+    expect(connectedStorage.help).toBe(storage.help);
   });
 });
 
@@ -222,10 +230,13 @@ describe('Add vs Edit', () => {
       applicationFixture(),
       readinessFixture({ detected: nothingDetected(), requirements: requirementsFixture({ database: { detected: false, effective: false, overridden: false } }) }),
     );
-    for (const id of ['database', 'redis', 'storage', 'health', 'migrations']) {
+    for (const id of ['database', 'redis', 'health', 'migrations']) {
       const row = rows.find((r) => r.id === id)!;
       expect(row.action).toMatchObject({ label: 'Add', kind: 'edit' });
     }
+    // Storage always has a bucket — its unconnected action is "Connect", not "Add".
+    const storage = rows.find((r) => r.id === 'storage')!;
+    expect(storage.action).toMatchObject({ label: 'Connect', kind: 'edit', field: 'storageRequired' });
   });
 
   it('offers Edit for configured editable settings', () => {
@@ -275,15 +286,15 @@ describe('Overridden detail line', () => {
     expect(database.result).toEqual({ label: 'Ready', variant: 'success' });
   });
 
-  it('shows the detail line for an overridden storage requirement that is wired on', () => {
+  it('shows the detail line for an overridden storage requirement that is connected', () => {
     const rows = deriveConfigurationRows(
       applicationFixture(),
       readinessFixture({ requirements: requirementsFixture({ storage: { detected: false, effective: true, overridden: true } }) }),
     );
     const storage = rows.find((r) => r.id === 'storage')!;
-    expect(storage.value).toBe('Object storage bucket');
-    expect(storage.detail).toBe('Set by you · detected: Not used');
-    expect(storage.help).toBeNull();
+    expect(storage.value).toBe('Connected (bucket name passed to the app)');
+    expect(storage.detail).toBe('Set by you · detected: Bucket created, not connected');
+    expect(storage.help).not.toBeNull();
   });
 });
 
@@ -378,6 +389,99 @@ describe('Finding to row mapping', () => {
     const extra = rows.find((row) => row.findingIds.includes('worker-1'))!;
     expect(extra).toBeDefined();
     expect(extra.result.label).toBe('Recommended');
+  });
+
+  it('routes a required port-unresolved finding to the port editor, not fix instructions', () => {
+    const rows = deriveConfigurationRows(
+      applicationFixture(),
+      readinessFixture({
+        findings: [finding({ id: 'port-unresolved', category: 'network', severity: 'required', title: 'Port not detected' })],
+      }),
+    );
+    const port = rows.find((r) => r.id === 'port')!;
+    expect(port.action).toEqual({ label: 'Fix', kind: 'edit', field: 'containerPort' });
+  });
+
+  it('routes a required health-check finding to fix instructions, never the health path editor', () => {
+    const rows = deriveConfigurationRows(
+      applicationFixture(),
+      readinessFixture({
+        findings: [finding({ id: 'health-check', category: 'health', severity: 'required', title: 'Health endpoint missing' })],
+      }),
+    );
+    const health = rows.find((r) => r.id === 'health')!;
+    expect(health.action).toEqual({ label: 'Fix', kind: 'fix' });
+  });
+
+  it('uses requiredChangeLabel for a mapped required finding not in the label table (falls back to its own title)', () => {
+    const rows = deriveConfigurationRows(
+      applicationFixture(),
+      readinessFixture({
+        findings: [
+          finding({
+            id: 'weird-1',
+            category: 'architecture',
+            severity: 'required',
+            title: 'Monorepo layout not supported',
+          }),
+        ],
+      }),
+    );
+    const extra = rows.find((row) => row.findingIds.includes('weird-1'))!;
+    expect(extra.label).toBe('Monorepo layout not supported');
+    expect(extra.action).toEqual({ label: 'Fix', kind: 'fix' });
+  });
+
+  it('uses requiredChangeLabel for a known finding id even in an unmapped-category extra row', () => {
+    const rows = deriveConfigurationRows(
+      applicationFixture(),
+      readinessFixture({
+        findings: [
+          finding({
+            id: 'container-setup',
+            category: 'container',
+            severity: 'required',
+            title: 'No Dockerfile found',
+          }),
+        ],
+      }),
+    );
+    const extra = rows.find((row) => row.findingIds.includes('container-setup'))!;
+    expect(extra.label).toBe('Add container build instructions (Dockerfile)');
+    expect(extra.action).toEqual({ label: 'Fix', kind: 'fix' });
+  });
+});
+
+describe('deriveRequiredChanges', () => {
+  it('is empty before analysis has completed', () => {
+    expect(
+      deriveRequiredChanges(readinessFixture({ analysisStatus: 'ANALYZING', findings: [finding()] })),
+    ).toEqual([]);
+  });
+
+  it('lists only required findings, with a plain-language label and explanation', () => {
+    const changes = deriveRequiredChanges(
+      readinessFixture({
+        findings: [
+          finding({ id: 'health-check', category: 'health', severity: 'required' }),
+          finding({ id: 'db-recommendation', category: 'database', severity: 'recommended' }),
+        ],
+      }),
+    );
+    expect(changes).toHaveLength(1);
+    expect(changes[0]!.label).toBe('Add a health check route');
+    expect(changes[0]!.explanation).toBe('Deployz requires an HTTP health endpoint.');
+    expect(changes[0]!.fix).toEqual({ kind: 'instructions' });
+  });
+
+  it('falls back to suggestedOutcome when there is no plain-English explanation', () => {
+    const changes = deriveRequiredChanges(
+      readinessFixture({
+        findings: [finding({ id: 'port-unresolved', severity: 'required', plainEnglishExplanation: '' })],
+      }),
+    );
+    expect(changes[0]!.explanation).toBe('Add a GET /health route that returns HTTP 200.');
+    expect(changes[0]!.fix).toEqual({ kind: 'edit', field: 'containerPort' });
   });
 });
 

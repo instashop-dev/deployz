@@ -133,10 +133,14 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-function renderControls(installLink: InstallLinkPresentation, onChanged = vi.fn().mockResolvedValue(undefined)) {
+function renderControls(
+  installLink: InstallLinkPresentation,
+  onChanged = vi.fn().mockResolvedValue(undefined),
+  primary = false,
+) {
   act(() => {
     root.render(
-      <InstallLinkControls applicationId={APP_ID} installLink={installLink} onChanged={onChanged} />,
+      <InstallLinkControls applicationId={APP_ID} installLink={installLink} onChanged={onChanged} primary={primary} />,
     );
   });
   return { onChanged };
@@ -203,6 +207,15 @@ describe('InstallLinkControls visibility per kind', () => {
     renderControls(liveLink(activeLink()));
     expect(container.querySelector('[data-testid="public-install-link-url"]')).toBeNull();
     expect(container.textContent).not.toContain('https://app.deployz.dev/install/');
+  });
+
+  it('shows a visible "Manage" button as the overflow trigger, and Copy link stays primary', () => {
+    renderControls(liveLink(activeLink()), undefined, true);
+    const menu = container.querySelector('[data-testid="public-install-link-menu"]');
+    expect(menu?.textContent).toContain('Manage');
+    expect(container.querySelector('[data-testid="public-install-link-copy-url"]')?.textContent).toContain(
+      'Copy link',
+    );
   });
 });
 

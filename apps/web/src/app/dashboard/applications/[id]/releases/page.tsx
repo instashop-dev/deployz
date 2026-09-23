@@ -1,6 +1,6 @@
 'use client';
 
-import { Info } from 'lucide-react';
+import { ChevronRight, ExternalLink } from 'lucide-react';
 import { useParams } from 'next/navigation';
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 
@@ -9,21 +9,30 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { cn } from '@/lib/utils';
 import { releaseBuildFailureSummary } from '@deployz/copy-map';
 
 import { CommitPicker, type CommitPickerHandle } from '@/components/commit-picker';
 import { useApplicationPage } from '../application-page-context';
-import { fetchDeploymentsForApplication } from '@/lib/deployments';
+import { fetchDeploymentsForApplication, type FleetDeployment } from '@/lib/deployments';
+import { formatDateTime } from '@/lib/list-view';
+import { relativeTime } from '@/lib/diagnostics';
 import {
+  RELEASE_FAILURE_NEXT_STEP,
   RELEASE_STATUS_BADGE,
+  RELEASE_STATUS_EXPLANATION,
   RELEASE_UNAVAILABLE_COPY,
   releaseStatusLabel,
   fetchReleases,
   createRelease,
-  runningReleaseIds,
+  installReleaseState,
+  installSummaryLine,
+  newestFirst,
+  runningOn,
+  runningOnLabel,
+  shortSha,
   suggestNextVersion,
   type Release,
 } from '@/lib/releases';
@@ -32,11 +41,13 @@ type LoadState =
   | { status: 'loading' }
   | { status: 'error'; message: string }
   | { status: 'empty' }
-  | { status: 'loaded'; releases: Release[]; running: Set<string> };
+  | { status: 'loaded'; releases: Release[]; deployments: FleetDeployment[] };
 
 export default function ReleasesPage() {
   const params = useParams();
   const id = Array.isArray(params.id) ? (params.id[0] ?? '') : (params.id ?? '');
+  const { data } = useApplicationPage();
+  const repoFullName = data?.application.repoFullName ?? null;
   const [state, setState] = useState<LoadState>({ status: 'loading' });
   const [formOpen, setFormOpen] = useState(false);
 
@@ -52,7 +63,7 @@ export default function ReleasesPage() {
         setState(
           releases.length === 0
             ? { status: 'empty' }
-            : { status: 'loaded', releases, running: runningReleaseIds(deployments) },
+            : { status: 'loaded', releases: newestFirst(releases), deployments },
         );
       } catch {
         if (!cancelled) {
@@ -73,8 +84,8 @@ export default function ReleasesPage() {
     setFormOpen(false);
     setState((current) => {
       const existing = current.status === 'loaded' ? current.releases : [];
-      const running = current.status === 'loaded' ? current.running : new Set<string>();
-      return { status: 'loaded', releases: [release, ...existing], running };
+      const deployments = current.status === 'loaded' ? current.deployments : [];
+      return { status: 'loaded', releases: newestFirst([release, ...existing]), deployments };
     });
   }
 
@@ -114,7 +125,7 @@ export default function ReleasesPage() {
       ) : null}
       {state.status === 'empty' ? <EmptyState /> : null}
       {state.status === 'loaded' ? (
-        <ReleaseTable releases={state.releases} running={state.running} />
+        <ReleaseTable releases={state.releases} deployments={state.deployments} repoFullName={repoFullName} />
       ) : null}
     </div>
   );
@@ -241,48 +252,46 @@ function EmptyState() {
   );
 }
 
-function ReleaseTable({ releases, running }: { releases: Release[]; running: Set<string> }) {
+function ReleaseTable({
+  releases,
+  deployments,
+  repoFullName,
+}: {
+  releases: Release[];
+  deployments: FleetDeployment[];
+  repoFullName: string | null;
+}) {
+  const install = installReleaseState(releases);
+  const installableId = install.kind === 'ready' ? install.release.id : null;
+
   return (
     <Card>
       <CardHeader>
         <CardTitle>Release history</CardTitle>
-        <CardDescription>{releases.length} {releases.length === 1 ? 'release' : 'releases'}</CardDescription>
+        <CardDescription data-testid="release-install-summary">
+          {installSummaryLine(releases)}
+        </CardDescription>
       </CardHeader>
       <CardContent className="overflow-x-auto p-0">
         <Table>
           <TableHeader>
             <TableRow>
               <TableHead>Version</TableHead>
-              <TableHead>Status</TableHead>
-              <TableHead>Runtime</TableHead>
-              <TableHead>Created</TableHead>
+              <TableHead className="hidden sm:table-cell">Commit</TableHead>
+              <TableHead>Build</TableHead>
+              <TableHead className="hidden sm:table-cell">Running on</TableHead>
+              <TableHead className="hidden sm:table-cell">Created</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {releases.map((release) => (
-              <TableRow key={release.id}>
-                <TableCell className="font-mono font-medium">{release.version}</TableCell>
-                <TableCell>
-                  <div className="flex items-center gap-1.5">
-                    <Badge variant={RELEASE_STATUS_BADGE[release.status]}>
-                      {releaseStatusLabel(release.status)}
-                    </Badge>
-                    {release.status === 'FAILED' || release.status === 'UNAVAILABLE' ? (
-                      <ReleaseStatusDetails release={release} />
-                    ) : null}
-                  </div>
-                </TableCell>
-                <TableCell>
-                  {running.has(release.id) ? <Badge variant="info">Running</Badge> : null}
-                </TableCell>
-                <TableCell className="text-muted-foreground">
-                  {new Date(release.createdAt).toLocaleDateString('en-US', {
-                    month: 'short',
-                    day: 'numeric',
-                    year: 'numeric',
-                  })}
-                </TableCell>
-              </TableRow>
+              <ReleaseRow
+                key={release.id}
+                release={release}
+                isInstallable={release.id === installableId}
+                running={runningOn(deployments, release.id)}
+                repoFullName={repoFullName}
+              />
             ))}
           </TableBody>
         </Table>
@@ -291,40 +300,126 @@ function ReleaseTable({ releases, running }: { releases: Release[]; running: Set
   );
 }
 
-// A FAILED or UNAVAILABLE release collapses its reason into a single info
-// affordance next to the badge so the row stays one line.
-function ReleaseStatusDetails({ release }: { release: Release }) {
+function ReleaseRow({
+  release,
+  isInstallable,
+  running,
+  repoFullName,
+}: {
+  release: Release;
+  isInstallable: boolean;
+  running: { test: number; customer: number };
+  repoFullName: string | null;
+}) {
+  const [open, setOpen] = useState(false);
+  const detailsId = `release-details-${release.id}`;
+  const runningLabel = runningOnLabel(running);
+  const commitUrl = repoFullName ? `https://github.com/${repoFullName}/commit/${release.gitSha}` : null;
+
   return (
-    <Popover>
-      <PopoverTrigger asChild>
-        <Button
-          variant="ghost"
-          size="icon-xs"
-          aria-label={`Status details for release ${release.version}`}
-          className="text-muted-foreground"
-        >
-          <Info aria-hidden />
-        </Button>
-      </PopoverTrigger>
-      <PopoverContent align="start" className="w-80 space-y-1.5">
-        {release.status === 'FAILED' ? (
-          <>
-            <p className="text-sm text-muted-foreground" data-testid={`release-failure-${release.id}`}>
-              {releaseBuildFailureSummary(release.failureReason)}
-            </p>
-            {release.failureReason ? (
-              <code className="block break-all rounded bg-muted px-1.5 py-0.5 font-mono text-xs">
-                {release.failureReason}
-              </code>
+    <>
+      <TableRow data-testid={`release-row-${release.id}`}>
+        <TableCell>
+          <div className="flex items-center gap-1.5">
+            <Button
+              variant="ghost"
+              size="icon-xs"
+              className="text-muted-foreground"
+              aria-expanded={open}
+              aria-controls={detailsId}
+              aria-label={open ? `Hide details for ${release.version}` : `Show details for ${release.version}`}
+              onClick={() => setOpen((current) => !current)}
+            >
+              <ChevronRight aria-hidden className={cn('size-3.5 transition-transform', open && 'rotate-90')} />
+            </Button>
+            <span className="font-mono font-medium">{release.version}</span>
+          </div>
+        </TableCell>
+        <TableCell className="hidden font-mono text-sm text-muted-foreground sm:table-cell">
+          {shortSha(release.gitSha)}
+        </TableCell>
+        <TableCell>
+          <div className="flex flex-col gap-1">
+            <div className="flex items-center gap-1.5">
+              <Badge variant={RELEASE_STATUS_BADGE[release.status]}>{releaseStatusLabel(release.status)}</Badge>
+              {isInstallable ? <Badge variant="outline">Customer installs</Badge> : null}
+            </div>
+            {release.status === 'FAILED' ? (
+              <p className="text-xs text-muted-foreground" data-testid={`release-failure-${release.id}`}>
+                {releaseBuildFailureSummary(release.failureReason)}
+              </p>
             ) : null}
-          </>
-        ) : null}
-        {release.status === 'UNAVAILABLE' ? (
-          <p className="text-sm text-muted-foreground" data-testid={`release-unavailable-${release.id}`}>
-            {RELEASE_UNAVAILABLE_COPY}
-          </p>
-        ) : null}
-      </PopoverContent>
-    </Popover>
+            {release.status === 'UNAVAILABLE' ? (
+              <p className="text-xs text-muted-foreground">{RELEASE_UNAVAILABLE_COPY}</p>
+            ) : null}
+          </div>
+        </TableCell>
+        <TableCell className="hidden text-muted-foreground sm:table-cell">
+          {runningLabel ?? '—'}
+        </TableCell>
+        <TableCell className="hidden text-muted-foreground sm:table-cell">
+          {formatDateTime(release.createdAt)}
+        </TableCell>
+      </TableRow>
+      {open ? (
+        <TableRow id={detailsId} data-testid={`release-details-${release.id}`}>
+          <TableCell colSpan={5} className="bg-muted/30">
+            <dl className="grid grid-cols-1 gap-x-6 gap-y-3 py-2 text-sm sm:grid-cols-2">
+              <div>
+                <dt className="text-xs text-muted-foreground">Commit</dt>
+                <dd className="mt-0.5 font-mono break-all">
+                  {commitUrl ? (
+                    <a
+                      href={commitUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-flex items-center gap-1 text-primary underline-offset-4 hover:underline"
+                    >
+                      {release.gitSha}
+                      <ExternalLink aria-hidden className="size-3.5 shrink-0" />
+                    </a>
+                  ) : (
+                    release.gitSha
+                  )}
+                </dd>
+              </div>
+              <div className="sm:hidden">
+                <dt className="text-xs text-muted-foreground">Running on</dt>
+                <dd className="mt-0.5">{runningLabel ?? 'Nothing running'}</dd>
+              </div>
+              <div>
+                <dt className="text-xs text-muted-foreground">Created</dt>
+                <dd className="mt-0.5">
+                  {formatDateTime(release.createdAt)}
+                  {relativeTime(release.createdAt) ? (
+                    <span className="text-muted-foreground"> · {relativeTime(release.createdAt)}</span>
+                  ) : null}
+                </dd>
+              </div>
+              <div className="sm:col-span-2">
+                <dt className="text-xs text-muted-foreground">Build status</dt>
+                <dd className="mt-0.5">
+                  {release.status === 'FAILED' ? (
+                    <div className="flex flex-col gap-2">
+                      <p>{releaseBuildFailureSummary(release.failureReason)}</p>
+                      {release.failureReason ? (
+                        <code className="block w-fit max-w-full break-all rounded bg-muted px-1.5 py-0.5 font-mono text-xs">
+                          {release.failureReason}
+                        </code>
+                      ) : null}
+                      <p className="text-muted-foreground">{RELEASE_FAILURE_NEXT_STEP}</p>
+                    </div>
+                  ) : release.status === 'UNAVAILABLE' ? (
+                    <p>{RELEASE_UNAVAILABLE_COPY}</p>
+                  ) : (
+                    <p>{RELEASE_STATUS_EXPLANATION[release.status]}</p>
+                  )}
+                </dd>
+              </div>
+            </dl>
+          </TableCell>
+        </TableRow>
+      ) : null}
+    </>
   );
 }

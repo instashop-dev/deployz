@@ -15,10 +15,12 @@ import {
   type SetupLifecycleItem,
   type SetupLifecycleStepState,
 } from '../src/lib/application-state';
+import { requiredChangeLabel } from '../src/lib/application-configuration';
 import { deploymentDisplayStatus } from '../src/lib/deployment-status-groups';
 import type { FleetDeployment } from '../src/lib/deployments';
 import type { PublicInstallLinkStatus, PublicInstallLinkView } from '../src/lib/public-install-links';
 import type { ApplicationReadiness, ReadinessFinding } from '../src/lib/readiness';
+import type { Release } from '../src/lib/releases';
 import { fleetDeployment } from './fixtures/fleet-deployment';
 
 // ── Fixtures ─────────────────────────────────────────────────────────────────
@@ -83,6 +85,18 @@ function customer(overrides: Partial<FleetDeployment> = {}): FleetDeployment {
   return fleetDeployment({ deploymentType: 'PRODUCTION', state: 'HEALTHY', ...overrides });
 }
 
+function release(overrides: Partial<Release> = {}): Release {
+  return {
+    id: 'release-1',
+    version: 'v0.1.0',
+    status: 'READY',
+    failureReason: null,
+    gitSha: 'b2806f9a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e',
+    createdAt: '2026-09-01T00:00:00.000Z',
+    ...overrides,
+  };
+}
+
 function link(overrides: Partial<PublicInstallLinkView> = {}): PublicInstallLinkView {
   return {
     id: 'link-1',
@@ -99,6 +113,7 @@ function makeInput(
     readiness?: Partial<ApplicationReadiness>;
     deployments?: FleetDeployment[];
     installLinks?: ApplicationStateInput['installLinks'];
+    releases?: Release[] | 'error';
     stale?: boolean;
     analysisTakingLonger?: boolean;
     applicationId?: string;
@@ -110,6 +125,7 @@ function makeInput(
       application: { id: opts.applicationId ?? 'app-1', name: opts.applicationName ?? 'My App' },
       readiness: readiness(opts.readiness),
       deployments: opts.deployments ?? [],
+      releases: opts.releases !== undefined ? opts.releases : [],
     },
     installLinks: opts.installLinks !== undefined ? opts.installLinks : [],
     stale: opts.stale ?? false,
@@ -181,7 +197,7 @@ const STATE_CASES: Record<ApplicationState, StateCase> = {
     busy: true,
     lifecycle: lifecycleSteps('current', 'pending', 'pending'),
     installLinkAvailable: false,
-    installLinkPlacement: 'card',
+    installLinkPlacement: 'none',
   },
   'analysis-failed': {
     input: makeInput({
@@ -194,20 +210,20 @@ const STATE_CASES: Record<ApplicationState, StateCase> = {
     busy: false,
     lifecycle: lifecycleSteps('failed', 'pending', 'pending'),
     installLinkAvailable: false,
-    installLinkPlacement: 'card',
+    installLinkPlacement: 'none',
   },
   'configuration-required': {
     input: makeInput({
       readiness: { state: 'NEEDS_CHANGES', findings: [requiredFinding()], requiredCount: 1 },
     }),
     badgeLabel: 'Changes required',
-    heading: '1 change required',
+    heading: '1 change required before you can deploy',
     primaryActionId: 'review-configuration',
     polling: null,
     busy: false,
     lifecycle: lifecycleSteps('done', 'current', 'pending'),
     installLinkAvailable: false,
-    installLinkPlacement: 'card',
+    installLinkPlacement: 'none',
   },
   'ready-to-test': {
     input: makeInput(),
@@ -218,7 +234,7 @@ const STATE_CASES: Record<ApplicationState, StateCase> = {
     busy: false,
     lifecycle: lifecycleSteps('done', 'done', 'current'),
     installLinkAvailable: false,
-    installLinkPlacement: 'card',
+    installLinkPlacement: 'none',
   },
   'test-queued': {
     input: makeInput({ deployments: [deployment({ state: 'NOT_INSTALLED' })] }),
@@ -229,7 +245,7 @@ const STATE_CASES: Record<ApplicationState, StateCase> = {
     busy: false,
     lifecycle: lifecycleSteps('done', 'done', 'current'),
     installLinkAvailable: false,
-    installLinkPlacement: 'card',
+    installLinkPlacement: 'none',
   },
   'test-deploying': {
     input: makeInput({ deployments: [deployment({ state: 'INSTALLING' })] }),
@@ -240,7 +256,7 @@ const STATE_CASES: Record<ApplicationState, StateCase> = {
     busy: true,
     lifecycle: lifecycleSteps('done', 'done', 'current'),
     installLinkAvailable: false,
-    installLinkPlacement: 'card',
+    installLinkPlacement: 'none',
   },
   'test-removing': {
     input: makeInput({ deployments: [deployment({ state: 'DELETING' })] }),
@@ -251,7 +267,7 @@ const STATE_CASES: Record<ApplicationState, StateCase> = {
     busy: true,
     lifecycle: lifecycleSteps('done', 'done', 'pending'),
     installLinkAvailable: false,
-    installLinkPlacement: 'card',
+    installLinkPlacement: 'none',
   },
   'test-failed': {
     input: makeInput({ deployments: [deployment({ state: 'FAILED' })] }),
@@ -262,7 +278,7 @@ const STATE_CASES: Record<ApplicationState, StateCase> = {
     busy: false,
     lifecycle: lifecycleSteps('done', 'done', 'failed'),
     installLinkAvailable: false,
-    installLinkPlacement: 'card',
+    installLinkPlacement: 'none',
   },
   'ready-to-share': {
     input: makeInput({ deployments: [deployment({ state: 'HEALTHY' })] }),
@@ -366,7 +382,7 @@ describe('unknown and legacy inputs', () => {
   it('a missing requirements field never throws', () => {
     const broken = { ...readiness(), requirements: undefined } as unknown as ApplicationReadiness;
     const input: ApplicationStateInput = {
-      data: { application: { id: 'app-1', name: 'My App' }, readiness: broken, deployments: [] },
+      data: { application: { id: 'app-1', name: 'My App' }, readiness: broken, deployments: [], releases: [] },
       installLinks: [],
       stale: false,
       analysisTakingLonger: false,
@@ -675,6 +691,134 @@ describe('install link derivation', () => {
     );
     expect(result.installLinkAvailable).toBe(true);
     expect(result.installLinkPlacement).toBe('card');
+  });
+
+  it("an application that has never had an eligible link ('unavailable', lifecycle shown) gets no separate card", () => {
+    for (const input of [
+      makeInput({ readiness: { analysisStatus: 'ANALYZING', state: 'ANALYSIS_INCOMPLETE' } }),
+      makeInput({ readiness: { state: 'NEEDS_CHANGES', findings: [requiredFinding()], requiredCount: 1 } }),
+      makeInput(),
+      makeInput({ deployments: [deployment({ state: 'NOT_INSTALLED' })] }),
+    ]) {
+      const result = deriveApplicationPresentation(input);
+      expect(result.lifecycle, result.state).not.toBeNull();
+      expect(result.installLink.kind, result.state).toBe('unavailable');
+      expect(result.installLinkPlacement, result.state).toBe('none');
+    }
+  });
+});
+
+// ── Releases ──────────────────────────────────────────────────────────────────
+
+describe('release naming', () => {
+  it('configuration-required: blockers use requiredChangeLabel, one action to #required-changes', () => {
+    const findings = [
+      requiredFinding({ id: 'container-setup', title: 'Container detection failed' }),
+      requiredFinding({ id: 'health-check', title: 'No health check' }),
+    ];
+    const result = deriveApplicationPresentation(
+      makeInput({ readiness: { state: 'NEEDS_CHANGES', findings, requiredCount: 2 } }),
+    );
+    expect(result.state).toBe('configuration-required');
+    expect(result.heading).toBe('2 changes required before you can deploy');
+    expect(result.blockers).toEqual([
+      { id: 'container-setup', title: requiredChangeLabel(findings[0]!) },
+      { id: 'health-check', title: requiredChangeLabel(findings[1]!) },
+    ]);
+    expect(result.blockers.map((b) => b.title)).toEqual([
+      'Add container build instructions (Dockerfile)',
+      'Add a health check route',
+    ]);
+    expect(result.primaryAction).toEqual({
+      id: 'review-configuration',
+      label: 'Review required changes',
+      href: '/dashboard/applications/app-1/config#required-changes',
+      external: false,
+    });
+  });
+
+  it('ready-to-test: names the release the test will use when one is ready', () => {
+    const ready = release();
+    const result = deriveApplicationPresentation(makeInput({ releases: [ready] }));
+    expect(result.state).toBe('ready-to-test');
+    expect(result.message).toContain('v0.1.0 (commit b2806f9)');
+  });
+
+  it('ready-to-test: says nothing about releases when the fetch failed', () => {
+    const result = deriveApplicationPresentation(makeInput({ releases: 'error' }));
+    expect(result.state).toBe('ready-to-test');
+    expect(result.message).not.toMatch(/release/i);
+  });
+
+  it('first verified test, no install link: create, and the message names the installable release', () => {
+    const ready = release({ version: 'v0.1.0', gitSha: 'b2806f9a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e' });
+    const result = deriveApplicationPresentation(
+      makeInput({ deployments: [deployment({ state: 'HEALTHY' })], installLinks: [], releases: [ready] }),
+    );
+    expect(result.state).toBe('ready-to-share');
+    expect(result.installLink).toEqual({ kind: 'create', note: null });
+    expect(result.message).toContain('v0.1.0 (commit b2806f9)');
+  });
+
+  it('ready-to-share: no READY release points at Releases and says installs are refused', () => {
+    const building = release({ status: 'BUILDING' });
+    const result = deriveApplicationPresentation(
+      makeInput({ deployments: [deployment({ state: 'HEALTHY' })], releases: [building] }),
+    );
+    expect(result.state).toBe('ready-to-share');
+    expect(result.message).toMatch(/cannot install yet/i);
+    expect(result.secondaryActions).toContainEqual({
+      id: 'view-releases',
+      label: 'View releases',
+      href: '/dashboard/applications/app-1/releases',
+      external: false,
+    });
+  });
+
+  it('ready-to-share: releases "error" says nothing about releases', () => {
+    const result = deriveApplicationPresentation(
+      makeInput({ deployments: [deployment({ state: 'HEALTHY' })], releases: 'error' }),
+    );
+    expect(result.state).toBe('ready-to-share');
+    expect(result.message).toBe('Your test deployment passed. Send the install link to your customers.');
+    expect(result.notices).toEqual([]);
+  });
+
+  it('existing active link + a newer FAILED release: Copy link stays primary, the older ready release is named, a separate failure notice appears', () => {
+    const older = release({ id: 'r1', version: 'v0.1.0', createdAt: '2026-09-01T00:00:00.000Z' });
+    const newerFailed = release({
+      id: 'r2',
+      version: 'v0.1.1',
+      status: 'FAILED',
+      createdAt: '2026-09-05T00:00:00.000Z',
+    });
+    const activeLink = link({ status: 'active' });
+    const result = deriveApplicationPresentation(
+      makeInput({
+        deployments: [deployment({ state: 'HEALTHY' })],
+        installLinks: [activeLink],
+        releases: [older, newerFailed],
+      }),
+    );
+    expect(result.state).toBe('ready-to-share');
+    expect(result.primaryAction?.id).toBe('copy-install-link');
+    expect(result.message).toContain('v0.1.0 (commit b2806f9)');
+    expect(result.message).not.toContain('v0.1.1');
+    expect(result.notices).toContainEqual({
+      tone: 'warning',
+      text: 'Release v0.1.1 failed to build. Customers still get v0.1.0.',
+    });
+  });
+
+  it('an active link while not ready to share describes what customers get now, not a warning to re-test', () => {
+    const ready = release();
+    const result = deriveApplicationPresentation(
+      makeInput({ deployments: [deployment({ state: 'NOT_INSTALLED' })], installLinks: [link({ status: 'active' })], releases: [ready] }),
+    );
+    expect(result.state).toBe('test-queued');
+    const warning = (result.installLink as { warning: string | null }).warning;
+    expect(warning).toContain('v0.1.0 (commit b2806f9)');
+    expect(warning).not.toMatch(/test.*pass(es)? again/i);
   });
 });
 

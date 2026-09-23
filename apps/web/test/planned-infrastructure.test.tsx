@@ -235,11 +235,21 @@ describe('PlannedInfrastructure', () => {
     const table = doc.querySelector('[data-testid="planned-infrastructure-table"]');
     expect(table).not.toBeNull();
     const headers = [...table!.querySelectorAll('th')].map((th) => th.textContent);
-    expect(headers).toEqual(['Component', 'Provisioned as', 'Configuration', 'Retention']);
+    expect(headers).toEqual(['Component', 'Provisioned as', 'Configuration', 'On uninstall']);
 
     for (const row of footprintComponentRows(plan.footprint!)) {
       expect(doc.querySelector(`[data-testid="planned-component-${row.id}"]`)).not.toBeNull();
     }
+  });
+
+  it('renders "Kept"/"Removed" in the On uninstall column, with an explanation of what it means', () => {
+    const plan = planFor(footprintFor(STANDARD_MANIFEST));
+    const doc = render(<PlannedInfrastructure plan={plan} />);
+    const databaseRow = doc.querySelector('[data-testid="planned-component-database"]');
+    expect(databaseRow?.textContent).toContain('Kept');
+    const webRow = doc.querySelector('[data-testid="planned-component-web"]');
+    expect(webRow?.textContent).toContain('Removed');
+    expect(doc.body.textContent).toContain('what happens to each component when a customer');
   });
 
   it('falls back to "Standard" for a component with no meaningful configuration', () => {
