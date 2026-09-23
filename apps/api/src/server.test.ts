@@ -142,6 +142,17 @@ async function insertRelease(
   return row!;
 }
 
+/** A READY release with an image: deployment creation and every INSTALL refuse without one. */
+async function insertDeployableRelease(
+  db: Db,
+  applicationId: string,
+): Promise<typeof schema.releases.$inferSelect> {
+  return insertRelease(db, applicationId, {
+    releaseStatus: 'READY',
+    imageDigest: `151955775369.dkr.ecr.us-east-1.amazonaws.com/deployz-images@sha256:${'c'.repeat(64)}`,
+  });
+}
+
 async function insertDeployment(
   db: Db,
   organizationId: string,
@@ -524,6 +535,7 @@ describe('server — organization identity comes from the session, not the clien
         databaseState: 'none',
       },
     });
+    await insertDeployableRelease(db, application.id);
     const customer = await insertCustomer(db, orgA.organizationId);
 
     const response = await postJson(
@@ -694,6 +706,7 @@ describe('server — organization identity comes from the session, not the clien
         ],
       },
     });
+    await insertDeployableRelease(db, application.id);
     const customer = await insertCustomer(db, orgA.organizationId);
     // The vendor configured the value as an application default (§31) — the
     // deployment gate now sees a provided key and lets the deployment through.
@@ -1180,6 +1193,7 @@ describe('server — relay bearer auth, INSTALL job, and command/result/health f
     app = await buildServer({ auth, db });
 
     const application = await insertApplication(db, org.organizationId);
+    await insertDeployableRelease(db, application.id);
     const customer = await insertCustomer(db, org.organizationId);
     deployment = await insertDeployment(db, org.organizationId, application.id, customer.id, {
       state: 'NOT_INSTALLED',
@@ -1427,7 +1441,10 @@ describe('server — relay bearer auth, INSTALL job, and command/result/health f
   });
 
   it('success:true marks the job SUCCEEDED and stores the result/finishedAt', async () => {
-    const [job] = await db.select().from(schema.deploymentJobs).where(eq(schema.deploymentJobs.deploymentId, deployment.id));
+    const [job] = await db
+      .select()
+      .from(schema.deploymentJobs)
+      .where(and(eq(schema.deploymentJobs.deploymentId, deployment.id), eq(schema.deploymentJobs.type, 'INSTALL')));
     const response = await postJson(
       app,
       `/api/relay/commands/${job!.id}/result`,
@@ -1443,6 +1460,12 @@ describe('server — relay bearer auth, INSTALL job, and command/result/health f
   });
 
   it('success:false with a valid failureCode marks the job FAILED with that code', async () => {
+    // The INSTALL success above auto-queued a deploy of the READY release;
+    // clear it so the job below is the deployment's only active mutation.
+    await db
+      .update(schema.deploymentJobs)
+      .set({ state: 'CANCELLED' })
+      .where(and(eq(schema.deploymentJobs.deploymentId, deployment.id), eq(schema.deploymentJobs.type, 'DEPLOY_RELEASE')));
     const [freshJob] = await db
       .insert(schema.deploymentJobs)
       .values({
@@ -1945,6 +1968,7 @@ describe('server — relay bearer auth, INSTALL job, and command/result/health f
     // Simulation: a deployment after relay/reset — state NOT_INSTALLED,
     // no enrollment, but a FAILED INSTALL job from a previous registration.
     const auditApp = await insertApplication(db, org.organizationId, { name: 'Audit Fail' });
+    await insertDeployableRelease(db, auditApp.id);
     const auditCustomer = await insertCustomer(db, org.organizationId);
     const auditDeployment = await insertDeployment(db, org.organizationId, auditApp.id, auditCustomer.id, {
       state: 'NOT_INSTALLED',
@@ -2003,6 +2027,7 @@ describe('server — relay bearer auth, INSTALL job, and command/result/health f
 
   it('DZ-AUDIT-001: registration while a legitimate INSTALL job is REQUESTED does NOT create a second job', async () => {
     const auditApp = await insertApplication(db, org.organizationId, { name: 'Audit Active' });
+    await insertDeployableRelease(db, auditApp.id);
     const auditCustomer = await insertCustomer(db, org.organizationId);
     const auditDeployment = await insertDeployment(db, org.organizationId, auditApp.id, auditCustomer.id, {
       state: 'NOT_INSTALLED',
@@ -2047,6 +2072,7 @@ describe('server — relay bearer auth, INSTALL job, and command/result/health f
     // After relay/reset cancelled the previous INSTALL, re-registration must
     // produce a new job.
     const auditApp = await insertApplication(db, org.organizationId, { name: 'Audit Cancel' });
+    await insertDeployableRelease(db, auditApp.id);
     const auditCustomer = await insertCustomer(db, org.organizationId);
     const auditDeployment = await insertDeployment(db, org.organizationId, auditApp.id, auditCustomer.id, {
       state: 'NOT_INSTALLED',
@@ -3979,6 +4005,7 @@ describe('server — pre-relay install lifecycle (waiting-for-relay and retry)',
 
   async function seedWaiting(overrides: Partial<typeof schema.deployments.$inferInsert> = {}): Promise<Seeded> {
     const application = await insertApplication(db, org.organizationId, { name: 'Widget Suite' });
+    await insertDeployableRelease(db, application.id);
     const customer = await insertCustomer(db, org.organizationId, { name: 'Widgets Inc' });
     const deployment = await insertDeployment(db, org.organizationId, application.id, customer.id, {
       installationId: null,
@@ -4101,6 +4128,7 @@ describe('server — pre-relay install lifecycle (waiting-for-relay and retry)',
       databaseRequired: true,
       storageRequired: false,
     });
+    await insertDeployableRelease(db, application.id);
     const customer = await insertCustomer(db, org.organizationId);
     const deployment = await insertDeployment(db, org.organizationId, application.id, customer.id, {
       installationId: null,
@@ -4140,6 +4168,7 @@ describe('server — pre-relay install lifecycle (waiting-for-relay and retry)',
       databaseRequired: true,
       storageRequired: false,
     });
+    await insertDeployableRelease(db, application.id);
     const customer = await insertCustomer(db, org.organizationId);
     const deployment = await insertDeployment(db, org.organizationId, application.id, customer.id, {
       installationId: null,
@@ -4666,6 +4695,7 @@ describe('server — retry-install (first-install recovery)', () => {
     jobOverrides: Partial<typeof schema.deploymentJobs.$inferInsert> = {},
   ): Promise<typeof schema.deployments.$inferSelect> {
     const application = await insertApplication(db, org.organizationId);
+    await insertDeployableRelease(db, application.id);
     const customer = await insertCustomer(db, org.organizationId);
     const deployment = await insertDeployment(db, org.organizationId, application.id, customer.id, {
       state: 'FAILED',
@@ -4899,6 +4929,7 @@ describe('server — infrastructure inventory (§59)', () => {
 
     const application = await insertApplication(db, org.organizationId);
     applicationId = application.id;
+    await insertDeployableRelease(db, applicationId);
     const customer = await insertCustomer(db, org.organizationId);
     customerId = customer.id;
   }, 60_000);
@@ -5390,6 +5421,7 @@ describe('server — Phase 1.1 ECR pull grants and auto-deploy on install', () =
 
   it('relay registration grants the customer account pull access for the installation', async () => {
     const application = await insertApplication(db, org.organizationId);
+    await seedReadyRelease(application.id);
     const customer = await insertCustomer(db, org.organizationId);
     const deployment = await insertDeployment(db, org.organizationId, application.id, customer.id, {
       state: 'NOT_INSTALLED',
@@ -5482,14 +5514,17 @@ describe('server — Phase 1.1 ECR pull grants and auto-deploy on install', () =
     expect(events).toHaveLength(1);
   });
 
-  it('skips the auto-deploy when the newest release is not READY yet', async () => {
+  it('skips a newest release that is not READY yet: the auto-deploy rolls the newest READY one', async () => {
     const application = await insertApplication(db, org.organizationId);
     const customer = await insertCustomer(db, org.organizationId);
     const deployment = await insertDeployment(db, org.organizationId, application.id, customer.id, {
       state: 'NOT_INSTALLED',
       installationId: null,
     });
-    // A release still building — nothing deployable to roll yet.
+    // The INSTALL itself needs a READY release, so the not-READY release is
+    // the newer of two.
+    const ready = await seedReadyRelease(application.id);
+    // A release still building — never a deploy target.
     await insertRelease(db, application.id, { buildStatus: 'BUILDING' });
     const installationId = `inst-noready-${crypto.randomUUID()}`;
 
@@ -5517,7 +5552,8 @@ describe('server — Phase 1.1 ECR pull grants and auto-deploy on install', () =
           eq(schema.deploymentJobs.type, 'DEPLOY_RELEASE'),
         ),
       );
-    expect(deployJobs).toHaveLength(0);
+    expect(deployJobs).toHaveLength(1);
+    expect(deployJobs[0]!.payload).toMatchObject({ releaseId: ready.id });
   });
 
   it('does not auto-enqueue a DEPLOY_RELEASE when the INSTALL fails', async () => {

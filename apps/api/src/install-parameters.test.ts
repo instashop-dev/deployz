@@ -175,6 +175,7 @@ describe('buildInstallParameters', () => {
 
   it('with a custom domain: includes publicUrl and per-install secrets, no SMTP keys', async () => {
     const application = await insertApplication(db, org.organizationId);
+    await insertRelease(db, application.id);
     const customer = await insertCustomer(db, org.organizationId);
     const deployment = await insertDeployment(db, org.organizationId, application.id, customer.id);
     await db.insert(schema.customDomains).values({
@@ -207,6 +208,7 @@ describe('buildInstallParameters', () => {
 
   it('two calls produce different secrets', async () => {
     const application = await insertApplication(db, org.organizationId);
+    await insertRelease(db, application.id);
     const customer = await insertCustomer(db, org.organizationId);
     const deployment = await insertDeployment(db, org.organizationId, application.id, customer.id);
 
@@ -226,6 +228,7 @@ describe('buildInstallParameters', () => {
 
   it('without a domain: omits publicUrl', async () => {
     const application = await insertApplication(db, org.organizationId);
+    await insertRelease(db, application.id);
     const customer = await insertCustomer(db, org.organizationId);
     const deployment = await insertDeployment(db, org.organizationId, application.id, customer.id);
 
@@ -236,6 +239,7 @@ describe('buildInstallParameters', () => {
 
   it('prefers an ACTIVE custom domain over an ACTIVE default HTTPS hostname', async () => {
     const application = await insertApplication(db, org.organizationId);
+    await insertRelease(db, application.id);
     const customer = await insertCustomer(db, org.organizationId);
     const deployment = await insertDeployment(db, org.organizationId, application.id, customer.id);
     await db
@@ -264,6 +268,7 @@ describe('buildInstallParameters', () => {
 
   it('falls back to the ACTIVE default HTTPS hostname when no ACTIVE custom domain exists', async () => {
     const application = await insertApplication(db, org.organizationId);
+    await insertRelease(db, application.id);
     const customer = await insertCustomer(db, org.organizationId);
     const deployment = await insertDeployment(db, org.organizationId, application.id, customer.id);
 
@@ -280,6 +285,7 @@ describe('buildInstallParameters', () => {
 
   it('never hands a non-ACTIVE default HTTPS hostname to the app (keeps the custom-domain behavior instead)', async () => {
     const application = await insertApplication(db, org.organizationId);
+    await insertRelease(db, application.id);
     const customer = await insertCustomer(db, org.organizationId);
     const deployment = await insertDeployment(db, org.organizationId, application.id, customer.id);
     await db
@@ -350,15 +356,17 @@ describe('buildInstallParameters', () => {
     expect(parameters[IMAGE_REFERENCE_PARAMETER]).toBe(usable.imageDigest);
   });
 
-  it('omits the image-reference parameter when the application has no usable release', async () => {
+  it('refuses the install when the application has no usable release (never the template default image)', async () => {
     const application = await insertApplication(db, org.organizationId);
     const customer = await insertCustomer(db, org.organizationId);
     const deployment = await insertDeployment(db, org.organizationId, application.id, customer.id);
+    await insertRelease(db, application.id, { releaseStatus: 'BUILDING', imageDigest: null });
+    await insertRelease(db, application.id, { imageUnavailableAt: new Date('2026-02-02T00:00:00Z') });
 
-    const { parameters, releaseId } = await buildInstallParameters(db, deployment.id);
-
-    expect(parameters[IMAGE_REFERENCE_PARAMETER]).toBeUndefined();
-    expect(releaseId).toBeNull();
+    await expect(buildInstallParameters(db, deployment.id)).rejects.toMatchObject({
+      statusCode: 409,
+      code: 'RELEASE_NOT_PUBLISHED',
+    });
   });
 
   // ── DEPLOY-009: configuration reaches the task before its first start ───
@@ -374,16 +382,6 @@ describe('buildInstallParameters', () => {
 
     const plain = await buildInstallParameters(db, deployment.id);
     expect(plain.parameters[DESIRED_COUNT_PARAMETER]).toBeUndefined();
-  });
-
-  it('never defers the first start when the application has no usable release', async () => {
-    const application = await insertApplication(db, org.organizationId);
-    const customer = await insertCustomer(db, org.organizationId);
-    const deployment = await insertDeployment(db, org.organizationId, application.id, customer.id);
-
-    const { parameters } = await buildInstallParameters(db, deployment.id, { startAfterConfig: true });
-
-    expect(parameters[DESIRED_COUNT_PARAMETER]).toBeUndefined();
   });
 });
 
@@ -412,6 +410,7 @@ describe('INSTALL job payload.parameters wiring', () => {
 
   it('POST /api/relay/register creates the INSTALL job with payload.parameters', async () => {
     const application = await insertApplication(db, org.organizationId);
+    await insertRelease(db, application.id);
     const customer = await insertCustomer(db, org.organizationId);
     const deployment = await insertDeployment(db, org.organizationId, application.id, customer.id, {
       state: 'NOT_INSTALLED',
@@ -448,6 +447,7 @@ describe('INSTALL job payload.parameters wiring', () => {
     // Phase 2: redisRequired is derived from the deployment's frozen
     // manifest, never the live application column — set it there.
     const application = await insertApplication(db, org.organizationId, { redisRequired: true });
+    await insertRelease(db, application.id);
     const customer = await insertCustomer(db, org.organizationId);
     const deployment = await insertDeployment(db, org.organizationId, application.id, customer.id, {
       state: 'NOT_INSTALLED',
@@ -472,6 +472,7 @@ describe('INSTALL job payload.parameters wiring', () => {
 
   it('POST /api/relay/register carries redisRequired: false when the application does not require Redis', async () => {
     const application = await insertApplication(db, org.organizationId, { redisRequired: false });
+    await insertRelease(db, application.id);
     const customer = await insertCustomer(db, org.organizationId);
     const deployment = await insertDeployment(db, org.organizationId, application.id, customer.id, {
       state: 'NOT_INSTALLED',
@@ -497,6 +498,7 @@ describe('INSTALL job payload.parameters wiring', () => {
     // The application row says Redis is NOT required, but the deployment's
     // frozen manifest says it IS — the manifest must win (Phase 2).
     const application = await insertApplication(db, org.organizationId, { redisRequired: false });
+    await insertRelease(db, application.id);
     const customer = await insertCustomer(db, org.organizationId);
     const deployment = await insertDeployment(db, org.organizationId, application.id, customer.id, {
       state: 'NOT_INSTALLED',
@@ -523,6 +525,7 @@ describe('INSTALL job payload.parameters wiring', () => {
 
   it('POST /api/relay/register carries the canonical manifest from desired_state.manifest', async () => {
     const application = await insertApplication(db, org.organizationId);
+    await insertRelease(db, application.id);
     const customer = await insertCustomer(db, org.organizationId);
     const manifest = {
       application: { root: '.', runtime: 'node', framework: 'express', dockerfilePath: 'Dockerfile' },
@@ -563,6 +566,7 @@ describe('INSTALL job payload.parameters wiring', () => {
 
   it('POST /api/deployments/:id/retry-install keeps recovery.neverInstalled AND adds parameters', async () => {
     const application = await insertApplication(db, org.organizationId);
+    await insertRelease(db, application.id);
     const customer = await insertCustomer(db, org.organizationId);
     const deployment = await insertDeployment(db, org.organizationId, application.id, customer.id, {
       state: 'FAILED',
@@ -596,6 +600,7 @@ describe('INSTALL job payload.parameters wiring', () => {
 
   it('POST /api/deployments/:id/retry-install carries redisRequired: true when the stored manifest requires Redis', async () => {
     const application = await insertApplication(db, org.organizationId, { redisRequired: true });
+    await insertRelease(db, application.id);
     const customer = await insertCustomer(db, org.organizationId);
     const deployment = await insertDeployment(db, org.organizationId, application.id, customer.id, {
       state: 'FAILED',

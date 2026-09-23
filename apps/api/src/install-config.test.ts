@@ -171,7 +171,9 @@ describe('post-install configuration', () => {
     });
   });
 
-  it('omits the release-id tag when no release was selected', async () => {
+  // The release-id tag omission itself is covered in @deployz/contracts
+  // tags.test.ts; an install can no longer reach it without a release.
+  it('refuses the INSTALL payload when no release can be selected (never the template default image)', async () => {
     const [application] = await db
       .insert(schema.applications)
       .values({
@@ -196,15 +198,9 @@ describe('post-install configuration', () => {
       })
       .returning();
 
-    const payload = await buildInstallPayload(db, deployment!, createConfigStore(db));
-
-    expect(payload['tags']).toEqual({
-      'deployz:managed-by': 'deployz',
-      'deployz:deployment-id': deployment.id,
-      'deployz:application-id': application!.id,
-      'deployz:customer-id': customerId,
-      'deployz:vendor-id': organizationId,
-      'deployz:environment': 'production',
+    await expect(buildInstallPayload(db, deployment!, createConfigStore(db))).rejects.toMatchObject({
+      statusCode: 409,
+      code: 'RELEASE_NOT_PUBLISHED',
     });
   });
 
