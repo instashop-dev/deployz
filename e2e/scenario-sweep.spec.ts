@@ -33,9 +33,10 @@
 
 import { expect, test, type APIRequestContext } from '@playwright/test';
 
+import { createReadyRelease } from './seed-ready-manifest.js';
 import { extractQuickCreateParam, startSimulatedRelay } from './simulation/relay-harness.js';
 import { getScenario } from './simulation/scenarios/index.js';
-import { API_URL, buildApi, expectPlanMatchesInventory } from './simulation/fixtures.js';
+import { API_URL, buildApi, expectPlanMatchesInventory, waitForInstallAutoDeploy } from './simulation/fixtures.js';
 
 interface DeploymentResponse {
   state: string;
@@ -174,6 +175,7 @@ test.describe('lifecycle-sweep', () => {
       data: { customerId: null, entries: [{ key: 'LICENSE_KEY', value: 'sweep-license-key', isSecret: true }] },
     });
     expect(configWrite.ok()).toBeTruthy();
+    await createReadyRelease(request, application.id);
 
     const created = await request.post(`${API_URL}/api/deployments`, {
       data: { applicationId: application.id, customerId: customer.id, region: 'us-east-1' },
@@ -214,6 +216,9 @@ test.describe('lifecycle-sweep', () => {
         .toBe('HEALTHY');
       const healthy = await getDeployment(request, deploymentId);
       expect(healthy.relayStatus).toBe('CONNECTED');
+      // The post-install auto-deploy is a real DEPLOY_RELEASE: one migration run.
+      await waitForInstallAutoDeploy(buildApi(request), deploymentId);
+      expect(relayA.account.migrationRuns).toBe(1);
 
       // ── Config update while live: a customer-scoped write is accepted and
       // persisted, and the deployment stays HEALTHY (the write-through to the
@@ -242,7 +247,7 @@ test.describe('lifecycle-sweep', () => {
         })
         .toBe(v1ReleaseId);
       expect((await getDeployment(request, deploymentId)).state).toBe('HEALTHY');
-      expect(relayA.account.migrationRuns).toBe(1);
+      expect(relayA.account.migrationRuns).toBe(2);
 
       // ── Failed update (v2): the deployment stays live on v1. ──────────────
       const v2ReleaseId = await createRelease(request, application.id, '2.0.0');
@@ -259,7 +264,7 @@ test.describe('lifecycle-sweep', () => {
       const afterV2 = await getDeployment(request, deploymentId);
       expect(afterV2.deploymentStatus.failure?.code).toBe('ECS_DEPLOYMENT_FAILED');
       expect(afterV2.currentReleaseId).toBe(v1ReleaseId);
-      expect(relayA.account.migrationRuns).toBe(2);
+      expect(relayA.account.migrationRuns).toBe(3);
 
       // ── Rollback to v1 succeeds; a rollback never runs migrations. ────────
       const rollback = await request.post(`${API_URL}/api/deployments/${deploymentId}/rollback`, {
@@ -273,7 +278,7 @@ test.describe('lifecycle-sweep', () => {
       expect(afterRollback.state).toBe('UPDATE_AVAILABLE');
       expect(afterRollback.currentReleaseId).toBe(v1ReleaseId);
       expect(afterRollback.deploymentStatus.failure).toBeNull();
-      expect(relayA.account.migrationRuns).toBe(2);
+      expect(relayA.account.migrationRuns).toBe(3);
 
       // ── Relay disconnect + reconnect. The relay goes silent; the vendor
       // reconnects through relay/reset (the product's recovery path for a
@@ -340,7 +345,7 @@ test.describe('lifecycle-sweep', () => {
           .toBe(v3ReleaseId);
         const afterV3 = await getDeployment(request, deploymentId);
         expect(afterV3.state).toBe('HEALTHY');
-        expect(relayB.account.migrationRuns).toBe(3);
+        expect(relayB.account.migrationRuns).toBe(4);
 
         // ── Delete. ──────────────────────────────────────────────────────────
         const destroy = await request.post(`${API_URL}/api/deployments/${deploymentId}/destroy`, {

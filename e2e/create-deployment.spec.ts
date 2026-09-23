@@ -1,5 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
 
+import { createReadyRelease } from './seed-ready-manifest.js';
+
 // CANARY-004: the create-deployment form (§12/§41 screen 12) used to swallow
 // every /api/deployments failure behind a fixed "Try again in a moment" and
 // re-created the customer on every retry. Seeds a real Application from the
@@ -53,10 +55,26 @@ test('a MANIFEST_NOT_COMPATIBLE rejection shows the server reason, links to read
   const applicationId = await seedNotCompatibleApplication(page, suffix);
 
   await page.goto(`/dashboard/deployments/new?applicationId=${applicationId}`);
+  const submit = page.getByRole('button', { name: 'Create Customer Deployment' });
+
+  // Nothing can install without a built release: the page says so and the
+  // submit waits for one.
+  const releaseMissing = page.getByTestId('install-release-missing');
+  await expect(releaseMissing).toBeVisible();
+  await expect(releaseMissing.getByRole('link', { name: 'Go to Releases' })).toHaveAttribute(
+    'href',
+    `/dashboard/applications/${applicationId}/releases`,
+  );
+  await expect(submit).toBeDisabled();
+
+  await createReadyRelease(page.request, applicationId);
+  await page.reload();
+  await expect(page.getByTestId('install-release')).toContainText('Installs release 0.1.0');
+  await expect(submit).toBeEnabled();
+
   await page.getByLabel('Customer name').fill(`Canary ${suffix}`);
   await page.getByLabel('Customer email').fill(customerEmail);
 
-  const submit = page.getByRole('button', { name: 'Create Customer Deployment' });
   // Scoped to the form: Next.js's own route announcer also carries
   // role="alert" and would otherwise make this locator ambiguous.
   const alert = page.locator('form [role="alert"]');

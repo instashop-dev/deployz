@@ -16,7 +16,7 @@
 
 import type { APIRequestContext } from '@playwright/test';
 
-import { API_URL, buildApi, expect, expectPlanMatchesInventory, test } from './simulation/fixtures.js';
+import { API_URL, buildApi, expect, expectPlanMatchesInventory, test, waitForInstallAutoDeploy } from './simulation/fixtures.js';
 
 interface DeploymentResponse {
   state: string;
@@ -103,6 +103,7 @@ test.describe('update-failure', () => {
         message: 'waiting for install to reach HEALTHY',
       })
       .toBe('HEALTHY');
+    await waitForInstallAutoDeploy(api, deploymentId);
 
     const installed = (await api.getDeployment(deploymentId)) as unknown as DeploymentResponse;
     const applicationId = installed.applicationId;
@@ -177,6 +178,7 @@ test.describe('rollback-success', () => {
     await expect
       .poll(async () => (await api.getDeployment(deploymentId)).state, { timeout: 15_000 })
       .toBe('HEALTHY');
+    await waitForInstallAutoDeploy(api, deploymentId);
     const installed = (await api.getDeployment(deploymentId)) as unknown as DeploymentResponse;
     const applicationId = installed.applicationId;
 
@@ -261,6 +263,7 @@ test.describe('rollback-failure', () => {
     await expect
       .poll(async () => (await api.getDeployment(deploymentId)).state, { timeout: 15_000 })
       .toBe('HEALTHY');
+    await waitForInstallAutoDeploy(api, deploymentId);
     const installed = (await api.getDeployment(deploymentId)) as unknown as DeploymentResponse;
     const applicationId = installed.applicationId;
 
