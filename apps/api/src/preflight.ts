@@ -4,12 +4,20 @@ import {
   normalizeDeploymentManifest,
   type ReadinessReport,
 } from '@deployz/analysis';
-import type { DeploymentManifest, ManifestReadinessFinding } from '@deployz/contracts';
+import {
+  evaluateEnvironmentSetup,
+  keysNotNeedingValue,
+  runtimeKeysNeedingValue,
+  type DeploymentManifest,
+  type EnvironmentSetting,
+  type ManifestReadinessFinding,
+} from '@deployz/contracts';
 import type { RuntimeDb } from '@deployz/db';
 
 import { listProvidedConfigKeys } from './config.js';
 import { ApiError } from './errors.js';
 import { effectiveReadinessReport } from './fix-instructions.js';
+import { readEnvironmentSettings } from './environment-setup.js';
 import { applicationToManifestOverrides, readStoredManifest, type ManifestApplicationRow } from './manifest.js';
 
 // Pre-deployment preflight (AI MVP Phase 5) — the one gate every path into
@@ -47,6 +55,8 @@ export interface PreflightInput {
   providedEnvKeys: string[];
   /** The application's effective readiness report, when the caller has it. */
   readiness: ReadinessReport | null;
+  /** Saved env-var setup decisions (docs/environment-variables.md); null = legacy behaviour. */
+  settings?: EnvironmentSetting[] | null;
 }
 
 /** Readiness findings the manifest gate already reports as blockers or warnings. */
@@ -71,18 +81,22 @@ function readinessWarnings(readiness: ReadinessReport | null): ManifestReadiness
     }));
 }
 
-function requiredCustomerKeys(manifest: DeploymentManifest, providedEnvKeys: string[]): { required: string[]; missing: string[] } {
+function requiredCustomerKeys(
+  manifest: DeploymentManifest,
+  providedEnvKeys: string[],
+  evaluation: ReturnType<typeof evaluateEnvironmentSetup>,
+): { required: string[]; missing: string[] } {
   const generated = new Set(generatedEnvKeys(manifest));
   const provided = new Set(providedEnvKeys);
-  const required = manifest.environment.variables
-    .filter(
-      (variable) =>
-        variable.classification === 'customer_required' ||
-        (variable.classification === undefined && variable.required),
-    )
-    .map((variable) => variable.key)
-    .filter((key) => !generated.has(key));
+  const required = runtimeKeysNeedingValue(evaluation).filter((key) => !generated.has(key));
   return { required, missing: required.filter((key) => !provided.has(key)) };
+}
+
+/** At most 5 keys, then "and N more" — keeps a long list readable in a one-line detail. */
+function joinKeysTruncated(keys: string[]): string {
+  const shown = keys.slice(0, 5);
+  const more = keys.length - shown.length;
+  return more > 0 ? `${shown.join(', ')}, and ${more} more` : shown.join(', ');
 }
 
 /**
@@ -91,7 +105,15 @@ function requiredCustomerKeys(manifest: DeploymentManifest, providedEnvKeys: str
  */
 export function evaluatePreflight(input: PreflightInput): PreflightResult {
   const { manifest } = input;
-  const gate = evaluateManifestReadiness(manifest, { providedEnvKeys: input.providedEnvKeys });
+  const evaluation = evaluateEnvironmentSetup({
+    variables: manifest.environment.variables,
+    settings: input.settings ?? null,
+    vendorValueKeys: new Set(input.providedEnvKeys),
+  });
+  // Vendor-optional/none/build/deployz keys never block deployment; a
+  // customer/vendor/unreviewed-required key still needs a value.
+  const gateProvidedEnvKeys = [...new Set([...input.providedEnvKeys, ...keysNotNeedingValue(evaluation)])];
+  const gate = evaluateManifestReadiness(manifest, { providedEnvKeys: gateProvidedEnvKeys });
   const blockers = gate.findings.filter((finding) => finding.severity === 'error');
   const gateWarnings = gate.findings.filter((finding) => finding.severity === 'warning');
   const warnings = [...gateWarnings, ...readinessWarnings(input.readiness)];
@@ -159,7 +181,7 @@ export function evaluatePreflight(input: PreflightInput): PreflightResult {
         : 'Set at installation',
   });
 
-  const customerKeys = requiredCustomerKeys(manifest, input.providedEnvKeys);
+  const customerKeys = requiredCustomerKeys(manifest, input.providedEnvKeys, evaluation);
   checks.push({
     id: 'customer-variables',
     label: 'Required customer variables',
@@ -168,7 +190,7 @@ export function evaluatePreflight(input: PreflightInput): PreflightResult {
       customerKeys.required.length === 0
         ? 'Nothing for you to provide'
         : customerKeys.missing.length > 0
-          ? `Missing: ${customerKeys.missing.join(', ')}`
+          ? `Missing: ${joinKeysTruncated(customerKeys.missing)}`
           : `${customerKeys.required.length} ${customerKeys.required.length === 1 ? 'value' : 'values'} provided`,
   });
 
@@ -220,7 +242,7 @@ export function evaluatePreflight(input: PreflightInput): PreflightResult {
 }
 
 /** The application row slice the preflight reads. */
-export type PreflightApplicationRow = ManifestApplicationRow & { id: string };
+export type PreflightApplicationRow = ManifestApplicationRow & { id: string; environmentSettings?: unknown };
 
 /**
  * Preflight for an application before a deployment exists: the manifest is
@@ -248,6 +270,7 @@ export async function runApplicationPreflight(
     manifest,
     providedEnvKeys,
     readiness: effectiveReadinessReport(application),
+    settings: readEnvironmentSettings(application),
   });
   return { manifest, result };
 }
@@ -275,6 +298,7 @@ export async function runDeploymentPreflight(
     manifest,
     providedEnvKeys,
     readiness: application ? effectiveReadinessReport(application) : null,
+    settings: application ? readEnvironmentSettings(application) : null,
   });
 }
 

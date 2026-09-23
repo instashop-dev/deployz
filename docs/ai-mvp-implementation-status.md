@@ -371,7 +371,8 @@ PR #178.
    "Deployz configures automatically" (managed, generated), "You need to
    provide" (missing first, ✓ when a value is saved for this scope) and a
    collapsed "Optional" list, built by `buildEnvPlan` in
-   `apps/web/src/lib/env-plan.ts`. Never a value.
+   `apps/web/src/lib/env-plan.ts`. Never a value. (Superseded by the
+   environment-variables setup table — `docs/environment-variables.md`.)
 7. **Fixture** — `deployz-demo/config-required-app` now reads LICENSE_KEY
    (customer-required) beside SESSION_SECRET (generated); the lifecycle
    sweep provides LICENSE_KEY.

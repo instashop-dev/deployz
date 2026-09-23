@@ -41,6 +41,18 @@ export interface CreateReleaseInput {
   migrationCommand?: string | null;
 }
 
+/** Thrown when a release cannot build because a required build-stage
+ *  environment value is missing (`BUILD_CONFIGURATION_MISSING`). Carries the
+ *  offending keys so the caller can name them and link to Configuration. */
+export class BuildConfigurationMissingError extends Error {
+  readonly keys: string[];
+  constructor(keys: string[]) {
+    super(`Set these build values before you build a release: ${keys.join(', ')}.`);
+    this.name = 'BuildConfigurationMissingError';
+    this.keys = keys;
+  }
+}
+
 /** §22 create release — POST /api/applications/:id/releases. */
 export async function createRelease(
   applicationId: string,
@@ -60,6 +72,14 @@ export async function createRelease(
     },
   );
   if (!response.ok) {
+    if (response.status === 422) {
+      const body = (await response.json().catch(() => null)) as {
+        error?: { code?: string; details?: { keys?: string[] } };
+      } | null;
+      if (body?.error?.code === 'BUILD_CONFIGURATION_MISSING') {
+        throw new BuildConfigurationMissingError(body.error.details?.keys ?? []);
+      }
+    }
     throw new Error(`Create release failed (${response.status})`);
   }
   const row = (await response.json()) as {

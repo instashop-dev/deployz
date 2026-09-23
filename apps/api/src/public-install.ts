@@ -6,8 +6,11 @@ import {
   REGION_LABELS,
   SUPPORTED_AWS_REGIONS,
   buildInstallPlan,
+  customerInputRows,
+  evaluateEnvironmentSetup,
   type DeploymentManifest,
   type EnvVariableClassification,
+  type EnvironmentSetting,
   type Region,
 } from '@deployz/contracts';
 import type { RuntimeDb } from '@deployz/db';
@@ -18,9 +21,10 @@ import { assertProductionDeploymentAllowed } from './billing-entitlements.js';
 import { createDeploymentRecord, loadOwnedApplication } from './deploy-links.js';
 import { env } from './env.js';
 import { ApiError, NotFoundError } from './errors.js';
+import { readEnvironmentSettings } from './environment-setup.js';
 import { recordEvent } from './events.js';
 import { requirePreflightReady, runApplicationPreflight } from './preflight.js';
-import { createReleaseRecord } from './releases.js';
+import { createReleaseRecord, ensureBuildConfigurationReady } from './releases.js';
 
 // Public Install Links — the customer-side installation review surface. A
 // link is vendor-published and credential-free: anyone holding the opaque
@@ -48,6 +52,9 @@ export interface PublicInstallInput {
   readonly secret: boolean;
   readonly classification?: EnvVariableClassification;
   readonly purpose?: 'internal_secret' | 'external_credential' | 'infrastructure_binding' | 'optional_configuration' | 'unknown';
+  /** Vendor-authored, customer-facing (docs/environment-variables.md: provider 'customer' only). */
+  readonly label?: string;
+  readonly help?: string;
 }
 
 // The confirm body — strict at every level so hostile keys (databaseRequired
@@ -152,35 +159,46 @@ async function newestPublishedRelease(
 }
 
 /**
- * The inputs the customer supplies at confirm time: required non-secret
- * values, required secrets, and optional values. Generated/internal keys are
+ * The inputs the customer supplies at confirm time: runtime keys whose
+ * effective provider is 'customer' (a saved setting) or "unreviewed
+ * required" (no saved setting — legacy behaviour). Optional/unknown/none/
+ * vendor/deployz keys are no longer asked. Generated/internal keys are
  * EXCLUDED — the relay mints them inside the customer's account (the same
  * mintable rule install-config.ts applies), so asking for them would both
  * leak the mechanism and produce a value nothing reads.
  */
-export function publicInstallInputs(manifest: DeploymentManifest): PublicInstallInput[] {
+export function publicInstallInputs(
+  manifest: DeploymentManifest,
+  settings: readonly EnvironmentSetting[] | null,
+): PublicInstallInput[] {
   const mintable = new Set<string>(generatedEnvKeys(manifest));
   for (const variable of manifest.environment.variables) {
     if (variable.secret === true && variable.purpose === 'internal_secret') mintable.add(variable.key);
   }
-  return manifest.environment.variables
-    .filter(
-      (variable) =>
-        variable.classification !== 'deployz_managed' &&
-        variable.classification !== 'deployz_generated' &&
-        !mintable.has(variable.key),
-    )
-    .map((variable) => ({
-      key: variable.key,
-      // The same predicate the preflight's required-customer-variables check
-      // uses, so the form and the gate can never disagree.
-      required:
-        variable.classification === 'customer_required' ||
-        (variable.classification === undefined && variable.required),
-      secret: variable.secret,
-      ...(variable.classification !== undefined ? { classification: variable.classification } : {}),
-      ...(variable.purpose !== undefined ? { purpose: variable.purpose } : {}),
-    }));
+  const variablesByKey = new Map(manifest.environment.variables.map((variable) => [variable.key, variable]));
+  const evaluation = evaluateEnvironmentSetup({
+    variables: manifest.environment.variables,
+    settings,
+    // Not needed to decide which rows are customer inputs (only their status
+    // would change, which this projection does not carry).
+    vendorValueKeys: new Set(),
+  });
+  // The mintable heuristic applies only to rows the vendor has not reviewed:
+  // an explicit "Set by customer" decision always asks the customer.
+  return customerInputRows(evaluation)
+    .filter((row) => row.setting !== null || !mintable.has(row.key))
+    .map((row) => {
+      const variable = variablesByKey.get(row.key);
+      return {
+        key: row.key,
+        required: row.required,
+        secret: row.secret,
+        ...(variable?.classification !== undefined ? { classification: variable.classification } : {}),
+        ...(variable?.purpose !== undefined ? { purpose: variable.purpose } : {}),
+        ...(row.setting?.label ? { label: row.setting.label } : {}),
+        ...(row.setting?.help ? { help: row.setting.help } : {}),
+      };
+    });
 }
 
 /**
@@ -203,7 +221,7 @@ export async function resolvePublicInstall(db: RuntimeDb, linkId: string) {
     regions: SUPPORTED_AWS_REGIONS.filter((region) => env.deployableAwsRegions.includes(region)).map(
       (region) => ({ value: region, label: REGION_LABELS[region] }),
     ),
-    requiredInputs: publicInstallInputs(manifest),
+    requiredInputs: publicInstallInputs(manifest, readEnvironmentSettings(application)),
     plan: buildInstallPlan({ manifest, region: null }),
   };
 }
@@ -275,7 +293,7 @@ export async function confirmPublicInstall(
   const bodyKeys = [...new Set(body.config.map((entry) => entry.key))];
   const { manifest, result } = await runApplicationPreflight(db, application, null, bodyKeys);
   requirePreflightReady(result);
-  const inputs = publicInstallInputs(manifest);
+  const inputs = publicInstallInputs(manifest, readEnvironmentSettings(application));
   const inputKeys = new Set(inputs.map((input) => input.key));
   const bodyKeySet = new Set(bodyKeys);
   const missing = inputs.filter((input) => input.required && !bodyKeySet.has(input.key)).map((input) => input.key);
@@ -467,6 +485,8 @@ async function ensureInitialRelease(
 ): Promise<void> {
   const existing = await newestPublishedRelease(db, application.id);
   if (existing !== null) return;
+
+  await ensureBuildConfigurationReady(db, application);
 
   const sha: string | undefined = (application.detectedMetadata as Record<string, unknown> | null)?.['analysisCommitSha'] as string | undefined;
   if (typeof sha !== 'string' || sha.length === 0) {

@@ -6,7 +6,7 @@ import {
 } from '@deployz/contracts';
 import type { RuntimeDb } from '@deployz/db';
 
-import { getConfig, type ConfigStore, type EffectiveConfigEntry } from './config.js';
+import { getConfig, listDeliverableSecretValues, type ConfigStore, type EffectiveConfigEntry } from './config.js';
 import { ApiError } from './errors.js';
 import { DESIRED_COUNT_PARAMETER, buildInstallParameters } from './install-parameters.js';
 import { createOrReuseJob } from './jobs.js';
@@ -171,11 +171,21 @@ export async function queuePostInstallConfig(
 ): Promise<{ queued: boolean }> {
   const entries = await buildRelayConfigEntries(db, deployment, store);
   if (entries.length === 0) return { queued: false };
+  // Vendor + customer secret VALUES ride this job transiently (same
+  // transport-only path as the values editor's CONFIG_UPDATE) — the only
+  // moment a vendor-typed secret can reach a deployment that did not exist
+  // when it was entered. `redactClaimedPayload` scrubs them to key
+  // stubs the instant the relay claims the job.
+  const secrets = await listDeliverableSecretValues(db, deployment.applicationId, deployment.customerId);
   const { created } = await createOrReuseJob(db, {
     deploymentId: deployment.id,
     type: 'CONFIG_UPDATE',
     idempotencyKey: `${deployment.id}:CONFIG_UPDATE:install:${installJobId}`,
-    payload: { reason: 'install', changedKeys: entries.map((entry) => entry.key) },
+    payload: {
+      reason: 'install',
+      changedKeys: entries.map((entry) => entry.key),
+      ...(secrets.length > 0 ? { secrets } : {}),
+    },
     requestedBy: null,
   });
   return { queued: created };

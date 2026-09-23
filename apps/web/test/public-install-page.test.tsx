@@ -277,6 +277,81 @@ describe('PublicInstallFlow', () => {
     );
   });
 
+  it('shows the Application settings section: vendor label, help text, technical key, and a required/optional marker per field', () => {
+    renderFlow(
+      resolveFixture({
+        requiredInputs: [
+          { key: 'API_KEY', required: true, secret: true, label: 'API key', help: 'From your provider dashboard.' },
+          { key: 'ORG_NAME', required: true, secret: false },
+          { key: 'WEBHOOK_URL', required: false, secret: false },
+        ],
+      }),
+    );
+
+    expect(document.body.textContent).toContain('Application settings');
+
+    const apiKeyField = document.querySelector('input#API_KEY')!.closest('div')!.parentElement as HTMLElement;
+    expect(apiKeyField.textContent).toContain('API key');
+    expect(apiKeyField.textContent).toContain('From your provider dashboard.');
+    expect(apiKeyField.textContent).toContain('API_KEY');
+    expect(apiKeyField.textContent).toContain('Required');
+
+    const orgNameField = document.querySelector('input#ORG_NAME')!.closest('div')!.parentElement as HTMLElement;
+    // No vendor label set: falls back to a humanised form of the key.
+    expect(orgNameField.textContent).toContain('Org name');
+
+    const webhookField = document.querySelector('input#WEBHOOK_URL')!.closest('div')!.parentElement as HTMLElement;
+    expect(webhookField.textContent).toContain('Optional');
+  });
+
+  it('hides the Application settings section entirely when there are no inputs', () => {
+    renderFlow(resolveFixture({ requiredInputs: [] }));
+
+    expect(document.body.textContent).not.toContain('Application settings');
+  });
+
+  it('shows a format error for an invalid *_URL value once the field is touched, and clears it once valid', async () => {
+    renderFlow();
+
+    const webhook = document.querySelector('input#WEBHOOK_URL') as HTMLInputElement;
+    await act(async () => {
+      typeInto(webhook, 'not-a-url');
+      webhook.focus();
+      webhook.blur();
+    });
+
+    expect(document.body.textContent).toContain('Enter a full URL, for example https://example.com.');
+
+    await act(async () => {
+      typeInto(webhook, 'https://example.com/hook');
+    });
+
+    expect(document.body.textContent).not.toContain('Enter a full URL, for example https://example.com.');
+  });
+
+  it('shows a completion count that reaches "All settings complete" once every setting is valid', async () => {
+    renderFlow();
+
+    expect(document.body.textContent).toContain('1 of 3 settings complete');
+
+    await fillForm();
+
+    expect(document.body.textContent).toContain('All settings complete');
+  });
+
+  it('disables submit with an inline explanation while a required setting is missing', async () => {
+    renderFlow();
+
+    const button = document.querySelector('button[type="submit"]') as HTMLButtonElement;
+    expect(button.disabled).toBe(true);
+    expect(document.body.textContent).toContain('Complete the required application settings to continue.');
+
+    await fillForm();
+
+    expect(button.disabled).toBe(false);
+    expect(document.body.textContent).not.toContain('Complete the required application settings to continue.');
+  });
+
   it('only offers regions from the resolved list', async () => {
     renderFlow();
 

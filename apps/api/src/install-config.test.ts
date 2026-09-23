@@ -5,8 +5,9 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { applyMigrations, createDb, type Db } from '@deployz/db';
 import * as schema from '@deployz/db/schema';
 
-import { createConfigStore } from './config.js';
+import { createConfigStore, createRelaySecretWriter, setConfig } from './config.js';
 import { buildInstallPayload, buildRelayConfigEntries, queuePostInstallConfig } from './install-config.js';
+import { redactClaimedPayload } from './server.js';
 
 // AI MVP Phase 4 — the first configuration pass after a successful INSTALL:
 // the relay's effective-config view carries every saved entry (plain values
@@ -263,6 +264,64 @@ describe('post-install configuration', () => {
       ['ENCRYPTION_KEY', 'JWT_SECRET', 'LICENSE_KEY', 'LOG_LEVEL', 'OIDC_CLIENT_SECRET', 'SESSION_SECRET'],
     );
     expect(JSON.stringify(jobs[0]!.payload)).not.toContain('debug');
+  });
+
+  it('carries deliverable secret VALUES in the payload, scrubbed once the relay claims the job', async () => {
+    const [application] = await db
+      .insert(schema.applications)
+      .values({
+        organizationId,
+        name: 'Secret delivery app',
+        repoFullName: 'acme/secret-delivery',
+        repoUrl: 'https://github.com/acme/secret-delivery',
+        defaultBranch: 'main',
+        analysisStatus: 'COMPLETE',
+      })
+      .returning();
+    const [customer] = await db
+      .insert(schema.customers)
+      .values({ organizationId, name: 'Secret Customer', email: 'secret-customer@example.com' })
+      .returning();
+    const [deployment] = await db
+      .insert(schema.deployments)
+      .values({
+        organizationId,
+        applicationId: application!.id,
+        customerId: customer!.id,
+        region: 'us-east-1',
+        state: 'INSTALLING',
+        desiredState: { manifest: manifest([MANIFEST_ENV[4]!]) }, // LOG_LEVEL only — no minted keys to keep this focused
+        enrollmentCode: 'enrol-secret-delivery',
+      })
+      .returning();
+
+    // A vendor-typed secret saved through setConfig (so it is actually
+    // encrypted) BEFORE this install exists:
+    // the value had nowhere to go until this install's post-install pass.
+    const store = createConfigStore(db);
+    await setConfig(application!.id, null, [{ key: 'API_SECRET', value: 'sk_live_delivered', isSecret: true }], {
+      store,
+      secretWriter: createRelaySecretWriter(),
+    });
+
+    const { queued } = await queuePostInstallConfig(db, deployment!, 'install-job-secret-delivery', store);
+    expect(queued).toBe(true);
+
+    const [job] = await db
+      .select()
+      .from(schema.deploymentJobs)
+      .where(and(eq(schema.deploymentJobs.deploymentId, deployment!.id), eq(schema.deploymentJobs.type, 'CONFIG_UPDATE')));
+    const payload = job!.payload as { secrets?: { key: string; value: string }[] };
+    expect(payload.secrets).toEqual([{ key: 'API_SECRET', value: 'sk_live_delivered' }]);
+
+    // The moment the relay claims the job, redactClaimedPayload scrubs the
+    // value to a key stub — the plaintext never sits in the DB durably.
+    const redacted = redactClaimedPayload({ type: 'CONFIG_UPDATE', payload: job!.payload as Record<string, unknown> });
+    expect(redacted).toEqual({
+      ...payload,
+      secrets: [{ key: 'API_SECRET' }],
+    });
+    expect(JSON.stringify(redacted)).not.toContain('sk_live_delivered');
   });
 
   it('queues nothing when there is nothing to apply', async () => {

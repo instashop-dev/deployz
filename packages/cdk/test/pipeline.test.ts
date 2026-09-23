@@ -98,6 +98,21 @@ describe('BuildPipeline', () => {
     expect(sourceJson).toContain('exported-variables');
   });
 
+  it('turns DEPLOYZ_BUILD_ARG_NAMES into --build-arg flags on the docker build command, never a value', () => {
+    const { template } = synth();
+    const resources = (template.toJSON() as { Resources: Record<string, { Properties?: Record<string, unknown> }> })
+      .Resources;
+    const project = Object.values(resources).find(
+      (r) => r.Properties?.['Source']?.['Type'] === 'NO_SOURCE',
+    );
+    const sourceJson = JSON.stringify(project!.Properties!['Source']);
+    expect(sourceJson).toContain('DEPLOYZ_BUILD_ARG_NAMES');
+    expect(sourceJson).toContain('--build-arg');
+    // The names ride as their own CodeBuild env var, not baked into the
+    // buildspec text — docker reads each value out of the environment.
+    expect(sourceJson).toContain('DOCKER_BUILD_ARGS');
+  });
+
   it('builds with the Dockerfile directory as context, not always the repo root', () => {
     // A Dockerfile that lives in a subdirectory (e.g. `backend/Dockerfile`) is
     // conventionally written to be built with that subdirectory as its

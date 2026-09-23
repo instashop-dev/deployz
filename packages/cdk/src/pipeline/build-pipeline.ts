@@ -220,6 +220,14 @@ export class BuildPipeline extends Construct {
               // `docker build -f docker/Dockerfile .`) builds from the repo
               // root, not from `docker/`.
               'export BUILD_CONTEXT=${BUILD_CONTEXT:-$(dirname "$DOCKERFILE_PATH")}',
+              // Vendor-configured build-stage variables (worker.ts's
+              // loadBuildVariables) ride as their own PLAINTEXT CodeBuild
+              // environment variables, named by DEPLOYZ_BUILD_ARG_NAMES —
+              // never inlined as values here, so a value never reaches the
+              // build log or this buildspec. docker build reads each one
+              // straight out of the process environment via --build-arg NAME.
+              'export DOCKER_BUILD_ARGS=""',
+              'for build_arg_name in $DEPLOYZ_BUILD_ARG_NAMES; do DOCKER_BUILD_ARGS="$DOCKER_BUILD_ARGS --build-arg $build_arg_name"; done',
               'echo "Building Docker image: $ECR_REPOSITORY_URI:$IMAGE_TAG from $DOCKERFILE_PATH (context: $BUILD_CONTEXT)"',
               // Retries ONLY a registry rate limit. Success is read from the
               // image itself rather than an exit status, because the build
@@ -233,7 +241,7 @@ export class BuildPipeline extends Construct {
               // failing in place — see BUILD_OUTCOME_FILE.
               [
                 `rm -f ${BUILD_OUTCOME_FILE}`,
-                `for retry_delay in ${IMAGE_BUILD_RETRY_DELAYS_SECONDS.join(' ')} last; do docker build -f "$DOCKERFILE_PATH" -t $ECR_REPOSITORY_URI:$IMAGE_TAG "$BUILD_CONTEXT" 2>&1 | tee /tmp/docker-build.log`,
+                `for retry_delay in ${IMAGE_BUILD_RETRY_DELAYS_SECONDS.join(' ')} last; do docker build -f "$DOCKERFILE_PATH" $DOCKER_BUILD_ARGS -t $ECR_REPOSITORY_URI:$IMAGE_TAG "$BUILD_CONTEXT" 2>&1 | tee /tmp/docker-build.log`,
                 `if docker image inspect $ECR_REPOSITORY_URI:$IMAGE_TAG > /dev/null 2>&1; then echo ok > ${BUILD_OUTCOME_FILE}; break; fi`,
                 `if ! grep -Eqi '${DOCKER_HUB_RATE_LIMIT_PATTERN}' /tmp/docker-build.log; then echo failed > ${BUILD_OUTCOME_FILE}; break; fi`,
                 `echo rate_limited > ${BUILD_OUTCOME_FILE}`,

@@ -1,12 +1,39 @@
 import { eq } from 'drizzle-orm';
+import { missingBuildValues } from '@deployz/contracts';
 import type { RuntimeDb } from '@deployz/db';
 import * as schema from '@deployz/db/schema';
 
 import { env } from './env.js';
+import { ApiError } from './errors.js';
+import { readEnvironmentSettings } from './environment-setup.js';
 import { recordEvent } from './events.js';
 import { flipHealthyDeploymentsToUpdateAvailable } from './jobs.js';
+import { listProvidedConfigKeys } from './config.js';
 import { enqueue } from './queue.js';
 import { hashRelayToken } from './relay-store.js';
+
+/**
+ * Refuse to build a release while a required build-stage vendor value has
+ * no deliverable value yet (docs/environment-variables.md).
+ * A legacy application with no saved settings has nothing to gate.
+ */
+export async function ensureBuildConfigurationReady(
+  db: RuntimeDb,
+  application: { id: string; environmentSettings?: unknown },
+): Promise<void> {
+  const settings = readEnvironmentSettings(application);
+  if (!settings) return;
+  const vendorValueKeys = new Set(await listProvidedConfigKeys(db, application.id, null));
+  const missing = missingBuildValues(settings, vendorValueKeys);
+  if (missing.length > 0) {
+    throw new ApiError(
+      422,
+      'BUILD_CONFIGURATION_MISSING',
+      `Set these build values before you build a release: ${missing.join(', ')}.`,
+      { keys: missing },
+    );
+  }
+}
 
 // BUILD_FIXTURE_MODE: a deterministic fake `repository@sha256:…` digest so
 // the E2E lifecycle scenarios can drive deploy/rollback without a live

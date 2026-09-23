@@ -125,7 +125,18 @@ function requiredFinding(overrides: Partial<ReadinessFinding> = {}): ReadinessFi
   };
 }
 
-function baseReadiness(overrides: Partial<ApplicationReadiness> = {}): ApplicationReadiness {
+/** `environmentSetup` is added to `ApplicationReadiness` by a companion
+ *  change; widen the fixture type locally (mirrors application-state.test.ts). */
+interface EnvironmentSetupCounts {
+  needsDecision: number;
+  missingValue: number;
+  missingBuildValue: number;
+  customer: number;
+  total: number;
+}
+type ReadinessFixture = ApplicationReadiness & { environmentSetup?: EnvironmentSetupCounts | null };
+
+function baseReadiness(overrides: Partial<ReadinessFixture> = {}): ReadinessFixture {
   return {
     analysisStatus: 'COMPLETE',
     state: 'READY',
@@ -139,6 +150,7 @@ function baseReadiness(overrides: Partial<ApplicationReadiness> = {}): Applicati
     detected: null,
     requirements: null,
     deploymentRequirementDrift: [],
+    environmentSetup: null,
     ...overrides,
   };
 }
@@ -209,6 +221,19 @@ const CASES: Case[] = [
       mocks.fetchApplication.mockResolvedValue(baseApplication());
       mocks.fetchReadiness.mockResolvedValue(
         baseReadiness({ state: 'NEEDS_CHANGES', requiredCount: 1, findings: [requiredFinding()] }),
+      );
+      mocks.fetchDeploymentsForApplication.mockResolvedValue([]);
+    },
+    installLinkPlacement: 'none',
+    hasLifecycle: true,
+  },
+  {
+    name: 'configuration-review',
+    badgeLabel: 'Needs review',
+    arrange: () => {
+      mocks.fetchApplication.mockResolvedValue(baseApplication());
+      mocks.fetchReadiness.mockResolvedValue(
+        baseReadiness({ environmentSetup: { needsDecision: 2, missingValue: 0, missingBuildValue: 0, customer: 0, total: 2 } }),
       );
       mocks.fetchDeploymentsForApplication.mockResolvedValue([]);
     },

@@ -35,7 +35,8 @@ The flow a deployment follows, end to end:
    can never override a detector. The canonical `ApplicationAnalysis`,
    the readiness report and the manifest are the output
    (`packages/analysis/src/manifest.ts`, `readiness-report.ts`,
-   `application-analysis.ts`); see `docs/ai-analysis.md`.
+   `application-analysis.ts`); see `docs/ai-analysis.md`. Detected env-var
+   names become a vendor setup task; see `docs/environment-variables.md`.
 3. **Deployment Manifest** — the READY manifest is stored as the deployment's
    desired state. Phase 3 gates refuse to move a non-READY deployment toward
    provisioning. HTTPS/the public endpoint is not a manifest field: every

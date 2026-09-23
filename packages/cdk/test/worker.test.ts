@@ -6,9 +6,13 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { applyMigrations, createDb, type Db } from '@deployz/db';
 import * as schema from '@deployz/db/schema';
 
+import { createConfigStore, createRelaySecretWriter, setConfig } from '@deployz/api/config';
+import type { JevFailureShadowParams } from '@deployz/api/jev-shadow';
+
 import {
   buildFailureDetail,
   handleMessage,
+  loadBuildVariablesFromDb,
   normalizeBuildId,
   recordBuildResult,
   resolveBuildContext,
@@ -18,7 +22,6 @@ import {
   type CodeBuildStateChangeEvent,
   type WorkerDeps,
 } from '../src/lambda/worker.js';
-import type { JevFailureShadowParams } from '@deployz/api/jev-shadow';
 
 // The worker is what makes a queued job actually happen. Every case below is
 // a step that silently did nothing before it existed: an analysis that never
@@ -61,6 +64,9 @@ describe('worker handler', () => {
       },
       async runAnalysis(id) {
         analysed.push(id);
+      },
+      async loadBuildVariables() {
+        return [];
       },
     };
   }
@@ -319,6 +325,61 @@ describe('worker handler', () => {
       .where(and(eq(schema.eventLogs.eventType, 'release.build_failed'), eq(schema.eventLogs.releaseId, release!.id)));
     expect(failed).toHaveLength(1);
     expect(failed[0]!.payload).toMatchObject({ schemaVersion: 1, applicationId: application!.id, failureCode: 'build_failed' });
+  });
+
+  it('§31 env setup: passes vendor build-stage variables as their own CodeBuild env vars, named by DEPLOYZ_BUILD_ARG_NAMES', async () => {
+    const [application] = await db
+      .insert(schema.applications)
+      .values({
+        organizationId,
+        name: 'Build Args App',
+        githubInstallationId: '4242',
+        repoFullName: 'acme/build-args',
+        repoUrl: 'https://github.com/acme/build-args',
+        defaultBranch: 'main',
+        environmentSettings: [
+          { key: 'BUILD_TIME_FLAG', stage: 'build', provider: 'vendor', required: false, secret: false },
+          { key: 'BUILD_TIME_SECRET', stage: 'build', provider: 'vendor', required: false, secret: true },
+          // Runtime-stage vendor settings never become build args.
+          { key: 'RUNTIME_ONLY', stage: 'runtime', provider: 'vendor', required: false, secret: false },
+          // A reserved name is dropped, not forwarded.
+          { key: 'AWS_REGION', stage: 'build', provider: 'vendor', required: false, secret: false },
+        ],
+      })
+      .returning();
+
+    const configStore = createConfigStore(db);
+    const writer = createRelaySecretWriter();
+    await setConfig(
+      application!.id,
+      null,
+      [
+        { key: 'BUILD_TIME_FLAG', value: 'enabled', isSecret: false },
+        { key: 'BUILD_TIME_SECRET', value: 'sk_build_secret', isSecret: true },
+      ],
+      { store: configStore, secretWriter: writer },
+    );
+
+    const [release] = await db
+      .insert(schema.releases)
+      .values({ applicationId: application!.id, version: 'v1.0.0', gitSha: 'buildargsha' })
+      .returning();
+
+    const buildArgsDeps: WorkerDeps = { ...deps(), loadBuildVariables: loadBuildVariablesFromDb };
+    await handleMessage(buildArgsDeps, { type: 'BUILD_RELEASE', releaseId: release!.id }, 'msg-build-args');
+
+    const build = started[started.length - 1];
+    expect(build?.environmentVariables).toContainEqual({ name: 'BUILD_TIME_FLAG', value: 'enabled' });
+    expect(build?.environmentVariables).toContainEqual({ name: 'BUILD_TIME_SECRET', value: 'sk_build_secret' });
+    expect(build?.environmentVariables.some((v) => v.name === 'RUNTIME_ONLY')).toBe(false);
+    expect(build?.environmentVariables.some((v) => v.name === 'AWS_REGION')).toBe(false);
+    const namesVar = build?.environmentVariables.find((v) => v.name === 'DEPLOYZ_BUILD_ARG_NAMES');
+    expect(namesVar?.value.split(' ').sort()).toEqual(['BUILD_TIME_FLAG', 'BUILD_TIME_SECRET']);
+  });
+
+  it('loadBuildVariablesFromDb returns nothing for an application with no build/vendor settings', async () => {
+    const values = await loadBuildVariablesFromDb(db, applicationId);
+    expect(values).toEqual([]);
   });
 
   describe('resolveBuildContext', () => {
@@ -1471,6 +1532,9 @@ describe('sweepStuckBuilds', () => {
         return builds;
       },
       async runAnalysis() {},
+      async loadBuildVariables() {
+        return [];
+      },
     };
   }
 

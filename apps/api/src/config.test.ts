@@ -1,9 +1,19 @@
-import { describe, expect, it, vi } from 'vitest';
+import { PGlite } from '@electric-sql/pglite';
+import { and, eq } from 'drizzle-orm';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+
+import { applyMigrations, createDb, type Db } from '@deployz/db';
+import * as schema from '@deployz/db/schema';
 
 import {
+  createConfigStore,
   createRelaySecretWriter,
+  GENERATED_SECRET_MASK,
   SECRET_MASK,
   getConfig,
+  listDeliverableSecretValues,
+  listProvidedConfigKeys,
+  listVendorValues,
   mergeConfigEntries,
   setConfig,
   setConfigBodySchema,
@@ -261,7 +271,7 @@ describe('config — setConfig writes', () => {
     );
 
     expect(store.written).toEqual([
-      { customerId: null, entry: { key: 'LOG_LEVEL', value: 'debug', isSecret: false } },
+      { customerId: null, entry: { key: 'LOG_LEVEL', value: 'debug', isSecret: false, encryptedValue: null } },
     ]);
     expect(secretWriter.calls).toEqual([]);
     expect(view.effective.find((entry) => entry.key === 'LOG_LEVEL')).toMatchObject({
@@ -285,10 +295,14 @@ describe('config — setConfig writes', () => {
     expect(secretWriter.calls).toEqual([
       { customerId: CUSTOMER_ID, entries: [{ key: 'DATABASE_URL', value: PLAINTEXT_SECRET, isSecret: true }] },
     ]);
-    // …but the control-plane DB stores ONLY the mask…
-    expect(store.written).toEqual([
-      { customerId: CUSTOMER_ID, entry: { key: 'DATABASE_URL', value: SECRET_MASK, isSecret: true } },
-    ]);
+    // …but the control-plane DB stores ONLY the mask (plus the ciphertext,
+    // which is why this can be delivered later — never plaintext)…
+    expect(store.written).toHaveLength(1);
+    expect(store.written[0]).toMatchObject({
+      customerId: CUSTOMER_ID,
+      entry: { key: 'DATABASE_URL', value: SECRET_MASK, isSecret: true },
+    });
+    expect(store.written[0]?.entry.encryptedValue).toMatch(/^v1:/);
     expect(JSON.stringify(store.written)).not.toContain(PLAINTEXT_SECRET);
     // …and the API response never carries the plaintext.
     expect(JSON.stringify(view)).not.toContain(PLAINTEXT_SECRET);
@@ -311,9 +325,14 @@ describe('config — setConfig writes', () => {
 
     // No customer account exists for vendor defaults — nothing to write to.
     expect(secretWriter.calls).toEqual([]);
-    expect(store.written).toEqual([
-      { customerId: null, entry: { key: 'DATABASE_URL', value: SECRET_MASK, isSecret: true } },
-    ]);
+    expect(store.written).toHaveLength(1);
+    expect(store.written[0]).toMatchObject({
+      customerId: null,
+      entry: { key: 'DATABASE_URL', value: SECRET_MASK, isSecret: true },
+    });
+    // A vendor-scope secret is ALSO encrypted now (secure storage) — this is
+    // exactly what makes it deliverable later, unlike before.
+    expect(store.written[0]?.entry.encryptedValue).toMatch(/^v1:/);
   });
 
   it('untouched secrets (empty value) are excluded from the write-through and never re-written', async () => {
@@ -342,7 +361,7 @@ describe('config — setConfig writes', () => {
       },
     ]);
     expect(store.written).toEqual([
-      { customerId: CUSTOMER_ID, entry: { key: 'LOG_LEVEL', value: 'debug', isSecret: false } },
+      { customerId: CUSTOMER_ID, entry: { key: 'LOG_LEVEL', value: 'debug', isSecret: false, encryptedValue: null } },
     ]);
   });
 
@@ -489,6 +508,48 @@ describe('config — removing a value', () => {
   });
 });
 
+describe('config — needsReentry (legacy vendor secrets with no ciphertext)', () => {
+  it('toMaskedEntry flags a vendor-scope secret with no encryptedValue as needsReentry', () => {
+    expect(toMaskedEntry({ key: 'API_KEY', value: SECRET_MASK, isSecret: true }, true)).toStrictEqual({
+      key: 'API_KEY',
+      isSecret: true,
+      value: null,
+      needsReentry: true,
+    });
+  });
+
+  it('a vendor-scope secret WITH an encryptedValue is not flagged', () => {
+    expect(
+      toMaskedEntry({ key: 'API_KEY', value: SECRET_MASK, isSecret: true, encryptedValue: 'v1:a:b:c' }, true),
+    ).toStrictEqual({ key: 'API_KEY', isSecret: true, value: null });
+  });
+
+  it('the same masked row scoped as a customer override is never flagged', () => {
+    expect(toMaskedEntry({ key: 'API_KEY', value: SECRET_MASK, isSecret: true }, false)).toStrictEqual({
+      key: 'API_KEY',
+      isSecret: true,
+      value: null,
+    });
+  });
+
+  it('a generated secret is never flagged even without ciphertext', () => {
+    expect(toMaskedEntry({ key: 'JWT_SECRET', value: GENERATED_SECRET_MASK, isSecret: true }, true)).toStrictEqual({
+      key: 'JWT_SECRET',
+      isSecret: true,
+      value: null,
+      generated: true,
+    });
+  });
+
+  it('getConfig surfaces needsReentry on the vendor-defaults view, not on the effective merge for a customer override', async () => {
+    const store = createMockStore({
+      vendorDefaults: [{ key: 'API_KEY', value: SECRET_MASK, isSecret: true }],
+    });
+    const view = await getConfig(APP_ID, null, store);
+    expect(view.vendorDefaults.find((entry) => entry.key === 'API_KEY')).toMatchObject({ needsReentry: true });
+  });
+});
+
 describe('config — relay write-through queue message', () => {
   it('carries entered secret VALUES transiently and keys for plain changes', async () => {
     const enqueueMock = vi.mocked(enqueue);
@@ -508,3 +569,136 @@ describe('config — relay write-through queue message', () => {
     });
   });
 });
+
+// ── DB-backed: secure storage roundtrip through the real store (§31) ───────
+//
+// Everything above exercises the pure logic with in-memory mocks. These
+// tests go through createConfigStore against a real (PGlite) schema so the
+// encrypted_value column, listProvidedConfigKeys's legacy-secret exclusion,
+// and the two decrypting readers (listDeliverableSecretValues,
+// listVendorValues) are proven against the actual persisted rows, not a
+// mock's approximation of them.
+describe('config — secure storage against a real store', () => {
+  let client: PGlite | undefined;
+  let db: Db;
+  let applicationId: string;
+  let customerId: string;
+
+  beforeAll(async () => {
+    client = new PGlite();
+    await applyMigrations(client);
+    db = createDb(client);
+    await db.insert(schema.organization).values({ id: 'org-config-crypto', name: 'Acme', slug: 'org-config-crypto' });
+    const [application] = await db
+      .insert(schema.applications)
+      .values({
+        organizationId: 'org-config-crypto',
+        name: 'shop',
+        repoFullName: 'acme/shop',
+        repoUrl: 'https://github.com/acme/shop',
+      })
+      .returning();
+    applicationId = application!.id;
+    const [customer] = await db
+      .insert(schema.customers)
+      .values({ organizationId: 'org-config-crypto', name: 'Buyer', email: 'buyer@example.com' })
+      .returning();
+    customerId = customer!.id;
+  }, 60_000);
+
+  afterAll(async () => {
+    await client?.close();
+  });
+
+  it('setConfig -> createConfigStore round-trips a vendor secret through real ciphertext', async () => {
+    const store = createConfigStore(db);
+    await setConfig(
+      applicationId,
+      null,
+      [{ key: 'STRIPE_KEY', value: 'sk_live_real_secret', isSecret: true }],
+      { store, secretWriter: createRelaySecretWriter() },
+    );
+
+    const rows = await db
+      .select()
+      .from(schema.applicationConfigs)
+      .where(eqAppKey(applicationId, 'STRIPE_KEY'));
+    expect(rows[0]?.value).toBe(SECRET_MASK);
+    expect(rows[0]?.encryptedValue).toMatch(/^v1:/);
+    expect(rows[0]?.encryptedValue).not.toContain('sk_live_real_secret');
+
+    const values = await listVendorValues(db, applicationId, ['STRIPE_KEY']);
+    expect(values).toEqual({ STRIPE_KEY: 'sk_live_real_secret' });
+  });
+
+  it('listProvidedConfigKeys excludes a legacy vendor secret row with no ciphertext', async () => {
+    await db.insert(schema.applicationConfigs).values({
+      applicationId,
+      customerId: null,
+      key: 'LEGACY_SECRET',
+      value: SECRET_MASK,
+      isSecret: true,
+      encryptedValue: null,
+    });
+
+    const keys = await listProvidedConfigKeys(db, applicationId, null);
+    expect(keys).not.toContain('LEGACY_SECRET');
+  });
+
+  it('listProvidedConfigKeys still counts a legacy CUSTOMER-scope masked row', async () => {
+    await db.insert(schema.applicationConfigs).values({
+      applicationId,
+      customerId,
+      key: 'LEGACY_CUSTOMER_SECRET',
+      value: SECRET_MASK,
+      isSecret: true,
+      encryptedValue: null,
+    });
+
+    const keys = await listProvidedConfigKeys(db, applicationId, customerId);
+    expect(keys).toContain('LEGACY_CUSTOMER_SECRET');
+  });
+
+  it('listDeliverableSecretValues decrypts a vendor default and a customer override, customer wins on overlap', async () => {
+    const store = createConfigStore(db);
+    const writer = createRelaySecretWriter();
+    await setConfig(applicationId, null, [{ key: 'SHARED_KEY', value: 'vendor-value', isSecret: true }], {
+      store,
+      secretWriter: writer,
+    });
+    await setConfig(applicationId, customerId, [{ key: 'SHARED_KEY', value: 'customer-value', isSecret: true }], {
+      store,
+      secretWriter: writer,
+    });
+    await setConfig(applicationId, customerId, [{ key: 'CUSTOMER_ONLY', value: 'only-mine', isSecret: true }], {
+      store,
+      secretWriter: writer,
+    });
+
+    const delivered = await listDeliverableSecretValues(db, applicationId, customerId);
+    const byKey = Object.fromEntries(delivered.map((entry) => [entry.key, entry.value]));
+    expect(byKey['SHARED_KEY']).toBe('customer-value');
+    expect(byKey['CUSTOMER_ONLY']).toBe('only-mine');
+  });
+
+  it('listVendorValues skips a legacy secret with no ciphertext and returns plain values untouched', async () => {
+    await db.insert(schema.applicationConfigs).values([
+      { applicationId, customerId: null, key: 'PLAIN_BUILD_VAR', value: 'plain', isSecret: false },
+      {
+        applicationId,
+        customerId: null,
+        key: 'UNDELIVERABLE_SECRET',
+        value: SECRET_MASK,
+        isSecret: true,
+        encryptedValue: null,
+      },
+    ]);
+
+    const values = await listVendorValues(db, applicationId, ['PLAIN_BUILD_VAR', 'UNDELIVERABLE_SECRET']);
+    expect(values).toEqual({ PLAIN_BUILD_VAR: 'plain' });
+  });
+});
+
+function eqAppKey(applicationId: string, key: string) {
+  return and(eq(schema.applicationConfigs.applicationId, applicationId), eq(schema.applicationConfigs.key, key));
+}

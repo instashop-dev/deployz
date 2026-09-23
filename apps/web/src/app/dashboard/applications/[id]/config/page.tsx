@@ -1,6 +1,5 @@
 'use client';
 
-import { Check, ChevronDown, CircleAlert, Sparkles, Square } from 'lucide-react';
 import Link from 'next/link';
 import { useParams, useSearchParams } from 'next/navigation';
 import { Suspense, useEffect, useState, type FormEvent, type ReactNode } from 'react';
@@ -21,18 +20,18 @@ import {
   type ConfigEntry,
   type MaskedConfigEntry,
 } from '@/lib/config';
-import { buildEnvPlan, envPlanSummary, type EnvPlanRow } from '@/lib/env-plan';
-import { fetchReadiness, type DetectedApplication } from '@/lib/readiness';
+import { TONE_TEXT } from '@/lib/status-tone';
 import { cn } from '@/lib/utils';
 
 import { useApplicationPage } from '../application-page-context';
 import { DeploymentConfiguration } from './deployment-configuration';
+import { EnvironmentVariablesSection } from './environment-variables-section';
 import { GeneralSettings } from './general-settings';
 
 type PageState =
   | { status: 'loading' }
   | { status: 'error'; message: string }
-  | { status: 'loaded'; data: ApplicationConfig; detected: DetectedApplication | null };
+  | { status: 'loaded'; data: ApplicationConfig };
 
 // §31 application configuration screen — vendor defaults (apply to every
 // customer) plus customer-specific overrides (win over the defaults). Secrets
@@ -67,14 +66,9 @@ function ConfigScreen() {
     let cancelled = false;
     async function load(): Promise<void> {
       try {
-        const [data, detected] = await Promise.all([
-          fetchConfig(id, customerId ?? undefined),
-          fetchReadiness(id)
-            .then((readiness) => readiness.detected)
-            .catch(() => null),
-        ]);
+        const data = await fetchConfig(id, customerId ?? undefined);
         if (cancelled) return;
-        setState({ status: 'loaded', data, detected });
+        setState({ status: 'loaded', data });
       } catch {
         if (!cancelled) {
           setState({
@@ -110,9 +104,8 @@ function ConfigScreen() {
       {state.status === 'loaded' ? (
         <ConfigBody
           data={state.data}
-          detected={state.detected}
           applicationName={pageData?.application.name ?? null}
-          onSaved={(next) => setState({ status: 'loaded', data: next, detected: state.detected })}
+          onSaved={(next) => setState({ status: 'loaded', data: next })}
         />
       ) : null}
 
@@ -123,12 +116,10 @@ function ConfigScreen() {
 
 function ConfigBody({
   data,
-  detected,
   applicationName,
   onSaved,
 }: {
   data: ApplicationConfig;
-  detected: DetectedApplication | null;
   applicationName: string | null;
   onSaved: (next: ApplicationConfig) => void;
 }) {
@@ -147,12 +138,11 @@ function ConfigBody({
         </p>
       </div>
 
-      {detected && detected.environmentVariables.length > 0 ? (
-        <EnvironmentPlan
-          variables={detected.environmentVariables}
-          providedKeys={data.effective.map((entry) => entry.key)}
-        />
-      ) : null}
+      <EnvironmentVariablesSection
+        applicationId={data.applicationId}
+        vendorDefaults={data.vendorDefaults}
+        onValuesSaved={onSaved}
+      />
 
       {effectiveCount > 0 ? (
         <Card data-testid="config-runtime-summary">
@@ -231,111 +221,6 @@ function ConfigBody({
         onSaved={onSaved}
       />
     </>
-  );
-}
-
-/** What Deployz configures on its own and what the vendor must provide. */
-function EnvironmentPlan({
-  variables,
-  providedKeys,
-}: {
-  variables: DetectedApplication['environmentVariables'];
-  providedKeys: string[];
-}) {
-  const plan = buildEnvPlan(variables, providedKeys);
-  return (
-    <Card data-testid="config-env-plan">
-      <CardHeader>
-        <CardTitle>Environment</CardTitle>
-        <CardDescription data-testid="config-env-plan-summary">{envPlanSummary(plan)}</CardDescription>
-      </CardHeader>
-      <CardContent className="flex flex-col gap-5">
-        {plan.automatic.length > 0 ? (
-          <EnvPlanGroup
-            testId="config-env-plan-automatic"
-            title="Deployz configures automatically"
-            rows={plan.automatic}
-            icon={(row) =>
-              row.classification === 'deployz_generated' ? (
-                <Sparkles aria-hidden className="size-4 shrink-0 text-primary" />
-              ) : (
-                <Check aria-hidden className="size-4 shrink-0 text-primary" />
-              )
-            }
-          />
-        ) : null}
-        {plan.required.length > 0 ? (
-          <EnvPlanGroup
-            testId="config-env-plan-required"
-            title="You need to provide"
-            rows={plan.required}
-            icon={(row) =>
-              row.provided ? (
-                <Check aria-hidden className="size-4 shrink-0 text-primary" />
-              ) : (
-                <Square aria-hidden className="size-4 shrink-0 text-destructive" />
-              )
-            }
-          />
-        ) : null}
-        {plan.optional.length > 0 ? (
-          <details className="group" data-testid="config-env-plan-optional">
-            <summary className="flex cursor-pointer list-none items-center gap-1 text-sm font-medium [&::-webkit-details-marker]:hidden">
-              Optional ({plan.optional.length})
-              <ChevronDown aria-hidden className="size-4 text-muted-foreground transition-transform group-open:rotate-180" />
-            </summary>
-            <div className="mt-2">
-              <EnvPlanRows
-                rows={plan.optional}
-                icon={() => <CircleAlert aria-hidden className="size-4 shrink-0 text-muted-foreground" />}
-              />
-            </div>
-          </details>
-        ) : null}
-      </CardContent>
-    </Card>
-  );
-}
-
-function EnvPlanGroup({
-  testId,
-  title,
-  rows,
-  icon,
-}: {
-  testId: string;
-  title: string;
-  rows: EnvPlanRow[];
-  icon: (row: EnvPlanRow) => React.ReactNode;
-}) {
-  return (
-    <section aria-label={title} data-testid={testId}>
-      <h3 className="text-sm font-semibold">{title}</h3>
-      <div className="mt-2">
-        <EnvPlanRows rows={rows} icon={icon} />
-      </div>
-    </section>
-  );
-}
-
-function EnvPlanRows({ rows, icon }: { rows: EnvPlanRow[]; icon: (row: EnvPlanRow) => React.ReactNode }) {
-  return (
-    <ul className="flex flex-col gap-1.5">
-      {rows.map((row) => (
-        <li key={row.key} className="flex flex-wrap items-center gap-2 text-sm" data-testid={`config-env-plan-${row.key}`}>
-          {icon(row)}
-          <code className="font-mono text-xs">{row.key}</code>
-          <span className={cn('text-xs', row.classification === 'customer_required' && !row.provided ? 'text-destructive' : 'text-muted-foreground')}>
-            {row.classification === 'customer_required' ? (row.provided ? 'Provided' : 'Missing') : row.reason}
-          </span>
-          {row.secret ? (
-            <Badge variant="secondary" className="h-4 px-1 text-[10px]">
-              Secret
-            </Badge>
-          ) : null}
-        </li>
-      ))}
-    </ul>
   );
 }
 
@@ -623,6 +508,9 @@ function ConfigField({
           <p className="text-xs text-muted-foreground">
             Secret set — enter a new value to replace it.
           </p>
+          {entry.needsReentry ? (
+            <p className={cn('text-xs', TONE_TEXT.attention)}>Re-enter this secret.</p>
+          ) : null}
         </>
       ) : (
         <>

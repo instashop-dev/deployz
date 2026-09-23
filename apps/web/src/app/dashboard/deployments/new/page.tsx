@@ -49,6 +49,7 @@ import {
 import { fetchApplicationPreflight, type PreflightResult } from '@/lib/preflight';
 import { fetchRegions, type RegionOption } from '@/lib/regions';
 import {
+  BuildConfigurationMissingError,
   createRelease,
   fetchReleases,
   firstReleaseInput,
@@ -676,6 +677,7 @@ function ReleaseRequirement({
   const [lastFailed, setLastFailed] = useState(false);
   const [building, setBuilding] = useState(false);
   const [buildError, setBuildError] = useState(false);
+  const [missingBuildKeys, setMissingBuildKeys] = useState<string[] | null>(null);
   const [reloadTick, setReloadTick] = useState(0);
   const firstRelease = firstReleaseInput(application.detectedMetadata);
   const releasesHref = `/dashboard/applications/${application.id}/releases`;
@@ -711,11 +713,16 @@ function ReleaseRequirement({
     if (!firstRelease) return;
     setBuilding(true);
     setBuildError(false);
+    setMissingBuildKeys(null);
     try {
       const release = await createRelease(application.id, firstRelease);
       setState(installReleaseState([release]));
-    } catch {
-      setBuildError(true);
+    } catch (err) {
+      if (err instanceof BuildConfigurationMissingError) {
+        setMissingBuildKeys(err.keys);
+      } else {
+        setBuildError(true);
+      }
     } finally {
       setBuilding(false);
     }
@@ -756,6 +763,17 @@ function ReleaseRequirement({
         {buildError ? (
           <p className="text-destructive">
             We couldn&apos;t start the build. Try again, or create the release from the Releases page.
+          </p>
+        ) : null}
+        {missingBuildKeys ? (
+          <p className="text-destructive">
+            Set these build values before you build a release: {missingBuildKeys.join(', ')}.{' '}
+            <Link
+              href={`/dashboard/applications/${application.id}/config#environment-variables`}
+              className="underline underline-offset-4"
+            >
+              Review configuration
+            </Link>
           </p>
         ) : null}
         <div className="mt-2 flex flex-wrap items-center gap-3">

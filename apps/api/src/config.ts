@@ -1,9 +1,10 @@
-import { and, eq, isNull, or, type SQL } from 'drizzle-orm';
+import { and, eq, inArray, isNotNull, isNull, or, type SQL } from 'drizzle-orm';
 import { z } from 'zod';
 
 import type { RuntimeDb } from '@deployz/db';
 import * as schema from '@deployz/db/schema';
 
+import { decryptConfigValue, encryptConfigValue } from './config-crypto.js';
 import { ApiError, NotFoundError } from './errors.js';
 import { enqueue } from './queue.js';
 
@@ -30,6 +31,14 @@ export interface ConfigEntry {
   readonly key: string;
   readonly value: string;
   readonly isSecret: boolean;
+  /**
+   * AES-256-GCM ciphertext of the real secret value (apps/api/src/config-crypto.ts),
+   * present only when Deployz can actually deliver this secret later (build
+   * args, post-install CONFIG_UPDATE). `value` still carries SECRET_MASK for
+   * these rows. Undefined/null for plain values and for legacy secret rows
+   * written before this column existed.
+   */
+  readonly encryptedValue?: string | null;
 }
 
 /** A config entry as the API returns it — secrets NEVER carry a value. */
@@ -43,6 +52,13 @@ export interface MaskedConfigEntry {
    * did not type it. Derived from the stored marker, never from plaintext.
    */
   readonly generated?: boolean;
+  /**
+   * True for a VENDOR-scope secret row with no ciphertext (legacy, written
+   * before secure storage existed): its plaintext was already discarded, so
+   * it can never be delivered to a build or a deployment. The vendor has to
+   * type it again — the UI surfaces this instead of quietly staying "ready".
+   */
+  readonly needsReentry?: boolean;
 }
 
 /** The effective entry after merging vendor defaults with customer overrides. */
@@ -127,12 +143,20 @@ export const SECRET_MASK = '***';
  */
 export const GENERATED_SECRET_MASK = '***deployz-generated***';
 
-/** Mask one entry for the API boundary — secrets lose their value entirely. */
-export function toMaskedEntry(entry: ConfigEntry): MaskedConfigEntry {
+/**
+ * Mask one entry for the API boundary — secrets lose their value entirely.
+ * `isVendorScope` flags a vendor-default row (customer_id NULL) so a legacy
+ * secret with no ciphertext (written before secure storage existed) can be
+ * surfaced as `needsReentry` — it is undeliverable, unlike a customer-scope
+ * masked row which may already live in that customer's own Secrets Manager.
+ */
+export function toMaskedEntry(entry: ConfigEntry, isVendorScope = false): MaskedConfigEntry {
   if (!entry.isSecret) return { key: entry.key, isSecret: false, value: entry.value };
   const generated = entry.value === GENERATED_SECRET_MASK;
-  return generated
-    ? { key: entry.key, isSecret: true, value: null, generated: true }
+  if (generated) return { key: entry.key, isSecret: true, value: null, generated: true };
+  const needsReentry = isVendorScope && (entry.encryptedValue === null || entry.encryptedValue === undefined);
+  return needsReentry
+    ? { key: entry.key, isSecret: true, value: null, needsReentry: true }
     : { key: entry.key, isSecret: true, value: null };
 }
 
@@ -153,11 +177,11 @@ export function mergeConfigEntries(
 
   for (const row of vendorDefaults) {
     order.push(row.key);
-    byKey.set(row.key, { ...toMaskedEntry(row), source: 'vendor', vendorValue: null });
+    byKey.set(row.key, { ...toMaskedEntry(row, true), source: 'vendor', vendorValue: null });
   }
   for (const row of customerOverrides) {
     const vendor = byKey.get(row.key);
-    const masked = toMaskedEntry(row);
+    const masked = toMaskedEntry(row, false);
     if (vendor) {
       byKey.set(row.key, { ...masked, source: 'customer', vendorValue: vendor.value });
     } else {
@@ -196,8 +220,8 @@ export async function getConfig(
   return {
     applicationId,
     customerId,
-    vendorDefaults: vendorDefaults.map(toMaskedEntry),
-    customerOverrides: customerOverrides.map(toMaskedEntry),
+    vendorDefaults: vendorDefaults.map((entry) => toMaskedEntry(entry, true)),
+    customerOverrides: customerOverrides.map((entry) => toMaskedEntry(entry, false)),
     effective: mergeConfigEntries(vendorDefaults, customerOverrides),
   };
 }
@@ -262,9 +286,13 @@ export async function setConfig(
 
   for (const entry of entries) {
     if (entry.isSecret && entry.value.length === 0) continue; // untouched secret
+    // A secret with a fresh plaintext value is encrypted for BOTH scopes —
+    // vendor defaults and customer overrides alike — so it can actually be
+    // delivered later (build args, post-install CONFIG_UPDATE) instead of
+    // being discarded once SECRET_MASK replaces it below.
     const stored: ConfigEntry = entry.isSecret
-      ? { key: entry.key, value: SECRET_MASK, isSecret: true }
-      : entry;
+      ? { key: entry.key, value: SECRET_MASK, isSecret: true, encryptedValue: await encryptConfigValue(entry.value) }
+      : { ...entry, encryptedValue: null };
     await deps.store.upsert(applicationId, customerId, stored);
   }
 
@@ -353,6 +381,7 @@ export function createConfigStore(db: RuntimeDb): ConfigStore {
           key: schema.applicationConfigs.key,
           value: schema.applicationConfigs.value,
           isSecret: schema.applicationConfigs.isSecret,
+          encryptedValue: schema.applicationConfigs.encryptedValue,
         })
         .from(schema.applicationConfigs)
         .where(scopeWhere(applicationId, customerId))
@@ -371,7 +400,7 @@ export function createConfigStore(db: RuntimeDb): ConfigStore {
       if (existing.length > 0) {
         await db
           .update(schema.applicationConfigs)
-          .set({ value: entry.value, isSecret: entry.isSecret })
+          .set({ value: entry.value, isSecret: entry.isSecret, encryptedValue: entry.encryptedValue ?? null })
           .where(scopeWhere(applicationId, customerId, entry.key));
         return;
       }
@@ -381,6 +410,7 @@ export function createConfigStore(db: RuntimeDb): ConfigStore {
         key: entry.key,
         value: entry.value,
         isSecret: entry.isSecret,
+        encryptedValue: entry.encryptedValue ?? null,
       });
     },
 
@@ -429,6 +459,13 @@ export function createRelaySecretWriter(): ConfigSecretWriter {
  * defaults for the application plus this customer's overrides (§31 merge
  * order). Used by the §11.2 readiness gate at deployment creation to decide
  * which required env vars are already provided.
+ *
+ * A VENDOR-scope secret row with no ciphertext (legacy, written before
+ * secure storage existed) is excluded — its plaintext was already discarded,
+ * so it can never actually reach a build or a deployment. Counting it as
+ * "provided" is exactly the readiness-says-ready-but-nothing-arrives gap
+ * this module closes. A customer-scope masked row stays counted: it may
+ * already live in that customer's own Secrets Manager from an earlier write.
  */
 export async function listProvidedConfigKeys(
   db: RuntimeDb,
@@ -437,7 +474,12 @@ export async function listProvidedConfigKeys(
 ): Promise<string[]> {
   if (!UUID_PATTERN.test(applicationId) || (customerId !== null && !UUID_PATTERN.test(customerId))) return [];
   const rows = await db
-    .select({ key: schema.applicationConfigs.key })
+    .select({
+      key: schema.applicationConfigs.key,
+      customerId: schema.applicationConfigs.customerId,
+      isSecret: schema.applicationConfigs.isSecret,
+      encryptedValue: schema.applicationConfigs.encryptedValue,
+    })
     .from(schema.applicationConfigs)
     .where(
       and(
@@ -447,5 +489,99 @@ export async function listProvidedConfigKeys(
           : or(isNull(schema.applicationConfigs.customerId), eq(schema.applicationConfigs.customerId, customerId)),
       ),
     );
-  return [...new Set(rows.map((row) => row.key))];
+  const deliverable = rows.filter(
+    (row) => !(row.customerId === null && row.isSecret && row.encryptedValue === null),
+  );
+  return [...new Set(deliverable.map((row) => row.key))];
+}
+
+/**
+ * Decrypted secret values deliverable to a deployment: vendor defaults and
+ * this customer's overrides, merged with §31 precedence (customer wins on a
+ * shared key). Only rows with ciphertext are readable — a legacy masked row
+ * has no plaintext to decrypt (see `listProvidedConfigKeys`) and is skipped.
+ * Used to fill the CONFIG_UPDATE payload's `secrets` at first install
+ * (`apps/api/src/install-config.ts`), the one moment a vendor secret can
+ * actually reach the customer's account.
+ */
+export async function listDeliverableSecretValues(
+  db: RuntimeDb,
+  applicationId: string,
+  customerId: string,
+): Promise<{ key: string; value: string }[]> {
+  if (!UUID_PATTERN.test(applicationId) || !UUID_PATTERN.test(customerId)) return [];
+  const rows = await db
+    .select({
+      key: schema.applicationConfigs.key,
+      customerId: schema.applicationConfigs.customerId,
+      encryptedValue: schema.applicationConfigs.encryptedValue,
+    })
+    .from(schema.applicationConfigs)
+    .where(
+      and(
+        eq(schema.applicationConfigs.applicationId, applicationId),
+        eq(schema.applicationConfigs.isSecret, true),
+        isNotNull(schema.applicationConfigs.encryptedValue),
+        or(isNull(schema.applicationConfigs.customerId), eq(schema.applicationConfigs.customerId, customerId)),
+      ),
+    );
+
+  const byKey = new Map<string, { key: string; encryptedValue: string; isVendor: boolean }>();
+  for (const row of rows) {
+    if (!row.encryptedValue) continue;
+    const isVendor = row.customerId === null;
+    const existing = byKey.get(row.key);
+    // Customer override wins over the vendor default for the same key (§31).
+    if (existing && existing.isVendor && !isVendor) {
+      byKey.set(row.key, { key: row.key, encryptedValue: row.encryptedValue, isVendor });
+    } else if (!existing) {
+      byKey.set(row.key, { key: row.key, encryptedValue: row.encryptedValue, isVendor });
+    }
+  }
+
+  const result: { key: string; value: string }[] = [];
+  for (const entry of byKey.values()) {
+    result.push({ key: entry.key, value: await decryptConfigValue(entry.encryptedValue) });
+  }
+  return result;
+}
+
+/**
+ * Decrypted (or plain) vendor-default values for the given keys, for the
+ * given application. Used by the build worker to fill build-time variables
+ * (packages/cdk/src/lambda/worker.ts's `loadBuildVariables`) — vendor
+ * defaults only; a build has no customer to scope to.
+ */
+export async function listVendorValues(
+  db: RuntimeDb,
+  applicationId: string,
+  keys: readonly string[],
+): Promise<Record<string, string>> {
+  if (!UUID_PATTERN.test(applicationId) || keys.length === 0) return {};
+  const rows = await db
+    .select({
+      key: schema.applicationConfigs.key,
+      value: schema.applicationConfigs.value,
+      isSecret: schema.applicationConfigs.isSecret,
+      encryptedValue: schema.applicationConfigs.encryptedValue,
+    })
+    .from(schema.applicationConfigs)
+    .where(
+      and(
+        eq(schema.applicationConfigs.applicationId, applicationId),
+        isNull(schema.applicationConfigs.customerId),
+        inArray(schema.applicationConfigs.key, [...keys]),
+      ),
+    );
+
+  const result: Record<string, string> = {};
+  for (const row of rows) {
+    if (row.isSecret) {
+      if (!row.encryptedValue) continue; // legacy, undeliverable — see listProvidedConfigKeys
+      result[row.key] = await decryptConfigValue(row.encryptedValue);
+    } else {
+      result[row.key] = row.value;
+    }
+  }
+  return result;
 }

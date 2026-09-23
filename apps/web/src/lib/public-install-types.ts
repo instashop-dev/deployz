@@ -7,6 +7,10 @@ export interface PublicInstallInput {
   readonly secret: boolean;
   readonly classification?: string;
   readonly purpose?: string;
+  /** Customer-facing label, written by the vendor, shown instead of the raw key. */
+  readonly label?: string;
+  /** Customer-facing help text, written by the vendor, shown under the label. */
+  readonly help?: string;
 }
 
 /** One deployable region offered by the publisher. */

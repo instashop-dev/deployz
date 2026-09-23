@@ -21,6 +21,7 @@ import type { QueueMessage } from '@deployz/api/queue';
 import { connectDb, type LambdaDb } from './db-connection.js';
 import {
   handleMessage,
+  loadBuildVariablesFromDb,
   recordBuildResult,
   sweepBilling,
   sweepRelayLiveness,
@@ -150,6 +151,7 @@ function createDeps(db: LambdaDb): WorkerDeps {
       // disabled or partially configured, one shared breaker per process.
       jevShadow: createJevShadowRunnerFromEnv({ db }, resolveJevConfig(process.env)),
     }),
+    loadBuildVariables: loadBuildVariablesFromDb,
   };
 }
 

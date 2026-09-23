@@ -43,6 +43,11 @@ export const applications = pgTable('applications', {
   compatibilityStatus: compatibilityStatusEnum('compatibility_status'),
   compatibilityReason: text('compatibility_reason'),
   detectedMetadata: jsonb('detected_metadata').$type<Record<string, unknown>>(),
+  // Vendor env-var decisions (build/runtime stage, who provides each key).
+  // Nullable: no saved settings means "use the legacy classification-derived
+  // default" (docs/environment-variables.md) — existing applications
+  // keep working unchanged. Shape is validated at the API boundary, not here.
+  environmentSettings: jsonb('environment_settings').$type<unknown[]>(),
   ...auditFields(),
 }, (t) => [
   // One application per repository per organization. Choosing the same repo
@@ -112,6 +117,12 @@ export const applicationConfigs = pgTable(
     key: text('key').notNull(),
     value: text('value').notNull(),
     isSecret: boolean('is_secret').notNull().default(false),
+    // AES-256-GCM ciphertext (apps/api's config-crypto.ts), present only for
+    // a secret row whose plaintext Deployz can actually deliver (vendor
+    // build/runtime secrets and customer overrides). `value` still carries
+    // SECRET_MASK for these rows — this column is the only place plaintext
+    // is ever recoverable, and only the control plane's key can do it.
+    encryptedValue: text('encrypted_value'),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },

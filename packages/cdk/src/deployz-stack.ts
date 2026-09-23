@@ -1,4 +1,4 @@
-import { Duration, Stack, Tags, type StackProps } from 'aws-cdk-lib';
+import { Duration, RemovalPolicy, Stack, Tags, type StackProps } from 'aws-cdk-lib';
 import {
   InstanceType,
   InstanceClass,
@@ -20,6 +20,7 @@ import {
   PostgresEngineVersion,
 } from 'aws-cdk-lib/aws-rds';
 import { PolicyStatement } from 'aws-cdk-lib/aws-iam';
+import { Secret } from 'aws-cdk-lib/aws-secretsmanager';
 import { Queue, QueueEncryption } from 'aws-cdk-lib/aws-sqs';
 import {
   BlockPublicAccess,
@@ -166,6 +167,20 @@ export class DeployzStack extends Stack {
       enforceSSL: true,
     });
 
+    // ── Config encryption key (§31 secure secret storage) ────────────────
+    // AES-256-GCM key material for apps/api/src/config-crypto.ts. Generated
+    // once by CloudFormation, never a template parameter — read-granted to
+    // the API and worker Lambdas below. RETAIN: rotating/losing this key
+    // makes every stored vendor/customer secret value undecryptable.
+    const configEncryptionSecret = new Secret(this, 'ConfigEncryptionKey', {
+      description: 'AES-256-GCM key material for encrypting customer-config secret values (§31).',
+      removalPolicy: RemovalPolicy.RETAIN,
+      generateSecretString: {
+        passwordLength: 64,
+        excludePunctuation: true,
+      },
+    });
+
     // ── API Lambda ───────────────────────────────────────────────────────
     const credentialEnv = collectEnvVars();
 
@@ -188,6 +203,7 @@ export class DeployzStack extends Stack {
       vpc: vpcResource,
       dbSecurityGroup,
       dbSecretArn: dbInstance.secret?.secretArn ?? '',
+      configEncryptionSecretArn: configEncryptionSecret.secretArn,
       environment: {
         ...credentialEnv,
         JOB_QUEUE_URL: jobQueue.queueUrl,
@@ -235,6 +251,7 @@ export class DeployzStack extends Stack {
       vpc: vpcResource,
       dbSecurityGroup,
       dbSecretArn: dbInstance.secret?.secretArn ?? '',
+      configEncryptionSecretArn: configEncryptionSecret.secretArn,
       queue: jobQueue,
       environment: {
         ...credentialEnv,

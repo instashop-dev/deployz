@@ -67,6 +67,10 @@
     "./queue": {
       "types": "./dist/queue.d.ts",
       "import": "./dist/queue.js"
+    },
+    "./config": {
+      "types": "./dist/config.d.ts",
+      "import": "./dist/config.js"
     }
   },
   "scripts": {
@@ -76,6 +80,7 @@
   },
   "dependencies": {
     "@aws-sdk/client-ecr": "^3.1115.0",
+    "@aws-sdk/client-secrets-manager": "^3.1115.0",
     "@aws-sdk/client-ses": "^3.1115.0",
     "@aws-sdk/client-sqs": "^3.1115.0",
     "@deployz/analysis": "workspace:*",
