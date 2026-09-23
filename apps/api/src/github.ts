@@ -1398,5 +1398,177 @@ export async function getFileTreeForAnalysis(
   );
 }
 
+// ---------------------------------------------------------------------------
+// Commit listing (releases commit selector) — GET .../commits and
+// GET .../commits/{sha}. Same fetch seam and error-mapping shape as
+// fetchRepositoryTreeEntries above; errors are distinct codes (GITHUB_*_NOT_FOUND
+// vs COMMIT_NOT_FOUND) so the route can tell "branch is gone" apart from
+// "that sha doesn't exist" apart from "repo is gone entirely".
+// ---------------------------------------------------------------------------
+
+export interface CommitSummary {
+  sha: string;
+  shortSha: string;
+  title: string;
+  authorName: string | null;
+  committedAt: string | null;
+}
+
+const COMMITS_PAGE_SIZE = 30;
+const COMMITS_MAX_PAGE = 10;
+const COMMIT_TITLE_MAX_LENGTH = 200;
+
+interface RawGithubCommit {
+  sha: string;
+  commit?: { message?: string; author?: { name?: string; date?: string } | null } | null;
+}
+
+function mapCommit(raw: RawGithubCommit): CommitSummary {
+  const message = raw.commit?.message ?? '';
+  const title = (message.split('\n')[0] ?? '').slice(0, COMMIT_TITLE_MAX_LENGTH);
+  return {
+    sha: raw.sha,
+    shortSha: raw.sha.slice(0, 7),
+    title,
+    authorName: raw.commit?.author?.name ?? null,
+    committedAt: raw.commit?.author?.date ?? null,
+  };
+}
+
+// Lists one page of a branch's commit history, newest first. `page` is
+// 1-based; `nextPage` is null once GitHub returns fewer than a full page or
+// the page cap is reached — callers must never walk past COMMITS_MAX_PAGE
+// (§ contract: never fetch full history).
+export async function listBranchCommits(
+  ref: RepositoryRef,
+  page: number,
+  installationToken: string,
+  fetchFn: FetchFn,
+): Promise<{ commits: CommitSummary[]; nextPage: number | null }> {
+  const url = `${GITHUB_API_BASE}/repos/${ref.owner}/${ref.repo}/commits?sha=${encodeURIComponent(ref.branch)}&per_page=${COMMITS_PAGE_SIZE}&page=${page}`;
+  const response = await fetchFn(url, {
+    method: 'GET',
+    headers: {
+      Authorization: `Bearer ${installationToken}`,
+      Accept: 'application/vnd.github+json',
+      'X-GitHub-Api-Version': '2022-11-28',
+    },
+  });
+
+  if (response.status === 429) {
+    throw new ApiError(429, 'GITHUB_RATE_LIMITED', 'GitHub API rate limit exceeded');
+  }
+  if (response.status === 403 && response.headers.get('x-ratelimit-remaining') === '0') {
+    throw new ApiError(429, 'GITHUB_RATE_LIMITED', 'GitHub API rate limit exceeded');
+  }
+  if (response.status === 409) {
+    return { commits: [], nextPage: null };
+  }
+  if (response.status === 404 || response.status === 422) {
+    const message = await readErrorMessage(response);
+    if (/empty/i.test(message)) {
+      return { commits: [], nextPage: null };
+    }
+    if (/No commit found/i.test(message)) {
+      throw new ApiError(404, 'GITHUB_BRANCH_NOT_FOUND', 'Branch not found');
+    }
+    if (response.status === 404) {
+      throw new ApiError(404, 'GITHUB_REPO_NOT_FOUND', 'Repository not found');
+    }
+  }
+  if (response.status < 200 || response.status >= 300) {
+    throw new ApiError(502, 'GITHUB_COMMITS_FETCH_FAILED', 'Failed to fetch commits');
+  }
+
+  const data = (await response.json()) as RawGithubCommit[];
+  const commits = data.map(mapCommit);
+  const nextPage = page < COMMITS_MAX_PAGE && commits.length === COMMITS_PAGE_SIZE ? page + 1 : null;
+  return { commits, nextPage };
+}
+
+// Resolves one commit by (possibly short) sha for manual entry. Requires the
+// resolved commit's full sha to start with the lowercased input — GitHub's
+// commit-lookup endpoint otherwise never distinguishes "prefix I gave you"
+// from "sha GitHub decided to interpret it as", and a branch name must never
+// resolve here (the route's regex already blocks that before this is called).
+export async function getCommit(
+  ref: { owner: string; repo: string },
+  sha: string,
+  installationToken: string,
+  fetchFn: FetchFn,
+): Promise<CommitSummary> {
+  const url = `${GITHUB_API_BASE}/repos/${ref.owner}/${ref.repo}/commits/${encodeURIComponent(sha)}`;
+  const response = await fetchFn(url, {
+    method: 'GET',
+    headers: {
+      Authorization: `Bearer ${installationToken}`,
+      Accept: 'application/vnd.github+json',
+      'X-GitHub-Api-Version': '2022-11-28',
+    },
+  });
+
+  if (response.status === 429) {
+    throw new ApiError(429, 'GITHUB_RATE_LIMITED', 'GitHub API rate limit exceeded');
+  }
+  if (response.status === 403 && response.headers.get('x-ratelimit-remaining') === '0') {
+    throw new ApiError(429, 'GITHUB_RATE_LIMITED', 'GitHub API rate limit exceeded');
+  }
+  if (response.status === 404 || response.status === 422) {
+    throw new ApiError(404, 'COMMIT_NOT_FOUND', 'Commit not found');
+  }
+  if (response.status < 200 || response.status >= 300) {
+    throw new ApiError(502, 'GITHUB_COMMITS_FETCH_FAILED', 'Failed to fetch commit');
+  }
+
+  const data = (await response.json()) as RawGithubCommit;
+  if (!data.sha.toLowerCase().startsWith(sha.toLowerCase())) {
+    throw new ApiError(404, 'COMMIT_NOT_FOUND', 'Commit not found');
+  }
+  return mapCommit(data);
+}
+
+// §216-style fixture data (same deterministic-fixture principle as
+// GITHUB_FIXTURE_INSTALLATIONS): 35 commits so page 1 returns a full 30 with
+// nextPage 2 and page 2 returns the remaining 5 with nextPage null. Newest
+// first, deterministic shas (the commit's own index, zero-padded to 40 hex
+// chars) so tests never depend on real GitHub data.
+const GITHUB_FIXTURE_COMMIT_COUNT = 35;
+const GITHUB_FIXTURE_COMMIT_BASE_MS = Date.UTC(2026, 0, 1);
+
+export const GITHUB_FIXTURE_COMMITS: readonly CommitSummary[] = Array.from(
+  { length: GITHUB_FIXTURE_COMMIT_COUNT },
+  (_unused, index) => {
+    const sha = index.toString(16).padStart(40, '0');
+    const title = index === 0 ? 'Fix deployment configuration' : `Fixture commit ${GITHUB_FIXTURE_COMMIT_COUNT - index}`;
+    return {
+      sha,
+      shortSha: sha.slice(0, 7),
+      title,
+      authorName: 'Fixture Author',
+      committedAt: new Date(GITHUB_FIXTURE_COMMIT_BASE_MS - index * 86_400_000).toISOString(),
+    };
+  },
+);
+
+// Fixture-mode counterpart to listBranchCommits — same pagination contract,
+// no installation token or network call.
+export function listFixtureBranchCommits(page: number): { commits: CommitSummary[]; nextPage: number | null } {
+  const start = (page - 1) * COMMITS_PAGE_SIZE;
+  const commits = GITHUB_FIXTURE_COMMITS.slice(start, start + COMMITS_PAGE_SIZE);
+  const nextPage = page < COMMITS_MAX_PAGE && commits.length === COMMITS_PAGE_SIZE ? page + 1 : null;
+  return { commits, nextPage };
+}
+
+// Fixture-mode counterpart to getCommit — resolves by sha prefix against
+// GITHUB_FIXTURE_COMMITS, same as GitHub itself would for a short sha.
+export function getFixtureCommit(sha: string): CommitSummary {
+  const lowered = sha.toLowerCase();
+  const commit = GITHUB_FIXTURE_COMMITS.find((candidate) => candidate.sha.startsWith(lowered));
+  if (!commit) {
+    throw new ApiError(404, 'COMMIT_NOT_FOUND', 'Commit not found');
+  }
+  return commit;
+}
+
 
 

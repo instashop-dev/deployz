@@ -6303,3 +6303,236 @@ describe('server — P0 hardening', () => {
     });
   });
 });
+
+// ── Commit selector (releases) — real (non-fixture) GitHub routes ──────────
+describe('server — commit selector (releases)', () => {
+  let client: PGlite | undefined;
+  let db: Db;
+  let auth: Auth;
+  let app: FastifyInstance;
+  let org: { userId: string; organizationId: string; cookie: string };
+  let other: { userId: string; organizationId: string; cookie: string };
+  let applicationId: string;
+
+  const FULL_SHA = 'a'.repeat(40);
+
+  const githubFetch = (async (url: string) => {
+    if (url.includes('/access_tokens')) {
+      return {
+        status: 200,
+        headers: { get: () => null },
+        json: async () => ({ token: 'commit-installation-token', expires_at: new Date().toISOString() }),
+      };
+    }
+    if (url.includes(`/commits/${FULL_SHA}`)) {
+      return {
+        status: 200,
+        headers: { get: () => null },
+        json: async () => ({
+          sha: FULL_SHA,
+          commit: { message: 'Fix the thing', author: { name: 'Jane', date: '2026-09-23T10:00:00Z' } },
+        }),
+      };
+    }
+    if (url.includes('/commits/')) {
+      return { status: 404, headers: { get: () => null }, json: async () => ({ message: 'No commit found' }) };
+    }
+    if (url.includes('/repos/acme/widgets/commits?sha=main')) {
+      return {
+        status: 200,
+        headers: { get: () => null },
+        json: async () =>
+          Array.from({ length: 30 }, (_, i) => ({
+            sha: i.toString(16).padStart(40, '0'),
+            commit: { message: `Commit ${i}`, author: { name: 'Jane', date: '2026-09-23T10:00:00Z' } },
+          })),
+      };
+    }
+    return { status: 404, headers: { get: () => null }, json: async () => ({ message: 'Not Found' }) };
+  }) as unknown as Parameters<typeof buildServer>[0]['githubFetch'];
+
+  beforeAll(async () => {
+    client = new PGlite();
+    await applyMigrations(client);
+    db = createDb(client);
+    auth = createAuth(db);
+    app = await buildServer({
+      auth,
+      db,
+      githubFixtureMode: false,
+      githubFetch,
+      githubAppId: 'test-app-id',
+      githubAppPrivateKey: generateKeyPairSync('rsa', {
+        modulusLength: 2048,
+        privateKeyEncoding: { type: 'pkcs1', format: 'pem' },
+        publicKeyEncoding: { type: 'spki', format: 'pem' },
+      }).privateKey,
+    });
+    org = await signUpAndGetOrg(auth, db, 'commits-owner@example.com');
+    other = await signUpAndGetOrg(auth, db, 'commits-other@example.com');
+    await db.insert(schema.githubInstallations).values({
+      id: 'inst-commits-owner',
+      organizationId: org.organizationId,
+      accountLogin: 'acme',
+      accountType: 'Organization',
+    });
+    await db.insert(schema.githubInstallations).values({
+      id: 'inst-commits-other',
+      organizationId: other.organizationId,
+      accountLogin: 'other-org',
+      accountType: 'Organization',
+    });
+    const application = await insertApplication(db, org.organizationId, {
+      githubInstallationId: 'inst-commits-owner',
+      repoFullName: 'acme/widgets',
+      defaultBranch: 'main',
+    });
+    applicationId = application.id;
+  }, 60_000);
+
+  afterAll(async () => {
+    await app?.close();
+    await client?.close();
+  });
+
+  it('lists a real page of commits scoped to the application repo/branch', async () => {
+    const response = await app.inject({
+      method: 'GET',
+      url: `/api/applications/${applicationId}/commits?page=1`,
+      headers: { cookie: org.cookie },
+    });
+    expect(response.statusCode, response.body).toBe(200);
+    const body = response.json() as {
+      repoFullName: string;
+      branch: string;
+      commits: unknown[];
+      nextPage: number | null;
+    };
+    expect(body.repoFullName).toBe('acme/widgets');
+    expect(body.branch).toBe('main');
+    expect(body.commits).toHaveLength(30);
+    expect(body.nextPage).toBe(2);
+  });
+
+  it('404s a cross-org application (authorization boundary)', async () => {
+    const response = await app.inject({
+      method: 'GET',
+      url: `/api/applications/${applicationId}/commits`,
+      headers: { cookie: other.cookie },
+    });
+    expect(response.statusCode).toBe(404);
+  });
+
+  it('rejects unauthenticated access with 401', async () => {
+    const response = await app.inject({ method: 'GET', url: `/api/applications/${applicationId}/commits` });
+    expect(response.statusCode).toBe(401);
+  });
+
+  it('409s GITHUB_NOT_CONNECTED when the application has no githubInstallationId', async () => {
+    const unconnected = await insertApplication(db, org.organizationId, {
+      repoFullName: 'acme/unconnected',
+      defaultBranch: 'main',
+    });
+    const response = await app.inject({
+      method: 'GET',
+      url: `/api/applications/${unconnected.id}/commits`,
+      headers: { cookie: org.cookie },
+    });
+    expect(response.statusCode).toBe(409);
+    expect(errorEnvelopeSchema.parse(response.json()).error.code).toBe('GITHUB_NOT_CONNECTED');
+  });
+
+  it('409s GITHUB_NOT_CONNECTED when the installation is owned by a different org', async () => {
+    const orphan = await insertApplication(db, org.organizationId, {
+      githubInstallationId: 'inst-commits-other',
+      repoFullName: 'acme/orphan',
+      defaultBranch: 'main',
+    });
+    const response = await app.inject({
+      method: 'GET',
+      url: `/api/applications/${orphan.id}/commits`,
+      headers: { cookie: org.cookie },
+    });
+    expect(response.statusCode).toBe(409);
+    expect(errorEnvelopeSchema.parse(response.json()).error.code).toBe('GITHUB_NOT_CONNECTED');
+  });
+
+  it('resolves a valid full sha via the manual-entry route', async () => {
+    const response = await app.inject({
+      method: 'GET',
+      url: `/api/applications/${applicationId}/commits/${FULL_SHA}`,
+      headers: { cookie: org.cookie },
+    });
+    expect(response.statusCode, response.body).toBe(200);
+    const body = response.json() as { commit: { sha: string; title: string } };
+    expect(body.commit.sha).toBe(FULL_SHA);
+    expect(body.commit.title).toBe('Fix the thing');
+  });
+
+  it('rejects a branch name as an invalid sha format with 400 INVALID_COMMIT_SHA', async () => {
+    const response = await app.inject({
+      method: 'GET',
+      url: `/api/applications/${applicationId}/commits/main`,
+      headers: { cookie: org.cookie },
+    });
+    expect(response.statusCode).toBe(400);
+    expect(errorEnvelopeSchema.parse(response.json()).error.code).toBe('INVALID_COMMIT_SHA');
+  });
+
+  it('404s COMMIT_NOT_FOUND for a well-formed but unknown sha', async () => {
+    const response = await app.inject({
+      method: 'GET',
+      url: `/api/applications/${applicationId}/commits/${'b'.repeat(40)}`,
+      headers: { cookie: org.cookie },
+    });
+    expect(response.statusCode).toBe(404);
+    expect(errorEnvelopeSchema.parse(response.json()).error.code).toBe('COMMIT_NOT_FOUND');
+  });
+});
+
+// ── Releases list — gitSha field (commit selector, §22 additive change) ────
+describe('server — releases list includes gitSha', () => {
+  let client: PGlite | undefined;
+  let db: Db;
+  let auth: Auth;
+  let app: FastifyInstance;
+  let org: { userId: string; organizationId: string; cookie: string };
+  let applicationId: string;
+
+  const LEGACY_GIT_SHA = 'sha-1.0.0';
+  const FULL_GIT_SHA = 'c'.repeat(40);
+
+  beforeAll(async () => {
+    client = new PGlite();
+    await applyMigrations(client);
+    db = createDb(client);
+    auth = createAuth(db);
+    app = await buildServer({ auth, db });
+    org = await signUpAndGetOrg(auth, db, 'releases-gitsha@example.com');
+    const application = await insertApplication(db, org.organizationId);
+    applicationId = application.id;
+  }, 60_000);
+
+  afterAll(async () => {
+    await app?.close();
+    await client?.close();
+  });
+
+  it('returns gitSha for each release, including a legacy non-hex value', async () => {
+    await insertRelease(db, applicationId, { version: 'v1.0.0', gitSha: FULL_GIT_SHA });
+    // Backwards compatibility: releases created before the commit selector
+    // stored arbitrary strings (e.g. e2e fixtures posting "sha-1.0.0") and the
+    // create route still accepts them — the list route must not choke on one.
+    await insertRelease(db, applicationId, { version: LEGACY_GIT_SHA, gitSha: LEGACY_GIT_SHA });
+
+    const response = await app.inject({
+      method: 'GET',
+      url: `/api/applications/${applicationId}/releases`,
+      headers: { cookie: org.cookie },
+    });
+    expect(response.statusCode, response.body).toBe(200);
+    const releases = (response.json() as { releases: Array<{ version: string; gitSha: string }> }).releases;
+    expect(releases.find((r) => r.version === 'v1.0.0')?.gitSha).toBe(FULL_GIT_SHA);
+    expect(releases.find((r) => r.version === LEGACY_GIT_SHA)?.gitSha).toBe(LEGACY_GIT_SHA);
+  });
+});

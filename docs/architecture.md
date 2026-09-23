@@ -48,6 +48,12 @@ The flow a deployment follows, end to end:
    enroll. Warnings never block; a missing customer-required value does.
 5. **Release Build** — a release is built by CodeBuild into an immutable
    ECR image digest; a deploy always targets `repository@sha256:…`.
+   The vendor picks the commit from the application's configured branch
+   (`GET /api/applications/:id/commits`, 30 per page, at most 10 pages) or
+   enters a SHA that `GET /api/applications/:id/commits/:sha` resolves. The
+   release always stores the full commit SHA, never a branch name. A GitHub
+   failure does not block a release: a full 40-character SHA is accepted
+   without the GitHub check.
 6. **Install Infrastructure** — the customer opens the install link and runs
     the Quick Create. The bootstrap stack brings the relay up; the relay claims
     the INSTALL job, resolves the correct published application template variant
