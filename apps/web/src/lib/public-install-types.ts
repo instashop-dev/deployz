@@ -20,6 +20,10 @@ export interface PublicInstallResolve {
   application: { name: string };
   publisher: { name: string };
   release: { version: string; createdAt: string };
+  /** The publisher's suggestion, if any. The customer always makes the final choice. */
+  recommendedRegion: string | null;
+  /** Who owns the final Region choice — always 'customer' for new links. */
+  regionSelection: 'customer' | 'legacy_publisher_fixed';
   regions: PublicInstallRegion[];
   requiredInputs: PublicInstallInput[];
   plan: DeploymentPlan;
@@ -30,6 +34,10 @@ export function publicInstallErrorMessage(code: string): string {
   switch (code) {
     case 'PUBLIC_INSTALL_LINK_REVOKED':
       return 'This installation link has been revoked. Contact the publisher for a new link.';
+    case 'PUBLIC_INSTALL_LINK_EXPIRED':
+      return 'This installation link has expired. Contact the publisher for a new link.';
+    case 'PUBLIC_INSTALL_LINK_USED':
+      return 'This installation link has already been used. Contact the publisher if you need another installation.';
     case 'PUBLIC_INSTALL_LINK_DISABLED':
       return 'This application is not currently available for installation. Contact the publisher.';
     case 'RELEASE_NOT_PUBLISHED':

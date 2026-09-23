@@ -1,4 +1,6 @@
-import { serverApiUrl } from '@/lib/api-url';
+import { apiUrl, serverApiUrl } from '@/lib/api-url';
+
+import type { DeploymentPlan } from '@deployz/contracts';
 
 import type { PublicInstallResolve } from './public-install-types';
 
@@ -32,6 +34,29 @@ export async function fetchPublicInstallData(linkId: string): Promise<PublicInst
     if (!response.ok) return null;
     const data = (await response.json()) as PublicInstallResolve;
     return { status: 'ok', data };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The region-specific INSTALL plan for a public install link (Phase 3).
+ * Pricing stays on the server. Returns null on any failure — the flow keeps
+ * the resolve-time preview and renders "Estimate unavailable" instead of a
+ * stale cost. `token` authorizes a targeted invitation's private surface.
+ */
+export async function fetchPublicInstallPlan(
+  linkId: string,
+  region: string,
+  token?: string,
+): Promise<DeploymentPlan | null> {
+  try {
+    const response = await fetch(
+      `${apiUrl}/api/public-install/${encodeURIComponent(linkId)}/plan?region=${encodeURIComponent(region)}`,
+      { cache: 'no-store', ...(token !== undefined ? { headers: { 'x-deployz-token': token } } : {}) },
+    );
+    if (!response.ok) return null;
+    return (await response.json()) as DeploymentPlan;
   } catch {
     return null;
   }

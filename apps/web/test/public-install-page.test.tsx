@@ -29,6 +29,7 @@ const pageMocks = vi.hoisted(() => ({
 }));
 vi.mock('../src/lib/public-install-data', () => ({
   fetchPublicInstallData: pageMocks.fetchPublicInstallData,
+  fetchPublicInstallPlan: vi.fn().mockResolvedValue(null),
 }));
 vi.mock('../src/lib/install-data', () => ({
   fetchInstallData: pageMocks.fetchInstallData,
@@ -80,6 +81,8 @@ function resolveFixture(overrides: Partial<PublicInstallResolve> = {}): PublicIn
     application: { name: 'Acme App' },
     publisher: { name: 'Acme Inc' },
     release: { version: '1.2.0', createdAt: '2026-09-01T00:00:00.000Z' },
+    recommendedRegion: null,
+    regionSelection: 'customer',
     regions: [
       { value: 'us-east-1', label: 'US East (N. Virginia)' },
       { value: 'us-west-2', label: 'US West (Oregon)' },
