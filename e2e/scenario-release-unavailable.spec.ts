@@ -109,11 +109,9 @@ test.describe('release-unavailable browser suite', () => {
     await expect(page.getByTestId('deploy-update-panel')).toBeVisible();
     await expect(page.getByTestId('deploy-update-panel').getByText('No deployable releases yet')).toBeVisible();
 
-    // The releases page names the reason in plain words, behind the info
-    // affordance next to the badge.
+    // The releases page names the reason in plain words in the row itself.
     await page.goto(`/dashboard/applications/${applicationId}/releases`);
     await expect(page.getByText('Unavailable', { exact: true })).toBeVisible({ timeout: 30_000 });
-    await page.getByRole('button', { name: /Status details for release/ }).click();
     await expect(page.getByText('The build for this version is no longer available.')).toBeVisible();
   });
 });
