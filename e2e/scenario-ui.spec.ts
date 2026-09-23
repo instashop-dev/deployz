@@ -325,13 +325,14 @@ test.describe('cloudformation-rollback (browser)', () => {
     // shown on failed installs so the vendor can debug. The redesigned
     // section leads with the plain-English service summary (Database,
     // Network, Relay), and the deeper per-component inventory — lifecycle
-    // copy included — sits behind the "View N resources" disclosure.
+    // copy included — sits behind the "View components and N AWS resources"
+    // disclosure.
     const infrastructureSection = page.locator('section[aria-labelledby="infrastructure"]');
     await expect(infrastructureSection.getByText('Database', { exact: true })).toBeVisible();
     await expect(infrastructureSection.getByText('Network', { exact: true })).toBeVisible();
     await expect(infrastructureSection.getByText('Deployz Relay', { exact: true })).toBeVisible();
     await infrastructureSection
-      .getByRole('button', { name: /View \d+ resource/ })
+      .getByRole('button', { name: /View components and \d+ AWS resource/ })
       .click();
     await expect(
       infrastructureSection.getByText('Retained when deployment is removed.'),

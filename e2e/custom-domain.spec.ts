@@ -235,20 +235,20 @@ test('custom domain: add, verify DNS, connect, activate, appear on the dashboard
   ).toBeVisible();
   await expect(card.getByRole('link', { name: 'Open domain' })).toBeVisible();
 
-  // ── 10. Dashboard: the compact metadata's Custom domain + URL rows.
+  // ── 10. Dashboard: the hero's access block carries the URL and domain.
   await page.goto(`/dashboard/deployments/${deploymentId}`);
-  const overviewSection = page.locator('section[aria-labelledby="overview"]');
+  const access = page.getByTestId('app-url');
   // Generous timeout: when this is the first dashboard visit of the run, the
   // dev server's cold compile of the detail route alone can eat the default.
-  await expect(overviewSection.getByText(hostname, { exact: true })).toBeVisible({
+  await expect(access.getByText(hostname, { exact: true })).toBeVisible({
     timeout: 15_000,
   });
-  await expect(overviewSection.getByText('Active', { exact: true })).toBeVisible();
-  const manageLink = overviewSection.getByRole('link', { name: 'Manage →' });
+  await expect(access.getByText('Active', { exact: true })).toBeVisible();
+  const manageLink = access.getByRole('link', { name: 'Manage custom domain' });
   await expect(manageLink).toHaveAttribute('href', `/install/${installLinkId}`);
 
-  await expect(overviewSection.getByText('URL', { exact: true })).toBeVisible();
-  await expect(overviewSection.getByText(`https://${hostname}`, { exact: true })).toBeVisible();
+  await expect(access.getByText('Application URL', { exact: true })).toBeVisible();
+  await expect(access.getByText(`https://${hostname}`, { exact: true })).toBeVisible();
 
   // ── 11. Back on the install page: remove the domain.
   await page.goto(`/install/${installLinkId}`);

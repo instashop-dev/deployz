@@ -242,7 +242,7 @@ const FAILED_EVENTS = [
 ];
 
 const RELEASES = [
-  { id: 'rel-3', version: '1.15.0', status: 'READY', failureReason: null, createdAt: UPDATED_AT },
+  { id: 'rel-3', version: '1.15.0', status: 'READY', failureReason: null, createdAt: '2025-09-13T09:00:00Z' },
   { id: 'rel-2', version: '1.14.2', status: 'READY', failureReason: null, createdAt: UPDATED_AT },
   { id: 'rel-1', version: '1.14.1', status: 'READY', failureReason: null, createdAt: CREATED_AT },
 ];
@@ -1031,7 +1031,7 @@ test('the resource inventory opens from the infrastructure summary', async ({ pa
   const { infrastructure } = await open(page, { detail: detail() });
 
   await expect(infrastructure.getByText('Runs your application')).toHaveCount(0);
-  await infrastructure.getByRole('button', { name: 'View 8 resources' }).click();
+  await infrastructure.getByRole('button', { name: 'View components and 4 AWS resources' }).click();
   await expect(infrastructure.getByText('Runs your application')).toBeVisible();
   await expect(infrastructure.getByText('Stores persistent application data')).toBeVisible();
 });
@@ -1081,4 +1081,121 @@ test('the live state fits a phone without sideways scrolling', async ({ page }) 
 
   await expect(hero.getByRole('link', { name: 'Open application' })).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(375);
+});
+
+test('update available: health and the update stay separate, and Deploy update names its target', async ({
+  page,
+}) => {
+  const { actions } = await open(page, { detail: detail({ state: 'UPDATE_AVAILABLE' }) });
+
+  await expect(page.getByTestId('update-available')).toHaveText('Update available: v1.15.0');
+  await expect(page.getByRole('main').getByText('Healthy', { exact: true })).toBeVisible();
+  const deploy = actions.getByRole('button', { name: 'Deploy update to v1.15.0' });
+  await expect(deploy).toBeEnabled();
+  // The update is the one primary action; Configuration and Diagnostics stay secondary.
+  await expect(actions.getByRole('button').first()).toHaveText('Deploy update to v1.15.0');
+  await expect(actions.getByRole('link', { name: 'View diagnostics' })).toBeVisible();
+  await expect(actions.getByRole('button', { name: 'More actions' })).toBeVisible();
+  await shoot(page, 'update-available');
+});
+
+test('healthy without an update: up to date, and each fact appears once', async ({ page }) => {
+  const { overview, hero } = await open(page, { detail: detail() });
+
+  await expect(page.getByText('Up to date', { exact: true })).toBeVisible();
+  await expect(page.getByTestId('update-available')).toHaveCount(0);
+  await expect(overview).toContainText('Acme Corp');
+  await expect(overview).toContainText('v1.14.2');
+  // The address and the custom domain live only in the hero's access block.
+  expect(await overview.innerText()).not.toContain('docs.acme.example');
+  await expect(hero.getByText('HTTPS active', { exact: true })).toBeVisible();
+  await expect(hero.getByRole('button', { name: 'Copy URL' })).toBeVisible();
+});
+
+async function openDiagnostics(page: Page, deployment: Record<string, unknown>) {
+  await page.route(`${API_URL}/api/deployments/qa-dep`, (route) => route.fulfill({ json: deployment }));
+  await page.route(`${API_URL}/api/deployments/qa-dep/diagnostics`, (route) =>
+    route.fulfill({
+      json: { failureCode: null, recoverability: null, what: null, why: null, fix: null, events: [] },
+    }),
+  );
+  await page.goto('/dashboard/deployments/qa-dep/diagnostics');
+  const outcome = page.getByTestId('infra-check-outcome');
+  await expect(outcome).toBeVisible({ timeout: 30_000 });
+  return outcome;
+}
+
+const CHECKS = [
+  { name: 'stack-exists', passed: true, detail: 'Stack "deployz-app-qa" found' },
+  { name: 'stack-complete', passed: true, detail: 'Stack status CREATE_COMPLETE' },
+  { name: 'compute', passed: true, detail: 'Found a complete ECS service' },
+  { name: 'cache', passed: false, required: false, detail: 'No cache cluster in the stack' },
+];
+
+test('diagnostics: a fresh passing check leads with the outcome and hides raw details', async ({ page }) => {
+  const outcome = await openDiagnostics(
+    page,
+    detail({ lastHealthAt: new Date().toISOString(), observedState: { infraHealth: { checks: CHECKS } } }),
+  );
+
+  await expect(outcome).toContainText('No issues found in the latest infrastructure check.');
+  await expect(outcome).toContainText('Application health is on the deployment page.');
+  await expect(page.getByRole('link', { name: 'Documenso' })).toHaveAttribute(
+    'href',
+    '/dashboard/deployments/qa-dep',
+  );
+  await expect(page.getByRole('row', { name: /Cache/ })).toContainText('Not required');
+  await expect(page.getByTestId('relay-report-technical')).toHaveCount(0);
+  expect(await page.locator('section[aria-labelledby="infra-check"]').innerText()).not.toMatch(JARGON);
+  await page.getByRole('button', { name: 'Technical check details' }).click();
+  await expect(page.getByTestId('relay-report-technical')).toContainText('CREATE_COMPLETE');
+  await shoot(page, 'diagnostics-passed');
+});
+
+test('diagnostics: an old report is out of date, never a fresh pass', async ({ page }) => {
+  const outcome = await openDiagnostics(page, detail({ observedState: { infraHealth: { checks: CHECKS } } }));
+
+  await expect(outcome).toContainText('The latest infrastructure check is out of date.');
+  await expect(outcome).not.toContainText('No issues found');
+});
+
+test('diagnostics: a failing check shows the problem and the next step first', async ({ page }) => {
+  const outcome = await openDiagnostics(
+    page,
+    detail({
+      lastHealthAt: new Date().toISOString(),
+      observedState: {
+        infraHealth: { checks: [...CHECKS, { name: 'ingress', passed: false, detail: 'No load balancer' }] },
+      },
+    }),
+  );
+
+  await expect(outcome).toContainText('1 issue found in the latest infrastructure check.');
+  await expect(outcome).toContainText('The load balancer was not created.');
+  await expect(page.getByRole('row', { name: /Load balancer/ })).toContainText('Needs attention');
+  await shoot(page, 'diagnostics-issue');
+});
+
+test('diagnostics: no completed check says so instead of passing', async ({ page }) => {
+  const outcome = await openDiagnostics(page, detail({ observedState: null }));
+
+  await expect(outcome).toContainText('No infrastructure check has completed yet');
+  await expect(page.getByRole('table')).toHaveCount(0);
+});
+
+test('diagnostics fits a phone without sideways scrolling', async ({ page }) => {
+  await page.setViewportSize({ width: 375, height: 812 });
+  await openDiagnostics(
+    page,
+    detail({ lastHealthAt: new Date().toISOString(), observedState: { infraHealth: { checks: CHECKS } } }),
+  );
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(375);
+  await shoot(page, 'diagnostics-mobile');
+});
+
+test('update available fits a phone without sideways scrolling', async ({ page }) => {
+  await page.setViewportSize({ width: 375, height: 812 });
+  await open(page, { detail: detail({ state: 'UPDATE_AVAILABLE' }) });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(375);
+  await shoot(page, 'update-available-mobile');
 });

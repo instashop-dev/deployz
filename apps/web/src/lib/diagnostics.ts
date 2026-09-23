@@ -11,6 +11,7 @@ import type { FailureCode, FailureRecoverability } from './diagnostic-vocabulary
 // log export (S3).
 
 import { apiUrl } from '@/lib/api-url';
+import { RELAY_STALE_AFTER_MS, type RelayStatus } from '@/lib/deployment-vocabulary';
 
 // ── Wire shapes ────────────────────────────────────────────────────────────
 
@@ -294,6 +295,33 @@ export function infraCheckPresentation(check: InfraCheck): InfraCheckPresentatio
     problem: copy.failed.problem,
     nextAction: copy.failed.nextAction,
   };
+}
+
+/**
+ * The outcome of the latest relay infrastructure check, for the diagnostics
+ * headline. 'unavailable' when no check has reported — never a pass. A
+ * report is stale once the relay is not connected or has not reported
+ * within RELAY_STALE_AFTER_MS (the API's own liveness window).
+ */
+export type InfraCheckReport =
+  | { kind: 'unavailable' }
+  | { kind: 'issues'; issues: InfraCheck[]; stale: boolean }
+  | { kind: 'stale' }
+  | { kind: 'passed' };
+
+export function infraCheckReport(
+  checks: readonly InfraCheck[],
+  lastReportAt: string | null,
+  relayStatus: RelayStatus,
+  now: number = Date.now(),
+): InfraCheckReport {
+  if (checks.length === 0) return { kind: 'unavailable' };
+  const reportedAt = lastReportAt ? Date.parse(lastReportAt) : Number.NaN;
+  const stale =
+    relayStatus !== 'CONNECTED' || !Number.isFinite(reportedAt) || now - reportedAt > RELAY_STALE_AFTER_MS;
+  const issues = checks.filter((check) => infraCheckIsIssue(check));
+  if (issues.length > 0) return { kind: 'issues', issues, stale };
+  return stale ? { kind: 'stale' } : { kind: 'passed' };
 }
 
 /** Reads the relay's infrastructure checks out of observedState, if any. */
