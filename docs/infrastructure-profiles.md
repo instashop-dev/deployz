@@ -27,6 +27,27 @@ Valkey), never profile fields.
 - Existing deployments have no stored reference and resolve safely to
   `small-v1` (`resolveStoredInfrastructureSizeProfile`).
 - Profiles are immutable: a published `id`+`version` never changes.
+- The public plan preview resolves a profile by id:
+  `GET /api/public-install/:linkId/plan?profile=small` (version 1 today);
+  an unknown id is a 422, never a guess. Only `small` is published, so no
+  profile selector is rendered anywhere.
+
+## Plan resolution by profile id
+
+`GET /api/public-install/:linkId/plan?region=…&profile=small` resolves the
+footprint, plan, and server-side pricing by profile id. Today the only
+valid id is `small` (which resolves to `small-v1`); an unknown profile id
+returns `422 UNKNOWN_PROFILE`. An undeployable Region returns *Estimate
+unavailable* rather than a numeric cost. The same resolution path serves
+the vendor application page and the customer install page, so the two can
+never disagree about what a deployment costs in a given Region.
+
+## Legacy deployments
+
+A deployment created before the profile registry has no stored
+`infrastructureProfile` reference. `resolveStoredInfrastructureSizeProfile`
+returns `small-v1` for these rows, so the footprint, plan, and cost are
+unchanged from the pre-registry sizing. No migration is needed.
 
 ## Parity
 

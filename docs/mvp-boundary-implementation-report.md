@@ -354,3 +354,57 @@ published template changed (`packages/cdk/src` and the committed template
 artifacts are the same). This work only made the existing manifest fields
 the single source every layer reads, replacing several places that used to
 re-derive the same requirements independently.
+
+## 13. MVP Readiness 2 deltas (2026-09-23)
+
+Six phases that close the public-MVP surface on top of the Phases 0–14
+boundary. No boundary change; the deltas tighten ownership, security, and
+the customer entry point.
+
+- **Region ownership → customer.** The vendor recommends a Region; the
+  customer selects it at confirm time; the Region is immutable once the
+  deployment exists. The vendor no longer fixes the Region at link
+  generation.
+- **Invitations replace pre-created links.** A deployment is created only
+  when the customer confirms an invitation — never when the vendor creates
+  a link. Two link kinds (reusable public, targeted token-secured) share
+  one model; legacy deploy links keep working and are marked
+  `legacy_publisher_fixed` until post-MVP removal.
+- **Profile frozen at creation.** Every new deployment freezes its
+  infrastructure size profile (`small-v1` today) in
+  `desired_state.infrastructureProfile`; legacy deployments resolve to
+  `small-v1` with no migration.
+- **DEPLOY-027 closed.** Pre-relay secret values are stored in a KMS
+  ciphertext vault (`pending_secrets`), decrypted only for the
+  authenticated relay, and deleted on ack/purge/expiry. Secret values no
+  longer ride SQS or disappear when typed before the relay connects.
+- **Customer-page consolidation.** The vendor customer page shows
+  Deployments (per-deployment links) and Pending installations (invitations)
+  in separate tabs; the ambiguous customer-level Copy / Install Link card /
+  Deploy Link generator are removed.
+- **Invitation audit events.** The `invitation.*` event family records the
+  lifecycle with ids and counts only — never tokens or secret values.
+
+## 13. Addendum — MVP Readiness 2 deltas (2026-09-23)
+
+The public-MVP changes (Phases 0–6 on the `mvp-readiness-2` branch) move
+three product boundaries without changing the runtime architecture:
+
+- **Region ownership moved to the customer.** The vendor recommends a Region
+  (optional); the customer selects it at invitation confirm time; the Region
+  is immutable at deployment creation. Previously the vendor silently fixed
+  the Region for manual and deploy-link flows.
+- **Invitations replace pre-created deploy links.** The `public_install_links`
+  table is now the unified invitation model: a deployment is created only
+  when the customer confirms, never when the vendor creates the invitation.
+  Legacy `deploy_links` are marked `legacy_publisher_fixed` and continue to
+  work; their removal is post-MVP after expiry.
+- **DEPLOY-027 closed.** Pre-relay secrets are staged in the
+  `pending_secrets` vault (KMS-encrypted ciphertext only, 24h TTL, delivered
+  only to the authenticated relay, deleted on ack/destroy/purge/expiry).
+  The threat model and delivery sequence are in
+  `docs/pending-secret-delivery.md`.
+
+The runtime architecture (relay executors, job queue, watchdog, published
+templates, lifecycle) is unchanged. The full phase record is in
+`docs/mvp-implementation-status.md` (MVP Readiness 2 section).

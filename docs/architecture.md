@@ -48,7 +48,9 @@ The flow a deployment follows, end to end:
    enroll. Warnings never block; a missing customer-required value does.
 5. **Release Build** — a release is built by CodeBuild into an immutable
    ECR image digest; a deploy always targets `repository@sha256:…`.
-6. **Install Infrastructure** — the customer opens the install link and runs
+6. **Install Infrastructure** — the customer opens the deployment's install
+    link (`/install/:installLinkId`, reached after the invitation confirm
+    creates the deployment — see *Installation invitations* below) and runs
     the Quick Create. The bootstrap stack brings the relay up; the relay claims
     the INSTALL job, resolves the correct published application template variant
     from the deployment manifest's infrastructure requirements, and provisions
@@ -255,6 +257,72 @@ Every plan also carries `awsResources` (`AWS_RESOURCES`, filtered by the
 same infrastructure profile as `components`). The vendor application page
 and the customer install pages both render their "AWS infrastructure
 details" section from this list.
+
+## Installation invitations (MVP Readiness 2)
+
+The customer enters the install flow through an **invitation**, not through
+a vendor-created deployment. The `public_install_links` table holds two
+kinds of link under one model:
+
+- **Reusable public link** — no token, no customer id; the vendor shares
+  the URL and any customer who opens it can confirm and create a
+  deployment.
+- **Targeted invitation** — bound to one `customer_id`, secured by a
+  one-time token the customer presents in the `x-deployz-token` header
+  (only its sha256 is stored; it is never in URLs or logs).
+
+In both cases, **the deployment is created only when the customer
+confirms** (`POST /api/public-install/:id/confirm`), never when the vendor
+creates the invitation. The vendor flow is: create invitation → copy link
+(and one-time token for targeted) → customer opens → customer selects
+Region → customer reviews the region-specific plan and cost
+(`GET /api/public-install/:id/plan?region=…&profile=…`) → customer
+confirms → exactly one deployment is created (idempotent per idempotency
+key; a used invitation refuses further confirms with `410 USED`).
+
+**Region ownership:** the vendor **recommends** a Region (optional, stored
+as `recommended_region`); the customer **selects** the Region at confirm
+time. The Region is **immutable at creation**: once the deployment exists,
+its `region` column never changes. A customer who needs a different Region
+creates a new invitation and a new deployment. `region_selection` records
+ownership — `'customer'` for everything new; `'legacy_publisher_fixed'`
+marks the legacy `deploy_links` flow, which keeps working unchanged until a
+post-MVP removal.
+
+**Profile frozen at creation:** every new deployment freezes its
+infrastructure size profile in `desired_state.infrastructureProfile` as
+`{ id, version }` (today `small-v1`). The profile is resolved from the
+frozen manifest + Region + profile id/version + infra version; it never
+changes for the life of the deployment. See
+`docs/infrastructure-profiles.md`.
+
+Invitation states: active, expired, revoked, used. The full lifecycle,
+token security rules, legacy compatibility, and audit events are in
+`docs/installation-invitations.md`.
+
+## Secret delivery (pre-relay staging, DEPLOY-027)
+
+A secret value the customer types **before** the relay has connected is no
+longer write-only. The `pending_secrets` table stores KMS-encrypted
+ciphertext only (never plaintext); the encryption context binds the row to
+`{org, deployment, key}`; the TTL is 24 hours. The delivery sequence:
+
+1. **Stage** — the API encrypts the value and inserts the ciphertext row.
+2. **Materialize at deployment creation** — when the invitation confirms
+   and the deployment row is created, the pending secrets are associated
+   with the new deployment.
+3. **Relay-config decrypt** — the relay's authenticated
+   `GET /api/relay/config` call decrypts the values and returns them
+   alongside the effective config. Decryption happens only inside this
+   authenticated response.
+4. **Delete on ack** — once the relay acknowledges the CONFIG_UPDATE, the
+   rows are deleted. They are also deleted on DESTROY, force-complete,
+   purge, and by the watchdog sweep when the TTL expires.
+
+The threat model (defend against: DB attacker, stolen relay token, log
+readers, SQS readers; accept: relay-host and vendor-account compromise,
+TTL loss), the KMS key selection (`DEPLOYZ_KMS_KEY_ARN`), and the
+redaction guarantees are in `docs/pending-secret-delivery.md`.
 
 ## The MVP support boundary
 

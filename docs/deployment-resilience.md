@@ -115,8 +115,9 @@ pipeline's own image-pull failure and the circuit breaker stay honest
   either inserts. Domain jobs are outside the guard (they never race an
   executor over the stack/service), and so is CONFIG_UPDATE: secret
   delivery must be able to queue a config job during an active
-  install/deploy (the secret value rides the payload transiently), and the
-  relay executes its commands sequentially anyway.
+  install/deploy (the secret values live in the pending-secrets vault and
+  are delivered via the authenticated relay config endpoint, not in the job
+  payload), and the relay executes its commands sequentially anyway.
 - `GET /api/relay/commands` claims jobs atomically (single
   UPDATE … RETURNING), so overlapping polls cannot hand the same command
   out twice; `POST /api/relay/commands/:id/result` ignores results for

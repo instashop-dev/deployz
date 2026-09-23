@@ -223,7 +223,7 @@ Rulings recorded here:
 | Organization settings | `dashboard/settings/page.tsx` | Plan line replaced by subscription status |
 | App-wide banners | `dashboard/layout.tsx` (`SupportModeBanner` precedent, 23-36) | One past-due banner, one canceled banner |
 | Admin vendors | `admin/vendors/page.tsx`, `admin/vendors/[id]/page.tsx` | Plan column replaced. Phase 14 adds billing detail and Reconcile action |
-| Customer-facing install / deploy link | `app/install/[installLinkId]/*`, `app/deploy/[publicId]/page.tsx` | No change. Must stay free of vendor pricing |
+| Customer-facing install / invitation link | `app/install/[installLinkId]/*`, invitation confirm flow | No change. Must stay free of vendor pricing |
 | Marketing pricing | `app/(public)/pricing/page.tsx` | Copy already matches $49 + $19. Review wording only |
 
 Existing UI primitives: alert, alert-dialog, badge, card, dialog, separator,

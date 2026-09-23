@@ -73,9 +73,8 @@ Extend the existing plan architecture — do not build a parallel system.
 - Customer install page (`install/[installLinkId]`): "Planned
   infrastructure" summary + "Estimated AWS infrastructure" block inside the
   existing "Deployz will create" section.
-- Public install flow (`public-install-flow.tsx`) and deploy link page
-  (`deploy/[publicId]`): same two blocks; cost only when the server knows
-  the region.
+- Public install flow (`public-install-flow.tsx`) and invitation page:
+  same two blocks; cost only when the server knows the region.
 - Install progress (`install-progress.tsx`): same summary labeled
   "Deployed infrastructure" once the deployment is READY.
 - Vendor deployment detail already reconciles planned vs actual
