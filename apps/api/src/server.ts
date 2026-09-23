@@ -122,10 +122,15 @@ import {
   createAppJwt,
   createGithubStore,
   fetchInstallationAccount,
+  getCommit,
+  getFixtureCommit,
   handleInstallationWebhook,
+  listBranchCommits,
+  listFixtureBranchCommits,
   listInstallations,
   listRepositories,
   mintInstallationToken,
+  parseRepoFullName,
   verifyWebhookSignature,
   type FetchFn,
   type GithubWebhookEvent,
@@ -383,6 +388,11 @@ const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{
 // "Check now" clicks, and NAT'd offices all fit — while still bounding an
 // anonymous caller who has nothing but a guessable-length uuid to try.
 const PUBLIC_INSTALL_RATE_LIMIT = { max: 300, timeWindow: '1 minute' } as const;
+
+// Commit selector routes hit GitHub's API on every call (no caching) — capped
+// well under GitHub's own per-installation rate limits while comfortably
+// covering normal use (opening the release picker, paging, typing a sha).
+const GITHUB_COMMITS_RATE_LIMIT = { max: 60, timeWindow: '1 minute' } as const;
 
 // A refused relay retries registration indefinitely, so only the first
 // blocked preflight evaluation per window is recorded per deployment — the
@@ -4309,12 +4319,124 @@ export async function buildServer({
       releases: rows.map((row) => ({
         id: row.id,
         version: row.version,
+        gitSha: row.gitSha,
         status: releaseWireStatus(row),
         failureReason: row.failureReason,
         createdAt: row.createdAt,
       })),
     };
   });
+
+  // ── Commit selector (releases) ──────────────────────────────────────────
+  //
+  // Backs the release form's "pick a commit" UI: a paged, branch-scoped
+  // commit list plus manual-sha resolution, both narrowed to the
+  // application's own repo/branch (never a caller-supplied branch — see the
+  // commit-selector contract). Same fixture/real-App split as
+  // /api/github/repos, and the same 409 GITHUB_NOT_CONNECTED story: an
+  // installation token mint failure means the App was uninstalled or access
+  // was revoked since the application was connected, which is indistinguishable
+  // from "never connected" from here.
+  async function resolveCommitInstallationToken(application: ApplicationRow, organizationId: string): Promise<string> {
+    if (!application.githubInstallationId) {
+      throw new ApiError(409, 'GITHUB_NOT_CONNECTED', 'This application is not connected to a GitHub installation');
+    }
+    const record = await githubStore.get(application.githubInstallationId);
+    if (!record || record.organizationId !== organizationId) {
+      throw new ApiError(409, 'GITHUB_NOT_CONNECTED', 'This application is not connected to a GitHub installation');
+    }
+    if (!githubAppId || !githubAppPrivateKey) {
+      throw new ApiError(503, 'GITHUB_DISABLED', 'GitHub App is not configured');
+    }
+    try {
+      const { token } = await mintInstallationToken(
+        application.githubInstallationId,
+        githubAppId,
+        githubAppPrivateKey,
+        Date.now(),
+        githubFetch,
+      );
+      return token;
+    } catch (error) {
+      // mintInstallationToken collapses every non-2xx from GitHub into one
+      // opaque failure (no status code surfaces) — the App having been
+      // uninstalled or its access revoked (401/403/404) is the expected
+      // cause, so every mint failure reads as "not connected" rather than a
+      // generic 502.
+      if (error instanceof ApiError && error.code === 'GITHUB_TOKEN_FETCH_FAILED') {
+        throw new ApiError(409, 'GITHUB_NOT_CONNECTED', 'This application is not connected to a GitHub installation');
+      }
+      throw error;
+    }
+  }
+
+  const commitsQuerySchema = z.object({
+    page: z.coerce.number().int().min(1).max(10).optional().default(1),
+  });
+
+  // GET /api/applications/:id/commits?page=N — paged commit history for the
+  // application's own repo + default branch (fixed page size 30).
+  app.get(
+    '/api/applications/:id/commits',
+    { preHandler: requireAuth, config: { rateLimit: GITHUB_COMMITS_RATE_LIMIT } },
+    async (request) => {
+      const { id } = request.params as { id: string };
+      const organizationId = requireSessionOrganizationId(request);
+      const application = await loadOwnedApplication(db, id, organizationId);
+      const parsedQuery = commitsQuerySchema.safeParse(request.query);
+      if (!parsedQuery.success) {
+        throw new ApiError(400, 'INVALID_PAGE', 'page must be an integer between 1 and 10');
+      }
+      const { page } = parsedQuery.data;
+
+      const fixtureMode = githubFixtureMode ?? env.githubFixtureMode;
+      const { commits, nextPage } = fixtureMode
+        ? listFixtureBranchCommits(page)
+        : await listBranchCommits(
+            { ...parseRepoFullName(application.repoFullName), branch: application.defaultBranch },
+            page,
+            await resolveCommitInstallationToken(application, organizationId),
+            githubFetch,
+          );
+
+      return {
+        repoFullName: application.repoFullName,
+        branch: application.defaultBranch,
+        commits,
+        nextPage,
+      };
+    },
+  );
+
+  const COMMIT_SHA_REGEX = /^[0-9a-f]{7,40}$/i;
+
+  // GET /api/applications/:id/commits/:sha — manual sha entry, resolved and
+  // validated against the application's own repo (the sha regex is what
+  // guarantees a branch name can never be resolved and stored as a release).
+  app.get(
+    '/api/applications/:id/commits/:sha',
+    { preHandler: requireAuth, config: { rateLimit: GITHUB_COMMITS_RATE_LIMIT } },
+    async (request) => {
+      const { id, sha } = request.params as { id: string; sha: string };
+      const organizationId = requireSessionOrganizationId(request);
+      const application = await loadOwnedApplication(db, id, organizationId);
+      if (!COMMIT_SHA_REGEX.test(sha)) {
+        throw new ApiError(400, 'INVALID_COMMIT_SHA', 'sha must be 7-40 hexadecimal characters');
+      }
+
+      const fixtureMode = githubFixtureMode ?? env.githubFixtureMode;
+      const commit = fixtureMode
+        ? getFixtureCommit(sha)
+        : await getCommit(
+            parseRepoFullName(application.repoFullName),
+            sha,
+            await resolveCommitInstallationToken(application, organizationId),
+            githubFetch,
+          );
+
+      return { commit };
+    },
+  );
 
   // ── Job triggers (§25, §27, §63) ────────────────────────────────────────
 

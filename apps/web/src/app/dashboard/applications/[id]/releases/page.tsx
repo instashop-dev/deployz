@@ -2,7 +2,7 @@
 
 import { Info } from 'lucide-react';
 import { useParams } from 'next/navigation';
-import { useEffect, useState, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
 
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -14,6 +14,8 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { releaseBuildFailureSummary } from '@deployz/copy-map';
 
+import { CommitPicker, type CommitPickerHandle } from '@/components/commit-picker';
+import { useApplicationPage } from '../application-page-context';
 import { fetchDeploymentsForApplication } from '@/lib/deployments';
 import {
   RELEASE_STATUS_BADGE,
@@ -22,6 +24,7 @@ import {
   fetchReleases,
   createRelease,
   runningReleaseIds,
+  suggestNextVersion,
   type Release,
 } from '@/lib/releases';
 
@@ -89,7 +92,13 @@ export default function ReleasesPage() {
         </Button>
       </div>
 
-      {formOpen ? <CreateReleaseForm applicationId={id} onCreated={onCreated} /> : null}
+      {formOpen ? (
+        <CreateReleaseForm
+          applicationId={id}
+          releases={state.status === 'loaded' ? state.releases : []}
+          onCreated={onCreated}
+        />
+      ) : null}
 
       {state.status === 'loading' ? <LoadingState /> : null}
       {state.status === 'error' ? (
@@ -113,23 +122,31 @@ export default function ReleasesPage() {
 
 function CreateReleaseForm({
   applicationId,
+  releases,
   onCreated,
 }: {
   applicationId: string;
+  releases: Release[];
   onCreated: (release: Release) => void;
 }) {
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [commitReady, setCommitReady] = useState(false);
+  const { data } = useApplicationPage();
+  const commitPickerRef = useRef<CommitPickerHandle>(null);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
     const version = String(form.get('version') ?? '').trim();
-    const gitSha = String(form.get('gitSha') ?? '').trim();
     const migrationCommand = String(form.get('migrationCommand') ?? '').trim();
     setPending(true);
     setError(null);
     try {
+      const gitSha = await commitPickerRef.current?.resolveGitSha();
+      if (!gitSha) {
+        return;
+      }
       const release = await createRelease(applicationId, {
         version,
         gitSha,
@@ -157,13 +174,22 @@ function CreateReleaseForm({
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div className="flex flex-col gap-2">
               <Label htmlFor="version">Version</Label>
-              <Input id="version" name="version" placeholder="v1.3.0" required />
-            </div>
-            <div className="flex flex-col gap-2">
-              <Label htmlFor="gitSha">Git commit</Label>
-              <Input id="gitSha" name="gitSha" placeholder="a1b2c3d" required />
+              <Input
+                id="version"
+                name="version"
+                placeholder="v1.3.0"
+                defaultValue={suggestNextVersion(releases)}
+                required
+              />
             </div>
           </div>
+          <CommitPicker
+            ref={commitPickerRef}
+            applicationId={applicationId}
+            releases={releases}
+            defaultBranch={data?.application.defaultBranch ?? null}
+            onReadyChange={setCommitReady}
+          />
             <div className="flex flex-col gap-2">
               <Label htmlFor="migrationCommand">Migration command (optional)</Label>
               <Input id="migrationCommand" name="migrationCommand" placeholder="npm run migrate" />
@@ -174,7 +200,7 @@ function CreateReleaseForm({
               </p>
             </div>
           <div className="flex items-center gap-3">
-            <Button type="submit" loading={pending} loadingText="Creating release…">
+            <Button type="submit" loading={pending} loadingText="Creating release…" disabled={!commitReady}>
               Create Release
             </Button>
             {error ? (

@@ -12,6 +12,8 @@ export interface Release {
   status: ReleaseStatus;
   /** Why the build failed; null unless status is FAILED. */
   failureReason: string | null;
+  /** The commit this release was built from (full 40-char SHA). */
+  gitSha: string;
   createdAt: string;
 }
 
@@ -65,6 +67,7 @@ export async function createRelease(
     version: string;
     releaseStatus: ReleaseStatus;
     failureReason: string | null;
+    gitSha: string;
     createdAt: string;
   };
   return {
@@ -72,6 +75,7 @@ export async function createRelease(
     version: row.version,
     status: row.releaseStatus,
     failureReason: row.failureReason ?? null,
+    gitSha: row.gitSha,
     createdAt: row.createdAt,
   };
 }
@@ -128,5 +132,44 @@ export function runningReleaseIds(
       .filter((d) => d.state !== 'DELETED' && d.currentReleaseId !== null)
       .map((d) => d.currentReleaseId!),
   );
+}
+
+const SEMVER_PATTERN = /^(v?)(\d+)\.(\d+)\.(\d+)$/;
+
+/**
+ * A default value for the New release form's Version field: the newest
+ * release's version with its patch number incremented, keeping the `v`
+ * prefix when the newest version has one. Returns '' when there is no
+ * release yet or its version is not plain semver — the field stays
+ * editable either way.
+ */
+export function suggestNextVersion(
+  releases: readonly Pick<Release, 'version' | 'createdAt'>[],
+): string {
+  if (releases.length === 0) return '';
+  const newest = releases.reduce((latest, release) =>
+    Date.parse(release.createdAt) > Date.parse(latest.createdAt) ? release : latest,
+  );
+  const match = SEMVER_PATTERN.exec(newest.version);
+  if (!match) return '';
+  const [, prefix, major, minor, patch] = match;
+  return `${prefix}${major}.${minor}.${Number(patch) + 1}`;
+}
+
+/**
+ * Existing releases already built from `sha` (or from a commit `sha` is a
+ * prefix/extension of, so a short manual SHA still matches a full stored
+ * one) — shown as unobtrusive "Already released as vX" context under the
+ * commit field. Never blocks submit.
+ */
+export function alreadyReleasedVersions(releases: readonly Release[], sha: string): string[] {
+  const needle = sha.trim().toLowerCase();
+  if (needle.length < 7) return [];
+  return releases
+    .filter((release) => {
+      const gitSha = release.gitSha.toLowerCase();
+      return gitSha.length >= 7 && (gitSha.startsWith(needle) || needle.startsWith(gitSha));
+    })
+    .map((release) => release.version);
 }
 

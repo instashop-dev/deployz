@@ -18,11 +18,16 @@ import {
   createInstallationToken,
   fetchHeadSha,
   fetchRepositoryTreeEntries,
+  getCommit,
   getFileTreeForAnalysis,
+  getFixtureCommit,
+  GITHUB_FIXTURE_COMMITS,
   GITHUB_FIXTURE_FILE_TREES,
   GITHUB_FIXTURE_INSTALLATIONS,
   GITHUB_SCOPED_PERMISSIONS,
   handleInstallationWebhook,
+  listBranchCommits,
+  listFixtureBranchCommits,
   listInstallations,
   listRepositories,
   mintInstallationToken,
@@ -804,6 +809,233 @@ describe('github — fetchHeadSha (commit-SHA analysis cache)', () => {
   });
 });
 
+function rawCommit(sha: string, message: string, authorName: string | null = 'Jane', date: string | null = '2026-09-23T10:00:00Z') {
+  return {
+    sha,
+    commit: { message, author: authorName === null ? null : { name: authorName, date: date ?? undefined } },
+  };
+}
+
+describe('github — listBranchCommits (commit selector)', () => {
+  const REF = { owner: 'acme', repo: 'widgets', branch: 'main' };
+
+  it('fetches a page and maps commits to the CommitSummary shape', async () => {
+    let capturedUrl = '';
+    const fetchFn: FetchFn = async (url) => {
+      capturedUrl = url;
+      return makeFetchResponse(200, [
+        rawCommit('a'.repeat(40), 'Fix the thing\n\nLonger body here'),
+      ]);
+    };
+    const { commits, nextPage } = await listBranchCommits(REF, 1, 'tok', fetchFn);
+    expect(capturedUrl).toBe('https://api.github.com/repos/acme/widgets/commits?sha=main&per_page=30&page=1');
+    expect(commits).toEqual([
+      {
+        sha: 'a'.repeat(40),
+        shortSha: 'a'.repeat(7),
+        title: 'Fix the thing',
+        authorName: 'Jane',
+        committedAt: '2026-09-23T10:00:00Z',
+      },
+    ]);
+    expect(nextPage).toBeNull();
+  });
+
+  it('truncates the title to the first line, max 200 chars', async () => {
+    const longLine = 'x'.repeat(250);
+    const fetchFn: FetchFn = async () =>
+      makeFetchResponse(200, [rawCommit('b'.repeat(40), `${longLine}\nsecond line`)]);
+    const { commits } = await listBranchCommits(REF, 1, 'tok', fetchFn);
+    expect(commits[0]!.title).toBe('x'.repeat(200));
+  });
+
+  it('allows a null author and committed date', async () => {
+    const fetchFn: FetchFn = async () => makeFetchResponse(200, [rawCommit('c'.repeat(40), 'msg', null, null)]);
+    const { commits } = await listBranchCommits(REF, 1, 'tok', fetchFn);
+    expect(commits[0]!.authorName).toBeNull();
+    expect(commits[0]!.committedAt).toBeNull();
+  });
+
+  it('sets nextPage when a full page (30) comes back below the page cap', async () => {
+    const fetchFn: FetchFn = async () =>
+      makeFetchResponse(200, Array.from({ length: 30 }, (_, i) => rawCommit(i.toString(16).padStart(40, '0'), `commit ${i}`)));
+    const { commits, nextPage } = await listBranchCommits(REF, 3, 'tok', fetchFn);
+    expect(commits).toHaveLength(30);
+    expect(nextPage).toBe(4);
+  });
+
+  it('never returns a nextPage past the page cap (10)', async () => {
+    const fetchFn: FetchFn = async () =>
+      makeFetchResponse(200, Array.from({ length: 30 }, (_, i) => rawCommit(i.toString(16).padStart(40, '0'), `commit ${i}`)));
+    const { nextPage } = await listBranchCommits(REF, 10, 'tok', fetchFn);
+    expect(nextPage).toBeNull();
+  });
+
+  it('returns nextPage null when the page is short', async () => {
+    const fetchFn: FetchFn = async () => makeFetchResponse(200, [rawCommit('d'.repeat(40), 'only one')]);
+    const { commits, nextPage } = await listBranchCommits(REF, 1, 'tok', fetchFn);
+    expect(commits).toHaveLength(1);
+    expect(nextPage).toBeNull();
+  });
+
+  it('maps a 429 to GITHUB_RATE_LIMITED', async () => {
+    const fetchFn: FetchFn = async () => makeFetchResponse(429, { message: 'rate limited' });
+    await expect(listBranchCommits(REF, 1, 'tok', fetchFn)).rejects.toMatchObject({
+      statusCode: 429,
+      code: 'GITHUB_RATE_LIMITED',
+    });
+  });
+
+  it('maps a 403 with x-ratelimit-remaining: 0 to GITHUB_RATE_LIMITED', async () => {
+    const fetchFn: FetchFn = async () =>
+      makeFetchResponse(403, { message: 'forbidden' }, { 'x-ratelimit-remaining': '0' });
+    await expect(listBranchCommits(REF, 1, 'tok', fetchFn)).rejects.toMatchObject({
+      statusCode: 429,
+      code: 'GITHUB_RATE_LIMITED',
+    });
+  });
+
+  it('maps a 404 with no special message to GITHUB_REPO_NOT_FOUND', async () => {
+    const fetchFn: FetchFn = async () => makeFetchResponse(404, { message: 'Not Found' });
+    await expect(listBranchCommits(REF, 1, 'tok', fetchFn)).rejects.toMatchObject({
+      statusCode: 404,
+      code: 'GITHUB_REPO_NOT_FOUND',
+    });
+  });
+
+  it('maps a 404 "No commit found" message to GITHUB_BRANCH_NOT_FOUND', async () => {
+    const fetchFn: FetchFn = async () =>
+      makeFetchResponse(404, { message: 'No commit found for the ref missing-branch' });
+    await expect(listBranchCommits(REF, 1, 'tok', fetchFn)).rejects.toMatchObject({
+      statusCode: 404,
+      code: 'GITHUB_BRANCH_NOT_FOUND',
+    });
+  });
+
+  it('maps a 422 "No commit found" message to GITHUB_BRANCH_NOT_FOUND', async () => {
+    const fetchFn: FetchFn = async () =>
+      makeFetchResponse(422, { message: 'No commit found for the ref missing-branch' });
+    await expect(listBranchCommits(REF, 1, 'tok', fetchFn)).rejects.toMatchObject({
+      statusCode: 404,
+      code: 'GITHUB_BRANCH_NOT_FOUND',
+    });
+  });
+
+  it('maps a 409 (empty repository) to an empty list, not an error', async () => {
+    const fetchFn: FetchFn = async () => makeFetchResponse(409, { message: 'conflict' });
+    const { commits, nextPage } = await listBranchCommits(REF, 1, 'tok', fetchFn);
+    expect(commits).toEqual([]);
+    expect(nextPage).toBeNull();
+  });
+
+  it('maps a 404 "empty" message to an empty list, not an error', async () => {
+    const fetchFn: FetchFn = async () => makeFetchResponse(404, { message: 'Git Repository is empty.' });
+    const { commits, nextPage } = await listBranchCommits(REF, 1, 'tok', fetchFn);
+    expect(commits).toEqual([]);
+    expect(nextPage).toBeNull();
+  });
+
+  it('maps any other non-2xx to GITHUB_COMMITS_FETCH_FAILED', async () => {
+    const fetchFn: FetchFn = async () => makeFetchResponse(500, { message: 'boom' });
+    await expect(listBranchCommits(REF, 1, 'tok', fetchFn)).rejects.toMatchObject({
+      statusCode: 502,
+      code: 'GITHUB_COMMITS_FETCH_FAILED',
+    });
+  });
+});
+
+describe('github — getCommit (manual sha entry)', () => {
+  const REF = { owner: 'acme', repo: 'widgets' };
+  const FULL_SHA = 'a'.repeat(40);
+
+  it('fetches and maps a single commit', async () => {
+    let capturedUrl = '';
+    const fetchFn: FetchFn = async (url) => {
+      capturedUrl = url;
+      return makeFetchResponse(200, rawCommit(FULL_SHA, 'Fix the thing'));
+    };
+    const commit = await getCommit(REF, FULL_SHA, 'tok', fetchFn);
+    expect(capturedUrl).toBe(`https://api.github.com/repos/acme/widgets/commits/${FULL_SHA}`);
+    expect(commit.sha).toBe(FULL_SHA);
+    expect(commit.shortSha).toBe(FULL_SHA.slice(0, 7));
+  });
+
+  it('resolves a short sha whose full sha starts with the input', async () => {
+    const fetchFn: FetchFn = async () => makeFetchResponse(200, rawCommit(FULL_SHA, 'msg'));
+    const commit = await getCommit(REF, FULL_SHA.slice(0, 7), 'tok', fetchFn);
+    expect(commit.sha).toBe(FULL_SHA);
+  });
+
+  it('404s when the returned full sha does not start with the input', async () => {
+    const fetchFn: FetchFn = async () => makeFetchResponse(200, rawCommit(FULL_SHA, 'msg'));
+    await expect(getCommit(REF, 'b'.repeat(7), 'tok', fetchFn)).rejects.toMatchObject({
+      statusCode: 404,
+      code: 'COMMIT_NOT_FOUND',
+    });
+  });
+
+  it('maps a 404 to COMMIT_NOT_FOUND', async () => {
+    const fetchFn: FetchFn = async () => makeFetchResponse(404, { message: 'No commit found' });
+    await expect(getCommit(REF, FULL_SHA, 'tok', fetchFn)).rejects.toMatchObject({
+      statusCode: 404,
+      code: 'COMMIT_NOT_FOUND',
+    });
+  });
+
+  it('maps a 422 to COMMIT_NOT_FOUND', async () => {
+    const fetchFn: FetchFn = async () => makeFetchResponse(422, { message: 'invalid' });
+    await expect(getCommit(REF, FULL_SHA, 'tok', fetchFn)).rejects.toMatchObject({
+      statusCode: 404,
+      code: 'COMMIT_NOT_FOUND',
+    });
+  });
+
+  it('maps a 429 to GITHUB_RATE_LIMITED', async () => {
+    const fetchFn: FetchFn = async () => makeFetchResponse(429, { message: 'rate limited' });
+    await expect(getCommit(REF, FULL_SHA, 'tok', fetchFn)).rejects.toMatchObject({
+      statusCode: 429,
+      code: 'GITHUB_RATE_LIMITED',
+    });
+  });
+
+  it('maps any other non-2xx to GITHUB_COMMITS_FETCH_FAILED', async () => {
+    const fetchFn: FetchFn = async () => makeFetchResponse(500, { message: 'boom' });
+    await expect(getCommit(REF, FULL_SHA, 'tok', fetchFn)).rejects.toMatchObject({
+      statusCode: 502,
+      code: 'GITHUB_COMMITS_FETCH_FAILED',
+    });
+  });
+});
+
+describe('github — fixture commit helpers', () => {
+  it('produces 35 deterministic commits, newest first, with the expected first title', () => {
+    expect(GITHUB_FIXTURE_COMMITS).toHaveLength(35);
+    expect(GITHUB_FIXTURE_COMMITS[0]!.title).toBe('Fix deployment configuration');
+    expect(GITHUB_FIXTURE_COMMITS.every((c) => /^[0-9a-f]{40}$/.test(c.sha))).toBe(true);
+  });
+
+  it('pages fixture commits 30 + 5 with the same nextPage contract', () => {
+    const page1 = listFixtureBranchCommits(1);
+    expect(page1.commits).toHaveLength(30);
+    expect(page1.nextPage).toBe(2);
+
+    const page2 = listFixtureBranchCommits(2);
+    expect(page2.commits).toHaveLength(5);
+    expect(page2.nextPage).toBeNull();
+  });
+
+  it('resolves a fixture commit by sha prefix', () => {
+    const prefix = GITHUB_FIXTURE_COMMITS[0]!.sha.slice(0, 7);
+    expect(getFixtureCommit(prefix).sha).toBe(GITHUB_FIXTURE_COMMITS[0]!.sha);
+  });
+
+  it('404s a fixture sha with no match', () => {
+    expect(() => getFixtureCommit('f'.repeat(40))).toThrow(
+      expect.objectContaining({ code: 'COMMIT_NOT_FOUND' }),
+    );
+  });
+});
+
 describe('github — getFileTreeForAnalysis (fixture + real branching)', () => {
   it('returns the fixture tree by repoFullName in fixture mode', async () => {
     const tree = await getFileTreeForAnalysis('deployz-demo/express-api', { fixtureMode: true });
@@ -924,6 +1156,143 @@ describe('github — server routes over PGlite', () => {
     const response = await app.inject({ method: 'GET', url: '/api/github/repos', headers: { cookie } });
     expect(response.statusCode).toBe(400);
     expect(errorEnvelopeSchema.parse(response.json()).error.code).toBe('INSTALLATION_ID_REQUIRED');
+  });
+
+  describe('commit selector — fixture mode', () => {
+    let applicationId: string;
+
+    beforeAll(async () => {
+      const response = await app.inject({
+        method: 'POST',
+        url: '/api/applications',
+        headers: { cookie, 'content-type': 'application/json' },
+        payload: JSON.stringify({
+          name: 'Express API',
+          githubInstallationId: 'fixture-install-1',
+          repoFullName: 'deployz-demo/express-api',
+          repoUrl: 'https://github.com/deployz-demo/express-api',
+          defaultBranch: 'main',
+        }),
+      });
+      applicationId = (response.json() as { id: string }).id;
+    });
+
+    it('returns fixture page 1 (30 commits, nextPage 2) scoped to the application repo/branch', async () => {
+      const response = await app.inject({
+        method: 'GET',
+        url: `/api/applications/${applicationId}/commits?page=1`,
+        headers: { cookie },
+      });
+      expect(response.statusCode).toBe(200);
+      const body = response.json() as {
+        repoFullName: string;
+        branch: string;
+        commits: unknown[];
+        nextPage: number | null;
+      };
+      expect(body.repoFullName).toBe('deployz-demo/express-api');
+      expect(body.branch).toBe('main');
+      expect(body.commits).toHaveLength(30);
+      expect(body.nextPage).toBe(2);
+    });
+
+    it('returns fixture page 2 (5 commits, nextPage null)', async () => {
+      const response = await app.inject({
+        method: 'GET',
+        url: `/api/applications/${applicationId}/commits?page=2`,
+        headers: { cookie },
+      });
+      expect(response.statusCode).toBe(200);
+      const body = response.json() as { commits: unknown[]; nextPage: number | null };
+      expect(body.commits).toHaveLength(5);
+      expect(body.nextPage).toBeNull();
+    });
+
+    it('defaults to page 1 when no page is given', async () => {
+      const response = await app.inject({
+        method: 'GET',
+        url: `/api/applications/${applicationId}/commits`,
+        headers: { cookie },
+      });
+      expect(response.statusCode).toBe(200);
+      expect((response.json() as { commits: unknown[] }).commits).toHaveLength(30);
+    });
+
+    it('rejects an invalid page with 400 INVALID_PAGE', async () => {
+      const response = await app.inject({
+        method: 'GET',
+        url: `/api/applications/${applicationId}/commits?page=11`,
+        headers: { cookie },
+      });
+      expect(response.statusCode).toBe(400);
+      expect(errorEnvelopeSchema.parse(response.json()).error.code).toBe('INVALID_PAGE');
+    });
+
+    it('rejects a non-numeric page with 400 INVALID_PAGE', async () => {
+      const response = await app.inject({
+        method: 'GET',
+        url: `/api/applications/${applicationId}/commits?page=abc`,
+        headers: { cookie },
+      });
+      expect(response.statusCode).toBe(400);
+      expect(errorEnvelopeSchema.parse(response.json()).error.code).toBe('INVALID_PAGE');
+    });
+
+    it('rejects unauthenticated access with 401', async () => {
+      const response = await app.inject({ method: 'GET', url: `/api/applications/${applicationId}/commits` });
+      expect(response.statusCode).toBe(401);
+    });
+
+    it('resolves a valid short sha to the full 40-char sha', async () => {
+      const shortSha = GITHUB_FIXTURE_COMMITS[0]!.sha.slice(0, 7);
+      const response = await app.inject({
+        method: 'GET',
+        url: `/api/applications/${applicationId}/commits/${shortSha}`,
+        headers: { cookie },
+      });
+      expect(response.statusCode).toBe(200);
+      const body = response.json() as { commit: { sha: string; title: string } };
+      expect(body.commit.sha).toBe(GITHUB_FIXTURE_COMMITS[0]!.sha);
+      expect(body.commit.title).toBe('Fix deployment configuration');
+    });
+
+    it('rejects an invalid sha format (e.g. a branch name) with 400 INVALID_COMMIT_SHA', async () => {
+      const response = await app.inject({
+        method: 'GET',
+        url: `/api/applications/${applicationId}/commits/main`,
+        headers: { cookie },
+      });
+      expect(response.statusCode).toBe(400);
+      expect(errorEnvelopeSchema.parse(response.json()).error.code).toBe('INVALID_COMMIT_SHA');
+    });
+
+    it('404s an unknown but well-formed sha', async () => {
+      const response = await app.inject({
+        method: 'GET',
+        url: `/api/applications/${applicationId}/commits/${'f'.repeat(40)}`,
+        headers: { cookie },
+      });
+      expect(response.statusCode).toBe(404);
+      expect(errorEnvelopeSchema.parse(response.json()).error.code).toBe('COMMIT_NOT_FOUND');
+    });
+
+    it('404s a cross-org application (authorization boundary)', async () => {
+      const other = await auth.api.signUpEmail({
+        body: { email: 'github-other@example.com', password: 'super-secret-1', name: 'Other' },
+      });
+      void other;
+      const signin = await auth.api.signInEmail({
+        body: { email: 'github-other@example.com', password: 'super-secret-1' },
+        asResponse: true,
+      });
+      const otherCookie = signin.headers.get('set-cookie')!;
+      const response = await app.inject({
+        method: 'GET',
+        url: `/api/applications/${applicationId}/commits`,
+        headers: { cookie: otherCookie },
+      });
+      expect(response.statusCode).toBe(404);
+    });
   });
 
   it('rejects a webhook with an invalid signature as a structured 400 envelope (no stack)', async () => {
