@@ -19,7 +19,7 @@
 // Real AWS never runs from here: the AWS commands are printed as escalations.
 import { spawnSync } from 'node:child_process';
 import { appendFileSync, existsSync, readdirSync, readFileSync } from 'node:fs';
-import { join, relative, sep } from 'node:path';
+import { join, relative } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 // ── Rules ────────────────────────────────────────────────────────────────────
@@ -127,7 +127,7 @@ export const VERIFIED_PATHS = [
 
 // ── Workspace graph ──────────────────────────────────────────────────────────
 
-function toForwardSlash(p) { return p.split(sep).join('/'); }
+function toForwardSlash(p) { return p.replace(/\\/g, '/'); }
 
 // Reads apps/* and packages/* manifests: directory → package name, and the
 // transitive reverse dependency closure over @deployz/* packages. Also which
