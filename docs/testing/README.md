@@ -74,7 +74,8 @@ Gate` job is the aggregate status; it fails when the plan selected
 Playwright coverage that did not run. Real AWS never enters CI: the plan
 prints the real-AWS commands as escalations, and `aws-canary.yml` is
 `workflow_dispatch` only. The visual suite never runs in CI
-(Windows-generated snapshots).
+(Windows-generated snapshots). The deploy workflows run only after a
+green CI run on `main`.
 
 ## Documents
 

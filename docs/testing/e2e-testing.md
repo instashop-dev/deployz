@@ -281,7 +281,7 @@ the same house conventions as every other browser spec (`uniqueEmail`,
   deployed control plane and the test account; 60–90 minutes, costs money,
   one at a time. See `version-rollback-canary.md`.
 - **No CI job runs `fresh`.** It remains a manual/local escalation — see
-  `aws-fresh.md`. The deploy workflows do not wait for any of these.
+  `aws-fresh.md`. The deploy workflows wait for the CI workflow on `main`, never for a real-AWS run.
 
 ## Debugging failures
 
