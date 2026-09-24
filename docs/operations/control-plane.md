@@ -9,9 +9,12 @@ rule: [`../decisions/deploy-gate.md`](../decisions/deploy-gate.md).
 
 `.github/workflows/deploy-api.yml` deploys the `Deployz` CDK stack (VPC, RDS,
 API Lambda, SQS queue and worker Lambda, the CodeBuild/ECR release pipeline,
-the KMS key, the public template bucket) on every push to `main` that touches
-`apps/api`, `packages/{cdk,db,contracts,analysis,relay}` or the lockfile, and
-on demand from the Actions tab. One deploy runs at a time. It:
+the KMS key, the public template bucket) after the CI workflow succeeds for
+a push to `main` that touches `apps/api`,
+`packages/{cdk,db,contracts,analysis,relay,copy-map}` or the lockfile, and
+on demand from the Actions tab. A commit that is no longer the tip of `main`
+when its CI finishes is not deployed; the newer commit's run deploys
+instead. One deploy runs at a time. It:
 
 1. supplies the Lambda's **entire** environment from repository secrets and
    variables (`collectEnvVars()` in `packages/cdk/src/deployz-stack.ts`
@@ -40,15 +43,12 @@ The `local` context flag also re-enables `deploy`; it exists for previewing,
 not shipping.
 
 `deploy-web.yml` builds `apps/web` into a container and ships it to the
-Lightsail container service behind `app.deployz.dev`. Neither deploy
-workflow waits for CI; when validating a production change, record the SHA
-and confirm both deploy runs finished.
-
-Known gap in the trigger paths: `deploy-api.yml` does not list
-`packages/copy-map/**` although the API bundles it, and `deploy-web.yml`
-does not list `packages/contracts/**` although the web app bundles it. A
-change to only one of those packages does not redeploy the service that
-uses it; run the workflow from the Actions tab in that case.
+Lightsail container service behind `app.deployz.dev`, after the CI workflow
+succeeds for a push to `main` that touches `apps/web`,
+`packages/{copy-map,contracts}` or the lockfile, and then checks
+`https://app.deployz.dev/healthz`. Both deploy workflows wait for CI; a red
+CI run on `main` deploys nothing. When validating a production change,
+record the SHA and confirm both deploy runs finished.
 
 There are no CloudWatch alarms and no paging on the control plane. The SQS
 dead-letter queue (three delivery attempts, three-day retention) is
