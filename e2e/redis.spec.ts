@@ -179,8 +179,10 @@ test('bullmq-worker: analyses as ready with the managed Redis passed check, then
   const { deploymentId, installLinkId, installationId, enrollmentCode, relayCredential } =
     await seedCustomerAndDeployment(page, applicationId, suffix);
   await page.goto(`/install/${installLinkId}`);
-  const willCreateSection = page.locator('section[aria-labelledby="will-create"]');
-  await expect(willCreateSection.getByRole('cell', { name: 'Cache', exact: true })).toBeVisible();
+  const willCreateSection = page.locator('section[aria-labelledby="infrastructure"]');
+  await expect(
+    willCreateSection.getByRole('cell', { name: 'ElastiCache Valkey cache', exact: true }),
+  ).toBeVisible();
 
   // ── 4. Deployment detail: the Infrastructure section lists the cache
   // component. That section renders from the persisted resource inventory
@@ -257,7 +259,11 @@ test('legacy-redis: analyses as unsupported — "Your app uses Redis features De
   await expect(redisRow).toBeVisible();
   await expect(redisRow).toContainText('Change required');
   await redisRow.getByRole('button', { name: /Details for/ }).click();
+  // Scoped to the popover: the same explanation also appears, unscoped, in
+  // the always-visible "Required changes" panel above the table.
   await expect(
-    page.getByText('This app uses Redis features Deployz cannot provide', { exact: false }),
+    page
+      .locator('[data-slot="popover-content"]')
+      .getByText('This app uses Redis features Deployz cannot provide', { exact: false }),
   ).toBeVisible();
 });
