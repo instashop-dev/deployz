@@ -248,15 +248,16 @@ test('progress events: a batch ingest shows one active phase, expands to raw eve
   await expect(page.getByText('PublicSubnet1')).toBeVisible();
   await expect(page.getByText('ApplicationDatabase')).toBeVisible();
 
-  // ── 3. Customer install page: the existing step timeline reflects the
-  // same ingested NETWORK progress (not just the coarse PROVISIONING
-  // heading — see the 'Creating database & storage' idiom at
-  // deployment-progress.spec.ts:279), and no raw AWS jargon anywhere.
+  // ── 3. Customer install page: the stepper reflects the same ingested
+  // NETWORK progress (not just the coarse PROVISIONING heading). Its rung
+  // labels are static — "Network ready" — and the state is the sr-only
+  // suffix, so the in-progress network rung reads "Network ready (in
+  // progress)". No raw AWS jargon anywhere.
   await page.goto(`/install/${installLinkId}`);
   await expect(
     page.getByRole('heading', { name: 'Creating application infrastructure' }),
   ).toBeVisible();
-  await expect(page.getByText('Creating network')).toBeVisible();
+  await expect(page.getByText('Network ready (in progress)')).toBeVisible();
   const installPageText = await page.locator('body').innerText();
   expect(installPageText).not.toMatch(JARGON);
 
