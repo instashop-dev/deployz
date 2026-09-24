@@ -35,15 +35,24 @@ import type { DeploymentPlan } from '@deployz/contracts';
 interface PublicInstallFlowProps {
   linkId: string;
   resolve: PublicInstallResolve;
+  /** Invitation token for targeted invitations; undefined for reusable links. */
+  token?: string;
+  /** A targeted invitation already names the customer — no details to enter. */
+  customerKnown?: boolean;
 }
 
-export function PublicInstallFlow({ linkId, resolve }: PublicInstallFlowProps) {
+export function PublicInstallFlow({ linkId, resolve, token, customerKnown = false }: PublicInstallFlowProps) {
   const router = useRouter();
 
+  // Vendor recommendation is a preselection hint the customer may change.
+  // Materially simpler and consistent with current UX. Otherwise the region
+  // starts empty — the customer must pick explicitly, and confirm stays
+  // disabled until they do (no silent first-region default).
   const [region, setRegion] = useState(
-    resolve.recommendedRegion && resolve.regions.some((option) => option.value === resolve.recommendedRegion)
+    resolve.recommendedRegion &&
+      resolve.regions.some((option) => option.value === resolve.recommendedRegion)
       ? resolve.recommendedRegion
-      : (resolve.regions[0]?.value ?? ''),
+      : '',
   );
   const [customerName, setCustomerName] = useState('');
   const [customerEmail, setCustomerEmail] = useState('');
@@ -68,7 +77,7 @@ export function PublicInstallFlow({ linkId, resolve }: PublicInstallFlowProps) {
     requestedRegionRef.current = region;
     const requested = region;
     setPlanLoading(true);
-    void fetchPublicInstallPlan(linkId, region).then((freshPlan) => {
+    void fetchPublicInstallPlan(linkId, region, token).then((freshPlan) => {
       if (requestedRegionRef.current !== requested) return; // stale response
       setPlanLoading(false);
       if (freshPlan === null) {
@@ -79,7 +88,7 @@ export function PublicInstallFlow({ linkId, resolve }: PublicInstallFlowProps) {
       setPlan(freshPlan);
       setEstimateUnavailable(freshPlan.costEstimate == null);
     });
-  }, [linkId, region]);
+  }, [linkId, region, token]);
 
   const planRows = useMemo(() => installPlanRows(plan), [plan]);
   const retentionNote = useMemo(() => installPlanRetentionNote(plan), [plan]);
@@ -96,7 +105,9 @@ export function PublicInstallFlow({ linkId, resolve }: PublicInstallFlowProps) {
   const settingsTotal = resolve.requiredInputs.length;
 
   const canSubmit =
-    region !== '' && customerName.trim() !== '' && customerEmail.trim() !== '' && settingsValid;
+    region !== '' &&
+    settingsValid &&
+    (customerKnown || (customerName.trim() !== '' && customerEmail.trim() !== ''));
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -117,12 +128,20 @@ export function PublicInstallFlow({ linkId, resolve }: PublicInstallFlowProps) {
       .filter((item): item is { key: string; value: string; isSecret: boolean } => item !== null);
 
     try {
-      const result = await confirmPublicInstall(linkId, {
-        idempotencyKey,
-        region,
-        customer: { name: customerName.trim(), email: customerEmail.trim() },
-        config,
-      });
+      const result = await confirmPublicInstall(
+        linkId,
+        {
+          idempotencyKey,
+          region,
+          // A targeted invitation forbids re-naming its customer; a reusable
+          // link requires it.
+          ...(customerKnown
+            ? {}
+            : { customer: { name: customerName.trim(), email: customerEmail.trim() } }),
+          config,
+        },
+        token,
+      );
 
       if (result.ok) {
         router.push(`/install/${result.installLinkId}`);
@@ -273,36 +292,38 @@ export function PublicInstallFlow({ linkId, resolve }: PublicInstallFlowProps) {
         </section>
       ) : null}
 
-      <section aria-labelledby="public-customer" className="flex flex-col gap-4">
-        <h2 id="public-customer" className="text-base font-semibold">
-          Your details
-        </h2>
-        <div className="flex flex-col gap-4">
-          <div className="flex flex-col gap-2">
-            <Label htmlFor="customer-name">
-              Name <span className="text-destructive">*</span>
-            </Label>
-            <Input
-              id="customer-name"
-              value={customerName}
-              onChange={(event) => setCustomerName(event.target.value)}
-              required
-            />
+      {customerKnown ? null : (
+        <section aria-labelledby="public-customer" className="flex flex-col gap-4">
+          <h2 id="public-customer" className="text-base font-semibold">
+            Your details
+          </h2>
+          <div className="flex flex-col gap-4">
+            <div className="flex flex-col gap-2">
+              <Label htmlFor="customer-name">
+                Name <span className="text-destructive">*</span>
+              </Label>
+              <Input
+                id="customer-name"
+                value={customerName}
+                onChange={(event) => setCustomerName(event.target.value)}
+                required
+              />
+            </div>
+            <div className="flex flex-col gap-2">
+              <Label htmlFor="customer-email">
+                Email <span className="text-destructive">*</span>
+              </Label>
+              <Input
+                id="customer-email"
+                type="email"
+                value={customerEmail}
+                onChange={(event) => setCustomerEmail(event.target.value)}
+                required
+              />
+            </div>
           </div>
-          <div className="flex flex-col gap-2">
-            <Label htmlFor="customer-email">
-              Email <span className="text-destructive">*</span>
-            </Label>
-            <Input
-              id="customer-email"
-              type="email"
-              value={customerEmail}
-              onChange={(event) => setCustomerEmail(event.target.value)}
-              required
-            />
-          </div>
-        </div>
-      </section>
+        </section>
+      )}
 
       <section aria-labelledby="public-review" className="flex flex-col gap-3">
         <h2 id="public-review" className="text-base font-semibold">

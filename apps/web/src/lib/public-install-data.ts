@@ -15,13 +15,20 @@ export type PublicInstallLookup =
  * Resolve a public install link. Returns the review projection on 200, null on
  * 404 (unknown public link), and a gone marker on 410 (revoked, disabled, or
  * no published release). Any other failure is treated as 404 so the page can
- * fall through to the existing per-deployment flow.
+ * fall through to the existing per-deployment flow. `token` authorizes a
+ * targeted invitation's private surface (uniform 404 when missing/wrong).
  */
-export async function fetchPublicInstallData(linkId: string): Promise<PublicInstallLookup> {
+export async function fetchPublicInstallData(
+  linkId: string,
+  token?: string,
+): Promise<PublicInstallLookup> {
   try {
     const response = await fetch(
       `${serverApiUrl()}/api/public-install/${encodeURIComponent(linkId)}`,
-      { cache: 'no-store' },
+      {
+        cache: 'no-store',
+        ...(token !== undefined ? { headers: { 'x-deployz-token': token } } : {}),
+      },
     );
     if (response.status === 404) return null;
     if (response.status === 410) {

@@ -24,12 +24,13 @@ vi.mock('../src/lib/public-install-confirm', () => ({
 
 const pageMocks = vi.hoisted(() => ({
   fetchPublicInstallData: vi.fn(),
+  fetchPublicInstallPlan: vi.fn(),
   fetchInstallData: vi.fn(),
   fetchInstallStatusServer: vi.fn(),
 }));
 vi.mock('../src/lib/public-install-data', () => ({
   fetchPublicInstallData: pageMocks.fetchPublicInstallData,
-  fetchPublicInstallPlan: vi.fn().mockResolvedValue(null),
+  fetchPublicInstallPlan: pageMocks.fetchPublicInstallPlan,
 }));
 vi.mock('../src/lib/install-data', () => ({
   fetchInstallData: pageMocks.fetchInstallData,
@@ -107,12 +108,22 @@ async function renderServer(linkId: string = LINK_ID): Promise<Document> {
 
 const cleanups: Array<() => void> = [];
 
-function renderFlow(resolve: PublicInstallResolve = resolveFixture()): HTMLElement {
+function renderFlow(
+  resolve: PublicInstallResolve = resolveFixture(),
+  props: { token?: string; customerKnown?: boolean } = {},
+): HTMLElement {
   const container = document.createElement('div');
   document.body.appendChild(container);
   const root = createRoot(container);
   act(() => {
-    root.render(<PublicInstallFlow linkId={LINK_ID} resolve={resolve} />);
+    root.render(
+      <PublicInstallFlow
+        linkId={LINK_ID}
+        resolve={resolve}
+        {...(props.token !== undefined ? { token: props.token } : {})}
+        {...(props.customerKnown !== undefined ? { customerKnown: props.customerKnown } : {})}
+      />,
+    );
   });
   cleanups.push(() => {
     act(() => {
@@ -166,7 +177,9 @@ describe('InstallPage public resolution', () => {
     expect(doc.body.textContent).toContain('Acme App');
     expect(doc.body.textContent).toContain('Acme Inc');
     expect(doc.body.textContent).toContain('Release 1.2.0');
-    expect(doc.body.textContent).toContain('US East (N. Virginia)');
+    // No recommendation: the region waits for an explicit choice (the
+    // options themselves are covered by the client-side flow tests).
+    expect(doc.body.textContent).toContain('Select a region');
     expect(doc.body.textContent).toContain('API_KEY');
     expect(doc.body.textContent).toContain('Application');
     expect(doc.body.textContent).toContain('Secure endpoint');
@@ -246,6 +259,7 @@ describe('PublicInstallFlow', () => {
   beforeEach(() => {
     confirmMocks.confirmPublicInstall.mockReset();
     routerMocks.push.mockReset();
+    pageMocks.fetchPublicInstallPlan.mockReset().mockResolvedValue(null);
     vi.stubGlobal('crypto', { randomUUID: () => 'idem-key-1' });
   });
 
@@ -372,7 +386,119 @@ describe('PublicInstallFlow', () => {
     expect(document.body.textContent).not.toContain('Europe (Ireland)');
   });
 
-  it('disables deploy until all required values are filled', async () => {
+  it('leaves the region unselected until the customer chooses one when there is no recommendation', () => {
+    renderFlow(resolveFixture({ recommendedRegion: null }));
+
+    const trigger = document.querySelector('[data-slot="select-trigger"]') as HTMLElement;
+    expect(trigger.textContent).toContain('Select a region');
+  });
+
+  it('preselects a valid recommendation, marks it Recommended, and shows the recommends sentence', async () => {
+    renderFlow(resolveFixture({ recommendedRegion: 'us-west-2' }));
+
+    expect(document.body.textContent).toContain(
+      'Acme Inc recommends US West (Oregon). You make the final choice.',
+    );
+
+    const trigger = document.querySelector('[data-slot="select-trigger"]') as HTMLElement;
+    expect(trigger.textContent).toContain('US West (Oregon)');
+
+    await act(async () => {
+      click(trigger);
+    });
+    const recommended = Array.from(document.querySelectorAll('[role="option"]')).find((option) =>
+      option.textContent?.includes('US West (Oregon)'),
+    );
+    expect(recommended?.textContent).toContain('Recommended');
+  });
+
+  it('re-fetches the plan when the region changes and keeps entered settings', async () => {
+    renderFlow();
+    await fillForm();
+
+    expect(pageMocks.fetchPublicInstallPlan).toHaveBeenLastCalledWith(LINK_ID, 'us-east-1', undefined);
+
+    await selectRegion('US West (Oregon)');
+
+    expect(pageMocks.fetchPublicInstallPlan).toHaveBeenLastCalledWith(LINK_ID, 'us-west-2', undefined);
+    // Entered values survive the region change.
+    expect((document.querySelector('input#API_KEY') as HTMLInputElement).value).toBe('secret-key');
+    expect((document.querySelector('input#ORG_NAME') as HTMLInputElement).value).toBe('Acme');
+  });
+
+  it('a stale plan response from an earlier region cannot overwrite the latest selection', async () => {
+    const east = deferred<DeploymentPlan | null>();
+    const west = deferred<DeploymentPlan | null>();
+    pageMocks.fetchPublicInstallPlan
+      .mockImplementationOnce(() => east.promise)
+      .mockImplementationOnce(() => west.promise);
+    renderFlow();
+
+    await selectRegion('US East (N. Virginia)');
+    await selectRegion('US West (Oregon)');
+
+    await act(async () => {
+      west.resolve({
+        ...planFixture(),
+        components: [
+          ...planFixture().components,
+          { kind: 'application', name: 'WEST PLAN', action: 'CREATE', lifecycle: 'delete' as const },
+        ],
+      });
+    });
+    expect(document.body.textContent).toContain('WEST PLAN');
+
+    // The earlier region's response arrives last — it must be discarded.
+    await act(async () => {
+      east.resolve({
+        ...planFixture(),
+        components: [
+          ...planFixture().components,
+          { kind: 'application', name: 'STALE EAST PLAN', action: 'CREATE', lifecycle: 'delete' as const },
+        ],
+      });
+    });
+    expect(document.body.textContent).not.toContain('STALE EAST PLAN');
+    expect(document.body.textContent).toContain('WEST PLAN');
+  });
+
+  it('renders the invitation flow without customer fields and omits customer from the confirm body', async () => {
+    confirmMocks.confirmPublicInstall.mockResolvedValue({ ok: true, installLinkId: 'new-link-id' });
+    renderFlow(resolveFixture(), { customerKnown: true, token: 'one-time-token' });
+
+    expect(document.querySelector('input#customer-name')).toBeNull();
+    expect(document.querySelector('input#customer-email')).toBeNull();
+    expect(document.body.textContent).not.toContain('Your details');
+
+    const apiKey = document.querySelector('input#API_KEY') as HTMLInputElement;
+    const orgName = document.querySelector('input#ORG_NAME') as HTMLInputElement;
+    await act(async () => {
+      typeInto(apiKey, 'secret-key');
+      typeInto(orgName, 'Acme');
+    });
+    await selectRegion('US East (N. Virginia)');
+
+    const button = document.querySelector('button[type="submit"]') as HTMLButtonElement;
+    expect(button.disabled).toBe(false);
+    await act(async () => {
+      click(button);
+    });
+
+    expect(confirmMocks.confirmPublicInstall).toHaveBeenCalledTimes(1);
+    expect(confirmMocks.confirmPublicInstall.mock.calls[0]![0]).toBe(LINK_ID);
+    expect(confirmMocks.confirmPublicInstall.mock.calls[0]![1]).toEqual({
+      idempotencyKey: 'idem-key-1',
+      region: 'us-east-1',
+      config: [
+        { key: 'API_KEY', value: 'secret-key', isSecret: true },
+        { key: 'ORG_NAME', value: 'Acme', isSecret: false },
+      ],
+    });
+    expect(confirmMocks.confirmPublicInstall.mock.calls[0]![2]).toBe('one-time-token');
+    expect(routerMocks.push).toHaveBeenCalledWith('/install/new-link-id');
+  });
+
+  it('disables deploy until all required values are filled and a region is chosen', async () => {
     renderFlow();
 
     const button = document.querySelector('button[type="submit"]') as HTMLButtonElement;
@@ -395,7 +521,12 @@ describe('PublicInstallFlow', () => {
       typeInto(customerEmail, 'ada@example.com');
     });
 
-    expect(button.disabled).toBe(false);
+    // Everything except the region: still disabled — the choice is explicit.
+    expect(button.disabled).toBe(true);
+
+    await selectRegion('US East (N. Virginia)');
+
+    expect((document.querySelector('button[type="submit"]') as HTMLButtonElement).disabled).toBe(false);
   });
 
   it('posts the confirm body with a stable idempotency key and navigates on success', async () => {
@@ -410,7 +541,8 @@ describe('PublicInstallFlow', () => {
     });
 
     expect(confirmMocks.confirmPublicInstall).toHaveBeenCalledTimes(1);
-    expect(confirmMocks.confirmPublicInstall).toHaveBeenCalledWith(LINK_ID, {
+    expect(confirmMocks.confirmPublicInstall.mock.calls[0]![0]).toBe(LINK_ID);
+    expect(confirmMocks.confirmPublicInstall.mock.calls[0]![1]).toEqual({
       idempotencyKey: 'idem-key-1',
       region: 'us-east-1',
       customer: { name: 'Ada Lovelace', email: 'ada@example.com' },
@@ -483,6 +615,19 @@ describe('PublicInstallFlow', () => {
   });
 });
 
+async function selectRegion(label: string): Promise<void> {
+  const trigger = document.querySelector('[data-slot="select-trigger"]') as HTMLElement;
+  await act(async () => {
+    click(trigger);
+  });
+  const option = Array.from(document.querySelectorAll('[role="option"]')).find(
+    (element) => element.textContent === label,
+  ) as HTMLElement;
+  await act(async () => {
+    click(option);
+  });
+}
+
 async function fillForm(): Promise<void> {
   const apiKey = document.querySelector('input#API_KEY') as HTMLInputElement;
   const orgName = document.querySelector('input#ORG_NAME') as HTMLInputElement;
@@ -495,4 +640,5 @@ async function fillForm(): Promise<void> {
     typeInto(customerName, 'Ada Lovelace');
     typeInto(customerEmail, 'ada@example.com');
   });
+  await selectRegion('US East (N. Virginia)');
 }

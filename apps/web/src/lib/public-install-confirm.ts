@@ -3,7 +3,8 @@ import { apiUrl } from '@/lib/api-url';
 export interface PublicInstallConfirmBody {
   idempotencyKey: string;
   region: string;
-  customer: { name: string; email: string };
+  /** Required for a reusable link; a targeted invitation already names the customer. */
+  customer?: { name: string; email: string };
   config: Array<{ key: string; value: string; isSecret: boolean }>;
 }
 
@@ -15,12 +16,16 @@ export type PublicInstallConfirmResult =
 export async function confirmPublicInstall(
   linkId: string,
   body: PublicInstallConfirmBody,
+  token?: string,
 ): Promise<PublicInstallConfirmResult> {
   const response = await fetch(
     `${apiUrl}/api/public-install/${encodeURIComponent(linkId)}/confirm`,
     {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token !== undefined ? { 'x-deployz-token': token } : {}),
+      },
       body: JSON.stringify(body),
     },
   );
