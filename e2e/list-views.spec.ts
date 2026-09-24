@@ -551,12 +551,12 @@ test.describe('Customers list', () => {
     await page.getByRole('button', { name: 'Actions for Wayne' }).click();
     await expect(page.getByRole('menuitem', { name: 'Edit customer' })).toBeVisible();
     await expect(page.getByRole('menuitem', { name: 'Delete customer' })).toBeVisible();
-    await expect(page.getByRole('menuitem', { name: 'Copy install link' })).toHaveCount(0);
+    await expect(page.getByRole('menuitem', { name: 'View deployment' })).toHaveCount(0);
     await page.keyboard.press('Escape');
 
     await page.getByRole('button', { name: 'Actions for Globex' }).click();
-    await expect(page.getByRole('menuitem', { name: 'Copy install link' })).toBeVisible();
     await expect(page.getByRole('menuitem', { name: 'View deployment' })).toBeVisible();
+    await expect(page.getByRole('menuitem', { name: 'Edit customer' })).toBeVisible();
     await expect(page.getByRole('menuitem', { name: 'Delete customer' })).toHaveCount(0);
   });
 
@@ -572,7 +572,7 @@ test.describe('Customers list', () => {
     await page.route(`${API_URL}/api/customers*`, (route) => route.fulfill({ json: { customers: [] } }));
     await page.goto('/dashboard/customers');
     await expect(page.getByRole('heading', { name: 'Add your first customer' })).toBeVisible();
-    await expect(page.getByRole('link', { name: 'Create deployment' })).toBeVisible();
+    await expect(page.getByRole('link', { name: 'Create installation' })).toBeVisible();
     await expect(page.getByText('No customers match these filters.')).toHaveCount(0);
   });
 });

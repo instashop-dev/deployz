@@ -7,6 +7,7 @@ import { expect, test, type Page } from '@playwright/test';
 // signUp/seed/relay conventions in diagnostics.spec.ts.
 
 import { makeApplicationDeployable } from './seed-ready-manifest.js';
+import { fetchInstallCredentials } from './simulation/relay-harness.js';
 
 const API_URL = `http://localhost:${process.env.API_PORT ?? 3001}`;
 
@@ -22,7 +23,12 @@ async function signUp(page: Page): Promise<void> {
 
 async function seedDeployment(
   page: Page,
-): Promise<{ deploymentId: string; installationId: string; enrollmentCode: string }> {
+): Promise<{
+  deploymentId: string;
+  installLinkId: string;
+  installationId: string;
+  enrollmentCode: string;
+}> {
   const suffix = crypto.randomUUID().slice(0, 8);
   const appResponse = await page.request.post(`${API_URL}/api/applications`, {
     data: {
@@ -47,10 +53,15 @@ async function seedDeployment(
     data: { applicationId: application.id, customerId: customer.id, region: 'us-east-1' },
   });
   expect(deploymentResponse.ok()).toBeTruthy();
-  const deployment = (await deploymentResponse.json()) as { id: string; enrollmentCode: string };
+  const deployment = (await deploymentResponse.json()) as {
+    id: string;
+    installLinkId: string;
+    enrollmentCode: string;
+  };
 
   return {
     deploymentId: deployment.id,
+    installLinkId: deployment.installLinkId,
     installationId: `inst-${crypto.randomUUID()}`,
     enrollmentCode: deployment.enrollmentCode,
   };
@@ -70,8 +81,13 @@ test('a successful INSTALL with an ALB endpoint shows a working link and copy bu
   await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
 
   await signUp(page);
-  const { deploymentId, installationId, enrollmentCode } = await seedDeployment(page);
-  const authHeaders = { Authorization: `Bearer ${installationId}` };
+  const { deploymentId, installLinkId, installationId, enrollmentCode } =
+    await seedDeployment(page);
+  // DZ-AUDIT-013: the relay presents the server-minted credential from the
+  // Quick Create URL (a real relay reads it from the stack's secret), not an
+  // arbitrary bearer token.
+  const { relayCredential } = await fetchInstallCredentials(API_URL, installLinkId);
+  const authHeaders = { Authorization: `Bearer ${relayCredential}` };
 
   const registerResponse = await page.request.post(`${API_URL}/api/relay/register`, {
     headers: authHeaders,
