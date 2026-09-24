@@ -20,26 +20,10 @@ function runCli(args: string[], envOverrides: Record<string, string | undefined>
   return spawnSync(process.execPath, [RUNNER, ...args], { encoding: 'utf8', env });
 }
 
-test('canary mode refuses without the real-AWS opt-in', () => {
-  const result = runCli(['--mode=canary', '--dry-run'], { DEPLOYZ_E2E_ALLOW_REAL_AWS: undefined });
-  expect(result.status).not.toBe(0);
-  expect(result.stdout + result.stderr).toContain(REFUSAL);
-});
-
 test('fresh mode refuses without the real-AWS opt-in', () => {
   const result = runCli(['--mode=fresh', '--dry-run'], { DEPLOYZ_E2E_ALLOW_REAL_AWS: undefined });
   expect(result.status).not.toBe(0);
   expect(result.stdout + result.stderr).toContain(REFUSAL);
-});
-
-test('canary mode with the opt-in set reports the vitest command', () => {
-  const result = runCli(['--mode=canary', '--dry-run'], { DEPLOYZ_E2E_ALLOW_REAL_AWS: '1' });
-  expect(result.stdout + result.stderr).not.toContain(REFUSAL);
-  expect(result.status).toBe(0);
-  const parsed = JSON.parse(result.stdout);
-  expect(parsed.mode).toBe('canary');
-  expect(parsed.command).toBe('pnpm');
-  expect(parsed.args).toContain('test/canary-e2e.live.test.ts');
 });
 
 test('fresh mode with the opt-in set reports the vitest command', () => {
@@ -69,4 +53,10 @@ test('simulated mode dry-run scrubs AWS credentials from the child env', () => {
 test('an unknown mode exits non-zero', () => {
   const result = runCli(['--mode=bogus', '--dry-run']);
   expect(result.status).not.toBe(0);
+});
+
+test('the retired read-only canary mode is no longer a valid mode', () => {
+  const result = runCli(['--mode=canary', '--dry-run'], { DEPLOYZ_E2E_ALLOW_REAL_AWS: '1' });
+  expect(result.status).not.toBe(0);
+  expect(result.stdout + result.stderr).toContain('Unknown mode "canary"');
 });

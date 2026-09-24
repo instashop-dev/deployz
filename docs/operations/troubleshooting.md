@@ -214,9 +214,9 @@ or the migration, redeploy, and recycle the function.
 
 ## Real-AWS test-account hygiene
 
-- The version canary and the Stage B deployment benchmark refuse any AWS
-  account other than `DEPLOYZ_CANARY_EXPECTED_ACCOUNT`; the read-only canary
-  and the fresh mode have no such guard. Delete test resources only by ids
+- The version canary, `pnpm e2e:fresh`, the Stage B deployment benchmark and
+  `pnpm admin:customer-cleanup execute` all refuse any AWS account other than
+  `DEPLOYZ_CANARY_EXPECTED_ACCOUNT`. Delete test resources only by ids
   recorded at creation, never by name pattern.
 - `aws login` sessions expire after roughly ten hours; a mid-run expiry
   fails only the AWS steps, and the harnesses' `--cleanup` reruns finish

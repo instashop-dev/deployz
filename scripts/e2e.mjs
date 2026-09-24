@@ -8,7 +8,7 @@ import { spawn } from 'node:child_process';
 
 import { scrubEnv } from './e2e-env.mjs';
 
-const VALID_MODES = ['simulated', 'canary', 'fresh', 'canary-versions'];
+const VALID_MODES = ['simulated', 'fresh', 'canary-versions'];
 
 const REFUSAL = `Real AWS E2E is disabled.
 Set DEPLOYZ_E2E_ALLOW_REAL_AWS=1
@@ -53,10 +53,7 @@ function finishWithDuration(code, signal) {
 
 // Guard runs before dry-run handling — dry-run must not be a way to peek at
 // what a real-AWS run would do without the opt-in.
-if (
-  (mode === 'canary' || mode === 'fresh' || mode === 'canary-versions') &&
-  process.env.DEPLOYZ_E2E_ALLOW_REAL_AWS !== '1'
-) {
+if ((mode === 'fresh' || mode === 'canary-versions') && process.env.DEPLOYZ_E2E_ALLOW_REAL_AWS !== '1') {
   console.error(REFUSAL);
   process.exit(1);
 }
@@ -83,15 +80,14 @@ if (mode === 'canary-versions') {
     console.error(err);
     process.exit(1);
   });
-} else if (mode === 'canary' || mode === 'fresh') {
-  // Guard already satisfied above. D5: canary/fresh wrap
-  // packages/cdk/test/{canary,fresh}-e2e.live.test.ts — real-AWS vitest
-  // suites, not Playwright — so they run through `pnpm --filter @deployz/cdk
-  // exec vitest run <file>` instead of the simulated mode's Playwright path
-  // below. AWS credentials/region are passed through unchanged: these modes
-  // are the whole point of NOT scrubbing them (unlike simulated mode).
-  const testFile = mode === 'canary' ? 'test/canary-e2e.live.test.ts' : 'test/fresh-e2e.live.test.ts';
-  const vitestArgs = ['--filter', '@deployz/cdk', 'exec', 'vitest', 'run', testFile];
+} else if (mode === 'fresh') {
+  // Guard already satisfied above. D5: fresh wraps
+  // packages/cdk/test/fresh-e2e.live.test.ts — a real-AWS vitest suite, not
+  // Playwright — so it runs through `pnpm --filter @deployz/cdk exec vitest
+  // run <file>` instead of the simulated mode's Playwright path below. AWS
+  // credentials/region are passed through unchanged: fresh mode is the whole
+  // point of NOT scrubbing them (unlike simulated mode).
+  const vitestArgs = ['--filter', '@deployz/cdk', 'exec', 'vitest', 'run', 'test/fresh-e2e.live.test.ts'];
   const addedEnv = { DEPLOYZ_E2E_MODE: mode };
 
   if (dryRun) {
@@ -100,8 +96,7 @@ if (mode === 'canary-versions') {
   }
 
   const childEnv = { ...process.env, ...addedEnv };
-  // shell: true so Windows resolves the pnpm.cmd shim (same pattern as
-  // packages/cdk/test/golden-path-live-aws.test.ts's spawnSync `cdk` helper).
+  // shell: true so Windows resolves the pnpm.cmd shim.
   const child = spawn('pnpm', vitestArgs, { env: childEnv, stdio: 'inherit', shell: true });
 
   child.on('exit', (code, signal) => {
