@@ -551,12 +551,12 @@ test.describe('Customers list', () => {
     await page.getByRole('button', { name: 'Actions for Wayne' }).click();
     await expect(page.getByRole('menuitem', { name: 'Edit customer' })).toBeVisible();
     await expect(page.getByRole('menuitem', { name: 'Delete customer' })).toBeVisible();
-    await expect(page.getByRole('menuitem', { name: 'Copy install link' })).toHaveCount(0);
+    await expect(page.getByRole('menuitem', { name: 'View deployment' })).toHaveCount(0);
     await page.keyboard.press('Escape');
 
     await page.getByRole('button', { name: 'Actions for Globex' }).click();
-    await expect(page.getByRole('menuitem', { name: 'Copy install link' })).toBeVisible();
     await expect(page.getByRole('menuitem', { name: 'View deployment' })).toBeVisible();
+    await expect(page.getByRole('menuitem', { name: 'Edit customer' })).toBeVisible();
     await expect(page.getByRole('menuitem', { name: 'Delete customer' })).toHaveCount(0);
   });
 
