@@ -7,7 +7,6 @@
 import { CheckoutEventNames, initializePaddle, type Paddle } from '@paddle/paddle-js';
 
 import { apiRequest } from '@/lib/api-client';
-import type { ProductionDeploymentCounts } from '@/lib/deployment-billing';
 import type { SubscriptionStatus } from '@/lib/organization-vocabulary';
 
 /** `GET /api/billing/config` — never the API key or the webhook secret. */
@@ -43,17 +42,6 @@ export async function fetchSubscriptionStatus(): Promise<SubscriptionStatus | nu
     '/api/organization',
   );
   return organization.subscriptionStatus;
-}
-
-/** The organization's live production deployments, its included allowance
- *  and the billed quantity — what the create page needs to say what the NEXT
- *  production deployment will do to billing. Client-side counterpart of
- *  lib/billing.ts, which is server-only. */
-export async function fetchProductionDeploymentCounts(): Promise<ProductionDeploymentCounts> {
-  const summary = await apiRequest<{ productionDeployments: ProductionDeploymentCounts }>(
-    '/api/billing/summary',
-  );
-  return summary.productionDeployments;
 }
 
 /** `POST /api/billing/checkout` — parks the deployment, opens a transaction.

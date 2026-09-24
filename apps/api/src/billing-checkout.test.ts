@@ -688,3 +688,166 @@ describe('checkout intents resume on activation (Paddle migration Phase 8)', () 
     }
   });
 });
+
+describe('subscribe-only checkout intents (invitation-first flow)', () => {
+  let client: PGlite | undefined;
+  let db: Db;
+  let auth: Auth;
+  let org: { organizationId: string; cookie: string };
+
+  beforeAll(async () => {
+    client = new PGlite();
+    await applyMigrations(client);
+    db = createDb(client);
+    auth = createAuth(db);
+    const email = `billing-subscribe-only-${Math.random().toString(36).slice(2)}@example.com`;
+    const password = 'super-secret-1';
+    const signup = await auth.api.signUpEmail({
+      body: { email, password, name: email.split('@')[0]! },
+    });
+    const signin = await auth.api.signInEmail({ body: { email, password }, asResponse: true });
+    const setCookie = signin.headers.get('set-cookie');
+    if (!setCookie) throw new Error('sign-in did not set a session cookie');
+    const memberships = await db
+      .select({ organizationId: schema.member.organizationId })
+      .from(schema.member)
+      .where(eq(schema.member.userId, signup.user.id))
+      .limit(1);
+    const organizationId = memberships[0]?.organizationId;
+    if (!organizationId) throw new Error('signup did not provision an organization');
+    org = { organizationId, cookie: setCookie };
+  }, 60_000);
+
+  afterAll(async () => {
+    await client?.close();
+  });
+
+  async function clearIntents(db: Db, organizationId: string): Promise<void> {
+    await db
+      .delete(schema.billingCheckoutIntents)
+      .where(eq(schema.billingCheckoutIntents.organizationId, organizationId));
+  }
+
+  it('creates a subscribe-only intent (empty body) with null application/customer/region', async () => {
+    await clearIntents(db, org.organizationId);
+    const app = await buildServer({ auth, db, paddle: buildPaddle() });
+    try {
+      const response = await postJson(app, '/api/billing/checkout', {}, { cookie: org.cookie });
+      expect(response.statusCode, response.body).toBe(200);
+      const body = response.json() as { checkoutIntentId: string; transactionId: string };
+      expect(body.checkoutIntentId).toBeTruthy();
+      expect(body.transactionId).toBe('txn_test_1');
+
+      const [intent] = await db
+        .select()
+        .from(schema.billingCheckoutIntents)
+        .where(eq(schema.billingCheckoutIntents.id, body.checkoutIntentId));
+      expect(intent).toBeDefined();
+      expect(intent!.status).toBe('PENDING');
+      expect(intent!.applicationId).toBeNull();
+      expect(intent!.customerId).toBeNull();
+      expect(intent!.region).toBeNull();
+    } finally {
+      await app.close();
+    }
+  });
+
+  it('rejects partial fields with 422 VALIDATION_ERROR (all-or-none)', async () => {
+    await clearIntents(db, org.organizationId);
+    const app = await buildServer({ auth, db, paddle: buildPaddle() });
+    try {
+      const application = await insertApplication(db, org.organizationId);
+      const customer = await insertCustomer(db, org.organizationId);
+
+      // Only applicationId (missing customerId and region)
+      let response = await postJson(
+        app,
+        '/api/billing/checkout',
+        { applicationId: application.id },
+        { cookie: org.cookie },
+      );
+      expect(response.statusCode).toBe(422);
+      expect(response.json()).toMatchObject({ error: { code: 'VALIDATION_ERROR' } });
+
+      // Only customerId (missing applicationId and region)
+      response = await postJson(
+        app,
+        '/api/billing/checkout',
+        { customerId: customer.id },
+        { cookie: org.cookie },
+      );
+      expect(response.statusCode).toBe(422);
+      expect(response.json()).toMatchObject({ error: { code: 'VALIDATION_ERROR' } });
+
+      // Only region (missing applicationId and customerId)
+      response = await postJson(
+        app,
+        '/api/billing/checkout',
+        { region: 'us-east-1' },
+        { cookie: org.cookie },
+      );
+      expect(response.statusCode).toBe(422);
+      expect(response.json()).toMatchObject({ error: { code: 'VALIDATION_ERROR' } });
+
+      // Two fields (missing one)
+      response = await postJson(
+        app,
+        '/api/billing/checkout',
+        { applicationId: application.id, customerId: customer.id },
+        { cookie: org.cookie },
+      );
+      expect(response.statusCode).toBe(422);
+      expect(response.json()).toMatchObject({ error: { code: 'VALIDATION_ERROR' } });
+    } finally {
+      await app.close();
+    }
+  });
+
+  it('completes a subscribe-only intent without creating a deployment', async () => {
+    await clearIntents(db, org.organizationId);
+    const app = await buildServer({ auth, db, paddle: buildPaddle() });
+    try {
+      // Create subscribe-only intent
+      const intentResponse = await postJson(app, '/api/billing/checkout', {}, { cookie: org.cookie });
+      expect(intentResponse.statusCode).toBe(200);
+      const { checkoutIntentId } = intentResponse.json() as { checkoutIntentId: string };
+
+      // Simulate webhook: subscription.activated
+      const webhookEvent = subscriptionActivated(org.organizationId, 'evt_subscribe_only_1', checkoutIntentId);
+      const { body, headers } = signedWebhook(webhookEvent);
+      const webhookResponse = await app.inject({
+        method: 'POST',
+        url: '/api/billing/webhook',
+        headers,
+        payload: body,
+      });
+      expect(webhookResponse.statusCode, webhookResponse.body).toBe(200);
+
+      // Intent should be COMPLETED with no deployment
+      const [intent] = await db
+        .select()
+        .from(schema.billingCheckoutIntents)
+        .where(eq(schema.billingCheckoutIntents.id, checkoutIntentId));
+      expect(intent!.status).toBe('COMPLETED');
+      expect(intent!.deploymentId).toBeNull();
+
+      // No deployment should exist
+      const deployments = await db
+        .select()
+        .from(schema.deployments)
+        .where(eq(schema.deployments.organizationId, org.organizationId));
+      expect(deployments).toHaveLength(0);
+
+      // Redelivery should no-op (no PENDING intent)
+      const redeliveryResponse = await app.inject({
+        method: 'POST',
+        url: '/api/billing/webhook',
+        headers,
+        payload: body,
+      });
+      expect(redeliveryResponse.statusCode).toBe(200);
+    } finally {
+      await app.close();
+    }
+  });
+});

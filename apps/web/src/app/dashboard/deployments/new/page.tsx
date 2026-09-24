@@ -409,8 +409,8 @@ function NewDeploymentScreen() {
             <CardTitle>Start your subscription</CardTitle>
             <CardDescription>
               Invitations you send can only be confirmed by customers once your subscription is
-              active. $49 per month for the platform, plus $19 per month for each customer
-              deployment that is live. Test deployments stay free.
+              active. Billing starts with your subscription — see What it costs for details.
+              Test deployments stay free.
             </CardDescription>
           </CardHeader>
           <CardContent className="flex flex-wrap items-center gap-3">
