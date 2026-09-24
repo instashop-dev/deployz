@@ -9,6 +9,7 @@
  * assertion throws with the facts in the message.
  */
 import { execFileSync } from 'node:child_process';
+import { randomBytes } from 'node:crypto';
 import { resolve } from 'node:path';
 
 import { applicationStackNameForInstallation, parseApplicationTemplateUrl, releaseImageTag } from '@deployz/contracts';
@@ -141,7 +142,7 @@ export async function setUpVendorAndApplication(canary: Canary): Promise<string>
   const requirements = applicationRequirements(config.profile);
   const applicationId = await evidence.step('Vendor sign-up, GitHub binding, application', async (details) => {
     const email = `canary-${config.runId.toLowerCase()}@deployz-canary.example.com`;
-    const password = `Canary-${config.runId}-${Math.random().toString(36).slice(2, 10)}`;
+    const password = `Canary-${config.runId}-${randomBytes(9).toString('base64url')}`;
     await api.signUp({ name: `Canary ${config.runId}`, email, password });
     evidence.run.vendor = { email };
     evidence.saveCredentials(email, password);

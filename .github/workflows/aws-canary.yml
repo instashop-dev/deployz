@@ -28,10 +28,6 @@ on:
         description: 'profile scenario only: install with the production-published template (no checkout override)'
         type: boolean
         default: false
-      keep_on_failure:
-        description: Leave the environment standing on failure/cancellation (skip automatic cleanup)
-        type: boolean
-        default: false
       run_id:
         description: Run id (optional — minted when empty)
         type: string
@@ -63,7 +59,10 @@ jobs:
     # A profile run certifies one install + full teardown (retained RDS makes
     # the purge slow) — budget it beyond the core ladder's 180 minutes. The
     # scheduled run is always a profile run.
-    timeout-minutes: ${{ (github.event_name == 'schedule' || inputs.scenario == 'profile') && 240 || 180 }}
+    # The canary step gets the first part of this; the rest is the cleanup
+    # and leak-audit budget (a Disconnect that retains a database plus a
+    # Purge can take about 95 minutes).
+    timeout-minutes: ${{ (github.event_name == 'schedule' || inputs.scenario == 'profile') && 300 || 240 }}
     env:
       AWS_REGION: us-east-1
       DEPLOYZ_E2E_ALLOW_REAL_AWS: '1'
@@ -85,13 +84,11 @@ jobs:
             echo "scenario=profile" >> "$GITHUB_OUTPUT"
             echo "profile=stateless" >> "$GITHUB_OUTPUT"
             echo "production=1" >> "$GITHUB_OUTPUT"
-            echo "keep_on_failure=" >> "$GITHUB_OUTPUT"
             run_id_input=""
           else
             echo "scenario=${{ inputs.scenario }}" >> "$GITHUB_OUTPUT"
             echo "profile=${{ inputs.profile }}" >> "$GITHUB_OUTPUT"
             echo "production=${{ inputs.production && '1' || '' }}" >> "$GITHUB_OUTPUT"
-            echo "keep_on_failure=${{ inputs.keep_on_failure }}" >> "$GITHUB_OUTPUT"
             run_id_input="${{ inputs.run_id }}"
           fi
           # The version canary's own sortable format
@@ -102,6 +99,12 @@ jobs:
             run_id="$run_id_input"
           else
             run_id="$(date -u +%Y%m%d-%H%M%S)-$(od -An -N2 -tx1 /dev/urandom | tr -d ' \n')"
+          fi
+          # The id reaches shell commands and resource tags: accept only the
+          # canary's own format.
+          if ! [[ "$run_id" =~ ^[0-9]{8}-[0-9]{6}-[0-9a-f]{4}$ ]]; then
+            echo "Invalid run id: $run_id" >&2
+            exit 1
           fi
           echo "run_id=$run_id" >> "$GITHUB_OUTPUT"
 
@@ -160,15 +163,18 @@ jobs:
       # audits on success (scenarios.ts's teardownOrSkipInfrastructure) — this
       # is the safety net for when the canary step above failed or was
       # cancelled before it got that far, so the run's real AWS resources
-      # don't linger. Skipped when keep_on_failure is set, for investigation.
+      # don't linger. The failure diagnostics in the evidence replace a
+      # standing environment: the vendor credentials never leave the runner,
+      # so nothing left behind here could be cleaned through the product later.
       - name: Cleanup on failure or cancellation
-        if: (failure() || cancelled()) && steps.params.outputs.keep_on_failure != 'true'
+        if: failure() || cancelled()
+        timeout-minutes: 110
         continue-on-error: true
         run: pnpm e2e:canary:versions cleanup --run-id ${{ steps.params.outputs.run_id }}
 
       # Always, even on a clean pass (confirms the run's own teardown left
-      # nothing) and even when keep_on_failure left the environment standing
-      # (reports what is still there, rather than silently skipping).
+      # nothing) and after a cleanup that could not finish (reports what is
+      # still there, rather than silently skipping).
       - name: Leak audit
         if: always()
         continue-on-error: true
