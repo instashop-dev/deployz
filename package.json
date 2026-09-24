@@ -21,6 +21,8 @@
     "e2e:fresh": "node scripts/e2e.mjs --mode=fresh",
     "e2e:canary:versions": "node scripts/e2e.mjs --mode=canary-versions",
     "lint": "turbo run lint",
+    "typecheck:e2e": "tsc --noEmit -p e2e/tsconfig.json",
+    "synth:smoke": "node packages/cdk/scripts/bundle-smoke.mjs",
     "typecheck:scripts": "tsc --noEmit -p scripts/customer-reset/tsconfig.json && tsc --noEmit -p scripts/repository-compatibility/tsconfig.json && tsc --noEmit -p scripts/repository-deployment/tsconfig.json && tsc --noEmit -p scripts/version-canary/tsconfig.json && tsc --noEmit -p scripts/jev-eval/tsconfig.json",
     "dev": "turbo run dev",
     "admin:customer-cleanup": "tsx scripts/customer-reset/index.ts",

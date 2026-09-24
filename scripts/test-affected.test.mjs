@@ -2,208 +2,242 @@
 //   node --test scripts/test-affected.test.mjs   (or: pnpm test:selector)
 // Node's built-in runner keeps this out of the root Vitest project list.
 import { spawnSync } from 'node:child_process';
-import { appendFileSync, readFileSync, writeFileSync } from 'node:fs';
+import { appendFileSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { collectChangedFiles, commandsFor, parseArgs, planFromFiles } from './test-affected.mjs';
+import {
+  VERIFIED_PATHS,
+  collectChangedFiles,
+  commandsFor,
+  loadWorkspaceGraph,
+  parseArgs,
+  planFromFiles,
+} from './test-affected.mjs';
 
-const plan = (files) => planFromFiles(files);
-const CORE_SPECS = ['e2e/admin.spec.ts', 'e2e/deployment-detail.spec.ts', 'e2e/e2e-modes.spec.ts'];
+const REPO_ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
+const graph = loadWorkspaceGraph(REPO_ROOT);
+const plan = (files, options = {}) => planFromFiles(files, { graph, ...options });
+const rendered = (p) => commandsFor(p).map(c => `${c.cmd} ${c.args.join(' ')}`);
 
 test('1. documentation-only change selects the minimal gate', () => {
-  const p = plan(['README.md', 'docs/testing/e2e-testing.md', 'AGENTS.md']);
+  const p = plan(['README.md', 'docs/testing/strategy.md', 'AGENTS.md']);
   assert.equal(p.risk, 'minimal');
+  assert.equal(p.playwright, 'none');
   assert.deepEqual(commandsFor(p), []);
 });
 
-test('2. web-only component change selects web unit plus the full Playwright PR suite', () => {
-  const p = plan(['apps/web/components/deployment-hero.tsx']);
-  assert.equal(p.risk, 'targeted-web');
-  assert.deepEqual(p.unitPackages, ['@deployz/web']);
-  assert.deepEqual(p.playwrightFiles, CORE_SPECS);
-  assert.equal(p.scenarioIds, 'ALL');
-  assert.equal(p.defaultHttps, true);
-  // Honest label: the full suite is reported as such, never as targeted specs.
-  assert.ok(p.reasons.some(r => r.includes('full non-visual Playwright PR suite')));
-});
-
-test('2b. web test-only change stays targeted without Playwright', () => {
-  const p = plan(['apps/web/test/home-state.test.ts']);
-  assert.equal(p.risk, 'targeted');
-  assert.deepEqual(p.unitPackages, ['@deployz/web']);
-  assert.deepEqual(p.scenarioIds, []);
-  assert.equal(p.e2eScenarios, false);
-  assert.equal(p.defaultHttps, false);
-});
-
-test('3. API-only non-lifecycle change stays targeted', () => {
-  const p = plan(['apps/api/src/billing-portal.ts']);
-  assert.equal(p.risk, 'targeted');
-  assert.deepEqual(p.unitPackages, ['@deployz/api']);
-  assert.equal(p.e2eScenarios, false);
-  assert.deepEqual(p.playwrightFiles, []);
-});
-
-test('3b. API admin change adds the Team Admin spec', () => {
-  const p = plan(['apps/api/src/admin/admin-actions.ts']);
-  assert.equal(p.risk, 'targeted');
-  assert.deepEqual(p.playwrightFiles, ['e2e/admin.spec.ts']);
-});
-
-test('4. API lifecycle change is critical with the full pre-merge set', () => {
-  const p = plan(['apps/api/src/manifest.ts']);
-  assert.equal(p.risk, 'critical');
-  assert.equal(p.e2eScenarios, true);
-  assert.equal(p.defaultHttps, true);
-  assert.deepEqual(p.playwrightFiles, CORE_SPECS);
-  const cmds = commandsFor(p);
-  assert.ok(cmds.some(c => c.label === 'full unit suite'));
-});
-
-test('5. contract change fans out to every verified consumer', () => {
-  const critical = plan(['packages/contracts/src/manifest.ts']);
-  assert.equal(critical.risk, 'critical');
-
-  const targeted = plan(['packages/contracts/src/application-analysis.ts']);
-  assert.equal(targeted.risk, 'targeted');
-  for (const pkg of ['@deployz/contracts', '@deployz/api', '@deployz/web', '@deployz/analysis', '@deployz/db', '@deployz/relay', '@deployz/cdk']) {
-    assert.ok(targeted.unitPackages.includes(pkg), `${pkg} missing from consumer fan-out`);
+test('2. web runtime change runs web units and the fixture-mode Playwright suite, not the scenario suite', () => {
+  for (const f of ['apps/web/src/app/dashboard/customers/page.tsx', 'apps/web/src/components/ui/button.tsx', 'apps/web/src/lib/deployment-vocabulary.ts', 'apps/web/src/lib/api-client.ts']) {
+    const p = plan([f]);
+    assert.equal(p.risk, 'targeted', f);
+    assert.deepEqual(p.unitProjects, ['@deployz/web'], f);
+    assert.equal(p.playwright, 'fixture', f);
+    const cmds = rendered(p);
+    assert.ok(cmds.some(c => c.includes('--grep-invert @scenario|visual')), f);
+    assert.ok(cmds.some(c => c.includes('e2e/scenario-ui.spec.ts')), f);
+    assert.ok(!cmds.some(c => c.includes('--scenarios')), f);
   }
 });
 
-test('6. DB schema or migration change is critical; billing schema targets the billing spec', () => {
-  assert.equal(plan(['packages/db/src/schema/deployments.ts']).risk, 'critical');
-  assert.equal(plan(['packages/db/drizzle/0040_next.sql']).risk, 'critical');
-
-  const billing = plan(['packages/db/src/schema/billing.ts']);
-  assert.equal(billing.risk, 'targeted');
-  assert.ok(billing.unitPackages.includes('@deployz/db'));
-  assert.ok(billing.unitPackages.includes('@deployz/api'));
-  assert.ok(billing.playwrightFiles.includes('e2e/billing.spec.ts'));
+test('2b. web test-only, asset and brand changes stay unit-only', () => {
+  for (const f of ['apps/web/test/home-state.test.ts', 'apps/web/public/logo.svg', 'apps/web/src/components/deployz-brand.tsx']) {
+    const p = plan([f]);
+    assert.equal(p.risk, 'targeted', f);
+    assert.deepEqual(p.unitProjects, ['@deployz/web'], f);
+    assert.equal(p.playwright, 'none', f);
+  }
 });
 
-test('7. relay lifecycle change is critical; other relay files stay targeted with scenarios', () => {
-  assert.equal(plan(['packages/relay/src/commands.ts']).risk, 'critical');
-
-  const targeted = plan(['packages/relay/src/auth.ts']);
-  assert.equal(targeted.risk, 'targeted');
-  assert.deepEqual(targeted.unitPackages, ['@deployz/relay']);
+test('3. allowlisted API areas stay targeted, with every dependent project and the fixture suite', () => {
+  for (const f of ['apps/api/src/billing-portal.ts', 'apps/api/src/admin/routes.ts', 'apps/api/src/organizations.ts', 'apps/api/src/ai-config.ts']) {
+    const p = plan([f]);
+    assert.equal(p.risk, 'targeted', f);
+    assert.ok(p.unitProjects.includes('@deployz/api'), f);
+    assert.ok(p.unitProjects.includes('@deployz/cdk'), `${f}: the worker Lambda imports the API`);
+    assert.equal(p.playwright, 'fixture', f);
+    assert.equal(p.typecheckScripts, true, `${f}: the harnesses import the API`);
+  }
+  const testOnly = plan(['apps/api/src/server.test.ts']);
+  assert.equal(testOnly.risk, 'targeted');
+  assert.equal(testOnly.playwright, 'none');
 });
 
-test('8. CDK provisioning change is critical with reported escalations', () => {
-  const p = plan(['packages/cdk/bootstrap/stack.ts']);
-  assert.equal(p.risk, 'critical');
-  assert.ok(p.awsEscalation.some(c => c.includes('pnpm e2e:canary')));
-  assert.ok(p.awsEscalation.some(c => c.includes('pnpm e2e:fresh')));
-
-  assert.equal(plan(['packages/cdk/src/constructs.ts']).risk, 'targeted');
-});
-
-test('9. root package or lockfile change falls back to the full safe suite', () => {
-  for (const f of ['pnpm-lock.yaml', 'package.json', 'turbo.json', 'vitest.config.ts', 'playwright.config.ts', 'pnpm-workspace.yaml']) {
+test('4. every other API source file is critical', () => {
+  for (const f of ['apps/api/src/server.ts', 'apps/api/src/config.ts', 'apps/api/src/failure-classification.ts', 'apps/api/src/deployment-status.ts', 'apps/api/src/pending-secrets.ts', 'apps/api/src/github.ts']) {
     const p = plan([f]);
     assert.equal(p.risk, 'critical', f);
-    assert.ok(p.reasons.some(r => r.includes('root configuration')));
+    assert.equal(p.playwright, 'full', f);
+    assert.equal(p.unitProjects, 'ALL', f);
   }
 });
 
-test('10. GitHub workflow change falls back to the full safe suite', () => {
-  const p = plan(['.github/workflows/ci.yml']);
-  assert.equal(p.risk, 'critical');
-  assert.equal(p.e2eScenarios, true);
+test('5. shared packages fan out to every transitive dependent', () => {
+  const analysis = plan(['packages/analysis/src/index.ts']);
+  assert.equal(analysis.risk, 'targeted');
+  for (const pkg of ['@deployz/analysis', '@deployz/api', '@deployz/cdk']) assert.ok(analysis.unitProjects.includes(pkg), pkg);
+  assert.equal(analysis.playwright, 'fixture');
+
+  const copyMap = plan(['packages/copy-map/src/index.ts']);
+  for (const pkg of ['@deployz/copy-map', '@deployz/web', '@deployz/api', '@deployz/cdk']) assert.ok(copyMap.unitProjects.includes(pkg), pkg);
+  assert.equal(copyMap.playwright, 'fixture');
+
+  const dbClient = plan(['packages/db/src/client.ts']);
+  assert.equal(dbClient.risk, 'targeted');
+  for (const pkg of ['@deployz/db', '@deployz/api', '@deployz/analysis', '@deployz/cdk']) assert.ok(dbClient.unitProjects.includes(pkg), pkg);
+  assert.equal(dbClient.typecheckScripts, true);
 });
 
-test('11. unknown executable path selects the full safe suite, never zero tests', () => {
-  const p = plan(['packages/new-package/src/index.ts', 'mystery-dir/tool.ts']);
-  assert.equal(p.risk, 'critical');
-  assert.ok(p.reasons.some(r => r.includes('unknown executable path')));
-  assert.equal(p.e2eScenarios, true);
+test('5b. the workspace graph has no dependent the manifests do not name', () => {
+  for (const [name, list] of Object.entries(graph.deps)) {
+    for (const dep of list) {
+      assert.ok(dep in graph.dependents, `${name} depends on ${dep}, which is not a workspace package`);
+    }
+  }
+  assert.ok(graph.dependents['@deployz/api'].has('@deployz/cdk'));
+  assert.ok(graph.dependents['@deployz/contracts'].has('@deployz/web'));
 });
 
-test('12. failed or missing base reference falls back to the full safe suite', () => {
-  const r = collectChangedFiles(process.cwd(), 'definitely-not-a-ref');
-  assert.ok(r.error, 'expected a detection error for a bogus base ref');
+test('6. contracts, relay, DB schema, migrations and CDK source are critical', () => {
+  for (const f of ['packages/contracts/src/tags.ts', 'packages/contracts/src/plan.ts', 'packages/relay/src/config-update.ts', 'packages/relay/src/index.ts', 'packages/db/src/schema/deployments.ts', 'packages/db/src/schema/billing.ts', 'packages/db/drizzle/0040_next.sql', 'packages/cdk/src/deployz-stack.ts', 'packages/cdk/src/lambda/worker.ts', 'packages/cdk/artifacts/bootstrap-template-v1.json']) {
+    assert.equal(plan([f]).risk, 'critical', f);
+  }
+  for (const f of ['packages/contracts/src/plan.test.ts', 'packages/relay/src/deploy.test.ts', 'packages/cdk/test/worker.test.ts', 'packages/db/src/constraints.test.ts']) {
+    assert.equal(plan([f]).risk, 'targeted', f);
+  }
+});
 
-  const p = planFromFiles(null);
+test('7. real-AWS escalations name the version canary, never the retired read-only canary', () => {
+  const executor = plan(['packages/relay/src/deploy.ts']);
+  assert.ok(executor.awsEscalation.some(c => c.endsWith('pnpm e2e:canary:versions core')));
+  const relayOther = plan(['packages/relay/src/auth.ts']);
+  assert.ok(relayOther.awsEscalation.some(c => c.includes('profile --profile stateless')));
+  const bootstrap = plan(['packages/cdk/src/bootstrap/bootstrap-stack.ts']);
+  assert.ok(bootstrap.awsEscalation.some(c => c.endsWith('pnpm e2e:fresh')));
+  assert.ok(bootstrap.awsEscalation.some(c => c.includes('profile --profile stateless')));
+  assert.equal(plan(['packages/cdk/src/deployz-stack.ts']).awsEscalation.length, 0);
+  for (const p of [executor, relayOther, bootstrap]) {
+    for (const c of p.awsEscalation) assert.ok(!/e2e:canary( |$)/.test(c), `retired command: ${c}`);
+    for (const c of rendered(p)) assert.ok(!c.includes('DEPLOYZ_E2E_ALLOW_REAL_AWS') && !c.includes('canary:versions') && !c.includes('e2e:fresh'), `AWS command leaked into execution: ${c}`);
+  }
+});
+
+test('8. the fixture application is not deployment-critical', () => {
+  const p = plan(['packages/fixture/src/server.ts']);
+  assert.equal(p.risk, 'targeted');
+  assert.deepEqual(p.unitProjects, ['@deployz/fixture']);
+  assert.equal(p.playwright, 'none');
+  assert.ok(p.awsEscalation.some(c => c.includes('canary:fixture-repo')));
+});
+
+test('9. root configuration, workflows and the e2e tsconfig fall back to the full regression', () => {
+  for (const f of ['pnpm-lock.yaml', 'package.json', 'turbo.json', 'vitest.config.ts', 'playwright.config.ts', 'pnpm-workspace.yaml', '.github/workflows/ci.yml', 'scripts/e2e.mjs', 'e2e/tsconfig.json']) {
+    const p = plan([f]);
+    assert.equal(p.risk, 'critical', f);
+    assert.ok(p.reasons.some(r => r.includes('root configuration')), f);
+  }
+});
+
+test('10. unknown executable paths select the full regression, never zero tests', () => {
+  for (const f of ['tools/new-thing.ts', 'apps/mobile/src/index.ts', 'scripts/new-harness/index.ts', 'e2e/helpers.ts']) {
+    const p = plan([f]);
+    assert.equal(p.risk, 'critical', f);
+    assert.ok(commandsFor(p).length > 0, f);
+  }
+});
+
+test('11. failed change detection engages the fail-safe', () => {
+  const p = plan(null);
   assert.equal(p.risk, 'critical');
   assert.equal(p.fallback, true);
-  assert.ok(p.fallbackReasons.includes('change detection failed'));
-  assert.equal(p.e2eScenarios, true);
+  assert.ok(p.fallbackReasons.some(r => r.includes('change detection failed')));
 });
 
-test('13. multiple changed areas combine layers and keep the highest risk', () => {
-  const p = plan(['apps/web/test/home-state.test.ts', 'packages/relay/src/deploy.ts', 'docs/x.md']);
+test('12. an edited spec runs on its own; an edited scenario spec on top of the fixture suite', () => {
+  const spec = plan(['e2e/customers.spec.ts']);
+  assert.equal(spec.risk, 'targeted');
+  assert.equal(spec.playwright, 'files');
+  assert.deepEqual(spec.playwrightFiles, ['e2e/customers.spec.ts']);
+
+  const mixed = plan(['e2e/scenario-lifecycle.spec.ts', 'e2e/customers.spec.ts', 'apps/web/src/lib/customers.ts']);
+  assert.equal(mixed.playwright, 'fixture');
+  assert.deepEqual(mixed.playwrightFiles, ['e2e/scenario-lifecycle.spec.ts']);
+  assert.ok(rendered(mixed).some(c => c.includes('e2e/scenario-ui.spec.ts e2e/scenario-lifecycle.spec.ts')));
+
+  assert.equal(plan(['e2e/visual.spec.ts']).playwright, 'none');
+  assert.equal(plan(['e2e/simulation/simulated-account.ts']).risk, 'critical');
+});
+
+test('13. harness changes run their own project and the harness typecheck', () => {
+  const p = plan(['scripts/version-canary/steps.ts']);
+  assert.equal(p.risk, 'targeted');
+  assert.deepEqual(p.unitProjects, ['version-canary']);
+  assert.equal(p.typecheckScripts, true);
+  assert.equal(plan(['scripts/jev-eval/index.ts']).unitProjects[0], 'jev-eval');
+  const reset = plan(['scripts/customer-reset/safety.ts']);
+  assert.equal(reset.risk, 'targeted');
+  assert.equal(reset.typecheckScripts, true);
+});
+
+test('14. --full forces the full regression on any change', () => {
+  const p = plan(['docs/testing/ci.md'], { full: true });
   assert.equal(p.risk, 'critical');
-  assert.ok(p.unitPackages.includes('@deployz/web'));
-  assert.ok(p.unitPackages.includes('@deployz/relay'));
+  assert.ok(p.reasons.some(r => r.includes('ci:full')));
+  assert.equal(parseArgs(['--full']).full, true);
 });
 
-test('14. real AWS escalation is reported but never executed', () => {
-  const p = plan(['packages/relay/src/deploy.ts']);
-  assert.ok(p.awsEscalation.length > 0);
-  for (const c of commandsFor(p)) {
-    const rendered = `${c.cmd} ${(c.args ?? []).join(' ')}`;
-    assert.ok(!rendered.includes('canary'), `AWS command leaked into execution: ${rendered}`);
-    assert.ok(!rendered.includes('fresh'), `AWS command leaked into execution: ${rendered}`);
-    assert.ok(!rendered.includes('DEPLOYZ_E2E_ALLOW_REAL_AWS'), 'real-AWS opt-in leaked into execution');
+test('15. the full regression runs every layer including the bundling smoke and the e2e typecheck', () => {
+  const cmds = rendered(plan(['apps/api/src/server.ts']));
+  for (const expected of ['pnpm typecheck:e2e', 'pnpm vitest run', 'pnpm typecheck:scripts', 'pnpm synth:smoke', '--grep-invert @scenario|visual', '--scenarios', 'e2e/scenario-default-https.spec.ts']) {
+    assert.ok(cmds.some(c => c.includes(expected)), expected);
   }
 });
 
-test('15. fixture or simulation-harness change selects the full simulated regression', () => {
-  assert.equal(plan(['packages/fixture/src/server.ts']).risk, 'critical');
-  assert.equal(plan(['e2e/simulation/simulated-account.ts']).risk, 'critical');
-  assert.equal(plan(['packages/fixture/src/server.test.ts']).risk, 'targeted');
+test('16. every non-minimal plan executes at least one test layer', () => {
+  for (const files of [['apps/web/src/lib/utils.ts'], ['apps/api/src/email.ts'], ['packages/db/src/client.ts'], ['scripts/customer-reset/safety.ts'], ['e2e/home.spec.ts']]) {
+    const p = plan(files);
+    assert.notEqual(p.risk, 'minimal', files.join());
+    assert.ok(commandsFor(p).some(c => /vitest|e2e\.mjs|typecheck/.test(`${c.cmd} ${c.args.join(' ')}`)), files.join());
+  }
 });
 
-test('CLI: --format=json emits a parseable plan for a docs-only list', () => {
-  const result = run(['--files=README.md,docs/a.md', '--format=json']);
-  assert.equal(result.status, 0);
-  const parsed = JSON.parse(result.stdout);
-  assert.equal(parsed.risk, 'minimal');
-  assert.equal(parsed.ok, true);
+test('17. every path the rules name exists on disk', () => {
+  for (const p of VERIFIED_PATHS) {
+    assert.ok(existsSync(path.join(REPO_ROOT, p)), `rule names a missing path: ${p}`);
+  }
 });
 
-test('CLI: unknown flag exits non-zero', () => {
-  const result = run(['--bogus']);
-  assert.notEqual(result.status, 0);
+test('18. Windows-style paths are normalised', () => {
+  const p = plan(['apps\\web\\src\\lib\\utils.ts']);
+  assert.equal(p.risk, 'targeted');
+  assert.deepEqual(p.unitProjects, ['@deployz/web']);
 });
 
-test('CLI: bogus --base reports the fallback plan and stays exit 0', () => {
-  const result = run(['--base=definitely-not-a-ref', '--format=json']);
-  assert.equal(result.status, 0);
-  const parsed = JSON.parse(result.stdout);
-  assert.equal(parsed.risk, 'critical');
-  assert.equal(parsed.fallback, true);
-});
+test('19. --github-output is refused without GITHUB_OUTPUT and publishes the plan keys with it', () => {
+  const script = path.join(REPO_ROOT, 'scripts', 'test-affected.mjs');
+  const refused = spawnSync(process.execPath, [script, '--files=docs/x.md', '--github-output'], {
+    encoding: 'utf8', env: { ...process.env, GITHUB_OUTPUT: '' }, cwd: REPO_ROOT,
+  });
+  assert.notEqual(refused.status, 0);
+  assert.ok(refused.stderr.includes('GITHUB_OUTPUT'));
 
-test('parseArgs: rejects unknown arguments, accepts the documented set', () => {
-  assert.deepEqual(parseArgs(['--run']).invalid, []);
-  assert.deepEqual(parseArgs(['--base=abc', '--files=x,y', '--format=json', '--escalation']).invalid, []);
-  assert.deepEqual(parseArgs(['--nope']).invalid, ['--nope']);
-});
-
-test('CLI: --github-output publishes validated step outputs', () => {
-  const outFile = path.join(os.tmpdir(), `gh-out-${process.pid}.txt`);
+  const outFile = path.join(os.tmpdir(), `test-affected-${process.pid}.txt`);
   writeFileSync(outFile, '');
-  const result = run(['--files=README.md', '--format=json', '--github-output'], { GITHUB_OUTPUT: outFile });
-  assert.equal(result.status, 0);
-  const content = readFileSync(outFile, 'utf8');
-  assert.ok(content.includes('risk=minimal\n'));
-  assert.ok(content.includes('unit_packages=\n'));
+  const ok = spawnSync(process.execPath, [script, '--files=apps/web/src/lib/utils.ts', '--github-output', '--format=json'], {
+    encoding: 'utf8', env: { ...process.env, GITHUB_OUTPUT: outFile }, cwd: REPO_ROOT,
+  });
+  assert.equal(ok.status, 0, ok.stderr);
+  const out = readFileSync(outFile, 'utf8');
+  for (const key of ['risk=targeted', 'unit_projects=@deployz/web', 'lint_packages=@deployz/web', 'playwright=fixture', 'typecheck_scripts=false']) {
+    assert.ok(out.includes(key), `${key} missing from:\n${out}`);
+  }
+  appendFileSync(outFile, '');
 });
 
-test('CLI: --github-output without GITHUB_OUTPUT is invalid input', () => {
-  const result = run(['--files=README.md', '--github-output'], { GITHUB_OUTPUT: undefined });
-  assert.notEqual(result.status, 0);
+test('20. change detection against a real base ref works from this checkout', () => {
+  const r = collectChangedFiles(REPO_ROOT, 'HEAD');
+  assert.ok(Array.isArray(r.files), r.error);
 });
-
-function run(args, envOverrides = {}) {
-  const here = path.dirname(fileURLToPath(import.meta.url));
-  const env = { ...process.env, ...envOverrides };
-  for (const [k, v] of Object.entries(envOverrides)) if (v === undefined) delete env[k];
-  return spawnSync(process.execPath, [path.join(here, 'test-affected.mjs'), ...args], { encoding: 'utf8', env });
-}

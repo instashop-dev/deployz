@@ -19,20 +19,20 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  # Risk planning (PRs only). Uses scripts/test-affected.mjs against the PR
-  # base SHA, so no shallow-clone merge-base guesswork is needed. A push to
-  # main needs no plan: the other jobs run the full regression.
+  # Change classification (docs/testing/ci.md). Pull requests get a plan from
+  # scripts/test-affected.mjs against the PR base SHA; a push to main or a
+  # manual run has no plan and runs the full regression. The `ci:full` label
+  # forces the full regression on a pull request.
   plan:
     name: Plan tests
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     outputs:
       risk: ${{ steps.plan.outputs.risk }}
-      unit_packages: ${{ steps.plan.outputs.unit_packages }}
-      script_units: ${{ steps.plan.outputs.script_units }}
+      unit_projects: ${{ steps.plan.outputs.unit_projects }}
+      lint_packages: ${{ steps.plan.outputs.lint_packages }}
+      playwright: ${{ steps.plan.outputs.playwright }}
       playwright_files: ${{ steps.plan.outputs.playwright_files }}
-      scenario_ids: ${{ steps.plan.outputs.scenario_ids }}
-      default_https: ${{ steps.plan.outputs.default_https }}
       typecheck_scripts: ${{ steps.plan.outputs.typecheck_scripts }}
     steps:
       # The selector diffs base...HEAD, so the history between them must
@@ -50,13 +50,24 @@ jobs:
         run: >
           node scripts/test-affected.mjs
           --base="${{ github.event.pull_request.base.sha }}"
+          ${{ contains(github.event.pull_request.labels.*.name, 'ci:full') && '--full' || '' }}
           --format=json --github-output
+          | node -e "const p=JSON.parse(require('fs').readFileSync(0,'utf8'));
+          const s=['## Test plan: '+p.risk,'',...p.reasons.map(r=>'- '+r),'',
+          'Vitest: '+(p.unitProjects==='ALL'?'all projects':p.unitProjects.join(', ')||'none'),
+          'Playwright: '+p.playwright+(p.playwrightFiles.length?' ('+p.playwrightFiles.join(', ')+')':''),
+          ...(p.awsEscalation.length?['','AWS escalation (manual): '+p.awsEscalation.join(' ; ')]:[])].join('\n');
+          require('fs').appendFileSync(process.env.GITHUB_STEP_SUMMARY,s+'\n')"
 
+  # Static checks, unit and integration tests. Runs from the workspace root
+  # so every selected Vitest project runs in one parallel invocation.
   test-build:
     name: Test and build
     needs: plan
     if: always() && needs.plan.result != 'failure' && needs.plan.result != 'cancelled'
     runs-on: ubuntu-latest
+    env:
+      FULL: ${{ github.event_name != 'pull_request' || needs.plan.outputs.risk == 'critical' }}
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -85,71 +96,72 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      # Skipped only for minimal (docs-only) PRs; a main push has no plan
-      # output, which is not 'minimal', so it always builds.
+      # Skipped only for minimal (docs-only) PRs.
       - name: Build workspace packages
         if: needs.plan.outputs.risk != 'minimal'
         run: pnpm build
 
+      # The simulation harness implements the relay's client interfaces;
+      # Playwright strips types, so this is the only place they are checked.
+      - name: Typecheck e2e
+        if: needs.plan.outputs.risk != 'minimal'
+        run: pnpm typecheck:e2e
+
       - name: Run tests (full suite)
-        if: github.event_name != 'pull_request' || needs.plan.outputs.risk == 'critical'
+        if: env.FULL == 'true'
         run: pnpm vitest run
 
-      - name: Run tests (affected packages)
-        if: github.event_name == 'pull_request' && needs.plan.outputs.risk != 'critical' && needs.plan.outputs.risk != 'minimal'
+      - name: Run tests (affected projects)
+        if: env.FULL != 'true' && needs.plan.outputs.risk != 'minimal' && needs.plan.outputs.unit_projects != ''
         run: |
-          # One invocation from the workspace root so the selected projects
-          # run in parallel (a per-project loop serialised them: 369 s for a
-          # backend PR that finishes in about half that time in parallel).
-          # The scripts/* harnesses are root projects too (vitest.config.ts).
           args=""
-          for pkg in ${{ needs.plan.outputs.unit_packages }}; do
-            args="$args --project $pkg"
+          for p in ${{ needs.plan.outputs.unit_projects }}; do
+            args="$args --project $p"
           done
-          for dir in ${{ needs.plan.outputs.script_units }}; do
-            args="$args --project $dir"
-          done
-          if [ -n "$args" ]; then pnpm vitest run $args; fi
+          pnpm vitest run $args
 
       - name: Lint (workspace)
-        if: github.event_name != 'pull_request' || needs.plan.outputs.risk == 'critical'
+        if: env.FULL == 'true'
         run: pnpm lint
 
       - name: Lint (affected)
-        if: github.event_name == 'pull_request' && needs.plan.outputs.risk != 'critical' && needs.plan.outputs.risk != 'minimal' && needs.plan.outputs.unit_packages != ''
-        run: pnpm turbo run lint $(for p in ${{ needs.plan.outputs.unit_packages }}; do printf ' --filter=%s' "$p"; done)
+        if: env.FULL != 'true' && needs.plan.outputs.risk != 'minimal' && needs.plan.outputs.lint_packages != ''
+        run: pnpm turbo run lint $(for p in ${{ needs.plan.outputs.lint_packages }}; do printf ' --filter=%s' "$p"; done)
 
-      # scripts/ is not a workspace package, so `pnpm build` never
-      # compiles the four real-AWS harnesses and eslint only covers the
-      # .mjs runners. Without this they reach a live AWS run unchecked.
+      # scripts/ is not a workspace package, so `pnpm build` never compiles
+      # the real-AWS harnesses and eslint only covers the .mjs runners.
       - name: Typecheck the AWS harnesses
-        if: github.event_name != 'pull_request' || needs.plan.outputs.typecheck_scripts == 'true'
+        if: env.FULL == 'true' || needs.plan.outputs.typecheck_scripts == 'true'
         run: pnpm typecheck:scripts
 
-  # Simulated E2E (docs/testing/e2e-testing.md). Runs the subset the plan
-  # selected; critical PRs and main pushes run everything. The job-level
-  # AWS values are fake sentinels — a live proof that simulated mode
-  # scrubs them from the API under test. Real credentials never enter PR
-  # CI. The visual suite stays out of PR CI (Windows-generated snapshots
-  # — see e2e.yml).
+      # The Vitest project synthesizes with placeholder Lambda assets; this
+      # is the one pre-merge proof that every Lambda entry point bundles.
+      - name: CDK bundling smoke
+        if: env.FULL == 'true'
+        run: pnpm synth:smoke
+
+  # Simulated E2E (docs/testing/simulated-e2e.md). The job-level AWS values
+  # are fake sentinels — a live proof that simulated mode scrubs them from
+  # the API under test. Real credentials never enter CI. The visual suite
+  # never runs here (Windows-generated snapshots).
+  #
+  #   full     every non-visual spec, every scenario, the default-HTTPS scenarios
+  #   fixture  every non-scenario spec plus the browser-level scenario spec
+  #   files    the specs the change touched
   e2e-simulated:
     name: Simulated E2E
     needs: plan
-    # Skipped when the plan selected nothing for this job: a targeted PR with
-    # no mapped spec or scenario used to pay the job's install, build and
-    # browser setup (about 1m45s) to run nothing.
     if: >-
       always() && needs.plan.result != 'failure' && needs.plan.result != 'cancelled'
       && (github.event_name != 'pull_request'
           || needs.plan.outputs.risk == 'critical'
-          || needs.plan.outputs.risk == 'targeted-web'
-          || needs.plan.outputs.playwright_files != ''
-          || (needs.plan.outputs.scenario_ids != '' && needs.plan.outputs.scenario_ids != 'ALL'))
+          || (needs.plan.outputs.playwright != 'none' && needs.plan.outputs.playwright != ''))
     runs-on: ubuntu-latest
     env:
       AWS_ACCESS_KEY_ID: simulated-test-access-key
       AWS_SECRET_ACCESS_KEY: simulated-test-secret
       AWS_REGION: us-east-1
+      MODE: ${{ (github.event_name != 'pull_request' || needs.plan.outputs.risk == 'critical') && 'full' || needs.plan.outputs.playwright }}
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -189,33 +201,27 @@ jobs:
       - name: Install Playwright browser
         run: pnpm exec playwright install --with-deps chromium
 
-      # The mode guards, Team Admin flows, and deployment-detail states run
-      # against the same servers and environment, so one Playwright
-      # invocation covers them (one server lifecycle instead of three).
-      - name: Simulated core suite
-        if: github.event_name != 'pull_request' || needs.plan.outputs.risk == 'critical' || needs.plan.outputs.risk == 'targeted-web'
-        run: node scripts/e2e.mjs e2e/e2e-modes.spec.ts e2e/admin.spec.ts e2e/deployment-detail.spec.ts
+      - name: Fixture-mode Playwright suite
+        if: env.MODE == 'full' || env.MODE == 'fixture'
+        run: node scripts/e2e.mjs --grep-invert "@scenario|visual"
 
-      - name: Targeted Playwright specs
-        if: github.event_name == 'pull_request' && needs.plan.outputs.risk == 'targeted' && needs.plan.outputs.playwright_files != ''
+      - name: Scenario UI spec
+        if: env.MODE == 'fixture'
+        run: node scripts/e2e.mjs e2e/scenario-ui.spec.ts ${{ needs.plan.outputs.playwright_files }}
+
+      - name: Touched Playwright specs
+        if: env.MODE == 'files'
         run: node scripts/e2e.mjs ${{ needs.plan.outputs.playwright_files }}
 
       - name: Simulated scenario suite
-        if: github.event_name != 'pull_request' || needs.plan.outputs.risk == 'critical' || needs.plan.outputs.risk == 'targeted-web'
+        if: env.MODE == 'full'
         run: node scripts/e2e.mjs --scenarios
 
-      - name: Targeted simulated scenarios
-        if: github.event_name == 'pull_request' && needs.plan.outputs.risk == 'targeted' && needs.plan.outputs.scenario_ids != '' && needs.plan.outputs.scenario_ids != 'ALL'
-        run: |
-          for id in ${{ needs.plan.outputs.scenario_ids }}; do
-            node scripts/e2e.mjs --scenario="$id"
-          done
-
-      # The default-HTTPS suite (scenarios A–H) needs the fixture
+      # The default-HTTPS suite (scenarios A–I) needs the fixture
       # default-HTTPS machine ON, which the ordinary simulated run keeps
       # off, so it always boots its own server with the opt-in flag.
       - name: Default-HTTPS simulated scenarios
-        if: github.event_name != 'pull_request' || needs.plan.outputs.risk == 'critical' || needs.plan.outputs.risk == 'targeted-web'
+        if: env.MODE == 'full'
         run: DEPLOYZ_DEFAULT_HTTPS_FIXTURE=true node scripts/e2e.mjs e2e/scenario-default-https.spec.ts
 
       - name: Upload traces on failure
@@ -226,10 +232,9 @@ jobs:
           path: test-results/
           retention-days: 7
 
-  # Stable aggregate check for PRs. Intentionally skipped child steps or
-  # jobs (for example the whole E2E job on a docs-only PR) do not fail the
-  # gate; a failed or cancelled required job, or a failed plan, does.
-  # Only this check is intended to become a required status check later.
+  # Stable aggregate check for PRs (the required status check). Intentionally
+  # skipped jobs (for example the whole E2E job on a docs-only PR) do not
+  # fail the gate; a failed or cancelled required job, or a failed plan, does.
   pr-gate:
     name: PR Gate
     needs: [plan, test-build, e2e-simulated]
@@ -252,5 +257,9 @@ jobs:
             echo "::error::No test plan was published"
             status=1
           fi
+          if [ "${{ needs.plan.outputs.risk }}" != "minimal" ] && [ "${{ needs.plan.outputs.playwright }}" != "none" ] && [ "${{ needs.e2e-simulated.result }}" == "skipped" ]; then
+            echo "::error::The plan selected Playwright coverage but the Simulated E2E job did not run"
+            status=1
+          fi
           if [ "$status" != "0" ]; then exit 1; fi
-          echo "PR Gate passed (risk: ${{ needs.plan.outputs.risk }})"
+          echo "PR Gate passed (risk: ${{ needs.plan.outputs.risk }}, playwright: ${{ needs.plan.outputs.playwright }})"

@@ -179,7 +179,7 @@ export async function fetchInstallCredentials(
   fetchFn: FetchFn = globalThis.fetch as unknown as FetchFn,
 ): Promise<{ enrollmentCode: string; relayCredential: string }> {
   const response = await fetchFn(`${apiUrl}/api/install/${installLinkId}`);
-  if (!response.ok) {
+  if (response.status !== 200) {
     throw new Error(`GET /api/install/${installLinkId} -> ${response.status}`);
   }
   const body = (await response.json()) as { quickCreateUrl: string | null; enrollmentCode?: string };

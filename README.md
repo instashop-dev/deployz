@@ -74,12 +74,13 @@ Every package builds with `tsc -p tsconfig.json` emitting ESM + declarations to 
 ## CI
 
 `.github/workflows/ci.yml` runs on every push and pull request to `main`. A
-`plan` job picks a risk level for pull requests with `scripts/test-affected.mjs`
-(minimal for docs-only changes, targeted, targeted-web, or critical); the
-`test-build` job runs `pnpm install --frozen-lockfile`, `pnpm build`, the
-selected (or full) Vitest projects, lint and `pnpm typecheck:scripts`; the
-`e2e-simulated` job runs the selected Playwright specs and simulated
-scenarios, and on every push to `main` and every critical pull request the
-core specs, the full scenario suite and the default-HTTPS scenarios. Real
-AWS never enters CI; the real-AWS canaries are separate `workflow_dispatch`
-workflows (`aws-canary.yml`, `aws-persistent-canary.yml`).
+`plan` job classifies a pull request with `scripts/test-affected.mjs`
+(`minimal` for docs-only changes, `targeted`, or `critical`; the `ci:full`
+label forces `critical`); `test-build` runs `pnpm install --frozen-lockfile`,
+`pnpm build`, `pnpm typecheck:e2e`, the selected (or every) Vitest project,
+lint, `pnpm typecheck:scripts` and, for the full regression, `pnpm
+synth:smoke`; `e2e-simulated` runs the selected Playwright specs, and for
+pushes to `main` and critical pull requests every non-visual spec, the full
+scenario suite and the default-HTTPS scenarios. Real AWS never enters CI;
+the real-AWS canary is the separate `workflow_dispatch` workflow
+`aws-canary.yml`. See [`docs/testing/README.md`](docs/testing/README.md).

@@ -42,6 +42,7 @@ interface Deployment {
   customDomain?: { hostname: string; status: string } | null;
   deploymentStatus?: { stage: string; url?: string | null };
   jobs?: Array<{ type: string }>;
+  cleanupState?: string | null;
 }
 
 async function getDeployment(request: APIRequestContext, id: string): Promise<Deployment> {

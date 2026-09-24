@@ -84,7 +84,7 @@ test.describe('happy-path', () => {
     const defaultHttpsEnabled = process.env.DEPLOYZ_DEFAULT_HTTPS_FIXTURE === 'true';
     if (defaultHttpsEnabled) {
       await expect
-        .poll(async () => (await api.getDeployment(deploymentId)).deploymentStatus.stage, {
+        .poll(async () => ((await api.getDeployment(deploymentId)) as unknown as DeploymentResponse).deploymentStatus.stage, {
           timeout: 20_000,
           message: 'waiting for the default-HTTPS endpoint to carry the deployment to READY',
         })
@@ -244,7 +244,7 @@ test.describe('healthcheck-failure', () => {
     // healthStatus becomes UNHEALTHY while the customer-facing ladder holds
     // at VERIFYING ("Running health checks.") — never FAILED and never READY.
     await expect
-      .poll(async () => (await api.getDeployment(deploymentId)).deploymentStatus.stage, {
+      .poll(async () => ((await api.getDeployment(deploymentId)) as unknown as DeploymentResponse).deploymentStatus.stage, {
         timeout: 15_000,
         message: 'waiting for install to complete and runtime verification to begin',
       })
