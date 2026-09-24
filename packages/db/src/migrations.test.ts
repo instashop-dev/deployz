@@ -52,6 +52,14 @@ describe('migrations', () => {
     await client?.close();
   });
 
+  // 0046 was re-stamped after the 0044/0045 hotfix, so a database that already
+  // applied it under its old stamp runs it again: it must be a no-op there.
+  it('re-applies 0046_environment_setup without error', async () => {
+    const migrationsDir = join(dirname(fileURLToPath(import.meta.url)), '..', 'drizzle');
+    const sql = readFileSync(join(migrationsDir, '0046_environment_setup.sql'), 'utf8');
+    await expect(client!.exec(sql.replaceAll('--> statement-breakpoint', ''))).resolves.toBeDefined();
+  });
+
   it('creates all 27 core tables', async () => {
     const { rows } = await client!.query<{ table_name: string }>(
       `SELECT table_name FROM information_schema.tables
