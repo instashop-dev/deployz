@@ -52,8 +52,9 @@ local-development notes.
 ## Deploying the control plane
 
 **Deploys run in CI, not from a laptop.** `.github/workflows/deploy-api.yml`
-deploys the control-plane stack on every push to `main` that touches the API
-or its packages, and `deploy-web.yml` ships the web app. A hand-run
+deploys the control-plane stack after CI succeeds for a push to `main` that
+touches the API or a package it bundles, and `deploy-web.yml` ships the web
+app the same way. A hand-run
 `cdk deploy` would replace the production Lambda environment with the local
 `.env`, so `packages/cdk/bin/deployz.ts` refuses to run outside GitHub
 Actions; use `-c local=true` only to `synth` or `diff`. Customer templates
