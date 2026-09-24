@@ -14,15 +14,31 @@ known state, and provides a deterministic path forward.
 ## The domain model
 
 - **Deployment** (`deployments` row) — the long-lived customer environment.
-  Its `state` (§46: `NOT_INSTALLED … HEALTHY … DELETED`) is the lifecycle of
-  the environment, deliberately distinct from the outcome of any one
-  operation and from runtime health (`healthStatus`) and relay connectivity
-  (`relayStatus`), which are separate columns.
+  Its `state` is the lifecycle of the environment, deliberately distinct
+  from the outcome of any one operation and from runtime health
+  (`healthStatus`: UNKNOWN / HEALTHY / DEGRADED / UNHEALTHY) and relay
+  connectivity (`relayStatus`: CONNECTED / DISCONNECTED / UNKNOWN), which
+  are separate columns. The states and their transitions:
+
+  | State | Entered when | Leaves to |
+  | --- | --- | --- |
+  | `NOT_INSTALLED` | deployment created | `WAITING_FOR_RELAY` (customer launches the Quick Create), `DELETED` (disconnect before install) |
+  | `WAITING_FOR_RELAY` | launch recorded | `INSTALLING` (relay registers, INSTALL job created), `DELETED` |
+  | `INSTALLING` | INSTALL claimed; also a retry-install | `HEALTHY` (heartbeat verifies runtime health after INSTALL success), `FAILED` (INSTALL fails) |
+  | `HEALTHY` | runtime health verified; a day-2 job succeeded with no newer release | `UPDATING`, `UPDATE_AVAILABLE`, `DELETING` |
+  | `UPDATE_AVAILABLE` | a newer READY release exists | `UPDATING`, `DELETING` |
+  | `UPDATING` | DEPLOY_RELEASE / ROLLBACK / RESTART running | `HEALTHY` or `UPDATE_AVAILABLE` (success, or a failed day-2 job whose previous release still serves), `FAILED` (a failed first deploy of a configured-first-start install) |
+  | `FAILED` | first install or destroy failed | `INSTALLING` (retry-install), `UPDATING` (deploy again after a first-start failure), `DELETING` |
+  | `DELETING` | DESTROY queued | `DELETED` (success or force-complete), `FAILED` (destroy failed) |
+  | `DELETED` | terminal; `cleanupState` tracks purge (`SKIPPED_RELAY_OFFLINE`, `PURGE_FAILED`, `COMPLETE`) | — |
+
+  `DISCONNECTED` exists in the enum but nothing writes it as a deployment
+  state; relay loss is `relayStatus`, not a lifecycle state.
 - **Release** (`releases` row) — an immutable version/build.
   `currentReleaseId` points at the release that is really running, and only
   the heartbeat's digest reconciliation advances it — and only when that
   heartbeat shows the new digest running, rollout COMPLETED, full task
-  counts, healthy ALB targets and a successful HTTP probe (Phase 6, §10.3).
+  counts, healthy ALB targets and a successful HTTP probe.
   A SUCCEEDED DEPLOY_RELEASE/ROLLBACK job result alone never advances the
   pointer, so after any failure it still names what is really running. There
   is no separate lastHealthyRelease column because `currentReleaseId` IS that
@@ -158,10 +174,15 @@ active mutating job:
   jobs too).
 - **DESTROY never fails from the watchdog.** A dead-relay teardown is
   settled by the vendor's force-complete escape hatch
-  (`cleanupState: SKIPPED_RELAY_OFFLINE` — explicitly *not* claiming AWS
-  resources were removed; PURGE later verifies and clears retained
-  leftovers). PURGE itself has a staleness timeout so it cannot block
-  retries forever.
+  (`POST /api/deployments/:id/disconnect/force-complete`, also a Team Admin
+  action): allowed only when the relay is `DISCONNECTED` and the pending
+  DESTROY has been stale for at least 60 minutes, or at least two
+  consecutive DESTROY attempts have failed and 60 minutes have passed;
+  otherwise `409 DESTROY_NOT_STALE`, `RELAY_NOT_OFFLINE` or
+  `NO_PENDING_DESTROY`. It records `cleanupState: SKIPPED_RELAY_OFFLINE` —
+  explicitly *not* claiming AWS resources were removed; PURGE later verifies
+  and clears retained leftovers. PURGE itself has a staleness timeout so it
+  cannot block retries forever.
 
 | Job type | Staleness (`JOB_TIMEOUTS_MS`) | Maximum runtime (`JOB_MAX_RUNTIME_MS`) |
 | --- | --- | --- |

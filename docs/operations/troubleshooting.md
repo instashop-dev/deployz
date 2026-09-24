@@ -11,7 +11,10 @@ console is [`../admin/team-admin.md`](../admin/team-admin.md).
    `GET /api/deployments/:id/diagnostics`): the failure code, its
    recoverability class, the evidence (persisted CloudFormation events, the
    relay's error text, ECS stop reasons), the retry eligibility, and an AI
-   explanation when the deterministic classifier could not resolve the code.
+   explanation for the codes whose cause lives inside the application
+   (`UNKNOWN`, `CONTAINER_START_FAILED`, `IMAGE_HEALTH_CHECK_FAILED`,
+   `DATABASE_CONNECTION_FAILED`, `MISSING_SECRET`, `PORT_MISMATCH`,
+   `MIGRATION_FAILED`); every other code gets deterministic copy only.
 2. **Team Admin** (`/admin`): the deployment 360° view, the job list with
    STUCK detection, the AWS connection (relay) list, and the audit log. Use
    "View as Vendor" to see exactly what the vendor sees, read-only.
@@ -19,8 +22,10 @@ console is [`../admin/team-admin.md`](../admin/team-admin.md).
    Lambdas log structured JSON. Useful event names: `operation.requeued`,
    `operation.waiting_for_relay`, `watchdog:config-secret-inventory`,
    `release.build_failed`.
-4. **Relay logs** (CloudWatch, customer account, `/aws/lambda/<bootstrap-stack>-RelayFunction…`,
-   one-week retention): `relay:command-executed`,
+4. **Relay logs** (CloudWatch, customer account, the `/aws/lambda/…` group
+   of the relay function, whose CDK-generated name starts with the bootstrap
+   stack name and contains `RelayFunction`; one-week retention):
+   `relay:command-executed`,
    `relay:stack-events-collected`, `relay:pending-marker-too-large`,
    `relay:pending-marker-unreadable`, `relay:purge-bootstrap-retained`.
    Deployz has no access to these; ask the customer, or use the test
@@ -94,7 +99,10 @@ The worker's watchdog runs every 15 minutes with two clocks per active job:
   Team Admin) uses force-complete, which records
   `cleanupState: SKIPPED_RELAY_OFFLINE` and does not claim that AWS
   resources were removed. A PURGE requested when no relay exists cannot
-  complete either; it waits for a relay that will never come.
+  complete: it is parked WAITING after 60 minutes and fails
+  `RELAY_DISCONNECTED` with `cleanupState: PURGE_FAILED` about 25 hours
+  later. The retained resources must then be removed by hand (or by a new
+  Quick Create followed by another purge).
 - **A STUCK job with a warm relay that keeps failing the same way**: the
   relay caches a failed result per idempotency key for the life of its warm
   container; a retry needs a fresh attempt key, which "deploy again" and
@@ -113,6 +121,17 @@ is `DELETE_FAILED`, nobody retries). Historically a SecureString marker read
 without decryption parsed as "nothing pending"; the relay now decrypts and
 logs `relay:pending-marker-unreadable`. Republish the bootstrap template if
 the customer's relay predates the fix.
+
+**The deployment stays `INSTALLING` and never becomes healthy.** INSTALL
+succeeded but the runtime health gate never passes (the container keeps
+restarting, or the health path never answers). There is no timeout for this
+state, and retry-install is refused once an INSTALL has succeeded. Read the
+ECS stop reason and `unboundSecretKeys` in the diagnostics, fix the
+configuration or the release, then **deploy again**: a DEPLOY_RELEASE
+against an installed deployment is allowed from `INSTALLING`
+(`requireDeployableState`), and a successful rollout promotes it to
+`HEALTHY`. If the install itself must be redone, disconnect and create a
+new deployment.
 
 **Install link has no Quick Create button.** `BOOTSTRAP_TEMPLATE_URL` is
 unset or the Region is not in `DEPLOYABLE_AWS_REGIONS`
@@ -195,9 +214,10 @@ or the migration, redeploy, and recycle the function.
 
 ## Real-AWS test-account hygiene
 
-- Only the version canary carries an account guard
-  (`DEPLOYZ_CANARY_EXPECTED_ACCOUNT`); other harnesses do not. Delete test
-  resources only by ids recorded at creation, never by name pattern.
+- The version canary and the Stage B deployment benchmark refuse any AWS
+  account other than `DEPLOYZ_CANARY_EXPECTED_ACCOUNT`; the read-only canary
+  and the fresh mode have no such guard. Delete test resources only by ids
+  recorded at creation, never by name pattern.
 - `aws login` sessions expire after roughly ten hours; a mid-run expiry
   fails only the AWS steps, and the harnesses' `--cleanup` reruns finish
   them. Concurrent CLI processes race on token refresh; the harnesses retry.

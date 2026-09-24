@@ -27,11 +27,11 @@ Consequences worth knowing:
 - The published templates contain **one HTTP listener** only. The HTTPS
   listener and its certificate are created by the relay after install.
 
-## The two URL kinds
+## URL kinds
 
 | URL | Owner | When it exists |
 | --- | --- | --- |
-| `https://d-<deployment-id>.deployz.dev` (default URL) | Deployz (Cloudflare zone `deployz.dev`) | Every deployment, automatically, after INSTALL succeeds |
+| `https://d-<deployment-id>.deployz.dev` (default URL) | Deployz (Cloudflare zone `deployz.dev`) | Every deployment, automatically; the machine starts once the deployment is HEALTHY (the first verified heartbeat after INSTALL) |
 | `https://<custom-hostname>` (custom domain) | The customer's DNS | Only when the vendor adds one and the customer creates the records |
 | `http://<alb-dns-name>` | AWS | Always; the fallback while HTTPS is being set up |
 
@@ -130,8 +130,9 @@ injectable transport; nothing in the test suite reaches Cloudflare.
   removal the preferred URL falls back to the default URL immediately, and a
   new domain can be added at once (soft-deleted rows do not block the unique
   index).
-- **Precedence.** A custom domain is preferred only once it is ACTIVE and
-  healthy.
+- **Precedence.** A custom domain is preferred as soon as its status is
+  ACTIVE (which the machine grants only after DNS, certificate and probe
+  passed); there is no separate runtime-health condition.
 
 ## Teardown
 

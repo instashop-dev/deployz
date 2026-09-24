@@ -24,7 +24,7 @@ Stage A covers analysis only: the file-tree fetch, the deterministic
 detectors and rejection checks, the readiness report, and the
 deployment-creation gate. It stops before any AWS execution. The AI fallback
 is not exercised: the harness runs with an unconfigured AI gateway, so the
-questions the §15 fallback would have asked are recorded on each result
+questions the AI fallback would have asked are recorded on each result
 (`actual.unresolvedQuestions`) rather than answered.
 
 Two verdict layers exist in Deployz, and both are captured:
@@ -51,7 +51,7 @@ among several engines, S3 as an alternative to local disk) is deployable
 and its expectation names the Deployz-compatible configuration
 (`postgres: true`, `storage: true`, `NEEDS_CONFIGURATION` when a value must
 be set). Only an intrinsic requirement — SQLite as the sole database, a
-declared separate worker process (the Phase 8 boundary in
+declared separate worker process (the MVP support boundary in
 `docs/architecture.md`), a second application service — makes a repository
 `NOT_COMPATIBLE`. A Dockerfile that cannot build from
 the repository alone (it copies an artifact no build step produces) counts
@@ -84,6 +84,10 @@ Sets:
 - `unseen` — 20 repositories selected after the improvement corpus was
   complete and the analyser baseline frozen; their first results are never
   used to change the analyser before the whole set is reported.
+- `unseen2` — a second frozen set of 20 (`repo-201` … `repo-220`), added
+  for the later hardening rounds under the same rule.
+
+The corpus is therefore 120 entries.
 
 Every entry pins an immutable 40-character commit SHA. Expected facts are
 written from repository evidence (manifests, Dockerfiles, compose files,

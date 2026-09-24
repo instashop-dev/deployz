@@ -61,8 +61,8 @@ record the reasoning in docs/decisions/README.md.
 ## E2E testing
 
 Simulated E2E is the default (`pnpm e2e`). Do not invoke real AWS E2E
-(`pnpm e2e:canary`, `pnpm e2e:fresh`) unless required. Escalation order:
-targeted vitest → targeted scenario (`pnpm e2e --scenario=<id>`) →
+(`pnpm e2e:canary:versions`, `pnpm e2e:fresh`) unless required. Escalation
+order: targeted vitest → targeted scenario (`pnpm e2e --scenario=<id>`) →
 full simulated suite (`pnpm e2e:scenarios`) → real AWS only as
-escalation. Use `pnpm test:affected` and `pnpm test:escalation` for
+escalation (the version canary; `pnpm e2e:canary` has no standing target). Use `pnpm test:affected` and `pnpm test:escalation` for
 guided selection. Full policy at `docs/testing/ai-agent-testing-guide.md`.

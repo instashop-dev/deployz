@@ -68,7 +68,7 @@ feature/domain components only where repeated logic justifies them
 - The Customers list says one thing per customer instead of a per-deployment
   state: `CUSTOMER_DEPLOYMENT_STATUS_LABELS` / `_BADGE` in
   `@deployz/copy-map`, derived by `customerDeployment` in `@/lib/customers`.
-  It is a projection of the §46 `state` plus `attentionReason`, never a new
+  It is a projection of the deployment `state` plus `attentionReason`, never a new
   lifecycle and never a second mapping of raw AWS statuses — extend the
   projection, not the vocabulary, when a case is missing.
 

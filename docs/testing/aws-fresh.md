@@ -93,7 +93,7 @@ The suite:
 - Each run mints an 8-hex-char run id and names its stack
   `deployz-fresh-<runid>` (via `DEPLOYZ_BOOTSTRAP_STACK_NAME`, consumed by
   `bin/bootstrap.ts`) — concurrent or previously-un-torn-down runs cannot
-  collide with each other or with a real customer's `DeployzBootstrap`
+  collide with each other or with a real customer's `deployz-bootstrap-…`
   stack.
 - If a stack with the freshly minted name somehow already exists, the suite
   **refuses to proceed** rather than treating it as a collision to recover

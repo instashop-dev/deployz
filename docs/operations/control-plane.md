@@ -44,6 +44,17 @@ Lightsail container service behind `app.deployz.dev`. Neither deploy
 workflow waits for CI; when validating a production change, record the SHA
 and confirm both deploy runs finished.
 
+Known gap in the trigger paths: `deploy-api.yml` does not list
+`packages/copy-map/**` although the API bundles it, and `deploy-web.yml`
+does not list `packages/contracts/**` although the web app bundles it. A
+change to only one of those packages does not redeploy the service that
+uses it; run the workflow from the Actions tab in that case.
+
+There are no CloudWatch alarms and no paging on the control plane. The SQS
+dead-letter queue (three delivery attempts, three-day retention) is
+inspected by hand when a job goes missing; the worker's structured logs
+name the message id.
+
 ## Configuration keys
 
 Names only; values live in GitHub secrets and variables. Everything the API
@@ -111,9 +122,14 @@ identity needs `s3:GetBucketLocation`, `s3:PutObject` and
 `cloudformation:ValidateTemplate` on every bucket for that step to succeed.
 
 Until `BOOTSTRAP_TEMPLATE_URL` is set, the API returns no Quick Create URL
-and the install page says no template has been published. Until a Region is
-in `DEPLOYABLE_AWS_REGIONS`, deployment creation rejects it and the API
-defaults to `us-east-1` only.
+and the install page says no template has been published. A Region that is
+not in `DEPLOYABLE_AWS_REGIONS` is rejected at deployment creation. When the
+variable is unset entirely the API falls back to `us-east-1` only; when it
+is set but empty, no Region is installable. The live values of these
+variables (and of `BOOTSTRAP_REPUBLISH`, `PADDLE_ENVIRONMENT`,
+`BILLING_ENFORCEMENT`, `DOCKERHUB_SECRET_NAME`) are held in the GitHub
+repository settings, not in this repository: read them with
+`gh variable list`.
 
 ## Enabling a Region
 

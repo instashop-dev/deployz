@@ -266,9 +266,13 @@ currently completed by the web app; see
   materialization of staged rows when a deployment is created) and in the
   worker (vendor build-time values). Full threat model and cipher contract:
   [`pending-secret-delivery.md`](pending-secret-delivery.md).
-- **Deployz-generated secrets** are minted by the relay with
-  `crypto.randomBytes` inside the customer account and written to the
-  application's Secrets Manager secret; the control plane never sees them.
+- **Deployz-generated secrets** (the `deployz_generated` variables) are
+  minted by the relay with `crypto.randomBytes` inside the customer account
+  and written to the application's Secrets Manager secret; the control plane
+  never sees those. Separately, the API generates the template's secret
+  *parameters* (the generic app API key and signing secret, plus any
+  preset-specific ones) for every INSTALL; they sit in the job payload until
+  the relay claims it and are masked afterwards.
 - **Managed bindings** (`DATABASE_*`, Redis, S3, `AWS_REGION`, `PORT`) are
   template parameters and dynamic references in the customer account.
 - **Plaintext that still exists in the control plane**, by design and worth

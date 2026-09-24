@@ -82,10 +82,15 @@ ever returns plaintext from an API except the relay's own authenticated
 | Customer value (install page) | DEPLOY-027 pending-secret vault (`pending_secrets` table, see `docs/pending-secret-delivery.md`) — staged before a deployment exists, bound to a deployment once one does | The relay's `GET /api/relay/config` decrypts the bound row and applies it via the post-install CONFIG_UPDATE executor. |
 | Customer override (vendor edits) | Customer-scope `application_configs` row (masked; plaintext never stored — it rides the relay write-through/pending-secret vault instead) | That customer's running deployment (CONFIG_UPDATE write-through), or the pending-secret vault when no relay can act on it yet. |
 
-- Secret values are never returned by an API, logged, written to events or
-  telemetry, or sent to an AI prompt. The CONFIG_UPDATE job payload never
-  carries a value — only key names; the one plaintext-bearing response is
-  the relay's authenticated `GET /api/relay/config` read.
+- Secret values are never returned by a vendor-facing API, logged, written
+  to events or telemetry, or sent to an AI prompt. The one plaintext-bearing
+  response is the relay's authenticated `GET /api/relay/config` read. One
+  exception to "not in the job payload": a CONFIG_UPDATE for a deployment
+  whose relay is **already connected** carries the new values through SQS
+  and `deployment_jobs.payload` until the relay claims the job, after which
+  the stored payload is redacted (`docs/pending-secret-delivery.md`,
+  *Accepted plaintext paths*). Values for deployments without a relay go
+  through the encrypted vault instead.
 - A vendor secret saved before encrypted storage existed has no value that
   Deployz can deliver. The page flags it **Re-enter this secret**, and it
   does not count as provided.

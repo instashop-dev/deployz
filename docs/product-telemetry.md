@@ -68,9 +68,11 @@ text or AI explanations (those stay on the vendor-facing columns):
 - Analysis: `repository_unavailable`, `github_disabled`,
   `github_installation_missing`, `github_rate_limited`, `github_unavailable`,
   `internal_error`.
-- Release build: `build_failed`, `build_cancelled`, `build_timeout`.
-- Install/deploy: the existing §61 failure-code taxonomy from the job result
-  payloads (for example `BOOTSTRAP_TIMEOUT`, `IMAGE_PULL_FAILED`).
+- Release build: `build_failed`, `build_cancelled`, `build_timeout`,
+  `build_registry_rate_limited`.
+- Install/deploy: the 24 stable failure codes from the job result payloads
+  (`FAILURE_CODES` in `packages/copy-map`; for example
+  `STACK_CREATE_FAILED`, `IMAGE_PULL_FAILED`).
 
 ## Funnel semantics
 

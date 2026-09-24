@@ -1,9 +1,12 @@
 # Deployz documentation
 
 The documentation set for the Deployz MVP. Each area has one authoritative
-document; other documents link to it instead of repeating it. Everything
-here describes the product **as implemented**; intended-but-unbuilt behavior
-is labelled as a gap or a deferred item, never presented as current.
+document; other documents link to it instead of repeating it. The documents
+describe the product **as implemented** and were verified against the code
+on 2026-09-24; intended-but-unbuilt behavior is labelled as a gap or a
+deferred item. Live operator settings (which Regions are enabled, whether
+production billing is switched on) are held in GitHub repository variables,
+not here.
 
 ## Start here
 

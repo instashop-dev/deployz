@@ -31,7 +31,9 @@ the current layer cannot establish confidence.
    confidence. Always set `DEPLOYZ_E2E_ALLOW_REAL_AWS=1`. Do not launch
    fresh AWS infrastructure merely because deployment-related code changed.
 
-Escalate to AWS canary when changes affect:
+Escalate to the version canary (`pnpm e2e:canary:versions preflight`, then
+`core`; the read-only `pnpm e2e:canary` has no standing installation to
+verify today) when changes affect:
 
 - relay/AWS interaction
 - CloudFormation polling

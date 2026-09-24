@@ -27,7 +27,7 @@ behind the AI boundary are in `docs/decisions/README.md`.
 ```
 Repository (GitHub tree, bounded)
   → analyseRepo: deterministic detectors + rejection checks
-  → AI fallback ONLY for one of seven unresolved questions; merge is
+  → AI fallback ONLY for an unresolved question; merge is
     deterministic-always-wins
   → ApplicationAnalysis (canonical, typed, evidenced)
   → ReadinessReport (findings) · DeploymentManifest (contract)
@@ -46,7 +46,7 @@ Repository (GitHub tree, bounded)
 - **Orchestrator:** `runApplicationAnalysis` (`apps/api/src/analysis.ts`).
   Fetches a bounded file tree, runs `analyseRepo` (`packages/analysis/src/
   analyser.ts`), applies the AI fallback when needed, builds the readiness
-  report and the canonical projection, backfills the §35 contract fields the
+  report and the canonical projection, backfills the contract fields the
   vendor has not edited, and persists everything in one write to
   `applications.detected_metadata`.
 - **Commit cache:** a run is skipped when `analysisCommitSha` and
@@ -132,7 +132,7 @@ value:
 |---|---|---|
 | `deployz_managed` | the names the stack injects for THIS app (DATABASE_*, the Redis bindings, STORAGE/S3 bucket, AWS_REGION, PORT, HOSTNAME) | at install |
 | `deployz_generated` | required + secret + app-internal name (…SECRET, SECRET_KEY(_BASE), ENCRYPTION_KEY, SIGNING_KEY, APP_KEY, SALT…), no third-party prefix, no connection suffix, not a catalog credential | minted once by the relay with `crypto.randomBytes` inside the customer's account |
-| `customer_required` | every other required key | the vendor, on the configuration screen |
+| `customer_required` | every other required key | a vendor decision on the configuration screen: the vendor supplies the value, or marks it "Set by customer" or optional (the name means "needs a vendor decision", not "the customer supplies it") |
 | `optional` | read with a default | optional |
 | `unknown` | declared only in a sample file | listed, never required |
 
@@ -218,7 +218,7 @@ diagnostic-vocabulary.ts`) plus a migration.
 - Deterministic corpora: `packages/analysis/test/eval-corpus.test.ts` (nine
   archetypes with exact expectations), `application-analysis.test.ts`,
   `env-classification.test.ts`, `readiness-report.test.ts`, and the
-  100-repository Stage A audit (`pnpm benchmark:compat`).
+  120-repository Stage A audit (`pnpm benchmark:compat`).
 - AI boundaries: schema/gate tests with fake gateways
   (`repository-ai.test.ts`, `diagnostic-explainer.test.ts`,
   `apps/api/src/ai-explanation.test.ts`, `fix-instructions` tests); the

@@ -75,10 +75,13 @@ Sizing is frozen per deployment in an immutable profile registry
 only `small-v1` exists and the customer is not offered a choice.
 
 Deployz supports **17 AWS Regions** (`SUPPORTED_AWS_REGIONS` in
-`packages/contracts/src/index.ts`). Production advertises only the Regions
-listed in `DEPLOYABLE_AWS_REGIONS`, for which regional bootstrap artifacts are
-published. The Region is chosen when a deployment is created and is immutable
-afterwards; see [`user-flows.md#who-chooses-the-aws-region`](user-flows.md#who-chooses-the-aws-region).
+`packages/contracts/src/index.ts`). Production offers only the subset named
+in the `DEPLOYABLE_AWS_REGIONS` GitHub repository variable, for which the
+regional bootstrap artifacts are published; the live list is an operator
+setting, not a value in this repository
+([`../operations/control-plane.md`](../operations/control-plane.md)). The
+Region is chosen when a deployment is created and is immutable afterwards;
+see [`user-flows.md#who-chooses-the-aws-region`](user-flows.md#who-chooses-the-aws-region).
 
 ## What the MVP does
 

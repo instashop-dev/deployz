@@ -42,18 +42,20 @@ fails **every** build immediately, before any command runs.
 ## Turning it on
 
 The wiring is opt-in for that reason. The stack passes the secret name to
-the build pipeline only when it is given one:
+the build pipeline only when it is given one. In production the name comes
+from the repository variable `DOCKERHUB_SECRET_NAME`, read by
+`.github/workflows/deploy-api.yml`; deploys run only from that workflow
+(`docs/operations/control-plane.md`):
 
 ```bash
-DOCKERHUB_SECRET_NAME=deployz-codebuild pnpm --filter @deployz/cdk exec cdk deploy DeployzStack
+gh variable set DOCKERHUB_SECRET_NAME --body deployz-codebuild
+gh workflow run deploy-api.yml --ref main
 ```
 
-`-c dockerHubSecretName=deployz-codebuild` does the same thing. With
-neither, the pipeline synthesizes exactly as it did before: no credential
+For a local `cdk diff -c local=true`, `DOCKERHUB_SECRET_NAME=<name>` in the
+environment or `-c dockerHubSecretName=<name>` has the same effect. With
+neither, the pipeline synthesizes exactly as before: no credential
 environment variables, no Secrets Manager policy, and anonymous pulls.
-
-In production the name comes from the repository variable
-`DOCKERHUB_SECRET_NAME`, read by `.github/workflows/deploy-api.yml`.
 
 **To turn it off again** — the rollback if a credential stops working, since
 a failed login fails every build in `pre_build`:

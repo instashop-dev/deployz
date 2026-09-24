@@ -1,6 +1,6 @@
 # Installation invitations — lifecycle and security
 
-The MVP Readiness 2 model for how a new installation starts. One concept
+How a new installation starts. One concept
 before deployment creation, a different concept after it.
 
 ## The two concepts
@@ -102,7 +102,7 @@ for a customer.
 
 ## Audit
 
-Phase 6 added the `invitation.*` event family (created/opened/regenerated/
+The `invitation.*` event family (created/opened/regenerated/
 revoked/confirmed/region_selected/deployment_created/
 configuration_delivered). Payloads carry ids and counts only — never tokens,
 config values, or customer PII.

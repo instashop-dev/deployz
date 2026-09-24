@@ -17,7 +17,7 @@ deployment resources.
 
 ## Three-class model
 
-Stage B splits the repository audit into three classes so "100 repositories"
+Stage B splits the repository audit into three classes so "120 repositories"
 does not mean "100 fresh AWS foundations":
 
 | Class | Mode | Infrastructure | Coverage | Repositories |
@@ -136,13 +136,13 @@ a deployment.
   the repository. Resources the product creates carry the product's own
   `deployz:installation` tag; the ledger records the installation id the
   moment the bootstrap stack outputs it.
-- **Generated secrets**: a secret value the harness generates and PUTs at
-  the vendor scope during B2 Configuration is dropped by the control plane
-  — there is no connected deployment to receive the fan-out. The harness
-  re-delivers the same generated values at the customer scope once the
-  connector enrolls (`result.configuration.deliveredAfterEnrollment`),
-  which is the supported vendor action for a customer-required secret today
-  (BUG-004 / DEPLOY-027 in the campaign report).
+- **Generated secrets**: a secret value the harness PUTs at the vendor
+  scope during B2 Configuration is stored KMS-encrypted and delivered to
+  the install through the relay config endpoint (DEPLOY-027 is closed by
+  the pending-secret vault, `docs/pending-secret-delivery.md`). The harness
+  still re-delivers the same values at the customer scope once the
+  connector enrolls (`result.configuration.deliveredAfterEnrollment`), a
+  belt-and-braces step from before that fix; the result records it.
 
 ## Safety and cleanup
 
@@ -340,7 +340,7 @@ measures a real install. A repository's first attempt must run without the
 flag, so the create-application path is exercised like a real vendor's.
 
 The gate audit is offline by default and needs the Stage A snapshot cache
-(`../repository-compatibility/.cache/`, 100 repositories; copy it from a
+(`../repository-compatibility/.cache/`, 120 repositories; copy it from a
 machine that has run `pnpm benchmark:compat`). A real-AWS run or a
 runtime-reuse run needs the `aws` CLI authenticated to the test account,
 `pnpm build`, and the vendor GitHub App installation able to read the forks.

@@ -9,7 +9,7 @@ test rather than an oversight. Keep this file and those tests in step.
 `applyBillingTransition(deployment, event, now)` — `apps/api/src/billing-domain.ts`.
 Walked cell by cell in `apps/api/src/billing-matrix.test.ts`.
 
-The function takes no `state` (§46 health/lifecycle) input on purpose: no
+The function takes no `state` (deployment lifecycle) input on purpose: no
 health, rollback or recovery signal can ever move billing.
 
 | Type | Billing state | `LIVE` (first verified READY) | `REMOVED` (removal accepted) |
