@@ -153,7 +153,7 @@ async function expectStageEverywhere(
     installLinkId: string;
     deploymentId: string;
     stage: string;
-    customerHeading: string;
+    customerHeading: string | RegExp;
     vendorLabel: string;
   },
 ): Promise<void> {
@@ -206,7 +206,9 @@ test('happy path: WAITING_FOR_AWS -> CONNECTING -> PROVISIONING -> VERIFYING -> 
     // The customer has not launched the install yet: the customer card says
     // what to do (press Deploy to AWS) and the vendor hero says what to do
     // (send the link) — neither claims AWS is working.
-    customerHeading: 'Ready to set up in AWS',
+    // The pre-launch page (nothing in AWS yet) leads with the deploy
+    // invitation, not a progress headline.
+    customerHeading: /^Deploy .* to your AWS account$/,
     vendorLabel: 'Waiting for your customer to install',
   });
   await page.goto(`/install/${installLinkId}`);
