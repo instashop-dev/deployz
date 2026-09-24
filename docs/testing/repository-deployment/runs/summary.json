@@ -1,5 +1,5 @@
 {
-  "deployzCommit": "0dfc9d702207411e40ff4d1ddc8ff763585baaad",
+  "deployzCommit": "e5f489ec046b791b10860b06f812fe9b388a2eca",
   "total": 120,
   "expectedDeployable": 65,
   "expectedUnsupported": 55,
@@ -26,17 +26,17 @@
   },
   "infrastructure": {
     "attempted": 11,
-    "succeeded": 7,
-    "failed": 4
+    "succeeded": 8,
+    "failed": 3
   },
   "runtime": {
-    "ecsRunning": 7,
-    "albHealthy": 7,
-    "httpsReachable": 7,
+    "ecsRunning": 8,
+    "albHealthy": 8,
+    "httpsReachable": 8,
     "applicationResponseValid": 6
   },
   "dependencies": {
-    "postgres": 6,
+    "postgres": 7,
     "redis": 2,
     "storage": 1,
     "migration": 1
@@ -45,29 +45,29 @@
   "trueDeploymentSuccessRate": 9.2,
   "cleanup": {
     "destroys": 12,
-    "destroyFailures": 0,
-    "leaks": 0,
-    "successRate": 100
+    "destroyFailures": 1,
+    "leaks": 1,
+    "successRate": 91.7
   },
   "byClassification": {
     "APPLICATION_ERROR": 1,
     "BUILD_ERROR": 1,
+    "CLEANUP_LEAK": 1,
     "DATABASE_ERROR": 1,
     "ENV_BINDING_ERROR": 1,
     "EXPECTED_UNSUPPORTED": 49,
     "GATE_ERROR": 24,
-    "INFRA_ERROR": 1,
     "MIGRATION_ERROR": 1,
     "PASS": 41
   },
   "byFailureStage": {
     "APPLICATION_ERROR": 1,
     "BUILD_ERROR": 1,
+    "CLEANUP_LEAK": 1,
     "DATABASE_ERROR": 1,
     "ENV_BINDING_ERROR": 1,
     "EXPECTED_UNSUPPORTED": 49,
     "GATE_ERROR": 24,
-    "INFRA_ERROR": 1,
     "MIGRATION_ERROR": 1
   },
   "byRootCause": {
@@ -168,7 +168,7 @@
     "improvement": {
       "total": 80,
       "expectedDeployable": 46,
-      "deployed": 6,
+      "deployed": 7,
       "trueDeploymentSuccess": 5,
       "expectedUnsupported": 34,
       "gateCorrect": 65
@@ -210,7 +210,7 @@
     "realistic": {
       "total": 69,
       "expectedDeployable": 45,
-      "deployed": 7,
+      "deployed": 8,
       "trueDeploymentSuccess": 6,
       "expectedUnsupported": 24,
       "gateCorrect": 48

@@ -1452,3 +1452,33 @@ deployments and pending invitations.
 Full documentation: `docs/installation-invitations.md`,
 `docs/pending-secret-delivery.md`, `docs/infrastructure-profiles.md`,
 `docs/architecture.md` (Installation invitations + Secret delivery sections).
+
+## MVP Readiness 2 — real-AWS smoke canary (2026-09-24)
+
+`pnpm benchmark:deploy --real-aws --repo repo-004 --region eu-west-1 --force`
+against production, after PRs #352 and #360:
+
+- **19 of 21 checkpoints PASS**, end to end: analysis, configuration,
+  release build, pinned template publish, deployment creation, bootstrap +
+  enrollment, vendor-secret delivery, INSTALL, serving image, inventory
+  parity, ECS/ALB health, HTTP probe, Default HTTPS ACTIVE, smoke contract,
+  observation window, dependency bindings, Disconnect, retained-state,
+  Purge. Miniflux booted and served with its customer-entered
+  `ADMIN_PASSWORD` — the DEPLOY-027 failure class (repo-004 attempt 2,
+  2026-09-17: CONTAINER_START_FAILED) no longer reproduces.
+- **Two FAILs, both cleanup-class** (`repo-004: CLEANUP_LEAK`, a finding the
+  account already had before this work): the Purge credential sweep left
+  `DatabaseSecret`/`DatabaseUrlSecret` behind (tagged to the run), and the
+  leak audit counted 16 survivors (bootstrap-stack family + snapshot +
+  subnet, per the runbook sections the harness wave stops before).
+- **Manual sweep performed**: bootstrap stack deleted (as the customer
+  would), both retained secrets force-deleted, four log groups deleted;
+  snapshot/subnet/EventBridge/relay Lambda confirmed gone with the stack.
+  Re-audit: zero leftovers attributable to this run. The 8 remaining
+  Stage-B resources are the pre-existing `rc-e-20260922` orphan family
+  (no `DeployzPersistent` tag), left untouched pending an owner decision.
+- The smoke surfaced one real production defect on the way: migrations
+  0044/0045 were silently skipped by the drizzle Lambda migrator
+  (`when`-stamp bookkeeping; `/health/ready` never touches the DB, so the
+  deploy gate was blind). Root-caused, hotfixed in PR #360, deployed, and
+  verified healed (500 -> 404) before this run.

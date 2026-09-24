@@ -235,9 +235,9 @@
   },
   "cleanup": {
     "status": "FAIL",
-    "destroyJobState": "SKIPPED",
-    "purgeJobState": "SKIPPED",
-    "cleanupState": null,
+    "destroyJobState": "SUCCEEDED",
+    "purgeJobState": "SUCCEEDED",
+    "cleanupState": "COMPLETE",
     "bootstrapStackFinal": "SKIPPED: purge not complete",
     "leaks": [
       "stack deployz-bootstrap-stage-b-repo-004-4891a6f8 CREATE_COMPLETE",
@@ -256,9 +256,9 @@
       "arn:aws:secretsmanager:eu-west-1:151955775369:secret:DatabaseSecret86DBB7B3-0xGnRGMuJWBG-bsyXbA",
       "arn:aws:lambda:eu-west-1:151955775369:function:deployz-bootstrap-stage-b-re-RelayFunctionD137DF95-0Gc9nTokmjGb"
     ],
-    "retainedState": "SKIPPED",
+    "retainedState": "PASS",
     "purgedState": "FAIL",
-    "durationMs": 71636,
+    "durationMs": 2546116,
     "detail": "destroy/purge: secret(s) tagged deployz:installation=4a64f3f7-01c5-4d3b-b375-ff7fabaefa42 survived the Purge — force-delete leaves nothing behind: DatabaseSecret86DBB7B3-0xGnRGMuJWBG, DatabaseUrlSecretFA7DE062-oUiNQbYQm4sx | leak audit: 15 resource(s) left"
   },
   "classification": "CLEANUP_LEAK",
