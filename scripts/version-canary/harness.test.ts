@@ -1,12 +1,18 @@
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { canaryTags, loadConfig, mintRunId, releaseVersionFor, requireRealAwsOptIn, validateDigest } from './config.js';
 import { isTerminalJobState, waitFor, type ControlPlane } from './control-plane.js';
 import { isConnectorSecret, isRetainedDatabaseSecret, relayFunctionName, removeCanaryLeftovers } from './teardown.js';
-import { renderSummary, type Evidence, type RunRecord } from './evidence.js';
+import { captureFailureDiagnostics, withDiagnosticsOnFailure, type DiagnosticsContext } from './diagnostics.js';
+import { Evidence, renderSummary, type RunRecord } from './evidence.js';
 import {
   assertSameInfrastructure,
   assertTargetsServing,
+  expectedBindings,
   parseQuickCreateUrl,
   probeBaseUrl,
   type Canary,
@@ -199,6 +205,33 @@ describe('reuse-stack config', () => {
   });
 });
 
+describe('expectedBindings', () => {
+  it('the legacy (profile-less) ladder requires postgres, never redis', () => {
+    expect(expectedBindings(null)).toEqual({ database: true, redis: false });
+  });
+
+  it('a profile carries the requirements it certifies', () => {
+    expect(expectedBindings({ name: 'pg', postgres: true, redis: false, fixtureRepo: 'x' })).toEqual({ database: true, redis: false });
+    expect(expectedBindings({ name: 'stateless', postgres: false, redis: false, fixtureRepo: 'x' })).toEqual({ database: false, redis: false });
+    expect(expectedBindings({ name: 'redis', postgres: false, redis: true, fixtureRepo: 'x' })).toEqual({ database: false, redis: true });
+  });
+});
+
+describe('production-canary config', () => {
+  it('is false by default — branch-testing mode with the template override', () => {
+    expect(loadConfig({}).production).toBe(false);
+  });
+
+  it('reads DEPLOYZ_CANARY_PRODUCTION=1 from the env', () => {
+    expect(loadConfig({ DEPLOYZ_CANARY_PRODUCTION: '1' }).production).toBe(true);
+    expect(loadConfig({ DEPLOYZ_CANARY_PRODUCTION: '0' }).production).toBe(false);
+  });
+
+  it('the --production override wins over the env var', () => {
+    expect(loadConfig({ DEPLOYZ_CANARY_PRODUCTION: '0' }, { production: true }).production).toBe(true);
+  });
+});
+
 describe('evidence summary', () => {
   it('renders the PASS/FAIL table, releases and jobs', () => {
     const run: RunRecord = {
@@ -224,6 +257,57 @@ describe('evidence summary', () => {
     expect(summary).toContain('| 2 | Deploy v1 | FAIL | job FAILED |');
     expect(summary).toContain('- v1: version `v1-r1`, gitSha `abc`, digest `repo@sha256:1`');
     expect(summary).toContain('- DEPLOY_RELEASE v1: `job-1` → FAILED (ECS_DEPLOYMENT_FAILED)');
+  });
+});
+
+describe('evidence: the vendor password never lands in run.json', () => {
+  function newRun(runId: string): RunRecord {
+    return {
+      runId,
+      startedAt: '2026-09-24T00:00:00.000Z',
+      apiUrl: 'https://api.deployz.dev',
+      region: 'us-east-1',
+      accountId: '151955775369',
+      scenario: 'core',
+      releases: {},
+      markers: [],
+      jobs: [],
+      steps: [],
+    };
+  }
+
+  let resultsDir: string;
+
+  afterEach(() => {
+    if (resultsDir) rmSync(resultsDir, { recursive: true, force: true });
+  });
+
+  it('saveCredentials writes a separate credentials.json, not run.json', () => {
+    resultsDir = mkdtempSync(join(tmpdir(), 'deployz-canary-test-'));
+    const evidence = new Evidence(resultsDir, newRun('run-1'));
+    evidence.run.vendor = { email: 'canary-run-1@deployz-canary.example.com' };
+    evidence.saveCredentials('canary-run-1@deployz-canary.example.com', 'super-secret-password');
+    evidence.save();
+
+    const runJson = readFileSync(join(resultsDir, 'run-1', 'run.json'), 'utf8');
+    expect(runJson).not.toContain('super-secret-password');
+    expect(runJson).toContain('canary-run-1@deployz-canary.example.com');
+
+    const credentials = JSON.parse(readFileSync(join(resultsDir, 'run-1', 'credentials.json'), 'utf8')) as {
+      email: string;
+      password: string;
+    };
+    expect(credentials).toEqual({ email: 'canary-run-1@deployz-canary.example.com', password: 'super-secret-password' });
+  });
+
+  it('loadCredentials reads it back for cleanup --run-id, and returns null when absent', () => {
+    resultsDir = mkdtempSync(join(tmpdir(), 'deployz-canary-test-'));
+    const evidence = new Evidence(resultsDir, newRun('run-2'));
+    expect(evidence.loadCredentials()).toBeNull();
+
+    evidence.saveCredentials('v@example.com', 'pw');
+    const reopened = Evidence.open(resultsDir, 'run-2');
+    expect(reopened.loadCredentials()).toEqual({ email: 'v@example.com', password: 'pw' });
   });
 });
 
@@ -552,6 +636,97 @@ describe('removeCanaryLeftovers never deletes the connector before Purge complet
     // The product's state is irrelevant here — nothing retained means
     // nothing to check it against.
     expect(deploymentRead).toBe(false);
+  });
+});
+
+describe('failure diagnostics (fake path — mocked control plane, no AWS)', () => {
+  function fakeContext(overrides: Partial<RunRecord> = {}, apiOverrides: Record<string, unknown> = {}): DiagnosticsContext {
+    const run: RunRecord = {
+      runId: 'r1',
+      startedAt: 't',
+      apiUrl: 'https://api.deployz.dev',
+      region: 'us-east-1',
+      accountId: '151955775369',
+      scenario: 'core',
+      releases: {},
+      markers: [],
+      jobs: [],
+      steps: [],
+      ...overrides,
+    };
+    return {
+      config: { region: 'us-east-1' } as unknown as DiagnosticsContext['config'],
+      evidence: { run } as unknown as DiagnosticsContext['evidence'],
+      api: {
+        getDeployment: vi.fn().mockResolvedValue({
+          state: 'FAILED',
+          relayStatus: 'ONLINE',
+          healthStatus: 'UNHEALTHY',
+          cleanupState: null,
+          deploymentStatus: { stage: 'FAILED' },
+          jobs: [{ id: 'job-1', type: 'DEPLOY_RELEASE', state: 'FAILED' }],
+        }),
+        diagnostics: vi.fn().mockResolvedValue({ failureCode: 'ECS_DEPLOYMENT_FAILED' }),
+        listReleases: vi.fn().mockResolvedValue([{ id: 'rel-1', version: 'v1', status: 'FAILED', failureReason: 'build failed' }]),
+        buildFailure: vi.fn().mockResolvedValue({ evidence: 'exit code 1' }),
+        ...apiOverrides,
+      } as unknown as DiagnosticsContext['api'],
+    };
+  }
+
+  it('captures deployment, control-plane diagnostics and the failed release build, when recorded', async () => {
+    const canary = fakeContext({ deploymentId: 'dep-1', applicationId: 'app-1' });
+    const result = await captureFailureDiagnostics(canary);
+    expect(result.deployment).toMatchObject({ state: 'FAILED', relayStatus: 'ONLINE' });
+    expect(result.controlPlaneDiagnostics).toEqual({ failureCode: 'ECS_DEPLOYMENT_FAILED' });
+    expect(result.release).toEqual({ id: 'rel-1', version: 'v1', status: 'FAILED', failureReason: 'build failed' });
+    expect(result.releaseBuildFailure).toEqual({ evidence: 'exit code 1' });
+  });
+
+  it('captures nothing but does not throw when the run recorded no ids yet', async () => {
+    const canary = fakeContext();
+    await expect(captureFailureDiagnostics(canary)).resolves.toEqual({});
+  });
+
+  it('one piece failing does not stop the others — recorded as an *Error field instead', async () => {
+    const canary = fakeContext(
+      { deploymentId: 'dep-1' },
+      { getDeployment: vi.fn().mockRejectedValue(new Error('control plane unreachable')) },
+    );
+    const result = await captureFailureDiagnostics(canary);
+    expect(result.deploymentError).toContain('control plane unreachable');
+  });
+
+  it('withDiagnosticsOnFailure attaches diagnostics and rethrows the original error unchanged', async () => {
+    const canary = fakeContext({ deploymentId: 'dep-1' });
+    const details: Record<string, unknown> = {};
+    await expect(
+      withDiagnosticsOnFailure(canary, details, async () => {
+        throw new Error('deploy job FAILED');
+      }),
+    ).rejects.toThrow('deploy job FAILED');
+    expect(details['diagnostics']).toBeDefined();
+    expect((details['diagnostics'] as { deployment?: unknown }).deployment).toMatchObject({ state: 'FAILED' });
+  });
+
+  it('withDiagnosticsOnFailure never masks the original error with a diagnostics-capture failure', async () => {
+    const canary = fakeContext(
+      { deploymentId: 'dep-1' },
+      { getDeployment: vi.fn().mockRejectedValue(new Error('unreachable')), diagnostics: vi.fn().mockRejectedValue(new Error('unreachable')) },
+    );
+    const details: Record<string, unknown> = {};
+    await expect(
+      withDiagnosticsOnFailure(canary, details, async () => {
+        throw new Error('the real failure');
+      }),
+    ).rejects.toThrow('the real failure');
+  });
+
+  it('withDiagnosticsOnFailure returns fn\'s result untouched on success', async () => {
+    const canary = fakeContext();
+    const details: Record<string, unknown> = {};
+    await expect(withDiagnosticsOnFailure(canary, details, async () => 'ok')).resolves.toBe('ok');
+    expect(details['diagnostics']).toBeUndefined();
   });
 });
 

@@ -85,6 +85,14 @@ export interface CanaryConfig {
    * analysis, default fixture repo.
    */
   readonly profile: CanaryProfile | null;
+  /**
+   * Production-canary mode (`--production` or `DEPLOYZ_CANARY_PRODUCTION=1`):
+   * install with the production-published bootstrap template exactly as a
+   * customer would — no `publishCanaryTemplate` synth-from-checkout, no
+   * `ApplicationTemplateUrl` override. The default (false) is branch-testing
+   * mode, which keeps the override so a run proves the checkout's template.
+   */
+  readonly production: boolean;
 }
 
 export function mintRunId(now: Date = new Date()): string {
@@ -137,7 +145,7 @@ function loadProfile(env: NodeJS.ProcessEnv, overrideName?: string): CanaryProfi
 
 export function loadConfig(
   env: NodeJS.ProcessEnv,
-  overrides: Partial<Pick<CanaryConfig, 'runId' | 'keep' | 'existingImageDigest' | 'reuseStack'>> & {
+  overrides: Partial<Pick<CanaryConfig, 'runId' | 'keep' | 'existingImageDigest' | 'reuseStack' | 'production'>> & {
     /** The profile name from `--profile`; wins over DEPLOYZ_CANARY_PROFILE. */
     profileName?: string;
   } = {},
@@ -160,6 +168,7 @@ export function loadConfig(
     existingImageDigest: validateDigest(overrides.existingImageDigest ?? env['DEPLOYZ_E2E_EXISTING_IMAGE_DIGEST'] ?? null),
     reuseStack: overrides.reuseStack ?? false,
     profile,
+    production: overrides.production ?? env['DEPLOYZ_CANARY_PRODUCTION'] === '1',
   };
 }
 
