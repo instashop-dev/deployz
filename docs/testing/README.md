@@ -59,18 +59,22 @@ Use the cheapest layer that can establish confidence:
 
 ## What CI runs
 
-`.github/workflows/ci.yml` (every push and pull request to `main`): a
-`plan` job selects a risk level for pull requests with
-`scripts/test-affected.mjs`; `test-build` runs build, the selected or full
-Vitest projects, lint and `pnpm typecheck:scripts`; `e2e-simulated` runs
-the selected specs and scenarios, and on pushes to `main` and critical pull
-requests the core specs (`e2e-modes`, `admin`, `deployment-detail`), the
-full scenario suite and the default-HTTPS scenarios. The remaining
-Playwright specs run only when the plan selects them or through the manual
-`e2e.yml` workflow; the visual suite never runs in CI (Windows-generated
-snapshots). Real AWS never enters CI: `aws-canary.yml` (version canary) and
-`aws-persistent-canary.yml` (read-only canary) are `workflow_dispatch` only.
-The deploy workflows do not wait for CI.
+`.github/workflows/ci.yml` (every push and pull request to `main`, and on
+demand for any branch). For a pull request the `plan` job classifies the
+change with `scripts/test-affected.mjs`:
+
+| Risk | When | Runs |
+| --- | --- | --- |
+| `minimal` | documentation only | nothing |
+| `targeted` | web runtime code, the allowlisted API areas (billing, admin, organizations, AI, email), analysis, copy-map, DB client code, harness scripts, single specs | build, lint of the changed packages, `typecheck:e2e`, the changed Vitest projects with every workspace dependent (derived from the package manifests), the harness typecheck when a harness dependency changed, and the fixture-mode Playwright suite plus `scenario-ui` for a runtime UI/API change (or only the touched specs) |
+| `critical` | apps/api outside the allowlist, relay, contracts, DB schema or migrations, CDK source, the simulation harness, root configuration, unknown paths, or the `ci:full` label | the full regression: every Vitest project, lint, both typechecks, the CDK bundling smoke, every non-visual Playwright spec, every simulated scenario and the default-HTTPS scenarios |
+
+A push to `main` or a manual run executes the full regression. The `PR
+Gate` job is the aggregate status; it fails when the plan selected
+Playwright coverage that did not run. Real AWS never enters CI: the plan
+prints the real-AWS commands as escalations, and `aws-canary.yml` is
+`workflow_dispatch` only. The visual suite never runs in CI
+(Windows-generated snapshots).
 
 ## Documents
 

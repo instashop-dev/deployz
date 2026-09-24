@@ -150,7 +150,7 @@ export async function expectPlanMatchesInventory(
   deploymentId: string,
   { stage }: { stage: string },
 ): Promise<void> {
-  const readExpectations = () => api.getInfrastructure(deploymentId) as Promise<InventoryExpectationsView>;
+  const readExpectations = () => api.getInfrastructure(deploymentId) as unknown as Promise<InventoryExpectationsView>;
 
   await expect
     .poll(
