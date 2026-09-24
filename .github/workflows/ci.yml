@@ -7,12 +7,15 @@ on:
   push:
     branches:
       - main
+  # A manual run of the full regression on any branch (the same set a push
+  # to main runs): used to verify a flake fix or to measure the whole suite.
+  workflow_dispatch:
 
 # One CI run per change: a feature-branch push without a PR starts no CI,
-# and a newer commit on a PR cancels the superseded run. Pushes to main
-# get their own group and are never cancelled.
+# and a newer commit on a PR cancels the superseded run. Pushes to main and
+# manual runs get their own group and are never cancelled.
 concurrency:
-  group: ci-${{ github.event.pull_request.number || github.sha }}
+  group: ci-${{ github.event.pull_request.number || github.run_id }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
@@ -89,7 +92,7 @@ jobs:
         run: pnpm build
 
       - name: Run tests (full suite)
-        if: github.event_name == 'push' || needs.plan.outputs.risk == 'critical'
+        if: github.event_name != 'pull_request' || needs.plan.outputs.risk == 'critical'
         run: pnpm vitest run
 
       - name: Run tests (affected packages)
@@ -109,7 +112,7 @@ jobs:
           if [ -n "$args" ]; then pnpm vitest run $args; fi
 
       - name: Lint (workspace)
-        if: github.event_name == 'push' || needs.plan.outputs.risk == 'critical'
+        if: github.event_name != 'pull_request' || needs.plan.outputs.risk == 'critical'
         run: pnpm lint
 
       - name: Lint (affected)
@@ -120,7 +123,7 @@ jobs:
       # compiles the four real-AWS harnesses and eslint only covers the
       # .mjs runners. Without this they reach a live AWS run unchecked.
       - name: Typecheck the AWS harnesses
-        if: github.event_name == 'push' || needs.plan.outputs.typecheck_scripts == 'true'
+        if: github.event_name != 'pull_request' || needs.plan.outputs.typecheck_scripts == 'true'
         run: pnpm typecheck:scripts
 
   # Simulated E2E (docs/testing/e2e-testing.md). Runs the subset the plan
@@ -137,7 +140,7 @@ jobs:
     # browser setup (about 1m45s) to run nothing.
     if: >-
       always() && needs.plan.result != 'failure' && needs.plan.result != 'cancelled'
-      && (github.event_name == 'push'
+      && (github.event_name != 'pull_request'
           || needs.plan.outputs.risk == 'critical'
           || needs.plan.outputs.risk == 'targeted-web'
           || needs.plan.outputs.playwright_files != ''
@@ -190,7 +193,7 @@ jobs:
       # against the same servers and environment, so one Playwright
       # invocation covers them (one server lifecycle instead of three).
       - name: Simulated core suite
-        if: github.event_name == 'push' || needs.plan.outputs.risk == 'critical' || needs.plan.outputs.risk == 'targeted-web'
+        if: github.event_name != 'pull_request' || needs.plan.outputs.risk == 'critical' || needs.plan.outputs.risk == 'targeted-web'
         run: node scripts/e2e.mjs e2e/e2e-modes.spec.ts e2e/admin.spec.ts e2e/deployment-detail.spec.ts
 
       - name: Targeted Playwright specs
@@ -198,7 +201,7 @@ jobs:
         run: node scripts/e2e.mjs ${{ needs.plan.outputs.playwright_files }}
 
       - name: Simulated scenario suite
-        if: github.event_name == 'push' || needs.plan.outputs.risk == 'critical' || needs.plan.outputs.risk == 'targeted-web'
+        if: github.event_name != 'pull_request' || needs.plan.outputs.risk == 'critical' || needs.plan.outputs.risk == 'targeted-web'
         run: node scripts/e2e.mjs --scenarios
 
       - name: Targeted simulated scenarios
@@ -212,7 +215,7 @@ jobs:
       # default-HTTPS machine ON, which the ordinary simulated run keeps
       # off, so it always boots its own server with the opt-in flag.
       - name: Default-HTTPS simulated scenarios
-        if: github.event_name == 'push' || needs.plan.outputs.risk == 'critical' || needs.plan.outputs.risk == 'targeted-web'
+        if: github.event_name != 'pull_request' || needs.plan.outputs.risk == 'critical' || needs.plan.outputs.risk == 'targeted-web'
         run: DEPLOYZ_DEFAULT_HTTPS_FIXTURE=true node scripts/e2e.mjs e2e/scenario-default-https.spec.ts
 
       - name: Upload traces on failure
