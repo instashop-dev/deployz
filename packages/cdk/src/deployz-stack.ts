@@ -169,6 +169,19 @@ export class DeployzStack extends Stack {
       enforceSSL: true,
     });
 
+    // ── Config-secret KMS key ────────────────────────────────────────────
+    // Encrypts vendor secrets (application_configs.encrypted_value) and the
+    // pending-secret vault (docs/pending-secret-delivery.md). RETAIN: every
+    // stored ciphertext is unreadable without this exact key, so a stack
+    // delete or a logical-id change must never schedule it for deletion.
+    // Keep the construct id stable — a new id replaces the key.
+    const configSecretsKey = new Key(this, 'ConfigSecretsKey', {
+      description: 'Deployz control-plane config secrets (vendor secrets and pending-secret vault).',
+      alias: 'alias/deployz-config-secrets',
+      enableKeyRotation: true,
+      removalPolicy: RemovalPolicy.RETAIN,
+    });
+
     // ── API Lambda ───────────────────────────────────────────────────────
     const credentialEnv = collectEnvVars();
 
@@ -211,6 +224,7 @@ export class DeployzStack extends Stack {
         // API reads a failed release's build log from it (vendor build
         // output only — never customer runtime logs).
         BUILD_LOG_GROUP_NAME: buildLogGroupName,
+        DEPLOYZ_KMS_KEY_ARN: configSecretsKey.keyArn,
       },
     });
 
@@ -265,6 +279,7 @@ export class DeployzStack extends Stack {
         ...credentialEnv,
         SOURCE_BUCKET: sourceBucket.bucketName,
         BUILD_PROJECT_NAME: buildPipeline.project.projectName,
+        DEPLOYZ_KMS_KEY_ARN: configSecretsKey.keyArn,
       },
     });
 
@@ -281,18 +296,6 @@ export class DeployzStack extends Stack {
       }),
     );
 
-    // ── Config-secret KMS key ────────────────────────────────────────────
-    // Encrypts vendor secrets (application_configs.encrypted_value) and the
-    // pending-secret vault (docs/pending-secret-delivery.md). RETAIN: every
-    // stored ciphertext is unreadable without this exact key, so a stack
-    // delete or a logical-id change must never schedule it for deletion.
-    // Keep the construct id stable — a new id replaces the key.
-    const configSecretsKey = new Key(this, 'ConfigSecretsKey', {
-      description: 'Deployz control-plane config secrets (vendor secrets and pending-secret vault).',
-      alias: 'alias/deployz-config-secrets',
-      enableKeyRotation: true,
-      removalPolicy: RemovalPolicy.RETAIN,
-    });
     // Only the fixed purpose and the known opaque scope keys pass
     // (docs/pending-secret-delivery.md § Cipher contract).
     const configSecretsKeyConditions = {

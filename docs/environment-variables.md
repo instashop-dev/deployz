@@ -67,10 +67,11 @@ come from well-known name prefixes (`NEXT_PUBLIC_`, `VITE_`,
 
 Both secret paths below share one `SecretCipher` seam
 (`apps/api/src/pending-secrets.ts`): a KMS-backed cipher in production
-(`DEPLOYZ_KMS_KEY_ARN`), an in-memory stub in local dev/tests. Open item:
-the control-plane CDK does not provision the KMS key or set
-`DEPLOYZ_KMS_KEY_ARN` yet, so deployed Lambdas fall back to the stub until
-that is done. Neither path
+(`DEPLOYZ_KMS_KEY_ARN`, the control-plane key `alias/deployz-config-secrets`),
+an in-memory stub in local dev/tests only. In AWS Lambda a missing or
+invalid key fails closed; the stub is never used there. See
+`docs/pending-secret-delivery.md` for the cipher contract and the
+legacy-row migration. Neither path
 ever returns plaintext from an API except the relay's own authenticated
 `GET /api/relay/config` read.
 

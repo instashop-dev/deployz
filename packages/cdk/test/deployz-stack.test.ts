@@ -258,6 +258,18 @@ describe('DeployzStack', () => {
       expect(Object.keys(baseline.findOutputs('ConfigSecretsKeyArn'))).toHaveLength(1);
     });
 
+    it('passes the key ARN to both the API and the worker Lambda', () => {
+      const functions = Object.values(baseline.findResources('AWS::Lambda::Function')).filter((resource) =>
+        JSON.stringify(resource.Properties).includes('DB_SECRET_ARN'),
+      );
+      expect(functions).toHaveLength(2);
+      for (const resource of functions) {
+        const variables = (resource.Properties as { Environment: { Variables: Record<string, unknown> } }).Environment
+          .Variables;
+        expect(JSON.stringify(variables.DEPLOYZ_KMS_KEY_ARN)).toContain('ConfigSecretsKey');
+      }
+    });
+
     it('grants each Lambda only Encrypt/Decrypt on that key, bound to the purpose context', () => {
       const statements = Object.values(baseline.findResources('AWS::IAM::Policy')).flatMap(
         (policy) =>

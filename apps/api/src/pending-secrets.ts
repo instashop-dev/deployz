@@ -1,5 +1,6 @@
 import { and, eq, isNull, lt, sql } from 'drizzle-orm';
 
+import { CONFIG_SECRET_KMS_CONTEXT_KEYS, CONFIG_SECRET_KMS_PURPOSE } from '@deployz/contracts';
 import type { RuntimeDb } from '@deployz/db';
 import * as schema from '@deployz/db/schema';
 
@@ -39,7 +40,8 @@ export interface SecretCipher {
 }
 
 /**
- * In-memory cipher for tests: `enc:` + base64(plaintext), reversed on
+ * In-memory cipher for local dev and tests ONLY — it gives no
+ * confidentiality: `enc:` + base64(plaintext), reversed on
  * decrypt. The context is bound through (encrypt embeds a hash of it into
  * the ciphertext's "header"; decrypt requires the same hash) so a wrong
  * context fails the round-trip — the same surface a stolen-context KMS
@@ -69,11 +71,20 @@ export function createCipherStub(): SecretCipher {
   };
 }
 
+/** Version prefix of every value `createKmsCipher` writes. */
+export const KMS_CIPHERTEXT_PREFIX = 'kms1:';
+
+const KMS_KEY_ARN_PATTERN = /^arn:aws[a-z-]*:kms:[a-z0-9-]+:\d{12}:key\/[A-Za-z0-9-]+$/;
+
 /**
- * Real KMS-backed cipher. The EncryptionContext passed to AWS must contain
- * the same key/value pairs we later use to decrypt — KMS binds the AAD to
- * the ciphertext, so a wrong context is a guaranteed Decrypt failure. We
- * serialize the context to a sorted dict (AWS requires string-only values).
+ * Real KMS-backed cipher (direct Encrypt/Decrypt, so the 4096-byte KMS
+ * plaintext limit applies). Stored format: `kms1:` + base64(CiphertextBlob).
+ * KMS receives the caller's context plus the fixed
+ * `purpose: CONFIG_SECRET_KMS_PURPOSE` pair; the IAM grants require that
+ * pair and allow only CONFIG_SECRET_KMS_CONTEXT_KEYS, so a wrong or foreign
+ * context is a guaranteed Decrypt failure. Callers store and pass the
+ * context WITHOUT `purpose` — the cipher owns it. Decrypt refuses anything
+ * that is not `kms1:` (e.g. a legacy stub value) before calling AWS.
  */
 export function createKmsCipher(keyArn: string): SecretCipher {
   // Lazy import: the API bundle carries @aws-sdk/client-kms only when the
@@ -81,41 +92,51 @@ export function createKmsCipher(keyArn: string): SecretCipher {
   // the SDK.
   type KmsModule = typeof import('@aws-sdk/client-kms');
   let modPromise: Promise<KmsModule> | undefined;
+  let clientPromise: Promise<InstanceType<KmsModule['KMSClient']>> | undefined;
   const load = (): Promise<KmsModule> => {
     modPromise ??= import('@aws-sdk/client-kms');
     return modPromise;
   };
-  // Base64-url encode the KMS CiphertextBlob, which AWS returns as a Uint8Array
-  // or a binary string. The store persists the value as text.
-  const encodeBlob = (blob: Uint8Array): string => Buffer.from(blob).toString('base64');
-  const decodeBlob = (text: string): Uint8Array => new Uint8Array(Buffer.from(text, 'base64'));
+  const client = (): Promise<InstanceType<KmsModule['KMSClient']>> => {
+    clientPromise ??= load().then((mod) => new mod.KMSClient({}));
+    return clientPromise;
+  };
+  const kmsContext = (context: Record<string, string>): Record<string, string> => {
+    for (const name of Object.keys(context)) {
+      if (name === 'purpose' || !(CONFIG_SECRET_KMS_CONTEXT_KEYS as readonly string[]).includes(name)) {
+        throw new Error(`KMS cipher: encryption context key "${name}" is not allowed`);
+      }
+    }
+    return { ...context, purpose: CONFIG_SECRET_KMS_PURPOSE };
+  };
   return {
     async encrypt(plaintext, context) {
       const mod = await load();
-      const client = new mod.KMSClient({});
-      const response = await client.send(
+      const response = await (await client()).send(
         new mod.EncryptCommand({
           KeyId: keyArn,
           Plaintext: new TextEncoder().encode(plaintext),
-          EncryptionContext: context,
+          EncryptionContext: kmsContext(context),
         }),
       );
       if (response.CiphertextBlob === undefined) {
         throw new Error('KMS Encrypt returned no CiphertextBlob');
       }
-      const blob = response.CiphertextBlob instanceof Uint8Array
-        ? response.CiphertextBlob
-        : new TextEncoder().encode(String(response.CiphertextBlob));
-      return { ciphertext: encodeBlob(blob), encryptionContext: context };
+      return {
+        ciphertext: `${KMS_CIPHERTEXT_PREFIX}${Buffer.from(response.CiphertextBlob).toString('base64')}`,
+        encryptionContext: context,
+      };
     },
     async decrypt(ciphertext, encryptionContext) {
+      if (!ciphertext.startsWith(KMS_CIPHERTEXT_PREFIX)) {
+        throw new Error('KMS cipher: ciphertext is not in the kms1 format');
+      }
       const mod = await load();
-      const client = new mod.KMSClient({});
-      const response = await client.send(
+      const response = await (await client()).send(
         new mod.DecryptCommand({
           KeyId: keyArn,
-          CiphertextBlob: decodeBlob(ciphertext),
-          EncryptionContext: encryptionContext,
+          CiphertextBlob: new Uint8Array(Buffer.from(ciphertext.slice(KMS_CIPHERTEXT_PREFIX.length), 'base64')),
+          EncryptionContext: kmsContext(encryptionContext),
         }),
       );
       if (response.Plaintext === undefined) {
@@ -124,6 +145,31 @@ export function createKmsCipher(keyArn: string): SecretCipher {
       return new TextDecoder().decode(response.Plaintext);
     },
   };
+}
+
+/**
+ * The one place a process picks its cipher. Inside AWS Lambda
+ * (`AWS_LAMBDA_FUNCTION_NAME` set) a missing or malformed key ARN throws —
+ * the stub is never selected there. Elsewhere (local dev, tests) no ARN
+ * means the stub. The error names the variable, never its value.
+ */
+export function createSecretCipherFromEnv(env: {
+  readonly kmsKeyArn: string | undefined;
+  readonly isLambda: boolean;
+}): SecretCipher {
+  const keyArn = env.kmsKeyArn?.trim() ?? '';
+  if (keyArn === '') {
+    if (env.isLambda) {
+      throw new Error(
+        'DEPLOYZ_KMS_KEY_ARN is not set. Secret storage refuses to start in AWS Lambda without the KMS key.',
+      );
+    }
+    return createCipherStub();
+  }
+  if (!KMS_KEY_ARN_PATTERN.test(keyArn)) {
+    throw new Error('DEPLOYZ_KMS_KEY_ARN is not a valid KMS key ARN.');
+  }
+  return createKmsCipher(keyArn);
 }
 
 // ── Store seam (DB-backed) ────────────────────────────────────────────────

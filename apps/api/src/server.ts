@@ -166,11 +166,7 @@ import {
   type ReleaseImageClient,
 } from './release-images.js';
 import { buildFailureContext, toStructuredEvent } from './failure-context.js';
-import {
-  createCipherStub,
-  createDrizzlePendingSecretStore,
-  createKmsCipher,
-} from './pending-secrets.js';
+import { createDrizzlePendingSecretStore, createSecretCipherFromEnv } from './pending-secrets.js';
 import { retryEligibilityFor } from './retry-eligibility.js';
 import { buildInstallPayload, buildRelayConfigEntries, queuePostInstallConfig } from './install-config.js';
 import { requirePreflightReady, runApplicationPreflight, runDeploymentPreflight } from './preflight.js';
@@ -2784,9 +2780,14 @@ export async function buildServer({
   const configSecretWriter = createRelaySecretWriter();
   // DEPLOY-027 (Phase 4): the cipher + the at-rest pending_secrets store +
   // the scope-deployments query, wired from env so production uses KMS and
-  // local/test environments degrade to the cipher stub. buildServer owns the
-  // construction so every route below shares one instance.
-  const cipher = env.kmsKeyArn ? createKmsCipher(env.kmsKeyArn) : createCipherStub();
+  // local/test environments degrade to the cipher stub. In Lambda a missing
+  // or invalid key throws here, so the function fails INIT (and the deploy's
+  // readiness check) instead of storing secrets with the stub. buildServer
+  // owns the construction so every route below shares one instance.
+  const cipher = createSecretCipherFromEnv({
+    kmsKeyArn: env.kmsKeyArn,
+    isLambda: Boolean(process.env.AWS_LAMBDA_FUNCTION_NAME),
+  });
   const pendingSecrets = createDrizzlePendingSecretStore(db, cipher);
   const configDeps: ConfigDeps = {
     store: configStore,
