@@ -81,11 +81,20 @@ jobs:
           fi
           tip=$(git rev-parse origin/main)
           if [ "$tip" != "$SHA" ]; then
-            echo "::notice::$SHA is no longer the tip of main ($tip); a newer run deploys instead."
+            echo "::notice::$SHA is no longer the tip of main ($tip); the newer run deploys everything since the last deploy."
             echo "deploy=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          changed=$(git diff --name-only "$SHA^" "$SHA")
+          # Compare against the last successful deploy (the deployed/web tag),
+          # so a change whose own run was skipped is picked up by the next
+          # one. Without the tag (first run) the commit's own diff decides.
+          if git fetch -q origin "refs/tags/deployed/web:refs/tags/deployed/web" 2>/dev/null; then
+            base=$(git rev-parse "refs/tags/deployed/web")
+          else
+            base="$SHA^"
+          fi
+          echo "Comparing $base..$SHA"
+          changed=$(git diff --name-only "$base" "$SHA")
           match=false
           for f in $changed; do
             for p in $PATHS; do
@@ -104,6 +113,9 @@ jobs:
     needs: gate
     if: needs.gate.outputs.deploy == 'true'
     runs-on: ubuntu-latest
+    # contents: write moves the deployed/web tag after a successful deploy.
+    permissions:
+      contents: write
     env:
       DEPLOY_SHA: ${{ needs.gate.outputs.sha }}
     steps:
