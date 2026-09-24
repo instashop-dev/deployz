@@ -11,7 +11,8 @@ control plane together. First validated on 2026-09-02/03; rerun on 2026-09-05 an
 Use it to validate a release, or after a change to the relay, the templates,
 the install/deploy state machine, or the publish tooling. For everything
 else use the simulated suite (`pnpm e2e`); see
-[`ai-agent-testing-guide.md`](ai-agent-testing-guide.md). The Deploy Link
+[`strategy.md`](strategy.md#the-escalation-policy-for-coding-agents). The
+Deploy Link
 variant of the walk (vendor customer page → Generate deploy link →
 `/deploy/<publicId>?token=…` → Deploy to AWS → the same relay pipeline) was
 validated on 2026-09-05; see `docs/deploy-links.md`.

@@ -5,7 +5,7 @@
  * status derivation -> UI-facing wire shapes — and that the resource
  * inventory is populated through the production persistence path (relay
  * listAllStackResources -> POST /api/relay/health -> persistDeploymentResourceSnapshot).
- * See docs/testing/e2e-testing.md.
+ * See docs/testing/simulated-e2e.md.
  *
  * Every assertion here goes through the real HTTP API (no UI yet — that is a
  * later phase). Test titles carry `@scenario:<id>` so a parallel runner can

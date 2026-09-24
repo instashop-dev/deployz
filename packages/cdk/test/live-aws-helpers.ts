@@ -1,6 +1,6 @@
 /**
  * Shared shell-out helpers for the live-AWS vitest suites (fresh —
- * docs/testing/e2e-testing.md D5).
+ * docs/testing/simulated-e2e.md D5).
  *
  * fresh-e2e.live.test.ts reuses the `cdk`/`aws` invocation pattern this file
  * carries instead of forking it. The read-only persistent-installation
