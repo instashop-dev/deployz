@@ -138,8 +138,9 @@ export interface MaterializationDeps {
  * The POST /api/deployments creation body, extracted so the manual route and
  * the deploy-link flow run ONE implementation: org-scoped 404s, the manifest
  * readiness gates, and the insert (state NOT_INSTALLED, fresh enrollment
- * code, final manifest as desiredState). The deployable-region gate stays in
- * the callers because each route must keep its own pre-load ordering.
+ * code, final manifest as desiredState). Callers keep their own deployable-
+ * region gates for route ordering; the check inside is the shared backstop
+ * every creation path funnels through.
  */
 export async function createDeploymentRecord(
   db: RuntimeDb,
@@ -147,6 +148,17 @@ export async function createDeploymentRecord(
 ): Promise<CreatedDeployment> {
   const application = await loadOwnedApplication(db, params.applicationId, params.organizationId);
   await loadOwnedCustomer(db, params.customerId, params.organizationId);
+  // Fail-closed backstop: a Region whose bootstrap artifacts are not
+  // confirmed published never reaches a deployment row, so it can never
+  // reach the relay or CloudFormation — even if a future caller forgets its
+  // own pre-load gate.
+  if (!env.deployableAwsRegions.includes(params.region)) {
+    throw new ApiError(
+      422,
+      'REGION_NOT_SUPPORTED',
+      `Region ${params.region} is not available for installation yet.`,
+    );
+  }
   // The one preflight every path into provisioning runs — the manifest gate
   // against THIS customer's configuration plus the readiness report's
   // remaining findings. Generated secrets are never minted on the control

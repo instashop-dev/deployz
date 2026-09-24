@@ -6,8 +6,10 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { applyMigrations, createDb, type Db } from '@deployz/db';
 import * as schema from '@deployz/db/schema';
+import type { Region } from '@deployz/contracts';
 
 import { createAuth, type Auth } from './auth.js';
+import { createDeploymentRecord } from './deploy-links.js';
 import { env } from './env.js';
 import { buildServer } from './server.js';
 
@@ -351,5 +353,125 @@ describe('targeted installation invitations', () => {
     // region_selected records the CUSTOMER's region, not the recommendation.
     const regionEvent = events.find((row) => row.eventType === 'invitation.region_selected');
     expect((regionEvent!.payload as Record<string, unknown>)['region']).toBe('eu-west-1');
+  });
+
+  it('two concurrent confirms with different keys create exactly one deployment', async () => {
+    const { id, token } = (await createInvitation('us-east-1')).json() as { id: string; token: string };
+    const confirmOnce = () =>
+      app.inject({
+        method: 'POST',
+        url: `/api/public-install/${id}/confirm`,
+        headers: { 'content-type': 'application/json', 'x-deployz-token': token },
+        payload: JSON.stringify({
+          idempotencyKey: crypto.randomUUID(),
+          region: 'eu-west-1',
+          config: [{ key: 'STRIPE_API_KEY', value: 'sk_race_fixture', isSecret: true }],
+        }),
+      });
+    const [first, second] = await Promise.all([confirmOnce(), confirmOnce()]);
+    const codes = [first.statusCode, second.statusCode].sort();
+    expect(codes.join(','), `${first.body} | ${second.body}`).toBe('201,410');
+    const loser = first.statusCode === 410 ? first : second;
+    expect((loser.json() as { error: { code: string } }).error.code).toBe('PUBLIC_INSTALL_LINK_USED');
+    const deployments = await db
+      .select({ id: schema.deployments.id })
+      .from(schema.deployments)
+      .where(eq(schema.deployments.publicInstallLinkId, id));
+    expect(deployments).toHaveLength(1);
+  });
+
+  it('omits a recommendation that is no longer deployable from resolve', async () => {
+    // ap-south-1 is a supported Region but not in this suite's deployable
+    // set — the recommendation cannot deploy, so it is never served.
+    const stale = (await createInvitation('ap-south-1')).json() as { id: string; token: string };
+    const staleResponse = await app.inject({
+      method: 'GET',
+      url: `/api/public-install/${stale.id}`,
+      headers: { 'x-deployz-token': stale.token },
+    });
+    expect(staleResponse.statusCode, staleResponse.body).toBe(200);
+    const staleBody = staleResponse.json() as { recommendedRegion: string | null; regions: { value: string }[] };
+    expect(staleBody.recommendedRegion).toBeNull();
+    expect(staleBody.regions.map((region) => region.value)).not.toContain('ap-south-1');
+
+    // A deployable recommendation is still served.
+    const fresh = (await createInvitation('eu-west-1')).json() as { id: string; token: string };
+    const freshResponse = await app.inject({
+      method: 'GET',
+      url: `/api/public-install/${fresh.id}`,
+      headers: { 'x-deployz-token': fresh.token },
+    });
+    const freshBody = freshResponse.json() as { recommendedRegion: string | null };
+    expect(freshBody.recommendedRegion).toBe('eu-west-1');
+  });
+
+  it('keeps the deployment Region immutable after creation', async () => {
+    const { id, token } = (await createInvitation('us-east-1')).json() as { id: string; token: string };
+    const confirm = await app.inject({
+      method: 'POST',
+      url: `/api/public-install/${id}/confirm`,
+      headers: { 'content-type': 'application/json', 'x-deployz-token': token },
+      payload: JSON.stringify({
+        idempotencyKey: crypto.randomUUID(),
+        region: 'eu-west-1',
+        config: [{ key: 'STRIPE_API_KEY', value: 'sk_immutable_fixture', isSecret: true }],
+      }),
+    });
+    expect(confirm.statusCode, confirm.body).toBe(201);
+    const { installLinkId } = confirm.json() as { installLinkId: string };
+
+    // Later lifecycle calls never move the Region, whatever their outcome.
+    await app.inject({
+      method: 'POST',
+      url: `/api/install/${installLinkId}/launched`,
+      headers: { 'content-type': 'application/json' },
+      payload: '{}',
+    });
+    await app.inject({
+      method: 'POST',
+      url: `/api/install/${installLinkId}/retry`,
+      headers: { 'content-type': 'application/json' },
+      payload: '{}',
+    });
+
+    const [deployment] = await db
+      .select({ region: schema.deployments.region })
+      .from(schema.deployments)
+      .where(eq(schema.deployments.installLinkId, installLinkId));
+    expect(deployment!.region).toBe('eu-west-1');
+  });
+
+  it('createDeploymentRecord itself refuses an undeployable Region (shared backstop)', async () => {
+    // A confirmation first, so the target customer holds the config the
+    // preflight needs; the count snapshot is taken after it.
+    const { id, token } = (await createInvitation()).json() as { id: string; token: string };
+    const confirm = await app.inject({
+      method: 'POST',
+      url: `/api/public-install/${id}/confirm`,
+      headers: { 'content-type': 'application/json', 'x-deployz-token': token },
+      payload: JSON.stringify({
+        idempotencyKey: crypto.randomUUID(),
+        region: 'us-east-1',
+        config: [{ key: 'STRIPE_API_KEY', value: 'sk_backstop_fixture', isSecret: true }],
+      }),
+    });
+    expect(confirm.statusCode, confirm.body).toBe(201);
+    const before = await deploymentCount();
+
+    // us-west-1 is a supported enum value but not deployable here — the
+    // shared creation seam refuses it even though no route-level gate ran.
+    await expect(
+      createDeploymentRecord(db, {
+        organizationId: org.organizationId,
+        applicationId,
+        customerId,
+        region: 'us-west-1' as Region,
+        deploymentType: 'PRODUCTION',
+        createdBy: null,
+        updatedBy: null,
+        source: 'manual',
+      }),
+    ).rejects.toMatchObject({ statusCode: 422, code: 'REGION_NOT_SUPPORTED' });
+    expect(await deploymentCount()).toBe(before);
   });
 });
