@@ -16,7 +16,6 @@ import { resolveAiGatewayConfig, resolveJevConfig } from '@deployz/api/ai-config
 import { createAnalysisRunner } from '@deployz/api/analysis';
 import { createJevShadowRunnerFromEnv, createJevFailureShadowRunnerFromEnv } from '@deployz/api/jev-shadow';
 import { createPaddle } from '@deployz/api/paddle';
-import { migrateLegacyConfigSecrets } from '@deployz/api/legacy-secret-migration';
 import { createSecretCipherFromEnv, type SecretCipher } from '@deployz/api/pending-secrets';
 import type { QueueMessage } from '@deployz/api/queue';
 
@@ -210,21 +209,6 @@ export async function handler(event: WorkerEvent): Promise<BatchResponse | void>
       });
       if (secretInventory !== undefined) {
         console.log(JSON.stringify({ event: 'watchdog:config-secret-inventory', ...secretInventory }));
-      }
-      // KMS fix, phase 2: re-encrypt legacy stub rows with the KMS key.
-      // Lambda only — there the cipher is always KMS (or throws). Counts only.
-      if (process.env.AWS_LAMBDA_FUNCTION_NAME) {
-        // Only the error class is logged: a failed query's message carries its
-        // parameters, which here can include a legacy (decodable) value.
-        const migration = await Promise.resolve()
-          .then(() => migrateLegacyConfigSecrets(db, secretCipher()))
-          .catch((error: unknown) => {
-            console.error('migrateLegacyConfigSecrets failed', error instanceof Error ? error.name : 'unknown');
-            return undefined;
-          });
-        if (migration !== undefined) {
-          console.log(JSON.stringify({ event: 'watchdog:legacy-secret-migration', ...migration }));
-        }
       }
       // DEPLOY-027 (Phase 4): drop pending_secrets rows whose TTL expired
       // before any relay picked them up. Swallow errors the same way as the

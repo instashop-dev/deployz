@@ -124,8 +124,6 @@ key, so:
   only IDs. The next relay cycle tries again.
 - The build worker leaves the value out of the build variables.
 - Deployment creation fails if staged rows cannot materialize.
-- The watchdog migration counts the row as `failed`, does not change it,
-  and tries again on the next tick.
 
 No path falls back to the stub or returns plaintext. When KMS is available
 again, delivery continues. A pending row that is still undelivered after its
@@ -167,7 +165,29 @@ and CI deployed each phase:
 3. **Retire legacy.** When the inventory shows `stub` = 0 for vendor rows
    and for active pending rows, remove the migration module and the
    worker's `kms:Encrypt` grant. After that, no production code can decode
-   the stub format.
+   the stub format. The worker now has only `kms:Decrypt`.
+
+**Production result (2026-09-24).** Before Phase 2, the inventory showed
+these rows:
+- vendor secrets: 1 `stub` and 1 `none` (a legacy row that already needed
+  re-entry)
+- customer-scope ciphertext: 0
+- `pending_secrets`: 0 rows
+
+The first Phase 2 tick recorded these counts:
+- vendor: 1 migrated, 0 unusable, 0 skipped, 0 failed
+- pending: 0
+
+The next inventory recorded these counts:
+- vendor: 1 `kms1` and 1 `none`
+- `stub`: 0
+
+The `none` row needs vendor re-entry. It already needed re-entry before
+this fix, and the fix did not change it.
+
+The inventory log (`watchdog:config-secret-inventory`) stays on as a
+count-only monitor. A `stub` or `other` count greater than zero in
+production is a defect.
 
 **Recovery.** If the Phase 2 deploy check fails, CI stops. A stack
 rollback restores the previous Lambda code and environment, and the key

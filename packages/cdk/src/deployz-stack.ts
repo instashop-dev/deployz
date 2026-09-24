@@ -311,11 +311,10 @@ export class DeployzStack extends Stack {
         conditions: configSecretsKeyConditions,
       }),
     );
-    // Worker: decrypts vendor build variables; encrypts only to re-encrypt
-    // legacy rows (removed with the legacy migration).
+    // Worker: only decrypts (vendor build variables).
     worker.function.addToRolePolicy(
       new PolicyStatement({
-        actions: ['kms:Encrypt', 'kms:Decrypt'],
+        actions: ['kms:Decrypt'],
         resources: [configSecretsKey.keyArn],
         conditions: configSecretsKeyConditions,
       }),

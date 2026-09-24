@@ -75,10 +75,6 @@
     "./pending-secrets": {
       "types": "./dist/pending-secrets.d.ts",
       "import": "./dist/pending-secrets.js"
-    },
-    "./legacy-secret-migration": {
-      "types": "./dist/legacy-secret-migration.d.ts",
-      "import": "./dist/legacy-secret-migration.js"
     }
   },
   "scripts": {
