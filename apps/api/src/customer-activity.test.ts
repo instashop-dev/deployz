@@ -187,6 +187,15 @@ describe('translateStackEvents / findProvisioningIssue — failure flow', () => 
         { label: 'Status reason', value: genuineReason },
       ]),
     });
+    // The raw reason lives only behind the collapsed technical details:
+    // every customer-visible field stays jargon-free.
+    const visible = JSON.stringify({
+      currentActivity: live.currentActivity,
+      recentActivity: live.recentActivity,
+      provisioningIssue: live.provisioningIssue,
+    });
+    expect(visible).not.toContain(genuineReason);
+    expect(visible).not.toContain('CREATE_FAILED');
   });
 
   it('returns null when there is no genuine failure', () => {
