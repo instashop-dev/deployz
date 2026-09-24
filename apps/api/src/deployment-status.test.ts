@@ -522,6 +522,38 @@ describe('vendor and customer projections agree', () => {
       domain: null,
       appUrl: 'https://app.example.com',
     },
+    // A failed update over a live release (failed-update semantics).
+    {
+      deployment: makeDeployment({ state: 'HEALTHY', healthStatus: 'HEALTHY', currentReleaseId: 'rel-1' }),
+      application: makeApplication(),
+      jobs: [makeJob({ state: 'SUCCEEDED' }), makeJob({ type: 'DEPLOY_RELEASE', state: 'FAILED', failureCode: 'ECS_DEPLOYMENT_FAILED' })],
+      domain: null,
+      appUrl: 'https://app.example.com',
+    },
+    // Removed, with retained data.
+    {
+      deployment: makeDeployment({ state: 'DELETED', currentReleaseId: 'rel-1' }),
+      application: makeApplication({ databaseRequired: true }),
+      jobs: [makeJob({ state: 'SUCCEEDED' }), makeJob({ type: 'DESTROY', state: 'SUCCEEDED' })],
+      domain: null,
+      appUrl: null,
+    },
+    // A destroy that hit DELETE_FAILED.
+    {
+      deployment: makeDeployment({ state: 'FAILED', currentReleaseId: 'rel-1' }),
+      application: makeApplication(),
+      jobs: [makeJob({ state: 'SUCCEEDED' }), makeJob({ type: 'DESTROY', state: 'FAILED', failureCode: 'STACK_DELETE_FAILED' })],
+      domain: null,
+      appUrl: null,
+    },
+    // Failed while the relay is disconnected.
+    {
+      deployment: makeDeployment({ state: 'FAILED', relayStatus: 'DISCONNECTED' }),
+      application: makeApplication(),
+      jobs: [makeJob({ state: 'FAILED', failureCode: 'RELAY_STATE_WRITE_FAILED' })],
+      domain: null,
+      appUrl: null,
+    },
   ];
 
   it.each(scenarios.map((input, index) => [index, input] as const))(
