@@ -152,10 +152,15 @@ jobs:
   # never runs here (Windows-generated snapshots).
   #
   #   full     every non-visual spec, every scenario, the default-HTTPS scenarios
-  #   fixture  every non-scenario spec plus the browser-level scenario spec
+  #   fixture  every non-scenario spec plus the browser-driven scenario specs
   #   files    the specs the change touched
+  #
+  # The fixture-mode suite (about 9 minutes on one runner, bound by the dev
+  # servers rather than by Playwright workers) is sharded three ways; the
+  # scenario suites run in a fourth job. A part with nothing to run skips
+  # its setup and finishes in seconds.
   e2e-simulated:
-    name: Simulated E2E
+    name: Simulated E2E (${{ matrix.part }})
     needs: plan
     if: >-
       always() && needs.plan.result != 'failure' && needs.plan.result != 'cancelled'
@@ -163,25 +168,46 @@ jobs:
           || needs.plan.outputs.risk == 'critical'
           || (needs.plan.outputs.playwright != 'none' && needs.plan.outputs.playwright != ''))
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        part: [fixture-1, fixture-2, fixture-3, scenarios]
     env:
       AWS_ACCESS_KEY_ID: simulated-test-access-key
       AWS_SECRET_ACCESS_KEY: simulated-test-secret
       AWS_REGION: us-east-1
       MODE: ${{ (github.event_name != 'pull_request' || needs.plan.outputs.risk == 'critical') && 'full' || needs.plan.outputs.playwright }}
+      SHARD: ${{ matrix.part == 'fixture-1' && '1/3' || matrix.part == 'fixture-2' && '2/3' || matrix.part == 'fixture-3' && '3/3' || '' }}
     steps:
+      - name: Decide what this part runs
+        id: part
+        run: |
+          run=false
+          case "$MODE/${{ matrix.part }}" in
+            full/*) run=true ;;
+            fixture/*) run=true ;;
+            files/fixture-1) run=true ;;
+          esac
+          echo "run=$run" >> "$GITHUB_OUTPUT"
+          echo "mode=$MODE part=${{ matrix.part }} run=$run"
+
       - name: Checkout
+        if: steps.part.outputs.run == 'true'
         uses: actions/checkout@v7
 
       - name: Install pnpm
+        if: steps.part.outputs.run == 'true'
         uses: pnpm/action-setup@v6
 
       - name: Setup Node.js
+        if: steps.part.outputs.run == 'true'
         uses: actions/setup-node@v7
         with:
           node-version: 24
           cache: pnpm
 
       - name: Cache Turborepo output
+        if: steps.part.outputs.run == 'true'
         uses: actions/cache@v4
         with:
           path: .turbo
@@ -190,53 +216,56 @@ jobs:
             turbo-${{ runner.os }}-
 
       - name: Install dependencies
+        if: steps.part.outputs.run == 'true'
         run: pnpm install --frozen-lockfile
 
       - name: Build workspace packages
+        if: steps.part.outputs.run == 'true'
         run: pnpm build
 
       # The Chromium download is the same for every run with the same
       # lockfile; the OS packages (`--with-deps`) are still installed each
       # run, which is a few seconds.
       - name: Cache Playwright browser
+        if: steps.part.outputs.run == 'true'
         uses: actions/cache@v4
         with:
           path: ~/.cache/ms-playwright
           key: playwright-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
 
       - name: Install Playwright browser
+        if: steps.part.outputs.run == 'true'
         run: pnpm exec playwright install --with-deps chromium
 
-      - name: Fixture-mode Playwright suite
-        if: env.MODE == 'full' || env.MODE == 'fixture'
-        run: node scripts/e2e.mjs --grep-invert "@scenario|visual"
+      - name: Fixture-mode Playwright suite (shard ${{ env.SHARD }})
+        if: (env.MODE == 'full' || env.MODE == 'fixture') && env.SHARD != ''
+        run: node scripts/e2e.mjs --grep-invert "@scenario|visual" --shard=${{ env.SHARD }}
 
       - name: Browser scenario specs
-        if: env.MODE == 'fixture' && !cancelled()
+        if: env.MODE == 'fixture' && matrix.part == 'scenarios'
         run: node scripts/e2e.mjs e2e/scenario-ui.spec.ts e2e/scenario-release-unavailable.spec.ts ${{ needs.plan.outputs.playwright_files }}
 
       - name: Touched Playwright specs
-        if: env.MODE == 'files'
+        if: env.MODE == 'files' && matrix.part == 'fixture-1'
         run: node scripts/e2e.mjs ${{ needs.plan.outputs.playwright_files }}
 
-      # Later steps still run after an earlier red step so one failure never
-      # hides the others' results.
       - name: Simulated scenario suite
-        if: env.MODE == 'full' && !cancelled()
+        if: env.MODE == 'full' && matrix.part == 'scenarios'
         run: node scripts/e2e.mjs --scenarios
 
       # The default-HTTPS suite (scenarios A–I) needs the fixture
       # default-HTTPS machine ON, which the ordinary simulated run keeps
-      # off, so it always boots its own server with the opt-in flag.
+      # off, so it always boots its own server with the opt-in flag. It runs
+      # after a red scenario suite so one failure never hides the other.
       - name: Default-HTTPS simulated scenarios
-        if: env.MODE == 'full' && !cancelled()
+        if: env.MODE == 'full' && matrix.part == 'scenarios' && !cancelled()
         run: DEPLOYZ_DEFAULT_HTTPS_FIXTURE=true node scripts/e2e.mjs e2e/scenario-default-https.spec.ts
 
       - name: Upload traces on failure
         uses: actions/upload-artifact@v4
         if: failure()
         with:
-          name: e2e-simulated-results
+          name: e2e-simulated-results-${{ matrix.part }}
           path: test-results/
           retention-days: 7
 
