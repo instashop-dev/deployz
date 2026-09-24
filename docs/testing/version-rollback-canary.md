@@ -7,8 +7,7 @@ routes a vendor and a customer use. Nothing in it writes to the database or
 to AWS directly on the product's behalf; it only drives the product and then
 looks at AWS independently.
 
-See [`README.md`](README.md) for where this sits in the test hierarchy,
-[`aws-canary.md`](aws-canary.md) for the read-only verify canary, and
+See [`README.md`](README.md) for where this sits in the test hierarchy, and
 [`aws-full-product-canary.md`](aws-full-product-canary.md) for the manual
 full-product walk this automates the versioning half of.
 
@@ -75,6 +74,7 @@ canary (tsx, scripts/version-canary)          test AWS account 151955775369
 DEPLOYZ_E2E_ALLOW_REAL_AWS=1 pnpm e2e:canary:versions preflight
 DEPLOYZ_E2E_ALLOW_REAL_AWS=1 pnpm e2e:canary:versions core [--keep] [--existing-image=<digest>] [--reuse-stack]
 DEPLOYZ_E2E_ALLOW_REAL_AWS=1 pnpm e2e:canary:versions resilience [--keep]
+DEPLOYZ_E2E_ALLOW_REAL_AWS=1 pnpm e2e:canary:versions profile --profile <pg|stateless|redis> [--run-id <id>] [--production]
 DEPLOYZ_E2E_ALLOW_REAL_AWS=1 pnpm e2e:canary:versions cleanup --run-id <id>
 DEPLOYZ_E2E_ALLOW_REAL_AWS=1 pnpm e2e:canary:versions audit --run-id <id>
 ```
@@ -102,6 +102,7 @@ published from a commit that includes the relay you want to test
 | `--keep` | — | Leave the environment in place for investigation; run `cleanup --run-id` afterwards. |
 | `--existing-image=<digest>` | `DEPLOYZ_E2E_EXISTING_IMAGE_DIGEST` | Skip CodeBuild/GitHub-source rebuilds and use the supplied digest for every release version. The digest must match `sha256:[0-9a-f]{64}`. All versions (v1, v2, v3, v4) share the same digest — version verification relies on release and deployment records, not image changes. Use this flag during deployment-engine iteration when the image is already published and the ~20-minute build wait is unnecessary. The default path (no `--existing-image`) builds each release through CodeBuild and is required for full build-pipeline validation. |
 | `--reuse-stack` | — | Skip bootstrap stack creation, application stack provisioning, and final infrastructure teardown. Reuse a standing stack that is already tagged `DeployzPersistent=true` and `DeployzTestMode=canary`. The stack name defaults to the legacy `deployz-app`; set `DEPLOYZ_E2E_CANARY_STACK_NAME` to the real `deployz-app-<installation-id-prefix>` name (no standing stack exists today, so this flag needs one to be provisioned first). The canary hard-fails if the stack does not exist or the tags are wrong. Per-run resources (customer, deployment, releases) are still created and cleaned. Infrastructure is left standing. Do not use this flag when testing bootstrap or teardown logic. |
+| `--production` | `DEPLOYZ_CANARY_PRODUCTION=1` | `profile` scenario only. Skips publishing a template from the checkout and skips the `ApplicationTemplateUrl` override — the bootstrap stack installs with whatever template production already published, exactly what a customer's Quick Create uses. The default (unset) stays branch-testing mode: the checkout's own template, published and pinned to the run's v1 image. |
 
 `--keep` and `--reuse-stack` can be combined: the environment stays running
 for investigation, and the infrastructure stays standing for the next
@@ -113,6 +114,8 @@ reuse-stack run.
 preflight → vendor + application → build v1 → publish canary template
 → create deployment → launch → CreateStack (bootstrap) → relay enrolls
 → INSTALL → HEALTHY → v1 serving (auto-deploy + reconciliation)
+→ default HTTPS reaches ACTIVE, health path answers over it
+→ application bindings (DATABASE_URL/storage) present
 → seed CANARY_DATA_<run> → build v2 → deploy v2 → data + infra unchanged
 → rollback to v1 (digest chain) → data + infra unchanged
 → deploy v2 → build v3-bad-health → deploy v3 FAILS, v2 keeps serving
@@ -126,7 +129,9 @@ Each deploy/rollback step verifies four layers: Deployz (`state`,
 `currentReleaseId`, `previousReleaseId`, job state, `deploymentStatus`),
 the job/relay (terminal state, payload digest), AWS (ECS running digest,
 ECR digest for the version tag, ALB target health, stack status) and the
-live app (`/version`, `/health`, markers) sampled several times.
+live app (`/version`, `/health`, markers) sampled several times. Any of
+these steps failing attaches a best-effort diagnostics snapshot to its own
+evidence file — see [Evidence](#evidence).
 
 ## The resilience scenario
 
@@ -150,6 +155,28 @@ live app (`/version`, `/health`, markers) sampled several times.
 Browser refresh/close during a deploy needs no special step: every page
 reads state from the API, which is what these assertions poll.
 
+## The profile scenario
+
+`pnpm e2e:canary:versions profile --profile <pg|stateless|redis>` certifies
+one infrastructure shape rather than the full version ladder: vendor +
+application (under that profile's `databaseRequired`/`redisRequired`) →
+build v1 → publish the canary template (skipped with `--production`, see
+below) → install to HEALTHY with the plan-vs-inventory gate → default HTTPS
+ACTIVE → application bindings (`DATABASE_URL` when the profile requires
+postgres, storage always, a working `REDIS_URL`/`REDIS_HOST` PING when the
+profile requires redis — skipped, not asserted absent, when it does not) →
+full teardown with its retained-state checks. No markers, no update/rollback
+ladder — `core` already proves that logic once; `profile` proves the product
+provisions and tears down each certified shape.
+
+`--production` (`DEPLOYZ_CANARY_PRODUCTION=1`) installs with whatever
+template production has already published, instead of synthesizing one from
+the checkout and overriding `ApplicationTemplateUrl` — the same path a real
+customer's Quick Create takes. Preflight records what `GET /health` and
+`GET /health/ready` answered into `run.json`'s `controlPlaneHealth`, the
+closest thing to a deployed control-plane identifier those routes expose
+today.
+
 ## Teardown pacing
 
 Disconnect and Purge are executed by the relay inside the customer account,
@@ -164,10 +191,25 @@ resilience scenario's missed-poll test cover the schedule itself.
 
 ## Evidence
 
-`canary-results/<run-id>/run.json` (identities, releases, jobs, steps),
-`steps/NN-<name>.json` (per-step facts and error), `summary.md`
-(PASS/FAIL table). A failed run keeps its environment; `cleanup --run-id`
-tears it down from the recorded ids.
+`canary-results/<run-id>/run.json` (identities, releases, jobs, steps —
+never the vendor password), `steps/NN-<name>.json` (per-step facts and
+error), `summary.md` (PASS/FAIL table). A failed run keeps its environment;
+`cleanup --run-id` tears it down from the recorded ids.
+
+The vendor password lives only in `canary-results/<run-id>/credentials.json`
+(`{email, password}`), written once at sign-up. It is never written to
+`run.json`, and the workflow's evidence upload excludes it — `cleanup
+--run-id` reads it back to sign back in. Deleting a run's evidence directory
+deletes the credentials with it; nothing else needs it.
+
+A failing install/deploy/destroy step attaches a best-effort diagnostics
+snapshot to its own step file under `details.diagnostics`: the CloudFormation
+stack status and `*_FAILED` events for the bootstrap/application stacks, the
+failed release's CodeBuild build info (whatever `GET
+.../releases/:id/build-failure` exposes), the deployment's relay/health/
+cleanup state and the control plane's own `/diagnostics` projection. Capture
+failures are recorded alongside (`diagnosticsError`) rather than masking the
+original failure.
 
 ## Cleanup and leak audit
 
@@ -195,11 +237,21 @@ quota) and the simulated scenario suite (`pnpm e2e:scenarios`).
 Run the real canary on demand:
 
 - **GitHub Actions**: `AWS version canary` (`.github/workflows/aws-canary.yml`,
-  `workflow_dispatch`, scenario `preflight` / `core` / `resilience`). It needs
+  `workflow_dispatch`, scenario `preflight` / `core` / `resilience` /
+  `profile`, with a `production` and a `keep_on_failure` checkbox). It needs
   `AWS_CANARY_ACCESS_KEY_ID` / `AWS_CANARY_SECRET_ACCESS_KEY` repository
   secrets for an identity with administrative access to the **test account
-  only**; the harness refuses any other account. Evidence is uploaded as a
-  workflow artifact. One run at a time (concurrency group).
+  only**; the harness refuses any other account. A run id is minted (or the
+  supplied one reused) before the canary step runs, so cleanup and the leak
+  audit can still find the run's evidence when the canary step itself fails
+  or times out. On failure/cancellation the workflow runs `cleanup --run-id`
+  automatically unless `keep_on_failure` is checked; the leak audit always
+  runs last. Evidence is uploaded as a workflow artifact (never the
+  `credentials.json` password file). One run at a time (concurrency group).
+  A `schedule` trigger (weekly `profile --profile stateless --production`,
+  filing one tracking issue titled "Production canary failed" on failure) is
+  in the workflow file but commented out — enable it only after three
+  consecutive green manual `profile --profile stateless --production` runs.
 - **Locally**: the commands above, with the `aws` CLI authenticated to the
   test account.
 
