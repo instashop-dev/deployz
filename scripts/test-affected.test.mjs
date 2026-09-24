@@ -191,7 +191,7 @@ test('14. --full forces the full regression on any change', () => {
 
 test('15. the full regression runs every layer including the bundling smoke and the e2e typecheck', () => {
   const cmds = rendered(plan(['apps/api/src/server.ts']));
-  for (const expected of ['pnpm typecheck:e2e', 'pnpm vitest run', 'pnpm typecheck:scripts', 'pnpm synth:smoke', '--grep-invert @scenario|visual', '--scenarios', 'e2e/scenario-default-https.spec.ts']) {
+  for (const expected of ['pnpm test:static', 'pnpm typecheck:e2e', 'pnpm vitest run', 'pnpm typecheck:scripts', 'pnpm synth:smoke', '--grep-invert @scenario|visual', '--scenarios', 'e2e/scenario-default-https.spec.ts']) {
     assert.ok(cmds.some(c => c.includes(expected)), expected);
   }
 });

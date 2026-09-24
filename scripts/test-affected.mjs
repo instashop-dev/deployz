@@ -39,6 +39,7 @@ const ROOT_CONFIG = [
   /^scripts\/e2e-env\.mjs$/,
   /^scripts\/test-affected\.mjs$/,
   /^scripts\/test-affected\.test\.mjs$/,
+  /^scripts\/production-safety\.test\.mjs$/,
   /^e2e\/tsconfig\.json$/,
   /^\.env/,
 ];
@@ -403,6 +404,7 @@ export function commandsFor(plan) {
   const cmds = [];
   if (plan.risk === 'minimal') return cmds;
 
+  cmds.push({ label: 'static production-safety guards', cmd: 'pnpm', args: ['test:static'] });
   cmds.push({ label: 'typecheck e2e', cmd: 'pnpm', args: ['typecheck:e2e'] });
   if (plan.unitProjects === 'ALL') {
     cmds.push({ label: 'full unit suite', cmd: 'pnpm', args: ['vitest', 'run'] });
