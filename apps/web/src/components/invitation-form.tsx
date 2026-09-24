@@ -101,7 +101,9 @@ export function InvitationDialog({
       }
       const body = (await response.json()) as { id: string; token: string };
       if (typeof window !== 'undefined') {
-        setRevealed({ url: `${window.location.origin}/install/${body.id}`, token: body.token });
+        // One shareable URL: the one-time token rides as the URL fragment
+        // (never sent to the server; stripped from history after capture).
+        setRevealed({ url: `${window.location.origin}/install/${body.id}#${body.token}`, token: body.token });
       }
       onCreated();
     } catch (caught) {
@@ -175,8 +177,8 @@ export function InvitationDialog({
             <DialogHeader>
               <DialogTitle>Invitation created</DialogTitle>
               <DialogDescription>
-                Email the installation link and the one-time token to your customer separately. The
-                token is shown only once and cannot be retrieved again.
+                Send the installation link to your customer — it carries the one-time token, so
+                nothing else is needed. The token is shown only once and cannot be retrieved again.
               </DialogDescription>
             </DialogHeader>
             <div className="flex flex-col gap-4 py-4">

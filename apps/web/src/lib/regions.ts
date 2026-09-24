@@ -1,4 +1,4 @@
-// §12/§41 region options for the "Create customer deployment" screen.
+// §12/§41 region options for the "Create installation" screen.
 //
 // Fetched from the control plane (`GET /api/regions`), never hardcoded: the
 // API serves only regions whose regional bootstrap artifacts are confirmed

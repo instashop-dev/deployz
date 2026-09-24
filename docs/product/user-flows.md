@@ -40,9 +40,9 @@ behind each step is in [`../architecture.md`](../architecture.md).
 
 | Entry point | Created from | What it creates | Region | Status |
 | --- | --- | --- | --- | --- |
-| **Reusable public install link** | Application overview ("Create install link") | Nothing until a customer confirms. Each confirmation creates a new customer record and a PRODUCTION deployment. One live link per application; enable / disable / revoke / regenerate. | Customer selects (pre-selected to the vendor's recommendation, else the first offered Region) | Works end to end. |
-| **Targeted invitation** | Customer detail page ("Create installation") | Nothing until the customer confirms. Bound to one customer, secured by a one-time token shown once. | Customer selects | **Does not work in the browser today**: the customer page never sends the token the API requires, so the link resolves as invalid. Tracked as a code gap; see [`../installation-invitations.md`](../installation-invitations.md). |
-| **Vendor-created deployment** | "Create deployment" / "Create installation" on Home, Deployments, Customers list, Onboarding | A PRODUCTION (or TEST) deployment immediately, in NOT_INSTALLED, with a per-deployment install link (30-day TTL, revoke / rotate). | **Vendor** picks the Region | Works end to end. This is the primary CTA in the dashboard today. |
+| **Reusable public install link** | Application overview ("Create install link") | Nothing until a customer confirms. Each confirmation creates a new customer record and a PRODUCTION deployment. One live link per application; enable / disable / revoke / regenerate. | Customer selects (pre-selected to the vendor's recommendation when present and deployable; otherwise explicit choice required) | Works end to end. |
+| **Targeted invitation** | Customer detail page ("Create installation") or "Create installation" on Home/Deployments/Customers list | Nothing until the customer confirms. Bound to one customer, secured by a one-time token shown once. The token travels as the URL fragment (`#<token>`), stripped from history after capture. | Customer selects (pre-selected to the vendor's recommendation when present and deployable; otherwise explicit choice required) | Works end to end. |
+| **Test deployment** | "Create Test Deployment" (`/dashboard/deployments/new?test=true`) | A TEST deployment immediately, in NOT_INSTALLED, with a per-deployment install link (30-day TTL, revoke / rotate). Free; no subscription required. | **Vendor** picks the Region | Works end to end. |
 | Legacy deploy link | API only (`POST /api/customers/:id/deploy-links`) | A `/deploy/<publicId>?token=…` link with a vendor-fixed Region | Vendor | Legacy; kept for links that already exist. See [`../deploy-links.md`](../deploy-links.md). |
 
 ## Customer journey
@@ -133,11 +133,12 @@ behind each step is in [`../architecture.md`](../architecture.md).
 
 The intended model is: the vendor **recommends**, the customer **selects**, and
 the Region is **immutable** once the deployment exists. The current
-implementation matches this for the public install link, except that the
-page pre-selects the recommended Region (or the first offered Region) instead
-of demanding an explicit choice. For a vendor-created deployment the vendor
-chooses the Region before the customer sees anything. Region enablement is an
-operator setting; see [`../operations/control-plane.md`](../operations/control-plane.md).
+implementation matches this for both the public install link and targeted
+invitations: the recommended Region pre-selects when present and deployable;
+otherwise the customer must make an explicit choice (no silent first-region
+default). For a test deployment (`?test=true`) the vendor chooses the Region
+before the customer sees anything. Region enablement is an operator setting;
+see [`../operations/control-plane.md`](../operations/control-plane.md).
 
 ## Status vocabulary
 

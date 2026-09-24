@@ -7,6 +7,7 @@ import { InstallLaunchButton } from '@/components/install-launch-button';
 import { InstallPlanTable } from '@/components/install-plan-table';
 import { InstallProgress } from '@/components/install-progress';
 import { InstallRetryButton } from '@/components/install-retry-button';
+import { InvitationTokenGate } from '@/components/invitation-token-gate';
 import { PublicInstallFlow } from '@/components/public-install-flow';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
@@ -89,16 +90,12 @@ export default async function InstallPage({
   }
 
   if (lookup.status === 'not_found') {
-    return (
-      <div className="flex flex-col gap-4">
-        <h1 className="text-2xl font-semibold tracking-tight">This link isn&apos;t valid</h1>
-        <p className="max-w-md text-sm text-muted-foreground">
-          This installation link doesn&apos;t match an active deployment. It may have been
-          removed, or the link may be incorrect. Contact whoever sent you this link for a new
-          one.
-        </p>
-      </div>
-    );
+    // Both server lookups failed. This is either a genuinely unknown id, or
+    // a targeted invitation: those require the one-time token, which travels
+    // as a URL fragment the server never sees. The client gate captures it
+    // (or the sessionStorage copy a reload relies on), resolves privately,
+    // and fails safe with this same state when no valid token exists.
+    return <InvitationTokenGate installLinkId={installLinkId} />;
   }
 
   const data = lookup.data;

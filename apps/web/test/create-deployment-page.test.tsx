@@ -29,6 +29,7 @@ const mocks = vi.hoisted(() => ({
   fetchCustomers: vi.fn(),
   createCustomerRecord: vi.fn(),
   createDeploymentRecord: vi.fn(),
+  createInvitation: vi.fn(),
   fetchRegions: vi.fn(),
   fetchApplicationPreflight: vi.fn(),
 }));
@@ -39,7 +40,7 @@ vi.mock('../src/lib/applications', () => ({
 
 vi.mock('../src/lib/customers', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../src/lib/customers')>();
-  return { ...actual, fetchCustomers: mocks.fetchCustomers };
+  return { ...actual, fetchCustomers: mocks.fetchCustomers, createInvitation: mocks.createInvitation };
 });
 
 vi.mock('../src/lib/deployments', async (importOriginal) => {
@@ -59,27 +60,17 @@ vi.mock('../src/lib/preflight', () => ({
   fetchApplicationPreflight: mocks.fetchApplicationPreflight,
 }));
 
-// Kept apart from real @paddle/paddle-js — production billing status is
-// irrelevant to the customer-picker behavior under test.
-vi.mock('../src/lib/billing-checkout', () => ({
-  fetchBillingConfig: vi.fn(),
-  fetchSubscriptionStatus: vi.fn().mockResolvedValue('ACTIVE'),
-  fetchProductionDeploymentCounts: vi.fn().mockResolvedValue({ active: 0, included: 0, billable: 0 }),
-  createCheckoutIntent: vi.fn(),
-  openSubscriptionCheckout: vi.fn(),
-}));
-
 const NewDeploymentPage = (await import('../src/app/dashboard/deployments/new/page')).default;
 type Customer = import('../src/lib/customers').Customer;
 type Application = import('../src/lib/applications').Application;
 
 /**
- * Component tests for the create-deployment page's customer picker (this
- * change): default new-customer path, selecting an existing customer,
- * ?customerId= preselection (found and unknown), a failed customer fetch,
- * and a duplicate submit. Rendered with react-dom/client + act inside jsdom,
- * matching dialog-loading.test.tsx and multi-action-loading.test.tsx — a
- * Radix Popover portal and real dispatched clicks need a live DOM.
+ * Component tests for the create-installation page (invitation-first): the
+ * customer picker behavior, the invitation creation path (no deployment), the
+ * optional recommended region, and the ?test=true direct-creation path.
+ * Rendered with react-dom/client + act inside jsdom, matching
+ * dialog-loading.test.tsx and multi-action-loading.test.tsx — a Radix
+ * Popover portal and real dispatched clicks need a live DOM.
  */
 
 function application(overrides: Partial<Application> = {}): Application {
@@ -121,6 +112,13 @@ function customer(overrides: Partial<Customer> = {}): Customer {
     ...overrides,
   };
 }
+
+const INVITATION = {
+  id: '11111111-1111-1111-1111-111111111111',
+  token: 't'.repeat(64),
+  expiresAt: '2026-10-24T00:00:00.000Z',
+  recommendedRegion: null,
+};
 
 const cleanups: Array<() => void> = [];
 
@@ -168,11 +166,24 @@ async function selectCustomerOption(label: string): Promise<void> {
   });
 }
 
+/** Types into the new-customer inputs (uncontrolled native inputs). */
+async function fillNewCustomer(container: HTMLElement): Promise<void> {
+  const nameInput = container.querySelector('#customerName') as HTMLInputElement;
+  const emailInput = container.querySelector('#customerEmail') as HTMLInputElement;
+  await act(async () => {
+    nameInput.value = 'New Co';
+    nameInput.dispatchEvent(new Event('input', { bubbles: true }));
+    emailInput.value = 'new@example.com';
+    emailInput.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+}
+
 beforeEach(() => {
   mocks.fetchApplications.mockReset().mockResolvedValue([application()]);
   mocks.fetchCustomers.mockReset().mockResolvedValue([]);
   mocks.createCustomerRecord.mockReset();
   mocks.createDeploymentRecord.mockReset();
+  mocks.createInvitation.mockReset().mockResolvedValue(INVITATION);
   mocks.fetchRegions.mockReset().mockResolvedValue([{ value: 'us-east-1', label: 'US East (N. Virginia)' }]);
   mocks.fetchApplicationPreflight.mockReset().mockRejectedValue(new Error('no preflight in this test'));
 });
@@ -184,8 +195,8 @@ afterEach(() => {
   document.body.innerHTML = '';
 });
 
-describe('CustomerPicker on the create-deployment page', () => {
-  it('defaults to "Create new customer" and creates a customer then a deployment', async () => {
+describe('create-installation page (invitation-first)', () => {
+  it('creates a customer then an invitation — and no deployment', async () => {
     mocks.fetchCustomers.mockResolvedValue([customer({ id: 'cus-1', name: 'Acme Corp' })]);
     mocks.createCustomerRecord.mockResolvedValue({
       id: 'cus-new',
@@ -196,31 +207,12 @@ describe('CustomerPicker on the create-deployment page', () => {
       externalReference: null,
       createdAt: '2026-08-01T00:00:00.000Z',
     });
-    mocks.createDeploymentRecord.mockResolvedValue({
-      id: 'dep-1',
-      customerId: 'cus-new',
-      applicationId: 'app-1',
-      organizationId: 'org-1',
-      region: 'us-east-1',
-      state: 'NOT_INSTALLED',
-      installLinkId: 'link-1',
-      deploymentType: 'PRODUCTION',
-      createdAt: '2026-08-01T00:00:00.000Z',
-    });
 
     const container = await renderPage();
     expect(customerPickerTrigger().textContent).toBe('Create new customer');
+    expect(container.textContent).toContain('Create installation');
 
-    const nameInput = container.querySelector('#customerName') as HTMLInputElement;
-    const emailInput = container.querySelector('#customerEmail') as HTMLInputElement;
-    expect(nameInput).not.toBeNull();
-
-    await act(async () => {
-      nameInput.value = 'New Co';
-      nameInput.dispatchEvent(new Event('input', { bubbles: true }));
-      emailInput.value = 'new@example.com';
-      emailInput.dispatchEvent(new Event('input', { bubbles: true }));
-    });
+    await fillNewCustomer(container);
 
     await act(async () => {
       submitButton(container).click();
@@ -230,27 +222,26 @@ describe('CustomerPicker on the create-deployment page', () => {
     expect(mocks.createCustomerRecord).toHaveBeenCalledWith(
       expect.objectContaining({ name: 'New Co', email: 'new@example.com' }),
     );
-    expect(mocks.createDeploymentRecord).toHaveBeenCalledTimes(1);
-    expect(mocks.createDeploymentRecord).toHaveBeenCalledWith(
-      expect.objectContaining({ customerId: 'cus-new', applicationId: 'app-1' }),
+    expect(mocks.createInvitation).toHaveBeenCalledTimes(1);
+    // No recommendation chosen: the body omits recommendedRegion entirely.
+    expect(mocks.createInvitation).toHaveBeenCalledWith({
+      customerId: 'cus-new',
+      applicationId: 'app-1',
+    });
+    expect(mocks.createDeploymentRecord).not.toHaveBeenCalled();
+
+    // The success card reveals ONE URL that carries the one-time token.
+    expect(container.textContent).toContain('Installation invitation created');
+    expect(container.textContent).toContain(`#${INVITATION.token}`);
+    expect(container.textContent).toContain(
+      'a deployment is created only after their confirmation',
     );
   });
 
-  it('selecting an existing customer hides the new-customer inputs and calls only createDeploymentRecord', async () => {
+  it('selecting an existing customer skips customer creation and invites that customer', async () => {
     mocks.fetchCustomers.mockResolvedValue([
       customer({ id: 'cus-1', name: 'Acme Corp', email: 'acme@example.com' }),
     ]);
-    mocks.createDeploymentRecord.mockResolvedValue({
-      id: 'dep-1',
-      customerId: 'cus-1',
-      applicationId: 'app-1',
-      organizationId: 'org-1',
-      region: 'us-east-1',
-      state: 'NOT_INSTALLED',
-      installLinkId: 'link-1',
-      deploymentType: 'PRODUCTION',
-      createdAt: '2026-08-01T00:00:00.000Z',
-    });
 
     const container = await renderPage();
     expect(container.querySelector('#customerName')).not.toBeNull();
@@ -266,10 +257,45 @@ describe('CustomerPicker on the create-deployment page', () => {
     });
 
     expect(mocks.createCustomerRecord).not.toHaveBeenCalled();
-    expect(mocks.createDeploymentRecord).toHaveBeenCalledTimes(1);
-    expect(mocks.createDeploymentRecord).toHaveBeenCalledWith(
-      expect.objectContaining({ customerId: 'cus-1' }),
+    expect(mocks.createInvitation).toHaveBeenCalledTimes(1);
+    expect(mocks.createInvitation).toHaveBeenCalledWith({
+      customerId: 'cus-1',
+      applicationId: 'app-1',
+    });
+    expect(mocks.createDeploymentRecord).not.toHaveBeenCalled();
+  });
+
+  it('sends the optional recommended region only when the vendor chose one', async () => {
+    mocks.fetchCustomers.mockResolvedValue([customer({ id: 'cus-1', name: 'Acme Corp' })]);
+
+    const container = await renderPage();
+    await selectCustomerOption('Acme Corp');
+
+    const regionSelect = container.querySelector('#region') as HTMLSelectElement;
+    expect(regionSelect).not.toBeNull();
+    // The default is "No recommendation", not the first region.
+    expect(regionSelect.value).toBe('');
+    expect(Array.from(regionSelect.options).map((option) => option.value)).toEqual([
+      '',
+      'us-east-1',
+    ]);
+    expect(container.textContent).toContain(
+      'Optional. Your customer makes the final region choice before deployment.',
     );
+
+    await act(async () => {
+      regionSelect.value = 'us-east-1';
+      regionSelect.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    await act(async () => {
+      submitButton(container).click();
+    });
+
+    expect(mocks.createInvitation).toHaveBeenCalledWith({
+      customerId: 'cus-1',
+      applicationId: 'app-1',
+      recommendedRegion: 'us-east-1',
+    });
   });
 
   it('preselects the customer named by ?customerId= and hides the name/email inputs', async () => {
@@ -304,37 +330,19 @@ describe('CustomerPicker on the create-deployment page', () => {
       externalReference: null,
       createdAt: '2026-08-01T00:00:00.000Z',
     });
-    mocks.createDeploymentRecord.mockResolvedValue({
-      id: 'dep-1',
-      customerId: 'cus-new',
-      applicationId: 'app-1',
-      organizationId: 'org-1',
-      region: 'us-east-1',
-      state: 'NOT_INSTALLED',
-      installLinkId: 'link-1',
-      deploymentType: 'PRODUCTION',
-      createdAt: '2026-08-01T00:00:00.000Z',
-    });
 
     const container = await renderPage();
 
     expect(container.textContent).toContain("We couldn't load your customers.");
     expect(customerPickerTrigger().textContent).toBe('Create new customer');
 
-    const nameInput = container.querySelector('#customerName') as HTMLInputElement;
-    const emailInput = container.querySelector('#customerEmail') as HTMLInputElement;
-    await act(async () => {
-      nameInput.value = 'New Co';
-      nameInput.dispatchEvent(new Event('input', { bubbles: true }));
-      emailInput.value = 'new@example.com';
-      emailInput.dispatchEvent(new Event('input', { bubbles: true }));
-    });
+    await fillNewCustomer(container);
     await act(async () => {
       submitButton(container).click();
     });
 
     expect(mocks.createCustomerRecord).toHaveBeenCalledTimes(1);
-    expect(mocks.createDeploymentRecord).toHaveBeenCalledTimes(1);
+    expect(mocks.createInvitation).toHaveBeenCalledTimes(1);
   });
 
   it('ignores a duplicate submit fired while the first is still pending', async () => {
@@ -348,22 +356,15 @@ describe('CustomerPicker on the create-deployment page', () => {
       externalReference: null,
       createdAt: '2026-08-01T00:00:00.000Z',
     });
-    let resolveDeployment!: (value: unknown) => void;
-    mocks.createDeploymentRecord.mockReturnValue(
+    let resolveInvitation!: (value: unknown) => void;
+    mocks.createInvitation.mockReturnValue(
       new Promise((resolve) => {
-        resolveDeployment = resolve;
+        resolveInvitation = resolve;
       }),
     );
 
     const container = await renderPage();
-    const nameInput = container.querySelector('#customerName') as HTMLInputElement;
-    const emailInput = container.querySelector('#customerEmail') as HTMLInputElement;
-    await act(async () => {
-      nameInput.value = 'New Co';
-      nameInput.dispatchEvent(new Event('input', { bubbles: true }));
-      emailInput.value = 'new@example.com';
-      emailInput.dispatchEvent(new Event('input', { bubbles: true }));
-    });
+    await fillNewCustomer(container);
 
     const submit = submitButton(container);
     await act(async () => {
@@ -374,20 +375,49 @@ describe('CustomerPicker on the create-deployment page', () => {
     submit.click();
 
     await act(async () => {
-      resolveDeployment({
-        id: 'dep-1',
-        customerId: 'cus-new',
-        applicationId: 'app-1',
-        organizationId: 'org-1',
-        region: 'us-east-1',
-        state: 'NOT_INSTALLED',
-        installLinkId: 'link-1',
-        deploymentType: 'PRODUCTION',
-        createdAt: '2026-08-01T00:00:00.000Z',
-      });
+      resolveInvitation(INVITATION);
     });
 
     expect(mocks.createCustomerRecord).toHaveBeenCalledTimes(1);
+    expect(mocks.createInvitation).toHaveBeenCalledTimes(1);
+  });
+
+  it('?test=true still creates the deployment directly with the vendor-chosen region', async () => {
+    mocks.fetchCustomers.mockResolvedValue([customer({ id: 'cus-1', name: 'Acme Corp' })]);
+    mocks.createDeploymentRecord.mockResolvedValue({
+      id: 'dep-1',
+      customerId: 'cus-1',
+      applicationId: 'app-1',
+      organizationId: 'org-1',
+      region: 'us-east-1',
+      state: 'NOT_INSTALLED',
+      installLinkId: 'link-1',
+      deploymentType: 'TEST',
+      createdAt: '2026-08-01T00:00:00.000Z',
+    });
+
+    const container = await renderPage('test=true');
+    expect(container.textContent).toContain('Create Test Deployment');
+    await selectCustomerOption('Acme Corp');
+
+    // The region is required and defaults to the first available option.
+    const regionSelect = container.querySelector('#region') as HTMLSelectElement;
+    expect(regionSelect.value).toBe('us-east-1');
+
+    await act(async () => {
+      submitButton(container).click();
+    });
+
     expect(mocks.createDeploymentRecord).toHaveBeenCalledTimes(1);
+    expect(mocks.createDeploymentRecord).toHaveBeenCalledWith(
+      expect.objectContaining({
+        customerId: 'cus-1',
+        applicationId: 'app-1',
+        region: 'us-east-1',
+        deploymentType: 'TEST',
+      }),
+    );
+    expect(mocks.createInvitation).not.toHaveBeenCalled();
+    expect(container.textContent).toContain('Deployment created');
   });
 });

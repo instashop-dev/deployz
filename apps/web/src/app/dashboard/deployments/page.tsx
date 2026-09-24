@@ -201,7 +201,7 @@ export default function DeploymentsPage() {
             would show the same button twice on one screen. */}
         {state.status === 'empty' ? null : (
           <Button asChild size="sm">
-            <Link href="/dashboard/deployments/new">Create deployment</Link>
+            <Link href="/dashboard/deployments/new">Create installation</Link>
           </Button>
         )}
       </div>
@@ -356,7 +356,7 @@ function EmptyState() {
       </p>
       <div className="mt-2 flex flex-col items-center gap-3 sm:flex-row">
         <Button asChild>
-          <Link href="/dashboard/deployments/new">Create Customer Deployment</Link>
+          <Link href="/dashboard/deployments/new">Create installation</Link>
         </Button>
         <Button asChild variant="outline">
           <Link href="/dashboard/applications">View Test Deployment</Link>

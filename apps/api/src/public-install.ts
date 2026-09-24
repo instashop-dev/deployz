@@ -271,7 +271,13 @@ export async function resolvePublicInstall(db: RuntimeDb, linkId: string, token?
     application: { name: application.name },
     publisher: { name: publisherName },
     release: { version: release.version, createdAt: release.createdAt },
-    recommendedRegion: link.recommendedRegion ?? null,
+    // A recommendation that is no longer deployable (bootstrap artifacts
+    // unpublished since the invitation was created) is not served — the
+    // customer only ever sees a recommendation that can actually deploy.
+    recommendedRegion:
+      link.recommendedRegion !== null && env.deployableAwsRegions.includes(link.recommendedRegion)
+        ? link.recommendedRegion
+        : null,
     regionSelection: link.regionSelection,
     regions: SUPPORTED_AWS_REGIONS.filter((region) => env.deployableAwsRegions.includes(region)).map(
       (region) => ({ value: region, label: REGION_LABELS[region] }),
@@ -408,7 +414,9 @@ export async function confirmPublicInstall(
 
   // A consumed targeted invitation cannot create another deployment — but a
   // replay of the SAME idempotency key already returned above, so only a
-  // DIFFERENT key on a consumed invitation reaches this check.
+  // DIFFERENT key on a consumed invitation reaches this check. This is the
+  // friendly fast path; the transaction re-checks under a row lock below so
+  // two concurrent different-key confirms still admit exactly one deployment.
   if (link.customerId !== null && link.confirmedAt !== null) {
     throw new ApiError(410, 'PUBLIC_INSTALL_LINK_USED', 'This installation link has already been used.');
   }
@@ -420,6 +428,21 @@ export async function confirmPublicInstall(
   const actorId = `public-install:${link.id}`;
   try {
     const deployment = await db.transaction(async (tx) => {
+      // Race backstop: two different-key confirms can both pass the pre-tx
+      // consumed check above. Lock the invitation row and re-check under the
+      // lock — the loser gets the same 410 and its transaction rolls back. A
+      // reusable link (customerId null) is never consumed, so it skips this.
+      if (link.customerId !== null) {
+        const locked = await tx
+          .select({ confirmedAt: schema.publicInstallLinks.confirmedAt })
+          .from(schema.publicInstallLinks)
+          .where(eq(schema.publicInstallLinks.id, link.id))
+          .for('update')
+          .limit(1);
+        if (locked.length === 0 || locked[0]!.confirmedAt !== null) {
+          throw new ApiError(410, 'PUBLIC_INSTALL_LINK_USED', 'This installation link has already been used.');
+        }
+      }
       let customerId = link.customerId;
       if (customerId === null) {
         const [customer] = await tx
@@ -545,10 +568,14 @@ export async function confirmPublicInstall(
     );
     return { installLinkId: deployment.installLinkId, created: true };
   } catch (error) {
-    // Two concurrent confirms with the same key can both pass the pre-check;
-    // the partial unique index admits exactly one. The loser returns the
-    // winner's deployment instead of erroring.
-    if (isConfirmKeyViolation(error)) {
+    // Two concurrent confirms with the same key can both pass the pre-check.
+    // The partial unique index admits exactly one insert; on a targeted
+    // invitation the same-key loser may instead surface the in-tx consumed
+    // re-check's 410. Either way a same-key loser replays the winner's
+    // deployment instead of erroring — the pre-tx 410 fast path never reaches
+    // this catch (only the transaction is wrapped in the try), and a
+    // different-key loser finds no deployment for its own key and rethrows.
+    if (isConfirmKeyViolation(error) || (error instanceof ApiError && error.code === 'PUBLIC_INSTALL_LINK_USED')) {
       const winner = await findConfirmedInstallLinkId(db, link.id, body.idempotencyKey);
       if (winner !== null) {
         return { installLinkId: winner, created: false };

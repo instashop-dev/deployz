@@ -106,13 +106,16 @@ describe('InstallPage per-deployment flow', () => {
     expect(doc.body.textContent).toContain('Review setup in AWS');
   });
 
-  it('renders a not-found message when the link is invalid', async () => {
+  it('delegates an unknown link to the invitation token gate', async () => {
     mocks.fetchPublicInstallData.mockResolvedValue(null);
     mocks.fetchInstallData.mockResolvedValue({ status: 'not_found' });
 
     const doc = await renderPage();
 
-    expect(doc.body.textContent).toContain("This link isn't valid");
+    // The gate resolves on the client (the one-time token travels as a URL
+    // fragment the server never sees); the server render shows its loading
+    // state, and the token handling itself is covered by the gate tests.
+    expect(doc.body.textContent).toContain('Opening your installation');
   });
 
   it('renders a distinct expired state for an expired link', async () => {

@@ -1,5 +1,7 @@
 import type { DeploymentPlan } from '@deployz/contracts';
 
+export type { DeploymentPlan };
+
 /** One input the confirm body may (optional) or must (required) supply. */
 export interface PublicInstallInput {
   readonly key: string;

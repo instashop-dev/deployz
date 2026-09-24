@@ -46,7 +46,7 @@ export default async function OnboardingPage() {
         <CardContent>
           <Button asChild>
             <Link href={complete ? '/dashboard/deployments/new' : '/dashboard/applications'}>
-              {complete ? 'Create Customer Deployment' : 'Connect GitHub'}
+              {complete ? 'Create installation' : 'Connect GitHub'}
             </Link>
           </Button>
         </CardContent>

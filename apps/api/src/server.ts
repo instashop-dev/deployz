@@ -3117,14 +3117,17 @@ export async function buildServer({
     deploymentType: deploymentTypeSchema.default('PRODUCTION'),
   });
 
-  // Paddle migration Phase 8 — the same three parameters a production
-  // deployment needs, parked as a checkout intent instead of a deployment.
-  // deploymentType is absent on purpose: a checkout is only ever for a
-  // PRODUCTION deployment (a TEST one is free and needs no subscription).
+  // Paddle migration Phase 8 — the three parameters a production deployment
+  // needs, parked as a checkout intent instead of a deployment. All three are
+  // optional TOGETHER: an empty body parks a subscribe-only intent (the
+  // invitation-first flow's self-serve subscription start), which activates
+  // the subscription without creating anything. deploymentType is absent on
+  // purpose: a checkout is only ever for a PRODUCTION deployment (a TEST one
+  // is free and needs no subscription).
   const createCheckoutBodySchema = z.object({
-    applicationId: z.string().uuid(),
-    customerId: z.string().uuid(),
-    region: regionSchema,
+    applicationId: z.string().uuid().optional(),
+    customerId: z.string().uuid().optional(),
+    region: regionSchema.optional(),
   });
 
   // Deploy Link generation targets the SESSION org's customer (path) and
@@ -6408,16 +6411,17 @@ export async function buildServer({
   });
 
   // POST /api/billing/checkout — the vendor's first production deployment
-  // (Phase 8). Nothing is provisioned here: the request is parked as a
-  // checkout intent and answered with the Paddle transaction id apps/web
-  // opens with Paddle.js. The deployment row appears only when the
-  // subscription activates (see onSubscriptionChanged below).
+  // (Phase 8), or a subscribe-only start (invitation-first flow). Nothing is
+  // provisioned here: the request is parked as a checkout intent and answered
+  // with the Paddle transaction id apps/web opens with Paddle.js. A parked
+  // deployment row appears only when the subscription activates (see
+  // onSubscriptionChanged below); a subscribe-only intent creates nothing.
   app.post('/api/billing/checkout', { preHandler: requireAuth }, async (request) => {
     const body = createCheckoutBodySchema.parse(request.body);
     const organizationId = requireSessionOrganizationId(request);
     // Same fail-closed region gate as POST /api/deployments — a checkout must
     // never be sold for a region the deployment could not be created in.
-    if (!env.deployableAwsRegions.includes(body.region)) {
+    if (body.region !== undefined && !env.deployableAwsRegions.includes(body.region)) {
       throw new ApiError(
         422,
         'REGION_NOT_SUPPORTED',
@@ -6428,9 +6432,9 @@ export async function buildServer({
       { db, paddle },
       {
         organizationId,
-        applicationId: body.applicationId,
-        customerId: body.customerId,
-        region: body.region,
+        ...(body.applicationId !== undefined ? { applicationId: body.applicationId } : {}),
+        ...(body.customerId !== undefined ? { customerId: body.customerId } : {}),
+        ...(body.region !== undefined ? { region: body.region } : {}),
         createdBy: request.user?.id ?? null,
       },
     );

@@ -39,9 +39,12 @@ export interface CheckoutDeps {
 
 export interface CreateCheckoutIntentParams {
   organizationId: string;
-  applicationId: string;
-  customerId: string;
-  region: Region;
+  /** Optional: a subscribe-only intent (invitation-first flow) parks no
+   *  deployment request — activation just starts the subscription. When any
+   *  of the three is given, all three are required together. */
+  applicationId?: string;
+  customerId?: string;
+  region?: Region;
   createdBy: string | null;
 }
 
@@ -118,11 +121,24 @@ export async function createCheckoutIntent(
     );
   }
 
-  const application = await loadOwnedApplication(db, params.applicationId, params.organizationId);
-  await loadOwnedCustomer(db, params.customerId, params.organizationId);
-  const { result } = await runApplicationPreflight(db, application, params.customerId);
-  requirePreflightReady(result);
-  if (!(await newestDeployableRelease(db, params.applicationId))) throw releaseRequiredError();
+  const parksDeployment =
+    params.applicationId !== undefined || params.customerId !== undefined || params.region !== undefined;
+  if (parksDeployment) {
+    const { applicationId, customerId, region } = params;
+    // All-or-none: a parked deployment request needs every parameter.
+    if (applicationId === undefined || customerId === undefined || region === undefined) {
+      throw new ApiError(
+        422,
+        'VALIDATION_ERROR',
+        'A checkout that parks a deployment needs an application, a customer, and a region.',
+      );
+    }
+    const application = await loadOwnedApplication(db, applicationId, params.organizationId);
+    await loadOwnedCustomer(db, customerId, params.organizationId);
+    const { result } = await runApplicationPreflight(db, application, customerId);
+    requirePreflightReady(result);
+    if (!(await newestDeployableRelease(db, applicationId))) throw releaseRequiredError();
+  }
 
   const startedAt = now();
   await expireStalePendingIntents(db, params.organizationId, startedAt);
@@ -139,9 +155,9 @@ export async function createCheckoutIntent(
     .limit(1);
 
   const request = {
-    applicationId: params.applicationId,
-    customerId: params.customerId,
-    region: params.region,
+    applicationId: params.applicationId ?? null,
+    customerId: params.customerId ?? null,
+    region: params.region ?? null,
     createdBy: params.createdBy,
   };
   let intent: typeof schema.billingCheckoutIntents.$inferSelect;
@@ -251,6 +267,30 @@ export async function completePendingCheckoutIntent(
       if (!intent) return null;
       intentId = intent.id;
 
+      // A parked deployment request completes by creating that deployment; a
+      // subscribe-only intent (invitation-first flow) parks nothing, so
+      // activation just starts the subscription.
+      if (intent.applicationId === null || intent.customerId === null || intent.region === null) {
+        const resolvedAt = now();
+        await tx
+          .update(schema.billingCheckoutIntents)
+          .set({ status: 'COMPLETED', resolvedAt })
+          .where(
+            and(
+              eq(schema.billingCheckoutIntents.id, intent.id),
+              eq(schema.billingCheckoutIntents.status, 'PENDING'),
+            ),
+          );
+        await recordEvent(tx, {
+          organizationId,
+          eventType: 'billing.subscription_activated',
+          actorType: 'system',
+          actorId: 'billing-webhook',
+          payload: { schemaVersion: 1, checkoutIntentId: intent.id },
+        });
+        return { checkoutIntentId: intent.id, status: 'COMPLETED' as const };
+      }
+
       const { deployment } = await createDeploymentRecord(tx, {
         organizationId,
         applicationId: intent.applicationId,
@@ -285,10 +325,10 @@ export async function completePendingCheckoutIntent(
     // DEPLOY-027 (Phase 4): materialization runs OUTSIDE the tx so the
     // pending-secrets drizzle queries do not contend with the connection
     // the tx holds.
-    if (completed !== null && deps.materialization !== undefined) {
+    if (completed !== null && completed.deploymentId !== undefined && deps.materialization !== undefined) {
       await materializePendingSecretsForDeployment(deps.materialization, {
         organizationId,
-        id: completed.deploymentId!,
+        id: completed.deploymentId,
         applicationId: completed.applicationId!,
         customerId: completed.customerId!,
       });

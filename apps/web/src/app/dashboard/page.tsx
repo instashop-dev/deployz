@@ -90,7 +90,7 @@ function OperationalHome({ home }: { home: Extract<HomeState, { kind: 'operation
           </p>
         </div>
         <Button asChild size="sm">
-          <Link href="/dashboard/deployments/new">Create deployment</Link>
+          <Link href="/dashboard/deployments/new">Create installation</Link>
         </Button>
       </div>
 

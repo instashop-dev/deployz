@@ -132,7 +132,7 @@ test('E — several deployments switch the homepage to the fleet view', async ({
 
   await page.goto('/dashboard');
   await expect(page.getByRole('heading', { name: 'Deployments', exact: true })).toBeVisible();
-  await expect(page.getByRole('link', { name: 'Create deployment' })).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Create installation' })).toBeVisible();
 
   const summary = page.getByTestId('fleet-summary');
   await expect(summary).toContainText('2');

@@ -20,17 +20,11 @@ import { fetchApplications, type Application } from '@/lib/applications';
 import {
   createCheckoutIntent,
   fetchBillingConfig,
-  fetchProductionDeploymentCounts,
   fetchSubscriptionStatus,
   openSubscriptionCheckout,
 } from '@/lib/billing-checkout';
-import {
-  nextProductionDeploymentCopy,
-  type ProductionDeploymentCounts,
-} from '@/lib/deployment-billing';
 import type { SubscriptionStatus } from '@/lib/organization-vocabulary';
 import {
-  blockedSubscriptionStatus,
   createCustomerRecord,
   createDeploymentErrorMessage,
   createDeploymentRecord,
@@ -40,6 +34,7 @@ import {
   type RememberedCustomer,
 } from '@/lib/deployments';
 import {
+  createInvitation,
   fetchCustomers,
   initialCustomerSelection,
   matchingCustomerByEmail,
@@ -63,24 +58,19 @@ import { PreflightSummary } from '@/components/preflight-summary';
  *  text with no link. */
 const READINESS_ERROR_CODES = new Set(['MANIFEST_NOT_COMPATIBLE', 'MANIFEST_NEEDS_CONFIGURATION']);
 
-// §12/§41 screen 12 "Create customer deployment" — previously this only
-// formatted a slug client-side and rendered a fake install link; nothing was
-// ever persisted. Now it creates a real Customer (POST /api/customers), then
-// a real Deployment (POST /api/deployments), and shows the install link built
-// from the REAL installationId the API returns.
+// §12/§41 screen 12 "Create installation" — the invitation-first model: the
+// vendor picks a customer (creating one when needed) and an application, and
+// may RECOMMEND an AWS region. No deployment exists yet — the customer opens
+// the one-time installation link, chooses the final region, and confirms;
+// only that confirmation creates the deployment (and only then is billing
+// checked). A `?test=true` deployment stays the vendor's own free test: it
+// is created directly with a vendor-chosen region because no customer is
+// involved.
 //
 // Region options come from GET /api/regions (never hardcoded here): the
 // control plane serves only regions whose regional bootstrap artifacts are
 // confirmed published, so the UI cannot offer a region that would fail to
 // install.
-//
-// Phase 5: the preflight for the selected application renders before the
-// vendor submits — the same deterministic gate the API enforces on creation,
-// evaluated against the vendor defaults (the customer does not exist yet).
-// It never disables the button: the API is the authority, and a refusal
-// still lists its own findings below the button. A missing built release is
-// different: nothing can install without one, so the button waits for it and
-// the screen offers to build it.
 
 const selectClass =
   'h-8 w-full min-w-0 rounded-lg border border-input bg-transparent px-2.5 py-1 text-base transition-colors outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:cursor-not-allowed disabled:bg-input/50 disabled:opacity-50 md:text-sm dark:bg-input/30';
@@ -91,14 +81,6 @@ export default function NewDeploymentPage() {
       <NewDeploymentScreen />
     </Suspense>
   );
-}
-
-/** The production deployment the vendor asked for, waiting on checkout. */
-interface CheckoutRequest {
-  applicationId: string;
-  customerId: string;
-  region: string;
-  customerName: string;
 }
 
 type AppsState =
@@ -129,7 +111,11 @@ function NewDeploymentScreen() {
   const submittingRef = useRef(false);
   const [regions, setRegions] = useState<RegionOption[]>([]);
   const [regionsError, setRegionsError] = useState(false);
+  // Test mode only: the created deployment's install link.
   const [installLink, setInstallLink] = useState<string | null>(null);
+  // Customer mode: the created invitation's one-time reveal — the URL carries
+  // the token as its fragment, plus the token shown separately.
+  const [invitation, setInvitation] = useState<{ url: string; token: string } | null>(null);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [createdCustomerId, setCreatedCustomerId] = useState<string | null>(null);
@@ -144,25 +130,17 @@ function NewDeploymentScreen() {
   // Set only for a TEST_DEPLOYMENT_EXISTS conflict, so the error can link to
   // the application's existing test deployment (Paddle migration Phase 7).
   const [conflictingTestDeploymentId, setConflictingTestDeploymentId] = useState<string | null>(null);
-  // Paddle migration Phase 8 — set only when the API refuses a production
-  // deployment for want of a subscription. It carries exactly the parameters
-  // the checkout intent needs, so the vendor never retypes them.
-  const [checkoutRequest, setCheckoutRequest] = useState<CheckoutRequest | null>(null);
-  // Phase 13: a refusal whose fix is on Paddle's portal, not a checkout.
-  const [portalRequired, setPortalRequired] = useState<'PAST_DUE' | 'PAUSED' | null>(null);
-  // Paddle migration Phase 11 — what this deployment will cost, said before
-  // the vendor commits. `undefined` while unknown: showing the wrong price
-  // for a moment is worse than showing none.
-  const [subscriptionStatus, setSubscriptionStatus] = useState<
-    SubscriptionStatus | null | undefined
-  >(undefined);
-  // Included production deployments: the live/included/billed counts that
-  // say whether THIS deployment adds a charge once live. Null while unknown.
-  const [deploymentCounts, setDeploymentCounts] = useState<ProductionDeploymentCounts | null>(null);
   const [selectedApplicationId, setSelectedApplicationId] = useState<string | null>(preselectedApplicationId);
   const [preflight, setPreflight] = useState<PreflightResult | null>(null);
   // Null while unknown (or unloadable): the API stays the authority then.
   const [releaseState, setReleaseState] = useState<InstallReleaseState | null>(null);
+  // Customer mode: the vendor's subscription status. An evaluation or
+  // canceled vendor needs a self-serve way to start a subscription before
+  // customers can confirm installations; past-due/paused vendors need the
+  // portal instead. Test mode never hits this (test deployments are free).
+  const [subscriptionStatus, setSubscriptionStatus] = useState<SubscriptionStatus | null | undefined>(undefined);
+  const [checkoutState, setCheckoutState] = useState<'idle' | 'opening' | 'paid'>('idle');
+  const [checkoutError, setCheckoutError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -209,29 +187,6 @@ function NewDeploymentScreen() {
     setCustomerSelectionInitialized(true);
   }, [customersState, customerSelectionInitialized, preselectedCustomerId]);
 
-  useEffect(() => {
-    if (isTestDeployment) return;
-    let cancelled = false;
-    fetchSubscriptionStatus()
-      .then((status) => {
-        if (!cancelled) setSubscriptionStatus(status);
-      })
-      .catch(() => {
-        // No price line rather than a wrong one — the API is the authority
-        // on whether this deployment is allowed at all.
-      });
-    fetchProductionDeploymentCounts()
-      .then((counts) => {
-        if (!cancelled) setDeploymentCounts(counts);
-      })
-      .catch(() => {
-        // The copy falls back to the price without counts.
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [isTestDeployment]);
-
   // The applications list decides the default selection; the preflight
   // follows whichever application is selected.
   useEffect(() => {
@@ -254,6 +209,24 @@ function NewDeploymentScreen() {
       cancelled = true;
     };
   }, [selectedApplicationId]);
+
+  // Customer mode: fetch the vendor's subscription status so the page can
+  // show the self-serve subscription entry (evaluation/canceled) or the
+  // portal link (past-due/paused). Test mode skips this (free deployments).
+  useEffect(() => {
+    if (isTestDeployment) return;
+    let cancelled = false;
+    fetchSubscriptionStatus()
+      .then((status) => {
+        if (!cancelled) setSubscriptionStatus(status);
+      })
+      .catch(() => {
+        // The page still works without the notice; the API enforces the gate.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [isTestDeployment]);
 
   // Region options come from the control plane so only confirmed-deployable
   // regions are ever offered. A failure to load them is a hard error — a form
@@ -301,6 +274,23 @@ function NewDeploymentScreen() {
     setCustomerEmailInput('');
   }
 
+  // Customer mode: a subscribe-only checkout intent (no parked deployment)
+  // opens Paddle's overlay; when the vendor pays, the webhook activates the
+  // subscription and customers can then confirm their invitations.
+  async function onStartSubscription(): Promise<void> {
+    setCheckoutError(null);
+    setCheckoutState('opening');
+    try {
+      const config = await fetchBillingConfig();
+      const intent = await createCheckoutIntent({});
+      const outcome = await openSubscriptionCheckout(config, intent.transactionId);
+      setCheckoutState(outcome === 'completed' ? 'paid' : 'idle');
+    } catch (caught) {
+      setCheckoutError(errorMessage(caught));
+      setCheckoutState('idle');
+    }
+  }
+
   async function onSubmit(event: FormEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault();
     // A second submit while the first is still in flight must do nothing —
@@ -311,30 +301,20 @@ function NewDeploymentScreen() {
     setReadinessApplicationId(null);
     setReadinessFindings([]);
     setConflictingTestDeploymentId(null);
-    setCheckoutRequest(null);
-    setPortalRequired(null);
     setPending(true);
     const form = new FormData(event.currentTarget);
     const customerName = String(form.get('customerName') ?? '').trim();
     const customerEmail = String(form.get('customerEmail') ?? '').trim();
     const customerCompany = String(form.get('customerCompany') ?? '').trim();
     const applicationId = String(form.get('application') ?? '');
-    const region = String(form.get('region') ?? regions[0]?.value ?? '');
+    const region = String(form.get('region') ?? '');
 
-    // Declared outside the try so the subscription branch below can reach the
-    // customer this attempt used, and the checkout hand-off gets the right name.
     let customerId: string | null = null;
-    let checkoutCustomerName = customerName;
     try {
       if (usingExistingCustomer) {
         // The vendor picked a customer that already exists — never create a
         // second row for them.
         customerId = selectedCustomerId;
-        const existing =
-          customersState.status === 'loaded'
-            ? customersState.customers.find((customer) => customer.id === selectedCustomerId)
-            : undefined;
-        checkoutCustomerName = existing?.name ?? '';
       } else if (matchesRememberedCustomer(rememberedCustomer, customerName, customerEmail)) {
         // A prior failed attempt may already have created this customer —
         // reuse it rather than inserting a duplicate (CANARY-004).
@@ -357,16 +337,35 @@ function NewDeploymentScreen() {
         );
         setRememberedCustomer({ id: customer.id, name: customerName, email: customerEmail });
       }
-      const deployment = await createDeploymentRecord({
-        applicationId,
-        customerId,
-        region,
-        deploymentType: isTestDeployment ? 'TEST' : 'PRODUCTION',
-      });
-      setCreatedCustomerId(customerId);
-      setCreatedApplicationId(applicationId);
       const origin = typeof window !== 'undefined' ? window.location.origin : '';
-      setInstallLink(`${origin}/install/${deployment.installLinkId}`);
+      if (isTestDeployment) {
+        // The vendor's own free test: created directly with the chosen region.
+        const deployment = await createDeploymentRecord({
+          applicationId,
+          customerId,
+          region: region || regions[0]?.value || '',
+          deploymentType: 'TEST',
+        });
+        setCreatedCustomerId(customerId);
+        setCreatedApplicationId(applicationId);
+        setInstallLink(`${origin}/install/${deployment.installLinkId}`);
+      } else {
+        // The invitation-first path: no deployment row and no entitlement
+        // use here — the customer confirms later, and billing is checked at
+        // that confirmation, not before.
+        const created = await createInvitation({
+          customerId,
+          applicationId,
+          ...(region !== '' ? { recommendedRegion: region } : {}),
+        });
+        setCreatedCustomerId(customerId);
+        setCreatedApplicationId(applicationId);
+        // One shareable URL: the one-time token rides as its fragment.
+        setInvitation({
+          url: `${origin}/install/${created.id}#${created.token}`,
+          token: created.token,
+        });
+      }
     } catch (caught) {
       setError(createDeploymentErrorMessage(caught));
       if (caught instanceof ApiRequestError && READINESS_ERROR_CODES.has(caught.code)) {
@@ -374,19 +373,6 @@ function NewDeploymentScreen() {
         setReadinessFindings(readinessFindingMessages(caught.details));
       }
       setConflictingTestDeploymentId(existingTestDeploymentId(caught));
-      // The subscription gate is not a dead end: the customer row already
-      // exists, so the same request can go straight to checkout.
-      if (caught instanceof ApiRequestError && caught.code === 'SUBSCRIPTION_REQUIRED' && customerId) {
-        // Phase 13: only evaluation and CANCELED go to checkout — those are
-        // the states with no subscription to fix. PAST_DUE and PAUSED have
-        // one, and the fix lives on the billing portal.
-        const status = blockedSubscriptionStatus(caught);
-        if (status === 'PAST_DUE' || status === 'PAUSED') {
-          setPortalRequired(status);
-        } else {
-          setCheckoutRequest({ applicationId, customerId, region, customerName: checkoutCustomerName });
-        }
-      }
     } finally {
       setPending(false);
       submittingRef.current = false;
@@ -406,52 +392,87 @@ function NewDeploymentScreen() {
 
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">
-          {isTestDeployment ? 'Create Test Deployment' : 'Create Customer Deployment'}
+          {isTestDeployment ? 'Create Test Deployment' : 'Create installation'}
         </h1>
         <p className="mt-1 text-sm text-muted-foreground">
           {isTestDeployment
             ? 'Deploy your own app as a free test deployment. It does not affect billing.'
-            : 'Select a customer or add a new one, then generate their install link. The customer opens the link and signs in to their own cloud account — their credentials never touch Deployz.'}
+            : 'Select a customer or add a new one, then create their installation invitation. Your customer opens the link, chooses the AWS region, and confirms — a deployment is created only after their confirmation.'}
         </p>
-        {!isTestDeployment && subscriptionStatus !== undefined ? (
-          <p className="mt-2 text-sm text-muted-foreground" data-testid="deployment-billing-impact">
-            {nextProductionDeploymentCopy(subscriptionStatus === 'ACTIVE', deploymentCounts)}
-          </p>
-        ) : null}
       </div>
 
-      {portalRequired ? (
+      {/* Customer mode: an evaluation or canceled vendor needs a self-serve
+          way to start a subscription before customers can confirm invitations. */}
+      {!isTestDeployment && (subscriptionStatus === null || subscriptionStatus === 'CANCELED') ? (
+        <Card>
+          <CardHeader>
+            <CardTitle>Start your subscription</CardTitle>
+            <CardDescription>
+              Invitations you send can only be confirmed by customers once your subscription is
+              active. Billing starts with your subscription — see What it costs for details.
+              Test deployments stay free.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="flex flex-wrap items-center gap-3">
+            {checkoutState === 'paid' ? (
+              <p className="text-sm text-muted-foreground">
+                Payment received. Your subscription is starting — your customers can now confirm
+                installations.
+              </p>
+            ) : (
+              <Button
+                onClick={() => void onStartSubscription()}
+                loading={checkoutState === 'opening'}
+                loadingText="Opening checkout…"
+              >
+                Start subscription
+              </Button>
+            )}
+            {checkoutError ? (
+              <p role="alert" className="text-sm text-destructive">
+                {checkoutError}
+              </p>
+            ) : null}
+          </CardContent>
+        </Card>
+      ) : null}
+
+      {/* Customer mode: a past-due or paused vendor needs the Paddle portal
+          to fix their subscription, not a new checkout. */}
+      {!isTestDeployment && (subscriptionStatus === 'PAST_DUE' || subscriptionStatus === 'PAUSED') ? (
         <Card>
           <CardHeader>
             <CardTitle>
-              {portalRequired === 'PAST_DUE' ? 'Update your payment details' : 'Resume your subscription'}
+              {subscriptionStatus === 'PAST_DUE' ? 'Update your payment details' : 'Resume your subscription'}
             </CardTitle>
             <CardDescription>
-              {portalRequired === 'PAST_DUE'
-                ? 'Your last payment did not go through. Once it is sorted, come back and create this deployment — your customers’ existing deployments keep running meanwhile.'
-                : 'Your subscription is paused. Resume it on the billing portal, then come back and create this deployment.'}
+              {subscriptionStatus === 'PAST_DUE'
+                ? 'Your last payment did not go through. Once it is sorted, your customers can confirm their installations.'
+                : 'Your subscription is paused. Resume it on the billing portal, then your customers can confirm their installations.'}
             </CardDescription>
           </CardHeader>
           <CardContent>
             <ManageBillingButton
-              target={portalRequired === 'PAST_DUE' ? 'updatePaymentMethod' : 'overview'}
+              target={subscriptionStatus === 'PAST_DUE' ? 'updatePaymentMethod' : 'overview'}
               variant="default"
             >
-              {portalRequired === 'PAST_DUE' ? 'Update payment details' : 'Open billing portal'}
+              {subscriptionStatus === 'PAST_DUE' ? 'Update payment details' : 'Open billing portal'}
             </ManageBillingButton>
           </CardContent>
         </Card>
       ) : null}
 
-      {checkoutRequest ? (
-        <SubscriptionCheckoutCard
-          includedDeployments={deploymentCounts?.included ?? 0}
-          request={checkoutRequest}
-          onCancel={() => setCheckoutRequest(null)}
+      {invitation ? (
+        <InvitationLinkCard
+          url={invitation.url}
+          customerId={createdCustomerId}
+          applicationId={createdApplicationId}
+          onReset={() => {
+            setInvitation(null);
+            resetCustomerSelection();
+          }}
         />
-      ) : null}
-
-      {installLink ? (
+      ) : installLink ? (
         <InstallLinkCard
           link={installLink}
           customerId={createdCustomerId}
@@ -482,10 +503,11 @@ function NewDeploymentScreen() {
       ) : (
         <Card>
           <CardHeader>
-            <CardTitle>Customer details</CardTitle>
+            <CardTitle>{isTestDeployment ? 'Test deployment details' : 'Customer details'}</CardTitle>
             <CardDescription>
-              The customer and their deployment details. Application secrets are configured
-              afterward, from the deployment&apos;s Configuration page.
+              {isTestDeployment
+                ? 'The customer and application for this test deployment.'
+                : 'The customer and application for this installation. Application secrets can be configured for the customer afterward, from the application’s Configuration page.'}
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -564,7 +586,9 @@ function NewDeploymentScreen() {
                   </select>
                 </div>
                 <div className="flex flex-col gap-2">
-                  <Label htmlFor="region">AWS region</Label>
+                  <Label htmlFor="region">
+                    {isTestDeployment ? 'AWS region' : 'Recommended AWS region'}
+                  </Label>
                   {regionsError ? (
                     <p className="text-sm text-destructive">
                       We couldn&apos;t load the available regions. Try again in a moment.
@@ -574,19 +598,26 @@ function NewDeploymentScreen() {
                       No regions are available for installation yet.
                     </p>
                   ) : (
-                    <select
-                      id="region"
-                      name="region"
-                      className={selectClass}
-                      required
-                      defaultValue={regions[0]?.value}
-                    >
-                      {regions.map((region) => (
-                        <option key={region.value} value={region.value}>
-                          {region.label}
-                        </option>
-                      ))}
-                    </select>
+                    <>
+                      <select
+                        id="region"
+                        name="region"
+                        className={selectClass}
+                        {...(isTestDeployment ? { required: true, defaultValue: regions[0]?.value } : { defaultValue: '' })}
+                      >
+                        {isTestDeployment ? null : <option value="">No recommendation</option>}
+                        {regions.map((region) => (
+                          <option key={region.value} value={region.value}>
+                            {region.label}
+                          </option>
+                        ))}
+                      </select>
+                      {isTestDeployment ? null : (
+                        <p className="text-xs text-muted-foreground">
+                          Optional. Your customer makes the final region choice before deployment.
+                        </p>
+                      )}
+                    </>
                   )}
                 </div>
               </div>
@@ -610,15 +641,14 @@ function NewDeploymentScreen() {
                 <Button
                   type="submit"
                   disabled={
-                    regionsError ||
-                    regions.length === 0 ||
+                    (isTestDeployment && (regionsError || regions.length === 0)) ||
                     awaitingPreselection ||
                     (releaseState !== null && releaseState.kind !== 'ready')
                   }
                   loading={pending}
-                  loadingText="Creating deployment…"
+                  loadingText={isTestDeployment ? 'Creating deployment…' : 'Creating invitation…'}
                 >
-                  {isTestDeployment ? 'Run free test deployment' : 'Create Customer Deployment'}
+                  {isTestDeployment ? 'Run free test deployment' : 'Create installation'}
                 </Button>
                 {error ? (
                   <div role="alert" className="flex flex-col gap-1 text-sm text-destructive">
@@ -798,94 +828,64 @@ function ReleaseRequirement({
 }
 
 /**
- * Paddle migration Phase 8 — the checkout hand-off. The deployment the vendor
- * asked for is parked on the control plane; paying starts the subscription
- * and the deployment is created from the parked request. Payment happens
- * inside Paddle's own overlay, so no card details reach Deployz.
+ * The invitation-first success state. The URL carries the one-time token as
+ * its fragment, so one copy action hands the customer everything they need.
+ * No deployment exists yet — the customer's confirmation creates it.
  */
-function SubscriptionCheckoutCard({
-  request,
-  includedDeployments,
-  onCancel,
+function InvitationLinkCard({
+  url,
+  customerId,
+  applicationId,
+  onReset,
 }: {
-  request: CheckoutRequest;
-  /** The organization's included production deployments, if any. */
-  includedDeployments: number;
-  onCancel: () => void;
+  url: string;
+  customerId: string | null;
+  applicationId: string | null;
+  onReset: () => void;
 }) {
-  const [status, setStatus] = useState<'idle' | 'opening' | 'paid'>('idle');
-  const [checkoutError, setCheckoutError] = useState<string | null>(null);
-
-  async function onContinue(): Promise<void> {
-    setCheckoutError(null);
-    setStatus('opening');
-    try {
-      const config = await fetchBillingConfig();
-      const intent = await createCheckoutIntent({
-        applicationId: request.applicationId,
-        customerId: request.customerId,
-        region: request.region,
-      });
-      const outcome = await openSubscriptionCheckout(config, intent.transactionId);
-      setStatus(outcome === 'completed' ? 'paid' : 'idle');
-    } catch (caught) {
-      setCheckoutError(errorMessage(caught));
-      setStatus('idle');
-    }
-  }
-
-  if (status === 'paid') {
-    return (
-      <Card>
-        <CardHeader>
-          <div className="flex items-center gap-2">
-            <CheckCircle2 className="size-5 text-primary" aria-hidden />
-            <CardTitle>Payment received</CardTitle>
-          </div>
-          <CardDescription>
-            Your subscription is starting. {request.customerName}&apos;s deployment is created as
-            soon as it is active, and appears on your deployments page with its install link.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <Button asChild size="sm">
-            <Link href="/dashboard/deployments">Go to deployments</Link>
-          </Button>
-        </CardContent>
-      </Card>
-    );
-  }
-
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Start your subscription</CardTitle>
+        <div className="flex items-center gap-2">
+          <CheckCircle2 className="size-5 text-primary" aria-hidden />
+          <CardTitle>Installation invitation created</CardTitle>
+        </div>
         <CardDescription>
-          Your first customer deployment starts billing: $49 per month for the platform, plus $19
-          per month for each customer deployment that is live.
-          {includedDeployments > 0
-            ? ` ${includedDeployments} production ${includedDeployments === 1 ? 'deployment is' : 'deployments are'} included with your account, so this one adds no deployment charge once it is live — the platform fee still applies.`
-            : ''}
-          {' '}
-          Test deployments stay free. Nothing is installed until the payment goes through.
+          Send this installation link to your customer — it carries the one-time token, so nothing
+          else is needed. The customer chooses the final AWS region and confirms; a deployment is
+          created only after their confirmation. The token is shown only once and cannot be
+          retrieved again.
         </CardDescription>
       </CardHeader>
-      <CardContent className="flex flex-wrap items-center gap-3">
-        <Button
-          onClick={() => void onContinue()}
-          loading={status === 'opening'}
-          loadingText="Opening checkout…"
-        >
-          Continue to checkout
-        </Button>
-        <Button variant="ghost" size="sm" onClick={onCancel}>
-          Not now
-        </Button>
-        {checkoutError ? (
-          <p role="alert" className="text-sm text-destructive">
-            {checkoutError}
-          </p>
-        ) : null}
+      <CardContent className="flex flex-col gap-4">
+        <div className="flex items-center gap-2 rounded-lg border bg-muted px-3 py-2.5">
+          <code className="flex-1 break-all font-mono text-sm">{url}</code>
+          <Button size="sm" onClick={() => void copyInstallLink(url)}>
+            <Copy aria-hidden className="size-4" />
+            Copy link
+          </Button>
+          <Button asChild variant="outline" size="sm">
+            <a href={url} target="_blank" rel="noopener noreferrer">
+              <ExternalLink aria-hidden className="size-4" />
+              Open
+            </a>
+          </Button>
+        </div>
+        <div className="flex flex-wrap items-center gap-3">
+          <Button asChild variant="outline" size="sm">
+            <Link href="/dashboard/deployments">Back to deployments</Link>
+          </Button>
+          {applicationId && customerId ? (
+            <Button asChild variant="outline" size="sm">
+              <Link href={`/dashboard/applications/${applicationId}/config?customer=${customerId}`}>
+                Set up configuration
+              </Link>
+            </Button>
+          ) : null}
+          <Button variant="ghost" size="sm" onClick={onReset}>
+            Create another
+          </Button>
+        </div>
       </CardContent>
     </Card>
   );
