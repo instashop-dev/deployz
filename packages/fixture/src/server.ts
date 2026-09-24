@@ -28,7 +28,9 @@
  *   a rollback — that is the persistence contract the canary asserts.
  */
 
+import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
+import { createConnection } from 'node:net';
 import { resolve } from 'node:path';
 
 import express, { type Express } from 'express';
@@ -162,6 +164,79 @@ export function createPgMarkerStore(pool: Pool): MarkerStore {
   };
 }
 
+/**
+ * `/canary/bindings` — what the version canary asks the running container
+ * about its own environment, so a profile run (pg/stateless/redis) can prove
+ * the application stack actually injected the env/secret bindings its
+ * manifest promised. Never the value itself: a SHA-256 prefix is enough to
+ * tell "present and non-empty" from "absent" without putting a credential in
+ * a response body or an evidence file.
+ */
+const BINDING_ENV_KEYS = ['DATABASE_URL', 'STORAGE_BUCKET', 'S3_BUCKET', 'AWS_S3_BUCKET', 'REDIS_URL'] as const;
+
+export interface BindingCheck {
+  readonly present: boolean;
+  readonly sha256Prefix: string | null;
+}
+
+export function checkBinding(value: string | undefined): BindingCheck {
+  if (!value) return { present: false, sha256Prefix: null };
+  return { present: true, sha256Prefix: createHash('sha256').update(value).digest('hex').slice(0, 8) };
+}
+
+export interface RedisPingResult {
+  readonly attempted: boolean;
+  readonly ok: boolean;
+  readonly detail: string;
+}
+
+/**
+ * A raw-TCP RESP `PING` — no redis client dependency (the fixture stays
+ * close to nothing, see the file doc comment). Resolves once a full line
+ * comes back or the connection errors/times out; never rejects.
+ */
+export function pingRedis(host: string, port: number, timeoutMs = 3_000): Promise<RedisPingResult> {
+  return new Promise((resolvePing) => {
+    let settled = false;
+    const finish = (result: RedisPingResult): void => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      socket.destroy();
+      resolvePing(result);
+    };
+    const socket = createConnection({ host, port });
+    const timer = setTimeout(() => finish({ attempted: true, ok: false, detail: 'timeout' }), timeoutMs);
+    let data = '';
+    socket.once('connect', () => socket.write('*1\r\n$4\r\nPING\r\n'));
+    socket.on('data', (chunk: Buffer) => {
+      data += chunk.toString('utf8');
+      if (data.includes('\r\n')) finish({ attempted: true, ok: data.startsWith('+PONG'), detail: data.trim() });
+    });
+    socket.once('error', (error) => finish({ attempted: true, ok: false, detail: String(error) }));
+  });
+}
+
+/** `redis://[:password@]host:port` -> `{host, port}`; `null` when unparseable. */
+export function parseRedisUrl(url: string): { host: string; port: number } | null {
+  try {
+    const parsed = new URL(url);
+    if (!parsed.hostname) return null;
+    return { host: parsed.hostname, port: Number(parsed.port || 6379) };
+  } catch {
+    return null;
+  }
+}
+
+/** The `{host, port}` to ping from whichever REDIS_* bindings are set — `REDIS_URL` first, then REDIS_HOST/REDIS_PORT. `null` when neither is configured. */
+export function redisPingTarget(env: NodeJS.ProcessEnv): { host: string; port: number } | null {
+  const url = env['REDIS_URL'];
+  if (url) return parseRedisUrl(url);
+  const host = env['REDIS_HOST'];
+  if (!host) return null;
+  return { host, port: Number(env['REDIS_PORT'] ?? 6379) };
+}
+
 const poolConfig = poolConfigFromEnv(process.env);
 const pool = poolConfig === null ? null : new Pool(poolConfig);
 
@@ -180,6 +255,10 @@ export interface AppOptions {
   readonly release?: ReleaseInfo;
   /** Null when no database is configured — marker routes answer 503. */
   readonly markers?: MarkerStore | null;
+  /** Injectable for tests; defaults to the real raw-TCP `pingRedis`. */
+  readonly pingRedis?: (host: string, port: number) => Promise<RedisPingResult>;
+  /** Injectable for tests; defaults to reading `process.env`. */
+  readonly env?: NodeJS.ProcessEnv;
 }
 
 const MARKER_KEY_PATTERN = /^[A-Za-z0-9_.-]{1,200}$/;
@@ -189,6 +268,8 @@ export function createApp(options: AppOptions = {}): Express {
   const release = options.release ?? readReleaseInfo(process.env);
   const markers =
     options.markers !== undefined ? options.markers : pool === null ? null : createPgMarkerStore(pool);
+  const env = options.env ?? process.env;
+  const doPingRedis = options.pingRedis ?? pingRedis;
 
   const app = express();
   app.use(express.json());
@@ -255,6 +336,16 @@ export function createApp(options: AppOptions = {}): Express {
     } catch (error) {
       response.status(503).json({ error: `database unavailable: ${String(error)}` });
     }
+  });
+
+  app.get('/canary/bindings', async (_request, response) => {
+    const bindings: Record<string, BindingCheck> = {};
+    for (const key of BINDING_ENV_KEYS) bindings[key] = checkBinding(env[key]);
+    const target = redisPingTarget(env);
+    const redis = target
+      ? await doPingRedis(target.host, target.port)
+      : ({ attempted: false, ok: false, detail: 'no REDIS_URL/REDIS_HOST configured' } satisfies RedisPingResult);
+    response.status(200).json({ bindings, redis });
   });
 
   return app;
