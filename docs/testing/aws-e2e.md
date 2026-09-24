@@ -210,11 +210,13 @@ green manual `profile --profile stateless --production` runs.
 
 ### On failure
 
-- **Automatic cleanup** (`cleanup --run-id`) runs unless the manual
-  dispatch's `keep_on_failure` checkbox was set — the safety net for when
-  the canary step itself failed or was cancelled before its own teardown ran.
-- **The leak audit always runs**, even on a clean pass and even when
-  `keep_on_failure` left the environment standing.
+- **Automatic cleanup** (`cleanup --run-id`) always runs when the canary
+  step failed or was cancelled before its own teardown ran. There is no
+  option to keep the environment: the vendor credentials never leave the
+  runner, so a kept environment could not be cleaned through the product
+  later. The failure diagnostics in the evidence replace it.
+- **The leak audit always runs**, even on a clean pass and after a cleanup
+  that could not finish.
 - **One GitHub issue**, titled "Production canary failed", is created on the
   scheduled run's first failure and commented on for every later failure —
   never one issue per run.

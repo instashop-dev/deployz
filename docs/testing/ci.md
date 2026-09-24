@@ -58,19 +58,24 @@ so every selected Vitest project runs in one parallel invocation. Runs
 Simulated E2E ([`simulated-e2e.md`](simulated-e2e.md)). Sets fake sentinel
 `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY`/`AWS_REGION` values at the job
 level — a live proof that simulated mode's env-scrubbing strips them from
-the API under test, since real credentials never enter CI. Builds, installs
-the Chromium browser (cached by lockfile hash), then runs the mode the plan
-selected (`playwright`, or `full` on a push/manual run/critical PR):
+the API under test, since real credentials never enter CI. The job is a
+matrix of four parts: `fixture-1`, `fixture-2`, `fixture-3` and
+`scenarios`. The fixture-mode suite is bound by the dev servers, not by
+Playwright workers (four workers were no faster than two), so it is
+sharded three ways with `--shard=n/3`; the scenario suites run in the
+fourth part. Each part builds, installs the Chromium browser (cached by
+lockfile hash), then runs its share of the mode the plan selected
+(`playwright`, or `full` on a push/manual run/critical PR):
 
-| Mode | Runs |
-| --- | --- |
-| `full` | `node scripts/e2e.mjs --grep-invert "@scenario\|visual"` (every non-visual, non-scenario spec), then `node scripts/e2e.mjs --scenarios` (every simulated scenario), then `DEPLOYZ_DEFAULT_HTTPS_FIXTURE=true node scripts/e2e.mjs e2e/scenario-default-https.spec.ts` |
-| `fixture` | `node scripts/e2e.mjs --grep-invert "@scenario\|visual"`, then `node scripts/e2e.mjs e2e/scenario-ui.spec.ts <playwright_files>` (the browser-level scenario spec, plus any scenario spec the change touched directly) |
-| `files` | `node scripts/e2e.mjs <playwright_files>` — only the specs the change touched |
-| `none` | the job is skipped |
+| Mode | `fixture-1..3` | `scenarios` |
+| --- | --- | --- |
+| `full` | `node scripts/e2e.mjs --grep-invert "@scenario\|visual" --shard=n/3` (every non-visual, non-scenario spec) | `node scripts/e2e.mjs --scenarios` (every simulated scenario), then `DEPLOYZ_DEFAULT_HTTPS_FIXTURE=true node scripts/e2e.mjs e2e/scenario-default-https.spec.ts` |
+| `fixture` | the same three shards | `node scripts/e2e.mjs e2e/scenario-ui.spec.ts e2e/scenario-release-unavailable.spec.ts <playwright_files>` (the two browser-driven scenario specs, plus any scenario spec the change touched directly) |
+| `files` | `fixture-1` runs `node scripts/e2e.mjs <playwright_files>`; the other parts finish in seconds without setup | nothing |
+| `none` | the job is skipped | |
 
-Skipped entirely on a `minimal` PR. Uploads `test-results/` as the
-`e2e-simulated-results` artifact on failure. The visual suite
+Skipped entirely on a `minimal` PR. Each part uploads `test-results/` as
+an `e2e-simulated-results-<part>` artifact on failure. The visual suite
 (`e2e/visual.spec.ts`) never runs here — its committed snapshots are
 Windows-generated.
 
