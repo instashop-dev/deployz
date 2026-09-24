@@ -34,7 +34,7 @@
 import { execFileSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { CleanupRegistry, runWithTeardown } from '../src/integration/teardown.js';
 import { createAwsClients } from '../src/integration/aws-clients.js';
@@ -271,7 +271,9 @@ freshDescribe('fresh — hardened bootstrap create/destroy golden path', () => {
   // stays gitignored; the CLI's reader lock is per output directory.
   const outDir = `cdk.out/fresh-${runId}`;
 
-  it('preflight: the AWS account is the expected test account', async () => {
+  // A failing `it` would not stop the later tests from deploying, so the
+  // account guard is a hook: a foreign account fails the whole suite here.
+  beforeAll(async () => {
     const identity = await aws.sts.getCallerIdentity();
     assertExpectedAccount(identity.account);
   });
