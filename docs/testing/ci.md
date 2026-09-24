@@ -227,10 +227,10 @@ assuming one implies the other.
 
 See [`strategy.md`](strategy.md#timing-expectations) for the measured
 numbers. In short: a `minimal` (docs-only) PR finishes in well under a
-minute; a `targeted` PR is scoped to the affected projects and specs, so
-it is faster than the full regression; a `critical` PR or a push to `main`
-takes 5 to 6 minutes end to end (`test-build` and `e2e-simulated` run in
-parallel, each 5 to 7 minutes on its own).
+minute; a `targeted` web PR takes about 5 minutes (the three fixture
+shards and the browser scenario specs run in parallel with `test-build`);
+a `critical` PR or a push to `main` takes about 6.5 minutes, bound by
+`test-build`'s full Vitest run.
 
 ## Troubleshooting
 

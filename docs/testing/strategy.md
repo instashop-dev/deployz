@@ -192,14 +192,23 @@ Before this round of CI work, a typical pull request took a median 8.2
 minutes (p90 9.3 minutes) to go green: the full Vitest suite alone took
 426 seconds, and the E2E job took 5.5 minutes, mostly run in sequence.
 
-After the execution fixes in this round (parallel affected-project
-Vitest, placeholder Lambda bundling inside the CDK Vitest project, cached
-Playwright browser install, a job structure that lets `test-build` and
-`e2e-simulated` run side by side), a full-regression run — the set a
-critical pull request or a push to `main` runs — takes 5 to 6 minutes
-end to end: the `test-build` job takes about 390 seconds and the
-`e2e-simulated` job takes about 320 seconds, in parallel. A docs-only pull
-request takes about 0.6 minutes (the minimal gate runs no test layers).
+After this round (parallel affected-project Vitest, placeholder Lambda
+bundling inside the CDK Vitest project, a cached Playwright browser, the
+fixture-mode suite sharded across three runners with the scenario suites
+in a fourth), measured on the final stack:
+
+| Change | Wall time | Longest job |
+| --- | --- | --- |
+| docs-only (`minimal`) | about 0.6 min | nothing runs |
+| web runtime change (`targeted`: fixture-mode suite + browser scenario specs, 192 + 5 tests) | 5.0 min | E2E shard 1: 272 s |
+| full regression (`critical`, push to `main`): every Vitest project, every spec, every scenario | 6.5 min | `test-build`: 365 s |
+
+Before this round the same web change ran fewer tests (the 23 fixture-mode
+specs never ran in CI) in 6.1 minutes, and a critical run took 8 to 9
+minutes with the full Vitest suite at 426 seconds. The fixture-mode suite is
+bound by the dev servers, not by Playwright workers (four workers were no
+faster than two), which is why it is sharded rather than parallelised on
+one runner.
 
 The CDK Vitest project synthesizes with placeholder Lambda bundling — see
 `packages/cdk/vitest.config.ts` — so `pnpm synth:smoke` is the one place

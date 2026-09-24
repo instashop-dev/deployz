@@ -29,8 +29,9 @@ DEPLOYZ_E2E_ALLOW_REAL_AWS=1 pnpm e2e:fresh
 
 Preconditions: AWS credentials via the standard SDK v3 chain, the `aws` CLI
 on `PATH`, `AWS_REGION` (defaults `us-east-1`). `--dry-run` prints the
-resolved command without running it (works before the opt-in too, and makes
-no AWS call).
+resolved command without running it and makes no AWS call; the runner still
+refuses it without the opt-in, so a dry run cannot preview a run you are
+not allowed to make.
 
 Each run mints a sortable run id (`YYYYMMDD-HHMMSS-xxxx`), names its stack
 `deployz-fresh-<runid>` (`DEPLOYZ_BOOTSTRAP_STACK_NAME`), and tags it
@@ -223,10 +224,11 @@ green manual `profile --profile stateless --production` runs.
 
 ## Safety
 
-- **Real-AWS opt-in.** Every harness — the version canary, `fresh`, and
-  `customer-reset` — refuses before touching AWS or the control plane unless
-  `DEPLOYZ_E2E_ALLOW_REAL_AWS=1` is set. Never set it merely to get past a
-  refusal you don't understand.
+- **Real-AWS opt-in.** The version canary and `fresh` refuse before touching
+  AWS or the control plane unless `DEPLOYZ_E2E_ALLOW_REAL_AWS=1` is set.
+  Never set it merely to get past a refusal you don't understand.
+  `customer-reset` is an operator tool with its own gate: an explicit
+  `--confirm FULL-CUSTOMER-RESET` argument.
 - **Account guard.** Every harness confirms `sts get-caller-identity`
   matches the expected test account (`DEPLOYZ_CANARY_EXPECTED_ACCOUNT`,
   default `151955775369`) before creating anything.
@@ -244,11 +246,12 @@ green manual `profile --profile stateless --production` runs.
   service, an RDS instance and, for the `redis` profile, an ElastiCache
   replication group) for the run's duration, plus one CodeBuild image build
   per release unless `--existing-image` is used — in practice 60-90 minutes
-  end to end; the GitHub Actions job budgets 180 minutes total (120 for the
-  canary step itself, the remaining 60 reserved so cleanup and the leak
-  audit can still finish after a timeout). A `profile` run (including the
-  scheduled production canary) provisions one install plus its retained-RDS
-  teardown, budgeted 240 minutes total (180 for the canary step). `fresh`
+  end to end; the GitHub Actions job budgets 240 minutes total (120 for the
+  canary step itself, the rest reserved so cleanup — up to 110 minutes —
+  and the leak audit can still finish after a timeout). A `profile` run
+  (including the scheduled production canary) provisions one install plus
+  its retained-RDS teardown, budgeted 300 minutes total (180 for the canary
+  step). `fresh`
   provisions only the bootstrap stack (a Lambda, its IAM role, a Secrets
   Manager secret, an EventBridge schedule) — negligible cost, a few minutes
   of runtime. A leak (a run whose teardown never completed) keeps billing
