@@ -1,9 +1,12 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  checkBinding,
   createApp,
+  parseRedisUrl,
   poolConfigFromEnv,
   readReleaseInfo,
+  redisPingTarget,
   type MarkerRecord,
   type MarkerStore,
   type ReleaseInfo,
@@ -238,6 +241,116 @@ describe('release identity', () => {
 
   it('treats any health mode other than "broken" as ok', () => {
     expect(readReleaseInfo({}, () => JSON.stringify({ ...V1, healthMode: 'weird' })).healthMode).toBe('ok');
+  });
+});
+
+describe('/canary/bindings', () => {
+  it('reports each binding as present with an 8-hex sha256 prefix, or absent', async () => {
+    const { url, close } = await serve(
+      createApp({
+        probe: async () => 'not-configured',
+        release: V1,
+        markers: null,
+        env: { DATABASE_URL: 'postgresql://u:p@h/db', STORAGE_BUCKET: 'my-bucket' },
+      }),
+    );
+    try {
+      const body = (await (await fetch(`${url}/canary/bindings`)).json()) as {
+        bindings: Record<string, { present: boolean; sha256Prefix: string | null }>;
+      };
+      expect(body.bindings['DATABASE_URL']).toMatchObject({ present: true });
+      expect(body.bindings['DATABASE_URL']?.sha256Prefix).toMatch(/^[0-9a-f]{8}$/);
+      expect(body.bindings['STORAGE_BUCKET']).toMatchObject({ present: true });
+      expect(body.bindings['S3_BUCKET']).toEqual({ present: false, sha256Prefix: null });
+      expect(body.bindings['REDIS_URL']).toEqual({ present: false, sha256Prefix: null });
+    } finally {
+      await close();
+    }
+  });
+
+  it('never echoes the binding value itself', async () => {
+    const { url, close } = await serve(
+      createApp({ probe: async () => 'not-configured', release: V1, markers: null, env: { DATABASE_URL: 'postgresql://u:secret-password@h/db' } }),
+    );
+    try {
+      const text = await (await fetch(`${url}/canary/bindings`)).text();
+      expect(text).not.toContain('secret-password');
+    } finally {
+      await close();
+    }
+  });
+
+  it('pings redis over raw TCP when REDIS_URL is configured, via the injected pinger', async () => {
+    const { url, close } = await serve(
+      createApp({
+        probe: async () => 'not-configured',
+        release: V1,
+        markers: null,
+        env: { REDIS_URL: 'redis://cache.example.internal:6379' },
+        pingRedis: async (host, port) => {
+          expect(host).toBe('cache.example.internal');
+          expect(port).toBe(6379);
+          return { attempted: true, ok: true, detail: '+PONG' };
+        },
+      }),
+    );
+    try {
+      const body = (await (await fetch(`${url}/canary/bindings`)).json()) as { redis: { attempted: boolean; ok: boolean } };
+      expect(body.redis).toMatchObject({ attempted: true, ok: true });
+    } finally {
+      await close();
+    }
+  });
+
+  it('does not attempt a redis ping when no REDIS_* binding is configured', async () => {
+    const { url, close } = await serve(createApp({ probe: async () => 'not-configured', release: V1, markers: null, env: {} }));
+    try {
+      const body = (await (await fetch(`${url}/canary/bindings`)).json()) as { redis: { attempted: boolean } };
+      expect(body.redis.attempted).toBe(false);
+    } finally {
+      await close();
+    }
+  });
+
+  it('reports a failed ping without throwing', async () => {
+    const { url, close } = await serve(
+      createApp({
+        probe: async () => 'not-configured',
+        release: V1,
+        markers: null,
+        env: { REDIS_HOST: 'unreachable.example.internal', REDIS_PORT: '6380' },
+        pingRedis: async () => ({ attempted: true, ok: false, detail: 'timeout' }),
+      }),
+    );
+    try {
+      const body = (await (await fetch(`${url}/canary/bindings`)).json()) as { redis: { attempted: boolean; ok: boolean; detail: string } };
+      expect(body.redis).toEqual({ attempted: true, ok: false, detail: 'timeout' });
+    } finally {
+      await close();
+    }
+  });
+});
+
+describe('checkBinding / redisPingTarget / parseRedisUrl', () => {
+  it('checkBinding: absent for undefined/empty, present with a sha256 prefix otherwise', () => {
+    expect(checkBinding(undefined)).toEqual({ present: false, sha256Prefix: null });
+    expect(checkBinding('')).toEqual({ present: false, sha256Prefix: null });
+    const result = checkBinding('a-value');
+    expect(result.present).toBe(true);
+    expect(result.sha256Prefix).toMatch(/^[0-9a-f]{8}$/);
+  });
+
+  it('parseRedisUrl reads host/port, defaulting the port to 6379', () => {
+    expect(parseRedisUrl('redis://cache.internal:6380')).toEqual({ host: 'cache.internal', port: 6380 });
+    expect(parseRedisUrl('redis://cache.internal')).toEqual({ host: 'cache.internal', port: 6379 });
+    expect(parseRedisUrl('not a url')).toBeNull();
+  });
+
+  it('redisPingTarget prefers REDIS_URL, falls back to REDIS_HOST/REDIS_PORT, else null', () => {
+    expect(redisPingTarget({ REDIS_URL: 'redis://a:1234' })).toEqual({ host: 'a', port: 1234 });
+    expect(redisPingTarget({ REDIS_HOST: 'b', REDIS_PORT: '9999' })).toEqual({ host: 'b', port: 9999 });
+    expect(redisPingTarget({ REDIS_HOST: 'b' })).toEqual({ host: 'b', port: 6379 });
+    expect(redisPingTarget({})).toBeNull();
   });
 });
 
