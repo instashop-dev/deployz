@@ -17,6 +17,7 @@
     "test:affected": "node scripts/test-affected.mjs",
     "test:escalation": "node scripts/test-affected.mjs --escalation",
     "test:selector": "node --test scripts/test-affected.test.mjs",
+    "test:static": "node --test scripts/production-safety.test.mjs",
     "e2e:canary": "node scripts/e2e.mjs --mode=canary",
     "e2e:fresh": "node scripts/e2e.mjs --mode=fresh",
     "e2e:canary:versions": "node scripts/e2e.mjs --mode=canary-versions",

@@ -107,6 +107,12 @@ jobs:
         if: needs.plan.outputs.risk != 'minimal'
         run: pnpm typecheck:e2e
 
+      # Filesystem guards: no AWS SDK in the simulator, no fixture-mode
+      # variable in the deploy environment, no product import of e2e/.
+      - name: Static production-safety guards
+        if: needs.plan.outputs.risk != 'minimal'
+        run: pnpm test:static
+
       - name: Run tests (full suite)
         if: env.FULL == 'true'
         run: pnpm vitest run

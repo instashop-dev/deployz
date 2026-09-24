@@ -344,6 +344,21 @@ describe('server (Fastify base over PGlite)', () => {
     expect(serialized).not.toContain('at '); // no stack frames
   });
 
+  // Simulated-E2E decision D2: scenario selection lives entirely in the test
+  // process, so the API defines no scenario-control route. Pinned here so a
+  // route added "just for E2E convenience" cannot reach production.
+  it.each([
+    '/internal/e2e/scenario',
+    '/api/internal/e2e/scenario',
+    '/__e2e__/scenario',
+    '/internal/scenario',
+  ])('%s is not a route (no scenario-control surface)', async (url) => {
+    for (const method of ['GET', 'POST'] as const) {
+      const response = await app.inject({ method, url });
+      expect(response.statusCode).toBe(404);
+    }
+  });
+
   // The 5xx envelope above is generic on purpose, so the log is the ONLY place
   // the real cause survives. The API ran `logger: false`, which meant a 500
   // left no trace anywhere — three production failures in a row could only be
