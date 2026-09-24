@@ -24,6 +24,7 @@
 import { applicationStackNameForInstallation } from '@deployz/contracts';
 
 import {
+  callerIdentity,
   deleteOrphansForInstallation,
   deleteStackAndWait,
   freezeRelayEventBridgeRules,
@@ -39,6 +40,7 @@ import {
   isOwnedByInstallation,
   isProtectedByTags,
   requireConfirmToken,
+  requireExpectedAccount,
   type DeletionCandidate,
 } from './safety.js';
 
@@ -125,6 +127,7 @@ async function cleanUpDeployment(manifest: Manifest, deployment: ManifestDeploym
 
 export async function runCleanup(argv: readonly string[]): Promise<void> {
   requireConfirmToken(argv);
+  await requireExpectedAccount({ getCallerIdentity: callerIdentity });
 
   const manifest = await buildManifest();
   const protectedInventory = buildProtectedInventory();

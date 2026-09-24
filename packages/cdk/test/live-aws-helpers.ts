@@ -1,10 +1,12 @@
 /**
- * Shared shell-out helpers for the live-AWS vitest suites (golden-path,
- * canary, fresh — docs/testing/e2e-testing.md D5).
+ * Shared shell-out helpers for the live-AWS vitest suites (fresh —
+ * docs/testing/e2e-testing.md D5).
  *
- * Extracted from golden-path-live-aws.test.ts so canary-e2e.live.test.ts and
- * fresh-e2e.live.test.ts reuse exactly the same `cdk`/`aws` invocation
- * pattern that file already proved, instead of forking it.
+ * fresh-e2e.live.test.ts reuses the `cdk`/`aws` invocation pattern this file
+ * carries instead of forking it. The read-only persistent-installation
+ * canary and the throwaway golden-path suite this file used to also serve
+ * were retired (docs/testing/version-rollback-canary.md's `profile`/`core`
+ * scenarios and `pnpm e2e:fresh` cover the same ground for real).
  *
  * Not a `.test.ts` file — vitest will not try to run it as a suite.
  */
@@ -13,13 +15,30 @@ import { spawn } from 'node:child_process';
 export const REGION = process.env.AWS_REGION ?? 'us-east-1';
 
 /**
- * The standing canary installation — a real INSTALL provisioned 2026-08-27,
- * treated as a persistent fixture (see golden-path-live-aws.test.ts's
- * "installation verification (live)" block, which this same literal used to
- * be duplicated in). Shared here so it defaults consistently everywhere
- * without redefining it per file.
+ * The test AWS account every real-AWS suite in this repo refuses to run
+ * outside of — the same default `scripts/version-canary/config.ts` uses
+ * (`DEPLOYZ_CANARY_EXPECTED_ACCOUNT`).
  */
-export const STANDING_INSTALLATION_ID = 'c2dca2bb-a733-470d-8ef0-8e96bc889442';
+export const DEFAULT_EXPECTED_ACCOUNT = '151955775369';
+
+export function expectedAccountId(env: NodeJS.ProcessEnv = process.env): string {
+  return env['DEPLOYZ_CANARY_EXPECTED_ACCOUNT'] ?? DEFAULT_EXPECTED_ACCOUNT;
+}
+
+/**
+ * Throws unless `account` is the expected test account — the same guard
+ * `scripts/version-canary/steps.ts`'s `preflight` applies before the version
+ * canary runs anything. `fresh` and `scripts/customer-reset` apply it too:
+ * neither had ever refused a real, differently-numbered AWS account before
+ * mutating it.
+ */
+export function assertExpectedAccount(account: string | undefined, expected: string = expectedAccountId()): void {
+  if (account !== expected) {
+    throw new Error(
+      `AWS account ${account ?? 'unknown'} is not the expected test account ${expected} — refusing to run`,
+    );
+  }
+}
 
 /**
  * `shell: true` is required on Windows so spawn resolves the pnpm.cmd shim.
@@ -87,14 +106,15 @@ export async function waitForStackGone(
 }
 
 /**
- * The mode+flag gate shared by canary and fresh (D3/D5): a real-AWS suite
- * runs only when `DEPLOYZ_E2E_MODE` matches its own mode AND
+ * The mode+flag gate fresh (D3/D5) runs under: a real-AWS suite runs only
+ * when `DEPLOYZ_E2E_MODE` matches its own mode AND
  * `DEPLOYZ_E2E_ALLOW_REAL_AWS === '1'`. `scripts/e2e.mjs` sets both before
- * spawning these suites; a direct `vitest run` must set them by hand.
+ * spawning it (`pnpm e2e:fresh`); a direct `vitest run` must set them by
+ * hand.
  */
 export function isRealAwsModeActive(
   env: Pick<NodeJS.ProcessEnv, 'DEPLOYZ_E2E_MODE' | 'DEPLOYZ_E2E_ALLOW_REAL_AWS'>,
-  mode: 'canary' | 'fresh',
+  mode: 'fresh',
 ): boolean {
   return env.DEPLOYZ_E2E_MODE === mode && env.DEPLOYZ_E2E_ALLOW_REAL_AWS === '1';
 }
