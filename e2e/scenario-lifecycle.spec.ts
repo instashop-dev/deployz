@@ -478,10 +478,13 @@ test.describe('purge-failure', () => {
     expect(events.some((e) => e.eventType === 'purge.failed')).toBe(true);
     expect(events.some((e) => e.eventType === 'purge.completed')).toBe(false);
 
-    // The leftover is named in the failure, not swallowed into a generic
-    // "purge failed" message.
+    // The sweep's own error reaches the event, not a generic "purge failed".
     const failedEvent = events.find((e) => e.eventType === 'purge.failed');
-    expect(failedEvent?.payload?.error).toContain('deployz-e2e-orphan-bucket');
+    expect(failedEvent?.payload?.error).toContain('BucketNotEmpty');
+
+    // PURGE_FAILED keeps the purge retryable (docs/deployment-resilience.md).
+    const retry = await request.post(`${API_URL}/api/deployments/${deploymentId}/purge`, { data: {} });
+    expect(retry.status()).toBe(202);
   });
 });
 
