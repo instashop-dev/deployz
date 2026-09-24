@@ -8,6 +8,7 @@ import { ecsFailure } from './ecs-failure.js';
 import { happyPath } from './happy-path.js';
 import { healthcheckFailure } from './healthcheck-failure.js';
 import { lifecycleSweep } from './lifecycle-sweep.js';
+import { purgeFailure } from './purge-failure.js';
 import { redisFailure } from './redis-failure.js';
 import { redisSuccess } from './redis-success.js';
 import { relayDisconnect } from './relay-disconnect.js';
@@ -27,7 +28,9 @@ import { updateFailure } from './update-failure.js';
  * four. Phase 1 D2 (lifecycle: update/rollback/destroy) adds update-failure,
  * rollback-success, rollback-failure, delete-failure and retained-resources.
  * Phase 14 adds lifecycle-sweep (one continuous lifecycle over a single
- * deployment) and redis-success (a successful Redis install).
+ * deployment) and redis-success (a successful Redis install). purge-failure
+ * adds a deterministic PURGE-sweep failure (an orphan the sweep cannot
+ * delete) on top of retained-resources' clean destroy.
  */
 const SCENARIOS: Readonly<Record<string, ScenarioDefinition>> = {
   [happyPath.id]: happyPath,
@@ -47,6 +50,7 @@ const SCENARIOS: Readonly<Record<string, ScenarioDefinition>> = {
   [rollbackFailure.id]: rollbackFailure,
   [deleteFailure.id]: deleteFailure,
   [retainedResources.id]: retainedResources,
+  [purgeFailure.id]: purgeFailure,
   [transientAws.id]: transientAws,
   [stateless.id]: stateless,
 };
@@ -71,6 +75,7 @@ export {
   happyPath,
   healthcheckFailure,
   lifecycleSweep,
+  purgeFailure,
   redisFailure,
   redisSuccess,
   relayDisconnect,

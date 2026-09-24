@@ -110,6 +110,23 @@ export interface DestroyScenario {
   readonly blockedResources?: readonly DestroyBlockedResource[];
 }
 
+/**
+ * Scenario-controlled PURGE orphan-sweep behaviour (relay-harness.ts's
+ * `purgeClientsFor`). Absent (the default) means every ownership list stays
+ * empty and PURGE settles to success immediately — see `emptyPurgeClients()`
+ * in relay-harness.ts. Only the S3 orphan sweep is modelled today; extend
+ * this shape the same way `DestroyScenario` extends its own shape if a
+ * future scenario needs a different owned-resource kind to fail.
+ */
+export interface PurgeScenario {
+  /** One tag-owned orphan S3 bucket the purge sweep finds and can never
+   *  delete — `deleteBucket` always throws `failureReason`. */
+  readonly undeletableBucket?: {
+    readonly bucketName: string;
+    readonly failureReason: string;
+  };
+}
+
 export interface ScenarioDefinition {
   readonly id: string;
   readonly description: string;
@@ -155,4 +172,7 @@ export interface ScenarioDefinition {
    * install.
    */
   readonly transientDescribeFailures?: number;
+  /** PURGE orphan-sweep behaviour — see `PurgeScenario` above. Absent means
+   *  no scenario in this test ever leaves a purge-visible orphan behind. */
+  readonly purge?: PurgeScenario;
 }

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { FAILURE_CODES } from '@deployz/copy-map';
+import type { CustomerDeploymentStatus, VendorDeploymentStatus } from '@deployz/contracts';
 
 import {
   deriveDeploymentStatus,
@@ -445,7 +446,31 @@ describe('customer projection sanitization', () => {
   });
 });
 
-describe('customer/vendor stage invariant', () => {
+// The fields both wire projections carry with the same meaning and are
+// expected to always agree on — everything toCustomerDeploymentStatus and
+// toVendorDeploymentStatus copy straight through from the shared
+// DerivedDeploymentStatus with no per-projection transform. `components` and
+// the rest of `failure` are deliberately excluded: those two are filtered/
+// redacted differently by design (§65) and are checked separately below.
+function sharedProjectionFields(status: CustomerDeploymentStatus | VendorDeploymentStatus) {
+  return {
+    stage: status.stage,
+    updatedAt: status.updatedAt,
+    currentActivity: status.currentActivity,
+    step: status.step,
+    steps: status.steps,
+    typicalDurationSeconds: status.typicalDurationSeconds,
+    takingLongerThanUsual: status.takingLongerThanUsual,
+    statusUpdatesUnavailable: status.statusUpdatesUnavailable,
+    needsDomainSetup: status.needsDomainSetup,
+    url: status.url,
+    failurePresent: status.failure !== null,
+    failureComponent: status.failure?.component ?? null,
+    failureReference: status.failure?.reference ?? null,
+  };
+}
+
+describe('vendor and customer projections agree', () => {
   const scenarios: DeriveDeploymentStatusInput[] = [
     { deployment: makeDeployment(), application: makeApplication(), jobs: [], domain: null, appUrl: null },
     {
@@ -500,10 +525,31 @@ describe('customer/vendor stage invariant', () => {
   ];
 
   it.each(scenarios.map((input, index) => [index, input] as const))(
-    'scenario %i: customer.stage === vendor.stage',
+    'scenario %i: customer and vendor agree on every field they share',
     (_index, input) => {
       const derived = deriveDeploymentStatus(input);
-      expect(toCustomerDeploymentStatus(derived).stage).toBe(toVendorDeploymentStatus(derived).stage);
+      const customer = toCustomerDeploymentStatus(derived);
+      const vendor = toVendorDeploymentStatus(derived);
+
+      expect(sharedProjectionFields(customer)).toEqual(sharedProjectionFields(vendor));
+
+      // The https component is the one entry toCustomerDeploymentStatus never
+      // filters out (see its noSignalStages comment) — when the derivation
+      // produced one, both projections must report the same status for it.
+      const customerHttps = customer.components.find((c) => c.key === 'https');
+      const vendorHttps = vendor.components.find((c) => c.key === 'https');
+      expect(customerHttps?.status).toBe(vendorHttps?.status);
+
+      // §65: relay identity, job detail, the raw stack status, and the
+      // vendor-only stepTimings/failure fields must never reach the
+      // unauthenticated customer projection, in any scenario.
+      for (const key of ['relay', 'job', 'aws', 'stepTimings'] as const) {
+        expect(customer).not.toHaveProperty(key);
+      }
+      if (customer.failure) {
+        expect(customer.failure).not.toHaveProperty('code');
+        expect(customer.failure).not.toHaveProperty('message');
+      }
     },
   );
 });
