@@ -73,3 +73,21 @@ customer types secret (confirm or config save)
 cipher stub (never in production). Redaction guarantees and KMS failure
 paths are covered by the integration suite; real KMS is exercised by the
 AWS canary.
+
+## KMS key rollout (in progress)
+
+Until this rollout ends, production has no key: the control-plane stack did
+not pass `DEPLOYZ_KMS_KEY_ARN`, so both Lambdas used the stub, and stored
+"ciphertext" is reversible base64. The fix ships in three phases so that no
+single deploy makes a stored value unreadable:
+
+1. **Key only.** The control-plane stack creates `alias/deployz-config-secrets`
+   (symmetric, automatic rotation, `RETAIN`) and grants the API and worker
+   roles `kms:Encrypt`/`kms:Decrypt` with the purpose-context conditions. The
+   key is not passed to the Lambdas yet, so runtime behavior does not change.
+   Each watchdog tick logs `watchdog:config-secret-inventory` — row counts by
+   format, age, and state, never values or ids.
+2. **Switch and migrate.** The Lambdas receive the key, new writes use KMS,
+   and the watchdog re-encrypts legacy rows.
+3. **Retire legacy.** When the inventory shows zero legacy rows, the legacy
+   decoder and the worker's `kms:Encrypt` grant are removed.

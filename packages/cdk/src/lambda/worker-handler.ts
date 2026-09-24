@@ -22,6 +22,7 @@ import type { QueueMessage } from '@deployz/api/queue';
 import { connectDb, type LambdaDb } from './db-connection.js';
 import {
   handleMessage,
+  inventoryConfigSecrets,
   loadBuildVariablesFromDb,
   recordBuildResult,
   sweepBilling,
@@ -196,6 +197,15 @@ export async function handler(event: WorkerEvent): Promise<BatchResponse | void>
         console.error('sweepBilling failed', error);
         return { promoted: 0, unstuck: 0, reconciled: 0 };
       });
+      // Counts only — taken before the expiry sweep so expired rows show.
+      // A failed inventory must never fail the scheduled invoke.
+      const secretInventory = await inventoryConfigSecrets(db).catch((error: unknown) => {
+        console.error('inventoryConfigSecrets failed', error);
+        return undefined;
+      });
+      if (secretInventory !== undefined) {
+        console.log(JSON.stringify({ event: 'watchdog:config-secret-inventory', ...secretInventory }));
+      }
       // DEPLOY-027 (Phase 4): drop pending_secrets rows whose TTL expired
       // before any relay picked them up. Swallow errors the same way as the
       // other sweeps — a future tick will retry, and a failed sweep must

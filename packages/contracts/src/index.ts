@@ -1166,6 +1166,22 @@ export const DESTROY_PENDING_STALE_AFTER_MS = 60 * 60 * 1000;
 // and the worker's expiry sweep never disagree about what counts as expired.
 export const DEFAULT_PENDING_SECRET_TTL_MS = 24 * 60 * 60 * 1000;
 
+// The fixed `purpose` pair the control-plane secret cipher adds to every KMS
+// EncryptionContext, and the only context keys it may carry. The CDK stack
+// puts both into the Lambdas' IAM conditions, so a caller cannot use the
+// key for another purpose or smuggle extra (possibly sensitive) context in.
+// Every value is an opaque id or an env-var name — never a secret or an email.
+export const CONFIG_SECRET_KMS_PURPOSE = 'deployz-config-secret';
+export const CONFIG_SECRET_KMS_CONTEXT_KEYS = [
+  'purpose',
+  'scope',
+  'organizationId',
+  'applicationId',
+  'customerId',
+  'deploymentId',
+  'key',
+] as const;
+
 /**
  * CloudFormation stack name for a customer's application stack.
  *

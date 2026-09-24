@@ -1,4 +1,4 @@
-import { ArnFormat, Duration, Stack, Tags, type StackProps } from 'aws-cdk-lib';
+import { ArnFormat, CfnOutput, Duration, RemovalPolicy, Stack, Tags, type StackProps } from 'aws-cdk-lib';
 import {
   InstanceType,
   InstanceClass,
@@ -20,6 +20,7 @@ import {
   PostgresEngineVersion,
 } from 'aws-cdk-lib/aws-rds';
 import { PolicyStatement } from 'aws-cdk-lib/aws-iam';
+import { Key } from 'aws-cdk-lib/aws-kms';
 import { Queue, QueueEncryption } from 'aws-cdk-lib/aws-sqs';
 import {
   BlockPublicAccess,
@@ -32,6 +33,8 @@ import { DomainName, HttpApi } from 'aws-cdk-lib/aws-apigatewayv2';
 import { Certificate } from 'aws-cdk-lib/aws-certificatemanager';
 import { HttpLambdaIntegration } from 'aws-cdk-lib/aws-apigatewayv2-integrations';
 import { Construct } from 'constructs';
+
+import { CONFIG_SECRET_KMS_CONTEXT_KEYS, CONFIG_SECRET_KMS_PURPOSE } from '@deployz/contracts';
 
 import { ApiLambda } from './api-lambda.js';
 import { BuildPipeline } from './pipeline/build-pipeline.js';
@@ -277,6 +280,44 @@ export class DeployzStack extends Stack {
         resources: [buildPipeline.project.projectArn],
       }),
     );
+
+    // ── Config-secret KMS key ────────────────────────────────────────────
+    // Encrypts vendor secrets (application_configs.encrypted_value) and the
+    // pending-secret vault (docs/pending-secret-delivery.md). RETAIN: every
+    // stored ciphertext is unreadable without this exact key, so a stack
+    // delete or a logical-id change must never schedule it for deletion.
+    // Keep the construct id stable — a new id replaces the key.
+    const configSecretsKey = new Key(this, 'ConfigSecretsKey', {
+      description: 'Deployz control-plane config secrets (vendor secrets and pending-secret vault).',
+      alias: 'alias/deployz-config-secrets',
+      enableKeyRotation: true,
+      removalPolicy: RemovalPolicy.RETAIN,
+    });
+    // Only the fixed purpose and the known opaque scope keys pass
+    // (docs/pending-secret-delivery.md § Cipher contract).
+    const configSecretsKeyConditions = {
+      StringEquals: { 'kms:EncryptionContext:purpose': CONFIG_SECRET_KMS_PURPOSE },
+      'ForAllValues:StringEquals': { 'kms:EncryptionContextKeys': [...CONFIG_SECRET_KMS_CONTEXT_KEYS] },
+    };
+    // API: encrypts on config save and deployment creation, decrypts for the
+    // relay config fetch and staged-row materialization.
+    apiLambda.function.addToRolePolicy(
+      new PolicyStatement({
+        actions: ['kms:Encrypt', 'kms:Decrypt'],
+        resources: [configSecretsKey.keyArn],
+        conditions: configSecretsKeyConditions,
+      }),
+    );
+    // Worker: decrypts vendor build variables; encrypts only to re-encrypt
+    // legacy rows (removed with the legacy migration).
+    worker.function.addToRolePolicy(
+      new PolicyStatement({
+        actions: ['kms:Encrypt', 'kms:Decrypt'],
+        resources: [configSecretsKey.keyArn],
+        conditions: configSecretsKeyConditions,
+      }),
+    );
+    new CfnOutput(this, 'ConfigSecretsKeyArn', { value: configSecretsKey.keyArn });
 
     // ── HTTP API Gateway ─────────────────────────────────────────────────
     //
