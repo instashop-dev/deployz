@@ -1241,3 +1241,54 @@ export async function sweepExpiredPendingSecrets(
     .returning();
   return deleted.length;
 }
+
+/**
+ * Counts-only inventory of stored config-secret ciphertext, by storage
+ * format (`none`, legacy `stub`, `kms1`, `other`), age, and — for the
+ * pending-secret vault — tier, expiry, and delivery state. Logged on every
+ * watchdog tick so operators can follow the legacy-row migration from
+ * CloudWatch. Reads no value and returns no identifier.
+ */
+export async function inventoryConfigSecrets(db: RuntimeDb, now: Date = new Date()): Promise<{
+  vendor: Record<string, number>;
+  customerScopeCiphertext: number;
+  pending: Record<string, number>;
+}> {
+  const format = (column: typeof schema.applicationConfigs.encryptedValue | typeof schema.pendingSecrets.ciphertext) =>
+    sql<string>`CASE WHEN ${column} IS NULL THEN 'none' WHEN ${column} LIKE 'enc:%' THEN 'stub' WHEN ${column} LIKE 'kms1:%' THEN 'kms1' ELSE 'other' END`;
+  const nowIso = now.toISOString();
+  const age = (column: typeof schema.applicationConfigs.updatedAt | typeof schema.pendingSecrets.createdAt) =>
+    sql<string>`CASE WHEN ${column} > ${nowIso}::timestamptz - interval '1 day' THEN 'lt1d' WHEN ${column} > ${nowIso}::timestamptz - interval '7 days' THEN '1to7d' WHEN ${column} > ${nowIso}::timestamptz - interval '30 days' THEN '7to30d' ELSE 'gt30d' END`;
+  const count = sql<number>`count(*)::int`;
+
+  const vendorFormat = format(schema.applicationConfigs.encryptedValue);
+  const vendorAge = age(schema.applicationConfigs.updatedAt);
+  const vendorRows = await db
+    .select({ format: vendorFormat, age: vendorAge, count })
+    .from(schema.applicationConfigs)
+    .where(and(eq(schema.applicationConfigs.isSecret, true), isNull(schema.applicationConfigs.customerId)))
+    .groupBy(sql`1`, sql`2`);
+
+  const [customerScope] = await db
+    .select({ count })
+    .from(schema.applicationConfigs)
+    .where(and(isNotNull(schema.applicationConfigs.customerId), isNotNull(schema.applicationConfigs.encryptedValue)));
+
+  const pendingFormat = format(schema.pendingSecrets.ciphertext);
+  const pendingAge = age(schema.pendingSecrets.createdAt);
+  const pendingState = sql<string>`CASE WHEN ${schema.pendingSecrets.expiresAt} > ${nowIso}::timestamptz THEN 'active' ELSE 'expired' END`;
+  const pendingTier = sql<string>`CASE WHEN ${schema.pendingSecrets.deploymentId} IS NULL THEN 'staged' ELSE 'bound' END`;
+  const pendingDelivered = sql<string>`CASE WHEN ${schema.pendingSecrets.deliveredAt} IS NULL THEN 'undelivered' ELSE 'delivered' END`;
+  const pendingRows = await db
+    .select({ format: pendingFormat, state: pendingState, tier: pendingTier, delivered: pendingDelivered, age: pendingAge, count })
+    .from(schema.pendingSecrets)
+    .groupBy(sql`1`, sql`2`, sql`3`, sql`4`, sql`5`);
+
+  const vendor: Record<string, number> = {};
+  for (const row of vendorRows) vendor[`${row.format}/${row.age}`] = Number(row.count);
+  const pending: Record<string, number> = {};
+  for (const row of pendingRows) {
+    pending[`${row.format}/${row.state}/${row.tier}/${row.delivered}/${row.age}`] = Number(row.count);
+  }
+  return { vendor, customerScopeCiphertext: Number(customerScope?.count ?? 0), pending };
+}

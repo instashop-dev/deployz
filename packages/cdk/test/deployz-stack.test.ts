@@ -244,6 +244,51 @@ describe('DeployzStack', () => {
     });
   });
 
+  describe('config-secret KMS key', () => {
+    it('is a retained, rotating, symmetric customer-managed key', () => {
+      baseline.resourceCountIs('AWS::KMS::Key', 1);
+      baseline.hasResource('AWS::KMS::Key', {
+        DeletionPolicy: 'Retain',
+        UpdateReplacePolicy: 'Retain',
+        Properties: Match.objectLike({ EnableKeyRotation: true }),
+      });
+      const [key] = Object.values(baseline.findResources('AWS::KMS::Key'));
+      expect((key!.Properties as { KeySpec?: string }).KeySpec ?? 'SYMMETRIC_DEFAULT').toBe('SYMMETRIC_DEFAULT');
+      baseline.hasResourceProperties('AWS::KMS::Alias', { AliasName: 'alias/deployz-config-secrets' });
+      expect(Object.keys(baseline.findOutputs('ConfigSecretsKeyArn'))).toHaveLength(1);
+    });
+
+    it('grants each Lambda only Encrypt/Decrypt on that key, bound to the purpose context', () => {
+      const statements = Object.values(baseline.findResources('AWS::IAM::Policy')).flatMap(
+        (policy) =>
+          (policy.Properties as { PolicyDocument: { Statement: { Action: string | string[]; Condition?: unknown; Resource: unknown }[] } })
+            .PolicyDocument.Statement,
+      );
+      const kms = statements.filter((statement) =>
+        [statement.Action].flat().some((action) => action.startsWith('kms:')),
+      );
+      expect(kms).toHaveLength(2);
+      for (const statement of kms) {
+        expect([statement.Action].flat().sort()).toEqual(['kms:Decrypt', 'kms:Encrypt']);
+        expect(JSON.stringify(statement.Resource)).toContain('ConfigSecretsKey');
+        expect(statement.Condition).toEqual({
+          StringEquals: { 'kms:EncryptionContext:purpose': 'deployz-config-secret' },
+          'ForAllValues:StringEquals': {
+            'kms:EncryptionContextKeys': [
+              'purpose',
+              'scope',
+              'organizationId',
+              'applicationId',
+              'customerId',
+              'deploymentId',
+              'key',
+            ],
+          },
+        });
+      }
+    });
+  });
+
   it('exports stack outputs', () => {
     const app = new App();
     const stack = new DeployzStack(app, 'DeployzTest');
