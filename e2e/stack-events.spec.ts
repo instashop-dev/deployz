@@ -293,7 +293,7 @@ test('progress events: a batch ingest shows one active phase, expands to raw eve
   ).toBeVisible();
 });
 
-test('failure path: a genuine CREATE_FAILED stack event stays vendor-only while the customer sees the friendly failure', async ({
+test('failure path: a genuine CREATE_FAILED stack event stays behind the technical disclosures while the customer sees the friendly failure', async ({
   page,
 }) => {
   const suffix = crypto.randomUUID().slice(0, 8);
