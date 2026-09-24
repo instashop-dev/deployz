@@ -30,6 +30,7 @@ import {
   type LeakAudit,
 } from './aws.js';
 import { describeDeployment, findJob, waitFor } from './control-plane.js';
+import { withDiagnosticsOnFailure } from './diagnostics.js';
 import type { Canary } from './steps.js';
 import { ECR_REPOSITORY } from './steps.js';
 
@@ -100,63 +101,67 @@ export async function destroyThroughProduct(canary: Canary): Promise<void> {
   if (!deploymentId) return;
 
   const nudge = relayNudge(canary);
-  await evidence.step('Disconnect (DESTROY) through the product', async (details) => {
-    const current = await api.getDeployment(deploymentId);
-    if (current.state === 'DELETED') {
-      details['skipped'] = 'already DELETED';
-      return;
-    }
-    if (current.state !== 'DELETING') {
-      const response = await api.destroy(deploymentId);
-      details['request'] = response;
-    }
-    const settled = await waitFor(
-      'destroy',
-      () => api.getDeployment(deploymentId),
-      (d) => (d.state === 'DELETED' || d.state === 'FAILED' ? d : null),
-      // A Disconnect that retains RDS goes DELETE_FAILED twice (the retained
-      // instance's ENI blocks the subnet, then the security group) before the
-      // relay's retain-resources retries finish it — observed at 45+ minutes.
-      { timeoutMs: 80 * MINUTE, describe: describeDeployment, ...(nudge ? { onTick: nudge } : {}) },
-    );
-    const destroyJob = [...settled.jobs].reverse().find((j) => j.type === 'DESTROY');
-    details['destroyJob'] = destroyJob ? { id: destroyJob.id, state: destroyJob.state, failureCode: destroyJob.failureCode, result: destroyJob.result } : null;
-    details['cleanupState'] = settled.cleanupState;
-    if (settled.state !== 'DELETED') {
-      throw new Error(`destroy ended in ${settled.state}: ${JSON.stringify(destroyJob?.result).slice(0, 400)}`);
-    }
-  });
+  await evidence.step('Disconnect (DESTROY) through the product', async (details) =>
+    withDiagnosticsOnFailure(canary, details, async () => {
+      const current = await api.getDeployment(deploymentId);
+      if (current.state === 'DELETED') {
+        details['skipped'] = 'already DELETED';
+        return;
+      }
+      if (current.state !== 'DELETING') {
+        const response = await api.destroy(deploymentId);
+        details['request'] = response;
+      }
+      const settled = await waitFor(
+        'destroy',
+        () => api.getDeployment(deploymentId),
+        (d) => (d.state === 'DELETED' || d.state === 'FAILED' ? d : null),
+        // A Disconnect that retains RDS goes DELETE_FAILED twice (the retained
+        // instance's ENI blocks the subnet, then the security group) before the
+        // relay's retain-resources retries finish it — observed at 45+ minutes.
+        { timeoutMs: 80 * MINUTE, describe: describeDeployment, ...(nudge ? { onTick: nudge } : {}) },
+      );
+      const destroyJob = [...settled.jobs].reverse().find((j) => j.type === 'DESTROY');
+      details['destroyJob'] = destroyJob ? { id: destroyJob.id, state: destroyJob.state, failureCode: destroyJob.failureCode, result: destroyJob.result } : null;
+      details['cleanupState'] = settled.cleanupState;
+      if (settled.state !== 'DELETED') {
+        throw new Error(`destroy ended in ${settled.state}: ${JSON.stringify(destroyJob?.result).slice(0, 400)}`);
+      }
+    }),
+  );
 
   await verifyRetainedState(canary, deploymentId);
 
-  await evidence.step('Purge retained resources through the product', async (details) => {
-    const current = await api.getDeployment(deploymentId);
-    if (current.cleanupState === 'COMPLETE') {
-      details['skipped'] = 'cleanupState already COMPLETE';
-      return;
-    }
-    const response = await api.purge(deploymentId);
-    details['request'] = response;
-    const body = response.body as { jobId?: string } | null;
-    const settled = await waitFor(
-      'purge',
-      () => api.getDeployment(deploymentId),
-      (d) => {
-        const job = body?.jobId ? findJob(d, body.jobId) : [...d.jobs].reverse().find((j) => j.type === 'PURGE');
-        return job && (job.state === 'SUCCEEDED' || job.state === 'FAILED') ? d : null;
-      },
-      // A default-HTTPS install's purge sweeps one orphan kind per 5-minute
-      // relay poll after the retained database is gone — observed at ~95
-      // minutes end to end. Giving up earlier leaves the relay mid-sweep.
-      { timeoutMs: 120 * MINUTE, describe: describeDeployment, ...(nudge ? { onTick: nudge } : {}) },
-    );
-    const purgeJob = [...settled.jobs].reverse().find((j) => j.type === 'PURGE');
-    details['purgeJob'] = purgeJob ? { id: purgeJob.id, state: purgeJob.state, failureCode: purgeJob.failureCode, result: purgeJob.result } : null;
-    details['cleanupState'] = settled.cleanupState;
-    if (settled.cleanupState !== 'COMPLETE') {
-      throw new Error(`purge left cleanupState ${settled.cleanupState}: ${JSON.stringify(purgeJob?.result).slice(0, 400)}`);
-    }
-  });
+  await evidence.step('Purge retained resources through the product', async (details) =>
+    withDiagnosticsOnFailure(canary, details, async () => {
+      const current = await api.getDeployment(deploymentId);
+      if (current.cleanupState === 'COMPLETE') {
+        details['skipped'] = 'cleanupState already COMPLETE';
+        return;
+      }
+      const response = await api.purge(deploymentId);
+      details['request'] = response;
+      const body = response.body as { jobId?: string } | null;
+      const settled = await waitFor(
+        'purge',
+        () => api.getDeployment(deploymentId),
+        (d) => {
+          const job = body?.jobId ? findJob(d, body.jobId) : [...d.jobs].reverse().find((j) => j.type === 'PURGE');
+          return job && (job.state === 'SUCCEEDED' || job.state === 'FAILED') ? d : null;
+        },
+        // A default-HTTPS install's purge sweeps one orphan kind per 5-minute
+        // relay poll after the retained database is gone — observed at ~95
+        // minutes end to end. Giving up earlier leaves the relay mid-sweep.
+        { timeoutMs: 120 * MINUTE, describe: describeDeployment, ...(nudge ? { onTick: nudge } : {}) },
+      );
+      const purgeJob = [...settled.jobs].reverse().find((j) => j.type === 'PURGE');
+      details['purgeJob'] = purgeJob ? { id: purgeJob.id, state: purgeJob.state, failureCode: purgeJob.failureCode, result: purgeJob.result } : null;
+      details['cleanupState'] = settled.cleanupState;
+      if (settled.cleanupState !== 'COMPLETE') {
+        throw new Error(`purge left cleanupState ${settled.cleanupState}: ${JSON.stringify(purgeJob?.result).slice(0, 400)}`);
+      }
+    }),
+  );
 
   await verifyPurgedRetainedState(canary, deploymentId);
 }

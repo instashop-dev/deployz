@@ -33,7 +33,23 @@ export interface RunRecord {
   readonly accountId: string;
   scenario: string;
   result?: 'PASS' | 'FAIL';
-  vendor?: { email: string; password: string; organizationId?: string };
+  /**
+   * Never the password — see `credentials.json` (written by `saveCredentials`,
+   * loaded by `loadCredentials`). `run.json` is uploaded as a workflow
+   * artifact and kept for 30 days; the password is not.
+   */
+  vendor?: { email: string; organizationId?: string };
+  /**
+   * What GET /health and /health/ready answered at preflight — the closest
+   * thing to a deployed control-plane commit/version identifier those
+   * routes expose today (apps/api/src/server.ts). Useful mainly for a
+   * production-canary run (`config.production`), where it is the only
+   * record of which control-plane deploy actually served the run.
+   */
+  controlPlaneHealth?: {
+    health: { status: number; body: unknown };
+    ready: { status: number; body: unknown };
+  };
   applicationId?: string;
   customerId?: string;
   deploymentId?: string;
@@ -77,6 +93,24 @@ export class Evidence {
 
   save(): void {
     writeFileSync(join(this.dir, 'run.json'), `${JSON.stringify(this.run, null, 2)}\n`);
+  }
+
+  /**
+   * The vendor password, kept OUT of `run.json` in a separate file the
+   * workflow's artifact upload excludes (`.github/workflows/aws-canary.yml`).
+   * `email` is duplicated here (also in `run.json`'s `vendor.email`) so
+   * `loadCredentials` alone is enough to sign back in.
+   */
+  saveCredentials(email: string, password: string): void {
+    writeFileSync(join(this.dir, 'credentials.json'), `${JSON.stringify({ email, password }, null, 2)}\n`, {
+      mode: 0o600,
+    });
+  }
+
+  loadCredentials(): { email: string; password: string } | null {
+    const path = join(this.dir, 'credentials.json');
+    if (!existsSync(path)) return null;
+    return JSON.parse(readFileSync(path, 'utf8')) as { email: string; password: string };
   }
 
   /**
