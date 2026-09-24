@@ -247,11 +247,11 @@ export interface AwsClients {
   readonly sts: StsClient;
   readonly organizations: OrganizationsClient;
   /**
-   * Optional: added for the Redis MVP live-AWS cache-lifecycle proof
-   * (golden-path-live-aws.test.ts). Optional (not required on every AwsClients
-   * literal) so the pre-existing mock harnesses in integration-harness.test.ts
-   * and golden-path-e2e.test.ts — which predate ElastiCache support and don't
-   * exercise it — keep satisfying the interface unmodified.
+   * Optional: added for Redis MVP ElastiCache support. Optional (not
+   * required on every AwsClients literal) so the pre-existing mock harnesses
+   * in integration-harness.test.ts and golden-path-e2e.test.ts — which
+   * predate ElastiCache support and don't exercise it — keep satisfying the
+   * interface unmodified.
    */
   readonly elastiCache?: ElastiCacheClient;
 }

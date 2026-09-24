@@ -4,10 +4,10 @@
  * REAL Cloudflare AI Gateway, not just the recorded-fixture `AiGateway` used
  * everywhere else in this package's test suite.
  *
- * Gated exactly like `packages/cdk/test/golden-path-live-aws.test.ts`: CI
- * never sets `DEPLOYZ_LIVE_AI`, so `pnpm vitest run` skips this suite by
- * default (no network access, no spend). A developer opts in locally with
- * `DEPLOYZ_LIVE_AI=1` plus real gateway credentials.
+ * Gated exactly like `packages/cdk/test/fresh-e2e.live.test.ts`'s live
+ * suite: CI never sets `DEPLOYZ_LIVE_AI`, so `pnpm vitest run` skips this
+ * suite by default (no network access, no spend). A developer opts in
+ * locally with `DEPLOYZ_LIVE_AI=1` plus real gateway credentials.
  *
  * Because a live model's prose is not deterministic, assertions here are
  * limited to STRUCTURE and GATES the strict Zod schemas already enforce
