@@ -259,7 +259,7 @@ function classify(f, layers, graph) {
     }
     case 'packages/db': {
       if (isTest) return;
-      if (f.startsWith('packages/db/drizzle/') || f.startsWith('packages/db/src/schema/')) {
+      if (f.startsWith('packages/db/drizzle/') || f.startsWith('packages/db/src/schema/') || f === 'packages/db/src/enums.ts') {
         critical('database schema or migration changed');
       }
       return;
@@ -345,6 +345,15 @@ export function planFromFiles(files, options = {}) {
   const list = files.map(toForwardSlash);
   let docOnly = true;
   for (const f of list) {
+    // The benchmark corpora and finding registries under docs/testing are
+    // read by the harness tests, so they are test data, not documentation.
+    const harnessData = /^docs\/testing\/(repository-compatibility|repository-deployment)\//.exec(f);
+    if (harnessData) {
+      docOnly = false;
+      layers.unitProjects.add(harnessData[1]);
+      layers.typecheckScripts = true;
+      continue;
+    }
     if (DOC_FILE.some(p => p.test(f))) continue;
     docOnly = false;
     classify(f, layers, graph);
@@ -404,6 +413,7 @@ function finalize(layers, fileCount) {
 // the browser (the other scenario specs exercise the API only).
 const FIXTURE_SUITE_ARGS = ['--grep-invert', '@scenario|visual'];
 export const BROWSER_SCENARIO_SPECS = ['e2e/scenario-ui.spec.ts', 'e2e/scenario-release-unavailable.spec.ts'];
+const DEFAULT_HTTPS_SPEC = 'e2e/scenario-default-https.spec.ts';
 
 export function commandsFor(plan) {
   const cmds = [];
@@ -423,12 +433,17 @@ export function commandsFor(plan) {
     cmds.push({ label: 'CDK bundling smoke', cmd: 'pnpm', args: ['synth:smoke'] });
     cmds.push({ label: 'fixture-mode Playwright suite', cmd: 'node', args: ['scripts/e2e.mjs', ...FIXTURE_SUITE_ARGS] });
     cmds.push({ label: 'full simulated scenario suite', cmd: 'node', args: ['scripts/e2e.mjs', '--scenarios'] });
-    cmds.push({ label: 'default-HTTPS scenarios', cmd: 'node', args: ['scripts/e2e.mjs', 'e2e/scenario-default-https.spec.ts'], env: { DEPLOYZ_DEFAULT_HTTPS_FIXTURE: 'true' } });
+    cmds.push({ label: 'default-HTTPS scenarios', cmd: 'node', args: ['scripts/e2e.mjs', DEFAULT_HTTPS_SPEC], env: { DEPLOYZ_DEFAULT_HTTPS_FIXTURE: 'true' } });
   } else if (plan.playwright === 'fixture') {
     cmds.push({ label: 'fixture-mode Playwright suite', cmd: 'node', args: ['scripts/e2e.mjs', ...FIXTURE_SUITE_ARGS] });
     cmds.push({ label: 'browser scenario specs', cmd: 'node', args: ['scripts/e2e.mjs', ...BROWSER_SCENARIO_SPECS, ...plan.playwrightFiles.filter(f => !BROWSER_SCENARIO_SPECS.includes(f))] });
   } else if (plan.playwright === 'files') {
-    cmds.push({ label: 'Playwright specs', cmd: 'node', args: ['scripts/e2e.mjs', ...plan.playwrightFiles] });
+    // The default-HTTPS spec skips every test unless its fixture flag is on,
+    // and the other specs are written against HTTP-only installs, so it
+    // always runs on its own server.
+    const rest = plan.playwrightFiles.filter(f => f !== DEFAULT_HTTPS_SPEC);
+    if (rest.length > 0) cmds.push({ label: 'Playwright specs', cmd: 'node', args: ['scripts/e2e.mjs', ...rest] });
+    if (plan.playwrightFiles.includes(DEFAULT_HTTPS_SPEC)) cmds.push({ label: 'default-HTTPS scenarios', cmd: 'node', args: ['scripts/e2e.mjs', DEFAULT_HTTPS_SPEC], env: { DEPLOYZ_DEFAULT_HTTPS_FIXTURE: 'true' } });
   }
   return cmds;
 }

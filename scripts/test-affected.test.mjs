@@ -172,6 +172,19 @@ test('12. an edited spec runs on its own; an edited scenario spec on top of the 
 
   assert.equal(plan(['e2e/visual.spec.ts']).playwright, 'none');
   assert.equal(plan(['e2e/simulation/simulated-account.ts']).risk, 'critical');
+
+  // The default-HTTPS spec needs its fixture flag, on its own server.
+  const https = commandsFor(plan(['e2e/scenario-default-https.spec.ts', 'e2e/home.spec.ts']));
+  assert.ok(https.some(c => c.env?.DEPLOYZ_DEFAULT_HTTPS_FIXTURE === 'true' && c.args.includes('e2e/scenario-default-https.spec.ts')));
+  assert.ok(https.some(c => c.args.includes('e2e/home.spec.ts') && !c.args.includes('e2e/scenario-default-https.spec.ts')));
+});
+
+test('12b. benchmark corpora and registries are harness test data, not docs; DB enums are schema', () => {
+  const compat = plan(['docs/testing/repository-compatibility/benchmark.yaml']);
+  assert.equal(compat.risk, 'targeted');
+  assert.deepEqual(compat.unitProjects, ['repository-compatibility']);
+  assert.deepEqual(plan(['docs/testing/repository-deployment/findings.md']).unitProjects, ['repository-deployment']);
+  assert.equal(plan(['packages/db/src/enums.ts']).risk, 'critical');
 });
 
 test('13. harness changes run their own project and the harness typecheck', () => {
