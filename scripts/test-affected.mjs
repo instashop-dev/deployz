@@ -375,11 +375,12 @@ export function commandsFor(plan) {
   if (plan.risk === 'critical') {
     cmds.push({ label: 'full unit suite', cmd: 'pnpm', args: ['vitest', 'run'] });
   } else {
-    for (const pkg of plan.unitPackages) {
-      cmds.push({ label: `unit ${pkg}`, cmd: 'pnpm', args: ['--filter', pkg, 'exec', 'vitest', 'run'] });
-    }
-    for (const dir of plan.scriptUnits) {
-      cmds.push({ label: `unit ${dir}`, cmd: 'pnpm', args: ['exec', 'vitest', 'run'], cwd: `scripts/${dir}` });
+    // One invocation from the workspace root runs the selected projects in
+    // parallel (the scripts/* harnesses are root projects too); CI mirrors
+    // this. A per-project loop would serialise them.
+    const projects = [...plan.unitPackages, ...plan.scriptUnits];
+    if (projects.length > 0) {
+      cmds.push({ label: `unit ${projects.join(' ')}`, cmd: 'pnpm', args: ['vitest', 'run', ...projects.flatMap(p => ['--project', p])] });
     }
   }
   if (plan.typecheckScripts) {

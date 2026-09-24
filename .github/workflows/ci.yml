@@ -95,15 +95,18 @@ jobs:
       - name: Run tests (affected packages)
         if: github.event_name == 'pull_request' && needs.plan.outputs.risk != 'critical' && needs.plan.outputs.risk != 'minimal'
         run: |
-          # Run from the workspace root: a package without its own vitest
-          # config would otherwise resolve the root config's relative
-          # `projects` paths against the package directory and fail.
+          # One invocation from the workspace root so the selected projects
+          # run in parallel (a per-project loop serialised them: 369 s for a
+          # backend PR that finishes in about half that time in parallel).
+          # The scripts/* harnesses are root projects too (vitest.config.ts).
+          args=""
           for pkg in ${{ needs.plan.outputs.unit_packages }}; do
-            pnpm vitest run --project "$pkg"
+            args="$args --project $pkg"
           done
           for dir in ${{ needs.plan.outputs.script_units }}; do
-            (cd "scripts/$dir" && pnpm exec vitest run)
+            args="$args --project $dir"
           done
+          if [ -n "$args" ]; then pnpm vitest run $args; fi
 
       - name: Lint (workspace)
         if: github.event_name == 'push' || needs.plan.outputs.risk == 'critical'
@@ -129,7 +132,16 @@ jobs:
   e2e-simulated:
     name: Simulated E2E
     needs: plan
-    if: always() && needs.plan.result != 'failure' && needs.plan.result != 'cancelled' && (github.event_name == 'push' || needs.plan.outputs.risk != 'minimal')
+    # Skipped when the plan selected nothing for this job: a targeted PR with
+    # no mapped spec or scenario used to pay the job's install, build and
+    # browser setup (about 1m45s) to run nothing.
+    if: >-
+      always() && needs.plan.result != 'failure' && needs.plan.result != 'cancelled'
+      && (github.event_name == 'push'
+          || needs.plan.outputs.risk == 'critical'
+          || needs.plan.outputs.risk == 'targeted-web'
+          || needs.plan.outputs.playwright_files != ''
+          || (needs.plan.outputs.scenario_ids != '' && needs.plan.outputs.scenario_ids != 'ALL'))
     runs-on: ubuntu-latest
     env:
       AWS_ACCESS_KEY_ID: simulated-test-access-key
@@ -161,6 +173,15 @@ jobs:
 
       - name: Build workspace packages
         run: pnpm build
+
+      # The Chromium download is the same for every run with the same
+      # lockfile; the OS packages (`--with-deps`) are still installed each
+      # run, which is a few seconds.
+      - name: Cache Playwright browser
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
 
       - name: Install Playwright browser
         run: pnpm exec playwright install --with-deps chromium
