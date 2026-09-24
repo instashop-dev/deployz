@@ -265,7 +265,11 @@ function classify(f, layers, graph) {
       return;
     }
     case 'packages/cdk': {
-      if (isTest || f.startsWith('packages/cdk/test/') || f.startsWith('packages/cdk/scripts/')) return;
+      if (isTest || f.startsWith('packages/cdk/test/')) return;
+      // The synth and publish scripts write the committed templates and the
+      // regional relay assets; only the read-only audit and the bundling
+      // smoke are exempt.
+      if (/^packages\/cdk\/scripts\/(audit-deployment|bundle-smoke)\.mjs$/.test(f)) return;
       if (CDK_CUSTOMER_SIDE.some(p => p.test(f))) {
         layers.awsEscalation.add(CANARY_STATELESS);
         if (/^packages\/cdk\/(src\/bootstrap\/|bin\/bootstrap|artifacts\/bootstrap)/.test(f)) layers.awsEscalation.add(FRESH);
@@ -396,9 +400,10 @@ function finalize(layers, fileCount) {
 
 // ── Commands (mirrored by CI; --run executes only these) ─────────────────────
 
-// Every non-visual, non-scenario spec plus the browser-level scenario spec.
+// Every non-visual, non-scenario spec, plus the two scenario specs that drive
+// the browser (the other scenario specs exercise the API only).
 const FIXTURE_SUITE_ARGS = ['--grep-invert', '@scenario|visual'];
-const SCENARIO_UI_SPEC = 'e2e/scenario-ui.spec.ts';
+export const BROWSER_SCENARIO_SPECS = ['e2e/scenario-ui.spec.ts', 'e2e/scenario-release-unavailable.spec.ts'];
 
 export function commandsFor(plan) {
   const cmds = [];
@@ -421,7 +426,7 @@ export function commandsFor(plan) {
     cmds.push({ label: 'default-HTTPS scenarios', cmd: 'node', args: ['scripts/e2e.mjs', 'e2e/scenario-default-https.spec.ts'], env: { DEPLOYZ_DEFAULT_HTTPS_FIXTURE: 'true' } });
   } else if (plan.playwright === 'fixture') {
     cmds.push({ label: 'fixture-mode Playwright suite', cmd: 'node', args: ['scripts/e2e.mjs', ...FIXTURE_SUITE_ARGS] });
-    cmds.push({ label: 'scenario UI spec', cmd: 'node', args: ['scripts/e2e.mjs', SCENARIO_UI_SPEC, ...plan.playwrightFiles.filter(f => f !== SCENARIO_UI_SPEC)] });
+    cmds.push({ label: 'browser scenario specs', cmd: 'node', args: ['scripts/e2e.mjs', ...BROWSER_SCENARIO_SPECS, ...plan.playwrightFiles.filter(f => !BROWSER_SCENARIO_SPECS.includes(f))] });
   } else if (plan.playwright === 'files') {
     cmds.push({ label: 'Playwright specs', cmd: 'node', args: ['scripts/e2e.mjs', ...plan.playwrightFiles] });
   }
