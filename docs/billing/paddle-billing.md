@@ -1,10 +1,9 @@
 # Paddle billing — how it works
 
 The reference for Deployz billing after the Stripe → Paddle migration
-(Phases 0–17, September 2026). The phase-by-phase record and every ruling
-live in `MIGRATION_PROGRESS.md`; the decision tables in `billing-matrix.md`;
-the catalog in `paddle-catalog.md`. This document is the shape of the system
-as shipped.
+(September 2026). The decision tables are in `billing-matrix.md` and the
+catalog in `paddle-catalog.md`. This document is the shape of the system as
+shipped.
 
 ## The commercial model
 
@@ -138,8 +137,7 @@ reconciles any ACTIVE/PAST_DUE subscription not checked for an hour.
 
 An organization-scoped, admin-controlled allowance: the number of live
 production deployments the organization may run before the per-deployment
-charge applies. Implementation record:
-`included-deployments-implementation.md`.
+charge applies.
 
 ### Business rule
 
@@ -236,6 +234,23 @@ configuration, never source — `paddle-catalog.md`.
 
 The worker Lambda receives the same six values, so the safety job needs no
 separate configuration.
+
+Two operational switches live beside them as repository *variables*:
+
+- `PADDLE_ENVIRONMENT` defaults to `sandbox`; production activation is an
+  operator step (create the production catalog per `paddle-catalog.md`, set
+  the five secrets, switch the variable). The repository does not record
+  whether production billing is switched on; check the variable.
+- `BILLING_ENFORCEMENT=off` pauses the PRODUCTION-deployment subscription
+  gate platform-wide, for an incident where Paddle state is wrong or
+  unreachable and customers must not be blocked. Unset (the normal state)
+  enforces. Nothing else changes: webhooks, checkout, reconciliation and
+  the allowance counters keep running (`apps/api/src/env.ts`,
+  `billing-entitlements.ts`).
+
+With no Paddle key, checkout answers `503 BILLING_DISABLED` and creating a
+PRODUCTION deployment is refused with `402` unless enforcement is paused.
+TEST deployments are never gated.
 
 ## What was deliberately not built
 

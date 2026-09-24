@@ -6,8 +6,11 @@ Follow these steps in order. Do not skip a layer unless you are confident
 the current layer cannot establish confidence.
 
 1. **Targeted unit/integration tests** — Run only the relevant tests for the
-   package you changed, e.g.
-   `pnpm --filter @deployz/<package> exec vitest run <test-file>`.
+   package you changed, from the workspace root:
+   `pnpm vitest run --project <package-name> <test-file>` (for example
+   `pnpm vitest run --project @deployz/api src/retry-eligibility.test.ts`). Run from
+   the root: a package without its own Vitest config resolves the root
+   `projects` paths wrongly when invoked from inside the package.
    Do not run the full test suite during each fix iteration.
 
 2. **Targeted simulated E2E** — Run only the affected product flows via the
@@ -50,6 +53,19 @@ Escalate to fresh AWS only when:
 - validating a release;
 - validating cleanup/destruction;
 - canary cannot provide adequate confidence.
+
+Two rules learned from production outages, both invisible to unit tests,
+CI and the simulator:
+
+- A change to the bootstrap template (`packages/cdk/src/bootstrap`) or the
+  relay's enrollment path gets a real-AWS smoke (`fresh`, or the version
+  canary `preflight`/`core`) before the template is republished. A wrong
+  `GetAtt` and a mis-shaped relay credential each once broke every customer
+  install.
+- `pnpm test:affected` suggests `e2e:canary` / `e2e:fresh` for relay
+  AWS-interface and bootstrap changes but never suggests the version
+  canary; decide that escalation yourself for release, rollback, deploy,
+  destroy or purge changes.
 
 Real AWS execution requires:
 

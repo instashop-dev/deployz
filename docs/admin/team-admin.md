@@ -56,8 +56,9 @@ API (`apps/api/src/admin/routes.ts`, registered from `buildServer`):
 - `GET /api/admin/audit-log`
 - `POST /api/admin/vendors/:id/support-session`,
   `DELETE /api/admin/support-session`
-- Recovery actions (see below) under
-  `POST /api/admin/deployments/:id/…` and `POST /api/admin/jobs/:id/…`.
+- Recovery and billing actions (see below) under
+  `/api/admin/deployments/:id/…` and `/api/admin/vendors/:id/…`
+  (`apps/api/src/admin/routes.ts` is the authoritative list).
 
 ## Authorization model
 

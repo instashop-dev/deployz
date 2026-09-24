@@ -7,8 +7,8 @@ import { applyBillingTransition, type BillingSnapshot } from './billing-domain.j
 import { recordEvent, type EventWriter } from './events.js';
 
 // Idempotent DB helpers for the two billing transitions the deployment
-// lifecycle hooks into (docs/billing/MIGRATION_PROGRESS.md rulings R0-1/
-// R0-2). Each computes the pure domain patch, applies it with a WHERE guard
+// lifecycle hooks into (docs/billing/paddle-billing.md, "The lifecycle, end
+// to end"). Each computes the pure domain patch, applies it with a WHERE guard
 // on the expected previous billing_state (so two concurrent writers can
 // never both apply it), and records the matching event. A no-op transition
 // (TEST deployment, already applied, terminal STOPPED, or a guard miss)

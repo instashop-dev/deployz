@@ -212,11 +212,10 @@ harness.
 and analysis version, the tree statistics, the expected and normalized actual
 facts, every comparison, and every mismatch with its classification.
 `runs/summary.json` and `runs/summary.md` aggregate a full run (a partial
-`--repo`/`--set` run never overwrites them).
-[`final-report.md`](final-report.md) is the Stage A decision report: accuracy
-by set and cohort, the analyser mistakes ranked by repositories affected,
-and the capability gaps ranked by realistic customer impact with a
-FIX_BEFORE_MVP / CONSIDER_FOR_MVP / DEFER / KEEP_UNSUPPORTED decision each.
+`--repo`/`--set` run never overwrites them). The committed summary records
+the analysis version it was produced with; the analyser has moved on since
+(`ANALYSIS_VERSION` in `apps/api/src/analysis.ts`), so rerun the benchmark
+before quoting accuracy numbers.
 
 - **Verdict accuracy** — the share of analysed repositories whose
   `compatibility` matched.
@@ -238,10 +237,6 @@ the repositories this corpus expects to be deployable — is the separate
 deployment audit in
 [`../repository-deployment/README.md`](../repository-deployment/README.md);
 it reads this benchmark by id and never copies it.
-
-[`implementation-notes.md`](implementation-notes.md) is the current
-hardening plan: what the analyser already does, the remaining gaps, and
-where each planned change lands (anti-duplication map for new work).
 
 ## Rules for fixing bugs vs recording capability gaps
 

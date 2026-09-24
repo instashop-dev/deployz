@@ -2,9 +2,10 @@
 
 How Deployz keeps deployments from becoming duplicated, stuck, misreported,
 or unrecoverable. **Read this before changing deployment/job/relay logic.**
-For the concrete file/line map of the machinery, see
-`docs/testing/discovery/deployment-lifecycle.md`; for the test harness, see
-`docs/testing/e2e-testing.md` and `docs/testing/e2e-scenarios.md`.
+For the test harness, see `docs/testing/e2e-testing.md` and
+`docs/testing/e2e-scenarios.md`; for diagnosing a live deployment, see
+`docs/operations/troubleshooting.md`; for the surrounding architecture, see
+`docs/architecture.md`.
 
 The guiding principle: the control plane does not try to prevent every AWS
 or application failure. It always knows what happened, preserves the safest
@@ -54,9 +55,9 @@ watchdog, and the stack-event progress route's settlement backstop):
   with a running release returns the deployment to `UPDATE_AVAILABLE` (a
   newer READY release exists) or `HEALTHY` — the ECS circuit breaker
   restored the previous release, which never stopped serving. A running
-  install counts here even when `currentReleaseId` is still null: a first
-  install runs the template-pinned image with no release row deployed yet,
-  so a SUCCEEDED install is itself a running release. The FAILED job
+  install counts here even when `currentReleaseId` is still null: the
+  pointer advances only once the heartbeat verifies the auto-deployed
+  release, so a SUCCEEDED install is itself a running workload. The FAILED job
   carries the failure; the status derivation surfaces it
   (`deploymentStatus.failure`) without regressing the live stage, and the
   vendor UI adds "The previous version is still running."
@@ -115,9 +116,12 @@ pipeline's own image-pull failure and the circuit breaker stay honest
   either inserts. Domain jobs are outside the guard (they never race an
   executor over the stack/service), and so is CONFIG_UPDATE: secret
   delivery must be able to queue a config job during an active
-  install/deploy (the secret values live in the pending-secrets vault and
-  are delivered via the authenticated relay config endpoint, not in the job
-  payload), and the relay executes its commands sequentially anyway.
+  install/deploy (for a deployment whose relay is not yet connected the
+  secret values live in the pending-secrets vault and are delivered through
+  the authenticated relay config endpoint; for a connected relay they ride
+  the job payload until the relay claims it, after which the stored payload
+  is redacted — see `docs/pending-secret-delivery.md`), and the relay
+  executes its commands sequentially anyway.
 - `GET /api/relay/commands` claims jobs atomically (single
   UPDATE … RETURNING), so overlapping polls cannot hand the same command
   out twice; `POST /api/relay/commands/:id/result` ignores results for
@@ -148,7 +152,10 @@ active mutating job:
   `reconcileCount`, `operation.requeued` event); the describe-first
   executors then resolve the true state — a stack that completed is adopted
   and verified into success, a rolled-back one fails honestly. Only
-  exhausted re-offers fail (`UNKNOWN`).
+  exhausted re-offers fail (`UNKNOWN`). One edge case: a REQUESTED job that
+  a CONNECTED relay never claims within its staleness window also fails
+  `UNKNOWN` without a re-offer (rare, because heartbeats refresh REQUESTED
+  jobs too).
 - **DESTROY never fails from the watchdog.** A dead-relay teardown is
   settled by the vendor's force-complete escape hatch
   (`cleanupState: SKIPPED_RELAY_OFFLINE` — explicitly *not* claiming AWS
@@ -156,9 +163,37 @@ active mutating job:
   leftovers). PURGE itself has a staleness timeout so it cannot block
   retries forever.
 
+| Job type | Staleness (`JOB_TIMEOUTS_MS`) | Maximum runtime (`JOB_MAX_RUNTIME_MS`) |
+| --- | --- | --- |
+| INSTALL | 60 min | 90 min |
+| DEPLOY_RELEASE, ROLLBACK, RESTART, CONFIG_UPDATE | 20 min | 30 min |
+| DESTROY | none (never failed by the watchdog) | 90 min (re-offered) |
+| PURGE | 60 min | 90 min |
+| CONFIGURE_DOMAIN, REMOVE_DOMAIN | 60 min | 90 min |
+
+Re-offers are bounded at three per job. The same schedule also runs the
+relay-liveness sweep: a relay with no heartbeat for 15 minutes
+(`RELAY_STALE_AFTER_MS`) is marked `DISCONNECTED`, which the UI shows and
+which retry eligibility respects.
+
 The uncertain-result rule: nothing ever assumes a timed-out external call
 failed. The relay's resumers re-describe AWS before acting; the control
 plane re-offers rather than failing; a duplicate result is a no-op.
+
+### Progress reporting
+
+During INSTALL and DESTROY the relay polls `DescribeStackEvents` inside its
+existing wait loop (no second polling loop, worker, queue or WebSocket) and
+posts new events to `POST /api/relay/commands/:id/progress`, which stores
+them in `deployment_stack_events` (deduplicated on the provider event id),
+refreshes `lastProgressAt` so the watchdog stays fed during long installs,
+and derives the customer-facing provisioning phases. CloudFormation's own
+stack status stays authoritative: events are progress only, a completed
+stack never marks a deployment HEALTHY by itself, and `DELETE_*` /
+`ROLLBACK_*` resource events never flip a phase to FAILED — only a genuine
+`*_FAILED` with a non-boilerplate reason does. Lambda, IAM, log and secret
+resources map to no customer-visible phase. Resource properties are never
+forwarded.
 
 ## Failure classification and retry policy
 
@@ -188,10 +223,10 @@ route (guarded by "never successfully installed" — a deployment that was
 ever healthy keeps its data-protection guarantees) runs the relay's
 recovery pass: delete the terminal-failed stack; on DELETE_FAILED, clear
 the known retained blockers (RDS deletion protection off + delete,
-ElastiCache delete — identified from the failed stack's own resource list,
-never by name); recreate; re-verify. Retained S3 buckets are deliberately
-left (inert, empty, blocked by IAM tag-condition semantics). See
-`docs/superpowers/specs/2026-08-27-failed-install-recovery.md`.
+ElastiCache replication-group delete — identified from the failed stack's
+own resource list, never by name); recreate; re-verify. Retained S3 buckets
+are deliberately left (inert, empty, blocked by IAM tag-condition
+semantics). The decision record is `docs/decisions/failed-install-recovery.md`.
 
 ## Health is verified, never assumed
 

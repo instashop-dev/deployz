@@ -42,12 +42,19 @@ whose Region the vendor fixed before this model existed.
 2. `POST /api/customers/:customerId/invitations` creates the invitation —
    **no deployment row**.
 3. The response reveals the link URL and the one-time token exactly once.
-4. Customer opens the link; the web app presents the secret to the API in the
-   `x-deployz-token` header.
-5. Customer explicitly selects a Region (the recommendation is a badge, not
-   a default), reviews the region-specific plan and cost
+4. Customer opens the link. The API requires the one-time token in the
+   `x-deployz-token` header for a targeted invitation (a missing or wrong
+   token is the same 404 as an unknown id).
+   **Known gap:** the customer install page currently resolves the link
+   without any token and has no way to accept one, so a targeted invitation
+   cannot be completed in the browser today; only the reusable public link
+   and the vendor-created deployment work end to end. The API contract is
+   as designed; the web transport is the missing piece.
+5. Customer selects a Region, reviews the region-specific plan and cost
    (`GET /api/public-install/:id/plan?region=…`), supplies configuration,
-   and confirms.
+   and confirms. The intended rule is an explicit choice with the
+   recommendation shown as a badge; the current page pre-selects the
+   recommended Region, or the first offered Region when there is none.
 6. The server atomically re-validates the invitation (active, not expired,
    not revoked, not used), the subscription gate, preflight, Region and
    profile, then creates **exactly one** deployment (`source` =
@@ -58,6 +65,10 @@ whose Region the vendor fixed before this model existed.
    PUBLIC_INSTALL_LINK_USED`.
 
 Invitations are not deployments and never touch billing counts.
+
+The dashboard's primary "Create deployment" path still creates a deployment
+directly, with a vendor-chosen Region and a per-deployment install link; it
+is not an invitation. See `docs/product/user-flows.md` for all entry points.
 
 ## Token security
 

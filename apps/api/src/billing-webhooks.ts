@@ -10,8 +10,8 @@ import { ApiError } from './errors.js';
 import type { PaddleBilling } from './paddle.js';
 
 // Paddle migration Phase 6 — webhook verification, dedupe, ordering and
-// subscription-state projection. See docs/billing/paddle-migration-audit.md
-// §2.2 for the raw-body carve-out this reuses (server.ts addContentTypeParser).
+// subscription-state projection (docs/billing/paddle-billing.md). Reuses the
+// raw-body carve-out in server.ts (addContentTypeParser) for signature checks.
 
 export interface WebhookDeps {
   db: RuntimeDb;

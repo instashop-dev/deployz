@@ -8,7 +8,7 @@
  * rollback with its step pinned, a Redis failure whose `redisRequired` comes
  * from the real analyser (not a hand-set flag), a bootstrap-stack failure
  * before the relay ever registers, and a relay that goes silent mid-install.
- * See docs/testing/discovery/phase1-design-decisions.md and
+ * See docs/testing/e2e-testing.md and
  * e2e/scenario-install.spec.ts for the conventions this file follows
  * (@scenario:<id> tags, one test.describe per scenario, real HTTP API only).
  */
@@ -97,7 +97,7 @@ test.describe('slow-provision', () => {
     expect(midFlight.deploymentStatus.typicalDurationSeconds).toEqual({ min: 180, max: 720 });
     // Honest, observed production behaviour (not forced): SimulatedCustomerAccount
     // anchors its virtual clock so the LAST timeline event lands at (real)
-    // install start (docs/testing/discovery/phase1-design-decisions.md D4),
+    // install start (docs/testing/e2e-testing.md D4),
     // so a still-active step's reported elapsed time is approximately
     // totalVirtualDuration-minus-the-step's-own-virtual-start — ~885s here
     // for DATABASE_STORAGE, comfortably past its 720s typical max. No
@@ -281,7 +281,7 @@ test.describe('bootstrap-failure', () => {
     // behaviour (not forced): with no INSTALL job and no relay enrollment at
     // all, deriveDeploymentStatus's precedence ladder
     // (apps/api/src/deployment-status.ts) has nothing to promote it past
-    // WAITING_FOR_AWS — see docs/testing/discovery/deployment-lifecycle.md
+    // WAITING_FOR_AWS — see docs/deployment-resilience.md
     // §2. The 15-minute relayStuck escalation (server.ts's `relayStuck`
     // check against RELAY_STALE_AFTER_MS, ~line 1411) is out of reach for a
     // fast test and is deliberately not exercised here — no production time
@@ -324,7 +324,7 @@ test.describe('relay-disconnect', () => {
     const { deploymentId, api } = deployzInstall;
 
     // The relay registers and starts the INSTALL job (deployment.state ->
-    // INSTALLING per docs/testing/discovery/deployment-lifecycle.md §2),
+    // INSTALLING per docs/deployment-resilience.md §2),
     // reports its first (and, per `stopAfterFirstProgress`, only) batch of
     // progress, then goes silent — see
     // ./simulation/relay-harness.ts's `stopAfterFirstProgress` and

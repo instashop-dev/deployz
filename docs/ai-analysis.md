@@ -2,8 +2,8 @@
 
 The reference for the P0/P1 AI capabilities of the Deployz MVP: how a
 repository becomes a validated application model, how that model gates
-deployment, and how a failed deployment is explained. The per-phase record
-with tests and PRs is `docs/ai-mvp-implementation-status.md`.
+deployment, and how a failed deployment is explained. The design decisions
+behind the AI boundary are in `docs/decisions/README.md`.
 
 ## Operating principle
 
@@ -137,10 +137,12 @@ value:
 | `unknown` | declared only in a sample file | listed, never required |
 
 The first configuration pass runs after a successful INSTALL (one
-CONFIG_UPDATE job, key names only). The relay binds only secret keys whose
-value exists and reports `unboundSecretKeys`; the control plane never stores
-secret values, so a secret entered before the customer's relay is connected
-must be entered again from that deployment's configuration.
+CONFIG_UPDATE job). The relay binds only secret keys whose value exists and
+reports `unboundSecretKeys`. A secret entered before the customer's relay is
+connected is held KMS-encrypted in the pending-secret vault and delivered
+through the authenticated relay config endpoint on that first pass; a value
+that waits longer than 24 hours expires and must be entered again
+(`docs/pending-secret-delivery.md`).
 
 ## Preflight
 

@@ -47,10 +47,9 @@ const APP_CMD = 'tsx bin/bootstrap.ts';
  * above: that stack has no cache at all (it only creates the relay Lambda +
  * IAM + SecretsManager + EventBridge). Proving the cache lifecycle requires
  * a real `redisRequired: true` ApplicationStack, which today is reachable
- * ONLY via this direct test path — the relay's INSTALL/DEPLOY_RELEASE
- * executors that would provision one in a real customer account are
- * pre-existing no-op stubs (see docs/redis-mvp-implementation.md, "Known
- * limitations").
+ * via this direct test path; the relay's real INSTALL/DEPLOY_RELEASE
+ * executors provision one in a real customer account only through the
+ * version canary (docs/testing/version-rollback-canary.md).
  */
 const REDIS_STACK_NAME = 'DeployzApplicationRedisLive';
 
@@ -351,7 +350,8 @@ liveAws('§67 Phase 4 — live AWS bootstrap golden path', () => {
  * deletion below will succeed but ORPHAN the RDS instance; delete it
  * manually afterward to avoid ongoing cost. The cache and its subnet group
  * carry no removal-policy override (CloudFormation's implicit "Delete"),
- * matching the "no RETAIN" claim in docs/redis-mvp-implementation.md.
+ * matching the cache lifecycle in docs/architecture.md ("What the
+ * application stack contains").
  *
  * IMAGE REQUIREMENT: set `DEPLOYZ_LIVE_IMAGE_REPOSITORY` and
  * `DEPLOYZ_LIVE_IMAGE_DIGEST` to a real, already-published, pullable image

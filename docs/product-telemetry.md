@@ -40,7 +40,7 @@ Added for the MVP funnel:
 | `application.preflight_evaluated` | preflight gates a provisioning action only — deploy-link creation, install launch, deploy-link launch, relay register. Read endpoints never emit. | `applicationId`, `result: 'pass'\|'blocked'`, `blockingCount`, `warningCount` |
 | `application.configuration_saved` | successful config save | `applicationId`, `changedKeyCount` (count only — never keys or values) |
 | `customer.created` | customer insert (tx) | `customerId` (also the `customer_id` column) |
-| `deployment.created` | deployment insert, both origins | `source: 'manual' \| 'deploy_link'` (mirrors `deployments.source`) |
+| `deployment.created` | deployment insert, every origin | `source: 'manual' \| 'deploy_link' \| 'public_link'` (mirrors `deployments.source`) |
 | `relay.connected` | first successful relay enrollment (inside the register tx) | — (`deployment_id` column is the join key) |
 | `release.created` | release insert (tx) | `applicationId` |
 | `release.build_started` | build worker pins BUILDING (tx) | `applicationId` |

@@ -39,19 +39,24 @@ For changes under apps/web, follow docs/ui-system.md.
 - Keep raw AWS/CloudFormation states out of primary customer UI.
 - Do not change application logic unless the task explicitly requires it.
 
+## Documentation
+
+docs/README.md is the index; it names the authoritative document for each
+area. Update the authoritative document when behavior changes. Do not add
+implementation plans, phase ledgers, or run reports under docs/.
+
 ## Deployment Logic
 
 For the current live architecture and MVP support boundary, read
-docs/architecture.md.
+docs/architecture.md and docs/product/mvp-scope.md.
 
 Before changing deployment, job, relay, worker, reconciliation, or watchdog
 logic, read docs/deployment-resilience.md. Preserve its documented invariants,
 including failed-update semantics, operation exclusivity, reconcile-before-fail,
 and the relay trust boundary.
 
-For work that changes the MVP boundary or verifies its implementation status,
-read docs/mvp-implementation-status.md and
-docs/mvp-boundary-implementation-report.md.
+For work that changes the MVP boundary, update docs/product/mvp-scope.md and
+record the reasoning in docs/decisions/README.md.
 
 ## E2E testing
 

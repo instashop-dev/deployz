@@ -1,9 +1,17 @@
 # AWS canary E2E
 
 Read-only, real-AWS verification of a persistent installation. See
-[`README.md`](README.md) and
-[`discovery/phase1-design-decisions.md`](discovery/phase1-design-decisions.md)
-(D5) for how this fits the rest of the test hierarchy.
+[`README.md`](README.md) for how this fits the rest of the test hierarchy.
+
+> **Status (2026-09-24): no standing canary installation is provisioned.**
+> The historical installation id and the default stack name `deployz-app`
+> below predate the per-installation stack naming
+> (`deployz-app-<installation-id-prefix>`), so `pnpm e2e:canary` has no
+> valid target until an operator provisions one deliberately (see
+> *Persistent canary lifecycle*) and sets `DEPLOYZ_E2E_CANARY_INSTALLATION_ID`
+> and `DEPLOYZ_E2E_CANARY_STACK_NAME`. The version canary
+> ([`version-rollback-canary.md`](version-rollback-canary.md)) is the
+> real-AWS check in active use.
 
 ## Purpose
 

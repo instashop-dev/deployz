@@ -17,9 +17,10 @@ existing deployment architecture — it does not add a second pipeline.
 
 ## What they are
 
-- Vendor side: a "Deploy to AWS" card on the customer detail page
-  (`apps/web/src/components/deploy-link-card.tsx`). Pick application + region,
-  generate, copy the URL once, revoke or regenerate later.
+- Vendor side: no dashboard surface remains (the "Deploy to AWS" card was
+  removed with the invitation model), but the API still mints new links
+  (`POST /api/customers/:customerId/deploy-links`, plus revoke and
+  regenerate). Pick application + region, generate, copy the URL once.
 - Customer side: `/deploy/<publicId>?token=<secret>`
   (`apps/web/src/app/deploy/[publicId]/page.tsx`). Review (application, AWS
   region, resources), "Deploy to AWS" handoff, then the install flow's own
@@ -78,16 +79,15 @@ HEALTHY through the shared pipeline and appears in the fleet with
   409-after-start, double-submit race, fleet parity, destroy → link fails
   closed, token-vs-relay permission boundary, no raw token persisted or
   leaked.
-- `apps/web/test/deploy-links.test.tsx`, `deploy-page.test.tsx`,
-  `deploy-link-flow.test.ts` — vendor card states, page states, resolve-reason
-  mapping.
+- `apps/web/test/deploy-page.test.tsx`, `deploy-link-flow.test.ts` — page
+  states, resolve-reason mapping.
 - `e2e/scenario-deploy-link.spec.ts` — simulated E2E journey and failure
   journeys (no real AWS).
 
 ## Validated on real AWS (2026-09-05)
 
 The full path was driven against the deployed control plane and the test
-AWS account with Documenso (P0 hardening, `docs/ai-mvp-implementation-status.md`):
+AWS account with Documenso (P0 hardening, 2026-09-05):
 generate → raw token shown once → customer review (application, region,
 resources) → Deploy to AWS → bootstrap Quick Create → relay registration →
 HEALTHY → default HTTPS hostname ACTIVE → release update → Disconnect →

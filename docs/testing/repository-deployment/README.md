@@ -46,9 +46,9 @@ Classification, verdicts, and failure stages are identical across all three
 classes. The class affects scheduling and resource usage, never the
 pass/fail criteria.
 
-> Naming note. The analyser hardening batch recorded as "Stage B" in
-> `../repository-compatibility/implementation-notes.md` (analysis version
-> 11) is analysis-side work. This directory is the deployment audit.
+> Naming note. An earlier analyser hardening batch was also called
+> "Stage B"; that was analysis-side work. This directory is the deployment
+> audit.
 
 ## Source of truth
 
@@ -118,8 +118,8 @@ a deployment.
   branch is pinned to the Stage A commit — a fork keeps commit SHAs, the
   release is created with `gitSha` = that SHA, and the tarball CodeBuild
   receives is the Stage A snapshot. The installation's repository access
-  must include the forks (an operator setting; see
-  `implementation-notes.md`). The result records the form used.
+  must include the forks (an operator setting on the GitHub App
+  installation). The result records the form used.
 - **Per repository**: one application, one customer, one deployment
   (`isTestDeployment: true`), one bootstrap stack
   (`deployz-bootstrap-<app>-<8 chars>`), one application stack
@@ -295,8 +295,8 @@ exclusive.
 Other flags: `--force` (replace a protected deployment result, the old one
 goes to `runs/history/`), `--keep` (leave the environment for
 investigation; run `--cleanup` later), `--concurrency 1|2`, `--template
-pinned|generic|production` (see `implementation-notes.md`, "Stage B
-decision on the template"; `pinned` until DEPLOY-001 is fixed), `--online`
+pinned|generic|production` (`pinned` publishes the template variants from
+the commit under test; `production` uses whatever is published), `--online`
 (let the gate audit fetch snapshots that are not cached), `--cache`,
 `--evidence-dir`, `--runs-dir`, `--reuse-application`.
 
@@ -381,9 +381,6 @@ runtime-reuse run needs the `aws` CLI authenticated to the test account,
 
 | Document | Contents |
 | --- | --- |
-| [`implementation-notes.md`](implementation-notes.md) | Phase 0 architecture map, the production install path as it is, the reuse decisions, the phase plan and its status |
-| [`pilot-2-repo-report.md`](pilot-2-repo-report.md) | The 2-repository pilot (2026-09-09/10) validating the simulator-first / reusable-AWS testing strategy: repository selection, per-repository results and timings, the old-approach comparison, findings DEPLOY-017..024, the acceptance gate and the GO/NO-GO decision |
-| [`findings.md`](findings.md) | The systemic findings registry (`DEPLOY-nnn`) with evidence, affected repositories, root cause and resolution |
-| [`deploy-config.yaml`](deploy-config.yaml) | Per-repository vendor configuration and wave membership (Phase 1) |
-| `runs/` | Per-repository results, summaries, the frozen unseen baseline |
-| [`final-report.md`](final-report.md) | The Stage B decision report (Phase 8) |
+| [`findings.md`](findings.md) | The systemic findings registry (`DEPLOY-nnn`) with evidence, affected repositories, root cause and resolution — including the campaign histories (the 2-repository pilot, Wave 1, and the 2026-09-17/18 regional campaign) |
+| [`deploy-config.yaml`](deploy-config.yaml) | Per-repository vendor configuration and wave membership |
+| `runs/` | Per-repository results, summaries, the frozen unseen baseline (generated) |

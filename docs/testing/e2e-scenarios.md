@@ -1,9 +1,15 @@
 # Simulated E2E scenarios
 
-Twenty-four scenario definitions ship today, registered in
-`e2e/simulation/scenarios/index.ts` (the `duplicate-request`,
-`relay-death-destroy` and `deploy-link` ids in the table are spec compositions
-that reuse registered definitions). Every terminal-status column below is the
+Nineteen scenario definitions are registered in
+`e2e/simulation/scenarios/index.ts`; the table below has more rows because
+several ids (`duplicate-request`, `relay-death-destroy`, `deploy-link`,
+`release-unavailable`, `two-apps-1.0.0`, `retry-install-recovery`,
+`install-link-retry`, `force-complete-repeated-failures`, the
+`default-https-*` set) are spec-level `@scenario:` tags that compose
+registered definitions or use the default-HTTPS fixture harness
+(`DEPLOYZ_DEFAULT_HTTPS_FIXTURE=true`) rather than adding registry entries.
+`--scenario=<id>` matches the tag as a word prefix, so `deploy-link` also
+selects `deploy-link-invalid`. Every terminal-status column below is the
 **honest, observed** production behaviour (verified against the actual
 spec assertions and, where noted, against production logic itself) — not the
 behaviour a naive reading of the scenario name would suggest.

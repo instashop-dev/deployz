@@ -10,7 +10,7 @@ import { API_URL, expect, test, waitForInstallAutoDeploy } from './simulation/fi
  * install page (`/install/:installLinkId`) and the vendor deployment detail
  * page (`/dashboard/deployments/:id`). No route mocking, no AWS-specific
  * anything in the browser layer — see
- * docs/testing/discovery/phase1-design-decisions.md.
+ * docs/testing/e2e-testing.md.
  *
  * Uses the page-based `deployzBrowserInstall` fixture (./simulation/fixtures.ts)
  * rather than the request-based `deployzInstall` the other scenario specs use,

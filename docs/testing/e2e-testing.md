@@ -89,8 +89,8 @@ UIs — is production code, unchanged between simulated and real-AWS runs.
 
 ## The simulation seam
 
-Full rationale: [`discovery/phase1-design-decisions.md`](discovery/phase1-design-decisions.md)
-(D1/D2). Summary:
+Design decisions frozen on 2026-09-01, recorded here so they are not
+re-litigated:
 
 - **D1 — the seam is the relay's existing client interfaces.** The relay
   (`packages/relay`) is the only code that ever touches a customer's AWS
@@ -110,6 +110,24 @@ Full rationale: [`discovery/phase1-design-decisions.md`](discovery/phase1-design
   only inside the Playwright test process, via a fixture. This makes
   "production cannot expose scenario controls" true by construction rather
   than by policy.
+- **D3 — mode selection and the real-AWS guard.** `DEPLOYZ_E2E_MODE` is set
+  by the cross-platform runner `scripts/e2e.mjs`; every real-AWS mode
+  refuses to run without `DEPLOYZ_E2E_ALLOW_REAL_AWS=1`, before anything is
+  spawned; simulated mode launches the API with a scrubbed environment so
+  locally present AWS credentials cannot leak real behaviour into a default
+  run.
+- **D4 — scenario format.** Typed fixtures describe a CloudFormation event
+  timeline with a real reveal offset (milliseconds, for test speed) and a
+  virtual timestamp offset (minutes, for what `Timestamp` fields report), so
+  ETA and step-timing logic sees realistic durations while tests stay fast;
+  ECS/ELB/target-health answers are scenario-controlled too.
+- **D5 — real-AWS modes wrap existing machinery.** Canary and fresh reuse
+  `packages/cdk/test/*.live.test.ts` and the relay's own verification ladder
+  behind the opt-in guard, unique test identifiers and tag-based isolation,
+  rather than a parallel harness.
+- **D6 — non-goals.** No record/replay, no LocalStack, no full AWS API
+  emulation: the simulated account implements only the calls the relay
+  makes, returning AWS-shaped structures.
 
 ## Scenario selection
 
@@ -187,6 +205,9 @@ real-AWS opt-in to *see* the refusal).
 | `BUILD_FIXTURE_MODE` | `true` | A new release is marked built (READY, fixture digest) immediately instead of enqueuing `BUILD_RELEASE` (which no-ops locally anyway). Always set by `playwright.config.ts`. |
 | `DOMAIN_FIXTURE_MODE` | `true` | DNS/HTTPS domain checks pass only for `*.deployz-fixture.test` hostnames, with no throttle. Always set by `playwright.config.ts`. |
 | `TEAM_ADMIN_EMAILS` | `*@admin-e2e.deployz.test` | Team Admin env-grant allowlist (`docs/admin/team-admin.md`). Always set by `playwright.config.ts`'s API `webServer` env, so `e2e/admin.spec.ts` can mint an admin account by simply signing up with a matching email — no DB seeding needed. |
+| `BILLING_FIXTURE_MODE` | `true` | Canned billing states for the billing UI scenarios. Always set by `playwright.config.ts`. |
+| `DEPLOYZ_DEFAULT_HTTPS_FIXTURE` | `true` | Turns on the fixture default-HTTPS machine (fake Cloudflare and probe). Off by default; required for `e2e/scenario-default-https.spec.ts`, which skips without it. |
+| `WEB_PORT`, `API_PORT` | port numbers | Override the default 3000/3001 so a run does not reuse another worktree's dev servers. |
 
 ## Team Admin coverage
 
@@ -216,6 +237,16 @@ the same house conventions as every other browser spec (`uniqueEmail`,
   `next dev`/`tsx --watch` is active can corrupt `apps/web/.next`. Check that
   nothing is listening on 3000/3001 before building if you need a clean
   build.
+- **Rebuild after editing the relay.** The relay harness imports
+  `@deployz/relay` from its compiled `dist/`, so a relay source edit is not
+  exercised by `pnpm e2e` until `pnpm build` has run.
+- **Isolate ports when several worktrees are active.** With
+  `reuseExistingServer` on, a dev server left running by another worktree
+  on 3000/3001 would be reused and the specs would test the wrong code. Set
+  `WEB_PORT` and `API_PORT` to unused ports for the run.
+- **Default-HTTPS scenarios need the fixture machine on.**
+  `e2e/scenario-default-https.spec.ts` skips unless
+  `DEPLOYZ_DEFAULT_HTTPS_FIXTURE=true` is set for the API under test.
 
 ## CI behaviour
 
@@ -227,7 +258,11 @@ the same house conventions as every other browser spec (`uniqueEmail`,
   `Test and build` and `Simulated E2E` jobs run the selected subset, and a
   final `PR Gate` job aggregates them: it fails when planning fails or a
   required job fails, and accepts intentionally skipped jobs. Every push to
-  `main` runs the full regression. The simulated job sets fake sentinel
+  `main` and every critical pull request runs the core specs
+  (`e2e-modes`, `admin`, `deployment-detail`), the full scenario suite and
+  the default-HTTPS scenarios; the other Playwright specs run only when the
+  plan selects them or through the manual `e2e.yml` workflow. The simulated
+  job sets fake sentinel
   `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY`/`AWS_REGION` values — a live
   proof that simulated mode's env-scrubbing strips them from the API under
   test, without real credentials ever entering PR CI. The mode-guard, Team
@@ -241,8 +276,12 @@ the same house conventions as every other browser spec (`uniqueEmail`,
 - **`.github/workflows/aws-persistent-canary.yml`** (`workflow_dispatch` only):
   runs `pnpm e2e:canary` with the canary AWS credentials against the standing
   persistent installation. Not part of the PR check set.
-- **No CI job runs `fresh` or `canary:versions`.** Real-AWS E2E remains a
-  manual/local escalation in Phase 1 — see `aws-canary.md`/`aws-fresh.md`.
+- **`.github/workflows/aws-canary.yml`** (`workflow_dispatch` only): runs
+  the version canary (`pnpm e2e:canary:versions <scenario>`) against the
+  deployed control plane and the test account; 60–90 minutes, costs money,
+  one at a time. See `version-rollback-canary.md`.
+- **No CI job runs `fresh`.** It remains a manual/local escalation — see
+  `aws-fresh.md`. The deploy workflows do not wait for any of these.
 
 ## Debugging failures
 

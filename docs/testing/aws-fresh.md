@@ -1,9 +1,9 @@
 # AWS fresh E2E
 
 A hardened wrapper around the bootstrap stack's real create/destroy golden
-path. See [`README.md`](README.md) and
-[`discovery/phase1-design-decisions.md`](discovery/phase1-design-decisions.md)
-(D5) for how this fits the rest of the test hierarchy.
+path. See [`README.md`](README.md) for how this fits the rest of the test
+hierarchy and [`e2e-testing.md`](e2e-testing.md#the-simulation-seam) for the
+design decision (D5) behind it.
 
 ## Scope
 
@@ -131,6 +131,7 @@ specifically touches Redis/RDS provisioning.
 ## Full product-flow fresh install
 
 The complete customer-facing flow (install link → a real customer AWS
-account → HEALTHY → update → delete) is not automated by fresh mode. It
-remains the documented manual live-install workflow — see
-`discovery/live-aws-machinery.md` §5 for the current step-by-step.
+account → HEALTHY → update → delete) is not automated by fresh mode. The
+version canary (`version-rollback-canary.md`) automates it for fixture
+releases; the manual walk for an arbitrary application is
+`aws-full-product-canary.md`.

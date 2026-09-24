@@ -14,8 +14,7 @@ else use the simulated suite (`pnpm e2e`); see
 [`ai-agent-testing-guide.md`](ai-agent-testing-guide.md). The Deploy Link
 variant of the walk (vendor customer page → Generate deploy link →
 `/deploy/<publicId>?token=…` → Deploy to AWS → the same relay pipeline) was
-validated on 2026-09-05; see `docs/deploy-links.md` and the P0 hardening
-record in `docs/ai-mvp-implementation-status.md`.
+validated on 2026-09-05; see `docs/deploy-links.md`.
 
 ## 1. Fix the commit under test
 
@@ -48,10 +47,12 @@ BOOTSTRAP_PUBLISH_REGIONS=us-east-1 BOOTSTRAP_LEGACY_BUCKET_REGION=us-east-1 AWS
 The bootstrap publisher prints the `BOOTSTRAP_TEMPLATE_URL` it wrote; it must
 equal the deployed API Lambda's `BOOTSTRAP_TEMPLATE_URL` environment variable
 (`aws lambda get-function-configuration`). Without
-`BOOTSTRAP_PUBLISH_REGIONS`/`BOOTSTRAP_LEGACY_BUCKET_REGION` the publisher
-fans out to every `deployz-templates-<region>` bucket and fails closed if
-one is missing — none of those buckets exist yet, so the two variables are
-the production recipe until they do.
+`BOOTSTRAP_PUBLISH_REGIONS` the publisher fans out to every
+`deployz-templates-<region>` bucket and fails closed if one is missing; the
+regional buckets exist today, and the deploy workflow republishes to every
+Region in `DEPLOYABLE_AWS_REGIONS` when the `BOOTSTRAP_REPUBLISH` repository
+variable is `on` (`docs/operations/control-plane.md`). Restrict
+`BOOTSTRAP_PUBLISH_REGIONS` to the Region under test when you only need one.
 
 Republish after every merge that touches `packages/relay/src`,
 `packages/cdk/src/bootstrap`, or `packages/cdk/src/application` — including

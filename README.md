@@ -1,102 +1,66 @@
 # Deployz
 
-Monorepo for the Deployz MVP. pnpm workspaces + Turborepo, TypeScript strict, Vitest, ESLint flat config.
+Deployz lets a B2B software vendor run its web application inside each
+customer's own AWS account: connect a GitHub repository, let Deployz analyze
+it and build releases, hand each customer an install link, and operate every
+customer deployment from one dashboard. The customer approves one
+CloudFormation Quick Create stack; a small relay Lambda inside their account
+does all the AWS work, and Deployz never holds their credentials.
+
+**Documentation:** start at [`docs/README.md`](docs/README.md). Product
+scope is in [`docs/product/mvp-scope.md`](docs/product/mvp-scope.md), the
+architecture in [`docs/architecture.md`](docs/architecture.md).
+
+This repository is the monorepo for the Deployz MVP: pnpm workspaces +
+Turborepo, TypeScript strict, Vitest, ESLint flat config.
 
 ## Layout
 
 | Path | Package | Purpose |
 | --- | --- | --- |
 | `apps/web` | `@deployz/web` | Next.js vendor dashboard (applications, releases, customers, deployments), the customer install/security pages, and the Team Admin support console |
-| `apps/api` | `@deployz/api` | Fastify control-plane API (auth, GitHub, analysis, deployment lifecycle, admin) |
-| `packages/contracts` | `@deployz/contracts` | Shared Zod contracts between api, web, and the deployment machinery |
+| `apps/api` | `@deployz/api` | Fastify control-plane API (auth, GitHub, analysis, deployment lifecycle, relay channel, billing, admin) |
+| `packages/contracts` | `@deployz/contracts` | Shared Zod contracts between api, web, and the deployment machinery (regions, manifests, components, plans, profiles, footprint, pricing) |
 | `packages/db` | `@deployz/db` | Drizzle schema + migrations |
-| `packages/cdk` | `@deployz/cdk` | Control-plane AWS CDK stack (API/worker Lambda, SQS, CodeBuild pipeline, template publishing) |
-| `packages/analysis` | `@deployz/analysis` | Pure repository-analysis core (detectors, rejection checks, readiness/manifest rules, remediation) — shared leaf dependency of `cdk` and `api` |
-| `packages/fixture` | `@deployz/fixture` | Test fixtures / local dev harness |
+| `packages/cdk` | `@deployz/cdk` | Control-plane AWS CDK stack (API/worker Lambda, SQS, CodeBuild pipeline), the customer bootstrap and application stacks, the committed template artifacts and the publish scripts |
+| `packages/analysis` | `@deployz/analysis` | Pure repository-analysis core (detectors, rejection checks, readiness/manifest rules, remediation) |
 | `packages/relay` | `@deployz/relay` | Relay Lambda (fixed-vocabulary customer-account actor: install/deploy/destroy/purge/domain executors) |
 | `packages/copy-map` | `@deployz/copy-map` | Copy/message mapping helpers (failure-code copy, recoverability, event labels) |
+| `packages/fixture` | `@deployz/fixture` | The fixture container application used by the real-AWS version canary |
+| `e2e/` | — | Playwright specs and the simulated customer AWS account |
+| `scripts/` | — | The E2E runner, risk-based test selection, and the real-AWS harnesses (version canary, repository benchmarks, customer reset) |
 
 ## Commands
 
 Run from the repo root:
 
 - `pnpm install` — install all workspace dependencies
-- `pnpm vitest run` — run all tests (Vitest projects: `packages/*`, `apps/*`)
-- `pnpm build` — build every package via Turborepo (`tsc` emit to `dist/`)
-- `pnpm lint` — lint every package via Turborepo (ESLint flat config at root)
-- `pnpm dev` — run every package's persistent dev script (`tsc --watch`)
+- `pnpm build` — build every package via Turborepo (`tsc` emit to `dist/`); required before the first `pnpm e2e` and after editing a package the API or relay harness imports
+- `pnpm vitest run` — run all tests (Vitest projects: `packages/*`, `apps/*`, the `scripts/*` harnesses)
+- `pnpm lint` — lint every package
+- `pnpm dev` — run every package's persistent dev script
+- `pnpm e2e` — the simulated end-to-end suite (no AWS credentials); `pnpm e2e --scenario=<id>` for one scenario, `pnpm e2e:scenarios` for the full regression suite
+- `pnpm test:affected` / `pnpm test:escalation` — risk-based test selection for a change
 
-End-to-end tests run against a simulated AWS account by default
-(`pnpm e2e`) — no credentials required. See
-[`docs/testing/README.md`](docs/testing/README.md) for the full test
-hierarchy, including the real-AWS canary/fresh escalation modes.
+No Docker or Postgres is needed locally: without `DATABASE_URL` the API uses
+a file-backed PGlite store. See
+[`docs/testing/README.md`](docs/testing/README.md) for the full test ladder,
+including the opt-in real-AWS modes, and
+[`docs/operations/control-plane.md`](docs/operations/control-plane.md) for
+local-development notes.
 
 ## Deploying the control plane
 
 **Deploys run in CI, not from a laptop.** `.github/workflows/deploy-api.yml`
-deploys the stack — VPC, RDS, API Lambda, the SQS job queue with its worker, the
-CodeBuild/ECR release pipeline, and the public template bucket — on every push to
-`main` that touches the API, and on demand from the Actions tab. It supplies the
-Lambda's entire environment from repository secrets.
-
-`packages/cdk/bin/deployz.ts` refuses to run outside CI, because a hand-run
-deploy rebuilds that environment from the developer's `.env`: `collectEnvVars()`
-replaces the deployed environment rather than merging with it, so local values
-overwrite production and every allowlisted key the `.env` lacks is *deleted* from
-the running function — `API_DOMAIN_NAME` among them, which takes
-`api.deployz.dev` offline.
-
-To inspect the stack locally, opt in explicitly:
-
-```bash
-pnpm --filter @deployz/cdk exec cdk diff Deployz -c local=true
-```
-
-The CDK CLI passes the app no indication of which command invoked it, so that
-flag necessarily re-enables `deploy` as well as `synth` and `diff`. It is there
-for previewing changes, not for shipping them.
-
-Publishing the customer bootstrap template is still a local step, because it
-uploads an artifact rather than changing the stack:
-
-1. `pnpm --filter @deployz/cdk run publish:bootstrap` — repacks the template to
-   be self-contained, zips its Lambda assets, uploads both to the template
-   bucket, and prints the URL.
-2. Set that URL as the `BOOTSTRAP_TEMPLATE_URL` repository **variable**, then
-   re-run the deploy workflow. Until it is set the API returns
-   `quickCreateUrl: null` and the install page tells the customer no template has
-   been published yet, rather than handing them a link CloudFormation cannot
-   resolve.
-
-One piece of configuration lives on GitHub rather than in this repo: the App's
-**Setup URL** must be `<WEB_URL>/github/setup` with "Redirect on update"
-enabled — that page binds the installation to the vendor's organization, by way
-of `<API_URL>/api/github/setup`. It is on the web app rather than the API
-because a vendor who installs the App while signed out has to be offered
-sign-in, not handed an error.
-
-## Deployment URLs (default HTTPS)
-
-Every deployment gets a permanent Deployz-owned URL:
-`https://d-<deployment-id>.deployz.dev`. The control plane reconciles the
-`d-*` CNAMEs into the deployz.dev **Cloudflare** zone (no Route53 anywhere in
-this flow), ACM-validates the per-deployment certificate through them, and
-promotes the deployment to READY once the HTTPS probe verifies the endpoint.
-A customer custom domain, once ACTIVE and healthy, takes precedence as the
-deployment's preferred URL; the default URL remains the permanent fallback and
-is never disabled while the custom domain exists. See
-[`docs/mvp-default-https-status.md`](docs/mvp-default-https-status.md) for the
-full phase record.
-
-The four production Cloudflare config keys (names only — never a token value in
-this repo) are supplied to the API Lambda by the
-`.github/workflows/deploy-api.yml` environment, whose completeness gate refuses
-a deploy if any is missing:
-
-- `CLOUDFLARE_ZONE_ID`
-- `CLOUDFLARE_ZONE_NAME`
-- `DEPLOYZ_DEFAULT_HOSTNAME_PREFIX`
-- `CLOUDFLARE_ZONE_EDIT_API_TOKEN`
+deploys the control-plane stack on every push to `main` that touches the API
+or its packages, and `deploy-web.yml` ships the web app. A hand-run
+`cdk deploy` would replace the production Lambda environment with the local
+`.env`, so `packages/cdk/bin/deployz.ts` refuses to run outside GitHub
+Actions; use `-c local=true` only to `synth` or `diff`. Customer templates
+are published by hand with `publish:application` then `publish:bootstrap`.
+The procedure, every configuration key, and how a Region is enabled are in
+[`docs/operations/control-plane.md`](docs/operations/control-plane.md); the
+reasoning is in [`docs/decisions/deploy-gate.md`](docs/decisions/deploy-gate.md).
 
 ## Module-resolution scheme
 
@@ -109,8 +73,13 @@ Every package builds with `tsc -p tsconfig.json` emitting ESM + declarations to 
 
 ## CI
 
-`.github/workflows/ci.yml` runs on every push and PR: `pnpm install
---frozen-lockfile`, `pnpm build`, `pnpm vitest run`, and `pnpm lint` on Node 24
-with pnpm via `pnpm/action-setup`, plus a simulated-E2E job
-(`node scripts/e2e.mjs` — mode guards, the full scenario suite, Team Admin and
-deployment-detail specs).
+`.github/workflows/ci.yml` runs on every push and pull request to `main`. A
+`plan` job picks a risk level for pull requests with `scripts/test-affected.mjs`
+(minimal for docs-only changes, targeted, targeted-web, or critical); the
+`test-build` job runs `pnpm install --frozen-lockfile`, `pnpm build`, the
+selected (or full) Vitest projects, lint and `pnpm typecheck:scripts`; the
+`e2e-simulated` job runs the selected Playwright specs and simulated
+scenarios, and on every push to `main` and every critical pull request the
+core specs, the full scenario suite and the default-HTTPS scenarios. Real
+AWS never enters CI; the real-AWS canaries are separate `workflow_dispatch`
+workflows (`aws-canary.yml`, `aws-persistent-canary.yml`).
