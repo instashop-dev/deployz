@@ -79,6 +79,9 @@ jobs:
       - name: Resolve run parameters
         id: params
         shell: bash
+        env:
+          # Read through the environment, never expanded into the script.
+          RUN_ID_INPUT: ${{ inputs.run_id }}
         run: |
           if [ "${{ github.event_name }}" = "schedule" ]; then
             echo "scenario=profile" >> "$GITHUB_OUTPUT"
@@ -89,7 +92,7 @@ jobs:
             echo "scenario=${{ inputs.scenario }}" >> "$GITHUB_OUTPUT"
             echo "profile=${{ inputs.profile }}" >> "$GITHUB_OUTPUT"
             echo "production=${{ inputs.production && '1' || '' }}" >> "$GITHUB_OUTPUT"
-            run_id_input="${{ inputs.run_id }}"
+            run_id_input="$RUN_ID_INPUT"
           fi
           # The version canary's own sortable format
           # (scripts/version-canary/config.ts#mintRunId) — minted here,
