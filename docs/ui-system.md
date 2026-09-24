@@ -117,7 +117,15 @@ plain links):
    application that has never had an eligible install link (still inside the
    setup lifecycle, no live link yet) gets no separate card at all — the
    primary card names the reason in one line near the lifecycle instead.
-2. **Releases** — version history only.
+2. **Releases** — version history. A failed release row offers "Review
+   failure details": the stage, the earliest error the build log shows, who
+   most likely has to act (repository, temporary, Deployz, or not
+   determined), the relevant redacted log lines, and the actions View build
+   logs, Copy technical details, Copy prompt for coding agent (an
+   investigation prompt, never a claimed fix), Explain with AI (on demand),
+   and — for a Deployz-side failure, instead of the prompt — Copy report for
+   Deployz support. The buildspec's "The image build did not produce an
+   image" is a final check and is never shown as the cause.
 3. **Configuration** — the deployment-configuration table, planned
    infrastructure, environment variables, and general settings (rename,
    danger zone).
@@ -136,9 +144,15 @@ happening now.
 - The setup lifecycle (Analyse → Configure → Test → Share) shows only before
   the first verified test deployment or customer deployment exists. After
   that it is `null` — never a completed stepper sitting on the page forever.
-- Readiness copy never shows a passed-check count. It says "Ready to test",
-  "No blocking issues", or "N changes required" — the same rule as the
-  Configuration table.
+- Readiness copy never shows a passed-check count. It says "No blocking
+  issues" or "N changes required" — the same rule as the Configuration
+  table. It describes the analysis only.
+- The header shows two badges: the application state ("Analysis complete"
+  when the analysis passed and no test deployment exists) and, separately,
+  release readiness ("Release ready", "Release building", "Release build
+  failed", "No deployable release", "No release yet"). An older READY release
+  keeps the application deployable when a newer build failed. With no
+  deployable release, the primary card never offers "Start test deployment".
 - The Configuration table's result vocabulary is Ready / Not used / Change
   required / Recommended / Needs review — never "Passed", never a percentage.
   Ready and Not used show no badge, because the value already says it. Its

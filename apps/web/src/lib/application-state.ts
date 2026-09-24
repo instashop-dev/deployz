@@ -131,6 +131,9 @@ export interface ApplicationRecentEvent {
 export interface ApplicationPresentation {
   state: ApplicationState;
   badge: { label: string; variant: ApplicationBadgeVariant };
+  /** Whether a release can be deployed — separate from the analysis state
+   *  above. Null when the releases could not be loaded. */
+  releaseBadge: { label: string; variant: ApplicationBadgeVariant } | null;
   heading: string;
   message: string;
   /** True while a server-side operation runs: the card shows a spinner. */
@@ -139,7 +142,7 @@ export interface ApplicationPresentation {
   secondaryActions: ApplicationAction[];
   /** Required changes, shown by the configuration-required card. */
   blockers: ApplicationBlocker[];
-  /** "Ready to test" / "No blocking issues" / "2 changes required" — never a
+  /** "No blocking issues" / "2 changes required" — never a
    *  passed-check count. Null while no completed analysis exists. */
   readinessSummary: string | null;
   recommendationCount: number;
@@ -232,7 +235,9 @@ const BADGES: Record<ApplicationState, { label: string; variant: ApplicationBadg
   'analysis-failed': { label: 'Analysis failed', variant: 'destructive' },
   'configuration-required': { label: 'Changes required', variant: 'warning' },
   'configuration-review': { label: 'Needs review', variant: 'warning' },
-  'ready-to-test': { label: 'Ready to test', variant: 'info' },
+  // The analysis passed and no test deployment exists. Whether a release can
+  // be deployed is the separate release badge.
+  'ready-to-test': { label: 'Analysis complete', variant: 'info' },
   'test-queued': { label: 'Test not started', variant: 'secondary' },
   'test-deploying': { label: 'Test deploying', variant: 'info' },
   'test-removing': { label: 'Removing test', variant: 'info' },
@@ -329,6 +334,27 @@ function testReleaseNote(releases: Release[] | 'error'): string {
   return state.kind === 'ready' ? ` The test deployment uses release ${releaseLabel(state.release)}.` : '';
 }
 
+// ── Release readiness ───────────────────────────────────────────────────────
+
+/** What the releases say about deploying: an older READY release still
+ *  counts even when a newer build failed. */
+export type ReleaseReadiness = 'ready' | 'building' | 'failed' | 'unavailable' | 'none';
+
+export function releaseReadiness(releases: readonly Release[]): ReleaseReadiness {
+  if (releases.length === 0) return 'none';
+  const install = installReleaseState(releases);
+  if (install.kind !== 'none') return install.kind;
+  return releases.some((r) => r.status === 'FAILED') ? 'failed' : 'unavailable';
+}
+
+const RELEASE_BADGES: Record<ReleaseReadiness, { label: string; variant: ApplicationBadgeVariant }> = {
+  ready: { label: 'Release ready', variant: 'success' },
+  building: { label: 'Release building', variant: 'info' },
+  failed: { label: 'Release build failed', variant: 'destructive' },
+  unavailable: { label: 'No deployable release', variant: 'warning' },
+  none: { label: 'No release yet', variant: 'secondary' },
+};
+
 function countLabel(count: number, singular: string, plural: string): string {
   return `${count} ${count === 1 ? singular : plural}`;
 }
@@ -421,7 +447,8 @@ type Core = Pick<
  *  7. customer deployments exist           → customers-active
  *  8. the test deployment failed           → test-failed
  *  9. the test deployment is verified      → ready-to-share
- * 10. no test deployment                   → ready-to-test
+ * 10. no test deployment                   → ready-to-test (the card waits on
+ *                                            a release that built)
  * 11. a test deployment state this build does not know → unknown
  *
  * Active operations (2, 3) come before readiness (6) on purpose: readiness
@@ -432,6 +459,7 @@ export function deriveApplicationPresentation(input: ApplicationStateInput): App
     return {
       state: 'unavailable',
       badge: BADGES.unavailable,
+      releaseBadge: null,
       heading: 'This application is temporarily unavailable',
       message: "We couldn't load this application. Your deployments are not affected.",
       busy: false,
@@ -465,6 +493,8 @@ export function deriveApplicationPresentation(input: ApplicationStateInput): App
   const configurationHref = `/dashboard/applications/${application.id}/config`;
   const startTestHref = `/dashboard/deployments/new?applicationId=${application.id}&test=true`;
   const configureStep: SetupLifecycleStepState = required.length > 0 ? 'current' : 'done';
+  const release = releases === 'error' ? null : releaseReadiness(releases);
+  const releasesHref = `/dashboard/applications/${application.id}/releases`;
 
   const core = ((): Core => {
     if (analysisStatus === 'PENDING' || analysisStatus === 'ANALYZING') {
@@ -673,6 +703,45 @@ export function deriveApplicationPresentation(input: ApplicationStateInput): App
       };
     }
 
+    // A test deployment installs the newest READY release, so the test step
+    // waits on a release that built. No releases at all is still "ready":
+    // the create page builds the first one.
+    if (!test && release === 'building') {
+      return {
+        state: 'ready-to-test',
+        heading: 'Building a release',
+        message: 'You can start a test deployment when the release build finishes.',
+        busy: true,
+        primaryAction: action('view-releases', 'View releases', releasesHref),
+        secondaryActions: [],
+        polling: { intervalMs: TEST_DEPLOYMENT_POLL_MS },
+        lifecycle: lifecycle('done', 'done', 'current'),
+        linkUnavailableReason: 'The customer install link becomes available after a successful test deployment.',
+        cardShowsTest: true,
+      };
+    }
+
+    if (!test && (release === 'failed' || release === 'unavailable')) {
+      return {
+        state: 'ready-to-test',
+        heading: 'No release is ready to test',
+        message:
+          release === 'failed'
+            ? 'The release build failed. A test deployment needs a release that built successfully.'
+            : 'No release can be deployed. Create a new release to test the application.',
+        busy: false,
+        primaryAction:
+          release === 'failed'
+            ? action('view-releases', 'Review failed build', releasesHref)
+            : action('view-releases', 'View releases', releasesHref),
+        secondaryActions: [],
+        polling: null,
+        lifecycle: lifecycle('done', 'done', 'current'),
+        linkUnavailableReason: 'The customer install link becomes available after a successful test deployment.',
+        cardShowsTest: true,
+      };
+    }
+
     if (!test) {
       return {
         state: 'ready-to-test',
@@ -737,9 +806,7 @@ export function deriveApplicationPresentation(input: ApplicationStateInput): App
 
   let readinessSummary: string | null = null;
   if (analysed) {
-    if (required.length > 0) readinessSummary = changesRequired(required.length);
-    else if (core.state === 'ready-to-test') readinessSummary = 'Ready to test';
-    else readinessSummary = 'No blocking issues';
+    readinessSummary = required.length > 0 ? changesRequired(required.length) : 'No blocking issues';
   }
 
   const recentEvent: ApplicationRecentEvent | null =
@@ -755,6 +822,7 @@ export function deriveApplicationPresentation(input: ApplicationStateInput): App
   return {
     state: core.state,
     badge: BADGES[core.state],
+    releaseBadge: release === null ? null : RELEASE_BADGES[release],
     heading: core.heading,
     message: core.message,
     busy: core.busy,

@@ -83,6 +83,7 @@
     "dev": "tsx src/index.ts"
   },
   "dependencies": {
+    "@aws-sdk/client-cloudwatch-logs": "^3.1138.0",
     "@aws-sdk/client-ecr": "^3.1115.0",
     "@aws-sdk/client-kms": "^3.1115.0",
     "@aws-sdk/client-ses": "^3.1115.0",

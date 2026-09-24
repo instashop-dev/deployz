@@ -1,4 +1,4 @@
-import { Duration, Stack, Tags, type StackProps } from 'aws-cdk-lib';
+import { ArnFormat, Duration, Stack, Tags, type StackProps } from 'aws-cdk-lib';
 import {
   InstanceType,
   InstanceClass,
@@ -184,6 +184,8 @@ export class DeployzStack extends Stack {
       (this.node.tryGetContext('deployableAwsRegions') as string | undefined) ??
       process.env.DEPLOYABLE_AWS_REGIONS;
 
+    const buildLogGroupName = `/aws/codebuild/${buildPipeline.project.projectName}`;
+
     const apiLambda = new ApiLambda(this, 'ApiLambda', {
       vpc: vpcResource,
       dbSecurityGroup,
@@ -202,6 +204,10 @@ export class DeployzStack extends Stack {
         // Phase 1.1 ECR pull-grant lifecycle: the repository whose policy the
         // API mutates when an installation is granted/revoked.
         DEPLOYZ_ECR_REPOSITORY_NAME: buildPipeline.repository.repositoryName,
+        // CodeBuild's default log group for the release build project. The
+        // API reads a failed release's build log from it (vendor build
+        // output only — never customer runtime logs).
+        BUILD_LOG_GROUP_NAME: buildLogGroupName,
       },
     });
 
@@ -221,6 +227,22 @@ export class DeployzStack extends Stack {
           'ecr:BatchGetImage',
         ],
         resources: [buildPipeline.repository.repositoryArn],
+      }),
+    );
+
+    // Failed-release evidence: read one build's log stream in the release
+    // build project's log group, and nothing else.
+    apiLambda.function.addToRolePolicy(
+      new PolicyStatement({
+        actions: ['logs:GetLogEvents'],
+        resources: [
+          this.formatArn({
+            service: 'logs',
+            resource: 'log-group',
+            resourceName: `${buildLogGroupName}:log-stream:*`,
+            arnFormat: ArnFormat.COLON_RESOURCE_NAME,
+          }),
+        ],
       }),
     );
 

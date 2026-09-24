@@ -49,6 +49,13 @@ The flow a deployment follows, end to end:
    enroll. Warnings never block; a missing customer-required value does.
 5. **Release Build** — a release is built by CodeBuild into an immutable
    ECR image digest; a deploy always targets `repository@sha256:…`.
+    For a FAILED release the API reads that build's CodeBuild log
+    (`logs:GetLogEvents` on `/aws/codebuild/<project>` only, the last
+    3000 lines at most), redacts it, and serves the evidence to the owning
+    organization (`GET /api/applications/:id/releases/:releaseId/build-failure`
+    and `/build-log`). These are logs of the vendor's own source build in
+    the Deployz account, not customer runtime logs, which stay in the
+    customer's account.
     The vendor picks the commit from the application's configured branch
     (`GET /api/applications/:id/commits`, 30 per page, at most 10 pages) or
     enters a SHA that `GET /api/applications/:id/commits/:sha` resolves. The

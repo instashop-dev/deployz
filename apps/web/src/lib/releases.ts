@@ -3,6 +3,7 @@
 // never swallowed into look-alike placeholder data. §65: copy is jargon-free.
 
 import { apiUrl } from '@/lib/api-url';
+import { formatDateTime } from '@/lib/list-view';
 
 export type ReleaseStatus = 'BUILDING' | 'READY' | 'FAILED' | 'UNAVAILABLE';
 
@@ -110,7 +111,9 @@ export const RELEASE_STATUS_BADGE: Record<ReleaseStatus, 'success' | 'info' | 'd
 export const RELEASE_STATUS_LABEL: Record<ReleaseStatus, string> = {
   BUILDING: 'Building',
   READY: 'Ready',
-  FAILED: 'Failed',
+  // A release fails only while it is being built (fetching the commit,
+  // building or storing the image) — never after it was READY.
+  FAILED: 'Build failed',
   UNAVAILABLE: 'Unavailable',
 };
 
@@ -120,6 +123,14 @@ export const RELEASE_UNAVAILABLE_COPY =
 
 export function releaseStatusLabel(status: string): string {
   return RELEASE_STATUS_LABEL[status as ReleaseStatus] ?? status;
+}
+
+/** "Sep 23, 2026, 10:52 PM GMT+5:30" — when a release was created, with the viewer's time zone. */
+export function formatReleaseCreatedAt(iso: string): string {
+  const zone = new Intl.DateTimeFormat('en-US', { timeZoneName: 'short' })
+    .formatToParts(new Date(iso))
+    .find((part) => part.type === 'timeZoneName')?.value;
+  return zone ? `${formatDateTime(iso)} ${zone}` : formatDateTime(iso);
 }
 
 /** Copy for the deploy picker when no release qualifies. */
@@ -254,10 +265,6 @@ export const RELEASE_STATUS_EXPLANATION: Record<'BUILDING' | 'READY', string> = 
   BUILDING: 'Deployz is building this release from its commit.',
   READY: 'This build finished successfully and can be installed.',
 };
-
-/** Actionable next step shown with a FAILED release's raw failure reason. */
-export const RELEASE_FAILURE_NEXT_STEP =
-  'Fix the cause above (for example a missing commit or a failing Docker build), push the fix to GitHub, then create a new release.';
 
 /** The Releases page's summary line: what a new customer install runs now. */
 export function installSummaryLine(releases: readonly Release[]): string {
