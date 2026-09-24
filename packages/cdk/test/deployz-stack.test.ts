@@ -270,7 +270,7 @@ describe('DeployzStack', () => {
       }
     });
 
-    it('grants each Lambda only Encrypt/Decrypt on that key, bound to the purpose context', () => {
+    it('grants the API Encrypt/Decrypt and the worker only Decrypt on that key, bound to the purpose context', () => {
       const statements = Object.values(baseline.findResources('AWS::IAM::Policy')).flatMap(
         (policy) =>
           (policy.Properties as { PolicyDocument: { Statement: { Action: string | string[]; Condition?: unknown; Resource: unknown }[] } })
@@ -280,8 +280,11 @@ describe('DeployzStack', () => {
         [statement.Action].flat().some((action) => action.startsWith('kms:')),
       );
       expect(kms).toHaveLength(2);
+      expect(kms.map((statement) => [statement.Action].flat().sort().join(',')).sort()).toEqual([
+        'kms:Decrypt',
+        'kms:Decrypt,kms:Encrypt',
+      ]);
       for (const statement of kms) {
-        expect([statement.Action].flat().sort()).toEqual(['kms:Decrypt', 'kms:Encrypt']);
         expect(JSON.stringify(statement.Resource)).toContain('ConfigSecretsKey');
         expect(statement.Condition).toEqual({
           StringEquals: { 'kms:EncryptionContext:purpose': 'deployz-config-secret' },
