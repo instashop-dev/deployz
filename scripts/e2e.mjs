@@ -130,9 +130,11 @@ if (mode === 'canary-versions') {
     process.exit(0);
   }
 
-  // shell: true so Windows resolves the pnpm.cmd shim (same pattern as
-  // packages/cdk/test/golden-path-live-aws.test.ts's spawnSync `cdk` helper).
-  const child = spawn('pnpm', ['exec', 'playwright', 'test', ...playwrightArgs], {
+  // shell: true so Windows resolves the pnpm.cmd shim. The shell also parses
+  // the arguments, so a grep pattern such as `@scenario|visual` must be
+  // quoted or `|visual` becomes a pipe to a command named visual.
+  const quoted = playwrightArgs.map((arg) => (/^[\w./:=@-]+$/.test(arg) ? arg : JSON.stringify(arg)));
+  const child = spawn('pnpm', ['exec', 'playwright', 'test', ...quoted], {
     env: childEnv,
     stdio: 'inherit',
     shell: true,
