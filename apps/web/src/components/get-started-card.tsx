@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/button';
 const SETUP_STEPS = [
   'Connect application',
   'Review deployment setup',
-  'Deploy first customer',
+  'Create first installation',
 ] as const;
 
 // State A — nothing is connected yet. One heading, one action, and the short

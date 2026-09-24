@@ -61,6 +61,34 @@ export async function fetchCustomerInvitations(customerId: string): Promise<Cust
   return body.invitations ?? [];
 }
 
+/** Create a targeted installation invitation. The API returns the one-time
+ *  token exactly once — it is never retrievable again. */
+export interface CreateInvitationInput {
+  customerId: string;
+  applicationId: string;
+  recommendedRegion?: string;
+}
+
+export interface CreatedInvitation {
+  id: string;
+  token: string;
+  expiresAt: string;
+  recommendedRegion: string | null;
+}
+
+export function createInvitation(input: CreateInvitationInput): Promise<CreatedInvitation> {
+  return apiRequest<CreatedInvitation>(
+    `/api/customers/${encodeURIComponent(input.customerId)}/invitations`,
+    {
+      method: 'POST',
+      body: {
+        applicationId: input.applicationId,
+        ...(input.recommendedRegion ? { recommendedRegion: input.recommendedRegion } : {}),
+      },
+    },
+  );
+}
+
 export async function fetchCustomers(): Promise<Customer[]> {
   const body = await apiRequest<{ customers?: Customer[] }>('/api/customers');
   return body.customers ?? [];

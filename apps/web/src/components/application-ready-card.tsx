@@ -44,7 +44,7 @@ export function ApplicationReadyCard({ application }: { application: Application
       <div className="flex flex-wrap items-center gap-3">
         <Button asChild>
           <Link href={`/dashboard/deployments/new?applicationId=${encodeURIComponent(application.id)}`}>
-            Deploy first customer
+            Create first installation
             <ArrowRight aria-hidden />
           </Link>
         </Button>
