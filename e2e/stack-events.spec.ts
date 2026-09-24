@@ -345,8 +345,10 @@ test('failure path: a genuine CREATE_FAILED stack event stays vendor-only while 
   const bodyText = await page.locator('body').innerText();
   expect(bodyText).not.toMatch(JARGON);
   await expect(page.getByText('ROLLBACK_COMPLETE', { exact: true })).toHaveCount(0);
-  const html = await page.content();
-  expect(html).not.toContain(rawReason);
+  // The raw CloudFormation reason reaches the customer page only inside the
+  // live-activity feed's collapsed "View raw AWS events" disclosure (and the
+  // feed is hidden on a terminal stage), so it is never visible here.
+  await expect(page.getByText(rawReason)).toBeHidden();
 
   // Technical details are collapsed by default. §65 keeps the raw
   // CloudFormation enum off the customer surface even when expanded — the
