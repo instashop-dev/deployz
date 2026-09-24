@@ -91,7 +91,7 @@ test('the empty state invites the first customer', async ({ page }) => {
 
   await expect(page.getByRole('heading', { name: 'Customers', exact: true })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Add your first customer' })).toBeVisible();
-  await expect(page.getByRole('link', { name: 'Create deployment' })).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Create installation' })).toBeVisible();
 });
 
 test('a customer row groups name and email, and shows a vendor-friendly deployment status', async ({
@@ -344,7 +344,7 @@ test('the create-deployment flow captures a company and offers the install link 
   await expect(page.getByText('New Holdings')).toBeVisible();
 });
 
-test('Create deployment from the customer page preselects the customer and reuses their row, never creating a second one', async ({
+test('Create installation from the customer page preselects the customer and creates an invitation', async ({
   page,
 }) => {
   await signUp(page);
@@ -353,16 +353,16 @@ test('Create deployment from the customer page preselects the customer and reuse
   await seedDeployment(page, applicationId, customer.id);
 
   await page.goto(`/dashboard/customers/${customer.id}`);
-  await page.getByRole('link', { name: 'Create deployment' }).click();
+  await page.getByRole('link', { name: 'Create installation' }).click();
 
-  await expect(page.getByRole('heading', { name: 'Create Customer Deployment' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Create installation' })).toBeVisible();
   const picker = page.getByRole('combobox', { name: 'Customer' });
   await expect(picker).toHaveText(customer.name);
   // The existing-customer path hides the new-customer inputs.
   await expect(page.getByLabel('Customer name')).toHaveCount(0);
 
-  await page.getByRole('button', { name: 'Create Customer Deployment' }).click();
-  await expect(page.getByText('Deployment created')).toBeVisible();
+  await page.getByRole('button', { name: 'Create installation' }).click();
+  await expect(page.getByText('Installation invitation created')).toBeVisible();
 
   const customersResponse = await page.request.get(`${API_URL}/api/customers`);
   expect(customersResponse.ok()).toBeTruthy();

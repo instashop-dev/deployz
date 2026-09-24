@@ -572,7 +572,7 @@ test.describe('Customers list', () => {
     await page.route(`${API_URL}/api/customers*`, (route) => route.fulfill({ json: { customers: [] } }));
     await page.goto('/dashboard/customers');
     await expect(page.getByRole('heading', { name: 'Add your first customer' })).toBeVisible();
-    await expect(page.getByRole('link', { name: 'Create deployment' })).toBeVisible();
+    await expect(page.getByRole('link', { name: 'Create installation' })).toBeVisible();
     await expect(page.getByText('No customers match these filters.')).toHaveCount(0);
   });
 });

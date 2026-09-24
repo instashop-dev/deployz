@@ -4,12 +4,11 @@ import { createReadyRelease } from './seed-ready-manifest.js';
 
 // CANARY-004: the create-deployment form (§12/§41 screen 12) used to swallow
 // every /api/deployments failure behind a fixed "Try again in a moment" and
-// re-created the customer on every retry. Seeds a real Application from the
-// `deployz-demo/legacy-redis` fixture repo (see e2e/redis.spec.ts) — its
-// unsupported Redis Stack dependency makes `evaluateManifestReadiness`
-// (packages/analysis/src/manifest.ts) return NOT_COMPATIBLE, so
-// POST /api/deployments genuinely rejects with 422 MANIFEST_NOT_COMPATIBLE
-// against the real API — no fabricated failure.
+// re-created the customer on every retry. With the invitation-first flow,
+// the vendor creates an invitation (no manifest validation), and the customer
+// confirms (manifest validation happens here). This test verifies that when
+// the customer tries to confirm an invitation for an incompatible application,
+// the error is shown and the customer is not duplicated on retry.
 
 const API_URL = `http://localhost:${process.env.API_PORT ?? 3001}`;
 
@@ -45,7 +44,19 @@ async function seedNotCompatibleApplication(page: Page, suffix: string): Promise
   return application.id;
 }
 
-test('a MANIFEST_NOT_COMPATIBLE rejection shows the server reason, links to readiness, and does not duplicate the customer on retry', async ({
+async function seedCustomer(page: Page, suffix: string): Promise<string> {
+  const response = await page.request.post(`${API_URL}/api/customers`, {
+    data: {
+      name: `Canary Customer ${suffix}`,
+      email: `canary-customer-${suffix}@example.com`,
+    },
+  });
+  expect(response.ok()).toBeTruthy();
+  const customer = (await response.json()) as { id: string };
+  return customer.id;
+}
+
+test('a MANIFEST_NOT_COMPATIBLE rejection at customer confirm shows the server reason and does not duplicate the customer on retry', async ({
   page,
 }) => {
   const suffix = crypto.randomUUID().slice(0, 8);
@@ -53,9 +64,25 @@ test('a MANIFEST_NOT_COMPATIBLE rejection shows the server reason, links to read
 
   await signUp(page);
   const applicationId = await seedNotCompatibleApplication(page, suffix);
+  const customerId = await seedCustomer(page, suffix);
 
-  await page.goto(`/dashboard/deployments/new?applicationId=${applicationId}`);
-  const submit = page.getByRole('button', { name: 'Create Customer Deployment' });
+  // Vendor creates invitation (no manifest validation at this point)
+  const invitationResponse = await page.request.post(
+    `${API_URL}/api/customers/${customerId}/invitations`,
+    {
+      data: {
+        applicationId,
+      },
+    },
+  );
+  expect(invitationResponse.ok()).toBeTruthy();
+  const invitation = (await invitationResponse.json()) as { id: string; token: string };
+
+  // Customer opens invitation with token in URL fragment
+  await page.goto(`/install/${invitation.id}#${invitation.token}`);
+
+  // Wait for the page to load and resolve the invitation
+  await expect(page.getByRole('heading', { name: /Install/ })).toBeVisible();
 
   // Nothing can install without a built release: the page says so and the
   // submit waits for one.
@@ -65,27 +92,30 @@ test('a MANIFEST_NOT_COMPATIBLE rejection shows the server reason, links to read
     'href',
     `/dashboard/applications/${applicationId}/releases`,
   );
+
+  const submit = page.getByRole('button', { name: 'Continue to setup' });
   await expect(submit).toBeDisabled();
 
   await createReadyRelease(page.request, applicationId);
   await page.reload();
+  await page.goto(`/install/${invitation.id}#${invitation.token}`);
   await expect(page.getByTestId('install-release')).toContainText('Installs release 0.1.0');
-  await expect(submit).toBeEnabled();
 
-  await page.getByLabel('Customer name').fill(`Canary ${suffix}`);
-  await page.getByLabel('Customer email').fill(customerEmail);
+  // Select a region (explicit choice required)
+  await page.getByRole('combobox', { name: /Region/i }).click();
+  await page.getByRole('option', { name: /US East/ }).click();
 
-  // Scoped to the form: Next.js's own route announcer also carries
-  // role="alert" and would otherwise make this locator ambiguous.
-  const alert = page.locator('form [role="alert"]');
-
-  // Phase 5: the preflight shows the gate's answer before the vendor submits.
+  // Phase 5: the preflight shows the gate's answer before the customer confirms.
   const preflight = page.getByTestId('preflight-summary');
   await expect(preflight).toBeVisible();
   await expect(preflight).toHaveAttribute('data-state', 'UNSUPPORTED');
   await expect(page.getByTestId('preflight-heading')).toContainText("Can't deploy this application yet");
 
   await submit.click();
+
+  // Scoped to the form: Next.js's own route announcer also carries
+  // role="alert" and would otherwise make this locator ambiguous.
+  const alert = page.locator('form [role="alert"]');
   await expect(alert).toContainText(
     'This application cannot be deployed with Deployz as configured.',
   );
@@ -93,9 +123,8 @@ test('a MANIFEST_NOT_COMPATIBLE rejection shows the server reason, links to read
     alert.getByRole('link', { name: "Review the application's readiness findings" }),
   ).toHaveAttribute('href', `/dashboard/applications/${applicationId}`);
 
-  // Retry with the same customer details: the API rejects again (the
-  // manifest is still NOT_COMPATIBLE), but no second customer row should be
-  // created — the page must reuse the id from the first attempt.
+  // Retry with the same customer: the API rejects again (the manifest is
+  // still NOT_COMPATIBLE), but the customer row should not be duplicated.
   await submit.click();
   await expect(alert).toContainText(
     'This application cannot be deployed with Deployz as configured.',
