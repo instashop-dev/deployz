@@ -380,6 +380,33 @@ describe('targeted installation invitations', () => {
     expect(deployments).toHaveLength(1);
   });
 
+  it('two concurrent confirms with the same key on a targeted invitation stay idempotent', async () => {
+    const { id, token } = (await createInvitation('us-east-1')).json() as { id: string; token: string };
+    const payload = {
+      idempotencyKey: crypto.randomUUID(),
+      region: 'us-east-1',
+      config: [{ key: 'STRIPE_API_KEY', value: 'sk_samekey_fixture', isSecret: true }],
+    };
+    const confirmOnce = () =>
+      app.inject({
+        method: 'POST',
+        url: `/api/public-install/${id}/confirm`,
+        headers: { 'content-type': 'application/json', 'x-deployz-token': token },
+        payload: JSON.stringify(payload),
+      });
+    const [first, second] = await Promise.all([confirmOnce(), confirmOnce()]);
+    expect(first.statusCode, `${first.body} | ${second.body}`).toBeLessThan(300);
+    expect(second.statusCode, `${first.body} | ${second.body}`).toBeLessThan(300);
+    expect((first.json() as { installLinkId: string }).installLinkId).toBe(
+      (second.json() as { installLinkId: string }).installLinkId,
+    );
+    const deployments = await db
+      .select({ id: schema.deployments.id })
+      .from(schema.deployments)
+      .where(eq(schema.deployments.publicInstallLinkId, id));
+    expect(deployments).toHaveLength(1);
+  });
+
   it('omits a recommendation that is no longer deployable from resolve', async () => {
     // ap-south-1 is a supported Region but not in this suite's deployable
     // set — the recommendation cannot deploy, so it is never served.

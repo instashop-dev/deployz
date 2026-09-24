@@ -568,10 +568,14 @@ export async function confirmPublicInstall(
     );
     return { installLinkId: deployment.installLinkId, created: true };
   } catch (error) {
-    // Two concurrent confirms with the same key can both pass the pre-check;
-    // the partial unique index admits exactly one. The loser returns the
-    // winner's deployment instead of erroring.
-    if (isConfirmKeyViolation(error)) {
+    // Two concurrent confirms with the same key can both pass the pre-check.
+    // The partial unique index admits exactly one insert; on a targeted
+    // invitation the same-key loser may instead surface the in-tx consumed
+    // re-check's 410. Either way a same-key loser replays the winner's
+    // deployment instead of erroring — the pre-tx 410 fast path never reaches
+    // this catch (only the transaction is wrapped in the try), and a
+    // different-key loser finds no deployment for its own key and rethrows.
+    if (isConfirmKeyViolation(error) || (error instanceof ApiError && error.code === 'PUBLIC_INSTALL_LINK_USED')) {
       const winner = await findConfirmedInstallLinkId(db, link.id, body.idempotencyKey);
       if (winner !== null) {
         return { installLinkId: winner, created: false };
