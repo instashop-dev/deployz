@@ -20,7 +20,7 @@ import { buildServer } from './server.js';
  * Simulated-E2E for §31 secret delivery (Phase 1.2): proves the whole chain
  * with the REAL API server and the REAL relay CONFIG_UPDATE executor, against
  * an in-memory simulated customer account (same seam pattern as
- * e2e/simulation — docs/testing/discovery/phase1-design-decisions.md D1):
+ * e2e/simulation — docs/testing/e2e-testing.md D1):
  *
  *   vendor secret entry → claim (serves the value once, scrubs the stored
  *   row) → relay writes customer Secrets Manager → task definition binds

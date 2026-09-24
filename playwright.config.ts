@@ -12,7 +12,7 @@ const apiPort = Number(process.env.API_PORT ?? 3001);
 // Second defence layer for the real-AWS guard (scripts/e2e.mjs is the first):
 // even a direct `pnpm exec playwright test`, without going through the
 // runner, must refuse canary/fresh without the opt-in
-// (docs/testing/discovery/phase1-design-decisions.md D3).
+// (docs/testing/e2e-testing.md D3).
 const e2eMode = process.env.DEPLOYZ_E2E_MODE ?? 'simulated';
 if ((e2eMode === 'canary' || e2eMode === 'fresh') && process.env.DEPLOYZ_E2E_ALLOW_REAL_AWS !== '1') {
   throw new Error(

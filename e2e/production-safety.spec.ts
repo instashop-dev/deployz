@@ -8,7 +8,7 @@ import { expect, test } from '@playwright/test';
 // which already covers: default mode is simulated, canary/fresh require the
 // real-AWS opt-in, and simulated mode scrubs AWS credentials. This file pins
 // the remaining §24 properties — all of them true "by construction" per
-// docs/testing/discovery/phase1-design-decisions.md D1/D2/D3 — as static
+// docs/testing/e2e-testing.md D1/D2/D3 — as static
 // regression guards, so a future change can't quietly reintroduce a
 // production-facing scenario-control surface, a leaked fixture-mode env var,
 // a real AWS SDK dependency in the simulator, or a product-code import of

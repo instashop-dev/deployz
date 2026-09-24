@@ -11,8 +11,8 @@ import { hashRelayToken } from './relay-store.js';
 import { buildServer } from './server.js';
 
 // Paddle migration Phase 2: the billing state machine is wired into the
-// deployment lifecycle at exactly three points (docs/billing/MIGRATION_PROGRESS.md
-// rulings R0-1/R0-2) — the relay-authenticated write paths that can observe
+// deployment lifecycle at exactly three points (docs/billing/paddle-billing.md,
+// "The lifecycle, end to end") — the relay-authenticated write paths that can observe
 // derived stage READY, and the destroy/force-complete family that accepts a
 // removal. This exercises those hook sites end to end, through the real
 // routes, against a PGlite database.

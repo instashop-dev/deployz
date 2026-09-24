@@ -2,7 +2,7 @@
 // API webServer's own env build) so simulated-mode E2E cannot inherit real
 // AWS credentials, the control-plane job queue, or SES/email config from the
 // developer's shell — even when playwright.config.ts is invoked directly,
-// bypassing the runner (docs/testing/discovery/phase1-design-decisions.md D3).
+// bypassing the runner (docs/testing/e2e-testing.md D3).
 export const SCRUB_ENV_VARS = [
   'AWS_ACCESS_KEY_ID',
   'AWS_SECRET_ACCESS_KEY',

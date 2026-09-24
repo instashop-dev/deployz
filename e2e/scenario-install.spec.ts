@@ -5,7 +5,7 @@
  * status derivation -> UI-facing wire shapes — and that the resource
  * inventory is populated through the production persistence path (relay
  * listAllStackResources -> POST /api/relay/health -> persistDeploymentResourceSnapshot).
- * See docs/testing/discovery/phase1-design-decisions.md.
+ * See docs/testing/e2e-testing.md.
  *
  * Every assertion here goes through the real HTTP API (no UI yet — that is a
  * later phase). Test titles carry `@scenario:<id>` so a parallel runner can
@@ -80,7 +80,7 @@ test.describe('happy-path', () => {
     // behaviour — an installed-and-healthy deployment with no custom domain
     // legitimately holds at VERIFYING/TLS ("Waiting for secure domain
     // setup.") rather than READY. See
-    // docs/testing/discovery/deployment-lifecycle.md §5.
+    // docs/deployment-resilience.md §5.
     const defaultHttpsEnabled = process.env.DEPLOYZ_DEFAULT_HTTPS_FIXTURE === 'true';
     if (defaultHttpsEnabled) {
       await expect

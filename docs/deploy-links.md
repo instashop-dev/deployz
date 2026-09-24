@@ -17,9 +17,10 @@ existing deployment architecture — it does not add a second pipeline.
 
 ## What they are
 
-- Vendor side: a "Deploy to AWS" card on the customer detail page
-  (`apps/web/src/components/deploy-link-card.tsx`). Pick application + region,
-  generate, copy the URL once, revoke or regenerate later.
+- Vendor side: no dashboard surface remains (the "Deploy to AWS" card was
+  removed with the invitation model), but the API still mints new links
+  (`POST /api/customers/:customerId/deploy-links`, plus revoke and
+  regenerate). Pick application + region, generate, copy the URL once.
 - Customer side: `/deploy/<publicId>?token=<secret>`
   (`apps/web/src/app/deploy/[publicId]/page.tsx`). Review (application, AWS
   region, resources), "Deploy to AWS" handoff, then the install flow's own
@@ -78,33 +79,22 @@ HEALTHY through the shared pipeline and appears in the fleet with
   409-after-start, double-submit race, fleet parity, destroy → link fails
   closed, token-vs-relay permission boundary, no raw token persisted or
   leaked.
-- `apps/web/test/deploy-links.test.tsx`, `deploy-page.test.tsx`,
-  `deploy-link-flow.test.ts` — vendor card states, page states, resolve-reason
-  mapping.
+- `apps/web/test/deploy-page.test.tsx`, `deploy-link-flow.test.ts` — page
+  states, resolve-reason mapping.
 - `e2e/scenario-deploy-link.spec.ts` — simulated E2E journey and failure
   journeys (no real AWS).
 
-## Validated on real AWS (2026-09-05)
+## Validated on real AWS
 
-The full path was driven against the deployed control plane and the test
-AWS account with Documenso (P0 hardening, `docs/ai-mvp-implementation-status.md`):
-generate → raw token shown once → customer review (application, region,
-resources) → Deploy to AWS → bootstrap Quick Create → relay registration →
-HEALTHY → default HTTPS hostname ACTIVE → release update → Disconnect →
-Purge, all through the shared pipeline, with the fleet row carrying
-`source: deploy_link`. Fail-closed probes on the public route: missing,
-wrong or query-string token and an unknown id → 404; revoked → 410;
-regenerate rotates the secret (old token → 404). Observed behaviours worth
-knowing:
-
-- Revoking a link does not delete its NOT_INSTALLED deployment row; the
-  customer page keeps showing it as "Not installed" and the fleet lists it
-  with `source: deploy_link`. It holds no AWS resources.
-- The vendor card offers *Regenerate* only for an active link whose
-  deployment is still NOT_INSTALLED; a revoked link is replaced by
-  generating a new one (which creates a new deployment).
-- The raw token never reaches the API logs (header-only transport); only
-  `token_hash` is stored.
+The full path (generate → token shown once → customer review → Deploy to
+AWS → Quick Create → relay registration → HEALTHY → default HTTPS ACTIVE →
+release update → Disconnect → Purge) was driven against the deployed control
+plane and the test AWS account on 2026-09-05, with the fleet row carrying
+`source: deploy_link`. Behaviours worth knowing: revoking a link does not
+delete its NOT_INSTALLED deployment row (it holds no AWS resources); a
+revoked link is replaced by generating a new one, which creates a new
+deployment; the raw token never reaches the API logs (header-only
+transport) and only `token_hash` is stored.
 
 ## MVP exclusions
 

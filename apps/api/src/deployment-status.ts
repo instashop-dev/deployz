@@ -392,7 +392,7 @@ function statusFromMerged(
 // ---------------------------------------------------------------------------
 // Phase 5 — plan HTTPS vocabulary. The internal machines speak
 // DefaultHttpsStatus/CustomDomainStatus (PENDING/WAITING_FOR_DNS/CONFIGURING/
-// ACTIVE/ERROR/REMOVING); the plan (docs/mvp-default-https-status.md)
+// ACTIVE/ERROR/REMOVING); the plan (docs/networking-and-https.md)
 // presents DNS_PENDING/TLS_PENDING/VERIFYING/ACTIVE/ERROR. This is the
 // read-time translation a status/view payload calls before product copy —
 // exported now (and unit-tested) so the Phase 9 UI-payload integration can

@@ -4,7 +4,7 @@
  * stack-event collection, real runtime-health observation) inside the
  * Playwright test process, speaking the real relay HTTP protocol
  * (register/commands/result/progress/health) to the real local API — see
- * docs/testing/discovery/phase1-design-decisions.md D1.
+ * docs/testing/e2e-testing.md D1.
  *
  * Only the AWS *client* interfaces are replaced, by a `SimulatedCustomerAccount`
  * driven by a `ScenarioDefinition`. Composition below mirrors how

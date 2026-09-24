@@ -17,7 +17,7 @@ deployment resources.
 
 ## Three-class model
 
-Stage B splits the repository audit into three classes so "100 repositories"
+Stage B splits the repository audit into three classes so "120 repositories"
 does not mean "100 fresh AWS foundations":
 
 | Class | Mode | Infrastructure | Coverage | Repositories |
@@ -46,9 +46,9 @@ Classification, verdicts, and failure stages are identical across all three
 classes. The class affects scheduling and resource usage, never the
 pass/fail criteria.
 
-> Naming note. The analyser hardening batch recorded as "Stage B" in
-> `../repository-compatibility/implementation-notes.md` (analysis version
-> 11) is analysis-side work. This directory is the deployment audit.
+> Naming note. An earlier analyser hardening batch was also called
+> "Stage B"; that was analysis-side work. This directory is the deployment
+> audit.
 
 ## Source of truth
 
@@ -118,8 +118,8 @@ a deployment.
   branch is pinned to the Stage A commit — a fork keeps commit SHAs, the
   release is created with `gitSha` = that SHA, and the tarball CodeBuild
   receives is the Stage A snapshot. The installation's repository access
-  must include the forks (an operator setting; see
-  `implementation-notes.md`). The result records the form used.
+  must include the forks (an operator setting on the GitHub App
+  installation). The result records the form used.
 - **Per repository**: one application, one customer, one deployment
   (`isTestDeployment: true`), one bootstrap stack
   (`deployz-bootstrap-<app>-<8 chars>`), one application stack
@@ -136,13 +136,13 @@ a deployment.
   the repository. Resources the product creates carry the product's own
   `deployz:installation` tag; the ledger records the installation id the
   moment the bootstrap stack outputs it.
-- **Generated secrets**: a secret value the harness generates and PUTs at
-  the vendor scope during B2 Configuration is dropped by the control plane
-  — there is no connected deployment to receive the fan-out. The harness
-  re-delivers the same generated values at the customer scope once the
-  connector enrolls (`result.configuration.deliveredAfterEnrollment`),
-  which is the supported vendor action for a customer-required secret today
-  (BUG-004 / DEPLOY-027 in the campaign report).
+- **Generated secrets**: a secret value the harness PUTs at the vendor
+  scope during B2 Configuration is stored KMS-encrypted and delivered to
+  the install through the relay config endpoint (DEPLOY-027 is closed by
+  the pending-secret vault, `docs/pending-secret-delivery.md`). The harness
+  still re-delivers the same values at the customer scope once the
+  connector enrolls (`result.configuration.deliveredAfterEnrollment`), a
+  belt-and-braces step from before that fix; the result records it.
 
 ## Safety and cleanup
 
@@ -295,8 +295,8 @@ exclusive.
 Other flags: `--force` (replace a protected deployment result, the old one
 goes to `runs/history/`), `--keep` (leave the environment for
 investigation; run `--cleanup` later), `--concurrency 1|2`, `--template
-pinned|generic|production` (see `implementation-notes.md`, "Stage B
-decision on the template"; `pinned` until DEPLOY-001 is fixed), `--online`
+pinned|generic|production` (`pinned` publishes the template variants from
+the commit under test; `production` uses whatever is published), `--online`
 (let the gate audit fetch snapshots that are not cached), `--cache`,
 `--evidence-dir`, `--runs-dir`, `--reuse-application`.
 
@@ -340,7 +340,7 @@ measures a real install. A repository's first attempt must run without the
 flag, so the create-application path is exercised like a real vendor's.
 
 The gate audit is offline by default and needs the Stage A snapshot cache
-(`../repository-compatibility/.cache/`, 100 repositories; copy it from a
+(`../repository-compatibility/.cache/`, 120 repositories; copy it from a
 machine that has run `pnpm benchmark:compat`). A real-AWS run or a
 runtime-reuse run needs the `aws` CLI authenticated to the test account,
 `pnpm build`, and the vendor GitHub App installation able to read the forks.
@@ -381,9 +381,6 @@ runtime-reuse run needs the `aws` CLI authenticated to the test account,
 
 | Document | Contents |
 | --- | --- |
-| [`implementation-notes.md`](implementation-notes.md) | Phase 0 architecture map, the production install path as it is, the reuse decisions, the phase plan and its status |
-| [`pilot-2-repo-report.md`](pilot-2-repo-report.md) | The 2-repository pilot (2026-09-09/10) validating the simulator-first / reusable-AWS testing strategy: repository selection, per-repository results and timings, the old-approach comparison, findings DEPLOY-017..024, the acceptance gate and the GO/NO-GO decision |
-| [`findings.md`](findings.md) | The systemic findings registry (`DEPLOY-nnn`) with evidence, affected repositories, root cause and resolution |
-| [`deploy-config.yaml`](deploy-config.yaml) | Per-repository vendor configuration and wave membership (Phase 1) |
-| `runs/` | Per-repository results, summaries, the frozen unseen baseline |
-| [`final-report.md`](final-report.md) | The Stage B decision report (Phase 8) |
+| [`findings.md`](findings.md) | The systemic findings registry (`DEPLOY-nnn`) with evidence, affected repositories, root cause and resolution — including the campaign histories (the 2-repository pilot, Wave 1, and the 2026-09-17/18 regional campaign) |
+| [`deploy-config.yaml`](deploy-config.yaml) | Per-repository vendor configuration and wave membership |
+| `runs/` | Per-repository results, summaries, the frozen unseen baseline (generated) |

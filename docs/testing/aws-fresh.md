@@ -1,9 +1,9 @@
 # AWS fresh E2E
 
 A hardened wrapper around the bootstrap stack's real create/destroy golden
-path. See [`README.md`](README.md) and
-[`discovery/phase1-design-decisions.md`](discovery/phase1-design-decisions.md)
-(D5) for how this fits the rest of the test hierarchy.
+path. See [`README.md`](README.md) for how this fits the rest of the test
+hierarchy and [`e2e-testing.md`](e2e-testing.md#the-simulation-seam) for the
+design decision (D5) behind it.
 
 ## Scope
 
@@ -93,7 +93,7 @@ The suite:
 - Each run mints an 8-hex-char run id and names its stack
   `deployz-fresh-<runid>` (via `DEPLOYZ_BOOTSTRAP_STACK_NAME`, consumed by
   `bin/bootstrap.ts`) — concurrent or previously-un-torn-down runs cannot
-  collide with each other or with a real customer's `DeployzBootstrap`
+  collide with each other or with a real customer's `deployz-bootstrap-…`
   stack.
 - If a stack with the freshly minted name somehow already exists, the suite
   **refuses to proceed** rather than treating it as a collision to recover
@@ -131,6 +131,7 @@ specifically touches Redis/RDS provisioning.
 ## Full product-flow fresh install
 
 The complete customer-facing flow (install link → a real customer AWS
-account → HEALTHY → update → delete) is not automated by fresh mode. It
-remains the documented manual live-install workflow — see
-`discovery/live-aws-machinery.md` §5 for the current step-by-step.
+account → HEALTHY → update → delete) is not automated by fresh mode. The
+version canary (`version-rollback-canary.md`) automates it for fixture
+releases; the manual walk for an arbitrary application is
+`aws-full-product-canary.md`.

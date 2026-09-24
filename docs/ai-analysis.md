@@ -2,8 +2,8 @@
 
 The reference for the P0/P1 AI capabilities of the Deployz MVP: how a
 repository becomes a validated application model, how that model gates
-deployment, and how a failed deployment is explained. The per-phase record
-with tests and PRs is `docs/ai-mvp-implementation-status.md`.
+deployment, and how a failed deployment is explained. The design decisions
+behind the AI boundary are in `docs/decisions/README.md`.
 
 ## Operating principle
 
@@ -27,7 +27,7 @@ with tests and PRs is `docs/ai-mvp-implementation-status.md`.
 ```
 Repository (GitHub tree, bounded)
   → analyseRepo: deterministic detectors + rejection checks
-  → AI fallback ONLY for one of seven unresolved questions; merge is
+  → AI fallback ONLY for an unresolved question; merge is
     deterministic-always-wins
   → ApplicationAnalysis (canonical, typed, evidenced)
   → ReadinessReport (findings) · DeploymentManifest (contract)
@@ -46,7 +46,7 @@ Repository (GitHub tree, bounded)
 - **Orchestrator:** `runApplicationAnalysis` (`apps/api/src/analysis.ts`).
   Fetches a bounded file tree, runs `analyseRepo` (`packages/analysis/src/
   analyser.ts`), applies the AI fallback when needed, builds the readiness
-  report and the canonical projection, backfills the §35 contract fields the
+  report and the canonical projection, backfills the contract fields the
   vendor has not edited, and persists everything in one write to
   `applications.detected_metadata`.
 - **Commit cache:** a run is skipped when `analysisCommitSha` and
@@ -132,15 +132,17 @@ value:
 |---|---|---|
 | `deployz_managed` | the names the stack injects for THIS app (DATABASE_*, the Redis bindings, STORAGE/S3 bucket, AWS_REGION, PORT, HOSTNAME) | at install |
 | `deployz_generated` | required + secret + app-internal name (…SECRET, SECRET_KEY(_BASE), ENCRYPTION_KEY, SIGNING_KEY, APP_KEY, SALT…), no third-party prefix, no connection suffix, not a catalog credential | minted once by the relay with `crypto.randomBytes` inside the customer's account |
-| `customer_required` | every other required key | the vendor, on the configuration screen |
+| `customer_required` | every other required key | a vendor decision on the configuration screen: the vendor supplies the value, or marks it "Set by customer" or optional (the name means "needs a vendor decision", not "the customer supplies it") |
 | `optional` | read with a default | optional |
 | `unknown` | declared only in a sample file | listed, never required |
 
 The first configuration pass runs after a successful INSTALL (one
-CONFIG_UPDATE job, key names only). The relay binds only secret keys whose
-value exists and reports `unboundSecretKeys`; the control plane never stores
-secret values, so a secret entered before the customer's relay is connected
-must be entered again from that deployment's configuration.
+CONFIG_UPDATE job). The relay binds only secret keys whose value exists and
+reports `unboundSecretKeys`. A secret entered before the customer's relay is
+connected is held KMS-encrypted in the pending-secret vault and delivered
+through the authenticated relay config endpoint on that first pass; a value
+that waits longer than 24 hours expires and must be entered again
+(`docs/pending-secret-delivery.md`).
 
 ## Preflight
 
@@ -216,7 +218,7 @@ diagnostic-vocabulary.ts`) plus a migration.
 - Deterministic corpora: `packages/analysis/test/eval-corpus.test.ts` (nine
   archetypes with exact expectations), `application-analysis.test.ts`,
   `env-classification.test.ts`, `readiness-report.test.ts`, and the
-  100-repository Stage A audit (`pnpm benchmark:compat`).
+  120-repository Stage A audit (`pnpm benchmark:compat`).
 - AI boundaries: schema/gate tests with fake gateways
   (`repository-ai.test.ts`, `diagnostic-explainer.test.ts`,
   `apps/api/src/ai-explanation.test.ts`, `fix-instructions` tests); the

@@ -1,6 +1,6 @@
 /**
  * Canary E2E — read-only verification of a persistent installation
- * (docs/testing/discovery/phase1-design-decisions.md D5).
+ * (docs/testing/e2e-testing.md D5).
  *
  * Gated on `DEPLOYZ_E2E_MODE === 'canary'` AND
  * `DEPLOYZ_E2E_ALLOW_REAL_AWS === '1'` — `scripts/e2e.mjs` sets both before

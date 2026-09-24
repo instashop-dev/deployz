@@ -1,6 +1,6 @@
 /**
  * Shared shell-out helpers for the live-AWS vitest suites (golden-path,
- * canary, fresh — docs/testing/discovery/phase1-design-decisions.md D5).
+ * canary, fresh — docs/testing/e2e-testing.md D5).
  *
  * Extracted from golden-path-live-aws.test.ts so canary-e2e.live.test.ts and
  * fresh-e2e.live.test.ts reuse exactly the same `cdk`/`aws` invocation

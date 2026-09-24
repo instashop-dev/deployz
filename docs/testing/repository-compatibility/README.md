@@ -24,7 +24,7 @@ Stage A covers analysis only: the file-tree fetch, the deterministic
 detectors and rejection checks, the readiness report, and the
 deployment-creation gate. It stops before any AWS execution. The AI fallback
 is not exercised: the harness runs with an unconfigured AI gateway, so the
-questions the §15 fallback would have asked are recorded on each result
+questions the AI fallback would have asked are recorded on each result
 (`actual.unresolvedQuestions`) rather than answered.
 
 Two verdict layers exist in Deployz, and both are captured:
@@ -51,7 +51,7 @@ among several engines, S3 as an alternative to local disk) is deployable
 and its expectation names the Deployz-compatible configuration
 (`postgres: true`, `storage: true`, `NEEDS_CONFIGURATION` when a value must
 be set). Only an intrinsic requirement — SQLite as the sole database, a
-declared separate worker process (the Phase 8 boundary in
+declared separate worker process (the MVP support boundary in
 `docs/architecture.md`), a second application service — makes a repository
 `NOT_COMPATIBLE`. A Dockerfile that cannot build from
 the repository alone (it copies an artifact no build step produces) counts
@@ -84,6 +84,10 @@ Sets:
 - `unseen` — 20 repositories selected after the improvement corpus was
   complete and the analyser baseline frozen; their first results are never
   used to change the analyser before the whole set is reported.
+- `unseen2` — a second frozen set of 20 (`repo-201` … `repo-220`), added
+  for the later hardening rounds under the same rule.
+
+The corpus is therefore 120 entries.
 
 Every entry pins an immutable 40-character commit SHA. Expected facts are
 written from repository evidence (manifests, Dockerfiles, compose files,
@@ -212,11 +216,10 @@ harness.
 and analysis version, the tree statistics, the expected and normalized actual
 facts, every comparison, and every mismatch with its classification.
 `runs/summary.json` and `runs/summary.md` aggregate a full run (a partial
-`--repo`/`--set` run never overwrites them).
-[`final-report.md`](final-report.md) is the Stage A decision report: accuracy
-by set and cohort, the analyser mistakes ranked by repositories affected,
-and the capability gaps ranked by realistic customer impact with a
-FIX_BEFORE_MVP / CONSIDER_FOR_MVP / DEFER / KEEP_UNSUPPORTED decision each.
+`--repo`/`--set` run never overwrites them). The committed summary records
+the analysis version it was produced with; the analyser has moved on since
+(`ANALYSIS_VERSION` in `apps/api/src/analysis.ts`), so rerun the benchmark
+before quoting accuracy numbers.
 
 - **Verdict accuracy** — the share of analysed repositories whose
   `compatibility` matched.
@@ -238,10 +241,6 @@ the repositories this corpus expects to be deployable — is the separate
 deployment audit in
 [`../repository-deployment/README.md`](../repository-deployment/README.md);
 it reads this benchmark by id and never copies it.
-
-[`implementation-notes.md`](implementation-notes.md) is the current
-hardening plan: what the analyser already does, the remaining gaps, and
-where each planned change lands (anti-duplication map for new work).
 
 ## Rules for fixing bugs vs recording capability gaps
 

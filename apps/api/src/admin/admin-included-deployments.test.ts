@@ -11,7 +11,7 @@ import type { PaddleBilling } from '../paddle.js';
 import { buildServer } from '../server.js';
 
 // Included production deployments — the admin mutation
-// (docs/billing/included-deployments-implementation.md). These tests cover
+// (docs/billing/paddle-billing.md, "Included production deployments"). These tests cover
 // the admin wrapping: authorization, validation, the audit row, and that a
 // real change on a subscribed organization runs reconcileBilling and pushes
 // max(active − included, 0). The formula itself is billing-reconcile.test.ts.

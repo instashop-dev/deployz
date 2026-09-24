@@ -6,7 +6,7 @@ disconnect → purge, against the **deployed** control plane
 (`https://app.deployz.dev` / `https://api.deployz.dev`) and the test AWS
 account. It is the only check that exercises the published bootstrap and
 application templates, the relay Lambda that ships to customers, and the
-control plane together. Everything below was validated on 2026-09-02/03.
+control plane together. First validated on 2026-09-02/03; rerun on 2026-09-05 and 2026-09-24.
 
 Use it to validate a release, or after a change to the relay, the templates,
 the install/deploy state machine, or the publish tooling. For everything
@@ -14,8 +14,7 @@ else use the simulated suite (`pnpm e2e`); see
 [`ai-agent-testing-guide.md`](ai-agent-testing-guide.md). The Deploy Link
 variant of the walk (vendor customer page → Generate deploy link →
 `/deploy/<publicId>?token=…` → Deploy to AWS → the same relay pipeline) was
-validated on 2026-09-05; see `docs/deploy-links.md` and the P0 hardening
-record in `docs/ai-mvp-implementation-status.md`.
+validated on 2026-09-05; see `docs/deploy-links.md`.
 
 ## 1. Fix the commit under test
 
@@ -29,9 +28,11 @@ record in `docs/ai-mvp-implementation-status.md`.
 
 ## 2. Publish the customer templates from that commit
 
-The deploy workflows never publish templates. What a customer downloads is
-whatever `publish:application` / `publish:bootstrap` last uploaded, so a
-canary on stale templates tests old relay code. Compare
+The deploy workflows never publish the application templates, and they
+republish the bootstrap template only when the `BOOTSTRAP_REPUBLISH`
+repository variable is `on`. Otherwise what a customer downloads is whatever
+`publish:application` / `publish:bootstrap` last uploaded, so a canary on
+stale templates tests old relay code. Compare
 `packages/cdk/artifacts/bootstrap-template-v1.json` (relay asset hash in
 `RelayFunction.Code.S3Key`) with the published object before assuming they
 match.
@@ -48,10 +49,12 @@ BOOTSTRAP_PUBLISH_REGIONS=us-east-1 BOOTSTRAP_LEGACY_BUCKET_REGION=us-east-1 AWS
 The bootstrap publisher prints the `BOOTSTRAP_TEMPLATE_URL` it wrote; it must
 equal the deployed API Lambda's `BOOTSTRAP_TEMPLATE_URL` environment variable
 (`aws lambda get-function-configuration`). Without
-`BOOTSTRAP_PUBLISH_REGIONS`/`BOOTSTRAP_LEGACY_BUCKET_REGION` the publisher
-fans out to every `deployz-templates-<region>` bucket and fails closed if
-one is missing — none of those buckets exist yet, so the two variables are
-the production recipe until they do.
+`BOOTSTRAP_PUBLISH_REGIONS` the publisher fans out to every
+`deployz-templates-<region>` bucket and fails closed if one is missing; the
+regional buckets exist today, and the deploy workflow republishes to every
+Region in `DEPLOYABLE_AWS_REGIONS` when the `BOOTSTRAP_REPUBLISH` repository
+variable is `on` (`docs/operations/control-plane.md`). Restrict
+`BOOTSTRAP_PUBLISH_REGIONS` to the Region under test when you only need one.
 
 Republish after every merge that touches `packages/relay/src`,
 `packages/cdk/src/bootstrap`, or `packages/cdk/src/application` — including
@@ -100,14 +103,14 @@ never canary-owned.
    throwaway customer name/email; a failed creation now shows the API's
    reason and does not duplicate the customer). Record the install link and
    deployment id.
-3. **Customer**: open the install link, press *Deploy to AWS*, land on the
+3. **Customer**: open the install link, press *Review setup in AWS*, land on the
    CloudFormation Quick Create page (stack name
    `deployz-bootstrap-<app>-<8 chars>`, template + control-plane URL +
    enrollment code prefilled), tick the IAM acknowledgement, *Create stack*.
    Bootstrap takes ~3 minutes; the relay's first scheduled poll (5-minute
    EventBridge rate) registers and claims INSTALL. When the console cannot
    be opened from the driving browser (the in-app pane blocks the pop-up),
-   press *Deploy to AWS* anyway (it records the launch) and create the same
+   press *Review setup in AWS* anyway (it records the launch) and create the same
    stack with the CLI from the link's values — the template's parameter
    names are `ControlPlaneUrl` and `EnrollmentCode` (the `param_` prefix in
    the Quick Create URL is the console's):
@@ -126,7 +129,7 @@ never canary-owned.
    full task counts, healthy ALB targets and a successful HTTP probe. Check
     the app yourself: `curl http://<ALB DNS>/api/health` (use curl — the ALB
     is plain HTTP until the HTTPS endpoint is active, and HTTPS-First
-    browsers refuse http). Since Phase 11, HTTPS is provisioned automatically
+    browsers refuse http). HTTPS is provisioned automatically
     on the permanent Deployz-owned hostname `d-<deployment-id>.deployz.dev`
     (reconciled through the deployz.dev Cloudflare zone, configured by the
     `CLOUDFLARE_ZONE_*` deploy env) with zero customer DNS; a customer custom
@@ -189,7 +192,7 @@ Re-run the baseline commands and diff against the ledger. Specifically:
 | Symptom | Cause | Guard |
 | --- | --- | --- |
 | Install reported *failed* after exactly 3 minutes while the stack keeps creating; relay error "could not record that it must report back" | SSM pending marker exceeded 4 KB once the INSTALL payload carried the manifest | Marker stores merged parameters, not the manifest; oversize/write failures are logged (`relay:pending-marker-too-large`, `relay:pending-write-failed`); relay tests defer a production-size payload |
-| Healthy app analysed as NOT_COMPATIBLE (dev compose file, `@azure/*`/`@google-cloud/*` SDKs) | Over-broad §11.4 rejection signals | Compose files under development/test/example paths ignored; cloud rejections need deployment files; fixture test in `packages/analysis/test/phase7.test.ts` |
+| Healthy app analysed as NOT_COMPATIBLE (dev compose file, `@azure/*`/`@google-cloud/*` SDKs) | Over-broad rejection signals | Compose files under development/test/example paths ignored; cloud rejections need deployment files; fixture test in `packages/analysis/test/phase7.test.ts` |
 | Health path detected as a source-file path (`/apps/remix/routes/api+/health`) | File-route derivation ignored router roots and remix flat-route markers | `deriveHealthPathFromFile` tests for Remix/SvelteKit/monorepo shapes |
 | Failed update marks the deployment FAILED although the old version serves | `currentReleaseId` is null for template-image installs | A SUCCEEDED install counts as a running workload (`failure-semantics.test.ts`, `worker.test.ts`) |
 | Migration task exits 1: "Cannot find module '/app/…/prisma'" | Command run as a whitespace split on a node-entrypoint image | Migration runs as `sh -c <command>`; the release's own command outranks the manifest snapshot |
@@ -250,9 +253,9 @@ Run these on the same walk, in order; they cost nothing extra in AWS.
    release, or the `docs/testing/aws-full-product-canary.md` §6 quota
    failure if one is available: the diagnostics card must lead with the
    copy-map explanation for the classified code, keep the raw relay text
-   and the Phase 6 context (operation, failed resources) behind "Technical
+   and the failure context (operation, failed resources) behind "Technical
    detail", and never show a raw CloudFormation status at the top level.
-   Only an `UNKNOWN` code consults the model; a below-high confidence
+   Only `UNKNOWN` and the application-owned codes (container start, health check, database connection, missing secret, port, migration) consult the model; a below-high confidence
    must be hedged. The diagnostics page's "Last relay report" must lead
    with a plain-English problem and next action for any failing check and
    keep the relay's own check text behind its "Technical detail"

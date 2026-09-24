@@ -101,7 +101,7 @@ published from a commit that includes the relay you want to test
 | --- | --- | --- |
 | `--keep` | — | Leave the environment in place for investigation; run `cleanup --run-id` afterwards. |
 | `--existing-image=<digest>` | `DEPLOYZ_E2E_EXISTING_IMAGE_DIGEST` | Skip CodeBuild/GitHub-source rebuilds and use the supplied digest for every release version. The digest must match `sha256:[0-9a-f]{64}`. All versions (v1, v2, v3, v4) share the same digest — version verification relies on release and deployment records, not image changes. Use this flag during deployment-engine iteration when the image is already published and the ~20-minute build wait is unnecessary. The default path (no `--existing-image`) builds each release through CodeBuild and is required for full build-pipeline validation. |
-| `--reuse-stack` | — | Skip bootstrap stack creation, application stack provisioning, and final infrastructure teardown. Reuse a standing stack that is already tagged `DeployzPersistent=true` and `DeployzTestMode=canary`. The stack name defaults to `deployz-app` (overridable via `DEPLOYZ_E2E_CANARY_STACK_NAME`). The canary hard-fails if the stack does not exist or the tags are wrong. Per-run resources (customer, deployment, releases) are still created and cleaned. Infrastructure is left standing. Do not use this flag when testing bootstrap or teardown logic. |
+| `--reuse-stack` | — | Skip bootstrap stack creation, application stack provisioning, and final infrastructure teardown. Reuse a standing stack that is already tagged `DeployzPersistent=true` and `DeployzTestMode=canary`. The stack name defaults to the legacy `deployz-app`; set `DEPLOYZ_E2E_CANARY_STACK_NAME` to the real `deployz-app-<installation-id-prefix>` name (no standing stack exists today, so this flag needs one to be provisioned first). The canary hard-fails if the stack does not exist or the tags are wrong. Per-run resources (customer, deployment, releases) are still created and cleaned. Infrastructure is left standing. Do not use this flag when testing bootstrap or teardown logic. |
 
 `--keep` and `--reuse-stack` can be combined: the environment stays running
 for investigation, and the infrastructure stays standing for the next
@@ -233,5 +233,5 @@ infrastructure**; any failure fixes the root cause and restarts the count.
   covers only `d-<deployment>.deployz.dev`.
 - **Failed-release step exceeds 50 minutes** — the ECS circuit breaker needs
   several task launches; check the deploy job's `reconcileCount` and the
-  relay log group for repeated `UpdateService` calls (hypothesis H1 in the
-  canary report).
+  relay log group for repeated `UpdateService` calls (a known slow path,
+  not a defect).

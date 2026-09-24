@@ -1,10 +1,9 @@
 # Paddle billing — how it works
 
 The reference for Deployz billing after the Stripe → Paddle migration
-(Phases 0–17, September 2026). The phase-by-phase record and every ruling
-live in `MIGRATION_PROGRESS.md`; the decision tables in `billing-matrix.md`;
-the catalog in `paddle-catalog.md`. This document is the shape of the system
-as shipped.
+(September 2026). The decision tables are in `billing-matrix.md` and the
+catalog in `paddle-catalog.md`. This document is the shape of the system as
+shipped.
 
 ## The commercial model
 
@@ -138,8 +137,7 @@ reconciles any ACTIVE/PAST_DUE subscription not checked for an hour.
 
 An organization-scoped, admin-controlled allowance: the number of live
 production deployments the organization may run before the per-deployment
-charge applies. Implementation record:
-`included-deployments-implementation.md`.
+charge applies.
 
 ### Business rule
 
@@ -226,9 +224,10 @@ nothing more.
 
 ## Configuration
 
-Six values, all in `.github/workflows/deploy-api.yml` from repository
-secrets (and the CDK allowlist): `PADDLE_API_KEY`, `PADDLE_WEBHOOK_SECRET`,
-`PADDLE_CLIENT_TOKEN`, `PADDLE_PRICE_PLATFORM`, `PADDLE_PRICE_DEPLOYMENT`,
+Six values, all supplied by `.github/workflows/deploy-api.yml` (and the CDK
+allowlist): five repository secrets — `PADDLE_API_KEY`,
+`PADDLE_WEBHOOK_SECRET`, `PADDLE_CLIENT_TOKEN`, `PADDLE_PRICE_PLATFORM`,
+`PADDLE_PRICE_DEPLOYMENT` — and the repository variable
 `PADDLE_ENVIRONMENT`. Billing is optional at boot: with no API key every
 billing surface reports `BILLING_DISABLED` and nothing else is affected.
 Once the key is set the other five are validated at startup. Price ids are
@@ -236,6 +235,23 @@ configuration, never source — `paddle-catalog.md`.
 
 The worker Lambda receives the same six values, so the safety job needs no
 separate configuration.
+
+Two operational switches live beside them as repository *variables*:
+
+- `PADDLE_ENVIRONMENT` defaults to `sandbox`; production activation is an
+  operator step (create the production catalog per `paddle-catalog.md`, set
+  the five secrets, switch the variable). The repository does not record
+  whether production billing is switched on; check the variable.
+- `BILLING_ENFORCEMENT=off` pauses the PRODUCTION-deployment subscription
+  gate platform-wide, for an incident where Paddle state is wrong or
+  unreachable and customers must not be blocked. Unset (the normal state)
+  enforces. Nothing else changes: webhooks, checkout, reconciliation and
+  the allowance counters keep running (`apps/api/src/env.ts`,
+  `billing-entitlements.ts`).
+
+With no Paddle key, checkout answers `503 BILLING_DISABLED` and creating a
+PRODUCTION deployment is refused with `402` unless enforcement is paused.
+TEST deployments are never gated.
 
 ## What was deliberately not built
 
@@ -250,80 +266,12 @@ separate configuration.
   canceled vendor can keep operating deployments they no longer pay for,
   because the alternative punishes their customers.
 
-## Sandbox verification (Phase 16)
+## Verification status
 
-Run on 2026-09-08 against the real Paddle sandbox, with the API on
-file-backed PGlite reached through a cloudflared quick tunnel. Nothing here
-used a card; Paddle's simulator delivered real, signed webhooks.
-
-| Step | Observed |
-|---|---|
-| Notification destination `ntfset_01m20j6f98zk75cv0w8723dgmc` (all `subscription.*`, `transaction.completed`, `transaction.payment_failed`, `traffic_source: all`) | created via the sandbox MCP; its `endpoint_secret_key` became `PADDLE_WEBHOOK_SECRET` |
-| Vendor signs up, connects `deployz-demo/express-api`, analyses | READY |
-| `POST /api/deployments` PRODUCTION, no subscription | **402 `SUBSCRIPTION_REQUIRED`**, `subscriptionStatus: null` |
-| `POST /api/billing/checkout` | intent parked PENDING; Paddle refused `transactions.create` (see the key finding) |
-| Simulation `ntfsim_01m20kfkxc6crfhwtbr4f9vjc3` `subscription.activated`, `custom_data.organizationId` only | API **200 `PROCESSED`**; `/api/me` ACTIVE; the parked request became `P16 Customer / PRODUCTION / NOT_INSTALLED / billingState NOT_STARTED` (single-pending fallback); reconcile ran and recorded FAILED with Paddle's reason |
-| Replay of the same event id | API **200 `DUPLICATE`**; deployment count still 1 |
-| Simulation `ntfsim_01m20kn8b2dek7g7b4rgt6rhtr` `subscription.past_due` | `/api/me` PAST_DUE; checkout **409 `SUBSCRIPTION_NEEDS_ATTENTION`**; new deployment **402** with PAST_DUE |
-| Simulation `ntfsim_01m20kr2gqkvz384w9w3s2fe3z` `subscription.canceled` | `/api/me` CANCELED; new deployment **402**; checkout **reached Paddle** (502 on the key, not 409); destroy of the existing deployment **200 DELETED** |
-
-**Did not behave as documented, and was fixed:** a provider error on
-checkout or portal was swallowed entirely, so a bad key surfaced only as a
-bare 502. Both now log `billing:checkout-transaction-failed` /
-`billing:portal-session-failed` server-side (R16-3).
-
-**Follow-up, same day, with a valid key:** authentication and a catalog read
-succeeded, and `customerPortalSessions.create` returned a real session on
-`sandbox-customer-portal.paddle.com` — the portal path is verified live. What
-still blocks every transaction-dependent check is account-level and
-dashboard-only: `transaction_default_checkout_url_not_set`. The sandbox
-refuses *every* `transactions.create` — even a manually-collected one with
-checkout disabled — until Paddle sandbox → Checkout → Checkout settings →
-**Default payment link** is set (e.g. `http://localhost:3000/dashboard/settings/billing`).
-There is no API for it.
-
-**Verified live, same day, once the payment link was set** (server-free,
-no card): a manually-collected transaction `txn_01m20s54pf4be7a3gh2cj111hs`
-billed at $49.00 became real subscription `sub_01m20s55dzz7jew6b1wv3g0aw3`
-with the transaction's `custom_data` carried through — the mechanism the
-webhook's organization resolution relies on. Against it, the exact item
-updates `reconcileBilling` sends behaved as documented: the deployment item
-**added** at quantity 1, set to an **absolute** 3, **removed** entirely when
-the last live deployment goes (the platform item untouched throughout), and
-read back correctly each time. `customerPortalSessions.create` returned
-cancel and update-payment deep links for that subscription. It was then
-canceled immediately for cleanup. Note for anyone repeating this: Paddle
-creates the subscription *asynchronously* after billing — `subscriptionId` is
-null in the create response and appears within seconds — and a manually
-collected transaction needs a full postal address, not just country and ZIP.
-
-**Still unverified live:** the Paddle.js overlay (needs a browser and the
-client token) and, trivially, `POST /api/billing/checkout` calling
-`transactions.create` from inside the API — the identical SDK call with the
-identical key that just succeeded, blocked earlier only by the malformed key.
-Once set, the server-free script pattern (customer →
-address → manual billed transaction → real subscription → update items the
-way `reconcileBilling` does → read the quantity back → cancel) proves the
-remaining REST paths without a card or a running API; the overlay still needs
-a browser and the client token.
-
-**Original key finding:** the first-supplied `PADDLE_API_KEY` was the key's masked
-identifier (`pdl_sdbx_apikey_<26-char id>`, four segments), not the one-time
-secret (five segments). Paddle answers `authentication_malformed` for it.
-Every path that calls the Paddle REST API is therefore **not yet verified
-live**: `transactions.create`, `subscriptions.get/update`,
-`customerPortalSessions.create`, and the Paddle.js overlay. Recipe to finish
-once a valid key and client token are in the worktree `.env`: start the API
-and a quick tunnel, reactivate and repoint the destination above, run
-`POST /api/billing/checkout`, pay with Paddle's test card in the overlay,
-confirm `subscription.activated` arrives with the real `checkoutIntentId`,
-force the deployment live, press the admin Reconcile, and read the quantity
-back with `subscriptions.get`.
-
-## Audit §9 open items — closed
-
-| Item | Closed by |
-|---|---|
-| Deploy-link deployments are always PRODUCTION; the gate must cover them | Phase 7 — `createDeployLink` calls `assertProductionDeploymentAllowed` |
-| The relay-liveness worker is the natural host for the safety schedule | Phase 10 — `sweepBilling` on the existing `WatchdogSchedule`, no CDK change |
-| Paddle.js needs `NEXT_PUBLIC_*` baked through `deploy-web.yml` | Superseded (R8-5) — the client token is fetched at runtime from `GET /api/billing/config` |
+The lifecycle, webhooks, checkout, portal, reconciliation and the allowance
+were verified end to end against the Paddle **sandbox** on 2026-09-08 (see
+the PR history for the run log). Production Paddle has not been verified
+from this repository: `PADDLE_ENVIRONMENT` defaults to `sandbox` and no
+production price ids are recorded in `paddle-catalog.md`. Treat billing
+as sandbox-verified, production-unconfirmed until an operator records
+otherwise.

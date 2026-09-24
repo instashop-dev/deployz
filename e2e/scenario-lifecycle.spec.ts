@@ -4,7 +4,7 @@
  * executors (packages/relay/src/deploy.ts, destroy.ts), driven through the
  * REAL vendor API routes (POST releases, POST /deployments/:id/deploy,
  * /rollback, /destroy), produce the honest production behaviour documented
- * in docs/testing/discovery/deployment-lifecycle.md §6 — including where
+ * in docs/deployment-resilience.md §6 — including where
  * that behaviour is a plain FAILED rather than a false success.
  *
  * Every test installs to HEALTHY first (happy-path-style timeline — see
