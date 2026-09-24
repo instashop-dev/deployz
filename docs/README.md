@@ -35,7 +35,7 @@ not here.
 | Operating the control plane | [`operations/control-plane.md`](operations/control-plane.md) | CI-only deploys, configuration keys, migrations, publishing templates, enabling a Region, release builds, local development |
 | Troubleshooting | [`operations/troubleshooting.md`](operations/troubleshooting.md) | Where to look, failure codes and recoverability, stuck operations, common situations, test-account hygiene |
 | Docker Hub credentials | [`docker-hub-credentials.md`](docker-hub-credentials.md) | Authenticated base-image pulls for release builds |
-| Testing | [`testing/README.md`](testing/README.md) | The test ladder and every testing document |
+| Testing | [`testing/README.md`](testing/README.md) | The testing strategy, the coverage matrix, and every testing document |
 | Billing | [`billing/paddle-billing.md`](billing/paddle-billing.md) | Commercial model, entitlements, allowance, configuration; [`billing/billing-matrix.md`](billing/billing-matrix.md) decision tables; [`billing/paddle-catalog.md`](billing/paddle-catalog.md) prices |
 | Team Admin | [`admin/team-admin.md`](admin/team-admin.md) | Scope, routes, authorization, support sessions, recovery actions, audit |
 | Telemetry | [`product-telemetry.md`](product-telemetry.md) | Event vocabulary, privacy rules, funnel semantics, Pilot Insights |

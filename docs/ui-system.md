@@ -310,4 +310,5 @@ One `<h1>` per page.
   palette colors and known raw CloudFormation statuses in customer-facing
   `apps/web/src` code.
 - Visual regression: `e2e/visual.spec.ts` covers canonical pages; run
-  `pnpm test:e2e -- e2e/visual.spec.ts` after UI changes.
+  `pnpm e2e e2e/visual.spec.ts` after UI changes. The committed snapshots
+  are Windows-only — generate and compare them on Windows.
