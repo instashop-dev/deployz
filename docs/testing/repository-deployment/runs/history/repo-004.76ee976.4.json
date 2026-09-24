@@ -1,0 +1,341 @@
+{
+  "schemaVersion": 1,
+  "id": "repo-004",
+  "repository": "miniflux/v2",
+  "commit": "a84533db6ca0a2ff9a47800fbf0326be6d9b3170",
+  "repositoryForm": "fork",
+  "repositoryUsed": "instashop-dev/v2",
+  "set": "improvement",
+  "cohort": "realistic",
+  "customerRealism": "high",
+  "difficulty": 3,
+  "deployzCommit": "76ee976d2a4d2e5c9d71851234648a2601dadaae",
+  "runId": "stage-b-repo-004-20260917-224335-06d6",
+  "stageAExpected": "NEEDS_CONFIGURATION",
+  "expectedDeployable": true,
+  "mode": "deploy",
+  "deploymentClass": "runtime-reuse",
+  "gate": {
+    "status": "PASS",
+    "verdict": "READY",
+    "analysisVerdict": "READY",
+    "outcome": "correct-accept",
+    "gateFindings": [
+      "migration-command-missing"
+    ],
+    "requiredKeys": [],
+    "missingKeys": [],
+    "unsupported": [],
+    "configuredVerdict": "READY",
+    "configuredFindings": [
+      "migration-command-missing"
+    ],
+    "source": "in-process",
+    "analysisVersion": 24,
+    "manifest": {
+      "dockerfilePath": "packaging/docker/alpine/Dockerfile",
+      "buildContext": ".",
+      "appRoot": ".",
+      "port": 8080,
+      "healthPath": "/v1/integrations/status",
+      "healthMode": "explicit",
+      "migrationCommand": null,
+      "migrationMode": "unknown",
+      "postgres": true,
+      "redis": false,
+      "storage": false,
+      "databaseBindings": [
+        "DATABASE_HOST",
+        "DATABASE_NAME",
+        "DATABASE_PASSWORD",
+        "DATABASE_PORT",
+        "DATABASE_URL",
+        "DATABASE_USER"
+      ],
+      "redisBindings": [],
+      "storageBindings": [],
+      "generatedKeys": []
+    },
+    "detail": null
+  },
+  "configuration": {
+    "status": "PASS",
+    "overrides": {
+      "containerPort": 8080,
+      "healthPath": "/healthcheck",
+      "dockerfilePath": "packaging/docker/alpine/Dockerfile",
+      "buildContext": "."
+    },
+    "keys": [
+      "ADMIN_PASSWORD",
+      "ADMIN_USERNAME",
+      "BASE_URL",
+      "CREATE_ADMIN",
+      "RUN_MIGRATIONS"
+    ],
+    "generatedKeys": [
+      "ADMIN_PASSWORD"
+    ],
+    "deliveredAfterEnrollment": [
+      "ADMIN_PASSWORD"
+    ],
+    "detail": null
+  },
+  "build": {
+    "status": "PASS",
+    "releaseId": "c96c998e-cd5c-4cf9-a4eb-b012550adab2",
+    "version": "repo-004-20260917-224335-06d6",
+    "gitSha": "a84533db6ca0a2ff9a47800fbf0326be6d9b3170",
+    "dockerfilePath": "packaging/docker/alpine/Dockerfile",
+    "buildContext": ".",
+    "imageDigest": "sha256:ace4609e4aa7a203cf89cb9b23a96b80e60f0c2a671b81fc5fe768c21d02630d",
+    "buildId": null,
+    "durationMs": 83545,
+    "imageReused": false,
+    "detail": null
+  },
+  "deployment": {
+    "status": "PASS",
+    "deploymentId": "d9d129c3-1f47-4cf4-830e-c241515d0685",
+    "installationId": "e61ec960-8ce9-4020-b252-100c2687d10e",
+    "bootstrapStack": "deployz-bootstrap-stage-b-repo-004-d9d129c3",
+    "applicationStack": "deployz-app-e61ec960",
+    "stackStatus": "CREATE_COMPLETE",
+    "templateSource": "production-default",
+    "templateUrl": null,
+    "installJobState": "SUCCEEDED",
+    "failureCode": null,
+    "resourceCount": 47,
+    "resourcesByType": {
+      "AWS::SecretsManager::Secret": 3,
+      "AWS::Logs::LogGroup": 1,
+      "AWS::S3::Bucket": 1,
+      "AWS::S3::BucketPolicy": 1,
+      "AWS::ECS::Cluster": 1,
+      "AWS::RDS::DBInstance": 1,
+      "AWS::SecretsManager::SecretTargetAttachment": 1,
+      "AWS::RDS::DBSubnetGroup": 1,
+      "AWS::EC2::SecurityGroupIngress": 2,
+      "AWS::EC2::SecurityGroup": 3,
+      "AWS::ElasticLoadBalancingV2::LoadBalancer": 1,
+      "AWS::ElasticLoadBalancingV2::Listener": 1,
+      "AWS::ElasticLoadBalancingV2::TargetGroup": 1,
+      "AWS::EC2::SecurityGroupEgress": 1,
+      "AWS::ECS::Service": 1,
+      "AWS::ECS::TaskDefinition": 1,
+      "AWS::IAM::Role": 2,
+      "AWS::IAM::Policy": 2,
+      "AWS::CloudWatch::Alarm": 1,
+      "AWS::EC2::VPC": 1,
+      "AWS::EC2::InternetGateway": 1,
+      "AWS::EC2::Route": 4,
+      "AWS::EC2::SubnetRouteTableAssociation": 4,
+      "AWS::EC2::RouteTable": 4,
+      "AWS::EC2::Subnet": 4,
+      "AWS::EC2::EIP": 1,
+      "AWS::EC2::NatGateway": 1,
+      "AWS::EC2::VPCGatewayAttachment": 1
+    },
+    "region": "us-east-1",
+    "durationMs": 1384759,
+    "detail": null
+  },
+  "inventory": {
+    "status": "PASS",
+    "planCreateKinds": [
+      "application",
+      "database",
+      "endpoint",
+      "storage"
+    ],
+    "expectedKinds": [
+      "application",
+      "database",
+      "endpoint",
+      "storage"
+    ],
+    "presentTypes": [
+      "AWS::SecretsManager::Secret",
+      "AWS::Logs::LogGroup",
+      "AWS::S3::Bucket",
+      "AWS::S3::BucketPolicy",
+      "AWS::ECS::Cluster",
+      "AWS::RDS::DBInstance",
+      "AWS::SecretsManager::SecretTargetAttachment",
+      "AWS::RDS::DBSubnetGroup",
+      "AWS::EC2::SecurityGroupIngress",
+      "AWS::EC2::SecurityGroup",
+      "AWS::ElasticLoadBalancingV2::LoadBalancer",
+      "AWS::ElasticLoadBalancingV2::Listener",
+      "AWS::ElasticLoadBalancingV2::TargetGroup",
+      "AWS::EC2::SecurityGroupEgress",
+      "AWS::ECS::Service",
+      "AWS::ECS::TaskDefinition",
+      "AWS::IAM::Role",
+      "AWS::IAM::Policy",
+      "AWS::CloudWatch::Alarm",
+      "AWS::EC2::VPC",
+      "AWS::EC2::InternetGateway",
+      "AWS::EC2::Route",
+      "AWS::EC2::SubnetRouteTableAssociation",
+      "AWS::EC2::RouteTable",
+      "AWS::EC2::Subnet",
+      "AWS::EC2::EIP",
+      "AWS::EC2::NatGateway",
+      "AWS::EC2::VPCGatewayAttachment"
+    ],
+    "missing": [],
+    "unexpected": [],
+    "detail": null
+  },
+  "runtime": {
+    "ecs": "HEALTHY",
+    "alb": "HEALTHY",
+    "https": "PASS",
+    "healthPath": "/healthcheck",
+    "healthPathSource": "stage-b",
+    "appUrl": "https://d-d9d129c3-1f47-4cf4-830e-c241515d0685.deployz.dev",
+    "runningImageDigest": "sha256:ace4609e4aa7a203cf89cb9b23a96b80e60f0c2a671b81fc5fe768c21d02630d",
+    "releaseServing": true,
+    "smoke": [
+      {
+        "path": "/healthcheck",
+        "status": 200,
+        "ok": true,
+        "detail": "ok",
+        "exercises": [
+          "postgres"
+        ]
+      },
+      {
+        "path": "/",
+        "status": 200,
+        "ok": true,
+        "detail": "ok",
+        "exercises": []
+      }
+    ],
+    "observation": {
+      "seconds": 180,
+      "samples": 6,
+      "healthStatuses": [
+        301,
+        301,
+        301,
+        301,
+        301,
+        301
+      ],
+      "appStatuses": [
+        200,
+        200,
+        200,
+        200,
+        200,
+        200
+      ],
+      "httpsHealthStatuses": [
+        200,
+        200,
+        200,
+        200,
+        200,
+        200
+      ]
+    },
+    "detail": null
+  },
+  "dependencies": {
+    "postgres": "PASS",
+    "redis": "NOT_REQUIRED",
+    "storage": "NOT_REQUIRED",
+    "migration": "NOT_REQUIRED",
+    "detail": null
+  },
+  "update": {
+    "status": "PASS",
+    "releaseId": "b1905bec-4e5a-4747-9267-48761255cb0f",
+    "version": "repo-004-20260917-224335-06d6-u2",
+    "imageDigest": "sha256:36a7f343a78866286b700728a6fb4e9cdbda7c23a498e5686a01146cdb8c957c",
+    "durationMs": 901650,
+    "detail": null
+  },
+  "cleanup": {
+    "status": "FAIL",
+    "destroyJobState": null,
+    "purgeJobState": null,
+    "cleanupState": null,
+    "bootstrapStackFinal": "SKIPPED: purge not complete",
+    "leaks": [
+      "stack deployz-bootstrap-stage-b-repo-004-b22af46a CREATE_COMPLETE",
+      "stack deployz-app-7cf6aad6 CREATE_COMPLETE",
+      "rds deployz-app-7cf6aad6-databaseb269d8bb-mfifrfblg7ha",
+      "alb deploy-LoadB-ejVaZ1pJP8jR",
+      "bucket deployz-app-7cf6aad6-appstorage995579da-dsx541tka3dd",
+      "secret RelayCredentialFromParam-A64yQcfJqty5",
+      "secret DatabaseSecret86DBB7B3-NVvS8eNW6SSU",
+      "secret AppConfigSecret251CAC1E-08T55hVhG71I",
+      "secret DatabaseUrlSecretFA7DE062-TbQZP8I0b7dB",
+      "log-group /aws/lambda/deployz-bootstrap-stage-b-InstallIdFunctionE00E99D-2eJ7cpUkoY1W",
+      "log-group /aws/lambda/deployz-bootstrap-stage-b-InstallIdProviderframewo-hngtM81tBAw4",
+      "log-group /aws/lambda/deployz-bootstrap-stage-b-LogRetentionaae0aa3c5b4d-78KXX4Ky7ixr",
+      "log-group /aws/lambda/deployz-bootstrap-stage-b-re-RelayFunctionD137DF95-hJhFSKU1ycJK",
+      "log-group deployz-app-7cf6aad6-AppLogGroup7D8CD952-P5zS7uVawbMf",
+      "acm d-b22af46a-0857-41fd-945f-d3fb933fe165.deployz.dev arn:aws:acm:us-east-1:151955775369:certificate/d851a4b5-4d31-4ef0-8a06-7f3ed86d9965",
+      "ecr 177fad3b-5fd7-4740-9914-be2281531197-repo-004-20260920-070212-2cd3",
+      "nat arn:aws:ec2:us-east-1:151955775369:natgateway/nat-057492d65010ac426",
+      "arn:aws:ec2:us-east-1:151955775369:route-table/rtb-037fad58a96510334",
+      "arn:aws:ec2:us-east-1:151955775369:route-table/rtb-0987e8087f4f77eb5",
+      "arn:aws:ec2:us-east-1:151955775369:subnet/subnet-08e5b757f52c335f3",
+      "arn:aws:rds:us-east-1:151955775369:db:deployz-app-7cf6aad6-databaseb269d8bb-mfifrfblg7ha",
+      "arn:aws:s3:::deployz-app-7cf6aad6-appstorage995579da-dsx541tka3dd",
+      "arn:aws:secretsmanager:us-east-1:151955775369:secret:DatabaseSecret86DBB7B3-NVvS8eNW6SSU-Wzsr8Z",
+      "arn:aws:cloudwatch:us-east-1:151955775369:alarm:deployz-app-7cf6aad6-UnhealthyTargetAlarmC6753764-7kWcYkULISRd",
+      "arn:aws:ec2:us-east-1:151955775369:subnet/subnet-02e417a15955d541e",
+      "arn:aws:events:us-east-1:151955775369:rule/deployz-bootstrap-stage-b-rep-RelaySchedule27C29C24-eo8swRKxT9ni",
+      "arn:aws:rds:us-east-1:151955775369:subgrp:deployz-app-7cf6aad6-databasesubnetgroup7d60f180-dpubrouk18y1",
+      "arn:aws:ec2:us-east-1:151955775369:security-group/sg-007930b20b25ba476",
+      "arn:aws:secretsmanager:us-east-1:151955775369:secret:RelayCredentialFromParam-A64yQcfJqty5-Q6ohMz",
+      "arn:aws:ec2:us-east-1:151955775369:vpc/vpc-0165078549d8dab99",
+      "arn:aws:elasticloadbalancing:us-east-1:151955775369:loadbalancer/app/deploy-LoadB-ejVaZ1pJP8jR/34cb953375b67562",
+      "arn:aws:secretsmanager:us-east-1:151955775369:secret:DatabaseUrlSecretFA7DE062-TbQZP8I0b7dB-XNTCUj",
+      "arn:aws:ec2:us-east-1:151955775369:elastic-ip/eipalloc-0ca9c4dfc60f1a439",
+      "arn:aws:ec2:us-east-1:151955775369:subnet/subnet-00a089060a5886161",
+      "arn:aws:lambda:us-east-1:151955775369:function:deployz-bootstrap-stage-b-re-RelayFunctionD137DF95-hJhFSKU1ycJK",
+      "arn:aws:logs:us-east-1:151955775369:log-group:deployz-app-7cf6aad6-AppLogGroup7D8CD952-P5zS7uVawbMf",
+      "arn:aws:acm:us-east-1:151955775369:certificate/d851a4b5-4d31-4ef0-8a06-7f3ed86d9965",
+      "arn:aws:cloudformation:us-east-1:151955775369:stack/deployz-app-7cf6aad6/c477d9c0-b4c2-11f1-965f-12f0f1c19cb3",
+      "arn:aws:elasticloadbalancing:us-east-1:151955775369:listener/app/deploy-LoadB-ejVaZ1pJP8jR/34cb953375b67562/a024845a6b64c805",
+      "arn:aws:rds:us-east-1:151955775369:snapshot:rds:deployz-app-7cf6aad6-databaseb269d8bb-mfifrfblg7ha-2026-09-20-07-19",
+      "arn:aws:ec2:us-east-1:151955775369:internet-gateway/igw-0fe0bf858d2318629",
+      "arn:aws:ec2:us-east-1:151955775369:route-table/rtb-0c575e4c72277b822",
+      "arn:aws:ec2:us-east-1:151955775369:security-group/sg-0eaa2253312d71f47",
+      "arn:aws:ec2:us-east-1:151955775369:security-group/sg-0e65f4f5cd63c8175",
+      "arn:aws:elasticloadbalancing:us-east-1:151955775369:targetgroup/deploy-LoadB-VUMO7CJWUFOW/26e87d71333664ee",
+      "arn:aws:ec2:us-east-1:151955775369:route-table/rtb-0e5380d8ef5226ffb",
+      "arn:aws:secretsmanager:us-east-1:151955775369:secret:AppConfigSecret251CAC1E-08T55hVhG71I-CWABNF",
+      "arn:aws:ec2:us-east-1:151955775369:subnet/subnet-05a61a018f95a2139",
+      "arn:aws:elasticloadbalancing:us-east-1:151955775369:listener/app/deploy-LoadB-ejVaZ1pJP8jR/34cb953375b67562/0e614d96b8f72423"
+    ],
+    "retainedState": "NOT_ATTEMPTED",
+    "purgedState": "NOT_ATTEMPTED",
+    "durationMs": 149950,
+    "detail": "idle wait: GET /api/deployments/b22af46a-0857-41fd-945f-d3fb933fe165 -> 404: Deployment not found | destroy/purge: GET /api/deployments/b22af46a-0857-41fd-945f-d3fb933fe165 -> 404: Deployment not found | leak audit: 49 resource(s) left"
+  },
+  "classification": "CLEANUP_LEAK",
+  "failureStage": "CLEANUP_LEAK",
+  "rootCause": null,
+  "rootCauseEvidence": "idle wait: GET /api/deployments/b22af46a-0857-41fd-945f-d3fb933fe165 -> 404: Deployment not found | destroy/purge: GET /api/deployments/b22af46a-0857-41fd-945f-d3fb933fe165 -> 404: Deployment not found | leak audit: 49 resource(s) left — decide DEPLOYZ_BUG vs AWS_TRANSIENT_FAILURE",
+  "findingIds": [
+    "DEPLOY-008",
+    "DEPLOY-026",
+    "DEPLOY-027",
+    "DEPLOY-028"
+  ],
+  "timing": {
+    "startedAt": "2026-09-17T22:43:35.670Z",
+    "finishedAt": "2026-09-17T23:42:18.999Z",
+    "totalMs": 3523329
+  },
+  "evidence": {}
+}
