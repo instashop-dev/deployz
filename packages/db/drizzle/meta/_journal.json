@@ -330,6 +330,13 @@
       "when": 1893628800000,
       "tag": "0046_environment_setup",
       "breakpoints": true
+    },
+    {
+      "idx": 47,
+      "version": "7",
+      "when": 1893715200000,
+      "tag": "0047_checkout_intent_subscribe_only",
+      "breakpoints": true
     }
   ]
 }

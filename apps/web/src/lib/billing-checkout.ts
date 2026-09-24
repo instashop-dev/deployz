@@ -25,9 +25,11 @@ export interface CheckoutIntent {
 }
 
 export interface CreateCheckoutIntentInput {
-  applicationId: string;
-  customerId: string;
-  region: string;
+  /** Optional: a subscribe-only intent (invitation-first flow) parks no
+   *  deployment request. When any field is given, all three are required. */
+  applicationId?: string;
+  customerId?: string;
+  region?: string;
 }
 
 export function fetchBillingConfig(): Promise<BillingConfig> {

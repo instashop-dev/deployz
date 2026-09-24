@@ -513,7 +513,7 @@ export function resetRelay(deploymentId: string): Promise<{ installLinkId: strin
   );
 }
 
-// ── Create Customer Deployment (§12, §41 screen 12) ─────────────────────────
+// ── Create installation (§12, §41 screen 12) ─────────────────────────
 
 export interface CreateCustomerInput {
   name: string;

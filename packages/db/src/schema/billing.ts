@@ -86,13 +86,12 @@ export const billingCheckoutIntents = pgTable(
     organizationId: text('organization_id')
       .notNull()
       .references(() => organization.id),
-    applicationId: uuid('application_id')
-      .notNull()
-      .references(() => applications.id),
-    customerId: uuid('customer_id')
-      .notNull()
-      .references(() => customers.id),
-    region: regionEnum('region').notNull(),
+    // Nullable for subscribe-only intents (invitation-first flow): no
+    // deployment request is parked, so activation only starts the
+    // subscription. When any is set, all three are set together.
+    applicationId: uuid('application_id').references(() => applications.id),
+    customerId: uuid('customer_id').references(() => customers.id),
+    region: regionEnum('region'),
     provider: billingProviderEnum('provider').notNull().default('PADDLE'),
     // Null only in the instant between the row insert and the provider
     // accepting the transaction — the intent id goes into the transaction's

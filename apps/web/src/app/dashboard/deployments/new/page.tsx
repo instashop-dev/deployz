@@ -7,6 +7,7 @@ import { Suspense, useEffect, useRef, useState, type FormEvent } from 'react';
 
 import { copyInstallLink } from '@/components/copy-install-link';
 import { CustomerPicker } from '@/components/customer-picker';
+import { ManageBillingButton } from '@/components/manage-billing-button';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -14,8 +15,15 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Separator } from '@/components/ui/separator';
 import { Spinner } from '@/components/ui/spinner';
-import { ApiRequestError } from '@/lib/api-client';
+import { ApiRequestError, errorMessage } from '@/lib/api-client';
 import { fetchApplications, type Application } from '@/lib/applications';
+import {
+  createCheckoutIntent,
+  fetchBillingConfig,
+  fetchSubscriptionStatus,
+  openSubscriptionCheckout,
+} from '@/lib/billing-checkout';
+import type { SubscriptionStatus } from '@/lib/organization-vocabulary';
 import {
   createCustomerRecord,
   createDeploymentErrorMessage,
@@ -126,6 +134,13 @@ function NewDeploymentScreen() {
   const [preflight, setPreflight] = useState<PreflightResult | null>(null);
   // Null while unknown (or unloadable): the API stays the authority then.
   const [releaseState, setReleaseState] = useState<InstallReleaseState | null>(null);
+  // Customer mode: the vendor's subscription status. An evaluation or
+  // canceled vendor needs a self-serve way to start a subscription before
+  // customers can confirm installations; past-due/paused vendors need the
+  // portal instead. Test mode never hits this (test deployments are free).
+  const [subscriptionStatus, setSubscriptionStatus] = useState<SubscriptionStatus | null | undefined>(undefined);
+  const [checkoutState, setCheckoutState] = useState<'idle' | 'opening' | 'paid'>('idle');
+  const [checkoutError, setCheckoutError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -195,6 +210,24 @@ function NewDeploymentScreen() {
     };
   }, [selectedApplicationId]);
 
+  // Customer mode: fetch the vendor's subscription status so the page can
+  // show the self-serve subscription entry (evaluation/canceled) or the
+  // portal link (past-due/paused). Test mode skips this (free deployments).
+  useEffect(() => {
+    if (isTestDeployment) return;
+    let cancelled = false;
+    fetchSubscriptionStatus()
+      .then((status) => {
+        if (!cancelled) setSubscriptionStatus(status);
+      })
+      .catch(() => {
+        // The page still works without the notice; the API enforces the gate.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [isTestDeployment]);
+
   // Region options come from the control plane so only confirmed-deployable
   // regions are ever offered. A failure to load them is a hard error — a form
   // that defaulted to a stale hardcoded region would let the vendor create a
@@ -239,6 +272,23 @@ function NewDeploymentScreen() {
       ),
     );
     setCustomerEmailInput('');
+  }
+
+  // Customer mode: a subscribe-only checkout intent (no parked deployment)
+  // opens Paddle's overlay; when the vendor pays, the webhook activates the
+  // subscription and customers can then confirm their invitations.
+  async function onStartSubscription(): Promise<void> {
+    setCheckoutError(null);
+    setCheckoutState('opening');
+    try {
+      const config = await fetchBillingConfig();
+      const intent = await createCheckoutIntent({});
+      const outcome = await openSubscriptionCheckout(config, intent.transactionId);
+      setCheckoutState(outcome === 'completed' ? 'paid' : 'idle');
+    } catch (caught) {
+      setCheckoutError(errorMessage(caught));
+      setCheckoutState('idle');
+    }
   }
 
   async function onSubmit(event: FormEvent<HTMLFormElement>): Promise<void> {
@@ -350,6 +400,67 @@ function NewDeploymentScreen() {
             : 'Select a customer or add a new one, then create their installation invitation. Your customer opens the link, chooses the AWS region, and confirms — a deployment is created only after their confirmation.'}
         </p>
       </div>
+
+      {/* Customer mode: an evaluation or canceled vendor needs a self-serve
+          way to start a subscription before customers can confirm invitations. */}
+      {!isTestDeployment && (subscriptionStatus === null || subscriptionStatus === 'CANCELED') ? (
+        <Card>
+          <CardHeader>
+            <CardTitle>Start your subscription</CardTitle>
+            <CardDescription>
+              Invitations you send can only be confirmed by customers once your subscription is
+              active. $49 per month for the platform, plus $19 per month for each customer
+              deployment that is live. Test deployments stay free.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="flex flex-wrap items-center gap-3">
+            {checkoutState === 'paid' ? (
+              <p className="text-sm text-muted-foreground">
+                Payment received. Your subscription is starting — your customers can now confirm
+                installations.
+              </p>
+            ) : (
+              <Button
+                onClick={() => void onStartSubscription()}
+                loading={checkoutState === 'opening'}
+                loadingText="Opening checkout…"
+              >
+                Start subscription
+              </Button>
+            )}
+            {checkoutError ? (
+              <p role="alert" className="text-sm text-destructive">
+                {checkoutError}
+              </p>
+            ) : null}
+          </CardContent>
+        </Card>
+      ) : null}
+
+      {/* Customer mode: a past-due or paused vendor needs the Paddle portal
+          to fix their subscription, not a new checkout. */}
+      {!isTestDeployment && (subscriptionStatus === 'PAST_DUE' || subscriptionStatus === 'PAUSED') ? (
+        <Card>
+          <CardHeader>
+            <CardTitle>
+              {subscriptionStatus === 'PAST_DUE' ? 'Update your payment details' : 'Resume your subscription'}
+            </CardTitle>
+            <CardDescription>
+              {subscriptionStatus === 'PAST_DUE'
+                ? 'Your last payment did not go through. Once it is sorted, your customers can confirm their installations.'
+                : 'Your subscription is paused. Resume it on the billing portal, then your customers can confirm their installations.'}
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <ManageBillingButton
+              target={subscriptionStatus === 'PAST_DUE' ? 'updatePaymentMethod' : 'overview'}
+              variant="default"
+            >
+              {subscriptionStatus === 'PAST_DUE' ? 'Update payment details' : 'Open billing portal'}
+            </ManageBillingButton>
+          </CardContent>
+        </Card>
+      ) : null}
 
       {invitation ? (
         <InvitationLinkCard

@@ -54,7 +54,7 @@ export function fetchApplication(id: string): Promise<Application> {
 }
 
 /** List the org's applications (used to populate the "Application" picker
- * on the Create Customer Deployment screen, §12). */
+ * on the Create installation screen, §12). */
 export async function fetchApplications(): Promise<Application[]> {
   const body = await getJson<{ applications?: Application[] }>('/api/applications');
   return body.applications ?? [];
