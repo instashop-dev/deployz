@@ -13,6 +13,9 @@
  * `safety.ts#isOwnedByInstallation` against the manifest before deleting.
  */
 
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
+
 import {
   CloudFormationClient,
   DeleteStackCommand,
@@ -42,7 +45,23 @@ import {
   S3Client,
 } from '@aws-sdk/client-s3';
 
+const execFileAsync = promisify(execFile);
+
 const INSTALLATION_TAG = 'deployz:installation';
+
+// ── Identity ──────────────────────────────────────────────────────────────
+
+/**
+ * The `aws` CLI (already required by every other real-AWS harness in this
+ * repo) rather than a new `@aws-sdk/client-sts` dependency — this tool has
+ * no package.json of its own and adding a new SDK client would mean a
+ * root-level dependency + lockfile change for one startup call.
+ */
+export async function callerIdentity(): Promise<{ account: string }> {
+  const { stdout } = await execFileAsync('aws', ['sts', 'get-caller-identity', '--output', 'json']);
+  const identity = JSON.parse(stdout) as { Account?: string };
+  return { account: identity.Account ?? '' };
+}
 
 // ── Retry with backoff ───────────────────────────────────────────────────────
 

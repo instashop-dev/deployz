@@ -87,6 +87,46 @@ export function assertNoOverlap(
   }
 }
 
+// ── Account guard ────────────────────────────────────────────────────────────
+
+/** The test AWS account this tool refuses to run outside of — the same
+ * default the version canary uses (`DEPLOYZ_CANARY_EXPECTED_ACCOUNT`,
+ * `scripts/version-canary/config.ts`). */
+export const DEFAULT_EXPECTED_ACCOUNT = '151955775369';
+
+export function expectedAccountId(env: NodeJS.ProcessEnv = process.env): string {
+  return env['DEPLOYZ_CANARY_EXPECTED_ACCOUNT'] ?? DEFAULT_EXPECTED_ACCOUNT;
+}
+
+export interface CallerIdentityReader {
+  getCallerIdentity(): Promise<{ account: string }>;
+}
+
+/** The pure comparison `requireExpectedAccount` runs — split out so the
+ * inline self-check below can exercise it without a fake async client. */
+export function assertAccountMatches(actual: string, expected: string): void {
+  if (actual !== expected) {
+    throw new Error(
+      `AWS account ${actual || 'unknown'} is not the expected test account ${expected} — refusing to run customer-reset`,
+    );
+  }
+}
+
+/**
+ * Hard-fails unless the caller identity's account matches the expected test
+ * account — this tool wipes every customer deployment it finds, so running
+ * it against the wrong AWS account would be catastrophic. There is no
+ * `--reuse-stack`-style override: the account is read fresh, every run.
+ */
+export async function requireExpectedAccount(
+  sts: CallerIdentityReader,
+  expected: string = expectedAccountId(),
+): Promise<string> {
+  const identity = await sts.getCallerIdentity();
+  assertAccountMatches(identity.account, expected);
+  return identity.account;
+}
+
 // ── Confirmation gate ────────────────────────────────────────────────────────
 
 export const CONFIRM_TOKEN = 'FULL-CUSTOMER-RESET';
@@ -166,4 +206,19 @@ function _validatePredicate(): void {
   console.debug('[safety] tag-predicate self-check passed');
 }
 
+function _validateAccountGuard(): void {
+  assertAccountMatches('151955775369', '151955775369'); // must not throw
+
+  let refused = false;
+  try {
+    assertAccountMatches('000000000000', '151955775369');
+  } catch {
+    refused = true;
+  }
+  if (!refused) throw new Error('safety: account guard accepted a mismatched account');
+
+  console.debug('[safety] account-guard self-check passed');
+}
+
 _validatePredicate();
+_validateAccountGuard();
