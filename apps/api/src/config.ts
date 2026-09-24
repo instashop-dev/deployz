@@ -592,7 +592,7 @@ function validateEntries(entries: readonly ConfigEntry[]): void {
  * colliding with a customer-scope pending-secret context that happens to
  * share the same organization/application/key.
  */
-function vendorSecretContext(
+export function vendorSecretContext(
   organizationId: string,
   applicationId: string,
   key: string,

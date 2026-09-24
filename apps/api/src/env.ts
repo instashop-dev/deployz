@@ -313,7 +313,7 @@ export const env = {
   paddleEnvironment: paddleEnvironment as 'sandbox' | 'production',
   // DEPLOY-027 (Phase 4): KMS key ARN used to encrypt at-rest secret values.
   // Unset in local dev and tests → the API falls back to the in-memory cipher
-  // stub; production requires it (the worker sweep keeps encrypting new rows
-  // even if the API never decrypts).
+  // stub. In AWS Lambda it is required: createSecretCipherFromEnv throws
+  // without it (docs/pending-secret-delivery.md).
   kmsKeyArn: process.env.DEPLOYZ_KMS_KEY_ARN,
 } as const;
