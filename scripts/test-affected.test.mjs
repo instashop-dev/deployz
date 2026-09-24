@@ -38,7 +38,7 @@ test('2. web runtime change runs web units and the fixture-mode Playwright suite
     assert.equal(p.playwright, 'fixture', f);
     const cmds = rendered(p);
     assert.ok(cmds.some(c => c.includes('--grep-invert @scenario|visual')), f);
-    assert.ok(cmds.some(c => c.includes('e2e/scenario-ui.spec.ts')), f);
+    assert.ok(cmds.some(c => c.includes('e2e/scenario-ui.spec.ts e2e/scenario-release-unavailable.spec.ts')), f);
     assert.ok(!cmds.some(c => c.includes('--scenarios')), f);
   }
 });
@@ -105,8 +105,11 @@ test('6. contracts, relay, DB schema, migrations and CDK source are critical', (
   for (const f of ['packages/contracts/src/tags.ts', 'packages/contracts/src/plan.ts', 'packages/relay/src/config-update.ts', 'packages/relay/src/index.ts', 'packages/db/src/schema/deployments.ts', 'packages/db/src/schema/billing.ts', 'packages/db/drizzle/0040_next.sql', 'packages/cdk/src/deployz-stack.ts', 'packages/cdk/src/lambda/worker.ts', 'packages/cdk/artifacts/bootstrap-template-v1.json']) {
     assert.equal(plan([f]).risk, 'critical', f);
   }
-  for (const f of ['packages/contracts/src/plan.test.ts', 'packages/relay/src/deploy.test.ts', 'packages/cdk/test/worker.test.ts', 'packages/db/src/constraints.test.ts']) {
+  for (const f of ['packages/contracts/src/plan.test.ts', 'packages/relay/src/deploy.test.ts', 'packages/cdk/test/worker.test.ts', 'packages/db/src/constraints.test.ts', 'packages/cdk/scripts/audit-deployment.mjs', 'packages/cdk/scripts/bundle-smoke.mjs']) {
     assert.equal(plan([f]).risk, 'targeted', f);
+  }
+  for (const f of ['packages/cdk/scripts/synth-bootstrap.mjs', 'packages/cdk/scripts/publish-bootstrap.mjs']) {
+    assert.equal(plan([f]).risk, 'critical', f);
   }
 });
 
@@ -165,7 +168,7 @@ test('12. an edited spec runs on its own; an edited scenario spec on top of the 
   const mixed = plan(['e2e/scenario-lifecycle.spec.ts', 'e2e/customers.spec.ts', 'apps/web/src/lib/customers.ts']);
   assert.equal(mixed.playwright, 'fixture');
   assert.deepEqual(mixed.playwrightFiles, ['e2e/scenario-lifecycle.spec.ts']);
-  assert.ok(rendered(mixed).some(c => c.includes('e2e/scenario-ui.spec.ts e2e/scenario-lifecycle.spec.ts')));
+  assert.ok(rendered(mixed).some(c => c.includes('e2e/scenario-release-unavailable.spec.ts e2e/scenario-lifecycle.spec.ts')));
 
   assert.equal(plan(['e2e/visual.spec.ts']).playwright, 'none');
   assert.equal(plan(['e2e/simulation/simulated-account.ts']).risk, 'critical');

@@ -211,23 +211,25 @@ jobs:
         if: env.MODE == 'full' || env.MODE == 'fixture'
         run: node scripts/e2e.mjs --grep-invert "@scenario|visual"
 
-      - name: Scenario UI spec
-        if: env.MODE == 'fixture'
-        run: node scripts/e2e.mjs e2e/scenario-ui.spec.ts ${{ needs.plan.outputs.playwright_files }}
+      - name: Browser scenario specs
+        if: env.MODE == 'fixture' && !cancelled()
+        run: node scripts/e2e.mjs e2e/scenario-ui.spec.ts e2e/scenario-release-unavailable.spec.ts ${{ needs.plan.outputs.playwright_files }}
 
       - name: Touched Playwright specs
         if: env.MODE == 'files'
         run: node scripts/e2e.mjs ${{ needs.plan.outputs.playwright_files }}
 
+      # Later steps still run after an earlier red step so one failure never
+      # hides the others' results.
       - name: Simulated scenario suite
-        if: env.MODE == 'full'
+        if: env.MODE == 'full' && !cancelled()
         run: node scripts/e2e.mjs --scenarios
 
       # The default-HTTPS suite (scenarios A–I) needs the fixture
       # default-HTTPS machine ON, which the ordinary simulated run keeps
       # off, so it always boots its own server with the opt-in flag.
       - name: Default-HTTPS simulated scenarios
-        if: env.MODE == 'full'
+        if: env.MODE == 'full' && !cancelled()
         run: DEPLOYZ_DEFAULT_HTTPS_FIXTURE=true node scripts/e2e.mjs e2e/scenario-default-https.spec.ts
 
       - name: Upload traces on failure

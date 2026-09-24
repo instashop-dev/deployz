@@ -132,8 +132,10 @@ if (mode === 'canary-versions') {
 
   // shell: true so Windows resolves the pnpm.cmd shim. The shell also parses
   // the arguments, so a grep pattern such as `@scenario|visual` must be
-  // quoted or `|visual` becomes a pipe to a command named visual.
-  const quoted = playwrightArgs.map((arg) => (/^[\w./:=@-]+$/.test(arg) ? arg : JSON.stringify(arg)));
+  // quoted or `|visual` becomes a pipe to a command named visual. Plain
+  // double quotes, not JSON: both cmd.exe and sh keep `` intact inside
+  // them, where a JSON-escaped `\b` would reach Playwright doubled on Windows.
+  const quoted = playwrightArgs.map((arg) => (/^[\w./:=@-]+$/.test(arg) ? arg : `"${arg.replace(/"/g, '\\"')}"`));
   const child = spawn('pnpm', ['exec', 'playwright', 'test', ...quoted], {
     env: childEnv,
     stdio: 'inherit',
