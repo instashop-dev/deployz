@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Cross-platform E2E runner (docs/testing/e2e-testing.md
+// Cross-platform E2E runner (docs/testing/simulated-e2e.md
 // D3). Selects a mode, guards real-AWS modes behind an explicit opt-in, and —
 // for simulated mode — scrubs AWS/queue/email env vars before spawning
 // Playwright so locally-present credentials can't leak real behaviour into a

@@ -2,8 +2,8 @@
 
 A hardened wrapper around the bootstrap stack's real create/destroy golden
 path. See [`README.md`](README.md) for how this fits the rest of the test
-hierarchy and [`e2e-testing.md`](e2e-testing.md#the-simulation-seam) for the
-design decision (D5) behind it.
+hierarchy and [`simulated-e2e.md`](simulated-e2e.md#the-simulation-seam) for
+the design decision (D5) behind it.
 
 ## Scope
 

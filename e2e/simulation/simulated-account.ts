@@ -5,7 +5,7 @@
  * from verify.ts, `StackInstaller` from install.ts, `StackEventsReader` from
  * stack-events.ts, `EcsServiceReader`/`TargetHealthReader` from ecs-health.ts)
  * against a deterministic `ScenarioDefinition` timeline instead of the AWS
- * SDK — see docs/testing/e2e-testing.md D1/D4.
+ * SDK — see docs/testing/simulated-e2e.md D1/D4.
  *
  * Two clocks are in play, both anchored the first time either is touched
  * (`ensureStarted`):

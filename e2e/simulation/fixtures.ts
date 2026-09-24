@@ -6,7 +6,7 @@
  * deployment via the real API), then performs the launched+register
  * handshake and starts a `SimulatedCustomerAccount`-backed relay
  * (./relay-harness.ts) for the chosen scenario — see
- * docs/testing/e2e-testing.md D1/D2. No browser is
+ * docs/testing/simulated-e2e.md D1/D2. No browser is
  * needed: every assertion in e2e/scenario-install.spec.ts goes through the
  * real HTTP API, so this fixture only ever uses Playwright's bare
  * `request` (APIRequestContext), never `page`.

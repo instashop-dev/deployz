@@ -1,6 +1,6 @@
 /**
  * Fresh E2E — a hardened wrapper around the create/destroy bootstrap golden
- * path (docs/testing/e2e-testing.md D5): deploy →
+ * path (docs/testing/simulated-e2e.md D5): deploy →
  * verify relay Active + tags → destroy → verify gone.
  *
  * Gated on `DEPLOYZ_E2E_MODE === 'fresh'` AND

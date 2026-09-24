@@ -1,4 +1,179 @@
-# Simulated E2E scenarios
+# Simulated E2E
+
+The default E2E layer (L3 in [`strategy.md`](strategy.md#the-layers)):
+Playwright drives the real Next.js app and the real Fastify API; a
+simulated customer AWS account answers the relay's
+CloudFormation/ECS/ELB calls. No AWS credentials are used or required. See
+[`test-matrix.md`](test-matrix.md) for which capability each scenario
+proves, [`ci.md`](ci.md) for what CI runs, and
+[`aws-e2e.md`](aws-e2e.md) for the real-AWS layers this suite escalates to.
+
+## What is real, what is simulated
+
+```
+Browser (Playwright / Chromium)
+   │
+   ▼
+Web (Next.js — apps/web)
+   │  HTTP
+   ▼
+API (Fastify control plane — apps/api)
+   │            ▲
+   │ jobs        │ reads/writes
+   ▼            │
+Deployment engine (deployment_jobs, deployment-status.ts,          DB
+step-timings.ts, stack-event-progress.ts)  ◀───────────────────────┘
+   │  relay HTTP protocol
+   │  (register → commands → progress/result → health)
+   ▼
+Infrastructure interface (packages/relay's own client seams —
+CloudFormationReader, StackInstaller, StackEventsReader, StackDeleter,
+EcsDeployClient, EcsServiceReader, TargetHealthReader, PendingStore, ...)
+   │
+   └──▶ Simulated AWS (e2e/simulation/simulated-account.ts — `pnpm e2e`)
+```
+
+Everything above the infrastructure interface — API routes, the DB,
+stack-event ingest, status derivation, step timings, resource-inventory
+persistence, both UIs — is production code, unchanged between this suite
+and a real-AWS run. Only the AWS SDK calls are replaced.
+
+## The simulation seam
+
+Design decisions frozen on 2026-09-01, recorded here so they are not
+re-litigated:
+
+- **D1 — the seam is the relay's existing client interfaces.** The relay
+  (`packages/relay`) is the only code that ever touches a customer's AWS
+  account, and every relay module already defines a narrow client interface
+  (`CloudFormationReader`, `EcsDeployClient`, `TargetHealthReader`, ...) with
+  a `toX(sdkClient)` adapter kept separate from a `createRealX()`
+  SDK-constructing wrapper. This suite runs the **real relay code** —
+  `pollOnce`, the real install/deploy/rollback/destroy executors, real
+  `verifyInstallation`, real `provision-progress`, the real stack-events
+  collector — in the Playwright test process, speaking the real relay HTTP
+  protocol to the real local API. Only the AWS *client* objects are replaced
+  by an in-memory `SimulatedCustomerAccount`
+  (`e2e/simulation/simulated-account.ts`).
+- **D2 — the simulator is test-only, not a product mode.** It lives entirely
+  under `e2e/simulation/`. Nothing ships in any production bundle, and the
+  API exposes **no scenario-control endpoint** — scenario selection happens
+  only inside the Playwright test process, via a fixture. This makes
+  "production cannot expose scenario controls" true by construction rather
+  than by policy. `scripts/production-safety.test.mjs` (`pnpm test:static`)
+  enforces both halves of this: no product code imports from `e2e/`, and no
+  file under `e2e/simulation/` has a value import from `@aws-sdk/*`.
+- **D3 — mode selection and the real-AWS guard.** `DEPLOYZ_E2E_MODE` is set
+  by the cross-platform runner `scripts/e2e.mjs`; every real-AWS mode
+  refuses to run without `DEPLOYZ_E2E_ALLOW_REAL_AWS=1`, before anything is
+  spawned; simulated mode launches the API with a scrubbed environment so
+  locally present AWS credentials cannot leak real behaviour into a default
+  run.
+- **D4 — scenario format.** Typed fixtures describe a CloudFormation event
+  timeline with a real reveal offset (milliseconds, for test speed) and a
+  virtual timestamp offset (minutes, for what `Timestamp` fields report), so
+  ETA and step-timing logic sees realistic durations while tests stay fast;
+  ECS/ELB/target-health answers are scenario-controlled too.
+- **D5 — real-AWS modes wrap existing machinery.** The real-AWS modes reuse
+  `packages/cdk/test/*.live.test.ts` and the relay's own verification ladder
+  behind the opt-in guard, unique test identifiers and tag-based isolation,
+  rather than a parallel harness — see [`aws-e2e.md`](aws-e2e.md).
+- **D6 — non-goals.** No record/replay, no LocalStack, no full AWS API
+  emulation: the simulated account implements only the calls the relay
+  makes, returning AWS-shaped structures.
+
+## Fixture modes
+
+`playwright.config.ts`'s `webServer` sets these for every simulated run:
+
+| Variable | Values | Purpose |
+| --- | --- | --- |
+| `DEPLOYZ_E2E_MODE` | `simulated` (default) | Selects simulated mode; set by `scripts/e2e.mjs`, and read directly by `playwright.config.ts` as a second guard layer if Playwright is invoked without the runner. Other values select a real-AWS mode — see [`aws-e2e.md`](aws-e2e.md). |
+| `DEPLOYZ_E2E_SCENARIO` | a scenario id | Set by the runner when `--scenario=<id>` is passed. Informational only — actual scenario selection is the Playwright `test.use({ deployzScenario })` fixture value / `--grep` filter, not this variable. |
+| `GITHUB_FIXTURE_MODE` | `true` | GitHub routes serve a fixture org/repo set instead of calling GitHub. |
+| `AI_FIXTURE_MODE` | `true` | A canned AI gateway response set, for deterministic fix-instructions generation. |
+| `BUILD_FIXTURE_MODE` | `true` | A new release is marked built (READY, fixture digest) immediately instead of enqueuing `BUILD_RELEASE` (which no-ops locally anyway). |
+| `DOMAIN_FIXTURE_MODE` | `true` | DNS/HTTPS domain checks pass only for `*.deployz-fixture.test` hostnames, with no throttle. |
+| `TEAM_ADMIN_EMAILS` | `*@admin-e2e.deployz.test` | Team Admin env-grant allowlist (`docs/admin/team-admin.md`). Lets `e2e/admin.spec.ts` mint an admin account by signing up with a matching email — no DB seeding needed. |
+| `BILLING_FIXTURE_MODE` | `true` | Canned billing states for the billing UI scenarios. |
+| `DEPLOYZ_DEFAULT_HTTPS_FIXTURE` | `true` | Turns on the fixture default-HTTPS machine (fake Cloudflare and probe). Off by default; required for `e2e/scenario-default-https.spec.ts`, which skips without it. |
+| `WEB_PORT`, `API_PORT` | port numbers | Override the default 3000/3001 so a run does not reuse another worktree's dev servers. |
+| Scrub list | — | `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN`, `AWS_PROFILE`, `AWS_DEFAULT_PROFILE`, `JOB_QUEUE_URL`, `EMAIL_FROM`, `AWS_SES_ACCESS_KEY_ID`, `AWS_SES_SECRET_ACCESS_KEY` — removed from the API's environment before it boots (`scripts/e2e-env.mjs`'s `scrubEnv`), so credentials or config present in a developer's shell can't leak real AWS/email behaviour into a default run. |
+
+`scripts/production-safety.test.mjs` also asserts none of these
+fixture-mode variables (plus `DEPLOYZ_E2E_MODE`/`DEPLOYZ_E2E_SCENARIO`)
+appear in `deploy-api.yml`'s deployed-environment block — that block
+becomes the deployed Lambda's entire environment, so a leaked
+fixture-mode variable would ship live.
+
+## The runner CLI
+
+```bash
+# Fixture-mode suite — every non-scenario, non-visual spec.
+node scripts/e2e.mjs --grep-invert "@scenario|visual"
+
+# The full simulated suite (every e2e/*.spec.ts file, including scenarios).
+pnpm e2e
+
+# Only the tests tagged for one scenario.
+pnpm e2e --scenario=happy-path
+
+# Every @scenario-tagged test — the full simulated regression suite.
+pnpm e2e:scenarios
+# equivalent: node scripts/e2e.mjs --scenarios
+
+# A single spec file.
+pnpm e2e e2e/admin.spec.ts
+
+# The default-HTTPS suite (needs the fixture machine on).
+DEPLOYZ_DEFAULT_HTTPS_FIXTURE=true pnpm e2e e2e/scenario-default-https.spec.ts
+```
+
+On Windows PowerShell, set an env var first rather than inline:
+
+```powershell
+$env:DEPLOYZ_DEFAULT_HTTPS_FIXTURE = 'true'
+pnpm e2e e2e/scenario-default-https.spec.ts
+```
+
+Every `pnpm e2e*` invocation also accepts `--dry-run`, which prints the
+resolved command/env as JSON instead of running it, and forwards any other
+flag straight to Playwright — for example
+`node scripts/e2e.mjs --grep-invert "@scenario|visual"` (what the
+fixture-mode CI step runs) or `pnpm e2e -- --workers=1` for local
+debugging.
+
+### Scenario selection
+
+- **Test-side**: `test.use({ deployzScenario: 'happy-path' })` inside a
+  `test.describe` block (see any file under `e2e/scenario-*.spec.ts`) — an
+  option fixture defined in `e2e/simulation/fixtures.ts`, defaulting to
+  `happy-path`.
+- **CLI-side**: `--scenario=<id>` on `pnpm e2e`, which the runner translates
+  into a Playwright `--grep "@scenario:<id>\b"` filter against test titles
+  (every scenario test's title carries an `@scenario:<id>` tag).
+
+## Fixture suite vs. scenario specs vs. default-HTTPS
+
+Three overlapping slices of `e2e/*.spec.ts`, run differently in CI (see
+[`ci.md`](ci.md)) because of what each needs:
+
+- **Fixture-mode suite** (`--grep-invert "@scenario|visual"`) — every spec
+  whose tests carry neither an `@scenario:` tag nor are
+  `e2e/visual.spec.ts`. Covers sign-up, GitHub connection, applications,
+  releases, config, billing, Team Admin, and the deployment-detail
+  component spec — the vendor/customer workflow surface that does not need
+  a simulated AWS timeline.
+- **Scenario specs** (`e2e/scenario-*.spec.ts`) — every test tagged
+  `@scenario:<id>`, selected with `--scenario=<id>` or `--scenarios`. These
+  drive the relay through a simulated CloudFormation/ECS/ELB timeline.
+- **Default-HTTPS scenarios** (`e2e/scenario-default-https.spec.ts`) — a
+  scenario spec like the others, but its tests skip unless
+  `DEPLOYZ_DEFAULT_HTTPS_FIXTURE=true` is set for the API under test. CI
+  therefore runs it as its own step with the flag on, separate from the
+  ordinary `--scenarios` run.
+
+## Scenario catalogue
 
 Twenty scenario definitions are registered in
 `e2e/simulation/scenarios/index.ts`; the table below has more rows because
@@ -23,7 +198,7 @@ real browser.
 
 | Scenario id | Simulates | Terminal status | Main UI expectation | Main backend expectation | Test file |
 | --- | --- | --- | --- | --- | --- |
-| `happy-path` | Full successful install: network, database, storage, ALB/target-group, ECS service all `CREATE_COMPLETE`; ECS reports every target healthy | `state: HEALTHY`, `healthStatus: HEALTHY`; `deploymentStatus.stage: VERIFYING`, `step: TLS` (holds here — the default fixture suite runs HTTP-only installs with no default-HTTPS opt-in, so the ladder never reaches READY over plain HTTP; Phase 11's default hostname is what takes a real deployment to READY without customer DNS) | "Waiting for secure domain setup" | Stack events persisted for every resource; resource inventory `technicalResourceCount > 0`; `stepTimings` populated | `e2e/scenario-install.spec.ts` |
+| `happy-path` | Full successful install: network, database, storage, ALB/target-group, ECS service all `CREATE_COMPLETE`; ECS reports every target healthy | `state: HEALTHY`, `healthStatus: HEALTHY`; `deploymentStatus.stage: VERIFYING`, `step: TLS` (holds here — the default fixture suite runs HTTP-only installs with no default-HTTPS opt-in, so the ladder never reaches READY over plain HTTP) | "Waiting for secure domain setup" | Stack events persisted for every resource; resource inventory `technicalResourceCount > 0`; `stepTimings` populated | `e2e/scenario-install.spec.ts` |
 | `cloudformation-rollback` | RDS `CREATE_FAILED` (AZ/instance-class mismatch) mid-install; stack rolls back to `ROLLBACK_COMPLETE` | `state: FAILED`; `failure.code: STACK_CREATE_FAILED`, `failure.awsStatus: ROLLBACK_COMPLETE` | "Failed" | Persisted `CREATE_FAILED` event on `ApplicationDatabase` with the AZ-mismatch reason | `e2e/scenario-install.spec.ts` |
 | `ecs-failure` | Infra completes fine; `AWS::ECS::Service` `CREATE_FAILED` ("Service failed health checks"); stack rolls back | `state: FAILED`; `failure.code: STACK_CREATE_FAILED`, `failure.awsStatus: ROLLBACK_COMPLETE` | "Failed" | `ApplicationService` event carries the health-check reason; `ApplicationDatabase` shows `CREATE_COMPLETE` (failure is application-specific, not infra-wide) | `e2e/scenario-install.spec.ts` |
 | `healthcheck-failure` | Stack reaches `CREATE_COMPLETE` and `verifyInstallation` passes, but every ALB target is unhealthy | `state: INSTALLING` (INSTALL success never marks HEALTHY; only verified runtime health does), `healthStatus: UNHEALTHY`; `deploymentStatus.stage: VERIFYING`, `step: HEALTH_CHECK`, `failure: null` — the install succeeded; runtime health is a separate, honestly-UNHEALTHY signal | "Running health checks" — never Failed, never Ready | No `CREATE_FAILED` events; resource inventory populated | `e2e/scenario-install.spec.ts` |
@@ -53,6 +228,11 @@ real browser.
 | `force-complete-repeated-failures` | DESTROY fails twice (delete-failure scenario); the deployment reaches FAILED with two FAILED DESTROY jobs; the vendor calls `disconnect/force-complete` | State stays `FAILED` — the force-complete gate (60-minute staleness) refuses in the simulated window | "Failed" | Two FAILED DESTROY jobs exist; force-complete returns 409 `DESTROY_NOT_STALE`; deployment unchanged | `e2e/scenario-resilience.spec.ts` |
 | `default-https-i` | Default-HTTPS DNS write failures exhaust the budget (5 `unavailable` failures); the machine reaches ERROR and stays ERROR across heartbeats; vendor retry route (`POST default-https/retry`) resets the machine to PENDING, which recovers to ACTIVE/READY | ERROR → (retry) → ACTIVE (READY) | "Ready" after retry | `defaultHttps.status` stays ERROR across waits; retry route returns `'retrying'`; machine recovers to ACTIVE; no INSTALL/DESTROY re-triggered | `e2e/scenario-default-https.spec.ts` |
 
+A `purge-failure` scenario is landing in a sibling PR (see
+[`test-matrix.md`](test-matrix.md#7-operations--lifecycle-capabilities))
+— it will give the orphan-ownership client one leftover resource instead
+of the always-empty list `e2e/simulation/relay-harness.ts` gives it today.
+
 Browser-level coverage: `e2e/scenario-ui.spec.ts` drives four of the original
 scenarios (`happy-path`, `slow-provision`, `cloudformation-rollback`, and
 `update-failure` → `rollback-success`) through a real Chromium browser against
@@ -74,6 +254,14 @@ INSTALL job payload to the relay's template selection and verification) and
 `packages/cdk/test/lifecycle-parity.test.ts` (the infrastructure component
 catalog's destroy `lifecycle` for each component agrees with the committed
 application templates' `DeletionPolicy`).
+
+`e2e/admin.spec.ts` covers the Team Admin console
+(`docs/admin/team-admin.md`): authorization, global search into the vendor
+360° page, View as Vendor, diagnosing and retrying a failed install
+(seeded through `cloudformation-rollback`), and the included production
+deployment allowance. See
+[`strategy.md`](strategy.md#validating-team-admin-changes) for when to
+escalate past it.
 
 ## How to add a scenario
 
@@ -122,7 +310,66 @@ virtual seconds apart):
 },
 ```
 
+## Local execution
+
+- **Build first.** The API imports `@deployz/db` (and other workspace
+  packages) from compiled `dist/`, so run `pnpm build` before `pnpm e2e` the
+  first time, or after editing a package the API depends on.
+- **Dev-server reuse.** `playwright.config.ts` sets
+  `reuseExistingServer: !process.env.CI` — locally, if the API/web dev
+  servers are already running on ports 3001/3000, Playwright reuses them
+  instead of booting new ones; in CI it always boots fresh.
+- **Never run `pnpm build` while a dev server is running.** Building while
+  `next dev`/`tsx --watch` is active can corrupt `apps/web/.next`. Check that
+  nothing is listening on 3000/3001 before building if you need a clean
+  build.
+- **Rebuild after editing the relay.** The relay harness imports
+  `@deployz/relay` from its compiled `dist/`, so a relay source edit is not
+  exercised by `pnpm e2e` until `pnpm build` has run.
+- **Isolate ports when several worktrees are active.** With
+  `reuseExistingServer` on, a dev server left running by another worktree
+  on 3000/3001 would be reused and the specs would test the wrong code. Set
+  `WEB_PORT` and `API_PORT` to unused ports for the run.
+- **Default-HTTPS scenarios need the fixture machine on.**
+  `e2e/scenario-default-https.spec.ts` skips unless
+  `DEPLOYZ_DEFAULT_HTTPS_FIXTURE=true` is set for the API under test.
+
+## Debugging
+
+- **Traces and artifacts**: Playwright writes to `test-results/` on failure
+  (screenshots, traces, an `error-context.md` per failed test); CI uploads
+  this directory as the `e2e-simulated-results` artifact.
+- **Scenario/deployment ids in the output**: the real relay code logs
+  structured JSON events to stdout as it runs — `relay:command-executed`,
+  `relay:stack-events-collected`, `relay:command-verified` — each carrying
+  the `deploymentId`, `commandId`, and `stackName` involved, which is enough
+  to correlate a failing assertion with the exact install it came from.
+- **Server logs**: Playwright inherits the API/web dev servers' stdio
+  (`[WebServer]`-prefixed lines in the same terminal), so application-level
+  errors (e.g. a missing env var, an unhandled route error) show up inline
+  with the test output.
+- **A lone timeout during a full local run — in `e2e/scenario-ui.spec.ts`
+  or in another spec's browser sign-up step — is usually load, not a
+  regression.** Browser tests compete with the rest of the suite for the dev
+  server's route compilation and CPU (the scenario-ui file runs serially and
+  uses widened timeouts for exactly this reason). Before chasing it, rerun
+  the failing spec in isolation — `pnpm e2e e2e/<file>.spec.ts` or
+  `pnpm e2e --scenario=<id>` — and treat it as real only if it fails there
+  too.
+
+## Test-data cleanup
+
+- **Per-test orgs.** Every scenario test signs up a fresh vendor account
+  (`crypto.randomUUID().slice(0, 8)`-suffixed email) and creates its own
+  application/customer/deployment — there are no shared fixture users, and
+  nothing needs cleaning up between runs.
+- **Local dev DB.** Without `DATABASE_URL` set, the API falls back to a
+  file-backed PGlite store at `packages/db/.pgdata` (gitignored). Repeated
+  local `pnpm e2e` runs accumulate test orgs/deployments there; delete the
+  directory to start from a clean database.
+
 ## Convention
 
 Every material deployment failure discovered in production or real E2E
-should, where feasible, become a deterministic simulated regression scenario.
+should, where feasible, become a deterministic simulated regression scenario
+— see [`strategy.md`](strategy.md#aws-failure--simulator-regression-rule).

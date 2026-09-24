@@ -12,7 +12,7 @@ import type { ScenarioDefinition } from '../types.js';
  * This exercises `apps/api/src/deployment-status.ts`'s `takingLongerThanUsual`
  * flag honestly: `SimulatedCustomerAccount`'s virtual clock is anchored so
  * the LAST timeline event lands at (real) install start
- * (docs/testing/e2e-testing.md D4), so an
+ * (docs/testing/simulated-e2e.md D4), so an
  * as-yet-incomplete step's reported elapsed time is approximately
  * `totalVirtualDuration - stepStartVirtualOffset` — here, ~885s for the
  * still-running DATABASE_STORAGE step, comfortably past its 720s max. No

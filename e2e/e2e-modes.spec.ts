@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 
 import { expect, test } from '@playwright/test';
 
-// Guards for scripts/e2e.mjs (docs/testing/e2e-testing.md
+// Guards for scripts/e2e.mjs (docs/testing/simulated-e2e.md
 // D3). Runs the runner as a child process rather than importing it, so the
 // process-exit / stdout-stream behaviour under test is exercised directly.
 // No browser needed — this only spawns Node.
