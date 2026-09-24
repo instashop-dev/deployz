@@ -74,10 +74,15 @@ re-litigated:
   virtual timestamp offset (minutes, for what `Timestamp` fields report), so
   ETA and step-timing logic sees realistic durations while tests stay fast;
   ECS/ELB/target-health answers are scenario-controlled too.
-- **D5 — real-AWS modes wrap existing machinery.** The real-AWS modes reuse
-  `packages/cdk/test/*.live.test.ts` and the relay's own verification ladder
-  behind the opt-in guard, unique test identifiers and tag-based isolation,
-  rather than a parallel harness — see [`aws-e2e.md`](aws-e2e.md).
+- **D5 — real-AWS modes wrap existing machinery, not a parallel harness.**
+  `fresh` (L4) wraps `packages/cdk/test/fresh-e2e.live.test.ts` — a real-AWS
+  Vitest suite — behind the opt-in guard, a per-run unique stack name, and
+  tag-based isolation. The version canary (L5/L6,
+  `scripts/version-canary`) is a separate `tsx` harness that drives the
+  deployed control plane directly through the same routes a vendor and a
+  customer use, reusing the relay's own verification ladder rather than a
+  vitest live-test file. Both share the same account guard and tagging
+  conventions — see [`aws-e2e.md`](aws-e2e.md).
 - **D6 — non-goals.** No record/replay, no LocalStack, no full AWS API
   emulation: the simulated account implements only the calls the relay
   makes, returning AWS-shaped structures.
@@ -227,11 +232,6 @@ real browser.
 | `install-link-retry` | Mid-flight install-link retry: a relay started an install (state reaches INSTALLING), the customer calls `POST /api/install/:installLinkId/retry` while the installation is live | `state: NOT_INSTALLED`, a fresh enrollment code is minted; a new relay then installs to HEALTHY | "Not installed" then builds normally | `previousInstallationId` recorded; fresh Quick Create URL; install succeeds with the new relay | `e2e/scenario-recovery.spec.ts` |
 | `force-complete-repeated-failures` | DESTROY fails twice (delete-failure scenario); the deployment reaches FAILED with two FAILED DESTROY jobs; the vendor calls `disconnect/force-complete` | State stays `FAILED` — the force-complete gate (60-minute staleness) refuses in the simulated window | "Failed" | Two FAILED DESTROY jobs exist; force-complete returns 409 `DESTROY_NOT_STALE`; deployment unchanged | `e2e/scenario-resilience.spec.ts` |
 | `default-https-i` | Default-HTTPS DNS write failures exhaust the budget (5 `unavailable` failures); the machine reaches ERROR and stays ERROR across heartbeats; vendor retry route (`POST default-https/retry`) resets the machine to PENDING, which recovers to ACTIVE/READY | ERROR → (retry) → ACTIVE (READY) | "Ready" after retry | `defaultHttps.status` stays ERROR across waits; retry route returns `'retrying'`; machine recovers to ACTIVE; no INSTALL/DESTROY re-triggered | `e2e/scenario-default-https.spec.ts` |
-
-A `purge-failure` scenario is landing in a sibling PR (see
-[`test-matrix.md`](test-matrix.md#7-operations--lifecycle-capabilities))
-— it will give the orphan-ownership client one leftover resource instead
-of the always-empty list `e2e/simulation/relay-harness.ts` gives it today.
 
 Browser-level coverage: `e2e/scenario-ui.spec.ts` drives four of the original
 scenarios (`happy-path`, `slow-provision`, `cloudformation-rollback`, and

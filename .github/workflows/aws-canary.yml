@@ -1,7 +1,7 @@
 name: AWS version canary
 
 # The real-AWS version deployment + rollback canary
-# (docs/testing/version-rollback-canary.md). Deliberately NOT part of the PR
+# (docs/testing/aws-e2e.md). Deliberately NOT part of the PR
 # check set: it creates a real customer install in the test account, takes
 # 60–90 minutes and costs money. Run it on demand before a release and after
 # changes to the relay, deployment orchestration, CDK/CloudFormation, health
@@ -9,7 +9,7 @@ name: AWS version canary
 #
 # The `schedule` trigger below is commented out on purpose: enable it only
 # after three consecutive green manual `profile --profile stateless
-# --production` runs (docs/testing/version-rollback-canary.md's MVP gate).
+# --production` runs (docs/testing/aws-e2e.md's MVP gate).
 # Until then this workflow is workflow_dispatch only.
 on:
   workflow_dispatch:

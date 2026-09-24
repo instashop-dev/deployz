@@ -2,7 +2,7 @@
  * Configuration for the version/rollback canary — everything that
  * identifies WHICH control plane, WHICH AWS account and WHICH run this is.
  *
- * Hard rules (docs/testing/version-rollback-canary.md):
+ * Hard rules (docs/testing/aws-e2e.md):
  * - the AWS account must equal the expected test account, or nothing runs;
  * - every run has a unique run id that names its evidence directory, its
  *   release versions and its resource tags;

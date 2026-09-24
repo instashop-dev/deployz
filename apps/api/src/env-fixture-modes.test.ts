@@ -7,7 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 // none of GITHUB_FIXTURE_MODE/AI_FIXTURE_MODE/DOMAIN_FIXTURE_MODE/
 // BUILD_FIXTURE_MODE set, all four flags in env.ts must parse false, so a
 // deployment that forgets to set them (e.g. because CI's deploy-api.yml
-// legitimately never sets any of them — see e2e/production-safety.spec.ts)
+// legitimately never sets any of them — see scripts/production-safety.test.mjs)
 // never silently runs in fixture mode instead of failing closed.
 //
 // env.ts reads process.env once at import time, AND (per find-env-file.ts)

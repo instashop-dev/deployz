@@ -203,14 +203,20 @@ There is no `plan` job (no PR base to diff against). `test-build` and
 the same set a `critical` pull request runs. `pr-gate` does not run either
 (it is `if: github.event_name == 'pull_request'`).
 
-Deploying is a separate concern from testing: `deploy-api.yml` and
-`deploy-web.yml` each trigger on their own `push: branches: [main]`, on
-the paths they care about, independently of `ci.yml`. **Neither deploy
-workflow waits for `ci.yml` to pass** — see
-[`../operations/control-plane.md`](../operations/control-plane.md). When
-validating a production change, record the SHA and confirm both the CI
-run and the relevant deploy run finished, rather than assuming one gates
-the other.
+Deploying is a separate concern from testing, but it does gate on CI now:
+`deploy-api.yml` and `deploy-web.yml` each trigger on `workflow_run` of a
+successful `CI` run for `main` (a pull-request CI run has the PR branch as
+`head_branch` and is filtered out). Each workflow's own `gate` job then
+checks two things before anything deploys: the commit is still the tip of
+`main` (an older run must not deploy over a newer one), and the commit
+touches that service's runtime dependency closure (a path filter, not
+`ci.yml`'s risk classification — see `.github/workflows/deploy-api.yml` /
+`deploy-web.yml` and
+[`../operations/control-plane.md`](../operations/control-plane.md)). A
+manual `workflow_dispatch` run always deploys the checked-out ref, skipping
+both checks. When validating a production change, record the SHA and
+confirm both the CI run and the relevant deploy run finished, rather than
+assuming one implies the other.
 
 ## Timing expectations
 

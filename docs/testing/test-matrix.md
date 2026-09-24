@@ -62,7 +62,7 @@ ladder.
   It measures analyser accuracy, not product regressions. It never runs on
   a pull request.
 - **manual** — a human follows a written runbook. Today this is
-  `docs/testing/aws-full-product-canary.md`.
+  `docs/testing/manual-checklist.md`.
 
 ## 4. Priority legend
 
@@ -118,7 +118,7 @@ ladder.
 | Stack creation (INSTALL) | The application CloudFormation stack creates cleanly and the relay reports HEALTHY | VPC/RDS/ECS `CREATE_FAILED`; stack rolls back; stack terminates with no rollback | `1f85974d` (DEPLOY-001, install runs the release image); `0b7ba7e2` (per-deployment templates, no `Fn::Export`) | L1, L2, L3, L4, L5 | `packages/relay/src/install.test.ts` (959 LOC/46 tests); `packages/cdk/test/application-stack.test.ts` (1663 LOC/84 tests); `e2e/scenario-install.spec.ts`; scenarios `happy-path`, `cloudformation-rollback`, `ecs-failure`, `healthcheck-failure`, `stateless` | none known | P0 |
 | Database (RDS, DATABASE_URL, CA bundle) | RDS provisions; the app receives a working `DATABASE_URL` with the CA bundle installed | RDS `CREATE_FAILED`; app connects without the CA bundle and TLS verification fails | `67e3da21` (DEPLOY-007, RDS CA bundle delivered into the task); `e8f0d3a1` (DEPLOY-005/013) | L1, L2, L3, L5 | `packages/cdk/test/application-stack.test.ts` (RDS CA bundle cases); scenario `database-failure`; canary `profile pg` | none known | P0 |
 | Storage (S3) | S3 bucket provisions and the app's IAM role can read/write it | Bucket policy denies the task role | none named in the history mining | L1, L2, L5 | `packages/contracts/src/aws-resources.test.ts`; CDK synth coverage inside `packages/cdk/test/application-stack.test.ts` | No scenario or canary fixture exercises S3 at the application layer (the fixture app has no S3 client); IAM-policy correctness is proven only by CDK synth, never by a live read/write | P1 |
-| Redis (Valkey replication group) | ElastiCache/Valkey replication group provisions; the app connects | ElastiCache `CREATE_FAILED`; a cache-cluster template variant is used instead of a replication group | `33bee50b` (Valkey needs a replication group, not a cache cluster); `c86643a5`; `efe00c42` | L1, L2, L3, L5 | `packages/cdk/test/application-stack.test.ts`; `packages/cdk/test/capability-matrix.test.ts` (DB×Redis combinations); `packages/cdk/test/golden-path-live-aws.test.ts` (gated real ElastiCache proof); scenario `redis-failure`; scenario `redis-success`; canary `profile redis` | Redis is proven only at the provisioning level; no fixture exercises an actual cache read/write from the application | P1 |
+| Redis (Valkey replication group) | ElastiCache/Valkey replication group provisions; the app connects | ElastiCache `CREATE_FAILED`; a cache-cluster template variant is used instead of a replication group | `33bee50b` (Valkey needs a replication group, not a cache cluster); `c86643a5`; `efe00c42` | L1, L2, L3, L5 | `packages/cdk/test/application-stack.test.ts`; `packages/cdk/test/capability-matrix.test.ts` (DB×Redis combinations); the version canary's `profile --profile redis` (real ElastiCache proof, `aws-e2e.md`); scenario `redis-failure`; scenario `redis-success` | Redis is proven only at the provisioning level; no fixture exercises an actual cache read/write from the application | P1 |
 | Application startup (ECS, env/secret injection, migration command) | ECS task starts, receives env/secrets, and runs the migration command before serving | Migration command fails; container starts then exits; migration syntax breaks under the container shell | `ceab3e30` (CANARY-009, migration runs through the container shell); `a05c37e4` (DEPLOY-014); `a8453c9d` (DEPLOY-011, `CONTAINER_START_FAILED`); `adcd2dd1` (CANARY-010, release migration command outranks the manifest) | L1, L2, L3, L5 | `packages/relay/src/deploy.test.ts` (1147 LOC/42 tests); `packages/relay/src/ecs-observe.test.ts`; `packages/cdk/test/application-stack.test.ts` (container contract); `packages/cdk/test/worker.test.ts` | none known | P0 |
 | HTTPS (default d-* domain, ACM, Cloudflare records, custom domain) | Default HTTPS activates automatically; a custom domain can be added, verified, and connected | ACM validation record rejected; Cloudflare DNS write fails; rate limiting; custom-domain precedence over the default domain | 14 commits in the "HTTPS/health" class: `d7eb6ecf` (ACM trailing-dot record), `4412bea3` (tag the relay-created listener so the relay may delete it), `d7de33e0` (retry `DeleteCertificate` while ACM still holds the association), `068ab9a4` (purge reads certificate tags account-wide), `8db16659` (the HTTPS step says it is waiting, not counting time, OBS-C), `7c74519c` (a published template carries no preset health check), `bf9530ea`/`8b3dc5ec` (DEPLOY-030, provider/TLS-shaped values never mintable) | L1, L2, L3, L5 | `apps/api/src/default-https.test.ts`; `apps/api/src/domain-routes.test.ts`; `apps/api/src/domain-validation.test.ts`; `apps/api/src/domain-check.test.ts`; `apps/api/src/cloudflare-records.test.ts`; `e2e/custom-domain.spec.ts`; `e2e/scenario-default-https.spec.ts` (A-I) | Explicit HTTPS-ACTIVE wait/probe exists in Stage B (`describeDependencies`) but not in the base version canary's `core`/`resilience`/`profile` scenarios | P1 |
 | Health checks (ALB targets, health path) | ALB reports every target healthy; the health path answers 200 | Every ALB target unhealthy; health path derived incorrectly from a file-based router | `bbfd6e35` (CANARY-003, file-route health paths derived from the router root); `dfba01f7` (DEPLOY-006, generic template relies on ALB health, no in-container curl probe) | L1, L2, L3 | `apps/api/src/health-transitions.test.ts`; `packages/relay/src/ecs-health.test.ts`; `packages/relay/src/http-probe.test.ts`; scenario `healthcheck-failure` | none known | P0 |
@@ -134,9 +134,9 @@ ladder.
 | Retry (retry-install, recovery arc, DELETE_FAILED cleanup) | Admin retries a failed install; the deployment reaches HEALTHY | Retry on a deployment that is not eligible; `DELETE_FAILED` stack blocks a retry | admin diagnose-and-retry is asserted in `e2e/admin.spec.ts` against scenario `cloudformation-rollback` | L1, L2, L3 | `apps/api/src/retry-eligibility.test.ts`; `packages/relay/src/recover.test.ts` (`recoverFailedInstallStack`, `clearDeleteBlockersAndRetryDelete`); `apps/api/src/admin/admin-actions.test.ts`; `e2e/scenario-recovery.spec.ts` (`retry-install-recovery`, `install-link-retry`); `e2e/admin.spec.ts` | The `/retry-install` admin HTTP route has only narrow depth beyond the pure `retryEligibilityFor` unit test — no route-level test covers the full eligibility matrix | P1 |
 | Diagnostics | Deployment diagnostics show the classified failure and evidence | No failure exists yet (empty state) | covered under Error states above | L1, L2, L3 | `e2e/diagnostics.spec.ts` (3 tests: classification + no-issues path) | none known | P1 |
 | Redeploy/update (DEPLOY_RELEASE, circuit breaker, rollback) | A new release deploys via ECS `UpdateService`; a bad rollout rolls back automatically | ECS deployment circuit breaker trips; rollback itself fails; a same-digest rollback is wrongly treated as success | `4de29dd1` (DEPLOY-015, circuit-breaker rollback onto a same-digest revision is a failure); `8ef97916` (a release is deployable again once its previous attempt settled); `7b93e3c7` (CANARY-008, failed update never fails a deployment with a running install) | L1, L2, L3, L5 | `packages/relay/src/deploy.test.ts`; `packages/relay/src/config-update.test.ts`; `packages/contracts/src/plan.test.ts` (`buildUpdatePlan`); `e2e/scenario-lifecycle.spec.ts` (`update-failure`, `rollback-success`, `rollback-failure`, `two-apps-1.0.0`); version canary `core` steps 8-13 (build v2, deploy, rollback, re-deploy idempotency, bad-health deploy) | none known | P0 |
-| Deployment status consistency (vendor vs customer projections) | The vendor detail page and the customer/public-install page always agree on stage, health, and terminal state | A field disagrees between `toVendorDeploymentStatus` and `toCustomerDeploymentStatus`; the client-side vendor and customer state matrices diverge | 15 commits in the "Vendor/customer state mismatch" class, e.g. `df121f78` (read stack status/checks from the real relay result nesting), `f1a8c9fa`/`d6bbfb5c` (truthful step timing and status during a rollback), `5d99c3ec` (plain-English relay report, truthful secure-endpoint status), `d83cc0d2` (truthful, race-safe lifecycle state, DZ-AUDIT-006/007/011/024/032), `3b62f888` (truthful vendor UX, DZ-AUDIT-019/020/035), `e4f0e6d0` (install-link double-launch race), `85657649`/`dd52bbee`/`bd070bef` (a removed/retained deployment is never rendered as live or gone) | L1, L2, L3 | `apps/api/src/deployment-status.test.ts` (one assertion at line ~506 comparing `.stage` only); `apps/web/test/application-state.test.ts` (client vendor matrix, 74 tests, no cross-check); `e2e/deployment-progress.spec.ts` (projection-consistency invariant across the public install page, vendor detail page, and raw `/status` API) | **In progress (sibling PR):** a full-matrix projection-consistency test is landing in `apps/api/src/deployment-status.test.ts`, extending the single `.stage`-only assertion to every field across every scenario in the file's own matrix. Until it lands, no test anywhere renders the same deployment through both the vendor and the customer/public-install client-side code paths | P0 |
+| Deployment status consistency (vendor vs customer projections) | The vendor detail page and the customer/public-install page always agree on stage, health, and terminal state | A field disagrees between `toVendorDeploymentStatus` and `toCustomerDeploymentStatus`; the client-side vendor and customer state matrices diverge | 15 commits in the "Vendor/customer state mismatch" class, e.g. `df121f78` (read stack status/checks from the real relay result nesting), `f1a8c9fa`/`d6bbfb5c` (truthful step timing and status during a rollback), `5d99c3ec` (plain-English relay report, truthful secure-endpoint status), `d83cc0d2` (truthful, race-safe lifecycle state, DZ-AUDIT-006/007/011/024/032), `3b62f888` (truthful vendor UX, DZ-AUDIT-019/020/035), `e4f0e6d0` (install-link double-launch race), `85657649`/`dd52bbee`/`bd070bef` (a removed/retained deployment is never rendered as live or gone) | L1, L2, L3 | `apps/api/src/deployment-status.test.ts` (`scenario %i: customer and vendor agree on every field they share` — a full-matrix cross-check across every scenario in the file's own matrix, not just `.stage`); `apps/web/test/application-state.test.ts` (client vendor matrix, 74 tests, no cross-check); `e2e/deployment-progress.spec.ts` (projection-consistency invariant across the public install page, vendor detail page, and raw `/status` API) | No `apps/web` test yet renders both the vendor detail view and the public-install/customer view from the same underlying status object client-side — the server-side full-matrix check above closes only that half | P0 |
 | Destroy | Customer or relay deletes the application stack cleanly | Stack-level `DELETE_FAILED` with no attributable blocker | `dd52bbee` (a retained-on-failure resource is not reported as removed); `85657649` (a removed deployment is not rendered as live, OBS-G/F) | L1, L2, L3 | `packages/relay/src/destroy.test.ts`; `packages/contracts/src/plan.test.ts` (`buildDestroyPlan`); scenario `delete-failure`; scenario `retained-resources` | none known | P0 |
-| Retained resources (RDS/S3/secrets retained, purge sweeps network orphans) | RDS/S3/secrets retained by `DeletionPolicy` after DESTROY; PURGE later sweeps the network orphans a retained DB leaves behind | Purge cannot reach an orphan; retained-state check disagrees with the real AWS tags | `76eb6c66` (CANARY-015, purge sweeps network orphans); `5547b1c2` (retained-state check by secret kind); `9e4fbd4b` (retained-state verification + plan-vs-inventory gates); `7cfbb0b2` (allow 80 minutes for a Disconnect that retains the database) | L1, L2, L3, L5 | `packages/relay/src/purge.test.ts` (1599 LOC/51 tests); `packages/relay/src/recover.test.ts`; `packages/relay/src/stack-resources.test.ts`; `packages/cdk/test/lifecycle-parity.test.ts`; scenario `retained-resources`; version canary `teardown.ts` (`destroyThroughProduct`, `leakAudit`) | **In progress (sibling PR):** a `purge-failure` scenario is landing in `e2e/simulation/scenarios/`, giving the orphan-ownership client one leftover resource instead of the always-empty, always-succeeding list `e2e/simulation/relay-harness.ts` gives it today. Until it lands, a simulated PURGE-failure path does not exist — a leftover orphan is never modelled at L3 | P0 |
+| Retained resources (RDS/S3/secrets retained, purge sweeps network orphans) | RDS/S3/secrets retained by `DeletionPolicy` after DESTROY; PURGE later sweeps the network orphans a retained DB leaves behind | Purge cannot reach an orphan; retained-state check disagrees with the real AWS tags | `76eb6c66` (CANARY-015, purge sweeps network orphans); `5547b1c2` (retained-state check by secret kind); `9e4fbd4b` (retained-state verification + plan-vs-inventory gates); `7cfbb0b2` (allow 80 minutes for a Disconnect that retains the database) | L1, L2, L3, L5 | `packages/relay/src/purge.test.ts` (1599 LOC/51 tests); `packages/relay/src/recover.test.ts`; `packages/relay/src/stack-resources.test.ts`; `packages/cdk/test/lifecycle-parity.test.ts`; scenario `retained-resources`; scenario `purge-failure` (`e2e/simulation/scenarios/purge-failure.ts`, driven from `e2e/scenario-lifecycle.spec.ts` — gives the orphan-ownership client one leftover resource instead of the always-empty, always-succeeding list); version canary `teardown.ts` (`destroyThroughProduct`, `leakAudit`) | none known | P0 |
 | Dead relay handling (disconnect, force-complete, relay silence) | A silent relay never marks the job FAILED merely because it stopped reporting; force-complete is available after any Disconnect | Relay silent for 11+ minutes mid-deploy; force-complete requested before Disconnect | 7 commits in the "Dead relay" class: `8651eab3` (CANARY-013, Purge available after any Disconnect); `0bc8ff42` (resilience scenario: duplicate requests, busy refusals, relay interruption); `0a4b3087`/`85a6740c` (CANARY-006, relay state-persistence failures classified as Deployz-side); `6e28e797` (mirror the force-complete threshold locally); `e3e9574c` (nudge the relay while a teardown waits for its next poll) | L1, L2, L3, L5 | `apps/api/src/disconnect-force-complete.test.ts`; scenario `relay-disconnect`; `e2e/scenario-resilience.spec.ts` (`relay-death-destroy`, `force-complete-repeated-failures` tags); version canary `resilience` Phase 10 (11-minute EventBridge rule disable) | none known | P0 |
 | AWS disconnect | Customer disconnects; the deployment enters a disconnected, still-retained state | Disconnect requested while a job is active | covered by Dead relay and Retained resources above | L1, L2, L3, L5 | `apps/api/src/disconnect-force-complete.test.ts`; `packages/relay/src/purge.test.ts`; version canary `teardown.ts` Disconnect step | none known | P0 |
 | Post-disconnect cleanup (purge, connector stack ownership) | Purge deletes the application stack, sweeps orphans, and leaves the bootstrap/connector stack for the customer to delete | Purge deletes the connector stack it does not own; purge runs while a delete is still pending | `67e93b1a` (CANARY-014, the connector stack is the customer's to delete, purge stops pretending); `624eb1b8` (cleanup lineage DZ-AUDIT-009/010/014/018) | L1, L3, L5 | `packages/relay/src/purge.test.ts`; `e2e/scenario-default-https.spec.ts` (destroy/purge cleanup tests); `e2e/scenario-sweep.spec.ts`; version canary `removeCanaryLeftovers` (BUG-003 guard: never delete the connector before a completed application-stack DELETE) | none known | P0 |
@@ -155,25 +155,22 @@ list is ordered by priority, P0 first.
 
 ### P0
 
-1. **Vendor/customer deployment-status consistency.** Only one field
-   (`.stage`, one scenario) is cross-checked today.
-   Status: **in progress** — a full-matrix contract test is landing in
-   `apps/api/src/deployment-status.test.ts` in a sibling PR (see the
-   capability row above). This closes the server-side half.
-   Proposed layer: L1.
+1. **~~Vendor/customer deployment-status consistency.~~ Landed (server
+   side).** `apps/api/src/deployment-status.test.ts` now cross-checks every
+   shared field, not only `.stage`, across every scenario in the file's own
+   matrix (see the capability row above).
+   Proposed layer: L1 (done); L2/web (open).
    Remaining proposed test: one `apps/web` test that renders both the
    vendor detail view and the public-install/customer view from the same
    underlying status object and asserts they tell a consistent story.
 
-2. **Simulated PURGE failure path.** `e2e/simulation/relay-harness.ts`
-   gives PURGE an always-empty, always-succeeding orphan-ownership list.
-   Status: **in progress** — a `purge-failure` scenario is landing in
-   `e2e/simulation/scenarios/` in a sibling PR (see the Retained
-   resources row above).
-   Proposed layer: L3.
-   Remaining proposed test: drive the new scenario from
-   `e2e/scenario-lifecycle.spec.ts` or a new spec, and assert the
-   deployment surfaces the leftover instead of reporting a clean purge.
+2. **~~Simulated PURGE failure path.~~ Landed.** `e2e/simulation/relay-harness.ts`
+   used to give PURGE an always-empty, always-succeeding orphan-ownership
+   list; the `purge-failure` scenario
+   (`e2e/simulation/scenarios/purge-failure.ts`, driven from
+   `e2e/scenario-lifecycle.spec.ts`) now gives it one leftover resource and
+   asserts the deployment surfaces it instead of reporting a clean purge
+   (see the Retained resources row above). No further action needed.
 
 3. **KMS real-SDK error-shape drift.** Every KMS test uses a hand-rolled
    fake `@aws-sdk/client-kms` client.
@@ -278,10 +275,10 @@ list is ordered by priority, P0 first.
     action needed.
 
 16. **~~`e2e.yml` (the only automated runner of those 23 specs) has no
-    schedule trigger.~~ Resolved.** `e2e.yml` (`workflow_dispatch` only)
-    is being retired: the fixture-mode and full Playwright suites now run
-    through `ci.yml` on every push to `main`, which needs no separate
-    schedule.
+    schedule trigger.~~ Resolved.** `.github/workflows/e2e.yml`
+    (`workflow_dispatch` only) is deleted: the fixture-mode and full
+    Playwright suites now run through `ci.yml` on every push to `main` and
+    on `ci.yml`'s own `workflow_dispatch`, which needs no separate schedule.
 
 17. **Redis and S3 are proven only at the provisioning level, never at
     the application level.**
@@ -310,20 +307,15 @@ list is ordered by priority, P0 first.
     Status: **fixed** in this pass — corrected to `pnpm e2e
     e2e/visual.spec.ts`, with a note that the snapshots are Windows-only.
 
-21. **`jev-eval`/`jev-shadow` is orphaned tooling** (one commit ever, no
-    README, not indexed in `docs/testing/`, 1.2 MB of committed run
-    files).
-    Proposed layer: manual/decision.
-    Proposed fix: either write a short README and index it from
-    `docs/testing/README.md`, or remove it. This is a documentation and
-    cleanup decision, not a test-coverage gap — still deferred.
+21. **~~`jev-eval`/`jev-shadow` is orphaned tooling~~ Resolved.** `pnpm
+    jev:eval` is now documented in [`compatibility.md`](compatibility.md)
+    and its run evidence moved from `docs/testing/jev-shadow/runs/` to
+    `scripts/jev-eval/runs/` (kept, not a test-coverage gap).
 
-22. **Stage B B1 `runtime-reuse` class is dead code.**
-    `assertRuntimeReuseSupported()` always throws (`DEPLOY-017`).
-    Proposed layer: compat tooling cleanup.
-    Proposed fix: remove the `--runtime-reuse` CLI path and any remaining
-    B1-labelled config, keeping only the guard that explains why it is
-    unsupported.
+22. **~~Stage B B1 `runtime-reuse` class is dead code.~~ Resolved.** The
+    `--runtime-reuse` CLI path and `assertRuntimeReuseSupported()` are
+    removed from `scripts/repository-deployment`; `DEPLOY-017` stays the
+    historical record. See [`compatibility.md`](compatibility.md).
 
 ---
 

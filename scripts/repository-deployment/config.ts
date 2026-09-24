@@ -18,13 +18,19 @@ const ENTRY_ID_REGEX = /^repo-\d{3}$/;
 const WAVE_ID_REGEX = /^[a-z0-9-]+$/;
 
 /**
- * The three deployment classes for Stage B (README "Three-class model").
+ * The three deployment classes for Stage B (compatibility.md "Stage B").
  *
- * B1 runtime-reuse (default):  build/release/deploy against a shared standing
- *   installation. Never creates fresh AWS infrastructure.
+ * B1 runtime-reuse: withdrawn (DEPLOY-017) — a deployment owns its
+ *   installation, so a shared standing installation can never serve a
+ *   second one. There is no `--runtime-reuse` execution path any more.
+ *   `'runtime-reuse'` stays in `DEPLOYMENT_CLASSES` only so the schema can
+ *   still parse the committed `runs/*.json` history that recorded it before
+ *   the removal — `deploymentClassFor` never returns it for a new result.
  * B2 capability-cohort:         fresh infrastructure for repos covering each
  *   capability cohort (PostgreSQL, Redis, PostgreSQL+Redis, storage, custom
- *   Dockerfile, custom port, custom health check, special topology).
+ *   Dockerfile, custom port, custom health check, special topology). Also
+ *   the default for a repository not explicitly placed in `b2Repos` or
+ *   `b3Repos` — it runs the same fresh-AWS `--real-aws` funnel either way.
  * B3 fresh-full:                full funnel through fresh AWS (build → ECR →
  *   bootstrap → install → healthy → destroy → cleanup audit).
  */
@@ -191,15 +197,20 @@ export type DeployConfig = z.infer<typeof deployConfigSchema>;
  *
  *   - Explicit override in the repository config wins.
  *   - B3 list membership → fresh-full.
- *   - B2 list membership → capability-cohort.
- *   - Everything else → runtime-reuse.
+ *   - B2 list membership, or no membership at all → capability-cohort.
+ *
+ * `runtime-reuse` (B1) is never returned here — it is withdrawn (DEPLOY-017)
+ * and kept in `DEPLOYMENT_CLASSES` only so the schema can still parse the 40
+ * committed `runs/*.json` result files that recorded it before the removal.
+ * A repository this function does not explicitly place in `b2Repos`/
+ * `b3Repos` still runs the same fresh-AWS `--real-aws` funnel as an
+ * explicit B2 entry, so `capability-cohort` is the honest default now.
  */
 export function deploymentClassFor(config: DeployConfig, id: string): DeploymentClass {
   const repoConfig = config.repositories.find((entry) => entry.id === id);
   if (repoConfig?.deploymentClass) return repoConfig.deploymentClass;
   if (config.b3Repos.includes(id)) return 'fresh-full';
-  if (config.b2Repos.includes(id)) return 'capability-cohort';
-  return 'runtime-reuse';
+  return 'capability-cohort';
 }
 
 /**

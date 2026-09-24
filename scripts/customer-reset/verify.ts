@@ -19,8 +19,9 @@ import * as schema from '@deployz/db/schema';
 import { sql } from 'drizzle-orm';
 
 function loadManifest(): Manifest | undefined {
+  let text: string;
   try {
-    return JSON.parse(readFileSync(MANIFEST_PATH, 'utf8')) as Manifest;
+    text = readFileSync(MANIFEST_PATH, 'utf8');
   } catch {
     console.warn(
       `[customer-reset] no ${MANIFEST_PATH} found — skipping the AWS re-scan and checking DB counts only. ` +
@@ -28,6 +29,21 @@ function loadManifest(): Manifest | undefined {
     );
     return undefined;
   }
+  // A present but corrupt/incompatible manifest must fail clearly, not crash
+  // later with a TypeError on `manifest.deployments.map`.
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch (error) {
+    throw new Error(`[customer-reset] ${MANIFEST_PATH} is not valid JSON: ${error instanceof Error ? error.message : String(error)}`);
+  }
+  if (parsed === null || typeof parsed !== 'object' || !Array.isArray((parsed as Manifest).deployments)) {
+    throw new Error(
+      `[customer-reset] ${MANIFEST_PATH} has no "deployments" array — it is corrupt or from an incompatible version. ` +
+        'Re-run `pnpm admin:customer-cleanup inventory`.',
+    );
+  }
+  return parsed as Manifest;
 }
 
 const PURGED_TABLES = [

@@ -1781,7 +1781,7 @@ export async function buildServer({
   // see `fixtureDefaultDnsProvider` above). In any other boot these routes do
   // not exist and answer Fastify's default 404 — an internal test surface can
   // never be enabled in production, exactly like the scenario-control absence
-  // e2e/production-safety.spec.ts pins. They carry no auth: they are gated by
+  // scripts/production-safety.test.mjs pins. They carry no auth: they are gated by
   // environment, and the simulated suite is the only environment they exist in.
   if (fixtureDefaultDnsProvider) {
     const snapshot = () => ({
