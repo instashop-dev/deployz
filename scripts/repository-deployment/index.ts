@@ -84,7 +84,6 @@ export interface RunOptions {
   gate: boolean;
   dryRun: boolean;
   realAws: boolean;
-  runtimeReuse: boolean;
   resume: boolean;
   cleanup: boolean;
   audit: boolean;
@@ -120,7 +119,6 @@ export function parseRunArgs(argv: readonly string[]): RunOptions {
       gate: { type: 'boolean', default: false },
       'dry-run': { type: 'boolean', default: false },
       'real-aws': { type: 'boolean', default: false },
-      'runtime-reuse': { type: 'boolean', default: false },
       resume: { type: 'boolean', default: false },
       cleanup: { type: 'boolean', default: false },
       audit: { type: 'boolean', default: false },
@@ -149,10 +147,9 @@ export function parseRunArgs(argv: readonly string[]): RunOptions {
   }
   const maxActive = values['max-active'] ? Number(values['max-active']) : 2;
   if (!Number.isInteger(maxActive) || maxActive < 1) throw new Error('--max-active must be a positive integer');
-  const modes = [values.gate, values['dry-run'], values['real-aws'], values['runtime-reuse'], values.cleanup, values.audit].filter(Boolean).length;
-  if (modes === 0 && !values.resume) throw new Error('choose a mode: --gate, --dry-run, --real-aws, --runtime-reuse, --cleanup or --audit');
+  const modes = [values.gate, values['dry-run'], values['real-aws'], values.cleanup, values.audit].filter(Boolean).length;
+  if (modes === 0 && !values.resume) throw new Error('choose a mode: --gate, --dry-run, --real-aws, --cleanup or --audit');
   if (values['real-aws'] && values.gate) throw new Error('--gate and --real-aws are exclusive (the funnel runs the gate itself)');
-  if (values['real-aws'] && values['runtime-reuse']) throw new Error('--real-aws and --runtime-reuse are exclusive');
   return {
     ids: values.repo ?? [],
     set: values.set,
@@ -162,7 +159,6 @@ export function parseRunArgs(argv: readonly string[]): RunOptions {
     gate: values.gate ?? false,
     dryRun: values['dry-run'] ?? false,
     realAws: values['real-aws'] ?? false,
-    runtimeReuse: values['runtime-reuse'] ?? false,
     resume: values.resume ?? false,
     cleanup: values.cleanup ?? false,
     audit: values.audit ?? false,
@@ -185,44 +181,10 @@ export function parseRunArgs(argv: readonly string[]): RunOptions {
 /**
  * Real AWS needs both the environment opt-in every live suite shares and
  * the explicit flag; a dry run never needs either, and never reads AWS.
- * --runtime-reuse also needs the opt-in (it touches AWS through the
- * standing installation, but never creates fresh infrastructure).
  */
 export function requireRealAws(options: RunOptions, env: NodeJS.ProcessEnv): void {
-  if (!(options.realAws || options.runtimeReuse || options.cleanup || options.audit || options.resume)) return;
+  if (!(options.realAws || options.cleanup || options.audit || options.resume)) return;
   requireRealAwsOptIn(env);
-  if (!options.realAws && !options.runtimeReuse && !options.cleanup && !options.audit && !options.resume) {
-    throw new Error('real AWS needs --real-aws or --runtime-reuse');
-  }
-}
-
-/**
- * B1 runtime-reuse cannot work against the product as it stands, so the mode
- * refuses instead of failing 15 minutes later with a misleading verdict.
- *
- * A deployment owns its installation: `deployments.installation_id` is UNIQUE,
- * the enrollment code is single-use, and the relay's bearer token is bound to
- * the deployment that traded it (packages/db/src/schema/deployments.ts). A
- * standing installation is therefore already owned by the deployment that
- * enrolled it and can never serve a second one — the new deployment's
- * enrollment code is never traded, so it stays WAITING_FOR_RELAY until the
- * install step times out and the attempt is recorded as a product failure.
- *
- * Sharing one runtime across repositories needs many deployments per
- * installation, which is a product change and out of the MVP boundary.
- */
-export function assertRuntimeReuseSupported(): never {
-  throw new Error(
-    `--runtime-reuse is not supported: a deployment owns its installation.\n` +
-    `deployments.installation_id is UNIQUE, the enrollment code is single-use, and the\n` +
-    `relay token is bound to the deployment that enrolled it, so a standing installation\n` +
-    `cannot serve a second deployment — the attempt would wait for a bootstrap stack that\n` +
-    `is never created and be recorded as a product failure.\n` +
-    `Use --real-aws (fresh infrastructure per repository). To make retries cheap, add\n` +
-    `--reuse-application, which redeploys the release the repository already built\n` +
-    `instead of running CodeBuild again.\n` +
-    `See docs/testing/repository-deployment/findings.md — DEPLOY-017.`,
-  );
 }
 
 /** Selection by id, set, cohort, wave and finding — every filter narrows. */
@@ -254,7 +216,7 @@ export function deployzSha(): string {
   return execFileSync('git', ['rev-parse', 'HEAD'], { cwd: REPO_ROOT, encoding: 'utf8' }).trim();
 }
 
-export function identityFor(entry: BenchmarkEntry, sha: string, mode: StageBResult['mode'], runId: string | null, deploymentClass: StageBResult['deploymentClass'] = 'runtime-reuse'): Parameters<typeof emptyResult>[0] {
+export function identityFor(entry: BenchmarkEntry, sha: string, mode: StageBResult['mode'], runId: string | null, deploymentClass: StageBResult['deploymentClass'] = 'capability-cohort'): Parameters<typeof emptyResult>[0] {
   return {
     id: entry.id,
     repository: entry.repository,
@@ -342,7 +304,7 @@ export async function runGateAudit(
       process.stdout.write(`${entry.id} ${entry.repository}@${entry.commit.slice(0, 7)} … `);
       const repoConfig = configFor(config, entry.id);
       const existing = readResult(options.runsDir, entry.id);
-      const result = existing ?? emptyResult(identityFor(entry, sha, 'gate', null));
+      const result = existing ?? emptyResult(identityFor(entry, sha, 'gate', null, deploymentClassFor(config, entry.id)));
       const raw = await session.analyse(entry);
       const { gate } = gateSection(entry, raw, repoConfig, ANALYSIS_VERSION);
       result.gate = gate;
@@ -497,7 +459,7 @@ async function runAttempt(series: Series, options: RunOptions, config: DeployCon
   const repoConfig = configFor(config, entry.id);
   requireSmokeContract(repoConfig, options.requireSmoke);
   const runId = stageBRunId(entry.id);
-  const result = emptyResult(identityFor(entry, series.sha, 'deploy', runId));
+  const result = emptyResult(identityFor(entry, series.sha, 'deploy', runId, deploymentClassFor(config, entry.id)));
   result.findingIds = [...repoConfig.findings];
   const evidence = openLedger(
     options.evidenceDir,
@@ -695,7 +657,6 @@ async function main(): Promise<number> {
   }
 
   requireRealAws(options, process.env);
-  if (options.runtimeReuse) assertRuntimeReuseSupported();
   const canaryConfig: CanaryConfig = { ...loadConfig(process.env), ...(options.region ? { region: options.region } : {}) };
   const identity = await callerIdentity();
   if (identity.account !== canaryConfig.expectedAccountId) {

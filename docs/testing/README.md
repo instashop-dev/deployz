@@ -10,9 +10,9 @@ concern each.
 | [`test-matrix.md`](test-matrix.md) | The coverage matrix: every core capability, its happy/failure paths, current test coverage, and known gaps |
 | [`ci.md`](ci.md) | What CI runs, the change-classification rules, timing per risk level, troubleshooting |
 | [`simulated-e2e.md`](simulated-e2e.md) | The simulated E2E layer: the simulation seam, fixture modes, the runner CLI, the scenario catalogue, debugging |
-| [`aws-e2e.md`](aws-e2e.md) | Real-AWS layers L4-L6: fixtures, diagnostics, cleanup |
-| [`compatibility.md`](compatibility.md) | Stage A/B corpus benchmarks, the manual full-product walk, when to run them |
-| [`manual-checklist.md`](manual-checklist.md) | The manual QA checklist |
+| [`aws-e2e.md`](aws-e2e.md) | Real-AWS layers L4-L6 (fresh, the version canary, the production canary): the fixture application, safety, evidence, diagnostics, cleanup and the leak audit, escalation rules, troubleshooting |
+| [`compatibility.md`](compatibility.md) | Stage A/B corpus benchmarks, `pnpm jev:eval`, the manual full-product walk, when to run each |
+| [`manual-checklist.md`](manual-checklist.md) | The manual QA checklist: the human walk, known failure modes, the AI MVP checks, plan-vs-inventory checks, and the areas no automated layer judges |
 | [`repository-compatibility/findings.md`](repository-compatibility/findings.md) | Stage A findings registry (`COMP-nnn`) |
 | [`repository-deployment/findings.md`](repository-deployment/findings.md) | Stage B findings registry (`DEPLOY-nnn`) |
 

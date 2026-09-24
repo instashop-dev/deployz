@@ -5,7 +5,7 @@
  * fresh-e2e.live.test.ts reuses the `cdk`/`aws` invocation pattern this file
  * carries instead of forking it. The read-only persistent-installation
  * canary and the throwaway golden-path suite this file used to also serve
- * were retired (docs/testing/version-rollback-canary.md's `profile`/`core`
+ * were retired (docs/testing/aws-e2e.md's `profile`/`core`
  * scenarios and `pnpm e2e:fresh` cover the same ground for real).
  *
  * Not a `.test.ts` file — vitest will not try to run it as a suite.

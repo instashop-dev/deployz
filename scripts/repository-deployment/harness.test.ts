@@ -18,7 +18,6 @@ import {
   BENCHMARK_PATH,
   DEPLOY_CONFIG_PATH,
   STAGE_B_DIR,
-  assertRuntimeReuseSupported,
   buildPlan,
   ecrDigestLookup,
   identityFor,
@@ -171,9 +170,11 @@ describe('result model', () => {
   });
 
   it('accepts only the documented vocabularies', () => {
-    const readme = readFileSync(join(STAGE_B_DIR, 'README.md'), 'utf8');
-    for (const stage of FAILURE_STAGES) expect(readme).toContain(stage);
-    for (const cause of ROOT_CAUSES) expect(readme).toContain(cause);
+    // repository-deployment/README.md was merged into compatibility.md
+    // (docs/testing consolidation) — the vocabulary block lives there now.
+    const docs = readFileSync(join(STAGE_B_DIR, '..', 'compatibility.md'), 'utf8');
+    for (const stage of FAILURE_STAGES) expect(docs).toContain(stage);
+    for (const cause of ROOT_CAUSES) expect(docs).toContain(cause);
     expect(CLASSIFICATIONS).toContain('PASS');
     const result = emptyResult(identityFor(BENCHMARK.repositories[0]!, SHA, 'gate', null));
     expect(() => stageBResultSchema.parse({ ...result, classification: 'SOMETHING_ELSE' })).toThrow();
@@ -309,8 +310,9 @@ describe('selection and CLI', () => {
     expect(buildPlan(BENCHMARK.repositories, DEPLOY_CONFIG, [done], { gate: false, force: true })[0]?.action).toBe('full-funnel');
     expect(renderPlan(plan, { template: 'pinned', concurrency: 1 })).toContain('full funnel: 1, gate only: 1, skipped: 0');
     expect(renderPlan(plan, { template: 'pinned', concurrency: 1 })).toContain('B1 runtime-reuse');
-    expect(plan[0]?.deploymentClass).toBe('runtime-reuse');
-    expect(plan[1]?.deploymentClass).toBe('runtime-reuse');
+    // Neither repo is in b2Repos/b3Repos — deploymentClassFor's default (capability-cohort), not the withdrawn B1 label.
+    expect(plan[0]?.deploymentClass).toBe('capability-cohort');
+    expect(plan[1]?.deploymentClass).toBe('capability-cohort');
   });
 
   it('points Deployz at the fork the installation can read', () => {
@@ -372,10 +374,10 @@ repositories:
     findings: []
 `);
 
-  it('defaults to runtime-reuse for repos not in b2/b3 lists', () => {
+  it('defaults to capability-cohort for repos not in b2/b3 lists (runtime-reuse/B1 is withdrawn)', () => {
     const config = deploymentConfig();
-    expect(deploymentClassFor(config, 'repo-001')).toBe('runtime-reuse');
-    expect(deploymentClassFor(config, 'repo-999')).toBe('runtime-reuse');
+    expect(deploymentClassFor(config, 'repo-001')).toBe('capability-cohort');
+    expect(deploymentClassFor(config, 'repo-999')).toBe('capability-cohort');
   });
 
   it('assigns capability-cohort for repos in b2Repos', () => {
@@ -400,8 +402,8 @@ repositories:
     expect(rendered).toContain('B1 runtime-reuse');
     expect(rendered).toContain('B2 capability cohorts');
     expect(rendered).toContain('B3 full-fresh');
-    // repo-001 is not in b2/b3 → runtime-reuse (default)
-    expect(plan.find((l) => l.id === 'repo-001')?.deploymentClass).toBe('runtime-reuse');
+    // repo-001 is not in b2/b3 → the deploymentClassFor default, capability-cohort
+    expect(plan.find((l) => l.id === 'repo-001')?.deploymentClass).toBe('capability-cohort');
     // repo-002 is in b2Repos → capability-cohort
     expect(plan.find((l) => l.id === 'repo-002')?.deploymentClass).toBe('capability-cohort');
   });
@@ -413,29 +415,6 @@ repositories:
     expect(() => stageBResultSchema.parse({ ...result, deploymentClass: 'capability-cohort' })).not.toThrow();
     expect(() => stageBResultSchema.parse({ ...result, deploymentClass: 'fresh-full' })).not.toThrow();
     expect(() => stageBResultSchema.parse({ ...result, deploymentClass: 'other' })).toThrow();
-  });
-});
-
-describe('runtime-reuse gating', () => {
-  it('refuses without DEPLOYZ_E2E_ALLOW_REAL_AWS', () => {
-    expect(() => requireRealAws(parseRunArgs(['--runtime-reuse']), {})).toThrow('Real AWS E2E is disabled');
-  });
-
-  it('accepts with DEPLOYZ_E2E_ALLOW_REAL_AWS=1', () => {
-    expect(() => requireRealAws(parseRunArgs(['--runtime-reuse']), { DEPLOYZ_E2E_ALLOW_REAL_AWS: '1' })).not.toThrow();
-  });
-
-  it('refuses to run: a deployment owns its installation', () => {
-    expect(() => assertRuntimeReuseSupported()).toThrow('--runtime-reuse is not supported');
-  });
-
-  it('names the working alternatives in the refusal', () => {
-    expect(() => assertRuntimeReuseSupported()).toThrow(/--real-aws/);
-    expect(() => assertRuntimeReuseSupported()).toThrow(/--reuse-application/);
-  });
-
-  it('--runtime-reuse and --real-aws are exclusive', () => {
-    expect(() => parseRunArgs(['--runtime-reuse', '--real-aws'])).toThrow('exclusive');
   });
 });
 
