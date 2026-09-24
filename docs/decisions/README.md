@@ -159,3 +159,15 @@ The worker may only decrypt. Legacy stub rows were migrated once and the
 migration module removed; a rollback to pre-migration code would lose access
 to stored secrets, so fixes go forward. See
 [`../pending-secret-delivery.md`](../pending-secret-delivery.md).
+
+## Raw CloudFormation events reach the customer page only behind a disclosure (2026-09-24)
+
+The customer install page's live-activity feed keeps every customer-visible
+field jargon-free (the stage headline, the step labels, the activity
+messages, the friendly failure message), and puts the raw CloudFormation
+events — including a failed resource's status reason — behind the collapsed
+"View raw AWS events" disclosure and the technical-details facts. A
+customer who opens the disclosure sees exactly what AWS reported; a
+customer who does not never sees the jargon. `apps/api/src/customer-activity.test.ts`
+pins both halves, and the E2E failure-path test asserts the raw reason is
+hidden on the page, not absent from its payload.

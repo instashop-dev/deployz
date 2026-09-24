@@ -17,8 +17,10 @@ new simulated scenario or canary case
 
 ## Before you start
 
-1. **Fix the commit under test.** Production is whatever `main` was last
-   pushed: `deploy-api.yml` and `deploy-web.yml` run on every push. Record
+1. **Fix the commit under test.** Production is the last commit on `main`
+   whose CI run was green: `deploy-api.yml` and `deploy-web.yml` run after a
+   successful CI run, and the `deployed/api` and `deployed/web` tags name
+   the deployed commits. Record
    `git rev-parse origin/main` **and** confirm both deploy runs for that SHA
    succeeded (`gh run list --workflow deploy-api.yml --limit 3`; the API
    Lambda's `LastModified` must be after the run). Another workstream may
