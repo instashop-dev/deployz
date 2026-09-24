@@ -245,9 +245,19 @@ jobs:
         if: env.MODE == 'fixture' && matrix.part == 'scenarios'
         run: node scripts/e2e.mjs e2e/scenario-ui.spec.ts e2e/scenario-release-unavailable.spec.ts ${{ needs.plan.outputs.playwright_files }}
 
+      # The default-HTTPS spec skips every test unless its fixture flag is
+      # on, and the other specs are written against HTTP-only installs, so it
+      # always runs on its own server.
       - name: Touched Playwright specs
         if: env.MODE == 'files' && matrix.part == 'fixture-1'
-        run: node scripts/e2e.mjs ${{ needs.plan.outputs.playwright_files }}
+        run: |
+          rest=""
+          https=false
+          for f in ${{ needs.plan.outputs.playwright_files }}; do
+            if [ "$f" = "e2e/scenario-default-https.spec.ts" ]; then https=true; else rest="$rest $f"; fi
+          done
+          if [ -n "$rest" ]; then node scripts/e2e.mjs $rest; fi
+          if [ "$https" = "true" ]; then DEPLOYZ_DEFAULT_HTTPS_FIXTURE=true node scripts/e2e.mjs e2e/scenario-default-https.spec.ts; fi
 
       - name: Simulated scenario suite
         if: env.MODE == 'full' && matrix.part == 'scenarios'
