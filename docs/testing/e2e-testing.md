@@ -3,15 +3,13 @@
 See [`README.md`](README.md) for when to reach for this versus unit/integration
 tests. See [`e2e-scenarios.md`](e2e-scenarios.md) for the scenario catalogue.
 
-## The four modes
+## The three modes
 
 `DEPLOYZ_E2E_MODE` selects one of:
 
 - **`simulated`** (default) — Playwright drives the real Fastify API and
   real Next.js dev server; a simulated customer AWS account answers the
   relay's CloudFormation/ECS/ELB calls. No AWS credentials used or required.
-- **`canary`** — a real-AWS Vitest suite that read-only verifies a standing,
-  persistent installation. See [`aws-canary.md`](aws-canary.md).
 - **`fresh`** — a real-AWS Vitest suite that deploys and destroys a
   throwaway bootstrap stack. See [`aws-fresh.md`](aws-fresh.md).
 - **`canary-versions`** — a real-AWS tsx script that drives the deployed
@@ -19,9 +17,14 @@ tests. See [`e2e-scenarios.md`](e2e-scenarios.md) for the scenario catalogue.
   deployment, rollback, failed-release isolation, and cleanup lifecycle.
   See [`version-rollback-canary.md`](version-rollback-canary.md).
 
-`canary`, `fresh`, and `canary-versions` all refuse to run unless
+`fresh` and `canary-versions` both refuse to run unless
 `DEPLOYZ_E2E_ALLOW_REAL_AWS=1` is set — see
 [Environment variables](#environment-variables) below.
+
+The read-only persistent-installation canary (`DEPLOYZ_E2E_MODE=canary`,
+`pnpm e2e:canary`) was retired: it had no standing installation to verify
+and duplicated what `canary-versions`' `preflight`/`profile` scenarios prove
+against a real, freshly-provisioned install.
 
 ## Mode responsibilities
 
@@ -32,8 +35,8 @@ change.
 | --- | --- | --- | --- |
 | `simulated` (`pnpm e2e`) | Proves the full relay/API/DB/UI pipeline against a simulated AWS account | None | Seconds |
 | `simulated` (`pnpm e2e:scenarios`) | Regression suite for all scenario contracts | None | Minutes |
-| `canary` (`pnpm e2e:canary`) | Read-only verification that the relay's real AWS SDK calls still work against a persistent installation | Negligible (reads only) | ~1 minute |
 | `canary:versions` core (`pnpm e2e:canary:versions core`) | Version deployment, failed-release isolation, rollback, recovery, persistence, and cleanup through the deployed control plane | Real (transient ECS/ALB/RDS for the run) | 60–90 minutes |
+| `canary:versions` profile `--production` (`pnpm e2e:canary:versions profile --profile <p> --production`) | One infrastructure profile installed with the production-published template — no checkout override, exactly what a customer's Quick Create uses | Real (transient, one profile) | 20–40 minutes |
 | `canary:versions` core `--existing-image=<digest>` | Same as above, but skips CodeBuild rebuilds — all versions share one image digest; version verification relies on release/deployment records | Real (same, minus CodeBuild) | ~40 minutes |
 | `canary:versions` core `--reuse-stack` | Same as default core, but reuses a standing stack tagged `DeployzPersistent=true` + `DeployzTestMode=canary`; skips bootstrap create and infrastructure teardown | Real (reuses existing stack) | ~40 minutes |
 | `canary:versions` resilience (`pnpm e2e:canary:versions resilience`) | Duplicate/concurrent request handling and relay interruption resilience | Real | ~60 minutes |
@@ -79,8 +82,8 @@ CloudFormationReader, StackInstaller, StackEventsReader, StackDeleter,
 EcsDeployClient, EcsServiceReader, TargetHealthReader, PendingStore, ...)
    │
    ├──▶ Simulated AWS   (e2e/simulation/simulated-account.ts — `pnpm e2e`)
-   └──▶ AWS             (a real customer account — `pnpm e2e:canary` /
-                          `pnpm e2e:fresh`, DEPLOYZ_E2E_ALLOW_REAL_AWS=1)
+   └──▶ AWS             (a real customer account — `pnpm e2e:fresh` /
+                          `pnpm e2e:canary:versions`, DEPLOYZ_E2E_ALLOW_REAL_AWS=1)
 ```
 
 Everything above the infrastructure interface — API routes, the DB, stack-event
@@ -121,10 +124,10 @@ re-litigated:
   virtual timestamp offset (minutes, for what `Timestamp` fields report), so
   ETA and step-timing logic sees realistic durations while tests stay fast;
   ECS/ELB/target-health answers are scenario-controlled too.
-- **D5 — real-AWS modes wrap existing machinery.** Canary and fresh reuse
-  `packages/cdk/test/*.live.test.ts` and the relay's own verification ladder
-  behind the opt-in guard, unique test identifiers and tag-based isolation,
-  rather than a parallel harness.
+- **D5 — real-AWS modes wrap existing machinery.** Fresh reuses
+  `packages/cdk/test/fresh-e2e.live.test.ts` and the relay's own verification
+  ladder behind the opt-in guard, unique test identifiers and tag-based
+  isolation, rather than a parallel harness.
 - **D6 — non-goals.** No record/replay, no LocalStack, no full AWS API
   emulation: the simulated account implements only the calls the relay
   makes, returning AWS-shaped structures.
@@ -153,9 +156,6 @@ pnpm e2e --scenario=happy-path
 # Every @scenario-tagged test — the full simulated regression suite.
 pnpm e2e:scenarios
 
-# Real-AWS canary (read-only) — requires the opt-in.
-DEPLOYZ_E2E_ALLOW_REAL_AWS=1 pnpm e2e:canary
-
 # Real-AWS fresh (create + destroy) — requires the opt-in.
 DEPLOYZ_E2E_ALLOW_REAL_AWS=1 pnpm e2e:fresh
 
@@ -165,6 +165,7 @@ DEPLOYZ_E2E_ALLOW_REAL_AWS=1 pnpm e2e:canary:versions core --existing-image=sha2
 DEPLOYZ_E2E_ALLOW_REAL_AWS=1 pnpm e2e:canary:versions core --reuse-stack
 DEPLOYZ_E2E_ALLOW_REAL_AWS=1 pnpm e2e:canary:versions resilience
 DEPLOYZ_E2E_ALLOW_REAL_AWS=1 pnpm e2e:canary:versions preflight
+DEPLOYZ_E2E_ALLOW_REAL_AWS=1 pnpm e2e:canary:versions profile --profile stateless --production
 DEPLOYZ_E2E_ALLOW_REAL_AWS=1 pnpm e2e:canary:versions cleanup --run-id <id>
 DEPLOYZ_E2E_ALLOW_REAL_AWS=1 pnpm e2e:canary:versions audit --run-id <id>
 ```
@@ -173,10 +174,10 @@ On Windows PowerShell, set the env var first rather than inline:
 
 ```powershell
 $env:DEPLOYZ_E2E_ALLOW_REAL_AWS = '1'
-pnpm e2e:canary
+pnpm e2e:fresh
 ```
 
-Without the opt-in, `canary`, `fresh`, and `canary-versions` all refuse
+Without the opt-in, `fresh` and `canary-versions` both refuse
 immediately, before spawning anything:
 
 ```
@@ -194,11 +195,11 @@ real-AWS opt-in to *see* the refusal).
 
 | Variable | Values | Purpose |
 | --- | --- | --- |
-| `DEPLOYZ_E2E_MODE` | `simulated` (default) \| `canary` \| `fresh` \| `canary-versions` | Selects the mode. Set by `scripts/e2e.mjs`; also read directly by `playwright.config.ts` as a second guard layer if Playwright is invoked without the runner. |
+| `DEPLOYZ_E2E_MODE` | `simulated` (default) \| `fresh` \| `canary-versions` | Selects the mode. Set by `scripts/e2e.mjs`; also read directly by `playwright.config.ts` as a second guard layer if Playwright is invoked without the runner. |
 | `DEPLOYZ_E2E_SCENARIO` | a scenario id | Set by the runner when `--scenario=<id>` is passed. Informational only — actual scenario selection is the Playwright `test.use({ deployzScenario })` fixture value / `--grep` filter, not this variable. |
-| `DEPLOYZ_E2E_ALLOW_REAL_AWS` | `1` | Required opt-in for `canary`/`fresh`/`canary-versions`. Checked before anything is spawned, in both `scripts/e2e.mjs` and `playwright.config.ts`. |
-| `DEPLOYZ_E2E_CANARY_INSTALLATION_ID` | a UUID | Overrides which standing installation the canary suite verifies (see `aws-canary.md`). |
+| `DEPLOYZ_E2E_ALLOW_REAL_AWS` | `1` | Required opt-in for `fresh`/`canary-versions`. Checked before anything is spawned, in both `scripts/e2e.mjs` and `playwright.config.ts`. |
 | `DEPLOYZ_E2E_EXISTING_IMAGE_DIGEST` | `sha256:...` | Skips CodeBuild rebuilds in the version canary — all versions share this digest (see `version-rollback-canary.md`). |
+| `DEPLOYZ_CANARY_PRODUCTION` | `1` | `profile` scenario only: installs with the production-published template, no checkout override (see `version-rollback-canary.md`). |
 | Scrub list (simulated mode only) | — | `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN`, `AWS_PROFILE`, `AWS_DEFAULT_PROFILE`, `JOB_QUEUE_URL`, `EMAIL_FROM`, `AWS_SES_ACCESS_KEY_ID`, `AWS_SES_SECRET_ACCESS_KEY` — removed from the API's environment before it boots (`scripts/e2e-env.mjs`'s `scrubEnv`), so credentials or config present in a developer's shell can't leak real AWS/email behaviour into a default run. |
 | `GITHUB_FIXTURE_MODE` | `true` | GitHub routes serve a fixture org/repo set instead of calling GitHub. Always set by `playwright.config.ts`'s `webServer` env, in every mode. |
 | `AI_FIXTURE_MODE` | `true` | A canned AI gateway response set, for deterministic fix-instructions generation. Always set by `playwright.config.ts`. |
@@ -273,13 +274,12 @@ the same house conventions as every other browser spec (`uniqueEmail`,
   Windows-generated).
 - **`.github/workflows/e2e.yml`** (`workflow_dispatch` only, not part of the
   PR check set): the full Playwright suite except `visual.spec.ts`.
-- **`.github/workflows/aws-persistent-canary.yml`** (`workflow_dispatch` only):
-  runs `pnpm e2e:canary` with the canary AWS credentials against the standing
-  persistent installation. Not part of the PR check set.
-- **`.github/workflows/aws-canary.yml`** (`workflow_dispatch` only): runs
+- **`.github/workflows/aws-canary.yml`** (`workflow_dispatch`, plus an
+  opt-in weekly `schedule` once enabled — see the workflow header): runs
   the version canary (`pnpm e2e:canary:versions <scenario>`) against the
   deployed control plane and the test account; 60–90 minutes, costs money,
-  one at a time. See `version-rollback-canary.md`.
+  one at a time. On failure it cleans up unless `keep_on_failure` is set, and
+  always runs a leak audit last. See `version-rollback-canary.md`.
 - **No CI job runs `fresh`.** It remains a manual/local escalation — see
   `aws-fresh.md`. The deploy workflows wait for the CI workflow on `main`, never for a real-AWS run.
 
