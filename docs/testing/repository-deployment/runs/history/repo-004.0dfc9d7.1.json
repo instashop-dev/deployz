@@ -1,0 +1,155 @@
+{
+  "schemaVersion": 1,
+  "id": "repo-004",
+  "repository": "miniflux/v2",
+  "commit": "a84533db6ca0a2ff9a47800fbf0326be6d9b3170",
+  "repositoryForm": "fork",
+  "repositoryUsed": "instashop-dev/v2",
+  "set": "improvement",
+  "cohort": "realistic",
+  "customerRealism": "high",
+  "difficulty": 3,
+  "deployzCommit": "0dfc9d702207411e40ff4d1ddc8ff763585baaad",
+  "runId": "stage-b-repo-004-20260923-181412-3932",
+  "stageAExpected": "NEEDS_CONFIGURATION",
+  "expectedDeployable": true,
+  "mode": "deploy",
+  "deploymentClass": "runtime-reuse",
+  "gate": {
+    "status": "PASS",
+    "verdict": null,
+    "analysisVerdict": null,
+    "outcome": null,
+    "gateFindings": [],
+    "requiredKeys": [],
+    "missingKeys": [],
+    "unsupported": [],
+    "configuredVerdict": null,
+    "configuredFindings": [],
+    "source": "control-plane",
+    "analysisVersion": null,
+    "manifest": null,
+    "detail": null
+  },
+  "configuration": {
+    "status": "PASS",
+    "overrides": {
+      "containerPort": 8080,
+      "healthPath": "/healthcheck",
+      "dockerfilePath": "packaging/docker/alpine/Dockerfile",
+      "buildContext": "."
+    },
+    "keys": [
+      "ADMIN_PASSWORD",
+      "ADMIN_USERNAME",
+      "BASE_URL",
+      "CREATE_ADMIN",
+      "RUN_MIGRATIONS"
+    ],
+    "generatedKeys": [
+      "ADMIN_PASSWORD"
+    ],
+    "deliveredAfterEnrollment": [],
+    "detail": null
+  },
+  "build": {
+    "status": "PASS",
+    "releaseId": "d96d701a-07bb-4566-993c-de1f52e99720",
+    "version": "repo-004-20260923-181412-3932",
+    "gitSha": "a84533db6ca0a2ff9a47800fbf0326be6d9b3170",
+    "dockerfilePath": "packaging/docker/alpine/Dockerfile",
+    "buildContext": ".",
+    "imageDigest": "sha256:fe074064e6d034852f6ab7d1bf0cebb59cdfe23dbb0da949a0f0b380b2cfaa4f",
+    "buildId": null,
+    "durationMs": 84042,
+    "imageReused": false,
+    "detail": null
+  },
+  "deployment": {
+    "status": "FAIL",
+    "deploymentId": null,
+    "installationId": null,
+    "bootstrapStack": null,
+    "applicationStack": null,
+    "stackStatus": null,
+    "templateSource": "stage-b-pinned",
+    "templateUrl": "https://deployz-templatebucket88a95323-jozlev0tiasb.s3.us-east-1.amazonaws.com/application/stage-b/stage-b-repo-004-20260923-181412-3932/application-template-v1.json",
+    "installJobState": null,
+    "failureCode": null,
+    "resourceCount": null,
+    "resourcesByType": null,
+    "region": null,
+    "durationMs": null,
+    "detail": "POST /api/deployments -> 500: Internal server error"
+  },
+  "inventory": {
+    "status": "NOT_ATTEMPTED",
+    "planCreateKinds": [],
+    "expectedKinds": [],
+    "presentTypes": [],
+    "missing": [],
+    "unexpected": [],
+    "detail": null
+  },
+  "runtime": {
+    "ecs": "NOT_ATTEMPTED",
+    "alb": "NOT_ATTEMPTED",
+    "https": "NOT_ATTEMPTED",
+    "healthPath": null,
+    "healthPathSource": null,
+    "appUrl": null,
+    "runningImageDigest": null,
+    "releaseServing": null,
+    "smoke": [],
+    "observation": null,
+    "detail": null
+  },
+  "dependencies": {
+    "postgres": "NOT_ATTEMPTED",
+    "redis": "NOT_ATTEMPTED",
+    "storage": "NOT_ATTEMPTED",
+    "migration": "NOT_ATTEMPTED",
+    "detail": null
+  },
+  "update": {
+    "status": "NOT_ATTEMPTED",
+    "releaseId": null,
+    "version": null,
+    "imageDigest": null,
+    "durationMs": null,
+    "detail": null
+  },
+  "cleanup": {
+    "status": "PASS",
+    "destroyJobState": null,
+    "purgeJobState": null,
+    "cleanupState": null,
+    "bootstrapStackFinal": null,
+    "leaks": [],
+    "retainedState": "NOT_ATTEMPTED",
+    "purgedState": "NOT_ATTEMPTED",
+    "durationMs": 19075,
+    "detail": null
+  },
+  "classification": "INFRA_ERROR",
+  "failureStage": "INFRA_ERROR",
+  "rootCause": null,
+  "rootCauseEvidence": "POST /api/deployments -> 500: Internal server error — decide DEPLOYZ_BUG vs AWS_TRANSIENT_FAILURE",
+  "findingIds": [
+    "DEPLOY-008",
+    "DEPLOY-026",
+    "DEPLOY-027",
+    "DEPLOY-028"
+  ],
+  "timing": {
+    "startedAt": "2026-09-23T18:14:13.088Z",
+    "finishedAt": "2026-09-23T18:16:58.901Z",
+    "totalMs": 165813
+  },
+  "evidence": {
+    "failure": {
+      "point": "install",
+      "message": "POST /api/deployments -> 500: Internal server error"
+    }
+  }
+}
