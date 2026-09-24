@@ -47,10 +47,10 @@ thing. Do not stretch a layer to prove something a higher layer owns.
 | **L0 — static** | The code builds, lints clean, and typechecks, including the E2E harness and the AWS scripts; production-safety guards hold (no AWS SDK in the simulator, no fixture-mode env var reaches the deployed Lambda); every Lambda entry point still bundles | Business logic — static checks read shapes, not behaviour | `pnpm build`, `pnpm lint`, `pnpm typecheck:e2e`, `pnpm typecheck:scripts`, `pnpm test:static`, `node --test scripts/test-affected.test.mjs`, `pnpm synth:smoke` | Every non-minimal PR (the subset the plan selects); the full set on `main` |
 | **L1 — unit** | Pure logic: state derivation, business rules, parsing, pricing, the client-side state matrices — Vitest over fakes and in-memory fixtures, including `apps/web`'s jsdom tests | A real DB, a real HTTP boundary, or a real AWS call | `pnpm vitest run` (or `pnpm vitest run --project <package>`, or a single test file) | Every non-minimal PR, scoped to the affected projects; every project on `main` |
 | **L2 — integration/contract** | A real local dependency with no network call to AWS or GitHub: API routes over PGlite, DB constraints, CDK template synthesis plus committed-artifact parity, the worker Lambda over PGlite, relay executors over fakes, and parity tests between packages (manifest ↔ plan ↔ verify, catalog ↔ committed template) | A real customer AWS account, or vendor/customer UI rendering | `pnpm vitest run --project <package>` (same command as L1 — the distinction is what the test exercises, not how it runs) | Same as L1 |
-| **L3 — UI/workflow** | A vendor or customer workflow end to end: the real Next.js app and the real Fastify API, driven by Playwright. Fixture-mode specs replace GitHub, AI and DNS with canned data. Scenario specs additionally replace the AWS SDK client with a `SimulatedCustomerAccount` and drive the real relay code over it | AWS API behaviour itself — the simulator only returns AWS-shaped answers, it does not verify AWS's actual behaviour | `pnpm e2e` (fixture-mode suite), `pnpm e2e --scenario=<id>`, `pnpm e2e --scenarios` (every scenario), `pnpm e2e e2e/<file>.spec.ts` | Every non-minimal PR that touches runtime UI/API code, or names a spec; every spec and scenario on `main` |
+| **L3 — UI/workflow** | A vendor or customer workflow end to end: the real Next.js app and the real Fastify API, driven by Playwright. Fixture-mode specs replace GitHub, AI and DNS with canned data. Scenario specs additionally replace the AWS SDK client with a `SimulatedCustomerAccount` and drive the real relay code over it | AWS API behaviour itself — the simulator only returns AWS-shaped answers, it does not verify AWS's actual behaviour | `pnpm e2e` (the full simulated suite — every `e2e/*.spec.ts` file, including scenarios), `node scripts/e2e.mjs --grep-invert "@scenario|visual"` (the fixture-mode suite alone), `pnpm e2e --scenario=<id>`, `pnpm e2e --scenarios` (every scenario), `pnpm e2e e2e/<file>.spec.ts` | Every non-minimal PR that touches runtime UI/API code, or names a spec; every spec and scenario on `main` |
 | **L4 — AWS integration** (`fresh`) | One real AWS boundary in minutes, with no product flow: the bootstrap stack's real create → verify → destroy path | A full product lifecycle — `fresh` never installs an application | `DEPLOYZ_E2E_ALLOW_REAL_AWS=1 pnpm e2e:fresh` | Manual/local escalation only; never in CI |
 | **L5 — AWS E2E** (version canary) | A complete real lifecycle through the deployed control plane, against a Deployz-controlled fixture application. Fixture A is the stateless profile (`profile --profile stateless`) — install, deploy, verify, teardown, no database. Fixture B is the Postgres+Redis `core` ladder — the full release/rollback/failed-release/recovery/persistence/cleanup lifecycle | Routine development iteration — this is an escalation, not a debugging loop | `DEPLOYZ_E2E_ALLOW_REAL_AWS=1 pnpm e2e:canary:versions profile --profile stateless`, `DEPLOYZ_E2E_ALLOW_REAL_AWS=1 pnpm e2e:canary:versions core` | Manual/on-demand escalation, and before an MVP release |
-| **L6 — production canary** | The same harness as L5, run with `profile --profile stateless --production`, against the deployed control plane with the production-published template — answers "can production Deployz deploy right now?" | A pre-merge check — this runs against production, not a pull request | `DEPLOYZ_E2E_ALLOW_REAL_AWS=1 pnpm e2e:canary:versions profile --profile stateless --production` | Scheduled, independent of any pull request |
+| **L6 — production canary** | The same harness as L5, run with `profile --profile stateless --production`, against the deployed control plane with the production-published template — answers "can production Deployz deploy right now?" | A pre-merge check — this runs against production, not a pull request | `DEPLOYZ_E2E_ALLOW_REAL_AWS=1 pnpm e2e:canary:versions profile --profile stateless --production` | On demand; a weekly schedule exists in the workflow but stays disabled until three consecutive green manual `--production` runs — see [`aws-e2e.md`](aws-e2e.md#l6--production-canary) |
 | **Compatibility** | Analyser accuracy over a large corpus: Stage A offline against 120 pinned repositories, Stage B through the real production path against the same corpus | A product regression check — a compatibility finding (`COMP-nnn`/`DEPLOY-nnn`) is an analyser-accuracy finding, not a proof the product is broken | `pnpm benchmark:compat` (Stage A, no AWS), `pnpm benchmark:deploy` (Stage B, real AWS) | On demand — see [`compatibility.md`](compatibility.md) |
 | **Manual** | Whatever no automated layer reaches yet: the full product walk against the deployed control plane, with an arbitrary real application, through the real dashboard | A substitute for automation — a manual finding should become a scenario or a canary case | A human follows the written runbook | Before calling a release ready — see [`manual-checklist.md`](manual-checklist.md) |
 
@@ -121,18 +121,21 @@ layer cannot establish confidence.
    confidence.
 
    Two rules learned from production outages, both invisible to unit
-   tests, CI and the simulator:
+   tests, CI and the simulator. Both are **required**, not a judgment call:
 
-   - A change to the bootstrap template (`packages/cdk/src/bootstrap`) or
-     the relay's enrollment path gets a real-AWS smoke (`fresh`, or the
-     version canary `preflight`/`core`) before the template is republished.
-     A wrong `GetAtt` and a mis-shaped relay credential each once broke
-     every customer install.
-   - `pnpm test:affected` suggests the version canary for relay AWS-interface
-     and CDK customer-side changes, but the escalation itself is still your
-     call for release, rollback, deploy, destroy or purge changes — decide
-     it yourself; see [`ci.md`](ci.md) for exactly what the selector
-     detects.
+   - A change to the relay's install/deploy/rollback/destroy/purge
+     executors (`packages/relay/src`), the bootstrap template
+     (`packages/cdk/src/bootstrap`), the application template
+     (`packages/cdk/src/application`), or the relay's enrollment path
+     **requires** a real-AWS run before the template is republished: `fresh`
+     for a bootstrap-only change; the stateless `profile` otherwise; `core`
+     for a release, rollback, deploy, destroy or purge change. A wrong
+     `GetAtt` and a mis-shaped relay credential each once broke every
+     customer install.
+   - `pnpm test:affected` prints the exact command for the change you made
+     (see [`ci.md`](ci.md) for what the selector detects); judgment is still
+     needed only for a change the selector's file-path rules do not cover —
+     never to skip an escalation the rule above already requires.
 
    Real AWS execution requires:
 

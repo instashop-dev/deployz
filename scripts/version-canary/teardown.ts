@@ -501,7 +501,7 @@ export async function leakAudit(canary: Canary): Promise<LeakAudit> {
     });
     details['audit'] = audit;
     // INACTIVE ECS clusters/task definitions linger in the tagging API after
-    // deletion and cost nothing (documented in aws-full-product-canary.md).
+    // deletion and cost nothing (documented in docs/testing/aws-e2e.md).
     const disposable = [
       ...audit.stacks.map((s) => `stack ${s.name} ${s.status}`),
       ...audit.rdsInstances.map((r) => `rds ${r}`),

@@ -40,6 +40,7 @@ const ROOT_CONFIG = [
   /^scripts\/test-affected\.mjs$/,
   /^scripts\/test-affected\.test\.mjs$/,
   /^scripts\/production-safety\.test\.mjs$/,
+  /^scripts\/e2e-modes\.test\.mjs$/,
   /^e2e\/tsconfig\.json$/,
   /^\.env/,
 ];

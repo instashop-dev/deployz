@@ -144,7 +144,7 @@ with high confidence. The code stays behind `JEV_ENABLED` (unset in
 production; the deploy workflow never sets the `JEV_*` keys) with zero
 runtime effect, and `pnpm jev:eval` remains a one-command re-evaluation if a
 future model version warrants it (its evidence lives under
-`docs/testing/jev-shadow/runs/`, generated). Nothing routes a production
+`scripts/jev-eval/runs/`, generated). Nothing routes a production
 decision through Jev.
 
 ## Config secrets are KMS-encrypted; Lambdas fail closed (2026-09-22)

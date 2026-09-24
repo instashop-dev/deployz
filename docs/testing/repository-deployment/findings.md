@@ -950,10 +950,14 @@ cleanup would then have deleted it: `removeCanaryLeftovers` deletes the
 recorded bootstrap stack unconditionally, so the shared foundation would
 have been destroyed after the first repository.
 
-**Resolution.** `--runtime-reuse` now refuses in seconds and names the
-working alternatives (`assertRuntimeReuseSupported`, regression-tested in
-`harness.test.ts`). The unreachable execution path, `runRuntimeReuseAttempt`
-and the standing-installation env helpers are removed.
+**Resolution.** `--runtime-reuse` refused in seconds and named the working
+alternatives (`assertRuntimeReuseSupported`, regression-tested in
+`harness.test.ts`) from 2026-09-09 until the docs/testing consolidation that
+removed the CLI flag and the refusal function outright (see
+`compatibility.md`'s "Classes B2 and B3" — the `runtime-reuse` deployment
+class remains only as a classification label). The unreachable execution
+path, `runRuntimeReuseAttempt` and the standing-installation env helpers
+were removed at the same time as the refusal.
 
 **What to use instead.** `--real-aws` provisions fresh infrastructure per
 repository, which is the only lane that works. `--reuse-application` makes a
