@@ -24,6 +24,7 @@ interface DeploymentResponse {
   currentReleaseId: string | null;
   previousReleaseId: string | null;
   applicationId: string;
+  cleanupState: string | null;
   deploymentStatus: {
     stage: string;
     failure: { code: string | null; awsStatus: string | null } | null;
@@ -47,6 +48,7 @@ interface InfrastructureResponse {
 
 interface EventRow {
   eventType: string;
+  payload?: { error?: string } | null;
 }
 
 async function getEvents(request: APIRequestContext, deploymentId: string): Promise<EventRow[]> {
@@ -422,6 +424,64 @@ test.describe('retained-resources', () => {
 
     const events = await getEvents(request, deploymentId);
     expect(events.some((e) => e.eventType === 'destroy.completed')).toBe(true);
+  });
+});
+
+test.describe('purge-failure', () => {
+  test.use({ deployzScenario: 'purge-failure' });
+
+  test('@scenario:purge-failure a purge that cannot delete an orphan reports the leftover, never a false clean purge', async ({
+    request,
+    deployzInstall,
+  }) => {
+    test.setTimeout(30_000);
+    const { deploymentId, api } = deployzInstall;
+
+    await expect
+      .poll(async () => (await api.getDeployment(deploymentId)).state, { timeout: 15_000 })
+      .toBe('HEALTHY');
+
+    const destroyResponse = await destroyDeployment(request, deploymentId);
+    expect(destroyResponse.status()).toBe(202);
+    await expect
+      .poll(async () => (await api.getDeployment(deploymentId)).state, {
+        timeout: 15_000,
+        message: 'waiting for the destroy to complete',
+      })
+      .toBe('DELETED');
+
+    // Same simulated AWS account as retained-resources (see
+    // e2e/simulation/scenarios/purge-failure.ts), plus the deterministic
+    // orphan the PURGE-sweep finds and cannot delete (see
+    // e2e/simulation/relay-harness.ts's `purgeClientsFor`).
+    const purgeResponse = await request.post(`${API_URL}/api/deployments/${deploymentId}/purge`, { data: {} });
+    expect(purgeResponse.status()).toBe(202);
+
+    // The honest signal this scenario pins: the purge sweep found an orphan
+    // it could not delete, so the control plane must not claim a clean
+    // purge (docs/deployment-resilience.md: "a failed purge used to
+    // resurrect a DELETED deployment; a purge failure lands on
+    // cleanupState: PURGE_FAILED instead, which keeps it retryable").
+    await expect
+      .poll(async () => (await api.getDeployment(deploymentId)).cleanupState, {
+        timeout: 15_000,
+        message: 'waiting for the purge to fail',
+      })
+      .toBe('PURGE_FAILED');
+
+    const afterPurge = (await api.getDeployment(deploymentId)) as unknown as DeploymentResponse;
+    // Never resurrected: the deployment stays DELETED, not FAILED.
+    expect(afterPurge.state).toBe('DELETED');
+    expect(afterPurge.cleanupState).not.toBe('COMPLETE');
+
+    const events = await getEvents(request, deploymentId);
+    expect(events.some((e) => e.eventType === 'purge.failed')).toBe(true);
+    expect(events.some((e) => e.eventType === 'purge.completed')).toBe(false);
+
+    // The leftover is named in the failure, not swallowed into a generic
+    // "purge failed" message.
+    const failedEvent = events.find((e) => e.eventType === 'purge.failed');
+    expect(failedEvent?.payload?.error).toContain('deployz-e2e-orphan-bucket');
   });
 });
 
