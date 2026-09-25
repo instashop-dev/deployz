@@ -261,3 +261,6 @@ export {
   buildFailureQuestions,
   runJevFailureClassification,
 } from './jev/failure-classify.js';
+
+export { manifestToApplicationGraph, buildApplicationGraph } from './graph.js';
+export { planApplicationGraph, buildDeploymentSpecV2, planApplicationGraphWithSpec } from './planner.js';

@@ -148,6 +148,7 @@ import {
   createJevShadowRunnerFromEnv,
   type JevFailureShadowRunner,
 } from './jev-shadow.js';
+import { createDynamicInfraShadowRunner } from './dynamic-infrastructure-shadow.js';
 import { createEmailSender, type EmailSender } from './email.js';
 import type { EcrClient } from './ecr-grants.js';
 import {
@@ -1892,6 +1893,7 @@ export async function buildServer({
       // Shadow-only: a disabled/partial Jev config resolves to the noop
       // runner, and the runner never affects the analysis outcome.
       jevShadow: createJevShadowRunnerFromEnv({ db }, env.jev),
+      dynamicInfraShadow: createDynamicInfraShadowRunner(),
     });
   app.post('/api/github/webhook', async (request, reply) => {
     const webhookSecret = githubWebhookSecret ?? env.githubWebhookSecret;

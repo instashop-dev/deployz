@@ -34,6 +34,7 @@ import {
   type FetchFn,
 } from './github.js';
 import type { JevShadowRunner } from './jev-shadow.js';
+import type { DynamicInfraShadowRunner } from './dynamic-infrastructure-shadow.js';
 
 // §18/§19/§20 analysis orchestrator — the ONLY caller of `analyseRepo` /
 // `evaluateCompatibility` outside their own package tests. Wires:
@@ -187,6 +188,8 @@ export interface AnalysisRunnerDeps {
   aiGateway: AiGateway;
   /** Jev requirements/plan shadow verifier — fire-and-forget telemetry only, never awaited. */
   jevShadow?: JevShadowRunner | undefined;
+  /** Phase 1 dynamic-infrastructure shadow — derives graph → IR → spec and logs, never awaited. */
+  dynamicInfraShadow?: DynamicInfraShadowRunner | undefined;
   /** Injectable clock for JWT iat/exp — defaults to Date.now. */
   now?: (() => number) | undefined;
 }
@@ -364,6 +367,30 @@ export async function runApplicationAnalysis(
         tree,
       })
       .catch(() => {});
+
+    // Phase 1 dynamic-infrastructure shadow: derive the ApplicationGraph →
+    // DeployzIR → DeploymentSpecV2 pipeline from the same manifest and log a
+    // summary. Fire-and-forget, never awaited, never touches production state.
+    try {
+      deps.dynamicInfraShadow?.run({
+        applicationId,
+        detectedMetadata,
+        overrides: {
+          migrationCommand:
+            contractFieldUpdates.migrationCommand !== undefined
+              ? contractFieldUpdates.migrationCommand
+              : application.migrationCommand,
+          containerPort: contractFieldUpdates.containerPort ?? application.containerPort,
+          healthPath: contractFieldUpdates.healthPath ?? application.healthPath,
+          workerCommand: contractFieldUpdates.workerCommand ?? application.workerCommand,
+          databaseRequired: contractFieldUpdates.databaseRequired ?? application.databaseRequired,
+          storageRequired: contractFieldUpdates.storageRequired ?? application.storageRequired,
+          redisRequired: contractFieldUpdates.redisRequired ?? application.redisRequired,
+        },
+      });
+    } catch {
+      // Never let the shadow affect the analysis flow.
+    }
 
     await deps.db.transaction(async (tx) => {
       await tx

@@ -875,7 +875,7 @@ these in place, not duplicate them.
 | Existing (today) | Location | Future role |
 |---|---|---|
 | `ApplicationAnalysis` | `contracts/src/application-analysis.ts`, `analysis/src/application-analysis.ts` | The canonical evidence + derived app projection feeding the manifest. Stays the analysis-layer read model. |
-| `DeploymentManifest` | `contracts/src/manifest.ts`, built by `analysis/src/manifest.ts` | The frozen, versioned contract (`schemaVersion: 1`) a deployment is created with; today it fuses requirements and intent. Phase 1 generalizes it toward the graph shape (workloads[], resources[], bindings[], ownership, multiplicity). Do NOT create a parallel `ApplicationGraph`. |
+| `DeploymentManifest` | `contracts/src/manifest.ts`, built by `analysis/src/manifest.ts` | The frozen, versioned contract (`schemaVersion: 1`) a deployment is created with; today it fuses requirements and intent. Stays untouched as the production contract. The generalized `ApplicationGraph` (new shadow-mode schema) is derived FROM it — a projection, not an independent model. |
 | `DeploymentFootprint` | `contracts/src/footprint.ts` | The resolved "what gets created" model (workloads + resources + sizing). Closest existing analog to a resolved `DeployzIR`; extend, do not replace. |
 | `DeploymentPlan` | `contracts/src/plan.ts` | Deterministic INSTALL/UPDATE/DESTROY derived data. Already the planner output the UI consumes. |
 | `InfrastructureProfile` | `contracts/src/index.ts` (`{ postgres, redis }`) | Graph-shaping requirement set → template-variant selection. The v1 selection key; superseded by graph `resources[]` in v2. |
@@ -886,18 +886,24 @@ these in place, not duplicate them.
 | `FOOTPRINT_RESOURCES` / pricing adapters | `contracts/src/footprint.ts`, `pricing.ts` | Resource handlers + pricing adapters keyed by service. The compile/pricing half of a capability. |
 | `resolveDeploymentFootprint` + `estimateFootprintCost` | `contracts/src/footprint.ts`, `pricing.ts` | Proto-planner/compiler derivation already in `contracts`. |
 
-Target-role mapping:
+Target-role mapping (revised after Phase 1 implementation):
 
-- `ApplicationGraph` → evolve `DeploymentManifest` (generalize toward
-  multi-workload, multi-resource, ownership, multiplicity, evidence).
-- `DeployzIR` → evolve the resolved model (footprint + plan + size
-  profile), adding ingress/schedules/placement/policies.
-- `DeploymentSpecV2` → a new versioned envelope over the existing freeze:
-  `desired_state.manifest` (schemaVersion) + `infra_version` + the frozen
-  `infrastructureProfile` ref, extended with graph/IR/compiler/capability
-  hashes once the compiler exists.
-- Capability registry → generalize `INFRASTRUCTURE_COMPONENTS` +
-  `AWS_RESOURCES` + footprint handlers + pricing adapters.
+- `ApplicationGraph` → a NEW versioned shadow-mode schema
+  (`contracts/src/application-graph.ts`) built from the manifest by
+  `analysis/src/graph.ts#manifestToApplicationGraph`. It is a projection of
+  the manifest (single source of truth), not an independently-maintained
+  parallel model. `DeploymentManifest v1` stays untouched as the production
+  contract.
+- `DeployzIR` → a NEW versioned schema (`contracts/src/deployz-ir.ts`)
+  generalizing the resolved model (footprint + plan + size profile) with
+  ingress/schedules/placement/policies.
+- `DeploymentSpecV2` → a new versioned envelope
+  (`contracts/src/deployment-spec-v2.ts`) freezing graph + IR + hashes +
+  capability-registry/size-profile refs; compiler/template hashes are
+  `null` until Phase 2.
+- Capability registry → a new interface (`contracts/src/capability-registry.ts`)
+  generalizing `INFRASTRUCTURE_COMPONENTS` + `AWS_RESOURCES` + footprint
+  handlers + pricing adapters; registers only current capabilities.
 - Infrastructure compiler → a new boundary; CDK stays the mechanism; the
   relay must never synthesize (already true — templates are pre-published
   and `resolveApplicationTemplateUrl` is a pure string derivation).
