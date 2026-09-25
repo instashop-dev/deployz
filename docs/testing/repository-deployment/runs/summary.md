@@ -1,6 +1,6 @@
 # Repository deployment audit — run summary
 
-Deployz commit: `e5f489ec046b791b10860b06f812fe9b388a2eca`
+Deployz commit: `f6979a13fb3a46c834ae597ac698250d9455b4a1`
 
 | Metric | Value |
 | --- | --- |
@@ -13,10 +13,10 @@ Deployz commit: `e5f489ec046b791b10860b06f812fe9b388a2eca`
 | Build attempted / succeeded / failed | 12 / 11 / 1 |
 | Build success among expected deployable | 16.9% |
 | Infrastructure attempted / succeeded / failed | 11 / 8 / 3 |
-| Runtime: ECS running / ALB healthy / HTTPS reachable / application response valid | 8 / 8 / 8 / 6 |
+| Runtime: ECS running / ALB healthy / HTTPS reachable / application response valid | 8 / 8 / 8 / 5 |
 | Dependencies: PostgreSQL / Redis / storage / migration verified | 7 / 2 / 1 / 1 |
-| **True deployment success / expected deployable** | **6 / 65 (9.2%)** |
-| Cleanup: destroys / failures / leaks / success rate | 12 / 1 / 1 / 91.7% |
+| **True deployment success / expected deployable** | **5 / 65 (7.7%)** |
+| Cleanup: destroys / failures / leaks / success rate | 12 / 2 / 2 / 83.3% |
 
 ## By classification
 
@@ -24,13 +24,13 @@ Deployz commit: `e5f489ec046b791b10860b06f812fe9b388a2eca`
 | --- | --- |
 | APPLICATION_ERROR | 1 |
 | BUILD_ERROR | 1 |
-| CLEANUP_LEAK | 1 |
+| CLEANUP_LEAK | 2 |
 | DATABASE_ERROR | 1 |
 | ENV_BINDING_ERROR | 1 |
 | EXPECTED_UNSUPPORTED | 49 |
 | GATE_ERROR | 24 |
 | MIGRATION_ERROR | 1 |
-| PASS | 41 |
+| PASS | 40 |
 
 ## By root cause
 
@@ -68,7 +68,7 @@ Deployz commit: `e5f489ec046b791b10860b06f812fe9b388a2eca`
 
 | Set | Repositories | Expected deployable | Expected unsupported | Gate correct | Deployed | True success |
 | --- | --- | --- | --- | --- | --- | --- |
-| improvement | 80 | 46 | 34 | 65 | 7 | 5 |
+| improvement | 80 | 46 | 34 | 65 | 7 | 4 |
 | unseen | 20 | 9 | 11 | 11 | 0 | 0 |
 | unseen2 | 20 | 10 | 10 | 14 | 1 | 1 |
 
@@ -78,13 +78,14 @@ Deployz commit: `e5f489ec046b791b10860b06f812fe9b388a2eca`
 | --- | --- | --- | --- | --- | --- | --- |
 | boundary | 24 | 2 | 22 | 20 | 0 | 0 |
 | messy | 27 | 18 | 9 | 22 | 0 | 0 |
-| realistic | 69 | 45 | 24 | 48 | 8 | 6 |
+| realistic | 69 | 45 | 24 | 48 | 8 | 5 |
 
 ## By deployment class
 
 | Class | Repositories | Pass | Fail |
 | --- | --- | --- | --- |
-| runtime-reuse | 120 | 90 | 30 |
+| runtime-reuse | 119 | 89 | 30 |
+| fresh-full | 1 | 0 | 1 |
 
 ## Repositories
 
@@ -96,7 +97,7 @@ Deployz commit: `e5f489ec046b791b10860b06f812fe9b388a2eca`
 | repo-004 | miniflux/v2@a84533d | realistic | NEEDS_CONFIGURATION | — (—) | PASS | PASS | HEALTHY/HEALTHY/https PASS | FAIL | CLEANUP_LEAK | DEPLOY-008, DEPLOY-026, DEPLOY-027, DEPLOY-028 |
 | repo-005 | Flagsmith/flagsmith@4a8a84a | realistic | NEEDS_CONFIGURATION | NOT_COMPATIBLE (false-rejection) | NOT_ATTEMPTED | NOT_ATTEMPTED | — | NOT_ATTEMPTED | GATE_ERROR | DEPLOY-003 |
 | repo-006 | documenso/documenso@3ec877a | realistic | NEEDS_CONFIGURATION | READY (correct-accept) | NOT_ATTEMPTED | NOT_ATTEMPTED | — | NOT_ATTEMPTED | PASS |  |
-| repo-007 | ghostfolio/ghostfolio@73e4f03 | realistic | NEEDS_CONFIGURATION | — (—) | PASS | PASS | HEALTHY/HEALTHY/https PASS | PASS | PASS | DEPLOY-014 |
+| repo-007 | ghostfolio/ghostfolio@73e4f03 | realistic | NEEDS_CONFIGURATION | — (—) | PASS | PASS | HEALTHY/HEALTHY/https PASS | FAIL | CLEANUP_LEAK | DEPLOY-014 |
 | repo-008 | TwiN/gatus@4d15cb7 | realistic | READY | — (—) | PASS | PASS | HEALTHY/HEALTHY/https PASS | PASS | PASS | DEPLOY-002, DEPLOY-006 |
 | repo-009 | heroku/node-js-getting-started@63c6674 | realistic | NEEDS_CONFIGURATION | NEEDS_CONFIGURATION (correct-accept) | NOT_ATTEMPTED | NOT_ATTEMPTED | — | NOT_ATTEMPTED | PASS |  |
 | repo-010 | knadh/listmonk@670c017 | messy | NEEDS_CONFIGURATION | READY (correct-accept) | NOT_ATTEMPTED | NOT_ATTEMPTED | — | NOT_ATTEMPTED | PASS |  |
