@@ -358,6 +358,66 @@ accuracy.
 -   generalized contracts avoid current boolean/singleton assumptions;
 -   production still uses the legacy path.
 
+## Phase 1 Result (2026-09-25)
+
+Phase 1 is implemented in shadow mode. Production provisioning continues
+unchanged through `DeploymentManifest v1` / `runtime-v1`; the new pipeline
+runs fire-and-forget beside it and logs one summary line per analysis.
+
+Implemented:
+
+- **Versioned contracts** (`packages/contracts/src/`):
+  - `application-graph.ts` — `ApplicationGraph` (buildArtifacts[],
+    workloads[], resources[], bindings[], externalServices[],
+    unresolved[], evidence/provenance), multiplicity, stable component IDs,
+    ownership (`DEPLOYZ_MANAGED` … `UNRESOLVED`), relationship types
+    (`PROVISIONING`/`RUNTIME`/`BINDING`/`STARTUP`).
+  - `deployz-ir.ts` — `DeployzIR` (workloads, resources, bindings, ingress,
+    schedules, policies, lifecycle, placement, metadata).
+  - `deployment-spec-v2.ts` — `DeploymentSpecV2` (graph + IR + hashes +
+    capability-registry version + size-profile id + compiler/template
+    placeholders).
+  - `capability-registry.ts` — the Phase 1 capability registry interface and
+    the default registry registering only current capabilities
+    (ecs-service, ecs-task, rds-postgres, elasticache-valkey, s3, alb,
+    secrets-manager), each with lifecycle/network/bindings/iam/pricing/
+    presentation metadata.
+- **Graph builder** (`packages/analysis/src/graph.ts`):
+  `manifestToApplicationGraph` / `buildApplicationGraph` re-express the
+  authoritative v1 manifest as a generalized graph. Unsupported reasons
+  become blocking `unresolved[]`; external services become `EXTERNAL_SAAS`
+  resources (never provisioned); ambiguity (e.g. missing migration strategy)
+  becomes explicit non-blocking `unresolved[]`.
+- **Planner** (`packages/analysis/src/planner.ts`):
+  `planApplicationGraph` → `DeployzIR`, plus `buildDeploymentSpecV2` /
+  `planApplicationGraphWithSpec`. Pure and deterministic; resolves
+  workload→compute capability, resource→capability, sizing from the immutable
+  size profile, and IAM intents from capability bindings.
+- **Shadow integration** (`apps/api/src/dynamic-infrastructure-shadow.ts`):
+  wired into the analysis runner (optional `dynamicInfraShadow` dep) and the
+  server; derives graph → IR → spec from the same manifest and logs a
+  structured summary. It never throws and never touches production state.
+
+Reuse vs. new (per tech spec §28.1): `ApplicationGraph` is a NEW versioned
+schema beside — not a mutation of — `DeploymentManifest`, which remains the
+untouched production contract. `DeployzIR` generalizes the resolved model
+(footprint + plan + size profile). `DeploymentSpecV2` is the new frozen
+envelope. The capability registry generalizes `INFRASTRUCTURE_COMPONENTS` +
+footprint handlers + pricing adapters.
+
+Known Phase 2 refinements (accepted for Phase 1, shadow-only):
+
+- The graph carries a `capabilityKey` on managed resources; capability
+  resolution currently happens partly in the graph builder (deterministic
+  kind/engine→capability) rather than wholly in a separate resolver layer.
+  The compiler (Phase 2) owns the authoritative kind/engine→capability map.
+- Planner sizing/config carries small `switch` statements on capability key;
+  these migrate into per-capability compile handlers in Phase 2.
+
+Tests: `packages/analysis/test/graph.test.ts` (7), `planner.test.ts` (18),
+`apps/api/src/dynamic-infrastructure-shadow.test.ts` (2), plus the existing
+contract/analysis/API suites remain green. Full build (`pnpm build`) is 9/9.
+
 # Phase 2 --- Dynamic Compiler Parity & Operational Foundation
 
 ## Objective
