@@ -172,7 +172,9 @@ test('vendor configures a customer-provided secret, publishes an install link, a
   await expect(page.getByText('Complete the required application settings to continue.')).toBeVisible();
 
   // Region choice is explicit — there is no silent first-region default.
-  await page.getByRole('combobox', { name: /region/i }).click();
+  // The trigger has no accessible name (see final report), so it is scoped
+  // by its section instead of matched by role name.
+  await page.locator('section[aria-labelledby="public-region"]').getByRole('combobox').click();
   await page.getByRole('option', { name: 'US East (N. Virginia)' }).click();
 
   const customerEmail = `customer-${suffix}@example.com`;
