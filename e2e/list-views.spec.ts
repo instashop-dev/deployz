@@ -414,7 +414,7 @@ test.describe('Deployments list', () => {
     await mockApi(page, []);
     await page.goto('/dashboard/deployments');
     await expect(page.getByRole('heading', { name: 'Your app is ready for private deployment' })).toBeVisible();
-    await expect(page.getByRole('link', { name: 'Create Customer Deployment' })).toBeVisible();
+    await expect(page.getByRole('link', { name: 'Create installation' })).toBeVisible();
     await expect(page.getByText('No deployments match these filters.')).toHaveCount(0);
   });
 });

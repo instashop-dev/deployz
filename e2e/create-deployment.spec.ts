@@ -65,6 +65,12 @@ test('a MANIFEST_NOT_COMPATIBLE rejection at customer confirm shows the server r
   await signUp(page);
   const applicationId = await seedNotCompatibleApplication(page, suffix);
   const customerId = await seedCustomer(page, suffix);
+  // The public install page 410s the whole surface (RELEASE_NOT_PUBLISHED)
+  // when there is no release at all, rather than rendering a degraded form
+  // — unlike the vendor's own create-deployment page, it has no "no release
+  // yet" state to show. A release must exist before the incompatibility
+  // (legacy-redis's unsupported Redis Stack dependency) is even reachable.
+  await createReadyRelease(page.request, applicationId);
 
   // Vendor creates invitation (no manifest validation at this point)
   const invitationResponse = await page.request.post(
@@ -83,51 +89,31 @@ test('a MANIFEST_NOT_COMPATIBLE rejection at customer confirm shows the server r
 
   // Wait for the page to load and resolve the invitation
   await expect(page.getByRole('heading', { name: /Install/ })).toBeVisible();
-
-  // Nothing can install without a built release: the page says so and the
-  // submit waits for one.
-  const releaseMissing = page.getByTestId('install-release-missing');
-  await expect(releaseMissing).toBeVisible();
-  await expect(releaseMissing.getByRole('link', { name: 'Go to Releases' })).toHaveAttribute(
-    'href',
-    `/dashboard/applications/${applicationId}/releases`,
-  );
-
-  const submit = page.getByRole('button', { name: 'Continue to setup' });
-  await expect(submit).toBeDisabled();
-
-  await createReadyRelease(page.request, applicationId);
-  await page.reload();
-  await page.goto(`/install/${invitation.id}#${invitation.token}`);
-  await expect(page.getByTestId('install-release')).toContainText('Installs release 0.1.0');
+  await expect(page.getByText('Release 0.1.0')).toBeVisible();
 
   // Select a region (explicit choice required)
-  await page.getByRole('combobox', { name: /Region/i }).click();
-  await page.getByRole('option', { name: /US East/ }).click();
+  await page.getByRole('combobox', { name: /region/i }).click();
+  await page.getByRole('option', { name: 'US East (N. Virginia)' }).click();
 
-  // Phase 5: the preflight shows the gate's answer before the customer confirms.
-  const preflight = page.getByTestId('preflight-summary');
-  await expect(preflight).toBeVisible();
-  await expect(preflight).toHaveAttribute('data-state', 'UNSUPPORTED');
-  await expect(page.getByTestId('preflight-heading')).toContainText("Can't deploy this application yet");
-
+  const submit = page.getByRole('button', { name: 'Continue to setup' });
+  await expect(submit).toBeEnabled();
   await submit.click();
 
+  // Manifest validation happens at confirm time, against the real API — the
+  // customer-facing message is deliberately generic (no vendor-internal
+  // readiness details or dashboard links are shown to a customer).
   // Scoped to the form: Next.js's own route announcer also carries
   // role="alert" and would otherwise make this locator ambiguous.
   const alert = page.locator('form [role="alert"]');
   await expect(alert).toContainText(
-    'This application cannot be deployed with Deployz as configured.',
+    'This application cannot be installed in its current state. Contact the publisher.',
   );
-  await expect(
-    alert.getByRole('link', { name: "Review the application's readiness findings" }),
-  ).toHaveAttribute('href', `/dashboard/applications/${applicationId}`);
 
   // Retry with the same customer: the API rejects again (the manifest is
   // still NOT_COMPATIBLE), but the customer row should not be duplicated.
   await submit.click();
   await expect(alert).toContainText(
-    'This application cannot be deployed with Deployz as configured.',
+    'This application cannot be installed in its current state. Contact the publisher.',
   );
 
   const customersResponse = await page.request.get(`${API_URL}/api/customers`);
