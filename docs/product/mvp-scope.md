@@ -67,10 +67,10 @@ account:
 | Network | Dedicated VPC, public/private subnets, NAT, security groups | Deleted on disconnect. |
 | Endpoint | Permanent `https://d-<deployment-id>.deployz.dev` URL, plus an optional vendor-managed custom domain | See [`../networking-and-https.md`](../networking-and-https.md). |
 
-The four pre-published template variants (PostgreSQL × Redis) are selected
-from the deployment manifest; see
-[`../architecture.md#application-template-selection`](../architecture.md#application-template-selection).
-Sizing is frozen per deployment in an immutable profile registry
+The infrastructure is generated from the deployment spec (compiler-v2 is
+the target; the current relay path still uses pre-published runtime-v1
+template variants until the Phase 2 cutover). Sizing is
+frozen per deployment in an immutable profile registry
 ([`../infrastructure-profiles.md`](../infrastructure-profiles.md)); today
 only `small-v1` exists and the customer is not offered a choice.
 
@@ -154,7 +154,8 @@ Not provided by the platform:
   environments.
 - Customer-selectable size profiles, changing the topology of an existing
   deployment (a new requirement means a new deployment), per-customer builds,
-  pushing changed vendor defaults to existing deployments.
+  pushing changed vendor defaults to existing deployments, runtime-v1 template
+  backward compatibility.
 - Customer-side controls inside Deployz: the customer approves the Quick
   Create and can only uninstall through the AWS console.
 - Deployment notifications by email or Slack, vendor-branded install pages,
@@ -185,6 +186,9 @@ Deliberate trade-offs that are documented rather than hidden:
   month before the application's own usage).
 - **The shared control-plane ECR repository** is protected by unguessable
   UUID-namespaced tags, not per-application repositories.
+- **No runtime-v1 backward compatibility.** Deployz is pre-launch; the MVP
+  launches on compiler-v2 and does not preserve the earlier static-template
+  generation.
 
 ## Deferred (post-MVP) items
 

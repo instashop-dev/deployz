@@ -15,6 +15,7 @@ export * from './compile.js';
 export * from './cfn-emit.js';
 export * from './derived.js';
 export * from './hashing.js';
+export * from './safety.js';
 
 /**
  * The deterministic compiler entry point. Turns a frozen DeployzIR into the

@@ -8,11 +8,9 @@ import type { DeployzIR } from '@deployz/contracts';
 
 import { compileDeployzInfrastructure } from './index.js';
 
-// dynamic-compiler-v2 parity, determinism, stable identity and stateful
-// safety. The committed runtime-v1 templates are the reference: the compiler
-// must reproduce their resource graph (types + retention + parameters +
-// outputs) from an equivalent DeployzIR, with stable semantic logical ids
-// (an intentional improvement over CDK's auto-hashed ids).
+// dynamic-compiler-v2 — capability-compositional, determinism, stable identity
+// and stateful safety. The compiler composes the current capabilities from
+// DeployzIR into a resolved AWS graph with stable semantic logical ids.
 
 const here = dirname(fileURLToPath(import.meta.url));
 
@@ -109,39 +107,6 @@ function makeIr(opts: { postgres: boolean; redis: boolean }): DeployzIR {
   };
 }
 
-// ── Reference templates ──────────────────────────────────────────────────────
-
-interface CfnResource {
-  readonly Type: string;
-  readonly DeletionPolicy?: string;
-  readonly UpdateReplacePolicy?: string;
-}
-interface CfnTemplate {
-  readonly Parameters: Record<string, { Type: string; NoEcho: boolean }>;
-  readonly Resources: Record<string, CfnResource>;
-  readonly Outputs: Record<string, unknown>;
-}
-
-const TEMPLATES = [
-  { file: 'application-template-v1.json', postgres: true, redis: false },
-  { file: 'application-template-redis-v1.json', postgres: true, redis: true },
-  { file: 'application-template-stateless-v1.json', postgres: false, redis: false },
-  { file: 'application-template-stateless-redis-v1.json', postgres: false, redis: true },
-] as const;
-
-function readTemplate(file: string): CfnTemplate {
-  return JSON.parse(readFileSync(join(here, '..', '..', 'cdk', 'artifacts', file), 'utf8')) as CfnTemplate;
-}
-
-function typeMultiset(resources: Record<string, CfnResource>): string[] {
-  return Object.values(resources).map((r) => r.Type).sort();
-}
-
-/** The compiler template's resources (plain object). */
-function compiledResources(template: Record<string, unknown>): Record<string, CfnResource> {
-  return template['Resources'] as Record<string, CfnResource>;
-}
-
 // ── Tests ────────────────────────────────────────────────────────────────────
 
 describe('determinism', () => {
@@ -202,7 +167,7 @@ describe('stateful safety', () => {
     expect(appSecret!.deletionPolicy).toBe('Delete');
   });
 
-  it('the valkey cache is stateless (deleted on stack delete), matching runtime-v1', () => {
+  it('the valkey cache is stateless (deleted on stack delete)', () => {
     const { resolvedGraph } = compileDeployzInfrastructure({ ir: makeIr({ postgres: false, redis: true }), region: null });
     const cache = resolvedGraph.resources.find((r) => r.logicalId === 'CacheReplicationGroup');
     expect(cache).toBeDefined();
@@ -211,39 +176,177 @@ describe('stateful safety', () => {
   });
 });
 
-describe('v1 ↔ v2 semantic parity', () => {
-  for (const { file, postgres, redis } of TEMPLATES) {
-    it(`${file}: identical resource types, parameters, outputs and retention`, () => {
-      const reference = readTemplate(file);
-      const compiled = compileDeployzInfrastructure({ ir: makeIr({ postgres, redis }), region: null });
-      const resources = compiledResources(compiled.template);
+describe('capability composition', () => {
+  it('adding RDS adds only the expected resources, verification entry and output', () => {
+    const stateless = compileDeployzInfrastructure({ ir: makeIr({ postgres: false, redis: false }), region: null });
+    const withDb = compileDeployzInfrastructure({ ir: makeIr({ postgres: true, redis: false }), region: null });
 
-      // Resource type multiset parity.
-      expect(typeMultiset(resources)).toEqual(typeMultiset(reference.Resources));
+    const statelessIds = new Set(stateless.resolvedGraph.resources.map((r) => r.logicalId));
+    const withDbIds = new Set(withDb.resolvedGraph.resources.map((r) => r.logicalId));
 
-      // Parameter parity (the compiler omits the CDK BootstrapVersion param).
-      const refParams = Object.keys(reference.Parameters).filter((p) => p !== 'BootstrapVersion').sort();
-      const compiledParams = Object.keys(compiled.template['Parameters'] as Record<string, unknown>).sort();
-      expect(compiledParams).toEqual(refParams);
+    // Only RDS-related resources are added.
+    const addedIds = [...withDbIds].filter((id) => !statelessIds.has(id));
+    expect(addedIds.length).toBeGreaterThan(0);
+    for (const id of addedIds) {
+      const resource = withDb.resolvedGraph.resources.find((r) => r.logicalId === id)!;
+      expect(resource.capability).toBe(CAPABILITY_KEYS.RDS_POSTGRES);
+      expect(resource.componentId).toBe('primary-db');
+    }
 
-      // Output parity.
-      expect(Object.keys(compiled.template['Outputs'] as Record<string, unknown>).sort()).toEqual(
-        Object.keys(reference.Outputs).sort(),
-      );
+    // Verification contract gains exactly 'database'.
+    const statelessChecks = new Set(stateless.verificationContract.checks.map((c) => c.check));
+    const withDbChecks = withDb.verificationContract.checks.map((c) => c.check).sort();
+    expect(withDbChecks).toEqual([...statelessChecks, 'database'].sort());
 
-      // Retention parity: the retained (Retain) resources must match exactly,
-      // by type. DeletionPolicy is emitted only for retained resources, so
-      // counting Retain per type is the retention guarantee that must hold.
-      const retainedByType = (entries: Record<string, CfnResource>): Record<string, number> => {
-        const acc: Record<string, number> = {};
-        for (const r of Object.values(entries)) {
-          if (r.DeletionPolicy === 'Retain') acc[r.Type] = (acc[r.Type] ?? 0) + 1;
-        }
-        return acc;
-      };
-      expect(retainedByType(resources)).toEqual(retainedByType(reference.Resources));
+    // Outputs gain DbHost and DbSecretArn only.
+    const statelessOutputs = new Set(stateless.template['Outputs'] ? Object.keys(stateless.template['Outputs'] as Record<string, unknown>) : []);
+    const withDbOutputs = Object.keys(withDb.template['Outputs'] as Record<string, unknown>);
+    const addedOutputs = withDbOutputs.filter((o) => !statelessOutputs.has(o)).sort();
+    expect(addedOutputs).toEqual(['DbHost', 'DbSecretArn']);
+  });
+
+  it('adding Redis adds only the expected resources and verification entry', () => {
+    const stateless = compileDeployzInfrastructure({ ir: makeIr({ postgres: false, redis: false }), region: null });
+    const withRedis = compileDeployzInfrastructure({ ir: makeIr({ postgres: false, redis: true }), region: null });
+
+    const statelessIds = new Set(stateless.resolvedGraph.resources.map((r) => r.logicalId));
+    const addedIds = withRedis.resolvedGraph.resources
+      .filter((r) => !statelessIds.has(r.logicalId))
+      .map((r) => r.logicalId);
+    expect(addedIds.length).toBeGreaterThan(0);
+    for (const id of addedIds) {
+      const resource = withRedis.resolvedGraph.resources.find((r) => r.logicalId === id)!;
+      expect(resource.capability).toBe(CAPABILITY_KEYS.ELASTICACHE_VALKEY);
+      expect(resource.componentId).toBe('cache');
+    }
+
+    const statelessChecks = new Set(stateless.verificationContract.checks.map((c) => c.check));
+    const withRedisChecks = withRedis.verificationContract.checks.map((c) => c.check).sort();
+    expect(withRedisChecks).toEqual([...statelessChecks, 'cache'].sort());
+  });
+
+  it('removing a capability removes its resources', () => {
+    const withDb = compileDeployzInfrastructure({ ir: makeIr({ postgres: true, redis: true }), region: null });
+    const withoutDb = compileDeployzInfrastructure({ ir: makeIr({ postgres: false, redis: true }), region: null });
+
+    const withDbIds = new Set(withDb.resolvedGraph.resources.map((r) => r.logicalId));
+    const withoutDbIds = new Set(withoutDb.resolvedGraph.resources.map((r) => r.logicalId));
+
+    const removedIds = [...withDbIds].filter((id) => !withoutDbIds.has(id));
+    expect(removedIds.length).toBeGreaterThan(0);
+    for (const id of removedIds) {
+      const resource = withDb.resolvedGraph.resources.find((r) => r.logicalId === id)!;
+      expect(resource.capability).toBe(CAPABILITY_KEYS.RDS_POSTGRES);
+    }
+
+    // No Redis resources were removed.
+    const redisIds = new Set(
+      withDb.resolvedGraph.resources.filter((r) => r.capability === CAPABILITY_KEYS.ELASTICACHE_VALKEY).map((r) => r.logicalId),
+    );
+    for (const id of redisIds) {
+      expect(withoutDbIds.has(id), `Redis resource ${id} should survive RDS removal`).toBe(true);
+    }
+  });
+
+  it('unrelated component logical identities remain stable when capabilities change', () => {
+    const stateless = compileDeployzInfrastructure({ ir: makeIr({ postgres: false, redis: false }), region: null });
+    const full = compileDeployzInfrastructure({ ir: makeIr({ postgres: true, redis: true }), region: null });
+
+    const networkIds = stateless.resolvedGraph.resources
+      .filter((r) => r.componentId === 'network')
+      .map((r) => r.logicalId)
+      .sort();
+    const fullNetworkIds = full.resolvedGraph.resources
+      .filter((r) => r.componentId === 'network')
+      .map((r) => r.logicalId)
+      .sort();
+    expect(fullNetworkIds).toEqual(networkIds);
+
+    const webIds = stateless.resolvedGraph.resources
+      .filter((r) => r.componentId === 'web')
+      .map((r) => r.logicalId)
+      .sort();
+    const fullWebIds = full.resolvedGraph.resources
+      .filter((r) => r.componentId === 'web')
+      .map((r) => r.logicalId)
+      .sort();
+    expect(fullWebIds).toEqual(webIds);
+
+    const endpointIds = stateless.resolvedGraph.resources
+      .filter((r) => r.componentId === 'endpoint')
+      .map((r) => r.logicalId)
+      .sort();
+    const fullEndpointIds = full.resolvedGraph.resources
+      .filter((r) => r.componentId === 'endpoint')
+      .map((r) => r.logicalId)
+      .sort();
+    expect(fullEndpointIds).toEqual(endpointIds);
+  });
+
+  it('IR resource ordering does not affect template hash', () => {
+    const irA = makeIr({ postgres: true, redis: true });
+    const irB: DeployzIR = { ...irA, resources: [...irA.resources].reverse() };
+    const a = compileDeployzInfrastructure({ ir: irA, region: null });
+    const b = compileDeployzInfrastructure({ ir: irB, region: null });
+    expect(a.artifact.templateHash).toBe(b.artifact.templateHash);
+  });
+
+  it('every managed resource maps to componentId + capability + resourceRole', () => {
+    const { resolvedGraph } = compileDeployzInfrastructure({ ir: makeIr({ postgres: true, redis: true }), region: null });
+    for (const r of resolvedGraph.resources) {
+      expect(r.componentId).toBeTruthy();
+      expect(r.capability).toBeTruthy();
+      expect(r.resourceRole).toBeTruthy();
+    }
+  });
+
+  it('sizing changes affect only relevant resources (database sizing changes only RDS resources)', () => {
+    const defaultProfile = compileDeployzInfrastructure({ ir: makeIr({ postgres: true, redis: true }), region: null });
+
+    const biggerDbProfile = compileDeployzInfrastructure({
+      ir: makeIr({ postgres: true, redis: true }),
+      region: null,
+      sizeProfile: {
+        label: 'medium-test',
+        workload: { cpuUnits: 256, memoryMiB: 512 },
+        database: { instanceClass: 'db.r6g.xlarge', storageGb: 100, maxStorageGb: 500 },
+        cache: { nodeType: 'cache.t4g.micro', nodeCount: 1 },
+      },
     });
-  }
+
+    // Network, endpoint, cache, and web resources are unchanged.
+    const unchangedComponents = ['network', 'endpoint', 'cache', 'web'];
+    for (const componentId of unchangedComponents) {
+      const defaultResources = defaultProfile.resolvedGraph.resources
+        .filter((r) => r.componentId === componentId)
+        .map((r) => JSON.stringify(r.properties))
+        .sort();
+      const biggerResources = biggerDbProfile.resolvedGraph.resources
+        .filter((r) => r.componentId === componentId)
+        .map((r) => JSON.stringify(r.properties))
+        .sort();
+      expect(biggerResources, `component ${componentId} should be unaffected by db sizing`).toEqual(defaultResources);
+    }
+
+    // RDS instance properties differ.
+    const defaultDbInstance = defaultProfile.resolvedGraph.resources.find((r) => r.logicalId === 'PrimaryDbInstance');
+    const biggerDbInstance = biggerDbProfile.resolvedGraph.resources.find((r) => r.logicalId === 'PrimaryDbInstance');
+    expect(defaultDbInstance!.properties).not.toEqual(biggerDbInstance!.properties);
+  });
+
+  it('no static topology-selection logic (compiler branches on capability presence, not on {postgres,redis} tuple)', () => {
+    const source = readFileSync(join(here, 'compile.ts'), 'utf8');
+    // No combined tuple branching: the compiler must not branch on the
+    // combination of postgres+redis as a single decision. Each capability is
+    // resolved independently via resourceByCapability and tested with
+    // `!== undefined`.
+    expect(source).not.toMatch(/hasDb\s*&&\s*hasRedis/);
+    expect(source).not.toMatch(/postgres\s*&&\s*redis/);
+    expect(source).not.toMatch(/hasPostgres\s*&&\s*hasRedis/);
+    // Confirm independent capability lookup pattern.
+    expect(source).toMatch(/resourceByCapability\(ir,\s*CAPABILITY_KEYS\.RDS_POSTGRES\)/);
+    expect(source).toMatch(/resourceByCapability\(ir,\s*CAPABILITY_KEYS\.ELASTICACHE_VALKEY\)/);
+  });
 });
 
 describe('architecture fitness', () => {

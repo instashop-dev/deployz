@@ -32,12 +32,11 @@ import type {
 // timestamps, no random ids, no unstable iteration. Equivalent IR + profile +
 // region + compiler version always produce an equivalent graph.
 //
-// It reproduces the runtime-v1 published application templates' resource
-// graph (VPC + ECS Fargate + ALB + S3 + Secrets Manager + optional RDS
-// PostgreSQL + optional ElastiCache Valkey), with stable semantic logical ids
-// instead of CDK's auto-hashed ids. CDK stays the control-plane mechanism;
-// this compiler emits CloudFormation directly and is the architectural
-// boundary the relay consumes.
+// It composes the current capabilities from DeployzIR (VPC + ECS Fargate +
+// ALB + S3 + Secrets Manager + optional RDS PostgreSQL + optional ElastiCache
+// Valkey) into a resolved AWS graph with stable semantic logical ids. CDK
+// stays the control-plane mechanism; this compiler emits CloudFormation
+// directly and is the architectural boundary the relay consumes.
 // ---------------------------------------------------------------------------
 
 // ── CFN intrinsic helpers ────────────────────────────────────────────────────

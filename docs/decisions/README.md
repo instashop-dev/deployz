@@ -22,6 +22,7 @@ Two decisions with substantial detail have their own files:
 | 2026-09-03 | Infrastructure profiles are immutable and frozen per deployment | Active |
 | 2026-09-20 | Jev shadow analysis is not adopted | Active |
 | 2026-09-22 | Config secrets are KMS-encrypted; Lambdas fail closed without the key | Active |
+| 2026-09-25 | Runtime-v1 backward compatibility is not required for the MVP | Active |
 
 ## AI explanations are on-demand and never change state (2026-08-25)
 
@@ -171,3 +172,22 @@ customer who opens the disclosure sees exactly what AWS reported; a
 customer who does not never sees the jargon. `apps/api/src/customer-activity.test.ts`
 pins both halves, and the E2E failure-path test asserts the raw reason is
 hidden on the page, not absent from its payload.
+
+## Runtime-v1 backward compatibility is not required for the MVP (2026-09-25)
+
+Deployz is pre-launch. There are no live customer deployments on the
+runtime-v1 template generation, so the MVP does not preserve
+backward compatibility with it and does not build a migration path.
+
+The four historical runtime-v1 template variants are reference
+material, not compatibility contracts. Compiler-v2 becomes the sole
+infrastructure-generation path for new deployments. Internal test
+deployments may be recreated.
+
+This decision lets Phase 2 remove the dual-generation machinery
+(template-variant selection, runtime-v1 application stack,
+shadow-only integration, v1↔v2 parity as a compatibility guarantee)
+rather than carrying it forward.
+
+What would change it: a contractual or operational requirement to
+keep existing runtime-v1 deployments running after the MVP launches.

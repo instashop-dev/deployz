@@ -115,60 +115,66 @@ that ever touches the customer's AWS account.
     certificates and the network orphans; the customer deletes the bootstrap
     stack. Details below.
 
-## Application template selection
+## Application template generation
 
-The relay resolves one of four published template variants from the frozen
-manifest through a deterministic chain:
+**Target (Phase 2).** The control plane compiles a CloudFormation template
+from the frozen `DeploymentSpecV2` instead of selecting a pre-published
+runtime-v1 variant.
 
-**`DeploymentManifest` → `InfrastructureProfile` → template URL**
+**`DeploymentManifest` → `ApplicationGraph` → `DeployzIR` → compiler-v2 →
+compiled artifact**
 
-1. **DeploymentManifest** (`database.postgres`, `redis.required`,
-   `schemaVersion` = 1) is the single infrastructure source of truth. The
-   top-level `databaseRequired` / `redisRequired` wire fields are transitional
-   relay-compatibility fields, always derived from the manifest by the
-   control plane; the relay reads them only when a resumed install's
-   compacted SSM marker has dropped the manifest to fit the 4 KB limit. A
-   manifest with an unknown `schemaVersion` fails to parse, so the relay
-   fails before provisioning instead of guessing.
-2. **InfrastructureProfile** (`packages/contracts`) is `{ postgres, redis }`,
-   the graph-shaping requirements only. Port, health path, domain and
-   ordinary variables are CloudFormation parameters, not variants.
-   `infrastructureProfileForManifest` is the only function that derives it.
-3. **`resolveApplicationTemplateUrl`** is pure string derivation: it replaces
-   the base template key with the profile's key. All four templates are
-   published side by side under the same S3 prefix.
+1. **DeploymentManifest** (`schemaVersion` = 1) remains the frozen deployment
+   contract: container setup, port, health path, environment variables,
+   PostgreSQL/Redis/S3 requirements. It is the input to analysis and
+   preflight.
+2. **ApplicationGraph** is a projection of the manifest describing what the
+   application needs: workloads, resources, bindings, external services.
+   It does not contain AWS capability decisions.
+3. **Capability Resolver / Planner** maps graph needs to AWS capabilities
+   (ECS Fargate service, RDS PostgreSQL, ElastiCache Valkey, S3, ALB,
+   Secrets Manager), applies the immutable size profile and region, and
+   emits `DeployzIR` — the authoritative provisioning intent.
+4. **compiler-v2** (`packages/infrastructure-compiler`) turns the IR into a
+   deterministic CloudFormation template, a resolved AWS graph, a
+   verification contract, ownership records and a footprint.
+5. **Relay INSTALL** fetches the compiled artifact from the control plane and
+   creates the application stack. The relay never synthesizes templates and
+   never resolves runtime-v1 template URLs.
 
-| PostgreSQL | Redis | Template key |
-| --- | --- | --- |
-| true | false | `application-template-v1.json` |
-| true | true | `application-template-redis-v1.json` |
-| false | false | `application-template-stateless-v1.json` |
-| false | true | `application-template-stateless-redis-v1.json` |
+**Current state (known gap).** The compiler-v2 pipeline (steps 1–4) is
+implemented and proven on real AWS by the `validate-compiler-v2.mjs` and
+`canary-compiler-v2*.mjs` scripts, but the relay has not yet been cut over
+to it. Production INSTALL still resolves one of the four runtime-v1
+template URLs from the manifest profile. The cutover (persisting the
+compiled `DeploymentSpecV2` artifact, aligning the template parameter
+contract, and pointing the relay at it) is the remaining Phase 2 work; see
+`docs/dynamic-infrastructure-implementation-plan.md` §Phase 2 Result.
 
 Rules: the manifest is authoritative and an invalid or missing requirement
-fails before provisioning; the relay refuses an INSTALL without a manifest;
-the heartbeat's expected components come from the stored manifest and are
-omitted together when it is missing, so the relay skips verification rather
-than assuming a database; there is no runtime CDK synthesis and no
-CloudFormation `Conditions` for RDS (the four artifacts are pre-synthesized
-and committed under `packages/cdk/artifacts/`); an existing deployment keeps
-its original template until its normal destroy/purge lifecycle.
+fails before provisioning; the relay refuses an INSTALL without a known
+template; the heartbeat's expected components come from the deployment
+spec; an existing deployment keeps the template it was created with;
+unsupported infrastructure changes that would replace or delete managed
+resources fail closed.
 
 ## What the application stack contains
 
-Common to all four variants: a VPC (two public and two private subnets, one
+The compiled stack contains: a VPC (two public and two private subnets, one
 NAT gateway), an ECS cluster and Fargate service (`small-v1`: 0.25 vCPU /
 512 MiB, one task, deployment circuit breaker with rollback), a task
 definition, an internet-facing ALB with one HTTP listener and a target
-group, an unhealthy-target alarm, a log group, the `AppStorage` S3 bucket
-(**Retain**), the `AppConfigSecret` (Delete), and the task execution and
-task roles. Parameters: desired count, image reference, container port,
-health-check path, and the generated application secrets.
+group, an unhealthy-target alarm, a log group, an S3 bucket
+(**Retain**), the application config secret (Delete), and the task
+execution and task roles. Optional resources are composed from the IR:
 
-| Variant adds | Lifecycle on destroy |
+| Capability adds | Lifecycle on destroy |
 | --- | --- |
-| RDS PostgreSQL 16 instance (`db.t4g.micro`, 20→100 GB, 7-day backups, deletion protection), subnet group, `DatabaseSecret` + `DatabaseUrlSecret` | **Retain** |
+| RDS PostgreSQL 16 instance (`db.t4g.micro`, 20→100 GB, 7-day backups, deletion protection), subnet group, master secret + URL secret | **Retain** |
 | ElastiCache Valkey replication group (one `cache.t4g.micro` node, no Multi-AZ, TLS off), cache subnet group and security group | Delete |
+
+Parameters: desired count, image reference, container port,
+health-check path, and the generated application secrets.
 
 Redis details: the app receives `REDIS_URL` (`redis://<endpoint>:6379`),
 `REDIS_HOST` and `REDIS_PORT`; other detected alias names are bound after
@@ -192,12 +198,13 @@ published artifact.
 
 `INFRASTRUCTURE_COMPONENTS` (`packages/contracts/src/components.ts`) is the
 shared list of the five components a deployment can have: application,
-endpoint, database, cache and storage. Each row names the profile rule that
+endpoint, database, cache and storage. Each row names the graph need that
 requires it, its `lifecycle` (`delete` or `retain`) on destroy, the
 CloudFormation `primaryResourceType` that proves it exists, and the relay
-`checkName` that verifies it. It is the one semantic catalog for relay
-verification, lifecycle presentation and deployment plans; CDK owns how each
-component is constructed and CloudFormation owns the real lifecycle.
+`checkName` that verifies it. It is the semantic catalog for relay
+verification, lifecycle presentation and deployment plans; the compiler
+owns how each capability is constructed and CloudFormation owns the real
+lifecycle.
 
 `AWS_RESOURCES` (`packages/contracts/src/aws-resources.ts`) is the
 customer-facing resource catalog: every meaningful AWS resource the stack
@@ -205,10 +212,10 @@ creates, with a customer name, purpose, display group, the component it
 binds to, its CloudFormation type and its lifecycle. It omits objects with
 no customer meaning (route tables, listeners).
 
-`packages/cdk/test/lifecycle-parity.test.ts` fails when either catalog
-disagrees with the four committed templates (lifecycle, presence, component
-binding); `sizing-parity.test.ts` pins the `small-v1` sizes to the same
-artifacts.
+`packages/cdk/test/lifecycle-parity.test.ts` and `sizing-parity.test.ts`
+were runtime-v1 parity tests. They are removed when compiler-v2 becomes
+the sole path; capability lifecycle and sizing are tested inside the
+capability registry and compiler tests.
 
 ### Deployment plans
 
@@ -337,10 +344,10 @@ one, so removing a record can never remove infrastructure.
 
 Deployz supports one opinionated architecture: a single Linux web/API
 container on ECS Fargate behind an ALB, S3, and optional RDS PostgreSQL and
-ElastiCache Valkey, installed only from fixed published templates. Anything
-that does not fit is rejected at analysis time with evidence, never silently
-adapted. The full list of non-goals, known limitations and deferred items is
-in [`product/mvp-scope.md`](product/mvp-scope.md).
+ElastiCache Valkey, installed from a compiler-generated CloudFormation
+template. Anything that does not fit is rejected at analysis time with
+evidence, never silently adapted. The full list of non-goals, known
+limitations and deferred items is in [`product/mvp-scope.md`](product/mvp-scope.md).
 
 ## Where the details live
 

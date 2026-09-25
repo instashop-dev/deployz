@@ -263,4 +263,8 @@ export {
 } from './jev/failure-classify.js';
 
 export { manifestToApplicationGraph, buildApplicationGraph } from './graph.js';
+export { resolveResourceCapability, buildCapabilityConfiguration } from './resolver.js';
 export { planApplicationGraph, buildDeploymentSpecV2, planApplicationGraphWithSpec } from './planner.js';
+
+export type { CompilerPreflightInput, CompilerPreflightResult } from './compiler-preflight.js';
+export { evaluateCompilerPreflight } from './compiler-preflight.js';

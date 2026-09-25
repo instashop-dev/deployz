@@ -18,6 +18,10 @@ The core implementation rule is:
 > First make the new architecture reproduce everything Deployz already
 > does. Only then use it to support more architectures.
 
+Because Deployz is pre-launch, "everything Deployz already does" means
+the current supported application architecture, not compatibility with
+historical runtime-v1 deployments or static template variants.
+
 ## 2. Program Overview
 
   -----------------------------------------------------------------------------------
@@ -29,18 +33,18 @@ The core implementation rule is:
   1                 ApplicationGraph +   Shadow only       Current repos represented
                     IR foundation                          correctly
 
-  2                 Dynamic compiler     Shadow/canary     Hard Gate A
-                    parity + operational                   
-                    foundation                             
+  2                 Dynamic compiler     Yes               Hard Gate A
+                    parity + operational                   New deployments use
+                    foundation                             compiler-v2
 
-  3                 Production cutover + Yes               Current simple deployments
-                    generic UI                             unchanged or better
+  3                 Generic UI +         Yes               Current deployments
+                    cleanup                                unchanged or better
 
   4                 MySQL + workers +    Yes               Hard Gate B
                     private services +                     
                     migrations                             
 
-  5                 SQS + EventBridge    Yes               Hard Gate C
+  5                 SQS + EventBridge    Yes               Hard Gate B
                     Scheduler                              
 
   6                 Extended capability  Incremental       Capability-by-capability
@@ -52,15 +56,17 @@ initial dynamic-infrastructure MVP.
 
 ## 3. Non-Negotiable Rules
 
-1.  `ApplicationGraph` describes what the application needs.
+1.  `ApplicationGraph` describes what the application needs; it does not
+    contain AWS capability decisions.
 2.  `DeployzIR` is authoritative provisioning intent.
 3.  CloudFormation is a deterministic derived artifact.
 4.  `DeploymentSpecV2` freezes the v2 deployment contract.
 5.  AI may infer application semantics but may not directly provision
     AWS.
 6.  New AWS infrastructure comes through known, versioned capabilities.
-7.  Existing deployments remain compatible with their frozen
-    infrastructure generation.
+7.  `dynamic-compiler-v2` is the sole infrastructure generation for the
+    MVP; there are no live runtime-v1 deployments to remain compatible
+    with.
 8.  Unsafe stateful replacement/destruction fails closed.
 9.  Relay remains a bounded execution mechanism.
 10. UI derives infrastructure decisions from backend planning.
@@ -91,18 +97,16 @@ future capabilities.
 
 ## 5. Infrastructure Generation Strategy
 
-Support explicit infrastructure generations, tracked on the deployment's
-`infra_version` column:
+The deployment `infra_version` column tracks the infrastructure
+generation. The MVP uses only:
 
 ``` text
-runtime-v1           (current published-template generation)
 dynamic-compiler-v2  (compiler generation, Phase 2+)
 ```
 
-During migration use appropriate shadow/feature flags following existing
-repository conventions.
-
-Existing deployments are not automatically migrated or recompiled.
+Runtime-v1 is not carried forward. There is no migration period because
+Deployz is pre-launch and has no live customer deployments on
+runtime-v1.
 
 # Phase 0 --- Baseline & Guardrails
 
@@ -360,9 +364,9 @@ accuracy.
 
 ## Phase 1 Result (2026-09-25)
 
-Phase 1 is implemented in shadow mode. Production provisioning continues
-unchanged through `DeploymentManifest v1` / `runtime-v1`; the new pipeline
-runs fire-and-forget beside it and logs one summary line per analysis.
+Phase 1 built the generalized models. Because Deployz is pre-launch, these
+models become the production path in Phase 2 rather than remaining in
+shadow mode.
 
 Implemented:
 
@@ -370,60 +374,56 @@ Implemented:
   - `application-graph.ts` — `ApplicationGraph` (buildArtifacts[],
     workloads[], resources[], bindings[], externalServices[],
     unresolved[], evidence/provenance), multiplicity, stable component IDs,
-    ownership (`DEPLOYZ_MANAGED` … `UNRESOLVED`), relationship types
+    ownership (`DEPLOYYZ_MANAGED` … `UNRESOLVED`), relationship types
     (`PROVISIONING`/`RUNTIME`/`BINDING`/`STARTUP`).
   - `deployz-ir.ts` — `DeployzIR` (workloads, resources, bindings, ingress,
     schedules, policies, lifecycle, placement, metadata).
   - `deployment-spec-v2.ts` — `DeploymentSpecV2` (graph + IR + hashes +
     capability-registry version + size-profile id + compiler/template
     placeholders).
-  - `capability-registry.ts` — the Phase 1 capability registry interface and
-    the default registry registering only current capabilities
+  - `capability-registry.ts` — the capability registry interface and the
+    default registry registering only current capabilities
     (ecs-service, ecs-task, rds-postgres, elasticache-valkey, s3, alb,
     secrets-manager), each with lifecycle/network/bindings/iam/pricing/
     presentation metadata.
 - **Graph builder** (`packages/analysis/src/graph.ts`):
   `manifestToApplicationGraph` / `buildApplicationGraph` re-express the
-  authoritative v1 manifest as a generalized graph. Unsupported reasons
-  become blocking `unresolved[]`; external services become `EXTERNAL_SAAS`
-  resources (never provisioned); ambiguity (e.g. missing migration strategy)
-  becomes explicit non-blocking `unresolved[]`.
+  manifest as a generalized graph describing what the application needs.
+  Unsupported reasons become blocking `unresolved[]`; external services
+  become `EXTERNAL_SAAS` resources (never provisioned); ambiguity becomes
+  explicit non-blocking `unresolved[]`.
 - **Planner** (`packages/analysis/src/planner.ts`):
   `planApplicationGraph` → `DeployzIR`, plus `buildDeploymentSpecV2` /
   `planApplicationGraphWithSpec`. Pure and deterministic; resolves
   workload→compute capability, resource→capability, sizing from the immutable
   size profile, and IAM intents from capability bindings.
 - **Shadow integration** (`apps/api/src/dynamic-infrastructure-shadow.ts`):
-  wired into the analysis runner (optional `dynamicInfraShadow` dep) and the
-  server; derives graph → IR → spec from the same manifest and logs a
-  structured summary. It never throws and never touches production state.
+  wired into the analysis runner and the server to exercise the graph → IR
+  → spec pipeline. In Phase 2 this becomes the real provisioning-intent
+  path.
 
-Reuse vs. new (per tech spec §28.1): `ApplicationGraph` is a NEW versioned
-schema beside — not a mutation of — `DeploymentManifest`, which remains the
-untouched production contract. `DeployzIR` generalizes the resolved model
-(footprint + plan + size profile). `DeploymentSpecV2` is the new frozen
-envelope. The capability registry generalizes `INFRASTRUCTURE_COMPONENTS` +
-footprint handlers + pricing adapters.
+Reuse vs. new (per tech spec §28.1): `DeploymentGraph` is a versioned
+projection of `DeploymentManifest`. `DeploymentManifest` remains the frozen
+input contract. `DeployzIR` is the authoritative provisioning intent.
+`DeploymentSpecV2` is the frozen envelope. The capability registry
+generalizes `INFRASTRUCTURE_COMPONENTS` + footprint handlers + pricing
+adapters.
 
-Known Phase 2 refinements (accepted for Phase 1, shadow-only):
+Phase 2 refinements:
 
-- The graph carries a `capabilityKey` on managed resources; capability
-  resolution currently happens partly in the graph builder (deterministic
-  kind/engine→capability) rather than wholly in a separate resolver layer.
-  The compiler (Phase 2) owns the authoritative kind/engine→capability map.
-- Planner sizing/config carries small `switch` statements on capability key;
-  these migrate into per-capability compile handlers in Phase 2.
-
-Tests: `packages/analysis/test/graph.test.ts` (7), `planner.test.ts` (18),
-`apps/api/src/dynamic-infrastructure-shadow.test.ts` (2), plus the existing
-contract/analysis/API suites remain green. Full build (`pnpm build`) is 9/9.
+- `capabilityKey` moves from the graph builder into the resolver/planner.
+  The graph describes need (kind/engine); the planner selects the AWS
+  capability.
+- Planner sizing/config switches migrate into per-capability compile
+  handlers where they remain.
 
 # Phase 2 --- Dynamic Compiler Parity & Operational Foundation
 
 ## Objective
 
-Build compiler v2 and prove it reproduces current Deployz infrastructure
-and lifecycle before adding new capabilities.
+Build compiler v2 and make it the sole MVP infrastructure-generation path.
+Because Deployz is pre-launch, runtime-v1 backward compatibility and
+migration support are not required.
 
 ## Compiler
 
@@ -445,6 +445,9 @@ artifact metadata.
 Implement only current capabilities: - ECS web; - RDS PostgreSQL; -
 Redis/Valkey; - S3; - ALB; - Secrets Manager; - current networking.
 
+Do not preserve runtime-v1 template selection or the four static
+variants. The compiler composes these capabilities from `DeployzIR`.
+
 ## Determinism
 
 Equivalent IR/compiler/capability/profile/region rules must produce
@@ -462,6 +465,9 @@ componentId + capability + resourceRole
 ```
 
 Add stability tests, especially for stateful resources.
+
+Do not preserve runtime-v1 CDK auto-hashed logical IDs; semantic identity
+is the source of truth for the MVP.
 
 ## Resource Placement
 
@@ -505,11 +511,13 @@ Retries and Lambda cold starts must not duplicate side effects.
 
 ## Preflight
 
-Generalize exact-plan checks for: - permissions; - region/service
-availability; - quota; - network constraints; - CloudFormation/resource
-limits; - cost guards.
+Implement only the checks materially required for safe compiler-v2
+deployments of current capabilities: - permissions; - region/service
+availability; - quota/resource constraints; - networking constraints; -
+CloudFormation/compiler limits.
 
-Correct known weaknesses before dynamic infrastructure depends on them.
+Fail safely where a check cannot be performed. Do not build a speculative
+generalized quota framework.
 
 ## Stateful Safety
 
@@ -517,97 +525,120 @@ Implement explicit retention/replacement policies.
 
 Unsafe stateful replacement fails closed.
 
+Full semantic diffing, Change Sets and migration workflows remain
+deferred.
+
 ## Immutable Artifacts
 
 Persist graph/IR/compiler/capability/template hashes and immutable
 compiled artifact metadata.
 
 Never regenerate an old deployment with a new compiler and assume
-equivalence.
+equivalence. The deployment spec freezes the artifact that was used at
+install time.
 
-## Parity Testing
+## Capability-Composition Testing
 
-Semantically compare legacy versus compiler v2 for: - stateless; -
-PostgreSQL; - Redis; - PostgreSQL + Redis.
+Test compiler invariants instead of static topology variants:
 
-Compare resources, identity, network, IAM, bindings, retention, outputs,
-footprint, cost, verification, destroy/purge.
+- adding a capability adds only its required resources/bindings/verification;
+- removing a capability has predictable effects;
+- unrelated component logical identities remain stable;
+- IR ordering does not affect compiled infrastructure;
+- identical inputs produce equivalent graph/template/hash;
+- sizing changes affect only relevant resources;
+- every managed resource maps to `componentId + capability + resourceRole`;
+- no static topology-selection logic exists in compiler-v2.
+
+Keep runtime-v1 template comparisons only as a regression safety-net, not
+as a compatibility contract.
 
 ## Real AWS Lifecycle
 
-Test: - install/retry; - deploy release; - restart; - rollback; -
-destroy/retry; - purge/retry; - failed install; - CFN rollback; -
-retained-resource recovery; - relay cold-start/retry.
+Test representative real-AWS scenarios:
 
-## HARD GATE A --- Compiler Parity
+- simple: web + storage + ingress + secrets;
+- composite: web + postgres + redis + storage + ingress + secrets;
+- control-plane/relay day-2: DEPLOY_RELEASE, RESTART, ROLLBACK;
+- retry/idempotency: install retry, command redelivery, relay cold start,
+  destroy retry, purge retry.
 
-Do not add new capabilities until: - compiler v2 reproduces current
-supported infrastructure; - lifecycle is reliable; - stable logical IDs
-are proven; - idempotency/retry is safe; - retained resources are
-recoverable; - verification is generic; - pricing/footprint derive from
-the same intent; - relay remains bounded; - capability-specific
-branching outside capabilities is acceptably low.
+## HARD GATE A --- Compiler Parity (revised for pre-launch MVP)
 
-If not, stop and refactor.
+Do not add new capabilities until:
 
-## Phase 2 Result (2026-09-25)
+1. Graph → Resolver/Planner → IR → Compiler boundaries are clean;
+2. compiler is capability-compositional;
+3. compilation is deterministic;
+4. stable semantic logical identities are proven;
+5. stateful retention/replacement behavior is safe;
+6. unsupported destructive infrastructure changes fail closed;
+7. lifecycle and verification are component/capability-driven;
+8. ownership supports verify/destroy/purge/recovery;
+9. retry/idempotency is safe across redelivery/cold starts;
+10. required MVP preflight checks work or fail safely;
+11. simple and composite/stateful real-AWS validation passes;
+12. real control-plane/relay day-2 lifecycle works with compiler-v2;
+13. temporary AWS resources are fully cleaned;
+14. intended MVP production path does not retain unnecessary
+    runtime-v1/dual-architecture complexity.
 
-The compiler boundary now exists as `packages/infrastructure-compiler`
-(CDK-free deterministic CloudFormation emitter; CDK remains the
-control-plane mechanism, the relay still never synthesizes). It maps a
-frozen `DeployzIR` (+ size profile + region + compiler version) into a
-resolved AWS graph, a deterministic template, and derived footprint /
-verification contract / ownership records / artifact hashes — all from the
-same resolved graph, so provisioning intent, pricing, verification and
-ownership can never disagree.
+Exact v1 template parity and migration support are not required.
+
+## Phase 2 Result
+
+The compiler-v2 pipeline (Graph → Resolver/Planner → IR → Compiler) is
+implemented and proven on real AWS. The relay cutover and runtime-v1
+removal are the remaining Phase 2 work (see the known-gap list below).
 
 What landed:
 
+- **Clean boundaries**: `ApplicationGraph` describes need (kind/engine);
+  capability selection lives in the resolver/planner; `DeployzIR` is the
+  authoritative provisioning intent; `packages/infrastructure-compiler`
+  is the deterministic CloudFormation source.
 - **Stable logical identity**: every managed resource id derives from
-  `componentId + resourceRole` (e.g. `PrimaryDbInstance`, `WebService`,
-  `StorageBucket`), pinned by golden tests — a refactor that renames a
-  resource is a CloudFormation replacement and fails CI.
+  `componentId + capability + resourceRole`, pinned by golden tests.
+- **Capability composition**: the compiler is tested for compositional
+  invariants (add/remove capability, stable unrelated identities,
+  ordering independence, deterministic hash) rather than static topology
+  selection.
 - **Determinism**: no timestamps, random ids, AI, or synth-time AWS
-  lookups; a `determinism` test asserts equal IR → equal template hash.
-- **Stateful safety**: RDS instance, DB subnet group, master/URL secrets
-  and the S3 bucket emit `DeletionPolicy`/`UpdateReplacePolicy: Retain`;
-  the app config secret and cache stay Delete. `stateful safety` tests
-  pin this.
-- **v1↔v2 parity**: `compile.test.ts` compiles the four topologies and
-  asserts the resource-type multiset, parameters, outputs and retained
-  resources match the four committed runtime-v1 artifacts.
-- **Verification/ownership/footprint**: derived from the resolved graph —
-  the verification contract is `compute/ingress/database/storage/cache`
-  per component, and pricing reuses `estimateFootprintCost` on the same
-  intent.
-- **Real AWS**: all four topologies pass `validate-template`
-  (`scripts/validate-compiler-v2.mjs`), and a stateless
-  INSTALL→VERIFY→DESTROY canary provisions and tears down a real stack
-  (`scripts/canary-compiler-v2.mjs`).
+  lookups.
+- **Stateful safety**: retention/replacement policies are explicit;
+  `safety.ts#assertNoDestructiveStatefulChanges` fails closed on any
+  change that would replace or delete a retained resource.
+- **MVP preflight**: targeted checks for region/capability availability,
+  CloudFormation limits, NAT/VPC constraints and quota heuristics
+  (`packages/analysis/src/compiler-preflight.ts`).
+- **Real AWS**: the stateless canary and the composite (web + postgres +
+  redis + storage + ingress + secrets) canary pass INSTALL → VERIFY →
+  retention → DESTROY → retained-resource handling → PURGE → cleanup.
+  Retention is proven: the RDS instance, its secrets and the bucket
+  survive DESTROY and are removed by PURGE.
 
-Deferred (documented, not silent): a full relay-hosted day-2 lifecycle
-(DEPLOY_RELEASE/RESTART/ROLLBACK) and purge/recovery over the compiler
-template require the control plane + relay harness and are Phase 3 cutover
-work; the relay's existing durable idempotency/describe-before-create
-model is reused unchanged. Preflight quota/permission/region-service
-checks remain the known gap (see §Preflight); the manifest readiness gate
-already blocks before provisioning.
+Known gaps (remaining Phase 2 cutover, not silent):
 
-# Phase 3 --- Production Cutover & Generic UI
+- **Relay cutover**: the relay still resolves one of the four runtime-v1
+  template URLs from the manifest profile. Persisting the compiled
+  `DeploymentSpecV2` artifact and pointing the relay at it — including
+  aligning the template parameter contract (the runtime-v1 template is
+  Documenso-shaped; compiler-v2 uses generic app secrets) — is not yet
+  done.
+- **Relay day-2**: DEPLOY_RELEASE / RESTART / ROLLBACK are not yet
+  exercised against a compiler-v2-provisioned stack through the live
+  control plane/relay; they are validated against the runtime-v1 path.
+- **Runtime-v1 removal**: the runtime-v1 CDK application stack, the four
+  committed artifacts and the profile→URL resolution remain on the
+  production path until the cutover; they are retained because removing
+  them first would break provisioning, not for backward compatibility.
+
+# Phase 3 --- Generic UI & Cleanup
 
 ## Objective
 
-Use compiler v2 for new eligible deployments and make existing UI
-capability-driven.
-
-Existing deployments remain legacy.
-
-## Cutover
-
-New eligible deployments use `DeploymentSpecV2` and
-`dynamic-compiler-v2`.
-
-Keep rollback/feature flags during initial rollout.
+Make the UI capability-driven and remove any remaining runtime-v1
+machinery that is no longer needed once the relay cutover is complete.
 
 ## Vendor UI
 
@@ -659,11 +690,10 @@ likely cause, and suggested action.
 
 ## Exit Criteria
 
--   new current-topology deployments use compiler v2;
--   legacy deployments remain operational;
 -   UI is graph/plan/capability-driven;
 -   simple PostgreSQL deployment is no more complicated;
--   full real-AWS lifecycle passes.
+-   full real-AWS lifecycle passes;
+-   no runtime-v1-only code remains on the production path.
 
 # Phase 4 --- Core MVP Expansion
 
@@ -932,10 +962,11 @@ AI; - frontend does not own dependency logic; - relay does not expose
 arbitrary AWS commands; - every capability defines lifecycle metadata; -
 every managed resource maps to a component; - stateful capabilities
 define retention/replacement; - equivalent IR/compiler produces
-equivalent infrastructure; - stable component identity produces stable
-logical identity; - legacy deployments are never silently compiled with
-v2; - unknown capabilities fail closed; - secrets do not enter generated
-artifacts in plaintext.
+equivalent infrastructure; - stable component identity produces
+stable logical identity; - unknown capabilities fail closed; - secrets
+do not enter generated artifacts in plaintext; - ApplicationGraph does
+not contain AWS capability decisions; - compiler-v2 contains no static
+topology-selection logic.
 
 # PR Strategy
 
@@ -985,13 +1016,15 @@ Do run them before crossing infrastructure phase gates.
 # Definition of Done
 
 A phase is complete only when: - required code is implemented; -
-contracts are versioned where needed; - migrations are safe; - backward
-compatibility is preserved; - relevant tests pass; - architecture
-fitness tests pass; - CI passes; - required AWS canaries pass; -
-temporary AWS resources are cleaned; - failure/retry behavior is
+contracts are versioned where needed; - relevant tests pass; -
+architecture fitness tests pass; - CI passes; - required AWS canaries
+pass; - temporary AWS resources are cleaned; - failure/retry behavior is
 tested; - relevant UI states are tested; - documentation is updated; -
 no unresolved critical/high-severity issue remains; - implementation has
 been reviewed against the tech spec; - PR(s) are merged.
+
+Backward compatibility is not required for the pre-launch MVP because
+there are no live customer deployments on runtime-v1.
 
 # Program Success Criterion
 

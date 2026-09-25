@@ -11,7 +11,6 @@ import {
   type IrResource,
   type IrWorkload,
   type Region,
-  type Resource,
   type Workload,
   CAPABILITY_KEYS,
   DEPLOYMENT_SPEC_V2_SCHEMA_VERSION,
@@ -23,6 +22,8 @@ import {
   deployzIrSchema,
   findCapability,
 } from '@deployz/contracts';
+
+import { buildCapabilityConfiguration, resolveResourceCapability } from './resolver.js';
 
 // ---------------------------------------------------------------------------
 // Planner — Phase 1 shadow-mode.
@@ -37,33 +38,12 @@ function computeCapabilityKey(workload: Workload): string {
     : CAPABILITY_KEYS.ECS_FARGATE_SERVICE;
 }
 
-function buildConfiguration(resource: Resource, profile: InfrastructureSizeProfile): Record<string, unknown> {
-  const key = resource.capabilityKey;
-  if (key === CAPABILITY_KEYS.RDS_POSTGRES) {
-    return {
-      engine: 'postgres',
-      engineVersion: '16',
-      instanceType: profile.database.instanceClass,
-      storageGb: profile.database.storageGb,
-      maxStorageGb: profile.database.maxStorageGb,
-    };
-  }
-  if (key === CAPABILITY_KEYS.ELASTICACHE_VALKEY) {
-    return {
-      engine: 'valkey',
-      nodeType: profile.cache.nodeType,
-      nodes: profile.cache.nodeCount,
-    };
-  }
-  return {};
-}
-
 function collectIamActions(
-  targetResource: Resource | undefined,
+  capabilityKey: string | null,
   registry: CapabilityRegistry,
 ): string[] {
-  if (!targetResource?.capabilityKey) return [];
-  const cap = findCapability(registry, targetResource.capabilityKey);
+  if (!capabilityKey) return [];
+  const cap = findCapability(registry, capabilityKey);
   if (!cap?.bindings.iam) return [];
   return cap.bindings.iam.flatMap((entry) => entry.actions);
 }
@@ -93,7 +73,9 @@ export function planApplicationGraph(input: {
   const registry = input.registry ?? defaultCapabilityRegistry();
   const { graph, region } = input;
 
-  const resourceMap = new Map(graph.resources.map((r) => [r.id, r]));
+  const resolvedCapability = new Map(
+    graph.resources.map((r) => [r.id, resolveResourceCapability(r)] as const),
+  );
 
   // Workloads
   const workloads: IrWorkload[] = graph.workloads.map((w) => {
@@ -101,12 +83,8 @@ export function planApplicationGraph(input: {
       .filter((b) => b.sourceId === w.id)
       .map((b) => b.targetId);
     const dependencyCapabilityKeys = bindingTargetIds
-      .map((targetId) => resourceMap.get(targetId))
-      .filter(
-        (r): r is Resource =>
-          r !== undefined && r.ownership === 'DEPLOYZ_MANAGED' && r.capabilityKey !== null,
-      )
-      .map((r) => r.capabilityKey as string);
+      .map((targetId) => resolvedCapability.get(targetId))
+      .filter((key): key is string => key !== null);
 
     return {
       componentId: w.id,
@@ -130,17 +108,21 @@ export function planApplicationGraph(input: {
     };
   });
 
-  // Resources — only DEPLOYZ_MANAGED with non-null capabilityKey
+  // Resources — only DEPLOYZ_MANAGED with a resolved capability key
   const resources: IrResource[] = graph.resources
-    .filter((r) => r.ownership === 'DEPLOYZ_MANAGED' && r.capabilityKey !== null)
+    .filter((r) => {
+      const key = resolvedCapability.get(r.id);
+      return key !== null && key !== undefined;
+    })
     .map((r) => {
-      const cap = findCapability(registry, r.capabilityKey!);
+      const capabilityKey = resolvedCapability.get(r.id)!;
+      const cap = findCapability(registry, capabilityKey);
       return {
         componentId: r.id,
-        capabilityKey: r.capabilityKey!,
+        capabilityKey,
         label: r.label,
         quantity: r.quantity,
-        configuration: buildConfiguration(r, profile),
+        configuration: buildCapabilityConfiguration(capabilityKey, profile),
         lifecycle: (cap?.lifecycle.lifecycle ?? 'retain') as IrResource['lifecycle'],
         scope: 'REGIONAL' as const,
         envBindings: r.envBindings,
@@ -149,13 +131,13 @@ export function planApplicationGraph(input: {
 
   // Bindings
   const bindings: IrBinding[] = graph.bindings.map((b: Binding) => {
-    const targetResource = resourceMap.get(b.targetId);
+    const targetCapability = resolvedCapability.get(b.targetId) ?? null;
     return {
       id: b.id,
       sourceId: b.sourceId,
       targetId: b.targetId,
       envBindings: b.envBindings,
-      iamActions: collectIamActions(targetResource, registry),
+      iamActions: collectIamActions(targetCapability, registry),
     };
   });
 
