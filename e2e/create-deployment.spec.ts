@@ -92,8 +92,9 @@ test('a MANIFEST_NOT_COMPATIBLE rejection at customer confirm shows the server r
   await expect(page.getByText('Release 0.1.0')).toBeVisible();
 
   // Select a region (explicit choice required). The trigger has no
-  // accessible name (see final report), so it is scoped by its section
-  // instead of matched by role name.
+  // accessible name — combobox is not a "name from content" role and this
+  // one has no aria-label or label association — so it is scoped by its
+  // section instead of matched by role name.
   await page.locator('section[aria-labelledby="public-region"]').getByRole('combobox').click();
   await page.getByRole('option', { name: 'US East (N. Virginia)' }).click();
 
