@@ -550,6 +550,49 @@ branching outside capabilities is acceptably low.
 
 If not, stop and refactor.
 
+## Phase 2 Result (2026-09-25)
+
+The compiler boundary now exists as `packages/infrastructure-compiler`
+(CDK-free deterministic CloudFormation emitter; CDK remains the
+control-plane mechanism, the relay still never synthesizes). It maps a
+frozen `DeployzIR` (+ size profile + region + compiler version) into a
+resolved AWS graph, a deterministic template, and derived footprint /
+verification contract / ownership records / artifact hashes — all from the
+same resolved graph, so provisioning intent, pricing, verification and
+ownership can never disagree.
+
+What landed:
+
+- **Stable logical identity**: every managed resource id derives from
+  `componentId + resourceRole` (e.g. `PrimaryDbInstance`, `WebService`,
+  `StorageBucket`), pinned by golden tests — a refactor that renames a
+  resource is a CloudFormation replacement and fails CI.
+- **Determinism**: no timestamps, random ids, AI, or synth-time AWS
+  lookups; a `determinism` test asserts equal IR → equal template hash.
+- **Stateful safety**: RDS instance, DB subnet group, master/URL secrets
+  and the S3 bucket emit `DeletionPolicy`/`UpdateReplacePolicy: Retain`;
+  the app config secret and cache stay Delete. `stateful safety` tests
+  pin this.
+- **v1↔v2 parity**: `compile.test.ts` compiles the four topologies and
+  asserts the resource-type multiset, parameters, outputs and retained
+  resources match the four committed runtime-v1 artifacts.
+- **Verification/ownership/footprint**: derived from the resolved graph —
+  the verification contract is `compute/ingress/database/storage/cache`
+  per component, and pricing reuses `estimateFootprintCost` on the same
+  intent.
+- **Real AWS**: all four topologies pass `validate-template`
+  (`scripts/validate-compiler-v2.mjs`), and a stateless
+  INSTALL→VERIFY→DESTROY canary provisions and tears down a real stack
+  (`scripts/canary-compiler-v2.mjs`).
+
+Deferred (documented, not silent): a full relay-hosted day-2 lifecycle
+(DEPLOY_RELEASE/RESTART/ROLLBACK) and purge/recovery over the compiler
+template require the control plane + relay harness and are Phase 3 cutover
+work; the relay's existing durable idempotency/describe-before-create
+model is reused unchanged. Preflight quota/permission/region-service
+checks remain the known gap (see §Preflight); the manifest readiness gate
+already blocks before provisioning.
+
 # Phase 3 --- Production Cutover & Generic UI
 
 ## Objective

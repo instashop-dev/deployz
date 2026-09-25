@@ -398,6 +398,20 @@ architectural boundary.
 
 The customer relay must not synthesize CDK.
 
+**Implementation (Phase 2).** `packages/infrastructure-compiler` is the
+boundary: a CDK-free deterministic CloudFormation emitter. `compile.ts`
+builds a resolved AWS graph (an ordered list of logical resources, each
+carrying stable identity + `componentId`/`componentKind`/`capability`/
+`resourceRole` + stateful/retention/purge metadata + a verification
+check), `cfn-emit.ts` serializes it deterministically, and `derived.ts`
+derives the footprint, verification contract, ownership records and
+artifact hashes from the same graph. It emits CloudFormation directly
+rather than through CDK L2 constructs so logical ids are the stable
+semantic ids of §11 instead of CDK's auto-hashed ids; CDK stays the
+control-plane mechanism, and the relay still consumes pre-compiled
+artifacts only. The compiler never imports an AWS SDK, never calls AI, and
+never reads the wall clock (an architecture-fitness test enforces this).
+
 ### 10.1 Determinism
 
 Equivalent: - IR; - compiler version; - capability versions; - size
