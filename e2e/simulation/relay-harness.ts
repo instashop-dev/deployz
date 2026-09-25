@@ -154,6 +154,39 @@ function emptyPurgeClients(): {
 }
 
 /**
+ * Scenario-aware purge clients: `emptyPurgeClients()` plus, when the
+ * scenario carries a `purge.undeletableBucket`, an S3 client that reports
+ * that one tag-owned bucket as owned and always fails to delete it — the
+ * deterministic "purge sweep finds a leftover it cannot delete" case. Every
+ * other scenario (no `purge` field) gets exactly `emptyPurgeClients()`'s
+ * behaviour, unchanged.
+ */
+function purgeClientsFor(scenario: ScenarioDefinition): {
+  rds: RdsPurgeClient;
+  cache: CachePurgeClient;
+  s3: S3PurgeClient;
+  secrets: SecretsPurgeClient;
+  acm: AcmPurgeClient;
+  network: NetworkPurgeClient;
+} {
+  const clients = emptyPurgeClients();
+  const undeletable = scenario.purge?.undeletableBucket;
+  if (!undeletable) return clients;
+  return {
+    ...clients,
+    s3: {
+      async listOwnedBuckets() {
+        return [undeletable.bucketName];
+      },
+      async emptyBucket() {},
+      async deleteBucket() {
+        throw new Error(undeletable.failureReason);
+      },
+    },
+  };
+}
+
+/**
  * Extract a named CloudFormation Quick Create parameter from the URL.
  * Mirrors the per-file `extractEnrollmentCode` helpers in e2e/install.spec.ts
  * and e2e/scenario-sweep.spec.ts. The URL fragment (after `#`) carries
@@ -421,10 +454,11 @@ export function startSimulatedRelay(options: StartSimulatedRelayOptions): Simula
   };
 
   // The PURGE write seam — same shared cfn reader and stack-name getter as
-  // DESTROY, plus the empty orphan clients (see `emptyPurgeClients`). The
-  // bootstrap/relay stack is not modelled (CANARY-014: a purge never deletes
-  // it — it tells the customer to remove it), so `bootstrapStackName` is a
-  // plain identifier that only ever appears in the success output.
+  // DESTROY, plus the orphan clients (see `purgeClientsFor` — empty for
+  // every scenario except one carrying a `purge` knob). The bootstrap/relay
+  // stack is not modelled (CANARY-014: a purge never deletes it — it tells
+  // the customer to remove it), so `bootstrapStackName` is a plain
+  // identifier that only ever appears in the success output.
   const purgeDeps: PurgeDeps = {
     cfn: account.cloudFormationReader(),
     deleter: account.stackDeleter(),
@@ -434,7 +468,7 @@ export function startSimulatedRelay(options: StartSimulatedRelayOptions): Simula
       return stackNameOrDefault();
     },
     bootstrapStackName: `deployz-bootstrap-${installationId}`,
-    ...emptyPurgeClients(),
+    ...purgeClientsFor(scenario),
   };
 
   let settlement: InstallSettlement | null = null;
