@@ -196,6 +196,22 @@ export async function setUpVendorAndApplication(canary: Canary): Promise<string>
       readiness.state === 'READY' || readiness.state === 'ALMOST_READY',
       `readiness state ${readiness.state}: ${JSON.stringify(readiness.findings).slice(0, 800)}`,
     );
+
+    // The analysis persists the fixture's package.json `migrate` script as
+    // the application's migration command. A profile without PostgreSQL must
+    // not carry one: the manifest gate refuses a migration command without a
+    // database (MANIFEST_NOT_COMPATIBLE). Cleared after the analysis settled,
+    // exactly as a vendor would in the Configuration form; nothing re-analyses
+    // the application later in the run.
+    if (config.profile && !config.profile.postgres) {
+      await api.patchApplication(applicationId, { migrationCommand: null });
+      const application = await api.getApplication(applicationId);
+      assert(
+        application['migrationCommand'] === null || application['migrationCommand'] === undefined,
+        `migration command still set on a ${config.profile.name} profile: ${String(application['migrationCommand'])}`,
+      );
+      details['migrationCommandCleared'] = true;
+    }
   });
 
   return applicationId;
