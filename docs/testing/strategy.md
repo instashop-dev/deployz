@@ -47,10 +47,10 @@ thing. Do not stretch a layer to prove something a higher layer owns.
 | **L0 — static** | The code builds, lints clean, and typechecks, including the E2E harness and the AWS scripts; production-safety guards hold (no AWS SDK in the simulator, no fixture-mode env var reaches the deployed Lambda); every Lambda entry point still bundles | Business logic — static checks read shapes, not behaviour | `pnpm build`, `pnpm lint`, `pnpm typecheck:e2e`, `pnpm typecheck:scripts`, `pnpm test:static`, `node --test scripts/test-affected.test.mjs`, `pnpm synth:smoke` | Every non-minimal PR (the subset the plan selects); the full set on `main` |
 | **L1 — unit** | Pure logic: state derivation, business rules, parsing, pricing, the client-side state matrices — Vitest over fakes and in-memory fixtures, including `apps/web`'s jsdom tests | A real DB, a real HTTP boundary, or a real AWS call | `pnpm vitest run` (or `pnpm vitest run --project <package>`, or a single test file) | Every non-minimal PR, scoped to the affected projects; every project on `main` |
 | **L2 — integration/contract** | A real local dependency with no network call to AWS or GitHub: API routes over PGlite, DB constraints, CDK template synthesis plus committed-artifact parity, the worker Lambda over PGlite, relay executors over fakes, and parity tests between packages (manifest ↔ plan ↔ verify, catalog ↔ committed template) | A real customer AWS account, or vendor/customer UI rendering | `pnpm vitest run --project <package>` (same command as L1 — the distinction is what the test exercises, not how it runs) | Same as L1 |
-| **L3 — UI/workflow** | A vendor or customer workflow end to end: the real Next.js app and the real Fastify API, driven by Playwright. Fixture-mode specs replace GitHub, AI and DNS with canned data. Scenario specs additionally replace the AWS SDK client with a `SimulatedCustomerAccount` and drive the real relay code over it | AWS API behaviour itself — the simulator only returns AWS-shaped answers, it does not verify AWS's actual behaviour | `pnpm e2e` (fixture-mode suite), `pnpm e2e --scenario=<id>`, `pnpm e2e --scenarios` (every scenario), `pnpm e2e e2e/<file>.spec.ts` | Every non-minimal PR that touches runtime UI/API code, or names a spec; every spec and scenario on `main` |
+| **L3 — UI/workflow** | A vendor or customer workflow end to end: the real Next.js app and the real Fastify API, driven by Playwright. Fixture-mode specs replace GitHub, AI and DNS with canned data. Scenario specs additionally replace the AWS SDK client with a `SimulatedCustomerAccount` and drive the real relay code over it | AWS API behaviour itself — the simulator only returns AWS-shaped answers, it does not verify AWS's actual behaviour | `pnpm e2e` (the full simulated suite — every `e2e/*.spec.ts` file, including scenarios), `node scripts/e2e.mjs --grep-invert "@scenario|visual"` (the fixture-mode suite alone), `pnpm e2e --scenario=<id>`, `pnpm e2e --scenarios` (every scenario), `pnpm e2e e2e/<file>.spec.ts` | Every non-minimal PR that touches runtime UI/API code, or names a spec; every spec and scenario on `main` |
 | **L4 — AWS integration** (`fresh`) | One real AWS boundary in minutes, with no product flow: the bootstrap stack's real create → verify → destroy path | A full product lifecycle — `fresh` never installs an application | `DEPLOYZ_E2E_ALLOW_REAL_AWS=1 pnpm e2e:fresh` | Manual/local escalation only; never in CI |
 | **L5 — AWS E2E** (version canary) | A complete real lifecycle through the deployed control plane, against a Deployz-controlled fixture application. Fixture A is the stateless profile (`profile --profile stateless`) — install, deploy, verify, teardown, no database. Fixture B is the Postgres+Redis `core` ladder — the full release/rollback/failed-release/recovery/persistence/cleanup lifecycle | Routine development iteration — this is an escalation, not a debugging loop | `DEPLOYZ_E2E_ALLOW_REAL_AWS=1 pnpm e2e:canary:versions profile --profile stateless`, `DEPLOYZ_E2E_ALLOW_REAL_AWS=1 pnpm e2e:canary:versions core` | Manual/on-demand escalation, and before an MVP release |
-| **L6 — production canary** | The same harness as L5, run with `profile --profile stateless --production`, against the deployed control plane with the production-published template — answers "can production Deployz deploy right now?" | A pre-merge check — this runs against production, not a pull request | `DEPLOYZ_E2E_ALLOW_REAL_AWS=1 pnpm e2e:canary:versions profile --profile stateless --production` | Scheduled, independent of any pull request |
+| **L6 — production canary** | The same harness as L5, run with `profile --profile stateless --production`, against the deployed control plane with the production-published template — answers "can production Deployz deploy right now?" | A pre-merge check — this runs against production, not a pull request | `DEPLOYZ_E2E_ALLOW_REAL_AWS=1 pnpm e2e:canary:versions profile --profile stateless --production` | On demand; a weekly schedule exists in the workflow but stays disabled until three consecutive green manual `--production` runs — see [`aws-e2e.md`](aws-e2e.md#l6--production-canary) |
 | **Compatibility** | Analyser accuracy over a large corpus: Stage A offline against 120 pinned repositories, Stage B through the real production path against the same corpus | A product regression check — a compatibility finding (`COMP-nnn`/`DEPLOY-nnn`) is an analyser-accuracy finding, not a proof the product is broken | `pnpm benchmark:compat` (Stage A, no AWS), `pnpm benchmark:deploy` (Stage B, real AWS) | On demand — see [`compatibility.md`](compatibility.md) |
 | **Manual** | Whatever no automated layer reaches yet: the full product walk against the deployed control plane, with an arbitrary real application, through the real dashboard | A substitute for automation — a manual finding should become a scenario or a canary case | A human follows the written runbook | Before calling a release ready — see [`manual-checklist.md`](manual-checklist.md) |
 
@@ -121,18 +121,21 @@ layer cannot establish confidence.
    confidence.
 
    Two rules learned from production outages, both invisible to unit
-   tests, CI and the simulator:
+   tests, CI and the simulator. Both are **required**, not a judgment call:
 
-   - A change to the bootstrap template (`packages/cdk/src/bootstrap`) or
-     the relay's enrollment path gets a real-AWS smoke (`fresh`, or the
-     version canary `preflight`/`core`) before the template is republished.
-     A wrong `GetAtt` and a mis-shaped relay credential each once broke
-     every customer install.
-   - `pnpm test:affected` suggests the version canary for relay AWS-interface
-     and CDK customer-side changes, but the escalation itself is still your
-     call for release, rollback, deploy, destroy or purge changes — decide
-     it yourself; see [`ci.md`](ci.md) for exactly what the selector
-     detects.
+   - A change to the relay's install/deploy/rollback/destroy/purge
+     executors (`packages/relay/src`), the bootstrap template
+     (`packages/cdk/src/bootstrap`), the application template
+     (`packages/cdk/src/application`), or the relay's enrollment path
+     **requires** a real-AWS run before the template is republished: `fresh`
+     for a bootstrap-only change; the stateless `profile` otherwise; `core`
+     for a release, rollback, deploy, destroy or purge change. A wrong
+     `GetAtt` and a mis-shaped relay credential each once broke every
+     customer install.
+   - `pnpm test:affected` prints the exact command for the change you made
+     (see [`ci.md`](ci.md) for what the selector detects); judgment is still
+     needed only for a change the selector's file-path rules do not cover —
+     never to skip an escalation the rule above already requires.
 
    Real AWS execution requires:
 
@@ -189,14 +192,23 @@ Before this round of CI work, a typical pull request took a median 8.2
 minutes (p90 9.3 minutes) to go green: the full Vitest suite alone took
 426 seconds, and the E2E job took 5.5 minutes, mostly run in sequence.
 
-After the execution fixes in this round (parallel affected-project
-Vitest, placeholder Lambda bundling inside the CDK Vitest project, cached
-Playwright browser install, a job structure that lets `test-build` and
-`e2e-simulated` run side by side), a full-regression run — the set a
-critical pull request or a push to `main` runs — takes 5 to 6 minutes
-end to end: the `test-build` job takes about 390 seconds and the
-`e2e-simulated` job takes about 320 seconds, in parallel. A docs-only pull
-request takes about 0.6 minutes (the minimal gate runs no test layers).
+After this round (parallel affected-project Vitest, placeholder Lambda
+bundling inside the CDK Vitest project, a cached Playwright browser, the
+fixture-mode suite sharded across three runners with the scenario suites
+in a fourth), measured on the final stack:
+
+| Change | Wall time | Longest job |
+| --- | --- | --- |
+| docs-only (`minimal`) | about 0.6 min | nothing runs |
+| web runtime change (`targeted`: fixture-mode suite + browser scenario specs, 192 + 5 tests) | 5.0 min | E2E shard 1: 272 s |
+| full regression (`critical`, push to `main`): every Vitest project, every spec, every scenario | 6.5 min | `test-build`: 365 s |
+
+Before this round the same web change ran fewer tests (the 23 fixture-mode
+specs never ran in CI) in 6.1 minutes, and a critical run took 8 to 9
+minutes with the full Vitest suite at 426 seconds. The fixture-mode suite is
+bound by the dev servers, not by Playwright workers (four workers were no
+faster than two), which is why it is sharded rather than parallelised on
+one runner.
 
 The CDK Vitest project synthesizes with placeholder Lambda bundling — see
 `packages/cdk/vitest.config.ts` — so `pnpm synth:smoke` is the one place

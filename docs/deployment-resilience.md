@@ -287,7 +287,7 @@ the same way the uncertain-result rule keeps reconciliation honest.
   `packages/relay/src/*.test.ts`.
 - Real AWS, end to end (release build → install → deploy → rollback → failed
   release → recovery → destroy → purge → leak audit): the version canary,
-  `docs/testing/version-rollback-canary.md` — the MVP release gate, with the
+  `docs/testing/aws-e2e.md` — the MVP release gate, with the
   product semantics it enforces (serving release, last successful release,
   latest attempt, rollback, persistent data) in one table.
 - End-to-end failure boundaries: the simulated scenario suite

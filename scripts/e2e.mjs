@@ -59,7 +59,7 @@ if ((mode === 'fresh' || mode === 'canary-versions') && process.env.DEPLOYZ_E2E_
 }
 
 if (mode === 'canary-versions') {
-  // The version/rollback canary (docs/testing/version-rollback-canary.md):
+  // The version/rollback canary (docs/testing/aws-e2e.md):
   // a tsx script that drives the deployed control plane and the test AWS
   // account end to end. Subcommand and flags pass straight through.
   const scriptArgs = ['tsx', 'scripts/version-canary/index.ts', ...passthrough];

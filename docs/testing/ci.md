@@ -58,19 +58,24 @@ so every selected Vitest project runs in one parallel invocation. Runs
 Simulated E2E ([`simulated-e2e.md`](simulated-e2e.md)). Sets fake sentinel
 `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY`/`AWS_REGION` values at the job
 level — a live proof that simulated mode's env-scrubbing strips them from
-the API under test, since real credentials never enter CI. Builds, installs
-the Chromium browser (cached by lockfile hash), then runs the mode the plan
-selected (`playwright`, or `full` on a push/manual run/critical PR):
+the API under test, since real credentials never enter CI. The job is a
+matrix of four parts: `fixture-1`, `fixture-2`, `fixture-3` and
+`scenarios`. The fixture-mode suite is bound by the dev servers, not by
+Playwright workers (four workers were no faster than two), so it is
+sharded three ways with `--shard=n/3`; the scenario suites run in the
+fourth part. Each part builds, installs the Chromium browser (cached by
+lockfile hash), then runs its share of the mode the plan selected
+(`playwright`, or `full` on a push/manual run/critical PR):
 
-| Mode | Runs |
-| --- | --- |
-| `full` | `node scripts/e2e.mjs --grep-invert "@scenario\|visual"` (every non-visual, non-scenario spec), then `node scripts/e2e.mjs --scenarios` (every simulated scenario), then `DEPLOYZ_DEFAULT_HTTPS_FIXTURE=true node scripts/e2e.mjs e2e/scenario-default-https.spec.ts` |
-| `fixture` | `node scripts/e2e.mjs --grep-invert "@scenario\|visual"`, then `node scripts/e2e.mjs e2e/scenario-ui.spec.ts <playwright_files>` (the browser-level scenario spec, plus any scenario spec the change touched directly) |
-| `files` | `node scripts/e2e.mjs <playwright_files>` — only the specs the change touched |
-| `none` | the job is skipped |
+| Mode | `fixture-1..3` | `scenarios` |
+| --- | --- | --- |
+| `full` | `node scripts/e2e.mjs --grep-invert "@scenario\|visual" --shard=n/3` (every non-visual, non-scenario spec) | `node scripts/e2e.mjs --scenarios` (every simulated scenario), then `DEPLOYZ_DEFAULT_HTTPS_FIXTURE=true node scripts/e2e.mjs e2e/scenario-default-https.spec.ts` |
+| `fixture` | the same three shards | `node scripts/e2e.mjs e2e/scenario-ui.spec.ts e2e/scenario-release-unavailable.spec.ts <playwright_files>` (the two browser-driven scenario specs, plus any scenario spec the change touched directly) |
+| `files` | `fixture-1` runs `node scripts/e2e.mjs <playwright_files>`; the other parts finish in seconds without setup | nothing |
+| `none` | the job is skipped | |
 
-Skipped entirely on a `minimal` PR. Uploads `test-results/` as the
-`e2e-simulated-results` artifact on failure. The visual suite
+Skipped entirely on a `minimal` PR. Each part uploads `test-results/` as
+an `e2e-simulated-results-<part>` artifact on failure. The visual suite
 (`e2e/visual.spec.ts`) never runs here — its committed snapshots are
 Windows-generated.
 
@@ -203,23 +208,29 @@ There is no `plan` job (no PR base to diff against). `test-build` and
 the same set a `critical` pull request runs. `pr-gate` does not run either
 (it is `if: github.event_name == 'pull_request'`).
 
-Deploying is a separate concern from testing: `deploy-api.yml` and
-`deploy-web.yml` each trigger on their own `push: branches: [main]`, on
-the paths they care about, independently of `ci.yml`. **Neither deploy
-workflow waits for `ci.yml` to pass** — see
-[`../operations/control-plane.md`](../operations/control-plane.md). When
-validating a production change, record the SHA and confirm both the CI
-run and the relevant deploy run finished, rather than assuming one gates
-the other.
+Deploying is a separate concern from testing, but it does gate on CI now:
+`deploy-api.yml` and `deploy-web.yml` each trigger on `workflow_run` of a
+successful `CI` run for `main` (a pull-request CI run has the PR branch as
+`head_branch` and is filtered out). Each workflow's own `gate` job then
+checks two things before anything deploys: the commit is still the tip of
+`main` (an older run must not deploy over a newer one), and the commit
+touches that service's runtime dependency closure (a path filter, not
+`ci.yml`'s risk classification — see `.github/workflows/deploy-api.yml` /
+`deploy-web.yml` and
+[`../operations/control-plane.md`](../operations/control-plane.md)). A
+manual `workflow_dispatch` run always deploys the checked-out ref, skipping
+both checks. When validating a production change, record the SHA and
+confirm both the CI run and the relevant deploy run finished, rather than
+assuming one implies the other.
 
 ## Timing expectations
 
 See [`strategy.md`](strategy.md#timing-expectations) for the measured
 numbers. In short: a `minimal` (docs-only) PR finishes in well under a
-minute; a `targeted` PR is scoped to the affected projects and specs, so
-it is faster than the full regression; a `critical` PR or a push to `main`
-takes 5 to 6 minutes end to end (`test-build` and `e2e-simulated` run in
-parallel, each 5 to 7 minutes on its own).
+minute; a `targeted` web PR takes about 5 minutes (the three fixture
+shards and the browser scenario specs run in parallel with `test-build`);
+a `critical` PR or a push to `main` takes about 6.5 minutes, bound by
+`test-build`'s full Vitest run.
 
 ## Troubleshooting
 

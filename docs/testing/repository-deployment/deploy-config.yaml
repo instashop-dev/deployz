@@ -29,18 +29,21 @@
 # demands is still provided (a vendor would have to), and the mismatch is the
 # gate audit's finding, not the configuration's.
 #
-# Three-class deployment model (README "Three-class model"):
-#   B1 runtime-reuse (default):  build/release/deploy against a shared standing
-#     installation. Never creates fresh AWS infrastructure.
+# Three-class deployment model (compatibility.md "Stage B"):
+#   B1 runtime-reuse: withdrawn (DEPLOY-017) — a deployment owns its
+#     installation, so a shared standing installation can never serve a
+#     second one. There is no `--runtime-reuse` execution path any more;
+#     the label survives only in the committed runs/*.json history.
 #   B2 capability-cohort:         fresh infrastructure for repos covering each
 #     capability cohort (PostgreSQL, Redis, PostgreSQL+Redis, storage, custom
-#     Dockerfile, custom port, custom health check, special topology).
+#     Dockerfile, custom port, custom health check, special topology). Also
+#     the default for a repository in neither list below.
 #   B3 fresh-full:                full funnel through fresh AWS (build → ECR →
 #     bootstrap → install → healthy → destroy → cleanup audit).
 #
 # b2Repos and b3Repos are explicit, disjoint lists. Everything else defaults
-# to B1. A per-repo deploymentClass override in the repository entry takes
-# precedence over these lists.
+# to capability-cohort (deploymentClassFor). A per-repo deploymentClass
+# override in the repository entry takes precedence over these lists.
 #
 # Coverage claim (verified at load time — no overlap allowed):
 #   PostgreSQL        ✓ 001, 003, 004, 007, 008, 016, 021, 039, 051, 035
