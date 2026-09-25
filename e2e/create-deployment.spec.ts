@@ -91,8 +91,10 @@ test('a MANIFEST_NOT_COMPATIBLE rejection at customer confirm shows the server r
   await expect(page.getByRole('heading', { name: /Install/ })).toBeVisible();
   await expect(page.getByText('Release 0.1.0')).toBeVisible();
 
-  // Select a region (explicit choice required)
-  await page.getByRole('combobox', { name: /region/i }).click();
+  // Select a region (explicit choice required). The trigger has no
+  // accessible name (see final report), so it is scoped by its section
+  // instead of matched by role name.
+  await page.locator('section[aria-labelledby="public-region"]').getByRole('combobox').click();
   await page.getByRole('option', { name: 'US East (N. Virginia)' }).click();
 
   const submit = page.getByRole('button', { name: 'Continue to setup' });

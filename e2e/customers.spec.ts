@@ -182,7 +182,7 @@ test('the customer name opens the customer page, which shows the install link', 
   await expect(page.getByText('Acme Holdings')).toBeVisible();
   await page.getByRole('button', { name: 'Copy customer link' }).click();
   const clipboardText = await page.evaluate(() => navigator.clipboard.readText());
-  expect(clipboardText).toContain(`/install/${deployment.installLinkId}`);
+  expect(clipboardText).toBe(`${new URL(page.url()).origin}/install/${deployment.installLinkId}`);
   await expect(page.getByRole('link', { name: 'View deployment' })).toHaveAttribute(
     'href',
     `/dashboard/deployments/${deployment.id}`,
@@ -204,8 +204,8 @@ test('editing name, email and company leaves the install link, the deployment an
 
   await page.goto(`/dashboard/customers/${customer.id}`);
   await page.getByRole('button', { name: 'Copy customer link' }).click();
-  const linkBefore = await page.evaluate(() => navigator.clipboard.readText());
-  expect(linkBefore).toContain(`/install/${deployment.installLinkId}`);
+  const installLink = `${new URL(page.url()).origin}/install/${deployment.installLinkId}`;
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(installLink);
 
   await page.getByRole('button', { name: 'Edit customer' }).click();
   const dialog = page.getByTestId('edit-customer-dialog');
@@ -245,8 +245,7 @@ test('editing name, email and company leaves the install link, the deployment an
   expect(detail.state).toBe('NOT_INSTALLED');
 
   await page.getByRole('button', { name: 'Copy customer link' }).click();
-  const linkAfter = await page.evaluate(() => navigator.clipboard.readText());
-  expect(linkAfter).toContain(`/install/${deployment.installLinkId}`);
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(installLink);
 });
 
 test('the row menu only offers what the row supports, and a customer with a deployment cannot be deleted', async ({
@@ -263,7 +262,7 @@ test('the row menu only offers what the row supports, and a customer with a depl
   await expect(list).toBeVisible();
 
   // A customer with no deployment has no deployment to view, but can be
-  // removed. (The install link lives on the customer page now, not this menu.)
+  // removed.
   await page.getByRole('button', { name: `Actions for ${withoutDeployment.name}` }).click();
   await expect(page.getByRole('menuitem', { name: 'View deployment' })).toHaveCount(0);
   await expect(page.getByRole('menuitem', { name: 'Edit customer' })).toBeVisible();

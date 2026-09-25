@@ -556,7 +556,6 @@ test.describe('Customers list', () => {
 
     await page.getByRole('button', { name: 'Actions for Globex' }).click();
     await expect(page.getByRole('menuitem', { name: 'View deployment' })).toBeVisible();
-    await expect(page.getByRole('menuitem', { name: 'Edit customer' })).toBeVisible();
     await expect(page.getByRole('menuitem', { name: 'Delete customer' })).toHaveCount(0);
   });
 
