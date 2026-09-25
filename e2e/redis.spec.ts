@@ -67,7 +67,7 @@ async function seedCustomerAndDeployment(
   page: Page,
   applicationId: string,
   suffix: string,
-): Promise<{ deploymentId: string; installLinkId: string; installationId: string; enrollmentCode: string }> {
+): Promise<{ deploymentId: string; installLinkId: string; installationId: string; enrollmentCode: string; relayCredential: string }> {
   const customerResponse = await page.request.post(`${API_URL}/api/customers`, {
     data: { name: `Redis Customer ${suffix}`, email: `redis-customer-${suffix}@example.com` },
   });

@@ -1,67 +1,30 @@
 #!/usr/bin/env node
-// Risk-based affected-test selector. Maps changed files to test layers and
-// one risk level: minimal (docs-only), targeted (affected builds/tests/specs),
-// targeted-web (web unit + the full non-visual Playwright PR suite), or
-// critical (full pre-merge validation). Never provisions AWS: --run executes
-// simulated layers only; real-AWS commands are printed as escalations.
-// Fail-safe: unknown executable paths, root config changes, and failed change
-// detection always select the full safe suite — never zero tests.
+// Risk-based affected-test selector (docs/testing/ci.md). Maps the changed
+// files of a pull request to one risk level and the test layers CI runs:
+//
+//   minimal   documentation only — nothing executes
+//   targeted  the affected Vitest projects (with every workspace dependent),
+//             typechecks, and either the explicitly touched Playwright specs
+//             or the whole fixture-mode Playwright suite
+//   critical  the full regression: every Vitest project, every non-visual
+//             Playwright spec, every simulated scenario, the default-HTTPS
+//             scenarios and the CDK bundling smoke
+//
+// Deployment-shaping code (apps/api, packages/relay, packages/contracts,
+// packages/cdk, the DB schema and migrations, the simulation harness) is
+// critical by default; a short allowlist names the API areas that are not.
+// Workspace dependents are derived from the package manifests, never listed
+// by hand. Fail-safe: an unknown path, a root configuration change or a
+// failed change detection selects the full regression — never zero tests.
+// Real AWS never runs from here: the AWS commands are printed as escalations.
 import { spawnSync } from 'node:child_process';
-import { appendFileSync, existsSync } from 'node:fs';
-import { relative, sep } from 'node:path';
+import { appendFileSync, existsSync, readdirSync, readFileSync } from 'node:fs';
+import { join, relative } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
-// ── Scenario mapping (relay executor/health files → simulated scenarios) ────
-const SCENARIO_MAP = [
-  // deploy/rollback/destroy/purge executors
-  { files: [ /\/deploy\.ts$/, /\/rollback/, /\/destroy\.ts$/, /\/purge\.ts$/ ], ids: ['rollback-success', 'delete-failure', 'retained-resources', 'happy-path'] },
-  // health/ecs files
-  { files: [ /\/ecs-health\.ts$/, /\/ecs-observe\.ts$/, /\/health/ ],         ids: ['ecs-failure', 'healthcheck-failure'] },
-  // install/verify/stack-events
-  { files: [ /\/install\.ts$/, /\/verify\.ts$/ ],                             ids: ['happy-path'] },
-  // domain
-  { files: [ /\/domain\.ts$/ ],                                               ids: ['happy-path'] },
-];
+// ── Rules ────────────────────────────────────────────────────────────────────
 
-// Relay AWS client interface files (changes here report a canary escalation)
-const RELAY_AWS_INTERFACE = new Set([
-  'verify.ts', 'install.ts', 'stack-events.ts', 'ecs-health.ts',
-  'deploy.ts', 'ecs-observe.ts', 'destroy.ts', 'purge.ts', 'domain.ts',
-]);
-
-// Relay protocol core — command lifecycle needs the full simulated regression
-const RELAY_PROTOCOL = new Set([
-  'commands.ts', 'poll.ts', 'pending.ts', 'recover.ts', 'provision-progress.ts',
-]);
-
-// CDK provisioning-semantic paths (bootstrap stack, synth, template artifacts)
-const CDK_PROVISIONING_PATTERNS = [
-  /\/bootstrap\//,
-  /\/cdk\/bin\//,
-  /\/cdk\/artifacts\//,
-  /\/cdk\/scripts\/synth-/,
-];
-
-// apps/api source files that can affect a customer deployment
-const API_CRITICAL = new Set([
-  'manifest.ts', 'jobs.ts', 'lifecycle.ts', 'install-parameters.ts', 'install-config.ts',
-  'deployment-status.ts', 'deploy-contract.ts', 'disconnect.ts', 'disconnect-force-complete.ts',
-  'relay-store.ts', 'relay-liveness.ts', 'relay-identity.ts', 'digest-reconciliation.ts',
-  'health-transitions.ts', 'stack-event-progress.ts', 'stack-progress.ts', 'queue.ts',
-  'release-images.ts', 'ecr-grants.ts', 'ecr-pull-grants.ts', 'default-https.ts',
-  'default-https-fixture.ts', 'preflight.ts', 'requirements-contract.ts', 'server.ts', 'index.ts',
-]);
-
-// packages/contracts schemas that shape deployment behavior
-const CONTRACTS_CRITICAL = new Set(['manifest.ts', 'infrastructure.ts', 'index.ts']);
-
-// packages/db persisted-state schema areas (billing has a dedicated spec)
-const DB_CRITICAL_SCHEMA = new Set([
-  'deployments.ts', 'jobs.ts', 'events.ts', 'stack-events.ts', 'deployment-resources.ts',
-  'deploy-links.ts', 'custom-domains.ts', 'core.ts', 'common.ts', 'auth.ts', 'index.ts',
-]);
-
-// Root files whose change falls back to the full safe suite
+// Root files whose change falls back to the full regression.
 const ROOT_CONFIG = [
   /^package\.json$/,
   /^pnpm-lock\.yaml$/,
@@ -76,10 +39,12 @@ const ROOT_CONFIG = [
   /^scripts\/e2e-env\.mjs$/,
   /^scripts\/test-affected\.mjs$/,
   /^scripts\/test-affected\.test\.mjs$/,
+  /^scripts\/production-safety\.test\.mjs$/,
+  /^e2e\/tsconfig\.json$/,
   /^\.env/,
 ];
 
-// Documentation and non-executable text → minimal gate
+// Documentation and non-executable text → minimal gate.
 const DOC_FILE = [
   /^docs\//,
   /\.md$/i,
@@ -91,28 +56,124 @@ const DOC_FILE = [
   /^\.editorconfig$/,
 ];
 
-// packages/<dir> → workspace package (verified from package manifests)
-const UNIT_PACKAGES = {
-  'contracts': '@deployz/contracts',
-  'db': '@deployz/db',
-  'copy-map': '@deployz/copy-map',
-  'fixture': '@deployz/fixture',
-  'analysis': '@deployz/analysis',
-  'relay': '@deployz/relay',
-  'cdk': '@deployz/cdk',
-};
+// apps/web paths that no Playwright spec renders: unit tests only.
+const WEB_NO_E2E = [
+  /^apps\/web\/test\//,
+  /^apps\/web\/public\//,
+  /^apps\/web\/src\/components\/deployz-brand\.tsx$/,
+  /^apps\/web\/src\/app\/(icon|apple-icon|favicon)\./,
+];
 
-// scripts/<dir> test projects (run with vitest inside the directory)
-const SCRIPT_UNITS = {
-  'version-canary': 'scripts/version-canary',
-  'repository-compatibility': 'scripts/repository-compatibility',
-  'repository-deployment': 'scripts/repository-deployment',
-};
+// apps/api/src areas that do not shape a customer deployment. A change here
+// runs the API project (with its dependents) and the fixture-mode Playwright
+// suite instead of the full regression. Everything else under apps/api/src
+// is critical. Each entry is verified to exist by the selector self-test.
+const API_NON_CRITICAL = [
+  /^apps\/api\/src\/admin\//,
+  /^apps\/api\/src\/billing-[a-z-]+\.ts$/,
+  /^apps\/api\/src\/paddle\.ts$/,
+  /^apps\/api\/src\/email\.ts$/,
+  /^apps\/api\/src\/organizations\.ts$/,
+  /^apps\/api\/src\/ai-[a-z-]+\.ts$/,
+  /^apps\/api\/src\/jev-shadow\.ts$/,
+  /^apps\/api\/src\/sentry\.ts$/,
+  /^apps\/api\/src\/customer-activity\.ts$/,
+];
 
-// Whole-file specs the CI simulated job runs in one consolidated invocation
-const PR_CORE_SPECS = ['e2e/e2e-modes.spec.ts', 'e2e/admin.spec.ts', 'e2e/deployment-detail.spec.ts'];
+// packages/cdk paths whose change also needs a real-AWS run before the
+// template is republished (the two "every install failed" outages).
+const CDK_CUSTOMER_SIDE = [
+  /^packages\/cdk\/src\/bootstrap\//,
+  /^packages\/cdk\/src\/application\//,
+  /^packages\/cdk\/src\/quick-create\//,
+  /^packages\/cdk\/src\/lambda\/relay-handler\.ts$/,
+  /^packages\/cdk\/bin\//,
+  /^packages\/cdk\/artifacts\//,
+];
 
-// ── Helpers ──────────────────────────────────────────────────────────────────
+// Relay executors that talk to the customer's AWS account.
+const RELAY_AWS_INTERFACE = new Set([
+  'verify.ts', 'install.ts', 'stack-events.ts', 'ecs-health.ts', 'ecs-observe.ts',
+  'deploy.ts', 'destroy.ts', 'purge.ts', 'domain.ts', 'config-update.ts', 'recover.ts',
+]);
+
+// scripts/<dir> Vitest projects (root vitest.config.ts) — the project name is
+// the directory name.
+const SCRIPT_PROJECTS = ['version-canary', 'repository-compatibility', 'repository-deployment', 'jev-eval'];
+
+const CANARY_STATELESS = 'pnpm e2e:canary:versions profile --profile stateless';
+const CANARY_CORE = 'pnpm e2e:canary:versions core';
+const FRESH = 'pnpm e2e:fresh';
+
+// Verified by the selector self-test: every listed path must exist.
+export const VERIFIED_PATHS = [
+  'apps/web/src/components/deployz-brand.tsx',
+  'apps/api/src/admin',
+  'apps/api/src/paddle.ts',
+  'apps/api/src/email.ts',
+  'apps/api/src/organizations.ts',
+  'apps/api/src/jev-shadow.ts',
+  'apps/api/src/sentry.ts',
+  'apps/api/src/customer-activity.ts',
+  'packages/cdk/src/bootstrap',
+  'packages/cdk/src/application',
+  'packages/cdk/src/quick-create',
+  'packages/cdk/src/lambda/relay-handler.ts',
+  'packages/cdk/bin',
+  'packages/cdk/artifacts',
+  ...[...RELAY_AWS_INTERFACE].map(f => `packages/relay/src/${f}`),
+  ...SCRIPT_PROJECTS.map(d => `scripts/${d}/vitest.config.ts`),
+];
+
+// ── Workspace graph ──────────────────────────────────────────────────────────
+
+function toForwardSlash(p) { return p.replace(/\\/g, '/'); }
+
+// Reads apps/* and packages/* manifests: directory → package name, and the
+// transitive reverse dependency closure over @deployz/* packages. Also which
+// packages the root devDependencies (the scripts/ harnesses) import.
+export function loadWorkspaceGraph(cwd = process.cwd()) {
+  const dirToName = {};
+  const deps = {};
+  for (const group of ['apps', 'packages']) {
+    const groupDir = join(cwd, group);
+    if (!existsSync(groupDir)) continue;
+    for (const entry of readdirSync(groupDir)) {
+      const manifest = join(groupDir, entry, 'package.json');
+      if (!existsSync(manifest)) continue;
+      const pkg = JSON.parse(readFileSync(manifest, 'utf8'));
+      dirToName[`${group}/${entry}`] = pkg.name;
+      deps[pkg.name] = Object.keys({ ...pkg.dependencies, ...pkg.devDependencies }).filter(d => d.startsWith('@deployz/'));
+    }
+  }
+  const dependents = {};
+  for (const name of Object.keys(deps)) dependents[name] = new Set();
+  for (const [name, list] of Object.entries(deps)) {
+    for (const dep of list) dependents[dep]?.add(name);
+  }
+  const rootManifest = join(cwd, 'package.json');
+  const rootDeps = existsSync(rootManifest)
+    ? Object.keys(JSON.parse(readFileSync(rootManifest, 'utf8')).devDependencies ?? {}).filter(d => d.startsWith('@deployz/'))
+    : [];
+  return { dirToName, deps, dependents, rootDeps: new Set(rootDeps) };
+}
+
+function transitiveDependents(graph, name) {
+  const out = new Set();
+  const stack = [name];
+  while (stack.length > 0) {
+    const current = stack.pop();
+    for (const d of graph.dependents[current] ?? []) {
+      if (!out.has(d)) {
+        out.add(d);
+        stack.push(d);
+      }
+    }
+  }
+  return out;
+}
+
+// ── Change collection ────────────────────────────────────────────────────────
 
 function git(args, opts = {}) {
   const r = spawnSync('git', args, { cwd: opts.cwd ?? process.cwd(), encoding: 'utf8', ...opts });
@@ -121,22 +182,13 @@ function git(args, opts = {}) {
   return r.stdout.trim().split('\n').filter(Boolean);
 }
 
-function toForwardSlash(p) { return p.split(sep).join('/'); }
-
-// ── Change collection ────────────────────────────────────────────────────────
-
 // Returns { files } on success or { error } — callers turn error into the
-// full-safe-suite fallback instead of silently diffing against the wrong base.
+// full-regression fallback instead of silently diffing against the wrong base.
 export function collectChangedFiles(cwd, baseRef) {
   try {
-    let base;
-    if (baseRef) {
-      base = git(['merge-base', 'HEAD', baseRef], { cwd })[0];
-      if (!base) return { error: `no merge-base with ${baseRef}` };
-    } else {
-      base = git(['merge-base', 'HEAD', 'origin/main'], { cwd })[0];
-      if (!base) return { error: 'origin/main is not available' };
-    }
+    const ref = baseRef ?? 'origin/main';
+    const base = git(['merge-base', 'HEAD', ref], { cwd })[0];
+    if (!base) return { error: `no merge-base with ${ref}` };
     const committed = git(['diff', '--name-only', `${base}...HEAD`], { cwd });
     const unstaged = git(['diff', '--name-only'], { cwd });
     const staged = git(['diff', '--name-only', '--cached'], { cwd });
@@ -147,162 +199,143 @@ export function collectChangedFiles(cwd, baseRef) {
   }
 }
 
-// ── Mapping rules ────────────────────────────────────────────────────────────
+// ── Classification ───────────────────────────────────────────────────────────
 
-function classifyPackage(dir, f, base, isTest, layers) {
-  switch (dir) {
-    case 'contracts': {
-      if (!isTest && f.startsWith('packages/contracts/src/') && CONTRACTS_CRITICAL.has(base)) {
-        layers.criticalReasons.push(`deployment contract schema changed: ${f}`);
-        break;
-      }
-      // Verified direct consumers of @deployz/contracts
-      for (const p of ['@deployz/api', '@deployz/web', '@deployz/analysis', '@deployz/db', '@deployz/relay', '@deployz/cdk']) {
-        layers.unitPackages.add(p);
-      }
-      break;
-    }
-    case 'db': {
-      layers.unitPackages.add('@deployz/api'); // the API consumes the db contracts
-      const schema = /^packages\/db\/src\/schema\/([^/]+)$/.exec(f);
-      if (f.startsWith('packages/db/drizzle/')) {
-        layers.criticalReasons.push(`database migration changed: ${f}`);
-      } else if (schema && !isTest && DB_CRITICAL_SCHEMA.has(schema[1])) {
-        layers.criticalReasons.push(`database persisted-state schema changed: ${f}`);
-      } else if (schema && schema[1] === 'billing.ts') {
-        layers.specFiles.add('e2e/billing.spec.ts');
-      }
-      break;
-    }
-    case 'fixture': {
-      if (!isTest && f.startsWith('packages/fixture/src/')) {
-        // The fixture server backs every simulated scenario
-        layers.criticalReasons.push(`fixture server changed (backs every simulated scenario): ${f}`);
-      }
-      break;
-    }
-    case 'analysis': {
-      layers.unitPackages.add('@deployz/api'); // the API consumes analysis
-      break;
-    }
-    case 'relay': {
-      if (RELAY_AWS_INTERFACE.has(base)) {
-        layers.criticalReasons.push(`relay AWS executor changed: ${f}`);
-        layers.awsEscalation.add('pnpm e2e:canary');
-      } else if (!isTest && RELAY_PROTOCOL.has(base)) {
-        layers.criticalReasons.push(`relay protocol core changed: ${f}`);
-      } else {
-        for (const m of SCENARIO_MAP) {
-          if (m.files.some(p => p.test(f))) m.ids.forEach(id => layers.scenarios.add(id));
-        }
-        if (/lifecycle|provision/.test(f) && !isTest) {
-          layers.criticalReasons.push(`relay lifecycle area changed: ${f}`);
-        }
-      }
-      break;
-    }
-    case 'cdk': {
-      if (CDK_PROVISIONING_PATTERNS.some(p => p.test(f))) {
-        layers.criticalReasons.push(`CDK provisioning semantics changed: ${f}`);
-        layers.awsEscalation.add('pnpm e2e:canary');
-        layers.awsEscalation.add('pnpm e2e:fresh');
-      }
-      break;
-    }
-  }
-}
-
-function classify(f, layers) {
+function classify(f, layers, graph) {
   const base = f.split('/').pop();
   const isTest = /\.test\.[tjm]sx?$/.test(base);
-  let matched = false;
+  const critical = (reason) => layers.criticalReasons.push(`${reason}: ${f}`);
+  const pkgDir = /^((?:apps|packages)\/[^/]+)\//.exec(f)?.[1];
+  const pkgName = pkgDir ? graph.dirToName[pkgDir] : undefined;
 
   if (ROOT_CONFIG.some(p => p.test(f))) {
-    layers.criticalReasons.push(`root configuration changed (full safe suite): ${f}`);
+    critical('root configuration changed (full regression)');
     return;
   }
 
-  if (f.startsWith('apps/web/')) {
-    matched = true;
-    layers.unitPackages.add('@deployz/web');
-    if (!f.startsWith('apps/web/test/')) {
-      // No reliable file→spec mapping exists for web runtime code, so the
-      // full non-visual Playwright PR suite runs — reported as targeted-web,
-      // never as targeted specs.
-      layers.fullPlaywright = true;
+  if (pkgDir && !pkgName) {
+    critical('unknown workspace package (full regression)');
+    return;
+  }
+
+  if (pkgName) {
+    layers.changedPackages.add(pkgName);
+    layers.unitProjects.add(pkgName);
+    for (const d of transitiveDependents(graph, pkgName)) layers.unitProjects.add(d);
+    if (graph.rootDeps.has(pkgName) || [...transitiveDependents(graph, pkgName)].some(d => graph.rootDeps.has(d))) {
+      layers.typecheckScripts = true;
     }
   }
 
-  if (f.startsWith('apps/api/')) {
-    matched = true;
-    layers.unitPackages.add('@deployz/api');
-    if (f.startsWith('apps/api/src/admin/')) layers.specFiles.add('e2e/admin.spec.ts');
-    if (!isTest && f.startsWith('apps/api/src/') && API_CRITICAL.has(base)) {
-      layers.criticalReasons.push(`API deployment-critical file changed: ${f}`);
+  switch (pkgDir) {
+    case 'apps/web': {
+      if (!WEB_NO_E2E.some(p => p.test(f))) layers.fixtureSuite = true;
+      return;
     }
+    case 'apps/api': {
+      if (isTest) return;
+      if (!f.startsWith('apps/api/src/')) return;
+      if (API_NON_CRITICAL.some(p => p.test(f))) {
+        layers.fixtureSuite = true;
+        return;
+      }
+      critical('API deployment-shaping code changed');
+      return;
+    }
+    case 'packages/relay': {
+      if (isTest) return;
+      if (RELAY_AWS_INTERFACE.has(base)) {
+        layers.awsEscalation.add(CANARY_CORE);
+      } else {
+        layers.awsEscalation.add(CANARY_STATELESS);
+      }
+      critical('relay code (runs in the customer account) changed');
+      return;
+    }
+    case 'packages/contracts': {
+      if (isTest) return;
+      critical('shared deployment contract changed');
+      return;
+    }
+    case 'packages/db': {
+      if (isTest) return;
+      if (f.startsWith('packages/db/drizzle/') || f.startsWith('packages/db/src/schema/') || f === 'packages/db/src/enums.ts') {
+        critical('database schema or migration changed');
+      }
+      return;
+    }
+    case 'packages/cdk': {
+      if (isTest || f.startsWith('packages/cdk/test/')) return;
+      // The synth and publish scripts write the committed templates and the
+      // regional relay assets; only the read-only audit and the bundling
+      // smoke are exempt.
+      if (/^packages\/cdk\/scripts\/(audit-deployment|bundle-smoke)\.mjs$/.test(f)) return;
+      if (CDK_CUSTOMER_SIDE.some(p => p.test(f))) {
+        layers.awsEscalation.add(CANARY_STATELESS);
+        if (/^packages\/cdk\/(src\/bootstrap\/|bin\/bootstrap|artifacts\/bootstrap)/.test(f)) layers.awsEscalation.add(FRESH);
+      }
+      critical('infrastructure code changed (deploys or publishes on merge)');
+      return;
+    }
+    case 'packages/analysis':
+    case 'packages/copy-map': {
+      if (!isTest) layers.fixtureSuite = true;
+      return;
+    }
+    case 'packages/fixture': {
+      if (!isTest) layers.awsEscalation.add(`pnpm canary:fixture-repo && ${CANARY_STATELESS}`);
+      return;
+    }
+    default:
+      break;
   }
 
-  const pkg = /^packages\/([^/]+)\//.exec(f);
-  if (pkg) {
-    const dir = pkg[1];
-    if (dir === 'copy-map') {
-      matched = true; // consumers of @deployz/copy-map
-      layers.unitPackages.add('@deployz/web');
-      layers.unitPackages.add('@deployz/api');
-    } else if (UNIT_PACKAGES[dir]) {
-      matched = true;
-      layers.unitPackages.add(UNIT_PACKAGES[dir]);
-      classifyPackage(dir, f, base, isTest, layers);
-    }
-    // Unknown package directory: matched stays false → full safe suite below.
-  }
-
-  const script = /^scripts\/([^/]+)\//.exec(f);
+  const script = /^scripts\/([^/]+)\//.exec(f)?.[1];
   if (script) {
-    const dir = script[1];
-    if (SCRIPT_UNITS[dir]) {
-      matched = true;
-      layers.scriptUnits.add(dir);
-      layers.typecheckScripts = true;
-    } else if (dir === 'customer-reset') {
-      matched = true; // AWS harness: typecheck pre-merge, canary as escalation
-      layers.typecheckScripts = true;
-      layers.awsEscalation.add('pnpm e2e:canary');
+    layers.typecheckScripts = true;
+    if (SCRIPT_PROJECTS.includes(script)) {
+      layers.unitProjects.add(script);
+      return;
     }
+    if (script === 'customer-reset') return;
+    critical('unknown scripts directory (full regression)');
+    return;
   }
 
   if (f.startsWith('e2e/')) {
-    matched = true;
-    if (f.startsWith('e2e/simulation/')) {
-      // The simulation harness defines every scenario's behaviour
-      layers.criticalReasons.push(`e2e simulation harness changed: ${f}`);
-    } else if (/\.spec\.ts$/.test(f) && !f.endsWith('e2e/visual.spec.ts')) {
-      layers.specFiles.add(f);
+    if (f.startsWith('e2e/simulation/') || f === 'e2e/seed-ready-manifest.ts') {
+      critical('simulation harness changed (backs every scenario)');
+      return;
     }
+    if (/^e2e\/[^/]+\.spec\.ts$/.test(f)) {
+      if (f !== 'e2e/visual.spec.ts') layers.specFiles.add(f);
+      return;
+    }
+    if (/^e2e\/visual\.spec\.ts-snapshots\//.test(f)) return;
+    critical('unknown e2e path (full regression)');
+    return;
   }
 
-  if (!matched) {
-    layers.criticalReasons.push(`unknown executable path (full safe suite): ${f}`);
-  }
+  critical('unknown executable path (full regression)');
 }
 
 // ── Plan assembly ────────────────────────────────────────────────────────────
 
-// files === null means change detection failed → full safe suite.
-export function planFromFiles(files) {
+// files === null means change detection failed → full regression.
+export function planFromFiles(files, options = {}) {
+  const graph = options.graph ?? loadWorkspaceGraph(options.cwd);
   const layers = {
-    unitPackages: new Set(),
-    scriptUnits: new Set(),
-    scenarios: new Set(),
+    changedPackages: new Set(),
+    unitProjects: new Set(),
     specFiles: new Set(),
-    fullPlaywright: false,
-    e2eScenarios: false,
-    defaultHttps: false,
+    fixtureSuite: false,
     typecheckScripts: false,
     awsEscalation: new Set(),
     criticalReasons: [],
     fallbackReasons: [],
   };
+
+  if (options.full) layers.criticalReasons.push('full regression requested (ci:full)');
 
   if (files === null) {
     layers.fallbackReasons.push('change detection failed');
@@ -312,40 +345,51 @@ export function planFromFiles(files) {
   const list = files.map(toForwardSlash);
   let docOnly = true;
   for (const f of list) {
+    // The benchmark corpora and finding registries under docs/testing are
+    // read by the harness tests, so they are test data, not documentation.
+    const harnessData = /^docs\/testing\/(repository-compatibility|repository-deployment)\//.exec(f);
+    if (harnessData) {
+      docOnly = false;
+      layers.unitProjects.add(harnessData[1]);
+      layers.typecheckScripts = true;
+      continue;
+    }
     if (DOC_FILE.some(p => p.test(f))) continue;
     docOnly = false;
-    classify(f, layers);
+    classify(f, layers, graph);
   }
-
-  if (docOnly) layers.minimalReason = list.length === 0
-    ? 'no changed files detected'
-    : 'documentation-only change';
+  if (docOnly && !options.full) {
+    layers.minimalReason = list.length === 0 ? 'no changed files detected' : 'documentation-only change';
+  }
   return finalize(layers, list.length);
 }
 
 function finalize(layers, fileCount) {
   const critical = layers.criticalReasons.length > 0 || layers.fallbackReasons.length > 0;
   let risk;
+  let playwright;
   if (critical) {
     risk = 'critical';
-    layers.e2eScenarios = true;
-    layers.defaultHttps = true;
-    layers.typecheckScripts = true;
-    for (const s of PR_CORE_SPECS) layers.specFiles.add(s);
+    playwright = 'full';
   } else if (layers.minimalReason) {
     risk = 'minimal';
-  } else if (layers.fullPlaywright) {
-    risk = 'targeted-web';
-    layers.e2eScenarios = true;
-    layers.defaultHttps = true;
-    for (const s of PR_CORE_SPECS) layers.specFiles.add(s);
+    playwright = 'none';
   } else {
     risk = 'targeted';
+    playwright = layers.fixtureSuite ? 'fixture' : layers.specFiles.size > 0 ? 'files' : 'none';
   }
 
   const reasons = [...layers.criticalReasons];
   if (layers.minimalReason) reasons.push(layers.minimalReason);
-  if (risk === 'targeted-web') reasons.push('web runtime change: full non-visual Playwright PR suite (no reliable file-to-spec mapping)');
+  if (risk === 'targeted' && playwright === 'fixture') reasons.push('runtime UI/API change: the fixture-mode Playwright suite runs');
+
+  // The fixture suite already contains every non-scenario spec; only the
+  // scenario specs touched directly still need naming.
+  const playwrightFiles = playwright === 'files'
+    ? [...layers.specFiles].sort()
+    : playwright === 'fixture'
+      ? [...layers.specFiles].filter(f => /^e2e\/scenario-/.test(f)).sort()
+      : [];
 
   return {
     ok: true,
@@ -354,50 +398,52 @@ function finalize(layers, fileCount) {
     fallbackReasons: [...layers.fallbackReasons],
     reasons,
     changedFileCount: fileCount,
-    lintAll: risk === 'critical',
-    typecheckScripts: layers.typecheckScripts,
-    unitPackages: [...layers.unitPackages].sort(),
-    scriptUnits: [...layers.scriptUnits].sort(),
-    playwrightFiles: [...layers.specFiles].sort(),
-    scenarioIds: layers.e2eScenarios ? 'ALL' : [...layers.scenarios].sort(),
-    e2eScenarios: layers.e2eScenarios,
-    defaultHttps: layers.defaultHttps,
+    lintPackages: risk === 'critical' ? 'ALL' : [...layers.changedPackages].sort(),
+    typecheckScripts: risk === 'critical' || layers.typecheckScripts,
+    unitProjects: risk === 'critical' ? 'ALL' : [...layers.unitProjects].sort(),
+    playwright,
+    playwrightFiles,
     awsEscalation: [...layers.awsEscalation].sort().map(c => `DEPLOYZ_E2E_ALLOW_REAL_AWS=1 ${c}`),
   };
 }
 
 // ── Commands (mirrored by CI; --run executes only these) ─────────────────────
 
+// Every non-visual, non-scenario spec, plus the two scenario specs that drive
+// the browser (the other scenario specs exercise the API only).
+const FIXTURE_SUITE_ARGS = ['--grep-invert', '@scenario|visual'];
+export const BROWSER_SCENARIO_SPECS = ['e2e/scenario-ui.spec.ts', 'e2e/scenario-release-unavailable.spec.ts'];
+const DEFAULT_HTTPS_SPEC = 'e2e/scenario-default-https.spec.ts';
+
 export function commandsFor(plan) {
   const cmds = [];
   if (plan.risk === 'minimal') return cmds;
 
-  if (plan.risk === 'critical') {
+  cmds.push({ label: 'static production-safety guards', cmd: 'pnpm', args: ['test:static'] });
+  cmds.push({ label: 'typecheck e2e', cmd: 'pnpm', args: ['typecheck:e2e'] });
+  if (plan.unitProjects === 'ALL') {
     cmds.push({ label: 'full unit suite', cmd: 'pnpm', args: ['vitest', 'run'] });
-  } else {
-    // One invocation from the workspace root runs the selected projects in
-    // parallel (the scripts/* harnesses are root projects too); CI mirrors
-    // this. A per-project loop would serialise them.
-    const projects = [...plan.unitPackages, ...plan.scriptUnits];
-    if (projects.length > 0) {
-      cmds.push({ label: `unit ${projects.join(' ')}`, cmd: 'pnpm', args: ['vitest', 'run', ...projects.flatMap(p => ['--project', p])] });
-    }
+  } else if (plan.unitProjects.length > 0) {
+    cmds.push({ label: `unit ${plan.unitProjects.join(' ')}`, cmd: 'pnpm', args: ['vitest', 'run', ...plan.unitProjects.flatMap(p => ['--project', p])] });
   }
   if (plan.typecheckScripts) {
     cmds.push({ label: 'typecheck AWS harnesses', cmd: 'pnpm', args: ['typecheck:scripts'] });
   }
-  if (plan.playwrightFiles.length > 0) {
-    cmds.push({ label: 'Playwright specs', cmd: 'node', args: ['scripts/e2e.mjs', ...plan.playwrightFiles] });
-  }
-  if (plan.scenarioIds === 'ALL') {
+  if (plan.playwright === 'full') {
+    cmds.push({ label: 'CDK bundling smoke', cmd: 'pnpm', args: ['synth:smoke'] });
+    cmds.push({ label: 'fixture-mode Playwright suite', cmd: 'node', args: ['scripts/e2e.mjs', ...FIXTURE_SUITE_ARGS] });
     cmds.push({ label: 'full simulated scenario suite', cmd: 'node', args: ['scripts/e2e.mjs', '--scenarios'] });
-  } else {
-    for (const id of plan.scenarioIds) {
-      cmds.push({ label: `scenario ${id}`, cmd: 'node', args: ['scripts/e2e.mjs', `--scenario=${id}`] });
-    }
-  }
-  if (plan.defaultHttps) {
-    cmds.push({ label: 'default-HTTPS scenarios', cmd: 'node', args: ['scripts/e2e.mjs', 'e2e/scenario-default-https.spec.ts'], env: { DEPLOYZ_DEFAULT_HTTPS_FIXTURE: 'true' } });
+    cmds.push({ label: 'default-HTTPS scenarios', cmd: 'node', args: ['scripts/e2e.mjs', DEFAULT_HTTPS_SPEC], env: { DEPLOYZ_DEFAULT_HTTPS_FIXTURE: 'true' } });
+  } else if (plan.playwright === 'fixture') {
+    cmds.push({ label: 'fixture-mode Playwright suite', cmd: 'node', args: ['scripts/e2e.mjs', ...FIXTURE_SUITE_ARGS] });
+    cmds.push({ label: 'browser scenario specs', cmd: 'node', args: ['scripts/e2e.mjs', ...BROWSER_SCENARIO_SPECS, ...plan.playwrightFiles.filter(f => !BROWSER_SCENARIO_SPECS.includes(f))] });
+  } else if (plan.playwright === 'files') {
+    // The default-HTTPS spec skips every test unless its fixture flag is on,
+    // and the other specs are written against HTTP-only installs, so it
+    // always runs on its own server.
+    const rest = plan.playwrightFiles.filter(f => f !== DEFAULT_HTTPS_SPEC);
+    if (rest.length > 0) cmds.push({ label: 'Playwright specs', cmd: 'node', args: ['scripts/e2e.mjs', ...rest] });
+    if (plan.playwrightFiles.includes(DEFAULT_HTTPS_SPEC)) cmds.push({ label: 'default-HTTPS scenarios', cmd: 'node', args: ['scripts/e2e.mjs', DEFAULT_HTTPS_SPEC], env: { DEPLOYZ_DEFAULT_HTTPS_FIXTURE: 'true' } });
   }
   return cmds;
 }
@@ -441,54 +487,37 @@ function printPlan(plan) {
   }
   for (const r of plan.reasons) console.log(`  reason: ${r}`);
   console.log(`\n${BOLD}Required:${RESET}`);
-  let has = false;
   if (plan.risk === 'minimal') {
     console.log(`  ${YELLOW}(minimal gate — no executable layers for documentation-only changes)${RESET}`);
   } else {
     console.log(`  ${GREEN}✓${RESET} build workspace packages (turbo cache): pnpm build`);
-    if (plan.risk === 'critical') console.log(`  ${GREEN}✓${RESET} full unit suite: pnpm vitest run`);
-    if (plan.risk !== 'critical' && plan.unitPackages.length + plan.scriptUnits.length === 0 && plan.risk !== 'targeted-web') {
-      console.log(`  ${YELLOW}(no unit layers mapped)${RESET}`);
-    }
-    has = true;
+    console.log(`  ${GREEN}✓${RESET} lint: ${plan.lintPackages === 'ALL' ? 'pnpm lint' : plan.lintPackages.length > 0 ? `pnpm turbo run lint --filter=${plan.lintPackages.join(' --filter=')}` : '(no workspace package changed)'}`);
   }
   for (const c of commandsFor(plan)) {
     console.log(`  ${GREEN}✓${RESET} ${c.label}: ${c.cmd} ${(c.args ?? []).join(' ')}${c.env ? ` (env ${Object.entries(c.env).map(([k, v]) => `${k}=${v}`).join(' ')})` : ''}`);
-    has = true;
-  }
-  if (plan.lintAll) console.log(`  ${GREEN}✓${RESET} lint workspace: pnpm lint`);
-  else if (plan.risk !== 'minimal' && plan.unitPackages.length > 0) console.log(`  ${GREEN}✓${RESET} lint affected: pnpm turbo run lint --filter=${plan.unitPackages.join(' --filter=')}`);
-  if (plan.typecheckScripts) console.log(`  ${GREEN}✓${RESET} typecheck AWS harnesses: pnpm typecheck:scripts`);
-  if (!has && plan.risk !== 'minimal') {
-    console.log(`  ${YELLOW}(none — no mapped test layers triggered)${RESET}`);
   }
   console.log(`\n${BOLD}Not required:${RESET}`);
-  if (!plan.e2eScenarios) console.log(`  ${RED}✗${RESET} full simulated suite`);
-  console.log(`  ${RED}✗${RESET} fresh AWS (provisioning only — pnpm e2e:fresh)`);
-  console.log(`  ${RED}✗${RESET} full-product canary (escalation only)`);
+  if (plan.playwright !== 'full') console.log(`  ${RED}✗${RESET} full simulated scenario suite`);
+  console.log(`  ${RED}✗${RESET} real AWS (escalation only, never run by --run or CI)`);
   if (plan.awsEscalation.length > 0) {
-    console.log(`\n${BOLD}AWS escalation (manual only, never run by --run or CI):${RESET}`);
+    console.log(`\n${BOLD}AWS escalation (manual only):${RESET}`);
     for (const c of plan.awsEscalation) console.log(`  ${YELLOW}${c}${RESET}`);
   }
 }
 
-// ── Escalation mode ──────────────────────────────────────────────────────────
-
 function printEscalation(plan) {
   console.log(`${BOLD}AWS Escalation Assessment${RESET}\n`);
-  const triggering = plan.reasons.filter(r => /relay AWS executor|CDK provisioning/.test(r));
   if (plan.awsEscalation.length === 0) {
     console.log('  No AWS layer requirements detected for the current changes.\n');
     console.log('  Real AWS is an escalation, not the debugging loop. Run targeted');
     console.log('  vitest and simulated E2E scenarios first.');
     return;
   }
+  const triggering = plan.reasons.filter(r => /relay code|infrastructure code/.test(r));
   console.log('  Required AWS layers:');
   for (const r of triggering.length > 0 ? triggering : plan.reasons) console.log(`    • ${r}`);
   console.log();
-  for (const c of plan.awsEscalation) {
-    console.log(`  ${c}`);
-  }
+  for (const c of plan.awsEscalation) console.log(`  ${c}`);
   console.log();
   console.log(`${BOLD}⚠  Reminder:${RESET} real AWS is an escalation, not the debugging loop.`);
   console.log('   Run targeted vitest and simulated E2E scenarios first. Copy these');
@@ -499,7 +528,7 @@ function printEscalation(plan) {
 // ── CLI ──────────────────────────────────────────────────────────────────────
 
 export function parseArgs(argv) {
-  const out = { run: false, filesOverride: null, base: null, format: 'text', escalation: false, githubOutput: false, invalid: [] };
+  const out = { run: false, filesOverride: null, base: null, format: 'text', escalation: false, githubOutput: false, full: false, invalid: [] };
   for (const arg of argv) {
     if (arg === '--run') out.run = true;
     else if (arg.startsWith('--files=')) out.filesOverride = arg.slice('--files='.length).split(/[, ]+/).map(s => s.trim()).filter(Boolean);
@@ -508,6 +537,7 @@ export function parseArgs(argv) {
     else if (arg === '--format=text') out.format = 'text';
     else if (arg === '--escalation') out.escalation = true;
     else if (arg === '--github-output') out.githubOutput = true;
+    else if (arg === '--full') out.full = true;
     else out.invalid.push(arg);
   }
   return out;
@@ -516,7 +546,7 @@ export function parseArgs(argv) {
 function main() {
   const opts = parseArgs(process.argv.slice(2));
   if (opts.invalid.length > 0) {
-    console.error(`Unknown argument(s): ${opts.invalid.join(' ')}\nUsage: test-affected.mjs [--base=<ref>] [--files=<csv>] [--format=json] [--run] [--escalation]`);
+    console.error(`Unknown argument(s): ${opts.invalid.join(' ')}\nUsage: test-affected.mjs [--base=<ref>] [--files=<csv>] [--full] [--format=json] [--run] [--escalation]`);
     process.exit(1);
   }
 
@@ -530,8 +560,8 @@ function main() {
     else files = r.files;
   }
 
-  const plan = planFromFiles(detectionError ? null : files);
-  if (detectionError) console.error(`Warning: change detection failed (${detectionError}); selected the full safe suite.`);
+  const plan = planFromFiles(detectionError ? null : files, { full: opts.full });
+  if (detectionError) console.error(`Warning: change detection failed (${detectionError}); selected the full regression.`);
 
   if (opts.githubOutput) {
     const outPath = process.env.GITHUB_OUTPUT;
@@ -545,12 +575,12 @@ function main() {
     }
     const set = (k, v) => appendFileSync(outPath, `${k}=${v}\n`);
     set('risk', plan.risk);
-    set('unit_packages', plan.unitPackages.join(' '));
-    set('script_units', plan.scriptUnits.join(' '));
+    set('unit_projects', plan.unitProjects === 'ALL' ? 'ALL' : plan.unitProjects.join(' '));
+    set('lint_packages', plan.lintPackages === 'ALL' ? 'ALL' : plan.lintPackages.join(' '));
+    set('playwright', plan.playwright);
     set('playwright_files', plan.playwrightFiles.join(' '));
-    set('scenario_ids', plan.scenarioIds === 'ALL' ? 'ALL' : plan.scenarioIds.join(' '));
-    set('default_https', String(plan.defaultHttps));
     set('typecheck_scripts', String(plan.typecheckScripts));
+    set('aws_escalation', plan.awsEscalation.join(' && '));
   }
 
   if (opts.format === 'json') {
@@ -569,10 +599,7 @@ function main() {
   if (opts.run) {
     console.log(`\n${BOLD}Executing simulated layers...${RESET}\n`);
     const commands = commandsFor(plan);
-    if (plan.risk !== 'minimal') {
-      const build = { label: 'build', cmd: 'pnpm', args: ['build'] };
-      commands.unshift(build);
-    }
+    if (plan.risk !== 'minimal') commands.unshift({ label: 'build', cmd: 'pnpm', args: ['build'] });
     if (commands.length === 0) {
       console.log('  No simulated layers to execute.');
       process.exit(0);

@@ -171,6 +171,10 @@ test('vendor configures a customer-provided secret, publishes an install link, a
   await expect(continueButton).toBeDisabled();
   await expect(page.getByText('Complete the required application settings to continue.')).toBeVisible();
 
+  // Region choice is explicit — there is no silent first-region default.
+  await page.getByRole('combobox', { name: /region/i }).click();
+  await page.getByRole('option', { name: 'US East (N. Virginia)' }).click();
+
   const customerEmail = `customer-${suffix}@example.com`;
   const secretValue = `super-secret-license-${suffix}`;
   await page.locator('#customer-name').fill('Acme Customer');

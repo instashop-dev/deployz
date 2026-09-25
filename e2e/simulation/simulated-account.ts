@@ -570,14 +570,7 @@ export class SimulatedCustomerAccount {
           ],
         };
       },
-      describeTaskDefinition: async ({ taskDefinition }) => {
-        this.ensureEcsDeployInitialized();
-        const found =
-          this.taskDefinitions.get(taskDefinition) ?? this.taskDefinitions.get(this.currentTaskDefinitionArn)!;
-        return {
-          taskDefinition: { ...found, containerDefinitions: found.containerDefinitions.map((c) => ({ ...c })) },
-        };
-      },
+      describeTaskDefinition: async ({ taskDefinition }) => this.describeSimulatedTaskDefinition(taskDefinition),
       registerTaskDefinition: async (input: RegisterTaskDefinitionInput) => {
         this.ensureEcsDeployInitialized();
         this.taskDefinitionRevision += 1;
@@ -644,6 +637,18 @@ export class SimulatedCustomerAccount {
     return {
       listTasks: () => this.listSimulatedTasks(),
       describeTasks: () => this.describeSimulatedTasks(),
+      describeTaskDefinition: ({ taskDefinition }) => this.describeSimulatedTaskDefinition(taskDefinition),
+    };
+  }
+
+  /** The one task-definition read both the deploy client and the task reader
+   *  share, so a heartbeat describes exactly the revision a deploy registered. */
+  private async describeSimulatedTaskDefinition(taskDefinition: string): Promise<{ taskDefinition: EcsTaskDefinition }> {
+    this.ensureEcsDeployInitialized();
+    const found =
+      this.taskDefinitions.get(taskDefinition) ?? this.taskDefinitions.get(this.currentTaskDefinitionArn)!;
+    return {
+      taskDefinition: { ...found, containerDefinitions: found.containerDefinitions.map((c) => ({ ...c })) },
     };
   }
 
