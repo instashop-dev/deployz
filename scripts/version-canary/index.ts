@@ -2,7 +2,7 @@
  * Version/rollback AWS canary — entry point.
  *
  *   pnpm e2e:canary:versions preflight             identity, region, control plane, fixture tags (no mutation)
- *   pnpm e2e:canary:versions core [--keep]         the golden path (docs/testing/version-rollback-canary.md)
+ *   pnpm e2e:canary:versions core [--keep]         the golden path (docs/testing/aws-e2e.md)
  *   pnpm e2e:canary:versions resilience [--keep]   duplicate/concurrent requests and relay interruption
  *   pnpm e2e:canary:versions profile --profile <pg|stateless|redis> [--run-id <id>] [--production]
  *                                                  one infrastructure profile: install + teardown, no version ladder.

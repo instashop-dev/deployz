@@ -8,7 +8,7 @@
  * rollback with its step pinned, a Redis failure whose `redisRequired` comes
  * from the real analyser (not a hand-set flag), a bootstrap-stack failure
  * before the relay ever registers, and a relay that goes silent mid-install.
- * See docs/testing/e2e-testing.md and
+ * See docs/testing/simulated-e2e.md and
  * e2e/scenario-install.spec.ts for the conventions this file follows
  * (@scenario:<id> tags, one test.describe per scenario, real HTTP API only).
  */
@@ -97,7 +97,7 @@ test.describe('slow-provision', () => {
     expect(midFlight.deploymentStatus.typicalDurationSeconds).toEqual({ min: 180, max: 720 });
     // Honest, observed production behaviour (not forced): SimulatedCustomerAccount
     // anchors its virtual clock so the LAST timeline event lands at (real)
-    // install start (docs/testing/e2e-testing.md D4),
+    // install start (docs/testing/simulated-e2e.md D4),
     // so a still-active step's reported elapsed time is approximately
     // totalVirtualDuration-minus-the-step's-own-virtual-start — ~885s here
     // for DATABASE_STORAGE, comfortably past its 720s typical max. No

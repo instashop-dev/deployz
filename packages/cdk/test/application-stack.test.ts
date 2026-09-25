@@ -1210,7 +1210,7 @@ describe('ApplicationStack', () => {
 
     it('keeps the standard DATABASE_URL alongside the preset names (DEPLOY-026 regression)', () => {
       // The published production template ships with APP_PRESET=documenso
-      // (docs/testing/aws-full-product-canary.md). Every non-Documenso
+      // (docs/testing/manual-checklist.md). Every non-Documenso
       // PostgreSQL application still reads the standard DATABASE_URL, so the
       // preset's own env names must ADD to it, never replace it — a preset
       // that pinned its own names used to leave DATABASE_URL entirely absent

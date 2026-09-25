@@ -1340,9 +1340,11 @@ export function toCustomerDeploymentStatus(
             // not relabel the failure.
             stage: derived.failure.jobType ?? 'UNKNOWN',
             component: derived.failure.component,
-            // §65: never the raw CloudFormation status on the unauthenticated
-            // customer surface — a jargon-free phrase instead. The vendor
-            // projection keeps the raw status.
+            // §65: never the raw CloudFormation status in the customer
+            // projection's own fields — a jargon-free phrase instead. The
+            // vendor projection keeps the raw status. The customer page's
+            // collapsed "View raw AWS events" disclosure is the one deliberate
+            // exception (docs/decisions/README.md).
             awsStatus: derived.failure.awsStatus
               ? customerStackStatusLabel(derived.failure.awsStatus)
               : null,

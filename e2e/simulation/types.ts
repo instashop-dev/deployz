@@ -5,7 +5,7 @@
  * of AWS-shaped knobs (final stack status, ECS/target-health behaviour) that
  * the simulated customer account (`./simulated-account.ts`) plays back to the
  * REAL relay code (`packages/relay`). See
- * docs/testing/e2e-testing.md D4 for the two-clock
+ * docs/testing/simulated-e2e.md D4 for the two-clock
  * design this timeline shape exists to support.
  *
  * Only four scenarios are implemented today (happy-path,

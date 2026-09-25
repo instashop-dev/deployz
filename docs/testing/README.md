@@ -1,97 +1,22 @@
 # Testing
 
-How Deployz is tested, and which layer to reach for. The escalation policy
-for coding agents is [`ai-agent-testing-guide.md`](ai-agent-testing-guide.md).
-
-## Philosophy
-
-Most behaviour — the deployment state machine, status derivation,
-stack-event ingest, the relay protocol, the UI's rendering of all of it —
-is proven without a real AWS account. A simulated customer AWS account plays
-back deterministic CloudFormation/ECS/ELB responses to the **real relay
-code**, over the **real relay HTTP protocol**, into the **real control-plane
-API and database**. Only the AWS SDK calls are replaced.
-
-**Real AWS is an escalation mechanism, not the default loop.** Reach for it
-when a change touches the AWS integration boundary (CDK templates, the
-relay's AWS SDK adapters, the bootstrap stack) in a way the simulator cannot
-exercise. Two production outages ("every install failed": a bootstrap
-template `GetAtt` on a non-existent attribute, and a relay credential stored
-in a shape the relay could not parse) were caught only by real-AWS runs, so
-a change to the bootstrap template or the relay's enrollment path always
-gets a real-AWS smoke before it reaches customers.
-
-## The ladder
-
-Use the cheapest layer that can establish confidence:
-
-| Layer | Proves | AWS | Command |
-| --- | --- | --- | --- |
-| Unit / integration (Vitest) | Pure functions, DB constraints, CDK template synthesis, injectable-seam logic, manifest-to-plan/verify contracts, parity of catalogs and sizing with the committed templates | No | `pnpm vitest run` (or `pnpm vitest run --project <package>`, or a single file) |
-| Simulated E2E (default) | The full pipeline — relay, API routes, DB, status derivation, inventory, both UIs — against a simulated AWS account | No | `pnpm e2e`, `pnpm e2e --scenario=<id>`, `pnpm e2e:scenarios` |
-| Version canary (real AWS, full product) | Release build → install → deploy → failed release → rollback → recovery → persistence → destroy → purge → leak audit, through the deployed control plane and a transient customer install | Opt-in | `DEPLOYZ_E2E_ALLOW_REAL_AWS=1 pnpm e2e:canary:versions core` or the `AWS version canary` workflow |
-| Version canary, production mode (real AWS, one profile) | The same install path against the production-published template, no checkout override — a customer-faithful smoke of what production actually publishes | Opt-in | `DEPLOYZ_E2E_ALLOW_REAL_AWS=1 pnpm e2e:canary:versions profile --profile stateless --production` |
-| Fresh (real AWS, bootstrap only) | The bootstrap stack's real create → verify → destroy path | Opt-in | `DEPLOYZ_E2E_ALLOW_REAL_AWS=1 pnpm e2e:fresh` |
-| Full-product walk (manual) | Everything above plus template publishing and an arbitrary application, driven through the real dashboard | Opt-in | [`aws-full-product-canary.md`](aws-full-product-canary.md) |
-| Repository benchmarks | Stage A: analyzer accuracy over a pinned 120-repository corpus (no AWS). Stage B: the same corpus through the real production path | No / Opt-in | `pnpm benchmark:compat`, `pnpm benchmark:deploy` |
-
-## When to use each
-
-- **Everyday development:** `pnpm vitest run` scoped to the package, plus
-  the `e2e/*.spec.ts` file or `--scenario` closest to the change.
-- **Before merging a change to the relay, the deployment state machine, or
-  stack-event/status derivation:** `pnpm e2e:scenarios`. CI runs it on
-  every push to `main` and every critical pull request.
-- **After changing the relay's AWS SDK adapters, the CDK templates or the
-  bootstrap stack:** the version canary (`core`), and `fresh` when the
-  bootstrap stack itself changed. Republish the templates first
-  ([`../operations/control-plane.md`](../operations/control-plane.md)).
-- **Verifying a production incident is fixed:** add a simulated regression
-  scenario ([`e2e-scenarios.md`](e2e-scenarios.md#how-to-add-a-scenario))
-  before reaching for real AWS; then confirm once on real AWS.
-- **After changing the component catalog, the resource catalog, the sizing
-  profile or the manifest's requirement fields:**
-  `apps/api/src/requirements-contract.test.ts`,
-  `packages/cdk/test/lifecycle-parity.test.ts` and
-  `packages/cdk/test/sizing-parity.test.ts` (plain Vitest).
-- **Team Admin changes:** simulated only — `apps/api/src/admin/*.test.ts`
-  and `pnpm e2e e2e/admin.spec.ts`.
-
-## What CI runs
-
-`.github/workflows/ci.yml` (every push and pull request to `main`, and on
-demand for any branch). For a pull request the `plan` job classifies the
-change with `scripts/test-affected.mjs`:
-
-| Risk | When | Runs |
-| --- | --- | --- |
-| `minimal` | documentation only | nothing |
-| `targeted` | web runtime code, the allowlisted API areas (billing, admin, organizations, AI, email), analysis, copy-map, DB client code, harness scripts, single specs | build, lint of the changed packages, `typecheck:e2e`, the changed Vitest projects with every workspace dependent (derived from the package manifests), the harness typecheck when a harness dependency changed, and the fixture-mode Playwright suite plus `scenario-ui` for a runtime UI/API change (or only the touched specs) |
-| `critical` | apps/api outside the allowlist, relay, contracts, DB schema or migrations, CDK source, the simulation harness, root configuration, unknown paths, or the `ci:full` label | the full regression: every Vitest project, lint, both typechecks, the CDK bundling smoke, every non-visual Playwright spec, every simulated scenario and the default-HTTPS scenarios |
-
-A push to `main` or a manual run executes the full regression. The `PR
-Gate` job is the aggregate status; it fails when the plan selected
-Playwright coverage that did not run. Real AWS never enters CI: the plan
-prints the real-AWS commands as escalations, and `aws-canary.yml` is
-`workflow_dispatch` only, plus an opt-in weekly `schedule` run (see its
-header). The visual suite never runs in CI
-(Windows-generated snapshots). The deploy workflows run only after a
-green CI run on `main`.
-
-## Documents
+How Deployz is tested. Start with [`strategy.md`](strategy.md) for the
+philosophy and the layer model; the other documents cover one layer or
+concern each.
 
 | Document | Contents |
 | --- | --- |
-| [`ai-agent-testing-guide.md`](ai-agent-testing-guide.md) | The escalation policy coding agents must follow |
-| [`e2e-testing.md`](e2e-testing.md) | E2E architecture, the simulation seam and its design decisions, modes, CLI, environment variables, local execution, CI, debugging |
-| [`e2e-scenarios.md`](e2e-scenarios.md) | The simulated-scenario catalogue and how to add one |
-| [`version-rollback-canary.md`](version-rollback-canary.md) | The automated real-AWS version canary: product semantics, scenarios, safety, evidence, cleanup and leak audit |
-| [`aws-fresh.md`](aws-fresh.md) | The real-AWS bootstrap create/destroy mode |
-| [`aws-full-product-canary.md`](aws-full-product-canary.md) | The manual full-product walk against the deployed control plane |
-| [`../ai-analysis.md`](../ai-analysis.md#testing-ai-changes) | How to test analysis and AI changes without wording assertions |
-| [`repository-compatibility/README.md`](repository-compatibility/README.md) | Stage A: the pinned OSS corpus, expected facts, findings COMP-nnn, `pnpm benchmark:compat` |
-| [`repository-deployment/README.md`](repository-deployment/README.md) | Stage B: the same corpus through the real production path, findings DEPLOY-nnn, cleanup and leak-audit rules, `pnpm benchmark:deploy` |
+| [`strategy.md`](strategy.md) | Testing philosophy, the layer model (L0-L6, compatibility, manual), what belongs where, the escalation policy for coding agents, timing expectations |
+| [`test-matrix.md`](test-matrix.md) | The coverage matrix: every core capability, its happy/failure paths, current test coverage, and known gaps |
+| [`ci.md`](ci.md) | What CI runs, the change-classification rules, timing per risk level, troubleshooting |
+| [`simulated-e2e.md`](simulated-e2e.md) | The simulated E2E layer: the simulation seam, fixture modes, the runner CLI, the scenario catalogue, debugging |
+| [`aws-e2e.md`](aws-e2e.md) | Real-AWS layers L4-L6 (fresh, the version canary, the production canary): the fixture application, safety, evidence, diagnostics, cleanup and the leak audit, escalation rules, troubleshooting |
+| [`compatibility.md`](compatibility.md) | Stage A/B corpus benchmarks, `pnpm jev:eval`, the manual full-product walk, when to run each |
+| [`manual-checklist.md`](manual-checklist.md) | The manual QA checklist: the human walk, known failure modes, the AI MVP checks, plan-vs-inventory checks, and the areas no automated layer judges |
+| [`repository-compatibility/findings.md`](repository-compatibility/findings.md) | Stage A findings registry (`COMP-nnn`) |
+| [`repository-deployment/findings.md`](repository-deployment/findings.md) | Stage B findings registry (`DEPLOY-nnn`) |
 
-The `findings.md` files under `repository-compatibility/` and
-`repository-deployment/` are living registries that tests and harnesses
-reference by id; the `runs/summary.md` files are generated by the harnesses.
+The `findings.md` files above are living registries that tests and
+harnesses reference by id; the `runs/summary.md` files under
+`repository-compatibility/` and `repository-deployment/` are generated by
+the harnesses, not written by hand.

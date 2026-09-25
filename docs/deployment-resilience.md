@@ -2,8 +2,8 @@
 
 How Deployz keeps deployments from becoming duplicated, stuck, misreported,
 or unrecoverable. **Read this before changing deployment/job/relay logic.**
-For the test harness, see `docs/testing/e2e-testing.md` and
-`docs/testing/e2e-scenarios.md`; for diagnosing a live deployment, see
+For the test harness, see `docs/testing/simulated-e2e.md`; for diagnosing
+a live deployment, see
 `docs/operations/troubleshooting.md`; for the surrounding architecture, see
 `docs/architecture.md`.
 
@@ -287,10 +287,10 @@ the same way the uncertain-result rule keeps reconciliation honest.
   `packages/relay/src/*.test.ts`.
 - Real AWS, end to end (release build → install → deploy → rollback → failed
   release → recovery → destroy → purge → leak audit): the version canary,
-  `docs/testing/version-rollback-canary.md` — the MVP release gate, with the
+  `docs/testing/aws-e2e.md` — the MVP release gate, with the
   product semantics it enforces (serving release, last successful release,
   latest attempt, rollback, persistent data) in one table.
 - End-to-end failure boundaries: the simulated scenario suite
-  (`docs/testing/e2e-scenarios.md`) — including `duplicate-request`,
+  (`docs/testing/simulated-e2e.md`) — including `duplicate-request`,
   `transient-aws`, and `relay-death-destroy` in
   `e2e/scenario-resilience.spec.ts`.

@@ -1,6 +1,6 @@
 /**
  * Fresh E2E — a hardened wrapper around the create/destroy bootstrap golden
- * path (docs/testing/e2e-testing.md D5): deploy →
+ * path (docs/testing/simulated-e2e.md D5): deploy →
  * verify relay Active + tags → destroy → verify gone.
  *
  * Gated on `DEPLOYZ_E2E_MODE === 'fresh'` AND
@@ -26,8 +26,8 @@
  *     canary applies before touching AWS.
  *
  * Redis/application provisioning is NOT part of fresh's default run — the
- * version canary's `profile --profile redis` (docs/testing/
- * version-rollback-canary.md) certifies that shape for real, through the
+ * version canary's `profile --profile redis` (docs/testing/aws-e2e.md)
+ * certifies that shape for real, through the
  * product's own install path. Cleanup here only ever targets the exact
  * stack name this run minted — never a broad or account-wide deletion.
  */

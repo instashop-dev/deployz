@@ -52,7 +52,7 @@ import { BENCHMARK_INSTALLATION_TOKEN, createSnapshotFetch, resolveGithubToken }
 
 const here = dirname(fileURLToPath(import.meta.url));
 export const REPO_ROOT = resolve(here, '..', '..');
-export const EVAL_DIR = join(REPO_ROOT, 'docs', 'testing', 'jev-shadow');
+export const EVAL_DIR = here;
 export const RUNS_DIR = join(EVAL_DIR, 'runs');
 export const FAILURE_RUNS_DIR = join(RUNS_DIR, 'failures');
 export const DEPLOYMENT_RUNS_DIR = join(REPO_ROOT, 'docs', 'testing', 'repository-deployment', 'runs');
