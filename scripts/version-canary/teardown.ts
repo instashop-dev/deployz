@@ -26,6 +26,7 @@ import {
   deleteTaskDefinitions,
   liveInstallationCache,
   liveStackElbResources,
+  resourceStillExists,
   type InstallationSecret,
   type LeakAudit,
 } from './aws.js';
@@ -524,9 +525,17 @@ export async function leakAudit(canary: Canary): Promise<LeakAudit> {
           !arn.includes(':natgateway/'),
       ),
     ];
-    details['disposableLeft'] = disposable;
-    if (disposable.length > 0) {
-      throw new Error(`${disposable.length} resource(s) left after teardown:\n${disposable.join('\n')}`);
+    // The tagging index keeps a deleted resource listed for a while (two
+    // purged subnets on 2026-09-25, run 20260925-081011-a452), so every ARN
+    // is confirmed against its own service before it counts as a leak.
+    const left: string[] = [];
+    for (const entry of disposable) {
+      if (entry.startsWith('arn:') && !(await resourceStillExists(config.region, entry))) continue;
+      left.push(entry);
+    }
+    details['disposableLeft'] = left;
+    if (left.length > 0) {
+      throw new Error(`${left.length} resource(s) left after teardown:\n${left.join('\n')}`);
     }
     return audit;
   });
