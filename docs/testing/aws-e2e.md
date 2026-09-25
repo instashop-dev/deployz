@@ -111,7 +111,10 @@ auto-deploys the newest READY release, so v2/v3/v4 are only built once the
 - **Fixture A — the stateless profile** (`profile --profile stateless`):
   install, deploy, verify, teardown, no database. The fastest full-lifecycle
   proof; used for the production canary (L6) and as the default escalation
-  for most relay/CDK changes.
+  for most relay/CDK changes. The analysis persists the fixture's `migrate`
+  script as the application's migration command; a profile without
+  PostgreSQL clears it after the analysis settles, because the manifest gate
+  refuses a migration command without a database.
 - **Fixture B — the `core` ladder** (`pnpm e2e:canary:versions core`): the
   full release/rollback/failed-release/recovery/persistence/cleanup
   lifecycle described below, under the legacy PostgreSQL+Redis shape.
