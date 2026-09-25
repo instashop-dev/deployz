@@ -75,6 +75,11 @@ export default defineConfig({
         // asserts the shape of the link built from it.
         BOOTSTRAP_TEMPLATE_URL:
           'https://deployz-templates.s3.us-east-1.amazonaws.com/bootstrap/v1/bootstrap-template-v1.json',
+        // A stand-in for the GitHub App's install page, so "Manage GitHub
+        // access" renders deterministically in E2E even when the developer's
+        // (or CI's) shell has no real value configured.
+        GITHUB_APP_INSTALL_URL:
+          process.env.GITHUB_APP_INSTALL_URL ?? 'https://github.com/apps/deployz-e2e-fixture',
         // Team Admin env-grant allowlist (docs/admin/team-admin.md): any
         // signed-up account under this test-only domain is a team admin, so
         // e2e/admin.spec.ts can mint admin accounts by email alone.

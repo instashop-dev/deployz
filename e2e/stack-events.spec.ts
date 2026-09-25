@@ -248,15 +248,16 @@ test('progress events: a batch ingest shows one active phase, expands to raw eve
   await expect(page.getByText('PublicSubnet1')).toBeVisible();
   await expect(page.getByText('ApplicationDatabase')).toBeVisible();
 
-  // ── 3. Customer install page: the existing step timeline reflects the
-  // same ingested NETWORK progress (not just the coarse PROVISIONING
-  // heading — see the 'Creating database & storage' idiom at
-  // deployment-progress.spec.ts:279), and no raw AWS jargon anywhere.
+  // ── 3. Customer install page: the stepper reflects the same ingested
+  // NETWORK progress (not just the coarse PROVISIONING heading). Its rung
+  // labels are static — "Network ready" — and the state is the sr-only
+  // suffix, so the in-progress network rung reads "Network ready (in
+  // progress)". No raw AWS jargon anywhere.
   await page.goto(`/install/${installLinkId}`);
   await expect(
     page.getByRole('heading', { name: 'Creating application infrastructure' }),
   ).toBeVisible();
-  await expect(page.getByText('Creating network')).toBeVisible();
+  await expect(page.getByText('Network ready (in progress)')).toBeVisible();
   const installPageText = await page.locator('body').innerText();
   expect(installPageText).not.toMatch(JARGON);
 
@@ -292,7 +293,7 @@ test('progress events: a batch ingest shows one active phase, expands to raw eve
   ).toBeVisible();
 });
 
-test('failure path: a genuine CREATE_FAILED stack event stays vendor-only while the customer sees the friendly failure', async ({
+test('failure path: a genuine CREATE_FAILED stack event stays behind the technical disclosures while the customer sees the friendly failure', async ({
   page,
 }) => {
   const suffix = crypto.randomUUID().slice(0, 8);
@@ -344,8 +345,10 @@ test('failure path: a genuine CREATE_FAILED stack event stays vendor-only while 
   const bodyText = await page.locator('body').innerText();
   expect(bodyText).not.toMatch(JARGON);
   await expect(page.getByText('ROLLBACK_COMPLETE', { exact: true })).toHaveCount(0);
-  const html = await page.content();
-  expect(html).not.toContain(rawReason);
+  // The raw CloudFormation reason reaches the customer page only inside the
+  // live-activity feed's collapsed "View raw AWS events" disclosure (and the
+  // feed is hidden on a terminal stage), so it is never visible here.
+  await expect(page.getByText(rawReason)).toBeHidden();
 
   // Technical details are collapsed by default. §65 keeps the raw
   // CloudFormation enum off the customer surface even when expanded — the

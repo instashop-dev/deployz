@@ -167,6 +167,7 @@ test('search filters by name, by email and by company, and says so when nothing 
 test('the customer name opens the customer page, which shows the install link', async ({
   page,
 }) => {
+  await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
   await signUp(page);
   const customer = await seedCustomer(page, { company: 'Acme Holdings' });
   const applicationId = await seedApplication(page);
@@ -179,9 +180,9 @@ test('the customer name opens the customer page, which shows the install link', 
   await expect(page.getByRole('heading', { name: customer.name })).toBeVisible();
   await expect(page.getByText(customer.email)).toBeVisible();
   await expect(page.getByText('Acme Holdings')).toBeVisible();
-  await expect(page.getByTestId('customer-install-link')).toContainText(
-    `/install/${deployment.installLinkId}`,
-  );
+  await page.getByRole('button', { name: 'Copy customer link' }).click();
+  const clipboardText = await page.evaluate(() => navigator.clipboard.readText());
+  expect(clipboardText).toBe(`${new URL(page.url()).origin}/install/${deployment.installLinkId}`);
   await expect(page.getByRole('link', { name: 'View deployment' })).toHaveAttribute(
     'href',
     `/dashboard/deployments/${deployment.id}`,
@@ -195,15 +196,16 @@ test('the customer name opens the customer page, which shows the install link', 
 test('editing name, email and company leaves the install link, the deployment and the customer id untouched', async ({
   page,
 }) => {
+  await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
   await signUp(page);
   const customer = await seedCustomer(page);
   const applicationId = await seedApplication(page);
   const deployment = await seedDeployment(page, applicationId, customer.id);
 
   await page.goto(`/dashboard/customers/${customer.id}`);
-  await expect(page.getByTestId('customer-install-link')).toContainText(
-    `/install/${deployment.installLinkId}`,
-  );
+  await page.getByRole('button', { name: 'Copy customer link' }).click();
+  const installLink = `${new URL(page.url()).origin}/install/${deployment.installLinkId}`;
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(installLink);
 
   await page.getByRole('button', { name: 'Edit customer' }).click();
   const dialog = page.getByTestId('edit-customer-dialog');
@@ -242,9 +244,8 @@ test('editing name, email and company leaves the install link, the deployment an
   expect(detail.installLinkId).toBe(deployment.installLinkId);
   expect(detail.state).toBe('NOT_INSTALLED');
 
-  await expect(page.getByTestId('customer-install-link')).toContainText(
-    `/install/${deployment.installLinkId}`,
-  );
+  await page.getByRole('button', { name: 'Copy customer link' }).click();
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(installLink);
 });
 
 test('the row menu only offers what the row supports, and a customer with a deployment cannot be deleted', async ({
@@ -260,19 +261,17 @@ test('the row menu only offers what the row supports, and a customer with a depl
   const list = page.getByTestId('customer-list');
   await expect(list).toBeVisible();
 
-  // A customer with no deployment has no install link to copy and no
-  // deployment to view, but can be removed.
+  // A customer with no deployment has no deployment to view, but can be
+  // removed.
   await page.getByRole('button', { name: `Actions for ${withoutDeployment.name}` }).click();
-  await expect(page.getByRole('menuitem', { name: 'Copy install link' })).toHaveCount(0);
   await expect(page.getByRole('menuitem', { name: 'View deployment' })).toHaveCount(0);
   await expect(page.getByRole('menuitem', { name: 'Edit customer' })).toBeVisible();
   await expect(page.getByRole('menuitem', { name: 'Delete customer' })).toBeVisible();
   await page.keyboard.press('Escape');
 
-  // A customer with a deployment gets the install link and the deployment,
-  // and is not offered a delete the API would refuse.
+  // A customer with a deployment gets the deployment link, and is not
+  // offered a delete the API would refuse.
   await page.getByRole('button', { name: `Actions for ${withDeployment.name}` }).click();
-  await expect(page.getByRole('menuitem', { name: 'Copy install link' })).toBeVisible();
   await expect(page.getByRole('menuitem', { name: 'View deployment' })).toBeVisible();
   await expect(page.getByRole('menuitem', { name: 'Delete customer' })).toHaveCount(0);
   await page.keyboard.press('Escape');
