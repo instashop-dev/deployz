@@ -8,13 +8,14 @@
 name: Deploy web
 
 on:
-  push:
+  # After the CI workflow succeeds for a push to main (a pull-request CI run
+  # has the PR branch as head_branch and is filtered out). The gate job
+  # below checks the commit is still the tip of main and touches a runtime
+  # dependency of the web app before anything deploys.
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
     branches: [main]
-    paths:
-      - 'apps/web/**'
-      - 'packages/copy-map/**'
-      - 'pnpm-lock.yaml'
-      - '.github/workflows/deploy-web.yml'
   workflow_dispatch:
     inputs:
       service_name:
@@ -46,12 +47,84 @@ env:
   APP_HOST: ${{ inputs.app_host || 'app.deployz.dev' }}
 
 jobs:
-  deploy:
-    name: Build and deploy to Lightsail
+  # Deploys only a commit that CI has proven on main, and only while it is
+  # still the tip of main (an older run must not deploy over a newer one).
+  # The path filter is the runtime dependency closure of the service, so a
+  # change to a package it bundles redeploys it even when nothing under its
+  # own directory changed. A manual run always deploys the checked-out ref.
+  gate:
+    name: Check the commit
     runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    outputs:
+      deploy: ${{ steps.decide.outputs.deploy }}
+      sha: ${{ steps.decide.outputs.sha }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+          fetch-depth: 0
+
+      - name: Decide
+        id: decide
+        env:
+          SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+          MANUAL: ${{ github.event_name == 'workflow_dispatch' }}
+          PATHS: apps/web/* packages/copy-map/* packages/contracts/* pnpm-lock.yaml .github/workflows/deploy-web.yml
+        run: |
+          set -euo pipefail
+          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+          if [ "$MANUAL" = "true" ]; then
+            echo "deploy=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          tip=$(git rev-parse origin/main)
+          if [ "$tip" != "$SHA" ]; then
+            echo "::notice::$SHA is no longer the tip of main ($tip); the newer run deploys everything since the last deploy."
+            echo "deploy=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # Compare against the last successful deploy (the deployed/web tag),
+          # so a change whose own run was skipped is picked up by the next
+          # one. Without the tag (first run) the commit's own diff decides.
+          if git fetch -q origin "refs/tags/deployed/web:refs/tags/deployed/web" 2>/dev/null; then
+            base=$(git rev-parse "refs/tags/deployed/web")
+          else
+            echo "::notice::No deployed/web tag yet; deploying this commit."
+            echo "deploy=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "Comparing $base..$SHA"
+          changed=$(git diff --name-only "$base" "$SHA")
+          match=false
+          for f in $changed; do
+            for p in $PATHS; do
+              case "$f" in $p) match=true ;; esac
+            done
+          done
+          if [ "$match" = "true" ]; then
+            echo "deploy=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice::No file in the deploy path set changed in $SHA; nothing to deploy."
+            echo "deploy=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  deploy:
+    name: Build and deploy to Lightsail
+    needs: gate
+    if: needs.gate.outputs.deploy == 'true'
+    runs-on: ubuntu-latest
+    # contents: write moves the deployed/web tag after a successful deploy.
+    permissions:
+      contents: write
+    env:
+      DEPLOY_SHA: ${{ needs.gate.outputs.sha }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.gate.outputs.sha }}
 
       # push-container-image is an AWS CLI *plugin*, not a built-in
       # subcommand. Without lightsailctl on PATH it fails with an opaque
@@ -101,7 +174,7 @@ jobs:
             --build-arg "NEXT_PUBLIC_APP_HOST=$APP_HOST" \
             --build-arg "NEXT_PUBLIC_MARKETING_HOST=$MARKETING_HOST" \
             --build-arg "NEXT_PUBLIC_SITE_URL=https://$MARKETING_HOST" \
-            -t "deployz-web:${GITHUB_SHA}" .
+            -t "deployz-web:${DEPLOY_SHA}" .
 
       - name: Push the image to Lightsail
         run: |
@@ -109,7 +182,7 @@ jobs:
           aws lightsail push-container-image \
             --service-name "$SERVICE" \
             --label web \
-            --image "deployz-web:${GITHUB_SHA}"
+            --image "deployz-web:${DEPLOY_SHA}"
 
       # A deployment spec cannot reference a local docker tag. It has to use
       # the reference Lightsail assigned on push — ":<service>.web.<N>", where
@@ -184,6 +257,27 @@ jobs:
           done
           echo "Deployment did not become ACTIVE in time" >&2
           exit 1
+
+      # Lightsail's own health check answers on the service URL; this is the
+      # public hostname vendors use.
+      - name: Verify the public dashboard answers
+        run: |
+          set -euo pipefail
+          for _ in $(seq 1 20); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 "https://$APP_HOST/healthz" || true)
+            echo "dashboard: $code"
+            if [ "$code" = "200" ]; then exit 0; fi
+            sleep 15
+          done
+          echo "https://$APP_HOST/healthz did not return 200 after deploying" >&2
+          exit 1
+
+      # The gate job compares the next commit against this tag.
+      - name: Record the deployed commit
+        run: |
+          set -euo pipefail
+          git tag -f deployed/web "$DEPLOY_SHA"
+          git push -f origin refs/tags/deployed/web
 
       - name: Report the service URL
         run: |
