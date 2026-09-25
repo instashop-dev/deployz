@@ -81,6 +81,8 @@ export interface DeploymentDetail {
   cleanupState: string | null;
   runningImageDigest: string | null;
   appUrl: string | null;
+  /** The permanent `d-<id>.deployz.dev` address (`scripts/repository-deployment/deploy.ts`'s "Default HTTPS becomes ACTIVE" step uses the same shape). */
+  defaultHttps?: { status?: string; hostname?: string; lastError?: string | null } | null;
   jobs: DeploymentJob[];
   deploymentStatus: {
     stage: string;
@@ -294,6 +296,18 @@ export class ControlPlane {
       `/api/applications/${applicationId}/releases`,
     );
     return body.releases;
+  }
+
+  /** Whatever the control plane exposes about a FAILED release's CodeBuild
+   * build — build-log status and the extracted evidence, never the raw log
+   * lines (apps/api/src/release-build-failure.ts). 404s (not FAILED, or the
+   * build/application does not exist) surface as a thrown ControlPlaneError. */
+  async buildFailure(applicationId: string, releaseId: string): Promise<Record<string, unknown>> {
+    const { body } = await this.request<Record<string, unknown>>(
+      'GET',
+      `/api/applications/${applicationId}/releases/${releaseId}/build-failure`,
+    );
+    return body;
   }
 
   // ── Customers and deployments ───────────────────────────────────────────

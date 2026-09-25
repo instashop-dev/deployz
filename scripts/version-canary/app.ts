@@ -101,6 +101,26 @@ export async function writeMarker(baseUrl: string, key: string, value: string): 
   return body;
 }
 
+export interface UrlProbe {
+  readonly status: number | null;
+  readonly error?: string;
+}
+
+/** One GET, status-only — no transport retry (the caller decides how many
+ * times and how long to keep polling, e.g. `waitForDefaultHttpsActive`). */
+export async function probeUrl(url: string, timeoutMs = 15_000): Promise<UrlProbe> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch(url, { signal: controller.signal, redirect: 'manual' });
+    return { status: response.status };
+  } catch (error) {
+    return { status: null, error: String(error) };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 export async function readMarker(baseUrl: string, key: string): Promise<Record<string, unknown> | null> {
   const response = await fetchWithTimeout(`${baseUrl}/canary/markers/${encodeURIComponent(key)}`);
   if (response.status === 404) return null;

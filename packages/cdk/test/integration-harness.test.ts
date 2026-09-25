@@ -135,7 +135,7 @@ function scpDenial(action: string): Error {
 describe('createAwsClients (real SDK-backed)', () => {
   // Real-SDK proof needs real AWS credentials. PR CI carries none by design
   // (.github/workflows/ci.yml), so this proof runs only where real AWS is
-  // explicitly opted in — the same gate as test/canary-e2e.live.test.ts.
+  // explicitly opted in — the same gate as test/fresh-e2e.live.test.ts.
   it.skipIf(process.env.DEPLOYZ_E2E_ALLOW_REAL_AWS !== '1')('resolves a live identity when credentials are present (real SDK proof)', async () => {
     const clients = createAwsClients();
 

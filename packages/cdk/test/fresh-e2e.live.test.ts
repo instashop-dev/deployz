@@ -8,7 +8,7 @@
  * spawning this suite (`pnpm e2e:fresh`); a direct `vitest run` must set
  * them by hand.
  *
- * Hardening over golden-path-live-aws.test.ts's Block A (per D5):
+ * Hardening over the retired golden-path-live-aws.test.ts's Block A (per D5):
  *   - a per-run unique bootstrap stack name (`deployz-fresh-<runid>`,
  *     consumed by bin/bootstrap.ts's DEPLOYZ_BOOTSTRAP_STACK_NAME override)
  *     instead of the fixed `DeployzBootstrap` name, so concurrent or
@@ -19,33 +19,68 @@
  *     `CleanupRegistry`/`runWithTeardown`, so an assertion failing mid-suite
  *     still tears the stack down — not just "the teardown `it` happens to
  *     run last";
- *   - test-identifying tags (`DeployzTestMode=fresh`, `DeployzEnvironment=e2e`)
- *     applied at `cdk deploy` time.
+ *   - test-identifying tags applied at `cdk deploy` time, the same set the
+ *     version canary uses (`DeployzTestMode=fresh`, `DeployzCanaryRun=<runId>`,
+ *     `DeployzEnvironment=e2e`, plus `DeployzCommit=<sha>` when resolvable);
+ *   - the same `DEPLOYZ_CANARY_EXPECTED_ACCOUNT` account guard the version
+ *     canary applies before touching AWS.
  *
- * The Redis/application provisioning block is NOT part of fresh's default
- * run — see golden-path-live-aws.test.ts's "live AWS Redis cache
- * provisioning" describe block (gated on `DEPLOYZ_LIVE_AWS=1`) for that.
- * Cleanup here only ever targets the exact stack name this run minted —
- * never a broad or account-wide deletion.
+ * Redis/application provisioning is NOT part of fresh's default run — the
+ * version canary's `profile --profile redis` (docs/testing/
+ * version-rollback-canary.md) certifies that shape for real, through the
+ * product's own install path. Cleanup here only ever targets the exact
+ * stack name this run minted — never a broad or account-wide deletion.
  */
+import { execFileSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { CleanupRegistry, runWithTeardown } from '../src/integration/teardown.js';
 import { createAwsClients } from '../src/integration/aws-clients.js';
-import { REGION, awsCli, cdk, isRealAwsModeActive, waitForStackGone } from './live-aws-helpers.js';
+import {
+  REGION,
+  assertExpectedAccount,
+  awsCli,
+  cdk,
+  expectedAccountId,
+  isRealAwsModeActive,
+  waitForStackGone,
+} from './live-aws-helpers.js';
 
 const APP_CMD = 'tsx bin/bootstrap.ts';
 const STACK_NAME_ENV = 'DEPLOYZ_BOOTSTRAP_STACK_NAME';
 
-/** Short random id minted once per suite run — printed for postmortems. */
-export function mintRunId(): string {
-  return randomBytes(4).toString('hex');
+/**
+ * Minted once per suite run — printed for postmortems, used for the stack
+ * name and the `DeployzCanaryRun` tag below. The same sortable
+ * `YYYYMMDD-HHMMSS-xxxx` format `scripts/version-canary/config.ts#mintRunId`
+ * uses, so a fresh run and a canary run read the same way in the AWS
+ * console and in `resourcegroupstaggingapi` output.
+ */
+export function mintRunId(now: Date = new Date()): string {
+  const stamp = now
+    .toISOString()
+    .replace(/[-:]/g, '')
+    .replace(/\.\d{3}Z$/, '')
+    .replace('T', '-');
+  return `${stamp}-${randomBytes(2).toString('hex')}`;
 }
 
 export function freshStackName(runId: string): string {
   return `deployz-fresh-${runId}`;
+}
+
+/** The current commit SHA, when resolvable — `GITHUB_SHA` in CI, else `git
+ * rev-parse HEAD` locally. `null` (never a placeholder) when neither works,
+ * so the caller can omit the `DeployzCommit` tag entirely. */
+export function currentCommitSha(env: NodeJS.ProcessEnv = process.env): string | null {
+  if (env['GITHUB_SHA']) return env['GITHUB_SHA'];
+  try {
+    return execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -92,8 +127,9 @@ describe('fresh gate predicate (fake path — no AWS)', () => {
 });
 
 describe('mintRunId / freshStackName (fake path — no AWS)', () => {
-  it('mints an 8-hex-char id', () => {
-    expect(mintRunId()).toMatch(/^[0-9a-f]{8}$/);
+  it('mints the canary\'s sortable run-id format', () => {
+    const id = mintRunId(new Date('2026-09-24T09:45:00.123Z'));
+    expect(id).toMatch(/^20260924-094500-[0-9a-f]{4}$/);
   });
 
   it('mints distinct ids across calls', () => {
@@ -101,7 +137,16 @@ describe('mintRunId / freshStackName (fake path — no AWS)', () => {
   });
 
   it('names the stack deployz-fresh-<runid>', () => {
-    expect(freshStackName('abcd1234')).toBe('deployz-fresh-abcd1234');
+    expect(freshStackName('20260924-094500-abcd')).toBe('deployz-fresh-20260924-094500-abcd');
+  });
+
+  it('currentCommitSha prefers GITHUB_SHA over the local git checkout', () => {
+    expect(currentCommitSha({ GITHUB_SHA: 'deadbeef' })).toBe('deadbeef');
+  });
+
+  it('currentCommitSha falls back to `git rev-parse HEAD` and resolves a real commit', () => {
+    const sha = currentCommitSha({});
+    expect(sha).toMatch(/^[0-9a-f]{40}$/);
   });
 });
 
@@ -144,6 +189,21 @@ describe('bin/bootstrap.ts — DEPLOYZ_BOOTSTRAP_STACK_NAME override (fake path 
     vi.resetModules();
     const { stack } = await import('../bin/bootstrap.js');
     expect(stack.stackName).toBe('deployz-fresh-testoverride');
+  });
+});
+
+describe('account guard (fake path — no AWS)', () => {
+  it('defaults to the test account, overridable by env', () => {
+    expect(expectedAccountId({})).toBe('151955775369');
+    expect(expectedAccountId({ DEPLOYZ_CANARY_EXPECTED_ACCOUNT: '999999999999' })).toBe('999999999999');
+  });
+
+  it('passes for the expected account and refuses any other', () => {
+    expect(() => assertExpectedAccount('151955775369', '151955775369')).not.toThrow();
+    expect(() => assertExpectedAccount('999999999999', '151955775369')).toThrow(
+      'AWS account 999999999999 is not the expected test account 151955775369 — refusing to run',
+    );
+    expect(() => assertExpectedAccount(undefined, '151955775369')).toThrow('AWS account unknown is not the expected');
   });
 });
 
@@ -211,6 +271,13 @@ freshDescribe('fresh — hardened bootstrap create/destroy golden path', () => {
   // stays gitignored; the CLI's reader lock is per output directory.
   const outDir = `cdk.out/fresh-${runId}`;
 
+  // A failing `it` would not stop the later tests from deploying, so the
+  // account guard is a hook: a foreign account fails the whole suite here.
+  beforeAll(async () => {
+    const identity = await aws.sts.getCallerIdentity();
+    assertExpectedAccount(identity.account);
+  });
+
   it('preflight: the minted stack name does not already exist', async () => {
     console.log(`[fresh-e2e] run id ${runId} — stack name "${stackName}" — region ${REGION}`);
     await refuseIfStackExists(aws.cloudFormation, stackName, REGION);
@@ -220,6 +287,8 @@ freshDescribe('fresh — hardened bootstrap create/destroy golden path', () => {
     'deploy -> verify relay Active + tags -> destroy -> verify gone',
     async () => {
       const registry = new CleanupRegistry();
+
+      const commitSha = currentCommitSha();
 
       await runWithTeardown(registry, async () => {
         await cdk(
@@ -234,7 +303,10 @@ freshDescribe('fresh — hardened bootstrap create/destroy golden path', () => {
             '--tags',
             'DeployzTestMode=fresh',
             '--tags',
+            `DeployzCanaryRun=${runId}`,
+            '--tags',
             'DeployzEnvironment=e2e',
+            ...(commitSha ? ['--tags', `DeployzCommit=${commitSha}`] : []),
           ],
           { [STACK_NAME_ENV]: stackName },
         );

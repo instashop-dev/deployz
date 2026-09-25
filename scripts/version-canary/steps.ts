@@ -9,11 +9,13 @@
  * assertion throws with the facts in the message.
  */
 import { execFileSync } from 'node:child_process';
+import { randomBytes } from 'node:crypto';
 import { resolve } from 'node:path';
 
 import { applicationStackNameForInstallation, parseApplicationTemplateUrl, releaseImageTag } from '@deployz/contracts';
 
-import { probeLiveApp, readMarker, sampleLiveApp, writeMarker } from './app.js';
+import { probeLiveApp, probeUrl, readMarker, sampleLiveApp, writeMarker } from './app.js';
+import { withDiagnosticsOnFailure } from './diagnostics.js';
 import {
   albDnsName,
   callerIdentity,
@@ -73,8 +75,18 @@ export async function preflight(canary: Canary): Promise<void> {
     details['region'] = config.region;
 
     const health = await fetch(`${config.apiUrl}/health`);
-    details['controlPlaneHealth'] = health.status;
     assert(health.status === 200, `control plane ${config.apiUrl}/health answered ${health.status}`);
+    const healthBody: unknown = await health.json().catch(() => null);
+    const ready = await fetch(`${config.apiUrl}/health/ready`);
+    const readyBody: unknown = await ready.json().catch(() => null);
+    // Whatever these endpoints expose today (apps/api/src/server.ts): no
+    // commit/version field exists yet, so this records the full body rather
+    // than a field that would silently be undefined. Recorded in run.json
+    // (not just this step's own evidence file) so a production-canary run
+    // keeps which control-plane response it saw.
+    evidence.run.controlPlaneHealth = { health: { status: health.status, body: healthBody }, ready: { status: ready.status, body: readyBody } };
+    evidence.save();
+    details['controlPlaneHealth'] = evidence.run.controlPlaneHealth;
 
     const bucket = await templateBucketName(config.region);
     details['templateBucket'] = bucket;
@@ -130,9 +142,10 @@ export async function setUpVendorAndApplication(canary: Canary): Promise<string>
   const requirements = applicationRequirements(config.profile);
   const applicationId = await evidence.step('Vendor sign-up, GitHub binding, application', async (details) => {
     const email = `canary-${config.runId.toLowerCase()}@deployz-canary.example.com`;
-    const password = `Canary-${config.runId}-${Math.random().toString(36).slice(2, 10)}`;
+    const password = `Canary-${config.runId}-${randomBytes(9).toString('base64url')}`;
     await api.signUp({ name: `Canary ${config.runId}`, email, password });
-    evidence.run.vendor = { email, password };
+    evidence.run.vendor = { email };
+    evidence.saveCredentials(email, password);
     details['vendorEmail'] = email;
 
     await api.bindGithubInstallation(config.githubInstallationId);
@@ -323,8 +336,14 @@ export async function createDeploymentAndInstall(canary: Canary): Promise<string
   const { config, evidence, api } = canary;
   const applicationId = evidence.run.applicationId;
   assert(applicationId, 'no application yet');
-  const templateUrl = evidence.run.canaryTemplateUrl;
-  assert(templateUrl, 'no canary application template yet');
+  // Production-canary mode (config.production): install with whatever
+  // template production already published — no synth-from-checkout, no
+  // ApplicationTemplateUrl override, exactly what a customer's Quick Create
+  // would use. The default (branch-testing) mode keeps the override so a
+  // run proves the checkout's template, and requires one to have been
+  // published by publishCanaryTemplate.
+  const templateUrl = config.production ? null : evidence.run.canaryTemplateUrl;
+  assert(config.production || templateUrl, 'no canary application template yet');
 
   const deploymentId = await evidence.step('Create customer deployment and launch the install', async (details) => {
     const customer = await api.createCustomer({
@@ -342,18 +361,21 @@ export async function createDeploymentAndInstall(canary: Canary): Promise<string
     assert(info.quickCreateUrl, 'install link carries no Quick Create URL (bootstrap template unpublished?)');
     const quick = parseQuickCreateUrl(info.quickCreateUrl);
     details['quickCreate'] = { templateUrl: quick.templateUrl, stackName: quick.stackName, parameters: Object.keys(quick.parameters) };
+    details['production'] = config.production;
 
     // What the browser does when the customer presses "Deploy to AWS".
     const launched = await api.markInstallLaunched(deployment.installLinkId);
     assert(launched.state === 'WAITING_FOR_RELAY', `launched -> ${launched.state}`);
 
-    // What the customer's console does on "Create stack" — plus the canary
-    // template override (the bootstrap template's ApplicationTemplateUrl
-    // parameter) and the canary tags.
+    // What the customer's console does on "Create stack". Production mode
+    // passes the Quick Create parameters through unchanged — the production
+    // template stays production's, never overridden. Branch-testing mode
+    // overrides ApplicationTemplateUrl to the canary template published
+    // above, plus the canary tags either way.
     const stackId = await createBootstrapStack(config.region, {
       stackName: quick.stackName,
       templateUrl: quick.templateUrl,
-      parameters: { ...quick.parameters, ApplicationTemplateUrl: templateUrl },
+      parameters: templateUrl ? { ...quick.parameters, ApplicationTemplateUrl: templateUrl } : quick.parameters,
       runId: config.runId,
     });
     evidence.run.bootstrapStackName = quick.stackName;
@@ -391,49 +413,90 @@ export async function createDeploymentAndInstall(canary: Canary): Promise<string
     assert(enrolled.installationId === installationId, `control plane bound installation ${enrolled.installationId}`);
   });
 
-  await evidence.step('Install reaches HEALTHY with a verified runtime', async (details) => {
-    const detail = await waitFor(
-      'install',
-      () => api.getDeployment(deploymentId),
-      (d) => (d.state === 'HEALTHY' || d.state === 'UPDATE_AVAILABLE' || d.state === 'FAILED' ? d : null),
-      { timeoutMs: 45 * MINUTE, describe: describeDeployment },
-    );
-    details['deployment'] = summarizeDeployment(detail);
-    assert(detail.state !== 'FAILED', `install FAILED: ${JSON.stringify(detail.deploymentStatus.failure)}`);
-    const installJob = detail.jobs.find((j) => j.type === 'INSTALL');
-    assert(installJob && (installJob.state === 'SUCCEEDED' || installJob.state === 'SUCCESS'), 'INSTALL job not settled successfully');
-    recordJob(canary, installJob.id, 'INSTALL');
+  await evidence.step('Install reaches HEALTHY with a verified runtime', async (details) =>
+    withDiagnosticsOnFailure(canary, details, async () => {
+      const detail = await waitFor(
+        'install',
+        () => api.getDeployment(deploymentId),
+        (d) => (d.state === 'HEALTHY' || d.state === 'UPDATE_AVAILABLE' || d.state === 'FAILED' ? d : null),
+        { timeoutMs: 45 * MINUTE, describe: describeDeployment },
+      );
+      details['deployment'] = summarizeDeployment(detail);
+      assert(detail.state !== 'FAILED', `install FAILED: ${JSON.stringify(detail.deploymentStatus.failure)}`);
+      const installJob = detail.jobs.find((j) => j.type === 'INSTALL');
+      assert(installJob && (installJob.state === 'SUCCEEDED' || installJob.state === 'SUCCESS'), 'INSTALL job not settled successfully');
+      recordJob(canary, installJob.id, 'INSTALL');
 
-    const appStack = await describeStack(config.region, evidence.run.applicationStackName!);
-    assert(appStack?.status === 'CREATE_COMPLETE', `application stack ${appStack?.status ?? 'absent'}`);
-    details['applicationStackStatus'] = appStack.status;
-    const alb = await albDnsName(config.region, evidence.run.applicationStackName!);
-    assert(alb, 'application stack has no load balancer');
-    evidence.run.albEndpoint = `http://${alb}`;
-    evidence.save();
-    details['albEndpoint'] = evidence.run.albEndpoint;
-    details['apiAppUrl'] = detail.appUrl;
+      const appStack = await describeStack(config.region, evidence.run.applicationStackName!);
+      assert(appStack?.status === 'CREATE_COMPLETE', `application stack ${appStack?.status ?? 'absent'}`);
+      details['applicationStackStatus'] = appStack.status;
+      const alb = await albDnsName(config.region, evidence.run.applicationStackName!);
+      assert(alb, 'application stack has no load balancer');
+      evidence.run.albEndpoint = `http://${alb}`;
+      evidence.save();
+      details['albEndpoint'] = evidence.run.albEndpoint;
+      details['apiAppUrl'] = detail.appUrl;
 
-    // Plan-vs-inventory: at HEALTHY the manifest's required components and
-    // the relay's persisted inventory must agree — logical presence only;
-    // raw resource counts stay snapshotInfrastructure's job. The snapshot can
-    // land moments after the state flips, so give it a bounded settle.
-    const inventory = await waitFor(
-      'infrastructure expectations',
-      () => api.infrastructure(deploymentId),
-      (i) => (i.expectations && i.expectations.missing.length === 0 && i.expectations.unexpected.length === 0 ? i : null),
-      {
-        timeoutMs: 5 * MINUTE,
-        describe: (i) =>
-          i.expectations
-            ? `missing=[${i.expectations.missing.join(',')}] unexpected=[${i.expectations.unexpected.join(',')}] (${i.snapshotState})`
-            : 'no expectations yet',
-      },
-    );
-    details['infrastructure'] = { snapshotState: inventory.snapshotState, expectations: inventory.expectations };
-  });
+      // Plan-vs-inventory: at HEALTHY the manifest's required components and
+      // the relay's persisted inventory must agree — logical presence only;
+      // raw resource counts stay snapshotInfrastructure's job. The snapshot can
+      // land moments after the state flips, so give it a bounded settle.
+      const inventory = await waitFor(
+        'infrastructure expectations',
+        () => api.infrastructure(deploymentId),
+        (i) => (i.expectations && i.expectations.missing.length === 0 && i.expectations.unexpected.length === 0 ? i : null),
+        {
+          timeoutMs: 5 * MINUTE,
+          describe: (i) =>
+            i.expectations
+              ? `missing=[${i.expectations.missing.join(',')}] unexpected=[${i.expectations.unexpected.join(',')}] (${i.snapshotState})`
+              : 'no expectations yet',
+        },
+      );
+      details['infrastructure'] = { snapshotState: inventory.snapshotState, expectations: inventory.expectations };
+    }),
+  );
 
   return deploymentId;
+}
+
+/**
+ * Default HTTPS reaches ACTIVE and the health path answers below 500
+ * through it — ported from `scripts/repository-deployment/deploy.ts`'s
+ * "Default HTTPS becomes ACTIVE" step so `core` and `profile` both prove the
+ * permanent `d-<id>.deployz.dev` address works, not just the ALB. ACTIVE is
+ * the product's word; the edge in front of the ALB can lag it by a sample,
+ * so the health probe gets its own bounded wait and a final attempt beyond
+ * it (same pattern Stage B uses).
+ */
+export async function waitForDefaultHttpsActive(canary: Canary, healthPath = '/health'): Promise<DeploymentDetail> {
+  const { evidence, api } = canary;
+  const deploymentId = evidence.run.deploymentId;
+  assert(deploymentId, 'no deployment yet');
+  return evidence.step('Default HTTPS becomes ACTIVE and the health path answers over HTTPS', async (details) => {
+    const detail = await waitFor(
+      'default HTTPS',
+      () => api.getDeployment(deploymentId),
+      (d) => (d.defaultHttps?.status === 'ACTIVE' || d.defaultHttps?.status === 'ERROR' ? d : null),
+      { timeoutMs: 20 * MINUTE, describe: (d) => `${d.defaultHttps?.status ?? 'none'} ${describeDeployment(d)}` },
+    );
+    const https = detail.defaultHttps;
+    details['defaultHttps'] = https;
+    assert(https?.status === 'ACTIVE', `default HTTPS ${https?.status ?? 'none'}: ${https?.lastError ?? ''}`);
+    assert(https.hostname, 'default HTTPS is ACTIVE but the deployment carries no hostname');
+    const url = `https://${https.hostname}`;
+    details['appUrl'] = url;
+    const healthUrl = `${url}${healthPath}`;
+    const probe = await waitFor(
+      'HTTPS health path',
+      () => probeUrl(healthUrl),
+      (p) => (p.status !== null && p.status < 500 ? p : null),
+      { timeoutMs: 5 * MINUTE, describe: (p) => String(p.status ?? p.error ?? 'no response') },
+    ).catch(() => probeUrl(healthUrl));
+    details['httpsHealth'] = probe;
+    assert(probe.status !== null && probe.status < 500, `HTTPS health path ${healthPath} answered ${probe.status ?? probe.error ?? 'no response'} after ACTIVE`);
+    return detail;
+  });
 }
 
 export function parseQuickCreateUrl(url: string): {
@@ -451,6 +514,54 @@ export function parseQuickCreateUrl(url: string): {
     if (key.startsWith('param_')) parameters[key.slice('param_'.length)] = value;
   }
   return { templateUrl, stackName, parameters };
+}
+
+/**
+ * What `GET /canary/bindings` (packages/fixture/src/server.ts) reports: for
+ * each env-injected binding, whether it is present and a non-reversible
+ * SHA-256 prefix of its value; a raw-TCP redis PING when a REDIS_* binding
+ * is configured.
+ */
+export interface BindingsReport {
+  readonly bindings: Record<string, { present: boolean; sha256Prefix: string | null }>;
+  readonly redis: { attempted: boolean; ok: boolean; detail: string };
+}
+
+/** Which bindings a profile requires the application to carry — the legacy
+ * (profile-less) core ladder always requires postgres and never redis, the
+ * same rule `applicationRequirements` above applies to the manifest. */
+export function expectedBindings(profile: CanaryProfile | null): { database: boolean; redis: boolean } {
+  return profile ? { database: profile.postgres, redis: profile.redis } : { database: true, redis: false };
+}
+
+/**
+ * Proves the application stack actually injected the env/secret bindings
+ * its manifest promised — DATABASE_URL when postgres is required, the S3
+ * bucket (storage is always required), and a working REDIS_* binding when
+ * redis is required. Skips the redis assertion entirely when the profile
+ * has none, rather than asserting an absence.
+ */
+export async function assertBindings(canary: Canary): Promise<void> {
+  const { config, evidence } = canary;
+  await evidence.step('Application bindings: DATABASE_URL / storage / redis env injection', async (details) => {
+    const baseUrl = await liveBaseUrl(canary);
+    const response = await fetch(`${baseUrl}/canary/bindings`);
+    assert(response.status === 200, `GET /canary/bindings -> ${response.status}`);
+    const report = (await response.json()) as BindingsReport;
+    details['bindings'] = report;
+
+    const expected = expectedBindings(config.profile);
+    if (expected.database) {
+      assert(report.bindings['DATABASE_URL']?.present === true, 'DATABASE_URL binding missing though this profile requires postgres');
+    }
+    assert(report.bindings['STORAGE_BUCKET']?.present === true, 'STORAGE_BUCKET binding missing — storage is always provisioned');
+
+    if (expected.redis) {
+      assert(report.redis.attempted, 'no REDIS_URL/REDIS_HOST binding present though this profile requires redis');
+      assert(report.redis.ok, `redis PING failed: ${report.redis.detail}`);
+    }
+    // expected.redis === false: nothing to assert about redis — this profile has none.
+  });
 }
 
 // ── Version assertions ─────────────────────────────────────────────────────
@@ -663,21 +774,23 @@ export async function deployAndVerify(canary: Canary, tag: string, expectedPrevi
   const { evidence, api } = canary;
   const release = evidence.run.releases[tag];
   assert(release?.imageDigest, `release ${tag} not built`);
-  await evidence.step(`Deploy ${tag} succeeds and becomes the serving release`, async (details) => {
-    const requested = await api.deploy(evidence.run.deploymentId!, release.id);
-    details['request'] = requested;
-    assert(requested.status === 202, `deploy ${tag} -> ${requested.status} (expected 202, a new attempt)`);
-    recordJob(canary, requested.jobId, 'DEPLOY_RELEASE', tag);
-    const settled = await waitForJob(canary, requested.jobId, 30 * MINUTE);
-    const job = findJob(settled, requested.jobId)!;
-    details['job'] = { state: job.state, failureCode: job.failureCode, payloadDigest: job.payload?.['imageDigest'], result: job.result };
-    assert(job.state === 'SUCCEEDED', `deploy ${tag} job ${job.state} (${job.failureCode ?? 'no code'}): ${JSON.stringify(job.result).slice(0, 400)}`);
-    assert(job.payload?.['imageDigest'] === digestSuffix(release.imageDigest), `job payload digest ${job.payload?.['imageDigest']} != release ${release.imageDigest}`);
-    await waitForPointer(canary, tag);
-    await assertServing(canary, { serving: tag, previous: expectedPrevious, deploymentState: ['HEALTHY', 'UPDATE_AVAILABLE'] }, details);
-    const events = await api.events(evidence.run.deploymentId!);
-    assert(events.some((e) => e.eventType === 'deploy.completed' && e.jobId === requested.jobId), 'no deploy.completed event for this job');
-  });
+  await evidence.step(`Deploy ${tag} succeeds and becomes the serving release`, async (details) =>
+    withDiagnosticsOnFailure(canary, details, async () => {
+      const requested = await api.deploy(evidence.run.deploymentId!, release.id);
+      details['request'] = requested;
+      assert(requested.status === 202, `deploy ${tag} -> ${requested.status} (expected 202, a new attempt)`);
+      recordJob(canary, requested.jobId, 'DEPLOY_RELEASE', tag);
+      const settled = await waitForJob(canary, requested.jobId, 30 * MINUTE);
+      const job = findJob(settled, requested.jobId)!;
+      details['job'] = { state: job.state, failureCode: job.failureCode, payloadDigest: job.payload?.['imageDigest'], result: job.result };
+      assert(job.state === 'SUCCEEDED', `deploy ${tag} job ${job.state} (${job.failureCode ?? 'no code'}): ${JSON.stringify(job.result).slice(0, 400)}`);
+      assert(job.payload?.['imageDigest'] === digestSuffix(release.imageDigest), `job payload digest ${job.payload?.['imageDigest']} != release ${release.imageDigest}`);
+      await waitForPointer(canary, tag);
+      await assertServing(canary, { serving: tag, previous: expectedPrevious, deploymentState: ['HEALTHY', 'UPDATE_AVAILABLE'] }, details);
+      const events = await api.events(evidence.run.deploymentId!);
+      assert(events.some((e) => e.eventType === 'deploy.completed' && e.jobId === requested.jobId), 'no deploy.completed event for this job');
+    }),
+  );
 }
 
 /** Rolls back to `tag` through the product route; verifies the immutable digest chain. */
@@ -685,27 +798,29 @@ export async function rollbackAndVerify(canary: Canary, tag: string, expectedPre
   const { evidence, api } = canary;
   const release = evidence.run.releases[tag];
   assert(release?.imageDigest, `release ${tag} not built`);
-  await evidence.step(`Rollback to ${tag} restores the original artifact`, async (details) => {
-    const before = await api.getDeployment(evidence.run.deploymentId!);
-    details['before'] = summarizeDeployment(before);
-    const requested = await api.rollback(evidence.run.deploymentId!, release.id);
-    details['request'] = requested;
-    assert(requested.status === 202, `rollback -> ${requested.status} (expected 202, a new attempt)`);
-    recordJob(canary, requested.jobId, 'ROLLBACK', tag);
-    const settled = await waitForJob(canary, requested.jobId, 30 * MINUTE);
-    const job = findJob(settled, requested.jobId)!;
-    details['job'] = { state: job.state, failureCode: job.failureCode, payloadDigest: job.payload?.['imageDigest'], result: job.result };
-    assert(job.state === 'SUCCEEDED', `rollback job ${job.state} (${job.failureCode ?? 'no code'}): ${JSON.stringify(job.result).slice(0, 400)}`);
-    // The digest chain: original release digest == rollback payload digest == running digest (checked in assertServing).
-    assert(job.payload?.['imageDigest'] === digestSuffix(release.imageDigest), `rollback payload digest ${job.payload?.['imageDigest']} != original ${release.imageDigest}`);
-    await waitForPointer(canary, tag);
-    await assertServing(canary, { serving: tag, previous: expectedPrevious, deploymentState: ['HEALTHY', 'UPDATE_AVAILABLE'] }, details);
-    const events = await api.events(evidence.run.deploymentId!);
-    assert(events.some((e) => e.eventType === 'rollback.requested' && e.jobId === requested.jobId), 'no rollback.requested event');
-    assert(events.some((e) => e.eventType === 'rollback.completed' && e.jobId === requested.jobId), 'no rollback.completed event');
-    // History, not rewriting: the earlier deploy jobs are still there.
-    assert(settled.jobs.length >= before.jobs.length + 1, 'rollback did not add a deployment attempt');
-  });
+  await evidence.step(`Rollback to ${tag} restores the original artifact`, async (details) =>
+    withDiagnosticsOnFailure(canary, details, async () => {
+      const before = await api.getDeployment(evidence.run.deploymentId!);
+      details['before'] = summarizeDeployment(before);
+      const requested = await api.rollback(evidence.run.deploymentId!, release.id);
+      details['request'] = requested;
+      assert(requested.status === 202, `rollback -> ${requested.status} (expected 202, a new attempt)`);
+      recordJob(canary, requested.jobId, 'ROLLBACK', tag);
+      const settled = await waitForJob(canary, requested.jobId, 30 * MINUTE);
+      const job = findJob(settled, requested.jobId)!;
+      details['job'] = { state: job.state, failureCode: job.failureCode, payloadDigest: job.payload?.['imageDigest'], result: job.result };
+      assert(job.state === 'SUCCEEDED', `rollback job ${job.state} (${job.failureCode ?? 'no code'}): ${JSON.stringify(job.result).slice(0, 400)}`);
+      // The digest chain: original release digest == rollback payload digest == running digest (checked in assertServing).
+      assert(job.payload?.['imageDigest'] === digestSuffix(release.imageDigest), `rollback payload digest ${job.payload?.['imageDigest']} != original ${release.imageDigest}`);
+      await waitForPointer(canary, tag);
+      await assertServing(canary, { serving: tag, previous: expectedPrevious, deploymentState: ['HEALTHY', 'UPDATE_AVAILABLE'] }, details);
+      const events = await api.events(evidence.run.deploymentId!);
+      assert(events.some((e) => e.eventType === 'rollback.requested' && e.jobId === requested.jobId), 'no rollback.requested event');
+      assert(events.some((e) => e.eventType === 'rollback.completed' && e.jobId === requested.jobId), 'no rollback.completed event');
+      // History, not rewriting: the earlier deploy jobs are still there.
+      assert(settled.jobs.length >= before.jobs.length + 1, 'rollback did not add a deployment attempt');
+    }),
+  );
 }
 
 /** Deploys a release expected to FAIL; the previous release must keep serving. */
@@ -713,31 +828,33 @@ export async function deployExpectingFailure(canary: Canary, tag: string, stillS
   const { evidence, api } = canary;
   const release = evidence.run.releases[tag];
   assert(release?.imageDigest, `release ${tag} not built`);
-  await evidence.step(`Deploy ${tag} fails and ${stillServing} keeps serving`, async (details) => {
-    const requested = await api.deploy(evidence.run.deploymentId!, release.id);
-    details['request'] = requested;
-    assert(requested.status === 202, `deploy ${tag} -> ${requested.status}`);
-    recordJob(canary, requested.jobId, 'DEPLOY_RELEASE', tag);
-    // Circuit breaker needs several task launches to fail; allow well beyond
-    // the relay's runtime bound so a watchdog re-offer is observed too.
-    const settled = await waitForJob(canary, requested.jobId, 50 * MINUTE);
-    const job = findJob(settled, requested.jobId)!;
-    details['job'] = { state: job.state, failureCode: job.failureCode, result: job.result, reconcileCount: (job as unknown as { reconcileCount?: number }).reconcileCount };
-    assert(job.state === 'FAILED', `deploy ${tag} job ${job.state}, expected FAILED`);
-    assert(job.failureCode === 'ECS_DEPLOYMENT_FAILED' || job.failureCode === 'IMAGE_HEALTH_CHECK_FAILED', `failureCode ${job.failureCode}`);
-    // Give the heartbeat a cycle to report the restored digest, then verify.
-    await sleep(30_000);
-    await assertServing(
-      canary,
-      { serving: stillServing, previous: expectedPrevious, deploymentState: ['UPDATE_AVAILABLE', 'HEALTHY'], failureCode: job.failureCode },
-      details,
-    );
-    const stillFailedRelease = (await api.listReleases(evidence.run.applicationId!)).find((r) => r.id === release.id);
-    details['failedReleaseStatus'] = stillFailedRelease?.status;
-    const events = await api.events(evidence.run.deploymentId!);
-    assert(events.some((e) => e.eventType === 'deploy.failed' && e.jobId === requested.jobId), 'no deploy.failed event');
-    assert(!events.some((e) => e.eventType === 'deploy.completed' && e.jobId === requested.jobId), 'a failed deploy emitted deploy.completed');
-  });
+  await evidence.step(`Deploy ${tag} fails and ${stillServing} keeps serving`, async (details) =>
+    withDiagnosticsOnFailure(canary, details, async () => {
+      const requested = await api.deploy(evidence.run.deploymentId!, release.id);
+      details['request'] = requested;
+      assert(requested.status === 202, `deploy ${tag} -> ${requested.status}`);
+      recordJob(canary, requested.jobId, 'DEPLOY_RELEASE', tag);
+      // Circuit breaker needs several task launches to fail; allow well beyond
+      // the relay's runtime bound so a watchdog re-offer is observed too.
+      const settled = await waitForJob(canary, requested.jobId, 50 * MINUTE);
+      const job = findJob(settled, requested.jobId)!;
+      details['job'] = { state: job.state, failureCode: job.failureCode, result: job.result, reconcileCount: (job as unknown as { reconcileCount?: number }).reconcileCount };
+      assert(job.state === 'FAILED', `deploy ${tag} job ${job.state}, expected FAILED`);
+      assert(job.failureCode === 'ECS_DEPLOYMENT_FAILED' || job.failureCode === 'IMAGE_HEALTH_CHECK_FAILED', `failureCode ${job.failureCode}`);
+      // Give the heartbeat a cycle to report the restored digest, then verify.
+      await sleep(30_000);
+      await assertServing(
+        canary,
+        { serving: stillServing, previous: expectedPrevious, deploymentState: ['UPDATE_AVAILABLE', 'HEALTHY'], failureCode: job.failureCode },
+        details,
+      );
+      const stillFailedRelease = (await api.listReleases(evidence.run.applicationId!)).find((r) => r.id === release.id);
+      details['failedReleaseStatus'] = stillFailedRelease?.status;
+      const events = await api.events(evidence.run.deploymentId!);
+      assert(events.some((e) => e.eventType === 'deploy.failed' && e.jobId === requested.jobId), 'no deploy.failed event');
+      assert(!events.some((e) => e.eventType === 'deploy.completed' && e.jobId === requested.jobId), 'a failed deploy emitted deploy.completed');
+    }),
+  );
 }
 
 // ── Persistence ────────────────────────────────────────────────────────────

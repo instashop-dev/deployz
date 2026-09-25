@@ -32,8 +32,7 @@ the current layer cannot establish confidence.
    fresh AWS infrastructure merely because deployment-related code changed.
 
 Escalate to the version canary (`pnpm e2e:canary:versions preflight`, then
-`core`; the read-only `pnpm e2e:canary` has no standing installation to
-verify today) when changes affect:
+`core`) when changes affect:
 
 - relay/AWS interaction
 - CloudFormation polling
@@ -64,10 +63,9 @@ CI and the simulator:
   canary `preflight`/`core`) before the template is republished. A wrong
   `GetAtt` and a mis-shaped relay credential each once broke every customer
   install.
-- `pnpm test:affected` suggests `e2e:canary` / `e2e:fresh` for relay
-  AWS-interface and bootstrap changes but never suggests the version
-  canary; decide that escalation yourself for release, rollback, deploy,
-  destroy or purge changes.
+- `pnpm test:affected` suggests `e2e:canary:versions core` / `e2e:fresh` for
+  relay AWS-interface and bootstrap changes; decide the release/rollback/
+  deploy/destroy/purge escalation yourself when it does not name it.
 
 Real AWS execution requires:
 
@@ -109,8 +107,6 @@ bug. If no, document why in the bug report.
   single test file while iterating).
 - Simulated E2E: `pnpm e2e`, one scenario via `pnpm e2e --scenario=<id>`,
   the full simulated regression suite via `pnpm e2e:scenarios`.
-- Canary (real AWS, read-only): `pnpm e2e:canary` — see
-  [`aws-canary.md`](aws-canary.md).
 - Fresh (real AWS, create + destroy): `pnpm e2e:fresh` — see
   [`aws-fresh.md`](aws-fresh.md).
 - Version canary (real AWS, full product, automated):
@@ -118,7 +114,9 @@ bug. If no, document why in the bug report.
   [`version-rollback-canary.md`](version-rollback-canary.md). Required for
   changes to release/rollback logic, deployment orchestration, the relay's
   deploy/destroy/purge executors, and before an MVP release (three
-  consecutive passes).
+  consecutive passes). `profile --profile <pg|stateless|redis> --production`
+  installs with the production-published template instead of the checkout's
+  own, for a customer-faithful smoke of what production actually publishes.
 - Full-product canary (manual, deployed control plane + real customer
   install): [`aws-full-product-canary.md`](aws-full-product-canary.md) —
   required before calling a release ready; it is the only check that runs

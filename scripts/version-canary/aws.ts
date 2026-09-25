@@ -138,6 +138,49 @@ export async function describeStack(region: string, stackName: string): Promise<
   }
 }
 
+export interface StackFailureEvent {
+  readonly logicalId: string;
+  readonly resourceType: string;
+  readonly status: string;
+  readonly statusReason: string | null;
+  readonly timestamp: string;
+}
+
+/**
+ * The `*_FAILED` events CloudFormation recorded for `stackName` (e.g.
+ * `CREATE_FAILED`, `UPDATE_FAILED`, `DELETE_FAILED`) — the same
+ * `describe-stack-events` a vendor's CloudFormation diagnostics view reads
+ * (apps/api/src/server.ts's `stack-events` route), filtered here to just the
+ * failures a postmortem needs. Read-only; `[]` when the stack has none or is
+ * already gone.
+ */
+export async function stackFailureEvents(region: string, stackName: string): Promise<StackFailureEvent[]> {
+  try {
+    const response = (await aws(
+      ['cloudformation', 'describe-stack-events', '--stack-name', stackName],
+      region,
+    )) as {
+      StackEvents: {
+        LogicalResourceId: string;
+        ResourceType: string;
+        ResourceStatus: string;
+        ResourceStatusReason?: string;
+        Timestamp: string;
+      }[];
+    };
+    return response.StackEvents.filter((e) => e.ResourceStatus.endsWith('_FAILED')).map((e) => ({
+      logicalId: e.LogicalResourceId,
+      resourceType: e.ResourceType,
+      status: e.ResourceStatus,
+      statusReason: e.ResourceStatusReason ?? null,
+      timestamp: e.Timestamp,
+    }));
+  } catch (error) {
+    if (isStackMissing(error)) return [];
+    throw error;
+  }
+}
+
 export interface StackResource {
   readonly logicalId: string;
   readonly physicalId: string | null;

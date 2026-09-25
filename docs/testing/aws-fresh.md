@@ -12,9 +12,9 @@ debugging loop. It proves that the real create/destroy golden path works
 against a real AWS account: stack provisioning, IAM role creation, relay
 registration, resource tagging, and destruction. For iterative work on the
 relay's read-side logic, the CDK application template, or version deployment
-semantics, use the persistent canary (`pnpm e2e:canary`) or the version canary
-(`pnpm e2e:canary:versions`) instead — those modes reuse infrastructure and
-skip the 5+ minute bootstrap create/destroy cycle.
+semantics, use the version canary (`pnpm e2e:canary:versions`) instead — its
+`profile`/`core` scenarios reuse infrastructure per profile and skip the 5+
+minute bootstrap create/destroy cycle.
 
 ## When fresh is justified
 
@@ -36,7 +36,7 @@ right and sufficient check.
 - `AWS_REGION` set or defaulting to `us-east-1`.
 - `DEPLOYZ_E2E_ALLOW_REAL_AWS=1`.
 
-## The guard
+## The guards
 
 `fresh` refuses to run without the opt-in, before spawning anything
 (verified, no AWS calls made):
@@ -46,6 +46,11 @@ Real AWS E2E is disabled.
 Set DEPLOYZ_E2E_ALLOW_REAL_AWS=1
 only when intentionally running AWS-backed E2E tests.
 ```
+
+It also refuses to run against any AWS account other than the expected test
+account — the same `DEPLOYZ_CANARY_EXPECTED_ACCOUNT` guard the version
+canary applies (default `151955775369`), checked with `sts
+get-caller-identity` before anything is created.
 
 ## Execution command
 
@@ -88,13 +93,17 @@ The suite:
    Lambda).
 4. `cdk destroy`s the stack and polls until it is gone.
 
-## Unique naming, collision refusal, and teardown
+## Unique naming, tags, collision refusal, and teardown
 
-- Each run mints an 8-hex-char run id and names its stack
-  `deployz-fresh-<runid>` (via `DEPLOYZ_BOOTSTRAP_STACK_NAME`, consumed by
-  `bin/bootstrap.ts`) — concurrent or previously-un-torn-down runs cannot
-  collide with each other or with a real customer's `deployz-bootstrap-…`
-  stack.
+- Each run mints a run id in the same sortable `YYYYMMDD-HHMMSS-xxxx` format
+  the version canary uses, and names its stack `deployz-fresh-<runid>` (via
+  `DEPLOYZ_BOOTSTRAP_STACK_NAME`, consumed by `bin/bootstrap.ts`) —
+  concurrent or previously-un-torn-down runs cannot collide with each other
+  or with a real customer's `deployz-bootstrap-…` stack.
+- The stack carries the version canary's tag set: `DeployzTestMode=fresh`,
+  `DeployzCanaryRun=<runId>`, `DeployzEnvironment=e2e`, plus
+  `DeployzCommit=<sha>` when resolvable (`GITHUB_SHA` in CI, else `git
+  rev-parse HEAD`).
 - If a stack with the freshly minted name somehow already exists, the suite
   **refuses to proceed** rather than treating it as a collision to recover
   from — this should not happen with a fresh random id, and existing means
@@ -117,16 +126,18 @@ An assertion failure inside the suite still runs the registered teardown
 run does not need manual cleanup unless the process itself was killed before
 teardown could run.
 
-## The Redis/application-stack block
+## The Redis/application-stack proof
 
 Provisioning an actual application stack with `redisRequired: true` (RDS +
 ElastiCache, 15–25 minutes, real cost) is **not** part of fresh's default
-run. It stays gated behind `DEPLOYZ_LIVE_AWS=1` in
-`packages/cdk/test/golden-path-live-aws.test.ts`'s "live AWS Redis cache
-provisioning" block. That block's RDS instance is `RemovalPolicy.RETAIN` —
-deleting the stack **orphans the RDS instance**, which needs manual cleanup
-in the AWS Console. Only run it deliberately, and only when a change
-specifically touches Redis/RDS provisioning.
+run — fresh only ever deploys the bootstrap stack. The version canary's
+`profile --profile redis` scenario
+(`DEPLOYZ_E2E_ALLOW_REAL_AWS=1 pnpm e2e:canary:versions profile --profile redis`)
+covers it instead, through the product's own install path rather than a
+direct CDK synth. The application stack's RDS instance is
+`RemovalPolicy.RETAIN` regardless of profile — Purge (run automatically at
+the end of a `profile` run) turns deletion protection off and deletes it;
+only a `--keep` run leaves it for manual cleanup.
 
 ## Full product-flow fresh install
 

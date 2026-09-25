@@ -6,6 +6,11 @@ name: AWS version canary
 # 60–90 minutes and costs money. Run it on demand before a release and after
 # changes to the relay, deployment orchestration, CDK/CloudFormation, health
 # verification, release/rollback logic, polling or resource lifecycle.
+#
+# The `schedule` trigger below is commented out on purpose: enable it only
+# after three consecutive green manual `profile --profile stateless
+# --production` runs (docs/testing/version-rollback-canary.md's MVP gate).
+# Until then this workflow is workflow_dispatch only.
 on:
   workflow_dispatch:
     inputs:
@@ -19,11 +24,20 @@ on:
         type: choice
         default: pg
         options: [pg, stateless, redis]
+      production:
+        description: 'profile scenario only: install with the production-published template (no checkout override)'
+        type: boolean
+        default: false
       run_id:
         description: Run id (optional — minted when empty)
         type: string
         required: false
         default: ''
+  # schedule:
+  #   # Weekly production-canary smoke — profile/stateless/production, with
+  #   # automatic cleanup and a single tracking issue on failure. Monday
+  #   # 06:00 UTC. See the header note above before enabling.
+  #   - cron: '0 6 * * 1'
 
 # One canary at a time: two installs in the same account would share the
 # connector-stack exports and the run ids would race the leak audit.
@@ -31,23 +45,71 @@ concurrency:
   group: aws-version-canary
   cancel-in-progress: false
 
+# issues: write is for the scheduled run's single tracking issue
+# ("File or update the production-canary issue" below); everything else in
+# this workflow only needs to read the checked-out code.
+permissions:
+  contents: read
+  issues: write
+
 jobs:
   canary:
-    name: ${{ inputs.scenario }}
+    name: ${{ github.event_name == 'schedule' && 'scheduled-production' || inputs.scenario }}
     runs-on: ubuntu-latest
     # A profile run certifies one install + full teardown (retained RDS makes
-    # the purge slow) — budget it beyond the core ladder's 180 minutes.
-    timeout-minutes: ${{ inputs.scenario == 'profile' && 240 || 180 }}
+    # the purge slow) — budget it beyond the core ladder's 180 minutes. The
+    # scheduled run is always a profile run.
+    # The canary step gets the first part of this; the rest is the cleanup
+    # and leak-audit budget (a Disconnect that retains a database plus a
+    # Purge can take about 95 minutes).
+    timeout-minutes: ${{ (github.event_name == 'schedule' || inputs.scenario == 'profile') && 300 || 240 }}
     env:
       AWS_REGION: us-east-1
       DEPLOYZ_E2E_ALLOW_REAL_AWS: '1'
       GH_TOKEN: ${{ github.token }}
-      # Empty for every other scenario, so they keep the legacy behaviour.
-      DEPLOYZ_CANARY_PROFILE: ${{ inputs.scenario == 'profile' && inputs.profile || '' }}
-      DEPLOYZ_CANARY_RUN_ID: ${{ inputs.run_id }}
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+
+      # Resolved once, in one place, so every later step (including the
+      # cleanup/audit steps that must run even when the canary step itself
+      # failed) agrees on the same run id, scenario and flags — a scheduled
+      # run has no `inputs.*` context at all, so this is also where the
+      # schedule's fixed parameters are chosen.
+      - name: Resolve run parameters
+        id: params
+        shell: bash
+        env:
+          # Read through the environment, never expanded into the script.
+          RUN_ID_INPUT: ${{ inputs.run_id }}
+        run: |
+          if [ "${{ github.event_name }}" = "schedule" ]; then
+            echo "scenario=profile" >> "$GITHUB_OUTPUT"
+            echo "profile=stateless" >> "$GITHUB_OUTPUT"
+            echo "production=1" >> "$GITHUB_OUTPUT"
+            run_id_input=""
+          else
+            echo "scenario=${{ inputs.scenario }}" >> "$GITHUB_OUTPUT"
+            echo "profile=${{ inputs.profile }}" >> "$GITHUB_OUTPUT"
+            echo "production=${{ inputs.production && '1' || '' }}" >> "$GITHUB_OUTPUT"
+            run_id_input="$RUN_ID_INPUT"
+          fi
+          # The version canary's own sortable format
+          # (scripts/version-canary/config.ts#mintRunId) — minted here,
+          # rather than left to the script, so a failure step later in this
+          # job can still name the run for cleanup/audit.
+          if [ -n "$run_id_input" ]; then
+            run_id="$run_id_input"
+          else
+            run_id="$(date -u +%Y%m%d-%H%M%S)-$(od -An -N2 -tx1 /dev/urandom | tr -d ' \n')"
+          fi
+          # The id reaches shell commands and resource tags: accept only the
+          # canary's own format.
+          if ! [[ "$run_id" =~ ^[0-9]{8}-[0-9]{6}-[0-9a-f]{4}$ ]]; then
+            echo "Invalid run id: $run_id" >&2
+            exit 1
+          fi
+          echo "run_id=$run_id" >> "$GITHUB_OUTPUT"
 
       # An IAM identity with administrative access to the TEST account only.
       # The harness refuses any other account (DEPLOYZ_CANARY_EXPECTED_ACCOUNT).
@@ -88,12 +150,64 @@ jobs:
           fi
 
       - name: Run the canary
-        run: pnpm e2e:canary:versions ${{ inputs.scenario }}${{ inputs.scenario == 'profile' && format(' --profile {0}', inputs.profile) || '' }}
+        id: run
+        # Job timeout minus 60: leaves headroom for the cleanup and leak-audit
+        # steps below to still run to completion when the canary step itself
+        # times out, instead of the whole job being killed mid-teardown.
+        timeout-minutes: ${{ (github.event_name == 'schedule' || inputs.scenario == 'profile') && 180 || 120 }}
+        env:
+          DEPLOYZ_CANARY_RUN_ID: ${{ steps.params.outputs.run_id }}
+          DEPLOYZ_CANARY_PROFILE: ${{ steps.params.outputs.scenario == 'profile' && steps.params.outputs.profile || '' }}
+          DEPLOYZ_CANARY_PRODUCTION: ${{ steps.params.outputs.production }}
+        run: |
+          pnpm e2e:canary:versions ${{ steps.params.outputs.scenario }}${{ steps.params.outputs.scenario == 'profile' && format(' --profile {0}', steps.params.outputs.profile) || '' }}${{ steps.params.outputs.production == '1' && ' --production' || '' }}
+
+      # A scenario that installs (core/profile) already tears itself down and
+      # audits on success (scenarios.ts's teardownOrSkipInfrastructure) — this
+      # is the safety net for when the canary step above failed or was
+      # cancelled before it got that far, so the run's real AWS resources
+      # don't linger. The failure diagnostics in the evidence replace a
+      # standing environment: the vendor credentials never leave the runner,
+      # so nothing left behind here could be cleaned through the product later.
+      - name: Cleanup on failure or cancellation
+        if: failure() || cancelled()
+        timeout-minutes: 110
+        continue-on-error: true
+        run: pnpm e2e:canary:versions cleanup --run-id ${{ steps.params.outputs.run_id }}
+
+      # Always, even on a clean pass (confirms the run's own teardown left
+      # nothing) and after a cleanup that could not finish (reports what is
+      # still there, rather than silently skipping).
+      - name: Leak audit
+        if: always()
+        continue-on-error: true
+        run: pnpm e2e:canary:versions audit --run-id ${{ steps.params.outputs.run_id }}
+
+      # One tracking issue for the scheduled production canary, not one per
+      # failure: search for an existing open issue with this title first and
+      # comment on it; only create a new one when none is open.
+      - name: File or update the production-canary issue
+        if: github.event_name == 'schedule' && failure()
+        run: |
+          title="Production canary failed"
+          run_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          body="Run \`${{ steps.params.outputs.run_id }}\` failed: $run_url"
+          existing="$(gh issue list --repo "${{ github.repository }}" --state open --search "in:title \"$title\"" --json number --jq '.[0].number')"
+          if [ -n "$existing" ]; then
+            gh issue comment "$existing" --repo "${{ github.repository }}" --body "$body"
+          else
+            gh issue create --repo "${{ github.repository }}" --title "$title" --body "$body"
+          fi
 
       - name: Upload evidence
         uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: canary-results-${{ inputs.scenario }}${{ inputs.scenario == 'profile' && format('-{0}', inputs.profile) || '' }}-${{ github.run_id }}
-          path: canary-results/
+          name: canary-results-${{ steps.params.outputs.scenario }}${{ steps.params.outputs.scenario == 'profile' && format('-{0}', steps.params.outputs.profile) || '' }}-${{ github.run_id }}
+          # The vendor password lives only in credentials.json
+          # (scripts/version-canary/evidence.ts#saveCredentials), never in
+          # run.json — excluded here so it never leaves the runner.
+          path: |
+            canary-results/
+            !canary-results/**/credentials.json
           retention-days: 30
