@@ -319,7 +319,7 @@ test('deleting a customer with no deployment asks for confirmation first', async
   expect(gone.status()).toBe(404);
 });
 
-test('the create-deployment flow captures a company and offers the install link to copy', async ({
+test('the create-installation flow captures a company and offers the install link to copy', async ({
   page,
 }) => {
   await signUp(page);
@@ -330,10 +330,10 @@ test('the create-deployment flow captures a company and offers the install link 
   await page.getByLabel('Customer name').fill(`New Customer ${suffix}`);
   await page.getByLabel('Customer email').fill(`new-customer-${suffix}@example.com`);
   await page.getByLabel('Company (optional)').fill('New Holdings');
-  await page.getByRole('button', { name: 'Create Customer Deployment' }).click();
+  await page.getByRole('button', { name: 'Create installation' }).click();
 
-  await expect(page.getByText('Deployment created')).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Copy install link' })).toBeVisible();
+  await expect(page.getByText('Installation invitation created')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Copy link' })).toBeVisible();
 
   await page.goto('/dashboard/customers');
   const row = page
@@ -353,26 +353,38 @@ test('Create installation from the customer page preselects the customer and cre
   await seedDeployment(page, applicationId, customer.id);
 
   await page.goto(`/dashboard/customers/${customer.id}`);
-  await page.getByRole('link', { name: 'Create installation' }).click();
+  // The invitation dialog is opened in place — the customer is already
+  // bound to this page's route, so it asks only for the application.
+  await page.getByRole('button', { name: 'Create installation' }).first().click();
 
-  await expect(page.getByRole('heading', { name: 'Create installation' })).toBeVisible();
-  const picker = page.getByRole('combobox', { name: 'Customer' });
-  await expect(picker).toHaveText(customer.name);
-  // The existing-customer path hides the new-customer inputs.
-  await expect(page.getByLabel('Customer name')).toHaveCount(0);
+  const dialog = page.getByRole('dialog');
+  await expect(dialog.getByRole('heading', { name: 'Create installation invitation' })).toBeVisible();
 
-  await page.getByRole('button', { name: 'Create installation' }).click();
-  await expect(page.getByText('Installation invitation created')).toBeVisible();
+  await dialog.getByRole('combobox').filter({ hasText: 'Select an application' }).click();
+  await page.getByRole('option').first().click();
+  await dialog.getByRole('button', { name: 'Create invitation' }).click();
+
+  await expect(dialog.getByRole('heading', { name: 'Invitation created' })).toBeVisible();
+  await expect(dialog.getByRole('button', { name: 'Copy link' })).toBeVisible();
 
   const customersResponse = await page.request.get(`${API_URL}/api/customers`);
   expect(customersResponse.ok()).toBeTruthy();
   const { customers } = (await customersResponse.json()) as { customers: { email: string }[] };
   expect(customers.filter((c) => c.email === customer.email)).toHaveLength(1);
 
+  // An invitation names the customer + application but creates no deployment
+  // — only the customer's own confirmation does that.
+  const invitationsResponse = await page.request.get(
+    `${API_URL}/api/customers/${customer.id}/invitations`,
+  );
+  expect(invitationsResponse.ok()).toBeTruthy();
+  const { invitations } = (await invitationsResponse.json()) as { invitations: { status: string }[] };
+  expect(invitations.filter((invitation) => invitation.status === 'active')).toHaveLength(1);
+
   const deploymentsResponse = await page.request.get(`${API_URL}/api/deployments`);
   expect(deploymentsResponse.ok()).toBeTruthy();
   const { deployments } = (await deploymentsResponse.json()) as {
     deployments: { customerId: string }[];
   };
-  expect(deployments.filter((d) => d.customerId === customer.id)).toHaveLength(2);
+  expect(deployments.filter((d) => d.customerId === customer.id)).toHaveLength(1);
 });
