@@ -3,7 +3,7 @@ name: AWS version canary
 # The real-AWS version deployment + rollback canary
 # (docs/testing/aws-e2e.md). Deliberately NOT part of the PR
 # check set: it creates a real customer install in the test account, takes
-# 60–90 minutes and costs money. Run it on demand before a release and after
+# up to about four hours for `core` and costs money. Run it on demand before a release and after
 # changes to the relay, deployment orchestration, CDK/CloudFormation, health
 # verification, release/rollback logic, polling or resource lifecycle.
 #
@@ -57,12 +57,13 @@ jobs:
     name: ${{ github.event_name == 'schedule' && 'scheduled-production' || inputs.scenario }}
     runs-on: ubuntu-latest
     # A profile run certifies one install + full teardown (retained RDS makes
-    # the purge slow) — budget it beyond the core ladder's 180 minutes. The
-    # scheduled run is always a profile run.
+    # the purge slow). The core ladder runs about 140 minutes before its own
+    # Disconnect + Purge (about 90 more), so it gets the hosted-runner
+    # maximum of 360. The scheduled run is always a profile run.
     # The canary step gets the first part of this; the rest is the cleanup
     # and leak-audit budget (a Disconnect that retains a database plus a
     # Purge can take about 95 minutes).
-    timeout-minutes: ${{ (github.event_name == 'schedule' || inputs.scenario == 'profile') && 300 || 240 }}
+    timeout-minutes: ${{ (github.event_name == 'schedule' || inputs.scenario == 'profile') && 300 || 360 }}
     env:
       AWS_REGION: us-east-1
       DEPLOYZ_E2E_ALLOW_REAL_AWS: '1'
@@ -151,10 +152,10 @@ jobs:
 
       - name: Run the canary
         id: run
-        # Job timeout minus 60: leaves headroom for the cleanup and leak-audit
+        # Job timeout minus 120: leaves headroom for the cleanup and leak-audit
         # steps below to still run to completion when the canary step itself
         # times out, instead of the whole job being killed mid-teardown.
-        timeout-minutes: ${{ (github.event_name == 'schedule' || inputs.scenario == 'profile') && 180 || 120 }}
+        timeout-minutes: ${{ (github.event_name == 'schedule' || inputs.scenario == 'profile') && 180 || 240 }}
         env:
           DEPLOYZ_CANARY_RUN_ID: ${{ steps.params.outputs.run_id }}
           DEPLOYZ_CANARY_PROFILE: ${{ steps.params.outputs.scenario == 'profile' && steps.params.outputs.profile || '' }}

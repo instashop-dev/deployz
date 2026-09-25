@@ -30,7 +30,7 @@ import {
   type InstallationSecret,
   type LeakAudit,
 } from './aws.js';
-import { describeDeployment, findJob, waitFor } from './control-plane.js';
+import { describeDeployment, findJob, isTerminalJobState, waitFor } from './control-plane.js';
 import { withDiagnosticsOnFailure } from './diagnostics.js';
 import type { Canary } from './steps.js';
 import { ECR_REPOSITORY } from './steps.js';
@@ -110,6 +110,19 @@ export async function destroyThroughProduct(canary: Canary): Promise<void> {
         return;
       }
       if (current.state !== 'DELETING') {
+        // A canary step that timed out or was cancelled can leave its own
+        // deploy/rollback job in flight, and the product refuses a Disconnect
+        // while another operation is active (409). Let that job settle first.
+        const active = current.jobs.find((j) => !isTerminalJobState(j.state));
+        if (active) {
+          details['settledBeforeDisconnect'] = { id: active.id, type: active.type };
+          await waitFor(
+            `${active.type} job before Disconnect`,
+            () => api.getDeployment(deploymentId),
+            (d) => (d.jobs.every((j) => isTerminalJobState(j.state)) ? d : null),
+            { timeoutMs: 45 * MINUTE, describe: describeDeployment, ...(nudge ? { onTick: nudge } : {}) },
+          );
+        }
         const response = await api.destroy(deploymentId);
         details['request'] = response;
       }

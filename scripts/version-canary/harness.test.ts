@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { canaryTags, loadConfig, mintRunId, releaseVersionFor, requireRealAwsOptIn, validateDigest } from './config.js';
 import { isTerminalJobState, waitFor, type ControlPlane } from './control-plane.js';
-import { isConnectorSecret, isRetainedDatabaseSecret, relayFunctionName, removeCanaryLeftovers } from './teardown.js';
+import { destroyThroughProduct, isConnectorSecret, isRetainedDatabaseSecret, relayFunctionName, removeCanaryLeftovers } from './teardown.js';
 import { captureFailureDiagnostics, withDiagnosticsOnFailure, type DiagnosticsContext } from './diagnostics.js';
 import { Evidence, renderSummary, type RunRecord } from './evidence.js';
 import {
@@ -526,6 +526,56 @@ describe('the purged check ignores the connector secret (BUG-002)', () => {
   it('does not exclude a retained-set secret that survived — the purge must have force-deleted it', () => {
     const dbSecret = secret('DatabaseSecret86DBB7B3-VgOM2g2GjldR', { 'aws:cloudformation:stack-name': 'deployz-app-9a8aef85' });
     expect(isConnectorSecret(dbSecret, 'deployz-bootstrap-stage-b-repo-004-1306e305')).toBe(false);
+  });
+});
+
+describe('Disconnect after a timed-out step', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('lets the in-flight rollback settle before it requests the destroy (no 409)', async () => {
+    vi.useFakeTimers();
+    const rollback = (state: string) => ({ id: 'job-rollback', type: 'ROLLBACK', state });
+    const detail = (state: string, jobs: unknown[], cleanupState: string | null = null) => ({
+      id: 'dep-1',
+      state,
+      jobs,
+      cleanupState,
+      healthStatus: 'HEALTHY',
+      relayStatus: 'CONNECTED',
+      version: null,
+      currentReleaseId: null,
+      deploymentStatus: { stage: 'READY' },
+    });
+    const reads = [
+      detail('UPDATING', [rollback('RUNNING')]),
+      detail('UPDATING', [rollback('RUNNING')]),
+      detail('HEALTHY', [rollback('SUCCEEDED')]),
+      detail('DELETED', [rollback('SUCCEEDED'), { id: 'job-destroy', type: 'DESTROY', state: 'SUCCEEDED' }], 'COMPLETE'),
+    ];
+    const calls: string[] = [];
+    const api = {
+      getDeployment: vi.fn(async () => {
+        calls.push('get');
+        return reads.length > 1 ? reads.shift() : reads[0];
+      }),
+      destroy: vi.fn(async () => {
+        calls.push('destroy');
+        return { status: 202, body: {} };
+      }),
+    } as unknown as ControlPlane;
+    const evidence = {
+      run: { deploymentId: 'dep-1', releases: {} },
+      step: async (_name: string, fn: (details: Record<string, unknown>) => Promise<unknown>) => fn({}),
+    } as unknown as Evidence;
+
+    const done = destroyThroughProduct({ config: loadConfig({}), evidence, api } as Canary);
+    await vi.runAllTimersAsync();
+    await done;
+
+    expect(api.destroy).toHaveBeenCalledTimes(1);
+    expect(calls.indexOf('destroy')).toBe(3);
   });
 });
 
