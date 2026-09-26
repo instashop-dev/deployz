@@ -335,6 +335,7 @@ test.describe('delete-failure', () => {
     await expect
       .poll(async () => (await api.getDeployment(deploymentId)).state, { timeout: 15_000 })
       .toBe('HEALTHY');
+    await waitForInstallAutoDeploy(api, deploymentId);
 
     const destroyResponse = await destroyDeployment(request, deploymentId);
     expect(destroyResponse.status()).toBe(202);
@@ -374,6 +375,14 @@ test.describe('retained-resources', () => {
     await expect
       .poll(async () => (await api.getDeployment(deploymentId)).state, { timeout: 15_000 })
       .toBe('HEALTHY');
+    // Settle the post-install auto-deploy before destroying: it runs with
+    // `inFlightState: null`, so the state stays HEALTHY while its
+    // DEPLOY_RELEASE job is still active — and requireDeploymentIdle refuses
+    // the destroy with 409 DEPLOYMENT_BUSY until that job settles (under
+    // full-suite load the HEALTHY poll above regularly wins that race).
+    // Waiting for the pointer is the same settle signal the update/rollback
+    // tests use before their own mutating calls.
+    await waitForInstallAutoDeploy(api, deploymentId);
 
     // The resource inventory must be persisted BEFORE destroy — it is the
     // only source GET .../infrastructure reads from after deletion (see
@@ -440,6 +449,9 @@ test.describe('purge-failure', () => {
     await expect
       .poll(async () => (await api.getDeployment(deploymentId)).state, { timeout: 15_000 })
       .toBe('HEALTHY');
+    // Settle the post-install auto-deploy first (see retained-resources's
+    // comment above): destroy 409s DEPLOYMENT_BUSY while its job is active.
+    await waitForInstallAutoDeploy(api, deploymentId);
 
     const destroyResponse = await destroyDeployment(request, deploymentId);
     expect(destroyResponse.status()).toBe(202);
@@ -501,6 +513,9 @@ test.describe('retained-delete-recovery', () => {
     await expect
       .poll(async () => (await api.getDeployment(deploymentId)).state, { timeout: 15_000 })
       .toBe('HEALTHY');
+    // Settle the post-install auto-deploy first (see retained-resources's
+    // comment above): destroy 409s DEPLOYMENT_BUSY while its job is active.
+    await waitForInstallAutoDeploy(api, deploymentId);
 
     // The resource inventory must be persisted BEFORE destroy — it is the
     // only source GET .../infrastructure reads from after deletion (see
