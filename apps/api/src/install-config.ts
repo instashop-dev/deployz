@@ -1,16 +1,12 @@
 import { generatedEnvKeys } from '@deployz/analysis';
-import {
-  buildDeploymentResourceTags,
-  infrastructureProfileForManifest,
-  type DeploymentManifest,
-} from '@deployz/contracts';
+import { buildDeploymentResourceTags, requirementsFromSpec, type DeploymentManifest } from '@deployz/contracts';
 import type { RuntimeDb } from '@deployz/db';
 
 import { getConfig, type ConfigStore, type EffectiveConfigEntry } from './config.js';
 import { ApiError } from './errors.js';
 import { DESIRED_COUNT_PARAMETER, buildInstallParameters } from './install-parameters.js';
 import { createOrReuseJob } from './jobs.js';
-import { readStoredManifest } from './manifest.js';
+import { readStoredDeploymentSpec, readStoredManifest } from './manifest.js';
 
 // Post-install configuration (AI MVP Phase 4).
 //
@@ -158,19 +154,18 @@ export async function configPrecedesFirstStart(
 }
 
 /**
- * The INSTALL job's payload: the template parameters, the Redis/database
- * flags, the deployment identity tags, the canonical manifest and — when
- * configuration must precede the first start and there is a release to
- * run — `startAfterConfig`, the marker
- * that this install starts no task by itself (the service is created with
- * `param_DesiredCount=0`; the post-install CONFIG_UPDATE and the auto-deploy
- * that follow are the first start).
+ * The INSTALL job's payload: the compiled template's URL + parameters, the
+ * Redis/database flags, the deployment identity tags, the canonical manifest
+ * and — when configuration must precede the first start and there is a
+ * release to run — `startAfterConfig`, the marker that this install starts no
+ * task by itself (the service is created with `param_DesiredCount=0`; the
+ * post-install CONFIG_UPDATE and the auto-deploy that follow are the first
+ * start).
  *
- * `databaseRequired`/`redisRequired` are derived from the deployment's
- * frozen manifest, never the live `applications` columns (Phase 2) — the
- * relay's INSTALL executor and the heartbeat's requirement checks must agree
- * with whatever this deployment was actually created with, even after a
- * vendor later changes the application's requirements.
+ * `templateUrl`, `databaseRequired`/`redisRequired` come from the
+ * deployment's frozen spec (the compiled artifact the relay must fetch and
+ * the verification contract it must satisfy), never re-derived — a
+ * deployment created before the compiler existed fails closed here.
  */
 export async function buildInstallPayload(
   db: RuntimeDb,
@@ -180,6 +175,7 @@ export async function buildInstallPayload(
     customerId: string;
     organizationId: string;
     desiredState: Record<string, unknown> | null;
+    specV2: Record<string, unknown> | null;
   },
   store: ConfigStore,
 ): Promise<Record<string, unknown>> {
@@ -191,15 +187,24 @@ export async function buildInstallPayload(
       'Deployment has no valid deployment manifest. Run analysis or correct the application configuration first.',
     );
   }
-  const profile = infrastructureProfileForManifest(manifest);
+  const spec = readStoredDeploymentSpec(deployment.specV2);
+  if (!spec || spec.artifactLocation === null || spec.verificationContract === null) {
+    throw new ApiError(
+      422,
+      'DEPLOYMENT_SPEC_MISSING',
+      'Deployment has no compiled infrastructure spec. Recreate the deployment to install it.',
+    );
+  }
+  const requirements = requirementsFromSpec(spec)!;
   const startAfterConfig = await configPrecedesFirstStart(db, deployment, store);
   const { parameters, releaseId } = await buildInstallParameters(db, deployment.id, {
     startAfterConfig,
   });
   return {
+    templateUrl: spec.artifactLocation,
     parameters,
-    databaseRequired: profile.postgres,
-    redisRequired: profile.redis,
+    databaseRequired: requirements.databaseRequired,
+    redisRequired: requirements.redisRequired,
     // Control-plane-minted deployz identity tags. The relay applies them as
     // stack-level CreateStack tags, so CloudFormation propagates them to every
     // taggable resource. Stable internal ids only (vendorId is the owning

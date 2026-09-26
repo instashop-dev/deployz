@@ -6,15 +6,18 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { analyseRepo, buildApplicationAnalysis } from '@deployz/analysis';
 import {
+  APP_API_KEY_PARAMETER,
+  APP_SIGNING_SECRET_PARAMETER,
   APPLICATION_TEMPLATE_KEY,
   APPLICATION_TEMPLATE_REDIS_KEY,
   APPLICATION_TEMPLATE_STATELESS_KEY,
   APPLICATION_TEMPLATE_STATELESS_REDIS_KEY,
   applicationTemplateKeyForProfile,
   bootstrapStackName,
-  DOCUMENSO_PARAMETERS,
+  DESIRED_COUNT_PARAMETER,
   errorEnvelopeSchema,
   estimateFootprintCost,
+  IMAGE_REFERENCE_PARAMETER,
   requiredAwsResources,
   resolveDeploymentFootprint,
   toPlanAwsResource,
@@ -24,6 +27,8 @@ import * as schema from '@deployz/db/schema';
 
 import { ANALYSIS_VERSION } from './analysis.js';
 import { createAuth, type Auth } from './auth.js';
+import { compileDeploymentIntent } from './compiler-artifact.js';
+import { readStoredManifest } from './manifest.js';
 import { buildPullStatement, type EcrClient, type EcrGrantStatement } from './ecr-grants.js';
 import { env } from './env.js';
 import { ApiError } from './errors.js';
@@ -160,6 +165,10 @@ async function insertDeployment(
   customerId: string,
   overrides: Partial<typeof schema.deployments.$inferInsert> = {},
 ): Promise<typeof schema.deployments.$inferSelect> {
+  const desiredState =
+    (overrides.desiredState as { manifest: typeof READY_MANIFEST } | undefined) ?? {
+      manifest: READY_MANIFEST,
+    };
   const [row] = await db
     .insert(schema.deployments)
     .values({
@@ -174,7 +183,20 @@ async function insertDeployment(
       enrollmentCode: crypto.randomUUID(),
       // Phase 3 readiness gates (install-link launch, relay register)
       // re-evaluate the stored manifest — seed a READY one so fixtures pass.
-      desiredState: { manifest: READY_MANIFEST },
+      desiredState,
+      // The completed spec createDeploymentRecord persists for this manifest.
+      // Fixtures that deliberately seed an invalid manifest stay spec-less,
+      // exactly like a deployment the compiler never ran for.
+      ...(readStoredManifest(desiredState)
+        ? {
+            specV2: compileDeploymentIntent({
+              manifest: readStoredManifest(desiredState) as unknown as Parameters<
+                typeof compileDeploymentIntent
+              >[0]['manifest'],
+              region: 'us-east-1',
+            }).spec,
+          }
+        : {}),
       ...overrides,
     })
     .returning();
@@ -1391,20 +1413,20 @@ describe('redactClaimedPayload', () => {
       type: 'INSTALL',
       payload: {
         parameters: {
-          [DOCUMENSO_PARAMETERS.nextauthSecret]: 'gen-secret-a',
-          [DOCUMENSO_PARAMETERS.encryptionKey]: 'gen-secret-b',
-          [DOCUMENSO_PARAMETERS.publicUrl]: 'https://docs.example.com',
-          paramHealthCheckPath: '/health',
+          [APP_API_KEY_PARAMETER]: 'gen-secret-a',
+          [APP_SIGNING_SECRET_PARAMETER]: 'gen-secret-b',
+          [IMAGE_REFERENCE_PARAMETER]: 'registry@sha256:abc',
+          [DESIRED_COUNT_PARAMETER]: '0',
         },
       },
     });
     expect(JSON.stringify(redacted)).not.toContain('gen-secret-a');
     expect(JSON.stringify(redacted)).not.toContain('gen-secret-b');
     expect((redacted as { parameters: Record<string, string> }).parameters).toEqual({
-      [DOCUMENSO_PARAMETERS.nextauthSecret]: '***',
-      [DOCUMENSO_PARAMETERS.encryptionKey]: '***',
-      [DOCUMENSO_PARAMETERS.publicUrl]: 'https://docs.example.com',
-      paramHealthCheckPath: '/health',
+      [APP_API_KEY_PARAMETER]: '***',
+      [APP_SIGNING_SECRET_PARAMETER]: '***',
+      [IMAGE_REFERENCE_PARAMETER]: 'registry@sha256:abc',
+      [DESIRED_COUNT_PARAMETER]: '0',
     });
   });
 

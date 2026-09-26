@@ -5,6 +5,7 @@ import {
   type Binding,
   type CapabilityRegistry,
   type DeployzIR,
+  type DeploymentSpecCompilation,
   type DeploymentSpecV2,
   type InfrastructureSizeProfile,
   type IrBinding,
@@ -171,12 +172,20 @@ export function planApplicationGraph(input: {
   return deployzIrSchema.parse(ir);
 }
 
+/** The graph's canonical hash — the spec's identity/diff key. */
+export function applicationGraphHash(graph: ApplicationGraph): string {
+  return stableHash(graph);
+}
+
 export function buildDeploymentSpecV2(input: {
   graph: ApplicationGraph;
   ir: DeployzIR;
   sizeProfileId: string;
   capabilityRegistryVersion: string;
+  /** Compiler output + published artifact location; absent leaves the spec uncompiled. */
+  compilation?: DeploymentSpecCompilation;
 }): DeploymentSpecV2 {
+  const compilation = input.compilation;
   const spec: DeploymentSpecV2 = {
     schemaVersion: DEPLOYMENT_SPEC_V2_SCHEMA_VERSION,
     infraVersion: INFRA_VERSION_DYNAMIC_COMPILER_V2,
@@ -186,9 +195,12 @@ export function buildDeploymentSpecV2(input: {
     irHash: stableHash(input.ir),
     capabilityRegistryVersion: input.capabilityRegistryVersion,
     sizeProfileId: input.sizeProfileId,
-    compilerVersion: null,
-    templateHash: null,
-    artifactLocation: null,
+    compilerVersion: compilation?.compilerVersion ?? null,
+    templateHash: compilation?.templateHash ?? null,
+    artifactLocation: compilation?.artifactLocation ?? null,
+    verificationContract: compilation?.verificationContract ?? null,
+    ownershipRecords: compilation ? [...compilation.ownershipRecords] : null,
+    footprint: compilation?.footprint ?? null,
     frozenAt: new Date().toISOString(),
   };
 

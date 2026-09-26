@@ -725,12 +725,17 @@ describe('createInstallExecutor', () => {
   // Phase 2: settleInstall requires a known infrastructure profile — these
   // top-level flags stand in for a manifest (the shape a resumed/compacted
   // marker carries) wherever a test below doesn't care about its content.
+  // The template URL comes from the payload itself.
   const command = {
     id: 'cmd-1',
     deploymentId: 'dep-1',
     type: 'INSTALL' as const,
     idempotencyKey: 'dep-1:INSTALL',
-    payload: { redisRequired: false, databaseRequired: true },
+    payload: {
+      redisRequired: false,
+      databaseRequired: true,
+      templateUrl: 'https://example.com/application-template-v1.json',
+    },
   };
 
   const verified: VerificationResult = {
@@ -741,7 +746,6 @@ describe('createInstallExecutor', () => {
   function makeInstallDeps(overrides: Partial<InstallExecutorDeps> = {}): InstallExecutorDeps {
     return {
       installationId: 'inst-1',
-      templateUrl: 'https://example.com/application-template-v1.json',
       install: async () => ({ state: 'succeeded', status: 'CREATE_COMPLETE', outputs: {} }),
       verify: async () => verified,
       pending: memoryPendingStore(),
@@ -779,9 +783,11 @@ describe('createInstallExecutor', () => {
       makeInstallDeps({ install, executionRoleArn: 'arn:aws:iam::1:role/deployz/exec' }),
     )(command);
 
+    // The URL the installer receives is the payload's, not the deps' —
+    // the executor no longer resolves a template of its own.
     expect(install.mock.calls[0]![0]).toMatchObject({
       installationId: 'inst-1',
-      templateUrl: 'https://example.com/application-template-v1.json',
+      templateUrl: command.payload.templateUrl,
       executionRoleArn: 'arn:aws:iam::1:role/deployz/exec',
       stackName: 'deployz-app',
     });
@@ -908,6 +914,7 @@ describe('createInstallExecutor', () => {
       // No env bindings — keeps this test about the deferral marker itself,
       // not Stage B's binding-alias compaction (covered separately below).
       payload: {
+        templateUrl: command.payload.templateUrl,
         manifest: manifestPayload({
           redis: { required: true, envBindings: [] },
           storage: { required: true, envBindings: [] },
@@ -922,8 +929,10 @@ describe('createInstallExecutor', () => {
       stackName: 'deployz-app',
       startedAt: '2026-08-26T12:00:00.000Z',
       // Phase 2: the manifest itself is dropped (SSM size limit) but its
-      // derived parameters and requirement flags survive the compaction.
+      // derived parameters, the requirement flags, and the payload's
+      // templateUrl all survive the compaction.
       payload: {
+        templateUrl: command.payload.templateUrl,
         redisRequired: true,
         databaseRequired: true,
         parameters: { paramContainerPort: '8080', paramHealthCheckPath: '/api/health' },
@@ -958,23 +967,35 @@ describe('createInstallExecutor', () => {
 
     await createInstallExecutor(makeInstallDeps({ install }))({
       ...command,
-      payload: { stackName: 'deployz-app-staging', redisRequired: false, databaseRequired: true },
+      payload: {
+        stackName: 'deployz-app-staging',
+        redisRequired: false,
+        databaseRequired: true,
+        templateUrl: command.payload.templateUrl,
+      },
     });
 
     expect(install.mock.calls[0]![0]).toMatchObject({ stackName: 'deployz-app-staging' });
   });
 
-  it('refuses to install without a published template URL', async () => {
+  it('fails closed when the payload carries no templateUrl', async () => {
     const install = vi.fn();
 
-    const result = await createInstallExecutor(
-      makeInstallDeps({ install, templateUrl: '' }),
-    )(command);
+    const missing = await createInstallExecutor(makeInstallDeps({ install }))({
+      ...command,
+      payload: { redisRequired: false, databaseRequired: true },
+    });
+    const empty = await createInstallExecutor(makeInstallDeps({ install }))({
+      ...command,
+      payload: { redisRequired: false, databaseRequired: true, templateUrl: '' },
+    });
 
     expect(install).not.toHaveBeenCalled();
-    expect(result.success).toBe(false);
-    expect(result.failureCode).toBe('STACK_CREATE_FAILED');
-    expect(result.error).toMatch(/template/i);
+    expect(missing.success).toBe(false);
+    expect(missing.failureCode).toBe('STACK_CREATE_FAILED');
+    expect(missing.error).toMatch(/templateUrl/i);
+    expect(empty.success).toBe(false);
+    expect(empty.error).toMatch(/templateUrl/i);
   });
 
   it('works exactly as before when no stack-event collector factory is configured', async () => {
@@ -1019,7 +1040,15 @@ describe('createInstallExecutor', () => {
 
     await createInstallExecutor(
       makeInstallDeps({ install, createStackEventCollector }),
-    )({ ...command, payload: { stackName: 'deployz-app-staging', redisRequired: false, databaseRequired: true } });
+    )({
+      ...command,
+      payload: {
+        stackName: 'deployz-app-staging',
+        redisRequired: false,
+        databaseRequired: true,
+        templateUrl: command.payload.templateUrl,
+      },
+    });
 
     expect(createStackEventCollector).toHaveBeenCalledWith({
       commandId: 'cmd-1',
@@ -1072,13 +1101,16 @@ describe('createInstallResumer', () => {
     type: 'INSTALL',
     stackName: 'deployz-app',
     startedAt: '2026-08-26T12:00:00.000Z',
-    payload: { redisRequired: false, databaseRequired: true },
+    payload: {
+      redisRequired: false,
+      databaseRequired: true,
+      templateUrl: 'https://example.com/application-template-v1.json',
+    },
   };
 
   function makeResumeDeps(overrides: Partial<InstallExecutorDeps> = {}): InstallExecutorDeps {
     return {
       installationId: 'inst-1',
-      templateUrl: 'https://example.com/application-template-v1.json',
       install: async () => ({ state: 'succeeded', status: 'CREATE_COMPLETE', outputs: {} }),
       verify: async () => ({ verified: true, checks: [] }),
       pending: memoryPendingStore(),
@@ -1145,7 +1177,14 @@ describe('createInstallResumer', () => {
 
   it('carries the original payload into the resumed verification', async () => {
     const pending = memoryPendingStore();
-    await pending.write({ ...pendingRecord, payload: { redisRequired: true, databaseRequired: true } });
+    await pending.write({
+      ...pendingRecord,
+      payload: {
+        redisRequired: true,
+        databaseRequired: true,
+        templateUrl: 'https://example.com/application-template-v1.json',
+      },
+    });
     const verify = vi.fn(async () => ({ verified: true, checks: [] }));
 
     await createInstallResumer(makeResumeDeps({ pending, verify }))();
@@ -1199,7 +1238,15 @@ describe('createInstallResumer', () => {
 
   it('re-runs recovery on DELETE_FAILED for a recovery-arc install, keeping the pending record', async () => {
     const pending = memoryPendingStore();
-    await pending.write({ ...pendingRecord, payload: { recovery: { neverInstalled: true }, redisRequired: false, databaseRequired: true } });
+    await pending.write({
+      ...pendingRecord,
+      payload: {
+        recovery: { neverInstalled: true },
+        redisRequired: false,
+        databaseRequired: true,
+        templateUrl: 'https://example.com/application-template-v1.json',
+      },
+    });
     const recover = vi.fn(async () => ({
       phase: 'DELETE_IN_PROGRESS' as const,
       lastStackStatus: 'DELETE_IN_PROGRESS',
@@ -1230,7 +1277,15 @@ describe('createInstallResumer', () => {
 
   it('clears the pending record and reports failure when recovery itself gets stuck', async () => {
     const pending = memoryPendingStore();
-    await pending.write({ ...pendingRecord, payload: { recovery: { neverInstalled: true }, redisRequired: false, databaseRequired: true } });
+    await pending.write({
+      ...pendingRecord,
+      payload: {
+        recovery: { neverInstalled: true },
+        redisRequired: false,
+        databaseRequired: true,
+        templateUrl: 'https://example.com/application-template-v1.json',
+      },
+    });
     const recover = vi.fn(async () => ({
       phase: 'DELETE_STUCK' as const,
       lastStackStatus: 'DELETE_FAILED',
@@ -1368,13 +1423,12 @@ describe('createInstallResumer', () => {
   });
 });
 
-// The control plane sends `redisRequired` at the top level of the INSTALL
-// payload, alongside `parameters` and `recovery`. `settleInstall` — shared by
-// `createInstallExecutor` and `createInstallResumer` — must pick the
-// correct template variant for the resolved infrastructure profile, so
-// retries and resumed installs agree with the first attempt about which
-// template built the stack.
-describe('settleInstall picks the correct template variant from the infrastructure profile', () => {
+// The control plane compiles the application template (compiler-v2) and
+// sends the frozen artifact's URL in the INSTALL payload. `settleInstall` —
+// shared by `createInstallExecutor` and `createInstallResumer` — must execute
+// exactly that URL: no profile-based variant resolution, no env fallback,
+// and the same URL on retries and resumed installs.
+describe('settleInstall executes exactly the templateUrl the payload carries', () => {
   const command = {
     id: 'cmd-1',
     deploymentId: 'dep-1',
@@ -1383,12 +1437,12 @@ describe('settleInstall picks the correct template variant from the infrastructu
     payload: {},
   };
 
-  const BASE_URL = 'https://bucket.s3.us-east-1.amazonaws.com/application/v1/application-template-v1.json';
+  const ARTIFACT_URL =
+    'https://bucket.s3.us-east-1.amazonaws.com/application/v1/compiled-template.json';
 
   function makeInstallDeps(overrides: Partial<InstallExecutorDeps> = {}): InstallExecutorDeps {
     return {
       installationId: 'inst-1',
-      templateUrl: BASE_URL,
       install: async () => ({ state: 'succeeded', status: 'CREATE_COMPLETE', outputs: {} }),
       verify: async () => ({ verified: true, checks: [] }),
       pending: memoryPendingStore(),
@@ -1422,7 +1476,7 @@ describe('settleInstall picks the correct template variant from the infrastructu
   // carries these flags without a manifest object — `createInstallExecutor`
   // and `createInstallResumer` share `settleInstall`, so a fresh payload
   // shaped the same way exercises the identical, still-supported path.
-  it('installs the redis-variant template from pre-resolved requirement flags (no manifest)', async () => {
+  it('installs the payload artifact for a flags-only payload (resumed-marker shape)', async () => {
     const install = vi.fn(async () => ({
       state: 'succeeded' as const,
       status: 'CREATE_COMPLETE',
@@ -1431,34 +1485,25 @@ describe('settleInstall picks the correct template variant from the infrastructu
 
     await createInstallExecutor(makeInstallDeps({ install }))({
       ...command,
-      payload: { redisRequired: true, databaseRequired: true, parameters: { paramAppApiKey: 'k' } },
+      payload: {
+        redisRequired: true,
+        databaseRequired: true,
+        templateUrl: ARTIFACT_URL,
+        parameters: { paramAppApiKey: 'k' },
+      },
     });
 
     expect(install.mock.calls[0]![0]).toMatchObject({
-      templateUrl: 'https://bucket.s3.us-east-1.amazonaws.com/application/v1/application-template-redis-v1.json',
+      templateUrl: ARTIFACT_URL,
       parameters: { paramAppApiKey: 'k' },
       stackName: 'deployz-app',
     });
   });
 
-  it('installs the base template from pre-resolved requirement flags when redisRequired is false (no manifest)', async () => {
-    const install = vi.fn(async () => ({
-      state: 'succeeded' as const,
-      status: 'CREATE_COMPLETE',
-      outputs: {},
-    }));
-
-    await createInstallExecutor(makeInstallDeps({ install }))({
-      ...command,
-      payload: { redisRequired: false, databaseRequired: true },
-    });
-
-    expect(install.mock.calls[0]![0]).toMatchObject({
-      templateUrl: BASE_URL,
-    });
-  });
-
-  it('installs the stateless template when manifest has postgres:false and redis:false', async () => {
+  // Even with a manifest that once selected a profile variant, the payload's
+  // artifact URL wins — template selection now happens in the control
+  // plane's compiler, never in the relay.
+  it('installs the payload artifact even when a manifest is present', async () => {
     const install = vi.fn(async () => ({
       state: 'succeeded' as const,
       status: 'CREATE_COMPLETE',
@@ -1468,74 +1513,12 @@ describe('settleInstall picks the correct template variant from the infrastructu
     await createInstallExecutor(makeInstallDeps({ install }))({
       ...command,
       payload: {
-        manifest: {
-          application: { root: '.', runtime: 'node', framework: 'express', dockerfilePath: 'Dockerfile' },
-          build: { command: 'npm run build', context: '.' },
-          web: { command: 'node server.js', port: 8080 },
-          health: { path: '/health' },
-          database: { postgres: false },
-          redis: { required: false, envBindings: [] },
-          storage: { required: false, envBindings: [] },
-          migration: { command: null },
-          worker: { command: null },
-          environment: { variables: [] },
-          externalServices: [],
-          unsupported: [],
-        },
+        templateUrl: ARTIFACT_URL,
+        manifest: manifestPayload({ redis: { required: true, envBindings: [] } }),
       },
     });
 
-    expect(install.mock.calls[0]![0]).toMatchObject({
-      templateUrl: 'https://bucket.s3.us-east-1.amazonaws.com/application/v1/application-template-stateless-v1.json',
-    });
-  });
-
-  it('installs the stateless+redis template when manifest has postgres:false and redis:true', async () => {
-    const install = vi.fn(async () => ({
-      state: 'succeeded' as const,
-      status: 'CREATE_COMPLETE',
-      outputs: {},
-    }));
-
-    await createInstallExecutor(makeInstallDeps({ install }))({
-      ...command,
-      payload: {
-        manifest: {
-          application: { root: '.', runtime: 'node', framework: 'express', dockerfilePath: 'Dockerfile' },
-          build: { command: 'npm run build', context: '.' },
-          web: { command: 'node server.js', port: 8080 },
-          health: { path: '/health' },
-          database: { postgres: false },
-          redis: { required: true, envBindings: [{ name: 'REDIS_URL', kind: 'url' }] },
-          storage: { required: false, envBindings: [] },
-          migration: { command: null },
-          worker: { command: null },
-          environment: { variables: [] },
-          externalServices: [],
-          unsupported: [],
-        },
-      },
-    });
-
-    expect(install.mock.calls[0]![0]).toMatchObject({
-      templateUrl: 'https://bucket.s3.us-east-1.amazonaws.com/application/v1/application-template-stateless-redis-v1.json',
-    });
-  });
-
-  it('fails immediately, without installing, when the base template URL is unrecognized', async () => {
-    const install = vi.fn();
-    const pending = memoryPendingStore();
-
-    const result = await createInstallExecutor(
-      makeInstallDeps({ install, pending, templateUrl: 'https://example.com/some-other-template.json' }),
-    )({ ...command, payload: { redisRequired: true, databaseRequired: true } });
-
-    expect(install).not.toHaveBeenCalled();
-    expect(await pending.read()).toBeNull();
-    expect(result.success).toBe(false);
-    expect(result.deferred).toBeUndefined();
-    expect(result.failureCode).toBe('STACK_CREATE_FAILED');
-    expect(result.error).toMatch(/profile/i);
+    expect(install.mock.calls[0]![0]).toMatchObject({ templateUrl: ARTIFACT_URL });
   });
 
   it('fails fast when the manifest is present but invalid', async () => {
@@ -1556,7 +1539,7 @@ describe('settleInstall picks the correct template variant from the infrastructu
     expect(result.error).toMatch(/invalid deployment manifest/i);
   });
 
-  it('resumes a pending install with the redis-variant template', async () => {
+  it('re-creates the stack with the same templateUrl when a deferred install resumes', async () => {
     const pending = memoryPendingStore();
     await pending.write({
       commandId: 'cmd-1',
@@ -1564,7 +1547,11 @@ describe('settleInstall picks the correct template variant from the infrastructu
       type: 'INSTALL',
       stackName: 'deployz-app',
       startedAt: '2026-08-26T12:00:00.000Z',
-      payload: { redisRequired: true, databaseRequired: true },
+      payload: {
+        redisRequired: true,
+        databaseRequired: true,
+        templateUrl: ARTIFACT_URL,
+      },
     });
     const install = vi.fn(async () => ({
       state: 'succeeded' as const,
@@ -1574,9 +1561,7 @@ describe('settleInstall picks the correct template variant from the infrastructu
 
     const results = await createInstallResumer(makeInstallDeps({ pending, install }))();
 
-    expect(install.mock.calls[0]![0]).toMatchObject({
-      templateUrl: 'https://bucket.s3.us-east-1.amazonaws.com/application/v1/application-template-redis-v1.json',
-    });
+    expect(install.mock.calls[0]![0]).toMatchObject({ templateUrl: ARTIFACT_URL });
     expect(results[0]).toMatchObject({ commandId: 'cmd-1', success: true });
   });
 });
@@ -1676,7 +1661,7 @@ describe('readDeploymentManifest', () => {
   });
 });
 
-describe('settleInstall derives parameters and the Redis variant from the manifest', () => {
+describe('settleInstall derives parameters from the manifest', () => {
   const command = {
     id: 'cmd-manifest',
     deploymentId: 'dep-1',
@@ -1685,10 +1670,12 @@ describe('settleInstall derives parameters and the Redis variant from the manife
     payload: {},
   };
 
+  const ARTIFACT_URL =
+    'https://bucket.s3.us-east-1.amazonaws.com/application/v1/compiled-template.json';
+
   function makeInstallDeps(install: ReturnType<typeof vi.fn>): InstallExecutorDeps {
     return {
       installationId: 'inst-1',
-      templateUrl: 'https://bucket.s3.us-east-1.amazonaws.com/application/v1/application-template-v1.json',
       install,
       verify: async () => ({ verified: true, checks: [] }),
       pending: memoryPendingStore(),
@@ -1696,7 +1683,7 @@ describe('settleInstall derives parameters and the Redis variant from the manife
     };
   }
 
-  it('selects the redis template and sends manifest-derived port/health parameters, with manifest winning over the ad-hoc control-plane value', async () => {
+  it('sends manifest-derived port/health parameters, with manifest winning over the ad-hoc control-plane value', async () => {
     const install = vi.fn(async () => ({
       state: 'succeeded' as const,
       status: 'CREATE_COMPLETE',
@@ -1706,16 +1693,16 @@ describe('settleInstall derives parameters and the Redis variant from the manife
     await createInstallExecutor(makeInstallDeps(install))({
       ...command,
       payload: {
+        templateUrl: ARTIFACT_URL,
         // The legacy path still sent a health path resolved from the ad-hoc
         // column — the manifest's canonical path must win over it.
         parameters: { paramHealthCheckPath: '/legacy', paramAppApiKey: 'k' },
-        manifest: manifestPayload({ redis: manifestPayload().redis }),
+        manifest: manifestPayload(),
       },
     });
 
     expect(install.mock.calls[0]![0]).toMatchObject({
-      templateUrl:
-        'https://bucket.s3.us-east-1.amazonaws.com/application/v1/application-template-redis-v1.json',
+      templateUrl: ARTIFACT_URL,
       parameters: {
         paramHealthCheckPath: '/api/health',
         paramContainerPort: '8080',
@@ -1734,6 +1721,7 @@ describe('settleInstall derives parameters and the Redis variant from the manife
     await createInstallExecutor(makeInstallDeps(install))({
       ...command,
       payload: {
+        templateUrl: ARTIFACT_URL,
         manifest: manifestPayload(),
         tags: { 'deployz:managed-by': 'deployz', 'deployz:deployment-id': 'dep-1' },
       },
@@ -1753,12 +1741,15 @@ describe('settleInstall derives parameters and the Redis variant from the manife
 
     await createInstallExecutor(makeInstallDeps(install))({
       ...command,
-      payload: { redisRequired: true, databaseRequired: true },
+      payload: {
+        redisRequired: true,
+        databaseRequired: true,
+        templateUrl: ARTIFACT_URL,
+      },
     });
 
     expect(install.mock.calls[0]![0]).toMatchObject({
-      templateUrl:
-        'https://bucket.s3.us-east-1.amazonaws.com/application/v1/application-template-redis-v1.json',
+      templateUrl: ARTIFACT_URL,
       parameters: {},
     });
   });
@@ -1781,6 +1772,7 @@ describe('settleInstall derives parameters and the Redis variant from the manife
     await createInstallExecutor({ ...makeInstallDeps(install), readTemplateParameters })({
       ...command,
       payload: {
+        templateUrl: ARTIFACT_URL,
         parameters: {
           paramAppApiKey: 'k',
           paramNextauthSecret: 'documenso-only',
@@ -1790,11 +1782,8 @@ describe('settleInstall derives parameters and the Redis variant from the manife
       },
     });
 
-    // Read from the variant that will actually be created (the manifest
-    // requires redis), never from the base URL.
-    expect(readTemplateParameters).toHaveBeenCalledWith(
-      'https://bucket.s3.us-east-1.amazonaws.com/application/v1/application-template-redis-v1.json',
-    );
+    // Read from the artifact URL CloudFormation will actually fetch.
+    expect(readTemplateParameters).toHaveBeenCalledWith(ARTIFACT_URL);
     expect(install.mock.calls[0]![0]!.parameters).toEqual({
       paramAppApiKey: 'k',
       paramContainerPort: '8080',
@@ -1812,6 +1801,7 @@ describe('settleInstall derives parameters and the Redis variant from the manife
     await createInstallExecutor({ ...makeInstallDeps(install), readTemplateParameters: async () => null })({
       ...command,
       payload: {
+        templateUrl: ARTIFACT_URL,
         parameters: { paramAppApiKey: 'k', paramNextauthSecret: 's' },
         redisRequired: false,
         databaseRequired: true,
@@ -1901,11 +1891,13 @@ describe('compactPendingInstallPayload', () => {
   it('keeps every other payload field as-is', () => {
     const compacted = compactPendingInstallPayload({
       stackName: 'deployz-app-staging',
+      templateUrl: 'https://bucket.s3.us-east-1.amazonaws.com/application/v1/compiled-template.json',
       recovery: { neverInstalled: true },
     });
 
     expect(compacted).toMatchObject({
       stackName: 'deployz-app-staging',
+      templateUrl: 'https://bucket.s3.us-east-1.amazonaws.com/application/v1/compiled-template.json',
       recovery: { neverInstalled: true },
     });
   });
@@ -1923,7 +1915,6 @@ describe('createInstallExecutor / createInstallResumer with a production-size ma
   function makeInstallDeps(overrides: Partial<InstallExecutorDeps> = {}): InstallExecutorDeps {
     return {
       installationId: 'inst-1',
-      templateUrl: 'https://bucket.s3.us-east-1.amazonaws.com/application/v1/application-template-v1.json',
       install: async () => ({ state: 'succeeded', status: 'CREATE_COMPLETE', outputs: {} }),
       verify: async () => ({ verified: true, checks: [] }),
       pending: memoryPendingStore(),
@@ -1936,6 +1927,7 @@ describe('createInstallExecutor / createInstallResumer with a production-size ma
     const pending = memoryPendingStore();
     const manifest = bigManifestPayload();
     const bigPayload = {
+      templateUrl: 'https://bucket.s3.us-east-1.amazonaws.com/application/v1/compiled-template.json',
       parameters: { paramAppApiKey: 'k' },
       manifest,
     };
@@ -1958,8 +1950,8 @@ describe('createInstallExecutor / createInstallResumer with a production-size ma
     expect(marker?.payload).not.toHaveProperty('manifest');
     expect(JSON.stringify(marker).length).toBeLessThan(4096);
 
-    // Resume: the marker alone (no manifest) must resolve the same
-    // redis-variant template, the same merged parameters, and the same
+    // Resume: the marker alone (no manifest) must carry the same
+    // templateUrl, the same merged parameters, and the same
     // databaseRequired that the first attempt resolved.
     const resumeInstall = vi.fn(async () => ({
       state: 'succeeded' as const,
@@ -1969,8 +1961,7 @@ describe('createInstallExecutor / createInstallResumer with a production-size ma
     await createInstallResumer(makeInstallDeps({ pending, install: resumeInstall }))();
 
     expect(resumeInstall.mock.calls[0]![0]).toMatchObject({
-      templateUrl:
-        'https://bucket.s3.us-east-1.amazonaws.com/application/v1/application-template-redis-v1.json',
+      templateUrl: 'https://bucket.s3.us-east-1.amazonaws.com/application/v1/compiled-template.json',
       parameters: {
         paramAppApiKey: 'k',
         paramContainerPort: '8080',
@@ -2059,7 +2050,6 @@ function makeRecoveryDeps(
 ): InstallExecutorDeps {
   return {
     installationId: 'inst-1',
-    templateUrl: 'https://example.com/application-template-v1.json',
     install: async () => ({ state: 'succeeded', status: 'CREATE_COMPLETE', outputs: {} }),
     verify: async () => ({ verified: true, checks: [] }),
     pending: memoryPendingStore(),
@@ -2089,7 +2079,12 @@ describe('createInstallExecutor — recovery arc', () => {
     deploymentId: 'dep-retry',
     type: 'INSTALL' as const,
     idempotencyKey: 'dep-retry:INSTALL:RETRY:1',
-    payload: { recovery: { neverInstalled: true }, redisRequired: false, databaseRequired: true },
+    payload: {
+      recovery: { neverInstalled: true },
+      redisRequired: false,
+      databaseRequired: true,
+      templateUrl: 'https://example.com/application-template-v1.json',
+    },
   };
 
   it('recovers a bricked stack, recreates it, and verifies: failure → cleanup → retry → healthy', async () => {
@@ -2135,7 +2130,11 @@ describe('createInstallExecutor — recovery arc', () => {
         },
         { actor, rds },
       ),
-    )({ ...retryCommand, payload: { redisRequired: false, databaseRequired: true } });
+    )({ ...retryCommand, payload: {
+      redisRequired: false,
+      databaseRequired: true,
+      templateUrl: 'https://example.com/application-template-v1.json',
+    } });
 
     expect(result.success).toBe(false);
     expect(result.failureCode).toBe('STACK_CREATE_FAILED');
@@ -2225,8 +2224,6 @@ describe('Stage B phase 2 — post-install binding-alias registration', () => {
   function makeAliasDeps(overrides: Partial<InstallExecutorDeps> = {}): InstallExecutorDeps {
     return {
       installationId: 'inst-1',
-      templateUrl:
-        'https://bucket.s3.us-east-1.amazonaws.com/application/v1/application-template-v1.json',
       install: async () => ({ state: 'succeeded', status: 'CREATE_COMPLETE', outputs: {} }),
       verify: async () => ({ verified: true, checks: [] }),
       pending: memoryPendingStore(),
@@ -2253,7 +2250,10 @@ describe('Stage B phase 2 — post-install binding-alias registration', () => {
 
     const result = await createInstallExecutor(makeAliasDeps({ applyBindingAliases }))({
       ...command,
-      payload: { manifest: aliasManifest },
+      payload: {
+        templateUrl: 'https://example.com/application-template-v1.json',
+        manifest: aliasManifest,
+      },
     });
 
     expect(result.success).toBe(true);
@@ -2277,7 +2277,10 @@ describe('Stage B phase 2 — post-install binding-alias registration', () => {
 
     const first = await createInstallExecutor(makeAliasDeps({ pending, install: firstInstall }))({
       ...command,
-      payload: { manifest: aliasManifest },
+      payload: {
+        templateUrl: 'https://example.com/application-template-v1.json',
+        manifest: aliasManifest,
+      },
     });
     expect(first.deferred).toBe(true);
 
@@ -2320,7 +2323,10 @@ describe('Stage B phase 2 — post-install binding-alias registration', () => {
 
     const result = await createInstallExecutor(makeAliasDeps({ applyBindingAliases }))({
       ...command,
-      payload: { manifest: aliasManifest },
+      payload: {
+        templateUrl: 'https://example.com/application-template-v1.json',
+        manifest: aliasManifest,
+      },
     });
 
     expect(result.success).toBe(false);

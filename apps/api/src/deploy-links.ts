@@ -8,6 +8,12 @@ import type { RuntimeDb } from '@deployz/db';
 import * as schema from '@deployz/db/schema';
 
 import { assertProductionDeploymentAllowed } from './billing-entitlements.js';
+import {
+  NO_OP_TEMPLATE_PUBLISHER,
+  compileDeploymentIntent,
+  compilerArtifactPublishInput,
+  type TemplatePublisher,
+} from './compiler-artifact.js';
 import { env } from './env.js';
 import { ApiError, NotFoundError } from './errors.js';
 import { recordEvent } from './events.js';
@@ -135,6 +141,15 @@ export interface MaterializationDeps {
 }
 
 /**
+ * Compiler-v2 deps. Optional so callers that do not care about artifact
+ * publication (unit tests, fixtures) can omit them and rely on a no-op
+ * fallback; production funnels pass the real S3 publisher.
+ */
+export interface CompilerDeps {
+  readonly templatePublisher?: TemplatePublisher;
+}
+
+/**
  * The POST /api/deployments creation body, extracted so the manual route and
  * the deploy-link flow run ONE implementation: org-scoped 404s, the manifest
  * readiness gates, and the insert (state NOT_INSTALLED, fresh enrollment
@@ -145,6 +160,7 @@ export interface MaterializationDeps {
 export async function createDeploymentRecord(
   db: RuntimeDb,
   params: CreateDeploymentParams,
+  compilerDeps?: CompilerDeps,
 ): Promise<CreatedDeployment> {
   const application = await loadOwnedApplication(db, params.applicationId, params.organizationId);
   await loadOwnedCustomer(db, params.customerId, params.organizationId);
@@ -192,6 +208,19 @@ export async function createDeploymentRecord(
   // Refuse up front what the INSTALL would refuse later: without a built
   // release there is no image to run.
   if (!(await newestDeployableRelease(db, params.applicationId))) throw releaseRequiredError();
+  // Compiler-v2 provisioning intent: freeze the manifest into a completed
+  // DeploymentSpecV2 and publish the compiled template BEFORE the DB write.
+  // A compile or publish failure throws here — inside the caller's tx where
+  // one exists — so no row can exist without its artifact (fail closed; an
+  // orphaned content-addressed object is harmless).
+  const { spec, template, templateHash } = compileDeploymentIntent({
+    manifest,
+    region: params.region,
+  });
+  const publisher = compilerDeps?.templatePublisher ?? NO_OP_TEMPLATE_PUBLISHER;
+  await publisher.publishTemplate(
+    compilerArtifactPublishInput(params.region, templateHash, JSON.stringify(template)),
+  );
   const relayCredential = mintRelayCredential();
   const [row] = await db
     .insert(schema.deployments)
@@ -202,6 +231,7 @@ export async function createDeploymentRecord(
       region: params.region,
       state: 'NOT_INSTALLED',
       source: params.source,
+      specV2: spec,
       // Frozen desired state: the canonical manifest PLUS the immutable
       // infrastructure-size profile this deployment was created with. The
       // profile reference is written once and never mutated — a later
@@ -311,6 +341,7 @@ export async function createDeployLink(
   db: RuntimeDb,
   params: CreateDeployLinkParams,
   materialization?: MaterializationDeps,
+  compilerDeps?: CompilerDeps,
 ): Promise<{ link: DeployLinkRow; deployment: DeploymentRow; application: ApplicationRow; token: string }> {
   // Same fail-closed gate as POST /api/deployments: a link may only target a
   // region whose bootstrap artifacts are CONFIRMED published.
@@ -329,16 +360,20 @@ export async function createDeployLink(
 
   const token = mintDeployLinkToken();
   const result = await db.transaction(async (tx) => {
-    const { deployment, application } = await createDeploymentRecord(tx, {
-      organizationId: params.organizationId,
-      customerId: params.customerId,
-      applicationId: params.applicationId,
-      region: params.region,
-      deploymentType: 'PRODUCTION',
-      createdBy: params.userId,
-      updatedBy: params.userId,
-      source: 'deploy_link',
-    });
+    const { deployment, application } = await createDeploymentRecord(
+      tx,
+      {
+        organizationId: params.organizationId,
+        customerId: params.customerId,
+        applicationId: params.applicationId,
+        region: params.region,
+        deploymentType: 'PRODUCTION',
+        createdBy: params.userId,
+        updatedBy: params.userId,
+        source: 'deploy_link',
+      },
+      compilerDeps,
+    );
     const [link] = await tx
       .insert(schema.deployLinks)
       .values({

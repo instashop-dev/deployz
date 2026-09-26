@@ -133,7 +133,6 @@ import {
   applicationStackNameForInstallation,
   deploymentManifestSchema,
   infrastructureProfileForManifest,
-  resolveApplicationTemplateUrl,
   type DeploymentManifest,
   type FailureEvidence,
   type InfrastructureProfile,
@@ -604,8 +603,6 @@ export function createVerifyingExecutor(
  */
 export interface InstallExecutorDeps {
   readonly installationId: string;
-  /** Public URL of the published application template. */
-  readonly templateUrl: string;
   readonly install: (options: InstallRequest) => Promise<InstallOutcome>;
   readonly verify: (options: VerifyRequest) => Promise<VerificationResult>;
   readonly pending: PendingStore;
@@ -737,24 +734,21 @@ async function settleInstall(
     };
   }
 
-  const resolved = resolveApplicationTemplateUrl(deps.templateUrl, profile);
-  if (resolved === undefined) {
-    // Provisioning the wrong template would build a stack that disagrees
-    // with the infrastructure requirements and only discover the mismatch
-    // ~20 minutes later, when verification demands a resource that was
-    // never asked for. Failing fast, before CloudFormation is even called,
-    // is cheaper and honest about what went wrong.
+  // The control plane compiles the application template (compiler-v2) and
+  // sends the frozen artifact's URL in the payload. The relay executes
+  // exactly that artifact — no profile-based variant resolution, no env
+  // fallback — so a payload without one cannot provision.
+  const templateUrl = request.payload['templateUrl'];
+  if (typeof templateUrl !== 'string' || templateUrl.length === 0) {
     return {
       deferred: false,
       success: false,
       error:
-        `No application template variant exists for the resolved infrastructure profile ` +
-        `(postgres: ${profile.postgres}, redis: ${profile.redis}) — the configured ` +
-        `base template URL ("${deps.templateUrl}") is not recognized`,
+        'Install payload is missing templateUrl — the control plane did not send the ' +
+        'compiled application template, refusing to provision',
       output: {},
     };
   }
-  const templateUrl = resolved;
 
   // Manifest-derived template parameters win over whatever the control
   // plane resolved ad-hoc (health path / port columns); the control plane's
@@ -947,13 +941,6 @@ const RECOVERY_STILL_IN_PROGRESS: ReadonlySet<RecoveryReport['phase']> = new Set
 export function createInstallExecutor(deps: InstallExecutorDeps): CommandExecutor {
   return async (command) => {
     logCommandExecuted(command);
-
-    if (!deps.templateUrl) {
-      return failure(
-        command,
-        'No application template URL is configured for this relay — the vendor has not published one yet',
-      );
-    }
 
     const stackName = readVerifyOptionsFromPayload(command.payload).stackName ?? relayApplicationStackName();
     const startedAt = (deps.now ?? (() => new Date().toISOString()))();
@@ -1345,8 +1332,9 @@ export function readVerifyOptionsFromPayload(
  * manifest, so this is total in practice; a manifest-less payload (a caller
  * that bypasses `settleInstall`) simply omits both flags rather than guess.
  *
- * The control plane's identity `tags` survive compaction via `...rest` — a
- * few hundred bytes, no interaction with the SSM size cap.
+ * The control plane's identity `tags` and the payload's `templateUrl`
+ * survive compaction via `...rest` — a few hundred bytes, no interaction
+ * with the SSM size cap.
  */
 export function compactPendingInstallPayload(
   payload: Record<string, unknown>,
@@ -1372,8 +1360,9 @@ export function compactPendingInstallPayload(
 
 /**
  * The production wiring for INSTALL: real CloudFormation, real SSM, real
- * verification, with the template URL and execution role supplied by the
- * bootstrap stack as environment variables.
+ * verification, with the execution role supplied by the bootstrap stack as
+ * an environment variable. The install template URL comes from each
+ * command's payload.
  *
  * `budgetMs` bounds how long a single invocation watches the stack. It has
  * to stay comfortably under the relay Lambda's own timeout — a killed
@@ -1410,7 +1399,6 @@ function createDefaultInstallDeps(
 
   return {
     installationId,
-    templateUrl: process.env['DEPLOYZ_APPLICATION_TEMPLATE_URL'] ?? '',
     ...(executionRoleArn ? { executionRoleArn } : {}),
     stoppedTaskEvidence,
     install: (options) =>

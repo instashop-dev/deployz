@@ -1,4 +1,4 @@
-import { classifyResource, mapResourceStatus } from '@deployz/contracts';
+import { classifyResource, mapResourceStatus, type ResourceClassification } from '@deployz/contracts';
 import { sql } from 'drizzle-orm';
 
 import { deploymentResources } from './schema/deployment-resources.js';
@@ -29,6 +29,12 @@ export interface PersistResourceSnapshotInput {
   readonly observedAt: string;
   /** Raw resources, or null when the relay could not complete the read. */
   readonly resources: readonly ObservedStackResource[] | null;
+  /**
+   * Compiler-derived classification by CFN logical id (from the deployment's
+   * frozen spec). Wins over type-based classifyResource; unlisted resources
+   * fall back to classifyResource.
+   */
+  readonly classificationByLogicalId?: ReadonlyMap<string, ResourceClassification>;
 }
 
 export type PersistResourceSnapshotResult =
@@ -45,7 +51,8 @@ export async function persistDeploymentResourceSnapshot(
 
   const observedAt = new Date(input.observedAt);
   const values = input.resources.map((resource) => {
-    const classification = classifyResource(resource.type, resource.logicalId);
+    const classification =
+      input.classificationByLogicalId?.get(resource.logicalId) ?? classifyResource(resource.type, resource.logicalId);
     return {
       deploymentId: input.deploymentId,
       stackId: input.stackId,

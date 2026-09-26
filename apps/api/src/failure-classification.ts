@@ -82,6 +82,50 @@ function textEvidence(
   return `${errorText ?? ''}\n${stoppedReason}\n${reasons}`;
 }
 
+/** Permission-rejection wording — the opposite of the expected retained-data
+ *  cascade: here the relay was REFUSED, not blocked by a resource that must
+ *  survive. Checked first so a genuine permission failure on a security
+ *  group (or anything else) never reads as benign. */
+const PERMISSION_DENIED_REASON =
+  /not authorized to perform|accessdenied|unauthorizedoperation|explicit deny/i;
+
+/** The retained database's elastic network interface — the physical pin that
+ *  makes CloudFormation fail the security group / subnet it sits in when the
+ *  stack is deleted around a retained RDS instance. Its appearance in a
+ *  DELETE_FAILED reason is what distinguishes the expected post-Disconnect
+ *  cascade from any other delete failure. */
+const ENI_PIN_REASON = /\bnetwork interface\b|\beni-[0-9a-f]{8,}\b/i;
+
+/**
+ * Whether a DESTROY's DELETE_FAILED evidence is the expected retained-data
+ * cascade: the resources CloudFormation could not delete are the retained
+ * RDS instance itself (deletion protection) or resources pinned by its ENI
+ * (security group, subnet). The relay's data-preserving recovery
+ * (packages/relay/src/destroy.ts) retains exactly these, the delete then
+ * completes, and the vendor's next step is Purge — not a retry loop.
+ *
+ * Evidence-only, per §61's server-side rule: classified from the persisted
+ * stack events, never from the relay's coarse code. Returns false for
+ * everything else — a permission failure on a security group, a delete
+ * failure with no RDS/ENI evidence, an empty event set.
+ *
+ * The taxonomy currently has no dedicated code for this case (only the
+ * classifier pipeline may extend @deployz/contracts' closed set), so
+ * `refineFailureCode` still reports STACK_DELETE_FAILED; callers use this
+ * predicate to soften the remediation copy until that code lands.
+ */
+export function isRetainedDataDeleteBlocked(stackEvents: readonly FailureStackEvent[]): boolean {
+  return stackEvents.some((event) => {
+    if (event.resourceStatus !== 'DELETE_FAILED' || event.resourceType === 'AWS::CloudFormation::Stack') {
+      return false;
+    }
+    const reason = event.resourceStatusReason ?? '';
+    if (PERMISSION_DENIED_REASON.test(reason)) return false;
+    if (event.resourceType.startsWith('AWS::RDS::')) return true;
+    return ENI_PIN_REASON.test(reason);
+  });
+}
+
 /**
  * Refine a relay-reported failure code. Returns the sharper code, or the
  * reported one unchanged when nothing in the evidence justifies overriding

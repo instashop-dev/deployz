@@ -4,12 +4,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { normalizeDeploymentManifest } from '@deployz/analysis';
 import {
-  APPLICATION_TEMPLATE_KEY,
-  APPLICATION_TEMPLATE_REDIS_KEY,
-  APPLICATION_TEMPLATE_STATELESS_KEY,
-  APPLICATION_TEMPLATE_STATELESS_REDIS_KEY,
-  infrastructureProfileForManifest,
-  resolveApplicationTemplateUrl,
+  requirementsFromSpec,
   type DeploymentManifest,
 } from '@deployz/contracts';
 import { applyMigrations, createDb, type Db } from '@deployz/db';
@@ -22,17 +17,17 @@ import {
   type StackResource,
 } from '@deployz/relay/verify';
 
+import { compileDeploymentIntent } from './compiler-artifact.js';
 import { createConfigStore } from './config.js';
 import { buildInstallPayload } from './install-config.js';
-import { applicationToManifestOverrides, readStoredManifest } from './manifest.js';
+import { applicationToManifestOverrides, readStoredDeploymentSpec, readStoredManifest } from './manifest.js';
 
 // Phase 2 end-to-end contract: the canonical manifest a deployment is created
 // with must survive, byte-for-byte in effect, all the way from the control
-// plane (API -> INSTALL job payload) to the relay (template selection ->
+// plane (API -> INSTALL job payload) to the relay (template URL ->
 // verification) — never re-derived from whatever the application's live
 // columns say by the time any of this runs.
 
-const BASE_TEMPLATE_URL = `https://bucket.s3.us-east-1.amazonaws.com/application/v1/${APPLICATION_TEMPLATE_KEY}`;
 const INSTALLATION_ID = 'c2dca2bb-a733-470d-8ef0-8e96bc889442';
 
 function reader(lookup: StackLookup, resources: StackResource[] = []): CloudFormationReader {
@@ -130,11 +125,12 @@ describe('requirements contract: manifest survives API -> job -> relay unchanged
   }
 
   /** Mirrors createDeploymentRecord's persistence step: the effective manifest
-   *  frozen onto desiredState at creation time. */
+   *  frozen onto desiredState plus the completed compiled spec. */
   async function insertDeployment(
     applicationId: string,
     manifest: DeploymentManifest,
   ): Promise<typeof schema.deployments.$inferSelect> {
+    const { spec } = compileDeploymentIntent({ manifest, region: 'us-east-1' });
     const [row] = await db
       .insert(schema.deployments)
       .values({
@@ -144,6 +140,7 @@ describe('requirements contract: manifest survives API -> job -> relay unchanged
         region: 'us-east-1',
         state: 'NOT_INSTALLED',
         desiredState: { manifest },
+        specV2: spec,
         enrollmentCode: crypto.randomUUID(),
       })
       .returning();
@@ -151,16 +148,13 @@ describe('requirements contract: manifest survives API -> job -> relay unchanged
   }
 
   const PROFILES = [
-    { label: 'stateless', databaseRequired: false, redisRequired: false, key: APPLICATION_TEMPLATE_STATELESS_KEY },
-    { label: 'postgres', databaseRequired: true, redisRequired: false, key: APPLICATION_TEMPLATE_KEY },
-    {
-      label: 'stateless+redis',
-      databaseRequired: false,
-      redisRequired: true,
-      key: APPLICATION_TEMPLATE_STATELESS_REDIS_KEY,
-    },
-    { label: 'postgres+redis', databaseRequired: true, redisRequired: true, key: APPLICATION_TEMPLATE_REDIS_KEY },
+    { label: 'stateless', databaseRequired: false, redisRequired: false },
+    { label: 'postgres', databaseRequired: true, redisRequired: false },
+    { label: 'stateless+redis', databaseRequired: false, redisRequired: true },
+    { label: 'postgres+redis', databaseRequired: true, redisRequired: true },
   ] as const;
+
+  const seenArtifactUrls = new Set<string>();
 
   for (const profile of PROFILES) {
     for (const storageRequired of [true, false]) {
@@ -186,13 +180,14 @@ describe('requirements contract: manifest survives API -> job -> relay unchanged
         const manifestFromPayload = readDeploymentManifest(payload as Record<string, unknown>);
         expect(manifestFromPayload).toEqual(effectiveManifest);
 
-        const resolvedProfile = infrastructureProfileForManifest(manifestFromPayload!);
-        expect(resolvedProfile).toEqual({ postgres: profile.databaseRequired, redis: profile.redisRequired });
-
-        const resolvedTemplateUrl = resolveApplicationTemplateUrl(BASE_TEMPLATE_URL, resolvedProfile);
-        expect(resolvedTemplateUrl).toBe(
-          `https://bucket.s3.us-east-1.amazonaws.com/application/v1/${profile.key}`,
+        // The payload points at the deployment's OWN frozen artifact: one
+        // content-addressed compiled template per requirement set.
+        const artifactLocation = (deployment.specV2 as { artifactLocation: string }).artifactLocation;
+        expect(payload['templateUrl']).toBe(artifactLocation);
+        expect(artifactLocation).toMatch(
+          /^https:\/\/deployz-templates-us-east-1\.s3\.us-east-1\.amazonaws\.com\/compiler-v2\/[0-9a-f]{64}\.json$/,
         );
+        seenArtifactUrls.add(artifactLocation);
 
         const compacted = compactPendingInstallPayload(payload as Record<string, unknown>);
         expect(compacted['redisRequired']).toBe(profile.redisRequired);
@@ -204,6 +199,10 @@ describe('requirements contract: manifest survives API -> job -> relay unchanged
       });
     }
   }
+
+  it('every distinct requirement set froze its own artifact URL (no shared variant guess)', () => {
+    expect(seenArtifactUrls.size).toBe(PROFILES.length);
+  });
 
   // The explicit Redis regression (§established facts) — an application
   // analysed with Redis required must select the redis template variant and
@@ -221,12 +220,8 @@ describe('requirements contract: manifest survives API -> job -> relay unchanged
 
     const payload = await buildInstallPayload(db, deployment, createConfigStore(db));
     expect((payload['manifest'] as DeploymentManifest).redis.required).toBe(true);
-
-    const profile = infrastructureProfileForManifest(readDeploymentManifest(payload as Record<string, unknown>)!);
-    expect(profile.redis).toBe(true);
-    expect(resolveApplicationTemplateUrl(BASE_TEMPLATE_URL, profile)).toBe(
-      `https://bucket.s3.us-east-1.amazonaws.com/application/v1/${APPLICATION_TEMPLATE_REDIS_KEY}`,
-    );
+    // The artifact URL is the deployment's own frozen compiled template.
+    expect(payload['templateUrl']).toBe((deployment.specV2 as { artifactLocation: string }).artifactLocation);
 
     const verifyOptions = readVerifyOptionsFromPayload(payload as Record<string, unknown>);
     expect(verifyOptions.redisRequired).toBe(true);
@@ -271,20 +266,15 @@ describe('requirements contract: manifest survives API -> job -> relay unchanged
     expect(payload['redisRequired']).toBe(true);
     expect(payload['databaseRequired']).toBe(true);
     expect((payload['manifest'] as DeploymentManifest).redis.required).toBe(true);
-
-    const profile = infrastructureProfileForManifest(readDeploymentManifest(payload as Record<string, unknown>)!);
-    expect(resolveApplicationTemplateUrl(BASE_TEMPLATE_URL, profile)).toBe(
-      `https://bucket.s3.us-east-1.amazonaws.com/application/v1/${APPLICATION_TEMPLATE_REDIS_KEY}`,
-    );
+    expect(payload['templateUrl']).toBe((deployment.specV2 as { artifactLocation: string }).artifactLocation);
 
     const verifyOptions = readVerifyOptionsFromPayload(payload as Record<string, unknown>);
     expect(verifyOptions.redisRequired).toBe(true);
 
     // The poll meta GET /api/relay/commands hands the relay's heartbeat
-    // (apps/api/src/server.ts) is derived the same way: from the stored
-    // manifest, never the live column just flipped above.
-    const storedManifest = readStoredManifest(deployment.desiredState);
-    const pollProfile = storedManifest ? infrastructureProfileForManifest(storedManifest) : null;
-    expect(pollProfile).toEqual({ postgres: true, redis: true });
+    // (apps/api/src/server.ts) is derived the same way: from the frozen
+    // spec's verification contract, never the live column just flipped above.
+    const requirements = requirementsFromSpec(readStoredDeploymentSpec(deployment.specV2)!);
+    expect(requirements).toEqual({ databaseRequired: true, redisRequired: true });
   });
 });

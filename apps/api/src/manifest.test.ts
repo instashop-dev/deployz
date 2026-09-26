@@ -4,13 +4,20 @@ import { eq } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
-import type { DeploymentManifest } from '@deployz/contracts';
 import { applyMigrations, createDb, type Db } from '@deployz/db';
 import * as schema from '@deployz/db/schema';
 
 import { createAuth, type Auth } from './auth.js';
+import { compileDeploymentIntent } from './compiler-artifact.js';
 import { applicationToManifestOverrides, derivationApplicationFor, readStoredManifest } from './manifest.js';
 import { buildServer } from './server.js';
+
+import type { DeploymentManifest, DeploymentSpecV2 } from '@deployz/contracts';
+
+/** A completed spec for a manifest, via the production compile path. */
+function completedSpecFor(manifest: DeploymentManifest): DeploymentSpecV2 {
+  return compileDeploymentIntent({ manifest, region: 'us-east-1' }).spec;
+}
 
 // Phase 2 boundary — canonical deployment manifest: vendor overrides flow into
 // the final manifest, the manifest is persisted on deployments.desired_state,
@@ -342,7 +349,7 @@ describe('deployment manifest — overrides, persistence and readiness gate', ()
     expect(manifest!.schemaVersion).toBe(1);
   });
 
-  it('derivationApplicationFor derives booleans from a valid stored manifest', () => {
+  it('derivationApplicationFor derives database/redis from the frozen spec and storage from the manifest', () => {
     const manifest: DeploymentManifest = {
       schemaVersion: 1,
       application: { root: '.', runtime: 'node', framework: null, dockerfilePath: 'Dockerfile' },
@@ -358,9 +365,9 @@ describe('deployment manifest — overrides, persistence and readiness gate', ()
       externalServices: [],
       unsupported: [],
     };
-    // The live application row disagrees on every flag — the manifest wins.
+    // The live application row disagrees on every flag — the frozen state wins.
     const derived = derivationApplicationFor(
-      { manifest },
+      { desiredState: { manifest }, specV2: completedSpecFor(manifest) },
       { migrationCommand: 'npm run db:migrate' },
     );
     expect(derived).toEqual({
@@ -371,22 +378,40 @@ describe('deployment manifest — overrides, persistence and readiness gate', ()
     });
   });
 
-  it('derivationApplicationFor returns null for all three requirement flags when the stored manifest is missing or invalid', () => {
-    expect(derivationApplicationFor(null, { migrationCommand: 'npm run db:migrate' })).toEqual({
+  it('derivationApplicationFor returns null for flags whose frozen source is missing or invalid', () => {
+    const manifest: DeploymentManifest = {
+      schemaVersion: 1,
+      application: { root: '.', runtime: 'node', framework: null, dockerfilePath: 'Dockerfile' },
+      build: { command: null, context: '.' },
+      web: { command: 'npm start', port: 3000 },
+      health: { path: '/health' },
+      database: { postgres: true },
+      redis: { required: false, envBindings: [] },
+      storage: { required: false, envBindings: [] },
+      migration: { command: null },
+      worker: { command: null },
+      environment: { variables: [] },
+      externalServices: [],
+      unsupported: [],
+    };
+    // No manifest and no spec: nothing is known.
+    expect(derivationApplicationFor({ desiredState: null, specV2: null }, { migrationCommand: 'npm run db:migrate' })).toEqual({
       databaseRequired: null,
       storageRequired: null,
       redisRequired: null,
       migrationCommand: 'npm run db:migrate',
     });
-    expect(derivationApplicationFor({}, null)).toEqual({
-      databaseRequired: null,
+    // An invalid manifest hides only storage; a valid spec still proves db/redis.
+    expect(derivationApplicationFor({ desiredState: { manifest: { not: 'a manifest' } }, specV2: completedSpecFor(manifest) }, undefined)).toEqual({
+      databaseRequired: true,
       storageRequired: null,
-      redisRequired: null,
+      redisRequired: false,
       migrationCommand: null,
     });
-    expect(derivationApplicationFor({ manifest: { not: 'a manifest' } }, undefined)).toEqual({
+    // A pre-compiler row (no spec) hides only db/redis.
+    expect(derivationApplicationFor({ desiredState: { manifest }, specV2: null }, null)).toEqual({
       databaseRequired: null,
-      storageRequired: null,
+      storageRequired: false,
       redisRequired: null,
       migrationCommand: null,
     });
@@ -408,9 +433,10 @@ describe('deployment manifest — overrides, persistence and readiness gate', ()
       externalServices: [],
       unsupported: [],
     };
+    const deployment = { desiredState: { manifest } as Record<string, unknown>, specV2: null };
     expect(
-      derivationApplicationFor({ manifest }, { migrationCommand: 'npm run column:migrate' }).migrationCommand,
+      derivationApplicationFor(deployment, { migrationCommand: 'npm run column:migrate' }).migrationCommand,
     ).toBe('npm run column:migrate');
-    expect(derivationApplicationFor({ manifest }, {}).migrationCommand).toBeNull();
+    expect(derivationApplicationFor(deployment, {}).migrationCommand).toBeNull();
   });
 });

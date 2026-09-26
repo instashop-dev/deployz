@@ -14,15 +14,23 @@ import type { DeploymentManifest } from './manifest.js';
 // `index.ts`, so a top-level reference to a value still being initialized
 // there (e.g. `regionSchema`) would throw. `regionSchema` itself is only
 // reachable from a lazy schema for the same reason.
-import { infrastructureProfileForManifest, regionSchema } from './index.js';
+import { regionSchema } from './index.js';
 import type { InfrastructureProfile, Region } from './index.js';
 import type { InfrastructureSizeProfile } from './profile.js';
 
 // A deployment plan — the deterministic, derived-only description of what
 // INSTALL/UPDATE/DESTROY will do to a deployment's infrastructure. Built
-// entirely from the manifest, the component catalog (`components.ts`) and
-// the AWS resource catalog (`aws-resources.ts`); never from AWS, never from
-// an LLM. See docs/architecture.md "Deployment plans".
+// entirely from the manifest's requirement booleans (the same two values the
+// graph→planner chain reads), the component catalog (`components.ts`) and the
+// AWS resource catalog (`aws-resources.ts`); never from AWS, never from an
+// LLM. When the deployment carries a compiled spec, its persisted compiler
+// footprint is used verbatim so display and provisioning cannot disagree.
+// See docs/architecture.md "Deployment plans".
+
+/** The graph-shaping requirement booleans, straight from the manifest. */
+function manifestRequirements(manifest: Pick<DeploymentManifest, 'database' | 'redis'>): InfrastructureProfile {
+  return { postgres: manifest.database.postgres, redis: manifest.redis.required };
+}
 
 export const DEPLOYMENT_PLAN_SCHEMA_VERSION = 1 as const;
 
@@ -115,27 +123,31 @@ export function requirementDriftFor(
 }
 
 /**
- * The footprint + baseline cost estimate every plan carries. Derived from the
- * SAME manifest and region as the plan itself, so the displayed sizing can
- * never disagree with the plan's components. Pricing is decorative — nothing
- * in provisioning reads it, and a pricing adapter gap degrades the estimate,
- * never the plan.
+ * The footprint + baseline cost estimate every plan carries. The compiler's
+ * persisted footprint is used verbatim when given; otherwise it is derived
+ * from the SAME manifest and region as the plan itself, so the displayed
+ * sizing can never disagree with the plan's components. Pricing is
+ * decorative — nothing in provisioning reads it, and a pricing adapter gap
+ * degrades the estimate, never the plan.
  */
 function footprintFor(input: {
   manifest: DeploymentManifest;
   region: Region | null;
   infraVersion: string | null;
   profile?: InfrastructureSizeProfile;
+  compiledFootprint?: DeploymentFootprint;
 }): {
   footprint: DeploymentFootprint;
   costEstimate: FootprintCostEstimate;
 } {
-  const footprint = resolveDeploymentFootprint({
-    manifest: input.manifest,
-    region: input.region,
-    infraVersion: input.infraVersion,
-    ...(input.profile !== undefined ? { profile: input.profile } : {}),
-  });
+  const footprint =
+    input.compiledFootprint ??
+    resolveDeploymentFootprint({
+      manifest: input.manifest,
+      region: input.region,
+      infraVersion: input.infraVersion,
+      ...(input.profile !== undefined ? { profile: input.profile } : {}),
+    });
   return { footprint, costEstimate: estimateFootprintCost(footprint) };
 }
 
@@ -145,8 +157,10 @@ export function buildInstallPlan(input: {
   region: Region | null;
   infraVersion?: string | null;
   profile?: InfrastructureSizeProfile;
+  /** The compiler's persisted footprint (spec_v2.footprint) when known. */
+  compiledFootprint?: DeploymentFootprint;
 }): DeploymentPlan {
-  const profile = infrastructureProfileForManifest(input.manifest);
+  const profile = manifestRequirements(input.manifest);
   return {
     schemaVersion: DEPLOYMENT_PLAN_SCHEMA_VERSION,
     action: 'INSTALL',
@@ -158,6 +172,7 @@ export function buildInstallPlan(input: {
       region: input.region,
       infraVersion: input.infraVersion ?? null,
       ...(input.profile !== undefined ? { profile: input.profile } : {}),
+      ...(input.compiledFootprint !== undefined ? { compiledFootprint: input.compiledFootprint } : {}),
     }),
     requirementDrift: [],
   };
@@ -177,9 +192,11 @@ export function buildUpdatePlan(input: {
   newRelease: boolean;
   infraVersion?: string | null;
   profile?: InfrastructureSizeProfile;
+  /** The compiler's persisted footprint (spec_v2.footprint) when known. */
+  compiledFootprint?: DeploymentFootprint;
 }): DeploymentPlan {
-  const deployedProfile = infrastructureProfileForManifest(input.deployedManifest);
-  const desiredProfile = infrastructureProfileForManifest(input.desiredManifest);
+  const deployedProfile = manifestRequirements(input.deployedManifest);
+  const desiredProfile = manifestRequirements(input.desiredManifest);
   const components = requiredInfrastructureComponents(deployedProfile).map((component) =>
     toPlanComponent(component, component.kind === 'application' && input.newRelease ? 'UPDATE' : 'UNCHANGED'),
   );
@@ -194,6 +211,7 @@ export function buildUpdatePlan(input: {
       region: input.region,
       infraVersion: input.infraVersion ?? null,
       ...(input.profile !== undefined ? { profile: input.profile } : {}),
+      ...(input.compiledFootprint !== undefined ? { compiledFootprint: input.compiledFootprint } : {}),
     }),
     requirementDrift: requirementDriftFor(deployedProfile, desiredProfile),
   };
@@ -205,8 +223,10 @@ export function buildDestroyPlan(input: {
   region: Region;
   infraVersion?: string | null;
   profile?: InfrastructureSizeProfile;
+  /** The compiler's persisted footprint (spec_v2.footprint) when known. */
+  compiledFootprint?: DeploymentFootprint;
 }): DeploymentPlan {
-  const profile = infrastructureProfileForManifest(input.manifest);
+  const profile = manifestRequirements(input.manifest);
   return {
     schemaVersion: DEPLOYMENT_PLAN_SCHEMA_VERSION,
     action: 'DESTROY',
@@ -220,6 +240,7 @@ export function buildDestroyPlan(input: {
       region: input.region,
       infraVersion: input.infraVersion ?? null,
       ...(input.profile !== undefined ? { profile: input.profile } : {}),
+      ...(input.compiledFootprint !== undefined ? { compiledFootprint: input.compiledFootprint } : {}),
     }),
     requirementDrift: [],
   };

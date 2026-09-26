@@ -1333,6 +1333,18 @@ export function parseApplicationTemplateUrl(output: string): string | undefined 
  */
 export const IMAGE_REFERENCE_PARAMETER = 'paramImageReference';
 
+/** CFN logical id of the task-count parameter (CDK strips the underscore from `param_DesiredCount`). */
+export const DESIRED_COUNT_PARAMETER = 'paramDesiredCount';
+
+/**
+ * CFN logical ids of the app-runtime secrets the control plane generates per
+ * install. Values are random 32-byte base64url strings; they travel only
+ * through the INSTALL job payload into NoEcho parameters and are redacted
+ * from the stored job payload once claimed.
+ */
+export const APP_API_KEY_PARAMETER = 'paramAppApiKey';
+export const APP_SIGNING_SECRET_PARAMETER = 'paramAppSigningSecret';
+
 /** The bootstrap stack's non-secret control-plane parameter. */
 export const CONTROL_PLANE_URL_PARAMETER = 'ControlPlaneUrl';
 

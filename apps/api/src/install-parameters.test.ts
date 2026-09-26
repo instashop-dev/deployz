@@ -3,11 +3,12 @@ import { and, eq } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
-import { DOCUMENSO_PARAMETERS, IMAGE_REFERENCE_PARAMETER } from '@deployz/contracts';
+import { APP_API_KEY_PARAMETER, APP_SIGNING_SECRET_PARAMETER, DOCUMENSO_PARAMETERS, IMAGE_REFERENCE_PARAMETER, type DeploymentManifest } from '@deployz/contracts';
 import { applyMigrations, createDb, type Db } from '@deployz/db';
 import * as schema from '@deployz/db/schema';
 
 import { createAuth, type Auth } from './auth.js';
+import { compileDeploymentIntent } from './compiler-artifact.js';
 import { DESIRED_COUNT_PARAMETER, buildInstallParameters } from './install-parameters.js';
 import { buildServer } from './server.js';
 
@@ -100,6 +101,10 @@ async function insertDeployment(
   customerId: string,
   overrides: Partial<typeof schema.deployments.$inferInsert> = {},
 ): Promise<typeof schema.deployments.$inferSelect> {
+  const desiredState =
+    (overrides.desiredState as { manifest: DeploymentManifest } | undefined) ?? {
+      manifest: READY_MANIFEST as unknown as DeploymentManifest,
+    };
   const [row] = await db
     .insert(schema.deployments)
     .values({
@@ -110,7 +115,9 @@ async function insertDeployment(
       state: 'NOT_INSTALLED',
       installationId: `inst-${crypto.randomUUID()}`,
       enrollmentCode: crypto.randomUUID(),
-      desiredState: { manifest: READY_MANIFEST },
+      desiredState,
+      // The spec createDeploymentRecord persists for this manifest.
+      specV2: compileDeploymentIntent({ manifest: desiredState.manifest, region: 'us-east-1' }).spec,
       ...overrides,
     })
     .returning();
@@ -173,40 +180,39 @@ describe('buildInstallParameters', () => {
     await client?.close();
   });
 
-  it('with a custom domain: includes publicUrl and per-install secrets, no SMTP keys', async () => {
+  it('carries per-install app secrets and the release image, never the Documenso or port/health keys', async () => {
     const application = await insertApplication(db, org.organizationId);
     await insertRelease(db, application.id);
     const customer = await insertCustomer(db, org.organizationId);
     const deployment = await insertDeployment(db, org.organizationId, application.id, customer.id);
-    await db.insert(schema.customDomains).values({
-      deploymentId: deployment.id,
-      organizationId: org.organizationId,
-      hostname: 'docs.example.com',
-      status: 'PENDING',
-      createdBy: org.userId,
-    });
 
     const { parameters } = await buildInstallParameters(db, deployment.id);
 
-    expect(parameters[DOCUMENSO_PARAMETERS.publicUrl]).toBe('https://docs.example.com');
-    expect(parameters[DOCUMENSO_PARAMETERS.nextauthSecret]).toMatch(SECRET_SHAPE);
-    expect(parameters[DOCUMENSO_PARAMETERS.encryptionKey]).toMatch(SECRET_SHAPE);
-    expect(parameters[DOCUMENSO_PARAMETERS.encryptionSecondaryKey]).toMatch(SECRET_SHAPE);
-
+    // Exactly the four API-generated parameters, nothing else: the relay
+    // derives port/health from the payload manifest (Phase 2 contract).
+    expect(Object.keys(parameters).sort()).toEqual([
+      APP_API_KEY_PARAMETER,
+      APP_SIGNING_SECRET_PARAMETER,
+      DESIRED_COUNT_PARAMETER,
+      IMAGE_REFERENCE_PARAMETER,
+    ].filter((key) => parameters[key] !== undefined).sort());
+    expect(parameters[APP_API_KEY_PARAMETER]).toMatch(SECRET_SHAPE);
+    expect(parameters[APP_SIGNING_SECRET_PARAMETER]).toMatch(SECRET_SHAPE);
+    expect(parameters[IMAGE_REFERENCE_PARAMETER]).toBeTruthy();
     for (const key of [
-      DOCUMENSO_PARAMETERS.smtpTransport,
-      DOCUMENSO_PARAMETERS.smtpHost,
-      DOCUMENSO_PARAMETERS.smtpPort,
+      DOCUMENSO_PARAMETERS.publicUrl,
+      DOCUMENSO_PARAMETERS.nextauthSecret,
+      DOCUMENSO_PARAMETERS.encryptionKey,
+      DOCUMENSO_PARAMETERS.encryptionSecondaryKey,
       DOCUMENSO_PARAMETERS.smtpUsername,
       DOCUMENSO_PARAMETERS.smtpPassword,
-      DOCUMENSO_PARAMETERS.smtpFromAddress,
-      DOCUMENSO_PARAMETERS.smtpFromName,
+      'paramHealthCheckPath',
     ]) {
       expect(parameters[key]).toBeUndefined();
     }
   });
 
-  it('two calls produce different secrets', async () => {
+  it('two calls produce different app secrets', async () => {
     const application = await insertApplication(db, org.organizationId);
     await insertRelease(db, application.id);
     const customer = await insertCustomer(db, org.organizationId);
@@ -215,103 +221,10 @@ describe('buildInstallParameters', () => {
     const first = await buildInstallParameters(db, deployment.id);
     const second = await buildInstallParameters(db, deployment.id);
 
-    expect(first.parameters[DOCUMENSO_PARAMETERS.nextauthSecret]).not.toBe(
-      second.parameters[DOCUMENSO_PARAMETERS.nextauthSecret],
+    expect(first.parameters[APP_API_KEY_PARAMETER]).not.toBe(second.parameters[APP_API_KEY_PARAMETER]);
+    expect(first.parameters[APP_SIGNING_SECRET_PARAMETER]).not.toBe(
+      second.parameters[APP_SIGNING_SECRET_PARAMETER],
     );
-    expect(first.parameters[DOCUMENSO_PARAMETERS.encryptionKey]).not.toBe(
-      second.parameters[DOCUMENSO_PARAMETERS.encryptionKey],
-    );
-    expect(first.parameters[DOCUMENSO_PARAMETERS.encryptionSecondaryKey]).not.toBe(
-      second.parameters[DOCUMENSO_PARAMETERS.encryptionSecondaryKey],
-    );
-  });
-
-  it('without a domain: omits publicUrl', async () => {
-    const application = await insertApplication(db, org.organizationId);
-    await insertRelease(db, application.id);
-    const customer = await insertCustomer(db, org.organizationId);
-    const deployment = await insertDeployment(db, org.organizationId, application.id, customer.id);
-
-    const { parameters } = await buildInstallParameters(db, deployment.id);
-
-    expect(parameters[DOCUMENSO_PARAMETERS.publicUrl]).toBeUndefined();
-  });
-
-  it('prefers an ACTIVE custom domain over an ACTIVE default HTTPS hostname', async () => {
-    const application = await insertApplication(db, org.organizationId);
-    await insertRelease(db, application.id);
-    const customer = await insertCustomer(db, org.organizationId);
-    const deployment = await insertDeployment(db, org.organizationId, application.id, customer.id);
-    await db
-      .update(schema.deployments)
-      .set({
-        defaultHttps: {
-          hostname: `d-${deployment.id}.deployz.dev`,
-          status: 'ACTIVE',
-          checkCycle: 0,
-          lastError: null,
-        },
-      })
-      .where(eq(schema.deployments.id, deployment.id));
-    await db.insert(schema.customDomains).values({
-      deploymentId: deployment.id,
-      organizationId: org.organizationId,
-      hostname: 'active.example.com',
-      status: 'ACTIVE',
-      createdBy: org.userId,
-    });
-
-    const { parameters } = await buildInstallParameters(db, deployment.id);
-
-    expect(parameters[DOCUMENSO_PARAMETERS.publicUrl]).toBe('https://active.example.com');
-  });
-
-  it('falls back to the ACTIVE default HTTPS hostname when no ACTIVE custom domain exists', async () => {
-    const application = await insertApplication(db, org.organizationId);
-    await insertRelease(db, application.id);
-    const customer = await insertCustomer(db, org.organizationId);
-    const deployment = await insertDeployment(db, org.organizationId, application.id, customer.id);
-
-    const hostname = `d-${deployment.id}.deployz.dev`;
-    await db
-      .update(schema.deployments)
-      .set({ defaultHttps: { hostname, status: 'ACTIVE', checkCycle: 0, lastError: null } })
-      .where(eq(schema.deployments.id, deployment.id));
-
-    const { parameters } = await buildInstallParameters(db, deployment.id);
-
-    expect(parameters[DOCUMENSO_PARAMETERS.publicUrl]).toBe(`https://${hostname}`);
-  });
-
-  it('never hands a non-ACTIVE default HTTPS hostname to the app (keeps the custom-domain behavior instead)', async () => {
-    const application = await insertApplication(db, org.organizationId);
-    await insertRelease(db, application.id);
-    const customer = await insertCustomer(db, org.organizationId);
-    const deployment = await insertDeployment(db, org.organizationId, application.id, customer.id);
-    await db
-      .update(schema.deployments)
-      .set({
-        defaultHttps: {
-          hostname: `d-${deployment.id}.deployz.dev`,
-          status: 'CONFIGURING',
-          checkCycle: 0,
-          lastError: null,
-        },
-      })
-      .where(eq(schema.deployments.id, deployment.id));
-    await db.insert(schema.customDomains).values({
-      deploymentId: deployment.id,
-      organizationId: org.organizationId,
-      hostname: 'pending.example.com',
-      status: 'PENDING',
-      createdBy: org.userId,
-    });
-
-    const { parameters } = await buildInstallParameters(db, deployment.id);
-
-    // Default HTTPS is not ACTIVE yet, so it never becomes the public URL; the
-    // pre-existing install-time custom-domain value is preserved.
-    expect(parameters[DOCUMENSO_PARAMETERS.publicUrl]).toBe('https://pending.example.com');
   });
 
   // ── DEPLOY-001: a fresh install runs the application's own release ──────
@@ -416,13 +329,6 @@ describe('INSTALL job payload.parameters wiring', () => {
       state: 'NOT_INSTALLED',
       installationId: null,
     });
-    await db.insert(schema.customDomains).values({
-      deploymentId: deployment.id,
-      organizationId: org.organizationId,
-      hostname: 'register.example.com',
-      status: 'PENDING',
-      createdBy: org.userId,
-    });
 
     const response = await postJson(
       app,
@@ -437,10 +343,15 @@ describe('INSTALL job payload.parameters wiring', () => {
       .from(schema.deploymentJobs)
       .where(and(eq(schema.deploymentJobs.deploymentId, deployment.id), eq(schema.deploymentJobs.type, 'INSTALL')));
     const parameters = (job!.payload as { parameters?: Record<string, string> }).parameters;
-    expect(parameters?.[DOCUMENSO_PARAMETERS.publicUrl]).toBe('https://register.example.com');
-    expect(parameters?.[DOCUMENSO_PARAMETERS.nextauthSecret]).toMatch(SECRET_SHAPE);
-    expect(parameters?.[DOCUMENSO_PARAMETERS.encryptionKey]).toMatch(SECRET_SHAPE);
-    expect(parameters?.[DOCUMENSO_PARAMETERS.encryptionSecondaryKey]).toMatch(SECRET_SHAPE);
+    expect(parameters?.[APP_API_KEY_PARAMETER]).toMatch(SECRET_SHAPE);
+    expect(parameters?.[APP_SIGNING_SECRET_PARAMETER]).toMatch(SECRET_SHAPE);
+    expect(parameters?.[IMAGE_REFERENCE_PARAMETER]).toBeTruthy();
+    expect(parameters?.[DOCUMENSO_PARAMETERS.publicUrl]).toBeUndefined();
+    expect(parameters?.[DOCUMENSO_PARAMETERS.nextauthSecret]).toBeUndefined();
+    // The INSTALL points at the frozen compiled artifact.
+    expect((job!.payload as { templateUrl?: string }).templateUrl).toBe(
+      (deployment.specV2 as { artifactLocation: string }).artifactLocation,
+    );
   });
 
   it('POST /api/relay/register carries redisRequired: true when the stored manifest requires Redis', async () => {
@@ -592,9 +503,8 @@ describe('INSTALL job payload.parameters wiring', () => {
       redisRequired?: boolean;
     };
     expect(payload.recovery).toEqual({ neverInstalled: true });
-    expect(payload.parameters?.[DOCUMENSO_PARAMETERS.nextauthSecret]).toMatch(SECRET_SHAPE);
-    expect(payload.parameters?.[DOCUMENSO_PARAMETERS.encryptionKey]).toMatch(SECRET_SHAPE);
-    expect(payload.parameters?.[DOCUMENSO_PARAMETERS.encryptionSecondaryKey]).toMatch(SECRET_SHAPE);
+    expect(payload.parameters?.[APP_API_KEY_PARAMETER]).toMatch(SECRET_SHAPE);
+    expect(payload.parameters?.[APP_SIGNING_SECRET_PARAMETER]).toMatch(SECRET_SHAPE);
     expect(payload.redisRequired).toBe(false);
   });
 

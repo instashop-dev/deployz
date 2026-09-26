@@ -13,8 +13,10 @@ import { z } from 'zod';
 
 import {
   FIX_INSTRUCTIONS_TIMEOUT_MS,
+  applicationGraphHash,
   createAiGateway,
   generateFixInstructions,
+  manifestToApplicationGraph,
   normalizeDeploymentManifest,
   readApplicationAnalysis,
   redactSecrets,
@@ -28,7 +30,8 @@ import {
 import {
   DESTROY_PENDING_STALE_AFTER_MS,
   DEPLOYMENT_MANIFEST_SCHEMA_VERSION,
-  DOCUMENSO_PARAMETERS,
+  APP_API_KEY_PARAMETER,
+  APP_SIGNING_SECRET_PARAMETER,
   REGION_LABELS,
   RELAY_STALE_AFTER_MS,
   SUPPORTED_AWS_REGIONS,
@@ -52,13 +55,13 @@ import {
   healthComponentsSchema,
   healthStatusSchema,
   httpProbeSchema,
-  infrastructureProfileForManifest,
   infrastructureResponseSchema,
+  ownershipClassificationsFromSpec,
   regionSchema,
   relayCapabilitiesSchema,
   relayCommandProgressSchema,
   requiredInfrastructureComponents,
-  requirementDriftFor,
+  requirementsFromSpec,
   resolveBootstrapTemplate,
   resolveStoredInfrastructureSizeProfile,
   summarizeInfrastructureStatus,
@@ -194,9 +197,15 @@ import {
 import {
   applicationToManifestOverrides,
   derivationApplicationFor,
+  readStoredDeploymentSpec,
   readStoredManifest,
   type ManifestApplicationRow,
 } from './manifest.js';
+import {
+  createS3TemplatePublisher,
+  NO_OP_TEMPLATE_PUBLISHER,
+  type TemplatePublisher,
+} from './compiler-artifact.js';
 import { enqueue } from './queue.js';
 import {
   acceptInvitation,
@@ -399,6 +408,11 @@ export interface ServerDeps {
   // (organizations.ts) and the fixture-only
   // POST /internal/fixture/billing/subscription route below exists.
   billingFixtureMode?: boolean | undefined;
+  // Injectable compiler-v2 template-publication seam (compiler-artifact.ts).
+  // Defaults to the real S3 publisher in the deployed Lambda and to a no-op
+  // everywhere else; tests inject a recorder so no S3 call ever leaves the
+  // machine.
+  templatePublisher?: TemplatePublisher | undefined;
 }
 
 // application/deployment/release ids are uuid-keyed columns. A non-uuid id
@@ -893,7 +907,7 @@ interface DeploymentRequirementDriftSummary {
 }
 
 /** A deployments row joined to its customer label — what the drift summary needs. */
-type DeploymentRequirementDriftRow = Pick<DeploymentRow, 'id' | 'state' | 'desiredState'> & {
+type DeploymentRequirementDriftRow = Pick<DeploymentRow, 'id' | 'state' | 'desiredState' | 'specV2'> & {
   customerName: string;
 };
 
@@ -1096,24 +1110,37 @@ function computeApplicationRequirements(
 }
 
 /**
- * Requirement drift between each existing deployment's frozen manifest and
- * the application's current effective manifest (the same construction
- * computeApplicationRequirements uses) — the vendor-facing "existing
- * deployments keep their frozen manifest; these deployments now differ"
- * surface. Reported only, never repaired. DELETED deployments and invalid
- * stored manifests are skipped; deployments with no drift are omitted.
+ * Requirement drift between each existing deployment's frozen spec and the
+ * application's current effective manifest (the same construction
+ * computeApplicationRequirements builds) — the vendor-facing "existing
+ * deployments keep their frozen provisioning intent; these deployments now
+ * differ" surface. Compared by graph hash: a deployment has drifted when its
+ * spec's graph is not the graph the application currently wants. Reported
+ * only, never repaired. DELETED deployments and rows without a valid spec
+ * are skipped; deployments with no drift are omitted.
  */
 function computeDeploymentRequirementDrift(
   app: ManifestApplicationRow,
   deployments: DeploymentRequirementDriftRow[],
 ): ReadinessResponse['deploymentRequirementDrift'] {
-  const desiredProfile = infrastructureProfileForManifest(effectiveApplicationManifest(app));
+  const desiredManifest = effectiveApplicationManifest(app);
+  const desiredGraphHash = applicationGraphHash(manifestToApplicationGraph(desiredManifest));
   const summary: ReadinessResponse['deploymentRequirementDrift'] = [];
   for (const deployment of deployments) {
     if (deployment.state === 'DELETED') continue;
-    const manifest = readStoredManifest(deployment.desiredState);
-    if (!manifest) continue;
-    const drift = requirementDriftFor(infrastructureProfileForManifest(manifest), desiredProfile);
+    const spec = readStoredDeploymentSpec(deployment.specV2);
+    if (!spec) continue;
+    if (spec.graphHash === desiredGraphHash) continue;
+    const requirements = requirementsFromSpec(spec);
+    const drift: DeploymentPlan['requirementDrift'] = [];
+    const deployedDatabase = requirements ? requirements.databaseRequired : false;
+    const deployedRedis = requirements ? requirements.redisRequired : false;
+    if (deployedDatabase !== desiredManifest.database.postgres) {
+      drift.push({ kind: 'database', deployed: deployedDatabase, desired: desiredManifest.database.postgres });
+    }
+    if (deployedRedis !== desiredManifest.redis.required) {
+      drift.push({ kind: 'cache', deployed: deployedRedis, desired: desiredManifest.redis.required });
+    }
     if (drift.length > 0) {
       summary.push({
         deploymentId: deployment.id,
@@ -1319,7 +1346,7 @@ async function advanceStepTimingsAfterWrite(
     .from(schema.applications)
     .where(eq(schema.applications.id, freshDeployment.applicationId))
     .limit(1);
-  const application = derivationApplicationFor(freshDeployment.desiredState, applicationRows[0] ?? null);
+  const application = derivationApplicationFor(freshDeployment, applicationRows[0] ?? null);
 
   const jobs = await db
     .select()
@@ -1520,19 +1547,15 @@ const JOB_SUCCESS_STATE: Partial<Record<JobType, DeploymentRow['state']>> = {
 const RELEASE_ADVANCING_JOBS = new Set<JobType>(['DEPLOY_RELEASE', 'ROLLBACK']);
 
 /**
- * Documenso preset parameters the control plane GENERATES at install time
- * (or that carry SMTP credentials) — their values are secrets. `redactClaimedPayload`
- * scrubs these from the INSTALL job payload once the relay has claimed it,
- * so generated install secrets do not sit in `deployment_jobs.payload`
- * indefinitely (§31 "stop storing generated install secrets unnecessarily
- * in job payloads").
+ * Parameters the control plane GENERATES at install time — their values are
+ * secrets. `redactClaimedPayload` scrubs these from the INSTALL job payload
+ * once the relay has claimed it, so generated install secrets do not sit in
+ * `deployment_jobs.payload` indefinitely (§31 "stop storing generated install
+ * secrets unnecessarily in job payloads").
  */
 const INSTALL_SECRET_PARAMETER_IDS = new Set<string>([
-  DOCUMENSO_PARAMETERS.nextauthSecret,
-  DOCUMENSO_PARAMETERS.encryptionKey,
-  DOCUMENSO_PARAMETERS.encryptionSecondaryKey,
-  DOCUMENSO_PARAMETERS.smtpUsername,
-  DOCUMENSO_PARAMETERS.smtpPassword,
+  APP_API_KEY_PARAMETER,
+  APP_SIGNING_SECRET_PARAMETER,
 ]);
 
 /**
@@ -1543,7 +1566,7 @@ const INSTALL_SECRET_PARAMETER_IDS = new Set<string>([
  *  - CONFIG_UPDATE: newly-entered secret VALUES (transport-only) become
  *    key stubs — the DB keeps key names, never values.
  *  - INSTALL: generated secret parameter values become SECRET_MASK; plain
- *    parameters (publicUrl, healthPath) survive untouched.
+ *    parameters (image reference, desired count) survive untouched.
  */
 export function redactClaimedPayload(job: {
   readonly type: string;
@@ -1614,6 +1637,12 @@ export async function buildServer({
   loggerInstance,
   paddle = createPaddle(),
   billingFixtureMode,
+  // Compiler-v2 artifact publication: the real S3 publisher only in the
+  // deployed Lambda (env.releaseImageRegistryEnabled); simulated E2E, tests
+  // and local dev get the no-op, so deployment creation never touches S3.
+  templatePublisher = env.releaseImageRegistryEnabled
+    ? createS3TemplatePublisher()
+    : NO_OP_TEMPLATE_PUBLISHER,
 }: ServerDeps): Promise<FastifyInstance> {
   const billingFixtureModeResolved = billingFixtureMode ?? env.billingFixtureMode;
   // Phase 1.1: the ECR grant lifecycle. Best-effort by design — a failing
@@ -2354,6 +2383,7 @@ export async function buildServer({
         observedState: schema.deployments.observedState,
         relayCredential: schema.deployments.relayCredential,
         desiredState: schema.deployments.desiredState,
+        specV2: schema.deployments.specV2,
         releaseVersion: schema.releases.version,
       })
       .from(schema.deployments)
@@ -2440,7 +2470,7 @@ export async function buildServer({
       // offered once a relay enrolled; before that there is nothing to
       // observe.
       components: alreadyInstalled
-        ? mergeComponentState(row.observedState, derivationApplicationFor(row.desiredState, null))
+        ? mergeComponentState(row.observedState, derivationApplicationFor(row, null))
         : null,
       bootstrapStackName: stackName,
       waitingForRelay,
@@ -2516,7 +2546,7 @@ export async function buildServer({
       const appUrl = resolveAppUrl(jobs, domain, defaultHttps);
       const derived = deriveDeploymentStatus({
         deployment: row.deployment,
-        application: derivationApplicationFor(row.deployment.desiredState, row),
+        application: derivationApplicationFor(row.deployment, row),
         jobs,
         domain,
         defaultHttps,
@@ -2791,6 +2821,7 @@ export async function buildServer({
     isLambda: Boolean(process.env.AWS_LAMBDA_FUNCTION_NAME),
   });
   const pendingSecrets = createDrizzlePendingSecretStore(db, cipher);
+  const compilerDeps = { templatePublisher };
   const configDeps: ConfigDeps = {
     store: configStore,
     secretWriter: configSecretWriter,
@@ -3439,6 +3470,7 @@ export async function buildServer({
         customerName: schema.customers.name,
         state: schema.deployments.state,
         desiredState: schema.deployments.desiredState,
+        specV2: schema.deployments.specV2,
       })
       .from(schema.deployments)
       .innerJoin(schema.customers, eq(schema.deployments.customerId, schema.customers.id))
@@ -3682,7 +3714,7 @@ export async function buildServer({
       }, {
         pendingSecrets,
         cipher,
-      });
+      }, compilerDeps);
       return reply.code(201).send({
         link: toDeployLinkView({ link, application, deployment }),
         deployment,
@@ -3813,7 +3845,7 @@ export async function buildServer({
       // model for every customer surface.
       const derived = deriveDeploymentStatus({
         deployment,
-        application: derivationApplicationFor(deployment.desiredState, application),
+        application: derivationApplicationFor(deployment, application),
         jobs: [],
         domain,
         appUrl: null,
@@ -3968,7 +4000,7 @@ export async function buildServer({
       const appUrl = resolveAppUrl(jobs, domain, defaultHttps);
       const derived = deriveDeploymentStatus({
         deployment,
-        application: derivationApplicationFor(deployment.desiredState, application),
+        application: derivationApplicationFor(deployment, application),
         jobs,
         domain,
         defaultHttps,
@@ -4158,7 +4190,7 @@ export async function buildServer({
       const { linkId } = request.params as { linkId: string };
       const body = publicInstallConfirmBodySchema.parse(request.body);
       const token = firstHeaderValue(request.headers['x-deployz-token']);
-      const result = await confirmPublicInstall(db, linkId, body, configDeps, token);
+      const result = await confirmPublicInstall(db, linkId, body, configDeps, token, templatePublisher);
       return reply.code(result.created ? 201 : 200).send({ installLinkId: result.installLinkId });
     },
   );
@@ -4291,16 +4323,20 @@ export async function buildServer({
     // day-2 deploys keep the exact config this deployment was created with.
     let deployment;
     try {
-      ({ deployment } = await createDeploymentRecord(db, {
-        organizationId,
-        applicationId: body.applicationId,
-        customerId: body.customerId,
-        region: body.region,
-        deploymentType: body.deploymentType,
-        createdBy: request.user?.id ?? null,
-        updatedBy: request.user?.id ?? null,
-        source: 'manual',
-      }));
+      ({ deployment } = await createDeploymentRecord(
+        db,
+        {
+          organizationId,
+          applicationId: body.applicationId,
+          customerId: body.customerId,
+          region: body.region,
+          deploymentType: body.deploymentType,
+          createdBy: request.user?.id ?? null,
+          updatedBy: request.user?.id ?? null,
+          source: 'manual',
+        },
+        compilerDeps,
+      ));
       // DEPLOY-027 (Phase 4): materialization runs after the deployment row
       // is durable — same pattern as createDeployLink / public-install /
       // completePendingCheckoutIntent.
@@ -4424,7 +4460,7 @@ export async function buildServer({
         // manifest, never the live `applications` columns above — so the
         // fleet's component list and derived status can never disagree with
         // what this deployment was actually created with.
-        const derivedRow = { ...row, ...derivationApplicationFor(row.deployment.desiredState, row) };
+        const derivedRow = { ...row, ...derivationApplicationFor(row.deployment, row) };
         const derived = deriveDeploymentStatus({ deployment: row.deployment, application: derivedRow, jobs, domain, defaultHttps, appUrl });
         return { ...toFleetRow(derivedRow), deploymentStatus: toVendorDeploymentStatus(derived) };
       }),
@@ -4468,7 +4504,7 @@ export async function buildServer({
     const defaultUrl = resolveDefaultUrl(defaultHttps);
     // Phase 2: derive the requirement booleans from the deployment's frozen
     // manifest, never the live `applications` columns selected above.
-    const derivedRow = { ...rows[0]!, ...derivationApplicationFor(rows[0]!.deployment.desiredState, rows[0]!) };
+    const derivedRow = { ...rows[0]!, ...derivationApplicationFor(rows[0]!.deployment, rows[0]!) };
     const derived = deriveDeploymentStatus({
       deployment: derivedRow.deployment,
       application: derivedRow,
@@ -6015,18 +6051,41 @@ export async function buildServer({
       );
     }
     const profile = resolveStoredInfrastructureSizeProfile(deployment.desiredState);
+    const spec = readStoredDeploymentSpec(deployment.specV2);
+    const compiledFootprint = spec?.footprint ?? undefined;
     if (action === 'install') {
-      return deploymentPlanSchema.parse(buildInstallPlan({ manifest, region: deployment.region, ...(profile ? { profile } : {}) }));
+      return deploymentPlanSchema.parse(
+        buildInstallPlan({
+          manifest,
+          region: deployment.region,
+          ...(profile ? { profile } : {}),
+          ...(compiledFootprint ? { compiledFootprint } : {}),
+        }),
+      );
     }
     if (action === 'destroy') {
-      return deploymentPlanSchema.parse(buildDestroyPlan({ manifest, region: deployment.region, ...(profile ? { profile } : {}) }));
+      return deploymentPlanSchema.parse(
+        buildDestroyPlan({
+          manifest,
+          region: deployment.region,
+          ...(profile ? { profile } : {}),
+          ...(compiledFootprint ? { compiledFootprint } : {}),
+        }),
+      );
     }
     if (action === 'update') {
       const application = await loadOwnedApplication(db, deployment.applicationId, organizationId);
       const { manifest: desiredManifest } = await runApplicationPreflight(db, application, null);
       const newRelease = await newerReadyReleaseExists(db, deployment.applicationId, deployment.currentReleaseId);
       return deploymentPlanSchema.parse(
-        buildUpdatePlan({ deployedManifest: manifest, desiredManifest, region: deployment.region, newRelease, ...(profile ? { profile } : {}) }),
+        buildUpdatePlan({
+          deployedManifest: manifest,
+          desiredManifest,
+          region: deployment.region,
+          newRelease,
+          ...(profile ? { profile } : {}),
+          ...(compiledFootprint ? { compiledFootprint } : {}),
+        }),
       );
     }
     throw new ApiError(400, 'INVALID_REQUEST', 'action must be "install", "update", or "destroy".');
@@ -6293,24 +6352,29 @@ export async function buildServer({
 
       const lastUpdatedAtIso = lastUpdatedAt?.toISOString() ?? null;
 
-      // Requirement-aware verification (Phase 6): compare what the stored
-      // manifest requires (the catalog, filtered by its infrastructure
-      // profile) against this inventory — a report only, never an
-      // auto-repair. A deployment with no valid stored manifest has no
-      // expectations to compare against.
+      // Requirement-aware verification (Phase 6): compare what the frozen
+      // spec's verification contract requires against this inventory — a
+      // report only, never an auto-repair. Without a spec, the stored
+      // manifest's requirement booleans stand in; with neither, there is
+      // nothing to compare against.
       const storedManifest = readStoredManifest(deployment.desiredState);
-      const expectations = storedManifest
-        ? (() => {
-            const expectedKinds = requiredInfrastructureComponents(
-              infrastructureProfileForManifest(storedManifest),
-            ).map((definition) => definition.kind);
-            const comparison = compareInfrastructureExpectations(expectedKinds, components);
-            // A removed component is never "missing" after destroy — once
-            // the deployment is DELETED, the simplest honest rule is that
-            // nothing is missing.
-            return deployment.state === 'DELETED' ? { ...comparison, missing: [] } : comparison;
-          })()
-        : null;
+      const deploymentSpec = readStoredDeploymentSpec(deployment.specV2);
+      const expectations = (() => {
+        const expectedKinds = deploymentSpec?.verificationContract
+          ? [...new Set(deploymentSpec.verificationContract.checks.map((check) => check.componentKind))]
+          : storedManifest
+            ? requiredInfrastructureComponents({
+                postgres: storedManifest.database.postgres,
+                redis: storedManifest.redis.required,
+              }).map((definition) => definition.kind)
+            : null;
+        if (expectedKinds === null) return null;
+        const comparison = compareInfrastructureExpectations(expectedKinds, components);
+        // A removed component is never "missing" after destroy — once
+        // the deployment is DELETED, the simplest honest rule is that
+        // nothing is missing.
+        return deployment.state === 'DELETED' ? { ...comparison, missing: [] } : comparison;
+      })();
 
       return infrastructureResponseSchema.parse({
         provider: 'aws',
@@ -6471,7 +6535,7 @@ export async function buildServer({
         onSubscriptionChanged: async ({ organizationId, status, checkoutIntentId }) => {
           if (status !== 'ACTIVE') return;
           const completed = await completePendingCheckoutIntent(
-            { db, paddle, materialization: { pendingSecrets, cipher } },
+            { db, paddle, materialization: { pendingSecrets, cipher }, templatePublisher },
             organizationId,
             checkoutIntentId,
           );
@@ -7062,13 +7126,14 @@ export async function buildServer({
     // Deployment facts the observe hook needs but no command carries: the
     // heartbeat runs outside any command, so this poll response is the only
     // channel that reaches it. Phase 2: derived from the deployment's frozen
-    // manifest, never the live `applications` columns — the relay's
-    // requirement-aware heartbeat checks must never disagree with what this
-    // deployment was actually created with. A missing/invalid manifest omits
-    // BOTH flags (never a guessed default) so poll.ts's "send both or
-    // neither" contract holds.
+    // spec's verification contract, never the live `applications` columns —
+    // the relay's requirement-aware heartbeat checks must never disagree
+    // with what this deployment was actually created with. A missing/invalid
+    // or uncompiled spec omits BOTH flags (never a guessed default) so
+    // poll.ts's "send both or neither" contract holds.
     const manifest = readStoredManifest(deployment.desiredState);
-    const profile = manifest ? infrastructureProfileForManifest(manifest) : null;
+    const spec = readStoredDeploymentSpec(deployment.specV2);
+    const requirements = spec ? requirementsFromSpec(spec) : null;
 
     // §10.2 + Phase 11: the probe URL is where the app is ACTUALLY served —
     // the custom domain / default-HTTPS hostname once HTTPS is configured,
@@ -7091,7 +7156,7 @@ export async function buildServer({
         payload: job.payload,
       })),
       deployment: {
-        ...(profile ? { databaseRequired: profile.postgres, redisRequired: profile.redis } : {}),
+        ...(requirements ? { databaseRequired: requirements.databaseRequired, redisRequired: requirements.redisRequired } : {}),
         probeUrl: resolveProbeUrl(installJobs, manifest?.health.path ?? null, activeDomain, defaultHttps),
       },
     };
@@ -7994,18 +8059,24 @@ export async function buildServer({
     // AWS — this stores the raw ListStackResources read it transported.
     // Absent inventory (read failed / stack gone) passes null, a no-op that
     // preserves the last complete snapshot — a partial read must never
-    // overwrite a good one. A persistence error never fails the heartbeat.
+    // overwrite a good one. Classification joins the deployment's frozen
+    // spec's ownership records on logical id; unlisted resources fall back
+    // to type-based classifyResource. A persistence error never fails the
+    // heartbeat.
     try {
       const infraHealth = (observedState as Record<string, unknown> | null)?.['infraHealth'] as
         | { inventory?: { stackId: string; resources: ObservedStackResource[]; observedAt: string } }
         | null
         | undefined;
       const inventory = infraHealth?.inventory ?? null;
+      const spec = readStoredDeploymentSpec(deployment.specV2);
+      const classifications = spec ? ownershipClassificationsFromSpec(spec) : null;
       await persistDeploymentResourceSnapshot(db, {
         deploymentId: deployment.id,
         stackId: inventory?.stackId ?? '',
         resources: inventory?.resources ?? null,
         observedAt: inventory?.observedAt ?? new Date().toISOString(),
+        ...(classifications ? { classificationByLogicalId: classifications } : {}),
       });
     } catch (error) {
       request.log.warn({ err: error }, 'infrastructure inventory persistence failed');

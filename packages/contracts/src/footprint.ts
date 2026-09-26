@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { INFRASTRUCTURE_COMPONENT_DISPLAY } from './infrastructure.js';
 import { requiredInfrastructureComponents } from './components.js';
 import type { InfrastructureProfile, Region } from './index.js';
-import { infrastructureProfileForManifest, regionSchema } from './index.js';
+import { regionSchema } from './index.js';
 import type { DeploymentManifest } from './manifest.js';
 import { defaultInfrastructureSizeProfile } from './profile.js';
 import type { InfrastructureSizeProfile } from './profile.js';
@@ -251,7 +251,10 @@ export function resolveDeploymentFootprint(input: {
   infraVersion?: string | null;
   profile?: InfrastructureSizeProfile;
 }): DeploymentFootprint {
-  const graphProfile = infrastructureProfileForManifest(input.manifest);
+  const graphProfile: InfrastructureProfile = {
+    postgres: input.manifest.database.postgres,
+    redis: input.manifest.redis.required,
+  };
   const sizeProfile = input.profile ?? defaultInfrastructureSizeProfile();
   const workloadSizing = {
     cpuUnits: sizeProfile.workload.cpuUnits,

@@ -34,6 +34,8 @@ export interface CheckoutDeps {
   paddle: PaddleBilling | null;
   /** DEPLOY-027 (Phase 4) — materialization seam (see deploy-links.ts). */
   materialization?: import('./deploy-links.js').MaterializationDeps;
+  /** Compiler-v2 — artifact publication seam (see compiler-artifact.ts). */
+  templatePublisher?: import('./compiler-artifact.js').TemplatePublisher;
   now?: () => Date;
 }
 
@@ -291,16 +293,20 @@ export async function completePendingCheckoutIntent(
         return { checkoutIntentId: intent.id, status: 'COMPLETED' as const };
       }
 
-      const { deployment } = await createDeploymentRecord(tx, {
-        organizationId,
-        applicationId: intent.applicationId,
-        customerId: intent.customerId,
-        region: intent.region,
-        deploymentType: 'PRODUCTION',
-        createdBy: intent.createdBy,
-        updatedBy: intent.createdBy,
-        source: 'manual',
-      });
+      const { deployment } = await createDeploymentRecord(
+        tx,
+        {
+          organizationId,
+          applicationId: intent.applicationId,
+          customerId: intent.customerId,
+          region: intent.region,
+          deploymentType: 'PRODUCTION',
+          createdBy: intent.createdBy,
+          updatedBy: intent.createdBy,
+          source: 'manual',
+        },
+        deps.templatePublisher ? { templatePublisher: deps.templatePublisher } : undefined,
+      );
       const resolvedAt = now();
       await tx
         .update(schema.billingCheckoutIntents)

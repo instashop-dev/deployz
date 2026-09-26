@@ -169,4 +169,44 @@ describe('persistDeploymentResourceSnapshot', () => {
       lifecyclePolicy: 'delete',
     });
   });
+
+  it('prefers spec ownership classifications by logical id; unlisted resources fall back to classifyResource', async () => {
+    // An obscure type classifyResource would call 'other/supporting/conditional':
+    // the spec metadata wins for the listed logical id, and the verification
+    // contract's logical id marks the component's primary resource.
+    const result = await persistDeploymentResourceSnapshot(ctx, {
+      deploymentId,
+      stackId: STACK_ID,
+      observedAt: '2026-09-01T16:00:00.000Z',
+      resources: [
+        resource('PrimaryDbInstance', 'AWS::RoadsNotTaken::Widget', 'CREATE_COMPLETE'),
+        resource('WebTaskSecurityGroup', 'AWS::RoadsNotTaken::Widget', 'CREATE_COMPLETE'),
+        resource('Service', 'AWS::ECS::Service', 'CREATE_COMPLETE'),
+      ],
+      classificationByLogicalId: new Map([
+        ['PrimaryDbInstance', { componentKind: 'database', role: 'primary', lifecycle: 'retain' }],
+        ['WebTaskSecurityGroup', { componentKind: 'application', role: 'supporting', lifecycle: 'delete' }],
+      ]),
+    });
+
+    expect(result).toEqual({ persisted: true, count: 3 });
+    const all = await rows();
+    expect(all.find((r) => r.logicalResourceId === 'PrimaryDbInstance')).toMatchObject({
+      resourceType: 'AWS::RoadsNotTaken::Widget',
+      componentKind: 'database',
+      resourceRole: 'primary',
+      lifecyclePolicy: 'retain',
+    });
+    expect(all.find((r) => r.logicalResourceId === 'WebTaskSecurityGroup')).toMatchObject({
+      componentKind: 'application',
+      resourceRole: 'supporting',
+      lifecyclePolicy: 'delete',
+    });
+    // Unlisted logical id: type-based classification still applies.
+    expect(all.find((r) => r.logicalResourceId === 'Service')).toMatchObject({
+      componentKind: 'application',
+      resourceRole: 'primary',
+      lifecyclePolicy: 'delete',
+    });
+  });
 });

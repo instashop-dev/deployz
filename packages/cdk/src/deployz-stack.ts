@@ -263,6 +263,17 @@ export class DeployzStack extends Stack {
       }),
     );
 
+    // Compiler-v2: the API freezes each deployment's compiled template into
+    // the region's template bucket (deployz-templates-<region>) under the
+    // content-addressed compiler-v2/ prefix, before the deployment row is
+    // written.
+    apiLambda.function.addToRolePolicy(
+      new PolicyStatement({
+        actions: ['s3:PutObject'],
+        resources: ['arn:aws:s3:::deployz-templates-*/compiler-v2/*'],
+      }),
+    );
+
     dbSecurityGroup.addIngressRule(
       apiLambda.function.connections.securityGroups[0] ?? Peer.anyIpv4(),
       Port.tcp(5432),

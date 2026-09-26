@@ -8,6 +8,7 @@ import * as schema from '@deployz/db/schema';
 import { applicationStackNameForInstallation, customerDeploymentStatusSchema } from '@deployz/contracts';
 
 import { createAuth, type Auth } from './auth.js';
+import { compileDeploymentIntent } from './compiler-artifact.js';
 import { hashRelayToken } from './relay-store.js';
 import { buildServer } from './server.js';
 
@@ -58,6 +59,10 @@ describe('POST /api/relay/commands/:id/progress', () => {
   async function insertDeployment(
     overrides: Partial<typeof schema.deployments.$inferInsert> = {},
   ): Promise<typeof schema.deployments.$inferSelect> {
+    const desiredState =
+      (overrides.desiredState as { manifest: typeof READY_MANIFEST } | undefined) ?? {
+        manifest: READY_MANIFEST,
+      };
     const [row] = await db
       .insert(schema.deployments)
       .values({
@@ -68,7 +73,12 @@ describe('POST /api/relay/commands/:id/progress', () => {
         state: 'NOT_INSTALLED',
         installationId: `inst-${crypto.randomUUID()}`,
         enrollmentCode: crypto.randomUUID(),
-        desiredState: { manifest: READY_MANIFEST },
+        desiredState,
+        // The completed spec createDeploymentRecord persists for this manifest.
+        specV2: compileDeploymentIntent({
+          manifest: desiredState.manifest as unknown as Parameters<typeof compileDeploymentIntent>[0]['manifest'],
+          region: 'us-east-1',
+        }).spec,
         ...overrides,
       })
       .returning();

@@ -1,9 +1,11 @@
 import {
   deploymentManifestOverridesSchema,
   deploymentManifestSchema,
-  infrastructureProfileForManifest,
+  deploymentSpecV2Schema,
+  requirementsFromSpec,
   type DeploymentManifest,
   type DeploymentManifestOverrides,
+  type DeploymentSpecV2,
 } from '@deployz/contracts';
 
 import type { DerivationApplication } from './deployment-status.js';
@@ -70,26 +72,39 @@ export function readStoredManifest(desiredState: Record<string, unknown> | null)
 }
 
 /**
+ * Read the spec persisted on a deployment's spec_v2 column — the frozen
+ * DeploymentSpecV2 the deployment was created with. Null when the column is
+ * empty or invalid (a pre-compiler row).
+ */
+export function readStoredDeploymentSpec(specV2: Record<string, unknown> | null): DeploymentSpecV2 | null {
+  const parsed = deploymentSpecV2Schema.safeParse(specV2);
+  return parsed.success ? parsed.data : null;
+}
+
+/**
  * The one place a deployment's `DerivationApplication` (deployment-status.ts)
- * is built — from the deployment's frozen manifest, never the live
- * `applications` columns (Phase 2). `databaseRequired`/`storageRequired`/
- * `redisRequired` come out `null` ("not known", never a guessed `false`)
- * when the stored manifest is missing or invalid; `migrationCommand` stays
- * the live column, since a vendor fixing a broken migration command must
- * take effect on the next deploy without re-installing. The display layer
- * (deployment-status.ts) treats a null boolean as "not required" — that is
- * a rendering fallback only, never a provisioning decision.
+ * is built — the requirement booleans from the deployment's frozen spec's
+ * verification contract, never the live `applications` columns. They come
+ * out `null` ("not known", never a guessed `false`) when the stored spec is
+ * missing, invalid, or uncompiled; `storageRequired` stays manifest-derived
+ * (the application's own requirement, not the template's unconditional S3
+ * resource); `migrationCommand` stays the live column, since a vendor fixing
+ * a broken migration command must take effect on the next deploy without
+ * re-installing. The display layer (deployment-status.ts) treats a null
+ * boolean as "not required" — that is a rendering fallback only, never a
+ * provisioning decision.
  */
 export function derivationApplicationFor(
-  desiredState: Record<string, unknown> | null,
+  deployment: { desiredState: Record<string, unknown> | null; specV2: Record<string, unknown> | null },
   application: { migrationCommand?: string | null } | null | undefined,
 ): DerivationApplication {
-  const manifest = readStoredManifest(desiredState);
-  const profile = manifest ? infrastructureProfileForManifest(manifest) : null;
+  const manifest = readStoredManifest(deployment.desiredState);
+  const spec = readStoredDeploymentSpec(deployment.specV2);
+  const requirements = spec ? requirementsFromSpec(spec) : null;
   return {
-    databaseRequired: profile ? profile.postgres : null,
+    databaseRequired: requirements ? requirements.databaseRequired : null,
     storageRequired: manifest ? manifest.storage.required : null,
-    redisRequired: profile ? profile.redis : null,
+    redisRequired: requirements ? requirements.redisRequired : null,
     migrationCommand: application?.migrationCommand ?? null,
   };
 }
