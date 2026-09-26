@@ -361,11 +361,10 @@ export function startSimulatedRelay(options: StartSimulatedRelayOptions): Simula
 
   const installDeps: InstallExecutorDeps = {
     installationId,
-    // Never resolved for real — only its shape (ending in the published
-    // application-template key) matters, so the generic resolver
-    // (`resolveApplicationTemplateUrl`) can locate any profile variant
-    // when a scenario ever requires one.
-    templateUrl: `https://simulated-templates.deployz.test/application/v1/${APPLICATION_TEMPLATE_KEY}`,
+    // The install template URL itself rides each INSTALL command's payload
+    // (settleInstall consumes `payload.templateUrl` and fails closed without
+    // it) — the harness injects the simulated artifact URL at that seam in
+    // `installExecutor` below, so no fabricated URL is wired into deps.
     // The collector's `operationStartedAt` boundary and the pending marker's
     // `startedAt` — both read off the account's own virtual clock so every
     // event this scenario ever reveals timestamps at or after it.
@@ -424,11 +423,14 @@ export function startSimulatedRelay(options: StartSimulatedRelayOptions): Simula
     },
   };
 
-  // The DESTROY write seam. `rds`/`cache` are omitted: every D2 lifecycle
+  // The DESTROY write seam. `rds`/`cache` are omitted: every lifecycle
   // scenario destroys a deployment that completed a real install, so the
-  // control plane always sends `dataDeletionAuthorized: false`
-  // (server.ts's destroy route) — the data-preserving DELETE_FAILED path
-  // that needs them is never reached.
+  // control plane always sends `dataDeletionAuthorized: false` (server.ts's
+  // destroy route). `retained-delete-recovery` exercises that path's
+  // DELETE_FAILED retain-retry end to end — it needs only the reader and
+  // the deleter below. The blocker-clearing path the two clients serve is
+  // reserved for the explicitly authorized never-installed recovery
+  // (packages/relay/src/recover.ts) and stays unreached here.
   const destroyDeps: DestroyDeps = {
     cfn: account.cloudFormationReader(),
     deleter: account.stackDeleter(),
@@ -476,6 +478,16 @@ export function startSimulatedRelay(options: StartSimulatedRelayOptions): Simula
 
   const baseInstallExecutor = createInstallExecutor(installDeps);
   const installExecutor: CommandExecutor = async (command) => {
+    // The relay executes exactly the compiled-template URL the payload
+    // carries and fails closed without one. The local fixture API does not
+    // send `templateUrl` yet, so the harness supplies the simulated artifact
+    // URL at this boundary — the same stand-in `installDeps.templateUrl`
+    // used to provide — and passes through verbatim whatever the control
+    // plane itself sends once it does.
+    if (typeof command.payload['templateUrl'] !== 'string' || command.payload['templateUrl'] === '') {
+      command.payload['templateUrl'] =
+        `https://simulated-templates.deployz.test/application/v1/${APPLICATION_TEMPLATE_KEY}`;
+    }
     const result = await baseInstallExecutor(command);
     if (!result.deferred && settlement === null) {
       settlement = { succeeded: result.success };

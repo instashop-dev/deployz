@@ -488,6 +488,93 @@ test.describe('purge-failure', () => {
   });
 });
 
+test.describe('retained-delete-recovery', () => {
+  test.use({ deployzScenario: 'retained-delete-recovery' });
+
+  test('@scenario:retained-delete-recovery a DELETE_FAILED destroy recovers via RetainResources — truthful success, then purge clears the retained data', async ({
+    request,
+    deployzInstall,
+  }) => {
+    test.setTimeout(30_000);
+    const { deploymentId, api } = deployzInstall;
+
+    await expect
+      .poll(async () => (await api.getDeployment(deploymentId)).state, { timeout: 15_000 })
+      .toBe('HEALTHY');
+
+    // The resource inventory must be persisted BEFORE destroy — it is the
+    // only source GET .../infrastructure reads from after deletion (see
+    // packages/db/src/deployment-resources-persist.ts).
+    await expect
+      .poll(
+        async () => {
+          const infra = (await api.getInfrastructure(deploymentId)) as unknown as InfrastructureResponse;
+          return infra.summary.technicalResourceCount;
+        },
+        { timeout: 15_000, message: 'waiting for the resource inventory to be persisted' },
+      )
+      .toBeGreaterThan(0);
+
+    const destroyResponse = await destroyDeployment(request, deploymentId);
+    expect(destroyResponse.status()).toBe(202);
+    const afterRequested = (await api.getDeployment(deploymentId)) as unknown as DeploymentResponse;
+    expect(afterRequested.state).toBe('DELETING');
+
+    // DELETE_FAILED on the first attempt (the retained database's cascade),
+    // then the relay's data-preserving recovery re-issues the delete with
+    // RetainResources and it completes. The DESTROY therefore settles
+    // truthfully SUCCEEDED — deployment state DELETED, never FAILED — while
+    // the retained resources survive.
+    await expect
+      .poll(async () => (await api.getDeployment(deploymentId)).state, {
+        timeout: 15_000,
+        message: 'waiting for the retain-retry destroy to complete',
+      })
+      .toBe('DELETED');
+
+    const after = (await api.getDeployment(deploymentId)) as unknown as DeploymentResponse;
+    // The first attempt's failure surfaced nowhere as a FAILED deployment.
+    expect(after.deploymentStatus.failure).toBeNull();
+    expect(after.cleanupState).toBeNull();
+
+    // Retained window between DESTROY and PURGE: database/storage 'retained',
+    // application 'removed' (same static lifecycle classification as
+    // retained-resources).
+    const infra = (await api.getInfrastructure(deploymentId)) as unknown as InfrastructureResponse;
+    const database = infra.components.find((c) => c.kind === 'database');
+    const storage = infra.components.find((c) => c.kind === 'storage');
+    const application = infra.components.find((c) => c.kind === 'application');
+    expect(database?.status).toBe('retained');
+    expect(storage?.status).toBe('retained');
+    expect(application?.status).toBe('removed');
+    expect(infra.expectations?.missing).toEqual([]);
+    await expectPlanMatchesInventory(api, deploymentId, { stage: 'post-disconnect-retained' });
+
+    const events = await getEvents(request, deploymentId);
+    expect(events.some((e) => e.eventType === 'destroy.completed')).toBe(true);
+    expect(events.some((e) => e.eventType === 'destroy.failed')).toBe(false);
+
+    // PURGE: the relay sweep removes the retained resources and the
+    // deployment's cleanup completes.
+    const purgeResponse = await request.post(`${API_URL}/api/deployments/${deploymentId}/purge`, { data: {} });
+    expect(purgeResponse.status()).toBe(202);
+
+    await expect
+      .poll(async () => (await api.getDeployment(deploymentId)).cleanupState, {
+        timeout: 15_000,
+        message: 'waiting for the purge to complete',
+      })
+      .toBe('COMPLETE');
+
+    const afterPurge = (await api.getDeployment(deploymentId)) as unknown as DeploymentResponse;
+    expect(afterPurge.state).toBe('DELETED');
+
+    const purgeEvents = await getEvents(request, deploymentId);
+    expect(purgeEvents.some((e) => e.eventType === 'purge.completed')).toBe(true);
+    expect(purgeEvents.some((e) => e.eventType === 'purge.failed')).toBe(false);
+  });
+});
+
 // ── Item 2: Two applications, both releasing '1.0.0', both install to HEALTHY ─
 test.describe('two-apps-1.0.0', () => {
   test.describe.configure({ mode: 'serial' });
