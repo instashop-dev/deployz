@@ -41,11 +41,14 @@ const MINUTE = 60_000;
  * True for a live, tagged secret that is one of the retained database
  * credentials — identified by its CloudFormation logical id, never by a
  * stack-name prefix: the physical name is `<logicalId>-<random>` with no
- * stack name in it (BUG-002). AppConfigSecret is delete-by-design, so it is
- * not a retained-credential kind.
+ * stack name in it (BUG-002). Both infrastructure generations appear in the
+ * wild: runtime-v1 named them DatabaseSecret/DatabaseUrlSecret, compiler-v2
+ * derives them from the component (PrimaryDbMasterSecret/PrimaryDbUrlSecret).
+ * The application config secret is delete-by-design, so it is not a
+ * retained-credential kind.
  */
 export function isRetainedDatabaseSecret(secret: InstallationSecret): boolean {
-  return !secret.deletedDate && /^Database(Secret|UrlSecret)/.test(secret.tags['aws:cloudformation:logical-id'] ?? '');
+  return !secret.deletedDate && /^(Database(Secret|UrlSecret)|PrimaryDb(Master|Url)Secret)/.test(secret.tags['aws:cloudformation:logical-id'] ?? '');
 }
 
 /**

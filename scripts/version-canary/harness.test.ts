@@ -477,6 +477,21 @@ describe('retained database credential secrets (BUG-002)', () => {
     expect(isRetainedDatabaseSecret(urlSecret)).toBe(true);
   });
 
+  it('recognizes the compiler-v2 component-derived logical ids as retained', () => {
+    // compiler-v2 derives the secret logical ids from the component
+    // (primary-db + master/url secret role), not the runtime-v1 names.
+    const dbSecret = secret('PrimaryDbMasterSecret-CDJsfxgpdNm5', {
+      'deployz:installation': 'ce89236d-1881-4756-a6cd-dbd3775a41ba',
+      'aws:cloudformation:logical-id': 'PrimaryDbMasterSecret',
+    });
+    const urlSecret = secret('PrimaryDbUrlSecret-NitTLOlsljVm', {
+      'deployz:installation': 'ce89236d-1881-4756-a6cd-dbd3775a41ba',
+      'aws:cloudformation:logical-id': 'PrimaryDbUrlSecret',
+    });
+    expect(isRetainedDatabaseSecret(dbSecret)).toBe(true);
+    expect(isRetainedDatabaseSecret(urlSecret)).toBe(true);
+  });
+
   it('does not count the delete-by-design app config secret or the connector credential as retained', () => {
     const appConfig = secret('AppConfigSecret251CAC1E-abc123', { 'aws:cloudformation:logical-id': 'AppConfigSecret251CAC1E' });
     const relayCredential = secret('RelayCredentialFromParam-xyz789', { 'aws:cloudformation:logical-id': 'RelayCredentialFromParam' });
