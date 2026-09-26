@@ -1,6 +1,6 @@
 import { PGlite } from '@electric-sql/pglite';
 import { eq } from 'drizzle-orm';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import {
   bootstrapTemplateBucketName,
@@ -241,5 +241,36 @@ describe('createDeploymentRecord compiles, publishes, then persists', () => {
     expect((second.specV2 as { templateHash: string }).templateHash).toBe(
       (first!.specV2 as { templateHash: string }).templateHash,
     );
+  });
+});
+
+describe('createS3TemplatePublisher', () => {
+  it('treats an already-published artifact (412 PreconditionFailed) as success', async () => {
+    // Same IR -> same templateHash -> same content-addressed key: the
+    // conditional put loses the race on every deployment after the first,
+    // and the stored object is byte-identical by construction.
+    const send = vi.fn().mockRejectedValue({ name: 'PreconditionFailed' });
+    // The file's static imports already loaded the real module — drop it
+    // from the registry so the doMock applies to the re-import.
+    vi.resetModules();
+    vi.doMock('@aws-sdk/client-s3', () => ({
+      S3Client: class {
+        send = send;
+        destroy = () => {};
+      },
+      PutObjectCommand: class {
+        constructor(public input: Record<string, unknown>) {}
+      },
+    }));
+    const { createS3TemplatePublisher } = await import('./compiler-artifact.js');
+    await expect(
+      createS3TemplatePublisher().publishTemplate({
+        region: 'us-east-1',
+        bucket: 'deployz-templates-us-east-1',
+        key: 'compiler-v2/abc123.json',
+        body: '{"Resources":{}}',
+      }),
+    ).resolves.toBeUndefined();
+    expect(send).toHaveBeenCalledOnce();
   });
 });

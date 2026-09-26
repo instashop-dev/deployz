@@ -53,7 +53,11 @@ export const NO_OP_TEMPLATE_PUBLISHER: TemplatePublisher = {
   async publishTemplate() {},
 };
 
-/** The real publisher: conditional PutObject (IfNoneMatch '*') — no overwrite. */
+/** The real publisher: conditional PutObject (IfNoneMatch '*') — no overwrite.
+ *  A content-addressed artifact that already exists (same IR → same hash →
+ *  same key) is the dedup path, not a failure: S3 answers 412
+ *  PreconditionFailed and the stored object is byte-identical by
+ *  construction, so the caller proceeds on the frozen artifact. */
 export function createS3TemplatePublisher(): TemplatePublisher {
   return {
     async publishTemplate(input) {
@@ -68,6 +72,8 @@ export function createS3TemplatePublisher(): TemplatePublisher {
             IfNoneMatch: '*',
           }),
         );
+      } catch (error) {
+        if ((error as { name?: string }).name !== 'PreconditionFailed') throw error;
       } finally {
         client.destroy();
       }
