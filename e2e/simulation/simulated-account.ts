@@ -48,6 +48,22 @@ import type { ScenarioDefinition, TimelineEvent, UpdateRolloutOutcome } from './
 const STACK_EVENT_RESOURCE_TYPE = 'AWS::CloudFormation::Stack';
 const SUCCESS_STATUSES: ReadonlySet<string> = new Set(['CREATE_COMPLETE', 'UPDATE_COMPLETE']);
 
+/** One ECS service's simulated deploy/health state (one per workload). */
+interface ServiceDeployState {
+  readonly logicalId: string;
+  readonly arn: string;
+  readonly family: string;
+  taskDefinitionArn: string;
+  runningDigest: string | null;
+  /** 0 until a deploy (or UpdateService) first sets the service's count. */
+  desiredCount: number;
+  /** One-shot: consumed by the deploy client's describeServices read. */
+  jobRolloutFailed: boolean;
+  /** Sticky: read by the runtime-health heartbeat until the next update. */
+  healthRolloutFailed: boolean;
+  running: boolean;
+}
+
 /**
  * Mirrors apps/api/src/server.ts's BUILD_FIXTURE_MODE fixture image
  * repository — every fixture release digest is minted under this same
@@ -64,11 +80,13 @@ function isStackLevel(event: TimelineEvent): boolean {
 }
 
 /** Deterministic, realistic-looking physical ids — good enough for the
- *  relay code that parses an ECS service ARN's cluster segment out of one. */
+ *  relay code that parses an ECS service ARN's cluster segment out of one.
+ *  Each ECS service's ARN carries its OWN logical id, so a multi-workload
+ *  stack (one service per workload) yields one ARN per service. */
 function physicalIdFor(resourceType: string, logicalId: string, stackName: string): string {
   switch (resourceType) {
     case 'AWS::ECS::Service':
-      return `arn:aws:ecs:us-east-1:123456789012:service/${stackName}-cluster/${stackName}-service`;
+      return `arn:aws:ecs:us-east-1:123456789012:service/${stackName}-cluster/${logicalId}`;
     case 'AWS::ElasticLoadBalancingV2::TargetGroup':
       return `arn:aws:elasticloadbalancing:us-east-1:123456789012:targetgroup/${stackName}-tg/0123456789abcdef`;
     case 'AWS::ElasticLoadBalancingV2::LoadBalancer':
@@ -94,35 +112,24 @@ export class SimulatedCustomerAccount {
   // ── Deploy/rollback state (D2) ─────────────────────────────────────────
   private ecsDeployInitialized = false;
   private readonly taskDefinitions = new Map<string, EcsTaskDefinition>();
-  private currentTaskDefinitionArn = '';
+  /**
+   * One deploy/health state per ECS service (Phase 4A: one service per
+   * workload), keyed by the service's ARN. Created lazily the first time a
+   * service's stack resource is revealed.
+   */
+  private readonly serviceStates = new Map<string, ServiceDeployState>();
   private taskDefinitionRevision = 1;
-  private runningImageDigest: string | null = null;
-  /** The one-off migration task, when a deploy started one (Phase 4 stage). */
+  /** Which service each listed task ARN belongs to (for DescribeTasks). */
+  private readonly taskServiceByArn = new Map<string, string>();
   private migrationTaskArn: string | null = null;
-  // One-shot: consumed (and reset) the first time `ecsDeployClient()`'s own
-  // `describeServices` reads it as 'failed' — this is what settleEcsDeploy's
-  // `rolloutFailed()` gate checks BEFORE issuing a new UpdateService, so a
-  // LATER, unrelated deploy/rollback must not see a stale failure it did not
-  // cause (see `ecsDeployClient`'s doc comment).
-  private jobRolloutState: 'stable' | 'failed' = 'stable';
-  // NOT one-shot: reflects the outcome of the most recently COMPLETED
-  // UpdateService call, read by `ecsServiceReader()`/the runtime-health
-  // heartbeat for as long as it stays true. Identity consistency: without
-  // this, the heartbeat kept reporting the scenario's static `ecsBehavior`
-  // ('healthy') even while a deploy had just failed, and server.ts's
-  // self-healing rule (a HEALTHY heartbeat recovers a FAILED deployment)
-  // raced the failure back to HEALTHY before a test could ever observe it.
-  private healthRolloutFailed = false;
+  /** How many one-off migration tasks the relay's deploy stage has started. */
+  migrationRuns = 0;
+  /** How many RESTART forceNewDeployment calls reached the account. */
+  restarts = 0;
   private updateServiceCallIndex = 0;
-  private readonly desiredCount = 2;
-  private readonly runningCount = 2;
 
   // ── Phase 14 observability ───────────────────────────────────────────────
-  /** How many one-off migration tasks the relay's deploy stage has actually
-   *  started (see `runTask` below). E2E-observable proof that a deploy with a
-   *  migration command exercised the Phase 4 migration stage, not just a
-   *  plain service update. */
-  migrationRuns = 0;
+  // (migrationRuns above)
 
   // ── Destroy state (D2) ──────────────────────────────────────────────────
   private deleteStartRealMs: number | null = null;
@@ -416,49 +423,41 @@ export class SimulatedCustomerAccount {
   }
 
   /** `EcsServiceReader` (ecs-health.ts) — scenario-controlled rollout state,
-   *  feeding the §59 runtime-health heartbeat. Once a DEPLOY_RELEASE/ROLLBACK
-   *  has actually run (`ecsDeployInitialized`), this reads `healthRolloutFailed`
-   *  instead of the static `ecsBehavior` knob — identity consistency with
-   *  `ecsDeployClient`'s own view of the service, and what keeps a genuinely
-   *  failed rollout from self-healing back to HEALTHY on the next heartbeat
-   *  (server.ts's `stateRecovered` rule). Before any deploy has run, this is
-   *  unchanged from Phase 1: purely `ecsBehavior`-driven. */
+   *  feeding the §59 runtime-health heartbeat, per ECS service. Once a
+   *  DEPLOY_RELEASE/ROLLBACK has actually run (`ecsDeployInitialized`), each
+   *  service reports its OWN state — identity consistency with
+   *  `ecsDeployClient`'s view, and what keeps a genuinely failed rollout from
+   *  self-healing back to HEALTHY on the next heartbeat (server.ts's
+   *  `stateRecovered` rule). Before any deploy has run, this is
+   *  `ecsBehavior`-driven. */
   ecsServiceReader(): EcsServiceReader {
     return {
-      describeServices: async () => {
+      describeServices: async (input) => {
         if (this.ecsDeployInitialized) {
+          this.ensureEcsDeployInitialized();
           return {
-            services: [
-              {
-                desiredCount: this.desiredCount,
-                runningCount: this.healthRolloutFailed ? 0 : this.runningCount,
+            services: input.services.map((arn) => {
+              const state = this.serviceStates.get(arn);
+              if (state === undefined) return {};
+              return {
+                desiredCount: state.desiredCount,
+                runningCount: state.running && !state.healthRolloutFailed ? state.desiredCount : 0,
                 deployments: [
-                  { status: 'PRIMARY', rolloutState: this.healthRolloutFailed ? 'FAILED' : 'COMPLETED' },
+                  { status: 'PRIMARY', rolloutState: state.healthRolloutFailed ? 'FAILED' : 'COMPLETED' },
                 ],
-              },
-            ],
+              };
+            }),
           };
         }
         const behavior = this.scenario.ecsBehavior ?? { kind: 'healthy', desiredCount: 1, runningCount: 1 };
-        if (behavior.kind === 'rollout-failed') {
-          return {
-            services: [
-              {
-                desiredCount: behavior.desiredCount,
-                runningCount: behavior.runningCount,
-                deployments: [{ status: 'PRIMARY', rolloutState: 'FAILED' }],
-              },
-            ],
-          };
-        }
+        const rolloutState = behavior.kind === 'rollout-failed' ? 'FAILED' : 'COMPLETED';
+        const described = input.services.length > 0 ? input.services : ['simulated'];
         return {
-          services: [
-            {
-              desiredCount: behavior.desiredCount,
-              runningCount: behavior.runningCount,
-              deployments: [{ status: 'PRIMARY', rolloutState: 'COMPLETED' }],
-            },
-          ],
+          services: described.map(() => ({
+            desiredCount: behavior.desiredCount,
+            runningCount: behavior.runningCount,
+            deployments: [{ status: 'PRIMARY', rolloutState }],
+          })),
         };
       },
     };
@@ -486,20 +485,76 @@ export class SimulatedCustomerAccount {
 
   // ── Deploy/rollback (D2) ─────────────────────────────────────────────────
 
+  /** `DeployzApp<pascal(componentId)>` — the compiler's task-def family shape
+   *  (WebService → DeployzAppWeb, EmailWorkerService → DeployzAppEmailWorker). */
+  private familyForLogicalId(logicalId: string): string {
+    const component = logicalId.replace(/Service$/, '');
+    const pascal = component
+      .split(/[^A-Za-z0-9]+/)
+      .filter((word) => word.length > 0)
+      .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+      .join('');
+    return `DeployzApp${pascal}`;
+  }
+
+  /** The stack's ECS services in resource order — web first (compile order). */
+  private ecsServiceViews(): { logicalId: string; arn: string }[] {
+    const stackName = this.stackNameValue;
+    if (stackName === null) return [];
+    return this.currentResourceStates()
+      .filter((resource) => resource.type === 'AWS::ECS::Service' && resource.physicalId !== undefined)
+      .map((resource) => ({ logicalId: resource.logicalId, arn: resource.physicalId! }));
+  }
+
+  /** Lazily creates the deploy state for every revealed service. */
   private ensureEcsDeployInitialized(): void {
-    if (this.ecsDeployInitialized) return;
     this.ecsDeployInitialized = true;
-    const family = `${this.stackNameValue ?? 'simulated-app'}-app`;
-    const arn = `arn:aws:ecs:us-east-1:123456789012:task-definition/${family}:1`;
-    this.currentTaskDefinitionArn = arn;
-    this.taskDefinitions.set(arn, {
-      family,
-      cpu: '256',
-      memory: '512',
-      networkMode: 'awsvpc',
-      requiresCompatibilities: ['FARGATE'],
-      containerDefinitions: [{ name: 'app', image: `${FIXTURE_IMAGE_REPOSITORY}@${BOOTSTRAP_IMAGE_DIGEST}` }],
-    });
+    for (const view of this.ecsServiceViews()) {
+      if (this.serviceStates.has(view.arn)) continue;
+      const family = this.familyForLogicalId(view.logicalId);
+      const arn = `arn:aws:ecs:us-east-1:123456789012:task-definition/${family}:1`;
+      this.taskDefinitions.set(arn, {
+        family,
+        cpu: '256',
+        memory: '512',
+        networkMode: 'awsvpc',
+        requiresCompatibilities: ['FARGATE'],
+        containerDefinitions: [{ name: 'app', image: `${FIXTURE_IMAGE_REPOSITORY}@${BOOTSTRAP_IMAGE_DIGEST}` }],
+      });
+      this.serviceStates.set(view.arn, {
+        logicalId: view.logicalId,
+        arn: view.arn,
+        family,
+        taskDefinitionArn: arn,
+        runningDigest: null,
+        // Install creates every service at the template's paramDesiredCount=0
+        // (DEPLOY-009); the first deploy scales each to its own count.
+        desiredCount: 0,
+        jobRolloutFailed: false,
+        healthRolloutFailed: false,
+        running: false,
+      });
+    }
+  }
+
+  /** Per-service snapshot for scenario/spec assertions. */
+  serviceSnapshots(): {
+    logicalId: string;
+    family: string;
+    taskDefinitionArn: string;
+    runningImageDigest: string | null;
+    desiredCount: number;
+    healthy: boolean;
+  }[] {
+    this.ensureEcsDeployInitialized();
+    return [...this.serviceStates.values()].map((state) => ({
+      logicalId: state.logicalId,
+      family: state.family,
+      taskDefinitionArn: state.taskDefinitionArn,
+      runningImageDigest: state.runningDigest,
+      desiredCount: state.desiredCount,
+      healthy: state.running && !state.healthRolloutFailed,
+    }));
   }
 
   private nextUpdateRolloutOutcome(): UpdateRolloutOutcome {
@@ -509,67 +564,88 @@ export class SimulatedCustomerAccount {
     return outcome;
   }
 
-  private async listSimulatedTasks(): Promise<{ taskArns: string[] }> {
-    return {
-      taskArns:
-        this.runningImageDigest !== null
-          ? ['arn:aws:ecs:us-east-1:123456789012:task/simulated/task-1']
-          : [],
-    };
+  private listSimulatedTasks(serviceName: string): { taskArns: string[] } {
+    // Callers pass either the full service ARN (deploy executor) or the
+    // bare service name — the last ARN segment (ecs-observe). Both resolve.
+    const state =
+      this.serviceStates.get(serviceName) ??
+      [...this.serviceStates.values()].find(
+        (candidate) => candidate.arn === serviceName || candidate.arn.endsWith(`/${serviceName}`),
+      );
+    if (state === undefined || state.runningDigest === null) return { taskArns: [] };
+    const taskArn = `arn:aws:ecs:us-east-1:123456789012:task/simulated/${state.logicalId}-task-1`;
+    this.taskServiceByArn.set(taskArn, state.arn);
+    return { taskArns: [taskArn] };
   }
 
-  private async describeSimulatedTasks(): Promise<{
+  private describeSimulatedTasks(taskArns: string[]): {
     tasks: {
       lastStatus?: string;
       stopCode?: string;
+      stoppedReason?: string;
+      taskDefinitionArn?: string;
       containers?: { imageDigest?: string; exitCode?: number }[];
     }[];
-  }> {
+  } {
     // The one-off migration task answers STOPPED + exit 0 immediately, so a
     // scenario that carries a migration command resolves the migration stage
     // the same way the rollout resolves: on the next poll.
-    return {
-      tasks: [
-        ...(this.migrationTaskArn !== null
-          ? [
-              {
-                lastStatus: 'STOPPED',
-                stopCode: 'EssentialContainerExited',
-                containers: [{ exitCode: 0 }],
-              },
-            ]
-          : []),
-        ...(this.runningImageDigest !== null
-          ? [{ containers: [{ imageDigest: this.runningImageDigest }] }]
-          : []),
-      ],
+    type SimulatedTask = {
+      lastStatus?: string;
+      stopCode?: string;
+      stoppedReason?: string;
+      taskDefinitionArn?: string;
+      containers?: { imageDigest?: string; exitCode?: number }[];
     };
+    const tasks: SimulatedTask[] = taskArns.flatMap((taskArn): SimulatedTask[] => {
+      if (taskArn === this.migrationTaskArn) {
+        return [
+          {
+            lastStatus: 'STOPPED',
+            stopCode: 'EssentialContainerExited',
+            containers: [{ exitCode: 0 }],
+          },
+        ];
+      }
+      const serviceArn = this.taskServiceByArn.get(taskArn);
+      const state = serviceArn !== undefined ? this.serviceStates.get(serviceArn) : undefined;
+      return state !== undefined && state.runningDigest !== null
+        ? [{ containers: [{ imageDigest: state.runningDigest }] }]
+        : [];
+    });
+    return { tasks };
   }
 
   /**
-   * `EcsDeployClient` (deploy.ts) — the DEPLOY_RELEASE/ROLLBACK write seam.
-   * A simplified but behaviourally faithful single-service ECS: one task
-   * definition family, `updateService` resolves instantly per the scenario's
-   * `updateRollouts` knob rather than modelling a real rollout's duration.
+   * `EcsDeployClient` (deploy.ts) — the DEPLOY_RELEASE/ROLLBACK/RESTART write
+   * seam. A simplified but behaviourally faithful multi-service ECS: one task
+   * definition family per workload service, `updateService` resolves
+   * instantly per the scenario's `updateRollouts` knob (one outcome per call,
+   * issued web-first — so "['succeed','fail']" means the web rollout succeeded
+   * and a worker's failed). A RESTART's forceNewDeployment never consumes an
+   * outcome: a restart redeploys the CURRENT definition and cannot circuit-
+   * break on a new image.
    *
-   * `rolloutState` is one-shot: `describeServices` reports 'FAILED' exactly
-   * once, then resets to stable — mirroring how a finished ECS deployment
-   * (successful or not) drops out of the service's active `deployments` list
-   * once observed, so a LATER, unrelated deploy/rollback attempt is never
-   * blocked by a stale failure it did not cause.
+   * `rolloutState` is one-shot per service: `describeServices` reports
+   * 'FAILED' exactly once, then resets to stable — mirroring how a finished
+   * ECS deployment (successful or not) drops out of the service's active
+   * `deployments` list once observed, so a LATER, unrelated deploy/rollback
+   * attempt is never blocked by a stale failure it did not cause.
    */
   ecsDeployClient(): EcsDeployClient {
     return {
-      describeServices: async () => {
+      describeServices: async (input) => {
         this.ensureEcsDeployInitialized();
-        const failed = this.jobRolloutState === 'failed';
-        if (failed) this.jobRolloutState = 'stable';
         return {
-          services: [
-            {
-              desiredCount: this.desiredCount,
-              runningCount: this.runningCount,
-              taskDefinition: this.currentTaskDefinitionArn,
+          services: input.services.map((arn) => {
+            const state = this.serviceStates.get(arn);
+            if (state === undefined) return {};
+            const failed = state.jobRolloutFailed;
+            state.jobRolloutFailed = false;
+            return {
+              desiredCount: state.desiredCount,
+              runningCount: failed || !state.running ? 0 : state.desiredCount,
+              taskDefinition: state.taskDefinitionArn,
               deployments: [{ status: 'PRIMARY', rolloutState: failed ? 'FAILED' : 'COMPLETED' }],
               networkConfiguration: {
                 awsvpcConfiguration: {
@@ -578,15 +654,15 @@ export class SimulatedCustomerAccount {
                   assignPublicIp: 'DISABLED',
                 },
               },
-            },
-          ],
+            };
+          }),
         };
       },
       describeTaskDefinition: async ({ taskDefinition }) => this.describeSimulatedTaskDefinition(taskDefinition),
       registerTaskDefinition: async (input: RegisterTaskDefinitionInput) => {
         this.ensureEcsDeployInitialized();
         this.taskDefinitionRevision += 1;
-        const family = input.family ?? `${this.stackNameValue ?? 'simulated-app'}-app`;
+        const family = input.family ?? 'DeployzAppWeb';
         const arn = `arn:aws:ecs:us-east-1:123456789012:task-definition/${family}:${this.taskDefinitionRevision}`;
         this.taskDefinitions.set(arn, {
           family: input.family,
@@ -603,8 +679,21 @@ export class SimulatedCustomerAccount {
       },
       updateService: async (input) => {
         this.ensureEcsDeployInitialized();
+        const state = this.serviceStates.get(input.service);
+        if (state === undefined) return;
+        // RESTART: force a fresh deployment of the CURRENT definition — no
+        // new image, no rollout knob consumed.
+        if (input.forceNewDeployment === true) {
+          this.restarts += 1;
+          state.jobRolloutFailed = false;
+          state.healthRolloutFailed = false;
+          state.running = state.runningDigest !== null;
+          return;
+        }
         const outcome = this.nextUpdateRolloutOutcome();
-        if (input.taskDefinition !== undefined) this.currentTaskDefinitionArn = input.taskDefinition;
+        if (input.taskDefinition !== undefined) state.taskDefinitionArn = input.taskDefinition;
+        // First-start scaling rides the payload's per-workload count.
+        if (input.desiredCount !== undefined) state.desiredCount = input.desiredCount;
         if (outcome === 'fail') {
           // Circuit breaker aborts the rollout — what is actually running is
           // left unresolved (no task cleanly answers for a digest) rather
@@ -616,20 +705,24 @@ export class SimulatedCustomerAccount {
           // let that later attempt report success without ever calling
           // UpdateService — silently skipping the very rollout a
           // rollback-also-fails scenario needs to exercise.
-          this.runningImageDigest = null;
-          this.jobRolloutState = 'failed';
-          this.healthRolloutFailed = true;
+          state.runningDigest = null;
+          state.running = false;
+          state.jobRolloutFailed = true;
+          state.healthRolloutFailed = true;
           return;
         }
-        this.jobRolloutState = 'stable';
-        this.healthRolloutFailed = false;
-        const definition = this.taskDefinitions.get(this.currentTaskDefinitionArn);
+        state.jobRolloutFailed = false;
+        state.healthRolloutFailed = false;
+        const definition = this.taskDefinitions.get(state.taskDefinitionArn);
         const image = definition?.containerDefinitions.find((c) => typeof c.image === 'string')?.image;
         const at = image?.lastIndexOf('@') ?? -1;
-        if (image !== undefined && at > 0) this.runningImageDigest = image.slice(at + 1);
+        if (image !== undefined && at > 0) {
+          state.runningDigest = image.slice(at + 1);
+          state.running = true;
+        }
       },
-      listTasks: () => this.listSimulatedTasks(),
-      describeTasks: () => this.describeSimulatedTasks(),
+      listTasks: async (input) => this.listSimulatedTasks(input.serviceName),
+      describeTasks: async (input) => this.describeSimulatedTasks(input.tasks),
       runTask: async () => {
         this.ensureEcsDeployInitialized();
         // Simulated migrations succeed instantly: the task answers STOPPED
@@ -647,8 +740,8 @@ export class SimulatedCustomerAccount {
    *  always agrees with what that deploy just did (identity consistency). */
   ecsTaskReader(): EcsTaskReader {
     return {
-      listTasks: () => this.listSimulatedTasks(),
-      describeTasks: () => this.describeSimulatedTasks(),
+      listTasks: async (input) => this.listSimulatedTasks(input.serviceName),
+      describeTasks: async (input) => this.describeSimulatedTasks(input.tasks),
       describeTaskDefinition: ({ taskDefinition }) => this.describeSimulatedTaskDefinition(taskDefinition),
     };
   }
@@ -658,7 +751,9 @@ export class SimulatedCustomerAccount {
   private async describeSimulatedTaskDefinition(taskDefinition: string): Promise<{ taskDefinition: EcsTaskDefinition }> {
     this.ensureEcsDeployInitialized();
     const found =
-      this.taskDefinitions.get(taskDefinition) ?? this.taskDefinitions.get(this.currentTaskDefinitionArn)!;
+      this.taskDefinitions.get(taskDefinition) ??
+      this.taskDefinitions.get([...this.serviceStates.values()][0]?.taskDefinitionArn ?? '');
+    if (found === undefined) throw new Error(`Unknown task definition "${taskDefinition}"`);
     return {
       taskDefinition: { ...found, containerDefinitions: found.containerDefinitions.map((c) => ({ ...c })) },
     };

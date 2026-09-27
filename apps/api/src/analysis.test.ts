@@ -819,7 +819,7 @@ describe('analysis — migration/worker command resolution (deploy-safe, workspa
     expect(row.migrationCommand).toBe('npx prisma migrate deploy --schema custom/schema.prisma');
   });
 
-  it('classifies worker-like code with a resolved worker start command as needs-adaptation, never deployable-as-is', async () => {
+  it('no longer blocks readiness on a resolved worker start command — it provisions its own workload (Phase 4A)', async () => {
     const application = await insertApplication(db, orgId, {
       githubInstallationId: 'install-1',
       repoFullName: 'acme/worker-with-command',
@@ -837,21 +837,32 @@ describe('analysis — migration/worker command resolution (deploy-safe, workspa
 
     const row = await loadApplication(db, application.id);
     expect(row.analysisStatus).toBe('COMPLETE');
-    // The resolved command is still recorded (analysis evidence), but a
-    // declared worker process blocks readiness — Deployz runs one web
-    // process per application and will not start a second one.
+    // The resolved command is recorded AND a worker workload is provisioned:
+    // a declared worker process is a supported, non-blocking second process
+    // (Phase 4A — one ECS service per workload), never a readiness blocker.
+    // The verdict stays NEEDS_ATTENTION only because this minimal fixture has
+    // no Dockerfile (container-setup) — the worker itself adds nothing
+    // blocking.
     expect(row.workerCommand).toBe('node worker.js');
-    expect(row.compatibilityStatus).toBe('NOT_COMPATIBLE');
-    const readiness = (row.detectedMetadata as { readiness: ReadinessReport }).readiness;
-    expect(readiness.state).toBe('NEEDS_CHANGES');
-    expect(readiness.findings).toContainEqual(
+    expect(row.compatibilityStatus).toBe('NEEDS_ATTENTION');
+    const metadata = row.detectedMetadata as {
+      readiness: ReadinessReport;
+      resolvedWorkerCommands: { id: string; command: string; source: string }[] | null;
+    };
+    expect(metadata.readiness.state).toBe('ALMOST_READY');
+    expect(metadata.readiness.findings).toContainEqual(
       expect.objectContaining({
-        id: 'background-worker-unsupported',
-        severity: 'required',
-        blocking: true,
+        id: 'worker-process',
+        severity: 'recommended',
+        blocking: false,
       }),
     );
-    expect(readiness.passed).not.toContainEqual({ id: 'worker', label: 'Background worker detected' });
+    expect(metadata.readiness.findings.some((f) => f.blocking === true)).toBe(false);
+    // The full workers[] list rides the metadata for the manifest normalizer.
+    expect(metadata.resolvedWorkerCommands).toEqual([
+      { id: 'worker', command: 'node worker.js', source: 'package.json' },
+    ]);
+    expect(metadata.readiness.passed).not.toContainEqual({ id: 'worker', label: 'Background worker detected' });
   });
 });
 

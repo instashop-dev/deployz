@@ -375,6 +375,7 @@ describe('deployment manifest — overrides, persistence and readiness gate', ()
       storageRequired: false,
       redisRequired: true,
       migrationCommand: 'npm run db:migrate',
+      workloads: ['web'],
     });
   });
 
@@ -400,6 +401,7 @@ describe('deployment manifest — overrides, persistence and readiness gate', ()
       storageRequired: null,
       redisRequired: null,
       migrationCommand: 'npm run db:migrate',
+      workloads: null,
     });
     // An invalid manifest hides only storage; a valid spec still proves db/redis.
     expect(derivationApplicationFor({ desiredState: { manifest: { not: 'a manifest' } }, specV2: completedSpecFor(manifest) }, undefined)).toEqual({
@@ -407,6 +409,7 @@ describe('deployment manifest — overrides, persistence and readiness gate', ()
       storageRequired: null,
       redisRequired: false,
       migrationCommand: null,
+      workloads: ['web'],
     });
     // A pre-compiler row (no spec) hides only db/redis.
     expect(derivationApplicationFor({ desiredState: { manifest }, specV2: null }, null)).toEqual({
@@ -414,6 +417,7 @@ describe('deployment manifest — overrides, persistence and readiness gate', ()
       storageRequired: false,
       redisRequired: null,
       migrationCommand: null,
+      workloads: null,
     });
   });
 

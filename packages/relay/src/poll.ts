@@ -36,6 +36,12 @@ import type { VerificationResult } from './verify.js';
 
 // ── Control-plane API shapes ─────────────────────────────────────────────────
 
+/** One workload seat the control plane names for verification (Phase 4A). */
+export interface DeploymentWorkload {
+  readonly id: string;
+  readonly serviceLogicalId: string;
+}
+
 /** Response from GET /api/relay/commands */
 interface PendingCommandsResponse {
   commands: RelayCommand[];
@@ -43,7 +49,12 @@ interface PendingCommandsResponse {
    * Deployment facts the control plane passes along every poll — the only
    * channel that reaches the observe hooks, which run outside any command.
    */
-  deployment?: { redisRequired?: boolean; databaseRequired?: boolean; probeUrl?: string | null };
+  deployment?: {
+    redisRequired?: boolean;
+    databaseRequired?: boolean;
+    probeUrl?: string | null;
+    workloads?: unknown;
+  };
 }
 
 /** Payload for POST /api/relay/commands/:id/result */
@@ -117,8 +128,34 @@ export interface PollDependencies {
    * Receives the deployment facts the commands response carries, before the
    * cycle's health observation runs — the observe hooks read them to know
    * whether the installation should include a cache and what URL to probe.
+   * `workloads` carries the deployment's per-workload service seats when the
+   * control plane has them (an older control plane omits the key).
    */
-  onDeploymentMeta?: (meta: { redisRequired: boolean; databaseRequired?: boolean; probeUrl: string | null }) => void;
+  onDeploymentMeta?: (meta: {
+    redisRequired: boolean;
+    databaseRequired?: boolean;
+    probeUrl: string | null;
+    workloads?: readonly DeploymentWorkload[];
+  }) => void;
+}
+
+/**
+ * Defensively validate the control plane's per-workload list: an array of
+ * `{ id, serviceLogicalId }` string pairs. Anything else reads as "not
+ * provided" — an old or malformed control plane must not crash a heartbeat.
+ */
+function readDeploymentWorkloads(raw: unknown): DeploymentWorkload[] | undefined {
+  if (!Array.isArray(raw)) return undefined;
+  const workloads: DeploymentWorkload[] = [];
+  for (const entry of raw) {
+    if (typeof entry !== 'object' || entry === null) return undefined;
+    const id = (entry as Record<string, unknown>)['id'];
+    const serviceLogicalId = (entry as Record<string, unknown>)['serviceLogicalId'];
+    if (typeof id !== 'string' || id.length === 0) return undefined;
+    if (typeof serviceLogicalId !== 'string' || serviceLogicalId.length === 0) return undefined;
+    workloads.push({ id, serviceLogicalId });
+  }
+  return workloads;
 }
 
 /** Result of a single poll cycle. */
@@ -255,6 +292,7 @@ export async function pollOnce(
   if (body.deployment && typeof body.deployment.redisRequired === 'boolean') {
     const rawProbeUrl = body.deployment.probeUrl;
     const rawDatabaseRequired = body.deployment.databaseRequired;
+    const workloads = readDeploymentWorkloads(body.deployment.workloads);
     deps.onDeploymentMeta?.({
       redisRequired: body.deployment.redisRequired,
       ...(typeof rawDatabaseRequired === 'boolean' ? { databaseRequired: rawDatabaseRequired } : {}),
@@ -263,6 +301,7 @@ export async function pollOnce(
         (rawProbeUrl.startsWith('http://') || rawProbeUrl.startsWith('https://'))
           ? rawProbeUrl
           : null,
+      ...(workloads !== undefined ? { workloads } : {}),
     });
   }
 

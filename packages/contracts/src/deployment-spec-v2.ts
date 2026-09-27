@@ -86,6 +86,26 @@ export function requirementsFromSpec(spec: DeploymentSpecV2): {
   return { databaseRequired: checks.has('database'), redisRequired: checks.has('cache') };
 }
 
+/** One persistent workload the spec's verification contract proves, with the
+ *  CloudFormation logical id of the ECS service that backs it. */
+export interface WorkloadService {
+  readonly id: string;
+  readonly serviceLogicalId: string;
+}
+
+/**
+ * The workloads the spec's verification contract carries — one entry per
+ * `compute` check (componentId = workload id, logicalId = its ECS service).
+ * Null when the contract is absent (an uncompiled spec), empty only when the
+ * contract proves no compute at all.
+ */
+export function workloadServicesFromSpec(spec: DeploymentSpecV2): readonly WorkloadService[] | null {
+  if (spec.verificationContract === null) return null;
+  return spec.verificationContract.checks
+    .filter((check) => check.check === 'compute')
+    .map((check) => ({ id: check.componentId, serviceLogicalId: check.logicalId }));
+}
+
 /**
  * Inventory classification by CFN logical id, from the spec's ownership
  * records: a record's kind and retention, with the verification contract

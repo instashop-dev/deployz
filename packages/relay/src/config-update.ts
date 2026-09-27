@@ -186,45 +186,39 @@ async function settleConfigUpdate(
   const desired = await deps.fetchEffectiveConfig();
 
   const resources = await deps.cfn.describeStackResources(deps.stackName);
-  const serviceArn = resources.find((resource) => resource.type === 'AWS::ECS::Service')?.physicalId ?? null;
-  if (!serviceArn) {
+  // Phase 4A: one service per persistent workload — the desired config
+  // reaches EVERY workload (each task definition bakes the same env/secrets),
+  // never just the first service found.
+  const serviceArns = resources
+    .filter((resource) => resource.type === 'AWS::ECS::Service' && resource.physicalId !== undefined)
+    .map((resource) => resource.physicalId!);
+  if (serviceArns.length === 0) {
     return { state: 'failed', reason: `No ECS service found in stack "${deps.stackName}"` };
   }
-  const cluster = serviceArn.split('/')[1] ?? null;
+  const cluster = serviceArns[0]!.split('/')[1] ?? null;
   if (!cluster) {
-    return { state: 'failed', reason: `Malformed service ARN "${serviceArn}"` };
+    return { state: 'failed', reason: `Malformed service ARN "${serviceArns[0]!}"` };
   }
 
-  const { services } = await deps.ecs.describeServices({ cluster, services: [serviceArn] });
-  const service = services[0];
-  if (!service || service.taskDefinition === undefined) {
-    return { state: 'failed', reason: `ECS service "${serviceArn}" could not be described` };
+  const { services } = await deps.ecs.describeServices({ cluster, services: serviceArns });
+  // DescribeServices answers in request order; zip each answer to the ARN
+  // that asked for it. A service that cannot be described fails the pass —
+  // config that silently skips a workload would leave two sources of truth.
+  const live: { arn: string; taskDefinition: string }[] = [];
+  for (let i = 0; i < serviceArns.length; i++) {
+    const service = services[i];
+    if (!service || service.taskDefinition === undefined) {
+      return { state: 'failed', reason: `ECS service "${serviceArns[i]}" could not be described` };
+    }
+    live.push({ arn: serviceArns[i]!, taskDefinition: service.taskDefinition });
   }
-
-  const { taskDefinition } = await deps.ecs.describeTaskDefinition({
-    taskDefinition: service.taskDefinition,
-  });
-
-  // Find the application container (the one with environment variables or
-  // the first one — same heuristic the deploy executor uses).
-  const appContainer =
-    taskDefinition.containerDefinitions.find(
-      (container) =>
-        Array.isArray(container['environment']) && (container['environment'] as unknown[]).length > 0,
-    ) ?? taskDefinition.containerDefinitions[0];
-  if (!appContainer) {
-    return { state: 'failed', reason: 'Task definition has no container definitions' };
-  }
-
-  const currentEnv = (appContainer['environment'] as { name?: string; value?: string }[]) ?? [];
-  const currentSecrets = (appContainer['secrets'] as { name?: string; valueFrom?: string }[]) ?? [];
-  const envDelta = computeEnvChanges(desired, currentEnv, removedKeys);
 
   // ── Secret reconciliation ──────────────────────────────────────────────
   // Newly-entered values ride the command payload transiently; previously
   // entered values already live in the customer's config secret. Merge the
   // new values in and remove deleted keys; binding follows the effective
-  // config's secret keys (all of them, not just the changed ones).
+  // config's secret keys (all of them, not just the changed ones). The store
+  // is shared by every workload, so this runs ONCE.
   const desiredSecrets = desired.filter((entry) => entry.isSecret);
   const hasIncomingValues = Object.keys(secretValues).length > 0;
   const generatedKeys: string[] = [];
@@ -299,72 +293,119 @@ async function settleConfigUpdate(
   }
 
   const report: ConfigSecretReport = { generatedKeys, unboundSecretKeys };
-  const secretDelta =
-    secretArn === null
-      ? null
-      : computeSecretChanges(desired, currentSecrets, secretArn, removedKeys, availableSecretKeys);
 
-  if (envDelta === null && secretDelta === null) {
+  // Per-workload deltas: each task definition carries its own current
+  // env/secrets arrays, so each computes its own delta against the same
+  // desired config.
+  interface ServiceDelta {
+    readonly arn: string;
+    readonly taskDefinition: Awaited<ReturnType<EcsDeployClient['describeTaskDefinition']>>['taskDefinition'];
+    readonly envDelta: ReturnType<typeof computeEnvChanges>;
+    readonly secretDelta: ReturnType<typeof computeSecretChanges>;
+    readonly appContainer: Record<string, unknown>;
+  }
+  const deltas: ServiceDelta[] = [];
+  for (const liveService of live) {
+    const { taskDefinition } = await deps.ecs.describeTaskDefinition({
+      taskDefinition: liveService.taskDefinition,
+    });
+
+    // Find the application container (the one with environment variables or
+    // the first one — same heuristic the deploy executor uses).
+    const appContainer =
+      taskDefinition.containerDefinitions.find(
+        (container) =>
+          Array.isArray(container['environment']) && (container['environment'] as unknown[]).length > 0,
+      ) ?? taskDefinition.containerDefinitions[0];
+    if (!appContainer) {
+      return { state: 'failed', reason: 'Task definition has no container definitions' };
+    }
+
+    const currentEnv = (appContainer['environment'] as { name?: string; value?: string }[]) ?? [];
+    const currentSecrets = (appContainer['secrets'] as { name?: string; valueFrom?: string }[]) ?? [];
+    const envDelta = computeEnvChanges(desired, currentEnv, removedKeys);
+    const secretDelta =
+      secretArn === null
+        ? null
+        : computeSecretChanges(desired, currentSecrets, secretArn, removedKeys, availableSecretKeys);
+    if (envDelta === null && secretDelta === null) continue;
+    deltas.push({
+      arn: liveService.arn,
+      taskDefinition,
+      envDelta,
+      secretDelta,
+      appContainer: appContainer as Record<string, unknown>,
+    });
+  }
+
+  if (deltas.length === 0) {
     return { state: 'succeeded', alreadyApplied: true, report };
   }
 
-  // Apply the delta: merge changes into the environment array and the
-  // secrets array, strip the explicitly removed keys, register a new task
-  // definition, update the service.
-  const envByName = new Map(currentEnv.map((env) => [env.name ?? '', env.value ?? '']));
-  if (envDelta !== null) {
-    for (const change of envDelta.changes) {
-      envByName.set(change.name, change.value);
+  // Apply the deltas: per service, merge changes into the environment array
+  // and the secrets array, strip the explicitly removed keys, register a new
+  // revision of that workload's task definition, and point its service at it.
+  for (const delta of deltas) {
+    const currentEnv =
+      (delta.appContainer['environment'] as { name?: string; value?: string }[]) ?? [];
+    const currentSecrets =
+      (delta.appContainer['secrets'] as { name?: string; valueFrom?: string }[]) ?? [];
+
+    const envByName = new Map(currentEnv.map((env) => [env.name ?? '', env.value ?? '']));
+    if (delta.envDelta !== null) {
+      for (const change of delta.envDelta.changes) {
+        envByName.set(change.name, change.value);
+      }
+      for (const removed of delta.envDelta.removals) {
+        envByName.delete(removed);
+      }
     }
-    for (const removed of envDelta.removals) {
-      envByName.delete(removed);
+    const nextEnvironment = [...envByName.entries()].map(([name, value]) => ({ name, value }));
+
+    const secretsByName = new Map(currentSecrets.map((secret) => [secret.name ?? '', secret.valueFrom ?? '']));
+    if (delta.secretDelta !== null) {
+      for (const binding of delta.secretDelta.bindings) {
+        secretsByName.set(binding.name, binding.valueFrom);
+      }
+      for (const removed of delta.secretDelta.removals) {
+        secretsByName.delete(removed);
+      }
     }
+    const nextSecrets = [...secretsByName.entries()].map(([name, valueFrom]) => ({ name, valueFrom }));
+
+    const updatedContainers = delta.taskDefinition.containerDefinitions.map((container) =>
+      container === delta.appContainer
+        ? {
+            ...container,
+            environment: delta.envDelta === null ? container['environment'] : nextEnvironment,
+            ...(delta.secretDelta !== null ? { secrets: nextSecrets } : {}),
+          }
+        : { ...container },
+    );
+
+    const nextDefinition: RegisterTaskDefinitionInput = {
+      family: delta.taskDefinition.family,
+      cpu: delta.taskDefinition.cpu,
+      memory: delta.taskDefinition.memory,
+      networkMode: delta.taskDefinition.networkMode,
+      requiresCompatibilities: delta.taskDefinition.requiresCompatibilities,
+      executionRoleArn: delta.taskDefinition.executionRoleArn,
+      taskRoleArn: delta.taskDefinition.taskRoleArn,
+      containerDefinitions: updatedContainers,
+      ...(delta.taskDefinition.volumes ? { volumes: delta.taskDefinition.volumes } : {}),
+      // The relay's ecs:RegisterTaskDefinition grant is request-tag scoped —
+      // an untagged register is AccessDenied (verified live), same as the
+      // deploy executor's register.
+      tags: [{ key: 'deployz:installation', value: deps.installationId }],
+    };
+
+    const registered = await deps.ecs.registerTaskDefinition(nextDefinition);
+    await deps.ecs.updateService({
+      cluster,
+      service: delta.arn,
+      taskDefinition: registered.taskDefinitionArn,
+    });
   }
-  const nextEnvironment = [...envByName.entries()].map(([name, value]) => ({ name, value }));
-
-  const secretsByName = new Map(currentSecrets.map((secret) => [secret.name ?? '', secret.valueFrom ?? '']));
-  if (secretDelta !== null) {
-    for (const binding of secretDelta.bindings) {
-      secretsByName.set(binding.name, binding.valueFrom);
-    }
-    for (const removed of secretDelta.removals) {
-      secretsByName.delete(removed);
-    }
-  }
-  const nextSecrets = [...secretsByName.entries()].map(([name, valueFrom]) => ({ name, valueFrom }));
-
-  const updatedContainers = taskDefinition.containerDefinitions.map((container) =>
-    container === appContainer
-      ? {
-          ...container,
-          environment: envDelta === null ? container['environment'] : nextEnvironment,
-          ...(secretDelta !== null ? { secrets: nextSecrets } : {}),
-        }
-      : { ...container },
-  );
-
-  const nextDefinition: RegisterTaskDefinitionInput = {
-    family: taskDefinition.family,
-    cpu: taskDefinition.cpu,
-    memory: taskDefinition.memory,
-    networkMode: taskDefinition.networkMode,
-    requiresCompatibilities: taskDefinition.requiresCompatibilities,
-    executionRoleArn: taskDefinition.executionRoleArn,
-    taskRoleArn: taskDefinition.taskRoleArn,
-    containerDefinitions: updatedContainers,
-    ...(taskDefinition.volumes ? { volumes: taskDefinition.volumes } : {}),
-    // The relay's ecs:RegisterTaskDefinition grant is request-tag scoped —
-    // an untagged register is AccessDenied (verified live), same as the
-    // deploy executor's register.
-    tags: [{ key: 'deployz:installation', value: deps.installationId }],
-  };
-
-  const registered = await deps.ecs.registerTaskDefinition(nextDefinition);
-  await deps.ecs.updateService({
-    cluster,
-    service: serviceArn,
-    taskDefinition: registered.taskDefinitionArn,
-  });
 
   return { state: 'updating', report };
 }

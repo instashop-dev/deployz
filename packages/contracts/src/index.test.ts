@@ -504,8 +504,15 @@ describe('healthComponentsSchema', () => {
     });
   });
 
-  it('still rejects unknown component keys', () => {
-    expect(() => healthComponentsSchema.parse({ queue: 'HEALTHY' })).toThrow(ZodError);
+  it('accepts a workload-id key (Phase 4A per-workload health)', () => {
+    expect(healthComponentsSchema.parse({ web: 'HEALTHY', 'email-worker': 'DEGRADED' })).toStrictEqual({
+      web: 'HEALTHY',
+      'email-worker': 'DEGRADED',
+    });
+  });
+
+  it('still rejects an invalid status on any key', () => {
+    expect(() => healthComponentsSchema.parse({ queue: 'FINE' })).toThrow(ZodError);
   });
 });
 

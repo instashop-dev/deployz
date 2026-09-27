@@ -267,7 +267,11 @@ export const healthStatusSchema = z.enum(['UNKNOWN', 'HEALTHY', 'DEGRADED', 'UNH
 /**
  * §24 per-component health. Every field optional — the relay reports only the
  * components a deployment actually has, so an application with no database
- * simply omits it rather than claiming one is healthy.
+ * simply omits it rather than claiming one is healthy. Beyond the five fixed
+ * keys, any additional key is a WORKLOAD id (Phase 4A — one health entry per
+ * compiled workload service, e.g. `web`, `email-worker`), validated as a
+ * health status by the catchall so per-workload reporting needs no schema
+ * change per workload.
  */
 export const healthComponentsSchema = z
   .object({
@@ -277,7 +281,7 @@ export const healthComponentsSchema = z
     loadBalancer: healthStatusSchema.optional(),
     redis: healthStatusSchema.optional(),
   })
-  .strict();
+  .catchall(healthStatusSchema.optional());
 export type HealthComponents = z.infer<typeof healthComponentsSchema>;
 export type HealthStatus = z.infer<typeof healthStatusSchema>;
 

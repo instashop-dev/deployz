@@ -65,6 +65,7 @@ import {
   resolveBootstrapTemplate,
   resolveStoredInfrastructureSizeProfile,
   summarizeInfrastructureStatus,
+  workloadServicesFromSpec,
   type ApplicationAnalysis,
   type ApplicationRequirementsSummary,
   type BillingSubscriptionStatus,
@@ -732,6 +733,8 @@ interface DeployPayload {
   imageDigest: string;
   /** Present only when a migration command resolves — see requireDeployableRelease. */
   migrationCommand?: string;
+  /** Per-workload rollout seats from the frozen spec — see requireDeployableRelease. */
+  workloads?: { id: string; serviceLogicalId: string; desiredCount: number }[];
   [key: string]: unknown;
 }
 
@@ -780,6 +783,25 @@ async function requireDeployableRelease(
     imageRepository,
     imageDigest,
   };
+  // Phase 4A: per-workload rollout seats, derived ONLY from the deployment's
+  // frozen spec (one entry per compute check; the count from the spec's own
+  // footprint — web keeps its configured count, workers their default of 1).
+  // The relay scales each workload's service to its own count and names the
+  // right workload in a failure. Absent for an uncompiled spec, so a
+  // single-workload deploy carries byte-for-byte the payload it always did.
+  if (deployment !== undefined) {
+    const spec = readStoredDeploymentSpec(deployment.specV2);
+    const workloads = spec ? workloadServicesFromSpec(spec) : null;
+    if (workloads !== null && workloads.length > 0) {
+      const footprint = spec?.footprint ?? null;
+      payload.workloads = workloads.map((workload) => ({
+        id: workload.id,
+        serviceLogicalId: workload.serviceLogicalId,
+        desiredCount:
+          footprint?.workloads.find((entry) => entry.id === workload.id)?.quantity ?? 1,
+      }));
+    }
+  }
   // Phase 4: the migration command — the release's own command first (the
   // vendor's explicit per-release override), else the stored manifest's (the
   // snapshot the deployment was created with, which is never refreshed, so
@@ -7154,7 +7176,17 @@ export async function buildServer({
         payload: job.payload,
       })),
       deployment: {
-        ...(requirements ? { databaseRequired: requirements.databaseRequired, redisRequired: requirements.redisRequired } : {}),
+        ...(requirements
+          ? {
+              databaseRequired: requirements.databaseRequired,
+              redisRequired: requirements.redisRequired,
+              // Phase 4A: the per-workload service seats (one compute check
+              // each) ride the same gate — both from the frozen spec, both
+              // or neither, so the relay's verification and heartbeat agree
+              // with the stack.
+              workloads: workloadServicesFromSpec(spec!),
+            }
+          : {}),
         probeUrl: resolveProbeUrl(installJobs, manifest?.health.path ?? null, activeDomain, defaultHttps),
       },
     };

@@ -18,11 +18,13 @@
  * Two differences from production wiring, both required for injection:
  *  - no lazy real-AWS-SDK singletons (`getCloudFormationReader()` etc.) — the
  *    simulated account's adapters are passed directly;
- *  - RESTART is not wired (not exercised by any Phase 1/D2 scenario). INSTALL,
- *    DEPLOY_RELEASE, ROLLBACK and DESTROY are all real, composed the same way
- *    `createDefaultExecutors`/`relayHandler` compose them in
- *    packages/relay/src/index.ts — real factories, simulated clients, one
- *    shared `PendingStore` across all four command types.
+ *  - RESTART used to be unwired (no Phase 1/D2 scenario exercised it); it now
+ *    runs the REAL `createRestartExecutor` against the simulated account, so
+ *    a multi-workload lifecycle can prove every service is restarted.
+ *    INSTALL, DEPLOY_RELEASE, ROLLBACK, RESTART and DESTROY are all real,
+ *    composed the same way `createDefaultExecutors`/`relayHandler` compose
+ *    them in packages/relay/src/index.ts — real factories, simulated
+ *    clients, one shared `PendingStore` across the command types.
  */
 
 import {
@@ -47,6 +49,7 @@ import { type CommandExecutor, IdempotencyStore } from '@deployz/relay/commands'
 import {
   createEcsDeployExecutor,
   createEcsDeployResumer,
+  createRestartExecutor,
   type EcsDeployDeps,
 } from '@deployz/relay/deploy';
 import { createDestroyExecutor, createDestroyResumer, type DestroyDeps } from '@deployz/relay/destroy';
@@ -335,10 +338,13 @@ export function startSimulatedRelay(options: StartSimulatedRelayOptions): Simula
 
   // Refreshed every poll from GET /api/relay/commands' `deployment` meta —
   // same role as `deploymentMeta` in packages/relay/src/index.ts. Phase 2:
-  // both start UNKNOWN (`undefined`), never a guessed default.
+  // both start UNKNOWN (`undefined`), never a guessed default. Phase 4A:
+  // the per-workload service seats ride the same meta once the control
+  // plane sends them.
   let redisRequired: boolean | undefined = undefined;
   let databaseRequired: boolean | undefined = undefined;
   let probeUrl: string | null = null;
+  let deploymentWorkloads: readonly { id: string; serviceLogicalId: string }[] | undefined = undefined;
 
   const stackNameOrDefault = (): string => account.stackName ?? DEFAULT_APPLICATION_STACK_NAME;
 
@@ -563,6 +569,10 @@ export function startSimulatedRelay(options: StartSimulatedRelayOptions): Simula
       INSTALL: trackLatest(installExecutor),
       DEPLOY_RELEASE: trackLatest(deployExecutor),
       ROLLBACK: trackLatest(deployExecutor),
+      // Phase 4A: the REAL restart executor against the simulated account —
+      // every workload service gets forceNewDeployment (assertable via the
+      // account's `restarts` counter and per-service state).
+      RESTART: trackLatest(createRestartExecutor(deployDeps)),
       DESTROY: trackLatest(destroyExecutor),
       // Phase 14: PURGE — the post-DESTROY retained-resource sweep, executed
       // by the same real executor production composes (see the `purgeDeps`
@@ -659,6 +669,7 @@ export function startSimulatedRelay(options: StartSimulatedRelayOptions): Simula
           stackName: stackNameOrDefault(),
           redisRequired,
           databaseRequired,
+          ...(deploymentWorkloads !== undefined ? { workloads: deploymentWorkloads } : {}),
         });
       },
       () => buildProvisioningSnapshot(account.cloudFormationReader(), stackNameOrDefault()),
@@ -684,6 +695,7 @@ export function startSimulatedRelay(options: StartSimulatedRelayOptions): Simula
           elb: account.targetHealthReader(),
         },
         stackNameOrDefault(),
+        deploymentWorkloads,
       ),
     // Mirrors createRelayHandler's default probe hook: the simulated account
     // serves its app whenever the control plane advertises an endpoint, so a
@@ -702,6 +714,7 @@ export function startSimulatedRelay(options: StartSimulatedRelayOptions): Simula
       redisRequired = meta.redisRequired;
       databaseRequired = meta.databaseRequired;
       probeUrl = meta.probeUrl;
+      if ('workloads' in meta) deploymentWorkloads = meta.workloads;
     },
     // Chained the same way `relayHandler`'s default `resume` composes its
     // resumers (packages/relay/src/index.ts): one shared pending store, each

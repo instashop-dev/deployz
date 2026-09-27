@@ -277,6 +277,7 @@ describe('readDeployRequest', () => {
       imageRepository: REPO,
       imageDigest: DIGEST_V3,
       migrationCommand: null,
+      workloads: [],
     });
   });
 
@@ -291,11 +292,13 @@ describe('readDeployRequest', () => {
       imageRepository: REPO,
       imageDigest: DIGEST_V3,
       migrationCommand: 'node migrate.js up',
+      workloads: [],
     });
     expect(readDeployRequest({ imageRepository: REPO, imageDigest: DIGEST_V3, migrationCommand: '   ' })).toEqual({
       imageRepository: REPO,
       imageDigest: DIGEST_V3,
       migrationCommand: null,
+      workloads: [],
     });
   });
 
@@ -303,6 +306,36 @@ describe('readDeployRequest', () => {
     expect(readDeployRequest({ imageRepository: REPO, imageDigest: 'sha256:short' })).toBeNull();
     expect(readDeployRequest({ imageDigest: DIGEST_V3 })).toBeNull();
     expect(readDeployRequest({})).toBeNull();
+  });
+
+  it('parses per-workload rollout seats and rejects malformed ones (Phase 4A)', () => {
+    expect(
+      readDeployRequest({
+        imageRepository: REPO,
+        imageDigest: DIGEST_V3,
+        workloads: [
+          { id: 'web', serviceLogicalId: 'WebService', desiredCount: 1 },
+          { id: 'email-worker', serviceLogicalId: 'EmailWorkerService', desiredCount: 1 },
+        ],
+      }),
+    ).toEqual({
+      imageRepository: REPO,
+      imageDigest: DIGEST_V3,
+      migrationCommand: null,
+      workloads: [
+        { id: 'web', serviceLogicalId: 'WebService', desiredCount: 1 },
+        { id: 'email-worker', serviceLogicalId: 'EmailWorkerService', desiredCount: 1 },
+      ],
+    });
+    expect(readDeployRequest({ imageRepository: REPO, imageDigest: DIGEST_V3, workloads: 'nope' })).toBeNull();
+    expect(readDeployRequest({ imageRepository: REPO, imageDigest: DIGEST_V3, workloads: [{}] })).toBeNull();
+    expect(
+      readDeployRequest({
+        imageRepository: REPO,
+        imageDigest: DIGEST_V3,
+        workloads: [{ id: 'web', serviceLogicalId: 'WebService', desiredCount: -1 }],
+      }),
+    ).toBeNull();
   });
 });
 
@@ -313,6 +346,7 @@ describe('replaceApplicationImages', () => {
       imageRepository: REPO,
       imageDigest: DIGEST_V3,
       migrationCommand: null,
+      workloads: [],
     })!;
     const app = next.containerDefinitions[0] as { image: string };
     const sidecar = next.containerDefinitions[1] as { image: string };
@@ -323,7 +357,7 @@ describe('replaceApplicationImages', () => {
   it('returns null when no container matches the repository', () => {
     const next = replaceApplicationImages(
       { containerDefinitions: [{ name: 'app', image: 'other/repo:1' }] },
-      { imageRepository: REPO, imageDigest: DIGEST_V3, migrationCommand: null },
+      { imageRepository: REPO, imageDigest: DIGEST_V3, migrationCommand: null, workloads: [] },
     );
     expect(next).toBeNull();
   });
@@ -590,6 +624,7 @@ describe('createEcsDeployExecutor', () => {
       imageRepository: REPO,
       imageDigest: DIGEST_V3,
       migrationCommand: 'node migrate.js up',
+      workloads: [],
     };
     const first = await settleEcsDeploy(d, request, {
       allowMigration: true,
@@ -1123,6 +1158,191 @@ describe('createRestartExecutor', () => {
       deployCommand({}, 'RESTART' as never),
     );
     expect(result.success).toBe(false);
+  });
+
+  it('restarts EVERY app service (Phase 4A multi-workload)', async () => {
+    const state = baseState();
+    const d = deps(state);
+    // Two services in the stack.
+    (d.cfn as { describeStackResources(): Promise<StackResource[]> }).describeStackResources =
+      async () => [
+        { logicalId: 'WebService', type: 'AWS::ECS::Service', status: 'CREATE_COMPLETE', physicalId: SERVICE_ARN },
+        { logicalId: 'EmailWorkerService', type: 'AWS::ECS::Service', status: 'CREATE_COMPLETE', physicalId: WORKER_SERVICE_ARN },
+      ];
+    const fake = d.ecs as unknown as {
+      describeServices(input: { services: string[] }): Promise<{ services: unknown[] }>;
+    };
+    const originalDescribe = fake.describeServices.bind(d.ecs);
+    fake.describeServices = async (input) => {
+      const answer = await originalDescribe(input);
+      // One shared fake service state, answered once per requested ARN.
+      return { services: input.services.map(() => answer.services[0]) };
+    };
+
+    const result = await run(createRestartExecutor(d), deployCommand({}, 'RESTART' as never));
+    expect(result.success).toBe(true);
+    expect(state.updates).toHaveLength(2);
+    expect(state.updates[0]).toMatchObject({ service: SERVICE_ARN, forceNewDeployment: true });
+    expect(state.updates[1]).toMatchObject({ service: WORKER_SERVICE_ARN, forceNewDeployment: true });
+  });
+});
+
+// ── Multi-workload rollout (Phase 4A): one deploy rolls EVERY service ────────
+
+const WORKER_SERVICE_ARN = 'arn:aws:ecs:us-east-1:151955775369:service/app-cluster/EmailWorkerService';
+
+const MULTI_WORKLOADS = [
+  { id: 'web', serviceLogicalId: 'WebService', desiredCount: 1 },
+  { id: 'email-worker', serviceLogicalId: 'EmailWorkerService', desiredCount: 1 },
+];
+
+function multiCfnWith(service: boolean): CloudFormationReader {
+  const resources: StackResource[] = service
+    ? [
+        {
+          logicalId: 'WebService',
+          type: 'AWS::ECS::Service',
+          status: 'CREATE_COMPLETE',
+          physicalId: SERVICE_ARN,
+        },
+        {
+          logicalId: 'EmailWorkerService',
+          type: 'AWS::ECS::Service',
+          status: 'CREATE_COMPLETE',
+          physicalId: WORKER_SERVICE_ARN,
+        },
+        {
+          logicalId: 'TargetGroup',
+          type: 'AWS::ElasticLoadBalancingV2::TargetGroup',
+          status: 'CREATE_COMPLETE',
+          physicalId: 'arn:aws:elasticloadbalancing:us-east-1:151955775369:targetgroup/app/c1b2d3e4f5a6b7c8',
+        },
+      ]
+    : [{ logicalId: 'Bucket', type: 'AWS::S3::Bucket', status: 'CREATE_COMPLETE' }];
+  return {
+    async describeStack() {
+      return { found: true, stack: { stackName: 'deployz-app', status: 'CREATE_COMPLETE', tags: {} } };
+    },
+    async describeStackResources() {
+      return resources;
+    },
+  };
+}
+
+/** A two-service fake: both ARNs answer the SAME shared fake service. */
+function multiFakeEcs(state: FakeEcs): EcsDeployClient {
+  const single = fakeEcs(state);
+  return {
+    ...single,
+    async describeServices(input) {
+      const answer = await single.describeServices(input);
+      return { services: input.services.map(() => answer.services[0] ?? {}) };
+    },
+  };
+}
+
+describe('settleEcsDeploy — multi-workload rollout', () => {
+  it('fails fast when the payload carries malformed workload seats', async () => {
+    const state = baseState();
+    const result = await run(
+      createEcsDeployExecutor(deps(state)),
+      deployCommand({
+        imageRepository: REPO,
+        imageDigest: DIGEST_V3,
+        workloads: [{ id: 'web', serviceLogicalId: 'WebService' }],
+      }),
+    );
+    expect(result.success).toBe(false);
+  });
+
+  it('rolls EVERY app service to the new digest and settles only when all are stable', async () => {
+    const state = baseState();
+    state.runningDigest = DIGEST_V2;
+    const d: EcsDeployDeps = {
+      ...(deps(state) as EcsDeployDeps),
+      cfn: multiCfnWith(true),
+      ecs: multiFakeEcs(state),
+    };
+    const executor = createEcsDeployExecutor(d);
+    const payload = {
+      imageRepository: REPO,
+      imageDigest: DIGEST_V3,
+      workloads: MULTI_WORKLOADS,
+    };
+
+    const first = await run(executor, deployCommand(payload));
+    expect(first.deferred).toBe(true);
+    // Both services registered and updated.
+    expect(state.registered).toHaveLength(2);
+    expect(state.updates).toHaveLength(2);
+
+    // The resumer finds both services on the new digest → success.
+    state.runningDigest = DIGEST_V3;
+    const results = await createEcsDeployResumer(d)();
+    expect(results).toHaveLength(1);
+    expect(results[0]!.success).toBe(true);
+  });
+
+  it('names the failed workload when ONE service fails while the other succeeds', async () => {
+    const state = baseState();
+    state.runningDigest = DIGEST_V2;
+    const d: EcsDeployDeps = {
+      ...(deps(state) as EcsDeployDeps),
+      cfn: multiCfnWith(true),
+      ecs: multiFakeEcs(state),
+    };
+    // The worker's rollout fails; the web rollout succeeds (web first).
+    state.service!.deployments = [];
+    const single = multiFakeEcs(state);
+    const ecs: EcsDeployClient = {
+      ...single,
+      async describeServices(input) {
+        const answer = await single.describeServices(input);
+        return {
+          services: input.services.map((arn, index) => {
+            const base = answer.services[0] ?? {};
+            return arn === WORKER_SERVICE_ARN
+              ? { ...(base as object), deployments: [{ status: 'PRIMARY', rolloutState: 'FAILED' }] }
+              : index === 0
+                ? base
+                : base;
+          }),
+        };
+      },
+    };
+    const result = await settleEcsDeploy(
+      { ...d, ecs },
+      { imageRepository: REPO, imageDigest: DIGEST_V3, migrationCommand: null, workloads: MULTI_WORKLOADS },
+    );
+    expect(result.state).toBe('failed');
+    if (result.state === 'failed') {
+      expect(result.failureCode).toBe('ECS_DEPLOYMENT_FAILED');
+      expect(result.reason).toContain('workload "email-worker"');
+      expect(result.reason).toContain('EmailWorkerService');
+      expect(result.reason).toContain('circuit breaker');
+    }
+  });
+
+  it('scales a first start from zero to each per-workload configured count', async () => {
+    const state = baseState();
+    state.service!.desiredCount = 0;
+    state.service!.runningCount = 0;
+    state.runningDigest = null;
+    const d: EcsDeployDeps = {
+      ...(deps(state) as EcsDeployDeps),
+      cfn: multiCfnWith(true),
+      ecs: multiFakeEcs(state),
+    };
+    await run(
+      createEcsDeployExecutor(d),
+      deployCommand({
+        imageRepository: REPO,
+        imageDigest: DIGEST_V3,
+        workloads: MULTI_WORKLOADS,
+      }),
+    );
+    // Both zero-count services were scaled up with the deploy.
+    expect(state.updates.filter((update) => (update as { desiredCount?: number }).desiredCount === 1)).toHaveLength(2);
   });
 });
 

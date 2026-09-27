@@ -1290,6 +1290,42 @@ export const GITHUB_FIXTURE_FILE_TREES: Readonly<Record<string, FileTree>> = {
   // a MongoDB app whose ONLY blocker is the unsupported database. Used by
   // the Phase 14 scenario-matrix spec to prove an unsupported repo is
   // refused at deployment creation with NO AWS provisioning.
+  // Express-api's READY shape plus a Procfile declaring TWO named workers
+  // (email-worker, import-worker) and a migration script — the Phase 4A
+  // multi-workload fixture: analysis resolves `web` + two worker processes,
+  // the graph compiles one ECS service per workload, and the simulated E2E
+  // exercises install → deploy → restart → rollback across all three.
+  'deployz-demo/multi-worker-app': {
+    'Dockerfile': [
+      'FROM node:20-alpine',
+      'WORKDIR /app',
+      'COPY package*.json ./',
+      'RUN npm ci --omit=dev',
+      'COPY . .',
+      'EXPOSE 3000',
+      'HEALTHCHECK --interval=30s --timeout=3s CMD curl -f http://localhost:3000/health || exit 1',
+      'CMD ["node", "dist/index.js"]',
+    ].join('\n'),
+    'Procfile': [
+      'web: node dist/index.js',
+      'email-worker: node dist/workers/email.js',
+      'import-worker: node dist/workers/import.js',
+      '',
+    ].join('\n'),
+    'package.json': JSON.stringify({
+      name: 'multi-worker-app',
+      scripts: { start: 'node dist/index.js', 'db:migrate': 'npx drizzle-kit push' },
+      dependencies: { express: '^4.18.0', pg: '^8.12.0' },
+    }),
+    'src/index.ts': [
+      "import express from 'express';",
+      'const app = express();',
+      "app.get('/health', (_req, res) => res.json({ ok: true }));",
+      'app.listen(process.env.PORT || 3000);',
+      '',
+    ].join('\n'),
+    '.env.example': 'DATABASE_URL=\n',
+  },
   'deployz-demo/mongodb-app': {
     'Dockerfile': [
       'FROM node:20-alpine',

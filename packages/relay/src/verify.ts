@@ -105,12 +105,27 @@ export interface VerifyOptions {
   readonly redisRequired: boolean;
   /** Whether to expect an RDS database. Same no-default rule as `redisRequired`. */
   readonly databaseRequired: boolean;
+  /**
+   * The deployment's persistent workloads (Phase 4A) — one entry per `compute`
+   * check in the frozen spec's verification contract. When present and
+   * non-empty, each workload gets its OWN compute check against its own ECS
+   * service logical id; when absent (an older control plane), the single
+   * catalog application check keeps working unchanged.
+   */
+  readonly workloads?: readonly { readonly id: string; readonly serviceLogicalId: string }[];
 }
 
 export interface VerificationCheck {
   readonly name: string;
   readonly passed: boolean;
   readonly detail: string;
+  /**
+   * The workload this compute check proves (Phase 4A) — the spec's
+   * componentId. Present only on per-workload compute checks; absent on
+   * every other check, which the control plane reads as the legacy single
+   * application check.
+   */
+  readonly component?: string;
   /**
    * A failed informational check does not fail the verification. Used for
    * the cache check on applications that do not require Redis: reporting
@@ -240,6 +255,30 @@ async function runChecks(
   });
 
   for (const want of expected) {
+    // Phase 4A: one compute check per workload, each against its OWN service
+    // logical id — a worker's service being down fails verification even
+    // while the web service is healthy. A worker has no ALB target and no
+    // HTTP health check, so its service reaching a complete state IS its
+    // proof. Absent workload list → the legacy single application check.
+    if (want.checkName === 'compute' && options.workloads !== undefined && options.workloads.length > 0) {
+      for (const workload of options.workloads) {
+        const present = resources.some(
+          (resource) =>
+            resource.logicalId === workload.serviceLogicalId &&
+            resource.type === want.primaryResourceType &&
+            COMPLETE_STATUSES.has(resource.status),
+        );
+        checks.push({
+          name: want.checkName,
+          passed: present,
+          detail: present
+            ? `Found the complete service for workload "${workload.id}"`
+            : `No complete service for workload "${workload.id}" (${want.primaryResourceType} ${workload.serviceLogicalId}) in the stack`,
+          component: workload.id,
+        });
+      }
+      continue;
+    }
     const present = resources.some(
       (resource) => resource.type === want.primaryResourceType && COMPLETE_STATUSES.has(resource.status),
     );
