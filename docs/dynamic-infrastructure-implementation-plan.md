@@ -377,7 +377,7 @@ Implemented:
   - `application-graph.ts` — `ApplicationGraph` (buildArtifacts[],
     workloads[], resources[], bindings[], externalServices[],
     unresolved[], evidence/provenance), multiplicity, stable component IDs,
-    ownership (`DEPLOYYZ_MANAGED` … `UNRESOLVED`), relationship types
+    ownership (`DEPLOYZ_MANAGED` … `UNRESOLVED`), relationship types
     (`PROVISIONING`/`RUNTIME`/`BINDING`/`STARTUP`).
   - `deployz-ir.ts` — `DeployzIR` (workloads, resources, bindings, ingress,
     schedules, policies, lifecycle, placement, metadata).
@@ -762,6 +762,81 @@ likely cause, and suggested action.
 -   the two pending Phase 2 real-AWS validations (`core` completion,
     `resilience` + RESTART-through-relay) have been completed;
 -   full real-AWS lifecycle passes from a clean account.
+
+The last two criteria are deferred, not dropped. Product decision:
+Phase 3 passes without an AWS run. They join the two pending Phase 2
+validations on the **Final AWS Qualification backlog**, to run after
+the Phase 3 merge:
+
+-   `core` day-2 ladder completion (interrupted at step 20,
+    `v3-bad-health`, by operator credential expiry);
+-   `resilience` subcommand + RESTART-through-relay against a
+    compiler-v2-provisioned stack;
+-   full real-AWS lifecycle from a clean account.
+
+## Phase 3 Result
+
+Phase 3 is complete: the UX reads the frozen spec instead of hard-coded
+topology, and every change is additive. Deployments created before
+Phase 3 render unchanged through the legacy fallbacks, and no lifecycle
+behavior changed — Disconnect/Purge keep their Phase 2 semantics.
+
+What landed:
+
+- **Contracts** (`packages/contracts/src/`): plan component kinds widen
+  to `worker`/`queue`/`schedule` (schema-level only — no provisioning
+  capability exists behind them yet), plan components carry optional
+  `componentId` and `group` (application, data, cache, storage,
+  messaging, networking, edge, security), and update plans carry an
+  optional `infrastructureChange` (`{ status: 'none' }`, or
+  `{ status: 'unsupported', reason: 'topology_changed' }` — it fails
+  closed). A pure `derivePlanComponentsFromSpec` and one
+  `PLAN_COMPONENT_GROUP_BY_KIND` map own the derivation; status schemas
+  declare additive `specComponents`.
+- **API.** Deployments with a frozen specV2 serve spec-derived plan
+  components (catalog kinds keep their legacy names, actions and
+  lifecycles — byte-parity for today's deployments, only additive
+  fields). Readiness responses carry an optional `architecture` block
+  (groups with per-node detected|confirmed state plus unresolved
+  questions; external and non-DEPLOYZ_MANAGED services are excluded).
+  Customer and vendor status payloads carry `specComponents`
+  (componentId, label, state, detail) derived from stack events through
+  the spec's ownership records; unknown logicalIds bucket as `other`
+  with a neutral detail, so raw AWS types stay off customer surfaces.
+  Diagnostics failure context carries an optional
+  `componentId`/`componentLabel`. The release update-plan always
+  reports `infrastructureChange` from requirement drift.
+- **Vendor UI.** Overview gains a compact "Architecture detected" card:
+  components grouped by plan group, each marked Detected
+  automatically / Confirmed / Needs input, with the grouped detail
+  under a "View architecture" disclosure — an explanation, not an
+  editor; hidden when the readiness payload has no architecture block.
+  Configuration reorganizes into Environment variables / Application
+  architecture / Data & infrastructure / Deployment preferences, with
+  focused unresolved-question cards that reuse FixInstructionsDialog
+  and EditDialog. Releases gains an Infrastructure line: "No
+  infrastructure changes", or the warning "This release requires
+  infrastructure changes. Automatic infrastructure upgrades are not
+  supported yet."
+- **Customer UI.** "What Deployz will create" groups by the eight
+  groups (fallback chain component.group → kind map → Application;
+  only non-empty groups render) with multi-workload sizing lines.
+  Region and cost stay backend-driven, with an explicit "Estimate
+  unavailable" state. The retention note derives from the plan's RETAIN
+  rows, and the charges warning shows on the install page and the token
+  flow.
+- **Progress and diagnostics.** The customer Resources summary and the
+  vendor progress card list components from `specComponents`, with a
+  byte-identical legacy fallback when the payload carries none; raw AWS
+  events stay behind the existing progressive disclosure. The vendor
+  diagnostic card names the affected component. Phase 4 presentation
+  fixtures (web + 2 workers + MySQL + Redis + storage; web + worker +
+  queue + scheduled job) already render through the production
+  components with no source changes.
+
+Phase 3 passed on the simulated suites (unit, contracts, web, E2E)
+alone; the real-AWS validations are on the Final AWS Qualification
+backlog (see the Exit Criteria above).
 
 # Phase 4 --- Core MVP Expansion
 
