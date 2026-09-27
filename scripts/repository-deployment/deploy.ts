@@ -185,11 +185,6 @@ export interface DeployDeps {
   now: () => number;
   region: string;
   githubInstallationId: string;
-  /** The application template URL to hand the bootstrap stack, or null for the production default. */
-  templateUrl: string | null;
-  templateSource: 'production-default' | 'stage-b-generic' | 'stage-b-pinned';
-  /** Publishes a template pinned to the release digest (stage-b-pinned mode). */
-  publishPinnedTemplate?: ((imageDigest: string, keyPrefix: string) => Promise<string>) | undefined;
   timeouts: Timeouts;
   /** Leaves the environment in place after verification (debugging only). */
   keep: boolean;
@@ -366,10 +361,6 @@ export async function runRepositoryAttempt(deps: DeployDeps, input: RepositoryAt
   result.timing.startedAt = new Date(started).toISOString();
   result.repositoryUsed = input.repositoryUsed;
   result.repositoryForm = input.repositoryForm;
-  result.deployment.templateSource = deps.templateSource;
-  result.deployment.templateUrl = deps.templateUrl;
-  run.stageB.templateSource = deps.templateSource;
-  if (deps.templateUrl) run.stageB.templateUrl = deps.templateUrl;
   evidence.save();
 
   const interval = deps.pollIntervalMs ?? 20_000;
@@ -524,24 +515,6 @@ export async function runRepositoryAttempt(deps: DeployDeps, input: RepositoryAt
     );
     result.build.status = 'PASS';
 
-    // ── Template (pinned mode publishes per repository) ────────────────
-    let templateUrl = deps.templateUrl;
-    if (deps.templateSource === 'stage-b-pinned') {
-      templateUrl = await step('install', () =>
-        evidence.step('Publish the Stage B application template pinned to the release', async (details) => {
-          assert(deps.publishPinnedTemplate, 'harness', 'pinned template mode needs a publisher');
-          const keyPrefix = `application/stage-b/${run.runId}`;
-          const url = await deps.publishPinnedTemplate(release.digest, keyPrefix);
-          run.canaryTemplateKeyPrefix = keyPrefix;
-          run.stageB.templateUrl = url;
-          evidence.save();
-          result.deployment.templateUrl = url;
-          details['templateUrl'] = url;
-          return url;
-        }),
-      );
-    }
-
     // ── Deployment + install ────────────────────────────────────────────
     point = 'install';
     const installStarted = deps.now();
@@ -596,7 +569,7 @@ export async function runRepositoryAttempt(deps: DeployDeps, input: RepositoryAt
         const stackId = await deps.aws.createBootstrapStack({
           stackName: quick.stackName,
           templateUrl: quick.templateUrl,
-          parameters: { ...quick.parameters, ...(templateUrl ? { ApplicationTemplateUrl: templateUrl } : {}) },
+          parameters: quick.parameters,
           runId: run.runId,
         });
         run.bootstrapStackName = quick.stackName;

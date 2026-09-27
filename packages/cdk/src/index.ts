@@ -2,8 +2,6 @@ export { DeployzStack } from './deployz-stack.js';
 export { ApiLambda } from './api-lambda.js';
 export { BootstrapStack } from './bootstrap/bootstrap-stack.js';
 export type { BootstrapStackProps } from './bootstrap/bootstrap-stack.js';
-export { ApplicationStack } from './application/application-stack.js';
-export type { ApplicationStackProps } from './application/application-stack.js';
 export {
   buildQuickCreateUrl,
   buildBootstrapQuickCreateUrl,

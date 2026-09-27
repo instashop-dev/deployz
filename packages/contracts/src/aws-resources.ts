@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 import { infrastructureComponentKindSchema, type InfrastructureComponentKind } from './infrastructure.js';
-import type { InfrastructureProfile } from './index.js';
+import type { InfrastructureRequirements } from './index.js';
 
 // The customer-facing AWS resource catalog — the meaningful AWS resources a
 // deployment's application stack creates, bound to the component catalog
@@ -54,12 +54,12 @@ export interface AwsResourceDefinition {
   /** What happens on destroy — must agree with the template's DeletionPolicy. */
   readonly lifecycle: 'delete' | 'retain';
   /** Whether a deployment with this profile creates the resource. */
-  readonly requiredBy: (profile: InfrastructureProfile) => boolean;
+  readonly requiredBy: (profile: InfrastructureRequirements) => boolean;
 }
 
 const ALWAYS = (): boolean => true;
-const WITH_POSTGRES = (profile: InfrastructureProfile): boolean => profile.postgres;
-const WITH_REDIS = (profile: InfrastructureProfile): boolean => profile.redis;
+const WITH_POSTGRES = (profile: InfrastructureRequirements): boolean => profile.postgres;
+const WITH_REDIS = (profile: InfrastructureRequirements): boolean => profile.redis;
 
 export const AWS_RESOURCES: readonly AwsResourceDefinition[] = [
   // ── Compute & Networking ────────────────────────────────────────────────
@@ -212,7 +212,7 @@ export const AWS_RESOURCES: readonly AwsResourceDefinition[] = [
 ] as const;
 
 /** The AWS resources a deployment with this profile creates, in catalog order. */
-export function requiredAwsResources(profile: InfrastructureProfile): readonly AwsResourceDefinition[] {
+export function requiredAwsResources(profile: InfrastructureRequirements): readonly AwsResourceDefinition[] {
   return AWS_RESOURCES.filter((resource) => resource.requiredBy(profile));
 }
 
@@ -274,7 +274,7 @@ export const CONNECTOR_RESOURCES: readonly AwsResourceDefinition[] = [
  * page's infrastructure table, the retention messaging and future cost
  * breakdowns — never a hardcoded UI list.
  */
-export function installSurfaceResources(profile: InfrastructureProfile): readonly AwsResourceDefinition[] {
+export function installSurfaceResources(profile: InfrastructureRequirements): readonly AwsResourceDefinition[] {
   return [...CONNECTOR_RESOURCES, ...requiredAwsResources(profile)];
 }
 

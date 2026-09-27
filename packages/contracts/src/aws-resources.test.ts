@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import { AWS_RESOURCES, AWS_RESOURCE_GROUP_ORDER, requiredAwsResources, toPlanAwsResource } from './aws-resources.js';
 import { buildDestroyPlan, buildInstallPlan, deploymentPlanSchema } from './plan.js';
-import type { InfrastructureProfile } from './index.js';
+import type { InfrastructureRequirements } from './index.js';
 import type { DeploymentManifest } from './manifest.js';
 
 function manifestWith(postgres: boolean, redisRequired: boolean): DeploymentManifest {
@@ -23,10 +23,10 @@ function manifestWith(postgres: boolean, redisRequired: boolean): DeploymentMani
   };
 }
 
-const POSTGRES_ONLY: InfrastructureProfile = { postgres: true, redis: false };
-const POSTGRES_REDIS: InfrastructureProfile = { postgres: true, redis: true };
-const STATELESS: InfrastructureProfile = { postgres: false, redis: false };
-const STATELESS_REDIS: InfrastructureProfile = { postgres: false, redis: true };
+const POSTGRES_ONLY: InfrastructureRequirements = { postgres: true, redis: false };
+const POSTGRES_REDIS: InfrastructureRequirements = { postgres: true, redis: true };
+const STATELESS: InfrastructureRequirements = { postgres: false, redis: false };
+const STATELESS_REDIS: InfrastructureRequirements = { postgres: false, redis: true };
 
 describe('requiredAwsResources', () => {
   it('postgres, no redis: every row except cache, in catalog order', () => {

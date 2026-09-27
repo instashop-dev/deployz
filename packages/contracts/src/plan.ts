@@ -15,7 +15,7 @@ import type { DeploymentManifest } from './manifest.js';
 // there (e.g. `regionSchema`) would throw. `regionSchema` itself is only
 // reachable from a lazy schema for the same reason.
 import { regionSchema } from './index.js';
-import type { InfrastructureProfile, Region } from './index.js';
+import type { InfrastructureRequirements, Region } from './index.js';
 import type { InfrastructureSizeProfile } from './profile.js';
 
 // A deployment plan — the deterministic, derived-only description of what
@@ -28,7 +28,7 @@ import type { InfrastructureSizeProfile } from './profile.js';
 // See docs/architecture.md "Deployment plans".
 
 /** The graph-shaping requirement booleans, straight from the manifest. */
-function manifestRequirements(manifest: Pick<DeploymentManifest, 'database' | 'redis'>): InfrastructureProfile {
+function manifestRequirements(manifest: Pick<DeploymentManifest, 'database' | 'redis'>): InfrastructureRequirements {
   return { postgres: manifest.database.postgres, redis: manifest.redis.required };
 }
 
@@ -103,8 +103,8 @@ function toPlanComponent(
 /** Requirement drift for one catalog kind — null when the two profiles agree. */
 function driftFor(
   kind: 'database' | 'cache',
-  deployedProfile: InfrastructureProfile,
-  desiredProfile: InfrastructureProfile,
+  deployedProfile: InfrastructureRequirements,
+  desiredProfile: InfrastructureRequirements,
 ): DeploymentPlan['requirementDrift'][number] | null {
   const component = INFRASTRUCTURE_COMPONENTS.find((candidate) => candidate.kind === kind)!;
   const deployed = component.requiredBy(deployedProfile);
@@ -114,8 +114,8 @@ function driftFor(
 
 /** Requirement drift between two profiles — shared by buildUpdatePlan and the readiness API's per-deployment summary. */
 export function requirementDriftFor(
-  deployedProfile: InfrastructureProfile,
-  desiredProfile: InfrastructureProfile,
+  deployedProfile: InfrastructureRequirements,
+  desiredProfile: InfrastructureRequirements,
 ): DeploymentPlan['requirementDrift'] {
   return [driftFor('database', deployedProfile, desiredProfile), driftFor('cache', deployedProfile, desiredProfile)].filter(
     (entry): entry is DeploymentPlan['requirementDrift'][number] => entry !== null,

@@ -4,7 +4,7 @@ import type {
   InfrastructureExpectations,
   InfrastructureLifecycle,
 } from './infrastructure.js';
-import type { InfrastructureProfile } from './index.js';
+import type { InfrastructureRequirements } from './index.js';
 
 // The minimal component catalog — semantic metadata shared by verification
 // (what SHOULD exist), lifecycle presentation (what happens on destroy), and
@@ -18,7 +18,7 @@ import type { InfrastructureProfile } from './index.js';
 export interface InfrastructureComponentDefinition {
   readonly kind: 'application' | 'endpoint' | 'database' | 'cache' | 'storage';
   /** Whether a deployment with this profile has the component. */
-  readonly requiredBy: (profile: InfrastructureProfile) => boolean;
+  readonly requiredBy: (profile: InfrastructureRequirements) => boolean;
   /** What happens on destroy — must agree with the CDK removal policy of
    *  `primaryResourceType` (parity test). */
   readonly lifecycle: InfrastructureLifecycle;
@@ -70,7 +70,7 @@ export const INFRASTRUCTURE_COMPONENTS: readonly InfrastructureComponentDefiniti
 /** The catalog components a deployment with this profile has, in catalog order
  *  (the order the relay reports its verification checks in). */
 export function requiredInfrastructureComponents(
-  profile: InfrastructureProfile,
+  profile: InfrastructureRequirements,
 ): readonly InfrastructureComponentDefinition[] {
   return INFRASTRUCTURE_COMPONENTS.filter((component) => component.requiredBy(profile));
 }

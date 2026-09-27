@@ -27,10 +27,11 @@ import {
 import { buildCapabilityConfiguration, resolveResourceCapability } from './resolver.js';
 
 // ---------------------------------------------------------------------------
-// Planner — Phase 1 shadow-mode.
+// Planner — the production compile path.
 //
 // Pure, deterministic transform from ApplicationGraph + region/size/policy
-// config into DeployzIR. Does NOT touch production provisioning.
+// config into DeployzIR, then into the frozen DeploymentSpecV2 an install
+// executes. Never touches AWS directly.
 // ---------------------------------------------------------------------------
 
 function computeCapabilityKey(workload: Workload): string {

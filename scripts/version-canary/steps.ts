@@ -10,9 +10,8 @@
  */
 import { execFileSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
-import { resolve } from 'node:path';
 
-import { applicationStackNameForInstallation, parseApplicationTemplateUrl, releaseImageTag } from '@deployz/contracts';
+import { applicationStackNameForInstallation, releaseImageTag } from '@deployz/contracts';
 
 import { probeLiveApp, probeUrl, readMarker, sampleLiveApp, writeMarker } from './app.js';
 import { withDiagnosticsOnFailure } from './diagnostics.js';
@@ -82,15 +81,14 @@ export async function preflight(canary: Canary): Promise<void> {
     // Whatever these endpoints expose today (apps/api/src/server.ts): no
     // commit/version field exists yet, so this records the full body rather
     // than a field that would silently be undefined. Recorded in run.json
-    // (not just this step's own evidence file) so a production-canary run
-    // keeps which control-plane response it saw.
+    // (not just this step's own evidence file) so a canary run against the
+    // production control plane keeps which control-plane response it saw.
     evidence.run.controlPlaneHealth = { health: { status: health.status, body: healthBody }, ready: { status: ready.status, body: readyBody } };
     evidence.save();
     details['controlPlaneHealth'] = evidence.run.controlPlaneHealth;
 
     const bucket = await templateBucketName(config.region);
     details['templateBucket'] = bucket;
-    evidence.run.templateBucket = bucket;
 
     const tags = resolveFixtureTags(config.fixtureRepo);
     details['fixtureTags'] = tags;
@@ -268,8 +266,9 @@ export async function buildRelease(canary: Canary, fixtureTag: string): Promise<
 /**
  * Existing-image mode: creates the release record through the API but skips
  * the CodeBuild wait and records the digest from `config.existingImageDigest`.
- * The publish-template step pins the template to this digest; deploy/rollback
- * use the release ID as normal.
+ * Deploy/rollback use the release ID as normal; the control plane compiles
+ * the install template from the frozen manifest, and the image pinning
+ * happens through the release.
  *
  * In this mode, all versions (v1, v2, …) share the same digest.
  * // ponytail: single digest for all versions, version verification relies on
@@ -308,58 +307,12 @@ async function buildReleaseWithExistingImage(
   });
 }
 
-// ── Canary application template ────────────────────────────────────────────
-
-export async function publishCanaryTemplate(canary: Canary, pinnedTag: string): Promise<string> {
-  const { config, evidence } = canary;
-  return evidence.step(`Publish canary application template pinned to ${pinnedTag}`, async (details) => {
-    const release = evidence.run.releases[pinnedTag];
-    assert(release?.imageDigest, `release ${pinnedTag} has no digest yet`);
-    const keyPrefix = `application/canary-${config.runId}`;
-    const identity = await callerIdentity();
-    const repository = `${identity.account}.dkr.ecr.${config.region}.amazonaws.com/${ECR_REPOSITORY}`;
-    const output = execFileSync(
-      process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm',
-      ['--filter', '@deployz/cdk', 'run', 'publish:application'],
-      {
-        cwd: resolve(process.cwd()),
-        encoding: 'utf8',
-        env: {
-          ...process.env,
-          AWS_REGION: config.region,
-          APP_IMAGE_REPOSITORY: repository,
-          APP_IMAGE_DIGEST: release.imageDigest,
-          APPLICATION_KEY_PREFIX: keyPrefix,
-        },
-        shell: process.platform === 'win32',
-      },
-    );
-    const templateUrl = parseApplicationTemplateUrl(output);
-    assert(templateUrl, `publish:application printed no template URL:\n${output}`);
-    evidence.run.canaryTemplateUrl = templateUrl;
-    evidence.run.canaryTemplateKeyPrefix = keyPrefix;
-    evidence.save();
-    details['templateUrl'] = templateUrl;
-    details['keyPrefix'] = keyPrefix;
-    details['pinnedDigest'] = release.imageDigest;
-    return templateUrl;
-  });
-}
-
 // ── Install ────────────────────────────────────────────────────────────────
 
 export async function createDeploymentAndInstall(canary: Canary): Promise<string> {
   const { config, evidence, api } = canary;
   const applicationId = evidence.run.applicationId;
   assert(applicationId, 'no application yet');
-  // Production-canary mode (config.production): install with whatever
-  // template production already published — no synth-from-checkout, no
-  // ApplicationTemplateUrl override, exactly what a customer's Quick Create
-  // would use. The default (branch-testing) mode keeps the override so a
-  // run proves the checkout's template, and requires one to have been
-  // published by publishCanaryTemplate.
-  const templateUrl = config.production ? null : evidence.run.canaryTemplateUrl;
-  assert(config.production || templateUrl, 'no canary application template yet');
 
   const deploymentId = await evidence.step('Create customer deployment and launch the install', async (details) => {
     const customer = await api.createCustomer({
@@ -377,21 +330,19 @@ export async function createDeploymentAndInstall(canary: Canary): Promise<string
     assert(info.quickCreateUrl, 'install link carries no Quick Create URL (bootstrap template unpublished?)');
     const quick = parseQuickCreateUrl(info.quickCreateUrl);
     details['quickCreate'] = { templateUrl: quick.templateUrl, stackName: quick.stackName, parameters: Object.keys(quick.parameters) };
-    details['production'] = config.production;
 
     // What the browser does when the customer presses "Deploy to AWS".
     const launched = await api.markInstallLaunched(deployment.installLinkId);
     assert(launched.state === 'WAITING_FOR_RELAY', `launched -> ${launched.state}`);
 
-    // What the customer's console does on "Create stack". Production mode
-    // passes the Quick Create parameters through unchanged — the production
-    // template stays production's, never overridden. Branch-testing mode
-    // overrides ApplicationTemplateUrl to the canary template published
-    // above, plus the canary tags either way.
+    // What the customer's console does on "Create stack": pass the Quick
+    // Create parameters through unchanged, plus the canary tags. The
+    // control plane compiles the install template from the frozen manifest,
+    // so there is no application-template override to apply.
     const stackId = await createBootstrapStack(config.region, {
       stackName: quick.stackName,
       templateUrl: quick.templateUrl,
-      parameters: templateUrl ? { ...quick.parameters, ApplicationTemplateUrl: templateUrl } : quick.parameters,
+      parameters: quick.parameters,
       runId: config.runId,
     });
     evidence.run.bootstrapStackName = quick.stackName;

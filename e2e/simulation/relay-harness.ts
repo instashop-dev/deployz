@@ -59,7 +59,7 @@ import { buildProvisioningSnapshot } from '@deployz/relay/provision-progress';
 import { listAllStackResources } from '@deployz/relay/stack-resources';
 import { createStackEventCollector } from '@deployz/relay/stack-events';
 import { verifyInstallation } from '@deployz/relay/verify';
-import { APPLICATION_TEMPLATE_KEY, DEFAULT_APPLICATION_STACK_NAME } from '@deployz/contracts';
+import { DEFAULT_APPLICATION_STACK_NAME } from '@deployz/contracts';
 
 import { SimulatedCustomerAccount } from './simulated-account.js';
 import type { ScenarioDefinition } from './types.js';
@@ -485,8 +485,7 @@ export function startSimulatedRelay(options: StartSimulatedRelayOptions): Simula
     // used to provide — and passes through verbatim whatever the control
     // plane itself sends once it does.
     if (typeof command.payload['templateUrl'] !== 'string' || command.payload['templateUrl'] === '') {
-      command.payload['templateUrl'] =
-        `https://simulated-templates.deployz.test/application/v1/${APPLICATION_TEMPLATE_KEY}`;
+      command.payload['templateUrl'] = 'https://simulated-templates.deployz.test/application/v1/compiled-template.json';
     }
     const result = await baseInstallExecutor(command);
     if (!result.deferred && settlement === null) {

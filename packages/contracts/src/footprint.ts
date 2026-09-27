@@ -2,7 +2,7 @@ import { z } from 'zod';
 
 import { INFRASTRUCTURE_COMPONENT_DISPLAY } from './infrastructure.js';
 import { requiredInfrastructureComponents } from './components.js';
-import type { InfrastructureProfile, Region } from './index.js';
+import type { InfrastructureRequirements, Region } from './index.js';
 import { regionSchema } from './index.js';
 import type { DeploymentManifest } from './manifest.js';
 import { defaultInfrastructureSizeProfile } from './profile.js';
@@ -156,7 +156,7 @@ interface FootprintResourceHandler {
   readonly service: string;
   readonly role: string;
   readonly label: string;
-  readonly requiredBy: (profile: InfrastructureProfile) => boolean;
+  readonly requiredBy: (profile: InfrastructureRequirements) => boolean;
   readonly configuration: (profile: InfrastructureSizeProfile) => Record<string, unknown>;
   /** True when the resource outlives a deployment removal. */
   readonly persistent: boolean;
@@ -230,7 +230,7 @@ const FOOTPRINT_RESOURCES: readonly FootprintResourceHandler[] = [
   },
 ];
 
-function resourceLifecycle(handler: FootprintResourceHandler, profile: InfrastructureProfile): {
+function resourceLifecycle(handler: FootprintResourceHandler, profile: InfrastructureRequirements): {
   persistent: boolean;
   retainOnDelete: boolean;
 } {
@@ -251,7 +251,7 @@ export function resolveDeploymentFootprint(input: {
   infraVersion?: string | null;
   profile?: InfrastructureSizeProfile;
 }): DeploymentFootprint {
-  const graphProfile: InfrastructureProfile = {
+  const graphProfile: InfrastructureRequirements = {
     postgres: input.manifest.database.postgres,
     redis: input.manifest.redis.required,
   };

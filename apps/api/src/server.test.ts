@@ -8,11 +8,6 @@ import { analyseRepo, buildApplicationAnalysis } from '@deployz/analysis';
 import {
   APP_API_KEY_PARAMETER,
   APP_SIGNING_SECRET_PARAMETER,
-  APPLICATION_TEMPLATE_KEY,
-  APPLICATION_TEMPLATE_REDIS_KEY,
-  APPLICATION_TEMPLATE_STATELESS_KEY,
-  APPLICATION_TEMPLATE_STATELESS_REDIS_KEY,
-  applicationTemplateKeyForProfile,
   bootstrapStackName,
   DESIRED_COUNT_PARAMETER,
   errorEnvelopeSchema,
@@ -4565,18 +4560,13 @@ describe('server — pre-relay install lifecycle (waiting-for-relay and retry)',
   });
 
   it.each([
-    { label: 'postgres', postgres: true, redis: false, templateKey: APPLICATION_TEMPLATE_KEY },
-    { label: 'postgres+redis', postgres: true, redis: true, templateKey: APPLICATION_TEMPLATE_REDIS_KEY },
-    { label: 'stateless', postgres: false, redis: false, templateKey: APPLICATION_TEMPLATE_STATELESS_KEY },
-    {
-      label: 'stateless+redis',
-      postgres: false,
-      redis: true,
-      templateKey: APPLICATION_TEMPLATE_STATELESS_REDIS_KEY,
-    },
+    { label: 'postgres', postgres: true, redis: false },
+    { label: 'postgres+redis', postgres: true, redis: true },
+    { label: 'stateless', postgres: false, redis: false },
+    { label: 'stateless+redis', postgres: false, redis: true },
   ])(
-    'the frozen $label manifest drives the install plan, the Quick Create link, and the INSTALL payload ($templateKey)',
-    async ({ label, postgres, redis, templateKey }) => {
+    'the frozen $label manifest drives the install plan, the Quick Create link, and the INSTALL payload',
+    async ({ label, postgres, redis }) => {
       const seeded = await seedWaiting({
         desiredState: {
           manifest: {
@@ -4614,7 +4604,6 @@ describe('server — pre-relay install lifecycle (waiting-for-relay and retry)',
       const payload = await enrollAndGetInstallPayload(seeded, `inst-profile-${label}`);
       expect(payload['databaseRequired']).toBe(postgres);
       expect(payload['redisRequired']).toBe(redis);
-      expect(applicationTemplateKeyForProfile({ postgres, redis })).toBe(templateKey);
     },
   );
 

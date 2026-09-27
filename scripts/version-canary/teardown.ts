@@ -2,8 +2,8 @@
  * Teardown and leak audit — the product's own Disconnect + Purge first
  * (that is what a customer gets), then the canary-only leftovers a
  * customer would remove by hand (the bootstrap stack, its Lambda log
- * groups, the run's ECR tags, task definitions, the canary template
- * objects), then an independent look at the account.
+ * groups, the run's ECR tags, task definitions), then an independent look
+ * at the account.
  *
  * Every deletion is keyed on an identifier this run recorded at creation
  * time in run.json. There is no name-pattern or account-wide path.
@@ -20,7 +20,6 @@ import {
   invokeRelay,
   deleteEcrTags,
   deleteLogGroupIfExists,
-  deleteS3Prefix,
   deleteSsmParameterIfExists,
   deleteStack,
   deleteTaskDefinitions,
@@ -479,10 +478,6 @@ export async function removeCanaryLeftovers(canary: Canary): Promise<void> {
       );
       await deleteTaskDefinitions(config.region, taskDefinitions);
       details['taskDefinitionsDeleted'] = taskDefinitions;
-    }
-
-    if (run.templateBucket && run.canaryTemplateKeyPrefix) {
-      details['templateObjectsDeleted'] = await deleteS3Prefix(run.templateBucket, `${run.canaryTemplateKeyPrefix}/`);
     }
   });
 }

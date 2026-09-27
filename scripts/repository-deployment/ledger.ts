@@ -27,8 +27,6 @@ export interface StageBRunRecord extends RunRecord {
     deployzCommit: string;
     /** The organization created for this attempt (one application per repo per org). */
     organizationId?: string;
-    templateSource?: 'production-default' | 'stage-b-generic' | 'stage-b-pinned';
-    templateUrl?: string;
     /**
      * Where the control-plane-side resources (`deployz-images` ECR, the
      * template bucket) live for this attempt, next to `region` on the run
@@ -107,10 +105,9 @@ export function activeRunsBlock(ledgers: readonly { runId: string }[], maxActive
   return `${ledgers.length} active real-AWS runs (${ledgers.map((l) => l.runId).join(', ')}) — wait for their cleanup or run --cleanup`;
 }
 
-/** Series-level state shared by every attempt: the vendor session and the published Stage B templates. */
+/** Series-level state shared by every attempt: the vendor session and, for `--reuse-application` retries, the applications earlier attempts created. */
 export interface SeriesState {
   vendor?: { email: string; password: string };
-  templates: Record<string, { url: string; keyPrefix: string; bucket: string }>;
   /**
    * The organization and application a repository's first attempt created,
    * keyed by Stage A id. Only `--reuse-application` reads it: a retry then
@@ -122,7 +119,7 @@ export interface SeriesState {
 
 export function readSeries(evidenceDir: string): SeriesState {
   const path = join(evidenceDir, 'series.json');
-  if (!existsSync(path)) return { templates: {} };
+  if (!existsSync(path)) return {};
   return JSON.parse(readFileSync(path, 'utf8')) as SeriesState;
 }
 

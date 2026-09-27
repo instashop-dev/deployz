@@ -3,8 +3,9 @@ import type { ScenarioDefinition } from '../types.js';
 /**
  * Full successful install WITHOUT a database: network, storage,
  * ALB/target-group and ECS service all reach `CREATE_COMPLETE`.
- * No RDS instance. Verifies the STATELESS template variant
- * (application-template-stateless-v1.json, DZ-AUDIT-017).
+ * No RDS instance. The control plane compiles the install template from the
+ * frozen manifest, so the stateless shape is exercised through the same
+ * payload.templateUrl flow as every other profile.
  */
 export const stateless: ScenarioDefinition = {
   id: 'stateless',

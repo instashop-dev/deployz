@@ -344,8 +344,7 @@ export class DeployzStack extends Stack {
     // Route 53 zone that does not exist, and CloudFormation would sit blocked
     // for the validation timeout waiting on a record only a human can add.
     // Request it out of band (`aws acm request-certificate`), let it reach
-    // ISSUED, then pass the ARN in — the same shape ApplicationStack already
-    // uses for customer certificates.
+    // ISSUED, then pass the ARN in.
     const apiDomainName =
       (this.node.tryGetContext('apiDomainName') as string | undefined) ??
       process.env.API_DOMAIN_NAME;

@@ -8,8 +8,8 @@ name: AWS version canary
 # verification, release/rollback logic, polling or resource lifecycle.
 #
 # The `schedule` trigger below is commented out on purpose: enable it only
-# after three consecutive green manual `profile --profile stateless
-# --production` runs (docs/testing/aws-e2e.md's MVP gate).
+# after three consecutive green manual `profile --profile stateless` runs
+# (docs/testing/aws-e2e.md's MVP gate).
 # Until then this workflow is workflow_dispatch only.
 on:
   workflow_dispatch:
@@ -24,10 +24,6 @@ on:
         type: choice
         default: pg
         options: [pg, stateless, redis]
-      production:
-        description: 'profile scenario only: install with the production-published template (no checkout override)'
-        type: boolean
-        default: false
       run_id:
         description: Run id (optional — minted when empty)
         type: string
@@ -86,12 +82,10 @@ jobs:
           if [ "${{ github.event_name }}" = "schedule" ]; then
             echo "scenario=profile" >> "$GITHUB_OUTPUT"
             echo "profile=stateless" >> "$GITHUB_OUTPUT"
-            echo "production=1" >> "$GITHUB_OUTPUT"
             run_id_input=""
           else
             echo "scenario=${{ inputs.scenario }}" >> "$GITHUB_OUTPUT"
             echo "profile=${{ inputs.profile }}" >> "$GITHUB_OUTPUT"
-            echo "production=${{ inputs.production && '1' || '' }}" >> "$GITHUB_OUTPUT"
             run_id_input="$RUN_ID_INPUT"
           fi
           # The version canary's own sortable format
@@ -158,9 +152,8 @@ jobs:
         env:
           DEPLOYZ_CANARY_RUN_ID: ${{ steps.params.outputs.run_id }}
           DEPLOYZ_CANARY_PROFILE: ${{ steps.params.outputs.scenario == 'profile' && steps.params.outputs.profile || '' }}
-          DEPLOYZ_CANARY_PRODUCTION: ${{ steps.params.outputs.production }}
         run: |
-          pnpm e2e:canary:versions ${{ steps.params.outputs.scenario }}${{ steps.params.outputs.scenario == 'profile' && format(' --profile {0}', steps.params.outputs.profile) || '' }}${{ steps.params.outputs.production == '1' && ' --production' || '' }}
+          pnpm e2e:canary:versions ${{ steps.params.outputs.scenario }}${{ steps.params.outputs.scenario == 'profile' && format(' --profile {0}', steps.params.outputs.profile) || '' }}
 
       # A scenario that installs (core/profile) already tears itself down and
       # audits on success (scenarios.ts's teardownOrSkipInfrastructure) — this

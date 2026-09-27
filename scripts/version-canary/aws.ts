@@ -845,17 +845,6 @@ export async function invokeRelay(region: string, functionName: string): Promise
   return response.StatusCode;
 }
 
-export async function deleteS3Prefix(bucket: string, prefix: string): Promise<string[]> {
-  const listed = (await aws(['s3api', 'list-objects-v2', '--bucket', bucket, '--prefix', prefix])) as {
-    Contents?: { Key: string }[];
-  } | null;
-  const keys = (listed?.Contents ?? []).map((o) => o.Key);
-  for (const key of keys) {
-    await aws(['s3api', 'delete-object', '--bucket', bucket, '--key', key]);
-  }
-  return keys;
-}
-
 export async function templateBucketName(region: string, controlPlaneStack = 'Deployz'): Promise<string> {
   const exports = (await aws(['cloudformation', 'list-exports'], region)) as {
     Exports: { Name: string; Value: string }[];

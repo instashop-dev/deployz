@@ -5,9 +5,9 @@ import { requiredAwsResources, toPlanAwsResource } from './aws-resources.js';
 import { estimateFootprintCost } from './pricing.js';
 import { resolveDeploymentFootprint } from './footprint.js';
 import type { DeploymentManifest } from './manifest.js';
-import type { InfrastructureProfile, Region } from './index.js';
+import type { InfrastructureRequirements, Region } from './index.js';
 
-function planAwsResources(profile: InfrastructureProfile) {
+function planAwsResources(profile: InfrastructureRequirements) {
   return requiredAwsResources(profile).map(toPlanAwsResource);
 }
 

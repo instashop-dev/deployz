@@ -3,7 +3,7 @@ import { and, eq } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
-import { APP_API_KEY_PARAMETER, APP_SIGNING_SECRET_PARAMETER, DOCUMENSO_PARAMETERS, IMAGE_REFERENCE_PARAMETER, type DeploymentManifest } from '@deployz/contracts';
+import { APP_API_KEY_PARAMETER, APP_SIGNING_SECRET_PARAMETER, IMAGE_REFERENCE_PARAMETER, type DeploymentManifest } from '@deployz/contracts';
 import { applyMigrations, createDb, type Db } from '@deployz/db';
 import * as schema from '@deployz/db/schema';
 
@@ -200,12 +200,12 @@ describe('buildInstallParameters', () => {
     expect(parameters[APP_SIGNING_SECRET_PARAMETER]).toMatch(SECRET_SHAPE);
     expect(parameters[IMAGE_REFERENCE_PARAMETER]).toBeTruthy();
     for (const key of [
-      DOCUMENSO_PARAMETERS.publicUrl,
-      DOCUMENSO_PARAMETERS.nextauthSecret,
-      DOCUMENSO_PARAMETERS.encryptionKey,
-      DOCUMENSO_PARAMETERS.encryptionSecondaryKey,
-      DOCUMENSO_PARAMETERS.smtpUsername,
-      DOCUMENSO_PARAMETERS.smtpPassword,
+      'paramPublicUrl',
+      'paramNextauthSecret',
+      'paramEncryptionKey',
+      'paramEncryptionSecondaryKey',
+      'paramSmtpUsername',
+      'paramSmtpPassword',
       'paramHealthCheckPath',
     ]) {
       expect(parameters[key]).toBeUndefined();
@@ -346,8 +346,8 @@ describe('INSTALL job payload.parameters wiring', () => {
     expect(parameters?.[APP_API_KEY_PARAMETER]).toMatch(SECRET_SHAPE);
     expect(parameters?.[APP_SIGNING_SECRET_PARAMETER]).toMatch(SECRET_SHAPE);
     expect(parameters?.[IMAGE_REFERENCE_PARAMETER]).toBeTruthy();
-    expect(parameters?.[DOCUMENSO_PARAMETERS.publicUrl]).toBeUndefined();
-    expect(parameters?.[DOCUMENSO_PARAMETERS.nextauthSecret]).toBeUndefined();
+    expect(parameters?.['paramPublicUrl']).toBeUndefined();
+    expect(parameters?.['paramNextauthSecret']).toBeUndefined();
     // The INSTALL points at the frozen compiled artifact.
     expect((job!.payload as { templateUrl?: string }).templateUrl).toBe(
       (deployment.specV2 as { artifactLocation: string }).artifactLocation,

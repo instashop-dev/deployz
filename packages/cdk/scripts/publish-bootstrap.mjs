@@ -13,9 +13,7 @@
  *
  * Why per region: a Lambda must read its code from a bucket in its OWN
  * region. A single us-east-1 bucket referenced from a us-east-2 stack fails
- * Lambda creation with `PermanentRedirect` (verified in production). The
- * application template is fetched by CloudFormation over HTTPS (not a Lambda
- * code asset), so it stays single-region.
+ * Lambda creation with `PermanentRedirect` (verified in production).
  *
  * Bucket prerequisite: each `deployz-templates-<region>` bucket must already
  * exist with public read access before this script runs — the publisher
@@ -53,27 +51,19 @@
  *   pnpm --filter @deployz/cdk run publish:bootstrap
  *
  * Environment:
- *   TEMPLATE_BUCKET       legacy us-east-1 bucket used for the application
- *                         template URL default. Defaults to the
+ *   TEMPLATE_BUCKET       legacy us-east-1 bucket the bootstrap template
+ *                         publishes into. Defaults to the
  *                         `<stack>-TemplateBucket` output of the deployed
  *                         control plane stack (read via CloudFormation).
  *   API_URL               control-plane URL baked into every link.
- *   AWS_REGION            region of the legacy application-template bucket.
- *   APPLICATION_TEMPLATE_URL
- *                         published application template the relay installs.
- *                         Defaults to the `application/v1` object in the
- *                         legacy bucket, which is where `publish:application`
- *                         puts it. Publish that FIRST — a bootstrap template
- *                         pointing at a template that is not there installs
- *                         nothing.
+ *   AWS_REGION            region of the legacy bucket.
  */
 import { CloudFormationClient, ListExportsCommand } from '@aws-sdk/client-cloudformation';
-import { HeadObjectCommand, S3Client } from '@aws-sdk/client-s3';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { SUPPORTED_AWS_REGIONS, applicationTemplateKeyForProfile } from '@deployz/contracts';
+import { SUPPORTED_AWS_REGIONS } from '@deployz/contracts';
 import {
   createRealRegionVerifier,
   createRealS3Client,
@@ -86,7 +76,6 @@ const region = process.env.AWS_REGION ?? 'us-east-1';
 const controlPlaneUrl = process.env.API_URL ?? 'https://api.deployz.dev';
 const stackName = process.env.CONTROL_PLANE_STACK ?? 'Deployz';
 const keyPrefix = process.env.TEMPLATE_KEY_PREFIX ?? 'bootstrap/v1';
-const applicationKeyPrefix = process.env.APPLICATION_KEY_PREFIX ?? 'application/v1';
 const legacyBucketRegion = process.env.BOOTSTRAP_LEGACY_BUCKET_REGION;
 const publishRegions = parsePublishRegions(
   process.env.BOOTSTRAP_PUBLISH_REGIONS,
@@ -116,48 +105,7 @@ async function resolveBucket() {
 const bucket = await resolveBucket();
 const outdir = mkdtempSync(join(tmpdir(), 'deployz-bootstrap-'));
 
-const applicationTemplateKey = `${applicationKeyPrefix}/application-template-v1.json`;
-const applicationTemplateUrl =
-  process.env.APPLICATION_TEMPLATE_URL ??
-  `https://${bucket}.s3.${region}.amazonaws.com/${applicationTemplateKey}`;
-
-// The URL above is a convention, not a fact — confirm the objects it points
-// to actually exist before baking it into the bootstrap template. A link
-// CloudFormation cannot fetch fails inside the customer's own account with
-// nothing they can act on (see the file header).
-//
-// The relay derives the variant an installation needs from this one base URL,
-// so ALL FOUR must be published side by side: checking only the base would let
-// a bootstrap ship that installs database-backed applications and fails every
-// database-less one at provisioning time.
-if (!process.env.APPLICATION_TEMPLATE_URL) {
-  const s3 = new S3Client({ region });
-  const variantKeys = [
-    { postgres: true, redis: false },
-    { postgres: true, redis: true },
-    { postgres: false, redis: false },
-    { postgres: false, redis: true },
-  ].map((profile) => `${applicationKeyPrefix}/${applicationTemplateKeyForProfile(profile)}`);
-  const missing = [];
-  for (const key of variantKeys) {
-    try {
-      await s3.send(new HeadObjectCommand({ Bucket: bucket, Key: key }));
-    } catch {
-      missing.push(key);
-    }
-  }
-  if (missing.length > 0) {
-    throw new Error(
-      `The application templates are not fully published: ${missing
-        .map((key) => `s3://${bucket}/${key}`)
-        .join(', ')} ` +
-        'missing. Run `pnpm --filter @deployz/cdk run publish:application` first, or set ' +
-        'APPLICATION_TEMPLATE_URL explicitly.',
-    );
-  }
-}
-
-const synth = await synthesizeBootstrapStack({ outdir, controlPlaneUrl, applicationTemplateUrl });
+const synth = await synthesizeBootstrapStack({ outdir, controlPlaneUrl });
 
 // One real S3 client + verifier per region (each bound to that region's
 // endpoint), assets built once and reused everywhere. When
@@ -184,7 +132,6 @@ for (const result of results) {
   console.log(`    quickCreate ${result.quickCreateUrl}`);
   console.log(`    size        ${result.templateBytes} bytes, ${result.parameterCount} parameter(s)`);
 }
-console.log(`  application ${applicationTemplateUrl}`);
 console.log();
 console.log('Record the verified regions on the control plane so install links are handed out:');
 console.log(`  DEPLOYABLE_AWS_REGIONS=${results.map((r) => r.region).join(',')}`);

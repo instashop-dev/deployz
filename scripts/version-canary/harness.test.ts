@@ -217,21 +217,6 @@ describe('expectedBindings', () => {
   });
 });
 
-describe('production-canary config', () => {
-  it('is false by default — branch-testing mode with the template override', () => {
-    expect(loadConfig({}).production).toBe(false);
-  });
-
-  it('reads DEPLOYZ_CANARY_PRODUCTION=1 from the env', () => {
-    expect(loadConfig({ DEPLOYZ_CANARY_PRODUCTION: '1' }).production).toBe(true);
-    expect(loadConfig({ DEPLOYZ_CANARY_PRODUCTION: '0' }).production).toBe(false);
-  });
-
-  it('the --production override wins over the env var', () => {
-    expect(loadConfig({ DEPLOYZ_CANARY_PRODUCTION: '0' }, { production: true }).production).toBe(true);
-  });
-});
-
 describe('evidence summary', () => {
   it('renders the PASS/FAIL table, releases and jobs', () => {
     const run: RunRecord = {

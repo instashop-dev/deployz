@@ -1145,15 +1145,7 @@ export const CONFIG_SECRET_KMS_CONTEXT_KEYS = [
  * No production code creates this stack yet — `INSTALL` is still a stub.
  * This constant is the name whoever implements it must use for
  * `CreateStack`'s `StackName`, since `verifyInstallation()` already looks up
- * `DEFAULT_APPLICATION_STACK_NAME` by default. It is NOT pinned by the ECS
- * `serviceName` in `packages/cdk/src/application/application-stack.ts:512` —
- * a service name and a stack name are different namespaces, so treating that
- * as a match would present an unpinned contract as a pinned one. The test
- * harness currently configures the application stack name as the different
- * literal `'deployz-application'` (consumed by
- * `packages/cdk/test/golden-path-e2e.test.ts` and `integration-harness.test.ts`
- * via `packages/cdk/src/integration/runner.ts`); reconcile that with this
- * constant when `INSTALL` lands.
+ * `DEFAULT_APPLICATION_STACK_NAME` by default.
  */
 export const DEFAULT_APPLICATION_STACK_NAME = 'deployz-app';
 
@@ -1211,118 +1203,14 @@ export function applicationStackNameForInstallation(installationId: string): str
 }
 
 /**
- * Final path segment (S3 object key suffix) of the published application
- * template — the one the bootstrap stack bakes into the relay as
- * `DEPLOYZ_APPLICATION_TEMPLATE_URL`.
- *
- * Shared between the publisher (which writes the object under this name) and
- * the relay (which recognizes it to derive any profile variant's URL), so the
- * two cannot drift apart. It is also the PostgreSQL template's own key: the
- * base variant every other profile derives from.
+ * The graph-shaping requirement booleans a deployment's infrastructure is
+ * built from — whether the application needs PostgreSQL and Redis. Drives the
+ * component and AWS resource catalogs, the plans, the footprint, and the
+ * relay's verification; no caller may re-derive them from a manifest twice.
  */
-export const APPLICATION_TEMPLATE_KEY = 'application-template-v1.json';
-
-/**
- * Final path segment of the PostgreSQL + Redis application template variant —
- * synthesized from the same stack code with `redisRequired: true`, published
- * alongside the base template under the same key prefix.
- */
-export const APPLICATION_TEMPLATE_REDIS_KEY = 'application-template-redis-v1.json';
-
-/**
- * Final path segment of the stateless application template variant — no
- * PostgreSQL, no Redis. Synthesized with `databaseRequired: false` and
- * `redisRequired: false`; contains zero database footprint.
- */
-export const APPLICATION_TEMPLATE_STATELESS_KEY = 'application-template-stateless-v1.json';
-
-/**
- * Final path segment of the stateless + Redis application template variant —
- * synthesized with `databaseRequired: false` and `redisRequired: true`.
- */
-export const APPLICATION_TEMPLATE_STATELESS_REDIS_KEY =
-  'application-template-stateless-redis-v1.json';
-
-/**
- * The infrastructure graph-shaping requirements an application template
- * variant must satisfy. Only requirements that change the template's
- * resource graph belong here — port, health path, domain, and normal env
- * vars are CloudFormation parameters, not variants.
- */
-export interface InfrastructureProfile {
+export interface InfrastructureRequirements {
   readonly postgres: boolean;
   readonly redis: boolean;
-}
-
-/**
- * The ONLY place the canonical manifest becomes a template-selection
- * profile — no caller may re-derive `{ postgres, redis }` from a manifest
- * itself.
- */
-export function infrastructureProfileForManifest(
-  manifest: Pick<DeploymentManifest, 'database' | 'redis'>,
-): InfrastructureProfile {
-  return { postgres: manifest.database.postgres, redis: manifest.redis.required };
-}
-
-/**
- * The deterministic template variant for a profile. Exactly four exist;
- * `postgresql: true` templates keep the original keys so existing
- * deployments keep resolving the same objects.
- */
-export function applicationTemplateKeyForProfile(profile: InfrastructureProfile): string {
-  if (profile.postgres) {
-    return profile.redis ? APPLICATION_TEMPLATE_REDIS_KEY : APPLICATION_TEMPLATE_KEY;
-  }
-  return profile.redis
-    ? APPLICATION_TEMPLATE_STATELESS_REDIS_KEY
-    : APPLICATION_TEMPLATE_STATELESS_KEY;
-}
-
-/**
- * Resolves the one application-template URL an INSTALL must use, from the
- * base application template URL the relay is configured with and the
- * canonical manifest's infrastructure profile.
- *
- * Returns `undefined` when the base URL does not end in
- * `APPLICATION_TEMPLATE_KEY` — the caller must treat that as "no variant is
- * known to exist" and fail before provisioning, not guess a URL
- * CloudFormation cannot fetch. Pure string derivation (no network): all four
- * templates are always published side by side under the same key prefix.
- */
-export function resolveApplicationTemplateUrl(
-  baseTemplateUrl: string,
-  profile: InfrastructureProfile,
-): string | undefined {
-  if (!baseTemplateUrl.endsWith(APPLICATION_TEMPLATE_KEY)) return undefined;
-  return (
-    baseTemplateUrl.slice(0, baseTemplateUrl.length - APPLICATION_TEMPLATE_KEY.length) +
-    applicationTemplateKeyForProfile(profile)
-  );
-}
-
-/**
- * Prefix of the one machine-readable line `publish:application` prints for the
- * base template it published. The publish script writes it and the real-AWS
- * harnesses read it, so the line is a contract, not console decoration: a
- * harness that cannot find it must fail loudly rather than provision against a
- * template URL it guessed.
- */
-export const APPLICATION_TEMPLATE_URL_LINE = 'application-template-url';
-
-/**
- * Reads the base application-template URL out of `publish:application` output.
- *
- * Returns `undefined` when the marker line is absent — the caller must treat
- * that as "the publish did not report a template" and stop, since every other
- * URL in that output names a profile variant, not the base template the
- * bootstrap stack and {@link resolveApplicationTemplateUrl} are given.
- */
-export function parseApplicationTemplateUrl(output: string): string | undefined {
-  // `\s*$` so a CRLF transcript (the harnesses run on Windows too) still ends
-  // the line where the URL ends.
-  const match = new RegExp(`^${APPLICATION_TEMPLATE_URL_LINE} (\\S+)\\s*$`, 'm').exec(output);
-  return match?.[1];
 }
 
 /**
@@ -1488,30 +1376,6 @@ export function buildBootstrapQuickCreateUrl(options: BootstrapQuickCreateOption
 
   return `${base}?${query.toString()}`;
 }
-
-// ---------------------------------------------------------------------------
-// Documenso application preset.
-// ---------------------------------------------------------------------------
-
-/**
- * CloudFormation parameter logical ids for Documenso runtime config in the
- * published application template. The API install-parameters builder and the
- * CDK Documenso preset must use the same names — CloudFormation rejects a
- * CreateStack call that names a parameter the template does not declare.
- */
-export const DOCUMENSO_PARAMETERS = {
-  publicUrl: 'paramPublicUrl',
-  nextauthSecret: 'paramNextauthSecret',
-  encryptionKey: 'paramEncryptionKey',
-  encryptionSecondaryKey: 'paramEncryptionSecondaryKey',
-  smtpTransport: 'paramSmtpTransport',
-  smtpHost: 'paramSmtpHost',
-  smtpPort: 'paramSmtpPort',
-  smtpUsername: 'paramSmtpUsername',
-  smtpPassword: 'paramSmtpPassword',
-  smtpFromAddress: 'paramSmtpFromAddress',
-  smtpFromName: 'paramSmtpFromName',
-} as const;
 
 /**
  * The ECR tag a release's image is pushed under.
