@@ -104,7 +104,7 @@ export function DeploymentConfiguration() {
   }
 
   return (
-    <section aria-labelledby="deployment-configuration" className="flex flex-col gap-6">
+    <section className="flex flex-col gap-6">
       <RequiredChangesPanel
         ref={panelRef}
         changes={requiredChanges}
