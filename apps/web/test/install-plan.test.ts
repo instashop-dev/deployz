@@ -47,7 +47,9 @@ function component(
 describe('installPlanRows', () => {
   it('returns the fallback application row when the plan is null', () => {
     const rows = installPlanRows(null);
-    expect(rows).toEqual([{ kind: 'application', name: 'Application', whatHappens: 'Runs your application' }]);
+    expect(rows).toEqual([
+      { kind: 'application', group: 'application', name: 'Application', whatHappens: 'Runs your application' },
+    ]);
   });
 
   it('returns only the CREATE components, in the plan\'s order', () => {
@@ -66,7 +68,12 @@ describe('installPlanRows', () => {
   it('fills whatHappens from the shared component display, not the plan itself', () => {
     const rows = installPlanRows(plan({ components: [component('database', 'Database', 'CREATE', 'retain')] }));
     expect(rows).toEqual([
-      { kind: 'database', name: 'Database', whatHappens: 'Stores persistent application data' },
+      {
+        kind: 'database',
+        group: 'data',
+        name: 'Database',
+        whatHappens: 'Stores persistent application data',
+      },
     ]);
   });
 });
