@@ -23,14 +23,8 @@ import {
   ValidateTemplateCommand,
 } from '@aws-sdk/client-cloudformation';
 
-import { ApplicationStack, type ApplicationStackProps } from '../application/application-stack.js';
-import { DOCUMENSO_APPLICATION_PROPS } from '../application/documenso.js';
 import { BootstrapStack } from '../bootstrap/bootstrap-stack.js';
 import {
-  APPLICATION_TEMPLATE_KEY,
-  APPLICATION_TEMPLATE_REDIS_KEY,
-  APPLICATION_TEMPLATE_STATELESS_KEY,
-  APPLICATION_TEMPLATE_STATELESS_REDIS_KEY,
   BOOTSTRAP_TEMPLATE_KEY,
   SUPPORTED_AWS_REGIONS,
   bootstrapTemplateBucketName,
@@ -101,15 +95,6 @@ export interface SynthesizeOptions {
   readonly outdir: string;
   /** Control-plane URL baked into the template default (non-secret). */
   readonly controlPlaneUrl?: string;
-  /**
-   * Published application-template URL baked into the template default.
-   *
-   * This is what the relay's INSTALL executor hands CloudFormation as
-   * `TemplateURL`. Publish the application template first; without this the
-   * bootstrap template ships with an empty default and every install fails
-   * with "no application template URL is configured".
-   */
-  readonly applicationTemplateUrl?: string;
   /** CDK stack id. Defaults to `DeployzBootstrap`. */
   readonly stackId?: string;
 }
@@ -174,9 +159,6 @@ export async function synthesizeBootstrapStack(
   const stack = new BootstrapStack(app, stackId, {
     ...(options.controlPlaneUrl !== undefined
       ? { controlPlaneUrl: options.controlPlaneUrl }
-      : {}),
-    ...(options.applicationTemplateUrl !== undefined
-      ? { applicationTemplateUrl: options.applicationTemplateUrl }
       : {}),
   });
 
@@ -580,216 +562,4 @@ export async function verifyPublishedRegion(
   }
 
   return reasons.length === 0 ? { ok: true } : { ok: false, reasons };
-}
-
-// ── Application template ────────────────────────────────────────────────────
-
-export {
-  APPLICATION_TEMPLATE_KEY,
-  APPLICATION_TEMPLATE_REDIS_KEY,
-  APPLICATION_TEMPLATE_STATELESS_KEY,
-  APPLICATION_TEMPLATE_STATELESS_REDIS_KEY,
-};
-
-export interface SynthesizeApplicationOptions {
-  /** Output directory for the cloud assembly (temp dir is fine). */
-  readonly outdir: string;
-  /** CDK stack id. Defaults to `DeployzApplication`. */
-  readonly stackId?: string;
-  /** Container image repository the published template runs. */
-  readonly imageRepository?: string;
-  /** Container image digest (immutable `sha256:` reference). */
-  readonly imageDigest?: string;
-  /** Provision an ElastiCache Valkey cache alongside the application. */
-  readonly redisRequired?: boolean;
-  /**
-   * Provision a managed RDS PostgreSQL instance for the application.
-   *
-   * `true` (default) provisions the full RDS footprint — db instance,
-   * security group, generated credential secret, `DATABASE_*` env vars,
-   * and DbHost/DbSecretArn outputs. Pass `false` for stateless variants
-   * that need zero database resources.
-   */
-  readonly databaseRequired?: boolean;
-  /**
-   * Vendor application preset. When set, the preset's `ApplicationStackProps`
-   * are spread into the stack — `'documenso'` applies
-   * `DOCUMENSO_APPLICATION_PROPS` (container contract, health check, and
-   * secret parameters for the Documenso application).
-   */
-  readonly preset?: 'documenso';
-}
-
-/**
- * Synthesizes the application stack — the template the relay's INSTALL
- * executor creates a stack from.
- *
- * Two choices are fixed here rather than left to the caller, because a
- * published template that gets either wrong is one no install can ever
- * verify:
- *
- * - **`expressMode: false`.** `verifyInstallation` requires an
- *   `AWS::ECS::Service` and an `AWS::ElasticLoadBalancingV2::LoadBalancer`.
- *   An express-mode stack has neither — it uses
- *   `AWS::ECS::ExpressGatewayService` and lets ECS manage the load balancer
- *   — so a correctly provisioned express install would fail verification
- *   and be reported as a failed install.
- *
- * - **`allowInsecureHttp: true`.** The certificate for a deployment's
- *   custom domain does not exist at publish time; it is requested later,
- *   per installation, by the CONFIGURE_DOMAIN executor, which then adds the
- *   HTTPS listener to this stack's ALB. The published template therefore
- *   ships with an HTTP listener and no silent pretence of TLS.
- *
- * No AWS calls.
- */
-/**
- * Preset properties that describe how a preset wants the managed database
- * delivered. A stateless variant has no database, and `ApplicationStack`
- * refuses database wiring without one, so these are dropped for the stateless
- * profiles instead of making every preset unpublishable.
- */
-const DATABASE_ONLY_PRESET_KEYS = ['databaseUrlEnvNames', 'databasePartBindings'] as const;
-
-/**
- * Preset properties that only ever describe the preset's OWN container image.
- * One published template serves EVERY application, so these cannot be baked
- * into it: the preset's health check shells out to node against its own port
- * and path, which another image cannot satisfy — an nginx app on :80 has
- * neither, so ECS kills a task the load balancer is happily serving and
- * replaces it forever, and the install never leaves "starting the
- * application". The ALB target group's probe of `healthCheckPath` is the
- * health signal ECS promotes a deployment on, and that one is a per-install
- * parameter, so dropping this costs the preset nothing.
- */
-const IMAGE_ONLY_PRESET_KEYS = ['healthCheckShellCommand'] as const;
-
-/**
- * The preset's stack properties, minus anything tied to its own image and
- * anything a database-less stack refuses.
- */
-function presetProps(
-  preset: 'documenso' | undefined,
-  databaseRequired: boolean,
-): Partial<ApplicationStackProps> {
-  if (preset !== 'documenso') return {};
-  const dropped: readonly string[] = [
-    ...IMAGE_ONLY_PRESET_KEYS,
-    ...(databaseRequired ? [] : DATABASE_ONLY_PRESET_KEYS),
-  ];
-  return Object.fromEntries(
-    Object.entries(DOCUMENSO_APPLICATION_PROPS).filter(([key]) => !dropped.includes(key)),
-  ) as Partial<ApplicationStackProps>;
-}
-
-export async function synthesizeApplicationStack(
-  options: SynthesizeApplicationOptions,
-): Promise<SynthOutput> {
-  const app = new App({ outdir: options.outdir });
-  const stack = new ApplicationStack(app, options.stackId ?? 'DeployzApplication', {
-    expressMode: false,
-    allowInsecureHttp: true,
-    ...presetProps(options.preset, options.databaseRequired ?? true),
-    ...(options.imageRepository !== undefined
-      ? { imageRepository: options.imageRepository }
-      : {}),
-    ...(options.imageDigest !== undefined ? { imageDigest: options.imageDigest } : {}),
-    ...(options.redisRequired !== undefined ? { redisRequired: options.redisRequired } : {}),
-    ...(options.databaseRequired !== undefined ? { databaseRequired: options.databaseRequired } : {}),
-  });
-
-  const assembly = app.synth();
-  const artifact = assembly.getStackArtifact(stack.artifactId);
-
-  return {
-    template: artifact.template as JsonObject,
-    assets: await readZipAssets(assembly.directory, stack.artifactId),
-  };
-}
-
-export interface PublishApplicationOptions {
-  /** AWS region of the public bucket. */
-  readonly region: string;
-  /** Public S3 bucket name. */
-  readonly bucket: string;
-  /** Key prefix under the bucket (e.g. `application/v1`). */
-  readonly keyPrefix: string;
-}
-
-export interface ApplicationPublishResult {
-  /** S3 key of the published template. */
-  readonly templateKey: string;
-  /**
-   * Public HTTPS URL of the published template.
-   *
-   * This is the value the bootstrap stack carries into the relay as
-   * `DEPLOYZ_APPLICATION_TEMPLATE_URL` — `CreateStack`'s `TemplateURL`.
-   */
-  readonly templateUrl: string;
-  /** S3 keys of any published Lambda assets (public). */
-  readonly assetKeys: string[];
-  /** Byte size of the repacked template. */
-  readonly templateBytes: number;
-  /** Parameter count of the repacked template. */
-  readonly parameterCount: number;
-}
-
-/**
- * Publishes the application template to the same public bucket the
- * bootstrap template lives in, under its own key prefix.
- *
- * Separate from `BootstrapPublisher` rather than a mode of it: the two
- * produce different artifacts for different readers. The bootstrap template
- * is handed to a human through a Quick Create link and needs one built;
- * this one is fetched by CloudFormation on the relay's behalf and needs no
- * link at all.
- */
-export class ApplicationPublisher {
-  constructor(
-    private readonly s3: S3Client,
-    private readonly options: PublishApplicationOptions,
-  ) {}
-
-  async publish(
-    synth: SynthOutput,
-    readAsset: AssetReader = readBundledIndexMjs,
-    templateKeyName: string = APPLICATION_TEMPLATE_KEY,
-  ): Promise<ApplicationPublishResult> {
-    const { template: repacked } = repackTemplate(synth.template, {
-      bucket: this.options.bucket,
-      keyPrefix: this.options.keyPrefix,
-    });
-
-    // Fail fast: an over-limit template is rejected at CreateStack time, in
-    // the customer's account, as a failed install.
-    const limits = requireWithinLimits(repacked);
-
-    const assetKeys: string[] = [];
-    for (const asset of synth.assets) {
-      const key = `${this.options.keyPrefix}/${asset.objectKey}`;
-      await this.s3.putObject({
-        bucket: this.options.bucket,
-        key,
-        body: await readAsset(asset),
-        contentType: 'application/zip',
-      });
-      assetKeys.push(key);
-    }
-
-    const templateKey = `${this.options.keyPrefix}/${templateKeyName}`;
-    await this.s3.putObject({
-      bucket: this.options.bucket,
-      key: templateKey,
-      body: JSON.stringify(repacked, null, 2),
-      contentType: 'application/json',
-    });
-
-    return {
-      templateKey,
-      templateUrl: `https://${this.options.bucket}.s3.${this.options.region}.amazonaws.com/${templateKey}`,
-      assetKeys,
-      templateBytes: limits.bytes,
-      parameterCount: limits.parameterCount,
-    };
-  }
 }

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { refineFailureCode, type FailureStackEvent } from './failure-classification.js';
+import { isRetainedDataDeleteBlocked, refineFailureCode, type FailureStackEvent } from './failure-classification.js';
 
 function rdsFailed(reason: string): FailureStackEvent {
   return {
@@ -323,5 +323,81 @@ describe('refineFailureCode — Phase 1 evidence signatures', () => {
         },
       }),
     ).toBe('PORT_MISMATCH');
+  });
+});
+
+describe('isRetainedDataDeleteBlocked', () => {
+  const dbDeletionProtected: FailureStackEvent = {
+    resourceType: 'AWS::RDS::DBInstance',
+    resourceStatus: 'DELETE_FAILED',
+    resourceStatusReason: 'Cannot delete the instance because deletion protection is enabled',
+  };
+  const sgPinnedByEni: FailureStackEvent = {
+    resourceType: 'AWS::EC2::SecurityGroup',
+    resourceStatus: 'DELETE_FAILED',
+    resourceStatusReason: 'Resource has 1 dependent object: NetworkInterface eni-0a1b2c3d4e5f6a7b',
+  };
+  const subnetPinnedByEni: FailureStackEvent = {
+    resourceType: 'AWS::EC2::Subnet',
+    resourceStatus: 'DELETE_FAILED',
+    resourceStatusReason:
+      'The subnet has dependencies and cannot be deleted: NetworkInterface eni-0a1b2c3d4e5f6a7b is attached',
+  };
+
+  it('recognises the retained-data cascade: the retained database and the resources its ENI pins', () => {
+    expect(isRetainedDataDeleteBlocked([dbDeletionProtected, sgPinnedByEni, subnetPinnedByEni])).toBe(true);
+  });
+
+  it('reads an ENI pin from a security group alone — the database itself need not be among the failed events', () => {
+    expect(isRetainedDataDeleteBlocked([sgPinnedByEni])).toBe(true);
+  });
+
+  it('never reads a genuine permission failure on a security group as benign retained-data evidence', () => {
+    expect(
+      isRetainedDataDeleteBlocked([
+        {
+          resourceType: 'AWS::EC2::SecurityGroup',
+          resourceStatus: 'DELETE_FAILED',
+          resourceStatusReason: 'User: arn:aws:sts::123 is not authorized to perform: ec2:DeleteSecurityGroup',
+        },
+        {
+          resourceType: 'AWS::EC2::Subnet',
+          resourceStatus: 'DELETE_FAILED',
+          resourceStatusReason: 'AccessDenied: the caller lacks ec2:DeleteSubnet permission',
+        },
+      ]),
+    ).toBe(false);
+  });
+
+  it('ignores install-time CREATE_FAILED debris, non-failed events, and empty evidence', () => {
+    expect(isRetainedDataDeleteBlocked([rdsFailed('capacity unavailable')])).toBe(false);
+    expect(
+      isRetainedDataDeleteBlocked([{ resourceType: 'AWS::RDS::DBInstance', resourceStatus: 'DELETE_COMPLETE', resourceStatusReason: null }]),
+    ).toBe(false);
+    expect(isRetainedDataDeleteBlocked([])).toBe(false);
+  });
+
+  it('an unrelated delete failure with no RDS/ENI evidence is not retained data', () => {
+    expect(
+      isRetainedDataDeleteBlocked([
+        {
+          resourceType: 'AWS::S3::Bucket',
+          resourceStatus: 'DELETE_FAILED',
+          resourceStatusReason: 'BucketNotEmpty: The bucket you tried to delete is not empty',
+        },
+      ]),
+    ).toBe(false);
+  });
+
+  it('a stack-level DELETE_FAILED alone is unattributable, not retained data', () => {
+    expect(
+      isRetainedDataDeleteBlocked([
+        {
+          resourceType: 'AWS::CloudFormation::Stack',
+          resourceStatus: 'DELETE_FAILED',
+          resourceStatusReason: 'One or more resources could not be deleted.',
+        },
+      ]),
+    ).toBe(false);
   });
 });

@@ -34,8 +34,9 @@ permanent AWS credentials.
    exceptionally well and says "we don't support that" rather than "we can
    probably make that work". Every variation adds failure modes, support load
    and security surface.
-2. **Deterministic infrastructure.** Provisioning comes from versioned,
-   pre-published templates and known IAM policies. AI helps understand
+2. **Deterministic infrastructure.** Provisioning is compiled
+   deterministically from the frozen deployment spec into a versioned,
+   content-addressed artifact with known IAM policies. AI helps understand
    applications and explain failures; it never invents production
    infrastructure.
 3. **Customer credentials never leave the customer's AWS.** Deployz never
@@ -67,10 +68,10 @@ account:
 | Network | Dedicated VPC, public/private subnets, NAT, security groups | Deleted on disconnect. |
 | Endpoint | Permanent `https://d-<deployment-id>.deployz.dev` URL, plus an optional vendor-managed custom domain | See [`../networking-and-https.md`](../networking-and-https.md). |
 
-The four pre-published template variants (PostgreSQL × Redis) are selected
-from the deployment manifest; see
-[`../architecture.md#application-template-selection`](../architecture.md#application-template-selection).
-Sizing is frozen per deployment in an immutable profile registry
+The infrastructure is compiled at deployment creation from the frozen
+deployment spec — compiler-v2 is the provisioning path, and no
+pre-published application template exists. Sizing is
+frozen per deployment in an immutable profile registry
 ([`../infrastructure-profiles.md`](../infrastructure-profiles.md)); today
 only `small-v1` exists and the customer is not offered a choice.
 
@@ -185,6 +186,9 @@ Deliberate trade-offs that are documented rather than hidden:
   month before the application's own usage).
 - **The shared control-plane ECR repository** is protected by unguessable
   UUID-namespaced tags, not per-application repositories.
+- **No runtime-v1 backward compatibility.** Deployz is pre-launch; the MVP
+  runs on compiler-v2, and the earlier static-template generation was
+  removed rather than preserved.
 
 ## Deferred (post-MVP) items
 

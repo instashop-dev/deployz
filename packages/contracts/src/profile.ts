@@ -6,7 +6,7 @@ import { z } from 'zod';
 // application stack: how many vCPU/MiB the web/worker containers get, what
 // RDS instance class and storage the managed PostgreSQL uses, and what
 // ElastiCache node type/count the managed Valkey cache uses. It is
-// deliberately DISTINCT from the graph-shaping `InfrastructureProfile`
+// deliberately DISTINCT from the graph-shaping `InfrastructureRequirements`
 // (`{ postgres, redis }`) in `index.ts`, which selects the template variant;
 // the size profile selects the sizes within that variant.
 //

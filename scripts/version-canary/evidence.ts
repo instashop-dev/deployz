@@ -42,8 +42,8 @@ export interface RunRecord {
   /**
    * What GET /health and /health/ready answered at preflight — the closest
    * thing to a deployed control-plane commit/version identifier those
-   * routes expose today (apps/api/src/server.ts). Useful mainly for a
-   * production-canary run (`config.production`), where it is the only
+   * routes expose today (apps/api/src/server.ts). Useful mainly for a run
+   * against the production control plane, where it is the only
    * record of which control-plane deploy actually served the run.
    */
   controlPlaneHealth?: {
@@ -59,9 +59,6 @@ export interface RunRecord {
   applicationStackName?: string;
   /** Lambda function names the bootstrap stack created (their log groups outlive the stack). */
   bootstrapLambdaNames?: string[];
-  canaryTemplateUrl?: string;
-  canaryTemplateKeyPrefix?: string;
-  templateBucket?: string;
   releases: Record<string, { id: string; version: string; gitSha: string; imageDigest?: string; imageTag?: string }>;
   fixtureTags?: Record<string, { sha: string; contentSha: string }>;
   albEndpoint?: string;

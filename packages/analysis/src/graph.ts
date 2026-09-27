@@ -1,14 +1,14 @@
 /**
- * Phase 1 ApplicationGraph — pure, deterministic translation of a validated
+ * ApplicationGraph — pure, deterministic translation of a validated
  * DeploymentManifest (+ vendor overrides + analysis result) into the
  * AWS-independent application-requirements model.
  *
- * Shadow-mode only: does NOT change existing manifest behaviour.
+ * This is the production compile path: compiler-v2 derives the graph, plans
+ * it into the IR, and freezes the DeploymentSpecV2 every install executes.
  */
 
 import {
   applicationGraphSchema,
-  CAPABILITY_KEYS,
   type ApplicationGraph,
   type Binding,
   type BuildArtifact,
@@ -158,7 +158,6 @@ function buildResources(manifest: DeploymentManifest): Resource[] {
       kind: 'relational_database',
       label: 'PostgreSQL database',
       ownership: 'DEPLOYZ_MANAGED',
-      capabilityKey: CAPABILITY_KEYS.RDS_POSTGRES,
       quantity: 1,
       engine: 'postgres',
       envBindings: manifest.database.envBindings ?? STANDARD_POSTGRES_BINDINGS,
@@ -174,7 +173,6 @@ function buildResources(manifest: DeploymentManifest): Resource[] {
       kind: 'cache',
       label: 'Valkey cache',
       ownership: 'DEPLOYZ_MANAGED',
-      capabilityKey: CAPABILITY_KEYS.ELASTICACHE_VALKEY,
       quantity: 1,
       engine: 'valkey',
       envBindings: manifest.redis.envBindings,
@@ -190,7 +188,6 @@ function buildResources(manifest: DeploymentManifest): Resource[] {
     kind: 'object_storage',
     label: 'S3 bucket',
     ownership: 'DEPLOYZ_MANAGED',
-    capabilityKey: CAPABILITY_KEYS.S3,
     quantity: 1,
     engine: null,
     envBindings: manifest.storage.envBindings.length > 0 ? manifest.storage.envBindings : DEFAULT_STORAGE_BINDINGS,
@@ -205,7 +202,6 @@ function buildResources(manifest: DeploymentManifest): Resource[] {
     kind: 'generic_service',
     label: 'Application load balancer',
     ownership: 'DEPLOYZ_MANAGED',
-    capabilityKey: CAPABILITY_KEYS.ALB,
     quantity: 1,
     engine: null,
     envBindings: [],
@@ -221,7 +217,6 @@ function buildResources(manifest: DeploymentManifest): Resource[] {
       kind: 'external_service',
       label: serviceName,
       ownership: 'EXTERNAL_SAAS',
-      capabilityKey: null,
       quantity: 1,
       engine: null,
       envBindings: [],
@@ -401,9 +396,9 @@ export function buildApplicationGraph(input: {
 }
 
 /**
- * Build an ApplicationGraph from an existing v1 manifest alone (no analysis
- * result or overrides). Used for shadow comparison against the live manifest
- * pipeline.
+ * Build an ApplicationGraph from an existing manifest alone (no analysis
+ * result or overrides). Used where the frozen manifest is the only input to
+ * the compile pipeline.
  */
 export function manifestToApplicationGraph(manifest: DeploymentManifest): ApplicationGraph {
   const workloads = buildWorkloads(manifest);

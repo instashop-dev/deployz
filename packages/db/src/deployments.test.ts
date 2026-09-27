@@ -21,7 +21,7 @@ describe('deployments desired-state and audit fields', () => {
     await client?.close();
   });
 
-  it('defaults state to NOT_INSTALLED, infra_version to runtime-v1, deployment_type to PRODUCTION', async () => {
+  it('defaults state to NOT_INSTALLED, infra_version to dynamic-compiler-v2, deployment_type to PRODUCTION', async () => {
     const id = crypto.randomUUID();
     await db!.insert(deployments).values({
       id,
@@ -34,7 +34,10 @@ describe('deployments desired-state and audit fields', () => {
     });
     const [row] = await db!.select().from(deployments).where(eq(deployments.id, id));
     expect(row?.state).toBe('NOT_INSTALLED');
-    expect(row?.infraVersion).toBe('runtime-v1');
+    expect(row?.infraVersion).toBe('dynamic-compiler-v2');
+    // The frozen DeploymentSpecV2 — written at creation, nullable for
+    // pre-compiler rows.
+    expect(row?.specV2).toBeNull();
     expect(row?.deploymentType).toBe('PRODUCTION');
     expect(row?.billingState).toBe('NOT_STARTED');
     expect(row?.observedState).toBeNull();

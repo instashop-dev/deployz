@@ -27,34 +27,33 @@ new simulated scenario or canary case
    merge while you test — re-record the SHA whenever `origin/main` moves and
    note which findings were observed on which SHA.
 
-2. **Publish the customer templates from that commit.** The deploy workflows
-   never publish the application templates, and they republish the
-   bootstrap template only when the `BOOTSTRAP_REPUBLISH` repository
-   variable is `on`. Otherwise what a customer downloads is whatever
-   `publish:application`/`publish:bootstrap` last uploaded, so a walk on
-   stale templates tests old relay code. Compare
-   `packages/cdk/artifacts/bootstrap-template-v1.json` (the relay asset hash
-   in `RelayFunction.Code.S3Key`) with the published object before assuming
-   they match:
+2. **Publish the bootstrap template from that commit.** The deploy workflow
+    republishes the
+    bootstrap template only when the `BOOTSTRAP_REPUBLISH` repository
+    variable is `on`. Otherwise what a customer downloads is whatever
+    `publish:bootstrap` last uploaded, so a walk on
+    a stale template tests old relay code. (The application stack needs no
+    publish step: the API compiles and publishes its artifact at deployment
+    creation.) Compare
+    `packages/cdk/artifacts/bootstrap-template-v1.json` (the relay asset hash
+    in `RelayFunction.Code.S3Key`) with the published object before assuming
+    they match:
 
-   ```bash
-   pnpm build
-   APP_IMAGE_REPOSITORY=<account>.dkr.ecr.us-east-1.amazonaws.com/deployz-images \
-   APP_IMAGE_DIGEST=sha256:<digest> APP_PRESET=documenso AWS_REGION=us-east-1 \
-     pnpm --filter @deployz/cdk run publish:application
-   BOOTSTRAP_PUBLISH_REGIONS=us-east-1 BOOTSTRAP_LEGACY_BUCKET_REGION=us-east-1 AWS_REGION=us-east-1 \
-     pnpm --filter @deployz/cdk run publish:bootstrap
-   ```
+    ```bash
+    pnpm build
+    BOOTSTRAP_PUBLISH_REGIONS=us-east-1 BOOTSTRAP_LEGACY_BUCKET_REGION=us-east-1 AWS_REGION=us-east-1 \
+      pnpm --filter @deployz/cdk run publish:bootstrap
+    ```
 
-   The bootstrap publisher prints the `BOOTSTRAP_TEMPLATE_URL` it wrote; it
-   must equal the deployed API Lambda's `BOOTSTRAP_TEMPLATE_URL` environment
-   variable (`aws lambda get-function-configuration`). Without
-   `BOOTSTRAP_PUBLISH_REGIONS` the publisher fans out to every
-   `deployz-templates-<region>` bucket and fails closed if one is missing;
-   restrict it to the Region under test when you only need one. Republish
-   after every merge that touches `packages/relay/src`,
-   `packages/cdk/src/bootstrap`, or `packages/cdk/src/application` —
-   including a merge that lands mid-walk.
+    The bootstrap publisher prints the `BOOTSTRAP_TEMPLATE_URL` it wrote; it
+    must equal the deployed API Lambda's `BOOTSTRAP_TEMPLATE_URL` environment
+    variable (`aws lambda get-function-configuration`). Without
+    `BOOTSTRAP_PUBLISH_REGIONS` the publisher fans out to every
+    `deployz-templates-<region>` bucket and fails closed if one is missing;
+    restrict it to the Region under test when you only need one. Republish
+    after every merge that touches `packages/relay/src` or
+    `packages/cdk/src/bootstrap` —
+    including a merge that lands mid-walk.
 
 3. **Baseline and resource ledger.** Before creating anything, capture what
    exists so cleanup can be proven by difference, not by tags alone (the

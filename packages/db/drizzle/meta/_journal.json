@@ -337,6 +337,13 @@
       "when": 1893715200000,
       "tag": "0047_checkout_intent_subscribe_only",
       "breakpoints": true
+    },
+    {
+      "idx": 48,
+      "version": "7",
+      "when": 1893801600000,
+      "tag": "0048_deployment_spec_v2",
+      "breakpoints": true
     }
   ]
 }

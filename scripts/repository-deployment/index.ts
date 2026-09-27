@@ -22,7 +22,7 @@ import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 
 import { ANALYSIS_VERSION } from '@deployz/api/analysis';
-import { parseApplicationTemplateUrl, SUPPORTED_AWS_REGIONS } from '@deployz/contracts';
+import { SUPPORTED_AWS_REGIONS } from '@deployz/contracts';
 
 import { openAnalysisSession } from '../repository-compatibility/analyse.js';
 import { loadBenchmark, selectEntries, type Benchmark, type BenchmarkEntry } from '../repository-compatibility/manifest.js';
@@ -39,7 +39,6 @@ import {
   listStackResources,
   resourcesTagged,
   targetHealth,
-  templateBucketName,
 } from '../version-canary/aws.js';
 import { CANARY_TAGS, loadConfig, requireRealAwsOptIn, type CanaryConfig } from '../version-canary/config.js';
 import { ControlPlane, sleep } from '../version-canary/control-plane.js';
@@ -72,9 +71,6 @@ export const RUNS_DIR = join(STAGE_B_DIR, 'runs');
 export const EVIDENCE_DIR = join(RUNS_DIR, 'evidence');
 export const CACHE_DIR = join(STAGE_A_DIR, '.cache');
 
-export const TEMPLATE_MODES = ['pinned', 'generic', 'production'] as const;
-export type TemplateMode = (typeof TEMPLATE_MODES)[number];
-
 export interface RunOptions {
   ids: string[];
   set: string | undefined;
@@ -93,7 +89,6 @@ export interface RunOptions {
   reuseApplication: boolean;
   offline: boolean;
   concurrency: number;
-  template: TemplateMode;
   cacheDir: string;
   evidenceDir: string;
   runsDir: string;
@@ -127,7 +122,6 @@ export function parseRunArgs(argv: readonly string[]): RunOptions {
       'reuse-application': { type: 'boolean', default: false },
       online: { type: 'boolean', default: false },
       concurrency: { type: 'string' },
-      template: { type: 'string' },
       cache: { type: 'string' },
       'evidence-dir': { type: 'string' },
       'runs-dir': { type: 'string' },
@@ -140,8 +134,6 @@ export function parseRunArgs(argv: readonly string[]): RunOptions {
   });
   const concurrency = values.concurrency ? Number(values.concurrency) : 1;
   if (!Number.isInteger(concurrency) || concurrency < 1 || concurrency > 2) throw new Error('--concurrency must be 1 or 2');
-  const template = (values.template ?? 'pinned') as TemplateMode;
-  if (!TEMPLATE_MODES.includes(template)) throw new Error(`--template must be one of ${TEMPLATE_MODES.join(', ')}`);
   if (values.region !== undefined && !(SUPPORTED_AWS_REGIONS as readonly string[]).includes(values.region)) {
     throw new Error(`--region must be one of ${SUPPORTED_AWS_REGIONS.join(', ')}`);
   }
@@ -167,7 +159,6 @@ export function parseRunArgs(argv: readonly string[]): RunOptions {
     reuseApplication: values['reuse-application'] ?? false,
     offline: !(values.online ?? false),
     concurrency,
-    template,
     cacheDir: values.cache ? resolve(values.cache) : CACHE_DIR,
     evidenceDir: values['evidence-dir'] ? resolve(values['evidence-dir']) : EVIDENCE_DIR,
     runsDir: values['runs-dir'] ? resolve(values['runs-dir']) : RUNS_DIR,
@@ -273,13 +264,13 @@ export function buildPlan(entries: readonly BenchmarkEntry[], config: DeployConf
   });
 }
 
-export function renderPlan(plan: readonly PlanLine[], options: Pick<RunOptions, 'template' | 'concurrency'>): string {
+export function renderPlan(plan: readonly PlanLine[], options: Pick<RunOptions, 'concurrency'>): string {
   const b1 = plan.filter((l) => l.deploymentClass === 'runtime-reuse' && l.action !== 'skip-has-result').length;
   const b2 = plan.filter((l) => l.deploymentClass === 'capability-cohort' && l.action !== 'skip-has-result').length;
   const b3 = plan.filter((l) => l.deploymentClass === 'fresh-full' && l.action !== 'skip-has-result').length;
   const skipped = plan.filter((l) => l.action === 'skip-has-result').length;
   const lines = [
-    `Stage B plan — ${plan.length} repositories, template ${options.template}, concurrency ${options.concurrency}`,
+    `Stage B plan — ${plan.length} repositories, concurrency ${options.concurrency}`,
     `  B1 runtime-reuse: ${b1} | B2 capability cohorts: ${b2} | B3 full-fresh: ${b3} | skipped: ${skipped}`,
     ...plan.map((line) => `${line.id} ${line.repository} [${line.deploymentClass}] expected ${line.expected} → ${line.action}${line.overrides.length ? ` overrides[${line.overrides.join(',')}]` : ''}${line.configuredKeys.length ? ` keys[${line.configuredKeys.join(',')}]` : ''}`),
     `full funnel: ${plan.filter((l) => l.action === 'full-funnel').length}, gate only: ${plan.filter((l) => l.action === 'gate-only').length}, skipped: ${skipped}`,
@@ -367,22 +358,6 @@ async function createAttemptOrganization(api: ControlPlane, name: string): Promi
   return body.id;
 }
 
-function publishPinnedTemplateWith(controlPlaneRegion: string) {
-  return async (imageDigest: string, keyPrefix: string): Promise<string> => {
-    const identity = await callerIdentity();
-    const repository = `${identity.account}.dkr.ecr.${controlPlaneRegion}.amazonaws.com/deployz-images`;
-    const output = execFileSync(process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm', ['--filter', '@deployz/cdk', 'run', 'publish:application'], {
-      cwd: REPO_ROOT,
-      encoding: 'utf8',
-      env: { ...process.env, AWS_REGION: controlPlaneRegion, APP_IMAGE_REPOSITORY: repository, APP_IMAGE_DIGEST: imageDigest, APPLICATION_KEY_PREFIX: keyPrefix },
-      shell: process.platform === 'win32',
-    });
-    const templateUrl = parseApplicationTemplateUrl(output);
-    if (!templateUrl) throw new Error(`publish:application printed no template URL:\n${output}`);
-    return templateUrl;
-  };
-}
-
 async function probe(url: string): Promise<{ status: number | null; error?: string }> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 15_000);
@@ -421,7 +396,7 @@ export function ecrDigestLookup(fn: typeof ecrDigestForTag, controlPlaneRegion: 
   return (tag) => fn(controlPlaneRegion, 'deployz-images', tag);
 }
 
-function realDeps(series: Series, options: RunOptions, templateUrl: string | null): DeployDeps {
+function realDeps(series: Series, options: RunOptions): DeployDeps {
   const { region, controlPlaneRegion } = regionsFor(series.config);
   return {
     api: series.api,
@@ -445,9 +420,6 @@ function realDeps(series: Series, options: RunOptions, templateUrl: string | nul
     now: Date.now,
     region,
     githubInstallationId: series.config.githubInstallationId,
-    templateUrl,
-    templateSource: options.template === 'pinned' ? 'stage-b-pinned' : options.template === 'generic' ? 'stage-b-generic' : 'production-default',
-    publishPinnedTemplate: options.template === 'pinned' ? publishPinnedTemplateWith(controlPlaneRegion) : undefined,
     reuseApplication: options.reuseApplication,
     exerciseUpdate: options.exerciseUpdate,
     timeouts: DEFAULT_TIMEOUTS,
@@ -486,8 +458,7 @@ async function runAttempt(series: Series, options: RunOptions, config: DeployCon
   stageBRun(evidence).stageB.organizationId = organizationId;
   evidence.save();
   const { repositoryUsed, repositoryForm } = repositoryUsedFor(entry, repoConfig);
-  if (options.template === 'generic') throw new Error('--template generic is not available until DEPLOY-001 is fixed and a generic template is published');
-  const deps = realDeps(series, options, null);
+  const deps = realDeps(series, options);
   try {
     await runRepositoryAttempt(deps, {
       benchmark: entry,
@@ -691,9 +662,6 @@ async function main(): Promise<number> {
 
   const health = await fetch(`${canaryConfig.apiUrl}/health`);
   if (health.status !== 200) throw new Error(`control plane ${canaryConfig.apiUrl}/health answered ${health.status}`);
-  // The template bucket only matters when a run publishes its own pinned
-  // template; --template generic/production never touches it.
-  if (options.template === 'pinned') await templateBucketName(canaryConfig.controlPlaneRegion);
 
   const plan = buildPlan(entries, config, existing, options);
   console.log(renderPlan(plan, options));

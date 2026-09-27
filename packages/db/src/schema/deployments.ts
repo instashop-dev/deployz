@@ -65,7 +65,12 @@ export const deployments = pgTable(
   // apps/api/src/step-timings.ts from the relay-authenticated write paths so
   // the event_logs `deployment.step_completed` stream has a duration to cite.
   stepTimings: jsonb('step_timings').$type<Record<string, { startedAt: string; completedAt?: string }>>(),
-  infraVersion: text('infra_version').notNull().default('runtime-v1'),
+  // The frozen DeploymentSpecV2 (packages/contracts deployment-spec-v2.ts):
+  // graph + IR + the compiler's verification contract, ownership records,
+  // footprint and the published artifact location. Written once at creation,
+  // read by INSTALL payload building, verification, plans and inventory.
+  specV2: jsonb('spec_v2').$type<Record<string, unknown>>(),
+  infraVersion: text('infra_version').notNull().default('dynamic-compiler-v2'),
   // §12 enrollment. Three identifiers, deliberately separate:
   //   installLinkId  — the only one in a customer-facing URL (/install/:id).
   //   enrollmentCode — single use, carried into the bootstrap stack as a

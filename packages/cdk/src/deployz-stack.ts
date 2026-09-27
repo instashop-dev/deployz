@@ -263,6 +263,17 @@ export class DeployzStack extends Stack {
       }),
     );
 
+    // Compiler-v2: the API freezes each deployment's compiled template into
+    // the region's template bucket (deployz-templates-<region>) under the
+    // content-addressed compiler-v2/ prefix, before the deployment row is
+    // written.
+    apiLambda.function.addToRolePolicy(
+      new PolicyStatement({
+        actions: ['s3:PutObject'],
+        resources: ['arn:aws:s3:::deployz-templates-*/compiler-v2/*'],
+      }),
+    );
+
     dbSecurityGroup.addIngressRule(
       apiLambda.function.connections.securityGroups[0] ?? Peer.anyIpv4(),
       Port.tcp(5432),
@@ -333,8 +344,7 @@ export class DeployzStack extends Stack {
     // Route 53 zone that does not exist, and CloudFormation would sit blocked
     // for the validation timeout waiting on a record only a human can add.
     // Request it out of band (`aws acm request-certificate`), let it reach
-    // ISSUED, then pass the ARN in — the same shape ApplicationStack already
-    // uses for customer certificates.
+    // ISSUED, then pass the ARN in.
     const apiDomainName =
       (this.node.tryGetContext('apiDomainName') as string | undefined) ??
       process.env.API_DOMAIN_NAME;

@@ -217,21 +217,6 @@ describe('expectedBindings', () => {
   });
 });
 
-describe('production-canary config', () => {
-  it('is false by default — branch-testing mode with the template override', () => {
-    expect(loadConfig({}).production).toBe(false);
-  });
-
-  it('reads DEPLOYZ_CANARY_PRODUCTION=1 from the env', () => {
-    expect(loadConfig({ DEPLOYZ_CANARY_PRODUCTION: '1' }).production).toBe(true);
-    expect(loadConfig({ DEPLOYZ_CANARY_PRODUCTION: '0' }).production).toBe(false);
-  });
-
-  it('the --production override wins over the env var', () => {
-    expect(loadConfig({ DEPLOYZ_CANARY_PRODUCTION: '0' }, { production: true }).production).toBe(true);
-  });
-});
-
 describe('evidence summary', () => {
   it('renders the PASS/FAIL table, releases and jobs', () => {
     const run: RunRecord = {
@@ -472,6 +457,21 @@ describe('retained database credential secrets (BUG-002)', () => {
     const urlSecret = secret('DatabaseUrlSecretFA7DE062-cnJ1KWcterKP', {
       'deployz:installation': '9a8aef85-865d-4583-9a61-7d89ea983b0a',
       'aws:cloudformation:logical-id': 'DatabaseUrlSecretFA7DE062',
+    });
+    expect(isRetainedDatabaseSecret(dbSecret)).toBe(true);
+    expect(isRetainedDatabaseSecret(urlSecret)).toBe(true);
+  });
+
+  it('recognizes the compiler-v2 component-derived logical ids as retained', () => {
+    // compiler-v2 derives the secret logical ids from the component
+    // (primary-db + master/url secret role), not the runtime-v1 names.
+    const dbSecret = secret('PrimaryDbMasterSecret-CDJsfxgpdNm5', {
+      'deployz:installation': 'ce89236d-1881-4756-a6cd-dbd3775a41ba',
+      'aws:cloudformation:logical-id': 'PrimaryDbMasterSecret',
+    });
+    const urlSecret = secret('PrimaryDbUrlSecret-NitTLOlsljVm', {
+      'deployz:installation': 'ce89236d-1881-4756-a6cd-dbd3775a41ba',
+      'aws:cloudformation:logical-id': 'PrimaryDbUrlSecret',
     });
     expect(isRetainedDatabaseSecret(dbSecret)).toBe(true);
     expect(isRetainedDatabaseSecret(urlSecret)).toBe(true);

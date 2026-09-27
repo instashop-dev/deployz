@@ -372,6 +372,7 @@ export async function confirmPublicInstall(
   body: PublicInstallConfirmBody,
   configDeps: ConfigDeps,
   token?: string,
+  templatePublisher?: import('./compiler-artifact.js').TemplatePublisher,
 ): Promise<{ installLinkId: string; created: boolean }> {
   const { application, link } = await loadActiveLink(db, linkId, token);
   const release = await newestPublishedRelease(db, link.applicationId);
@@ -498,18 +499,22 @@ export async function confirmPublicInstall(
           secretInputCount: body.config.filter((entry) => entry.isSecret).length,
         },
       });
-      const { deployment } = await createDeploymentRecord(tx, {
-        organizationId: link.organizationId,
-        applicationId: link.applicationId,
-        customerId,
-        region: body.region as Region,
-        deploymentType: 'PRODUCTION',
-        createdBy: null,
-        updatedBy: null,
-        source: 'public_link',
-        publicInstallLinkId: link.id,
-        confirmKey: body.idempotencyKey,
-      });
+      const { deployment } = await createDeploymentRecord(
+        tx,
+        {
+          organizationId: link.organizationId,
+          applicationId: link.applicationId,
+          customerId,
+          region: body.region as Region,
+          deploymentType: 'PRODUCTION',
+          createdBy: null,
+          updatedBy: null,
+          source: 'public_link',
+          publicInstallLinkId: link.id,
+          confirmKey: body.idempotencyKey,
+        },
+        templatePublisher ? { templatePublisher } : undefined,
+      );
       await recordEvent(tx, {
         organizationId: link.organizationId,
         eventType: 'invitation.confirmed',

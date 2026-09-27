@@ -126,6 +126,14 @@ export class SimulatedCustomerAccount {
 
   // ── Destroy state (D2) ──────────────────────────────────────────────────
   private deleteStartRealMs: number | null = null;
+  /** Logical ids carried by a `deleteStack(stackName, retainResources)` call
+   *  — the relay's data-preserving DELETE_FAILED recovery (destroy.ts). Once
+   *  recorded, the modelled delete COMPLETES (the stack record goes away,
+   *  like real DELETE_COMPLETE) while exactly those resources stay behind
+   *  with their data. A plain retry without `retainResources` never clears
+   *  the DELETE_FAILED state, mirroring how CloudFormation refuses to delete
+   *  the pinned resources again. */
+  private retainedLogicalIds: readonly string[] | null = null;
 
   // ── Transient-fault injection ──────────────────────────────────────────
   private transientDescribeRemaining: number;
@@ -312,6 +320,10 @@ export class SimulatedCustomerAccount {
       };
     }
     if (destroy.outcome === 'complete') return { found: false };
+    // The retain-retry arrived: the data-preserving recovery completed the
+    // deletion while leaving the named blockers (the retained database and
+    // what its ENI pins) in the account — DELETE_COMPLETE, not DELETE_FAILED.
+    if (this.retainedLogicalIds !== null) return { found: false };
     return {
       found: true,
       stack: {
@@ -700,12 +712,17 @@ export class SimulatedCustomerAccount {
   /** `StackDeleter` (destroy.ts) — the DESTROY write seam. Only records that
    *  deletion was requested and anchors the destroy timeline's clock;
    *  `describeStack`/`describeStackResources` above report the scenario's
-   *  configured outcome once that timeline fully reveals. Idempotent — a
-   *  retried/resumed DeleteStack call does not re-anchor the clock. */
+   *  configured outcome once that timeline fully reveals — unless a
+   *  retain-retry arrived (see `retainedLogicalIds`), which completes the
+   *  delete. Idempotent — a retried/resumed DeleteStack call does not
+   *  re-anchor the clock. */
   stackDeleter(): StackDeleter {
     return {
-      deleteStack: async () => {
+      deleteStack: async (_stackName, retainResources) => {
         this.ensureDestroyStarted();
+        if (retainResources !== undefined && retainResources.length > 0) {
+          this.retainedLogicalIds = [...retainResources];
+        }
       },
     };
   }

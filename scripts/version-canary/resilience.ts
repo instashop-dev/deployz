@@ -14,7 +14,6 @@ import {
   createDeploymentAndInstall,
   expectBusyOrReplay,
   preflight,
-  publishCanaryTemplate,
   setUpVendorAndApplication,
   waitForJob,
   waitForPointer,
@@ -29,7 +28,6 @@ export async function runResilience(canary: Canary): Promise<void> {
   await preflight(canary);
   await setUpVendorAndApplication(canary);
   await buildRelease(canary, 'v1');
-  await publishCanaryTemplate(canary, 'v1');
   await createDeploymentAndInstall(canary);
   await evidence.step('v1 is the serving release after install', async (details) => {
     await waitForPointer(canary, 'v1', 15 * MINUTE);

@@ -4,11 +4,8 @@
  *   pnpm e2e:canary:versions preflight             identity, region, control plane, fixture tags (no mutation)
  *   pnpm e2e:canary:versions core [--keep]         the golden path (docs/testing/aws-e2e.md)
  *   pnpm e2e:canary:versions resilience [--keep]   duplicate/concurrent requests and relay interruption
- *   pnpm e2e:canary:versions profile --profile <pg|stateless|redis> [--run-id <id>] [--production]
+ *   pnpm e2e:canary:versions profile --profile <pg|stateless|redis> [--run-id <id>]
  *                                                  one infrastructure profile: install + teardown, no version ladder.
- *                                                  --production (env DEPLOYZ_CANARY_PRODUCTION=1) installs with the
- *                                                  production-published template, exactly as a customer would —
- *                                                  no synth-from-checkout, no ApplicationTemplateUrl override.
  *   pnpm e2e:canary:versions cleanup --run-id <id> product destroy/purge + canary leftovers for a recorded run
  *   pnpm e2e:canary:versions audit --run-id <id>   leak audit for a recorded run (read-only)
  *
@@ -27,7 +24,7 @@ import { destroyThroughProduct, leakAudit, removeCanaryLeftovers } from './teard
 
 function usage(): void {
   console.error(
-    'Usage: e2e:canary:versions <preflight|core [--keep] [--existing-image=<digest>] [--reuse-stack]|resilience [--keep]|profile --profile <pg|stateless|redis> [--run-id <id>] [--production]|cleanup --run-id <id>|audit --run-id <id>>',
+    'Usage: e2e:canary:versions <preflight|core [--keep] [--existing-image=<digest>] [--reuse-stack]|resilience [--keep]|profile --profile <pg|stateless|redis> [--run-id <id>]|cleanup --run-id <id>|audit --run-id <id>>',
   );
 }
 
@@ -56,7 +53,6 @@ async function main(): Promise<void> {
       'existing-image': { type: 'string' },
       'reuse-stack': { type: 'boolean', default: false },
       profile: { type: 'string' },
-      production: { type: 'boolean', default: false },
     },
   });
   const [command] = positionals;
@@ -66,7 +62,6 @@ async function main(): Promise<void> {
     ...(values['existing-image'] ? { existingImageDigest: values['existing-image'] } : {}),
     reuseStack: values['reuse-stack'],
     ...(values['profile'] ? { profileName: values['profile'] } : {}),
-    ...(values['production'] ? { production: true } : {}),
   });
 
   switch (command) {

@@ -16,12 +16,42 @@ import type { EcsDeployClient, EcsTaskDefinition } from '@deployz/relay/deploy';
 import type { CloudFormationReader } from '@deployz/relay/verify';
 
 import { createAuth, type Auth } from './auth.js';
+import { compileDeploymentIntent } from './compiler-artifact.js';
 import {
   createCipherStub,
   createDrizzlePendingSecretStore,
   type SecretCipher,
 } from './pending-secrets.js';
 import { buildServer } from './server.js';
+
+import type { DeploymentManifest } from '@deployz/contracts';
+
+/** A READY manifest — the Phase 3 relay-register gate re-evaluates it. */
+const INSTALL_MANIFEST = {
+  application: { root: '.', runtime: 'node', framework: 'express', dockerfilePath: 'Dockerfile' },
+  build: { command: 'npm run build', context: '.' },
+  web: { command: 'npm start', port: 3000 },
+  health: { path: '/health' },
+  database: { postgres: false },
+  redis: { required: false, envBindings: [] },
+  storage: { required: false, envBindings: [] },
+  migration: { command: null },
+  worker: { command: null },
+  environment: {
+    variables: [
+      {
+        key: 'ADMIN_PASSWORD',
+        required: true,
+        secret: true,
+        source: ['README.md'],
+        classification: 'customer_required',
+        purpose: 'external_credential',
+      },
+    ],
+  },
+  externalServices: [],
+  unsupported: [],
+} as unknown as DeploymentManifest;
 
 /**
  * DEPLOY-027 (Phase 4) — simulated E2E for secure pre-relay secret delivery.
@@ -295,33 +325,9 @@ describe('pending-secret delivery simulated-E2E (DEPLOY-027 Phase 4)', () => {
           state: 'NOT_INSTALLED',
           installationId: `inst-${crypto.randomUUID()}`,
           enrollmentCode: crypto.randomUUID(),
-          desiredState: {
-            manifest: {
-              application: { root: '.', runtime: 'node', framework: 'express', dockerfilePath: 'Dockerfile' },
-              build: { command: 'npm run build', context: '.' },
-              web: { command: 'npm start', port: 3000 },
-              health: { path: '/health' },
-              database: { postgres: false },
-              redis: { required: false, envBindings: [] },
-              storage: { required: false, envBindings: [] },
-              migration: { command: null },
-              worker: { command: null },
-              environment: {
-                variables: [
-                  {
-                    key: 'ADMIN_PASSWORD',
-                    required: true,
-                    secret: true,
-                    source: ['README.md'],
-                    classification: 'customer_required',
-                    purpose: 'external_credential',
-                  },
-                ],
-              },
-              externalServices: [],
-              unsupported: [],
-            },
-          },
+          desiredState: { manifest: INSTALL_MANIFEST },
+          // The spec createDeploymentRecord persists for this manifest.
+          specV2: compileDeploymentIntent({ manifest: INSTALL_MANIFEST, region: 'us-east-1' }).spec,
         })
         .returning()
     )[0]!;
@@ -470,6 +476,7 @@ describe('pending-secret delivery simulated-E2E (DEPLOY-027 Phase 4)', () => {
           installationId: `inst-redaction-${crypto.randomUUID()}`,
           enrollmentCode: crypto.randomUUID(),
           desiredState: deployment.desiredState,
+          specV2: deployment.specV2,
         })
         .returning()
     )[0]!;
@@ -551,6 +558,7 @@ describe('pending-secret delivery simulated-E2E (DEPLOY-027 Phase 4)', () => {
           installationId: `inst-dup-${crypto.randomUUID()}`,
           enrollmentCode: crypto.randomUUID(),
           desiredState: deployment.desiredState,
+          specV2: deployment.specV2,
         })
         .returning()
     )[0]!;
@@ -619,6 +627,7 @@ describe('pending-secret delivery simulated-E2E (DEPLOY-027 Phase 4)', () => {
           installationId: `inst-lost-${crypto.randomUUID()}`,
           enrollmentCode: crypto.randomUUID(),
           desiredState: deployment.desiredState,
+          specV2: deployment.specV2,
         })
         .returning()
     )[0]!;

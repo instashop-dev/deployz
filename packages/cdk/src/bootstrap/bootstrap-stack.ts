@@ -76,14 +76,6 @@ export interface BootstrapStackProps extends StackProps {
   /** Deployz vendor identifier — applied as `deployz:vendor` tag. */
   readonly vendorId?: string;
   /**
-   * Public URL of the published application template the relay installs.
-   *
-   * Non-secret, and a template parameter for the same reason
-   * `controlPlaneUrl` is: the publisher bakes the current default in, and a
-   * specific installation can be pointed elsewhere without new relay code.
-   */
-  readonly applicationTemplateUrl?: string;
-  /**
    * Server-established relay credential (DZ-AUDIT-013). When set, the stack
    * uses this value as the SecretString instead of generating one via
    * GenerateSecretString. Relay code reads the secret by name and is unchanged.
@@ -92,15 +84,6 @@ export interface BootstrapStackProps extends StackProps {
 }
 
 const DEFAULT_CONTROL_PLANE_URL = 'https://api.deployz.dev';
-
-/**
- * Empty by default, and deliberately so: a URL guessed here would be one
- * CloudFormation cannot fetch, and the install would fail inside the
- * customer's account with nothing they can act on. The publisher fills this
- * in (see `scripts/publish-bootstrap.mjs`), and the INSTALL executor
- * refuses to run without it.
- */
-const DEFAULT_APPLICATION_TEMPLATE_URL = '';
 
 /** Install-time (phase 1) + post-first-contact (phase 2) permission actions. */
 const PHASE_1_LOG_WRITE_ACTIONS = [
@@ -649,20 +632,6 @@ export class BootstrapStack extends Stack {
       description:
         'Single-use code from your install link. Ties this installation to your deployment.',
       default: props.enrollmentCode ?? '',
-    });
-
-    // ── Application template URL (non-secret parameter) ─────────────────
-    //
-    // The relay's INSTALL executor calls `CreateStack` with this as
-    // `TemplateURL`. It is a parameter rather than a constant so an
-    // installation can be pinned to a specific published template version,
-    // and so a customer can be moved onto a new one by updating this stack
-    // rather than by shipping new relay code.
-    const applicationTemplateUrlParam = new CfnParameter(this, 'ApplicationTemplateUrl', {
-      type: 'String',
-      description:
-        'Public URL of the Deployz application template this installation provisions. NOT a credential.',
-      default: props.applicationTemplateUrl ?? DEFAULT_APPLICATION_TEMPLATE_URL,
     });
 
     // ── 1. Installation identifier (minted at deploy time) ──────────────
@@ -1451,7 +1420,6 @@ export class BootstrapStack extends Stack {
         DEPLOYZ_CREDENTIAL_SECRET_ARN: this.credentialSecretArn,
         DEPLOYZ_CONTROL_PLANE_URL: controlPlaneUrlParam.valueAsString,
         DEPLOYZ_ENROLLMENT_CODE: enrollmentCodeParam.valueAsString,
-        DEPLOYZ_APPLICATION_TEMPLATE_URL: applicationTemplateUrlParam.valueAsString,
         DEPLOYZ_APPLICATION_EXECUTION_ROLE_ARN: this.applicationExecutionRole.roleArn,
         // The relay purges its own bootstrap stack (destroy flow). Ref
         // AWS::StackName resolves to the DEPLOYED stack name at runtime —

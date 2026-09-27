@@ -57,8 +57,8 @@ touches the API or a package it bundles, and `deploy-web.yml` ships the web
 app the same way. A hand-run
 `cdk deploy` would replace the production Lambda environment with the local
 `.env`, so `packages/cdk/bin/deployz.ts` refuses to run outside GitHub
-Actions; use `-c local=true` only to `synth` or `diff`. Customer templates
-are published by hand with `publish:application` then `publish:bootstrap`.
+Actions; use `-c local=true` only to `synth` or `diff`. The bootstrap
+template is republished by hand with `publish:bootstrap`.
 The procedure, every configuration key, and how a Region is enabled are in
 [`docs/operations/control-plane.md`](docs/operations/control-plane.md); the
 reasoning is in [`docs/decisions/deploy-gate.md`](docs/decisions/deploy-gate.md).

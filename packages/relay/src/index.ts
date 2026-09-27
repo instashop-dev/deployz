@@ -132,11 +132,9 @@ import {
   DEFAULT_BOOTSTRAP_STACK_NAME as DEFAULT_BOOTSTRAP_STACK_NAME,
   applicationStackNameForInstallation,
   deploymentManifestSchema,
-  infrastructureProfileForManifest,
-  resolveApplicationTemplateUrl,
   type DeploymentManifest,
   type FailureEvidence,
-  type InfrastructureProfile,
+  type InfrastructureRequirements,
 } from '@deployz/contracts';
 
 /**
@@ -604,8 +602,6 @@ export function createVerifyingExecutor(
  */
 export interface InstallExecutorDeps {
   readonly installationId: string;
-  /** Public URL of the published application template. */
-  readonly templateUrl: string;
   readonly install: (options: InstallRequest) => Promise<InstallOutcome>;
   readonly verify: (options: VerifyRequest) => Promise<VerificationResult>;
   readonly pending: PendingStore;
@@ -721,9 +717,9 @@ async function settleInstall(
   // `redisRequired`/`databaseRequired` flags it derived from that same
   // manifest at compaction time — those still count as known. Only when
   // NEITHER is available (no manifest was ever attached) does this refuse.
-  const profile: InfrastructureProfile | null =
+  const profile: InfrastructureRequirements | null =
     manifest !== null
-      ? infrastructureProfileForManifest(manifest)
+      ? { postgres: manifest.database.postgres, redis: manifest.redis.required }
       : verifyOptions.databaseRequired !== undefined && verifyOptions.redisRequired !== undefined
         ? { postgres: verifyOptions.databaseRequired, redis: verifyOptions.redisRequired }
         : null;
@@ -737,24 +733,21 @@ async function settleInstall(
     };
   }
 
-  const resolved = resolveApplicationTemplateUrl(deps.templateUrl, profile);
-  if (resolved === undefined) {
-    // Provisioning the wrong template would build a stack that disagrees
-    // with the infrastructure requirements and only discover the mismatch
-    // ~20 minutes later, when verification demands a resource that was
-    // never asked for. Failing fast, before CloudFormation is even called,
-    // is cheaper and honest about what went wrong.
+  // The control plane compiles the application template (compiler-v2) and
+  // sends the frozen artifact's URL in the payload. The relay executes
+  // exactly that artifact — no profile-based variant resolution, no env
+  // fallback — so a payload without one cannot provision.
+  const templateUrl = request.payload['templateUrl'];
+  if (typeof templateUrl !== 'string' || templateUrl.length === 0) {
     return {
       deferred: false,
       success: false,
       error:
-        `No application template variant exists for the resolved infrastructure profile ` +
-        `(postgres: ${profile.postgres}, redis: ${profile.redis}) — the configured ` +
-        `base template URL ("${deps.templateUrl}") is not recognized`,
+        'Install payload is missing templateUrl — the control plane did not send the ' +
+        'compiled application template, refusing to provision',
       output: {},
     };
   }
-  const templateUrl = resolved;
 
   // Manifest-derived template parameters win over whatever the control
   // plane resolved ad-hoc (health path / port columns); the control plane's
@@ -947,13 +940,6 @@ const RECOVERY_STILL_IN_PROGRESS: ReadonlySet<RecoveryReport['phase']> = new Set
 export function createInstallExecutor(deps: InstallExecutorDeps): CommandExecutor {
   return async (command) => {
     logCommandExecuted(command);
-
-    if (!deps.templateUrl) {
-      return failure(
-        command,
-        'No application template URL is configured for this relay — the vendor has not published one yet',
-      );
-    }
 
     const stackName = readVerifyOptionsFromPayload(command.payload).stackName ?? relayApplicationStackName();
     const startedAt = (deps.now ?? (() => new Date().toISOString()))();
@@ -1294,8 +1280,8 @@ export function readDeploymentManifest(payload: Record<string, unknown>): Deploy
  * Extract verification options from a command's payload.
  *
  * Phase 2: the canonical manifest, when present, is the ONLY source of
- * `redisRequired`/`databaseRequired` — derived through the one allowed
- * profile derivation (`infrastructureProfileForManifest`), never a second
+ * `redisRequired`/`databaseRequired` — derived directly from its
+ * `database.postgres`/`redis.required` booleans, never a second
  * ad-hoc reading. The top-level flags are read only as a fallback for a
  * RESUMED install whose compacted pending marker dropped the manifest to
  * fit SSM's size limit (`compactPendingInstallPayload` below) — those flags
@@ -1314,9 +1300,8 @@ export function readVerifyOptionsFromPayload(
   payload: Record<string, unknown>,
 ): { redisRequired?: boolean; databaseRequired?: boolean; stackName?: string } {
   const manifest = readDeploymentManifest(payload);
-  const profile = manifest ? infrastructureProfileForManifest(manifest) : null;
-  const redisRequired = profile ? profile.redis : payload['redisRequired'];
-  const databaseRequired = profile ? profile.postgres : payload['databaseRequired'];
+  const redisRequired = manifest ? manifest.redis.required : payload['redisRequired'];
+  const databaseRequired = manifest ? manifest.database.postgres : payload['databaseRequired'];
   const stackName = payload['stackName'];
 
   return {
@@ -1339,21 +1324,21 @@ export function readVerifyOptionsFromPayload(
  * (`PENDING_MARKER_MAX_LENGTH` in `./pending.js`) — carrying it is what
  * silently failed the deferral write.
  *
- * Phase 2: the requirement flags are derived ONLY from the manifest's
- * profile, never from `verifyOptions`/top-level payload flags — by the time
+ * Phase 2: the requirement flags are derived ONLY from the manifest,
+ * never from `verifyOptions`/top-level payload flags — by the time
  * this runs, `settleInstall` has already refused to proceed without a
  * manifest, so this is total in practice; a manifest-less payload (a caller
  * that bypasses `settleInstall`) simply omits both flags rather than guess.
  *
- * The control plane's identity `tags` survive compaction via `...rest` — a
- * few hundred bytes, no interaction with the SSM size cap.
+ * The control plane's identity `tags` and the payload's `templateUrl`
+ * survive compaction via `...rest` — a few hundred bytes, no interaction
+ * with the SSM size cap.
  */
 export function compactPendingInstallPayload(
   payload: Record<string, unknown>,
 ): Record<string, unknown> {
   const { manifest: _manifest, ...rest } = payload;
   const manifest = readDeploymentManifest(payload);
-  const profile = manifest ? infrastructureProfileForManifest(manifest) : null;
   const aliases = manifest ? manifestBindingAliases(manifest) : [];
 
   return {
@@ -1362,7 +1347,9 @@ export function compactPendingInstallPayload(
       ...readInstallParametersFromPayload(payload),
       ...(manifest ? buildInstallParametersFromManifest(manifest) : {}),
     },
-    ...(profile ? { redisRequired: profile.redis, databaseRequired: profile.postgres } : {}),
+    ...(manifest
+      ? { redisRequired: manifest.redis.required, databaseRequired: manifest.database.postgres }
+      : {}),
     // Stage B phase 2: the compact alias list survives the SSM size cap so a
     // resumed install can still register the manifest's binding aliases after
     // the stack settles (the full manifest cannot ride the pending marker).
@@ -1372,8 +1359,9 @@ export function compactPendingInstallPayload(
 
 /**
  * The production wiring for INSTALL: real CloudFormation, real SSM, real
- * verification, with the template URL and execution role supplied by the
- * bootstrap stack as environment variables.
+ * verification, with the execution role supplied by the bootstrap stack as
+ * an environment variable. The install template URL comes from each
+ * command's payload.
  *
  * `budgetMs` bounds how long a single invocation watches the stack. It has
  * to stay comfortably under the relay Lambda's own timeout — a killed
@@ -1410,7 +1398,6 @@ function createDefaultInstallDeps(
 
   return {
     installationId,
-    templateUrl: process.env['DEPLOYZ_APPLICATION_TEMPLATE_URL'] ?? '',
     ...(executionRoleArn ? { executionRoleArn } : {}),
     stoppedTaskEvidence,
     install: (options) =>

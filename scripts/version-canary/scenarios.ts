@@ -30,7 +30,6 @@ import {
   deployAndVerify,
   deployExpectingFailure,
   preflight,
-  publishCanaryTemplate,
   rollbackAndVerify,
   seedMarker,
   setUpVendorAndApplication,
@@ -101,7 +100,6 @@ export async function runCore(canary: Canary): Promise<void> {
 
   // Phase 4 — v1.
   await buildRelease(canary, 'v1');
-  await publishCanaryTemplate(canary, 'v1');
 
   // Reuse-stack: skip bootstrap stack creation/install; use the standing stack.
   if (canary.config.reuseStack) {
@@ -186,25 +184,16 @@ export async function runCore(canary: Canary): Promise<void> {
 
 /**
  * A single-profile certification run: the core ladder's install head —
- * vendor/application, v1 build, canary template (skipped in production
- * mode — see below), install to HEALTHY with the plan-vs-inventory gate,
- * default HTTPS — under a configured infrastructure profile
+ * vendor/application, v1 build, install to HEALTHY with the plan-vs-inventory
+ * gate, default HTTPS — under a configured infrastructure profile
  * (config.profile), then the full teardown with its retained-state checks.
  * No markers and no update/rollback ladder: the question is whether the
  * product provisions and tears down THIS shape.
- *
- * `config.production` (`--production` / `DEPLOYZ_CANARY_PRODUCTION=1`):
- * installs with whatever template production already published — no
- * `publishCanaryTemplate` synth-from-checkout, no `ApplicationTemplateUrl`
- * override — exactly the path a real customer's Quick Create takes. The
- * default (false) stays branch-testing mode: the checkout's own template,
- * published and pinned to this run's v1 image.
  */
 export async function runProfile(canary: Canary): Promise<void> {
   await preflight(canary);
   await setUpVendorAndApplication(canary);
   await buildRelease(canary, 'v1');
-  if (!canary.config.production) await publishCanaryTemplate(canary, 'v1');
   await createDeploymentAndInstall(canary);
   if (!canary.config.reuseStack) await waitForDefaultHttpsActive(canary);
   await assertBindings(canary);

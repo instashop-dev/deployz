@@ -6,8 +6,11 @@ import { applyMigrations, createDb, type Db } from '@deployz/db';
 import * as schema from '@deployz/db/schema';
 
 import { createConfigDeps, createConfigStore, listVendorValues, setConfig } from './config.js';
+import { compileDeploymentIntent } from './compiler-artifact.js';
 import { buildInstallPayload, buildRelayConfigEntries, queuePostInstallConfig } from './install-config.js';
 import { createCipherStub, createDrizzlePendingSecretStore } from './pending-secrets.js';
+
+import type { DeploymentManifest } from '@deployz/contracts';
 
 // AI MVP Phase 4 — the first configuration pass after a successful INSTALL:
 // the relay's effective-config view carries every saved entry (plain values
@@ -63,6 +66,14 @@ function manifest(variables: unknown[] = MANIFEST_ENV) {
   };
 }
 
+/** The completed spec createDeploymentRecord persists for a manifest. */
+function completedSpecFor(variables: unknown[] = MANIFEST_ENV) {
+  return compileDeploymentIntent({
+    manifest: manifest(variables) as unknown as DeploymentManifest,
+    region: 'us-east-1',
+  }).spec;
+}
+
 describe('post-install configuration', () => {
   let client: PGlite | undefined;
   let db: Db;
@@ -102,6 +113,7 @@ describe('post-install configuration', () => {
         region: 'us-east-1',
         state: 'INSTALLING',
         desiredState: { manifest: manifest() },
+        specV2: completedSpecFor(),
         enrollmentCode: 'enrol-1',
       })
       .returning();
@@ -158,6 +170,13 @@ describe('post-install configuration', () => {
     expect(payload['startAfterConfig']).toBe(true);
     expect((payload['parameters'] as Record<string, string>)['paramDesiredCount']).toBe('0');
     expect(payload['redisRequired']).toBe(false);
+    expect(payload['databaseRequired']).toBe(true);
+    // The INSTALL points at the frozen compiled artifact, not a template variant.
+    expect(payload['templateUrl']).toBe(
+      'https://deployz-templates-us-east-1.s3.us-east-1.amazonaws.com/compiler-v2/' +
+        completedSpecFor()['templateHash'] +
+        '.json',
+    );
     expect(payload['manifest']).toMatchObject({ web: { port: 3000 } });
     // Control-plane-minted identity tags — stable internal ids only, with the
     // selected release named because one exists.
@@ -195,6 +214,7 @@ describe('post-install configuration', () => {
         region: 'us-east-1',
         state: 'INSTALLING',
         desiredState: { manifest: manifest([MANIFEST_ENV[0]!]) },
+        specV2: completedSpecFor([MANIFEST_ENV[0]!]),
         enrollmentCode: 'enrol-releaseless',
       })
       .returning();
@@ -202,6 +222,45 @@ describe('post-install configuration', () => {
     await expect(buildInstallPayload(db, deployment!, createConfigStore(db))).rejects.toMatchObject({
       statusCode: 409,
       code: 'RELEASE_NOT_PUBLISHED',
+    });
+  });
+
+  it('refuses the INSTALL payload closed when the deployment carries no compiled spec (pre-compiler row)', async () => {
+    const [application] = await db
+      .insert(schema.applications)
+      .values({
+        organizationId,
+        name: 'Specless',
+        repoFullName: 'acme/specless',
+        repoUrl: 'https://github.com/acme/specless',
+        defaultBranch: 'main',
+        analysisStatus: 'COMPLETE',
+      })
+      .returning();
+    await db.insert(schema.releases).values({
+      applicationId: application!.id,
+      version: '1.0.0',
+      gitSha: 'abc1234',
+      imageDigest: '111122223333.dkr.ecr.us-east-1.amazonaws.com/deployz-images@sha256:' + 'c'.repeat(64),
+      buildStatus: 'SUCCEEDED',
+      releaseStatus: 'READY',
+    });
+    const [deployment] = await db
+      .insert(schema.deployments)
+      .values({
+        organizationId,
+        applicationId: application!.id,
+        customerId,
+        region: 'us-east-1',
+        state: 'INSTALLING',
+        desiredState: { manifest: manifest([MANIFEST_ENV[0]!]) },
+        enrollmentCode: 'enrol-specless',
+      })
+      .returning();
+
+    await expect(buildInstallPayload(db, deployment!, createConfigStore(db))).rejects.toMatchObject({
+      statusCode: 422,
+      code: 'DEPLOYMENT_SPEC_MISSING',
     });
   });
 
@@ -234,6 +293,7 @@ describe('post-install configuration', () => {
         region: 'us-east-1',
         state: 'INSTALLING',
         desiredState: { manifest: manifest([MANIFEST_ENV[0]!, MANIFEST_ENV[4]!]) },
+        specV2: completedSpecFor([MANIFEST_ENV[0]!, MANIFEST_ENV[4]!]),
         enrollmentCode: 'enrol-bare-install',
       })
       .returning();

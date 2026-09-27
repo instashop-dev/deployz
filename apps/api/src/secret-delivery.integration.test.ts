@@ -14,7 +14,26 @@ import type { EcsDeployClient, EcsTaskDefinition } from '@deployz/relay/deploy';
 import type { CloudFormationReader } from '@deployz/relay/verify';
 
 import { createAuth, type Auth } from './auth.js';
+import { compileDeploymentIntent } from './compiler-artifact.js';
 import { buildServer } from './server.js';
+
+import type { DeploymentManifest } from '@deployz/contracts';
+
+/** A READY manifest — the Phase 3 relay-register gate re-evaluates it. */
+const INSTALL_MANIFEST = {
+  application: { root: '.', runtime: 'node', framework: 'express', dockerfilePath: 'Dockerfile' },
+  build: { command: 'npm run build', context: '.' },
+  web: { command: 'npm start', port: 3000 },
+  health: { path: '/health' },
+  database: { postgres: true },
+  redis: { required: false, envBindings: [] },
+  storage: { required: false, envBindings: [] },
+  migration: { command: 'npm run db:migrate' },
+  worker: { command: null },
+  environment: { variables: [] },
+  externalServices: [],
+  unsupported: [],
+} as unknown as DeploymentManifest;
 
 /**
  * Simulated-E2E for §31 secret delivery (Phase 1.2): proves the whole chain
@@ -236,22 +255,9 @@ describe('secret delivery simulated-E2E (§31 phase 1.2)', () => {
           installationId: `inst-${crypto.randomUUID()}`,
           enrollmentCode: crypto.randomUUID(),
           // The Phase 3 relay-register gate re-evaluates the stored manifest.
-          desiredState: {
-            manifest: {
-              application: { root: '.', runtime: 'node', framework: 'express', dockerfilePath: 'Dockerfile' },
-              build: { command: 'npm run build', context: '.' },
-              web: { command: 'npm start', port: 3000 },
-              health: { path: '/health' },
-              database: { postgres: true },
-              redis: { required: false, envBindings: [] },
-              storage: { required: false, envBindings: [] },
-              migration: { command: 'npm run db:migrate' },
-              worker: { command: null },
-              environment: { variables: [] },
-              externalServices: [],
-              unsupported: [],
-            },
-          },
+          desiredState: { manifest: INSTALL_MANIFEST },
+          // The spec createDeploymentRecord persists for this manifest.
+          specV2: compileDeploymentIntent({ manifest: INSTALL_MANIFEST as never, region: 'us-east-1' }).spec,
         })
         .returning()
     )[0]!;

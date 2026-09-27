@@ -8,6 +8,8 @@ import { applyMigrations, createDb, type Db } from '@deployz/db';
 import * as schema from '@deployz/db/schema';
 
 import { createAuth, type Auth } from '../auth.js';
+import { compileDeploymentIntent } from '../compiler-artifact.js';
+import { readStoredManifest } from '../manifest.js';
 import { buildServer } from '../server.js';
 
 // ── Shared test helpers (matches admin-deployments-jobs.test.ts style) ─────
@@ -121,6 +123,11 @@ async function insertDeployment(
   customerId: string,
   overrides: Partial<typeof schema.deployments.$inferInsert> = {},
 ): Promise<typeof schema.deployments.$inferSelect> {
+  const desiredState =
+    (overrides.desiredState as { manifest: typeof READY_MANIFEST } | undefined) ?? {
+      manifest: READY_MANIFEST,
+    };
+  const manifest = readStoredManifest(desiredState as Record<string, unknown>);
   const [row] = await db
     .insert(schema.deployments)
     .values({
@@ -131,6 +138,16 @@ async function insertDeployment(
       state: 'NOT_INSTALLED',
       installationId: `inst-${crypto.randomUUID()}`,
       enrollmentCode: crypto.randomUUID(),
+      desiredState,
+      // The completed spec createDeploymentRecord persists for this manifest.
+      ...(manifest
+        ? {
+            specV2: compileDeploymentIntent({
+              manifest: manifest as unknown as Parameters<typeof compileDeploymentIntent>[0]['manifest'],
+              region: 'us-east-1',
+            }).spec,
+          }
+        : {}),
       ...overrides,
     })
     .returning();

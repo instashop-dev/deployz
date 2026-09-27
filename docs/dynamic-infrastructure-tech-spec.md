@@ -19,6 +19,23 @@ The core principle is:
 Deployz must not become an AI system that writes and executes arbitrary
 CloudFormation, Terraform, IAM, or AWS commands.
 
+## 1.1 Pre-launch constraint and runtime-v1 disposition
+
+Deployz is pre-launch. There are no live customer deployments that had to
+stay compatible with the earlier runtime-v1 template generation, so no
+compatibility or migration mechanism was ever built.
+
+compiler-v2 is the **single infrastructure generation** (`dynamic-compiler-v2`)
+and the single provisioning path. The runtime-v1 machinery — the four
+application template constants and artifacts, the profile→URL resolution,
+`InfrastructureProfile { postgres, redis }`, `DOCUMENSO_PARAMETERS`, the CDK
+application stack and preset, the synth/publish application scripts, the
+lifecycle/sizing parity tests, the bootstrap `ApplicationTemplateUrl` override,
+and the shadow runner — is removed. The historical template variants survive
+only as reference material; no code path resolves or executes them.
+
+Existing internal test deployments may be recreated.
+
 ## 2. Product Goal
 
 Internal north star:
@@ -102,13 +119,15 @@ Evidence Extraction
     ↓
 Deterministic Analysis + Bounded AI Reconciliation
     ↓
-ApplicationGraph
+DeploymentManifest (frozen deployment contract)
     ↓
-Capability Resolver
+ApplicationGraph (what the application needs)
     ↓
-Planner
+Capability Resolver (kind/engine → capability)
     ↓
-DeployzIR
+Planner (region, size profile, policy)
+    ↓
+DeployzIR (authoritative provisioning intent)
     ↓
 Size Profile + Region + Policy
     ↓
@@ -141,7 +160,10 @@ frozen IR.
 
 `DeploymentSpecV2` freezes the deployment contract.
 
-Existing deployments remain on their frozen infrastructure generation.
+There is one infrastructure generation and one provisioning path for the
+MVP: `dynamic-compiler-v2`. Every new deployment compiles the frozen
+manifest through the graph→planner→compiler chain; runtime-v1 machinery is
+removed, not carried forward.
 
 ### 4.4 Capability completeness
 
@@ -398,6 +420,20 @@ architectural boundary.
 
 The customer relay must not synthesize CDK.
 
+**Implementation (Phase 2).** `packages/infrastructure-compiler` is the
+boundary: a CDK-free deterministic CloudFormation emitter. `compile.ts`
+builds a resolved AWS graph (an ordered list of logical resources, each
+carrying stable identity + `componentId`/`componentKind`/`capability`/
+`resourceRole` + stateful/retention/purge metadata + a verification
+check), `cfn-emit.ts` serializes it deterministically, and `derived.ts`
+derives the footprint, verification contract, ownership records and
+artifact hashes from the same graph. It emits CloudFormation directly
+rather than through CDK L2 constructs so logical ids are the stable
+semantic ids of §11 instead of CDK's auto-hashed ids; CDK stays the
+control-plane mechanism, and the relay still consumes pre-compiled
+artifacts only. The compiler never imports an AWS SDK, never calls AI, and
+never reads the wall clock (an architecture-fitness test enforces this).
+
 ### 10.1 Determinism
 
 Equivalent: - IR; - compiler version; - capability versions; - size
@@ -439,15 +475,84 @@ DeployzIR; - graph hash; - IR hash; - compiler version; - capability
 registry version; - capability versions; - template hash; - artifact
 location; - verification contract version.
 
-Infrastructure generations must be explicit, tracked on the deployment's
-`infra_version` column:
+Infrastructure generation is tracked on the deployment's
+`infra_version` column. The MVP uses only:
 
 ``` text
-runtime-v1           (the current published-template generation)
-dynamic-compiler-v2  (the compiler generation, Phase 2+)
+dynamic-compiler-v2  (the compiler generation)
 ```
 
-Existing deployments are never silently recompiled with a new compiler.
+Deployments are never silently recompiled with a different compiler.
+
+### 12.1 Frozen artifact publication and identity
+
+At deployment creation the control plane compiles the deployment's frozen
+manifest (`manifestToApplicationGraph` →
+`planApplicationGraphWithSpec({ graph, region, sizeProfile })` →
+`compileDeployzInfrastructure`) and publishes the resulting template to the
+region's public-read template bucket under the content-addressed key:
+
+``` text
+compiler-v2/<templateHash>.json
+```
+
+Publication is a conditional `PutObject` with `IfNoneMatch: '*'`; a `412
+PreconditionFailed` is dedup success, not an error — the object already
+holding the hash is byte-identical by construction. The artifact URL and the
+completed `DeploymentSpecV2` are persisted on the deployment row
+(`deployments.spec_v2`, `infra_version = 'dynamic-compiler-v2'`), and the
+publish happens **before** the database insert: no compile or publish, no
+deployment row (fail closed). Outside the deployed Lambda the publisher is an
+injectable no-op, gated by `env.releaseImageRegistryEnabled`, so simulated
+E2E and tests run the full pipeline without S3.
+
+Artifact identity is content: the template hash pins exactly what the relay
+will execute, and identical infrastructure re-publishes nothing.
+
+### 12.2 Runtime execution contract
+
+INSTALL payloads carry the frozen artifact URL plus typed parameters:
+
+- `templateUrl` — the published `compiler-v2/<hash>.json` artifact. The
+  relay executes **only** `payload.templateUrl` and fails closed without it;
+  there is no environment or profile fallback.
+- `paramImageReference` — the newest READY release, digest-pinned
+  (`repository@sha256:…`).
+- `paramDesiredCount` — `'0'` when configuration must precede the first
+  start (`configPrecedesFirstStart`), so no unconfigured task boots.
+- `paramAppApiKey` and `paramAppSigningSecret` — API-generated application
+  secrets (random 32-byte base64url), sent as `NoEcho` parameters and
+  redacted from the stored payload once the relay claims the job
+  (`INSTALL_SECRET_PARAMETER_IDS`).
+- `paramContainerPort` and `paramHealthCheckPath` — derived by the relay
+  from the deployment manifest at claim time.
+- Any template parameter the relay cannot derive is filtered out against one
+  template fetch: undeclared parameters never reach CloudFormation.
+
+The relay never synthesizes templates, never resolves template URLs from
+profiles, and never recompiles.
+
+Parameter classes stay distinct:
+
+- **Infrastructure parameters** — what the compiled stack needs to exist
+  (image reference, desired count, container port, health-check path).
+- **Application configuration** — vendor/customer values, delivered through
+  the config pipeline (`CONFIG_UPDATE` / pending secrets), not through the
+  template.
+- **Deployz-generated secrets** — `paramAppApiKey` /
+  `paramAppSigningSecret`, minted per install, `NoEcho`, redacted after the
+  claim.
+- **Release-specific values** — only the pinned image digest changes per
+  release; the artifact and every other parameter do not.
+
+### 12.3 Release versus infrastructure-change semantics
+
+A release is an image/config change against an unchanged topology: the
+frozen artifact is never recompiled and never replaced. No recompile path
+exists — an existing deployment keeps the artifact it was installed with.
+Requirement drift is detected by comparing the stored spec's `graphHash`
+against the desired graph hash and reported as drift; an unsupported
+topology change fails closed (§31).
 
 ## 13. Resource Ownership
 
@@ -491,6 +596,26 @@ PURGE
 An unsupported lifecycle operation must be explicit.
 
 Stateful capabilities require a clear backup/restore answer.
+
+### 14.1 DESTROY and PURGE (retain, then purge)
+
+DESTROY (disconnect) deletes the application stack; CloudFormation's
+per-resource retention policies decide what stays. When the stack lands on
+`DELETE_FAILED` because the deletion-protected RDS instance still pins its
+security group and subnet, the relay lists the failed resources and re-issues
+`delete-stack` with `RetainResources`, repeating the pass on each poll until
+the stack reaches `DELETE_COMPLETE`. The deployment then settles as `DELETED`
+— a truthful success — while the RDS instance, its credential secrets, the
+bucket and the network objects the ENI pins remain behind for PURGE. A
+`DELETE_FAILED` stretch blocked by retained data is expected pacing (45+
+minutes), not a failure.
+
+PURGE deletes the retained data separately: the RDS instance (deletion
+protection off, `SkipFinalSnapshot`), every owned application secret except
+the relay's own `deployz:component=bootstrap` secret — generation-agnostic,
+so compiler-v2 and any earlier artifacts purge alike — the bucket (every
+version), ACM certificates, subnet groups and network orphans. A failed
+purge lands on `cleanupState: PURGE_FAILED` and stays retryable.
 
 ## 15. Stateful Safety and Replacement
 
@@ -540,18 +665,28 @@ reads before it writes (describe-before-create/delete), so a re-delivered
 or re-offered command converges on real AWS state instead of duplicating a
 mutation.
 
-Phase 2 should generalize this durable marker/idempotency model to serve
-the compiler-generated deployment spec, keeping the conceptual key:
+This durable marker/idempotency model serves the compiler-generated
+deployment spec, keeping the conceptual key:
 
 ``` text
 installationId + idempotencyKey
 ```
 
-with command/status/result metadata and conditional writes.
+with command/status/result metadata and conditional writes. Retries reuse
+the frozen artifact: a retried INSTALL re-executes the same
+`compiler-v2/<hash>.json` artifact, describe-before-create executors adopt
+whatever CloudFormation already created, and re-publication of an identical
+artifact is a `412` dedup, so retry convergence never depends on
+recompiling.
 
 ## 17. Verification
 
-Move toward a compiler-generated generic verification contract.
+The compiler emits a generic verification contract alongside the template
+(§10): the relay's poll-meta verification booleans (`databaseRequired` /
+`redisRequired`) derive from the spec's verification contract, and the
+heartbeat's inventory classification joins CloudFormation stack resources
+with the spec's ownership records by logical id, falling back to
+`classifyResource` by resource type.
 
 Conceptually:
 
@@ -649,12 +784,11 @@ The immutable size-profile registry already exists
 sizing-changing option requires a NEW version plus a new `infra_version`
 and a security review — a published entry is never mutated.
 
-Two profile concepts must stay distinct:
+There is one profile concept:
 
-- `InfrastructureProfile` (`{ postgres, redis }`) — graph-shaping: which
-  template variant to select.
 - `InfrastructureSizeProfile` (`small-v1`) — sizing: CPU/memory, desired
-  counts, RDS class, cache node type/count.
+  counts, RDS class, cache node type/count. What exists is decided by the
+  graph → planner → IR chain, not by a profile.
 
 Profiles such as `minimal` / `standard` / `large` are additional
 `InfrastructureSizeProfile` versions, never new architecture.
@@ -855,7 +989,7 @@ Prefer dependency direction:
 ``` text
 analysis → contracts
 planner → contracts + capabilities
-compiler → contracts + capabilities + CDK
+compiler → contracts + capabilities
 relay → contracts
 ```
 
@@ -863,50 +997,54 @@ Avoid analysis importing provisioning/AWS implementation and AI
 importing compiler/relay code.
 
 These package names are targets, not a mandate to duplicate better
-abstractions already present in the repository. The reconciliation below
-is the Phase 0 result.
+abstractions already present in the repository.
 
-### 28.1 Existing abstractions → target abstractions (Phase 0)
+### 28.1 Existing abstractions → target abstractions (Phase 2)
 
 `packages/contracts` already holds the derivation core the
-planner/capability/compiler layers are meant to own. Phase 1 must evolve
-these in place, not duplicate them.
+planner/capability/compiler layers are meant to own. Phase 2 evolves
+these in place rather than duplicating them.
 
-| Existing (today) | Location | Future role |
+| Existing (today) | Location | Role after Phase 2 |
 |---|---|---|
 | `ApplicationAnalysis` | `contracts/src/application-analysis.ts`, `analysis/src/application-analysis.ts` | The canonical evidence + derived app projection feeding the manifest. Stays the analysis-layer read model. |
-| `DeploymentManifest` | `contracts/src/manifest.ts`, built by `analysis/src/manifest.ts` | The frozen, versioned contract (`schemaVersion: 1`) a deployment is created with; today it fuses requirements and intent. Stays untouched as the production contract. The generalized `ApplicationGraph` (new shadow-mode schema) is derived FROM it — a projection, not an independent model. |
-| `DeploymentFootprint` | `contracts/src/footprint.ts` | The resolved "what gets created" model (workloads + resources + sizing). Closest existing analog to a resolved `DeployzIR`; extend, do not replace. |
-| `DeploymentPlan` | `contracts/src/plan.ts` | Deterministic INSTALL/UPDATE/DESTROY derived data. Already the planner output the UI consumes. |
-| `InfrastructureProfile` | `contracts/src/index.ts` (`{ postgres, redis }`) | Graph-shaping requirement set → template-variant selection. The v1 selection key; superseded by graph `resources[]` in v2. |
-| `InfrastructureSizeProfile` | `contracts/src/profile.ts` | The immutable sizing registry (`small-v1`). §22's future sizes are new versions here. |
-| `INFRASTRUCTURE_COMPONENTS` | `contracts/src/components.ts` | Proto-capability catalog: lifecycle, verification check, primary resource type. §7's capability registry generalizes this. |
-| `AWS_RESOURCES` / `CONNECTOR_RESOURCES` | `contracts/src/aws-resources.ts` | Customer-facing resource catalog + grouping/lifecycle. The presentation half of a capability. |
-| `classifyResource` / inventory | `contracts/src/infrastructure.ts` | CFN resource type → component kind/role/lifecycle. The ownership/verification half of a capability. |
-| `FOOTPRINT_RESOURCES` / pricing adapters | `contracts/src/footprint.ts`, `pricing.ts` | Resource handlers + pricing adapters keyed by service. The compile/pricing half of a capability. |
-| `resolveDeploymentFootprint` + `estimateFootprintCost` | `contracts/src/footprint.ts`, `pricing.ts` | Proto-planner/compiler derivation already in `contracts`. |
+| `DeploymentManifest` | `contracts/src/manifest.ts`, built by `analysis/src/manifest.ts` | The frozen, versioned deployment contract (`schemaVersion: 1`). It remains the input to graph derivation and preflight. |
+| `ApplicationGraph` | `contracts/src/application-graph.ts`, built by `analysis/src/graph.ts` | A projection of the manifest describing what the application needs. AWS capability selection moves OUT of the graph into the resolver/planner. |
+| `DeployzIR` | `contracts/src/deployz-ir.ts`, built by `packages/planner` | Authoritative provisioning intent. Every managed resource resolves to a known capability. |
+| `DeploymentSpecV2` | `contracts/src/deployment-spec-v2.ts` | Frozen envelope (graph + IR + hashes + capability-registry/size-profile refs + compiler artifact location). |
+| `DeploymentPlan` | `contracts/src/plan.ts` | Deterministic INSTALL/UPDATE/DESTROY derived data. Planner output the UI consumes. |
+| `InfrastructureProfile` | *removed* (was `{ postgres, redis }` in `contracts/src/index.ts`) | Removed. The compiler composes infrastructure from `DeployzIR.resources[]`; no template-variant key exists. |
+| `InfrastructureSizeProfile` | `contracts/src/profile.ts` | The immutable sizing registry (`small-v1`). Future sizes are new versions here. |
+| `INFRASTRUCTURE_COMPONENTS` | `contracts/src/components.ts` | The shared semantic catalog (five components: lifecycle, primary CloudFormation resource type, relay verification check). Drives plans, footprint and verification presentation; the compiler — not this catalog — decides construction. |
+| `AWS_RESOURCES` / `CONNECTOR_RESOURCES` | `contracts/src/aws-resources.ts` | Customer-facing resource catalog. Presentation layer; not the provisioning source of truth. |
+| `classifyResource` / inventory | `contracts/src/infrastructure.ts` | CFN resource type → component kind/role/lifecycle. Ownership/verification helper; not a provisioning source. |
+| `FOOTPRINT_RESOURCES` / pricing adapters | `contracts/src/footprint.ts`, `pricing.ts` | Proto-pricing; migrate to capability-driven estimates from the same resolved graph. |
 
-Target-role mapping (revised after Phase 1 implementation):
+Removed in Phase 2 (no successor role): the runtime-v1 CDK application stack
+and Documenso preset, `DOCUMENSO_PARAMETERS`, the profile→URL resolution,
+the synth/publish application scripts, the committed application template
+artifacts and their lifecycle/sizing parity tests, the bootstrap
+`ApplicationTemplateUrl` override, and the shadow runner
+(`dynamic-infrastructure-shadow.ts`).
 
-- `ApplicationGraph` → a NEW versioned shadow-mode schema
-  (`contracts/src/application-graph.ts`) built from the manifest by
-  `analysis/src/graph.ts#manifestToApplicationGraph`. It is a projection of
-  the manifest (single source of truth), not an independently-maintained
-  parallel model. `DeploymentManifest v1` stays untouched as the production
-  contract.
-- `DeployzIR` → a NEW versioned schema (`contracts/src/deployz-ir.ts`)
-  generalizing the resolved model (footprint + plan + size profile) with
-  ingress/schedules/placement/policies.
-- `DeploymentSpecV2` → a new versioned envelope
-  (`contracts/src/deployment-spec-v2.ts`) freezing graph + IR + hashes +
-  capability-registry/size-profile refs; compiler/template hashes are
-  `null` until Phase 2.
-- Capability registry → a new interface (`contracts/src/capability-registry.ts`)
-  generalizing `INFRASTRUCTURE_COMPONENTS` + `AWS_RESOURCES` + footprint
-  handlers + pricing adapters; registers only current capabilities.
-- Infrastructure compiler → a new boundary; CDK stays the mechanism; the
-  relay must never synthesize (already true — templates are pre-published
-  and `resolveApplicationTemplateUrl` is a pure string derivation).
+Target roles as implemented:
+
+- `ApplicationGraph` → projection of the manifest; no `capabilityKey` on
+  resources; kind/engine describe the need.
+- `Capability Resolver` → deterministic kind/engine → capability mapping,
+  owned by the planner/capability layer.
+- `DeployzIR` → authoritative provisioning intent with capability-selected
+  resources.
+- `DeploymentSpecV2` → frozen envelope; the compiler fills
+  `compilerVersion`, `templateHash` and `artifactLocation`, and the
+  completed spec is persisted on the deployment row.
+- Capability registry → generalizes `INFRASTRUCTURE_COMPONENTS` +
+  `AWS_RESOURCES` + footprint handlers + pricing adapters; registers only
+  current capabilities.
+- Infrastructure compiler → `packages/infrastructure-compiler`, the sole
+  CloudFormation source for the MVP.
+- Relay → executes the artifact URL carried in its INSTALL payload; never
+  synthesizes templates and never resolves template URLs from profiles.
 
 ## 29. UI/UX
 
@@ -1137,10 +1275,31 @@ generic private service; - generic + EFS; - Lambda + SQS.
 
 Prefer semantic assertions with targeted identity snapshots.
 
+### Capability-composition tests
+
+The compiler test suite must prove composition, not static topology
+selection:
+
+- adding a capability adds only its required resources/bindings/verification;
+- removing a capability has predictable effects;
+- unrelated component logical identities remain stable;
+- IR ordering does not affect compiled infrastructure;
+- identical inputs produce equivalent graph/template/hash;
+- sizing changes affect only relevant resources;
+- every managed resource maps to `componentId + capability + resourceRole`;
+- no static topology-selection logic exists in compiler-v2.
+
+Capability composition — not the four historical template variants — is
+the primary testing model. The old runtime-v1 template comparisons and
+their parity tests were removed with runtime-v1; the retained-delete
+simulated scenario (`retained-delete-recovery`) and the composite canary
+prove DESTROY-retains / PURGE-removes instead.
+
 ### Real AWS canaries
 
-Before adding new capabilities, the compiler must reproduce the current
-ECS/Postgres/Redis/S3/ALB lifecycle.
+Before adding new capabilities, the compiler must safely deploy and
+destroy representative compositions of the current capabilities
+(ECS/Postgres/Redis/S3/ALB/Secrets Manager).
 
 Then add targeted canaries for new capabilities.
 
@@ -1149,7 +1308,11 @@ Then add targeted canaries for new capabilities.
 Automatic topology upgrades are deferred until the dynamic-install path
 is mature.
 
-Future flow:
+For the MVP, an infrastructure change that would replace or delete a
+managed resource—especially a stateful resource—fails closed. The
+allowed release path is image/config changes with unchanged topology.
+
+Future flow (post-MVP):
 
 ``` text
 DeploymentSpec A
@@ -1166,9 +1329,6 @@ safety policy
     ↓
 safe update / migration required
 ```
-
-Initial releases may permit only application image/config changes when
-topology is unchanged.
 
 ## 32. Explicit Non-Goals for Initial Dynamic MVP
 

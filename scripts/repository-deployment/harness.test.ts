@@ -258,10 +258,8 @@ describe('selection and CLI', () => {
     expect(gate.gate).toBe(true);
     expect(gate.ids).toEqual(['repo-001', 'repo-002']);
     expect(gate.offline).toBe(true);
-    expect(gate.template).toBe('pinned');
-    expect(parseRunArgs(['--real-aws', '--wave', 'wave-1', '--concurrency', '2', '--template', 'production']).concurrency).toBe(2);
+    expect(parseRunArgs(['--real-aws', '--wave', 'wave-1', '--concurrency', '2']).concurrency).toBe(2);
     expect(() => parseRunArgs(['--real-aws', '--concurrency', '3'])).toThrow('--concurrency must be 1 or 2');
-    expect(() => parseRunArgs(['--real-aws', '--template', 'handmade'])).toThrow('--template must be one of');
     expect(() => parseRunArgs(['--gate', '--real-aws'])).toThrow('exclusive');
     expect(() => parseRunArgs(['--repo', 'repo-001'])).toThrow('choose a mode');
     expect(parseRunArgs(['--resume']).resume).toBe(true);
@@ -308,8 +306,8 @@ describe('selection and CLI', () => {
     const done = { ...emptyResult(identityFor(BENCHMARK.repositories[0]!, SHA, 'deploy', 'r')), classification: 'PASS' as const };
     expect(buildPlan(BENCHMARK.repositories, DEPLOY_CONFIG, [done], { gate: false, force: false })[0]?.action).toBe('skip-has-result');
     expect(buildPlan(BENCHMARK.repositories, DEPLOY_CONFIG, [done], { gate: false, force: true })[0]?.action).toBe('full-funnel');
-    expect(renderPlan(plan, { template: 'pinned', concurrency: 1 })).toContain('full funnel: 1, gate only: 1, skipped: 0');
-    expect(renderPlan(plan, { template: 'pinned', concurrency: 1 })).toContain('B1 runtime-reuse');
+    expect(renderPlan(plan, { concurrency: 1 })).toContain('full funnel: 1, gate only: 1, skipped: 0');
+    expect(renderPlan(plan, { concurrency: 1 })).toContain('B1 runtime-reuse');
     // Neither repo is in b2Repos/b3Repos — deploymentClassFor's default (capability-cohort), not the withdrawn B1 label.
     expect(plan[0]?.deploymentClass).toBe('capability-cohort');
     expect(plan[1]?.deploymentClass).toBe('capability-cohort');
@@ -398,7 +396,7 @@ repositories:
   it('plan printer shows class breakdown with counts', () => {
     const config = deploymentConfig();
     const plan = buildPlan(BENCHMARK.repositories, config, [], { gate: false, force: false });
-    const rendered = renderPlan(plan, { template: 'pinned', concurrency: 1 });
+    const rendered = renderPlan(plan, { concurrency: 1 });
     expect(rendered).toContain('B1 runtime-reuse');
     expect(rendered).toContain('B2 capability cohorts');
     expect(rendered).toContain('B3 full-fresh');
@@ -1089,8 +1087,6 @@ function fakes(script: Script): { deps: DeployDeps; calls: string[]; puts: Recor
     now: Date.now,
     region: 'us-east-1',
     githubInstallationId: '156387233',
-    templateUrl: 'https://b/application/stage-b/x/application-template-v1.json',
-    templateSource: 'stage-b-generic',
     timeouts: { ...DEFAULT_TIMEOUTS, ...script.timeouts },
     keep: false,
     generateSecret: script.generateSecret ?? (() => 'never-stored-secret-value-9f2a'),
@@ -1155,7 +1151,7 @@ describe('the funnel', () => {
     expect(out.configuration.generatedKeys).toEqual(['JWT_SECRET', 'SECRET_KEY']);
     expect(calls).toContain('patch containerPort,healthPath');
     expect(calls.some((c) => c.startsWith(`createRelease ${SHA}`))).toBe(true);
-    expect(calls).toContain('createStack deployz-bootstrap-x-12345678 ApplicationTemplateUrl,ControlPlaneUrl,EnrollmentCode');
+    expect(calls).toContain('createStack deployz-bootstrap-x-12345678 ControlPlaneUrl,EnrollmentCode');
     expect(stageBRun(evidence).stageB.cleanupNeeded).toBe(true);
     expect(stageBRun(evidence).deploymentId).toBe('dep-1');
     // A vendor-scope secret value has no connected deployment to receive it (BUG-004 /
@@ -1858,10 +1854,10 @@ describe('cleanup', () => {
     expect(readdirSync(dir).length).toBe(5);
   });
 
-  it('keeps the vendor session and the published templates per series', () => {
+  it('keeps the vendor session per series', () => {
     const dir = join(tmp, 'series');
-    expect(readSeries(dir)).toEqual({ templates: {} });
-    writeSeries(dir, { vendor: { email: 'v@example.com', password: 'p' }, templates: { abc: { url: 'u', keyPrefix: 'k', bucket: 'b' } } });
+    expect(readSeries(dir)).toEqual({});
+    writeSeries(dir, { vendor: { email: 'v@example.com', password: 'p' } });
     expect(readSeries(dir).vendor?.email).toBe('v@example.com');
     expect(existsSync(join(dir, 'series.json'))).toBe(true);
   });

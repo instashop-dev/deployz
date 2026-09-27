@@ -32,12 +32,6 @@ import {
   errorEnvelopeSchema,
   eventLogSchema,
   failureCodeSchema,
-  APPLICATION_TEMPLATE_KEY,
-  APPLICATION_TEMPLATE_REDIS_KEY,
-  APPLICATION_TEMPLATE_URL_LINE,
-  applicationTemplateKeyForProfile,
-  infrastructureProfileForManifest,
-  parseApplicationTemplateUrl,
   healthComponentsSchema,
   isSupportedRegion,
   organizationSchema,
@@ -45,7 +39,6 @@ import {
   relayCommandProgressSchema,
   relayStackEventSchema,
   releaseSchema,
-  resolveApplicationTemplateUrl,
   resolveBootstrapTemplate,
   userSchema,
   vendorDeploymentStatusSchema,
@@ -501,143 +494,6 @@ describe('applicationStackNameForInstallation', () => {
 
   it('falls back to the default when no installation id is known', () => {
     expect(applicationStackNameForInstallation('')).toBe(DEFAULT_APPLICATION_STACK_NAME);
-  });
-});
-
-describe('applicationTemplateKeyForProfile', () => {
-  it('maps all four InfrastructureProfile combinations to deterministic keys', () => {
-    expect(applicationTemplateKeyForProfile({ postgres: true, redis: false })).toBe(
-      'application-template-v1.json',
-    );
-    expect(applicationTemplateKeyForProfile({ postgres: true, redis: true })).toBe(
-      'application-template-redis-v1.json',
-    );
-    expect(applicationTemplateKeyForProfile({ postgres: false, redis: false })).toBe(
-      'application-template-stateless-v1.json',
-    );
-    expect(applicationTemplateKeyForProfile({ postgres: false, redis: true })).toBe(
-      'application-template-stateless-redis-v1.json',
-    );
-  });
-
-  it('keeps the PostgreSQL variants on the original keys existing deployments resolve', () => {
-    expect(applicationTemplateKeyForProfile({ postgres: true, redis: false })).toBe(
-      APPLICATION_TEMPLATE_KEY,
-    );
-    expect(applicationTemplateKeyForProfile({ postgres: true, redis: true })).toBe(
-      APPLICATION_TEMPLATE_REDIS_KEY,
-    );
-  });
-});
-
-describe('infrastructureProfileForManifest', () => {
-  it('derives the profile from the manifest database/redis sections for all four combinations', () => {
-    expect(
-      infrastructureProfileForManifest({ database: { postgres: true }, redis: { required: false, envBindings: [] } }),
-    ).toEqual({ postgres: true, redis: false });
-    expect(
-      infrastructureProfileForManifest({ database: { postgres: true }, redis: { required: true, envBindings: [] } }),
-    ).toEqual({ postgres: true, redis: true });
-    expect(
-      infrastructureProfileForManifest({ database: { postgres: false }, redis: { required: false, envBindings: [] } }),
-    ).toEqual({ postgres: false, redis: false });
-    expect(
-      infrastructureProfileForManifest({ database: { postgres: false }, redis: { required: true, envBindings: [] } }),
-    ).toEqual({ postgres: false, redis: true });
-  });
-});
-
-describe('resolveApplicationTemplateUrl', () => {
-  const base =
-    'https://bucket.s3.us-east-1.amazonaws.com/application/v1/application-template-v1.json';
-
-  it.each([
-    [{ postgres: true, redis: false }, base],
-    [
-      { postgres: true, redis: true },
-      'https://bucket.s3.us-east-1.amazonaws.com/application/v1/application-template-redis-v1.json',
-    ],
-    [
-      { postgres: false, redis: false },
-      'https://bucket.s3.us-east-1.amazonaws.com/application/v1/application-template-stateless-v1.json',
-    ],
-    [
-      { postgres: false, redis: true },
-      'https://bucket.s3.us-east-1.amazonaws.com/application/v1/application-template-stateless-redis-v1.json',
-    ],
-  ] as const)('resolves %# to exactly one template URL', (profile, expected) => {
-    expect(resolveApplicationTemplateUrl(base, profile)).toBe(expected);
-  });
-
-  it('preserves the prefix path exactly', () => {
-    expect(resolveApplicationTemplateUrl('s3://a/b/c/application-template-v1.json', {
-      postgres: false,
-      redis: true,
-    })).toBe('s3://a/b/c/application-template-stateless-redis-v1.json');
-  });
-
-  it('returns undefined for a URL not ending in the base template key', () => {
-    expect(
-      resolveApplicationTemplateUrl('https://bucket.s3.amazonaws.com/other-template.json', {
-        postgres: true,
-        redis: false,
-      }),
-    ).toBeUndefined();
-  });
-
-  it('returns undefined for an empty string', () => {
-    expect(resolveApplicationTemplateUrl('', { postgres: false, redis: false })).toBeUndefined();
-  });
-});
-
-describe('parseApplicationTemplateUrl', () => {
-  const prefix = 'https://bucket.s3.us-east-1.amazonaws.com/application/stage-b';
-  const base = `${prefix}/${APPLICATION_TEMPLATE_KEY}`;
-
-  /** The shape `publish:application` prints: a human table, then the marker. */
-  const output = [
-    'Published the application templates to bucket',
-    `  base             ${base}`,
-    '                   4 bytes, 17 parameter(s), 50 resource(s)',
-    `  redis            ${prefix}/${APPLICATION_TEMPLATE_REDIS_KEY}`,
-    `  stateless        ${prefix}/application-template-stateless-v1.json`,
-    `  stateless-redis  ${prefix}/application-template-stateless-redis-v1.json`,
-    '  image          1.dkr.ecr.us-east-1.amazonaws.com/deployz-images@sha256:abc',
-    '  preset         (none)',
-    '',
-    'Now republish the bootstrap template so new installs point at it:',
-    `  APPLICATION_TEMPLATE_URL=${base} pnpm --filter @deployz/cdk run publish:bootstrap`,
-    '',
-    `${APPLICATION_TEMPLATE_URL_LINE} ${base}`,
-    '',
-  ].join('\n');
-
-  it('reads the base template URL the publisher marked', () => {
-    expect(parseApplicationTemplateUrl(output)).toBe(base);
-  });
-
-  it('reads it from CRLF output', () => {
-    expect(parseApplicationTemplateUrl(output.replace(/\n/g, '\r\n'))).toBe(base);
-  });
-
-  it('never returns a profile variant a harness must not install against', () => {
-    const parsed = parseApplicationTemplateUrl(output);
-    expect(parsed?.endsWith(APPLICATION_TEMPLATE_KEY)).toBe(true);
-    expect(resolveApplicationTemplateUrl(parsed ?? '', { postgres: false, redis: true })).toBe(
-      `${prefix}/application-template-stateless-redis-v1.json`,
-    );
-  });
-
-  it('returns undefined when the publisher printed no marker', () => {
-    const withoutMarker = output
-      .split('\n')
-      .filter((line) => !line.startsWith(APPLICATION_TEMPLATE_URL_LINE))
-      .join('\n');
-    expect(parseApplicationTemplateUrl(withoutMarker)).toBeUndefined();
-  });
-
-  it('returns undefined for empty output', () => {
-    expect(parseApplicationTemplateUrl('')).toBeUndefined();
   });
 });
 

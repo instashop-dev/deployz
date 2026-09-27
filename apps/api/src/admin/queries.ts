@@ -972,7 +972,7 @@ export async function getDeploymentDetail(db: RuntimeDb, id: string, now: Date =
   // Phase 2: the requirement booleans come from the deployment's frozen
   // manifest, never the live `applications` columns — see server.ts's
   // identical derivation for the vendor fleet/detail routes.
-  const application = derivationApplicationFor(row.deployment.desiredState, row);
+  const application = derivationApplicationFor(row.deployment, row);
   const derived = deriveDeploymentStatus({
     deployment: row.deployment,
     application,

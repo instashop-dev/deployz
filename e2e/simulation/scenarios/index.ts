@@ -12,6 +12,7 @@ import { purgeFailure } from './purge-failure.js';
 import { redisFailure } from './redis-failure.js';
 import { redisSuccess } from './redis-success.js';
 import { relayDisconnect } from './relay-disconnect.js';
+import { retainedDeleteRecovery } from './retained-delete-recovery.js';
 import { retainedResources } from './retained-resources.js';
 import { rollbackFailure } from './rollback-failure.js';
 import { rollbackSuccess } from './rollback-success.js';
@@ -31,6 +32,9 @@ import { updateFailure } from './update-failure.js';
  * deployment) and redis-success (a successful Redis install). purge-failure
  * adds a deterministic PURGE-sweep failure (an orphan the sweep cannot
  * delete) on top of retained-resources' clean destroy.
+ * retained-delete-recovery proves the relay's data-preserving DELETE_FAILED
+ * recovery: the first delete fails on the retained-database cascade, the
+ * RetainResources retry completes it, and PURGE removes the retained data.
  */
 const SCENARIOS: Readonly<Record<string, ScenarioDefinition>> = {
   [happyPath.id]: happyPath,
@@ -50,6 +54,7 @@ const SCENARIOS: Readonly<Record<string, ScenarioDefinition>> = {
   [rollbackFailure.id]: rollbackFailure,
   [deleteFailure.id]: deleteFailure,
   [retainedResources.id]: retainedResources,
+  [retainedDeleteRecovery.id]: retainedDeleteRecovery,
   [purgeFailure.id]: purgeFailure,
   [transientAws.id]: transientAws,
   [stateless.id]: stateless,
@@ -79,6 +84,7 @@ export {
   redisFailure,
   redisSuccess,
   relayDisconnect,
+  retainedDeleteRecovery,
   retainedResources,
   rollbackFailure,
   rollbackSuccess,

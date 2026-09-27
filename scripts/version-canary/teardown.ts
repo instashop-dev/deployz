@@ -2,8 +2,8 @@
  * Teardown and leak audit — the product's own Disconnect + Purge first
  * (that is what a customer gets), then the canary-only leftovers a
  * customer would remove by hand (the bootstrap stack, its Lambda log
- * groups, the run's ECR tags, task definitions, the canary template
- * objects), then an independent look at the account.
+ * groups, the run's ECR tags, task definitions), then an independent look
+ * at the account.
  *
  * Every deletion is keyed on an identifier this run recorded at creation
  * time in run.json. There is no name-pattern or account-wide path.
@@ -20,7 +20,6 @@ import {
   invokeRelay,
   deleteEcrTags,
   deleteLogGroupIfExists,
-  deleteS3Prefix,
   deleteSsmParameterIfExists,
   deleteStack,
   deleteTaskDefinitions,
@@ -41,11 +40,14 @@ const MINUTE = 60_000;
  * True for a live, tagged secret that is one of the retained database
  * credentials — identified by its CloudFormation logical id, never by a
  * stack-name prefix: the physical name is `<logicalId>-<random>` with no
- * stack name in it (BUG-002). AppConfigSecret is delete-by-design, so it is
- * not a retained-credential kind.
+ * stack name in it (BUG-002). Both infrastructure generations appear in the
+ * wild: runtime-v1 named them DatabaseSecret/DatabaseUrlSecret, compiler-v2
+ * derives them from the component (PrimaryDbMasterSecret/PrimaryDbUrlSecret).
+ * The application config secret is delete-by-design, so it is not a
+ * retained-credential kind.
  */
 export function isRetainedDatabaseSecret(secret: InstallationSecret): boolean {
-  return !secret.deletedDate && /^Database(Secret|UrlSecret)/.test(secret.tags['aws:cloudformation:logical-id'] ?? '');
+  return !secret.deletedDate && /^(Database(Secret|UrlSecret)|PrimaryDb(Master|Url)Secret)/.test(secret.tags['aws:cloudformation:logical-id'] ?? '');
 }
 
 /**
@@ -476,10 +478,6 @@ export async function removeCanaryLeftovers(canary: Canary): Promise<void> {
       );
       await deleteTaskDefinitions(config.region, taskDefinitions);
       details['taskDefinitionsDeleted'] = taskDefinitions;
-    }
-
-    if (run.templateBucket && run.canaryTemplateKeyPrefix) {
-      details['templateObjectsDeleted'] = await deleteS3Prefix(run.templateBucket, `${run.canaryTemplateKeyPrefix}/`);
     }
   });
 }

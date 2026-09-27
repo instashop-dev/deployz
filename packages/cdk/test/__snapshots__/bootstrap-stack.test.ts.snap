@@ -69,11 +69,6 @@ exports[`BootstrapStack > matches the committed snapshot 1`] = `
     },
   },
   "Parameters": {
-    "ApplicationTemplateUrl": {
-      "Default": "",
-      "Description": "Public URL of the Deployz application template this installation provisions. NOT a credential.",
-      "Type": "String",
-    },
     "BootstrapVersion": {
       "Default": "/cdk-bootstrap/hnb659fds/version",
       "Description": "Version of the CDK Bootstrap resources in this environment, automatically retrieved from SSM Parameter Store. [cdk:skip]",
@@ -1707,9 +1702,6 @@ exports[`BootstrapStack > matches the committed snapshot 1`] = `
                 "ApplicationExecutionRoleB4697B7D",
                 "Arn",
               ],
-            },
-            "DEPLOYZ_APPLICATION_TEMPLATE_URL": {
-              "Ref": "ApplicationTemplateUrl",
             },
             "DEPLOYZ_BOOTSTRAP_STACK_NAME": {
               "Ref": "AWS::StackName",

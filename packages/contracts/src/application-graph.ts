@@ -166,11 +166,6 @@ export const resourceSchema = z
     label: z.string().min(1),
     /** Who owns/provides this resource. */
     ownership: resourceOwnershipSchema,
-    /**
-     * Capability key when ownership is DEPLOYZ_MANAGED and a capability has
-     * been resolved; null otherwise.
-     */
-    capabilityKey: z.string().nullable(),
     /** Multiplicity — schema supports N even when product initially limits to 1. */
     quantity: z.number().int().min(1),
     /** Environment bindings this resource injects into workloads. */

@@ -155,13 +155,18 @@ export interface S3PurgeClient {
 
 /**
  * Secrets Manager resources this installation's APPLICATION stack owns —
- * the retained DB credentials (DatabaseSecret + DatabaseUrlSecret, Phase 9).
+ * the retained DB credentials (runtime-v1 named them DatabaseSecret +
+ * DatabaseUrlSecret; compiler-v2 derives PrimaryDbMasterSecret +
+ * PrimaryDbUrlSecret from the component) plus any application config secret
+ * that outlived the stack.
  *
- * Ownership is verified in code: a secret qualifies only when it carries
- * BOTH the `deployz:installation` tag AND `deployz:component=application` —
- * the bootstrap stack's own credential secret carries the installation tag
- * too but is `deployz:component=bootstrap`, so the component check keeps the
- * sweep from eating the relay's home before the bootstrap stack is deleted.
+ * Ownership is verified in code: a secret qualifies only when it carries the
+ * `deployz:installation` tag and is NOT `deployz:component=bootstrap` — the
+ * bootstrap stack's own credential secret carries the installation tag too,
+ * so that exclusion keeps the sweep from eating the relay's home before the
+ * bootstrap stack is deleted. The purge must not assume a component name for
+ * the application's own secrets: the tag follows the component id, not the
+ * infrastructure generation.
  */
 export interface SecretsPurgeClient {
   /** Owned (tag-verified) application secrets only, by name. */
@@ -719,7 +724,7 @@ export function createRealPurgeClients(
   const ownsApplicationSecret = (
     tags: readonly { readonly Key?: string | undefined; readonly Value?: string | undefined }[],
   ) =>
-    owns(tags) && tags.some((tag) => tag.Key === 'deployz:component' && tag.Value === 'application');
+    owns(tags) && !tags.some((tag) => tag.Key === 'deployz:component' && tag.Value === 'bootstrap');
 
   return {
     rds: {

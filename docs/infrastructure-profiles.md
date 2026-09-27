@@ -2,11 +2,10 @@
 
 The immutable infrastructure-size profile registry
 (`packages/contracts/src/profile.ts`) is the single source of truth for the
-AWS sizing of a deployment's application stack. It is deliberately separate
-from the graph-shaping `InfrastructureProfile` (`{ postgres, redis }`) that
-selects the template variant ([`architecture.md`](architecture.md#application-template-selection)):
-the graph profile decides *what* components exist, the size profile decides
-*how big* they are.
+AWS sizing of a deployment's application stack. What exists is decided by
+the frozen spec's graph → planner → IR chain; the size profile only decides
+*how big* it is
+([`architecture.md`](architecture.md#application-template-generation)).
 
 ## Published profiles
 
@@ -16,13 +15,14 @@ the graph profile decides *what* components exist, the size profile decides
 
 `small-v1` is the only published profile. Engine and version stay
 manifest-driven constants (PostgreSQL 16, Valkey), never profile fields.
-Values the templates fix regardless of profile: two AZs, one NAT gateway,
-single-AZ RDS with 7-day backups, one cache node.
+Values the compiled stack fixes regardless of profile: two AZs, one NAT
+gateway, single-AZ RDS with 7-day backups, one cache node.
 
 ## Resolution
 
-- Footprint, plan and cost resolve from **frozen manifest + Region + profile
-  id/version + infrastructure version** (`resolveDeploymentFootprint`,
+- Footprint, plan and cost resolve through the graph → planner chain from
+  the frozen spec, plus **Region + profile id/version + infrastructure
+  version** (the compiler footprint when present; `resolveDeploymentFootprint`,
   `buildInstallPlan`, `buildUpdatePlan`, `buildDestroyPlan`).
 - Every new deployment freezes its profile in `deployments.desired_state` as
   `{ id, version }`, written once at creation.
@@ -51,31 +51,30 @@ nothing throws. Both ride on `DeploymentPlan` as optional `footprint` and
 `costEstimate` fields, so plan, sizing and estimate come from one derivation
 per response.
 
-The footprint is **derived, never persisted**: the frozen manifest, the
-deployment's Region and the infrastructure version fully determine it, and
-the parity test pins sizing to the immutable published templates of that
-version. Pricing is deliberately approximate and labelled as such; the
+The footprint is **derived, never persisted**: the frozen spec, the
+deployment's Region and the infrastructure version fully determine it.
+Pricing is deliberately approximate and labelled as such; the
 customer install page shows it per Region, the vendor page shows the
 footprint without cost. An undeployable Region shows *Estimate unavailable*
 rather than a number.
 
-## Parity
+## Pinning
 
-`packages/cdk/test/sizing-parity.test.ts` pins `small-v1` to the four
-committed application templates. Editing a sizing value without
-republishing the templates fails CI. Note that the CDK construct
-synthesizes from the default profile; the frozen profile reaches
-CloudFormation only through the published artifacts, which is correct while
-one profile exists.
+The compiler tests pin `small-v1` sizing onto the compiled CloudFormation
+(the lifecycle/sizing parity tests of the removed static templates are
+gone): editing a sizing value in the registry changes what the compiler
+emits, and the compiler's determinism and composition tests fail if the
+change silently moves an unrelated resource. The frozen profile reaches
+CloudFormation through the planner when the deployment is created; an
+existing deployment keeps the artifact it was installed with.
 
 ## Future work (deferred, not MVP)
 
 A topology-changing `minimal` profile (fewer AZs, no NAT gateway, smaller
 instance classes, or dropping RDS) requires a **new infrastructure version**
 and a **security/cost review** before it can ship; it is not a new entry in
-this registry alone, because it changes the template resource graph, which
-the four committed templates do not express. `large` is likewise deferred.
-When either ships, add it to `INFRASTRUCTURE_SIZE_PROFILES` as a new
-immutable version and republish the matching templates; do not edit
+this registry alone, because it changes the compiled resource graph.
+`large` is likewise deferred. When either ships, add it to
+`INFRASTRUCTURE_SIZE_PROFILES` as a new immutable version; do not edit
 `small-v1`. A second sizing generation also needs a per-version sizing
 registry for historical footprints.

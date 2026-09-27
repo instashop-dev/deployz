@@ -622,11 +622,10 @@ describe('BootstrapStack', () => {
         expect(param['Default']).toBe('');
       } else {
         expect(param['NoEcho'], `parameter ${name} must not be NoEcho`).not.toBe(true);
-        expect(['ControlPlaneUrl', 'EnrollmentCode', 'ApplicationTemplateUrl']).toContain(name);
+        expect(['ControlPlaneUrl', 'EnrollmentCode']).toContain(name);
       }
     }
     expect(Object.keys(appParams).sort()).toEqual([
-      'ApplicationTemplateUrl',
       'ControlPlaneUrl',
       'EnrollmentCode',
       'RelayCredential',
@@ -965,13 +964,12 @@ describe('BootstrapStack — application provisioning', () => {
     expect(condition).toContain('iam:AWSServiceName');
   });
 
-  it('tells the relay which template to install and which role to use', () => {
+  it('tells the relay which execution role to use', () => {
     const { template } = synth();
 
     template.hasResourceProperties('AWS::Lambda::Function', {
       Environment: Match.objectLike({
         Variables: Match.objectLike({
-          DEPLOYZ_APPLICATION_TEMPLATE_URL: Match.anyValue(),
           DEPLOYZ_APPLICATION_EXECUTION_ROLE_ARN: Match.anyValue(),
         }),
       }),
