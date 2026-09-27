@@ -6,6 +6,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { applyMigrations, createDb, type Db } from '@deployz/db';
 import * as schema from '@deployz/db/schema';
 import {
+  buildDestroyPlan,
   buildInstallPlan,
   estimateFootprintCost,
   requiredAwsResources,
@@ -276,6 +277,59 @@ describe('deployment plans (Phase 4)', () => {
       { kind: 'database', name: 'Database', action: 'CREATE', lifecycle: 'retain', componentId: 'primary-db', group: 'data' },
       { kind: 'storage', name: 'Storage', action: 'CREATE', lifecycle: 'retain', componentId: 'storage', group: 'storage' },
     ]);
+  });
+
+  it('GET /api/deployments/:id/plan?action=destroy: a frozen spec adds componentId/group and keeps the builder actions/lifecycle/retention', async () => {
+    const application = await insertApplication(db, org.organizationId);
+    const customer = await insertCustomer(db, org.organizationId);
+    // Today's full deployment shape: web + PostgreSQL + Redis + storage.
+    const manifest: DeploymentManifest = {
+      ...POSTGRES_MANIFEST,
+      redis: { required: true, envBindings: [] },
+      storage: { required: true, envBindings: [] },
+    };
+    const spec = compileDeploymentIntent({ manifest, region: 'us-east-1' }).spec;
+    const deployment = await insertDeployment(db, org.organizationId, application.id, customer.id, {
+      desiredState: { manifest },
+      specV2: spec as unknown as Record<string, unknown>,
+    });
+
+    const response = await app.inject({
+      method: 'GET',
+      url: `/api/deployments/${deployment.id}/plan?action=destroy`,
+      headers: { cookie: org.cookie },
+    });
+    expect(response.statusCode, response.body).toBe(200);
+    const plan = response.json() as Record<string, unknown>;
+
+    // The base plan is exactly what the builder produces for this manifest
+    // with the compiled footprint — the spec only upgrades the components.
+    const expectedBase = buildDestroyPlan({
+      manifest,
+      region: 'us-east-1',
+      compiledFootprint: spec.footprint,
+    });
+    const { components, ...rest } = plan;
+    const { components: _baseComponents, ...expectedRest } = expectedBase as unknown as Record<string, unknown>;
+    expect(rest).toEqual(expectedRest);
+    // Every builder entry keeps its name/action/lifecycle (DELETE vs RETAIN
+    // per resource) and gains its spec-derived identity. Compared by name:
+    // the spec presents IR order (cache before storage), the builder catalog
+    // order differs — actions/retention are the parity contract, not order.
+    const componentByName = new Map(
+      (components as Array<Record<string, unknown>>).map((component) => [component.name as string, component]),
+    );
+    expect(componentByName.size).toBe(expectedBase.components.length);
+    for (const component of expectedBase.components) {
+      expect(componentByName.get(component.name)).toEqual({
+        kind: component.kind,
+        name: component.name,
+        action: component.action,
+        lifecycle: component.lifecycle,
+        componentId: expect.any(String),
+        group: expect.any(String),
+      });
+    }
   });
 
   it('GET /api/deployments/:id/plan?action=update: states no infrastructure change when requirements match', async () => {

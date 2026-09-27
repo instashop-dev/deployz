@@ -632,6 +632,35 @@ describe('customerDeploymentStatusSchema', () => {
     expect(() => customerDeploymentStatusSchema.parse({ ...minimal, stepTimings: [] })).toThrow(ZodError);
   });
 
+  // The additive specComponents field (phase 3) round-trips when present and
+  // stays absent otherwise — never empty-by-guess.
+  it('parses specComponents when present, and its absence', () => {
+    const withSpecComponents = {
+      ...minimal,
+      specComponents: [
+        { componentId: 'web', label: 'Web service', state: 'IN_PROGRESS' },
+        { componentId: 'other', label: 'Other resources', state: 'COMPLETE', detail: '2 supporting resources' },
+      ],
+    };
+    expect(customerDeploymentStatusSchema.parse(withSpecComponents)).toStrictEqual(withSpecComponents);
+    expect(customerDeploymentStatusSchema.parse(minimal).specComponents).toBeUndefined();
+  });
+
+  it('rejects an unknown specComponents state and extra keys (strict)', () => {
+    expect(() =>
+      customerDeploymentStatusSchema.parse({
+        ...minimal,
+        specComponents: [{ componentId: 'web', label: 'Web service', state: 'QUANTUM' }],
+      }),
+    ).toThrow(ZodError);
+    expect(() =>
+      customerDeploymentStatusSchema.parse({
+        ...minimal,
+        specComponents: [{ componentId: 'web', label: 'Web service', state: 'PENDING', extra: true }],
+      }),
+    ).toThrow(ZodError);
+  });
+
   // The live-provisioning fields are optional: the web app and the API
   // deploy separately, so a response omitting them (today's shape) and one
   // carrying them (once the API ships this) must both parse.
@@ -739,6 +768,14 @@ describe('vendorDeploymentStatusSchema', () => {
       failure: null,
     };
     expect(vendorDeploymentStatusSchema.parse(vendor)).toStrictEqual(vendor);
+
+    // The additive specComponents field (phase 3) round-trips when present;
+    // the parse above already proves its absence parses.
+    const withSpecComponents = {
+      ...vendor,
+      specComponents: [{ componentId: 'web', label: 'Web service', state: 'COMPLETE' }],
+    };
+    expect(vendorDeploymentStatusSchema.parse(withSpecComponents)).toStrictEqual(withSpecComponents);
   });
 
   it('has no removed field — vendor screens read removal from the surrounding row state instead', () => {
