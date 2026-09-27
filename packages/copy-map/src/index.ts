@@ -969,7 +969,8 @@ export function relayCheckCopy(name: string): RelayCheckCopy {
  * Plan component kind labels — the wording a deployment plan uses per kind.
  * The five catalog kinds reuse the wording the plans already carry
  * (INFRASTRUCTURE_COMPONENT_DISPLAY); 'worker', 'queue' and 'schedule' are
- * wire-level kinds until their capabilities are implemented.
+ * wire-level kinds until their capabilities are implemented. Group headings
+ * live in @deployz/contracts (PLAN_COMPONENT_GROUP_DISPLAY) — the one home.
  */
 export const PLAN_COMPONENT_KIND_DISPLAY: Record<string, string> = {
   application: 'Application',
@@ -980,18 +981,6 @@ export const PLAN_COMPONENT_KIND_DISPLAY: Record<string, string> = {
   worker: 'Background worker',
   queue: 'Queue',
   schedule: 'Scheduled job',
-};
-
-/** Plan group headings — mirrors PLAN_COMPONENT_GROUP_DISPLAY in @deployz/contracts. */
-export const PLAN_COMPONENT_GROUP_DISPLAY: Record<string, string> = {
-  application: 'Application',
-  data: 'Data',
-  cache: 'Cache',
-  storage: 'Storage',
-  messaging: 'Messaging',
-  networking: 'Networking',
-  edge: 'Edge',
-  security: 'Security',
 };
 
 /** Copy for a release's infrastructure-change statement. */

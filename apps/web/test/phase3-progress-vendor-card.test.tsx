@@ -2,10 +2,9 @@ import { JSDOM } from 'jsdom';
 import { renderToString } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 
-import type { VendorDeploymentStatus } from '@deployz/contracts';
+import type { SpecComponent, VendorDeploymentStatus } from '@deployz/contracts';
 
 import { DeploymentProgressCard } from '../src/components/deployment-progress-card';
-import { StatusWithSpecComponents, type SpecComponent } from '../src/lib/deployment-progress';
 
 // Phase 3 presence/absence duality: when the vendor status carries the
 // additive `specComponents`, the component dot list reads those entries;
@@ -52,7 +51,7 @@ const SPEC_COMPONENTS: SpecComponent[] = [
   { componentId: 'other', label: 'Other resources', state: 'PENDING', detail: 'AWS::S3::Bucket' },
 ];
 
-function render(status: StatusWithSpecComponents<VendorDeploymentStatus>): Document {
+function render(status: VendorDeploymentStatus): Document {
   return new JSDOM(renderToString(<DeploymentProgressCard status={status} deploymentState="INSTALLING" />))
     .window.document;
 }

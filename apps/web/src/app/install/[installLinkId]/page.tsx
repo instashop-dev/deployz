@@ -16,7 +16,7 @@ import { RELAY_STUCK_GUIDANCE } from '@/lib/deployment-vocabulary';
 import { cloudFormationStacksUrl } from '@/lib/aws-console';
 import { fetchInstallData } from '@/lib/install-data';
 import { formatMonthlyRange } from '@/lib/footprint';
-import { installPlanRegionLabel, installPlanRetentionNote } from '@/lib/install-plan';
+import { installPlanRegionLabel, installPlanRetentionNote, RETENTION_CHARGES_NOTE } from '@/lib/install-plan';
 import { fetchPublicInstallData } from '@/lib/public-install-data';
 import { publicInstallErrorMessage } from '@/lib/public-install-types';
 import { fetchInstallStatusServer } from '@/lib/install-status';
@@ -320,8 +320,7 @@ export default async function InstallPage({
         </dl>
         {retentionNote ? (
           <p className="text-sm text-muted-foreground" data-testid="install-retention-warning">
-            {retentionNote} Retained resources keep accruing AWS charges until the publisher
-            permanently purges them or you delete them.
+            {retentionNote} {RETENTION_CHARGES_NOTE}
           </p>
         ) : null}
       </header>

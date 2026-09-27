@@ -10,7 +10,7 @@ import { FootprintSummary } from '@/components/footprint-summary';
 import { InstallLaunchButton } from '@/components/install-launch-button';
 import { InstallProgress } from '@/components/install-progress';
 import { InstallRetryButton } from '@/components/install-retry-button';
-import { Phase3InstallPlanComponentTable } from '@/components/phase3-install-plan-component-table';
+import { InstallPlanComponentTable } from '@/components/install-plan-component-table';
 import { TablePanel } from '@/components/table-panel';
 import { Button } from '@/components/ui/button';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
@@ -212,7 +212,7 @@ export default async function DeployPage({
           <div>
             <h3 className="text-sm font-medium">Deployz will create</h3>
             <TablePanel className="mt-1.5">
-              <Phase3InstallPlanComponentTable plan={data.plan} />
+              <InstallPlanComponentTable plan={data.plan} />
             </TablePanel>
           </div>
           <FootprintSummary footprint={data.plan?.footprint} stage="planned" />

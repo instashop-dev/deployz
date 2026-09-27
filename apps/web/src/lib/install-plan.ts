@@ -136,6 +136,14 @@ export function installPlanRetentionNote(plan: DeploymentPlan | null): string | 
 }
 
 /**
+ * The charges warning that always accompanies a retention note, wherever the
+ * note renders (install page, hosted token flow) — one sentence, never two
+ * wordings.
+ */
+export const RETENTION_CHARGES_NOTE =
+  'Retained resources keep accruing AWS charges until the publisher permanently purges them or you delete them.';
+
+/**
  * The region label for the install/deploy pages ("US East (N. Virginia)").
  * Null for a region Deployz does not recognize — the page hides the region
  * line rather than showing a raw AWS region code.

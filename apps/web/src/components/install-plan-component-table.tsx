@@ -19,7 +19,7 @@ import { installPlanRowGroups } from '@/lib/install-plan';
  * install flow and the hosted deploy page. Rows come from the plan's CREATE
  * components, grouped by their presentation group, in canonical order.
  */
-export function Phase3InstallPlanComponentTable({ plan }: { plan: DeploymentPlan | null }) {
+export function InstallPlanComponentTable({ plan }: { plan: DeploymentPlan | null }) {
   const groups = installPlanRowGroups(plan);
   if (groups.length === 0) return null;
 

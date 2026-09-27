@@ -1,6 +1,5 @@
-import type { DeploymentPlan } from '@deployz/contracts';
+import type { DeploymentPlan, SpecComponent } from '@deployz/contracts';
 
-import type { SpecComponent } from '../../src/lib/deployment-progress';
 import type { ApplicationArchitecture } from '../../src/lib/readiness';
 
 // Phase 4 compositions as hand-authored wire objects. The Phase 3 UI must
@@ -172,7 +171,6 @@ export const webWorkersMysqlRedisSpecComponents: SpecComponent[] = [
 ];
 
 export const webWorkersMysqlRedisArchitecture: ApplicationArchitecture = {
-  counts: { total: 6, detected: 1, confirmed: 5 },
   groups: [
     {
       group: 'application',

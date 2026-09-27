@@ -65,7 +65,7 @@ vi.mock('../src/lib/public-install-data', async (importOriginal) => {
   return { ...actual, fetchPublicInstallData: mocks.fetchPublicInstallData };
 });
 
-const { Phase3InstallPlanComponentTable } = await import('../src/components/phase3-install-plan-component-table');
+const { InstallPlanComponentTable } = await import('../src/components/install-plan-component-table');
 const { ArchitectureDetectedCard } = await import('../src/components/architecture-detected-card');
 const { ApplicationArchitectureSection } = await import('../src/components/application-architecture-section');
 const { InstallProgress } = await import('../src/components/install-progress');
@@ -149,7 +149,7 @@ describe('phase 4 fixtures pass the real zod schemas', () => {
 
 describe('customer grouped plan table — composition A (web + workers + MySQL + Redis + storage)', () => {
   it('renders the groups in canonical order with both worker rows distinct', () => {
-    render(<Phase3InstallPlanComponentTable plan={webWorkersMysqlRedisPlan} />);
+    render(<InstallPlanComponentTable plan={webWorkersMysqlRedisPlan} />);
 
     expect(groupHeadings()).toEqual(['Application', 'Data', 'Cache', 'Storage']);
     const rows = rowTexts();
@@ -172,7 +172,7 @@ describe('customer grouped plan table — composition A (web + workers + MySQL +
 
 describe('customer grouped plan table — composition B (web + worker + queue + schedule)', () => {
   it('groups the queue and the schedule under Messaging and never shows AWS jargon', () => {
-    render(<Phase3InstallPlanComponentTable plan={webWorkerQueueSchedulePlan} />);
+    render(<InstallPlanComponentTable plan={webWorkerQueueSchedulePlan} />);
 
     expect(groupHeadings()).toEqual(['Application', 'Messaging']);
     const rows = rowTexts();
@@ -208,7 +208,7 @@ describe('unknown component genericity — fallback chain in the row builder', (
   });
 
   it('the rendered table shows the row instead of crashing or hiding it', () => {
-    render(<Phase3InstallPlanComponentTable plan={planWithUnknownGroup} />);
+    render(<InstallPlanComponentTable plan={planWithUnknownGroup} />);
 
     expect(groupHeadings()).toEqual(['Application']);
     const rows = rowTexts();

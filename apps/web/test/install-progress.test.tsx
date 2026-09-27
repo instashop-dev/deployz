@@ -3,9 +3,9 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import type { CustomerDeploymentStatus, DeploymentPlan, DeploymentStep } from '@deployz/contracts';
+import type { CustomerDeploymentStatus, DeploymentPlan, DeploymentStep, SpecComponent } from '@deployz/contracts';
 
-import { TAKING_LONGER_MESSAGE, type SpecComponent } from '../src/lib/deployment-progress';
+import { TAKING_LONGER_MESSAGE } from '../src/lib/deployment-progress';
 import { OWNERSHIP_NOTE } from '../src/lib/security-details';
 
 // react-dom/client's act() checks this flag before running; without it, every
@@ -673,7 +673,7 @@ describe('InstallProgress — spec-derived components', () => {
       { componentId: 'network', label: 'Private network', state: 'COMPLETE' },
       { componentId: 'database', label: 'MySQL', state: 'IN_PROGRESS' },
       { componentId: 'application', label: 'Web', state: 'FAILED' },
-      { componentId: 'other', label: 'Other resources', state: 'PENDING', detail: 'AWS::S3::Bucket' },
+      { componentId: 'other', label: 'Other resources', state: 'PENDING' },
     ]);
     mocks.fetchInstallStatus.mockResolvedValue(status);
 
@@ -688,9 +688,9 @@ describe('InstallProgress — spec-derived components', () => {
     expect(text).toContain('In progress');
     expect(text).toContain('Failed');
     // The unknown/other bucket renders exactly like a normal entry: provided
-    // label, its detail line, neutral waiting state.
+    // label, neutral waiting state — never a raw AWS resource type.
     expect(text).toContain('Other resources');
-    expect(text).toContain('AWS::S3::Bucket');
+    expect(text).not.toContain('AWS::');
     expect(text).toContain('Waiting');
     // The legacy component list is replaced, not duplicated.
     expect(text).not.toContain('Application runtime');

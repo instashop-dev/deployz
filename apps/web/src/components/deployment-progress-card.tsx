@@ -9,7 +9,6 @@ import { DeploymentProgressSteps } from '@/components/deployment-progress-steps'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Card, CardContent } from '@/components/ui/card';
 import { relativeTime } from '@/lib/diagnostics';
-import type { StatusWithSpecComponents } from '@/lib/deployment-progress';
 import {
   AWAITING_DOMAIN_STEP_DETAIL,
   COMPONENT_PROGRESS_LABEL,
@@ -103,7 +102,7 @@ export function DeploymentProgressCard({
   status,
   deploymentState,
 }: {
-  status: StatusWithSpecComponents<VendorDeploymentStatus>;
+  status: VendorDeploymentStatus;
   /** The lifecycle state, so a removed deployment is not announced with the
    *  live stage it last earned (`removedProgress`). */
   deploymentState: string;

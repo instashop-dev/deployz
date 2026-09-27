@@ -7,6 +7,7 @@ import type {
   CustomerDeploymentStatus,
   CustomerTechnicalDetails,
   DeploymentPlan,
+  SpecComponent,
 } from '@deployz/contracts';
 import { AlertCircle, AlertTriangle, CheckCircle2, ChevronDown, ExternalLink, Loader2 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
@@ -35,8 +36,6 @@ import {
   AWAITING_DOMAIN_STEP_DETAIL,
   customerStepperSteps,
   stepsFromStatus,
-  type SpecComponent,
-  type StatusWithSpecComponents,
 } from '@/lib/deployment-progress';
 import { fetchDeployLinkStatus, type DeployLinkToken } from '@/lib/deploy-link-flow';
 import { fetchInstallStatus } from '@/lib/install-status';
@@ -164,7 +163,7 @@ export function InstallProgress({
   const status = poll.data;
   // Additive spec-derived components (phase 3) — present only when the
   // deployment has a frozen spec; the fixed stepper is untouched either way.
-  const specComponents = (status as StatusWithSpecComponents<CustomerDeploymentStatus>)?.specComponents;
+  const specComponents = status?.specComponents;
 
   // The pre-install layout is a server component, so this card advancing on
   // its own would leave a spent "Deploy to AWS" CTA above it. One refresh

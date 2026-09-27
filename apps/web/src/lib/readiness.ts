@@ -93,9 +93,10 @@ export interface ArchitectureUnresolved {
   blocking: boolean;
 }
 
-/** The architecture summary returned when analysis is COMPLETE. */
+/** The architecture summary returned when analysis is COMPLETE. No counts
+ *  field: no component renders one, and the raw graph summary stays off the
+ *  type. */
 export interface ApplicationArchitecture {
-  counts: { total: number; detected: number; confirmed: number } | null;
   groups: ArchitectureGroup[];
   unresolved: ArchitectureUnresolved[];
 }

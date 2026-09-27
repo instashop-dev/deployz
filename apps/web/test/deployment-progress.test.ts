@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 
-import type { DeploymentStage, DeploymentStep, VendorDeploymentStatus } from '@deployz/contracts';
+import type {
+  DeploymentStage,
+  DeploymentStep,
+  SpecComponentState,
+  VendorDeploymentStatus,
+} from '@deployz/contracts';
 
 import { deriveHero, type HeroInput } from '../src/lib/deployment-hero';
 import {
@@ -16,7 +21,6 @@ import {
   removedProgress,
   specComponentPresentation,
   stageRank,
-  StatusWithSpecComponents,
   stepWaitingOnInput,
   stepsBeforeLaunch,
   AWAITING_DOMAIN_STEP_DETAIL,
@@ -25,7 +29,6 @@ import {
   stepsFromStatus,
   TAKING_LONGER_MESSAGE,
   type ProgressStepState,
-  type SpecComponentState,
 } from '../src/lib/deployment-progress';
 
 // Locks the client-side vocabulary map for the server-derived deployment
@@ -559,13 +562,13 @@ describe('specComponentPresentation', () => {
 
   it('passes the friendly detail line and label through verbatim', () => {
     const view = specComponentPresentation({
-      componentId: 'other',
-      label: 'Other resources',
+      componentId: 'worker-a',
+      label: 'Email worker',
       state: 'IN_PROGRESS',
-      detail: 'AWS::S3::Bucket',
+      detail: '2 tasks running',
     });
-    expect(view.label).toBe('Other resources');
-    expect(view.detail).toBe('AWS::S3::Bucket');
+    expect(view.label).toBe('Email worker');
+    expect(view.detail).toBe('2 tasks running');
     expect(view.stateLabel).toBe('In progress');
   });
 
@@ -581,7 +584,7 @@ describe('specComponentPresentation', () => {
   });
 
   it('the status payload type carries the additive specComponents field through', () => {
-    const status: StatusWithSpecComponents<VendorDeploymentStatus> = {
+    const status: VendorDeploymentStatus = {
       ...({} as VendorDeploymentStatus),
       specComponents: [{ componentId: 'db', label: 'MySQL', state: 'IN_PROGRESS' }],
     };

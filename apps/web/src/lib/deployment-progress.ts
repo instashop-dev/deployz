@@ -1,6 +1,12 @@
 import type { ReactNode } from 'react';
 
-import type { CustomerDeploymentStatus, DeploymentStage, DeploymentStep } from '@deployz/contracts';
+import type {
+  CustomerDeploymentStatus,
+  DeploymentStage,
+  DeploymentStep,
+  SpecComponent,
+  SpecComponentState,
+} from '@deployz/contracts';
 
 import type { Tone } from '@/lib/status-tone';
 
@@ -487,32 +493,15 @@ export const COMPONENT_STATUS_TONE: Record<
 };
 
 // ── Spec-derived component identity (phase 3, additive) ────────────────────
+//
+// The wire type is SpecComponent (@deployz/contracts) — the contracts status
+// schemas own the optional `specComponents` field, so payloads are used
+// schema-typed and no local mirror or wrapper is needed here.
 
 /**
- * One entry of the status payloads' additive `specComponents` field — present
- * only when the deployment has a frozen spec, absent (never empty-by-guess)
- * otherwise. Mirrors SpecDerivedComponent (apps/api/src/spec-components.ts);
- * the web mirrors wire shapes locally (see DESTROY_PENDING_STALE_AFTER_MS in
- * lib/deployments.ts).
+ * Presentation for one spec-derived component: its label, the state words, and
+ * the shared status tone for its dot.
  */
-export type SpecComponentState = 'PENDING' | 'IN_PROGRESS' | 'COMPLETE' | 'FAILED';
-
-export interface SpecComponent {
-  componentId: string;
-  label: string;
-  state: SpecComponentState;
-  /** Supporting fact for generic entries — e.g. the resource type AWS reported. */
-  detail?: string | undefined;
-}
-
-/** The status payloads with the additive field present, for the surfaces that
- *  render it while the contracts package has not grown the field yet. */
-export type StatusWithSpecComponents<T extends object> = T & {
-  specComponents?: SpecComponent[] | undefined;
-};
-
-/** How one spec-derived component presents: its label, the state words, and
- *  the shared status tone for its dot. */
 export interface SpecComponentPresentation {
   label: string;
   stateLabel: string;

@@ -20,9 +20,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { Phase3InstallPlanComponentTable } from '@/components/phase3-install-plan-component-table';
+import { InstallPlanComponentTable } from '@/components/install-plan-component-table';
 import { TablePanel } from '@/components/table-panel';
-import { installPlanRegionLabel, installPlanRetentionNote } from '@/lib/install-plan';
+import { installPlanRegionLabel, installPlanRetentionNote, RETENTION_CHARGES_NOTE } from '@/lib/install-plan';
 import { fetchPublicInstallPlan } from '@/lib/public-install-data';
 import { confirmPublicInstall } from '@/lib/public-install-confirm';
 import {
@@ -332,7 +332,7 @@ export function PublicInstallFlow({ linkId, resolve, token, customerKnown = fals
           You choose the AWS Region and the settings above; Deployz decides the resources below.
         </p>
         <TablePanel>
-          <Phase3InstallPlanComponentTable plan={plan} />
+          <InstallPlanComponentTable plan={plan} />
         </TablePanel>
         <FootprintSummary footprint={plan.footprint} stage="planned" />
         <AwsInfrastructureDetails plan={plan} region={region} />
@@ -346,7 +346,11 @@ export function PublicInstallFlow({ linkId, resolve, token, customerKnown = fals
             <Spinner aria-hidden /> Updating estimate…
           </p>
         ) : null}
-        {retentionNote ? <p className="text-sm text-muted-foreground">{retentionNote}</p> : null}
+        {retentionNote ? (
+          <p className="text-sm text-muted-foreground" data-testid="install-retention-warning">
+            {retentionNote} {RETENTION_CHARGES_NOTE}
+          </p>
+        ) : null}
         {estimateUnavailable ? (
           <p className="text-sm text-muted-foreground">Estimate unavailable for this Region.</p>
         ) : (
