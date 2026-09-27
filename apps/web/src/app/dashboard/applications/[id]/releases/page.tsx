@@ -1,10 +1,11 @@
 'use client';
 
-import { ChevronRight, ExternalLink } from 'lucide-react';
+import { ChevronRight, ExternalLink, TriangleAlert } from 'lucide-react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -13,12 +14,17 @@ import { Label } from '@/components/ui/label';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { cn } from '@/lib/utils';
-import { releaseBuildFailureSummary } from '@deployz/copy-map';
+import { releaseBuildFailureSummary, RELEASE_INFRASTRUCTURE_COPY } from '@deployz/copy-map';
 
 import { CommitPicker, type CommitPickerHandle } from '@/components/commit-picker';
 import { ReleaseFailureDetails } from '@/components/release-failure-details';
 import { useApplicationPage } from '../application-page-context';
-import { fetchDeploymentsForApplication, type FleetDeployment } from '@/lib/deployments';
+import {
+  fetchDeploymentsForApplication,
+  fetchDeploymentPlan,
+  type FleetDeployment,
+} from '@/lib/deployments';
+import type { DeploymentPlan } from '@deployz/contracts';
 import { relativeTime } from '@/lib/diagnostics';
 import {
   RELEASE_STATUS_BADGE,
@@ -120,6 +126,10 @@ export default function ReleasesPage() {
           releases={state.status === 'loaded' ? state.releases : []}
           onCreated={onCreated}
         />
+      ) : null}
+
+      {state.status === 'loaded' ? (
+        <InfrastructureChangeBlock deployments={state.deployments} />
       ) : null}
 
       {state.status === 'loading' ? <LoadingState /> : null}
@@ -268,6 +278,56 @@ function LoadingState() {
       <Skeleton className="h-16 w-full rounded-xl" />
       <Skeleton className="h-16 w-full rounded-xl" />
     </div>
+  );
+}
+
+function InfrastructureChangeBlock({
+  deployments,
+}: {
+  deployments: FleetDeployment[] | null;
+}) {
+  const [plan, setPlan] = useState<DeploymentPlan | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const deploymentId = deployments?.find((d) => d.state !== 'DELETED')?.id;
+    if (!deploymentId) {
+      setLoading(false);
+      return;
+    }
+    let cancelled = false;
+    fetchDeploymentPlan(deploymentId, 'update')
+      .then((p) => {
+        if (!cancelled) setPlan(p);
+      })
+      .catch(() => {
+        if (!cancelled) setPlan(null);
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [deployments]);
+
+  if (loading || !plan?.infrastructureChange) return null;
+
+  const { infrastructureChange } = plan;
+  if (infrastructureChange.status === 'none') {
+    return (
+      <p className="text-sm text-muted-foreground" data-testid="release-infrastructure-none">
+        {RELEASE_INFRASTRUCTURE_COPY.noChanges}
+      </p>
+    );
+  }
+
+  return (
+    <Alert data-testid="release-infrastructure-unsupported">
+      <TriangleAlert className="size-4" aria-hidden />
+      <AlertTitle>{RELEASE_INFRASTRUCTURE_COPY.changedTitle}</AlertTitle>
+      <AlertDescription>{RELEASE_INFRASTRUCTURE_COPY.changedBody}</AlertDescription>
+    </Alert>
   );
 }
 

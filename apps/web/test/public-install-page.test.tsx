@@ -185,7 +185,7 @@ describe('InstallPage public resolution', () => {
     expect(doc.body.textContent).toContain('Secure endpoint');
     expect(doc.body.textContent).toContain('Database');
     expect(doc.body.textContent).toContain(
-      'PostgreSQL and stored files are retained when the application is disconnected. They can continue to generate AWS charges until they are permanently purged.',
+      'When this deployment is removed, Database stays in your AWS account.',
     );
   });
 
@@ -290,7 +290,7 @@ describe('PublicInstallFlow', () => {
     expect(document.body.textContent).toContain('Secure endpoint');
     expect(document.body.textContent).toContain('Database');
     expect(document.body.textContent).toContain(
-      'PostgreSQL and stored files are retained when the application is disconnected. They can continue to generate AWS charges until they are permanently purged.',
+      'When this deployment is removed, Database stays in your AWS account.',
     );
   });
 

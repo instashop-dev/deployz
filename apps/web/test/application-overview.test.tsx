@@ -4,7 +4,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { TEST_DEPLOYMENT_POLL_MS } from '../src/lib/application-state';
-import type { ApplicationReadiness, ReadinessFinding } from '../src/lib/readiness';
+import type { ApplicationArchitecture, ApplicationReadiness, ReadinessFinding } from '../src/lib/readiness';
 import { fleetDeployment } from './fixtures/fleet-deployment';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -513,5 +513,118 @@ describe('Active to terminal polling', () => {
     });
 
     expect(mocks.fetchDeploymentsForApplication.mock.calls.length).toBe(callsAtSettle);
+  });
+});
+
+function architectureFixture(): ApplicationArchitecture {
+  return {
+    counts: { total: 3, detected: 2, confirmed: 1 },
+    groups: [
+      { group: 'application', nodes: [{ label: 'Web service', state: 'confirmed' }] },
+      { group: 'data', nodes: [{ label: 'PostgreSQL', state: 'detected' }] },
+      { group: 'edge', nodes: [{ label: 'Load balancer', state: 'detected' }] },
+    ],
+    unresolved: [{ kind: 'cache', question: 'Do you need a cache?', blocking: false }],
+  };
+}
+
+describe('Architecture detected card', () => {
+  it('renders grouped component labels with detected and confirmed states', async () => {
+    mocks.fetchApplication.mockResolvedValue(baseApplication());
+    mocks.fetchReadiness.mockResolvedValue(
+      baseReadiness({ summary: 'Ready to deploy', architecture: architectureFixture() }),
+    );
+    mocks.fetchDeploymentsForApplication.mockResolvedValue([]);
+
+    await act(async () => {
+      renderPage();
+    });
+    await waitForHeading();
+
+    const card = container.querySelector('[data-testid="architecture-detected-card"]');
+    expect(card).not.toBeNull();
+    expect(container.textContent).toContain('Architecture detected');
+    expect(container.textContent).toContain('Web service');
+    expect(container.textContent).toContain('PostgreSQL');
+    expect(container.textContent).toContain('Confirmed');
+    expect(container.textContent).toContain('Detected automatically');
+    expect(container.querySelector('[data-testid="architecture-summary"]')?.textContent).toBe(
+      'Ready to deploy',
+    );
+  });
+
+  it('shows unresolved items as Needs input in the compact card', async () => {
+    mocks.fetchApplication.mockResolvedValue(baseApplication());
+    mocks.fetchReadiness.mockResolvedValue(
+      baseReadiness({ architecture: architectureFixture() }),
+    );
+    mocks.fetchDeploymentsForApplication.mockResolvedValue([]);
+
+    await act(async () => {
+      renderPage();
+    });
+    await waitForHeading();
+
+    expect(container.querySelector('[data-testid="architecture-unresolved-cache-0"]')).not.toBeNull();
+    expect(container.textContent).toContain('Do you need a cache?');
+  });
+
+  it('expands the View architecture disclosure with role hints', async () => {
+    mocks.fetchApplication.mockResolvedValue(baseApplication());
+    mocks.fetchReadiness.mockResolvedValue(
+      baseReadiness({ architecture: architectureFixture() }),
+    );
+    mocks.fetchDeploymentsForApplication.mockResolvedValue([]);
+
+    await act(async () => {
+      renderPage();
+    });
+    await waitForHeading();
+
+    const detail = () => container.querySelector('[data-testid="architecture-detail"]');
+    expect(detail()?.getAttribute('data-state')).toBe('closed');
+
+    const toggle = container.querySelector('[data-testid="architecture-view-toggle"]') as HTMLButtonElement;
+    await act(async () => {
+      toggle.click();
+    });
+
+    expect(detail()?.getAttribute('data-state')).toBe('open');
+    expect(detail()?.textContent).toContain('Web service');
+    expect(detail()?.textContent).toContain('Runs the application code');
+    expect(detail()?.textContent).toContain('Stores application data');
+  });
+
+  it('does not render when architecture is absent', async () => {
+    mocks.fetchApplication.mockResolvedValue(baseApplication());
+    mocks.fetchReadiness.mockResolvedValue(baseReadiness());
+    mocks.fetchDeploymentsForApplication.mockResolvedValue([]);
+
+    await act(async () => {
+      renderPage();
+    });
+    await waitForHeading();
+
+    expect(container.querySelector('[data-testid="architecture-detected-card"]')).toBeNull();
+  });
+
+  it('does not render while analysis is running', async () => {
+    mocks.fetchApplication.mockResolvedValue(baseApplication({ analysisStatus: 'ANALYZING' }));
+    mocks.fetchReadiness.mockResolvedValue(
+      baseReadiness({
+        analysisStatus: 'ANALYZING',
+        state: 'ANALYSIS_INCOMPLETE',
+        architecture: architectureFixture(),
+      }),
+    );
+    mocks.fetchDeploymentsForApplication.mockResolvedValue([]);
+
+    await act(async () => {
+      renderPage();
+    });
+    await waitForHeading();
+
+    expect(container.querySelector('[data-testid="architecture-detected-card"]')).toBeNull();
+    expect(container.querySelector('[data-testid="application-overview-loading"]')).toBeNull();
   });
 });

@@ -3,7 +3,7 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import type { CustomerDeploymentStatus, DeploymentPlan, DeploymentStep } from '@deployz/contracts';
+import type { CustomerDeploymentStatus, DeploymentPlan, DeploymentStep, SpecComponent } from '@deployz/contracts';
 
 import { TAKING_LONGER_MESSAGE } from '../src/lib/deployment-progress';
 import { OWNERSHIP_NOTE } from '../src/lib/security-details';
@@ -646,5 +646,70 @@ describe('InstallProgress — resources summary', () => {
     await flush();
 
     expect(container!.textContent ?? '').not.toContain('Resources');
+  });
+});
+
+// Phase 3: when the status payload carries the additive `specComponents`
+// (a frozen spec exists), the Resources summary reads those entries instead
+// of the legacy component list — same visual style, labels + state words +
+// optional detail. Without the field, the legacy rows render exactly as
+// before (covered by the resources-summary tests above).
+describe('InstallProgress — spec-derived components', () => {
+  function statusWithSpecComponents(
+    specComponents: SpecComponent[],
+    overrides: Partial<CustomerDeploymentStatus> = {},
+  ): CustomerDeploymentStatus {
+    return baseStatus({
+      components: [{ key: 'runtime', label: 'Application runtime', status: 'READY' }],
+      ...overrides,
+      specComponents,
+    } as Partial<CustomerDeploymentStatus>);
+  }
+
+  it('renders one row per spec component with its state words, and replaces the legacy list', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-09-18T00:00:00.000Z'));
+    const status = statusWithSpecComponents([
+      { componentId: 'network', label: 'Private network', state: 'COMPLETE' },
+      { componentId: 'database', label: 'MySQL', state: 'IN_PROGRESS' },
+      { componentId: 'application', label: 'Web', state: 'FAILED' },
+      { componentId: 'other', label: 'Other resources', state: 'PENDING' },
+    ]);
+    mocks.fetchInstallStatus.mockResolvedValue(status);
+
+    mount(baseProps({ initialStatus: status }));
+    await flush();
+
+    const text = container!.textContent ?? '';
+    expect(text).toContain('Resources');
+    expect(text).toContain('Private network');
+    expect(text).toContain('Complete');
+    expect(text).toContain('MySQL');
+    expect(text).toContain('In progress');
+    expect(text).toContain('Failed');
+    // The unknown/other bucket renders exactly like a normal entry: provided
+    // label, neutral waiting state — never a raw AWS resource type.
+    expect(text).toContain('Other resources');
+    expect(text).not.toContain('AWS::');
+    expect(text).toContain('Waiting');
+    // The legacy component list is replaced, not duplicated.
+    expect(text).not.toContain('Application runtime');
+    expect(container!.querySelector('[data-testid="spec-components"]')).not.toBeNull();
+  });
+
+  it('renders every spec component with its provided label even when the componentId is unknown', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-09-18T00:00:00.000Z'));
+    const status = statusWithSpecComponents([
+      { componentId: 'brand-new-kind', label: 'Brand new kind', state: 'IN_PROGRESS' },
+    ]);
+    mocks.fetchInstallStatus.mockResolvedValue(status);
+
+    mount(baseProps({ initialStatus: status }));
+    await flush();
+
+    const text = container!.textContent ?? '';
+    expect(text).toContain('Brand new kind');
+    expect(text).toContain('In progress');
   });
 });

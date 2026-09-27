@@ -1,6 +1,14 @@
 import type { ReactNode } from 'react';
 
-import type { CustomerDeploymentStatus, DeploymentStage, DeploymentStep } from '@deployz/contracts';
+import type {
+  CustomerDeploymentStatus,
+  DeploymentStage,
+  DeploymentStep,
+  SpecComponent,
+  SpecComponentState,
+} from '@deployz/contracts';
+
+import type { Tone } from '@/lib/status-tone';
 
 // Client-side vocabulary for the server-derived deployment stage/step. The
 // server (deriveDeploymentStatus in the API) is the only place lifecycle
@@ -483,3 +491,43 @@ export const COMPONENT_STATUS_TONE: Record<
   FAILED: 'negative',
   NOT_REQUIRED: 'neutral',
 };
+
+// ── Spec-derived component identity (phase 3, additive) ────────────────────
+//
+// The wire type is SpecComponent (@deployz/contracts) — the contracts status
+// schemas own the optional `specComponents` field, so payloads are used
+// schema-typed and no local mirror or wrapper is needed here.
+
+/**
+ * Presentation for one spec-derived component: its label, the state words, and
+ * the shared status tone for its dot.
+ */
+export interface SpecComponentPresentation {
+  label: string;
+  stateLabel: string;
+  tone: Tone;
+  /** The component's own supporting fact, passed through verbatim. */
+  detail: string | undefined;
+}
+
+const SPEC_COMPONENT_STATE_PRESENTATION: Record<SpecComponentState, { stateLabel: string; tone: Tone }> = {
+  PENDING: { stateLabel: 'Waiting', tone: 'neutral' },
+  IN_PROGRESS: { stateLabel: 'In progress', tone: 'progress' },
+  COMPLETE: { stateLabel: 'Complete', tone: 'positive' },
+  FAILED: { stateLabel: 'Failed', tone: 'negative' },
+};
+
+/**
+ * Presentation for one spec-derived component. An unrecognized state (a newer
+ * API rendering into an older client) presents neutral rather than crashing —
+ * an entry is always rendered with its provided label, never hidden.
+ */
+export function specComponentPresentation(component: SpecComponent): SpecComponentPresentation {
+  const known = SPEC_COMPONENT_STATE_PRESENTATION[component.state];
+  return {
+    label: component.label,
+    stateLabel: known?.stateLabel ?? SPEC_COMPONENT_STATE_PRESENTATION.PENDING.stateLabel,
+    tone: known?.tone ?? 'neutral',
+    detail: component.detail,
+  };
+}

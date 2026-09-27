@@ -20,9 +20,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { InstallPlanComponentTable } from '@/components/install-plan-component-table';
 import { TablePanel } from '@/components/table-panel';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { installPlanRegionLabel, installPlanRetentionNote, installPlanRows } from '@/lib/install-plan';
+import { installPlanRegionLabel, installPlanRetentionNote, RETENTION_CHARGES_NOTE } from '@/lib/install-plan';
 import { fetchPublicInstallPlan } from '@/lib/public-install-data';
 import { confirmPublicInstall } from '@/lib/public-install-confirm';
 import {
@@ -90,7 +90,6 @@ export function PublicInstallFlow({ linkId, resolve, token, customerKnown = fals
     });
   }, [linkId, region, token]);
 
-  const planRows = useMemo(() => installPlanRows(plan), [plan]);
   const retentionNote = useMemo(() => installPlanRetentionNote(plan), [plan]);
 
   const settingErrors = useMemo(
@@ -329,23 +328,11 @@ export function PublicInstallFlow({ linkId, resolve, token, customerKnown = fals
         <h2 id="public-review" className="text-base font-semibold">
           Review
         </h2>
+        <p className="text-sm text-muted-foreground">
+          You choose the AWS Region and the settings above; Deployz decides the resources below.
+        </p>
         <TablePanel>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Component</TableHead>
-                <TableHead>What happens</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {planRows.map((row) => (
-                <TableRow key={row.kind}>
-                  <TableCell className="font-medium">{row.name}</TableCell>
-                  <TableCell className="text-muted-foreground">{row.whatHappens}</TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+          <InstallPlanComponentTable plan={plan} />
         </TablePanel>
         <FootprintSummary footprint={plan.footprint} stage="planned" />
         <AwsInfrastructureDetails plan={plan} region={region} />
@@ -359,11 +346,11 @@ export function PublicInstallFlow({ linkId, resolve, token, customerKnown = fals
             <Spinner aria-hidden /> Updating estimate…
           </p>
         ) : null}
-        {retentionNote ? <p className="text-sm text-muted-foreground">{retentionNote}</p> : null}
-        <p className="text-sm font-medium text-foreground">
-          PostgreSQL and stored files are retained when the application is disconnected. They can
-          continue to generate AWS charges until they are permanently purged.
-        </p>
+        {retentionNote ? (
+          <p className="text-sm text-muted-foreground" data-testid="install-retention-warning">
+            {retentionNote} {RETENTION_CHARGES_NOTE}
+          </p>
+        ) : null}
         {estimateUnavailable ? (
           <p className="text-sm text-muted-foreground">Estimate unavailable for this Region.</p>
         ) : (

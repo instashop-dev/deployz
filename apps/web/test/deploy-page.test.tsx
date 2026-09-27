@@ -112,7 +112,9 @@ describe('DeployPage', () => {
     // Plan-driven table content, not a hand-rolled resource-name list.
     expect(doc.body.textContent).toContain('Database');
     expect(doc.body.textContent).toContain('Stores persistent application data');
-    expect(doc.body.textContent).toContain('Region: US East (N. Virginia)');
+    expect(doc.body.textContent).toContain('US East (N. Virginia)');
+    // No estimate in the fixture: the fallback stays explicit, never invented.
+    expect(doc.body.textContent).toContain('Estimate unavailable');
     expect(doc.body.textContent).toContain('Powered by Deployz');
     expect(doc.querySelector('a[href="' + QUICK_CREATE + '"]')?.textContent).toBe('Review setup in AWS');
     expect(securityLink(doc)?.getAttribute('href')).toBe(SECURITY_HREF);

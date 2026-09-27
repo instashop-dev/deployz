@@ -810,7 +810,9 @@ NOT_COMPATIBLE
 
 The application-level column uses a parallel trio (`READY` /
 `NEEDS_ATTENTION` / `NOT_COMPATIBLE`, `compatibilityStatusSchema`). Reuse
-these names rather than introducing a parallel set. A richer backend
+these names rather than introducing a parallel set. Both vocabularies
+surface through the established ui-system mappings (the Configuration
+table's vocabulary in `ui-system.md`), never as raw enum text. A richer backend
 taxonomy — `SUPPORTED` / `CONFIGURATION_REQUIRED` /
 `RECOGNIZED_UNSUPPORTED` / `UNKNOWN_ARCHITECTURE` — may map onto the same
 three UI states, but is not required before the graph/IR work needs it.
@@ -1106,6 +1108,13 @@ editable IaC.
 
 Ambiguity should become focused questions, not JSON/YAML editing.
 
+**Implemented (Phase 3).** The Overview "Architecture detected" card, the
+Configuration sections (Environment variables / Application architecture
+/ Data & infrastructure / Deployment preferences) and the three
+component states render through the surfaces documented in
+`ui-system.md`; the card hides while the readiness payload carries no
+`architecture` block, and analysis states win over it.
+
 ### 29.3 Releases
 
 For code-only releases show:
@@ -1125,6 +1134,13 @@ For future topology changes show a semantic diff such as:
 Do not automatically execute unsupported topology upgrades during the
 initial MVP.
 
+**Implemented (Phase 3).** Each release shows an Infrastructure line:
+`No infrastructure changes`, or a warning that the release requires
+infrastructure changes and automatic infrastructure upgrades are not
+supported yet. The update plan always carries `infrastructureChange`
+(`none`, or `unsupported` with reason `topology_changed`); the semantic
+diff shown above stays future work.
+
 ### 29.4 Customer install
 
 Keep the customer experience simpler than the vendor experience.
@@ -1137,6 +1153,12 @@ Group resources by: - Application - Data - Messaging - Storage -
 Networking - Edge
 
 Keep technical AWS details expandable.
+
+**Implemented (Phase 3).** The install page groups "What Deployz will
+create" under the eight shipped groups (application, data, cache,
+storage, messaging, networking, edge, security) — the fallback chain is
+component group → kind map → Application, and only non-empty groups
+render.
 
 ### 29.5 Resource selection
 
@@ -1201,6 +1223,11 @@ For multiple workloads:
 
 Keep raw CloudFormation events behind progressive disclosure.
 
+**Implemented (Phase 3).** Progress renders component lists from the
+status payload's `specComponents`, derived from stack events through the
+spec's ownership records; payloads without `specComponents` fall back
+byte-identically to the legacy rendering.
+
 ### 29.9 Failures and diagnostics
 
 Customer-facing errors should reference understandable application
@@ -1208,6 +1235,11 @@ components.
 
 Vendor diagnostics can include: - component ID; - capability; - failed
 check; - likely cause; - relevant logs; - coding-agent fix prompt.
+
+**Implemented (Phase 3).** The failure context carries the affected
+component (`componentId`/`componentLabel`) and the vendor diagnostic
+card names it; customer surfaces keep component labels and neutral
+details, never raw AWS types.
 
 ### 29.10 Infrastructure details
 

@@ -23,10 +23,10 @@ behind each step is in [`../architecture.md`](../architecture.md).
 | 2 | Onboarding | `/dashboard/onboarding` | Six steps: connect GitHub → choose repository → analyse → fix compatibility → create a test deployment → ready for customer deployment. |
 | 3 | Connect GitHub | `/github/setup` | Installs the Deployz GitHub App and selects repositories. The App's Setup URL must point at this page (see [`../operations/control-plane.md`](../operations/control-plane.md)). Webhooks handle installation events only; pushes do not trigger builds. |
 | 4 | Create an application | `/dashboard/applications/new` | Picks a repository. Analysis starts automatically. One application per repository. The branch is the repository's default branch at creation and cannot be changed afterwards. |
-| 5 | Analysis and readiness | `/dashboard/applications/[id]` | A state-aware overview (Analysing, Changes required, Needs review, Ready to share, Live with customers, …). The setup lifecycle is **Analyse → Configure → Test → Share**. "Copy prompt for coding agent" produces fix instructions for blocking findings. Re-analysis is on request only. See [`../ai-analysis.md`](../ai-analysis.md). |
-| 6 | Configuration | `…/config` | Overrides for container port, health path, migration command, and the database / storage / Redis requirements. Application root, Dockerfile path, build context and build/start commands are settable through the API (`PATCH /api/applications/:id`) but have no UI. |
+| 5 | Analysis and readiness | `/dashboard/applications/[id]` | A state-aware overview (Analysing, Changes required, Needs review, Ready to share, Live with customers, …). The setup lifecycle is **Analyse → Configure → Test → Share**. When the readiness data describes the architecture, Overview adds a compact "Architecture detected" card (components grouped, Detected automatically / Confirmed / Needs input, "View architecture" detail). "Copy prompt for coding agent" produces fix instructions for blocking findings. Re-analysis is on request only. See [`../ai-analysis.md`](../ai-analysis.md). |
+| 6 | Configuration | `…/config` | Sections in this order: Environment variables, Application architecture, Data & infrastructure, Deployment preferences. Overrides for container port, health path, migration command, and the database / storage / Redis requirements; unresolved architecture questions open as focused cards. Application root, Dockerfile path, build context and build/start commands are settable through the API (`PATCH /api/applications/:id`) but have no UI. |
 | 7 | Environment variables | same page | For each detected variable: build or runtime, required, secret, and who provides it (Managed by Deployz / Set by vendor / Set by customer / Optional), plus a customer-facing label and help text. Vendor values are stored KMS-encrypted. See [`../environment-variables.md`](../environment-variables.md). |
-| 8 | Releases | `…/releases` | Picks a commit from the configured branch (or enters a full SHA), gives it a version, optionally overrides the migration command. CodeBuild builds the image into ECR by digest. States: Building, Ready, Build failed (with log evidence and an optional AI explanation), Unavailable (image deleted). Creating a release never updates a customer. |
+| 8 | Releases | `…/releases` | Picks a commit from the configured branch (or enters a full SHA), gives it a version, optionally overrides the migration command. CodeBuild builds the image into ECR by digest. States: Building, Ready, Build failed (with log evidence and an optional AI explanation), Unavailable (image deleted). Each release shows an Infrastructure line: "No infrastructure changes", or a warning that the release requires infrastructure changes and automatic infrastructure upgrades are not supported yet. Creating a release never updates a customer. |
 | 9 | Test deployment | `/dashboard/deployments/new?…&test=true` | One free TEST deployment per application, into the vendor's own AWS account, through the same install page a customer uses. The UI offers the customer install link only after a successful test deployment (the API does not enforce this). |
 | 10 | Share with customers | see *Customer entry points* below | Three ways to hand a customer an install: a reusable public install link, a targeted invitation, or a vendor-created deployment. |
 | 11 | Fleet views | `/dashboard/deployments`, `/dashboard/customers` | Deployments grouped as Needs attention / In progress / Waiting for customer / Update available / Healthy / Removed. Customers roll up to Not installed / Installing / Live / Needs attention / Removing / Removed. |
@@ -53,8 +53,9 @@ behind each step is in [`../architecture.md`](../architecture.md).
    the AWS Region (only Regions the control plane can install into are
    offered), the application settings the vendor marked "Set by customer"
    (secrets in password fields, `_URL` / `_EMAIL` / `_PORT` names
-   format-checked), name and email, the INSTALL plan, the AWS resources that
-   will be created, a Region-priced monthly cost estimate, and the retention
+    format-checked), name and email, the INSTALL plan, the resources that
+    will be created (grouped under generic headings), a Region-priced
+    monthly cost estimate, and the retention
    notice ("PostgreSQL and stored files are retained"). There is no
    infrastructure-size choice. "Continue to setup" confirms: the server
    re-checks the link, Region, preflight and the vendor's subscription, then
@@ -65,7 +66,9 @@ behind each step is in [`../architecture.md`](../architecture.md).
    A vendor-created deployment skips this step; the vendor enters customer
    values on the deployment's configuration page instead.
 3. **Pre-launch page** (`/install/<installLinkId>`): application, publisher,
-   Region, release, cost estimate, "What Deployz will create", security facts,
+   Region, release, cost estimate, "What Deployz will create" (resources
+   grouped under generic headings — Application, Data, Storage, … — never
+   AWS resource names), security facts,
    and a link to inspect the template and permissions
    (`/install/<id>/security`). "Review setup in AWS" marks the deployment
    WAITING_FOR_RELAY and opens the CloudFormation **Quick Create** URL for the

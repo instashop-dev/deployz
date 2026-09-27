@@ -24,6 +24,7 @@ Two decisions with substantial detail have their own files:
 | 2026-09-22 | Config secrets are KMS-encrypted; Lambdas fail closed without the key | Active |
 | 2026-09-25 | Runtime-v1 backward compatibility is not required for the MVP | Executed |
 | 2026-09-26 | Purge deletes every owned application secret except the relay's own bootstrap component | Active |
+| 2026-09-27 | Phase 3 passes without real-AWS validation; the runs move to the Final AWS Qualification backlog | Active |
 
 ## AI explanations are on-demand and never change state (2026-08-25)
 
@@ -217,3 +218,17 @@ other generation of the application stack would have survived purge
 forever. Generation-agnostic deletion with the single bootstrap exclusion
 is the invariant; the simulated `retained-delete-recovery` scenario and
 the composite canary both assert a clean account after purge.
+
+## Phase 3 passes without real-AWS validation (2026-09-27)
+
+Phase 3 is an additive, spec-derived presentation cutover: existing
+deployments render unchanged, lifecycle behavior is untouched, and the
+simulated unit, contracts, web and E2E suites cover the behavior. The
+phase gate therefore needs no AWS run. The Phase 2 carry-over
+validations (`core` day-2 ladder completion; the `resilience` subcommand
+plus RESTART-through-relay) and a full real-AWS lifecycle from a clean
+account are deferred to the **Final AWS Qualification backlog**, to run
+after the Phase 3 merge; the backlog is recorded in the
+dynamic-infrastructure implementation plan. What would change it: any
+further change that touches provisioning, lifecycle or the relay before
+qualification has run.

@@ -963,6 +963,33 @@ export function relayCheckCopy(name: string): RelayCheckCopy {
   return RELAY_CHECK_COPY[name as RelayCheckName] ?? RELAY_CHECK_FALLBACK_COPY;
 }
 
+// ── Plan components (dynamic infrastructure) ────────────────────────────────
+
+/**
+ * Plan component kind labels — the wording a deployment plan uses per kind.
+ * The five catalog kinds reuse the wording the plans already carry
+ * (INFRASTRUCTURE_COMPONENT_DISPLAY); 'worker', 'queue' and 'schedule' are
+ * wire-level kinds until their capabilities are implemented. Group headings
+ * live in @deployz/contracts (PLAN_COMPONENT_GROUP_DISPLAY) — the one home.
+ */
+export const PLAN_COMPONENT_KIND_DISPLAY: Record<string, string> = {
+  application: 'Application',
+  endpoint: 'Secure endpoint',
+  database: 'Database',
+  cache: 'Cache',
+  storage: 'Storage',
+  worker: 'Background worker',
+  queue: 'Queue',
+  schedule: 'Scheduled job',
+};
+
+/** Copy for a release's infrastructure-change statement. */
+export const RELEASE_INFRASTRUCTURE_COPY = {
+  noChanges: 'No infrastructure changes',
+  changedTitle: 'Infrastructure requirements changed',
+  changedBody: 'This release requires infrastructure changes. Automatic infrastructure upgrades are not supported yet.',
+} as const;
+
 // ── §42 onboarding steps ────────────────────────────────────────────────────
 
 /** The six §42 onboarding steps, in exact order. Success = readiness (§5). */

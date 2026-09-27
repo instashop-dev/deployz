@@ -66,6 +66,25 @@ describe('toDiagnostics — normalised failure context (Phase 6)', () => {
     expect(toDiagnostics({ ...base, context })[0]?.context).toEqual(context);
     expect(toDiagnostics({ ...base })[0]?.context).toBeNull();
   });
+
+  it('carries the spec component identity (phase 3) through when present, and omits it otherwise', () => {
+    const context = {
+      phase: 'INSTALL',
+      attempt: 1,
+      failureCode: 'DATABASE_CREATE_FAILED',
+      reportedFailureCode: null,
+      resourceType: 'AWS::RDS::DBInstance',
+      message: null,
+      relevantEvents: [],
+      applicationVersion: null,
+      componentId: 'database',
+      componentLabel: 'MySQL',
+    };
+    expect(toDiagnostics({ ...base, context })[0]?.context).toEqual(context);
+    const without = toDiagnostics({ ...base })[0]?.context ?? {};
+    expect(without).not.toHaveProperty('componentId');
+    expect(without).not.toHaveProperty('componentLabel');
+  });
 });
 
 describe('toDiagnostics — explanation source and confidence (Phase 7)', () => {

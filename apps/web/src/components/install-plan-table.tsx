@@ -47,7 +47,7 @@ export function InstallPlanTable({
             </TableRow>
           </TableHeader>
           <TableBody>
-            {groups.map((group) => (
+              {groups.map((group) => (
               <Fragment key={group.group}>
                 <TableRow className="bg-muted/40">
                   <TableCell
@@ -60,7 +60,7 @@ export function InstallPlanTable({
                 {group.rows.map((row) => (
                   <TableRow key={row.id}>
                     <TableCell className="font-medium">{row.name}</TableCell>
-                    <TableCell className="text-muted-foreground">
+                    <TableCell className="whitespace-pre-line text-muted-foreground">
                       {row.serviceAndConfiguration}
                     </TableCell>
                     <TableCell className="text-muted-foreground">{row.purpose}</TableCell>
@@ -79,10 +79,10 @@ export function InstallPlanTable({
             <h3 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
               {group.label}
             </h3>
-            {group.rows.map((row) => (
+              {group.rows.map((row) => (
               <div key={row.id} className="flex flex-col gap-1 rounded-md border p-3">
                 <div className="text-sm font-medium">{row.name}</div>
-                <div className="text-xs text-muted-foreground">{row.serviceAndConfiguration}</div>
+                <div className="whitespace-pre-line text-xs text-muted-foreground">{row.serviceAndConfiguration}</div>
                 <div className="text-xs text-muted-foreground">{row.purpose}</div>
                 <div className="text-xs text-muted-foreground">{row.onRemoval}</div>
               </div>
