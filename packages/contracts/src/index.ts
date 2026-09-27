@@ -20,8 +20,6 @@ export * from './capability-registry.js';
 export * from './deployz-ir.js';
 export * from './deployment-spec-v2.js';
 
-import type { DeploymentManifest } from './manifest.js';
-
 // Shared Zod contracts between api and web. Shapes mirror the Drizzle schema
 // in @deployz/db (packages/db/src/schema/*.ts) exactly — the db stays the
 // source of truth; these are the WIRE forms (timestamptz -> ISO datetime
