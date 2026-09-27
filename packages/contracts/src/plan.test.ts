@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { buildDestroyPlan, buildInstallPlan, buildUpdatePlan, deploymentPlanSchema } from './plan.js';
+import { buildDestroyPlan, buildInstallPlan, buildUpdatePlan, deploymentPlanSchema, planComponentKindSchema } from './plan.js';
 import { requiredAwsResources, toPlanAwsResource } from './aws-resources.js';
 import { estimateFootprintCost } from './pricing.js';
 import { resolveDeploymentFootprint } from './footprint.js';
@@ -241,6 +241,37 @@ describe('deploymentPlanSchema', () => {
     ];
     for (const plan of plans) {
       expect(deploymentPlanSchema.parse(plan)).toEqual(plan);
+    }
+  });
+});
+
+describe('infrastructureChange (optional wire field)', () => {
+  const basePlan = buildInstallPlan({ manifest: POSTGRES_ONLY, region: 'us-east-1' });
+
+  it('absent stays absent', () => {
+    expect(deploymentPlanSchema.parse(basePlan).infrastructureChange).toBeUndefined();
+  });
+
+  it('round-trips status none', () => {
+    const plan = { ...basePlan, infrastructureChange: { status: 'none' as const } };
+    expect(deploymentPlanSchema.parse(plan)).toEqual(plan);
+  });
+
+  it('round-trips status unsupported with a reason', () => {
+    const plan = { ...basePlan, infrastructureChange: { status: 'unsupported' as const, reason: 'topology_changed' } };
+    expect(deploymentPlanSchema.parse(plan)).toEqual(plan);
+  });
+
+  it('rejects unsupported without a reason', () => {
+    const plan = { ...basePlan, infrastructureChange: { status: 'unsupported' as const } };
+    expect(deploymentPlanSchema.safeParse(plan).success).toBe(false);
+  });
+});
+
+describe('planComponentKindSchema widening', () => {
+  it('accepts the worker, queue and schedule kinds', () => {
+    for (const kind of ['worker', 'queue', 'schedule'] as const) {
+      expect(planComponentKindSchema.safeParse(kind).success).toBe(true);
     }
   });
 });

@@ -11,6 +11,7 @@ export * from './application-analysis.js';
 export * from './components.js';
 export * from './aws-resources.js';
 export * from './plan.js';
+export * from './plan-components.js';
 export * from './footprint.js';
 export * from './pricing.js';
 export * from './profile.js';

@@ -40,7 +40,57 @@ export type PlanAction = z.infer<typeof planActionSchema>;
 export const planComponentActionSchema = z.enum(['CREATE', 'UPDATE', 'UNCHANGED', 'DELETE', 'RETAIN']);
 export type PlanComponentAction = z.infer<typeof planComponentActionSchema>;
 
-const planComponentKindSchema = z.enum(['application', 'endpoint', 'database', 'cache', 'storage']);
+// 'worker', 'queue' and 'schedule' are wire-level only for now: no builder
+// emits them yet, but Phase 4 presentation fixtures and the spec-derived
+// component builder (plan-components.ts) need them to be valid kinds.
+export const planComponentKindSchema = z.enum([
+  'application',
+  'endpoint',
+  'database',
+  'cache',
+  'storage',
+  'worker',
+  'queue',
+  'schedule',
+]);
+export type PlanComponentKind = z.infer<typeof planComponentKindSchema>;
+
+/** Presentation grouping for plan components, in display order. */
+export const planComponentGroupSchema = z.enum([
+  'application',
+  'data',
+  'cache',
+  'storage',
+  'messaging',
+  'networking',
+  'edge',
+  'security',
+]);
+export type PlanComponentGroup = z.infer<typeof planComponentGroupSchema>;
+
+/** Group headings in display order — the one source the UI renders plan groups from. */
+export const PLAN_COMPONENT_GROUP_ORDER: readonly PlanComponentGroup[] = [
+  'application',
+  'data',
+  'cache',
+  'storage',
+  'messaging',
+  'networking',
+  'edge',
+  'security',
+];
+
+/** Human names for plan component groups (wording matches the footprint categories). */
+export const PLAN_COMPONENT_GROUP_DISPLAY: Readonly<Record<PlanComponentGroup, string>> = {
+  application: 'Application',
+  data: 'Data',
+  cache: 'Cache',
+  storage: 'Storage',
+  messaging: 'Messaging',
+  networking: 'Networking',
+  edge: 'Edge',
+  security: 'Security',
+};
 
 export const deploymentPlanComponentSchema = z
   .object({
@@ -48,9 +98,25 @@ export const deploymentPlanComponentSchema = z
     name: z.string(),
     action: planComponentActionSchema,
     lifecycle: z.enum(['delete', 'retain']),
+    /** IR component id when the plan is derived from a frozen spec; absent on manifest-derived plans. */
+    componentId: z.string().optional(),
+    /** Presentation grouping — derived from kind via PLAN_COMPONENT_GROUP_BY_KIND. */
+    group: planComponentGroupSchema.optional(),
   })
   .strict();
 export type DeploymentPlanComponent = z.infer<typeof deploymentPlanComponentSchema>;
+
+/**
+ * Release-vs-infrastructure statement. 'none': the release changes code only.
+ * 'unsupported': the release's topology differs from the deployed frozen spec
+ * and automatic infrastructure upgrades are not supported — deployments must
+ * fail closed. The reason currently carries 'topology_changed'.
+ */
+export const infrastructureChangeSchema = z.discriminatedUnion('status', [
+  z.object({ status: z.literal('none') }).strict(),
+  z.object({ status: z.literal('unsupported'), reason: z.string().min(1) }).strict(),
+]);
+export type InfrastructureChange = z.infer<typeof infrastructureChangeSchema>;
 
 const planRequirementDriftSchema = z
   .object({
@@ -81,6 +147,8 @@ export const deploymentPlanSchema = z
     costEstimate: z.lazy(() => footprintCostEstimateSchema).nullable().optional(),
     /** UPDATE only — requirement differences the current architecture cannot apply in place. Empty otherwise. */
     requirementDrift: z.array(planRequirementDriftSchema),
+    /** Release-vs-infrastructure statement — absent on plans built before the field existed. */
+    infrastructureChange: infrastructureChangeSchema.optional(),
   })
   .strict();
 export type DeploymentPlan = z.infer<typeof deploymentPlanSchema>;
