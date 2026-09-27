@@ -100,7 +100,7 @@ test('application detail page links to the configuration screen', async ({ page 
   await page.waitForURL(`**/dashboard/applications/${application.id}/config`);
 
   await expect(page.getByRole('tab', { name: 'Configuration' })).toHaveAttribute('aria-selected', 'true');
-  await expect(page.getByRole('heading', { name: 'Deployment configuration' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Deployment preferences' })).toBeVisible();
 });
 
 test('config screen renders vendor defaults and customer overrides', async ({ page }) => {

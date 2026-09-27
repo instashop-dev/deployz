@@ -177,11 +177,17 @@ export async function expectPlanMatchesInventory(
   const planCreateKinds = plan.components
     .filter((component) => component.action === 'CREATE')
     .map((component) => component.kind);
+  // Phase 3's spec-derived plan components include wire-level-only kinds
+  // (packages/contracts/src/plan.ts): a 'worker' is an ECS task whose AWS
+  // footprint is the application's own service. The inventory models AWS
+  // resources, not processes, so a worker is covered by the application
+  // expectation rather than by a row of its own.
+  const inventoryKinds = planCreateKinds.map((kind) => (kind === 'worker' ? 'application' : kind));
   const expectedKinds = new Set(
     expectations.components.filter((entry) => entry.expected).map((entry) => entry.kind),
   );
   expect(
-    planCreateKinds.filter((kind) => !expectedKinds.has(kind)),
+    inventoryKinds.filter((kind) => !expectedKinds.has(kind)),
     `${evidence} planCreateKinds=${JSON.stringify(planCreateKinds)}`,
   ).toEqual([]);
 }
