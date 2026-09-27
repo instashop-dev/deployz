@@ -26,8 +26,6 @@ export interface SpecDerivedComponent {
   componentId: string;
   label: string;
   state: 'PENDING' | 'IN_PROGRESS' | 'COMPLETE' | 'FAILED';
-  /** Supporting fact for generic entries — the resource type AWS reported. */
-  detail?: string;
 }
 
 /** Component identity derived from one spec's ownership records. */
@@ -89,12 +87,24 @@ export function specComponentIdentityByLogicalId(
 }
 
 /**
+ * The five catalog kinds whose plan wording the legacy plan builders own
+ * (PLAN_COMPONENT_KIND_DISPLAY mirrors INFRASTRUCTURE_COMPONENT_DISPLAY for
+ * them). Wire-level kinds keep the IR's own label.
+ */
+const CATALOG_PLAN_KINDS: ReadonlySet<PlanComponentKind> = new Set([
+  'application',
+  'endpoint',
+  'database',
+  'cache',
+  'storage',
+]);
+
+/**
  * The plan components a frozen spec presents, for GET /api/deployments/:id/plan.
  * The five catalog kinds keep the exact wording and action semantics the plan
- * builder uses (PLAN_COMPONENT_KIND_DISPLAY mirrors INFRASTRUCTURE_COMPONENT_
- * DISPLAY for them), so a simple deployment's plan is today's response plus
+ * builder uses, so a simple deployment's plan is today's response plus
  * componentId/group; wire-level-only kinds (worker/queue/schedule) keep the
- * IR label.
+ * IR label verbatim ("Email worker" stays "Email worker").
  */
 export function planComponentsFromSpec(
   spec: DeploymentSpecV2,
@@ -108,7 +118,9 @@ export function planComponentsFromSpec(
   };
   return derivePlanComponentsFromSpec(spec).map((entry) => ({
     kind: entry.kind,
-    name: PLAN_COMPONENT_KIND_DISPLAY[entry.kind] ?? entry.name,
+    name: CATALOG_PLAN_KINDS.has(entry.kind)
+      ? (PLAN_COMPONENT_KIND_DISPLAY[entry.kind] ?? entry.name)
+      : entry.name,
     action: actionFor(entry.kind, entry.lifecycle),
     lifecycle: entry.lifecycle,
     componentId: entry.componentId,
@@ -156,15 +168,10 @@ function eventState(status: string): SpecDerivedComponent['state'] {
   return 'IN_PROGRESS';
 }
 
-interface EventAggregate {
-  state: SpecDerivedComponent['state'];
-  newest: StackEventLike;
-}
-
 function aggregateEvents(
   index: SpecComponentIndex,
   events: readonly StackEventLike[],
-): Map<string, EventAggregate> {
+): Map<string, SpecDerivedComponent['state']> {
   const byComponent = new Map<string, StackEventLike[]>();
   for (const event of events) {
     if (isDebris(event)) continue;
@@ -174,23 +181,18 @@ function aggregateEvents(
     else byComponent.set(componentId, [event]);
   }
 
-  const aggregates = new Map<string, EventAggregate>();
+  const states = new Map<string, SpecDerivedComponent['state']>();
   for (const [componentId, componentEvents] of byComponent) {
     let failed = false;
     let allComplete = true;
-    let newest: StackEventLike | null = null;
     for (const event of componentEvents) {
-      if (!newest || event.eventAt > newest.eventAt) newest = event;
       const state = eventState(event.resourceStatus);
       if (state === 'FAILED') failed = true;
       if (state !== 'COMPLETE') allComplete = false;
     }
-    aggregates.set(componentId, {
-      state: failed ? 'FAILED' : allComplete ? 'COMPLETE' : 'IN_PROGRESS',
-      newest: newest!,
-    });
+    states.set(componentId, failed ? 'FAILED' : allComplete ? 'COMPLETE' : 'IN_PROGRESS');
   }
-  return aggregates;
+  return states;
 }
 
 /**
@@ -219,15 +221,11 @@ export function specComponentsForStatus(
   }
   if (aggregates.has(OTHER_COMPONENT_ID)) orderedIds.push(OTHER_COMPONENT_ID);
 
-  const entries: SpecDerivedComponent[] = orderedIds.map((componentId) => {
-    const aggregate = aggregates.get(componentId)!;
-    return {
-      componentId,
-      label: componentId === OTHER_COMPONENT_ID ? OTHER_COMPONENT_LABEL : index.labelByComponentId.get(componentId) ?? 'Deployment resource',
-      state: aggregate.state,
-      ...(componentId === OTHER_COMPONENT_ID ? { detail: aggregate.newest.resourceType } : {}),
-    };
-  });
+  const entries: SpecDerivedComponent[] = orderedIds.map((componentId) => ({
+    componentId,
+    label: componentId === OTHER_COMPONENT_ID ? OTHER_COMPONENT_LABEL : index.labelByComponentId.get(componentId) ?? 'Deployment resource',
+    state: aggregates.get(componentId)!,
+  }));
 
   // Components the legacy list already reports, where events said nothing —
   // identity via the spec's verification contract, state carried across.

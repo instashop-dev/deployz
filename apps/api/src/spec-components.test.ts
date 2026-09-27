@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 
+import { CAPABILITY_KEYS, type DeploymentManifest, type IrWorkload } from '@deployz/contracts';
+
 import { compileDeploymentIntent } from './compiler-artifact.js';
-import type { DeploymentManifest } from '@deployz/contracts';
 import {
   planComponentsFromSpec,
   specComponentIdentityByLogicalId,
@@ -62,7 +63,8 @@ describe('specComponentsForStatus', () => {
     expect(entries).toEqual([
       { componentId: 'web', label: 'Web service', state: 'IN_PROGRESS' },
       { componentId: 'primary-db', label: 'PostgreSQL database', state: 'COMPLETE' },
-      { componentId: 'other', label: 'Other resources', state: 'IN_PROGRESS', detail: 'AWS::IAM::Policy' },
+      // The bucket's raw resource type never reaches the customer wire.
+      { componentId: 'other', label: 'Other resources', state: 'IN_PROGRESS' },
     ]);
   });
 
@@ -145,6 +147,41 @@ describe('planComponentsFromSpec', () => {
       'UNCHANGED',
       'UNCHANGED',
     ]);
+  });
+
+  it('keeps distinct IR labels for wire-level kinds; catalog parity overrides still apply', () => {
+    // The cache catalog kind keeps the builder's wording (legacy parity).
+    const redisSpec = compileDeploymentIntent({
+      manifest: { ...POSTGRES_MANIFEST, redis: { required: true, envBindings: [] } },
+      region: 'us-east-1',
+    }).spec;
+    expect(
+      planComponentsFromSpec(redisSpec, 'install', false).map((entry) => [entry.kind, entry.name]),
+    ).toContainEqual(['cache', 'Cache']);
+
+    // Wire-level worker kinds keep the IR label verbatim — two workers stay
+    // distinct instead of collapsing into the generic "Background worker".
+    const web = spec.ir.workloads[0]!;
+    const worker = (componentId: string, label: string): IrWorkload => ({
+      ...web,
+      componentId,
+      kind: 'worker',
+      label,
+      command: 'node worker.js',
+      port: null,
+      public: false,
+      healthCheck: null,
+      compute: { ...web.compute, capabilityKey: CAPABILITY_KEYS.ECS_FARGATE_TASK },
+    });
+    const twoWorkers = {
+      ...spec,
+      ir: { ...spec.ir, workloads: [web, worker('worker-a', 'Email worker'), worker('worker-b', 'Jobs worker')] },
+    };
+    expect(
+      planComponentsFromSpec(twoWorkers, 'install', false)
+        .filter((entry) => entry.kind === 'worker')
+        .map((entry) => entry.name),
+    ).toEqual(['Email worker', 'Jobs worker']);
   });
 });
 

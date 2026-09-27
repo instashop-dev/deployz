@@ -76,6 +76,8 @@ import {
   type InfrastructureChange,
   type InfrastructureComponentStatus,
   type InfrastructureSummaryStatus,
+  type PlanComponentGroup,
+  type ResourceKind,
   type VendorStackEvent,
 } from '@deployz/contracts';
 import { FAILURE_REMEDIATION, failureRecoverability, type FailureCode } from '@deployz/copy-map';
@@ -972,13 +974,17 @@ interface ReadinessArchitectureNode {
 interface ReadinessArchitecture {
   counts: ApplicationGraphSummary;
   /** Components grouped for the compact card, in display order. */
-  groups: { group: string; nodes: ReadinessArchitectureNode[] }[];
+  groups: { group: PlanComponentGroup; nodes: ReadinessArchitectureNode[] }[];
   /** Focused questions the vendor must answer (kind + question + blocking). */
   unresolved: { kind: string; question: string; blocking: boolean }[];
 }
 
-/** ApplicationGraph resource kind → card group; unlisted kinds land in 'other'. */
-const ARCHITECTURE_GROUP_BY_RESOURCE_KIND: Record<string, string> = {
+/**
+ * ApplicationGraph resource kind → card group. External services are excluded
+ * before this lookup, so the map is total over every remaining kind — a group
+ * can never fall through to an unlisted bucket.
+ */
+const ARCHITECTURE_GROUP_BY_RESOURCE_KIND: Record<Exclude<ResourceKind, 'external_service'>, PlanComponentGroup> = {
   relational_database: 'data',
   document_database: 'data',
   key_value_database: 'data',
@@ -992,7 +998,7 @@ const ARCHITECTURE_GROUP_BY_RESOURCE_KIND: Record<string, string> = {
   generic_service: 'edge',
 };
 
-const ARCHITECTURE_GROUP_ORDER = ['application', 'data', 'cache', 'storage', 'messaging', 'edge', 'other'] as const;
+const ARCHITECTURE_GROUP_ORDER = ['application', 'data', 'cache', 'storage', 'messaging', 'edge'] as const;
 
 /** The architecture summary for the analysed application — built from the same effective manifest the requirements and drift summaries read. */
 function computeArchitecture(app: ManifestApplicationRow): ReadinessArchitecture {
@@ -1006,7 +1012,12 @@ function computeArchitecture(app: ManifestApplicationRow): ReadinessArchitecture
   };
   for (const workload of graph.workloads) push('application', workload.label, workload.provenance.overridden);
   for (const resource of graph.resources) {
-    push(ARCHITECTURE_GROUP_BY_RESOURCE_KIND[resource.kind] ?? 'other', resource.label, resource.provenance.overridden);
+    // An external service (EXTERNAL_SAAS) is not Deployz-created — Deployz
+    // would never provision it, so it stays out of the architecture groups.
+    // It remains visible in the detection evidence and the unresolved
+    // ownership question below.
+    if (resource.kind === 'external_service' || resource.ownership === 'EXTERNAL_SAAS') continue;
+    push(ARCHITECTURE_GROUP_BY_RESOURCE_KIND[resource.kind], resource.label, resource.provenance.overridden);
   }
   return {
     counts: summarizeApplicationGraph(graph),
