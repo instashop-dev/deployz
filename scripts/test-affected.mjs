@@ -117,7 +117,6 @@ export const VERIFIED_PATHS = [
   'apps/api/src/sentry.ts',
   'apps/api/src/customer-activity.ts',
   'packages/cdk/src/bootstrap',
-  'packages/cdk/src/application',
   'packages/cdk/src/quick-create',
   'packages/cdk/src/lambda/relay-handler.ts',
   'packages/cdk/bin',
