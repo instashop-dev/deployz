@@ -8,11 +8,13 @@ import {
   AWS_RESOURCE_GROUP_DISPLAY,
   AWS_RESOURCE_GROUP_ORDER,
   CONNECTOR_RESOURCES,
+  FOOTPRINT_SERVICE_DISPLAY,
   INFRASTRUCTURE_COMPONENT_DISPLAY,
   REGION_LABELS,
   type AwsResourceGroup,
   type DeploymentPlan,
   type DeploymentPlanAwsResource,
+  type FootprintWorkload,
   type Region,
 } from '@deployz/contracts';
 
@@ -141,6 +143,29 @@ export interface InstallResourceRow {
   onRemoval: string;
 }
 
+/**
+ * The install table's purpose line per workload role. Workers run in the
+ * private network with no load-balancer route, so their row says so rather
+ * than implying a public URL exists.
+ */
+function workloadPurpose(role: string): string {
+  return role === 'worker'
+    ? 'Processes background jobs — not reachable from the internet'
+    : 'Serves the application\'s public traffic';
+}
+
+/** One install-table row per footprint workload (the web app and every worker). */
+function installWorkloadRow(workload: FootprintWorkload): InstallResourceRow {
+  const service = FOOTPRINT_SERVICE_DISPLAY[workload.compute.service] ?? workload.compute.service;
+  return {
+    id: `workload-${workload.id}`,
+    name: workload.label,
+    serviceAndConfiguration: `${service} · ${workload.quantity} × ${workload.compute.sizeLabel} · ${workload.compute.cpuUnits / 1024} vCPU · ${workload.compute.memoryMiB} MB`,
+    purpose: workloadPurpose(workload.role),
+    onRemoval: INSTALL_RESOURCE_REMOVAL_LABEL.delete,
+  };
+}
+
 /** One heading group of the install page's single infrastructure table. */
 export interface InstallResourceGroupRows {
   group: AwsResourceGroup;
@@ -151,23 +176,22 @@ export interface InstallResourceGroupRows {
 /**
  * The install page's ONE infrastructure table: the Deployz connector's
  * resources first, then the application's — grouped by the shared catalog
- * order, with exact sizing read from the plan's deployment footprint where the
- * footprint provides it. Never invents a size: a row without a footprint match
- * shows its service name only.
+ * order, with each workload (the web application and every declared worker)
+ * as its own row sized from the plan's deployment footprint, and managed
+ * resources sized where the footprint matches their catalog role. Never
+ * invents a size: a row without a footprint match shows its service name only.
  */
 export function installPlanResourceGroups(plan: DeploymentPlan | null): InstallResourceGroupRows[] {
   const footprint = plan?.footprint ?? null;
-  const workload = footprint?.workloads?.[0] ?? null;
   const resourceByRole = new Map((footprint?.resources ?? []).map((resource) => [resource.role, resource]));
 
   const sizingFor = (kind: DeploymentPlanAwsResource['componentKind']): string | null => {
-    if (kind === 'application' && workload) {
-      return `${workload.quantity} × ${workload.compute.sizeLabel} · ${workload.compute.cpuUnits / 1024} vCPU · ${workload.compute.memoryMiB} MB`;
-    }
     const resource = resourceByRole.get(kind);
     if (!resource) return null;
     return resource.quantity > 1 ? `${resource.quantity} × ${resource.label}` : resource.label;
   };
+
+  const workloadRows = (footprint?.workloads ?? []).map(installWorkloadRow);
 
   const rows: InstallResourceRow[] = [
     ...CONNECTOR_RESOURCES.map((resource) => ({
@@ -192,11 +216,15 @@ export function installPlanResourceGroups(plan: DeploymentPlan | null): InstallR
   return AWS_RESOURCE_GROUP_ORDER.map((group) => ({
     group,
     label: AWS_RESOURCE_GROUP_DISPLAY[group],
-    rows: rows.filter((row) => {
-      if (group === 'connector') return CONNECTOR_RESOURCES.some((resource) => resource.id === row.id);
-      return (plan?.awsResources ?? []).some(
-        (resource) => resource.id === row.id && resource.group === group,
-      );
-    }),
+    rows: [
+      ...rows.filter((row) => {
+        if (group === 'connector') return CONNECTOR_RESOURCES.some((resource) => resource.id === row.id);
+        return (plan?.awsResources ?? []).some(
+          (resource) => resource.id === row.id && resource.group === group,
+        );
+      }),
+      // Workload rows sit in Compute & Networking, where the containers run.
+      ...(group === 'compute_networking' ? workloadRows : []),
+    ],
   })).filter((entry) => entry.rows.length > 0);
 }
