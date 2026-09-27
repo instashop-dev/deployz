@@ -9,12 +9,12 @@ import { DeploymentProgressSteps } from '@/components/deployment-progress-steps'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Card, CardContent } from '@/components/ui/card';
 import { relativeTime } from '@/lib/diagnostics';
+import type { StatusWithSpecComponents } from '@/lib/deployment-progress';
 import {
   AWAITING_DOMAIN_STEP_DETAIL,
   COMPONENT_PROGRESS_LABEL,
   formatElapsedSeconds,
   specComponentPresentation,
-  StatusWithSpecComponents,
   stepDetailLine,
   stepWaitingOnInput,
   stepsFromStatus,

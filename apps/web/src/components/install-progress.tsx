@@ -30,13 +30,13 @@ import {
   recentActivityTimeLabel,
   specComponentPresentation,
   STAGE_HEADLINE,
-  StatusWithSpecComponents,
   stepWaitingOnInput,
   stepsBeforeLaunch,
   AWAITING_DOMAIN_STEP_DETAIL,
   customerStepperSteps,
   stepsFromStatus,
   type SpecComponent,
+  type StatusWithSpecComponents,
 } from '@/lib/deployment-progress';
 import { fetchDeployLinkStatus, type DeployLinkToken } from '@/lib/deploy-link-flow';
 import { fetchInstallStatus } from '@/lib/install-status';
