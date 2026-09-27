@@ -97,12 +97,14 @@ whatever image `pnpm canary:fixture-repo` last generated, which may predate
 this endpoint — run `pnpm canary:fixture-repo` again before the next canary
 so the fixture image actually answers `/canary/bindings` instead of 404ing.
 
-**Fixture-application policy.** The canary never modifies the
-production-published templates: it publishes its own application template
-under `application/canary-<run-id>/` in the template bucket, pinned to the
-run's v1 image, and hands it to the bootstrap stack through the
-`ApplicationTemplateUrl` parameter (skipped entirely in `--production` mode
-— see L6 below). Releases are built **just in time**: INSTALL success
+**Fixture-application policy.** The canary publishes no application
+template: the application stack is the compiled artifact the control plane
+produces at deployment creation (`compiler-v2/<templateHash>.json` in the
+region's template bucket). The run still installs the **bootstrap**
+template published from the branch under test, so the relay under test is
+what executes — skipped entirely in `--production` mode, which uses
+whatever bootstrap template production already publishes (see L6 below).
+Releases are built **just in time**: INSTALL success
 auto-deploys the newest READY release, so v2/v3/v4 are only built once the
 `core` ladder actually reaches them, not up front.
 
@@ -117,7 +119,7 @@ auto-deploys the newest READY release, so v2/v3/v4 are only built once the
   refuses a migration command without a database.
 - **Fixture B — the `core` ladder** (`pnpm e2e:canary:versions core`): the
   full release/rollback/failed-release/recovery/persistence/cleanup
-  lifecycle described below, under the legacy PostgreSQL+Redis shape.
+  lifecycle described below, under the PostgreSQL+Redis shape.
 - **Other profiles** — `profile --profile pg` (PostgreSQL only) and
   `profile --profile redis` (Redis only) each certify one infrastructure
   shape: install to HEALTHY with the plan-vs-inventory gate, default HTTPS
@@ -152,8 +154,8 @@ Troubleshooting below).
 ### The `core` scenario
 
 ```
-preflight → vendor + application → build v1 → publish canary template
-→ install → HEALTHY → v1 serving → default HTTPS ACTIVE → bindings present
+preflight → vendor + application → build v1 → install → HEALTHY
+→ v1 serving → default HTTPS ACTIVE → bindings present
 → seed CANARY_DATA → build v2 → deploy v2 → data + infra unchanged
 → rollback to v1 → data + infra unchanged
 → deploy v2 → build v3-bad-health → deploy v3 FAILS, v2 keeps serving
@@ -193,10 +195,11 @@ The same L5 harness, run as `profile --profile stateless --production`
 (`DEPLOYZ_CANARY_PRODUCTION=1`) against the deployed control plane. It
 answers one question: **can production Deployz deploy right now?**
 
-- **No template override.** `--production` skips `publishCanaryTemplate` and
-  the `ApplicationTemplateUrl` override — the bootstrap stack installs with
-  whatever the production-published template already is, exactly what a real
-  customer's Quick Create uses.
+- **No template override.** `--production` skips the branch
+  bootstrap-template publish — the run installs with whatever bootstrap
+  template production already publishes, exactly what a real customer's
+  Quick Create uses. (There is no application-template override anywhere:
+  the application stack is always the control plane's compiled artifact.)
 - **HTTPS ACTIVE asserted** and **bindings asserted** the same way a branch
   run does.
 - **Control-plane health recorded**: preflight writes what `GET /health` and
@@ -301,8 +304,8 @@ Normal teardown runs the product's own Disconnect and Purge first (what a
 customer gets), then the canary-only leftovers a customer would remove by
 hand: the bootstrap stack (only once the application stack is gone — its
 execution role lives in the bootstrap stack), the relay's Lambda log groups,
-the run's ECR tags, the installation's task definitions, the SSM pending
-marker, the canary template objects.
+the run's ECR tags, the installation's task definitions, and the SSM pending
+marker.
 
 ```bash
 DEPLOYZ_E2E_ALLOW_REAL_AWS=1 pnpm e2e:canary:versions cleanup --run-id <id>   # Disconnect/Purge/leftovers for one run
@@ -348,9 +351,11 @@ invisible to unit tests, CI and the simulator — not a judgment call:
 
 - **Required.** A change to the relay's install/deploy/rollback/destroy/purge
   executors (`packages/relay/src`), the bootstrap template
-  (`packages/cdk/src/bootstrap`), the application template
-  (`packages/cdk/src/application`), or the relay's enrollment path needs a
-  real-AWS run before the template is republished: `fresh` for a
+  (`packages/cdk/src/bootstrap`), the infrastructure compiler or its
+  CloudFormation output (`packages/infrastructure-compiler`,
+  `packages/contracts` planning), or the relay's enrollment path needs a
+  real-AWS run before the affected template or artifact path is live:
+  `fresh` for a
   bootstrap-only change; the stateless `profile` otherwise; `core` for a
   release, rollback, deploy, destroy or purge change.
 - **A `packages/relay/src` change** (non-test): `scripts/test-affected.mjs`
@@ -405,12 +410,15 @@ invisible to unit tests, CI and the simulator — not a judgment call:
   it, which can take tens of minutes end to end when default HTTPS is also
   active — do not treat a long-running Purge step as stuck before the
   teardown timeout is reached.
-- **Republish the template before a canary of a bootstrap change.** A canary
+- **Republish the bootstrap template before a canary of a bootstrap
+  change.** A canary
   run installs from whatever the bootstrap template already publishes unless
   it synthesizes its own (branch-testing mode, the default for `core`/
   `resilience`/non-production `profile`); a `--production` run always uses
   whatever is already published. A merge that changed
-  `packages/relay/src` or `packages/cdk/src/bootstrap`/`application` needs a
-  fresh `publish:application`/`publish:bootstrap` before a `--production`
+  `packages/relay/src` or `packages/cdk/src/bootstrap` needs a fresh
+  `publish:bootstrap` before a `--production`
   canary can see it — see the deploy workflow's "Republish the bootstrap
-  template" step in `.github/workflows/deploy-api.yml`.
+  template" step in `.github/workflows/deploy-api.yml`. Compiled
+  application artifacts need no publish step: the API publishes them at
+  deployment creation.

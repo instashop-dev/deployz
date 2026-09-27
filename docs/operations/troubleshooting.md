@@ -56,7 +56,7 @@ Every failure carries one of 24 stable codes and a recoverability class
 | `AWS_SCP_BLOCKED` | USER_ACTION | Customer organisation policy blocks a standard resource |
 | `QUOTA_EXCEEDED` | USER_ACTION | VPC / NAT / Elastic IP (default 5 per Region) or Fargate vCPU quota |
 | `REGION_NOT_SUPPORTED` | TERMINAL | Region not in `DEPLOYABLE_AWS_REGIONS` |
-| `TEMPLATE_UNAVAILABLE` | DEPLOYZ_ACTION | Bootstrap or application template not published for the Region |
+| `TEMPLATE_UNAVAILABLE` | DEPLOYZ_ACTION | Bootstrap template not published for the Region, or the deployment's compiled artifact missing from the INSTALL payload — the relay refuses rather than guesses |
 | `IMAGE_PULL_FAILED` | DEPLOYZ_ACTION | ECR cross-account grant missing or the image deleted; check the release is not `UNAVAILABLE` |
 | `CONTAINER_START_FAILED` | USER_ACTION | The task exits at boot (missing configuration, a value the app rejects); check the ECS stop reason and the unbound secret keys |
 | `IMAGE_HEALTH_CHECK_FAILED` | USER_ACTION | The health path does not answer 2xx on the container port; a wrong port surfaces here, not as `PORT_MISMATCH` |
@@ -182,13 +182,18 @@ once default HTTPS is configured: port 80 is a 301 redirect that preserves
 the host, and the certificate covers only `d-<id>.deployz.dev`. Probe the
 advertised URL, not the ALB DNS name.
 
-**Disconnect takes 30–40 minutes and passes through `DELETE_FAILED`.** The
-retained RDS instance keeps an ENI in the database security group and a
-private subnet; CloudFormation retries the subnet delete for about 14
-minutes before the relay finishes with `RetainResources`. This is the
-retain-then-purge path, not a fault. Purge then removes the database, its
-secrets, the bucket, the ACM certificates, the subnet group and the network
-orphans, one kind per relay poll (about 95 minutes for a full purge).
+**Disconnect takes 45+ minutes and passes through `DELETE_FAILED` — and
+still succeeds.** The retained RDS instance keeps an ENI in the database
+security group and a private subnet; CloudFormation retries the subnet
+delete for about 14 minutes, then the relay re-issues the delete with
+`RetainResources` for the failed resources and repeats the pass until the
+stack completes. The deployment then settles DELETED — a truthful success:
+the application is gone, and the database, its secrets and the bucket are
+deliberately retained for Purge, not left behind by a fault. Purge then
+removes the database, its secrets (every owned application secret,
+regardless of when the stack was created), the bucket, the ACM
+certificates, the subnet group and the network orphans, one kind per relay
+poll (about 95 minutes for a full purge).
 
 **After Purge the connector stack is still there and still polling.**
 Expected: the relay cannot delete its own stack. The vendor page and the

@@ -251,9 +251,9 @@ Two Vitest suites outside `e2e/` guard the manifest-to-plan/verify contract
 these scenarios exercise: `apps/api/src/requirements-contract.test.ts`
 (the manifest survives byte-for-byte from deployment creation through the
 INSTALL job payload to the relay's template selection and verification) and
-`packages/cdk/test/lifecycle-parity.test.ts` (the infrastructure component
-catalog's destroy `lifecycle` for each component agrees with the committed
-application templates' `DeletionPolicy`).
+the compiler tests (`packages/infrastructure-compiler/src/compile.test.ts`,
+`safety.test.ts` — every compiled resource carries the lifecycle/retention
+metadata the catalog and the relay's destroy/purge behavior rely on).
 
 `e2e/admin.spec.ts` covers the Team Admin console
 (`docs/admin/team-admin.md`): authorization, global search into the vendor

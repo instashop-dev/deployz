@@ -92,13 +92,20 @@ failure until they are recycled.
 
 ## Publishing customer templates
 
-The customer-side artifacts are published by hand, in this order, after
-`pnpm build`:
+The bootstrap template is published by hand after `pnpm build`; the
+application stack's CloudFormation is not published by hand at all — the
+API compiles and publishes it at deployment creation.
 
-1. `pnpm --filter @deployz/cdk run publish:application` — uploads the four
-   application template variants to the legacy template bucket under
-   `application/v1/…`. The application templates contain no Lambda code, so
-   they stay single-Region and are fetched by CloudFormation over HTTPS.
+1. **Compiled application artifacts (automatic).** At deployment creation
+   the API compiles the deployment's frozen spec and puts the template in
+   that region's `deployz-templates-<region>` bucket under
+   `compiler-v2/<templateHash>.json` — a conditional `PutObject`
+   (`IfNoneMatch: '*'`), so re-publishing identical infrastructure is a
+   `412`-dedup, never an error or an overwrite. The bucket must already
+   exist with public read for every deployable region; the publisher fails
+   closed otherwise. (`deployz-templates-us-east-1` was found missing
+   during the Phase 2 validation and has been created; all deployable
+   regions now have their bucket.)
 2. `pnpm --filter @deployz/cdk run publish:bootstrap` — synthesizes the
    bootstrap stack once, then publishes a per-Region template plus the relay
    Lambda's asset zips into every `deployz-templates-<region>` bucket, and
@@ -109,8 +116,9 @@ The customer-side artifacts are published by hand, in this order, after
    `DEPLOYABLE_AWS_REGIONS` values to set as repository variables.
 
 Why per Region: a Lambda must read its code from a bucket in its own Region.
-The regional buckets must already exist with public read; the publisher
-verifies, it does not create.
+The regional buckets must already exist with public read — the
+`publish:bootstrap` verifier and the API's artifact publisher verify and
+read/write objects, but neither creates buckets.
 
 The relay code that drives every install ships inside the bootstrap
 template's assets. A relay fix reaches a customer only after

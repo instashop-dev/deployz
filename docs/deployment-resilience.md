@@ -237,6 +237,29 @@ forwarded.
   budget, bounded backoff); ambiguous outcomes go through reconciliation;
   permanent failures stop.
 
+## Disconnect retains data on purpose: DESTROY vs PURGE
+
+DESTROY (disconnect) is a data-preserving teardown, and **a DESTROY that
+retains data is a success**. The relay deletes the application stack; the
+deletion-protected RDS instance fails its delete only after the security
+group and subnet it pins, so the stack first lands on `DELETE_FAILED` —
+expected pacing (45+ minutes of CloudFormation retrying), not a failure.
+The relay lists the `DELETE_FAILED` resources and re-issues
+`delete-stack` with `RetainResources`, repeating the pass on each poll
+until the stack reaches `DELETE_COMPLETE`. The deployment then settles
+`DELETED` — truthfully: the application, network and cache are gone; the
+database, its credential secrets and the bucket are deliberately retained
+(no final snapshot is ever taken), clearly visible, and removable by
+PURGE.
+
+PURGE is the second, explicit half. It deletes the retained data — the RDS
+instance (deletion protection off, `SkipFinalSnapshot`), **every owned
+application secret regardless of infrastructure generation** (anything
+carrying the installation tag that is not the relay's own
+`deployz:component=bootstrap` secret), the bucket (every version), ACM
+certificates, subnet groups and network orphans — one kind per relay poll.
+A failed purge lands on `cleanupState: PURGE_FAILED` and stays retryable.
+
 ## First-install recovery
 
 `ROLLBACK_COMPLETE` cannot brick a deployment: the vendor's retry-install
@@ -269,8 +292,9 @@ lives server-side.
 
 Verification expectations follow the same rule. `databaseRequired` and
 `redisRequired` are explicit booleans derived from the deployment's stored
-manifest (§ frozen at creation — see the domain model above), never a
-silent default. The relay never assumes a database is required. Until the
+spec's verification contract (frozen at creation — see the domain model
+above), never a silent default. The relay never assumes a database is
+required. Until the
 control plane's poll response has told it what this deployment actually
 needs, it skips verification for that heartbeat instead of checking against
 a guess. This keeps verification honest about what it does not yet know,
@@ -293,4 +317,6 @@ the same way the uncertain-result rule keeps reconciliation honest.
 - End-to-end failure boundaries: the simulated scenario suite
   (`docs/testing/simulated-e2e.md`) — including `duplicate-request`,
   `transient-aws`, and `relay-death-destroy` in
-  `e2e/scenario-resilience.spec.ts`.
+  `e2e/scenario-resilience.spec.ts`, and the DESTROY-retains /
+  PURGE-removes proof in `retained-delete-recovery`
+  (`e2e/scenario-lifecycle.spec.ts`).

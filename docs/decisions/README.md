@@ -22,7 +22,8 @@ Two decisions with substantial detail have their own files:
 | 2026-09-03 | Infrastructure profiles are immutable and frozen per deployment | Active |
 | 2026-09-20 | Jev shadow analysis is not adopted | Active |
 | 2026-09-22 | Config secrets are KMS-encrypted; Lambdas fail closed without the key | Active |
-| 2026-09-25 | Runtime-v1 backward compatibility is not required for the MVP | Active |
+| 2026-09-25 | Runtime-v1 backward compatibility is not required for the MVP | Executed |
+| 2026-09-26 | Purge deletes every owned application secret except the relay's own bootstrap component | Active |
 
 ## AI explanations are on-demand and never change state (2026-08-25)
 
@@ -103,6 +104,17 @@ adding safety over the retained instance itself. The bootstrap stack is
 never deleted by the relay (it cannot delete its own role); the customer
 deletes it.
 
+Resolved with the compiler-v2 cutover (2026-09-26): a DESTROY that retains
+data is a **success**. The deletion-protected database fails its delete
+after the security group and subnet it pins, so the stack passes through
+`DELETE_FAILED`; the relay re-issues the delete with `RetainResources` for
+the failed resources, repeating the pass until the stack reaches
+`DELETE_COMPLETE`, and the deployment settles `DELETED` — the retained
+data is deliberate, visible and purgeable, not a failure. PURGE then
+removes the retained data, including every owned application secret
+regardless of infrastructure generation (see the 2026-09-26 record
+below).
+
 ## The stored manifest is the only source of infrastructure intent (2026-09-02, reaffirmed 2026-09-17)
 
 The analyzer writes a versioned `DeploymentManifest`; it is frozen on the
@@ -173,21 +185,35 @@ customer who does not never sees the jargon. `apps/api/src/customer-activity.tes
 pins both halves, and the E2E failure-path test asserts the raw reason is
 hidden on the page, not absent from its payload.
 
-## Runtime-v1 backward compatibility is not required for the MVP (2026-09-25)
+## Runtime-v1 backward compatibility is not required for the MVP (2026-09-25, executed 2026-09-26)
 
 Deployz is pre-launch. There are no live customer deployments on the
 runtime-v1 template generation, so the MVP does not preserve
 backward compatibility with it and does not build a migration path.
 
 The four historical runtime-v1 template variants are reference
-material, not compatibility contracts. Compiler-v2 becomes the sole
-infrastructure-generation path for new deployments. Internal test
-deployments may be recreated.
+material, not compatibility contracts. Compiler-v2 became the sole
+infrastructure-generation path for new deployments, as planned.
+Internal test deployments may be recreated.
 
-This decision lets Phase 2 remove the dual-generation machinery
-(template-variant selection, runtime-v1 application stack,
-shadow-only integration, v1↔v2 parity as a compatibility guarantee)
-rather than carrying it forward.
+**Executed.** The relay now executes the frozen compiled artifact carried
+in its INSTALL payload; the runtime-v1 machinery (template-variant
+selection, the runtime-v1 application stack, the shadow-only integration,
+v1↔v2 parity as a compatibility guarantee) is removed. The consequences
+realized exactly as recorded: no migration layer was ever built, and no
+dual runtime exists on any path.
 
 What would change it: a contractual or operational requirement to
 keep existing runtime-v1 deployments running after the MVP launches.
+
+## Purge deletes every owned application secret regardless of generation (2026-09-26)
+
+Purge's secret sweep keys on the `deployz:installation` tag, not on a
+template-era allowlist: it deletes every tagged Secrets Manager secret the
+relay owns **except** `deployz:component=bootstrap` — the relay's own
+credential, which must survive so the relay can finish the purge. Earlier
+purges only removed the compiler-v2 secret names; secrets left by any
+other generation of the application stack would have survived purge
+forever. Generation-agnostic deletion with the single bootstrap exclusion
+is the invariant; the simulated `retained-delete-recovery` scenario and
+the composite canary both assert a clean account after purge.

@@ -46,7 +46,7 @@ thing. Do not stretch a layer to prove something a higher layer owns.
 | --- | --- | --- | --- | --- |
 | **L0 — static** | The code builds, lints clean, and typechecks, including the E2E harness and the AWS scripts; production-safety guards hold (no AWS SDK in the simulator, no fixture-mode env var reaches the deployed Lambda); every Lambda entry point still bundles | Business logic — static checks read shapes, not behaviour | `pnpm build`, `pnpm lint`, `pnpm typecheck:e2e`, `pnpm typecheck:scripts`, `pnpm test:static`, `node --test scripts/test-affected.test.mjs`, `pnpm synth:smoke` | Every non-minimal PR (the subset the plan selects); the full set on `main` |
 | **L1 — unit** | Pure logic: state derivation, business rules, parsing, pricing, the client-side state matrices — Vitest over fakes and in-memory fixtures, including `apps/web`'s jsdom tests | A real DB, a real HTTP boundary, or a real AWS call | `pnpm vitest run` (or `pnpm vitest run --project <package>`, or a single test file) | Every non-minimal PR, scoped to the affected projects; every project on `main` |
-| **L2 — integration/contract** | A real local dependency with no network call to AWS or GitHub: API routes over PGlite, DB constraints, CDK template synthesis plus committed-artifact parity, the worker Lambda over PGlite, relay executors over fakes, and parity tests between packages (manifest ↔ plan ↔ verify, catalog ↔ committed template) | A real customer AWS account, or vendor/customer UI rendering | `pnpm vitest run --project <package>` (same command as L1 — the distinction is what the test exercises, not how it runs) | Same as L1 |
+| **L2 — integration/contract** | A real local dependency with no network call to AWS or GitHub: API routes over PGlite, DB constraints, CDK bootstrap-template synthesis, the worker Lambda over PGlite, relay executors over fakes, compiler determinism/composition/identity over fixtures, and parity tests between packages (manifest ↔ plan ↔ verify) | A real customer AWS account, or vendor/customer UI rendering | `pnpm vitest run --project <package>` (same command as L1 — the distinction is what the test exercises, not how it runs) | Same as L1 |
 | **L3 — UI/workflow** | A vendor or customer workflow end to end: the real Next.js app and the real Fastify API, driven by Playwright. Fixture-mode specs replace GitHub, AI and DNS with canned data. Scenario specs additionally replace the AWS SDK client with a `SimulatedCustomerAccount` and drive the real relay code over it | AWS API behaviour itself — the simulator only returns AWS-shaped answers, it does not verify AWS's actual behaviour | `pnpm e2e` (the full simulated suite — every `e2e/*.spec.ts` file, including scenarios), `node scripts/e2e.mjs --grep-invert "@scenario|visual"` (the fixture-mode suite alone), `pnpm e2e --scenario=<id>`, `pnpm e2e --scenarios` (every scenario), `pnpm e2e e2e/<file>.spec.ts` | Every non-minimal PR that touches runtime UI/API code, or names a spec; every spec and scenario on `main` |
 | **L4 — AWS integration** (`fresh`) | One real AWS boundary in minutes, with no product flow: the bootstrap stack's real create → verify → destroy path | A full product lifecycle — `fresh` never installs an application | `DEPLOYZ_E2E_ALLOW_REAL_AWS=1 pnpm e2e:fresh` | Manual/local escalation only; never in CI |
 | **L5 — AWS E2E** (version canary) | A complete real lifecycle through the deployed control plane, against a Deployz-controlled fixture application. Fixture A is the stateless profile (`profile --profile stateless`) — install, deploy, verify, teardown, no database. Fixture B is the Postgres+Redis `core` ladder — the full release/rollback/failed-release/recovery/persistence/cleanup lifecycle | Routine development iteration — this is an escalation, not a debugging loop | `DEPLOYZ_E2E_ALLOW_REAL_AWS=1 pnpm e2e:canary:versions profile --profile stateless`, `DEPLOYZ_E2E_ALLOW_REAL_AWS=1 pnpm e2e:canary:versions core` | Manual/on-demand escalation, and before an MVP release |
@@ -70,6 +70,28 @@ thing. Do not stretch a layer to prove something a higher layer owns.
   recovery, cleanup) → AWS E2E (L5).
 - **Production availability** (can Deployz deploy right now, against the
   live control plane) → production canary (L6).
+
+### The compiler-v2 evidence set
+
+The live provisioning path (compile at creation → publish a
+content-addressed artifact → relay executes the frozen artifact) is proven
+at three separate layers, and only the last touches real AWS:
+
+- **Unit/contract (L1/L2)** — compiler determinism, capability
+  composition and stable logical identity
+  (`packages/infrastructure-compiler`), and the API's artifact
+  publication and INSTALL-parameter tests.
+- **Simulated E2E (L3)** — the full product path over the
+  `SimulatedCustomerAccount`, including `retained-delete-recovery`
+  (DESTROY retains; PURGE removes).
+- **Real AWS (L4+)** — mandatory for release gates: the direct composite
+  canary, the version canary's `profile` runs, and the `core` day-2
+  ladder. A green simulated suite never substitutes for these.
+
+Capability composition — not the four historical application templates —
+is the primary testing model: tests assert what the compiler composes
+from a graph, not which static template variant was selected. The
+runtime-v1 parity tests were removed with runtime-v1.
 
 ## The escalation policy for coding agents
 
@@ -125,9 +147,11 @@ layer cannot establish confidence.
 
    - A change to the relay's install/deploy/rollback/destroy/purge
      executors (`packages/relay/src`), the bootstrap template
-     (`packages/cdk/src/bootstrap`), the application template
-     (`packages/cdk/src/application`), or the relay's enrollment path
-     **requires** a real-AWS run before the template is republished: `fresh`
+     (`packages/cdk/src/bootstrap`), the infrastructure compiler or its
+     CloudFormation output (`packages/infrastructure-compiler`,
+     `packages/contracts` planning), or the relay's enrollment path
+     **requires** a real-AWS run before the affected template or artifact
+     path is live: `fresh`
      for a bootstrap-only change; the stateless `profile` otherwise; `core`
      for a release, rollback, deploy, destroy or purge change. A wrong
      `GetAtt` and a mis-shaped relay credential each once broke every

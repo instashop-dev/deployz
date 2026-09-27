@@ -22,7 +22,7 @@ rationale lives in [`decisions/README.md`](decisions/README.md).
 | SQS job queue + dead-letter queue | `apps/api/src/queue.ts` | API → worker messages |
 | CodeBuild project + ECR repository `deployz-images` | `packages/cdk/src/pipeline/build-pipeline.ts` | Release builds; immutable tags, digest-pinned deploys |
 | Source bucket (private, 30-day expiry) | | Repository tarballs staged for CodeBuild |
-| Template bucket (public read) + regional `deployz-templates-<region>` buckets | `packages/cdk/scripts/publish-*.mjs` | The customer bootstrap and application templates |
+| Template bucket (public read) + regional `deployz-templates-<region>` buckets | `packages/cdk/scripts/publish-bootstrap.mjs`; the API (`apps/api/src/compiler-artifact.ts`) | The bootstrap templates; and the compiled application artifacts the API publishes at deployment creation under `compiler-v2/<templateHash>.json` |
 | KMS key `alias/deployz-config-secrets` | | Config-secret and pending-secret encryption |
 | Cloudflare zone `deployz.dev` (external) | `apps/api/src/cloudflare-records.ts` | Default-HTTPS DNS records |
 | Web app on Lightsail (`app.deployz.dev`) | `apps/web` | Vendor dashboard, public install pages, Team Admin |
@@ -35,7 +35,7 @@ Everything in the control plane is deployed by CI only; see
 | Stack | Created by | Contents |
 | --- | --- | --- |
 | Bootstrap ("connector") stack `deployz-bootstrap-…` | The customer's Quick Create | The relay Lambda (Node 22, 5-minute timeout) on a 5-minute EventBridge schedule, its role with a permissions boundary, the CloudFormation execution role, the relay credential in Secrets Manager, an SSM pending-command marker |
-| Application stack `deployz-app-<installation-id-prefix>` | The relay, from one of four published templates | VPC, ALB, ECS Fargate service, S3 bucket, optional RDS PostgreSQL, optional Valkey cache, app config secret, roles, log group, alarm |
+| Application stack `deployz-app-<installation-id-prefix>` | The relay, from the compiled CloudFormation artifact frozen in the deployment's spec | VPC, ALB, ECS Fargate service, S3 bucket, optional RDS PostgreSQL, optional Valkey cache, app config secret, roles, log group, alarm |
 
 The relay talks to the control plane **egress-only** and is the only code
 that ever touches the customer's AWS account.
@@ -56,7 +56,7 @@ that ever touches the customer's AWS account.
    vendor setup task ([`environment-variables.md`](environment-variables.md)).
 3. **Manifest** — the READY manifest is frozen on each deployment as its
    desired state and is the **only** source of infrastructure intent for
-   everything downstream (template selection, the INSTALL payload, relay
+   everything downstream (the compiled artifact, the INSTALL payload, relay
    verification, plans, inventory). Gates refuse to move a non-READY
    deployment toward provisioning.
 4. **Preflight** — `apps/api/src/preflight.ts` combines the manifest gate
@@ -117,9 +117,9 @@ that ever touches the customer's AWS account.
 
 ## Application template generation
 
-**Target (Phase 2).** The control plane compiles a CloudFormation template
-from the frozen `DeploymentSpecV2` instead of selecting a pre-published
-runtime-v1 variant.
+The control plane compiles a CloudFormation template from the frozen
+`DeploymentSpecV2`; there is no pre-published application template and no
+other provisioning path.
 
 **`DeploymentManifest` → `ApplicationGraph` → `DeployzIR` → compiler-v2 →
 compiled artifact**
@@ -138,25 +138,25 @@ compiled artifact**
 4. **compiler-v2** (`packages/infrastructure-compiler`) turns the IR into a
    deterministic CloudFormation template, a resolved AWS graph, a
    verification contract, ownership records and a footprint.
-5. **Relay INSTALL** fetches the compiled artifact from the control plane and
-   creates the application stack. The relay never synthesizes templates and
-   never resolves runtime-v1 template URLs.
-
-**Current state (known gap).** The compiler-v2 pipeline (steps 1–4) is
-implemented and proven on real AWS by the `validate-compiler-v2.mjs` and
-`canary-compiler-v2*.mjs` scripts, but the relay has not yet been cut over
-to it. Production INSTALL still resolves one of the four runtime-v1
-template URLs from the manifest profile. The cutover (persisting the
-compiled `DeploymentSpecV2` artifact, aligning the template parameter
-contract, and pointing the relay at it) is the remaining Phase 2 work; see
-`docs/dynamic-infrastructure-implementation-plan.md` §Phase 2 Result.
+5. **Compile and publish at creation.** The API runs this chain at
+   deployment creation and publishes the template to the region's
+   public-read template bucket at `compiler-v2/<templateHash>.json`
+   (a conditional `PutObject`; an object that already holds the hash is
+   byte-identical, so `412 PreconditionFailed` is dedup success). The
+   publish happens before the deployment row is written — no compile or
+   publish, no deployment. The completed spec is persisted on the row
+   (`deployments.spec_v2`, `infra_version = 'dynamic-compiler-v2'`).
+6. **Relay INSTALL** executes the payload's `templateUrl` — the frozen
+   artifact — with typed parameters (pinned image digest, generated
+   `NoEcho` app secrets, manifest-derived port and health path). The relay
+   never synthesizes templates and fails closed without the artifact URL.
 
 Rules: the manifest is authoritative and an invalid or missing requirement
-fails before provisioning; the relay refuses an INSTALL without a known
-template; the heartbeat's expected components come from the deployment
-spec; an existing deployment keeps the template it was created with;
-unsupported infrastructure changes that would replace or delete managed
-resources fail closed.
+fails before provisioning; the relay refuses an INSTALL without the
+payload's artifact URL; the heartbeat's expected components come from the
+deployment spec; an existing deployment keeps the artifact it was created
+with (releases never recompile it); unsupported infrastructure changes
+that would replace or delete managed resources fail closed.
 
 ## What the application stack contains
 
@@ -190,9 +190,7 @@ that verify the chain. Aliases such as `DB_HOST` / `DB_USER` are bound from
 the analysis manifest.
 
 The HTTPS listener and its certificate are **not** in the template; the
-relay adds them after install. The CDK construct still contains an ECS
-Express-mode branch and a background-worker service; neither is in any
-published artifact.
+relay adds them after install.
 
 ### Infrastructure components and AWS resources
 
@@ -212,17 +210,18 @@ creates, with a customer name, purpose, display group, the component it
 binds to, its CloudFormation type and its lifecycle. It omits objects with
 no customer meaning (route tables, listeners).
 
-`packages/cdk/test/lifecycle-parity.test.ts` and `sizing-parity.test.ts`
-were runtime-v1 parity tests. They are removed when compiler-v2 becomes
-the sole path; capability lifecycle and sizing are tested inside the
-capability registry and compiler tests.
+The runtime-v1 parity tests (`lifecycle-parity.test.ts`,
+`sizing-parity.test.ts`) were removed with the runtime-v1 application
+stack; capability lifecycle and sizing are tested in the capability
+registry and the compiler tests.
 
 ### Deployment plans
 
 A plan (`packages/contracts/src/plan.ts`) states what INSTALL, UPDATE or
-DESTROY does to a deployment's infrastructure. It is derived from the
-manifest and the component catalog, never from AWS or an LLM, and is
-deterministic. INSTALL: every required component is CREATE. UPDATE: only
+DESTROY does to a deployment's infrastructure. It is derived through the
+graph → planner chain from the frozen spec (the compiler footprint when
+present), never from AWS or an LLM, and is deterministic. INSTALL: every
+required component is CREATE. UPDATE: only
 the application component is UPDATE; the topology never changes, and a
 difference between the deployed and current requirements is reported as
 `requirementDrift`, never as a CREATE or DELETE. DESTROY: each component is
@@ -330,9 +329,9 @@ currently completed by the web app; see
 
 | Operation | What happens | What remains |
 | --- | --- | --- |
-| **Disconnect** (`POST …/destroy`, job DESTROY) | A never-installed deployment is marked DELETED immediately. Otherwise the relay verifies the stack tag and deletes the stack; CloudFormation's policies decide what stays. On `DELETE_FAILED` the relay clears RDS / cache blockers only for a never-installed deployment; otherwise it finishes with `RetainResources`. Custom-domain and default-HTTPS removal jobs are queued; DNS records are deleted on success; the ECR pull grant is revoked; billing stops. | RDS instance (deletion protection on, automated backups continue), its subnet group, `DatabaseSecret` and `DatabaseUrlSecret`, the S3 bucket, and the network objects the database ENI pins (a private subnet, the DB security group, the VPC). Charges continue. |
+| **Disconnect** (`POST …/destroy`, job DESTROY) | A never-installed deployment is marked DELETED immediately. Otherwise the relay verifies the stack tag and deletes the stack; CloudFormation's policies decide what stays. On `DELETE_FAILED` the relay re-issues the delete with `RetainResources` for the failed resources, repeating the pass until the stack completes — the deletion-protected database keeps failing its delete after the SG/subnet it pins, so those stay behind with it. The deployment settles DELETED (a truthful success) while the retained data waits for Purge. Custom-domain and default-HTTPS removal jobs are queued; DNS records are deleted on success; the ECR pull grant is revoked; billing stops. | RDS instance (deletion protection on, automated backups continue), its subnet group, `DatabaseSecret` and `DatabaseUrlSecret`, the S3 bucket, and the network objects the database ENI pins (a private subnet, the DB security group, the VPC). Charges continue. |
 | **Force-complete** (`POST …/disconnect/force-complete`) | Control-plane-only settlement for a dead relay: `cleanupState: SKIPPED_RELAY_OFFLINE`, pending secrets and DNS records deleted. Never claims AWS resources were removed. | Everything in the customer account. |
-| **Purge** (`POST …/purge`, job PURGE; allowed while `cleanupState ≠ COMPLETE`) | The relay deletes, one kind per poll and only what carries its tags: the application stack (clearing blockers on `DELETE_FAILED`), owned RDS instances (`SkipFinalSnapshot`), caches, buckets (every version), DB credential secrets, ACM certificates, subnet groups, then the VPC network. Failure → `PURGE_FAILED` (retryable); success → `COMPLETE`, ECR grant revoked, DNS orphans reconciled. | The bootstrap stack. |
+| **Purge** (`POST …/purge`, job PURGE; allowed while `cleanupState ≠ COMPLETE`) | The relay deletes, one kind per poll and only what carries its tags: the application stack (clearing blockers on `DELETE_FAILED`), owned RDS instances (`SkipFinalSnapshot`), caches, buckets (every version), every owned application secret regardless of infrastructure generation (anything except the relay's own `deployz:component=bootstrap` secret), ACM certificates, subnet groups, then the VPC network. Failure → `PURGE_FAILED` (retryable); success → `COMPLETE`, ECR grant revoked, DNS orphans reconciled. | The bootstrap stack. |
 | **Customer deletes the bootstrap stack** | In the CloudFormation console, after purge. The relay cannot delete its own role. | Nothing. |
 
 The `finalSnapshot` flag that the API and web still send on destroy is
