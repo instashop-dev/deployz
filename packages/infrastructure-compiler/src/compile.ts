@@ -53,7 +53,11 @@ const TAG_MANAGED = 'true';
 const TAG_MANAGED_BY = 'deployz';
 const TAG_SCOPE = 'customer';
 
-/** The `deployz:component` value runtime-v1 assigns per graph component id. */
+/**
+ * The `deployz:component` tag value: fixed vocabulary for the shared
+ * infrastructure components, the workload's own component id for everything
+ * else (Phase 4A — one tag per workload component).
+ */
 function componentTag(componentId: string): string {
   switch (componentId) {
     case 'network':
@@ -67,7 +71,7 @@ function componentTag(componentId: string): string {
     case 'endpoint':
       return 'network';
     default:
-      return 'app';
+      return componentId;
   }
 }
 
@@ -306,20 +310,20 @@ function compileS3(): ResolvedResource[] {
   ];
 }
 
-/** Log group for ECS tasks — one week retention, Delete lifecycle. */
-function compileLogGroup(): ResolvedResource {
+/** Log group for one workload's ECS tasks — one week retention, Delete lifecycle. */
+function compileLogGroup(componentId: string): ResolvedResource {
   return res({
-    componentId: 'web',
+    componentId,
     componentKind: 'monitoring',
     capability: CAPABILITY_KEYS.ECS_FARGATE_SERVICE,
     resourceRole: 'log-group',
     cfnType: 'AWS::Logs::LogGroup',
-    properties: { RetentionInDays: 7, Tags: tags('web') },
+    properties: { RetentionInDays: 7, Tags: tags(componentId) },
   });
 }
 
 /** RDS PostgreSQL — Retain lifecycle (stateful). */
-function compileRdsPostgres(dbResource: IrResource, profile: InfrastructureSizeProfile, ids: NetIds, serviceSgId: string): ResolvedResource[] {
+function compileRdsPostgres(dbResource: IrResource, profile: InfrastructureSizeProfile, ids: NetIds, serviceComponentIds: readonly string[]): ResolvedResource[] {
   const out: ResolvedResource[] = [];
   const componentId = dbResource.componentId;
   const secret = logicalResourceId(componentId, 'master-secret');
@@ -391,11 +395,15 @@ function compileRdsPostgres(dbResource: IrResource, profile: InfrastructureSizeP
     },
   }));
 
-  out.push(res({
-    componentId, componentKind: 'database', capability: CAPABILITY_KEYS.RDS_POSTGRES, resourceRole: 'app-service-ingress',
-    cfnType: 'AWS::EC2::SecurityGroupIngress',
-    properties: { Description: 'Allow the application to reach RDS PostgreSQL', FromPort: DB_PORT, GroupId: getAtt(sg, 'GroupId'), IpProtocol: 'tcp', SourceSecurityGroupId: getAtt(serviceSgId, 'GroupId'), ToPort: DB_PORT },
-  }));
+  // One ingress rule per workload service security group — every workload
+  // that binds the database must reach it (Phase 4A: N workloads).
+  for (const serviceComponentId of serviceComponentIds) {
+    out.push(res({
+      componentId, componentKind: 'database', capability: CAPABILITY_KEYS.RDS_POSTGRES, resourceRole: `app-service-ingress-${serviceComponentId}`,
+      cfnType: 'AWS::EC2::SecurityGroupIngress',
+      properties: { Description: 'Allow the application to reach RDS PostgreSQL', FromPort: DB_PORT, GroupId: getAtt(sg, 'GroupId'), IpProtocol: 'tcp', SourceSecurityGroupId: getAtt(logicalResourceId(serviceComponentId, 'service-security-group'), 'GroupId'), ToPort: DB_PORT },
+    }));
+  }
 
   return out;
 }
@@ -454,10 +462,13 @@ interface EcsContext {
   readonly cache: { componentId: string; replicationGroup: string } | undefined;
 }
 
-/** IAM roles + policies + cluster — shared by the web workload. */
-function compileEcsShared(ctx: EcsContext, workload: IrWorkload): ResolvedResource[] {
-  const componentId = workload.componentId;
-  const logGroup = logicalResourceId(componentId, 'log-group');
+/** IAM roles + policies + cluster — shared by every workload service. */
+function compileEcsShared(ctx: EcsContext, services: readonly IrWorkload[]): ResolvedResource[] {
+  // The shared compute identity (cluster, IAM roles) anchors on the web
+  // workload's component id, keeping every logical id stable with the
+  // single-workload deployments this compiler replaces. The web workload is
+  // always present in the MVP graph.
+  const componentId = 'web';
   const execRole = logicalResourceId(componentId, 'task-execution-role');
   const execPolicy = logicalResourceId(componentId, 'task-execution-role-policy');
   const taskRole = logicalResourceId(componentId, 'task-role');
@@ -472,6 +483,7 @@ function compileEcsShared(ctx: EcsContext, workload: IrWorkload): ResolvedResour
 
   const dbSecrets = ctx.db !== undefined ? [ctx.db.secret, ctx.db.urlSecret] : [];
   const secretArns = [...dbSecrets, logicalResourceId('application', 'config-secret')];
+  const logGroupArns = services.map((s) => getAtt(logicalResourceId(s.componentId, 'log-group'), 'Arn'));
 
   return [
     res({
@@ -496,7 +508,7 @@ function compileEcsShared(ctx: EcsContext, workload: IrWorkload): ResolvedResour
         PolicyDocument: {
           Statement: [
             ...secretReadStatements(secretArns),
-            { Action: ['logs:CreateLogStream', 'logs:PutLogEvents'], Effect: 'Allow', Resource: getAtt(logGroup, 'Arn') },
+            { Action: ['logs:CreateLogStream', 'logs:PutLogEvents'], Effect: 'Allow', Resource: logGroupArns },
           ],
           Version: '2012-10-17',
         },
@@ -536,12 +548,12 @@ function compileEcsShared(ctx: EcsContext, workload: IrWorkload): ResolvedResour
   ];
 }
 
-/** Task definition + service + security group for one web workload. */
-function compileWebService(ctx: EcsContext, workload: IrWorkload, profile: InfrastructureSizeProfile, targetGroup: string, listener: string): ResolvedResource[] {
+/** Task definition + service + security group for one workload (web or worker). */
+function compileWorkloadService(ctx: EcsContext, workload: IrWorkload, profile: InfrastructureSizeProfile, ingress: { targetGroup: string; listener: string } | undefined): ResolvedResource[] {
   const componentId = workload.componentId;
   const logGroup = logicalResourceId(componentId, 'log-group');
-  const execRole = logicalResourceId(componentId, 'task-execution-role');
-  const taskRole = logicalResourceId(componentId, 'task-role');
+  const execRole = logicalResourceId('web', 'task-execution-role');
+  const taskRole = logicalResourceId('web', 'task-role');
   const taskDef = logicalResourceId(componentId, 'task-definition');
   const serviceSg = logicalResourceId(componentId, 'service-security-group');
 
@@ -587,7 +599,14 @@ function compileWebService(ctx: EcsContext, workload: IrWorkload, profile: Infra
     Name: 'App',
     Essential: true,
     Image: ref('paramImageReference'),
-    PortMappings: [{ ContainerPort: ref('paramContainerPort'), Protocol: 'tcp' }],
+    // Only workloads with a declared, runnable start command freeze the
+    // command into the task definition (Phase 4A workers). The web workload
+    // keeps the image's own CMD — the web command slot may hold a detector
+    // pattern label, never a runnable override here.
+    ...(workload.kind === 'worker' && workload.command !== null
+      ? { Command: ['sh', '-c', workload.command] }
+      : {}),
+    ...(workload.port !== null ? { PortMappings: [{ ContainerPort: ref('paramContainerPort'), Protocol: 'tcp' }] } : {}),
     LogConfiguration: { LogDriver: 'awslogs', Options: { 'awslogs-group': ref(logGroup), 'awslogs-stream-prefix': 'deployz-app', 'awslogs-region': ref('AWS::Region') } },
     Environment: environment,
     Secrets: secrets,
@@ -637,7 +656,7 @@ function compileWebService(ctx: EcsContext, workload: IrWorkload, profile: Infra
       componentId, componentKind: 'application', capability: CAPABILITY_KEYS.ECS_FARGATE_SERVICE, resourceRole: 'service',
       cfnType: 'AWS::ECS::Service', verificationCheck: 'compute',
       properties: {
-        Cluster: ref(logicalResourceId(componentId, 'cluster')),
+        Cluster: ref(logicalResourceId('web', 'cluster')),
         DeploymentConfiguration: {
           Alarms: { AlarmNames: [], Enable: false, Rollback: false },
           DeploymentCircuitBreaker: { Enable: true, Rollback: true },
@@ -645,16 +664,27 @@ function compileWebService(ctx: EcsContext, workload: IrWorkload, profile: Infra
           MinimumHealthyPercent: 100,
         },
         DeploymentController: { Type: 'ECS' },
+        // Every service shares the deployment-level desired-count parameter:
+        // an install starts 0 tasks and the first deploy scales up, so a
+        // worker service must not boot the fixture image at install time.
         DesiredCount: ref('paramDesiredCount'),
         EnableECSManagedTags: false,
-        HealthCheckGracePeriodSeconds: 60,
+        // The ALB grace period only applies to a load-balanced service — a
+        // worker has no HTTP health check at all (service-stability only).
+        ...(ingress !== undefined ? { HealthCheckGracePeriodSeconds: 60 } : {}),
         LaunchType: 'FARGATE',
-        LoadBalancers: [{ ContainerName: 'App', ContainerPort: ref('paramContainerPort'), TargetGroupArn: ref(targetGroup) }],
+        ...(ingress !== undefined
+          ? { LoadBalancers: [{ ContainerName: 'App', ContainerPort: ref('paramContainerPort'), TargetGroupArn: ref(ingress.targetGroup) }] }
+          : {}),
         NetworkConfiguration: { AwsvpcConfiguration: { AssignPublicIp: 'DISABLED', SecurityGroups: [getAtt(serviceSg, 'GroupId')], Subnets: [ref(ctx.ids.privateSubnets[0]), ref(ctx.ids.privateSubnets[1])] } },
         Tags: tags(componentId),
         TaskDefinition: ref(taskDef),
       },
-      dependsOn: [targetGroup, listener, logicalResourceId(componentId, 'task-role-policy'), logicalResourceId(componentId, 'task-role')],
+      dependsOn: [
+        ...(ingress !== undefined ? [ingress.targetGroup, ingress.listener] : []),
+        logicalResourceId('web', 'task-role-policy'),
+        logicalResourceId('web', 'task-role'),
+      ],
     }),
   ];
 
@@ -770,7 +800,7 @@ function compileParameters(): ResolvedParameter[] {
   ];
 }
 
-function compileOutputs(ctx: { hasDb: boolean; db: { instance: string; secret: string } | undefined; hasRedis: boolean; cache: { replicationGroup: string } | undefined }): ResolvedOutput[] {
+function compileOutputs(ctx: { hasDb: boolean; db: { instance: string; secret: string } | undefined; hasRedis: boolean; cache: { replicationGroup: string } | undefined; hasIngress: boolean }): ResolvedOutput[] {
   const outputs: ResolvedOutput[] = [];
   if (ctx.hasDb && ctx.db !== undefined) {
     outputs.push({ id: 'DbHost', value: getAtt(ctx.db.instance, 'Endpoint.Address') });
@@ -778,7 +808,9 @@ function compileOutputs(ctx: { hasDb: boolean; db: { instance: string; secret: s
   }
   outputs.push({ id: 'StorageBucketName', value: ref(logicalResourceId('storage', 'bucket')) });
   outputs.push({ id: 'ClusterName', value: ref(logicalResourceId('web', 'cluster')) });
-  outputs.push({ id: 'PublicEndpoint', value: getAtt(logicalResourceId('endpoint', 'load-balancer'), 'DNSName') });
+  if (ctx.hasIngress) {
+    outputs.push({ id: 'PublicEndpoint', value: getAtt(logicalResourceId('endpoint', 'load-balancer'), 'DNSName') });
+  }
   if (ctx.hasRedis && ctx.cache !== undefined) {
     outputs.push({ id: 'CacheEndpoint', value: getAtt(ctx.cache.replicationGroup, 'PrimaryEndPoint.Address') });
   }
@@ -808,13 +840,18 @@ export interface CompiledGraph {
   readonly region: Region | null;
 }
 
-/** The primary web workload (single web workload in the MVP). */
-function webWorkload(ir: DeployzIR): IrWorkload {
-  const web = ir.workloads.find((w) => w.kind === 'web') ?? ir.workloads[0];
-  if (web === undefined) {
-    throw new Error('compiler: DeployzIR has no workload to compile');
+/**
+ * The persistent workloads to compile — one ECS service per `web`/`worker`
+ * workload (Phase 4A). Migration workloads stay present in the graph/IR but
+ * are skipped by the compiler (a later milestone compiles them); the same
+ * goes for the not-yet-supported private-service/scheduled-job kinds.
+ */
+function persistentWorkloads(ir: DeployzIR): IrWorkload[] {
+  const persistent = ir.workloads.filter((w) => w.kind === 'web' || w.kind === 'worker');
+  if (persistent.length === 0) {
+    throw new Error('compiler: DeployzIR has no persistent workload to compile');
   }
-  return web;
+  return persistent;
 }
 
 function resourceByCapability(ir: DeployzIR, key: string): IrResource | undefined {
@@ -827,11 +864,11 @@ export function compileInfrastructure(input: CompileInput): CompiledGraph {
 
   const dbResource = resourceByCapability(ir, CAPABILITY_KEYS.RDS_POSTGRES);
   const cacheResource = resourceByCapability(ir, CAPABILITY_KEYS.ELASTICACHE_VALKEY);
-  const workload = webWorkload(ir);
+  const services = persistentWorkloads(ir);
 
   const ids = netIds();
 
-  // Resolve the db/cache context before ECS so the task definition can bind
+  // Resolve the db/cache context before ECS so the task definitions can bind
   // to the endpoint/secret logical ids.
   const db = dbResource !== undefined
     ? {
@@ -850,19 +887,27 @@ export function compileInfrastructure(input: CompileInput): CompiledGraph {
 
   const ctx: EcsContext = { ids, hasDb: db !== undefined, hasRedis: cache !== undefined, db, cache };
 
-  const targetGroup = logicalResourceId('endpoint', 'target-group');
-  const listener = logicalResourceId('endpoint', 'http-listener');
+  // Only PUBLIC workloads sit behind the ALB — a worker gets no target group,
+  // no listener and no HTTP health check.
+  const publicWorkload = services.find((w) => w.public === true);
+  const ingress =
+    publicWorkload !== undefined
+      ? {
+          targetGroup: logicalResourceId('endpoint', 'target-group'),
+          listener: logicalResourceId('endpoint', 'http-listener'),
+        }
+      : undefined;
 
   const resources: ResolvedResource[] = [
     ...compileNetwork(ids),
     compileAppSecret(),
     ...compileS3(),
-    compileLogGroup(),
-    ...(dbResource !== undefined ? compileRdsPostgres(dbResource, profile, ids, logicalResourceId(workload.componentId, 'service-security-group')) : []),
+    ...services.map((w) => compileLogGroup(w.componentId)),
+    ...(dbResource !== undefined ? compileRdsPostgres(dbResource, profile, ids, services.map((w) => w.componentId)) : []),
     ...(cacheResource !== undefined ? compileElasticache(cacheResource, profile, ids) : []),
-    ...compileEcsShared(ctx, workload),
-    ...compileWebService(ctx, workload, profile, targetGroup, listener),
-    ...compileAlb(ctx, workload),
+    ...compileEcsShared(ctx, services),
+    ...services.flatMap((w) => compileWorkloadService(ctx, w, profile, w.public === true ? ingress : undefined)),
+    ...(publicWorkload !== undefined ? compileAlb(ctx, publicWorkload) : []),
   ];
 
   const violations = logicalIdViolations(resources.map((r) => r.logicalId));
@@ -873,7 +918,13 @@ export function compileInfrastructure(input: CompileInput): CompiledGraph {
   const graph: ResolvedAwsGraph = {
     resources,
     parameters: compileParameters(),
-    outputs: compileOutputs({ hasDb: db !== undefined, db, hasRedis: cache !== undefined, cache }),
+    outputs: compileOutputs({
+      hasDb: db !== undefined,
+      db,
+      hasRedis: cache !== undefined,
+      cache,
+      hasIngress: publicWorkload !== undefined,
+    }),
     conditions: [] as ResolvedCondition[],
   };
 

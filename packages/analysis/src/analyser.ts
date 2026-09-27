@@ -30,6 +30,7 @@ import {
   detectBindAddress,
   detectGitCopyInDockerfile,
   detectStartupMigrationEvidence,
+  detectDeclaredWorkerCommands,
   hasPreDeployMigration,
 } from './detectors.js';
 
@@ -347,6 +348,13 @@ export function analyseRepo(tree: FileTree): AnalysisResult {
   // straight after analysis.
   const detectedRejections = rejections.filter((r) => r.detected);
   metadata['unsupportedReasons'] = detectedRejections.map((r) => r.reason);
+
+  // Phase 4A — every declared worker process (Procfile non-web process,
+  // compose worker service) rides the metadata so the deployment manifest's
+  // `workers[]` list reads CURRENT analysis output. Empty when no process
+  // declares a worker; the API-resolved single command arrives separately as
+  // `resolvedWorkerCommand` / the workerCommand override (legacy slot).
+  metadata['resolvedWorkerCommands'] = detectDeclaredWorkerCommands(tree);
 
   // §11.3 / §11.2 — structured service requirements and the env-var model.
   const serviceRequirements = detectExternalServiceRequirements(tree);

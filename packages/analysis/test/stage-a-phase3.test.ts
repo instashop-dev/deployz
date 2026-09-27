@@ -120,8 +120,16 @@ describe('COMP-026 — Compose sidecars and profile-gated services are not appli
     };
     expect(checkDockerComposeMultiService(sidecars)).toMatchObject({ detected: false });
 
-    const twoApps: FileTree = {
+    // A service that declares a worker process gets its own ECS service
+    // (Phase 4A), so it no longer counts as a second application container.
+    const appAndWorker: FileTree = {
       'docker-compose.yml': 'services:\n  server:\n    image: twentycrm/twenty\n  worker:\n    image: twentycrm/twenty\n    command: worker\n',
+    };
+    expect(checkDockerComposeMultiService(appAndWorker)).toMatchObject({ detected: false });
+
+    // Two NON-worker application services are still the unsupported shape.
+    const twoApps: FileTree = {
+      'docker-compose.yml': 'services:\n  server:\n    image: twentycrm/twenty\n  studio:\n    image: twentycrm/twenty\n',
     };
     expect(checkDockerComposeMultiService(twoApps)).toMatchObject({ detected: true, dependency: 'docker-compose-multi-service' });
   });

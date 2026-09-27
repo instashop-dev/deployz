@@ -6,7 +6,7 @@ import { describe, expect, it } from 'vitest';
 import { CAPABILITY_KEYS } from '@deployz/contracts';
 import type { DeployzIR } from '@deployz/contracts';
 
-import { compileDeployzInfrastructure } from './index.js';
+import { compileDeployzInfrastructure, logicalResourceId } from './index.js';
 
 // dynamic-compiler-v2 — capability-compositional, determinism, stable identity
 // and stateful safety. The compiler composes the current capabilities from
@@ -16,7 +16,7 @@ const here = dirname(fileURLToPath(import.meta.url));
 
 // ── IR fixtures ──────────────────────────────────────────────────────────────
 
-function makeIr(opts: { postgres: boolean; redis: boolean }): DeployzIR {
+function makeIr(opts: { postgres: boolean; redis: boolean; workers?: { componentId: string; command: string }[] }): DeployzIR {
   const resources: DeployzIR['resources'] = [];
   if (opts.postgres) {
     resources.push({
@@ -92,6 +92,30 @@ function makeIr(opts: { postgres: boolean; redis: boolean }): DeployzIR {
           CAPABILITY_KEYS.S3,
         ],
       },
+      ...(opts.workers ?? []).map((worker) => ({
+        componentId: worker.componentId,
+        kind: 'worker' as const,
+        label: `Worker ${worker.componentId}`,
+        buildArtifactId: 'app',
+        command: worker.command,
+        port: null,
+        public: false,
+        healthCheck: null,
+        desiredCount: 1,
+        compute: {
+          provider: 'aws' as const,
+          capabilityKey: CAPABILITY_KEYS.ECS_FARGATE_SERVICE,
+          cpuUnits: 256,
+          memoryMiB: 512,
+          sizeLabel: 'Small',
+          architecture: null,
+        },
+        dependencyCapabilityKeys: [
+          ...(opts.postgres ? [CAPABILITY_KEYS.RDS_POSTGRES] : []),
+          ...(opts.redis ? [CAPABILITY_KEYS.ELASTICACHE_VALKEY] : []),
+          CAPABILITY_KEYS.S3,
+        ],
+      })),
     ],
     resources,
     bindings: [],
@@ -368,5 +392,136 @@ describe('architecture fitness', () => {
     const { footprint } = compileDeployzInfrastructure({ ir: makeIr({ postgres: true, redis: true }), region: null });
     const services = footprint.resources.map((r) => r.service).sort();
     expect(services).toEqual(['alb', 'elasticache-valkey', 'nat-gateway', 'rds-postgres', 's3']);
+  });
+});
+
+// ── Multi-workload (Phase 4A): one build artifact, one ECS service per
+//    persistent workload (web + workers), each with its own frozen command. ──
+
+describe('multi-workload', () => {
+  const ir = makeIr({
+    postgres: true,
+    redis: true,
+    workers: [
+      { componentId: 'email-worker', command: 'node dist/workers/email.js' },
+      { componentId: 'import-worker', command: 'node dist/workers/import.js' },
+    ],
+  });
+  const compiled = compileDeployzInfrastructure({ ir, region: null });
+  const byId = new Map(compiled.resolvedGraph.resources.map((r) => [r.logicalId, r]));
+
+  it('compiles one ECS service, task definition, log group and security group per workload with stable ids', () => {
+    for (const componentId of ['web', 'email-worker', 'import-worker']) {
+      for (const role of ['service', 'task-definition', 'log-group', 'service-security-group']) {
+        const id = logicalResourceId(componentId, role);
+        expect(byId.has(id), id).toBe(true);
+      }
+    }
+    // Worker ids are deterministic from componentId + role.
+    expect(logicalResourceId('email-worker', 'service')).toBe('EmailWorkerService');
+    expect(logicalResourceId('import-worker', 'task-definition')).toBe('ImportWorkerTaskDefinition');
+  });
+
+  it('freezes each worker command into its own App container', () => {
+    for (const { componentId, command } of [
+      { componentId: 'email-worker', command: 'node dist/workers/email.js' },
+      { componentId: 'import-worker', command: 'node dist/workers/import.js' },
+    ]) {
+      const taskDef = byId.get(logicalResourceId(componentId, 'task-definition'))!;
+      const app = (taskDef.properties['ContainerDefinitions'] as unknown[])[0] as Record<string, unknown>;
+      expect(app['Command']).toEqual(['sh', '-c', command]);
+    }
+  });
+
+  it('workers get no port mapping, no ALB target and no HTTP health check', () => {
+    for (const componentId of ['email-worker', 'import-worker']) {
+      const taskDef = byId.get(logicalResourceId(componentId, 'task-definition'))!;
+      const app = (taskDef.properties['ContainerDefinitions'] as unknown[])[0] as Record<string, unknown>;
+      expect(app).not.toHaveProperty('PortMappings');
+
+      const service = byId.get(logicalResourceId(componentId, 'service'))!;
+      expect(service.properties).not.toHaveProperty('LoadBalancers');
+      expect(service.properties).not.toHaveProperty('HealthCheckGracePeriodSeconds');
+      expect(service.properties['DesiredCount']).toEqual({ Ref: 'paramDesiredCount' });
+      // Workers still run on the shared cluster and behind the shared roles.
+      expect(service.properties['Cluster']).toEqual({ Ref: logicalResourceId('web', 'cluster') });
+      expect(service.dependsOn).not.toContain('EndpointTargetGroup');
+    }
+
+    // The ALB wires only the public web workload (the ingress rule attaches
+    // to the service SG; the ALB SG is the traffic source).
+    const ingress = byId.get('EndpointLoadBalancerToServiceIngress')!;
+    expect(ingress.properties['GroupId']).toEqual({
+      'Fn::GetAtt': [logicalResourceId('web', 'service-security-group'), 'GroupId'],
+    });
+    expect(ingress.properties['SourceSecurityGroupId']).toEqual({
+      'Fn::GetAtt': [logicalResourceId('endpoint', 'load-balancer-security-group'), 'GroupId'],
+    });
+  });
+
+  it('the database accepts ingress from every workload service', () => {
+    const ingressIds = compiled.resolvedGraph.resources
+      .filter((r) => r.componentId === 'primary-db' && r.resourceRole.startsWith('app-service-ingress-'))
+      .map((r) => r.resourceRole)
+      .sort();
+    expect(ingressIds).toEqual([
+      'app-service-ingress-email-worker',
+      'app-service-ingress-import-worker',
+      'app-service-ingress-web',
+    ]);
+  });
+
+  it('gains one compute verification check per workload; capability checks stay single', () => {
+    const checks = compiled.verificationContract.checks;
+    const computeComponents = checks.filter((c) => c.check === 'compute').map((c) => c.componentId).sort();
+    expect(computeComponents).toEqual(['email-worker', 'import-worker', 'web']);
+    expect(checks.filter((c) => c.check === 'database')).toHaveLength(1);
+    expect(checks.filter((c) => c.check === 'cache')).toHaveLength(1);
+    expect(checks.filter((c) => c.check === 'ingress')).toHaveLength(1);
+    expect(checks.filter((c) => c.check === 'storage')).toHaveLength(1);
+  });
+
+  it('migration workloads stay in the IR but are not compiled', () => {
+    const withMigration: DeployzIR = {
+      ...ir,
+      workloads: [
+        ...ir.workloads,
+        {
+          componentId: 'migration',
+          kind: 'migration',
+          label: 'Database migration',
+          buildArtifactId: 'app',
+          command: 'npx prisma migrate deploy',
+          port: null,
+          public: false,
+          healthCheck: null,
+          desiredCount: 1,
+          compute: ir.workloads[0]!.compute,
+          dependencyCapabilityKeys: [CAPABILITY_KEYS.RDS_POSTGRES],
+        },
+      ],
+    };
+    const result = compileDeployzInfrastructure({ ir: withMigration, region: null });
+    const ids = result.resolvedGraph.resources.map((r) => r.logicalId);
+    expect(ids).not.toContain('MigrationEcsService');
+    expect(ids).not.toContain('MigrationTaskDefinition');
+    // The other workloads are unaffected.
+    expect(ids).toContain('EmailWorkerService');
+  });
+
+  it('compiles deterministically and never collides on logical ids', () => {
+    const again = compileDeployzInfrastructure({ ir, region: null });
+    expect(again.artifact.templateHash).toBe(compiled.artifact.templateHash);
+
+    const ids = compiled.resolvedGraph.resources.map((r) => r.logicalId);
+    expect(new Set(ids).size).toBe(ids.length);
+  });
+
+  it('keeps single-workload logical ids byte-identical with the pre-4A compiler', () => {
+    const single = compileDeployzInfrastructure({ ir: makeIr({ postgres: true, redis: true }), region: null });
+    const ids = single.resolvedGraph.resources.map((r) => r.logicalId);
+    for (const id of ['WebService', 'WebTaskDefinition', 'WebLogGroup', 'WebCluster', 'WebTaskExecutionRole', 'PrimaryDbAppServiceIngressWeb']) {
+      expect(ids, id).toContain(id);
+    }
   });
 });

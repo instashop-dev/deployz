@@ -111,6 +111,23 @@ describe('resolveDeploymentFootprint', () => {
     });
   });
 
+  it('a workers list resolves one footprint workload per declared worker (Phase 4A)', () => {
+    const WITH_WORKERS = manifestWith({
+      worker: { command: 'npm run email' },
+      workers: [
+        { id: 'email-worker', command: 'npm run email', source: 'Procfile' },
+        { id: 'import-worker', command: 'npm run import', source: 'Procfile' },
+      ],
+    });
+    const footprint = resolveDeploymentFootprint({ manifest: WITH_WORKERS, region: null });
+    expect(footprint.workloads.map((workload) => workload.id)).toEqual([
+      'web',
+      'email-worker',
+      'import-worker',
+    ]);
+    expect(footprint.workloads[1]!.label).toBe('Worker email-worker');
+  });
+
   it('generatedFrom records the template generation; ids and order are stable', () => {
     const a = resolveDeploymentFootprint({ manifest: WITH_POSTGRES, region: 'us-east-1', infraVersion: 'runtime-v1' });
     const b = resolveDeploymentFootprint({ manifest: WITH_POSTGRES, region: 'us-east-1', infraVersion: 'runtime-v1' });

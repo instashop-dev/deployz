@@ -22,11 +22,11 @@
  * database gets no migration finding, and one with no worker-like code gets
  * no worker finding.
  *
- * Phase 8 boundary — background worker processes are deferred. An app with
- * worker-like code AND a resolved worker start command declares a second
- * process Deployz will not run, so it is REQUIRED + blocking (needs-adaptation).
- * Worker-like code WITHOUT a resolved start command stays RECOMMENDED
- * (background jobs must run inside the web process).
+ * Phase 4A — background workers are first-class workloads. An app with
+ * worker-like code AND a resolved worker start command is RECOMMENDED
+ * (Deployz runs the worker as its own container). Worker-like code WITHOUT
+ * a resolved start command stays RECOMMENDED too (background jobs must run
+ * inside the web process until a worker command is configured).
  */
 
 import type { AnalysisResult } from './analyser.js';
@@ -99,9 +99,9 @@ export interface ReadinessReportContext {
   /**
    * Whether a runnable worker start command resolved (the API resolves this
    * from package.json script keys). A resolved worker start command declares
-   * a second process Deployz does not run, so worker-like code with one is a
-   * blocking needs-adaptation finding; worker-like code without one is a
-   * recommended finding.
+   * a second process Deployz runs as its own container (Phase 4A), so
+   * worker-like code with one is a recommended informational finding;
+   * worker-like code without one is a recommended configuration gap.
    */
   workerCommandResolved?: boolean | undefined;
 }
@@ -558,22 +558,21 @@ export function buildReadinessReport(
 
   const worker = finding('worker');
   if (worker?.detected && context.workerCommandResolved === true) {
-    // Phase 8 boundary: a resolved worker start command declares a SECOND
-    // process the deployment would never start. Needs-adaptation — blocking.
+    // Phase 4A: a resolved worker start command is a second process Deployz
+    // now RUNS (one ECS service per workload) — informational, not blocking.
     findings.push({
-      id: 'background-worker-unsupported',
+      id: 'worker-process',
       category: 'workers',
-      title: "Deployz can't run your app's background worker",
-      severity: 'required',
-      blocking: true,
+      title: 'Background worker process',
+      severity: 'recommended',
+      blocking: false,
       plainEnglishExplanation:
-        'This app declares a background worker process, but Deployz runs one web process per application and does not start a second one.',
+        'This app declares a background worker process. Deployz runs it as a second container next to the web process.',
       whyItMatters:
-        'The worker process would never start, so background jobs would stay queued and the app would appear broken or incomplete.',
+        'The worker starts with its own command, so background jobs keep running even when no web request comes in.',
       technicalEvidence:
         worker.details ?? 'Worker-like code detected and a worker start command resolved.',
-      suggestedOutcome:
-        'Run the background work inside the web process, or remove the separate worker process before deploying.',
+      suggestedOutcome: 'No change needed — Deployz will start the worker process alongside your app.',
       confidence: 'confirmed',
     });
   } else if (worker?.detected) {

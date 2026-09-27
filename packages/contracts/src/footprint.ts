@@ -240,6 +240,15 @@ function resourceLifecycle(handler: FootprintResourceHandler, profile: Infrastru
 }
 
 /**
+ * The manifest's declared workers, normalizing manifests written before the
+ * `workers` list existed: the legacy single `worker` slot becomes one `worker`
+ * entry.
+ */
+function legacyManifestWorkers(manifest: DeploymentManifest): { id: string; command: string }[] {
+  return manifest.worker.command !== null ? [{ id: 'worker', command: manifest.worker.command }] : [];
+}
+
+/**
  * The resolved Deployment Footprint for a manifest: one web workload, an
  * optional worker workload, and every managed resource the manifest's
  * infrastructure profile requires. Pure — the same manifest, region and
@@ -263,8 +272,11 @@ export function resolveDeploymentFootprint(input: {
     sizeLabel: sizeProfile.label,
   };
   const workloads: FootprintWorkload[] = [workloadFrom('web', 'web', 'Web application', workloadSizing)];
-  if (input.manifest.worker.command !== null) {
-    workloads.push(workloadFrom('worker', 'worker', 'Background worker', workloadSizing));
+  // Phase 4A: every declared worker becomes its own footprint workload; the
+  // legacy single `worker` slot normalizes to one `worker` entry.
+  const workers = input.manifest.workers ?? legacyManifestWorkers(input.manifest);
+  for (const worker of workers) {
+    workloads.push(workloadFrom(worker.id, 'worker', worker.id === 'worker' ? 'Background worker' : `Worker ${worker.id}`, workloadSizing));
   }
   return {
     version: FOOTPRINT_SCHEMA_VERSION,

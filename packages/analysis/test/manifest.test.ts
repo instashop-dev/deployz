@@ -119,7 +119,7 @@ describe('normalizeDeploymentManifest', () => {
     expect(evaluateManifestReadiness(manifest).state).toBe('NOT_COMPATIBLE');
   });
 
-  it('flags a declared background worker process as needs-adaptation (Phase 8)', () => {
+  it('carries a declared background worker process as a supported worker workload (Phase 4A)', () => {
     const analysis = analyseRepo({
       ...READY_TREE,
       'package.json': JSON.stringify({
@@ -134,8 +134,11 @@ describe('normalizeDeploymentManifest', () => {
       workerCommand: 'node dist/worker.js',
     });
     expect(manifest.worker.command).toBe('node dist/worker.js');
-    expect(manifest.unsupported.some((r) => r.includes('Background worker process'))).toBe(true);
-    expect(evaluateManifestReadiness(manifest).state).toBe('NOT_COMPATIBLE');
+    expect(manifest.workers).toEqual([
+      { id: 'worker', command: 'node dist/worker.js', source: 'package.json' },
+    ]);
+    expect(manifest.unsupported).toEqual([]);
+    expect(evaluateManifestReadiness(manifest).state).toBe('READY');
   });
 
   it('worker-like code WITHOUT a start command stays deployable (no unsupported reason)', () => {

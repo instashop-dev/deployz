@@ -258,14 +258,14 @@ describe('buildReadinessReport — finding classification', () => {
     expect(finding?.blocking).toBe(false);
   });
 
-  it('NEEDS_CHANGES: a declared background worker process (worker code + resolved command) is blocking', () => {
+  it('READY stays READY: a resolved worker command is a recommended informational finding (Phase 4A)', () => {
     const report = buildReadinessReport(analyseRepo(workerWithCommandTree), {
       workerCommandResolved: true,
     });
-    expect(report.state).toBe('NEEDS_CHANGES');
-    const finding = report.findings.find((f) => f.id === 'background-worker-unsupported');
-    expect(finding?.severity).toBe('required');
-    expect(finding?.blocking).toBe(true);
+    expect(report.state).toBe('READY');
+    const finding = report.findings.find((f) => f.id === 'worker-process');
+    expect(finding?.severity).toBe('recommended');
+    expect(finding?.blocking).toBe(false);
     expect(finding?.confidence).toBe('confirmed');
   });
 
@@ -313,14 +313,14 @@ describe('buildReadinessReport — database-migrations finding', () => {
 });
 
 // ==========================================================================
-// Worker findings — gated on workerCommandResolved (Phase 8 boundary)
+// Worker findings — gated on workerCommandResolved (Phase 4A semantics)
 // ==========================================================================
 
 describe('buildReadinessReport — worker findings', () => {
   it('never fires when no worker-like code is detected', () => {
     const report = buildReadinessReport(analyseRepo(readyTree), { workerCommandResolved: false });
     expect(report.findings.some((f) => f.id === 'worker-command')).toBe(false);
-    expect(report.findings.some((f) => f.id === 'background-worker-unsupported')).toBe(false);
+    expect(report.findings.some((f) => f.id === 'worker-process')).toBe(false);
   });
 
   it('recommended when worker-like code is detected and no start command resolved', () => {
@@ -328,21 +328,21 @@ describe('buildReadinessReport — worker findings', () => {
       workerCommandResolved: false,
     });
     expect(report.findings.some((f) => f.id === 'worker-command')).toBe(true);
-    expect(report.findings.some((f) => f.id === 'background-worker-unsupported')).toBe(false);
+    expect(report.findings.some((f) => f.id === 'worker-process')).toBe(false);
   });
 
   it('recommended when worker-like code is detected and context is omitted entirely', () => {
     const report = buildReadinessReport(analyseRepo(workerWithoutCommandTree));
     expect(report.findings.some((f) => f.id === 'worker-command')).toBe(true);
-    expect(report.findings.some((f) => f.id === 'background-worker-unsupported')).toBe(false);
+    expect(report.findings.some((f) => f.id === 'worker-process')).toBe(false);
   });
 
-  it('blocking when worker-like code is detected AND a start command resolved', () => {
+  it('informational (non-blocking) when worker-like code is detected AND a start command resolved', () => {
     const report = buildReadinessReport(analyseRepo(workerWithCommandTree), {
       workerCommandResolved: true,
     });
-    expect(report.findings.some((f) => f.id === 'background-worker-unsupported')).toBe(true);
-    // A resolved worker command never appears as the recommended finding.
+    expect(report.findings.some((f) => f.id === 'worker-process')).toBe(true);
+    // A resolved worker command never appears as the configuration-gap finding.
     expect(report.findings.some((f) => f.id === 'worker-command')).toBe(false);
   });
 });

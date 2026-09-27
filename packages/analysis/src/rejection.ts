@@ -15,6 +15,7 @@ import {
   detectPostgresql,
   findDependencyEvidence,
   isRuntimeSourcePath,
+  isWorkerServiceCommand,
   listDockerfileCandidates,
 } from './detectors.js';
 import type { RedisRequirement } from './redis.js';
@@ -574,11 +575,18 @@ export function checkDockerComposeMultiService(tree: FileTree): RejectionFinding
     return { detected: false, dependency: 'none', reason: 'No multi-service compose app detected' };
   }
   const appServices = compose.services;
-  if (appServices.length >= 2) {
+  // Phase 4A: a service that declares a worker process gets its own ECS
+  // service, so it is no longer a "second application container" — only
+  // non-worker application services count against the one-app-container
+  // boundary.
+  const nonWorkerAppServices = appServices.filter(
+    (s) => !(s.command !== null && isWorkerServiceCommand(s.name, s.command)),
+  );
+  if (nonWorkerAppServices.length >= 2) {
     return {
       detected: true,
       dependency: 'docker-compose-multi-service',
-      reason: `Unsupported architecture: ${compose.file} defines ${appServices.length} application services (${appServices.map((s) => s.name).join(', ')}). Deployz runs ONE application container per deployment.`,
+      reason: `Unsupported architecture: ${compose.file} defines ${nonWorkerAppServices.length} application services (${nonWorkerAppServices.map((s) => s.name).join(', ')}). Deployz runs ONE web process per deployment plus declared background workers.`,
     };
   }
   return { detected: false, dependency: 'none', reason: 'No multi-service compose app detected' };

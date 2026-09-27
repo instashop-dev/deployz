@@ -45,6 +45,16 @@ describe('logicalResourceId — stable semantic identity (golden)', () => {
   it('cache replication group', () => {
     expect(logicalResourceId('cache', 'replication-group')).toBe('CacheReplicationGroup');
   });
+  it('worker workload services (Phase 4A golden ids)', () => {
+    expect(logicalResourceId('email-worker', 'service')).toBe('EmailWorkerService');
+    expect(logicalResourceId('email-worker', 'task-definition')).toBe('EmailWorkerTaskDefinition');
+    expect(logicalResourceId('email-worker', 'log-group')).toBe('EmailWorkerLogGroup');
+    expect(logicalResourceId('email-worker', 'service-security-group')).toBe('EmailWorkerServiceSecurityGroup');
+    expect(logicalResourceId('import-worker', 'service')).toBe('ImportWorkerService');
+    expect(logicalResourceId('primary-db', 'app-service-ingress-email-worker')).toBe(
+      'PrimaryDbAppServiceIngressEmailWorker',
+    );
+  });
 });
 
 describe('logicalIdViolations', () => {

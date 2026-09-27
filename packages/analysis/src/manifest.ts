@@ -22,6 +22,7 @@ import {
   type ManifestEnvVariable,
   type ManifestReadinessFinding,
   type ManifestReadinessResult,
+  type ManifestWorker,
 } from '@deployz/contracts';
 
 import type { AnalysisResult } from './analyser.js';
@@ -232,6 +233,36 @@ function toEnvVariables(model: unknown, names: unknown): ManifestEnvVariable[] {
 // ── Normalization ───────────────────────────────────────────────────────────
 
 /**
+ * Every declared worker process (Phase 4A): the analyser's
+ * `resolvedWorkerCommands` list (Procfile non-web processes, compose worker
+ * services) leads; rows analysed before it (or with only the API-resolved
+ * npm-script command) normalize into a single `worker` entry so the legacy
+ * single slot never becomes a numbered-field list. The workerCommand
+ * override fills the gap only when detection found no declared process.
+ */
+function toDeclaredWorkers(
+  meta: Record<string, unknown>,
+  overrides: DeploymentManifestOverrides,
+): ManifestWorker[] {
+  const raw = meta['resolvedWorkerCommands'];
+  if (Array.isArray(raw)) {
+    const workers: ManifestWorker[] = [];
+    for (const entry of raw) {
+      if (typeof entry !== 'object' || entry === null) continue;
+      const record = asRecord(entry);
+      const id = firstString(record['id']);
+      const command = firstString(record['command']);
+      if (id === null || command === null) continue;
+      workers.push({ id, command, source: firstString(record['source']) ?? 'analysis' });
+    }
+    if (workers.length > 0) return workers;
+  }
+  const legacy =
+    firstString(meta['resolvedWorkerCommand']) ?? firstString(overrides.workerCommand) ?? null;
+  return legacy !== null ? [{ id: 'worker', command: legacy, source: 'package.json' }] : [];
+}
+
+/**
  * Build the validated, authoritative `DeploymentManifest` from detector output
  * and vendor overrides. Overrides always win over detection; detection is the
  * fallback for anything the vendor has not corrected.
@@ -295,23 +326,15 @@ export function normalizeDeploymentManifest(
       'This app is configured to run a database migration on deploy but the manifest does not require PostgreSQL — Deployz cannot run migrations without a provisioned database',
     );
   }
-  // Phase 8 boundary — background worker processes are deferred. The worker
-  // start command is resolved per analysis (`resolvedWorkerCommand`, current
-  // metadata) with the sticky column as the legacy fallback. An app that has
-  // worker-like code AND a declared worker start command needs a second
-  // process Deployz will not run, so it is needs-adaptation (NOT_COMPATIBLE);
-  // worker-like code without a start command stays deployable (the manifest
-  // gate only fires on the declared command).
-  const workerCommand =
-    typeof meta['resolvedWorkerCommand'] === 'string' && meta['resolvedWorkerCommand'].length > 0
-      ? meta['resolvedWorkerCommand']
-      : overrides.workerCommand ?? null;
-  if (meta['hasWorkerProcesses'] === true && workerCommand !== null) {
-    unsupported.push(
-      'Background worker process not supported — Deployz runs one web process per application. ' +
-        'Remove the separate worker process or process background jobs inside the web process.',
-    );
-  }
+  // Phase 4A — background workers are first-class workloads. Each DECLARED
+  // run process becomes a `workers[]` entry the graph compiles into its own
+  // ECS service (one build artifact, one command per workload). Worker-like
+  // code WITHOUT a declared process stays deployable: `worker.needsCommand`
+  // records the open question (surfaced as an unresolved requirement), and
+  // nothing is auto-provisioned from weak evidence such as a queue-library
+  // dependency alone.
+  const declaredWorkers = toDeclaredWorkers(meta, overrides);
+  const workerNeedsCommand = meta['hasWorkerProcesses'] === true && declaredWorkers.length === 0;
 
   const manifest: DeploymentManifest = {
     schemaVersion: DEPLOYMENT_MANIFEST_SCHEMA_VERSION,
@@ -394,7 +417,13 @@ export function normalizeDeploymentManifest(
       command: overrides.migrationCommand ?? null,
       ...(migrationModeOf(meta) !== undefined ? { mode: migrationModeOf(meta) } : {}),
     },
-    worker: { command: workerCommand },
+    worker: {
+      // Legacy single slot: the FIRST worker's command, so consumers written
+      // before `workers[]` existed keep working unchanged.
+      command: declaredWorkers[0]?.command ?? null,
+      ...(workerNeedsCommand ? { needsCommand: true } : {}),
+    },
+    ...(declaredWorkers.length > 0 ? { workers: declaredWorkers } : {}),
     environment: {
       variables: toEnvVariables(meta['envVarModel'], meta['envVars']),
     },

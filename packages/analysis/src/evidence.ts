@@ -123,6 +123,14 @@ function asStringArray(meta: Record<string, unknown>, key: string): string[] {
   return value.filter((entry): entry is string => typeof entry === 'string' && entry.length > 0);
 }
 
+function asRecordArray(meta: Record<string, unknown>, key: string): Record<string, unknown>[] {
+  const value = meta[key];
+  if (!Array.isArray(value)) return [];
+  return value.filter(
+    (entry): entry is Record<string, unknown> => typeof entry === 'object' && entry !== null,
+  );
+}
+
 /** True for a confidence value within the EvidenceItem vocabulary. */
 function toConfidence(value: unknown, fallback: EvidenceItem['confidence']): EvidenceItem['confidence'] {
   return value === 'high' || value === 'medium' || value === 'low' ? value : fallback;
@@ -242,9 +250,14 @@ export function deriveAmbiguities(tree: FileTree, analysis: AnalysisResult): Ana
   // ── ARCHITECTURE_REQUIREMENT: worker gate borderline (code, no command). ──
   if (meta['hasWorkerProcesses'] === true) {
     const patterns = asStringArray(meta, 'workerPatterns');
-    const commandResolved = patterns.some(
-      (pattern) => pattern.includes('declared worker process') || pattern.startsWith('queue worker command'),
-    );
+    const declaredCommands = asRecordArray(meta, 'resolvedWorkerCommands').length;
+    const legacyCommand = asString(meta, 'resolvedWorkerCommand');
+    const commandResolved =
+      patterns.some(
+        (pattern) => pattern.includes('declared worker process') || pattern.startsWith('queue worker command'),
+      ) ||
+      declaredCommands > 0 ||
+      legacyCommand !== null;
     if (!commandResolved) {
       ambiguities.push({ kind: 'ARCHITECTURE_REQUIREMENT', detail: ARCHITECTURE_REQUIREMENT_DETAIL });
     }
