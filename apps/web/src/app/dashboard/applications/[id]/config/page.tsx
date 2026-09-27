@@ -4,7 +4,6 @@ import Link from 'next/link';
 import { useParams, useSearchParams } from 'next/navigation';
 import { Suspense, useEffect, useState, type FormEvent, type ReactNode } from 'react';
 
-import { PlannedInfrastructure } from '@/components/planned-infrastructure';
 import { SecretInput } from '@/components/secret-input';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -86,9 +85,6 @@ function ConfigScreen() {
 
   return (
     <div className="flex flex-col gap-6">
-      <DeploymentConfiguration />
-      <PlannedInfrastructure plan={pageData?.plan ?? null} />
-
       {state.status === 'loading' ? <PageSkeleton /> : null}
       {state.status === 'error' ? (
         <section
@@ -108,6 +104,8 @@ function ConfigScreen() {
           onSaved={(next) => setState({ status: 'loaded', data: next })}
         />
       ) : null}
+
+      <DeploymentConfiguration />
 
       <GeneralSettings />
     </div>

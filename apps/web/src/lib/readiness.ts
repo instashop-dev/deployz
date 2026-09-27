@@ -5,7 +5,7 @@
 // ever produces the fix-instructions document, never a finding or a state.
 // §65: all copy here is jargon-free. Never a percentage.
 
-import type { ApplicationRequirementsSummary } from '@deployz/contracts';
+import type { ApplicationRequirementsSummary, PlanComponentGroup } from '@deployz/contracts';
 
 import { apiUrl } from '@/lib/api-url';
 import type { Application } from '@/lib/applications';
@@ -74,6 +74,32 @@ export interface DeploymentRequirementDriftSummary {
   drift: DeploymentRequirementDriftEntry[];
 }
 
+/** One detected architecture node on the readiness response. */
+export interface ArchitectureNode {
+  label: string;
+  state: 'detected' | 'confirmed';
+}
+
+/** One group of detected architecture nodes. */
+export interface ArchitectureGroup {
+  group: PlanComponentGroup;
+  nodes: ArchitectureNode[];
+}
+
+/** One unresolved architecture question. */
+export interface ArchitectureUnresolved {
+  kind: string;
+  question: string;
+  blocking: boolean;
+}
+
+/** The architecture summary returned when analysis is COMPLETE. */
+export interface ApplicationArchitecture {
+  counts: { total: number; detected: number; confirmed: number } | null;
+  groups: ArchitectureGroup[];
+  unresolved: ArchitectureUnresolved[];
+}
+
 /**
  * The exact `GET /api/applications/:id/readiness` response shape (§19).
  * When `analysisStatus !== 'COMPLETE'` the state is ANALYSIS_INCOMPLETE and
@@ -97,6 +123,12 @@ export interface ApplicationReadiness {
   requirements: ApplicationRequirementsSummary | null;
   /** Existing deployments whose frozen manifest differs from the application's current effective requirements. Empty while analysis is incomplete. */
   deploymentRequirementDrift: DeploymentRequirementDriftSummary[];
+  /**
+   * Generic detected architecture (Phase 3). Present only when analysis is
+   * COMPLETE. Optional in the type so existing readiness fixtures keep
+   * compiling unchanged.
+   */
+  architecture?: ApplicationArchitecture | null;
   /**
    * Environment-variables setup counts (docs/environment-variables.md). Null when analysis
    * is not COMPLETE. Optional in the type (not just possibly null) so
