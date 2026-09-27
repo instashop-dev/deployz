@@ -109,6 +109,15 @@ function capitalize(value: string): string {
   return value.charAt(0).toUpperCase() + value.slice(1);
 }
 
+/**
+ * The spec-component fallback map (apps/api/src/spec-components.ts) extends
+ * the noun allowlist: an event whose logical id maps to a frozen spec
+ * component is translated as "{Component label}: {friendly verb}" instead of
+ * being dropped. With a spec, a logical id the map does not know lands in one
+ * generic line so it never silently disappears; without a spec, allowlist
+ * noise is dropped exactly as before.
+ */
+
 /** A FAILED event whose reason is boilerplate rollback cancellation — never
  *  the genuine cause of anything. Same test stack-event-progress.ts applies. */
 function isCancelledDebris(event: StackEventLike): boolean {
@@ -126,7 +135,6 @@ function isCancelledDebris(event: StackEventLike): boolean {
 type ActivityState = CustomerActivityItem['state'];
 
 interface NounAggregate {
-  noun: Noun;
   state: ActivityState;
   at: Date;
   /** The newest contributing per-resource event — drives the exact wording
@@ -145,30 +153,51 @@ function latestMeaningfulEvent(events: readonly StackEventLike[]): StackEventLik
   return latest;
 }
 
-function groupByNoun(events: readonly StackEventLike[]): Map<Noun, Map<string, StackEventLike[]>> {
-  const byNoun = new Map<Noun, Map<string, StackEventLike[]>>();
-  for (const event of events) {
-    const noun = nounFor(event.resourceType);
-    if (!noun) continue; // not in the allowlist — noise, dropped
-    let byResource = byNoun.get(noun);
-    if (!byResource) {
-      byResource = new Map();
-      byNoun.set(noun, byResource);
-    }
-    let resourceEvents = byResource.get(event.logicalResourceId);
-    if (!resourceEvents) {
-      resourceEvents = [];
-      byResource.set(event.logicalResourceId, resourceEvents);
-    }
-    resourceEvents.push(event);
-  }
-  return byNoun;
+interface EventGroup {
+  noun: Noun | null;
+  componentLabel: string | null;
+  byResource: Map<string, StackEventLike[]>;
 }
 
-/** Per noun: each resource's latest non-debris event, aggregated — any
+function groupEvents(
+  events: readonly StackEventLike[],
+  labelByLogicalId?: ReadonlyMap<string, string> | null,
+): Map<string, EventGroup> {
+  const groups = new Map<string, EventGroup>();
+  const add = (key: string, noun: Noun | null, componentLabel: string | null, event: StackEventLike): void => {
+    let group = groups.get(key);
+    if (!group) {
+      group = { noun, componentLabel, byResource: new Map() };
+      groups.set(key, group);
+    }
+    let resourceEvents = group.byResource.get(event.logicalResourceId);
+    if (!resourceEvents) {
+      resourceEvents = [];
+      group.byResource.set(event.logicalResourceId, resourceEvents);
+    }
+    resourceEvents.push(event);
+  };
+  for (const event of events) {
+    const noun = nounFor(event.resourceType);
+    if (noun) {
+      add(noun, noun, null, event); // the allowlist wins; spec fallbacks only see non-allowlist types
+      continue;
+    }
+    const componentLabel = labelByLogicalId?.get(event.logicalResourceId);
+    if (componentLabel) {
+      add(`component:${componentLabel}`, null, componentLabel, event);
+      continue;
+    }
+    if (labelByLogicalId) add('deployment-resources', null, null, event);
+    // else: no spec — allowlist noise, dropped
+  }
+  return groups;
+}
+
+/** Per group: each resource's latest non-debris event, aggregated — any
  *  genuine failure wins FAILED, else any in-progress wins IN_PROGRESS, else
  *  COMPLETE. `at` is the newest contributing event's time. */
-function aggregateNoun(noun: Noun, byResource: ReadonlyMap<string, StackEventLike[]>): NounAggregate | null {
+function aggregateGroup(byResource: ReadonlyMap<string, StackEventLike[]>): NounAggregate | null {
   let anyFailed = false;
   let anyInProgress = false;
   let allComplete = true;
@@ -186,11 +215,11 @@ function aggregateNoun(noun: Noun, byResource: ReadonlyMap<string, StackEventLik
 
   if (!newest) return null;
   const state: ActivityState = anyFailed ? 'FAILED' : anyInProgress ? 'IN_PROGRESS' : allComplete ? 'COMPLETE' : 'IN_PROGRESS';
-  return { noun, state, at: newest.eventAt, latestEvent: newest };
+  return { state, at: newest.eventAt, latestEvent: newest };
 }
 
-function messageFor(aggregate: NounAggregate): string {
-  const { noun, state, latestEvent } = aggregate;
+function messageFor(noun: Noun, aggregate: NounAggregate): string {
+  const { state, latestEvent } = aggregate;
   const label = NOUN_LABEL[noun];
   const status = latestEvent.resourceStatus;
   const deletePhase = isDeletePhase(status);
@@ -224,19 +253,43 @@ function messageFor(aggregate: NounAggregate): string {
   return `${verb} the ${label}.`;
 }
 
+/** Spec-component wording — "{Component label}: {friendly verb}". */
+function componentMessage(componentLabel: string, aggregate: NounAggregate): string {
+  const { state, latestEvent } = aggregate;
+  const status = latestEvent.resourceStatus;
+  const deletePhase = isDeletePhase(status);
+  if (state === 'FAILED') {
+    const verb = deletePhase ? 'remove' : status.startsWith('UPDATE_') ? 'update' : 'create';
+    return `${componentLabel}: could not ${verb}`;
+  }
+  if (state === 'COMPLETE') return deletePhase ? `${componentLabel}: removed` : `${componentLabel}: ready`;
+  if (deletePhase) return `${componentLabel}: removing`;
+  return `${componentLabel}: ${status.startsWith('UPDATE_') ? 'updating' : 'creating'}`;
+}
+
+const GENERIC_ACTIVITY_MESSAGE = 'Working on deployment resources.';
+
 /** Real, meaningful AWS provisioning events translated into customer copy —
- *  newest first, deduplicated by noun, max 5. Never invents progress: a noun
- *  with no non-debris event contributes nothing. */
-export function translateStackEvents(events: readonly StackEventLike[]): CustomerActivityItem[] {
-  const byNoun = groupByNoun(events);
+ *  newest first, deduplicated, max 5. Never invents progress: a group with no
+ *  non-debris event contributes nothing. The noun allowlist is consulted
+ *  first; a frozen spec's component labels (labelByLogicalId) extend it. */
+export function translateStackEvents(
+  events: readonly StackEventLike[],
+  labelByLogicalId?: ReadonlyMap<string, string> | null,
+): CustomerActivityItem[] {
   const items: CustomerActivityItem[] = [];
-  for (const [noun, byResource] of byNoun) {
-    const aggregate = aggregateNoun(noun, byResource);
+  for (const [key, group] of groupEvents(events, labelByLogicalId)) {
+    const aggregate = aggregateGroup(group.byResource);
     if (!aggregate) continue;
     items.push({
-      key: noun,
+      key,
       at: aggregate.at.toISOString(),
-      message: messageFor(aggregate),
+      message:
+        group.noun !== null
+          ? messageFor(group.noun, aggregate)
+          : group.componentLabel !== null
+            ? componentMessage(group.componentLabel, aggregate)
+            : GENERIC_ACTIVITY_MESSAGE,
       state: aggregate.state,
     });
   }
@@ -312,6 +365,10 @@ export interface BuildCustomerLiveProgressInput {
   /** Raw stack events of the latest INSTALL job, any order — only read for
    *  PROVISIONING/FAILED. */
   events: readonly StackEventLike[];
+  /** logicalResourceId → spec component label, from the deployment's frozen
+   *  spec (apps/api/src/spec-components.ts). Null when there is no spec —
+   *  allowlist noise is then dropped exactly as before. */
+  componentLabelByLogicalId?: ReadonlyMap<string, string> | null;
   /** The latest INSTALL job's id, for the DEP-<id> technical reference. Null
    *  when no INSTALL job exists yet. */
   installJobId: string | null;
@@ -368,7 +425,7 @@ function rawEventsForTechnicalDetails(events: readonly StackEventLike[]): Custom
 }
 
 function buildProvisioningProgress(input: BuildCustomerLiveProgressInput): CustomerLiveProgress {
-  const recentActivity = translateStackEvents(input.events);
+  const recentActivity = translateStackEvents(input.events, input.componentLabelByLogicalId);
   const newestInProgress = recentActivity.find((item) => item.state === 'IN_PROGRESS');
   const provisioningIssue = findProvisioningIssue(input.events);
   const stack = rootStackEvent(input.events);

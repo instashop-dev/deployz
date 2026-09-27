@@ -2914,6 +2914,15 @@ describe('server — fleet list & deployment detail joins, readiness derivation 
       },
       deploymentRequirementDrift: [],
       environmentSetup: { needsDecision: 0, missingValue: 0, missingBuildValue: 0, customer: 0, total: 0 },
+      architecture: {
+        counts: { schemaVersion: 1, workloadCount: 1, resourceCount: 2, managedResourceCount: 2, unresolvedCount: 0, hasBlockingUnresolved: false },
+        groups: [
+          { group: 'application', nodes: [{ label: 'Web service', state: 'detected' }] },
+          { group: 'storage', nodes: [{ label: 'S3 bucket', state: 'detected' }] },
+          { group: 'edge', nodes: [{ label: 'Application load balancer', state: 'detected' }] },
+        ],
+        unresolved: [],
+      },
     });
   });
 

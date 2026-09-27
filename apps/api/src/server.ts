@@ -64,13 +64,16 @@ import {
   requirementsFromSpec,
   resolveBootstrapTemplate,
   resolveStoredInfrastructureSizeProfile,
+  summarizeApplicationGraph,
   summarizeInfrastructureStatus,
   type ApplicationAnalysis,
+  type ApplicationGraphSummary,
   type ApplicationRequirementsSummary,
   type BillingSubscriptionStatus,
   type CustomerDeploymentStatus,
   type DeploymentManifest,
   type DeploymentPlan,
+  type InfrastructureChange,
   type InfrastructureComponentStatus,
   type InfrastructureSummaryStatus,
   type VendorStackEvent,
@@ -269,6 +272,12 @@ import {
   type CustomerLiveProgress,
   type LiveHttpsState,
 } from './customer-activity.js';
+import {
+  planComponentsFromSpec,
+  specComponentIdentityByLogicalId,
+  specComponentLabelByLogicalId,
+  specComponentsForStatus,
+} from './spec-components.js';
 import {
   createDeployLink,
   createDeploymentRecord,
@@ -944,6 +953,69 @@ interface ReadinessResponse {
     customer: number;
     total: number;
   } | null;
+  /**
+   * What the analysed ApplicationGraph says the application needs — grouped
+   * components, per-node resolution state and the unresolved questions — for
+   * the vendor "Architecture detected" card. Absent while analysis is
+   * incomplete.
+   */
+  architecture?: ReadinessArchitecture;
+}
+
+/** One node of the readiness architecture summary — a component the graph detected. */
+interface ReadinessArchitectureNode {
+  label: string;
+  /** 'confirmed' when a vendor override resolved the node, else 'detected'. */
+  state: 'detected' | 'confirmed';
+}
+
+interface ReadinessArchitecture {
+  counts: ApplicationGraphSummary;
+  /** Components grouped for the compact card, in display order. */
+  groups: { group: string; nodes: ReadinessArchitectureNode[] }[];
+  /** Focused questions the vendor must answer (kind + question + blocking). */
+  unresolved: { kind: string; question: string; blocking: boolean }[];
+}
+
+/** ApplicationGraph resource kind → card group; unlisted kinds land in 'other'. */
+const ARCHITECTURE_GROUP_BY_RESOURCE_KIND: Record<string, string> = {
+  relational_database: 'data',
+  document_database: 'data',
+  key_value_database: 'data',
+  cache: 'cache',
+  queue: 'messaging',
+  event_bus: 'messaging',
+  object_storage: 'storage',
+  filesystem: 'storage',
+  search: 'storage',
+  vector_store: 'storage',
+  generic_service: 'edge',
+};
+
+const ARCHITECTURE_GROUP_ORDER = ['application', 'data', 'cache', 'storage', 'messaging', 'edge', 'other'] as const;
+
+/** The architecture summary for the analysed application — built from the same effective manifest the requirements and drift summaries read. */
+function computeArchitecture(app: ManifestApplicationRow): ReadinessArchitecture {
+  const graph = manifestToApplicationGraph(effectiveApplicationManifest(app));
+  const nodes = new Map<string, ReadinessArchitectureNode[]>();
+  const push = (group: string, label: string, overridden: boolean): void => {
+    const list = nodes.get(group);
+    const node = { label, state: overridden ? ('confirmed' as const) : ('detected' as const) };
+    if (list) list.push(node);
+    else nodes.set(group, [node]);
+  };
+  for (const workload of graph.workloads) push('application', workload.label, workload.provenance.overridden);
+  for (const resource of graph.resources) {
+    push(ARCHITECTURE_GROUP_BY_RESOURCE_KIND[resource.kind] ?? 'other', resource.label, resource.provenance.overridden);
+  }
+  return {
+    counts: summarizeApplicationGraph(graph),
+    groups: ARCHITECTURE_GROUP_ORDER.filter((group) => nodes.has(group)).map((group) => ({
+      group,
+      nodes: nodes.get(group)!,
+    })),
+    unresolved: graph.unresolved.map((entry) => ({ kind: entry.field, question: entry.question, blocking: entry.blocking })),
+  };
 }
 
 /** Legacy-row bridge: rebuild findings from the pre-report `checks` shape. */
@@ -1054,6 +1126,7 @@ async function computeReadiness(
     detected,
     requirements: computeApplicationRequirements(app, detected),
     deploymentRequirementDrift: computeDeploymentRequirementDrift(app, deployments),
+    architecture: computeArchitecture(app),
     environmentSetup: {
       needsDecision: environmentSetup.counts.needsDecision,
       missingValue: environmentSetup.counts.missingValue,
@@ -1419,8 +1492,10 @@ async function loadCustomerLiveProgress(
     stepTimings: DeploymentRow['stepTimings'];
     cleanupState: DeploymentRow['cleanupState'];
     launched: boolean;
+    /** The deployment's frozen spec — feeds the spec-component fallbacks. */
+    specV2: DeploymentRow['specV2'];
   },
-): Promise<CustomerLiveProgress> {
+): Promise<{ progress: CustomerLiveProgress; stackEvents: StoredStackEvent[] }> {
   const installJob = [...params.jobs].reverse().find((job) => job.type === 'INSTALL') ?? null;
 
   // A failure of a later job (a release, a restart) has no stack events of
@@ -1468,18 +1543,24 @@ async function loadCustomerLiveProgress(
         }
       : null;
 
-  return buildCustomerLiveProgress({
-    stage: derived.stage,
-    step: derived.step,
-    events,
-    installJobId: installJob?.id ?? null,
-    stepTimings: params.stepTimings,
-    cleanupState: params.cleanupState,
-    health: derived.health.layers,
-    https,
-    needsDomainSetup: derived.needsDomainSetup,
-    launched: params.launched,
-  });
+  return {
+    progress: buildCustomerLiveProgress({
+      stage: derived.stage,
+      step: derived.step,
+      events,
+      componentLabelByLogicalId: specComponentLabelByLogicalId(params.specV2),
+      installJobId: installJob?.id ?? null,
+      stepTimings: params.stepTimings,
+      cleanupState: params.cleanupState,
+      health: derived.health.layers,
+      https,
+      needsDomainSetup: derived.needsDomainSetup,
+      launched: params.launched,
+    }),
+    // Reused by the caller for the spec-derived component list — loading them
+    // twice would double the route's only event query.
+    stackEvents: events,
+  };
 }
 
 // Also shared by both public status routes: the READY-only AWS summary of the
@@ -2550,7 +2631,7 @@ export async function buildServer({
         defaultHttps,
         appUrl,
       });
-      const live = await loadCustomerLiveProgress(db, derived, {
+      const { progress, stackEvents } = await loadCustomerLiveProgress(db, derived, {
         deploymentId: row.deployment.id,
         jobs,
         domain,
@@ -2558,10 +2639,18 @@ export async function buildServer({
         stepTimings: row.deployment.stepTimings,
         cleanupState: row.deployment.cleanupState,
         launched: row.deployment.installStartedAt !== null,
+        specV2: row.deployment.specV2,
       });
-      const status = toCustomerDeploymentStatus(derived, live);
+      const status = toCustomerDeploymentStatus(derived, progress);
+      // Additive spec-derived components — omitted entirely without a
+      // compiled spec, so legacy deployments' responses are byte-identical.
+      const specComponents = specComponentsForStatus(row.deployment.specV2, derived.components, stackEvents);
       const awsSummary = await loadCustomerAwsSummary(db, derived, row.deployment);
-      return awsSummary ? { ...status, awsSummary } : status;
+      return {
+        ...status,
+        ...(awsSummary ? { awsSummary } : {}),
+        ...(specComponents ? { specComponents } : {}),
+      };
     },
   );
 
@@ -4004,7 +4093,7 @@ export async function buildServer({
         defaultHttps,
         appUrl,
       });
-      const live = await loadCustomerLiveProgress(db, derived, {
+      const { progress, stackEvents } = await loadCustomerLiveProgress(db, derived, {
         deploymentId: deployment.id,
         jobs,
         domain,
@@ -4012,10 +4101,16 @@ export async function buildServer({
         stepTimings: deployment.stepTimings,
         cleanupState: deployment.cleanupState,
         launched: deployment.installStartedAt !== null,
+        specV2: deployment.specV2,
       });
-      const status = toCustomerDeploymentStatus(derived, live);
+      const status = toCustomerDeploymentStatus(derived, progress);
+      const specComponents = specComponentsForStatus(deployment.specV2, derived.components, stackEvents);
       const awsSummary = await loadCustomerAwsSummary(db, derived, deployment);
-      return awsSummary ? { ...status, awsSummary } : status;
+      return {
+        ...status,
+        ...(awsSummary ? { awsSummary } : {}),
+        ...(specComponents ? { specComponents } : {}),
+      };
     },
   );
 
@@ -4460,7 +4555,16 @@ export async function buildServer({
         // what this deployment was actually created with.
         const derivedRow = { ...row, ...derivationApplicationFor(row.deployment, row) };
         const derived = deriveDeploymentStatus({ deployment: row.deployment, application: derivedRow, jobs, domain, defaultHttps, appUrl });
-        return { ...toFleetRow(derivedRow), deploymentStatus: toVendorDeploymentStatus(derived) };
+        // Spec components from the existing component states only — the list
+        // endpoint does no per-row stack-event query (see the detail route).
+        const specComponents = specComponentsForStatus(row.deployment.specV2, derived.components, []);
+        return {
+          ...toFleetRow(derivedRow),
+          deploymentStatus: {
+            ...toVendorDeploymentStatus(derived),
+            ...(specComponents ? { specComponents } : {}),
+          },
+        };
       }),
     };
   });
@@ -4511,13 +4615,17 @@ export async function buildServer({
       defaultHttps,
       appUrl,
     });
+    const specComponents = specComponentsForStatus(rows[0]!.deployment.specV2, derived.components, []);
     return {
       ...toFleetRow(derivedRow),
       jobs,
       customDomain,
       appUrl,
       defaultUrl,
-      deploymentStatus: toVendorDeploymentStatus(derived),
+      deploymentStatus: {
+        ...toVendorDeploymentStatus(derived),
+        ...(specComponents ? { specComponents } : {}),
+      },
     };
   });
 
@@ -6052,39 +6160,53 @@ export async function buildServer({
     const spec = readStoredDeploymentSpec(deployment.specV2);
     const compiledFootprint = spec?.footprint ?? undefined;
     if (action === 'install') {
+      const plan = buildInstallPlan({
+        manifest,
+        region: deployment.region,
+        ...(profile ? { profile } : {}),
+        ...(compiledFootprint ? { compiledFootprint } : {}),
+      });
+      // A frozen spec upgrades the components to spec-derived identity — same
+      // names/actions/lifecycles for the catalog kinds, plus componentId/group.
       return deploymentPlanSchema.parse(
-        buildInstallPlan({
-          manifest,
-          region: deployment.region,
-          ...(profile ? { profile } : {}),
-          ...(compiledFootprint ? { compiledFootprint } : {}),
-        }),
+        spec ? { ...plan, components: planComponentsFromSpec(spec, 'install', false) } : plan,
       );
     }
     if (action === 'destroy') {
+      const plan = buildDestroyPlan({
+        manifest,
+        region: deployment.region,
+        ...(profile ? { profile } : {}),
+        ...(compiledFootprint ? { compiledFootprint } : {}),
+      });
       return deploymentPlanSchema.parse(
-        buildDestroyPlan({
-          manifest,
-          region: deployment.region,
-          ...(profile ? { profile } : {}),
-          ...(compiledFootprint ? { compiledFootprint } : {}),
-        }),
+        spec ? { ...plan, components: planComponentsFromSpec(spec, 'destroy', false) } : plan,
       );
     }
     if (action === 'update') {
       const application = await loadOwnedApplication(db, deployment.applicationId, organizationId);
       const { manifest: desiredManifest } = await runApplicationPreflight(db, application, null);
       const newRelease = await newerReadyReleaseExists(db, deployment.applicationId, deployment.currentReleaseId);
-      return deploymentPlanSchema.parse(
-        buildUpdatePlan({
-          deployedManifest: manifest,
-          desiredManifest,
-          region: deployment.region,
-          newRelease,
-          ...(profile ? { profile } : {}),
-          ...(compiledFootprint ? { compiledFootprint } : {}),
-        }),
-      );
+      const plan = buildUpdatePlan({
+        deployedManifest: manifest,
+        desiredManifest,
+        region: deployment.region,
+        newRelease,
+        ...(profile ? { profile } : {}),
+        ...(compiledFootprint ? { compiledFootprint } : {}),
+      });
+      // Release-vs-infrastructure gate (phase 3): requirement drift means the
+      // release needs topology changes the MVP cannot apply in place — fail
+      // closed regardless of feasibility. requirementDrift stays in the
+      // response unchanged.
+      const infrastructureChange: InfrastructureChange = plan.requirementDrift.length
+        ? { status: 'unsupported', reason: 'topology_changed' }
+        : { status: 'none' };
+      return deploymentPlanSchema.parse({
+        ...plan,
+        ...(spec ? { components: planComponentsFromSpec(spec, 'update', newRelease) } : {}),
+        infrastructureChange,
+      });
     }
     throw new ApiError(400, 'INVALID_REQUEST', 'action must be "install", "update", or "destroy".');
   });
@@ -6157,6 +6279,9 @@ export async function buildServer({
           deploymentId: id,
           job: { type: failedJob.type, failureCode: failedJob.failureCode, result: failedJob.result },
           attempt: deployment.attemptNumber,
+          // Component identity for the blamed resource, from the frozen spec
+          // when it has one — absent, never guessed.
+          componentIdentityByLogicalId: specComponentIdentityByLogicalId(deployment.specV2),
           stackEvents: await db
             .select({
               logicalResourceId: schema.deploymentStackEvents.logicalResourceId,

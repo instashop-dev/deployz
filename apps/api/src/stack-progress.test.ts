@@ -27,6 +27,14 @@ function postJson(
   });
 }
 
+// Phase 3: deployments created with a frozen spec carry the additive
+// `specComponents` field on the status wire. Strip it before the strict
+// contract parse so the guard keeps checking the documented shape.
+function parseCustomerStatus(payload: unknown): ReturnType<typeof customerDeploymentStatusSchema.parse> {
+  const { specComponents: _specComponents, ...status } = payload as Record<string, unknown>;
+  return customerDeploymentStatusSchema.parse(status);
+}
+
 // Task 4: POST /api/relay/commands/:id/progress — the relay stack-event
 // ingest endpoint. Snapshot folding is verified end-to-end through
 // GET /api/install/:installLinkId/status (deriveDeploymentStatus), not by
@@ -248,7 +256,7 @@ describe('POST /api/relay/commands/:id/progress', () => {
 
     const status = await app.inject({ method: 'GET', url: `/api/install/${deployment.installLinkId}/status` });
     expect(status.statusCode).toBe(200);
-    const body = customerDeploymentStatusSchema.parse(status.json());
+    const body = parseCustomerStatus(status.json());
     expect(body.stepStartedAt).not.toBeUndefined();
     expect(body.recentActivity).toEqual([
       { key: 'network', at: t0.toISOString(), message: 'Creating the private network.', state: 'IN_PROGRESS' },
@@ -286,7 +294,7 @@ describe('POST /api/relay/commands/:id/progress', () => {
     expect(updatedJob!.state).toBe('RUNNING');
 
     const status = await app.inject({ method: 'GET', url: `/api/install/${deployment.installLinkId}/status` });
-    const body = customerDeploymentStatusSchema.parse(status.json());
+    const body = parseCustomerStatus(status.json());
     expect(body.stage).toBe('PROVISIONING');
     expect(body.provisioningIssue).toEqual({
       message: 'AWS could not create the database. Deployz is cleaning up and will show the result here shortly.',
@@ -590,7 +598,7 @@ describe('POST /api/relay/commands/:id/progress', () => {
     // The customer page flips to the terminal state, cleanup in progress,
     // and the activity line stays jargon-free.
     const status = await app.inject({ method: 'GET', url: `/api/install/${deployment.installLinkId}/status` });
-    const body = customerDeploymentStatusSchema.parse(status.json());
+    const body = parseCustomerStatus(status.json());
     expect(body.stage).toBe('FAILED');
     expect(body.cleanup).toBe('IN_PROGRESS');
     expect(body.failure).not.toBeNull();
@@ -630,7 +638,7 @@ describe('POST /api/relay/commands/:id/progress', () => {
     expect(terminalLogRows.filter((row) => row.eventType === 'install.failed')).toHaveLength(1);
 
     const terminalStatus = await app.inject({ method: 'GET', url: `/api/install/${deployment.installLinkId}/status` });
-    const terminalBody = customerDeploymentStatusSchema.parse(terminalStatus.json());
+    const terminalBody = parseCustomerStatus(terminalStatus.json());
     expect(terminalBody.stage).toBe('FAILED');
     expect(terminalBody.cleanup).toBe('RETAINED');
   });
@@ -748,7 +756,7 @@ describe('POST /api/relay/commands/:id/progress', () => {
     expect(updatedJob!.state).toBe('FAILED');
 
     const status = await app.inject({ method: 'GET', url: `/api/install/${deployment.installLinkId}/status` });
-    const body = customerDeploymentStatusSchema.parse(status.json());
+    const body = parseCustomerStatus(status.json());
     expect(body.stage).toBe('FAILED');
     expect(body.cleanup).toBe('RETAINED');
   });
@@ -775,7 +783,7 @@ describe('POST /api/relay/commands/:id/progress', () => {
       url: `/api/install/${ready.installLinkId}/status`,
     });
     expect(readyResponse.statusCode).toBe(200);
-    const readyBody = customerDeploymentStatusSchema.parse(readyResponse.json());
+    const readyBody = parseCustomerStatus(readyResponse.json());
     expect(readyBody.stage).toBe('READY');
     expect(readyBody.awsSummary).toEqual({
       applicationStackName: applicationStackNameForInstallation(installationId),
@@ -790,7 +798,7 @@ describe('POST /api/relay/commands/:id/progress', () => {
       installationId: null,
       defaultHttps: { hostname: 'd-unenrolled.deployz.dev', status: 'ACTIVE' },
     });
-    const unenrolledBody = customerDeploymentStatusSchema.parse(
+    const unenrolledBody = parseCustomerStatus(
       (await app.inject({ method: 'GET', url: `/api/install/${unenrolled.installLinkId}/status` })).json(),
     );
     expect(unenrolledBody.stage).toBe('READY');
@@ -805,7 +813,7 @@ describe('POST /api/relay/commands/:id/progress', () => {
       idempotencyKey: `${provisioning.id}:INSTALL`,
       payload: {},
     });
-    const provisioningBody = customerDeploymentStatusSchema.parse(
+    const provisioningBody = parseCustomerStatus(
       (await app.inject({ method: 'GET', url: `/api/install/${provisioning.installLinkId}/status` })).json(),
     );
     expect(provisioningBody.stage).toBe('PROVISIONING');
