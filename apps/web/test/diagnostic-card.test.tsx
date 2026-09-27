@@ -108,6 +108,26 @@ describe('DiagnosticCard — AI tentative labelling', () => {
   });
 });
 
+describe('DiagnosticCard — component identity (phase 3)', () => {
+  it('names the affected component at the top level and keeps the raw id behind the disclosure', () => {
+    const doc = render({
+      ...diagnostic,
+      context: { ...diagnostic.context!, componentId: 'database', componentLabel: 'MySQL' },
+    });
+    expect(doc.querySelector('[data-testid="diagnostic-component"]')?.textContent).toBe('Affects: MySQL');
+    // The label is top level (before the explanation rows); the raw componentId
+    // never leaves the technical detail disclosure.
+    const dl = doc.querySelector('dl');
+    expect(dl?.previousElementSibling?.getAttribute('data-testid')).toBe('diagnostic-component');
+    expect(doc.querySelector('[data-testid="diagnostic-technical"]')?.textContent).toContain('database');
+  });
+
+  it('renders no Affects line when the context carries no component label', () => {
+    const doc = render(diagnostic);
+    expect(doc.querySelector('[data-testid="diagnostic-component"]')).toBeNull();
+  });
+});
+
 describe('DiagnosticCard — startup evidence', () => {
   it('shows the empty state when there is neither container evidence nor a failed resource', () => {
     const doc = render({ ...diagnostic, context: null, evidence: null });

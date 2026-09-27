@@ -2,6 +2,8 @@ import type { ReactNode } from 'react';
 
 import type { CustomerDeploymentStatus, DeploymentStage, DeploymentStep } from '@deployz/contracts';
 
+import type { Tone } from '@/lib/status-tone';
+
 // Client-side vocabulary for the server-derived deployment stage/step. The
 // server (deriveDeploymentStatus in the API) is the only place lifecycle
 // state is inferred; this module only formats what it received — it never
@@ -483,3 +485,60 @@ export const COMPONENT_STATUS_TONE: Record<
   FAILED: 'negative',
   NOT_REQUIRED: 'neutral',
 };
+
+// ── Spec-derived component identity (phase 3, additive) ────────────────────
+
+/**
+ * One entry of the status payloads' additive `specComponents` field — present
+ * only when the deployment has a frozen spec, absent (never empty-by-guess)
+ * otherwise. Mirrors SpecDerivedComponent (apps/api/src/spec-components.ts);
+ * the web mirrors wire shapes locally (see DESTROY_PENDING_STALE_AFTER_MS in
+ * lib/deployments.ts).
+ */
+export type SpecComponentState = 'PENDING' | 'IN_PROGRESS' | 'COMPLETE' | 'FAILED';
+
+export interface SpecComponent {
+  componentId: string;
+  label: string;
+  state: SpecComponentState;
+  /** Supporting fact for generic entries — e.g. the resource type AWS reported. */
+  detail?: string | undefined;
+}
+
+/** The status payloads with the additive field present, for the surfaces that
+ *  render it while the contracts package has not grown the field yet. */
+export type StatusWithSpecComponents<T extends object> = T & {
+  specComponents?: SpecComponent[] | undefined;
+};
+
+/** How one spec-derived component presents: its label, the state words, and
+ *  the shared status tone for its dot. */
+export interface SpecComponentPresentation {
+  label: string;
+  stateLabel: string;
+  tone: Tone;
+  /** The component's own supporting fact, passed through verbatim. */
+  detail: string | undefined;
+}
+
+const SPEC_COMPONENT_STATE_PRESENTATION: Record<SpecComponentState, { stateLabel: string; tone: Tone }> = {
+  PENDING: { stateLabel: 'Waiting', tone: 'neutral' },
+  IN_PROGRESS: { stateLabel: 'In progress', tone: 'progress' },
+  COMPLETE: { stateLabel: 'Complete', tone: 'positive' },
+  FAILED: { stateLabel: 'Failed', tone: 'negative' },
+};
+
+/**
+ * Presentation for one spec-derived component. An unrecognized state (a newer
+ * API rendering into an older client) presents neutral rather than crashing —
+ * an entry is always rendered with its provided label, never hidden.
+ */
+export function specComponentPresentation(component: SpecComponent): SpecComponentPresentation {
+  const known = SPEC_COMPONENT_STATE_PRESENTATION[component.state];
+  return {
+    label: component.label,
+    stateLabel: known?.stateLabel ?? SPEC_COMPONENT_STATE_PRESENTATION.PENDING.stateLabel,
+    tone: known?.tone ?? 'neutral',
+    detail: component.detail,
+  };
+}

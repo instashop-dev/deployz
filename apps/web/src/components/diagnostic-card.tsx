@@ -47,6 +47,14 @@ export function DiagnosticCard({ diagnostic }: { diagnostic: Diagnostic }) {
           </Badge>
         </div>
 
+        {/* Phase 3: the spec component the failure affects, in plain words —
+            the raw componentId stays behind the technical disclosure. */}
+        {diagnostic.context?.componentLabel ? (
+          <p className="text-sm text-muted-foreground" data-testid="diagnostic-component">
+            Affects: {diagnostic.context.componentLabel}
+          </p>
+        ) : null}
+
         {/* Phase 7: an AI reading below high confidence is framed as a lead,
             never a verdict — the hedge precedes the text it qualifies. */}
         {diagnostic.explanationSource === 'ai' && diagnostic.confidence && AI_CONFIDENCE_COPY[diagnostic.confidence] ? (
@@ -205,6 +213,7 @@ function ContextRows({ context }: { context: DiagnosticContext }) {
       {context.reportedFailureCode !== null ? (
         <DetailRow label="Reported by the helper as" value={context.reportedFailureCode} />
       ) : null}
+      {context.componentId ? <DetailRow label="Component ID" value={context.componentId} /> : null}
       {context.applicationVersion !== null ? <DetailRow label="Version" value={context.applicationVersion} /> : null}
       {context.resourceType !== null ? <DetailRow label="Failed resource" value={context.resourceType} /> : null}
       {context.relevantEvents.length > 0 ? (

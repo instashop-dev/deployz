@@ -58,6 +58,10 @@ export interface DiagnosticContext {
   message: string | null;
   relevantEvents: DiagnosticFailedResource[];
   applicationVersion: string | null;
+  /** Spec component identity of the blamed resource (phase 3) — absent when
+   *  the deployment's frozen spec does not map it, never guessed. */
+  componentId?: string | undefined;
+  componentLabel?: string | undefined;
 }
 
 export type DiagnosticConfidence = 'high' | 'medium' | 'low';

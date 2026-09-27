@@ -13,6 +13,8 @@ import {
   AWAITING_DOMAIN_STEP_DETAIL,
   COMPONENT_PROGRESS_LABEL,
   formatElapsedSeconds,
+  specComponentPresentation,
+  StatusWithSpecComponents,
   stepDetailLine,
   stepWaitingOnInput,
   stepsFromStatus,
@@ -20,6 +22,8 @@ import {
   removedProgress,
 } from '@/lib/deployment-progress';
 import { JOB_STATE_LABEL, JOB_TYPE_LABEL } from '@/lib/deployment-vocabulary';
+import { TONE_DOT } from '@/lib/status-tone';
+import { cn } from '@/lib/utils';
 
 /** Live elapsed time since `startedAt`, ticking every second — isolated here
  *  so only this small counter re-renders on each tick, not the whole card. */
@@ -99,7 +103,7 @@ export function DeploymentProgressCard({
   status,
   deploymentState,
 }: {
-  status: VendorDeploymentStatus;
+  status: StatusWithSpecComponents<VendorDeploymentStatus>;
   /** The lifecycle state, so a removed deployment is not announced with the
    *  live stage it last earned (`removedProgress`). */
   deploymentState: string;
@@ -107,6 +111,9 @@ export function DeploymentProgressCard({
   const removed = removedProgress(deploymentState);
   const lastSeen = relativeTime(status.relay.lastSeenAt);
   const lastUpdate = relativeTime(status.updatedAt);
+  // Spec-derived component identity (phase 3) wins when a frozen spec
+  // exists; the legacy component list is the fallback otherwise.
+  const specRows = status.specComponents ?? [];
   // Rendered whenever the API surfaces one — the FAILED stage, but also a
   // failed day-2 operation on a deployment whose previous release keeps
   // serving (stage READY/VERIFYING with a non-null failure).
@@ -169,21 +176,39 @@ export function DeploymentProgressCard({
         <DeploymentProgressSteps steps={timedSteps(status)} />
 
         <ul className="flex flex-col gap-2">
-          {status.components.map((component) => (
-            <li
-              key={component.key}
-              className="flex items-center gap-3 rounded-lg border px-3 py-2.5"
-            >
-              <span
-                className={`size-2 shrink-0 rounded-full ${PROGRESS_DOT[component.status]}`}
-                aria-hidden
-              />
-              <span className="text-sm font-medium">{component.label}</span>
-              <span className="ml-auto text-sm text-muted-foreground">
-                {COMPONENT_PROGRESS_LABEL[component.status]}
-              </span>
-            </li>
-          ))}
+          {specRows.length > 0
+            ? specRows.map((component) => {
+                const view = specComponentPresentation(component);
+                return (
+                  <li
+                    key={component.componentId}
+                    className="flex items-center gap-3 rounded-lg border px-3 py-2.5"
+                    data-testid="vendor-spec-component"
+                  >
+                    <span
+                      aria-hidden
+                      className={cn('size-2 shrink-0 rounded-full', TONE_DOT[view.tone])}
+                    />
+                    <span className="min-w-0 text-sm font-medium">{view.label}</span>
+                    <span className="ml-auto text-sm text-muted-foreground">{view.stateLabel}</span>
+                  </li>
+                );
+              })
+            : status.components.map((component) => (
+                <li
+                  key={component.key}
+                  className="flex items-center gap-3 rounded-lg border px-3 py-2.5"
+                >
+                  <span
+                    className={`size-2 shrink-0 rounded-full ${PROGRESS_DOT[component.status]}`}
+                    aria-hidden
+                  />
+                  <span className="text-sm font-medium">{component.label}</span>
+                  <span className="ml-auto text-sm text-muted-foreground">
+                    {COMPONENT_PROGRESS_LABEL[component.status]}
+                  </span>
+                </li>
+              ))}
           <li className="flex items-center gap-3 rounded-lg border px-3 py-2.5">
             <span
               className={`size-2 shrink-0 rounded-full ${status.relay.connected ? 'bg-primary' : 'bg-destructive'}`}

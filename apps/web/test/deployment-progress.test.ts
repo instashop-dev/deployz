@@ -14,7 +14,9 @@ import {
   recentActivityTimeLabel,
   REMOVED_PROGRESS,
   removedProgress,
+  specComponentPresentation,
   stageRank,
+  StatusWithSpecComponents,
   stepWaitingOnInput,
   stepsBeforeLaunch,
   AWAITING_DOMAIN_STEP_DETAIL,
@@ -23,6 +25,7 @@ import {
   stepsFromStatus,
   TAKING_LONGER_MESSAGE,
   type ProgressStepState,
+  type SpecComponentState,
 } from '../src/lib/deployment-progress';
 
 // Locks the client-side vocabulary map for the server-derived deployment
@@ -534,5 +537,54 @@ describe('recentActivityTimeLabel', () => {
   it('reads a compact "N min ago" for minutes', () => {
     const at = new Date('2026-09-18T00:00:00.000Z').toISOString();
     expect(recentActivityTimeLabel(at, Date.parse(at) + 2 * 60_000)).toBe('2 min ago');
+  });
+});
+
+// Phase 3: the additive specComponents field on the status payloads. The
+// presentation helper maps each spec state onto the shared tone system and
+// the state words; unknown ids render with their provided label, and an
+// unknown state degrades to neutral rather than crashing.
+describe('specComponentPresentation', () => {
+  it('maps each of the four states onto the shared tone system and the state words', () => {
+    expect(specComponentPresentation({ componentId: 'db', label: 'MySQL', state: 'COMPLETE' })).toEqual({
+      label: 'MySQL',
+      stateLabel: 'Complete',
+      tone: 'positive',
+      detail: undefined,
+    });
+    expect(specComponentPresentation({ componentId: 'app', label: 'Web', state: 'IN_PROGRESS' }).tone).toBe('progress');
+    expect(specComponentPresentation({ componentId: 'app', label: 'Web', state: 'FAILED' }).tone).toBe('negative');
+    expect(specComponentPresentation({ componentId: 'app', label: 'Web', state: 'PENDING' }).tone).toBe('neutral');
+  });
+
+  it('passes the friendly detail line and label through verbatim', () => {
+    const view = specComponentPresentation({
+      componentId: 'other',
+      label: 'Other resources',
+      state: 'IN_PROGRESS',
+      detail: 'AWS::S3::Bucket',
+    });
+    expect(view.label).toBe('Other resources');
+    expect(view.detail).toBe('AWS::S3::Bucket');
+    expect(view.stateLabel).toBe('In progress');
+  });
+
+  it('an unrecognized state presents neutral without crashing or hiding the label', () => {
+    const view = specComponentPresentation({
+      componentId: 'future',
+      label: 'Future component',
+      state: 'SOMETHING_NEW' as SpecComponentState,
+    });
+    expect(view.label).toBe('Future component');
+    expect(view.tone).toBe('neutral');
+    expect(view.stateLabel).toBe('Waiting');
+  });
+
+  it('the status payload type carries the additive specComponents field through', () => {
+    const status: StatusWithSpecComponents<VendorDeploymentStatus> = {
+      ...({} as VendorDeploymentStatus),
+      specComponents: [{ componentId: 'db', label: 'MySQL', state: 'IN_PROGRESS' }],
+    };
+    expect(status.specComponents).toEqual([{ componentId: 'db', label: 'MySQL', state: 'IN_PROGRESS' }]);
   });
 });
