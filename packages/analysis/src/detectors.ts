@@ -828,10 +828,16 @@ const HEALTHCHECK_REGEX = /HEALTHCHECK\b/i;
 // group (what precedes `.get(`) feeds mount composition; the path group is
 // the detector's normalized `path`. Neither group changes which strings
 // match — `get(` with no receiver still matches.
+// The path group is anchored to the closing quote/backtick (backreference to
+// whichever one opened the literal) so the FULL literal is captured, not just
+// up to the first health keyword — `/health/live` no longer truncates to
+// `/health`. A `/segment` after the keyword only extends the capture when it
+// starts with a slash, so `/healthful` (keyword glued to more word chars)
+// still does not match.
 const HEALTH_ROUTE_REGEX =
-  /([A-Za-z_$][\w$]*)?\s*\.?\s*(?:get|post|put|all|route)\s*\(.*['"`]([\w/-]*\/(?:health|healthz|healthcheck|heartbeat|readyz|livez|up|status|ping|alive|_health))\b/i;
+  /([A-Za-z_$][\w$]*)?\s*\.?\s*(?:get|post|put|all|route)\s*\(.*?(['"`])([\w/-]*\/(?:health|healthz|healthcheck|heartbeat|readyz|livez|up|status|ping|alive|_health)(?:\/[\w-]*)*)\2/i;
 const HEALTH_HTTP_ADAPTER_REGEX =
-  /\.getHttpAdapter\(\)\..*?['"`]([\w/-]*\/(?:health|healthz|healthcheck|heartbeat|readyz|livez|up|status|ping|alive|_health))\b/;
+  /\.getHttpAdapter\(\)\..*?(['"`])([\w/-]*\/(?:health|healthz|healthcheck|heartbeat|readyz|livez|up|status|ping|alive|_health)(?:\/[\w-]*)*)\1/;
 const HEALTH_SCRIPT_REGEX = /^healthcheck$/i;
 // File-based routing (Next.js, Remix, Nuxt, SvelteKit) declares the path in
 // the FILE NAME, so there is no route string to match: `api/health.ts`,
@@ -1150,11 +1156,11 @@ export function detectHealthEndpoint(tree: FileTree): DetectorFinding {
       const routeMatch = HEALTH_ROUTE_REGEX.exec(content);
       if (routeMatch) {
         sources.push(`/health route (${path})`);
-        if (routeMatch[2]) {
+        if (routeMatch[3]) {
           pathCandidates.push({
             path:
-              composeMountedPath(routeMatch[1], normalizeHealthPath(routeMatch[2]), mounts) ??
-              normalizeHealthPath(routeMatch[2]),
+              composeMountedPath(routeMatch[1], normalizeHealthPath(routeMatch[3]), mounts) ??
+              normalizeHealthPath(routeMatch[3]),
             priority: HEALTH_PATH_PRIORITY.ROUTE_REGISTRATION,
             source: 'source',
           });
@@ -1163,9 +1169,9 @@ export function detectHealthEndpoint(tree: FileTree): DetectorFinding {
       const adapterMatch = HEALTH_HTTP_ADAPTER_REGEX.exec(content);
       if (adapterMatch) {
         sources.push(`/health adapter (${path})`);
-        if (adapterMatch[1]) {
+        if (adapterMatch[2]) {
           pathCandidates.push({
-            path: normalizeHealthPath(adapterMatch[1]),
+            path: normalizeHealthPath(adapterMatch[2]),
             priority: HEALTH_PATH_PRIORITY.ROUTE_REGISTRATION,
             source: 'source',
           });
@@ -1285,6 +1291,16 @@ export function detectEnvVars(tree: FileTree): DetectorFinding {
 
 const PG_DRIVERS = ['pg', 'postgres', 'drizzle-orm', 'knex'] as const;
 
+// `knex`/`drizzle-orm` are dialect-agnostic query builders/ORMs — they prove
+// nothing about which SQL engine is wired up (Stage A COMP-002). Exported so
+// `rejection.ts`'s `engineIsConfigurable` shares this exact set rather than
+// keeping a second copy that could drift out of sync.
+export const DIALECT_AGNOSTIC_DRIVERS = new Set(['knex', 'drizzle-orm']);
+
+// Mirrors rejection.ts's `MYSQL_DEPS` — a dialect-agnostic ORM alongside a
+// MySQL driver is MySQL evidence, not PostgreSQL evidence.
+const MYSQL_DRIVER_DEPS = ['mysql2', 'mysql'] as const;
+
 /** §11.5 — per-language PostgreSQL driver tokens matched against dependency manifests and imports. */
 const LANGUAGE_PG_SIGNALS: { token: string; name: string }[] = [
   { token: 'psycopg2', name: 'psycopg2' },
@@ -1378,10 +1394,14 @@ function languageDriverDeclaredAtRuntime(tree: FileTree, signal: string): boolea
 export function detectPostgresql(tree: FileTree): DetectorFinding {
   const detected: string[] = [];
   const deps = collectDependencyNames(tree);
+  const hasMysqlDriver = MYSQL_DRIVER_DEPS.some((dep) => deps.includes(dep));
 
   // Check for postgres-specific drivers
   for (const driver of PG_DRIVERS) {
     if (deps.includes(driver)) {
+      // A dialect-agnostic ORM proves nothing when a MySQL driver is also
+      // present — the app is wired to MySQL, not PostgreSQL.
+      if (DIALECT_AGNOSTIC_DRIVERS.has(driver) && hasMysqlDriver) continue;
       detected.push(driver);
     }
   }
@@ -1425,6 +1445,10 @@ const PG_CONNECTION_ENV_VARS = [
   'POSTGRES_DB',
 ] as const;
 
+// Names generic enough to point at any SQL engine — the postgres-specific
+// names above (POSTGRES_URL, POSTGRES_HOST, ...) don't need the scheme check.
+const GENERIC_DB_URL_ENV_VARS = new Set(['DATABASE_URL']);
+
 const COMPOSE_IMAGE_REGEX = /^\s*image:\s*['"]?([^\s'"]+)['"]?/gim;
 
 /**
@@ -1442,12 +1466,16 @@ const COMPOSE_IMAGE_REGEX = /^\s*image:\s*['"]?([^\s'"]+)['"]?/gim;
 export function assessPostgres(tree: FileTree): PostgresRequirement {
   const evidence: string[] = [];
   const deps = collectDependencyNames(tree);
+  const hasMysqlDriver = MYSQL_DRIVER_DEPS.some((dep) => deps.includes(dep));
 
   let hasDependency = false;
   let hasIndependentEvidence = false;
 
   for (const driver of PG_DRIVERS) {
     if (deps.includes(driver)) {
+      // A dialect-agnostic ORM proves nothing when a MySQL driver is also
+      // present — the app is wired to MySQL, not PostgreSQL.
+      if (DIALECT_AGNOSTIC_DRIVERS.has(driver) && hasMysqlDriver) continue;
       hasDependency = true;
       evidence.push(`${driver} dependency in package.json`);
     }
@@ -1496,9 +1524,16 @@ export function assessPostgres(tree: FileTree): PostgresRequirement {
     const processEnvRegex = new RegExp(`process\\.env\\.${name}\\b`);
     const envObjectRegex = new RegExp(`(?<![\\w.$])env\\s*(?:\\.\\s*${name}\\b|\\[\\s*["']${name}["']\\s*\\])`);
     const literalRegex = new RegExp(`["']${name}["']`);
+    // `DATABASE_URL` is engine-agnostic by name — only a value declaring a
+    // non-PostgreSQL scheme (mysql://, mariadb://) disqualifies it (mirrors
+    // assessMysql's `mysql://` scheme check).
+    const nonPostgresSchemeRegex = GENERIC_DB_URL_ENV_VARS.has(name)
+      ? new RegExp(`${name}\\s*[=:]\\s*['"]?(?!postgres)[a-zA-Z][\\w+.-]*://`, 'i')
+      : null;
 
     for (const [path, content] of Object.entries(tree)) {
       if (!content) continue;
+      if (nonPostgresSchemeRegex && nonPostgresSchemeRegex.test(content)) continue;
       if (/^\.env(\.\w+)?$/i.test(path) && envFileRegex.test(content)) {
         hasIndependentEvidence = true;
         evidence.push(`${name} referenced in ${path}`);
@@ -1712,6 +1747,17 @@ export function detectWorker(tree: FileTree): DetectorFinding {
     detected.push(`declared worker process (${source})`);
   }
 
+  // Tech spec §25.2: a Compose application service whose NAME is
+  // worker-shaped but has no `command:` is weak worker evidence — it can
+  // never be auto-provisioned (detectDeclaredWorkerCommands skips it), but it
+  // still needs to surface the manifest's `worker.needsCommand` question
+  // instead of deploying silently as if it were plain app code.
+  const compose = composeApplicationServices(tree);
+  for (const service of compose?.services ?? []) {
+    if (service.command !== null || !WORKER_SERVICE_NAME_REGEX.test(service.name)) continue;
+    detected.push(`compose worker service without a command (${compose!.file} ${service.name})`);
+  }
+
   if (detected.length === 0) {
     return { detector: 'worker', detected: false };
   }
@@ -1752,7 +1798,7 @@ const NON_PERSISTENT_PROCESS_NAME_REGEX =
   /^(?:web|release|migration|dev|development|test|tests|build|lint|watch|debug|console|shell|setup|format|typecheck)$/i;
 
 /** Compose service names shaped like a worker (email-worker, workers, my_workers, …). */
-const WORKER_SERVICE_NAME_REGEX = /(?:^|[-_.])workers?(?:[-_.]|$)/i;
+export const WORKER_SERVICE_NAME_REGEX = /(?:^|[-_.])workers?(?:[-_.]|$)/i;
 
 /** Whether a Compose application service declares a worker process via its explicit command. */
 export function isWorkerServiceCommand(name: string, command: string): boolean {

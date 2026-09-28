@@ -113,6 +113,35 @@ describe('health-path detection across frameworks (COMP-005)', () => {
     };
     expect(healthPath(tree)).toBe('/api/health');
   });
+
+  it('Express: a /health/live route registered before /health/ready keeps the full first path, not a truncated /health', () => {
+    const tree: FileTree = {
+      'src/index.ts': [
+        "import express from 'express';",
+        'const app = express();',
+        "app.get('/health/live', (_req, res) => res.json({ ok: true }));",
+        "app.get('/health/ready', (_req, res) => res.json({ ok: true }));",
+        'app.listen(3000);',
+      ].join('\n'),
+    };
+    // HEALTH_ROUTE_REGEX.exec() (no /g flag) returns only the FIRST match in
+    // the file, so the first registered route — /health/live — wins.
+    expect(healthPath(tree)).toBe('/health/live');
+  });
+
+  it("a bare '/health' route literal still matches in full (no over-truncation regression)", () => {
+    const tree: FileTree = {
+      'src/index.ts': "import express from 'express';\nconst app = express();\napp.get('/health', (_req, res) => res.json({ ok: true }));\n",
+    };
+    expect(healthPath(tree)).toBe('/health');
+  });
+
+  it("a bare '/healthz' route literal still matches in full", () => {
+    const tree: FileTree = {
+      'src/index.ts': "import express from 'express';\nconst app = express();\napp.get('/healthz', (_req, res) => res.json({ ok: true }));\n",
+    };
+    expect(healthPath(tree)).toBe('/healthz');
+  });
 });
 
 // ==========================================================================
