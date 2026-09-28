@@ -45,6 +45,12 @@ one of `FIXED`, `MVP_CAPABILITY_GAP`, `CORRECTLY_UNSUPPORTED`,
 | DEPLOY-030 | CONFIG_ERROR (install) | DEPLOYZ_BUG | FIXED (PR #314 merged 2026-09-18 02:32Z, main 8b3dc5e, ANALYSIS_VERSION 21) | every application with provider-prefixed, TLS or URI-shaped keys (`AWS_*`, `GITHUB_*`, `SLACK_*`, `SSL_KEY`, `*_URI`); measured on repo-016 outline (`generatedKeys` listed six such keys) |
 | DEPLOY-031 | BUILD_ERROR | DEPLOYZ_BUG | FIXED (PR #315 merged 2026-09-18 02:40Z, main c9983cd, ANALYSIS_VERSION 22; the install gate now blocks before any AWS resource) | every Dockerfile that copies `.git` (Go projects that embed `git rev-parse` output); measured on repo-090 pgweb |
 | DEPLOY-032 | CONTAINER_START_ERROR | DEPLOYZ_BUG | FIXED (PR #316 merged 2026-09-18 02:55Z, main 94f5a61, ANALYSIS_VERSION 23; fider attempt 2's model carries `JWT_SECRET` as a minted secret and runtime `go`) | every Go application declaring its configuration through envdecode / caarlos0-env struct tags, and every multi-stage Dockerfile whose final stage is a bare OS image fed by a Go build stage after a Node UI stage; measured on repo-203 fider |
+| DEPLOY-033 | CONTAINER_START_ERROR | DEPLOYZ_BUG | FIXED (PR #396; verified on real AWS: AWS Gate C attempt 2, CONFIG_UPDATE SUCCEEDED) | every compiler-v2 deployment with any vendor or customer configuration value; measured on repo-221 Hovod (AWS Gate C attempt 1) |
+| DEPLOY-034 | GATE_ERROR | ANALYSIS_BUG | FIXED (PR #394, ANALYSIS_VERSION 26) | every MySQL application behind a dialect-neutral ORM (`drizzle-orm`, `knex`); every Compose worker selected by environment instead of `command:`; every health route with a segment after the keyword (`/health/live`); measured on repo-221 Hovod |
+| DEPLOY-035 | (presentation, binding) | DEPLOYZ_BUG | FIXED (PRs #395, #398, #399) | every MySQL deployment: PostgreSQL wording in preflight and warnings, the database as an "Application" plan component, `DATABASE_PORT=5432`; measured on repo-221 Hovod |
+| DEPLOY-036 | (vendor flow) | DEPLOYZ_BUG | FIXED (PR #397) | every vendor whose GitHub installation sees more than 30 repositories |
+| DEPLOY-037 | (queue durability, not a failure) | MVP_CAPABILITY_GAP | DEFERRED_WITH_REASON (backlog) | every application that uses Redis as a job queue: BullMQ asks for `noeviction`, the Valkey cache runs `volatile-lru`; measured on repo-221 Hovod |
+| DEPLOY-038 | (deploy pipeline) | DEPLOYZ_BUG | FIXED (PR #400; a static guard checks every deploy gate against the app's workspace dependencies) | every compiler-only merge since the compiler-v2 cutover: CI passed, `deploy-api` reported success, the API was not redeployed; measured on #399 |
 
 ---
 
@@ -1593,3 +1599,113 @@ stage's base image has no runtime, `detectRuntime` resolves it through the
 final stage's `COPY --from=` references, preferring the stage that supplies
 the CMD/ENTRYPOINT executable; line-continued COPY instructions are joined.
 Verified on real AWS: fider attempt 2 (see the matrix).
+
+---
+
+## DEPLOY-033 — CONFIG_UPDATE could not find the compiler-v2 config secret, so no configuration reached any task
+
+**Stage** CONTAINER_START_ERROR · **Root cause** DEPLOYZ_BUG (relay, a
+regression of DEPLOY-010 at the compiler-v2 cutover) · **Resolution** FIXED
+(PR #396) · **Found** AWS Gate C, repo-221 Hovod attempt 1 (2026-09-28,
+us-east-1, run `stage-b-repo-221-20260928-133814-2ade`).
+
+**Behaviour.** `findAppConfigSecretArn` matched only the runtime-v1 CDK
+logical id prefix `AppConfigSecret`. compiler-v2 names the resource
+`ApplicationConfigSecret`. Both CONFIG_UPDATE jobs failed with `Stack
+"deployz-app-edbbd249" has no AppConfigSecret to write config secrets into`.
+
+**Effect.** No vendor or customer value, plain or secret, reached the task
+definition. Hovod's boot hook exited 78 on its missing `S3_*` variables, and
+the deployment stayed `INSTALLING/UNHEALTHY`. The version canary's fixture
+has no configuration, so no real-AWS run covered the path since the cutover.
+
+**Fix.** The relay also accepts the compiler-v2 stable id. Verified on
+attempt 2: CONFIG_UPDATE SUCCEEDED, revision 17 carried every value, and
+the relay minted the generated `API_KEY_SECRET`.
+
+---
+
+## DEPLOY-034 — MySQL behind a dialect-neutral ORM, a command-less Compose worker and a sub-path health route
+
+**Stage** GATE_ERROR · **Root cause** ANALYSIS_BUG · **Resolution** FIXED
+(PR #394, ANALYSIS_VERSION 26) · **Found** AWS Gate C, repo-221 Hovod
+analysis (2026-09-28).
+
+**Behaviour.** (1) `drizzle-orm` counted as a PostgreSQL driver and
+`DATABASE_URL` counted as PostgreSQL evidence by name alone, although
+`DATABASE_URL=mysql://`, `mysql2` and a `mysql:8.4` Compose service were
+present: `databaseState: postgres`. (2) A Compose `worker` service with no
+`command:` (role chosen by `HOVOD_ROLE`) counted as a second web container
+and raised the blocking `unsupported-multi-service` finding. (3) The
+health-route regex stopped at the first keyword: `/health/live` → `/health`.
+
+**Fix.** A dialect-neutral ORM next to a MySQL driver, or a `DATABASE_URL`
+value with a non-PostgreSQL scheme, is not PostgreSQL evidence. A
+worker-named, command-less Compose service is weak worker evidence
+(`worker.needsCommand`, Needs input, never provisioned). The health regexes
+capture the full literal path.
+
+---
+
+## DEPLOY-035 — A MySQL deployment was presented and bound as PostgreSQL in four places
+
+**Stage** (presentation, binding) · **Root cause** DEPLOYZ_BUG ·
+**Resolution** FIXED (PRs #395, #398, #399) · **Found** AWS Gate C,
+repo-221 Hovod (2026-09-28).
+
+**Behaviour.** The preflight database check and the missing-migration
+warning said PostgreSQL (#395). `KIND_BY_CAPABILITY_KEY` had no
+`aws.rds-mysql` entry, so the plan listed the database as an "Application"
+component (the Stage B inventory then reported `unexpected [database]`), and
+the AWS resource catalog named it "RDS PostgreSQL database" (#398). Every
+task received `DATABASE_PORT=5432` next to `MYSQL_PORT=3306` (#399).
+
+**Effect.** Wrong customer and vendor copy; an app that builds its
+connection from `DATABASE_HOST`/`DATABASE_PORT` would dial the wrong port.
+Hovod reads only `DATABASE_URL`, so its runtime was unaffected.
+
+---
+
+## DEPLOY-036 — The vendor repository picker listed only the first 30 repositories
+
+**Stage** (vendor flow) · **Root cause** DEPLOYZ_BUG · **Resolution** FIXED
+(PR #397) · **Found** AWS Gate C, adding repo-221 through the vendor UI.
+
+**Behaviour.** `listInstallationRepositories` called
+`GET /installation/repositories` once, with no `per_page` or `page`.
+
+**Fix.** Every page is read, 100 per page, bounded to 10 pages.
+
+---
+
+## DEPLOY-037 — The Valkey cache evicts keys that a job queue needs to keep
+
+**Stage** (queue durability, not a failure) · **Root cause**
+MVP_CAPABILITY_GAP · **Resolution** DEFERRED_WITH_REASON · **Found** AWS
+Gate C, repo-221 Hovod runtime log.
+
+**Behaviour.** BullMQ logs `Eviction policy is volatile-lru. It should be
+"noeviction"`. The analysis records Redis `purposes: [queue]`, but the
+compiler provisions Valkey with the default parameter group.
+
+**Effect.** Under memory pressure, queued jobs with a TTL can be evicted.
+The functional workflow passed. The fix is a cache parameter group chosen
+from the Redis purpose, a compiler capability change. It is recorded on the
+qualification backlog, not made during Gate C.
+
+---
+
+## DEPLOY-038 — A compiler-only merge passed CI and never reached production
+
+**Stage** (deploy pipeline) · **Root cause** DEPLOYZ_BUG (CI) ·
+**Resolution** FIXED (PR #400) · **Found** AWS Gate C, verifying #399 on
+production (2026-09-28).
+
+**Behaviour.** `deploy-api.yml` redeploys only when a changed path is in its
+`PATHS` list. `packages/infrastructure-compiler/*` was missing, although
+`apps/api` bundles the compiler. #399 passed CI, `deploy-api` reported
+success, and the API Lambda kept the previous code.
+
+**Fix.** The path is listed. `scripts/production-safety.test.mjs` checks that
+every workspace package `apps/api` and `apps/web` bundle, transitively, is in
+its deploy workflow's `PATHS`.

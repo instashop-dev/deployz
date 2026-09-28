@@ -959,6 +959,169 @@ outcome; it is not claimed here):
   (see `docs/testing/aws-e2e.md`); the simulated E2E set is the
   completed evidence.
 
+## AWS Gate C --- Phase 4 real-AWS qualification (2026-09-28)
+
+AWS Gate C is a one-repository, real-AWS qualification of Phase 1--4
+behavior. It is not HARD GATE C (the Phase 5 capability-extensibility
+review below). Repository: `Synapsr/Hovod@333683e` (v1.0.4), an
+independent open-source video platform, used unmodified through an
+unmodified fork (`instashop-dev/Hovod`). Environment: production
+control plane `api.deployz.dev` at main `34a7db2` (#393) at the start,
+`08617f2` (#399) at the end; test account `151955775369`, `us-east-1`;
+Stage B harness (`repo-221`, `docs/testing/repository-deployment`).
+
+**Expected topology (repository evidence, derived before analysis).**
+One image (s6-overlay `ENTRYPOINT /init`) runs the Fastify API (public,
+port 3000, `/health/live`, `/health/ready`, serves the dashboard) and a
+BullMQ + ffmpeg worker (private). `HOVOD_ROLE=api|worker|allinone`
+(environment only) selects the processes; Compose splits api/worker by
+environment, with no `command:`. MySQL (`drizzle-orm` + `mysql2`,
+`DATABASE_URL`), Redis (BullMQ only, `REDIS_URL`), S3 with REQUIRED
+static keys (no default credential chain). SQL migrations run inside
+API startup (advisory lock). Required values: `JWT_SECRET`, `S3_*`.
+
+**Detected (after fixes).** Graph: one public `web` workload (image
+default command), `relational_database` engine `mysql` →
+`aws.rds-mysql` 8.0, Valkey cache, S3 bucket, ALB. Worker:
+`worker.needsCommand` (Needs input, not provisioned). Migration: none
+detected (non-blocking `migration_strategy` question). Health
+`/health/live`, port 3000. IR/frozen spec: the same one workload and
+four resources; 50 ownership records, which match the 50 stack
+resources one-to-one.
+
+**Mismatches and dispositions.** The analysis of main `34a7db2` rated
+MySQL as PostgreSQL (dialect-neutral `drizzle-orm` counted as a
+PostgreSQL driver), blocked the Compose api/worker pair as
+`unsupported-multi-service`, and truncated `/health/live` to `/health`.
+All three are generic analysis bugs, fixed in #394 (ANALYSIS_VERSION
+26). The real-AWS runs found six more Deployz bugs, all fixed with
+regression tests:
+
+| PR | Defect | Found at |
+| --- | --- | --- |
+| #394 | MySQL behind a dialect-neutral ORM rated PostgreSQL; command-less Compose worker blocked; health path truncated | analysis |
+| #395 | Preflight database check and missing-migration warning said PostgreSQL for MySQL | analysis re-run |
+| #396 | **Relay regression**: CONFIG_UPDATE looked for the runtime-v1 `AppConfigSecret`; compiler-v2 names it `ApplicationConfigSecret`, so no vendor/customer value reached any compiler-v2 task | install attempt 1 (app exited at boot) |
+| #397 | Vendor repository picker listed only GitHub's first page (30 repositories) | vendor UI |
+| #398 | Plan listed `aws.rds-mysql` as an "Application" component and named it "RDS PostgreSQL database" | customer plan, Stage B inventory |
+| #399 | `DATABASE_PORT` bound to 5432 for MySQL | live AWS audit |
+| #400 | The API deploy gate skipped compiler-only merges (`packages/infrastructure-compiler` missing from `PATHS`), so #399 passed CI and did not deploy | production verification |
+
+Not fixed, by classification: the worker cannot be provisioned for
+this repository (a vendor cannot declare a worker command, and
+per-workload environment is not modeled: correctly unsupported,
+post-MVP); static S3 keys are customer configuration (a Gate C IAM user
+scoped to the run's bucket); public-read playback objects are
+correctly unsupported (the bucket blocks public access, so
+`S3_PUBLIC_ACL=false`); in-code startup migrations and zod-required
+variables are detection gaps (Needs input / optional); the Valkey
+cache runs `volatile-lru` while BullMQ asks for `noeviction` (backlog).
+
+**Real-AWS run.** Attempt 1 (`stage-b-repo-221-20260928-133814-2ade`)
+provisioned the full stack and found #396; it was torn down through
+Disconnect → Purge → leak audit (PASS). Attempt 2
+(`stage-b-repo-221-20260928-145615-7f34`, deployment `6eb48c14`,
+installation `a05a9295`) ran on the fixed relay:
+
+| Stage | Result | Time |
+| --- | --- | --- |
+| Analysis → preflight | READY_WITH_WARNINGS, no blockers | 19 s |
+| CodeBuild release | READY | 2.5 min |
+| Bootstrap + relay enrollment | CREATE_COMPLETE | 7.6 min |
+| INSTALL → CONFIG_UPDATE → first start → HEALTHY | all SUCCEEDED; 5 SQL migrations applied to RDS MySQL at startup | 15.4 min |
+| Default HTTPS | ACTIVE, valid certificate, HTTP 301 → HTTPS | — |
+| DEPLOY_RELEASE v1.0.3 → v1.0.4 | SUCCEEDED | 10 min |
+| RESTART | SUCCEEDED, one new task, same revision | 4 min |
+| ROLLBACK → v1.0.3 | SUCCEEDED, no migration run | 10 min |
+| DESTROY → retained check → PURGE → leak audit | all PASS | 52 min |
+
+AWS state matched the frozen spec: one ECS service in private subnets
+(no public IP), RDS MySQL 8.0.46 (private, encrypted, deletion
+protection, 7-day backups, ingress only from the web security group),
+Valkey (private), S3 (public access blocked, TLS-only policy,
+versioned), ALB (the only resource open to 0.0.0.0/0, on 80/443 only),
+three secrets, 7-day log retention, `deployz:*` ownership tags, task
+role scoped to the one bucket and its secrets.
+
+**Functional acceptance (the application is the oracle).** Through the
+live HTTPS endpoint: sign-up (MySQL write) → create asset → presigned
+PUT to the Deployz bucket → upload-complete (S3 HeadObject) → process
+(BullMQ enqueue on Valkey) → the worker downloaded the source from S3,
+transcoded it with ffmpeg and wrote HLS playlists, a segment, an MP4,
+a thumbnail and a VTT back to S3 → asset `ready` with a 360p rendition
+(16--17 s). Passed after install, after DEPLOY_RELEASE, after RESTART
+and after ROLLBACK. A release oracle in the application itself (v1.0.4
+accepts re-processing a `ready` asset, v1.0.3 answers 409) proved the
+serving release after each operation; data created on v1.0.4 survived
+RESTART and ROLLBACK. The worker ran as a second process inside the
+web task (Hovod's `allinone` role), not as a separate ECS service.
+
+**Phase 3 UX (production UI, after the fixes).** Vendor: the repository
+picker lists all 66 repositories; Architecture detected groups Web
+service / MySQL database / Valkey cache / S3 bucket / Application load
+balancer, each "Detected automatically", with six Needs-input cards
+(migration strategy, worker command, four external-service owners);
+Configuration shows four Deployz-managed variables and the planned
+infrastructure (MySQL 8.0 kept on uninstall). Customer, before launch:
+region, "~$65--95/month" with "Estimate incomplete — some resources
+could not be priced" (no MySQL price yet), the grouped "What Deployz
+will create" list with "RDS database" under Data, and the retention
+note; during and after install: the stage list and Web service / MySQL
+database / S3 bucket / Valkey cache / Secure endpoint all complete, the
+HTTPS address, and no raw CloudFormation states. Because Hovod's
+required variables are declared through a zod schema, the analysis
+rates them optional ("Nothing for you to provide"); the vendor has to
+know them (a detection gap, COMP-017 family).
+
+**Revalidation of the fixes merged after attempt 2.** A deployment
+created on the fixed control plane (and closed before launch, so
+nothing was provisioned) compiled a frozen artifact whose web task
+binds `DATABASE_PORT=3306` next to `MYSQL_PORT=3306` (#399), and its
+plan presents the MySQL instance as a Database in the Data group
+(#398).
+
+**Destroy / retain / purge.** DESTROY removed the stack and kept the
+RDS MySQL instance (deletion protection on), the bucket (28 objects)
+and the two database secrets; the application config secret, ECS,
+ALB, Valkey and NAT were removed. PURGE removed the retained set. The
+Stage B leak audit and an independent tag/identifier scan of both runs
+found no leftovers (INACTIVE ECS clusters and deregistered task
+definitions only — the documented exception); both
+`d-<deployment>.deployz.dev` records are gone.
+
+**Migrations.** Hovod applies its migrations inside API startup, so
+Deployz correctly detects no migration workload: **first-class
+migration AWS qualification remains pending.** Startup migrations ran
+once per schema change against RDS MySQL ("5 applied", then "schema
+up to date" on every later start, including the rollback); nothing was
+down-migrated.
+
+**Qualification backlog after Gate C.** Satisfied for this shape:
+RESTART through the relay on a compiler-v2 stack, and a full real-AWS
+lifecycle from a clean account. Still pending: a separate worker ECS
+service (needs a repository that declares a worker command), the
+migration workload (success, failure, retry of a confirmed identity),
+the combined `phase4-composition` topology, the `core` ladder
+completion and the `resilience` subcommand, and a fresh MySQL install
+that shows `DATABASE_PORT=3306` in a live task (the compiled artifact
+is verified; see `docs/testing/aws-e2e.md`). Capability gaps found, not
+fixed: MySQL has no price in the cost estimate; the Valkey eviction
+policy is not chosen from the Redis purpose (DEPLOY-037); the cache
+security group admits the VPC CIDR rather than the workload security
+groups; a vendor cannot declare a worker command, and per-workload
+environment is not modeled.
+
+**Verdict: AWS GATE C — PASS** (reviewed against the tech spec, this plan
+and the Gate C criteria). Every capability Deployz claims for this
+repository — the public web workload, RDS MySQL, Valkey, S3, ALB with
+default HTTPS, configuration and generated secrets, DEPLOY_RELEASE,
+RESTART, ROLLBACK, DESTROY, PURGE — worked end to end on real AWS,
+with the application as the oracle. Each defect found on the way was
+fixed generically, with a regression test, and re-checked in
+production. The worker and the migration workload are not claimed
+for this repository (Needs input / not detected), so Gate C neither
+passes nor fails them; they stay on the backlog above.
+
 # Phase 5 --- SQS, EventBridge Scheduler & Scheduled Jobs
 
 ## Objective
