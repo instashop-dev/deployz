@@ -627,13 +627,15 @@ describe('mysql database (phase 4b)', () => {
   it('app containers get the mysql env aliases and the RDS CA bundle', () => {
     const taskDef = byId.get('WebTaskDefinition')!;
     const app = (taskDef.properties['ContainerDefinitions'] as unknown[])[0] as {
-      Environment: Array<{ Name: string }>;
+      Environment: Array<{ Name: string; Value?: unknown }>;
       Secrets: Array<{ Name: string }>;
     };
     const envNames = app.Environment.map((entry) => entry.Name);
     // Generic DATABASE_* names always lead (URL parts as env, the URL as a
-    // secret).
+    // secret) and carry the ENGINE's port, never PostgreSQL's.
     expect(envNames).toContain('DATABASE_HOST');
+    expect(app.Environment.find((entry) => entry.Name === 'DATABASE_PORT')?.Value).toBe('3306');
+    expect(app.Environment.find((entry) => entry.Name === 'MYSQL_PORT')?.Value).toBe('3306');
     expect(app.Secrets.map((entry) => entry.Name)).toContain('DATABASE_URL');
     // MySQL aliases + the CA bundle under both the neutral and mysql names.
     expect(envNames).toContain('MYSQL_HOST');

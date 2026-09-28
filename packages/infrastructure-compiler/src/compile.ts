@@ -623,7 +623,7 @@ function appEnvironment(ctx: EcsContext): { environment: unknown[]; secrets: unk
   if (ctx.db !== undefined) {
     environment.push(
       { Name: 'DATABASE_HOST', Value: getAtt(ctx.db.instance, 'Endpoint.Address') },
-      { Name: 'DATABASE_PORT', Value: String(DB_PORT) },
+      { Name: 'DATABASE_PORT', Value: String(ctx.db.engine === 'mysql' ? MYSQL_DB_PORT : DB_PORT) },
       { Name: 'DATABASE_NAME', Value: DB_NAME },
       { Name: 'DATABASE_USER', Value: DB_USER },
     );
