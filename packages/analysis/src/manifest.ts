@@ -575,7 +575,7 @@ export function evaluateManifestReadiness(
       id: 'migration-command-missing',
       category: 'database',
       severity: 'warning',
-      message: 'This app uses PostgreSQL but has no migration command; schema updates will not run on deploy.',
+      message: `This app uses ${manifest.database.engine === 'mysql' ? 'MySQL' : 'PostgreSQL'} but has no migration command; schema updates will not run on deploy.`,
     });
   }
 

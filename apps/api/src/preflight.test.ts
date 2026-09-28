@@ -84,6 +84,15 @@ describe('evaluatePreflight', () => {
     expect(result.checks.find((check) => check.id === 'health')?.detail).toBe('Health check at /health');
   });
 
+  it('names the managed database engine — MySQL is never shown as PostgreSQL', () => {
+    const database = (engine?: 'postgres' | 'mysql') =>
+      evaluatePreflight({ manifest: manifest({ database: { postgres: true, ...(engine ? { engine } : {}) } }), providedEnvKeys: ['STRIPE_SECRET_KEY'], readiness: readiness() })
+        .checks.find((check) => check.id === 'database')?.detail;
+    expect(database('mysql')).toBe('MySQL — Deployz provides a managed database');
+    expect(database('postgres')).toBe('PostgreSQL — Deployz provides a managed database');
+    expect(database()).toBe('PostgreSQL — Deployz provides a managed database');
+  });
+
   it('is ACTION_REQUIRED with the missing customer variable named, never a generated one', () => {
     const result = evaluatePreflight({ manifest: manifest(), providedEnvKeys: [], readiness: readiness() });
     expect(result.state).toBe('ACTION_REQUIRED');
