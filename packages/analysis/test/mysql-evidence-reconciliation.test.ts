@@ -245,3 +245,78 @@ describe('evidence reconciliation keeps existing behaviour', () => {
     expect(analysis.metadata.databaseState).toBe('none');
   });
 });
+
+// A Node API using drizzle-orm (dialect-agnostic — it also drives MySQL) next
+// to the mysql2 driver, a .env.example DATABASE_URL with a mysql:// scheme,
+// and a compose mysql service. Neither signal is PostgreSQL evidence: the
+// ORM proves nothing about the engine once a MySQL driver is present, and a
+// DATABASE_URL whose declared value picks a different engine's scheme is not
+// evidence for this one.
+const NODE_DRIZZLE_MYSQL: FileTree = {
+  Dockerfile: 'FROM node:20\nWORKDIR /app\nCOPY . .\nRUN npm ci && npm run build\nCMD ["node", "dist/server.js"]\n',
+  'package.json': JSON.stringify({
+    name: 'api',
+    scripts: { build: 'tsc', start: 'node dist/server.js' },
+    dependencies: { 'drizzle-orm': '^0.30.0', mysql2: '^3.9.0' },
+  }),
+  'package-lock.json': '{}',
+  '.env.example': 'DATABASE_URL=mysql://user:password@localhost:3306/app\n',
+  'docker-compose.yml': [
+    'services:',
+    '  api:',
+    '    build: .',
+    '    ports:',
+    '      - "3000:3000"',
+    '  db:',
+    '    image: mysql:8.4',
+    '    environment:',
+    '      - MYSQL_DATABASE=app',
+    '',
+  ].join('\n'),
+};
+
+describe('a dialect-agnostic ORM is not PostgreSQL evidence when MySQL is detected', () => {
+  it('resolves databaseState to mysql, not postgres, with postgres not required', () => {
+    const analysis = analyseRepo(NODE_DRIZZLE_MYSQL);
+    expect((analysis.metadata.postgres as { required: boolean }).required).toBe(false);
+    expect((analysis.metadata.mysql as { required: boolean; detected: boolean }).required).toBe(true);
+    expect(analysis.metadata.databaseState).toBe('mysql');
+
+    const manifest = normalizeDeploymentManifest(analysis, {});
+    expect(manifest.database.postgres).toBe(true);
+    expect(manifest.database.engine).toBe('mysql');
+
+    const graph = manifestToApplicationGraph(manifest);
+    const db = graph.resources.find((resource) => resource.id === 'primary-db');
+    expect(db?.engine).toBe('mysql');
+  });
+
+  it('still counts drizzle-orm as PostgreSQL evidence when no MySQL driver competes for the engine', () => {
+    const analysis = analyseRepo({
+      ...NODE_DRIZZLE_MYSQL,
+      'package.json': JSON.stringify({
+        name: 'api',
+        scripts: { build: 'tsc', start: 'node dist/server.js' },
+        dependencies: { 'drizzle-orm': '^0.30.0', pg: '^8.11.0' },
+      }),
+      '.env.example': 'DATABASE_URL=postgres://user:password@localhost:5432/app\n',
+      'docker-compose.yml': ['services:', '  api:', '    build: .', '  db:', '    image: postgres:16', ''].join('\n'),
+    });
+    expect((analysis.metadata.postgres as { required: boolean }).required).toBe(true);
+    expect(analysis.metadata.databaseState).toBe('postgres');
+  });
+
+  it('keeps drizzle-orm alone with a postgres:// URL as PostgreSQL evidence', () => {
+    const analysis = analyseRepo({
+      Dockerfile: 'FROM node:20\nCOPY . .\nRUN npm ci && npm run build\nCMD ["node", "dist/server.js"]\n',
+      'package.json': JSON.stringify({
+        name: 'api',
+        scripts: { build: 'tsc', start: 'node dist/server.js' },
+        dependencies: { 'drizzle-orm': '^0.30.0' },
+      }),
+      '.env.example': 'DATABASE_URL=postgres://user:password@localhost:5432/app\n',
+    });
+    expect((analysis.metadata.postgres as { required: boolean }).required).toBe(true);
+    expect(analysis.metadata.databaseState).toBe('postgres');
+  });
+});

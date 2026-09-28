@@ -181,7 +181,17 @@ type ApplicationRow = typeof schema.applications.$inferSelect;
 // migration mode as PostgreSQL, and package.json scripts, lockfiles and a
 // database service's Compose port no longer describe a non-Node image; stored
 // v24 rows must re-run.
-export const ANALYSIS_VERSION = 25;
+// Version 26 (aws-gate-c qualification fixes): a dialect-agnostic ORM
+// (drizzle-orm/knex) is no longer PostgreSQL evidence once a MySQL driver is
+// present, and a `DATABASE_URL` with a non-PostgreSQL scheme no longer counts
+// as PostgreSQL evidence either — a drizzle-orm + mysql2 repo was rated
+// PostgreSQL instead of MySQL; a Compose application service whose name is
+// worker-shaped but has no `command:` is now weak worker evidence
+// (`worker.needsCommand`) instead of tripping the blocking
+// `unsupported-multi-service` rejection; and the health-route regexes now
+// capture the FULL literal path instead of truncating at the first health
+// keyword (`/health/live` was rated `/health`). Stored v25 rows must re-run.
+export const ANALYSIS_VERSION = 26;
 
 export interface AnalysisRunnerDeps {
   db: RuntimeDb;

@@ -178,6 +178,58 @@ describe('multi-worker manifest — weak evidence needs input, never auto-provis
   });
 });
 
+describe('multi-worker manifest — compose worker service without a command', () => {
+  it('a worker-named compose service with no command needs input instead of blocking as multi-service (tech spec §25.2)', () => {
+    const analysis = analyseRepo({
+      ...BASE,
+      'docker-compose.yml': [
+        'services:',
+        '  api:',
+        '    build: .',
+        '    environment:',
+        '      ROLE: api',
+        '  worker:',
+        '    build: .',
+        '    environment:',
+        '      ROLE: worker',
+        '',
+      ].join('\n'),
+    });
+    expect(
+      analysis.rejections.some((r) => r.dependency === 'docker-compose-multi-service' && r.detected),
+    ).toBe(false);
+
+    const manifest = normalizeDeploymentManifest(analysis, {});
+    expect(manifest.workers).toBeUndefined();
+    expect(manifest.worker.command).toBeNull();
+    expect(manifest.worker.needsCommand).toBe(true);
+
+    const graph = manifestToApplicationGraph(manifest);
+    expect(graph.workloads.map((w) => w.id)).toEqual(['web']);
+    const unresolved = graph.unresolved.find((u) => u.id === 'worker-command');
+    expect(unresolved).toBeDefined();
+    expect(unresolved!.blocking).toBe(false);
+    expect(unresolved!.field).toBe('worker_command');
+  });
+
+  it('never derives a declared worker command from the command-less worker service — it is never auto-provisioned', () => {
+    const tree: FileTree = {
+      'docker-compose.yml': ['services:', '  api:', '    build: .', '  worker:', '    build: .', ''].join('\n'),
+    };
+    expect(detectDeclaredWorkerCommands(tree)).toEqual([]);
+  });
+
+  it('two command-less NON-worker-named app services still reject as an unsupported multi-service compose', () => {
+    const analysis = analyseRepo({
+      ...BASE,
+      'docker-compose.yml': ['services:', '  web:', '    build: .', '  admin:', '    build: .', ''].join('\n'),
+    });
+    expect(
+      analysis.rejections.some((r) => r.dependency === 'docker-compose-multi-service' && r.detected),
+    ).toBe(true);
+  });
+});
+
 describe('multi-worker manifest — dev utilities are not workloads', () => {
   it('dev/test/build scripts and nodemon never become workers', () => {
     const analysis = analyseRepo({

@@ -119,8 +119,8 @@ const multiServiceComposeTree: FileTree = {
     'services:',
     '  web:',
     '    image: myapp/web:latest',
-    '  worker:',
-    '    image: myapp/worker:latest',
+    '  admin:',
+    '    image: myapp/admin:latest',
     '',
   ].join('\n'),
 };

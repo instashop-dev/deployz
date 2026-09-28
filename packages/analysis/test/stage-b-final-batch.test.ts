@@ -281,8 +281,8 @@ describe('COMP-010 — optional compose service (deploy.replicas: 0)', () => {
         'services:',
         '  web:',
         '    image: myapp/web',
-        '  worker:',
-        '    image: myapp/worker',
+        '  admin:',
+        '    image: myapp/admin',
         '',
       ].join('\n'),
     };

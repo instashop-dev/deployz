@@ -13,12 +13,14 @@ import {
   composeServices,
   detectEnvVarModel,
   detectPostgresql,
+  DIALECT_AGNOSTIC_DRIVERS,
   findDependencyEvidence,
   isProductionComposeFile,
   isRuntimeSourcePath,
   isWorkerServiceCommand,
   LANGUAGE_SOURCE_REGEX,
   listDockerfileCandidates,
+  WORKER_SERVICE_NAME_REGEX,
 } from './detectors.js';
 import type { RedisRequirement } from './redis.js';
 import { assessRedis } from './redis.js';
@@ -129,8 +131,6 @@ function engineIsConfigurable(tree: FileTree): boolean {
   const drivers = detectPostgresql(tree).value;
   return Array.isArray(drivers) && drivers.some((driver) => !DIALECT_AGNOSTIC_DRIVERS.has(driver));
 }
-
-const DIALECT_AGNOSTIC_DRIVERS = new Set(['knex', 'drizzle-orm']);
 
 /** Required-vs-present evidence for MySQL: mirrors `PostgresRequirement`. */
 export interface MySqlRequirement {
@@ -694,10 +694,15 @@ export function checkDockerComposeMultiService(tree: FileTree): RejectionFinding
   // Phase 4A: a service that declares a worker process gets its own ECS
   // service, so it is no longer a "second application container" — only
   // non-worker application services count against the one-app-container
-  // boundary.
-  const nonWorkerAppServices = appServices.filter(
-    (s) => !(s.command !== null && isWorkerServiceCommand(s.name, s.command)),
-  );
+  // boundary. §25.2: a worker-shaped service name with no command is still a
+  // worker candidate (weak evidence — `worker.needsCommand`), not a second
+  // app container; it never gets auto-provisioned, but it doesn't block
+  // either.
+  const nonWorkerAppServices = appServices.filter((s) => {
+    if (s.command !== null && isWorkerServiceCommand(s.name, s.command)) return false;
+    if (s.command === null && WORKER_SERVICE_NAME_REGEX.test(s.name)) return false;
+    return true;
+  });
   if (nonWorkerAppServices.length >= 2) {
     return {
       detected: true,
