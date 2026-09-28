@@ -175,7 +175,13 @@ type ApplicationRow = typeof schema.applications.$inferSelect;
 // composite TLS names (`SSL_CERT_KEY`) are no longer mintable internal
 // secrets — a minted `EMAIL_AWSSES_ACCESS_KEY_ID` switched fider's e-mail
 // provider to SES and it exited at boot; stored v23 models must re-run.
-export const ANALYSIS_VERSION = 24;
+// Version 25 (MySQL evidence reconciliation): a language package installed
+// by a Dockerfile `RUN` is a dependency (a `pip install mysqlclient` Django
+// app lost MySQL), a required MySQL database gets the same bindings and
+// migration mode as PostgreSQL, and package.json scripts, lockfiles and a
+// database service's Compose port no longer describe a non-Node image; stored
+// v24 rows must re-run.
+export const ANALYSIS_VERSION = 25;
 
 export interface AnalysisRunnerDeps {
   db: RuntimeDb;

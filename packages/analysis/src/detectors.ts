@@ -244,6 +244,8 @@ export interface ComposeService {
   /** `profiles:` set — the service does not start with the default stack (Stage A COMP-026). */
   optional: boolean;
   volumes: string[];
+  /** `ports:` list entries (`host:container`). */
+  ports: string[];
   /** The service's `command:` override, flattened to one line (Stage A COMP-015). */
   command: string | null;
 }
@@ -261,6 +263,7 @@ export function composeServices(tree: FileTree): { file: string; services: Compo
   let inServices = false;
   let current: ComposeService | null = null;
   let inVolumes = false;
+  let inPorts = false;
   let inCommand = false;
   // The file's own indentation: a service header sits one level under
   // `services:`, its keys one level deeper (two or four spaces alike).
@@ -282,8 +285,9 @@ export function composeServices(tree: FileTree): { file: string; services: Compo
     if (serviceIndent === -1) serviceIndent = indent;
     const serviceHeader = indent === serviceIndent ? /^\s*([a-zA-Z0-9_.-]+):\s*$/.exec(line) : null;
     if (serviceHeader) {
-      current = { name: serviceHeader[1]!, image: null, optional: false, volumes: [], command: null };
+      current = { name: serviceHeader[1]!, image: null, optional: false, volumes: [], ports: [], command: null };
       inVolumes = false;
+      inPorts = false;
       inCommand = false;
       if (!oneShot.has(current.name)) services.push(current);
       continue;
@@ -293,6 +297,7 @@ export function composeServices(tree: FileTree): { file: string; services: Compo
     const isServiceKey = keyLine !== null && indent > serviceIndent && !line.trimStart().startsWith('-');
     if (isServiceKey) {
       inVolumes = false;
+      inPorts = false;
       inCommand = false;
     }
     if (isServiceKey && keyLine[1] === 'image') current.image = /^["']?([^\s"']+)/.exec(keyLine[2] ?? '')?.[1] ?? null;
@@ -303,6 +308,7 @@ export function composeServices(tree: FileTree): { file: string; services: Compo
       current.optional = true;
     }
     if (isServiceKey && keyLine[1] === 'volumes' && (keyLine[2] ?? '') === '') inVolumes = true;
+    if (isServiceKey && keyLine[1] === 'ports' && (keyLine[2] ?? '') === '') inPorts = true;
     if (isServiceKey && keyLine[1] === 'command') {
       const value = (keyLine[2] ?? '').trim();
       if (value === '') inCommand = true;
@@ -310,6 +316,7 @@ export function composeServices(tree: FileTree): { file: string; services: Compo
     }
     const listItem = /^\s*-\s*["']?([^"']*?)["']?\s*$/.exec(line);
     if (inVolumes && listItem?.[1]) current.volumes.push(listItem[1]);
+    if (inPorts && listItem?.[1]) current.ports.push(listItem[1]);
     if (inCommand && listItem?.[1] !== undefined) current.command = `${current.command ?? ''} ${listItem[1]}`.trim();
   }
   return { file: path, services };
@@ -374,6 +381,28 @@ function isDependencyManifest(path: string): boolean {
   );
 }
 
+// A language package-manager install inside a Dockerfile `RUN` — the image
+// installs that package as surely as a manifest declares it (a native
+// driver such as `mysqlclient` is often installed there, next to the OS
+// headers it compiles against). OS package managers (`apt-get`, `apk`) are
+// not matched: their package names are not language dependencies.
+const DOCKERFILE_PACKAGE_INSTALL_REGEX =
+  /(?:^|\s)(?:pip3?|pipenv|poetry|gem|npm|yarn|pnpm|bun|go|composer)\s+(?:install|add|get|require|i)\b(.*)$/;
+
+/** True when a Dockerfile installs `token` with a language package manager. */
+function dockerfileInstallsPackage(content: string, token: string): boolean {
+  const pattern = new RegExp(tokenPattern(token));
+  return content
+    .replace(/\\\r?\n/g, ' ')
+    .split(/\r?\n/)
+    .filter((line) => !/^\s*#/.test(line))
+    .flatMap((line) => line.split(/&&|\|\||;/))
+    .some((segment) => {
+      const args = DOCKERFILE_PACKAGE_INSTALL_REGEX.exec(segment)?.[1];
+      return args !== undefined && pattern.test(args);
+    });
+}
+
 /** Escape a dependency token so it can match as an identifier-ish literal. */
 function tokenPattern(token: string): string {
   const escaped = token.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -383,7 +412,8 @@ function tokenPattern(token: string): string {
 /**
  * Files where a dependency token appears in a DEPENDENCY position: a declared
  * dependency in a package manifest, a `require('x')`/`import x from 'x'`
- * specifier, or a Python `import x` statement. Prose (READMEs, comments that
+ * specifier, a Python `import x` statement, or a language package-manager
+ * install in a Dockerfile. Prose (READMEs, comments that
  * merely mention a product name) never counts — an undeclared mention is not
  * a dependency the app runs on.
  */
@@ -400,6 +430,10 @@ export function findDependencyEvidence(tree: FileTree, token: string): string[] 
       continue;
     }
     if (isDependencyManifest(path) && new RegExp(tokenPattern(token)).test(content)) {
+      evidence.push(path);
+      continue;
+    }
+    if (isDockerfilePath(path) && dockerfileInstallsPackage(content, token)) {
       evidence.push(path);
       continue;
     }
@@ -745,12 +779,15 @@ export function detectPort(tree: FileTree): DetectorFinding {
     }
   }
 
-  // 6. A production Compose port mapping (host:container — the container side).
-  for (const path of listProductionComposeFiles(tree)) {
-    const match = COMPOSE_PORT_MAPPING_REGEX.exec(tree[path] ?? '');
+  // 6. The application service's production Compose port mapping
+  //    (host:container — the container side). A database, cache or proxy
+  //    service's mapping is never the application's port.
+  const composeApps = composeApplicationServices(tree);
+  for (const mapping of composeApps?.services.flatMap((service) => service.ports) ?? []) {
+    const match = COMPOSE_PORT_MAPPING_REGEX.exec(`- ${mapping}`);
     if (match?.[1]) {
       return result(
-        { value: match[1], source: 'compose', confidence: 'high', details: `Port ${match[1]} detected in ${path} (ports mapping)` },
+        { value: match[1], source: 'compose', confidence: 'high', details: `Port ${match[1]} detected in ${composeApps!.file} (ports mapping)` },
         'compose',
       );
     }
@@ -1926,10 +1963,12 @@ export const CMD_CHAIN_MAX_DEPTH = 3;
  * Resolve a script token named in a CMD/ENTRYPOINT (or a script it runs) to
  * a path that actually exists in the tree — relative to the Dockerfile's own
  * directory first (`scripts/start-docker.sh` next to `docker/Dockerfile` is
- * `docker/scripts/start-docker.sh`), then relative to the tree root.
+ * `docker/scripts/start-docker.sh`), then relative to the tree root. An
+ * absolute in-image path (`/usr/local/bin/docker-entrypoint.sh`) is the
+ * same-named script the Dockerfile copied there from its own directory.
  */
 function resolveCmdScriptPath(token: string, tree: FileTree, dockerDir: string): string | undefined {
-  const clean = token.replace(/^\.\//, '');
+  const clean = token.startsWith('/') ? (token.split('/').pop() ?? token) : token.replace(/^\.\//, '');
   const candidates = dockerDir.length > 0 ? [`${dockerDir}/${clean}`, clean] : [clean];
   for (const candidate of candidates) {
     if (Object.prototype.hasOwnProperty.call(tree, candidate)) return candidate;
@@ -2105,8 +2144,8 @@ export function detectStartupCommand(tree: FileTree): DetectorFinding {
     if (sources.length > 0) source = 'dockerfile';
   }
 
-  // 2. package.json "start" script
-  for (const [name, command] of collectScripts(tree)) {
+  // 2. package.json "start" script, when it belongs to the image.
+  for (const [name, command] of nodeManifestsApplyToImage(tree) ? collectScripts(tree) : []) {
     if (name === 'start') {
       sources.push(`start: ${command}`);
       source ??= 'package-manifest';
@@ -3028,6 +3067,7 @@ const LOCKFILE_MANAGERS: { pattern: RegExp; name: string }[] = [
  * present — it is an explicit pin, a lockfile is only circumstantial evidence.
  */
 export function detectPackageManager(tree: FileTree): DetectorFinding {
+  if (!nodeManifestsApplyToImage(tree)) return { detector: 'package-manager', detected: false };
   const rootRaw = tree['package.json'];
   if (rootRaw) {
     try {
@@ -3066,14 +3106,32 @@ export function detectPackageManager(tree: FileTree): DetectorFinding {
 // 14. Build command
 // ---------------------------------------------------------------------------
 
+const NODE_PACKAGE_MANAGER_RUN_REGEX = /^\s*RUN\b[^\n]*\b(?:npm|npx|yarn|pnpm|bun)\s/im;
+
+/**
+ * Whether package.json manifests (scripts, lockfiles) describe the image
+ * Deployz builds. Without a Dockerfile the manifest is the app. With one,
+ * only when the selected Dockerfile builds or runs Node — a Python image
+ * never runs a sibling front end's `react-scripts build`.
+ */
+function nodeManifestsApplyToImage(tree: FileTree): boolean {
+  const dockerfile = selectedDockerfile(tree);
+  if (!dockerfile) return true;
+  return (
+    parseDockerfileStages(dockerfile.content).some((stage) => runtimeFromImage(stage.image) === 'node') ||
+    NODE_PACKAGE_MANAGER_RUN_REGEX.test(dockerfile.content.replace(/\\\r?\n/g, ' '))
+  );
+}
+
 /**
  * Detect the application build command from package.json "build" scripts,
- * repository root first, same ordering as `parsePackageJsons`.
+ * repository root first, same ordering as `parsePackageJsons` — only when
+ * those scripts belong to the image Deployz builds.
  */
 export function detectBuildCommand(tree: FileTree): DetectorFinding {
   const commands: string[] = [];
 
-  for (const [name, command] of collectScripts(tree)) {
+  for (const [name, command] of nodeManifestsApplyToImage(tree) ? collectScripts(tree) : []) {
     if (name === 'build') {
       commands.push(command);
     }

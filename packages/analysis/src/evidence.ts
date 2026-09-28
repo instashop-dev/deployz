@@ -100,7 +100,7 @@ const REDIS_BINDING_DETAIL =
 // New producers — no legacy question string, surfaced on metadata.ambiguities only.
 const HEALTH_PATH_DETAIL =
   'No health check route or container health check was found; a default /health path would be assumed.';
-const MIGRATION_STRATEGY_DETAIL = 'PostgreSQL is required but no migration command was detected.';
+const MIGRATION_STRATEGY_DETAIL = 'A PostgreSQL or MySQL database is required but no migration command was detected.';
 const STORAGE_BINDING_DETAIL =
   'Object storage usage was detected but no bucket environment variable is declared or read.';
 const ARCHITECTURE_REQUIREMENT_DETAIL =
@@ -243,7 +243,7 @@ export function deriveAmbiguities(tree: FileTree, analysis: AnalysisResult): Ana
   }
 
   // ── MIGRATION_STRATEGY: a required database with no schema-update step. ──
-  if (postgres['required'] === true && meta['hasMigrationCommand'] !== true) {
+  if ((postgres['required'] === true || mysql['required'] === true) && meta['hasMigrationCommand'] !== true) {
     ambiguities.push({ kind: 'MIGRATION_STRATEGY', detail: MIGRATION_STRATEGY_DETAIL });
   }
 

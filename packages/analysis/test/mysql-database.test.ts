@@ -66,6 +66,23 @@ describe('mysql database — strong evidence (mysql:// URL)', () => {
     expect(irDb.configuration).toMatchObject({ engine: 'mysql', engineVersion: '8.0' });
   });
 
+  it('a required MySQL database gets the same migration mode and app bindings as PostgreSQL', () => {
+    const analysis = analyseRepo({
+      ...BASE,
+      'package.json': JSON.stringify({
+        name: 'shop',
+        scripts: { start: 'node dist/index.js' },
+        dependencies: { express: '^4.18.0', mysql2: '^3.9.0' },
+      }),
+      '.env.example': 'DATABASE_URL=mysql://localhost:3306/shop\nDB_HOST=localhost\n',
+      'src/db.ts': 'export const host = process.env.DB_HOST;\n',
+    });
+    expect(analysis.metadata.migrationMode).toBe('unknown');
+
+    const manifest = normalizeDeploymentManifest(analysis, {});
+    expect(manifest.database.envBindings?.map((binding) => binding.name)).toContain('DB_HOST');
+  });
+
   it('Prisma provider "mysql" is independent evidence', () => {
     const analysis = analyseRepo({
       ...BASE,

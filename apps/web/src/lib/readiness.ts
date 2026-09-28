@@ -182,7 +182,7 @@ export interface DetectedApplication {
   };
   database: {
     required: boolean;
-    type: 'postgres' | 'unsupported' | 'none';
+    type: 'postgres' | 'mysql' | 'unsupported' | 'none';
     confidence: FindingConfidence;
     evidence: AnalysisEvidence[];
   };
@@ -265,6 +265,13 @@ const CONFIDENCE_HINTS: Record<FindingConfidence, string | null> = {
   needs_confirmation: 'Needs confirmation',
 };
 
+/** The managed database engine an analysis resolved (`database.type` or
+ *  `detectedMetadata.databaseState`): MySQL when it resolved MySQL, else
+ *  PostgreSQL, the default engine. */
+export function databaseEngineName(databaseState: unknown): 'MySQL' | 'PostgreSQL' {
+  return databaseState === 'mysql' ? 'MySQL' : 'PostgreSQL';
+}
+
 function factHint(fact: { source: FactSource; confidence: FindingConfidence }): string | null {
   const parts = [SOURCE_HINTS[fact.source], fact.source === 'ai' ? null : CONFIDENCE_HINTS[fact.confidence]].filter(
     (part): part is string => part !== null,
@@ -329,15 +336,15 @@ export function detectedFactRows(detected: DetectedApplication): DetectedFactRow
       id: 'database',
       label: 'Database',
       value:
-        database.type === 'postgres'
+        database.type === 'postgres' || database.type === 'mysql'
           ? database.required
-            ? 'PostgreSQL — Deployz provides a managed database'
-            : 'PostgreSQL library present — not confirmed as required'
+            ? `${databaseEngineName(database.type)} — Deployz provides a managed database`
+            : `${databaseEngineName(database.type)} library present — not confirmed as required`
           : database.type === 'unsupported'
             ? 'Unsupported database'
             : 'None detected',
-      found: database.type === 'postgres',
-      hint: database.type === 'postgres' ? CONFIDENCE_HINTS[database.confidence] : null,
+      found: database.type === 'postgres' || database.type === 'mysql',
+      hint: database.type === 'postgres' || database.type === 'mysql' ? CONFIDENCE_HINTS[database.confidence] : null,
       code: false,
       evidence: database.evidence,
     },

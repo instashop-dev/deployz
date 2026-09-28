@@ -3,6 +3,7 @@ import Link from 'next/link';
 
 import { Button } from '@/components/ui/button';
 import type { Application } from '@/lib/applications';
+import { databaseEngineName } from '@/lib/readiness';
 
 // State C — the application is ready and no customer has a deployment yet.
 // High-level facts only: the AWS resources behind them stay one click deeper,
@@ -11,7 +12,10 @@ export function ApplicationReadyCard({ application }: { application: Application
   const runtime = application.detectedMetadata?.['hasDockerfile'] === true ? 'Docker' : null;
   const facts: { label: string; value: string }[] = [
     ...(runtime === null ? [] : [{ label: 'Runtime', value: runtime }]),
-    { label: 'Database', value: application.databaseRequired ? 'PostgreSQL' : 'Not required' },
+    {
+      label: 'Database',
+      value: application.databaseRequired ? databaseEngineName(application.detectedMetadata?.['databaseState']) : 'Not required',
+    },
     { label: 'Redis', value: application.redisRequired ? 'Managed automatically' : 'Not required' },
     { label: 'Cloud', value: 'AWS' },
   ];

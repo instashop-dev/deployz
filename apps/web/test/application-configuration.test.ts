@@ -2,12 +2,13 @@ import type { ApplicationRequirementsSummary } from '@deployz/contracts';
 import { describe, expect, it } from 'vitest';
 
 import type { Application } from '../src/lib/applications';
-import type {
-  ApplicationReadiness,
-  DetectedApplication,
-  DetectedFact,
-  FactSource,
-  ReadinessFinding,
+import {
+  detectedFactRows,
+  type ApplicationReadiness,
+  type DetectedApplication,
+  type DetectedFact,
+  type FactSource,
+  type ReadinessFinding,
 } from '../src/lib/readiness';
 import { deriveAnalysisDetails, deriveConfigurationRows, deriveRequiredChanges } from '../src/lib/application-configuration';
 
@@ -284,6 +285,20 @@ describe('Overridden detail line', () => {
     expect(database.value).toBe('Not used');
     expect(database.detail).toBe('Set by you · detected: PostgreSQL database');
     expect(database.result).toEqual({ label: 'Ready', variant: 'success' });
+  });
+
+  it('names MySQL for a MySQL database in the row and in the analysis facts', () => {
+    const detected = fullyDetected({
+      database: { required: true, type: 'mysql', confidence: 'confirmed', evidence: [{ reason: 'mysqlclient declared' }] },
+    });
+    const rows = deriveConfigurationRows(applicationFixture(), readinessFixture({ detected }));
+    const database = rows.find((r) => r.id === 'database')!;
+    expect(database.value).toBe('MySQL database');
+    expect(database.result).toEqual({ label: 'Ready', variant: 'success' });
+
+    const fact = detectedFactRows(detected).find((row) => row.id === 'database')!;
+    expect(fact.value).toBe('MySQL — Deployz provides a managed database');
+    expect(fact.found).toBe(true);
   });
 
   it('shows the detail line for an overridden storage requirement that is connected', () => {

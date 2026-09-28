@@ -320,13 +320,15 @@ export function analyseRepo(tree: FileTree): AnalysisResult {
   // updated. `pre_deploy` (a deploy-safe migration script), `startup` (the
   // app runs migrations when it starts — evidence recorded, command never
   // invented), `unknown` (required database, no migration evidence anywhere),
-  // or `none` (no database, so no migrations to run).
+  // or `none` (no database, so no migrations to run). A required MySQL
+  // database is the same managed relational database as PostgreSQL here;
+  // an unconfirmed MySQL driver only raises the binding question.
   const postgresMeta = metadata['postgres'] as { required?: unknown } | undefined;
   metadata['mysql'] = mysql;
   metadata['usesMysql'] = mysql.detected;
-  if (metadata['usesPostgresql'] !== true) {
+  if (metadata['usesPostgresql'] !== true && !mysql.required) {
     metadata['migrationMode'] = 'none';
-  } else if (postgresMeta?.required !== true) {
+  } else if (postgresMeta?.required !== true && !mysql.required) {
     // A detected-but-unconfirmed database: keep the gentle recommendation.
     metadata['migrationMode'] = 'unknown';
   } else {
@@ -385,7 +387,7 @@ export function analyseRepo(tree: FileTree): AnalysisResult {
     },
   );
 
-  metadata['databaseState'] = deriveDatabaseState(findings, rejections, mysql.required);
+  metadata['databaseState'] = deriveDatabaseState(findings, rejections, postgres.required, mysql.required);
 
   const result: AnalysisResult = { findings, rejections, metadata };
   // §15 typed evidence surface: the facts the deterministic pipeline left
@@ -403,7 +405,9 @@ export function analyseRepo(tree: FileTree): AnalysisResult {
 /**
  * Derive the `databaseState` metadata value from the detector findings and
  * §10 rejections. PostgreSQL and (Phase 4B) MySQL take priority over an
- * unsupported DB. Only a rejection whose dependency is an actual DATABASE
+ * unsupported DB; a required MySQL wins over an unrequired PostgreSQL
+ * library, the same engine choice the manifest makes. Only a rejection
+ * whose dependency is an actual DATABASE
  * token (§10) counts here — an architecture/cloud/cache rejection (§11.4)
  * means the app is unsupported but is not a "database" verdict, and
  * Redis-only rejections are about the cache, not the database.
@@ -411,11 +415,12 @@ export function analyseRepo(tree: FileTree): AnalysisResult {
 function deriveDatabaseState(
   findings: DetectorFinding[],
   rejections: RejectionFinding[],
+  postgresRequired: boolean,
   mysqlRequired: boolean,
 ): DatabaseState {
+  if (mysqlRequired && !postgresRequired) return 'mysql';
   const postgres = findings.find((f) => f.detector === 'postgresql')?.detected === true;
   if (postgres) return 'postgres';
-  if (mysqlRequired) return 'mysql';
 
   const unsupportedDb = rejections.some(
     (r) => r.detected && r.dependency !== 'redis-unsupported' && DATABASE_REJECTION_TOKENS.has(r.dependency),

@@ -507,7 +507,10 @@ export function buildReadinessReport(
   // run when the app starts — nothing missing); mode 'unknown' keeps the
   // gentle recommendation; mode 'none'/'pre_deploy' produce no finding.
   const postgres = metadata['postgres'] as { required?: unknown } | undefined;
+  const mysql = metadata['mysql'] as { required?: unknown } | undefined;
+  const databaseRequired = postgres?.required === true || mysql?.required === true;
   const migrationMode = metadata['migrationMode'];
+  const usesMysqlOnly = metadata['usesPostgresql'] !== true && metadata['usesMysql'] === true;
   const drivers = metadata['postgresqlDrivers'];
   if (migrationMode === 'startup') {
     const evidence = metadata['migrationStartupEvidence'] as
@@ -530,10 +533,10 @@ export function buildReadinessReport(
       }.`,
       suggestedOutcome:
         'No action needed — migrations run on application startup and Deployz monitors the app until it reports healthy.',
-      confidence: postgres?.required === true ? 'likely' : 'needs_confirmation',
+      confidence: databaseRequired ? 'likely' : 'needs_confirmation',
     });
   } else if (migrationMode === 'unknown' || migrationMode === undefined) {
-    if (metadata['usesPostgresql'] === true && metadata['hasMigrationCommand'] !== true) {
+    if ((metadata['usesPostgresql'] === true || metadata['usesMysql'] === true) && metadata['hasMigrationCommand'] !== true) {
       findings.push({
         id: 'database-migrations',
         category: 'database',
@@ -544,14 +547,16 @@ export function buildReadinessReport(
           'This app uses a database, but Deployz could not find a command that updates the database structure during deploys.',
         whyItMatters:
           'Deployz runs your migration command automatically on every deploy, so each customer database always matches the code that talks to it.',
-        technicalEvidence: `A PostgreSQL library is present (${
-          Array.isArray(drivers) ? drivers.join(', ') : 'detected'
-        }) but no migration script was found in any package.json.`,
+        technicalEvidence: usesMysqlOnly
+          ? 'A MySQL library is present but no migration command was found in the image start path or any package.json.'
+          : `A PostgreSQL library is present (${
+              Array.isArray(drivers) ? drivers.join(', ') : 'detected'
+            }) but no migration script was found in any package.json.`,
         suggestedOutcome:
           'Add a script that applies database migrations non-interactively (for example a "db:migrate" entry in package.json).',
         // When the database requirement itself is unconfirmed (driver present
         // but no corroborating signal), the whole finding is uncertain.
-        confidence: postgres?.required === true ? 'likely' : 'needs_confirmation',
+        confidence: databaseRequired ? 'likely' : 'needs_confirmation',
       });
     }
   }
