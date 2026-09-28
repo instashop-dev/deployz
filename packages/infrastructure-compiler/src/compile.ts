@@ -606,15 +606,12 @@ function compileEcsShared(ctx: EcsContext, services: readonly IrWorkload[]): Res
   ];
 }
 
-/** Task definition + service + security group for one workload (web or worker). */
-function compileWorkloadService(ctx: EcsContext, workload: IrWorkload, profile: InfrastructureSizeProfile, ingress: { targetGroup: string; listener: string } | undefined): ResolvedResource[] {
-  const componentId = workload.componentId;
-  const logGroup = logicalResourceId(componentId, 'log-group');
-  const execRole = logicalResourceId('web', 'task-execution-role');
-  const taskRole = logicalResourceId('web', 'task-role');
-  const taskDef = logicalResourceId(componentId, 'task-definition');
-  const serviceSg = logicalResourceId(componentId, 'service-security-group');
-
+/**
+ * The managed env/secrets bindings every application task definition carries
+ * — the SAME set for web, workers and the migration task, so a one-shot
+ * migration sees exactly what the workloads that depend on it see.
+ */
+function appEnvironment(ctx: EcsContext): { environment: unknown[]; secrets: unknown[] } {
   const environment: unknown[] = [
     { Name: 'NODE_ENV', Value: 'production' },
     { Name: 'PORT', Value: ref('paramContainerPort') },
@@ -663,6 +660,87 @@ function compileWorkloadService(ctx: EcsContext, workload: IrWorkload, profile: 
       { Name: 'REDIS_PORT', Value: String(REDIS_PORT) },
     );
   }
+  return { environment, secrets };
+}
+
+/**
+ * The one-shot migration task definition (Phase 4C): the SAME image, env,
+ * secrets and CA-sidecar treatment as the app services, with the FROZEN
+ * migration command baked into the container `Command` — the relay runs THIS
+ * definition as-is and can never inject a command of its own. No service, no
+ * ALB, no desired-count parameter, and deliberately NO verification check:
+ * a migration is proven by its task exit code, never by a long-lived service.
+ */
+function compileMigrationTask(ctx: EcsContext, workload: IrWorkload, profile: InfrastructureSizeProfile): ResolvedResource[] {
+  const componentId = workload.componentId;
+  const logGroup = logicalResourceId(componentId, 'log-group');
+  const execRole = logicalResourceId('web', 'task-execution-role');
+  const taskRole = logicalResourceId('web', 'task-role');
+
+  const { environment, secrets } = appEnvironment(ctx);
+  const containerDefs: unknown[] = [{
+    Name: 'App',
+    Essential: true,
+    Image: ref('paramImageReference'),
+    // The analyzed, frozen command — the graph only ever creates a migration
+    // workload WITH a resolved command, so this is always present.
+    ...(workload.command !== null ? { Command: ['sh', '-c', workload.command] } : {}),
+    LogConfiguration: { LogDriver: 'awslogs', Options: { 'awslogs-group': ref(logGroup), 'awslogs-stream-prefix': 'deployz-migrate', 'awslogs-region': ref('AWS::Region') } },
+    Environment: environment,
+    Secrets: secrets,
+    ...(ctx.db !== undefined
+      ? {
+          DependsOn: [{ Condition: 'SUCCESS', ContainerName: 'RdsCaBundle' }],
+          MountPoints: [{ ContainerPath: RDS_CA_DIR, ReadOnly: true, SourceVolume: RDS_CA_VOLUME }],
+        }
+      : {}),
+  }];
+  if (ctx.db !== undefined) {
+    containerDefs.push({
+      Name: 'RdsCaBundle',
+      Essential: false,
+      Image: RDS_CA_INIT_IMAGE,
+      Command: ['sh', '-c', join('', [`curl -fsSL "https://truststore.pki.rds.amazonaws.com/`, ref('AWS::Region'), `/`, ref('AWS::Region'), `-bundle.pem" -o ${RDS_CA_BUNDLE_PATH} || echo "RDS CA bundle fetch failed; the application starts without it"`])],
+      LogConfiguration: { LogDriver: 'awslogs', Options: { 'awslogs-group': ref(logGroup), 'awslogs-stream-prefix': 'deployz-rds-ca', 'awslogs-region': ref('AWS::Region') } },
+      MountPoints: [{ ContainerPath: RDS_CA_DIR, ReadOnly: false, SourceVolume: RDS_CA_VOLUME }],
+    });
+  }
+
+  return [
+    res({
+      componentId, componentKind: 'application', capability: CAPABILITY_KEYS.ECS_FARGATE_SERVICE, resourceRole: 'task-definition',
+      cfnType: 'AWS::ECS::TaskDefinition',
+      properties: {
+        ContainerDefinitions: containerDefs,
+        Cpu: String(profile.workload.cpuUnits),
+        ExecutionRoleArn: getAtt(execRole, 'Arn'),
+        Family: `DeployzApp${pascal(componentId)}`,
+        Memory: String(profile.workload.memoryMiB),
+        NetworkMode: 'awsvpc',
+        RequiresCompatibilities: ['FARGATE'],
+        RuntimePlatform: { CpuArchitecture: 'X86_64', OperatingSystemFamily: 'LINUX' },
+        Tags: tags(componentId),
+        TaskRoleArn: getAtt(taskRole, 'Arn'),
+        ...(ctx.db !== undefined ? { Volumes: [{ Name: RDS_CA_VOLUME }] } : {}),
+      },
+      dependsOn: [
+        logicalResourceId('web', 'task-role-policy'),
+        logicalResourceId('web', 'task-role'),
+      ],
+    }),
+  ];
+}
+
+/** Task definition + service + security group for one workload (web or worker). */
+function compileWorkloadService(ctx: EcsContext, workload: IrWorkload, profile: InfrastructureSizeProfile, ingress: { targetGroup: string; listener: string } | undefined): ResolvedResource[] {
+  const componentId = workload.componentId;
+  const logGroup = logicalResourceId(componentId, 'log-group');
+  const execRole = logicalResourceId('web', 'task-execution-role');
+  const taskRole = logicalResourceId('web', 'task-role');
+  const taskDef = logicalResourceId(componentId, 'task-definition');
+  const serviceSg = logicalResourceId(componentId, 'service-security-group');
+
+  const { environment, secrets } = appEnvironment(ctx);
 
   const containerDefs: unknown[] = [{
     Name: 'App',
@@ -911,9 +989,9 @@ export interface CompiledGraph {
 
 /**
  * The persistent workloads to compile — one ECS service per `web`/`worker`
- * workload (Phase 4A). Migration workloads stay present in the graph/IR but
- * are skipped by the compiler (a later milestone compiles them); the same
- * goes for the not-yet-supported private-service/scheduled-job kinds.
+ * workload (Phase 4A). The one-shot `migration` workload (Phase 4C) compiles
+ * a task definition only; the not-yet-supported private-service/scheduled-job
+ * kinds stay skipped.
  */
 function persistentWorkloads(ir: DeployzIR): IrWorkload[] {
   const persistent = ir.workloads.filter((w) => w.kind === 'web' || w.kind === 'worker');
@@ -934,6 +1012,8 @@ export function compileInfrastructure(input: CompileInput): CompiledGraph {
   const dbResource = resourceByCapability(ir, CAPABILITY_KEYS.RDS_POSTGRES) ?? resourceByCapability(ir, CAPABILITY_KEYS.RDS_MYSQL);
   const cacheResource = resourceByCapability(ir, CAPABILITY_KEYS.ELASTICACHE_VALKEY);
   const services = persistentWorkloads(ir);
+  // The one-shot migration workload (Phase 4C) — at most one per graph.
+  const migrationWorkload = ir.workloads.find((w) => w.kind === 'migration') ?? null;
 
   const ids = netIds();
 
@@ -972,11 +1052,15 @@ export function compileInfrastructure(input: CompileInput): CompiledGraph {
     ...compileNetwork(ids),
     compileAppSecret(),
     ...compileS3(),
+    // Every workload's tasks log to their own group — the migration task
+    // included (its Arn lands in the shared execution-role policy below).
     ...services.map((w) => compileLogGroup(w.componentId)),
+    ...(migrationWorkload !== null ? [compileLogGroup(migrationWorkload.componentId)] : []),
     ...(dbResource !== undefined ? compileRds(dbResource, profile, ids, services.map((w) => w.componentId)) : []),
     ...(cacheResource !== undefined ? compileElasticache(cacheResource, profile, ids) : []),
-    ...compileEcsShared(ctx, services),
+    ...compileEcsShared(ctx, migrationWorkload !== null ? [...services, migrationWorkload] : services),
     ...services.flatMap((w) => compileWorkloadService(ctx, w, profile, w.public === true ? ingress : undefined)),
+    ...(migrationWorkload !== null ? compileMigrationTask(ctx, migrationWorkload, profile) : []),
     ...(publicWorkload !== undefined ? compileAlb(ctx, publicWorkload) : []),
   ];
 

@@ -124,6 +124,12 @@ export class SimulatedCustomerAccount {
   private migrationTaskArn: string | null = null;
   /** How many one-off migration tasks the relay's deploy stage has started. */
   migrationRuns = 0;
+  /**
+   * Phase 4C ordering evidence: every migration RunTask and every service
+   * UpdateService appends here in order, so a scenario can assert the
+   * migration ran BEFORE any service rolled (and only once).
+   */
+  readonly operationLog: string[] = [];
   /** How many RESTART forceNewDeployment calls reached the account. */
   restarts = 0;
   private updateServiceCallIndex = 0;
@@ -587,9 +593,6 @@ export class SimulatedCustomerAccount {
       containers?: { imageDigest?: string; exitCode?: number }[];
     }[];
   } {
-    // The one-off migration task answers STOPPED + exit 0 immediately, so a
-    // scenario that carries a migration command resolves the migration stage
-    // the same way the rollout resolves: on the next poll.
     type SimulatedTask = {
       lastStatus?: string;
       stopCode?: string;
@@ -597,23 +600,37 @@ export class SimulatedCustomerAccount {
       taskDefinitionArn?: string;
       containers?: { imageDigest?: string; exitCode?: number }[];
     };
-    const tasks: SimulatedTask[] = taskArns.flatMap((taskArn): SimulatedTask[] => {
-      if (taskArn === this.migrationTaskArn) {
-        return [
-          {
-            lastStatus: 'STOPPED',
-            stopCode: 'EssentialContainerExited',
-            containers: [{ exitCode: 0 }],
-          },
-        ];
-      }
-      const serviceArn = this.taskServiceByArn.get(taskArn);
-      const state = serviceArn !== undefined ? this.serviceStates.get(serviceArn) : undefined;
-      return state !== undefined && state.runningDigest !== null
-        ? [{ containers: [{ imageDigest: state.runningDigest }] }]
-        : [];
-    });
-    return { tasks };
+    // The one-off migration task answers STOPPED immediately: exit 0, or —
+    // when the scenario's migrationBehavior says 'fail' — exit 1 with the
+    // stoppedReason a real failed migration produces.
+    return {
+      tasks: taskArns.flatMap((taskArn): SimulatedTask[] => {
+        if (taskArn === this.migrationTaskArn) {
+          if (this.scenario.migrationBehavior === 'fail') {
+            return [
+              {
+                lastStatus: 'STOPPED',
+                stopCode: 'EssentialContainerExited',
+                stoppedReason: 'migration failed: relation "deployz" does not exist',
+                containers: [{ exitCode: 1 }],
+              },
+            ];
+          }
+          return [
+            {
+              lastStatus: 'STOPPED',
+              stopCode: 'EssentialContainerExited',
+              containers: [{ exitCode: 0 }],
+            },
+          ];
+        }
+        const serviceArn = this.taskServiceByArn.get(taskArn);
+        const state = serviceArn !== undefined ? this.serviceStates.get(serviceArn) : undefined;
+        return state !== undefined && state.runningDigest !== null
+          ? [{ containers: [{ imageDigest: state.runningDigest }] }]
+          : [];
+      }),
+    };
   }
 
   /**
@@ -711,6 +728,7 @@ export class SimulatedCustomerAccount {
           state.healthRolloutFailed = true;
           return;
         }
+        this.operationLog.push(`update:${state.logicalId}`);
         state.jobRolloutFailed = false;
         state.healthRolloutFailed = false;
         const definition = this.taskDefinitions.get(state.taskDefinitionArn);
@@ -723,11 +741,19 @@ export class SimulatedCustomerAccount {
       },
       listTasks: async (input) => this.listSimulatedTasks(input.serviceName),
       describeTasks: async (input) => this.describeSimulatedTasks(input.tasks),
-      runTask: async () => {
+      runTask: async (input) => {
         this.ensureEcsDeployInitialized();
-        // Simulated migrations succeed instantly: the task answers STOPPED
-        // with exit code 0 on the next poll (see describeSimulatedTasks).
+        // Phase 4C: the one-shot migration task — the spec-frozen family,
+        // run AS-IS (no command override). It answers STOPPED on the next
+        // poll with exit 0, or exit 1 + a migration-shaped reason when the
+        // scenario's `migrationBehavior` says 'fail'.
+        if (
+          input.overrides?.containerOverrides?.some((override) => override.command !== undefined)
+        ) {
+          throw new Error('simulated account: a migration task must never carry a command override');
+        }
         this.migrationRuns += 1;
+        this.operationLog.push(`migration:${input.taskDefinition}`);
         this.migrationTaskArn = 'arn:aws:ecs:us-east-1:123456789012:task/simulated/migration-1';
         return { taskArns: [this.migrationTaskArn] };
       },

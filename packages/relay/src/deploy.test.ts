@@ -22,6 +22,8 @@ const DIGEST_V3 = 'sha256:' + '3'.repeat(64);
 const SERVICE_ARN = 'arn:aws:ecs:us-east-1:151955775369:service/app-cluster/app-service';
 const BASE_DEF_ARN = 'arn:aws:ecs:us-east-1:151955775369:task-definition/app:7';
 const MIGRATION_TASK_ARN = 'arn:aws:ecs:us-east-1:151955775369:task/app-cluster/migration-1';
+/** The frozen migration seat the control plane puts on DEPLOY_RELEASE payloads. */
+const MIGRATION_TASK = { family: 'DeployzAppMigration', identity: 'a'.repeat(64) };
 
 interface FakeEcs {
   service?: {
@@ -65,9 +67,11 @@ const INIT_DIGEST = 'sha256:' + '9'.repeat(64);
 function withInitContainer(
   state: FakeEcs,
   containers: { imageDigest?: string; exitCode?: number }[],
-): { name?: string; imageDigest?: string; exitCode?: number }[] {
+): { name?: string; imageDigest?: string; exitCode?: number; essential?: boolean }[] {
   if (!state.initContainerFirst) return containers;
-  const init = { name: 'RdsCaBundle', imageDigest: INIT_DIGEST, exitCode: 0 };
+  // The RDS CA init sidecar is non-essential — its exit code (always 0) must
+  // never stand in for an essential container's verdict.
+  const init = { name: 'RdsCaBundle', imageDigest: INIT_DIGEST, exitCode: 0, essential: false };
   return [init, ...containers.map((container) => ({ name: 'app', ...container }))];
 }
 
@@ -272,32 +276,33 @@ async function run(executor: CommandExecutor, command: ReturnType<typeof deployC
 }
 
 describe('readDeployRequest', () => {
-  it('accepts the payload contract (no migration command = deploy as before)', () => {
+  it('accepts the payload contract (no migration seat = deploy as before)', () => {
     expect(readDeployRequest({ imageRepository: REPO, imageDigest: DIGEST_V3 })).toEqual({
       imageRepository: REPO,
       imageDigest: DIGEST_V3,
-      migrationCommand: null,
+      migrationTask: null,
       workloads: [],
     });
   });
 
-  it('parses a non-blank migration command and treats blank as none', () => {
+  it('parses the frozen migration seat: a named task family, never a command', () => {
     expect(
       readDeployRequest({
         imageRepository: REPO,
         imageDigest: DIGEST_V3,
-        migrationCommand: 'node migrate.js up',
+        migrationTask: MIGRATION_TASK,
       }),
     ).toEqual({
       imageRepository: REPO,
       imageDigest: DIGEST_V3,
-      migrationCommand: 'node migrate.js up',
+      migrationTask: MIGRATION_TASK,
       workloads: [],
     });
+    // A legacy control-plane `migrationCommand` is dropped, never executed.
     expect(readDeployRequest({ imageRepository: REPO, imageDigest: DIGEST_V3, migrationCommand: '   ' })).toEqual({
       imageRepository: REPO,
       imageDigest: DIGEST_V3,
-      migrationCommand: null,
+      migrationTask: null,
       workloads: [],
     });
   });
@@ -321,7 +326,7 @@ describe('readDeployRequest', () => {
     ).toEqual({
       imageRepository: REPO,
       imageDigest: DIGEST_V3,
-      migrationCommand: null,
+      migrationTask: null,
       workloads: [
         { id: 'web', serviceLogicalId: 'WebService', desiredCount: 1 },
         { id: 'email-worker', serviceLogicalId: 'EmailWorkerService', desiredCount: 1 },
@@ -345,7 +350,7 @@ describe('replaceApplicationImages', () => {
     const next = replaceApplicationImages(state.taskDefinition, {
       imageRepository: REPO,
       imageDigest: DIGEST_V3,
-      migrationCommand: null,
+      migrationTask: null,
       workloads: [],
     })!;
     const app = next.containerDefinitions[0] as { image: string };
@@ -357,7 +362,7 @@ describe('replaceApplicationImages', () => {
   it('returns null when no container matches the repository', () => {
     const next = replaceApplicationImages(
       { containerDefinitions: [{ name: 'app', image: 'other/repo:1' }] },
-      { imageRepository: REPO, imageDigest: DIGEST_V3, migrationCommand: null, workloads: [] },
+      { imageRepository: REPO, imageDigest: DIGEST_V3, workloads: [] },
     );
     expect(next).toBeNull();
   });
@@ -409,7 +414,7 @@ describe('createEcsDeployExecutor', () => {
     expect(state.updates).toHaveLength(1);
   });
 
-  it('runs the migration one-off before the service update: new digest + command override + same network', async () => {
+  it('runs the frozen migration task before the service update: named family, no command override, same network', async () => {
     const state = baseState();
     const d = deps(state);
     const result = await run(
@@ -417,35 +422,35 @@ describe('createEcsDeployExecutor', () => {
       deployCommand({
         imageRepository: REPO,
         imageDigest: DIGEST_V3,
-        migrationCommand: 'node migrate.js up',
+        migrationTask: MIGRATION_TASK,
       }),
     );
     expect(result.deferred).toBe(true);
 
-    // The migration ran first — a one-off task over the NEW digest copy.
+    // The migration ran first — the spec-frozen task definition, AS-IS.
     expect(state.runTasks).toHaveLength(1);
     const runInput = state.runTasks[0] as {
       taskDefinition: string;
       networkConfiguration: {
         awsvpcConfiguration: { subnets: string[]; securityGroups: string[]; assignPublicIp: string };
       };
-      overrides: { containerOverrides: { name: string; command: string[] }[] };
+      overrides: { containerOverrides: unknown[] };
       launchType: string;
       count: number;
     };
     expect(runInput.launchType).toBe('FARGATE');
     expect(runInput.count).toBe(1);
+    expect(runInput.taskDefinition).toBe('DeployzAppMigration');
     expect(runInput.networkConfiguration.awsvpcConfiguration).toEqual({
       subnets: ['subnet-a'],
       securityGroups: ['sg-1'],
       assignPublicIp: 'DISABLED',
     });
-    expect(runInput.overrides.containerOverrides).toEqual([
-      { name: 'app', command: ['sh', '-c', 'node migrate.js up'] },
-    ]);
-    // The copy it ran IS the copy the service update then points at.
+    // NO command override — the command lives in the frozen task definition;
+    // the relay can never inject one.
+    expect(runInput.overrides.containerOverrides).toEqual([]);
+    // The service update registers its own copy and rolls out after.
     const registeredArn = `arn:aws:ecs:us-east-1:151955775369:task-definition/app:1`;
-    expect(runInput.taskDefinition).toBe(registeredArn);
     expect(state.registered).toHaveLength(1);
     expect(state.updates).toHaveLength(1);
     expect(state.updates[0]).toMatchObject({ cluster: 'app-cluster', taskDefinition: registeredArn });
@@ -454,50 +459,42 @@ describe('createEcsDeployExecutor', () => {
     const pending = await d.pending.read();
     expect(pending?.migration).toEqual({
       taskArn: MIGRATION_TASK_ARN,
-      registeredArn,
       completedAt: expect.any(String),
     });
   });
 
-  it('runs the vendor migration command through the container shell, not a whitespace split', async () => {
+  it('ignores a legacy migrationCommand payload outright — commands never cross the trust boundary', async () => {
     const state = baseState();
     const result = await run(
       createEcsDeployExecutor(deps(state)),
       deployCommand({
         imageRepository: REPO,
         imageDigest: DIGEST_V3,
-        migrationCommand: 'npx prisma migrate deploy --schema ../../packages/prisma/schema.prisma',
+        migrationCommand: 'node evil.js',
       }),
     );
+    // No migration ran, and the rollout proceeds exactly like a no-migration
+    // deploy: the arbitrary command is dead weight the relay drops.
     expect(result.deferred).toBe(true);
-    const runInput = state.runTasks[0] as {
-      overrides: { containerOverrides: { name: string; command: string[] }[] };
-    };
-    expect(runInput.overrides.containerOverrides).toEqual([
-      {
-        name: 'app',
-        command: ['sh', '-c', 'npx prisma migrate deploy --schema ../../packages/prisma/schema.prisma'],
-      },
-    ]);
+    expect(state.runTasks).toHaveLength(0);
+    expect(state.updates).toHaveLength(1);
   });
 
-  it('passes a command with quoting/&& through verbatim as one -c argument, never split', async () => {
-    const state = baseState();
-    const result = await run(
-      createEcsDeployExecutor(deps(state)),
-      deployCommand({
+  it('rejects a malformed migrationTask seat', () => {
+    expect(
+      readDeployRequest({
         imageRepository: REPO,
         imageDigest: DIGEST_V3,
-        migrationCommand: 'cd packages/db && npm run migrate',
+        migrationTask: { family: 'DeployzAppMigration' },
       }),
-    );
-    expect(result.deferred).toBe(true);
-    const runInput = state.runTasks[0] as {
-      overrides: { containerOverrides: { name: string; command: string[] }[] };
-    };
-    expect(runInput.overrides.containerOverrides).toEqual([
-      { name: 'app', command: ['sh', '-c', 'cd packages/db && npm run migrate'] },
-    ]);
+    ).toBeNull();
+    expect(
+      readDeployRequest({
+        imageRepository: REPO,
+        imageDigest: DIGEST_V3,
+        migrationTask: { family: 'DeployzAppMigration', identity: 'not-a-hash' },
+      }),
+    ).toBeNull();
   });
 
   it('reads the running digest from the essential container, not the init container that ran first (DEPLOY-014)', async () => {
@@ -522,7 +519,7 @@ describe('createEcsDeployExecutor', () => {
     };
     const result = await run(
       createEcsDeployExecutor(deps(state)),
-      deployCommand({ imageRepository: REPO, imageDigest: DIGEST_V3, migrationCommand: 'node migrate.js up' }),
+      deployCommand({ imageRepository: REPO, imageDigest: DIGEST_V3, migrationTask: MIGRATION_TASK }),
     );
     expect(result.success).toBe(false);
     expect(result.failureCode).toBe('MIGRATION_FAILED');
@@ -544,7 +541,7 @@ describe('createEcsDeployExecutor', () => {
       deployCommand({
         imageRepository: REPO,
         imageDigest: DIGEST_V3,
-        migrationCommand: 'node migrate.js up',
+        migrationTask: MIGRATION_TASK,
       }),
     );
     expect(result.success).toBe(false);
@@ -569,7 +566,7 @@ describe('createEcsDeployExecutor', () => {
       deployCommand({
         imageRepository: REPO,
         imageDigest: DIGEST_V3,
-        migrationCommand: 'node migrate.js up',
+        migrationTask: MIGRATION_TASK,
       }),
     );
     expect(result.success).toBe(false);
@@ -599,7 +596,7 @@ describe('createEcsDeployExecutor', () => {
       deployCommand({
         imageRepository: REPO,
         imageDigest: DIGEST_V3,
-        migrationCommand: 'node migrate.js up',
+        migrationTask: MIGRATION_TASK,
       }),
     );
     expect(result.success).toBe(false);
@@ -623,7 +620,7 @@ describe('createEcsDeployExecutor', () => {
     const request: DeployRequest = {
       imageRepository: REPO,
       imageDigest: DIGEST_V3,
-      migrationCommand: 'node migrate.js up',
+      migrationTask: MIGRATION_TASK,
       workloads: [],
     };
     const first = await settleEcsDeploy(d, request, {
@@ -634,7 +631,7 @@ describe('createEcsDeployExecutor', () => {
       markerPayload: {
         imageRepository: REPO,
         imageDigest: DIGEST_V3,
-        migrationCommand: 'node migrate.js up',
+        migrationTask: MIGRATION_TASK,
       },
     });
     expect(first.state).toBe('in-progress');
@@ -656,7 +653,7 @@ describe('createEcsDeployExecutor', () => {
       deployCommand({
         imageRepository: REPO,
         imageDigest: DIGEST_V3,
-        migrationCommand: 'node migrate.js up',
+        migrationTask: MIGRATION_TASK,
       }),
     );
     expect(state.runTasks).toHaveLength(1);
@@ -672,7 +669,7 @@ describe('createEcsDeployExecutor', () => {
       deployCommand({
         imageRepository: REPO,
         imageDigest: DIGEST_V3,
-        migrationCommand: 'node migrate.js up',
+        migrationTask: MIGRATION_TASK,
       }),
     );
     expect(result.deferred).toBe(true);
@@ -682,7 +679,6 @@ describe('createEcsDeployExecutor', () => {
     expect(pending?.migration).toBeDefined();
     expect(pending?.migration?.taskArn).toBe(MIGRATION_TASK_ARN);
     expect(pending?.migration?.completedAt).toBeUndefined();
-    expect(pending?.migration?.registeredArn).toBe(`arn:aws:ecs:us-east-1:151955775369:task-definition/app:1`);
   });
 
   it('ROLLBACK deploys the old digest without ever running migrations', async () => {
@@ -693,7 +689,7 @@ describe('createEcsDeployExecutor', () => {
         {
           imageRepository: REPO,
           imageDigest: DIGEST_V3,
-          migrationCommand: 'node migrate.js up',
+          migrationTask: MIGRATION_TASK,
         },
         'ROLLBACK',
       ),
@@ -1109,7 +1105,7 @@ describe('createEcsDeployResumer', () => {
       deployCommand({
         imageRepository: REPO,
         imageDigest: DIGEST_V3,
-        migrationCommand: 'node migrate.js up',
+        migrationTask: MIGRATION_TASK,
       }),
     );
     expect(first.deferred).toBe(true);
@@ -1312,7 +1308,7 @@ describe('settleEcsDeploy — multi-workload rollout', () => {
     };
     const result = await settleEcsDeploy(
       { ...d, ecs },
-      { imageRepository: REPO, imageDigest: DIGEST_V3, migrationCommand: null, workloads: MULTI_WORKLOADS },
+      { imageRepository: REPO, imageDigest: DIGEST_V3, migrationTask: null, workloads: MULTI_WORKLOADS },
     );
     expect(result.state).toBe('failed');
     if (result.state === 'failed') {

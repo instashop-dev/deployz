@@ -55,6 +55,10 @@ describe('logicalResourceId — stable semantic identity (golden)', () => {
       'PrimaryDbAppServiceIngressEmailWorker',
     );
   });
+  it('one-shot migration workload (Phase 4C golden ids)', () => {
+    expect(logicalResourceId('migration', 'task-definition')).toBe('MigrationTaskDefinition');
+    expect(logicalResourceId('migration', 'log-group')).toBe('MigrationLogGroup');
+  });
 });
 
 describe('logicalIdViolations', () => {

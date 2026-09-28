@@ -493,7 +493,7 @@ describe('multi-workload', () => {
     expect(checks.filter((c) => c.check === 'storage')).toHaveLength(1);
   });
 
-  it('migration workloads stay in the IR but are not compiled', () => {
+  it('compiles the migration workload as a one-shot task definition, never a service (Phase 4C)', () => {
     const withMigration: DeployzIR = {
       ...ir,
       workloads: [
@@ -515,9 +515,52 @@ describe('multi-workload', () => {
     };
     const result = compileDeployzInfrastructure({ ir: withMigration, region: null });
     const ids = result.resolvedGraph.resources.map((r) => r.logicalId);
+    // A task definition and a log group exist; a SERVICE never does — a
+    // migration is one-shot, proven by its exit code, not by stability.
+    expect(ids).toContain('MigrationTaskDefinition');
+    expect(ids).toContain('MigrationLogGroup');
+    expect(ids).not.toContain('MigrationService');
     expect(ids).not.toContain('MigrationEcsService');
+    const byId = new Map(result.resolvedGraph.resources.map((r) => [r.logicalId, r]));
+    const taskDef = byId.get('MigrationTaskDefinition')!;
+    expect(taskDef.cfnType).toBe('AWS::ECS::TaskDefinition');
+    // NO verification check — the verification contract proves services, not
+    // one-shot tasks, and relay service discovery must never see a migration.
+    expect(taskDef.verificationCheck).toBeUndefined();
+    const family = taskDef.properties['Family'];
+    expect(family).toBe('DeployzAppMigration');
+    // The analyzed command is FROZEN into the container — the relay runs the
+    // definition as-is and can never inject a command of its own.
+    const app = (taskDef.properties['ContainerDefinitions'] as unknown[])[0] as Record<string, unknown>;
+    expect(app['Command']).toEqual(['sh', '-c', 'npx prisma migrate deploy']);
+    expect(taskDef.properties['ExecutionRoleArn']).toEqual({
+      'Fn::GetAtt': [logicalResourceId('web', 'task-execution-role'), 'Arn'],
+    });
+    expect(taskDef.properties['TaskRoleArn']).toEqual({
+      'Fn::GetAtt': [logicalResourceId('web', 'task-role'), 'Arn'],
+    });
+    // Stateless lifecycle — a task definition update is never destructive.
+    expect(taskDef.stateful).toBe(false);
+    expect(taskDef.deletionPolicy).toBe('Delete');
+    // The verification contract gains NO migration compute check; the
+    // ownership records DO carry the task def (it is a managed resource).
+    const computeComponents = result.verificationContract.checks.filter((c) => c.check === 'compute').map((c) => c.componentId).sort();
+    expect(computeComponents).toEqual(['email-worker', 'import-worker', 'web']);
+    expect(result.resolvedGraph.resources.some((r) => r.logicalId === 'MigrationTaskDefinition' && r.verificationCheck !== undefined)).toBe(false);
+    // Ownership: exactly one migration record (the task def; the log group is
+    // its own component-scoped record).
+    expect(result.ownershipRecords.filter((r) => r.componentId === 'migration' && r.logicalResourceId === 'MigrationTaskDefinition')).toHaveLength(1);
+    // Other workloads are unaffected.
+    expect(ids).toContain('EmailWorkerService');
+    // Deterministic: the same IR compiles the same template.
+    expect(compileDeployzInfrastructure({ ir: withMigration, region: null }).artifact.templateHash).toBe(result.artifact.templateHash);
+  });
+
+  it('a graph WITHOUT a migration workload compiles byte-identically to the pre-4C compiler (golden)', () => {
+    const result = compileDeployzInfrastructure({ ir, region: null });
+    const ids = result.resolvedGraph.resources.map((r) => r.logicalId);
     expect(ids).not.toContain('MigrationTaskDefinition');
-    // The other workloads are unaffected.
+    expect(ids).not.toContain('MigrationEcsService');
     expect(ids).toContain('EmailWorkerService');
   });
 

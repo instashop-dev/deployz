@@ -106,6 +106,34 @@ export function workloadServicesFromSpec(spec: DeploymentSpecV2): readonly Workl
     .map((check) => ({ id: check.componentId, serviceLogicalId: check.logicalId }));
 }
 
+/** The ECS task-definition family the compiler bakes for a component id
+ *  (`DeployzApp${Pascal(componentId)}` — mirrors compile.ts's Family field;
+ *  pinned equal by both packages' golden tests). */
+export function deployzTaskFamily(componentId: string): string {
+  const pascal = componentId
+    .split(/[^A-Za-z0-9]+/)
+    .filter((word) => word.length > 0)
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join('');
+  return `DeployzApp${pascal}`;
+}
+
+/** The frozen one-shot migration the spec compiled, with the CloudFormation
+ *  logical id and ECS task-definition family the relay runs. Null when the
+ *  spec is uncompiled or carries no migration workload. */
+export function migrationTaskFromSpec(spec: DeploymentSpecV2): {
+  id: string;
+  taskLogicalId: string;
+  family: string;
+} | null {
+  if (spec.ownershipRecords === null) return null;
+  const record = spec.ownershipRecords.find(
+    (entry) => entry.componentId === 'migration' && entry.logicalResourceId.endsWith('TaskDefinition'),
+  );
+  if (record === undefined) return null;
+  return { id: record.componentId, taskLogicalId: record.logicalResourceId, family: deployzTaskFamily(record.componentId) };
+}
+
 /**
  * Inventory classification by CFN logical id, from the spec's ownership
  * records: a record's kind and retention, with the verification contract

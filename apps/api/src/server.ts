@@ -1,6 +1,7 @@
 import cors from '@fastify/cors';
 import rateLimit from '@fastify/rate-limit';
 import { setupFastifyErrorHandler } from '@sentry/node';
+import { createHash } from 'node:crypto';
 import { fromNodeHeaders } from 'better-auth/node';
 import { and, desc, eq, gte, inArray, isNull, ne, notInArray, sql } from 'drizzle-orm';
 import Fastify, {
@@ -62,6 +63,7 @@ import {
   relayCommandProgressSchema,
   requiredInfrastructureComponents,
   requirementsFromSpec,
+  migrationTaskFromSpec,
   resolveBootstrapTemplate,
   resolveStoredInfrastructureSizeProfile,
   summarizeInfrastructureStatus,
@@ -731,10 +733,14 @@ interface DeployPayload {
   version: string;
   imageRepository: string;
   imageDigest: string;
-  /** Present only when a migration command resolves — see requireDeployableRelease. */
-  migrationCommand?: string;
   /** Per-workload rollout seats from the frozen spec — see requireDeployableRelease. */
   workloads?: { id: string; serviceLogicalId: string; desiredCount: number }[];
+  /**
+   * The frozen one-shot migration seat (Phase 4C) — the compiled task family
+   * plus the control-plane-computed identity. Absent when the frozen spec has
+   * no migration workload or the identity is already confirmed.
+   */
+  migrationTask?: { family: string; identity: string };
   [key: string]: unknown;
 }
 
@@ -801,20 +807,66 @@ async function requireDeployableRelease(
           footprint?.workloads.find((entry) => entry.id === workload.id)?.quantity ?? 1,
       }));
     }
-  }
-  // Phase 4: the migration command — the release's own command first (the
-  // vendor's explicit per-release override), else the stored manifest's (the
-  // snapshot the deployment was created with, which is never refreshed, so
-  // it must not outrank a deliberate correction — CANARY-010). Absent → the
-  // key is omitted so a no-migration deploy carries byte-for-byte the payload
-  // it always did. A bulk deploy resolves the manifest half per target (each
-  // target has its own stored manifest).
-  const manifestCommand = deployment ? (readStoredManifest(deployment.desiredState)?.migration.command ?? null) : null;
-  const migrationCommand = release.migrationCommand ?? manifestCommand ?? null;
-  if (migrationCommand !== null && migrationCommand.trim().length > 0) {
-    payload.migrationCommand = migrationCommand.trim();
+    // Phase 4C: the frozen one-shot migration. The relay receives the NAMED
+    // task-definition family the compiler froze from the analyzed command —
+    // never the command itself — and only when this deployment has no
+    // SUCCEEDED deploy already confirming the same migration identity.
+    // ROLLBACK builds its payload WITHOUT the deployment row, so a rollback
+    // (and RESTART, whose payload is empty) can never carry the seat.
+    const migration = spec ? migrationTaskFromSpec(spec) : null;
+    const frozenCommand =
+      spec?.graph.workloads.find((workload) => workload.id === 'migration')?.command ?? null;
+    if (migration !== null && frozenCommand !== null) {
+      const identity = migrationIdentity(frozenCommand, imageDigest);
+      if (!(await migrationIdentityConfirmed(db, deployment.id, identity))) {
+        payload.migrationTask = { family: migration.family, identity };
+      }
+    }
   }
   return payload;
+}
+
+/**
+ * The migration identity (Phase 4C): sha256 over the FROZEN migration command
+ * and the release's immutable image digest. Both inputs are frozen at
+ * release time — the command in the spec's graph (compiled into the
+ * migration task definition), the digest in the release row — so a changed
+ * command or a new image always means a new identity (the migration runs
+ * again), and an unchanged combination is never re-run once a deploy with
+ * the same identity has SUCCEEDED for this deployment.
+ */
+export function migrationIdentity(frozenCommand: string, imageDigest: string): string {
+  return createHash('sha256').update(`${frozenCommand}\n${imageDigest}`).digest('hex');
+}
+
+/**
+ * Whether this deployment has already confirmed this migration identity: the
+ * durable record is the deployment's own SUCCEEDED DEPLOY_RELEASE job rows —
+ * the payload that produced each success is stored verbatim on the row, so
+ * "a succeeded deploy carried this identity" IS "this migration ran and
+ * passed" (the relay settles success only after the migration stage exited 0,
+ * and rollback/restart jobs never carry the seat). Stored in the control
+ * plane's own database — it survives relay rebuilds (unlike the relay's
+ * pending-marker state file) and needs no new schema.
+ */
+async function migrationIdentityConfirmed(
+  db: RuntimeDb,
+  deploymentId: string,
+  identity: string,
+): Promise<boolean> {
+  const rows = await db
+    .select({ id: schema.deploymentJobs.id })
+    .from(schema.deploymentJobs)
+    .where(
+      and(
+        eq(schema.deploymentJobs.deploymentId, deploymentId),
+        eq(schema.deploymentJobs.type, 'DEPLOY_RELEASE'),
+        inArray(schema.deploymentJobs.state, ['SUCCEEDED', 'SUCCESS']),
+        sql`${schema.deploymentJobs.payload} -> 'migrationTask' ->> 'identity' = ${identity}`,
+      ),
+    )
+    .limit(1);
+  return rows.length > 0;
 }
 
 /**
@@ -4955,7 +5007,9 @@ export async function buildServer({
     const organizationId = requireSessionOrganizationId(request);
     await loadOwnedApplication(db, id, organizationId);
     const body = deployBulkBodySchema.parse(request.body);
-    const payload = await requireDeployableRelease(db, releaseImages, body.releaseId, id);
+    // Early release gate (READY + image available). Each target below derives
+    // its own payload — per-deployment rollout seats and migration state.
+    await requireDeployableRelease(db, releaseImages, body.releaseId, id);
 
     const conditions = [
       eq(schema.deployments.applicationId, id),
@@ -5043,15 +5097,11 @@ export async function buildServer({
         });
         continue;
       }
-      // Phase 4: each target resolves its own migration command — the shared
-      // `payload` carries the release-level command when the release has one;
-      // otherwise a target's stored manifest command fills in (same precedence
-      // as single deploys).
-      let targetPayload = payload;
-      const manifestCommand = readStoredManifest(deployment.desiredState)?.migration.command ?? null;
-      if (payload['migrationCommand'] === undefined && manifestCommand !== null && manifestCommand.trim().length > 0) {
-        targetPayload = { ...payload, migrationCommand: manifestCommand.trim() };
-      }
+      // Phase 4A/4C: each target resolves its own per-workload seats and
+      // migration-identity state from ITS frozen spec — the same derivation
+      // as the single-deploy route (a target may be on an older compiled
+      // generation than another).
+      const targetPayload = await requireDeployableRelease(db, releaseImages, body.releaseId, id, deployment);
       const { job, created } = await createOrReuseJob(db, {
         deploymentId: deployment.id,
         type: 'DEPLOY_RELEASE',

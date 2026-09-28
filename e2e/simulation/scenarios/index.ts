@@ -8,6 +8,8 @@ import { ecsFailure } from './ecs-failure.js';
 import { happyPath } from './happy-path.js';
 import { healthcheckFailure } from './healthcheck-failure.js';
 import { lifecycleSweep } from './lifecycle-sweep.js';
+import { migrationFailure } from './migration-failure.js';
+import { migrationSuccess } from './migration-success.js';
 import { multiWorkerSweep } from './multi-worker-sweep.js';
 import { mysqlSweep } from './mysql-sweep.js';
 import { purgeFailure } from './purge-failure.js';
@@ -44,6 +46,8 @@ const SCENARIOS: Readonly<Record<string, ScenarioDefinition>> = {
   [ecsFailure.id]: ecsFailure,
   [healthcheckFailure.id]: healthcheckFailure,
   [lifecycleSweep.id]: lifecycleSweep,
+  [migrationFailure.id]: migrationFailure,
+  [migrationSuccess.id]: migrationSuccess,
   [multiWorkerSweep.id]: multiWorkerSweep,
   [mysqlSweep.id]: mysqlSweep,
   [slowProvision.id]: slowProvision,
@@ -84,6 +88,8 @@ export {
   happyPath,
   healthcheckFailure,
   lifecycleSweep,
+  migrationFailure,
+  migrationSuccess,
   multiWorkerSweep,
   mysqlSweep,
   purgeFailure,

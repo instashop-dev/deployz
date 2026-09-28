@@ -21,14 +21,15 @@
  * 3. **Failure is classified.** A rollout the ECS circuit breaker reports
  *    FAILED fails the job with `ECS_DEPLOYMENT_FAILED`, never a success.
  *
- * DEPLOY_RELEASE additionally runs a migration stage before the service
- * update when the payload carries a `migrationCommand` (Phase 4 boundary):
- * a one-off RunTask on the same cluster/VPC/secrets as the app service —
- * the same copy the service update will use — command overridden, no load
- * balancer, polled until STOPPED. Exit code 0 continues the deploy;
- * anything else fails with `MIGRATION_FAILED` and the previous release
- * keeps running. ROLLBACK never runs migrations: schema changes are never
- * auto-reversed.
+ * DEPLOY_RELEASE additionally runs a migration stage before any service
+ * rollout (Phase 4C): the spec-frozen one-shot migration task definition —
+ * compiled from analyzed state with the command BAKED IN — is RunTask'd
+ * as-is on the same cluster/VPC/secrets as the app services. No load
+ * balancer, no command override (this module can never receive or inject
+ * one), polled until STOPPED. Exit code 0 continues the deploy; anything
+ * else fails with MIGRATION_FAILED, names the migration task, and no
+ * service is touched. ROLLBACK never runs migrations: schema changes are
+ * never auto-reversed.
  */
 
 import type { FailureEvidence } from '@deployz/contracts';
@@ -89,7 +90,14 @@ export interface EcsDeployClient {
       stoppedReason?: string | undefined;
       taskDefinitionArn?: string | undefined;
       containers?:
-        | { name?: string | undefined; imageDigest?: string | undefined; exitCode?: number | undefined }[]
+        | {
+            name?: string | undefined;
+            imageDigest?: string | undefined;
+            exitCode?: number | undefined;
+            /** Absent means essential (ECS defaults to true) — the migration
+             *  verdict only ever reads an essential container's exit code. */
+            essential?: boolean | undefined;
+          }[]
         | undefined;
     }[];
   }>;
@@ -165,15 +173,30 @@ export interface DeployWorkload {
   readonly desiredCount: number;
 }
 
+/** The frozen one-shot migration the control plane names for this deploy. */
+export interface DeployMigrationTask {
+  /** The ECS task-definition family the compiler froze (e.g. DeployzAppMigration). */
+  readonly family: string;
+  /**
+   * The migration identity the control plane computed (sha256 over the frozen
+   * command + image digest) — carried for logging/diagnostics only; the
+   * control plane records confirmation against it, never this module.
+   */
+  readonly identity: string;
+}
+
 /** A deploy request after payload validation. */
 export interface DeployRequest {
   readonly imageRepository: string;
   readonly imageDigest: string;
   /**
-   * Migration command to run as a one-off ECS task before the service
-   * update. Absent (null) deploys exactly as before the migration stage.
+   * The spec-frozen one-shot migration to run BEFORE any service rollout.
+   * The command lives in the compiled task definition — this module runs the
+   * named family as-is and can never receive or inject a command. Absent
+   * (null): the control plane decided no migration is needed (no migration
+   * workload in the frozen spec, or this identity already confirmed).
    */
-  readonly migrationCommand: string | null;
+  readonly migrationTask: DeployMigrationTask | null;
   /**
    * The deployment's persistent workloads (Phase 4A) — frozen spec data the
    * control plane derived, consumed only to name a service in diagnostics
@@ -187,13 +210,9 @@ export interface DeployRequest {
  * One-off migration-task state, carried on the pending marker so a migration
  * that outlives one invocation resumes on the SAME task (never a second run).
  * `completedAt` is set the moment the task STOPPED with exit code 0.
- * `registeredArn` is the application copy the migration registered (the def
- * the service update will also use) — without it, a resume would describe
- * the still-old service definition and mindlessly register a second copy.
  */
 export interface PendingMigration {
   readonly taskArn: string;
-  readonly registeredArn?: string;
   readonly completedAt?: string;
 }
 
@@ -205,9 +224,21 @@ export function readDeployRequest(payload: Record<string, unknown>): DeployReque
   const imageDigest = payload['imageDigest'];
   if (typeof imageRepository !== 'string' || imageRepository.length === 0) return null;
   if (typeof imageDigest !== 'string' || !DIGEST_PATTERN.test(imageDigest)) return null;
-  const rawCommand = payload['migrationCommand'];
-  const migrationCommand =
-    typeof rawCommand === 'string' && rawCommand.trim().length > 0 ? rawCommand.trim() : null;
+  // The frozen migration rides as a NAMED task-definition family — never a
+  // command. A payload carrying a legacy `migrationCommand` (a pre-4C control
+  // plane) is ignored outright: this module must never accept an arbitrary
+  // execution-time command, and an uncompiled migration cannot be run anyway.
+  const rawMigration = payload['migrationTask'];
+  let migrationTask: DeployMigrationTask | null = null;
+  if (rawMigration !== undefined && rawMigration !== null) {
+    if (typeof rawMigration !== 'object' || Array.isArray(rawMigration)) return null;
+    const record = rawMigration as Record<string, unknown>;
+    const family = record['family'];
+    const identity = record['identity'];
+    if (typeof family !== 'string' || family.length === 0) return null;
+    if (typeof identity !== 'string' || !/^[0-9a-f]{64}$/.test(identity)) return null;
+    migrationTask = { family, identity };
+  }
   // Workload seats are optional (an older control plane omits them) but a
   // malformed one is rejected outright, never partially trusted.
   const rawWorkloads = payload['workloads'];
@@ -226,7 +257,7 @@ export function readDeployRequest(payload: Record<string, unknown>): DeployReque
       workloads.push({ id, serviceLogicalId, desiredCount });
     }
   }
-  return { imageRepository, imageDigest, migrationCommand, workloads };
+  return { imageRepository, imageDigest, migrationTask, workloads };
 }
 
 type EcsDeployOutcome =
@@ -486,19 +517,18 @@ export async function settleEcsDeploy(
 
   // Migration stage — before any service update, so the previous release
   // keeps running and the release pointers never move on a MIGRATION_FAILED.
+  // Gated twice: the control plane only ever puts a migrationTask on
+  // DEPLOY_RELEASE payloads, AND this executor refuses to run one for any
+  // other command type — ROLLBACK and RESTART never run migrations.
   let migration: PendingMigration | undefined;
-  const migrationView = views.find((view) => workloadFor(view)?.id === 'web') ?? views[0]!;
-  const migrationCommand = context.allowMigration ? (request.migrationCommand ?? null) : null;
-  if (migrationCommand !== null) {
-    const migrationService = migrationView.service!;
+  // The one-off task runs on the SAME network as the public workload (web
+  // when the payload names one, else the first service).
+  const migrationNetworkView = views.find((view) => workloadFor(view)?.id === 'web') ?? views[0]!;
+  if (request.migrationTask !== null && context.allowMigration) {
     const outcome = await settleMigration(deps, {
       cluster,
-      serviceTaskDefinition: migrationService.taskDefinition!,
-      networkConfiguration: migrationService.networkConfiguration,
-      taskDefinition: definitions.get(migrationView.arn)!,
-      request,
-      migrationCommand,
-      alreadyRegistered: migrationView.alreadyRegistered ?? false,
+      networkConfiguration: migrationNetworkView.service?.networkConfiguration,
+      migrationTask: request.migrationTask,
       pendingMigration: context.migration ?? null,
       markerCommandId: context.markerCommandId,
       markerIdempotencyKey: context.markerIdempotencyKey,
@@ -515,12 +545,6 @@ export async function settleEcsDeploy(
     }
     if (outcome.state === 'in-progress') {
       return { state: 'in-progress', migration: outcome.migration };
-    }
-    if (outcome.registeredArn !== null) {
-      // The migration registered the application copy for ITS service's
-      // family — that service must not register a second one.
-      migrationView.alreadyRegistered = true;
-      migrationView.registeredArn = outcome.registeredArn;
     }
     migration = outcome.migration;
   }
@@ -542,7 +566,7 @@ export async function settleEcsDeploy(
         ? { desiredCount: workload?.desiredCount ?? FIRST_START_DESIRED_COUNT }
         : {};
 
-    let registeredArn = view.registeredArn ?? null;
+    let registeredArn: string | null = null;
     const alreadyRegistered = view.alreadyRegistered ?? false;
     const runningDigest = view.runningDigest ?? null;
     if (!alreadyRegistered) {
@@ -600,9 +624,6 @@ export async function settleEcsDeploy(
 type MigrationOutcome =
   | {
       readonly state: 'completed';
-      readonly registered: boolean;
-      /** The application copy the migration registered, when it registered one. */
-      readonly registeredArn: string | null;
       readonly migration: PendingMigration;
     }
   | { readonly state: 'in-progress'; readonly migration: PendingMigration }
@@ -621,24 +642,23 @@ type MigrationOutcome =
     };
 
 /**
- * Runs (or resumes) the migration stage: one one-off ECS task on the SAME
- * cluster/VPC/subnets/security groups as the app service, running the NEW
- * digest with the command overridden, no load balancer. The vendor's
- * `migrationCommand` is a shell command line — the same thing a Dockerfile
- * `CMD "…"` string or a Procfile line is — so it runs as `sh -c <command>`
- * inside the container, exactly as written: PATH lookup, `npx`, `&&`, env-var
- * prefixes and quoting all behave the way the vendor's own start script
- * expects. Polls DescribeTasks until STOPPED; a task that outlives the
- * invocation is resumed by ARN on a later poll, never re-run. Exit code 0
- * completes the stage; anything else fails the job with MIGRATION_FAILED
- * (exit code + stoppedReason as detail — never log bodies: the relay role
- * deliberately has no logs:GetLogEvents).
+ * Runs (or resumes) the migration stage: the spec-frozen one-off ECS task
+ * definition (Phase 4C), run AS-IS on the SAME cluster/VPC/subnets/security
+ * groups as the app services. The migration command is baked into the task
+ * definition by the compiler from analyzed/frozen state — this module runs
+ * the family the control plane names and can never inject a command. Polls
+ * DescribeTasks until STOPPED; a task that outlives the invocation is resumed
+ * by ARN on a later poll, never re-run. Exit code 0 completes the stage;
+ * anything else fails the job with MIGRATION_FAILED (exit code + stoppedReason
+ * as detail — never log bodies: the relay role deliberately has no
+ * logs:GetLogEvents). An outcome is only ever `completed` after the task was
+ * actually observed STOPPED with exit 0 — an undescribable task fails without
+ * recording anything (reconcile-before-fail: never guess).
  */
 async function settleMigration(
   deps: EcsDeployDeps,
   params: {
     cluster: string;
-    serviceTaskDefinition: string;
     networkConfiguration?: {
       awsvpcConfiguration?: {
         subnets?: string[] | undefined;
@@ -646,10 +666,7 @@ async function settleMigration(
         assignPublicIp?: string | undefined;
       } | undefined;
     } | undefined;
-    taskDefinition: EcsTaskDefinition;
-    request: DeployRequest;
-    migrationCommand: string;
-    alreadyRegistered: boolean;
+    migrationTask: DeployMigrationTask;
     pendingMigration: PendingMigration | null;
     /** Marker fields for the early migration write after RunTask succeeds. */
     markerCommandId?: string | undefined;
@@ -658,46 +675,18 @@ async function settleMigration(
     markerPayload?: Record<string, unknown> | undefined;
   },
 ): Promise<MigrationOutcome> {
-  const { cluster, serviceTaskDefinition, taskDefinition, request, migrationCommand } = params;
+  const { cluster, migrationTask } = params;
 
   if (params.pendingMigration?.completedAt !== undefined) {
-    return {
-      state: 'completed',
-      registered: params.alreadyRegistered || params.pendingMigration.registeredArn !== undefined,
-      registeredArn: params.pendingMigration.registeredArn ?? null,
-      migration: params.pendingMigration,
-    };
+    return { state: 'completed', migration: params.pendingMigration };
   }
 
-  let registered = params.alreadyRegistered;
-  let registeredArn: string | null = params.pendingMigration?.registeredArn ?? null;
-  if (registeredArn !== null) registered = true;
   let taskArn: string | null = params.pendingMigration?.taskArn ?? null;
 
   if (taskArn === null) {
-    // The migration task runs the NEW digest — register the copy the service
-    // update will use (or reuse the one an earlier attempt registered), then
-    // start it with the command overridden.
-    const appContainer = taskDefinition.containerDefinitions.find(
-      (container) =>
-        typeof container.image === 'string' &&
-        container.image.startsWith(`${request.imageRepository}@`),
-    );
-    let definitionArn = registeredArn ?? serviceTaskDefinition;
-    if (!registered) {
-      const replaced = replaceApplicationImages(taskDefinition, request);
-      if (!replaced) {
-        return {
-          state: 'failed',
-          reason: `No container in the task definition references repository "${request.imageRepository}"`,
-        };
-      }
-      replaced.tags = [{ key: 'deployz:installation', value: deps.installationId }];
-      definitionArn = (await deps.ecs.registerTaskDefinition(replaced)).taskDefinitionArn;
-      registeredArn = definitionArn;
-      registered = true;
-    }
-
+    // Run the frozen migration task definition AS-IS — no overrides, no
+    // command injection. The command lives in the definition the compiler
+    // froze from analyzed state.
     const network = params.networkConfiguration?.awsvpcConfiguration;
     if (network === undefined || network.subnets === undefined || network.securityGroups === undefined) {
       return {
@@ -709,7 +698,7 @@ async function settleMigration(
 
     const { taskArns } = await deps.ecs.runTask({
       cluster,
-      taskDefinition: definitionArn,
+      taskDefinition: migrationTask.family,
       count: 1,
       launchType: 'FARGATE',
       networkConfiguration: {
@@ -719,12 +708,7 @@ async function settleMigration(
           assignPublicIp: network.assignPublicIp ?? 'DISABLED',
         },
       },
-      overrides: {
-        containerOverrides:
-          appContainer === undefined || appContainer.name === undefined
-            ? []
-            : [{ name: appContainer.name, command: ['sh', '-c', migrationCommand.trim()] }],
-      },
+      overrides: { containerOverrides: [] },
     });
     taskArn = taskArns[0] ?? null;
     if (taskArn === null) {
@@ -753,10 +737,7 @@ async function settleMigration(
         stackName: deps.stackName,
         startedAt: (deps.now ?? (() => new Date().toISOString()))(),
         payload: params.markerPayload,
-        migration: {
-          taskArn,
-          ...(registeredArn !== null ? { registeredArn } : {}),
-        },
+        migration: { taskArn },
       });
     }
   }
@@ -768,24 +749,30 @@ async function settleMigration(
     const { tasks } = await deps.ecs.describeTasks({ cluster, tasks: [taskArn] });
     const task = tasks[0];
     if (task === undefined) {
+      // Reconcile-before-fail: we asked, and got no answer — that is an
+      // UNKNOWN outcome, never a success. Fail honestly; nothing is recorded
+      // as confirmed, so a retry re-verifies from a fresh run.
       return {
         state: 'failed',
         reason: `Migration task "${taskArn}" could not be described`,
       };
     }
     if (task.lastStatus !== 'STOPPED') continue;
-    const exitCode = applicationContainers(
-      task.containers,
-      essentialContainerNames(taskDefinition.containerDefinitions),
-    ).find((container) => container.exitCode !== undefined)?.exitCode;
+    // The migration's verdict is the ESSENTIAL container's exit code — the
+    // RDS CA init sidecar (essential: false) always exits 0 first, and its
+    // code must never stand in for the migration's own.
+    const exitCode = (task.containers ?? []).find(
+      (container) => container.essential !== false && container.exitCode !== undefined,
+    )?.exitCode;
     if (exitCode !== 0) {
       return {
         state: 'failed',
-        reason: `Migration failed: exit code ${exitCode ?? 'unknown'} (${task.stopCode ?? 'STOPPED'}: ${task.stoppedReason ?? 'no reason given'})`,
+        reason: `Migration workload "${migrationTask.family}" failed: exit code ${exitCode ?? 'unknown'} (${task.stopCode ?? 'STOPPED'}: ${task.stoppedReason ?? 'no reason given'})`,
         // §14.2 ECR-image-pull classification: the migration task never ran
-        // because its image could not be pulled. The migration uses the same
-        // image as the service update, so this is IMAGE_PULL_FAILED, never a
-        // migration bug the "fix the migration" remediation would address.
+        // because its image could not be pulled. The migration runs the SAME
+        // image as the service update, so a pull denial here is the ECR
+        // grant / registry problem §29's IMAGE_PULL_FAILED exists for — not
+        // a migration bug the "fix the migration" remediation would address.
         ...(isImagePullFailure(task.stoppedReason)
           ? { failureCode: 'IMAGE_PULL_FAILED' }
           : {}),
@@ -804,11 +791,8 @@ async function settleMigration(
     const completedAt = (deps.now ?? (() => new Date().toISOString()))();
     return {
       state: 'completed',
-      registered,
-      registeredArn,
       migration: {
         taskArn,
-        ...(registeredArn !== null ? { registeredArn } : {}),
         completedAt,
       },
     };
@@ -816,10 +800,7 @@ async function settleMigration(
 
   return {
     state: 'in-progress',
-    migration: {
-      taskArn,
-      ...(registeredArn !== null ? { registeredArn } : {}),
-    },
+    migration: { taskArn },
   };
 }
 
@@ -955,8 +936,6 @@ interface ServiceView {
   alreadyRunning?: boolean | undefined;
   alreadyRegistered?: boolean | undefined;
   runningDigest?: string | null | undefined;
-  /** The application copy a completed migration stage registered, if it did. */
-  registeredArn?: string | null | undefined;
 }
 
 /** The stack's ECS services, in CloudFormation resource order (web first). */
