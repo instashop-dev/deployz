@@ -382,6 +382,42 @@ describe('createEcsDeployExecutor', () => {
     expect(state.updates).toHaveLength(0);
   });
 
+  it('the no-migration fast path skips the migration stage entirely (gate B2)', async () => {
+    const state = baseState();
+    state.runningDigest = DIGEST_V3;
+    const result = await run(
+      createEcsDeployExecutor(deps(state)),
+      deployCommand({ imageRepository: REPO, imageDigest: DIGEST_V3 }),
+    );
+    expect(result.success).toBe(true);
+    expect(state.runTasks).toHaveLength(0);
+    expect(state.updates).toHaveLength(0);
+  });
+
+  it('an already-succeeded deploy WITH an unconfirmed migration seat still runs the migration stage (gate B2)', async () => {
+    // Every service already runs the release digest — the old early return
+    // would report success here without the migration ever running.
+    const state = baseState();
+    state.runningDigest = DIGEST_V3;
+    const d = deps(state);
+    const result = await run(
+      createEcsDeployExecutor(d),
+      deployCommand({
+        imageRepository: REPO,
+        imageDigest: DIGEST_V3,
+        migrationTask: MIGRATION_TASK,
+      }),
+    );
+    // The migration stage ran to completion before success was reported.
+    expect(state.runTasks).toHaveLength(1);
+    expect(state.runTasks[0]).toMatchObject({ taskDefinition: 'DeployzAppMigration' });
+    expect(state.updates).toHaveLength(0);
+    expect(result.success).toBe(true);
+    // The early migration marker is cleared once the deploy settles — a
+    // dangling marker of a settled command would be resumed and re-reported.
+    expect(await d.pending.read()).toBeNull();
+  });
+
   it('registers a copy, updates the service, and defers while the rollout runs', async () => {
     const state = baseState();
     const d = deps(state);

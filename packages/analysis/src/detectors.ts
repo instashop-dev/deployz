@@ -1707,9 +1707,12 @@ export interface DeclaredWorkerCommand {
   source: string;
 }
 
-/** Process names that are dev tooling or one-shot deploy hooks, never persistent workers. */
+/** Process names that are dev tooling or one-shot deploy hooks, never persistent workers.
+ *  `migration` is one-shot like `release`: the migration workload comes from
+ *  the migration detection path, and a process of the same name must never
+ *  collide with it (a duplicate workload id fails the compiler closed). */
 const NON_PERSISTENT_PROCESS_NAME_REGEX =
-  /^(?:web|release|dev|development|test|tests|build|lint|watch|debug|console|shell|setup|format|typecheck)$/i;
+  /^(?:web|release|migration|dev|development|test|tests|build|lint|watch|debug|console|shell|setup|format|typecheck)$/i;
 
 /** Compose service names shaped like a worker (email-worker, workers, my_workers, …). */
 const WORKER_SERVICE_NAME_REGEX = /(?:^|[-_.])workers?(?:[-_.]|$)/i;

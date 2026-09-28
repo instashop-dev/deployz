@@ -511,8 +511,11 @@ export async function settleEcsDeploy(
   }
 
   // Every service already runs this release, stable and verified — nothing
-  // to roll (a retried command must not mutate twice).
-  if (!anyServiceNeedsUpdate) {
+  // to roll (a retried command must not mutate twice). Enforced by code, not
+  // convention: when a migration seat is present, success may only be
+  // returned AFTER the migration stage has run — so the early return is
+  // gated on there being no migration to run.
+  if (!anyServiceNeedsUpdate && request.migrationTask === null) {
     return { state: 'succeeded', alreadyRunning: true };
   }
 
@@ -549,6 +552,11 @@ export async function settleEcsDeploy(
       return { state: 'in-progress', migration: outcome.migration };
     }
     migration = outcome.migration;
+  }
+  // A seat the executor refused to run (ROLLBACK/RESTART, by the gate above)
+  // cannot gate the success path: those commands never carry migrations.
+  if (!anyServiceNeedsUpdate) {
+    return { state: 'succeeded', alreadyRunning: true };
   }
 
   // ── Roll every service that still needs it ──────────────────────────────
@@ -592,9 +600,10 @@ export async function settleEcsDeploy(
         ...firstStart,
       });
     } else if (runningDigest !== request.imageDigest) {
-      // The application copy already exists — the migration stage registered
-      // it (or an earlier attempt did) — but the service never picked it up.
-      // Re-issue the update against that copy.
+      // This service already runs the new revision's task definition (an
+      // earlier attempt of this command registered it) but its tasks have
+      // not picked the new image up yet — re-issue the update against that
+      // copy.
       await deps.ecs.updateService({
         cluster,
         service: view.arn,
@@ -1078,6 +1087,11 @@ export function createEcsDeployExecutor(deps: EcsDeployDeps): CommandExecutor {
     }
 
     if (outcome.state === 'succeeded') {
+      // The early migration marker (DZ-AUDIT-003) may exist when the deploy
+      // was already-succeeded but still owed a migration — the stage ran to
+      // completion above, so the marker must not survive: a dangling marker
+      // of a settled command would be resumed and re-reported on later polls.
+      await deps.pending.clear();
       console.log(
         JSON.stringify({
           event: 'relay:command-succeeded',

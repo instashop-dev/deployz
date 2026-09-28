@@ -41,9 +41,39 @@ describe('detectDeclaredWorkerCommands — id derivation', () => {
       { id: 'import-worker', command: 'node dist/workers/import.js', source: 'Procfile' },
     ]);
   });
+
+  it('never derives a worker from a `migration` process — the one-shot slot belongs to migration detection (gate B1)', () => {
+    const tree: FileTree = {
+      'Procfile': 'web: node dist/index.js\nmigration: node migrate.js\n',
+    };
+    expect(detectDeclaredWorkerCommands(tree)).toEqual([]);
+  });
 });
 
 describe('multi-worker manifest — Procfile evidence', () => {
+  it('a Procfile `migration:` process plus a migration command yields exactly ONE migration workload and no worker collision (gate B1)', () => {
+    // Realistic repo: the migration process is declared in the Procfile AND
+    // the migration command resolves through the migration path (the vendor
+    // override the API feeds back from the analysed `migrate` script).
+    const analysis = analyseRepo({
+      ...BASE,
+      'Procfile': 'web: node dist/index.js\nmigration: node migrate.js\n',
+    });
+    const manifest = normalizeDeploymentManifest(analysis, { migrationCommand: 'node migrate.js' });
+    expect(manifest.workers).toBeUndefined();
+
+    const graph = manifestToApplicationGraph(manifest);
+    const migrationWorkloads = graph.workloads.filter((w) => w.id === 'migration');
+    expect(migrationWorkloads).toHaveLength(1);
+    expect(migrationWorkloads[0]!.kind).toBe('migration');
+    expect(migrationWorkloads[0]!.command).toBe('node migrate.js');
+    expect(graph.workloads.filter((w) => w.kind === 'worker')).toHaveLength(0);
+
+    // The planner keeps one log group per workload — a duplicate id would
+    // emit a duplicate MigrationLogGroup logical id and fail the compile.
+    const ir = planApplicationGraph({ graph, region: null });
+    expect(ir.workloads.filter((w) => w.componentId === 'migration')).toHaveLength(1);
+  });
   it('turns two declared processes into two worker entries with stable ids and commands', () => {
     const analysis = analyseRepo({
       ...BASE,
