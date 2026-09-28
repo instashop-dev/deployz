@@ -17,6 +17,7 @@ import {
   type EvidenceItem,
   type ExternalService,
   type ManifestEnvBinding,
+  type ManifestWorker,
   type Provenance,
   type Resource,
   type UnresolvedRequirement,
@@ -67,6 +68,23 @@ function buildArtifacts(manifest: DeploymentManifest): BuildArtifact[] {
 
 // ── Workloads ───────────────────────────────────────────────────────────────
 
+/** The manifest's declared workers, normalizing the legacy single slot. */
+function manifestWorkers(manifest: DeploymentManifest): readonly ManifestWorker[] {
+  if (manifest.workers !== undefined) return manifest.workers;
+  // Legacy manifest written before `workers[]` existed: the single slot
+  // normalizes to one `worker` entry.
+  return manifest.worker.command !== null
+    ? [{ id: 'worker', command: manifest.worker.command, source: 'package.json' }]
+    : [];
+}
+
+/** The evidence source type for the file that declared a worker process. */
+function workerSourceType(source: string): EvidenceItem['sourceType'] {
+  if (/Procfile$/.test(source)) return 'procfile';
+  if (/compose/i.test(source)) return 'docker_compose';
+  return 'source_import';
+}
+
 function buildWorkloads(manifest: DeploymentManifest): Workload[] {
   const workloads: Workload[] = [];
 
@@ -91,15 +109,17 @@ function buildWorkloads(manifest: DeploymentManifest): Workload[] {
     ),
   });
 
-  // Worker workload — only when the manifest has a worker command.
-  if (manifest.worker.command) {
+  // Worker workloads — one per declared process (Phase 4A). Weak evidence
+  // never reaches the manifest as a worker, so everything here is a declared
+  // run process with its own frozen command.
+  for (const worker of manifestWorkers(manifest)) {
     workloads.push({
-      id: 'worker',
+      id: worker.id,
       kind: 'worker',
-      label: 'Background worker',
+      label: worker.id === 'worker' ? 'Background worker' : `Worker ${worker.id}`,
       sourceRoot: manifest.application.root,
       buildArtifactId: 'app',
-      command: manifest.worker.command,
+      command: worker.command,
       port: null,
       public: false,
       healthCheck: null,
@@ -107,7 +127,11 @@ function buildWorkloads(manifest: DeploymentManifest): Workload[] {
       runtime: manifest.application.runtime,
       framework: manifest.application.framework,
       provenance: detectedProvenance([
-        fileEvidence(manifest.application.root, `Worker command: ${manifest.worker.command}`, 'source_import'),
+        fileEvidence(
+          manifest.application.root,
+          `Worker ${worker.id} command: ${worker.command}`,
+          workerSourceType(worker.source),
+        ),
       ]),
     });
   }
@@ -153,16 +177,24 @@ function buildResources(manifest: DeploymentManifest): Resource[] {
   const resources: Resource[] = [];
 
   if (manifest.database.postgres) {
+    // Phase 4B — one managed relational database per deployment; the engine
+    // comes from the manifest (absent = the historical default, postgres).
+    const engine = manifest.database.engine === 'mysql' ? 'mysql' : 'postgres';
     resources.push({
       id: 'primary-db',
       kind: 'relational_database',
-      label: 'PostgreSQL database',
+      label: engine === 'mysql' ? 'MySQL database' : 'PostgreSQL database',
       ownership: 'DEPLOYZ_MANAGED',
       quantity: 1,
-      engine: 'postgres',
+      engine,
       envBindings: manifest.database.envBindings ?? STANDARD_POSTGRES_BINDINGS,
       provenance: detectedProvenance([
-        { sourceType: 'orm_configuration', path: manifest.application.root, description: 'PostgreSQL requirement detected' },
+        {
+          sourceType: 'orm_configuration',
+          path: manifest.application.root,
+          description:
+            engine === 'mysql' ? 'MySQL requirement detected' : 'PostgreSQL requirement detected',
+        },
       ]),
     });
   }
@@ -259,18 +291,21 @@ function buildBindings(manifest: DeploymentManifest, workloads: Workload[], reso
     }
   }
 
-  // RUNTIME binding between web and worker.
-  if (workloads.some((w) => w.id === 'web') && workloads.some((w) => w.id === 'worker')) {
-    bindings.push({
-      id: `binding-${bindingIndex++}`,
-      sourceId: 'web',
-      targetId: 'worker',
-      relationship: 'RUNTIME',
-      envBindings: [],
-      provenance: detectedProvenance([
-        { sourceType: 'source_import', path: manifest.application.root, description: 'Web ↔ Worker runtime relationship' },
-      ]),
-    });
+  // RUNTIME binding from web to every worker.
+  const web = workloads.find((w) => w.kind === 'web');
+  if (web !== undefined) {
+    for (const worker of workloads.filter((w) => w.kind === 'worker')) {
+      bindings.push({
+        id: `binding-${bindingIndex++}`,
+        sourceId: web.id,
+        targetId: worker.id,
+        relationship: 'RUNTIME',
+        envBindings: [],
+        provenance: detectedProvenance([
+          { sourceType: 'source_import', path: manifest.application.root, description: `${web.id} ↔ ${worker.id} runtime relationship` },
+        ]),
+      });
+    }
   }
 
   // STARTUP binding from migration to primary-db.
@@ -338,6 +373,25 @@ function buildUnresolved(manifest: DeploymentManifest): UnresolvedRequirement[] 
           sourceType: 'orm_configuration',
           path: manifest.application.root,
           description: 'PostgreSQL detected but no migration command or strategy found',
+        },
+      ],
+      blocking: false,
+    });
+  }
+
+  // Worker-like code with no declared start command — needs input, never
+  // auto-provisioned (Phase 4A).
+  if (manifest.worker.needsCommand === true) {
+    unresolved.push({
+      id: 'worker-command',
+      field: 'worker_command',
+      question:
+        'This application appears to run background jobs, but no command was found that starts a worker process. What command should Deployz run for the background worker?',
+      evidence: [
+        {
+          sourceType: 'source_import',
+          path: manifest.application.root,
+          description: 'Worker-like code detected but no worker start command declared',
         },
       ],
       blocking: false,

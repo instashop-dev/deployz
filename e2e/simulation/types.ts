@@ -125,6 +125,18 @@ export interface PurgeScenario {
     readonly bucketName: string;
     readonly failureReason: string;
   };
+  /**
+   * Phase 4B: the retained database instance a completed DESTROY leaves
+   * behind (RETAIN policy — same shape for RDS PostgreSQL and RDS MySQL).
+   * The purge sweep reports it as tag-owned, disables its deletion
+   * protection and deletes it (SkipFinalSnapshot); the deleted identifiers
+   * surface on the harness handle as `purgeDeletedDb`. Empty by default —
+   * a simulated DESTROY leaves no modelled retained instances behind.
+   */
+  readonly retainedDbInstance?: {
+    readonly identifier: string;
+    readonly subnetGroup: string;
+  };
 }
 
 export interface ScenarioDefinition {
@@ -159,6 +171,13 @@ export interface ScenarioDefinition {
    *  consumed in order, one per UpdateService call. Absent or exhausted
    *  defaults to 'succeed'. */
   readonly updateRollouts?: readonly UpdateRolloutOutcome[];
+  /**
+   * Phase 4C: the outcome of the one-shot MIGRATION task a DEPLOY_RELEASE
+   * runs (packages/relay/src/deploy.ts settleMigration). Absent defaults to
+   * 'succeed'. A 'fail' answer is a STOPPED task with exit code 1 and a
+   * migration-shaped stoppedReason.
+   */
+  readonly migrationBehavior?: 'succeed' | 'fail';
   /** DESTROY behaviour. Absent means no lifecycle scenario in this test ever
    *  calls DeleteStack against this account. */
   readonly destroy?: DestroyScenario;

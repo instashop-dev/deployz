@@ -8,6 +8,7 @@ import {
   AWS_RESOURCE_GROUP_DISPLAY,
   AWS_RESOURCE_GROUP_ORDER,
   CONNECTOR_RESOURCES,
+  FOOTPRINT_SERVICE_DISPLAY,
   INFRASTRUCTURE_COMPONENT_DISPLAY,
   PLAN_COMPONENT_GROUP_BY_KIND,
   PLAN_COMPONENT_GROUP_DISPLAY,
@@ -194,16 +195,39 @@ export interface InstallResourceRow {
   onRemoval: string;
 }
 
+/**
+ * The install table's purpose line per workload role. Workers run in the
+ * private network with no load-balancer route, so their row says so rather
+ * than implying a public URL exists.
+ */
+function workloadPurpose(role: string): string {
+  return role === 'worker'
+    ? 'Processes background jobs — not reachable from the internet'
+    : 'Serves the application\'s public traffic';
+}
+
+function workloadSizingLine(workload: FootprintWorkload): string {
+  return `${workload.quantity} × ${workload.compute.sizeLabel} · ${workload.compute.cpuUnits / 1024} vCPU · ${workload.compute.memoryMiB} MB`;
+}
+
+/** One install-table row per footprint workload (the web app and every worker). */
+function installWorkloadRow(workload: FootprintWorkload): InstallResourceRow {
+  const service = FOOTPRINT_SERVICE_DISPLAY[workload.compute.service] ?? workload.compute.service;
+  return {
+    id: `workload-${workload.id}`,
+    name: workload.label,
+    serviceAndConfiguration: `${service} · ${workloadSizingLine(workload)}`,
+    purpose: workloadPurpose(workload.role),
+    onRemoval: INSTALL_RESOURCE_REMOVAL_LABEL.delete,
+  };
+}
+
 /** One heading group of the install page's single infrastructure table. */
 export interface InstallResourceGroupRows {
   /** Plan component group, or the connector group that is not a plan component. */
   group: PlanComponentGroup | 'connector';
   label: string;
   rows: InstallResourceRow[];
-}
-
-function workloadSizingLine(workload: FootprintWorkload): string {
-  return `${workload.quantity} × ${workload.compute.sizeLabel} · ${workload.compute.cpuUnits / 1024} vCPU · ${workload.compute.memoryMiB} MB`;
 }
 
 function resolveAwsResourceGroup(
@@ -227,8 +251,9 @@ function resolveAwsResourceGroup(
  * The install page's ONE infrastructure table: the Deployz connector's
  * resources first, then the application's — grouped by plan component group,
  * with exact sizing read from the plan's deployment footprint for every
- * workload. Never invents a size: a row without a footprint match shows its
- * service name only.
+ * workload (the web application and every declared worker as its own row),
+ * and managed resources sized where the footprint matches their catalog role.
+ * Never invents a size: a row without a footprint match shows its service name only.
  */
 export function installPlanResourceGroups(plan: DeploymentPlan | null): InstallResourceGroupRows[] {
   const footprint = plan?.footprint ?? null;
@@ -246,6 +271,8 @@ export function installPlanResourceGroups(plan: DeploymentPlan | null): InstallR
     if (!resource) return null;
     return resource.quantity > 1 ? `${resource.quantity} × ${resource.label}` : resource.label;
   };
+
+  const workloadRows = workloads.map(installWorkloadRow);
 
   const rows: InstallResourceRow[] = [
     ...CONNECTOR_RESOURCES.map((resource) => ({
@@ -265,10 +292,12 @@ export function installPlanResourceGroups(plan: DeploymentPlan | null): InstallR
         onRemoval: INSTALL_RESOURCE_REMOVAL_LABEL[resource.lifecycle],
       };
     }),
+    ...workloadRows,
   ];
 
   const groupForRow = (row: InstallResourceRow): PlanComponentGroup | 'connector' => {
     if (CONNECTOR_RESOURCES.some((resource) => resource.id === row.id)) return 'connector';
+    if (row.id.startsWith('workload-')) return 'application';
     const resource = (plan?.awsResources ?? []).find((r) => r.id === row.id);
     if (!resource) return 'application';
     return resolveAwsResourceGroup(resource, plan);

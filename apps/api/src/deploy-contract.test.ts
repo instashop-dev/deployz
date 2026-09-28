@@ -5,10 +5,12 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { applyMigrations, createDb, type Db } from '@deployz/db';
 import * as schema from '@deployz/db/schema';
+import type { DeploymentManifest, DeploymentSpecV2 } from '@deployz/contracts';
 
 import { createAuth, type Auth } from './auth.js';
+import { compileDeploymentIntent } from './compiler-artifact.js';
 import { hashRelayToken } from './relay-store.js';
-import { buildServer } from './server.js';
+import { buildServer, migrationIdentity } from './server.js';
 
 // Phase 4 contract: the deploy payload is derived server-side from a READY
 // release, one mutating operation may run per deployment, and RESTART exists
@@ -156,6 +158,47 @@ describe('deploy contract, busy gate and restart', () => {
     await client?.close();
   });
 
+  /** A manifest whose analyzed migration command froze into the graph. */
+  const MIGRATING_MANIFEST: DeploymentManifest = {
+    schemaVersion: 1,
+    application: { root: '.', runtime: 'node', framework: null, dockerfilePath: null },
+    build: { command: null, context: '.' },
+    web: { command: 'npm start', port: 3000 },
+    health: { path: '/health' },
+    database: { postgres: true },
+    redis: { required: false, envBindings: [] },
+    storage: { required: false, envBindings: [] },
+    migration: { command: 'npm run db:migrate' },
+    worker: { command: null },
+    environment: { variables: [] },
+    externalServices: [],
+    unsupported: [],
+  };
+
+  function migratingSpec(): DeploymentSpecV2 {
+    return compileDeploymentIntent({ manifest: MIGRATING_MANIFEST, region: 'us-east-1' }).spec;
+  }
+
+  function digestOf(version: string): string {
+    return digestFor(version).split('@')[1]!;
+  }
+
+  /** Seeds a settled DEPLOY_RELEASE job whose payload confirmed an identity. */
+  async function seedConfirmedMigration(
+    deploymentId: string,
+    identity: string,
+    state: 'SUCCEEDED' | 'FAILED' = 'SUCCEEDED',
+  ): Promise<void> {
+    await db.insert(schema.deploymentJobs).values({
+      deploymentId,
+      type: 'DEPLOY_RELEASE',
+      state,
+      idempotencyKey: `${deploymentId}:DEPLOY_RELEASE:confirmed:${crypto.randomUUID()}`,
+      payload: { migrationTask: { family: 'DeployzAppMigration', identity } },
+      finishedAt: new Date(),
+    });
+  }
+
   it('derives the payload server-side from a READY release', async () => {
     const deployment = await seedDeployment();
     const releaseId = await seedRelease('v1.0.0');
@@ -176,9 +219,9 @@ describe('deploy contract, busy gate and restart', () => {
     });
   });
 
-  it('threads the migration command into the DEPLOY_RELEASE payload (release override)', async () => {
-    const deployment = await seedDeployment();
-    const releaseId = await seedRelease('v1.1.0', { migrationCommand: 'node migrate.js up' });
+  it('threads the FROZEN migration task seat into the DEPLOY_RELEASE payload (never the command)', async () => {
+    const deployment = await seedDeployment({ specV2: migratingSpec() as unknown as Record<string, unknown> });
+    const releaseId = await seedRelease('v0.11.0');
 
     const response = await post(`/api/deployments/${deployment.id}/deploy`, { releaseId });
     expect(response.statusCode, response.body).toBe(202);
@@ -187,69 +230,89 @@ describe('deploy contract, busy gate and restart', () => {
       .select()
       .from(schema.deploymentJobs)
       .where(eq(schema.deploymentJobs.deploymentId, deployment.id));
-    expect(job?.payload).toMatchObject({ migrationCommand: 'node migrate.js up' });
-  });
-
-  it('prefers the release row migration command over the stored manifest (CANARY-010)', async () => {
-    const deployment = await seedDeployment({
-      desiredState: {
-        manifest: {
-          application: { root: '.', runtime: 'node', framework: null, dockerfilePath: null },
-          build: { command: null, context: '.' },
-          web: { command: null, port: 3000 },
-          health: { path: '/health' },
-          database: { postgres: true },
-          redis: { required: false, envBindings: [] },
-          storage: { required: false, envBindings: [] },
-          migration: { command: 'npm run db:migrate' },
-          worker: { command: null },
-          environment: { variables: [] },
-          externalServices: [],
-          unsupported: [],
-        },
+    // The relay receives the compiled FAMILY plus the identity — the analyzed
+    // command itself stays frozen in the spec, never on the wire.
+    expect(job?.payload).toMatchObject({
+      migrationTask: {
+        family: 'DeployzAppMigration',
+        identity: migrationIdentity('npm run db:migrate', digestOf('v0.11.0')),
       },
     });
-    const releaseId = await seedRelease('v1.2.0', { migrationCommand: 'npm run release:migrate' });
-
-    const response = await post(`/api/deployments/${deployment.id}/deploy`, { releaseId });
-    expect(response.statusCode, response.body).toBe(202);
-
-    const [job] = await db
-      .select()
-      .from(schema.deploymentJobs)
-      .where(eq(schema.deploymentJobs.deploymentId, deployment.id));
-    expect(job?.payload).toMatchObject({ migrationCommand: 'npm run release:migrate' });
+    expect(job?.payload).not.toHaveProperty('migrationCommand');
   });
 
-  it('falls back to the stored manifest migration.command when the release has none', async () => {
-    const deployment = await seedDeployment({
-      desiredState: {
-        manifest: {
-          application: { root: '.', runtime: 'node', framework: null, dockerfilePath: null },
-          build: { command: null, context: '.' },
-          web: { command: null, port: 3000 },
-          health: { path: '/health' },
-          database: { postgres: true },
-          redis: { required: false, envBindings: [] },
-          storage: { required: false, envBindings: [] },
-          migration: { command: 'npm run db:migrate' },
-          worker: { command: null },
-          environment: { variables: [] },
-          externalServices: [],
-          unsupported: [],
-        },
-      },
-    });
-    const releaseId = await seedRelease('v1.3.0');
+  it('skips the migration seat once the same identity has a SUCCEEDED deploy', async () => {
+    const deployment = await seedDeployment({ specV2: migratingSpec() as unknown as Record<string, unknown> });
+    const releaseId = await seedRelease('v0.12.0');
+    await seedConfirmedMigration(deployment.id, migrationIdentity('npm run db:migrate', digestOf('v0.12.0')));
 
     const response = await post(`/api/deployments/${deployment.id}/deploy`, { releaseId });
     expect(response.statusCode, response.body).toBe(202);
 
-    const [job] = await db
+    const jobs = await db
       .select()
       .from(schema.deploymentJobs)
       .where(eq(schema.deploymentJobs.deploymentId, deployment.id));
-    expect(job?.payload).toMatchObject({ migrationCommand: 'npm run db:migrate' });
+    const deployJob = jobs.find((job) => job.type === 'DEPLOY_RELEASE' && job.state === 'REQUESTED');
+    expect(deployJob?.payload).not.toHaveProperty('migrationTask');
+  });
+
+  it('keeps the migration seat when only a FAILED deploy carried the identity (never assume success)', async () => {
+    const deployment = await seedDeployment({ specV2: migratingSpec() as unknown as Record<string, unknown> });
+    const releaseId = await seedRelease('v0.13.0');
+    await seedConfirmedMigration(
+      deployment.id,
+      migrationIdentity('npm run db:migrate', digestOf('v0.13.0')),
+      'FAILED',
+    );
+
+    const response = await post(`/api/deployments/${deployment.id}/deploy`, { releaseId });
+    expect(response.statusCode, response.body).toBe(202);
+
+    const jobs = await db
+      .select()
+      .from(schema.deploymentJobs)
+      .where(eq(schema.deploymentJobs.deploymentId, deployment.id));
+    const deployJob = jobs.find((job) => job.type === 'DEPLOY_RELEASE' && job.state === 'REQUESTED');
+    expect(deployJob?.payload).toMatchObject({
+      migrationTask: { family: 'DeployzAppMigration' },
+    });
+  });
+
+  it('a changed identity (new image digest) runs the migration again', async () => {
+    const deployment = await seedDeployment({ specV2: migratingSpec() as unknown as Record<string, unknown> });
+    const releaseId = await seedRelease('v0.14.0');
+    // Confirmed for a DIFFERENT image digest.
+    await seedConfirmedMigration(deployment.id, migrationIdentity('npm run db:migrate', 'sha256:' + 'f'.repeat(64)));
+
+    const response = await post(`/api/deployments/${deployment.id}/deploy`, { releaseId });
+    expect(response.statusCode, response.body).toBe(202);
+
+    const jobs = await db
+      .select()
+      .from(schema.deploymentJobs)
+      .where(eq(schema.deploymentJobs.deploymentId, deployment.id));
+    const deployJob = jobs.find((job) => job.type === 'DEPLOY_RELEASE' && job.state === 'REQUESTED');
+    expect(deployJob?.payload).toMatchObject({
+      migrationTask: {
+        identity: migrationIdentity('npm run db:migrate', digestOf('v0.14.0')),
+      },
+    });
+  });
+
+  it('rollback and restart payloads never carry the migration seat', async () => {
+    const deployment = await seedDeployment({ specV2: migratingSpec() as unknown as Record<string, unknown> });
+    const releaseId = await seedRelease('v0.15.0');
+
+    await post(`/api/deployments/${deployment.id}/rollback`, { releaseId });
+    await post(`/api/deployments/${deployment.id}/restart`, {});
+    const jobs = await db
+      .select()
+      .from(schema.deploymentJobs)
+      .where(eq(schema.deploymentJobs.deploymentId, deployment.id));
+    for (const job of jobs) {
+      expect(job.payload, job.type).not.toHaveProperty('migrationTask');
+    }
   });
 
   it.each(['BUILDING', 'FAILED'] as const)(
@@ -269,7 +332,7 @@ describe('deploy contract, busy gate and restart', () => {
 
   it('refuses a READY release without a digest with 409 RELEASE_NOT_READY', async () => {
     const deployment = await seedDeployment();
-    const releaseId = await seedRelease('v1.5.0', { imageDigest: null });
+    const releaseId = await seedRelease('v9.5.0', { imageDigest: null });
 
     const response = await post(`/api/deployments/${deployment.id}/deploy`, { releaseId });
     expect(response.statusCode).toBe(409);

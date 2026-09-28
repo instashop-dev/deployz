@@ -215,78 +215,87 @@ export function createBindingAliasApplier(
     if (aliases.length === 0) return { state: 'already-applied' };
     try {
       const resources = await deps.cfn.describeStackResources(stackName);
-      const serviceArn = resources.find((resource) => resource.type === 'AWS::ECS::Service')?.physicalId ?? null;
-      if (serviceArn === null) {
+      // Phase 4A: every workload's service gets the aliases — each task
+      // definition bakes the same provisioned bindings, and a worker that
+      // reads an alias name would otherwise start with it missing.
+      const serviceArns = resources
+        .filter((resource) => resource.type === 'AWS::ECS::Service' && resource.physicalId !== undefined)
+        .map((resource) => resource.physicalId!);
+      if (serviceArns.length === 0) {
         return { state: 'failed', reason: `No ECS service found in stack "${stackName}"` };
       }
-      const cluster = serviceArn.split('/')[1] ?? null;
+      const cluster = serviceArns[0]!.split('/')[1] ?? null;
       if (cluster === null) {
-        return { state: 'failed', reason: `Malformed service ARN "${serviceArn}"` };
+        return { state: 'failed', reason: `Malformed service ARN "${serviceArns[0]!}"` };
       }
 
-      const { services } = await deps.ecs.describeServices({ cluster, services: [serviceArn] });
-      const service = services[0];
-      if (service === undefined || service.taskDefinition === undefined) {
-        return { state: 'failed', reason: `ECS service "${serviceArn}" could not be described` };
+      const { services } = await deps.ecs.describeServices({ cluster, services: serviceArns });
+      // DescribeServices answers in request order; zip back to the ARNs.
+      let applied = false;
+      for (let i = 0; i < serviceArns.length; i++) {
+        const service = services[i];
+        const serviceArn = serviceArns[i]!;
+        if (service === undefined || service.taskDefinition === undefined) {
+          return { state: 'failed', reason: `ECS service "${serviceArn}" could not be described` };
+        }
+
+        const { taskDefinition } = await deps.ecs.describeTaskDefinition({
+          taskDefinition: service.taskDefinition,
+        });
+        const appContainer =
+          taskDefinition.containerDefinitions.find(
+            (container) =>
+              Array.isArray(container['environment']) && (container['environment'] as unknown[]).length > 0,
+          ) ?? taskDefinition.containerDefinitions[0];
+        if (appContainer === undefined) {
+          return { state: 'failed', reason: 'Task definition has no container definitions' };
+        }
+
+        const currentEnv = (appContainer['environment'] as ContainerEnvEntry[]) ?? [];
+        const currentSecrets = (appContainer['secrets'] as ContainerSecretEntry[]) ?? [];
+        const additions = computeAliasAdditions(aliases, currentEnv, currentSecrets);
+        if (additions.env.length === 0 && additions.secrets.length === 0) continue;
+
+        const envByName = new Map(currentEnv.map((entry) => [entry.name ?? '', entry.value ?? '']));
+        for (const change of additions.env) envByName.set(change.name, change.value);
+        const secretsByName = new Map(
+          currentSecrets.map((entry) => [entry.name ?? '', entry.valueFrom ?? '']),
+        );
+        for (const binding of additions.secrets) secretsByName.set(binding.name, binding.valueFrom);
+
+        const updatedContainers = taskDefinition.containerDefinitions.map((container) =>
+          container === appContainer
+            ? {
+                ...container,
+                environment: [...envByName.entries()].map(([name, value]) => ({ name, value })),
+                secrets: [...secretsByName.entries()].map(([name, valueFrom]) => ({ name, valueFrom })),
+              }
+            : { ...container },
+        );
+
+        const nextDefinition: RegisterTaskDefinitionInput = {
+          family: taskDefinition.family,
+          cpu: taskDefinition.cpu,
+          memory: taskDefinition.memory,
+          networkMode: taskDefinition.networkMode,
+          requiresCompatibilities: taskDefinition.requiresCompatibilities,
+          executionRoleArn: taskDefinition.executionRoleArn,
+          taskRoleArn: taskDefinition.taskRoleArn,
+          containerDefinitions: updatedContainers,
+          ...(taskDefinition.volumes ? { volumes: taskDefinition.volumes } : {}),
+          // Same request-tag boundary as the deploy/config-update registers.
+          tags: [{ key: DEPLOYZ_INSTALLATION_TAG, value: deps.installationId }],
+        };
+
+        const registered = await deps.ecs.registerTaskDefinition(nextDefinition);
+        await deps.ecs.updateService({
+          cluster,
+          service: serviceArn,
+          taskDefinition: registered.taskDefinitionArn,
+        });
+        applied = true;
       }
-
-      const { taskDefinition } = await deps.ecs.describeTaskDefinition({
-        taskDefinition: service.taskDefinition,
-      });
-      const appContainer =
-        taskDefinition.containerDefinitions.find(
-          (container) =>
-            Array.isArray(container['environment']) && (container['environment'] as unknown[]).length > 0,
-        ) ?? taskDefinition.containerDefinitions[0];
-      if (appContainer === undefined) {
-        return { state: 'failed', reason: 'Task definition has no container definitions' };
-      }
-
-      const currentEnv = (appContainer['environment'] as ContainerEnvEntry[]) ?? [];
-      const currentSecrets = (appContainer['secrets'] as ContainerSecretEntry[]) ?? [];
-      const additions = computeAliasAdditions(aliases, currentEnv, currentSecrets);
-      if (additions.env.length === 0 && additions.secrets.length === 0) {
-        return { state: 'already-applied' };
-      }
-
-      const envByName = new Map(currentEnv.map((entry) => [entry.name ?? '', entry.value ?? '']));
-      for (const change of additions.env) envByName.set(change.name, change.value);
-      const secretsByName = new Map(
-        currentSecrets.map((entry) => [entry.name ?? '', entry.valueFrom ?? '']),
-      );
-      for (const binding of additions.secrets) secretsByName.set(binding.name, binding.valueFrom);
-
-      const updatedContainers = taskDefinition.containerDefinitions.map((container) =>
-        container === appContainer
-          ? {
-              ...container,
-              environment: [...envByName.entries()].map(([name, value]) => ({ name, value })),
-              secrets: [...secretsByName.entries()].map(([name, valueFrom]) => ({ name, valueFrom })),
-            }
-          : { ...container },
-      );
-
-      const nextDefinition: RegisterTaskDefinitionInput = {
-        family: taskDefinition.family,
-        cpu: taskDefinition.cpu,
-        memory: taskDefinition.memory,
-        networkMode: taskDefinition.networkMode,
-        requiresCompatibilities: taskDefinition.requiresCompatibilities,
-        executionRoleArn: taskDefinition.executionRoleArn,
-        taskRoleArn: taskDefinition.taskRoleArn,
-        containerDefinitions: updatedContainers,
-        ...(taskDefinition.volumes ? { volumes: taskDefinition.volumes } : {}),
-        // Same request-tag boundary as the deploy/config-update registers.
-        tags: [{ key: DEPLOYZ_INSTALLATION_TAG, value: deps.installationId }],
-      };
-
-      const registered = await deps.ecs.registerTaskDefinition(nextDefinition);
-      await deps.ecs.updateService({
-        cluster,
-        service: serviceArn,
-        taskDefinition: registered.taskDefinitionArn,
-      });
-      return { state: 'applied' };
+      return applied ? { state: 'applied' } : { state: 'already-applied' };
     } catch (error) {
       return { state: 'failed', reason: String(error) };
     }

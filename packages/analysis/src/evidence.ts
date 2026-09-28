@@ -93,6 +93,8 @@ const BUILD_COMMAND_DETAIL = 'A package manager is pinned but no build command w
 const PORT_DETAIL = 'No application port was detected.';
 const DATABASE_BINDING_DETAIL =
   'PostgreSQL usage was detected but no connection binding was confirmed as required.';
+const MYSQL_BINDING_DETAIL =
+  'MySQL usage was detected but no connection binding was confirmed as required.';
 const REDIS_BINDING_DETAIL =
   'Redis usage was detected at medium confidence; whether the cache is required is unresolved.';
 // New producers — no legacy question string, surfaced on metadata.ambiguities only.
@@ -121,6 +123,14 @@ function asStringArray(meta: Record<string, unknown>, key: string): string[] {
   const value = meta[key];
   if (!Array.isArray(value)) return [];
   return value.filter((entry): entry is string => typeof entry === 'string' && entry.length > 0);
+}
+
+function asRecordArray(meta: Record<string, unknown>, key: string): Record<string, unknown>[] {
+  const value = meta[key];
+  if (!Array.isArray(value)) return [];
+  return value.filter(
+    (entry): entry is Record<string, unknown> => typeof entry === 'object' && entry !== null,
+  );
 }
 
 /** True for a confidence value within the EvidenceItem vocabulary. */
@@ -214,8 +224,14 @@ export function deriveAmbiguities(tree: FileTree, analysis: AnalysisResult): Ana
 
   // ── DATABASE_BINDING / REDIS_BINDING (legacy requirement-unclear pair) ───
   const postgres = asRecord(meta['postgres']);
+  const mysql = asRecord(meta['mysql']);
   if (meta['usesPostgresql'] === true && postgres['required'] !== true) {
     ambiguities.push({ kind: 'DATABASE_BINDING', detail: DATABASE_BINDING_DETAIL });
+  }
+  // MySQL (Phase 4B): a detected-but-unconfirmed MySQL requirement raises
+  // the same connection-binding question PostgreSQL's weak path does.
+  if (meta['usesMysql'] === true && mysql['required'] !== true) {
+    ambiguities.push({ kind: 'DATABASE_BINDING', detail: MYSQL_BINDING_DETAIL });
   }
   if (asRecord(meta['redis'])['confidence'] === 'medium') {
     ambiguities.push({ kind: 'REDIS_BINDING', detail: REDIS_BINDING_DETAIL });
@@ -242,9 +258,14 @@ export function deriveAmbiguities(tree: FileTree, analysis: AnalysisResult): Ana
   // ── ARCHITECTURE_REQUIREMENT: worker gate borderline (code, no command). ──
   if (meta['hasWorkerProcesses'] === true) {
     const patterns = asStringArray(meta, 'workerPatterns');
-    const commandResolved = patterns.some(
-      (pattern) => pattern.includes('declared worker process') || pattern.startsWith('queue worker command'),
-    );
+    const declaredCommands = asRecordArray(meta, 'resolvedWorkerCommands').length;
+    const legacyCommand = asString(meta, 'resolvedWorkerCommand');
+    const commandResolved =
+      patterns.some(
+        (pattern) => pattern.includes('declared worker process') || pattern.startsWith('queue worker command'),
+      ) ||
+      declaredCommands > 0 ||
+      legacyCommand !== null;
     if (!commandResolved) {
       ambiguities.push({ kind: 'ARCHITECTURE_REQUIREMENT', detail: ARCHITECTURE_REQUIREMENT_DETAIL });
     }

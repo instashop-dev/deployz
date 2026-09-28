@@ -52,6 +52,7 @@ export const FOOTPRINT_CATEGORY_DISPLAY: Readonly<Record<FootprintCategory, stri
 export const FOOTPRINT_SERVICE_DISPLAY: Readonly<Record<string, string>> = {
   'ecs-fargate': 'AWS Fargate',
   'rds-postgres': 'RDS PostgreSQL',
+  'rds-mysql': 'RDS MySQL',
   'elasticache-valkey': 'ElastiCache Valkey',
   s3: 'S3',
   alb: 'Application Load Balancer',
@@ -240,6 +241,15 @@ function resourceLifecycle(handler: FootprintResourceHandler, profile: Infrastru
 }
 
 /**
+ * The manifest's declared workers, normalizing manifests written before the
+ * `workers` list existed: the legacy single `worker` slot becomes one `worker`
+ * entry.
+ */
+function legacyManifestWorkers(manifest: DeploymentManifest): { id: string; command: string }[] {
+  return manifest.worker.command !== null ? [{ id: 'worker', command: manifest.worker.command }] : [];
+}
+
+/**
  * The resolved Deployment Footprint for a manifest: one web workload, an
  * optional worker workload, and every managed resource the manifest's
  * infrastructure profile requires. Pure — the same manifest, region and
@@ -263,9 +273,17 @@ export function resolveDeploymentFootprint(input: {
     sizeLabel: sizeProfile.label,
   };
   const workloads: FootprintWorkload[] = [workloadFrom('web', 'web', 'Web application', workloadSizing)];
-  if (input.manifest.worker.command !== null) {
-    workloads.push(workloadFrom('worker', 'worker', 'Background worker', workloadSizing));
+  // Phase 4A: every declared worker becomes its own footprint workload; the
+  // legacy single `worker` slot normalizes to one `worker` entry.
+  const workers = input.manifest.workers ?? legacyManifestWorkers(input.manifest);
+  for (const worker of workers) {
+    workloads.push(workloadFrom(worker.id, 'worker', worker.id === 'worker' ? 'Background worker' : `Worker ${worker.id}`, workloadSizing));
   }
+  // Phase 4B — the engine comes from the manifest (absent = postgres); the
+  // catalog row stays the engine-generic "database" component, with the
+  // service key and configuration naming the actual engine.
+  const engine = input.manifest.database.engine === 'mysql' ? 'mysql' : DATABASE_ENGINE;
+  const engineVersion = input.manifest.database.engine === 'mysql' ? '8.0' : DATABASE_ENGINE_VERSION;
   return {
     version: FOOTPRINT_SCHEMA_VERSION,
     region: input.region,
@@ -274,11 +292,21 @@ export function resolveDeploymentFootprint(input: {
       id: handler.id,
       category: handler.category,
       provider: 'aws' as const,
-      service: handler.service,
+      service:
+        handler.id === 'database' && engine === 'mysql' ? 'rds-mysql' : handler.service,
       role: handler.role,
       label: handler.label,
       quantity: 1,
-      configuration: handler.configuration(sizeProfile),
+      configuration:
+        handler.id === 'database'
+          ? {
+              engine,
+              engineVersion,
+              instanceType: sizeProfile.database.instanceClass,
+              storageGb: sizeProfile.database.storageGb,
+              maxStorageGb: sizeProfile.database.maxStorageGb,
+            }
+          : handler.configuration(sizeProfile),
       lifecycle: resourceLifecycle(handler, graphProfile),
     })),
     generatedFrom: { infraVersion: input.infraVersion ?? null },

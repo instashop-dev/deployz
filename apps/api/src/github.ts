@@ -1290,6 +1290,182 @@ export const GITHUB_FIXTURE_FILE_TREES: Readonly<Record<string, FileTree>> = {
   // a MongoDB app whose ONLY blocker is the unsupported database. Used by
   // the Phase 14 scenario-matrix spec to prove an unsupported repo is
   // refused at deployment creation with NO AWS provisioning.
+  // Express-api's READY shape plus a Procfile declaring TWO named workers
+  // (email-worker, import-worker) and a migration script — the Phase 4A
+  // multi-workload fixture: analysis resolves `web` + two worker processes,
+  // the graph compiles one ECS service per workload, and the simulated E2E
+  // exercises install → deploy → restart → rollback across all three.
+  'deployz-demo/multi-worker-app': {
+    'Dockerfile': [
+      'FROM node:20-alpine',
+      'WORKDIR /app',
+      'COPY package*.json ./',
+      'RUN npm ci --omit=dev',
+      'COPY . .',
+      'EXPOSE 3000',
+      'HEALTHCHECK --interval=30s --timeout=3s CMD curl -f http://localhost:3000/health || exit 1',
+      'CMD ["node", "dist/index.js"]',
+    ].join('\n'),
+    'Procfile': [
+      'web: node dist/index.js',
+      'email-worker: node dist/workers/email.js',
+      'import-worker: node dist/workers/import.js',
+      '',
+    ].join('\n'),
+    'package.json': JSON.stringify({
+      name: 'multi-worker-app',
+      scripts: { start: 'node dist/index.js', 'db:migrate': 'npx drizzle-kit push' },
+      dependencies: { express: '^4.18.0', pg: '^8.12.0' },
+    }),
+    'src/index.ts': [
+      "import express from 'express';",
+      'const app = express();',
+      "app.get('/health', (_req, res) => res.json({ ok: true }));",
+      'app.listen(process.env.PORT || 3000);',
+      '',
+    ].join('\n'),
+    '.env.example': 'DATABASE_URL=\n',
+  },
+  // Phase 4B MySQL fixture: the READY express-api shape with a mysql2
+  // dependency and a mysql:// DATABASE_URL — the two signals `assessMysql`
+  // requires for `mysql.required: true`. Deployz plans RDS MySQL (the
+  // aws.rds-mysql capability) instead of rejecting the app; used by the
+  // mysql-sweep simulated scenario (install → deploy → destroy → purge).
+  'deployz-demo/mysql-api': {
+    'Dockerfile': [
+      'FROM node:20-alpine',
+      'WORKDIR /app',
+      'COPY package*.json ./',
+      'RUN npm ci --omit=dev',
+      'COPY . .',
+      'EXPOSE 3000',
+      'HEALTHCHECK --interval=30s --timeout=3s CMD curl -f http://localhost:3000/health || exit 1',
+      'CMD ["node", "dist/index.js"]',
+    ].join('\n'),
+    'package.json': JSON.stringify({
+      name: 'mysql-api',
+      scripts: { start: 'node dist/index.js', 'db:migrate': 'npx drizzle-kit push' },
+      dependencies: { express: '^4.18.0', mysql2: '^3.9.0' },
+    }),
+    'src/index.ts': [
+      "import express from 'express';",
+      "import mysql from 'mysql2/promise';",
+      'const app = express();',
+      'const pool = mysql.createPool({ uri: process.env.DATABASE_URL });',
+      "app.get('/health', async (_req, res) => {",
+      '  await pool.query("SELECT 1");',
+      "  res.json({ ok: true });",
+      '});',
+      'app.listen(process.env.PORT || 3000);',
+      '',
+    ].join('\n'),
+    '.env.example': 'DATABASE_URL=mysql://localhost:3306/app\n',
+  },
+  // Phase 4 composition fixture (Phase 4D): the representative target
+  // topology — web(public) + two Procfile workers + a migration, MySQL
+  // (mysql2 + Prisma provider "mysql" + a compose mysql service) and Redis
+  // (ioredis + REDIS_URL + a compose redis service), a `migrate` package
+  // script, and compose worker evidence. Every managed resource is here as
+  // REAL corroborated evidence, not a hand-set flag.
+  'deployz-demo/composed-app': {
+    'Dockerfile': [
+      'FROM node:20-alpine',
+      'WORKDIR /app',
+      'COPY package*.json ./',
+      'RUN npm ci --omit=dev',
+      'COPY . .',
+      'EXPOSE 3000',
+      'HEALTHCHECK --interval=30s --timeout=3s CMD curl -f http://localhost:3000/health || exit 1',
+      'CMD ["node", "dist/index.js"]',
+    ].join('\n'),
+    'Procfile': [
+      'web: node dist/index.js',
+      'email-worker: node dist/workers/email.js',
+      'import-worker: node dist/workers/import.js',
+      '',
+    ].join('\n'),
+    'docker-compose.yml': [
+      'services:',
+      '  app:',
+      '    build: .',
+      '  email-worker:',
+      '    image: composed-app',
+      '    command: node dist/workers/email.js',
+      '  db:',
+      '    image: mysql:8.0',
+      '    environment:',
+      '      MYSQL_ROOT_PASSWORD: example',
+      '  redis:',
+      '    image: redis:7-alpine',
+      '',
+    ].join('\n'),
+    'package.json': JSON.stringify({
+      name: 'composed-app',
+      scripts: {
+        start: 'node dist/index.js',
+        build: 'tsc',
+        migrate: 'node migrate.js',
+      },
+      dependencies: {
+        express: '^4.18.0',
+        mysql2: '^3.9.0',
+        ioredis: '^5.4.0',
+        '@prisma/client': '^5.14.0',
+      },
+      devDependencies: { prisma: '^5.14.0' },
+    }),
+    'prisma/schema.prisma': [
+      'datasource db {',
+      '  provider = "mysql"',
+      '  url      = env("DATABASE_URL")',
+      '}',
+      '',
+    ].join('\n'),
+    // Plain unattended migration runner: applies pending SQL migrations from
+    // ./migrations non-interactively, exit 0 on success.
+    'migrate.js': [
+      'const migrations = require("./migrations");',
+      'async function main() {',
+      '  for (const migration of migrations.pending()) {',
+      '    await migration.up();',
+      '  }',
+      '  process.exit(0);',
+      '}',
+      'main();',
+      '',
+    ].join('\n'),
+    'src/index.ts': [
+      "import express from 'express';",
+      "import mysql from 'mysql2/promise';",
+      "import Redis from 'ioredis';",
+      'const app = express();',
+      'const pool = mysql.createPool({ uri: process.env.DATABASE_URL });',
+      'const redis = new Redis(process.env.REDIS_URL);',
+      "app.get('/health', async (_req, res) => {",
+      '  await pool.query("SELECT 1");',
+      '  await redis.ping();',
+      '  res.json({ ok: true });',
+      '});',
+      'app.listen(process.env.PORT || 3000);',
+      '',
+    ].join('\n'),
+    'src/workers/email.js': [
+      "import mysql from 'mysql2/promise';",
+      "import Redis from 'ioredis';",
+      'const redis = new Redis(process.env.REDIS_URL);',
+      'const pool = mysql.createPool({ uri: process.env.DATABASE_URL });',
+      'redis.subscribe("email-jobs");',
+      '',
+    ].join('\n'),
+    'src/workers/import.js': [
+      "import mysql from 'mysql2/promise';",
+      'const pool = mysql.createPool({ uri: process.env.DATABASE_URL });',
+      'async function run() { await pool.query("SELECT 1"); }',
+      'run();',
+      '',
+    ].join('\n'),
+    '.env.example': ['DATABASE_URL=mysql://localhost:3306/composed', 'REDIS_URL=redis://localhost:6379', ''].join('\n'),
+  },
   'deployz-demo/mongodb-app': {
     'Dockerfile': [
       'FROM node:20-alpine',

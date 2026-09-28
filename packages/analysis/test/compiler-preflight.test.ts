@@ -50,7 +50,7 @@ describe('evaluateCompilerPreflight', () => {
       });
       const result = evaluateCompilerPreflight({ ir, region: null });
       expect(result.state).toBe('ACTION_REQUIRED');
-      expect(result.blockers.some((b) => b.includes('RDS PostgreSQL 16'))).toBe(true);
+      expect(result.blockers.some((b) => b.includes('managed database'))).toBe(true);
     });
 
     it('blocks when ElastiCache is required but region is null', () => {

@@ -3,6 +3,7 @@ import {
   deploymentManifestSchema,
   deploymentSpecV2Schema,
   requirementsFromSpec,
+  workloadServicesFromSpec,
   type DeploymentManifest,
   type DeploymentManifestOverrides,
   type DeploymentSpecV2,
@@ -101,10 +102,14 @@ export function derivationApplicationFor(
   const manifest = readStoredManifest(deployment.desiredState);
   const spec = readStoredDeploymentSpec(deployment.specV2);
   const requirements = spec ? requirementsFromSpec(spec) : null;
+  // Phase 4A: one component seat per persistent workload, from the frozen
+  // spec's verification contract (one compute check each).
+  const workloadServices = spec ? workloadServicesFromSpec(spec) : null;
   return {
     databaseRequired: requirements ? requirements.databaseRequired : null,
     storageRequired: manifest ? manifest.storage.required : null,
     redisRequired: requirements ? requirements.redisRequired : null,
     migrationCommand: application?.migrationCommand ?? null,
+    workloads: workloadServices === null ? null : workloadServices.map((workload) => workload.id),
   };
 }

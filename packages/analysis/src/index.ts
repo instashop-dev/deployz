@@ -32,6 +32,7 @@ export {
   detectExternalServiceRequirements,
   collectScripts,
   collectScriptsWithDir,
+  detectDeclaredWorkerCommands,
   detectDeclaredWorkerCommand,
   isRuntimeSourcePath,
   // DEPLOY-029: shared with apps/api's GitHub tree-fetch boundary, which

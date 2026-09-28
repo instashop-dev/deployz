@@ -899,6 +899,66 @@ switches is an architecture failure signal.
 
 Fix before continuing.
 
+## Phase 4 Result (2026-09-28)
+
+Phase 4 delivered three of its four items: multiple workers (4A), RDS
+MySQL (4B) and first-class one-shot migration workloads (4C). Private
+services did NOT ship. Under the delivered workload model they fall out
+naturally (a workload kind plus internal networking), so they are a
+Phase 6 recommendation, not implemented code.
+
+Landed:
+
+- **Multi-workload (4A).** `workloads[]` is first-class in the graph,
+  the IR and the spec. One build artifact is shared by the web service,
+  N workers and the optional migration workload. One ECS service per
+  persistent workload, each with a frozen command, its own log group
+  and its own security group. Workers are private (no ingress, no ALB,
+  no HTTP health check), run one task each, and verify through service
+  stability. Declared run processes (Procfile non-web entries, Compose
+  application services, npm-script workers) provision. Weak evidence
+  sets `worker.needsCommand` — an unresolved needs-input question that
+  is never provisioned. No numbered worker fields; the legacy single
+  slot stays compatible. The web UI renders generic per-workload
+  footprint rows.
+- **MySQL (4B).** `aws.rds-mysql` resolves from the
+  `relational_database` kind plus `engine: mysql` and shares the
+  PostgreSQL network/credential/retention/purge/verification machinery.
+  RDS MySQL 8.0 (Deployz-pinned), managed master and URL secrets,
+  generic bindings (`DATABASE_URL` with the `mysql://` scheme,
+  `MYSQL_URL`, `DB_*`), CA bundle environment shared by all workloads,
+  DESTROY retains, PURGE deletes (no final snapshot). PostgreSQL output
+  is byte-identical.
+- **Migrations (4C).** One `MigrationTaskDefinition` (family
+  `DeployzAppMigration`) with the frozen command baked in. The relay
+  runs only that named family and rejects any command string. Identity
+  = sha256(frozen command + image digest), confirmed by a SUCCEEDED
+  `DEPLOY_RELEASE` job row; a retry of a confirmed identity skips the
+  run. Ordering: install/database ready → migration exit 0 → services
+  roll. Failure → `MIGRATION_FAILED` diagnostics, no service update,
+  the deployment returns to `UPDATE_AVAILABLE`. ROLLBACK and RESTART
+  never run migrations; every rollback affordance carries the migration
+  warning.
+- **Composition.** web→MySQL+Redis, email-worker→MySQL+Redis,
+  import-worker→MySQL, migration→MySQL across the full chain
+  (evidence→graph→resolver→IR→compiler→frozen spec→simulated
+  relay→verify→progress/diagnostics→release/restart/rollback→destroy/
+  retain/purge), proven in simulated E2E (the `phase4-composition`
+  scenario over the `deployz-demo/composed-app` fixture).
+
+Hard Gate B criteria status (the gate verdict itself stays a review
+outcome; it is not claimed here):
+
+- MySQL and the workers were added through generalized
+  capability/graph/compiler behavior: the resolver maps kind+engine,
+  the compiler composes every resource from the IR, and destroy, purge,
+  pricing, verification and progress stay shared and generic.
+- No numbered worker fields and no per-worker API, relay, UI, pricing,
+  progress, destroy or purge switches were added.
+- Real-AWS qualification for the Phase 4 shapes is recorded as pending
+  (see `docs/testing/aws-e2e.md`); the simulated E2E set is the
+  completed evidence.
+
 # Phase 5 --- SQS, EventBridge Scheduler & Scheduled Jobs
 
 ## Objective

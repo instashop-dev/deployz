@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import type { FileTree } from '../src/analyser.js';
-import { detectDeclaredWorkerCommand, detectWorker } from '../src/detectors.js';
+import { detectDeclaredWorkerCommands, detectWorker } from '../src/detectors.js';
 import { checkMysql, checkOtherUnsupportedDatabases, checkPulumi, checkTerraform } from '../src/rejection.js';
 
 // Stage A phase-6 regression fixtures — the hardening batch from the unseen
@@ -28,18 +28,16 @@ describe('COMP-015 — worker code and declared worker processes outside Node', 
     expect(detectWorker({ 'tests/support/run.sh': 'celery -A app worker\n' })).toMatchObject({ detected: false });
   });
 
-  it('resolves a declared worker process from a Procfile or a Compose command, not from a package name', () => {
-    expect(detectDeclaredWorkerCommand({ Procfile: 'web: node server.js\nworker: node worker.js\n' })).toEqual({
-      command: 'node worker.js',
-      source: 'Procfile',
-    });
+  it('resolves declared worker processes from Procfile processes and Compose commands, not from package names', () => {
+    expect(detectDeclaredWorkerCommands({ Procfile: 'web: node server.js\nworker: node worker.js\n' })).toEqual([
+      { id: 'worker', command: 'node worker.js', source: 'Procfile' },
+    ]);
     const compose: FileTree = {
       'docker-compose.yml': 'services:\n  rails:\n    image: chatwoot/chatwoot\n  sidekiq:\n    image: chatwoot/chatwoot\n    command: ["bundle", "exec", "sidekiq", "-C", "config/sidekiq.yml"]\n  postgres:\n    image: postgres:16\n',
     };
-    expect(detectDeclaredWorkerCommand(compose)).toEqual({
-      command: 'bundle exec sidekiq -C config/sidekiq.yml',
-      source: 'docker-compose.yml sidekiq',
-    });
+    expect(detectDeclaredWorkerCommands(compose)).toEqual([
+      { id: 'sidekiq', command: 'bundle exec sidekiq -C config/sidekiq.yml', source: 'docker-compose.yml sidekiq' },
+    ]);
     expect(detectWorker(compose).value).toEqual(['queue worker command', 'declared worker process (docker-compose.yml sidekiq)']);
     // linkwarden runs `apps/worker` inside its web container: a package named
     // worker with a start script declares nothing.
@@ -48,14 +46,14 @@ describe('COMP-015 — worker code and declared worker processes outside Node', 
       'apps/web/package.json': JSON.stringify({ name: '@linkwarden/web', scripts: { start: 'next start' } }),
       'apps/worker/package.json': JSON.stringify({ name: '@linkwarden/worker', scripts: { start: 'node dist/index.js' } }),
     };
-    expect(detectDeclaredWorkerCommand(workspace)).toBeNull();
+    expect(detectDeclaredWorkerCommands(workspace)).toEqual([]);
     // A one-shot queue CLI is not a worker command.
     expect(
-      detectDeclaredWorkerCommand({ 'docker-compose.yml': 'services:\n  app:\n    image: myapp\n    command: rq info\n' }),
-    ).toBeNull();
+      detectDeclaredWorkerCommands({ 'docker-compose.yml': 'services:\n  app:\n    image: myapp\n    command: rq info\n' }),
+    ).toEqual([]);
     expect(
-      detectDeclaredWorkerCommand({ 'docker-compose.yml': 'services:\n  app:\n    image: myapp\n    command: rq worker high default\n' }),
-    ).toEqual({ command: 'rq worker high default', source: 'docker-compose.yml app' });
+      detectDeclaredWorkerCommands({ 'docker-compose.yml': 'services:\n  app:\n    image: myapp\n    command: rq worker high default\n' }),
+    ).toEqual([{ id: 'app', command: 'rq worker high default', source: 'docker-compose.yml app' }]);
   });
 });
 
@@ -73,15 +71,21 @@ describe('COMP-036 — IaC in non-runtime directories is not the app deployment'
   });
 });
 
-describe('COMP-037 — unsupported engines declared outside Node manifests', () => {
-  it('rejects a lone MySQL driver in Python, JVM or Elixir manifests, and a Laravel MySQL default', () => {
-    expect(checkMysql({ 'requirements.txt': 'Flask==3.0\nPyMySQL==1.1\n' })).toMatchObject({ detected: true, dependency: 'mysql' });
-    expect(checkMysql({ 'pom.xml': '<artifactId>mysql-connector-j</artifactId>\n' })).toMatchObject({ detected: true, dependency: 'mysql' });
-    expect(checkMysql({ 'mix.exs': '{:myxql, ">= 0.0.0"}\n' })).toMatchObject({ detected: true, dependency: 'mysql' });
+describe('COMP-037 — engines declared outside Node manifests', () => {
+  it('MySQL drivers in Python, JVM or Elixir manifests and a Laravel mysql default are SUPPORTED (Phase 4B)', () => {
+    expect(checkMysql({ 'requirements.txt': 'Flask==3.0\nPyMySQL==1.1\n' }).detected).toBe(false);
+    expect(checkMysql({ 'pom.xml': '<artifactId>mysql-connector-j</artifactId>\n' }).detected).toBe(false);
+    expect(checkMysql({ 'config/database.php': "'default' => env('DB_CONNECTION', 'mysql'),\n", 'composer.json': JSON.stringify({ require: { 'laravel/framework': '^11' } }) }).detected).toBe(false);
+    expect(checkMysql({ '.env.example': 'APP_KEY=\nDB_CONNECTION=mysql\nDB_HOST=localhost\n' }).detected).toBe(false);
+  });
+
+  it('still rejects MariaDB-specific drivers and a Laravel mariadb default (Phase 4B)', () => {
+    expect(checkMysql({ 'mix.exs': '{:myxql, ">= 0.0.0"}\n' })).toMatchObject({ detected: true, dependency: 'mariadb' });
+    expect(checkMysql({ 'pom.xml': '<artifactId>mariadb-java-client</artifactId>\n' })).toMatchObject({ detected: true, dependency: 'mariadb' });
     expect(
-      checkMysql({ 'config/database.php': "'default' => env('DB_CONNECTION', 'mysql'),\n", 'composer.json': JSON.stringify({ require: { 'laravel/framework': '^11' } }) }),
-    ).toMatchObject({ detected: true, dependency: 'mysql' });
-    expect(checkMysql({ '.env.example': 'APP_KEY=\nDB_CONNECTION=mysql\nDB_HOST=localhost\n' })).toMatchObject({ detected: true, dependency: 'mysql' });
+      checkMysql({ 'config/database.php': "'default' => env('DB_CONNECTION', 'mariadb'),\n", 'composer.json': JSON.stringify({ require: { 'laravel/framework': '^11' } }) }),
+    ).toMatchObject({ detected: true, dependency: 'mariadb' });
+    expect(checkMysql({ '.env.example': 'APP_KEY=\nDB_CONNECTION=mariadb\nDB_HOST=localhost\n' })).toMatchObject({ detected: true, dependency: 'mariadb' });
   });
 
   it('keeps a configurable engine and a test-only driver', () => {

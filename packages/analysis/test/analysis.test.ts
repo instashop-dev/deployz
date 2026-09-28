@@ -1211,25 +1211,30 @@ describe('§10 rejection classes', () => {
   // 2. MySQL
   // ------------------------------------------------------------------
   describe('checkMysql', () => {
-    it('detects mysql2 dependency', () => {
-      const result = checkMysql(incompatibleMysqlFixture);
-      expect(result.detected).toBe(true);
-      expect(result.dependency).toBe('mysql2');
-    });
-
-    it('detects mysql dependency', () => {
+    it('no longer rejects a MySQL dependency — MySQL is a supported engine (Phase 4B)', () => {
+      expect(checkMysql(incompatibleMysqlFixture).detected).toBe(false);
       const tree: FileTree = {
         'package.json': JSON.stringify({ dependencies: { mysql: '^2.18.0' } }),
       };
-      const result = checkMysql(tree);
-      expect(result.detected).toBe(true);
-      expect(result.dependency).toBe('mysql');
+      expect(checkMysql(tree).detected).toBe(false);
     });
 
-    it('detects Prisma with mysql provider', () => {
-      const result = checkMysql(prismaMysqlFixture);
-      expect(result.detected).toBe(true);
-      expect(result.dependency).toBe('@prisma/client');
+    it('no longer rejects Prisma with mysql provider', () => {
+      expect(checkMysql(prismaMysqlFixture).detected).toBe(false);
+    });
+
+    it('still rejects a MariaDB-specific driver and a Laravel mariadb default', () => {
+      const driver: FileTree = {
+        'pom.xml': '<project><dependencies><dependency><groupId>org.mariadb.jdbc</groupId><artifactId>mariadb-java-client</artifactId></dependency></dependencies></project>',
+      };
+      const laravel: FileTree = {
+        'config/database.php': "<?php return ['connections' => ['mysql' => ['driver' => 'mysql']]];\n",
+        '.env.example': 'DB_CONNECTION=mariadb\n',
+      };
+      expect(checkMysql(driver).detected).toBe(true);
+      expect(checkMysql(driver).dependency).toBe('mariadb');
+      expect(checkMysql(laravel).detected).toBe(true);
+      expect(checkMysql(laravel).dependency).toBe('mariadb');
     });
 
     it('does NOT flag Prisma with postgresql provider', () => {
@@ -1404,10 +1409,14 @@ describe('analyseRepo (orchestrator)', () => {
     expect(mongoRejection?.detected).toBe(true);
   });
 
-  it('detects MySQL rejection in the incompatible fixture', () => {
+  it('a MySQL dependency alone is no longer a rejection — it is weak, needs-input evidence (Phase 4B)', () => {
     const result = analyseRepo(incompatibleMysqlFixture);
-    const mysqlRejection = result.rejections.find((r) => r.dependency === 'mysql2');
-    expect(mysqlRejection?.detected).toBe(true);
+    expect(result.rejections.some((r) => r.dependency === 'mysql2' && r.detected)).toBe(false);
+    expect(result.metadata.usesMysql).toBe(true);
+    const mysqlMeta = result.metadata.mysql as { required: boolean; detected: boolean };
+    expect(mysqlMeta.detected).toBe(true);
+    expect(mysqlMeta.required).toBe(false);
+    expect(result.metadata.databaseState).toBe('none');
   });
 
   it('detects local filesystem usage in the incompatible fixture', () => {

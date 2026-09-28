@@ -89,6 +89,22 @@ export type ManifestEnvVariable = z.infer<typeof manifestEnvVariableSchema>;
  */
 export const DEPLOYMENT_MANIFEST_SCHEMA_VERSION = 1 as const;
 
+/**
+ * One declared worker process (Phase 4A). The id is the evidence-derived
+ * stable workload id (Procfile process name, compose service name), never a
+ * numbered field; `source` names the file that declared the process.
+ */
+export const manifestWorkerSchema = z
+  .object({
+    id: z.string().min(1),
+    /** Worker process start command (runnable, e.g. `node worker.js`). */
+    command: z.string().min(1),
+    /** Repository path that declared the process (Procfile, compose file, …). */
+    source: z.string().min(1),
+  })
+  .strict();
+export type ManifestWorker = z.infer<typeof manifestWorkerSchema>;
+
 export const deploymentManifestSchema = z
   .object({
     schemaVersion: z.literal(DEPLOYMENT_MANIFEST_SCHEMA_VERSION).default(DEPLOYMENT_MANIFEST_SCHEMA_VERSION),
@@ -157,6 +173,15 @@ export const deploymentManifestSchema = z
          * just that part.
          */
         envBindings: z.array(manifestEnvBindingSchema).optional(),
+        /**
+         * Which engine the managed database runs (Phase 4B, optional/
+         * additive). Absent means the historical default, PostgreSQL —
+         * manifests written before the field existed (and every PostgreSQL
+         * deployment) omit it, so old manifests round-trip byte-identical.
+         * `postgres` is the legacy "managed database required" boolean's
+         * name; the engine field is what actually distinguishes the engine.
+         */
+        engine: z.enum(['postgres', 'mysql']).optional(),
       })
       .strict(),
     redis: z
@@ -192,8 +217,23 @@ export const deploymentManifestSchema = z
       .object({
         /** Worker process start command, or null when the app has no worker. */
         command: z.string().nullable(),
+        /**
+         * True when worker-like code was detected but no declared run process
+         * resolves how a worker starts (Phase 4A, optional/additive): the
+         * deployment stays deployable but the question is surfaced as an
+         * unresolved requirement. Absent on manifests written before the
+         * field existed.
+         */
+        needsCommand: z.boolean().optional(),
       })
       .strict(),
+    /**
+     * Every declared worker process (Phase 4A, optional/additive). Absent on
+     * manifests written before the field existed — consumers fall back to the
+     * legacy single `worker` slot, which always carries the FIRST worker's
+     * command for backward compatibility.
+     */
+    workers: z.array(manifestWorkerSchema).optional(),
     environment: z
       .object({
         /**

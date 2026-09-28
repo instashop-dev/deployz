@@ -189,6 +189,35 @@ infrastructure** (no `--reuse-stack`, no `--keep`). Any failure fixes the
 root cause and restarts the count from zero — a flaky pass does not count
 toward the three.
 
+### Pending qualification — Phase 4 shapes (recorded, not run)
+
+Phase 4 (multiple workers, RDS MySQL, one-shot migrations) is qualified
+only in simulation plus unit and contract tests. The scenario backlog
+below is recorded as the real-AWS qualification work; **none of it has
+run**. The fixtures, profiles and commands above are unchanged — they
+still certify the stateless, PostgreSQL and Redis shapes — and these
+items are additions, not replacements:
+
+1. **Web + two workers + PostgreSQL/Redis** — one install, three ECS
+   services, per-workload verification (workers by service stability),
+   the day-2 ladder across every service, then teardown.
+2. **Web + worker + MySQL** — RDS MySQL 8.0 provisioning, the
+   `DATABASE_URL`/`MYSQL_URL`/`DB_*` bindings, retention on disconnect
+   and purge of the instance.
+3. **Successful migration** — the one-shot task runs once per release;
+   a retry of the confirmed identity skips the run.
+4. **Failed migration** — `MIGRATION_FAILED` with family, exit code and
+   stopped reason; no service update; the deployment returns to
+   `UPDATE_AVAILABLE`.
+5. **Combined Phase 4 topology** — the full
+   `deployz-demo/composed-app` composition end to end, from analysis to
+   purge.
+
+These runs should become targeted canary profiles before the Phase 4
+shapes face real customer installs; until then the simulated scenarios
+(`multi-worker-sweep`, `mysql-sweep`, `migration-success`,
+`migration-failure`, `phase4-composition`) are the standing evidence.
+
 ## L6 — production canary
 
 The same L5 harness, run as `profile --profile stateless --production`

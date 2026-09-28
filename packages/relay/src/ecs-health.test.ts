@@ -361,4 +361,94 @@ describe('observeRuntimeHealth', () => {
     expect(health.healthStatus).toBe('UNKNOWN');
     expect(health.components.loadBalancer).toBe('UNKNOWN');
   });
+
+  // ── Multi-workload (Phase 4A): one health entry per workload service ─────
+
+  const WEB_SERVICE = 'arn:aws:ecs:us-east-1:151955775369:service/app-cluster/WebService';
+  const WORKER_SERVICE = 'arn:aws:ecs:us-east-1:151955775369:service/app-cluster/EmailWorkerService';
+  const MULTI_STACK = [
+    { logicalId: 'WebService', type: 'AWS::ECS::Service', status: 'CREATE_COMPLETE', physicalId: WEB_SERVICE },
+    { logicalId: 'EmailWorkerService', type: 'AWS::ECS::Service', status: 'CREATE_COMPLETE', physicalId: WORKER_SERVICE },
+    { logicalId: 'Targets', type: 'AWS::ElasticLoadBalancingV2::TargetGroup', status: 'CREATE_COMPLETE', physicalId: 'arn:aws:elasticloadbalancing:us-east-1:151955775369:targetgroup/app/abc' },
+  ];
+  const WORKLOADS = [
+    { id: 'web', serviceLogicalId: 'WebService' },
+    { id: 'email-worker', serviceLogicalId: 'EmailWorkerService' },
+  ];
+
+  function multiServiceEcs(services: { desiredCount?: number; runningCount?: number; deployments?: { status?: string; rolloutState?: string }[] }[]): EcsServiceReader {
+    return {
+      async describeServices(input) {
+        return { services: input.services.map((_, i) => services[i] ?? {}) };
+      },
+    };
+  }
+
+  it('reports each workload under its own id from its own service — no application aggregate key', async () => {
+    const health = await observeRuntimeHealth(
+      {
+        cfn: cfnWith(MULTI_STACK),
+        ecs: multiServiceEcs([
+          { desiredCount: 2, runningCount: 2, deployments: [{ status: 'PRIMARY', rolloutState: 'COMPLETED' }] },
+          { desiredCount: 1, runningCount: 1, deployments: [{ status: 'PRIMARY', rolloutState: 'COMPLETED' }] },
+        ]),
+        elb: elbWith(['healthy', 'healthy']),
+      },
+      'deployz-app',
+      WORKLOADS,
+    );
+    expect(health.components['web']).toBe('HEALTHY');
+    expect(health.components['email-worker']).toBe('HEALTHY');
+    expect(health.components['application']).toBeUndefined();
+    // Aggregates stay stack-wide: web (2) + worker (1).
+    expect(health.desiredCount).toBe(3);
+    expect(health.runningCount).toBe(3);
+    expect(health.healthStatus).toBe('HEALTHY');
+  });
+
+  it('marks a down worker UNHEALTHY without dragging the healthy web workload down with it', async () => {
+    const health = await observeRuntimeHealth(
+      {
+        cfn: cfnWith(MULTI_STACK),
+        ecs: multiServiceEcs([
+          { desiredCount: 2, runningCount: 2, deployments: [{ status: 'PRIMARY', rolloutState: 'COMPLETED' }] },
+          { desiredCount: 1, runningCount: 0, deployments: [{ status: 'PRIMARY', rolloutState: 'IN_PROGRESS' }] },
+        ]),
+        elb: elbWith(['healthy', 'healthy']),
+      },
+      'deployz-app',
+      WORKLOADS,
+    );
+    expect(health.components['web']).toBe('HEALTHY');
+    expect(health.components['email-worker']).toBe('UNHEALTHY');
+    // The aggregate stays honest: still serving (web up) but not fully —
+    // the per-workload entries carry the attribution.
+    expect(health.healthStatus).toBe('DEGRADED');
+  });
+
+  it('omits a workload whose service never reached a complete state — never a phantom UNKNOWN', async () => {
+    const health = await observeRuntimeHealth(
+      {
+        cfn: cfnWith([
+          MULTI_STACK[0],
+          MULTI_STACK[1]!,
+          { logicalId: 'ImportWorkerService', type: 'AWS::ECS::Service', status: 'CREATE_FAILED', physicalId: 'arn:aws:ecs:us-east-1:151955775369:service/app-cluster/ImportWorkerService' },
+          MULTI_STACK[2]!,
+        ]),
+        ecs: multiServiceEcs([
+          { desiredCount: 1, runningCount: 1, deployments: [{ status: 'PRIMARY', rolloutState: 'COMPLETED' }] },
+          { desiredCount: 1, runningCount: 1, deployments: [{ status: 'PRIMARY', rolloutState: 'COMPLETED' }] },
+        ]),
+        elb: elbWith(['healthy']),
+      },
+      'deployz-app',
+      [
+        ...WORKLOADS,
+        { id: 'import-worker', serviceLogicalId: 'ImportWorkerService' },
+      ],
+    );
+    expect(health.components['web']).toBe('HEALTHY');
+    expect(health.components['email-worker']).toBe('HEALTHY');
+    expect(health.components['import-worker']).toBeUndefined();
+  });
 });

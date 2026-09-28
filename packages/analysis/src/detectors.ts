@@ -845,7 +845,7 @@ const HEALTHCHECK_SCRIPT_REGEX = /[\w./-]+\.(?:[cm]?js|sh|py|rb)\b/g;
 // Only literals whose LAST segment is a well-known health name count.
 const HEALTH_ROUTE_LITERAL_REGEX =
   /(?:HandleFunc|Handle|GET|Get|get|Post|post|Put|put|Route|Map|path|add_url_rule|url|GetMapping|RequestMapping|value)\s*(?:\(|::)?\s*["'](?:(?:GET|HEAD|POST)\s+)?(\/?(?:[\w.-]+\/)*(?:health|healthz|healthcheck|heartbeat|readyz|livez|up|status|ping|alive|_health))\/?["']/gi;
-const LANGUAGE_SOURCE_REGEX = /\.(?:go|py|rb|php|cs|java|kt|kts|scala|ex|exs)$/i;
+export const LANGUAGE_SOURCE_REGEX = /\.(?:go|py|rb|php|cs|java|kt|kts|scala|ex|exs)$/i;
 
 /** Ensure a captured/derived health path starts with a leading slash. */
 function normalizeHealthPath(raw: string): string {
@@ -1670,8 +1670,10 @@ export function detectWorker(tree: FileTree): DetectorFinding {
     if (WORKER_COMMAND_REGEX.test(content) && !detected.includes('queue worker command')) detected.push('queue worker command');
   }
   // A declared worker process is worker code by definition, whatever library runs it.
-  const declared = detectDeclaredWorkerCommand(tree);
-  if (declared) detected.push(`declared worker process (${declared.source})`);
+  const declaredSources = new Set(detectDeclaredWorkerCommands(tree).map((declared) => declared.source));
+  for (const source of declaredSources) {
+    detected.push(`declared worker process (${source})`);
+  }
 
   if (detected.length === 0) {
     return { detector: 'worker', detected: false };
@@ -1687,26 +1689,84 @@ export function detectWorker(tree: FileTree): DetectorFinding {
 
 /**
  * A worker process the repository DECLARES outside a root package.json
- * script (which apps/api resolves itself): a Procfile `worker:` line, or a
+ * script (which apps/api resolves itself): a Procfile non-web process, or a
  * production Compose application service whose `command:` runs a queue
- * worker. The Phase 8 boundary fires on a declared process, so the
- * declaration must be as explicit as the root script it stands in for — a
- * workspace package merely named `worker` is not one (linkwarden runs its
- * `apps/worker` inside the web container) (Stage A COMP-015).
+ * worker or whose name is worker-shaped. Every declared process becomes its
+ * own workload (Phase 4A), so ALL of them resolve — one per process, in
+ * deterministic file order. Dev/test/build utility process names and
+ * one-shot `release` hooks never become workloads; a workspace package
+ * merely named `worker` is not one (linkwarden runs its `apps/worker`
+ * inside the web container) (Stage A COMP-015).
  */
-export function detectDeclaredWorkerCommand(tree: FileTree): { command: string; source: string } | null {
+export interface DeclaredWorkerCommand {
+  /** Stable workload id — the slugified process/service name (e.g. 'email-worker'). */
+  id: string;
+  /** The declared start command (runnable, e.g. `node worker.js`). */
+  command: string;
+  /** Repository path that declared the process. */
+  source: string;
+}
+
+/** Process names that are dev tooling or one-shot deploy hooks, never persistent workers.
+ *  `migration` is one-shot like `release`: the migration workload comes from
+ *  the migration detection path, and a process of the same name must never
+ *  collide with it (a duplicate workload id fails the compiler closed). */
+const NON_PERSISTENT_PROCESS_NAME_REGEX =
+  /^(?:web|release|migration|dev|development|test|tests|build|lint|watch|debug|console|shell|setup|format|typecheck)$/i;
+
+/** Compose service names shaped like a worker (email-worker, workers, my_workers, …). */
+const WORKER_SERVICE_NAME_REGEX = /(?:^|[-_.])workers?(?:[-_.]|$)/i;
+
+/** Whether a Compose application service declares a worker process via its explicit command. */
+export function isWorkerServiceCommand(name: string, command: string): boolean {
+  if (command.length === 0) return false;
+  return WORKER_SERVICE_NAME_REGEX.test(name) || WORKER_COMMAND_REGEX.test(command);
+}
+
+/** Kebab-case a Procfile/compose process name into a stable workload id. */
+function slugProcessId(name: string): string {
+  const slug = name
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+  return slug.length > 0 ? slug : 'worker';
+}
+
+export function detectDeclaredWorkerCommands(tree: FileTree): DeclaredWorkerCommand[] {
+  const declared: DeclaredWorkerCommand[] = [];
+  const seen = new Set<string>();
+  const push = (id: string, command: string, source: string): void => {
+    if (seen.has(id)) return;
+    seen.add(id);
+    declared.push({ id, command, source });
+  };
+
   for (const [path, content] of Object.entries(tree)) {
     if (!/(?:^|\/)Procfile$/.test(path) || !content || !isRuntimeSourcePath(path)) continue;
-    const line = /^worker:\s*(.+)$/m.exec(content);
-    if (line?.[1]) return { command: line[1].trim(), source: path };
+    for (const match of content.matchAll(/^([\w.-]+):\s*(.+)$/gm)) {
+      const name = match[1]!;
+      const command = match[2]!.trim();
+      if (command.length === 0 || NON_PERSISTENT_PROCESS_NAME_REGEX.test(name)) continue;
+      push(slugProcessId(name), command, path);
+    }
   }
   const compose = composeApplicationServices(tree);
   for (const service of compose?.services ?? []) {
-    if (service.command && WORKER_COMMAND_REGEX.test(service.command)) {
-      return { command: service.command, source: `${compose?.file} ${service.name}` };
-    }
+    if (!service.command || !isWorkerServiceCommand(service.name, service.command)) continue;
+    const id = slugProcessId(service.name);
+    if (id === 'web') continue;
+    push(id, service.command, `${compose!.file} ${service.name}`);
   }
-  return null;
+  return declared;
+}
+
+/**
+ * Legacy single-slot reader over `detectDeclaredWorkerCommands` (the first
+ * declared process). Kept for apps/api, which has not migrated to the
+ * multi-worker list yet.
+ */
+export function detectDeclaredWorkerCommand(tree: FileTree): { command: string; source: string } | null {
+  return detectDeclaredWorkerCommands(tree)[0] ?? null;
 }
 
 // 9. S3 usage

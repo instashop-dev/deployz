@@ -157,9 +157,13 @@ export function buildApplicationAnalysis(
       : unknownFact(null);
 
   const postgres = asRecord(metadata['postgres']);
-  const postgresRequired = postgres['required'] === true;
+  const mysql = asRecord(metadata['mysql']);
+  const postgresRequired = postgres['required'] === true || mysql['required'] === true;
   const databaseState = metadata['databaseState'];
-  const databaseType = databaseState === 'postgres' || databaseState === 'unsupported' ? databaseState : 'none';
+  const databaseType =
+    databaseState === 'postgres' || databaseState === 'mysql' || databaseState === 'unsupported'
+      ? databaseState
+      : 'none';
   const databaseEvidence = [
     ...stringArray(postgres['evidence']).map((reason) => ({ reason })),
     ...(databaseType === 'unsupported' ? evidenceFrom(finding('postgresql')?.details) : NO_EVIDENCE),

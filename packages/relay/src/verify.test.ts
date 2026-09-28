@@ -94,6 +94,53 @@ describe('verifyInstallation', () => {
     expect(result.reason).toContain('ECS service');
   });
 
+  it('verifies each workload against its OWN service logical id (Phase 4A)', async () => {
+    const resources: StackResource[] = [
+      { logicalId: 'WebService', type: 'AWS::ECS::Service', status: 'CREATE_COMPLETE' },
+      { logicalId: 'EmailWorkerService', type: 'AWS::ECS::Service', status: 'CREATE_COMPLETE' },
+      { logicalId: 'Alb', type: 'AWS::ElasticLoadBalancingV2::LoadBalancer', status: 'CREATE_COMPLETE' },
+      { logicalId: 'Bucket', type: 'AWS::S3::Bucket', status: 'CREATE_COMPLETE' },
+    ];
+    const result = await verifyInstallation({
+      cfn: reader(completeStack(), resources),
+      installationId: INSTALLATION,
+      databaseRequired: false,
+      redisRequired: false,
+      workloads: [
+        { id: 'web', serviceLogicalId: 'WebService' },
+        { id: 'email-worker', serviceLogicalId: 'EmailWorkerService' },
+      ],
+    });
+
+    expect(result.verified).toBe(true);
+    const computeChecks = result.checks.filter((c) => c.name === 'compute');
+    expect(computeChecks).toHaveLength(2);
+    expect(computeChecks[0]).toMatchObject({ component: 'web', passed: true });
+    expect(computeChecks[1]).toMatchObject({ component: 'email-worker', passed: true });
+  });
+
+  it('fails verification naming the workload whose service is missing, even while the web service is healthy', async () => {
+    const resources: StackResource[] = [
+      { logicalId: 'WebService', type: 'AWS::ECS::Service', status: 'CREATE_COMPLETE' },
+      { logicalId: 'Alb', type: 'AWS::ElasticLoadBalancingV2::LoadBalancer', status: 'CREATE_COMPLETE' },
+      { logicalId: 'Bucket', type: 'AWS::S3::Bucket', status: 'CREATE_COMPLETE' },
+    ];
+    const result = await verifyInstallation({
+      cfn: reader(completeStack(), resources),
+      installationId: INSTALLATION,
+      databaseRequired: false,
+      redisRequired: false,
+      workloads: [
+        { id: 'web', serviceLogicalId: 'WebService' },
+        { id: 'email-worker', serviceLogicalId: 'EmailWorkerService' },
+      ],
+    });
+
+    expect(result.verified).toBe(false);
+    expect(result.reason).toContain('email-worker');
+    expect(result.reason).toContain('EmailWorkerService');
+  });
+
   it('fails when a resource exists but did not finish creating', async () => {
     const inProgress = COMPLETE_RESOURCES.map((r) =>
       r.type === 'AWS::RDS::DBInstance' ? { ...r, status: 'CREATE_IN_PROGRESS' } : r,

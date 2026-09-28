@@ -1,6 +1,6 @@
 # Deployz Dynamic Infrastructure --- Consolidated Technical Specification
 
-**Status:** Target architecture\
+**Status:** Target architecture; delivered phases are marked inline (Phases 2 and 4 implemented)\
 **Audience:** Deployz engineering team and AI coding agents\
 **Companion:** `docs/dynamic-infrastructure-implementation-plan.md`
 
@@ -255,7 +255,10 @@ bindings.
 Distinguish: - `PROVISIONING` - `RUNTIME` - `BINDING` - `STARTUP`
 
 Do not translate every graph edge into a CloudFormation `DependsOn`.
-Runtime cycles are normal.
+Runtime cycles are normal. In the implemented MVP the builder connects
+every workload to every managed resource (a BINDING superset) and the
+runtime env injection is identical for every workload; per-workload
+narrowing is not modeled.
 
 ## 6. Evidence Extraction and Analysis
 
@@ -834,38 +837,97 @@ than inventing a value.
 
 ## 25. Service-Specific Requirements
 
-### 25.1 MySQL
+### 25.1 MySQL — implemented (Phase 4)
 
-Map supported MySQL applications to RDS MySQL.
+`aws.rds-mysql` is the sibling of `aws.rds-postgres`. Both sit on the
+`relational_database` graph kind; the resolver maps kind + engine to the
+capability, so the graph still describes only the need.
 
-Reuse generic: - network; - credentials; - Secrets Manager; -
-retention; - backup policy; - purge; - pricing; - verification.
+Implemented behavior:
 
-Keep engine-specific URL/port/SSL/version/migration behavior isolated.
+- RDS MySQL 8.0 with the engine version pinned by Deployz; one managed
+  instance per MySQL dependency.
+- The existing size profiles apply unchanged.
+- Private networking, encryption at rest, 7-day backups, deletion
+  protection.
+- Managed credentials: a master secret and an application URL secret,
+  like PostgreSQL.
+- Generic bindings: `DATABASE_URL` with the `mysql://` scheme, plus the
+  `MYSQL_URL` and `DB_*` alias patterns the application reads.
+- The RDS CA bundle environment is shared by every workload in the
+  stack, so workers and the migration task verify TLS the same way the
+  web service does.
+- Verification, DESTROY (retain) and PURGE (delete, no final snapshot)
+  reuse the PostgreSQL lifecycle behavior.
+- PostgreSQL is unaffected: a PostgreSQL manifest compiles byte-identical
+  output and its golden pins do not move.
 
-### 25.2 Workers
+Engine-specific URL/port/SSL/version behavior stays isolated in the
+compiler's engine descriptor.
 
-Use `workloads[]`.
+### 25.2 Workers — implemented (Phase 4)
 
-Support one image with multiple commands first.
+`workloads[]` is first-class in the ApplicationGraph, the IR and the
+frozen spec. One build artifact is shared by the web service, N workers
+and the optional migration workload; each workload carries its own
+frozen command.
 
-Each workload may have independent command, bindings, IAM, sizing,
-desired count, and health.
+Implemented behavior:
 
-### 25.3 Migration
+- Stable per-workload identity: a kebab-case id derived from the
+  evidence, with `worker` and `worker-2` as fallbacks.
+- Workers are `public: false`: no ALB target group, no listener route,
+  no HTTP health check.
+- One ECS service per persistent workload (`web` and `worker`). Each
+  service has its own log group and security group.
+- Desired counts: the web service uses the profile parameter; each
+  worker service runs one task.
+- Verification has one `compute` check and one component seat per
+  workload. A worker verifies through service stability, not HTTP.
+- Detection: a declared run process (a Procfile non-web entry, a
+  Compose application service, or an npm-script worker) becomes a
+  provisioned workload. Weak evidence (queue libraries only) sets
+  `worker.needsCommand`; that becomes an unresolved needs-input
+  question and is never provisioned. Dev, test and build utilities
+  never become workloads.
+- `manifest.workers[]` holds the workers. There are no numbered worker
+  fields. The legacy single `worker.command` slot keeps the first
+  worker's command, so older consumers keep working.
 
-Migration is a first-class one-shot workload.
+### 25.3 Migration — implemented (Phase 4)
 
-Typical sequence:
+Migration is a first-class one-shot workload. Ordering:
 
 ``` text
-infrastructure ready
+infrastructure ready (install / database ready)
     ↓
-migration task
+migration task runs once, exit 0 required
     ↓
-success → start services
-failure → stop rollout + diagnostics
+success → services roll to the new release
+failure → MIGRATION_FAILED diagnostics, no service update
 ```
+
+Implemented behavior:
+
+- The compiler emits one `AWS::ECS::TaskDefinition`
+  (`MigrationTaskDefinition`, family `DeployzAppMigration`) with the
+  frozen command `['sh', '-c', cmd]` baked in. There is no service, no
+  ALB entry, no desired-count parameter and no verification seat for
+  the migration workload.
+- The relay runs ONLY that named family. The deploy payload carries
+  `{family, identity}`; a payload that carries a command string is
+  rejected and dropped. The relay can never execute an arbitrary
+  command.
+- Identity = sha256 over the frozen command plus the image digest. A
+  SUCCEEDED `DEPLOY_RELEASE` job row that carries the identity confirms
+  it; a failed job never confirms. A relay retry of a confirmed
+  identity skips the run; within one rollout the same task ARN resumes.
+- A failed migration surfaces `MIGRATION_FAILED` diagnostics (family,
+  exit code, stopped reason). No service updates, and the deployment
+  returns to `UPDATE_AVAILABLE` — a failed update is not a failed
+  deployment.
+- ROLLBACK and RESTART never run migrations. No down-migration
+  orchestration exists.
 
 ### 25.4 SQS
 

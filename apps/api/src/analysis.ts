@@ -14,7 +14,7 @@ import {
   collectScriptsWithDir,
   collectUnresolvedQuestions,
   deriveAmbiguities,
-  detectDeclaredWorkerCommand,
+  detectDeclaredWorkerCommands,
   listDockerfileCandidates,
   mergeAiAnalysis,
   selectAiContextFiles,
@@ -314,9 +314,9 @@ export async function runApplicationAnalysis(
     // The semantic readiness report is built from the MERGED metadata, so a
     // start/migration command the AI resolved counts as resolved here too.
     // The persisted verdict is derived from the report — one source of truth.
-    const resolvedWorkerCommand = resolveWorkerCommand(tree);
+    const resolvedWorkerCommands = resolveWorkerCommands(tree);
     const readiness: ReadinessReport = buildReadinessReport(mergedAnalysis, {
-      workerCommandResolved: resolvedWorkerCommand !== undefined,
+      workerCommandResolved: resolvedWorkerCommands.length > 0,
     });
     const applicationAnalysis = buildApplicationAnalysis(mergedAnalysis, {
       analysisVersion: ANALYSIS_VERSION,
@@ -327,12 +327,13 @@ export async function runApplicationAnalysis(
     // shadow below judges exactly the state that lands in the row.
     const detectedMetadata: Record<string, unknown> = {
       ...metadata,
-      // Phase 8: the resolved worker command rides the metadata so the
-      // deployment manifest's worker gate reads CURRENT analysis output
-      // (this record is replaced wholesale each run) instead of the
-      // sticky worker_command column, which positive-only writes never
-      // clear. Null when no worker script resolves.
-      resolvedWorkerCommand,
+      // Phase 4A: EVERY resolved worker command rides the metadata as a list
+      // (one manifest `workers[]` entry each, via the manifest normalizer).
+      // `resolvedWorkerCommand` stays as the FIRST command so the manifest
+      // normalizer's legacy single-slot fallback and any pre-4A reader keep
+      // working. Null when no worker process resolves.
+      resolvedWorkerCommands: resolvedWorkerCommands.length > 0 ? resolvedWorkerCommands : null,
+      resolvedWorkerCommand: resolvedWorkerCommands[0]?.command ?? null,
       readiness,
       application: applicationAnalysis,
       vendorOverrides,
@@ -878,13 +879,41 @@ function resolveMigrationCommand(tree: FileTree): string | undefined {
 }
 
 /**
- * Resolve the worker start command: a worker script in any workspace
- * package, else a Procfile, Compose or worker-package declaration
- * (Stage A COMP-015).
+ * Resolve EVERY declared worker start command (Phase 4A: one workload per
+ * declared process): a Procfile/Compose-declared process leads (each keeps
+ * its own slug id and source), then one `worker` entry from a package.json
+ * worker script in any workspace package. Empty when nothing resolves —
+ * worker-like code without a command never produces a workload here.
+ */
+export interface ResolvedWorkerCommand {
+  id: string;
+  command: string;
+  source: string;
+}
+
+export function resolveWorkerCommands(tree: FileTree): ResolvedWorkerCommand[] {
+  const workers: ResolvedWorkerCommand[] = [];
+  const seen = new Set<string>();
+  for (const declared of detectDeclaredWorkerCommands(tree)) {
+    if (seen.has(declared.id)) continue;
+    seen.add(declared.id);
+    workers.push({ id: declared.id, command: declared.command, source: declared.source });
+  }
+  if (workers.length === 0) {
+    const match = collectScripts(tree).find(([key]) => WORKER_SCRIPT_KEY_REGEX.test(key));
+    if (match?.[1] !== undefined) {
+      workers.push({ id: 'worker', command: match[1], source: 'package.json' });
+    }
+  }
+  return workers;
+}
+
+/**
+ * The FIRST resolved worker command — the legacy single-slot answer kept for
+ * the `workerCommand` contract column and existing readers.
  */
 export function resolveWorkerCommand(tree: FileTree): string | undefined {
-  const match = collectScripts(tree).find(([key]) => WORKER_SCRIPT_KEY_REGEX.test(key));
-  return match?.[1] ?? detectDeclaredWorkerCommand(tree)?.command;
+  return resolveWorkerCommands(tree)[0]?.command;
 }
 
 export interface ContractFieldUpdates {
@@ -1008,10 +1037,11 @@ function deriveContractFieldUpdates(
     // Unlike a mere detector `detected` flag (library presence), RDS
     // provisioning is gated on the required-vs-present evidence rule — a
     // driver/ORM dependency alone never provisions a database.
-    // `metadata.postgres.required` is that gate, computed once by
-    // `assessPostgres` and carried through `analysis.metadata`.
+    // `metadata.postgres.required` / `metadata.mysql.required` (Phase 4B)
+    // are those gates, computed once and carried through `analysis.metadata`.
     const postgres = analysis.metadata['postgres'] as { required?: unknown } | undefined;
-    if (postgres?.required === true) updates.databaseRequired = true;
+    const mysql = analysis.metadata['mysql'] as { required?: unknown } | undefined;
+    if (postgres?.required === true || mysql?.required === true) updates.databaseRequired = true;
   }
 
   if (!vendorOwned.has('storageRequired')) {

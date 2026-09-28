@@ -30,6 +30,7 @@ import {
   detectBindAddress,
   detectGitCopyInDockerfile,
   detectStartupMigrationEvidence,
+  detectDeclaredWorkerCommands,
   hasPreDeployMigration,
 } from './detectors.js';
 
@@ -38,6 +39,7 @@ import {
   DATABASE_REJECTION_TOKENS,
   checkRedisUnsupported,
   checkMysql,
+  assessMysql,
   checkMongo,
   checkElasticsearch,
   checkOtherUnsupportedDatabases,
@@ -80,7 +82,7 @@ import { deriveInfrastructureBindings } from './bindings.js';
  *   cannot classify; not emitted by the current detectors. Non-fatal unless a
  *   later check proves deployment cannot proceed.
  */
-export type DatabaseState = 'none' | 'postgres' | 'unsupported' | 'unknown';
+export type DatabaseState = 'none' | 'postgres' | 'mysql' | 'unsupported' | 'unknown';
 
 /** Complete result from a repository analysis. */
 export interface AnalysisResult {
@@ -115,9 +117,10 @@ const DETECTORS = [
   detectGitCopyInDockerfile,
 ] as const;
 
-/** All §10 rejection check functions, in order (redis is handled separately — see `analyseRepo`). */
+/** All §10 rejection check functions, in order. `mysql` is handled separately
+ *  (see `analyseRepo`): its MariaDB-only rejection shares the assessed MySQL
+ *  requirement, like `redis`. */
 const REJECTION_CHECKS = [
-  checkMysql,
   checkMongo,
   checkElasticsearch,
   checkOtherUnsupportedDatabases,
@@ -281,7 +284,12 @@ export function analyseRepo(tree: FileTree): AnalysisResult {
   // just the `postgresql` finding's `detected` (library presence) flag.
   const postgres = assessPostgres(tree);
 
+  // MySQL is a SUPPORTED managed database (Phase 4B) — assessed once for
+  // the `metadata.mysql` requirement object the manifest's engine reads.
+  const mysql = assessMysql(tree);
+
   rejections.push(checkRedisUnsupported(tree, redis));
+  rejections.push(checkMysql(tree));
   for (const check of REJECTION_CHECKS) {
     rejections.push(check(tree));
   }
@@ -314,6 +322,8 @@ export function analyseRepo(tree: FileTree): AnalysisResult {
   // invented), `unknown` (required database, no migration evidence anywhere),
   // or `none` (no database, so no migrations to run).
   const postgresMeta = metadata['postgres'] as { required?: unknown } | undefined;
+  metadata['mysql'] = mysql;
+  metadata['usesMysql'] = mysql.detected;
   if (metadata['usesPostgresql'] !== true) {
     metadata['migrationMode'] = 'none';
   } else if (postgresMeta?.required !== true) {
@@ -348,17 +358,26 @@ export function analyseRepo(tree: FileTree): AnalysisResult {
   const detectedRejections = rejections.filter((r) => r.detected);
   metadata['unsupportedReasons'] = detectedRejections.map((r) => r.reason);
 
+  // Phase 4A — every declared worker process (Procfile non-web process,
+  // compose worker service) rides the metadata so the deployment manifest's
+  // `workers[]` list reads CURRENT analysis output. Empty when no process
+  // declares a worker; the API-resolved single command arrives separately as
+  // `resolvedWorkerCommand` / the workerCommand override (legacy slot).
+  metadata['resolvedWorkerCommands'] = detectDeclaredWorkerCommands(tree);
+
   // §11.3 / §11.2 — structured service requirements and the env-var model.
   const serviceRequirements = detectExternalServiceRequirements(tree);
   metadata['externalServiceRequirements'] = serviceRequirements;
   // Phase 4 — who supplies each value, decided from the requirements above.
+  // A required MySQL database manages the same generic DATABASE_* names as
+  // PostgreSQL, so both engines mark the managed-database env vars.
   metadata['envVarModel'] = classifyEnvVariables(
     detectEnvVarModel(
       tree,
       serviceRequirements.map((r) => r.service),
     ),
     {
-      postgresRequired: postgres.required,
+      postgresRequired: postgresMeta?.required === true || mysql.required,
       redisRequired: redis.required,
       redisBindingNames: resolveRedisEnvBindings(redis.connectionEnvVars).map((binding) => binding.name),
       storageRequired: findings.find((f) => f.detector === 's3')?.detected === true,
@@ -366,7 +385,7 @@ export function analyseRepo(tree: FileTree): AnalysisResult {
     },
   );
 
-  metadata['databaseState'] = deriveDatabaseState(findings, rejections);
+  metadata['databaseState'] = deriveDatabaseState(findings, rejections, mysql.required);
 
   const result: AnalysisResult = { findings, rejections, metadata };
   // §15 typed evidence surface: the facts the deterministic pipeline left
@@ -383,20 +402,20 @@ export function analyseRepo(tree: FileTree): AnalysisResult {
 
 /**
  * Derive the `databaseState` metadata value from the detector findings and
- * §10 rejections. PostgreSQL takes priority over an unsupported DB (a Postgres
- * app that also pulled in an unsupported Redis config is `postgres` for DB
- * purposes — the Redis rejection still drives the verdict). Only a rejection
- * whose dependency is an actual DATABASE token (§10) counts here — an
- * architecture/cloud/cache rejection (§11.4) means the app is unsupported but
- * is not a "database" verdict, and Redis-only rejections are about the cache,
- * not the database.
+ * §10 rejections. PostgreSQL and (Phase 4B) MySQL take priority over an
+ * unsupported DB. Only a rejection whose dependency is an actual DATABASE
+ * token (§10) counts here — an architecture/cloud/cache rejection (§11.4)
+ * means the app is unsupported but is not a "database" verdict, and
+ * Redis-only rejections are about the cache, not the database.
  */
 function deriveDatabaseState(
   findings: DetectorFinding[],
   rejections: RejectionFinding[],
+  mysqlRequired: boolean,
 ): DatabaseState {
   const postgres = findings.find((f) => f.detector === 'postgresql')?.detected === true;
   if (postgres) return 'postgres';
+  if (mysqlRequired) return 'mysql';
 
   const unsupportedDb = rejections.some(
     (r) => r.detected && r.dependency !== 'redis-unsupported' && DATABASE_REJECTION_TOKENS.has(r.dependency),

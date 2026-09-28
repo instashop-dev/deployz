@@ -15,7 +15,7 @@ Two decisions with substantial detail have their own files:
 | 2026-08-27 | A failed first install is recovered by an explicit vendor retry ([`failed-install-recovery.md`](failed-install-recovery.md)) | Active |
 | 2026-08-27 | Database passwords are alphanumeric; secret-backed `DATABASE_URL` | Active |
 | 2026-08-30 | Valkey is a single-node replication group with TLS off | Active |
-| 2026-09-02 | Background workers are deferred (Option B) | Active |
+| 2026-09-02 | Background workers are deferred (Option B) | Superseded 2026-09-28 (workers are supported) |
 | 2026-09-02 | Disconnect retains data; no final snapshot (RETAIN, not SNAPSHOT) | Active |
 | 2026-09-02 | The stored manifest is the only source of infrastructure intent | Active |
 | 2026-09-03 | Default HTTPS uses a Deployz-owned hostname per deployment (Option A) | Active (Route 53 replaced by Cloudflare 2026-09-04) |
@@ -25,6 +25,7 @@ Two decisions with substantial detail have their own files:
 | 2026-09-25 | Runtime-v1 backward compatibility is not required for the MVP | Executed |
 | 2026-09-26 | Purge deletes every owned application secret except the relay's own bootstrap component | Active |
 | 2026-09-27 | Phase 3 passes without real-AWS validation; the runs move to the Final AWS Qualification backlog | Active |
+| 2026-09-28 | The MVP boundary expands to background workers, RDS MySQL and first-class migrations; one build artifact and no private services stay | Active |
 
 ## AI explanations are on-demand and never change state (2026-08-25)
 
@@ -91,6 +92,15 @@ semantics across every relay module that today takes the first
 `AWS::ECS::Service`. The CDK construct still contains a worker branch; no
 published template enables it. In-process schedulers inside the web
 container are allowed.
+
+**Superseded 2026-09-28.** Phase 4 of the dynamic-infrastructure plan
+shipped the workload model, which delivers Option A's outcome without the
+rejected mechanics: there are no shared templates left to bake a command
+into (compiler-v2 composes from the graph), so a declared worker process
+becomes its own ECS service with its own frozen command. What stays
+out: worker-like code with no declared start command becomes a
+needs-input question and is never provisioned from weak evidence. See the
+2026-09-28 boundary decision below.
 
 ## Disconnect retains data; no final snapshot (2026-09-02)
 
@@ -232,3 +242,47 @@ after the Phase 3 merge; the backlog is recorded in the
 dynamic-infrastructure implementation plan. What would change it: any
 further change that touches provisioning, lifecycle or the relay before
 qualification has run.
+
+## The MVP boundary expands to workers, RDS MySQL and migrations (2026-09-28)
+
+Phase 4 moved three items from "rejected at analysis" into the supported
+boundary: declared background worker processes, RDS MySQL, and
+first-class one-shot migrations.
+
+- **Workers** ride the workload model: one build artifact, one ECS
+  service per workload, a frozen command per workload, stable kebab
+  identities, no numbered fields. Only a declared run process provisions
+  (a Procfile non-web entry, a Compose application service, an
+  npm-script worker); weak evidence (queue libraries only) becomes a
+  needs-input question, never an ECS service.
+- **RDS MySQL** rides the same `relational_database` machinery as
+  PostgreSQL: the resolver maps kind + engine to a capability, and
+  networking, credentials, bindings, verification, retention and purge
+  stay shared. The engine-specific part is one descriptor in the
+  compiler. PostgreSQL manifests compile byte-identical output.
+- **Migrations** are a one-shot workload with the frozen command baked
+  into one named task definition. The relay runs only that family and
+  can never receive a command string; the identity (sha256 over the
+  frozen command plus the image digest) makes the run exactly-once per
+  release. Failure stops the rollout, never the deployment — the
+  deployment returns to `UPDATE_AVAILABLE` and the previous release
+  keeps serving.
+
+The one-build-artifact boundary is retained deliberately: multiple
+build artifacts would multiply the release, build and rollback surface
+for compositions the MVP target vendor does not have yet. A worker that
+needs a different Dockerfile stays unsupported.
+
+Private services were assessed and not implemented. The delivered
+workload model (a workload kind plus `public: false` plus internal
+networking) is expected to make them fall out naturally as a Phase 6
+extension, not a rework.
+
+Real-AWS qualification for the Phase 4 shapes is deferred: the evidence
+is simulated E2E plus unit and contract tests, and the qualification
+scenarios are recorded as pending in
+[`../testing/aws-e2e.md`](../testing/aws-e2e.md).
+
+What would change it: a vendor need for per-workload images (multiple
+build artifacts), for services with no public exposure beyond workers,
+or a failed real-AWS qualification of the recorded scenarios.

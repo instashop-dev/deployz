@@ -242,6 +242,24 @@ describe('PlannedInfrastructure', () => {
     }
   });
 
+  it('renders one row per workload for a multi-worker footprint', () => {
+    const manifest = manifestWith({
+      worker: { command: 'npm run email' },
+      workers: [
+        { id: 'email-worker', command: 'npm run email', source: 'Procfile' },
+        { id: 'import-worker', command: 'npm run import', source: 'Procfile' },
+      ],
+    });
+    const plan = planFor(footprintFor(manifest));
+    const doc = render(<PlannedInfrastructure plan={plan} />);
+    for (const id of ['web', 'email-worker', 'import-worker']) {
+      expect(doc.querySelector(`[data-testid="planned-component-${id}"]`)).not.toBeNull();
+    }
+    expect(doc.querySelector('[data-testid="planned-component-import-worker"]')?.textContent).toContain(
+      'Worker import-worker',
+    );
+  });
+
   it('renders "Kept"/"Removed" in the On uninstall column, with an explanation of what it means', () => {
     const plan = planFor(footprintFor(STANDARD_MANIFEST));
     const doc = render(<PlannedInfrastructure plan={plan} />);

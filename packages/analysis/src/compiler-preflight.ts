@@ -26,8 +26,9 @@ export interface CompilerPreflightResult {
 // AWS CloudFormation soft limit for resources per template.
 const CFN_MAX_RESOURCES = 500;
 
-// Capabilities that require RDS PostgreSQL 16 in the chosen region.
-const RDS_CAPABILITY_KEYS = new Set<string>([CAPABILITY_KEYS.RDS_POSTGRES]);
+// Capabilities that require a managed RDS database in the chosen region
+// (PostgreSQL 16 or MySQL 8.0 — Phase 4B).
+const RDS_CAPABILITY_KEYS = new Set<string>([CAPABILITY_KEYS.RDS_POSTGRES, CAPABILITY_KEYS.RDS_MYSQL]);
 
 // Capabilities that require ElastiCache Valkey in the chosen region.
 const ELASTICACHE_CAPABILITY_KEYS = new Set<string>([CAPABILITY_KEYS.ELASTICACHE_VALKEY]);
@@ -37,6 +38,7 @@ const VPC_REQUIRING_CAPABILITY_KEYS = new Set<string>([
   CAPABILITY_KEYS.ECS_FARGATE_SERVICE,
   CAPABILITY_KEYS.ECS_FARGATE_TASK,
   CAPABILITY_KEYS.RDS_POSTGRES,
+  CAPABILITY_KEYS.RDS_MYSQL,
   CAPABILITY_KEYS.ELASTICACHE_VALKEY,
   CAPABILITY_KEYS.ALB,
 ]);
@@ -64,7 +66,7 @@ export function evaluateCompilerPreflight(input: CompilerPreflightInput): Compil
   const hasRds = ir.resources.some((r) => RDS_CAPABILITY_KEYS.has(r.capabilityKey));
   const hasElastiCache = ir.resources.some((r) => ELASTICACHE_CAPABILITY_KEYS.has(r.capabilityKey));
   if (hasRds && region === null) {
-    blockers.push('RDS PostgreSQL 16 requires a supported region, but no region is selected.');
+    blockers.push('A managed database (RDS) requires a supported region, but no region is selected.');
   }
   if (hasElastiCache && region === null) {
     blockers.push('ElastiCache Valkey requires a supported region, but no region is selected.');

@@ -86,6 +86,64 @@ export function requirementsFromSpec(spec: DeploymentSpecV2): {
   return { databaseRequired: checks.has('database'), redisRequired: checks.has('cache') };
 }
 
+/** One persistent workload the spec's verification contract proves, with the
+ *  CloudFormation logical id of the ECS service that backs it. */
+export interface WorkloadService {
+  readonly id: string;
+  readonly serviceLogicalId: string;
+}
+
+/**
+ * The workloads the spec's verification contract carries — one entry per
+ * `compute` check (componentId = workload id, logicalId = its ECS service).
+ * Null when the contract is absent (an uncompiled spec), empty only when the
+ * contract proves no compute at all.
+ */
+export function workloadServicesFromSpec(spec: DeploymentSpecV2): readonly WorkloadService[] | null {
+  if (spec.verificationContract === null) return null;
+  return spec.verificationContract.checks
+    .filter((check) => check.check === 'compute')
+    .map((check) => ({ id: check.componentId, serviceLogicalId: check.logicalId }));
+}
+
+/** The ECS task-definition family the compiler bakes for a component id
+ *  (`DeployzApp${Pascal(componentId)}` — mirrors compile.ts's Family field;
+ *  pinned equal by both packages' golden tests). */
+export function deployzTaskFamily(componentId: string): string {
+  const pascal = componentId
+    .split(/[^A-Za-z0-9]+/)
+    .filter((word) => word.length > 0)
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join('');
+  return `DeployzApp${pascal}`;
+}
+
+/** The frozen one-shot migration the spec compiled, with the CloudFormation
+ *  logical id and ECS task-definition family the relay runs. Null when the
+ *  spec is uncompiled or carries no one-shot workload.
+ *
+ *  Generic derivation: the one-shot workload is the ONE task definition whose
+ *  owning component has NO compute check — persistent workloads are exactly
+ *  the components the verification contract proves with a service compute
+ *  check, so the migration falls out by subtraction (no special-cased id). */
+export function migrationTaskFromSpec(spec: DeploymentSpecV2): {
+  id: string;
+  taskLogicalId: string;
+  family: string;
+} | null {
+  if (spec.ownershipRecords === null || spec.verificationContract === null) return null;
+  const serviceWorkloadIds = new Set(
+    spec.verificationContract.checks
+      .filter((check) => check.check === 'compute')
+      .map((check) => check.componentId),
+  );
+  const record = spec.ownershipRecords.find(
+    (entry) => entry.logicalResourceId.endsWith('TaskDefinition') && !serviceWorkloadIds.has(entry.componentId),
+  );
+  if (record === undefined) return null;
+  return { id: record.componentId, taskLogicalId: record.logicalResourceId, family: deployzTaskFamily(record.componentId) };
+}
+
 /**
  * Inventory classification by CFN logical id, from the spec's ownership
  * records: a record's kind and retention, with the verification contract

@@ -6,7 +6,7 @@ import { describe, expect, it } from 'vitest';
 import { CAPABILITY_KEYS } from '@deployz/contracts';
 import type { DeployzIR } from '@deployz/contracts';
 
-import { compileDeployzInfrastructure } from './index.js';
+import { compileDeployzInfrastructure, logicalResourceId } from './index.js';
 
 // dynamic-compiler-v2 — capability-compositional, determinism, stable identity
 // and stateful safety. The compiler composes the current capabilities from
@@ -14,17 +14,29 @@ import { compileDeployzInfrastructure } from './index.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 
+// The full postgres template (web + RDS PostgreSQL + Valkey + S3 + ALB),
+// pinned byte-for-byte. Phase 4B's MySQL capability must not move a single
+// postgres byte — this hash is the proof (see the mysql describe below).
+const POSTGRES_TEMPLATE_HASH_GOLDEN = 'b6fa77dce5db8e341e3723cf0f11f5855e97f9324f97f456e431c5bf5021677a';
+
 // ── IR fixtures ──────────────────────────────────────────────────────────────
 
-function makeIr(opts: { postgres: boolean; redis: boolean }): DeployzIR {
+function makeIr(opts: { postgres: boolean; redis: boolean; workers?: { componentId: string; command: string }[]; dbEngine?: 'postgres' | 'mysql' }): DeployzIR {
+  const dbCapability = opts.dbEngine === 'mysql' ? CAPABILITY_KEYS.RDS_MYSQL : CAPABILITY_KEYS.RDS_POSTGRES;
+  const dbConfiguration =
+    opts.dbEngine === 'mysql'
+      ? { engine: 'mysql', engineVersion: '8.0' }
+      : opts.postgres
+        ? { engine: 'postgres', engineVersion: '16' }
+        : {};
   const resources: DeployzIR['resources'] = [];
   if (opts.postgres) {
     resources.push({
       componentId: 'primary-db',
-      capabilityKey: CAPABILITY_KEYS.RDS_POSTGRES,
-      label: 'PostgreSQL database',
+      capabilityKey: dbCapability,
+      label: opts.dbEngine === 'mysql' ? 'MySQL database' : 'PostgreSQL database',
       quantity: 1,
-      configuration: {},
+      configuration: dbConfiguration,
       lifecycle: 'retain',
       scope: 'REGIONAL',
       envBindings: [],
@@ -87,11 +99,35 @@ function makeIr(opts: { postgres: boolean; redis: boolean }): DeployzIR {
           architecture: null,
         },
         dependencyCapabilityKeys: [
-          ...(opts.postgres ? [CAPABILITY_KEYS.RDS_POSTGRES] : []),
+          ...(opts.postgres ? [dbCapability] : []),
           ...(opts.redis ? [CAPABILITY_KEYS.ELASTICACHE_VALKEY] : []),
           CAPABILITY_KEYS.S3,
         ],
       },
+      ...(opts.workers ?? []).map((worker) => ({
+        componentId: worker.componentId,
+        kind: 'worker' as const,
+        label: `Worker ${worker.componentId}`,
+        buildArtifactId: 'app',
+        command: worker.command,
+        port: null,
+        public: false,
+        healthCheck: null,
+        desiredCount: 1,
+        compute: {
+          provider: 'aws' as const,
+          capabilityKey: CAPABILITY_KEYS.ECS_FARGATE_SERVICE,
+          cpuUnits: 256,
+          memoryMiB: 512,
+          sizeLabel: 'Small',
+          architecture: null,
+        },
+        dependencyCapabilityKeys: [
+          ...(opts.postgres ? [dbCapability] : []),
+          ...(opts.redis ? [CAPABILITY_KEYS.ELASTICACHE_VALKEY] : []),
+          CAPABILITY_KEYS.S3,
+        ],
+      })),
     ],
     resources,
     bindings: [],
@@ -368,5 +404,272 @@ describe('architecture fitness', () => {
     const { footprint } = compileDeployzInfrastructure({ ir: makeIr({ postgres: true, redis: true }), region: null });
     const services = footprint.resources.map((r) => r.service).sort();
     expect(services).toEqual(['alb', 'elasticache-valkey', 'nat-gateway', 'rds-postgres', 's3']);
+  });
+});
+
+// ── Multi-workload (Phase 4A): one build artifact, one ECS service per
+//    persistent workload (web + workers), each with its own frozen command. ──
+
+describe('multi-workload', () => {
+  const ir = makeIr({
+    postgres: true,
+    redis: true,
+    workers: [
+      { componentId: 'email-worker', command: 'node dist/workers/email.js' },
+      { componentId: 'import-worker', command: 'node dist/workers/import.js' },
+    ],
+  });
+  const compiled = compileDeployzInfrastructure({ ir, region: null });
+  const byId = new Map(compiled.resolvedGraph.resources.map((r) => [r.logicalId, r]));
+
+  it('compiles one ECS service, task definition, log group and security group per workload with stable ids', () => {
+    for (const componentId of ['web', 'email-worker', 'import-worker']) {
+      for (const role of ['service', 'task-definition', 'log-group', 'service-security-group']) {
+        const id = logicalResourceId(componentId, role);
+        expect(byId.has(id), id).toBe(true);
+      }
+    }
+    // Worker ids are deterministic from componentId + role.
+    expect(logicalResourceId('email-worker', 'service')).toBe('EmailWorkerService');
+    expect(logicalResourceId('import-worker', 'task-definition')).toBe('ImportWorkerTaskDefinition');
+  });
+
+  it('freezes each worker command into its own App container', () => {
+    for (const { componentId, command } of [
+      { componentId: 'email-worker', command: 'node dist/workers/email.js' },
+      { componentId: 'import-worker', command: 'node dist/workers/import.js' },
+    ]) {
+      const taskDef = byId.get(logicalResourceId(componentId, 'task-definition'))!;
+      const app = (taskDef.properties['ContainerDefinitions'] as unknown[])[0] as Record<string, unknown>;
+      expect(app['Command']).toEqual(['sh', '-c', command]);
+    }
+  });
+
+  it('workers get no port mapping, no ALB target and no HTTP health check', () => {
+    for (const componentId of ['email-worker', 'import-worker']) {
+      const taskDef = byId.get(logicalResourceId(componentId, 'task-definition'))!;
+      const app = (taskDef.properties['ContainerDefinitions'] as unknown[])[0] as Record<string, unknown>;
+      expect(app).not.toHaveProperty('PortMappings');
+
+      const service = byId.get(logicalResourceId(componentId, 'service'))!;
+      expect(service.properties).not.toHaveProperty('LoadBalancers');
+      expect(service.properties).not.toHaveProperty('HealthCheckGracePeriodSeconds');
+      expect(service.properties['DesiredCount']).toEqual({ Ref: 'paramDesiredCount' });
+      // Workers still run on the shared cluster and behind the shared roles.
+      expect(service.properties['Cluster']).toEqual({ Ref: logicalResourceId('web', 'cluster') });
+      expect(service.dependsOn).not.toContain('EndpointTargetGroup');
+    }
+
+    // The ALB wires only the public web workload (the ingress rule attaches
+    // to the service SG; the ALB SG is the traffic source).
+    const ingress = byId.get('EndpointLoadBalancerToServiceIngress')!;
+    expect(ingress.properties['GroupId']).toEqual({
+      'Fn::GetAtt': [logicalResourceId('web', 'service-security-group'), 'GroupId'],
+    });
+    expect(ingress.properties['SourceSecurityGroupId']).toEqual({
+      'Fn::GetAtt': [logicalResourceId('endpoint', 'load-balancer-security-group'), 'GroupId'],
+    });
+  });
+
+  it('the database accepts ingress from every workload service', () => {
+    const ingressIds = compiled.resolvedGraph.resources
+      .filter((r) => r.componentId === 'primary-db' && r.resourceRole.startsWith('app-service-ingress-'))
+      .map((r) => r.resourceRole)
+      .sort();
+    expect(ingressIds).toEqual([
+      'app-service-ingress-email-worker',
+      'app-service-ingress-import-worker',
+      'app-service-ingress-web',
+    ]);
+  });
+
+  it('gains one compute verification check per workload; capability checks stay single', () => {
+    const checks = compiled.verificationContract.checks;
+    const computeComponents = checks.filter((c) => c.check === 'compute').map((c) => c.componentId).sort();
+    expect(computeComponents).toEqual(['email-worker', 'import-worker', 'web']);
+    expect(checks.filter((c) => c.check === 'database')).toHaveLength(1);
+    expect(checks.filter((c) => c.check === 'cache')).toHaveLength(1);
+    expect(checks.filter((c) => c.check === 'ingress')).toHaveLength(1);
+    expect(checks.filter((c) => c.check === 'storage')).toHaveLength(1);
+  });
+
+  it('compiles the migration workload as a one-shot task definition, never a service (Phase 4C)', () => {
+    const withMigration: DeployzIR = {
+      ...ir,
+      workloads: [
+        ...ir.workloads,
+        {
+          componentId: 'migration',
+          kind: 'migration',
+          label: 'Database migration',
+          buildArtifactId: 'app',
+          command: 'npx prisma migrate deploy',
+          port: null,
+          public: false,
+          healthCheck: null,
+          desiredCount: 1,
+          compute: ir.workloads[0]!.compute,
+          dependencyCapabilityKeys: [CAPABILITY_KEYS.RDS_POSTGRES],
+        },
+      ],
+    };
+    const result = compileDeployzInfrastructure({ ir: withMigration, region: null });
+    const ids = result.resolvedGraph.resources.map((r) => r.logicalId);
+    // A task definition and a log group exist; a SERVICE never does — a
+    // migration is one-shot, proven by its exit code, not by stability.
+    expect(ids).toContain('MigrationTaskDefinition');
+    expect(ids).toContain('MigrationLogGroup');
+    expect(ids).not.toContain('MigrationService');
+    expect(ids).not.toContain('MigrationEcsService');
+    const byId = new Map(result.resolvedGraph.resources.map((r) => [r.logicalId, r]));
+    const taskDef = byId.get('MigrationTaskDefinition')!;
+    expect(taskDef.cfnType).toBe('AWS::ECS::TaskDefinition');
+    // NO verification check — the verification contract proves services, not
+    // one-shot tasks, and relay service discovery must never see a migration.
+    expect(taskDef.verificationCheck).toBeUndefined();
+    const family = taskDef.properties['Family'];
+    expect(family).toBe('DeployzAppMigration');
+    // The analyzed command is FROZEN into the container — the relay runs the
+    // definition as-is and can never inject a command of its own.
+    const app = (taskDef.properties['ContainerDefinitions'] as unknown[])[0] as Record<string, unknown>;
+    expect(app['Command']).toEqual(['sh', '-c', 'npx prisma migrate deploy']);
+    expect(taskDef.properties['ExecutionRoleArn']).toEqual({
+      'Fn::GetAtt': [logicalResourceId('web', 'task-execution-role'), 'Arn'],
+    });
+    expect(taskDef.properties['TaskRoleArn']).toEqual({
+      'Fn::GetAtt': [logicalResourceId('web', 'task-role'), 'Arn'],
+    });
+    // Stateless lifecycle — a task definition update is never destructive.
+    expect(taskDef.stateful).toBe(false);
+    expect(taskDef.deletionPolicy).toBe('Delete');
+    // The verification contract gains NO migration compute check; the
+    // ownership records DO carry the task def (it is a managed resource).
+    const computeComponents = result.verificationContract.checks.filter((c) => c.check === 'compute').map((c) => c.componentId).sort();
+    expect(computeComponents).toEqual(['email-worker', 'import-worker', 'web']);
+    expect(result.resolvedGraph.resources.some((r) => r.logicalId === 'MigrationTaskDefinition' && r.verificationCheck !== undefined)).toBe(false);
+    // Ownership: exactly one migration record (the task def; the log group is
+    // its own component-scoped record).
+    expect(result.ownershipRecords.filter((r) => r.componentId === 'migration' && r.logicalResourceId === 'MigrationTaskDefinition')).toHaveLength(1);
+    // Other workloads are unaffected.
+    expect(ids).toContain('EmailWorkerService');
+    // Deterministic: the same IR compiles the same template.
+    expect(compileDeployzInfrastructure({ ir: withMigration, region: null }).artifact.templateHash).toBe(result.artifact.templateHash);
+  });
+
+  it('a graph WITHOUT a migration workload compiles byte-identically to the pre-4C compiler (golden)', () => {
+    const result = compileDeployzInfrastructure({ ir, region: null });
+    const ids = result.resolvedGraph.resources.map((r) => r.logicalId);
+    expect(ids).not.toContain('MigrationTaskDefinition');
+    expect(ids).not.toContain('MigrationEcsService');
+    expect(ids).toContain('EmailWorkerService');
+  });
+
+  it('compiles deterministically and never collides on logical ids', () => {
+    const again = compileDeployzInfrastructure({ ir, region: null });
+    expect(again.artifact.templateHash).toBe(compiled.artifact.templateHash);
+
+    const ids = compiled.resolvedGraph.resources.map((r) => r.logicalId);
+    expect(new Set(ids).size).toBe(ids.length);
+  });
+
+  it('keeps single-workload logical ids byte-identical with the pre-4A compiler', () => {
+    const single = compileDeployzInfrastructure({ ir: makeIr({ postgres: true, redis: true }), region: null });
+    const ids = single.resolvedGraph.resources.map((r) => r.logicalId);
+    for (const id of ['WebService', 'WebTaskDefinition', 'WebLogGroup', 'WebCluster', 'WebTaskExecutionRole', 'PrimaryDbAppServiceIngressWeb']) {
+      expect(ids, id).toContain(id);
+    }
+  });
+});
+
+// ── Phase 4B: RDS MySQL — the SAME relational-database abstraction with a
+//    Deployz-pinned engine. Postgres output stays byte-identical. ────────────
+
+describe('mysql database (phase 4b)', () => {
+  const mysqlIr = makeIr({ postgres: true, redis: true, dbEngine: 'mysql' });
+  const compiled = compileDeployzInfrastructure({ ir: mysqlIr, region: null });
+  const byId = new Map(compiled.resolvedGraph.resources.map((r) => [r.logicalId, r]));
+
+  it('the managed database is RDS MySQL on the same stable logical ids', () => {
+    const instance = byId.get('PrimaryDbInstance')!;
+    expect(instance).toBeDefined();
+    expect(instance.cfnType).toBe('AWS::RDS::DBInstance');
+    expect(instance.capability).toBe(CAPABILITY_KEYS.RDS_MYSQL);
+    expect(instance.stateful).toBe(true);
+    expect(instance.deletionPolicy).toBe('Retain');
+    expect(instance.purgeStrategy).toBe('require_manual');
+    expect(instance.verificationCheck).toBe('database');
+    // Deployz-pinned engine policy: version and encryption/backup/deletion
+    // protection are identical in shape to the PostgreSQL instance.
+    expect(instance.properties['Engine']).toBe('mysql');
+    expect(instance.properties['EngineVersion']).toBe('8.0');
+    expect(instance.properties['StorageEncrypted']).toBe(true);
+    expect(instance.properties['BackupRetentionPeriod']).toBe(7);
+    expect(instance.properties['DeletionProtection']).toBe(true);
+    expect(instance.properties['PubliclyAccessible']).toBe(false);
+  });
+
+  it('managed credentials and the mysql:// URL secret follow the PostgreSQL pattern', () => {
+    const masterSecret = byId.get('PrimaryDbMasterSecret')!;
+    expect(masterSecret.cfnType).toBe('AWS::SecretsManager::Secret');
+    const urlSecret = byId.get('PrimaryDbUrlSecret')!;
+    expect(String((urlSecret.properties['SecretString'] as Record<string, unknown>)['Fn::Join']![0])).toBe('');
+    const parts = (urlSecret.properties['SecretString'] as Record<string, unknown>)['Fn::Join']![1] as unknown[];
+    expect(parts[0]).toContain('mysql://deployz_app:');
+    expect(JSON.stringify(parts)).toContain(':3306/deployz');
+    // Private networking: app-SG ingress on the mysql port, per workload.
+    const ingress = byId.get('PrimaryDbAppServiceIngressWeb')!;
+    expect(ingress.properties['FromPort']).toBe(3306);
+    expect(ingress.properties['ToPort']).toBe(3306);
+    // No parameter group resource exists.
+    expect(compiled.resolvedGraph.resources.some((r) => r.cfnType.includes('DBParameterGroup'))).toBe(false);
+  });
+
+  it('app containers get the mysql env aliases and the RDS CA bundle', () => {
+    const taskDef = byId.get('WebTaskDefinition')!;
+    const app = (taskDef.properties['ContainerDefinitions'] as unknown[])[0] as {
+      Environment: Array<{ Name: string }>;
+      Secrets: Array<{ Name: string }>;
+    };
+    const envNames = app.Environment.map((entry) => entry.Name);
+    // Generic DATABASE_* names always lead (URL parts as env, the URL as a
+    // secret).
+    expect(envNames).toContain('DATABASE_HOST');
+    expect(app.Secrets.map((entry) => entry.Name)).toContain('DATABASE_URL');
+    // MySQL aliases + the CA bundle under both the neutral and mysql names.
+    expect(envNames).toContain('MYSQL_HOST');
+    expect(envNames).toContain('MYSQL_PORT');
+    expect(envNames).toContain('MYSQL_SSL_CA');
+    expect(envNames).toContain('NODE_EXTRA_CA_CERTS');
+    expect(app.Secrets.map((entry) => entry.Name)).toContain('MYSQL_URL');
+    // Every service (workers included) binds the database — Phase 4A envs
+    // are per-workload, so a worker task def carries the same mysql envs.
+    const workerDef = byId.get('EmailWorkerTaskDefinition');
+    if (workerDef !== undefined) {
+      const workerApp = (workerDef.properties['ContainerDefinitions'] as unknown[])[0] as {
+        Environment: Array<{ Name: string }>;
+      };
+      expect(workerApp.Environment.map((e) => e.Name)).toContain('MYSQL_SSL_CA');
+    }
+  });
+
+  it('verification, footprint and outputs treat mysql exactly like postgres', () => {
+    expect(compiled.verificationContract.checks.some((c) => c.check === 'database' && c.logicalId === 'PrimaryDbInstance')).toBe(true);
+    const db = compiled.footprint.resources.find((r) => r.id === 'database')!;
+    expect(db.service).toBe('rds-mysql');
+    expect(db.configuration).toMatchObject({ engine: 'mysql', engineVersion: '8.0' });
+    const outputs = compiled.template['Outputs'] as Record<string, unknown>;
+    expect(Object.keys(outputs)).toContain('DbHost');
+    // The cache and ALB capabilities are untouched by the engine swap.
+    expect(byId.has('CacheReplicationGroup')).toBe(true);
+    expect(byId.has('EndpointLoadBalancer')).toBe(true);
+  });
+
+  it('POSTGRES OUTPUT IS UNAFFECTED — byte-identical template hash (golden)', () => {
+    // Same fixture IR the pre-4B compiler produced; the hash pins every
+    // postgres template byte against the mysql addition.
+    const postgres = compileDeployzInfrastructure({ ir: makeIr({ postgres: true, redis: true }), region: null });
+    expect(postgres.artifact.templateHash).toBe(POSTGRES_TEMPLATE_HASH_GOLDEN);
+    // And the postgres capability never appears in the mysql graph.
+    expect(compiled.resolvedGraph.resources.some((r) => r.capability === CAPABILITY_KEYS.RDS_POSTGRES)).toBe(false);
   });
 });

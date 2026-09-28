@@ -53,20 +53,29 @@ export interface ComponentRequirements {
   databaseRequired?: boolean | null;
   storageRequired?: boolean | null;
   redisRequired?: boolean | null;
+  /**
+   * Phase 4A: the persistent workload ids the deployment's frozen spec
+   * proves (one `compute` check each — `web`, `email-worker`, …). Null/absent
+   * keeps the legacy single-application seat.
+   */
+  workloads?: readonly string[] | null;
 }
 
 /** Merged per-component state: HEALTHY/DEGRADED/UNHEALTHY/UNKNOWN/NOT_PROVISIONED. */
 export type MergedComponentState = Record<string, string>;
 
-const COMPONENT_REQUIREMENT_KEYS = ['application', 'loadBalancer', 'database', 'storage', 'redis'] as const;
+const COMPONENT_REQUIREMENT_KEYS = ['loadBalancer', 'database', 'storage', 'redis'] as const;
 
-// The verification check name each merged component key corresponds to —
-// used to fall back to NOT_PROVISIONED/UNKNOWN when the heartbeat never
+// The verification check name each merged infra component key corresponds to
+// — used to fall back to NOT_PROVISIONED/UNKNOWN when the heartbeat never
 // reported the component at all. Sourced from the shared component catalog
-// (checkName) rather than a second literal table; only the kind→key mapping
-// is local, since the merged-component key space predates the catalog.
-const COMPONENT_KEY_BY_KIND: Record<(typeof INFRASTRUCTURE_COMPONENTS)[number]['kind'], (typeof COMPONENT_REQUIREMENT_KEYS)[number]> = {
-  application: 'application',
+// (checkName) rather than a second literal table; the application kind has no
+// entry here because its seats are per-workload (Phase 4A), each verifying
+// through its own `compute` check.
+const COMPONENT_KEY_BY_KIND: Record<
+  Exclude<(typeof INFRASTRUCTURE_COMPONENTS)[number]['kind'], 'application'>,
+  (typeof COMPONENT_REQUIREMENT_KEYS)[number]
+> = {
   endpoint: 'loadBalancer',
   database: 'database',
   cache: 'redis',
@@ -75,8 +84,35 @@ const COMPONENT_KEY_BY_KIND: Record<(typeof INFRASTRUCTURE_COMPONENTS)[number]['
 
 const VERIFY_CHECK_BY_COMPONENT: Record<(typeof COMPONENT_REQUIREMENT_KEYS)[number], string> =
   Object.fromEntries(
-    INFRASTRUCTURE_COMPONENTS.map((c) => [COMPONENT_KEY_BY_KIND[c.kind], c.checkName]),
+    INFRASTRUCTURE_COMPONENTS.filter((c) => c.kind !== 'application').map(
+      (c) => [COMPONENT_KEY_BY_KIND[c.kind as Exclude<(typeof INFRASTRUCTURE_COMPONENTS)[number]['kind'], 'application'>], c.checkName],
+    ),
   ) as Record<(typeof COMPONENT_REQUIREMENT_KEYS)[number], string>;
+
+/**
+ * Seat-key mappings for a workload id. The web workload keeps BOTH historical
+ * keys — `application` in the merged-state map (toFleetRow consumers) and
+ * `runtime` in the progress list (existing consumers + failure mapping) — so
+ * single-workload deployments render exactly as they always did; every
+ * additional workload sits under its own id in both spaces.
+ */
+function workloadMergedKey(workloadId: string): string {
+  return workloadId === 'web' ? 'application' : workloadId;
+}
+
+function workloadProgressKey(workloadId: string): string {
+  return workloadId === 'web' ? 'runtime' : workloadId;
+}
+
+/** Display name for a workload's component seat. */
+export function workloadComponentLabel(workloadId: string): string {
+  return workloadId === 'web' ? COMPONENT_LABELS['runtime']! : `Worker ${workloadId}`;
+}
+
+/** The workload seats to derive: the spec's list, else the legacy single web seat. */
+function workloadSeats(workloads: readonly string[] | null | undefined): readonly string[] {
+  return workloads === null || workloads === undefined || workloads.length === 0 ? ['web'] : workloads;
+}
 
 /**
  * Merge a deployment's observed heartbeat components with its verification
@@ -84,6 +120,9 @@ const VERIFY_CHECK_BY_COMPONENT: Record<(typeof COMPONENT_REQUIREMENT_KEYS)[numb
  *   reported          → that state (HEALTHY/DEGRADED/UNHEALTHY/UNKNOWN)
  *   check says absent → NOT_PROVISIONED
  *   otherwise         → UNKNOWN when required, omitted when not
+ * Each workload gets its own seat (Phase 4A), read from the heartbeat's
+ * per-workload entry (or, for the web workload, the legacy `application`
+ * entry an older relay reported) and verified through its own `compute` check.
  */
 export function mergeComponentState(
   observedState: Record<string, unknown> | null | undefined,
@@ -92,7 +131,7 @@ export function mergeComponentState(
   const observed = observedState as
     | {
         components?: Record<string, unknown>;
-        infraHealth?: { checks?: { name?: string; passed?: boolean }[] };
+        infraHealth?: { checks?: { name?: string; passed?: boolean; component?: string }[] };
       }
     | null
     | undefined;
@@ -102,12 +141,32 @@ export function mergeComponentState(
   }
   const infraChecks = observed?.infraHealth?.checks ?? [];
   const componentRequirements: Record<(typeof COMPONENT_REQUIREMENT_KEYS)[number], boolean> = {
-    application: true,
     loadBalancer: true,
     database: requirements.databaseRequired ?? false,
     storage: requirements.storageRequired ?? false,
     redis: requirements.redisRequired ?? false,
   };
+
+  // Per-workload seats: observed heartbeat value first, then the workload's
+  // own compute check, then UNKNOWN (a workload is always required).
+  for (const workloadId of workloadSeats(requirements.workloads)) {
+    const seat = workloadMergedKey(workloadId);
+    if (components[seat] !== undefined) continue;
+    const observedValue = components[workloadId] ?? (workloadId === 'web' ? components['application'] : undefined);
+    if (observedValue !== undefined) {
+      components[seat] = observedValue;
+      continue;
+    }
+    const check = infraChecks.find(
+      (candidate) =>
+        candidate.name === 'compute' &&
+        // A compute check with no workload component is the legacy single
+        // application check — it can only ever speak for the web workload.
+        (candidate.component === workloadId || (workloadId === 'web' && candidate.component === undefined)),
+    );
+    components[seat] = check?.passed === false ? 'NOT_PROVISIONED' : 'UNKNOWN';
+  }
+
   for (const key of COMPONENT_REQUIREMENT_KEYS) {
     if (components[key] !== undefined) continue;
     if (!componentRequirements[key]) continue;
@@ -149,6 +208,12 @@ export interface DerivationApplication {
   redisRequired?: boolean | null;
   /** When set, the deploy ladder carries the MIGRATION step (before the application). */
   migrationCommand?: string | null;
+  /**
+   * Phase 4A: the persistent workload ids this deployment's frozen spec
+   * proves — one component seat each. Null (an uncompiled spec, or an
+   * unprojected row) falls back to the single legacy web seat.
+   */
+  workloads?: readonly string[] | null;
 }
 
 export interface DerivationJob {
@@ -337,8 +402,9 @@ const COMPONENT_LABELS: Record<string, string> = {
 
 // result.checks[] entries name the AWS-side check, not the product-facing
 // component — this is the same key space verifyCheckByComponent above maps
-// FROM, inverted, minus loadBalancer/ingress (which has no ComponentProgress
-// entry of its own).
+// FROM, minus loadBalancer/ingress (which has no ComponentProgress entry of
+// its own). A `compute` check names its own workload via `component`
+// (Phase 4A); the component-less legacy compute check maps to the runtime seat.
 const CHECK_NAME_TO_COMPONENT: Record<string, string> = {
   compute: 'runtime',
   database: 'database',
@@ -348,10 +414,16 @@ const CHECK_NAME_TO_COMPONENT: Record<string, string> = {
 
 function failedCheckComponents(result: Record<string, unknown> | null | undefined): Set<string> {
   const source = unwrapJobResult(result) ?? result;
-  const checks = (source as { checks?: { name?: string; passed?: boolean }[] } | null | undefined)?.checks ?? [];
+  const checks =
+    (source as { checks?: { name?: string; passed?: boolean; component?: string }[] } | null | undefined)?.checks ??
+    [];
   const out = new Set<string>();
   for (const check of checks) {
     if (check.passed === false && check.name) {
+      if (check.name === 'compute') {
+        out.add(check.component !== undefined ? workloadProgressKey(check.component) : 'runtime');
+        continue;
+      }
       const component = CHECK_NAME_TO_COMPONENT[check.name];
       if (component) out.add(component);
     }
@@ -514,18 +586,28 @@ function buildComponents(params: {
   const failedChecks = params.stage === 'FAILED' ? failedCheckComponents(params.failureResult) : new Set<string>();
 
   const components: ComponentProgress[] = [];
-  const push = (key: string, mergedKey: string, required: boolean): void => {
+  const push = (key: string, label: string, mergedKey: string, required: boolean): void => {
     let status = statusFromMerged(merged[mergedKey], required, params.stage);
     if (required && params.stage === 'FAILED' && failedChecks.has(key)) {
       status = 'FAILED';
     }
-    components.push({ key, label: COMPONENT_LABELS[key]!, status });
+    components.push({ key, label, status });
   };
 
-  push('runtime', 'application', true);
-  push('database', 'database', params.application.databaseRequired ?? false);
-  push('storage', 'storage', params.application.storageRequired ?? false);
-  push('redis', 'redis', params.application.redisRequired ?? false);
+  // One seat per persistent workload (Phase 4A): the web workload keeps the
+  // historical `runtime` progress seat; every additional workload sits under
+  // its own id. An unprojected row keeps the single legacy web seat.
+  for (const workloadId of workloadSeats(params.application.workloads)) {
+    push(
+      workloadProgressKey(workloadId),
+      workloadComponentLabel(workloadId),
+      workloadMergedKey(workloadId),
+      true,
+    );
+  }
+  push('database', COMPONENT_LABELS['database']!, 'database', params.application.databaseRequired ?? false);
+  push('storage', COMPONENT_LABELS['storage']!, 'storage', params.application.storageRequired ?? false);
+  push('redis', COMPONENT_LABELS['redis']!, 'redis', params.application.redisRequired ?? false);
 
   const httpsStatus = httpsComponentStatus(params.domain, params.needsDomainSetup, params.defaultHttps);
   if (httpsStatus !== null) {

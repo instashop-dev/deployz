@@ -1736,6 +1736,7 @@ export function createRelayHandler(deps: RelayHandlerDeps) {
     redisRequired?: boolean;
     databaseRequired?: boolean | undefined;
     probeUrl: string | null;
+    workloads?: readonly { id: string; serviceLogicalId: string }[] | undefined;
   } = {
     probeUrl: null,
   };
@@ -1832,6 +1833,7 @@ export function createRelayHandler(deps: RelayHandlerDeps) {
               stackName: relayApplicationStackName(),
               redisRequired: deploymentMeta.redisRequired,
               databaseRequired: deploymentMeta.databaseRequired,
+              ...(deploymentMeta.workloads !== undefined ? { workloads: deploymentMeta.workloads } : {}),
             });
           },
           () => buildProvisioningSnapshot(getCloudFormationReader(), relayApplicationStackName()),
@@ -1906,6 +1908,7 @@ export function createRelayHandler(deps: RelayHandlerDeps) {
               elb: getTargetHealthReader(),
             },
             relayApplicationStackName(),
+            deploymentMeta.workloads,
           )),
       observeProbe:
         deps.observeProbe ??
@@ -1920,6 +1923,10 @@ export function createRelayHandler(deps: RelayHandlerDeps) {
         deploymentMeta.redisRequired = meta.redisRequired;
         deploymentMeta.databaseRequired = meta.databaseRequired;
         deploymentMeta.probeUrl = meta.probeUrl;
+        // Phase 4A: per-workload service seats, when the control plane has
+        // them. Absent (an older control plane) keeps the single-application
+        // heartbeat shape.
+        deploymentMeta.workloads = 'workloads' in meta ? meta.workloads : undefined;
       },
     };
 

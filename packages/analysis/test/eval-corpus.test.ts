@@ -224,24 +224,27 @@ const corpus: { name: string; tree: FileTree; expected: Expectation }[] = [
     },
   },
   {
-    name: 'unsupported configuration (MySQL)',
+    // Phase 4B: a bare mysql2 dependency with NO connection evidence is
+    // weak — the app deploys without a database and raises the
+    // database-requirement question, instead of being unsupported.
+    name: 'weak MySQL dependency without connection evidence (needs input)',
     tree: {
       Dockerfile: nodeDockerfile(),
       'package.json': JSON.stringify({ name: 'legacy', scripts: { start: 'node server.js' }, dependencies: { express: '^4', mysql2: '^3' } }),
       'server.js': "require('express')().get('/health', (_q, r) => r.send('ok')).listen(3000);\n",
     },
     expected: {
-      readinessState: 'NEEDS_CHANGES',
-      findings: ['unsupported-database-mysql'],
-      gate: 'NOT_COMPATIBLE',
+      readinessState: 'READY',
+      findings: [],
+      gate: 'READY',
       runtime: 'node',
       framework: 'express',
       port: 3000,
-      database: 'unsupported',
+      database: 'none',
       redisRequired: false,
       healthPath: '/health',
       env: {},
-      unresolvedQuestions: [],
+      unresolvedQuestions: ['database-requirement-unclear'],
     },
   },
   {

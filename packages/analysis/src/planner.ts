@@ -86,7 +86,9 @@ export function planApplicationGraph(input: {
       .map((b) => b.targetId);
     const dependencyCapabilityKeys = bindingTargetIds
       .map((targetId) => resolvedCapability.get(targetId))
-      .filter((key): key is string => key !== null);
+      // A binding may target another workload (a RUNTIME edge), which has no
+      // capability of its own — only resource targets contribute keys.
+      .filter((key): key is string => typeof key === 'string');
 
     return {
       componentId: w.id,
