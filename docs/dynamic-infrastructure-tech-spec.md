@@ -255,7 +255,10 @@ bindings.
 Distinguish: - `PROVISIONING` - `RUNTIME` - `BINDING` - `STARTUP`
 
 Do not translate every graph edge into a CloudFormation `DependsOn`.
-Runtime cycles are normal.
+Runtime cycles are normal. In the implemented MVP the builder connects
+every workload to every managed resource (a BINDING superset) and the
+runtime env injection is identical for every workload; per-workload
+narrowing is not modeled.
 
 ## 6. Evidence Extraction and Analysis
 

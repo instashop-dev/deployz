@@ -144,7 +144,10 @@ compiled artifact**
    preflight.
 2. **ApplicationGraph** is a projection of the manifest describing what the
    application needs: workloads, resources, bindings, external services.
-   It does not contain AWS capability decisions.
+   It does not contain AWS capability decisions. The graph builder connects
+   every workload to every managed resource (a BINDING superset), so every
+   workload receives the same managed variables at runtime — a workload
+   that uses fewer resources is not narrowed at the binding level.
 3. **Capability Resolver / Planner** maps graph needs to AWS capabilities
    (ECS Fargate services for the web and worker workloads, the one-shot
    migration task, RDS PostgreSQL, RDS MySQL, ElastiCache Valkey, S3, ALB,
