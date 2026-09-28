@@ -277,6 +277,16 @@ describe('evaluateManifestReadiness', () => {
     );
   });
 
+  it('the missing-migration warning names MySQL for a MySQL database', () => {
+    const manifest = normalizeDeploymentManifest(
+      { metadata: { hasDockerfile: true, dockerfilePath: 'Dockerfile', startupCommands: ['node index.js'], port: '3000', databaseState: 'mysql', mysql: { detected: true, required: true } } },
+      {},
+    );
+    expect(manifest.database.engine).toBe('mysql');
+    const warning = evaluateManifestReadiness(manifest).findings.find((f) => f.id === 'migration-command-missing');
+    expect(warning?.message).toBe('This app uses MySQL but has no migration command; schema updates will not run on deploy.');
+  });
+
   it('READY carries a warning when PostgreSQL is required but no migration command exists', () => {
     const manifest = normalizeDeploymentManifest(
       {

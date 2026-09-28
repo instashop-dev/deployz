@@ -153,7 +153,9 @@ export function evaluatePreflight(input: PreflightInput): PreflightResult {
     id: 'database',
     label: 'Database',
     status: 'passed',
-    detail: manifest.database.postgres ? 'PostgreSQL — Deployz provides a managed database' : 'No database required',
+    detail: manifest.database.postgres
+      ? `${manifest.database.engine === 'mysql' ? 'MySQL' : 'PostgreSQL'} — Deployz provides a managed database`
+      : 'No database required',
   });
   checks.push({
     id: 'redis',
