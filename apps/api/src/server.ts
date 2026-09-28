@@ -815,7 +815,7 @@ async function requireDeployableRelease(
     // (and RESTART, whose payload is empty) can never carry the seat.
     const migration = spec ? migrationTaskFromSpec(spec) : null;
     const frozenCommand =
-      spec?.graph.workloads.find((workload) => workload.id === 'migration')?.command ?? null;
+      spec?.graph.workloads.find((workload) => workload.kind === 'migration')?.command ?? null;
     if (migration !== null && frozenCommand !== null) {
       const identity = migrationIdentity(frozenCommand, imageDigest);
       if (!(await migrationIdentityConfirmed(db, deployment.id, identity))) {

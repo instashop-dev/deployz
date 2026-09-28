@@ -101,7 +101,8 @@ export interface EcsDeployClient {
         | undefined;
     }[];
   }>;
-  /** Starts a one-off migration task — no load balancer, command overridden. */
+  /** Starts a one-off migration task — no load balancer, no overrides: the
+   *  definition named here is the spec-frozen family, run as-is. */
   runTask(input: {
     cluster: string;
     taskDefinition: string;
@@ -521,8 +522,9 @@ export async function settleEcsDeploy(
   // DEPLOY_RELEASE payloads, AND this executor refuses to run one for any
   // other command type — ROLLBACK and RESTART never run migrations.
   let migration: PendingMigration | undefined;
-  // The one-off task runs on the SAME network as the public workload (web
-  // when the payload names one, else the first service).
+  // The one-off task runs on the SAME network as the application's public
+  // workload — `web` is the fixed public-workload component id every graph
+  // carries (falling back to the first service for a payload without seats).
   const migrationNetworkView = views.find((view) => workloadFor(view)?.id === 'web') ?? views[0]!;
   if (request.migrationTask !== null && context.allowMigration) {
     const outcome = await settleMigration(deps, {

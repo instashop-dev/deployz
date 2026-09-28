@@ -120,15 +120,25 @@ export function deployzTaskFamily(componentId: string): string {
 
 /** The frozen one-shot migration the spec compiled, with the CloudFormation
  *  logical id and ECS task-definition family the relay runs. Null when the
- *  spec is uncompiled or carries no migration workload. */
+ *  spec is uncompiled or carries no one-shot workload.
+ *
+ *  Generic derivation: the one-shot workload is the ONE task definition whose
+ *  owning component has NO compute check — persistent workloads are exactly
+ *  the components the verification contract proves with a service compute
+ *  check, so the migration falls out by subtraction (no special-cased id). */
 export function migrationTaskFromSpec(spec: DeploymentSpecV2): {
   id: string;
   taskLogicalId: string;
   family: string;
 } | null {
-  if (spec.ownershipRecords === null) return null;
+  if (spec.ownershipRecords === null || spec.verificationContract === null) return null;
+  const serviceWorkloadIds = new Set(
+    spec.verificationContract.checks
+      .filter((check) => check.check === 'compute')
+      .map((check) => check.componentId),
+  );
   const record = spec.ownershipRecords.find(
-    (entry) => entry.componentId === 'migration' && entry.logicalResourceId.endsWith('TaskDefinition'),
+    (entry) => entry.logicalResourceId.endsWith('TaskDefinition') && !serviceWorkloadIds.has(entry.componentId),
   );
   if (record === undefined) return null;
   return { id: record.componentId, taskLogicalId: record.logicalResourceId, family: deployzTaskFamily(record.componentId) };
