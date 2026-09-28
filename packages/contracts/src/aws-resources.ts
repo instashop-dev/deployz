@@ -39,7 +39,7 @@ export const AWS_RESOURCE_GROUP_ORDER: readonly AwsResourceGroup[] = [
 export interface AwsResourceDefinition {
   /** Stable key — the plan row id the UI keys on. */
   readonly id: string;
-  /** Customer-facing AWS resource name ("RDS PostgreSQL database"). */
+  /** Customer-facing AWS resource name ("RDS database"). */
   readonly name: string;
   /** Customer-facing purpose, one short sentence. */
   readonly purpose: string;
@@ -116,7 +116,7 @@ export const AWS_RESOURCES: readonly AwsResourceDefinition[] = [
   // ── Data ────────────────────────────────────────────────────────────────
   {
     id: 'database',
-    name: 'RDS PostgreSQL database',
+    name: 'RDS database',
     purpose: 'Stores persistent application data',
     group: 'data',
     componentKind: 'database',

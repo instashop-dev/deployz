@@ -176,6 +176,14 @@ describe('derivePlanComponentsFromSpec', () => {
     expect(derivePlanComponentsFromSpec(spec)).toEqual(derivePlanComponentsFromSpec(spec));
   });
 
+  it('presents a MySQL database as a database in the data group, like PostgreSQL', () => {
+    const ir = baseIr();
+    ir.resources = [irResource('primary-db', CAPABILITY_KEYS.RDS_MYSQL, 'Primary DB', 'retain')];
+
+    const db = derivePlanComponentsFromSpec(specFromIr(ir)).find((component) => component.componentId === 'primary-db');
+    expect(db).toMatchObject({ kind: 'database', group: 'data', lifecycle: 'retain' });
+  });
+
   it('never drops a resource with an unknown capability key — placeholder kind instead', () => {
     const ir = baseIr();
     ir.workloads = [];
