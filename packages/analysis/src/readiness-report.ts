@@ -161,29 +161,29 @@ interface RejectionCopy {
   suggestedOutcome: string;
 }
 
-const MYSQL_COPY: RejectionCopy = {
-  id: 'unsupported-database-mysql',
+const MARIA_DB_COPY: RejectionCopy = {
+  id: 'unsupported-database-mariadb',
   category: 'database',
   title: 'Your database needs a supported engine',
   plainEnglishExplanation:
-    'This app uses MySQL, which Deployz cannot host. Deployz provides a managed PostgreSQL database.',
+    'This app uses MariaDB, which Deployz cannot host. Deployz provides managed PostgreSQL or MySQL databases.',
   whyItMatters:
-    'Deployz provisions, connects, and backs up the database for every customer deployment. It can only do that for PostgreSQL.',
+    'Deployz provisions, connects, and backs up the database for every customer deployment. It can only do that for PostgreSQL or MySQL.',
   suggestedOutcome:
-    'Move the data layer to PostgreSQL, or remove the MySQL dependency if it is not actually used.',
+    'Move the data layer to PostgreSQL or MySQL, or remove the MariaDB dependency if it is not actually used.',
 };
 
 const MONGO_COPY: RejectionCopy = {
-  ...MYSQL_COPY,
+  ...MARIA_DB_COPY,
   id: 'unsupported-database-mongo',
   plainEnglishExplanation:
-    'This app uses MongoDB, which Deployz cannot host. Deployz provides a managed PostgreSQL database.',
+    'This app uses MongoDB, which Deployz cannot host. Deployz provides managed PostgreSQL or MySQL databases.',
   suggestedOutcome:
-    'Move the data layer to PostgreSQL, or remove the MongoDB dependency if it is not actually used.',
+    'Move the data layer to PostgreSQL or MySQL, or remove the MongoDB dependency if it is not actually used.',
 };
 
 const ELASTICSEARCH_COPY: RejectionCopy = {
-  ...MYSQL_COPY,
+  ...MARIA_DB_COPY,
   id: 'unsupported-database-elasticsearch',
   title: 'Your search engine needs a supported alternative',
   plainEnglishExplanation:
@@ -193,7 +193,7 @@ const ELASTICSEARCH_COPY: RejectionCopy = {
 };
 
 const OTHER_DB_COPY: RejectionCopy = {
-  ...MYSQL_COPY,
+  ...MARIA_DB_COPY,
   id: 'unsupported-database-other',
   plainEnglishExplanation:
     'This app uses a database Deployz cannot host. Deployz provides a managed PostgreSQL database.',
@@ -202,7 +202,7 @@ const OTHER_DB_COPY: RejectionCopy = {
 };
 
 const SQLITE_COPY: RejectionCopy = {
-  ...MYSQL_COPY,
+  ...MARIA_DB_COPY,
   id: 'unsupported-database-sqlite',
   plainEnglishExplanation:
     'This app uses SQLite, a database stored in a file on the app server. Deployz cannot host it because app disks are wiped on every deploy.',
@@ -284,8 +284,8 @@ const GPU_COPY: RejectionCopy = {
 /** Maps a §10/§11 rejection `dependency` to its blocking-finding copy. */
 function rejectionCopy(dependency: string): RejectionCopy {
   if (dependency === 'redis-unsupported') return REDIS_COPY;
-  if (dependency === 'mysql' || dependency === 'mysql2' || dependency === 'mariadb' || dependency === '@prisma/client') {
-    return MYSQL_COPY;
+  if (dependency === 'mariadb') {
+    return MARIA_DB_COPY;
   }
   if (dependency === 'sqlite') return SQLITE_COPY;
   if (dependency === 'mongoose' || dependency === 'mongodb' || dependency === 'mongodb-client') {

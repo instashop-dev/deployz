@@ -183,7 +183,7 @@ const BLOCKER_NAMES: Record<string, string> = {
   'background-worker-unsupported': 'Separate background worker process not supported',
   'local-file-storage': 'Persistent data written to local disk',
   'build-context-git-metadata': 'Dockerfile copies .git metadata',
-  'unsupported-database-mysql': 'Unsupported database engine: MySQL',
+  'unsupported-database-mariadb': 'Unsupported database engine: MariaDB',
   'unsupported-database-mongo': 'Unsupported database engine: MongoDB',
   'unsupported-database-elasticsearch': 'Unsupported search engine: Elasticsearch/OpenSearch',
   'unsupported-database-other': 'Unsupported database engine',
@@ -357,7 +357,7 @@ const DETERMINISTIC_GUIDANCE: Record<string, (facts: FixInstructionsFacts) => st
   'build-context-git-metadata': (facts) => [
     `Remove COPY/ADD of the \`.git\` directory from ${facts.dockerfilePath ?? 'the Dockerfile'}; make any git-derived build argument optional.`,
   ],
-  'unsupported-database-mysql': () => UNSUPPORTED_DATABASE_GUIDANCE,
+  'unsupported-database-mariadb': () => UNSUPPORTED_DATABASE_GUIDANCE,
   'unsupported-database-mongo': () => UNSUPPORTED_DATABASE_GUIDANCE,
   'unsupported-database-elasticsearch': () => UNSUPPORTED_DATABASE_GUIDANCE,
   'unsupported-database-other': () => UNSUPPORTED_DATABASE_GUIDANCE,
