@@ -76,6 +76,33 @@ const SKIP_DIRS = new Set(['node_modules', 'dist', 'build', '.next', '.turbo', '
 const IMPORT_FROM_E2E = /from\s+['"][^'"]*\be2e\/simulation[^'"]*['"]/;
 const REQUIRE_FROM_E2E = /require\(\s*['"][^'"]*\be2e\/[^'"]*['"]\s*\)/;
 
+// A deploy workflow's gate redeploys only when a changed path is in its PATHS
+// list, so every workspace package the deployed app bundles (transitively)
+// must be listed — a compiler-only merge once passed CI and never deployed.
+function workspaceDependencies(packageDir, seen = new Set()) {
+  const manifest = JSON.parse(readFileSync(path.join(REPO_ROOT, packageDir, 'package.json'), 'utf8'));
+  const names = Object.entries({ ...manifest.dependencies, ...manifest.devDependencies })
+    .filter(([, version]) => String(version).startsWith('workspace:'))
+    .map(([name]) => name);
+  for (const name of names) {
+    const dir = `packages/${name.replace('@deployz/', '')}`;
+    if (seen.has(dir)) continue;
+    seen.add(dir);
+    workspaceDependencies(dir, seen);
+  }
+  return seen;
+}
+
+for (const [app, workflow] of [['apps/api', 'deploy-api.yml'], ['apps/web', 'deploy-web.yml']]) {
+  test(`${workflow} redeploys on a change to every workspace package ${app} bundles`, () => {
+    const content = readFileSync(path.join(REPO_ROOT, '.github', 'workflows', workflow), 'utf8');
+    const paths = content.match(/^\s*PATHS:\s*(.+)$/m)?.[1].split(/\s+/) ?? [];
+    for (const dir of workspaceDependencies(app)) {
+      assert.ok(paths.includes(`${dir}/*`), `${workflow} PATHS is missing ${dir}/*`);
+    }
+  });
+}
+
 test('no file under apps/ or packages/ imports from e2e/ (D2: test-only boundary)', () => {
   const offenders = [];
   for (const root of ['apps', 'packages']) {
