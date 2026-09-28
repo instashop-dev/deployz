@@ -52,7 +52,7 @@ jobs:
         env:
           SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
           MANUAL: ${{ github.event_name == 'workflow_dispatch' }}
-          PATHS: apps/api/* packages/cdk/* packages/db/* packages/contracts/* packages/analysis/* packages/relay/* packages/copy-map/* pnpm-lock.yaml .github/workflows/deploy-api.yml
+          PATHS: apps/api/* packages/cdk/* packages/db/* packages/contracts/* packages/analysis/* packages/infrastructure-compiler/* packages/relay/* packages/copy-map/* pnpm-lock.yaml .github/workflows/deploy-api.yml
         run: |
           set -euo pipefail
           echo "sha=$SHA" >> "$GITHUB_OUTPUT"
