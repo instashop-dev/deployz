@@ -35,7 +35,7 @@ Everything in the control plane is deployed by CI only; see
 | Stack | Created by | Contents |
 | --- | --- | --- |
 | Bootstrap ("connector") stack `deployz-bootstrap-…` | The customer's Quick Create | The relay Lambda (Node 22, 5-minute timeout) on a 5-minute EventBridge schedule, its role with a permissions boundary, the CloudFormation execution role, the relay credential in Secrets Manager, an SSM pending-command marker |
-| Application stack `deployz-app-<installation-id-prefix>` | The relay, from the compiled CloudFormation artifact frozen in the deployment's spec | VPC, ALB, ECS Fargate service, S3 bucket, optional RDS PostgreSQL, optional Valkey cache, app config secret, roles, log group, alarm |
+| Application stack `deployz-app-<installation-id-prefix>` | The relay, from the compiled CloudFormation artifact frozen in the deployment's spec | VPC, ALB (for public workloads), one ECS Fargate service per workload (the web service plus any declared workers), the one-shot migration task definition when the app has a migration command, S3 bucket, optional RDS PostgreSQL or RDS MySQL, optional Valkey cache, app config secret, roles, per-workload log groups and security groups, alarm |
 
 The relay talks to the control plane **egress-only** and is the only code
 that ever touches the customer's AWS account.
@@ -47,8 +47,9 @@ that ever touches the customer's AWS account.
    installation events only; a push never builds anything.
 2. **Analysis** — `@deployz/analysis` runs deterministic detectors (runtime,
    Dockerfile, port, bind address, health path, environment-variable model,
-   external services, PostgreSQL / storage / Redis requirements, the
-   unsupported-architecture rejections). An AI fallback resolves only
+   external services, PostgreSQL / MySQL / storage / Redis requirements,
+   declared worker processes, the unsupported-architecture rejections). An AI
+   fallback resolves only
    genuinely open questions and can never override a detector. Output: the
    canonical `ApplicationAnalysis`, the readiness report and the versioned
    deployment manifest (`packages/analysis/src/{manifest,readiness-report,application-analysis}.ts`).
@@ -86,15 +87,28 @@ that ever touches the customer's AWS account.
    install creates the service with zero tasks and the post-install
    CONFIG_UPDATE plus auto-deploy start it. INSTALL success auto-deploys the
    newest READY release.
-7. **Deploy** — DEPLOY_RELEASE runs the migration command (if any) as a
-   one-off ECS task, then updates the service to the pinned digest. Before a
+7. **Deploy** — DEPLOY_RELEASE runs the frozen migration (if the spec has a
+   migration workload) as a one-shot ECS task — the compiler baked the
+   command into a single task definition (family `DeployzAppMigration`) — and
+   then updates every service to the pinned digest. The migration always runs
+   after the infrastructure and the database are ready and before any service
+   updates; its identity (sha256 over the frozen command plus the image
+   digest) makes it run exactly once per release — a retry of an
+   already-succeeded migration skips the run. A failed migration fails the
+   job with `MIGRATION_FAILED` (task family, exit code, stopped reason); no
+   service is updated, the previous release keeps serving, and the deployment
+   returns to `UPDATE_AVAILABLE`. Before a
    deploy, rollback or bulk deploy is queued the API asks the registry
    whether the image still exists (`apps/api/src/release-images.ts`); a
    deleted image refuses with `RELEASE_UNAVAILABLE` and never touches the
-   running release. Rollback never runs migrations.
+   running release. Rollback and restart never run migrations.
 8. **Health and promotion** — the relay's heartbeat reports ECS counts,
    rollout state, ALB target health, the HTTP probe, the running digest, the
-   component verification and the stack inventory. The control plane
+   component verification and the stack inventory. Verification has one
+   `compute` check per workload: the web service verifies through its ALB
+   target and the HTTP probe, a worker verifies through its service
+   stability alone (it has no ALB target and no HTTP endpoint). The control
+   plane
    promotes the release pointer only when every gate passes (rollout
    COMPLETED, full counts, healthy targets, successful probe).
    `GET /api/deployments/:id/infrastructure` compares the components the
@@ -132,7 +146,8 @@ compiled artifact**
    application needs: workloads, resources, bindings, external services.
    It does not contain AWS capability decisions.
 3. **Capability Resolver / Planner** maps graph needs to AWS capabilities
-   (ECS Fargate service, RDS PostgreSQL, ElastiCache Valkey, S3, ALB,
+   (ECS Fargate services for the web and worker workloads, the one-shot
+   migration task, RDS PostgreSQL, RDS MySQL, ElastiCache Valkey, S3, ALB,
    Secrets Manager), applies the immutable size profile and region, and
    emits `DeployzIR` — the authoritative provisioning intent.
 4. **compiler-v2** (`packages/infrastructure-compiler`) turns the IR into a
@@ -161,20 +176,27 @@ that would replace or delete managed resources fail closed.
 ## What the application stack contains
 
 The compiled stack contains: a VPC (two public and two private subnets, one
-NAT gateway), an ECS cluster and Fargate service (`small-v1`: 0.25 vCPU /
-512 MiB, one task, deployment circuit breaker with rollback), a task
-definition, an internet-facing ALB with one HTTP listener and a target
-group, an unhealthy-target alarm, a log group, an S3 bucket
+NAT gateway), an ECS cluster, and one Fargate service per persistent
+workload (`small-v1`: 0.25 vCPU / 512 MiB per task, deployment circuit
+breaker with rollback). The web workload runs behind the internet-facing
+ALB (one HTTP listener, a target group, an unhealthy-target alarm); each
+declared worker runs its own private service — one task, its own log group
+and security group, no ALB target, no HTTP health check. Every workload
+gets a task definition with the same frozen image and its own frozen
+command; a migration command compiles into one additional one-shot task
+definition (no service). Shared resources: the S3 bucket
 (**Retain**), the application config secret (Delete), and the task
 execution and task roles. Optional resources are composed from the IR:
 
 | Capability adds | Lifecycle on destroy |
 | --- | --- |
 | RDS PostgreSQL 16 instance (`db.t4g.micro`, 20→100 GB, 7-day backups, deletion protection), subnet group, master secret + URL secret | **Retain** |
+| RDS MySQL 8.0 instance (same class, storage, backup and protection settings), subnet group, master secret + URL secret | **Retain** |
 | ElastiCache Valkey replication group (one `cache.t4g.micro` node, no Multi-AZ, TLS off), cache subnet group and security group | Delete |
 
-Parameters: desired count, image reference, container port,
-health-check path, and the generated application secrets.
+Parameters: the web desired count, image reference, container port,
+health-check path, and the generated application secrets. Each worker
+service runs one task.
 
 Redis details: the app receives `REDIS_URL` (`redis://<endpoint>:6379`),
 `REDIS_HOST` and `REDIS_PORT`; other detected alias names are bound after
@@ -183,10 +205,14 @@ MVP). The cache security group allows 6379 from the whole VPC CIDR, wider
 than the database rule. Detection tiers and the supported/unsupported
 matrix are in [`ai-analysis.md`](ai-analysis.md).
 
-Database details: the task's `DATABASE_URL` (`sslmode=require`) is assembled
+Database details: the task's `DATABASE_URL` (`sslmode=require` for
+PostgreSQL, `mysql://` for MySQL) is assembled
 through a CloudFormation dynamic reference, so the generated password is
 alphanumeric only; an init container mounts the RDS CA bundle for clients
-that verify the chain. Aliases such as `DB_HOST` / `DB_USER` are bound from
+that verify the chain, and the CA environment is shared by every workload,
+so workers and the migration task verify TLS the same way. MySQL also
+binds `MYSQL_URL` and the `DB_*` aliases. Aliases such as `DB_HOST` /
+`DB_USER` are bound from
 the analysis manifest.
 
 The HTTPS listener and its certificate are **not** in the template; the
@@ -199,7 +225,9 @@ shared list of the five components a deployment can have: application,
 endpoint, database, cache and storage. Each row names the graph need that
 requires it, its `lifecycle` (`delete` or `retain`) on destroy, the
 CloudFormation `primaryResourceType` that proves it exists, and the relay
-`checkName` that verifies it. It is the semantic catalog for relay
+`checkName` that verifies it. A multi-workload deployment holds one
+application-component seat per workload, so each service is verified and
+presented on its own. It is the semantic catalog for relay
 verification, lifecycle presentation and deployment plans; the compiler
 owns how each capability is constructed and CloudFormation owns the real
 lifecycle.
@@ -341,9 +369,12 @@ one, so removing a record can never remove infrastructure.
 
 ## The MVP support boundary
 
-Deployz supports one opinionated architecture: a single Linux web/API
-container on ECS Fargate behind an ALB, S3, and optional RDS PostgreSQL and
-ElastiCache Valkey, installed from a compiler-generated CloudFormation
+Deployz supports one opinionated architecture: one build artifact on ECS
+Fargate that runs as a web service behind an ALB, plus declared background
+workers (one private ECS service each) and a one-shot migration task when
+the app has a migration command; S3, and optional RDS PostgreSQL, RDS
+MySQL and ElastiCache Valkey, installed from a compiler-generated
+CloudFormation
 template. Anything that does not fit is rejected at analysis time with
 evidence, never silently adapted. The full list of non-goals, known
 limitations and deferred items is in [`product/mvp-scope.md`](product/mvp-scope.md).

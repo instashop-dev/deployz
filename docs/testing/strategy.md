@@ -83,10 +83,15 @@ at three separate layers, and only the last touches real AWS:
   publication and INSTALL-parameter tests.
 - **Simulated E2E (L3)** — the full product path over the
   `SimulatedCustomerAccount`, including `retained-delete-recovery`
-  (DESTROY retains; PURGE removes).
+  (DESTROY retains; PURGE removes) and the Phase 4 capability scenarios
+  (`multi-worker-sweep`, `mysql-sweep`, `migration-success`,
+  `migration-failure`, `phase4-composition`).
 - **Real AWS (L4+)** — mandatory for release gates: the direct composite
   canary, the version canary's `profile` runs, and the `core` day-2
-  ladder. A green simulated suite never substitutes for these.
+  ladder. A green simulated suite never substitutes for these. The
+  Phase 4 shapes (multiple workers, RDS MySQL, one-shot migrations) have
+  no real-AWS qualification yet; their scenario backlog is recorded as
+  pending in [`aws-e2e.md`](aws-e2e.md).
 
 Capability composition — not the four historical application templates —
 is the primary testing model: tests assert what the compiler composes

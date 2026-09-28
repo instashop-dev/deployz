@@ -119,6 +119,43 @@ that does not answer marks nothing and lets the deploy proceed, where the
 pipeline's own image-pull failure and the circuit breaker stay honest
 (`apps/api/src/release-images.ts`, `release-images.test.ts`).
 
+## Migrations run once, before the rollout, and never on rollback
+
+A deployment whose frozen spec carries a migration workload compiles one
+`AWS::ECS::TaskDefinition` (family `DeployzAppMigration`) with the
+migration command baked in at compile time. DEPLOY_RELEASE then runs a
+fixed order:
+
+``` text
+install / database ready
+    → run the migration task once (exit 0 required)
+    → roll every service to the new digest
+```
+
+- **Ordering.** The migration always runs after the infrastructure and
+  the database are ready and before any service updates.
+- **Failure.** A non-zero exit or a stopped task fails the job with
+  `MIGRATION_FAILED` (family, exit code, stopped reason). No service is
+  updated, the previous release keeps serving, and the deployment
+  returns to `UPDATE_AVAILABLE` — a failed migration is a failed update,
+  not a failed deployment.
+- **Exactly-once by identity.** The deploy payload's migration identity
+  is sha256 over the frozen command plus the image digest. A SUCCEEDED
+  DEPLOY_RELEASE job row carrying that identity proves the migration
+  ran: a relay retry of a confirmed identity skips the run, while within
+  one rollout the same task ARN resumes. A failed job never confirms an
+  identity.
+- **Trust boundary.** The relay runs only the family the control plane
+  names. The payload carries `{family, identity}`; a payload with a
+  command string is rejected and dropped — the relay can never execute
+  an arbitrary command.
+- **ROLLBACK and RESTART never run migrations.** Application rollback
+  restores the image and service configuration only; it never reverses
+  database migrations, and no down-migration orchestration exists. Every
+  rollback affordance in the UI carries the warning verbatim
+  ("Application rollback does not automatically reverse database
+  migrations."), and vendors must write backward-compatible migrations.
+
 ## Idempotency and exclusivity
 
 - Every operation has a durable idempotency key
@@ -241,7 +278,8 @@ forwarded.
 
 DESTROY (disconnect) is a data-preserving teardown, and **a DESTROY that
 retains data is a success**. The relay deletes the application stack; the
-deletion-protected RDS instance fails its delete only after the security
+deletion-protected RDS instance (PostgreSQL or MySQL) fails its delete only
+after the security
 group and subnet it pins, so the stack first lands on `DELETE_FAILED` —
 expected pacing (45+ minutes of CloudFormation retrying), not a failure.
 The relay lists the `DELETE_FAILED` resources and re-issues
@@ -252,8 +290,9 @@ database, its credential secrets and the bucket are deliberately retained
 (no final snapshot is ever taken), clearly visible, and removable by
 PURGE.
 
-PURGE is the second, explicit half. It deletes the retained data — the RDS
-instance (deletion protection off, `SkipFinalSnapshot`), **every owned
+PURGE is the second, explicit half. It deletes the retained data — every
+retained RDS instance (PostgreSQL or MySQL; deletion protection off,
+`SkipFinalSnapshot`), **every owned
 application secret regardless of infrastructure generation** (anything
 carrying the installation tag that is not the relay's own
 `deployz:component=bootstrap` secret), the bucket (every version), ACM

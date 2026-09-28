@@ -223,6 +223,30 @@ disconnect dialog, and the deploy-update dialog. Each page shows the
 deployment's manifest. The page does not build its own plan. The page does
 not guess which resources exist. The page only shows the plan's data.
 
+## Multi-workload presentation
+
+One deployment can run more than one workload: the web service, declared
+background workers, and a one-shot migration task. The UI stays generic —
+it renders whatever workload rows the plan's footprint carries, never a
+hard-coded topology.
+
+- Footprint rows are generic: every workload is one row sized from the
+  plan's footprint (`footprintComponentRows` in `lib/footprint.ts`), and
+  the install page's infrastructure table draws one row per workload
+  under "Compute & Networking". A new workload kind renders through the
+  same rows with no page change.
+- Public versus internal: the web workload is the deployment's only
+  public entry point. The architecture diagram emphasizes it behind the
+  load balancer and draws every worker as internal; a worker row states
+  its reach in plain words ("Processes background jobs — not reachable
+  from the internet").
+- Workers get no ingress affordances: no URL, no health-check or
+  endpoint affordances, no HTTP status. A worker's status is its ECS
+  service's own, shown through the same status vocabulary as every other
+  component.
+- Every rollback affordance carries the warning verbatim: "Application
+  rollback does not automatically reverse database migrations."
+
 ## Typography
 
 | Level | Classes |

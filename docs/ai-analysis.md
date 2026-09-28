@@ -55,7 +55,10 @@ Repository (GitHub tree, bounded)
   stored rows re-run.
 - **Detectors** (`packages/analysis/src/detectors.ts`): Dockerfile,
   framework, port (six tiers), health endpoint, env vars, PostgreSQL
-  (required vs present), local filesystem, worker, S3, migration command,
+  (required vs present), MySQL (required vs present, with the engine
+  choice recorded on the manifest; a MariaDB-only driver stays a
+  rejection), local filesystem, declared worker processes, S3, migration
+  command,
   start command, external services, package manager, build command,
   **runtime** (Dockerfile base image, then the shallowest manifest) and
   **bind address** (loopback-only servers). Redis is assessed separately
@@ -93,13 +96,22 @@ ids, a `required` / `recommended` severity and a `blocking` flag:
 | WARNING | `required` | ALMOST_READY / NEEDS_ATTENTION — fixable configuration |
 | RECOMMENDATION | `recommended` | never blocks READY |
 
-Ids: `unsupported-database-*`, `unsupported-redis-setup`,
+Ids: `unsupported-database-*` (MySQL is a supported engine, so only the
+still-unsupported engines land here — MariaDB-only setups, MongoDB,
+SQLite, Elasticsearch/OpenSearch, Cassandra, Neo4j, ClickHouse, embedded
+JVM databases), `unsupported-redis-setup`,
 `unsupported-architecture`, `unsupported-message-queue`,
-`unsupported-multi-service`, `unsupported-persistent-volume`,
-`unsupported-gpu`, `local-file-storage`, `background-worker-unsupported`
+`unsupported-multi-service` (Compose application services beyond the web
+service and declared workers), `unsupported-persistent-volume`,
+`unsupported-gpu`, `local-file-storage`
 (blocking); `container-setup`, `port-unresolved`, `start-command-missing`,
 `health-check`, `localhost-binding` (required); `database-migrations`,
-`worker-command` (recommended). `reconcileReadiness` applies the vendor's
+`worker-command`, `worker-process` (recommended). A declared worker
+process is `worker-process` — informational, because Deployz now runs it
+as its own service. Worker-like code with no declared start command is
+`worker-command` and sets `worker.needsCommand`: a needs-input question
+that is never provisioned from weak evidence such as a queue library
+alone. `reconcileReadiness` applies the vendor's
 container port and start command as a view, so the page, the persisted
 verdict and the fix instructions agree without a re-analysis.
 

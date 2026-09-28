@@ -61,8 +61,8 @@ account:
 
 | Component | What Deployz provisions | Notes |
 | --- | --- | --- |
-| Compute | One Linux x86-64 container on ECS Fargate behind an Application Load Balancer | Needs a Dockerfile. `small-v1`: 0.25 vCPU / 512 MiB. |
-| Database (optional) | RDS PostgreSQL 16, `db.t4g.micro`, 20 GB (autoscaling to 100 GB), 7-day backups, deletion protection | Provisioned only when the analysis manifest requires PostgreSQL. **Retained** on disconnect. |
+| Compute | One build artifact on ECS Fargate: a web service behind an Application Load Balancer, plus one private service per declared background worker, plus a one-shot migration task when the app has a migration command | Needs a Dockerfile. `small-v1`: 0.25 vCPU / 512 MiB per task. The web desired count comes from the profile; each worker runs one task. Workers have no URL and no load-balancer route. |
+| Database (optional) | RDS PostgreSQL 16 or RDS MySQL 8.0, `db.t4g.micro`, 20 GB (autoscaling to 100 GB), 7-day backups, deletion protection | Provisioned only when the analysis manifest requires PostgreSQL or MySQL. **Retained** on disconnect. |
 | Cache (optional) | ElastiCache Valkey (Redis-compatible), single `cache.t4g.micro` node, no TLS, no cluster mode | Provisioned only when the manifest requires Redis. Deleted on disconnect. |
 | Storage | One S3 bucket, always created | **Retained** on disconnect. |
 | Network | Dedicated VPC, public/private subnets, NAT, security groups | Deleted on disconnect. |
@@ -70,7 +70,9 @@ account:
 
 The infrastructure is compiled at deployment creation from the frozen
 deployment spec — compiler-v2 is the provisioning path, and no
-pre-published application template exists. Sizing is
+pre-published application template exists. Every workload (web, workers,
+migration) shares the one build artifact; there is exactly one image per
+deployment. Sizing is
 frozen per deployment in an immutable profile registry
 ([`../infrastructure-profiles.md`](../infrastructure-profiles.md)); today
 only `small-v1` exists and the customer is not offered a choice.
@@ -87,8 +89,9 @@ see [`user-flows.md#who-chooses-the-aws-region`](user-flows.md#who-chooses-the-a
 ## What the MVP does
 
 - **Repository analysis**: deterministic detectors (runtime, Dockerfile, port,
-  health path, environment variables, PostgreSQL/Redis/S3 requirements,
-  unsupported-architecture rejections) with an AI fallback that only fills
+  health path, environment variables, PostgreSQL/MySQL/Redis/S3 requirements,
+  declared worker processes, unsupported-architecture rejections) with an AI
+  fallback that only fills
   genuinely open questions. Output: the application manifest, a readiness
   report and, on request, fix instructions for a coding agent
   ([`../ai-analysis.md`](../ai-analysis.md)).
@@ -107,8 +110,10 @@ see [`user-flows.md#who-chooses-the-aws-region`](user-flows.md#who-chooses-the-a
   resources and a Region-priced monthly cost estimate, one Quick Create
   stack, live install progress, automatic first deploy and a permanent HTTPS
   URL.
-- **Day-2 operations**: deploy a release (migration command runs first as a
-  one-off task), roll back (never re-runs migrations), restart, update
+- **Day-2 operations**: deploy a release (the migration runs once as a
+  one-shot task before any service updates; an already-run migration is not
+  repeated), roll back (never re-runs migrations and warns that it does not
+  reverse them), restart, update
   configuration, retry a failed install, reset the relay, retry default
   HTTPS.
 - **Health and status**: CloudFormation success never means healthy. The
@@ -134,14 +139,20 @@ see [`user-flows.md#who-chooses-the-aws-region`](user-flows.md#who-chooses-the-a
 
 Rejected at analysis time, with evidence, never silently adapted:
 
-- A second process per application: background workers, job runners, and
-  platform cron or scheduled tasks. (In-process schedulers inside the web
-  container are fine and are not flagged.)
-- Databases other than PostgreSQL: MySQL/MariaDB, MongoDB, SQLite,
+- Platform cron and scheduled tasks (Deployz provisions no scheduler;
+  EventBridge Scheduler is a post-MVP capability). In-process schedulers
+  inside any container are fine and are not flagged. Worker-like code
+  with no declared start command is not rejected — it becomes a
+  needs-input question and Deployz never provisions it from weak
+  evidence.
+- Databases other than PostgreSQL and RDS MySQL: MariaDB (the MySQL
+  dialect Deployz does not host), MongoDB, SQLite,
   Elasticsearch/OpenSearch, ClickHouse, embedded JVM databases.
 - Message brokers and event consumers: Kafka, RabbitMQ, SQS consumers.
 - Redis Cluster, Redis Stack modules, TLS Redis.
-- Multi-container or Compose stacks, Kubernetes, Serverless/SAM, the
+- Compose application services beyond the web service and declared
+  workers (extra long-running application services), Kubernetes,
+  Serverless/SAM, the
   repository's own Terraform/Pulumi/CloudFormation, Azure, GCP.
 - Persistent volumes or local disk state, GPUs, Windows, ARM64 or privileged
   containers.
@@ -149,8 +160,11 @@ Rejected at analysis time, with evidence, never silently adapted:
 Not provided by the platform:
 
 - Existing customer VPCs or databases, PrivateLink, Direct Connect, VPN,
-  private-only applications, custom proxies or DNS architectures, custom IAM,
+  private-only applications (services with no public exposure beyond the
+  declared workers), custom proxies or DNS architectures, custom IAM,
   accounts whose SCPs block the standard stack.
+- A second build artifact per deployment — every workload shares the one
+  image, so a worker that needs a different Dockerfile is unsupported.
 - Multi-Region or active-active deployments, on-premises, air-gapped
   environments.
 - Customer-selectable size profiles, changing the topology of an existing
@@ -168,8 +182,9 @@ Not provided by the platform:
 
 Deliberate trade-offs that are documented rather than hidden:
 
-- **Rollback never reverses schema migrations.** Vendors must write
-  backward-compatible migrations.
+- **Rollback never reverses schema migrations.** Every rollback affordance
+  carries the warning "Application rollback does not automatically reverse
+  database migrations."; vendors must write backward-compatible migrations.
 - **Default-URL traffic passes through Deployz's Cloudflare edge.** The
   permanent `d-*` hostname is a proxied Cloudflare record; a custom domain
   routes directly to the customer's ALB.
@@ -194,7 +209,8 @@ Deliberate trade-offs that are documented rather than hidden:
 
 Recorded so they are not mistaken for gaps:
 
-- Background worker support (a real second process), cron and scheduled jobs.
+- Cron and scheduled jobs (EventBridge Scheduler), queues and event
+  consumers (SQS).
 - Additional infrastructure size profiles (`minimal`, `large`); each needs a
   new infrastructure version and a security/cost review.
 - Removal of the legacy deploy-link flow
