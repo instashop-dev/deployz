@@ -240,39 +240,51 @@ export interface GithubRepository {
 
 // Lists the repos visible to an installation using the short-lived token.
 // BLOCKED against real GitHub in this environment — testable via mock fetch.
+// GitHub pages this endpoint (30 per page by default), so every page is read,
+// bounded (100 per page, at most `maxPages`) so one picker request can never
+// become an unbounded scan.
 export async function listInstallationRepositories(
   installationToken: string,
   fetchFn: FetchFn,
+  maxPages = 10,
 ): Promise<GithubRepository[]> {
-  const response = await fetchFn(`${GITHUB_API_BASE}/installation/repositories`, {
-    method: 'GET',
-    headers: {
-      Authorization: `Bearer ${installationToken}`,
-      Accept: 'application/vnd.github+json',
-      'X-GitHub-Api-Version': '2022-11-28',
-    },
-  });
-  if (response.status < 200 || response.status >= 300) {
-    throw new ApiError(502, 'GITHUB_REPO_LIST_FAILED', 'Failed to list repositories');
+  const perPage = 100;
+  const repositories: GithubRepository[] = [];
+  for (let page = 1; page <= maxPages; page += 1) {
+    const response = await fetchFn(`${GITHUB_API_BASE}/installation/repositories?per_page=${perPage}&page=${page}`, {
+      method: 'GET',
+      headers: {
+        Authorization: `Bearer ${installationToken}`,
+        Accept: 'application/vnd.github+json',
+        'X-GitHub-Api-Version': '2022-11-28',
+      },
+    });
+    if (response.status < 200 || response.status >= 300) {
+      throw new ApiError(502, 'GITHUB_REPO_LIST_FAILED', 'Failed to list repositories');
+    }
+    const data = (await response.json()) as {
+      repositories: Array<{
+        id: number;
+        name: string;
+        full_name: string;
+        description: string | null;
+        private: boolean;
+        default_branch: string;
+      }>;
+    };
+    for (const repo of data.repositories) {
+      repositories.push({
+        id: String(repo.id),
+        name: repo.name,
+        fullName: repo.full_name,
+        description: repo.description,
+        private: repo.private,
+        defaultBranch: repo.default_branch,
+      });
+    }
+    if (data.repositories.length < perPage) break; // a short page is the last one
   }
-  const data = (await response.json()) as {
-    repositories: Array<{
-      id: number;
-      name: string;
-      full_name: string;
-      description: string | null;
-      private: boolean;
-      default_branch: string;
-    }>;
-  };
-  return data.repositories.map((repo) => ({
-    id: String(repo.id),
-    name: repo.name,
-    fullName: repo.full_name,
-    description: repo.description,
-    private: repo.private,
-    defaultBranch: repo.default_branch,
-  }));
+  return repositories;
 }
 
 // ---------------------------------------------------------------------------
