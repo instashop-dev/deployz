@@ -44,6 +44,7 @@ const KIND_BY_CAPABILITY_KEY: Readonly<Record<string, DeploymentPlanComponent['k
   [CAPABILITY_KEYS.ECS_FARGATE_SERVICE]: 'application',
   [CAPABILITY_KEYS.ECS_FARGATE_TASK]: 'worker',
   [CAPABILITY_KEYS.RDS_POSTGRES]: 'database',
+  [CAPABILITY_KEYS.RDS_MYSQL]: 'database',
   [CAPABILITY_KEYS.ELASTICACHE_VALKEY]: 'cache',
   [CAPABILITY_KEYS.S3]: 'storage',
   [CAPABILITY_KEYS.ALB]: 'endpoint',
