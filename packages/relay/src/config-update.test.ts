@@ -427,6 +427,16 @@ describe('createConfigUpdateExecutor', () => {
     expect(findAppConfigSecretArn(resources.slice(0, 2))).toBeNull();
   });
 
+  it('finds the compiler-v2 config secret by its stable logical id, next to the database secrets', () => {
+    const resources = [
+      { logicalId: 'PrimaryDbMasterSecret', type: 'AWS::SecretsManager::Secret', status: 'CREATE_COMPLETE', physicalId: 'arn:db' },
+      { logicalId: 'PrimaryDbUrlSecret', type: 'AWS::SecretsManager::Secret', status: 'CREATE_COMPLETE', physicalId: 'arn:url' },
+      { logicalId: 'ApplicationConfigSecret', type: 'AWS::SecretsManager::Secret', status: 'CREATE_COMPLETE', physicalId: CONFIG_SECRET_ARN },
+    ];
+    expect(findAppConfigSecretArn(resources)).toBe(CONFIG_SECRET_ARN);
+    expect(findAppConfigSecretArn(resources.slice(0, 2))).toBeNull();
+  });
+
   it('fails honestly when the stack has no AppConfigSecret resource', async () => {
     // `cfn` variant without the secret resource is built in-line: the
     // executor must not silently report a secret as persisted.
