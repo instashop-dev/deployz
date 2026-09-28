@@ -289,6 +289,24 @@ describe('github — fixture-backed list helpers', () => {
   });
 });
 
+describe('github — installation repository listing pagination', () => {
+  const repo = (n: number) => ({ id: n, name: `repo-${n}`, full_name: `org/repo-${n}`, description: null, private: false, default_branch: 'main' });
+
+  it('reads every page, not only the first 30 repositories GitHub returns by default', async () => {
+    const urls: string[] = [];
+    const fetchFn: FetchFn = (url) => {
+      urls.push(url);
+      const page = Number(new URL(url).searchParams.get('page'));
+      const count = page === 1 ? 100 : 35;
+      return makeFetchResponse(200, { repositories: Array.from({ length: count }, (_, i) => repo((page - 1) * 100 + i)) });
+    };
+    const repos = await listRepositories('install-1', { fixtureMode: false, installationToken: 'token', fetchFn });
+    expect(repos).toHaveLength(135);
+    expect(repos.at(-1)?.fullName).toBe('org/repo-134');
+    expect(urls.map((url) => new URL(url).search)).toEqual(['?per_page=100&page=1', '?per_page=100&page=2']);
+  });
+});
+
 describe('github — parseRepoFullName', () => {
   it('splits a well-formed "owner/repo" name', () => {
     expect(parseRepoFullName('deployz-demo/express-api')).toEqual({
