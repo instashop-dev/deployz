@@ -3,6 +3,8 @@ import { act, forwardRef, useEffect, useImperativeHandle } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import type { DeploymentPlan } from '@deployz/contracts';
+
 import type { Release } from '../src/lib/releases';
 import type { FleetDeployment } from '../src/lib/deployments';
 
@@ -11,6 +13,7 @@ import type { FleetDeployment } from '../src/lib/deployments';
 const mocks = vi.hoisted(() => ({
   fetchReleases: vi.fn(),
   fetchDeploymentsForApplication: vi.fn(),
+  fetchDeploymentPlan: vi.fn(),
   createRelease: vi.fn(),
 }));
 
@@ -32,6 +35,7 @@ vi.mock('@/lib/deployments', async (importOriginal) => {
   return {
     ...actual,
     fetchDeploymentsForApplication: mocks.fetchDeploymentsForApplication,
+    fetchDeploymentPlan: mocks.fetchDeploymentPlan,
   };
 });
 
@@ -122,6 +126,9 @@ let root: Root;
 
 beforeEach(() => {
   vi.clearAllMocks();
+  // A settled no-change plan by default: table tests that happen to load
+  // deployments must not crash on the infrastructure line's own fetch.
+  mocks.fetchDeploymentPlan.mockResolvedValue(makeUpdatePlan({ status: 'none' }));
   container = document.createElement('div');
   document.body.appendChild(container);
   root = createRoot(container);
@@ -324,5 +331,99 @@ describe('Create release form', () => {
     );
     const link = container.querySelector('a[href="/dashboard/applications/app-1/config#environment-variables"]');
     expect(link?.textContent).toBe('Review configuration');
+  });
+});
+
+function makeUpdatePlan(infrastructureChange: DeploymentPlan['infrastructureChange']): DeploymentPlan {
+  return {
+    schemaVersion: 1,
+    action: 'UPDATE',
+    region: 'us-east-1',
+    components: [],
+    awsResources: [],
+    requirementDrift: [],
+    ...(infrastructureChange ? { infrastructureChange } : {}),
+  };
+}
+
+describe('Release infrastructure line', () => {
+  beforeEach(() => {
+    mocks.fetchReleases.mockResolvedValue([makeRelease({ id: 'rel-1' })]);
+    mocks.fetchDeploymentsForApplication.mockResolvedValue([
+      makeDeployment({ id: 'dep-1', state: 'HEALTHY' }),
+    ]);
+  });
+
+  it('shows a quiet no-changes line when the update plan reports no infrastructure change', async () => {
+    mocks.fetchDeploymentPlan.mockResolvedValue(makeUpdatePlan({ status: 'none' }));
+
+    await act(async () => {
+      renderPage();
+    });
+    await waitForTable();
+
+    await vi.waitFor(() => {
+      if (!container.querySelector('[data-testid="release-infrastructure-none"]')) {
+        throw new Error('still loading');
+      }
+    });
+    expect(container.querySelector('[data-testid="release-infrastructure-none"]')?.textContent).toBe(
+      'No infrastructure changes',
+    );
+    expect(mocks.fetchDeploymentPlan).toHaveBeenCalledWith('dep-1', 'update');
+    expect(container.querySelector('[data-testid="release-infrastructure-unsupported"]')).toBeNull();
+  });
+
+  it('shows a warning alert when the release needs unsupported topology changes', async () => {
+    mocks.fetchDeploymentPlan.mockResolvedValue(
+      makeUpdatePlan({ status: 'unsupported', reason: 'topology_changed' }),
+    );
+
+    await act(async () => {
+      renderPage();
+    });
+    await waitForTable();
+
+    await vi.waitFor(() => {
+      if (!container.querySelector('[data-testid="release-infrastructure-unsupported"]')) {
+        throw new Error('still loading');
+      }
+    });
+    expect(container.textContent).toContain('Infrastructure requirements changed');
+    expect(container.textContent).toContain(
+      'This release requires infrastructure changes. Automatic infrastructure upgrades are not supported yet.',
+    );
+    expect(container.querySelector('[data-testid="release-infrastructure-none"]')).toBeNull();
+  });
+
+  it('hides the block when the plan fetch fails', async () => {
+    mocks.fetchDeploymentPlan.mockRejectedValue(new Error('boom'));
+
+    await act(async () => {
+      renderPage();
+    });
+    await waitForTable();
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(container.querySelector('[data-testid="release-infrastructure-none"]')).toBeNull();
+    expect(container.querySelector('[data-testid="release-infrastructure-unsupported"]')).toBeNull();
+    // The page itself is unaffected.
+    expect(container.querySelector('[data-testid="release-row-rel-1"]')).not.toBeNull();
+  });
+
+  it('hides the block when the application has no deployments', async () => {
+    mocks.fetchDeploymentsForApplication.mockResolvedValue([]);
+
+    await act(async () => {
+      renderPage();
+    });
+    await waitForTable();
+
+    expect(mocks.fetchDeploymentPlan).not.toHaveBeenCalled();
+    expect(container.querySelector('[data-testid="release-infrastructure-none"]')).toBeNull();
+    expect(container.querySelector('[data-testid="release-infrastructure-unsupported"]')).toBeNull();
   });
 });

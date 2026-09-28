@@ -7,6 +7,7 @@ import type {
   CustomerDeploymentStatus,
   CustomerTechnicalDetails,
   DeploymentPlan,
+  SpecComponent,
 } from '@deployz/contracts';
 import { AlertCircle, AlertTriangle, CheckCircle2, ChevronDown, ExternalLink, Loader2 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
@@ -28,6 +29,7 @@ import {
   isTerminalStage,
   PRE_LAUNCH_HEADLINE,
   recentActivityTimeLabel,
+  specComponentPresentation,
   STAGE_HEADLINE,
   stepWaitingOnInput,
   stepsBeforeLaunch,
@@ -159,6 +161,9 @@ export function InstallProgress({
   });
 
   const status = poll.data;
+  // Additive spec-derived components (phase 3) — present only when the
+  // deployment has a frozen spec; the fixed stepper is untouched either way.
+  const specComponents = status?.specComponents;
 
   // The pre-install layout is a server component, so this card advancing on
   // its own would leave a spent "Deploy to AWS" CTA above it. One refresh
@@ -286,7 +291,12 @@ export function InstallProgress({
       ) : null}
 
       {!failed ? (
-        <ResourcesSummary components={status.components} plan={plan} stage={status.stage} />
+        <ResourcesSummary
+          components={status.components}
+          specComponents={specComponents}
+          plan={plan}
+          stage={status.stage}
+        />
       ) : null}
 
       {!failed && status.technicalDetails ? (
@@ -431,19 +441,27 @@ function LiveAwsActivity({
  * plan's full AWS inventory behind "View all AWS resources (N)". Components
  * the deployment does not need are never listed (the API already omits
  * them; NOT_REQUIRED rows are dropped defensively too).
+ *
+ * When the status carries the additive `specComponents` (a frozen spec
+ * exists), those entries are the rows instead: label + tone dot/state +
+ * optional detail, same visual style. Without them the legacy component
+ * list renders exactly as before.
  */
 function ResourcesSummary({
   components,
+  specComponents,
   plan,
   stage,
 }: {
   components: CustomerDeploymentStatus['components'];
+  specComponents: SpecComponent[] | undefined;
   plan: DeploymentPlan | null;
   stage: CustomerDeploymentStatus['stage'];
 }) {
-  const rows = components.filter((component) => component.status !== 'NOT_REQUIRED');
+  const legacyRows = components.filter((component) => component.status !== 'NOT_REQUIRED');
+  const specRows = specComponents ?? [];
   const resourceCount = plan?.awsResources.length ?? 0;
-  if (rows.length === 0 && resourceCount === 0) return null;
+  if (specRows.length === 0 && legacyRows.length === 0 && resourceCount === 0) return null;
   return (
     <section aria-labelledby="deployment-resources" className="flex flex-col gap-3">
       <h2 id="deployment-resources" className="text-base font-semibold">
@@ -453,14 +471,43 @@ function ResourcesSummary({
         footprint={plan?.footprint}
         stage={stage === 'READY' ? 'deployed' : 'planned'}
       />
-      {rows.length > 0 ? (
+      {specRows.length > 0 ? (
+        <ul data-testid="spec-components">
+          {specRows.map((component, index) => {
+            const view = specComponentPresentation(component);
+            return (
+              <li
+                key={component.componentId}
+                className={cn(
+                  'flex items-center justify-between gap-3 py-2',
+                  index < specRows.length - 1 && 'border-b',
+                )}
+              >
+                <span className="min-w-0 text-sm">
+                  {view.label}
+                  {view.detail ? (
+                    <span className="block text-xs text-muted-foreground">{view.detail}</span>
+                  ) : null}
+                </span>
+                <span className="flex shrink-0 items-center gap-2 text-xs text-muted-foreground">
+                  <span
+                    aria-hidden
+                    className={cn('size-1.5 rounded-full', TONE_DOT[view.tone])}
+                  />
+                  {view.stateLabel}
+                </span>
+              </li>
+            );
+          })}
+        </ul>
+      ) : legacyRows.length > 0 ? (
         <ul>
-          {rows.map((component, index) => (
+          {legacyRows.map((component, index) => (
             <li
               key={component.key}
               className={cn(
                 'flex items-center justify-between gap-3 py-2',
-                index < rows.length - 1 && 'border-b',
+                index < legacyRows.length - 1 && 'border-b',
               )}
             >
               <span className="min-w-0 text-sm">{component.label}</span>

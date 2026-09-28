@@ -87,6 +87,28 @@ describe('buildFailureContext', () => {
     expect(context.relevantEvents[0]?.reason?.length).toBeLessThanOrEqual(320);
     expect(context.relevantEvents[0]?.reason).toContain('[truncated]');
   });
+
+  it('names the blamed resource spec component only when the frozen spec maps it — absent, never guessed', () => {
+    const job = { type: 'INSTALL', failureCode: 'DATABASE_CONNECTION_FAILED', result: {} };
+    const identity = new Map([['Database', { componentId: 'primary-db', label: 'PostgreSQL database' }]]);
+    const mapped = buildFailureContext({ ...base, job, componentIdentityByLogicalId: identity });
+    expect(mapped.componentId).toBe('primary-db');
+    expect(mapped.componentLabel).toBe('PostgreSQL database');
+
+    // The spec map exists but does not know this logical id — no fields at all.
+    const unmapped = buildFailureContext({
+      ...base,
+      job,
+      componentIdentityByLogicalId: new Map([['SomethingElse', { componentId: 'web', label: 'Web service' }]]),
+    });
+    expect('componentId' in unmapped).toBe(false);
+    expect('componentLabel' in unmapped).toBe(false);
+
+    // No spec at all — same.
+    const withoutSpec = buildFailureContext({ ...base, job });
+    expect('componentId' in withoutSpec).toBe(false);
+    expect('componentLabel' in withoutSpec).toBe(false);
+  });
 });
 
 describe('toStructuredEvent', () => {

@@ -1,9 +1,11 @@
 'use client';
 
 import { ChevronDown, Info, RefreshCw, TriangleAlert } from 'lucide-react';
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { forwardRef, useEffect, useRef, useState, type ReactNode } from 'react';
 
+import { ApplicationArchitectureSection } from '@/components/application-architecture-section';
 import { FixInstructionsDialog } from '@/components/fix-instructions-dialog';
+import { PlannedInfrastructure } from '@/components/planned-infrastructure';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -11,6 +13,8 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/component
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import type { DeploymentPlan } from '@deployz/contracts';
+
 import type { AnalysisStatus } from '@/lib/applications';
 import {
   deriveAnalysisDetails,
@@ -21,7 +25,7 @@ import {
   type ConfigurationRow,
   type RequiredChange,
 } from '@/lib/application-configuration';
-import type { EditableReadinessField } from '@/lib/readiness';
+import type { DeploymentRequirementDriftSummary, EditableReadinessField } from '@/lib/readiness';
 
 import { useApplicationPage } from '../application-page-context';
 import { EditDialog, RequirementDriftNotice } from '../readiness-components';
@@ -48,6 +52,9 @@ export function DeploymentConfiguration() {
 
   const rows = data ? deriveConfigurationRows(data.application, data.readiness) : [];
   const requiredChanges = data ? deriveRequiredChanges(data.readiness) : [];
+  const infrastructureRowIds = new Set(['database', 'redis', 'storage']);
+  const infrastructureRows = rows.filter((row) => infrastructureRowIds.has(row.id));
+  const preferenceRows = rows.filter((row) => !infrastructureRowIds.has(row.id));
 
   // A link into this page (from the Overview tab, or a bookmarked URL) can
   // carry `#required-changes` — on load, and whenever the hash changes again
@@ -97,7 +104,7 @@ export function DeploymentConfiguration() {
   }
 
   return (
-    <section aria-labelledby="deployment-configuration" className="flex flex-col gap-3">
+    <section className="flex flex-col gap-6">
       <RequiredChangesPanel
         ref={panelRef}
         changes={requiredChanges}
@@ -105,63 +112,38 @@ export function DeploymentConfiguration() {
         onShowFix={openFix}
       />
 
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h2 id="deployment-configuration" ref={headingRef} tabIndex={-1} className="scroll-mt-20 text-base font-semibold">
-            Deployment configuration
-          </h2>
-          {presentation.readinessSummary ? (
-            <p className="text-sm text-muted-foreground">{presentation.readinessSummary}</p>
-          ) : null}
-        </div>
-        <div className="flex shrink-0 flex-wrap items-center gap-3 text-sm text-muted-foreground">
-          {readiness.analyzedCommitSha ? (
-            <span data-testid="readiness-commit">Analysed commit {readiness.analyzedCommitSha.slice(0, 7)}</span>
-          ) : null}
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => void reanalyse()}
-            loading={reanalysing}
-            loadingText="Analysing application…"
-            disabled={presentation.state === 'analysing'}
-            data-testid="app-details-reanalyse"
-          >
-            <RefreshCw className="size-3.5" aria-hidden />
-            Re-analyse
-          </Button>
-        </div>
-      </div>
+      {readiness.architecture ? (
+        <ApplicationArchitectureSection
+          architecture={readiness.architecture}
+          onEdit={openEdit}
+          onShowFix={openFix}
+        />
+      ) : null}
 
-      <Card className="py-0">
-        <CardContent className="overflow-x-auto p-0">
-          <Table data-testid="readiness-table">
-            <TableHeader>
-              <TableRow>
-                <TableHead>Configuration</TableHead>
-                <TableHead>Value</TableHead>
-                <TableHead>Result</TableHead>
-                <TableHead>Action</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody aria-busy={analyzing || undefined}>
-              {rows.map((row) => (
-                <ConfigurationTableRow
-                  key={row.id}
-                  row={row}
-                  onEdit={openEdit}
-                  onShowFix={openFix}
-                />
-              ))}
-              {rows.length === 0 ? <ConfigurationTablePlaceholder analysisStatus={application.analysisStatus} /> : null}
-            </TableBody>
-          </Table>
-        </CardContent>
-      </Card>
+      <DataInfrastructureSection
+        plan={data.plan}
+        rows={infrastructureRows}
+        analyzing={analyzing}
+        analysisStatus={application.analysisStatus}
+        onEdit={openEdit}
+        onShowFix={openFix}
+      />
 
-      <AnalysisDetailsSection details={details} />
-
-      <RequirementDriftNotice drifts={readiness.deploymentRequirementDrift} />
+      <DeploymentPreferencesSection
+        ref={headingRef}
+        rows={preferenceRows}
+        analyzing={analyzing}
+        analysisStatus={application.analysisStatus}
+        readinessSummary={presentation.readinessSummary}
+        analyzedCommitSha={readiness.analyzedCommitSha}
+        reanalyse={reanalyse}
+        reanalysing={reanalysing}
+        analysing={presentation.state === 'analysing'}
+        details={details}
+        drifts={readiness.deploymentRequirementDrift}
+        onEdit={openEdit}
+        onShowFix={openFix}
+      />
 
       <FixInstructionsDialog
         open={fixOpen}
@@ -189,6 +171,159 @@ export function DeploymentConfiguration() {
     </section>
   );
 }
+
+function DataInfrastructureSection({
+  plan,
+  rows,
+  analyzing,
+  analysisStatus,
+  onEdit,
+  onShowFix,
+}: {
+  plan: DeploymentPlan | null;
+  rows: ConfigurationRow[];
+  analyzing: boolean;
+  analysisStatus: AnalysisStatus;
+  onEdit: (field: EditableReadinessField) => void;
+  onShowFix: () => void;
+}) {
+  const hasContent = plan !== null || rows.length > 0 || analysisStatus === 'ANALYZING';
+  if (!hasContent) return null;
+
+  return (
+    <section aria-labelledby="data-infrastructure-heading" className="flex flex-col gap-3">
+      <h2 id="data-infrastructure-heading" className="text-base font-semibold">
+        Data & infrastructure
+      </h2>
+      <PlannedInfrastructure plan={plan} />
+      {rows.length > 0 || analyzing ? (
+        <Card className="py-0">
+          <CardContent className="overflow-x-auto p-0">
+            <Table data-testid="readiness-infrastructure-table">
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Configuration</TableHead>
+                  <TableHead>Value</TableHead>
+                  <TableHead>Result</TableHead>
+                  <TableHead>Action</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody aria-busy={analyzing || undefined}>
+                {rows.map((row) => (
+                  <ConfigurationTableRow
+                    key={row.id}
+                    row={row}
+                    onEdit={onEdit}
+                    onShowFix={onShowFix}
+                  />
+                ))}
+                {rows.length === 0 && analyzing ? (
+                  <ConfigurationTablePlaceholder analysisStatus={analysisStatus} />
+                ) : null}
+              </TableBody>
+            </Table>
+          </CardContent>
+        </Card>
+      ) : null}
+    </section>
+  );
+}
+
+const DeploymentPreferencesSection = forwardRef<HTMLHeadingElement, {
+  rows: ConfigurationRow[];
+  analyzing: boolean;
+  analysisStatus: AnalysisStatus;
+  readinessSummary: string | null;
+  analyzedCommitSha: string | null;
+  reanalyse: () => Promise<void>;
+  reanalysing: boolean;
+  analysing: boolean;
+  details: AnalysisDetail[];
+  drifts: DeploymentRequirementDriftSummary[];
+  onEdit: (field: EditableReadinessField) => void;
+  onShowFix: () => void;
+}>(function DeploymentPreferencesSection({
+  rows,
+  analyzing,
+  analysisStatus,
+  readinessSummary,
+  analyzedCommitSha,
+  reanalyse,
+  reanalysing,
+  analysing,
+  details,
+  drifts,
+  onEdit,
+  onShowFix,
+}, ref) {
+  return (
+    <section aria-labelledby="deployment-configuration" className="flex flex-col gap-3">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h2
+            id="deployment-configuration"
+            ref={ref}
+            tabIndex={-1}
+            className="scroll-mt-20 text-base font-semibold"
+          >
+            Deployment preferences
+          </h2>
+          {readinessSummary ? (
+            <p className="text-sm text-muted-foreground">{readinessSummary}</p>
+          ) : null}
+        </div>
+        <div className="flex shrink-0 flex-wrap items-center gap-3 text-sm text-muted-foreground">
+          {analyzedCommitSha ? (
+            <span data-testid="readiness-commit">Analysed commit {analyzedCommitSha.slice(0, 7)}</span>
+          ) : null}
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => void reanalyse()}
+            loading={reanalysing}
+            loadingText="Analysing application…"
+            disabled={analysing}
+            data-testid="app-details-reanalyse"
+          >
+            <RefreshCw className="size-3.5" aria-hidden />
+            Re-analyse
+          </Button>
+        </div>
+      </div>
+
+      <Card className="py-0">
+        <CardContent className="overflow-x-auto p-0">
+          <Table data-testid="readiness-table">
+            <TableHeader>
+              <TableRow>
+                <TableHead>Configuration</TableHead>
+                <TableHead>Value</TableHead>
+                <TableHead>Result</TableHead>
+                <TableHead>Action</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody aria-busy={analyzing || undefined}>
+              {rows.map((row) => (
+                <ConfigurationTableRow
+                  key={row.id}
+                  row={row}
+                  onEdit={onEdit}
+                  onShowFix={onShowFix}
+                />
+              ))}
+              {rows.length === 0 ? (
+                <ConfigurationTablePlaceholder analysisStatus={analysisStatus} />
+              ) : null}
+            </TableBody>
+          </Table>
+        </CardContent>
+      </Card>
+
+      <AnalysisDetailsSection details={details} />
+      <RequirementDriftNotice drifts={drifts} />
+    </section>
+  );
+});
 
 // The panel a vendor lands on from the Overview tab's "N changes required"
 // link (`#required-changes`) or scrolls to on their own — every blocking

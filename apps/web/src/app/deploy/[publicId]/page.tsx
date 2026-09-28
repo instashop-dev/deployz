@@ -10,17 +10,18 @@ import { FootprintSummary } from '@/components/footprint-summary';
 import { InstallLaunchButton } from '@/components/install-launch-button';
 import { InstallProgress } from '@/components/install-progress';
 import { InstallRetryButton } from '@/components/install-retry-button';
+import { InstallPlanComponentTable } from '@/components/install-plan-component-table';
 import { TablePanel } from '@/components/table-panel';
 import { Button } from '@/components/ui/button';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import {
   fetchDeployLinkData,
   fetchDeployLinkStatusServer,
 } from '@/lib/deploy-link-flow';
 import { cloudFormationStacksUrl } from '@/lib/aws-console';
 import { RELAY_STUCK_GUIDANCE } from '@/lib/deployment-vocabulary';
-import { installPlanRegionLabel, installPlanRows } from '@/lib/install-plan';
+import { formatMonthlyRange } from '@/lib/footprint';
+import { installPlanRegionLabel } from '@/lib/install-plan';
 
 // Rendered per request so the resolve — including the Quick Create link the
 // control plane builds for this deployment's region — is always fresh.
@@ -174,6 +175,10 @@ export default async function DeployPage({
   // flips it into its waiting state, and reopening the link resumes it.
   if (data.deploymentState === 'NOT_INSTALLED') {
     const regionLabel = installPlanRegionLabel(data.region);
+    const costRange = formatMonthlyRange(
+      data.plan?.costEstimate?.monthlyMin ?? null,
+      data.plan?.costEstimate?.monthlyMax ?? null,
+    );
 
     return (
       <div className="flex flex-col gap-6">
@@ -197,33 +202,21 @@ export default async function DeployPage({
             </div>
             <div className="flex flex-col gap-0.5">
               <dt className="text-xs text-muted-foreground">AWS region</dt>
-              <dd>{data.region}</dd>
+              <dd>{regionLabel ?? data.region}</dd>
+            </div>
+            <div className="flex flex-col gap-0.5">
+              <dt className="text-xs text-muted-foreground">Estimated monthly AWS cost</dt>
+              <dd>{costRange ?? 'Estimate unavailable'}</dd>
             </div>
           </dl>
           <div>
             <h3 className="text-sm font-medium">Deployz will create</h3>
             <TablePanel className="mt-1.5">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Component</TableHead>
-                    <TableHead>What happens</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {installPlanRows(data.plan).map((row) => (
-                    <TableRow key={row.kind}>
-                      <TableCell className="font-medium">{row.name}</TableCell>
-                      <TableCell className="text-muted-foreground">{row.whatHappens}</TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
+              <InstallPlanComponentTable plan={data.plan} />
             </TablePanel>
           </div>
           <FootprintSummary footprint={data.plan?.footprint} stage="planned" />
           <AwsInfrastructureDetails plan={data.plan} region={data.region} />
-          {regionLabel ? <p className="text-sm text-muted-foreground">Region: {regionLabel}</p> : null}
           <FootprintCost estimate={data.plan?.costEstimate} />
         </section>
 

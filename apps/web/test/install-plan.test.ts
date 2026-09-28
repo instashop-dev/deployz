@@ -92,7 +92,9 @@ function component(
 describe('installPlanRows', () => {
   it('returns the fallback application row when the plan is null', () => {
     const rows = installPlanRows(null);
-    expect(rows).toEqual([{ kind: 'application', name: 'Application', whatHappens: 'Runs your application' }]);
+    expect(rows).toEqual([
+      { kind: 'application', group: 'application', name: 'Application', whatHappens: 'Runs your application' },
+    ]);
   });
 
   it('returns only the CREATE components, in the plan\'s order', () => {
@@ -111,7 +113,12 @@ describe('installPlanRows', () => {
   it('fills whatHappens from the shared component display, not the plan itself', () => {
     const rows = installPlanRows(plan({ components: [component('database', 'Database', 'CREATE', 'retain')] }));
     expect(rows).toEqual([
-      { kind: 'database', name: 'Database', whatHappens: 'Stores persistent application data' },
+      {
+        kind: 'database',
+        group: 'data',
+        name: 'Database',
+        whatHappens: 'Stores persistent application data',
+      },
     ]);
   });
 });
@@ -217,11 +224,11 @@ describe('awsResourceGroups', () => {
 });
 
 describe('installPlanResourceGroups', () => {
-  const computeRows = (groups: ReturnType<typeof installPlanResourceGroups>) =>
-    groups.find((entry) => entry.group === 'compute_networking')?.rows ?? [];
+  const applicationRows = (groups: ReturnType<typeof installPlanResourceGroups>) =>
+    groups.find((entry) => entry.group === 'application')?.rows ?? [];
 
   it('renders one workload row for a single-workload deployment, carrying the workload sizing', () => {
-    const rows = computeRows(installPlanResourceGroups(footprintPlan({})));
+    const rows = applicationRows(installPlanResourceGroups(footprintPlan({})));
     const workloadRows = rows.filter((row) => row.id.startsWith('workload-'));
     expect(workloadRows).toEqual([
       {
@@ -235,7 +242,7 @@ describe('installPlanResourceGroups', () => {
   });
 
   it('renders one row per workload for a multi-worker deployment, workers without public-ingress wording', () => {
-    const rows = computeRows(installPlanResourceGroups(footprintPlan({ manifest: WORKERS_MANIFEST })));
+    const rows = applicationRows(installPlanResourceGroups(footprintPlan({ manifest: WORKERS_MANIFEST })));
     const workloadRows = rows.filter((row) => row.id.startsWith('workload-'));
     expect(workloadRows.map((row) => row.id)).toEqual([
       'workload-web',

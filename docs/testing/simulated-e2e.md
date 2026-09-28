@@ -330,6 +330,12 @@ virtual seconds apart):
   `reuseExistingServer` on, a dev server left running by another worktree
   on 3000/3001 would be reused and the specs would test the wrong code. Set
   `WEB_PORT` and `API_PORT` to unused ports for the run.
+- **Run the fixture-mode suite sharded locally.** CI shards the
+  fixture-mode suite 3×, and an unsharded single-process run exceeds the
+  per-test 60 s budgets on dev machines — run each shard as
+  `node scripts/e2e.mjs --grep-invert "@scenario|visual" --workers=2`
+  (both flags pass straight through to Playwright), or split by spec
+  file with `pnpm e2e e2e/<file>.spec.ts`.
 - **Default-HTTPS scenarios need the fixture machine on.**
   `e2e/scenario-default-https.spec.ts` skips unless
   `DEPLOYZ_DEFAULT_HTTPS_FIXTURE=true` is set for the API under test.

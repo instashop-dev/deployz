@@ -15,7 +15,9 @@ system, not a design handbook.
 7. Extract domain components only after real repetition (e.g. `DeploymentStatusBadge`).
 8. No additional UI framework. Lucide icons only.
 9. Preserve shadcn/Radix accessibility behavior.
-10. Keep raw AWS/CloudFormation states out of primary customer UI.
+10. Keep raw AWS/CloudFormation states out of primary customer UI. Raw
+    AWS resource types never appear on customer primary surfaces either —
+    unknown resources bucket under a neutral label instead.
 11. Preserve application logic unless a task explicitly requires changing it.
 
 Never build a second design system on top of shadcn. No `UniversalCard`,
@@ -117,7 +119,18 @@ plain links):
    application that has never had an eligible install link (still inside the
    setup lifecycle, no live link yet) gets no separate card at all — the
    primary card names the reason in one line near the lifecycle instead.
-2. **Releases** — version history. A failed release row offers "Review
+   When the readiness payload carries an `architecture` block, the page also
+   shows the compact "Architecture detected" card: the detected components
+   grouped by plan group, each marked Detected automatically, Confirmed or
+   Needs input, with the grouped detail under a "View architecture"
+   disclosure — an explanation of what Deployz detected, not an editor. The
+   card is hidden when the block is absent, and the primary card's analysis
+   and operation states win over it.
+2. **Releases** — version history. Each release row shows an Infrastructure
+   line: "No infrastructure changes", or the warning "This release requires
+   infrastructure changes. Automatic infrastructure upgrades are not
+   supported yet." The line reports the update plan's `infrastructureChange`;
+   it adds no new gate. A failed release row offers "Review
    failure details": the stage, the earliest error the build log shows, who
    most likely has to act (repository, temporary, Deployz, or not
    determined), the relevant redacted log lines, and the actions View build
@@ -126,9 +139,13 @@ plain links):
    and — for a Deployz-side failure, instead of the prompt — Copy report for
    Deployz support. The buildspec's "The image build did not produce an
    image" is a final check and is never shown as the cause.
-3. **Configuration** — the deployment-configuration table, planned
-   infrastructure, environment variables, and general settings (rename,
-   danger zone).
+3. **Configuration** — sections in this order: Environment variables,
+   Application architecture, Data & infrastructure, Deployment
+   preferences, plus the deployment-configuration table and general
+   settings (rename, danger zone). Architecture components show the three
+   states Detected automatically / Confirmed / Needs input — never a raw
+   enum or a confidence percentage. An unresolved question renders as a
+   focused card that reuses FixInstructionsDialog or EditDialog.
 
 `lib/application-state.ts` (`deriveApplicationPresentation`) is the single
 source of the page's state: badge, heading, message, actions, the setup
@@ -222,6 +239,25 @@ disconnect dialog, and the deploy-update dialog. Each page shows the
 `DeploymentPlan` that the API sends. The API builds this plan from the
 deployment's manifest. The page does not build its own plan. The page does
 not guess which resources exist. The page only shows the plan's data.
+
+## Spec-derived components
+
+Status payloads carry `specComponents` (componentId, label, state,
+detail), derived from stack events through the spec's ownership records.
+The customer install page's Resources summary and the vendor progress
+card list components from `specComponents`; a payload without them falls
+back to the legacy rendering byte-identically.
+
+- The customer install page groups "What Deployz will create" under the
+  plan groups (application, data, cache, storage, messaging, networking,
+  edge, security). The fallback chain is component group → kind map →
+  Application. Only non-empty groups render.
+- A logicalId the ownership records do not know buckets as one `other`
+  component with a neutral detail. Raw AWS resource types never appear
+  on customer primary surfaces.
+- The vendor diagnostic card names the affected component ("Affects:
+  {label}") when the failure context carries a component; the raw
+  componentId stays behind the technical disclosure.
 
 ## Multi-workload presentation
 

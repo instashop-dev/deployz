@@ -6,6 +6,8 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { applyMigrations, createDb, type Db } from '@deployz/db';
 import * as schema from '@deployz/db/schema';
 import {
+  buildDestroyPlan,
+  buildInstallPlan,
   estimateFootprintCost,
   requiredAwsResources,
   resolveDeploymentFootprint,
@@ -14,6 +16,7 @@ import {
 } from '@deployz/contracts';
 
 import { createAuth, type Auth } from './auth.js';
+import { compileDeploymentIntent } from './compiler-artifact.js';
 import { buildServer } from './server.js';
 
 // Phase 4 — GET /api/applications/:id/plan and GET /api/deployments/:id/plan,
@@ -217,9 +220,16 @@ describe('deployment plans (Phase 4)', () => {
       headers: { cookie: org.cookie },
     });
     expect(response.statusCode, response.body).toBe(200);
-    const plan = response.json() as { components: Array<{ kind: string }>; requirementDrift: unknown[] };
+    const plan = response.json() as {
+      components: Array<{ kind: string }>;
+      requirementDrift: unknown[];
+      infrastructureChange: unknown;
+    };
     expect(plan.components.map((component) => component.kind)).not.toContain('cache');
     expect(plan.requirementDrift).toEqual([{ kind: 'cache', deployed: false, desired: true }]);
+    // Fail closed: requirement drift means the release needs infrastructure
+    // changes the MVP cannot apply, whatever the feasibility analysis says.
+    expect(plan.infrastructureChange).toEqual({ status: 'unsupported', reason: 'topology_changed' });
   });
 
   it('GET /api/deployments/:id/plan with an unknown action 400s', async () => {
@@ -233,6 +243,127 @@ describe('deployment plans (Phase 4)', () => {
       headers: { cookie: org.cookie },
     });
     expect(response.statusCode, response.body).toBe(400);
+  });
+
+  it('GET /api/deployments/:id/plan?action=install: a frozen spec adds componentId/group and changes nothing else', async () => {
+    const application = await insertApplication(db, org.organizationId);
+    const customer = await insertCustomer(db, org.organizationId);
+    const spec = compileDeploymentIntent({ manifest: POSTGRES_MANIFEST, region: 'us-east-1' }).spec;
+    const deployment = await insertDeployment(db, org.organizationId, application.id, customer.id, {
+      specV2: spec as unknown as Record<string, unknown>,
+    });
+
+    const response = await app.inject({
+      method: 'GET',
+      url: `/api/deployments/${deployment.id}/plan?action=install`,
+      headers: { cookie: org.cookie },
+    });
+    expect(response.statusCode, response.body).toBe(200);
+    const plan = response.json() as Record<string, unknown>;
+
+    // The base plan is exactly what the builder produces for this manifest
+    // with the compiled footprint — the spec only upgrades the components.
+    const expectedBase = buildInstallPlan({
+      manifest: POSTGRES_MANIFEST,
+      region: 'us-east-1',
+      compiledFootprint: spec.footprint,
+    });
+    const { components, ...rest } = plan;
+    const { components: _baseComponents, ...expectedRest } = expectedBase as unknown as Record<string, unknown>;
+    expect(rest).toEqual(expectedRest);
+    expect(components).toEqual([
+      { kind: 'application', name: 'Application', action: 'CREATE', lifecycle: 'delete', componentId: 'web', group: 'application' },
+      { kind: 'endpoint', name: 'Secure endpoint', action: 'CREATE', lifecycle: 'delete', componentId: 'endpoint', group: 'edge' },
+      { kind: 'database', name: 'Database', action: 'CREATE', lifecycle: 'retain', componentId: 'primary-db', group: 'data' },
+      { kind: 'storage', name: 'Storage', action: 'CREATE', lifecycle: 'retain', componentId: 'storage', group: 'storage' },
+    ]);
+  });
+
+  it('GET /api/deployments/:id/plan?action=destroy: a frozen spec adds componentId/group and keeps the builder actions/lifecycle/retention', async () => {
+    const application = await insertApplication(db, org.organizationId);
+    const customer = await insertCustomer(db, org.organizationId);
+    // Today's full deployment shape: web + PostgreSQL + Redis + storage.
+    const manifest: DeploymentManifest = {
+      ...POSTGRES_MANIFEST,
+      redis: { required: true, envBindings: [] },
+      storage: { required: true, envBindings: [] },
+    };
+    const spec = compileDeploymentIntent({ manifest, region: 'us-east-1' }).spec;
+    const deployment = await insertDeployment(db, org.organizationId, application.id, customer.id, {
+      desiredState: { manifest },
+      specV2: spec as unknown as Record<string, unknown>,
+    });
+
+    const response = await app.inject({
+      method: 'GET',
+      url: `/api/deployments/${deployment.id}/plan?action=destroy`,
+      headers: { cookie: org.cookie },
+    });
+    expect(response.statusCode, response.body).toBe(200);
+    const plan = response.json() as Record<string, unknown>;
+
+    // The base plan is exactly what the builder produces for this manifest
+    // with the compiled footprint — the spec only upgrades the components.
+    const expectedBase = buildDestroyPlan({
+      manifest,
+      region: 'us-east-1',
+      compiledFootprint: spec.footprint,
+    });
+    const { components, ...rest } = plan;
+    const { components: _baseComponents, ...expectedRest } = expectedBase as unknown as Record<string, unknown>;
+    expect(rest).toEqual(expectedRest);
+    // Every builder entry keeps its name/action/lifecycle (DELETE vs RETAIN
+    // per resource) and gains its spec-derived identity. Compared by name:
+    // the spec presents IR order (cache before storage), the builder catalog
+    // order differs — actions/retention are the parity contract, not order.
+    const componentByName = new Map(
+      (components as Array<Record<string, unknown>>).map((component) => [component.name as string, component]),
+    );
+    expect(componentByName.size).toBe(expectedBase.components.length);
+    for (const component of expectedBase.components) {
+      expect(componentByName.get(component.name)).toEqual({
+        kind: component.kind,
+        name: component.name,
+        action: component.action,
+        lifecycle: component.lifecycle,
+        componentId: expect.any(String),
+        group: expect.any(String),
+      });
+    }
+  });
+
+  it('GET /api/deployments/:id/plan?action=update: states no infrastructure change when requirements match', async () => {
+    // databaseRequired: true matches POSTGRES_MANIFEST (the deployment's
+    // frozen manifest) so nothing drifts.
+    const application = await insertApplication(db, org.organizationId, { databaseRequired: true });
+    const customer = await insertCustomer(db, org.organizationId);
+    const deployment = await insertDeployment(db, org.organizationId, application.id, customer.id);
+
+    const response = await app.inject({
+      method: 'GET',
+      url: `/api/deployments/${deployment.id}/plan?action=update`,
+      headers: { cookie: org.cookie },
+    });
+    expect(response.statusCode, response.body).toBe(200);
+    const plan = response.json() as { requirementDrift: unknown[]; infrastructureChange: unknown };
+    expect(plan.requirementDrift).toEqual([]);
+    expect(plan.infrastructureChange).toEqual({ status: 'none' });
+  });
+
+  it('GET /api/deployments/:id/plan?action=install and destroy: infrastructureChange stays absent', async () => {
+    const application = await insertApplication(db, org.organizationId);
+    const customer = await insertCustomer(db, org.organizationId);
+    const deployment = await insertDeployment(db, org.organizationId, application.id, customer.id);
+
+    for (const action of ['install', 'destroy']) {
+      const response = await app.inject({
+        method: 'GET',
+        url: `/api/deployments/${deployment.id}/plan?action=${action}`,
+        headers: { cookie: org.cookie },
+      });
+      expect(response.statusCode, response.body).toBe(200);
+      expect('infrastructureChange' in response.json()).toBe(false);
+    }
   });
 
   it('GET /api/deployments/:id/plan 422s when the deployment has no stored manifest', async () => {

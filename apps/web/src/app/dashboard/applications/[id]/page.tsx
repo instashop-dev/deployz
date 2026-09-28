@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 
+import { ArchitectureDetectedCard } from '@/components/architecture-detected-card';
 import { PublicInstallLinkCard } from '@/components/public-install-link-card';
 import { Skeleton } from '@/components/ui/skeleton';
 import type { ApplicationRecentEvent } from '@/lib/application-state';
@@ -14,7 +15,7 @@ import { useApplicationPage } from './application-page-context';
 // recent-event line. Everything renders from `presentation` — see
 // `lib/application-state.ts` for the single source of truth.
 export default function ApplicationOverviewPage() {
-  const { id, loading, presentation, refresh, reanalyse, reanalysing } = useApplicationPage();
+  const { id, data, loading, presentation, refresh, reanalyse, reanalysing } = useApplicationPage();
 
   if (loading) {
     return (
@@ -23,6 +24,13 @@ export default function ApplicationOverviewPage() {
       </div>
     );
   }
+
+  // Present only when the analysis completed: every other state (running,
+  // failed, stale) keeps the primary card as the single source of state.
+  const architectureCard =
+    data !== null && data.readiness.analysisStatus === 'COMPLETE' && data.readiness.architecture
+      ? { architecture: data.readiness.architecture, summary: data.readiness.summary }
+      : null;
 
   return (
     <div className="flex flex-col gap-4">
@@ -33,6 +41,7 @@ export default function ApplicationOverviewPage() {
         reanalyse={reanalyse}
         reanalysing={reanalysing}
       />
+      {architectureCard ? <ArchitectureDetectedCard {...architectureCard} /> : null}
       {presentation.installLinkPlacement === 'card' ? (
         <PublicInstallLinkCard applicationId={id} installLink={presentation.installLink} onChanged={refresh} />
       ) : null}

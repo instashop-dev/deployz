@@ -340,6 +340,7 @@ test('the create-installation flow captures a company and offers the install lin
     .getByRole('row')
     .filter({ hasText: `New Customer ${suffix}` });
   await row.getByRole('link', { name: `New Customer ${suffix}` }).click();
+  await page.waitForURL(/\/dashboard\/customers\/[0-9a-f-]{36}$/);
   await expect(page.getByText('New Holdings')).toBeVisible();
 });
 

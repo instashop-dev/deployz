@@ -121,6 +121,39 @@ describe('translateStackEvents — long-running flow', () => {
   });
 });
 
+// Spec-component fallback (Phase 3): the frozen spec's ownership labels
+// extend the noun allowlist; fully unknown ids get one generic line.
+describe('translateStackEvents — spec-component fallback', () => {
+  const LABELS = new Map([
+    ['TaskDef', 'Web service'],
+    ['PrimaryDbInstance', 'PostgreSQL database'],
+  ]);
+
+  const events: StackEventLike[] = [
+    // Allowlist noun — still translated by noun, not by spec label.
+    event({ logicalResourceId: 'Db', resourceType: 'AWS::RDS::DBInstance', resourceStatus: 'CREATE_COMPLETE', eventAt: at(10) }),
+    // Not in the allowlist, but the spec owns it.
+    event({ logicalResourceId: 'TaskDef', resourceType: 'AWS::ECS::TaskDefinition', resourceStatus: 'CREATE_IN_PROGRESS', eventAt: at(20) }),
+    // Not in the allowlist and not owned — must not disappear.
+    event({ logicalResourceId: 'Mystery', resourceType: 'AWS::IAM::Policy', resourceStatus: 'CREATE_COMPLETE', eventAt: at(30) }),
+  ];
+
+  it('translates spec-owned events as "{Component label}: {friendly verb}" and unknown ones generically', () => {
+    const items = translateStackEvents(events, LABELS);
+    expect(items.map((item) => item.message)).toEqual([
+      'Working on deployment resources.',
+      'Web service: creating',
+      'Database is ready.',
+    ]);
+    expect(items.map((item) => item.state)).toEqual(['COMPLETE', 'IN_PROGRESS', 'COMPLETE']);
+  });
+
+  it('without a spec map, non-allowlist events are dropped exactly as before', () => {
+    const items = translateStackEvents(events);
+    expect(items.map((item) => item.message)).toEqual(['Database is ready.']);
+  });
+});
+
 describe('translateStackEvents / findProvisioningIssue — failure flow', () => {
   const genuineReason = 'Password authentication failed for user "app"';
   const events: StackEventLike[] = [

@@ -11,6 +11,7 @@ export * from './application-analysis.js';
 export * from './components.js';
 export * from './aws-resources.js';
 export * from './plan.js';
+export * from './plan-components.js';
 export * from './footprint.js';
 export * from './pricing.js';
 export * from './profile.js';
@@ -538,6 +539,26 @@ export const componentProgressSchema = z
   .strict();
 export type ComponentProgress = z.infer<typeof componentProgressSchema>;
 
+/** The progress state of one spec-derived component. */
+export const specComponentStateSchema = z.enum(['PENDING', 'IN_PROGRESS', 'COMPLETE', 'FAILED']);
+export type SpecComponentState = z.infer<typeof specComponentStateSchema>;
+
+/**
+ * One entry of the status payloads' additive `specComponents` field — present
+ * only when the deployment has a frozen spec, absent otherwise (never
+ * empty-by-guess). Identity comes from the spec's ownership records.
+ */
+export const specComponentSchema = z
+  .object({
+    componentId: z.string(),
+    label: z.string(),
+    state: specComponentStateSchema,
+    /** Supporting fact for a generic entry — customer-safe wording, never a raw AWS type. */
+    detail: z.string().optional(),
+  })
+  .strict();
+export type SpecComponent = z.infer<typeof specComponentSchema>;
+
 /** One line of the install page's recent-activity list: a real AWS or Deployz
  *  event, never an invented one. `message` is customer copy — never a raw
  *  CloudFormation status or resource type. */
@@ -607,6 +628,9 @@ export const customerDeploymentStatusSchema = z
     statusUpdatesUnavailable: z.boolean(),
     needsDomainSetup: z.boolean(),
     components: z.array(componentProgressSchema),
+    // Spec-derived component identity (phase 3) — present only when the
+    // deployment has a frozen spec.
+    specComponents: z.array(specComponentSchema).optional(),
     url: z.string().nullable(),
     // When the active step started — the install page's elapsed time.
     stepStartedAt: z.iso.datetime().nullable().optional(),
@@ -705,6 +729,9 @@ export const vendorDeploymentStatusSchema = z
     statusUpdatesUnavailable: z.boolean(),
     needsDomainSetup: z.boolean(),
     components: z.array(componentProgressSchema),
+    // Spec-derived component identity (phase 3) — present only when the
+    // deployment has a frozen spec.
+    specComponents: z.array(specComponentSchema).optional(),
     relay: z
       .object({
         connected: z.boolean(),

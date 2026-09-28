@@ -43,6 +43,10 @@ export interface DeploymentFailureContext {
   applicationVersion: string | null;
   /** Phase 1 structured evidence the relay attached to its failure; null when none. */
   evidence: FailureEvidence | null;
+  /** Spec component identity of the blamed resource, when the deployment's
+   *  frozen spec maps its logical id — absent when unmapped, never guessed. */
+  componentId?: string;
+  componentLabel?: string;
 }
 
 export interface FailureContextInput {
@@ -62,6 +66,9 @@ export interface FailureContextInput {
     resourceStatusReason: string | null;
   }[];
   applicationVersion: string | null;
+  /** logicalResourceId → { componentId, label } from the deployment's frozen
+   *  spec (apps/api/src/spec-components.ts). Null without a compiled spec. */
+  componentIdentityByLogicalId?: ReadonlyMap<string, { componentId: string; label: string }> | null;
 }
 
 /** The most failed-resource events kept — enough to see a cascade, never a dump. */
@@ -129,6 +136,8 @@ export function buildFailureContext(input: FailureContextInput): DeploymentFailu
   const reported = readString(input.job.result, 'failureCode') as FailureCode | null;
   const rawEvidence = readEvidence(input.job.result);
   const failureCode = input.job.failureCode ?? 'UNKNOWN';
+  const blamed = failed[0];
+  const blamedIdentity = blamed ? input.componentIdentityByLogicalId?.get(blamed.logicalResourceId) : undefined;
   return {
     deploymentId: input.deploymentId,
     phase: input.job.type,
@@ -140,6 +149,7 @@ export function buildFailureContext(input: FailureContextInput): DeploymentFailu
     relevantEvents,
     applicationVersion: input.applicationVersion !== null ? redactSecrets(input.applicationVersion) : null,
     evidence: rawEvidence !== null ? sanitizedEvidence(rawEvidence) : null,
+    ...(blamedIdentity ? { componentId: blamedIdentity.componentId, componentLabel: blamedIdentity.label } : {}),
   };
 }
 

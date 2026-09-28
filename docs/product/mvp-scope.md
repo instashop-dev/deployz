@@ -77,6 +77,11 @@ frozen per deployment in an immutable profile registry
 ([`../infrastructure-profiles.md`](../infrastructure-profiles.md)); today
 only `small-v1` exists and the customer is not offered a choice.
 
+Plan and status payloads may also name `worker`, `queue` and `schedule`
+component kinds. These are wire-level presentation kinds only: no
+provisioning capability exists for them, the Phase 4 fixtures that use
+them are test fixtures, and the support boundary above is unchanged.
+
 Deployz supports **17 AWS Regions** (`SUPPORTED_AWS_REGIONS` in
 `packages/contracts/src/index.ts`). Production offers only the subset named
 in the `DEPLOYABLE_AWS_REGIONS` GitHub repository variable, for which the

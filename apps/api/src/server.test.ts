@@ -2914,7 +2914,64 @@ describe('server — fleet list & deployment detail joins, readiness derivation 
       },
       deploymentRequirementDrift: [],
       environmentSetup: { needsDecision: 0, missingValue: 0, missingBuildValue: 0, customer: 0, total: 0 },
+      architecture: {
+        counts: { schemaVersion: 1, workloadCount: 1, resourceCount: 2, managedResourceCount: 2, unresolvedCount: 0, hasBlockingUnresolved: false },
+        groups: [
+          { group: 'application', nodes: [{ label: 'Web service', state: 'detected' }] },
+          { group: 'storage', nodes: [{ label: 'S3 bucket', state: 'detected' }] },
+          { group: 'edge', nodes: [{ label: 'Application load balancer', state: 'detected' }] },
+        ],
+        unresolved: [],
+      },
     });
+  });
+
+  // An external service (EXTERNAL_SAAS) is not Deployz-created — it must
+  // never appear as an architecture group node, while the detected groups
+  // stay intact and its ownership question stays open.
+  it('readiness: an external service stays out of the architecture groups', async () => {
+    const readiness = { state: 'READY', requiredCount: 0, recommendedCount: 0, summary: 'ok', findings: [], passed: [] };
+    const application = await insertApplication(db, org.organizationId, {
+      analysisStatus: 'COMPLETE',
+      compatibilityStatus: 'READY',
+      detectedMetadata: { readiness, externalServices: ['SendGrid'] },
+    });
+
+    const response = await app.inject({
+      method: 'GET',
+      url: `/api/applications/${application.id}/readiness`,
+      headers: { cookie: org.cookie },
+    });
+    expect(response.statusCode).toBe(200);
+    const { architecture } = response.json() as {
+      architecture: {
+        counts: Record<string, number | boolean>;
+        groups: { group: string; nodes: { label: string }[] }[];
+        unresolved: { kind: string; question: string; blocking: boolean }[];
+      };
+    };
+    // 3 resources in the graph, 2 managed — the external one is counted in
+    // the graph summary but grouped nowhere.
+    expect(architecture.counts).toEqual({
+      schemaVersion: 1,
+      workloadCount: 1,
+      resourceCount: 3,
+      managedResourceCount: 2,
+      unresolvedCount: 1,
+      hasBlockingUnresolved: false,
+    });
+    expect(architecture.groups).toEqual([
+      { group: 'application', nodes: [{ label: 'Web service', state: 'detected' }] },
+      { group: 'storage', nodes: [{ label: 'S3 bucket', state: 'detected' }] },
+      { group: 'edge', nodes: [{ label: 'Application load balancer', state: 'detected' }] },
+    ]);
+    expect(architecture.unresolved).toEqual([
+      {
+        kind: 'external_service_ownership',
+        question: 'Should the external service "SendGrid" be treated as a Deployz-managed resource?',
+        blocking: false,
+      },
+    ]);
   });
 
   it('readiness: a stored canonical projection is served as `detected`; a malformed one reads as null', async () => {
