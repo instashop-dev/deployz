@@ -99,12 +99,13 @@ describe('normalizeDeploymentManifest', () => {
 
   it('flags unsupported databases and local filesystem', () => {
     const analysis = analyseRepo({
-      'package.json': JSON.stringify({ dependencies: { mysql2: '^3.0.0' } }),
+      'package.json': JSON.stringify({ dependencies: { mongoose: '^8.0.0' } }),
+      'src/models/user.js': 'const mongoose = require("mongoose");\nmodule.exports = mongoose.model("User", new mongoose.Schema({ name: String }));\n',
       Dockerfile: 'FROM node:20\nVOLUME /data\n',
-      'src/index.js': 'const db = require("mysql2");\nfs.writeFileSync("/tmp/x", "y");\n',
+      'src/index.js': 'const db = require("mongoose");\nfs.writeFileSync("/tmp/x", "y");\n',
     });
     const manifest = normalizeDeploymentManifest(analysis, {});
-    expect(manifest.unsupported.some((r) => r.includes('PostgreSQL'))).toBe(true);
+    expect(manifest.unsupported.some((r) => r.includes('MongoDB'))).toBe(true);
     expect(manifest.unsupported.some((r) => r.includes('local filesystem'))).toBe(true);
   });
 

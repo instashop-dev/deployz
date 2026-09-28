@@ -1326,6 +1326,41 @@ export const GITHUB_FIXTURE_FILE_TREES: Readonly<Record<string, FileTree>> = {
     ].join('\n'),
     '.env.example': 'DATABASE_URL=\n',
   },
+  // Phase 4B MySQL fixture: the READY express-api shape with a mysql2
+  // dependency and a mysql:// DATABASE_URL — the two signals `assessMysql`
+  // requires for `mysql.required: true`. Deployz plans RDS MySQL (the
+  // aws.rds-mysql capability) instead of rejecting the app; used by the
+  // mysql-sweep simulated scenario (install → deploy → destroy → purge).
+  'deployz-demo/mysql-api': {
+    'Dockerfile': [
+      'FROM node:20-alpine',
+      'WORKDIR /app',
+      'COPY package*.json ./',
+      'RUN npm ci --omit=dev',
+      'COPY . .',
+      'EXPOSE 3000',
+      'HEALTHCHECK --interval=30s --timeout=3s CMD curl -f http://localhost:3000/health || exit 1',
+      'CMD ["node", "dist/index.js"]',
+    ].join('\n'),
+    'package.json': JSON.stringify({
+      name: 'mysql-api',
+      scripts: { start: 'node dist/index.js', 'db:migrate': 'npx drizzle-kit push' },
+      dependencies: { express: '^4.18.0', mysql2: '^3.9.0' },
+    }),
+    'src/index.ts': [
+      "import express from 'express';",
+      "import mysql from 'mysql2/promise';",
+      'const app = express();',
+      'const pool = mysql.createPool({ uri: process.env.DATABASE_URL });',
+      "app.get('/health', async (_req, res) => {",
+      '  await pool.query("SELECT 1");',
+      "  res.json({ ok: true });",
+      '});',
+      'app.listen(process.env.PORT || 3000);',
+      '',
+    ].join('\n'),
+    '.env.example': 'DATABASE_URL=mysql://localhost:3306/app\n',
+  },
   'deployz-demo/mongodb-app': {
     'Dockerfile': [
       'FROM node:20-alpine',

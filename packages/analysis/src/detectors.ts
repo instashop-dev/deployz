@@ -845,7 +845,7 @@ const HEALTHCHECK_SCRIPT_REGEX = /[\w./-]+\.(?:[cm]?js|sh|py|rb)\b/g;
 // Only literals whose LAST segment is a well-known health name count.
 const HEALTH_ROUTE_LITERAL_REGEX =
   /(?:HandleFunc|Handle|GET|Get|get|Post|post|Put|put|Route|Map|path|add_url_rule|url|GetMapping|RequestMapping|value)\s*(?:\(|::)?\s*["'](?:(?:GET|HEAD|POST)\s+)?(\/?(?:[\w.-]+\/)*(?:health|healthz|healthcheck|heartbeat|readyz|livez|up|status|ping|alive|_health))\/?["']/gi;
-const LANGUAGE_SOURCE_REGEX = /\.(?:go|py|rb|php|cs|java|kt|kts|scala|ex|exs)$/i;
+export const LANGUAGE_SOURCE_REGEX = /\.(?:go|py|rb|php|cs|java|kt|kts|scala|ex|exs)$/i;
 
 /** Ensure a captured/derived health path starts with a leading slash. */
 function normalizeHealthPath(raw: string): string {

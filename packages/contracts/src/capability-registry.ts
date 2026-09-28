@@ -154,6 +154,7 @@ export const CAPABILITY_KEYS = {
   ECS_FARGATE_SERVICE: 'aws.ecs-service',
   ECS_FARGATE_TASK: 'aws.ecs-task',
   RDS_POSTGRES: 'aws.rds-postgres',
+  RDS_MYSQL: 'aws.rds-mysql',
   ELASTICACHE_VALKEY: 'aws.elasticache-valkey',
   S3: 'aws.s3',
   ALB: 'aws.alb',
@@ -261,6 +262,52 @@ export function defaultCapabilityRegistry(): CapabilityRegistry {
         presentation: {
           singular: 'PostgreSQL database',
           plural: 'PostgreSQL databases',
+          group: 'Data',
+        },
+      },
+      {
+        // MySQL runs on the SAME relational-database abstraction as
+        // PostgreSQL: one managed instance, Deployz-pinned engine version,
+        // managed credentials, retain-on-destroy with require_manual purge.
+        // Only the registry bindings and the compiler resource know it is
+        // MySQL — the env-binding names stay the generic DATABASE_*/DB_*
+        // set (plus MYSQL_* aliases).
+        ref: { key: CAPABILITY_KEYS.RDS_MYSQL, version: '1' },
+        maturity: 'SUPPORTED',
+        satisfiesKinds: ['relational_database'],
+        serviceKey: 'rds-mysql',
+        network: {
+          requiresVpc: true,
+          requiresSubnet: true,
+          requiresSecurityGroup: true,
+        },
+        lifecycle: {
+          stateful: true,
+          lifecycle: 'retain',
+          supportsInPlaceUpdate: true,
+          supportsMajorVersionMigration: false,
+          operations: ['CREATE', 'VERIFY', 'UPDATE', 'BACKUP', 'DESTROY'],
+          retentionPolicy: 'retain',
+          purgeStrategy: 'require_manual',
+        },
+        bindings: {
+          envBindings: [
+            { name: 'DATABASE_URL', kind: 'url' },
+            { name: 'MYSQL_URL', kind: 'url' },
+            { name: 'DB_HOST', kind: 'host' },
+            { name: 'DB_PORT', kind: 'port' },
+            { name: 'DB_NAME', kind: 'database' },
+            { name: 'DB_USER', kind: 'username' },
+            { name: 'DB_PASSWORD', kind: 'password' },
+            { name: 'MYSQL_HOST', kind: 'host' },
+            { name: 'MYSQL_PORT', kind: 'port' },
+          ],
+          iam: [],
+        },
+        pricing: { category: 'database', estimateAvailable: false },
+        presentation: {
+          singular: 'MySQL database',
+          plural: 'MySQL databases',
           group: 'Data',
         },
       },

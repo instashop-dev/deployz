@@ -128,6 +128,20 @@ describe('resolveDeploymentFootprint', () => {
     expect(footprint.workloads[1]!.label).toBe('Worker email-worker');
   });
 
+  it('a manifest database engine of mysql resolves a real rds-mysql footprint row (Phase 4B)', () => {
+    const WITH_MYSQL = manifestWith({
+      database: { postgres: true, engine: 'mysql' },
+    });
+    const footprint = resolveDeploymentFootprint({ manifest: WITH_MYSQL, region: null });
+    const database = footprint.resources.find((resource) => resource.id === 'database')!;
+    expect(database.service).toBe('rds-mysql');
+    expect(database.configuration).toMatchObject({ engine: 'mysql', engineVersion: '8.0' });
+    expect(database.lifecycle).toEqual({ persistent: true, retainOnDelete: true });
+    // A postgres manifest (no engine field) keeps the historical row.
+    const postgresFootprint = resolveDeploymentFootprint({ manifest: WITH_POSTGRES, region: null });
+    expect(postgresFootprint.resources.find((r) => r.id === 'database')!.service).toBe('rds-postgres');
+  });
+
   it('generatedFrom records the template generation; ids and order are stable', () => {
     const a = resolveDeploymentFootprint({ manifest: WITH_POSTGRES, region: 'us-east-1', infraVersion: 'runtime-v1' });
     const b = resolveDeploymentFootprint({ manifest: WITH_POSTGRES, region: 'us-east-1', infraVersion: 'runtime-v1' });

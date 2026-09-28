@@ -177,16 +177,24 @@ function buildResources(manifest: DeploymentManifest): Resource[] {
   const resources: Resource[] = [];
 
   if (manifest.database.postgres) {
+    // Phase 4B — one managed relational database per deployment; the engine
+    // comes from the manifest (absent = the historical default, postgres).
+    const engine = manifest.database.engine === 'mysql' ? 'mysql' : 'postgres';
     resources.push({
       id: 'primary-db',
       kind: 'relational_database',
-      label: 'PostgreSQL database',
+      label: engine === 'mysql' ? 'MySQL database' : 'PostgreSQL database',
       ownership: 'DEPLOYZ_MANAGED',
       quantity: 1,
-      engine: 'postgres',
+      engine,
       envBindings: manifest.database.envBindings ?? STANDARD_POSTGRES_BINDINGS,
       provenance: detectedProvenance([
-        { sourceType: 'orm_configuration', path: manifest.application.root, description: 'PostgreSQL requirement detected' },
+        {
+          sourceType: 'orm_configuration',
+          path: manifest.application.root,
+          description:
+            engine === 'mysql' ? 'MySQL requirement detected' : 'PostgreSQL requirement detected',
+        },
       ]),
     });
   }

@@ -83,7 +83,7 @@ export const applicationAnalysisSchema = z
     database: z
       .object({
         required: z.boolean(),
-        type: z.enum(['postgres', 'unsupported', 'none']),
+        type: z.enum(['postgres', 'mysql', 'unsupported', 'none']),
         confidence: factConfidenceSchema,
         evidence: z.array(analysisEvidenceSchema),
       })

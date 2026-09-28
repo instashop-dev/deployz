@@ -24,6 +24,9 @@ export function resolveResourceCapability(resource: Resource): string | null {
   if (kind === 'relational_database' && engine === 'postgres') {
     return CAPABILITY_KEYS.RDS_POSTGRES;
   }
+  if (kind === 'relational_database' && engine === 'mysql') {
+    return CAPABILITY_KEYS.RDS_MYSQL;
+  }
   if (kind === 'cache' && engine === 'valkey') {
     return CAPABILITY_KEYS.ELASTICACHE_VALKEY;
   }
@@ -49,6 +52,17 @@ export function buildCapabilityConfiguration(
     return {
       engine: 'postgres',
       engineVersion: '16',
+      instanceType: profile.database.instanceClass,
+      storageGb: profile.database.storageGb,
+      maxStorageGb: profile.database.maxStorageGb,
+    };
+  }
+  if (capabilityKey === CAPABILITY_KEYS.RDS_MYSQL) {
+    // Phase 4B: the engine version is pinned by Deployz (one constant, same
+    // instance class / storage knobs as PostgreSQL).
+    return {
+      engine: 'mysql',
+      engineVersion: '8.0',
       instanceType: profile.database.instanceClass,
       storageGb: profile.database.storageGb,
       maxStorageGb: profile.database.maxStorageGb,

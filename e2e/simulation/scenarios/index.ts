@@ -9,6 +9,7 @@ import { happyPath } from './happy-path.js';
 import { healthcheckFailure } from './healthcheck-failure.js';
 import { lifecycleSweep } from './lifecycle-sweep.js';
 import { multiWorkerSweep } from './multi-worker-sweep.js';
+import { mysqlSweep } from './mysql-sweep.js';
 import { purgeFailure } from './purge-failure.js';
 import { redisFailure } from './redis-failure.js';
 import { redisSuccess } from './redis-success.js';
@@ -44,6 +45,7 @@ const SCENARIOS: Readonly<Record<string, ScenarioDefinition>> = {
   [healthcheckFailure.id]: healthcheckFailure,
   [lifecycleSweep.id]: lifecycleSweep,
   [multiWorkerSweep.id]: multiWorkerSweep,
+  [mysqlSweep.id]: mysqlSweep,
   [slowProvision.id]: slowProvision,
   [cloudformationFailure.id]: cloudformationFailure,
   [databaseFailure.id]: databaseFailure,
@@ -83,6 +85,7 @@ export {
   healthcheckFailure,
   lifecycleSweep,
   multiWorkerSweep,
+  mysqlSweep,
   purgeFailure,
   redisFailure,
   redisSuccess,

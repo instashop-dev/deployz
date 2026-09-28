@@ -1037,10 +1037,11 @@ function deriveContractFieldUpdates(
     // Unlike a mere detector `detected` flag (library presence), RDS
     // provisioning is gated on the required-vs-present evidence rule — a
     // driver/ORM dependency alone never provisions a database.
-    // `metadata.postgres.required` is that gate, computed once by
-    // `assessPostgres` and carried through `analysis.metadata`.
+    // `metadata.postgres.required` / `metadata.mysql.required` (Phase 4B)
+    // are those gates, computed once and carried through `analysis.metadata`.
     const postgres = analysis.metadata['postgres'] as { required?: unknown } | undefined;
-    if (postgres?.required === true) updates.databaseRequired = true;
+    const mysql = analysis.metadata['mysql'] as { required?: unknown } | undefined;
+    if (postgres?.required === true || mysql?.required === true) updates.databaseRequired = true;
   }
 
   if (!vendorOwned.has('storageRequired')) {

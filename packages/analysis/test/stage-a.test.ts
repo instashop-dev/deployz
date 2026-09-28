@@ -382,18 +382,18 @@ describe('COMP-002 — optional or configurable dependencies are not architectur
     expect(checkSqlite(gatus).detected).toBe(false);
   });
 
-  it('still rejects a lone SQLite or MySQL driver, and an explicit non-PostgreSQL Prisma provider', () => {
+  it('still rejects a lone SQLite driver; MySQL and a Prisma mysql provider are SUPPORTED (Phase 4B)', () => {
     expect(checkSqlite({ 'package.json': JSON.stringify({ dependencies: { 'better-sqlite3': '^11.0.0' } }) }).detected).toBe(true);
     // knex is dialect-agnostic: it does not make a SQLite app configurable.
     expect(
       checkSqlite({ 'package.json': JSON.stringify({ dependencies: { knex: '^3.0.0', 'better-sqlite3': '^11.0.0' } }) }).detected,
     ).toBe(true);
-    expect(checkMysql({ 'package.json': JSON.stringify({ dependencies: { mysql2: '^3.0.0' } }) }).detected).toBe(true);
+    expect(checkMysql({ 'package.json': JSON.stringify({ dependencies: { mysql2: '^3.0.0' } }) }).detected).toBe(false);
     const prismaMysql: FileTree = {
       'package.json': JSON.stringify({ dependencies: { '@prisma/client': '^5.0.0', pg: '^8.12.0' } }),
       'prisma/schema.prisma': 'datasource db {\n  provider = "mysql"\n}\n',
     };
-    expect(checkMysql(prismaMysql).detected).toBe(true);
+    expect(checkMysql(prismaMysql).detected).toBe(false);
   });
 
   it('rejects a broker client only with a production Compose service or a required connection variable', () => {

@@ -173,6 +173,15 @@ export const deploymentManifestSchema = z
          * just that part.
          */
         envBindings: z.array(manifestEnvBindingSchema).optional(),
+        /**
+         * Which engine the managed database runs (Phase 4B, optional/
+         * additive). Absent means the historical default, PostgreSQL —
+         * manifests written before the field existed (and every PostgreSQL
+         * deployment) omit it, so old manifests round-trip byte-identical.
+         * `postgres` is the legacy "managed database required" boolean's
+         * name; the engine field is what actually distinguishes the engine.
+         */
+        engine: z.enum(['postgres', 'mysql']).optional(),
       })
       .strict(),
     redis: z

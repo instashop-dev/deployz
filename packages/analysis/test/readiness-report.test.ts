@@ -126,13 +126,18 @@ const multiServiceComposeTree: FileTree = {
 };
 
 /** MySQL as the only database driver — a §10 rejection (next to `pg` it would be a configurable engine, COMP-002). */
-const mysqlTree: FileTree = {
+/** MongoDB as the app's data store — a §10 rejection; MySQL itself is a SUPPORTED engine since Phase 4B. */
+const mongoTree: FileTree = {
   ...readyTree,
   'package.json': JSON.stringify({
     name: 'ready-app',
     scripts: { start: 'node dist/index.js', 'db:migrate': 'npx drizzle-kit push' },
-    dependencies: { express: '^4.18.0', mysql2: '^3.9.0' },
+    dependencies: { express: '^4.18.0', mongoose: '^8.0.0' },
   }),
+  'src/models/user.ts': [
+    "import mongoose from 'mongoose';",
+    'export const User = mongoose.model("User", new mongoose.Schema({ email: String }));',
+  ].join('\n'),
 };
 
 const JARGON_REGEX = /\b(CloudFormation|IAM|ECS|ALB|Lambda|VPC|CFN|RDS)\b/i;
@@ -162,7 +167,7 @@ describe('buildReadinessReport — state calculation', () => {
   });
 
   it('NEEDS_CHANGES: any blocking required finding (§10 rejection)', () => {
-    const report = buildReadinessReport(analyseRepo(mysqlTree));
+    const report = buildReadinessReport(analyseRepo(mongoTree));
     expect(report.state).toBe('NEEDS_CHANGES');
   });
 
@@ -180,7 +185,7 @@ describe('buildReadinessReport — state calculation', () => {
   });
 
   it('NEEDS_CHANGES wins over a simultaneous fixable-required finding', () => {
-    const tree: FileTree = { ...mysqlTree };
+    const tree: FileTree = { ...mongoTree };
     delete tree['Dockerfile'];
     const report = buildReadinessReport(analyseRepo(tree));
     expect(report.state).toBe('NEEDS_CHANGES');
@@ -202,8 +207,8 @@ describe('buildReadinessReport — state calculation', () => {
 
 describe('buildReadinessReport — finding classification', () => {
   it('§10 rejections are required + blocking', () => {
-    const report = buildReadinessReport(analyseRepo(mysqlTree));
-    const finding = report.findings.find((f) => f.id === 'unsupported-database-mysql');
+    const report = buildReadinessReport(analyseRepo(mongoTree));
+    const finding = report.findings.find((f) => f.id === 'unsupported-database-mongo');
     expect(finding?.severity).toBe('required');
     expect(finding?.blocking).toBe(true);
     expect(finding?.confidence).toBe('confirmed');
@@ -407,7 +412,7 @@ describe('buildReadinessReport — counts and summary', () => {
     expect(buildReadinessReport(analyseRepo(noDockerfileTree)).summary).toBe(
       'Deployz found a few things to address before this app can be deployed reliably.',
     );
-    expect(buildReadinessReport(analyseRepo(mysqlTree)).summary).toBe(
+    expect(buildReadinessReport(analyseRepo(mongoTree)).summary).toBe(
       'This app needs changes before Deployz can deploy it.',
     );
   });
@@ -421,7 +426,7 @@ describe('buildReadinessReport — jargon-free copy', () => {
   it('no finding exposes CloudFormation/IAM/ECS/ALB/Lambda/VPC/CFN/RDS terms', () => {
     // Exercise every finding this module can produce in one pass.
     const trees = [
-      mysqlTree,
+      mongoTree,
       localFsTree,
       gitCopyTree,
       noDockerfileTree,
@@ -470,7 +475,7 @@ describe('verdictFromReadiness', () => {
 
 describe('buildReadinessReport — determinism', () => {
   it('same input twice → deep-equal output', () => {
-    const analysis = analyseRepo(mysqlTree);
+    const analysis = analyseRepo(mongoTree);
     const first = buildReadinessReport(analysis);
     const second = buildReadinessReport(analysis);
     expect(second).toEqual(first);
@@ -569,7 +574,7 @@ describe('reconcileReadiness', () => {
   });
 
   it('never resolves a blocking finding through configuration', () => {
-    const blocked = buildReadinessReport(analyseRepo(mysqlTree));
+    const blocked = buildReadinessReport(analyseRepo(mongoTree));
     const reconciled = reconcileReadiness(blocked, { containerPort: 3000, startCommand: 'node x' });
     expect(reconciled.state).toBe('NEEDS_CHANGES');
   });

@@ -14,8 +14,10 @@ import {
   detectEnvVarModel,
   detectPostgresql,
   findDependencyEvidence,
+  isProductionComposeFile,
   isRuntimeSourcePath,
   isWorkerServiceCommand,
+  LANGUAGE_SOURCE_REGEX,
   listDockerfileCandidates,
 } from './detectors.js';
 import type { RedisRequirement } from './redis.js';
@@ -103,12 +105,15 @@ const MYSQL_LANGUAGE_TOKENS = [
   'github.com/go-sql-driver/mysql',
   'mysql-connector-j',
   'mysql-connector-java',
-  'mariadb-java-client',
   'r2dbc-mysql',
-  'myxql',
 ] as const;
-const LARAVEL_MYSQL_DEFAULT_REGEX = /env\(\s*['"]DB_CONNECTION['"]\s*,\s*['"](?:mysql|mariadb)['"]\s*\)/;
-const LARAVEL_MYSQL_ENV_REGEX = /^DB_CONNECTION\s*=\s*(?:mysql|mariadb)\s*$/m;
+// MariaDB-specific drivers speak a dialect Deployz does NOT host (RDS MySQL
+// only) — a lone MariaDB driver stays a rejection (Phase 4B).
+const MARIA_LANGUAGE_TOKENS = ['mariadb-java-client', 'myxql'] as const;
+const LARAVEL_MYSQL_DEFAULT_REGEX = /env\(\s*['"]DB_CONNECTION['"]\s*,\s*['"]mysql['"]\s*\)/;
+const LARAVEL_MARIA_DEFAULT_REGEX = /env\(\s*['"]DB_CONNECTION['"]\s*,\s*['"]mariadb['"]\s*\)/;
+const LARAVEL_MYSQL_ENV_REGEX = /^DB_CONNECTION\s*=\s*mysql\s*$/m;
+const LARAVEL_MARIA_ENV_REGEX = /^DB_CONNECTION\s*=\s*mariadb\s*$/m;
 
 /**
  * A SQL-engine driver next to a PostgreSQL driver means the engine is a
@@ -127,59 +132,170 @@ function engineIsConfigurable(tree: FileTree): boolean {
 
 const DIALECT_AGNOSTIC_DRIVERS = new Set(['knex', 'drizzle-orm']);
 
+/** Required-vs-present evidence for MySQL: mirrors `PostgresRequirement`. */
+export interface MySqlRequirement {
+  required: boolean;
+  /** A MySQL driver is declared (and PostgreSQL is not the engine in use). */
+  detected: boolean;
+  evidence: string[];
+}
+
+const MYSQL_CONNECTION_ENV_VARS = ['MYSQL_URL', 'MYSQL_URI', 'MYSQL_HOST', 'MYSQL_DATABASE', 'MYSQL_USER'] as const;
+
 /**
- * Check for MySQL dependencies (unsupported — Deployz uses PostgreSQL only).
+ * Assess whether a repository's MySQL usage is a real database requirement
+ * (Phase 4B — RDS MySQL is a supported managed database). Mirrors
+ * `assessPostgres`: `required` is true only when a MySQL driver AND at least
+ * one independent signal (a Prisma mysql provider, a `mysql://` connection
+ * URL, a MYSQL_* connection variable, a MySQL/MariaDB image in a production
+ * Compose file, or a Laravel `DB_CONNECTION=mysql` default) are both
+ * present, and PostgreSQL is not the engine actually wired up. A bare
+ * driver — or a dev-only dependency — is not a database; it deploys without
+ * one and raises the connection-binding question instead.
  */
-export function checkMysql(tree: FileTree): RejectionFinding {
+export function assessMysql(tree: FileTree): MySqlRequirement {
+  const evidence: string[] = [];
   const deps = collectDependencyNames(tree);
 
+  let hasDependency = false;
+  let hasIndependentEvidence = false;
+
   for (const dep of MYSQL_DEPS) {
-    if (deps.includes(dep) && !engineIsConfigurable(tree)) {
+    if (deps.includes(dep)) {
+      hasDependency = true;
+      evidence.push(`${dep} dependency in package.json`);
+    }
+  }
+  // A MariaDB-only driver is evidence of an UNSUPPORTED dialect, never of
+  // the supported MySQL engine.
+  if (!hasDependency) {
+    for (const token of MYSQL_LANGUAGE_TOKENS) {
+      if (findDependencyEvidence(tree, token).some(isRuntimeSourcePath)) {
+        hasDependency = true;
+        evidence.push(`${token} declared`);
+        break;
+      }
+    }
+  }
+  // Prisma schema declaring a mysql provider — its own dependency AND
+  // independent signal (a Prisma mysql app needs a MySQL server).
+  if (deps.includes('@prisma/client') && prismaUsesProvider(tree, 'mysql')) {
+    hasDependency = true;
+    hasIndependentEvidence = true;
+    evidence.push('provider = "mysql" in the Prisma schema');
+  }
+  if (!hasDependency) return { required: false, detected: false, evidence: [] };
+  if (engineIsConfigurable(tree)) {
+    // A PostgreSQL-specific driver is declared: PostgreSQL is the engine in
+    // use and the MySQL dependency stays quiet (Stage A COMP-002).
+    return { required: false, detected: false, evidence: [] };
+  }
+
+  // A mysql:// connection URL referenced in an env file, docker-compose, or
+  // source (runtime paths only — the same boundary assessPostgres draws).
+  for (const [path, content] of Object.entries(tree)) {
+    if (!content || !isRuntimeSourcePath(path)) continue;
+    if (/(?:^|\/)\.env(\.\w+)?$/i.test(path) || /(?:^|\/)(?:docker-)?compose(?:\.[\w.-]+)?\.ya?ml$/i.test(path)) {
+      if (/mariadb:\/\//.test(content) === false && /mysql:\/\//.test(content)) {
+        hasIndependentEvidence = true;
+        evidence.push(`a mysql:// connection URL in ${path}`);
+        break;
+      }
+    }
+  }
+
+  // Known MYSQL_* connection variables referenced the same ways.
+  for (const name of MYSQL_CONNECTION_ENV_VARS) {
+    const envFileRegex = new RegExp(`^${name}\\s*[=:]`, 'm');
+    const composeRegex = new RegExp(`\\b${name}\\s*[=:]`);
+    const processEnvRegex = new RegExp(`process\\.env\\.${name}\\b`);
+    const literalRegex = new RegExp(`["']${name}["']`);
+    for (const [path, content] of Object.entries(tree)) {
+      if (!content) continue;
+      if (/^\.env(\.\w+)?$/i.test(path) && envFileRegex.test(content)) {
+        hasIndependentEvidence = true;
+        evidence.push(`${name} referenced in ${path}`);
+      } else if (/^docker-compose\.ya?ml$/i.test(path) && composeRegex.test(content)) {
+        hasIndependentEvidence = true;
+        evidence.push(`${name} referenced in ${path}`);
+      } else if (/\.(ts|js|mjs|cjs|jsx|tsx)$/.test(path) && processEnvRegex.test(content)) {
+        hasIndependentEvidence = true;
+        evidence.push(`process.env.${name} referenced in ${path}`);
+      } else if (LANGUAGE_SOURCE_REGEX.test(path) && isRuntimeSourcePath(path) && literalRegex.test(content)) {
+        hasIndependentEvidence = true;
+        evidence.push(`${name} referenced in ${path}`);
+      }
+    }
+  }
+
+  // A mysql/mariadb image in any production Compose file — the app expects
+  // to host its own MySQL-protocol database.
+  for (const path of Object.keys(tree)) {
+    if (!/(?:^|\/)(?:docker-)?compose(?:\.[\w.-]+)?\.ya?ml$/i.test(path) || !isProductionComposeFile(path)) continue;
+    const dcContent = tree[path];
+    if (!dcContent) continue;
+    if (/image:\s*['"]?[^\s'"]*(?:mysql|mariadb)/i.test(dcContent)) {
+      hasIndependentEvidence = true;
+      evidence.push(`a MySQL/MariaDB image in the production Compose file (${path})`);
+      break;
+    }
+  }
+
+  // A Laravel config whose default connection is MySQL.
+  const laravel = Object.entries(tree).find(
+    ([path, content]) =>
+      !!content &&
+      isRuntimeSourcePath(path) &&
+      ((/(?:^|\/)config\/database\.php$/.test(path) && LARAVEL_MYSQL_DEFAULT_REGEX.test(content)) ||
+        (/(?:^|\/)\.env\.(?:example|sample|template)$/i.test(path) && LARAVEL_MYSQL_ENV_REGEX.test(content))),
+  );
+  if (laravel) {
+    hasIndependentEvidence = true;
+    evidence.push(`${laravel[0]} sets DB_CONNECTION to mysql`);
+  }
+
+  return {
+    required: hasDependency && hasIndependentEvidence,
+    detected: true,
+    evidence: [...new Set(evidence)],
+  };
+}
+
+/**
+ * MariaDB-only setups (a MariaDB-specific driver, or a Laravel default of
+ * `mariadb`) are the part of the old MySQL rejection that STAYS unsupported —
+ * Deployz hosts RDS MySQL and PostgreSQL only (Phase 4B).
+ */
+export function checkMysql(tree: FileTree): RejectionFinding {
+  for (const token of MARIA_LANGUAGE_TOKENS) {
+    const evidence = findDependencyEvidence(tree, token).filter(isRuntimeSourcePath);
+    if (evidence.length > 0 && !engineIsConfigurable(tree)) {
       return {
         detected: true,
-        dependency: dep,
-        reason: `Unsupported database dependency: ${dep}. Deployz does not support MySQL. Use PostgreSQL.`,
+        dependency: 'mariadb',
+        reason: `Unsupported database dependency: ${token}. Deployz supports PostgreSQL and MySQL, not MariaDB.`,
       };
     }
   }
 
-  // Prisma with mysql provider
-  if (deps.includes('@prisma/client') && prismaUsesProvider(tree, 'mysql')) {
-    return {
-      detected: true,
-      dependency: '@prisma/client',
-      reason: 'Unsupported database: Prisma configured with MySQL provider. Deployz requires PostgreSQL.',
-    };
-  }
-
-  if (!engineIsConfigurable(tree)) {
-    for (const token of MYSQL_LANGUAGE_TOKENS) {
-      const evidence = findDependencyEvidence(tree, token).filter(isRuntimeSourcePath);
-      if (evidence.length > 0) {
-        return {
-          detected: true,
-          dependency: 'mysql',
-          reason: `Unsupported database dependency: ${token} declared in ${evidence[0]}. Deployz does not support MySQL. Use PostgreSQL.`,
-        };
-      }
-    }
+  if (!engineIsConfigurable(tree) && !assessMysql(tree).detected) {
     const laravel = Object.entries(tree).find(
       ([path, content]) =>
         !!content &&
         isRuntimeSourcePath(path) &&
-        ((/(?:^|\/)config\/database\.php$/.test(path) && LARAVEL_MYSQL_DEFAULT_REGEX.test(content)) ||
-          (/(?:^|\/)\.env\.(?:example|sample|template)$/i.test(path) && LARAVEL_MYSQL_ENV_REGEX.test(content))),
+        ((/(?:^|\/)config\/database\.php$/.test(path) && LARAVEL_MARIA_DEFAULT_REGEX.test(content)) ||
+          (/(?:^|\/)\.env\.(?:example|sample|template)$/i.test(path) && LARAVEL_MARIA_ENV_REGEX.test(content))),
     );
     if (laravel) {
       return {
         detected: true,
-        dependency: 'mysql',
-        reason: `Unsupported database: ${laravel[0]} sets DB_CONNECTION to MySQL and no PostgreSQL driver is declared. Deployz requires PostgreSQL.`,
+        dependency: 'mariadb',
+        reason: `Unsupported database: ${laravel[0]} sets DB_CONNECTION to MariaDB. Deployz supports PostgreSQL and MySQL.`,
       };
     }
   }
 
-  return { detected: false, dependency: 'none', reason: 'No MySQL dependency detected' };
+  return { detected: false, dependency: 'none', reason: 'No unsupported MariaDB setup detected' };
 }
 
 /**

@@ -160,11 +160,17 @@ function emptyPurgeClients(): {
  * Scenario-aware purge clients: `emptyPurgeClients()` plus, when the
  * scenario carries a `purge.undeletableBucket`, an S3 client that reports
  * that one tag-owned bucket as owned and always fails to delete it — the
- * deterministic "purge sweep finds a leftover it cannot delete" case. Every
- * other scenario (no `purge` field) gets exactly `emptyPurgeClients()`'s
- * behaviour, unchanged.
+ * deterministic "purge sweep finds a leftover it cannot delete" case. When
+ * the scenario carries a `purge.retainedDbInstance` (Phase 4B), the RDS
+ * client reports that owned instance + subnet group and records the
+ * deletions in `deletedDb` — the engine-agnostic purge path (the same code
+ * deletes RDS MySQL and RDS PostgreSQL). Every other scenario gets exactly
+ * `emptyPurgeClients()`'s behaviour, unchanged.
  */
-function purgeClientsFor(scenario: ScenarioDefinition): {
+function purgeClientsFor(
+  scenario: ScenarioDefinition,
+  deletedDb: string[],
+): {
   rds: RdsPurgeClient;
   cache: CachePurgeClient;
   s3: S3PurgeClient;
@@ -174,16 +180,40 @@ function purgeClientsFor(scenario: ScenarioDefinition): {
 } {
   const clients = emptyPurgeClients();
   const undeletable = scenario.purge?.undeletableBucket;
-  if (!undeletable) return clients;
+  if (undeletable) {
+    return {
+      ...clients,
+      s3: {
+        async listOwnedBuckets() {
+          return [undeletable.bucketName];
+        },
+        async emptyBucket() {},
+        async deleteBucket() {
+          throw new Error(undeletable.failureReason);
+        },
+      },
+    };
+  }
+  const retained = scenario.purge?.retainedDbInstance;
+  if (!retained) return clients;
+  let instanceDeleted = false;
+  let subnetGroupDeleted = false;
   return {
     ...clients,
-    s3: {
-      async listOwnedBuckets() {
-        return [undeletable.bucketName];
+    rds: {
+      async listOwnedInstances() {
+        return instanceDeleted ? [] : [{ identifier: retained.identifier, status: 'available' }];
       },
-      async emptyBucket() {},
-      async deleteBucket() {
-        throw new Error(undeletable.failureReason);
+      async disableDeletionProtection() {},
+      async deleteInstance(identifier: string) {
+        instanceDeleted = true;
+        deletedDb.push(identifier);
+      },
+      async listOwnedSubnetGroups() {
+        return subnetGroupDeleted ? [] : [retained.subnetGroup];
+      },
+      async deleteSubnetGroup() {
+        subnetGroupDeleted = true;
       },
     },
   };
@@ -318,6 +348,8 @@ export interface JobSettlement {
 
 export interface SimulatedRelayHandle {
   readonly account: SimulatedCustomerAccount;
+  /** RDS instance identifiers the purge sweep deleted (Phase 4B `purge.retainedDbInstance` knob). */
+  readonly purgeDeletedDb: string[];
   /** Stops the poll-cycle timer. Safe to call more than once. */
   stop(): void;
   /** Resolves once a poll cycle has reported a non-deferred INSTALL result. */
@@ -467,6 +499,7 @@ export function startSimulatedRelay(options: StartSimulatedRelayOptions): Simula
   // stack is not modelled (CANARY-014: a purge never deletes it — it tells
   // the customer to remove it), so `bootstrapStackName` is a plain
   // identifier that only ever appears in the success output.
+  const purgeDeletedDb: string[] = [];
   const purgeDeps: PurgeDeps = {
     cfn: account.cloudFormationReader(),
     deleter: account.stackDeleter(),
@@ -476,7 +509,7 @@ export function startSimulatedRelay(options: StartSimulatedRelayOptions): Simula
       return stackNameOrDefault();
     },
     bootstrapStackName: `deployz-bootstrap-${installationId}`,
-    ...purgeClientsFor(scenario),
+    ...purgeClientsFor(scenario, purgeDeletedDb),
   };
 
   let settlement: InstallSettlement | null = null;
@@ -753,6 +786,8 @@ export function startSimulatedRelay(options: StartSimulatedRelayOptions): Simula
 
   return {
     account,
+    /** RDS instance identifiers the purge sweep deleted (Phase 4B knob). */
+    purgeDeletedDb,
     stop(): void {
       stopped = true;
       if (timer !== undefined) clearTimeout(timer);

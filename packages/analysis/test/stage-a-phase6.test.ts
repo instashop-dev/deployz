@@ -71,15 +71,21 @@ describe('COMP-036 — IaC in non-runtime directories is not the app deployment'
   });
 });
 
-describe('COMP-037 — unsupported engines declared outside Node manifests', () => {
-  it('rejects a lone MySQL driver in Python, JVM or Elixir manifests, and a Laravel MySQL default', () => {
-    expect(checkMysql({ 'requirements.txt': 'Flask==3.0\nPyMySQL==1.1\n' })).toMatchObject({ detected: true, dependency: 'mysql' });
-    expect(checkMysql({ 'pom.xml': '<artifactId>mysql-connector-j</artifactId>\n' })).toMatchObject({ detected: true, dependency: 'mysql' });
-    expect(checkMysql({ 'mix.exs': '{:myxql, ">= 0.0.0"}\n' })).toMatchObject({ detected: true, dependency: 'mysql' });
+describe('COMP-037 — engines declared outside Node manifests', () => {
+  it('MySQL drivers in Python, JVM or Elixir manifests and a Laravel mysql default are SUPPORTED (Phase 4B)', () => {
+    expect(checkMysql({ 'requirements.txt': 'Flask==3.0\nPyMySQL==1.1\n' }).detected).toBe(false);
+    expect(checkMysql({ 'pom.xml': '<artifactId>mysql-connector-j</artifactId>\n' }).detected).toBe(false);
+    expect(checkMysql({ 'config/database.php': "'default' => env('DB_CONNECTION', 'mysql'),\n", 'composer.json': JSON.stringify({ require: { 'laravel/framework': '^11' } }) }).detected).toBe(false);
+    expect(checkMysql({ '.env.example': 'APP_KEY=\nDB_CONNECTION=mysql\nDB_HOST=localhost\n' }).detected).toBe(false);
+  });
+
+  it('still rejects MariaDB-specific drivers and a Laravel mariadb default (Phase 4B)', () => {
+    expect(checkMysql({ 'mix.exs': '{:myxql, ">= 0.0.0"}\n' })).toMatchObject({ detected: true, dependency: 'mariadb' });
+    expect(checkMysql({ 'pom.xml': '<artifactId>mariadb-java-client</artifactId>\n' })).toMatchObject({ detected: true, dependency: 'mariadb' });
     expect(
-      checkMysql({ 'config/database.php': "'default' => env('DB_CONNECTION', 'mysql'),\n", 'composer.json': JSON.stringify({ require: { 'laravel/framework': '^11' } }) }),
-    ).toMatchObject({ detected: true, dependency: 'mysql' });
-    expect(checkMysql({ '.env.example': 'APP_KEY=\nDB_CONNECTION=mysql\nDB_HOST=localhost\n' })).toMatchObject({ detected: true, dependency: 'mysql' });
+      checkMysql({ 'config/database.php': "'default' => env('DB_CONNECTION', 'mariadb'),\n", 'composer.json': JSON.stringify({ require: { 'laravel/framework': '^11' } }) }),
+    ).toMatchObject({ detected: true, dependency: 'mariadb' });
+    expect(checkMysql({ '.env.example': 'APP_KEY=\nDB_CONNECTION=mariadb\nDB_HOST=localhost\n' })).toMatchObject({ detected: true, dependency: 'mariadb' });
   });
 
   it('keeps a configurable engine and a test-only driver', () => {

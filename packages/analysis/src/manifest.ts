@@ -288,7 +288,15 @@ export function normalizeDeploymentManifest(
   const redisCompatibility = asRecord(redisMeta['compatibility']);
   const redisRequired = overrides.redisRequired ?? redisMeta['required'] === true;
   const storageRequired = overrides.storageRequired ?? meta['usesS3'] === true;
-  const postgresRequired = overrides.databaseRequired ?? postgresMeta['required'] === true;
+  // Phase 4B — which engine the managed relational database runs. MySQL is
+  // a supported engine (assessed alongside PostgreSQL); a PostgreSQL
+  // requirement always wins when both engines show evidence
+  // (`assessMysql` already stands down for engine-configurable repos).
+  const mysqlMeta = asRecord(meta['mysql']);
+  const detectedEngine: 'postgres' | 'mysql' = postgresMeta['required'] !== true && mysqlMeta['required'] === true
+    ? 'mysql'
+    : 'postgres';
+  const postgresRequired = overrides.databaseRequired ?? (postgresMeta['required'] === true || mysqlMeta['required'] === true);
 
   // Unsupported reasons — the blocking set. Everything here is a hard
   // incompatibility no override can fix. New analyses carry the full §11.4
@@ -305,7 +313,7 @@ export function normalizeDeploymentManifest(
       );
     }
     if (meta['databaseState'] === 'unsupported') {
-      unsupported.push('Unsupported database detected — Deployz hosts PostgreSQL only');
+      unsupported.push('An unsupported database was detected — Deployz hosts PostgreSQL and MySQL');
     }
   }
   if (meta['usesLocalFilesystem'] === true) {
@@ -368,7 +376,12 @@ export function normalizeDeploymentManifest(
     },
     health: normalizeHealthSection(overrides.healthPath, meta),
     database: {
+      // Legacy name for "Deployz provisions a managed relational database";
+      // `engine` (Phase 4B) carries which engine it runs.
       postgres: postgresRequired,
+      // Written ONLY for MySQL so every PostgreSQL manifest stays
+      // byte-identical with pre-4B output (absent = postgres).
+      ...(postgresRequired && detectedEngine === 'mysql' ? { engine: 'mysql' as const } : {}),
       // Stage B phase 2: the names the RDS URL/parts are injected under —
       // the standard DATABASE_* names always, plus the aliases the app reads
       // (MEMOS_DSN, PAPERLESS_DBHOST, …). Absent when no DB is provisioned.

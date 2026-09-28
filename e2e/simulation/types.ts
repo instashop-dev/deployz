@@ -125,6 +125,18 @@ export interface PurgeScenario {
     readonly bucketName: string;
     readonly failureReason: string;
   };
+  /**
+   * Phase 4B: the retained database instance a completed DESTROY leaves
+   * behind (RETAIN policy — same shape for RDS PostgreSQL and RDS MySQL).
+   * The purge sweep reports it as tag-owned, disables its deletion
+   * protection and deletes it (SkipFinalSnapshot); the deleted identifiers
+   * surface on the harness handle as `purgeDeletedDb`. Empty by default —
+   * a simulated DESTROY leaves no modelled retained instances behind.
+   */
+  readonly retainedDbInstance?: {
+    readonly identifier: string;
+    readonly subnetGroup: string;
+  };
 }
 
 export interface ScenarioDefinition {

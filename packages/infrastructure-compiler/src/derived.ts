@@ -34,7 +34,12 @@ export function deriveFootprint(input: {
   profile: InfrastructureSizeProfile;
 }): DeploymentFootprint {
   const { ir, region, profile } = input;
-  const hasDb = ir.resources.some((r) => r.capabilityKey === CAPABILITY_KEYS.RDS_POSTGRES);
+  // One managed database per deployment — PostgreSQL or (Phase 4B) MySQL.
+  // The engine/engineVersion displayed come from the IR resource's resolved
+  // configuration, so footprint and template can never disagree.
+  const dbResource = ir.resources.find(
+    (r) => r.capabilityKey === CAPABILITY_KEYS.RDS_POSTGRES || r.capabilityKey === CAPABILITY_KEYS.RDS_MYSQL,
+  );
   const hasRedis = ir.resources.some((r) => r.capabilityKey === CAPABILITY_KEYS.ELASTICACHE_VALKEY);
 
   const workloadLabel = (kind: string): string =>
@@ -56,18 +61,25 @@ export function deriveFootprint(input: {
   }));
 
   const resources: FootprintResource[] = [];
-  if (hasDb) {
+  if (dbResource !== undefined) {
+    const configuration = dbResource.configuration as {
+      engine?: unknown;
+      engineVersion?: unknown;
+      instanceType?: unknown;
+      storageGb?: unknown;
+      maxStorageGb?: unknown;
+    };
     resources.push({
       id: 'database',
       category: 'database',
       provider: 'aws',
-      service: 'rds-postgres',
+      service: dbResource.capabilityKey === CAPABILITY_KEYS.RDS_MYSQL ? 'rds-mysql' : 'rds-postgres',
       role: 'database',
       label: INFRASTRUCTURE_COMPONENT_DISPLAY.database.name,
       quantity: 1,
       configuration: {
-        engine: DATABASE_ENGINE,
-        engineVersion: DATABASE_ENGINE_VERSION,
+        engine: configuration.engine ?? DATABASE_ENGINE,
+        engineVersion: configuration.engineVersion ?? DATABASE_ENGINE_VERSION,
         instanceType: profile.database.instanceClass,
         storageGb: profile.database.storageGb,
         maxStorageGb: profile.database.maxStorageGb,

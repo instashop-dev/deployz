@@ -14,17 +14,29 @@ import { compileDeployzInfrastructure, logicalResourceId } from './index.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 
+// The full postgres template (web + RDS PostgreSQL + Valkey + S3 + ALB),
+// pinned byte-for-byte. Phase 4B's MySQL capability must not move a single
+// postgres byte — this hash is the proof (see the mysql describe below).
+const POSTGRES_TEMPLATE_HASH_GOLDEN = 'b6fa77dce5db8e341e3723cf0f11f5855e97f9324f97f456e431c5bf5021677a';
+
 // ── IR fixtures ──────────────────────────────────────────────────────────────
 
-function makeIr(opts: { postgres: boolean; redis: boolean; workers?: { componentId: string; command: string }[] }): DeployzIR {
+function makeIr(opts: { postgres: boolean; redis: boolean; workers?: { componentId: string; command: string }[]; dbEngine?: 'postgres' | 'mysql' }): DeployzIR {
+  const dbCapability = opts.dbEngine === 'mysql' ? CAPABILITY_KEYS.RDS_MYSQL : CAPABILITY_KEYS.RDS_POSTGRES;
+  const dbConfiguration =
+    opts.dbEngine === 'mysql'
+      ? { engine: 'mysql', engineVersion: '8.0' }
+      : opts.postgres
+        ? { engine: 'postgres', engineVersion: '16' }
+        : {};
   const resources: DeployzIR['resources'] = [];
   if (opts.postgres) {
     resources.push({
       componentId: 'primary-db',
-      capabilityKey: CAPABILITY_KEYS.RDS_POSTGRES,
-      label: 'PostgreSQL database',
+      capabilityKey: dbCapability,
+      label: opts.dbEngine === 'mysql' ? 'MySQL database' : 'PostgreSQL database',
       quantity: 1,
-      configuration: {},
+      configuration: dbConfiguration,
       lifecycle: 'retain',
       scope: 'REGIONAL',
       envBindings: [],
@@ -87,7 +99,7 @@ function makeIr(opts: { postgres: boolean; redis: boolean; workers?: { component
           architecture: null,
         },
         dependencyCapabilityKeys: [
-          ...(opts.postgres ? [CAPABILITY_KEYS.RDS_POSTGRES] : []),
+          ...(opts.postgres ? [dbCapability] : []),
           ...(opts.redis ? [CAPABILITY_KEYS.ELASTICACHE_VALKEY] : []),
           CAPABILITY_KEYS.S3,
         ],
@@ -111,7 +123,7 @@ function makeIr(opts: { postgres: boolean; redis: boolean; workers?: { component
           architecture: null,
         },
         dependencyCapabilityKeys: [
-          ...(opts.postgres ? [CAPABILITY_KEYS.RDS_POSTGRES] : []),
+          ...(opts.postgres ? [dbCapability] : []),
           ...(opts.redis ? [CAPABILITY_KEYS.ELASTICACHE_VALKEY] : []),
           CAPABILITY_KEYS.S3,
         ],
@@ -523,5 +535,98 @@ describe('multi-workload', () => {
     for (const id of ['WebService', 'WebTaskDefinition', 'WebLogGroup', 'WebCluster', 'WebTaskExecutionRole', 'PrimaryDbAppServiceIngressWeb']) {
       expect(ids, id).toContain(id);
     }
+  });
+});
+
+// ── Phase 4B: RDS MySQL — the SAME relational-database abstraction with a
+//    Deployz-pinned engine. Postgres output stays byte-identical. ────────────
+
+describe('mysql database (phase 4b)', () => {
+  const mysqlIr = makeIr({ postgres: true, redis: true, dbEngine: 'mysql' });
+  const compiled = compileDeployzInfrastructure({ ir: mysqlIr, region: null });
+  const byId = new Map(compiled.resolvedGraph.resources.map((r) => [r.logicalId, r]));
+
+  it('the managed database is RDS MySQL on the same stable logical ids', () => {
+    const instance = byId.get('PrimaryDbInstance')!;
+    expect(instance).toBeDefined();
+    expect(instance.cfnType).toBe('AWS::RDS::DBInstance');
+    expect(instance.capability).toBe(CAPABILITY_KEYS.RDS_MYSQL);
+    expect(instance.stateful).toBe(true);
+    expect(instance.deletionPolicy).toBe('Retain');
+    expect(instance.purgeStrategy).toBe('require_manual');
+    expect(instance.verificationCheck).toBe('database');
+    // Deployz-pinned engine policy: version and encryption/backup/deletion
+    // protection are identical in shape to the PostgreSQL instance.
+    expect(instance.properties['Engine']).toBe('mysql');
+    expect(instance.properties['EngineVersion']).toBe('8.0');
+    expect(instance.properties['StorageEncrypted']).toBe(true);
+    expect(instance.properties['BackupRetentionPeriod']).toBe(7);
+    expect(instance.properties['DeletionProtection']).toBe(true);
+    expect(instance.properties['PubliclyAccessible']).toBe(false);
+  });
+
+  it('managed credentials and the mysql:// URL secret follow the PostgreSQL pattern', () => {
+    const masterSecret = byId.get('PrimaryDbMasterSecret')!;
+    expect(masterSecret.cfnType).toBe('AWS::SecretsManager::Secret');
+    const urlSecret = byId.get('PrimaryDbUrlSecret')!;
+    expect(String((urlSecret.properties['SecretString'] as Record<string, unknown>)['Fn::Join']![0])).toBe('');
+    const parts = (urlSecret.properties['SecretString'] as Record<string, unknown>)['Fn::Join']![1] as unknown[];
+    expect(parts[0]).toContain('mysql://deployz_app:');
+    expect(JSON.stringify(parts)).toContain(':3306/deployz');
+    // Private networking: app-SG ingress on the mysql port, per workload.
+    const ingress = byId.get('PrimaryDbAppServiceIngressWeb')!;
+    expect(ingress.properties['FromPort']).toBe(3306);
+    expect(ingress.properties['ToPort']).toBe(3306);
+    // No parameter group resource exists.
+    expect(compiled.resolvedGraph.resources.some((r) => r.cfnType.includes('DBParameterGroup'))).toBe(false);
+  });
+
+  it('app containers get the mysql env aliases and the RDS CA bundle', () => {
+    const taskDef = byId.get('WebTaskDefinition')!;
+    const app = (taskDef.properties['ContainerDefinitions'] as unknown[])[0] as {
+      Environment: Array<{ Name: string }>;
+      Secrets: Array<{ Name: string }>;
+    };
+    const envNames = app.Environment.map((entry) => entry.Name);
+    // Generic DATABASE_* names always lead (URL parts as env, the URL as a
+    // secret).
+    expect(envNames).toContain('DATABASE_HOST');
+    expect(app.Secrets.map((entry) => entry.Name)).toContain('DATABASE_URL');
+    // MySQL aliases + the CA bundle under both the neutral and mysql names.
+    expect(envNames).toContain('MYSQL_HOST');
+    expect(envNames).toContain('MYSQL_PORT');
+    expect(envNames).toContain('MYSQL_SSL_CA');
+    expect(envNames).toContain('NODE_EXTRA_CA_CERTS');
+    expect(app.Secrets.map((entry) => entry.Name)).toContain('MYSQL_URL');
+    // Every service (workers included) binds the database — Phase 4A envs
+    // are per-workload, so a worker task def carries the same mysql envs.
+    const workerDef = byId.get('EmailWorkerTaskDefinition');
+    if (workerDef !== undefined) {
+      const workerApp = (workerDef.properties['ContainerDefinitions'] as unknown[])[0] as {
+        Environment: Array<{ Name: string }>;
+      };
+      expect(workerApp.Environment.map((e) => e.Name)).toContain('MYSQL_SSL_CA');
+    }
+  });
+
+  it('verification, footprint and outputs treat mysql exactly like postgres', () => {
+    expect(compiled.verificationContract.checks.some((c) => c.check === 'database' && c.logicalId === 'PrimaryDbInstance')).toBe(true);
+    const db = compiled.footprint.resources.find((r) => r.id === 'database')!;
+    expect(db.service).toBe('rds-mysql');
+    expect(db.configuration).toMatchObject({ engine: 'mysql', engineVersion: '8.0' });
+    const outputs = compiled.template['Outputs'] as Record<string, unknown>;
+    expect(Object.keys(outputs)).toContain('DbHost');
+    // The cache and ALB capabilities are untouched by the engine swap.
+    expect(byId.has('CacheReplicationGroup')).toBe(true);
+    expect(byId.has('EndpointLoadBalancer')).toBe(true);
+  });
+
+  it('POSTGRES OUTPUT IS UNAFFECTED — byte-identical template hash (golden)', () => {
+    // Same fixture IR the pre-4B compiler produced; the hash pins every
+    // postgres template byte against the mysql addition.
+    const postgres = compileDeployzInfrastructure({ ir: makeIr({ postgres: true, redis: true }), region: null });
+    expect(postgres.artifact.templateHash).toBe(POSTGRES_TEMPLATE_HASH_GOLDEN);
+    // And the postgres capability never appears in the mysql graph.
+    expect(compiled.resolvedGraph.resources.some((r) => r.capability === CAPABILITY_KEYS.RDS_POSTGRES)).toBe(false);
   });
 });

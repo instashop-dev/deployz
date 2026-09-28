@@ -205,11 +205,10 @@ describe('evaluateCompatibility — blocking rules (→ NOT_COMPATIBLE)', () => 
     expect(result.reason).toBe(NEEDS_CHANGES_REASON);
   });
 
-  it('MySQL dependency → NOT_COMPATIBLE (unsupported-database-mysql)', () => {
+  it('a weak MySQL dependency no longer rejects — Deployz supports MySQL (Phase 4B)', () => {
     const result = evaluateCompatibility(analyseRepo(mysqlTree));
-    expect(result.verdict).toBe('NOT_COMPATIBLE');
-    expect(codes(result)).toEqual(['unsupported-database-mysql']);
-    expect(result.reason).toBe(NEEDS_CHANGES_REASON);
+    expect(result.verdict).toBe('READY');
+    expect(codes(result)).toEqual([]);
   });
 
   it('MongoDB dependency → NOT_COMPATIBLE (unsupported-database-mongo)', () => {
@@ -344,7 +343,7 @@ describe('databaseState metadata', () => {
     expect(analyseRepo(noPostgresTree).metadata['databaseState']).toBe('none');
   });
 
-  it('unsupported database (MySQL, no Postgres) → databaseState "unsupported"', () => {
+  it('weak MySQL (no connection evidence) → databaseState "none" and a needs-input ambiguity', () => {
     // A MySQL-only tree (no pg): with both drivers the engine is a
     // configuration choice and databaseState is "postgres".
     const mysqlOnlyTree: FileTree = {
@@ -356,7 +355,25 @@ describe('databaseState metadata', () => {
       }),
       'src/index.ts': readyTree['src/index.ts']!,
     };
-    expect(analyseRepo(mysqlOnlyTree).metadata['databaseState']).toBe('unsupported');
+    const result = analyseRepo(mysqlOnlyTree);
+    expect(result.metadata['databaseState']).toBe('none');
+    const mysqlMeta = result.metadata['mysql'] as { required: boolean; detected: boolean };
+    expect(mysqlMeta.detected).toBe(true);
+    expect(mysqlMeta.required).toBe(false);
+  });
+
+  it('strong MySQL (a mysql:// URL) → databaseState "mysql" (Phase 4B)', () => {
+    const mysqlRequiredTree: FileTree = {
+      'Dockerfile': readyTree['Dockerfile']!,
+      'package.json': JSON.stringify({
+        name: 'mysql-app',
+        scripts: { start: 'node dist/index.js', 'db:migrate': 'npx drizzle-kit push' },
+        dependencies: { express: '^4.18.0', mysql2: '^3.9.0' },
+      }),
+      'src/index.ts': readyTree['src/index.ts']!,
+      '.env.example': 'DATABASE_URL=mysql://localhost:3306/app\n',
+    };
+    expect(analyseRepo(mysqlRequiredTree).metadata['databaseState']).toBe('mysql');
   });
 
   it('unsupported Redis (cache, not a DB) does not flip databaseState to unsupported', () => {
