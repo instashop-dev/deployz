@@ -6,6 +6,7 @@
 import type { Application } from './applications';
 import type { DeploymentState } from './deployment-vocabulary';
 import type { FleetDeployment } from './deployments';
+import { databaseEngineName } from './readiness';
 
 // ── Deployments that need the vendor to act ────────────────────────────────
 
@@ -147,7 +148,7 @@ export function preparationChecks(application: Application): PreparationCheck[] 
     analysed
       ? {
           label: 'Database detected',
-          detail: application.databaseRequired ? 'PostgreSQL' : 'Not required',
+          detail: application.databaseRequired ? databaseEngineName(metadata['databaseState']) : 'Not required',
           state: 'complete',
         }
       : { label: 'Database detected', detail: null, state: 'pending' },

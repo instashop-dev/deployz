@@ -165,7 +165,7 @@ export function buildApplicationAnalysis(
       ? databaseState
       : 'none';
   const databaseEvidence = [
-    ...stringArray(postgres['evidence']).map((reason) => ({ reason })),
+    ...stringArray((databaseType === 'mysql' ? mysql : postgres)['evidence']).map((reason) => ({ reason })),
     ...(databaseType === 'unsupported' ? evidenceFrom(finding('postgresql')?.details) : NO_EVIDENCE),
   ];
 

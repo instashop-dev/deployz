@@ -98,6 +98,10 @@ jobs:
           echo "Comparing $base..$SHA"
           changed=$(git diff --name-only "$base" "$SHA")
           match=false
+          # No pathname expansion: `apps/api/*` must stay a case pattern, not
+          # expand to the checkout's top-level entries (which no nested file
+          # matches).
+          set -f
           for f in $changed; do
             for p in $PATHS; do
               case "$f" in $p) match=true ;; esac

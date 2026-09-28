@@ -12,6 +12,7 @@
 
 import type { Application } from './applications';
 import {
+  databaseEngineName,
   detectedFactRows,
   deriveReadinessRows,
   type ApplicationReadiness,
@@ -361,7 +362,13 @@ export function deriveConfigurationRows(application: Application, readiness: App
     buildFactRow('start', 'Start command', facts),
     buildPortRow(settings),
     buildOptionalFieldRow('health', 'Health check', 'healthPath', 'Not set', settings),
-    buildRequirementRow('database', 'Database', 'databaseRequired', 'PostgreSQL database', readiness.requirements),
+    buildRequirementRow(
+      'database',
+      'Database',
+      'databaseRequired',
+      `${databaseEngineName(readiness.detected.database.type)} database`,
+      readiness.requirements,
+    ),
     buildRequirementRow('redis', 'Cache / queue', 'redisRequired', 'Redis cache', readiness.requirements),
     buildStorageRow(readiness.requirements),
     buildOptionalFieldRow('migrations', 'Database migrations', 'migrationCommand', 'None', settings),

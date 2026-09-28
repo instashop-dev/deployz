@@ -357,22 +357,22 @@ function buildUnresolved(manifest: DeploymentManifest): UnresolvedRequirement[] 
     });
   }
 
-  // PostgreSQL without migration strategy.
+  // A managed relational database without migration strategy.
   if (
     manifest.database.postgres &&
     !manifest.migration.command &&
     manifest.migration.mode === 'unknown'
   ) {
+    const engineName = manifest.database.engine === 'mysql' ? 'MySQL' : 'PostgreSQL';
     unresolved.push({
       id: 'migration-strategy',
       field: 'migration_strategy',
-      question:
-        'This application uses PostgreSQL but has no detected migration command. How should the database schema be updated on deploy?',
+      question: `This application uses ${engineName} but has no detected migration command. How should the database schema be updated on deploy?`,
       evidence: [
         {
           sourceType: 'orm_configuration',
           path: manifest.application.root,
-          description: 'PostgreSQL detected but no migration command or strategy found',
+          description: `${engineName} detected but no migration command or strategy found`,
         },
       ],
       blocking: false,

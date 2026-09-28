@@ -3156,6 +3156,39 @@ describe('server — fleet list & deployment detail joins, readiness derivation 
       });
     });
 
+    it('a Django app whose Dockerfile installs the MySQL driver is served as a required MySQL database', async () => {
+      const analysis = analyseRepo({
+        Dockerfile: 'FROM python:3.9\nRUN pip install mysqlclient\nCOPY . .\nEXPOSE 8000\nCMD ["gunicorn", "site.wsgi"]\n',
+        'requirements.txt': 'Django==4.1.5\ngunicorn==20.1.0\n',
+        'docker-compose.yml': 'services:\n  web:\n    build: .\n  db:\n    image: mysql\n    environment:\n      - MYSQL_DATABASE=app\n',
+      });
+      const application = await insertApplication(db, org.organizationId, {
+        analysisStatus: 'COMPLETE',
+        compatibilityStatus: 'READY',
+        databaseRequired: true,
+        detectedMetadata: {
+          ...analysis.metadata,
+          application: buildApplicationAnalysis(analysis, {
+            analysisVersion: ANALYSIS_VERSION,
+            aiResolved: [],
+            resolvedMigrationCommand: null,
+          }),
+        },
+      });
+      const response = await app.inject({
+        method: 'GET',
+        url: `/api/applications/${application.id}/readiness`,
+        headers: { cookie: org.cookie },
+      });
+      expect(response.statusCode).toBe(200);
+      const body = response.json() as {
+        requirements: { database: unknown };
+        detected: { database: { type: string; required: boolean } };
+      };
+      expect(body.requirements.database).toEqual({ detected: true, effective: true, overridden: false });
+      expect(body.detected.database).toMatchObject({ type: 'mysql', required: true });
+    });
+
     it('analysis incomplete: requirements is null', async () => {
       const application = await insertApplication(db, org.organizationId, { analysisStatus: 'ANALYZING' });
       const response = await app.inject({

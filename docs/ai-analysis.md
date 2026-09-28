@@ -64,6 +64,17 @@ Repository (GitHub tree, bounded)
   **bind address** (loopback-only servers). Redis is assessed separately
   with confidence and purpose. Rejections (`rejection.ts`) name the
   unsupported architectures.
+- **Evidence scope:** a language package that a Dockerfile `RUN` installs
+  (`pip install mysqlclient`) is a declared dependency, the same as a
+  manifest entry. `package.json` build and start scripts and the package
+  manager describe the app only when there is no Dockerfile, or when the
+  selected Dockerfile builds or runs Node. A Python image does not get a
+  sibling front end's `react-scripts build`. The Compose port comes from an
+  application service, never from a database, cache or proxy service.
+- **One relational database:** a required MySQL database gets the same
+  bindings (the `DATABASE_*` names plus the names the app reads, such as
+  `DB_HOST`), migration mode and migration findings as PostgreSQL.
+  `databaseState` names the engine that the manifest provisions.
 - **AI fallback** (`repository-ai.ts`): asked only when a real question is
   open (multiple Dockerfiles, monorepo target, unknown start/build command
   or port, unclear database or Redis requirement), with at most eight files

@@ -233,8 +233,10 @@ export function deriveInfrastructureBindings(tree: FileTree, analysis: AnalysisR
   const bindings: InfrastructureBinding[] = [];
 
   // ── Postgres (only when the manifest provisions RDS) ─────────────────────
+  // `postgres` is the managed relational database resource, whichever engine
+  // (PostgreSQL or MySQL) it runs — the manifest reads these bindings for both.
   const postgres = asRecordValue(meta, 'postgres');
-  if (postgres['required'] === true) {
+  if (postgres['required'] === true || asRecordValue(meta, 'mysql')['required'] === true) {
     for (const [name, semantic] of POSTGRES_STANDARD_BINDINGS) {
       bindings.push({ resource: 'postgres', semantic, applicationVariable: name, source: 'explicit', confidence: 'high' });
     }
