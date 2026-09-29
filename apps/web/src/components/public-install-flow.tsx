@@ -2,12 +2,12 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Eye, EyeOff } from 'lucide-react';
 
 import { AwsInfrastructureDetails } from '@/components/aws-infrastructure-details';
 import { Badge } from '@/components/ui/badge';
 import { FootprintCost } from '@/components/footprint-cost';
 import { FootprintSummary } from '@/components/footprint-summary';
+import { SecretInput } from '@/components/secret-input';
 import { Spinner } from '@/components/ui/spinner';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
@@ -25,6 +25,7 @@ import { TablePanel } from '@/components/table-panel';
 import { installPlanRegionLabel, installPlanRetentionNote, RETENTION_CHARGES_NOTE } from '@/lib/install-plan';
 import { fetchPublicInstallPlan } from '@/lib/public-install-data';
 import { confirmPublicInstall } from '@/lib/public-install-confirm';
+import { SECRET_HANDLING_STATEMENT } from '@/lib/security-details';
 import {
   publicInstallErrorMessage,
   type PublicInstallInput,
@@ -57,7 +58,6 @@ export function PublicInstallFlow({ linkId, resolve, token, customerKnown = fals
   const [customerName, setCustomerName] = useState('');
   const [customerEmail, setCustomerEmail] = useState('');
   const [configValues, setConfigValues] = useState<Record<string, string>>({});
-  const [showSecret, setShowSecret] = useState<Record<string, boolean>>({});
   const [touched, setTouched] = useState<Record<string, boolean>>({});
   const [idempotencyKey] = useState(generateIdempotencyKey);
   const [pending, setPending] = useState(false);
@@ -243,10 +243,9 @@ export function PublicInstallFlow({ linkId, resolve, token, customerKnown = fals
                     </span>
                   </div>
                   {input.help ? <p className="text-xs text-muted-foreground">{input.help}</p> : null}
-                  <div className="flex items-center gap-2">
-                    <Input
+                  {input.secret ? (
+                    <SecretInput
                       id={input.key}
-                      type={input.secret && !showSecret[input.key] ? 'password' : 'text'}
                       value={configValues[input.key] ?? ''}
                       onChange={(event) => {
                         const value = event.target.value;
@@ -256,28 +255,27 @@ export function PublicInstallFlow({ linkId, resolve, token, customerKnown = fals
                         }));
                       }}
                       onBlur={() => setTouched((previous) => ({ ...previous, [input.key]: true }))}
-                      className="flex-1"
+                      aria-required={input.required}
+                      aria-invalid={showError || undefined}
+                    />
+                  ) : (
+                    <Input
+                      id={input.key}
+                      type="text"
+                      value={configValues[input.key] ?? ''}
+                      onChange={(event) => {
+                        const value = event.target.value;
+                        setConfigValues((previous) => ({
+                          ...previous,
+                          [input.key]: value,
+                        }));
+                      }}
+                      onBlur={() => setTouched((previous) => ({ ...previous, [input.key]: true }))}
                       autoComplete="off"
                       aria-required={input.required}
                       aria-invalid={showError || undefined}
                     />
-                    {input.secret ? (
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon"
-                        onClick={() =>
-                          setShowSecret((previous) => ({
-                            ...previous,
-                            [input.key]: !previous[input.key],
-                          }))
-                        }
-                        aria-label={showSecret[input.key] ? 'Hide value' : 'Show value'}
-                      >
-                        {showSecret[input.key] ? <EyeOff /> : <Eye />}
-                      </Button>
-                    ) : null}
-                  </div>
+                  )}
                   <p className="font-mono text-[11px] text-muted-foreground">{input.key}</p>
                   {showError ? (
                     <p role="alert" className="text-xs text-destructive">
@@ -288,6 +286,9 @@ export function PublicInstallFlow({ linkId, resolve, token, customerKnown = fals
               );
             })}
           </div>
+          {resolve.requiredInputs.some((input) => input.secret) ? (
+            <p className="text-xs text-muted-foreground">{SECRET_HANDLING_STATEMENT}</p>
+          ) : null}
         </section>
       ) : null}
 

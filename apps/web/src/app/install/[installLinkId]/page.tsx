@@ -194,20 +194,32 @@ export default async function InstallPage({
               Deployment removed
             </h2>
             <p className="text-sm text-muted-foreground">
-              This deployment no longer exists. Contact {data.publisherName} if you did not expect
-              this.
+              {data.publisherName} removed this deployment. Contact them if you did not expect this.
             </p>
             {data.deploymentState === 'DELETED' && data.bootstrapStackName ? (
               // The connector stack was created by the customer's own Quick
               // Create, so Deployz cannot delete it for them (CANARY-014).
+              // This page cannot tell a normal removal apart from one where
+              // {publisher} has already deleted the retained data
+              // (UX-BACKEND-001), so it states what a normal removal always
+              // leaves behind rather than claiming only the connector
+              // remains (docs/architecture.md § Disconnect, purge and
+              // retained data).
               <>
                 <p className="text-sm text-muted-foreground">
-                  One item remains: the Deployz connector stack{' '}
+                  The application and most of its networking were removed from your AWS account. The
+                  database, its stored files, and the network parts they use can
+                  remain, along with the Deployz connector stack{' '}
                   <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-xs">
                     {data.bootstrapStackName}
-                  </code>{' '}
-                  that you created in your AWS account. Delete that stack in CloudFormation to
-                  finish. If you already deleted it, there is nothing else to do.
+                  </code>
+                  . Retained resources can keep costing money in your AWS account until they are
+                  deleted.
+                </p>
+                <p className="text-sm text-muted-foreground">
+                  Ask {data.publisherName} to delete the retained data, or delete it yourself in the
+                  AWS console. Keep the connector stack until that data is deleted — deletion runs
+                  through it — then delete the connector stack too.
                 </p>
                 <div>
                   <Button asChild variant="outline">

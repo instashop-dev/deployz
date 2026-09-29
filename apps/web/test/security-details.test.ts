@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
 import {
+  DATA_NOT_SENT_TO_DEPLOYZ,
   DENIED_LOG_READ_ACTIONS,
   PASS_ROLE_RESOURCE_ARN,
   PASSED_TO_SERVICE,
@@ -19,6 +20,7 @@ import {
   PHASE_2_PASS_ROLE_ACTION,
   REQUEST_TAG_CONDITION,
   RESOURCE_TAG_CONDITION,
+  SECRET_HANDLING_STATEMENT,
   TAG_BOUNDARY_KEY,
 } from '../src/lib/security-details';
 
@@ -123,5 +125,23 @@ describe('security-details ↔ bootstrap-stack truthfulness', () => {
     // and a phase-2 provisioner policy defined but not attached at install.
     expect(source).toContain('permissionsBoundary');
     expect(source).toContain('ProvisionerPolicy');
+  });
+});
+
+// ux-guidelines §8: secrets are the one exception to "not sent to Deployz" —
+// they pass through Deployz encrypted before delivery, so the page must
+// never list them alongside data that genuinely never leaves the customer's
+// AWS account.
+describe('secrets truthfulness (§8)', () => {
+  it('does not list application secrets as data never sent to Deployz', () => {
+    expect(DATA_NOT_SENT_TO_DEPLOYZ.join(' ')).not.toMatch(/secret/i);
+  });
+
+  it('states the verified secret-handling facts verbatim', () => {
+    expect(SECRET_HANDLING_STATEMENT).toContain('sent to Deployz over HTTPS and stored encrypted');
+    expect(SECRET_HANDLING_STATEMENT).toContain('deletes the active copy');
+    expect(SECRET_HANDLING_STATEMENT).toContain('24 hours');
+    expect(SECRET_HANDLING_STATEMENT).toContain('7 days');
+    expect(SECRET_HANDLING_STATEMENT).toContain('does not display secret values');
   });
 });
