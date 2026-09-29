@@ -431,7 +431,7 @@ export async function runRepositoryAttempt(deps: DeployDeps, input: RepositoryAt
           'GET',
           `/api/applications/${applicationId}/preflight`,
         );
-        details['preflight'] = { state: body.state, ready: body.ready, blockers: body.blockers.map((b) => b.id), warnings: body.warnings.map((w) => w.id) };
+        details['preflight'] = { state: body.state, ready: body.ready, blockers: body.blockers.map((b) => b.id), warnings: body.warnings.map((w) => w.id), blockerMessages: body.blockers.map((b) => ({ id: b.id, message: b.message })), warningMessages: body.warnings.map((w) => ({ id: w.id, message: w.message })) };
         return body;
       }),
     );
