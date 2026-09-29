@@ -6,9 +6,10 @@ program works. This document defines what the UX must be. The code and the
 product documents stay authoritative for current behavior. The UI mechanics
 (shadcn, tokens, typography) stay in [`../ui-system.md`](../ui-system.md).
 
-**STATUS: PROPOSED — PENDING HUMAN REVIEW.** Every decision in this document
-has this status until a human accepts it. Do not implement a decision before
-it is accepted.
+**STATUS: ACCEPTED (2026-09-29).** Implement these decisions in the UX phase
+that owns them. A UX-BACKEND item (§12) still needs its own approval before
+backend work starts. A change to a decision needs human approval and an
+update to this document.
 
 The UX-A audit evidence (source audit and browser capture, 2026-09-29) is in
 the git history of this file (first commit). It is not kept here.
@@ -24,7 +25,7 @@ the git history of this file (first commit). It is not kept here.
 | Fix what is required | Overview → Configuration › Required changes | Review required changes |
 | Test | Overview | Start test deployment |
 | Share | Overview | Copy install link |
-| Later releases | Application › Releases | Create release |
+| Later releases | Application › Releases | Create release → Test release → Make available to new customers |
 | Monitor | Home, Deployments | the row that needs attention |
 | Operate a deployment | Deployment detail | one per state (§4) |
 
@@ -34,9 +35,19 @@ the git history of this file (first commit). It is not kept here.
   releases.
 - Remove the unlinked `/dashboard/onboarding` route. Home's first-use card and
   the application lifecycle are the only setup guidance.
-- The Releases tab says the truth about new installs: a new READY release is
-  what new customer installs receive; existing deployments change only by
-  "Deploy update". (See UX-BACKEND-004 for the test-to-share gap.)
+- **Shareable release.** New customers install only the application's
+  shareable release. A release becomes shareable only after a test
+  deployment of that exact release succeeds. A newer READY release never
+  replaces the shareable release because it is newer.
+- First release: a successful test makes it shareable. This is the Share
+  step of the lifecycle; the vendor does not take a separate action.
+- Later releases: "Test release" and "Make available to new customers" are
+  two explicit vendor actions. The second is available only for a release
+  whose test succeeded. The Releases list marks the one release that new
+  customers get.
+- Existing deployments change only by "Deploy update".
+- Until UX-BACKEND-004 ships, the UI must not claim this behavior; it
+  describes the current behavior truthfully.
 
 ### Customer
 
@@ -264,17 +275,22 @@ no purpose in that context.
 their AWS account connects, so this path applies
 ([`../pending-secret-delivery.md`](../pending-secret-delivery.md)):
 
-> Secrets you enter go to Deployz over HTTPS and are stored encrypted until
+> Secrets you enter are sent to Deployz over HTTPS and stored encrypted until
 > your AWS account connects. Deployz then delivers them to AWS Secrets
-> Manager in your account and deletes its copy. If your account does not
-> connect within 24 hours, the secret is deleted and must be entered again.
-> Deployz never shows secret values or writes them to logs.
+> Manager in your account and deletes the active copy. If your account does
+> not connect within 24 hours, the secret is deleted and must be entered
+> again. Encrypted backup copies may remain for up to 7 days. Deployz does
+> not display secret values or write them to application logs.
+
+The last sentence is verified: API responses and events carry the mask
+(`SECRET_MASK`), and logs carry only key names, ids and counts
+(`apps/api/src/public-install.ts:493-500`; redaction tests in
+`apps/api/src/secret-delivery.integration.test.ts`). The 7-day figure is the
+control-plane database backup retention (`packages/cdk/src/deployz-stack.ts:101`).
 
 Remove "Your application secrets" from the "not sent to Deployz" list
 (`lib/security-details.ts:178-184`) and from the "only operational metadata"
-claim (`components/security-details-content.tsx:259-261`). The Security
-details page may add: encrypted database backups can hold the encrypted copy
-for up to 7 days.
+claim (`components/security-details-content.tsx:259-261`).
 
 ## 9. Long operations
 
@@ -342,7 +358,7 @@ Recorded, not implemented. Each needs separate approval.
   verified.
 - **Minimal change**: Add `UNVERIFIED` to the customer `cleanup` enum, set
   from `SKIPPED_RELAY_OFFLINE` and `PURGE_FAILED`.
-- **Priority**: P1 (removal truthfulness is pre-MVP UX correctness).
+- **Priority**: P1 / pre-MVP (removal truthfulness is UX correctness).
 
 ### UX-BACKEND-002 — Infrastructure check freshness
 
@@ -372,29 +388,46 @@ Recorded, not implemented. Each needs separate approval.
 - **Minimal change**: Set the runtime component from the job result.
 - **Priority**: P3. Possibly a simulation artifact; confirm on real AWS.
 
-### UX-BACKEND-004 — "Shareable release" is not a backend concept
+### UX-BACKEND-004 — Shareable release, frozen at confirmation
 
-- **Problem**: The backend's only release validity is "build READY and image
-  available" (`newestDeployableRelease`, `install-parameters.ts:26-45`;
-  `newestPublishedRelease`, `public-install.ts:176-193`). "A test deployment
-  passed" is a frontend-only gate (`lib/application-state.ts`, install-link
-  placement). Link creation auto-creates a READY release when none exists
-  (`ensureInitialRelease`, `public-install.ts:698-744`). The release is not
-  pinned per deployment: install and the post-install auto-deploy take the
-  newest READY release at that moment (`server.ts:5062-5109`), which may
-  differ from the release the customer reviewed and was never tested.
-- **User impact**: The invariant "customers install only a release Deployz
-  considers valid and shareable" holds only in the sense "it built". A
-  vendor's new, untested release goes to every new install at once.
-- **Why frontend cannot solve it**: Hiding a button does not stop an install;
-  release selection happens server-side at install time.
-- **Required capability**: One server-side definition of a shareable release,
-  enforced at link or invitation creation, confirm, install and auto-deploy;
-  and the release shown at confirm pinned to the deployment.
-- **Minimal change**: A server-computed `shareable` per release (definition:
-  decision 1 in §13), used by every release-selection query; store the
-  confirmed release id on the deployment.
-- **Priority**: P1.
+- **Decision (accepted)**: A release becomes shareable only after a test
+  deployment of that exact release succeeds. The authoritative flow is:
+  build the release → test that exact release → make that release
+  shareable → the customer reviews the shareable release → confirmation
+  freezes that exact release on the deployment → the install deploys that
+  exact release. A newer READY release never replaces the shareable release
+  because it is newer. The release shown on customer review never differs
+  from the release installed.
+- **Problem (current code)**: The backend's only release validity is "build
+  READY and image available" (`newestDeployableRelease`,
+  `apps/api/src/install-parameters.ts:26-45`; `newestPublishedRelease`,
+  `apps/api/src/public-install.ts:176-193`). "A test deployment passed" is a
+  frontend-only gate (`apps/web/src/lib/application-state.ts`). Link creation
+  auto-creates a READY release when none exists (`ensureInitialRelease`,
+  `public-install.ts:698-744`). No release is frozen on the deployment: the
+  install and the post-install auto-deploy take the newest READY release at
+  that moment (`apps/api/src/server.ts:5062-5109`). The release enum is
+  `BUILDING | READY | FAILED` (`packages/db/src/enums.ts:22-26`).
+- **User impact**: A new, untested release goes to every new install at
+  once, and can differ from the release the customer reviewed.
+- **Why frontend cannot solve it**: Release selection happens server-side at
+  install time; hiding a button stops nothing.
+- **Required capability**: A server-side shareable release per application,
+  enforced at link and invitation creation, customer review, confirmation,
+  install and auto-deploy; the confirmed release frozen on the deployment; a
+  test deployment that deploys the exact release it tests.
+- **Minimal change** (no new release state machine):
+  - The application records one shareable release id.
+  - First release: the first successful test deployment of that release sets
+    it (onboarding stays Analyse → Configure → Test → Share).
+  - Later releases: the vendor tests a chosen release, then makes it
+    available to new customers by an explicit action, which the API accepts
+    only for a release with a succeeded test deployment.
+  - Customer review and confirmation read only the shareable release;
+    confirmation stores its id on the deployment; INSTALL and the
+    post-install auto-deploy deploy that stored id.
+  - `ensureInitialRelease` no longer makes a link shareable by itself.
+- **Priority**: P1 / pre-MVP.
 
 ### UX-BACKEND-005 — Who must act on a deployment failure
 
@@ -413,8 +446,14 @@ Recorded, not implemented. Each needs separate approval.
   `@deployz/copy-map`, covered by the parity test.
 - **Priority**: P2.
 
-## 13. Open decisions for human review
+## 13. Documentation debt
 
-1. **Definition of "shareable" for UX-BACKEND-004**: a READY build only, or a
-   READY build that a verified test deployment ran? This decides whether each
-   later release needs its own test deployment before new installs get it.
+Correct these documents; the code is the truth until then.
+
+1. [`../pending-secret-delivery.md`](../pending-secret-delivery.md) contradicts
+   itself. The threat model says plaintext never enters "API responses"
+   (line 133). The same document (lines 53-55) and the code
+   (`apps/api/src/install-config.ts:72-89`) show that the authenticated
+   `GET /api/relay/config` response returns decrypted secret values to the
+   relay. Scope the threat-model line to responses other than the relay
+   configuration channel.
