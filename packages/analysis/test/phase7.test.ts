@@ -297,12 +297,17 @@ describe('§11.4 architecture rejections', () => {
     expect(rejection(tree, 'rabbitmq')?.detected).toBe(true);
   });
 
-  it('sqs event consumer', () => {
+  it('sqs is no longer rejected (Phase 5: a supported managed queue, or a question)', () => {
     const tree: FileTree = {
       'package.json': JSON.stringify({ dependencies: { '@aws-sdk/client-sqs': '^3.0.0' } }),
       'src/consumer.js': "sqs.receiveMessage({ QueueUrl }, cb);\n",
     };
-    expect(rejection(tree, 'sqs-event-consumer')?.detected).toBe(true);
+    expect(rejection(tree, 'sqs-event-consumer')).toBeUndefined();
+    // No queue env var was read, so the usage surfaces as a question, never
+    // a rejection and never a provisioned queue (async-detection.ts rule 7).
+    const metadata = analyseRepo(tree).metadata;
+    expect(metadata['asyncQueues']).toEqual([]);
+    expect((metadata['asyncQuestions'] as unknown[]).length).toBeGreaterThan(0);
   });
 
   it('kubernetes', () => {

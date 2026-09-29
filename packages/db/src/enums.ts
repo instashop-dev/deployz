@@ -272,6 +272,8 @@ export const infrastructureComponentKindEnum = pgEnum('infrastructure_component_
   'monitoring',
   'container_registry',
   'other',
+  'queue',
+  'schedule',
 ]);
 
 export const infrastructureResourceRoleEnum = pgEnum('infrastructure_resource_role', [

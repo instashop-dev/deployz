@@ -19,6 +19,7 @@ const NO_REQUIREMENTS = {
   redisBindingNames: [],
   storageRequired: false,
   externalServices: [],
+  queueBindingNames: [],
 };
 
 function variable(key: string, overrides: Partial<ManifestEnvVariable> = {}): ManifestEnvVariable {
@@ -83,6 +84,7 @@ describe('classifyEnvVariables', () => {
       redisBindingNames: ['REDIS_URL'],
       storageRequired: true,
       externalServices: [],
+      queueBindingNames: [],
     });
     expect(all.every((v) => v.classification === 'deployz_managed')).toBe(true);
   });

@@ -222,6 +222,82 @@ describe('settleDestroy', () => {
     expect(deleter.deleted).toEqual([STACK_NAME]);
   });
 
+  // Phase 5: a RUNNING standalone task (a scheduled job or migration
+  // mid-run) blocks the cluster's own delete with
+  // ClusterContainsTasksException. Stop it BEFORE asking CloudFormation to
+  // delete the stack — never after, and never a task belonging to a
+  // service (that is CloudFormation's own DeleteService to handle).
+  it('stops the stack cluster\'s standalone tasks before starting deletion', async () => {
+    const CLUSTER_ARN = 'arn:aws:ecs:us-east-1:151955775369:cluster/deployz-app-cluster';
+    const cfn: CloudFormationReader = {
+      async describeStack() {
+        return taggedStack('CREATE_COMPLETE');
+      },
+      async describeStackResources() {
+        return [{ logicalId: 'Cluster', type: 'AWS::ECS::Cluster', status: 'CREATE_COMPLETE', physicalId: CLUSTER_ARN }];
+      },
+    };
+    const stopped: string[] = [];
+    const ecs = {
+      async listTasks(input: { cluster: string }) {
+        expect(input.cluster).toBe(CLUSTER_ARN);
+        return { taskArns: ['task-standalone', 'task-service'] };
+      },
+      async describeTasks(_input: { cluster: string; tasks: string[] }) {
+        return {
+          tasks: [
+            { taskArn: 'task-standalone', group: 'family:DeployzAppCleanup' },
+            { taskArn: 'task-service', group: 'service:app-service' },
+          ],
+        };
+      },
+      async stopTask(input: { cluster: string; task: string }) {
+        expect(input.cluster).toBe(CLUSTER_ARN);
+        stopped.push(input.task);
+      },
+    };
+    const deleter = deleterRecording();
+    const outcome = await settleDestroy({ ...deps(cfn, deleter), ecs });
+    expect(outcome).toEqual({ state: 'deleting' });
+    // Only the standalone (family:…) task is stopped — the service-managed
+    // one is CloudFormation's own DeleteService to handle.
+    expect(stopped).toEqual(['task-standalone']);
+    expect(deleter.deleted).toEqual([STACK_NAME]);
+  });
+
+  it('a standalone task that cannot be stopped never blocks the delete call (best effort)', async () => {
+    const cfn: CloudFormationReader = {
+      async describeStack() {
+        return taggedStack('CREATE_COMPLETE');
+      },
+      async describeStackResources() {
+        return [
+          {
+            logicalId: 'Cluster',
+            type: 'AWS::ECS::Cluster',
+            status: 'CREATE_COMPLETE',
+            physicalId: 'arn:aws:ecs:us-east-1:151955775369:cluster/deployz-app-cluster',
+          },
+        ];
+      },
+    };
+    const ecs = {
+      async listTasks() {
+        return { taskArns: ['task-standalone'] };
+      },
+      async describeTasks() {
+        return { tasks: [{ taskArn: 'task-standalone', group: 'family:DeployzAppCleanup' }] };
+      },
+      async stopTask(): Promise<void> {
+        throw new Error('AccessDenied');
+      },
+    };
+    const deleter = deleterRecording();
+    const outcome = await settleDestroy({ ...deps(cfn, deleter), ecs });
+    expect(outcome).toEqual({ state: 'deleting' });
+    expect(deleter.deleted).toEqual([STACK_NAME]);
+  });
+
   it('clears an orphaned, protected RDS instance and retries the delete on DELETE_FAILED', async () => {
     const { cfn, deleter } = scriptedDeleteFailedStack(['DELETE_IN_PROGRESS', 'DELETE_COMPLETE'], [
       DB_ORPHAN,

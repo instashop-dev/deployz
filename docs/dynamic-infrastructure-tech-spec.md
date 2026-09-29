@@ -1,6 +1,6 @@
 # Deployz Dynamic Infrastructure --- Consolidated Technical Specification
 
-**Status:** Target architecture; delivered phases are marked inline (Phases 2 and 4 implemented)\
+**Status:** Target architecture; delivered phases are marked inline (Phases 2, 4 and 5 implemented)\
 **Audience:** Deployz engineering team and AI coding agents\
 **Companion:** `docs/dynamic-infrastructure-implementation-plan.md`
 
@@ -258,7 +258,17 @@ Do not translate every graph edge into a CloudFormation `DependsOn`.
 Runtime cycles are normal. In the implemented MVP the builder connects
 every workload to every managed resource (a BINDING superset) and the
 runtime env injection is identical for every workload; per-workload
-narrowing is not modeled.
+narrowing is not modeled. This superset behavior is unchanged for
+databases, cache and storage.
+
+**Implemented (Phase 5).** Queue and schedule edges do not use the
+superset. Each edge (`produce`, `consume`, `dead-letter`, `invoke`)
+carries an explicit access role from the graph. The capability registry
+declares one IAM intent per access role, so a producer edge grants only
+`sqs:SendMessage`, a consumer edge grants only the receive/delete/
+visibility actions, and a schedule's `invoke` edge grants only
+`ecs:RunTask`/`iam:PassRole` on its own target. A workload never
+inherits permissions or env bindings for a queue it has no edge to.
 
 ## 6. Evidence Extraction and Analysis
 
@@ -740,6 +750,29 @@ around known capability/action groups.
 Customer-facing security explanations should derive from canonical
 capability groups rather than hard-coded prose.
 
+**Implemented (Phase 5).** Every non-web workload — each worker, the
+migration task and each scheduled job — now gets its own ECS task role
+and policy, built only from that workload's own queue edges
+(`compileWorkloadTaskRole`). The web role keeps the pre-Phase-5 shared
+policy shape when it has no queue edges. Queue permissions are
+edge-derived: each produce/consume binding compiles to one
+least-privilege statement scoped to the target queue's ARN, never a
+wildcard resource.
+
+The EventBridge Scheduler execution role follows the same pattern:
+
+- Trust policy: `scheduler.amazonaws.com`, guarded by an
+  `aws:SourceAccount` condition (confused-deputy protection).
+- `ecs:RunTask` is scoped to the target workload's own task-definition
+  family and conditioned on the specific ECS cluster ARN.
+- `iam:PassRole` is limited to the target workload's own task role and
+  the shared execution role, conditioned on
+  `iam:PassedToService: ecs-tasks.amazonaws.com`.
+- `sqs:SendMessage` is scoped to the schedule's own dead-letter queue
+  only, when one is configured.
+
+No broad shared role and no wildcard workload IAM were introduced.
+
 ## 20. Preflight
 
 Preflight must validate the exact frozen IR against the selected
@@ -929,22 +962,91 @@ Implemented behavior:
 - ROLLBACK and RESTART never run migrations. No down-migration
   orchestration exists.
 
-### 25.4 SQS
+### 25.4 SQS — implemented (Phase 5)
 
-Initial support: - standard queue; - optional DLQ; - visibility
-timeout; - retention; - producer/consumer IAM; - URL/ARN bindings; -
-verification; - pricing/lifecycle.
+`aws.sqs` resolves from the `queue` graph kind with `engine: standard`.
+Any other engine (FIFO, a broker) resolves nothing and fails closed —
+the planner never provisions it. Maturity is `PREVIEW` until a
+real-AWS qualification is recorded (see the Phase 5 Result in
+`docs/dynamic-infrastructure-implementation-plan.md`).
 
-### 25.5 EventBridge Scheduler
+Implemented behavior:
 
-Prefer EventBridge Scheduler for scheduled targets.
+- One standard queue per `queue` resource. Default message retention
+  is 4 days (345 600 seconds); default visibility timeout is 30
+  seconds.
+- An optional dead-letter queue, reached by a queue-to-queue
+  `dead-letter` edge. The DLQ keeps 14 days of retention (the SQS
+  maximum) and a redrive policy with `maxReceiveCount` on the source
+  queue. Deleting a queue deletes its messages; there is no
+  retained-message semantics.
+- A `AWS::SQS::QueuePolicy` denies every `sqs:*` action when
+  `aws:SecureTransport` is false, so the queue accepts only TLS
+  traffic.
+- Producer/consumer/dead-letter IAM is edge-specific and least
+  privilege (§19): a producer can only `sqs:SendMessage`; a consumer
+  can only receive, delete, extend visibility and read attributes; a
+  dead-letter source can only send.
+- Env bindings: `QUEUE_URL` and `QUEUE_ARN`, driven by the manifest's
+  own binding names — never a fixed name the workload must match.
+- Verification carries a `queue` resource check (a generic stack
+  resource + type + status match; no queue-specific relay code).
+- Pricing is usage-based (per request): no request volume is ever
+  invented. When usage is unknown the estimate is marked incomplete,
+  never zero.
 
-Support: - cron/rate; - timezone where needed; - target; - retry
-policy; - max event age; - optional standard-SQS DLQ.
+### 25.5 EventBridge Scheduler — implemented (Phase 5)
 
-Initial target may be ECS tasks; Lambda can follow.
+`aws.eventbridge-scheduler` resolves from the `schedule` graph kind.
+Maturity is `PREVIEW` until a real-AWS qualification is recorded.
 
-### 25.6 DynamoDB
+Implemented behavior:
+
+- One EventBridge Scheduler schedule per graph schedule, named
+  `<stack-name>-<PascalCaseScheduleId>`. Cron and rate expressions are
+  translated to the AWS Scheduler syntax (`cron(...)`/`rate(...)`);
+  standard 5-field cron day-of-week values are remapped to AWS's
+  1(Sun)–7(Sat) numbering. An optional IANA timezone is carried
+  through as `ScheduleExpressionTimezone`.
+- The schedule targets its job's ECS task-definition family without a
+  revision suffix, so it always invokes the family's latest revision —
+  never a frozen revision number.
+- Retry policy (`maximumRetryAttempts`, `maximumEventAgeSeconds`) and
+  an optional standard-SQS dead-letter queue carry through unchanged
+  from the graph.
+- The scheduler execution role is scoped per §19: confused-deputy
+  trust condition, `RunTask` limited to the one family and cluster,
+  `PassRole` limited to the job's own roles, and DLQ `SendMessage`
+  limited to the schedule's own DLQ.
+- Verification carries a `schedule` resource check, generic like the
+  queue check.
+- The initial target is an ECS task; Lambda targets are not
+  implemented.
+
+### 25.6 Scheduled jobs — implemented (Phase 5)
+
+A scheduled job is a separate workload kind from the migration task,
+even though both compile to a one-shot ECS task definition with a
+frozen command:
+
+- A migration is a one-shot **pre-deploy** step: it runs once per
+  release, gates the following service update, and its timing is tied
+  to `DEPLOY_RELEASE`/`ROLLBACK`.
+- A scheduled job is a recurring, **independent** one-shot task. It has
+  no ECS service, no verification/readiness check of its own (it is
+  never deployment-gating), and its own security group. EventBridge
+  Scheduler invokes it on its own cron/rate schedule, not on deploy
+  timing.
+- The one link to release timing is the task definition's image: the
+  relay registers the newest release image into every scheduled job's
+  task family, but only after a `DEPLOY_RELEASE`/`ROLLBACK` rollout has
+  otherwise settled — never before, and never as a condition for the
+  rollout to succeed. A registration error keeps the deploy command in
+  progress; it does not fail the deployment.
+- At DESTROY, the relay stops standalone scheduled-job task runs (ECS
+  tasks with no owning service) before the stack is torn down.
+
+### 25.7 DynamoDB
 
 Schema must come from explicit evidence/configuration.
 
@@ -952,7 +1054,7 @@ Do not invent key schema from weak AI inference.
 
 Treat key-schema changes conservatively.
 
-### 25.7 Lambda
+### 25.8 Lambda
 
 Lambda has its own build/runtime contract.
 
@@ -961,7 +1063,7 @@ Do not assume an ECS image is automatically valid for Lambda.
 Model: - runtime/image; - handler; - memory; - timeout; -
 architecture; - env; - bindings; - triggers.
 
-### 25.8 DocumentDB
+### 25.9 DocumentDB
 
 Do not map MongoDB usage to DocumentDB solely because a Mongo driver
 exists.
@@ -971,7 +1073,7 @@ Use compatibility evaluation.
 Unknown/incompatible applications require configuration or remain
 unsupported.
 
-### 25.9 OpenSearch
+### 25.10 OpenSearch
 
 Explicitly model: - engine version; - VPC/public placement; -
 encryption; - authentication/access; - storage/sizing; -
@@ -979,14 +1081,14 @@ upgrade/replacement behavior; - cost.
 
 Keep maturity conservative until lifecycle testing is strong.
 
-### 25.10 CloudFront
+### 25.11 CloudFront
 
 CloudFront is provisioned in the customer's account.
 
 Model global/fixed-region requirements explicitly, including certificate
 placement where relevant.
 
-### 25.11 EFS / generic persistent containers
+### 25.12 EFS / generic persistent containers
 
 Generic stateless containers are high leverage.
 
@@ -1397,6 +1499,12 @@ destroy representative compositions of the current capabilities
 
 Then add targeted canaries for new capabilities.
 
+**Phase 5 status.** SQS and EventBridge Scheduler shipped through
+simulated E2E, unit and compiler tests only. A real-AWS canary for
+these capabilities is recorded as pending (see the Phase 5 Result in
+`docs/dynamic-infrastructure-implementation-plan.md`); `aws.sqs` and
+`aws.eventbridge-scheduler` stay at `PREVIEW` maturity until it runs.
+
 ## 31. Infrastructure Evolution
 
 Automatic topology upgrades are deferred until the dynamic-install path
@@ -1457,6 +1565,15 @@ The goal is:
 
 After SQS and EventBridge Scheduler are implemented, explicitly verify
 this property before accelerating capability expansion.
+
+**Phase 5 review.** SQS/Scheduler knowledge landed only in the
+capability registry, the resolver, the compiler, the detection module
+and two presentation tables. The relay gained no queue/schedule-specific
+logic — only generic mechanisms (contract-check verification,
+release-image registration into spec-named task families, stopping
+standalone tasks at destroy). See HARD GATE C in
+`docs/dynamic-infrastructure-implementation-plan.md` for the full
+review.
 
 ## 35. Product Principle
 

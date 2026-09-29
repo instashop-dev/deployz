@@ -26,6 +26,7 @@ Two decisions with substantial detail have their own files:
 | 2026-09-26 | Purge deletes every owned application secret except the relay's own bootstrap component | Active |
 | 2026-09-27 | Phase 3 passes without real-AWS validation; the runs move to the Final AWS Qualification backlog | Active |
 | 2026-09-28 | The MVP boundary expands to background workers, RDS MySQL and first-class migrations; one build artifact and no private services stay | Active |
+| 2026-09-29 | The MVP boundary expands to SQS queues and scheduled jobs | Active |
 
 ## AI explanations are on-demand and never change state (2026-08-25)
 
@@ -286,3 +287,68 @@ scenarios are recorded as pending in
 What would change it: a vendor need for per-workload images (multiple
 build artifacts), for services with no public exposure beyond workers,
 or a failed real-AWS qualification of the recorded scenarios.
+
+## The MVP boundary expands to SQS queues and scheduled jobs (2026-09-29)
+
+Phase 5 moved two items from "rejected at analysis" or "not provisioned"
+into the supported boundary: an SQS Standard queue (with an optional
+dead-letter queue) and an EventBridge Scheduler schedule invoking a
+one-shot scheduled ECS job.
+
+- **Relationships are explicit graph edges, not inference.** A workload's
+  use of a queue is a `produce` or `consume` edge; a queue's redrive
+  target is a `dead-letter` edge; a schedule's target is an `invoke` edge.
+  The planner validates the graph before any capability is resolved and
+  fails closed: a queue with no producer or no consumer, a dead-letter
+  queue that itself redrives, a schedule that does not invoke exactly one
+  job, or a scheduled job invoked by more than one schedule all fail the
+  plan rather than provisioning an orphan.
+- **IAM is edge-derived and least-privilege, one role per workload.** Each
+  non-web workload now gets its own IAM task role, built only from its own
+  edges (`sqs:SendMessage` for a `produce` edge, the receive/delete/extend
+  actions for a `consume` edge), so a producer never inherits a consumer's
+  permissions and a worker never inherits another workload's queue access.
+  This replaces the earlier single shared task role.
+- **Detection requires strong evidence only.** A queue is provisioned only
+  when its producer and consumer both resolve to a declared workload
+  through bounded (depth-4) import reachability from that workload's own
+  entry file, with no ambiguity. A scheduled job is provisioned only from
+  an explicit production deployment declaration naming both a schedule and
+  a command (a `render.yaml` `type: cron` service or a Kubernetes
+  `CronJob` manifest) — never an in-process cron library, a CI-level
+  schedule, a Vercel `crons` entry or a bare crontab file. Weak or
+  ambiguous evidence always becomes a vendor question; Deployz never
+  guesses and never provisions from it.
+- **Only SQS Standard is supported, not FIFO.** FIFO's ordering and
+  exactly-once semantics need application-level cooperation (message
+  group IDs, deduplication) that Deployz does not verify. A FIFO queue
+  request resolves to no capability and fails the plan rather than
+  silently becoming Standard.
+- **A dead-letter queue is the same SQS capability, not a separate
+  resource kind.** It is an ordinary queue reached by a `dead-letter` edge
+  from its source queue or schedule. For a queue, the compiler sets the
+  source queue's `RedrivePolicy`; for a schedule, it sets the schedule
+  target's `DeadLetterConfig` and grants the scheduler role
+  `sqs:SendMessage` on that queue only.
+- **A schedule targets its task family, not a pinned revision.** The
+  compiler points the schedule at the revisionless task family ARN
+  (`DeployzApp<Workload>`), the same family the relay registers each
+  release's image into. A scheduled job therefore always runs the latest
+  deployed image, mirroring how a service picks up a new release.
+- **There is deliberately no execution-history subsystem for scheduled
+  jobs.** Kept simple for the MVP; a job's outcome is visible only through
+  the existing ECS task status and CloudWatch logs, the same as any other
+  workload.
+- **Both capabilities ship at `PREVIEW` maturity** until the real-AWS
+  qualification recorded in [`../testing/aws-e2e.md`](../testing/aws-e2e.md)
+  runs.
+- **SQS usage in a repository is no longer an automatic rejection reason.**
+  The earlier `sqs-event-consumer` rejection assumed any SQS consumer made
+  the app an event-driven architecture Deployz could not host; Phase 5
+  removes it, since a queue with a resolved producer and consumer is now a
+  supported managed resource.
+
+What would change it: the real-AWS qualification passing promotes SQS and
+EventBridge Scheduler from `PREVIEW` to `SUPPORTED` maturity; a vendor need
+for FIFO ordering or for scheduled-job execution history could revisit
+those non-goals.

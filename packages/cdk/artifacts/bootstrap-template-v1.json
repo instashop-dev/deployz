@@ -596,7 +596,8 @@
               "Action": [
                 "ecs:ListTasks",
                 "ecs:DescribeTasks",
-                "ecs:DescribeTaskDefinition"
+                "ecs:DescribeTaskDefinition",
+                "ecs:StopTask"
               ],
               "Effect": "Allow",
               "Resource": "*"
@@ -973,7 +974,8 @@
               "Action": [
                 "ecs:ListTasks",
                 "ecs:DescribeTasks",
-                "ecs:DescribeTaskDefinition"
+                "ecs:DescribeTaskDefinition",
+                "ecs:StopTask"
               ],
               "Effect": "Allow",
               "Resource": "*",
@@ -1614,7 +1616,8 @@
                 "StringEquals": {
                   "iam:PassedToService": [
                     "ecs-tasks.amazonaws.com",
-                    "ecs.amazonaws.com"
+                    "ecs.amazonaws.com",
+                    "scheduler.amazonaws.com"
                   ]
                 }
               },
@@ -1637,6 +1640,62 @@
               "Effect": "Allow",
               "Resource": "*",
               "Sid": "ProvisionApplicationServiceLinkedRoles"
+            },
+            {
+              "Action": [
+                "sqs:CreateQueue",
+                "sqs:GetQueueAttributes",
+                "sqs:SetQueueAttributes",
+                "sqs:DeleteQueue",
+                "sqs:TagQueue",
+                "sqs:UntagQueue",
+                "sqs:ListQueueTags",
+                "sqs:GetQueueUrl"
+              ],
+              "Effect": "Allow",
+              "Resource": {
+                "Fn::Join": [
+                  "",
+                  [
+                    "arn:aws:sqs:",
+                    {
+                      "Ref": "AWS::Region"
+                    },
+                    ":",
+                    {
+                      "Ref": "AWS::AccountId"
+                    },
+                    ":deployz-app*"
+                  ]
+                ]
+              },
+              "Sid": "ProvisionApplicationQueues"
+            },
+            {
+              "Action": [
+                "scheduler:CreateSchedule",
+                "scheduler:GetSchedule",
+                "scheduler:UpdateSchedule",
+                "scheduler:DeleteSchedule"
+              ],
+              "Effect": "Allow",
+              "Resource": {
+                "Fn::Join": [
+                  "",
+                  [
+                    "arn:aws:scheduler:",
+                    {
+                      "Ref": "AWS::Region"
+                    },
+                    ":",
+                    {
+                      "Ref": "AWS::AccountId"
+                    },
+                    ":schedule/default/deployz-app*"
+                  ]
+                ]
+              },
+              "Sid": "ProvisionApplicationSchedules"
             }
           ],
           "Version": "2012-10-17"
@@ -1656,7 +1715,7 @@
           "S3Bucket": {
             "Fn::Sub": "cdk-hnb659fds-assets-${AWS::AccountId}-${AWS::Region}"
           },
-          "S3Key": "dc14c4a7e7e56b5b77ff9e362bff7a8cc093406b4d8e2a36293ccf7502e79256.zip"
+          "S3Key": "59d7616132d7be8004f6db7409e5353dc6905b6944a55a794a5c43da14fafb21.zip"
         },
         "Environment": {
           "Variables": {

@@ -246,6 +246,57 @@ Stage B `fromEnv` secrets (`deploy-config.yaml`) deliver a credential
 the harness cannot generate — Gate C's scoped S3 key pair — from the
 environment at run time. The value is never stored.
 
+### Pending qualification — Phase 5 shapes (recorded, not run)
+
+Phase 5 (SQS queues, EventBridge Scheduler schedules, scheduled ECS jobs) is
+qualified only in simulation plus unit and contract tests. The two shapes
+below are recorded as the real-AWS qualification work; **neither has run**.
+They are additions to the fixtures, profiles and commands above, not
+replacements.
+
+1. **Web → SQS (+ DLQ) → separate ECS worker → MySQL.** A producer web
+   workload, a consumer worker workload, a queue with a dead-letter queue,
+   and an RDS MySQL database. This shape also closes out Phase 4 pending
+   item 1 above ("Web + two workers + PostgreSQL/Redis") for the
+   separate-worker ECS service half of that item — the worker service
+   topology itself is qualified here; item 1's PostgreSQL/Redis-specific
+   assertions still stand on their own. It must prove on real AWS:
+   - The queue's and DLQ's attributes (retention, visibility timeout,
+     redrive policy) match what the compiler emitted, and the TLS-deny
+     queue policy actually refuses a plaintext connection.
+   - IAM denial checks: a role without produce access is actually denied
+     `sqs:SendMessage`, and a role without consume access is actually
+     denied `sqs:ReceiveMessage` — not just absent from the compiled
+     template.
+   - The queue env var binding (the app's own `..._QUEUE_URL`/`_ARN` name)
+     actually reaches the running container.
+   - Disconnect retains the database and the queue's data is handled
+     correctly on teardown; Purge removes what Disconnect retained.
+   - A leak audit that now includes queues and the per-workload IAM roles,
+     alongside the existing resource kinds.
+2. **Scheduler → scheduled ECS task → MySQL/S3.** A `render.yaml`- or
+   CronJob-declared scheduled job, invoked by its own EventBridge Scheduler
+   schedule, against a database and a bucket. It must prove on real AWS:
+   - The schedule's name/ARN falls within the bootstrap-granted IAM scope
+     (the execution role's `RunTask`/`PassRole` conditions actually hold on
+     real resources, not only in the compiled policy document).
+   - EventBridge Scheduler actually assumes its role and invokes `RunTask`.
+   - `RunTask` picks up the **latest** task-definition revision after a
+     DEPLOY_RELEASE/ROLLBACK — this revisionless family-targeting behavior
+     (an auto-name `TaskDefinitionArn` resolution with no revision suffix)
+     is unconfirmed on real AWS and stays a real risk until this shape is
+     qualified.
+   - The schedule's own dead-letter queue receives a message on an
+     invocation failure.
+   - A failing scheduled job does not affect the web/worker service's
+     health — no shared verification path exists between them, and this
+     shape must show that in practice, not only in the compiled template.
+   - DESTROY correctly tears down while a scheduled job task is mid-run
+     (the standalone-task-stop step, `packages/relay/src/destroy.ts`,
+     actually clears a running task before the cluster delete).
+   - A leak audit that now includes schedules and the scheduled job's own
+     IAM roles, alongside the existing resource kinds.
+
 ## L6 — production canary
 
 The same L5 harness, run as `profile --profile stateless --production`

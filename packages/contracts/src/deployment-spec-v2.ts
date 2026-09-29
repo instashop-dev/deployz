@@ -122,26 +122,77 @@ export function deployzTaskFamily(componentId: string): string {
  *  logical id and ECS task-definition family the relay runs. Null when the
  *  spec is uncompiled or carries no one-shot workload.
  *
- *  Generic derivation: the one-shot workload is the ONE task definition whose
- *  owning component has NO compute check — persistent workloads are exactly
- *  the components the verification contract proves with a service compute
- *  check, so the migration falls out by subtraction (no special-cased id). */
+ *  The migration is the IR's `migration` workload (Phase 5: a scheduled job
+ *  is ALSO a one-shot task definition without a compute check, so the kind —
+ *  never subtraction — decides), proven compiled by its ownership record. */
 export function migrationTaskFromSpec(spec: DeploymentSpecV2): {
   id: string;
   taskLogicalId: string;
   family: string;
 } | null {
-  if (spec.ownershipRecords === null || spec.verificationContract === null) return null;
-  const serviceWorkloadIds = new Set(
-    spec.verificationContract.checks
-      .filter((check) => check.check === 'compute')
-      .map((check) => check.componentId),
-  );
-  const record = spec.ownershipRecords.find(
-    (entry) => entry.logicalResourceId.endsWith('TaskDefinition') && !serviceWorkloadIds.has(entry.componentId),
-  );
-  if (record === undefined) return null;
-  return { id: record.componentId, taskLogicalId: record.logicalResourceId, family: deployzTaskFamily(record.componentId) };
+  return oneShotTasksFromSpec(spec, 'migration')[0] ?? null;
+}
+
+/**
+ * The compiled one-shot task definitions of one workload kind (`migration`,
+ * `scheduled-job`), each with its CloudFormation logical id and the ECS
+ * family the relay registers release images into. Empty on an uncompiled
+ * spec.
+ */
+export function oneShotTasksFromSpec(
+  spec: DeploymentSpecV2,
+  kind: 'migration' | 'scheduled-job',
+): { id: string; taskLogicalId: string; family: string }[] {
+  if (spec.ownershipRecords === null || spec.verificationContract === null) return [];
+  const records = spec.ownershipRecords;
+  return spec.ir.workloads
+    .filter((workload) => workload.kind === kind)
+    .flatMap((workload) => {
+      const record = records.find(
+        (entry) => entry.componentId === workload.componentId && entry.logicalResourceId.endsWith('TaskDefinition'),
+      );
+      return record === undefined
+        ? []
+        : [{ id: workload.componentId, taskLogicalId: record.logicalResourceId, family: deployzTaskFamily(workload.componentId) }];
+    });
+}
+
+/** The fixed catalog check names the relay already verifies with dedicated
+ *  per-capability logic (compute/ingress/database/storage/cache). */
+const CATALOG_CHECK_NAMES: ReadonlySet<string> = new Set([
+  'compute',
+  'ingress',
+  'database',
+  'storage',
+  'cache',
+]);
+
+/** One verification-contract check the relay verifies generically — a stack
+ *  resource with this logical id and type in a complete state. */
+export interface ResourceCheck {
+  readonly componentId: string;
+  readonly check: string;
+  readonly logicalId: string;
+  readonly resourceType: string;
+}
+
+/**
+ * The verification-contract checks whose `check` name is NOT one of the
+ * fixed catalog checks (Phase 5: `queue`, `schedule`, and any future
+ * resource-shaped check) — sent to the relay so it can verify them
+ * structurally, with no per-capability relay code. Empty on an uncompiled
+ * spec or a spec whose contract carries only catalog checks.
+ */
+export function resourceChecksFromSpec(spec: DeploymentSpecV2): ResourceCheck[] {
+  if (spec.verificationContract === null) return [];
+  return spec.verificationContract.checks
+    .filter((check) => !CATALOG_CHECK_NAMES.has(check.check))
+    .map((check) => ({
+      componentId: check.componentId,
+      check: check.check,
+      logicalId: check.logicalId,
+      resourceType: check.primaryResourceType,
+    }));
 }
 
 /**

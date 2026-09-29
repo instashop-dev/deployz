@@ -1,6 +1,7 @@
 import { z } from 'zod';
 
 import { manifestEnvBindingSchema } from './manifest.js';
+import { scheduleExpressionSchema, scheduleRetryPolicySchema, scheduleTimezoneSchema } from './schedule.js';
 
 // ---------------------------------------------------------------------------
 // ApplicationGraph — Phase 1 generalized application-requirements model.
@@ -170,12 +171,32 @@ export const resourceSchema = z
     quantity: z.number().int().min(1),
     /** Environment bindings this resource injects into workloads. */
     envBindings: z.array(manifestEnvBindingSchema),
-    /** Optional engine/version hint for data services (e.g. 'postgres', 'mysql', 'valkey'). */
+    /** Optional engine/version hint for data services (e.g. 'postgres', 'mysql', 'valkey', 'standard'). */
     engine: z.string().nullable(),
+    /** Message-queue settings (kind `queue` only); absent means the planner defaults. */
+    queue: z
+      .object({
+        messageRetentionSeconds: z.number().int().min(60).max(1209600).optional(),
+        visibilityTimeoutSeconds: z.number().int().min(0).max(43200).optional(),
+      })
+      .strict()
+      .optional(),
     provenance: provenanceSchema,
   })
   .strict();
 export type Resource = z.infer<typeof resourceSchema>;
+
+/**
+ * What a relationship edge does (Phase 5B), independent of any cloud:
+ *   produce     — workload → queue: the workload sends messages.
+ *   consume     — workload → queue: the workload receives and deletes messages.
+ *   dead-letter — queue → queue (redrive) or schedule → queue (undeliverable
+ *                 invocations): the source hands failures to the target.
+ *   invoke      — schedule → workload: the schedule starts the workload.
+ * Edges without an access keep the pre-Phase-5 meaning of their relationship.
+ */
+export const bindingAccessSchema = z.enum(['produce', 'consume', 'dead-letter', 'invoke']);
+export type BindingAccess = z.infer<typeof bindingAccessSchema>;
 
 export const bindingSchema = z
   .object({
@@ -191,10 +212,33 @@ export const bindingSchema = z
     envBindings: z.array(manifestEnvBindingSchema),
     /** IAM permission intent (e.g. 'read', 'write', 'admin') — planner translates to concrete actions. */
     permission: z.enum(['read', 'write', 'admin', 'none']).optional(),
+    /** Edge role (Phase 5B); the planner derives the edge's permissions from it. */
+    access: bindingAccessSchema.optional(),
+    /** Receives before a message moves to the dead-letter queue (queue → queue `dead-letter` edges only). */
+    maxReceiveCount: z.number().int().min(1).max(1000).optional(),
     provenance: provenanceSchema,
   })
   .strict();
 export type Binding = z.infer<typeof bindingSchema>;
+
+/**
+ * A schedule (Phase 5C): WHEN a scheduled-job workload runs. Its target is
+ * the schedule's one `invoke` edge and its optional dead-letter queue is its
+ * `dead-letter` edge — relationships live in `bindings`, never here.
+ */
+export const scheduleSchema = z
+  .object({
+    id: z.string().min(1),
+    label: z.string().min(1),
+    expression: scheduleExpressionSchema,
+    /** IANA timezone; null means UTC. */
+    timezone: scheduleTimezoneSchema.nullable(),
+    retry: scheduleRetryPolicySchema,
+    enabled: z.boolean(),
+    provenance: provenanceSchema,
+  })
+  .strict();
+export type Schedule = z.infer<typeof scheduleSchema>;
 
 export const externalServiceSchema = z
   .object({
@@ -231,6 +275,8 @@ export const applicationGraphSchema = z
     workloads: z.array(workloadSchema),
     resources: z.array(resourceSchema),
     bindings: z.array(bindingSchema),
+    /** Schedules (Phase 5C, optional/additive — absent when none, so older graphs hash unchanged). */
+    schedules: z.array(scheduleSchema).optional(),
     externalServices: z.array(externalServiceSchema),
     unresolved: z.array(unresolvedRequirementSchema),
   })

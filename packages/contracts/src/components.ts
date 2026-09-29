@@ -100,7 +100,14 @@ export function compareInfrastructureExpectations(
   const presentKinds = new Set(
     components.filter((component) => component.status !== 'removed').map((component) => component.kind),
   );
-  const catalogComponents = CATALOG_KINDS.map((kind) => ({
+  // The catalog kinds, then any other kind the spec's verification contract
+  // expects (Phase 5: queue, schedule) — a contract-verified component is
+  // compared like a catalog one, never silently skipped.
+  const kinds: InfrastructureComponentKind[] = [
+    ...CATALOG_KINDS,
+    ...[...expectedSet].filter((kind) => !(CATALOG_KINDS as readonly string[]).includes(kind)),
+  ];
+  const catalogComponents = kinds.map((kind) => ({
     kind,
     expected: expectedSet.has(kind),
     present: presentKinds.has(kind),
@@ -108,7 +115,7 @@ export function compareInfrastructureExpectations(
   return {
     schemaVersion: 1,
     components: catalogComponents,
-    missing: CATALOG_KINDS.filter((kind) => expectedSet.has(kind) && !anyRowKinds.has(kind)),
-    unexpected: CATALOG_KINDS.filter((kind) => !expectedSet.has(kind) && presentKinds.has(kind)),
+    missing: kinds.filter((kind) => expectedSet.has(kind) && !anyRowKinds.has(kind)),
+    unexpected: kinds.filter((kind) => !expectedSet.has(kind) && presentKinds.has(kind)),
   };
 }

@@ -3,8 +3,8 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
-import { CAPABILITY_KEYS } from '@deployz/contracts';
-import type { DeployzIR } from '@deployz/contracts';
+import { CAPABILITY_KEYS, estimateFootprintCost } from '@deployz/contracts';
+import type { DeployzIR, IrBinding, IrResource, IrSchedule, IrWorkload } from '@deployz/contracts';
 
 import { compileDeployzInfrastructure, logicalResourceId } from './index.js';
 
@@ -387,7 +387,7 @@ describe('capability composition', () => {
 
 describe('architecture fitness', () => {
   it('the compiler never imports an AWS SDK (no synth-time AWS discovery)', () => {
-    for (const file of ['compile.ts', 'cfn-emit.ts', 'derived.ts', 'index.ts']) {
+    for (const file of ['compile.ts', 'cfn-emit.ts', 'derived.ts', 'index.ts', 'schedule-expression.ts']) {
       const source = readFileSync(join(here, file), 'utf8');
       expect(source, file).not.toMatch(/@aws-sdk|aws-sdk/);
       expect(source, file).not.toMatch(/new Date\(|Date\.now\(|Math\.random\(|crypto\.random/);
@@ -536,9 +536,13 @@ describe('multi-workload', () => {
     expect(taskDef.properties['ExecutionRoleArn']).toEqual({
       'Fn::GetAtt': [logicalResourceId('web', 'task-execution-role'), 'Arn'],
     });
+    // Phase 5: every workload other than web gets its OWN task role — a
+    // migration never shares the web workload's queue permissions.
     expect(taskDef.properties['TaskRoleArn']).toEqual({
-      'Fn::GetAtt': [logicalResourceId('web', 'task-role'), 'Arn'],
+      'Fn::GetAtt': [logicalResourceId('migration', 'task-role'), 'Arn'],
     });
+    expect(ids).toContain('MigrationTaskRole');
+    expect(ids).toContain('MigrationTaskRolePolicy');
     // Stateless lifecycle — a task definition update is never destructive.
     expect(taskDef.stateful).toBe(false);
     expect(taskDef.deletionPolicy).toBe('Delete');
@@ -673,5 +677,465 @@ describe('mysql database (phase 4b)', () => {
     expect(postgres.artifact.templateHash).toBe(POSTGRES_TEMPLATE_HASH_GOLDEN);
     // And the postgres capability never appears in the mysql graph.
     expect(compiled.resolvedGraph.resources.some((r) => r.capability === CAPABILITY_KEYS.RDS_POSTGRES)).toBe(false);
+  });
+});
+
+// ── Phase 5 — Async & Scheduled Workloads: queues, per-workload IAM, and ────
+//    EventBridge Scheduler. ──────────────────────────────────────────────────
+
+function queueResource(componentId: string, opts: { retention: number; visibility: number }): IrResource {
+  return {
+    componentId,
+    capabilityKey: CAPABILITY_KEYS.SQS,
+    label: `Queue ${componentId}`,
+    quantity: 1,
+    configuration: { queueType: 'standard', messageRetentionSeconds: opts.retention, visibilityTimeoutSeconds: opts.visibility },
+    lifecycle: 'delete',
+    scope: 'REGIONAL',
+    envBindings: [],
+  };
+}
+
+function irBinding(overrides: Partial<IrBinding> & Pick<IrBinding, 'id' | 'sourceId' | 'targetId'>): IrBinding {
+  return { envBindings: [], iamActions: [], ...overrides };
+}
+
+const CONSUME_ACTIONS = ['sqs:ReceiveMessage', 'sqs:DeleteMessage', 'sqs:ChangeMessageVisibility', 'sqs:GetQueueAttributes'];
+
+/**
+ * The Phase 5 target topology: web producer -> orders-queue (+ dlq,
+ * maxReceiveCount 5) -> worker consumer; worker/web/cleanup bound to MySQL +
+ * S3; cleanup scheduled job with its own schedule + schedule DLQ.
+ */
+function makePhase5Ir(): DeployzIR {
+  const base = makeIr({
+    postgres: true,
+    redis: false,
+    dbEngine: 'mysql',
+    workers: [{ componentId: 'worker', command: 'node dist/worker.js' }],
+  });
+
+  const cleanup: IrWorkload = {
+    componentId: 'cleanup',
+    kind: 'scheduled-job',
+    label: 'Cleanup job',
+    buildArtifactId: 'app',
+    command: 'node dist/cleanup.js',
+    port: null,
+    public: false,
+    healthCheck: null,
+    desiredCount: 1,
+    compute: {
+      provider: 'aws',
+      capabilityKey: CAPABILITY_KEYS.ECS_FARGATE_TASK,
+      cpuUnits: 256,
+      memoryMiB: 512,
+      sizeLabel: 'Small',
+      architecture: null,
+    },
+    dependencyCapabilityKeys: [CAPABILITY_KEYS.RDS_MYSQL, CAPABILITY_KEYS.S3],
+  };
+
+  const resources: IrResource[] = [
+    ...base.resources,
+    queueResource('orders-queue', { retention: 345600, visibility: 120 }),
+    queueResource('orders-queue-dlq', { retention: 1209600, visibility: 30 }),
+    queueResource('cleanup-schedule-dlq', { retention: 1209600, visibility: 30 }),
+  ];
+
+  const bindings: IrBinding[] = [
+    irBinding({ id: 'b-web-orders', sourceId: 'web', targetId: 'orders-queue', access: 'produce', iamActions: ['sqs:SendMessage'], envBindings: [{ name: 'ORDERS_QUEUE_URL', kind: 'url' }] }),
+    irBinding({ id: 'b-worker-orders', sourceId: 'worker', targetId: 'orders-queue', access: 'consume', iamActions: CONSUME_ACTIONS, envBindings: [{ name: 'ORDERS_QUEUE_URL', kind: 'url' }] }),
+    irBinding({ id: 'b-orders-dlq', sourceId: 'orders-queue', targetId: 'orders-queue-dlq', access: 'dead-letter', iamActions: ['sqs:SendMessage'], maxReceiveCount: 5 }),
+    irBinding({ id: 'b-worker-dlq', sourceId: 'worker', targetId: 'orders-queue-dlq', access: 'consume', iamActions: CONSUME_ACTIONS, envBindings: [{ name: 'ORDERS_DLQ_URL', kind: 'url' }] }),
+    irBinding({ id: 'b-schedule-invoke', sourceId: 'cleanup-schedule', targetId: 'cleanup', access: 'invoke', iamActions: ['ecs:RunTask', 'iam:PassRole'] }),
+    irBinding({ id: 'b-schedule-dlq', sourceId: 'cleanup-schedule', targetId: 'cleanup-schedule-dlq', access: 'dead-letter', iamActions: ['sqs:SendMessage'] }),
+  ];
+
+  const schedules: IrSchedule[] = [
+    {
+      id: 'cleanup-schedule',
+      capabilityKey: CAPABILITY_KEYS.EVENTBRIDGE_SCHEDULER,
+      label: 'Schedule for cleanup',
+      expression: { type: 'cron', cron: '0 3 * * *' },
+      timezone: 'Europe/Berlin',
+      targetWorkloadId: 'cleanup',
+      retry: { maximumRetryAttempts: 3, maximumEventAgeSeconds: 3600 },
+      deadLetterQueueId: 'cleanup-schedule-dlq',
+      enabled: true,
+    },
+  ];
+
+  return { ...base, workloads: [...base.workloads, cleanup], resources, bindings, schedules };
+}
+
+describe('queues (phase 5a)', () => {
+  const ir = makePhase5Ir();
+  const compiled = compileDeployzInfrastructure({ ir, region: null });
+  const byId = new Map(compiled.resolvedGraph.resources.map((r) => [r.logicalId, r]));
+
+  it('compiles a standard SQS queue with no QueueName and a TLS-deny queue policy', () => {
+    const queue = byId.get(logicalResourceId('orders-queue', 'queue'))!;
+    expect(queue.cfnType).toBe('AWS::SQS::Queue');
+    expect(queue.properties).not.toHaveProperty('QueueName');
+    expect(queue.properties['MessageRetentionPeriod']).toBe(345600);
+    expect(queue.properties['VisibilityTimeout']).toBe(120);
+    expect(queue.properties['SqsManagedSseEnabled']).toBe(true);
+    expect(queue.stateful).toBe(false);
+    expect(queue.deletionPolicy).toBe('Delete');
+    expect(queue.verificationCheck).toBe('queue');
+
+    const policy = byId.get(logicalResourceId('orders-queue', 'queue-policy'))!;
+    expect(policy.cfnType).toBe('AWS::SQS::QueuePolicy');
+    const statement = (policy.properties['PolicyDocument'] as { Statement: unknown[] }).Statement[0] as Record<string, unknown>;
+    expect(statement['Effect']).toBe('Deny');
+    expect(statement['Condition']).toEqual({ Bool: { 'aws:SecureTransport': 'false' } });
+  });
+
+  it('sets RedrivePolicy on the SOURCE queue only, pointing at the DLQ with the bound maxReceiveCount', () => {
+    const orders = byId.get(logicalResourceId('orders-queue', 'queue'))!;
+    expect(orders.properties['RedrivePolicy']).toEqual({
+      deadLetterTargetArn: { 'Fn::GetAtt': [logicalResourceId('orders-queue-dlq', 'queue'), 'Arn'] },
+      maxReceiveCount: 5,
+    });
+    const dlq = byId.get(logicalResourceId('orders-queue-dlq', 'queue'))!;
+    expect(dlq.properties).not.toHaveProperty('RedrivePolicy');
+  });
+
+  it('rejects a non-standard queue type (fails closed)', () => {
+    const fifoIr: DeployzIR = {
+      ...ir,
+      resources: ir.resources.map((r) => (r.componentId === 'orders-queue' ? { ...r, configuration: { ...r.configuration, queueType: 'fifo' } } : r)),
+    };
+    expect(() => compileDeployzInfrastructure({ ir: fifoIr, region: null })).toThrow(/unsupported queueType/);
+  });
+});
+
+describe('per-workload IAM (phase 5)', () => {
+  const ir = makePhase5Ir();
+  const compiled = compileDeployzInfrastructure({ ir, region: null });
+  const byId = new Map(compiled.resolvedGraph.resources.map((r) => [r.logicalId, r]));
+
+  function statements(componentId: string): Array<Record<string, unknown>> {
+    const policy = byId.get(logicalResourceId(componentId, 'task-role-policy'))!;
+    return (policy.properties['PolicyDocument'] as { Statement: Array<Record<string, unknown>> }).Statement;
+  }
+
+  it('every non-web workload gets its own task role + policy', () => {
+    for (const componentId of ['worker', 'cleanup']) {
+      expect(byId.has(logicalResourceId(componentId, 'task-role'))).toBe(true);
+      expect(byId.has(logicalResourceId(componentId, 'task-role-policy'))).toBe(true);
+    }
+    // The web role/policy is the SAME id the pre-Phase-5 shared role used.
+    expect(byId.has(logicalResourceId('web', 'task-role'))).toBe(true);
+  });
+
+  it('the producer (web) gets only SendMessage on its queue', () => {
+    const sqsStatements = statements('web').filter((s) => (s['Action'] as string[]).some((a) => a.startsWith('sqs:')));
+    expect(sqsStatements).toHaveLength(1);
+    expect(sqsStatements[0]!['Action']).toEqual(['sqs:SendMessage']);
+    expect(sqsStatements[0]!['Resource']).toEqual({ 'Fn::GetAtt': [logicalResourceId('orders-queue', 'queue'), 'Arn'] });
+  });
+
+  it('the consumer (worker) gets only the four consume actions, once per queue it consumes', () => {
+    const sqsStatements = statements('worker').filter((s) => (s['Action'] as string[]).some((a) => a.startsWith('sqs:')));
+    expect(sqsStatements).toHaveLength(2);
+    for (const s of sqsStatements) {
+      expect(s['Action']).toEqual(CONSUME_ACTIONS);
+    }
+    const resources = sqsStatements.map((s) => (s['Resource'] as { 'Fn::GetAtt': string[] })['Fn::GetAtt'][0]).sort();
+    expect(resources).toEqual([logicalResourceId('orders-queue', 'queue'), logicalResourceId('orders-queue-dlq', 'queue')].sort());
+  });
+
+  it('a workload without queue edges has no sqs: action anywhere in its policy', () => {
+    // The migration/cleanup workload has no produce/consume edges in this
+    // fixture — its policy carries only the baseline S3 + secret statements.
+    const cleanupStatements = statements('cleanup');
+    expect(cleanupStatements.some((s) => (Array.isArray(s['Action']) ? s['Action'] as string[] : [s['Action'] as string]).some((a) => a.startsWith('sqs:')))).toBe(false);
+  });
+
+  it('no IAM statement anywhere has Resource "*" (architecture fitness)', () => {
+    const iamPolicies = compiled.resolvedGraph.resources.filter((r) => r.cfnType === 'AWS::IAM::Policy');
+    for (const policy of iamPolicies) {
+      const stmts = (policy.properties['PolicyDocument'] as { Statement: Array<Record<string, unknown>> }).Statement;
+      for (const s of stmts) {
+        const resource = s['Resource'];
+        const flat = Array.isArray(resource) ? resource : [resource];
+        for (const r of flat) {
+          expect(r).not.toBe('*');
+        }
+      }
+    }
+  });
+});
+
+describe('queue env injection (phase 5)', () => {
+  const ir = makePhase5Ir();
+  const compiled = compileDeployzInfrastructure({ ir, region: null });
+  const byId = new Map(compiled.resolvedGraph.resources.map((r) => [r.logicalId, r]));
+
+  function envNames(componentId: string): Array<{ Name: string; Value?: unknown }> {
+    const taskDef = byId.get(logicalResourceId(componentId, 'task-definition'))!;
+    const app = (taskDef.properties['ContainerDefinitions'] as unknown[])[0] as { Environment: Array<{ Name: string; Value?: unknown }> };
+    return app.Environment;
+  }
+
+  it('injects the queue URL only into the bound workload, appended after the shared environment', () => {
+    const webEnv = envNames('web');
+    const orderEntry = webEnv.find((e) => e.Name === 'ORDERS_QUEUE_URL')!;
+    expect(orderEntry.Value).toEqual({ Ref: logicalResourceId('orders-queue', 'queue') });
+    // It is appended AFTER the shared entries (STORAGE_BUCKET, etc.).
+    expect(webEnv.findIndex((e) => e.Name === 'ORDERS_QUEUE_URL')).toBeGreaterThan(webEnv.findIndex((e) => e.Name === 'STORAGE_BUCKET'));
+
+    const workerEnv = envNames('worker');
+    expect(workerEnv.map((e) => e.Name)).toContain('ORDERS_QUEUE_URL');
+    expect(workerEnv.map((e) => e.Name)).toContain('ORDERS_DLQ_URL');
+  });
+
+  it('a workload with no queue edges gets exactly the pre-Phase-5 environment (cleanup has none in this fixture)', () => {
+    const cleanupEnv = envNames('cleanup').map((e) => e.Name);
+    expect(cleanupEnv.some((n) => n.includes('QUEUE'))).toBe(false);
+  });
+
+  it('two different queues bound to the same env name on one workload fails closed', () => {
+    const clashIr: DeployzIR = {
+      ...ir,
+      bindings: [
+        ...ir.bindings,
+        irBinding({ id: 'b-clash', sourceId: 'worker', targetId: 'orders-queue-dlq', access: 'produce', iamActions: ['sqs:SendMessage'], envBindings: [{ name: 'ORDERS_QUEUE_URL', kind: 'url' }] }),
+      ],
+    };
+    expect(() => compileDeployzInfrastructure({ ir: clashIr, region: null })).toThrow(/binds env "ORDERS_QUEUE_URL" to two different queues/);
+  });
+
+  it('an unsupported env binding kind fails closed', () => {
+    const badIr: DeployzIR = {
+      ...ir,
+      bindings: ir.bindings.map((b) => (b.id === 'b-web-orders' ? { ...b, envBindings: [{ name: 'ORDERS_QUEUE_HOST', kind: 'host' as const }] } : b)),
+    };
+    expect(() => compileDeployzInfrastructure({ ir: badIr, region: null })).toThrow(/env binding kind "host" is not supported/);
+  });
+});
+
+describe('scheduled job (phase 5d)', () => {
+  const ir = makePhase5Ir();
+  const compiled = compileDeployzInfrastructure({ ir, region: null });
+  const byId = new Map(compiled.resolvedGraph.resources.map((r) => [r.logicalId, r]));
+
+  it('compiles a frozen-command task definition, no service, no verification check', () => {
+    const taskDef = byId.get(logicalResourceId('cleanup', 'task-definition'))!;
+    expect(taskDef.cfnType).toBe('AWS::ECS::TaskDefinition');
+    expect(taskDef.properties['Family']).toBe('DeployzAppCleanup');
+    const app = (taskDef.properties['ContainerDefinitions'] as unknown[])[0] as Record<string, unknown>;
+    expect(app['Command']).toEqual(['sh', '-c', 'node dist/cleanup.js']);
+    expect(taskDef.verificationCheck).toBeUndefined();
+    expect(byId.has(logicalResourceId('cleanup', 'service'))).toBe(false);
+  });
+
+  it('gets its own task role and its own task security group', () => {
+    expect(byId.has(logicalResourceId('cleanup', 'task-role'))).toBe(true);
+    const taskDef = byId.get(logicalResourceId('cleanup', 'task-definition'))!;
+    expect(taskDef.properties['TaskRoleArn']).toEqual({ 'Fn::GetAtt': [logicalResourceId('cleanup', 'task-role'), 'Arn'] });
+    const sg = byId.get(logicalResourceId('cleanup', 'task-security-group'))!;
+    expect(sg.cfnType).toBe('AWS::EC2::SecurityGroup');
+  });
+
+  it('the database accepts ingress from the scheduled job security group', () => {
+    const ingress = byId.get(logicalResourceId('primary-db', `app-service-ingress-cleanup`))!;
+    expect(ingress.properties['SourceSecurityGroupId']).toEqual({
+      'Fn::GetAtt': [logicalResourceId('cleanup', 'task-security-group'), 'GroupId'],
+    });
+    // Existing workloads keep referencing THEIR service-security-group.
+    const webIngress = byId.get(logicalResourceId('primary-db', 'app-service-ingress-web'))!;
+    expect(webIngress.properties['SourceSecurityGroupId']).toEqual({
+      'Fn::GetAtt': [logicalResourceId('web', 'service-security-group'), 'GroupId'],
+    });
+  });
+
+  it('gains no compute verification check', () => {
+    const computeComponents = compiled.verificationContract.checks.filter((c) => c.check === 'compute').map((c) => c.componentId);
+    expect(computeComponents).not.toContain('cleanup');
+  });
+});
+
+describe('EventBridge Scheduler (phase 5c)', () => {
+  const ir = makePhase5Ir();
+  const compiled = compileDeployzInfrastructure({ ir, region: null });
+  const byId = new Map(compiled.resolvedGraph.resources.map((r) => [r.logicalId, r]));
+
+  it('translates the cron expression and carries the timezone', () => {
+    const schedule = byId.get(logicalResourceId('cleanup-schedule', 'schedule'))!;
+    expect(schedule.cfnType).toBe('AWS::Scheduler::Schedule');
+    expect(schedule.properties['ScheduleExpression']).toBe('cron(0 3 * * ? *)');
+    expect(schedule.properties['ScheduleExpressionTimezone']).toBe('Europe/Berlin');
+    expect(schedule.verificationCheck).toBe('schedule');
+    expect(schedule.properties).not.toHaveProperty('Tags');
+  });
+
+  it('carries the retry policy and the DLQ config, and targets the revisionless task definition family', () => {
+    const schedule = byId.get(logicalResourceId('cleanup-schedule', 'schedule'))!;
+    const target = schedule.properties['Target'] as Record<string, unknown>;
+    expect(target['RetryPolicy']).toEqual({ MaximumRetryAttempts: 3, MaximumEventAgeInSeconds: 3600 });
+    expect(target['DeadLetterConfig']).toEqual({ Arn: { 'Fn::GetAtt': [logicalResourceId('cleanup-schedule-dlq', 'queue'), 'Arn'] } });
+    const ecsParams = target['EcsParameters'] as Record<string, unknown>;
+    expect(JSON.stringify(ecsParams['TaskDefinitionArn'])).toContain('DeployzAppCleanup');
+    expect(JSON.stringify(ecsParams['TaskDefinitionArn'])).not.toContain(':*');
+    expect(ecsParams['LaunchType']).toBe('FARGATE');
+  });
+
+  it('is DISABLED when the schedule is disabled', () => {
+    const disabledIr: DeployzIR = { ...ir, schedules: ir.schedules.map((s) => ({ ...s, enabled: false })) };
+    const disabled = compileDeployzInfrastructure({ ir: disabledIr, region: null });
+    const schedule = disabled.resolvedGraph.resources.find((r) => r.logicalId === logicalResourceId('cleanup-schedule', 'schedule'))!;
+    expect(schedule.properties['State']).toBe('DISABLED');
+  });
+
+  it('has no ScheduleExpressionTimezone when the schedule has no timezone', () => {
+    const noTzIr: DeployzIR = { ...ir, schedules: ir.schedules.map((s) => ({ ...s, timezone: null })) };
+    const noTz = compileDeployzInfrastructure({ ir: noTzIr, region: null });
+    const schedule = noTz.resolvedGraph.resources.find((r) => r.logicalId === logicalResourceId('cleanup-schedule', 'schedule'))!;
+    expect(schedule.properties).not.toHaveProperty('ScheduleExpressionTimezone');
+  });
+
+  it('the scheduler role trusts scheduler.amazonaws.com, guarded against the confused deputy', () => {
+    const role = byId.get(logicalResourceId('cleanup-schedule', 'scheduler-role'))!;
+    const trust = (role.properties['AssumeRolePolicyDocument'] as { Statement: Array<Record<string, unknown>> }).Statement[0]!;
+    expect(trust['Principal']).toEqual({ Service: 'scheduler.amazonaws.com' });
+    expect(trust['Condition']).toEqual({ StringEquals: { 'aws:SourceAccount': { Ref: 'AWS::AccountId' } } });
+  });
+
+  it('RunTask is conditioned on the cluster; PassRole is limited to the job role + execution role, conditioned on PassedToService', () => {
+    const policy = byId.get(logicalResourceId('cleanup-schedule', 'scheduler-role-policy'))!;
+    const statements = (policy.properties['PolicyDocument'] as { Statement: Array<Record<string, unknown>> }).Statement;
+
+    const runTask = statements.find((s) => s['Action'] === 'ecs:RunTask')!;
+    expect(runTask['Condition']).toEqual({ ArnEquals: { 'ecs:cluster': { 'Fn::GetAtt': [logicalResourceId('web', 'cluster'), 'Arn'] } } });
+    expect(runTask['Resource']).toHaveLength(2);
+
+    const passRole = statements.find((s) => s['Action'] === 'iam:PassRole')!;
+    expect(passRole['Condition']).toEqual({ StringEquals: { 'iam:PassedToService': 'ecs-tasks.amazonaws.com' } });
+    expect(passRole['Resource']).toEqual([
+      { 'Fn::GetAtt': [logicalResourceId('cleanup', 'task-role'), 'Arn'] },
+      { 'Fn::GetAtt': [logicalResourceId('web', 'task-execution-role'), 'Arn'] },
+    ]);
+
+    const sendMessage = statements.find((s) => s['Action'] === 'sqs:SendMessage')!;
+    expect(sendMessage['Resource']).toEqual({ 'Fn::GetAtt': [logicalResourceId('cleanup-schedule-dlq', 'queue'), 'Arn'] });
+
+    // Never a wildcard resource.
+    for (const s of statements) {
+      const flat = Array.isArray(s['Resource']) ? s['Resource'] : [s['Resource']];
+      for (const r of flat) expect(r).not.toBe('*');
+    }
+  });
+
+  it('an unmapped schedule IAM action fails closed', () => {
+    const badIr: DeployzIR = {
+      ...ir,
+      bindings: ir.bindings.map((b) => (b.id === 'b-schedule-dlq' ? { ...b, iamActions: ['s3:PutObject'] } : b)),
+    };
+    expect(() => compileDeployzInfrastructure({ ir: badIr, region: null })).toThrow(/has no resource mapping/);
+  });
+});
+
+describe('phase 5 composition (target topology)', () => {
+  const ir = makePhase5Ir();
+  const compiled = compileDeployzInfrastructure({ ir, region: null });
+
+  // Pinned golden logical ids for the queue/schedule/per-workload-role
+  // additions — a stable-identity regression gate for the Phase 5 topology.
+  const EXPECTED_NEW_IDS = [
+    'OrdersQueueQueue',
+    'OrdersQueueQueuePolicy',
+    'OrdersQueueDlqQueue',
+    'OrdersQueueDlqQueuePolicy',
+    'CleanupScheduleDlqQueue',
+    'CleanupScheduleDlqQueuePolicy',
+    'WorkerTaskRole',
+    'WorkerTaskRolePolicy',
+    'CleanupTaskRole',
+    'CleanupTaskRolePolicy',
+    'CleanupTaskDefinition',
+    'CleanupTaskSecurityGroup',
+    'CleanupLogGroup',
+    'CleanupScheduleSchedulerRole',
+    'CleanupScheduleSchedulerRolePolicy',
+    'CleanupScheduleSchedule',
+    'PrimaryDbAppServiceIngressCleanup',
+  ];
+
+  it('emits every pinned logical id for the target topology', () => {
+    const ids = new Set(compiled.resolvedGraph.resources.map((r) => r.logicalId));
+    for (const id of EXPECTED_NEW_IDS) {
+      expect(ids.has(id), id).toBe(true);
+    }
+    expect(new Set(compiled.resolvedGraph.resources.map((r) => r.logicalId)).size).toBe(compiled.resolvedGraph.resources.length);
+  });
+
+  it('is deterministic: the same IR compiles to the same template hash twice', () => {
+    const again = compileDeployzInfrastructure({ ir: makePhase5Ir(), region: null });
+    expect(again.artifact.templateHash).toBe(compiled.artifact.templateHash);
+  });
+
+  it('IR resource and binding reordering does not change the template hash', () => {
+    const reordered: DeployzIR = {
+      ...ir,
+      resources: [...ir.resources].reverse(),
+      bindings: [...ir.bindings].reverse(),
+    };
+    const result = compileDeployzInfrastructure({ ir: reordered, region: null });
+    expect(result.artifact.templateHash).toBe(compiled.artifact.templateHash);
+  });
+
+  it('adding the queue/schedule topology to a plain web+db+s3 IR leaves every unrelated logical id unchanged', () => {
+    const plain = compileDeployzInfrastructure({ ir: makeIr({ postgres: true, redis: false, dbEngine: 'mysql' }), region: null });
+    const plainIds = new Set(plain.resolvedGraph.resources.map((r) => r.logicalId));
+    const fullIds = new Set(compiled.resolvedGraph.resources.map((r) => r.logicalId));
+
+    // Every id the plain (web-only) graph has still exists, UNCHANGED in
+    // content, in the full topology — except the shared task-role/policy,
+    // which legitimately keeps the SAME id but gains queue statements.
+    for (const id of plainIds) {
+      expect(fullIds.has(id), id).toBe(true);
+      // These legitimately change: the shared task-role-policy gains the
+      // producer statement, the web task def gains the ORDERS_QUEUE_URL env
+      // entry, and the shared execution-role-policy gains the new
+      // workloads' log group Arns.
+      if (['WebTaskRolePolicy', 'WebTaskDefinition', 'WebTaskExecutionRolePolicy'].includes(id)) continue;
+      const before = JSON.stringify(plain.resolvedGraph.resources.find((r) => r.logicalId === id)!.properties);
+      const after = JSON.stringify(compiled.resolvedGraph.resources.find((r) => r.logicalId === id)!.properties);
+      expect(after, id).toBe(before);
+    }
+  });
+});
+
+describe('footprint + pricing (phase 5)', () => {
+  it('the footprint gains a queue resource per SQS queue and a schedule resource per schedule', () => {
+    const { footprint } = compileDeployzInfrastructure({ ir: makePhase5Ir(), region: null });
+    const queueResources = footprint.resources.filter((r) => r.category === 'queue');
+    expect(queueResources.map((r) => r.id).sort()).toEqual(['cleanup-schedule-dlq', 'orders-queue', 'orders-queue-dlq'].sort());
+    expect(queueResources.every((r) => r.service === 'sqs')).toBe(true);
+
+    const scheduleResource = footprint.resources.find((r) => r.id === 'cleanup-schedule')!;
+    expect(scheduleResource.category).toBe('other');
+    expect(scheduleResource.service).toBe('eventbridge-scheduler');
+
+    const scheduledJobWorkload = footprint.workloads.find((w) => w.id === 'cleanup')!;
+    expect(scheduledJobWorkload.label).toBe('Scheduled job');
+  });
+
+  it('never invents SQS/EventBridge Scheduler usage volume — the estimate is marked incomplete', () => {
+    const { footprint } = compileDeployzInfrastructure({ ir: makePhase5Ir(), region: null });
+    const estimate = estimateFootprintCost(footprint);
+    expect(estimate.complete).toBe(false);
+    const sqsItems = estimate.items.filter((i) => footprint.resources.some((r) => r.service === 'sqs' && r.id === i.resourceId));
+    const schedulerItems = estimate.items.filter((i) => footprint.resources.some((r) => r.service === 'eventbridge-scheduler' && r.id === i.resourceId));
+    expect(sqsItems.length).toBeGreaterThan(0);
+    expect(schedulerItems.length).toBeGreaterThan(0);
+    for (const item of [...sqsItems, ...schedulerItems]) {
+      expect(item.pricingStatus).toBe('unavailable');
+      expect(item.monthlyMin).toBeUndefined();
+      expect(item.monthlyMax).toBeUndefined();
+    }
   });
 });

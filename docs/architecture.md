@@ -48,7 +48,8 @@ that ever touches the customer's AWS account.
 2. **Analysis** — `@deployz/analysis` runs deterministic detectors (runtime,
    Dockerfile, port, bind address, health path, environment-variable model,
    external services, PostgreSQL / MySQL / storage / Redis requirements,
-   declared worker processes, the unsupported-architecture rejections). An AI
+   declared worker processes, SQS queue and EventBridge Scheduler scheduled-job
+   detection, the unsupported-architecture rejections). An AI
    fallback resolves only
    genuinely open questions and can never override a detector. Output: the
    canonical `ApplicationAnalysis`, the readiness report and the versioned
@@ -147,12 +148,21 @@ compiled artifact**
    It does not contain AWS capability decisions. The graph builder connects
    every workload to every managed resource (a BINDING superset), so every
    workload receives the same managed variables at runtime — a workload
-   that uses fewer resources is not narrowed at the binding level.
+   that uses fewer resources is not narrowed at the binding level. A queue
+   or a schedule is different: it is reached only through explicit
+   `produce` / `consume` / `dead-letter` / `invoke` edges, not the binding
+   superset, and the planner rejects (fails closed) a graph where an edge
+   is missing its other side — an orphaned queue or an unreachable
+   scheduled job never provisions.
 3. **Capability Resolver / Planner** maps graph needs to AWS capabilities
    (ECS Fargate services for the web and worker workloads, the one-shot
    migration task, RDS PostgreSQL, RDS MySQL, ElastiCache Valkey, S3, ALB,
-   Secrets Manager), applies the immutable size profile and region, and
-   emits `DeployzIR` — the authoritative provisioning intent.
+   Secrets Manager, SQS Standard queues, EventBridge Scheduler schedules),
+   applies the immutable size profile and region, and emits `DeployzIR` —
+   the authoritative provisioning intent. SQS and EventBridge Scheduler
+   ship at `PREVIEW` maturity: supported and provisioned, but not yet
+   qualified against real AWS (see
+   [`testing/aws-e2e.md`](testing/aws-e2e.md)).
 4. **compiler-v2** (`packages/infrastructure-compiler`) turns the IR into a
    deterministic CloudFormation template, a resolved AWS graph, a
    verification contract, ownership records and a footprint.
@@ -187,15 +197,20 @@ declared worker runs its own private service — one task, its own log group
 and security group, no ALB target, no HTTP health check. Every workload
 gets a task definition with the same frozen image and its own frozen
 command; a migration command compiles into one additional one-shot task
-definition (no service). Shared resources: the S3 bucket
+definition (no service). Each non-web workload now gets its own IAM task
+role, scoped to its own queue edges (a worker never inherits another
+workload's `sqs:SendMessage`); the web task role stays the anchor for the
+shared execution role. Shared resources: the S3 bucket
 (**Retain**), the application config secret (Delete), and the task
-execution and task roles. Optional resources are composed from the IR:
+execution role. Optional resources are composed from the IR:
 
 | Capability adds | Lifecycle on destroy |
 | --- | --- |
 | RDS PostgreSQL 16 instance (`db.t4g.micro`, 20→100 GB, 7-day backups, deletion protection), subnet group, master secret + URL secret | **Retain** |
 | RDS MySQL 8.0 instance (same class, storage, backup and protection settings), subnet group, master secret + URL secret | **Retain** |
 | ElastiCache Valkey replication group (one `cache.t4g.micro` node, no Multi-AZ, TLS off), cache subnet group and security group | Delete |
+| SQS Standard queue (SSE-managed, TLS-only queue policy), plus an optional dead-letter queue (same capability, reached by a queue → queue redrive edge) | Delete |
+| EventBridge Scheduler schedule (cron or rate expression, optional IANA timezone, bounded retry policy) invoking one scheduled-job task definition — no ECS service, no ALB, no verification check; the task definition targets the same Fargate task family the relay updates on every release, so a schedule always runs the latest deployed image | Delete |
 
 Parameters: the web desired count, image reference, container port,
 health-check path, and the generated application secrets. Each worker
@@ -376,9 +391,13 @@ Deployz supports one opinionated architecture: one build artifact on ECS
 Fargate that runs as a web service behind an ALB, plus declared background
 workers (one private ECS service each) and a one-shot migration task when
 the app has a migration command; S3, and optional RDS PostgreSQL, RDS
-MySQL and ElastiCache Valkey, installed from a compiler-generated
-CloudFormation
-template. Anything that does not fit is rejected at analysis time with
+MySQL and ElastiCache Valkey; and, when strong code evidence names them, an
+SQS Standard queue (with an optional dead-letter queue) and an EventBridge
+Scheduler schedule invoking a one-shot scheduled ECS job — installed from a
+compiler-generated CloudFormation
+template. FIFO queues are not supported: a FIFO request resolves to no
+capability and fails the plan rather than silently becoming Standard.
+Anything that does not fit is rejected at analysis time with
 evidence, never silently adapted. The full list of non-goals, known
 limitations and deferred items is in [`product/mvp-scope.md`](product/mvp-scope.md).
 

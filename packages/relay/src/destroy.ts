@@ -37,6 +37,25 @@ export interface StackDeleter {
   deleteStack(stackName: string, retainResources?: readonly string[]): Promise<void>;
 }
 
+/**
+ * Phase 5: the ECS surface needed to stop a RUNNING standalone task (a
+ * scheduled job or migration mid-run) before deleting the cluster it lives
+ * in. CloudFormation's own `AWS::ECS::Service` deletion already drains
+ * service-managed tasks as part of the stack's normal delete sequence — this
+ * exists only for the standalone ones (group `family:…`, no service) that
+ * nothing else stops, and which otherwise fail the cluster's delete with
+ * `ClusterContainsTasksException` (surfacing as the whole stack landing on
+ * `DELETE_FAILED`).
+ */
+export interface EcsStandaloneTaskStopper {
+  listTasks(input: { cluster: string }): Promise<{ taskArns: string[] }>;
+  describeTasks(input: {
+    cluster: string;
+    tasks: string[];
+  }): Promise<{ tasks: { taskArn?: string | undefined; group?: string | undefined }[] }>;
+  stopTask(input: { cluster: string; task: string }): Promise<void>;
+}
+
 export interface DestroyDeps {
   readonly cfn: CloudFormationReader;
   readonly deleter: StackDeleter;
@@ -54,6 +73,15 @@ export interface DestroyDeps {
   readonly cache?: CacheCleanupClient;
   readonly wait?: WaitOptions;
   /**
+   * Stops the stack's own cluster's standalone (non-service) tasks before
+   * deleting it (Phase 5) — see `EcsStandaloneTaskStopper`. Optional and
+   * best-effort: omitted (older wiring, or a test that doesn't care), the
+   * executor behaves exactly as it did before this existed, and a task that
+   * could not be stopped just leaves the stack on the same `DELETE_FAILED`
+   * recovery path that already exists for any other blocked resource.
+   */
+  readonly ecs?: EcsStandaloneTaskStopper;
+  /**
    * Builds a stack-event collector for one DESTROY invocation. Optional —
    * absent (older wiring, or a test that doesn't care about progress
    * reporting), the executor and resumer behave exactly as they did before
@@ -69,6 +97,42 @@ export interface DestroyDeps {
     stackName: string;
     resumeAfter?: string;
   }) => StackEventCollector;
+}
+
+const ECS_CLUSTER_TYPE = 'AWS::ECS::Cluster';
+
+/**
+ * Best-effort: stops every standalone (group `family:…`, no service) task
+ * running in the stack's own cluster, right before asking CloudFormation to
+ * delete it. Scoped to THIS stack's cluster only — read from the stack's own
+ * resources, never a name or account-wide list. A failure here (unreadable
+ * cluster, a task that would not stop) never blocks the delete call that
+ * follows it: CloudFormation's existing DELETE_FAILED recovery is the
+ * backstop for whatever this pass could not clear.
+ */
+async function stopStandaloneTasks(deps: DestroyDeps): Promise<void> {
+  if (!deps.ecs) return;
+  try {
+    const resources = await deps.cfn.describeStackResources(deps.stackName);
+    const cluster = resources.find((r) => r.type === ECS_CLUSTER_TYPE)?.physicalId;
+    if (!cluster) return;
+    const { taskArns } = await deps.ecs.listTasks({ cluster });
+    if (taskArns.length === 0) return;
+    const { tasks } = await deps.ecs.describeTasks({ cluster, tasks: taskArns });
+    const standalone = tasks.flatMap((task) =>
+      task.taskArn !== undefined && task.group?.startsWith('family:') === true ? [task.taskArn] : [],
+    );
+    for (const taskArn of standalone) {
+      try {
+        await deps.ecs.stopTask({ cluster, task: taskArn });
+      } catch {
+        // Best effort — the delete call this precedes, and its existing
+        // DELETE_FAILED recovery, are the backstop.
+      }
+    }
+  } catch {
+    // Best effort — never block the delete itself.
+  }
 }
 
 type DestroyOutcome =
@@ -127,6 +191,10 @@ export async function settleDestroy(
             'identifiable — retry Disconnect, or remove the stack manually',
         };
       }
+      // A stuck standalone task is one possible cause of this DELETE_FAILED
+      // — clear it before retrying, on top of whatever CloudFormation
+      // already reported as blocked.
+      await stopStandaloneTasks(deps);
       await deps.deleter.deleteStack(deps.stackName, blocked);
       return { state: 'deleting' };
     }
@@ -171,6 +239,13 @@ export async function settleDestroy(
   if (status === 'DELETE_IN_PROGRESS') {
     return { state: 'deleting' };
   }
+
+  // Phase 5: a RUNNING standalone task (a scheduled job or migration
+  // mid-run) blocks the cluster's own delete with
+  // ClusterContainsTasksException, which would otherwise land the whole
+  // stack on DELETE_FAILED. Clear it first — scoped to this stack's own
+  // cluster only.
+  await stopStandaloneTasks(deps);
 
   // The stack is tagged and in a non-deleting state — start the deletion.
   // CloudFormation's per-resource retention policies are the single source

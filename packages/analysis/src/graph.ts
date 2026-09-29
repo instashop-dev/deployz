@@ -8,6 +8,7 @@
  */
 
 import {
+  DEFAULT_SCHEDULE_RETRY_POLICY,
   applicationGraphSchema,
   type ApplicationGraph,
   type Binding,
@@ -20,6 +21,7 @@ import {
   type ManifestWorker,
   type Provenance,
   type Resource,
+  type Schedule,
   type UnresolvedRequirement,
   type Workload,
 } from '@deployz/contracts';
@@ -157,7 +159,162 @@ function buildWorkloads(manifest: DeploymentManifest): Workload[] {
     });
   }
 
+  // Scheduled-job workloads (Phase 5D) — asynchronous recurring one-shot
+  // tasks, each with its own frozen command. Never deployment-gating.
+  for (const job of manifest.scheduledJobs ?? []) {
+    workloads.push({
+      id: job.id,
+      kind: 'scheduled-job',
+      label: `Scheduled job ${job.id}`,
+      sourceRoot: manifest.application.root,
+      buildArtifactId: 'app',
+      command: job.command,
+      port: null,
+      public: false,
+      healthCheck: null,
+      desiredCount: 1,
+      runtime: manifest.application.runtime,
+      framework: manifest.application.framework,
+      provenance: detectedProvenance([
+        fileEvidence(job.source, `Scheduled job ${job.id} command: ${job.command}`, scheduleSourceType(job.source)),
+      ]),
+    });
+  }
+
   return workloads;
+}
+
+/** The evidence source type for a file that declared a schedule. */
+function scheduleSourceType(source: string): EvidenceItem['sourceType'] {
+  return /render\.ya?ml$/.test(source) ? 'framework_configuration' : 'kubernetes';
+}
+
+// ── Queues and schedules (Phase 5) ──────────────────────────────────────────
+
+/** 'orders-queue' → 'Orders queue'. */
+function humanize(id: string): string {
+  const words = id.split('-').filter(Boolean).join(' ');
+  return words.charAt(0).toUpperCase() + words.slice(1);
+}
+
+/** The dead-letter queue component id of a queue. */
+function deadLetterQueueId(queueId: string): string {
+  return `${queueId}-dlq`;
+}
+
+/** The schedule component id of a scheduled job. */
+function scheduleId(jobId: string): string {
+  return `${jobId}-schedule`;
+}
+
+function queueResource(
+  id: string,
+  label: string,
+  envBindings: ManifestEnvBinding[],
+  settings: Resource['queue'],
+  evidence: EvidenceItem[],
+): Resource {
+  return {
+    id,
+    kind: 'queue',
+    label,
+    ownership: 'DEPLOYZ_MANAGED',
+    quantity: 1,
+    engine: 'standard',
+    envBindings,
+    ...(settings !== undefined ? { queue: settings } : {}),
+    provenance: detectedProvenance(evidence),
+  };
+}
+
+function buildQueueResources(manifest: DeploymentManifest): Resource[] {
+  const resources: Resource[] = [];
+  for (const queue of manifest.queues ?? []) {
+    const settings =
+      queue.messageRetentionSeconds !== undefined || queue.visibilityTimeoutSeconds !== undefined
+        ? {
+            ...(queue.messageRetentionSeconds !== undefined ? { messageRetentionSeconds: queue.messageRetentionSeconds } : {}),
+            ...(queue.visibilityTimeoutSeconds !== undefined ? { visibilityTimeoutSeconds: queue.visibilityTimeoutSeconds } : {}),
+          }
+        : undefined;
+    const evidence = [fileEvidence(queue.source, `Message queue ${queue.id} (${queue.envBindings.map((b) => b.name).join(', ')})`, 'source_import')];
+    resources.push(queueResource(queue.id, humanize(queue.id), queue.envBindings, settings, evidence));
+    if (queue.deadLetter !== undefined) {
+      resources.push(
+        queueResource(deadLetterQueueId(queue.id), `${humanize(queue.id)} dead-letter queue`, queue.deadLetter.envBindings, undefined, [
+          fileEvidence(queue.source, `Dead-letter queue for ${queue.id}`, 'source_import'),
+        ]),
+      );
+    }
+  }
+  for (const job of manifest.scheduledJobs ?? []) {
+    if (job.deadLetter !== true) continue;
+    resources.push(
+      queueResource(deadLetterQueueId(scheduleId(job.id)), `Scheduled job ${job.id} dead-letter queue`, [], undefined, [
+        fileEvidence(job.source, `Dead-letter queue for the ${job.id} schedule`, scheduleSourceType(job.source)),
+      ]),
+    );
+  }
+  return resources;
+}
+
+function buildSchedules(manifest: DeploymentManifest): Schedule[] {
+  return (manifest.scheduledJobs ?? []).map((job) => ({
+    id: scheduleId(job.id),
+    label: `Schedule for ${job.id}`,
+    expression: job.schedule,
+    timezone: job.timezone,
+    retry: job.retry ?? DEFAULT_SCHEDULE_RETRY_POLICY,
+    enabled: job.enabled ?? true,
+    provenance: detectedProvenance([
+      fileEvidence(job.source, `Schedule for ${job.id}`, scheduleSourceType(job.source)),
+    ]),
+  }));
+}
+
+/**
+ * The explicit relationship edges of Phase 5: producer/consumer edges from
+ * workloads to queues, queue → dead-letter redrive edges, and schedule →
+ * workload / schedule → dead-letter edges. Appended after every pre-Phase-5
+ * binding so older graphs keep their binding ids.
+ */
+function asyncBindings(manifest: DeploymentManifest, nextId: () => string): Binding[] {
+  const bindings: Binding[] = [];
+  const edge = (
+    sourceId: string,
+    targetId: string,
+    access: NonNullable<Binding['access']>,
+    envBindings: ManifestEnvBinding[],
+    source: string,
+    maxReceiveCount?: number,
+  ): Binding => ({
+    id: nextId(),
+    sourceId,
+    targetId,
+    relationship: access === 'produce' || access === 'consume' ? 'BINDING' : 'RUNTIME',
+    envBindings,
+    access,
+    ...(maxReceiveCount !== undefined ? { maxReceiveCount } : {}),
+    provenance: detectedProvenance([fileEvidence(source, `${sourceId} ${access} ${targetId}`, 'source_import')]),
+  });
+
+  for (const queue of manifest.queues ?? []) {
+    for (const producer of queue.producers) bindings.push(edge(producer, queue.id, 'produce', queue.envBindings, queue.source));
+    for (const consumer of queue.consumers) bindings.push(edge(consumer, queue.id, 'consume', queue.envBindings, queue.source));
+    const deadLetter = queue.deadLetter;
+    if (deadLetter === undefined) continue;
+    const dlqId = deadLetterQueueId(queue.id);
+    bindings.push(edge(queue.id, dlqId, 'dead-letter', [], queue.source, deadLetter.maxReceiveCount));
+    for (const producer of deadLetter.producers) bindings.push(edge(producer, dlqId, 'produce', deadLetter.envBindings, queue.source));
+    for (const consumer of deadLetter.consumers) bindings.push(edge(consumer, dlqId, 'consume', deadLetter.envBindings, queue.source));
+  }
+  for (const job of manifest.scheduledJobs ?? []) {
+    bindings.push(edge(scheduleId(job.id), job.id, 'invoke', [], job.source));
+    if (job.deadLetter === true) {
+      bindings.push(edge(scheduleId(job.id), deadLetterQueueId(scheduleId(job.id)), 'dead-letter', [], job.source));
+    }
+  }
+  return bindings;
 }
 
 // ── Resources ───────────────────────────────────────────────────────────────
@@ -242,6 +399,9 @@ function buildResources(manifest: DeploymentManifest): Resource[] {
     ]),
   });
 
+  // Standard queues and dead-letter queues (Phase 5A).
+  resources.push(...buildQueueResources(manifest));
+
   // External services.
   for (const serviceName of manifest.externalServices) {
     resources.push({
@@ -322,6 +482,8 @@ function buildBindings(manifest: DeploymentManifest, workloads: Workload[], reso
     });
   }
 
+  bindings.push(...asyncBindings(manifest, () => `binding-${bindingIndex++}`));
+
   return bindings;
 }
 
@@ -398,6 +560,17 @@ function buildUnresolved(manifest: DeploymentManifest): UnresolvedRequirement[] 
     });
   }
 
+  // Ambiguous queue/schedule evidence (Phase 5) — needs input, never provisioned.
+  for (const question of manifest.questions ?? []) {
+    unresolved.push({
+      id: question.id,
+      field: question.field,
+      question: question.question,
+      evidence: [{ sourceType: 'source_import', path: question.source, description: question.question }],
+      blocking: false,
+    });
+  }
+
   // External services — ask whether they should be managed.
   for (const serviceName of manifest.externalServices) {
     unresolved.push({
@@ -419,6 +592,12 @@ function buildUnresolved(manifest: DeploymentManifest): UnresolvedRequirement[] 
 }
 
 // ── Public API ──────────────────────────────────────────────────────────────
+
+/** The graph's schedules — omitted when none, so pre-Phase-5 graphs hash unchanged. */
+function withSchedules(manifest: DeploymentManifest): { schedules?: Schedule[] } {
+  const schedules = buildSchedules(manifest);
+  return schedules.length > 0 ? { schedules } : {};
+}
 
 /**
  * Build an ApplicationGraph from a validated manifest, analysis result, and
@@ -442,6 +621,7 @@ export function buildApplicationGraph(input: {
     workloads,
     resources,
     bindings: buildBindings(manifest, workloads, resources),
+    ...withSchedules(manifest),
     externalServices: buildExternalServices(manifest),
     unresolved: buildUnresolved(manifest),
   };
@@ -465,6 +645,7 @@ export function manifestToApplicationGraph(manifest: DeploymentManifest): Applic
     workloads,
     resources,
     bindings: buildBindings(manifest, workloads, resources),
+    ...withSchedules(manifest),
     externalServices: buildExternalServices(manifest),
     unresolved: buildUnresolved(manifest),
   };

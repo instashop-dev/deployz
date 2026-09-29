@@ -15,13 +15,19 @@ import {
   envVariableClassificationSchema,
   deploymentManifestOverridesSchema,
   deploymentManifestSchema,
+  manifestQueueSchema,
+  manifestScheduledJobSchema,
+  manifestQuestionSchema,
   DEPLOYMENT_MANIFEST_SCHEMA_VERSION,
   type DeploymentManifest,
   type DeploymentManifestOverrides,
   type ManifestEnvBinding,
   type ManifestEnvVariable,
+  type ManifestQueue,
+  type ManifestQuestion,
   type ManifestReadinessFinding,
   type ManifestReadinessResult,
+  type ManifestScheduledJob,
   type ManifestWorker,
 } from '@deployz/contracts';
 
@@ -263,6 +269,103 @@ function toDeclaredWorkers(
 }
 
 /**
+ * Phase 5 — queues/scheduledJobs/questions. `async-detection.ts` already
+ * shapes its output as `ManifestQueue[]`/`ManifestScheduledJob[]`/
+ * `ManifestQuestion[]`, so this only validates and drops any entry that
+ * fails the contract (fail-closed per-entry, never the whole manifest).
+ */
+function toDeclaredQueues(meta: Record<string, unknown>): ManifestQueue[] {
+  const raw = meta['asyncQueues'];
+  if (!Array.isArray(raw)) return [];
+  const queues: ManifestQueue[] = [];
+  for (const entry of raw) {
+    const parsed = manifestQueueSchema.safeParse(entry);
+    if (parsed.success) queues.push(parsed.data);
+  }
+  return queues;
+}
+
+function toDeclaredScheduledJobs(meta: Record<string, unknown>): ManifestScheduledJob[] {
+  const raw = meta['asyncScheduledJobs'];
+  if (!Array.isArray(raw)) return [];
+  const jobs: ManifestScheduledJob[] = [];
+  for (const entry of raw) {
+    const parsed = manifestScheduledJobSchema.safeParse(entry);
+    if (parsed.success) jobs.push(parsed.data);
+  }
+  return jobs;
+}
+
+function toDeclaredQuestions(meta: Record<string, unknown>): ManifestQuestion[] {
+  const raw = meta['asyncQuestions'];
+  if (!Array.isArray(raw)) return [];
+  const questions: ManifestQuestion[] = [];
+  for (const entry of raw) {
+    const parsed = manifestQuestionSchema.safeParse(entry);
+    if (parsed.success) questions.push(parsed.data);
+  }
+  return questions;
+}
+
+/** The fixed component ids the graph always reserves (resources + the endpoint). */
+const RESERVED_COMPONENT_IDS = ['web', 'migration', 'primary-db', 'cache', 'storage', 'endpoint'] as const;
+
+/**
+ * Keep only the queues and scheduled jobs the final manifest can compose: a
+ * queue whose producers/consumers name a workload this manifest does not
+ * declare (e.g. a vendor override replaced the workers), or any component id
+ * that collides with another, becomes a Needs-input question instead — the
+ * planner must never be handed a relationship it would reject.
+ */
+function reconcileAsyncDeclarations(
+  workerIds: readonly string[],
+  queues: ManifestQueue[],
+  jobs: ManifestScheduledJob[],
+  questions: ManifestQuestion[],
+): { queues: ManifestQueue[]; jobs: ManifestScheduledJob[]; questions: ManifestQuestion[] } {
+  const taken = new Set<string>([...RESERVED_COMPONENT_IDS, ...workerIds]);
+  const claim = (ids: readonly string[]): boolean => {
+    if (ids.some((id) => taken.has(id))) return false;
+    for (const id of ids) taken.add(id);
+    return true;
+  };
+  const extra: ManifestQuestion[] = [];
+
+  const keptJobs = jobs.filter((job) => {
+    const ids = [job.id, `${job.id}-schedule`, ...(job.deadLetter === true ? [`${job.id}-schedule-dlq`] : [])];
+    if (claim(ids)) return true;
+    extra.push({
+      id: `schedule-${job.id}-conflict`,
+      field: 'schedule',
+      question: `The scheduled job ${job.id} (${job.source}) has a name that conflicts with another component. Confirm a distinct name for it.`,
+      source: job.source,
+    });
+    return false;
+  });
+
+  const workloadIds = new Set<string>(['web', ...workerIds, ...keptJobs.map((job) => job.id)]);
+  const keptQueues = queues.filter((queue) => {
+    const members = [
+      ...queue.producers,
+      ...queue.consumers,
+      ...(queue.deadLetter?.producers ?? []),
+      ...(queue.deadLetter?.consumers ?? []),
+    ];
+    const ids = [queue.id, ...(queue.deadLetter !== undefined ? [`${queue.id}-dlq`] : [])];
+    if (members.every((id) => workloadIds.has(id)) && claim(ids)) return true;
+    extra.push({
+      id: `queue-${queue.id}-unresolved`,
+      field: 'queue_relationship',
+      question: `The queue ${queue.id} (${queue.source}) connects processes Deployz cannot match to this application's declared workloads. Confirm its producer and consumer.`,
+      source: queue.source,
+    });
+    return false;
+  });
+
+  return { queues: keptQueues, jobs: keptJobs, questions: [...questions, ...extra] };
+}
+
+/**
  * Build the validated, authoritative `DeploymentManifest` from detector output
  * and vendor overrides. Overrides always win over detection; detection is the
  * fallback for anything the vendor has not corrected.
@@ -343,6 +446,17 @@ export function normalizeDeploymentManifest(
   // dependency alone.
   const declaredWorkers = toDeclaredWorkers(meta, overrides);
   const workerNeedsCommand = meta['hasWorkerProcesses'] === true && declaredWorkers.length === 0;
+  // Phase 5 — SQS queues and scheduled jobs, resolved by async-detection.ts.
+  const {
+    queues: declaredQueues,
+    jobs: declaredScheduledJobs,
+    questions: declaredQuestions,
+  } = reconcileAsyncDeclarations(
+    declaredWorkers.map((worker) => worker.id),
+    toDeclaredQueues(meta),
+    toDeclaredScheduledJobs(meta),
+    toDeclaredQuestions(meta),
+  );
 
   const manifest: DeploymentManifest = {
     schemaVersion: DEPLOYMENT_MANIFEST_SCHEMA_VERSION,
@@ -437,6 +551,9 @@ export function normalizeDeploymentManifest(
       ...(workerNeedsCommand ? { needsCommand: true } : {}),
     },
     ...(declaredWorkers.length > 0 ? { workers: declaredWorkers } : {}),
+    ...(declaredQueues.length > 0 ? { queues: declaredQueues } : {}),
+    ...(declaredScheduledJobs.length > 0 ? { scheduledJobs: declaredScheduledJobs } : {}),
+    ...(declaredQuestions.length > 0 ? { questions: declaredQuestions } : {}),
     environment: {
       variables: toEnvVariables(meta['envVarModel'], meta['envVars']),
     },

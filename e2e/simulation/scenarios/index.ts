@@ -13,6 +13,7 @@ import { migrationSuccess } from './migration-success.js';
 import { multiWorkerSweep } from './multi-worker-sweep.js';
 import { mysqlSweep } from './mysql-sweep.js';
 import { phase4Composition } from './phase4-composition.js';
+import { phase5Composition } from './phase5-composition.js';
 import { purgeFailure } from './purge-failure.js';
 import { redisFailure } from './redis-failure.js';
 import { redisSuccess } from './redis-success.js';
@@ -52,6 +53,7 @@ const SCENARIOS: Readonly<Record<string, ScenarioDefinition>> = {
   [multiWorkerSweep.id]: multiWorkerSweep,
   [mysqlSweep.id]: mysqlSweep,
   [phase4Composition.id]: phase4Composition,
+  [phase5Composition.id]: phase5Composition,
   [slowProvision.id]: slowProvision,
   [cloudformationFailure.id]: cloudformationFailure,
   [databaseFailure.id]: databaseFailure,
@@ -95,6 +97,7 @@ export {
   multiWorkerSweep,
   mysqlSweep,
   phase4Composition,
+  phase5Composition,
   purgeFailure,
   redisFailure,
   redisSuccess,

@@ -50,8 +50,9 @@ pure evaluation: `packages/contracts/src/environment-setup.ts`.
 
 Rules (server-validated):
 - **Managed by Deployz** is allowed only for keys that Deployz really
-  supplies: managed bindings (database, cache, storage, port) and
-  app-internal secrets that the relay generates.
+  supplies: managed bindings (database, cache, storage, port, a provisioned
+  queue and its dead-letter queue) and app-internal secrets that the relay
+  generates.
 - **Set by customer** and **Managed by Deployz** are runtime only.
 - A variable without a saved decision keeps the behaviour it had before
   this feature (legacy default). Existing applications keep working without

@@ -30,6 +30,19 @@
  * else fails with MIGRATION_FAILED, names the migration task, and no
  * service is touched. ROLLBACK never runs migrations: schema changes are
  * never auto-reversed.
+ *
+ * Phase 5: one-shot task-definition FAMILIES (the migration, and every
+ * scheduled-job family) are compiled into the stack once, with the
+ * INSTALL-time image baked in (`paramImageReference`) — DEPLOY_RELEASE and
+ * ROLLBACK never touch CloudFormation, so a family's latest revision never
+ * otherwise picks up a new release. `registerReleaseImageIntoFamily` is the
+ * one generic, bounded step that keeps a named family current: describe its
+ * latest ACTIVE revision, skip if it already runs the target digest
+ * (idempotent/retry-safe), otherwise register a new revision with the
+ * release image. It runs (a) for the migration family right before RunTask,
+ * and (b) for every scheduled-job family the control plane names, but only
+ * once a DEPLOY_RELEASE/ROLLBACK rollout has otherwise SETTLED — a failed
+ * update must leave scheduled jobs on the previous image.
  */
 
 import type { FailureEvidence } from '@deployz/contracts';
@@ -205,6 +218,16 @@ export interface DeployRequest {
    * older control plane) keeps the single-service behaviour exactly.
    */
   readonly workloads: readonly DeployWorkload[];
+  /**
+   * The scheduled-job ECS task-definition families (Phase 5) the control
+   * plane derived ONLY from the frozen spec's `oneShotTasksFromSpec(spec,
+   * 'scheduled-job')` — never a command: each entry is a bare family name,
+   * validated against the `DeployzApp…` shape. Once this rollout settles,
+   * the relay registers the release image into every one of them; it never
+   * runs them — `AWS::Scheduler::Schedule` does. Empty on a spec with no
+   * scheduled-job workload, or an older control plane.
+   */
+  readonly scheduledJobFamilies: readonly string[];
 }
 
 /**
@@ -218,6 +241,13 @@ export interface PendingMigration {
 }
 
 const DIGEST_PATTERN = /^sha256:[0-9a-f]{64}$/;
+
+/**
+ * The only shape a one-shot task-definition family name may take (mirrors
+ * `deployzTaskFamily` in `@deployz/contracts`) — never a command, never
+ * anything the relay could confuse for one.
+ */
+const TASK_FAMILY_PATTERN = /^DeployzApp[A-Za-z0-9]+$/;
 
 /** Parses and validates the control plane's deploy payload contract. */
 export function readDeployRequest(payload: Record<string, unknown>): DeployRequest | null {
@@ -236,7 +266,7 @@ export function readDeployRequest(payload: Record<string, unknown>): DeployReque
     const record = rawMigration as Record<string, unknown>;
     const family = record['family'];
     const identity = record['identity'];
-    if (typeof family !== 'string' || family.length === 0) return null;
+    if (typeof family !== 'string' || !TASK_FAMILY_PATTERN.test(family)) return null;
     if (typeof identity !== 'string' || !/^[0-9a-f]{64}$/.test(identity)) return null;
     migrationTask = { family, identity };
   }
@@ -258,7 +288,18 @@ export function readDeployRequest(payload: Record<string, unknown>): DeployReque
       workloads.push({ id, serviceLogicalId, desiredCount });
     }
   }
-  return { imageRepository, imageDigest, migrationTask, workloads };
+  // Scheduled-job families (Phase 5): bare family names only — validated
+  // against the same pattern as the migration family, and never run here.
+  const rawScheduledJobFamilies = payload['scheduledJobFamilies'];
+  const scheduledJobFamilies: string[] = [];
+  if (rawScheduledJobFamilies !== undefined) {
+    if (!Array.isArray(rawScheduledJobFamilies)) return null;
+    for (const entry of rawScheduledJobFamilies) {
+      if (typeof entry !== 'string' || !TASK_FAMILY_PATTERN.test(entry)) return null;
+      scheduledJobFamilies.push(entry);
+    }
+  }
+  return { imageRepository, imageDigest, migrationTask, workloads, scheduledJobFamilies };
 }
 
 type EcsDeployOutcome =
@@ -516,7 +557,7 @@ export async function settleEcsDeploy(
   // returned AFTER the migration stage has run — so the early return is
   // gated on there being no migration to run.
   if (!anyServiceNeedsUpdate && request.migrationTask === null) {
-    return { state: 'succeeded', alreadyRunning: true };
+    return settleSuccess(deps, request, context.migration ?? undefined);
   }
 
   // Migration stage — before any service update, so the previous release
@@ -535,6 +576,7 @@ export async function settleEcsDeploy(
       networkConfiguration: migrationNetworkView.service?.networkConfiguration,
       migrationTask: request.migrationTask,
       pendingMigration: context.migration ?? null,
+      request,
       markerCommandId: context.markerCommandId,
       markerIdempotencyKey: context.markerIdempotencyKey,
       markerType: context.markerType,
@@ -556,7 +598,7 @@ export async function settleEcsDeploy(
   // A seat the executor refused to run (ROLLBACK/RESTART, by the gate above)
   // cannot gate the success path: those commands never carry migrations.
   if (!anyServiceNeedsUpdate) {
-    return { state: 'succeeded', alreadyRunning: true };
+    return settleSuccess(deps, request, migration);
   }
 
   // ── Roll every service that still needs it ──────────────────────────────
@@ -679,6 +721,9 @@ async function settleMigration(
     } | undefined;
     migrationTask: DeployMigrationTask;
     pendingMigration: PendingMigration | null;
+    /** The deploy request — needed to register the release image into the
+     *  migration family before it runs (see `registerReleaseImageIntoFamily`). */
+    request: DeployRequest;
     /** Marker fields for the early migration write after RunTask succeeds. */
     markerCommandId?: string | undefined;
     markerIdempotencyKey?: string | undefined;
@@ -704,6 +749,21 @@ async function settleMigration(
         state: 'failed',
         reason:
           "Migration needs the service's VPC network configuration, which could not be described",
+      };
+    }
+
+    // The migration family is compiled once into the stack with the
+    // INSTALL-time image baked in — DEPLOY_RELEASE/ROLLBACK never touch
+    // CloudFormation, so its latest revision would otherwise still run
+    // whatever image the last stack operation set, not this release's
+    // digest. Bring it current before RunTask (idempotent — a no-op once
+    // the latest revision already runs the digest).
+    try {
+      await registerReleaseImageIntoFamily(deps, migrationTask.family, params.request);
+    } catch (err) {
+      return {
+        state: 'failed',
+        reason: `Migration family "${migrationTask.family}" could not be updated to the release image: ${String(err)}`,
       };
     }
 
@@ -1003,6 +1063,75 @@ export function replaceApplicationImages(
     ...(taskDefinition.volumes ? { volumes: taskDefinition.volumes } : {}),
   };
   return copy;
+}
+
+/**
+ * Registers the release image into a named, spec-frozen one-shot task
+ * family: reads the family's latest ACTIVE revision (`describeTaskDefinition`
+ * accepts a bare family name and answers with its newest active revision),
+ * and registers a new revision only when that revision does not already run
+ * the target digest. Idempotent and retry-safe — a repeated call after a
+ * successful register is a no-op, so a re-offered command or a later
+ * scheduled-job family in the same list never double-registers.
+ *
+ * Used for the migration family right before RunTask (Phase 4C/5: DEPLOY_
+ * RELEASE and ROLLBACK never touch CloudFormation, so a family's latest
+ * revision otherwise keeps running whatever image the last stack operation
+ * baked in) and for every scheduled-job family once a rollout has settled.
+ */
+async function registerReleaseImageIntoFamily(
+  deps: EcsDeployDeps,
+  family: string,
+  request: DeployRequest,
+): Promise<void> {
+  const { taskDefinition } = await deps.ecs.describeTaskDefinition({ taskDefinition: family });
+  const nextImage = `${request.imageRepository}@${request.imageDigest}`;
+  const alreadyOnDigest = taskDefinition.containerDefinitions.some((container) => container.image === nextImage);
+  if (alreadyOnDigest) return;
+  const replaced = replaceApplicationImages(taskDefinition, request);
+  if (!replaced) {
+    throw new Error(
+      `Task family "${family}" has no container referencing repository "${request.imageRepository}"`,
+    );
+  }
+  replaced.tags = [{ key: 'deployz:installation', value: deps.installationId }];
+  await deps.ecs.registerTaskDefinition(replaced);
+}
+
+/**
+ * Registers the release image into every scheduled-job family the control
+ * plane named (Phase 5) — called only once a DEPLOY_RELEASE/ROLLBACK
+ * rollout has otherwise SETTLED, so a failed update leaves scheduled jobs on
+ * the previous image. `AWS::Scheduler::Schedule` runs the family's latest
+ * revision; this never RunTask's it — that stays Scheduler's job alone.
+ */
+async function registerScheduledJobFamilies(deps: EcsDeployDeps, request: DeployRequest): Promise<void> {
+  for (const family of request.scheduledJobFamilies) {
+    await registerReleaseImageIntoFamily(deps, family, request);
+  }
+}
+
+/**
+ * The only way `settleEcsDeploy` may report success: every scheduled-job
+ * family is brought current with the release image FIRST, so a rollout only
+ * ever settles once its scheduled jobs would run the same release the
+ * services do. The services may already run the release here, so a
+ * registration error never reports a failed update (the previous release is
+ * no longer what serves): the command stays in progress, carrying any
+ * completed migration so it is never re-run, and the next poll retries —
+ * bounded by the control plane's in-progress grace like any other rollout.
+ */
+async function settleSuccess(
+  deps: EcsDeployDeps,
+  request: DeployRequest,
+  migration: PendingMigration | undefined,
+): Promise<EcsDeployOutcome> {
+  try {
+    await registerScheduledJobFamilies(deps, request);
+  } catch {
+    return { state: 'in-progress', ...(migration !== undefined ? { migration } : {}) };
+  }
+  return { state: 'succeeded', alreadyRunning: true };
 }
 
 // ── Executors ────────────────────────────────────────────────────────────────

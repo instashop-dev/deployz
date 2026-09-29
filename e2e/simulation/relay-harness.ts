@@ -377,6 +377,12 @@ export function startSimulatedRelay(options: StartSimulatedRelayOptions): Simula
   let databaseRequired: boolean | undefined = undefined;
   let probeUrl: string | null = null;
   let deploymentWorkloads: readonly { id: string; serviceLogicalId: string }[] | undefined = undefined;
+  /** Phase 5: verification-contract checks outside the fixed catalog (queue,
+   *  schedule, ...) — mirrors `deploymentMeta.resourceChecks` in
+   *  packages/relay/src/index.ts's production observe-hook wiring. */
+  let deploymentResourceChecks:
+    | readonly { componentId: string; check: string; logicalId: string; resourceType: string }[]
+    | undefined = undefined;
 
   const stackNameOrDefault = (): string => account.stackName ?? DEFAULT_APPLICATION_STACK_NAME;
 
@@ -477,6 +483,10 @@ export function startSimulatedRelay(options: StartSimulatedRelayOptions): Simula
     get stackName() {
       return stackNameOrDefault();
     },
+    // Phase 5: stop the stack's own cluster's standalone (scheduled-job)
+    // tasks before deleting it — see `SimulatedCustomerAccount.
+    // ecsStandaloneTaskStopper`.
+    ecs: account.ecsStandaloneTaskStopper(),
     now: () => account.destroyStartedAtIso(),
     createStackEventCollector: ({ commandId, operationStartedAt, stackName, resumeAfter }) =>
       createStackEventCollector({
@@ -703,6 +713,7 @@ export function startSimulatedRelay(options: StartSimulatedRelayOptions): Simula
           redisRequired,
           databaseRequired,
           ...(deploymentWorkloads !== undefined ? { workloads: deploymentWorkloads } : {}),
+          ...(deploymentResourceChecks !== undefined ? { resourceChecks: deploymentResourceChecks } : {}),
         });
       },
       () => buildProvisioningSnapshot(account.cloudFormationReader(), stackNameOrDefault()),
@@ -748,6 +759,7 @@ export function startSimulatedRelay(options: StartSimulatedRelayOptions): Simula
       databaseRequired = meta.databaseRequired;
       probeUrl = meta.probeUrl;
       if ('workloads' in meta) deploymentWorkloads = meta.workloads;
+      if ('resourceChecks' in meta) deploymentResourceChecks = meta.resourceChecks;
     },
     // Chained the same way `relayHandler`'s default `resume` composes its
     // resumers (packages/relay/src/index.ts): one shared pending store, each

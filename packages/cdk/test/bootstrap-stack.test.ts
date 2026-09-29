@@ -950,6 +950,73 @@ describe('BootstrapStack — application provisioning', () => {
 
     expect(condition).toContain('iam:PassedToService');
     expect(condition).toContain('ecs-tasks.amazonaws.com');
+    // Phase 5: the execution role may pass the scheduler execution role to
+    // Scheduler when it creates an AWS::Scheduler::Schedule.
+    expect(condition).toContain('scheduler.amazonaws.com');
+  });
+
+  it('never lets the relay role itself pass a role to Scheduler (Phase 5)', () => {
+    // The relay registers task definitions, never schedules — its own
+    // PassRole grant stays ECS-only, unlike the application execution
+    // role's (see above).
+    const { stack } = synth();
+    const boundary = stack.permissionsBoundary.document.toJSON()['Statement'] as Record<string, unknown>[];
+    const boundaryPassRole = boundary.find((s) => collectActions([s]).includes('iam:PassRole'));
+    expect(boundaryPassRole).toBeDefined();
+    expect(JSON.stringify(boundaryPassRole?.['Condition'] ?? '')).not.toContain('scheduler.amazonaws.com');
+
+    const provisioner = stack.provisionerPolicy.document.toJSON()['Statement'] as Record<string, unknown>[];
+    const provisionerPassRole = provisioner.find((s) => collectActions([s]).includes('iam:PassRole'));
+    expect(provisionerPassRole).toBeDefined();
+    expect(JSON.stringify(provisionerPassRole?.['Condition'] ?? '')).not.toContain('scheduler.amazonaws.com');
+  });
+
+  it('grants queue and schedule lifecycle actions, resource-ARN scoped (Phase 5)', () => {
+    const { template } = synth();
+    const statements = inlinePolicyStatements(template, executionRole(template).logicalId);
+
+    const sqs = statements.find((s) => collectActions([s]).includes('sqs:CreateQueue'));
+    expect(sqs).toBeDefined();
+    for (const action of [
+      'sqs:CreateQueue',
+      'sqs:GetQueueAttributes',
+      'sqs:SetQueueAttributes',
+      'sqs:DeleteQueue',
+      'sqs:TagQueue',
+      'sqs:UntagQueue',
+      'sqs:ListQueueTags',
+      'sqs:GetQueueUrl',
+    ]) {
+      expect(collectActions([sqs!])).toContain(action);
+    }
+    expect(JSON.stringify(sqs?.['Resource'])).toContain(':deployz-app*');
+    expect(sqs?.['Condition']).toBeUndefined();
+
+    const scheduler = statements.find((s) => collectActions([s]).includes('scheduler:CreateSchedule'));
+    expect(scheduler).toBeDefined();
+    for (const action of [
+      'scheduler:CreateSchedule',
+      'scheduler:GetSchedule',
+      'scheduler:UpdateSchedule',
+      'scheduler:DeleteSchedule',
+    ]) {
+      expect(collectActions([scheduler!])).toContain(action);
+    }
+    expect(JSON.stringify(scheduler?.['Resource'])).toContain('schedule/default/deployz-app*');
+    expect(scheduler?.['Condition']).toBeUndefined();
+  });
+
+  it('the relay role itself is granted no sqs:/scheduler: actions (Phase 5)', () => {
+    const { stack, template } = synth();
+    const relayRole = findRole(template, (r) => Boolean(r.Properties?.['PermissionsBoundary']));
+    const statements = inlinePolicyStatements(template, relayRole.logicalId);
+    const relayActions = [
+      ...collectActions(statements),
+      ...collectActions(stack.provisionerPolicy.document.toJSON()['Statement']),
+      ...collectActions(stack.permissionsBoundary.document.toJSON()['Statement']),
+    ];
+    expect(relayActions.some((a) => a.startsWith('sqs:'))).toBe(false);
+    expect(relayActions.some((a) => a.startsWith('scheduler:'))).toBe(false);
   });
 
   it('restricts which service-linked roles the execution role may create', () => {

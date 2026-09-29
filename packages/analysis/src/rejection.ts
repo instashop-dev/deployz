@@ -619,33 +619,10 @@ export function checkRabbitMq(tree: FileTree): RejectionFinding {
   return { detected: false, dependency: 'none', reason: 'No RabbitMQ infrastructure detected' };
 }
 
-/** Complex SQS/event-driven consumption — the app is an event consumer, not a request-driven container. */
-export function checkSqsEventArchitecture(tree: FileTree): RejectionFinding {
-  const deps = collectDependencyNames(tree);
-  const hasSqsSdk = deps.includes('@aws-sdk/client-sqs') || deps.includes('aws-sdk');
-  if (!hasSqsSdk) {
-    for (const [path, content] of Object.entries(tree)) {
-      if (!content) continue;
-      if (/(?:^|\/)requirements(?:[^/]*)\.txt$/.test(path) && /^boto3/m.test(content)) {
-        if (contentMatches(tree, /\.py$/, /sqs\.receive_message|get_queue_url/).length > 0) {
-          return { detected: true, dependency: 'sqs-event-consumer', reason: `Unsupported architecture: the app consumes from an SQS queue (${path}); Deployz provisions no event infrastructure.` };
-        }
-      }
-    }
-    return { detected: false, dependency: 'none', reason: 'No SQS consumer architecture detected' };
-  }
-  for (const [path, content] of Object.entries(tree)) {
-    if (!content) continue;
-    if (/\.(ts|js|mjs|cjs)$/.test(path) && /(?:SQSClient\s*\(|new\s+SQS\b|\.receiveMessage\s*\(|ReceiveMessageCommand)/.test(content)) {
-      return {
-        detected: true,
-        dependency: 'sqs-event-consumer',
-        reason: `Unsupported architecture: the app consumes from an SQS queue (${path}); Deployz provisions no event infrastructure.`,
-      };
-    }
-  }
-  return { detected: false, dependency: 'none', reason: 'No SQS consumer architecture detected' };
-}
+// SQS (Standard) is a SUPPORTED managed resource (Phase 5A) — see
+// async-detection.ts. A queue that resolves both a producer and a consumer
+// is provisioned; anything weaker becomes a `questions` entry. Neither case
+// is a rejection any more.
 
 /** Kubernetes: kustomize/Helm/manifests. */
 export function checkKubernetes(tree: FileTree): RejectionFinding {

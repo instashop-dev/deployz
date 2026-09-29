@@ -344,6 +344,13 @@
       "when": 1893801600000,
       "tag": "0048_deployment_spec_v2",
       "breakpoints": true
+    },
+    {
+      "idx": 49,
+      "version": "7",
+      "when": 1893888000000,
+      "tag": "0049_async_component_kinds",
+      "breakpoints": true
     }
   ]
 }

@@ -42,6 +42,14 @@ export interface DeploymentWorkload {
   readonly serviceLogicalId: string;
 }
 
+/** One verification-contract check outside the fixed catalog (Phase 5). */
+export interface DeploymentResourceCheck {
+  readonly componentId: string;
+  readonly check: string;
+  readonly logicalId: string;
+  readonly resourceType: string;
+}
+
 /** Response from GET /api/relay/commands */
 interface PendingCommandsResponse {
   commands: RelayCommand[];
@@ -54,6 +62,7 @@ interface PendingCommandsResponse {
     databaseRequired?: boolean;
     probeUrl?: string | null;
     workloads?: unknown;
+    resourceChecks?: unknown;
   };
 }
 
@@ -136,6 +145,8 @@ export interface PollDependencies {
     databaseRequired?: boolean;
     probeUrl: string | null;
     workloads?: readonly DeploymentWorkload[];
+    /** Phase 5: verification-contract checks outside the fixed catalog. */
+    resourceChecks?: readonly DeploymentResourceCheck[];
   }) => void;
 }
 
@@ -156,6 +167,31 @@ function readDeploymentWorkloads(raw: unknown): DeploymentWorkload[] | undefined
     workloads.push({ id, serviceLogicalId });
   }
   return workloads;
+}
+
+/**
+ * Defensively validate the control plane's generic resource-check list
+ * (Phase 5): an array of `{ componentId, check, logicalId, resourceType }`
+ * string quadruples. Anything else reads as "not provided" — an old or
+ * malformed control plane must not crash a heartbeat.
+ */
+function readDeploymentResourceChecks(raw: unknown): DeploymentResourceCheck[] | undefined {
+  if (!Array.isArray(raw)) return undefined;
+  const resourceChecks: DeploymentResourceCheck[] = [];
+  for (const entry of raw) {
+    if (typeof entry !== 'object' || entry === null) return undefined;
+    const record = entry as Record<string, unknown>;
+    const componentId = record['componentId'];
+    const check = record['check'];
+    const logicalId = record['logicalId'];
+    const resourceType = record['resourceType'];
+    if (typeof componentId !== 'string' || componentId.length === 0) return undefined;
+    if (typeof check !== 'string' || check.length === 0) return undefined;
+    if (typeof logicalId !== 'string' || logicalId.length === 0) return undefined;
+    if (typeof resourceType !== 'string' || resourceType.length === 0) return undefined;
+    resourceChecks.push({ componentId, check, logicalId, resourceType });
+  }
+  return resourceChecks;
 }
 
 /** Result of a single poll cycle. */
@@ -293,6 +329,7 @@ export async function pollOnce(
     const rawProbeUrl = body.deployment.probeUrl;
     const rawDatabaseRequired = body.deployment.databaseRequired;
     const workloads = readDeploymentWorkloads(body.deployment.workloads);
+    const resourceChecks = readDeploymentResourceChecks(body.deployment.resourceChecks);
     deps.onDeploymentMeta?.({
       redisRequired: body.deployment.redisRequired,
       ...(typeof rawDatabaseRequired === 'boolean' ? { databaseRequired: rawDatabaseRequired } : {}),
@@ -302,6 +339,7 @@ export async function pollOnce(
           ? rawProbeUrl
           : null,
       ...(workloads !== undefined ? { workloads } : {}),
+      ...(resourceChecks !== undefined ? { resourceChecks } : {}),
     });
   }
 

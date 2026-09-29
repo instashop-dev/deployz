@@ -282,6 +282,7 @@ describe('readDeployRequest', () => {
       imageDigest: DIGEST_V3,
       migrationTask: null,
       workloads: [],
+      scheduledJobFamilies: [],
     });
   });
 
@@ -297,6 +298,7 @@ describe('readDeployRequest', () => {
       imageDigest: DIGEST_V3,
       migrationTask: MIGRATION_TASK,
       workloads: [],
+      scheduledJobFamilies: [],
     });
     // A legacy control-plane `migrationCommand` is dropped, never executed.
     expect(readDeployRequest({ imageRepository: REPO, imageDigest: DIGEST_V3, migrationCommand: '   ' })).toEqual({
@@ -304,6 +306,7 @@ describe('readDeployRequest', () => {
       imageDigest: DIGEST_V3,
       migrationTask: null,
       workloads: [],
+      scheduledJobFamilies: [],
     });
   });
 
@@ -331,6 +334,7 @@ describe('readDeployRequest', () => {
         { id: 'web', serviceLogicalId: 'WebService', desiredCount: 1 },
         { id: 'email-worker', serviceLogicalId: 'EmailWorkerService', desiredCount: 1 },
       ],
+      scheduledJobFamilies: [],
     });
     expect(readDeployRequest({ imageRepository: REPO, imageDigest: DIGEST_V3, workloads: 'nope' })).toBeNull();
     expect(readDeployRequest({ imageRepository: REPO, imageDigest: DIGEST_V3, workloads: [{}] })).toBeNull();
@@ -352,6 +356,7 @@ describe('replaceApplicationImages', () => {
       imageDigest: DIGEST_V3,
       migrationTask: null,
       workloads: [],
+      scheduledJobFamilies: [],
     })!;
     const app = next.containerDefinitions[0] as { image: string };
     const sidecar = next.containerDefinitions[1] as { image: string };
@@ -362,13 +367,50 @@ describe('replaceApplicationImages', () => {
   it('returns null when no container matches the repository', () => {
     const next = replaceApplicationImages(
       { containerDefinitions: [{ name: 'app', image: 'other/repo:1' }] },
-      { imageRepository: REPO, imageDigest: DIGEST_V3, workloads: [] },
+      { imageRepository: REPO, imageDigest: DIGEST_V3, migrationTask: null, workloads: [], scheduledJobFamilies: [] },
     );
     expect(next).toBeNull();
   });
 });
 
 describe('createEcsDeployExecutor', () => {
+  // Phase 5: a scheduled job or migration is a STANDALONE ECS task — group
+  // `family:DeployzApp…`, no AWS::ECS::Service backs it. `findServiceViews`
+  // only ever looks at AWS::ECS::Service resources, and every crash-loop
+  // check is scoped to one service's own ListTasks(serviceName=…) answer —
+  // never a cluster-wide or family-scoped list — so a scheduled job's own
+  // stopped/crashing tasks, of a DIFFERENT task-definition revision, cannot
+  // affect deploy readiness or settlement even while it runs in the very
+  // same cluster.
+  it('a standalone scheduled-job task definition, running or crashing, never affects deploy settlement', async () => {
+    const state = baseState({
+      stoppedTasks: [
+        {
+          taskDefinitionArn: 'arn:aws:ecs:us-east-1:151955775369:task-definition/DeployzAppCleanup:1',
+          exitCode: 1,
+        },
+        {
+          taskDefinitionArn: 'arn:aws:ecs:us-east-1:151955775369:task-definition/DeployzAppCleanup:1',
+          exitCode: 1,
+        },
+        {
+          taskDefinitionArn: 'arn:aws:ecs:us-east-1:151955775369:task-definition/DeployzAppCleanup:1',
+          exitCode: 1,
+        },
+      ],
+    });
+    state.runningDigest = DIGEST_V3;
+    const result = await run(
+      createEcsDeployExecutor(deps(state)),
+      deployCommand({ imageRepository: REPO, imageDigest: DIGEST_V3 }),
+    );
+    // Three "crashes" would trip CONTAINER_START_FAILED for the web
+    // service's OWN revision — they never do here, because they are a
+    // different task-definition family entirely, of a standalone task no
+    // service check ever lists.
+    expect(result.success).toBe(true);
+  });
+
   it('reports success without a new revision when the digest already runs', async () => {
     const state = baseState();
     state.runningDigest = DIGEST_V3;
@@ -485,9 +527,11 @@ describe('createEcsDeployExecutor', () => {
     // NO command override — the command lives in the frozen task definition;
     // the relay can never inject one.
     expect(runInput.overrides.containerOverrides).toEqual([]);
-    // The service update registers its own copy and rolls out after.
-    const registeredArn = `arn:aws:ecs:us-east-1:151955775369:task-definition/app:1`;
-    expect(state.registered).toHaveLength(1);
+    // Before RunTask, the migration family is brought current with the
+    // release image (Phase 5) — that is the FIRST registration. The service
+    // update then registers its own copy and rolls out after.
+    const registeredArn = `arn:aws:ecs:us-east-1:151955775369:task-definition/app:2`;
+    expect(state.registered).toHaveLength(2);
     expect(state.updates).toHaveLength(1);
     expect(state.updates[0]).toMatchObject({ cluster: 'app-cluster', taskDefinition: registeredArn });
 
@@ -658,6 +702,7 @@ describe('createEcsDeployExecutor', () => {
       imageDigest: DIGEST_V3,
       migrationTask: MIGRATION_TASK,
       workloads: [],
+      scheduledJobFamilies: [],
     };
     const first = await settleEcsDeploy(d, request, {
       allowMigration: true,
@@ -989,6 +1034,74 @@ describe('createEcsDeployExecutor', () => {
   });
 });
 
+describe('scheduled-job family image registration (Phase 5)', () => {
+  const CLEANUP_FAMILY = 'DeployzAppCleanup';
+
+  it('registers the release image into every scheduled-job family once the rollout settles', async () => {
+    const state = baseState();
+    state.runningDigest = DIGEST_V3; // the services already run the release
+    const result = await run(
+      createEcsDeployExecutor(deps(state)),
+      deployCommand({ imageRepository: REPO, imageDigest: DIGEST_V3, scheduledJobFamilies: [CLEANUP_FAMILY] }),
+    );
+    expect(result.success).toBe(true);
+    // The family's latest revision (the fake's fallback) still runs the old
+    // digest, so it gets a new revision with the release image.
+    expect(state.registered).toHaveLength(1);
+    const registered = state.registered[0] as {
+      containerDefinitions: { image?: string }[];
+      tags?: { key: string; value: string }[];
+    };
+    expect(registered.containerDefinitions[0]?.image).toBe(`${REPO}@${DIGEST_V3}`);
+    expect(registered.tags).toContainEqual({ key: 'deployz:installation', value: 'inst-test' });
+    // Never RunTask'd — the relay only registers the family; Scheduler runs it.
+    expect(state.runTasks).toHaveLength(0);
+  });
+
+  it('is idempotent: skips registering when the family already runs the digest', async () => {
+    const state = baseState();
+    state.runningDigest = DIGEST_V3;
+    state.definitions.set(CLEANUP_FAMILY, {
+      ...state.taskDefinition,
+      family: CLEANUP_FAMILY,
+      containerDefinitions: [{ name: 'app', image: `${REPO}@${DIGEST_V3}` }],
+    });
+    const result = await run(
+      createEcsDeployExecutor(deps(state)),
+      deployCommand({ imageRepository: REPO, imageDigest: DIGEST_V3, scheduledJobFamilies: [CLEANUP_FAMILY] }),
+    );
+    expect(result.success).toBe(true);
+    expect(state.registered).toHaveLength(0);
+  });
+
+  it('a failed registration never settles the deploy — it stays in progress and the next poll retries', async () => {
+    // The services already run the release, so a failed update would be a
+    // lie: the command defers, and succeeds once the family is registered.
+    const state = baseState();
+    state.runningDigest = DIGEST_V3;
+    state.failAt = 'register';
+    const d = deps(state);
+    const command = deployCommand({ imageRepository: REPO, imageDigest: DIGEST_V3, scheduledJobFamilies: [CLEANUP_FAMILY] });
+    const first = await run(createEcsDeployExecutor(d), command);
+    expect(first.deferred).toBe(true);
+    expect(state.updates).toHaveLength(0);
+
+    delete state.failAt;
+    const results = await createEcsDeployResumer(d)();
+    expect(results).toHaveLength(1);
+    expect(results[0]!.success).toBe(true);
+  });
+
+  it('never registers a family name outside the DeployzApp… shape (trust boundary)', () => {
+    expect(
+      readDeployRequest({ imageRepository: REPO, imageDigest: DIGEST_V3, scheduledJobFamilies: ['rm -rf /'] }),
+    ).toBeNull();
+    expect(
+      readDeployRequest({ imageRepository: REPO, imageDigest: DIGEST_V3, scheduledJobFamilies: 'DeployzAppCleanup' }),
+    ).toBeNull();
+  });
+});
+
 describe('createEcsDeployResumer', () => {
   it('settles a deferred deploy once the digest runs and the service is stable', async () => {
     const state = baseState();
@@ -1153,7 +1266,9 @@ describe('createEcsDeployResumer', () => {
     const resumed = await createEcsDeployResumer(d)();
     expect(resumed).toHaveLength(0); // rollout now in flight — still pending
     expect(state.runTasks).toHaveLength(1); // never re-run
-    expect(state.registered).toHaveLength(1); // never re-registered
+    // 2 registrations total: the migration family (before RunTask, on the
+    // first invocation) and the service's own copy (once migration completed).
+    expect(state.registered).toHaveLength(2);
     expect(state.updates).toHaveLength(1);
     const pending = await d.pending.read();
     expect(pending?.migration?.completedAt).toBeDefined();

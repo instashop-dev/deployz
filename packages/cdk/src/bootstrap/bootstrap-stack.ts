@@ -333,6 +333,13 @@ const PHASE_4_DEPLOY_OBSERVE_ACTIONS = [
   'ecs:ListTasks',
   'ecs:DescribeTasks',
   'ecs:DescribeTaskDefinition',
+  // Phase 5 — DESTROY clears a RUNNING standalone task (a scheduled job or
+  // migration mid-run) before deleting the cluster it lives in, so the
+  // cluster's own delete never fails with ClusterContainsTasksException.
+  // Same condition-free shape as the reads above (task ARNs carry no usable
+  // tag condition); folded into this statement rather than a new one to
+  // stay under the managed-policy size quota.
+  'ecs:StopTask',
 ] as const;
 
 /**
@@ -592,6 +599,59 @@ const PROVISION_SERVICE_LINKED_ROLE_SERVICES = [
 
 /** The services the execution role may hand the application task roles to. */
 const PROVISION_PASS_ROLE_SERVICES = ['ecs-tasks.amazonaws.com', 'ecs.amazonaws.com'] as const;
+
+/**
+ * The services the APPLICATION stack's execution role may hand roles to —
+ * the relay's own PassRole grant (`PROVISION_PASS_ROLE_SERVICES` above)
+ * deliberately stays ECS-only: the relay registers task definitions, never
+ * schedules, so it has no business passing a role to Scheduler. Only the
+ * CloudFormation execution role that creates `AWS::Scheduler::Schedule`
+ * resources (Phase 5) needs the extra service.
+ */
+const PROVISION_APPLICATION_PASS_ROLE_SERVICES = [
+  ...PROVISION_PASS_ROLE_SERVICES,
+  'scheduler.amazonaws.com',
+] as const;
+
+/**
+ * SQS queue lifecycle (Phase 5: `AWS::SQS::Queue` + `AWS::SQS::QueuePolicy`).
+ * CloudFormation also calls `GetQueueUrl` to resolve a queue's URL from its
+ * name/ARN. SQS's resource-level policy support does not reliably honour
+ * `aws:RequestTag`/`aws:ResourceTag` across every one of these actions, so —
+ * per the same "don't grant a condition that can never match" rule the
+ * S3/ElastiCache/CloudWatch-Logs untaggable actions above follow — this is
+ * scoped by resource ARN instead: every application-stack queue's
+ * CloudFormation-generated name (no `QueueName` is set) is
+ * `<application stack name>-<LogicalId>-<suffix>`, and the application stack
+ * name always starts with `deployz-app`
+ * (`DEFAULT_APPLICATION_STACK_NAME`/`applicationStackNameForInstallation` in
+ * `@deployz/contracts`).
+ */
+const PROVISION_SQS_ACTIONS = [
+  'sqs:CreateQueue',
+  'sqs:GetQueueAttributes',
+  'sqs:SetQueueAttributes',
+  'sqs:DeleteQueue',
+  'sqs:TagQueue',
+  'sqs:UntagQueue',
+  'sqs:ListQueueTags',
+  'sqs:GetQueueUrl',
+] as const;
+
+/**
+ * `AWS::Scheduler::Schedule` lifecycle (Phase 5). Schedules carry no tags at
+ * all — unlike everything else in this file, there is no tag condition to
+ * even attempt — so this is scoped by resource ARN: the `default` schedule
+ * group CloudFormation uses, and the compiler names every schedule
+ * `<application stack name>-<ScheduleId>` (`deployz-app…`, same prefix rule
+ * as the queue actions above).
+ */
+const PROVISION_SCHEDULER_ACTIONS = [
+  'scheduler:CreateSchedule',
+  'scheduler:GetSchedule',
+  'scheduler:UpdateSchedule',
+  'scheduler:DeleteSchedule',
+] as const;
 
 export class BootstrapStack extends Stack {
   public readonly relayFunction: NodejsFunction;
@@ -1367,9 +1427,26 @@ export class BootstrapStack extends Stack {
       resources: ['*'],
       conditions: {
         StringEquals: {
-          'iam:PassedToService': [...PROVISION_PASS_ROLE_SERVICES],
+          'iam:PassedToService': [...PROVISION_APPLICATION_PASS_ROLE_SERVICES],
         },
       },
+    });
+
+    // Phase 5: queues and schedules. Neither carries a tag condition (see
+    // the action lists above for why) — resource-ARN scoped to this
+    // installation's application stack instead.
+    const provisionSqs = new PolicyStatement({
+      sid: 'ProvisionApplicationQueues',
+      effect: Effect.ALLOW,
+      actions: [...PROVISION_SQS_ACTIONS],
+      resources: [`arn:aws:sqs:${this.region}:${this.account}:deployz-app*`],
+    });
+
+    const provisionScheduler = new PolicyStatement({
+      sid: 'ProvisionApplicationSchedules',
+      effect: Effect.ALLOW,
+      actions: [...PROVISION_SCHEDULER_ACTIONS],
+      resources: [`arn:aws:scheduler:${this.region}:${this.account}:schedule/default/deployz-app*`],
     });
 
     // A first ECS service, load balancer, RDS instance or cache cluster in
@@ -1402,6 +1479,8 @@ export class BootstrapStack extends Stack {
         provisionUntaggable,
         provisionPassRole,
         provisionServiceLinkedRoles,
+        provisionSqs,
+        provisionScheduler,
       ],
       roles: [this.applicationExecutionRole],
     });

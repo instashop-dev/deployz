@@ -82,6 +82,13 @@ export const capabilityIamIntentSchema = z
     actions: z.array(z.string().min(1)),
     resourcePattern: z.string().min(1),
     conditionKeys: z.array(z.string()).optional(),
+    /**
+     * The edge role this intent applies to (Phase 5B). An intent with an
+     * access applies ONLY to edges with that access; an intent without one
+     * applies to edges without one — so a producer never inherits consumer
+     * permissions and a pre-Phase-5 edge keeps its original actions.
+     */
+    access: z.enum(['produce', 'consume', 'dead-letter', 'invoke']).optional(),
   })
   .strict();
 export type CapabilityIamIntent = z.infer<typeof capabilityIamIntentSchema>;
@@ -159,9 +166,11 @@ export const CAPABILITY_KEYS = {
   S3: 'aws.s3',
   ALB: 'aws.alb',
   SECRETS_MANAGER: 'aws.secrets-manager',
+  SQS: 'aws.sqs',
+  EVENTBRIDGE_SCHEDULER: 'aws.eventbridge-scheduler',
 } as const;
 
-export const DEFAULT_CAPABILITY_REGISTRY_VERSION = 'phase1-2026-09-25' as const;
+export const DEFAULT_CAPABILITY_REGISTRY_VERSION = 'phase5-2026-09-29' as const;
 
 /** The minimal Phase 1 registry — only currently supported capabilities. */
 export function defaultCapabilityRegistry(): CapabilityRegistry {
@@ -219,7 +228,16 @@ export function defaultCapabilityRegistry(): CapabilityRegistry {
         },
         bindings: {
           envBindings: [],
-          iam: [],
+          // A schedule's `invoke` edge: start the frozen task definition and
+          // hand ECS the task's own roles. The compiler scopes both to the
+          // target workload's family, cluster and roles.
+          iam: [
+            {
+              actions: ['ecs:RunTask', 'iam:PassRole'],
+              resourcePattern: 'arn:aws:ecs:${region}:${account}:task-definition/${family}',
+              access: 'invoke',
+            },
+          ],
         },
         pricing: { category: 'compute', estimateAvailable: false },
         presentation: {
@@ -410,6 +428,86 @@ export function defaultCapabilityRegistry(): CapabilityRegistry {
           singular: 'Application load balancer',
           plural: 'Application load balancers',
           group: 'Networking',
+        },
+      },
+      {
+        // Phase 5A: one Standard SQS queue per `queue` resource (FIFO is not
+        // supported). A dead-letter queue is the SAME capability, reached by a
+        // queue → queue `dead-letter` edge. Deleting a queue deletes its
+        // messages — there are no retained-message semantics. PREVIEW until
+        // the recorded real-AWS qualification runs.
+        ref: { key: CAPABILITY_KEYS.SQS, version: '1' },
+        maturity: 'PREVIEW',
+        satisfiesKinds: ['queue'],
+        serviceKey: 'sqs',
+        network: {
+          requiresVpc: false,
+          requiresSubnet: false,
+        },
+        lifecycle: {
+          stateful: false,
+          lifecycle: 'delete',
+          supportsInPlaceUpdate: true,
+          supportsMajorVersionMigration: false,
+          operations: ['CREATE', 'VERIFY', 'UPDATE', 'DESTROY'],
+          retentionPolicy: 'delete',
+          purgeStrategy: 'skip',
+        },
+        bindings: {
+          envBindings: [
+            { name: 'QUEUE_URL', kind: 'url' },
+            { name: 'QUEUE_ARN', kind: 'arn' },
+          ],
+          // Edge-specific: a producer can only send, a consumer can only
+          // receive/delete/extend, a dead-letter source can only send.
+          iam: [
+            { actions: ['sqs:SendMessage'], resourcePattern: '${queueArn}', access: 'produce' },
+            {
+              actions: ['sqs:ReceiveMessage', 'sqs:DeleteMessage', 'sqs:ChangeMessageVisibility', 'sqs:GetQueueAttributes'],
+              resourcePattern: '${queueArn}',
+              access: 'consume',
+            },
+            { actions: ['sqs:SendMessage'], resourcePattern: '${queueArn}', access: 'dead-letter' },
+          ],
+        },
+        // Usage-based (per request): no request volume is ever invented.
+        pricing: { category: 'messaging', estimateAvailable: false },
+        presentation: {
+          singular: 'Message queue',
+          plural: 'Message queues',
+          group: 'Messaging',
+        },
+      },
+      {
+        // Phase 5C: one EventBridge Scheduler schedule per graph schedule,
+        // invoking its one-shot target task. No retained state.
+        ref: { key: CAPABILITY_KEYS.EVENTBRIDGE_SCHEDULER, version: '1' },
+        maturity: 'PREVIEW',
+        satisfiesKinds: ['schedule'],
+        serviceKey: 'eventbridge-scheduler',
+        network: {
+          requiresVpc: false,
+          requiresSubnet: false,
+        },
+        lifecycle: {
+          stateful: false,
+          lifecycle: 'delete',
+          supportsInPlaceUpdate: true,
+          supportsMajorVersionMigration: false,
+          operations: ['CREATE', 'VERIFY', 'UPDATE', 'DESTROY'],
+          retentionPolicy: 'delete',
+          purgeStrategy: 'skip',
+        },
+        bindings: {
+          envBindings: [],
+          iam: [],
+        },
+        // Usage-based (per invocation): no invocation volume is ever invented.
+        pricing: { category: 'messaging', estimateAvailable: false },
+        presentation: {
+          singular: 'Schedule',
+          plural: 'Schedules',
+          group: 'Messaging',
         },
       },
       {

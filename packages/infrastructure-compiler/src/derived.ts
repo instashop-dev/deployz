@@ -43,7 +43,7 @@ export function deriveFootprint(input: {
   const hasRedis = ir.resources.some((r) => r.capabilityKey === CAPABILITY_KEYS.ELASTICACHE_VALKEY);
 
   const workloadLabel = (kind: string): string =>
-    kind === 'web' ? 'Web application' : kind === 'worker' ? 'Background worker' : kind;
+    kind === 'web' ? 'Web application' : kind === 'worker' ? 'Background worker' : kind === 'scheduled-job' ? 'Scheduled job' : kind;
 
   const workloads: FootprintWorkload[] = ir.workloads.map((w) => ({
     id: w.componentId,
@@ -135,6 +135,37 @@ export function deriveFootprint(input: {
       lifecycle: { persistent: false, retainOnDelete: false },
     },
   );
+
+  // Phase 5A/5C — one footprint resource per queue and per schedule. Both are
+  // usage-billed (no request/invocation volume is ever invented; see
+  // estimateFootprintCost, which marks them unavailable/incomplete via their
+  // service key having no baseline pricing adapter).
+  for (const q of ir.resources.filter((r) => r.capabilityKey === CAPABILITY_KEYS.SQS)) {
+    resources.push({
+      id: q.componentId,
+      category: 'queue',
+      provider: 'aws',
+      service: 'sqs',
+      role: 'queue',
+      label: q.label,
+      quantity: q.quantity,
+      configuration: q.configuration,
+      lifecycle: { persistent: false, retainOnDelete: false },
+    });
+  }
+  for (const s of ir.schedules) {
+    resources.push({
+      id: s.id,
+      category: 'other',
+      provider: 'aws',
+      service: 'eventbridge-scheduler',
+      role: 'schedule',
+      label: s.label,
+      quantity: 1,
+      configuration: {},
+      lifecycle: { persistent: false, retainOnDelete: false },
+    });
+  }
 
   return {
     version: FOOTPRINT_SCHEMA_VERSION,

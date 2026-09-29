@@ -156,6 +156,50 @@ install / database ready
   ("Application rollback does not automatically reverse database
   migrations."), and vendors must write backward-compatible migrations.
 
+## One-shot task families stay current without a CloudFormation update
+
+The migration family and every scheduled-job family (Phase 5) are compiled
+into the stack once, with the INSTALL-time image baked in. DEPLOY_RELEASE and
+ROLLBACK never touch CloudFormation, so a family's latest revision would
+otherwise keep running whatever image the last stack operation set — never
+the new release. `registerReleaseImageIntoFamily`
+(`packages/relay/src/deploy.ts`) is the one generic, bounded step that keeps
+a named family current: it reads the family's latest ACTIVE revision, skips
+registration when that revision already runs the target digest (idempotent
+and retry-safe), and otherwise registers a new revision carrying the release
+image.
+
+- **The migration family** is brought current right before RunTask, on every
+  DEPLOY_RELEASE and ROLLBACK. This fixed a real Phase 4 defect: the
+  migration used to run whatever image the stack was installed with, never
+  the release image being deployed.
+- **Every scheduled-job family** is brought current only once a
+  DEPLOY_RELEASE or ROLLBACK has otherwise **settled** — never before, never
+  interleaved with the service rollout. A failed update must leave scheduled
+  jobs running the previous release's image, the same as it leaves services.
+- **A registration error keeps the command in progress, not failed.** The
+  services may already be running the release by the time a scheduled-job
+  family fails to register, so treating that failure as a failed update
+  would be dishonest — the previous release is no longer what serves. The
+  command stays "in progress" (carrying any already-confirmed migration
+  identity, so it is never re-run) and the next poll retries, bounded by the
+  same in-progress grace as any other rollout. A scheduled-job family issue
+  never fails an otherwise-successful release.
+- **The relay only ever registers into a compiler-generated family name.**
+  `TASK_FAMILY_PATTERN = /^DeployzApp[A-Za-z0-9]+$/` is a trust-boundary
+  check on every family name the control plane sends (the migration family
+  and every scheduled-job family alike) — the relay can never be pointed at
+  an arbitrary family from a payload.
+
+Scheduled-job task runs sit outside health and readiness semantics entirely.
+No ECS service backs a scheduled job, so nothing verifies it the way a
+service's rollout is verified: EventBridge Scheduler successfully invoking
+`RunTask` is not the same as the task completing its actual work, and
+Deployz has no execution-history subsystem for scheduled runs. Outcome
+visibility for a scheduled job is only through the customer's own ECS
+console and CloudWatch Logs — the same as for the migration task, which is
+likewise proven only by its exit code, never by a long-lived service.
+
 ## Idempotency and exclusivity
 
 - Every operation has a durable idempotency key
@@ -277,7 +321,17 @@ forwarded.
 ## Disconnect retains data on purpose: DESTROY vs PURGE
 
 DESTROY (disconnect) is a data-preserving teardown, and **a DESTROY that
-retains data is a success**. The relay deletes the application stack; the
+retains data is a success**. Before the delete call, the relay stops any
+standalone task still running in the stack's own cluster — an ECS task whose
+`group` starts with `family:` (a scheduled-job run, or a migration mid-run)
+rather than a service. Nothing else stops these: CloudFormation's own
+`AWS::ECS::Service` deletion drains service-managed tasks as part of the
+stack's normal delete sequence, but a standalone task left running blocks
+the cluster's own delete with `ClusterContainsTasksException`, which would
+otherwise land the whole stack on `DELETE_FAILED`. This step is best-effort
+and scoped to the stack's own cluster only — a task that cannot be stopped
+just leaves the stack on the same `DELETE_FAILED` recovery path described
+below. The relay deletes the application stack; the
 deletion-protected RDS instance (PostgreSQL or MySQL) fails its delete only
 after the security
 group and subnet it pins, so the stack first lands on `DELETE_FAILED` —

@@ -21,6 +21,8 @@ export const infrastructureComponentKindSchema = z.enum([
   'monitoring',
   'container_registry',
   'other',
+  'queue',
+  'schedule',
 ]);
 export type InfrastructureComponentKind = z.infer<typeof infrastructureComponentKindSchema>;
 
@@ -154,6 +156,9 @@ export function classifyResource(type: string, logicalId: string): ResourceClass
   if (type.startsWith('AWS::Logs::')) return component('monitoring', 'supporting', 'delete');
   if (type === 'AWS::CloudWatch::Alarm') return component('monitoring', 'supporting', 'delete');
   if (type === 'AWS::ECR::Repository') return component('container_registry', 'primary', 'retain');
+  if (type === 'AWS::SQS::Queue') return component('queue', 'primary', 'delete');
+  if (type.startsWith('AWS::SQS::')) return component('queue', 'supporting', 'delete');
+  if (type === 'AWS::Scheduler::Schedule') return component('schedule', 'primary', 'delete');
   if (type.startsWith('AWS::IAM::')) return component('application', 'supporting', 'delete');
   return component('other', 'supporting', 'conditional');
 }
@@ -198,6 +203,8 @@ export const INFRASTRUCTURE_COMPONENT_DISPLAY: Readonly<
   monitoring: { name: 'Monitoring', purpose: 'Collects logs and health information' },
   container_registry: { name: 'Container registry', purpose: 'Stores application images' },
   other: { name: 'Other', purpose: 'Supporting infrastructure' },
+  queue: { name: 'Message queue', purpose: 'Passes work between application components' },
+  schedule: { name: 'Schedule', purpose: 'Starts scheduled jobs' },
 };
 
 /** One persisted inventory row as the aggregation consumes it. Structural
@@ -318,6 +325,8 @@ const AWS_SERVICE_PREFIXES: ReadonlyArray<readonly [prefix: string, label: strin
   ['AWS::CertificateManager::', 'ACM'],
   ['AWS::SecretsManager::', 'Secrets Manager'],
   ['AWS::IAM::', 'IAM'],
+  ['AWS::SQS::', 'SQS'],
+  ['AWS::Scheduler::', 'EventBridge Scheduler'],
 ];
 
 function awsServiceForType(resourceType: string): string {
@@ -487,7 +496,7 @@ export type InfrastructureExpectationComponent = z.infer<typeof infrastructureEx
 export const infrastructureExpectationsSchema = z
   .object({
     schemaVersion: z.literal(1),
-    /** The five catalog kinds, in catalog order. */
+    /** The five catalog kinds in catalog order, then any other kind the spec's verification contract expects. */
     components: z.array(infrastructureExpectationComponentSchema),
     /** expected && no row of that kind exists at all — a kind with even a
      *  'removed' row (e.g. after a failed destroy) is not missing. Only
