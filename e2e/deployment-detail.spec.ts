@@ -446,6 +446,9 @@ async function open(page: Page, mocks: Mocks) {
 
   await page.goto('/dashboard/deployments/qa-dep');
   const hero = page.locator('section[aria-labelledby="deployment-progress"]');
+  // The headline is a plain heading for most states, and the §6 recovery
+  // panel's AlertTitle (FailurePanel) for a destructive/warning tone —
+  // never both at once.
   await expect(hero.locator('[aria-live="polite"]')).toBeVisible({ timeout: 30_000 });
   return {
     hero,
@@ -494,7 +497,7 @@ test('waiting for the customer: the hero says what to do next and offers no day-
   // Deploy/Configuration act on a running application — not offered at all.
   await expect(actions.getByRole('button', { name: 'Deploy Update' })).toHaveCount(0);
   await expect(actions.getByRole('button', { name: 'Configuration' })).toHaveCount(0);
-  await expect(actions.getByRole('link', { name: 'View Diagnostics' })).toBeVisible();
+  await expect(actions.getByRole('link', { name: 'View Diagnostics' })).toHaveCount(0);
   await expect(infrastructure).toContainText('This deployment has not been installed yet.');
   await expect(activity).toContainText('No activity yet for this deployment.');
   await shoot(page, 'not-installed');
@@ -518,11 +521,13 @@ test('deploying: the hero shows the phase, the step list and per-step timing, an
 
   await expect(headline).toHaveText('Deploying');
   await expect(hero).toContainText('Creating the database and storage.');
-  // The step list is process order, first to last, with the active step's
-  // typical range — never a percentage or a countdown.
+  // Completed steps collapse into "N steps done" (ux-guidelines §9) — expand
+  // it to see the process-order history and per-step timing.
+  await hero.getByTestId('step-list-done-toggle').click();
   await expect(hero.getByText('Network created')).toBeVisible();
   await expect(hero.getByText('Creating database & storage')).toBeVisible();
-  await expect(hero.getByText('Start application')).toBeVisible();
+  // The next step is named, not itemized.
+  await expect(hero.getByText('Next: Redis cache')).toBeVisible();
   await expect(hero).toContainText('Typical: 3–12 minutes');
   expect(await hero.innerText()).not.toContain('%');
   // Completed steps carry their recorded durations (the API's stepTimings) —
@@ -533,7 +538,7 @@ test('deploying: the hero shows the phase, the step list and per-step timing, an
   await expect(hero.getByText('3m 4s')).toBeVisible(); // NETWORK (184s)
   // Nothing that mutates a half-created stack is offered mid-install.
   await expect(actions.getByRole('button', { name: 'Deploy Update' })).toHaveCount(0);
-  await expect(infrastructure).toContainText('Services are being created.');
+  await expect(infrastructure).toContainText('Some services are still being set up.');
   await shoot(page, 'deploying');
 });
 
@@ -736,9 +741,12 @@ test('failed first install: retry is the primary action and the raw AWS reason s
     events: FAILED_EVENTS,
   });
 
-  await expect(headline).toHaveText('Deployment failed');
+  await expect(headline).toHaveText('Install failed');
   await expect(hero).toContainText('The database could not be created.');
-  await expect(hero).toContainText('DEP-AAAAAAAA');
+  // The failure reference is an identifier: under the page's Technical details.
+  await expect(hero).not.toContainText('DEP-AAAAAAAA');
+  await page.getByTestId('technical-details').last().getByRole('button', { name: 'Technical details' }).click();
+  await expect(page.getByText('DEP-AAAAAAAA')).toBeVisible();
   await expect(actions.getByRole('button', { name: 'Retry deployment' })).toBeEnabled();
   await expect(infrastructure).toContainText(
     "This deployment isn't running, so there's nothing to report.",
@@ -753,13 +761,14 @@ test('failed first install: retry is the primary action and the raw AWS reason s
   await shoot(page, 'failed-install');
 });
 
-test('failed install: the raw failure status stays behind Advanced details', async ({ page }) => {
+test('failed install: the raw failure status stays behind Technical details', async ({ page }) => {
   const { hero } = await open(page, { detail: FAILED_INSTALL });
 
   // The API's failure.awsStatus (ROLLBACK_COMPLETE) must not leak into the
-  // hero — the headline carries the classified message and the reference only.
+  // hero — the recovery panel carries only the classified message; the raw
+  // status and the failure reference move to Technical details.
   expect(await hero.innerText()).not.toContain('ROLLBACK_COMPLETE');
-  await page.getByRole('button', { name: 'Advanced details' }).click();
+  await page.getByTestId('technical-details').last().getByRole('button', { name: 'Technical details' }).click();
   await expect(page.getByText('Failure status')).toBeVisible();
   await expect(page.getByText('ROLLBACK_COMPLETE')).toBeVisible();
   await shoot(page, 'failed-install-advanced');
@@ -790,7 +799,7 @@ test('failed update: the running release is named as still live, and the address
   // Never presented as down: the address is still offered, and retrying the
   // update is the primary action.
   await expect(hero.getByRole('link', { name: 'Open application' })).toBeVisible();
-  await expect(actions.getByRole('button', { name: 'Deploy Update' })).toBeEnabled();
+  await expect(actions.getByRole('button', { name: 'Retry update' })).toBeEnabled();
   await shoot(page, 'failed-update');
 });
 
@@ -826,7 +835,7 @@ test('updating: the running operation is named, and other actions say why they a
   // deployment (requireDeploymentIdle), so it is disabled rather than
   // offering the vendor a confirmation dialog and a 409.
   await actions.getByRole('button', { name: 'More actions' }).click();
-  await expect(page.getByRole('menuitem', { name: 'Disconnect Deployment' })).toBeDisabled();
+  await expect(page.getByRole('menuitem', { name: 'Remove deployment' })).toBeDisabled();
   await page.keyboard.press('Escape');
   await shoot(page, 'updating');
 });
@@ -891,7 +900,7 @@ test('removed with retained resources: the outcome, the warning, and the purge a
   await expect(headline).toHaveText('Deployment removed');
   await expect(hero).toContainText('Retained resources remain in the customer AWS account');
   await expect(
-    hero.getByRole('button', { name: 'Permanently remove retained AWS resources' }),
+    hero.getByRole('button', { name: 'Delete retained data' }),
   ).toBeVisible();
   // Nothing left to act on.
   await expect(actions.getByRole('button', { name: 'Deploy Update' })).toHaveCount(0);
@@ -960,7 +969,7 @@ test('a failed infrastructure fetch warns in its own section and never becomes "
   await expect(infrastructure).toContainText('Infrastructure details are unavailable right now');
   await expect(infrastructure).toContainText('The deployment itself is unaffected.');
   // The connector's own connectivity is known without the inventory.
-  await expect(infrastructure.getByText('Deployz Relay')).toBeVisible();
+  await expect(infrastructure.getByText('Deployz connector')).toBeVisible();
   await shoot(page, 'infrastructure-error');
 });
 
@@ -996,16 +1005,16 @@ test('activity is newest first, capped at five, and expands to the full history'
 test('destructive and rare actions live behind the overflow menu', async ({ page }) => {
   const { actions } = await open(page, { detail: detail() });
 
-  await expect(actions.getByRole('button', { name: 'Disconnect Deployment' })).toHaveCount(0);
+  await expect(actions.getByRole('button', { name: 'Remove deployment' })).toHaveCount(0);
   await actions.getByRole('button', { name: 'More actions' }).click();
   await expect(page.getByRole('menuitem', { name: 'Restart' })).toBeEnabled();
   await expect(page.getByRole('menuitem', { name: 'Rollback to v1.14.1' })).toBeEnabled();
-  await expect(page.getByRole('menuitem', { name: 'Disconnect Deployment' })).toBeEnabled();
+  await expect(page.getByRole('menuitem', { name: 'Remove deployment' })).toBeEnabled();
 
   // The disconnect panel renders the deterministic destroy plan (Phase 4),
   // not a derivation from the resource inventory — Application and Secure
   // endpoint are deleted, Database and Storage are retained (DESTROY_PLAN).
-  await page.getByRole('menuitem', { name: 'Disconnect Deployment' }).click();
+  await page.getByRole('menuitem', { name: 'Remove deployment' }).click();
   const disconnectPanel = page.getByTestId('disconnect-panel');
   const willBeRemoved = disconnectPanel.locator('text=Will be removed').locator('..');
   await expect(willBeRemoved.getByText('Application', { exact: true })).toBeVisible();
@@ -1016,13 +1025,13 @@ test('destructive and rare actions live behind the overflow menu', async ({ page
   await page.keyboard.press('Escape');
 });
 
-test('AWS identifiers and the raw event feed stay inside Advanced details', async ({ page }) => {
+test('AWS identifiers and the raw event feed stay inside Technical details', async ({ page }) => {
   await open(page, { detail: detail() });
 
   expect(await page.locator('body').innerText()).not.toContain('deployz-connector-qa');
   await expect(page.getByRole('button', { name: /Infrastructure events/ })).toHaveCount(0);
 
-  await page.getByRole('button', { name: 'Advanced details' }).click();
+  await page.getByRole('button', { name: 'Technical details' }).click();
   await expect(page.getByText('deployz-connector-qa')).toBeVisible();
   await expect(page.getByRole('button', { name: /Infrastructure events/ })).toBeVisible();
 });
@@ -1083,26 +1092,25 @@ test('the live state fits a phone without sideways scrolling', async ({ page }) 
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(375);
 });
 
-test('update available: health and the update stay separate, and Deploy update names its target', async ({
+test('update available: the status badge and the update stay separate, and Deploy update names its target', async ({
   page,
 }) => {
   const { actions } = await open(page, { detail: detail({ state: 'UPDATE_AVAILABLE' }) });
 
   await expect(page.getByTestId('update-available')).toHaveText('Update available: v1.15.0');
-  await expect(page.getByRole('main').getByText('Healthy', { exact: true })).toBeVisible();
+  await expect(page.getByTestId('deployment-status-badge')).toHaveText('Live');
   const deploy = actions.getByRole('button', { name: 'Deploy update to v1.15.0' });
   await expect(deploy).toBeEnabled();
   // The update is the one primary action; Configuration and Diagnostics stay secondary.
   await expect(actions.getByRole('button').first()).toHaveText('Deploy update to v1.15.0');
-  await expect(actions.getByRole('link', { name: 'View diagnostics' })).toBeVisible();
   await expect(actions.getByRole('button', { name: 'More actions' })).toBeVisible();
   await shoot(page, 'update-available');
 });
 
-test('healthy without an update: up to date, and each fact appears once', async ({ page }) => {
+test('healthy without an update: one status badge, and each fact appears once', async ({ page }) => {
   const { overview, hero } = await open(page, { detail: detail() });
 
-  await expect(page.getByText('Up to date', { exact: true })).toBeVisible();
+  await expect(page.getByTestId('deployment-status-badge')).toHaveText('Live');
   await expect(page.getByTestId('update-available')).toHaveCount(0);
   await expect(overview).toContainText('Acme Corp');
   await expect(overview).toContainText('v1.14.2');
@@ -1112,6 +1120,9 @@ test('healthy without an update: up to date, and each fact appears once', async 
   await expect(hero.getByRole('button', { name: 'Copy URL' })).toBeVisible();
 });
 
+// Diagnostics is folded into the deployment page (ux-guidelines §2); the
+// /diagnostics route is now a deep link that redirects to the
+// #infrastructure-check section, opened by default.
 async function openDiagnostics(page: Page, deployment: Record<string, unknown>) {
   await page.route(`${API_URL}/api/deployments/qa-dep`, (route) => route.fulfill({ json: deployment }));
   await page.route(`${API_URL}/api/deployments/qa-dep/diagnostics`, (route) =>
@@ -1120,6 +1131,7 @@ async function openDiagnostics(page: Page, deployment: Record<string, unknown>) 
     }),
   );
   await page.goto('/dashboard/deployments/qa-dep/diagnostics');
+  await page.waitForURL(/#infrastructure-check$/);
   const outcome = page.getByTestId('infra-check-outcome');
   await expect(outcome).toBeVisible({ timeout: 30_000 });
   return outcome;
@@ -1139,15 +1151,11 @@ test('diagnostics: a fresh passing check leads with the outcome and hides raw de
   );
 
   await expect(outcome).toContainText('No issues found in the latest infrastructure check.');
-  await expect(outcome).toContainText('Application health is on the deployment page.');
-  await expect(page.getByRole('link', { name: 'Documenso' })).toHaveAttribute(
-    'href',
-    '/dashboard/deployments/qa-dep',
-  );
+  await expect(outcome).toContainText('Application health is shown above.');
   await expect(page.getByRole('row', { name: /Cache/ })).toContainText('Not required');
   await expect(page.getByTestId('relay-report-technical')).toHaveCount(0);
   expect(await page.locator('section[aria-labelledby="infra-check"]').innerText()).not.toMatch(JARGON);
-  await page.getByRole('button', { name: 'Technical check details' }).click();
+  await page.getByRole('button', { name: 'Raw check output' }).click();
   await expect(page.getByTestId('relay-report-technical')).toContainText('CREATE_COMPLETE');
   await shoot(page, 'diagnostics-passed');
 });

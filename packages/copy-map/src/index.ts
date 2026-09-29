@@ -902,7 +902,7 @@ export const RELAY_CHECK_COPY: Record<RelayCheckName, RelayCheckCopy> = {
     passed: 'Running',
     failed: {
       problem: 'The application service was not created.',
-      nextAction: 'Wait for the current operation to finish. If this stays, check the deployment page for the cause.',
+      nextAction: 'Wait for the current operation to finish. If this stays, check the recent activity for the cause.',
     },
   },
   ingress: {
@@ -910,7 +910,7 @@ export const RELAY_CHECK_COPY: Record<RelayCheckName, RelayCheckCopy> = {
     passed: 'Running',
     failed: {
       problem: 'The load balancer was not created.',
-      nextAction: 'Wait for the current operation to finish. If this stays, check the deployment page for the cause.',
+      nextAction: 'Wait for the current operation to finish. If this stays, check the recent activity for the cause.',
     },
   },
   database: {
@@ -918,7 +918,7 @@ export const RELAY_CHECK_COPY: Record<RelayCheckName, RelayCheckCopy> = {
     passed: 'Available',
     failed: {
       problem: 'The database was not created.',
-      nextAction: 'Wait for the current operation to finish. If this stays, check the deployment page for the cause.',
+      nextAction: 'Wait for the current operation to finish. If this stays, check the recent activity for the cause.',
     },
   },
   storage: {
@@ -926,7 +926,7 @@ export const RELAY_CHECK_COPY: Record<RelayCheckName, RelayCheckCopy> = {
     passed: 'Available',
     failed: {
       problem: 'The storage bucket was not created.',
-      nextAction: 'Wait for the current operation to finish. If this stays, check the deployment page for the cause.',
+      nextAction: 'Wait for the current operation to finish. If this stays, check the recent activity for the cause.',
     },
   },
   cache: {
@@ -934,7 +934,7 @@ export const RELAY_CHECK_COPY: Record<RelayCheckName, RelayCheckCopy> = {
     passed: 'Available',
     failed: {
       problem: 'The cache was not created.',
-      nextAction: 'Wait for the current operation to finish. If this stays, check the deployment page for the cause.',
+      nextAction: 'Wait for the current operation to finish. If this stays, check the recent activity for the cause.',
     },
     notRequired: 'Not required',
   },
@@ -954,7 +954,7 @@ export const RELAY_CHECK_FALLBACK_COPY: RelayCheckCopy = {
   passed: 'Passed',
   failed: {
     problem: "A check on the deployment's infrastructure did not pass.",
-    nextAction: 'Wait for the next check. If this stays, check the deployment page for the cause.',
+    nextAction: 'Wait for the next check. If this stays, check the recent activity for the cause.',
   },
 };
 

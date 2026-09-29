@@ -91,7 +91,7 @@ test('the empty state invites the first customer', async ({ page }) => {
 
   await expect(page.getByRole('heading', { name: 'Customers', exact: true })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Add your first customer' })).toBeVisible();
-  await expect(page.getByRole('link', { name: 'Create installation' })).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Invite customer' })).toBeVisible();
 });
 
 test('a customer row groups name and email, and shows a vendor-friendly deployment status', async ({
@@ -180,7 +180,7 @@ test('the customer name opens the customer page, which shows the install link', 
   await expect(page.getByRole('heading', { name: customer.name })).toBeVisible();
   await expect(page.getByText(customer.email)).toBeVisible();
   await expect(page.getByText('Acme Holdings')).toBeVisible();
-  await page.getByRole('button', { name: 'Copy customer link' }).click();
+  await page.getByRole('button', { name: 'Copy install link' }).click();
   const clipboardText = await page.evaluate(() => navigator.clipboard.readText());
   expect(clipboardText).toBe(`${new URL(page.url()).origin}/install/${deployment.installLinkId}`);
   await expect(page.getByRole('link', { name: 'View deployment' })).toHaveAttribute(
@@ -203,7 +203,7 @@ test('editing name, email and company leaves the install link, the deployment an
   const deployment = await seedDeployment(page, applicationId, customer.id);
 
   await page.goto(`/dashboard/customers/${customer.id}`);
-  await page.getByRole('button', { name: 'Copy customer link' }).click();
+  await page.getByRole('button', { name: 'Copy install link' }).click();
   const installLink = `${new URL(page.url()).origin}/install/${deployment.installLinkId}`;
   expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(installLink);
 
@@ -244,7 +244,7 @@ test('editing name, email and company leaves the install link, the deployment an
   expect(detail.installLinkId).toBe(deployment.installLinkId);
   expect(detail.state).toBe('NOT_INSTALLED');
 
-  await page.getByRole('button', { name: 'Copy customer link' }).click();
+  await page.getByRole('button', { name: 'Copy install link' }).click();
   expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(installLink);
 });
 
@@ -329,9 +329,9 @@ test('the create-installation flow captures a company and offers the install lin
   await page.getByLabel('Customer name').fill(`New Customer ${suffix}`);
   await page.getByLabel('Customer email').fill(`new-customer-${suffix}@example.com`);
   await page.getByLabel('Company (optional)').fill('New Holdings');
-  await page.getByRole('button', { name: 'Create installation' }).click();
+  await page.getByRole('button', { name: 'Invite customer' }).click();
 
-  await expect(page.getByText('Installation invitation created')).toBeVisible();
+  await expect(page.getByText('Invitation created')).toBeVisible();
   await expect(page.getByRole('button', { name: 'Copy link' })).toBeVisible();
 
   await page.goto('/dashboard/customers');
@@ -344,7 +344,7 @@ test('the create-installation flow captures a company and offers the install lin
   await expect(page.getByText('New Holdings')).toBeVisible();
 });
 
-test('Create installation from the customer page preselects the customer and creates an invitation', async ({
+test('Invite customer from the customer page preselects the customer and creates an invitation', async ({
   page,
 }) => {
   await signUp(page);
@@ -355,10 +355,10 @@ test('Create installation from the customer page preselects the customer and cre
   await page.goto(`/dashboard/customers/${customer.id}`);
   // The invitation dialog is opened in place — the customer is already
   // bound to this page's route, so it asks only for the application.
-  await page.getByRole('button', { name: 'Create installation' }).first().click();
+  await page.getByRole('button', { name: 'Invite customer' }).first().click();
 
   const dialog = page.getByRole('dialog');
-  await expect(dialog.getByRole('heading', { name: 'Create installation invitation' })).toBeVisible();
+  await expect(dialog.getByRole('heading', { name: 'Invite customer' })).toBeVisible();
 
   await dialog.getByRole('combobox').filter({ hasText: 'Select an application' }).click();
   await page.getByRole('option').first().click();

@@ -8,7 +8,13 @@ import { expect, test, type Page } from '@playwright/test';
 // at INSTALLING forever and FAILED was unreachable) — so this spec drives a
 // real deployment through the relay job workflow to FAILED and asserts the
 // real classification, plus proves the "no issues" path (a deployment that
-// hasn't failed) end to end and the page linking from deployment detail.
+// hasn't failed) end to end.
+//
+// Diagnostics is folded into the deployment page (ux-guidelines §2):
+// `/dashboard/deployments/:id/diagnostics` is a deep link that redirects to
+// the deployment page's #infrastructure-check section, and a real failure
+// renders as the page's own recovery panel — there is no separate
+// Diagnostics page or diagnostic card any more.
 
 const JARGON = /\b(CloudFormation|IAM|ECS|ALB|Lambda|VPC|CFN|RDS)\b/;
 import { extractQuickCreateParam } from './simulation/relay-harness.js';
@@ -136,17 +142,15 @@ async function driveDeploymentToFailed(
   expect(installResultResponse.ok()).toBeTruthy();
 }
 
-test('detail page links to diagnostics and a non-failed deployment shows the no-issues state', async ({
+test('the diagnostics deep link redirects to the infrastructure check, and a non-failed deployment shows the no-issues state', async ({
   page,
 }) => {
   await signUp(page);
   const { deploymentId } = await seedDeployment(page);
 
-  await page.goto(`/dashboard/deployments/${deploymentId}`);
-  await page.getByRole('link', { name: 'View Diagnostics' }).click();
-  await page.waitForURL(`**/dashboard/deployments/${deploymentId}/diagnostics`);
+  await page.goto(`/dashboard/deployments/${deploymentId}/diagnostics`);
+  await page.waitForURL(`**/dashboard/deployments/${deploymentId}#infrastructure-check`);
 
-  await expect(page.getByRole('heading', { name: 'Diagnostics', exact: true })).toBeVisible();
   // A freshly seeded deployment is NOT_INSTALLED: no infrastructure check
   // has run, so the page says there is nothing to check — never a pass.
   await expect(page.getByTestId('infra-check-outcome')).toContainText('Nothing to check yet');
@@ -155,32 +159,30 @@ test('detail page links to diagnostics and a non-failed deployment shows the no-
   ).toBeVisible();
 });
 
-test('diagnostics top-level copy is jargon-free', async ({ page }) => {
+test('diagnostics deep-link copy is jargon-free', async ({ page }) => {
   await signUp(page);
   const { deploymentId } = await seedDeployment(page);
 
   await page.goto(`/dashboard/deployments/${deploymentId}/diagnostics`);
+  await page.waitForURL(`**/dashboard/deployments/${deploymentId}#infrastructure-check`);
   const text = await page.locator('body').innerText();
   expect(text).not.toMatch(JARGON);
 });
 
-test('a deployment failed via the relay job workflow shows a real §29 classification', async ({
+test('a deployment failed via the relay job workflow shows a real classification in the deployment page recovery panel', async ({
   page,
 }) => {
   await signUp(page);
   const { deploymentId, installationId, enrollmentCode, relayCredential } = await seedDeployment(page);
   await driveDeploymentToFailed(page, installationId, enrollmentCode, relayCredential);
 
-  await page.goto(`/dashboard/deployments/${deploymentId}/diagnostics`);
+  await page.goto(`/dashboard/deployments/${deploymentId}`);
 
-  await expect(page.getByRole('heading', { name: 'Diagnostics', exact: true })).toBeVisible();
-  await expect(page.getByRole('heading', { name: 'No issues found' })).toHaveCount(0);
-
-  const card = page.getByTestId('diagnostic-card');
-  await expect(card).toBeVisible();
-  await expect(card.getByText('What happened')).toBeVisible();
-  await expect(card.getByText('Why it happened')).toBeVisible();
-  await expect(card.getByText('How to fix it')).toBeVisible();
+  // No separate Diagnostics page — the failure renders as the deployment
+  // page's own recovery panel (ux-guidelines §6).
+  await expect(page.getByRole('heading', { name: 'Diagnostics', exact: true })).toHaveCount(0);
+  const panel = page.getByTestId('deployment-recovery-panel');
+  await expect(panel).toBeVisible();
 
   // §65: still jargon-free on the failed path, not just the "no issues" path.
   const text = await page.locator('body').innerText();

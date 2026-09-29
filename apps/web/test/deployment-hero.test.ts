@@ -175,7 +175,7 @@ describe('deriveHero', () => {
       }),
     );
     expect(hero.kind).toBe('install-failed');
-    expect(hero.title).toBe('Deployment failed');
+    expect(hero.title).toBe('Install failed');
     expect(hero.description).toBe('The database could not be created.');
     expect(hero.liveReleaseNote).toBeNull();
   });
@@ -215,7 +215,7 @@ describe('deriveHero', () => {
       }),
     );
     expect(hero.kind).toBe('install-failed');
-    expect(hero.title).toBe('Deployment failed');
+    expect(hero.title).toBe('Install failed');
   });
 
   it('a failed update on a live stage says the previous release is unaffected', () => {
@@ -230,6 +230,24 @@ describe('deriveHero', () => {
     expect(hero.title).toBe('Update failed');
     expect(hero.description).toBe('The new version could not be rolled out.');
     expect(hero.liveReleaseNote).toBe('Release v1.2.0 is still live and unaffected.');
+    expect(hero.failedJobType).toBe('DEPLOY_RELEASE');
+  });
+
+  it('a failed update never calls the running release unaffected while its health checks fail', () => {
+    const hero = deriveHero(
+      input({
+        state: 'UPDATE_AVAILABLE',
+        jobs: [job({ type: 'DEPLOY_RELEASE' })],
+        deploymentStatus: status({
+          failure: FAILURE,
+          health: { ...status().health, status: 'UNHEALTHY' },
+        }),
+      }),
+    );
+    expect(hero.title).toBe('Update failed');
+    expect(hero.liveReleaseNote).toBe(
+      'Release v1.2.0 is still the running release, but its health checks are failing.',
+    );
   });
 
   it('a failed rollback and a failed restart are named for what they were', () => {

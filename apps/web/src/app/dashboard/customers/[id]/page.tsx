@@ -6,7 +6,7 @@ import { useParams } from 'next/navigation';
 import { useCallback, useEffect, useState } from 'react';
 
 import { copyInstallLink } from '@/components/copy-install-link';
-import { DeploymentStatusBadge } from '@/components/deployment-status-badge';
+import { StatusBadge } from '@/components/status-badge';
 import { EditCustomerDialog } from '@/components/edit-customer-dialog';
 import { InvitationDialog } from '@/components/invitation-form';
 import { Badge } from '@/components/ui/badge';
@@ -161,7 +161,7 @@ export default function CustomerDetailPage() {
           </Button>
           <Button size="sm" onClick={() => setCreatingInstallation(true)}>
             <Plus aria-hidden />
-            Create installation
+            Invite customer
           </Button>
         </div>
       </div>
@@ -191,7 +191,7 @@ export default function CustomerDetailPage() {
                     <span className="text-xs text-muted-foreground">{deployment.region}</span>
                   </div>
                   <div className="flex items-center gap-2">
-                    <DeploymentStatusBadge state={deployment.state} />
+                    <StatusBadge deployment={deployment} />
                     <Button
                       size="sm"
                       variant="outline"
@@ -200,7 +200,7 @@ export default function CustomerDetailPage() {
                       }
                     >
                       <Copy aria-hidden />
-                      Copy customer link
+                      Copy install link
                     </Button>
                     <Button asChild size="sm" variant="outline">
                       <Link href={`/dashboard/deployments/${deployment.id}`}>View deployment</Link>
@@ -229,7 +229,7 @@ export default function CustomerDetailPage() {
                   }
                 >
                   <Copy aria-hidden />
-                  Copy customer link
+                  Copy install link
                 </Button>
                 <Button asChild size="sm" variant="outline">
                   <Link href={`/dashboard/deployments/${rollup.deployment.id}`}>
@@ -239,21 +239,14 @@ export default function CustomerDetailPage() {
               </div>
             </>
           ) : (
-            <div className="flex flex-col items-start gap-3">
-              <p className="text-sm text-muted-foreground">No installations yet</p>
-              <Button size="sm" onClick={() => setCreatingInstallation(true)}>
-                <Plus aria-hidden />
-                Create installation
-              </Button>
-            </div>
+            <p className="text-sm text-muted-foreground">
+              No deployments yet — invite {customer.name} to install this application.
+            </p>
           )}
         </CardContent>
       </Card>
 
-      <PendingInstallationsCard
-        invitations={invitations}
-        onCreate={() => setCreatingInstallation(true)}
-      />
+      <InvitationsCard invitations={invitations} />
 
       <EditCustomerDialog
         customer={customer}
@@ -271,17 +264,15 @@ export default function CustomerDetailPage() {
   );
 }
 
-function PendingInstallationsCard({
+function InvitationsCard({
   invitations,
-  onCreate,
 }: {
   invitations: CustomerInvitation[] | null;
-  onCreate: () => void;
 }) {
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="text-base">Pending installations</CardTitle>
+        <CardTitle className="text-base">Invitations</CardTitle>
       </CardHeader>
       <CardContent className="flex flex-col gap-3">
         {invitations === null ? (
@@ -290,13 +281,7 @@ function PendingInstallationsCard({
             <Skeleton className="h-9 w-full" />
           </div>
         ) : invitations.length === 0 ? (
-          <div className="flex flex-col items-start gap-3">
-            <p className="text-sm text-muted-foreground">No pending installations</p>
-            <Button size="sm" onClick={onCreate}>
-              <Plus aria-hidden />
-              Create installation
-            </Button>
-          </div>
+          <p className="text-sm text-muted-foreground">No invitations yet</p>
         ) : (
           <ul className="flex flex-col gap-2">
             {invitations.map((invitation) => (

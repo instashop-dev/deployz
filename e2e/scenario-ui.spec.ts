@@ -137,13 +137,15 @@ test.describe('scenario-ui browser suite', () => {
     await expect(
       page.getByText(/The last step is a secure address — set up a custom domain below to finish\./),
     ).toBeVisible();
-    // The grouped stepper reflects real progress, not a percentage: every
-    // step through HEALTH_CHECK is done, TLS is the one still active. Group
-    // labels are static (state lives in the markers and sr-only text), the
-    // data work stays listed under "Starting application" with its done
-    // label, and the active TLS rung says what it waits for. The anchored
-    // regexes keep the label spans from substring-colliding with the
-    // activity feed's own sentences ("Application passed health checks.").
+    // The grouped step list reflects real progress, not a percentage: every
+    // step through HEALTH_CHECK is done, TLS is the one still active.
+    // Completed steps collapse into "N steps done" (ux-guidelines §9) — expand
+    // it to see them. Group labels are static (state lives in the markers and
+    // sr-only text), the data work stays listed under "Starting application"
+    // with its done label, and the active TLS rung says what it waits for.
+    // The anchored regexes keep the label spans from substring-colliding with
+    // the activity feed's own sentences ("Application passed health checks.").
+    await page.getByTestId('step-list-done-toggle').click();
     await expect(page.getByText(/^Network ready/)).toBeVisible();
     await expect(page.getByText(/^Database & storage created/)).toBeVisible();
     await expect(page.getByText(/^Starting application/)).toBeVisible();
@@ -159,7 +161,7 @@ test.describe('scenario-ui browser suite', () => {
     // populated from the persisted resource inventory, and the raw
     // CloudFormation event feed behind its own disclosure.
     await page.goto(`/dashboard/deployments/${deploymentId}`);
-    await expect(page.getByText('Healthy', { exact: true }).first()).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByTestId('deployment-status-badge')).toHaveText('Live', { timeout: 15_000 });
     // Still VERIFYING on the wire (HTTP-only), but the app is confirmed
     // healthy and reachable, so the vendor hero reads as live and carries
     // the address.
@@ -175,8 +177,8 @@ test.describe('scenario-ui browser suite', () => {
 
     // Infrastructure events: the raw CFN feed, default-collapsed (§ raw-
     // diagnostics surface — docs/ui-system.md), behind its own disclosure
-    // inside the collapsed Advanced details section.
-    await page.getByRole('button', { name: 'Advanced details' }).click();
+    // inside the collapsed Technical details section.
+    await page.getByRole('button', { name: 'Technical details' }).click();
     const eventsTrigger = page.getByRole('button', { name: /Infrastructure events/ });
     await expect(eventsTrigger).toBeVisible();
     await eventsTrigger.click();
@@ -265,9 +267,11 @@ test.describe('cloudformation-rollback (browser)', () => {
     // ── Vendor detail page.
     await page.goto(`/dashboard/deployments/${deploymentId}`);
     const progressCard = page.locator('section[aria-labelledby="deployment-progress"]');
-    await expect(progressCard.locator('[aria-live="polite"]')).toHaveText('Deployment failed', {
-      timeout: 15_000,
-    });
+    // A destructive tone renders the §6 recovery panel (FailurePanel): the
+    // headline is its AlertTitle, not a plain heading.
+    await expect(
+      progressCard.locator('[aria-live="polite"]'),
+    ).toHaveText('Install failed', { timeout: 15_000 });
     // §29 human-readable failure copy (packages/copy-map), not raw AWS jargon
     // at the top level — refined server-side to DATABASE_CREATE_FAILED (the
     // failed resource is the RDS instance), so the database remediation text.
@@ -314,7 +318,7 @@ test.describe('cloudformation-rollback (browser)', () => {
     await actionsSection.getByRole('button', { name: 'More actions' }).click();
     await expect(page.getByRole('menuitem', { name: 'Rollback' })).toHaveCount(0);
     await expect(page.getByRole('menuitem', { name: 'Restart' })).toHaveCount(0);
-    await expect(page.getByRole('menuitem', { name: 'Disconnect Deployment' })).toBeEnabled();
+    await expect(page.getByRole('menuitem', { name: 'Remove deployment' })).toBeEnabled();
     await page.keyboard.press('Escape');
     // The activity feed's top level is jargon-free too: the classified
     // failure's plain-English summary, never the relay's raw error string.
@@ -330,7 +334,7 @@ test.describe('cloudformation-rollback (browser)', () => {
     const infrastructureSection = page.locator('section[aria-labelledby="infrastructure"]');
     await expect(infrastructureSection.getByText('Database', { exact: true })).toBeVisible();
     await expect(infrastructureSection.getByText('Network', { exact: true })).toBeVisible();
-    await expect(infrastructureSection.getByText('Deployz Relay', { exact: true })).toBeVisible();
+    await expect(infrastructureSection.getByText('Deployz connector', { exact: true })).toBeVisible();
     await infrastructureSection
       .getByRole('button', { name: /View components and \d+ AWS resource/ })
       .click();
@@ -338,12 +342,9 @@ test.describe('cloudformation-rollback (browser)', () => {
       infrastructureSection.getByText('Retained when deployment is removed.'),
     ).toBeVisible();
 
-    // Diagnostics link is reachable and lands on the real classification.
-    await page.getByRole('link', { name: 'View Diagnostics' }).first().click();
-    await page.waitForURL(`**/dashboard/deployments/${deploymentId}/diagnostics`);
-    await expect(page.getByRole('heading', { name: 'Diagnostics', exact: true })).toBeVisible();
-    await expect(page.getByTestId('diagnostic-card')).toBeVisible();
-    await expect(page.getByTestId('diagnostic-card').getByText('What happened')).toBeVisible();
+    // The real classification is folded into the recovery panel.
+    await expect(page.getByTestId('diagnostic-explanation')).toBeVisible();
+    await expect(page.getByTestId('diagnostic-explanation').getByText('How to fix it')).toBeVisible();
 
     // ── Customer install page: the failure shown honestly, no stuck spinner,
     // never a false Healthy/Ready.
@@ -467,15 +468,15 @@ test.describe('update-failure then rollback-success (browser)', () => {
     // advanced past the last release that actually deployed (v1).
     await page.reload();
     const progressCard = page.locator('section[aria-labelledby="deployment-progress"]');
-    await expect(progressCard.locator('[aria-live="polite"]')).toHaveText('Update failed', {
-      timeout: 15_000,
-    });
+    await expect(
+      progressCard.locator('[aria-live="polite"]'),
+    ).toHaveText('Update failed', { timeout: 15_000 });
     await expect(
       progressCard.getByText('The new version could not be rolled out.'),
     ).toBeVisible();
-    await expect(
-      progressCard.getByText('Release v1.0.0 is still live and unaffected.'),
-    ).toBeVisible();
+    // The impact line names v1.0.0 as the running release; while its own
+    // health checks fail it must not also call it unaffected.
+    await expect(progressCard.getByText(/^Release v1\.0\.0 is still (live and unaffected|the running release)/)).toBeVisible();
     await expect(page.getByText('v1.0.0', { exact: true }).first()).toBeVisible();
 
     // The Rollback button targets `previousReleaseId` — production's own
@@ -516,7 +517,7 @@ test.describe('update-failure then rollback-success (browser)', () => {
 
     // ── The vendor page shows healthy again.
     await page.reload();
-    await expect(page.getByText('Healthy', { exact: true }).first()).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByTestId('deployment-status-badge')).toHaveText('Live', { timeout: 15_000 });
     await expect(progressCard.locator('[aria-live="polite"]')).toHaveText('Your application is live');
     await expect(page.getByText('The new version could not be rolled out.')).toHaveCount(0);
     await expect(page.getByText('v1.0.0', { exact: true }).first()).toBeVisible();

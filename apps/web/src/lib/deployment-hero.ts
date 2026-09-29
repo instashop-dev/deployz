@@ -40,6 +40,8 @@ export interface HeroModel {
   liveReleaseNote: string | null;
   /** Whether the install step list is meaningful for this state. */
   showSteps: boolean;
+  /** The job type of a failed day-2 operation ('operation-failed' only). */
+  failedJobType?: string;
 }
 
 export type HeroInput = Pick<
@@ -101,7 +103,7 @@ const INSTALLING_TITLE: Record<VendorDeploymentStatus['stage'], string> = {
   PROVISIONING: 'Deploying',
   VERIFYING: 'Verifying your application',
   READY: 'Your application is live',
-  FAILED: 'Deployment failed',
+  FAILED: 'Install failed',
 };
 
 const OPERATION_TITLE: Record<string, { running: string; failed: string; runningNote: string }> = {
@@ -185,6 +187,7 @@ export function deriveHero(detail: HeroInput): HeroModel {
         kind: 'operation-failed',
         tone: 'destructive',
         title: copy.failed,
+        failedJobType: latestFailed.type,
         description: failure?.message ?? 'The operation did not complete.',
         liveReleaseNote: `${releaseLabel(detail.version)} is still live and unaffected.`,
         showSteps: false,
@@ -195,7 +198,7 @@ export function deriveHero(detail: HeroInput): HeroModel {
       tone: 'destructive',
       title: isAppOwnedStartupFailure(status.failure?.code)
         ? STARTUP_FAILURE_TITLE
-        : 'Deployment failed',
+        : 'Install failed',
       description: failure?.message ?? 'The first install did not complete.',
       liveReleaseNote: null,
       showSteps: true,
@@ -204,14 +207,19 @@ export function deriveHero(detail: HeroInput): HeroModel {
 
   if (failure) {
     // A failed day-2 operation on a live stage: the previous release keeps
-    // serving (docs/deployment-resilience.md). Never read as "down".
+    // serving (docs/deployment-resilience.md). Never read as "down" — but
+    // never "unaffected" either while its own health checks fail.
     const copy = OPERATION_TITLE[latestFailed?.type ?? ''] ?? OPERATION_TITLE.DEPLOY_RELEASE!;
     return {
       kind: 'operation-failed',
       tone: 'destructive',
       title: copy.failed,
+      failedJobType: latestFailed?.type ?? 'DEPLOY_RELEASE',
       description: failure.message,
-      liveReleaseNote: `${releaseLabel(detail.version)} is still live and unaffected.`,
+      liveReleaseNote:
+        status.health.status === 'UNHEALTHY'
+          ? `${releaseLabel(detail.version)} is still the running release, but its health checks are failing.`
+          : `${releaseLabel(detail.version)} is still live and unaffected.`,
       showSteps: false,
     };
   }

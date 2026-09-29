@@ -114,7 +114,7 @@ describe('InvitationDialog', () => {
   it('renders the optional recommendation with its helper copy and disables submit until an application is chosen', async () => {
     await renderDialog();
 
-    expect(document.body.textContent).toContain('Create installation invitation');
+    expect(document.body.textContent).toContain('Create invitation');
     expect(document.body.textContent).toContain('Recommended AWS region');
     expect(document.body.textContent).toContain('No recommendation');
     expect(document.body.textContent).toContain(
