@@ -259,3 +259,186 @@ Cross-region AWS leak audit (post all attempts):
 ## Final verdict
 
 **PHASE 5 AWS QUALIFICATION: FAIL — D1 (Klarline) is CORRECTLY_UNSUPPORTED because Klarline's source uses static AWS credentials via env vars, which Phase 5's task-role contract explicitly disallows (`mvp-scope.md:159-163`); D2 (Phase 5 canary) hit a fixture-content blocker where the simulated harness's virtual-fixture content did not include a buildable real-AWS application, and the remaining build error could not be diagnosed from this shell because `aws logs get-log-events --output text` returns `charmap codec can't encode character '\u2714'` against the live CodeBuild logs.**
+---
+
+## D2 run-13 (real AWS) — first provisioning success, Step 8 inventory failure
+
+Run `stage-b-repo-300-20260929-100131-3cdd` against `instashop-dev/deployz-phase5-canary@71f42ce` reached real-AWS provisioning for the first time. Steps 1-7 passed: analysis (READY), preflight (READY_WITH_WARNINGS), CodeBuild image build, customer Quick Create, bootstrap/connector enrollment, INSTALL -> CREATE_COMPLETE, and the built release was the serving image. Step 8 (plan-versus-actual inventory) failed.
+
+Step 8 evidence: plan CREATE kinds `[application, application, database, endpoint, storage]` did not match expected kinds `[application, database, endpoint, storage]`. Three independent root causes:
+
+1. **Queue ambiguity (canary content, fixed).** The original `src/worker.ts` read both `ORDERS_QUEUE_URL` and `ORDERS_DLQ_URL` in one file. `attributeSqsOperations` requires one queue URL per file, so both became ambiguous -> the preflight `async-question-queue-orders-queue-url` question -> no queue provisioned. Fixed by splitting into `src/orders-consumer.ts` (reads only `ORDERS_QUEUE_URL`) and `src/dlq-monitor.ts` (reads only `ORDERS_DLQ_URL`). Local diagnostic confirms `queues: 1`.
+
+2. **Scheduler unreachable (DEPLOYZ_BUG).** `detectScheduledJobs` -> `parseRenderCronServices` reads `render.yaml`, but `isRelevantPath` in `apps/api/src/github.ts` never fetches `render.yaml` (nor `vercel.json`, `crontab`, `*.cron`). On real AWS the schedule declaration is silently absent from the analysis tree, so no scheduled job and no schedule question appear; only fixtures (which hardcode `render.yaml` into the tree) ever exercise it. Fixed by adding a `SCHEDULE_FILE_REGEX` to `isRelevantPath`; regression-tested in `github.test.ts`.
+
+3. **Inventory gate compared a non-deduped plan against deduped expectations (TEST_HARNESS_OR_ENVIRONMENT, fixed).** A separate worker is a second `application` component, so the plan lists `application` twice while `compareInfrastructureExpectations` dedupes to one. `KIND_TO_AWS_TYPES` also lacked `queue`/`schedule`. Fixed: dedupe `planCreateKinds` and add `queue`/`schedule` to the map; regression-tested in `harness.test.ts`.
+
+Fixes committed as `916210a` (code) and `6f7cb22` (config). Canary re-pushed clean at `5c0628e` (12 files; stray `tsc2.out` removed). Cleanup for run-13 completed: all 17 teardown steps passed, connector stack deleted, leak audit clean.
+
+**Deployment gap:** finding 2 lives in control-plane code (`apps/api/src/github.ts`), deployed at `d996466`. The fix is committed on `gate-D-aws` but not deployed; until the control plane is redeployed the scheduler remains undetectable on real AWS.
+
+---
+
+## Run 15 — D2 canonical canary, scheduler provisioned (real AWS, 2026-09-29)
+
+Run id: `stage-b-repo-300-20260929-153510-2186`. Command:
+`pnpm benchmark:deploy --real-aws --repo repo-300 --region us-east-1 --max-active 1 --concurrency 1`.
+Log: `.claude/stage-b-d2-run-15.log`. Evidence:
+`docs/testing/repository-deployment/runs/evidence/stage-b-repo-300-20260929-153510-2186`.
+
+### What passed
+
+- Steps 1-7 PASS. Bootstrap stack, connector enroll, CodeBuild release, and
+  the application stack install all succeeded on real AWS in account
+  `151955775369`.
+- **Scheduler provisioning on real AWS passed.** The application stack
+  contained `CanaryTickScheduleSchedule` (EventBridge Scheduler),
+  `CanaryTickTaskDefinition` (one-shot ECS task), `WebService`, and
+  `WorkerService`. This closes the Phase 5 scheduler question that blocked
+  Run 14.
+- The scheduled job actually fired on its `*/5 * * * *` cadence at
+  `2026-09-29T15:55:44Z`, connected to the RDS instance, and returned
+  PostgreSQL error `42P01 relation "ticks" does not exist`. The
+  EventBridge Scheduler -> ECS RunTask path is therefore proven end to end.
+- RDS TLS is proven working. The container emitted the `pg` deprecation
+  warning naming `sslmode`/`verify-full`, and the task ran a `RdsCaBundle`
+  sidecar with exit code 0. The `42P01` reply itself can only come from a
+  successful authenticated TLS connection. `sslmode` was **not** a failure.
+- Steps 9-13 PASS: Disconnect (DESTROY), retained state, Purge, retained set
+  gone, connector (bootstrap) stack removed, run-scoped images/task
+  definitions/template objects removed, AWS leak audit clean.
+
+### What failed
+
+**Step 8, plan-versus-actual inventory.** Plan CREATE kinds were
+`[application,database,endpoint,schedule,storage,worker]`; expected kinds were
+`[application,database,endpoint,schedule,storage]`.
+
+1. **`Procfile` was never fetched by the control plane.** Root cause:
+   `isRelevantPath` in `apps/api/src/github.ts` had no rule for `Procfile`, so
+   `manifest.workers = []`, the SQS consumer fell into the fallback `web`
+   reach, queue rule 6 rejected it, and the queue degraded to an unresolved
+   `queue-orders-queue-url` question. **No SQS queue and no DLQ were ever
+   provisioned** — the account held only Deployz's own `Deployz-JobQueue*` and
+   `Deployz-JobDeadLetterQueue*`. Classification: **DEPLOYZ_BUG** (generic,
+   control plane).
+
+   Proof on the exact production-fetched tree (`.claude/gate-d-diag-tree.ts`,
+   which uses the real `buildFileTreeForAnalysis`):
+
+   | variant | queues | questions |
+   |---|---|---|
+   | base | 0 | queue-orders-queue-url |
+   | base + `Procfile` | 1 (`orders-queue`) | none |
+   | base − `src/server.ts` | 0 | — |
+
+   A `worker` script in `package.json` does **not** substitute for `Procfile`.
+   `Procfile` is the single decisive variable.
+
+2. **Plan kind `worker` has no inventory counterpart.** The scheduled job's
+   one-shot ECS task compiles to plan kind `worker`
+   (`KIND_BY_CAPABILITY_KEY[ECS_FARGATE_TASK]`), but
+   `infrastructureComponentKindSchema` has no `worker` entry and every
+   `AWS::ECS::*` resource classifies as `application`. Classification:
+   **TEST_HARNESS_OR_ENVIRONMENT** — harness-only fold, never deployed.
+
+3. **Run-15 record misclassified the run as `DATABASE_ERROR`.** The harness
+   matched the benign `pg` `sslmode` deprecation warning against
+   `DB_CONNECTION_PATTERNS` and reported
+   `container cannot use the database: ... sslmode=verify-full ...`. The real
+   defect was the missing `ticks` table. Classification:
+   **DETECTION_EVIDENCE_LIMITATION**. Note for later: `DB_PATTERNS` also
+   contains `/relation ".*" does not exist/`, which matches the genuine
+   `42P01` line, so the failure stage was right while the quoted evidence
+   line was wrong.
+
+4. **The canary had no schema.** `src/scheduled.ts` INSERTed into `ticks` and
+   `src/orders-consumer.ts` INSERTed into `messages`, but nothing ever created
+   those tables, so the scheduled job could not record its observable effect
+   and the worker could not write to the database. `overrides.migrationCommand`
+   was omitted because of a stale note in `deploy-config.yaml` (it claimed the
+   canary read `DATABASE_URL` only through a Prisma client; the canary reads
+   `process.env.DATABASE_URL` directly in `orders-consumer.ts` and
+   `scheduled.ts`, so the `manifest.ts:435-439` guard would not fire).
+   Classification: **TEST_HARNESS_OR_ENVIRONMENT** (canary defect, not a
+   product defect).
+
+### Fixes applied
+
+**Product fix, merged and deployed:**
+
+- PR **#408** `fix(api): fetch scheduled-job declaration files during analysis`
+  -> squash-merged to `main` as **`5606453`**; `Deploy API` succeeded; tag
+  `deployed/api` = `56064536f6bd46c299f69e8e9624dd5df014329f`.
+- PR **#409** `fix(api): fetch Procfile so declared workers reach queue
+  attribution` -> branch `fix/fetch-procfile`, commit `a7232ef`; all 7 PR checks
+  green (PR Gate, Plan tests, Simulated E2E fixture-1/2/3, Simulated E2E
+  scenarios, Test and build); squash-merged to `main` as **`542f08b`**.
+  `CI` success, `Deploy API` success, `Deploy web` success. Tag `deployed/api`
+  = `542f08b3c44f56bf153dee616fef1c4370bb4e0a`.
+  Deployed-bundle proof (Lambda `Deployz-ApiLambdaFunction8FC74655-cJvQd51xjme6`,
+  extracted `index.js`): `var PROCFILE_REGEX = /(?:^|\/)Procfile$/;`
+  (`PROCFILE_REGEX` x4, `SCHEDULE_FILE_REGEX` x2).
+- Regression test, green on `fix/fetch-procfile`:
+  `apps/api/src/github.test.ts` — "fetches Procfile so a Procfile-declared
+  worker joins SQS producer/consumer detection". It exercises the real fetch
+  path, not `fixtureMode`. Full file: 97 tests pass.
+
+**Harness-only fixes, on `gate-D-aws`, not deployed, no PR:**
+
+- `f218116` — `scripts/repository-deployment/deploy.ts` folds plan kind
+  `worker` into inventory kind `application`
+  (`INVENTORY_KIND_BY_PLAN_KIND`) before dedupe, so the one-shot scheduled ECS
+  task no longer breaks the Step 8 kind comparison.
+  Regression: `scripts/repository-deployment/harness.test.ts` worker-fold test.
+  Inventory-gate suite: 6 tests pass.
+
+**Canary fix, pushed to the canary repository:**
+
+- New SHA **`6bcc7785f43cc9687dca525f703cb7fe3ef6dc5d`** on
+  `instashop-dev/deployz-phase5-canary` (16 files; remote-only `src/server.ts`
+  and `prisma/schema.prisma` preserved).
+  - added `src/schema.ts` — idempotent `CREATE TABLE IF NOT EXISTS` for
+    `messages` and `ticks`;
+  - `src/scheduled.ts` awaits `ensureSchema()` before the tick INSERT;
+  - `src/orders-consumer.ts` awaits `ensureSchema()` before polling.
+  This matches the "migrations at boot" shape already used by the other
+  benchmark entries. `tsc --noEmit` exits 0.
+- `docs/testing/repository-compatibility/benchmark.yaml` `repo-300` commit
+  pinned to `6bcc7785f43cc9687dca525f703cb7fe3ef6dc5d`.
+- `docs/testing/repository-deployment/deploy-config.yaml` repo-300 notes
+  corrected: new SHA, `pg` instead of Prisma, boot-time schema, and the stale
+  `migrationCommand` rationale replaced.
+
+### Pre-provision production analysis (gate before Run 16)
+
+`.claude/gate-d-topology.ts` in the `fix/fetch-procfile` worktree builds the
+tree through the real `buildFileTreeForAnalysis` and runs the production
+analyser on the new canary SHA. Result **`TOPOLOGY: PASS`** (14 fetched files):
+
+| requirement | result |
+|---|---|
+| web/API workload | `CMD: ["node", "dist/web.js"]` |
+| separate worker declared | `worker:node dist/worker.js` (from `Procfile`, fetched) |
+| `Procfile` fetched | present |
+| SQS queue detected | `orders-queue`, producers `[web]`, consumers `[worker]` |
+| queue has a DLQ | `maxReceiveCount=5`, env `ORDERS_DLQ_URL`, consumers `[worker]` |
+| scheduled job detected | `canary-tick @render.yaml` |
+| no unresolved async questions | none |
+
+Environment classification: `ORDERS_QUEUE_URL=deployz_managed`,
+`ORDERS_DLQ_URL=deployz_managed`, `DATABASE_URL` and `AWS_S3_BUCKET` present.
+Analysis ran **before** any AWS provisioning, as required.
+
+### Recorded defect taxonomy for Run 15
+
+| # | defect | class | owner | state |
+|---|---|---|---|---|
+| 1 | `Procfile` never fetched, no queue/DLQ | DEPLOYZ_BUG | control plane | fixed `a7232ef`, PR #409, deployed `542f08b` |
+| 2 | plan `worker` has no inventory kind | TEST_HARNESS_OR_ENVIRONMENT | Gate D harness | fixed `f218116`, not deployed |
+| 3 | benign `pg` `sslmode` warning quoted as DB evidence | DETECTION_EVIDENCE_LIMITATION | Gate D harness | noted, non-blocking |
+| 4 | canary has no `messages`/`ticks` tables | TEST_HARNESS_OR_ENVIRONMENT | canary | fixed `6bcc778` |
+
+Everything above that changed the deployment graph is revalidated in Run 16.
+Prior successful evidence (scheduler provisioning, install, teardown, leak
+audit) is preserved as-is.
