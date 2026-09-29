@@ -46,7 +46,10 @@ not shipping.
 Lightsail container service behind `app.deployz.dev`, after the CI workflow
 succeeds for a push to `main` that touches `apps/web`,
 `packages/{copy-map,contracts}` or the lockfile, and then checks
-`https://app.deployz.dev/healthz`. Both deploy workflows wait for CI; a red
+`https://app.deployz.dev/healthz`. Each push stores a new image in the
+container service, and Lightsail refuses a push when the service holds 150
+images. Before each push, the workflow deletes all images except the newest
+10 and the image that a current or pending deployment runs. Both deploy workflows wait for CI; a red
 CI run on `main` deploys nothing. When validating a production change,
 record the SHA and confirm both deploy runs finished.
 
