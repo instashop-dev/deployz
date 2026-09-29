@@ -236,17 +236,25 @@ test.describe('phase5-composition', () => {
       // deployment's stage is PROVISIONING (server.ts's
       // `stackOperationActive`) — they are not a durable post-install
       // projection today (see this test's final report for that gap). ──────
+      // The schedule completes after the queues on the timeline, so wait for
+      // all three in ONE response and assert on that same response — a
+      // second read can land after the stage has left PROVISIONING.
+      const asyncComponentIds = ['orders-queue', 'orders-queue-dlq', 'cleanup-schedule'];
+      let installStatus: InstallStatusResponse | undefined;
       await expect
         .poll(
           async () => {
             const status = (await buildApi(request).getInstallStatus(installLinkId)) as unknown as InstallStatusResponse;
-            return status.specComponents?.find((c) => c.componentId === 'orders-queue')?.state;
+            const complete = asyncComponentIds.every(
+              (id) => status.specComponents?.find((c) => c.componentId === id)?.state === 'COMPLETE',
+            );
+            if (complete) installStatus = status;
+            return complete;
           },
-          { timeout: 10_000, intervals: [50], message: 'waiting for the queue spec component to reach COMPLETE mid-install' },
+          { timeout: 10_000, intervals: [50], message: 'waiting for the queue, DLQ and schedule spec components to reach COMPLETE mid-install' },
         )
-        .toBe('COMPLETE');
-      const installStatus = (await buildApi(request).getInstallStatus(installLinkId)) as unknown as InstallStatusResponse;
-      const byComponentId = new Map(installStatus.specComponents!.map((c) => [c.componentId, c]));
+        .toBe(true);
+      const byComponentId = new Map(installStatus!.specComponents!.map((c) => [c.componentId, c]));
       expect(byComponentId.get('orders-queue')).toMatchObject({ label: 'Orders queue', state: 'COMPLETE' });
       expect(byComponentId.get('orders-queue-dlq')).toMatchObject({
         label: 'Orders queue dead-letter queue',
@@ -257,7 +265,7 @@ test.describe('phase5-composition', () => {
         state: 'COMPLETE',
       });
       // No raw CloudFormation resource type ever leaks into a label.
-      for (const component of installStatus.specComponents!) {
+      for (const component of installStatus!.specComponents!) {
         expect(component.label).not.toMatch(/^AWS::/);
       }
 
