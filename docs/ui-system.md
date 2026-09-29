@@ -90,14 +90,15 @@ status page, not a console. Top to bottom:
    failed. The install step list (first → last) shows only while an install
    is in flight or failed; the live URL block shows once the app is reachable.
 3. Contextual actions in the hero footer — one primary action per state
-   (Open application / Deploy Update / Retry deployment), Diagnostics and
-   Configuration as outline buttons, and Restart / Rollback / Disconnect
-   behind a "More actions" menu. Day-2 actions are not rendered before an
-   install has completed.
+   (Open application / Deploy update / Retry update / Retry deployment),
+   Configuration as an outline button, and Restart / Rollback / Remove
+   deployment behind a "More actions" menu. Day-2 actions are not rendered
+   before an install has completed. A failure renders as `FailurePanel`
+   (the recovery panel) inside the hero.
 4. Compact metadata `dl` (customer, region label, release, created, URL,
-   custom domain). AWS account, stack status and version identifiers live
-   under the collapsed "Advanced details" at the bottom, together with the
-   raw CloudFormation event feed.
+   custom domain). AWS account, stack status, version identifiers, the
+   infrastructure check and the raw CloudFormation event feed live under
+   the collapsed `TechnicalDetails` at the bottom.
 5. `InfrastructureSummary` — one row per service with a plain-English
    status; services the application does not need read "Not required". The
    resource-level inventory (`InfrastructureSection`) opens from

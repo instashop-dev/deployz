@@ -170,8 +170,15 @@ Rules:
 
 - Health overrides the operation label. An install whose health checks fail
   is "Needs attention · Not responding", never "Installing".
+- Failed outranks Needs attention. A failed update whose health checks also
+  fail is "Update failed"; its impact line says that the running release
+  is not responding, never "unaffected".
 - Home, lists and detail read one classifier (`lib/deployment-status-groups`).
-  No page classifies a deployment by itself.
+  No page classifies a deployment by itself. The status badge and the
+  deployment page headline use the same precedence and the same words
+  ("Install failed", not "Deployment failed").
+- An application whose analysis has not started shows "Not analysed", not
+  "Analysing".
 
 ## 6. Failure and recovery
 
@@ -237,15 +244,6 @@ Never claim cleanup that Deployz did not verify. After a force-complete, say
 that resources may remain. The customer page cannot see this case today
 (UX-BACKEND-001).
 
-Current copy that contradicts these facts (fix in UX-B):
-
-- Customer removed page: "One item remains: the Deployz connector stack" even
-  when retained data remains (`app/install/[installLinkId]/page.tsx:205`).
-- Vendor pre-deletion alert and deletion dialog say the deletion removes the
-  Deployz connector (`app/dashboard/deployments/[id]/page.tsx:1464,1558`).
-  `docs/architecture.md` and the same page's post-deletion alert say the
-  connector stays.
-
 ## 8. Progressive disclosure and resources
 
 **Primary decision information — never under Technical details** (where it
@@ -303,7 +301,8 @@ One step list for install, update and removal, on both surfaces:
 - One line when user action is required, with the action.
 - "Taking longer than usual" only past the typical duration.
 
-Never label a running step with its done text.
+Never label a running step with its done text. After a failed step, do not
+show a next step: the operation stopped there.
 
 ## 10. Terminology
 
@@ -359,6 +358,10 @@ Recorded, not implemented. Each needs separate approval.
 - **Minimal change**: Add `UNVERIFIED` to the customer `cleanup` enum, set
   from `SKIPPED_RELAY_OFFLINE` and `PURGE_FAILED`.
 - **Priority**: P1 / pre-MVP (removal truthfulness is UX correctness).
+- **Found in UX-B**: the customer removed page reads the install-page data,
+  which has no cleanup state for a removed deployment. After a completed
+  **Delete retained data** it cannot say that only the connector remains, so
+  it states what can remain. The same `cleanup` value must reach that page.
 
 ### UX-BACKEND-002 — Infrastructure check freshness
 
@@ -445,6 +448,23 @@ Recorded, not implemented. Each needs separate approval.
 - **Minimal change**: Add an `actor` map beside `FAILURE_RECOVERABILITY` in
   `@deployz/copy-map`, covered by the parity test.
 - **Priority**: P2.
+
+### UX-BACKEND-006 — HTTPS state disagrees between two signals
+
+- **Problem**: On a live deployment, the status headline reads
+  `deploymentStatus.needsDomainSetup` ("Add a custom domain to serve it over
+  HTTPS"), while the infrastructure summary shows the secure-endpoint
+  component as "Setting up" (`httpsState`).
+- **User impact**: The vendor cannot tell whether HTTPS needs a custom domain
+  or is being set up automatically.
+- **Evidence**: UX-B browser run (simulated relay, default-HTTPS fixture
+  off).
+- **Why frontend cannot solve it**: Choosing one signal over the other in the
+  UI invents the HTTPS state.
+- **Required capability**: One authoritative HTTPS state for vendor surfaces.
+- **Minimal change**: Derive `needsDomainSetup` and the secure-endpoint
+  component state from the same source.
+- **Priority**: P3. Possibly a simulation artifact; confirm on real AWS.
 
 ## 13. Documentation debt
 
