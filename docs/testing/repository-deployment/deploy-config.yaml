@@ -431,3 +431,17 @@ repositories:
     verify: { healthPath: /health, appPath: /health }
     notes:
       - "AWS Gate D (Phase 5) real-AWS qualification. Combined D1 (SQS+separate worker+Postgres) and D2 (EventBridge Scheduler) fixture. Branch purpose: prove queue/schedule edge-specific IAM and standalone-scheduled-task provisioning. Follows the same shape as the simulated 'phase5-composition' scenario but routes through real AWS. Smoke checks are not required because this run is a qualification; the harness's `--no-knee` equivalent is the absence of a smoke entry."
+
+  - id: repo-301
+    deploymentClass: fresh-full
+    findings: []
+    fork: Klarline/retail-inventory-platform
+    overrides:
+      dockerfilePath: api/Dockerfile
+      buildContext: api
+      containerPort: 8080
+      healthPath: /
+    dependencies: { postgres: verify }
+    verify: { healthPath: /, appPath: /ping }
+    notes:
+      - "AWS Gate D D1. Klarline/retail-inventory-platform HEAD 3a2b8a3 mirrored verbatim into a virtual fixture. API container (Express + Socket.io + Prisma) + separate worker container (SQS consumer) + PostgreSQL via Prisma. Producer edge in api/routes/marketplaceOrderRoutes.js (sendToQueue). Consumer edge in api/workers/sqs-consumer.js. SQS_QUEUE_URL is a Deployz binding; DLQ is an AWS-side redrive default. No Scheduler, no Redis. Build context is api/ and the Dockerfile is api/Dockerfile. Health path is / (returns 'OK'); /ping returns 'pong'. No smoke entry because the worker process owns the queue consumer; functional API verification has no useful user HTTP route."
