@@ -281,6 +281,14 @@ const KIND_TO_AWS_TYPES: Record<string, readonly string[]> = {
   schedule: ['AWS::Scheduler::Schedule'],
 };
 
+/** Plan presentation kinds that are not inventory catalog kinds. The plan's
+ * `worker` role (a background worker or a one-shot scheduled task) is ECS
+ * compute the inventory classifies as `application`, and `worker` is not a
+ * member of the inventory kind enum at all. */
+const INVENTORY_KIND_BY_PLAN_KIND: Readonly<Record<string, string>> = {
+  worker: 'application',
+};
+
 /** Evaluates one smoke check against a probe result — pure, so retries just call it again. */
 export function evaluateSmokeCheck(
   check: SmokeCheck,
@@ -760,10 +768,12 @@ export async function runRepositoryAttempt(deps: DeployDeps, input: RepositoryAt
         details['infrastructure'] = { snapshotState: inventory.snapshotState, expectations: inventory.expectations };
         const expectedKinds = (inventory.expectations?.components ?? []).filter((c) => c.expected).map((c) => c.kind).sort();
         const plan = await deps.api.plan(deploymentId, 'install');
-        // A separate worker is a second `application` component, so the plan's
-        // per-component kinds can legitimately repeat a catalog kind; the
-        // expectations model dedupes by kind. Compare sets, not lists.
-        const planCreateKinds = [...new Set(plan.components.filter((c) => c.action === 'CREATE').map((c) => c.kind))].sort();
+        // The plan and the inventory are two taxonomies: a separate worker is a
+        // second `application` component, and the plan's `worker` role (a
+        // background worker or a one-shot scheduled task) is ECS compute the
+        // inventory classifies as `application`. Fold it, then compare sets,
+        // not lists.
+        const planCreateKinds = [...new Set(plan.components.filter((c) => c.action === 'CREATE').map((c) => INVENTORY_KIND_BY_PLAN_KIND[c.kind] ?? c.kind))].sort();
         details['planCreateKinds'] = planCreateKinds;
         details['expectedKinds'] = expectedKinds;
         result.inventory.planCreateKinds = planCreateKinds;

@@ -1467,6 +1467,25 @@ describe('inventory gate (plan-versus-actual)', () => {
     expect(out.inventory.unexpected).toEqual([]);
   });
 
+  it('folds the plan `worker` role into the inventory `application` kind', async () => {
+    const { run } = attempt(deployable, {
+      plan: {
+        components: [
+          { kind: 'application', name: 'Web', action: 'CREATE', lifecycle: 'delete' },
+          { kind: 'worker', name: 'Scheduled task', action: 'CREATE', lifecycle: 'delete' },
+          { kind: 'endpoint', name: 'Endpoint', action: 'CREATE', lifecycle: 'delete' },
+          { kind: 'database', name: 'Database', action: 'CREATE', lifecycle: 'retain' },
+          { kind: 'storage', name: 'Storage', action: 'CREATE', lifecycle: 'retain' },
+        ],
+      },
+    });
+    const out = await run();
+    // `worker` is a plan presentation role, not an inventory catalog kind:
+    // the inventory classifies every AWS::ECS::* resource as `application`.
+    expect(out.inventory.planCreateKinds).toEqual(['application', 'database', 'endpoint', 'storage']);
+    expect(out.inventory.status).toBe('PASS');
+  });
+
   it('fails INFRA_ERROR when the infrastructure expectations never settle', async () => {
     const { run } = attempt(deployable, {
       infrastructure: {
