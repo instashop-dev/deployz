@@ -277,6 +277,8 @@ const KIND_TO_AWS_TYPES: Record<string, readonly string[]> = {
   database: ['AWS::RDS::DBInstance'],
   cache: ['AWS::ElastiCache::ReplicationGroup', 'AWS::ElastiCache::CacheCluster'],
   storage: ['AWS::S3::Bucket'],
+  queue: ['AWS::SQS::Queue'],
+  schedule: ['AWS::Scheduler::Schedule'],
 };
 
 /** Evaluates one smoke check against a probe result — pure, so retries just call it again. */
@@ -758,7 +760,10 @@ export async function runRepositoryAttempt(deps: DeployDeps, input: RepositoryAt
         details['infrastructure'] = { snapshotState: inventory.snapshotState, expectations: inventory.expectations };
         const expectedKinds = (inventory.expectations?.components ?? []).filter((c) => c.expected).map((c) => c.kind).sort();
         const plan = await deps.api.plan(deploymentId, 'install');
-        const planCreateKinds = plan.components.filter((c) => c.action === 'CREATE').map((c) => c.kind).sort();
+        // A separate worker is a second `application` component, so the plan's
+        // per-component kinds can legitimately repeat a catalog kind; the
+        // expectations model dedupes by kind. Compare sets, not lists.
+        const planCreateKinds = [...new Set(plan.components.filter((c) => c.action === 'CREATE').map((c) => c.kind))].sort();
         details['planCreateKinds'] = planCreateKinds;
         details['expectedKinds'] = expectedKinds;
         result.inventory.planCreateKinds = planCreateKinds;
