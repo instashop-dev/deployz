@@ -420,3 +420,14 @@ repositories:
     notes:
       - "AWS Gate C (Phase 4) qualification. S3_BUCKET/AWS_REGION are Deployz bindings; the static S3 key pair is a customer credential (a Gate C IAM user scoped to the run's bucket), delivered from the environment and never stored. The Deployz bucket blocks public access with ACLs disabled, so S3_PUBLIC_ACL=false and public HLS playback from the bucket is out of scope."
       - "HOVOD_ROLE stays unset (allinone): with DATABASE_URL and REDIS_URL bound, the one web task runs the API and the worker processes and no embedded MariaDB/Redis. A separate worker service needs a per-workload role/command a vendor cannot declare today (worker_command stays Needs input)."
+
+  - id: repo-300
+    deploymentClass: fresh-full
+    findings: []
+    fork: deployz-demo/async-pg-worker-app
+    overrides:
+      healthPath: /health
+    dependencies: { postgres: verify, storage: verify }
+    verify: { healthPath: /health, appPath: /health }
+    notes:
+      - "AWS Gate D (Phase 5) real-AWS qualification. Combined D1 (SQS+separate worker+Postgres) and D2 (EventBridge Scheduler) fixture. Branch purpose: prove queue/schedule edge-specific IAM and standalone-scheduled-task provisioning. Follows the same shape as the simulated 'phase5-composition' scenario but routes through real AWS. Smoke checks are not required because this run is a qualification; the harness's `--no-knee` equivalent is the absence of a smoke entry."
