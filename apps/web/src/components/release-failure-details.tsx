@@ -4,6 +4,7 @@ import { Bot, Copy, FileText, LifeBuoy, RotateCcw, Sparkles } from 'lucide-react
 import { useCallback, useEffect, useState } from 'react';
 import { toast } from 'sonner';
 
+import { FailurePanel } from '@/components/failure-panel';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
@@ -71,10 +72,14 @@ async function copyText(text: string, success: string): Promise<void> {
 export function ReleaseFailureDetails({
   applicationId,
   release,
+  installedInstead,
   onCreateRelease,
 }: {
   applicationId: string;
   release: Release;
+  /** The release customers still get while this one failed — set only when
+   *  `installReleaseState` says a different release is the one installing. */
+  installedInstead: Release | null;
   onCreateRelease: () => void;
 }) {
   const [state, setState] = useState<DetailsState>({ status: 'loading' });
@@ -136,124 +141,134 @@ export function ReleaseFailureDetails({
   const deployzIssue = details.cause.owner === 'deployz';
 
   return (
-    <div className="flex flex-col gap-4 p-4" data-testid={`release-failure-details-${release.id}`}>
-      <div className="flex flex-col gap-1.5">
-        <div className="flex flex-wrap items-center gap-2">
+    <div className="p-4" data-testid={`release-failure-details-${release.id}`}>
+      <FailurePanel
+        testId={`release-failure-panel-${release.id}`}
+        title={details.summary}
+        description={
+          <div className="flex flex-col gap-4">
+            <div className="flex flex-col gap-1.5">
+              <span className="text-xs text-muted-foreground">Failed while: {details.stageLabel}</span>
+              {details.finalCheckOnly ? <span className="text-xs text-muted-foreground">{FINAL_CHECK_NOTE}</span> : null}
+            </div>
+
+            <dl className="grid gap-3 text-sm sm:grid-cols-[10rem_1fr]">
+              <dt className="font-medium">Earliest error found</dt>
+              <dd className="min-w-0">
+                {details.observedError ? (
+                  <code className="block rounded bg-muted px-2 py-1 font-mono text-xs break-all whitespace-pre-wrap">
+                    {details.observedError}
+                  </code>
+                ) : (
+                  <span className="text-muted-foreground" data-testid="release-failure-no-error">
+                    {details.cause.owner === 'undetermined'
+                      ? 'Not found in the available evidence. The cause is unknown.'
+                      : 'Not found in the available evidence.'}
+                  </span>
+                )}
+              </dd>
+              <dt className="font-medium">Next step</dt>
+              <dd className="flex min-w-0 flex-col gap-1">
+                <span data-testid="release-failure-next-step">{details.cause.nextStep}</span>
+                <span className="text-xs text-muted-foreground">{details.cause.basis}</span>
+              </dd>
+            </dl>
+
+            {details.logs.status === 'available' ? (
+              <details className="group rounded-lg border" open>
+                <summary className="cursor-pointer px-3 py-2 text-sm font-medium">
+                  Relevant log lines ({excerpt.length} of {details.logs.lineCount})
+                </summary>
+                <LogLines lines={excerpt} className="max-h-72 border-t" />
+              </details>
+            ) : (
+              <p className="text-sm text-muted-foreground" data-testid="release-failure-log-status">
+                {BUILD_LOG_STATUS_COPY[details.logs.status]}
+              </p>
+            )}
+
+            {deployzIssue ? null : (
+              <p className="text-xs text-muted-foreground">
+                The prompt is an investigation prompt: it asks your agent to find the cause before it
+                changes code. Copying it starts nothing and gives no access to Deployz or AWS.
+              </p>
+            )}
+
+            <div aria-live="polite">
+              <ExplanationResult state={explanation} />
+            </div>
+          </div>
+        }
+        impact={installedInstead ? `Customers still get ${installedInstead.version}.` : null}
+        whoActs={
           <Badge variant={OWNER_BADGE[details.cause.owner]} data-testid="release-failure-owner">
             {BUILD_FAILURE_OWNER_LABEL[details.cause.owner]}
           </Badge>
-          <span className="text-xs text-muted-foreground">Failed while: {details.stageLabel}</span>
-        </div>
-        <p className="text-sm" data-testid="release-failure-summary">
-          {details.summary}
-        </p>
-        {details.finalCheckOnly ? <p className="text-xs text-muted-foreground">{FINAL_CHECK_NOTE}</p> : null}
-      </div>
-
-      <dl className="grid gap-3 text-sm sm:grid-cols-[10rem_1fr]">
-        <dt className="font-medium">Earliest error found</dt>
-        <dd className="min-w-0">
-          {details.observedError ? (
-            <code className="block rounded bg-muted px-2 py-1 font-mono text-xs break-all whitespace-pre-wrap">
-              {details.observedError}
-            </code>
-          ) : (
-            <span className="text-muted-foreground" data-testid="release-failure-no-error">
-              {details.cause.owner === 'undetermined'
-                ? 'Not found in the available evidence. The cause is unknown.'
-                : 'Not found in the available evidence.'}
-            </span>
-          )}
-        </dd>
-        <dt className="font-medium">Next step</dt>
-        <dd className="flex min-w-0 flex-col gap-1">
-          <span data-testid="release-failure-next-step">{details.cause.nextStep}</span>
-          <span className="text-xs text-muted-foreground">{details.cause.basis}</span>
-        </dd>
-      </dl>
-
-      {details.logs.status === 'available' ? (
-        <details className="group rounded-lg border" open>
-          <summary className="cursor-pointer px-3 py-2 text-sm font-medium">
-            Relevant log lines ({excerpt.length} of {details.logs.lineCount})
-          </summary>
-          <LogLines lines={excerpt} className="max-h-72 border-t" />
-        </details>
-      ) : (
-        <p className="text-sm text-muted-foreground" data-testid="release-failure-log-status">
-          {BUILD_LOG_STATUS_COPY[details.logs.status]}
-        </p>
-      )}
-
-      <div className="flex flex-wrap items-center gap-2">
-        {deployzIssue ? (
+        }
+        action={
+          <>
+            {deployzIssue ? (
+              <Button
+                size="sm"
+                onClick={() =>
+                  void copyText(buildSupportReport(details), 'Report copied. Send it to Deployz support.')
+                }
+              >
+                <LifeBuoy aria-hidden />
+                Copy report for Deployz support
+              </Button>
+            ) : (
+              <Button
+                size="sm"
+                onClick={() =>
+                  void copyText(
+                    buildInvestigationPrompt(details, aiResult),
+                    'Investigation prompt copied. Paste it into your coding agent.',
+                  )
+                }
+              >
+                <Bot aria-hidden />
+                Copy prompt for coding agent
+              </Button>
+            )}
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setLogOpen(true)}
+              disabled={details.logs.status !== 'available'}
+            >
+              <FileText aria-hidden />
+              View build logs
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={explain}
+              disabled={excerpt.length === 0}
+              loading={explanation.status === 'loading'}
+              loadingText="Explaining…"
+            >
+              <Sparkles aria-hidden />
+              Explain with AI
+            </Button>
+            {details.cause.owner === 'repository' || details.cause.owner === 'transient' ? (
+              <Button variant="ghost" size="sm" onClick={onCreateRelease}>
+                Create release
+              </Button>
+            ) : null}
+          </>
+        }
+        technical={
           <Button
+            variant="outline"
             size="sm"
-            onClick={() =>
-              void copyText(buildSupportReport(details), 'Report copied. Send it to Deployz support.')
-            }
+            onClick={() => void copyText(buildTechnicalDetails(details), 'Technical details copied.')}
           >
-            <LifeBuoy aria-hidden />
-            Copy report for Deployz support
+            <Copy aria-hidden />
+            Copy technical details
           </Button>
-        ) : (
-          <Button
-            size="sm"
-            onClick={() =>
-              void copyText(
-                buildInvestigationPrompt(details, aiResult),
-                'Investigation prompt copied. Paste it into your coding agent.',
-              )
-            }
-          >
-            <Bot aria-hidden />
-            Copy prompt for coding agent
-          </Button>
-        )}
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => setLogOpen(true)}
-          disabled={details.logs.status !== 'available'}
-        >
-          <FileText aria-hidden />
-          View build logs
-        </Button>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => void copyText(buildTechnicalDetails(details), 'Technical details copied.')}
-        >
-          <Copy aria-hidden />
-          Copy technical details
-        </Button>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={explain}
-          disabled={excerpt.length === 0}
-          loading={explanation.status === 'loading'}
-          loadingText="Explaining…"
-        >
-          <Sparkles aria-hidden />
-          Explain with AI
-        </Button>
-        {details.cause.owner === 'repository' || details.cause.owner === 'transient' ? (
-          <Button variant="ghost" size="sm" onClick={onCreateRelease}>
-            Create release
-          </Button>
-        ) : null}
-      </div>
-      {deployzIssue ? null : (
-        <p className="-mt-2 text-xs text-muted-foreground">
-          The prompt is an investigation prompt: it asks your agent to find the cause before it changes
-          code. Copying it starts nothing and gives no access to Deployz or AWS.
-        </p>
-      )}
-
-      <div aria-live="polite">
-        <ExplanationResult state={explanation} />
-      </div>
+        }
+      />
 
       <BuildLogDialog
         open={logOpen}

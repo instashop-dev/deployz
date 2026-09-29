@@ -1,6 +1,5 @@
 'use client';
 
-import Link from 'next/link';
 import { useParams, useSearchParams } from 'next/navigation';
 import { Suspense, useEffect, useState, type FormEvent, type ReactNode } from 'react';
 
@@ -22,7 +21,6 @@ import {
 import { TONE_TEXT } from '@/lib/status-tone';
 import { cn } from '@/lib/utils';
 
-import { useApplicationPage } from '../application-page-context';
 import { DeploymentConfiguration } from './deployment-configuration';
 import { EnvironmentVariablesSection } from './environment-variables-section';
 import { GeneralSettings } from './general-settings';
@@ -59,7 +57,6 @@ function ConfigScreen() {
   const id = Array.isArray(params.id) ? (params.id[0] ?? '') : (params.id ?? '');
   const customerId = searchParams.get('customer');
   const [state, setState] = useState<PageState>({ status: 'loading' });
-  const { data: pageData } = useApplicationPage();
 
   useEffect(() => {
     let cancelled = false;
@@ -85,27 +82,26 @@ function ConfigScreen() {
 
   return (
     <div className="flex flex-col gap-6">
-      {state.status === 'loading' ? <PageSkeleton /> : null}
-      {state.status === 'error' ? (
-        <section
-          aria-labelledby="config-error"
-          className="rounded-xl border border-dashed px-6 py-16 text-center"
-        >
-          <h2 id="config-error" className="text-lg font-semibold">
-            Something went wrong
-          </h2>
-          <p className="mt-1 text-sm text-muted-foreground">{state.message}</p>
-        </section>
-      ) : null}
-      {state.status === 'loaded' ? (
-        <ConfigBody
-          data={state.data}
-          applicationName={pageData?.application.name ?? null}
-          onSaved={(next) => setState({ status: 'loaded', data: next })}
-        />
-      ) : null}
-
-      <DeploymentConfiguration />
+      {/* ux-guidelines §3 section order: Required changes, Environment
+          variables, Services, Build & runtime, Settings. `DeploymentConfiguration`
+          supplies the first, third and fourth around the `children` slot. */}
+      <DeploymentConfiguration>
+        {state.status === 'loading' ? <PageSkeleton /> : null}
+        {state.status === 'error' ? (
+          <section
+            aria-labelledby="config-error"
+            className="rounded-xl border border-dashed px-6 py-16 text-center"
+          >
+            <h2 id="config-error" className="text-lg font-semibold">
+              Something went wrong
+            </h2>
+            <p className="mt-1 text-sm text-muted-foreground">{state.message}</p>
+          </section>
+        ) : null}
+        {state.status === 'loaded' ? (
+          <ConfigBody data={state.data} onSaved={(next) => setState({ status: 'loaded', data: next })} />
+        ) : null}
+      </DeploymentConfiguration>
 
       <GeneralSettings />
     </div>
@@ -114,66 +110,39 @@ function ConfigScreen() {
 
 function ConfigBody({
   data,
-  applicationName,
   onSaved,
 }: {
   data: ApplicationConfig;
-  applicationName: string | null;
   onSaved: (next: ApplicationConfig) => void;
 }) {
-  const effectiveCount = data.effective.length;
-  const secretCount = data.effective.filter((entry) => entry.isSecret).length;
+  const showCustomerOverrides = data.customerId !== null;
+  // The analysis-driven table above already lets a vendor enter a value for
+  // any detected variable set to "vendor" (its own value-entry row) — a
+  // saved default with no matching detected variable (added by hand, not
+  // from analysis, or before analysis has run at all) has nowhere else to
+  // show, so it stays in this group instead of a second full table. Starts
+  // empty (nothing filtered out — every default shows) so a slow or failed
+  // fetch of the analysis table's variable list never hides a saved value.
+  const [coveredKeys, setCoveredKeys] = useState<string[]>([]);
+  const otherDefaults = data.vendorDefaults.filter((entry) => !coveredKeys.includes(entry.key));
 
   return (
     <>
-      <div>
-        <h2 id="environment" className="text-base font-semibold">
-          Environment variables
-        </h2>
-        <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
-          Defaults apply to every customer. Overrides apply to one customer and take precedence.
-          Secrets are write-only — you can replace one, but never see its current value.
-        </p>
-      </div>
-
       <EnvironmentVariablesSection
         applicationId={data.applicationId}
         vendorDefaults={data.vendorDefaults}
         onValuesSaved={onSaved}
+        onVariableKeysChange={setCoveredKeys}
       />
-
-      {effectiveCount > 0 ? (
-        <Card data-testid="config-runtime-summary">
-          <CardContent className="flex flex-col gap-2 py-4">
-            <p className="text-sm font-medium">
-              {effectiveCount} {effectiveCount === 1 ? 'variable' : 'variables'} managed by Deployz
-              {secretCount > 0 ? ` (${secretCount} ${secretCount === 1 ? 'secret' : 'secrets'})` : ''}
-            </p>
-            <div className="flex flex-wrap gap-2">
-              {data.effective.map((entry) => (
-                <code
-                  key={entry.key}
-                  className="flex items-center gap-1.5 rounded bg-muted px-2 py-0.5 font-mono text-xs"
-                >
-                  {entry.key}
-                  <Badge variant="secondary" className="h-4 px-1 text-[10px]">
-                    {entry.isSecret ? 'Secret' : 'Plain'}
-                  </Badge>
-                </code>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
-      ) : null}
 
       <ConfigSection
         title="Defaults"
-        description="Apply to every customer unless a customer overrides them."
+        description="Values that are not part of the detected environment variables above. Apply to every customer unless a customer overrides them."
         helpText="Apply to new deployments — running deployments keep their current values."
         testId="config-vendor-defaults"
         applicationId={data.applicationId}
         customerId={null}
-        entries={data.vendorDefaults}
+        entries={otherDefaults}
         vendorDefaults={data.vendorDefaults}
         editable
         emptyMessage="No defaults set yet."
@@ -186,38 +155,21 @@ function ConfigBody({
         }
       />
 
-      <ConfigSection
-        title="Customer overrides"
-        description={customerScopeDescription(data)}
-        helpText={
-          data.customerId !== null
-            ? "Saved overrides reach this customer's running deployment within a few minutes."
-            : null
-        }
-        testId="config-customer-overrides"
-        applicationId={data.applicationId}
-        customerId={data.customerId}
-        entries={data.customerOverrides}
-        vendorDefaults={data.vendorDefaults}
-        editable={data.customerId !== null}
-        emptyMessage={
-          data.customerId !== null ? (
-            'No overrides for this customer yet.'
-          ) : (
-            <>
-              No customer is selected.{' '}
-              <Link
-                href={`/dashboard/deployments${applicationName ? `?application=${encodeURIComponent(applicationName)}` : ''}`}
-                className="underline underline-offset-2 hover:text-foreground"
-              >
-                Open a customer deployment
-              </Link>{' '}
-              to edit its overrides.
-            </>
-          )
-        }
-        onSaved={onSaved}
-      />
+      {showCustomerOverrides ? (
+        <ConfigSection
+          title="Customer overrides"
+          description={customerScopeDescription(data)}
+          helpText="Saved overrides reach this customer's running deployment within a few minutes."
+          testId="config-customer-overrides"
+          applicationId={data.applicationId}
+          customerId={data.customerId}
+          entries={data.customerOverrides}
+          vendorDefaults={data.vendorDefaults}
+          editable
+          emptyMessage="No overrides for this customer yet."
+          onSaved={onSaved}
+        />
+      ) : null}
     </>
   );
 }

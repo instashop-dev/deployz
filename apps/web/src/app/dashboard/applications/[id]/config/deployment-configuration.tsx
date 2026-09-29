@@ -1,21 +1,21 @@
 'use client';
 
-import { ChevronDown, Info, RefreshCw, TriangleAlert } from 'lucide-react';
+import { Info, TriangleAlert } from 'lucide-react';
 import { forwardRef, useEffect, useRef, useState, type ReactNode } from 'react';
 
 import { ApplicationArchitectureSection } from '@/components/application-architecture-section';
 import { FixInstructionsDialog } from '@/components/fix-instructions-dialog';
 import { PlannedInfrastructure } from '@/components/planned-infrastructure';
+import { TechnicalDetails } from '@/components/technical-details';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import type { DeploymentPlan } from '@deployz/contracts';
 
-import type { AnalysisStatus } from '@/lib/applications';
+import type { Application, AnalysisStatus } from '@/lib/applications';
 import {
   deriveAnalysisDetails,
   deriveConfigurationRows,
@@ -25,7 +25,11 @@ import {
   type ConfigurationRow,
   type RequiredChange,
 } from '@/lib/application-configuration';
-import type { DeploymentRequirementDriftSummary, EditableReadinessField } from '@/lib/readiness';
+import type {
+  ApplicationReadiness,
+  DeploymentRequirementDriftSummary,
+  EditableReadinessField,
+} from '@/lib/readiness';
 
 import { useApplicationPage } from '../application-page-context';
 import { EditDialog, RequirementDriftNotice } from '../readiness-components';
@@ -38,10 +42,58 @@ const LONG_VALUE_THRESHOLD = 32;
 
 // The Configuration tab's readiness surface — everything that used to live on
 // the overview page's "Deployment readiness" table, now framed around what a
-// vendor configures rather than what the analyser checked. Re-analysis lives
-// here too: the table is what a fresh analysis actually changes.
-export function DeploymentConfiguration() {
-  const { data, loading, presentation, refresh, reanalyse, reanalysing } = useApplicationPage();
+// vendor configures rather than what the analyser checked.
+
+/** The edit/fix dialogs both `RequiredChangesPanel` and `ServicesSection` /
+ *  `BuildRuntimeSection` open — one instance, owned by the Configuration
+ *  page so every section can route into the same dialog. */
+export function ConfigurationDialogs({
+  applicationId,
+  application,
+  readiness,
+  editingField,
+  fixOpen,
+  onCloseFix,
+  onCloseEdit,
+  onReanalyse,
+  onSaved,
+}: {
+  applicationId: string;
+  application: Application;
+  readiness: ApplicationReadiness;
+  editingField: EditableReadinessField | null;
+  fixOpen: boolean;
+  onCloseFix: () => void;
+  onCloseEdit: () => void;
+  onReanalyse: () => void;
+  onSaved: () => Promise<void>;
+}) {
+  return (
+    <>
+      <FixInstructionsDialog
+        open={fixOpen}
+        applicationId={applicationId}
+        onClose={onCloseFix}
+        onReanalyse={onReanalyse}
+      />
+      <EditDialog
+        field={editingField}
+        application={application}
+        readiness={readiness}
+        onClose={onCloseEdit}
+        onSaved={onSaved}
+      />
+    </>
+  );
+}
+
+// Composes the Configuration tab's readiness-driven sections in ux-guidelines
+// §3 order: Required changes, then `children` (Environment variables, owned
+// by the caller), then Services, then Build & runtime. Self-contained so it
+// can be rendered on its own — it reads the page context and owns the one
+// edit/fix dialog pair every section below routes into.
+export function DeploymentConfiguration({ children }: { children?: ReactNode }) {
+  const { data, loading, presentation, refresh, reanalyse } = useApplicationPage();
   const [editingField, setEditingField] = useState<EditableReadinessField | null>(null);
   const [fixOpen, setFixOpen] = useState(false);
   const panelRef = useRef<HTMLDivElement | null>(null);
@@ -77,8 +129,15 @@ export function DeploymentConfiguration() {
     return () => window.removeEventListener('hashchange', focusRequiredChanges);
   }, [data, requiredChanges.length]);
 
-  if (loading) return <DeploymentConfigurationSkeleton />;
-  if (!data) return null;
+  if (loading) {
+    return (
+      <>
+        {children}
+        <DeploymentConfigurationSkeleton />
+      </>
+    );
+  }
+  if (!data) return <>{children}</>;
 
   const { application, readiness } = data;
   const details = deriveAnalysisDetails(readiness);
@@ -87,40 +146,27 @@ export function DeploymentConfiguration() {
   function rememberOpener(): void {
     openerRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
   }
-
   function restoreFocus(): void {
     const opener = openerRef.current;
     requestAnimationFrame(() => opener?.focus());
   }
-
   function openFix(): void {
     rememberOpener();
     setFixOpen(true);
   }
-
   function openEdit(field: EditableReadinessField): void {
     rememberOpener();
     setEditingField(field);
   }
 
   return (
-    <section className="flex flex-col gap-6">
-      <RequiredChangesPanel
-        ref={panelRef}
-        changes={requiredChanges}
-        onEdit={openEdit}
-        onShowFix={openFix}
-      />
+    <>
+      <RequiredChangesPanel ref={panelRef} changes={requiredChanges} onEdit={openEdit} onShowFix={openFix} />
 
-      {readiness.architecture ? (
-        <ApplicationArchitectureSection
-          architecture={readiness.architecture}
-          onEdit={openEdit}
-          onShowFix={openFix}
-        />
-      ) : null}
+      {children}
 
-      <DataInfrastructureSection
+      <ServicesSection
+        architecture={readiness.architecture}
         plan={data.plan}
         rows={infrastructureRows}
         analyzing={analyzing}
@@ -129,50 +175,49 @@ export function DeploymentConfiguration() {
         onShowFix={openFix}
       />
 
-      <DeploymentPreferencesSection
+      <BuildRuntimeSection
         ref={headingRef}
         rows={preferenceRows}
         analyzing={analyzing}
         analysisStatus={application.analysisStatus}
         readinessSummary={presentation.readinessSummary}
         analyzedCommitSha={readiness.analyzedCommitSha}
-        reanalyse={reanalyse}
-        reanalysing={reanalysing}
-        analysing={presentation.state === 'analysing'}
         details={details}
         drifts={readiness.deploymentRequirementDrift}
         onEdit={openEdit}
         onShowFix={openFix}
       />
 
-      <FixInstructionsDialog
-        open={fixOpen}
+      <ConfigurationDialogs
         applicationId={application.id}
-        onClose={() => {
+        application={application}
+        readiness={readiness}
+        editingField={editingField}
+        fixOpen={fixOpen}
+        onCloseFix={() => {
           setFixOpen(false);
+          restoreFocus();
+        }}
+        onCloseEdit={() => {
+          setEditingField(null);
           restoreFocus();
         }}
         onReanalyse={() => {
           void reanalyse();
           setFixOpen(false);
         }}
-      />
-
-      <EditDialog
-        field={editingField}
-        application={application}
-        readiness={readiness}
-        onClose={() => {
-          setEditingField(null);
-          restoreFocus();
-        }}
         onSaved={refresh}
       />
-    </section>
+    </>
   );
 }
 
-function DataInfrastructureSection({
+// The canonical vendor resource view (ux-guidelines §8): the detected
+// application architecture, what customers get from the plan, and the
+// analysis-driven infrastructure configuration — one "Services" section
+// instead of three separately-headed ones.
+export function ServicesSection({
+  architecture,
   plan,
   rows,
   analyzing,
@@ -180,6 +225,7 @@ function DataInfrastructureSection({
   onEdit,
   onShowFix,
 }: {
+  architecture: ApplicationReadiness['architecture'];
   plan: DeploymentPlan | null;
   rows: ConfigurationRow[];
   analyzing: boolean;
@@ -187,108 +233,95 @@ function DataInfrastructureSection({
   onEdit: (field: EditableReadinessField) => void;
   onShowFix: () => void;
 }) {
-  const hasContent = plan !== null || rows.length > 0 || analysisStatus === 'ANALYZING';
+  const arch = architecture ?? null;
+  const hasContent = arch !== null || plan !== null || rows.length > 0 || analysisStatus === 'ANALYZING';
   if (!hasContent) return null;
 
   return (
-    <section aria-labelledby="data-infrastructure-heading" className="flex flex-col gap-3">
-      <h2 id="data-infrastructure-heading" className="text-base font-semibold">
-        Data & infrastructure
+    <section id="services" aria-labelledby="services-heading" className="flex scroll-mt-20 flex-col gap-5">
+      <h2 id="services-heading" className="text-base font-semibold">
+        Services
       </h2>
+
+      {arch ? (
+        <ApplicationArchitectureSection architecture={arch} onEdit={onEdit} onShowFix={onShowFix} />
+      ) : null}
+
       <PlannedInfrastructure plan={plan} />
+
       {rows.length > 0 || analyzing ? (
-        <Card className="py-0">
-          <CardContent className="overflow-x-auto p-0">
-            <Table data-testid="readiness-infrastructure-table">
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Configuration</TableHead>
-                  <TableHead>Value</TableHead>
-                  <TableHead>Result</TableHead>
-                  <TableHead>Action</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody aria-busy={analyzing || undefined}>
-                {rows.map((row) => (
-                  <ConfigurationTableRow
-                    key={row.id}
-                    row={row}
-                    onEdit={onEdit}
-                    onShowFix={onShowFix}
-                  />
-                ))}
-                {rows.length === 0 && analyzing ? (
-                  <ConfigurationTablePlaceholder analysisStatus={analysisStatus} />
-                ) : null}
-              </TableBody>
-            </Table>
-          </CardContent>
-        </Card>
+        <div className="flex flex-col gap-3">
+          <h3 className="text-sm font-medium text-muted-foreground">Configuration</h3>
+          <Card className="py-0">
+            <CardContent className="overflow-x-auto p-0">
+              <Table data-testid="readiness-infrastructure-table">
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Configuration</TableHead>
+                    <TableHead>Value</TableHead>
+                    <TableHead>Result</TableHead>
+                    <TableHead>Action</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody aria-busy={analyzing || undefined}>
+                  {rows.map((row) => (
+                    <ConfigurationTableRow key={row.id} row={row} onEdit={onEdit} onShowFix={onShowFix} />
+                  ))}
+                  {rows.length === 0 && analyzing ? (
+                    <ConfigurationTablePlaceholder analysisStatus={analysisStatus} />
+                  ) : null}
+                </TableBody>
+              </Table>
+            </CardContent>
+          </Card>
+        </div>
       ) : null}
     </section>
   );
 }
 
-const DeploymentPreferencesSection = forwardRef<HTMLHeadingElement, {
+export const BuildRuntimeSection = forwardRef<HTMLHeadingElement, {
   rows: ConfigurationRow[];
   analyzing: boolean;
   analysisStatus: AnalysisStatus;
   readinessSummary: string | null;
   analyzedCommitSha: string | null;
-  reanalyse: () => Promise<void>;
-  reanalysing: boolean;
-  analysing: boolean;
   details: AnalysisDetail[];
   drifts: DeploymentRequirementDriftSummary[];
   onEdit: (field: EditableReadinessField) => void;
   onShowFix: () => void;
-}>(function DeploymentPreferencesSection({
+}>(function BuildRuntimeSection({
   rows,
   analyzing,
   analysisStatus,
   readinessSummary,
   analyzedCommitSha,
-  reanalyse,
-  reanalysing,
-  analysing,
   details,
   drifts,
   onEdit,
   onShowFix,
 }, ref) {
   return (
-    <section aria-labelledby="deployment-configuration" className="flex flex-col gap-3">
+    <section id="build-runtime" aria-labelledby="build-runtime-heading" className="flex scroll-mt-20 flex-col gap-3">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h2
-            id="deployment-configuration"
+            id="build-runtime-heading"
             ref={ref}
             tabIndex={-1}
-            className="scroll-mt-20 text-base font-semibold"
+            className="text-base font-semibold"
           >
-            Deployment preferences
+            Build & runtime
           </h2>
           {readinessSummary ? (
             <p className="text-sm text-muted-foreground">{readinessSummary}</p>
           ) : null}
         </div>
-        <div className="flex shrink-0 flex-wrap items-center gap-3 text-sm text-muted-foreground">
-          {analyzedCommitSha ? (
-            <span data-testid="readiness-commit">Analysed commit {analyzedCommitSha.slice(0, 7)}</span>
-          ) : null}
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => void reanalyse()}
-            loading={reanalysing}
-            loadingText="Analysing application…"
-            disabled={analysing}
-            data-testid="app-details-reanalyse"
-          >
-            <RefreshCw className="size-3.5" aria-hidden />
-            Re-analyse
-          </Button>
-        </div>
+        {analyzedCommitSha ? (
+          <span className="shrink-0 text-sm text-muted-foreground" data-testid="readiness-commit">
+            Analysed commit {analyzedCommitSha.slice(0, 7)}
+          </span>
+        ) : null}
       </div>
 
       <Card className="py-0">
@@ -319,7 +352,11 @@ const DeploymentPreferencesSection = forwardRef<HTMLHeadingElement, {
         </CardContent>
       </Card>
 
-      <AnalysisDetailsSection details={details} />
+      {details.length > 0 ? (
+        <TechnicalDetails>
+          <AnalysisDetailsContent details={details} />
+        </TechnicalDetails>
+      ) : null}
       <RequirementDriftNotice drifts={drifts} />
     </section>
   );
@@ -329,7 +366,7 @@ const DeploymentPreferencesSection = forwardRef<HTMLHeadingElement, {
 // link (`#required-changes`) or scrolls to on their own — every blocking
 // finding in one place, each routed to the same fix (edit dialog or
 // instructions) the table row below uses.
-function RequiredChangesPanel({
+export function RequiredChangesPanel({
   ref,
   changes,
   onEdit,
@@ -577,36 +614,24 @@ function ConfigurationTablePlaceholder({ analysisStatus }: { analysisStatus: Ana
   );
 }
 
-function AnalysisDetailsSection({ details }: { details: AnalysisDetail[] }) {
-  if (details.length === 0) return null;
+function AnalysisDetailsContent({ details }: { details: AnalysisDetail[] }) {
   return (
-    <Collapsible className="rounded-md border" data-testid="analysis-details">
-      <CollapsibleTrigger className="group flex w-full items-center justify-between gap-4 px-4 py-3 text-left text-sm">
-        <span className="font-medium">Analysis details</span>
-        <ChevronDown
-          aria-hidden
-          className="size-4 shrink-0 text-muted-foreground transition-transform group-data-[state=open]:rotate-180"
-        />
-      </CollapsibleTrigger>
-      <CollapsibleContent>
-        <div className="flex flex-col gap-4 border-t px-4 py-4">
-          {details.map((detail) => (
-            <div key={detail.id}>
-              <h3 className="text-sm font-medium">{detail.label}</h3>
-              <ul className="mt-1 flex flex-col gap-1 text-sm text-muted-foreground">
-                {detail.lines.map((line, index) => (
-                  <li key={index}>{line}</li>
-                ))}
-              </ul>
-            </div>
-          ))}
+    <div className="flex flex-col gap-4">
+      {details.map((detail) => (
+        <div key={detail.id}>
+          <h3 className="text-sm font-medium">{detail.label}</h3>
+          <ul className="mt-1 flex flex-col gap-1 text-sm text-muted-foreground">
+            {detail.lines.map((line, index) => (
+              <li key={index}>{line}</li>
+            ))}
+          </ul>
         </div>
-      </CollapsibleContent>
-    </Collapsible>
+      ))}
+    </div>
   );
 }
 
-function DeploymentConfigurationSkeleton() {
+export function DeploymentConfigurationSkeleton() {
   return (
     <div className="flex flex-col gap-3" aria-busy="true" data-testid="deployment-configuration-loading">
       <Skeleton className="h-5 w-56" />

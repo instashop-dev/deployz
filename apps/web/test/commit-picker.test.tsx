@@ -120,7 +120,7 @@ function click(el: Element | null): void {
 
 async function openForm(container: HTMLElement): Promise<void> {
   const button = Array.from(container.querySelectorAll('button')).find(
-    (b) => b.textContent === 'Create Release',
+    (b) => b.textContent === 'Create release',
   );
   await act(async () => {
     click(button ?? null);
@@ -148,7 +148,7 @@ async function selectCommitOption(label: string): Promise<void> {
   });
 }
 
-// Scoped to the form: the page's own "Create Release"/"Cancel" toggle button
+// Scoped to the form: the page's own "Create release"/"Cancel" toggle button
 // has no explicit `type`, so the DOM's native default also reports it as
 // "submit" — matching against the whole container would find that button
 // instead of the form's real submit button.

@@ -113,10 +113,10 @@ export default function ReleasesPage() {
         <p className="text-sm text-muted-foreground" data-testid="release-install-summary">
           {state.status === 'loaded'
             ? installSummaryLine(state.releases)
-            : 'Each release is an image built from one commit.'}
+            : 'Each release is built from one commit.'}
         </p>
         <Button className="shrink-0" onClick={() => setFormOpen((open) => !open)}>
-          {formOpen ? 'Cancel' : 'Create Release'}
+          {formOpen ? 'Cancel' : 'Create release'}
         </Button>
       </div>
 
@@ -246,7 +246,7 @@ function CreateReleaseForm({
             </div>
           <div className="flex items-center gap-3">
             <Button type="submit" loading={pending} loadingText="Creating release…" disabled={!commitReady}>
-              Create Release
+              Create release
             </Button>
             {error ? (
               <p role="alert" className="text-sm text-destructive">
@@ -362,6 +362,7 @@ function ReleaseTable({
 }) {
   const install = installReleaseState(releases);
   const installableId = install.kind === 'ready' ? install.release.id : null;
+  const installableRelease = install.kind === 'ready' ? install.release : null;
 
   return (
     <Card className="py-0">
@@ -383,6 +384,12 @@ function ReleaseTable({
                 applicationId={applicationId}
                 release={release}
                 isInstallable={release.id === installableId}
+                // What still installs while THIS release's build failed — only
+                // set when a different release is the one customers actually
+                // get, straight from `installReleaseState`, never inferred here.
+                installedInstead={
+                  installableRelease && installableRelease.id !== release.id ? installableRelease : null
+                }
                 running={deployments === null ? null : runningOn(deployments, release.id)}
                 repoFullName={repoFullName}
                 onCreateRelease={onCreateRelease}
@@ -405,6 +412,7 @@ function ReleaseRow({
   applicationId,
   release,
   isInstallable,
+  installedInstead,
   running,
   repoFullName,
   onCreateRelease,
@@ -412,6 +420,7 @@ function ReleaseRow({
   applicationId: string;
   release: Release;
   isInstallable: boolean;
+  installedInstead: Release | null;
   running: RunningOn | null;
   repoFullName: string | null;
   onCreateRelease: () => void;
@@ -522,7 +531,12 @@ function ReleaseRow({
               )}
             </dl>
             {failed ? (
-              <ReleaseFailureDetails applicationId={applicationId} release={release} onCreateRelease={onCreateRelease} />
+              <ReleaseFailureDetails
+                applicationId={applicationId}
+                release={release}
+                installedInstead={installedInstead}
+                onCreateRelease={onCreateRelease}
+              />
             ) : (
               <div className="pb-3" />
             )}

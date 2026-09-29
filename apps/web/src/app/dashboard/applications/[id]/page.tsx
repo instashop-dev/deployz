@@ -2,17 +2,17 @@
 
 import Link from 'next/link';
 
-import { ArchitectureDetectedCard } from '@/components/architecture-detected-card';
 import { PublicInstallLinkCard } from '@/components/public-install-link-card';
 import { Skeleton } from '@/components/ui/skeleton';
-import type { ApplicationRecentEvent } from '@/lib/application-state';
+import { footprintComponentRows } from '@/lib/footprint';
 
 import { ApplicationStateCard } from './application-state-card';
 import { useApplicationPage } from './application-page-context';
 
-// The Overview tab: the one state-aware card, the customer install-link card
-// when it is not already the card's own primary action, and at most one
-// recent-event line. Everything renders from `presentation` — see
+// The Overview tab: at most three blocks (ux-guidelines §3) — the one
+// state-aware card, the customer install-link card when it is not already
+// the card's own primary action, and one "N services detected" line into
+// Configuration › Services. Everything renders from `presentation` — see
 // `lib/application-state.ts` for the single source of truth.
 export default function ApplicationOverviewPage() {
   const { id, data, loading, presentation, refresh, reanalyse, reanalysing } = useApplicationPage();
@@ -25,11 +25,13 @@ export default function ApplicationOverviewPage() {
     );
   }
 
-  // Present only when the analysis completed: every other state (running,
-  // failed, stale) keeps the primary card as the single source of state.
-  const architectureCard =
-    data !== null && data.readiness.analysisStatus === 'COMPLETE' && data.readiness.architecture
-      ? { architecture: data.readiness.architecture, summary: data.readiness.summary }
+  // Same source the Services section itself renders from: the detected
+  // application architecture when analysis found one, else the INSTALL
+  // plan's own component rows.
+  const serviceCount =
+    data !== null
+      ? (data.readiness.architecture?.groups.reduce((total, group) => total + group.nodes.length, 0) ??
+        (data.plan?.footprint ? footprintComponentRows(data.plan.footprint).length : null))
       : null;
 
   return (
@@ -41,29 +43,20 @@ export default function ApplicationOverviewPage() {
         reanalyse={reanalyse}
         reanalysing={reanalysing}
       />
-      {architectureCard ? <ArchitectureDetectedCard {...architectureCard} /> : null}
       {presentation.installLinkPlacement === 'card' ? (
         <PublicInstallLinkCard applicationId={id} installLink={presentation.installLink} onChanged={refresh} />
       ) : null}
-      {presentation.recentEvent ? <RecentEventRow event={presentation.recentEvent} /> : null}
-    </div>
-  );
-}
-
-function RecentEventRow({ event }: { event: ApplicationRecentEvent }) {
-  return (
-    <div
-      className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground"
-      data-testid="application-recent-event"
-    >
-      <span className="font-medium text-foreground">{event.label}</span>
-      <span aria-hidden>·</span>
-      <span>{event.status}</span>
-      <span aria-hidden>·</span>
-      <span>{new Date(event.at).toLocaleDateString()}</span>
-      <Link href={event.href} className="underline underline-offset-4 hover:text-foreground">
-        View
-      </Link>
+      {serviceCount !== null && serviceCount > 0 ? (
+        <p className="text-sm text-muted-foreground" data-testid="application-services-count">
+          {serviceCount} {serviceCount === 1 ? 'service' : 'services'} detected ·{' '}
+          <Link
+            href={`/dashboard/applications/${id}/config#services`}
+            className="underline underline-offset-4 hover:text-foreground"
+          >
+            View
+          </Link>
+        </p>
+      ) : null}
     </div>
   );
 }

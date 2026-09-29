@@ -25,7 +25,7 @@ import { deleteApplication, updateApplication, type Application } from '@/lib/ap
 
 import { useApplicationPage } from '../application-page-context';
 
-// The Configuration tab's "General" section — the application name, its
+// The Configuration tab's "Settings" section — the application name, its
 // (read-only) repository, and the danger zone. Moved here as is from the old
 // overview page: same requests, same copy, same safeguards.
 export function GeneralSettings() {
@@ -35,10 +35,10 @@ export function GeneralSettings() {
   if (!data) return null;
 
   return (
-    <div className="flex flex-col gap-6">
+    <div id="settings" className="flex scroll-mt-20 flex-col gap-6">
       <section aria-labelledby="general" className="flex flex-col gap-3">
         <h2 id="general" className="text-base font-semibold">
-          General
+          Settings
         </h2>
         <Card>
           <CardContent className="flex flex-col gap-4 py-4">
