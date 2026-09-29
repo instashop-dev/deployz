@@ -180,6 +180,26 @@ jobs:
             --build-arg "NEXT_PUBLIC_SITE_URL=https://$MARKETING_HOST" \
             -t "deployz-web:${DEPLOY_SHA}" .
 
+      # Every push stores a new image (":<service>.web.<N>") and Lightsail
+      # refuses a push once the service holds its maximum number of images
+      # (150). Keep the newest images for rollback and delete the rest —
+      # never the image a current or pending deployment runs.
+      - name: Prune old container images
+        env:
+          KEEP_IMAGES: 10
+        run: |
+          set -euo pipefail
+          in_use=" $(aws lightsail get-container-services --service-name "$SERVICE" \
+            --query 'containerServices[0].[currentDeployment.containers.web.image, nextDeployment.containers.web.image]' \
+            --output text | tr '\t' ' ') "
+          old=$(aws lightsail get-container-images --service-name "$SERVICE" \
+            --query "sort_by(containerImages, &createdAt)[:-${KEEP_IMAGES}].image" --output text)
+          for image in $old; do
+            case "$in_use" in *" $image "*) continue ;; esac
+            echo "deleting $image"
+            aws lightsail delete-container-image --service-name "$SERVICE" --image "$image"
+          done
+
       - name: Push the image to Lightsail
         run: |
           set -euo pipefail
