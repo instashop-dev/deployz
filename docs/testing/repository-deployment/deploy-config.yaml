@@ -432,6 +432,7 @@ repositories:
       - { key: ORDERS_QUEUE_URL, value: "" }
       - { key: ORDERS_DLQ_URL, value: "" }
       - { key: AWS_S3_BUCKET, value: "" }
+      - { key: DATABASE_URL, value: "" }
     dependencies: { postgres: verify, storage: verify }
     verify: { healthPath: /health, appPath: /health }
     notes:
