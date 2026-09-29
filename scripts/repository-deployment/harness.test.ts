@@ -1448,6 +1448,25 @@ describe('inventory gate (plan-versus-actual)', () => {
     expect(out.inventory).toMatchObject({ status: 'PASS', planCreateKinds: ['application', 'database', 'endpoint', 'storage'], missing: [], unexpected: [] });
   });
 
+  it('dedupes a repeated catalog kind (web + separate worker are both `application`)', async () => {
+    const { run } = attempt(deployable, {
+      plan: {
+        components: [
+          { kind: 'application', name: 'Web', action: 'CREATE', lifecycle: 'delete' },
+          { kind: 'application', name: 'Worker', action: 'CREATE', lifecycle: 'delete' },
+          { kind: 'endpoint', name: 'Endpoint', action: 'CREATE', lifecycle: 'delete' },
+          { kind: 'database', name: 'Database', action: 'CREATE', lifecycle: 'retain' },
+          { kind: 'storage', name: 'Storage', action: 'CREATE', lifecycle: 'retain' },
+        ],
+      },
+    });
+    const out = await run();
+    expect(out.inventory.status).toBe('PASS');
+    expect(out.inventory.planCreateKinds).toEqual(['application', 'database', 'endpoint', 'storage']);
+    expect(out.inventory.missing).toEqual([]);
+    expect(out.inventory.unexpected).toEqual([]);
+  });
+
   it('fails INFRA_ERROR when the infrastructure expectations never settle', async () => {
     const { run } = attempt(deployable, {
       infrastructure: {

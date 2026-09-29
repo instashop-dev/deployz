@@ -474,6 +474,38 @@ describe('github — repository tree fetch (§18 analysis input)', () => {
     ]);
   });
 
+  it('fetches scheduled-job declarations the Phase 5D detector reads (render.yaml, vercel.json, crontab, *.cron)', async () => {
+    const fetchFn: FetchFn = async (url) => {
+      if (url.includes('/git/trees/')) {
+        return makeFetchResponse(200, {
+          tree: [
+            { path: 'package.json', type: 'blob', sha: 'sha-pkg', size: 10 },
+            { path: 'render.yaml', type: 'blob', sha: 'sha-render', size: 10 },
+            { path: 'vercel.json', type: 'blob', sha: 'sha-vercel', size: 10 },
+            { path: 'crontab', type: 'blob', sha: 'sha-crontab', size: 10 },
+            { path: 'jobs/cleanup.cron', type: 'blob', sha: 'sha-cron', size: 10 },
+            { path: 'README.md', type: 'blob', sha: 'sha-readme', size: 10 }, // still irrelevant
+          ],
+        });
+      }
+      const sha = url.split('/').pop();
+      return makeFetchResponse(200, {
+        content: Buffer.from(`content-${sha}`).toString('base64'),
+        encoding: 'base64',
+      });
+    };
+
+    const tree = await buildFileTreeForAnalysis(REF, 'tok', fetchFn);
+
+    expect(Object.keys(tree).sort()).toEqual([
+      'crontab',
+      'jobs/cleanup.cron',
+      'package.json',
+      'render.yaml',
+      'vercel.json',
+    ]);
+  });
+
   it('fetches the additional manifest/compose/env-sample/source shapes Redis detection needs (§7 of the Redis MVP)', async () => {
     const calls: string[] = [];
     const fetchFn: FetchFn = async (url) => {

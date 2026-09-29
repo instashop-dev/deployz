@@ -687,6 +687,13 @@ const LOCKFILE_BASENAME_REGEX =
 const DEPLOYMENT_DESCRIPTOR_REGEX =
   /(?:^|\/)(?:kustomization\.ya?ml|Chart\.ya?ml|.*\.tf|.*\.bicep)$/i;
 
+// Scheduled-job declarations (Phase 5D): render.yaml `type: cron` services,
+// vercel.json `crons`, and crontab / *.cron files — the shapes
+// detectScheduledJobs reads. None are source extensions or the other manifest
+// shapes above, so they need an explicit rule to reach the analysis tree.
+const SCHEDULE_FILE_REGEX =
+  /(?:^|\/)(?:render\.ya?ml|vercel\.json|crontab)$|\.cron$/i;
+
 function isIgnoredPath(path: string): boolean {
   return path.split('/').some((segment) => IGNORED_DIR_SEGMENTS.has(segment));
 }
@@ -704,6 +711,7 @@ function isRelevantPath(path: string): boolean {
   if (COMPOSE_REGEX.test(path)) return true;
   if (ENV_SAMPLE_REGEX.test(path)) return true;
   if (DEPLOYMENT_DESCRIPTOR_REGEX.test(path)) return true;
+  if (SCHEDULE_FILE_REGEX.test(path)) return true;
   const isRoot = !path.includes('/');
   if (isRoot) {
     if (/^\.env(\.\w+)?$/i.test(path)) return true;
