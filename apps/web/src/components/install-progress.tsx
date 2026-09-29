@@ -12,11 +12,10 @@ import type {
 import { AlertCircle, AlertTriangle, CheckCircle2, ChevronDown, ExternalLink, Loader2 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 
-import { DeploymentStepper } from '@/components/deployment-stepper';
+import { StepList, type StepListItem } from '@/components/step-list';
 import { AwsInfrastructureDetails } from '@/components/aws-infrastructure-details';
 import { CustomDomainCard } from '@/components/custom-domain-card';
 import { FootprintSummary } from '@/components/footprint-summary';
-import { LiveStepDetail } from '@/components/live-step-detail';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -50,44 +49,23 @@ import { cn } from '@/lib/utils';
 import { useStatusPoll } from '@/lib/use-status-poll';
 
 /**
- * The customer's grouped stepper with a live, ticking detail on the active
- * step only (LiveStepDetail — current activity, duration/slow-step line with
- * elapsed time, last-checked time). Completed and upcoming steps never carry
- * a detail — no percentages, no countdowns, no per-step ETAs.
+ * The customer's grouped step list. The active step's live detail (current
+ * activity, duration/slow-step line, last-checked time) is supplied to
+ * `StepList` as `liveDetail` so only it ticks — except while HTTPS waits on
+ * a custom domain, when that promise-nothing's-happening nudge would be
+ * wrong and the step instead carries the static waiting-on-input line.
  */
-function activeStepDetail({
-  status,
-  checkedAt,
-  active,
-}: {
-  status: CustomerDeploymentStatus;
-  checkedAt: number | null;
-  active: boolean;
-}) {
-  // HTTPS waits for a domain, not for AWS: LiveStepDetail's "still working"
-  // nudge and elapsed counter would otherwise promise work nothing is doing.
+function customerStepListSteps(status: CustomerDeploymentStatus): StepListItem[] {
   const waitingOnInput = stepWaitingOnInput({
     step: status.step,
     needsDomainSetup: status.needsDomainSetup,
   });
-  return customerStepperSteps(
-    stepsFromStatus({ steps: status.steps, step: status.step, stage: status.stage }).map((step) => {
-      if (step.state !== 'current') return step;
-      if (waitingOnInput) return { ...step, detail: AWAITING_DOMAIN_STEP_DETAIL };
-      return {
-        ...step,
-        detail: (
-          <LiveStepDetail
-            currentActivity={status.currentActivity}
-            takingLongerThanUsual={status.takingLongerThanUsual}
-            typicalDurationSeconds={status.typicalDurationSeconds}
-            stepStartedAt={status.stepStartedAt ?? null}
-            checkedAt={checkedAt}
-            active={active}
-          />
-        ),
-      };
-    }),
+  const steps = customerStepperSteps(
+    stepsFromStatus({ steps: status.steps, step: status.step, stage: status.stage }),
+  );
+  if (!waitingOnInput) return steps;
+  return steps.map((step) =>
+    step.state === 'current' ? { ...step, detail: AWAITING_DOMAIN_STEP_DETAIL } : step,
   );
 }
 
@@ -226,11 +204,11 @@ export function InstallProgress({
                 technicalDetails={status.technicalDetails}
                 cleanup={status.cleanup ?? null}
               />
-              {/* The attempt's own stepper stays visible after the failure:
+              {/* The attempt's own step list stays visible after the failure:
                   completed steps remain done, the interrupted step is the
                   failed one, later steps stay not started — the failure must
                   never read as "still deploying". */}
-              <DeploymentStepper steps={activeStepDetail({ status, checkedAt: poll.checkedAt, active })} />
+              <StepList steps={customerStepListSteps(status)} />
             </>
           ) : (
             <>
@@ -245,11 +223,24 @@ export function InstallProgress({
                 </Alert>
               ) : null}
 
-              <DeploymentStepper
+              <StepList
                 steps={
                   beforeLaunch
                     ? customerStepperSteps(stepsBeforeLaunch(status.steps))
-                    : activeStepDetail({ status, checkedAt: poll.checkedAt, active })
+                    : customerStepListSteps(status)
+                }
+                liveDetail={
+                  !beforeLaunch &&
+                  !stepWaitingOnInput({ step: status.step, needsDomainSetup: status.needsDomainSetup })
+                    ? {
+                        currentActivity: status.currentActivity,
+                        takingLongerThanUsual: status.takingLongerThanUsual,
+                        typicalDurationSeconds: status.typicalDurationSeconds,
+                        stepStartedAt: status.stepStartedAt ?? null,
+                        checkedAt: poll.checkedAt,
+                        active,
+                      }
+                    : undefined
                 }
               />
 

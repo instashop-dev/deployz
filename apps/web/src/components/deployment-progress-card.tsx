@@ -5,7 +5,7 @@ import { useEffect, useState } from 'react';
 import type { ComponentProgressStatus, DeploymentStep, VendorDeploymentStatus } from '@deployz/contracts';
 import { AlertTriangle } from 'lucide-react';
 
-import { DeploymentProgressSteps } from '@/components/deployment-progress-steps';
+import { StepList } from '@/components/step-list';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Card, CardContent } from '@/components/ui/card';
 import { relativeTime } from '@/lib/diagnostics';
@@ -172,7 +172,7 @@ export function DeploymentProgressCard({
           </Alert>
         ) : null}
 
-        <DeploymentProgressSteps steps={timedSteps(status)} />
+        <StepList steps={timedSteps(status)} />
 
         <ul className="flex flex-col gap-2">
           {specRows.length > 0
@@ -213,7 +213,7 @@ export function DeploymentProgressCard({
               className={`size-2 shrink-0 rounded-full ${status.relay.connected ? 'bg-primary' : 'bg-destructive'}`}
               aria-hidden
             />
-            <span className="text-sm font-medium">Deployz Relay</span>
+            <span className="text-sm font-medium">Deployz connector</span>
             {/* data-testid: masked in visual regression — relative time
                 drifts with the clock. */}
             <span className="ml-auto text-sm text-muted-foreground" data-testid="status-updated">

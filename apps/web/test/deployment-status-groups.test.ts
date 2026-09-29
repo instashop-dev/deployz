@@ -24,64 +24,91 @@ function withState(state: string, overrides: Parameters<typeof fleetDeployment>[
 describe('deploymentDisplayStatus — precise labels', () => {
   it.each([
     ['NOT_INSTALLED', 'Waiting for customer', 'waiting'],
-    ['WAITING_FOR_RELAY', 'Waiting for AWS', 'waiting'],
+    ['WAITING_FOR_RELAY', 'Setting up', 'in-progress'],
+    ['INSTALLING', 'Setting up', 'in-progress'],
     ['UPDATING', 'Updating', 'in-progress'],
-    ['UPDATE_AVAILABLE', 'Update available', 'update-available'],
-    ['HEALTHY', 'Healthy', 'healthy'],
-    ['FAILED', 'Failed', 'attention'],
-    ['DISCONNECTED', 'Disconnected', 'attention'],
+    ['UPDATE_AVAILABLE', 'Live', 'update-available'],
+    ['HEALTHY', 'Live', 'healthy'],
+    ['DISCONNECTED', 'Needs attention · Disconnected', 'attention'],
     ['DELETING', 'Removing', 'in-progress'],
     ['DELETED', 'Removed', 'removed'],
   ] as const)('%s reads "%s" under %s', (state, label, group) => {
     expect(deploymentDisplayStatus(withState(state))).toMatchObject({ label, group });
   });
 
-  it.each([
-    ['RELAY_CONNECT', 'Connecting'],
-    ['PREPARING', 'Provisioning'],
-    ['NETWORK', 'Provisioning'],
-    ['DATABASE_STORAGE', 'Provisioning'],
-    ['REDIS', 'Provisioning'],
-    ['MIGRATION', 'Running migrations'],
-    ['APPLICATION', 'Starting application'],
-    ['HEALTH_CHECK', 'Checking health'],
-    ['TLS', 'Setting up HTTPS'],
-  ])('an install on step %s reads "%s" and stays in progress', (step, label) => {
-    const status = deploymentDisplayStatus(
-      withState('INSTALLING', { deploymentStatus: { stage: 'PROVISIONING', step } as never }),
-    );
-    expect(status).toMatchObject({ label, group: 'in-progress', badge: 'info' });
-  });
-
-  it('falls back to "Installing" when the API sent no step or an unmapped one', () => {
-    const noStep = withState('INSTALLING', { deploymentStatus: { step: undefined } });
-    const unmapped = withState('INSTALLING', { deploymentStatus: { step: 'READY' } });
-    expect(deploymentDisplayStatus(noStep).label).toBe('Installing');
-    expect(deploymentDisplayStatus(unmapped).label).toBe('Installing');
-  });
-
-  it('keeps a HEALTHY deployment healthy while its stage is still finishing HTTPS', () => {
+  it('keeps a HEALTHY deployment live while its stage is still finishing HTTPS', () => {
     const status = deploymentDisplayStatus(
       withState('HEALTHY', { deploymentStatus: { stage: 'VERIFYING', step: 'TLS' } }),
     );
-    expect(status).toMatchObject({ label: 'Healthy', group: 'healthy' });
+    expect(status).toMatchObject({ label: 'Live', group: 'healthy' });
+  });
+});
+
+describe('deploymentDisplayStatus — FAILED kinds', () => {
+  it('reads as "Install failed" for a first install with no prior release', () => {
+    const status = deploymentDisplayStatus(withState('FAILED', { currentReleaseId: null }));
+    expect(status).toMatchObject({ label: 'Install failed', group: 'attention', badge: 'destructive' });
+  });
+
+  it('reads as "Removal failed" when the failed job is DESTROY', () => {
+    const status = deploymentDisplayStatus(
+      withState('FAILED', { deploymentStatus: { job: { type: 'DESTROY', status: 'FAILED' } } as never }),
+    );
+    expect(status).toMatchObject({ label: 'Removal failed', group: 'attention', badge: 'destructive' });
+  });
+
+  it('reads as "Update failed" for a failed day-2 job on a deployment that had already installed', () => {
+    const status = deploymentDisplayStatus(
+      withState('FAILED', {
+        currentReleaseId: 'rel-1',
+        deploymentStatus: { job: { type: 'DEPLOY_RELEASE', status: 'FAILED' } } as never,
+      }),
+    );
+    expect(status).toMatchObject({ label: 'Update failed', group: 'attention', badge: 'destructive' });
+  });
+
+  it('reads as "Install failed" for a failed day-2 job when nothing ever installed', () => {
+    const status = deploymentDisplayStatus(
+      withState('FAILED', {
+        currentReleaseId: null,
+        deploymentStatus: { job: { type: 'DEPLOY_RELEASE', status: 'FAILED' } } as never,
+      }),
+    );
+    expect(status).toMatchObject({ label: 'Install failed' });
   });
 });
 
 describe('deploymentDisplayStatus — attention overlays', () => {
   it('names the cause behind a running deployment that needs the vendor', () => {
     expect(deploymentDisplayStatus(withState('HEALTHY', { relayStatus: 'DISCONNECTED' }))).toMatchObject({
-      label: 'Lost contact',
+      label: 'Needs attention · Lost contact',
       group: 'attention',
     });
     expect(deploymentDisplayStatus(withState('HEALTHY', { healthStatus: 'UNHEALTHY' }))).toMatchObject({
-      label: 'Unhealthy',
+      label: 'Needs attention · Not responding',
       badge: 'destructive',
     });
     expect(deploymentDisplayStatus(withState('UPDATE_AVAILABLE', { healthStatus: 'DEGRADED' }))).toMatchObject({
-      label: 'Degraded',
+      label: 'Needs attention · Degraded',
       badge: 'warning',
     });
+  });
+
+  it('reads a failed day-2 attempt on a still-live deployment as "Update failed"', () => {
+    const status = deploymentDisplayStatus(
+      withState('HEALTHY', { deploymentStatus: { failure: { message: 'boom' } } as never }),
+    );
+    expect(status).toMatchObject({ label: 'Update failed', group: 'attention', badge: 'destructive' });
+  });
+
+  it('a failed update outranks failing health, matching the detail page headline', () => {
+    const status = deploymentDisplayStatus(
+      withState('HEALTHY', {
+        healthStatus: 'UNHEALTHY',
+        deploymentStatus: { failure: { message: 'boom' } } as never,
+      }),
+    );
+    expect(status).toMatchObject({ label: 'Update failed' });
   });
 
   it('never flags a deployment that is waiting or on its way out', () => {
@@ -95,7 +122,7 @@ describe('deploymentDisplayStatus — attention overlays', () => {
 
   it('surfaces a status this build does not know as attention, without leaking the raw value', () => {
     const status = deploymentDisplayStatus(withState('PAUSED_BY_FUTURE_FEATURE'));
-    expect(status).toEqual({ group: 'attention', label: 'Unknown status', badge: 'warning' });
+    expect(status).toEqual({ group: 'attention', label: 'Needs attention · Unknown status', badge: 'warning' });
   });
 });
 

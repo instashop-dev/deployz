@@ -169,7 +169,7 @@ test('fleet dashboard shows the §43 empty state for a fresh org', async ({ page
 
   await expect(page.getByRole('heading', { name: 'Deployments', exact: true })).toBeVisible();
   await expect(
-    page.getByRole('heading', { name: 'Your app is ready for private deployment' }),
+    page.getByRole('heading', { name: 'No customer deployments yet' }),
   ).toBeVisible();
 });
 
@@ -221,15 +221,14 @@ test('deployment detail page renders the §24 overview, infrastructure rows, and
 
   // Actions are contextual: day-2 actions (deploy/rollback/restart/config)
   // act on a running application, so they are not offered before an
-  // install. Diagnostics is always reachable; Disconnect lives behind the
-  // overflow menu and is capability-gated (a deployment with no relay ever
-  // connected has no reported capabilities, so it is disabled).
-  await expect(page.getByRole('link', { name: 'View Diagnostics' })).toBeVisible();
+  // install. Remove deployment lives behind the overflow menu and is
+  // capability-gated (a deployment with no relay ever connected has no
+  // reported capabilities, so it is disabled).
   await expect(page.getByRole('button', { name: 'Deploy Update' })).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Configuration' })).toHaveCount(0);
   await page.getByRole('button', { name: 'More actions' }).click();
   await expect(page.getByRole('menuitem', { name: 'Rollback' })).toHaveCount(0);
-  await expect(page.getByRole('menuitem', { name: 'Disconnect Deployment' })).toBeDisabled();
+  await expect(page.getByRole('menuitem', { name: 'Remove deployment' })).toBeDisabled();
   await page.keyboard.press('Escape');
 
   // §24 infrastructure. A deployment nobody has installed has no observed
@@ -241,7 +240,7 @@ test('deployment detail page renders the §24 overview, infrastructure rows, and
   // legitimately lists "Database" as a passed check.
   const infrastructure = page.locator('section[aria-labelledby="infrastructure"]');
   await expect(infrastructure.getByText('This deployment has not been installed yet.')).toBeVisible();
-  await expect(infrastructure.getByText('Deployz Relay', { exact: true })).toBeVisible();
+  await expect(infrastructure.getByText('Deployz connector', { exact: true })).toBeVisible();
   await expect(infrastructure.getByText('Database', { exact: true })).toHaveCount(0);
 });
 
@@ -373,9 +372,9 @@ test('disconnect requires typing the customer name to confirm (§63)', async ({ 
   // Destructive actions live behind the overflow menu, never beside the
   // primary action.
   await page.getByRole('button', { name: 'More actions' }).click();
-  await page.getByRole('menuitem', { name: 'Disconnect Deployment' }).click();
+  await page.getByRole('menuitem', { name: 'Remove deployment' }).click();
 
-  const confirmButton = page.getByRole('button', { name: 'Disconnect Deployment' }).last();
+  const confirmButton = page.getByRole('button', { name: 'Remove deployment' }).last();
   await expect(confirmButton).toBeDisabled();
 
   await page.getByLabel(`Type ${customerName} to confirm`).fill(customerName);

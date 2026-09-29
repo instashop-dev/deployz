@@ -478,7 +478,7 @@ test('failure path: a failed INSTALL shows a customer-safe message with no jargo
   // the hero's one `aria-live` element rather than by text.
   await page.goto(`/dashboard/deployments/${deploymentId}`);
   const progressCard = page.locator('section[aria-labelledby="deployment-progress"]');
-  await expect(progressCard.locator('[aria-live="polite"]')).toHaveText('Deployment failed');
+  await expect(progressCard.locator('[aria-live="polite"]')).toHaveText('Install failed');
   await expect(page.getByRole('button', { name: 'Retry deployment' })).toBeVisible();
 });
 

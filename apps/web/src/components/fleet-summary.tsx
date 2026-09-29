@@ -9,13 +9,13 @@ import { cn } from '@/lib/utils';
 export function FleetSummary({ summary }: { summary: FleetSummaryCounts }) {
   const items: { label: string; value: number; tone?: 'attention' }[] = [
     { label: summary.total === 1 ? 'Deployment' : 'Deployments', value: summary.total },
-    { label: 'Healthy', value: summary.healthy },
+    { label: 'Live', value: summary.healthy },
   ];
   if (summary.attention > 0) {
-    items.push({ label: 'Needs attention', value: summary.attention, tone: 'attention' });
+    items.push({ label: 'Failed or needs attention', value: summary.attention, tone: 'attention' });
   }
-  if (summary.deploying > 0) items.push({ label: 'Deploying', value: summary.deploying });
-  if (summary.waiting > 0) items.push({ label: 'Waiting to install', value: summary.waiting });
+  if (summary.deploying > 0) items.push({ label: 'In progress', value: summary.deploying });
+  if (summary.waiting > 0) items.push({ label: 'Waiting for customer', value: summary.waiting });
   if (summary.updates > 0)
     items.push({ label: summary.updates === 1 ? 'Update available' : 'Updates available', value: summary.updates });
 

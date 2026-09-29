@@ -410,15 +410,17 @@ describe('InstallProgress — failure flow', () => {
     const text = () => container!.textContent ?? '';
     expect(text()).toContain('Deployment failed');
     expect(text()).toContain('Deployz could not finish setting up your infrastructure.');
-    // The grouped stepper stays visible after the failure: completed rungs
-    // stay complete, the failed substep names the failure, later rungs stay
-    // not started — and nothing reads as in progress.
-    expect(text()).toContain('Network ready');
+    // The failed group stays visible; completed groups collapse into "N steps
+    // done" (ux-guidelines §9) — expand it to see them stayed complete.
     expect(text()).toContain('Creating database & storage failed');
-    expect(text()).toContain('Starting application');
     expect(text()).not.toContain('(in progress)');
-    expect(text()).toContain('Configure HTTPS');
-    expect(text()).toContain('Ready');
+    // A failed step has no next step: the operation stopped there.
+    expect(text()).not.toContain('Next:');
+    await act(async () => {
+      click(findTrigger('steps done'));
+    });
+    expect(text()).toContain('Network ready');
+    expect(text()).toContain('Starting application');
     // Default next steps: the vendor owns the retry.
     expect(text()).toContain('What happens next');
     expect(text()).toContain('No action is required right now.');

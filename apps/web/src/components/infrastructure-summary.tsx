@@ -8,8 +8,8 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
+  CONNECTOR_STATUS_LABEL,
   INFRASTRUCTURE_COMPONENT_NAME,
-  RELAY_STATUS_LABEL,
   infrastructureComponentStatusLabel,
   infrastructureMissingKinds,
   infrastructureNotRequiredKinds,
@@ -38,10 +38,10 @@ import { cn } from '@/lib/utils';
 
 const SUMMARY_LINE: Record<InfrastructureSummaryStatus, string> = {
   healthy: 'All required services are ready.',
-  provisioning: 'Services are being created.',
+  provisioning: 'Some services are still being set up.',
   updating: 'Services are being updated.',
   degraded: 'Some services need attention.',
-  failed: 'A service failed. Diagnostics explains what happened.',
+  failed: 'A service failed. The failure details above explain what happened.',
   deleting: 'Services are being removed.',
   retained: 'Retained services remain in the customer AWS account.',
   unknown: 'Service status is not available right now.',
@@ -241,9 +241,9 @@ function RelayLine({ status, lastContact }: { status: RelayStatus; lastContact: 
   return (
     <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-t pt-3 text-sm first:border-t-0 first:pt-0">
       <span className={`mx-1 size-2 shrink-0 rounded-full ${RELAY_DOT[status]}`} aria-hidden />
-      <span className="font-medium">Deployz Relay</span>
+      <span className="font-medium">Deployz connector</span>
       <span className="ml-auto text-right text-muted-foreground" data-testid="status-updated">
-        {lastContact ? `${RELAY_STATUS_LABEL[status]} · ${lastContact}` : RELAY_STATUS_LABEL[status]}
+        {lastContact ? `${CONNECTOR_STATUS_LABEL[status]} · ${lastContact}` : CONNECTOR_STATUS_LABEL[status]}
       </span>
     </div>
   );

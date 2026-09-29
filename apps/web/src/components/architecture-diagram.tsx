@@ -48,7 +48,7 @@ export function ArchitectureDiagram({ plan }: { plan: DeploymentPlan }) {
             <DiagramBox small>Monitoring</DiagramBox>
           </div>
           <Arrow />
-          <DiagramBox emphasis>Deployz Relay</DiagramBox>
+          <DiagramBox emphasis>Deployz connector</DiagramBox>
         </div>
       </div>
       <div className="mt-2 flex flex-col items-center gap-1 text-center">

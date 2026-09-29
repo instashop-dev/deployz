@@ -1,7 +1,6 @@
 'use client';
 
 import { AlertTriangle, ChevronDown } from 'lucide-react';
-import Link from 'next/link';
 import { useState } from 'react';
 import { toast } from 'sonner';
 
@@ -182,13 +181,7 @@ function ComponentRow({
             >
               Retry HTTPS setup
             </Button>
-          ) : (
-            <Button asChild size="sm" variant="outline" className="self-start">
-              <Link href={`/dashboard/deployments/${deploymentId}/diagnostics`}>
-                View diagnostics
-              </Link>
-            </Button>
-          )}
+          ) : null}
           {notice ? <p className="text-xs text-muted-foreground">{notice}</p> : null}
         </div>
       ) : null}

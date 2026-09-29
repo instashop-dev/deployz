@@ -31,6 +31,10 @@ export function attentionReason(deployment: FleetDeployment): string | null {
   if (deployment.relayStatus === 'DISCONNECTED') return 'Lost contact with this deployment';
   if (deployment.healthStatus === 'UNHEALTHY') return 'Health check failing';
   if (deployment.healthStatus === 'DEGRADED') return 'Health check degraded';
+  // The latest day-2 attempt failed while the previous release still serves
+  // (the API only sets this once a later release fails after an earlier one
+  // succeeded — see apps/api/src/deployment-status.ts).
+  if (deployment.deploymentStatus?.failure) return 'Update failed';
   return null;
 }
 
@@ -74,9 +78,13 @@ export function summarise(deployments: FleetDeployment[]): FleetSummary {
   for (const deployment of deployments) {
     if (attentionReason(deployment) !== null) {
       summary.attention += 1;
-    } else if (deployment.state === 'INSTALLING' || deployment.state === 'UPDATING') {
+    } else if (
+      deployment.state === 'INSTALLING' ||
+      deployment.state === 'UPDATING' ||
+      deployment.state === 'WAITING_FOR_RELAY'
+    ) {
       summary.deploying += 1;
-    } else if (deployment.state === 'NOT_INSTALLED' || deployment.state === 'WAITING_FOR_RELAY') {
+    } else if (deployment.state === 'NOT_INSTALLED') {
       summary.waiting += 1;
     } else if (deployment.state === 'UPDATE_AVAILABLE') {
       summary.updates += 1;
@@ -98,8 +106,14 @@ export function sortForHomepage(deployments: FleetDeployment[]): FleetDeployment
 
 function homeRank(deployment: FleetDeployment): number {
   if (attentionReason(deployment) !== null) return 0;
-  if (deployment.state === 'INSTALLING' || deployment.state === 'UPDATING') return 1;
-  if (deployment.state === 'NOT_INSTALLED' || deployment.state === 'WAITING_FOR_RELAY') return 2;
+  if (
+    deployment.state === 'INSTALLING' ||
+    deployment.state === 'UPDATING' ||
+    deployment.state === 'WAITING_FOR_RELAY'
+  ) {
+    return 1;
+  }
+  if (deployment.state === 'NOT_INSTALLED') return 2;
   return 3;
 }
 

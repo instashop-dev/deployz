@@ -100,6 +100,13 @@ describe('attentionReason', () => {
     expect(attentionReason(deployment({ state: 'WAITING_FOR_RELAY', relayStatus: 'UNKNOWN' }))).toBeNull();
     expect(attentionReason(deployment({ state: 'DELETING', healthStatus: 'UNHEALTHY' }))).toBeNull();
   });
+
+  it('flags a failed day-2 attempt while the previous release still serves', () => {
+    const withDayTwoFailure = deployment({
+      deploymentStatus: { failure: { message: 'The new release failed its health checks.' } },
+    } as never);
+    expect(attentionReason(withDayTwoFailure)).toBe('Update failed');
+  });
 });
 
 describe('summarise', () => {
@@ -114,7 +121,9 @@ describe('summarise', () => {
       // Unhealthy but still in the HEALTHY state: counted as attention, not healthy.
       deployment({ id: 'f', healthStatus: 'UNHEALTHY' }),
     ]);
-    expect(summary).toEqual({ total: 7, healthy: 1, attention: 2, deploying: 1, waiting: 2, updates: 1 });
+    // WAITING_FOR_RELAY counts as deploying (setting up), not waiting — the
+    // connector is already being created in the customer's account.
+    expect(summary).toEqual({ total: 7, healthy: 1, attention: 2, deploying: 2, waiting: 1, updates: 1 });
   });
 });
 
@@ -127,11 +136,13 @@ describe('sortForHomepage', () => {
       deployment({ id: 'failed', state: 'FAILED' }),
       deployment({ id: 'installing', state: 'INSTALLING' }),
     ]);
+    // WAITING_FOR_RELAY ranks with in-flight installs (setting up), ahead of
+    // a deployment nobody has installed yet.
     expect(rows.map((row) => row.id)).toEqual([
       'failed',
+      'waiting-relay',
       'installing',
       'waiting',
-      'waiting-relay',
       'healthy',
     ]);
   });
