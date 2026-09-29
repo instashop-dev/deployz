@@ -3,6 +3,8 @@ import { z } from 'zod';
 import { regionSchema } from './regions.js';
 import { manifestEnvBindingSchema } from './manifest.js';
 import { resourceLifecycleSchema, resourceScopeSchema } from './capability-registry.js';
+import { bindingAccessSchema } from './application-graph.js';
+import { scheduleExpressionSchema, scheduleRetryPolicySchema, scheduleTimezoneSchema } from './schedule.js';
 
 // ---------------------------------------------------------------------------
 // DeployzIR — Phase 1 authoritative provisioning intent.
@@ -91,6 +93,10 @@ export const irBindingSchema = z
     envBindings: z.array(manifestEnvBindingSchema),
     /** IAM actions the source requires against the target capability. */
     iamActions: z.array(z.string().min(1)),
+    /** Edge role from the graph (Phase 5B) — absent on pre-Phase-5 edges. */
+    access: bindingAccessSchema.optional(),
+    /** Redrive threshold for a queue → queue dead-letter edge. */
+    maxReceiveCount: z.number().int().min(1).max(1000).optional(),
   })
   .strict();
 export type IrBinding = z.infer<typeof irBindingSchema>;
@@ -105,13 +111,23 @@ export const irIngressSchema = z
   .strict();
 export type IrIngress = z.infer<typeof irIngressSchema>;
 
+/**
+ * A resolved schedule (Phase 5C). `targetWorkloadId` / `deadLetterQueueId`
+ * are the planner's resolution of the schedule's graph edges; the matching
+ * IR bindings carry the IAM those edges need.
+ */
 export const irScheduleSchema = z
   .object({
     id: z.string().min(1),
-    expression: z.string().min(1),
-    expressionType: z.enum(['cron', 'rate']),
-    timezone: z.string().nullable(),
+    /** Capability that provisions the schedule (e.g. 'aws.eventbridge-scheduler'). */
+    capabilityKey: z.string().min(1),
+    label: z.string().min(1),
+    expression: scheduleExpressionSchema,
+    timezone: scheduleTimezoneSchema.nullable(),
     targetWorkloadId: z.string().min(1),
+    retry: scheduleRetryPolicySchema,
+    deadLetterQueueId: z.string().min(1).nullable(),
+    enabled: z.boolean(),
   })
   .strict();
 export type IrSchedule = z.infer<typeof irScheduleSchema>;

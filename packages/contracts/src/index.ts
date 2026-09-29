@@ -20,6 +20,7 @@ export * from './application-graph.js';
 export * from './capability-registry.js';
 export * from './deployz-ir.js';
 export * from './deployment-spec-v2.js';
+export * from './schedule.js';
 
 // Shared Zod contracts between api and web. Shapes mirror the Drizzle schema
 // in @deployz/db (packages/db/src/schema/*.ts) exactly — the db stays the

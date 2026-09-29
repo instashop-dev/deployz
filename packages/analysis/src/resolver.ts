@@ -33,6 +33,11 @@ export function resolveResourceCapability(resource: Resource): string | null {
   if (kind === 'object_storage') {
     return CAPABILITY_KEYS.S3;
   }
+  // Phase 5A: Standard queues only — any other queue engine (FIFO, a broker)
+  // has no capability and stays unresolved.
+  if (kind === 'queue' && engine === 'standard') {
+    return CAPABILITY_KEYS.SQS;
+  }
   if (kind === 'generic_service' && id === 'endpoint') {
     return CAPABILITY_KEYS.ALB;
   }
@@ -40,14 +45,32 @@ export function resolveResourceCapability(resource: Resource): string | null {
   return null;
 }
 
+/** Standard-queue defaults (Phase 5A): 4 days of retention, a 30 s visibility timeout. */
+const QUEUE_DEFAULT_RETENTION_SECONDS = 345600;
+const QUEUE_DEFAULT_VISIBILITY_TIMEOUT_SECONDS = 30;
+/** A dead-letter queue keeps failed messages for the SQS maximum, 14 days. */
+const DEAD_LETTER_QUEUE_RETENTION_SECONDS = 1209600;
+
 /**
  * Build capability-specific sizing/configuration for a resolved capability
- * key, using the given infrastructure size profile.
+ * key, using the given infrastructure size profile. `deadLetterTarget` marks
+ * a queue some other queue or schedule dead-letters into.
  */
 export function buildCapabilityConfiguration(
   capabilityKey: string,
   profile: InfrastructureSizeProfile,
+  resource?: Resource,
+  deadLetterTarget = false,
 ): Record<string, unknown> {
+  if (capabilityKey === CAPABILITY_KEYS.SQS) {
+    return {
+      queueType: 'standard',
+      messageRetentionSeconds:
+        resource?.queue?.messageRetentionSeconds ??
+        (deadLetterTarget ? DEAD_LETTER_QUEUE_RETENTION_SECONDS : QUEUE_DEFAULT_RETENTION_SECONDS),
+      visibilityTimeoutSeconds: resource?.queue?.visibilityTimeoutSeconds ?? QUEUE_DEFAULT_VISIBILITY_TIMEOUT_SECONDS,
+    };
+  }
   if (capabilityKey === CAPABILITY_KEYS.RDS_POSTGRES) {
     return {
       engine: 'postgres',

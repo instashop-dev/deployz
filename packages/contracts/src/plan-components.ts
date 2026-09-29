@@ -48,6 +48,8 @@ const KIND_BY_CAPABILITY_KEY: Readonly<Record<string, DeploymentPlanComponent['k
   [CAPABILITY_KEYS.ELASTICACHE_VALKEY]: 'cache',
   [CAPABILITY_KEYS.S3]: 'storage',
   [CAPABILITY_KEYS.ALB]: 'endpoint',
+  [CAPABILITY_KEYS.SQS]: 'queue',
+  [CAPABILITY_KEYS.EVENTBRIDGE_SCHEDULER]: 'schedule',
 };
 
 function workloadKind(workload: IrWorkload): DeploymentPlanComponent['kind'] {
@@ -108,6 +110,18 @@ export function derivePlanComponentsFromSpec(spec: DeploymentSpecV2): Deployment
       action: 'UNCHANGED',
       lifecycle: resource.lifecycle,
       componentId: resource.componentId,
+      group: PLAN_COMPONENT_GROUP_BY_KIND[kind],
+    });
+  }
+
+  for (const schedule of spec.ir.schedules) {
+    const kind = KIND_BY_CAPABILITY_KEY[schedule.capabilityKey] ?? UNKNOWN_PLAN_COMPONENT_KIND;
+    entries.push({
+      kind,
+      name: schedule.label,
+      action: 'UNCHANGED',
+      lifecycle: 'delete',
+      componentId: schedule.id,
       group: PLAN_COMPONENT_GROUP_BY_KIND[kind],
     });
   }

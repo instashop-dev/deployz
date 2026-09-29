@@ -10,6 +10,7 @@ import {
   type InfrastructureSizeProfile,
   type IrBinding,
   type IrResource,
+  type IrSchedule,
   type IrWorkload,
   type Region,
   type Workload,
@@ -24,6 +25,7 @@ import {
   findCapability,
 } from '@deployz/contracts';
 
+import { relationshipViolations } from './relationships.js';
 import { buildCapabilityConfiguration, resolveResourceCapability } from './resolver.js';
 
 // ---------------------------------------------------------------------------
@@ -34,20 +36,28 @@ import { buildCapabilityConfiguration, resolveResourceCapability } from './resol
 // executes. Never touches AWS directly.
 // ---------------------------------------------------------------------------
 
+/** One-shot workloads (migration, scheduled job) run as tasks; the rest as services. */
 function computeCapabilityKey(workload: Workload): string {
-  return workload.kind === 'migration'
+  return workload.kind === 'migration' || workload.kind === 'scheduled-job'
     ? CAPABILITY_KEYS.ECS_FARGATE_TASK
     : CAPABILITY_KEYS.ECS_FARGATE_SERVICE;
 }
 
+/**
+ * The IAM actions an edge needs against its target capability — only the
+ * intents declared for the edge's own access (Phase 5B), so a producer edge
+ * never carries consumer actions. An edge without an access matches the
+ * intents without one (the pre-Phase-5 behaviour).
+ */
 function collectIamActions(
   capabilityKey: string | null,
   registry: CapabilityRegistry,
+  access: Binding['access'],
 ): string[] {
   if (!capabilityKey) return [];
   const cap = findCapability(registry, capabilityKey);
   if (!cap?.bindings.iam) return [];
-  return cap.bindings.iam.flatMap((entry) => entry.actions);
+  return cap.bindings.iam.filter((entry) => entry.access === access).flatMap((entry) => entry.actions);
 }
 
 function sortedJsonStringify(value: unknown): string {
@@ -75,9 +85,26 @@ export function planApplicationGraph(input: {
   const registry = input.registry ?? defaultCapabilityRegistry();
   const { graph, region } = input;
 
+  const violations = relationshipViolations(graph);
+  if (violations.length > 0) {
+    throw new Error(`planner: invalid relationships:\n${violations.join('\n')}`);
+  }
+
   const resolvedCapability = new Map(
     graph.resources.map((r) => [r.id, resolveResourceCapability(r)] as const),
   );
+  const workloadCapability = new Map(graph.workloads.map((w) => [w.id, computeCapabilityKey(w)] as const));
+  const deadLetterTargets = new Set(
+    graph.bindings.filter((b) => b.access === 'dead-letter').map((b) => b.targetId),
+  );
+
+  // Every edge with an access must land on a capability: a produce/consume/
+  // dead-letter edge to a queue with no capability (e.g. FIFO) fails closed.
+  for (const b of graph.bindings) {
+    if (b.access !== undefined && b.access !== 'invoke' && !resolvedCapability.get(b.targetId)) {
+      throw new Error(`planner: ${b.access} edge ${b.id} targets ${b.targetId}, which resolves to no capability`);
+    }
+  }
 
   // Workloads
   const workloads: IrWorkload[] = graph.workloads.map((w) => {
@@ -126,7 +153,7 @@ export function planApplicationGraph(input: {
         capabilityKey,
         label: r.label,
         quantity: r.quantity,
-        configuration: buildCapabilityConfiguration(capabilityKey, profile),
+        configuration: buildCapabilityConfiguration(capabilityKey, profile, r, deadLetterTargets.has(r.id)),
         lifecycle: (cap?.lifecycle.lifecycle ?? 'retain') as IrResource['lifecycle'],
         scope: 'REGIONAL' as const,
         envBindings: r.envBindings,
@@ -134,14 +161,36 @@ export function planApplicationGraph(input: {
     });
 
   // Bindings
+  // An edge's target capability is the target resource's — or, for an
+  // invoke edge, the target workload's compute capability.
   const bindings: IrBinding[] = graph.bindings.map((b: Binding) => {
-    const targetCapability = resolvedCapability.get(b.targetId) ?? null;
+    const targetCapability =
+      resolvedCapability.get(b.targetId) ?? (b.access === 'invoke' ? workloadCapability.get(b.targetId) ?? null : null);
     return {
       id: b.id,
       sourceId: b.sourceId,
       targetId: b.targetId,
       envBindings: b.envBindings,
-      iamActions: collectIamActions(targetCapability, registry),
+      iamActions: collectIamActions(targetCapability, registry, b.access),
+      ...(b.access !== undefined ? { access: b.access } : {}),
+      ...(b.maxReceiveCount !== undefined ? { maxReceiveCount: b.maxReceiveCount } : {}),
+    };
+  });
+
+  // Schedules (Phase 5C) — each resolved from its invoke / dead-letter edges.
+  const schedules: IrSchedule[] = (graph.schedules ?? []).map((s) => {
+    const edgeTarget = (access: Binding['access']): string | null =>
+      graph.bindings.find((b) => b.sourceId === s.id && b.access === access)?.targetId ?? null;
+    return {
+      id: s.id,
+      capabilityKey: CAPABILITY_KEYS.EVENTBRIDGE_SCHEDULER,
+      label: s.label,
+      expression: s.expression,
+      timezone: s.timezone,
+      targetWorkloadId: edgeTarget('invoke')!,
+      retry: s.retry,
+      deadLetterQueueId: edgeTarget('dead-letter'),
+      enabled: s.enabled,
     };
   });
 
@@ -159,7 +208,7 @@ export function planApplicationGraph(input: {
     resources,
     bindings,
     ingress,
-    schedules: [],
+    schedules,
     policies: {
       allowTopologyChanges: false,
       defaultRetention: 'retain',

@@ -1,5 +1,7 @@
 import { z } from 'zod';
 
+import { scheduleExpressionSchema, scheduleRetryPolicySchema, scheduleTimezoneSchema } from './schedule.js';
+
 // ---------------------------------------------------------------------------
 // Canonical deployment manifest (Phase 2 boundary).
 //
@@ -19,7 +21,7 @@ import { z } from 'zod';
 export const manifestEnvBindingSchema = z
   .object({
     name: z.string().min(1),
-    kind: z.enum(['url', 'host', 'port', 'bucket', 'database', 'username', 'password']),
+    kind: z.enum(['url', 'host', 'port', 'bucket', 'database', 'username', 'password', 'arn']),
   })
   .strict();
 export type ManifestEnvBinding = z.infer<typeof manifestEnvBindingSchema>;
@@ -104,6 +106,74 @@ export const manifestWorkerSchema = z
   })
   .strict();
 export type ManifestWorker = z.infer<typeof manifestWorkerSchema>;
+
+/** A stable kebab-case component id (queue, scheduled job). */
+const componentIdSchema = z.string().regex(/^[a-z][a-z0-9-]{0,39}$/);
+
+/**
+ * One Standard message queue the application both produces to and consumes
+ * from (Phase 5A/5B). Only evidence that resolves BOTH sides to declared
+ * workloads reaches the manifest; anything weaker is a `questions` entry.
+ * `producers`/`consumers` name workload ids (`web`, a worker id, a
+ * scheduled-job id) — the edges the graph turns into bindings and IAM.
+ */
+export const manifestQueueSchema = z
+  .object({
+    id: componentIdSchema,
+    /** The env vars the application reads for this queue (its own names). */
+    envBindings: z.array(manifestEnvBindingSchema).min(1),
+    producers: z.array(z.string().min(1)).min(1),
+    consumers: z.array(z.string().min(1)).min(1),
+    messageRetentionSeconds: z.number().int().min(60).max(1209600).optional(),
+    visibilityTimeoutSeconds: z.number().int().min(0).max(43200).optional(),
+    /** A Standard dead-letter queue the queue redrives to after `maxReceiveCount` receives. */
+    deadLetter: z
+      .object({
+        maxReceiveCount: z.number().int().min(1).max(1000),
+        /** Env vars the application reads for the dead-letter queue (may be empty). */
+        envBindings: z.array(manifestEnvBindingSchema),
+        producers: z.array(z.string().min(1)),
+        consumers: z.array(z.string().min(1)),
+      })
+      .strict()
+      .optional(),
+    /** Repository path(s) that evidenced the queue. */
+    source: z.string().min(1),
+  })
+  .strict();
+export type ManifestQueue = z.infer<typeof manifestQueueSchema>;
+
+/**
+ * One scheduled one-shot job (Phase 5C/5D): a frozen command on the shared
+ * build artifact, run on a schedule. Only explicit production schedule
+ * declarations (a deployment manifest naming both a schedule and a command)
+ * reach the manifest — in-process cron libraries and CI schedules never do.
+ */
+export const manifestScheduledJobSchema = z
+  .object({
+    id: componentIdSchema,
+    command: z.string().min(1),
+    schedule: scheduleExpressionSchema,
+    timezone: scheduleTimezoneSchema.nullable(),
+    retry: scheduleRetryPolicySchema.optional(),
+    /** Route undeliverable invocations to a Standard dead-letter queue. */
+    deadLetter: z.boolean().optional(),
+    enabled: z.boolean().optional(),
+    source: z.string().min(1),
+  })
+  .strict();
+export type ManifestScheduledJob = z.infer<typeof manifestScheduledJobSchema>;
+
+/** An ambiguous-evidence question (Phase 5): surfaced as Needs input, never provisioned. */
+export const manifestQuestionSchema = z
+  .object({
+    id: z.string().min(1),
+    field: z.enum(['queue_relationship', 'schedule']),
+    question: z.string().min(1),
+    source: z.string().min(1),
+  })
+  .strict();
+export type ManifestQuestion = z.infer<typeof manifestQuestionSchema>;
 
 export const deploymentManifestSchema = z
   .object({
@@ -234,6 +304,12 @@ export const deploymentManifestSchema = z
      * command for backward compatibility.
      */
     workers: z.array(manifestWorkerSchema).optional(),
+    /** Standard message queues (Phase 5, optional/additive — absent when none). */
+    queues: z.array(manifestQueueSchema).optional(),
+    /** Scheduled one-shot jobs (Phase 5, optional/additive — absent when none). */
+    scheduledJobs: z.array(manifestScheduledJobSchema).optional(),
+    /** Ambiguous queue/schedule evidence (Phase 5, optional/additive). */
+    questions: z.array(manifestQuestionSchema).optional(),
     environment: z
       .object({
         /**
