@@ -361,6 +361,11 @@ describe('PublicInstallFlow', () => {
 
     const button = document.querySelector('button[type="submit"]') as HTMLButtonElement;
     expect(button.disabled).toBe(true);
+    // Blocked reasons resolve in form order: region first.
+    expect(document.body.textContent).toContain('Select an AWS Region to continue.');
+
+    await selectRegion('US East (N. Virginia)');
+    expect(button.disabled).toBe(true);
     expect(document.body.textContent).toContain('Complete the required application settings to continue.');
 
     await fillForm();

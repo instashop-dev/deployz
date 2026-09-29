@@ -107,14 +107,14 @@ describe('DeployPage', () => {
     const doc = await renderPage();
 
     expect(doc.body.textContent).toContain('Acme Analytics');
-    expect(doc.body.textContent).toContain('Deploy privately to your AWS');
-    expect(doc.body.textContent).toContain('AWS account you control');
+    expect(doc.body.textContent).toContain('Deploy Acme Analytics to your AWS account');
+    expect(doc.body.textContent).toContain('runs in your own AWS account');
     // Plan-driven table content, not a hand-rolled resource-name list.
     expect(doc.body.textContent).toContain('Database');
     expect(doc.body.textContent).toContain('Stores persistent application data');
     expect(doc.body.textContent).toContain('US East (N. Virginia)');
     // No estimate in the fixture: the fallback stays explicit, never invented.
-    expect(doc.body.textContent).toContain('Estimate unavailable');
+    expect(doc.body.textContent).toContain('AWS cost estimate unavailable.');
     expect(doc.body.textContent).toContain('Powered by Deployz');
     expect(doc.querySelector('a[href="' + QUICK_CREATE + '"]')?.textContent).toBe('Review setup in AWS');
     expect(securityLink(doc)?.getAttribute('href')).toBe(SECURITY_HREF);
@@ -137,9 +137,10 @@ describe('DeployPage', () => {
     const doc = await renderPage();
 
     expect(doc.body.textContent).toContain('setting up inside your AWS account');
-    expect(doc.body.textContent).toContain('deployz-bootstrap-acme-analytics-1');
+    // The expected stack name now sits collapsed under Technical details.
+    expect(doc.body.textContent).toContain('Technical details');
     expect(doc.body.textContent).toContain('Still connecting');
-    expect(doc.body.textContent).toContain('Retry deployment');
+    expect(doc.body.textContent).toContain('Retry connection');
     expect(securityLink(doc)?.getAttribute('href')).toBe(SECURITY_HREF);
   });
 

@@ -169,13 +169,15 @@ test('vendor configures a customer-provided secret, publishes an install link, a
 
   const continueButton = page.getByRole('button', { name: 'Continue to setup' });
   await expect(continueButton).toBeDisabled();
-  await expect(page.getByText('Complete the required application settings to continue.')).toBeVisible();
+  // One line names what blocks the action, in form order: Region first.
+  await expect(page.getByText('Select an AWS Region to continue.')).toBeVisible();
 
   // Region choice is explicit — there is no silent first-region default.
   // The trigger has no accessible name (see final report), so it is scoped
   // by its section instead of matched by role name.
   await page.locator('section[aria-labelledby="public-region"]').getByRole('combobox').click();
   await page.getByRole('option', { name: 'US East (N. Virginia)' }).click();
+  await expect(page.getByText('Complete the required application settings to continue.')).toBeVisible();
 
   const customerEmail = `customer-${suffix}@example.com`;
   const secretValue = `super-secret-license-${suffix}`;

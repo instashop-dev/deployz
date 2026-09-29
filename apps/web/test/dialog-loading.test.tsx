@@ -159,7 +159,7 @@ describe('InstallRetryButton loading', () => {
 
     const { container } = render(<InstallRetryButton installLinkId="link-1" />);
     const button = container.querySelector('button') as HTMLButtonElement;
-    expect(button.textContent).toBe('Retry deployment');
+    expect(button.textContent).toBe('Retry connection');
 
     await act(async () => {
       click(button);
@@ -167,7 +167,7 @@ describe('InstallRetryButton loading', () => {
 
     expect(button.disabled).toBe(true);
     expect(button.getAttribute('aria-busy')).toBe('true');
-    expect(button.textContent).toBe('Retrying deployment…');
+    expect(button.textContent).toBe('Retrying connection…');
     expect(button.querySelector('[data-slot="spinner"]')).not.toBeNull();
     expect(routerMocks.refresh).not.toHaveBeenCalled();
 
@@ -178,7 +178,7 @@ describe('InstallRetryButton loading', () => {
 
     expect(button.disabled).toBe(false);
     expect(button.hasAttribute('aria-busy')).toBe(false);
-    expect(button.textContent).toBe('Retry deployment');
+    expect(button.textContent).toBe('Retry connection');
     expect(routerMocks.refresh).not.toHaveBeenCalled();
     expect(container.querySelector('[role="alert"]')?.textContent).toBe(
       "We couldn't start the retry. Try again in a moment.",

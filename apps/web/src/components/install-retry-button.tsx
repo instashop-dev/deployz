@@ -8,7 +8,8 @@ import type { DeployLinkToken } from '@/lib/deploy-link-flow';
 import { retryDeployLinkAttempt } from '@/lib/deploy-link-flow';
 import { InstallRetryError, retryInstallAttempt } from '@/lib/install-data';
 
-// Customer-facing retry for an install that never connected: starts a fresh
+// Customer-facing "Retry connection" for an install whose connector never
+// connected (ux-guidelines §1: the one action once the wait is stale): starts a fresh
 // attempt (new enrollment code, new stack name) and refreshes the page so it
 // re-renders the pre-install state with the new Quick Create link.
 export function InstallRetryButton({
@@ -48,12 +49,12 @@ export function InstallRetryButton({
   return (
     <div className="flex flex-col gap-2">
       <Button
-        variant="outline"
+        className="w-fit"
         loading={pending}
-        loadingText="Retrying deployment…"
+        loadingText="Retrying connection…"
         onClick={() => void onRetry()}
       >
-        Retry deployment
+        Retry connection
       </Button>
       {error ? (
         <p role="alert" className="text-sm text-destructive">

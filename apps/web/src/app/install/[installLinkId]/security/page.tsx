@@ -1,7 +1,9 @@
 import type { Metadata } from 'next';
 
+import { InvitationTokenGate } from '@/components/invitation-token-gate';
 import { SecurityDetailsContent } from '@/components/security-details-content';
 import { fetchInstallData } from '@/lib/install-data';
+import { fetchPublicInstallData } from '@/lib/public-install-data';
 
 export const metadata: Metadata = {
   title: 'Security details · Deployz',
@@ -18,6 +20,24 @@ export default async function SecurityDetailsPage({
   // for any id at all, including ones the parent route had already told the
   // reader were invalid.
   const lookup = await fetchInstallData(installLinkId);
+
+  // The install review links here before a deployment exists: a public link
+  // resolves with its plan, and a targeted invitation resolves client-side
+  // with the token its install page stored.
+  if (lookup.status === 'not_found') {
+    const publicLookup = await fetchPublicInstallData(installLinkId);
+    if (publicLookup?.status === 'ok') {
+      return (
+        <SecurityDetailsContent
+          plan={publicLookup.data.plan}
+          backHref={`/install/${encodeURIComponent(installLinkId)}`}
+        />
+      );
+    }
+    if (publicLookup === null) {
+      return <InvitationTokenGate installLinkId={installLinkId} view="security" />;
+    }
+  }
 
   if (lookup.status !== 'ok') {
     const heading =

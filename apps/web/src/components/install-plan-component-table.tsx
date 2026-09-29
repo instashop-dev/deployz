@@ -4,6 +4,7 @@ import { Fragment } from 'react';
 
 import type { DeploymentPlan } from '@deployz/contracts';
 
+import { Badge } from '@/components/ui/badge';
 import {
   Table,
   TableBody,
@@ -15,9 +16,9 @@ import {
 import { installPlanRowGroups } from '@/lib/install-plan';
 
 /**
- * The grouped "Deployz will create" component table shared by the public
- * install flow and the hosted deploy page. Rows come from the plan's CREATE
- * components, grouped by their presentation group, in canonical order.
+ * The customer's one resource summary (ux-guidelines §8): the plan's CREATE
+ * components grouped under generic headings, each with Kept / Removed after
+ * removal. AWS sizing and the resource inventory stay under Technical details.
  */
 export function InstallPlanComponentTable({ plan }: { plan: DeploymentPlan | null }) {
   const groups = installPlanRowGroups(plan);
@@ -29,6 +30,7 @@ export function InstallPlanComponentTable({ plan }: { plan: DeploymentPlan | nul
         <TableRow>
           <TableHead>Component</TableHead>
           <TableHead>What happens</TableHead>
+          <TableHead>After removal</TableHead>
         </TableRow>
       </TableHeader>
       <TableBody>
@@ -36,7 +38,7 @@ export function InstallPlanComponentTable({ plan }: { plan: DeploymentPlan | nul
           <Fragment key={group.group}>
             <TableRow className="bg-muted/40">
               <TableCell
-                colSpan={2}
+                colSpan={3}
                 className="text-xs font-medium uppercase tracking-wide text-muted-foreground"
               >
                 {group.label}
@@ -46,6 +48,9 @@ export function InstallPlanComponentTable({ plan }: { plan: DeploymentPlan | nul
               <TableRow key={`${row.kind}-${index}`}>
                 <TableCell className="font-medium">{row.name}</TableCell>
                 <TableCell className="text-muted-foreground">{row.whatHappens}</TableCell>
+                <TableCell>
+                  <Badge variant={row.retained ? 'secondary' : 'outline'}>{row.retained ? 'Kept' : 'Removed'}</Badge>
+                </TableCell>
               </TableRow>
             ))}
           </Fragment>

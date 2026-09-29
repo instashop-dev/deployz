@@ -26,7 +26,7 @@ export function InstallLaunchButton({
 }) {
   const router = useRouter();
   return (
-    <Button asChild size="lg">
+    <Button asChild size="lg" className="w-fit">
       <a
         href={quickCreateUrl}
         target="_blank"

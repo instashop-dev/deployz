@@ -99,7 +99,7 @@ function byTestId(id: string): Element | null {
 }
 
 function groupHeadings(): string[] {
-  return Array.from(container.querySelectorAll('tbody td[colspan="2"]')).map((cell) => cell.textContent ?? '');
+  return Array.from(container.querySelectorAll('tbody td[colspan="3"]')).map((cell) => cell.textContent ?? '');
 }
 
 function rowTexts(): string[] {
@@ -166,6 +166,27 @@ describe('customer grouped plan table — composition A (web + workers + MySQL +
     // The two workers are separate rows, each exactly once.
     expect(rows.filter((row) => row.includes('Email worker'))).toHaveLength(1);
     expect(rows.filter((row) => row.includes('Jobs worker'))).toHaveLength(1);
+  });
+});
+
+describe('InstallPlanComponentTable — After removal column', () => {
+  it('renders Kept for a retain-lifecycle component and Removed for a delete-lifecycle component', () => {
+    render(<InstallPlanComponentTable plan={webWorkersMysqlRedisPlan} />);
+
+    const rows = rowTexts();
+    const webRow = rows.find((row) => row.includes('Web application'))!;
+    const mysqlRow = rows.find((row) => row.includes('MySQL database'))!;
+    const storageRow = rows.find((row) => row.includes('File storage'))!;
+    const redisRow = rows.find((row) => row.includes('Redis cache'))!;
+
+    // MySQL and File storage are lifecycle: 'retain' — Kept.
+    expect(mysqlRow).toContain('Kept');
+    expect(mysqlRow).not.toContain('Removed');
+    expect(storageRow).toContain('Kept');
+    // Web application and Redis are lifecycle: 'delete' — Removed.
+    expect(webRow).toContain('Removed');
+    expect(webRow).not.toContain('Kept');
+    expect(redisRow).toContain('Removed');
   });
 });
 
@@ -393,7 +414,7 @@ describe('truthful degradation on the customer install page', () => {
     const doc = await renderInstallPage();
 
     const text = doc.body.textContent ?? '';
-    expect(text).toContain('Estimate unavailable');
+    expect(text).toContain('AWS cost estimate unavailable.');
     // No region line renders for an unknown region — never a raw code.
     expect(text).not.toContain('US East');
     // The page itself still renders the full composition.
