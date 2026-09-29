@@ -427,10 +427,16 @@ repositories:
     fork: instashop-dev/deployz-phase5-canary
     overrides:
       healthPath: /health
+      startCommand: "node dist/server.js"
+      migrationCommand: "npx prisma migrate deploy"
+    config:
+      - { key: ORDERS_QUEUE_URL, value: "" }
+      - { key: ORDERS_DLQ_URL, value: "" }
+      - { key: AWS_S3_BUCKET, value: "" }
     dependencies: { postgres: verify, storage: verify }
     verify: { healthPath: /health, appPath: /health }
     notes:
-      - "AWS Gate D D2 (Phase 5) real-AWS qualification. Permanent Phase 5 canary repository at instashop-dev/deployz-phase5-canary@e769a232f5393b6aea777ad7ac5900f38d66a262, populated from the simulated 'phase5-composition' virtual fixture. Web (Node Express) producer to a Standard SQS queue, separate worker consumer, DLQ reachable from the worker, render.yaml type: cron scheduled job writing to S3 + Postgres, Prisma PostgreSQL via DATABASE_URL. Smoke checks are not required because this run is a qualification; the harness's `--no-knee` equivalent is the absence of a smoke entry."
+      - "AWS Gate D D2 (Phase 5) real-AWS qualification. Permanent Phase 5 canary repository at instashop-dev/deployz-phase5-canary@e769a232f5393b6aea777ad7ac5900f38d66a262, populated from the simulated 'phase5-composition' virtual fixture. Web (Node Express) producer to a Standard SQS queue, separate worker consumer, DLQ reachable from the worker, render.yaml type: cron scheduled job writing to S3 + Postgres, Prisma PostgreSQL via DATABASE_URL. The harness's preflight refused to proceed because exec-form Dockerfile CMDs are not parsed into manifest.web.command (start-command-missing); overrides.startCommand covers it. Queue/storage bindings are typed as vendor-known empty strings so the preflight sees them as provided; the IR substitutes the real Deployz-managed values at deploy time. Same shape as repo-016 outlines."
 
   - id: repo-301
     deploymentClass: fresh-full
@@ -441,7 +447,12 @@ repositories:
       buildContext: api
       containerPort: 8080
       healthPath: /
+      migrationCommand: "npx prisma migrate deploy"
+    secrets:
+      - JWT_SECRET
     dependencies: { postgres: verify }
     verify: { healthPath: /, appPath: /ping }
     notes:
-      - "AWS Gate D D1. Klarline/retail-inventory-platform HEAD 3a2b8a3 mirrored verbatim into a virtual fixture. API container (Express + Socket.io + Prisma) + separate worker container (SQS consumer) + PostgreSQL via Prisma. Producer edge in api/routes/marketplaceOrderRoutes.js (sendToQueue). Consumer edge in api/workers/sqs-consumer.js. SQS_QUEUE_URL is a Deployz binding; DLQ is an AWS-side redrive default. No Scheduler, no Redis. Build context is api/ and the Dockerfile is api/Dockerfile. Health path is / (returns 'OK'); /ping returns 'pong'. No smoke entry because the worker process owns the queue consumer; functional API verification has no useful user HTTP route."
+      - "AWS Gate D D1 (Phase 5) real-AWS qualification. Klarline/retail-inventory-platform@3a2b8a3 used directly from upstream. The Deployz GitHub App on instashop-dev reaches Klarline (verified at Attempt 3 step 1); no mirror or fork required. API container (Express + Socket.io + Prisma) + separate worker container (SQS consumer) + PostgreSQL via Prisma. Producer edge in api/routes/marketplaceOrderRoutes.js (sendToQueue). Consumer edge in api/workers/sqs-consumer.js. SQS_QUEUE_URL is a vendor-known third-party queue URL, so the analyser correctly emits an 'async-question-queue-sqs-queue-url' needs-input finding rather than provisioning the queue itself. DATABASE_URL is Deployz-managed (auto-provided by the preflight). JWT_SECRET has no default in Klarline and is supplied via the standard secrets mechanism."
+      - "Vendor config: secrets=[JWT_SECRET]; overrides.migrationCommand=npx prisma migrate deploy (Klarline's README documents this command; no application source change). The typed Gate D test value is `gate-d-test-secret-do-not-use-in-production` (32+ chars, unique to this run, distinct from any other canary value); the value is never transmitted in plain text after deploy (the API stores only a hash)."
+      - "Build context is api/, Dockerfile is api/Dockerfile. Health is / (returns 'OK'); /ping returns 'pong'."
