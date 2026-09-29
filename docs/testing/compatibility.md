@@ -111,7 +111,7 @@ over the `b2Repos`/`b3Repos` lists.
 | Stage | What runs | Stops the funnel when |
 | --- | --- | --- |
 | Gate | `runApplicationAnalysis` → `normalizeDeploymentManifest` + `evaluateManifestReadiness`, then the same gate on the deployed control plane | expected unsupported and rejected (`EXPECTED_UNSUPPORTED`); expected deployable but rejected (`GATE_ERROR`, a false rejection) |
-| Configuration | Vendor overrides and configuration values from `deploy-config.yaml`; secrets generated at run time, never committed | the gate still refuses (`CONFIG_ERROR`) |
+| Configuration | Vendor overrides and configuration values from `deploy-config.yaml`; secrets generated at run time, or read from the environment (`fromEnv`) for a credential the harness cannot generate — never committed | the gate still refuses (`CONFIG_ERROR`) |
 | Build | A release is created at the pinned SHA; CodeBuild → ECR digest | release `FAILED` (`SOURCE_FETCH_ERROR`, `BUILD_ERROR`, `IMAGE_ERROR`) — no AWS infrastructure created |
 | Deployment | Customer + deployment, install link launched, bootstrap stack created exactly as Quick Create would, relay enrolls, INSTALL provisions the application stack | stack failure (`INFRA_ERROR`), task failure (`CONTAINER_START_ERROR`, `PORT_ERROR`, `ENV_BINDING_ERROR`, …), `TIMEOUT` |
 | Health | Heartbeat gates, `currentReleaseId` promoted, default HTTPS ACTIVE, independent probes over HTTP and HTTPS | `HEALTH_PATH_ERROR`, `TLS_ERROR`, `APPLICATION_ERROR`, `DATABASE_ERROR`, `REDIS_ERROR`, `MIGRATION_ERROR`, `STORAGE_ERROR` |

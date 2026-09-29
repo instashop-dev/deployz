@@ -74,10 +74,15 @@ export const APP_URL_TOKEN = '${DEPLOYZ_APP_URL}';
 export const SECRET_FORMATS = ['base64url', 'hex32', 'hex64', 'password'] as const;
 export type SecretFormat = (typeof SECRET_FORMATS)[number];
 
-/** A secret key the harness generates at run time — a bare key, or a key with the format the app validates. */
+/**
+ * A secret key the harness generates at run time — a bare key, or a key with the format the app validates —
+ * or a vendor-supplied credential it cannot generate, read from the named environment variable at run time
+ * (`fromEnv`). Values are never stored either way.
+ */
 export const secretSpecSchema = z.union([
   z.string().min(1),
   z.object({ key: z.string().min(1), format: z.enum(SECRET_FORMATS) }).strict(),
+  z.object({ key: z.string().min(1), fromEnv: z.string().min(1) }).strict(),
 ]);
 export type SecretSpec = z.infer<typeof secretSpecSchema>;
 
@@ -86,7 +91,17 @@ export function secretKey(spec: SecretSpec): string {
 }
 
 export function secretFormat(spec: SecretSpec): SecretFormat {
-  return typeof spec === 'string' ? 'base64url' : spec.format;
+  return typeof spec === 'string' || !('format' in spec) ? 'base64url' : spec.format;
+}
+
+/** The run-time value of a secret: the named environment variable for `fromEnv`, else a generated one. */
+export function secretValue(spec: SecretSpec, generate: (format: SecretFormat) => string, env: NodeJS.ProcessEnv = process.env): string {
+  if (typeof spec !== 'string' && 'fromEnv' in spec) {
+    const value = env[spec.fromEnv];
+    if (!value) throw new Error(`${spec.key} reads ${spec.fromEnv}, which is not set`);
+    return value;
+  }
+  return generate(secretFormat(spec));
 }
 
 export const DEPENDENCY_CHECKS = ['verify', 'skip'] as const;

@@ -9,7 +9,7 @@ import { loadConfig } from '../version-canary/config.js';
 import type { DeploymentDetail } from '../version-canary/control-plane.js';
 import { applyCleanupToClassification, cleanupAttempt } from './cleanup.js';
 import { classifyFailure } from './classify.js';
-import { appUrlKeys, configFor, deploymentClassFor, loadDeployConfig, parseDeployConfig, providedKeys, requireSmokeContract } from './config.js';
+import { appUrlKeys, configFor, deploymentClassFor, loadDeployConfig, parseDeployConfig, providedKeys, requireSmokeContract, secretValue } from './config.js';
 import { defaultDeploymentUrl, generateSecret, runRepositoryAttempt, resolveHealthPath, DEFAULT_TIMEOUTS, nextReleaseVersion, reusableRelease, type AwsLike, type ControlPlaneLike, type DeployDeps, reusableReleaseVersion } from './deploy.js';
 import { applicationContainerDefinition, arnKind, resourceStillExists, sanitize, stoppedExit } from './evidence.js';
 import { gateOutcome, manifestFacts, missingKeys, overridesToManifest } from './gate.js';
@@ -121,6 +121,13 @@ describe('deploy-config', () => {
     expect(generateSecret('hex32')).toMatch(/^[0-9a-f]{32}$/);
     expect(generateSecret('password')).toMatch(/^Sb-[A-Za-z0-9_-]+-1$/);
     expect(generateSecret('base64url')).not.toBe(generateSecret('base64url'));
+  });
+
+  it('reads a fromEnv secret from the environment and refuses it when unset', () => {
+    const spec = parseDeployConfig('version: 1\nrepositories:\n  - id: repo-001\n    secrets: [{ key: S3_KEY, fromEnv: RUN_S3_KEY }]\n').repositories[0]!.secrets![0]!;
+    expect(secretValue(spec, () => 'generated', { RUN_S3_KEY: 'from-env' })).toBe('from-env');
+    expect(() => secretValue(spec, () => 'generated', {})).toThrow('S3_KEY reads RUN_S3_KEY, which is not set');
+    expect(secretValue({ key: 'K', format: 'hex32' }, (format) => format, {})).toBe('hex32');
   });
 
   it('refuses duplicates, a key both configured and generated, an unknown field, and a repeated wave member', () => {

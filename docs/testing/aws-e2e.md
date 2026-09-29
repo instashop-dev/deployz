@@ -218,6 +218,34 @@ shapes face real customer installs; until then the simulated scenarios
 (`multi-worker-sweep`, `mysql-sweep`, `migration-success`,
 `migration-failure`, `phase4-composition`) are the standing evidence.
 
+**AWS Gate C (2026-09-28) — first real-AWS evidence.** Stage B ran the
+independent repository `Synapsr/Hovod` (`repo-221`) through the product
+path: web + RDS MySQL + Valkey + S3, install → functional workflow
+(API → MySQL → Redis/BullMQ → worker → S3) → DEPLOY_RELEASE → RESTART →
+ROLLBACK → Disconnect → Purge → leak audit, all passing after seven fixes
+(#394–#400). Status of the list above:
+
+- Item 2 (MySQL): **qualified for web + MySQL** — RDS MySQL 8.0
+  provisioning, `DATABASE_URL`/`MYSQL_URL` bindings used by the
+  application, retention on Disconnect and purge of the instance. The
+  worker half is not qualified (see below). `DATABASE_PORT` was 5432
+  on that install (#399); the fix is verified in the compiled
+  artifact, and a live task on a fresh MySQL install is still to show
+  3306.
+- Items 1, 3, 4 and 5: **still pending.** Hovod runs its worker as a
+  second process in the web task and its migrations inside API
+  startup, so no separate worker service and no migration workload were
+  provisioned.
+
+Gate C also found that CONFIG_UPDATE failed on every compiler-v2 stack
+(#396): the version canary's fixture carries no configuration, so no
+canary covered it. A profile whose fixture needs one vendor value and
+one secret would keep that path under test.
+
+Stage B `fromEnv` secrets (`deploy-config.yaml`) deliver a credential
+the harness cannot generate — Gate C's scoped S3 key pair — from the
+environment at run time. The value is never stored.
+
 ## L6 — production canary
 
 The same L5 harness, run as `profile --profile stateless --production`

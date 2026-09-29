@@ -399,3 +399,24 @@ repositories:
       - "Node (Hono API serving the Vite SPA, pnpm + turborepo); reads DATABASE_URL only (packages/env/src/server.ts:26) over drizzle + node-postgres — the RDS CA bundle path (DEPLOY-007) is required. APP_URL and AUTH_SECRET are required with no default. Migrations run before the server listens (apps/server/src/startup/checks.ts:80-84). Port 3000."
       - "Storage stays on LOCAL_STORAGE_PATH (/app/data): S3 needs static S3_ACCESS_KEY_ID/S3_SECRET_ACCESS_KEY (checks.ts:46). REDIS_URL and ENCRYPTION_SECRET are optional."
       - "Campaign 2026-09-18: us-west-2. The app has no /health; the ALB path is /api/health (apps/server/src/http/app.ts:41), which runs SELECT 1 and a storage check."
+
+  - id: repo-221
+    findings: [DEPLOY-033, DEPLOY-034, DEPLOY-035, DEPLOY-036, DEPLOY-037]
+    config:
+      - { key: APP_URL, value: "${DEPLOYZ_APP_URL}" }
+      - { key: S3_ENDPOINT, value: "https://s3.us-east-1.amazonaws.com" }
+      - { key: S3_REGION, value: us-east-1 }
+      - { key: S3_FORCE_PATH_STYLE, value: "false" }
+      - { key: S3_PUBLIC_ACL, value: "false" }
+      - { key: S3_PUBLIC_BASE_URL, value: "${DEPLOYZ_APP_URL}" }
+    secrets:
+      - { key: JWT_SECRET, format: hex64 }
+      - { key: S3_ACCESS_KEY_ID, fromEnv: GATEC_S3_ACCESS_KEY_ID }
+      - { key: S3_SECRET_ACCESS_KEY, fromEnv: GATEC_S3_SECRET_ACCESS_KEY }
+    verify: { healthPath: /health/ready, appPath: / }
+    smoke:
+      - { path: /health/ready, status: 200, jsonPath: ok, jsonEquals: true, graceSeconds: 30 }
+      - { path: /v1/config, status: 200, jsonPath: data.registrationEnabled, jsonEquals: true }
+    notes:
+      - "AWS Gate C (Phase 4) qualification. S3_BUCKET/AWS_REGION are Deployz bindings; the static S3 key pair is a customer credential (a Gate C IAM user scoped to the run's bucket), delivered from the environment and never stored. The Deployz bucket blocks public access with ACLs disabled, so S3_PUBLIC_ACL=false and public HLS playback from the bucket is out of scope."
+      - "HOVOD_ROLE stays unset (allinone): with DATABASE_URL and REDIS_URL bound, the one web task runs the API and the worker processes and no embedded MariaDB/Redis. A separate worker service needs a per-workload role/command a vendor cannot declare today (worker_command stays Needs input)."

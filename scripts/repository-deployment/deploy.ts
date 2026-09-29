@@ -16,7 +16,7 @@ import type { Evidence } from '../version-canary/evidence.js';
 import { ControlPlaneError, describeDeployment, waitFor, type DeploymentDetail, type DeploymentPlanView, type InfrastructureInventory } from '../version-canary/control-plane.js';
 import { parseQuickCreateUrl } from '../version-canary/steps.js';
 import { classifyFailure, type FailureEvidence, type FunnelPoint } from './classify.js';
-import { APP_URL_TOKEN, appUrlKeys, providedKeys, secretFormat, secretKey, type RepositoryConfig, type SecretFormat, type SmokeCheck } from './config.js';
+import { APP_URL_TOKEN, appUrlKeys, providedKeys, secretKey, secretValue, type RepositoryConfig, type SecretFormat, type SmokeCheck } from './config.js';
 import type { DependencyPresence, StoppedTask, TaskDefinitionEnv } from './evidence.js';
 import { stoppedExit } from './evidence.js';
 import { stageBRun } from './ledger.js';
@@ -416,7 +416,7 @@ export async function runRepositoryAttempt(deps: DeployDeps, input: RepositoryAt
     // scope before any deployment exists is dropped by the control plane
     // (BUG-004 / DEPLOY-027), so it is re-delivered at the customer scope
     // once the connector enrolls. Never written to the ledger, result or logs.
-    const secretEntries = (config.secrets ?? []).map((spec) => ({ key: secretKey(spec), value: (deps.generateSecret ?? generateSecret)(secretFormat(spec)), isSecret: true as const }));
+    const secretEntries = (config.secrets ?? []).map((spec) => ({ key: secretKey(spec), value: secretValue(spec, deps.generateSecret ?? generateSecret), isSecret: true as const }));
     const preflight = await step('configuration', () =>
       evidence.step('Vendor configuration and preflight', async (details) => {
         const entries = [
