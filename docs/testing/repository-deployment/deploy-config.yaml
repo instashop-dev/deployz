@@ -424,13 +424,13 @@ repositories:
   - id: repo-300
     deploymentClass: fresh-full
     findings: []
-    fork: deployz-demo/async-pg-worker-app
+    fork: instashop-dev/deployz-phase5-canary
     overrides:
       healthPath: /health
     dependencies: { postgres: verify, storage: verify }
     verify: { healthPath: /health, appPath: /health }
     notes:
-      - "AWS Gate D (Phase 5) real-AWS qualification. Combined D1 (SQS+separate worker+Postgres) and D2 (EventBridge Scheduler) fixture. Branch purpose: prove queue/schedule edge-specific IAM and standalone-scheduled-task provisioning. Follows the same shape as the simulated 'phase5-composition' scenario but routes through real AWS. Smoke checks are not required because this run is a qualification; the harness's `--no-knee` equivalent is the absence of a smoke entry."
+      - "AWS Gate D D2 (Phase 5) real-AWS qualification. Permanent Phase 5 canary repository at instashop-dev/deployz-phase5-canary@e769a232f5393b6aea777ad7ac5900f38d66a262, populated from the simulated 'phase5-composition' virtual fixture. Web (Node Express) producer to a Standard SQS queue, separate worker consumer, DLQ reachable from the worker, render.yaml type: cron scheduled job writing to S3 + Postgres, Prisma PostgreSQL via DATABASE_URL. Smoke checks are not required because this run is a qualification; the harness's `--no-knee` equivalent is the absence of a smoke entry."
 
   - id: repo-301
     deploymentClass: fresh-full

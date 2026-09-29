@@ -506,6 +506,42 @@ export function regionalConfig(config: CanaryConfig, run: { region: string; stag
   return { ...config, region: run.region, controlPlaneRegion: run.stageB.controlPlaneRegion ?? config.controlPlaneRegion };
 }
 
+/**
+ * Real-AWS Stage B requires a real GitHub repository identity — the
+ * production Deployz analysis path resolves the application repo through
+ * the GitHub App and refuses a virtual fixture key (`deployz-demo/*`,
+ * the local fixture namespace). Block virtual-only identities here so a
+ * forgotten fixture-mode entry fails fast instead of after an install
+ * funnel that bills real AWS resources. The rule is generic: any
+ * `owner/name` that does not match the `^[\w.-]+/[\w.-]+$` shape is
+ * refused, and `deployz-demo/*` is refused outright.
+ */
+export function assertRealAwsRepos(config: DeployConfig, benchmark: Benchmark): void {
+  const seen = new Set<string>();
+  for (const entry of config.repositories) {
+    const match = benchmark.repositories.find((b) => b.id === entry.id);
+    if (!match) continue;
+    const [owner, ...rest] = match.repository.split('/');
+    const name = rest.join('/');
+    const repo = entry.fork ?? `${owner}/${name}`;
+    const key = repo.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    if (repo.toLowerCase().startsWith('deployz-demo/')) {
+      throw new Error(
+        `deploy-config entry ${entry.id} resolves to virtual fixture "${repo}". ` +
+          `Real-AWS Stage B requires a real GitHub repository reachable by the Deployz GitHub App ` +
+          `installation — a deployz-demo/* fixture has no GitHub counterpart. ` +
+          `Move the fixture contents into a real GitHub repository and update deploy-config.yaml's ` +
+          `'fork' (or remove it) so ${match.repository} resolves to the real repo.`,
+      );
+    }
+    if (!/^[\w.-]+\/[\w.-]+$/.test(repo)) {
+      throw new Error(`deploy-config entry ${entry.id} resolves to an invalid repository "${repo}" — expected owner/name.`);
+    }
+  }
+}
+
 async function cleanupLedger(series: Series, options: RunOptions, runId: string): Promise<void> {
   const evidence = Evidence.open(options.evidenceDir, runId);
   const run = stageBRun(evidence);
@@ -607,6 +643,7 @@ async function main(): Promise<number> {
   for (const entry of config.repositories) {
     if (!benchmark.repositories.some((b) => b.id === entry.id)) throw new Error(`deploy-config names unknown repository ${entry.id}`);
   }
+  if (options.realAws) assertRealAwsRepos(config, benchmark);
   const sha = deployzSha();
   const existing = readAllResults(options.runsDir);
   const entries = selectForRun(benchmark, config, options, existing);

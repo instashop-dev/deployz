@@ -1,21 +1,21 @@
 # Repository deployment audit — run summary
 
-Deployz commit: `e5f489ec046b791b10860b06f812fe9b388a2eca`
+Deployz commit: `6c457aa6e1e758289d2c6bd875293c0159585093`
 
 | Metric | Value |
 | --- | --- |
-| Repositories | 120 |
-| Expected deployable | 65 |
+| Repositories | 122 |
+| Expected deployable | 67 |
 | Expected unsupported | 55 |
 | Gate: correct accept / correct reject | 41 / 49 |
 | Gate: false acceptance / false rejection | 6 / 18 |
 | Gate: READY with the Stage B configuration | 18 |
 | Build attempted / succeeded / failed | 12 / 11 / 1 |
-| Build success among expected deployable | 16.9% |
+| Build success among expected deployable | 16.4% |
 | Infrastructure attempted / succeeded / failed | 11 / 8 / 3 |
 | Runtime: ECS running / ALB healthy / HTTPS reachable / application response valid | 8 / 8 / 8 / 6 |
 | Dependencies: PostgreSQL / Redis / storage / migration verified | 7 / 2 / 1 / 1 |
-| **True deployment success / expected deployable** | **6 / 65 (9.2%)** |
+| **True deployment success / expected deployable** | **6 / 67 (9%)** |
 | Cleanup: destroys / failures / leaks / success rate | 12 / 1 / 1 / 91.7% |
 
 ## By classification
@@ -25,10 +25,11 @@ Deployz commit: `e5f489ec046b791b10860b06f812fe9b388a2eca`
 | APPLICATION_ERROR | 1 |
 | BUILD_ERROR | 1 |
 | CLEANUP_LEAK | 1 |
+| CONFIG_ERROR | 1 |
 | DATABASE_ERROR | 1 |
 | ENV_BINDING_ERROR | 1 |
 | EXPECTED_UNSUPPORTED | 49 |
-| GATE_ERROR | 24 |
+| GATE_ERROR | 25 |
 | MIGRATION_ERROR | 1 |
 | PASS | 41 |
 
@@ -68,7 +69,7 @@ Deployz commit: `e5f489ec046b791b10860b06f812fe9b388a2eca`
 
 | Set | Repositories | Expected deployable | Expected unsupported | Gate correct | Deployed | True success |
 | --- | --- | --- | --- | --- | --- | --- |
-| improvement | 80 | 46 | 34 | 65 | 7 | 5 |
+| improvement | 82 | 48 | 34 | 65 | 7 | 5 |
 | unseen | 20 | 9 | 11 | 11 | 0 | 0 |
 | unseen2 | 20 | 10 | 10 | 14 | 1 | 1 |
 
@@ -78,13 +79,14 @@ Deployz commit: `e5f489ec046b791b10860b06f812fe9b388a2eca`
 | --- | --- | --- | --- | --- | --- | --- |
 | boundary | 24 | 2 | 22 | 20 | 0 | 0 |
 | messy | 27 | 18 | 9 | 22 | 0 | 0 |
-| realistic | 69 | 45 | 24 | 48 | 8 | 6 |
+| realistic | 71 | 47 | 24 | 48 | 8 | 6 |
 
 ## By deployment class
 
 | Class | Repositories | Pass | Fail |
 | --- | --- | --- | --- |
 | runtime-reuse | 120 | 90 | 30 |
+| fresh-full | 2 | 0 | 2 |
 
 ## Repositories
 
@@ -210,3 +212,5 @@ Deployz commit: `e5f489ec046b791b10860b06f812fe9b388a2eca`
 | repo-218 | gotify/server@14bfc25 | boundary | NEEDS_CONFIGURATION | READY (correct-accept) | NOT_ATTEMPTED | NOT_ATTEMPTED | — | NOT_ATTEMPTED | PASS |  |
 | repo-219 | appwrite/appwrite@4ed3076 | boundary | NOT_COMPATIBLE | NOT_COMPATIBLE (correct-reject) | NOT_ATTEMPTED | NOT_ATTEMPTED | — | NOT_ATTEMPTED | EXPECTED_UNSUPPORTED / CORRECTLY_UNSUPPORTED |  |
 | repo-220 | headlamp-k8s/headlamp@69bfa23 | boundary | NEEDS_CONFIGURATION | NOT_COMPATIBLE (false-rejection) | NOT_ATTEMPTED | NOT_ATTEMPTED | — | NOT_ATTEMPTED | GATE_ERROR | DEPLOY-003 |
+| repo-300 | deployz-demo/async-pg-worker-app@db4fa10 | realistic | READY | — (—) | NOT_ATTEMPTED | NOT_ATTEMPTED | — | NOT_REQUIRED | GATE_ERROR |  |
+| repo-301 | Klarline/retail-inventory-platform@3a2b8a3 | realistic | READY | — (—) | NOT_ATTEMPTED | NOT_ATTEMPTED | — | NOT_REQUIRED | CONFIG_ERROR |  |

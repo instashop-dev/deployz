@@ -3623,8 +3623,8 @@ repositories:
       - "Migrations are plain SQL applied by the API at boot (apps/api/src/index.ts runMigrations before listen, advisory-locked) — no separate migration command. Health: /health/live (no dependency) and /health/ready (SELECT 1) on PORT 3000. Required with no default: JWT_SECRET (>=32), S3_ENDPOINT, S3_REGION, S3_BUCKET, S3_ACCESS_KEY_ID, S3_SECRET_ACCESS_KEY, S3_PUBLIC_BASE_URL (apps/api/src/env.ts)."
 
   - id: repo-300
-    repository: deployz-demo/async-pg-worker-app
-    commit: db4fa109a5a444489259acc4a881a8f03fb52fcc
+    repository: instashop-dev/deployz-phase5-canary
+    commit: e769a232f5393b6aea777ad7ac5900f38d66a262
     cohort: realistic
     set: improvement
     expected:
@@ -3644,7 +3644,7 @@ repositories:
     customer_realism: high
     difficulty: 3
     notes:
-      - "AWS Gate D D2 (Phase 5) qualification. Phase 5 canary fixture authored in apps/api/src/github.ts at HEAD db4fa10. Web (Node Express) producer to a Standard SQS queue, separate worker consumer, DLQ reachable from the worker, render.yaml type: cron scheduled job writing to S3 + Postgres, Prisma PostgreSQL via DATABASE_URL. Used to qualify Scheduler -> scheduled ECS RunTask, DLQ semantics and edge-specific IAM on real AWS. Mirror of the simulated 'phase5-composition' scenario at virtual-fixture scope so the Stage B canary can exercise it. Not a production repository."
+      - "AWS Gate D D2 (Phase 5) qualification. Permanent Phase 5 canary repository at instashop-dev/deployz-phase5-canary@e769a232f5393b6aea777ad7ac5900f38d66a262, populated from the Gate D simulated 'phase5-composition' virtual fixture (apps/api/src/github.ts at db4fa10) and pushed on 2026-09-29. Web (Node Express) producer to a Standard SQS queue, separate worker consumer, DLQ reachable from the worker, render.yaml type: cron scheduled job writing to S3 + Postgres, Prisma PostgreSQL via DATABASE_URL. Used to qualify Scheduler -> scheduled ECS RunTask, DLQ semantics and edge-specific IAM on real AWS."
       - "Detected expected: postgres: true (Prisma provider=postgresql + DATABASE_URL env), worker: true (Procfile worker: line), queue+schedule detected via @aws-sdk/client-sqs SendMessageCommand/ReceiveMessageCommand and render.yaml type: cron (Phase 5 graph evidence lives in the ApplicationGraph, not in this Stage A schema), storage: true (s3 reference in src/scheduled.ts)."
 
   - id: repo-301

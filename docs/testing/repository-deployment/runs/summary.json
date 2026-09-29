@@ -1,17 +1,22 @@
 {
-  "deployzCommit": "e5f489ec046b791b10860b06f812fe9b388a2eca",
-  "total": 120,
-  "expectedDeployable": 65,
+  "deployzCommit": "6c457aa6e1e758289d2c6bd875293c0159585093",
+  "total": 122,
+  "expectedDeployable": 67,
   "expectedUnsupported": 55,
   "byClass": {
     "runtime-reuse": {
       "total": 120,
       "pass": 90,
       "fail": 30
+    },
+    "fresh-full": {
+      "total": 2,
+      "pass": 0,
+      "fail": 2
     }
   },
   "gate": {
-    "attempted": 120,
+    "attempted": 121,
     "correctAccept": 41,
     "correctReject": 49,
     "falseAcceptance": 6,
@@ -22,7 +27,7 @@
     "attempted": 12,
     "succeeded": 11,
     "failed": 1,
-    "successRateAmongDeployable": 16.9
+    "successRateAmongDeployable": 16.4
   },
   "infrastructure": {
     "attempted": 11,
@@ -42,7 +47,7 @@
     "migration": 1
   },
   "trueDeploymentSuccess": 6,
-  "trueDeploymentSuccessRate": 9.2,
+  "trueDeploymentSuccessRate": 9,
   "cleanup": {
     "destroys": 12,
     "destroyFailures": 1,
@@ -53,10 +58,11 @@
     "APPLICATION_ERROR": 1,
     "BUILD_ERROR": 1,
     "CLEANUP_LEAK": 1,
+    "CONFIG_ERROR": 1,
     "DATABASE_ERROR": 1,
     "ENV_BINDING_ERROR": 1,
     "EXPECTED_UNSUPPORTED": 49,
-    "GATE_ERROR": 24,
+    "GATE_ERROR": 25,
     "MIGRATION_ERROR": 1,
     "PASS": 41
   },
@@ -64,10 +70,11 @@
     "APPLICATION_ERROR": 1,
     "BUILD_ERROR": 1,
     "CLEANUP_LEAK": 1,
+    "CONFIG_ERROR": 1,
     "DATABASE_ERROR": 1,
     "ENV_BINDING_ERROR": 1,
     "EXPECTED_UNSUPPORTED": 49,
-    "GATE_ERROR": 24,
+    "GATE_ERROR": 25,
     "MIGRATION_ERROR": 1
   },
   "byRootCause": {
@@ -166,8 +173,8 @@
   },
   "bySet": {
     "improvement": {
-      "total": 80,
-      "expectedDeployable": 46,
+      "total": 82,
+      "expectedDeployable": 48,
       "deployed": 7,
       "trueDeploymentSuccess": 5,
       "expectedUnsupported": 34,
@@ -208,8 +215,8 @@
       "gateCorrect": 22
     },
     "realistic": {
-      "total": 69,
-      "expectedDeployable": 45,
+      "total": 71,
+      "expectedDeployable": 47,
       "deployed": 8,
       "trueDeploymentSuccess": 6,
       "expectedUnsupported": 24,
