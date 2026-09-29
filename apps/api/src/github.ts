@@ -694,6 +694,13 @@ const DEPLOYMENT_DESCRIPTOR_REGEX =
 const SCHEDULE_FILE_REGEX =
   /(?:^|\/)(?:render\.ya?ml|vercel\.json|crontab)$|\.cron$/i;
 
+// The worker-command declaration the detectors read (detectors.ts
+// PROCFILE_REGEX, async-detection.ts): a Procfile non-web process is what
+// makes a separate worker a declared workload, which queue attribution needs
+// to tell a consumer apart from the web process. Case-sensitive on purpose —
+// that is the detectors' own pattern.
+const PROCFILE_REGEX = /(?:^|\/)Procfile$/;
+
 function isIgnoredPath(path: string): boolean {
   return path.split('/').some((segment) => IGNORED_DIR_SEGMENTS.has(segment));
 }
@@ -712,6 +719,7 @@ function isRelevantPath(path: string): boolean {
   if (ENV_SAMPLE_REGEX.test(path)) return true;
   if (DEPLOYMENT_DESCRIPTOR_REGEX.test(path)) return true;
   if (SCHEDULE_FILE_REGEX.test(path)) return true;
+  if (PROCFILE_REGEX.test(path)) return true;
   const isRoot = !path.includes('/');
   if (isRoot) {
     if (/^\.env(\.\w+)?$/i.test(path)) return true;
