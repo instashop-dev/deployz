@@ -46,7 +46,6 @@ import {
   checkSqlite,
   checkKafka,
   checkRabbitMq,
-  checkSqsEventArchitecture,
   checkKubernetes,
   checkServerless,
   checkDockerComposeMultiService,
@@ -66,6 +65,7 @@ import type { RedisRequirement } from './redis.js';
 import { assessRedis, resolveRedisEnvBindings } from './redis.js';
 import { deriveAmbiguities } from './evidence.js';
 import { deriveInfrastructureBindings } from './bindings.js';
+import { detectAsyncWorkloads } from './async-detection.js';
 
 // ── Types ───────────────────────────────────────────────────────────────────
 
@@ -127,7 +127,6 @@ const REJECTION_CHECKS = [
   checkSqlite,
   checkKafka,
   checkRabbitMq,
-  checkSqsEventArchitecture,
   checkKubernetes,
   checkServerless,
   checkDockerComposeMultiService,
@@ -367,6 +366,21 @@ export function analyseRepo(tree: FileTree): AnalysisResult {
   // `resolvedWorkerCommand` / the workerCommand override (legacy slot).
   metadata['resolvedWorkerCommands'] = detectDeclaredWorkerCommands(tree);
 
+  // Phase 5 — SQS (Standard) queues and scheduled jobs, already shaped as
+  // ManifestQueue[]/ManifestScheduledJob[]/ManifestQuestion[] so the
+  // manifest layer only validates and passes them through.
+  const asyncWorkloads = detectAsyncWorkloads(tree);
+  metadata['asyncQueues'] = asyncWorkloads.queues;
+  metadata['asyncScheduledJobs'] = asyncWorkloads.scheduledJobs;
+  metadata['asyncQuestions'] = asyncWorkloads.questions;
+  // Every env var a PROVISIONED queue (or its dead-letter queue) is bound
+  // to is Deployz-managed infrastructure — mirrors REDIS_URL/DATABASE_URL
+  // (env-classification.ts) so the vendor is never asked to supply it.
+  const queueBindingNames = asyncWorkloads.queues.flatMap((queue) => [
+    ...queue.envBindings.map((b) => b.name),
+    ...(queue.deadLetter?.envBindings.map((b) => b.name) ?? []),
+  ]);
+
   // §11.3 / §11.2 — structured service requirements and the env-var model.
   const serviceRequirements = detectExternalServiceRequirements(tree);
   metadata['externalServiceRequirements'] = serviceRequirements;
@@ -384,6 +398,7 @@ export function analyseRepo(tree: FileTree): AnalysisResult {
       redisBindingNames: resolveRedisEnvBindings(redis.connectionEnvVars).map((binding) => binding.name),
       storageRequired: findings.find((f) => f.detector === 's3')?.detected === true,
       externalServices: serviceRequirements.map((r) => r.service),
+      queueBindingNames,
     },
   );
 

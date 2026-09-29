@@ -64,6 +64,8 @@ import {
   requiredInfrastructureComponents,
   requirementsFromSpec,
   migrationTaskFromSpec,
+  oneShotTasksFromSpec,
+  resourceChecksFromSpec,
   resolveBootstrapTemplate,
   resolveStoredInfrastructureSizeProfile,
   summarizeApplicationGraph,
@@ -752,7 +754,28 @@ interface DeployPayload {
    * no migration workload or the identity is already confirmed.
    */
   migrationTask?: { family: string; identity: string };
+  /**
+   * Scheduled-job ECS task-definition families (Phase 5) — derived ONLY from
+   * the frozen spec's `oneShotTasksFromSpec(spec, 'scheduled-job')`. The
+   * relay registers the release image into each of them once the rollout
+   * settles; it never runs them (`AWS::Scheduler::Schedule` does). Sent on
+   * both DEPLOY_RELEASE and ROLLBACK payloads — unlike the migration seat,
+   * this never gates on a confirmed identity.
+   */
+  scheduledJobFamilies?: string[];
   [key: string]: unknown;
+}
+
+/** The scheduled-job task families a deployment's frozen spec compiled, for
+ *  the DEPLOY_RELEASE/ROLLBACK payload (Phase 5). Undefined when there is no
+ *  deployment row (a bulk/legacy caller) or no compiled spec — never an
+ *  empty array standing in for "not derived". */
+function scheduledJobFamiliesFor(deployment: DeploymentRow | undefined): string[] | undefined {
+  if (deployment === undefined) return undefined;
+  const spec = readStoredDeploymentSpec(deployment.specV2);
+  if (!spec) return undefined;
+  const families = oneShotTasksFromSpec(spec, 'scheduled-job').map((task) => task.family);
+  return families.length > 0 ? families : undefined;
 }
 
 async function requireDeployableRelease(
@@ -832,6 +855,13 @@ async function requireDeployableRelease(
       if (!(await migrationIdentityConfirmed(db, deployment.id, identity))) {
         payload.migrationTask = { family: migration.family, identity };
       }
+    }
+    // Phase 5: scheduled-job families, derived only from the frozen spec —
+    // sent unconditionally (never gated on a migration-style confirmation),
+    // so every DEPLOY_RELEASE payload carries them.
+    const scheduledJobFamilies = scheduledJobFamiliesFor(deployment);
+    if (scheduledJobFamilies !== undefined) {
+      payload.scheduledJobFamilies = scheduledJobFamilies;
     }
   }
   return payload;
@@ -1093,6 +1123,8 @@ function computeArchitecture(app: ManifestApplicationRow): ReadinessArchitecture
     if (resource.kind === 'external_service' || resource.ownership === 'EXTERNAL_SAAS') continue;
     push(ARCHITECTURE_GROUP_BY_RESOURCE_KIND[resource.kind], resource.label, resource.provenance.overridden);
   }
+  // Schedules ride the messaging group, like their plan components.
+  for (const schedule of graph.schedules ?? []) push('messaging', schedule.label, schedule.provenance.overridden);
   return {
     counts: summarizeApplicationGraph(graph),
     groups: ARCHITECTURE_GROUP_ORDER.filter((group) => nodes.has(group)).map((group) => ({
@@ -5264,6 +5296,15 @@ export async function buildServer({
   ): Promise<{ job: DeploymentJobRow; created: boolean }> {
     await requireDeployableState(db, deployment);
     const payload = await requireDeployableRelease(db, releaseImages, releaseId, deployment.applicationId);
+    // ROLLBACK builds its payload WITHOUT the deployment row (see
+    // requireDeployableRelease) so it can never carry the migration seat —
+    // but scheduled-job families (Phase 5) are not migration-gated, and
+    // ROLLBACK must bring them current too (the family's latest revision
+    // otherwise keeps running whatever image the last stack operation set).
+    const scheduledJobFamilies = scheduledJobFamiliesFor(deployment);
+    if (scheduledJobFamilies !== undefined) {
+      payload.scheduledJobFamilies = scheduledJobFamilies;
+    }
     const idempotencyKey =
       idempotencyKeyHeader ??
       (await retryAwareIdempotencyKey(
@@ -7371,6 +7412,14 @@ export async function buildServer({
               // or neither, so the relay's verification and heartbeat agree
               // with the stack.
               workloads: workloadServicesFromSpec(spec!),
+              // Phase 5: verification-contract checks outside the fixed
+              // catalog (queue/schedule/…) — the relay verifies these
+              // generically. Omitted (never an empty array) when the spec
+              // carries none, so an unaffected deployment's poll response
+              // stays byte-identical.
+              ...(resourceChecksFromSpec(spec!).length > 0
+                ? { resourceChecks: resourceChecksFromSpec(spec!) }
+                : {}),
             }
           : {}),
         probeUrl: resolveProbeUrl(installJobs, manifest?.health.path ?? null, activeDomain, defaultHttps),

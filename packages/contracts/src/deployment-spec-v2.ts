@@ -157,6 +157,44 @@ export function oneShotTasksFromSpec(
     });
 }
 
+/** The fixed catalog check names the relay already verifies with dedicated
+ *  per-capability logic (compute/ingress/database/storage/cache). */
+const CATALOG_CHECK_NAMES: ReadonlySet<string> = new Set([
+  'compute',
+  'ingress',
+  'database',
+  'storage',
+  'cache',
+]);
+
+/** One verification-contract check the relay verifies generically — a stack
+ *  resource with this logical id and type in a complete state. */
+export interface ResourceCheck {
+  readonly componentId: string;
+  readonly check: string;
+  readonly logicalId: string;
+  readonly resourceType: string;
+}
+
+/**
+ * The verification-contract checks whose `check` name is NOT one of the
+ * fixed catalog checks (Phase 5: `queue`, `schedule`, and any future
+ * resource-shaped check) — sent to the relay so it can verify them
+ * structurally, with no per-capability relay code. Empty on an uncompiled
+ * spec or a spec whose contract carries only catalog checks.
+ */
+export function resourceChecksFromSpec(spec: DeploymentSpecV2): ResourceCheck[] {
+  if (spec.verificationContract === null) return [];
+  return spec.verificationContract.checks
+    .filter((check) => !CATALOG_CHECK_NAMES.has(check.check))
+    .map((check) => ({
+      componentId: check.componentId,
+      check: check.check,
+      logicalId: check.logicalId,
+      resourceType: check.primaryResourceType,
+    }));
+}
+
 /**
  * Inventory classification by CFN logical id, from the spec's ownership
  * records: a record's kind and retention, with the verification contract

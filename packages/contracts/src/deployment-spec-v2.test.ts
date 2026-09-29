@@ -3,14 +3,24 @@ import { describe, expect, it } from 'vitest';
 import {
   deployzTaskFamily,
   migrationTaskFromSpec,
+  oneShotTasksFromSpec,
   requirementsFromSpec,
+  resourceChecksFromSpec,
   workloadServicesFromSpec,
   type DeploymentSpecV2,
 } from './deployment-spec-v2.js';
 
-/** migrationTaskFromSpec/workloadServicesFromSpec only read the compiled fields. */
-function specWith(contract: unknown, ownershipRecords?: unknown): DeploymentSpecV2 {
-  return { verificationContract: contract, ownershipRecords } as unknown as DeploymentSpecV2;
+/** The spec helpers only read the compiled fields and the IR workload kinds. */
+function specWith(
+  contract: unknown,
+  ownershipRecords?: unknown,
+  workloads: ReadonlyArray<{ componentId: string; kind: string }> = [],
+): DeploymentSpecV2 {
+  return { verificationContract: contract, ownershipRecords, ir: { workloads } } as unknown as DeploymentSpecV2;
+}
+
+function taskRecord(componentId: string, logicalResourceId: string): Record<string, unknown> {
+  return { componentId, componentKind: 'application', capability: 'aws.ecs-fargate-service', logicalResourceId, physicalResourceId: null, stateful: false, retention: 'delete', purgeStrategy: null };
 }
 
 describe('workloadServicesFromSpec', () => {
@@ -46,6 +56,10 @@ describe('migrationTaskFromSpec', () => {
         { componentId: 'web', componentKind: 'application', capability: 'aws.ecs-fargate-service', logicalResourceId: 'WebService', physicalResourceId: null, stateful: false, retention: 'delete', purgeStrategy: null },
         { componentId: 'migration', componentKind: 'application', capability: 'aws.ecs-fargate-service', logicalResourceId: 'MigrationTaskDefinition', physicalResourceId: null, stateful: false, retention: 'delete', purgeStrategy: null },
       ],
+      [
+        { componentId: 'web', kind: 'web' },
+        { componentId: 'migration', kind: 'migration' },
+      ],
     );
     expect(migrationTaskFromSpec(spec)).toEqual({
       id: 'migration',
@@ -63,9 +77,54 @@ describe('migrationTaskFromSpec', () => {
     expect(migrationTaskFromSpec(specWith(null, null))).toBeNull();
   });
 
+  it('never mistakes a scheduled job (also a one-shot task definition) for the migration', () => {
+    const spec = specWith(
+      { checks: [] },
+      [taskRecord('cleanup', 'CleanupTaskDefinition'), taskRecord('migration', 'MigrationTaskDefinition')],
+      [
+        { componentId: 'cleanup', kind: 'scheduled-job' },
+        { componentId: 'migration', kind: 'migration' },
+      ],
+    );
+    expect(migrationTaskFromSpec(spec)?.id).toBe('migration');
+    expect(oneShotTasksFromSpec(spec, 'scheduled-job')).toEqual([
+      { id: 'cleanup', taskLogicalId: 'CleanupTaskDefinition', family: 'DeployzAppCleanup' },
+    ]);
+    const jobOnly = specWith({ checks: [] }, [taskRecord('cleanup', 'CleanupTaskDefinition')], [{ componentId: 'cleanup', kind: 'scheduled-job' }]);
+    expect(migrationTaskFromSpec(jobOnly)).toBeNull();
+  });
+
   it('the family mirrors the compiler Family field (golden parity)', () => {
     expect(deployzTaskFamily('migration')).toBe('DeployzAppMigration');
     expect(deployzTaskFamily('web')).toBe('DeployzAppWeb');
     expect(deployzTaskFamily('email-worker')).toBe('DeployzAppEmailWorker');
+  });
+});
+
+describe('resourceChecksFromSpec', () => {
+  it('carries only the checks outside the fixed catalog', () => {
+    const spec = specWith({
+      checks: [
+        { componentId: 'web', componentKind: 'application', capability: 'aws.ecs-fargate-service', check: 'compute', primaryResourceType: 'AWS::ECS::Service', logicalId: 'WebService' },
+        { componentId: 'endpoint', componentKind: 'endpoint', capability: 'aws.alb', check: 'ingress', primaryResourceType: 'AWS::ElasticLoadBalancingV2::LoadBalancer', logicalId: 'EndpointLoadBalancer' },
+        { componentId: 'jobs', componentKind: 'queue', capability: 'aws.sqs-queue', check: 'queue', primaryResourceType: 'AWS::SQS::Queue', logicalId: 'JobsQueue' },
+        { componentId: 'cleanup', componentKind: 'application', capability: 'aws.scheduler-schedule', check: 'schedule', primaryResourceType: 'AWS::Scheduler::Schedule', logicalId: 'CleanupSchedule' },
+      ],
+    });
+    expect(resourceChecksFromSpec(spec)).toEqual([
+      { componentId: 'jobs', check: 'queue', logicalId: 'JobsQueue', resourceType: 'AWS::SQS::Queue' },
+      { componentId: 'cleanup', check: 'schedule', logicalId: 'CleanupSchedule', resourceType: 'AWS::Scheduler::Schedule' },
+    ]);
+  });
+
+  it('is empty on an uncompiled spec or a spec with only catalog checks', () => {
+    expect(resourceChecksFromSpec(specWith(null))).toEqual([]);
+    expect(
+      resourceChecksFromSpec(
+        specWith({
+          checks: [{ componentId: 'web', componentKind: 'application', capability: 'aws.ecs-fargate-service', check: 'compute', primaryResourceType: 'AWS::ECS::Service', logicalId: 'WebService' }],
+        }),
+      ),
+    ).toEqual([]);
   });
 });

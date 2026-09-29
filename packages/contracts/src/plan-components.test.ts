@@ -188,16 +188,41 @@ describe('derivePlanComponentsFromSpec', () => {
     const ir = baseIr();
     ir.workloads = [];
     ir.ingress = { public: false, capabilityKey: null, targetWorkloadIds: [] };
-    ir.resources = [irResource('jobs-queue', 'aws.sqs', 'Email queue', 'delete')];
+    ir.resources = [irResource('jobs-index', 'aws.some-future-search', 'Search index', 'delete')];
 
     const derived = derivePlanComponentsFromSpec(specFromIr(ir));
     expect(derived).toHaveLength(1);
     expect(derived[0]).toMatchObject({
-      componentId: 'jobs-queue',
+      componentId: 'jobs-index',
       kind: UNKNOWN_PLAN_COMPONENT_KIND,
-      name: 'Email queue',
+      name: 'Search index',
       group: 'application',
     });
+  });
+
+  it('presents queues and schedules in the Messaging group', () => {
+    const ir = baseIr();
+    ir.workloads = [];
+    ir.ingress = { public: false, capabilityKey: null, targetWorkloadIds: [] };
+    ir.resources = [irResource('orders-queue', 'aws.sqs', 'Orders queue', 'delete')];
+    ir.schedules = [
+      {
+        id: 'cleanup-schedule',
+        capabilityKey: 'aws.eventbridge-scheduler',
+        label: 'Schedule for cleanup',
+        expression: { type: 'cron', cron: '0 3 * * *' },
+        timezone: null,
+        targetWorkloadId: 'cleanup',
+        retry: { maximumRetryAttempts: 3, maximumEventAgeSeconds: 3600 },
+        deadLetterQueueId: null,
+        enabled: true,
+      },
+    ];
+
+    expect(derivePlanComponentsFromSpec(specFromIr(ir))).toEqual([
+      { kind: 'queue', name: 'Orders queue', action: 'UNCHANGED', lifecycle: 'delete', componentId: 'orders-queue', group: 'messaging' },
+      { kind: 'schedule', name: 'Schedule for cleanup', action: 'UNCHANGED', lifecycle: 'delete', componentId: 'cleanup-schedule', group: 'messaging' },
+    ]);
   });
 
   it('falls back to the IR workload kind when valid and the capability is unknown', () => {

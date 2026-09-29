@@ -75,6 +75,7 @@ import migration0042 from '../../../db/drizzle/0042_jev_failure_classifications.
 import migration0046 from '../../../db/drizzle/0046_environment_setup.sql';
 import migration0047 from '../../../db/drizzle/0047_checkout_intent_subscribe_only.sql';
 import migration0048 from '../../../db/drizzle/0048_deployment_spec_v2.sql';
+import migration0049 from '../../../db/drizzle/0049_async_component_kinds.sql';
 import journal from '../../../db/drizzle/meta/_journal.json';
 
 /**
@@ -137,6 +138,7 @@ const MIGRATION_SQL: Record<string, string> = {
   '0046_environment_setup': migration0046,
   '0047_checkout_intent_subscribe_only': migration0047,
   '0048_deployment_spec_v2': migration0048,
+  '0049_async_component_kinds': migration0049,
 };
 
 interface RdsSecret {

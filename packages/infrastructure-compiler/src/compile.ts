@@ -3,12 +3,15 @@ import type {
   InfrastructureComponentKind,
   InfrastructureSizeProfile,
   Region,
+  IrBinding,
   IrResource,
+  IrSchedule,
   IrWorkload,
 } from '@deployz/contracts';
 import { CAPABILITY_KEYS, defaultInfrastructureSizeProfile } from '@deployz/contracts';
 
 import { logicalResourceId, logicalIdViolations } from './stable-identity.js';
+import { translateScheduleExpression } from './schedule-expression.js';
 import type {
   DeletionPolicy,
   PurgeStrategy,
@@ -113,7 +116,7 @@ const PUBLIC_SUBNET_CIDRS = ['10.0.0.0/18', '10.0.64.0/18'] as const;
 const PRIVATE_SUBNET_CIDRS = ['10.0.128.0/18', '10.0.192.0/18'] as const;
 
 // ── Compiler version / capability registry identity ─────────────────────────
-export const COMPILER_VERSION = 'dynamic-compiler-v2-1' as const;
+export const COMPILER_VERSION = 'dynamic-compiler-v2-2' as const;
 
 interface ResInput {
   readonly componentId: string;
@@ -380,7 +383,7 @@ function rdsDescriptorFor(capabilityKey: string): RdsEngineDescriptor {
 }
 
 /** Managed RDS database (PostgreSQL or MySQL) — Retain lifecycle (stateful). */
-function compileRds(dbResource: IrResource, profile: InfrastructureSizeProfile, ids: NetIds, serviceComponentIds: readonly string[]): ResolvedResource[] {
+function compileRds(dbResource: IrResource, profile: InfrastructureSizeProfile, ids: NetIds, serviceSecurityGroups: readonly { componentId: string; sgRole: string }[]): ResolvedResource[] {
   const engine = rdsDescriptorFor(dbResource.capabilityKey);
   const out: ResolvedResource[] = [];
   const componentId = dbResource.componentId;
@@ -453,13 +456,14 @@ function compileRds(dbResource: IrResource, profile: InfrastructureSizeProfile, 
     },
   }));
 
-  // One ingress rule per workload service security group — every workload
-  // that binds the database must reach it (Phase 4A: N workloads).
-  for (const serviceComponentId of serviceComponentIds) {
+  // One ingress rule per workload service/task security group — every
+  // workload that binds the database must reach it (Phase 4A: N workloads;
+  // Phase 5D: scheduled jobs too, via their own task security group).
+  for (const { componentId: serviceComponentId, sgRole } of serviceSecurityGroups) {
     out.push(res({
       componentId, componentKind: 'database', capability: engine.capability, resourceRole: `app-service-ingress-${serviceComponentId}`,
       cfnType: 'AWS::EC2::SecurityGroupIngress',
-      properties: { Description: engine.ingressDescription, FromPort: engine.port, GroupId: getAtt(sg, 'GroupId'), IpProtocol: 'tcp', SourceSecurityGroupId: getAtt(logicalResourceId(serviceComponentId, 'service-security-group'), 'GroupId'), ToPort: engine.port },
+      properties: { Description: engine.ingressDescription, FromPort: engine.port, GroupId: getAtt(sg, 'GroupId'), IpProtocol: 'tcp', SourceSecurityGroupId: getAtt(logicalResourceId(serviceComponentId, sgRole), 'GroupId'), ToPort: engine.port },
     }));
   }
 
@@ -520,27 +524,32 @@ interface EcsContext {
   readonly cache: { componentId: string; replicationGroup: string } | undefined;
 }
 
-/** IAM roles + policies + cluster — shared by every workload service. */
+/** Statements granting read access to a set of Secrets Manager secret logical ids. */
+function secretReadStatements(secrets: readonly string[]): unknown[] {
+  return secrets.map((s) => ({
+    Action: ['secretsmanager:GetSecretValue', 'secretsmanager:DescribeSecret'],
+    Effect: 'Allow',
+    Resource: ref(s),
+  }));
+}
+
+/** The Secrets Manager secrets every workload's task role reads (DB + app config). */
+function computeSecretArns(ctx: EcsContext): string[] {
+  const dbSecrets = ctx.db !== undefined ? [ctx.db.secret, ctx.db.urlSecret] : [];
+  return [...dbSecrets, logicalResourceId('application', 'config-secret')];
+}
+
+/** Cluster + the shared execution role/policy (image pull, logs, secrets injection). */
 function compileEcsShared(ctx: EcsContext, services: readonly IrWorkload[]): ResolvedResource[] {
-  // The shared compute identity (cluster, IAM roles) anchors on the web
+  // The shared compute identity (cluster, execution role) anchors on the web
   // workload's component id, keeping every logical id stable with the
   // single-workload deployments this compiler replaces. The web workload is
   // always present in the MVP graph.
   const componentId = 'web';
   const execRole = logicalResourceId(componentId, 'task-execution-role');
   const execPolicy = logicalResourceId(componentId, 'task-execution-role-policy');
-  const taskRole = logicalResourceId(componentId, 'task-role');
-  const taskPolicy = logicalResourceId(componentId, 'task-role-policy');
 
-  const secretReadStatements = (secrets: readonly string[]): unknown[] =>
-    secrets.map((s) => ({
-      Action: ['secretsmanager:GetSecretValue', 'secretsmanager:DescribeSecret'],
-      Effect: 'Allow',
-      Resource: ref(s),
-    }));
-
-  const dbSecrets = ctx.db !== undefined ? [ctx.db.secret, ctx.db.urlSecret] : [];
-  const secretArns = [...dbSecrets, logicalResourceId('application', 'config-secret')];
+  const secretArns = computeSecretArns(ctx);
   const logGroupArns = services.map((s) => getAtt(logicalResourceId(s.componentId, 'log-group'), 'Arn'));
 
   return [
@@ -574,6 +583,21 @@ function compileEcsShared(ctx: EcsContext, services: readonly IrWorkload[]): Res
         Roles: [ref(execRole)],
       },
     }),
+  ];
+}
+
+/**
+ * One workload's OWN task role + policy (Phase 5): the baseline S3 + secret
+ * read statements every workload needs, plus its own queue edge statements
+ * (item 3) — never the shared web policy, so a worker never inherits the web
+ * producer's SendMessage and vice versa. For `componentId === 'web'` this
+ * reproduces the pre-Phase-5 shared `web/task-role(-policy)` byte-for-byte
+ * when it has no queue edges.
+ */
+function compileWorkloadTaskRole(componentId: string, secretArns: readonly string[], edgeStatements: readonly unknown[]): ResolvedResource[] {
+  const taskRole = logicalResourceId(componentId, 'task-role');
+  const taskPolicy = logicalResourceId(componentId, 'task-role-policy');
+  return [
     res({
       componentId, componentKind: 'application', capability: CAPABILITY_KEYS.ECS_FARGATE_SERVICE, resourceRole: 'task-role',
       cfnType: 'AWS::IAM::Role',
@@ -596,6 +620,7 @@ function compileEcsShared(ctx: EcsContext, services: readonly IrWorkload[]): Res
               Resource: [getAtt(logicalResourceId('storage', 'bucket'), 'Arn'), join('', [getAtt(logicalResourceId('storage', 'bucket'), 'Arn'), '/*'])],
             },
             ...secretReadStatements(secretArns),
+            ...edgeStatements,
           ],
           Version: '2012-10-17',
         },
@@ -606,12 +631,74 @@ function compileEcsShared(ctx: EcsContext, services: readonly IrWorkload[]): Res
   ];
 }
 
+/** The SQS-capability resources' componentId -> capabilityKey, for filtering queue edges. */
+function resourceCapabilityMap(ir: DeployzIR): Map<string, string> {
+  return new Map(ir.resources.map((r) => [r.componentId, r.capabilityKey]));
+}
+
+/**
+ * A workload's own produce/consume queue edges (item 3), sorted by target so
+ * the emitted IAM statements/env vars never depend on the IR's binding
+ * array order.
+ */
+function queueEdgeBindingsFor(ir: DeployzIR, componentId: string): IrBinding[] {
+  const capabilityByComponent = resourceCapabilityMap(ir);
+  return ir.bindings
+    .filter(
+      (b) =>
+        b.sourceId === componentId &&
+        (b.access === 'produce' || b.access === 'consume') &&
+        capabilityByComponent.get(b.targetId) === CAPABILITY_KEYS.SQS,
+    )
+    .slice()
+    .sort((a, b) => a.targetId.localeCompare(b.targetId) || a.id.localeCompare(b.id));
+}
+
+/** One least-privilege IAM statement per queue edge — never a wildcard resource. */
+function queueEdgeStatements(ir: DeployzIR, componentId: string): unknown[] {
+  return queueEdgeBindingsFor(ir, componentId).map((b) => ({
+    Action: b.iamActions,
+    Effect: 'Allow',
+    Resource: getAtt(logicalResourceId(b.targetId, 'queue'), 'Arn'),
+  }));
+}
+
+/**
+ * The queue env vars a workload's produce/consume edges inject, appended
+ * after the shared environment. Fails closed on an unsupported env kind or
+ * on two different queues bound under the same env name.
+ */
+function queueEnvEntries(ir: DeployzIR, componentId: string): Array<{ Name: string; Value: unknown }> {
+  const entries: Array<{ Name: string; Value: unknown }> = [];
+  const targetByEnvName = new Map<string, string>();
+  for (const binding of queueEdgeBindingsFor(ir, componentId)) {
+    for (const eb of binding.envBindings) {
+      const previousTarget = targetByEnvName.get(eb.name);
+      if (previousTarget !== undefined && previousTarget !== binding.targetId) {
+        throw new Error(
+          `compiler: workload "${componentId}" binds env "${eb.name}" to two different queues ("${previousTarget}" and "${binding.targetId}")`,
+        );
+      }
+      targetByEnvName.set(eb.name, binding.targetId);
+      const queueLogical = logicalResourceId(binding.targetId, 'queue');
+      if (eb.kind === 'url') {
+        entries.push({ Name: eb.name, Value: ref(queueLogical) });
+      } else if (eb.kind === 'arn') {
+        entries.push({ Name: eb.name, Value: getAtt(queueLogical, 'Arn') });
+      } else {
+        throw new Error(`compiler: queue env binding kind "${eb.kind}" is not supported`);
+      }
+    }
+  }
+  return entries;
+}
+
 /**
  * The managed env/secrets bindings every application task definition carries
  * — the SAME set for web, workers and the migration task, so a one-shot
  * migration sees exactly what the workloads that depend on it see.
  */
-function appEnvironment(ctx: EcsContext): { environment: unknown[]; secrets: unknown[] } {
+function appEnvironment(ctx: EcsContext, extraEnv: readonly unknown[] = []): { environment: unknown[]; secrets: unknown[] } {
   const environment: unknown[] = [
     { Name: 'NODE_ENV', Value: 'production' },
     { Name: 'PORT', Value: ref('paramContainerPort') },
@@ -660,6 +747,9 @@ function appEnvironment(ctx: EcsContext): { environment: unknown[]; secrets: unk
       { Name: 'REDIS_PORT', Value: String(REDIS_PORT) },
     );
   }
+  // Queue env bindings (Phase 5A) — per-workload only, appended after the
+  // shared environment every workload sees.
+  environment.push(...extraEnv);
   return { environment, secrets };
 }
 
@@ -671,13 +761,13 @@ function appEnvironment(ctx: EcsContext): { environment: unknown[]; secrets: unk
  * ALB, no desired-count parameter, and deliberately NO verification check:
  * a migration is proven by its task exit code, never by a long-lived service.
  */
-function compileMigrationTask(ctx: EcsContext, workload: IrWorkload, profile: InfrastructureSizeProfile): ResolvedResource[] {
+function compileMigrationTask(ctx: EcsContext, workload: IrWorkload, profile: InfrastructureSizeProfile, extraEnv: readonly unknown[] = []): ResolvedResource[] {
   const componentId = workload.componentId;
   const logGroup = logicalResourceId(componentId, 'log-group');
   const execRole = logicalResourceId('web', 'task-execution-role');
-  const taskRole = logicalResourceId('web', 'task-role');
+  const taskRole = logicalResourceId(componentId, 'task-role');
 
-  const { environment, secrets } = appEnvironment(ctx);
+  const { environment, secrets } = appEnvironment(ctx, extraEnv);
   const containerDefs: unknown[] = [{
     Name: 'App',
     Essential: true,
@@ -724,23 +814,23 @@ function compileMigrationTask(ctx: EcsContext, workload: IrWorkload, profile: In
         ...(ctx.db !== undefined ? { Volumes: [{ Name: RDS_CA_VOLUME }] } : {}),
       },
       dependsOn: [
-        logicalResourceId('web', 'task-role-policy'),
-        logicalResourceId('web', 'task-role'),
+        logicalResourceId(componentId, 'task-role-policy'),
+        logicalResourceId(componentId, 'task-role'),
       ],
     }),
   ];
 }
 
 /** Task definition + service + security group for one workload (web or worker). */
-function compileWorkloadService(ctx: EcsContext, workload: IrWorkload, profile: InfrastructureSizeProfile, ingress: { targetGroup: string; listener: string } | undefined): ResolvedResource[] {
+function compileWorkloadService(ctx: EcsContext, workload: IrWorkload, profile: InfrastructureSizeProfile, ingress: { targetGroup: string; listener: string } | undefined, extraEnv: readonly unknown[] = []): ResolvedResource[] {
   const componentId = workload.componentId;
   const logGroup = logicalResourceId(componentId, 'log-group');
   const execRole = logicalResourceId('web', 'task-execution-role');
-  const taskRole = logicalResourceId('web', 'task-role');
+  const taskRole = logicalResourceId(componentId, 'task-role');
   const taskDef = logicalResourceId(componentId, 'task-definition');
   const serviceSg = logicalResourceId(componentId, 'service-security-group');
 
-  const { environment, secrets } = appEnvironment(ctx);
+  const { environment, secrets } = appEnvironment(ctx, extraEnv);
 
   const containerDefs: unknown[] = [{
     Name: 'App',
@@ -829,8 +919,8 @@ function compileWorkloadService(ctx: EcsContext, workload: IrWorkload, profile: 
       },
       dependsOn: [
         ...(ingress !== undefined ? [ingress.targetGroup, ingress.listener] : []),
-        logicalResourceId('web', 'task-role-policy'),
-        logicalResourceId('web', 'task-role'),
+        logicalResourceId(componentId, 'task-role-policy'),
+        logicalResourceId(componentId, 'task-role'),
       ],
     }),
   ];
@@ -934,6 +1024,246 @@ function compileAlb(ctx: EcsContext, workload: IrWorkload): ResolvedResource[] {
   ];
 }
 
+// ── Scheduled jobs, queues, EventBridge Scheduler (Phase 5) ─────────────────
+
+/**
+ * The one-shot scheduled-job task definition (Phase 5D): the same shape as
+ * the migration task (frozen command, no service, no ALB, NO verification
+ * check — a scheduled job is never deployment-gating) but with its own
+ * security group (for the RDS ingress rule and the scheduler's ECS network
+ * configuration) and its own stream prefix, kept separate from the migration
+ * task's naming.
+ */
+function compileScheduledJobTask(ctx: EcsContext, workload: IrWorkload, profile: InfrastructureSizeProfile, extraEnv: readonly unknown[] = []): ResolvedResource[] {
+  const componentId = workload.componentId;
+  const logGroup = logicalResourceId(componentId, 'log-group');
+  const execRole = logicalResourceId('web', 'task-execution-role');
+  const taskRole = logicalResourceId(componentId, 'task-role');
+
+  const { environment, secrets } = appEnvironment(ctx, extraEnv);
+  const containerDefs: unknown[] = [{
+    Name: 'App',
+    Essential: true,
+    Image: ref('paramImageReference'),
+    ...(workload.command !== null ? { Command: ['sh', '-c', workload.command] } : {}),
+    LogConfiguration: { LogDriver: 'awslogs', Options: { 'awslogs-group': ref(logGroup), 'awslogs-stream-prefix': 'deployz-job', 'awslogs-region': ref('AWS::Region') } },
+    Environment: environment,
+    Secrets: secrets,
+    ...(ctx.db !== undefined
+      ? {
+          DependsOn: [{ Condition: 'SUCCESS', ContainerName: 'RdsCaBundle' }],
+          MountPoints: [{ ContainerPath: RDS_CA_DIR, ReadOnly: true, SourceVolume: RDS_CA_VOLUME }],
+        }
+      : {}),
+  }];
+  if (ctx.db !== undefined) {
+    containerDefs.push({
+      Name: 'RdsCaBundle',
+      Essential: false,
+      Image: RDS_CA_INIT_IMAGE,
+      Command: ['sh', '-c', join('', [`curl -fsSL "https://truststore.pki.rds.amazonaws.com/`, ref('AWS::Region'), `/`, ref('AWS::Region'), `-bundle.pem" -o ${RDS_CA_BUNDLE_PATH} || echo "RDS CA bundle fetch failed; the application starts without it"`])],
+      LogConfiguration: { LogDriver: 'awslogs', Options: { 'awslogs-group': ref(logGroup), 'awslogs-stream-prefix': 'deployz-rds-ca', 'awslogs-region': ref('AWS::Region') } },
+      MountPoints: [{ ContainerPath: RDS_CA_DIR, ReadOnly: false, SourceVolume: RDS_CA_VOLUME }],
+    });
+  }
+
+  return [
+    res({
+      componentId, componentKind: 'application', capability: CAPABILITY_KEYS.ECS_FARGATE_TASK, resourceRole: 'task-definition',
+      cfnType: 'AWS::ECS::TaskDefinition',
+      properties: {
+        ContainerDefinitions: containerDefs,
+        Cpu: String(profile.workload.cpuUnits),
+        ExecutionRoleArn: getAtt(execRole, 'Arn'),
+        Family: `DeployzApp${pascal(componentId)}`,
+        Memory: String(profile.workload.memoryMiB),
+        NetworkMode: 'awsvpc',
+        RequiresCompatibilities: ['FARGATE'],
+        RuntimePlatform: { CpuArchitecture: 'X86_64', OperatingSystemFamily: 'LINUX' },
+        Tags: tags(componentId),
+        TaskRoleArn: getAtt(taskRole, 'Arn'),
+        ...(ctx.db !== undefined ? { Volumes: [{ Name: RDS_CA_VOLUME }] } : {}),
+      },
+      dependsOn: [
+        logicalResourceId(componentId, 'task-role-policy'),
+        logicalResourceId(componentId, 'task-role'),
+      ],
+    }),
+    res({
+      componentId, componentKind: 'application', capability: CAPABILITY_KEYS.ECS_FARGATE_TASK, resourceRole: 'task-security-group',
+      cfnType: 'AWS::EC2::SecurityGroup',
+      properties: { GroupDescription: `DeployzApp/${componentId}/SecurityGroup`, SecurityGroupEgress: [{ CidrIp: '0.0.0.0/0', Description: 'Allow all outbound traffic by default', IpProtocol: '-1' }], Tags: tags(componentId), VpcId: ref(ctx.ids.vpc) },
+    }),
+  ];
+}
+
+/** Standard SQS queue + its TLS-deny queue policy (Phase 5A). FIFO fails closed — the planner never resolves one, but the compiler stays honest if it ever did. */
+function compileQueues(ir: DeployzIR): ResolvedResource[] {
+  const out: ResolvedResource[] = [];
+  for (const q of ir.resources.filter((r) => r.capabilityKey === CAPABILITY_KEYS.SQS)) {
+    const componentId = q.componentId;
+    const configuration = q.configuration as { queueType?: unknown; messageRetentionSeconds?: unknown; visibilityTimeoutSeconds?: unknown };
+    if (configuration.queueType !== 'standard') {
+      throw new Error(`compiler: queue "${componentId}" has unsupported queueType "${String(configuration.queueType)}" (only "standard" is supported)`);
+    }
+    const queue = logicalResourceId(componentId, 'queue');
+    // A queue → queue dead-letter edge sourced FROM this queue sets ITS OWN
+    // redrive policy, pointing at the target DLQ.
+    const redrive = ir.bindings.find((b) => b.sourceId === componentId && b.access === 'dead-letter');
+
+    out.push(res({
+      componentId, componentKind: 'queue', capability: CAPABILITY_KEYS.SQS, resourceRole: 'queue',
+      cfnType: 'AWS::SQS::Queue', verificationCheck: 'queue',
+      properties: {
+        MessageRetentionPeriod: configuration.messageRetentionSeconds,
+        VisibilityTimeout: configuration.visibilityTimeoutSeconds,
+        SqsManagedSseEnabled: true,
+        Tags: tags(componentId),
+        ...(redrive !== undefined
+          ? { RedrivePolicy: { deadLetterTargetArn: getAtt(logicalResourceId(redrive.targetId, 'queue'), 'Arn'), maxReceiveCount: redrive.maxReceiveCount } }
+          : {}),
+      },
+    }));
+    out.push(res({
+      componentId, componentKind: 'queue', capability: CAPABILITY_KEYS.SQS, resourceRole: 'queue-policy',
+      cfnType: 'AWS::SQS::QueuePolicy',
+      properties: {
+        PolicyDocument: {
+          Statement: [{
+            Action: 'sqs:*',
+            Condition: { Bool: { 'aws:SecureTransport': 'false' } },
+            Effect: 'Deny',
+            Principal: { AWS: '*' },
+            Resource: getAtt(queue, 'Arn'),
+          }],
+          Version: '2012-10-17',
+        },
+        Queues: [ref(queue)],
+      },
+    }));
+  }
+  return out;
+}
+
+/** Map one schedule IAM action to its resource(s) + condition, by service prefix — capability-local, fails closed on an unknown action. */
+function scheduleActionStatement(action: string, res_: { family: { revisionless: unknown; allRevisions: unknown }; clusterArn: unknown; jobTaskRoleArn: unknown; execRoleArn: unknown; dlqArn: unknown }): unknown {
+  const service = action.split(':')[0];
+  if (service === 'ecs') {
+    return {
+      Action: action,
+      Effect: 'Allow',
+      Resource: [res_.family.revisionless, res_.family.allRevisions],
+      Condition: { ArnEquals: { 'ecs:cluster': res_.clusterArn } },
+    };
+  }
+  if (service === 'iam') {
+    return {
+      Action: action,
+      Effect: 'Allow',
+      Resource: [res_.jobTaskRoleArn, res_.execRoleArn],
+      Condition: { StringEquals: { 'iam:PassedToService': 'ecs-tasks.amazonaws.com' } },
+    };
+  }
+  if (service === 'sqs') {
+    return { Action: action, Effect: 'Allow', Resource: res_.dlqArn };
+  }
+  throw new Error(`compiler: schedule IAM action "${action}" has no resource mapping`);
+}
+
+/**
+ * EventBridge Scheduler role + policy + schedule for one IR schedule
+ * (Phase 5C): a confused-deputy-guarded role, IAM derived ONLY from the
+ * schedule's own invoke/dead-letter bindings, and the schedule resource
+ * targeting the ALWAYS-latest (revisionless) task definition family — the
+ * relay registers each release as a new revision of the same family.
+ */
+function compileSchedule(ir: DeployzIR, schedule: IrSchedule, ids: NetIds): ResolvedResource[] {
+  const id = schedule.id;
+  const role = logicalResourceId(id, 'scheduler-role');
+  const policy = logicalResourceId(id, 'scheduler-role-policy');
+
+  const family = `DeployzApp${pascal(schedule.targetWorkloadId)}`;
+  const familyRevisionless = join('', ['arn:', ref('AWS::Partition'), ':ecs:', ref('AWS::Region'), ':', ref('AWS::AccountId'), `:task-definition/${family}`]);
+  const familyAllRevisions = join('', ['arn:', ref('AWS::Partition'), ':ecs:', ref('AWS::Region'), ':', ref('AWS::AccountId'), `:task-definition/${family}:*`]);
+  const clusterArn = getAtt(logicalResourceId('web', 'cluster'), 'Arn');
+  const jobTaskRoleArn = getAtt(logicalResourceId(schedule.targetWorkloadId, 'task-role'), 'Arn');
+  const execRoleArn = getAtt(logicalResourceId('web', 'task-execution-role'), 'Arn');
+  const dlqArn = schedule.deadLetterQueueId !== null ? getAtt(logicalResourceId(schedule.deadLetterQueueId, 'queue'), 'Arn') : undefined;
+
+  const invokeBinding = ir.bindings.find((b) => b.sourceId === id && b.access === 'invoke');
+  const deadLetterBinding = ir.bindings.find((b) => b.sourceId === id && b.access === 'dead-letter');
+  const statementCtx = { family: { revisionless: familyRevisionless, allRevisions: familyAllRevisions }, clusterArn, jobTaskRoleArn, execRoleArn, dlqArn };
+  const statements: unknown[] = [
+    ...(invokeBinding !== undefined ? invokeBinding.iamActions.map((a) => scheduleActionStatement(a, statementCtx)) : []),
+    ...(deadLetterBinding !== undefined ? deadLetterBinding.iamActions.map((a) => scheduleActionStatement(a, statementCtx)) : []),
+  ];
+
+  const target: Record<string, unknown> = {
+    Arn: clusterArn,
+    RoleArn: getAtt(role, 'Arn'),
+    RetryPolicy: { MaximumRetryAttempts: schedule.retry.maximumRetryAttempts, MaximumEventAgeInSeconds: schedule.retry.maximumEventAgeSeconds },
+    ...(schedule.deadLetterQueueId !== null ? { DeadLetterConfig: { Arn: dlqArn } } : {}),
+    EcsParameters: {
+      TaskDefinitionArn: familyRevisionless,
+      TaskCount: 1,
+      LaunchType: 'FARGATE',
+      NetworkConfiguration: {
+        AwsvpcConfiguration: {
+          Subnets: [ref(ids.privateSubnets[0]), ref(ids.privateSubnets[1])],
+          SecurityGroups: [getAtt(logicalResourceId(schedule.targetWorkloadId, 'task-security-group'), 'GroupId')],
+          AssignPublicIp: 'DISABLED',
+        },
+      },
+    },
+  };
+
+  return [
+    res({
+      componentId: id, componentKind: 'schedule', capability: CAPABILITY_KEYS.EVENTBRIDGE_SCHEDULER, resourceRole: 'scheduler-role',
+      cfnType: 'AWS::IAM::Role',
+      properties: {
+        AssumeRolePolicyDocument: {
+          Statement: [{
+            Action: 'sts:AssumeRole',
+            Effect: 'Allow',
+            Principal: { Service: 'scheduler.amazonaws.com' },
+            Condition: { StringEquals: { 'aws:SourceAccount': ref('AWS::AccountId') } },
+          }],
+          Version: '2012-10-17',
+        },
+        Description: "Allows EventBridge Scheduler to start this schedule's target task.",
+        Path: '/deployz/',
+        Tags: tags(id),
+      },
+    }),
+    res({
+      componentId: id, componentKind: 'schedule', capability: CAPABILITY_KEYS.EVENTBRIDGE_SCHEDULER, resourceRole: 'scheduler-role-policy',
+      cfnType: 'AWS::IAM::Policy',
+      properties: {
+        PolicyDocument: { Statement: statements, Version: '2012-10-17' },
+        PolicyName: policy,
+        Roles: [ref(role)],
+      },
+    }),
+    res({
+      componentId: id, componentKind: 'schedule', capability: CAPABILITY_KEYS.EVENTBRIDGE_SCHEDULER, resourceRole: 'schedule',
+      cfnType: 'AWS::Scheduler::Schedule', verificationCheck: 'schedule',
+      properties: {
+        // A deterministic name under the stack's prefix: the bootstrap
+        // execution role may manage only `schedule/default/<stack>*`
+        // (schedules carry no tags). ≤ 64 chars: stack name + a ≤ 48-char id.
+        Name: join('-', [ref('AWS::StackName'), pascal(id)]),
+        ScheduleExpression: translateScheduleExpression(schedule.expression),
+        ...(schedule.timezone !== null ? { ScheduleExpressionTimezone: schedule.timezone } : {}),
+        FlexibleTimeWindow: { Mode: 'OFF' },
+        State: schedule.enabled ? 'ENABLED' : 'DISABLED',
+        Target: target,
+      },
+      dependsOn: [policy, logicalResourceId(schedule.targetWorkloadId, 'task-definition')],
+    }),
+  ];
+}
+
 // ── Parameters / outputs / conditions ───────────────────────────────────────
 
 function compileParameters(): ResolvedParameter[] {
@@ -989,9 +1319,9 @@ export interface CompiledGraph {
 
 /**
  * The persistent workloads to compile — one ECS service per `web`/`worker`
- * workload (Phase 4A). The one-shot `migration` workload (Phase 4C) compiles
- * a task definition only; the not-yet-supported private-service/scheduled-job
- * kinds stay skipped.
+ * workload (Phase 4A). The one-shot `migration` workload (Phase 4C) and the
+ * one-shot `scheduled-job` workload (Phase 5D) each compile a task definition
+ * only; the not-yet-supported private-service/lambda kinds stay skipped.
  */
 function persistentWorkloads(ir: DeployzIR): IrWorkload[] {
   const persistent = ir.workloads.filter((w) => w.kind === 'web' || w.kind === 'worker');
@@ -1014,6 +1344,9 @@ export function compileInfrastructure(input: CompileInput): CompiledGraph {
   const services = persistentWorkloads(ir);
   // The one-shot migration workload (Phase 4C) — at most one per graph.
   const migrationWorkload = ir.workloads.find((w) => w.kind === 'migration') ?? null;
+  // The one-shot scheduled-job workloads (Phase 5D) — each invoked by its
+  // own EventBridge Scheduler schedule.
+  const scheduledJobWorkloads = ir.workloads.filter((w) => w.kind === 'scheduled-job');
 
   const ids = netIds();
 
@@ -1048,19 +1381,41 @@ export function compileInfrastructure(input: CompileInput): CompiledGraph {
         }
       : undefined;
 
+  // Every workload that runs a container gets its own IAM task role (Phase
+  // 5): 'web' first, so a web-only IR reproduces the pre-Phase-5 shared
+  // `web/task-role(-policy)` byte-for-byte (it has no queue edges).
+  const roleComponentIds = [
+    'web',
+    ...services.filter((w) => w.componentId !== 'web').map((w) => w.componentId),
+    ...(migrationWorkload !== null ? [migrationWorkload.componentId] : []),
+    ...scheduledJobWorkloads.map((w) => w.componentId),
+  ];
+  const secretArns = computeSecretArns(ctx);
+
   const resources: ResolvedResource[] = [
     ...compileNetwork(ids),
     compileAppSecret(),
     ...compileS3(),
-    // Every workload's tasks log to their own group — the migration task
-    // included (its Arn lands in the shared execution-role policy below).
+    // Every workload's tasks log to their own group — the migration and
+    // scheduled-job tasks included (their Arns land in the shared
+    // execution-role policy below).
     ...services.map((w) => compileLogGroup(w.componentId)),
     ...(migrationWorkload !== null ? [compileLogGroup(migrationWorkload.componentId)] : []),
-    ...(dbResource !== undefined ? compileRds(dbResource, profile, ids, services.map((w) => w.componentId)) : []),
+    ...scheduledJobWorkloads.map((w) => compileLogGroup(w.componentId)),
+    ...(dbResource !== undefined
+      ? compileRds(dbResource, profile, ids, [
+          ...services.map((w) => ({ componentId: w.componentId, sgRole: 'service-security-group' })),
+          ...scheduledJobWorkloads.map((w) => ({ componentId: w.componentId, sgRole: 'task-security-group' })),
+        ])
+      : []),
     ...(cacheResource !== undefined ? compileElasticache(cacheResource, profile, ids) : []),
-    ...compileEcsShared(ctx, migrationWorkload !== null ? [...services, migrationWorkload] : services),
-    ...services.flatMap((w) => compileWorkloadService(ctx, w, profile, w.public === true ? ingress : undefined)),
-    ...(migrationWorkload !== null ? compileMigrationTask(ctx, migrationWorkload, profile) : []),
+    ...compileEcsShared(ctx, [...services, ...(migrationWorkload !== null ? [migrationWorkload] : []), ...scheduledJobWorkloads]),
+    ...roleComponentIds.flatMap((componentId) => compileWorkloadTaskRole(componentId, secretArns, queueEdgeStatements(ir, componentId))),
+    ...services.flatMap((w) => compileWorkloadService(ctx, w, profile, w.public === true ? ingress : undefined, queueEnvEntries(ir, w.componentId))),
+    ...(migrationWorkload !== null ? compileMigrationTask(ctx, migrationWorkload, profile, queueEnvEntries(ir, migrationWorkload.componentId)) : []),
+    ...scheduledJobWorkloads.flatMap((w) => compileScheduledJobTask(ctx, w, profile, queueEnvEntries(ir, w.componentId))),
+    ...compileQueues(ir),
+    ...ir.schedules.flatMap((s) => compileSchedule(ir, s, ids)),
     ...(publicWorkload !== undefined ? compileAlb(ctx, publicWorkload) : []),
   ];
 

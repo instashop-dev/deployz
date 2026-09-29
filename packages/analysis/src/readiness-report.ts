@@ -294,7 +294,7 @@ function rejectionCopy(dependency: string): RejectionCopy {
   if (dependency === '@elastic/elasticsearch' || dependency === '@opensearch-project/opensearch') {
     return ELASTICSEARCH_COPY;
   }
-  if (dependency === 'kafka' || dependency === 'rabbitmq' || dependency === 'sqs-event-consumer' || dependency === 'temporal') {
+  if (dependency === 'kafka' || dependency === 'rabbitmq' || dependency === 'temporal') {
     return MESSAGE_QUEUE_COPY;
   }
   if (dependency === 'docker-compose-multi-service') return MULTI_SERVICE_COPY;
@@ -597,6 +597,49 @@ export function buildReadinessReport(
       suggestedOutcome:
         'Process background jobs inside the web process, or remove the job-runner code if it is not used.',
       confidence: 'likely',
+    });
+  }
+
+  // Phase 5 — background queues and scheduled jobs are first-class workloads,
+  // provisioned automatically once detected. A `questions` entry is weak or
+  // ambiguous evidence Deployz will not provision from — surfaced as a
+  // non-blocking recommendation to ask the vendor, never a rejection.
+  const asyncQueues = Array.isArray(metadata['asyncQueues']) ? metadata['asyncQueues'] : [];
+  const asyncScheduledJobs = Array.isArray(metadata['asyncScheduledJobs']) ? metadata['asyncScheduledJobs'] : [];
+  const asyncQuestions = Array.isArray(metadata['asyncQuestions'])
+    ? (metadata['asyncQuestions'] as { id: string; question: string; source: string }[])
+    : [];
+
+  if (asyncQueues.length > 0 || asyncScheduledJobs.length > 0) {
+    findings.push({
+      id: 'async-workloads',
+      category: 'workers',
+      title: 'Queues and scheduled jobs',
+      severity: 'recommended',
+      blocking: false,
+      plainEnglishExplanation:
+        'This app uses message queues or scheduled jobs. Deployz sets up and runs them as part of the deployment.',
+      whyItMatters:
+        'Queues and scheduled jobs run outside the main web process, so Deployz provisions the matching infrastructure and access automatically.',
+      technicalEvidence: `Detected ${asyncQueues.length} queue(s) and ${asyncScheduledJobs.length} scheduled job(s).`,
+      suggestedOutcome: 'No action needed — Deployz provisions the queues and schedules alongside your app.',
+      confidence: 'confirmed',
+    });
+  }
+
+  for (const question of asyncQuestions) {
+    findings.push({
+      id: `async-question-${question.id}`,
+      category: 'workers',
+      title: 'Confirm a queue or schedule',
+      severity: 'recommended',
+      blocking: false,
+      plainEnglishExplanation: question.question,
+      whyItMatters:
+        'Deployz only provisions infrastructure it can confirm from the code. Anything unclear stays unprovisioned until it is clarified.',
+      technicalEvidence: `Evidence: ${question.source}`,
+      suggestedOutcome: 'Clarify the queue or schedule, or remove the code if it is not used.',
+      confidence: 'needs_confirmation',
     });
   }
 

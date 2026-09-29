@@ -5,6 +5,13 @@ import type { FastifyInstance } from 'fastify';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { applyMigrations, createDb, type Db } from '@deployz/db';
+import {
+  analyseRepo,
+  buildReadinessReport,
+  manifestToApplicationGraph,
+  normalizeDeploymentManifest,
+  planApplicationGraph,
+} from '@deployz/analysis';
 
 import { createAuth, type Auth } from './auth.js';
 import { errorEnvelopeSchema } from '@deployz/contracts';
@@ -1092,6 +1099,48 @@ describe('github — getFileTreeForAnalysis (fixture + real branching)', () => {
       fetchFn,
     });
     expect(tree).toEqual({ 'package.json': '{}' });
+  });
+});
+
+describe('github — deployz-demo/async-app fixture (Phase 5 — async & scheduled workloads)', () => {
+  it('analyses to a READY manifest with the expected queues, DLQ, and scheduled job', async () => {
+    const tree = await getFileTreeForAnalysis('deployz-demo/async-app', { fixtureMode: true });
+    const analysis = analyseRepo(tree);
+    const manifest = normalizeDeploymentManifest(analysis, {});
+
+    expect(manifest.workers?.map((w) => w.id)).toEqual(['worker']);
+    expect(manifest.scheduledJobs?.map((j) => j.id)).toEqual(['cleanup']);
+    expect(manifest.scheduledJobs![0]!.command).toBe('node dist/cleanup.js');
+    expect(manifest.scheduledJobs![0]!.schedule).toEqual({ type: 'cron', cron: '0 3 * * *' });
+
+    expect(manifest.queues).toHaveLength(1);
+    const queue = manifest.queues![0]!;
+    expect(queue.id).toBe('orders-queue');
+    expect(queue.producers).toEqual(['web']);
+    expect(queue.consumers).toEqual(['worker']);
+    expect(queue.deadLetter?.consumers).toEqual(['worker']);
+
+    expect(manifest.database.engine).toBe('mysql');
+    expect(manifest.storage.required).toBe(true);
+    expect(manifest.unsupported).toEqual([]);
+
+    const graph = manifestToApplicationGraph(manifest);
+    expect(graph.workloads.map((w) => w.id).sort()).toEqual(['cleanup', 'web', 'worker']);
+    expect(graph.resources.map((r) => r.id)).toEqual(
+      expect.arrayContaining(['orders-queue', 'orders-queue-dlq']),
+    );
+    const bindings = graph.bindings.map((b) => [b.sourceId, b.targetId, b.access]);
+    expect(bindings).toContainEqual(['web', 'orders-queue', 'produce']);
+    expect(bindings).toContainEqual(['worker', 'orders-queue', 'consume']);
+    expect(bindings).toContainEqual(['worker', 'orders-queue-dlq', 'consume']);
+    expect(bindings).toContainEqual(['orders-queue', 'orders-queue-dlq', 'dead-letter']);
+    expect(bindings).toContainEqual(['cleanup-schedule', 'cleanup', 'invoke']);
+
+    // Planner accepts the graph and produces a deterministic IR.
+    expect(() => planApplicationGraph({ graph, region: null })).not.toThrow();
+
+    const readiness = buildReadinessReport(analysis, { workerCommandResolved: true });
+    expect(readiness.state).toBe('READY');
   });
 });
 

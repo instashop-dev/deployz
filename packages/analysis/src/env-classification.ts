@@ -29,6 +29,8 @@ export interface EnvClassificationContext {
   storageRequired: boolean;
   /** External services the repository evidences (ids from the catalog). */
   externalServices: string[];
+  /** Env names Deployz injects for a provisioned SQS queue (or its DLQ) — Phase 5. */
+  queueBindingNames: string[];
 }
 
 /** Env names the application stack injects for a managed PostgreSQL database. */
@@ -109,6 +111,7 @@ export function classifyEnvVariables(
   if (context.postgresRequired) for (const name of MANAGED_DATABASE_ENV_VARS) managed.add(name);
   if (context.redisRequired) for (const name of context.redisBindingNames) managed.add(name);
   if (context.storageRequired) for (const name of MANAGED_STORAGE_ENV_VARS) managed.add(name);
+  for (const name of context.queueBindingNames) managed.add(name);
   const serviceKeys = externalServiceKeys(context.externalServices);
 
   return model.map((variable) => ({ ...variable, classification: classifyOne(variable, managed, serviceKeys) }));

@@ -28,6 +28,7 @@ import {
   ListTasksCommand,
   RegisterTaskDefinitionCommand,
   RunTaskCommand,
+  StopTaskCommand,
   UpdateServiceCommand,
   type RegisterTaskDefinitionCommandInput,
   type RunTaskCommandInput,
@@ -60,6 +61,7 @@ import { readRelayIdentity } from './identity.js';
 import {
   createDestroyExecutor,
   createDestroyResumer,
+  type EcsStandaloneTaskStopper,
   type StackDeleter,
 } from './destroy.js';
 import {
@@ -455,6 +457,44 @@ function getEcsDeployClient(): EcsDeployClient {
     };
   }
   return ecsDeployClient;
+}
+
+// Phase 5: stops a RUNNING standalone task (a scheduled job or migration
+// mid-run) in the stack's own cluster before DESTROY deletes it — see
+// EcsStandaloneTaskStopper in ./destroy.ts.
+let ecsStandaloneTaskStopper: EcsStandaloneTaskStopper | undefined;
+
+function getEcsStandaloneTaskStopper(): EcsStandaloneTaskStopper {
+  if (!ecsStandaloneTaskStopper) {
+    const client = new ECSClient({});
+    ecsStandaloneTaskStopper = {
+      async listTasks(input) {
+        const response = await client.send(new ListTasksCommand({ cluster: input.cluster }));
+        return { taskArns: response.taskArns ?? [] };
+      },
+      async describeTasks(input) {
+        const response = await client.send(
+          new DescribeTasksCommand({ cluster: input.cluster, tasks: input.tasks }),
+        );
+        return {
+          tasks: (response.tasks ?? []).map((task) => ({
+            taskArn: task.taskArn ?? undefined,
+            group: task.group ?? undefined,
+          })),
+        };
+      },
+      async stopTask(input) {
+        await client.send(
+          new StopTaskCommand({
+            cluster: input.cluster,
+            task: input.task,
+            reason: 'Deployz DESTROY: clearing a standalone task before deleting the cluster',
+          }),
+        );
+      },
+    };
+  }
+  return ecsStandaloneTaskStopper;
 }
 
 function getStackInstaller(): StackInstaller {
@@ -1540,6 +1580,9 @@ function createDefaultExecutors(installDeps: InstallExecutorDeps): Record<string
     // createDefaultInstallDeps's `recover`).
     rds: getRdsCleanupClient(),
     cache: getCacheCleanupClient(),
+    // Phase 5: clears a standalone scheduled-job/migration task before the
+    // cluster delete, so it never fails on ClusterContainsTasksException.
+    ecs: getEcsStandaloneTaskStopper(),
     // Same collector factory INSTALL uses — identical arg shape, so it is
     // reused as-is rather than built a second time.
     ...(installDeps.createStackEventCollector
@@ -1737,6 +1780,9 @@ export function createRelayHandler(deps: RelayHandlerDeps) {
     databaseRequired?: boolean | undefined;
     probeUrl: string | null;
     workloads?: readonly { id: string; serviceLogicalId: string }[] | undefined;
+    resourceChecks?:
+      | readonly { componentId: string; check: string; logicalId: string; resourceType: string }[]
+      | undefined;
   } = {
     probeUrl: null,
   };
@@ -1834,6 +1880,9 @@ export function createRelayHandler(deps: RelayHandlerDeps) {
               redisRequired: deploymentMeta.redisRequired,
               databaseRequired: deploymentMeta.databaseRequired,
               ...(deploymentMeta.workloads !== undefined ? { workloads: deploymentMeta.workloads } : {}),
+              ...(deploymentMeta.resourceChecks !== undefined
+                ? { resourceChecks: deploymentMeta.resourceChecks }
+                : {}),
             });
           },
           () => buildProvisioningSnapshot(getCloudFormationReader(), relayApplicationStackName()),
@@ -1927,6 +1976,10 @@ export function createRelayHandler(deps: RelayHandlerDeps) {
         // them. Absent (an older control plane) keeps the single-application
         // heartbeat shape.
         deploymentMeta.workloads = 'workloads' in meta ? meta.workloads : undefined;
+        // Phase 5: generic resource checks (queue/schedule/…), when the
+        // control plane has them. Absent (an older control plane) keeps
+        // verification exactly as it was.
+        deploymentMeta.resourceChecks = 'resourceChecks' in meta ? meta.resourceChecks : undefined;
       },
     };
 

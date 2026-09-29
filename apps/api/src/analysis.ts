@@ -191,7 +191,20 @@ type ApplicationRow = typeof schema.applications.$inferSelect;
 // `unsupported-multi-service` rejection; and the health-route regexes now
 // capture the FULL literal path instead of truncating at the first health
 // keyword (`/health/live` was rated `/health`). Stored v25 rows must re-run.
-export const ANALYSIS_VERSION = 26;
+// Version 27 (Phase 5 — async & scheduled workloads): SQS (Standard) is no
+// longer an unsupported architecture — a queue whose producer and consumer
+// both resolve to declared workloads (bounded import reachability from each
+// workload's own entry file) is now provisioned as `manifest.queues[]`;
+// weaker evidence (ambiguous attribution, a consumer only reachable from the
+// web process, a non-JS SQS client) surfaces as a non-blocking `questions`
+// entry instead of the old `sqs-event-consumer` rejection. A render.yaml
+// `type: cron` service or a Kubernetes `CronJob` naming both a schedule and a
+// command is provisioned as `manifest.scheduledJobs[]`; in-process cron
+// libraries, CI schedules and a bare cron string never provision anything.
+// Stored v26 rows carry neither the new manifest fields nor the retired
+// rejection's removal, so a stale NOT_COMPATIBLE verdict or an unprovisioned
+// queue/schedule must re-run.
+export const ANALYSIS_VERSION = 27;
 
 export interface AnalysisRunnerDeps {
   db: RuntimeDb;

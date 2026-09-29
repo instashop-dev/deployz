@@ -113,6 +113,20 @@ export interface VerifyOptions {
    * catalog application check keeps working unchanged.
    */
   readonly workloads?: readonly { readonly id: string; readonly serviceLogicalId: string }[];
+  /**
+   * Verification-contract checks OUTSIDE the fixed catalog (Phase 5: `queue`,
+   * `schedule`, and any future resource-shaped check) — the control plane
+   * derives them with `resourceChecksFromSpec` and sends them every poll.
+   * Verified generically here: a stack resource with the named logical id
+   * AND resource type in a complete state. No per-capability relay code.
+   * Absent or empty keeps today's behaviour byte-identical.
+   */
+  readonly resourceChecks?: readonly {
+    readonly componentId: string;
+    readonly check: string;
+    readonly logicalId: string;
+    readonly resourceType: string;
+  }[];
 }
 
 export interface VerificationCheck {
@@ -306,6 +320,27 @@ async function runChecks(
       detail: cachePresent
         ? 'Found a cache cluster (not required by this application)'
         : 'No cache cluster in the stack — not provisioned',
+    });
+  }
+
+  // Phase 5: every check outside the fixed catalog, verified the same
+  // generic way — a stack resource with this logical id AND resource type in
+  // a complete state. No per-capability relay code; absent/empty is a no-op,
+  // keeping today's behaviour byte-identical.
+  for (const want of options.resourceChecks ?? []) {
+    const present = resources.some(
+      (resource) =>
+        resource.logicalId === want.logicalId &&
+        resource.type === want.resourceType &&
+        COMPLETE_STATUSES.has(resource.status),
+    );
+    checks.push({
+      name: want.check,
+      passed: present,
+      detail: present
+        ? `Found the complete resource for "${want.componentId}" (${want.resourceType} ${want.logicalId})`
+        : `No complete resource for "${want.componentId}" (${want.resourceType} ${want.logicalId}) in the stack`,
+      component: want.componentId,
     });
   }
 

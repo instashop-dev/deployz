@@ -141,6 +141,75 @@ describe('verifyInstallation', () => {
     expect(result.reason).toContain('EmailWorkerService');
   });
 
+  it('verifies generic resource checks (queue/schedule) with no per-capability code (Phase 5)', async () => {
+    const resources: StackResource[] = [
+      { logicalId: 'WebService', type: 'AWS::ECS::Service', status: 'CREATE_COMPLETE' },
+      { logicalId: 'Alb', type: 'AWS::ElasticLoadBalancingV2::LoadBalancer', status: 'CREATE_COMPLETE' },
+      { logicalId: 'Bucket', type: 'AWS::S3::Bucket', status: 'CREATE_COMPLETE' },
+      { logicalId: 'JobsQueue', type: 'AWS::SQS::Queue', status: 'CREATE_COMPLETE' },
+      { logicalId: 'CleanupSchedule', type: 'AWS::Scheduler::Schedule', status: 'CREATE_COMPLETE' },
+    ];
+    const result = await verifyInstallation({
+      cfn: reader(completeStack(), resources),
+      installationId: INSTALLATION,
+      databaseRequired: false,
+      redisRequired: false,
+      resourceChecks: [
+        { componentId: 'jobs', check: 'queue', logicalId: 'JobsQueue', resourceType: 'AWS::SQS::Queue' },
+        {
+          componentId: 'cleanup',
+          check: 'schedule',
+          logicalId: 'CleanupSchedule',
+          resourceType: 'AWS::Scheduler::Schedule',
+        },
+      ],
+    });
+
+    expect(result.verified).toBe(true);
+    const queueCheck = result.checks.find((c) => c.name === 'queue');
+    const scheduleCheck = result.checks.find((c) => c.name === 'schedule');
+    expect(queueCheck).toMatchObject({ component: 'jobs', passed: true });
+    expect(scheduleCheck).toMatchObject({ component: 'cleanup', passed: true });
+  });
+
+  it('fails verification naming the missing resource for a generic check', async () => {
+    const resources: StackResource[] = [
+      { logicalId: 'WebService', type: 'AWS::ECS::Service', status: 'CREATE_COMPLETE' },
+      { logicalId: 'Alb', type: 'AWS::ElasticLoadBalancingV2::LoadBalancer', status: 'CREATE_COMPLETE' },
+      { logicalId: 'Bucket', type: 'AWS::S3::Bucket', status: 'CREATE_COMPLETE' },
+    ];
+    const result = await verifyInstallation({
+      cfn: reader(completeStack(), resources),
+      installationId: INSTALLATION,
+      databaseRequired: false,
+      redisRequired: false,
+      resourceChecks: [
+        { componentId: 'jobs', check: 'queue', logicalId: 'JobsQueue', resourceType: 'AWS::SQS::Queue' },
+      ],
+    });
+
+    expect(result.verified).toBe(false);
+    expect(result.reason).toContain('jobs');
+    expect(result.reason).toContain('JobsQueue');
+  });
+
+  it('absent resourceChecks keeps behaviour byte-identical', async () => {
+    const withoutResourceChecks = await verifyInstallation({
+      cfn: reader(completeStack(), COMPLETE_RESOURCES),
+      installationId: INSTALLATION,
+      databaseRequired: true,
+      redisRequired: false,
+    });
+    const withEmptyResourceChecks = await verifyInstallation({
+      cfn: reader(completeStack(), COMPLETE_RESOURCES),
+      installationId: INSTALLATION,
+      databaseRequired: true,
+      redisRequired: false,
+      resourceChecks: [],
+    });
+    expect(withEmptyResourceChecks).toEqual(withoutResourceChecks);
+  });
+
   it('fails when a resource exists but did not finish creating', async () => {
     const inProgress = COMPLETE_RESOURCES.map((r) =>
       r.type === 'AWS::RDS::DBInstance' ? { ...r, status: 'CREATE_IN_PROGRESS' } : r,

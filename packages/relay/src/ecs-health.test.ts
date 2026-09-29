@@ -175,6 +175,36 @@ describe('observeRuntimeHealth', () => {
     expect(health.components.redis).toBeUndefined();
   });
 
+  // Phase 5: a scheduled job or migration is a STANDALONE ECS task — no
+  // AWS::ECS::Service backs it (the compiler emits only a task definition
+  // and, for schedules, an AWS::Scheduler::Schedule). This module derives
+  // health ONLY from AWS::ECS::Service resources and their DescribeServices
+  // answer — it never lists tasks by cluster or by family/group — so such a
+  // task, running or crashing, cannot change health/readiness even while it
+  // sits in the very same cluster as the web service.
+  it('a scheduled-job/migration task definition in the stack never changes health — no service backs it', async () => {
+    const resourcesWithScheduledJob = [
+      ...STACK,
+      { logicalId: 'CleanupTaskDefinition', type: 'AWS::ECS::TaskDefinition', status: 'CREATE_COMPLETE', physicalId: 'arn:aws:ecs:us-east-1:151955775369:task-definition/DeployzAppCleanup:3' },
+      { logicalId: 'CleanupSchedule', type: 'AWS::Scheduler::Schedule', status: 'CREATE_COMPLETE', physicalId: 'CleanupSchedule' },
+    ] as const;
+    const deps = {
+      cfn: cfnWith([...resourcesWithScheduledJob]),
+      // The fake never answers a cluster-wide/family-scoped task list — this
+      // module has no such call to make in the first place; only
+      // describeServices (per-service) and describeTargetHealth exist here.
+      ecs: ecsWith({ desiredCount: 1, runningCount: 1, deployments: [{ status: 'PRIMARY', rolloutState: 'COMPLETED' }] }),
+      elb: elbWith(['healthy']),
+    };
+    const withScheduledJob = await observeRuntimeHealth(deps, 'deployz-app');
+    const without = await observeRuntimeHealth(
+      { cfn: cfnWith([...STACK]), ecs: deps.ecs, elb: deps.elb },
+      'deployz-app',
+    );
+    expect(withScheduledJob).toEqual(without);
+    expect(withScheduledJob.healthStatus).toBe('HEALTHY');
+  });
+
   it('reports the redis component HEALTHY when the stack has a complete replication group', async () => {
     const health = await observeRuntimeHealth(
       {
