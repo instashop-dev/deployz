@@ -198,7 +198,7 @@ describe('SecurityDetailsContent', () => {
     const details = section.querySelector('details')!;
     expect(details.hasAttribute('open')).toBe(false);
     expect(details.textContent).toContain('ECS Fargate service');
-    expect(details.textContent).toContain('The Deployz relay (a small scheduled job)');
+    expect(details.textContent).toContain('The Deployz connector (a small scheduled job)');
     // The section heading and the plain-English lead-in stay visible outside.
     const heading = section.querySelector('h2')!;
     expect(heading.textContent).toBe('Exact AWS resources created');
@@ -226,10 +226,10 @@ describe('SecurityDetailsContent', () => {
     }
     // The rest of the page still renders.
     const body = doc.body.textContent ?? '';
-    expect(body).toContain('What the relay can do');
+    expect(body).toContain('What the Deployz connector can do');
     expect(body).toContain('How to revoke Deployz');
     expect(body).toContain('How deletion works');
-    expect(body).toContain('Technical detail');
+    expect(body).toContain('Technical details');
   });
 
   it('replaces the absolute tag-scope claim with the accurate read-only exception', () => {
@@ -239,7 +239,7 @@ describe('SecurityDetailsContent', () => {
     expect(body).toContain('restricted to Deployz-managed resources');
     expect(body).toContain('read-only lookup');
     expect(body).toContain('Describe actions cannot be restricted by tag');
-    expect(body).toContain('The exact permissions remain listed in the technical detail below');
+    expect(body).toContain('The exact permissions remain listed in the technical details below');
   });
 
   it('keeps the exact IAM actions inside collapsed details sections', () => {

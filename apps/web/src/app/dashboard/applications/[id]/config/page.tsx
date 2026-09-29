@@ -145,6 +145,7 @@ function ConfigBody({
         entries={otherDefaults}
         vendorDefaults={data.vendorDefaults}
         editable
+        compactWhenEmpty
         emptyMessage="No defaults set yet."
         onSaved={(saved) =>
           onSaved({
@@ -202,6 +203,7 @@ function ConfigSection({
   entries,
   vendorDefaults,
   editable,
+  compactWhenEmpty,
   emptyMessage,
   onSaved,
 }: {
@@ -217,6 +219,10 @@ function ConfigSection({
   entries: MaskedConfigEntry[];
   vendorDefaults: MaskedConfigEntry[];
   editable: boolean;
+  /** While there is nothing to show yet, skip the description/help text and
+   *  the dashed empty-state box — just the title and the add actions. Shows
+   *  the full chrome again as soon as an entry or draft exists. */
+  compactWhenEmpty?: boolean;
   emptyMessage: ReactNode;
   onSaved: (next: ApplicationConfig) => void;
 }) {
@@ -287,18 +293,19 @@ function ConfigSection({
   }
 
   const empty = entries.length === 0 && drafts.length === 0;
+  const compactEmpty = Boolean(compactWhenEmpty) && empty;
 
   return (
     <Card data-testid={testId}>
       <CardHeader>
         <CardTitle>{title}</CardTitle>
-        <CardDescription>{description}</CardDescription>
+        {compactEmpty ? null : <CardDescription>{description}</CardDescription>}
       </CardHeader>
       <CardContent>
         <form key={version} onSubmit={handleSubmit} className="flex flex-col gap-5">
-          {helpText ? <p className="text-xs text-muted-foreground">{helpText}</p> : null}
+          {compactEmpty ? null : helpText ? <p className="text-xs text-muted-foreground">{helpText}</p> : null}
 
-          {empty ? (
+          {empty && !compactEmpty ? (
             <p className="rounded-lg border border-dashed px-4 py-6 text-center text-sm text-muted-foreground">
               {emptyMessage}
             </p>

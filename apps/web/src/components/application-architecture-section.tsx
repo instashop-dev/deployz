@@ -26,10 +26,10 @@ interface ApplicationArchitectureSectionProps {
 }
 
 /**
- * Configuration tab section for the detected application architecture.
- * Shows grouped components with their resolution state and unresolved
- * questions as focused action cards. Reuses the same edit/fix affordances
- * as the deployment-configuration table.
+ * Configuration tab section for the detected application architecture — one
+ * card under the Services heading (ux-guidelines §8): unresolved questions
+ * first, as action rows, then the detected/confirmed components. Reuses the
+ * same edit/fix affordances as the deployment-configuration table.
  */
 export function ApplicationArchitectureSection({
   architecture,
@@ -40,60 +40,54 @@ export function ApplicationArchitectureSection({
   if (!hasContent) return null;
 
   return (
-    <div className="flex flex-col gap-3">
-      <h3 id="application-architecture-heading" className="text-sm font-medium text-muted-foreground">
-        Application architecture
-      </h3>
-      <Card data-testid="application-architecture-section">
-        <CardContent className="flex flex-col gap-4 py-4">
-          {architecture.groups.length > 0 ? (
-            <ul className="flex flex-col gap-3" data-testid="architecture-config-groups">
-              {architecture.groups.map((group) => (
-                <li key={group.group} data-testid={`architecture-config-group-${group.group}`}>
-                  <p className="text-sm font-medium">
-                    {PLAN_COMPONENT_GROUP_DISPLAY[group.group]}
-                  </p>
-                  <ul className="mt-1 flex flex-col gap-1">
-                    {group.nodes.map((node) => (
-                      <li
-                        key={`${group.group}-${node.label}`}
-                        className="flex flex-wrap items-center justify-between gap-2 rounded-md border px-2.5 py-1.5"
-                        data-testid={`architecture-config-node-${group.group}-${node.label}`}
-                      >
-                        <span className="text-sm">{node.label}</span>
-                        <Badge
-                          variant={node.state === 'confirmed' ? 'success' : 'secondary'}
-                          className="text-[10px]"
-                        >
-                          {STATE_COPY[node.state]}
-                        </Badge>
-                      </li>
-                    ))}
-                  </ul>
-                </li>
+    <Card data-testid="application-architecture-section">
+      <CardContent className="flex flex-col gap-4 py-4">
+        {architecture.unresolved.length > 0 ? (
+          <div className="flex flex-col gap-2" data-testid="architecture-config-unresolved">
+            <ul className="flex flex-col gap-2">
+              {architecture.unresolved.map((item, index) => (
+                <UnresolvedQuestionCard
+                  key={`${item.kind}-${index}`}
+                  item={item}
+                  index={index}
+                  onEdit={onEdit}
+                  onShowFix={onShowFix}
+                />
               ))}
             </ul>
-          ) : null}
+          </div>
+        ) : null}
 
-          {architecture.unresolved.length > 0 ? (
-            <div className="flex flex-col gap-2" data-testid="architecture-config-unresolved">
-              <p className="text-sm font-medium">Needs input</p>
-              <ul className="flex flex-col gap-2">
-                {architecture.unresolved.map((item, index) => (
-                  <UnresolvedQuestionCard
-                    key={`${item.kind}-${index}`}
-                    item={item}
-                    index={index}
-                    onEdit={onEdit}
-                    onShowFix={onShowFix}
-                  />
-                ))}
-              </ul>
-            </div>
-          ) : null}
-        </CardContent>
-      </Card>
-    </div>
+        {architecture.groups.length > 0 ? (
+          <ul className="flex flex-col gap-3" data-testid="architecture-config-groups">
+            {architecture.groups.map((group) => (
+              <li key={group.group} data-testid={`architecture-config-group-${group.group}`}>
+                <p className="text-sm font-medium">
+                  {PLAN_COMPONENT_GROUP_DISPLAY[group.group]}
+                </p>
+                <ul className="mt-1 flex flex-col gap-1">
+                  {group.nodes.map((node) => (
+                    <li
+                      key={`${group.group}-${node.label}`}
+                      className="flex flex-wrap items-center justify-between gap-2 rounded-md border px-2.5 py-1.5"
+                      data-testid={`architecture-config-node-${group.group}-${node.label}`}
+                    >
+                      <span className="text-sm">{node.label}</span>
+                      <Badge
+                        variant={node.state === 'confirmed' ? 'success' : 'secondary'}
+                        className="text-[10px]"
+                      >
+                        {STATE_COPY[node.state]}
+                      </Badge>
+                    </li>
+                  ))}
+                </ul>
+              </li>
+            ))}
+          </ul>
+        ) : null}
+      </CardContent>
+    </Card>
   );
 }
 

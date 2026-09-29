@@ -163,8 +163,8 @@ export function SecurityDetailsContent({
                 ))}
               </ul>
               <p>
-                The Deployz relay (a small scheduled job), its limited execution role, and its own
-                credential secret are also created.
+                The Deployz connector (a small scheduled job), its limited execution role, and its
+                own credential secret are also created.
               </p>
             </DetailSection>
           </>
@@ -186,7 +186,7 @@ export function SecurityDetailsContent({
 
       <section aria-labelledby="can-do" className="flex flex-col gap-3">
         <h2 id="can-do" className="text-base font-semibold">
-          What the relay can do
+          What the Deployz connector can do
         </h2>
         <ul className="flex list-disc flex-col gap-3 pl-5 text-sm text-muted-foreground">
           <li>
@@ -208,12 +208,12 @@ export function SecurityDetailsContent({
 
       <section aria-labelledby="cant-do" className="flex flex-col gap-3">
         <h2 id="cant-do" className="text-base font-semibold">
-          What the relay can never do
+          What the Deployz connector can never do
         </h2>
         <ul className="flex list-disc flex-col gap-3 pl-5 text-sm text-muted-foreground">
           <li>
             <strong className="font-medium text-foreground">Reach into your account.</strong> The
-            relay only calls out to Deployz. Nothing — including Deployz — can connect inward.
+            connector only calls out to Deployz. Nothing — including Deployz — can connect inward.
           </li>
           <li>
             <strong className="font-medium text-foreground">Read your logs.</strong> It can write
@@ -222,13 +222,13 @@ export function SecurityDetailsContent({
           </li>
           <li>
             <strong className="font-medium text-foreground">Grow its own permissions.</strong> A
-            ceiling is fixed at install time. Even after check-in, the relay can never exceed what
-            you see on this page.
+            ceiling is fixed at install time. Even after check-in, the connector can never exceed
+            what you see on this page.
           </li>
           <li>
-            <strong className="font-medium text-foreground">Act as anyone else.</strong> The relay
-            acts only as itself — it never takes over other identities in your account, and it
-            never touches another customer&apos;s account.
+            <strong className="font-medium text-foreground">Act as anyone else.</strong> The
+            connector acts only as itself — it never takes over other identities in your account,
+            and it never touches another customer&apos;s account.
           </li>
           <li>
             <strong className="font-medium text-foreground">Hold your credentials.</strong> Deployz
@@ -242,13 +242,13 @@ export function SecurityDetailsContent({
           The honest version
         </h2>
         <p className="text-sm text-muted-foreground">
-          We won&apos;t claim these permissions are tiny. After check-in, the relay holds substantial
-          permissions — enough to install and update your app without asking you to click through
-          setup screens. The boundary keeps that safe. Where AWS supports it, actions that change
-          resources are restricted to Deployz-managed resources — the resources tagged for your
-          installation. Some read-only lookup and Describe actions cannot be restricted by tag. The
-          ceiling fixed at install time caps it forever, and the relay can never read your data
-          back. The exact permissions remain listed in the technical detail below.
+          We won&apos;t claim these permissions are tiny. After check-in, the connector holds
+          substantial permissions — enough to install and update your app without asking you to
+          click through setup screens. The boundary keeps that safe. Where AWS supports it, actions
+          that change resources are restricted to Deployz-managed resources — the resources tagged
+          for your installation. Some read-only lookup and Describe actions cannot be restricted by
+          tag. The ceiling fixed at install time caps it forever, and the connector can never read
+          your data back. The exact permissions remain listed in the technical details below.
         </p>
       </section>
 
@@ -308,7 +308,7 @@ export function SecurityDetailsContent({
 
       <section aria-labelledby="technical-detail" className="flex flex-col gap-3">
         <h2 id="technical-detail" className="text-base font-semibold">
-          Technical detail
+          Technical details
         </h2>
         <p className="text-sm text-muted-foreground">
           Expand a section to see the exact permissions, exactly as they appear in the template
@@ -323,7 +323,7 @@ export function SecurityDetailsContent({
             <ActionList actions={PHASE_1_SECRET_ACTIONS} />
           </DetailSection>
 
-          <DetailSection title="Phase 2 — granted only after the relay's first check-in">
+          <DetailSection title="Phase 2 — granted only after the connector's first check-in">
             <p>
               Create and update your app&apos;s resources — only when the request carries your
               installation tag (<code className="rounded bg-muted px-1 py-0.5 font-mono text-xs">{REQUEST_TAG_CONDITION}</code>):
@@ -387,13 +387,13 @@ export function SecurityDetailsContent({
 
           <DetailSection title="Explicitly not granted — anywhere">
             <p>
-              These permissions appear nowhere in what you deploy. The relay writes its own
+              These permissions appear nowhere in what you deploy. The connector writes its own
               activity log; it can never read any logs back:
             </p>
             <ActionList actions={DENIED_LOG_READ_ACTIONS} />
             <p>
               The install-time ceiling (a permissions boundary) is the union of phases 1 and 2 —
-              the relay&apos;s permissions can never grow beyond this page. Almost every phase-2
+              the connector&apos;s permissions can never grow beyond this page. Almost every phase-2
               action is constrained by the{' '}
               <code className="rounded bg-muted px-1 py-0.5 font-mono text-xs">{TAG_BOUNDARY_KEY}</code>{' '}
               tag boundary. The exceptions are read-only lookups on the load balancer and the

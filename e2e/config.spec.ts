@@ -279,7 +279,7 @@ test('a group with no values yet offers a way to add one, and the add persists',
   await page.goto(`/dashboard/applications/${application.id}/config`);
 
   const defaults = page.getByTestId('config-vendor-defaults');
-  await expect(defaults).toContainText('No defaults set yet.');
+  await expect(defaults.getByTestId('config-vendor-defaults-add-value')).toBeVisible();
 
   await defaults.getByTestId('config-vendor-defaults-add-value').click();
   await defaults.getByLabel('Name', { exact: true }).fill('LOG_LEVEL');

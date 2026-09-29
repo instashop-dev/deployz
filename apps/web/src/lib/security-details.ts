@@ -188,9 +188,9 @@ export const RAW_LOGS_GUARANTEE =
 
 /** §45 "how to revoke Deployz". */
 export const REVOKE_STEPS = [
-  'Delete the deployz-bootstrap stack from your AWS account (or delete the relay’s execution role directly).',
-  'The relay immediately loses the ability to call out to Deployz — there is no inbound path for Deployz to re-establish contact.',
-  'Deployz marks the deployment Disconnected once it stops hearing from the relay, and it stops being billed.',
+  'Delete the Deployz connector stack from your AWS account (or delete the connector’s execution role directly).',
+  'The connector immediately loses the ability to call out to Deployz — there is no inbound path for Deployz to re-establish contact.',
+  'Deployz shows that it lost contact with the connector once it stops hearing from it.',
 ] as const;
 
 /**
@@ -215,10 +215,10 @@ export const SECRET_HANDLING_STATEMENT =
 
 /** §45 "how deletion works" — mirrors §63's distinctions. */
 export const DELETION_STEPS = [
-  'From the Deployz dashboard, the vendor requests "Disconnect Deployment" for your installation.',
-  'Deployz instructs the relay to remove the application and the networking around it — only resources tagged with your installation ID.',
-  'Removal keeps your database, its stored files, and the credentials to reach them in your account. Your data stays reachable after a removal and is never deleted by it; only the separate, explicitly confirmed "permanently remove retained resources" step deletes them.',
-  'The database keeps its AWS-native automated backups for as long as it stays in your account; Deployz never takes or requests a final snapshot.',
-  'The bootstrap stack and relay role are yours to remove at any time (see "How to revoke Deployz" above) — Deployz does not remove them for you.',
+  'From the Deployz dashboard, your software provider starts "Remove deployment" for your deployment.',
+  'Deployz removes the application and most of the networking around it through the Deployz connector — only resources tagged for this deployment.',
+  'Removal keeps your database (deletion protection on, with AWS automated backups continuing), its credentials, the storage bucket, and the network parts the database uses in your account — plus the Deployz connector. These retained resources can keep costing money.',
+  '"Delete retained data" is a separate, explicitly confirmed step your software provider runs while the connector is online. It deletes the database without a final snapshot, the bucket, application secrets, certificates, and the remaining network.',
+  'The connector stack is yours to delete at any time (see "How to revoke Deployz" above) — keep it until retained data is deleted, since deletion runs through it.',
   'Deployz’s own operational metadata for the deployment (§16: IDs, state, timestamps — never your application data) is retained for your records and billing history.',
 ] as const;
