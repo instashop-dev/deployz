@@ -3624,7 +3624,7 @@ repositories:
 
   - id: repo-300
     repository: instashop-dev/deployz-phase5-canary
-    commit: 721223dbdb4e782dfa2d08523bb3cd8e788506d8
+    commit: 71f42ce8a3e3f49b339b1ab0f6ab175f4ff38f08
     cohort: realistic
     set: improvement
     expected:
