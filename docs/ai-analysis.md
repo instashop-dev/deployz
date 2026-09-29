@@ -131,6 +131,75 @@ confidence), a test in `readiness-report.test.ts`, and — when the deployment
 gate must enforce it — the matching check in `manifest.ts` /
 `preflight.ts`. Bump `ANALYSIS_VERSION`.
 
+## Async and scheduled workloads
+
+`detectAsyncWorkloads` (`packages/analysis/src/async-detection.ts`) finds
+SQS queues and scheduled jobs. It reads two independent evidence families.
+Strong evidence provisions infrastructure. Weak or ambiguous evidence never
+provisions anything — it becomes a non-blocking `questions` entry instead.
+
+- **Queues (SQS Standard only).**
+  - Precondition: the repository depends on an SQS SDK package
+    (`@aws-sdk/client-sqs`, `aws-sdk`, `sqs-consumer`, or `sqs-producer`).
+    With no such dependency, Deployz detects no queue.
+  - Queue env var names: `<NAME>_QUEUE_URL`, `<NAME>_SQS_URL`, and the bare
+    `QUEUE_URL` name a queue; a matching `<NAME>_QUEUE_ARN` reads as that
+    same queue's ARN. `<NAME>_DLQ_URL` and `<NAME>_DEAD_LETTER_QUEUE_URL`
+    name that queue's dead-letter queue.
+  - SQS operations: `SendMessageCommand`, `SendMessageBatchCommand`,
+    `.sendMessage(`, `.sendMessageBatch(`, and `Producer.create(` count as a
+    producer. `ReceiveMessageCommand`, `.receiveMessage(`, and
+    `Consumer.create(` count as a consumer.
+  - Attribution: Deployz walks from the web app's own entry file, and from
+    each declared worker's and each declared scheduled job's entry command,
+    through relative imports, up to 4 levels deep. An SQS operation found in
+    that reach attributes to the workload that reaches it.
+  - Web-consumer distrust: a consume operation reached only from the `web`
+    workload is never trusted. A request/response web process is not a
+    queue consumer, so this evidence is treated as ambiguous and becomes a
+    question instead of an attribution.
+  - Provisioning rule: a queue is provisioned only when a producer and a
+    consumer both resolve, with no ambiguity anywhere in the evidence. An
+    unnamed queue variable, a variable read from more than one workload
+    reach, or a queue with only a producer or only a consumer, each becomes
+    a `questions` entry and is never provisioned.
+  - Python (boto3): `sqs.receive_message`, `sqs.send_message`, and
+    `get_queue_url` calls are detected when a `requirements*.txt` file names
+    `boto3`, but this evidence always becomes a `questions` entry — Deployz
+    does not parse Python well enough to attribute a queue relationship with
+    confidence, so it never auto-provisions from Python evidence.
+  - SQS usage no longer rejects the repository. Earlier Deployz versions
+    treated any SQS consumer as an unsupported event-driven architecture
+    (`checkSqsEventArchitecture`, removed); SQS Standard is now a supported
+    managed resource.
+- **Scheduled jobs.**
+  - Recognized only from a `render.yaml` service with `type: cron`
+    (schedule plus a command), and from a Kubernetes `CronJob` manifest
+    (schedule plus a command/args). Both need a valid cron expression, or a
+    macro such as `@daily`; a Kubernetes `CronJob` also needs a valid IANA
+    timezone when one is set.
+  - Never recognized, never provisioned: an in-process cron library (for
+    example `node-cron`), a CI-level schedule (for example a GitHub Actions
+    `schedule:` trigger), and a bare cron string with no production
+    deployment declaration naming a command.
+  - A Vercel `vercel.json` `crons` block (an HTTP path, not a command) and a
+    `crontab` or `*.cron` file each become a `questions` entry — Deployz
+    cannot resolve either to a runnable command on its own.
+  - An id conflict — two schedule declarations that resolve to the same
+    component id — becomes a `questions` entry instead of provisioning
+    either.
+- **Output.** `detectAsyncWorkloads` shapes its result as `ManifestQueue[]` /
+  `ManifestScheduledJob[]` / `ManifestQuestion[]` already. `manifest.ts`'s
+  `reconcileAsyncDeclarations` then keeps only the queues and jobs whose ids
+  and workload references do not collide with the rest of the manifest (a
+  reserved id, a vendor override, another queue or job); anything that would
+  collide becomes a `questions` entry instead, so the planner is never
+  handed a relationship it would reject.
+
+`ANALYSIS_VERSION` is 27 (`apps/api/src/analysis.ts`) — last bumped for
+these queue and scheduled-job detectors, so a stored analysis re-runs and
+picks them up.
+
 ## Fix instructions
 
 `POST /api/applications/:id/fix-instructions` builds a deterministic prompt

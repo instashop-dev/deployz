@@ -66,6 +66,8 @@ account:
 | Cache (optional) | ElastiCache Valkey (Redis-compatible), single `cache.t4g.micro` node, no TLS, no cluster mode | Provisioned only when the manifest requires Redis. Deleted on disconnect. |
 | Storage | One S3 bucket, always created | **Retained** on disconnect. |
 | Network | Dedicated VPC, public/private subnets, NAT, security groups | Deleted on disconnect. |
+| Messaging (optional) | SQS Standard queue, plus an optional dead-letter queue (the same capability, reached by a redrive edge) | Provisioned only when the analysis finds strong evidence of both a producer and a consumer. FIFO is not supported. Deleted on disconnect. `PREVIEW` maturity. |
+| Scheduling (optional) | EventBridge Scheduler schedule invoking one one-shot ECS scheduled job | Provisioned only from a `render.yaml` `type: cron` service or a Kubernetes `CronJob` manifest naming both a schedule and a command. Deleted on disconnect. `PREVIEW` maturity. |
 | Endpoint | Permanent `https://d-<deployment-id>.deployz.dev` URL, plus an optional vendor-managed custom domain | See [`../networking-and-https.md`](../networking-and-https.md). |
 
 The infrastructure is compiled at deployment creation from the frozen
@@ -78,9 +80,11 @@ frozen per deployment in an immutable profile registry
 only `small-v1` exists and the customer is not offered a choice.
 
 Plan and status payloads may also name `worker`, `queue` and `schedule`
-component kinds. These are wire-level presentation kinds only: no
-provisioning capability exists for them, the Phase 4 fixtures that use
-them are test fixtures, and the support boundary above is unchanged.
+component kinds. All three are real, provisioned components: a `queue` is
+an SQS Standard queue, and a `schedule` is an EventBridge Scheduler
+schedule invoking a one-shot scheduled ECS job. A vendor cannot hand-declare
+either one; both come only from strong code evidence found at analysis
+time (see "What the MVP does" below).
 
 Deployz supports **17 AWS Regions** (`SUPPORTED_AWS_REGIONS` in
 `packages/contracts/src/index.ts`). Production offers only the subset named
@@ -95,9 +99,13 @@ see [`user-flows.md#who-chooses-the-aws-region`](user-flows.md#who-chooses-the-a
 
 - **Repository analysis**: deterministic detectors (runtime, Dockerfile, port,
   health path, environment variables, PostgreSQL/MySQL/Redis/S3 requirements,
-  declared worker processes, unsupported-architecture rejections) with an AI
+  declared worker processes, SQS queue producer/consumer detection, scheduled-job
+  detection from `render.yaml` and Kubernetes `CronJob` manifests,
+  unsupported-architecture rejections) with an AI
   fallback that only fills
-  genuinely open questions. Output: the application manifest, a readiness
+  genuinely open questions. A queue or a scheduled job provisions only from
+  strong, unambiguous evidence; weaker evidence becomes a vendor question
+  instead. Output: the application manifest, a readiness
   report and, on request, fix instructions for a coding agent
   ([`../ai-analysis.md`](../ai-analysis.md)).
 - **Configuration**: container port, health path, migration command and
@@ -144,16 +152,26 @@ see [`user-flows.md#who-chooses-the-aws-region`](user-flows.md#who-chooses-the-a
 
 Rejected at analysis time, with evidence, never silently adapted:
 
-- Platform cron and scheduled tasks (Deployz provisions no scheduler;
-  EventBridge Scheduler is a post-MVP capability). In-process schedulers
-  inside any container are fine and are not flagged. Worker-like code
-  with no declared start command is not rejected — it becomes a
-  needs-input question and Deployz never provisions it from weak
-  evidence.
+- Scheduled work is provisioned only from a `render.yaml` `type: cron`
+  service or a Kubernetes `CronJob` manifest. In-process cron libraries, CI-level
+  schedules (GitHub Actions, etc.), Vercel `crons` and crontab files never
+  provision a schedule; Vercel `crons` and a crontab file each raise a
+  vendor question instead. Worker-like code with no declared start command
+  is not rejected — it becomes a needs-input question and Deployz never
+  provisions it from weak evidence.
+- FIFO SQS queues: only Standard queues are supported. A FIFO queue request
+  fails the plan rather than silently becoming Standard.
+- Message brokers other than SQS Standard: Kafka, RabbitMQ.
+- Converting a repository's existing Redis usage into an SQS queue, or any
+  other cross-technology substitution.
+- AWS Lambda as a queue consumer or a schedule target. A scheduled job and a
+  queue consumer both run as ECS Fargate tasks.
+- Scheduled-job execution history and monitoring. Deployz has no dedicated
+  execution-history subsystem; a job's outcome is visible only through the
+  existing ECS task status and CloudWatch logs.
 - Databases other than PostgreSQL and RDS MySQL: MariaDB (the MySQL
   dialect Deployz does not host), MongoDB, SQLite,
   Elasticsearch/OpenSearch, ClickHouse, embedded JVM databases.
-- Message brokers and event consumers: Kafka, RabbitMQ, SQS consumers.
 - Redis Cluster, Redis Stack modules, TLS Redis.
 - Compose application services beyond the web service and declared
   workers (extra long-running application services), Kubernetes,
@@ -209,13 +227,22 @@ Deliberate trade-offs that are documented rather than hidden:
 - **No runtime-v1 backward compatibility.** Deployz is pre-launch; the MVP
   runs on compiler-v2, and the earlier static-template generation was
   removed rather than preserved.
+- **A queue or a schedule cannot be hand-declared.** Both are provisioned
+  only from strong code evidence; a vendor has no field to declare one
+  directly.
+- **Ambiguous queue or schedule evidence always becomes "Needs input", never
+  a guess.** A workload that only reads a queue URL environment variable
+  without ever calling an SQS operation gets no binding at all.
+- **SQS and EventBridge Scheduler are not yet qualified on real AWS.** Both
+  ship at `PREVIEW` maturity pending the real-AWS E2E qualification run;
+  see [`../testing/aws-e2e.md`](../testing/aws-e2e.md).
 
 ## Deferred (post-MVP) items
 
 Recorded so they are not mistaken for gaps:
 
-- Cron and scheduled jobs (EventBridge Scheduler), queues and event
-  consumers (SQS).
+- FIFO SQS queues and scheduled-job execution history/monitoring (see
+  "Explicit MVP non-goals" above).
 - Additional infrastructure size profiles (`minimal`, `large`); each needs a
   new infrastructure version and a security/cost review.
 - Removal of the legacy deploy-link flow

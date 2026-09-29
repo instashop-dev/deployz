@@ -29,6 +29,21 @@ describe('compareInfrastructureExpectations', () => {
   const POSTGRES_KINDS = requiredInfrastructureComponents({ postgres: true, redis: false }).map((c) => c.kind);
   const REDIS_KINDS = requiredInfrastructureComponents({ postgres: true, redis: true }).map((c) => c.kind);
 
+  it('compares contract-verified kinds outside the catalog (queue, schedule) too', () => {
+    const result = compareInfrastructureExpectations([...STATELESS_KINDS, 'queue', 'schedule'], [
+      { kind: 'application', status: 'ready' },
+      { kind: 'endpoint', status: 'ready' },
+      { kind: 'storage', status: 'ready' },
+      { kind: 'queue', status: 'ready' },
+    ]);
+    expect(result.components.slice(-2)).toEqual([
+      { kind: 'queue', expected: true, present: true },
+      { kind: 'schedule', expected: true, present: false },
+    ]);
+    expect(result.missing).toEqual(['schedule']);
+    expect(result.unexpected).toEqual([]);
+  });
+
   it('stateless with no database: nothing missing, nothing unexpected', () => {
     const result = compareInfrastructureExpectations(STATELESS_KINDS, [
       { kind: 'application', status: 'ready' },

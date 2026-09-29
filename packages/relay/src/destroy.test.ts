@@ -243,7 +243,7 @@ describe('settleDestroy', () => {
         expect(input.cluster).toBe(CLUSTER_ARN);
         return { taskArns: ['task-standalone', 'task-service'] };
       },
-      async describeTasks(input: { cluster: string; tasks: string[] }) {
+      async describeTasks(_input: { cluster: string; tasks: string[] }) {
         return {
           tasks: [
             { taskArn: 'task-standalone', group: 'family:DeployzAppCleanup' },

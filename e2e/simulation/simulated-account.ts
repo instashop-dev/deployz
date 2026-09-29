@@ -41,7 +41,7 @@ import type {
 import type { EcsServiceReader, TargetHealthReader } from '@deployz/relay/ecs-health';
 import type { EcsDeployClient, EcsTaskDefinition, RegisterTaskDefinitionInput } from '@deployz/relay/deploy';
 import type { EcsTaskReader } from '@deployz/relay/ecs-observe';
-import type { StackDeleter } from '@deployz/relay/destroy';
+import type { StackDeleter, EcsStandaloneTaskStopper } from '@deployz/relay/destroy';
 
 import type { ScenarioDefinition, TimelineEvent, UpdateRolloutOutcome } from './types.js';
 
@@ -113,6 +113,16 @@ export class SimulatedCustomerAccount {
   private ecsDeployInitialized = false;
   private readonly taskDefinitions = new Map<string, EcsTaskDefinition>();
   /**
+   * Family → its latest ACTIVE revision's ARN (Phase 5). Kept alongside
+   * `taskDefinitions` so `describeTaskDefinition` can resolve a BARE family
+   * name (what `registerReleaseImageIntoFamily` in deploy.ts always passes —
+   * the migration family, and every scheduled-job family) to the same
+   * revision `registerTaskDefinition` most recently registered under it,
+   * exactly like real ECS's "describe a family with no revision suffix"
+   * behaviour.
+   */
+  private readonly taskDefinitionsByFamily = new Map<string, string>();
+  /**
    * One deploy/health state per ECS service (Phase 4A: one service per
    * workload), keyed by the service's ARN. Created lazily the first time a
    * service's stack resource is revealed.
@@ -124,6 +134,24 @@ export class SimulatedCustomerAccount {
   private migrationTaskArn: string | null = null;
   /** How many one-off migration tasks the relay's deploy stage has started. */
   migrationRuns = 0;
+  /**
+   * Phase 5: standalone (non-service) tasks in the stack's cluster — a
+   * scheduled job or migration run outside a service's own rollout. Test
+   * control only: nothing in the compiled stack ever RunTask's a scheduled
+   * job here (`AWS::Scheduler::Schedule` is never itself simulated), so a
+   * scenario/spec seeds this directly with `runStandaloneTask`/
+   * `stopStandaloneTask` to exercise the DESTROY stop-before-delete
+   * path and the "a scheduled-job failure never touches deployment health"
+   * proof.
+   */
+  private readonly standaloneTasks = new Map<
+    string,
+    { readonly arn: string; readonly family: string; running: boolean }
+  >();
+  private standaloneTaskCounter = 0;
+  /** Task ARNs `ecsStandaloneTaskStopper().stopTask` actually stopped — the
+   *  DESTROY assertion evidence. */
+  readonly stoppedStandaloneTaskArns: string[] = [];
   /**
    * Phase 4C ordering evidence: every migration RunTask and every service
    * UpdateService appends here in order, so a scenario can assert the
@@ -512,21 +540,38 @@ export class SimulatedCustomerAccount {
       .map((resource) => ({ logicalId: resource.logicalId, arn: resource.physicalId! }));
   }
 
+  /**
+   * Resolves a bare task-definition family to its latest ACTIVE revision's
+   * ARN, lazily registering a bootstrap revision (the fixture image, exactly
+   * like a service's own pre-first-deploy definition) the first time a
+   * never-before-seen family is described — mirrors CloudFormation having
+   * already registered the migration/scheduled-job task definition at
+   * INSTALL time with the template's bootstrap `paramImageReference`.
+   */
+  private ensureTaskFamily(family: string): string {
+    const existing = this.taskDefinitionsByFamily.get(family);
+    if (existing !== undefined) return existing;
+    this.taskDefinitionRevision += 1;
+    const arn = `arn:aws:ecs:us-east-1:123456789012:task-definition/${family}:${this.taskDefinitionRevision}`;
+    this.taskDefinitions.set(arn, {
+      family,
+      cpu: '256',
+      memory: '512',
+      networkMode: 'awsvpc',
+      requiresCompatibilities: ['FARGATE'],
+      containerDefinitions: [{ name: 'app', image: `${FIXTURE_IMAGE_REPOSITORY}@${BOOTSTRAP_IMAGE_DIGEST}` }],
+    });
+    this.taskDefinitionsByFamily.set(family, arn);
+    return arn;
+  }
+
   /** Lazily creates the deploy state for every revealed service. */
   private ensureEcsDeployInitialized(): void {
     this.ecsDeployInitialized = true;
     for (const view of this.ecsServiceViews()) {
       if (this.serviceStates.has(view.arn)) continue;
       const family = this.familyForLogicalId(view.logicalId);
-      const arn = `arn:aws:ecs:us-east-1:123456789012:task-definition/${family}:1`;
-      this.taskDefinitions.set(arn, {
-        family,
-        cpu: '256',
-        memory: '512',
-        networkMode: 'awsvpc',
-        requiresCompatibilities: ['FARGATE'],
-        containerDefinitions: [{ name: 'app', image: `${FIXTURE_IMAGE_REPOSITORY}@${BOOTSTRAP_IMAGE_DIGEST}` }],
-      });
+      const arn = this.ensureTaskFamily(family);
       this.serviceStates.set(view.arn, {
         logicalId: view.logicalId,
         arn: view.arn,
@@ -692,6 +737,7 @@ export class SimulatedCustomerAccount {
           containerDefinitions: input.containerDefinitions as unknown as EcsTaskDefinition['containerDefinitions'],
           ...(input.volumes ? { volumes: input.volumes } : {}),
         });
+        this.taskDefinitionsByFamily.set(family, arn);
         return { taskDefinitionArn: arn };
       },
       updateService: async (input) => {
@@ -773,12 +819,15 @@ export class SimulatedCustomerAccount {
   }
 
   /** The one task-definition read both the deploy client and the task reader
-   *  share, so a heartbeat describes exactly the revision a deploy registered. */
+   *  share, so a heartbeat describes exactly the revision a deploy registered.
+   *  Accepts either a full ARN (a service's own current revision) or a BARE
+   *  family name (Phase 5: `registerReleaseImageIntoFamily` always describes
+   *  the migration/scheduled-job family this way) — resolved to that
+   *  family's latest ACTIVE revision, exactly like real ECS. */
   private async describeSimulatedTaskDefinition(taskDefinition: string): Promise<{ taskDefinition: EcsTaskDefinition }> {
     this.ensureEcsDeployInitialized();
-    const found =
-      this.taskDefinitions.get(taskDefinition) ??
-      this.taskDefinitions.get([...this.serviceStates.values()][0]?.taskDefinitionArn ?? '');
+    const arn = this.taskDefinitions.has(taskDefinition) ? taskDefinition : this.ensureTaskFamily(taskDefinition);
+    const found = this.taskDefinitions.get(arn);
     if (found === undefined) throw new Error(`Unknown task definition "${taskDefinition}"`);
     return {
       taskDefinition: { ...found, containerDefinitions: found.containerDefinitions.map((c) => ({ ...c })) },
@@ -808,9 +857,20 @@ export class SimulatedCustomerAccount {
     return new Date(this.destroyAnchorMs() + event.atVirtualMs).toISOString();
   }
 
-  /** ISO instant for the DESTROY collector's `operationStartedAt` boundary. */
+  /**
+   * ISO instant for the DESTROY collector's `operationStartedAt` boundary.
+   * Deliberately does NOT anchor the destroy clock itself (no
+   * `ensureDestroyStarted()` call): this is read as `deps.now()` at the very
+   * start of every DESTROY invocation, BEFORE `settleDestroy` has decided
+   * whether this is the invocation that actually calls
+   * `StackDeleter.deleteStack` — anchoring here would make `deleteStartRealMs`
+   * non-null (and therefore `describeStack`/`describeStackResources` report
+   * DELETE_IN_PROGRESS) before the delete was ever requested, which would
+   * skip `stopStandaloneTasks`'s pre-delete read of the still-installed
+   * stack on every DESTROY, not just this scenario's. `destroyAnchorMs()`
+   * already falls back to `Date.now()` when no anchor exists yet.
+   */
   destroyStartedAtIso(): string {
-    this.ensureDestroyStarted();
     return new Date(this.destroyAnchorMs()).toISOString();
   }
 
@@ -853,4 +913,47 @@ export class SimulatedCustomerAccount {
    *  `verifyInstallation`'s `stack-tagged` check, exactly like real
    *  CloudFormation echoing back whatever tags it was given. */
   private installationTag = '';
+
+  // ── Standalone (non-service) ECS tasks — Phase 5 scheduled jobs ──────────
+
+  /** Test control: simulate a scheduled job's task currently RUNNING in the
+   *  stack's cluster (group `family:<family>`, no service) — the shape
+   *  `stopStandaloneTasks` (destroy.ts) must find and stop before deleting
+   *  the cluster. Returns the task's ARN. */
+  runStandaloneTask(family: string): string {
+    this.standaloneTaskCounter += 1;
+    const arn = `arn:aws:ecs:us-east-1:123456789012:task/simulated/standalone-${this.standaloneTaskCounter}`;
+    this.standaloneTasks.set(arn, { arn, family, running: true });
+    return arn;
+  }
+
+  /** Test control: mark a previously-`runStandaloneTask`'d task STOPPED,
+   *  simulating a scheduled job that ran to completion (or failure) on its
+   *  own, outside any relay command. */
+  stopStandaloneTask(arn: string): void {
+    const task = this.standaloneTasks.get(arn);
+    if (task) task.running = false;
+  }
+
+  /** `EcsStandaloneTaskStopper` (destroy.ts) — DESTROY's best-effort stop of
+   *  every standalone task in the stack's own cluster before deleting it. */
+  ecsStandaloneTaskStopper(): EcsStandaloneTaskStopper {
+    return {
+      listTasks: async () => ({
+        taskArns: [...this.standaloneTasks.values()].filter((task) => task.running).map((task) => task.arn),
+      }),
+      describeTasks: async ({ tasks }) => ({
+        tasks: tasks.flatMap((taskArn) => {
+          const task = this.standaloneTasks.get(taskArn);
+          return task === undefined ? [] : [{ taskArn: task.arn, group: `family:${task.family}` }];
+        }),
+      }),
+      stopTask: async ({ task }) => {
+        const found = this.standaloneTasks.get(task);
+        if (found === undefined) return;
+        found.running = false;
+        this.stoppedStandaloneTaskArns.push(task);
+      },
+    };
+  }
 }

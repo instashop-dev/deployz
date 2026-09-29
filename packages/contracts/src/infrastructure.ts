@@ -496,7 +496,7 @@ export type InfrastructureExpectationComponent = z.infer<typeof infrastructureEx
 export const infrastructureExpectationsSchema = z
   .object({
     schemaVersion: z.literal(1),
-    /** The five catalog kinds, in catalog order. */
+    /** The five catalog kinds in catalog order, then any other kind the spec's verification contract expects. */
     components: z.array(infrastructureExpectationComponentSchema),
     /** expected && no row of that kind exists at all — a kind with even a
      *  'removed' row (e.g. after a failed destroy) is not missing. Only

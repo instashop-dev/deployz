@@ -1195,6 +1195,121 @@ health switch
 
 If the undesired pattern is significant, refactor before Phase 6.
 
+## Phase 5 Result (2026-09-29)
+
+Phase 5 delivered SQS queues, EventBridge Scheduler schedules and
+scheduled ECS jobs as relationships in the AWS-independent graph, from
+the manifest through the planner, the compiler, the frozen spec and the
+relay.
+
+Landed, by the sub-phase labels used in the code comments:
+
+- **5A — Standard queues.** `aws.sqs` resolves from the `queue` graph
+  kind with `engine: standard`; FIFO and any other engine resolve
+  nothing and fail closed. Defaults: 4-day message retention, 30-second
+  visibility timeout; a dead-letter queue (reached by a `dead-letter`
+  edge) keeps 14 days of retention. Every queue gets a TLS-deny queue
+  policy and SQS-managed encryption; a queue with a `dead-letter` edge
+  also gets a redrive policy. Maturity is `PREVIEW`.
+- **5B — Relationship edges and edge-specific IAM.** Graph edges are
+  now typed by access (`produce`, `consume`, `dead-letter`, `invoke`).
+  The planner fails closed on: a redrive edge whose `maxReceiveCount`
+  is set anywhere but a queue's own dead-letter edge; more than one DLQ
+  per source; a DLQ that itself redrives; a `DEPLOYZ_MANAGED` queue
+  missing either a producer or a consumer (unless it is a DLQ target); a
+  schedule that does not invoke exactly one job, or a job invoked by
+  more than one schedule; a scheduled job with no command. The capability
+  registry carries one IAM intent per access role, so permissions are
+  edge-derived rather than inherited.
+- **5C — EventBridge Scheduler.** Every graph schedule resolves to
+  `aws.eventbridge-scheduler`. Cron/rate expressions translate to
+  the AWS Scheduler syntax; the schedule targets its job's task family
+  without a revision suffix, so it always invokes the latest revision.
+  The execution role is confused-deputy guarded and scoped to the one
+  family, cluster, job roles and DLQ. Maturity is `PREVIEW`.
+- **5D — Scheduled-job workloads.** A scheduled job compiles to a
+  one-shot task definition (frozen command, own security group), with
+  no ECS service and no verification/readiness check of its own — it is
+  never deployment-gating. It is a separate concept from the migration
+  workload: a migration is a one-shot pre-deploy step tied to
+  `DEPLOY_RELEASE`/`ROLLBACK`; a scheduled job is a recurring,
+  independent one-shot task invoked by Scheduler on its own timing. The
+  one link to release timing is image registration: the relay registers
+  the newest release image into a scheduled job's task family only
+  after a `DEPLOY_RELEASE`/`ROLLBACK` rollout has otherwise settled,
+  never before, and a registration error keeps the deploy command in
+  progress rather than failing it. The same registration call, run
+  synchronously right before `RunTask`, also fixed a real Phase 4
+  defect: the migration family's latest revision used to keep running
+  whatever image the last stack operation had baked in.
+- **5E — Composition and hardening.** Web → orders-queue (+ DLQ, redrive
+  after 5 receives) → worker → MySQL, and a render.yaml `cleanup` job →
+  schedule → scheduled ECS task → MySQL + S3, run across the full chain
+  (evidence → graph → resolver → IR → compiler → frozen spec → simulated
+  install → generic `queue`/`schedule` verification → progress →
+  DEPLOY_RELEASE/RESTART/ROLLBACK with family image registration → a
+  failed job leaves health unchanged → DESTROY with a running job task →
+  PURGE) in the `phase5-composition` simulated scenario over the
+  `deployz-demo/async-app` fixture. Hardening: manifest normalization
+  turns id collisions and unknown workload references into questions;
+  the infrastructure expectations compare contract-verified kinds
+  (queue, schedule) as well as the catalog kinds.
+- **Detection.** `async-detection.ts` recognizes SQS usage only behind
+  an SDK dependency precondition, attributes producer/consumer
+  operations to a workload through bounded (depth-4) import
+  reachability, and never trusts a consumer operation attributed to
+  `web`. A queue provisions only when both a producer and a consumer
+  resolve; ambiguous evidence becomes a question, never a guess. Python
+  boto3 usage always becomes a question, never provisioned. SQS is no
+  longer rejected outright. Schedules are recognized only from
+  `render.yaml` `type: cron` services and Kubernetes `CronJob`
+  manifests; in-process cron libraries, CI schedules and bare cron
+  strings are ignored; Vercel crons and crontab files always become a
+  question. `ANALYSIS_VERSION` is 27.
+
+Hard Gate C criteria status (the gate verdict itself stays a review
+outcome; it is not claimed here):
+
+- **Desired pattern followed.** SQS/Scheduler-specific knowledge landed
+  only in the capability registry (`aws.sqs`, `aws.eventbridge-scheduler`
+  and their edge-specific IAM intents), the resolver
+  (`packages/analysis/src/resolver.ts`), the compiler
+  (`packages/infrastructure-compiler/src/compile.ts` and
+  `schedule-expression.ts`), the detection module
+  (`packages/analysis/src/async-detection.ts`), and two presentation
+  tables in `packages/contracts` (the capability → plan-kind map in
+  `plan-components.ts`, and the inventory classification fallback plus
+  `INFRASTRUCTURE_COMPONENT_DISPLAY` in `infrastructure.ts`).
+- **No undesired switches.** The relay gained no queue/schedule-specific
+  logic. Its three additions are generic mechanisms that any future
+  resource-shaped capability can reuse: contract-check verification
+  (`resourceChecks` in `packages/relay/src/verify.ts`, a generic
+  logical-id/type/status match against whatever checks the spec
+  carries), release-image registration into spec-named task families
+  (`registerReleaseImageIntoFamily`/`registerScheduledJobFamilies` in
+  `packages/relay/src/deploy.ts`, driven only by the frozen infra
+  spec), and stopping standalone `group: family:...` tasks before
+  destroy (`stopStandaloneTasks` in `packages/relay/src/destroy.ts`).
+  No queue/schedule-aware logic was added to destroy purge, pricing,
+  UI, deploy progress reporting, diagnostics, or health-check
+  switches — the cost estimator has no SQS/Scheduler pricing key, so a
+  footprint item for either hits the generic "unavailable" path instead
+  of an invented number.
+- **Real-AWS qualification: PENDING.** Phase 5 shipped through
+  simulated E2E, unit and compiler-fixture tests only; no real-AWS
+  canary ran as part of this phase. `aws.sqs` and
+  `aws.eventbridge-scheduler` stay at `PREVIEW` maturity until one does
+  (see `docs/testing/aws-e2e.md`).
+
+**Verdict:** the capability-locality property this gate exists to check
+held for SQS and EventBridge Scheduler — the additions above are
+capability, detector/evidence, planner mapping, bindings/IAM, pricing,
+verification and presentation, not API/relay/destroy/purge/pricing/UI/
+progress/diagnostics/health switches. This is a code-review finding
+recorded here for the next reviewer to confirm, not a self-declared
+pass; real-AWS qualification remains outstanding and is not represented
+as having occurred.
+
 # Phase 6 --- Extended Capability Program
 
 After Gate C, treat new infrastructure primarily as capability

@@ -85,7 +85,9 @@ at three separate layers, and only the last touches real AWS:
   `SimulatedCustomerAccount`, including `retained-delete-recovery`
   (DESTROY retains; PURGE removes) and the Phase 4 capability scenarios
   (`multi-worker-sweep`, `mysql-sweep`, `migration-success`,
-  `migration-failure`, `phase4-composition`).
+  `migration-failure`, `phase4-composition`) and the Phase 5
+  composition (`phase5-composition`: queues, a dead-letter queue, a
+  schedule and a scheduled job).
 - **Real AWS (L4+)** — mandatory for release gates: the direct composite
   canary, the version canary's `profile` runs, and the `core` day-2
   ladder. A green simulated suite never substitutes for these. The
