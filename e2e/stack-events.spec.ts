@@ -248,16 +248,18 @@ test('progress events: a batch ingest shows one active phase, expands to raw eve
   await expect(page.getByText('PublicSubnet1')).toBeVisible();
   await expect(page.getByText('ApplicationDatabase')).toBeVisible();
 
-  // ── 3. Customer install page: the stepper reflects the same ingested
-  // NETWORK progress (not just the coarse PROVISIONING heading). Its rung
-  // labels are static — "Network ready" — and the state is the sr-only
-  // suffix, so the in-progress network rung reads "Network ready (in
+  // ── 3. Customer install page: the step list reflects the same ingested
+  // NETWORK progress (not just the coarse PROVISIONING heading). The
+  // infrastructure rung's label follows its own state — "Creating
+  // infrastructure" — and the NETWORK substep under it carries the same
+  // active/sr-only state pattern, so it reads "Creating network (in
   // progress)". No raw AWS jargon anywhere.
   await page.goto(`/install/${installLinkId}`);
   await expect(
     page.getByRole('heading', { name: 'Creating application infrastructure' }),
   ).toBeVisible();
-  await expect(page.getByText('Network ready (in progress)')).toBeVisible();
+  await expect(page.getByText('Creating infrastructure (in progress)')).toBeVisible();
+  await expect(page.getByText('Creating network (in progress)')).toBeVisible();
   const installPageText = await page.locator('body').innerText();
   expect(installPageText).not.toMatch(JARGON);
 
@@ -346,8 +348,8 @@ test('failure path: a genuine CREATE_FAILED stack event stays behind the technic
   expect(bodyText).not.toMatch(JARGON);
   await expect(page.getByText('ROLLBACK_COMPLETE', { exact: true })).toHaveCount(0);
   // The raw CloudFormation reason reaches the customer page only inside the
-  // live-activity feed's collapsed "View raw AWS events" disclosure (and the
-  // feed is hidden on a terminal stage), so it is never visible here.
+  // collapsed "Technical details" disclosure (and the live-activity feed is
+  // hidden on a terminal stage anyway), so it is never visible here.
   await expect(page.getByText(rawReason)).toBeHidden();
 
   // Technical details are collapsed by default. §65 keeps the raw
@@ -361,7 +363,7 @@ test('failure path: a genuine CREATE_FAILED stack event stays behind the technic
   await page.goto(`/dashboard/deployments/${deploymentId}`);
   const progressCard = page.locator('section[aria-labelledby="deployment-progress"]');
   await expect(progressCard.locator('[aria-live="polite"]')).toHaveText('Install failed');
-  await page.getByRole('button', { name: 'Technical details' }).click();
+  await page.locator('#technical-details').getByRole('button', { name: 'Technical details' }).click();
   const eventsTrigger = page.getByRole('button', { name: /Infrastructure events \(2\)/ });
   await expect(eventsTrigger).toBeVisible({ timeout: 15_000 });
   await eventsTrigger.click();

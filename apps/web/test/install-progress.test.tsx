@@ -156,6 +156,7 @@ describe('InstallProgress — success flow', () => {
 
     const text = () => container!.textContent ?? '';
 
+    expect(text()).toContain('Creating infrastructure');
     expect(text()).toContain('Creating database & storage');
     expect(text()).toContain('Creating the database.');
     expect(text()).toContain('Usually takes 3–10 minutes');
@@ -164,26 +165,21 @@ describe('InstallProgress — success flow', () => {
     expect(text()).toContain('Live AWS activity');
     expect(text()).toContain('Network created.');
 
-    // Jargon confined to the collapsed disclosures: closed by default, Radix
-    // does not render their children, so none of the raw facts/events show up
-    // in the visible text yet.
+    // Jargon confined to the collapsed Technical details disclosure: closed
+    // by default, Radix does not render its children, so none of the raw
+    // facts/events show up in the visible text yet.
     expect(text()).not.toContain('CREATE_IN_PROGRESS');
     expect(text()).not.toContain('DatabaseInstance');
     expect(text()).not.toContain('REF-123');
 
-    // Raw CloudFormation events live behind their own disclosure inside the
-    // activity section; the reference/facts sit in Technical details.
-    await act(async () => {
-      click(findTrigger('View raw AWS events'));
-    });
-    expect(text()).toContain('CREATE_IN_PROGRESS');
-    expect(text()).toContain('DatabaseInstance');
-    expect(text()).not.toContain('REF-123');
-
+    // Reference, facts and the raw CloudFormation events all live behind the
+    // one bottom "Technical details" disclosure now.
     await act(async () => {
       click(findTrigger('Technical details'));
     });
     expect(text()).toContain('REF-123');
+    expect(text()).toContain('CREATE_IN_PROGRESS');
+    expect(text()).toContain('DatabaseInstance');
 
     // The deployment finishes: the next poll returns READY.
     current = baseStatus({ stage: 'READY', step: 'READY', url: 'https://app.example.com', removed: false });
@@ -297,10 +293,9 @@ describe('InstallProgress — long-running flow', () => {
     expect(text).toContain('elapsed');
   });
 
-  it('says when live AWS activity starts while no connector can report it, and not before launch or after', async () => {
+  it('shows Live AWS activity only once AWS has reported something — never before launch, never with an empty feed', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-09-18T00:00:00.000Z'));
-    const note = 'Live AWS activity appears here when Deployz starts to create your infrastructure.';
     const waiting = baseStatus({
       stage: 'WAITING_FOR_AWS',
       step: 'AWS_SETUP',
@@ -312,32 +307,24 @@ describe('InstallProgress — long-running flow', () => {
     mount(baseProps({ initialStatus: waiting }));
     await flush();
     expect(container!.textContent).toContain('AWS is creating the Deployz connector in your account.');
-    expect(container!.textContent).toContain(note);
+    // No recentActivity reported yet: the feed stays hidden entirely.
+    expect(container!.textContent).not.toContain('Live AWS activity');
 
     mocks.fetchInstallStatus.mockResolvedValue(
-      baseStatus({ stage: 'CONNECTING', step: 'RELAY_CONNECT', currentActivity: 'The connector is ready.' }),
+      baseStatus({
+        stage: 'CONNECTING',
+        step: 'RELAY_CONNECT',
+        currentActivity: 'The connector is ready.',
+        recentActivity: [
+          { key: 'a1', at: new Date().toISOString(), message: 'Connector enrolled.', state: 'COMPLETE' },
+        ],
+      }),
     );
     await act(async () => {
       await vi.advanceTimersByTimeAsync(5000);
     });
-    expect(container!.textContent).toContain(note);
-
-    mocks.fetchInstallStatus.mockResolvedValue(baseStatus());
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(5000);
-    });
-    expect(container!.textContent).not.toContain(note);
-  });
-
-  it('does not promise AWS activity before the customer presses Deploy to AWS', async () => {
-    vi.useFakeTimers();
-    const waiting = baseStatus({ stage: 'WAITING_FOR_AWS', step: 'AWS_SETUP' });
-    mocks.fetchInstallStatus.mockResolvedValue(waiting);
-
-    mount(baseProps({ initialStatus: waiting, awaitingLaunch: true }));
-    await flush();
-
-    expect(container!.textContent).not.toContain('Live AWS activity appears here');
+    expect(container!.textContent).toContain('Live AWS activity');
+    expect(container!.textContent).toContain('Connector enrolled.');
   });
 
   it('a payload without the new optional fields still renders the plain duration line and does not crash', async () => {
@@ -354,8 +341,8 @@ describe('InstallProgress — long-running flow', () => {
     const text = container!.textContent ?? '';
     expect(text).toContain('Usually takes 3–10 minutes');
     expect(text).not.toContain('elapsed');
-    // No events reported: the feed stays visible with its honest empty line.
-    expect(text).toContain('No AWS activity reported yet.');
+    // No events reported: the feed is never shown for an empty recentActivity.
+    expect(text).not.toContain('Live AWS activity');
   });
 });
 
@@ -410,19 +397,17 @@ describe('InstallProgress — failure flow', () => {
     const text = () => container!.textContent ?? '';
     expect(text()).toContain('Deployment failed');
     expect(text()).toContain('Deployz could not finish setting up your infrastructure.');
-    // The failed group stays visible; completed groups collapse into "N steps
+    // The failed rung stays visible; completed rungs collapse into "N steps
     // done" (ux-guidelines §9) — expand it to see them stayed complete.
-    expect(text()).toContain('Creating database & storage failed');
+    expect(text()).toContain('Creating infrastructure failed');
     expect(text()).not.toContain('(in progress)');
     // A failed step has no next step: the operation stopped there.
     expect(text()).not.toContain('Next:');
     await act(async () => {
-      click(findTrigger('steps done'));
+      click(findTrigger('step done'));
     });
-    expect(text()).toContain('Network ready');
-    expect(text()).toContain('Starting application');
+    expect(text()).toContain('AWS account connected');
     // Default next steps: the vendor owns the retry.
-    expect(text()).toContain('What happens next');
     expect(text()).toContain('No action is required right now.');
     expect(text()).not.toContain('ROLLBACK_COMPLETE');
     expect(text()).not.toContain('is not a valid password');
@@ -460,8 +445,9 @@ describe('InstallProgress — failure flow', () => {
     expect(text()).toContain('Deployment failed');
     expect(text()).toContain('Starting application failed');
     expect(text()).toContain('Deployz has stopped the deployment and is cleaning up resources created during this attempt.');
-    expect(text()).toContain('What happens next');
-    expect(text()).toContain('Your software provider can retry the deployment once the change described above has been made.');
+    expect(text()).toContain(
+      'Something in the AWS account or setup must change before a retry can succeed. Contact your software provider; they can retry the deployment after that change.',
+    );
     expect(text()).not.toContain('No action is required right now.');
   });
 
@@ -505,7 +491,7 @@ describe('InstallProgress — AWS deployment details (READY)', () => {
 
   async function openSummaryTrigger(): Promise<() => string> {
     const trigger = Array.from(container!.querySelectorAll('[data-slot="collapsible-trigger"]')).find((element) =>
-      element.textContent?.includes('AWS deployment details'),
+      element.textContent?.includes('Technical details'),
     ) as HTMLElement | undefined;
     expect(trigger).toBeDefined();
     await act(async () => {
@@ -525,8 +511,9 @@ describe('InstallProgress — AWS deployment details (READY)', () => {
     await flush();
 
     const closedText = container!.textContent ?? '';
-    // Collapsed by default: the trigger and the note, none of the rows.
-    expect(closedText).toContain('AWS deployment details');
+    // The ownership note is always visible at READY; the stack details stay
+    // collapsed behind Technical details.
+    expect(closedText).toContain('Technical details');
     expect(closedText).toContain(OWNERSHIP_NOTE);
     expect(closedText).not.toContain(summary.applicationStackName);
 
@@ -559,8 +546,11 @@ describe('InstallProgress — AWS deployment details (READY)', () => {
     await flush();
 
     const text = () => container!.textContent ?? '';
-    expect(text()).not.toContain('AWS deployment details');
-    expect(text()).not.toContain(OWNERSHIP_NOTE);
+    // No Technical details renders at all — nothing to hold (no reference,
+    // no stack summary, no routing target, no plan inventory).
+    expect(text()).not.toContain('Technical details');
+    // The ownership note is unconditional at READY, independent of awsSummary.
+    expect(text()).toContain(OWNERSHIP_NOTE);
   });
 
   it('a non-READY stage renders no summary, even when awsSummary is present', async () => {
@@ -576,6 +566,31 @@ describe('InstallProgress — AWS deployment details (READY)', () => {
     expect(text()).not.toContain('AWS deployment details');
     expect(text()).not.toContain(summary.applicationStackName);
     expect(text()).not.toContain(OWNERSHIP_NOTE);
+  });
+
+  it('at READY, renders no step list, one "Open application" link, and a Technical details trigger', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-09-18T00:00:00.000Z'));
+    const status = readyStatus({ awsSummary: summary });
+    mocks.fetchInstallStatus.mockResolvedValue(status);
+    mocks.fetchDomainAccess.mockResolvedValue({ canManage: false, domain: null });
+
+    mount(baseProps({ initialStatus: status }));
+    await flush();
+
+    // The setup steps are no longer news once the deployment is ready.
+    expect(container!.querySelector('[data-testid="step-list-next"]')).toBeNull();
+    expect(container!.textContent ?? '').not.toContain('AWS account connected');
+
+    const openApplicationLinks = Array.from(container!.querySelectorAll('a')).filter((anchor) =>
+      anchor.textContent?.includes('Open application'),
+    );
+    expect(openApplicationLinks).toHaveLength(1);
+
+    const technicalDetailsTriggers = Array.from(
+      container!.querySelectorAll('[data-slot="collapsible-trigger"]'),
+    ).filter((element) => element.textContent?.includes('Technical details'));
+    expect(technicalDetailsTriggers.length).toBeGreaterThanOrEqual(1);
   });
 });
 
@@ -633,9 +648,17 @@ describe('InstallProgress — resources summary', () => {
     // A component this deployment does not require is never listed.
     expect(text).not.toContain('Redis');
     expect(text).not.toContain('Not required');
-    // The plan's inventory stays behind its collapsed trigger, counted.
-    expect(text).toContain('View all AWS resources (2)');
+    // The plan's inventory stays behind the bottom Technical details, closed
+    // by default — its raw AWS resource names are never in the open text.
     expect(text).not.toContain('RDS PostgreSQL database');
+
+    await act(async () => {
+      click(findTrigger('Technical details'));
+    });
+    await act(async () => {
+      click(findTrigger('AWS infrastructure details'));
+    });
+    expect(container!.textContent ?? '').toContain('RDS PostgreSQL database');
   });
 
   it('renders no resources section when no component applies and no plan carries an inventory', async () => {
