@@ -67,7 +67,7 @@ reads is validated in `apps/api/src/env.ts`.
 | --- | --- | --- |
 | Public URLs | `API_URL`, `WEB_URL`, `MARKETING_URL`, `COOKIE_DOMAIN`, `BETTER_AUTH_URL`, `EMAIL_FROM` | Hard-coded in the workflow |
 | API domain | `API_DOMAIN_NAME`, `API_CERTIFICATE_ARN` | Both required or the `api.deployz.dev` mapping is removed. The certificate is requested out of band; the Cloudflare `api` CNAME must be DNS-only or TLS fails with 525. |
-| Auth and GitHub | `BETTER_AUTH_SECRET`, `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`, `GITHUB_APP_ID`, `GITHUB_APP_PRIVATE_KEY`, `GITHUB_WEBHOOK_SECRET`, `GITHUB_APP_INSTALL_URL` | The GitHub App's **Setup URL** must be `<WEB_URL>/github/setup` with "Redirect on update" enabled; that page binds the installation to the vendor's organisation and offers sign-in when needed. |
+| Auth and GitHub | `BETTER_AUTH_SECRET`, `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`, `GITHUB_APP_ID`, `GITHUB_APP_PRIVATE_KEY`, `GITHUB_WEBHOOK_SECRET`, `GITHUB_APP_INSTALL_URL` | The GitHub App's **Setup URL** must be `<WEB_URL>/github/setup` with "Redirect on update" enabled; that page binds the installation to the vendor's organisation and offers sign-in when needed. An installation already bound to another organisation is never rebound (the vendor lands on `?github=failed`); restoring a wrong binding is an operator DB edit. |
 | Email | `AWS_SES_ACCESS_KEY_ID`, `AWS_SES_SECRET_ACCESS_KEY` | Organisation membership email only |
 | Default HTTPS | `CLOUDFLARE_ZONE_ID`, `CLOUDFLARE_ZONE_NAME`, `DEPLOYZ_DEFAULT_HOSTNAME_PREFIX`, `CLOUDFLARE_ZONE_EDIT_API_TOKEN` | [`../networking-and-https.md`](../networking-and-https.md) |
 | AI | `AI_GATEWAY_BASE_URL`, `AI_PROVIDER_API_KEY`, `AI_MODEL` (optional), `AI_GATEWAY_TOKEN` (only for an authenticated gateway) | Unset is safe: deterministic copy is served |
@@ -85,8 +85,11 @@ allowlisted but never set; Jev is off in production by decision.
 
 ## Database migrations
 
-Every Lambda cold start (API and worker) runs the bundled drizzle migrations
-(`packages/cdk/src/lambda/db-connection.ts`). A new migration under
+Every Lambda cold start (API and worker) applies the bundled drizzle
+migrations (`packages/cdk/src/lambda/db-connection.ts`), except when one query
+shows the newest bundled migration is already recorded in
+`drizzle.__drizzle_migrations` (`migration-check.ts`); then the migrator is
+skipped. Any error in that check runs the migrator as before. A new migration under
 `packages/db/drizzle/` needs a matching hand-written import in that file;
 `packages/cdk/test/lambda-migrations.test.ts` fails when one is missing. A
 migration that cannot apply kills Lambda initialization: `/health/ready`

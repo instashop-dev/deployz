@@ -102,6 +102,12 @@ watchdog, and the stack-event progress route's settlement backstop):
   Domain jobs (CONFIGURE_DOMAIN/REMOVE_DOMAIN) follow the same rule: their
   failures surface on the `custom_domains` row, never on the deployment.
 
+The customer-facing retry (`POST /api/install/:id/retry`,
+`POST /api/deploy-links/:id/retry`) re-arms a first install with a fresh
+enrollment code and credential. It is refused after any successful install and
+outside NOT_INSTALLED, WAITING_FOR_RELAY, INSTALLING and FAILED (for example
+while a DESTROY runs); a retry during INSTALLING is allowed on purpose.
+
 Retrying a failed update is just deploying again — `requireDeployableState`
 allows it, and `retryAwareIdempotencyKey` mints a fresh attempt key once the
 newest attempt under a base key is FAILED. Application rollback restores the
@@ -203,8 +209,12 @@ likewise proven only by its exit code, never by a long-lived service.
 ## Idempotency and exclusivity
 
 - Every operation has a durable idempotency key
-  (`{deploymentId}:{TYPE}[:{releaseId}][:RETRY:n]`, client-overridable via
-  the `Idempotency-Key` header). `createOrReuseJob` inserts with
+  (`{deploymentId}:{TYPE}[:{releaseId}][:RETRY:n]`). A caller's
+  `Idempotency-Key` header replaces it as
+  `{deploymentId}:{TYPE}:client:{header}`: job keys are unique across all
+  deployments, so the header is scoped to one deployment and one job type
+  and can never return another deployment's or operation's job.
+  `createOrReuseJob` inserts with
   ON CONFLICT DO NOTHING and replays the existing job for a duplicate.
 - **One active mutating job per deployment**, enforced by a partial unique
   index (`deployment_jobs_one_active_mutating_uidx`) — the route-level

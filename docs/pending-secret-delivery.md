@@ -103,7 +103,12 @@ unique bound index `(deployment_id, key)`.
 customer types secret (invitation confirm or config save)
 → KMS-encrypt with the scope context; ciphertext only persists
 → staged row (no deployment yet) OR bound rows (pre-relay deployments)
-→ deployment created → staged rows re-encrypted into bound rows (deployment context)
+→ deployment created → staged rows re-encrypted into bound rows (deployment context);
+  a repeated public-install confirm (same idempotency key, deployment still
+  NOT_INSTALLED or WAITING_FOR_RELAY) re-runs this, binding only keys without a
+  bound row, so a failed first attempt heals and delivery state is never reset
+→ a secret typed while the INSTALL runs (relay connected, stack not yet there) is also
+  bound, because the direct CONFIG_UPDATE can find no service and its payload is scrubbed on claim
 → relay enrollment → INSTALL with desired count 0 when configuration must precede the first start
 → relay fetches effective config (GET /api/relay/config); the API decrypts bound rows in that response and stamps delivery
 → CONFIG_UPDATE writes the value into the customer's Secrets Manager secret
@@ -151,8 +156,11 @@ the threat model):
    carries the plaintext values through SQS (server-side encrypted, 3-day
    dead-letter retention) and `deployment_jobs.payload` until the relay
    claims the job, at which point the payload is redacted. If the relay is
-   offline the plaintext stays in the row until claim.
-2. The generated secret parameters of an INSTALL payload, until claim.
+   offline the plaintext stays in the row until claim. The vendor-facing
+   `GET /api/deployments/:id` applies the same redaction to the jobs it
+   returns, so an unclaimed payload never reaches the vendor UI or API.
+2. The generated secret parameters of an INSTALL payload, until claim (same
+   response redaction).
 3. The relay credential in `deployments.relay_credential`, until the relay
    first registers (then nulled).
 4. Vendor build-time secret values, passed to CodeBuild as plaintext
