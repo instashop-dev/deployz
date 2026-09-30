@@ -28,7 +28,7 @@ interface AdminShellProps {
 // architecture as DashboardShell (dashboard-shell.tsx), branded separately so
 // the two areas are never visually confused, with a "Back to dashboard" exit
 // in the sidebar footer. Screen padding/base spacing come from this single
-// <main>, matching docs/ui-system.md — admin pages never add their own.
+// content area, matching docs/ui-system.md — admin pages never add their own.
 export function AdminShell({ user, children }: AdminShellProps) {
   return (
     <SidebarProvider>
@@ -61,7 +61,7 @@ export function AdminShell({ user, children }: AdminShellProps) {
       </Sidebar>
       <SidebarInset>
         <AdminHeader user={user} />
-        <main className="flex flex-1 flex-col gap-6 p-4 pb-16 md:p-6 md:pb-16 lg:p-8">{children}</main>
+        <div className="flex flex-1 flex-col gap-6 p-4 pb-16 md:p-6 md:pb-16 lg:p-8">{children}</div>
       </SidebarInset>
     </SidebarProvider>
   );
