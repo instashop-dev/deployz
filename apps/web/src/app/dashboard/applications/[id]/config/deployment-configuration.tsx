@@ -353,8 +353,8 @@ const ServicesSection = forwardRef<
 
       <Card className="py-0">
         <CardContent className="p-0">
-          <Table data-testid="services-table" className="min-w-[56rem]">
-            <TableHeader>
+          <Table data-testid="services-table" className="min-w-[56rem] max-md:block max-md:min-w-0">
+            <TableHeader className="max-md:hidden">
               <TableRow>
                 <TableHead className="w-48">Item</TableHead>
                 <TableHead>Configuration / resources</TableHead>
@@ -364,11 +364,11 @@ const ServicesSection = forwardRef<
                 <TableHead className="w-44">Actions</TableHead>
               </TableRow>
             </TableHeader>
-            <TableBody aria-busy={analyzing || undefined}>
+            <TableBody aria-busy={analyzing || undefined} className="max-md:block">
               {groups.map((group) => (
                 <Fragment key={group.id}>
-                  <TableRow className="bg-muted/50 hover:bg-muted/50" data-testid={`services-group-${group.id}`}>
-                    <TableHead colSpan={COLUMN_COUNT} scope="colgroup" className="text-foreground">
+                  <TableRow className="bg-muted/50 hover:bg-muted/50 max-md:block" data-testid={`services-group-${group.id}`}>
+                    <TableHead colSpan={COLUMN_COUNT} scope="colgroup" className="text-foreground max-md:block">
                       {group.label}
                     </TableHead>
                   </TableRow>
@@ -438,8 +438,18 @@ function ServiceRow({ row, onAction }: { row: InventoryRow; onAction: (action: I
   const mixed = row.afterRemoval === 'Mixed';
 
   return (
-    <TableRow id={`config-row-${row.id}`} className="scroll-mt-20" data-testid={row.testId}>
-      <TableCell className={row.indent ? 'pl-8 align-top text-muted-foreground' : 'align-top font-medium'}>
+    <TableRow
+      id={`config-row-${row.id}`}
+      className="scroll-mt-20 max-md:flex max-md:flex-col max-md:gap-1.5 max-md:py-2"
+      data-testid={row.testId}
+    >
+      <TableCell
+        className={
+          row.indent
+            ? 'pl-8 align-top text-muted-foreground max-md:py-0 max-md:pl-6'
+            : 'align-top font-medium max-md:py-0'
+        }
+      >
         <div className="flex items-center gap-1.5">
           <span>{row.label}</span>
           {row.help ? (
@@ -456,7 +466,7 @@ function ServiceRow({ row, onAction }: { row: InventoryRow; onAction: (action: I
           ) : null}
         </div>
       </TableCell>
-      <TableCell className="align-top">
+      <TableCell className="align-top max-md:py-0">
         <div className="flex min-w-0 flex-col gap-1">
           {row.configuration ? (
             row.command ? (
@@ -488,8 +498,16 @@ function ServiceRow({ row, onAction }: { row: InventoryRow; onAction: (action: I
           ) : null}
         </div>
       </TableCell>
-      <TableCell className="align-top tabular-nums">{cost}</TableCell>
-      <TableCell className="align-top">
+      <TableCell
+        data-label="Est. AWS/month: "
+        className="align-top tabular-nums max-md:py-0 max-md:before:text-muted-foreground max-md:before:content-[attr(data-label)] max-md:empty:hidden"
+      >
+        {cost}
+      </TableCell>
+      <TableCell
+        data-label="After removal: "
+        className="align-top max-md:py-0 max-md:before:text-muted-foreground max-md:before:content-[attr(data-label)] max-md:empty:hidden"
+      >
         {row.afterRemoval === 'Kept' ? (
           <Badge variant="secondary">Kept</Badge>
         ) : row.afterRemoval === 'Removed' || mixed ? (
@@ -498,17 +516,19 @@ function ServiceRow({ row, onAction }: { row: InventoryRow; onAction: (action: I
           <span className="text-muted-foreground">Not determined</span>
         ) : null}
       </TableCell>
-      <TableCell className="align-top">
-        <div className="flex flex-col gap-1">
-          {row.issues.map((issue, index) => (
-            <div key={index} className="flex flex-col items-start gap-0.5">
-              <Badge variant={issue.variant}>{issue.label}</Badge>
-              {issue.text ? <span className="text-xs text-muted-foreground">{issue.text}</span> : null}
-            </div>
-          ))}
-        </div>
+      <TableCell className="align-top max-md:py-0 max-md:empty:hidden">
+        {row.issues.length > 0 ? (
+          <div className="flex flex-col gap-1">
+            {row.issues.map((issue, index) => (
+              <div key={index} className="flex flex-col items-start gap-0.5">
+                <Badge variant={issue.variant}>{issue.label}</Badge>
+                {issue.text ? <span className="text-xs text-muted-foreground">{issue.text}</span> : null}
+              </div>
+            ))}
+          </div>
+        ) : null}
       </TableCell>
-      <TableCell className="align-top">
+      <TableCell className="align-top max-md:py-0 max-md:empty:hidden">
         {action?.kind === 'link' ? (
           <Button asChild variant="outline" size="sm" data-testid={action.testId}>
             <a href={action.href}>{action.label}</a>
