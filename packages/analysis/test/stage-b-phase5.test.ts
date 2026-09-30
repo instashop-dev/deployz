@@ -33,6 +33,36 @@ const NODE_APP: FileTree = {
 // ==========================================================================
 
 describe('health-path detection across frameworks (COMP-005)', () => {
+  it('NestJS: @Controller(health) with an empty @Get under the literal global prefix (A1-003)', () => {
+    const tree: FileTree = {
+      'apps/server/src/main.ts': "const app = await NestFactory.create(AppModule);\napp.setGlobalPrefix('api', { exclude: ['robots.txt'] });\n",
+      'apps/server/src/integrations/health/health.controller.ts': [
+        "import { Controller, Get } from '@nestjs/common';",
+        "@Controller('health')",
+        'export class HealthController {',
+        '  @Get()',
+        '  async check() { return {}; }',
+        '}',
+        '',
+      ].join('\n'),
+    };
+    expect(healthPath(tree)).toBe('/api/health');
+  });
+
+  it('NestJS: a health controller without a global prefix is served at its own path', () => {
+    const tree: FileTree = {
+      'src/health.controller.ts': "@Controller({ path: 'health' })\nexport class H {\n  @Get()\n  ok() {}\n}\n",
+    };
+    expect(healthPath(tree)).toBe('/health');
+  });
+
+  it('NestJS: a non-health controller is not a health route', () => {
+    const tree: FileTree = {
+      'src/users.controller.ts': "@Controller('users')\nexport class U {\n  @Get()\n  list() {}\n}\n",
+    };
+    expect(healthPath(tree)).toBeUndefined();
+  });
+
   it('Java/Spring: @GetMapping literal + actuator with context path', () => {
     const tree: FileTree = {
       'pom.xml': '  <artifactId>spring-boot-starter-web</artifactId>\n  <artifactId>spring-boot-starter-actuator</artifactId>\n',
