@@ -54,6 +54,8 @@ type LoadState =
    *  reads "Not determined" instead of the page failing. */
   | { status: 'loaded'; releases: Release[]; deployments: FleetDeployment[] | null };
 
+const RELEASE_POLL_MS = 10_000;
+
 export default function ReleasesPage() {
   const params = useParams();
   const id = Array.isArray(params.id) ? (params.id[0] ?? '') : (params.id ?? '');
@@ -95,6 +97,28 @@ export default function ReleasesPage() {
       cancelled = true;
     };
   }, [id]);
+
+  // A build takes minutes: re-read the releases while one is building, so the
+  // row turns Ready or Failed without a reload. The header badge follows.
+  const hasBuilding = state.status === 'loaded' && state.releases.some((r) => r.status === 'BUILDING');
+  const refreshRef = useRef(refresh);
+  refreshRef.current = refresh;
+  useEffect(() => {
+    if (!hasBuilding) return;
+    const timer = setInterval(() => {
+      fetchReleases(id)
+        .then((releases) => {
+          setState((current) =>
+            current.status === 'loaded' ? { ...current, releases: newestFirst(releases) } : current,
+          );
+          if (!releases.some((r) => r.status === 'BUILDING')) void refreshRef.current();
+        })
+        .catch(() => {
+          // The next tick tries again; the rows on screen stay as they are.
+        });
+    }, RELEASE_POLL_MS);
+    return () => clearInterval(timer);
+  }, [hasBuilding, id]);
 
   function onCreated(release: Release): void {
     setFormOpen(false);
