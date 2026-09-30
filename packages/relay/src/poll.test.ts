@@ -91,6 +91,7 @@ function makeDeps(overrides: Partial<PollDependencies> = {}): PollDependencies {
     enrollmentCode: 'code-test',
     executors: makeExecutors(),
     idempotency: new IdempotencyStore(),
+    sleep: async () => {},
     ...overrides,
   };
 }
@@ -302,6 +303,35 @@ describe('pollOnce — command fetching', () => {
 });
 
 // ── Command execution ────────────────────────────────────────────────────────
+
+describe('pollOnce — a throttled control plane never loses a command result', () => {
+  it('retries the result report through 503, 429 and a network error until it is accepted', async () => {
+    const { fetchFn: baseFetch, getRequests } = makeMockFetch({
+      commandsBody: {
+        commands: [{ id: 'job-r1', deploymentId: 'dep-1', type: 'INSTALL', idempotencyKey: 'ik-r1', payload: {} }],
+      },
+    });
+    const outcomes: (number | Error)[] = [503, 429, new Error('socket hang up')];
+    let resultCalls = 0;
+    const fetchFn: FetchFn = async (url, init) => {
+      if (url.includes('/result')) {
+        resultCalls += 1;
+        const outcome = outcomes.shift();
+        if (outcome instanceof Error) throw outcome;
+        if (outcome !== undefined) return { status: outcome, headers: { get: () => null }, json: async () => ({}) };
+      }
+      return baseFetch(url, init);
+    };
+    const authState = createAuthState('inst-test', 'tok-123');
+    authState.registered = true;
+
+    const result = await pollOnce(makeDeps({ fetchFn }), authState);
+
+    expect(result.ok).toBe(true);
+    expect(resultCalls).toBe(4);
+    expect(getRequests().filter((r) => r.url.includes('/result'))).toHaveLength(1);
+  });
+});
 
 describe('pollOnce — command execution', () => {
   it('executes pending commands and reports results', async () => {

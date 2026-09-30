@@ -104,6 +104,7 @@ import {
   type PendingStore,
 } from './pending.js';
 import { pollOnce, reportCommandProgress, type PollDependencies } from './poll.js';
+import { fetchWithRetry, type SleepFn } from './retry.js';
 import {
   createStackEventCollector,
   createStackEventsReader,
@@ -1694,6 +1695,8 @@ export function createObserveHook(
 export interface RelayHandlerDeps {
   secretsClient: SecretsClient;
   fetchFn: FetchFn;
+  /** Waits between control-plane retries; tests inject an instant one. */
+  sleep?: SleepFn;
   executors?: Record<string, CommandExecutor>;
   idempotency?: IdempotencyStore;
   /**
@@ -1840,9 +1843,12 @@ export function createRelayHandler(deps: RelayHandlerDeps) {
       secrets: createRealConfigSecretsWriter(),
       fetchEffectiveConfig: async () => {
         const headers = buildAuthHeaders(state);
-        const response = await deps.fetchFn(
+        // A throttled control plane must not fail the configuration pass.
+        const response = await fetchWithRetry(
+          deps.fetchFn,
           `${controlPlaneUrl}/api/relay/config?installationId=${encodeURIComponent(installationId)}`,
           { headers },
+          deps.sleep,
         );
         if (response.status !== 200) {
           throw new Error(`Config fetch returned HTTP ${response.status}`);
@@ -1856,6 +1862,7 @@ export function createRelayHandler(deps: RelayHandlerDeps) {
 
     const pollDeps: PollDependencies = {
       fetchFn: deps.fetchFn,
+      ...(deps.sleep ? { sleep: deps.sleep } : {}),
       controlPlaneUrl,
       installationId,
       enrollmentCode,

@@ -33,6 +33,7 @@ import {
 import type { RuntimeHealth } from './ecs-health.js';
 import type { HttpProbeRecord } from './http-probe.js';
 import type { VerificationResult } from './verify.js';
+import { fetchWithRetry, type SleepFn } from './retry.js';
 
 // ── Control-plane API shapes ─────────────────────────────────────────────────
 
@@ -96,6 +97,8 @@ interface HealthReportPayload {
 /** Injectable dependencies for the poll loop (seam for testing). */
 export interface PollDependencies {
   fetchFn: FetchFn;
+  /** Waits between retries of a result report; tests inject an instant one. */
+  sleep?: SleepFn;
   controlPlaneUrl: string;
   installationId: string;
   /** Single-use code from the bootstrap stack; identifies the deployment. */
@@ -281,7 +284,7 @@ export async function pollOnce(
       console.error(JSON.stringify({ event: 'relay:resume-failed', error: String(err) }));
     }
     for (const result of finished) {
-      await reportCommandResult(fetchFn, controlPlaneUrl, authHeaders, result);
+      await reportCommandResult(fetchFn, controlPlaneUrl, authHeaders, result, deps.sleep);
       resumed += 1;
     }
   }
@@ -375,7 +378,7 @@ export async function pollOnce(
     }
 
     // ── 5. Report result back to the control plane ───────────────────
-    await reportCommandResult(fetchFn, controlPlaneUrl, authHeaders, result);
+    await reportCommandResult(fetchFn, controlPlaneUrl, authHeaders, result, deps.sleep);
   }
 
   // ── 6. Report observed state (§59) ────────────────────────────────────
@@ -401,6 +404,7 @@ async function reportCommandResult(
   controlPlaneUrl: string,
   authHeaders: Record<string, string>,
   result: RelayCommandResult,
+  sleep?: SleepFn,
 ): Promise<void> {
   const payload: CommandReportPayload = {
     commandId: result.commandId,
@@ -412,18 +416,30 @@ async function reportCommandResult(
     ...(result.evidence ? { evidence: result.evidence } : {}),
   };
 
+  // The control plane hands a command out once and marks the job RUNNING, so
+  // a result that never arrives leaves it there until the watchdog re-offers
+  // it. A throttled (429/5xx) or unreachable control plane is retried with
+  // backoff; the result route ignores a duplicate for a settled job.
   try {
-    await fetchFn(
+    const response = await fetchWithRetry(
+      fetchFn,
       `${controlPlaneUrl}/api/relay/commands/${encodeURIComponent(result.commandId)}/result`,
       {
         method: 'POST',
         headers: { ...authHeaders, 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       },
+      sleep,
     );
-  } catch {
-    // Best-effort reporting — the control plane will re-deliver the command
-    // on the next poll if it doesn't receive the result.
+    if (response.status < 200 || response.status >= 300) {
+      console.error(
+        JSON.stringify({ event: 'relay:result-report-failed', commandId: result.commandId, status: response.status }),
+      );
+    }
+  } catch (err) {
+    console.error(
+      JSON.stringify({ event: 'relay:result-report-failed', commandId: result.commandId, error: String(err) }),
+    );
   }
 }
 
