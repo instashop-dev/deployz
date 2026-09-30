@@ -18,7 +18,7 @@ interface DashboardShellProps {
 // sheet, so a slim bar carries the trigger that opens it. Session data arrives
 // as props from the server layout, which re-validates it against the API on
 // every render. Pages get their padding and base spacing from the single
-// <main> here, not from each page.
+// content area here (inside the SidebarInset main), not from each page.
 export function DashboardShell({
   user,
   organizations,
@@ -36,9 +36,9 @@ export function DashboardShell({
         <div className="sticky top-0 z-10 flex h-12 items-center border-b bg-background px-4 md:hidden">
           <SidebarTrigger aria-label="Open sidebar" />
         </div>
-        <main className="flex flex-1 flex-col gap-6 p-4 pb-16 md:p-6 md:pb-16 lg:p-8">
+        <div className="flex flex-1 flex-col gap-6 p-4 pb-16 md:p-6 md:pb-16 lg:p-8">
           {children}
-        </main>
+        </div>
       </SidebarInset>
     </SidebarProvider>
   );
