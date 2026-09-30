@@ -145,7 +145,13 @@ export default async function InstallPage({
             </h2>
             <div className="flex items-start gap-3">
               <Loader2 aria-hidden className="mt-0.5 size-4 shrink-0 animate-spin text-muted-foreground" />
-              <p className="text-sm text-muted-foreground">{RELAY_STUCK_GUIDANCE}</p>
+              <div className="flex flex-col gap-2 text-sm text-muted-foreground">
+                <p>{RELAY_STUCK_GUIDANCE}</p>
+                <p>
+                  Check the setup in your AWS account. The link is under Technical details. If it
+                  failed, or you closed it, select Retry connection to get a new setup link.
+                </p>
+              </div>
             </div>
             <InstallRetryButton installLinkId={installLinkId} />
           </section>
