@@ -2782,7 +2782,7 @@ export async function buildServer({
       const status = toCustomerDeploymentStatus(derived, progress);
       // Additive spec-derived components — omitted entirely without a
       // compiled spec, so legacy deployments' responses are byte-identical.
-      const specComponents = specComponentsForStatus(row.deployment.specV2, derived.components, stackEvents);
+      const specComponents = specComponentsForStatus(row.deployment.specV2, status.components, stackEvents);
       const awsSummary = await loadCustomerAwsSummary(db, derived, row.deployment);
       return {
         ...status,
@@ -4256,7 +4256,7 @@ export async function buildServer({
         specV2: deployment.specV2,
       });
       const status = toCustomerDeploymentStatus(derived, progress);
-      const specComponents = specComponentsForStatus(deployment.specV2, derived.components, stackEvents);
+      const specComponents = specComponentsForStatus(deployment.specV2, status.components, stackEvents);
       const awsSummary = await loadCustomerAwsSummary(db, derived, deployment);
       return {
         ...status,
