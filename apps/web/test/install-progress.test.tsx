@@ -193,11 +193,44 @@ describe('InstallProgress — success flow', () => {
     expect(text()).toContain('Access');
     const callsAtReady = mocks.fetchInstallStatus.mock.calls.length;
 
-    // Terminal (READY): terminalIntervalMs is null, so no further polling.
+    // Terminal (READY): polling slows to once a minute, not the 5 s cadence.
     await act(async () => {
       await vi.advanceTimersByTimeAsync(5 * 60_000);
     });
-    expect(mocks.fetchInstallStatus.mock.calls.length).toBe(callsAtReady);
+    const extraCalls = mocks.fetchInstallStatus.mock.calls.length - callsAtReady;
+    expect(extraCalls).toBeGreaterThanOrEqual(4);
+    expect(extraCalls).toBeLessThanOrEqual(5);
+  });
+
+  it('a FAILED page picks up the vendor retry without a reload', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-09-18T00:00:00.000Z'));
+    const failed = baseStatus({
+      stage: 'FAILED',
+      step: 'DATABASE_STORAGE',
+      failure: {
+        ownedByApplication: false,
+        customerActionRequired: false,
+        customerMessage: 'Deployz could not finish setting up your infrastructure.',
+        component: 'database',
+        reference: 'REF-1',
+        technical: { stage: 'PROVISIONING', component: 'database', awsStatus: 'Resource creation failed' },
+      },
+    });
+    mocks.fetchInstallStatus.mockResolvedValue(failed);
+
+    mount(baseProps({ initialStatus: failed }));
+    await flush();
+    expect(container!.textContent).toContain('Deployment failed');
+
+    // The vendor retries: the next status is a running install again.
+    mocks.fetchInstallStatus.mockResolvedValue(baseStatus({ stage: 'PROVISIONING', step: 'NETWORK' }));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(60_000);
+    });
+
+    expect(container!.textContent).not.toContain('Deployment failed');
+    expect(container!.textContent).toContain('Creating application infrastructure');
   });
 });
 
