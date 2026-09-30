@@ -425,6 +425,28 @@ describe('createAiGateway — retry', () => {
     expect(callCount()).toBeLessThanOrEqual(1);
   });
 
+  it('retries an attempt that stalls past attemptTimeoutMs', async () => {
+    let calls = 0;
+    // First attempt never answers on its own; only its attempt timeout ends it.
+    const fetchFn = ((_input: RequestInfo | URL, init?: RequestInit) => {
+      calls += 1;
+      if (calls > 1) return Promise.resolve(jsonResponse(200, successBody));
+      return new Promise((_resolve, reject) => {
+        init?.signal?.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')));
+      });
+    }) as typeof fetch;
+    const gateway = createAiGateway(config, fetchFn, { sleep: async () => {} });
+    const caller = new AbortController();
+
+    const response = await gateway.generate('prompt', schema, {
+      abortSignal: caller.signal,
+      attemptTimeoutMs: 20,
+    });
+
+    expect(response.object).toEqual(modelOutput);
+    expect(calls).toBe(2);
+  });
+
   it('gives up after maxAttempts', async () => {
     const { fetchFn, callCount } = scriptedFetch([() => jsonResponse(500, { error: 'server error' })]);
     const gateway = createAiGateway(config, fetchFn, { maxAttempts: 2, sleep: async () => {} });

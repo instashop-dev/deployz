@@ -120,6 +120,14 @@ export interface AiGenerateOptions {
    * that run outside a synchronous request budget.
    */
   readonly reasoning?: boolean | undefined;
+  /**
+   * Abandon ONE attempt after this many ms and retry, while the caller's
+   * `abortSignal` still bounds the whole call. Measured live: a Workers AI
+   * request that normally answers in ~3s occasionally stalls, and without
+   * this the stalled first attempt used the caller's entire budget, so the
+   * retry never ran. Omitted, an attempt runs until `abortSignal` fires.
+   */
+  readonly attemptTimeoutMs?: number | undefined;
 }
 
 /**
@@ -341,6 +349,13 @@ export function createAiGateway(
           throw error;
         }
 
+        const attemptTimeout =
+          options.attemptTimeoutMs !== undefined ? AbortSignal.timeout(options.attemptTimeoutMs) : undefined;
+        const abortSignal =
+          attemptTimeout && options.abortSignal
+            ? AbortSignal.any([options.abortSignal, attemptTimeout])
+            : (attemptTimeout ?? options.abortSignal);
+
         try {
           const { object, usage } = await generateObject({
             model: provider(config.model),
@@ -351,7 +366,7 @@ export function createAiGateway(
             // backoff), not the SDK's default — letting both retry would
             // multiply attempts past `maxAttempts`.
             maxRetries: 0,
-            ...(options.abortSignal ? { abortSignal: options.abortSignal } : {}),
+            ...(abortSignal ? { abortSignal } : {}),
             // Spread verbatim into the request body by the openai-compatible
             // provider (keyed by the camel-cased provider name) — it forwards
             // any key that is not one of its own.
@@ -367,7 +382,11 @@ export function createAiGateway(
           emit(true, attempt, tokenUsage);
           return { object, usage: tokenUsage };
         } catch (error) {
-          const canRetry = attempt < maxAttempts && isRetryableError(error, options.abortSignal);
+          // A stalled attempt that hit its own timeout is transient; only
+          // the caller's own abort ends the loop.
+          const attemptTimedOut = attemptTimeout?.aborted === true && options.abortSignal?.aborted !== true;
+          const canRetry =
+            attempt < maxAttempts && (attemptTimedOut || isRetryableError(error, options.abortSignal));
           if (!canRetry) {
             emit(false, attempt);
             throw error;

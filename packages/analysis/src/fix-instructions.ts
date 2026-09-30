@@ -46,6 +46,13 @@ export const FIX_INSTRUCTIONS_MAX_TOTAL_TOKENS =
  * retryable 503, and the failure is never logged.
  */
 export const FIX_INSTRUCTIONS_TIMEOUT_MS = 25_000;
+/**
+ * How long ONE model attempt may run before the gateway abandons it and
+ * retries. Live calls answer in ~3s, but one stalled for the full 25s and
+ * left no time to retry. Two attempts plus the retry backoff fit inside
+ * `FIX_INSTRUCTIONS_TIMEOUT_MS`.
+ */
+export const FIX_INSTRUCTIONS_ATTEMPT_TIMEOUT_MS = 11_000;
 
 // ── Input shapes ────────────────────────────────────────────────────────────
 
@@ -622,6 +629,7 @@ export async function generateFixInstructions(
 
   const response = await gateway.generate(prompt, fixInstructionsAiSchema, {
     abortSignal: options.abortSignal,
+    attemptTimeoutMs: FIX_INSTRUCTIONS_ATTEMPT_TIMEOUT_MS,
     label: 'fix-instructions',
     maxOutputTokens: FIX_INSTRUCTIONS_MAX_OUTPUT_TOKENS,
     reasoning: false,
