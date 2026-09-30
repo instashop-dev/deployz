@@ -811,6 +811,22 @@ describe('POST /api/relay/commands/:id/progress', () => {
     expect(provisioningBody.stage).toBe('PROVISIONING');
     expect(provisioningBody.awsSummary).toBeUndefined();
   });
+
+  it('a healthy install with no component signal yet never lists a Waiting resource row (specComponents)', async () => {
+    // The relay reports component health on its own schedule, so right after
+    // the install passes its checks there is no signal for the web service.
+    // The customer projection drops such rows; specComponents must agree.
+    const healthy = await insertDeployment({
+      state: 'HEALTHY',
+      healthStatus: 'HEALTHY',
+      defaultHttps: { hostname: 'd-nosignal.deployz.dev', status: 'ACTIVE' },
+    });
+    const body = customerDeploymentStatusSchema.parse(
+      (await app.inject({ method: 'GET', url: `/api/install/${healthy.installLinkId}/status` })).json(),
+    );
+    expect(body.stage).toBe('READY');
+    expect((body.specComponents ?? []).filter((component) => component.state === 'PENDING')).toEqual([]);
+  });
 });
 
 // Task 5: GET /api/deployments/:id/stack-events — the vendor diagnostics read
