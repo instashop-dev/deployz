@@ -150,6 +150,21 @@ describe('detectEnvVarModel (§11.2)', () => {
     expect(model.some((entry) => entry.key.endsWith('_PORT'))).toBe(false);
   });
 
+  it('does not treat a token count or limit as a secret', () => {
+    const model = detectEnvVarModel({
+      'src/index.js': [
+        'const max = process.env.BOOK_RAG_CHUNK_MAX_TOKENS;',
+        'const limit = process.env.LLM_TOKEN_LIMIT;',
+        'const key = process.env.SERVICE_API_TOKEN;',
+        '',
+      ].join('\n'),
+    });
+    const byKey = new Map(model.map((entry) => [entry.key, entry]));
+    expect(byKey.get('BOOK_RAG_CHUNK_MAX_TOKENS')).toMatchObject({ secret: false });
+    expect(byKey.get('LLM_TOKEN_LIMIT')).toMatchObject({ secret: false });
+    expect(byKey.get('SERVICE_API_TOKEN')).toMatchObject({ secret: true });
+  });
+
   it('requires a code-only bare read of a secret-named variable with no default anywhere', () => {
     const tree: FileTree = {
       'src/index.js': "const token = process.env.INTERNAL_API_TOKEN;\n",

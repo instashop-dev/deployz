@@ -218,7 +218,10 @@ type ApplicationRow = typeof schema.applications.$inferSelect;
 // Version 30: a NestJS `@Controller('health')` (under the literal
 // `setGlobalPrefix`) is a health route, and `health.controller.ts` now wins a
 // slot under the file cap. Stored v29 rows wrongly ask for a health path.
-export const ANALYSIS_VERSION = 30;
+// Version 31: a token count or limit (`*_MAX_TOKENS`, `*_TOKEN_LIMIT`) is no
+// longer a secret, so it stops defaulting to "Set by customer". Stored v30
+// env-var models flag it and must re-run.
+export const ANALYSIS_VERSION = 31;
 
 export interface AnalysisRunnerDeps {
   db: RuntimeDb;

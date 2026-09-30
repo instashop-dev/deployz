@@ -3130,9 +3130,17 @@ export function detectEnvVarModel(tree: FileTree, externalServices: string[] = [
  */
 const LOCATION_SUFFIX_REGEX = /_(?:URI|URL|ENDPOINT|HOST)$/i;
 
+/**
+ * A token count or limit (BOOK_RAG_CHUNK_MAX_TOKENS, LLM_TOKEN_LIMIT) is a
+ * number, not a credential, even though the name contains TOKEN.
+ */
+const TOKEN_QUANTITY_REGEX = /(?:^|_)TOKENS(?=_|$)|_TOKEN_(?:LIMIT|COUNT|BUDGET|MAX|MIN)(?=_|$)/gi;
+
 /** Name-based credential heuristic — value-free, so it can never leak anything. */
 function isSecretName(key: string): boolean {
-  return SECRET_NAME_REGEX.test(key) && !LOCATION_SUFFIX_REGEX.test(key);
+  return (
+    SECRET_NAME_REGEX.test(key.replace(TOKEN_QUANTITY_REGEX, '_')) && !LOCATION_SUFFIX_REGEX.test(key)
+  );
 }
 
 // Variables the runtime, the container platform or a CI/hosting provider
