@@ -283,14 +283,14 @@ const SEMVER_PATTERN = /^(v?)(\d+)\.(\d+)\.(\d+)$/;
 /**
  * A default value for the New release form's Version field: the newest
  * release's version with its patch number incremented, keeping the `v`
- * prefix when the newest version has one. Returns '' when there is no
- * release yet or its version is not plain semver — the field stays
+ * prefix when the newest version has one. Returns v0.1.0 when there is no
+ * release yet, and '' when its version is not plain semver — the field stays
  * editable either way.
  */
 export function suggestNextVersion(
   releases: readonly Pick<Release, 'version' | 'createdAt'>[],
 ): string {
-  if (releases.length === 0) return '';
+  if (releases.length === 0) return 'v0.1.0';
   const newest = releases.reduce((latest, release) =>
     Date.parse(release.createdAt) > Date.parse(latest.createdAt) ? release : latest,
   );

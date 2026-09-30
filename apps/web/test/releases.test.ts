@@ -59,8 +59,8 @@ describe('suggestNextVersion', () => {
     ).toBe('');
   });
 
-  it('returns an empty string when there are no releases', () => {
-    expect(suggestNextVersion([])).toBe('');
+  it('suggests v0.1.0 for the first release', () => {
+    expect(suggestNextVersion([])).toBe('v0.1.0');
   });
 });
 
