@@ -121,7 +121,10 @@ service and declared workers), `unsupported-persistent-volume`,
 `unsupported-gpu`, `local-file-storage`
 (blocking); `container-setup`, `port-unresolved`, `start-command-missing`,
 `health-check`, `localhost-binding` (required); `database-migrations`,
-`worker-command`, `worker-process` (recommended). A declared worker
+`worker-command`, `worker-process` (recommended). For a Django project
+(`manage.py` with `DJANGO_SETTINGS_MODULE`) whose image runs no migration,
+`database-migrations` names `python <path>/manage.py migrate --noinput` as the
+suggested migration command; the vendor sets it, Deployz never applies it. A declared worker
 process is `worker-process` — informational, because Deployz now runs it
 as its own service. Worker-like code with no declared start command is
 `worker-command` and sets `worker.needsCommand`: a needs-input question
@@ -200,7 +203,7 @@ provisions anything — it becomes a non-blocking `questions` entry instead.
   collide becomes a `questions` entry instead, so the planner is never
   handed a relationship it would reject.
 
-`ANALYSIS_VERSION` is 36 (`apps/api/src/analysis.ts`) — last bumped so a
+`ANALYSIS_VERSION` is 37 (`apps/api/src/analysis.ts`) — last bumped so a
 stored analysis finds a NestJS health controller, drops env vars that were
 wrongly required, and stops treating token counts and limits as secrets (see
 `docs/environment-variables.md`).

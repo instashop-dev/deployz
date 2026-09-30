@@ -537,6 +537,8 @@ export function buildReadinessReport(
       confidence: databaseRequired ? 'likely' : 'needs_confirmation',
     });
   } else if (migrationMode === 'unknown' || migrationMode === undefined) {
+    const suggestedMigration =
+      typeof metadata['suggestedMigrationCommand'] === 'string' ? metadata['suggestedMigrationCommand'] : null;
     if ((metadata['usesPostgresql'] === true || metadata['usesMysql'] === true) && metadata['hasMigrationCommand'] !== true) {
       findings.push({
         id: 'database-migrations',
@@ -553,8 +555,9 @@ export function buildReadinessReport(
           : `A PostgreSQL library is present (${
               Array.isArray(drivers) ? drivers.join(', ') : 'detected'
             }) but no migration script was found in any package.json.`,
-        suggestedOutcome:
-          'Add a script that applies database migrations non-interactively (for example a "db:migrate" entry in package.json).',
+        suggestedOutcome: suggestedMigration
+          ? `Set the migration command to "${suggestedMigration}" in the application's settings, or make the image run it when it starts.`
+          : 'Add a script that applies database migrations non-interactively (for example a "db:migrate" entry in package.json).',
         // When the database requirement itself is unconfirmed (driver present
         // but no corroborating signal), the whole finding is uncertain.
         confidence: databaseRequired ? 'likely' : 'needs_confirmation',

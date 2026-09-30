@@ -357,6 +357,16 @@ export function analyseRepo(tree: FileTree): AnalysisResult {
     }
   }
 
+  // A Django project whose image never migrates: suggest the standard
+  // command. It is shown in the readiness finding for the vendor to accept
+  // as the migration command, never written into the manifest.
+  if (metadata['migrationMode'] === 'unknown') {
+    const manage = Object.entries(tree).find(
+      ([path, content]) => /(?:^|\/)manage\.py$/.test(path) && /DJANGO_SETTINGS_MODULE/.test(content ?? ''),
+    );
+    if (manage) metadata['suggestedMigrationCommand'] = `python ${manage[0]} migrate --noinput`;
+  }
+
   // §11.4 — the full unsupported-reason list the manifest gate turns into
   // NOT_COMPATIBLE. Kept as plain strings on the metadata so a deployment
   // created from STORED detected_metadata blocks exactly like one created
