@@ -122,7 +122,7 @@ export function PublicInstallFlow({ linkId, resolve, token, customerKnown = fals
     const config = resolve.requiredInputs
       .map((input) => {
         const value = configValues[input.key] ?? '';
-        if (input.secret ? value === '' : value.trim() === '') return null;
+        if (value.trim() === '') return null;
         return { key: input.key, value: input.secret ? value : value.trim(), isSecret: input.secret };
       })
       .filter((item): item is { key: string; value: string; isSecret: boolean } => item !== null);
@@ -177,7 +177,7 @@ export function PublicInstallFlow({ linkId, resolve, token, customerKnown = fals
           </p>
         ) : null}
         <Select value={region} onValueChange={setRegion}>
-          <SelectTrigger className="w-full sm:w-[360px]">
+          <SelectTrigger aria-labelledby="public-region" className="w-full sm:w-[360px]">
             <SelectValue placeholder="Select a region" />
           </SelectTrigger>
           <SelectContent>
@@ -246,6 +246,7 @@ export function PublicInstallFlow({ linkId, resolve, token, customerKnown = fals
                       onBlur={() => setTouched((previous) => ({ ...previous, [input.key]: true }))}
                       aria-required={input.required}
                       aria-invalid={showError || undefined}
+                      aria-describedby={showError ? `${input.key}-error` : undefined}
                     />
                   ) : (
                     <Input
@@ -263,11 +264,12 @@ export function PublicInstallFlow({ linkId, resolve, token, customerKnown = fals
                       autoComplete="off"
                       aria-required={input.required}
                       aria-invalid={showError || undefined}
+                      aria-describedby={showError ? `${input.key}-error` : undefined}
                     />
                   )}
                   <p className="font-mono text-[11px] text-muted-foreground">{input.key}</p>
                   {showError ? (
-                    <p role="alert" className="text-xs text-destructive">
+                    <p id={`${input.key}-error`} role="alert" className="text-xs text-destructive">
                       {fieldError}
                     </p>
                   ) : null}
@@ -365,8 +367,8 @@ function isAbsoluteUrl(value: string): boolean {
  */
 function settingFieldError(input: PublicInstallInput, rawValue: string): string | null {
   const value = input.secret ? rawValue : rawValue.trim();
-  if (input.required && value === '') return 'This value is required.';
-  if (value === '') return null;
+  // A secret keeps its exact bytes, but spaces alone are not a value.
+  if (value.trim() === '') return input.required ? 'This value is required.' : null;
   if (value.length > 4096) return 'This value must be 4096 characters or fewer.';
   if (/_URL$|_URI$/.test(input.key)) {
     if (!isAbsoluteUrl(value)) return 'Enter a full URL, for example https://example.com.';

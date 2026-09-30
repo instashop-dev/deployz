@@ -346,6 +346,38 @@ describe('PublicInstallFlow', () => {
     expect(document.body.textContent).not.toContain('Enter a full URL, for example https://example.com.');
   });
 
+  it('links a field error to its input and names the Region control', async () => {
+    renderFlow();
+
+    const webhook = document.querySelector('input#WEBHOOK_URL') as HTMLInputElement;
+    await act(async () => {
+      typeInto(webhook, 'not-a-url');
+      webhook.focus();
+      webhook.blur();
+    });
+
+    expect(webhook.getAttribute('aria-describedby')).toBe('WEBHOOK_URL-error');
+    expect(document.getElementById('WEBHOOK_URL-error')?.textContent).toContain('Enter a full URL');
+    const trigger = document.querySelector('[data-slot="select-trigger"]') as HTMLElement;
+    expect(document.getElementById(trigger.getAttribute('aria-labelledby') ?? '')?.textContent).toBe(
+      'AWS Region',
+    );
+  });
+
+  it('does not accept spaces alone as a required secret', async () => {
+    renderFlow();
+
+    const apiKey = document.querySelector('input#API_KEY') as HTMLInputElement;
+    await act(async () => {
+      typeInto(apiKey, '   ');
+      apiKey.focus();
+      apiKey.blur();
+    });
+
+    expect(document.body.textContent).toContain('This value is required.');
+    expect(document.body.textContent).toContain('1 of 3 settings complete');
+  });
+
   it('shows a completion count that reaches "All settings complete" once every setting is valid', async () => {
     renderFlow();
 
