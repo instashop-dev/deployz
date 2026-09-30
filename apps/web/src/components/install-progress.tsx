@@ -117,11 +117,10 @@ export function InstallProgress({
         ? fetchDeployLinkStatus(deployLink.publicId, deployLink.token)
         : fetchInstallStatus(installLinkId),
     intervalMs: 5000,
-    // Stop polling once the stage is terminal — the visibility-
-    // change refresh still fires and resumes the loop if it ever returns a
-    // non-terminal value (a retried install after FAILED, health lost after
-    // READY).
-    terminalIntervalMs: null,
+    // A terminal stage can still change while the tab stays open: the vendor
+    // retries a FAILED install, or health is lost after READY. Check once a
+    // minute so the page never keeps showing a stale failure or success.
+    terminalIntervalMs: 60_000,
     isTerminal: (status) => isTerminalStage(status.stage),
     initialData: initialStatus,
   });
