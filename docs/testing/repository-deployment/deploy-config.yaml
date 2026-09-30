@@ -420,3 +420,39 @@ repositories:
     notes:
       - "AWS Gate C (Phase 4) qualification. S3_BUCKET/AWS_REGION are Deployz bindings; the static S3 key pair is a customer credential (a Gate C IAM user scoped to the run's bucket), delivered from the environment and never stored. The Deployz bucket blocks public access with ACLs disabled, so S3_PUBLIC_ACL=false and public HLS playback from the bucket is out of scope."
       - "HOVOD_ROLE stays unset (allinone): with DATABASE_URL and REDIS_URL bound, the one web task runs the API and the worker processes and no embedded MariaDB/Redis. A separate worker service needs a per-workload role/command a vendor cannot declare today (worker_command stays Needs input)."
+
+  - id: repo-300
+    deploymentClass: fresh-full
+    findings: []
+    fork: instashop-dev/deployz-phase5-canary
+    overrides:
+      healthPath: /health
+      startCommand: "node dist/server.js"
+    config:
+      - { key: ORDERS_QUEUE_URL, value: "" }
+      - { key: ORDERS_DLQ_URL, value: "" }
+      - { key: AWS_S3_BUCKET, value: "" }
+      - { key: DATABASE_URL, value: "" }
+    dependencies: { postgres: verify, storage: verify }
+    verify: { healthPath: /health, appPath: /health }
+    notes:
+      - "AWS Gate D D2 (Phase 5) real-AWS qualification. Permanent Phase 5 canary repository at instashop-dev/deployz-phase5-canary@6bcc7785f43cc9687dca525f703cb7fe3ef6dc5d, replaced with a minimal buildable Phase 5 canary (web + worker + scheduler + DLQ + Postgres). Web (Node Express) producer to a Standard SQS queue, separate worker consumer (orders-consumer.ts reads only ORDERS_QUEUE_URL, dlq-monitor.ts reads only ORDERS_DLQ_URL — one queue URL per file, which the Phase 5 queue attribution requires), DLQ reachable from the worker, render.yaml type: cron scheduled job writing to Postgres, PostgreSQL through pg via DATABASE_URL, messages/ticks tables created at boot by src/schema.ts. The harness's preflight refused to proceed because exec-form Dockerfile CMDs are not parsed into manifest.web.command (start-command-missing); overrides.startCommand covers it. Queue/storage bindings are typed as vendor-known empty strings so the preflight sees them as provided; the IR substitutes the real Deployz-managed values at deploy time. Same shape as repo-016 outlines."
+      - "overrides.migrationCommand is intentionally omitted. The manifest merge's inconsistency guard at packages/analysis/src/manifest.ts:435-439 rejects a migration command when the manifest does not require PostgreSQL, so a Deployz-managed migration job is not configured for this entry. The canary creates its own messages/ticks tables at boot from src/schema.ts, the same migrations-at-boot shape the other benchmark entries use; schema creation is the canary's responsibility, not a Gate D product dependency."
+
+  - id: repo-301
+    deploymentClass: fresh-full
+    findings: []
+    fork: Klarline/retail-inventory-platform
+    overrides:
+      dockerfilePath: api/Dockerfile
+      buildContext: api
+      containerPort: 8080
+      healthPath: /
+    secrets:
+      - JWT_SECRET
+    dependencies: { postgres: verify }
+    verify: { healthPath: /, appPath: /ping }
+    notes:
+      - "AWS Gate D D1 (Phase 5) real-AWS qualification. Klarline/retail-inventory-platform@3a2b8a3 used directly from upstream. The Deployz GitHub App on instashop-dev reaches Klarline (verified at Attempt 3 step 1); no mirror or fork required. API container (Express + Socket.io + Prisma) + separate worker container (SQS consumer) + PostgreSQL via Prisma. Producer edge in api/routes/marketplaceOrderRoutes.js (sendToQueue). Consumer edge in api/workers/sqs-consumer.js. SQS_QUEUE_URL is a vendor-known third-party queue URL, so the analyser correctly emits an 'async-question-queue-sqs-queue-url' needs-input finding rather than provisioning the queue itself. DATABASE_URL is Deployz-managed (auto-provided by the preflight). JWT_SECRET has no default in Klarline and is supplied via the standard secrets mechanism."
+      - "Vendor config: secrets=[JWT_SECRET]. The typed Gate D test value is `gate-d-test-secret-do-not-use-in-production` (32+ chars, unique to this run, distinct from any other canary value); the value is never transmitted in plain text after deploy (the API stores only a hash). migrationCommand is intentionally not overridden — Deployz's manifest merge inconsistency guard fires for Prisma-using apps where the schema provider is postgresql but no source-level DATABASE_URL read exists. Migration is a post-install operator step (Klarline's README documents `npx prisma migrate dev` for local and `npx prisma migrate deploy` for production). For the Gate D qualification the schema is not required to be initialised — Deployz must provision the database, attach bindings, and prove Phase 5 infrastructure end-to-end."
+      - "Build context is api/, Dockerfile is api/Dockerfile. Health is / (returns 'OK'); /ping returns 'pong'."

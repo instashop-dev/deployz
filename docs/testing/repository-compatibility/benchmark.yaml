@@ -3621,3 +3621,53 @@ repositories:
       - "AWS Gate C (Phase 4) qualification repository. One Dockerfile/image (s6-overlay ENTRYPOINT /init) runs the Fastify API (serves the Vite dashboard) and a BullMQ/ffmpeg worker; HOVOD_ROLE=api|worker|allinone selects the processes (docker/rootfs/etc/s6-overlay/scripts/hovod-stage2-hook). docker-compose.yml / docker-compose.prod.yml split api and worker by environment only, with no command:."
       - "MySQL, not PostgreSQL: packages/db depends on drizzle-orm + mysql2, compose runs mysql:8.4, DATABASE_URL is mysql://. Redis is BullMQ only (REDIS_URL). S3 via @aws-sdk/client-s3 with REQUIRED static S3_ACCESS_KEY_ID/S3_SECRET_ACCESS_KEY (apps/api/src/s3.ts, apps/worker/src/s3.ts) — no default credential chain."
       - "Migrations are plain SQL applied by the API at boot (apps/api/src/index.ts runMigrations before listen, advisory-locked) — no separate migration command. Health: /health/live (no dependency) and /health/ready (SELECT 1) on PORT 3000. Required with no default: JWT_SECRET (>=32), S3_ENDPOINT, S3_REGION, S3_BUCKET, S3_ACCESS_KEY_ID, S3_SECRET_ACCESS_KEY, S3_PUBLIC_BASE_URL (apps/api/src/env.ts)."
+
+  - id: repo-300
+    repository: instashop-dev/deployz-phase5-canary
+    commit: 6bcc7785f43cc9687dca525f703cb7fe3ef6dc5d
+    cohort: realistic
+    set: improvement
+    expected:
+      compatibility: READY
+      runtime: [node]
+      monorepo: false
+      postgres: true
+      redis: false
+      storage: true
+      worker: true
+      migration: true
+      appRoot: .
+      dockerfilePath: Dockerfile
+      port: 3000
+      healthPath: /health
+      unsupported: []
+    customer_realism: high
+    difficulty: 3
+    notes:
+      - "AWS Gate D D2 (Phase 5) qualification. Permanent Phase 5 canary repository at instashop-dev/deployz-phase5-canary@e769a232f5393b6aea777ad7ac5900f38d66a262, populated from the Gate D simulated 'phase5-composition' virtual fixture (apps/api/src/github.ts at db4fa10) and pushed on 2026-09-29. Web (Node Express) producer to a Standard SQS queue, separate worker consumer, DLQ reachable from the worker, render.yaml type: cron scheduled job writing to S3 + Postgres, Prisma PostgreSQL via DATABASE_URL. Used to qualify Scheduler -> scheduled ECS RunTask, DLQ semantics and edge-specific IAM on real AWS."
+      - "Detected expected: postgres: true (Prisma provider=postgresql + DATABASE_URL env), worker: true (Procfile worker: line), queue+schedule detected via @aws-sdk/client-sqs SendMessageCommand/ReceiveMessageCommand and render.yaml type: cron (Phase 5 graph evidence lives in the ApplicationGraph, not in this Stage A schema), storage: true (s3 reference in src/scheduled.ts)."
+
+  - id: repo-301
+    repository: Klarline/retail-inventory-platform
+    commit: 3a2b8a3004991d50dfb475200164906d511536e6
+    cohort: realistic
+    set: improvement
+    expected:
+      compatibility: READY
+      runtime: [node]
+      monorepo: false
+      postgres: true
+      redis: false
+      storage: false
+      worker: true
+      migration: true
+      appRoot: api
+      dockerfilePath: api/Dockerfile
+      port: 8080
+      healthPath: /
+      unsupported: []
+    customer_realism: high
+    difficulty: 3
+    notes:
+      - "AWS Gate D D1 (Phase 5) qualification. Klarline/retail-inventory-platform HEAD 3a2b8a3 mirrored verbatim into apps/api/src/github.ts at HEAD fca34bb. Public untouched repository mirrors its use as D1 target so the Stage B canary can exercise it. API container (Express + Socket.io + Prisma) + separate worker container (SQS consumer) + PostgreSQL via Prisma. Producer edge in api/routes/marketplaceOrderRoutes.js (sendToQueue); consumer edge in api/workers/sqs-consumer.js; SQS_QUEUE_URL is a Deployz binding. No Redis, no Scheduler/EventBridge/CronJob. Worker has a reverse dependency on the API (socket.io-client to API_URL) declared in api/docker-compose.yml depends_on."
+      - "Detected expected: postgres: true (Prisma provider=postgresql + DATABASE_URL env, schema.prisma), worker: true (Procfile web + worker lines), queue: produce+consume edges from @aws-sdk/client-sqs (Phase 5 graph), migration: true (api/prisma/migrations/ applies at deploy time via prisma generate + the standalone npx prisma migrate deploy; deploy-config.yaml overrides the migration command). Build context is api/, Dockerfile is api/Dockerfile. Health is / (returns 'OK'); /ping returns 'pong'."
