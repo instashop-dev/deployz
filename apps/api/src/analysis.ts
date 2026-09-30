@@ -242,7 +242,10 @@ type ApplicationRow = typeof schema.applications.$inferSelect;
 // file feeds through `build.args` is a required build-stage variable (rallly's
 // `SELF_HOSTED=true` switches Next.js to `output: standalone`, which its Dockerfile
 // copies). Stored v35 models miss it and the release build fails.
-export const ANALYSIS_VERSION = 36;
+// Version 37: a Django project whose image never migrates carries a suggested
+// migration command on the readiness finding (shown, never applied). Stored
+// rows lack it and must re-run.
+export const ANALYSIS_VERSION = 37;
 
 export interface AnalysisRunnerDeps {
   db: RuntimeDb;

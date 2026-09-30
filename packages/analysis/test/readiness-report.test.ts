@@ -214,6 +214,31 @@ describe('buildReadinessReport — finding classification', () => {
     expect(finding?.confidence).toBe('confirmed');
   });
 
+  it('a Django MySQL project without a migrate step gets the standard command suggested', () => {
+    const tree: FileTree = {
+      'Dockerfile': 'FROM python:3.11\nWORKDIR /app\nCOPY . .\nEXPOSE 8000\nCMD ["python3", "manage.py", "runserver", "0.0.0.0:8000"]\n',
+      'requirements.txt': 'Django==4.2\nmysqlclient==2.2\n',
+      'manage.py': "os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'app.settings')\n",
+      'app/settings.py': "DATABASES = {'default': {'ENGINE': 'django.db.backends.mysql', 'NAME': os.getenv('DB_NAME')}}\n",
+      'docker-compose.yml': 'services:\n  web:\n    build: .\n    ports:\n      - "8000:8000"\n  db:\n    image: mysql:8\n',
+    };
+    const analysis = analyseRepo(tree);
+    expect(analysis.metadata['suggestedMigrationCommand']).toBe('python manage.py migrate --noinput');
+    const finding = buildReadinessReport(analysis).findings.find((f) => f.id === 'database-migrations');
+    expect(finding?.suggestedOutcome).toContain('python manage.py migrate --noinput');
+    expect(finding?.blocking).toBe(false);
+  });
+
+  it('no migration suggestion when the image already migrates at start', () => {
+    const tree: FileTree = {
+      'Dockerfile': 'FROM python:3.11\nCOPY . .\nCMD sh -c "python manage.py migrate --noinput && gunicorn app.wsgi"\n',
+      'requirements.txt': 'Django==4.2\nmysqlclient==2.2\n',
+      'manage.py': "os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'app.settings')\n",
+      'app/settings.py': "DATABASES = {'default': {'ENGINE': 'django.db.backends.mysql'}}\n",
+    };
+    expect(analyseRepo(tree).metadata['suggestedMigrationCommand']).toBeUndefined();
+  });
+
   it('the SQLite rejection names both supported engines', () => {
     const tree: FileTree = {
       ...readyTree,
