@@ -17,7 +17,7 @@ import {
 } from 'lucide-react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
-import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode, type RefObject } from 'react';
 import { toast } from 'sonner';
 
 import { PreflightSummary } from '@/components/preflight-summary';
@@ -836,6 +836,20 @@ function InfrastructureCheckSection({
 // relay routes through the force-complete escape hatch.
 // Rare and destructive actions live behind "More actions" so they never
 // compete with the one thing the vendor should do next.
+type FocusTarget = RefObject<HTMLElement | null>;
+
+// A dialog opened from the More actions menu has no trigger of its own, so
+// Radix would drop focus on the page body when it closes. Send it back to the
+// menu button instead.
+function returnFocus(target: FocusTarget) {
+  return (event: Event) => {
+    if (target.current) {
+      event.preventDefault();
+      target.current.focus();
+    }
+  };
+}
+
 function DeploymentActions({
   detail,
   hero,
@@ -857,6 +871,7 @@ function DeploymentActions({
   const [open, setOpen] = useState<
     'deploy' | 'rollback' | 'restart' | 'disconnect' | 'retryInstall' | null
   >(null);
+  const moreActionsRef = useRef<HTMLButtonElement>(null);
   const capabilities: RelayCapabilities | null = detail.relayCapabilities;
   // §24: day-2 actions act on a running application: nothing to act on
   // before the first install has completed (an install in flight included),
@@ -978,7 +993,13 @@ function DeploymentActions({
         ) : null}
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button size="icon-sm" variant="outline" aria-label="More actions" className="ml-auto">
+            <Button
+              ref={moreActionsRef}
+              size="icon-sm"
+              variant="outline"
+              aria-label="More actions"
+              className="ml-auto"
+            >
               <MoreHorizontal aria-hidden />
             </Button>
           </DropdownMenuTrigger>
@@ -1041,6 +1062,7 @@ function DeploymentActions({
         previousReleaseId={detail.previousReleaseId}
         previousVersion={previousVersion}
         currentVersion={detail.version}
+        returnFocusRef={moreActionsRef}
         onDone={() => {
           setOpen(null);
           onChanged();
@@ -1052,6 +1074,7 @@ function DeploymentActions({
         open={open === 'restart'}
         deploymentId={detail.id}
         applicationName={detail.applicationName}
+        returnFocusRef={moreActionsRef}
         onDone={() => {
           setOpen(null);
           onChanged();
@@ -1076,6 +1099,7 @@ function DeploymentActions({
         applicationName={detail.applicationName}
         customerName={detail.customerName}
         counted={detail.deploymentType === 'PRODUCTION' && detail.billingState === 'ACTIVE'}
+        returnFocusRef={moreActionsRef}
         onDone={() => {
           setOpen(null);
           onChanged();
@@ -1265,6 +1289,7 @@ function RollbackDialog({
   previousReleaseId,
   previousVersion,
   currentVersion,
+  returnFocusRef,
   onDone,
   onCancel,
 }: {
@@ -1273,6 +1298,7 @@ function RollbackDialog({
   previousReleaseId: string | null;
   previousVersion: string | null;
   currentVersion: string | null;
+  returnFocusRef: FocusTarget;
   onDone: () => void;
   onCancel: () => void;
 }) {
@@ -1296,7 +1322,7 @@ function RollbackDialog({
 
   return (
     <AlertDialog open={open} onOpenChange={(next) => (next ? undefined : onCancel())}>
-      <AlertDialogContent data-testid="rollback-panel">
+      <AlertDialogContent data-testid="rollback-panel" onCloseAutoFocus={returnFocus(returnFocusRef)}>
         <AlertDialogHeader>
           <AlertDialogTitle>Rollback deployment?</AlertDialogTitle>
           <AlertDialogDescription>
@@ -1344,12 +1370,14 @@ function RestartDialog({
   open,
   deploymentId,
   applicationName,
+  returnFocusRef,
   onDone,
   onCancel,
 }: {
   open: boolean;
   deploymentId: string;
   applicationName: string;
+  returnFocusRef: FocusTarget;
   onDone: () => void;
   onCancel: () => void;
 }) {
@@ -1372,7 +1400,7 @@ function RestartDialog({
 
   return (
     <AlertDialog open={open} onOpenChange={(next) => (next ? undefined : onCancel())}>
-      <AlertDialogContent data-testid="restart-panel">
+      <AlertDialogContent data-testid="restart-panel" onCloseAutoFocus={returnFocus(returnFocusRef)}>
         <AlertDialogHeader>
           <AlertDialogTitle>Restart {applicationName}?</AlertDialogTitle>
           <AlertDialogDescription>
@@ -1796,6 +1824,7 @@ function DisconnectDialog({
   applicationName,
   customerName,
   counted,
+  returnFocusRef,
   onDone,
   onCancel,
 }: {
@@ -1805,6 +1834,7 @@ function DisconnectDialog({
   customerName: string;
   /** Whether this deployment counts toward the production deployment total. */
   counted: boolean;
+  returnFocusRef: FocusTarget;
   onDone: () => void;
   onCancel: () => void;
 }) {
@@ -1857,7 +1887,11 @@ function DisconnectDialog({
 
   return (
     <AlertDialog open={open} onOpenChange={(next) => (next ? undefined : onCancel())}>
-      <AlertDialogContent data-testid="disconnect-panel" className="max-w-lg">
+      <AlertDialogContent
+        data-testid="disconnect-panel"
+        className="max-w-lg"
+        onCloseAutoFocus={returnFocus(returnFocusRef)}
+      >
         <AlertDialogHeader>
           <AlertDialogTitle className="text-destructive">
             Remove {applicationName} for {customerName}?
