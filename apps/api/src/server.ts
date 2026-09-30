@@ -3,7 +3,7 @@ import rateLimit from '@fastify/rate-limit';
 import { setupFastifyErrorHandler } from '@sentry/node';
 import { createHash } from 'node:crypto';
 import { fromNodeHeaders } from 'better-auth/node';
-import { and, desc, eq, gte, inArray, isNull, ne, notInArray, sql } from 'drizzle-orm';
+import { and, desc, eq, getTableColumns, gte, inArray, isNull, ne, notInArray, sql } from 'drizzle-orm';
 import Fastify, {
   type FastifyBaseLogger,
   type FastifyInstance,
@@ -1031,6 +1031,13 @@ function assertPublicRetryAllowed(deployment: { state: string }): void {
     throw new ApiError(409, 'INSTALL_NOT_RETRYABLE', `Deployment is ${deployment.state}, not retryable.`);
   }
 }
+
+/** Every applications column except the two large JSON ones (see GET /api/applications). */
+const APPLICATION_LIST_COLUMNS = Object.fromEntries(
+  Object.entries(getTableColumns(schema.applications)).filter(
+    ([name]) => name !== 'detectedMetadata' && name !== 'environmentSettings',
+  ),
+) as Omit<ReturnType<typeof getTableColumns<typeof schema.applications>>, 'detectedMetadata' | 'environmentSettings'>;
 
 const SETTLED_JOB_STATES: ReadonlySet<string> = new Set(['SUCCEEDED', 'SUCCESS', 'FAILED', 'CANCELLED']);
 
@@ -3543,8 +3550,16 @@ export async function buildServer({
   // GET /api/applications — List applications for current org
   app.get('/api/applications', { preHandler: requireAuth }, async (request) => {
     const organizationId = requireSessionOrganizationId(request);
+    // The list pages read three detected facts (Docker, database engine,
+    // analysed commit). The full detected_metadata is hundreds of KB for a
+    // dozen apps, so only those keys leave the database; the detail route
+    // still returns the whole row.
+    const metadata = schema.applications.detectedMetadata;
     const rows = await db
-      .select()
+      .select({
+        ...APPLICATION_LIST_COLUMNS,
+        detectedMetadata: sql<Record<string, unknown> | null>`CASE WHEN ${metadata} IS NULL THEN NULL ELSE jsonb_strip_nulls(jsonb_build_object('hasDockerfile', ${metadata}->'hasDockerfile', 'databaseState', ${metadata}->'databaseState', 'analysisCommitSha', ${metadata}->'analysisCommitSha')) END`,
+      })
       .from(schema.applications)
       .where(eq(schema.applications.organizationId, organizationId));
     return { applications: rows };

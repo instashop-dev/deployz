@@ -476,6 +476,31 @@ describe('server — organization identity comes from the session, not the clien
     expect(body.applications.map((a) => a.name)).toEqual(['Org A App']);
   });
 
+  it('GET /api/applications lists a slim row: only the detected facts the list pages read, no environment settings', async () => {
+    const bulky = await insertApplication(db, orgA.organizationId, {
+      name: 'Slim List App',
+      detectedMetadata: {
+        hasDockerfile: true,
+        databaseState: 'mysql',
+        analysisCommitSha: 'abc123',
+        readiness: { findings: Array.from({ length: 50 }, (_, i) => `finding ${i}`) },
+        manifest: { large: 'x'.repeat(5000) },
+      },
+      environmentSettings: [{ key: 'A' }],
+    });
+
+    const list = await app.inject({ method: 'GET', url: '/api/applications', headers: { cookie: orgA.cookie } });
+    const listed = (list.json() as { applications: Array<Record<string, unknown>> }).applications.find(
+      (row) => row['id'] === bulky.id,
+    )!;
+    expect(listed['detectedMetadata']).toEqual({ hasDockerfile: true, databaseState: 'mysql', analysisCommitSha: 'abc123' });
+    expect(listed).not.toHaveProperty('environmentSettings');
+    expect(listed['name']).toBe('Slim List App');
+
+    const detail = await app.inject({ method: 'GET', url: `/api/applications/${bulky.id}`, headers: { cookie: orgA.cookie } });
+    expect((detail.json() as { detectedMetadata: Record<string, unknown> }).detectedMetadata['manifest']).toBeDefined();
+  });
+
   it('POST /api/applications with no body.organizationId lands in the session org', async () => {
     const response = await postJson(
       app,
