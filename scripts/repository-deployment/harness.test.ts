@@ -18,6 +18,7 @@ import {
   BENCHMARK_PATH,
   DEPLOY_CONFIG_PATH,
   STAGE_B_DIR,
+  assertRealAwsRepos,
   buildPlan,
   ecrDigestLookup,
   identityFor,
@@ -165,6 +166,92 @@ describe('deploy-config', () => {
     expect(config.b2Repos.length).toBeGreaterThan(0);
     expect(config.b3Repos.length).toBeGreaterThan(0);
     expect([...b2Set].filter((id) => b3Set.has(id))).toEqual([]);
+  });
+});
+
+describe('assertRealAwsRepos (real-AWS virtual-fixture guard)', () => {
+  const virtualBenchmark = parseBenchmark(`
+version: 1
+findings: []
+repositories:
+  - id: repo-900
+    repository: deployz-demo/async-app
+    commit: ${SHA}
+    cohort: realistic
+    set: improvement
+    expected:
+      compatibility: READY
+      runtime: [node]
+      monorepo: false
+      postgres: false
+      redis: false
+      storage: false
+      worker: false
+      migration: false
+      appRoot: .
+      dockerfilePath: Dockerfile
+      port: 3000
+      healthPath: /
+      unsupported: []
+    customer_realism: high
+    difficulty: 1
+  - id: repo-901
+    repository: acme/api
+    commit: ${SHA}
+    cohort: realistic
+    set: improvement
+    expected:
+      compatibility: READY
+      runtime: [node]
+      monorepo: false
+      postgres: false
+      redis: false
+      storage: false
+      worker: false
+      migration: false
+      appRoot: .
+      dockerfilePath: Dockerfile
+      port: 3000
+      healthPath: /
+      unsupported: []
+    customer_realism: high
+    difficulty: 1
+`);
+
+  function makeConfig(repositories: { id: string; fork?: string }[]): Parameters<typeof assertRealAwsRepos>[0] {
+    return {
+      version: 1,
+      waves: {},
+      b2Repos: [],
+      b3Repos: [],
+      repositories: repositories.map((repo) => ({ id: repo.id, fork: repo.fork, findings: [], notes: [] })),
+    };
+  }
+
+  it('refuses deployz-demo/* virtual fixtures even when the fork is unset', () => {
+    expect(() => assertRealAwsRepos(makeConfig([{ id: 'repo-900' }]), virtualBenchmark)).toThrow(
+      /resolves to virtual fixture "deployz-demo\/async-app"/,
+    );
+  });
+
+  it('refuses deployz-demo/* virtual fixtures even when the fork is set to a deployz-demo/* path', () => {
+    expect(() => assertRealAwsRepos(makeConfig([{ id: 'repo-900', fork: 'deployz-demo/async-app' }]), virtualBenchmark)).toThrow(
+      /virtual fixture/,
+    );
+  });
+
+  it('lets a real GitHub identity through when the fork points at it', () => {
+    expect(() => assertRealAwsRepos(makeConfig([{ id: 'repo-901', fork: 'instashop-dev/deployz-phase5-canary' }]), virtualBenchmark)).not.toThrow();
+  });
+
+  it('lets a real GitHub identity through when neither fork nor the benchmark is virtual', () => {
+    expect(() => assertRealAwsRepos(makeConfig([{ id: 'repo-901' }]), virtualBenchmark)).not.toThrow();
+  });
+
+  it('refuses an invalid owner/name shape (no slashes, whitespace, etc.)', () => {
+    expect(() => assertRealAwsRepos(makeConfig([{ id: 'repo-901', fork: 'no slash here' }]), virtualBenchmark)).toThrow(
+      /invalid repository/,
+    );
   });
 });
 
@@ -1384,6 +1471,25 @@ describe('inventory gate (plan-versus-actual)', () => {
     expect(out.inventory.planCreateKinds).toEqual(['application', 'database', 'endpoint', 'storage']);
     expect(out.inventory.missing).toEqual([]);
     expect(out.inventory.unexpected).toEqual([]);
+  });
+
+  it('folds the plan `worker` role into the inventory `application` kind', async () => {
+    const { run } = attempt(deployable, {
+      plan: {
+        components: [
+          { kind: 'application', name: 'Web', action: 'CREATE', lifecycle: 'delete' },
+          { kind: 'worker', name: 'Scheduled task', action: 'CREATE', lifecycle: 'delete' },
+          { kind: 'endpoint', name: 'Endpoint', action: 'CREATE', lifecycle: 'delete' },
+          { kind: 'database', name: 'Database', action: 'CREATE', lifecycle: 'retain' },
+          { kind: 'storage', name: 'Storage', action: 'CREATE', lifecycle: 'retain' },
+        ],
+      },
+    });
+    const out = await run();
+    // `worker` is a plan presentation role, not an inventory catalog kind:
+    // the inventory classifies every AWS::ECS::* resource as `application`.
+    expect(out.inventory.planCreateKinds).toEqual(['application', 'database', 'endpoint', 'storage']);
+    expect(out.inventory.status).toBe('PASS');
   });
 
   it('fails INFRA_ERROR when the infrastructure expectations never settle', async () => {

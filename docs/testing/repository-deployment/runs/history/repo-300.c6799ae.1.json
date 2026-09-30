@@ -1,0 +1,147 @@
+{
+  "schemaVersion": 1,
+  "id": "repo-300",
+  "repository": "instashop-dev/deployz-phase5-canary",
+  "commit": "6bcc7785f43cc9687dca525f703cb7fe3ef6dc5d",
+  "repositoryForm": "fork",
+  "repositoryUsed": "instashop-dev/deployz-phase5-canary",
+  "set": "improvement",
+  "cohort": "realistic",
+  "customerRealism": "high",
+  "difficulty": 3,
+  "deployzCommit": "c6799aeb8e4725e1a851eabf7aab42156c993358",
+  "runId": "stage-b-repo-300-20260930-032945-1735",
+  "stageAExpected": "READY",
+  "expectedDeployable": true,
+  "mode": "deploy",
+  "deploymentClass": "fresh-full",
+  "gate": {
+    "status": "PASS",
+    "verdict": null,
+    "analysisVerdict": null,
+    "outcome": null,
+    "gateFindings": [],
+    "requiredKeys": [],
+    "missingKeys": [],
+    "unsupported": [],
+    "configuredVerdict": null,
+    "configuredFindings": [],
+    "source": "control-plane",
+    "analysisVersion": null,
+    "manifest": null,
+    "detail": null
+  },
+  "configuration": {
+    "status": "PASS",
+    "overrides": {
+      "healthPath": "/health",
+      "startCommand": "node dist/server.js"
+    },
+    "keys": [
+      "AWS_S3_BUCKET",
+      "DATABASE_URL",
+      "ORDERS_DLQ_URL",
+      "ORDERS_QUEUE_URL"
+    ],
+    "generatedKeys": [],
+    "deliveredAfterEnrollment": [],
+    "detail": null
+  },
+  "build": {
+    "status": "PASS",
+    "releaseId": "3e217a01-c3bd-4831-b0b3-a4461c7fc787",
+    "version": "repo-300-20260930-032945-1735",
+    "gitSha": "6bcc7785f43cc9687dca525f703cb7fe3ef6dc5d",
+    "dockerfilePath": "Dockerfile",
+    "buildContext": null,
+    "imageDigest": "sha256:7c3bcb55ff24fadc6164529fdd7b854a5b464aefeeef3be65cb15d288d192b34",
+    "buildId": null,
+    "durationMs": 63374,
+    "imageReused": false,
+    "detail": null
+  },
+  "deployment": {
+    "status": "NOT_ATTEMPTED",
+    "deploymentId": "b5ed5ae7-cf13-4542-b46b-1b83840cc136",
+    "installationId": null,
+    "bootstrapStack": "deployz-bootstrap-stage-b-repo-300-b5ed5ae7",
+    "applicationStack": null,
+    "stackStatus": null,
+    "templateSource": null,
+    "templateUrl": null,
+    "installJobState": null,
+    "failureCode": null,
+    "resourceCount": null,
+    "resourcesByType": null,
+    "region": null,
+    "durationMs": null,
+    "detail": null
+  },
+  "inventory": {
+    "status": "NOT_ATTEMPTED",
+    "planCreateKinds": [],
+    "expectedKinds": [],
+    "presentTypes": [],
+    "missing": [],
+    "unexpected": [],
+    "detail": null
+  },
+  "runtime": {
+    "ecs": "NOT_ATTEMPTED",
+    "alb": "NOT_ATTEMPTED",
+    "https": "NOT_ATTEMPTED",
+    "healthPath": null,
+    "healthPathSource": null,
+    "appUrl": null,
+    "runningImageDigest": null,
+    "releaseServing": null,
+    "smoke": [],
+    "observation": null,
+    "detail": null
+  },
+  "dependencies": {
+    "postgres": "NOT_ATTEMPTED",
+    "redis": "NOT_ATTEMPTED",
+    "storage": "NOT_ATTEMPTED",
+    "migration": "NOT_ATTEMPTED",
+    "detail": null
+  },
+  "update": {
+    "status": "NOT_ATTEMPTED",
+    "releaseId": null,
+    "version": null,
+    "imageDigest": null,
+    "durationMs": null,
+    "detail": null
+  },
+  "cleanup": {
+    "status": "FAIL",
+    "destroyJobState": null,
+    "purgeJobState": "SUCCEEDED",
+    "cleanupState": "COMPLETE",
+    "bootstrapStackFinal": null,
+    "leaks": [
+      "aws resourcegroupstaggingapi get-resources --tag-filters failed: aws: [ERROR]: An error occurred (ExpiredTokenException) when calling the GetResources operation: The security token included in the request is expired"
+    ],
+    "retainedState": "SKIPPED",
+    "purgedState": "SKIPPED",
+    "durationMs": 322461,
+    "detail": "leftovers: aws cloudformation describe-stacks --stack-name failed: aws: [ERROR]: An error occurred (ExpiredToken) when calling the DescribeStacks operation: The security token included in the request is expired | leak audit: 1 resource(s) left"
+  },
+  "classification": "TEST_HARNESS_ERROR",
+  "failureStage": "TEST_HARNESS_ERROR",
+  "rootCause": "TEST_HARNESS_FAILURE",
+  "rootCauseEvidence": "Error: aws cloudformation describe-stacks --stack-name failed: aws: [ERROR]: An error occurred (ExpiredToken) when calling the DescribeStacks operation: The security token included in the request is expired at aws (C:\\Users\\Relaince\\Desktop",
+  "findingIds": [],
+  "timing": {
+    "startedAt": "2026-09-30T03:29:46.129Z",
+    "finishedAt": "2026-09-30T03:34:45.794Z",
+    "totalMs": 299665
+  },
+  "evidence": {
+    "failure": {
+      "point": "install",
+      "message": "Error: aws cloudformation describe-stacks --stack-name failed: aws: [ERROR]: An error occurred (ExpiredToken) when calling the DescribeStacks operation: The security token included in the request is expired\n    at aws (C:\\Users\\Relaince\\Desktop\\Deployz\\.claude\\worktrees\\gate-D-aws\\scripts\\version-canary\\aws.ts:88:13)\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at async describeStack (C:\\Users\\Relaince\\Desktop\\Deployz\\.claude\\worktrees\\gate-D-aws\\scripts\\version-canary\\aws.ts:117:23)\n    at async waitFor (C:\\Users\\Relaince\\Desktop\\Deployz\\.claude\\worktrees\\gate-D-aws\\scripts\\version-canary\\control-plane.ts:455:12)\n    at async <anonymous> (C:\\Users\\Relaince\\Desktop\\Deployz\\.claude\\worktrees\\gate-D-aws\\scripts\\repository-deployment\\deploy.ts:596:23)\n    at async Evidence.step (C:\\Users\\Relaince\\Desktop\\Deployz\\.claude\\worktrees\\gate-D-aws\\scripts\\version-canary\\evidence.ts:133:22)\n    at async step (C:\\Users\\Relaince\\Desktop\\Deployz\\.claude\\worktrees\\gate-D-aws\\scripts\\repository-deployment\\deploy.ts:247:12)\n    at async runRepositoryAttempt (C:\\Users\\Relaince\\Desktop\\Deployz\\.claude\\worktrees\\gate-D-aws\\scripts\\repository-deployment\\deploy.ts:593:5)\n    at async runAttempt (C:\\Users\\Relaince\\Desktop\\Deployz\\.claude\\worktrees\\gate-D-aws\\scripts\\repository-deployment\\index.ts:463:5)\n    at async <anonymous> (C:\\Users\\Relaince\\Desktop\\Deployz\\.claude\\worktrees\\gate-D-aws\\scripts\\repository-deployment\\index.ts:717:18)"
+    }
+  }
+}
