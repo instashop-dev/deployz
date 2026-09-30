@@ -59,6 +59,7 @@ vi.mock('@/components/commit-picker', () => ({
 // release's commit to GitHub.
 vi.mock('../src/app/dashboard/applications/[id]/application-page-context', () => ({
   useApplicationPage: () => ({
+    refresh: async () => undefined,
     data: {
       application: {
         id: 'app-1',
@@ -280,6 +281,37 @@ describe('Releases table', () => {
     });
 
     expect(container.textContent).toContain("We couldn't load releases");
+  });
+});
+
+describe('Build polling', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('re-reads a building release until it settles, without a reload', async () => {
+    mocks.fetchDeploymentsForApplication.mockResolvedValue([]);
+    mocks.fetchReleases
+      .mockResolvedValueOnce([makeRelease({ id: 'b', version: 'v0.1.0', status: 'BUILDING' })])
+      .mockResolvedValue([makeRelease({ id: 'b', version: 'v0.1.0', status: 'FAILED', failureReason: 'x' })]);
+
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    await act(async () => {
+      renderPage();
+    });
+    await waitForTable();
+    expect(container.querySelector('[data-testid="release-row-b"]')?.textContent).toContain('Building');
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10_000);
+    });
+    expect(container.querySelector('[data-testid="release-row-b"]')?.textContent).toContain('Build failed');
+    expect(mocks.fetchReleases).toHaveBeenCalledTimes(2);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(30_000);
+    });
+    expect(mocks.fetchReleases).toHaveBeenCalledTimes(2);
   });
 });
 
