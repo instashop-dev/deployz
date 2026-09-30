@@ -335,6 +335,6 @@ describe('#required-changes hash focus', () => {
       root.render(<DeploymentConfiguration />);
     });
 
-    expect(document.activeElement?.id).toBe('deployment-configuration');
+    expect(document.activeElement?.id).toBe('build-runtime-heading');
   });
 });

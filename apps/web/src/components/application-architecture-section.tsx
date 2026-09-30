@@ -40,10 +40,10 @@ export function ApplicationArchitectureSection({
   if (!hasContent) return null;
 
   return (
-    <section aria-labelledby="application-architecture-heading" className="flex flex-col gap-3">
-      <h2 id="application-architecture-heading" className="text-base font-semibold">
+    <div className="flex flex-col gap-3">
+      <h3 id="application-architecture-heading" className="text-sm font-medium text-muted-foreground">
         Application architecture
-      </h2>
+      </h3>
       <Card data-testid="application-architecture-section">
         <CardContent className="flex flex-col gap-4 py-4">
           {architecture.groups.length > 0 ? (
@@ -93,7 +93,7 @@ export function ApplicationArchitectureSection({
           ) : null}
         </CardContent>
       </Card>
-    </section>
+    </div>
   );
 }
 

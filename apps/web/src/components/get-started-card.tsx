@@ -4,12 +4,8 @@ import Link from 'next/link';
 import { SetupProgress } from '@/components/setup-progress';
 import { Button } from '@/components/ui/button';
 
-/** The three things between a new organization and its first customer. */
-const SETUP_STEPS = [
-  'Connect application',
-  'Review deployment setup',
-  'Create first installation',
-] as const;
+/** The setup lifecycle (Analyse → Configure → Test → Share), after connecting. */
+const SETUP_STEPS = ['Connect repository', 'Analyse and configure', 'Test and share'] as const;
 
 // State A — nothing is connected yet. One heading, one action, and the short
 // track that action starts. "Connect GitHub repository" goes to the existing

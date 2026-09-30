@@ -1,19 +1,14 @@
 'use client';
 
-import { Eye, Info, MoreHorizontal, Stethoscope } from 'lucide-react';
+import { Info } from 'lucide-react';
 import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
 
 import { ListLoadingState, ListSearchInput, NoMatchesState, SortableHead } from '@/components/list-controls';
+import { StatusBadge } from '@/components/status-badge';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import {
   Select,
@@ -44,11 +39,7 @@ import {
   type DeploymentSortKey,
 } from '@/lib/deployment-list';
 import { STAGE_LABEL, STEP_LABEL, removedProgress } from '@/lib/deployment-progress';
-import {
-  STATUS_FILTER_GROUPS,
-  STATUS_GROUP_LABELS,
-  deploymentDisplayStatus,
-} from '@/lib/deployment-status-groups';
+import { STATUS_FILTER_GROUPS, STATUS_GROUP_LABELS } from '@/lib/deployment-status-groups';
 import { fetchDeployments, type FleetDeployment } from '@/lib/deployments';
 import { relativeTime } from '@/lib/diagnostics';
 import { formatDateTime, nextSort, sortParams, type SortState } from '@/lib/list-view';
@@ -201,7 +192,7 @@ export default function DeploymentsPage() {
             would show the same button twice on one screen. */}
         {state.status === 'empty' ? null : (
           <Button asChild size="sm">
-            <Link href="/dashboard/deployments/new">Create installation</Link>
+            <Link href="/dashboard/deployments/new">Invite customer</Link>
           </Button>
         )}
       </div>
@@ -341,7 +332,7 @@ function ErrorState({
   );
 }
 
-// §43 the post-onboarding empty-state product experience — exact copy.
+// One action: a deployment starts with an invitation.
 function EmptyState() {
   return (
     <section
@@ -349,22 +340,14 @@ function EmptyState() {
       className="flex flex-col items-center gap-4 rounded-xl border border-dashed px-6 py-16 text-center"
     >
       <h2 id="empty-deployments" className="text-lg font-semibold">
-        Your app is ready for private deployment
+        No customer deployments yet
       </h2>
       <p className="max-w-md text-sm text-muted-foreground">
-        Give your next customer their own AWS deployment.
+        Invite a customer to give them their own deployment in their AWS account.
       </p>
-      <div className="mt-2 flex flex-col items-center gap-3 sm:flex-row">
-        <Button asChild>
-          <Link href="/dashboard/deployments/new">Create installation</Link>
-        </Button>
-        <Button asChild variant="outline">
-          <Link href="/dashboard/applications">View Test Deployment</Link>
-        </Button>
-        <Button asChild variant="ghost">
-          <Link href="/dashboard/applications">Create Release</Link>
-        </Button>
-      </div>
+      <Button asChild className="mt-2">
+        <Link href="/dashboard/deployments/new">Invite customer</Link>
+      </Button>
     </section>
   );
 }
@@ -408,9 +391,6 @@ function FleetTable({
                 onSort={() => onSort('updated')}
                 className="hidden @2xl:table-cell"
               />
-              <TableHead>
-                <span className="sr-only">Actions</span>
-              </TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -425,7 +405,6 @@ function FleetTable({
 }
 
 function FleetRow({ deployment }: { deployment: FleetDeployment }) {
-  const status = deploymentDisplayStatus(deployment);
   const region = regionName(deployment.region);
   const updatedAt = deploymentUpdatedAt(deployment);
   return (
@@ -469,10 +448,10 @@ function FleetRow({ deployment }: { deployment: FleetDeployment }) {
         </div>
       </TableCell>
       <TableCell>
-        <div className="flex items-center gap-1.5">
-          <Badge variant={status.badge} className="whitespace-nowrap">
-            {status.label}
-          </Badge>
+        <div className="flex flex-wrap items-center gap-1.5">
+          {/* Long reasons ("Needs attention · Not responding") wrap on a phone. */}
+          <StatusBadge deployment={deployment} className="h-auto shrink whitespace-normal" />
+          {deployment.state === 'UPDATE_AVAILABLE' ? <Badge variant="info">Update available</Badge> : null}
           <StatusDetails deployment={deployment} />
         </div>
       </TableCell>
@@ -486,9 +465,6 @@ function FleetRow({ deployment }: { deployment: FleetDeployment }) {
         ) : (
           '—'
         )}
-      </TableCell>
-      <TableCell className="w-10">
-        <RowActions deploymentId={deployment.id} />
       </TableCell>
     </TableRow>
   );
@@ -516,43 +492,9 @@ function StatusDetails({ deployment }: { deployment: FleetDeployment }) {
       <PopoverContent align="start" className="w-72 space-y-1.5">
         <p className="text-sm">{detail}</p>
         {deployment.relayStatus === 'DISCONNECTED' ? (
-          <p className="text-xs font-medium text-destructive">Relay offline</p>
+          <p className="text-xs font-medium text-destructive">Deployz connector offline</p>
         ) : null}
       </PopoverContent>
     </Popover>
-  );
-}
-
-// Only actions whose availability is derivable from list data: navigation to
-// screens that already exist. Day-2 operations keep their gating on the
-// detail page — one place, one rule.
-function RowActions({ deploymentId }: { deploymentId: string }) {
-  return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <Button
-          variant="ghost"
-          size="icon-xs"
-          aria-label="Deployment actions"
-          className="ml-auto"
-        >
-          <MoreHorizontal aria-hidden />
-        </Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="end">
-        <DropdownMenuItem asChild>
-          <Link href={`/dashboard/deployments/${deploymentId}`}>
-            <Eye aria-hidden />
-            View deployment
-          </Link>
-        </DropdownMenuItem>
-        <DropdownMenuItem asChild>
-          <Link href={`/dashboard/deployments/${deploymentId}/diagnostics`}>
-            <Stethoscope aria-hidden />
-            View diagnostics
-          </Link>
-        </DropdownMenuItem>
-      </DropdownMenuContent>
-    </DropdownMenu>
   );
 }

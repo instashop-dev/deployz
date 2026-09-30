@@ -412,7 +412,7 @@ test.describe('dashboard visual regression', () => {
       }),
     ]);
     await page.goto('/dashboard');
-    await expect(page.getByTestId('fleet-summary')).toContainText('Needs attention');
+    await expect(page.getByTestId('fleet-summary')).toContainText('Failed or needs attention');
     await expect(page).toHaveScreenshot('home-attention.png', {
       mask: [page.getByTestId('org-name'), page.getByTestId('deployment-updated'), page.getByTestId('customer-activity')],
     });

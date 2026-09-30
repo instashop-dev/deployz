@@ -299,7 +299,7 @@ describe('Create release form', () => {
       return el;
     });
     const toggle = Array.from(container.querySelectorAll('button')).find(
-      (button) => button.textContent === 'Create Release',
+      (button) => button.textContent === 'Create release',
     ) as HTMLButtonElement;
     await act(async () => {
       toggle.click();
@@ -319,7 +319,7 @@ describe('Create release form', () => {
     versionInput.dispatchEvent(new Event('input', { bubbles: true }));
 
     const submitButton = Array.from(form.querySelectorAll('button')).find(
-      (button) => button.textContent === 'Create Release',
+      (button) => button.textContent === 'Create release',
     ) as HTMLButtonElement;
 
     await act(async () => {

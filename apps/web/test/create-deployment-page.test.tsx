@@ -210,7 +210,7 @@ describe('create-installation page (invitation-first)', () => {
 
     const container = await renderPage();
     expect(customerPickerTrigger().textContent).toBe('Create new customer');
-    expect(container.textContent).toContain('Create installation');
+    expect(container.textContent).toContain('Invite customer');
 
     await fillNewCustomer(container);
 
@@ -231,7 +231,7 @@ describe('create-installation page (invitation-first)', () => {
     expect(mocks.createDeploymentRecord).not.toHaveBeenCalled();
 
     // The success card reveals ONE URL that carries the one-time token.
-    expect(container.textContent).toContain('Installation invitation created');
+    expect(container.textContent).toContain('Invitation created');
     expect(container.textContent).toContain(`#${INVITATION.token}`);
     expect(container.textContent).toContain(
       'a deployment is created only after their confirmation',
@@ -397,7 +397,7 @@ describe('create-installation page (invitation-first)', () => {
     });
 
     const container = await renderPage('test=true');
-    expect(container.textContent).toContain('Create Test Deployment');
+    expect(container.textContent).toContain('Create test deployment');
     await selectCustomerOption('Acme Corp');
 
     // The region is required and defaults to the first available option.

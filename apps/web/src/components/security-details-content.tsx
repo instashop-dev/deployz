@@ -257,13 +257,17 @@ export function SecurityDetailsContent({
           Data sent to Deployz
         </h2>
         <p className="text-sm text-muted-foreground">
-          Only operational metadata about the deployment — never your application data:
+          Operational metadata about the deployment — never your application data:
         </p>
         <ul className="flex list-disc flex-col gap-1.5 pl-5 text-sm text-muted-foreground">
           {DATA_SENT_TO_DEPLOYZ.map((item) => (
             <li key={item}>{item}</li>
           ))}
         </ul>
+        <p className="text-sm text-muted-foreground">
+          Secrets you enter during setup are the one exception: they pass through Deployz encrypted
+          and are stored only until your AWS account connects, then deleted. See Secrets below.
+        </p>
       </section>
 
       <section aria-labelledby="data-not-sent" className="flex flex-col gap-3">

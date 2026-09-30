@@ -12,14 +12,11 @@
 // API already returns. Nothing here is persisted and no raw AWS status reaches
 // a label.
 
-import type { DeploymentStep } from '@deployz/contracts';
-
-import {
-  DEPLOYMENT_STATE_LABELS,
-  type DeploymentBadgeVariant,
-} from '@/lib/deployment-vocabulary';
+import { everInstalled, type DeploymentBadgeVariant } from '@/lib/deployment-vocabulary';
 import type { FleetDeployment } from '@/lib/deployments';
 import { attentionReason } from '@/lib/home-state';
+
+const DAY_TWO_JOB_TYPES = new Set(['DEPLOY_RELEASE', 'ROLLBACK', 'RESTART', 'CONFIG_UPDATE']);
 
 // ── Filter groups ───────────────────────────────────────────────────────────
 
@@ -37,11 +34,11 @@ export const STATUS_GROUPS = [
 export type StatusGroup = (typeof STATUS_GROUPS)[number];
 
 export const STATUS_GROUP_LABELS: Record<StatusGroup, string> = {
-  attention: 'Needs attention',
+  attention: 'Failed or needs attention',
   'in-progress': 'In progress',
   waiting: 'Waiting for customer',
   'update-available': 'Update available',
-  healthy: 'Healthy',
+  healthy: 'Live',
   removed: 'Removed',
 };
 
@@ -71,46 +68,59 @@ export interface DeploymentDisplayStatus {
   badge: DeploymentBadgeVariant;
 }
 
-/** What an install in flight is doing, in the words the row can afford. */
-const INSTALL_STEP_LABEL: Partial<Record<DeploymentStep, string>> = {
-  RELAY_CONNECT: 'Connecting',
-  PREPARING: 'Provisioning',
-  NETWORK: 'Provisioning',
-  DATABASE_STORAGE: 'Provisioning',
-  REDIS: 'Provisioning',
-  MIGRATION: 'Running migrations',
-  APPLICATION: 'Starting application',
-  HEALTH_CHECK: 'Checking health',
-  TLS: 'Setting up HTTPS',
-};
+/**
+ * Which kind of "failed" a FAILED deployment reads as (ux-guidelines §5): a
+ * removal (the latest job is DESTROY), an update on a deployment that was
+ * already live (a day-2 job on one that completed at least one install), or
+ * the first install itself. Never guessed from anything but the job the
+ * server attached to this status.
+ */
+function failedStatus(deployment: FleetDeployment): DeploymentDisplayStatus {
+  const jobType = deployment.deploymentStatus?.job?.type;
+  if (jobType === 'DESTROY') {
+    return { group: 'attention', label: 'Removal failed', badge: 'destructive' };
+  }
+  if (
+    jobType &&
+    DAY_TWO_JOB_TYPES.has(jobType) &&
+    everInstalled(deployment.state, deployment.currentReleaseId)
+  ) {
+    return { group: 'attention', label: 'Update failed', badge: 'destructive' };
+  }
+  return { group: 'attention', label: 'Install failed', badge: 'destructive' };
+}
 
-// Mirrors `attentionReason`'s own order, so the label names the same cause the
-// homepage and the customer summary count.
+// Same precedence as the detail page's hero (lib/deployment-hero.ts), so the
+// badge and the headline never tell two stories: a failed operation first
+// (Failed outranks Needs attention, ux-guidelines §5), then the connector,
+// then measured health, which overrides any in-flight operation label.
 function attentionStatus(deployment: FleetDeployment): DeploymentDisplayStatus {
-  if (deployment.state === 'FAILED') {
-    return { group: 'attention', label: 'Failed', badge: 'destructive' };
+  if (deployment.state === 'FAILED') return failedStatus(deployment);
+  // The latest day-2 attempt failed while the previous release still serves.
+  if (deployment.deploymentStatus?.failure) {
+    return { group: 'attention', label: 'Update failed', badge: 'destructive' };
   }
   if (deployment.state === 'DISCONNECTED') {
-    return { group: 'attention', label: 'Disconnected', badge: 'destructive' };
+    return { group: 'attention', label: 'Needs attention · Disconnected', badge: 'destructive' };
   }
   if (deployment.relayStatus === 'DISCONNECTED') {
-    return { group: 'attention', label: 'Lost contact', badge: 'destructive' };
+    return { group: 'attention', label: 'Needs attention · Lost contact', badge: 'destructive' };
   }
   if (deployment.healthStatus === 'UNHEALTHY') {
-    return { group: 'attention', label: 'Unhealthy', badge: 'destructive' };
+    return { group: 'attention', label: 'Needs attention · Not responding', badge: 'destructive' };
   }
-  return { group: 'attention', label: 'Degraded', badge: 'warning' };
+  return { group: 'attention', label: 'Needs attention · Degraded', badge: 'warning' };
 }
 
 /**
  * The precise status one deployment row shows, and the group the status
  * filter puts it under. The §46 `state` is the anchor; attention is the one
- * overlay on top (a HEALTHY deployment whose relay went quiet reads "Lost
- * contact"). A state this build does not know is surfaced as attention rather
- * than hidden or passed off as healthy.
+ * overlay on top (a HEALTHY deployment whose relay went quiet reads "Needs
+ * attention · Lost contact"). A state this build does not know is surfaced
+ * as attention rather than hidden or passed off as live.
  */
 export function deploymentDisplayStatus(deployment: FleetDeployment): DeploymentDisplayStatus {
-  // Removal first: a deployment on its way out is neither healthy nor failing.
+  // Removal first: a deployment on its way out is neither live nor failing.
   if (deployment.state === 'DELETED') {
     return { group: 'removed', label: 'Removed', badge: 'secondary' };
   }
@@ -123,32 +133,17 @@ export function deploymentDisplayStatus(deployment: FleetDeployment): Deployment
     case 'NOT_INSTALLED':
       return { group: 'waiting', label: 'Waiting for customer', badge: 'secondary' };
     case 'WAITING_FOR_RELAY':
-      return {
-        group: 'waiting',
-        label: DEPLOYMENT_STATE_LABELS.WAITING_FOR_RELAY,
-        badge: 'secondary',
-      };
-    case 'INSTALLING': {
-      // Older API builds send no `step`; fall back to the state's own label.
-      const step = deployment.deploymentStatus?.step as DeploymentStep | undefined;
-      return {
-        group: 'in-progress',
-        label: (step && INSTALL_STEP_LABEL[step]) ?? DEPLOYMENT_STATE_LABELS.INSTALLING,
-        badge: 'info',
-      };
-    }
+      return { group: 'in-progress', label: 'Setting up', badge: 'info' };
+    case 'INSTALLING':
+      return { group: 'in-progress', label: 'Setting up', badge: 'info' };
     case 'UPDATING':
-      return { group: 'in-progress', label: DEPLOYMENT_STATE_LABELS.UPDATING, badge: 'info' };
+      return { group: 'in-progress', label: 'Updating', badge: 'info' };
     case 'UPDATE_AVAILABLE':
-      return {
-        group: 'update-available',
-        label: DEPLOYMENT_STATE_LABELS.UPDATE_AVAILABLE,
-        badge: 'secondary',
-      };
+      return { group: 'update-available', label: 'Live', badge: 'success' };
     case 'HEALTHY':
-      return { group: 'healthy', label: DEPLOYMENT_STATE_LABELS.HEALTHY, badge: 'success' };
+      return { group: 'healthy', label: 'Live', badge: 'success' };
     default:
-      return { group: 'attention', label: 'Unknown status', badge: 'warning' };
+      return { group: 'attention', label: 'Needs attention · Unknown status', badge: 'warning' };
   }
 }
 

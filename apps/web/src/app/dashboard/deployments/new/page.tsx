@@ -392,12 +392,12 @@ function NewDeploymentScreen() {
 
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">
-          {isTestDeployment ? 'Create Test Deployment' : 'Create installation'}
+          {isTestDeployment ? 'Create test deployment' : 'Invite customer'}
         </h1>
         <p className="mt-1 text-sm text-muted-foreground">
           {isTestDeployment
             ? 'Deploy your own app as a free test deployment. It does not affect billing.'
-            : 'Select a customer or add a new one, then create their installation invitation. Your customer opens the link, chooses the AWS region, and confirms — a deployment is created only after their confirmation.'}
+            : 'Select a customer or add a new one, then create their invitation. Your customer opens the install link, chooses the AWS region, and confirms — a deployment is created only after their confirmation.'}
         </p>
       </div>
 
@@ -648,7 +648,7 @@ function NewDeploymentScreen() {
                   loading={pending}
                   loadingText={isTestDeployment ? 'Creating deployment…' : 'Creating invitation…'}
                 >
-                  {isTestDeployment ? 'Run free test deployment' : 'Create installation'}
+                  {isTestDeployment ? 'Run free test deployment' : 'Invite customer'}
                 </Button>
                 {error ? (
                   <div role="alert" className="flex flex-col gap-1 text-sm text-destructive">
@@ -848,10 +848,10 @@ function InvitationLinkCard({
       <CardHeader>
         <div className="flex items-center gap-2">
           <CheckCircle2 className="size-5 text-primary" aria-hidden />
-          <CardTitle>Installation invitation created</CardTitle>
+          <CardTitle>Invitation created</CardTitle>
         </div>
         <CardDescription>
-          Send this installation link to your customer — it carries the one-time token, so nothing
+          Send this install link to your customer — it carries the one-time token, so nothing
           else is needed. The customer chooses the final AWS region and confirms; a deployment is
           created only after their confirmation. The token is shown only once and cannot be
           retrieved again.

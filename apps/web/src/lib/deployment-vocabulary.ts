@@ -182,9 +182,16 @@ export type RelayStatus = WireRelayStatus;
 
 /** Relay connectivity labels, shared by the fleet list and detail page. */
 export const RELAY_STATUS_LABEL: Record<RelayStatus, string> = {
-  CONNECTED: 'Relay online',
-  DISCONNECTED: 'Relay offline',
-  UNKNOWN: 'Relay not connected yet',
+  CONNECTED: 'Deployz connector online',
+  DISCONNECTED: 'Deployz connector offline',
+  UNKNOWN: 'Deployz connector not connected yet',
+};
+
+/** The connector's status where the row is already labelled "Deployz connector". */
+export const CONNECTOR_STATUS_LABEL: Record<RelayStatus, string> = {
+  CONNECTED: 'Online',
+  DISCONNECTED: 'Offline',
+  UNKNOWN: 'Not connected yet',
 };
 
 /** Day-2 actions gated on the installed relay advertising the capability. */
@@ -302,7 +309,7 @@ export const JOB_TYPE_LABEL: Record<JobType, string> = {
   ROLLBACK: 'Rollback',
   RESTART: 'Restart',
   CONFIG_UPDATE: 'Configuration update',
-  DESTROY: 'Disconnect',
+  DESTROY: 'Remove deployment',
   MIGRATION: 'Database migration',
   INFRA_UPGRADE: 'Infrastructure upgrade',
   HEALTH_REPORT: 'Health report',

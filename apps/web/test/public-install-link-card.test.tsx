@@ -214,7 +214,7 @@ describe('InstallLinkControls visibility per kind', () => {
     const menu = container.querySelector('[data-testid="public-install-link-menu"]');
     expect(menu?.textContent).toContain('Manage');
     expect(container.querySelector('[data-testid="public-install-link-copy-url"]')?.textContent).toContain(
-      'Copy link',
+      'Copy install link',
     );
   });
 });
@@ -231,7 +231,7 @@ describe('InstallLinkControls actions', () => {
 
     expect(linkMocks.createPublicInstallLink).toHaveBeenCalledWith(APP_ID);
     expect(onChanged).toHaveBeenCalledTimes(1);
-    expect(toast.success).toHaveBeenCalledWith('Public install link created.');
+    expect(toast.success).toHaveBeenCalledWith('Install link created.');
   });
 
   it('copies the direct link and reports success', async () => {
@@ -240,7 +240,7 @@ describe('InstallLinkControls actions', () => {
       click(container.querySelector('[data-testid="public-install-link-copy-url"]'));
     });
     expect(navigator.clipboard.writeText).toHaveBeenCalledWith(activeLink().url);
-    expect(toast.success).toHaveBeenCalledWith('Public install link copied.');
+    expect(toast.success).toHaveBeenCalledWith('Install link copied.');
   });
 
   it('reports a clipboard failure without throwing', async () => {
@@ -281,7 +281,7 @@ describe('InstallLinkControls actions', () => {
 
     expect(linkMocks.setPublicInstallLinkEnabled).toHaveBeenCalledWith(activeLink().id, false);
     expect(onChanged).toHaveBeenCalledTimes(1);
-    expect(toast.success).toHaveBeenCalledWith('Public install link disabled.');
+    expect(toast.success).toHaveBeenCalledWith('Install link disabled.');
   });
 
   it('requires confirmation before regenerating', async () => {
@@ -295,7 +295,7 @@ describe('InstallLinkControls actions', () => {
       click(document.querySelector('[data-testid="public-install-link-regenerate"]'));
     });
 
-    expect(document.body.textContent).toContain('Regenerate this public install link?');
+    expect(document.body.textContent).toContain('Regenerate this install link?');
     expect(linkMocks.regeneratePublicInstallLink).not.toHaveBeenCalled();
 
     await act(async () => {
@@ -318,7 +318,7 @@ describe('InstallLinkControls actions', () => {
       click(document.querySelector('[data-testid="public-install-link-revoke"]'));
     });
 
-    expect(document.body.textContent).toContain('Revoke this public install link?');
+    expect(document.body.textContent).toContain('Revoke this install link?');
     expect(linkMocks.revokePublicInstallLink).not.toHaveBeenCalled();
 
     await act(async () => {
@@ -342,7 +342,7 @@ describe('InstallLinkControls actions', () => {
     await flush();
 
     expect(container.querySelector('[data-testid="public-install-link-error"]')?.textContent).toBe(
-      'A live public install link already exists for this application.',
+      'A live install link already exists for this application.',
     );
     expect(onChanged).toHaveBeenCalledTimes(1);
   });

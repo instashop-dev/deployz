@@ -27,7 +27,7 @@ import { errorMessage } from '@/lib/api-client';
 import { fetchApplications, type Application } from '@/lib/applications';
 import { fetchRegions, regionOptionLabel, type RegionOption } from '@/lib/regions';
 
-// Create installation — the vendor side of the targeted invitation model
+// Invite customer — the vendor side of the targeted invitation model
 // (Phase 2 API). The invitation names the customer (the route does) and at
 // most recommends a Region; the customer makes the final Region choice and
 // confirms before any deployment exists. The link's secret token is shown
@@ -119,7 +119,7 @@ export function InvitationDialog({
         {revealed === null ? (
           <form onSubmit={onSubmit}>
             <DialogHeader>
-              <DialogTitle>Create installation invitation</DialogTitle>
+              <DialogTitle>Invite customer</DialogTitle>
               <DialogDescription>
                 The invitation does not create a deployment. Your customer selects the final AWS
                 region and confirms before anything is installed.
@@ -177,13 +177,13 @@ export function InvitationDialog({
             <DialogHeader>
               <DialogTitle>Invitation created</DialogTitle>
               <DialogDescription>
-                Send the installation link to your customer — it carries the one-time token, so
+                Send the install link to your customer — it carries the one-time token, so
                 nothing else is needed. The token is shown only once and cannot be retrieved again.
               </DialogDescription>
             </DialogHeader>
             <div className="flex flex-col gap-4 py-4">
               <div>
-                <Label htmlFor="invitation-link">Installation link</Label>
+                <Label htmlFor="invitation-link">Install link</Label>
                 <div className="mt-2 flex items-center gap-2">
                   <Input id="invitation-link" readOnly value={revealed.url} className="font-mono text-xs" />
                   <Button

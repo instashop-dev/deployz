@@ -90,7 +90,7 @@ function OperationalHome({ home }: { home: Extract<HomeState, { kind: 'operation
           </p>
         </div>
         <Button asChild size="sm">
-          <Link href="/dashboard/deployments/new">Create installation</Link>
+          <Link href="/dashboard/deployments/new">Invite customer</Link>
         </Button>
       </div>
 
@@ -101,7 +101,7 @@ function OperationalHome({ home }: { home: Extract<HomeState, { kind: 'operation
       {home.summary.attention === 0 && home.summary.healthy === home.summary.total ? (
         <p className="flex items-center gap-2 text-sm text-muted-foreground">
           <Check className="size-4 shrink-0" aria-hidden />
-          All deployments healthy
+          All deployments live
         </p>
       ) : null}
     </div>

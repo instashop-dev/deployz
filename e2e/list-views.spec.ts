@@ -182,7 +182,6 @@ test.describe('Deployments list', () => {
       'Region',
       'Status',
       'Updated',
-      'Actions',
     ]);
 
     // Needs attention first (latest change first), then progressing, waiting,
@@ -201,12 +200,12 @@ test.describe('Deployments list', () => {
     const row = (name: string, app?: string) =>
       list.locator('tbody tr').filter({ hasText: name }).filter(app ? { hasText: app } : {});
     await expect(row('Stark')).toContainText('Lost contact');
-    await expect(row('Globex')).toContainText('Failed');
+    await expect(row('Globex')).toContainText('Install failed');
     await expect(row('Future Co')).toContainText('Unknown status');
-    await expect(row('Initech')).toContainText('Starting application');
+    await expect(row('Initech')).toContainText('Setting up');
     await expect(row('Hooli')).toContainText('Waiting for customer');
     await expect(row('Acme', 'Sheets')).toContainText('Update available');
-    await expect(row('Acme', 'Docs')).toContainText('Healthy');
+    await expect(row('Acme', 'Docs')).toContainText('Live');
     await expect(list).not.toContainText('Umbrella');
 
     // Internal states never leak.
@@ -219,9 +218,9 @@ test.describe('Deployments list', () => {
     await page.getByRole('combobox', { name: 'Filter by status' }).click();
     await expect(page.getByRole('option')).toHaveText([
       'All statuses',
-      'Healthy',
+      'Live',
       'In progress',
-      'Needs attention',
+      'Failed or needs attention',
       'Waiting for customer',
       'Update available',
       'Removed',
@@ -234,9 +233,9 @@ test.describe('Deployments list', () => {
     await expect(page.getByRole('button', { name: 'Clear filters' })).toHaveCount(0);
 
     const cases: [string, string, string[]][] = [
-      ['Healthy', 'healthy', ['Acme', 'The Extraordinarily Long-Named Customer Holdings International Limited']],
+      ['Live', 'healthy', ['Acme', 'The Extraordinarily Long-Named Customer Holdings International Limited']],
       ['In progress', 'in-progress', ['Initech']],
-      ['Needs attention', 'attention', ['Stark', 'Future Co', 'Globex']],
+      ['Failed or needs attention', 'attention', ['Stark', 'Future Co', 'Globex']],
       ['Waiting for customer', 'waiting', ['Hooli']],
       ['Update available', 'update-available', ['Acme']],
       ['Removed', 'removed', ['Umbrella']],
@@ -276,13 +275,13 @@ test.describe('Deployments list', () => {
     await page.goto('/dashboard/deployments');
     await choose(page, 'Filter by application', 'Docs');
     await choose(page, 'Filter by region', /Mumbai/);
-    await choose(page, 'Filter by status', 'Healthy');
+    await choose(page, 'Filter by status', 'Live');
     await expectRows(page, 'deployment-list', ['Acme']);
     await expect(page).toHaveURL(/status=healthy/);
     await expect(page).toHaveURL(/application=Docs/);
     await expect(page).toHaveURL(/region=ap-south-1/);
 
-    await choose(page, 'Filter by status', 'Needs attention');
+    await choose(page, 'Filter by status', 'Failed or needs attention');
     await expect(page.getByRole('heading', { name: 'No deployments match these filters.' })).toBeVisible();
     await expect(page.getByText('Try changing your search or clearing the filters.')).toBeVisible();
     await expect(page.getByTestId('deployment-list')).toHaveCount(0);
@@ -349,7 +348,7 @@ test.describe('Deployments list', () => {
 
   test('restores the view when returning from a deployment, and from a shared link', async ({ page }) => {
     await page.goto('/dashboard/deployments');
-    await choose(page, 'Filter by status', 'Needs attention');
+    await choose(page, 'Filter by status', 'Failed or needs attention');
     await page.getByRole('columnheader', { name: 'Customer' }).getByRole('button').click();
     await expect(page).toHaveURL(/status=attention&sort=customer&dir=asc/);
     const url = page.url();
@@ -359,7 +358,7 @@ test.describe('Deployments list', () => {
     await page.goBack();
     await expect(page).toHaveURL(url);
     await expectRows(page, 'deployment-list', ['Future Co', 'Globex', 'Stark']);
-    await expect(page.getByRole('combobox', { name: 'Filter by status' })).toHaveText('Needs attention');
+    await expect(page.getByRole('combobox', { name: 'Filter by status' })).toHaveText('Failed or needs attention');
 
     // The same link opens the same view.
     await page.goto(url);
@@ -392,13 +391,6 @@ test.describe('Deployments list', () => {
     await expect(row.locator('td').nth(5)).toHaveText('—');
   });
 
-  test('keeps the row actions', async ({ page }) => {
-    await page.goto('/dashboard/deployments');
-    await page.getByRole('button', { name: 'Deployment actions' }).first().click();
-    await expect(page.getByRole('menuitem', { name: 'View deployment' })).toBeVisible();
-    await expect(page.getByRole('menuitem', { name: 'View diagnostics' })).toBeVisible();
-  });
-
   test('a fleet with only removed deployments points at them instead of an empty table', async ({ page }) => {
     await page.unroute(`${API_URL}/api/deployments*`);
     await mockApi(page, FLEET.filter((fixture) => fixture.state === 'DELETED'));
@@ -413,8 +405,8 @@ test.describe('Deployments list', () => {
     await page.unroute(`${API_URL}/api/deployments*`);
     await mockApi(page, []);
     await page.goto('/dashboard/deployments');
-    await expect(page.getByRole('heading', { name: 'Your app is ready for private deployment' })).toBeVisible();
-    await expect(page.getByRole('link', { name: 'Create installation' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'No customer deployments yet' })).toBeVisible();
+    await expect(page.getByRole('link', { name: 'Invite customer' })).toBeVisible();
     await expect(page.getByText('No deployments match these filters.')).toHaveCount(0);
   });
 });
@@ -571,7 +563,7 @@ test.describe('Customers list', () => {
     await page.route(`${API_URL}/api/customers*`, (route) => route.fulfill({ json: { customers: [] } }));
     await page.goto('/dashboard/customers');
     await expect(page.getByRole('heading', { name: 'Add your first customer' })).toBeVisible();
-    await expect(page.getByRole('link', { name: 'Create installation' })).toBeVisible();
+    await expect(page.getByRole('link', { name: 'Invite customer' })).toBeVisible();
     await expect(page.getByText('No customers match these filters.')).toHaveCount(0);
   });
 });
@@ -623,9 +615,9 @@ test.describe('on a phone', () => {
 // every case the table fits without its own horizontal scrollbar.
 test.describe('table columns follow the space available', () => {
   for (const [name, width, columns] of [
-    ['a tablet with the sidebar open', 820, ['Customer', 'Status', 'Actions']],
-    ['a laptop', 1024, ['Customer', 'Status', 'Updated', 'Actions']],
-    ['a desktop', 1440, ['Customer', 'Application', 'Version', 'Region', 'Status', 'Updated', 'Actions']],
+    ['a tablet with the sidebar open', 820, ['Customer', 'Status']],
+    ['a laptop', 1024, ['Customer', 'Status', 'Updated']],
+    ['a desktop', 1440, ['Customer', 'Application', 'Version', 'Region', 'Status', 'Updated']],
   ] as const) {
     test(`Deployments on ${name}`, async ({ page }) => {
       await page.setViewportSize({ width, height: 900 });

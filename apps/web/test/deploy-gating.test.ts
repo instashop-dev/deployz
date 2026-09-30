@@ -150,9 +150,9 @@ describe('runningReleaseIds', () => {
 });
 
 describe('relay status labels', () => {
-  it('names a lost relay "Relay offline"', () => {
-    expect(RELAY_STATUS_LABEL.DISCONNECTED).toBe('Relay offline');
-    expect(RELAY_STATUS_LABEL.CONNECTED).toBe('Relay online');
+  it('names a lost connector "Deployz connector offline"', () => {
+    expect(RELAY_STATUS_LABEL.DISCONNECTED).toBe('Deployz connector offline');
+    expect(RELAY_STATUS_LABEL.CONNECTED).toBe('Deployz connector online');
   });
 });
 

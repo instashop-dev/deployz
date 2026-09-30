@@ -253,7 +253,7 @@ describe('Analysis in progress', () => {
 
       const restart = container.querySelector('[data-testid="readiness-restart"]') as HTMLButtonElement;
       expect(restart).not.toBeNull();
-      expect(restart.textContent).toBe('Restart analysis');
+      expect(restart.textContent).toBe('Re-analyse application');
       expect(restart.disabled).toBe(false);
       const heading = container.querySelector('[data-testid="application-state-heading"]') as HTMLElement;
       expect(heading.textContent).toBe('Analysing your application');

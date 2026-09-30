@@ -1,13 +1,13 @@
-import { ArrowRight, Check } from 'lucide-react';
+import { ArrowRight } from 'lucide-react';
 import Link from 'next/link';
 
 import { Button } from '@/components/ui/button';
 import type { Application } from '@/lib/applications';
 import { databaseEngineName } from '@/lib/readiness';
 
-// State C — the application is ready and no customer has a deployment yet.
-// High-level facts only: the AWS resources behind them stay one click deeper,
-// on the application's own setup page.
+// State C — the analysis passed and no customer has a deployment yet. The
+// application page owns the next step (test, then share); this card only
+// points there.
 export function ApplicationReadyCard({ application }: { application: Application }) {
   const runtime = application.detectedMetadata?.['hasDockerfile'] === true ? 'Docker' : null;
   const facts: { label: string; value: string }[] = [
@@ -24,10 +24,11 @@ export function ApplicationReadyCard({ application }: { application: Application
     <section aria-labelledby="ready" className="flex max-w-xl flex-col gap-6">
       <div>
         <h1 id="ready" className="text-2xl font-semibold tracking-tight">
-          Your application is ready
+          Your application is analysed
         </h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          {application.name} can be deployed into a customer&apos;s own AWS account.
+          Next, test {application.name} in your own AWS account, then share the install link with
+          customers.
         </p>
       </div>
 
@@ -40,20 +41,12 @@ export function ApplicationReadyCard({ application }: { application: Application
         ))}
       </dl>
 
-      <p className="flex items-center gap-2 text-sm font-medium">
-        <Check className="size-4 shrink-0" aria-hidden />
-        Deployment setup ready
-      </p>
-
-      <div className="flex flex-wrap items-center gap-3">
+      <div>
         <Button asChild>
-          <Link href={`/dashboard/deployments/new?applicationId=${encodeURIComponent(application.id)}`}>
-            Create first installation
+          <Link href={`/dashboard/applications/${application.id}`}>
+            Continue setup
             <ArrowRight aria-hidden />
           </Link>
-        </Button>
-        <Button asChild variant="ghost" size="sm">
-          <Link href={`/dashboard/applications/${application.id}`}>View technical setup</Link>
         </Button>
       </div>
     </section>

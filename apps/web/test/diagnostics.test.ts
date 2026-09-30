@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
 import {
-  containerEvidenceChips,
   retryCta,
   toDiagnostics,
   type DiagnosticEvent,
@@ -118,31 +117,6 @@ describe('toDiagnostics — evidence and retry eligibility', () => {
     expect(diagnostic.retryEligibility).toEqual(retryEligibility);
     expect(toDiagnostics({ ...base })[0]?.evidence).toBeNull();
     expect(toDiagnostics({ ...base })[0]?.retryEligibility).toBeNull();
-  });
-});
-
-describe('containerEvidenceChips', () => {
-  it('lists only the non-null fields, and never the stopped reason', () => {
-    expect(
-      containerEvidenceChips({
-        container: {
-          exitCode: 1,
-          stopCode: 'EssentialContainerExited',
-          stoppedReason: 'secret-ish text',
-          stoppedTaskCount: 3,
-        },
-      }),
-    ).toEqual(['Exit code 1', 'Stop code EssentialContainerExited', '3 restarts']);
-  });
-
-  it('pluralises restart count and handles the minimal/absent shapes', () => {
-    expect(
-      containerEvidenceChips({
-        container: { exitCode: null, stopCode: null, stoppedReason: null, stoppedTaskCount: 1 },
-      }),
-    ).toEqual(['1 restart']);
-    expect(containerEvidenceChips({ container: null })).toEqual([]);
-    expect(containerEvidenceChips(null)).toEqual([]);
   });
 });
 

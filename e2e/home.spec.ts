@@ -69,7 +69,7 @@ test('A — a new organization is asked to connect an application', async ({ pag
   const steps = page.getByTestId('setup-progress').getByRole('listitem');
   await expect(steps).toHaveCount(3);
   await expect(steps.nth(0)).toHaveAttribute('aria-current', 'step');
-  await expect(steps.nth(0)).toContainText('Connect application');
+  await expect(steps.nth(0)).toContainText('Connect repository');
   await expect(steps.nth(1)).toContainText('Pending');
   await expect(steps.nth(2)).toContainText('Pending');
 });
@@ -102,12 +102,11 @@ test('C — a ready application offers the first customer deployment', async ({ 
   });
 
   await page.goto('/dashboard');
-  await expect(page.getByRole('heading', { name: 'Your application is ready' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Your application is analysed' })).toBeVisible();
   await expect(page.getByText(application.name).first()).toBeVisible();
   await expect(page.getByText('Docker')).toBeVisible();
   await expect(page.getByText('PostgreSQL')).toBeVisible();
-  await expect(page.getByRole('link', { name: 'Create first installation' })).toBeVisible();
-  await expect(page.getByRole('link', { name: 'View technical setup' })).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Continue setup' })).toBeVisible();
 });
 
 test('D — the only deployment is followed while it is still being set up', async ({ page }) => {
@@ -119,7 +118,7 @@ test('D — the only deployment is followed while it is still being set up', asy
   await expect(
     page.getByRole('heading', { name: `Waiting for ${deployment.customerName} to install` }),
   ).toBeVisible();
-  await expect(page.getByText('Not installed', { exact: true })).toBeVisible();
+  await expect(page.getByText('Waiting for customer', { exact: true })).toBeVisible();
   await page.getByRole('link', { name: 'View deployment' }).click();
   await page.waitForURL(`**/dashboard/deployments/${deployment.id}`);
 });
@@ -132,11 +131,11 @@ test('E — several deployments switch the homepage to the fleet view', async ({
 
   await page.goto('/dashboard');
   await expect(page.getByRole('heading', { name: 'Deployments', exact: true })).toBeVisible();
-  await expect(page.getByRole('link', { name: 'Create installation' })).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Invite customer' })).toBeVisible();
 
   const summary = page.getByTestId('fleet-summary');
   await expect(summary).toContainText('2');
-  await expect(summary).toContainText('Waiting to install');
+  await expect(summary).toContainText('Waiting for customer');
 });
 
 test('a failed deployment is surfaced in the fleet summary', async ({ page }) => {
@@ -158,8 +157,8 @@ test('a failed deployment is surfaced in the fleet summary', async ({ page }) =>
 
   await page.goto('/dashboard');
   const summary = page.getByTestId('fleet-summary');
-  await expect(summary).toContainText('Needs attention');
-  await expect(page.getByText('All deployments healthy')).toBeHidden();
+  await expect(summary).toContainText('Failed or needs attention');
+  await expect(page.getByText('All deployments live')).toBeHidden();
 });
 
 test('homepage top-level copy is jargon-free', async ({ page }) => {

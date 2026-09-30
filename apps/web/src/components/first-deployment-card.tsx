@@ -1,7 +1,7 @@
 import { ArrowRight } from 'lucide-react';
 import Link from 'next/link';
 
-import { DeploymentStatusBadge } from '@/components/deployment-status-badge';
+import { StatusBadge } from '@/components/status-badge';
 import { Button } from '@/components/ui/button';
 import type { FleetDeployment } from '@/lib/deployments';
 import { firstDeploymentCopy } from '@/lib/home-state';
@@ -25,7 +25,7 @@ export function FirstDeploymentCard({ deployment }: { deployment: FleetDeploymen
       </div>
 
       <div className="flex items-center gap-3">
-        <DeploymentStatusBadge state={deployment.state} />
+        <StatusBadge deployment={deployment} />
         <p className="text-sm text-muted-foreground">
           {copy.body}
         </p>

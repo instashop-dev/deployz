@@ -22,23 +22,6 @@ async function signUp(page: Page): Promise<void> {
   await page.waitForURL('/dashboard');
 }
 
-test('onboarding page renders the six §42 steps in exact order', async ({ page }) => {
-  await signUp(page);
-  await page.goto('/dashboard/onboarding');
-
-  const steps = page.getByTestId('onboarding-steps').getByRole('listitem');
-  await expect(steps).toHaveCount(6);
-  await expect(steps.nth(0)).toContainText('Connect GitHub');
-  await expect(steps.nth(1)).toContainText('Choose repository');
-  await expect(steps.nth(2)).toContainText('Analyse');
-  await expect(steps.nth(3)).toContainText('Fix compatibility issues');
-  await expect(steps.nth(4)).toContainText('Create test deployment');
-  await expect(steps.nth(5)).toContainText('Ready for customer deployment');
-
-  // The first step is the current one on the overview page.
-  await expect(steps.nth(0)).toHaveAttribute('aria-current', 'step');
-});
-
 test('choosing a repository creates a real application and opens its readiness page (§42 step 2)', async ({
   page,
 }) => {
@@ -102,7 +85,7 @@ test('readiness page top-level copy is jargon-free (§65)', async ({ page }) => 
   expect(text).not.toMatch(JARGON);
 });
 
-test('re-analysing settles the button back to Re-analyse and refreshes the application row', async ({
+test('re-analysing from the header menu settles back to enabled and refreshes the application row', async ({
   page,
 }) => {
   await signUp(page);
@@ -122,11 +105,15 @@ test('re-analysing settles the button back to Re-analyse and refreshes the appli
   );
   expect(renamed.ok()).toBe(true);
 
-  await page.getByTestId('app-details-reanalyse').click();
+  // Re-analyse's home in normal states is the header's "More actions" menu.
+  await page.getByRole('button', { name: 'More actions' }).click();
+  await page.getByTestId('application-header-reanalyse').click();
 
-  // The button must come back — analysis settles, so it can be run again.
-  await expect(page.getByTestId('app-details-reanalyse')).toBeEnabled({ timeout: 20_000 });
-  await expect(page.getByTestId('app-details-reanalyse')).toHaveText('Re-analyse');
+  // The menu item must come back enabled — analysis settles, so it can be
+  // run again.
+  await page.getByRole('button', { name: 'More actions' }).click();
+  await expect(page.getByTestId('application-header-reanalyse')).toBeEnabled({ timeout: 20_000 });
+  await page.keyboard.press('Escape');
   // ...and the page shows the row as it now is, without a manual reload. The
   // application name heading lives in the layout, shared by every tab.
   await expect(page.getByRole('heading', { name: 'Renamed Elsewhere' })).toBeVisible();

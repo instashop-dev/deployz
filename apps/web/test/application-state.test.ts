@@ -142,7 +142,7 @@ function makeInput(
 ): ApplicationStateInput {
   return {
     data: {
-      application: { id: opts.applicationId ?? 'app-1', name: opts.applicationName ?? 'My App' },
+      application: { id: opts.applicationId ?? 'app-1', name: opts.applicationName ?? 'My App', defaultBranch: 'main' },
       readiness: readiness(opts.readiness),
       deployments: opts.deployments ?? [],
       releases: opts.releases !== undefined ? opts.releases : [],
@@ -175,7 +175,6 @@ function assertNoRawLeak(result: ReturnType<typeof deriveApplicationPresentation
     result.badge.label,
     result.readinessSummary ?? '',
     ...result.notices.map((n) => n.text),
-    result.recentEvent?.status ?? '',
   ].join(' ');
   expect(haystack).not.toContain(raw);
 }
@@ -236,7 +235,7 @@ const STATE_CASES: Record<ApplicationState, StateCase> = {
     input: makeInput({
       readiness: { state: 'NEEDS_CHANGES', findings: [requiredFinding()], requiredCount: 1 },
     }),
-    badgeLabel: 'Changes required',
+    badgeLabel: 'Needs input',
     heading: '1 change required before you can deploy',
     primaryActionId: 'review-configuration',
     polling: null,
@@ -249,7 +248,7 @@ const STATE_CASES: Record<ApplicationState, StateCase> = {
     input: makeInput({
       readiness: { environmentSetup: environmentSetup({ needsDecision: 2, total: 2 }) },
     }),
-    badgeLabel: 'Needs review',
+    badgeLabel: 'Needs input',
     heading: 'Configuration needs review',
     primaryActionId: 'review-configuration',
     polling: null,
@@ -260,7 +259,7 @@ const STATE_CASES: Record<ApplicationState, StateCase> = {
   },
   'ready-to-test': {
     input: makeInput(),
-    badgeLabel: 'Analysis complete',
+    badgeLabel: 'Ready to test',
     heading: 'Ready for a test deployment',
     primaryActionId: 'start-test',
     polling: null,
@@ -271,7 +270,7 @@ const STATE_CASES: Record<ApplicationState, StateCase> = {
   },
   'test-queued': {
     input: makeInput({ deployments: [deployment({ state: 'NOT_INSTALLED' })] }),
-    badgeLabel: 'Test not started',
+    badgeLabel: 'Testing',
     heading: 'Your test deployment has not started',
     primaryActionId: 'continue-test',
     polling: TEST_DEPLOYMENT_POLL_MS,
@@ -282,7 +281,7 @@ const STATE_CASES: Record<ApplicationState, StateCase> = {
   },
   'test-deploying': {
     input: makeInput({ deployments: [deployment({ state: 'INSTALLING' })] }),
-    badgeLabel: 'Test deploying',
+    badgeLabel: 'Testing',
     heading: 'Test deployment in progress',
     primaryActionId: 'view-progress',
     polling: TEST_DEPLOYMENT_POLL_MS,
@@ -293,7 +292,7 @@ const STATE_CASES: Record<ApplicationState, StateCase> = {
   },
   'test-removing': {
     input: makeInput({ deployments: [deployment({ state: 'DELETING' })] }),
-    badgeLabel: 'Removing test',
+    badgeLabel: 'Testing',
     heading: 'Removing the test deployment',
     primaryActionId: 'view-progress',
     polling: TEST_DEPLOYMENT_POLL_MS,
@@ -326,7 +325,7 @@ const STATE_CASES: Record<ApplicationState, StateCase> = {
   },
   'customers-active': {
     input: makeInput({ deployments: [customer({ state: 'HEALTHY' })] }),
-    badgeLabel: 'Live with customers',
+    badgeLabel: 'Live',
     heading: '1 customer deployment',
     primaryActionId: 'view-customer-deployments',
     polling: null,
@@ -415,7 +414,12 @@ describe('unknown and legacy inputs', () => {
   it('a missing requirements field never throws', () => {
     const broken = { ...readiness(), requirements: undefined } as unknown as ApplicationReadiness;
     const input: ApplicationStateInput = {
-      data: { application: { id: 'app-1', name: 'My App' }, readiness: broken, deployments: [], releases: [] },
+      data: {
+        application: { id: 'app-1', name: 'My App', defaultBranch: 'main' },
+        readiness: broken,
+        deployments: [],
+        releases: [],
+      },
       installLinks: [],
       stale: false,
       analysisTakingLonger: false,
@@ -886,65 +890,14 @@ describe('lifecycle', () => {
   });
 });
 
-// ── 8. recentEvent + stale ────────────────────────────────────────────────────
+// ── 8. attention notice while a customer-active card covers the test story ────
 
-describe('recentEvent', () => {
-  it('is present for analysing, when a test deployment exists but the card tells the analysis story instead', () => {
-    const test = deployment({ state: 'HEALTHY' });
-    const result = deriveApplicationPresentation(
-      makeInput({ readiness: { analysisStatus: 'ANALYZING', state: 'ANALYSIS_INCOMPLETE' }, deployments: [test] }),
-    );
-    expect(result.state).toBe('analysing');
-    expect(result.recentEvent).toEqual({
-      label: 'Test deployment',
-      status: deploymentDisplayStatus(test).label,
-      at: test.updatedAt,
-      href: `/dashboard/deployments/${test.id}`,
-    });
-  });
-
-  it('is present for analysis-failed', () => {
-    const test = deployment({ state: 'HEALTHY' });
-    const result = deriveApplicationPresentation(
-      makeInput({
-        readiness: { analysisStatus: 'FAILED', state: 'ANALYSIS_INCOMPLETE', failureReason: 'x' },
-        deployments: [test],
-      }),
-    );
-    expect(result.state).toBe('analysis-failed');
-    expect(result.recentEvent).not.toBeNull();
-  });
-
-  it('is present for configuration-required', () => {
-    const test = deployment({ state: 'HEALTHY' });
-    const result = deriveApplicationPresentation(
-      makeInput({
-        readiness: { state: 'NEEDS_CHANGES', findings: [requiredFinding()], requiredCount: 1 },
-        deployments: [test],
-      }),
-    );
-    expect(result.state).toBe('configuration-required');
-    expect(result.recentEvent).not.toBeNull();
-  });
-
-  it('is present for customers-active, and a FAILED test also raises an attention notice', () => {
+describe('customers-active test-deployment attention notice', () => {
+  it('raises the attention notice when the test deployment failed, in place of the removed recentEvent line', () => {
     const test = deployment({ state: 'FAILED' });
     const result = deriveApplicationPresentation(makeInput({ deployments: [test, customer({ state: 'HEALTHY' })] }));
     expect(result.state).toBe('customers-active');
-    expect(result.recentEvent).not.toBeNull();
     expect(result.notices).toContainEqual({ tone: 'warning', text: 'The test deployment needs attention.' });
-  });
-
-  it('is null whenever the primary card already tells the test deployment story', () => {
-    for (const state of ['NOT_INSTALLED', 'WAITING_FOR_RELAY', 'INSTALLING', 'DELETING', 'FAILED', 'HEALTHY'] as const) {
-      const result = deriveApplicationPresentation(makeInput({ deployments: [deployment({ state })] }));
-      expect(result.recentEvent, state).toBeNull();
-    }
-  });
-
-  it('is null when there is no test deployment at all', () => {
-    const result = deriveApplicationPresentation(makeInput());
-    expect(result.recentEvent).toBeNull();
   });
 });
 
@@ -1024,14 +977,14 @@ describe('configuration-review (environment setup)', () => {
       }),
     );
     expect(result.state).toBe('configuration-review');
-    expect(result.badge.label).toBe('Needs review');
+    expect(result.badge.label).toBe('Needs input');
     expect(result.heading).toBe('Configuration needs review');
     expect(result.message).toBe(
       'Analysis finished. 2 environment variables need a decision. 1 needs a value.',
     );
     expect(result.primaryAction).toMatchObject({
       id: 'review-configuration',
-      label: 'Review configuration',
+      label: 'Review required changes',
       href: '/dashboard/applications/app-1/config#environment-variables',
     });
   });
@@ -1163,8 +1116,7 @@ describe('release readiness is shown apart from the analysis state', () => {
   it('does not offer a test deployment when the only release failed', () => {
     const result = withReleases([release({ status: 'FAILED' })]);
     expect(result.state).toBe('ready-to-test');
-    expect(result.badge.label).toBe('Analysis complete');
-    expect(result.releaseBadge).toEqual({ label: 'Release build failed', variant: 'destructive' });
+    expect(result.badge.label).toBe('Ready to test');
     expect(result.heading).toBe('No release is ready to test');
     expect(result.primaryAction).toMatchObject({ id: 'view-releases', href: '/dashboard/applications/app-1/releases' });
   });
@@ -1174,28 +1126,23 @@ describe('release readiness is shown apart from the analysis state', () => {
       release({ id: 'old', status: 'READY', createdAt: '2026-09-01T00:00:00.000Z' }),
       release({ id: 'new', status: 'FAILED', createdAt: '2026-09-02T00:00:00.000Z' }),
     ]);
-    expect(result.releaseBadge?.label).toBe('Release ready');
     expect(result.primaryAction?.id).toBe('start-test');
   });
 
   it('waits and polls while the release builds', () => {
     const result = withReleases([release({ status: 'BUILDING' })]);
-    expect(result.releaseBadge?.label).toBe('Release building');
     expect(result.heading).toBe('Building a release');
     expect(result.polling).toEqual({ intervalMs: TEST_DEPLOYMENT_POLL_MS });
   });
 
-  it('keeps the create-page path when there is no release yet, and shows no badge when releases are unknown', () => {
+  it('keeps the create-page path when there is no release yet, and when releases are unknown', () => {
     expect(withReleases([]).primaryAction?.id).toBe('start-test');
-    expect(withReleases([]).releaseBadge?.label).toBe('No release yet');
-    expect(withReleases('error').releaseBadge).toBeNull();
     expect(withReleases('error').primaryAction?.id).toBe('start-test');
   });
 
   it('never changes a later state because a release failed', () => {
     const result = withReleases([release({ status: 'FAILED' })], [deployment({ state: 'INSTALLING' })]);
     expect(result.state).toBe('test-deploying');
-    expect(result.releaseBadge?.label).toBe('Release build failed');
   });
 
   it('maps every release mix to one readiness', () => {

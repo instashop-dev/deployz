@@ -241,7 +241,7 @@ test('progress events: a batch ingest shows one active phase, expands to raw eve
   // Expand "Infrastructure events" — the raw per-resource rows only live
   // inside this collapsed disclosure, itself inside the collapsed Advanced
   // details section.
-  await page.getByRole('button', { name: 'Advanced details' }).click();
+  await page.getByRole('button', { name: 'Technical details' }).click();
   const eventsTrigger = page.getByRole('button', { name: /Infrastructure events \(7\)/ });
   await expect(eventsTrigger).toBeVisible({ timeout: 15_000 });
   await eventsTrigger.click();
@@ -278,7 +278,7 @@ test('progress events: a batch ingest shows one active phase, expands to raw eve
   await expect(progressCard.getByText('Creating network')).toBeVisible({ timeout: 15_000 });
   await page.reload();
   await expect(progressCard.getByText('Creating network')).toBeVisible({ timeout: 15_000 });
-  await page.getByRole('button', { name: 'Advanced details' }).click();
+  await page.getByRole('button', { name: 'Technical details' }).click();
   await expect(page.getByRole('button', { name: /Infrastructure events \(7\)/ })).toBeVisible({
     timeout: 15_000,
   });
@@ -360,8 +360,8 @@ test('failure path: a genuine CREATE_FAILED stack event stays behind the technic
   // Vendor: the raw reason lives in the Infrastructure events disclosure.
   await page.goto(`/dashboard/deployments/${deploymentId}`);
   const progressCard = page.locator('section[aria-labelledby="deployment-progress"]');
-  await expect(progressCard.locator('[aria-live="polite"]')).toHaveText('Deployment failed');
-  await page.getByRole('button', { name: 'Advanced details' }).click();
+  await expect(progressCard.locator('[aria-live="polite"]')).toHaveText('Install failed');
+  await page.getByRole('button', { name: 'Technical details' }).click();
   const eventsTrigger = page.getByRole('button', { name: /Infrastructure events \(2\)/ });
   await expect(eventsTrigger).toBeVisible({ timeout: 15_000 });
   await eventsTrigger.click();

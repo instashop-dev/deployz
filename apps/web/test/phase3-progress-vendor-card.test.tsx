@@ -70,7 +70,7 @@ describe('DeploymentProgressCard — spec-derived components (phase 3)', () => {
     expect(text).not.toContain('Application runtime');
     expect(doc.querySelectorAll('[data-testid="vendor-spec-component"]').length).toBe(3);
     // The vendor technical surface stays: relay, latest job slot, last update.
-    expect(text).toContain('Deployz Relay');
+    expect(text).toContain('Deployz connector');
     expect(text).toContain('Last update');
   });
 
@@ -81,6 +81,6 @@ describe('DeploymentProgressCard — spec-derived components (phase 3)', () => {
     expect(text).toContain('Ready');
     expect(text).not.toContain('Private network');
     expect(doc.querySelectorAll('[data-testid="vendor-spec-component"]').length).toBe(0);
-    expect(text).toContain('Deployz Relay');
+    expect(text).toContain('Deployz connector');
   });
 });

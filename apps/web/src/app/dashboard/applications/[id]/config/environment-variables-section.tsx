@@ -8,7 +8,7 @@ import {
   type EnvironmentStage,
 } from '@deployz/contracts';
 import { ChevronDown } from 'lucide-react';
-import { Fragment, useEffect, useMemo, useState } from 'react';
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 
 import { SecretInput } from '@/components/secret-input';
 import { Alert, AlertDescription } from '@/components/ui/alert';
@@ -87,10 +87,15 @@ export function EnvironmentVariablesSection({
   applicationId,
   vendorDefaults,
   onValuesSaved,
+  onVariableKeysChange,
 }: {
   applicationId: string;
   vendorDefaults: MaskedConfigEntry[];
   onValuesSaved: (next: ApplicationConfig) => void;
+  /** Every variable key this table knows about (detected or saved) — lets the
+   *  page's compact "Other values" area show only vendor defaults this table
+   *  does not already cover. */
+  onVariableKeysChange?: (keys: string[]) => void;
 }) {
   const [state, setState] = useState<
     | { status: 'loading' }
@@ -98,11 +103,18 @@ export function EnvironmentVariablesSection({
     | { status: 'loaded'; response: EnvironmentSettingsResponse }
   >({ status: 'loading' });
 
+  // A ref, not a dependency: the callback identity can change every render,
+  // and only the latest one should ever fire from the load effect below.
+  const onVariableKeysChangeRef = useRef(onVariableKeysChange);
+  onVariableKeysChangeRef.current = onVariableKeysChange;
+
   useEffect(() => {
     let cancelled = false;
     fetchEnvironmentSettings(applicationId)
       .then((response) => {
-        if (!cancelled) setState({ status: 'loaded', response });
+        if (cancelled) return;
+        setState({ status: 'loaded', response });
+        onVariableKeysChangeRef.current?.(response.variables.map((variable) => variable.key));
       })
       .catch(() => {
         if (!cancelled) setState({ status: 'error' });
@@ -135,6 +147,10 @@ export function EnvironmentVariablesSection({
       </Card>
     );
   }
+
+  // No detected variables (e.g. before the first analysis): no empty table.
+  // Values can still be added under Defaults.
+  if (state.response.variables.length === 0) return null;
 
   return (
     <EnvironmentVariablesTable
@@ -272,7 +288,7 @@ function EnvironmentVariablesTable({
   const summary = `${evaluation.counts.needsDecision} need${evaluation.counts.needsDecision === 1 ? 's' : ''} a decision · ${evaluation.counts.missingValue} need${evaluation.counts.missingValue === 1 ? 's' : ''} a value · ${evaluation.counts.customer} set by customers · ${evaluation.counts.deployz} managed by Deployz · ${evaluation.counts.optional} optional`;
 
   return (
-    <Card id="environment-variables" data-testid="environment-variables-section">
+    <Card id="environment-variables" className="scroll-mt-20" data-testid="environment-variables-section">
       <CardHeader>
         <CardTitle>Environment variables</CardTitle>
         <CardDescription data-testid="environment-variables-summary">{summary}</CardDescription>

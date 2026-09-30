@@ -5,23 +5,22 @@ import {
   AlertCircle,
   AlertTriangle,
   CheckCircle2,
-  ChevronDown,
   Clock,
   Loader2,
 } from 'lucide-react';
 import type { ReactNode } from 'react';
 
 import { DeploymentUrlCard } from '@/components/deployment-url-card';
-import { ElapsedTime, PROGRESS_DOT, timedSteps } from '@/components/deployment-progress-card';
-import { DeploymentProgressSteps } from '@/components/deployment-progress-steps';
-import { Badge } from '@/components/ui/badge';
+import { DiagnosticExplanation, DiagnosticTechnical } from '@/components/diagnostic-explanation';
+import { ElapsedTime, timedSteps } from '@/components/deployment-progress-card';
+import { FailurePanel } from '@/components/failure-panel';
+import { StepList } from '@/components/step-list';
 import { Card, CardContent, CardFooter } from '@/components/ui/card';
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import type { HeroModel, HeroTone } from '@/lib/deployment-hero';
-import { COMPONENT_PROGRESS_LABEL } from '@/lib/deployment-progress';
 import { JOB_STATE_LABEL, JOB_TYPE_LABEL } from '@/lib/deployment-vocabulary';
 import type { FleetDeploymentDetail } from '@/lib/deployments';
-import { relativeTime } from '@/lib/diagnostics';
+import { relativeTime, type Diagnostic } from '@/lib/diagnostics';
+import { FAILURE_RECOVERABILITY, RECOVERABILITY_COPY } from '@/lib/diagnostic-vocabulary';
 import { TONE_TEXT } from '@/lib/status-tone';
 import { cn } from '@/lib/utils';
 
@@ -37,16 +36,19 @@ const TONE_ICON: Record<HeroTone, ReactNode> = {
 
 /**
  * The state-aware hero at the top of the vendor deployment detail page. The
- * words come from deriveHero (lib/deployment-hero.ts); this component only
- * lays them out, adds the state-specific block (the live URL, the install
- * step list, the failure reference) and hosts the contextual action row.
+ * words come from deriveHero (lib/deployment-hero.ts); this component lays
+ * them out — as the §6 recovery panel (FailurePanel) for a failure or
+ * needs-attention tone, or the plain headline otherwise — adds the
+ * state-specific block (the live URL, the install step list) and hosts the
+ * contextual action row. The failure code and reference live under the
+ * page's Technical details, not here.
  */
 export function DeploymentHero({
   detail,
   hero,
   actions,
   children,
-  evidenceChips,
+  diagnostic,
 }: {
   detail: FleetDeploymentDetail;
   hero: HeroModel;
@@ -54,73 +56,73 @@ export function DeploymentHero({
   actions: ReactNode;
   /** State-specific extra content (disconnect progress, retained-resource alerts). */
   children?: ReactNode;
-  /** Compact startup-evidence chips (exit code, stop code, restarts) for the failure area. */
-  evidenceChips?: string[];
+  /** The deployment's latest classified failure, when one has been fetched —
+   *  drives the recovery panel's authoritative "who acts" copy. Never used
+   *  to infer an owner the data does not state (UX-BACKEND-005). */
+  diagnostic?: Diagnostic | null;
 }) {
   const status = detail.deploymentStatus;
-  const failure = status.failure;
   // The address shows whenever the API has one and the deployment still
   // exists — including after a failed update or while health checks fail,
   // when the running release is exactly what the vendor may want to check.
   // This is the page's only place for the URL and the custom domain.
   const showUrl = hero.kind !== 'deleting' && hero.kind !== 'deleted' && detail.appUrl !== null;
+  // §6 failure and recovery: a destructive or warning tone gets the one
+  // failure/recovery pattern (what happened → impact → who acts) instead of
+  // the plain headline. "Who acts" is shown only when the data is
+  // authoritative — the classified recoverability of an actual failure, not
+  // an inferred owner for a health condition.
+  const isFailure = hero.tone === 'destructive' || hero.tone === 'warning';
+  // The recoverability copy points at the fix in the explanation, so it only
+  // shows beside a loaded diagnosis.
+  const recoverability = diagnostic
+    ? (diagnostic.recoverability ?? FAILURE_RECOVERABILITY[diagnostic.failureCode])
+    : null;
+  const whoActs = recoverability ? RECOVERABILITY_COPY[recoverability] : null;
 
   return (
     <Card>
       <CardContent className="flex flex-col gap-4">
-        <div className="flex items-start gap-3">
-          <span className="mt-0.5 shrink-0">{TONE_ICON[hero.tone]}</span>
-          <div className="min-w-0 flex-1">
-            {/* The one aria-live region on this page: the headline itself,
-                so assistive tech announces a transition without re-reading
-                the whole card on every poll tick. */}
-            <h2
-              aria-live="polite"
-              className={cn(
-                'text-xl font-semibold tracking-tight',
-                hero.tone === 'destructive' && 'text-destructive',
-              )}
-            >
-              {hero.title}
-            </h2>
-            <p className="mt-1 text-sm text-muted-foreground">{hero.description}</p>
-            {hero.liveReleaseNote ? (
-              <p className="mt-1 text-sm font-medium">{hero.liveReleaseNote}</p>
-            ) : null}
-            {status.statusUpdatesUnavailable ? (
-              <p className="mt-1 text-sm text-muted-foreground">
-                Status updates are temporarily unavailable — showing the last confirmed state.
-              </p>
-            ) : null}
+        {isFailure ? (
+          <div id="recovery" className="scroll-mt-20">
+            <FailurePanel
+              title={<span aria-live="polite">{hero.title}</span>}
+              description={hero.description}
+              impact={hero.liveReleaseNote}
+              whoActs={whoActs}
+              explanation={diagnostic ? <DiagnosticExplanation diagnostic={diagnostic} /> : undefined}
+              technical={diagnostic ? <DiagnosticTechnical diagnostic={diagnostic} /> : undefined}
+              testId="deployment-recovery-panel"
+            />
           </div>
-        </div>
+        ) : (
+          <div className="flex items-start gap-3">
+            <span className="mt-0.5 shrink-0">{TONE_ICON[hero.tone]}</span>
+            <div className="min-w-0 flex-1">
+              {/* The one aria-live region on this page: the headline itself,
+                  so assistive tech announces a transition without re-reading
+                  the whole card on every poll tick. */}
+              <h2 aria-live="polite" className="text-xl font-semibold tracking-tight">
+                {hero.title}
+              </h2>
+              <p className="mt-1 text-sm text-muted-foreground">{hero.description}</p>
+              {hero.liveReleaseNote ? (
+                <p className="mt-1 text-sm font-medium">{hero.liveReleaseNote}</p>
+              ) : null}
+            </div>
+          </div>
+        )}
+        {status.statusUpdatesUnavailable ? (
+          <p className="text-sm text-muted-foreground">
+            Status updates are temporarily unavailable — showing the last confirmed state.
+          </p>
+        ) : null}
 
         {showUrl ? <DeploymentUrlCard detail={detail} /> : null}
 
         {hero.kind === 'updating' ? <OperationProgress detail={detail} /> : null}
 
         {hero.showSteps ? <InstallSteps status={status} /> : null}
-
-        {failure ? (
-          <p className="text-xs text-muted-foreground">
-            Reference{' '}
-            <code className="rounded bg-muted px-1 py-0.5 font-mono">{failure.reference}</code>
-            {' · '}Diagnostics has the full explanation and the recommended fix.
-          </p>
-        ) : null}
-
-        {evidenceChips && evidenceChips.length > 0 ? (
-          <div className="flex flex-col gap-1.5">
-            <div className="flex flex-wrap items-center gap-2">
-              {evidenceChips.map((chip) => (
-                <Badge key={chip} variant="outline" className="font-mono text-xs text-muted-foreground">
-                  {chip}
-                </Badge>
-              ))}
-            </div>
-            <p className="text-xs text-muted-foreground">Raw container logs are not collected.</p>
-          </div>
-        ) : null}
 
         {children}
       </CardContent>
@@ -153,69 +155,22 @@ function OperationProgress({ detail }: { detail: FleetDeploymentDetail }) {
 
 /**
  * The install step list (first → last, the process order) with the shared
- * per-step timing, plus the relay/job/stack detail a vendor occasionally
- * needs while an install is in flight — behind "Show deployment details".
+ * per-step timing and when Deployz last heard about it. Services and the
+ * connector have their own rows under Infrastructure; job and stack detail
+ * sit under the page's Technical details.
  */
 function InstallSteps({ status }: { status: VendorDeploymentStatus }) {
   const steps = timedSteps(status);
-  const lastSeen = relativeTime(status.relay.lastSeenAt);
   const lastUpdate = relativeTime(status.updatedAt);
 
   return (
-    <div className="flex flex-col gap-3">
-      {steps.length > 0 ? (
-        <DeploymentProgressSteps steps={steps} className="sm:grid sm:grid-cols-2 sm:gap-x-8" />
+    <div className="flex flex-col gap-2">
+      {steps.length > 0 ? <StepList steps={steps} /> : null}
+      {lastUpdate ? (
+        <p className="text-xs text-muted-foreground" data-testid="status-updated">
+          Checked {lastUpdate}
+        </p>
       ) : null}
-      <Collapsible>
-        <CollapsibleTrigger className="group flex items-center gap-1 self-start text-sm font-medium text-muted-foreground hover:text-foreground">
-          Show deployment details
-          <ChevronDown
-            aria-hidden
-            className="size-4 transition-transform group-data-[state=open]:rotate-180"
-          />
-        </CollapsibleTrigger>
-        <CollapsibleContent>
-          <ul className="mt-2 flex flex-col divide-y rounded-lg border text-sm">
-            {status.components.map((component) => (
-              <li key={component.key} className="flex items-center gap-3 px-3 py-2">
-                <span
-                  className={`size-2 shrink-0 rounded-full ${PROGRESS_DOT[component.status]}`}
-                  aria-hidden
-                />
-                <span className="font-medium">{component.label}</span>
-                <span className="ml-auto text-muted-foreground">
-                  {COMPONENT_PROGRESS_LABEL[component.status]}
-                </span>
-              </li>
-            ))}
-            <li className="flex items-center gap-3 px-3 py-2">
-              <span
-                className={`size-2 shrink-0 rounded-full ${status.relay.connected ? 'bg-primary' : 'bg-destructive'}`}
-                aria-hidden
-              />
-              <span className="font-medium">Deployz Relay</span>
-              <span className="ml-auto text-muted-foreground" data-testid="status-updated">
-                {status.relay.connected ? 'Connected' : 'Offline'}
-                {lastSeen ? ` · ${lastSeen}` : ''}
-              </span>
-            </li>
-            {status.job ? (
-              <li className="flex items-center gap-3 px-3 py-2">
-                <span className="font-medium">Latest job</span>
-                <span className="ml-auto text-muted-foreground">
-                  {JOB_TYPE_LABEL[status.job.type]} · {JOB_STATE_LABEL[status.job.status]}
-                </span>
-              </li>
-            ) : null}
-            <li className="flex items-center gap-3 px-3 py-2">
-              <span className="font-medium">Last update</span>
-              <span className="ml-auto text-muted-foreground" data-testid="status-updated">
-                {lastUpdate ?? '—'}
-              </span>
-            </li>
-          </ul>
-        </CollapsibleContent>
-      </Collapsible>
     </div>
   );
 }

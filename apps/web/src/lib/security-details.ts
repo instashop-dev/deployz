@@ -180,7 +180,6 @@ export const DATA_NOT_SENT_TO_DEPLOYZ = [
   'Your PostgreSQL data',
   'Your cache contents',
   'Your S3 data',
-  'Your application secrets',
   'Your application CloudWatch logs',
 ] as const;
 
@@ -203,6 +202,16 @@ export const REVOKE_STEPS = [
  */
 export const OWNERSHIP_NOTE =
   'Your software provider manages releases and updates through Deployz. You retain ownership of your AWS account, data, AWS charges, and the ability to revoke Deployz access.';
+
+/**
+ * ux-guidelines §8's verbatim, verified secrets statement — shown next to
+ * every secret field the customer fills in before their AWS account
+ * connects (docs/pending-secret-delivery.md). Do not paraphrase: the wording
+ * is checked against apps/api/src/public-install.ts's redaction behavior and
+ * the control-plane database's 7-day backup retention.
+ */
+export const SECRET_HANDLING_STATEMENT =
+  'Secrets you enter are sent to Deployz over HTTPS and stored encrypted until your AWS account connects. Deployz then delivers them to AWS Secrets Manager in your account and deletes the active copy. If your account does not connect within 24 hours, the secret is deleted and must be entered again. Encrypted backup copies may remain for up to 7 days. Deployz does not display secret values or write them to application logs.';
 
 /** §45 "how deletion works" — mirrors §63's distinctions. */
 export const DELETION_STEPS = [

@@ -219,7 +219,7 @@ describe('PlannedInfrastructure', () => {
       'The plan shows here after a successful analysis.',
     );
     expect(doc.querySelector('[data-testid="planned-infrastructure-table"]')).toBeNull();
-    expect(doc.body.textContent).toContain('Planned infrastructure');
+    expect(doc.body.textContent).toContain('What customers get');
   });
 
   it('shows the empty state when the plan has no footprint', () => {
@@ -235,7 +235,7 @@ describe('PlannedInfrastructure', () => {
     const table = doc.querySelector('[data-testid="planned-infrastructure-table"]');
     expect(table).not.toBeNull();
     const headers = [...table!.querySelectorAll('th')].map((th) => th.textContent);
-    expect(headers).toEqual(['Component', 'Provisioned as', 'Configuration', 'On uninstall']);
+    expect(headers).toEqual(['Component', 'After removal']);
 
     for (const row of footprintComponentRows(plan.footprint!)) {
       expect(doc.querySelector(`[data-testid="planned-component-${row.id}"]`)).not.toBeNull();
@@ -260,29 +260,25 @@ describe('PlannedInfrastructure', () => {
     );
   });
 
-  it('renders "Kept"/"Removed" in the On uninstall column, with an explanation of what it means', () => {
+  it('renders "Kept"/"Removed" after removal, with an explanation of what it means', () => {
     const plan = planFor(footprintFor(STANDARD_MANIFEST));
     const doc = render(<PlannedInfrastructure plan={plan} />);
     const databaseRow = doc.querySelector('[data-testid="planned-component-database"]');
     expect(databaseRow?.textContent).toContain('Kept');
     const webRow = doc.querySelector('[data-testid="planned-component-web"]');
     expect(webRow?.textContent).toContain('Removed');
-    expect(doc.body.textContent).toContain('what happens to each component when a customer');
+    expect(doc.body.textContent).toContain('Kept components stay there after the deployment is removed');
   });
 
-  it('falls back to "Standard" for a component with no meaningful configuration', () => {
+  it('keeps AWS sizing and the resource inventory out of the primary table, under collapsed Technical details', () => {
     const plan = planFor(footprintFor(STANDARD_MANIFEST));
     const doc = render(<PlannedInfrastructure plan={plan} />);
-    const storageRow = doc.querySelector('[data-testid="planned-component-storage"]');
-    expect(storageRow?.textContent).toContain('Standard');
-  });
-
-  it('links to the AWS resource details disclosure, collapsed by default, with the resource count', () => {
-    const plan = planFor(footprintFor(STANDARD_MANIFEST));
-    const doc = render(<PlannedInfrastructure plan={plan} />);
+    const databaseRow = doc.querySelector('[data-testid="planned-component-database"]');
+    expect(databaseRow?.textContent).not.toContain('db.t4g');
     const trigger = doc.querySelector('[data-slot="collapsible-trigger"]');
+    expect(trigger?.textContent).toContain('Technical details');
     expect(trigger?.getAttribute('aria-expanded')).toBe('false');
-    expect(trigger?.textContent).toContain(`AWS resource details · ${plan.awsResources.length} resources`);
+    expect(doc.querySelector('[data-testid="planned-infrastructure-sizing"]')).toBeNull();
   });
 
   it('never mentions pricing or cost', () => {

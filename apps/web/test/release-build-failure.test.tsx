@@ -143,7 +143,7 @@ describe('ReleaseFailureDetails', () => {
 
   async function renderPanel(): Promise<void> {
     await act(async () => {
-      root.render(<ReleaseFailureDetails applicationId="app-1" release={release} onCreateRelease={() => {}} />);
+      root.render(<ReleaseFailureDetails applicationId="app-1" release={release} installedInstead={null} onCreateRelease={() => {}} />);
     });
     await vi.waitFor(() => {
       if (!container.querySelector('[data-testid="release-failure-details-rel-1"]')) throw new Error('loading');
@@ -168,6 +168,24 @@ describe('ReleaseFailureDetails', () => {
     expect(writeText).toHaveBeenCalledWith(expect.stringContaining(`Commit: ${SHA}`));
   });
 
+  it('states the impact when an older release is still what customers get', async () => {
+    mocks.fetchBuildFailure.mockResolvedValue(details());
+    await act(async () => {
+      root.render(
+        <ReleaseFailureDetails
+          applicationId="app-1"
+          release={release}
+          installedInstead={{ ...release, id: 'rel-0', version: 'v1.2.0', status: 'READY' }}
+          onCreateRelease={() => {}}
+        />,
+      );
+    });
+    await vi.waitFor(() => {
+      if (!container.querySelector('[data-testid="release-failure-details-rel-1"]')) throw new Error('loading');
+    });
+    expect(container.textContent).toContain('Customers still get v1.2.0.');
+  });
+
   it('offers a support report instead of the coding-agent prompt for a Deployz-side failure', async () => {
     mocks.fetchBuildFailure.mockResolvedValue(
       details({ cause: { owner: 'deployz', basis: 'Only Deployz commands run in this step.', nextStep: 'Send it to Deployz support.' } }),
@@ -187,7 +205,6 @@ describe('ReleaseFailureDetails', () => {
     );
     expect(button('View build logs')?.disabled).toBe(true);
     expect(button('Explain with AI')?.disabled).toBe(true);
-    expect(button('Copy technical details')?.disabled).toBe(false);
   });
 
   it('keeps the details when the AI fails', async () => {
@@ -219,7 +236,7 @@ describe('ReleaseFailureDetails', () => {
   it('shows the stored summary and a retry when the details cannot load', async () => {
     mocks.fetchBuildFailure.mockRejectedValue(new Error("We couldn't load the failure details."));
     await act(async () => {
-      root.render(<ReleaseFailureDetails applicationId="app-1" release={release} onCreateRelease={() => {}} />);
+      root.render(<ReleaseFailureDetails applicationId="app-1" release={release} installedInstead={null} onCreateRelease={() => {}} />);
     });
     await vi.waitFor(() => {
       if (!container.querySelector('[data-testid="release-failure-error"]')) throw new Error('waiting');

@@ -199,25 +199,6 @@ export async function fetchDiagnostics(id: string): Promise<Diagnostic[]> {
 
 // ── Startup evidence + retry presentation helpers ───────────────────────────
 
-/**
- * §65 evidence chips for the vendor hero: one compact label per non-null
- * container field. The redacted free-text `stoppedReason` is deliberately NOT
- * a chip — it only ever belongs inside the expandable evidence section.
- */
-export function containerEvidenceChips(evidence: DiagnosticEvidence | null): string[] {
-  const container = evidence?.container ?? null;
-  if (container === null) return [];
-  const chips: string[] = [];
-  if (container.exitCode !== null) chips.push(`Exit code ${container.exitCode}`);
-  if (container.stopCode !== null) chips.push(`Stop code ${container.stopCode}`);
-  if (container.stoppedTaskCount !== null) {
-    chips.push(
-      `${container.stoppedTaskCount} restart${container.stoppedTaskCount === 1 ? '' : 's'}`,
-    );
-  }
-  return chips;
-}
-
 /** How the vendor hero's retry area should present, from the API's eligibility. */
 export type RetryCtaKind = 'retry' | 'contact-support' | 'wait' | 'none' | 'legacy';
 

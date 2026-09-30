@@ -7,8 +7,9 @@ console is [`../admin/team-admin.md`](../admin/team-admin.md).
 
 ## Where to look first
 
-1. **The deployment's diagnostics page** (`/dashboard/deployments/[id]/diagnostics`,
-   `GET /api/deployments/:id/diagnostics`): the failure code, its
+1. **The deployment page's recovery panel and Technical details**
+   (`/dashboard/deployments/[id]`; `…/diagnostics` deep-links to the
+   infrastructure check; `GET /api/deployments/:id/diagnostics`): the failure code, its
    recoverability class, the evidence (persisted CloudFormation events, the
    relay's error text, ECS stop reasons), the retry eligibility, and an AI
    explanation for the codes whose cause lives inside the application

@@ -101,7 +101,7 @@ test('vendor configures a customer-provided secret, publishes an install link, a
   await page.goto(`/dashboard/applications/${application.id}`);
   await expect(page.getByTestId('application-state-heading')).toHaveText('Configuration needs review');
   const reviewAction = page.getByTestId('readiness-review-blocker');
-  await expect(reviewAction).toHaveText('Review configuration');
+  await expect(reviewAction).toHaveText('Review required changes');
 
   // ── 2. Configuration → Environment variables: decide LICENSE_KEY. ───────
   await reviewAction.click();

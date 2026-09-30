@@ -1,15 +1,25 @@
 'use client';
 
+import { MoreHorizontal } from 'lucide-react';
+
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { Skeleton } from '@/components/ui/skeleton';
 
 import { useApplicationPage } from './application-page-context';
 
-// Compact, state-aware header: name, one overall status badge, and a single
-// muted metadata line. Everything reads from `presentation` — no interpreting
-// `analysisStatus` or a deployment `state` here.
+// Compact, state-aware header: name, one overall status badge, a single
+// muted metadata line, and the "More actions" overflow menu. Everything
+// reads from `presentation` — no interpreting `analysisStatus` or a
+// deployment `state` here.
 export function ApplicationHeader() {
-  const { data, loading, presentation } = useApplicationPage();
+  const { data, loading, presentation, reanalyse, reanalysing } = useApplicationPage();
 
   if (loading) {
     return (
@@ -20,6 +30,8 @@ export function ApplicationHeader() {
     );
   }
 
+  const analysing = presentation.state === 'analysing';
+
   if (!data) {
     return (
       <div className="flex items-center gap-2">
@@ -29,6 +41,7 @@ export function ApplicationHeader() {
         <Badge variant={presentation.badge.variant} data-testid="application-status-badge">
           {presentation.badge.label}
         </Badge>
+        <HeaderActionsMenu reanalyse={reanalyse} reanalysing={reanalysing} analysing={analysing} />
       </div>
     );
   }
@@ -45,16 +58,43 @@ export function ApplicationHeader() {
         <Badge variant={presentation.badge.variant} data-testid="application-status-badge">
           {presentation.badge.label}
         </Badge>
-        {presentation.releaseBadge ? (
-          <Badge variant={presentation.releaseBadge.variant} data-testid="application-release-badge">
-            {presentation.releaseBadge.label}
-          </Badge>
-        ) : null}
+        <HeaderActionsMenu reanalyse={reanalyse} reanalysing={reanalysing} analysing={analysing} />
       </div>
       <p className="text-sm text-muted-foreground">
         {application.repoFullName}
         {commit ? ` · commit ${commit}` : ''}
       </p>
     </div>
+  );
+}
+
+// Re-analyse's home in normal states (ux-guidelines §3). Disabled while an
+// analysis is already running.
+function HeaderActionsMenu({
+  reanalyse,
+  reanalysing,
+  analysing,
+}: {
+  reanalyse: () => Promise<void>;
+  reanalysing: boolean;
+  analysing: boolean;
+}) {
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button size="icon-sm" variant="outline" aria-label="More actions" className="ml-auto">
+          <MoreHorizontal aria-hidden />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end">
+        <DropdownMenuItem
+          disabled={analysing || reanalysing}
+          onSelect={() => void reanalyse()}
+          data-testid="application-header-reanalyse"
+        >
+          Re-analyse application
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }

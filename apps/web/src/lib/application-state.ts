@@ -119,21 +119,9 @@ export interface ApplicationBlocker {
   title: string;
 }
 
-/** One compact line under the primary card, only when it adds information the
- *  card does not already carry. */
-export interface ApplicationRecentEvent {
-  label: string;
-  status: string;
-  at: string;
-  href: string;
-}
-
 export interface ApplicationPresentation {
   state: ApplicationState;
   badge: { label: string; variant: ApplicationBadgeVariant };
-  /** Whether a release can be deployed — separate from the analysis state
-   *  above. Null when the releases could not be loaded. */
-  releaseBadge: { label: string; variant: ApplicationBadgeVariant } | null;
   heading: string;
   message: string;
   /** True while a server-side operation runs: the card shows a spinner. */
@@ -155,13 +143,12 @@ export interface ApplicationPresentation {
   installLink: InstallLinkPresentation;
   installLinkPlacement: InstallLinkPlacement;
   notices: ApplicationNotice[];
-  recentEvent: ApplicationRecentEvent | null;
 }
 
 export interface ApplicationStateInput {
   /** Null when the page has never loaded the application successfully. */
   data: {
-    application: { id: string; name: string };
+    application: { id: string; name: string; defaultBranch: string };
     readiness: ApplicationReadiness;
     deployments: FleetDeployment[];
     /** 'error' when the releases fetch failed: the mapper says nothing about
@@ -233,19 +220,21 @@ const BADGES: Record<ApplicationState, { label: string; variant: ApplicationBadg
   unavailable: { label: 'Unavailable', variant: 'secondary' },
   analysing: { label: 'Analysing', variant: 'info' },
   'analysis-failed': { label: 'Analysis failed', variant: 'destructive' },
-  'configuration-required': { label: 'Changes required', variant: 'warning' },
-  'configuration-review': { label: 'Needs review', variant: 'warning' },
+  'configuration-required': { label: 'Needs input', variant: 'warning' },
+  'configuration-review': { label: 'Needs input', variant: 'warning' },
   // The analysis passed and no test deployment exists. Whether a release can
-  // be deployed is the separate release badge.
-  'ready-to-test': { label: 'Analysis complete', variant: 'info' },
-  'test-queued': { label: 'Test not started', variant: 'secondary' },
-  'test-deploying': { label: 'Test deploying', variant: 'info' },
-  'test-removing': { label: 'Removing test', variant: 'info' },
+  // be deployed is folded into the message, not a second badge.
+  'ready-to-test': { label: 'Ready to test', variant: 'info' },
+  'test-queued': { label: 'Testing', variant: 'info' },
+  'test-deploying': { label: 'Testing', variant: 'info' },
+  'test-removing': { label: 'Testing', variant: 'info' },
   'test-failed': { label: 'Test failed', variant: 'destructive' },
   'ready-to-share': { label: 'Ready to share', variant: 'success' },
-  'customers-active': { label: 'Live with customers', variant: 'success' },
+  'customers-active': { label: 'Live', variant: 'success' },
   unknown: { label: 'Status unknown', variant: 'warning' },
 };
+
+const NOT_ANALYSED_BADGE = { label: 'Not analysed', variant: 'secondary' } as const;
 
 export const STALE_NOTICE = 'Live updates are paused. Deployz keeps trying in the background.';
 
@@ -325,11 +314,19 @@ function describeReleaseForShare(releases: Release[] | 'error', applicationId: s
   return { message: `Customers who install get release ${releaseLabel(state.release)}.`, notice, action: null };
 }
 
-/** A short note naming the release a test deployment installs. Empty string
- *  when there is nothing to say (no ready release, or the releases fetch
- *  failed) so callers can append it without a conditional. */
-function testReleaseNote(releases: Release[] | 'error'): string {
+/** A short note naming the release a test deployment installs — or, when
+ *  none exists yet, that starting the test builds the first one from the
+ *  exact commit the analysis read (`firstReleaseInput` in lib/releases.ts
+ *  builds from that same `detectedMetadata.analysisCommitSha`). Empty string
+ *  when there is nothing accurate to say (the releases fetch failed, or the
+ *  analysed commit is unknown) so callers can append it without a conditional. */
+function testReleaseNote(releases: Release[] | 'error', defaultBranch: string, analyzedCommitSha: string | null): string {
   if (releases === 'error') return '';
+  if (releases.length === 0) {
+    return analyzedCommitSha
+      ? ` The test deployment builds the first release from ${defaultBranch}@${analyzedCommitSha.slice(0, 7)}.`
+      : '';
+  }
   const state = installReleaseState(releases);
   return state.kind === 'ready' ? ` The test deployment uses release ${releaseLabel(state.release)}.` : '';
 }
@@ -346,14 +343,6 @@ export function releaseReadiness(releases: readonly Release[]): ReleaseReadiness
   if (install.kind !== 'none') return install.kind;
   return releases.some((r) => r.status === 'FAILED') ? 'failed' : 'unavailable';
 }
-
-const RELEASE_BADGES: Record<ReleaseReadiness, { label: string; variant: ApplicationBadgeVariant }> = {
-  ready: { label: 'Release ready', variant: 'success' },
-  building: { label: 'Release building', variant: 'info' },
-  failed: { label: 'Release build failed', variant: 'destructive' },
-  unavailable: { label: 'No deployable release', variant: 'warning' },
-  none: { label: 'No release yet', variant: 'secondary' },
-};
 
 function countLabel(count: number, singular: string, plural: string): string {
   return `${count} ${count === 1 ? singular : plural}`;
@@ -427,8 +416,6 @@ type Core = Pick<
   /** Why a customer cannot install yet; null when they can, or when the page
    *  has nothing to say about the link at all. */
   linkUnavailableReason: string | null;
-  /** True when the primary card already tells the test deployment's story. */
-  cardShowsTest: boolean;
   /** A newer release that failed to build after the one customers actually
    *  get — set only in the ready-to-share/customers-active states. */
   releaseNotice?: ApplicationNotice | null;
@@ -459,7 +446,6 @@ export function deriveApplicationPresentation(input: ApplicationStateInput): App
     return {
       state: 'unavailable',
       badge: BADGES.unavailable,
-      releaseBadge: null,
       heading: 'This application is temporarily unavailable',
       message: "We couldn't load this application. Your deployments are not affected.",
       busy: false,
@@ -474,7 +460,6 @@ export function deriveApplicationPresentation(input: ApplicationStateInput): App
       installLink: { kind: 'hidden' },
       installLinkPlacement: 'none',
       notices: [],
-      recentEvent: null,
     };
   }
 
@@ -510,7 +495,7 @@ export function deriveApplicationPresentation(input: ApplicationStateInput): App
             : 'Analyse the application so Deployz can work out how to deploy it.',
         busy: running,
         primaryAction: stuck
-          ? action('restart-analysis', 'Restart analysis')
+          ? action('restart-analysis', 'Re-analyse application')
           : running
             ? null
             : action('analyse', 'Analyse application'),
@@ -518,7 +503,6 @@ export function deriveApplicationPresentation(input: ApplicationStateInput): App
         polling: { intervalMs: ANALYSIS_POLL_MS },
         lifecycle: lifecycle('current', 'pending', 'pending'),
         linkUnavailableReason: 'The customer install link becomes available after the analysis and a successful test deployment.',
-        cardShowsTest: false,
       };
     }
 
@@ -528,12 +512,11 @@ export function deriveApplicationPresentation(input: ApplicationStateInput): App
         heading: 'Your test deployment has not started',
         message: 'The test deployment is created, but the install has not started in your AWS account yet.',
         busy: false,
-        primaryAction: action('continue-test', 'Continue test deployment', deploymentHref(test)),
+        primaryAction: action('continue-test', 'View test deployment', deploymentHref(test)),
         secondaryActions: [],
         polling: { intervalMs: TEST_DEPLOYMENT_POLL_MS },
         lifecycle: lifecycle('done', configureStep, 'current'),
         linkUnavailableReason: 'The customer install link becomes available after a successful test deployment.',
-        cardShowsTest: true,
       };
     }
 
@@ -541,14 +524,16 @@ export function deriveApplicationPresentation(input: ApplicationStateInput): App
       return {
         state: 'test-deploying',
         heading: 'Test deployment in progress',
-        message: `Current step: ${deploymentDisplayStatus(test).label}.`,
+        // The deployment's own sentence, not its status label: "Current
+        // step: Setting up." reads badly once the label itself is a plain
+        // present-tense word like "Setting up".
+        message: test.deploymentStatus.currentActivity,
         busy: true,
-        primaryAction: action('view-progress', 'View progress', deploymentHref(test)),
+        primaryAction: action('view-progress', 'View test deployment', deploymentHref(test)),
         secondaryActions: [],
         polling: { intervalMs: TEST_DEPLOYMENT_POLL_MS },
         lifecycle: lifecycle('done', configureStep, 'current'),
         linkUnavailableReason: 'The customer install link becomes available after a successful test deployment.',
-        cardShowsTest: true,
       };
     }
 
@@ -558,12 +543,11 @@ export function deriveApplicationPresentation(input: ApplicationStateInput): App
         heading: 'Removing the test deployment',
         message: 'You can start a new test deployment when the removal is complete.',
         busy: true,
-        primaryAction: action('view-progress', 'View progress', deploymentHref(test)),
+        primaryAction: action('view-progress', 'View test deployment', deploymentHref(test)),
         secondaryActions: [],
         polling: { intervalMs: TEST_DEPLOYMENT_POLL_MS },
         lifecycle: lifecycle('done', configureStep, 'pending'),
         linkUnavailableReason: 'The customer install link becomes available after a successful test deployment.',
-        cardShowsTest: true,
       };
     }
 
@@ -573,12 +557,11 @@ export function deriveApplicationPresentation(input: ApplicationStateInput): App
         heading: "We couldn't analyse your application",
         message: readiness.failureReason ?? 'Something went wrong while reading your repository.',
         busy: false,
-        primaryAction: action('retry-analysis', 'Try analysis again'),
+        primaryAction: action('retry-analysis', 'Re-analyse application'),
         secondaryActions: [],
         polling: null,
         lifecycle: lifecycle('failed', 'pending', 'pending'),
         linkUnavailableReason: 'The customer install link becomes available after the analysis and a successful test deployment.',
-        cardShowsTest: false,
       };
     }
 
@@ -588,12 +571,11 @@ export function deriveApplicationPresentation(input: ApplicationStateInput): App
         heading: "We can't show this application's status",
         message: 'Analyse the application again to refresh its status.',
         busy: false,
-        primaryAction: action('analyse', 'Analyse application'),
+        primaryAction: action('analyse', 'Re-analyse application'),
         secondaryActions: [],
         polling: null,
         lifecycle: null,
         linkUnavailableReason: null,
-        cardShowsTest: false,
       };
     }
 
@@ -611,7 +593,6 @@ export function deriveApplicationPresentation(input: ApplicationStateInput): App
         polling: null,
         lifecycle: lifecycle('done', 'current', 'pending'),
         linkUnavailableReason: 'The customer install link becomes available after the required changes and a successful test deployment.',
-        cardShowsTest: false,
       };
     }
 
@@ -623,14 +604,13 @@ export function deriveApplicationPresentation(input: ApplicationStateInput): App
         busy: false,
         primaryAction: action(
           'review-configuration',
-          'Review configuration',
+          'Review required changes',
           `${configurationHref}#environment-variables`,
         ),
         secondaryActions: [],
         polling: null,
         lifecycle: lifecycle('done', 'current', 'pending'),
         linkUnavailableReason: 'The customer install link becomes available after the configuration review and a successful test deployment.',
-        cardShowsTest: false,
       };
     }
 
@@ -654,7 +634,6 @@ export function deriveApplicationPresentation(input: ApplicationStateInput): App
         polling: null,
         lifecycle: null,
         linkUnavailableReason: null,
-        cardShowsTest: false,
         releaseNotice: shareInfo?.notice ?? null,
       };
     }
@@ -673,7 +652,6 @@ export function deriveApplicationPresentation(input: ApplicationStateInput): App
         polling: null,
         lifecycle: lifecycle('done', 'done', 'failed'),
         linkUnavailableReason: 'The customer install link becomes available after a successful test deployment.',
-        cardShowsTest: true,
       };
     }
 
@@ -698,7 +676,6 @@ export function deriveApplicationPresentation(input: ApplicationStateInput): App
         polling: null,
         lifecycle: null,
         linkUnavailableReason: null,
-        cardShowsTest: true,
         releaseNotice: shareInfo.notice,
       };
     }
@@ -717,7 +694,6 @@ export function deriveApplicationPresentation(input: ApplicationStateInput): App
         polling: { intervalMs: TEST_DEPLOYMENT_POLL_MS },
         lifecycle: lifecycle('done', 'done', 'current'),
         linkUnavailableReason: 'The customer install link becomes available after a successful test deployment.',
-        cardShowsTest: true,
       };
     }
 
@@ -738,7 +714,6 @@ export function deriveApplicationPresentation(input: ApplicationStateInput): App
         polling: null,
         lifecycle: lifecycle('done', 'done', 'current'),
         linkUnavailableReason: 'The customer install link becomes available after a successful test deployment.',
-        cardShowsTest: true,
       };
     }
 
@@ -746,14 +721,13 @@ export function deriveApplicationPresentation(input: ApplicationStateInput): App
       return {
         state: 'ready-to-test',
         heading: 'Ready for a test deployment',
-        message: `Deploy the application to your own AWS account to check it before customers install it.${testReleaseNote(releases)}`,
+        message: `Deploy the application to your own AWS account to check it before customers install it.${testReleaseNote(releases, application.defaultBranch, readiness.analyzedCommitSha)}`,
         busy: false,
         primaryAction: action('start-test', 'Start test deployment', startTestHref),
         secondaryActions: [],
         polling: null,
         lifecycle: lifecycle('done', 'done', 'current'),
         linkUnavailableReason: 'The customer install link becomes available after a successful test deployment.',
-        cardShowsTest: true,
       };
     }
 
@@ -767,7 +741,6 @@ export function deriveApplicationPresentation(input: ApplicationStateInput): App
       polling: null,
       lifecycle: null,
       linkUnavailableReason: null,
-      cardShowsTest: true,
     };
   })();
 
@@ -809,20 +782,11 @@ export function deriveApplicationPresentation(input: ApplicationStateInput): App
     readinessSummary = required.length > 0 ? changesRequired(required.length) : 'No blocking issues';
   }
 
-  const recentEvent: ApplicationRecentEvent | null =
-    test && !core.cardShowsTest
-      ? {
-          label: 'Test deployment',
-          status: deploymentDisplayStatus(test).label,
-          at: test.updatedAt,
-          href: deploymentHref(test),
-        }
-      : null;
-
   return {
     state: core.state,
-    badge: BADGES[core.state],
-    releaseBadge: release === null ? null : RELEASE_BADGES[release],
+    // PENDING shares the analysing state (same card, same poll) but nothing
+    // is running yet, so the badge must not say "Analysing".
+    badge: analysisStatus === 'PENDING' ? NOT_ANALYSED_BADGE : BADGES[core.state],
     heading: core.heading,
     message: core.message,
     busy: core.busy,
@@ -838,6 +802,5 @@ export function deriveApplicationPresentation(input: ApplicationStateInput): App
     installLink,
     installLinkPlacement,
     notices,
-    recentEvent,
   };
 }

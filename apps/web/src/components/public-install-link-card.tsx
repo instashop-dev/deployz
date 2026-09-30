@@ -84,11 +84,11 @@ export function InstallLinkControls({ applicationId, installLink, onChanged, pri
       const created = await createPublicInstallLink(applicationId);
       setSnippets((prev) => ({ ...prev, [created.id]: created.htmlSnippet }));
       await onChanged();
-      toast.success('Public install link created.');
+      toast.success('Install link created.');
     } catch (cause) {
       if (cause instanceof ApiRequestError) {
         if (cause.code === 'PUBLIC_INSTALL_LINK_EXISTS') {
-          setError('A live public install link already exists for this application.');
+          setError('A live install link already exists for this application.');
           await onChanged();
         } else if (cause.code === 'UNAUTHORIZED') {
           setError('You are signed out. Sign in again to continue.');
@@ -109,11 +109,11 @@ export function InstallLinkControls({ applicationId, installLink, onChanged, pri
     try {
       await setPublicInstallLinkEnabled(link.id, enabled);
       await onChanged();
-      toast.success(enabled ? 'Public install link enabled.' : 'Public install link disabled.');
+      toast.success(enabled ? 'Install link enabled.' : 'Install link disabled.');
     } catch (cause) {
       if (cause instanceof ApiRequestError) {
         if (cause.code === 'PUBLIC_INSTALL_LINK_REVOKED') {
-          setError('This installation link has been revoked and cannot be enabled again.');
+          setError('This install link has been revoked and cannot be enabled again.');
         } else if (cause.code === 'UNAUTHORIZED') {
           setError('You are signed out. Sign in again to continue.');
         } else {
@@ -134,7 +134,7 @@ export function InstallLinkControls({ applicationId, installLink, onChanged, pri
       const created = await regeneratePublicInstallLink(link.id);
       setSnippets((prev) => ({ ...prev, [created.id]: created.htmlSnippet }));
       await onChanged();
-      toast.success('Public install link regenerated.');
+      toast.success('Install link regenerated.');
     } catch (cause) {
       setError(errorMessage(cause));
     } finally {
@@ -149,7 +149,7 @@ export function InstallLinkControls({ applicationId, installLink, onChanged, pri
     try {
       await revokePublicInstallLink(link.id);
       await onChanged();
-      toast.success('Public install link revoked.');
+      toast.success('Install link revoked.');
     } catch (cause) {
       setError(errorMessage(cause));
     } finally {
@@ -228,11 +228,11 @@ export function InstallLinkControls({ applicationId, installLink, onChanged, pri
           size="sm"
           variant={primary ? 'default' : 'outline'}
           disabled={status === 'disabled'}
-          onClick={() => void copyText(link.url, 'Public install link copied.')}
+          onClick={() => void copyText(link.url, 'Install link copied.')}
           data-testid="public-install-link-copy-url"
         >
           <Copy aria-hidden />
-          Copy link
+          Copy install link
         </Button>
         <Button size="sm" variant="outline" asChild data-testid="public-install-link-preview">
           <a href={link.url} target="_blank" rel="noreferrer">
@@ -290,9 +290,9 @@ export function InstallLinkControls({ applicationId, installLink, onChanged, pri
       <AlertDialog open={regenerateOpen} onOpenChange={(open) => !isPending && setRegenerateOpen(open)}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Regenerate this public install link?</AlertDialogTitle>
+            <AlertDialogTitle>Regenerate this install link?</AlertDialogTitle>
             <AlertDialogDescription>
-              This creates a new public installation link. The old link stops working immediately.
+              This creates a new install link. The old link stops working immediately.
               Customers using the old link must use the new one.
             </AlertDialogDescription>
           </AlertDialogHeader>
@@ -302,7 +302,7 @@ export function InstallLinkControls({ applicationId, installLink, onChanged, pri
             </AlertDialogCancel>
             <AlertDialogAction
               loading={pending === 'regenerating'}
-              loadingText="Regenerating public install link…"
+              loadingText="Regenerating install link…"
               disabled={isPending}
               onClick={(event) => {
                 // Keep the dialog open until the request settles so the
@@ -322,7 +322,7 @@ export function InstallLinkControls({ applicationId, installLink, onChanged, pri
       <AlertDialog open={revokeOpen} onOpenChange={(open) => !isPending && setRevokeOpen(open)}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Revoke this public install link?</AlertDialogTitle>
+            <AlertDialogTitle>Revoke this install link?</AlertDialogTitle>
             <AlertDialogDescription>
               This link will stop working. Customers who open it see a message that the link is no longer valid.
               You can create a new link at any time. No AWS resources are destroyed.
@@ -335,7 +335,7 @@ export function InstallLinkControls({ applicationId, installLink, onChanged, pri
             <AlertDialogAction
               variant="destructive"
               loading={pending === 'revoking'}
-              loadingText="Revoking public install link…"
+              loadingText="Revoking install link…"
               disabled={isPending}
               onClick={(event) => {
                 event.preventDefault();

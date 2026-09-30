@@ -216,7 +216,7 @@ const CASES: Case[] = [
   },
   {
     name: 'configuration-required',
-    badgeLabel: 'Changes required',
+    badgeLabel: 'Needs input',
     arrange: () => {
       mocks.fetchApplication.mockResolvedValue(baseApplication());
       mocks.fetchReadiness.mockResolvedValue(
@@ -229,7 +229,7 @@ const CASES: Case[] = [
   },
   {
     name: 'configuration-review',
-    badgeLabel: 'Needs review',
+    badgeLabel: 'Needs input',
     arrange: () => {
       mocks.fetchApplication.mockResolvedValue(baseApplication());
       mocks.fetchReadiness.mockResolvedValue(
@@ -242,7 +242,7 @@ const CASES: Case[] = [
   },
   {
     name: 'ready-to-test',
-    badgeLabel: 'Analysis complete',
+    badgeLabel: 'Ready to test',
     arrange: () => {
       mocks.fetchApplication.mockResolvedValue(baseApplication());
       mocks.fetchReadiness.mockResolvedValue(baseReadiness());
@@ -253,7 +253,7 @@ const CASES: Case[] = [
   },
   {
     name: 'test-deploying',
-    badgeLabel: 'Test deploying',
+    badgeLabel: 'Testing',
     arrange: () => {
       mocks.fetchApplication.mockResolvedValue(baseApplication());
       mocks.fetchReadiness.mockResolvedValue(baseReadiness());
@@ -292,7 +292,7 @@ const CASES: Case[] = [
   },
   {
     name: 'customers-active',
-    badgeLabel: 'Live with customers',
+    badgeLabel: 'Live',
     arrange: () => {
       mocks.fetchApplication.mockResolvedValue(baseApplication());
       mocks.fetchReadiness.mockResolvedValue(baseReadiness());
@@ -421,7 +421,7 @@ describe('ready-to-share with a live link', () => {
     await waitForHeading();
 
     expect(container.querySelector('[data-testid="public-install-link-copy-url"]')?.textContent).toContain(
-      'Copy link',
+      'Copy install link',
     );
     const menuButton = container.querySelector('[data-testid="public-install-link-menu"]');
     expect(menuButton?.textContent).toContain('Manage');
@@ -447,14 +447,37 @@ describe('Release readiness', () => {
     const heading = await waitForHeading();
 
     expect(heading.textContent).toBe('No release is ready to test');
-    expect(container.querySelector('[data-testid="application-status-badge"]')?.textContent).toBe('Analysis complete');
-    expect(container.querySelector('[data-testid="application-release-badge"]')?.textContent).toBe(
-      'Release build failed',
-    );
+    expect(container.querySelector('[data-testid="application-status-badge"]')?.textContent).toBe('Ready to test');
     expect(container.textContent).not.toContain('Start test deployment');
-    expect(container.textContent).not.toContain('Ready to test');
     const review = Array.from(container.querySelectorAll('a')).find((a) => a.textContent === 'Review failed build');
     expect(review?.getAttribute('href')).toBe('/dashboard/applications/app-1/releases');
+  });
+
+  it('says the test deployment builds the first release from branch@sha when none exists yet', async () => {
+    CASES.find((c) => c.name === 'ready-to-test')!.arrange();
+    mocks.fetchApplication.mockResolvedValue(baseApplication({ defaultBranch: 'main' }));
+    mocks.fetchReadiness.mockResolvedValue(baseReadiness({ analyzedCommitSha: 'abc1234def' }));
+    mocks.fetchReleases.mockResolvedValue([]);
+
+    await act(async () => {
+      renderPage();
+    });
+    await waitForHeading();
+
+    expect(container.textContent).toContain('builds the first release from main@abc1234');
+  });
+
+  it('says nothing about the first release when the analysed commit is unknown', async () => {
+    CASES.find((c) => c.name === 'ready-to-test')!.arrange();
+    mocks.fetchReadiness.mockResolvedValue(baseReadiness({ analyzedCommitSha: null }));
+    mocks.fetchReleases.mockResolvedValue([]);
+
+    await act(async () => {
+      renderPage();
+    });
+    await waitForHeading();
+
+    expect(container.textContent).not.toContain('builds the first release');
   });
 });
 
@@ -528,12 +551,10 @@ function architectureFixture(): ApplicationArchitecture {
   };
 }
 
-describe('Architecture detected card', () => {
-  it('renders grouped component labels with detected and confirmed states', async () => {
+describe('services detected line', () => {
+  it('counts architecture components and links into Configuration › Services', async () => {
     mocks.fetchApplication.mockResolvedValue(baseApplication());
-    mocks.fetchReadiness.mockResolvedValue(
-      baseReadiness({ summary: 'Ready to deploy', architecture: architectureFixture() }),
-    );
+    mocks.fetchReadiness.mockResolvedValue(baseReadiness({ architecture: architectureFixture() }));
     mocks.fetchDeploymentsForApplication.mockResolvedValue([]);
 
     await act(async () => {
@@ -541,61 +562,13 @@ describe('Architecture detected card', () => {
     });
     await waitForHeading();
 
-    const card = container.querySelector('[data-testid="architecture-detected-card"]');
-    expect(card).not.toBeNull();
-    expect(container.textContent).toContain('Architecture detected');
-    expect(container.textContent).toContain('Web service');
-    expect(container.textContent).toContain('PostgreSQL');
-    expect(container.textContent).toContain('Confirmed');
-    expect(container.textContent).toContain('Detected automatically');
-    expect(container.querySelector('[data-testid="architecture-summary"]')?.textContent).toBe(
-      'Ready to deploy',
-    );
+    const line = container.querySelector('[data-testid="application-services-count"]');
+    expect(line?.textContent).toContain('3 services detected');
+    const link = line?.querySelector('a');
+    expect(link?.getAttribute('href')).toBe('/dashboard/applications/app-1/config#services');
   });
 
-  it('shows unresolved items as Needs input in the compact card', async () => {
-    mocks.fetchApplication.mockResolvedValue(baseApplication());
-    mocks.fetchReadiness.mockResolvedValue(
-      baseReadiness({ architecture: architectureFixture() }),
-    );
-    mocks.fetchDeploymentsForApplication.mockResolvedValue([]);
-
-    await act(async () => {
-      renderPage();
-    });
-    await waitForHeading();
-
-    expect(container.querySelector('[data-testid="architecture-unresolved-cache-0"]')).not.toBeNull();
-    expect(container.textContent).toContain('Do you need a cache?');
-  });
-
-  it('expands the View architecture disclosure with role hints', async () => {
-    mocks.fetchApplication.mockResolvedValue(baseApplication());
-    mocks.fetchReadiness.mockResolvedValue(
-      baseReadiness({ architecture: architectureFixture() }),
-    );
-    mocks.fetchDeploymentsForApplication.mockResolvedValue([]);
-
-    await act(async () => {
-      renderPage();
-    });
-    await waitForHeading();
-
-    const detail = () => container.querySelector('[data-testid="architecture-detail"]');
-    expect(detail()?.getAttribute('data-state')).toBe('closed');
-
-    const toggle = container.querySelector('[data-testid="architecture-view-toggle"]') as HTMLButtonElement;
-    await act(async () => {
-      toggle.click();
-    });
-
-    expect(detail()?.getAttribute('data-state')).toBe('open');
-    expect(detail()?.textContent).toContain('Web service');
-    expect(detail()?.textContent).toContain('Runs the application code');
-    expect(detail()?.textContent).toContain('Stores application data');
-  });
-
-  it('does not render when architecture is absent', async () => {
+  it('does not render when there is nothing detected and no plan', async () => {
     mocks.fetchApplication.mockResolvedValue(baseApplication());
     mocks.fetchReadiness.mockResolvedValue(baseReadiness());
     mocks.fetchDeploymentsForApplication.mockResolvedValue([]);
@@ -605,26 +578,6 @@ describe('Architecture detected card', () => {
     });
     await waitForHeading();
 
-    expect(container.querySelector('[data-testid="architecture-detected-card"]')).toBeNull();
-  });
-
-  it('does not render while analysis is running', async () => {
-    mocks.fetchApplication.mockResolvedValue(baseApplication({ analysisStatus: 'ANALYZING' }));
-    mocks.fetchReadiness.mockResolvedValue(
-      baseReadiness({
-        analysisStatus: 'ANALYZING',
-        state: 'ANALYSIS_INCOMPLETE',
-        architecture: architectureFixture(),
-      }),
-    );
-    mocks.fetchDeploymentsForApplication.mockResolvedValue([]);
-
-    await act(async () => {
-      renderPage();
-    });
-    await waitForHeading();
-
-    expect(container.querySelector('[data-testid="architecture-detected-card"]')).toBeNull();
-    expect(container.querySelector('[data-testid="application-overview-loading"]')).toBeNull();
+    expect(container.querySelector('[data-testid="application-services-count"]')).toBeNull();
   });
 });

@@ -117,7 +117,7 @@ describe('infraCheckPresentation', () => {
     expect(presentation.statusText).toBe('Needs attention');
     expect(presentation.problem).toBe('The database was not created.');
     expect(presentation.nextAction).toBe(
-      'Wait for the current operation to finish. If this stays, check the deployment page for the cause.',
+      'Wait for the current operation to finish. If this stays, check the recent activity for the cause.',
     );
   });
 
@@ -147,7 +147,7 @@ describe('infraCheckPresentation', () => {
     expect(presentation.outcome).toBe('issue');
     expect(presentation.problem).toBe("A check on the deployment's infrastructure did not pass.");
     expect(presentation.nextAction).toBe(
-      'Wait for the next check. If this stays, check the deployment page for the cause.',
+      'Wait for the next check. If this stays, check the recent activity for the cause.',
     );
   });
 });

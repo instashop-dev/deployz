@@ -66,7 +66,6 @@ vi.mock('../src/lib/public-install-data', async (importOriginal) => {
 });
 
 const { InstallPlanComponentTable } = await import('../src/components/install-plan-component-table');
-const { ArchitectureDetectedCard } = await import('../src/components/architecture-detected-card');
 const { ApplicationArchitectureSection } = await import('../src/components/application-architecture-section');
 const { InstallProgress } = await import('../src/components/install-progress');
 const InstallPage = (await import('../src/app/install/[installLinkId]/page')).default;
@@ -315,42 +314,6 @@ describe('customer progress renders specComponents (composition A + future capab
     expect(view.label).toBe('Future capability');
     expect(view.stateLabel).toBe('Waiting');
     expect(view.tone).toBe('neutral');
-  });
-});
-
-// ── Gate 3: vendor overview architecture card (composition A) ───────────────
-
-describe('vendor architecture-detected card (composition A)', () => {
-  it('lists both workers separately, MySQL under Data, and the MySQL question as Needs input', () => {
-    render(
-      <ArchitectureDetectedCard
-        architecture={webWorkersMysqlRedisArchitecture}
-        summary="Web application with two workers, MySQL, Redis, and storage."
-      />,
-    );
-
-    expect(byTestId('architecture-detected-card')).not.toBeNull();
-    // Groups render in the fixture's order.
-    const groups = Array.from(container.querySelectorAll('[data-testid="architecture-detected-groups"] > li'));
-    expect(groups.map((group) => group.getAttribute('data-testid'))).toEqual([
-      'architecture-group-application',
-      'architecture-group-data',
-      'architecture-group-cache',
-      'architecture-group-storage',
-    ]);
-    // Both workers listed as separate nodes under Application.
-    expect(byTestId('architecture-node-application-Web application')).not.toBeNull();
-    expect(byTestId('architecture-node-application-Email worker')).not.toBeNull();
-    expect(byTestId('architecture-node-application-Jobs worker')).not.toBeNull();
-    // MySQL sits under Data.
-    expect(byTestId('architecture-node-data-MySQL database')?.textContent).toContain('MySQL database');
-    // The unresolved MySQL question with the Needs input badge.
-    const unresolved = byTestId('architecture-unresolved-mysql-database-0');
-    expect(unresolved?.textContent).toContain('Needs input');
-    expect(unresolved?.textContent).toContain('Confirm the MySQL database engine version.');
-    // One detected node, the rest confirmed.
-    expect(byTestId('architecture-node-application-Web application')?.textContent).toContain('Detected automatically');
-    expect(byTestId('architecture-node-application-Email worker')?.textContent).toContain('Confirmed');
   });
 });
 
