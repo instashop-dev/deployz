@@ -1,0 +1,146 @@
+{
+  "schemaVersion": 1,
+  "id": "repo-301",
+  "repository": "Klarline/retail-inventory-platform",
+  "commit": "3a2b8a3004991d50dfb475200164906d511536e6",
+  "repositoryForm": "fork",
+  "repositoryUsed": "Klarline/retail-inventory-platform",
+  "set": "improvement",
+  "cohort": "realistic",
+  "customerRealism": "high",
+  "difficulty": 3,
+  "deployzCommit": "4903f6249e2ccc86d231b0d63eeb351ae66c024d",
+  "runId": "stage-b-repo-301-20260929-085137-9ed0",
+  "stageAExpected": "READY",
+  "expectedDeployable": true,
+  "mode": "deploy",
+  "deploymentClass": "fresh-full",
+  "gate": {
+    "status": "NOT_ATTEMPTED",
+    "verdict": null,
+    "analysisVerdict": null,
+    "outcome": null,
+    "gateFindings": [],
+    "requiredKeys": [],
+    "missingKeys": [],
+    "unsupported": [],
+    "configuredVerdict": null,
+    "configuredFindings": [],
+    "source": "control-plane",
+    "analysisVersion": null,
+    "manifest": null,
+    "detail": null
+  },
+  "configuration": {
+    "status": "FAIL",
+    "overrides": {
+      "containerPort": 8080,
+      "healthPath": "/",
+      "dockerfilePath": "api/Dockerfile",
+      "buildContext": "api"
+    },
+    "keys": [
+      "JWT_SECRET"
+    ],
+    "generatedKeys": [
+      "JWT_SECRET"
+    ],
+    "deliveredAfterEnrollment": [],
+    "detail": "the control plane's gate still needs configuration: required-env-vars-missing: This app requires environment variables that have no value yet: AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY. Set them in the application's Configuration screen before deploying."
+  },
+  "build": {
+    "status": "NOT_ATTEMPTED",
+    "releaseId": null,
+    "version": null,
+    "gitSha": null,
+    "dockerfilePath": null,
+    "buildContext": null,
+    "imageDigest": null,
+    "buildId": null,
+    "durationMs": null,
+    "imageReused": false,
+    "detail": null
+  },
+  "deployment": {
+    "status": "NOT_ATTEMPTED",
+    "deploymentId": null,
+    "installationId": null,
+    "bootstrapStack": null,
+    "applicationStack": null,
+    "stackStatus": null,
+    "templateSource": null,
+    "templateUrl": null,
+    "installJobState": null,
+    "failureCode": null,
+    "resourceCount": null,
+    "resourcesByType": null,
+    "region": null,
+    "durationMs": null,
+    "detail": null
+  },
+  "inventory": {
+    "status": "NOT_ATTEMPTED",
+    "planCreateKinds": [],
+    "expectedKinds": [],
+    "presentTypes": [],
+    "missing": [],
+    "unexpected": [],
+    "detail": null
+  },
+  "runtime": {
+    "ecs": "NOT_ATTEMPTED",
+    "alb": "NOT_ATTEMPTED",
+    "https": "NOT_ATTEMPTED",
+    "healthPath": null,
+    "healthPathSource": null,
+    "appUrl": null,
+    "runningImageDigest": null,
+    "releaseServing": null,
+    "smoke": [],
+    "observation": null,
+    "detail": null
+  },
+  "dependencies": {
+    "postgres": "NOT_ATTEMPTED",
+    "redis": "NOT_ATTEMPTED",
+    "storage": "NOT_ATTEMPTED",
+    "migration": "NOT_ATTEMPTED",
+    "detail": null
+  },
+  "update": {
+    "status": "NOT_ATTEMPTED",
+    "releaseId": null,
+    "version": null,
+    "imageDigest": null,
+    "durationMs": null,
+    "detail": null
+  },
+  "cleanup": {
+    "status": "NOT_REQUIRED",
+    "destroyJobState": null,
+    "purgeJobState": null,
+    "cleanupState": null,
+    "bootstrapStackFinal": null,
+    "leaks": [],
+    "retainedState": "NOT_ATTEMPTED",
+    "purgedState": "NOT_ATTEMPTED",
+    "durationMs": null,
+    "detail": "no AWS resources were created"
+  },
+  "classification": "CONFIG_ERROR",
+  "failureStage": "CONFIG_ERROR",
+  "rootCause": null,
+  "rootCauseEvidence": "the gate still refuses with the Stage B configuration: the control plane's gate still needs configuration: required-env-vars-missing: This app requires environment variables that have no value yet: AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY. Set them in the application's Configuration screen befo — decide REPO_CONFIGURATION (fix the config) vs ANALYSIS_BUG (a required key the app does not need)",
+  "findingIds": [],
+  "timing": {
+    "startedAt": "2026-09-29T08:51:38.333Z",
+    "finishedAt": "2026-09-29T08:51:56.428Z",
+    "totalMs": 18095
+  },
+  "evidence": {
+    "failure": {
+      "point": "configuration",
+      "message": "the control plane's gate still needs configuration: required-env-vars-missing: This app requires environment variables that have no value yet: AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY. Set them in the application's Configuration screen before deploying."
+    }
+  }
+}

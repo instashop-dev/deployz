@@ -474,6 +474,108 @@ describe('github — repository tree fetch (§18 analysis input)', () => {
     ]);
   });
 
+  it('fetches scheduled-job declarations the Phase 5D detector reads (render.yaml, vercel.json, crontab, *.cron)', async () => {
+    const fetchFn: FetchFn = async (url) => {
+      if (url.includes('/git/trees/')) {
+        return makeFetchResponse(200, {
+          tree: [
+            { path: 'package.json', type: 'blob', sha: 'sha-pkg', size: 10 },
+            { path: 'render.yaml', type: 'blob', sha: 'sha-render', size: 10 },
+            { path: 'vercel.json', type: 'blob', sha: 'sha-vercel', size: 10 },
+            { path: 'crontab', type: 'blob', sha: 'sha-crontab', size: 10 },
+            { path: 'jobs/cleanup.cron', type: 'blob', sha: 'sha-cron', size: 10 },
+            { path: 'README.md', type: 'blob', sha: 'sha-readme', size: 10 }, // still irrelevant
+          ],
+        });
+      }
+      const sha = url.split('/').pop();
+      return makeFetchResponse(200, {
+        content: Buffer.from(`content-${sha}`).toString('base64'),
+        encoding: 'base64',
+      });
+    };
+
+    const tree = await buildFileTreeForAnalysis(REF, 'tok', fetchFn);
+
+    expect(Object.keys(tree).sort()).toEqual([
+      'crontab',
+      'jobs/cleanup.cron',
+      'package.json',
+      'render.yaml',
+      'vercel.json',
+    ]);
+  });
+
+  it('fetches Procfile so a Procfile-declared worker joins SQS producer/consumer detection', async () => {
+    const blobs: Record<string, string> = {
+      'sha-docker': [
+        'FROM node:20-alpine',
+        'WORKDIR /app',
+        'COPY . .',
+        'EXPOSE 3000',
+        'CMD ["node", "dist/server.js"]',
+        '',
+      ].join('\n'),
+      'sha-pkg': JSON.stringify({
+        name: 'procfile-app',
+        scripts: { start: 'node dist/server.js' },
+        dependencies: { express: '^4.18.0', '@aws-sdk/client-sqs': '^3.600.0' },
+      }),
+      'sha-procfile': 'web: node dist/server.js\nworker: node dist/worker.js\n',
+      'sha-server': [
+        "import express from 'express';",
+        "import { SQSClient, SendMessageCommand } from '@aws-sdk/client-sqs';",
+        'const app = express();',
+        "app.get('/health', (_req, res) => res.json({ ok: true }));",
+        "app.post('/orders', () => sqs.send(new SendMessageCommand({ QueueUrl: process.env.ORDERS_QUEUE_URL })));",
+        'app.listen(process.env.PORT ?? 3000);',
+        '',
+      ].join('\n'),
+      'sha-worker': [
+        "import { SQSClient, ReceiveMessageCommand } from '@aws-sdk/client-sqs';",
+        'sqs.send(new ReceiveMessageCommand({ QueueUrl: process.env.ORDERS_QUEUE_URL }));',
+        '',
+      ].join('\n'),
+      'sha-readme': '# procfile app\n',
+    };
+    const fetchFn: FetchFn = async (url) => {
+      if (url.includes('/git/trees/')) {
+        return makeFetchResponse(200, {
+          tree: [
+            { path: 'Dockerfile', type: 'blob', sha: 'sha-docker', size: 10 },
+            { path: 'Procfile', type: 'blob', sha: 'sha-procfile', size: 10 },
+            { path: 'package.json', type: 'blob', sha: 'sha-pkg', size: 10 },
+            { path: 'src/server.ts', type: 'blob', sha: 'sha-server', size: 10 },
+            { path: 'src/worker.ts', type: 'blob', sha: 'sha-worker', size: 10 },
+            { path: 'README.md', type: 'blob', sha: 'sha-readme', size: 10 }, // still irrelevant
+          ],
+        });
+      }
+      const sha = url.split('/').pop()!;
+      return makeFetchResponse(200, {
+        content: Buffer.from(blobs[sha] ?? '').toString('base64'),
+        encoding: 'base64',
+      });
+    };
+
+    const tree = await buildFileTreeForAnalysis(REF, 'tok', fetchFn);
+
+    // Without the Procfile the consumer has no declared workload, lands in the
+    // web reach, and the queue becomes a question instead of an SQS resource.
+    expect(tree['Procfile']).toContain('worker: node dist/worker.js');
+
+    const analysis = analyseRepo(tree);
+    expect(analysis.metadata['asyncQuestions']).toEqual([]);
+
+    const manifest = normalizeDeploymentManifest(analysis, {});
+    expect(manifest.workers?.map((w) => w.id)).toEqual(['worker']);
+    expect(manifest.queues).toHaveLength(1);
+    const queue = manifest.queues![0]!;
+    expect(queue.id).toBe('orders-queue');
+    expect(queue.producers).toEqual(['web']);
+    expect(queue.consumers).toEqual(['worker']);
+  });
+
   it('fetches the additional manifest/compose/env-sample/source shapes Redis detection needs (§7 of the Redis MVP)', async () => {
     const calls: string[] = [];
     const fetchFn: FetchFn = async (url) => {
