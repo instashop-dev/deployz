@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import type { VendorDeploymentStatus } from '@deployz/contracts';
 
-import { deriveHero, operationInFlight, type HeroInput } from '../src/lib/deployment-hero';
+import { canRetryFirstInstall, deriveHero, operationInFlight, type HeroInput } from '../src/lib/deployment-hero';
 import { REMOVED_PROGRESS } from '../src/lib/deployment-progress';
 import type { DeploymentJob } from '../src/lib/deployments';
 
@@ -367,5 +367,19 @@ describe('operationInFlight', () => {
     for (const state of ['REQUESTED', 'QUEUED', 'WAITING']) {
       expect(operationInFlight([job({ type: 'DESTROY', state })])).not.toBeNull();
     }
+  });
+});
+
+describe('canRetryFirstInstall', () => {
+  it('offers retry for a failed, never-installed deployment', () => {
+    expect(canRetryFirstInstall('FAILED', false, null)).toBe(true);
+    // A stuck INSTALL is the very thing retry recovers from.
+    expect(canRetryFirstInstall('FAILED', false, job({ type: 'INSTALL', state: 'RUNNING' }))).toBe(true);
+  });
+
+  it('does not offer retry while a DESTROY runs, after a successful install, or in another state', () => {
+    expect(canRetryFirstInstall('FAILED', false, job({ type: 'DESTROY', state: 'RUNNING' }))).toBe(false);
+    expect(canRetryFirstInstall('FAILED', true, null)).toBe(false);
+    expect(canRetryFirstInstall('HEALTHY', false, null)).toBe(false);
   });
 });
