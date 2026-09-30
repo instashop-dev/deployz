@@ -41,7 +41,7 @@ const SUMMARY_LINE: Record<InfrastructureSummaryStatus, string> = {
   provisioning: 'Some services are still being set up.',
   updating: 'Services are being updated.',
   degraded: 'Some services need attention.',
-  failed: 'A service failed. The failure details above explain what happened.',
+  failed: 'A service failed.',
   deleting: 'Services are being removed.',
   retained: 'Retained services remain in the customer AWS account.',
   unknown: 'Service status is not available right now.',

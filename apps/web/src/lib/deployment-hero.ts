@@ -102,6 +102,15 @@ export function canRetryFirstInstall(
   return state === 'FAILED' && !everRan && inFlight?.type !== 'DESTROY';
 }
 
+/**
+ * Whether the hero shows the application address. A failed first install
+ * never served the application, so its address (a load balancer that may
+ * already be torn down) would only invite a dead click.
+ */
+export function showApplicationUrl(heroKind: HeroKind, appUrl: string | null): boolean {
+  return appUrl !== null && heroKind !== 'deleting' && heroKind !== 'deleted' && heroKind !== 'install-failed';
+}
+
 function latestJob(jobs: DeploymentJob[], keep: (job: DeploymentJob) => boolean): DeploymentJob | null {
   return (
     jobs

@@ -16,7 +16,7 @@ import { ElapsedTime, timedSteps } from '@/components/deployment-progress-card';
 import { FailurePanel } from '@/components/failure-panel';
 import { StepList } from '@/components/step-list';
 import { Card, CardContent, CardFooter } from '@/components/ui/card';
-import type { HeroModel, HeroTone } from '@/lib/deployment-hero';
+import { showApplicationUrl, type HeroModel, type HeroTone } from '@/lib/deployment-hero';
 import { JOB_STATE_LABEL, JOB_TYPE_LABEL } from '@/lib/deployment-vocabulary';
 import type { FleetDeploymentDetail } from '@/lib/deployments';
 import { relativeTime, type Diagnostic } from '@/lib/diagnostics';
@@ -66,7 +66,7 @@ export function DeploymentHero({
   // exists — including after a failed update or while health checks fail,
   // when the running release is exactly what the vendor may want to check.
   // This is the page's only place for the URL and the custom domain.
-  const showUrl = hero.kind !== 'deleting' && hero.kind !== 'deleted' && detail.appUrl !== null;
+  const showUrl = showApplicationUrl(hero.kind, detail.appUrl);
   // §6 failure and recovery: a destructive or warning tone gets the one
   // failure/recovery pattern (what happened → impact → who acts) instead of
   // the plain headline. "Who acts" is shown only when the data is
