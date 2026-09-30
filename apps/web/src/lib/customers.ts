@@ -268,7 +268,7 @@ function summaryPart(bucket: CustomerBucket, count: number, onlyOne: boolean): s
     case 'active':
       return `${count} active`;
     case 'attention':
-      return `${count} needs attention`;
+      return `${count} ${count === 1 ? 'needs' : 'need'} attention`;
     case 'pending':
       // A lone pending deployment reads as a state, not a count.
       return onlyOne && count === 1 ? 'Setup pending' : `${count} setup pending`;

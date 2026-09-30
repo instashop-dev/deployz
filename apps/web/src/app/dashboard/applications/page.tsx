@@ -12,8 +12,10 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Skeleton } from '@/components/ui/skeleton';
 import { fetchApplications, type Application } from '@/lib/applications';
+import { readinessNeedsVendorInput } from '@/lib/application-state';
 import {
   READINESS_STATE_PRESENTATION,
+  fetchReadiness,
   readinessBadgeVariant,
   readinessStateFromVerdict,
 } from '@/lib/readiness';
@@ -128,7 +130,32 @@ export default function ApplicationsPage() {
   );
 }
 
+// The list's own verdict ignores environment-variable decisions, so an
+// application the page calls "Needs input" would read "Ready" here. The
+// readiness fetch is best effort: a failure keeps the list's own badge.
 function ApplicationList({ applications }: { applications: Application[] }) {
+  const [needsInput, setNeedsInput] = useState<ReadonlySet<string>>(new Set());
+
+  useEffect(() => {
+    let cancelled = false;
+    void Promise.all(
+      applications
+        .filter((app) => app.analysisStatus === 'COMPLETE')
+        .map(async (app) => {
+          try {
+            return readinessNeedsVendorInput(await fetchReadiness(app.id)) ? app.id : null;
+          } catch {
+            return null;
+          }
+        }),
+    ).then((ids) => {
+      if (!cancelled) setNeedsInput(new Set(ids.filter((id): id is string => id !== null)));
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [applications]);
+
   return (
     <Card className="py-0">
       <CardContent className="overflow-x-auto p-0">
@@ -145,7 +172,7 @@ function ApplicationList({ applications }: { applications: Application[] }) {
           </TableHeader>
           <TableBody>
             {applications.map((app) => (
-              <ApplicationRow key={app.id} application={app} />
+              <ApplicationRow key={app.id} application={app} needsInput={needsInput.has(app.id)} />
             ))}
           </TableBody>
         </Table>
@@ -157,10 +184,10 @@ function ApplicationList({ applications }: { applications: Application[] }) {
 // The whole row opens the application; the name link is the same
 // destination for keyboard and assistive-technology users, so the trailing
 // "View" is decoration rather than a second control.
-function ApplicationRow({ application }: { application: Application }) {
+function ApplicationRow({ application, needsInput }: { application: Application; needsInput: boolean }) {
   const router = useRouter();
   const href = `/dashboard/applications/${application.id}`;
-  const label = applicationBadgeLabel(application);
+  const label = needsInput ? 'Needs input' : applicationBadgeLabel(application);
   return (
     <TableRow
       data-testid={`app-card-${application.id}`}
@@ -179,7 +206,7 @@ function ApplicationRow({ application }: { application: Application }) {
       </TableCell>
       <TableCell className="text-muted-foreground">{application.repoFullName}</TableCell>
       <TableCell>
-        <Badge variant={applicationBadgeVariant(application)} data-testid={`app-card-badge-${application.id}`}>
+        <Badge variant={needsInput ? 'warning' : applicationBadgeVariant(application)} data-testid={`app-card-badge-${application.id}`}>
           {label}
         </Badge>
       </TableCell>

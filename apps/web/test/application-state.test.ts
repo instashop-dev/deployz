@@ -8,6 +8,7 @@ import {
   customerDeployments,
   deriveApplicationPresentation,
   latestTestDeployment,
+  readinessNeedsVendorInput,
   releaseReadiness,
   testDeploymentPhase,
   type ApplicationState,
@@ -931,6 +932,14 @@ describe('customers-active', () => {
       }),
     );
     expect(result.message).toBe('1 deployment needs attention.');
+    expect(result.badge).toEqual({ label: 'Needs attention', variant: 'warning' });
+  });
+
+  it('keeps the Live badge when every customer deployment is healthy', () => {
+    const result = deriveApplicationPresentation(
+      makeInput({ deployments: [customer({ id: 'c1', state: 'HEALTHY' })] }),
+    );
+    expect(result.badge).toEqual({ label: 'Live', variant: 'success' });
   });
 
   it('does not count DELETING, DELETED or soft-deleted customer deployments', () => {
@@ -1149,5 +1158,30 @@ describe('release readiness is shown apart from the analysis state', () => {
     expect(releaseReadiness([])).toBe('none');
     expect(releaseReadiness([release({ status: 'UNAVAILABLE' })])).toBe('unavailable');
     expect(releaseReadiness([release({ status: 'UNAVAILABLE' }), release({ id: 'f', status: 'FAILED' })])).toBe('failed');
+  });
+});
+
+describe('readinessNeedsVendorInput', () => {
+  it('is false for a clean completed analysis and while analysing', () => {
+    expect(readinessNeedsVendorInput(readiness())).toBe(false);
+    expect(
+      readinessNeedsVendorInput(
+        readiness({ analysisStatus: 'ANALYZING', findings: [requiredFinding()] }),
+      ),
+    ).toBe(false);
+  });
+
+  it('is true for a required change', () => {
+    expect(readinessNeedsVendorInput(readiness({ findings: [requiredFinding()] }))).toBe(true);
+  });
+
+  it('is true when environment variables need a decision or a value', () => {
+    expect(
+      readinessNeedsVendorInput(readiness({ environmentSetup: environmentSetup({ needsDecision: 3 }) })),
+    ).toBe(true);
+    expect(
+      readinessNeedsVendorInput(readiness({ environmentSetup: environmentSetup({ missingValue: 1 }) })),
+    ).toBe(true);
+    expect(readinessNeedsVendorInput(readiness({ environmentSetup: environmentSetup() }))).toBe(false);
   });
 });

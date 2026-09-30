@@ -294,6 +294,12 @@ describe('formatElapsedSeconds', () => {
     expect(formatElapsedSeconds(3600)).toBe('1h 0m');
     expect(formatElapsedSeconds(3600 + 4 * 60)).toBe('1h 4m');
   });
+
+  it('renders a day or more as days and hours', () => {
+    expect(formatElapsedSeconds(24 * 3600 - 1)).toBe('23h 59m');
+    expect(formatElapsedSeconds(24 * 3600)).toBe('1d 0h');
+    expect(formatElapsedSeconds(152 * 3600 + 54 * 60)).toBe('6d 8h');
+  });
 });
 
 // A removed deployment keeps the stage it last earned, so every surface that

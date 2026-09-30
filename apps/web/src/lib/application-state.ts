@@ -214,6 +214,20 @@ export function customerDeployments(deployments: readonly FleetDeployment[]): Fl
   );
 }
 
+/**
+ * True when a completed analysis still waits on the vendor: an open required
+ * change or an environment variable that needs a decision or a value. The
+ * applications list uses it so its badge agrees with the application page.
+ */
+export function readinessNeedsVendorInput(readiness: ApplicationReadiness): boolean {
+  if (readiness.analysisStatus !== 'COMPLETE') return false;
+  const setup = readiness.environmentSetup;
+  return (
+    readiness.findings.some((f) => f.severity === 'required') ||
+    (setup != null && setup.needsDecision + setup.missingValue > 0)
+  );
+}
+
 // ── Copy ────────────────────────────────────────────────────────────────────
 
 const BADGES: Record<ApplicationState, { label: string; variant: ApplicationBadgeVariant }> = {
@@ -233,6 +247,9 @@ const BADGES: Record<ApplicationState, { label: string; variant: ApplicationBadg
   'customers-active': { label: 'Live', variant: 'success' },
   unknown: { label: 'Status unknown', variant: 'warning' },
 };
+
+// "Live" would hide a customer deployment that is failing or lost contact.
+const CUSTOMERS_NEED_ATTENTION_BADGE = { label: 'Needs attention', variant: 'warning' } as const;
 
 const NOT_ANALYSED_BADGE = { label: 'Not analysed', variant: 'secondary' } as const;
 
@@ -786,7 +803,12 @@ export function deriveApplicationPresentation(input: ApplicationStateInput): App
     state: core.state,
     // PENDING shares the analysing state (same card, same poll) but nothing
     // is running yet, so the badge must not say "Analysing".
-    badge: analysisStatus === 'PENDING' ? NOT_ANALYSED_BADGE : BADGES[core.state],
+    badge:
+      analysisStatus === 'PENDING'
+        ? NOT_ANALYSED_BADGE
+        : core.state === 'customers-active' && customers.some((d) => deploymentDisplayStatus(d).group === 'attention')
+          ? CUSTOMERS_NEED_ATTENTION_BADGE
+          : BADGES[core.state],
     heading: core.heading,
     message: core.message,
     busy: core.busy,

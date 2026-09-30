@@ -343,15 +343,17 @@ export function formatDurationRange({ min, max }: { min: number; max: number }):
   return `${minMinutes}–${maxMinutes} minutes`;
 }
 
-/** '18s' | '4m 32s' | '1h 4m' — elapsed time, formatted at whatever
- *  granularity is still useful (seconds drop away once we reach an hour). */
+/** '18s' | '4m 32s' | '1h 4m' | '6d 8h' — elapsed time, formatted at whatever
+ *  granularity is still useful (seconds drop away once we reach an hour,
+ *  minutes once we reach a day). */
 export function formatElapsedSeconds(totalSeconds: number): string {
   const seconds = Math.max(0, Math.floor(totalSeconds));
   if (seconds < 60) return `${seconds}s`;
   const minutes = Math.floor(seconds / 60);
   if (minutes < 60) return `${minutes}m ${seconds % 60}s`;
   const hours = Math.floor(minutes / 60);
-  return `${hours}h ${minutes % 60}m`;
+  if (hours < 24) return `${hours}h ${minutes % 60}m`;
+  return `${Math.floor(hours / 24)}d ${hours % 24}h`;
 }
 
 /**

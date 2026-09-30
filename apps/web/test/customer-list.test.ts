@@ -50,6 +50,7 @@ describe('customerSummary — one line per customer, counted from their deployme
   it('reads a mixed customer as active and needing attention', () => {
     expect(summaryText('HEALTHY', 'FAILED')).toBe('1 active · 1 needs attention');
     expect(summaryText('FAILED')).toBe('1 needs attention');
+    expect(summaryText('FAILED', 'DISCONNECTED')).toBe('2 need attention');
   });
 
   it('says "Setup pending" for one unfinished setup, and counts several', () => {
