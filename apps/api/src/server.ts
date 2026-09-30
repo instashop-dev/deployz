@@ -1013,6 +1013,41 @@ async function retryAwareIdempotencyKey(
     : baseKey;
 }
 
+/**
+ * The customer-facing retry (install link / deploy link) re-arms a first
+ * install: it cancels the INSTALL job and replaces the relay credential. It
+ * must never do that to a live attempt (the CloudFormation stack would be
+ * orphaned and its relay locked out) or to a deployment being removed.
+ */
+async function assertPublicRetryAllowed(
+  db: RuntimeDb,
+  deployment: { id: string; state: string },
+): Promise<void> {
+  if (deployment.state === 'INSTALLING') {
+    const [inFlight] = await db
+      .select({ startedAt: schema.deploymentJobs.startedAt, createdAt: schema.deploymentJobs.createdAt })
+      .from(schema.deploymentJobs)
+      .where(
+        and(
+          eq(schema.deploymentJobs.deploymentId, deployment.id),
+          eq(schema.deploymentJobs.type, 'INSTALL'),
+          inArray(schema.deploymentJobs.state, ['REQUESTED', 'QUEUED', 'RUNNING', 'WAITING']),
+        ),
+      )
+      .orderBy(desc(schema.deploymentJobs.createdAt))
+      .limit(1);
+    if (inFlight && (inFlight.startedAt ?? inFlight.createdAt).getTime() > Date.now() - INSTALL_JOB_STALE_AFTER_MS) {
+      throw new ApiError(409, 'INSTALL_NOT_RETRYABLE', 'The current install attempt is still in progress.');
+    }
+    return;
+  }
+  if (!PUBLIC_RETRYABLE_STATES.has(deployment.state)) {
+    throw new ApiError(409, 'INSTALL_NOT_RETRYABLE', `Deployment is ${deployment.state}, not retryable.`);
+  }
+}
+
+const PUBLIC_RETRYABLE_STATES: ReadonlySet<string> = new Set(['NOT_INSTALLED', 'WAITING_FOR_RELAY', 'FAILED']);
+
 const SETTLED_JOB_STATES: ReadonlySet<string> = new Set(['SUCCEEDED', 'SUCCESS', 'FAILED', 'CANCELLED']);
 
 // maskAwsAccountId/toFleetRow live in ./fleet-row.js — shared with Team
@@ -2943,6 +2978,7 @@ export async function buildServer({
         'This deployment installed successfully before; contact the vendor to make changes.',
       );
     }
+    await assertPublicRetryAllowed(db, deployment);
     const nextAttempt = deployment.attemptNumber + 1;
     const stackName = bootstrapStackName({
       appName: applicationName,
@@ -4285,6 +4321,7 @@ export async function buildServer({
           'This deployment installed successfully before; contact the vendor to make changes.',
         );
       }
+      await assertPublicRetryAllowed(db, deployment);
       const nextAttempt = deployment.attemptNumber + 1;
       const stackName = bootstrapStackName({
         appName: application.name,

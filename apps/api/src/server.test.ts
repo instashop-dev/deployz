@@ -4960,6 +4960,28 @@ describe('server — pre-relay install lifecycle (waiting-for-relay and retry)',
     expect(response.json()).toMatchObject({ error: { code: 'INSTALL_ALREADY_SUCCEEDED' } });
   });
 
+  it('POST /api/install/:installLinkId/retry refuses while a fresh install attempt is running or the deployment is being removed', async () => {
+    const installing = await seedWaiting({ state: 'INSTALLING', installationId: 'inst-live', enrollmentUsedAt: new Date() });
+    await db.insert(schema.deploymentJobs).values({
+      deploymentId: installing.deployment.id,
+      type: 'INSTALL',
+      state: 'RUNNING',
+      idempotencyKey: `${installing.deployment.id}:INSTALL`,
+      payload: {},
+      requestedBy: null,
+    });
+    const busy = await postJson(app, `/api/install/${installing.installLinkId}/retry`, {});
+    expect(busy.statusCode, busy.body).toBe(409);
+    expect(busy.json()).toMatchObject({ error: { code: 'INSTALL_NOT_RETRYABLE' } });
+    const [untouched] = await db.select().from(schema.deployments).where(eq(schema.deployments.id, installing.deployment.id));
+    expect(untouched!.installationId).toBe('inst-live');
+    expect(untouched!.attemptNumber).toBe(0);
+
+    const deleting = await seedWaiting({ state: 'DELETING' });
+    const removing = await postJson(app, `/api/install/${deleting.installLinkId}/retry`, {});
+    expect(removing.statusCode, removing.body).toBe(409);
+  });
+
   it('POST /api/install/:installLinkId/retry 404s for an unknown link', async () => {
     const response = await postJson(app, `/api/install/${crypto.randomUUID()}/retry`, {});
     expect(response.statusCode).toBe(404);
