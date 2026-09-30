@@ -221,7 +221,11 @@ type ApplicationRow = typeof schema.applications.$inferSelect;
 // Version 31: a token count or limit (`*_MAX_TOKENS`, `*_TOKEN_LIMIT`) is no
 // longer a secret, so it stops defaulting to "Set by customer". Stored v30
 // env-var models flag it and must re-run.
-export const ANALYSIS_VERSION = 31;
+// Version 32: a secret-named read in a file that also tests the key for
+// presence (`Boolean(process.env.X)`) is optional, and an `if (` from an
+// earlier statement no longer makes a later bare read look guarded. Stored v31
+// env-var models over-require and must re-run.
+export const ANALYSIS_VERSION = 32;
 
 export interface AnalysisRunnerDeps {
   db: RuntimeDb;
