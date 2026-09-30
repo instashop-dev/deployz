@@ -1022,6 +1022,10 @@ test('destructive and rare actions live behind the overflow menu', async ({ page
   const willBeRetained = disconnectPanel.locator('text=Will be retained').locator('..');
   await expect(willBeRetained.getByText('Database', { exact: true })).toBeVisible();
   await expect(willBeRetained.getByText('Storage', { exact: true })).toBeVisible();
+  // The dialog says what happens to the retained data and the connector, in
+  // the same terms as the customer's removed page.
+  await expect(willBeRetained.getByText(/Delete retained data removes them later/)).toBeVisible();
+  await expect(disconnectPanel.getByText(/connector stays in your customer's AWS account until they delete its stack/)).toBeVisible();
   await page.keyboard.press('Escape');
 });
 

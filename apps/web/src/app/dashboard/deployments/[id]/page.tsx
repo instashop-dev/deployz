@@ -1877,8 +1877,8 @@ function DisconnectDialog({
               <AlertTriangle aria-hidden className="size-4" />
               <AlertTitle>Could not load the removal plan</AlertTitle>
               <AlertDescription>
-                The deployment plan could not be loaded. Disconnecting may leave billable
-                resources in your customer&apos;s AWS account.
+                The deployment plan could not be loaded. Removing the deployment may leave
+                billable resources in your customer&apos;s AWS account.
               </AlertDescription>
             </Alert>
           ) : (
@@ -1901,12 +1901,19 @@ function DisconnectDialog({
                       <li key={component.kind}>{component.name}</li>
                     ))}
                   </ul>
-                  <p>Retained resources remain in your customer&apos;s AWS account, and may continue generating charges.</p>
+                  <p>
+                    Retained resources remain in your customer&apos;s AWS account, and may continue
+                    generating charges. Delete retained data removes them later, and needs the connector, so your
+                    customer should keep it until then.
+                  </p>
                 </div>
               ) : null}
             </>
           )}
-          <p>The Deployz connector remains installed.</p>
+          <p>
+            The Deployz connector stays in your customer&apos;s AWS account until they delete its
+            stack.
+          </p>
           {/* Only for a live production deployment: a test deployment is
               free, and one that never went live never counted. The allowance
               is pooled, so this never claims a per-deployment charge stops —
