@@ -2906,7 +2906,12 @@ export function detectEnvVarModel(tree: FileTree, externalServices: string[] = [
         if (!key) continue;
         // A glob in prose (`process.env.NEXT_PUBLIC_*`) names no variable.
         if (content[match.index + match[0].length] === '*') continue;
-        if (assignedKeys.has(key)) {
+        // The same file tests the key for presence (`Boolean(process.env.X)`,
+        // `!!process.env.X`, `if (process.env.X)`, `process.env.X && …`), so it tolerates its absence.
+        const presenceTested = new RegExp(
+          `(?:Boolean\\s*\\(\\s*|!!\\s*|\\bif\\s*\\(\\s*)process\\.env\\.${key}\\b(?!\\s*[=!])|process\\.env\\.${key}\\s*(?:&&|\\?(?!\\?))`,
+        ).test(content);
+        if (assignedKeys.has(key) || presenceTested) {
           recordRead(key, false, path);
           continue;
         }
@@ -2943,7 +2948,9 @@ export function detectEnvVarModel(tree: FileTree, externalServices: string[] = [
         // guard — it is a required value.
         const lastOpen = head.lastIndexOf('(');
         const inConditional =
-          lastOpen >= 0 && /(?:if|while|catch)\s*$/.test(head.slice(0, lastOpen).replace(/\s+$/, ''));
+          lastOpen >= 0 &&
+          !head.includes(')', lastOpen) &&
+          /(?:if|while|catch)\s*$/.test(head.slice(0, lastOpen).replace(/\s+$/, ''));
         // A read that is itself the alternative of a `??`/`||` chain
         // (`process.env.A ?? process.env.B`) is a fallback, not a
         // requirement; and a read handed to a parsing helper alongside a
