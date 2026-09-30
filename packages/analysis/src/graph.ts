@@ -571,22 +571,9 @@ function buildUnresolved(manifest: DeploymentManifest): UnresolvedRequirement[] 
     });
   }
 
-  // External services — ask whether they should be managed.
-  for (const serviceName of manifest.externalServices) {
-    unresolved.push({
-      id: `external-${slugify(serviceName) || 'service'}`,
-      field: 'external_service_ownership',
-      question: `Should the external service "${serviceName}" be treated as a Deployz-managed resource?`,
-      evidence: [
-        {
-          sourceType: 'source_import',
-          path: manifest.application.root,
-          description: `External service detected: ${serviceName}`,
-        },
-      ],
-      blocking: false,
-    });
-  }
+  // External services (Stripe, OpenAI, …) are never a question: Deployz
+  // never provisions them. They stay `EXTERNAL_SAAS` resources, and their
+  // credentials are environment variables.
 
   return unresolved;
 }

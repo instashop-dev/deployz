@@ -98,6 +98,7 @@ function architectureFixture(): ApplicationArchitecture {
       { kind: 'queue', question: 'Do you need a background queue?', blocking: false },
       { kind: 'port', question: 'Which port does your app listen on?', blocking: true },
     ],
+    externalServices: ['stripe', 'openai'],
   };
 }
 
@@ -231,6 +232,17 @@ describe('Configuration sections', () => {
       'Which port does your app listen on?',
     );
     expect(byTestId('architecture-unresolved-edit-port-1')).not.toBeNull();
+  });
+
+  it('lists external services as information, never as a Needs input question', async () => {
+    await act(async () => {
+      root.render(<DeploymentConfiguration />);
+    });
+
+    const external = byTestId('architecture-external-services');
+    expect(external?.textContent).toContain('stripe, openai');
+    expect(external?.textContent).not.toContain('Needs input');
+    expect(byTestId('architecture-config-unresolved')?.textContent).not.toContain('stripe');
   });
 
   it('opens the fix-instructions dialog from an unresolved fix action', async () => {

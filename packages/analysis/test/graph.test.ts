@@ -166,7 +166,7 @@ describe('manifestToApplicationGraph — worker manifest', () => {
 });
 
 describe('manifestToApplicationGraph — external services', () => {
-  it('adds external_service resources and non-blocking unresolved items', () => {
+  it('adds external_service resources and asks no ownership question', () => {
     const analysis = analyseRepo(externalServicesTree());
     const manifest = normalizeDeploymentManifest(analysis, {});
     // Manually inject external services for deterministic testing.
@@ -186,10 +186,8 @@ describe('manifestToApplicationGraph — external services', () => {
     expect(graph.externalServices).toHaveLength(2);
     expect(graph.externalServices.map((e) => e.name)).toEqual(['Stripe', 'SendGrid']);
 
-    // Non-blocking unresolved for each external service.
-    const extUnresolved = graph.unresolved.filter((u) => u.field === 'external_service_ownership');
-    expect(extUnresolved).toHaveLength(2);
-    expect(extUnresolved.every((u) => !u.blocking)).toBe(true);
+    // Never a question: Deployz never provisions an external service.
+    expect(graph.unresolved).toEqual([]);
   });
 });
 

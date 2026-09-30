@@ -99,6 +99,8 @@ export interface ArchitectureUnresolved {
 export interface ApplicationArchitecture {
   groups: ArchitectureGroup[];
   unresolved: ArchitectureUnresolved[];
+  /** Third-party services the app calls directly — information only, never a question. */
+  externalServices: string[];
 }
 
 /**
