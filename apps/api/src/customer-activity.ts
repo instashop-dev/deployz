@@ -357,6 +357,8 @@ export interface LiveHttpsState {
   lastError: string | null;
   /** custom_domains.last_checked_at / deployments.default_https.lastDnsCheckAt. */
   lastCheckedAt: string | null;
+  /** True for the Deployz-owned default address: the customer owns no domain, so its copy never mentions one. */
+  deployzOwned?: boolean;
 }
 
 export interface BuildCustomerLiveProgressInput {
@@ -577,16 +579,24 @@ const TLS_STATUS_MESSAGE: Readonly<Record<string, string>> = {
   CONFIGURING: 'Attaching the certificate. Waiting for the HTTPS endpoint.',
 };
 
+// The Deployz-owned default address has no customer domain to validate; the
+// same machine states read as certificate issuance.
+const DEFAULT_ADDRESS_TLS_STATUS_MESSAGE: Readonly<Record<string, string>> = {
+  ...TLS_STATUS_MESSAGE,
+  WAITING_FOR_DNS: 'Waiting for AWS to issue the HTTPS certificate.',
+};
+
 function buildTlsProgress(input: BuildCustomerLiveProgressInput): CustomerLiveProgress {
   const { https, needsDomainSetup } = input;
   // needsDomainSetup means the CUSTOMER must act next (their own domain
   // awaiting DNS, or nothing automatic will produce a secure address) — the
   // existing "Waiting for secure domain setup." text already says that.
-  const currentActivity = !needsDomainSetup && https ? TLS_STATUS_MESSAGE[https.status] : undefined;
+  const statusMessages = https?.deployzOwned ? DEFAULT_ADDRESS_TLS_STATUS_MESSAGE : TLS_STATUS_MESSAGE;
+  const currentActivity = !needsDomainSetup && https ? statusMessages[https.status] : undefined;
 
   const items = stepCompletionActivity(input.stepTimings, ['HEALTH_CHECK']);
   if (https?.lastCheckedAt) {
-    items.push({ key: 'domain-check', at: https.lastCheckedAt, message: 'Checked the domain records.', state: 'COMPLETE' });
+    items.push({ key: 'domain-check', at: https.lastCheckedAt, message: https.deployzOwned ? 'Checked the HTTPS certificate status.' : 'Checked the domain records.', state: 'COMPLETE' });
   }
   const recentActivity = items.sort((a, b) => (a.at < b.at ? 1 : a.at > b.at ? -1 : 0)).slice(0, 5);
 
