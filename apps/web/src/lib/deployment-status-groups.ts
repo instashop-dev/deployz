@@ -12,7 +12,7 @@
 // API already returns. Nothing here is persisted and no raw AWS status reaches
 // a label.
 
-import { everInstalled, type DeploymentBadgeVariant } from '@/lib/deployment-vocabulary';
+import { everInstalled, relayWaitingStuck, type DeploymentBadgeVariant } from '@/lib/deployment-vocabulary';
 import type { FleetDeployment } from '@/lib/deployments';
 import { attentionReason } from '@/lib/home-state';
 
@@ -133,7 +133,11 @@ export function deploymentDisplayStatus(deployment: FleetDeployment): Deployment
     case 'NOT_INSTALLED':
       return { group: 'waiting', label: 'Waiting for customer', badge: 'secondary' };
     case 'WAITING_FOR_RELAY':
-      return { group: 'in-progress', label: 'Setting up', badge: 'info' };
+      // Past the staleness window the detail page shows the stuck guidance;
+      // the list carries the same cue so it does not read as normal progress.
+      return relayWaitingStuck(deployment.installStartedAt)
+        ? { group: 'in-progress', label: 'Setting up · Slow to connect', badge: 'warning' }
+        : { group: 'in-progress', label: 'Setting up', badge: 'info' };
     case 'INSTALLING':
       return { group: 'in-progress', label: 'Setting up', badge: 'info' };
     case 'UPDATING':
