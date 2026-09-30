@@ -207,6 +207,37 @@ describe('billing lifecycle', () => {
     expect(row.billingStartedAt).toEqual(startedAt);
   });
 
+  it('4b. a relay failure message is redacted before it reaches the job result and the event payload', async () => {
+    const { deployment, token } = await seedDeployment({ deploymentType: 'PRODUCTION', billingState: 'ACTIVE' });
+    const [job] = await db
+      .insert(schema.deploymentJobs)
+      .values({
+        deploymentId: deployment.id,
+        type: 'DEPLOY_RELEASE',
+        state: 'RUNNING',
+        idempotencyKey: `${deployment.id}:DEPLOY_RELEASE:redact`,
+        payload: {},
+      })
+      .returning();
+
+    const result = await app.inject({
+      method: 'POST',
+      url: `/api/relay/commands/${job!.id}/result`,
+      headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+      payload: JSON.stringify({
+        success: false,
+        error: 'migration failed for postgresql://admin:hunter2secret@db.internal/app',
+        failureCode: 'ECS_DEPLOYMENT_FAILED',
+      }),
+    });
+    expect(result.statusCode, result.body).toBe(200);
+
+    const [stored] = await db.select().from(schema.deploymentJobs).where(eq(schema.deploymentJobs.id, job!.id));
+    const events = await db.select().from(schema.eventLogs).where(eq(schema.eventLogs.deploymentId, deployment.id));
+    expect(JSON.stringify(stored!.result)).not.toContain('hunter2secret');
+    expect(JSON.stringify(events)).not.toContain('hunter2secret');
+  });
+
   it('5. POST /destroy sets STOPPED on an ACTIVE deployment; a later DESTROY success leaves it unchanged', async () => {
     const startedAt = new Date('2026-01-01T00:00:00.000Z');
     const { deployment, token } = await seedDeployment({

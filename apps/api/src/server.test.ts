@@ -2571,7 +2571,10 @@ describe('server — idempotent job creation (§5)', () => {
     );
     expect(first.statusCode, first.body).toBe(202);
 
-    const jobs = await db.select().from(schema.deploymentJobs).where(eq(schema.deploymentJobs.idempotencyKey, 'client-supplied-key-1'));
+    const jobs = await db
+      .select()
+      .from(schema.deploymentJobs)
+      .where(eq(schema.deploymentJobs.idempotencyKey, `${deployment.id}:DEPLOY_RELEASE:client:client-supplied-key-1`));
     expect(jobs).toHaveLength(1);
 
     // Same header, different releaseId - still the same idempotent operation.
@@ -2583,6 +2586,26 @@ describe('server — idempotent job creation (§5)', () => {
     );
     expect(second.statusCode).toBe(200);
     expect((second.json() as { jobId: string }).jobId).toBe((first.json() as { jobId: string }).jobId);
+  });
+
+  it('the same Idempotency-Key on two deployments or two operations never reuses the other job', async () => {
+    const first = await freshDeployment();
+    const second = await freshDeployment();
+    const headers = { cookie: org.cookie, 'idempotency-key': 'shared-client-key' };
+
+    const a = await postJson(app, `/api/deployments/${first.id}/restart`, {}, headers);
+    expect(a.statusCode, a.body).toBe(202);
+    const b = await postJson(app, `/api/deployments/${second.id}/restart`, {}, headers);
+    expect(b.statusCode, b.body).toBe(202);
+    expect((b.json() as { jobId: string }).jobId).not.toBe((a.json() as { jobId: string }).jobId);
+
+    await db
+      .update(schema.deploymentJobs)
+      .set({ state: 'SUCCEEDED', finishedAt: new Date() })
+      .where(eq(schema.deploymentJobs.id, (a.json() as { jobId: string }).jobId));
+    const c = await postJson(app, `/api/deployments/${first.id}/destroy`, {}, headers);
+    expect(c.statusCode, c.body).toBe(202);
+    expect((c.json() as { jobId: string }).jobId).not.toBe((a.json() as { jobId: string }).jobId);
   });
 
   it('POST .../rollback twice with the same target releaseId returns the SAME job', async () => {
