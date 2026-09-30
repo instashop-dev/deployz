@@ -403,6 +403,18 @@ export const TAKING_LONGER_MESSAGE =
   'Taking longer than usual. AWS is still working and Deployz is continuing to check.';
 
 /**
+ * The vendor's slow-step line. Before any AWS stack exists the customer has
+ * not finished the setup, so the vendor is told what to do; later the raw
+ * AWS stack status helps (vendors may see it, customers never do).
+ */
+export function vendorTakingLongerMessage(stage: string, stackStatus: string | null | undefined): string {
+  if (stage === 'WAITING_FOR_AWS') {
+    return 'Taking longer than usual · The customer may not have finished the AWS setup. Ask them to use the install link again, or issue a new one.';
+  }
+  return `Taking longer than usual${stackStatus ? ` · AWS: ${stackStatus}` : ''}`;
+}
+
+/**
  * Elapsed time since `stepStartedAt`, formatted for display, or null when no
  * start time is known — the live step detail never invents an elapsed
  * duration. `nowMs` is passed in so the caller's own ticker drives it.
