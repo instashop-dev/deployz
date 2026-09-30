@@ -240,6 +240,25 @@ function EnvironmentVariablesTable({
 
   const dirty = drafts.size > 0 || valueDrafts.size > 0 || newEntries.length > 0 || removed.size > 0;
 
+  // A saved decision for a key the latest analysis no longer finds. Such a
+  // key has no row, yet a stale "required" decision can still block a
+  // release. The data cannot tell a vendor-added key from a stale one, so
+  // the vendor is shown each and keeps the choice; nothing is deleted.
+  const staleSettings = useMemo(() => {
+    if (loadState !== 'loaded') return [];
+    const detected = new Set(variables.map((variable) => variable.key));
+    return liveSettings.filter(
+      (setting) => !detected.has(setting.key) && (setting.required || setting.provider !== 'none'),
+    );
+  }, [loadState, variables, liveSettings]);
+
+  function markNotNeeded(setting: EnvironmentSetting): void {
+    setDrafts((current) =>
+      new Map(current).set(setting.key, normalizeSetting({ ...setting, provider: 'none', required: false })),
+    );
+    markChanged();
+  }
+
   function markChanged(): void {
     setSaveState('idle');
     setDraftError(null);
@@ -452,6 +471,37 @@ function EnvironmentVariablesTable({
             <AlertDescription>
               We couldn&apos;t load the detected environment variables. Your saved values are shown below. Reload the
               page to try again.
+            </AlertDescription>
+          </Alert>
+        ) : null}
+
+        {staleSettings.length > 0 ? (
+          <Alert data-testid="environment-variables-stale">
+            <AlertDescription className="flex flex-col gap-2">
+              <span>
+                {staleSettings.length === 1 ? 'A saved decision names' : 'Saved decisions name'} a variable the latest
+                analysis did not find. {staleSettings.length === 1 ? 'It' : 'They'} still count
+                {staleSettings.length === 1 ? 's' : ''} until you mark {staleSettings.length === 1 ? 'it' : 'them'} not
+                needed.
+              </span>
+              <ul className="flex flex-col gap-1">
+                {staleSettings.map((setting) => (
+                  <li key={setting.key} className="flex flex-wrap items-center gap-2">
+                    <code className="font-mono text-xs break-all">{setting.key}</code>
+                    <span className="text-xs text-muted-foreground">Not detected in the latest analysis</span>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      data-testid={`environment-variables-stale-${setting.key}`}
+                      aria-label={`Mark ${setting.key} not needed`}
+                      onClick={() => markNotNeeded(setting)}
+                    >
+                      Mark not needed
+                    </Button>
+                  </li>
+                ))}
+              </ul>
             </AlertDescription>
           </Alert>
         ) : null}

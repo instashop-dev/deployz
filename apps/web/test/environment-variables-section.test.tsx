@@ -247,6 +247,36 @@ describe('Environment variables section', () => {
     expect(settings.find((s) => s.key === 'API_KEY')).toBeDefined();
   });
 
+  it('flags a saved decision the latest analysis no longer finds and clears it with one click', async () => {
+    mocks.fetchEnvironmentSettings.mockResolvedValue(
+      response({
+        settings: [
+          { key: 'GONE_KEY', stage: 'runtime', required: true, secret: false, provider: 'vendor' },
+          { key: 'DONE_KEY', stage: 'runtime', required: false, secret: false, provider: 'none' },
+        ],
+      }),
+    );
+    await renderSection();
+
+    const stale = byTestId('environment-variables-stale');
+    expect(stale?.textContent).toContain('GONE_KEY');
+    expect(stale?.textContent).toContain('Not detected in the latest analysis');
+    expect(stale?.textContent).not.toContain('DONE_KEY');
+
+    await click(byTestId('environment-variables-stale-GONE_KEY'));
+    expect(byTestId('environment-variables-stale')).toBeNull();
+
+    const saveButton = Array.from(document.querySelectorAll('button')).find((b) => b.textContent === 'Save changes');
+    await click(saveButton ?? null);
+    const [, settings] = mocks.saveEnvironmentSettings.mock.calls[0] as [
+      string,
+      { key: string; provider: string; required: boolean }[],
+    ];
+    const cleared = settings.find((s) => s.key === 'GONE_KEY');
+    expect(cleared?.provider).toBe('none');
+    expect(cleared?.required).toBe(false);
+  });
+
   it('never triggers analysis and saves settings before values', async () => {
     await renderSection();
 
