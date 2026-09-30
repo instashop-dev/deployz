@@ -77,6 +77,7 @@ import migration0047 from '../../../db/drizzle/0047_checkout_intent_subscribe_on
 import migration0048 from '../../../db/drizzle/0048_deployment_spec_v2.sql';
 import migration0049 from '../../../db/drizzle/0049_async_component_kinds.sql';
 import journal from '../../../db/drizzle/meta/_journal.json';
+import { migrationsUpToDate } from './migration-check.js';
 
 /**
  * Migration SQL keyed by journal tag.
@@ -206,10 +207,15 @@ export function connectDb(): Promise<LambdaDb> {
       const secret = await fetchDbSecret(secretArn);
       const databaseUrl = `postgres://${secret.username}:${secret.password}@${secret.host}:${secret.port}/${secret.dbname}?sslmode=require&uselibpqcompat=true`;
 
-      const migrationsDir = writeMigrationsToTmp();
       const pool = new Pool({ connectionString: databaseUrl });
       const db = drizzle({ client: pool, schema });
-      await migrate(db, { migrationsFolder: migrationsDir });
+      // Most cold starts find the schema already current: one query replaces
+      // writing and re-checking every bundled migration. Any doubt runs the
+      // migrator exactly as before.
+      if (!(await migrationsUpToDate(pool, journal))) {
+        const migrationsDir = writeMigrationsToTmp();
+        await migrate(db, { migrationsFolder: migrationsDir });
+      }
 
       process.env.DATABASE_URL = databaseUrl;
       return db;
