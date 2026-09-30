@@ -62,12 +62,14 @@ function resolveFixture(overrides: Partial<PublicInstallResolve> = {}): PublicIn
 
 const cleanups: Array<() => void> = [];
 
-function renderGate(): HTMLElement {
+function renderGate(view?: 'install' | 'security'): HTMLElement {
   const container = document.createElement('div');
   document.body.appendChild(container);
   const root = createRoot(container);
   act(() => {
-    root.render(<InvitationTokenGate installLinkId={LINK_ID} />);
+    root.render(
+      <InvitationTokenGate installLinkId={LINK_ID} {...(view !== undefined ? { view } : {})} />,
+    );
   });
   cleanups.push(() => {
     act(() => {
@@ -162,5 +164,18 @@ describe('InvitationTokenGate', () => {
 
     expect(dataMocks.fetchPublicInstallData).not.toHaveBeenCalled();
     expect(document.body.textContent).toContain("This link isn't valid");
+  });
+
+  it('view="security" renders the Security details heading once the token resolves', async () => {
+    window.location.hash = '#' + TOKEN;
+    dataMocks.fetchPublicInstallData.mockResolvedValue({ status: 'ok', data: resolveFixture() });
+
+    renderGate('security');
+    await flush();
+
+    expect(dataMocks.fetchPublicInstallData).toHaveBeenCalledWith(LINK_ID, TOKEN);
+    expect(document.body.textContent).toContain('Security details');
+    // The install confirm flow itself never renders on the security view.
+    expect(document.querySelector('[data-slot="select-trigger"]')).toBeNull();
   });
 });

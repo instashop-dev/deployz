@@ -16,7 +16,7 @@ import {
 } from '@/components/ui/table';
 import { footprintComponentRows } from '@/lib/footprint';
 
-// "What customers get" in Configuration › Services: each component and whether
+// What customers get in Configuration › Services: each component and whether
 // it is kept or removed when a deployment is removed (primary decision
 // information, ux-guidelines §8). AWS sizing and the resource inventory sit
 // under Technical details.
@@ -26,9 +26,6 @@ export function PlannedInfrastructure({ plan }: { plan: DeploymentPlan | null })
 
   return (
     <div className="flex flex-col gap-3">
-      <h3 id="planned-infrastructure" className="text-sm font-medium text-muted-foreground">
-        What customers get
-      </h3>
       {rows === null || rows.length === 0 ? (
         <p className="text-sm text-muted-foreground" data-testid="planned-infrastructure-empty">
           The plan shows here after a successful analysis.
@@ -36,9 +33,8 @@ export function PlannedInfrastructure({ plan }: { plan: DeploymentPlan | null })
       ) : (
         <>
           <p className="text-sm text-muted-foreground">
-            Each customer deployment gets these components in the customer&apos;s AWS account. Kept
-            components stay there after the deployment is removed, and can keep costing money until
-            the retained data is deleted.
+            Kept components stay in the customer&apos;s AWS account after the deployment is removed,
+            and can keep costing money until the retained data is deleted.
           </p>
           <Card className="py-0">
             <CardContent className="overflow-x-auto p-0">

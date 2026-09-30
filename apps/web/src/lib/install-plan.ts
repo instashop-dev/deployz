@@ -7,8 +7,6 @@
 import {
   AWS_RESOURCE_GROUP_DISPLAY,
   AWS_RESOURCE_GROUP_ORDER,
-  CONNECTOR_RESOURCES,
-  FOOTPRINT_SERVICE_DISPLAY,
   INFRASTRUCTURE_COMPONENT_DISPLAY,
   PLAN_COMPONENT_GROUP_BY_KIND,
   PLAN_COMPONENT_GROUP_DISPLAY,
@@ -17,7 +15,6 @@ import {
   type AwsResourceGroup,
   type DeploymentPlan,
   type DeploymentPlanAwsResource,
-  type FootprintWorkload,
   type PlanComponentGroup,
   type Region,
 } from '@deployz/contracts';
@@ -44,6 +41,8 @@ export interface InstallPlanRow {
   group: PlanComponentGroup;
   name: string;
   whatHappens: string;
+  /** Stays in the customer's AWS account after the deployment is removed. */
+  retained: boolean;
 }
 
 // A missing/invalid stored manifest never guesses resources into existence —
@@ -56,6 +55,7 @@ const FALLBACK_ROWS: InstallPlanRow[] = [
     group: 'application',
     name: INFRASTRUCTURE_COMPONENT_DISPLAY.application.name,
     whatHappens: INFRASTRUCTURE_COMPONENT_DISPLAY.application.purpose,
+    retained: false,
   },
 ];
 
@@ -83,6 +83,7 @@ export function installPlanRows(plan: DeploymentPlan | null): InstallPlanRow[] {
       group: resolveComponentGroup(component),
       name: component.name,
       whatHappens: componentPurpose(component),
+      retained: component.lifecycle === 'retain',
     }));
 }
 
@@ -114,11 +115,7 @@ function joinNames(names: string[]): string {
   return `${names.slice(0, -1).join(', ')}, and ${names[names.length - 1]}`;
 }
 
-/**
- * The plan's retained components, in plan order — the single source both the
- * retention note and the deploy page's collapsed "Data retention" section
- * read from, so the two can never name different components.
- */
+/** The plan's retained components, in plan order. */
 export function installPlanRetainedComponents(plan: DeploymentPlan | null): DeploymentPlan['components'] {
   if (!plan) return [];
   return plan.components.filter((component) => component.lifecycle === 'retain');
@@ -138,11 +135,10 @@ export function installPlanRetentionNote(plan: DeploymentPlan | null): string | 
 
 /**
  * The charges warning that always accompanies a retention note, wherever the
- * note renders (install page, hosted token flow) — one sentence, never two
- * wordings.
+ * note renders — one sentence, never two wordings.
  */
 export const RETENTION_CHARGES_NOTE =
-  'Retained resources keep accruing AWS charges until the publisher permanently purges them or you delete them.';
+  'Kept resources can keep costing money in your AWS account until they are deleted.';
 
 /**
  * The region label for the install/deploy pages ("US East (N. Virginia)").
@@ -177,143 +173,4 @@ export function awsResourceGroups(plan: DeploymentPlan | null): AwsResourceGroup
     label: AWS_RESOURCE_GROUP_DISPLAY[group],
     resources: plan.awsResources.filter((resource) => resource.group === group),
   })).filter((entry) => entry.resources.length > 0);
-}
-
-/** The only two removal labels the install page's infrastructure table shows. */
-export const INSTALL_RESOURCE_REMOVAL_LABEL = {
-  delete: 'Removed automatically',
-  retain: 'Retained in your AWS account',
-} as const;
-
-/** One row of the install page's single infrastructure table. */
-export interface InstallResourceRow {
-  id: string;
-  name: string;
-  /** The AWS service plus exact sizing/configuration where the footprint has it. */
-  serviceAndConfiguration: string;
-  purpose: string;
-  onRemoval: string;
-}
-
-/**
- * The install table's purpose line per workload role. Workers run in the
- * private network with no load-balancer route, so their row says so rather
- * than implying a public URL exists.
- */
-function workloadPurpose(role: string): string {
-  return role === 'worker'
-    ? 'Processes background jobs — not reachable from the internet'
-    : 'Serves the application\'s public traffic';
-}
-
-function workloadSizingLine(workload: FootprintWorkload): string {
-  return `${workload.quantity} × ${workload.compute.sizeLabel} · ${workload.compute.cpuUnits / 1024} vCPU · ${workload.compute.memoryMiB} MB`;
-}
-
-/** One install-table row per footprint workload (the web app and every worker). */
-function installWorkloadRow(workload: FootprintWorkload): InstallResourceRow {
-  const service = FOOTPRINT_SERVICE_DISPLAY[workload.compute.service] ?? workload.compute.service;
-  return {
-    id: `workload-${workload.id}`,
-    name: workload.label,
-    serviceAndConfiguration: `${service} · ${workloadSizingLine(workload)}`,
-    purpose: workloadPurpose(workload.role),
-    onRemoval: INSTALL_RESOURCE_REMOVAL_LABEL.delete,
-  };
-}
-
-/** One heading group of the install page's single infrastructure table. */
-export interface InstallResourceGroupRows {
-  /** Plan component group, or the connector group that is not a plan component. */
-  group: PlanComponentGroup | 'connector';
-  label: string;
-  rows: InstallResourceRow[];
-}
-
-function resolveAwsResourceGroup(
-  resource: DeploymentPlanAwsResource,
-  plan: DeploymentPlan | null,
-): PlanComponentGroup {
-  const planComponent = plan?.components.find(
-    (component) => component.kind === resource.componentKind && component.group,
-  );
-  if (planComponent?.group) return planComponent.group;
-  const byKind = PLAN_COMPONENT_GROUP_BY_KIND[resource.componentKind as keyof typeof PLAN_COMPONENT_GROUP_BY_KIND];
-  if (byKind) return byKind;
-  // Footprint-category / AWS-resource-group fallback for supporting resources
-  // that never appear as plan components (network, monitoring, other).
-  if (resource.group === 'compute_networking') return 'networking';
-  if (resource.group === 'security_operations') return 'security';
-  return 'application';
-}
-
-/**
- * The install page's ONE infrastructure table: the Deployz connector's
- * resources first, then the application's — grouped by plan component group,
- * with exact sizing read from the plan's deployment footprint for every
- * workload (the web application and every declared worker as its own row),
- * and managed resources sized where the footprint matches their catalog role.
- * Never invents a size: a row without a footprint match shows its service name only.
- */
-export function installPlanResourceGroups(plan: DeploymentPlan | null): InstallResourceGroupRows[] {
-  const footprint = plan?.footprint ?? null;
-  const workloads = footprint?.workloads ?? [];
-  const workloadSizings = workloads.map((workload) =>
-    workloads.length > 1 ? `${workload.label} · ${workloadSizingLine(workload)}` : workloadSizingLine(workload),
-  );
-  const resourceByRole = new Map((footprint?.resources ?? []).map((resource) => [resource.role, resource]));
-
-  const sizingFor = (kind: DeploymentPlanAwsResource['componentKind']): string | null => {
-    if (kind === 'application') {
-      return workloadSizings.length > 0 ? workloadSizings.join('\n') : null;
-    }
-    const resource = resourceByRole.get(kind);
-    if (!resource) return null;
-    return resource.quantity > 1 ? `${resource.quantity} × ${resource.label}` : resource.label;
-  };
-
-  const workloadRows = workloads.map(installWorkloadRow);
-
-  const rows: InstallResourceRow[] = [
-    ...CONNECTOR_RESOURCES.map((resource) => ({
-      id: resource.id,
-      name: resource.name,
-      serviceAndConfiguration: resource.name,
-      purpose: resource.purpose,
-      onRemoval: INSTALL_RESOURCE_REMOVAL_LABEL[resource.lifecycle],
-    })),
-    ...(plan?.awsResources ?? []).map((resource) => {
-      const sizing = sizingFor(resource.componentKind);
-      return {
-        id: resource.id,
-        name: resource.name,
-        serviceAndConfiguration: sizing ? `${resource.name} · ${sizing}` : resource.name,
-        purpose: resource.purpose,
-        onRemoval: INSTALL_RESOURCE_REMOVAL_LABEL[resource.lifecycle],
-      };
-    }),
-    ...workloadRows,
-  ];
-
-  const groupForRow = (row: InstallResourceRow): PlanComponentGroup | 'connector' => {
-    if (CONNECTOR_RESOURCES.some((resource) => resource.id === row.id)) return 'connector';
-    if (row.id.startsWith('workload-')) return 'application';
-    const resource = (plan?.awsResources ?? []).find((r) => r.id === row.id);
-    if (!resource) return 'application';
-    return resolveAwsResourceGroup(resource, plan);
-  };
-
-  const planGroups = PLAN_COMPONENT_GROUP_ORDER.map((group) => ({
-    group,
-    label: PLAN_COMPONENT_GROUP_DISPLAY[group],
-    rows: rows.filter((row) => groupForRow(row) === group),
-  })).filter((entry) => entry.rows.length > 0);
-
-  const connectorRows = rows.filter((row) => groupForRow(row) === 'connector');
-  if (connectorRows.length === 0) return planGroups;
-
-  return [
-    { group: 'connector' as const, label: AWS_RESOURCE_GROUP_DISPLAY.connector, rows: connectorRows },
-    ...planGroups,
-  ];
 }

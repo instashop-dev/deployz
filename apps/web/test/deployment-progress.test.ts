@@ -22,9 +22,7 @@ import {
   specComponentPresentation,
   stageRank,
   stepWaitingOnInput,
-  stepsBeforeLaunch,
   AWAITING_DOMAIN_STEP_DETAIL,
-  PRE_LAUNCH_HEADLINE,
   STAGE_HEADLINE,
   stepsFromStatus,
   TAKING_LONGER_MESSAGE,
@@ -87,19 +85,8 @@ describe('isTerminalStage', () => {
   });
 });
 
-describe('stepsBeforeLaunch', () => {
-  it('renders every server-sent step as not started — nothing spins before the customer presses Deploy to AWS', () => {
-    const rows = stepsBeforeLaunch(['AWS_SETUP', 'RELAY_CONNECT', 'READY']);
-    expect(rows.map((row) => row.state)).toEqual(['waiting', 'waiting', 'waiting']);
-    expect(rows[0]!.label).toBe('AWS setup');
-  });
-
-  it('renders no rows when an older API omits steps', () => {
-    expect(stepsBeforeLaunch(undefined)).toEqual([]);
-  });
-
-  it('the pre-launch headline never claims AWS is already at work', () => {
-    expect(PRE_LAUNCH_HEADLINE.body).not.toMatch(/is creating/);
+describe('STAGE_HEADLINE', () => {
+  it('WAITING_FOR_AWS says AWS is already at work — nothing pre-launch renders this stage', () => {
     expect(STAGE_HEADLINE.WAITING_FOR_AWS.body).toMatch(/is creating/);
   });
 });
@@ -173,61 +160,61 @@ describe('stepsFromStatus', () => {
   });
 });
 
-// The customer pages fold the server-sent wire steps into seven grouped
-// rungs for the vertical stepper (AWS_SETUP+RELAY_CONNECT → one "AWS account
-// connected" rung, the data/cache/migration steps as sub-rows under
-// "Starting application"). The server stays the only source of which steps
-// apply — grouping only reshapes what it sent.
+// The customer pages fold the server-sent wire steps into six grouped rungs
+// for the step list (AWS_SETUP+RELAY_CONNECT → one "account" rung; NETWORK,
+// DATABASE_STORAGE and REDIS as sub-rows under "infrastructure"; MIGRATION
+// under "application"). The server stays the only source of which steps
+// apply — grouping only reshapes what it sent. A rung's label follows its
+// own state, never a static word: a running rung reads its active copy, a
+// failed one its failed copy, and so on.
 describe('customerStepperSteps', () => {
   const flat = (step: DeploymentStep, stage: DeploymentStage) =>
     stepsFromStatus({ steps: FULL_STEPS, step, stage });
 
-  it('folds the wire steps into the seven customer groups, in order, with static labels', () => {
+  it('folds the wire steps into the six customer rungs, in order', () => {
     const grouped = customerStepperSteps(flat('DATABASE_STORAGE', 'PROVISIONING'));
     expect(grouped.map((step) => step.key)).toEqual([
       'account',
       'infrastructure',
-      'network',
       'application',
       'health',
       'https',
       'ready',
     ]);
-    expect(grouped.map((step) => step.label)).toEqual([
-      'AWS account connected',
-      'Infrastructure prepared',
-      'Network ready',
-      'Starting application',
-      'Health check',
-      'Configure HTTPS',
-      'Ready',
-    ]);
+  });
+
+  it('a running rung uses its active label, never its done label', () => {
+    const grouped = customerStepperSteps(flat('DATABASE_STORAGE', 'PROVISIONING'));
+    expect(grouped.find((step) => step.key === 'account')!.label).toBe('AWS account connected');
+    expect(grouped.find((step) => step.key === 'infrastructure')!.label).toBe('Creating infrastructure');
+    expect(grouped.find((step) => step.key === 'application')!.label).toBe('Start application');
   });
 
   it('groups before the active wire step are done, the rest wait — an active substep makes its group current', () => {
     const grouped = customerStepperSteps(flat('DATABASE_STORAGE', 'PROVISIONING'));
     expect(grouped.find((step) => step.key === 'account')!.state).toBe('done');
-    expect(grouped.find((step) => step.key === 'application')!.state).toBe('current');
+    expect(grouped.find((step) => step.key === 'infrastructure')!.state).toBe('current');
+    expect(grouped.find((step) => step.key === 'application')!.state).toBe('waiting');
     expect(grouped.find((step) => step.key === 'health')!.state).toBe('waiting');
     expect(grouped.find((step) => step.key === 'ready')!.state).toBe('waiting');
   });
 
   it('carries only the substeps the server sent, in wire order', () => {
-    // FULL_STEPS carries DATABASE_STORAGE, REDIS and MIGRATION.
-    const application = customerStepperSteps(flat('DATABASE_STORAGE', 'PROVISIONING')).find(
-      (step) => step.key === 'application',
+    // FULL_STEPS carries NETWORK, DATABASE_STORAGE and REDIS under infrastructure.
+    const infrastructure = customerStepperSteps(flat('DATABASE_STORAGE', 'PROVISIONING')).find(
+      (step) => step.key === 'infrastructure',
     )!;
-    expect(application.substeps?.map((step) => step.key)).toEqual(['DATABASE_STORAGE', 'REDIS', 'MIGRATION']);
+    expect(infrastructure.substeps?.map((step) => step.key)).toEqual(['NETWORK', 'DATABASE_STORAGE', 'REDIS']);
 
     const noSubsteps = customerStepperSteps(
       stepsFromStatus({
         steps: FULL_STEPS.filter(
-          (step) => step !== 'DATABASE_STORAGE' && step !== 'REDIS' && step !== 'MIGRATION',
+          (step) => step !== 'NETWORK' && step !== 'DATABASE_STORAGE' && step !== 'REDIS',
         ),
-        step: 'APPLICATION',
+        step: 'PREPARING',
         stage: 'PROVISIONING',
       }),
-    ).find((step) => step.key === 'application')!;
+    ).find((step) => step.key === 'infrastructure')!;
     expect(noSubsteps.substeps).toBeUndefined();
   });
 
@@ -235,26 +222,25 @@ describe('customerStepperSteps', () => {
     const withDetail = flat('DATABASE_STORAGE', 'PROVISIONING').map((step) =>
       step.key === 'DATABASE_STORAGE' ? { ...step, detail: 'live detail' } : step,
     );
-    expect(customerStepperSteps(withDetail).find((step) => step.key === 'application')!.detail).toBe(
+    expect(customerStepperSteps(withDetail).find((step) => step.key === 'infrastructure')!.detail).toBe(
       'live detail',
     );
   });
 
-  it('FAILED marks the interrupted group attention and later groups waiting', () => {
+  it('a DATABASE_STORAGE failure marks infrastructure attention (with the database substep failed) and leaves application waiting, never "Starting application"', () => {
     const grouped = customerStepperSteps(flat('DATABASE_STORAGE', 'FAILED'));
-    expect(grouped.find((step) => step.key === 'application')!.state).toBe('attention');
-    expect(grouped.find((step) => step.key === 'health')!.state).toBe('waiting');
+    const infrastructure = grouped.find((step) => step.key === 'infrastructure')!;
+    expect(infrastructure.state).toBe('attention');
+    expect(infrastructure.label).toBe('Creating infrastructure failed');
+    expect(infrastructure.substeps?.find((step) => step.key === 'DATABASE_STORAGE')!.state).toBe('attention');
+    const application = grouped.find((step) => step.key === 'application')!;
+    expect(application.state).toBe('waiting');
+    expect(application.label).not.toBe('Starting application');
   });
 
   it('READY renders every group done', () => {
     const grouped = customerStepperSteps(flat('READY', 'READY'));
     expect(grouped.every((step) => step.state === 'done')).toBe(true);
-  });
-
-  it('groups the pre-launch list as seven waiting rungs', () => {
-    const grouped = customerStepperSteps(stepsBeforeLaunch(FULL_STEPS));
-    expect(grouped).toHaveLength(7);
-    expect(grouped.every((step) => step.state === 'waiting')).toBe(true);
   });
 
   it('renders no rungs when an older API omits steps', () => {

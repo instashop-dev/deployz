@@ -104,25 +104,9 @@ export const STAGE_HEADLINE: Record<DeploymentStage, { title: string; body: stri
   },
   FAILED: {
     title: 'Deployment failed',
-    body: "The deployment couldn't finish. The details below explain what happened.",
+    body: 'The deployment stopped before it finished.',
   },
 };
-
-/**
- * The pre-launch card: the deployment is still NOT_INSTALLED, so nothing in
- * AWS is being created yet — the WAITING_FOR_AWS headline ("AWS is creating
- * the secure Deployz connector…") would claim work that has not started.
- * Shown until the customer presses Deploy to AWS.
- */
-export const PRE_LAUNCH_HEADLINE = {
-  title: 'Ready to set up in AWS',
-  body: 'Select Deploy to AWS above. Deployment progress will appear here as soon as AWS starts creating the secure Deployz connector.',
-};
-
-/** Every server-sent step as a not-yet-started row — the pre-launch list. */
-export function stepsBeforeLaunch(steps: DeploymentStep[] | undefined): ProgressStep[] {
-  return (steps ?? []).map((key) => ({ key, label: STEP_LABEL[key].pending, state: 'waiting' }));
-}
 
 /**
  * Copy per deployment step, keyed by the step's own state: `pending` (not
@@ -246,10 +230,10 @@ export function stepsFromStatus({
 }
 
 /**
- * One rung of the customer pages' vertical stepper: a display step that may
- * group several server-sent wire steps (AWS_SETUP + RELAY_CONNECT → "AWS
- * account connected") and may carry the data/cache/migration wire steps as
- * sub-detail rows under it ("Starting application").
+ * One rung of the customer pages' step list: a display step that may group
+ * several server-sent wire steps (AWS_SETUP + RELAY_CONNECT → "Connecting your
+ * AWS account") and may carry wire steps as sub-detail rows under it (the
+ * network, database and cache under "Creating infrastructure").
  */
 export interface StepperStep extends ProgressStep {
   /** Wire steps rendered as compact rows under the label — only the ones the
@@ -257,29 +241,43 @@ export interface StepperStep extends ProgressStep {
   substeps?: ProgressStep[];
 }
 
-/** The customer stepper's seven display steps, in order. Labels are static:
- *  the state lives in the marker, the sr-only wording, and the active step's
- *  live detail — never in a re-worded label. One exception, by design: a
- *  FAILED main step names the failure ("Starting application failed") so a
- *  terminal failure never reads as a step still running. */
+type StepLabels = (typeof STEP_LABEL)[DeploymentStep];
+
+/** The customer step list's rungs, in wire order. A rung without its own
+ *  labels takes its one main step's labels. Data stores are infrastructure,
+ *  not application startup, so a failed database is never shown under
+ *  "Starting application". */
 const STEPPER_GROUPS: readonly {
   key: string;
-  label: string;
+  labels?: StepLabels;
   steps: readonly DeploymentStep[];
   substeps?: readonly DeploymentStep[];
 }[] = [
-  { key: 'account', label: 'AWS account connected', steps: ['AWS_SETUP', 'RELAY_CONNECT'] },
-  { key: 'infrastructure', label: 'Infrastructure prepared', steps: ['PREPARING'] },
-  { key: 'network', label: 'Network ready', steps: ['NETWORK'] },
   {
-    key: 'application',
-    label: 'Starting application',
-    steps: ['APPLICATION'],
-    substeps: ['DATABASE_STORAGE', 'REDIS', 'MIGRATION'],
+    key: 'account',
+    labels: {
+      pending: 'Connect your AWS account',
+      active: 'Connecting your AWS account',
+      failed: 'Connecting your AWS account failed',
+      done: 'AWS account connected',
+    },
+    steps: ['AWS_SETUP', 'RELAY_CONNECT'],
   },
-  { key: 'health', label: 'Health check', steps: ['HEALTH_CHECK'] },
-  { key: 'https', label: 'Configure HTTPS', steps: ['TLS'] },
-  { key: 'ready', label: 'Ready', steps: ['READY'] },
+  {
+    key: 'infrastructure',
+    labels: {
+      pending: 'Create infrastructure',
+      active: 'Creating infrastructure',
+      failed: 'Creating infrastructure failed',
+      done: 'Infrastructure created',
+    },
+    steps: ['PREPARING'],
+    substeps: ['NETWORK', 'DATABASE_STORAGE', 'REDIS'],
+  },
+  { key: 'application', steps: ['APPLICATION'], substeps: ['MIGRATION'] },
+  { key: 'health', steps: ['HEALTH_CHECK'] },
+  { key: 'https', steps: ['TLS'] },
+  { key: 'ready', steps: ['READY'] },
 ];
 
 function stepperGroupState(members: ProgressStep[]): ProgressStepState {
@@ -289,12 +287,20 @@ function stepperGroupState(members: ProgressStep[]): ProgressStepState {
   return 'waiting';
 }
 
+const LABEL_FOR_STATE: Record<ProgressStepState, keyof StepLabels> = {
+  waiting: 'pending',
+  current: 'active',
+  attention: 'failed',
+  done: 'done',
+};
+
 /**
- * Folds the server-sent step list into the customer stepper's grouped rungs.
- * A group is `attention` when any member failed, `current` while any member
+ * Folds the server-sent step list into the customer step list's rungs. A rung
+ * is `attention` when any member failed, `current` while any member
  * (including a substep) is active — inheriting that member's live detail —
- * `done` once every present member finished, and `waiting` otherwise. Groups
- * none of whose wire steps apply are dropped, exactly like the flat list.
+ * `done` once every present member finished, and `waiting` otherwise. Its
+ * label follows its state (ux-guidelines §9: a running step never carries its
+ * done text). Rungs none of whose wire steps apply are dropped.
  */
 export function customerStepperSteps(steps: ProgressStep[]): StepperStep[] {
   const byKey = new Map(steps.map((step) => [step.key, step]));
@@ -309,17 +315,13 @@ export function customerStepperSteps(steps: ProgressStep[]): StepperStep[] {
     const substeps = (group.substeps ?? [])
       .map((key) => byKey.get(key))
       .filter((step): step is ProgressStep => step !== undefined);
-    // A failed MAIN step becomes the rung's title ("Starting application
-    // failed"); a failed substep keeps the static rung title and carries its
-    // own failed wording in its sub-row.
-    const failedMain = group.steps
-      .map((key) => byKey.get(key))
-      .find((step) => step?.state === 'attention');
+    const state = stepperGroupState(members);
+    const labels = group.labels ?? STEP_LABEL[group.steps[0]!];
     return [
       {
         key: group.key,
-        label: failedMain?.label ?? group.label,
-        state: stepperGroupState(members),
+        label: labels[LABEL_FOR_STATE[state]],
+        state,
         detail: activeMember?.detail,
         ...(substeps.length > 0 ? { substeps } : {}),
       },

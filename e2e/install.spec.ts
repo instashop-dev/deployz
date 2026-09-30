@@ -89,14 +89,15 @@ test('install page renders the real application/publisher and the Deploy to AWS 
   const response = await page.goto(`/install/${installLinkId}`);
   expect(response?.status()).toBe(200);
 
-  await expect(page.getByText(applicationName, { exact: true })).toBeVisible();
-  await expect(page.getByText('Deployz will create')).toBeVisible();
-  // The §12 access lists and the data-boundary facts live in the collapsed
-  // security disclosure now.
-  await page.getByRole('button', { name: 'Security and access details' }).click();
-  await expect(page.getByText('Your application data stays in your AWS account')).toBeVisible();
-  await expect(page.getByText('deploy application releases')).toBeVisible();
-  await expect(page.getByText('cannot read your AWS account credentials')).toBeVisible();
+  await expect(
+    page.getByRole('heading', { name: `Deploy ${applicationName} to your AWS account` }),
+  ).toBeVisible();
+  await expect(page.getByText('What Deployz creates in your AWS account')).toBeVisible();
+  // The §12 access lists and the data-boundary facts are in the review's
+  // "What Deployz can access" section — visible without expanding anything.
+  await expect(page.getByText('Your application data and logs stay in your AWS account.')).toBeVisible();
+  await expect(page.getByText(/only calls out to Deployz/)).toBeVisible();
+  await expect(page.getByText(/never sees or stores your AWS credentials/)).toBeVisible();
 
   const cta = page.getByRole('link', { name: 'Review setup in AWS' });
   await expect(cta).toBeVisible();
@@ -119,10 +120,11 @@ test('install page renders the real application/publisher and the Deploy to AWS 
   expect(href).not.toMatch(/installationId/i);
 
   // §44 framing: the customer authenticates at their own cloud provider.
-  await expect(page.getByText(/No Deployz account is required/)).toBeVisible();
-  // Plain-English connector explanation — inside the disclosure.
-  await expect(page.getByText(/calls out to Deployz on a schedule/).first()).toBeVisible();
-  // The unique installation reference is shown.
+  await expect(page.getByText(/You do not need a Deployz account/)).toBeVisible();
+  // Plain-English connector explanation — visible in the access section.
+  await expect(page.getByText(/only calls out to Deployz/).first()).toBeVisible();
+  // The unique installation reference is shown, under Technical details.
+  await page.getByRole('button', { name: 'Technical details' }).click();
   await expect(page.getByText(installLinkId)).toBeVisible();
 });
 
@@ -136,9 +138,9 @@ test('install page top-level copy is jargon-free', async ({ page, request }) => 
   // reviews before anything is created.
   const prose = [
     await page.locator('h1').innerText(),
-    await page.locator('section[aria-labelledby="what-happens-next"]').innerText(),
-    await page.locator('section[aria-labelledby="security-facts"]').innerText(),
-    await page.locator('section[aria-label="Install actions"]').innerText(),
+    await page.locator('section[aria-labelledby="install-resources"]').innerText(),
+    await page.locator('section[aria-labelledby="install-access"]').innerText(),
+    await page.locator('section[aria-labelledby="connect-aws"]').innerText(),
   ].join('\n');
   expect(prose).not.toMatch(/\b(IAM|ECS|ALB|Lambda|VPC)\b/);
 });
@@ -156,8 +158,10 @@ test('security page top level is jargon-free and tells the honest story', async 
   await expect(page.getByRole('heading', { name: 'Security details' })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Exact AWS resources created' })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'How it fits together' })).toBeVisible();
-  await expect(page.getByRole('heading', { name: 'What the relay can do' })).toBeVisible();
-  await expect(page.getByRole('heading', { name: 'What the relay can never do' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'What the Deployz connector can do' })).toBeVisible();
+  await expect(
+    page.getByRole('heading', { name: 'What the Deployz connector can never do' }),
+  ).toBeVisible();
   await expect(page.getByRole('heading', { name: 'The honest version' })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Data sent to Deployz' })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Data not sent to Deployz' })).toBeVisible();
@@ -211,14 +215,13 @@ test('security page reveals the actual permissions only after expanding', async 
 test('install page links to security details and back', async ({ page, request }) => {
   const { installLinkId } = await seedInstall(request);
   await page.goto(`/install/${installLinkId}`);
-  await page.getByRole('button', { name: 'Security and access details' }).click();
-  await page.getByRole('link', { name: 'Inspect the template and permissions' }).click();
+  await page.getByRole('link', { name: 'Security details' }).click();
   await page.waitForURL(`**/install/${installLinkId}/security`);
   await expect(page.getByRole('heading', { name: 'Security details' })).toBeVisible();
 
   await page.getByRole('link', { name: 'Back to install' }).click();
   await page.waitForURL(`**/install/${installLinkId}`);
-  await expect(page.getByText('Deployz will create')).toBeVisible();
+  await expect(page.getByText('What Deployz creates in your AWS account')).toBeVisible();
 });
 
 test('a setup link that has already been used says so instead of leading to a dead end', async ({
@@ -325,6 +328,8 @@ test('pressing Deploy to AWS reports the launch and the page then waits for the 
   await expect(
     page.getByRole('heading', { name: 'Setting up your AWS connection' }),
   ).toBeVisible();
+  // The console link and expected stack name sit under Technical details now.
+  await page.getByRole('button', { name: 'Technical details' }).click();
   await expect(page.getByRole('link', { name: 'Open AWS CloudFormation' })).toBeVisible();
   await expect(page.getByText(deploymentId.slice(0, 8))).toBeVisible();
 

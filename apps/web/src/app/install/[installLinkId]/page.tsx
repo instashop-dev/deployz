@@ -1,22 +1,24 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
-import { ChevronDown, Loader2 } from 'lucide-react';
+import { Loader2 } from 'lucide-react';
 
-import { FootprintCost } from '@/components/footprint-cost';
+import { CustomerInstallReview } from '@/components/customer-install-review';
 import { InstallLaunchButton } from '@/components/install-launch-button';
-import { InstallPlanTable } from '@/components/install-plan-table';
 import { InstallProgress } from '@/components/install-progress';
 import { InstallRetryButton } from '@/components/install-retry-button';
 import { InvitationTokenGate } from '@/components/invitation-token-gate';
 import { PublicInstallFlow } from '@/components/public-install-flow';
+import { TechnicalDetails } from '@/components/technical-details';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { RELAY_STUCK_GUIDANCE } from '@/lib/deployment-vocabulary';
 import { cloudFormationStacksUrl } from '@/lib/aws-console';
 import { fetchInstallData } from '@/lib/install-data';
-import { formatMonthlyRange } from '@/lib/footprint';
-import { installPlanRegionLabel, installPlanRetentionNote, RETENTION_CHARGES_NOTE } from '@/lib/install-plan';
+import {
+  installPlanRegionLabel,
+  installPlanRetainedComponents,
+  RETENTION_CHARGES_NOTE,
+} from '@/lib/install-plan';
 import { fetchPublicInstallData } from '@/lib/public-install-data';
 import { publicInstallErrorMessage } from '@/lib/public-install-types';
 import { fetchInstallStatusServer } from '@/lib/install-status';
@@ -44,6 +46,7 @@ export default async function InstallPage({
   params: Promise<{ installLinkId: string }>;
 }) {
   const { installLinkId } = await params;
+  const securityHref = `/install/${encodeURIComponent(installLinkId)}/security`;
 
   // Public install links expose an app-level review/confirm flow. Try that
   // surface first; a 404 means this id is a per-deployment install link, so
@@ -60,7 +63,7 @@ export default async function InstallPage({
           This application cannot be installed
         </h1>
         <Alert variant="destructive">
-          <AlertTitle>Installation unavailable</AlertTitle>
+          <AlertTitle>Install link unavailable</AlertTitle>
           <AlertDescription>{publicInstallErrorMessage(publicLookup.code)}</AlertDescription>
         </Alert>
       </div>
@@ -82,7 +85,7 @@ export default async function InstallPage({
     return (
       <div className="flex flex-col gap-4">
         <h1 className="text-2xl font-semibold tracking-tight">
-          {revoked ? 'This installation link was revoked' : 'This installation link has expired'}
+          {revoked ? 'This install link was revoked' : 'This install link has expired'}
         </h1>
         <p className="max-w-md text-sm text-muted-foreground">{lookup.message}</p>
       </div>
@@ -100,13 +103,12 @@ export default async function InstallPage({
 
   const data = lookup.data;
 
-  // The customer pressed "Deploy to AWS" and the control plane is waiting
-  // for the relay to enroll. Never a failure: past the staleness window the
-  // page shows guidance and a retry instead. The enrollment code is spent
-  // only when a relay actually connects, so this state needs no "already
-  // used" warning.
+  // The customer pressed "Review setup in AWS" and the control plane is
+  // waiting for the connector to enroll. Never a failure: past the staleness
+  // window the page shows guidance and "Retry connection" instead. The
+  // enrollment code is spent only when a connector actually connects, so this
+  // state needs no "already used" warning.
   if (data.waitingForRelay) {
-    const cloudFormationUrl = cloudFormationStacksUrl(data.region);
     return (
       <div className="flex flex-col gap-8">
         <div>
@@ -116,9 +118,9 @@ export default async function InstallPage({
           </p>
         </div>
 
-        {/* Live six-stage progress; `preinstall` refreshes this server-
-            rendered layout the moment the relay enrolls and the stage moves
-            past WAITING_FOR_AWS. */}
+        {/* Live progress; `preinstall` refreshes this server-rendered layout
+            the moment the connector enrolls and the stage moves past
+            WAITING_FOR_AWS. */}
         <InstallProgress
           installLinkId={installLinkId}
           deploymentId={data.deploymentId}
@@ -129,54 +131,42 @@ export default async function InstallPage({
           preinstall
         />
 
-        <section aria-labelledby="install-waiting" className="flex flex-col gap-3">
-          {data.relayStuck ? (
-            <>
-              <h2 id="install-waiting" className="text-base font-semibold">
-                Still connecting
-              </h2>
-              <div className="flex items-start gap-3">
-                <Loader2 aria-hidden className="mt-0.5 size-4 shrink-0 animate-spin text-muted-foreground" />
-                <p className="text-sm text-muted-foreground">{RELAY_STUCK_GUIDANCE}</p>
-              </div>
-            </>
-          ) : (
-            <h2 id="install-waiting" className="sr-only">
-              AWS setup details
+        {data.relayStuck ? (
+          <section aria-labelledby="install-waiting" className="flex flex-col gap-3">
+            <h2 id="install-waiting" className="text-base font-semibold">
+              Still connecting
             </h2>
-          )}
-          <p className="text-xs text-muted-foreground">
-            Expected stack name:{' '}
-            <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-xs">
-              {data.bootstrapStackName}
-            </code>
-          </p>
-          <div className="flex flex-wrap items-start gap-2">
-            {data.relayStuck ? <InstallRetryButton installLinkId={installLinkId} /> : null}
-            <Button asChild variant="outline">
-              <a href={cloudFormationUrl} target="_blank" rel="noreferrer">
-                Open AWS CloudFormation
-              </a>
-            </Button>
-            <Button asChild variant="ghost" size="lg">
-              <Link href={`/install/${encodeURIComponent(installLinkId)}/security`}>
-                Security details
-              </Link>
-            </Button>
-          </div>
-        </section>
+            <div className="flex items-start gap-3">
+              <Loader2 aria-hidden className="mt-0.5 size-4 shrink-0 animate-spin text-muted-foreground" />
+              <p className="text-sm text-muted-foreground">{RELAY_STUCK_GUIDANCE}</p>
+            </div>
+            <InstallRetryButton installLinkId={installLinkId} />
+          </section>
+        ) : null}
 
-        <p className="text-xs text-muted-foreground">
-          Installation reference:{' '}
-          <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-xs">{installLinkId}</code>
-        </p>
+        <Button asChild variant="link" className="h-auto w-fit px-0">
+          <Link href={securityHref}>Security details</Link>
+        </Button>
+
+        <TechnicalDetails>
+          <ReferenceRow label="Expected stack name" value={data.bootstrapStackName} />
+          <ReferenceRow label="Installation reference" value={installLinkId} />
+          <a
+            className="w-fit text-sm font-medium underline underline-offset-4"
+            href={cloudFormationStacksUrl(data.region)}
+            target="_blank"
+            rel="noreferrer"
+          >
+            Open AWS CloudFormation
+          </a>
+        </TechnicalDetails>
       </div>
     );
   }
 
-  // The enrollment code is single use. Once a relay has traded it, running the
-  // setup again would fail at the point of no return — after the customer has
-  // approved a stack in their own account — so say so before they start.
+  // The enrollment code is single use. Once a connector has traded it,
+  // running the setup again would fail at the point of no return — after the
+  // customer has approved a stack in their own account.
   if (data.alreadyInstalled) {
     const removed = data.deploymentState === 'DELETING' || data.deploymentState === 'DELETED';
     return (
@@ -184,103 +174,58 @@ export default async function InstallPage({
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">{data.applicationName}</h1>
           <p className="mt-2 text-sm text-muted-foreground">
-            {removed ? 'This deployment was removed' : `Deployed by ${data.publisherName}`}
+            {removed ? `Published by ${data.publisherName}` : `Deployed by ${data.publisherName}`}
           </p>
         </div>
 
         {removed ? (
-          <section aria-labelledby="deployment-access" className="flex flex-col gap-3">
-            <h2 id="deployment-access" className="text-base font-semibold">
-              Deployment removed
-            </h2>
-            <p className="text-sm text-muted-foreground">
-              {data.publisherName} removed this deployment. Contact them if you did not expect this.
-            </p>
-            {data.deploymentState === 'DELETED' && data.bootstrapStackName ? (
-              // The connector stack was created by the customer's own Quick
-              // Create, so Deployz cannot delete it for them (CANARY-014).
-              // This page cannot tell a normal removal apart from one where
-              // {publisher} has already deleted the retained data
-              // (UX-BACKEND-001), so it states what a normal removal always
-              // leaves behind rather than claiming only the connector
-              // remains (docs/architecture.md § Disconnect, purge and
-              // retained data).
-              <>
-                <p className="text-sm text-muted-foreground">
-                  The application and most of its networking were removed from your AWS account. The
-                  database, its stored files, and the network parts they use can
-                  remain, along with the Deployz connector stack{' '}
-                  <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-xs">
-                    {data.bootstrapStackName}
-                  </code>
-                  . Retained resources can keep costing money in your AWS account until they are
-                  deleted.
-                </p>
-                <p className="text-sm text-muted-foreground">
-                  Ask {data.publisherName} to delete the retained data, or delete it yourself in the
-                  AWS console. Keep the connector stack until that data is deleted — deletion runs
-                  through it — then delete the connector stack too.
-                </p>
-                <div>
-                  <Button asChild variant="outline">
-                    <a
-                      href={cloudFormationStacksUrl(data.region, data.bootstrapStackName ?? undefined)}
-                      target="_blank"
-                      rel="noreferrer"
-                    >
-                      Open AWS CloudFormation
-                    </a>
-                  </Button>
-                </div>
-              </>
-            ) : null}
-          </section>
+          <RemovedDeployment
+            deleting={data.deploymentState === 'DELETING'}
+            publisherName={data.publisherName}
+            retainedNames={installPlanRetainedComponents(data.plan).map((component) => component.name)}
+            region={data.region}
+            connectorStackName={data.bootstrapStackName}
+          />
         ) : (
           // CONNECTING through READY, plus a terminal FAILED, all live here:
           // InstallProgress polls the server-derived stage and — once the
           // stage reaches VERIFYING/READY — also renders the Access section
           // and the custom-domain card itself, so this branch doesn't need
           // its own stage logic.
-          <>
-            <InstallProgress
-              installLinkId={installLinkId}
-              deploymentId={data.deploymentId}
-              initialStatus={initialStatus}
-              quickCreateUrl={data.quickCreateUrl}
-              initialDomain={data.domain}
-              routingTarget={data.routingTarget}
-            />
-          </>
+          <InstallProgress
+            installLinkId={installLinkId}
+            deploymentId={data.deploymentId}
+            initialStatus={initialStatus}
+            quickCreateUrl={data.quickCreateUrl}
+            initialDomain={data.domain}
+            routingTarget={data.routingTarget}
+          />
         )}
 
         {/* Security Details stays reachable in every post-launch state —
             installing, ready, failed, and removed alike. */}
-        <Button asChild variant="ghost" size="lg">
-          <Link href={`/install/${encodeURIComponent(installLinkId)}/security`}>
-            Security details
-          </Link>
+        <Button asChild variant="link" className="h-auto w-fit px-0">
+          <Link href={securityHref}>Security details</Link>
         </Button>
 
         <p className="text-xs text-muted-foreground">
           {/* The link is consumed as soon as the connector trades its
               enrollment code — long before the install finishes — so this
               says the link is spent without claiming the app is running. */}
-          {`This setup link has been used. To install again, ask ${data.publisherName} for a new link.`}
+          {`This install link has been used. To install again, ask ${data.publisherName} for a new link.`}
         </p>
       </div>
     );
   }
 
-  const retentionNote = installPlanRetentionNote(data.plan);
   const regionLabel = installPlanRegionLabel(data.region);
-  const costRange = formatMonthlyRange(
-    data.plan?.costEstimate?.monthlyMin ?? null,
-    data.plan?.costEstimate?.monthlyMax ?? null,
-  );
   const expiryLabel = data.installLinkExpiresAt
     ? new Date(data.installLinkExpiresAt).toLocaleDateString(undefined, { dateStyle: 'medium' })
     : null;
 
+  // Not launched yet: the one review surface (ux-guidelines §1) — what, where,
+  // what is created, cost, access, retained data — then the AWS connection
+  // step with its single primary action.
   return (
     <div className="mx-auto flex w-full max-w-3xl flex-col gap-10">
       <header className="flex flex-col gap-4">
@@ -288,39 +233,19 @@ export default async function InstallPage({
           <h1 className="text-3xl font-semibold tracking-tight">
             Deploy {data.applicationName} to your AWS account
           </h1>
-          <p className="text-sm text-muted-foreground">
-            Requested by {data.publisherName} · Unlisted deployment link
-          </p>
+          <p className="text-sm text-muted-foreground">Published by {data.publisherName}</p>
         </div>
-        <dl className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+        <dl className="grid grid-cols-1 gap-4 sm:grid-cols-3">
           <div>
-            <dt className="text-xs font-medium uppercase text-muted-foreground">Application</dt>
-            <dd className="mt-1 text-sm font-medium">{data.applicationName}</dd>
+            <dt className="text-xs font-medium uppercase text-muted-foreground">Region</dt>
+            <dd className="mt-1 text-sm font-medium">{regionLabel ?? data.region}</dd>
           </div>
-          <div>
-            <dt className="text-xs font-medium uppercase text-muted-foreground">Publisher</dt>
-            <dd className="mt-1 text-sm font-medium">{data.publisherName}</dd>
-          </div>
-          {regionLabel ? (
-            <div>
-              <dt className="text-xs font-medium uppercase text-muted-foreground">Region</dt>
-              <dd className="mt-1 text-sm font-medium">{regionLabel}</dd>
-            </div>
-          ) : null}
           {data.releaseVersion ? (
             <div>
               <dt className="text-xs font-medium uppercase text-muted-foreground">Release</dt>
               <dd className="mt-1 text-sm font-medium">{data.releaseVersion}</dd>
             </div>
           ) : null}
-          <div>
-            <dt className="text-xs font-medium uppercase text-muted-foreground">
-              Estimated monthly AWS cost
-            </dt>
-            <dd className="mt-1 text-sm font-medium">
-              {costRange ?? 'Estimate unavailable'}
-            </dd>
-          </div>
           {expiryLabel ? (
             <div>
               <dt className="text-xs font-medium uppercase text-muted-foreground">
@@ -330,132 +255,141 @@ export default async function InstallPage({
             </div>
           ) : null}
         </dl>
-        {retentionNote ? (
-          <p className="text-sm text-muted-foreground" data-testid="install-retention-warning">
-            {retentionNote} {RETENTION_CHARGES_NOTE}
-          </p>
-        ) : null}
       </header>
 
-      <section aria-labelledby="infrastructure" className="flex flex-col gap-3">
-        <h2 id="infrastructure" className="text-base font-semibold">
-          What Deployz will create
+      <CustomerInstallReview
+        plan={data.plan}
+        securityHref={securityHref}
+        technicalExtra={<ReferenceRow label="Installation reference" value={installLinkId} />}
+      />
+
+      <section aria-labelledby="connect-aws" className="flex flex-col gap-3">
+        <h2 id="connect-aws" className="text-base font-semibold">
+          Connect your AWS account
         </h2>
-        <InstallPlanTable plan={data.plan} regionLabel={regionLabel} />
         <p className="text-sm text-muted-foreground">
-          Retained resources stay in your AWS account when the application is disconnected. Delete
-          them from the AWS console, or ask {data.publisherName} to purge them, to stop their
-          charges.
+          {data.applicationName} runs in your own AWS account. To set it up, you approve the Deployz
+          connector there.
         </p>
-        <FootprintCost estimate={data.plan?.costEstimate} />
-      </section>
-
-      <section aria-labelledby="what-happens-next" className="flex flex-col gap-3">
-        <h2 id="what-happens-next" className="text-base font-semibold">
-          What happens next
-        </h2>
         <ol className="flex list-decimal flex-col gap-2 pl-5 text-sm text-muted-foreground">
-          <li>Review the setup in AWS.</li>
-          <li>Approve creation of the Deployz connector.</li>
-          <li>Deployz prepares the infrastructure, starts the application and verifies HTTPS.</li>
+          <li>Select Review setup in AWS. The AWS console opens in a new tab.</li>
+          <li>Check the AWS account and Region, then create the Deployz connector stack.</li>
+          <li>
+            Deployz creates the infrastructure and starts the application. Progress shows on this
+            page.
+          </li>
         </ol>
-      </section>
-
-      <section aria-labelledby="security-facts" className="flex flex-col gap-3">
-        <h2 id="security-facts" className="text-base font-semibold">
-          Your security and access
-        </h2>
-        <ul className="flex list-disc flex-col gap-1.5 pl-5 text-sm text-muted-foreground">
-          <li>Your AWS credentials stay in your AWS account — Deployz never sees or stores them.</li>
-          <li>
-            Your application data stays in your AWS account. Retained data survives a disconnect
-            until the publisher purges it or you delete it.
-          </li>
-          <li>
-            The Deployz connector only calls out to Deployz on a schedule. No inbound access to
-            your account is required.
-          </li>
-        </ul>
-        <Collapsible>
-          <CollapsibleTrigger asChild>
-            <Button variant="outline" size="sm" className="w-fit">
-              Security and access details
-              <ChevronDown aria-hidden className="ml-2 size-4" />
-            </Button>
-          </CollapsibleTrigger>
-          <CollapsibleContent className="flex flex-col gap-5 pt-4">
-            <div className="flex flex-col gap-2">
-              <h3 className="text-sm font-medium">Access granted to Deployz</h3>
-              <p className="text-sm text-muted-foreground">
-                The Deployz connector can deploy application releases, check deployment status, run
-                health checks, update the application, roll back the application version, and manage
-                the resources Deployz created for this deployment.
-              </p>
-            </div>
-            <div className="flex flex-col gap-2">
-              <h3 className="text-sm font-medium">Access boundaries</h3>
-              <p className="text-sm text-muted-foreground">
-                Deployz cannot read your AWS account credentials, cannot access AWS resources it did
-                not create, cannot administer applications unrelated to Deployz, and cannot read your
-                application data directly. Its permissions are scoped to the resources this
-                deployment creates.
-              </p>
-            </div>
-            <div className="flex flex-col gap-2">
-              <h3 className="text-sm font-medium">How the Deployz connector works</h3>
-              <p className="text-sm text-muted-foreground">
-                The connector runs as an AWS Lambda function in your account and calls out to Deployz
-                on a schedule to ask for work — Deployz never connects in. Its credential is stored in
-                a Secrets Manager secret in your account. It performs install, update, rollback,
-                restart, configuration and teardown work through your own AWS APIs. Only deployment
-                status and metadata leave your account; application data and logs stay in your
-                CloudWatch. The connector belongs to this deployment only and is created once during
-                setup — a new deployment gets its own connector. It is removed when you delete its
-                CloudFormation stack. If Deployz is temporarily offline, your application keeps running
-                — the connector simply waits for the next check-in.
-              </p>
-            </div>
-            <Button asChild variant="outline" size="sm" className="w-fit">
-              <Link href={`/install/${encodeURIComponent(installLinkId)}/security`}>
-                Inspect the template and permissions
-              </Link>
-            </Button>
-          </CollapsibleContent>
-        </Collapsible>
-      </section>
-
-      <section aria-label="Install actions" className="flex flex-col gap-3">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-          {data.quickCreateUrl ? (
-            <InstallLaunchButton
-              installLinkId={installLinkId}
-              quickCreateUrl={data.quickCreateUrl}
-            />
-          ) : (
-            <Button size="lg" disabled>
+        {data.quickCreateUrl ? (
+          <InstallLaunchButton installLinkId={installLinkId} quickCreateUrl={data.quickCreateUrl} />
+        ) : (
+          <>
+            <Button size="lg" className="w-fit" disabled>
               Review setup in AWS
             </Button>
-          )}
-        </div>
-        <p className="text-sm text-muted-foreground">
-          You&apos;ll review the CloudFormation setup in AWS before anything is created. No Deployz
-          account is required.
-        </p>
-        <p className="text-xs text-muted-foreground">
-          Requires an AWS identity that can create CloudFormation stacks and the resources listed
-          above.
-        </p>
-        {!data.quickCreateUrl && (
-          <p className="text-xs text-muted-foreground">
-            {data.publisherName} hasn&apos;t published a setup template yet. Contact them for a
-            working link.
-          </p>
+            <p className="text-sm text-muted-foreground">
+              {data.publisherName} hasn&apos;t published a setup template yet. Contact them for a
+              working link.
+            </p>
+          </>
         )}
         <p className="text-xs text-muted-foreground">
-          Installation reference:{' '}
-          <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-xs">{installLinkId}</code>
+          You need an AWS identity that can create CloudFormation stacks and the resources listed
+          above. You do not need a Deployz account.
         </p>
       </section>
     </div>
+  );
+}
+
+function ReferenceRow({ label, value }: { label: string; value: string | null }) {
+  if (!value) return null;
+  return (
+    <p className="text-xs text-muted-foreground">
+      {label}:{' '}
+      <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-xs">{value}</code>
+    </p>
+  );
+}
+
+/**
+ * The customer's removed page (ux-guidelines §7). This data carries no
+ * cleanup state for a removed deployment (UX-BACKEND-001), so it cannot tell
+ * a normal removal from one after the retained data was deleted, or from a
+ * forced one. It names what CAN remain, from the deployment's plan, and never
+ * claims a cleanup Deployz did not verify.
+ */
+function RemovedDeployment({
+  deleting,
+  publisherName,
+  retainedNames,
+  region,
+  connectorStackName,
+}: {
+  deleting: boolean;
+  publisherName: string;
+  retainedNames: string[];
+  region: string;
+  connectorStackName: string | null;
+}) {
+  if (deleting) {
+    return (
+      <section aria-labelledby="deployment-removed" className="flex flex-col gap-3">
+        <h2 id="deployment-removed" className="text-base font-semibold">
+          Removing deployment
+        </h2>
+        <p className="text-sm text-muted-foreground">
+          {publisherName} is removing this deployment from your AWS account. Contact them if you did
+          not expect this.
+        </p>
+      </section>
+    );
+  }
+
+  return (
+    <section aria-labelledby="deployment-removed" className="flex flex-col gap-3">
+      <h2 id="deployment-removed" className="text-base font-semibold">
+        Deployment removed
+      </h2>
+      <p className="text-sm text-muted-foreground">
+        {publisherName} removed this deployment. The application no longer runs. Contact them if
+        you did not expect this.
+      </p>
+      <div className="flex flex-col gap-1.5">
+        <h3 className="text-sm font-medium">What can remain in your AWS account</h3>
+        <ul className="flex list-disc flex-col gap-1 pl-5 text-sm text-muted-foreground">
+          {retainedNames.map((name) => (
+            <li key={name}>{name}</li>
+          ))}
+          <li>
+            The Deployz connector
+            {connectorStackName ? (
+              <>
+                {' '}
+                (stack{' '}
+                <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-xs">
+                  {connectorStackName}
+                </code>
+                )
+              </>
+            ) : null}
+          </li>
+        </ul>
+      </div>
+      <p className="text-sm text-muted-foreground">{RETENTION_CHARGES_NOTE}</p>
+      <p className="text-sm text-muted-foreground">
+        To delete them, ask {publisherName} to delete the retained data, or delete them in the AWS
+        console. Keep the connector stack until the retained data is deleted, because the deletion
+        runs through it. Then delete the connector stack.
+      </p>
+      <Button asChild variant="outline" className="w-fit">
+        <a
+          href={cloudFormationStacksUrl(region, connectorStackName ?? undefined)}
+          target="_blank"
+          rel="noreferrer"
+        >
+          Open AWS CloudFormation
+        </a>
+      </Button>
+    </section>
   );
 }

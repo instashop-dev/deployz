@@ -348,7 +348,7 @@ function DomainStatusBody({
             </a>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <Button asChild size="sm">
+            <Button asChild size="sm" variant="outline">
               <a href={`https://${domain.hostname}`} target="_blank" rel="noreferrer">
                 Open domain
                 <ExternalLink aria-hidden className="size-3.5" />

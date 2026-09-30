@@ -3,10 +3,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 
-import { AwsInfrastructureDetails } from '@/components/aws-infrastructure-details';
+import { CustomerInstallReview } from '@/components/customer-install-review';
 import { Badge } from '@/components/ui/badge';
-import { FootprintCost } from '@/components/footprint-cost';
-import { FootprintSummary } from '@/components/footprint-summary';
 import { SecretInput } from '@/components/secret-input';
 import { Spinner } from '@/components/ui/spinner';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
@@ -20,9 +18,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { InstallPlanComponentTable } from '@/components/install-plan-component-table';
-import { TablePanel } from '@/components/table-panel';
-import { installPlanRegionLabel, installPlanRetentionNote, RETENTION_CHARGES_NOTE } from '@/lib/install-plan';
+import { installPlanRegionLabel } from '@/lib/install-plan';
 import { fetchPublicInstallPlan } from '@/lib/public-install-data';
 import { confirmPublicInstall } from '@/lib/public-install-confirm';
 import { SECRET_HANDLING_STATEMENT } from '@/lib/security-details';
@@ -90,8 +86,6 @@ export function PublicInstallFlow({ linkId, resolve, token, customerKnown = fals
     });
   }, [linkId, region, token]);
 
-  const retentionNote = useMemo(() => installPlanRetentionNote(plan), [plan]);
-
   const settingErrors = useMemo(
     () =>
       Object.fromEntries(
@@ -102,11 +96,18 @@ export function PublicInstallFlow({ linkId, resolve, token, customerKnown = fals
   const settingsValid = resolve.requiredInputs.every((input) => settingErrors[input.key] === null);
   const settingsCompleteCount = resolve.requiredInputs.filter((input) => settingErrors[input.key] === null).length;
   const settingsTotal = resolve.requiredInputs.length;
+  const detailsMissing = !customerKnown && (customerName.trim() === '' || customerEmail.trim() === '');
 
-  const canSubmit =
-    region !== '' &&
-    settingsValid &&
-    (customerKnown || (customerName.trim() !== '' && customerEmail.trim() !== ''));
+  const canSubmit = region !== '' && settingsValid && !detailsMissing;
+  // One line under the action names what still blocks it, in form order.
+  const blockedReason =
+    region === ''
+      ? 'Select an AWS Region to continue.'
+      : !settingsValid
+        ? 'Complete the required application settings to continue.'
+        : detailsMissing
+          ? 'Enter your name and email to continue.'
+          : null;
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -162,39 +163,13 @@ export function PublicInstallFlow({ linkId, resolve, token, customerKnown = fals
           Install {resolve.application.name}
         </h1>
         <p className="mt-2 text-sm text-muted-foreground">
-          Published by {resolve.publisher.name}
+          Published by {resolve.publisher.name} · Release {resolve.release.version}
         </p>
       </div>
 
-      <section aria-labelledby="public-identity" className="flex flex-col gap-4">
-        <h2 id="public-identity" className="text-base font-semibold">
-          Application
-        </h2>
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-          <div>
-            <h3 className="text-xs font-medium uppercase text-muted-foreground">
-              Application
-            </h3>
-            <p className="mt-1 text-sm font-medium">{resolve.application.name}</p>
-          </div>
-          <div>
-            <h3 className="text-xs font-medium uppercase text-muted-foreground">
-              Publisher
-            </h3>
-            <p className="mt-1 text-sm font-medium">{resolve.publisher.name}</p>
-          </div>
-          <div>
-            <h3 className="text-xs font-medium uppercase text-muted-foreground">
-              Release
-            </h3>
-            <p className="mt-1 text-sm font-medium">Release {resolve.release.version}</p>
-          </div>
-        </div>
-      </section>
-
       <section aria-labelledby="public-region" className="flex flex-col gap-3">
         <h2 id="public-region" className="text-base font-semibold">
-          AWS region
+          AWS Region
         </h2>
         {resolve.recommendedRegion ? (
           <p className="text-sm text-muted-foreground">
@@ -216,7 +191,21 @@ export function PublicInstallFlow({ linkId, resolve, token, customerKnown = fals
             ))}
           </SelectContent>
         </Select>
+        {planLoading ? (
+          <p className="flex items-center gap-2 text-sm text-muted-foreground" aria-live="polite">
+            <Spinner aria-hidden /> Updating the plan and estimate for this Region…
+          </p>
+        ) : null}
       </section>
+
+      <CustomerInstallReview
+        plan={plan}
+        estimateUnavailable={estimateUnavailable}
+        // A new tab has no copy of this tab's stored invitation token, so the
+        // token travels the way the invitation link carries it: as a fragment.
+        securityHref={`/install/${encodeURIComponent(linkId)}/security${token ? `#${encodeURIComponent(token)}` : ''}`}
+        securityInNewTab
+      />
 
       {settingsTotal > 0 ? (
         <section aria-labelledby="public-config" className="flex flex-col gap-4">
@@ -325,66 +314,24 @@ export function PublicInstallFlow({ linkId, resolve, token, customerKnown = fals
         </section>
       )}
 
-      <section aria-labelledby="public-review" className="flex flex-col gap-3">
-        <h2 id="public-review" className="text-base font-semibold">
-          Review
-        </h2>
+      <section aria-label="Deploy actions" className="flex flex-col gap-3">
         <p className="text-sm text-muted-foreground">
-          You choose the AWS Region and the settings above; Deployz decides the resources below.
-        </p>
-        <TablePanel>
-          <InstallPlanComponentTable plan={plan} />
-        </TablePanel>
-        <FootprintSummary footprint={plan.footprint} stage="planned" />
-        <AwsInfrastructureDetails plan={plan} region={region} />
-        {region ? (
-          <p className="text-sm text-muted-foreground">
-            Region: {installPlanRegionLabel(region) ?? region}
-          </p>
-        ) : null}
-        {planLoading ? (
-          <p className="flex items-center gap-2 text-sm text-muted-foreground" aria-live="polite">
-            <Spinner aria-hidden /> Updating estimate…
-          </p>
-        ) : null}
-        {retentionNote ? (
-          <p className="text-sm text-muted-foreground" data-testid="install-retention-warning">
-            {retentionNote} {RETENTION_CHARGES_NOTE}
-          </p>
-        ) : null}
-        {estimateUnavailable ? (
-          <p className="text-sm text-muted-foreground">Estimate unavailable for this Region.</p>
-        ) : (
-          <FootprintCost estimate={plan.costEstimate} />
-        )}
-        <p className="text-sm text-muted-foreground">
-          {canSubmit
-            ? 'All required values are filled. You can deploy.'
-            : 'Fill all required values to deploy.'}
-        </p>
-      </section>
-
-      <section aria-label="Deploy actions" className="flex flex-col gap-4">
-        <p className="text-sm text-muted-foreground">
-          Verify your AWS account and Region in the AWS console before stack creation.
+          Next, you connect your AWS account. Nothing is created in AWS until you approve it there.
         </p>
         <Button
           size="lg"
           type="submit"
+          className="w-fit"
           disabled={!canSubmit || pending}
           loading={pending}
           loadingText="Preparing deployment…"
         >
           Continue to setup
         </Button>
-        {!settingsValid ? (
-          <p className="text-sm text-muted-foreground">
-            Complete the required application settings to continue.
-          </p>
-        ) : null}
+        {blockedReason ? <p className="text-sm text-muted-foreground">{blockedReason}</p> : null}
         {error ? (
           <Alert variant="destructive">
-            <AlertTitle>Installation failed</AlertTitle>
+            <AlertTitle>Setup could not continue</AlertTitle>
             <AlertDescription>{error}</AlertDescription>
           </Alert>
         ) : null}

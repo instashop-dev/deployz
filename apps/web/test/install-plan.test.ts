@@ -1,58 +1,13 @@
 import { describe, expect, it } from 'vitest';
 
-import { resolveDeploymentFootprint } from '@deployz/contracts';
-import type { DeploymentManifest, DeploymentPlan, FootprintResource } from '@deployz/contracts';
+import type { DeploymentPlan } from '@deployz/contracts';
 import {
   awsResourceGroups,
   awsResourceRemovalLabel,
   installPlanRegionLabel,
   installPlanRetentionNote,
-  installPlanResourceGroups,
   installPlanRows,
 } from '../src/lib/install-plan';
-
-function manifestWith(overrides: Partial<DeploymentManifest> = {}): DeploymentManifest {
-  return {
-    schemaVersion: 1,
-    application: { root: '.', runtime: 'node', framework: null, dockerfilePath: 'Dockerfile' },
-    build: { command: 'npm run build', context: '.' },
-    web: { command: 'npm start', port: 3000 },
-    health: { path: '/health' },
-    database: { postgres: false },
-    redis: { required: false, envBindings: [] },
-    storage: { required: false, envBindings: [] },
-    migration: { command: null },
-    worker: { command: null },
-    environment: { variables: [] },
-    externalServices: [],
-    unsupported: [],
-    ...overrides,
-  };
-}
-
-const WORKERS_MANIFEST = manifestWith({
-  worker: { command: 'npm run email' },
-  workers: [
-    { id: 'email-worker', command: 'npm run email', source: 'Procfile' },
-    { id: 'import-worker', command: 'npm run import', source: 'Procfile' },
-  ],
-});
-
-function footprintPlan(overrides: {
-  manifest?: DeploymentManifest;
-  awsResources?: DeploymentPlan['awsResources'];
-}): DeploymentPlan {
-  const footprint = resolveDeploymentFootprint({ manifest: overrides.manifest ?? manifestWith(), region: 'us-east-1' });
-  return {
-    schemaVersion: 1,
-    action: 'INSTALL',
-    region: 'us-east-1',
-    components: [],
-    awsResources: overrides.awsResources ?? [],
-    footprint,
-    requirementDrift: [],
-  };
-}
 
 function plan(overrides: Partial<DeploymentPlan> = {}): DeploymentPlan {
   return {
@@ -93,7 +48,13 @@ describe('installPlanRows', () => {
   it('returns the fallback application row when the plan is null', () => {
     const rows = installPlanRows(null);
     expect(rows).toEqual([
-      { kind: 'application', group: 'application', name: 'Application', whatHappens: 'Runs your application' },
+      {
+        kind: 'application',
+        group: 'application',
+        name: 'Application',
+        whatHappens: 'Runs your application',
+        retained: false,
+      },
     ]);
   });
 
@@ -118,6 +79,7 @@ describe('installPlanRows', () => {
         group: 'data',
         name: 'Database',
         whatHappens: 'Stores persistent application data',
+        retained: true,
       },
     ]);
   });
@@ -220,100 +182,5 @@ describe('awsResourceGroups', () => {
       }),
     );
     expect(groups.map((entry) => entry.group)).toEqual(['compute_networking', 'security_operations']);
-  });
-});
-
-describe('installPlanResourceGroups', () => {
-  const applicationRows = (groups: ReturnType<typeof installPlanResourceGroups>) =>
-    groups.find((entry) => entry.group === 'application')?.rows ?? [];
-
-  it('renders one workload row for a single-workload deployment, carrying the workload sizing', () => {
-    const rows = applicationRows(installPlanResourceGroups(footprintPlan({})));
-    const workloadRows = rows.filter((row) => row.id.startsWith('workload-'));
-    expect(workloadRows).toEqual([
-      {
-        id: 'workload-web',
-        name: 'Web application',
-        serviceAndConfiguration: 'AWS Fargate · 1 × Small · 0.25 vCPU · 512 MB',
-        purpose: "Serves the application's public traffic",
-        onRemoval: 'Removed automatically',
-      },
-    ]);
-  });
-
-  it('renders one row per workload for a multi-worker deployment, workers without public-ingress wording', () => {
-    const rows = applicationRows(installPlanResourceGroups(footprintPlan({ manifest: WORKERS_MANIFEST })));
-    const workloadRows = rows.filter((row) => row.id.startsWith('workload-'));
-    expect(workloadRows.map((row) => row.id)).toEqual([
-      'workload-web',
-      'workload-email-worker',
-      'workload-import-worker',
-    ]);
-    expect(workloadRows.map((row) => row.name)).toEqual([
-      'Web application',
-      'Worker email-worker',
-      'Worker import-worker',
-    ]);
-    for (const row of workloadRows.slice(1)) {
-      expect(row.purpose).toBe('Processes background jobs — not reachable from the internet');
-      expect(row.onRemoval).toBe('Removed automatically');
-      expect(row.purpose.toLowerCase()).not.toContain('public');
-      expect(row.serviceAndConfiguration).not.toMatch(/https?:\/\//);
-    }
-  });
-
-  it('sizes managed resources from the footprint by catalog role', () => {
-    const groups = installPlanResourceGroups(
-      footprintPlan({
-        manifest: manifestWith({ database: { postgres: true } }),
-        awsResources: [
-          {
-            id: 'database',
-            name: 'RDS PostgreSQL database',
-            purpose: 'Stores persistent application data',
-            group: 'data',
-            componentKind: 'database',
-            lifecycle: 'retain',
-          },
-        ],
-      }),
-    );
-    const dataRows = groups.find((entry) => entry.group === 'data')!.rows;
-    expect(dataRows.map((row) => row.serviceAndConfiguration)).toEqual([
-      'RDS PostgreSQL database · Database',
-    ]);
-  });
-
-  it('renders a future MySQL-style resource through the generic role sizing', () => {
-    const base = footprintPlan({
-      manifest: manifestWith({ database: { postgres: true } }),
-      awsResources: [
-        {
-          id: 'database',
-          name: 'RDS MySQL database',
-          purpose: 'Stores persistent application data',
-          group: 'data',
-          componentKind: 'database',
-          lifecycle: 'retain',
-        },
-      ],
-    });
-    const mysql: FootprintResource = {
-      id: 'database',
-      category: 'database',
-      provider: 'aws',
-      service: 'rds-mysql',
-      role: 'database',
-      label: 'Database',
-      quantity: 1,
-      configuration: { engine: 'mysql', instanceType: 'db.t4g.small', storageGb: 50 },
-      lifecycle: { persistent: true, retainOnDelete: true },
-    };
-    const groups = installPlanResourceGroups({
-      ...base,
-      footprint: { ...base.footprint!, resources: [...base.footprint!.resources, mysql] },
-    });
-    const dataRows = groups.find((entry) => entry.group === 'data')!.rows;
-    expect(dataRows.map((row) => row.serviceAndConfiguration)).toEqual(['RDS MySQL database · Database']);
   });
 });

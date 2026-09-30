@@ -249,7 +249,7 @@ The customer install page's Resources summary and the vendor progress
 card list components from `specComponents`; a payload without them falls
 back to the legacy rendering byte-identically.
 
-- The customer install page groups "What Deployz will create" under the
+- The customer review ("What Deployz creates in your AWS account") groups under the
   plan groups (application, data, cache, storage, messaging, networking,
   edge, security). The fallback chain is component group → kind map →
   Application. Only non-empty groups render.

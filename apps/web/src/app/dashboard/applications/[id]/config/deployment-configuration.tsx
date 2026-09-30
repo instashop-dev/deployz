@@ -239,9 +239,14 @@ export function ServicesSection({
 
   return (
     <section id="services" aria-labelledby="services-heading" className="flex scroll-mt-20 flex-col gap-5">
-      <h2 id="services-heading" className="text-base font-semibold">
-        Services
-      </h2>
+      <div>
+        <h2 id="services-heading" className="text-base font-semibold">
+          Services
+        </h2>
+        <p className="text-sm text-muted-foreground">
+          Detected components, and what each customer deployment gets in their AWS account.
+        </p>
+      </div>
 
       {arch ? (
         <ApplicationArchitectureSection architecture={arch} onEdit={onEdit} onShowFix={onShowFix} />

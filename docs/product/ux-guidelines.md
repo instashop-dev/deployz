@@ -390,6 +390,9 @@ Recorded, not implemented. Each needs separate approval.
   reports the service started.
 - **Minimal change**: Set the runtime component from the job result.
 - **Priority**: P3. Possibly a simulation artifact; confirm on real AWS.
+- **UX-C handling**: At READY the customer page names the services without
+  their state, so a lagging "Waiting" never sits under "Your application is
+  ready". During the install the states show as sent.
 
 ### UX-BACKEND-004 — Shareable release, frozen at confirmation
 
@@ -451,20 +454,48 @@ Recorded, not implemented. Each needs separate approval.
 
 ### UX-BACKEND-006 — HTTPS state disagrees between two signals
 
-- **Problem**: On a live deployment, the status headline reads
-  `deploymentStatus.needsDomainSetup` ("Add a custom domain to serve it over
-  HTTPS"), while the infrastructure summary shows the secure-endpoint
-  component as "Setting up" (`httpsState`).
-- **User impact**: The vendor cannot tell whether HTTPS needs a custom domain
-  or is being set up automatically.
-- **Evidence**: UX-B browser run (simulated relay, default-HTTPS fixture
-  off).
+- **Problem**: Four HTTPS signals derive from the same `domain` and
+  `defaultHttps` records with different rules: `needsDomainSetup`
+  (`apps/api/src/deployment-status.ts:1097-1123`), the `https://` gate in
+  `resolveAppUrl` (`apps/api/src/fleet-row.ts:95-112`, which accepts
+  `defaultHttps.status === 'CONFIGURING'`), the component state
+  `httpsComponentStatus` (`deployment-status.ts:492-530`) and the vendor
+  secure-endpoint state `endpointHttpsState` (`deployment-status.ts:540-574`,
+  whose null fallback is `SETTING_UP`).
+- **User impact**: The vendor headline can say "Add a custom domain" while
+  the secure endpoint says "Setting up". With default HTTPS `CONFIGURING`,
+  the stage is READY and the URL is `https://` while the secure-endpoint
+  component is still in progress, on the vendor and the customer page.
+- **Evidence**: UX-B browser run (default-HTTPS fixture off). UX-C source
+  check: both combinations are reachable with production data, not only in
+  the simulator (`defaultHttps` is `null` before the default-HTTPS machine
+  starts; `CONFIGURING` is a normal transient state).
 - **Why frontend cannot solve it**: Choosing one signal over the other in the
   UI invents the HTTPS state.
-- **Required capability**: One authoritative HTTPS state for vendor surfaces.
-- **Minimal change**: Derive `needsDomainSetup` and the secure-endpoint
-  component state from the same source.
-- **Priority**: P3. Possibly a simulation artifact; confirm on real AWS.
+- **Required capability**: One authoritative HTTPS state for all surfaces.
+- **Minimal change**: One shared "effective HTTPS state" helper in the API
+  that feeds `needsDomainSetup`, the `https://` URL gate, the component state
+  and the endpoint state; `CONFIGURING` does not count as HTTPS-ready, and a
+  missing record means "needs setup", not "setting up".
+- **Priority**: P3 → P2 (reachable on real data; wrong READY claim).
+
+### UX-BACKEND-007 — Architecture nodes cannot be joined to plan components
+
+- **Problem**: `ArchitectureNode` in the readiness response carries only
+  `label` and `state` (`apps/web/src/lib/readiness.ts:78-81`), with no id that
+  matches the plan footprint's workload/resource ids
+  (`apps/web/src/lib/footprint.ts`). Labels differ ("PostgreSQL" vs
+  "Database").
+- **User impact**: Configuration › Services cannot show one row per
+  component (state + what customers get + Kept / Removed, §8). It shows the
+  detected components and the plan's components as two lists under one
+  heading.
+- **Why frontend cannot solve it**: Matching by label is a guess.
+- **Required capability**: A stable component id on each architecture node
+  and unresolved item.
+- **Minimal change**: Add `componentId` (the footprint workload/resource id)
+  to `ArchitectureNode` and `ArchitectureUnresolved`.
+- **Priority**: P3.
 
 ## 13. Documentation debt
 

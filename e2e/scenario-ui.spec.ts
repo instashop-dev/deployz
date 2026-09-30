@@ -138,19 +138,19 @@ test.describe('scenario-ui browser suite', () => {
       page.getByText(/The last step is a secure address — set up a custom domain below to finish\./),
     ).toBeVisible();
     // The grouped step list reflects real progress, not a percentage: every
-    // step through HEALTH_CHECK is done, TLS is the one still active.
-    // Completed steps collapse into "N steps done" (ux-guidelines §9) — expand
-    // it to see them. Group labels are static (state lives in the markers and
-    // sr-only text), the data work stays listed under "Starting application"
-    // with its done label, and the active TLS rung says what it waits for.
+    // rung through health is done, https is the one still active. Completed
+    // rungs collapse into "N steps done" (ux-guidelines §9) — expand it to
+    // see them. A rung's label follows its own state (never a static word):
+    // the done infrastructure/application/health rungs read their done copy,
+    // and the active https rung says what it waits for.
     // The anchored regexes keep the label spans from substring-colliding with
     // the activity feed's own sentences ("Application passed health checks.").
     await page.getByTestId('step-list-done-toggle').click();
-    await expect(page.getByText(/^Network ready/)).toBeVisible();
+    await expect(page.getByText(/^Network created/)).toBeVisible();
     await expect(page.getByText(/^Database & storage created/)).toBeVisible();
-    await expect(page.getByText(/^Starting application/)).toBeVisible();
+    await expect(page.getByText(/^Application started/)).toBeVisible();
     await expect(page.getByText(/^Health check/)).toBeVisible();
-    await expect(page.getByText(/^Configure HTTPS/)).toBeVisible();
+    await expect(page.getByText(/^Setting up HTTPS/)).toBeVisible();
     await expect(page.getByText('Waiting for a custom domain to be added.')).toBeVisible();
     await expect(page.getByRole('heading', { name: 'Access' })).toBeVisible();
     const customerBodyText = await page.locator('body').innerText();

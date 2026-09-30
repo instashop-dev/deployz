@@ -1,26 +1,20 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
-import { ChevronDown, Loader2 } from 'lucide-react';
+import { Loader2 } from 'lucide-react';
 
-import { AwsInfrastructureDetails } from '@/components/aws-infrastructure-details';
-import { DataRetentionCard } from '@/components/data-retention-card';
+import { CustomerInstallReview } from '@/components/customer-install-review';
 import { DeployLinkInvalidState, PoweredBy } from '@/components/deploy-link-invalid-state';
-import { FootprintCost } from '@/components/footprint-cost';
-import { FootprintSummary } from '@/components/footprint-summary';
 import { InstallLaunchButton } from '@/components/install-launch-button';
 import { InstallProgress } from '@/components/install-progress';
 import { InstallRetryButton } from '@/components/install-retry-button';
-import { InstallPlanComponentTable } from '@/components/install-plan-component-table';
-import { TablePanel } from '@/components/table-panel';
+import { TechnicalDetails } from '@/components/technical-details';
 import { Button } from '@/components/ui/button';
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import {
   fetchDeployLinkData,
   fetchDeployLinkStatusServer,
 } from '@/lib/deploy-link-flow';
 import { cloudFormationStacksUrl } from '@/lib/aws-console';
 import { RELAY_STUCK_GUIDANCE } from '@/lib/deployment-vocabulary';
-import { formatMonthlyRange } from '@/lib/footprint';
 import { installPlanRegionLabel } from '@/lib/install-plan';
 
 // Rendered per request so the resolve — including the Quick Create link the
@@ -40,41 +34,6 @@ export const metadata: Metadata = {
 // deployment flow and never becomes a session. Reuse rule: the review, AWS
 // connection, progress, domain and retry experiences are the install page's,
 // with resolve/launch/retry/status calls re-keyed to the deploy link.
-//
-// Layout top to bottom: app name, the dominant live progress (stepper, AWS
-// activity, resources), then the quiet secondary disclosures — data
-// retention, security — and the vendor footer.
-
-/** The quiet security row: one collapsed paragraph of what Deployz can and
- *  cannot do, with the full security page one click away. The link sits in
- *  the header row (not inside the collapsible) so it is reachable — and
- *  server-rendered — without expanding anything. */
-function SecurityDetailsDisclosure({ href }: { href: string }) {
-  return (
-    <Collapsible className="rounded-md border">
-      <div className="flex items-center justify-between gap-4 px-4 py-3">
-        <CollapsibleTrigger className="group flex items-center gap-1 text-left text-sm font-medium">
-          Security details
-          <ChevronDown
-            aria-hidden
-            className="size-4 shrink-0 text-muted-foreground transition-transform group-data-[state=open]:rotate-180"
-          />
-        </CollapsibleTrigger>
-        <Button asChild variant="ghost" size="sm">
-          <Link href={href}>Open security details</Link>
-        </Button>
-      </div>
-      <CollapsibleContent>
-        <p className="border-t px-4 py-3 text-sm text-muted-foreground">
-          Deployz signs in to nothing: a small helper in your AWS account keeps your deployment in
-          sync. See exactly which AWS resources are created, what the helper can and cannot do,
-          and how to revoke access.
-        </p>
-      </CollapsibleContent>
-    </Collapsible>
-  );
-}
-
 export default async function DeployPage({
   params,
   searchParams,
@@ -103,12 +62,16 @@ export default async function DeployPage({
   const data = result.data;
   const deployLink = { publicId, token };
   const securityHref = `/deploy/${encodeURIComponent(publicId)}/security?token=${encodeURIComponent(token)}`;
+  const securityLink = (
+    <Button asChild variant="link" className="h-auto w-fit px-0">
+      <Link href={securityHref}>Security details</Link>
+    </Button>
+  );
 
-  // The customer pressed "Deploy to AWS" and the control plane is waiting
-  // for the relay to enroll. Never a failure: past the staleness window the
-  // page shows guidance and a retry instead.
+  // The customer pressed "Review setup in AWS" and the control plane is
+  // waiting for the connector to enroll. Never a failure: past the staleness
+  // window the page shows guidance and "Retry connection" instead.
   if (data.waitingForRelay) {
-    const cloudFormationUrl = cloudFormationStacksUrl(data.region);
     return (
       <div className="flex flex-col gap-6">
         <div>
@@ -130,97 +93,79 @@ export default async function DeployPage({
           deployLink={deployLink}
         />
 
-        <section aria-labelledby="deploy-waiting" className="flex flex-col gap-3">
-          {data.relayStuck ? (
-            <>
-              <h2 id="deploy-waiting" className="text-base font-semibold">
-                Still connecting
-              </h2>
-              <div className="flex items-start gap-3">
-                <Loader2 aria-hidden className="mt-0.5 size-4 shrink-0 animate-spin text-muted-foreground" />
-                <p className="text-sm text-muted-foreground">{RELAY_STUCK_GUIDANCE}</p>
-              </div>
-            </>
-          ) : (
-            <h2 id="deploy-waiting" className="sr-only">
-              AWS setup details
+        {data.relayStuck ? (
+          <section aria-labelledby="deploy-waiting" className="flex flex-col gap-3">
+            <h2 id="deploy-waiting" className="text-base font-semibold">
+              Still connecting
             </h2>
-          )}
-          <p className="text-xs text-muted-foreground">
-            Expected stack name:{' '}
-            <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-xs">
-              {data.bootstrapStackName}
-            </code>
-          </p>
-          <div className="flex flex-wrap items-start gap-2">
-            {data.relayStuck ? <InstallRetryButton installLinkId={publicId} deployLink={deployLink} /> : null}
-            <Button asChild variant="outline">
-              <a href={cloudFormationUrl} target="_blank" rel="noreferrer">
-                Open AWS CloudFormation
-              </a>
-            </Button>
-          </div>
-        </section>
+            <div className="flex items-start gap-3">
+              <Loader2 aria-hidden className="mt-0.5 size-4 shrink-0 animate-spin text-muted-foreground" />
+              <p className="text-sm text-muted-foreground">{RELAY_STUCK_GUIDANCE}</p>
+            </div>
+            <InstallRetryButton installLinkId={publicId} deployLink={deployLink} />
+          </section>
+        ) : null}
 
-        <SecurityDetailsDisclosure href={securityHref} />
+        {securityLink}
+
+        <TechnicalDetails>
+          {data.bootstrapStackName ? (
+            <p className="text-xs text-muted-foreground">
+              Expected stack name:{' '}
+              <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-xs">
+                {data.bootstrapStackName}
+              </code>
+            </p>
+          ) : null}
+          <a
+            className="w-fit text-sm font-medium underline underline-offset-4"
+            href={cloudFormationStacksUrl(data.region)}
+            target="_blank"
+            rel="noreferrer"
+          >
+            Open AWS CloudFormation
+          </a>
+        </TechnicalDetails>
 
         <PoweredBy />
       </div>
     );
   }
 
-  // Not launched yet: the minimal review. The customer sees what will run
-  // and where, then hands off to their own AWS console. Double submits
-  // cannot create duplicates — the deployment already exists; this only
-  // flips it into its waiting state, and reopening the link resumes it.
+  // Not launched yet: the same review as the install page, then the AWS
+  // connection step with its single primary action. Double submits cannot
+  // create duplicates — the deployment already exists; the launch only flips
+  // it into its waiting state, and reopening the link resumes it.
   if (data.deploymentState === 'NOT_INSTALLED') {
     const regionLabel = installPlanRegionLabel(data.region);
-    const costRange = formatMonthlyRange(
-      data.plan?.costEstimate?.monthlyMin ?? null,
-      data.plan?.costEstimate?.monthlyMax ?? null,
-    );
 
     return (
-      <div className="flex flex-col gap-6">
+      <div className="flex flex-col gap-8">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">{data.application.name}</h1>
-          <p className="mt-2 text-sm font-medium">Deploy privately to your AWS</p>
-          <p className="mt-1 max-w-md text-sm text-muted-foreground">
-            This application will run inside an AWS account you control. You sign in only
-            with your own AWS account — Deployz never sees your credentials.
-          </p>
+          <h1 className="text-2xl font-semibold tracking-tight">
+            Deploy {data.application.name} to your AWS account
+          </h1>
+          <p className="mt-2 text-sm text-muted-foreground">Region: {regionLabel ?? data.region}</p>
         </div>
 
-        <section aria-labelledby="deploy-review" className="flex flex-col gap-3">
-          <h2 id="deploy-review" className="text-base font-semibold">
-            Deployment review
-          </h2>
-          <dl className="grid gap-x-6 gap-y-2 text-sm sm:grid-cols-2">
-            <div className="flex flex-col gap-0.5">
-              <dt className="text-xs text-muted-foreground">Application</dt>
-              <dd>{data.application.name}</dd>
-            </div>
-            <div className="flex flex-col gap-0.5">
-              <dt className="text-xs text-muted-foreground">AWS region</dt>
-              <dd>{regionLabel ?? data.region}</dd>
-            </div>
-            <div className="flex flex-col gap-0.5">
-              <dt className="text-xs text-muted-foreground">Estimated monthly AWS cost</dt>
-              <dd>{costRange ?? 'Estimate unavailable'}</dd>
-            </div>
-          </dl>
-          <div>
-            <h3 className="text-sm font-medium">Deployz will create</h3>
-            <TablePanel className="mt-1.5">
-              <InstallPlanComponentTable plan={data.plan} />
-            </TablePanel>
-          </div>
-          <FootprintSummary footprint={data.plan?.footprint} stage="planned" />
-          <AwsInfrastructureDetails plan={data.plan} region={data.region} />
-          <FootprintCost estimate={data.plan?.costEstimate} />
-        </section>
+        <CustomerInstallReview plan={data.plan} securityHref={securityHref} />
 
-        <section aria-label="Deploy actions" className="flex flex-col gap-3">
+        <section aria-labelledby="connect-aws" className="flex flex-col gap-3">
+          <h2 id="connect-aws" className="text-base font-semibold">
+            Connect your AWS account
+          </h2>
+          <p className="text-sm text-muted-foreground">
+            {data.application.name} runs in your own AWS account. To set it up, you approve the
+            Deployz connector there.
+          </p>
+          <ol className="flex list-decimal flex-col gap-2 pl-5 text-sm text-muted-foreground">
+            <li>Select Review setup in AWS. The AWS console opens in a new tab.</li>
+            <li>Check the AWS account and Region, then create the Deployz connector stack.</li>
+            <li>
+              Deployz creates the infrastructure and starts the application. Progress shows on this
+              page.
+            </li>
+          </ol>
           {data.quickCreateUrl ? (
             <InstallLaunchButton
               installLinkId={publicId}
@@ -228,36 +173,21 @@ export default async function DeployPage({
               deployLink={deployLink}
             />
           ) : (
-            <div className="flex flex-col gap-2">
-              <Button size="lg" disabled>
-                Deploy to AWS
+            <>
+              <Button size="lg" className="w-fit" disabled>
+                Review setup in AWS
               </Button>
-              <p className="text-xs text-muted-foreground">
-                The setup template isn&apos;t published for this region yet. Please request a
-                new link from the software provider.
+              <p className="text-sm text-muted-foreground">
+                The setup template isn&apos;t published for this Region yet. Ask the software provider
+                for a new link.
               </p>
-            </div>
+            </>
           )}
+          <p className="text-xs text-muted-foreground">
+            You need an AWS identity that can create CloudFormation stacks and the resources listed
+            above. You do not need a Deployz account.
+          </p>
         </section>
-
-        {/* Starts at WAITING_FOR_AWS — small and unobtrusive under the CTA
-            above. Polling picks up relay registration on its own. */}
-        <InstallProgress
-          installLinkId={publicId}
-          deploymentId=""
-          initialStatus={initialStatus}
-          quickCreateUrl={data.quickCreateUrl}
-          initialDomain={data.domain}
-          routingTarget={data.routingTarget}
-          plan={data.plan}
-          preinstall
-          awaitingLaunch
-          deployLink={deployLink}
-        />
-
-        <DataRetentionCard plan={data.plan} />
-
-        <SecurityDetailsDisclosure href={securityHref} />
 
         <PoweredBy />
       </div>
@@ -287,9 +217,7 @@ export default async function DeployPage({
         deployLink={deployLink}
       />
 
-      <DataRetentionCard plan={data.plan} />
-
-      <SecurityDetailsDisclosure href={securityHref} />
+      {securityLink}
 
       <PoweredBy />
     </div>

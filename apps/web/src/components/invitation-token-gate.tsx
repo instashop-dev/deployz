@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 
 import { PublicInstallFlow } from '@/components/public-install-flow';
+import { SecurityDetailsContent } from '@/components/security-details-content';
 import { Spinner } from '@/components/ui/spinner';
 import { fetchPublicInstallData } from '@/lib/public-install-data';
 import { publicInstallErrorMessage, type PublicInstallResolve } from '@/lib/public-install-types';
@@ -17,6 +18,8 @@ const TOKEN_STORAGE_PREFIX = 'deployz-install-token:';
 
 interface InvitationTokenGateProps {
   installLinkId: string;
+  /** The invitation's Security details page instead of its confirm flow. */
+  view?: 'install' | 'security';
 }
 
 type GateState =
@@ -32,7 +35,7 @@ type GateState =
  * normal confirm flow; without one it fails safe with the same copy as an
  * unknown link (a missing or wrong token is indistinguishable by design).
  */
-export function InvitationTokenGate({ installLinkId }: InvitationTokenGateProps) {
+export function InvitationTokenGate({ installLinkId, view = 'install' }: InvitationTokenGateProps) {
   const [state, setState] = useState<GateState>({ kind: 'resolving' });
 
   useEffect(() => {
@@ -96,6 +99,15 @@ export function InvitationTokenGate({ installLinkId }: InvitationTokenGateProps)
           missing or incorrect. Contact whoever sent you this link for a new one.
         </p>
       </div>
+    );
+  }
+
+  if (view === 'security') {
+    return (
+      <SecurityDetailsContent
+        plan={state.resolve.plan}
+        backHref={`/install/${encodeURIComponent(installLinkId)}`}
+      />
     );
   }
 

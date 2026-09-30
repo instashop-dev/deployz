@@ -219,7 +219,7 @@ describe('PlannedInfrastructure', () => {
       'The plan shows here after a successful analysis.',
     );
     expect(doc.querySelector('[data-testid="planned-infrastructure-table"]')).toBeNull();
-    expect(doc.body.textContent).toContain('What customers get');
+    expect(doc.body.textContent).toContain('The plan shows here after a successful analysis.');
   });
 
   it('shows the empty state when the plan has no footprint', () => {
@@ -267,7 +267,7 @@ describe('PlannedInfrastructure', () => {
     expect(databaseRow?.textContent).toContain('Kept');
     const webRow = doc.querySelector('[data-testid="planned-component-web"]');
     expect(webRow?.textContent).toContain('Removed');
-    expect(doc.body.textContent).toContain('Kept components stay there after the deployment is removed');
+    expect(doc.body.textContent).toContain("Kept components stay in the customer's AWS account after the deployment is removed");
   });
 
   it('keeps AWS sizing and the resource inventory out of the primary table, under collapsed Technical details', () => {

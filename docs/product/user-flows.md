@@ -65,28 +65,39 @@ behind each step is in [`../architecture.md`](../architecture.md).
    pending-secret vault ([`../pending-secret-delivery.md`](../pending-secret-delivery.md)).
    A vendor-created deployment skips this step; the vendor enters customer
    values on the deployment's configuration page instead.
-3. **Pre-launch page** (`/install/<installLinkId>`): application, publisher,
-   Region, release, cost estimate, "What Deployz will create" (resources
-   grouped under generic headings — Application, Data, Storage, … — never
-   AWS resource names), security facts,
-   and a link to inspect the template and permissions
-   (`/install/<id>/security`). "Review setup in AWS" marks the deployment
-   WAITING_FOR_RELAY and opens the CloudFormation **Quick Create** URL for the
-   frozen Region.
+3. **Pre-launch page** (`/install/<installLinkId>`): application,
+   publisher, Region, release, then the one shared customer review (also
+   used by the public link and the hosted deploy page): what Deployz creates
+   (grouped under generic headings — Application, Data, Storage, … — never
+   AWS resource names, each with Kept / Removed after removal), the
+   retention and charges note, the estimated monthly AWS cost, what Deployz
+   can access, and a Security details link (`/install/<id>/security`, which
+   also opens for a public link or an invitation before a deployment
+   exists). Sizing and the AWS resource inventory are under Technical
+   details. "Connect your AWS account" explains the next three steps;
+   "Review setup in AWS" marks the deployment WAITING_FOR_RELAY and opens
+   the CloudFormation **Quick Create** URL for the frozen Region.
 4. **Quick Create** in the customer's own AWS console creates the
    `deployz-bootstrap-…` stack: the relay Lambda on a 5-minute schedule, its
    IAM role with a permissions boundary, the CloudFormation execution role,
    and the relay credential in Secrets Manager.
 5. **Relay enrollment**: the relay registers with a single-use enrollment
    code; preflight runs again; the INSTALL job is created. While waiting, the
-   page shows "Still connecting" guidance, a retry that mints a new code, and
-   a link to CloudFormation.
+   page has no primary action. Past the staleness window it shows "Still
+   connecting" guidance and "Retry connection", which mints a new code. The
+   expected stack name and a CloudFormation link are under Technical details.
 6. **Install progress**: the page polls `GET /api/install/:id/status` and
-   shows the stages (Waiting for AWS → Connecting → Provisioning → Verifying →
-   Ready) with plain-language sub-steps (running migrations, starting the
-   application, checking health, setting up HTTPS). Raw CloudFormation events
-   are in a collapsed disclosure. INSTALL success auto-deploys the newest
-   READY release.
+   shows one step list: Connect your AWS account → Create infrastructure
+   (network, database and storage, cache as sub-rows) → Start application
+   (migrations as a sub-row) → Check application → Set up HTTPS → Ready.
+   The current step is in present tense with elapsed time; completed steps
+   collapse; the next step is named. A failed step names what failed and
+   shows no next step. Live AWS activity appears only after AWS reports
+   activity; component rows start after the connection. Raw CloudFormation
+   events, identifiers and the resource inventory are in the one Technical
+   details disclosure. At Ready the step list is gone and "Open application"
+   is the one primary action. INSTALL success auto-deploys the newest READY
+   release.
 7. **Permanent HTTPS URL**: `https://d-<deployment-id>.deployz.dev`, with no
    DNS work by the customer. READY needs verified health plus a verified
    HTTPS endpoint. Traffic to this URL passes through Deployz's Cloudflare
@@ -94,11 +105,13 @@ behind each step is in [`../architecture.md`](../architecture.md).
 8. **Custom domain** (optional, vendor-initiated): the customer page shows the
    two CNAME records to create and a "Check now" button. The customer cannot
    add or remove a domain.
-9. **After a disconnect**: the page says the deployment was removed and asks
-   the customer to delete the `deployz-bootstrap-…` stack in CloudFormation.
-   Until the vendor purges, the retained database, its credential secrets and
-   the S3 bucket also remain in the account and continue to cost money; the
-   current page copy does not say so (tracked as a code gap).
+9. **After Remove deployment**: the page says the deployment was removed,
+   lists what can remain in the account (the plan's retained components and
+   the Deployz connector stack), says that retained resources can keep
+   costing money, and explains how to delete them (ask the publisher to
+   delete retained data, or use the AWS console; keep the connector until
+   then). The page has no cleanup state, so it never says what was actually
+   deleted (UX-BACKEND-001).
 10. **What the customer must delete themselves**: always the bootstrap
     (connector) stack. If the vendor never purges: the retained RDS instance,
     its secrets, the bucket, and the network objects the retained database
