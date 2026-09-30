@@ -50,7 +50,12 @@ function buildIndex(spec: DeploymentSpecV2): SpecComponentIndex | null {
     // Supporting components (network, config secret, log group) have no plan
     // entry — their ownership kind's display name is the honest label.
     if (!labelByComponentId.has(record.componentId)) {
-      labelByComponentId.set(record.componentId, INFRASTRUCTURE_COMPONENT_DISPLAY[record.componentKind].name);
+      labelByComponentId.set(
+        record.componentId,
+        record.componentKind === 'other'
+          ? 'Supporting infrastructure'
+          : INFRASTRUCTURE_COMPONENT_DISPLAY[record.componentKind].name,
+      );
     }
   }
   const labelByLogicalId = new Map(

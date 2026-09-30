@@ -68,6 +68,15 @@ describe('specComponentsForStatus', () => {
     ]);
   });
 
+  it('labels supporting infrastructure plainly, never "Other", next to the "Other resources" bucket', () => {
+    const others = (spec.ownershipRecords ?? []).filter((record) => record.componentKind === 'other');
+    expect(others.length).toBeGreaterThan(0);
+    const identity = specComponentIdentityByLogicalId(specRow);
+    for (const record of others) {
+      expect(identity?.get(record.logicalResourceId)?.label).toBe('Supporting infrastructure');
+    }
+  });
+
   it('a genuine failure wins FAILED; cancellation debris never does', () => {
     const failed = specComponentsForStatus(
       specRow,

@@ -262,7 +262,7 @@ function componentMessage(componentLabel: string, aggregate: NounAggregate): str
     const verb = deletePhase ? 'remove' : status.startsWith('UPDATE_') ? 'update' : 'create';
     return `${componentLabel}: could not ${verb}`;
   }
-  if (state === 'COMPLETE') return deletePhase ? `${componentLabel}: removed` : `${componentLabel}: ready`;
+  if (state === 'COMPLETE') return deletePhase ? `${componentLabel}: removed` : `${componentLabel}: resources created`;
   if (deletePhase) return `${componentLabel}: removing`;
   return `${componentLabel}: ${status.startsWith('UPDATE_') ? 'updating' : 'creating'}`;
 }
