@@ -389,6 +389,39 @@ describe('buildCustomerLiveProgress — TLS', () => {
     }
   });
 
+  it('the Deployz-owned default address never mentions a domain; a custom domain keeps its copy', () => {
+    const owned = buildCustomerLiveProgress(
+      baseLiveInput({
+        stage: 'VERIFYING',
+        step: 'TLS',
+        https: {
+          hostname: 'd-abc.deployz.dev',
+          status: 'WAITING_FOR_DNS',
+          lastError: null,
+          lastCheckedAt: at(120).toISOString(),
+          deployzOwned: true,
+        },
+      }),
+    );
+    expect(owned.currentActivity).toBe('Waiting for AWS to issue the HTTPS certificate.');
+    expect(owned.recentActivity.map((item) => item.message)).toEqual(['Checked the HTTPS certificate status.']);
+
+    const custom = buildCustomerLiveProgress(
+      baseLiveInput({
+        stage: 'VERIFYING',
+        step: 'TLS',
+        https: {
+          hostname: 'app.customer.example.com',
+          status: 'WAITING_FOR_DNS',
+          lastError: null,
+          lastCheckedAt: at(120).toISOString(),
+        },
+      }),
+    );
+    expect(custom.currentActivity).toBe('Validating the domain. Waiting for AWS certificate validation.');
+    expect(custom.recentActivity.map((item) => item.message)).toEqual(['Checked the domain records.']);
+  });
+
   it('needsDomainSetup true leaves currentActivity undefined — the customer must act', () => {
     const live = buildCustomerLiveProgress(
       baseLiveInput({

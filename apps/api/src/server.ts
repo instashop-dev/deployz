@@ -1714,6 +1714,7 @@ async function loadCustomerLiveProgress(
           status: params.defaultHttps.status,
           lastError: params.defaultHttps.lastError,
           lastCheckedAt: params.defaultHttps.lastDnsCheckAt ?? null,
+          deployzOwned: true,
         }
       : null;
 
