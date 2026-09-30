@@ -2717,6 +2717,33 @@ describe('server — fleet list & deployment detail joins, readiness derivation 
     expect((response.json() as { version: string | null }).version).toBeNull();
   });
 
+  it('deployment detail never returns unclaimed job secret plaintext', async () => {
+    const application = await insertApplication(db, org.organizationId);
+    const customer = await insertCustomer(db, org.organizationId);
+    const deployment = await insertDeployment(db, org.organizationId, application.id, customer.id);
+    await db.insert(schema.deploymentJobs).values([
+      {
+        deploymentId: deployment.id,
+        type: 'CONFIG_UPDATE',
+        state: 'REQUESTED',
+        idempotencyKey: `${deployment.id}:CONFIG_UPDATE:unclaimed`,
+        payload: { changedKeys: ['DB_PASSWORD'], secrets: [{ key: 'DB_PASSWORD', value: 'plaintext-config-secret' }] },
+      },
+      {
+        deploymentId: deployment.id,
+        type: 'INSTALL',
+        state: 'REQUESTED',
+        idempotencyKey: `${deployment.id}:INSTALL:unclaimed`,
+        payload: { parameters: { paramAppApiKey: 'plaintext-install-key', DesiredCount: '1' } },
+      },
+    ]);
+
+    const response = await app.inject({ method: 'GET', url: `/api/deployments/${deployment.id}`, headers: { cookie: org.cookie } });
+    expect(response.statusCode).toBe(200);
+    expect(response.body).not.toContain('plaintext-config-secret');
+    expect(response.body).not.toContain('plaintext-install-key');
+  });
+
   it('deployment detail derives per-component state from requirements, verification checks and relay reports', async () => {
     const redisApp = await insertApplication(db, org.organizationId, { redisRequired: true });
     const redisCustomer = await insertCustomer(db, org.organizationId);

@@ -214,6 +214,30 @@ describe('billing entitlements — free evaluation (Paddle migration Phase 7)', 
     expect(body.error.details?.deploymentId).toBe(firstId);
   });
 
+  it('2b. another organization probing this application gets 404, never the test deployment id', async () => {
+    const application = await insertApplication(db, org.organizationId);
+    const customer = await insertCustomer(db, org.organizationId);
+    const first = await postJson(
+      app,
+      '/api/deployments',
+      { applicationId: application.id, customerId: customer.id, region: 'us-east-1', deploymentType: 'TEST' },
+      { cookie: org.cookie },
+    );
+    expect(first.statusCode, first.body).toBe(201);
+    const firstId = (first.json() as { id: string }).id;
+
+    const other = await signUpAndGetOrg(auth, db, 'entitlements-other@example.com');
+    const otherCustomer = await insertCustomer(db, other.organizationId);
+    const probe = await postJson(
+      app,
+      '/api/deployments',
+      { applicationId: application.id, customerId: otherCustomer.id, region: 'us-east-1', deploymentType: 'TEST' },
+      { cookie: other.cookie },
+    );
+    expect(probe.statusCode).toBe(404);
+    expect(probe.body).not.toContain(firstId);
+  });
+
   it('3. after the first test deployment is DELETED, a new TEST -> 201', async () => {
     const application = await insertApplication(db, org.organizationId);
     const customer = await insertCustomer(db, org.organizationId);

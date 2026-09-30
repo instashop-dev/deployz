@@ -4528,7 +4528,7 @@ export async function buildServer({
     // run before createDeploymentRecord and before any customer row is
     // created for this deployment.
     if (body.deploymentType === 'TEST') {
-      await assertTestDeploymentSlot(db, body.applicationId);
+      await assertTestDeploymentSlot(db, organizationId, body.applicationId);
     } else {
       await assertProductionDeploymentAllowed(db, organizationId, env.billingEnforcementPaused);
     }
@@ -4568,7 +4568,7 @@ export async function buildServer({
       // Re-running the same check now finds the winner's committed row and
       // throws the identical 409, with its deploymentId.
       if (body.deploymentType === 'TEST' && isTestDeploymentSlotViolation(error)) {
-        await assertTestDeploymentSlot(db, body.applicationId);
+        await assertTestDeploymentSlot(db, organizationId, body.applicationId);
       }
       throw error;
     }
@@ -4741,7 +4741,7 @@ export async function buildServer({
     const specComponents = specComponentsForStatus(rows[0]!.deployment.specV2, derived.components, []);
     return {
       ...toFleetRow(derivedRow),
-      jobs,
+      jobs: jobs.map((job) => ({ ...job, payload: redactClaimedPayload(job) ?? {} })),
       customDomain,
       appUrl,
       defaultUrl,
