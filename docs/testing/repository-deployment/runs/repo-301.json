@@ -9,8 +9,8 @@
   "cohort": "realistic",
   "customerRealism": "high",
   "difficulty": 3,
-  "deployzCommit": "6c457aa6e1e758289d2c6bd875293c0159585093",
-  "runId": "stage-b-repo-301-20260929-074553-bd0c",
+  "deployzCommit": "4903f6249e2ccc86d231b0d63eeb351ae66c024d",
+  "runId": "stage-b-repo-301-20260929-085137-9ed0",
   "stageAExpected": "READY",
   "expectedDeployable": true,
   "mode": "deploy",
@@ -39,8 +39,12 @@
       "dockerfilePath": "api/Dockerfile",
       "buildContext": "api"
     },
-    "keys": [],
-    "generatedKeys": [],
+    "keys": [
+      "JWT_SECRET"
+    ],
+    "generatedKeys": [
+      "JWT_SECRET"
+    ],
     "deliveredAfterEnrollment": [],
     "detail": "the control plane's gate still needs configuration: required-env-vars-missing: This app requires environment variables that have no value yet: AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY. Set them in the application's Configuration screen before deploying."
   },
@@ -129,9 +133,9 @@
   "rootCauseEvidence": "the gate still refuses with the Stage B configuration: the control plane's gate still needs configuration: required-env-vars-missing: This app requires environment variables that have no value yet: AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY. Set them in the application's Configuration screen befo — decide REPO_CONFIGURATION (fix the config) vs ANALYSIS_BUG (a required key the app does not need)",
   "findingIds": [],
   "timing": {
-    "startedAt": "2026-09-29T07:45:54.529Z",
-    "finishedAt": "2026-09-29T07:46:16.056Z",
-    "totalMs": 21527
+    "startedAt": "2026-09-29T08:51:38.333Z",
+    "finishedAt": "2026-09-29T08:51:56.428Z",
+    "totalMs": 18095
   },
   "evidence": {
     "failure": {
