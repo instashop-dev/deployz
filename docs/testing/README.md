@@ -15,6 +15,7 @@ concern each.
 | [`manual-checklist.md`](manual-checklist.md) | The manual QA checklist: the human walk, known failure modes, the AI MVP checks, plan-vs-inventory checks, and the areas no automated layer judges |
 | [`repository-compatibility/findings.md`](repository-compatibility/findings.md) | Stage A findings registry (`COMP-nnn`) |
 | [`repository-deployment/findings.md`](repository-deployment/findings.md) | Stage B findings registry (`DEPLOY-nnn`) |
+| [`gate-d/findings.md`](gate-d/findings.md) | Gate D Phase 5 qualification record: per-run evidence, the final verdict, accepted N/A gates, and non-blocking debt |
 
 The `findings.md` files above are living registries that tests and
 harnesses reference by id; the `runs/summary.md` files under
