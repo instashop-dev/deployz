@@ -8,6 +8,7 @@ import {
   type AiGenerateOptions,
 } from '../src/ai-gateway.js';
 import {
+  FIX_INSTRUCTIONS_ATTEMPT_TIMEOUT_MS,
   FIX_INSTRUCTIONS_GUARDRAIL,
   FIX_INSTRUCTIONS_MAX_OUTPUT_TOKENS,
   FIX_INSTRUCTIONS_MAX_TOTAL_TOKENS,
@@ -582,6 +583,7 @@ describe('generateFixInstructions', () => {
     expect(seenOptions?.label).toBe('fix-instructions');
     expect(seenOptions?.maxOutputTokens).toBe(FIX_INSTRUCTIONS_MAX_OUTPUT_TOKENS);
     expect(seenOptions?.reasoning).toBe(false);
+    expect(seenOptions?.attemptTimeoutMs).toBe(FIX_INSTRUCTIONS_ATTEMPT_TIMEOUT_MS);
   });
 
   it('throws on a schema-violating response', async () => {
@@ -642,5 +644,10 @@ describe('FIX_INSTRUCTIONS_TIMEOUT_MS', () => {
     // request first, the vendor gets an opaque gateway error, and the
     // 'fix-instructions generation failed' log line is never written.
     expect(FIX_INSTRUCTIONS_TIMEOUT_MS).toBeLessThan(30_000);
+  });
+
+  it('leaves room for a retry after one stalled attempt', () => {
+    // Two attempts plus the gateway's 500ms retry backoff.
+    expect(2 * FIX_INSTRUCTIONS_ATTEMPT_TIMEOUT_MS + 500).toBeLessThan(FIX_INSTRUCTIONS_TIMEOUT_MS);
   });
 });
