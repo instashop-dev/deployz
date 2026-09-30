@@ -36,6 +36,16 @@ describe('deploymentDisplayStatus — precise labels', () => {
     expect(deploymentDisplayStatus(withState(state))).toMatchObject({ label, group });
   });
 
+  it('marks a launch that has not connected past the staleness window, in the same group', () => {
+    const started = (minutesAgo: number) => new Date(Date.now() - minutesAgo * 60_000).toISOString();
+    expect(
+      deploymentDisplayStatus(withState('WAITING_FOR_RELAY', { installStartedAt: started(5) })),
+    ).toMatchObject({ label: 'Setting up', group: 'in-progress', badge: 'info' });
+    expect(
+      deploymentDisplayStatus(withState('WAITING_FOR_RELAY', { installStartedAt: started(20) })),
+    ).toMatchObject({ label: 'Setting up · Slow to connect', group: 'in-progress', badge: 'warning' });
+  });
+
   it('keeps a HEALTHY deployment live while its stage is still finishing HTTPS', () => {
     const status = deploymentDisplayStatus(
       withState('HEALTHY', { deploymentStatus: { stage: 'VERIFYING', step: 'TLS' } }),
