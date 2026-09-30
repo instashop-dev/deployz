@@ -4,6 +4,7 @@ import { Loader2 } from 'lucide-react';
 
 import { CustomerInstallReview } from '@/components/customer-install-review';
 import { InstallLaunchButton } from '@/components/install-launch-button';
+import { InstallLoadError } from '@/components/install-load-error';
 import { InstallProgress } from '@/components/install-progress';
 import { InstallRetryButton } from '@/components/install-retry-button';
 import { InvitationTokenGate } from '@/components/invitation-token-gate';
@@ -77,6 +78,12 @@ export default async function InstallPage({
     fetchInstallData(installLinkId),
     fetchInstallStatusServer(installLinkId),
   ]);
+
+  // The control plane did not answer. That says nothing about the link, so
+  // never show the expired or invalid copy for it.
+  if (lookup.status === 'error' || (lookup.status === 'not_found' && publicLookup?.status === 'error')) {
+    return <InstallLoadError href={`/install/${encodeURIComponent(installLinkId)}`} />;
+  }
 
   // Invitation lifecycle: an expired or revoked link gets its own honest
   // customer state instead of the generic invalid-link copy.

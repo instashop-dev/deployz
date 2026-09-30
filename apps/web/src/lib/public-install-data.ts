@@ -9,13 +9,15 @@ export type { PublicInstallResolve } from './public-install-types';
 export type PublicInstallLookup =
   | { status: 'ok'; data: PublicInstallResolve }
   | { status: 'gone'; code: string }
+  /** The control plane could not answer (network failure, 5xx, rate limit). */
+  | { status: 'error' }
   | null;
 
 /**
  * Resolve a public install link. Returns the review projection on 200, null on
  * 404 (unknown public link), and a gone marker on 410 (revoked, disabled, or
- * no published release). Any other failure is treated as 404 so the page can
- * fall through to the existing per-deployment flow. `token` authorizes a
+ * no published release). Any other failure is an error marker: the page still
+ * falls through to the per-deployment flow, but never reads it as "invalid". `token` authorizes a
  * targeted invitation's private surface (uniform 404 when missing/wrong).
  */
 export async function fetchPublicInstallData(
@@ -38,11 +40,11 @@ export async function fetchPublicInstallData(
         'PUBLIC_INSTALL_LINK_REVOKED';
       return { status: 'gone', code };
     }
-    if (!response.ok) return null;
+    if (!response.ok) return { status: 'error' };
     const data = (await response.json()) as PublicInstallResolve;
     return { status: 'ok', data };
   } catch {
-    return null;
+    return { status: 'error' };
   }
 }
 
