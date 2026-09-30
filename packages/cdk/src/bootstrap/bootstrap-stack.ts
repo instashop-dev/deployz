@@ -997,11 +997,13 @@ export class BootstrapStack extends Stack {
     // cover); (2) any subsequent AddTagsToResource — e.g. CloudFormation
     // re-applying the full tag set on a stack update — resends
     // deployz:installation as part of the request, so it still satisfies a
-    // RequestTag condition. ListTagsForResource stays in MANAGE: it only
-    // reads tags off a resource that (by the time it's called) already
-    // carries them, so ResourceTag is the correct — and satisfiable — check.
-    const cacheDescribeActions = PHASE_2_CACHE_ACTIONS.filter((action) =>
-      action.startsWith('elasticache:Describe'),
+    // RequestTag condition. ListTagsForResource is condition-free, like the
+    // RDS precedent (PHASE_2_PURGE_RDS_DISCOVER_ACTIONS): PURGE reads the tags
+    // of EVERY replication group in the region to find its own, and a
+    // ResourceTag condition denied the read of a sibling installation's group
+    // and failed the whole purge (PURGE_FAILED, found on real AWS).
+    const cacheDescribeActions = PHASE_2_CACHE_ACTIONS.filter(
+      (action) => action.startsWith('elasticache:Describe') || action === 'elasticache:ListTagsForResource',
     );
     const cacheCreateActions = PHASE_2_CACHE_ACTIONS.filter(
       (action) =>

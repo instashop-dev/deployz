@@ -646,8 +646,7 @@
                 "elasticache:DeleteCacheCluster",
                 "elasticache:ModifyCacheCluster",
                 "elasticache:DeleteReplicationGroup",
-                "elasticache:DeleteCacheSubnetGroup",
-                "elasticache:ListTagsForResource"
+                "elasticache:DeleteCacheSubnetGroup"
               ],
               "Condition": {
                 "StringEquals": {
@@ -666,7 +665,8 @@
               "Action": [
                 "elasticache:DescribeCacheClusters",
                 "elasticache:DescribeReplicationGroups",
-                "elasticache:DescribeCacheSubnetGroups"
+                "elasticache:DescribeCacheSubnetGroups",
+                "elasticache:ListTagsForResource"
               ],
               "Effect": "Allow",
               "Resource": "*"
@@ -1028,8 +1028,7 @@
                 "elasticache:DeleteCacheCluster",
                 "elasticache:ModifyCacheCluster",
                 "elasticache:DeleteReplicationGroup",
-                "elasticache:DeleteCacheSubnetGroup",
-                "elasticache:ListTagsForResource"
+                "elasticache:DeleteCacheSubnetGroup"
               ],
               "Condition": {
                 "StringEquals": {
@@ -1049,7 +1048,8 @@
               "Action": [
                 "elasticache:DescribeCacheClusters",
                 "elasticache:DescribeReplicationGroups",
-                "elasticache:DescribeCacheSubnetGroups"
+                "elasticache:DescribeCacheSubnetGroups",
+                "elasticache:ListTagsForResource"
               ],
               "Effect": "Allow",
               "Resource": "*",
@@ -1715,7 +1715,7 @@
           "S3Bucket": {
             "Fn::Sub": "cdk-hnb659fds-assets-${AWS::AccountId}-${AWS::Region}"
           },
-          "S3Key": "59d7616132d7be8004f6db7409e5353dc6905b6944a55a794a5c43da14fafb21.zip"
+          "S3Key": "5121c1e2c93a9de4513aaccad1966f36db4435810be05c0aaa58e9148a017e41.zip"
         },
         "Environment": {
           "Variables": {

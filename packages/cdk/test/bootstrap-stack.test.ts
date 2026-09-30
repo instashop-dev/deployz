@@ -402,7 +402,7 @@ describe('BootstrapStack', () => {
 
     // Statement structure mirrors the ACM/domain-ingress precedent:
     // Create is request-tag-conditioned (brand-new resource, no tag yet),
-    // Delete/Modify/read-tags is resource-tag-conditioned (resource already
+    // Delete/Modify is resource-tag-conditioned (resource already
     // carries the installation tag), and Describe is condition-free because
     // ElastiCache Describe* calls don't support resource-level
     // permissions/conditions.
@@ -442,7 +442,6 @@ describe('BootstrapStack', () => {
         'elasticache:ModifyCacheCluster',
         'elasticache:DeleteReplicationGroup',
         'elasticache:DeleteCacheSubnetGroup',
-        'elasticache:ListTagsForResource',
       ].sort(),
     );
     // AddTagsToResource is explicitly NOT in the manage bucket.
@@ -460,6 +459,9 @@ describe('BootstrapStack', () => {
         'elasticache:DescribeCacheClusters',
         'elasticache:DescribeReplicationGroups',
         'elasticache:DescribeCacheSubnetGroups',
+        // PURGE reads the tags of every replication group in the region, so a
+        // sibling installation's group must not deny the read.
+        'elasticache:ListTagsForResource',
       ].sort(),
     );
     expect(cacheDescribeStatement?.['Condition']).toBeUndefined();
