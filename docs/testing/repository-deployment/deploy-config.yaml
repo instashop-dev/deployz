@@ -358,6 +358,57 @@ repositories:
       - "postgres.js with sslmode=require does not verify the CA (DEPLOY-007 moot). STORAGE_DRIVER stays local for this campaign (S3 needs AWS_S3_REGION/AWS_S3_BUCKET)."
       - "Campaign 2026-09-18: ap-south-1. /api/health pings PostgreSQL and Redis (health.controller.ts:19-22); the analyser's health path was / (manifest) — overridden to /api/health."
 
+  - id: repo-017
+    deploymentClass: fresh-full
+    findings: []
+    fork: instashop-dev/rallly
+    overrides:
+      buildContext: .
+    config:
+      - { key: SUPPORT_EMAIL, value: support@example.com }
+      - { key: NEXT_PUBLIC_BASE_URL, value: "${DEPLOYZ_APP_URL}" }
+      - { key: AWS_ACCESS_KEY_ID, value: "" }
+      - { key: AWS_SECRET_ACCESS_KEY, value: "" }
+      - { key: GOOGLE_CLIENT_SECRET, value: "" }
+      - { key: KV_REST_API_TOKEN, value: "" }
+      - { key: LICENSE_API_AUTH_TOKEN, value: "" }
+      - { key: MICROSOFT_CLIENT_SECRET, value: "" }
+      - { key: OIDC_CLIENT_SECRET, value: "" }
+      - { key: OPENAI_API_KEY, value: "" }
+      - { key: S3_ACCESS_KEY_ID, value: "" }
+      - { key: S3_SECRET_ACCESS_KEY, value: "" }
+      - { key: SMTP_PWD, value: "" }
+      - { key: SMTP_USER, value: "" }
+      - { key: TURNSTILE_SECRET_KEY, value: "" }
+      - { key: MAINTENANCE_BYPASS_TOKEN, value: "" }
+      - { key: NEXT_PUBLIC_POSTHOG_API_KEY, value: "" }
+      - { key: GOOGLE_CLIENT_ID, value: "" }
+      - { key: MICROSOFT_CLIENT_ID, value: "" }
+      - { key: OIDC_CLIENT_ID, value: "" }
+      - { key: NEXT_PUBLIC_, value: "" }
+      - { key: NEXT_PUBLIC_APP_BASE_URL, value: "" }
+      - { key: NEXT_PUBLIC_TURNSTILE_SITE_KEY, value: "" }
+      - { key: STRIPE_SIGNING_SECRET, value: "" }
+    secrets:
+      - { key: SECRET_PASSWORD, format: hex32 }
+    verify: { healthPath: /api/status, appPath: /api/status }
+    smoke:
+      - { path: /api/status, status: 200, jsonPath: database, jsonEquals: connected, exercises: [postgres], graceSeconds: 30 }
+    notes:
+      - "pnpm/turbo monorepo; Dockerfile apps/web/Dockerfile with the repo root as build context. t3-env requires DATABASE_URL, SECRET_PASSWORD (min 32) and SUPPORT_EMAIL. Migrations run in docker-start.sh at boot. /api/status reports database: connected after a real Prisma connect."
+
+  - id: repo-029
+    deploymentClass: fresh-full
+    findings: []
+    fork: instashop-dev/emailengine
+    secrets:
+      - { key: EENGINE_SECRET, format: hex32 }
+    verify: { healthPath: /health, appPath: /health }
+    smoke:
+      - { path: /health, status: 200, jsonPath: success, jsonEquals: true, exercises: [redis], graceSeconds: 30 }
+    notes:
+      - "Redis is the database (no PostgreSQL); EENGINE_REDIS carries the URL. /health (workers/api.js) needs every IMAP worker up and does a Redis write/read round trip. EENGINE_SECRET has no default."
+
   - id: repo-012
     deploymentClass: fresh-full
     findings: []
