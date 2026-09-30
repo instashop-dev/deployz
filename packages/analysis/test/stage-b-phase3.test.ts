@@ -602,6 +602,20 @@ describe('false-required env vars (A1-001, A1-002)', () => {
     expect(byKey.has('SHARED_LIB_URL')).toBe(true);
   });
 
+  it('keeps a sibling workload with its own Dockerfile, a compose service or a Procfile entry (A1-008)', () => {
+    const base: FileTree = {
+      'apps/web/Dockerfile': 'FROM node:20\nCMD ["node", "apps/web/server.js"]\n',
+      'apps/web/src/env.ts': 'fetch(process.env.WEB_API_URL);\n',
+      'apps/worker/src/index.ts': 'fetch(process.env.WORKER_API_URL);\n',
+    };
+    expect(modelByKey({ ...base, 'apps/worker/Dockerfile': 'FROM node:20\n' }).has('WORKER_API_URL')).toBe(true);
+    expect(
+      modelByKey({ ...base, 'docker-compose.yml': 'services:\n  worker:\n    build: ./apps/worker\n' }).has('WORKER_API_URL'),
+    ).toBe(true);
+    expect(modelByKey({ ...base, Procfile: 'worker: node apps/worker/dist/index.js\n' }).has('WORKER_API_URL')).toBe(true);
+    expect(modelByKey(base).has('WORKER_API_URL')).toBe(false);
+  });
+
   it('keeps a sibling app the Dockerfile itself names (A1-008)', () => {
     const tree: FileTree = {
       'apps/api/Dockerfile': 'FROM node:20\nCOPY apps/worker apps/worker\nCMD ["node", "apps/api/server.js"]\n',
@@ -610,10 +624,10 @@ describe('false-required env vars (A1-001, A1-002)', () => {
     expect(modelByKey(tree).has('WORKER_API_URL')).toBe(true);
   });
 
-  it('does not require a non-secret value handed alone to a converter (A1-008)', () => {
+  it('does not require a non-secret value handed alone to a named converter (A1-008)', () => {
     const tree: FileTree = {
       'lib/config.ts': [
-        'const size = Number(process.env.MAX_MESSAGE_BYTES);',
+        'const enabled = Boolean(process.env.FEATURE_FLAG);',
         'const base = formatBaseUri(process.env.BASE_URI_PATH);',
         'const type = authTypeFromString(process.env.AUTH_TYPE);',
         'const client = new Client(process.env.SERVICE_ENDPOINT);',
@@ -621,10 +635,14 @@ describe('false-required env vars (A1-001, A1-002)', () => {
       ].join('\n'),
     };
     const byKey = modelByKey(tree);
-    expect(byKey.get('MAX_MESSAGE_BYTES')).toMatchObject({ required: false });
+    expect(byKey.get('FEATURE_FLAG')).toMatchObject({ required: false });
     expect(byKey.get('BASE_URI_PATH')).toMatchObject({ required: false });
     expect(byKey.get('AUTH_TYPE')).toMatchObject({ required: false });
     expect(byKey.get('SERVICE_ENDPOINT')).toMatchObject({ required: true });
+    // Number(undefined) is NaN: the coercion alone does not handle absence.
+    expect(modelByKey({ 'lib/n.ts': 'const size = Number(process.env.MAX_MESSAGE_BYTES);\n' }).get('MAX_MESSAGE_BYTES')).toMatchObject({
+      required: true,
+    });
   });
 
   it('does not let a closed if-condition of an earlier statement guard a later bare read', () => {

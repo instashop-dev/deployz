@@ -356,8 +356,10 @@ const GO_SOURCE = /\.go$/;
 const JS_SOURCE = /\.(ts|js|mjs|cjs|jsx|tsx)$/;
 
 // Converters that take one env value and decide what an absent one means.
+// Number/parseInt/String are not here: they turn an absent value into NaN or "undefined".
+const DOCKERFILE_NAME_REGEX = /(?:^|\/)(?:dockerfile(?:[.-][\w.-]+)?|[\w.-]+\.dockerfile)$/i;
 const ENV_TRANSFORM_CALLEE_REGEX =
-  /^(?:Number|parseInt|parseFloat|String|Boolean|format[A-Z]\w*|normali[sz]e[A-Z]\w*|\w+From[A-Z]\w*|load[A-Z]\w*|to[A-Z]\w*)$/;
+  /^(?:Boolean|format[A-Z]\w*|normali[sz]e[A-Z]\w*|\w+From[A-Z]\w*|load[A-Z]\w*|to[A-Z]\w*)$/;
 
 // `process.env.KEY = …` / `process.env['KEY'] = …`: a write, not `==` or `=>`.
 const JS_ENV_ASSIGNMENT_REGEX =
@@ -556,18 +558,36 @@ function selectedDockerfile(tree: FileTree): { path: string; content: string } |
 
 /**
  * A monorepo builds one app from `apps/web/Dockerfile`; its sibling apps
- * (`apps/landing`) are other workloads, so their env reads are not this
- * deployment's. A sibling the Dockerfile itself names (`apps/worker`) stays in.
+ * (`apps/landing`) are other apps, so their env reads are not this
+ * deployment's. A sibling stays in scope when it is a workload of its own: it
+ * has a Dockerfile, a compose file or Procfile points at it, or the selected
+ * Dockerfile names it.
  */
 function siblingAppFilter(tree: FileTree): (path: string) => boolean {
   const dockerfile = selectedDockerfile(tree);
   const match = dockerfile ? /^((?:apps|services|applications)\/)([^/]+)\/(?:.+\/)?[^/]+$/.exec(dockerfile.path) : null;
   if (!dockerfile || !match) return () => false;
   const [, parent, own] = match as unknown as [string, string, string];
+  const references = [dockerfile.content];
+  for (const [path, content] of Object.entries(tree)) {
+    if (content && /(?:^|\/)(?:(?:docker-)?compose[^/]*\.ya?ml|Procfile)$/.test(path)) references.push(content);
+  }
+  const workloads = new Map<string, boolean>();
+  const isWorkload = (sibling: string): boolean => {
+    let known = workloads.get(sibling);
+    if (known === undefined) {
+      const dir = `${parent}${sibling}`;
+      known =
+        references.some((text) => text.includes(dir)) ||
+        Object.keys(tree).some((path) => path.startsWith(`${dir}/`) && DOCKERFILE_NAME_REGEX.test(path));
+      workloads.set(sibling, known);
+    }
+    return known;
+  };
   return (path) => {
     if (!path.startsWith(parent)) return false;
     const sibling = path.slice(parent.length).split('/')[0] ?? '';
-    return sibling !== own && !dockerfile.content.includes(`${parent}${sibling}`);
+    return sibling !== own && !isWorkload(sibling);
   };
 }
 
@@ -3053,14 +3073,14 @@ export function detectEnvVarModel(tree: FileTree, externalServices: string[] = [
             : isSecretLocalAssignment
               ? throwGuarded || !localTested
               : true;
-        // A non-secret value handed alone to a converter (`Number(process.env.X)`,
-        // `formatBaseUri(process.env.X)`, `authTypeFromString(process.env.X)`)
+        // A non-secret value handed alone to a named converter (`formatBaseUri(process.env.X)`,
+        // `authTypeFromString(process.env.X)`)
         // is turned into the app's own default or validated there, like a bare
         // stored read: the converter decides what absence means.
         const isBareTransform =
           !isSecretName(key) &&
           ENV_TRANSFORM_CALLEE_REGEX.test(/([A-Za-z_$][\w$]*)\s*\(\s*$/.exec(head)?.[1] ?? '') &&
-          /^\s*(?:,\s*\d+\s*)?\)/.test(tail);
+          /^\s*\)/.test(tail);
         recordRead(key, !hasFallback && !isGuard && !isBareTransform && bareNeedsValue, path);
       }
       // Stage B phase 3 (COMP-017): schema-library and helper-form reads —
