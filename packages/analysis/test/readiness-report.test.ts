@@ -214,6 +214,21 @@ describe('buildReadinessReport — finding classification', () => {
     expect(finding?.confidence).toBe('confirmed');
   });
 
+  it('the SQLite rejection names both supported engines', () => {
+    const tree: FileTree = {
+      ...readyTree,
+      'package.json': JSON.stringify({
+        name: 'sqlite-app',
+        scripts: { start: 'node dist/index.js' },
+        dependencies: { express: '^4.18.0', 'better-sqlite3': '^9.0.0' },
+      }),
+    };
+    const finding = buildReadinessReport(analyseRepo(tree)).findings.find((f) => f.id === 'unsupported-database-sqlite');
+    expect(finding?.blocking).toBe(true);
+    expect(finding?.suggestedOutcome).toContain('PostgreSQL or MySQL');
+    expect(finding?.whyItMatters).toContain('PostgreSQL or MySQL');
+  });
+
   it('local filesystem persistence is required + blocking + confirmed', () => {
     const report = buildReadinessReport(analyseRepo(localFsTree));
     const finding = report.findings.find((f) => f.id === 'local-file-storage');
