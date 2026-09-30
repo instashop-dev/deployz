@@ -52,6 +52,7 @@ export async function assertProductionDeploymentAllowed(
  */
 export async function assertTestDeploymentSlot(
   db: RuntimeDb,
+  organizationId: string,
   applicationId: string,
 ): Promise<void> {
   const [existing] = await db
@@ -59,6 +60,7 @@ export async function assertTestDeploymentSlot(
     .from(schema.deployments)
     .where(
       and(
+        eq(schema.deployments.organizationId, organizationId),
         eq(schema.deployments.applicationId, applicationId),
         eq(schema.deployments.deploymentType, 'TEST'),
         ne(schema.deployments.state, 'DELETED'),
