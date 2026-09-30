@@ -399,7 +399,7 @@ export function classifyBuildFailure(
     return /HTTP 404/.test(text)
       ? cause(
           'repository',
-          'GitHub did not return this commit. The commit may not exist in the repository, or Deployz may no longer have access to it.',
+          'GitHub did not return this commit. The commit may no longer exist (for example after a force-push or a deleted branch), or Deployz may no longer have access to the repository.',
           "Check that the commit exists on the application's branch in GitHub and that the Deployz GitHub App can still read the repository. Then create a new release from a commit that exists.",
         )
       : cause('undetermined', 'Deployz could not download the commit from GitHub.');
