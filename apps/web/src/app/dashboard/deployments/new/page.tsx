@@ -16,7 +16,12 @@ import { Label } from '@/components/ui/label';
 import { Separator } from '@/components/ui/separator';
 import { Spinner } from '@/components/ui/spinner';
 import { ApiRequestError, errorMessage } from '@/lib/api-client';
-import { fetchApplications, type Application } from '@/lib/applications';
+import {
+  defaultInviteApplication,
+  fetchApplications,
+  inviteApplicationLabel,
+  type Application,
+} from '@/lib/applications';
 import {
   createCheckoutIntent,
   fetchBillingConfig,
@@ -191,7 +196,7 @@ function NewDeploymentScreen() {
   // follows whichever application is selected.
   useEffect(() => {
     if (appsState.status !== 'loaded' || selectedApplicationId !== null) return;
-    setSelectedApplicationId(appsState.applications[0]?.id ?? null);
+    setSelectedApplicationId(defaultInviteApplication(appsState.applications)?.id ?? null);
   }, [appsState, selectedApplicationId]);
 
   useEffect(() => {
@@ -575,12 +580,12 @@ function NewDeploymentScreen() {
                     name="application"
                     className={selectClass}
                     required
-                    defaultValue={preselectedApplicationId ?? appsState.applications[0]?.id}
+                    defaultValue={preselectedApplicationId ?? defaultInviteApplication(appsState.applications)?.id}
                     onChange={(event) => setSelectedApplicationId(event.currentTarget.value)}
                   >
                     {appsState.applications.map((app) => (
                       <option key={app.id} value={app.id}>
-                        {app.name}
+                        {inviteApplicationLabel(app)}
                       </option>
                     ))}
                   </select>

@@ -34,9 +34,10 @@ const mocks = vi.hoisted(() => ({
   fetchApplicationPreflight: vi.fn(),
 }));
 
-vi.mock('../src/lib/applications', () => ({
-  fetchApplications: mocks.fetchApplications,
-}));
+vi.mock('../src/lib/applications', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../src/lib/applications')>();
+  return { ...actual, fetchApplications: mocks.fetchApplications };
+});
 
 vi.mock('../src/lib/customers', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../src/lib/customers')>();

@@ -151,3 +151,22 @@ export async function fetchApplicationPlan(id: string): Promise<DeploymentPlan> 
   }
   return (await response.json()) as DeploymentPlan;
 }
+
+/** The application the invite form preselects: the first that can be shared
+ *  (analysis passed), else the first in the list. */
+export function defaultInviteApplication<T extends Pick<Application, 'compatibilityStatus'>>(
+  applications: readonly T[],
+): T | undefined {
+  return applications.find((app) => app.compatibilityStatus === 'READY') ?? applications[0];
+}
+
+/** The option text in the invite form's application picker: an application
+ *  that cannot be shared yet says why, next to its name. */
+export function inviteApplicationLabel(
+  app: Pick<Application, 'name' | 'analysisStatus' | 'compatibilityStatus'>,
+): string {
+  if (app.compatibilityStatus === 'READY') return app.name;
+  if (app.analysisStatus === 'COMPLETE') return `${app.name} (changes needed)`;
+  if (app.analysisStatus === 'FAILED') return `${app.name} (analysis failed)`;
+  return `${app.name} (not analysed yet)`;
+}
