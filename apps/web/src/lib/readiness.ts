@@ -120,6 +120,8 @@ export interface ApplicationReadiness {
   passed: PassedCheck[];
   /** The commit the analysis ran against, when known. */
   analyzedCommitSha: string | null;
+  /** True when the stored analysis predates the current analyser; a re-analysis applies newer checks. Absent from older API responses. */
+  analysisOutdated?: boolean;
   /** What the analysis detected (mirrors `ApplicationAnalysis` in @deployz/contracts). Null until a recent analysis ran. */
   detected: DetectedApplication | null;
   /** Server-computed database/redis/storage truth (detected/effective/overridden). Null while analysis is incomplete, or from a legacy API response. */

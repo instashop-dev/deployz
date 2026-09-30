@@ -1177,6 +1177,27 @@ describe('server — env-var setup (environment-settings route, release gate, re
     // "unreviewed required" (needs a decision); LOG_LEVEL → optional.
     expect(body.environmentSetup).toEqual({ needsDecision: 1, missingValue: 0, missingBuildValue: 0, customer: 1, total: 3 });
   });
+
+  it('readiness flags a stored analysis older than the current analyser as outdated (A1-006)', async () => {
+    const readiness = async (id: string) =>
+      (
+        await app.inject({ method: 'GET', url: `/api/applications/${id}/readiness`, headers: { cookie: org.cookie } })
+      ).json() as { analysisOutdated: boolean };
+
+    const stale = await insertApplication(db, org.organizationId, {
+      detectedMetadata: { ...ENV_SETUP_METADATA, analysisVersion: ANALYSIS_VERSION - 1 },
+      analysisStatus: 'COMPLETE',
+    });
+    const current = await insertApplication(db, org.organizationId, {
+      detectedMetadata: { ...ENV_SETUP_METADATA, analysisVersion: ANALYSIS_VERSION },
+      analysisStatus: 'COMPLETE',
+    });
+    const incomplete = await insertApplication(db, org.organizationId, { detectedMetadata: ENV_SETUP_METADATA });
+
+    expect((await readiness(stale.id)).analysisOutdated).toBe(true);
+    expect((await readiness(current.id)).analysisOutdated).toBe(false);
+    expect((await readiness(incomplete.id)).analysisOutdated).toBe(false);
+  });
 });
 
 // ── §36/§37: PATCH and DELETE /api/applications/:id ─────────────────────────
