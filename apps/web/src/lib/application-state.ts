@@ -215,17 +215,21 @@ export function customerDeployments(deployments: readonly FleetDeployment[]): Fl
 }
 
 /**
- * True when a completed analysis still waits on the vendor: an open required
- * change or an environment variable that needs a decision or a value. The
- * applications list uses it so its badge agrees with the application page.
+ * The badge the applications list shows for a completed analysis: the same
+ * presentation the application page derives, so the two cannot disagree.
+ * Releases and install links only change the page's message, never the badge.
  */
-export function readinessNeedsVendorInput(readiness: ApplicationReadiness): boolean {
-  if (readiness.analysisStatus !== 'COMPLETE') return false;
-  const setup = readiness.environmentSetup;
-  return (
-    readiness.findings.some((f) => f.severity === 'required') ||
-    (setup != null && setup.needsDecision + setup.missingValue > 0)
-  );
+export function applicationListBadge(
+  application: { id: string; name: string; defaultBranch: string },
+  readiness: ApplicationReadiness,
+  deployments: FleetDeployment[],
+): ApplicationPresentation['badge'] {
+  return deriveApplicationPresentation({
+    data: { application, readiness, deployments, releases: 'error' },
+    installLinks: null,
+    stale: false,
+    analysisTakingLonger: false,
+  }).badge;
 }
 
 // ── Copy ────────────────────────────────────────────────────────────────────

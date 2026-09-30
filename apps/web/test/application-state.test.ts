@@ -8,7 +8,7 @@ import {
   customerDeployments,
   deriveApplicationPresentation,
   latestTestDeployment,
-  readinessNeedsVendorInput,
+  applicationListBadge,
   releaseReadiness,
   testDeploymentPhase,
   type ApplicationState,
@@ -1161,27 +1161,26 @@ describe('release readiness is shown apart from the analysis state', () => {
   });
 });
 
-describe('readinessNeedsVendorInput', () => {
-  it('is false for a clean completed analysis and while analysing', () => {
-    expect(readinessNeedsVendorInput(readiness())).toBe(false);
-    expect(
-      readinessNeedsVendorInput(
-        readiness({ analysisStatus: 'ANALYZING', findings: [requiredFinding()] }),
-      ),
-    ).toBe(false);
+describe('applicationListBadge', () => {
+  const app = { id: 'a1', name: 'App', defaultBranch: 'main' };
+
+  it('reads Ready to test for a clean analysis with no deployments', () => {
+    expect(applicationListBadge(app, readiness(), []).label).toBe('Ready to test');
   });
 
-  it('is true for a required change', () => {
-    expect(readinessNeedsVendorInput(readiness({ findings: [requiredFinding()] }))).toBe(true);
+  it('reads Needs input for a required change or an env decision', () => {
+    expect(applicationListBadge(app, readiness({ findings: [requiredFinding()] }), []).label).toBe('Needs input');
+    expect(
+      applicationListBadge(app, readiness({ environmentSetup: environmentSetup({ needsDecision: 3 }) }), []).label,
+    ).toBe('Needs input');
   });
 
-  it('is true when environment variables need a decision or a value', () => {
+  it('reads Test failed and Needs attention from the deployments, as the page does', () => {
     expect(
-      readinessNeedsVendorInput(readiness({ environmentSetup: environmentSetup({ needsDecision: 3 }) })),
-    ).toBe(true);
+      applicationListBadge(app, readiness(), [deployment({ state: 'FAILED' })]).label,
+    ).toBe('Test failed');
     expect(
-      readinessNeedsVendorInput(readiness({ environmentSetup: environmentSetup({ missingValue: 1 }) })),
-    ).toBe(true);
-    expect(readinessNeedsVendorInput(readiness({ environmentSetup: environmentSetup() }))).toBe(false);
+      applicationListBadge(app, readiness(), [customer({ id: 'c1', state: 'FAILED' })]).label,
+    ).toBe('Needs attention');
   });
 });
