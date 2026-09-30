@@ -645,6 +645,46 @@ describe('false-required env vars (A1-001, A1-002)', () => {
     });
   });
 
+  it('requires a Dockerfile ARG without a default that compose feeds as a build arg (A1-009)', () => {
+    const tree: FileTree = {
+      'apps/web/Dockerfile': [
+        'FROM node:24 AS installer',
+        'ARG SELF_HOSTED',
+        'ENV NEXT_PUBLIC_SELF_HOSTED=$SELF_HOSTED',
+        'ARG WITH_DEFAULT=1',
+        'ARG UNSET_IN_COMPOSE',
+        'RUN pnpm build',
+        '',
+      ].join('\n'),
+      'docker-compose.yml': [
+        'services:',
+        '  web:',
+        '    build:',
+        '      args:',
+        '        - SELF_HOSTED=true',
+        '        - WITH_DEFAULT=2',
+        '      context: .',
+        '      dockerfile: ./apps/web/Dockerfile',
+        '',
+      ].join('\n'),
+    };
+    const byKey = modelByKey(tree);
+    expect(byKey.get('SELF_HOSTED')).toMatchObject({ required: true, secret: false });
+    expect(byKey.get('SELF_HOSTED')!.source).toEqual(['docker-compose.yml build arg SELF_HOSTED=true']);
+    expect(byKey.has('WITH_DEFAULT')).toBe(false);
+    expect(byKey.has('UNSET_IN_COMPOSE')).toBe(false);
+  });
+
+  it('accepts the mapping form of compose build args and hides a secret-looking value (A1-009)', () => {
+    const tree: FileTree = {
+      'Dockerfile': 'FROM node:24\nARG NPM_TOKEN\nARG FEATURE\nRUN pnpm build\n',
+      'compose.yaml': 'services:\n  web:\n    build:\n      args:\n        FEATURE: on\n        NPM_TOKEN: abc123\n',
+    };
+    const byKey = modelByKey(tree);
+    expect(byKey.get('FEATURE')!.source).toEqual(['compose.yaml build arg FEATURE=on']);
+    expect(byKey.get('NPM_TOKEN')!.source).toEqual(['compose.yaml build arg NPM_TOKEN']);
+  });
+
   it('does not let a closed if-condition of an earlier statement guard a later bare read', () => {
     const tree: FileTree = {
       'server.js': ["if (process.env.MODE === 'x') {}", 'const token = process.env.SERVICE_SECRET;', ''].join('\n'),

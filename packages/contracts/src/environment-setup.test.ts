@@ -100,6 +100,14 @@ describe('suggestEnvironmentSetting', () => {
     expect(suggestion.reason).toBe('Deployz provides this value.');
   });
 
+  it('suggests the build stage for a variable a compose file feeds as a build arg (A1-009)', () => {
+    const suggestion = suggestEnvironmentSetting(
+      variable({ key: 'SELF_HOSTED', required: true, source: ['docker-compose.yml build arg SELF_HOSTED=true'] }),
+    );
+    expect(suggestion.setting).toMatchObject({ stage: 'build', provider: 'vendor', required: true });
+    expect(suggestion.evidence).toEqual(['docker-compose.yml build arg SELF_HOSTED=true']);
+  });
+
   it('suggests customer for a required secret', () => {
     const suggestion = suggestEnvironmentSetting(variable({ key: 'STRIPE_KEY', required: true, secret: true }));
     expect(suggestion.setting.provider).toBe('customer');
