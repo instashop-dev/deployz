@@ -156,6 +156,10 @@ describe('detectEnvVarModel (§11.2)', () => {
         'const max = process.env.BOOK_RAG_CHUNK_MAX_TOKENS;',
         'const limit = process.env.LLM_TOKEN_LIMIT;',
         'const key = process.env.SERVICE_API_TOKEN;',
+        'const a = process.env.API_TOKENS;',
+        'const b = process.env.ACCESS_TOKENS;',
+        'const c = process.env.GITHUB_TOKENS;',
+        'const d = process.env.LLM_TOKENS_PER_MINUTE;',
         '',
       ].join('\n'),
     });
@@ -163,6 +167,10 @@ describe('detectEnvVarModel (§11.2)', () => {
     expect(byKey.get('BOOK_RAG_CHUNK_MAX_TOKENS')).toMatchObject({ secret: false });
     expect(byKey.get('LLM_TOKEN_LIMIT')).toMatchObject({ secret: false });
     expect(byKey.get('SERVICE_API_TOKEN')).toMatchObject({ secret: true });
+    expect(byKey.get('LLM_TOKENS_PER_MINUTE')).toMatchObject({ secret: false });
+    for (const key of ['API_TOKENS', 'ACCESS_TOKENS', 'GITHUB_TOKENS']) {
+      expect(byKey.get(key), key).toMatchObject({ secret: true });
+    }
   });
 
   it('requires a code-only bare read of a secret-named variable with no default anywhere', () => {

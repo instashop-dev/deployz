@@ -3132,9 +3132,10 @@ const LOCATION_SUFFIX_REGEX = /_(?:URI|URL|ENDPOINT|HOST)$/i;
 
 /**
  * A token count or limit (BOOK_RAG_CHUNK_MAX_TOKENS, LLM_TOKEN_LIMIT) is a
- * number, not a credential, even though the name contains TOKEN.
+ * number, not a credential, even though the name contains TOKEN. Only
+ * quantity forms match: plural credential names (API_TOKENS) stay secret.
  */
-const TOKEN_QUANTITY_REGEX = /(?:^|_)TOKENS(?=_|$)|_TOKEN_(?:LIMIT|COUNT|BUDGET|MAX|MIN)(?=_|$)/gi;
+const TOKEN_QUANTITY_REGEX = /(?:^|_)(?:MAX|MIN|NUM)_TOKENS(?=_|$)|(?:^|_)TOKENS_(?:LIMIT|PER)(?=_|$)|_TOKEN_(?:LIMIT|COUNT|BUDGET|MAX|MIN)(?=_|$)/gi;
 
 /** Name-based credential heuristic — value-free, so it can never leak anything. */
 function isSecretName(key: string): boolean {
