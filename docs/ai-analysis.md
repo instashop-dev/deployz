@@ -196,9 +196,10 @@ provisions anything — it becomes a non-blocking `questions` entry instead.
   collide becomes a `questions` entry instead, so the planner is never
   handed a relationship it would reject.
 
-`ANALYSIS_VERSION` is 30 (`apps/api/src/analysis.ts`) — last bumped so a
-stored analysis finds a NestJS health controller and drops env vars that were
-wrongly required (see `docs/environment-variables.md`).
+`ANALYSIS_VERSION` is 31 (`apps/api/src/analysis.ts`) — last bumped so a
+stored analysis finds a NestJS health controller, drops env vars that were
+wrongly required, and stops treating token counts and limits as secrets (see
+`docs/environment-variables.md`).
 
 ## Fix instructions
 
