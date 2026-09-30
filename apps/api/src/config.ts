@@ -311,7 +311,7 @@ export async function setConfig(
   // DELETING, DELETED). The exact filter mirrors packages/cdk/src/lambda/worker.ts:420-428.
   const scopeDeployments =
     customerId === null
-      ? { claimable: [] as { id: string; organizationId: string }[], preRelay: [] as { id: string; organizationId: string }[] }
+      ? { claimable: [] as ScopeDeployment[], preRelay: [] as ScopeDeployment[], bindable: [] as ScopeDeployment[] }
       : splitScopeDeployments(await deps.findScopeDeployments(applicationId, customerId));
   // DEPLOY-027 (Phase 4): the org id comes from the application's own row
   // when the scope has no deployments — staged rows need it, and the worker's
@@ -443,9 +443,9 @@ export async function setConfig(
   const expiresAt = new Date(Date.now() + DEFAULT_PENDING_SECRET_TTL_MS);
   if (customerId !== null) {
     if (organizationId !== undefined) {
-      if (scopeDeployments.preRelay.length > 0) {
+      if (scopeDeployments.bindable.length > 0) {
         for (const { entry } of encryptedSecrets) {
-          for (const deployment of scopeDeployments.preRelay) {
+          for (const deployment of scopeDeployments.bindable) {
             // Re-bind with the deployment context so a relay holding this
             // row can only decrypt it for the matching deployment.
             const boundContext: Record<string, string> = {
@@ -550,16 +550,33 @@ const PRE_RELAY_STATES = new Set([
   'DELETED',
 ]);
 
+interface ScopeDeployment {
+  id: string;
+  organizationId: string;
+}
+
 function splitScopeDeployments(
   rows: ReadonlyArray<{ id: string; organizationId: string; state: typeof schema.deployments.$inferSelect['state'] }>,
-): { claimable: { id: string; organizationId: string }[]; preRelay: { id: string; organizationId: string }[] } {
-  const claimable: { id: string; organizationId: string }[] = [];
-  const preRelay: { id: string; organizationId: string }[] = [];
+): { claimable: ScopeDeployment[]; preRelay: ScopeDeployment[]; bindable: ScopeDeployment[] } {
+  const claimable: ScopeDeployment[] = [];
+  const preRelay: ScopeDeployment[] = [];
+  const bindable: ScopeDeployment[] = [];
   for (const row of rows) {
-    const bucket = PRE_RELAY_STATES.has(row.state) ? preRelay : claimable;
-    bucket.push({ id: row.id, organizationId: row.organizationId });
+    const deployment = { id: row.id, organizationId: row.organizationId };
+    if (PRE_RELAY_STATES.has(row.state)) {
+      preRelay.push(deployment);
+      bindable.push(deployment);
+    } else {
+      claimable.push(deployment);
+      // While the install runs, the relay is connected but the application
+      // stack may not exist yet: the direct CONFIG_UPDATE then finds no ECS
+      // service and fails, and its payload is scrubbed on claim, so the
+      // value would be lost. A bound row is delivered by the install-time
+      // CONFIG_UPDATE's config fetch regardless.
+      if (row.state === 'INSTALLING') bindable.push(deployment);
+    }
   }
-  return { claimable, preRelay };
+  return { claimable, preRelay, bindable };
 }
 
 /** Empty keys and duplicate keys within one write are rejected (§31). */
