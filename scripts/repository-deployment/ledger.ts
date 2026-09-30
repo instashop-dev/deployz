@@ -109,6 +109,12 @@ export function activeRunsBlock(ledgers: readonly { runId: string }[], maxActive
 export interface SeriesState {
   vendor?: { email: string; password: string };
   /**
+   * The one organization every attempt runs in. The control plane refuses to bind a
+   * GitHub installation that another organization already holds, so a new
+   * organization per attempt can no longer bind the vendor's installation.
+   */
+  organizationId?: string;
+  /**
    * The organization and application a repository's first attempt created,
    * keyed by Stage A id. Only `--reuse-application` reads it: a retry then
    * adds a release to the same application instead of minting a new
