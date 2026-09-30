@@ -544,6 +544,49 @@ describe('false-required env vars (A1-001, A1-002)', () => {
     expect(modelByKey(tree).get('APP_VERSION')).toMatchObject({ required: false });
   });
 
+  it('reads the default of a multi-line parse helper call (A1-007)', () => {
+    const tree: FileTree = {
+      'lib/options.ts': [
+        'const limit = parseEnvVarNumber(',
+        '  process.env.FEATURE_FLAGS_LIMIT,',
+        '  options?.limits?.flags ?? 5000,',
+        ');',
+        'const max = parseEnvVarNumber(process.env.MAX_SESSIONS, isEnterprise ? 100 : 5);',
+        '',
+      ].join('\n'),
+    };
+    const byKey = modelByKey(tree);
+    expect(byKey.get('FEATURE_FLAGS_LIMIT')).toMatchObject({ required: false });
+    expect(byKey.get('MAX_SESSIONS')).toMatchObject({ required: false });
+  });
+
+  it('does not require a key the code tests against null before parsing it (A1-007)', () => {
+    const tree: FileTree = {
+      'lib/db.ts': [
+        'const ssl = () => {',
+        '  if (process.env.DATABASE_SSL != null) {',
+        '    return JSON.parse(process.env.DATABASE_SSL);',
+        '  }',
+        '};',
+        '',
+      ].join('\n'),
+    };
+    expect(modelByKey(tree).get('DATABASE_SSL')).toMatchObject({ required: false });
+  });
+
+  it('treats a secret stored in a tested local as optional unless the code throws (A1-007)', () => {
+    const optional: FileTree = {
+      'lib/ai.ts': ['const aiKey = process.env.AI_API_KEY;', 'if (!aiKey) {', '  return disabled();', '}', ''].join('\n'),
+    };
+    const required: FileTree = {
+      'lib/ai.ts': ['const aiKey = process.env.AI_API_KEY;', 'if (!aiKey) {', "  throw new Error('missing');", '}', ''].join('\n'),
+    };
+    const untested: FileTree = { 'lib/ai.ts': 'const aiKey = process.env.AI_API_KEY;\nclient(aiKey);\n' };
+    expect(modelByKey(optional).get('AI_API_KEY')).toMatchObject({ required: false });
+    expect(modelByKey(required).get('AI_API_KEY')).toMatchObject({ required: true });
+    expect(modelByKey(untested).get('AI_API_KEY')).toMatchObject({ required: true });
+  });
+
   it('does not let a closed if-condition of an earlier statement guard a later bare read', () => {
     const tree: FileTree = {
       'server.js': ["if (process.env.MODE === 'x') {}", 'const token = process.env.SERVICE_SECRET;', ''].join('\n'),
