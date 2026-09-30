@@ -670,9 +670,10 @@ const COMPOSE_REGEX = /(?:^|\/)(?:docker-)?compose(?:\.[\w.-]+)?\.ya?ml$/i;
 // samples vendors actually commit (never a real `.env`, which is gitignored).
 const ENV_SAMPLE_REGEX = /(?:^|\/)\.env\.(?:example|template|sample)$/i;
 // File-based health routes — the same shape detectHealthEndpoint matches on
-// the path rather than on the file's contents.
+// the path rather than on the file's contents — and a NestJS
+// `health.controller.ts`, whose `@Controller('health')` is the only evidence.
 const HEALTH_ROUTE_FILE_REGEX =
-  /(?:^|\/)(?:health|healthz|healthcheck|heartbeat)(?:\.[jt]sx?|\/(?:route|index|\+server)\.[jt]sx?)$/i;
+  /(?:^|\/)(?:health|healthz|healthcheck|heartbeat)(?:\.controller)?(?:\.[jt]sx?|\/(?:route|index|\+server)\.[jt]sx?)$/i;
 // Lockfiles the §18 package-manager detector needs — matched by BASENAME
 // only (not `isRelevantPath`'s path-prefix shapes): their presence is the
 // signal, never their content, so they are never blob-fetched and never

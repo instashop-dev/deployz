@@ -666,6 +666,35 @@ describe('github — repository tree fetch (§18 analysis input)', () => {
     expect(tree).toHaveProperty('nested/.env.example');
   });
 
+  it('keeps a NestJS health.controller.ts inside the ANALYSIS_MAX_FILES cap (A1-003)', async () => {
+    const services = Array.from({ length: ANALYSIS_MAX_FILES + 5 }, (_, i) => ({
+      path: `apps/server/src/feature${i}/feature${i}.service.ts`,
+      type: 'blob' as const,
+      sha: `sha-service-${i}`,
+      size: 10,
+    }));
+    const fetchFn: FetchFn = async (url) => {
+      if (url.includes('/git/trees/')) {
+        return makeFetchResponse(200, {
+          tree: [
+            ...services,
+            { path: 'apps/server/src/integrations/health/health.controller.ts', type: 'blob', sha: 'sha-health', size: 10 },
+          ],
+        });
+      }
+      const sha = url.split('/').pop();
+      return makeFetchResponse(200, {
+        content: Buffer.from(`content-${sha}`).toString('base64'),
+        encoding: 'base64',
+      });
+    };
+
+    const tree = await buildFileTreeForAnalysis(REF, 'tok', fetchFn);
+
+    expect(Object.keys(tree)).toHaveLength(ANALYSIS_MAX_FILES);
+    expect(tree).toHaveProperty('apps/server/src/integrations/health/health.controller.ts');
+  });
+
   it("protects the selected Dockerfile's CMD/ENTRYPOINT script chain from the ANALYSIS_MAX_FILES trim on a large repository (DEPLOY-029)", async () => {
     // An umami-shaped 250-file repository: CMD -> scripts/start-docker.sh
     // -> scripts/check-db.js. `scripts/` sinks both to the LOWEST relevance

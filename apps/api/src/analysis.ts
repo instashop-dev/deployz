@@ -215,7 +215,10 @@ type ApplicationRow = typeof schema.applications.$inferSelect;
 // t3-env `runtimeEnv` pass-through, and a key a zod schema declares optional
 // are no longer required config. Stored v28 env-var models over-require (rallly
 // asked for 20 keys, dashy and emailengine for app-written ones) and must re-run.
-export const ANALYSIS_VERSION = 29;
+// Version 30: a NestJS `@Controller('health')` (under the literal
+// `setGlobalPrefix`) is a health route, and `health.controller.ts` now wins a
+// slot under the file cap. Stored v29 rows wrongly ask for a health path.
+export const ANALYSIS_VERSION = 30;
 
 export interface AnalysisRunnerDeps {
   db: RuntimeDb;

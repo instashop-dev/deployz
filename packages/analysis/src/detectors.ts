@@ -1137,6 +1137,31 @@ export function detectHealthEndpoint(tree: FileTree): DetectorFinding {
     }
   }
 
+  // ── NestJS: `@Controller('health')` with an empty `@Get()`, under the
+  //    literal `app.setGlobalPrefix('api')` of the bootstrap file. ──
+  let nestGlobalPrefix = '';
+  for (const [path, content] of Object.entries(tree)) {
+    if (!/\.ts$/.test(path) || !content || !isRuntimeSourcePath(path)) continue;
+    const prefix = /\.setGlobalPrefix\(\s*['"]([^'"/]+)['"]/.exec(content)?.[1];
+    if (prefix) {
+      nestGlobalPrefix = `/${prefix}`;
+      break;
+    }
+  }
+  for (const [path, content] of Object.entries(tree)) {
+    if (!/\.ts$/.test(path) || !content || !isRuntimeSourcePath(path)) continue;
+    const controller = /@Controller\(\s*(?:\{\s*path:\s*)?['"]([^'"]+)['"]/.exec(content)?.[1];
+    if (!controller || !/@Get\(\s*(?:['"]{2})?\s*\)/.test(content)) continue;
+    const routePath = `/${controller.replace(/^\/+/, '')}`;
+    if (!HEALTH_PATH_SEGMENT_REGEX.test(routePath)) continue;
+    sources.push(`NestJS health controller (${path})`);
+    pathCandidates.push({
+      path: `${nestGlobalPrefix}${routePath}`,
+      priority: HEALTH_PATH_PRIORITY.ROUTE_REGISTRATION,
+      source: 'source',
+    });
+  }
+
   // 2. package.json "healthcheck" script
   for (const [name] of collectScripts(tree)) {
     if (HEALTH_SCRIPT_REGEX.test(name)) {
