@@ -65,6 +65,7 @@ vi.mock('../src/app/dashboard/applications/[id]/application-page-context', () =>
         id: 'app-1',
         repoFullName: 'acme/api',
         defaultBranch: 'main',
+        migrationCommand: 'pnpm prisma migrate deploy',
       },
     },
   }),
@@ -337,6 +338,12 @@ describe('Create release form', () => {
       toggle.click();
     });
   }
+
+  it('shows the detected migration command as the placeholder', async () => {
+    await openForm();
+    const input = container.querySelector('#migrationCommand') as HTMLInputElement;
+    expect(input.placeholder).toBe('pnpm prisma migrate deploy');
+  });
 
   it('shows the BUILD_CONFIGURATION_MISSING message and a link to Configuration when a release cannot build', async () => {
     const { BuildConfigurationMissingError } = await import('../src/lib/releases');

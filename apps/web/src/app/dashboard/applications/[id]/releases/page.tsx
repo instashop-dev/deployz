@@ -261,7 +261,11 @@ function CreateReleaseForm({
           />
             <div className="flex flex-col gap-2">
               <Label htmlFor="migrationCommand">Migration command (optional)</Label>
-              <Input id="migrationCommand" name="migrationCommand" placeholder="npm run migrate" />
+              <Input
+                id="migrationCommand"
+                name="migrationCommand"
+                placeholder={data?.application.migrationCommand ?? "npm run migrate"}
+              />
               <p className="text-xs text-muted-foreground">
                 Runs inside the customer&apos;s account before this release starts, as a
                 one-off task. Leave empty to use the command Deployz detected for this
