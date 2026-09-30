@@ -355,6 +355,10 @@ const RB_SOURCE = /\.rb$/;
 const GO_SOURCE = /\.go$/;
 const JS_SOURCE = /\.(ts|js|mjs|cjs|jsx|tsx)$/;
 
+// `process.env.KEY = …` / `process.env['KEY'] = …`: a write, not `==` or `=>`.
+const JS_ENV_ASSIGNMENT_REGEX =
+  /process\.env\s*\.\s*([A-Z_][A-Z0-9_]*)\s*=(?![=>])|process\.env\[["']([A-Z_][A-Z0-9_]*)["']\]\s*=(?![=>])/g;
+
 // Stage B Wave 1 (DEPLOY-005, directus): a JS/TS module that reads its
 // configuration through a local `env` object — `const env = useEnv()`,
 // `import env from './env'`, `const env = process.env` — instead of
@@ -2419,7 +2423,7 @@ function sliceToChainEnd(content: string, start: number, limit = 240): string {
 /** zod object schemas used with process.env (`CORE_SECRET: z.string().min(1)`). */
 function scanZodEnvReads(content: string): { key: string; needsValue: boolean }[] {
   const isZod = /(?:from\s+['"]zod['"]|require\(\s*['"]zod['"]\s*\))/.test(content);
-  if (!isZod || !content.includes('.object(') || !content.includes('process.env')) return [];
+  if (!isZod || !(content.includes('.object(') || /\bcreateEnv\s*\(/.test(content)) || !content.includes('process.env')) return [];
   const found: { key: string; needsValue: boolean }[] = [];
   const memberRegex = /^\s*([A-Z][A-Z0-9_]*)\s*:\s*z\./gm;
   let match: RegExpExecArray | null;
@@ -2838,6 +2842,9 @@ export function detectEnvVarModel(tree: FileTree, externalServices: string[] = [
   // ── 2. Reads: which variables the app actually reads, and whether a read
   //      NEEDS a value vs. tolerates absence (fallback or presence guard). ──
   const reads = new Map<string, { needsValue: boolean; files: string[] }>();
+  // Keys a zod schema declares `.optional()` or `.default()`: the schema says
+  // the app tolerates their absence, whatever a bare read elsewhere suggests.
+  const schemaOptionalKeys = new Set<string>();
   const recordRead = (key: string, needsValue: boolean, file: string): void => {
     const current = reads.get(key) ?? { needsValue: false, files: [] };
     if (needsValue) current.needsValue = true;
@@ -2845,11 +2852,24 @@ export function detectEnvVarModel(tree: FileTree, externalServices: string[] = [
     reads.set(key, current);
   };
 
+  // A variable the runtime source ASSIGNS (`process.env.UV_THREADPOOL_SIZE = …`,
+  // `process.env.EE_ENV_LOADED = 'true'`) is set by the app itself, so a read
+  // of it is never the vendor's to configure.
+  const assignedKeys = new Set<string>();
+  for (const [path, content] of Object.entries(tree)) {
+    if (!content || !JS_SOURCE.test(path) || !isRuntimeSourcePath(path)) continue;
+    for (const assigned of content.matchAll(JS_ENV_ASSIGNMENT_REGEX)) {
+      const assignedKey = assigned[1] ?? assigned[2];
+      if (assignedKey) assignedKeys.add(assignedKey);
+    }
+  }
+
   for (const [path, content] of Object.entries(tree)) {
     if (!content || !isRuntimeSourcePath(path)) continue;
     if (JS_SOURCE.test(path)) {
       // `process.env.X` / `process.env['X']` everywhere; `env.X` / `env['X']`
       // too when the module reads through a local env object (DEPLOY-005).
+      const createsEnvSchema = /\bcreateEnv\s*\(/.test(content);
       const readRegex = new RegExp(
         String.raw`process\.env\s*\.\s*([A-Z_][A-Z0-9_]*)|process\.env\[["']([A-Z_][A-Z0-9_]*)["']\]` +
           (readsThroughEnvObject(content) ? `|${CONFIG_ENV_READ_SOURCE}` : ''),
@@ -2859,6 +2879,12 @@ export function detectEnvVarModel(tree: FileTree, externalServices: string[] = [
       while ((match = readRegex.exec(content)) !== null) {
         const key = match[1] ?? match[2] ?? match[3] ?? match[4];
         if (!key) continue;
+        // A glob in prose (`process.env.NEXT_PUBLIC_*`) names no variable.
+        if (content[match.index + match[0].length] === '*') continue;
+        if (assignedKeys.has(key)) {
+          recordRead(key, false, path);
+          continue;
+        }
         // A read through the module's env object proves the app reads the
         // key — the model, the binding aliases and secret minting need that —
         // but never that it REQUIRES a value: the env module that built the
@@ -2872,6 +2898,16 @@ export function detectEnvVarModel(tree: FileTree, externalServices: string[] = [
         // Statement-bound tail: a `??`/`||` on a LATER statement must not look
         // like a fallback for this read.
         const rawTail = content.slice(match.index + match[0].length, match.index + match[0].length + 160);
+        // t3-env `runtimeEnv: { KEY: process.env.KEY, … }` only forwards the
+        // value to `createEnv`; its zod schema decides what is required.
+        if (
+          createsEnvSchema &&
+          new RegExp(`(?:^|[\\s,{])${key}\\s*:\\s*$`).test(content.slice(Math.max(0, match.index - 60), match.index)) &&
+          /^\s*[,}]/.test(rawTail)
+        ) {
+          recordRead(key, false, path);
+          continue;
+        }
         const statementEnd = rawTail.search(/[\n;]/);
         const tail = statementEnd === -1 ? rawTail : rawTail.slice(0, statementEnd);
         const head = content.slice(Math.max(0, match.index - 60), match.index);
@@ -2894,7 +2930,7 @@ export function detectEnvVarModel(tree: FileTree, externalServices: string[] = [
         // CONSTANT) — `axios.get(process.env.URL, { headers })` carries none.
         const helperWithDefault =
           DEFAULTING_HELPER_REGEX.test(callee) &&
-          /^\s*(?:\|\|[^,;\n]*)?,\s*(?:['"`][^'"`]*['"`]|-?\d[\d._]*|true|false|null|undefined|[A-Z][A-Z0-9_]*)\s*[,)]/.test(tail);
+          /^\s*(?:\|\|[^,;\n]*)?,\s*(?:['"`][^'"`]*['"`]|-?\d[\d._]*(?:\s*[*+/-]\s*\d[\d._]*)*|true|false|null|undefined|[A-Z][A-Z0-9_]*)\s*[,)]/.test(tail);
         const hasFallback =
           /(?:\?\?|\|\|)\s*\S/.test(tail) || /(?:\?\?=|\|\|=)/.test(tail) || isAlternative || helperWithDefault;
         const isGuard =
@@ -2954,6 +2990,9 @@ export function detectEnvVarModel(tree: FileTree, externalServices: string[] = [
       ]) {
         recordRead(entry.key, entry.needsValue, path);
       }
+      for (const entry of scanZodEnvReads(content)) {
+        if (!entry.needsValue) schemaOptionalKeys.add(entry.key);
+      }
     } else if (/schema\.prisma$/i.test(path)) {
       const envRegex = /env\(\s*["']([A-Z_][A-Z0-9_]*)["']\s*\)/g;
       let match: RegExpExecArray | null;
@@ -3006,7 +3045,7 @@ export function detectEnvVarModel(tree: FileTree, externalServices: string[] = [
   for (const key of [...keys].sort()) {
     const declared = declarations.get(key);
     const read = reads.get(key);
-    const needsValue = read?.needsValue === true;
+    const needsValue = read?.needsValue === true && !schemaOptionalKeys.has(key);
     const hasDefault = declared?.realValue === true;
     const source: string[] = [];
 
