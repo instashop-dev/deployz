@@ -196,7 +196,7 @@ const OTHER_DB_COPY: RejectionCopy = {
   ...MARIA_DB_COPY,
   id: 'unsupported-database-other',
   plainEnglishExplanation:
-    'This app uses a database Deployz cannot host. Deployz provides a managed PostgreSQL database.',
+    'This app uses a database Deployz cannot host. Deployz provides managed PostgreSQL or MySQL databases.',
   suggestedOutcome:
     'Move the data layer to PostgreSQL, or remove the unsupported dependency if it is not actually used.',
 };
@@ -207,8 +207,9 @@ const SQLITE_COPY: RejectionCopy = {
   plainEnglishExplanation:
     'This app uses SQLite, a database stored in a file on the app server. Deployz cannot host it because app disks are wiped on every deploy.',
   whyItMatters:
-    'Deployz provisions, connects, and backs up the database for every customer deployment, and it can only do that for a managed PostgreSQL database.',
-  suggestedOutcome: 'Move the data layer to PostgreSQL.',
+    'Deployz provisions, connects, and backs up the database for every customer deployment, and it can only do that for PostgreSQL or MySQL.',
+  suggestedOutcome:
+    'Move the data layer to PostgreSQL or MySQL, or set the app to use one of them if it supports both.',
 };
 
 const REDIS_COPY: RejectionCopy = {
