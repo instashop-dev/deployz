@@ -646,8 +646,7 @@
                 "elasticache:DeleteCacheCluster",
                 "elasticache:ModifyCacheCluster",
                 "elasticache:DeleteReplicationGroup",
-                "elasticache:DeleteCacheSubnetGroup",
-                "elasticache:ListTagsForResource"
+                "elasticache:DeleteCacheSubnetGroup"
               ],
               "Condition": {
                 "StringEquals": {
@@ -666,7 +665,8 @@
               "Action": [
                 "elasticache:DescribeCacheClusters",
                 "elasticache:DescribeReplicationGroups",
-                "elasticache:DescribeCacheSubnetGroups"
+                "elasticache:DescribeCacheSubnetGroups",
+                "elasticache:ListTagsForResource"
               ],
               "Effect": "Allow",
               "Resource": "*"
@@ -1028,8 +1028,7 @@
                 "elasticache:DeleteCacheCluster",
                 "elasticache:ModifyCacheCluster",
                 "elasticache:DeleteReplicationGroup",
-                "elasticache:DeleteCacheSubnetGroup",
-                "elasticache:ListTagsForResource"
+                "elasticache:DeleteCacheSubnetGroup"
               ],
               "Condition": {
                 "StringEquals": {
@@ -1049,7 +1048,8 @@
               "Action": [
                 "elasticache:DescribeCacheClusters",
                 "elasticache:DescribeReplicationGroups",
-                "elasticache:DescribeCacheSubnetGroups"
+                "elasticache:DescribeCacheSubnetGroups",
+                "elasticache:ListTagsForResource"
               ],
               "Effect": "Allow",
               "Resource": "*",
