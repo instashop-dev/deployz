@@ -1013,6 +1013,25 @@ async function retryAwareIdempotencyKey(
     : baseKey;
 }
 
+/**
+ * The customer-facing retry (install link / deploy link) re-arms a first
+ * install, including mid-flight (a customer may abandon a stack and start
+ * over). It must not run on a deployment that is being removed or is in a
+ * day-2 state: the reset would fight the DESTROY/deploy job still running.
+ */
+const PUBLIC_RETRYABLE_STATES: ReadonlySet<string> = new Set([
+  'NOT_INSTALLED',
+  'WAITING_FOR_RELAY',
+  'INSTALLING',
+  'FAILED',
+]);
+
+function assertPublicRetryAllowed(deployment: { state: string }): void {
+  if (!PUBLIC_RETRYABLE_STATES.has(deployment.state)) {
+    throw new ApiError(409, 'INSTALL_NOT_RETRYABLE', `Deployment is ${deployment.state}, not retryable.`);
+  }
+}
+
 const SETTLED_JOB_STATES: ReadonlySet<string> = new Set(['SUCCEEDED', 'SUCCESS', 'FAILED', 'CANCELLED']);
 
 // maskAwsAccountId/toFleetRow live in ./fleet-row.js — shared with Team
@@ -2943,6 +2962,7 @@ export async function buildServer({
         'This deployment installed successfully before; contact the vendor to make changes.',
       );
     }
+    assertPublicRetryAllowed(deployment);
     const nextAttempt = deployment.attemptNumber + 1;
     const stackName = bootstrapStackName({
       appName: applicationName,
@@ -4285,6 +4305,7 @@ export async function buildServer({
           'This deployment installed successfully before; contact the vendor to make changes.',
         );
       }
+      assertPublicRetryAllowed(deployment);
       const nextAttempt = deployment.attemptNumber + 1;
       const stackName = bootstrapStackName({
         appName: application.name,
