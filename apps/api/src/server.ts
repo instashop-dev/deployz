@@ -580,6 +580,21 @@ function firstHeaderValue(value: string | string[] | undefined): string | undefi
   return Array.isArray(value) ? value[0] : value;
 }
 
+/**
+ * A caller-supplied Idempotency-Key, scoped to one deployment and one job
+ * type. Job keys are unique across ALL deployments, so an unscoped header let
+ * a key used anywhere (another deployment, another tenant, another operation)
+ * hand back that other job instead of running this one.
+ */
+function clientIdempotencyKey(
+  request: { headers: Record<string, string | string[] | undefined> },
+  deploymentId: string,
+  type: JobType,
+): string | undefined {
+  const header = firstHeaderValue(request.headers['idempotency-key']);
+  return header === undefined ? undefined : `${deploymentId}:${type}:client:${header}`;
+}
+
 // ── Ownership-scoped loaders (IDOR guards) ──────────────────────────────────
 //
 // Every :id route below MUST resolve its resource through one of these
@@ -5127,7 +5142,7 @@ export async function buildServer({
     // in the customer's account to ever run it.
     await requireDeployableState(db, deployment);
     const idempotencyKey =
-      firstHeaderValue(request.headers['idempotency-key']) ??
+      clientIdempotencyKey(request, deployment.id, 'DEPLOY_RELEASE') ??
       (await retryAwareIdempotencyKey(
         db,
         deployment.id,
@@ -5350,7 +5365,7 @@ export async function buildServer({
       deployment,
       request.user?.id ?? null,
       body.releaseId,
-      firstHeaderValue(request.headers['idempotency-key']),
+      clientIdempotencyKey(request, deployment.id, 'ROLLBACK'),
     );
     return reply.code(created ? 202 : 200).send({ jobId: job.id, state: job.state });
   });
@@ -5364,7 +5379,7 @@ export async function buildServer({
     const deployment = await loadOwnedDeployment(db, id, organizationId);
     await requireDeployableState(db, deployment);
     const idempotencyKey =
-      firstHeaderValue(request.headers['idempotency-key']) ??
+      clientIdempotencyKey(request, deployment.id, 'RESTART') ??
       (await retryAwareIdempotencyKey(db, deployment.id, 'RESTART', `${deployment.id}:RESTART`));
     await requireDeploymentIdle(db, deployment.id, idempotencyKey);
     const { job, created } = await createOrReuseJob(db, {
@@ -5446,7 +5461,7 @@ export async function buildServer({
     // deploy against a stack that is about to be deleted can only produce a
     // job whose subject disappears underneath it.
     const idempotencyKey =
-      firstHeaderValue(request.headers['idempotency-key']) ??
+      clientIdempotencyKey(request, deployment.id, 'DESTROY') ??
       (await retryAwareIdempotencyKey(db, deployment.id, 'DESTROY', `${deployment.id}:DESTROY`));
     await requireDeploymentIdle(db, deployment.id, idempotencyKey);
     // Data deletion during a wedged destroy is authorized ONLY for a
@@ -5753,7 +5768,7 @@ export async function buildServer({
     // One mutating operation per deployment: a purge already in flight must
     // not be joined by another.
     const idempotencyKey =
-      firstHeaderValue(request.headers['idempotency-key']) ??
+      clientIdempotencyKey(request, deployment.id, 'PURGE') ??
       (await retryAwareIdempotencyKey(db, deployment.id, 'PURGE', `${deployment.id}:PURGE`));
     await requireDeploymentIdle(db, deployment.id, idempotencyKey);
     const { job, created } = await createOrReuseJob(db, {
@@ -7464,6 +7479,11 @@ export async function buildServer({
       failureCode?: string;
       evidence?: unknown;
     };
+    // The relay's free-text error reaches the job result, the event feed and
+    // the vendor UI; it is customer-side output, so redact secret shapes first.
+    if (typeof body.error === 'string') {
+      body.error = redactSecrets(body.error);
+    }
     const state = body.success === false ? 'FAILED' : 'SUCCEEDED';
     const failureCodeParsed = state === 'FAILED' ? failureCodeSchema.safeParse(body.failureCode) : undefined;
     // A code the enum does not know used to be dropped on the floor, which
