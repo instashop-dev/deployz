@@ -148,6 +148,14 @@ describe('translateStackEvents — spec-component fallback', () => {
     expect(items.map((item) => item.state)).toEqual(['COMPLETE', 'IN_PROGRESS', 'COMPLETE']);
   });
 
+  it('never calls a component ready from its finished resources alone: its other resources may still be coming', () => {
+    const done = translateStackEvents(
+      [event({ logicalResourceId: 'TaskDef', resourceType: 'AWS::ECS::TaskDefinition', resourceStatus: 'CREATE_COMPLETE', eventAt: at(20) })],
+      LABELS,
+    );
+    expect(done.map((item) => item.message)).toEqual(['Web service: resources created']);
+  });
+
   it('without a spec map, non-allowlist events are dropped exactly as before', () => {
     const items = translateStackEvents(events);
     expect(items.map((item) => item.message)).toEqual(['Database is ready.']);
