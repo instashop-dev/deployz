@@ -400,11 +400,11 @@ describe('multiple workloads and detected questions', () => {
     const integrations = inventory.groups.find((group) => group.id === 'integrations')!;
 
     expect(integrations.rows.map((entry) => [entry.label, entry.cost])).toEqual([
-      ['stripe', 'billed-separately'],
-      ['openai', 'billed-separately'],
+      ['Stripe', 'billed-separately'],
+      ['OpenAI', 'billed-separately'],
     ]);
     expect(integrations.rows[0]!.issues).toEqual([]);
     expect(integrations.rows[0]!.action).toMatchObject({ kind: 'link', href: '#environment-variables' });
-    expect(inventory.externalServices).toEqual(['stripe', 'openai']);
+    expect(inventory.externalServices).toEqual(['Stripe', 'OpenAI']);
   });
 });
