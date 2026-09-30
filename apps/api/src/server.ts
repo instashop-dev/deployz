@@ -7300,8 +7300,9 @@ export async function buildServer({
           ).job
         : null;
 
+    let lostEnrollmentRace = false;
     await db.transaction(async (tx) => {
-      await tx
+      const enrolled = await tx
         .update(schema.deployments)
         .set({
           installationId: body.installationId!,
@@ -7323,7 +7324,14 @@ export async function buildServer({
             ? { state: 'INSTALLING' as const }
             : {}),
         })
-        .where(eq(schema.deployments.id, deployment.id));
+        // The code burns on first use: a concurrent registration that read
+        // the row before this commit matches nothing here.
+        .where(and(eq(schema.deployments.id, deployment.id), isNull(schema.deployments.enrollmentUsedAt)))
+        .returning();
+      if (enrolled.length === 0) {
+        lostEnrollmentRace = true;
+        return;
+      }
 
       if (installJob) {
         await recordEvent(tx, {
@@ -7372,6 +7380,35 @@ export async function buildServer({
         },
       });
     });
+
+    if (lostEnrollmentRace) {
+      const [winner] = await db
+        .select()
+        .from(schema.deployments)
+        .where(eq(schema.deployments.id, deployment.id))
+        .limit(1);
+      if (
+        winner?.installationId === body.installationId &&
+        verifyRelayToken(winner.relayTokenHash, token)
+      ) {
+        return reply.code(200).send({ registered: true });
+      }
+      await recordEvent(db, {
+        organizationId: deployment.organizationId,
+        eventType: 'install.enrollment.rejected',
+        actorType: 'relay',
+        actorId: body.installationId,
+        deploymentId: deployment.id,
+        customerId: deployment.customerId,
+        result: 'failure',
+        payload: { reason: 'enrollment code already used by another relay' },
+      });
+      throw new ApiError(
+        409,
+        'RELAY_ALREADY_ENROLLED',
+        'This installation is already connected. Ask the vendor to reconnect it before installing again.',
+      );
+    }
 
     // Phase 1.1: a just-enrolled relay's customer account needs pull access to
     // the vendor ECR before the INSTALL job queued above can ever start a task
