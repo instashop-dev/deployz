@@ -12,7 +12,8 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Skeleton } from '@/components/ui/skeleton';
 import { fetchApplications, type Application } from '@/lib/applications';
-import { readinessNeedsVendorInput } from '@/lib/application-state';
+import { applicationListBadge, type ApplicationPresentation } from '@/lib/application-state';
+import { fetchDeployments } from '@/lib/deployments';
 import {
   READINESS_STATE_PRESENTATION,
   fetchReadiness,
@@ -130,27 +131,39 @@ export default function ApplicationsPage() {
   );
 }
 
-// The list's own verdict ignores environment-variable decisions, so an
-// application the page calls "Needs input" would read "Ready" here. The
-// readiness fetch is best effort: a failure keeps the list's own badge.
+// The list's own verdict ignores env decisions and deployments, so it could
+// read "Ready" for an application the page calls "Needs input" or "Test
+// failed". The page's derivation is reused, best effort: a failed fetch keeps
+// the list's own badge.
 function ApplicationList({ applications }: { applications: Application[] }) {
-  const [needsInput, setNeedsInput] = useState<ReadonlySet<string>>(new Set());
+  const [badges, setBadges] = useState<ReadonlyMap<string, ApplicationPresentation['badge']>>(new Map());
 
   useEffect(() => {
     let cancelled = false;
-    void Promise.all(
-      applications
-        .filter((app) => app.analysisStatus === 'COMPLETE')
-        .map(async (app) => {
-          try {
-            return readinessNeedsVendorInput(await fetchReadiness(app.id)) ? app.id : null;
-          } catch {
-            return null;
-          }
-        }),
-    ).then((ids) => {
-      if (!cancelled) setNeedsInput(new Set(ids.filter((id): id is string => id !== null)));
-    });
+    void (async () => {
+      const deployments = await fetchDeployments().catch(() => null);
+      if (deployments === null) return;
+      const entries = await Promise.all(
+        applications
+          .filter((app) => app.analysisStatus === 'COMPLETE')
+          .map(async (app) => {
+            try {
+              const readiness = await fetchReadiness(app.id);
+              const badge = applicationListBadge(
+                { id: app.id, name: app.name, defaultBranch: app.defaultBranch },
+                readiness,
+                deployments.filter((d) => d.applicationId === app.id),
+              );
+              return [app.id, badge] as const;
+            } catch {
+              return null;
+            }
+          }),
+      );
+      if (!cancelled) {
+        setBadges(new Map(entries.filter((entry): entry is NonNullable<typeof entry> => entry !== null)));
+      }
+    })();
     return () => {
       cancelled = true;
     };
@@ -172,7 +185,7 @@ function ApplicationList({ applications }: { applications: Application[] }) {
           </TableHeader>
           <TableBody>
             {applications.map((app) => (
-              <ApplicationRow key={app.id} application={app} needsInput={needsInput.has(app.id)} />
+              <ApplicationRow key={app.id} application={app} badge={badges.get(app.id) ?? null} />
             ))}
           </TableBody>
         </Table>
@@ -184,10 +197,16 @@ function ApplicationList({ applications }: { applications: Application[] }) {
 // The whole row opens the application; the name link is the same
 // destination for keyboard and assistive-technology users, so the trailing
 // "View" is decoration rather than a second control.
-function ApplicationRow({ application, needsInput }: { application: Application; needsInput: boolean }) {
+function ApplicationRow({
+  application,
+  badge,
+}: {
+  application: Application;
+  badge: ApplicationPresentation['badge'] | null;
+}) {
   const router = useRouter();
   const href = `/dashboard/applications/${application.id}`;
-  const label = needsInput ? 'Needs input' : applicationBadgeLabel(application);
+  const label = badge?.label ?? applicationBadgeLabel(application);
   return (
     <TableRow
       data-testid={`app-card-${application.id}`}
@@ -206,7 +225,7 @@ function ApplicationRow({ application, needsInput }: { application: Application;
       </TableCell>
       <TableCell className="text-muted-foreground">{application.repoFullName}</TableCell>
       <TableCell>
-        <Badge variant={needsInput ? 'warning' : applicationBadgeVariant(application)} data-testid={`app-card-badge-${application.id}`}>
+        <Badge variant={badge?.variant ?? applicationBadgeVariant(application)} data-testid={`app-card-badge-${application.id}`}>
           {label}
         </Badge>
       </TableCell>
