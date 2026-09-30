@@ -9,6 +9,7 @@ import { describe, expect, it } from 'vitest';
 import type { ManifestEnvVariable } from '@deployz/contracts';
 
 import { analyseRepo } from '../src/analyser.js';
+import { derivedS3EnvValue } from '../src/bindings.js';
 import { classifyEnvVariables, isGeneratableSecretName } from '../src/env-classification.js';
 import type { FileTree } from '../src/detectors.js';
 import { evaluateManifestReadiness, generatedEnvKeys, normalizeDeploymentManifest } from '../src/manifest.js';
@@ -181,5 +182,79 @@ describe('analyseRepo → manifest gate (Phase 4)', () => {
     );
     expect(generatedEnvKeys(manifest)).toEqual([]);
     expect(evaluateManifestReadiness(manifest, { providedEnvKeys: [] }).state).toBe('NEEDS_CONFIGURATION');
+  });
+});
+
+describe('S3 region/endpoint derived from the deployment region', () => {
+  const read = (key: string): ManifestEnvVariable => variable(key);
+
+  it('derives the region and the regional endpoint for a name the app reads', () => {
+    expect(derivedS3EnvValue(read('S3_REGION'), 'us-east-2')).toBe('us-east-2');
+    expect(derivedS3EnvValue(read('S3_ENDPOINT'), 'us-east-2')).toBe('https://s3.us-east-2.amazonaws.com');
+    expect(derivedS3EnvValue(read('AWS_S3_ENDPOINT'), 'eu-west-1')).toBe('https://s3.eu-west-1.amazonaws.com');
+  });
+
+  it('derives nothing for credentials, public URLs, AWS_REGION or a name the app never reads', () => {
+    for (const key of ['S3_ACCESS_KEY_ID', 'S3_SECRET_ACCESS_KEY', 'S3_PUBLIC_BASE_URL', 'AWS_REGION']) {
+      expect(derivedS3EnvValue(read(key), 'us-east-2'), key).toBeNull();
+    }
+    const sampleOnly = variable('S3_REGION', { source: ['.env.example declares S3_REGION'] });
+    expect(derivedS3EnvValue(sampleOnly, 'us-east-2')).toBeNull();
+  });
+
+  it('classifies a derived name as managed only when storage is provisioned', () => {
+    const model = [read('S3_REGION'), read('S3_ENDPOINT'), variable('S3_ACCESS_KEY_ID', { secret: true })];
+    expect(classifyEnvVariables(model, { ...NO_REQUIREMENTS, storageRequired: true }).map((v) => v.classification)).toEqual([
+      'deployz_managed',
+      'deployz_managed',
+      'customer_required',
+    ]);
+    expect(classifyEnvVariables(model, NO_REQUIREMENTS).map((v) => v.classification)).toEqual([
+      'customer_required',
+      'customer_required',
+      'customer_required',
+    ]);
+  });
+
+  it('classifies a Hovod-shaped repository: generated JWT secret, derived S3 location, vendor-supplied S3 keys', () => {
+    const tree: FileTree = {
+      Dockerfile: 'FROM node:20-alpine\nEXPOSE 3000\nCMD ["node", "dist/index.js"]\n',
+      'package.json': JSON.stringify({ name: 'app', dependencies: { zod: '^3', '@aws-sdk/client-s3': '^3' } }),
+      'src/env.ts': [
+        "import { z } from 'zod';",
+        'const envSchema = z.object({',
+        '  S3_ENDPOINT: z.string().min(1),',
+        '  S3_REGION: z.string().min(1),',
+        '  S3_BUCKET: z.string().min(1),',
+        '  S3_ACCESS_KEY_ID: z.string().min(1),',
+        '  S3_SECRET_ACCESS_KEY: z.string().min(1),',
+        '  S3_PUBLIC_BASE_URL: z.string().url(),',
+        "  JWT_SECRET: z.string().min(32, 'JWT_SECRET is required'),",
+        '});',
+        'export const env = envSchema.parse(process.env);',
+        '',
+      ].join('\n'),
+      '.env.example': [
+        'S3_ENDPOINT=http://minio:9000',
+        'S3_REGION=us-east-1',
+        'S3_BUCKET=hovod-vod',
+        'S3_ACCESS_KEY_ID=minioadmin',
+        'S3_SECRET_ACCESS_KEY=minioadmin',
+        'S3_PUBLIC_BASE_URL=http://localhost:9000/hovod-vod',
+        'JWT_SECRET=change-me-to-a-long-random-string-of-32-chars',
+        '',
+      ].join('\n'),
+    };
+    const model = analyseRepo(tree).metadata['envVarModel'] as ManifestEnvVariable[];
+    const byKey = Object.fromEntries(model.map((v) => [v.key, v.classification]));
+    expect(byKey).toMatchObject({
+      JWT_SECRET: 'deployz_generated',
+      S3_BUCKET: 'deployz_managed',
+      S3_REGION: 'deployz_managed',
+      S3_ENDPOINT: 'deployz_managed',
+      S3_ACCESS_KEY_ID: 'customer_required',
+      S3_SECRET_ACCESS_KEY: 'customer_required',
+      S3_PUBLIC_BASE_URL: 'customer_required',
+    });
   });
 });

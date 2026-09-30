@@ -216,13 +216,15 @@ the document.
 
 ## Environment variables
 
-`detectEnvVarModel` decides `required` and `secret` with high precision;
+`detectEnvVarModel` decides `required` and `secret` with high precision. A
+value in a sample file (`.env.example`/`.sample`/`.template`) is never a
+default (`docs/environment-variables.md`);
 `classifyEnvVariables` (`env-classification.ts`) decides who supplies the
 value:
 
 | Classification | Rule | Delivery |
 |---|---|---|
-| `deployz_managed` | the names the stack injects for THIS app (DATABASE_*, the Redis bindings, STORAGE/S3 bucket, AWS_REGION, PORT, HOSTNAME) | at install |
+| `deployz_managed` | the names the stack injects for THIS app (DATABASE_*, the Redis bindings, STORAGE/S3 bucket, AWS_REGION, PORT, HOSTNAME), and an S3 region/endpoint name the app reads when storage is provisioned | at install; S3 region/endpoint as a `derived` value on the first configuration pass |
 | `deployz_generated` | required + secret + app-internal name (…SECRET, SECRET_KEY(_BASE), ENCRYPTION_KEY, SIGNING_KEY, APP_KEY, SALT…), no third-party prefix, no connection suffix, not a catalog credential | minted once by the relay with `crypto.randomBytes` inside the customer's account |
 | `customer_required` | every other required key | a vendor decision on the configuration screen: the vendor supplies the value, or marks it "Set by customer" or optional (the name means "needs a vendor decision", not "the customer supplies it") |
 | `optional` | read with a default | optional |

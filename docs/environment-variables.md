@@ -64,6 +64,29 @@ file only, low confidence) are marked **Uncertain**. Build-time suggestions
 come from well-known name prefixes (`NEXT_PUBLIC_`, `VITE_`,
 `REACT_APP_`, …). The vendor confirms them.
 
+## Defaults, derived values and precedence
+
+- **Sample files are evidence, not defaults.** A value in `.env.example`,
+  `.env.sample` or `.env.template` names the variable, but it never reaches
+  the container. It does not make a required read optional. Only a real
+  (non-placeholder) value in a runtime env file (`.env`, `.env.production`)
+  or an inline fallback in the code is a default.
+- **Deployz-derived S3 values.** When Deployz provisions storage and the app
+  reads an S3 region or endpoint variable in code (`S3_REGION`,
+  `S3_ENDPOINT`, `S3_ENDPOINT_URL`, `AWS_S3_ENDPOINT`, `*_S3_REGION`), the
+  variable is **Managed by Deployz**. `GET /api/relay/config` serves it as a
+  `derived` plain value: the deployment Region, or
+  `https://s3.<region>.amazonaws.com`. The template already injects
+  `AWS_REGION` and the bucket names.
+- **Precedence:** explicit vendor or customer value > Deployz-derived value >
+  analysis evidence (sample values, suggestions). A derived value never
+  replaces an explicit value.
+- **Credentials:** Deployz never creates AWS access keys or IAM users, and
+  never derives a public bucket URL (`S3_PUBLIC_BASE_URL`). The AWS SDK gets
+  credentials from the ECS task role through the default credential chain.
+  An app that requires static keys (`S3_ACCESS_KEY_ID`) needs a vendor or
+  customer value, or a code change to use the default chain.
+
 ## Where values go
 
 Both secret paths below share one `SecretCipher` seam

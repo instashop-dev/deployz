@@ -481,4 +481,72 @@ describe('post-install configuration', () => {
       { key: 'UTILS_SECRET', isSecret: true, source: 'generated', generated: true },
     ]);
   });
+
+  it('derives S3 region/endpoint from the deployment region, below any explicit value', async () => {
+    const [application] = await db
+      .insert(schema.applications)
+      .values({
+        organizationId,
+        name: 'Media',
+        repoFullName: 'acme/media',
+        repoUrl: 'https://github.com/acme/media',
+        defaultBranch: 'main',
+        analysisStatus: 'COMPLETE',
+      })
+      .returning();
+    const read = ['read in src/env.ts'];
+    const variables = [
+      { key: 'S3_REGION', required: true, secret: false, source: read, classification: 'deployz_managed' },
+      { key: 'S3_ENDPOINT', required: true, secret: false, source: read, classification: 'deployz_managed' },
+      { key: 'S3_ACCESS_KEY_ID', required: true, secret: true, source: read, classification: 'customer_required' },
+      { key: 'S3_PUBLIC_BASE_URL', required: true, secret: false, source: read, classification: 'customer_required' },
+    ];
+    const withStorage = { ...manifest(variables), storage: { required: true, envBindings: [] } };
+    const [deployment] = await db
+      .insert(schema.deployments)
+      .values({
+        organizationId,
+        applicationId: application!.id,
+        customerId,
+        region: 'eu-west-1',
+        state: 'INSTALLING',
+        desiredState: { manifest: withStorage },
+        enrollmentCode: 'enrol-media',
+      })
+      .returning();
+
+    const derived = await buildRelayConfigEntries(db, deployment!, createConfigStore(db));
+    expect([...derived].sort((a, b) => a.key.localeCompare(b.key))).toEqual([
+      { key: 'S3_ENDPOINT', isSecret: false, value: 'https://s3.eu-west-1.amazonaws.com', source: 'derived' },
+      { key: 'S3_REGION', isSecret: false, value: 'eu-west-1', source: 'derived' },
+    ]);
+
+    // An explicit vendor or customer value always wins over the derived one.
+    await db.insert(schema.applicationConfigs).values([
+      { applicationId: application!.id, customerId: null, key: 'S3_ENDPOINT', value: 'https://vendor.example', isSecret: false },
+      { applicationId: application!.id, customerId, key: 'S3_REGION', value: 'us-west-2', isSecret: false },
+    ]);
+    const explicit = await buildRelayConfigEntries(db, deployment!, createConfigStore(db));
+    expect([...explicit].sort((a, b) => a.key.localeCompare(b.key))).toMatchObject([
+      { key: 'S3_ENDPOINT', value: 'https://vendor.example', source: 'vendor' },
+      { key: 'S3_REGION', value: 'us-west-2', source: 'customer' },
+    ]);
+    expect(explicit).toHaveLength(2);
+
+    // Nothing is derived when the deployment provisions no storage.
+    const [noStorage] = await db
+      .insert(schema.deployments)
+      .values({
+        organizationId,
+        applicationId: application!.id,
+        customerId,
+        region: 'eu-west-1',
+        state: 'INSTALLING',
+        desiredState: { manifest: manifest(variables) },
+        enrollmentCode: 'enrol-media-2',
+      })
+      .returning();
+    const none = await buildRelayConfigEntries(db, noStorage!, createConfigStore(db));
+    expect(none.some((entry) => entry.source === 'derived')).toBe(false);
+  });
 });

@@ -5,7 +5,8 @@
  * never takes part.
  *
  *   - deployz_managed   — Deployz injects it at install (database, cache,
- *                         storage bindings, the port).
+ *                         storage bindings, the port) or derives it from
+ *                         the deployment region (S3 region/endpoint).
  *   - deployz_generated — an application-internal secret (session/JWT/
  *                         encryption keys) Deployz generates with
  *                         cryptographic randomness inside the customer's
@@ -19,6 +20,7 @@
 
 import type { EnvVariableClassification, ManifestEnvVariable } from '@deployz/contracts';
 
+import { isDerivedS3EnvVariable } from './bindings.js';
 import { EXTERNAL_SERVICE_CATALOG } from './detectors.js';
 
 export interface EnvClassificationContext {
@@ -110,7 +112,12 @@ export function classifyEnvVariables(
   const managed = new Set<string>(MANAGED_PLATFORM_ENV_VARS);
   if (context.postgresRequired) for (const name of MANAGED_DATABASE_ENV_VARS) managed.add(name);
   if (context.redisRequired) for (const name of context.redisBindingNames) managed.add(name);
-  if (context.storageRequired) for (const name of MANAGED_STORAGE_ENV_VARS) managed.add(name);
+  if (context.storageRequired) {
+    for (const name of MANAGED_STORAGE_ENV_VARS) managed.add(name);
+    // S3 region/endpoint names the app reads get a value derived from the
+    // deployment region.
+    for (const variable of model) if (isDerivedS3EnvVariable(variable)) managed.add(variable.key);
+  }
   for (const name of context.queueBindingNames) managed.add(name);
   const serviceKeys = externalServiceKeys(context.externalServices);
 
