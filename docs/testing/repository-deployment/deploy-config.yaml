@@ -366,6 +366,7 @@ repositories:
       buildContext: .
     config:
       - { key: SUPPORT_EMAIL, value: support@example.com }
+      - { key: SELF_HOSTED, value: "true" }
       - { key: NEXT_PUBLIC_BASE_URL, value: "${DEPLOYZ_APP_URL}" }
       - { key: AWS_ACCESS_KEY_ID, value: "" }
       - { key: AWS_SECRET_ACCESS_KEY, value: "" }
