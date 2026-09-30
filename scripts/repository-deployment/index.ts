@@ -351,10 +351,17 @@ async function activateOrganization(api: ControlPlane, organizationId: string): 
   return organizationId;
 }
 
-/** One organization per attempt: the product allows one application per repository per organization. */
-async function createAttemptOrganization(api: ControlPlane, name: string): Promise<string> {
+/**
+ * One organization per series: the control plane refuses to bind a GitHub installation that another
+ * organization holds, so every attempt runs in the series organization (the product still allows one
+ * application per repository per organization; use --reuse-application to retry a repository).
+ */
+async function createAttemptOrganization(api: ControlPlane, name: string, evidenceDir: string): Promise<string> {
+  const series = readSeries(evidenceDir);
+  if (series.organizationId) return activateOrganization(api, series.organizationId);
   const { body } = await api.request<{ id: string }>('POST', '/api/organizations', { name });
   await api.request('POST', `/api/organizations/${body.id}/activate`, {});
+  writeSeries(evidenceDir, { ...readSeries(evidenceDir), organizationId: body.id });
   return body.id;
 }
 
@@ -453,7 +460,7 @@ async function runAttempt(series: Series, options: RunOptions, config: DeployCon
   const reused = options.reuseApplication ? readSeries(options.evidenceDir).applications?.[entry.id] : undefined;
   const organizationId = reused
     ? await activateOrganization(series.api, reused.organizationId)
-    : await createAttemptOrganization(series.api, `Stage B ${entry.id} ${runId.slice(-9)}`);
+    : await createAttemptOrganization(series.api, `Stage B ${entry.id} ${runId.slice(-9)}`, options.evidenceDir);
   if (reused) console.log(`  reusing organization ${organizationId} and application ${reused.applicationId}`);
   stageBRun(evidence).stageB.organizationId = organizationId;
   evidence.save();

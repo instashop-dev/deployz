@@ -87,7 +87,7 @@ export async function preflight(canary: Canary): Promise<void> {
     evidence.save();
     details['controlPlaneHealth'] = evidence.run.controlPlaneHealth;
 
-    const bucket = await templateBucketName(config.region);
+    const bucket = await templateBucketName(config.controlPlaneRegion);
     details['templateBucket'] = bucket;
 
     const tags = resolveFixtureTags(config.fixtureRepo);
@@ -254,7 +254,7 @@ export async function buildRelease(canary: Canary, fixtureTag: string): Promise<
     assert(ready.status === 'READY', `release ${version} build ${ready.status}: ${ready.failureReason ?? ''}`);
 
     const imageTag = releaseImageTag(applicationId, version);
-    const digest = await ecrDigestForTag(config.region, ECR_REPOSITORY, imageTag);
+    const digest = await ecrDigestForTag(config.controlPlaneRegion, ECR_REPOSITORY, imageTag);
     assert(digest, `ECR has no image tagged ${imageTag}`);
     details['ecrDigest'] = digest;
     evidence.run.releases[fixtureTag]!.imageDigest = digest;
@@ -655,7 +655,7 @@ export async function assertServing(canary: Canary, expected: ExpectedState, det
     service.runningDigests[0] === digestSuffix(release.imageDigest),
     `running digest ${service.runningDigests[0]} != release ${expected.serving} digest ${release.imageDigest}`,
   );
-  const ecr = await ecrDigestForTag(config.region, ECR_REPOSITORY, release.imageTag ?? release.version);
+  const ecr = await ecrDigestForTag(config.controlPlaneRegion, ECR_REPOSITORY, release.imageTag ?? release.version);
   assert(ecr === digestSuffix(release.imageDigest), `ECR digest for ${release.version} is ${ecr}, release row says ${release.imageDigest}`);
   assert(
     digestSuffix(detail.runningImageDigest) === digestSuffix(release.imageDigest),
