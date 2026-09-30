@@ -2909,7 +2909,7 @@ export function detectEnvVarModel(tree: FileTree, externalServices: string[] = [
         // The same file tests the key for presence (`Boolean(process.env.X)`,
         // `!!process.env.X`, `if (process.env.X)`, `process.env.X && …`), so it tolerates its absence.
         const presenceTested = new RegExp(
-          `(?:Boolean\\s*\\(\\s*|!!\\s*|\\bif\\s*\\(\\s*)process\\.env\\.${key}\\b(?!\\s*[=!])|process\\.env\\.${key}\\s*(?:&&|\\?(?!\\?))`,
+          `(?:Boolean\\s*\\(\\s*|!!\\s*|\\bif\\s*\\(\\s*)process\\.env\\.${key}\\b(?!\\s*[=!])|process\\.env\\.${key}\\s*(?:&&|\\?(?!\\?)|!==?\\s*(?:null|undefined)\\b)`,
         ).test(content);
         if (assignedKeys.has(key) || presenceTested) {
           recordRead(key, false, path);
@@ -2960,9 +2960,14 @@ export function detectEnvVarModel(tree: FileTree, externalServices: string[] = [
         const callee = /([A-Za-z_$][\w$]*)\s*\(\s*(?:[^()]*,\s*)?$/.exec(head)?.[1] ?? '';
         // The default must be a literal (a string, number, boolean, null or a
         // CONSTANT) — `axios.get(process.env.URL, { headers })` carries none.
+        // The call may span lines (`parseEnvVarNumber(\n process.env.X,\n 10,`),
+        // and a `parse*` helper takes any expression as its default
+        // (`isEnterprise ? 100 : 5`, `options?.limit ?? 5000`).
+        const helperTail = rawTail.split(';')[0] ?? '';
         const helperWithDefault =
-          DEFAULTING_HELPER_REGEX.test(callee) &&
-          /^\s*(?:\|\|[^,;\n]*)?,\s*(?:['"`][^'"`]*['"`]|-?\d[\d._]*(?:\s*[*+/-]\s*\d[\d._]*)*|true|false|null|undefined|[A-Z][A-Z0-9_]*)\s*[,)]/.test(tail);
+          (/^parse\w*$/.test(callee) && /^\s*,\s*[^\s,)]/.test(helperTail)) ||
+          (DEFAULTING_HELPER_REGEX.test(callee) &&
+            /^\s*(?:\|\|[^,;\n]*)?,\s*(?:['"`][^'"`]*['"`]|-?\d[\d._]*(?:\s*[*+/-]\s*\d[\d._]*)*|true|false|null|undefined|[A-Z][A-Z0-9_]*)\s*[,)]/.test(helperTail));
         const hasFallback =
           /(?:\?\?|\|\|)\s*\S/.test(tail) || /(?:\?\?=|\|\|=)/.test(tail) || isAlternative || helperWithDefault;
         const isGuard =
@@ -2988,9 +2993,14 @@ export function detectEnvVarModel(tree: FileTree, externalServices: string[] = [
         // (`process.env.X.split(',')`) is bare in the same sense — the
         // consumer decides what the transformed value means, not this read.
         const isBareChainAccess = !isSecretName(key) && /^\.[A-Za-z_$]/.test(tail);
+        // A secret-named read stored in a local (`const key = process.env.X;`)
+        // that the code then tests (`if (!key) return`) without
+        // throwing tolerates its absence.
+        const isSecretLocalAssignment =
+          Boolean(assignedName) && isSecretName(key) && /^\s*(?:[;,)}\]]|$)/.test(tail);
         let throwGuarded = false;
         let returnGuarded = false;
-        if (isBareAssignment || isBareChainAccess) {
+        if (isBareAssignment || isBareChainAccess || isSecretLocalAssignment) {
           const guardTargets = [
             `process\\.env\\.${key}\\b`,
             `process\\.env\\[["']${key}["']\\]`,
@@ -3009,7 +3019,18 @@ export function detectEnvVarModel(tree: FileTree, externalServices: string[] = [
         // A bare assignment needs a throw to become required (existing
         // behaviour); a bare chain access is required by default and only
         // an early RETURN (not throw) on the same key clears it.
-        const bareNeedsValue = isBareAssignment ? throwGuarded : isBareChainAccess ? !returnGuarded : true;
+        const localTested =
+          isSecretLocalAssignment &&
+          new RegExp(
+            `if\\s*\\(\\s*!*\\s*${assignedName}\\b`,
+          ).test(content);
+        const bareNeedsValue = isBareAssignment
+          ? throwGuarded
+          : isBareChainAccess
+            ? !returnGuarded
+            : isSecretLocalAssignment
+              ? throwGuarded || !localTested
+              : true;
         recordRead(key, !hasFallback && !isGuard && bareNeedsValue, path);
       }
       // Stage B phase 3 (COMP-017): schema-library and helper-form reads —

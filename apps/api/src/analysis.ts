@@ -230,7 +230,11 @@ type ApplicationRow = typeof schema.applications.$inferSelect;
 // (`turbo prune`, `COPY turbo.json`, `COPY apps/web/...`); the release build
 // uses the root as its context instead of the Dockerfile's directory. Stored
 // v32 rows carry no such finding and their builds fail, so they must re-run.
-export const ANALYSIS_VERSION = 33;
+// Version 34: a `parse*` helper call that spans lines or takes an expression
+// default, a `!= null` test of the key, and a secret held in a tested local are
+// no longer required config (unleash asked for 50 keys). Stored v33 env-var
+// models over-require and must re-run.
+export const ANALYSIS_VERSION = 34;
 
 export interface AnalysisRunnerDeps {
   db: RuntimeDb;
