@@ -2922,6 +2922,7 @@ describe('server — fleet list & deployment detail joins, readiness derivation 
           { group: 'edge', nodes: [{ label: 'Application load balancer', state: 'detected' }] },
         ],
         unresolved: [],
+        externalServices: [],
       },
     });
   });
