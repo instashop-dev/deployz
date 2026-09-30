@@ -2895,6 +2895,7 @@ describe('server — fleet list & deployment detail joins, readiness derivation 
     });
     expect(response.statusCode).toBe(200);
     expect(response.json()).toStrictEqual({
+      analysisOutdated: false,
       analysisStatus: 'ANALYZING',
       state: 'ANALYSIS_INCOMPLETE',
       requiredCount: 0,
@@ -2967,6 +2968,7 @@ describe('server — fleet list & deployment detail joins, readiness derivation 
     });
     expect(response.statusCode).toBe(200);
     expect(response.json()).toStrictEqual({
+      analysisOutdated: true,
       analysisStatus: 'COMPLETE',
       state: 'ALMOST_READY',
       requiredCount: 1,
