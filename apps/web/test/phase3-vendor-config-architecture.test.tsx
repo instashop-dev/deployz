@@ -233,10 +233,10 @@ describe('Services & resources table', () => {
     });
 
     expect(byTestId('services-group-integrations')?.textContent).toContain('External integrations');
-    expect(byTestId('inventory-row-integration-0')?.textContent).toContain('stripe');
-    expect(byTestId('inventory-row-integration-1')?.textContent).toContain('openai');
+    expect(byTestId('inventory-row-integration-0')?.textContent).toContain('Stripe');
+    expect(byTestId('inventory-row-integration-1')?.textContent).toContain('OpenAI');
     expect(byTestId('inventory-row-integration-0')?.textContent).not.toContain('Needs input');
-    expect(byTestId('attention-summary')?.textContent).not.toContain('stripe');
+    expect(byTestId('attention-summary')?.textContent).not.toContain('Stripe');
   });
 
   it('opens the fix-instructions dialog from an unresolved fix action', async () => {

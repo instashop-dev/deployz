@@ -133,6 +133,25 @@ function afterRemovalFor(resources: readonly InventoryResource[]): RowAfterRemov
 }
 
 /** Sums cost items once each; an empty list is no cost at all. */
+const EXTERNAL_SERVICE_LABELS: Record<string, string> = {
+  stripe: 'Stripe',
+  clerk: 'Clerk',
+  auth0: 'Auth0',
+  resend: 'Resend',
+  sendgrid: 'SendGrid',
+  smtp: 'SMTP email',
+  sentry: 'Sentry',
+  openai: 'OpenAI',
+  anthropic: 'Anthropic',
+  twilio: 'Twilio',
+  shopify: 'Shopify',
+};
+
+/** The product name for a detected service id; an unknown id stays as sent. */
+export function externalServiceLabel(id: string): string {
+  return EXTERNAL_SERVICE_LABELS[id] ?? id;
+}
+
 export function summarizeCostItems(items: readonly FootprintCostItem[]): CostSummary | null {
   if (items.length === 0) return null;
   let min: number | null = null;
@@ -524,7 +543,7 @@ export function deriveServiceInventory(input: {
   // External services are information, never a question: Deployz never
   // creates them. Their keys are chosen under Environment variables; the
   // data does not say which variables belong to which service.
-  const externalServices = readiness.architecture?.externalServices ?? [];
+  const externalServices = (readiness.architecture?.externalServices ?? []).map(externalServiceLabel);
   const integrations = externalServices.map((name, index) =>
     emptyRow(`integration-${index}`, name, {
       configuration: 'Your application connects to this service directly. Deployz does not create it.',
