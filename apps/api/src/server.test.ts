@@ -4960,6 +4960,28 @@ describe('server — pre-relay install lifecycle (waiting-for-relay and retry)',
     expect(response.json()).toMatchObject({ error: { code: 'INSTALL_ALREADY_SUCCEEDED' } });
   });
 
+  it('two concurrent first registrations with one enrollment code admit exactly one relay', async () => {
+    const seeded = await seedWaiting({ state: 'WAITING_FOR_RELAY', enrollmentUsedAt: null });
+    const register = (installationId: string, token: string) =>
+      postJson(
+        app,
+        '/api/relay/register',
+        { enrollmentCode: seeded.deployment.enrollmentCode, installationId },
+        { authorization: `Bearer ${token}` },
+      );
+    const results = await Promise.all([register('inst-race-a', 'race-token-a'), register('inst-race-b', 'race-token-b')]);
+    expect(results.map((r) => r.statusCode).sort()).toEqual([200, 409]);
+
+    const [dep] = await db.select().from(schema.deployments).where(eq(schema.deployments.id, seeded.deployment.id));
+    const winner = results[0]!.statusCode === 200 ? 'inst-race-a' : 'inst-race-b';
+    expect(dep!.installationId).toBe(winner);
+    const connected = await db
+      .select()
+      .from(schema.eventLogs)
+      .where(and(eq(schema.eventLogs.deploymentId, seeded.deployment.id), eq(schema.eventLogs.eventType, 'relay.connected')));
+    expect(connected).toHaveLength(1);
+  });
+
   it('POST /api/install/:installLinkId/retry refuses a deployment that is being removed', async () => {
     const deleting = await seedWaiting({ state: 'DELETING', installationId: 'inst-removing' });
     const removing = await postJson(app, `/api/install/${deleting.installLinkId}/retry`, {});

@@ -405,6 +405,33 @@ describe('public install links', () => {
     expect(install.statusCode).toBe(200);
   });
 
+  it('a replayed confirm re-binds a lost pending secret but never resets one already bound', async () => {
+    const { link } = await insertEnabledLink(db, org.organizationId);
+    const payload = confirmPayload();
+    const first = await confirm(link.id, payload);
+    expect(first.statusCode, first.body).toBe(201);
+    const [deployment] = await db
+      .select()
+      .from(schema.deployments)
+      .where(eq(schema.deployments.installLinkId, (first.json() as { installLinkId: string }).installLinkId));
+    const bound = () =>
+      db.select().from(schema.pendingSecrets).where(eq(schema.pendingSecrets.deploymentId, deployment!.id));
+    expect(await bound()).toHaveLength(1);
+
+    // Delivery state of an already-bound row survives a replay.
+    await db
+      .update(schema.pendingSecrets)
+      .set({ deliveryAttempts: 3 })
+      .where(eq(schema.pendingSecrets.deploymentId, deployment!.id));
+    expect((await confirm(link.id, payload)).statusCode).toBe(200);
+    expect((await bound())[0]!.deliveryAttempts).toBe(3);
+
+    // A binding the first attempt never wrote (materialization failed) is re-created.
+    await db.delete(schema.pendingSecrets).where(eq(schema.pendingSecrets.deploymentId, deployment!.id));
+    expect((await confirm(link.id, payload)).statusCode).toBe(200);
+    expect(await bound()).toHaveLength(1);
+  });
+
   it('a repeated confirm with the same key returns the existing deployment and creates nothing new', async () => {
     const { link } = await insertEnabledLink(db, org.organizationId);
     const customersBefore = await countOrgCustomers();

@@ -305,8 +305,14 @@ export async function materializePendingSecretsForDeployment(
 ): Promise<void> {
   const rows = await deps.pendingSecrets.materializeForDeployment(deployment);
   if (rows.length === 0) return;
+  // A key that already has a bound row is left alone, so a retried
+  // materialization never rewrites the row the relay may already have read.
+  const alreadyBound = new Set(
+    (await deps.pendingSecrets.listBoundForDeployment(deployment.id)).map((row) => row.key),
+  );
   const expiresAt = new Date(Date.now() + DEFAULT_PENDING_SECRET_TTL_MS);
   for (const { key, plaintext } of rows) {
+    if (alreadyBound.has(key)) continue;
     const boundContext: Record<string, string> = {
       organizationId: deployment.organizationId,
       applicationId: deployment.applicationId,

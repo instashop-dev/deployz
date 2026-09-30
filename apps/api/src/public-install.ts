@@ -1,4 +1,4 @@
-import { and, desc, eq, isNull, or } from 'drizzle-orm';
+import { and, desc, eq, inArray, isNull, or } from 'drizzle-orm';
 import { z } from 'zod';
 
 import { generatedEnvKeys } from '@deployz/analysis';
@@ -410,6 +410,31 @@ export async function confirmPublicInstall(
 
   const existing = await findConfirmedInstallLinkId(db, link.id, body.idempotencyKey);
   if (existing !== null) {
+    // The first attempt's post-commit materialization may have failed (a KMS
+    // error) and the client is retrying. Re-bind only the staged secrets that
+    // have no bound row yet; bound rows are never touched. Only before the
+    // relay connects, when the secrets have not been delivered yet.
+    const [replayed] = await db
+      .select()
+      .from(schema.deployments)
+      .where(
+        and(
+          eq(schema.deployments.installLinkId, existing),
+          inArray(schema.deployments.state, ['NOT_INSTALLED', 'WAITING_FOR_RELAY']),
+        ),
+      )
+      .limit(1);
+    if (replayed) {
+      await materializePendingSecretsForDeployment(
+        { pendingSecrets: configDeps.pendingSecrets, cipher: configDeps.cipher },
+        {
+          organizationId: replayed.organizationId,
+          id: replayed.id,
+          applicationId: replayed.applicationId,
+          customerId: replayed.customerId,
+        },
+      );
+    }
     return { installLinkId: existing, created: false };
   }
 
