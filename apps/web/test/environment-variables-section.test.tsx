@@ -238,6 +238,22 @@ describe('Environment variables section', () => {
     );
   });
 
+  it('saves the suggested decision with a value entered on an undecided row', async () => {
+    await renderSection();
+
+    await click(byTestId('environment-variable-edit-DATABASE_URL'));
+    await setValue(document.getElementById('env-value-DATABASE_URL'), 'https://cdn.example.com');
+    const saveButton = Array.from(document.querySelectorAll('button')).find((b) => b.textContent === 'Save changes');
+    await click(saveButton ?? null);
+
+    const [, settings] = mocks.saveEnvironmentSettings.mock.calls[0] as [string, { key: string; provider: string }[]];
+    expect(settings.find((s) => s.key === 'DATABASE_URL')?.provider).toBe('vendor');
+    expect(mocks.saveConfig).toHaveBeenCalledWith('app-1', null, [
+      { key: 'DATABASE_URL', value: 'https://cdn.example.com', isSecret: false },
+    ]);
+    expect(byTestId('environment-variables-summary')?.textContent).toContain('1 needs a decision');
+  });
+
   it('disables the customer provider option for a build-stage variable', async () => {
     await renderSection();
     await click(byTestId('environment-variables-optional')?.querySelector('[data-slot="collapsible-trigger"]') ?? null);
