@@ -17,6 +17,7 @@ import {
   stepDetailLine,
   stepWaitingOnInput,
   stepsFromStatus,
+  vendorTakingLongerMessage,
   STAGE_LABEL,
   removedProgress,
 } from '@/lib/deployment-progress';
@@ -64,7 +65,7 @@ export function timedSteps(status: VendorDeploymentStatus) {
         detail: stepDetailLine({
           takingLongerThanUsual: status.takingLongerThanUsual,
           typicalDurationSeconds: status.typicalDurationSeconds,
-          longerMessage: `Taking longer than usual${status.aws.stackStatus ? ` · AWS: ${status.aws.stackStatus}` : ''}`,
+          longerMessage: vendorTakingLongerMessage(status.stage, status.aws.stackStatus),
           typicalLabel: (range) => `Typical: ${range}`,
         }),
         meta: status.stepStartedAt ? <ElapsedTime startedAt={status.stepStartedAt} /> : undefined,

@@ -14,6 +14,7 @@ import {
   elapsedLabel,
   formatDurationRange,
   formatElapsedSeconds,
+  vendorTakingLongerMessage,
   isTerminalStage,
   liveDurationLine,
   recentActivityTimeLabel,
@@ -581,5 +582,16 @@ describe('specComponentPresentation', () => {
       specComponents: [{ componentId: 'db', label: 'MySQL', state: 'IN_PROGRESS' }],
     };
     expect(status.specComponents).toEqual([{ componentId: 'db', label: 'MySQL', state: 'IN_PROGRESS' }]);
+  });
+});
+
+describe('vendorTakingLongerMessage', () => {
+  it('tells the vendor what to do before an AWS stack exists', () => {
+    expect(vendorTakingLongerMessage('WAITING_FOR_AWS', null)).toContain('issue a new one');
+  });
+
+  it('keeps the raw stack status once provisioning', () => {
+    expect(vendorTakingLongerMessage('PROVISIONING', 'CREATE_IN_PROGRESS')).toBe('Taking longer than usual · AWS: CREATE_IN_PROGRESS');
+    expect(vendorTakingLongerMessage('PROVISIONING', null)).toBe('Taking longer than usual');
   });
 });
