@@ -529,6 +529,21 @@ describe('false-required env vars (A1-001, A1-002)', () => {
     expect(modelByKey(tree).get('API_TOKEN')).toMatchObject({ required: false });
   });
 
+  it('treats a key read after its own positive if-test as optional', () => {
+    const tree: FileTree = {
+      'config/version.js': [
+        'const getVersion = () => {',
+        '  if (process.env.APP_VERSION) {',
+        '    return process.env.APP_VERSION;',
+        '  }',
+        "  return 'dev';",
+        '};',
+        '',
+      ].join('\n'),
+    };
+    expect(modelByKey(tree).get('APP_VERSION')).toMatchObject({ required: false });
+  });
+
   it('does not let a closed if-condition of an earlier statement guard a later bare read', () => {
     const tree: FileTree = {
       'server.js': ["if (process.env.MODE === 'x') {}", 'const token = process.env.SERVICE_SECRET;', ''].join('\n'),

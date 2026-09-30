@@ -2907,9 +2907,9 @@ export function detectEnvVarModel(tree: FileTree, externalServices: string[] = [
         // A glob in prose (`process.env.NEXT_PUBLIC_*`) names no variable.
         if (content[match.index + match[0].length] === '*') continue;
         // The same file tests the key for presence (`Boolean(process.env.X)`,
-        // `!!process.env.X`, `process.env.X && …`), so it tolerates its absence.
+        // `!!process.env.X`, `if (process.env.X)`, `process.env.X && …`), so it tolerates its absence.
         const presenceTested = new RegExp(
-          `(?:Boolean\\s*\\(\\s*|!!\\s*)process\\.env\\.${key}\\b|process\\.env\\.${key}\\s*&&`,
+          `(?:Boolean\\s*\\(\\s*|!!\\s*|\\bif\\s*\\(\\s*)process\\.env\\.${key}\\b(?!\\s*[=!])|process\\.env\\.${key}\\s*(?:&&|\\?(?!\\?))`,
         ).test(content);
         if (assignedKeys.has(key) || presenceTested) {
           recordRead(key, false, path);
