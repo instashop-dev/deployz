@@ -77,6 +77,11 @@ come from well-known name prefixes (`NEXT_PUBLIC_`, `VITE_`,
   (`KEY: process.env.KEY`), and a key that a zod schema declares
   `.optional()` or `.default()` are not required, whatever other bare reads
   exist.
+- **Sibling apps are out of scope.** When the Dockerfile sits in `apps/<name>/`,
+  reads in another `apps/<other>/` directory do not count unless the Dockerfile
+  names that directory. Shared `packages/*` still count. A non-secret value
+  passed alone to a converter (`Number(...)`, `formatBaseUri(...)`) is not
+  required.
 - **Deployz-derived S3 values.** When Deployz provisions storage and the app
   reads an S3 region or endpoint variable in code (`S3_REGION`,
   `S3_ENDPOINT`, `S3_ENDPOINT_URL`, `AWS_S3_ENDPOINT`, `*_S3_REGION`), the

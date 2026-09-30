@@ -234,7 +234,11 @@ type ApplicationRow = typeof schema.applications.$inferSelect;
 // default, a `!= null` test of the key, and a secret held in a tested local are
 // no longer required config (unleash asked for 50 keys). Stored v33 env-var
 // models over-require and must re-run.
-export const ANALYSIS_VERSION = 34;
+// Version 35: env reads of a sibling app in an `apps/*` monorepo (the landing
+// site next to the deployed `apps/web`) no longer count, and a non-secret value
+// handed alone to a converter (`Number(…)`, `formatBaseUri(…)`) is not required.
+// Stored v34 env-var models over-require and must re-run.
+export const ANALYSIS_VERSION = 35;
 
 export interface AnalysisRunnerDeps {
   db: RuntimeDb;
