@@ -361,8 +361,9 @@ currently completed by the web app; see
   must carry the installation tag or the relay cannot modify them later.
 - Relay authentication: a per-link credential minted by the API (hash
   stored; plaintext until first registration), presented as a bearer token;
-  the enrollment code is single-use; a second party registering the same
-  installation gets `409`. Tokens do not rotate except through a relay
+  the enrollment code is single-use (burned by a conditional update, so two
+  concurrent first registrations admit one); a second party registering the
+  same installation gets `409`. Tokens do not rotate except through a relay
   reset, which is a new Quick Create.
 - Every application stack and its resources are tagged
   `deployz:installation`, `deployz:application`, `deployz:vendor`,
