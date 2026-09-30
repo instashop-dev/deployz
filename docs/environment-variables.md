@@ -77,6 +77,10 @@ come from well-known name prefixes (`NEXT_PUBLIC_`, `VITE_`,
   (`KEY: process.env.KEY`), and a key that a zod schema declares
   `.optional()` or `.default()` are not required, whatever other bare reads
   exist.
+- **Compose build args.** A Dockerfile `ARG NAME` with no default that a compose
+  file sets under `build.args` is a required **build** variable. The compose
+  value is shown as evidence (not for secret-looking names); the vendor enters
+  the value.
 - **Sibling apps are out of scope.** When the Dockerfile sits in `apps/<name>/`,
   reads in another `apps/<other>/` directory do not count, unless that
   directory has its own Dockerfile, a compose file or Procfile points at it, or

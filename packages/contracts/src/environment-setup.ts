@@ -124,9 +124,10 @@ export interface EnvironmentSettingSuggestion {
 
 /** Suggests a setting for one detected env var, per the spec's Suggestions rules. */
 export function suggestEnvironmentSetting(variable: ManifestEnvVariable): EnvironmentSettingSuggestion {
-  const stage: EnvironmentStage = BUILD_STAGE_KEY_PATTERN.test(variable.key) ? 'build' : 'runtime';
+  const fedAsBuildArg = variable.source.some((entry) => / build arg /.test(entry));
+  const stage: EnvironmentStage = BUILD_STAGE_KEY_PATTERN.test(variable.key) || fedAsBuildArg ? 'build' : 'runtime';
   const evidence = [...variable.source];
-  if (stage === 'build') {
+  if (stage === 'build' && !fedAsBuildArg) {
     evidence.push('Name prefix is usually inlined at build time — confirm.');
   }
 

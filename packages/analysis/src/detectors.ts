@@ -2831,6 +2831,32 @@ export function classifyEnvVarPurpose(key: string): { purpose: EnvVarPurpose; co
 }
 
 /**
+ * Dockerfile `ARG NAME` (no default) names that a compose file supplies under
+ * `build.args`. The value maps to an evidence line such as
+ * `docker-compose.yml build arg SELF_HOSTED=true` (the value is left out for
+ * secret-looking names).
+ */
+function detectComposeBuildArgs(tree: FileTree): Map<string, string> {
+  const found = new Map<string, string>();
+  const dockerfile = selectedDockerfile(tree);
+  if (!dockerfile) return found;
+  const bareArgs = new Set([...dockerfile.content.matchAll(/^\s*ARG\s+([A-Z][A-Z0-9_]*)\s*$/gm)].map((m) => m[1]!));
+  if (bareArgs.size === 0) return found;
+  for (const [path, content] of Object.entries(tree)) {
+    if (!content || !COMPOSE_FILE_REGEX.test(path)) continue;
+    for (const block of content.matchAll(/^[ \t]*args:[ \t]*\n((?:[ \t]+[^\n]*\n?)+)/gm)) {
+      for (const entry of (block[1] ?? '').matchAll(/^[ \t]*-?[ \t]*([A-Z][A-Z0-9_]*)[ \t]*[=:][ \t]*["']?([^\s"'#]+)/gm)) {
+        const key = entry[1]!;
+        if (!bareArgs.has(key) || found.has(key)) continue;
+        const value = isSecretName(key) ? '' : `=${entry[2]!.slice(0, 40)}`;
+        found.set(key, `${path} build arg ${key}${value}`);
+      }
+    }
+  }
+  return found;
+}
+
+/**
  * The §11.2 env-var model — every environment variable the app reads or
  * declares, with honest required/secret/source attributes.
  *
@@ -3141,16 +3167,25 @@ export function detectEnvVarModel(tree: FileTree, externalServices: string[] = [
     }
   }
 
+  // A Dockerfile `ARG NAME` with no default that the repository's compose file
+  // feeds through `build.args` is a build input the image needs
+  // (rallly: `SELF_HOSTED=true` switches Next.js to `output: standalone`, and the
+  // Dockerfile copies that output). Deployz passes only vendor build values, so
+  // the variable must be listed as required, with the compose value as evidence.
+  const composeBuildArgs = detectComposeBuildArgs(tree);
+
   // ── 3. Combine into the model. ──
-  const keys = new Set<string>([...declarations.keys(), ...reads.keys()]);
+  const keys = new Set<string>([...declarations.keys(), ...reads.keys(), ...composeBuildArgs.keys()]);
   const entries: ManifestEnvVariable[] = [];
 
   for (const key of [...keys].sort()) {
     const declared = declarations.get(key);
     const read = reads.get(key);
-    const needsValue = read?.needsValue === true && !schemaOptionalKeys.has(key);
+    const buildArg = composeBuildArgs.get(key);
+    const needsValue = (read?.needsValue === true && !schemaOptionalKeys.has(key)) || buildArg !== undefined;
     const hasDefault = declared?.realValue === true;
     const source: string[] = [];
+    if (buildArg) source.push(buildArg);
 
     if (declared) {
       for (const file of declared.files) source.push(`${file} declares ${key}`);

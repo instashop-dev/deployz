@@ -238,7 +238,11 @@ type ApplicationRow = typeof schema.applications.$inferSelect;
 // site next to the deployed `apps/web`) no longer count, and a non-secret value
 // handed alone to a converter (`Number(…)`, `formatBaseUri(…)`) is not required.
 // Stored v34 env-var models over-require and must re-run.
-export const ANALYSIS_VERSION = 35;
+// Version 36 (rallly): a Dockerfile `ARG NAME` with no default that a compose
+// file feeds through `build.args` is a required build-stage variable (rallly's
+// `SELF_HOSTED=true` switches Next.js to `output: standalone`, which its Dockerfile
+// copies). Stored v35 models miss it and the release build fails.
+export const ANALYSIS_VERSION = 36;
 
 export interface AnalysisRunnerDeps {
   db: RuntimeDb;
