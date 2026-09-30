@@ -3793,6 +3793,22 @@ describe('server — GitHub installation binding', () => {
     ]);
   });
 
+  it('never rebinds an installation that another organization already owns', async () => {
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/github/setup?installation_id=4242',
+      headers: { cookie: other.cookie },
+    });
+
+    expect(response.statusCode).toBe(302);
+    expect(response.headers['location']).toContain('/dashboard/applications?github=failed');
+    const [row] = await db
+      .select()
+      .from(schema.githubInstallations)
+      .where(eq(schema.githubInstallations.id, '4242'));
+    expect(row?.organizationId).toBe(org.organizationId);
+  });
+
   // GitHub redirects the installing vendor here whether or not they hold a
   // Deployz session. A JSON 401 strands them on an error page with the
   // installation unbound; sign-in carries the id so the binding still
