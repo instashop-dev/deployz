@@ -140,13 +140,41 @@ plain links):
    and — for a Deployz-side failure, instead of the prompt — Copy report for
    Deployz support. The buildspec's "The image build did not produce an
    image" is a final check and is never shown as the cause.
-3. **Configuration** — sections in this order: Environment variables,
-   Application architecture, Data & infrastructure, Deployment
-   preferences, plus the deployment-configuration table and general
-   settings (rename, danger zone). Architecture components show the three
-   states Detected automatically / Confirmed / Needs input — never a raw
-   enum or a confidence percentage. An unresolved question renders as a
-   focused card that reuses FixInstructionsDialog or EditDialog.
+3. **Configuration** — sections in this order: Needs attention (only when
+   something needs the vendor), Deployment size, Services & resources,
+   Environment variables, then general settings (rename, repository,
+   danger zone). The page has two main tables:
+   - **Services & resources** (`lib/configuration-inventory.ts`,
+     `deriveServiceInventory`): columns Item · Configuration / resources ·
+     Est. AWS/month · After removal · Issues · Actions, in the groups
+     Application & runtime, Data services, Networking & HTTPS, External
+     integrations (empty groups are omitted). Runtime, build and start
+     commands, port, health check, worker command and migrations are
+     indented rows under their service; commands show in full and wrap.
+     Each plan AWS resource sits once under the service that owns it
+     (collapsed "Planned AWS resources (N)"), with its own Kept / Removed
+     policy; resources no service owns stay on a "Shared resources" row.
+     Each cost item counts once; a planned row without a price reads
+     "Price unavailable", never $0. Unresolved architecture questions are
+     issues on their row (or their own row), and route to EditDialog (port)
+     or FixInstructionsDialog. Detected / Confirmed node states sit under
+     Technical details, because nodes cannot be joined to plan rows yet
+     (UX-BACKEND-007).
+   - **Environment variables**: one table (Variable · When used · Who
+     provides · Value · Required · Secret · Status · Actions) for the
+     detected variables and every other vendor default. Groups, all
+     expanded, no paging: Needs attention, Set by vendor, Set by customer,
+     Managed by Deployz, Optional and uncertain. Rows are compact; Edit
+     opens the existing editors in the row. One Save writes the decisions,
+     then the values; a failed value write after saved decisions says so.
+     Customer overrides stay a separate section, shown only with
+     `?customer=`.
+   - **Deployment size** lists Small / Medium / Large from the published
+     profile registry only; a size without a profile reads "Not available
+     yet". The estimate is the plan's `costEstimate` per customer
+     deployment, labelled Complete / Baseline plus usage / Partial /
+     Unavailable, with region, on-demand, 730 hours, USD, and the AWS,
+     Deployz and external-service charges named separately.
 
 `lib/application-state.ts` (`deriveApplicationPresentation`) is the single
 source of the page's state: badge, heading, message, actions, the setup
@@ -174,18 +202,23 @@ happening now.
 - The Configuration table's result vocabulary is Ready / Not used / Change
   required / Recommended / Needs review — never "Passed", never a percentage.
   Ready and Not used show no badge, because the value already says it. Its
-  action column reads Add for an unset optional field and Edit once a value
+  action names what it does ("Edit port", "Add health check", "Get fix
+  instructions"): Add for an unset optional field and Edit once a value
   exists. Raw detection evidence (file + reason) lives only under the
   collapsed "Analysis details" disclosure, never in the table itself.
-- Required findings also show in a "Required changes" panel above the table
-  (`#required-changes`, focused when the URL has that hash). Fix routes by
+- Required findings also show in the "Needs attention" summary above the
+  tables (`#required-changes`, focused when the URL has that hash). The
+  summary lists every item once — architecture questions and the
+  environment variables that need a decision or a value — each
+  with a link to its row; external integrations collapse into one line.
+  Credentials never clear an integration's review issue. Fix routes by
   `requiredChangeFix`: only `port-unresolved` opens a setting editor; every
   other finding needs a repository change and a new analysis, so it opens the
   fix instructions.
 - Planned infrastructure comes from the plan's `footprint` through
   `footprintComponentRows` (`lib/footprint.ts`), generic over `service`/
   `category` — a new resource kind renders through the same rows with no
-  page change.
+  page change. Services match footprint resources by category, not id.
 - The install-link card shows one status badge, Copy link, Preview, and an
   overflow menu (copy HTML snippet, toggle enabled/disabled, regenerate,
   revoke) behind a visible "Manage" button. Regenerate and revoke both require confirmation. A live

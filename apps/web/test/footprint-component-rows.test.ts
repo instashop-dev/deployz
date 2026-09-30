@@ -1,12 +1,9 @@
-import { JSDOM } from 'jsdom';
-import { renderToString } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 
 import { resolveDeploymentFootprint } from '@deployz/contracts';
-import type { DeploymentFootprint, DeploymentManifest, DeploymentPlan, FootprintResource, FootprintWorkload } from '@deployz/contracts';
+import type { DeploymentFootprint, DeploymentManifest, FootprintResource, FootprintWorkload } from '@deployz/contracts';
 
 import { footprintComponentRows } from '../src/lib/footprint';
-import { PlannedInfrastructure } from '../src/components/planned-infrastructure';
 
 function manifestWith(overrides: Partial<DeploymentManifest> = {}): DeploymentManifest {
   return {
@@ -35,30 +32,6 @@ const MINIMAL_MANIFEST = manifestWith();
 
 function footprintFor(manifest: DeploymentManifest): DeploymentFootprint {
   return resolveDeploymentFootprint({ manifest, region: 'us-east-1' });
-}
-
-function planFor(footprint: DeploymentFootprint): DeploymentPlan {
-  return {
-    schemaVersion: 1,
-    action: 'INSTALL',
-    region: 'us-east-1',
-    components: [],
-    awsResources: footprint.resources.map((resource) => ({
-      id: resource.id,
-      name: resource.label,
-      purpose: 'Supports the application',
-      group: 'compute_networking',
-      componentKind: 'application',
-      lifecycle: resource.lifecycle.retainOnDelete ? 'retain' : 'delete',
-    })),
-    footprint,
-    costEstimate: null,
-    requirementDrift: [],
-  };
-}
-
-function render(element: React.ReactElement): Document {
-  return new JSDOM(renderToString(element)).window.document;
 }
 
 describe('footprintComponentRows', () => {
@@ -209,82 +182,5 @@ describe('footprintComponentRows', () => {
         expect(row.configuration).not.toContain('—');
       }
     }
-  });
-});
-
-describe('PlannedInfrastructure', () => {
-  it('shows the empty state when the plan is null', () => {
-    const doc = render(<PlannedInfrastructure plan={null} />);
-    expect(doc.querySelector('[data-testid="planned-infrastructure-empty"]')?.textContent).toContain(
-      'The plan shows here after a successful analysis.',
-    );
-    expect(doc.querySelector('[data-testid="planned-infrastructure-table"]')).toBeNull();
-    expect(doc.body.textContent).toContain('The plan shows here after a successful analysis.');
-  });
-
-  it('shows the empty state when the plan has no footprint', () => {
-    const plan = { ...planFor(footprintFor(MINIMAL_MANIFEST)), footprint: null };
-    const doc = render(<PlannedInfrastructure plan={plan} />);
-    expect(doc.querySelector('[data-testid="planned-infrastructure-empty"]')).not.toBeNull();
-    expect(doc.querySelector('[data-testid="planned-infrastructure-table"]')).toBeNull();
-  });
-
-  it('renders exactly the table headers, and one row per component', () => {
-    const plan = planFor(footprintFor(STANDARD_MANIFEST));
-    const doc = render(<PlannedInfrastructure plan={plan} />);
-    const table = doc.querySelector('[data-testid="planned-infrastructure-table"]');
-    expect(table).not.toBeNull();
-    const headers = [...table!.querySelectorAll('th')].map((th) => th.textContent);
-    expect(headers).toEqual(['Component', 'After removal']);
-
-    for (const row of footprintComponentRows(plan.footprint!)) {
-      expect(doc.querySelector(`[data-testid="planned-component-${row.id}"]`)).not.toBeNull();
-    }
-  });
-
-  it('renders one row per workload for a multi-worker footprint', () => {
-    const manifest = manifestWith({
-      worker: { command: 'npm run email' },
-      workers: [
-        { id: 'email-worker', command: 'npm run email', source: 'Procfile' },
-        { id: 'import-worker', command: 'npm run import', source: 'Procfile' },
-      ],
-    });
-    const plan = planFor(footprintFor(manifest));
-    const doc = render(<PlannedInfrastructure plan={plan} />);
-    for (const id of ['web', 'email-worker', 'import-worker']) {
-      expect(doc.querySelector(`[data-testid="planned-component-${id}"]`)).not.toBeNull();
-    }
-    expect(doc.querySelector('[data-testid="planned-component-import-worker"]')?.textContent).toContain(
-      'Worker import-worker',
-    );
-  });
-
-  it('renders "Kept"/"Removed" after removal, with an explanation of what it means', () => {
-    const plan = planFor(footprintFor(STANDARD_MANIFEST));
-    const doc = render(<PlannedInfrastructure plan={plan} />);
-    const databaseRow = doc.querySelector('[data-testid="planned-component-database"]');
-    expect(databaseRow?.textContent).toContain('Kept');
-    const webRow = doc.querySelector('[data-testid="planned-component-web"]');
-    expect(webRow?.textContent).toContain('Removed');
-    expect(doc.body.textContent).toContain("Kept components stay in the customer's AWS account after the deployment is removed");
-  });
-
-  it('keeps AWS sizing and the resource inventory out of the primary table, under collapsed Technical details', () => {
-    const plan = planFor(footprintFor(STANDARD_MANIFEST));
-    const doc = render(<PlannedInfrastructure plan={plan} />);
-    const databaseRow = doc.querySelector('[data-testid="planned-component-database"]');
-    expect(databaseRow?.textContent).not.toContain('db.t4g');
-    const trigger = doc.querySelector('[data-slot="collapsible-trigger"]');
-    expect(trigger?.textContent).toContain('Technical details');
-    expect(trigger?.getAttribute('aria-expanded')).toBe('false');
-    expect(doc.querySelector('[data-testid="planned-infrastructure-sizing"]')).toBeNull();
-  });
-
-  it('never mentions pricing or cost', () => {
-    const plan = planFor(footprintFor(STANDARD_MANIFEST));
-    const doc = render(<PlannedInfrastructure plan={plan} />);
-    expect(doc.body.textContent).not.toContain('$');
-    expect(doc.body.textContent?.toLowerCase()).not.toContain('month');
   });
 });

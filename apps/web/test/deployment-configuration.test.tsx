@@ -3,6 +3,8 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { buildInstallPlan, type DeploymentPlan } from '@deployz/contracts';
+
 import type { Application } from '../src/lib/applications';
 import type {
   ApplicationReadiness,
@@ -126,11 +128,12 @@ function readinessFixture(overrides: Partial<ApplicationReadiness> = {}): Applic
 
 let currentApplication = applicationFixture();
 let currentReadiness = readinessFixture();
+let currentPlan: DeploymentPlan | null = null;
 
 vi.mock('../src/app/dashboard/applications/[id]/application-page-context', () => ({
   useApplicationPage: () => ({
     id: currentApplication.id,
-    data: { application: currentApplication, readiness: currentReadiness, deployments: [], plan: null, installLinks: [] },
+    data: { application: currentApplication, readiness: currentReadiness, deployments: [], plan: currentPlan, installLinks: [] },
     loading: false,
     presentation: { readinessSummary: null, state: 'idle' },
     refresh: mocks.refresh,
@@ -160,6 +163,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   currentApplication = applicationFixture();
   currentReadiness = readinessFixture();
+  currentPlan = null;
   mocks.generateFixInstructions.mockReturnValue(new Promise(() => undefined)); // left pending by default
   window.location.hash = '';
   container = document.createElement('div');
@@ -335,6 +339,91 @@ describe('#required-changes hash focus', () => {
       root.render(<DeploymentConfiguration />);
     });
 
-    expect(document.activeElement?.id).toBe('build-runtime-heading');
+    expect(document.activeElement?.id).toBe('services-heading');
+  });
+});
+
+function standardPlan(): DeploymentPlan {
+  return buildInstallPlan({
+    manifest: {
+      schemaVersion: 1,
+      application: { root: '.', runtime: 'node', framework: null, dockerfilePath: 'Dockerfile' },
+      build: { command: 'npm run build', context: '.' },
+      web: { command: 'npm start', port: 3000 },
+      health: { path: '/health' },
+      database: { postgres: true },
+      redis: { required: false, envBindings: [] },
+      storage: { required: false, envBindings: [] },
+      migration: { command: null },
+      worker: { command: null },
+      environment: { variables: [] },
+      externalServices: [],
+      unsupported: [],
+    },
+    region: 'eu-west-1',
+  });
+}
+
+describe('Deployment size and estimate', () => {
+  it('shows the current size with the plan’s estimate, and sizes without a profile as not available', async () => {
+    currentPlan = standardPlan();
+
+    await act(async () => {
+      root.render(<DeploymentConfiguration />);
+    });
+
+    expect(byTestId('deployment-size-small')?.textContent).toContain('Current');
+    expect(byTestId('deployment-size-small')?.getAttribute('data-profile')).toBe('small-v1');
+    expect(byTestId('deployment-size-medium')?.textContent).toContain('Not available yet');
+    expect(byTestId('deployment-size-large')?.textContent).toContain('Not available yet');
+    expect(byTestId('deployment-size-gap')).not.toBeNull();
+
+    expect(byTestId('deployment-cost-kind')?.textContent).toBe('Baseline plus usage');
+    expect(byTestId('deployment-cost-total')?.textContent).toMatch(/^~\$\d+–\d+\/month \+ usage$/);
+    expect(byTestId('deployment-cost-assumptions')?.textContent).toContain('Ireland (eu-west-1)');
+    expect(byTestId('deployment-cost-assumptions')?.textContent).toContain('730 hours a month');
+    expect(byTestId('deployment-cost-charges')?.textContent).toContain('Deployz fees are not included');
+  });
+
+  it('says the estimate is unavailable when the plan could not be loaded — never $0', async () => {
+    currentPlan = null;
+
+    await act(async () => {
+      root.render(<DeploymentConfiguration />);
+    });
+
+    expect(byTestId('deployment-cost-kind')?.textContent).toBe('Estimate unavailable');
+    expect(byTestId('deployment-cost-total')?.textContent).toBe('Unavailable');
+    expect(byTestId('inventory-row-web')?.textContent).toContain('Price unavailable');
+    expect(document.body.textContent).not.toContain('$0');
+  });
+});
+
+describe('Attention summary', () => {
+  it('collapses external integrations into one line and links environment decisions to the variables table', async () => {
+    currentReadiness = readinessFixture({
+      environmentSetup: { needsDecision: 2, missingValue: 1, missingBuildValue: 0, customer: 0, total: 5 },
+      architecture: {
+        groups: [],
+        unresolved: [
+          { kind: 'external_service_ownership', question: 'Should the external service "stripe" be treated as a Deployz-managed resource?', blocking: false },
+          { kind: 'external_service_ownership', question: 'Should the external service "resend" be treated as a Deployz-managed resource?', blocking: false },
+        ],
+      },
+    });
+
+    await act(async () => {
+      root.render(<DeploymentConfiguration />);
+    });
+
+    const integrations = byTestId('attention-item-integrations');
+    expect(integrations?.textContent).toContain('2 external integrations need review: stripe, resend');
+    expect(integrations?.querySelector('a')?.getAttribute('href')).toBe('#config-row-integration-0');
+    expect(document.querySelectorAll('[data-testid^="attention-item-"]')).toHaveLength(3);
+    expect(byTestId('attention-item-env-decisions')?.querySelector('a')?.getAttribute('href')).toBe('#environment-variables');
+    expect(byTestId('attention-item-env-values')?.textContent).toContain('1 environment variable needs a value');
+    // The integration rows keep their own review issue.
+    expect(byTestId('inventory-row-integration-0')?.textContent).toContain('Needs review');
+    expect(byTestId('inventory-row-integration-0')?.textContent).toContain('Billed separately');
   });
 });

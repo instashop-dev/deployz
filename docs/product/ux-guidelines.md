@@ -22,7 +22,7 @@ the git history of this file (first commit). It is not kept here.
 | --- | --- | --- |
 | Connect repository | Home (first use) → Add application | Add application |
 | Analysis | Application › Overview | none (progress) |
-| Fix what is required | Overview → Configuration › Required changes | Review required changes |
+| Fix what is required | Overview → Configuration › Needs attention | Review required changes |
 | Test | Overview | Start test deployment |
 | Share | Overview | Copy install link |
 | Later releases | Application › Releases | Create release → Test release → Make available to new customers |
@@ -106,10 +106,13 @@ Services.
 
 **Configuration** — sections with anchors, in this order:
 
-1. Required changes (only when present).
-2. Environment variables — one table, value entry per row.
-3. Services — the canonical vendor resource view (§8).
-4. Build & runtime — port, health path, migration, start and build command.
+1. Needs attention (only when present) — each item once, linked to its row.
+2. Deployment size — size and the estimated AWS cost per customer deployment.
+3. Services & resources — the canonical vendor resource view (§8), with
+   build & runtime (port, health path, migration, start and build command)
+   as indented rows under the web application.
+4. Environment variables — one table for detected variables and vendor
+   defaults, value entry per row.
 5. Settings — name, repository, branch, danger zone.
 
 **Releases** — list and "Create release" (commit, version, optional
@@ -264,7 +267,7 @@ no purpose in that context.
 | Context | Representation |
 | --- | --- |
 | Vendor Overview | "N services detected · View" |
-| Vendor Configuration › Services | Canonical vendor view: one row per component with state (Detected / Confirmed / Needs input), what customers get, Kept / Removed on removal; sizing under Technical details |
+| Vendor Configuration › Services & resources | Canonical vendor view: one row per service with its sizing, its AWS resources (each once, collapsed), estimated AWS cost, Kept / Removed on removal, and issues (Needs input); Detected / Confirmed states under Technical details (UX-BACKEND-007) |
 | Vendor deployment page | Live status per service; resource inventory under Technical details |
 | Customer pre-deploy | Concise customer summary grouped under generic headings, with Kept / Removed |
 | Customer during deploy | Component progress, only after the first infrastructure event |

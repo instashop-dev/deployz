@@ -21,6 +21,7 @@ import {
 import { TONE_TEXT } from '@/lib/status-tone';
 import { cn } from '@/lib/utils';
 
+import { useApplicationPage } from '../application-page-context';
 import { DeploymentConfiguration } from './deployment-configuration';
 import { EnvironmentVariablesSection } from './environment-variables-section';
 import { GeneralSettings } from './general-settings';
@@ -82,9 +83,9 @@ function ConfigScreen() {
 
   return (
     <div className="flex flex-col gap-6">
-      {/* ux-guidelines §3 section order: Required changes, Environment
-          variables, Services, Build & runtime, Settings. `DeploymentConfiguration`
-          supplies the first, third and fourth around the `children` slot. */}
+      {/* Section order: Needs attention, Deployment size, Services &
+          resources, Environment variables, Settings. `DeploymentConfiguration`
+          supplies the first three before the `children` slot. */}
       <DeploymentConfiguration>
         {state.status === 'loading' ? <PageSkeleton /> : null}
         {state.status === 'error' ? (
@@ -115,48 +116,24 @@ function ConfigBody({
   data: ApplicationConfig;
   onSaved: (next: ApplicationConfig) => void;
 }) {
-  const showCustomerOverrides = data.customerId !== null;
-  // The analysis-driven table above already lets a vendor enter a value for
-  // any detected variable set to "vendor" (its own value-entry row) — a
-  // saved default with no matching detected variable (added by hand, not
-  // from analysis, or before analysis has run at all) has nowhere else to
-  // show, so it stays in this group instead of a second full table. Starts
-  // empty (nothing filtered out — every default shows) so a slow or failed
-  // fetch of the analysis table's variable list never hides a saved value.
-  const [coveredKeys, setCoveredKeys] = useState<string[]>([]);
-  const otherDefaults = data.vendorDefaults.filter((entry) => !coveredKeys.includes(entry.key));
+  const { refresh } = useApplicationPage();
 
   return (
     <>
       <EnvironmentVariablesSection
         applicationId={data.applicationId}
         vendorDefaults={data.vendorDefaults}
-        onValuesSaved={onSaved}
-        onVariableKeysChange={setCoveredKeys}
-      />
-
-      <ConfigSection
-        title="Defaults"
-        description="Values that are not part of the detected environment variables above. Apply to every customer unless a customer overrides them."
-        helpText="Apply to new deployments — running deployments keep their current values."
-        testId="config-vendor-defaults"
-        applicationId={data.applicationId}
-        customerId={null}
-        entries={otherDefaults}
-        vendorDefaults={data.vendorDefaults}
-        editable
-        compactWhenEmpty
-        emptyMessage="No defaults set yet."
-        onSaved={(saved) =>
+        onValuesSaved={(saved) =>
           onSaved({
             ...data,
             vendorDefaults: saved.vendorDefaults,
             effective: mergeConfig(saved.vendorDefaults, data.customerOverrides),
           })
         }
+        onSaved={() => void refresh()}
       />
 
-      {showCustomerOverrides ? (
+      {data.customerId !== null ? (
         <ConfigSection
           title="Customer overrides"
           description={customerScopeDescription(data)}
@@ -179,9 +156,6 @@ function ConfigBody({
 // that means nothing to the vendor. An unnamed customer falls back to "this
 // customer" rather than leaking the id.
 function customerScopeDescription(data: ApplicationConfig): string {
-  if (data.customerId === null) {
-    return 'Apply to one customer and take precedence over the defaults.';
-  }
   const customer = data.customerName ?? 'this customer';
   return `Apply to ${customer} only. They take precedence over the defaults.`;
 }
@@ -203,7 +177,6 @@ function ConfigSection({
   entries,
   vendorDefaults,
   editable,
-  compactWhenEmpty,
   emptyMessage,
   onSaved,
 }: {
@@ -219,10 +192,6 @@ function ConfigSection({
   entries: MaskedConfigEntry[];
   vendorDefaults: MaskedConfigEntry[];
   editable: boolean;
-  /** While there is nothing to show yet, skip the description/help text and
-   *  the dashed empty-state box — just the title and the add actions. Shows
-   *  the full chrome again as soon as an entry or draft exists. */
-  compactWhenEmpty?: boolean;
   emptyMessage: ReactNode;
   onSaved: (next: ApplicationConfig) => void;
 }) {
@@ -293,19 +262,18 @@ function ConfigSection({
   }
 
   const empty = entries.length === 0 && drafts.length === 0;
-  const compactEmpty = Boolean(compactWhenEmpty) && empty;
 
   return (
     <Card data-testid={testId}>
       <CardHeader>
         <CardTitle>{title}</CardTitle>
-        {compactEmpty ? null : <CardDescription>{description}</CardDescription>}
+        <CardDescription>{description}</CardDescription>
       </CardHeader>
       <CardContent>
         <form key={version} onSubmit={handleSubmit} className="flex flex-col gap-5">
-          {compactEmpty ? null : helpText ? <p className="text-xs text-muted-foreground">{helpText}</p> : null}
+          {helpText ? <p className="text-xs text-muted-foreground">{helpText}</p> : null}
 
-          {empty && !compactEmpty ? (
+          {empty ? (
             <p className="rounded-lg border border-dashed px-4 py-6 text-center text-sm text-muted-foreground">
               {emptyMessage}
             </p>
@@ -384,9 +352,9 @@ function ConfigSection({
                   <Button
                     type="submit"
                     loading={saveState === 'saving'}
-                    loadingText={title === 'Defaults' ? 'Saving defaults…' : 'Saving overrides…'}
+                    loadingText="Saving overrides…"
                   >
-                    Save {title === 'Defaults' ? 'defaults' : 'overrides'}
+                    Save overrides
                   </Button>
                   {saveState === 'saved' ? (
                     <p role="status" className="text-sm text-muted-foreground">

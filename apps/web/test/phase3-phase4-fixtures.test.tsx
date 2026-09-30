@@ -19,7 +19,6 @@ import {
   futureCapabilitySpecComponent,
   webWorkerQueueSchedulePlan,
   webWorkerQueueScheduleSpecComponents,
-  webWorkersMysqlRedisArchitecture,
   webWorkersMysqlRedisPlan,
   webWorkersMysqlRedisSpecComponents,
 } from './fixtures/phase4-presentations';
@@ -28,7 +27,7 @@ import { installPlanRows } from '../src/lib/install-plan';
 
 // The Phase 3 gate: every Phase 4 composition renders through the generic
 // presentation model with NO new display code — grouped plan table, spec
-// component progress, vendor architecture surfaces, and the truthful
+// component progress, and the truthful
 // degradation fallbacks.
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -66,7 +65,6 @@ vi.mock('../src/lib/public-install-data', async (importOriginal) => {
 });
 
 const { InstallPlanComponentTable } = await import('../src/components/install-plan-component-table');
-const { ApplicationArchitectureSection } = await import('../src/components/application-architecture-section');
 const { InstallProgress } = await import('../src/components/install-progress');
 const InstallPage = (await import('../src/app/install/[installLinkId]/page')).default;
 
@@ -335,35 +333,6 @@ describe('customer progress renders specComponents (composition A + future capab
     expect(view.label).toBe('Future capability');
     expect(view.stateLabel).toBe('Waiting');
     expect(view.tone).toBe('neutral');
-  });
-});
-
-// ── Gate 4: vendor config architecture section (composition A) ──────────────
-
-describe('vendor configuration architecture section (composition A)', () => {
-  it('renders the grouped sections and the focused unresolved question with its action', () => {
-    render(
-      <ApplicationArchitectureSection
-        architecture={webWorkersMysqlRedisArchitecture}
-        onEdit={vi.fn()}
-        onShowFix={vi.fn()}
-      />,
-    );
-
-    expect(byTestId('application-architecture-section')).not.toBeNull();
-    expect(byTestId('architecture-config-group-application')).not.toBeNull();
-    expect(byTestId('architecture-config-group-data')).not.toBeNull();
-    expect(byTestId('architecture-config-group-cache')).not.toBeNull();
-    expect(byTestId('architecture-config-group-storage')).not.toBeNull();
-    expect(byTestId('architecture-config-node-data-MySQL database')).not.toBeNull();
-
-    const card = byTestId('architecture-unresolved-card-mysql-database-0');
-    expect(card?.textContent).toContain('Needs input');
-    expect(card?.textContent).toContain('Blocking');
-    expect(card?.textContent).toContain('Confirm the MySQL database engine version.');
-    // A non-port question routes to fix instructions, not the edit dialog.
-    expect(byTestId('architecture-unresolved-fix-mysql-database-0')).not.toBeNull();
-    expect(byTestId('architecture-unresolved-edit-mysql-database-0')).toBeNull();
   });
 });
 

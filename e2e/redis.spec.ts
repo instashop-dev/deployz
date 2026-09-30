@@ -158,18 +158,18 @@ test('bullmq-worker: analyses as ready with the managed Redis passed check, then
   // block readiness, so the heading is ready.
   await expect(page.getByTestId('application-state-heading')).toHaveText('Ready for a test deployment');
 
-  // The readiness table lives on the Configuration tab.
+  // The services table lives on the Configuration tab.
   await page.getByRole('tab', { name: 'Configuration' }).click();
   await page.waitForURL('**/config');
-  await expect(page.getByTestId('readiness-table')).toBeVisible();
+  await expect(page.getByTestId('services-table')).toBeVisible();
   // Scoped to the Configuration tab's own section: the analysis summary.
   await expect(
-    page.getByRole('region', { name: 'Build & runtime' }).getByText('No blocking issues'),
+    page.getByRole('region', { name: 'Services & resources' }).getByText('No blocking issues'),
   ).toBeVisible();
   await expect(
     page
-      .getByTestId('readiness-table')
-      .getByText('Background job runner', { exact: true }),
+      .getByTestId('services-table')
+      .getByText('Background job runner', { exact: false }),
   ).toBeVisible();
 
   // ── 3. Create a customer + deployment for this application, then open the
@@ -253,7 +253,7 @@ test('legacy-redis: analyses as unsupported — "Your app uses Redis features De
   // REDIS_COPY) and the heading reads out the required-change count.
   await expect(page.getByTestId('application-state-heading')).toHaveText(/change[s]? required/);
 
-  // The readiness table lives on the Configuration tab. The rejection is a
+  // The services table lives on the Configuration tab. The rejection is a
   // 'cache'-category finding, so it folds into the Cache / queue row rather
   // than rendering as its own row (application-configuration.ts).
   await page.getByRole('tab', { name: 'Configuration' }).click();

@@ -36,10 +36,10 @@ test('choosing a repository creates a real application and opens its readiness p
   // The setup lifecycle lives on the Overview tab.
   await expect(page.getByTestId('lifecycle-steps')).toBeVisible();
 
-  // The readiness table lives on the Configuration tab.
+  // The services table lives on the Configuration tab.
   await page.getByRole('tab', { name: 'Configuration' }).click();
   await page.waitForURL('**/config');
-  await expect(page.getByTestId('readiness-table')).toBeVisible();
+  await expect(page.getByTestId('services-table')).toBeVisible();
 });
 
 test('a freshly-analysed application shows the real §19 COMPLETE verdict', async ({ page }) => {
@@ -58,17 +58,17 @@ test('a freshly-analysed application shows the real §19 COMPLETE verdict', asyn
   await page.getByRole('tab', { name: 'Configuration' }).click();
   await page.waitForURL('**/config');
 
-  const table = page.getByTestId('readiness-table');
+  const table = page.getByTestId('services-table');
   await expect(table).toBeVisible();
-  // The detected facts now live as rows in the readiness table.
+  // The detected facts now live as rows in the services table.
   await expect(page.getByTestId('readiness-setting-runtime')).toContainText('Node.js');
   await expect(page.getByTestId('readiness-setting-port')).toContainText('3000');
   await expect(page.getByTestId('readiness-setting-health')).toContainText('/health');
   // The database row's value comes from the server-computed effective
   // requirement, not the rich detected-fact text — the fixture app's `pg`
-  // dependency makes it used, so the row reads "PostgreSQL database".
+  // dependency makes it used, so the row names PostgreSQL.
   const databaseRow = page.getByTestId('readiness-setting-database');
-  await expect(databaseRow).toContainText('PostgreSQL database');
+  await expect(databaseRow).toContainText('PostgreSQL');
   await expect(databaseRow).not.toContainText('Not used');
 });
 
@@ -80,7 +80,7 @@ test('readiness page top-level copy is jargon-free (§65)', async ({ page }) => 
 
   await page.getByRole('tab', { name: 'Configuration' }).click();
   await page.waitForURL('**/config');
-  await expect(page.getByTestId('readiness-table')).toBeVisible();
+  await expect(page.getByTestId('services-table')).toBeVisible();
   const text = await page.locator('body').innerText();
   expect(text).not.toMatch(JARGON);
 });
@@ -94,7 +94,7 @@ test('re-analysing from the header menu settles back to enabled and refreshes th
   await page.waitForURL(/\/dashboard\/applications\/[0-9a-f-]{36}$/);
   await page.getByRole('tab', { name: 'Configuration' }).click();
   await page.waitForURL('**/config');
-  await expect(page.getByTestId('readiness-table')).toBeVisible();
+  await expect(page.getByTestId('services-table')).toBeVisible();
 
   const applicationId = page.url().split('/').filter(Boolean).at(-2)!;
   // Stand in for the change a real re-analysis persists: the row moves

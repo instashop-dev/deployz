@@ -100,8 +100,13 @@ test('application detail page links to the configuration screen', async ({ page 
   await page.waitForURL(`**/dashboard/applications/${application.id}/config`);
 
   await expect(page.getByRole('tab', { name: 'Configuration' })).toHaveAttribute('aria-selected', 'true');
-  await expect(page.getByRole('heading', { name: 'Build & runtime' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Services & resources' })).toBeVisible();
 });
+
+/** The environment variables table, and the row of one saved default no detected variable covers. */
+function customRow(page: Page, key: string) {
+  return page.getByTestId(`environment-custom-row-${key}`);
+}
 
 test('config screen renders vendor defaults and customer overrides', async ({ page }) => {
   await signUp(page);
@@ -110,10 +115,10 @@ test('config screen renders vendor defaults and customer overrides', async ({ pa
 
   await expect(page.getByRole('tab', { name: 'Configuration' })).toHaveAttribute('aria-selected', 'true');
 
-  const defaults = page.getByTestId('config-vendor-defaults');
-  await expect(defaults.getByLabel('DATABASE_URL')).toBeVisible();
-  await expect(defaults.getByLabel('LOG_LEVEL')).toHaveValue('info');
-  await expect(defaults.getByLabel('MAX_CONNECTIONS')).toHaveValue('10');
+  // The defaults are rows of the one environment variables table.
+  await expect(customRow(page, 'DATABASE_URL')).toContainText('Secret saved');
+  await expect(customRow(page, 'LOG_LEVEL')).toContainText('info');
+  await expect(customRow(page, 'MAX_CONNECTIONS')).toContainText('10');
 
   const overrides = page.getByTestId('config-customer-overrides');
   await expect(overrides.getByLabel('LOG_LEVEL')).toHaveValue('debug');
@@ -130,9 +135,11 @@ test('secrets render masked — empty password inputs, never plaintext', async (
   await signUp(page);
   const { applicationId, customerId } = await seedAppWithConfig(page);
   await page.goto(`/dashboard/applications/${applicationId}/config?customer=${customerId}`);
-  await expect(page.getByTestId('config-vendor-defaults')).toBeVisible();
+  await expect(customRow(page, 'DATABASE_URL')).toContainText('Secret saved');
 
   // DATABASE_URL (vendor default) + API_KEY (customer override) are secrets.
+  // The default's field opens from its row; both are empty password inputs.
+  await customRow(page, 'DATABASE_URL').getByRole('button', { name: 'Edit DATABASE_URL' }).click();
   const passwordInputs = page.locator('input[type="password"]');
   await expect(passwordInputs).toHaveCount(2);
   for (const input of await passwordInputs.all()) {
@@ -151,14 +158,15 @@ test('secret fields are write-only password inputs with a show/hide toggle', asy
   const { applicationId } = await seedAppWithConfig(page);
   await page.goto(`/dashboard/applications/${applicationId}/config`);
 
-  const defaults = page.getByTestId('config-vendor-defaults');
-  const secretField = defaults.getByLabel('DATABASE_URL');
+  const section = page.getByTestId('environment-variables-section');
+  await customRow(page, 'DATABASE_URL').getByRole('button', { name: 'Edit DATABASE_URL' }).click();
+  const secretField = section.getByLabel('DATABASE_URL', { exact: true });
   await expect(secretField).toHaveAttribute('type', 'password');
   await expect(secretField).toHaveAttribute('autocomplete', 'new-password');
 
-  await defaults.getByRole('button', { name: 'Show value' }).click();
+  await section.getByRole('button', { name: 'Show value' }).click();
   await expect(secretField).toHaveAttribute('type', 'text');
-  await defaults.getByRole('button', { name: 'Hide value' }).click();
+  await section.getByRole('button', { name: 'Hide value' }).click();
   await expect(secretField).toHaveAttribute('type', 'password');
 });
 
@@ -167,8 +175,9 @@ test('saving defaults sends the write and confirms', async ({ page }) => {
   const { applicationId } = await seedAppWithConfig(page);
 
   await page.goto(`/dashboard/applications/${applicationId}/config`);
-  const defaults = page.getByTestId('config-vendor-defaults');
-  await defaults.getByLabel('LOG_LEVEL').fill('warn');
+  const section = page.getByTestId('environment-variables-section');
+  await customRow(page, 'LOG_LEVEL').getByRole('button', { name: 'Edit LOG_LEVEL' }).click();
+  await section.getByLabel('LOG_LEVEL', { exact: true }).fill('warn');
 
   const [request] = await Promise.all([
     page.waitForRequest(
@@ -176,24 +185,19 @@ test('saving defaults sends the write and confirms', async ({ page }) => {
         req.url() === `${API_URL}/api/applications/${applicationId}/config` &&
         req.method() === 'PUT',
     ),
-    defaults.getByRole('button', { name: 'Save defaults' }).click(),
+    section.getByRole('button', { name: 'Save changes' }).click(),
   ]);
 
-  await expect(defaults.getByRole('status')).toHaveText('Saved.');
+  await expect(section.getByRole('status')).toHaveText('Saved.');
 
-  // The write path carried the whole defaults group (vendor scope: null
-  // customer) with the edited value; the untouched secret went along empty.
+  // The write path carried only the edited value, in the vendor scope (null
+  // customer); the untouched secret was not sent, so it stays unchanged.
   const body = request.postDataJSON() as ConfigWriteBody;
   expect(body).toMatchObject({ customerId: null });
-  const entries = body.entries ?? [];
-  expect(entries.find((entry) => entry.key === 'LOG_LEVEL')).toMatchObject({ value: 'warn' });
-  expect(entries.find((entry) => entry.key === 'DATABASE_URL')).toMatchObject({
-    isSecret: true,
-    value: '',
-  });
+  expect(body.entries).toEqual([{ key: 'LOG_LEVEL', value: 'warn', isSecret: false }]);
 
-  // After the save the field shows the saved value (form remounts fresh).
-  await expect(defaults.getByLabel('LOG_LEVEL')).toHaveValue('warn');
+  // After the save the row shows the saved value.
+  await expect(customRow(page, 'LOG_LEVEL')).toContainText('warn');
 });
 
 test('saving defaults through the UI persists to the real API (regression: CORS blocked PUT)', async ({
@@ -203,11 +207,12 @@ test('saving defaults through the UI persists to the real API (regression: CORS 
   const { applicationId } = await seedAppWithConfig(page);
 
   await page.goto(`/dashboard/applications/${applicationId}/config`);
-  const defaults = page.getByTestId('config-vendor-defaults');
+  const section = page.getByTestId('environment-variables-section');
   const newValue = `warn-${crypto.randomUUID().slice(0, 8)}`;
-  await defaults.getByLabel('LOG_LEVEL').fill(newValue);
-  await defaults.getByRole('button', { name: 'Save defaults' }).click();
-  await expect(defaults.getByRole('status')).toHaveText('Saved.');
+  await customRow(page, 'LOG_LEVEL').getByRole('button', { name: 'Edit LOG_LEVEL' }).click();
+  await section.getByLabel('LOG_LEVEL', { exact: true }).fill(newValue);
+  await section.getByRole('button', { name: 'Save changes' }).click();
+  await expect(section.getByRole('status')).toHaveText('Saved.');
 
   // Previously the API's CORS config only allowed GET,HEAD,POST, so the
   // browser blocked the PUT preflight and every config save silently failed
@@ -278,17 +283,18 @@ test('a group with no values yet offers a way to add one, and the add persists',
   const application = await createApplication(page);
   await page.goto(`/dashboard/applications/${application.id}/config`);
 
-  const defaults = page.getByTestId('config-vendor-defaults');
-  await expect(defaults.getByTestId('config-vendor-defaults-add-value')).toBeVisible();
+  const section = page.getByTestId('environment-variables-section');
+  await expect(section.getByTestId('environment-variables-empty')).toBeVisible();
+  await expect(section.getByTestId('environment-variables-add-value')).toBeVisible();
 
-  await defaults.getByTestId('config-vendor-defaults-add-value').click();
-  await defaults.getByLabel('Name', { exact: true }).fill('LOG_LEVEL');
-  await defaults.getByLabel('Value', { exact: true }).fill('info');
-  await defaults.getByRole('button', { name: 'Save defaults' }).click();
-  await expect(defaults.getByRole('status')).toHaveText('Saved.');
+  await section.getByTestId('environment-variables-add-value').click();
+  await section.getByLabel('Name', { exact: true }).fill('LOG_LEVEL');
+  await section.getByLabel('Value', { exact: true }).fill('info');
+  await section.getByRole('button', { name: 'Save changes' }).click();
+  await expect(section.getByRole('status')).toHaveText('Saved.');
 
-  // The added value is now a normal field, and it really landed in the API.
-  await expect(defaults.getByLabel('LOG_LEVEL')).toHaveValue('info');
+  // The added value is now a normal row, and it really landed in the API.
+  await expect(customRow(page, 'LOG_LEVEL')).toContainText('info');
   const readBack = await page.request.get(`${API_URL}/api/applications/${application.id}/config`);
   expect(readBack.ok()).toBeTruthy();
   const config = (await readBack.json()) as {
@@ -337,10 +343,10 @@ test('adding a value that is already in the group is refused before any write', 
   const { applicationId } = await seedAppWithConfig(page);
   await page.goto(`/dashboard/applications/${applicationId}/config`);
 
-  const defaults = page.getByTestId('config-vendor-defaults');
-  await defaults.getByTestId('config-vendor-defaults-add-value').click();
-  await defaults.getByLabel('Name', { exact: true }).fill('LOG_LEVEL');
-  await defaults.getByLabel('Value', { exact: true }).fill('debug');
+  const section = page.getByTestId('environment-variables-section');
+  await section.getByTestId('environment-variables-add-value').click();
+  await section.getByLabel('Name', { exact: true }).fill('LOG_LEVEL');
+  await section.getByLabel('Value', { exact: true }).fill('debug');
 
   let wrote = false;
   page.on('request', (req) => {
@@ -348,9 +354,9 @@ test('adding a value that is already in the group is refused before any write', 
       wrote = true;
     }
   });
-  await defaults.getByRole('button', { name: 'Save defaults' }).click();
+  await section.getByRole('button', { name: 'Save changes' }).click();
 
-  await expect(defaults.getByRole('alert')).toContainText('LOG_LEVEL is already in this group.');
+  await expect(section.getByRole('alert')).toContainText('LOG_LEVEL already exists.');
   expect(wrote).toBe(false);
 });
 
@@ -361,10 +367,11 @@ test('saving the defaults keeps the customer scope intact (regression: overrides
   const { applicationId, customerId, customerName } = await seedAppWithConfig(page);
   await page.goto(`/dashboard/applications/${applicationId}/config?customer=${customerId}`);
 
-  const defaults = page.getByTestId('config-vendor-defaults');
-  await defaults.getByLabel('LOG_LEVEL').fill('warn');
-  await defaults.getByRole('button', { name: 'Save defaults' }).click();
-  await expect(defaults.getByRole('status')).toHaveText('Saved.');
+  const section = page.getByTestId('environment-variables-section');
+  await customRow(page, 'LOG_LEVEL').getByRole('button', { name: 'Edit LOG_LEVEL' }).click();
+  await section.getByLabel('LOG_LEVEL', { exact: true }).fill('warn');
+  await section.getByRole('button', { name: 'Save changes' }).click();
+  await expect(section.getByRole('status')).toHaveText('Saved.');
 
   // The defaults write answers for the VENDOR scope only. Folding that whole
   // answer back into the page dropped the customer, so the overrides group

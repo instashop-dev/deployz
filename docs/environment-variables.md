@@ -18,9 +18,10 @@ their values reach release builds and customer deployments.
    added.
 3. **Configuration → Environment variables**: the detected names are a
    draft. Each row starts from a suggestion (marked "Suggested"). Nothing is
-   saved until the vendor saves. Unresolved required rows come first.
-   Optional and uncertain rows are collapsed. The vendor can search, filter
-   and bulk-classify rows.
+   saved until the vendor saves. The same table lists every other vendor
+   default. Rows are grouped, all expanded and never paged: Needs
+   attention, Set by vendor, Set by customer, Managed by Deployz, Optional
+   and uncertain. The vendor can bulk-classify rows.
 4. **Save** stores the decisions (`PUT /api/applications/:id/environment-settings`)
    and vendor values (`PUT /api/applications/:id/config`, vendor scope). The
    page then reads readiness again. Saving never runs analysis again.

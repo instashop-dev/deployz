@@ -180,57 +180,50 @@ afterEach(() => {
   container.remove();
 });
 
-describe('Configuration sections', () => {
-  it('renders Application architecture with detected and confirmed statuses', async () => {
+describe('Services & resources table', () => {
+  it('shows the infrastructure and build/runtime rows in one table, and the detection state under Technical details', async () => {
     await act(async () => {
       root.render(<DeploymentConfiguration />);
     });
 
-    expect(byTestId('application-architecture-section')).not.toBeNull();
-    expect(byTestId('architecture-config-node-application-Web service')?.textContent).toContain(
-      'Confirmed',
-    );
-    expect(byTestId('architecture-config-node-cache-Redis')?.textContent).toContain(
-      'Detected automatically',
-    );
+    const table = byTestId('services-table');
+    expect(table).not.toBeNull();
+    for (const id of ['runtime', 'port', 'database', 'storage']) {
+      expect(table?.querySelector(`[data-testid="readiness-setting-${id}"]`)).not.toBeNull();
+    }
+    expect(byTestId('readiness-table')).toBeNull();
+    expect(byTestId('readiness-infrastructure-table')).toBeNull();
+
+    await click(byTestId('technical-details')?.querySelector('[data-slot="collapsible-trigger"]') ?? null);
+    const detectedComponents = byTestId('detected-components')?.textContent ?? '';
+    expect(detectedComponents).toContain('Web service · Confirmed');
+    expect(detectedComponents).toContain('Redis · Detected automatically');
   });
 
-  it('renders Data & infrastructure with infrastructure rows', async () => {
+  it('shows an unresolved question as a Needs input row with its action', async () => {
     await act(async () => {
       root.render(<DeploymentConfiguration />);
     });
 
-    expect(byTestId('readiness-infrastructure-table')).not.toBeNull();
-    expect(byTestId('readiness-setting-database')).not.toBeNull();
-    expect(byTestId('readiness-setting-storage')).not.toBeNull();
+    const questionRow = byTestId('inventory-row-question-0');
+    expect(questionRow?.textContent).toContain('Do you need a background queue?');
+    expect(questionRow?.textContent).toContain('Needs input');
+    expect(questionRow?.querySelector('[data-testid="architecture-unresolved-fix-queue-0"]')).not.toBeNull();
   });
 
-  it('renders Deployment preferences with non-infrastructure rows', async () => {
+  it('puts the port question on the port row, whose edit action opens the port editor', async () => {
     await act(async () => {
       root.render(<DeploymentConfiguration />);
     });
 
-    expect(byTestId('readiness-table')).not.toBeNull();
-    expect(byTestId('readiness-setting-runtime')).not.toBeNull();
-    expect(byTestId('readiness-setting-port')).not.toBeNull();
-  });
+    const portRow = byTestId('readiness-setting-port');
+    expect(portRow?.textContent).toContain('Which port does your app listen on?');
+    expect(portRow?.textContent).toContain('Blocking');
+    await click(byTestId('readiness-setting-edit-port'));
 
-  it('shows unresolved architecture questions as Needs input cards with actions', async () => {
-    await act(async () => {
-      root.render(<DeploymentConfiguration />);
-    });
-
-    expect(byTestId('architecture-config-unresolved')).not.toBeNull();
-    expect(byTestId('architecture-unresolved-card-queue-0')?.textContent).toContain(
-      'Do you need a background queue?',
-    );
-    expect(byTestId('architecture-unresolved-card-queue-0')?.textContent).toContain('Needs input');
-    expect(byTestId('architecture-unresolved-fix-queue-0')).not.toBeNull();
-
-    expect(byTestId('architecture-unresolved-card-port-1')?.textContent).toContain(
-      'Which port does your app listen on?',
-    );
-    expect(byTestId('architecture-unresolved-edit-port-1')).not.toBeNull();
+    expect(byTestId('edit-dialog-containerPort')).not.toBeNull();
+    expect(byTestId('fix-instructions-dialog')).toBeNull();
+    expect(mocks.generateFixInstructions).not.toHaveBeenCalled();
   });
 
   it('opens the fix-instructions dialog from an unresolved fix action', async () => {
@@ -244,29 +237,29 @@ describe('Configuration sections', () => {
     expect(mocks.generateFixInstructions).toHaveBeenCalled();
   });
 
-  it('opens the edit dialog from an unresolved port action', async () => {
+  it('lists each question once in the attention summary, linked to its row', async () => {
     await act(async () => {
       root.render(<DeploymentConfiguration />);
     });
 
-    await click(byTestId('architecture-unresolved-edit-port-1'));
-
-    expect(byTestId('edit-dialog-containerPort')).not.toBeNull();
-    expect(byTestId('fix-instructions-dialog')).toBeNull();
-    expect(mocks.generateFixInstructions).not.toHaveBeenCalled();
+    expect(byTestId('attention-item-question-0')?.querySelector('a')?.getAttribute('href')).toBe('#config-row-question-0');
+    expect(byTestId('attention-item-question-1')?.querySelector('a')?.getAttribute('href')).toBe('#config-row-port');
+    expect(document.getElementById('config-row-port')).not.toBeNull();
   });
 
-  it('hides the Application architecture section when no architecture data exists', async () => {
+  it('shows no detected components when no architecture data exists', async () => {
     currentReadiness = readinessFixture({ architecture: null });
 
     await act(async () => {
       root.render(<DeploymentConfiguration />);
     });
 
-    expect(byTestId('application-architecture-section')).toBeNull();
+    expect(byTestId('detected-components')).toBeNull();
+    expect(byTestId('inventory-row-question-0')).toBeNull();
   });
 
-  it('hides the Data & infrastructure section when analysis is incomplete and there is no plan', async () => {
+  it('shows the empty table and no size card when analysis is incomplete and there is no plan', async () => {
+    currentApplication = applicationFixture({ analysisStatus: 'PENDING' });
     currentReadiness = readinessFixture({
       analysisStatus: 'PENDING',
       state: 'ANALYSIS_INCOMPLETE',
@@ -279,7 +272,7 @@ describe('Configuration sections', () => {
       root.render(<DeploymentConfiguration />);
     });
 
-    expect(byTestId('readiness-infrastructure-table')).toBeNull();
-    expect(byTestId('application-architecture-section')).toBeNull();
+    expect(byTestId('readiness-empty')?.textContent).toContain('Analyse the application');
+    expect(byTestId('deployment-size')).toBeNull();
   });
 });
