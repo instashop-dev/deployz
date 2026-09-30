@@ -3225,6 +3225,11 @@ export async function buildServer({
     const { installation_id: installationId } = request.query as {
       installation_id?: string | undefined;
     };
+    // This GET writes a binding, which the support-mode guard (non-GET only)
+    // cannot see.
+    if (request.supportMode) {
+      throw new ApiError(403, 'SUPPORT_MODE_READ_ONLY', 'Support mode is read-only. Exit support mode to make changes.');
+    }
     const organizationId = requireSessionOrganizationId(request);
     const dashboardUrl = `${env.webUrl}/dashboard/applications`;
     if (!installationId) {
@@ -3243,6 +3248,15 @@ export async function buildServer({
     try {
       const jwt = createAppJwt(githubAppId, githubAppPrivateKey, Date.now());
       const account = await fetchInstallationAccount(installationId, jwt, githubFetch);
+
+      // An installation id is a small public integer: a binding another
+      // organization already holds must never be taken over by whoever
+      // knows the id.
+      const existing = await githubStore.get(installationId);
+      if (existing !== null && existing.organizationId !== organizationId) {
+        request.log.warn({ installationId }, 'github setup refused: installation bound to another organization');
+        return reply.redirect(`${dashboardUrl}?github=failed`);
+      }
 
       await githubStore.set({
         id: installationId,
