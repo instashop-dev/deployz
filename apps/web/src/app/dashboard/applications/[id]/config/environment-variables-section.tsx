@@ -263,12 +263,20 @@ function EnvironmentVariablesTable({
     setSaveState('saving');
     setProblems([]);
     try {
-      const settingsResponse = await saveEnvironmentSettings(applicationId, liveSettings);
+      // Entering a value accepts the decision the row displays: without this,
+      // a suggested "Set by vendor" row saves its value but never its
+      // decision, and stays "Needs a decision".
+      const settingsByKey = new Map(liveSettings.map((setting) => [setting.key, setting]));
+      for (const [key, value] of valueDrafts) {
+        const row = rowsByKey.get(key);
+        if (value.length === 0 || settingsByKey.has(key) || !row) continue;
+        settingsByKey.set(key, currentSetting(row, undefined));
+      }
+      const settingsResponse = await saveEnvironmentSettings(applicationId, Array.from(settingsByKey.values()));
       const valueEntries: ConfigEntry[] = [];
       for (const [key, value] of valueDrafts) {
         if (value.length === 0) continue;
-        const setting = liveSettings.find((s) => s.key === key);
-        valueEntries.push({ key, value, isSecret: setting?.secret ?? false });
+        valueEntries.push({ key, value, isSecret: settingsByKey.get(key)?.secret ?? false });
       }
       if (valueEntries.length > 0) {
         const configResult = await saveConfig(applicationId, null, valueEntries);
