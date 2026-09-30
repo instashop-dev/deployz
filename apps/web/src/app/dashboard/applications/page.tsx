@@ -20,6 +20,11 @@ import {
   readinessBadgeVariant,
   readinessStateFromVerdict,
 } from '@/lib/readiness';
+import { mapWithConcurrency } from '@/lib/map-with-concurrency';
+
+// The API's Lambda account quota is small (10 concurrent executions), so the
+// per-application readiness reads go a few at a time.
+const READINESS_FETCH_CONCURRENCY = 4;
 
 type AppsState =
   | { status: 'loading' }
@@ -143,22 +148,22 @@ function ApplicationList({ applications }: { applications: Application[] }) {
     void (async () => {
       const deployments = await fetchDeployments().catch(() => null);
       if (deployments === null) return;
-      const entries = await Promise.all(
-        applications
-          .filter((app) => app.analysisStatus === 'COMPLETE')
-          .map(async (app) => {
-            try {
-              const readiness = await fetchReadiness(app.id);
-              const badge = applicationListBadge(
-                { id: app.id, name: app.name, defaultBranch: app.defaultBranch },
-                readiness,
-                deployments.filter((d) => d.applicationId === app.id),
-              );
-              return [app.id, badge] as const;
-            } catch {
-              return null;
-            }
-          }),
+      const entries = await mapWithConcurrency(
+        applications.filter((app) => app.analysisStatus === 'COMPLETE'),
+        READINESS_FETCH_CONCURRENCY,
+        async (app) => {
+          try {
+            const readiness = await fetchReadiness(app.id);
+            const badge = applicationListBadge(
+              { id: app.id, name: app.name, defaultBranch: app.defaultBranch },
+              readiness,
+              deployments.filter((d) => d.applicationId === app.id),
+            );
+            return [app.id, badge] as const;
+          } catch {
+            return null;
+          }
+        },
       );
       if (!cancelled) {
         setBadges(new Map(entries.filter((entry): entry is NonNullable<typeof entry> => entry !== null)));
