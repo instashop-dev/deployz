@@ -210,8 +210,10 @@ happening now.
   tables (`#required-changes`, focused when the URL has that hash). The
   summary lists every item once — architecture questions and the
   environment variables that need a decision or a value — each
-  with a link to its row; external integrations collapse into one line.
-  Credentials never clear an integration's review issue. Fix routes by
+  with a link to its row. External services (`architecture.externalServices`)
+  are information, never an attention item: each is a row under External
+  integrations, billed separately, linking to Environment variables. Fix
+  routes by
   `requiredChangeFix`: only `port-unresolved` opens a setting editor; every
   other finding needs a repository change and a new analysis, so it opens the
   fix instructions.

@@ -2922,13 +2922,14 @@ describe('server — fleet list & deployment detail joins, readiness derivation 
           { group: 'edge', nodes: [{ label: 'Application load balancer', state: 'detected' }] },
         ],
         unresolved: [],
+        externalServices: [],
       },
     });
   });
 
   // An external service (EXTERNAL_SAAS) is not Deployz-created — it must
   // never appear as an architecture group node, while the detected groups
-  // stay intact and its ownership question stays open.
+  // stay intact; it is listed as information, never asked about.
   it('readiness: an external service stays out of the architecture groups', async () => {
     const readiness = { state: 'READY', requiredCount: 0, recommendedCount: 0, summary: 'ok', findings: [], passed: [] };
     const application = await insertApplication(db, org.organizationId, {
@@ -2948,6 +2949,7 @@ describe('server — fleet list & deployment detail joins, readiness derivation 
         counts: Record<string, number | boolean>;
         groups: { group: string; nodes: { label: string }[] }[];
         unresolved: { kind: string; question: string; blocking: boolean }[];
+        externalServices: string[];
       };
     };
     // 3 resources in the graph, 2 managed — the external one is counted in
@@ -2957,7 +2959,7 @@ describe('server — fleet list & deployment detail joins, readiness derivation 
       workloadCount: 1,
       resourceCount: 3,
       managedResourceCount: 2,
-      unresolvedCount: 1,
+      unresolvedCount: 0,
       hasBlockingUnresolved: false,
     });
     expect(architecture.groups).toEqual([
@@ -2965,13 +2967,8 @@ describe('server — fleet list & deployment detail joins, readiness derivation 
       { group: 'storage', nodes: [{ label: 'S3 bucket', state: 'detected' }] },
       { group: 'edge', nodes: [{ label: 'Application load balancer', state: 'detected' }] },
     ]);
-    expect(architecture.unresolved).toEqual([
-      {
-        kind: 'external_service_ownership',
-        question: 'Should the external service "SendGrid" be treated as a Deployz-managed resource?',
-        blocking: false,
-      },
-    ]);
+    expect(architecture.unresolved).toEqual([]);
+    expect(architecture.externalServices).toEqual(['SendGrid']);
   });
 
   it('readiness: a stored canonical projection is served as `detected`; a malformed one reads as null', async () => {

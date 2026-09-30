@@ -17,7 +17,6 @@ import type { Application, AnalysisStatus } from '@/lib/applications';
 import { deriveAnalysisDetails, deriveRequiredChanges, type AnalysisDetail, type RequiredChange } from '@/lib/application-configuration';
 import {
   deriveServiceInventory,
-  externalServiceName,
   formatRowCost,
   type InventoryAction,
   type InventoryGroup,
@@ -209,32 +208,19 @@ function rowAnchor(row: InventoryRow): string {
 
 /**
  * Everything that needs the vendor, once each: the architecture questions
- * (external integrations collapse into one line) and the environment
- * variables that still need a decision or a value. Recommended findings
- * stay on their own row.
+ * and the environment variables that still need a decision or a value.
+ * Recommended findings and external services stay on their own rows.
  * Required findings render separately above these, with their Fix action.
  */
 function deriveAttentionItems(readiness: ApplicationReadiness, groups: InventoryGroup[]): AttentionItem[] {
   const rows = groups.flatMap((group) => group.rows);
   const items: AttentionItem[] = [];
   const unresolved = readiness.architecture?.unresolved ?? [];
-  const integrationRows = rows.filter((row) => row.id.startsWith('integration-'));
 
   unresolved.forEach((item, index) => {
-    if (item.kind === 'external_service_ownership') return;
     const row = rows.find((candidate) => candidate.questionIndexes.includes(index));
     items.push({ id: `question-${index}`, text: item.question, href: row ? rowAnchor(row) : '#services' });
   });
-  if (integrationRows.length > 0) {
-    const names = unresolved
-      .filter((item) => item.kind === 'external_service_ownership')
-      .map((item) => externalServiceName(item.question));
-    items.push({
-      id: 'integrations',
-      text: `${integrationRows.length} external ${integrationRows.length === 1 ? 'integration needs' : 'integrations need'} review: ${names.join(', ')}`,
-      href: rowAnchor(integrationRows[0]!),
-    });
-  }
   const setup = readiness.environmentSetup ?? null;
   if (setup && setup.needsDecision > 0) {
     items.push({
@@ -523,7 +509,11 @@ function ServiceRow({ row, onAction }: { row: InventoryRow; onAction: (action: I
         </div>
       </TableCell>
       <TableCell className="align-top">
-        {action ? (
+        {action?.kind === 'link' ? (
+          <Button asChild variant="outline" size="sm" data-testid={action.testId}>
+            <a href={action.href}>{action.label}</a>
+          </Button>
+        ) : action ? (
           <Button variant="outline" size="sm" onClick={() => onAction(action)} data-testid={action.testId}>
             {action.label}
           </Button>

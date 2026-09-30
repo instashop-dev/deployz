@@ -98,6 +98,7 @@ function architectureFixture(): ApplicationArchitecture {
       { kind: 'queue', question: 'Do you need a background queue?', blocking: false },
       { kind: 'port', question: 'Which port does your app listen on?', blocking: true },
     ],
+    externalServices: ['stripe', 'openai'],
   };
 }
 
@@ -224,6 +225,18 @@ describe('Services & resources table', () => {
     expect(byTestId('edit-dialog-containerPort')).not.toBeNull();
     expect(byTestId('fix-instructions-dialog')).toBeNull();
     expect(mocks.generateFixInstructions).not.toHaveBeenCalled();
+  });
+
+  it('lists external services as information, never as a Needs input question', async () => {
+    await act(async () => {
+      root.render(<DeploymentConfiguration />);
+    });
+
+    expect(byTestId('services-group-integrations')?.textContent).toContain('External integrations');
+    expect(byTestId('inventory-row-integration-0')?.textContent).toContain('stripe');
+    expect(byTestId('inventory-row-integration-1')?.textContent).toContain('openai');
+    expect(byTestId('inventory-row-integration-0')?.textContent).not.toContain('Needs input');
+    expect(byTestId('attention-summary')?.textContent).not.toContain('stripe');
   });
 
   it('opens the fix-instructions dialog from an unresolved fix action', async () => {

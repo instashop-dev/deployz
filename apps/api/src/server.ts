@@ -1081,6 +1081,8 @@ interface ReadinessArchitecture {
   groups: { group: PlanComponentGroup; nodes: ReadinessArchitectureNode[] }[];
   /** Focused questions the vendor must answer (kind + question + blocking). */
   unresolved: { kind: string; question: string; blocking: boolean }[];
+  /** Third-party services the app calls directly (Stripe, OpenAI, …) — information only. */
+  externalServices: string[];
 }
 
 /**
@@ -1108,6 +1110,7 @@ const ARCHITECTURE_GROUP_ORDER = ['application', 'data', 'cache', 'storage', 'me
 function computeArchitecture(app: ManifestApplicationRow): ReadinessArchitecture {
   const graph = manifestToApplicationGraph(effectiveApplicationManifest(app));
   const nodes = new Map<string, ReadinessArchitectureNode[]>();
+  const externalServices: string[] = [];
   const push = (group: string, label: string, overridden: boolean): void => {
     const list = nodes.get(group);
     const node = { label, state: overridden ? ('confirmed' as const) : ('detected' as const) };
@@ -1117,10 +1120,12 @@ function computeArchitecture(app: ManifestApplicationRow): ReadinessArchitecture
   for (const workload of graph.workloads) push('application', workload.label, workload.provenance.overridden);
   for (const resource of graph.resources) {
     // An external service (EXTERNAL_SAAS) is not Deployz-created — Deployz
-    // would never provision it, so it stays out of the architecture groups.
-    // It remains visible in the detection evidence and the unresolved
-    // ownership question below.
-    if (resource.kind === 'external_service' || resource.ownership === 'EXTERNAL_SAAS') continue;
+    // would never provision it, so it stays out of the architecture groups
+    // and is listed as information only.
+    if (resource.kind === 'external_service' || resource.ownership === 'EXTERNAL_SAAS') {
+      externalServices.push(resource.label);
+      continue;
+    }
     push(ARCHITECTURE_GROUP_BY_RESOURCE_KIND[resource.kind], resource.label, resource.provenance.overridden);
   }
   // Schedules ride the messaging group, like their plan components.
@@ -1132,6 +1137,7 @@ function computeArchitecture(app: ManifestApplicationRow): ReadinessArchitecture
       nodes: nodes.get(group)!,
     })),
     unresolved: graph.unresolved.map((entry) => ({ kind: entry.field, question: entry.question, blocking: entry.blocking })),
+    externalServices,
   };
 }
 

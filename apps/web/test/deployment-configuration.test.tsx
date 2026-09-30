@@ -400,30 +400,22 @@ describe('Deployment size and estimate', () => {
 });
 
 describe('Attention summary', () => {
-  it('collapses external integrations into one line and links environment decisions to the variables table', async () => {
+  it('links environment decisions to the variables table and leaves external services out', async () => {
     currentReadiness = readinessFixture({
       environmentSetup: { needsDecision: 2, missingValue: 1, missingBuildValue: 0, customer: 0, total: 5 },
-      architecture: {
-        groups: [],
-        unresolved: [
-          { kind: 'external_service_ownership', question: 'Should the external service "stripe" be treated as a Deployz-managed resource?', blocking: false },
-          { kind: 'external_service_ownership', question: 'Should the external service "resend" be treated as a Deployz-managed resource?', blocking: false },
-        ],
-      },
+      architecture: { groups: [], unresolved: [], externalServices: ['stripe', 'resend'] },
     });
 
     await act(async () => {
       root.render(<DeploymentConfiguration />);
     });
 
-    const integrations = byTestId('attention-item-integrations');
-    expect(integrations?.textContent).toContain('2 external integrations need review: stripe, resend');
-    expect(integrations?.querySelector('a')?.getAttribute('href')).toBe('#config-row-integration-0');
-    expect(document.querySelectorAll('[data-testid^="attention-item-"]')).toHaveLength(3);
+    expect(document.querySelectorAll('[data-testid^="attention-item-"]')).toHaveLength(2);
     expect(byTestId('attention-item-env-decisions')?.querySelector('a')?.getAttribute('href')).toBe('#environment-variables');
     expect(byTestId('attention-item-env-values')?.textContent).toContain('1 environment variable needs a value');
-    // The integration rows keep their own review issue.
-    expect(byTestId('inventory-row-integration-0')?.textContent).toContain('Needs review');
+    // External services are information on their own rows, never an issue.
+    expect(byTestId('inventory-row-integration-0')?.textContent).not.toContain('Needs');
     expect(byTestId('inventory-row-integration-0')?.textContent).toContain('Billed separately');
+    expect(byTestId('integration-variables-1')?.getAttribute('href')).toBe('#environment-variables');
   });
 });

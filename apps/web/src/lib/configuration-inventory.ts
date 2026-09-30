@@ -58,7 +58,8 @@ export interface InventoryIssue {
 
 export type InventoryAction =
   | { kind: 'edit'; field: EditableReadinessField; label: string; testId: string }
-  | { kind: 'fix'; label: string; testId: string };
+  | { kind: 'fix'; label: string; testId: string }
+  | { kind: 'link'; href: string; label: string; testId: string };
 
 export interface InventoryRow {
   /** Unique within the table; the row's anchor is `config-row-${id}`. */
@@ -119,13 +120,6 @@ const UNRESOLVED_LABELS: Readonly<Record<string, string>> = {
   queue_relationship: 'Queue',
   schedule: 'Scheduled job',
 };
-
-const EXTERNAL_SERVICE_KIND = 'external_service_ownership';
-
-/** "stripe" from `Should the external service "stripe" be …`; the question itself when it names none. */
-export function externalServiceName(question: string): string {
-  return /"([^"]+)"/.exec(question)?.[1] ?? question;
-}
 
 function actionLabel(verb: string, label: string): string {
   return `${verb} ${label.charAt(0).toLowerCase()}${label.slice(1)}`;
@@ -516,24 +510,8 @@ export function deriveServiceInventory(input: {
     }
     applicationRows.push(settingRow(row));
   }
-  const integrations: InventoryRow[] = [];
-  const externalServices: string[] = [];
   for (const { item, index } of unresolved) {
     if (consumed.has(index)) continue;
-    if (item.kind === EXTERNAL_SERVICE_KIND) {
-      const name = externalServiceName(item.question);
-      externalServices.push(name);
-      integrations.push(
-        emptyRow(`integration-${index}`, name, {
-          configuration: 'External integration detected',
-          cost: 'billed-separately',
-          issues: [{ label: 'Needs review', variant: 'warning', text: 'Resource classification needs review.' }],
-          action: unresolvedAction(item, index),
-          questionIndexes: [index],
-        }),
-      );
-      continue;
-    }
     applicationRows.push(
       emptyRow(`question-${index}`, UNRESOLVED_LABELS[item.kind] ?? 'Detected component', {
         issues: [unresolvedIssue(item)],
@@ -542,6 +520,23 @@ export function deriveServiceInventory(input: {
       }),
     );
   }
+
+  // External services are information, never a question: Deployz never
+  // creates them. Their keys are chosen under Environment variables; the
+  // data does not say which variables belong to which service.
+  const externalServices = readiness.architecture?.externalServices ?? [];
+  const integrations = externalServices.map((name, index) =>
+    emptyRow(`integration-${index}`, name, {
+      configuration: 'Your application connects to this service directly. Deployz does not create it.',
+      cost: 'billed-separately',
+      action: {
+        kind: 'link',
+        href: '#environment-variables',
+        label: 'Environment variables',
+        testId: `integration-variables-${index}`,
+      },
+    }),
+  );
 
   // Whatever no service owns stays visible, priced once.
   const sharedResources = takeResources(pools, pools.resources.map((resource) => resource.componentKind));

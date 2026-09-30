@@ -105,7 +105,7 @@ function readiness(overrides: Partial<ApplicationReadiness> = {}): ApplicationRe
       storage: { detected: true, effective: true, overridden: false },
     },
     deploymentRequirementDrift: [],
-    architecture: { groups: [], unresolved: [] },
+    architecture: { groups: [], unresolved: [], externalServices: [] },
     ...overrides,
   };
 }
@@ -342,6 +342,7 @@ describe('multiple workloads and detected questions', () => {
       architecture: {
         groups: [],
         unresolved: [{ kind: 'worker_command', question: 'What command starts the worker?', blocking: false }],
+        externalServices: [],
       },
     });
     const worker = row(inventory, 'worker-detected');
@@ -392,15 +393,9 @@ describe('multiple workloads and detected questions', () => {
     expect(command.issues[0]).toMatchObject({ label: 'Recommended' });
   });
 
-  it('lists external integrations as billed separately, needing review, with the service name', () => {
+  it('lists external services as information: billed separately, no issue, a link to the variables', () => {
     const inventory = inventoryFor(STANDARD_PLAN, {
-      architecture: {
-        groups: [],
-        unresolved: [
-          { kind: 'external_service_ownership', question: 'Should the external service "stripe" be treated as a Deployz-managed resource?', blocking: false },
-          { kind: 'external_service_ownership', question: 'Should the external service "openai" be treated as a Deployz-managed resource?', blocking: false },
-        ],
-      },
+      architecture: { groups: [], unresolved: [], externalServices: ['stripe', 'openai'] },
     });
     const integrations = inventory.groups.find((group) => group.id === 'integrations')!;
 
@@ -408,8 +403,8 @@ describe('multiple workloads and detected questions', () => {
       ['stripe', 'billed-separately'],
       ['openai', 'billed-separately'],
     ]);
-    expect(integrations.rows[0]!.issues[0]).toMatchObject({ label: 'Needs review' });
-    expect(integrations.rows[0]!.action).toMatchObject({ kind: 'fix', label: 'Get fix instructions' });
+    expect(integrations.rows[0]!.issues).toEqual([]);
+    expect(integrations.rows[0]!.action).toMatchObject({ kind: 'link', href: '#environment-variables' });
     expect(inventory.externalServices).toEqual(['stripe', 'openai']);
   });
 });

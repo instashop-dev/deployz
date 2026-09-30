@@ -187,6 +187,7 @@ export const webWorkersMysqlRedisArchitecture: ApplicationArchitecture = {
   unresolved: [
     { kind: 'mysql-database', question: 'Confirm the MySQL database engine version.', blocking: true },
   ],
+  externalServices: [],
 };
 
 // ── Composition B: web + worker + queue + scheduled job ─────────────────────
