@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import type { VendorDeploymentStatus } from '@deployz/contracts';
 
-import { canRetryFirstInstall, deriveHero, operationInFlight, type HeroInput } from '../src/lib/deployment-hero';
+import { canRetryFirstInstall, deriveHero, operationInFlight, showApplicationUrl, type HeroInput } from '../src/lib/deployment-hero';
 import { REMOVED_PROGRESS } from '../src/lib/deployment-progress';
 import type { DeploymentJob } from '../src/lib/deployments';
 
@@ -381,5 +381,15 @@ describe('canRetryFirstInstall', () => {
     expect(canRetryFirstInstall('FAILED', false, job({ type: 'DESTROY', state: 'RUNNING' }))).toBe(false);
     expect(canRetryFirstInstall('FAILED', true, null)).toBe(false);
     expect(canRetryFirstInstall('HEALTHY', false, null)).toBe(false);
+  });
+});
+
+describe('showApplicationUrl', () => {
+  it('shows the address unless the install failed or the deployment is going away', () => {
+    expect(showApplicationUrl('live', 'https://x.test')).toBe(true);
+    expect(showApplicationUrl('operation-failed', 'https://x.test')).toBe(true);
+    expect(showApplicationUrl('install-failed', 'http://alb.test')).toBe(false);
+    expect(showApplicationUrl('deleting', 'https://x.test')).toBe(false);
+    expect(showApplicationUrl('live', null)).toBe(false);
   });
 });
