@@ -24,6 +24,8 @@ not here.
 | --- | --- | --- |
 | Product scope | [`product/mvp-scope.md`](product/mvp-scope.md) | Principles, supported architecture, non-goals, known limitations, deferred items |
 | User journeys | [`product/user-flows.md`](product/user-flows.md) | Vendor and customer flows, entry points, configuration ownership, Region choice |
+| UX program | [`product/ux-excellence-charter.md`](product/ux-excellence-charter.md) | How the UX Excellence workstream operates: simplification rule, mental models, state design, backend boundary, agent model, phase gates |
+| UX target | [`product/ux-guidelines.md`](product/ux-guidelines.md) | What the Deployz UX must be: journeys, information architecture, primary actions, terminology, status model, disclosure, recovery, progress, shared primitives, UX-BACKEND items |
 | Architecture | [`architecture.md`](architecture.md) | Control plane and customer side, the live flow, template selection, components and plans, trust boundaries, disconnect/purge/retained data |
 | Deployment lifecycle | [`deployment-resilience.md`](deployment-resilience.md) | States, failed-update semantics, idempotency and exclusivity, watchdog and reconciliation, failure classification, first-install recovery, health promotion |
 | Analysis and AI | [`ai-analysis.md`](ai-analysis.md) | Detectors, the canonical model, compatibility findings, fix instructions, env-var classification, preflight, failure diagnosis, AI configuration and testing |

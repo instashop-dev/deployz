@@ -219,7 +219,13 @@ repositories:
 `);
 
   function makeConfig(repositories: { id: string; fork?: string }[]): Parameters<typeof assertRealAwsRepos>[0] {
-    return { version: 1, repositories: repositories.map((repo) => ({ id: repo.id, fork: repo.fork, findings: [], notes: [] })) };
+    return {
+      version: 1,
+      waves: {},
+      b2Repos: [],
+      b3Repos: [],
+      repositories: repositories.map((repo) => ({ id: repo.id, fork: repo.fork, findings: [], notes: [] })),
+    };
   }
 
   it('refuses deployz-demo/* virtual fixtures even when the fork is unset', () => {

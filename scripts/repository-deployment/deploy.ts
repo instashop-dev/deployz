@@ -437,7 +437,7 @@ export async function runRepositoryAttempt(deps: DeployDeps, input: RepositoryAt
           await deps.api.request('PUT', `/api/applications/${applicationId}/config`, { entries });
           details['keys'] = keys;
         }
-        const { body } = await deps.api.request<{ state: string; ready: boolean; blockers: { id: string; message: string }[]; warnings: { id: string }[] }>(
+        const { body } = await deps.api.request<{ state: string; ready: boolean; blockers: { id: string; message: string }[]; warnings: { id: string; message: string }[] }>(
           'GET',
           `/api/applications/${applicationId}/preflight`,
         );
