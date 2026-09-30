@@ -1,7 +1,8 @@
 'use client';
 
-import { MoreHorizontal } from 'lucide-react';
+import { MoreHorizontal, RefreshCw } from 'lucide-react';
 
+import { Alert, AlertAction, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
@@ -64,6 +65,26 @@ export function ApplicationHeader() {
         {application.repoFullName}
         {commit ? ` · commit ${commit}` : ''}
       </p>
+      {readiness.analysisOutdated && !analysing ? (
+        <Alert className="mt-2 pr-28" data-testid="application-analysis-outdated">
+          <RefreshCw aria-hidden />
+          <AlertTitle>Checks have been updated</AlertTitle>
+          <AlertDescription>
+            Deployz has improved its checks since this application was last analysed. Re-analyse to apply them.
+          </AlertDescription>
+          <AlertAction>
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={reanalysing}
+              onClick={() => void reanalyse()}
+              data-testid="application-analysis-outdated-reanalyse"
+            >
+              Re-analyse
+            </Button>
+          </AlertAction>
+        </Alert>
+      ) : null}
     </div>
   );
 }

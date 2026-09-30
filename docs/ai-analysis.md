@@ -53,6 +53,10 @@ Repository (GitHub tree, bounded)
   `analysisVersion` match the stored ones. `ANALYSIS_VERSION` must be
   bumped whenever detector output or the projection changes shape, so
   stored rows re-run.
+  Nothing re-runs a stale row by itself. `GET /api/applications/:id/readiness`
+  returns `analysisOutdated` (the stored `analysisVersion` differs from
+  `ANALYSIS_VERSION`), and the application header then shows a "Checks have
+  been updated" notice with a Re-analyse action. The vendor starts the run.
 - **Detectors** (`packages/analysis/src/detectors.ts`): Dockerfile,
   framework, port (six tiers), health endpoint, env vars, PostgreSQL
   (required vs present), MySQL (required vs present, with the engine

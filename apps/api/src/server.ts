@@ -100,6 +100,7 @@ import type { Auth } from './auth.js';
 import { resolveExplanation, type ExplanationText } from './ai-explanation.js';
 import { createFixtureAiGateway } from './ai-fixture.js';
 import {
+  ANALYSIS_VERSION,
   createAnalysisRunner,
   readVendorOverrides,
   type AnalysisRunner,
@@ -1073,6 +1074,8 @@ interface ReadinessResponse {
   passed: PassedCheck[];
   /** The commit the analysis ran against, when known. */
   analyzedCommitSha: string | null;
+  /** True when the stored analysis predates the current analyser, so a re-analysis would apply newer checks. */
+  analysisOutdated: boolean;
   /** What the analysis detected, with source, confidence and evidence. Null until a Version 13+ analysis ran. */
   detected: ApplicationAnalysis | null;
   /** Server-computed database/redis/storage truth (Phase 1). Null while analysis is incomplete. */
@@ -1250,6 +1253,7 @@ async function computeReadiness(
       findings: [],
       passed: [],
       analyzedCommitSha: null,
+      analysisOutdated: false,
       detected: null,
       requirements: null,
       deploymentRequirementDrift: [],
@@ -1280,6 +1284,7 @@ async function computeReadiness(
     ...body,
     failureReason: null,
     analyzedCommitSha,
+    analysisOutdated: app.detectedMetadata?.['analysisVersion'] !== ANALYSIS_VERSION,
     detected,
     requirements: computeApplicationRequirements(app, detected),
     deploymentRequirementDrift: computeDeploymentRequirementDrift(app, deployments),
