@@ -266,6 +266,22 @@ function EnvironmentVariablesTable({
     markChanged();
   }
 
+  // The suggestion each undecided row already displays becomes its decision.
+  // Nothing is saved until Save changes, like every other edit here.
+  const undecidedKeys = evaluation.rows.filter((row) => row.status === 'needs-decision').map((row) => row.key);
+
+  function acceptSuggestions(): void {
+    setDrafts((current) => {
+      const copy = new Map(current);
+      for (const key of undecidedKeys) {
+        const row = rowsByKey.get(key);
+        if (row) copy.set(key, currentSetting(row, copy.get(key)));
+      }
+      return copy;
+    });
+    markChanged();
+  }
+
   function setValueDraft(key: string, value: string): void {
     setValueDrafts((current) => new Map(current).set(key, value));
     markChanged();
@@ -400,6 +416,16 @@ function EnvironmentVariablesTable({
           Every detected variable is listed. Detected names are a draft. Nothing is required until you decide.
         </p>
         <CardAction className="flex flex-wrap gap-2">
+          {undecidedKeys.length > 0 ? (
+            <Button
+              type="button"
+              size="sm"
+              data-testid="environment-variables-accept-suggestions"
+              onClick={acceptSuggestions}
+            >
+              Accept {undecidedKeys.length} suggested {undecidedKeys.length === 1 ? 'decision' : 'decisions'}
+            </Button>
+          ) : null}
           <Button
             type="button"
             variant="outline"

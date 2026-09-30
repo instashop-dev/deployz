@@ -228,6 +228,25 @@ describe('Environment variables section', () => {
     expect(saved?.required).toBe(false);
   });
 
+  it('accepts every suggested decision at once and saves them on Save changes', async () => {
+    await renderSection();
+
+    const accept = byTestId('environment-variables-accept-suggestions');
+    expect(accept?.textContent).toContain('Accept 2 suggested decisions');
+    await click(accept);
+    expect(byTestId('environment-variables-accept-suggestions')).toBeNull();
+
+    const saveButton = Array.from(document.querySelectorAll('button')).find((b) => b.textContent === 'Save changes');
+    await click(saveButton ?? null);
+
+    const [, settings] = mocks.saveEnvironmentSettings.mock.calls[0] as [
+      string,
+      { key: string; provider: string }[],
+    ];
+    expect(settings.find((s) => s.key === 'DATABASE_URL')?.provider).toBe('vendor');
+    expect(settings.find((s) => s.key === 'API_KEY')).toBeDefined();
+  });
+
   it('never triggers analysis and saves settings before values', async () => {
     await renderSection();
 
