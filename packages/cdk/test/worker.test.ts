@@ -298,6 +298,31 @@ describe('worker handler', () => {
     expect(build?.environmentVariables).toContainEqual({ name: 'BUILD_CONTEXT', value: '.' });
   });
 
+  it('builds from the repository root when analysis found a root-context Dockerfile under a subdirectory', async () => {
+    const [application] = await db
+      .insert(schema.applications)
+      .values({
+        organizationId,
+        name: 'Turbo App',
+        githubInstallationId: '4242',
+        repoFullName: 'acme/turbo',
+        repoUrl: 'https://github.com/acme/turbo',
+        defaultBranch: 'main',
+        detectedMetadata: { dockerfilePath: 'apps/web/Dockerfile', dockerfileBuildContext: '.' },
+      })
+      .returning();
+    const [release] = await db
+      .insert(schema.releases)
+      .values({ applicationId: application!.id, version: 'v1.3.0', gitSha: 'abc126' })
+      .returning();
+
+    await handleMessage(deps(), { type: 'BUILD_RELEASE', releaseId: release!.id }, 'msg-2d');
+
+    const build = started[started.length - 1];
+    expect(build?.environmentVariables).toContainEqual({ name: 'DOCKERFILE_PATH', value: 'apps/web/Dockerfile' });
+    expect(build?.environmentVariables).toContainEqual({ name: 'BUILD_CONTEXT', value: '.' });
+  });
+
   it('fails the release when the application has no GitHub installation', async () => {
     const [application] = await db
       .insert(schema.applications)

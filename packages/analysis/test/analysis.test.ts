@@ -14,6 +14,7 @@ import {
   detectMigrationCommand,
   detectPackageManager,
   detectBuildCommand,
+  detectDockerfileBuildContext,
   detectGitCopyInDockerfile,
   type FileTree,
   type DetectorFinding,
@@ -1132,6 +1133,47 @@ describe('§18 detectors', () => {
     it('returns false with no Dockerfile', () => {
       const result = detectGitCopyInDockerfile({ 'package.json': '{}' });
       expect(result.detected).toBe(false);
+    });
+  });
+
+  describe('detectDockerfileBuildContext', () => {
+    it('reports the repository root for a turbo-prune Dockerfile under apps/web (rallly)', () => {
+      const tree: FileTree = {
+        'apps/web/Dockerfile': [
+          'FROM node:24 AS builder',
+          'COPY . .',
+          'RUN turbo prune --scope=@rallly/web --docker',
+          'FROM node:24 AS installer',
+          'COPY --from=builder /app/out/full/ .',
+          'COPY turbo.json turbo.json',
+          'CMD ["./docker-start.sh"]',
+        ].join('\n'),
+      };
+      const result = detectDockerfileBuildContext(tree);
+      expect(result.detected).toBe(true);
+      expect(result.value).toBe('.');
+    });
+
+    it('reports the root when a nested Dockerfile copies paths that include its own directory', () => {
+      const tree: FileTree = {
+        'services/api/Dockerfile': ['FROM node:20', 'COPY services/api/package.json ./', 'CMD ["node", "index.js"]'].join('\n'),
+      };
+      expect(detectDockerfileBuildContext(tree).detected).toBe(true);
+    });
+
+    it('leaves a nested Dockerfile written for its own directory alone', () => {
+      const tree: FileTree = {
+        'backend/Dockerfile': ['FROM python:3.12', 'COPY requirements.txt .', 'COPY . .', 'CMD ["python", "app.py"]'].join('\n'),
+      };
+      expect(detectDockerfileBuildContext(tree).detected).toBe(false);
+    });
+
+    it('ignores a root Dockerfile, a --from copy and a variable source', () => {
+      expect(detectDockerfileBuildContext({ 'Dockerfile': ['FROM node:20', 'COPY turbo.json .', 'CMD ["node"]'].join('\n') }).detected).toBe(false);
+      const tree: FileTree = {
+        'apps/web/Dockerfile': ['FROM node:20', 'COPY --from=base /turbo.json ./', 'COPY $SRC_DIR ./', 'CMD ["node"]'].join('\n'),
+      };
+      expect(detectDockerfileBuildContext(tree).detected).toBe(false);
     });
   });
 });

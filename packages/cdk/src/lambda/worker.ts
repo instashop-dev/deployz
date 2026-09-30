@@ -341,7 +341,13 @@ async function buildRelease(deps: WorkerDeps, releaseId: string): Promise<void> 
       overrideDockerfile ??
       (application.detectedMetadata?.['dockerfilePath'] as string | undefined) ??
       'Dockerfile';
-    const buildContext = overrideBuildContext ?? resolveBuildContext(dockerfilePath);
+    const detectedBuildContext = application.detectedMetadata?.['dockerfileBuildContext'];
+    // The detected root context follows the detected Dockerfile only; an
+    // overridden Dockerfile is the vendor's own and keeps the directory rule.
+    const buildContext =
+      overrideBuildContext ??
+      (overrideDockerfile === undefined && typeof detectedBuildContext === 'string' ? detectedBuildContext : undefined) ??
+      resolveBuildContext(dockerfilePath);
 
     const environmentVariables: { name: string; value: string }[] = [
       { name: 'SOURCE_S3_URI', value: `s3://${bucket}/${archive.s3Key}` },

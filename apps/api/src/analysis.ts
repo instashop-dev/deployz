@@ -225,7 +225,12 @@ type ApplicationRow = typeof schema.applications.$inferSelect;
 // presence (`Boolean(process.env.X)`) is optional, and an `if (` from an
 // earlier statement no longer makes a later bare read look guarded. Stored v31
 // env-var models over-require and must re-run.
-export const ANALYSIS_VERSION = 32;
+// Version 33 (rallly): a new `dockerfile-build-context` detector records when
+// a Dockerfile kept in a subdirectory is written for the repository root
+// (`turbo prune`, `COPY turbo.json`, `COPY apps/web/...`); the release build
+// uses the root as its context instead of the Dockerfile's directory. Stored
+// v32 rows carry no such finding and their builds fail, so they must re-run.
+export const ANALYSIS_VERSION = 33;
 
 export interface AnalysisRunnerDeps {
   db: RuntimeDb;

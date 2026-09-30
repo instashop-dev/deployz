@@ -3662,3 +3662,53 @@ export function detectGitCopyInDockerfile(tree: FileTree): DetectorFinding {
     source: 'dockerfile',
   };
 }
+
+// 18. Dockerfile build context
+// ---------------------------------------------------------------------------
+
+// Files that only exist at the root of a JavaScript workspace. A Dockerfile
+// that copies one of them builds from the repository root, never from its
+// own directory.
+const WORKSPACE_ROOT_FILES = new Set(['turbo.json', 'pnpm-workspace.yaml', 'lerna.json', 'nx.json', 'rush.json']);
+const TURBO_PRUNE_REGEX = /\bturbo\s+prune\b/;
+
+/**
+ * Detect a Dockerfile kept in a subdirectory that is written for the
+ * repository root as its build context. The build otherwise uses the
+ * Dockerfile's own directory (packages/cdk/src/lambda/worker.ts), which
+ * makes `COPY turbo.json turbo.json` or `COPY apps/web/package.json …` fail
+ * with a checksum error (Stage B sprint, lukevella/rallly: `turbo prune`
+ * monorepo Dockerfile under `apps/web/`). The finding value is the context
+ * to use, `.`.
+ */
+export function detectDockerfileBuildContext(tree: FileTree): DetectorFinding {
+  const dockerfile = selectedDockerfile(tree);
+  if (!dockerfile) return { detector: 'dockerfile-build-context', detected: false };
+  const slash = dockerfile.path.lastIndexOf('/');
+  if (slash <= 0) return { detector: 'dockerfile-build-context', detected: false };
+  const directory = dockerfile.path.slice(0, slash);
+
+  const collapsed = dockerfile.content.replace(/\\\r?\n/g, ' ');
+  const evidence = new Set<string>();
+  if (TURBO_PRUNE_REGEX.test(collapsed)) evidence.add('turbo prune');
+  for (const match of collapsed.matchAll(DOCKERFILE_COPY_ADD_REGEX)) {
+    const args = match[1] ?? '';
+    if (COPY_FROM_FLAG_REGEX.test(args)) continue;
+    for (const token of copyAddSources(args)) {
+      const source = token.replace(/^\.\//, '');
+      if (/[$*?]|^[a-z]+:\/\//i.test(source)) continue;
+      if (source === directory || source.startsWith(`${directory}/`) || WORKSPACE_ROOT_FILES.has(source)) {
+        evidence.add(`COPY ${source}`);
+      }
+    }
+  }
+
+  if (evidence.size === 0) return { detector: 'dockerfile-build-context', detected: false };
+  return {
+    detector: 'dockerfile-build-context',
+    detected: true,
+    value: '.',
+    details: `${dockerfile.path} is written for the repository root as its build context: ${[...evidence].join('; ')}`,
+    source: 'dockerfile',
+  };
+}
