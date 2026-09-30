@@ -1868,6 +1868,9 @@ export function redactClaimedPayload(job: {
 // Control-plane surface: /health, /api/me, /api/auth/*.
 // Errors cross the boundary as structured envelopes via toErrorEnvelope;
 // Sentry capture lives in its onError hook (never in the render path).
+/** One install-page visit makes several reads; count them as one open. */
+const INSTALL_LINK_OPENED_DEDUPE_MS = 5 * 60 * 1000;
+
 export async function buildServer({
   auth,
   db,
@@ -2662,15 +2665,31 @@ export async function buildServer({
     }
     // Structured analytics: the invitation was opened. Ids only — no secrets,
     // no AWS data (mirrors the deploy_link.opened precedent).
-    await recordEvent(db, {
-      organizationId: row.organizationId,
-      eventType: 'install_link.opened',
-      actorType: 'system',
-      actorId: `install-link:${installLinkId}`,
-      deploymentId: row.deploymentId,
-      customerId: row.customerId,
-      payload: { schemaVersion: 1, alreadyInstalled },
-    });
+    // The page reads this route on load and again on every refresh, so one
+    // visit is one event: a repeat within INSTALL_LINK_OPENED_DEDUPE_MS is
+    // not recorded.
+    const recentOpen = await db
+      .select({ id: schema.eventLogs.id })
+      .from(schema.eventLogs)
+      .where(
+        and(
+          eq(schema.eventLogs.deploymentId, row.deploymentId),
+          eq(schema.eventLogs.eventType, 'install_link.opened'),
+          gte(schema.eventLogs.occurredAt, new Date(Date.now() - INSTALL_LINK_OPENED_DEDUPE_MS)),
+        ),
+      )
+      .limit(1);
+    if (recentOpen.length === 0) {
+      await recordEvent(db, {
+        organizationId: row.organizationId,
+        eventType: 'install_link.opened',
+        actorType: 'system',
+        actorId: `install-link:${installLinkId}`,
+        deploymentId: row.deploymentId,
+        customerId: row.customerId,
+        payload: { schemaVersion: 1, alreadyInstalled },
+      });
+    }
     // §16.1: the customer-visible "Deployz will create" table — same shape
     // `GET /api/deployments/:id/plan?action=install` serves once the
     // deployment exists. Null only when the stored manifest is missing or

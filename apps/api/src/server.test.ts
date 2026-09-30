@@ -4168,6 +4168,25 @@ describe('server — organization settings, public install page, and bulk deploy
     expect(serialized).not.toContain(org.organizationId);
   });
 
+  it('GET /api/install/:installationId records one install_link.opened event for repeated reads', async () => {
+    const application = await insertApplication(db, org.organizationId, { name: 'Open Once' });
+    const customer = await insertCustomer(db, org.organizationId, { name: 'Acme Open' });
+    const deployment = await insertDeployment(db, org.organizationId, application.id, customer.id, {
+      region: 'eu-west-1',
+    });
+
+    for (let i = 0; i < 3; i += 1) {
+      const response = await app.inject({ method: 'GET', url: `/api/install/${deployment.installLinkId}` });
+      expect(response.statusCode).toBe(200);
+    }
+
+    const events = await db
+      .select()
+      .from(schema.eventLogs)
+      .where(eq(schema.eventLogs.deploymentId, deployment.id));
+    expect(events.filter((event) => event.eventType === 'install_link.opened')).toHaveLength(1);
+  });
+
   it('GET /api/install/:installationId names the serving release version once the pointer advanced', async () => {
     const application = await insertApplication(db, org.organizationId, { name: 'Versioned App' });
     const customer = await insertCustomer(db, org.organizationId);
