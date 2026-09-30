@@ -1040,6 +1040,11 @@ const APPLICATION_LIST_COLUMNS = Object.fromEntries(
   ),
 ) as Omit<ReturnType<typeof getTableColumns<typeof schema.applications>>, 'detectedMetadata' | 'environmentSettings'>;
 
+/** Every deployment_jobs column except the payload (see GET /api/deployments). */
+const JOB_LIST_COLUMNS = Object.fromEntries(
+  Object.entries(getTableColumns(schema.deploymentJobs)).filter(([name]) => name !== 'payload'),
+) as Omit<ReturnType<typeof getTableColumns<typeof schema.deploymentJobs>>, 'payload'>;
+
 const SETTLED_JOB_STATES: ReadonlySet<string> = new Set(['SUCCEEDED', 'SUCCESS', 'FAILED', 'CANCELLED']);
 
 // maskAwsAccountId/toFleetRow live in ./fleet-row.js — shared with Team
@@ -4709,12 +4714,14 @@ export async function buildServer({
     const jobRows =
       ids.length > 0
         ? await db
-            .select()
+            // Status derivation never reads a job's payload (the INSTALL
+            // payload carries the whole manifest), so it stays in the database.
+            .select(JOB_LIST_COLUMNS)
             .from(schema.deploymentJobs)
             .where(inArray(schema.deploymentJobs.deploymentId, ids))
             .orderBy(schema.deploymentJobs.createdAt)
         : [];
-    const jobsByDeployment = new Map<string, DeploymentJobRow[]>();
+    const jobsByDeployment = new Map<string, Omit<DeploymentJobRow, 'payload'>[]>();
     for (const job of jobRows) {
       const list = jobsByDeployment.get(job.deploymentId);
       if (list) {
