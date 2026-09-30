@@ -355,6 +355,12 @@ const RB_SOURCE = /\.rb$/;
 const GO_SOURCE = /\.go$/;
 const JS_SOURCE = /\.(ts|js|mjs|cjs|jsx|tsx)$/;
 
+// Converters that take one env value and decide what an absent one means.
+// Number/parseInt/String are not here: they turn an absent value into NaN or "undefined".
+const DOCKERFILE_NAME_REGEX = /(?:^|\/)(?:dockerfile(?:[.-][\w.-]+)?|[\w.-]+\.dockerfile)$/i;
+const ENV_TRANSFORM_CALLEE_REGEX =
+  /^(?:Boolean|format[A-Z]\w*|normali[sz]e[A-Z]\w*|\w+From[A-Z]\w*|load[A-Z]\w*|to[A-Z]\w*)$/;
+
 // `process.env.KEY = …` / `process.env['KEY'] = …`: a write, not `==` or `=>`.
 const JS_ENV_ASSIGNMENT_REGEX =
   /process\.env\s*\.\s*([A-Z_][A-Z0-9_]*)\s*=(?![=>])|process\.env\[["']([A-Z_][A-Z0-9_]*)["']\]\s*=(?![=>])/g;
@@ -548,6 +554,41 @@ function selectedDockerfile(tree: FileTree): { path: string; content: string } |
   const path = listDockerfileCandidates(tree)[0];
   if (path === undefined) return null;
   return { path, content: tree[path] ?? '' };
+}
+
+/**
+ * A monorepo builds one app from `apps/web/Dockerfile`; its sibling apps
+ * (`apps/landing`) are other apps, so their env reads are not this
+ * deployment's. A sibling stays in scope when it is a workload of its own: it
+ * has a Dockerfile, a compose file or Procfile points at it, or the selected
+ * Dockerfile names it.
+ */
+function siblingAppFilter(tree: FileTree): (path: string) => boolean {
+  const dockerfile = selectedDockerfile(tree);
+  const match = dockerfile ? /^((?:apps|services|applications)\/)([^/]+)\/(?:.+\/)?[^/]+$/.exec(dockerfile.path) : null;
+  if (!dockerfile || !match) return () => false;
+  const [, parent, own] = match as unknown as [string, string, string];
+  const references = [dockerfile.content];
+  for (const [path, content] of Object.entries(tree)) {
+    if (content && /(?:^|\/)(?:(?:docker-)?compose[^/]*\.ya?ml|Procfile)$/.test(path)) references.push(content);
+  }
+  const workloads = new Map<string, boolean>();
+  const isWorkload = (sibling: string): boolean => {
+    let known = workloads.get(sibling);
+    if (known === undefined) {
+      const dir = `${parent}${sibling}`;
+      known =
+        references.some((text) => text.includes(dir)) ||
+        Object.keys(tree).some((path) => path.startsWith(`${dir}/`) && DOCKERFILE_NAME_REGEX.test(path));
+      workloads.set(sibling, known);
+    }
+    return known;
+  };
+  return (path) => {
+    if (!path.startsWith(parent)) return false;
+    const sibling = path.slice(parent.length).split('/')[0] ?? '';
+    return sibling !== own && !isWorkload(sibling);
+  };
 }
 
 // 2. Framework
@@ -2881,8 +2922,9 @@ export function detectEnvVarModel(tree: FileTree, externalServices: string[] = [
   // `process.env.EE_ENV_LOADED = 'true'`) is set by the app itself, so a read
   // of it is never the vendor's to configure.
   const assignedKeys = new Set<string>();
+  const isSiblingApp = siblingAppFilter(tree);
   for (const [path, content] of Object.entries(tree)) {
-    if (!content || !JS_SOURCE.test(path) || !isRuntimeSourcePath(path)) continue;
+    if (!content || !JS_SOURCE.test(path) || !isRuntimeSourcePath(path) || isSiblingApp(path)) continue;
     for (const assigned of content.matchAll(JS_ENV_ASSIGNMENT_REGEX)) {
       const assignedKey = assigned[1] ?? assigned[2];
       if (assignedKey) assignedKeys.add(assignedKey);
@@ -2890,7 +2932,7 @@ export function detectEnvVarModel(tree: FileTree, externalServices: string[] = [
   }
 
   for (const [path, content] of Object.entries(tree)) {
-    if (!content || !isRuntimeSourcePath(path)) continue;
+    if (!content || !isRuntimeSourcePath(path) || isSiblingApp(path)) continue;
     if (JS_SOURCE.test(path)) {
       // `process.env.X` / `process.env['X']` everywhere; `env.X` / `env['X']`
       // too when the module reads through a local env object (DEPLOY-005).
@@ -3031,7 +3073,15 @@ export function detectEnvVarModel(tree: FileTree, externalServices: string[] = [
             : isSecretLocalAssignment
               ? throwGuarded || !localTested
               : true;
-        recordRead(key, !hasFallback && !isGuard && bareNeedsValue, path);
+        // A non-secret value handed alone to a named converter (`formatBaseUri(process.env.X)`,
+        // `authTypeFromString(process.env.X)`)
+        // is turned into the app's own default or validated there, like a bare
+        // stored read: the converter decides what absence means.
+        const isBareTransform =
+          !isSecretName(key) &&
+          ENV_TRANSFORM_CALLEE_REGEX.test(/([A-Za-z_$][\w$]*)\s*\(\s*$/.exec(head)?.[1] ?? '') &&
+          /^\s*\)/.test(tail);
+        recordRead(key, !hasFallback && !isGuard && !isBareTransform && bareNeedsValue, path);
       }
       // Stage B phase 3 (COMP-017): schema-library and helper-form reads —
       // zod object schemas parsed against process.env, envalid validator
