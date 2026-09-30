@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 
+import { InstallLoadError } from '@/components/install-load-error';
 import { InvitationTokenGate } from '@/components/invitation-token-gate';
 import { SecurityDetailsContent } from '@/components/security-details-content';
 import { fetchInstallData } from '@/lib/install-data';
@@ -20,6 +21,8 @@ export default async function SecurityDetailsPage({
   // for any id at all, including ones the parent route had already told the
   // reader were invalid.
   const lookup = await fetchInstallData(installLinkId);
+  const securityHref = `/install/${encodeURIComponent(installLinkId)}/security`;
+  if (lookup.status === 'error') return <InstallLoadError href={securityHref} />;
 
   // The install review links here before a deployment exists: a public link
   // resolves with its plan, and a targeted invitation resolves client-side
@@ -34,6 +37,7 @@ export default async function SecurityDetailsPage({
         />
       );
     }
+    if (publicLookup?.status === 'error') return <InstallLoadError href={securityHref} />;
     if (publicLookup === null) {
       return <InvitationTokenGate installLinkId={installLinkId} view="security" />;
     }

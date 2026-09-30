@@ -132,6 +132,28 @@ describe('InstallPage per-deployment flow', () => {
     expect(doc.body.textContent).toContain('Ask the publisher for a new one.');
   });
 
+  it('says the page cannot load, not that the link expired, when the control plane does not answer', async () => {
+    mocks.fetchPublicInstallData.mockResolvedValue({ status: 'error' });
+    mocks.fetchInstallData.mockResolvedValue({ status: 'error' });
+
+    const doc = await renderPage();
+
+    expect(doc.body.textContent).toContain("We can't load this page right now");
+    expect(doc.body.textContent).toContain('Your install link is still valid');
+    expect(doc.body.textContent).not.toMatch(/expired|revoked|isn't valid/i);
+    expect(doc.querySelector(`a[href="/install/${LINK_ID}"]`)?.textContent).toBe('Try again');
+  });
+
+  it('does not call a public link invalid when only its own lookup failed', async () => {
+    mocks.fetchPublicInstallData.mockResolvedValue({ status: 'error' });
+    mocks.fetchInstallData.mockResolvedValue({ status: 'not_found' });
+
+    const doc = await renderPage();
+
+    expect(doc.body.textContent).toContain("We can't load this page right now");
+    expect(doc.body.textContent).not.toContain('Opening your installation');
+  });
+
   it('renders a distinct revoked state for a revoked link', async () => {
     mocks.fetchPublicInstallData.mockResolvedValue(null);
     mocks.fetchInstallData.mockResolvedValue({

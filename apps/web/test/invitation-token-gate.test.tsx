@@ -158,6 +158,18 @@ describe('InvitationTokenGate', () => {
     expect(document.body.textContent).not.toContain('wrong-token-value');
   });
 
+  it('offers a retry, not the invalid-link copy, when the control plane does not answer', async () => {
+    window.location.hash = '#' + TOKEN;
+    dataMocks.fetchPublicInstallData.mockResolvedValue({ status: 'error' });
+
+    renderGate();
+    await flush();
+
+    expect(document.body.textContent).toContain("We can't load this page right now");
+    expect(document.body.textContent).not.toContain("This link isn't valid");
+    expect(document.body.textContent).not.toContain(TOKEN);
+  });
+
   it('fails safe with the invalid-link copy when no token exists', async () => {
     renderGate();
     await flush();

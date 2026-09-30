@@ -55,15 +55,24 @@ interface InstallData {
 export type InstallLinkLookup =
   | { status: 'ok'; data: InstallData }
   | { status: 'not_found' }
-  | { status: 'unavailable'; code: string; message: string };
+  | { status: 'unavailable'; code: string; message: string }
+  /** The control plane could not answer (network failure, 5xx, rate limit). Says nothing about the link. */
+  | { status: 'error' };
 
 /** Fetch the public install page data, distinguishing invalid, expired and
- *  revoked links (the API returns 410 with a code for the latter two). */
+ *  revoked links (the API returns 410 with a code for the latter two). Any
+ *  other failure is `error`, never a claim about the link. */
 export async function fetchInstallData(installLinkId: string): Promise<InstallLinkLookup> {
-  const response = await fetch(`${serverApiUrl()}/api/install/${encodeURIComponent(installLinkId)}`, {
-    cache: 'no-store',
-  });
+  let response: Response;
+  try {
+    response = await fetch(`${serverApiUrl()}/api/install/${encodeURIComponent(installLinkId)}`, {
+      cache: 'no-store',
+    });
+  } catch {
+    return { status: 'error' };
+  }
   if (response.status === 404) return { status: 'not_found' };
+  if (response.status !== 410 && !response.ok) return { status: 'error' };
   if (!response.ok) {
     let code = 'INSTALL_LINK_UNAVAILABLE';
     let message = 'This installation link is no longer available.';

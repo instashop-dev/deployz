@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 
+import { InstallLoadError } from '@/components/install-load-error';
 import { PublicInstallFlow } from '@/components/public-install-flow';
 import { SecurityDetailsContent } from '@/components/security-details-content';
 import { Spinner } from '@/components/ui/spinner';
@@ -25,6 +26,7 @@ interface InvitationTokenGateProps {
 type GateState =
   | { kind: 'resolving' }
   | { kind: 'invalid' }
+  | { kind: 'error' }
   | { kind: 'gone'; code: string }
   | { kind: 'ready'; resolve: PublicInstallResolve; token: string };
 
@@ -59,6 +61,10 @@ export function InvitationTokenGate({ installLinkId, view = 'install' }: Invitat
         setState({ kind: 'invalid' });
         return;
       }
+      if (lookup.status === 'error') {
+        setState({ kind: 'error' });
+        return;
+      }
       if (lookup.status === 'gone') {
         setState({ kind: 'gone', code: lookup.code });
         return;
@@ -87,6 +93,14 @@ export function InvitationTokenGate({ installLinkId, view = 'install' }: Invitat
         <h1 className="text-2xl font-semibold tracking-tight">This application cannot be installed</h1>
         <p className="max-w-md text-sm text-muted-foreground">{publicInstallErrorMessage(state.code)}</p>
       </div>
+    );
+  }
+
+  if (state.kind === 'error') {
+    return (
+      <InstallLoadError
+        href={`/install/${encodeURIComponent(installLinkId)}${view === 'security' ? '/security' : ''}`}
+      />
     );
   }
 
