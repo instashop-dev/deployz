@@ -364,6 +364,17 @@ describe('PublicInstallFlow', () => {
     );
   });
 
+  it('shows no cost number until a Region is chosen', async () => {
+    renderFlow(resolveFixture({ recommendedRegion: null }));
+
+    expect(document.querySelector('[data-testid="footprint-cost-pending"]')).not.toBeNull();
+    expect(document.querySelector('[data-testid="footprint-cost-range"]')).toBeNull();
+
+    await selectRegion('US East (N. Virginia)');
+
+    expect(document.querySelector('[data-testid="footprint-cost-pending"]')).toBeNull();
+  });
+
   it('does not accept spaces alone as a required secret', async () => {
     renderFlow();
 

@@ -20,6 +20,7 @@ import { installPlanRetentionNote, RETENTION_CHARGES_NOTE } from '@/lib/install-
 export function CustomerInstallReview({
   plan,
   estimateUnavailable = false,
+  estimatePending = false,
   securityHref,
   securityInNewTab = false,
   technicalExtra,
@@ -27,6 +28,8 @@ export function CustomerInstallReview({
   plan: DeploymentPlan | null;
   /** The per-Region estimate could not be fetched — never show a stale one. */
   estimateUnavailable?: boolean;
+  /** No Region is chosen yet, so no Region-priced estimate exists to show. */
+  estimatePending?: boolean;
   /** The Security details page for this link, when the link can open it. */
   securityHref: string | null;
   /** Keeps a half-filled form open behind the Security details page. */
@@ -67,7 +70,11 @@ export function CustomerInstallReview({
         ) : null}
       </section>
 
-      {estimateUnavailable ? (
+      {estimatePending ? (
+        <p className="text-sm text-muted-foreground" data-testid="footprint-cost-pending">
+          The estimated AWS cost depends on the Region. Select a Region to see it.
+        </p>
+      ) : estimateUnavailable ? (
         <p className="text-sm text-muted-foreground" data-testid="footprint-cost-unavailable">
           AWS cost estimate unavailable for this Region.
         </p>

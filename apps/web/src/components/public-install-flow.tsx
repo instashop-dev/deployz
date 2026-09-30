@@ -201,6 +201,7 @@ export function PublicInstallFlow({ linkId, resolve, token, customerKnown = fals
       <CustomerInstallReview
         plan={plan}
         estimateUnavailable={estimateUnavailable}
+        estimatePending={region === ''}
         // A new tab has no copy of this tab's stored invitation token, so the
         // token travels the way the invitation link carries it: as a fragment.
         securityHref={`/install/${encodeURIComponent(linkId)}/security${token ? `#${encodeURIComponent(token)}` : ''}`}
