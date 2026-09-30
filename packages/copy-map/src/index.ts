@@ -611,7 +611,7 @@ export const FAILURE_REMEDIATION: Record<FailureCode, FailureRemediation> = {
   ECS_DEPLOYMENT_FAILED: {
     what: 'The new version could not be rolled out.',
     why: 'The updated application did not reach a running state, so the rollout was stopped.',
-    fix: 'Open Technical detail for the reported error, fix it in a new release, and deploy again. The previous version keeps serving traffic.',
+    fix: 'Open Technical detail for the reported error, fix it in a new release, and deploy again.',
   },
   RDS_UNAVAILABLE: {
     what: 'The database was not reachable during the deployment.',
