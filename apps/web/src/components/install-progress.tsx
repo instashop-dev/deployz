@@ -298,7 +298,9 @@ export function InstallProgress({
               <p className="text-sm text-muted-foreground">
                 {routingTarget
                   ? 'Set up a custom domain below to give this deployment a permanent address.'
-                  : 'This deployment does not have a public address configured yet.'}
+                  : status.stage === 'VERIFYING'
+                    ? 'The address appears here once your application passes its health checks.'
+                    : 'This deployment does not have a public address configured yet.'}
               </p>
             )}
             {ready ? <p className="text-xs text-muted-foreground">{OWNERSHIP_NOTE}</p> : null}

@@ -307,6 +307,20 @@ describe('InstallProgress — long-running flow', () => {
     expect(text).not.toMatch(/still working/);
   });
 
+  it('while the health check runs and no address is confirmed, Access does not claim none is configured', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-09-18T00:00:00.000Z'));
+    const status = baseStatus({ stage: 'VERIFYING', step: 'HEALTH_CHECK', url: null });
+    mocks.fetchInstallStatus.mockResolvedValue(status);
+
+    mount(baseProps({ initialStatus: status }));
+    await flush();
+
+    const text = container!.textContent ?? '';
+    expect(text).toContain('The address appears here once your application passes its health checks.');
+    expect(text).not.toContain('does not have a public address configured');
+  });
+
   it('renders the starting-application step through the same live detail', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-09-18T00:00:00.000Z'));
