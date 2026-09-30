@@ -260,7 +260,8 @@ describe('Environment variables section', () => {
 
     const stale = byTestId('environment-variables-stale');
     expect(stale?.textContent).toContain('GONE_KEY');
-    expect(stale?.textContent).toContain('Not detected in the latest analysis');
+    expect(stale?.textContent).toContain('Variables not found in the latest analysis');
+    expect(stale?.textContent).toContain('Variables you added yourself can stay.');
     expect(stale?.textContent).not.toContain('DONE_KEY');
 
     await click(byTestId('environment-variables-stale-GONE_KEY'));

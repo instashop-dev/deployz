@@ -10,7 +10,7 @@ import {
 import { Fragment, useEffect, useMemo, useState } from 'react';
 
 import { SecretInput } from '@/components/secret-input';
-import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge, type BadgeVariant } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -477,18 +477,16 @@ function EnvironmentVariablesTable({
 
         {staleSettings.length > 0 ? (
           <Alert data-testid="environment-variables-stale">
+            <AlertTitle>Variables not found in the latest analysis</AlertTitle>
             <AlertDescription className="flex flex-col gap-2">
               <span>
-                {staleSettings.length === 1 ? 'A saved decision names' : 'Saved decisions name'} a variable the latest
-                analysis did not find. {staleSettings.length === 1 ? 'It' : 'They'} still count
-                {staleSettings.length === 1 ? 's' : ''} until you mark {staleSettings.length === 1 ? 'it' : 'them'} not
-                needed.
+                The latest analysis did not find these variables. If your application no longer reads one, mark it not
+                needed. Variables you added yourself can stay.
               </span>
               <ul className="flex flex-col gap-1">
                 {staleSettings.map((setting) => (
                   <li key={setting.key} className="flex flex-wrap items-center gap-2">
                     <code className="font-mono text-xs break-all">{setting.key}</code>
-                    <span className="text-xs text-muted-foreground">Not detected in the latest analysis</span>
                     <Button
                       type="button"
                       variant="outline"
