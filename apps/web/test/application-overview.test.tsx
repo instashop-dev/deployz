@@ -548,6 +548,7 @@ function architectureFixture(): ApplicationArchitecture {
       { group: 'edge', nodes: [{ label: 'Load balancer', state: 'detected' }] },
     ],
     unresolved: [{ kind: 'cache', question: 'Do you need a cache?', blocking: false }],
+    externalServices: [],
   };
 }
 

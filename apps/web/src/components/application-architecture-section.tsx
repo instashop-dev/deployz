@@ -36,7 +36,10 @@ export function ApplicationArchitectureSection({
   onEdit,
   onShowFix,
 }: ApplicationArchitectureSectionProps) {
-  const hasContent = architecture.groups.length > 0 || architecture.unresolved.length > 0;
+  const hasContent =
+    architecture.groups.length > 0 ||
+    architecture.unresolved.length > 0 ||
+    architecture.externalServices.length > 0;
   if (!hasContent) return null;
 
   return (
@@ -85,6 +88,16 @@ export function ApplicationArchitectureSection({
               </li>
             ))}
           </ul>
+        ) : null}
+
+        {architecture.externalServices.length > 0 ? (
+          <div className="flex flex-col gap-1" data-testid="architecture-external-services">
+            <p className="text-sm font-medium">External services</p>
+            <p className="text-sm text-muted-foreground">
+              {architecture.externalServices.join(', ')}. Your application connects to these directly. If it
+              uses them, choose who provides their keys (you or your customer) under Environment variables.
+            </p>
+          </div>
         ) : null}
       </CardContent>
     </Card>
