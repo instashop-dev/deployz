@@ -95,7 +95,7 @@ export function ApplicationArchitectureSection({
             <p className="text-sm font-medium">External services</p>
             <p className="text-sm text-muted-foreground">
               {architecture.externalServices.join(', ')}. Your application connects to these directly. If it
-              uses them, set their keys under Environment variables.
+              uses them, choose who provides their keys (you or your customer) under Environment variables.
             </p>
           </div>
         ) : null}
