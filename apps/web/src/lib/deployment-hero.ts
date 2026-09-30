@@ -89,6 +89,19 @@ export function operationInFlight(jobs: DeploymentJob[]): DeploymentJob | null {
   );
 }
 
+/**
+ * Whether Retry deployment may be offered: a failed, never-installed
+ * deployment, unless a DESTROY is running — a retry would install into a
+ * stack that is about to disappear.
+ */
+export function canRetryFirstInstall(
+  state: string,
+  everRan: boolean,
+  inFlight: DeploymentJob | null,
+): boolean {
+  return state === 'FAILED' && !everRan && inFlight?.type !== 'DESTROY';
+}
+
 function latestJob(jobs: DeploymentJob[], keep: (job: DeploymentJob) => boolean): DeploymentJob | null {
   return (
     jobs

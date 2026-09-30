@@ -78,7 +78,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { fetchDeploymentPreflight, type PreflightResult } from '@/lib/preflight';
 import { errorMessage } from '@/lib/api-client';
 import { requirementDriftLine } from '@/lib/install-plan';
-import { deriveHero, operationInFlight, type HeroModel } from '@/lib/deployment-hero';
+import { canRetryFirstInstall, deriveHero, operationInFlight, type HeroModel } from '@/lib/deployment-hero';
 import {
   DESTROY_PENDING_STALE_AFTER_MS,
   DeploymentActionError,
@@ -879,7 +879,8 @@ function DeploymentActions({
   // The API refuses a second mutating operation while one is running
   // (requireDeploymentIdle), disconnect included — so every action here is
   // gated on the same signal rather than on the lifecycle state alone.
-  const busy = operationInFlight(detail.jobs) !== null;
+  const inFlightOperation = operationInFlight(detail.jobs);
+  const busy = inFlightOperation !== null;
   const relayOnline = detail.relayStatus === 'CONNECTED';
   const available = relayOnline && everRan && !disconnecting && !busy && !removed;
   const canDeploy = available && actionSupported(capabilities, 'deploy');
@@ -890,7 +891,7 @@ function DeploymentActions({
     !disconnecting && !removed && !busy && actionSupported(capabilities, 'disconnect');
   // Recovery for a failed FIRST install: the API refuses it once any install
   // has succeeded, so it is offered exactly where the day-2 actions are not.
-  const canRetryInstall = detail.state === 'FAILED' && !everRan;
+  const canRetryInstall = canRetryFirstInstall(detail.state, everRan, inFlightOperation);
   const retryCtaKind = canRetryInstall ? retryCta(retryEligibility) : null;
   // Capability copy applies only while the deployment would otherwise be
   // actionable — an offline/busy/removed deployment reports its own reason.
