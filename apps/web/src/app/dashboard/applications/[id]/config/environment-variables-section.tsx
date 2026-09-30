@@ -491,7 +491,10 @@ function EnvironmentVariablesTable({
           </div>
         ) : null}
 
-        <Table data-testid="environment-variables-table" className="min-w-[56rem]">
+        <Table
+          data-testid="environment-variables-table"
+          className="min-w-[56rem] max-md:block max-md:min-w-0 max-md:[&_thead]:hidden max-md:[&_tbody]:block max-md:[&_tr]:flex max-md:[&_tr]:flex-wrap max-md:[&_tr]:items-center max-md:[&_tr]:gap-x-4 max-md:[&_tr]:gap-y-1 max-md:[&_tr]:px-1 max-md:[&_tr]:py-1.5 max-md:[&_td]:block max-md:[&_td]:p-1 max-md:[&_th]:block max-md:[&_td:first-child]:w-full max-md:[&_td[colspan]]:w-full max-md:[&_th[colspan]]:w-full max-md:[&_td:empty]:hidden"
+        >
           <TableHeader>
             <TableRow>
               <TableHead>Variable</TableHead>
@@ -684,8 +687,12 @@ function DetectedRow({
             </div>
           </div>
         </TableCell>
-        <TableCell className="align-top">{setting.stage === 'build' ? 'Build' : 'Runtime'}</TableCell>
-        <TableCell className="align-top">{PROVIDER_LABEL[setting.provider]}</TableCell>
+        <TableCell data-label="When used: " className="align-top max-md:before:text-muted-foreground max-md:before:content-[attr(data-label)]">
+          {setting.stage === 'build' ? 'Build' : 'Runtime'}
+        </TableCell>
+        <TableCell data-label="Who provides: " className="align-top max-md:before:text-muted-foreground max-md:before:content-[attr(data-label)]">
+          {PROVIDER_LABEL[setting.provider]}
+        </TableCell>
         <TableCell className="align-top">
           {valueText ? (
             <span
@@ -696,10 +703,10 @@ function DetectedRow({
             </span>
           ) : null}
         </TableCell>
-        <TableCell className="align-top">
+        <TableCell data-label="Required: " className="align-top max-md:before:text-muted-foreground max-md:before:content-[attr(data-label)]">
           <YesNo value={setting.required} />
         </TableCell>
-        <TableCell className="align-top">
+        <TableCell data-label="Secret: " className="align-top max-md:before:text-muted-foreground max-md:before:content-[attr(data-label)]">
           <YesNo value={setting.secret} />
         </TableCell>
         <TableCell className="align-top">
