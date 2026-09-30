@@ -442,3 +442,80 @@ describe('schema-required secrets reach the deployment gate', () => {
     expect(result.state).toBe('READY');
   });
 });
+
+// ==========================================================================
+// Sprint A1: variables the app writes itself and t3-env pass-through blocks
+// ==========================================================================
+
+describe('false-required env vars (A1-001, A1-002)', () => {
+  it('does not require a variable the runtime source assigns itself', () => {
+    const tree: FileTree = {
+      'server.js': [
+        'if (!process.env.EE_ENV_LOADED) {',
+        "  process.env.EE_ENV_LOADED = 'true';",
+        '}',
+        "process.env.TF_CPP_MIN_LOG_LEVEL = '2';",
+        'process.env.UV_THREADPOOL_SIZE = Math.max(os.cpus().length, 4);',
+        'const size = Number(process.env.UV_THREADPOOL_SIZE);',
+        'const secret = process.env.APP_SECRET;',
+        '',
+      ].join('\n'),
+    };
+    const byKey = modelByKey(tree);
+    expect(byKey.get('EE_ENV_LOADED')).toMatchObject({ required: false });
+    expect(byKey.get('TF_CPP_MIN_LOG_LEVEL')).toMatchObject({ required: false });
+    expect(byKey.get('UV_THREADPOOL_SIZE')).toMatchObject({ required: false });
+    expect(byKey.get('APP_SECRET')).toMatchObject({ required: true });
+  });
+
+  it('does not treat a comparison as a variable write or a glob in a comment as a variable', () => {
+    const tree: FileTree = {
+      'server.js': [
+        '// read process.env.NEXT_PUBLIC_* directly',
+        'const token = process.env.SERVICE_SECRET;',
+        "if (process.env.NODE_MODE == 'x') {}",
+        '',
+      ].join('\n'),
+    };
+    const byKey = modelByKey(tree);
+    expect(byKey.has('NEXT_PUBLIC_')).toBe(false);
+    expect(byKey.get('SERVICE_SECRET')).toMatchObject({ required: true });
+  });
+
+  it('defers a t3-env runtimeEnv pass-through to the createEnv zod schema', () => {
+    const tree: FileTree = {
+      'src/env.ts': [
+        'import { createEnv } from "@t3-oss/env-nextjs";',
+        'import * as z from "zod";',
+        'export const env = createEnv({',
+        '  server: {',
+        '    DATABASE_URL: z.url(),',
+        '    SECRET_PASSWORD: z.string().min(32),',
+        '    OPENAI_API_KEY: z.string().optional(),',
+        '    GOOGLE_CLIENT_SECRET: z.string().optional(),',
+        '  },',
+        '  runtimeEnv: {',
+        '    DATABASE_URL: process.env.DATABASE_URL,',
+        '    SECRET_PASSWORD: process.env.SECRET_PASSWORD,',
+        '    OPENAI_API_KEY: process.env.OPENAI_API_KEY,',
+        '    GOOGLE_CLIENT_SECRET: process.env.GOOGLE_CLIENT_SECRET,',
+        '  },',
+        '});',
+        '',
+      ].join('\n'),
+      'src/analytics.ts': 'const apiKey = process.env.OPENAI_API_KEY;\n',
+    };
+    const byKey = modelByKey(tree);
+    expect(byKey.get('DATABASE_URL')).toMatchObject({ required: true });
+    expect(byKey.get('SECRET_PASSWORD')).toMatchObject({ required: true });
+    expect(byKey.get('OPENAI_API_KEY')).toMatchObject({ required: false });
+    expect(byKey.get('GOOGLE_CLIENT_SECRET')).toMatchObject({ required: false });
+  });
+
+  it('reads an arithmetic default handed to a parsing helper', () => {
+    const tree: FileTree = {
+      'lib/tokens.js': 'const LOG_AGE = positiveInt(process.env.TOKEN_LOG_AGE, 7 * 24 * 3600);\n',
+    };
+    expect(modelByKey(tree).get('TOKEN_LOG_AGE')).toMatchObject({ required: false });
+  });
+});

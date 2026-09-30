@@ -211,7 +211,11 @@ type ApplicationRow = typeof schema.applications.$inferSelect;
 // S3 region/endpoint variable the app reads is now `deployz_managed` (its
 // value is derived from the deployment region). Stored v27 env-var models
 // under-require and must re-run.
-export const ANALYSIS_VERSION = 28;
+// Version 29: a variable the app assigns itself (`process.env.X = …`), a
+// t3-env `runtimeEnv` pass-through, and a key a zod schema declares optional
+// are no longer required config. Stored v28 env-var models over-require (rallly
+// asked for 20 keys, dashy and emailengine for app-written ones) and must re-run.
+export const ANALYSIS_VERSION = 29;
 
 export interface AnalysisRunnerDeps {
   db: RuntimeDb;

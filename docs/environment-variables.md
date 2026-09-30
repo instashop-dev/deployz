@@ -72,6 +72,11 @@ come from well-known name prefixes (`NEXT_PUBLIC_`, `VITE_`,
   the container. It does not make a required read optional. Only a real
   (non-placeholder) value in a runtime env file (`.env`, `.env.production`)
   or an inline fallback in the code is a default.
+- **Some reads are never required.** A variable the runtime source assigns
+  itself (`process.env.X = ...`), a `createEnv` `runtimeEnv` pass-through
+  (`KEY: process.env.KEY`), and a key that a zod schema declares
+  `.optional()` or `.default()` are not required, whatever other bare reads
+  exist.
 - **Deployz-derived S3 values.** When Deployz provisions storage and the app
   reads an S3 region or endpoint variable in code (`S3_REGION`,
   `S3_ENDPOINT`, `S3_ENDPOINT_URL`, `AWS_S3_ENDPOINT`, `*_S3_REGION`), the
