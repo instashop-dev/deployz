@@ -34,12 +34,49 @@ describe('detectEnvVarModel (§11.2)', () => {
 
     expect(byKey.get('DATABASE_URL')).toMatchObject({ required: true, secret: false });
     expect(byKey.get('DATABASE_URL')!.source.join(' ')).toContain('schema.prisma');
-    // A real sample default + a `??` fallback read is NOT required.
+    // A `??` fallback read is NOT required (the sample value is not what
+    // makes it optional — sample values never count as defaults).
     expect(byKey.get('PORT')).toMatchObject({ required: false });
     // A sample entry the app never reads is documented but NOT required.
     expect(byKey.get('NEXTAUTH_SECRET')).toMatchObject({ required: false });
     // A presence-guard read is not a required value.
     expect(byKey.get('NODE_ENV')).toMatchObject({ required: false });
+  });
+
+  it('never lets a sample-file value make a schema-required read optional (Hovod shape)', () => {
+    const schema = [
+      "import { z } from 'zod';",
+      'const envSchema = z.object({',
+      '  S3_ENDPOINT: z.string().min(1),',
+      "  JWT_SECRET: z.string().min(32, 'JWT_SECRET is required'),",
+      "  LOG_LEVEL: z.string().default('info'),",
+      '});',
+      'export const env = envSchema.parse(process.env);',
+      '',
+    ].join('\n');
+    for (const sample of ['.env.example', '.env.sample', '.env.template']) {
+      const model = detectEnvVarModel({
+        'src/env.ts': schema,
+        [sample]: 'S3_ENDPOINT=http://minio:9000\nJWT_SECRET=dev-secret-change-me-32-characters\nLOG_LEVEL=debug\n',
+      });
+      const byKey = new Map(model.map((entry) => [entry.key, entry]));
+      expect(byKey.get('S3_ENDPOINT'), sample).toMatchObject({ required: true });
+      expect(byKey.get('JWT_SECRET'), sample).toMatchObject({ required: true, secret: true });
+      // The sample still documents the name as evidence.
+      expect(byKey.get('S3_ENDPOINT')!.source, sample).toContain(`${sample} declares S3_ENDPOINT`);
+      // A schema default still makes a read optional.
+      expect(byKey.get('LOG_LEVEL'), sample).toMatchObject({ required: false });
+    }
+  });
+
+  it('keeps a real value in a runtime env file as a default, and a placeholder as no default', () => {
+    const model = detectEnvVarModel({
+      'src/index.ts': 'const a = process.env.S3_ENDPOINT.trim();\nconst b = process.env.S3_REGION.trim();\n',
+      '.env': 'S3_ENDPOINT=https://s3.example.com\nS3_REGION=<your-region>\n',
+    });
+    const byKey = new Map(model.map((entry) => [entry.key, entry]));
+    expect(byKey.get('S3_ENDPOINT')).toMatchObject({ required: false });
+    expect(byKey.get('S3_REGION')).toMatchObject({ required: true });
   });
 
   it('records reads through a local env object as code reads (Directus useEnv shape, DEPLOY-005)', () => {

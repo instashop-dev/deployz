@@ -2370,8 +2370,12 @@ export function findExternalServiceForEnvKey(
 const SECRET_NAME_REGEX =
   /SECRET|TOKEN|PASSWORD|PASS(?!WORD|ENGER|AGE|IVE)|API_KEY|ACCESS_KEY|PRIVATE_KEY|CREDENTIAL|_KEY\b|_PASS\b/i;
 
-/** Sample files the env model treats as documentation of the app's config. */
-const ENV_SAMPLE_FILE_REGEX = /(?:^|\/)(?:\.env(?:\.example|\.sample|\.template)|\.env)$/i;
+/**
+ * Sample files the env model treats as documentation of the app's config:
+ * they name variables, but their values never reach the running container.
+ * A plain `.env` is a runtime file, not a sample.
+ */
+const ENV_SAMPLE_FILE_REGEX = /(?:^|\/)\.env\.(?:example|sample|template)$/i;
 
 // Helpers that parse an environment value and take a default as a later
 // argument: `parseEnvVarNumber(process.env.X, 10)`, `getEnv(process.env.X, 'a')`,
@@ -2766,8 +2770,10 @@ export function classifyEnvVarPurpose(key: string): { purpose: EnvVarPurpose; co
  *     `??`/`||` fallback, and not a pure presence guard (`=== 'x'` checks,
  *     `if (process.env.X)`), and not a defaulted read (Python
  *     `os.getenv('X', d)`, Ruby `ENV.fetch('X', d)`);
- *   - nothing in the repository supplies a usable default value (a real env
- *     sample value, or a read with an inline fallback).
+ *   - nothing in the repository supplies a usable default value (a real
+ *     value in a runtime env file such as `.env`, or a read with an inline
+ *     fallback). A `.env.example`/`.env.sample`/`.env.template` value is
+ *     never a default — it does not reach the container.
  *
  * A sample entry the app never reads (NEXTAUTH_SECRET in a repo with no auth
  * code) is NOT required. §11.3 well-known service keys that the repository
@@ -2820,7 +2826,9 @@ export function detectEnvVarModel(tree: FileTree, externalServices: string[] = [
       if (!key) continue;
       const value = (match[2] ?? '').replace(/\s+#.*$/, '').trim();
       const current = declarations.get(key) ?? { realValue: false, sampleEmpty: false, files: [] };
-      if (!isPlaceholderValue(value)) current.realValue = true;
+      // A sample value (`S3_ENDPOINT=http://minio:9000` in .env.example) is
+      // documentation, never a runtime default.
+      if (!isSample && !isPlaceholderValue(value)) current.realValue = true;
       if (isSample && isPlaceholderValue(value)) current.sampleEmpty = true;
       if (!current.files.includes(path)) current.files.push(path);
       declarations.set(key, current);

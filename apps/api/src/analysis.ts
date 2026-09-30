@@ -204,7 +204,14 @@ type ApplicationRow = typeof schema.applications.$inferSelect;
 // Stored v26 rows carry neither the new manifest fields nor the retired
 // rejection's removal, so a stale NOT_COMPATIBLE verdict or an unprovisioned
 // queue/schedule must re-run.
-export const ANALYSIS_VERSION = 27;
+// Version 28 (Hovod): a `.env.example`/`.env.sample`/`.env.template` value is
+// no longer a runtime default — it never reaches the container, yet it made
+// schema-required reads (`S3_ENDPOINT: z.string().min(1)`, `JWT_SECRET`)
+// optional, so nobody was asked for a value and the app exited at boot. An
+// S3 region/endpoint variable the app reads is now `deployz_managed` (its
+// value is derived from the deployment region). Stored v27 env-var models
+// under-require and must re-run.
+export const ANALYSIS_VERSION = 28;
 
 export interface AnalysisRunnerDeps {
   db: RuntimeDb;

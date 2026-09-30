@@ -217,6 +217,33 @@ function s3Semantic(name: string): BindingSemantic | null {
   return null;
 }
 
+/**
+ * The S3 semantic Deployz derives a value for: an S3 region/endpoint variable
+ * the app reads in code (a high-confidence explicit binding). `AWS_REGION` is
+ * excluded — the application template already injects it. Credentials and
+ * public URLs are never derived; the AWS SDK takes credentials from the ECS
+ * task role.
+ */
+function derivedS3Semantic(variable: ManifestEnvVariable): 'region' | 'endpoint' | null {
+  if (variable.key === 'AWS_REGION') return null;
+  if (!variable.source.some((text) => text.startsWith('read in '))) return null;
+  const semantic = s3Semantic(variable.key);
+  return semantic === 'region' || semantic === 'endpoint' ? semantic : null;
+}
+
+/** Whether Deployz derives this variable's value when the app's storage is provisioned. */
+export function isDerivedS3EnvVariable(variable: ManifestEnvVariable): boolean {
+  return derivedS3Semantic(variable) !== null;
+}
+
+/** The value Deployz derives from the deployment region, or null when it derives none. */
+export function derivedS3EnvValue(variable: ManifestEnvVariable, region: string): string | null {
+  const semantic = derivedS3Semantic(variable);
+  if (semantic === 'region') return region;
+  if (semantic === 'endpoint') return `https://s3.${region}.amazonaws.com`;
+  return null;
+}
+
 // ── Derivation ──────────────────────────────────────────────────────────────
 
 /**

@@ -106,7 +106,7 @@ export type {
   BindingSemantic,
   InfrastructureBinding,
 } from './bindings.js';
-export { deriveInfrastructureBindings } from './bindings.js';
+export { deriveInfrastructureBindings, derivedS3EnvValue } from './bindings.js';
 
 export type {
   CompatibilityVerdict,

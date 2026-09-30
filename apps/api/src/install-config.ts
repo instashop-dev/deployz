@@ -1,4 +1,4 @@
-import { generatedEnvKeys } from '@deployz/analysis';
+import { derivedS3EnvValue, generatedEnvKeys } from '@deployz/analysis';
 import { buildDeploymentResourceTags, requirementsFromSpec, type DeploymentManifest } from '@deployz/contracts';
 import type { RuntimeDb } from '@deployz/db';
 
@@ -20,12 +20,15 @@ import { readStoredDeploymentSpec, readStoredManifest } from './manifest.js';
 // mints generated secrets inside the customer's account) whenever there is
 // anything to apply.
 
-/** One line of the relay's effective-config view, plus the generated keys it must mint. */
+/**
+ * One line of the relay's effective-config view, plus the generated keys it
+ * must mint and the values Deployz derives from the deployment region.
+ */
 export interface RelayConfigEntry {
   key: string;
   isSecret: boolean;
   value?: string;
-  source: EffectiveConfigEntry['source'] | 'generated';
+  source: EffectiveConfigEntry['source'] | 'generated' | 'derived';
   generated?: true;
 }
 
@@ -53,15 +56,22 @@ export interface PendingSecretVault {
 
 /**
  * The entries the relay applies: every effective config entry (plain values
- * travel, secret values never do) plus, for each generated key without a
- * vendor or customer value, an entry the relay mints. When a `vault` is
- * passed (production path), pending-secrets rows are decrypted in this
+ * travel, secret values never do) plus, for each key without a vendor or
+ * customer value, the value Deployz derives (S3 region/endpoint from the
+ * deployment region) or an entry the relay mints (a generated key). When a
+ * `vault` is passed (production path), pending-secrets rows are decrypted in this
  * seam — values the vendor typed before the relay enrolled reach the
  * customer via this read, not via the queue message.
  */
 export async function buildRelayConfigEntries(
   db: RuntimeDb,
-  deployment: { id?: string; applicationId: string; customerId: string; desiredState: Record<string, unknown> | null },
+  deployment: {
+    id?: string;
+    applicationId: string;
+    customerId: string;
+    region: string;
+    desiredState: Record<string, unknown> | null;
+  },
   store: ConfigStore,
   vault?: PendingSecretVault,
 ): Promise<RelayConfigEntry[]> {
@@ -116,7 +126,18 @@ export async function buildRelayConfigEntries(
     });
   }
   const configured = new Set(entries.map((entry) => entry.key));
-for (const key of mintable) {
+  // Precedence: an explicit vendor/customer value (above) always wins over a
+  // derived value.
+  if (manifest?.storage.required === true) {
+    for (const variable of manifest.environment.variables) {
+      if (configured.has(variable.key)) continue;
+      const value = derivedS3EnvValue(variable, deployment.region);
+      if (value === null) continue;
+      configured.add(variable.key);
+      entries.push({ key: variable.key, isSecret: false, value, source: 'derived' });
+    }
+  }
+  for (const key of mintable) {
     if (configured.has(key)) continue;
     entries.push({ key, isSecret: true, source: 'generated', generated: true });
   }
@@ -147,7 +168,7 @@ function mintableKeys(manifest: DeploymentManifest): string[] {
  */
 export async function configPrecedesFirstStart(
   db: RuntimeDb,
-  deployment: { applicationId: string; customerId: string; desiredState: Record<string, unknown> | null },
+  deployment: { applicationId: string; customerId: string; region: string; desiredState: Record<string, unknown> | null },
   store: ConfigStore,
 ): Promise<boolean> {
   return (await buildRelayConfigEntries(db, deployment, store)).length > 0;
@@ -174,6 +195,7 @@ export async function buildInstallPayload(
     applicationId: string;
     customerId: string;
     organizationId: string;
+    region: string;
     desiredState: Record<string, unknown> | null;
     specV2: Record<string, unknown> | null;
   },
@@ -231,7 +253,13 @@ export async function buildInstallPayload(
  */
 export async function queuePostInstallConfig(
   db: RuntimeDb,
-  deployment: { id: string; applicationId: string; customerId: string; desiredState: Record<string, unknown> | null },
+  deployment: {
+    id: string;
+    applicationId: string;
+    customerId: string;
+    region: string;
+    desiredState: Record<string, unknown> | null;
+  },
   installJobId: string,
   store: ConfigStore,
 ): Promise<{ queued: boolean }> {
