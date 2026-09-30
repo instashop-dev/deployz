@@ -1,31 +1,30 @@
 'use client';
 
-import { Info, TriangleAlert } from 'lucide-react';
-import { forwardRef, useEffect, useRef, useState, type ReactNode } from 'react';
+import { ChevronDown, Info, TriangleAlert } from 'lucide-react';
+import { Fragment, forwardRef, useEffect, useRef, useState, type ReactNode } from 'react';
 
-import { ApplicationArchitectureSection } from '@/components/application-architecture-section';
 import { FixInstructionsDialog } from '@/components/fix-instructions-dialog';
-import { PlannedInfrastructure } from '@/components/planned-infrastructure';
 import { TechnicalDetails } from '@/components/technical-details';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import type { DeploymentPlan } from '@deployz/contracts';
 
 import type { Application, AnalysisStatus } from '@/lib/applications';
+import { deriveAnalysisDetails, deriveRequiredChanges, type AnalysisDetail, type RequiredChange } from '@/lib/application-configuration';
 import {
-  deriveAnalysisDetails,
-  deriveConfigurationRows,
-  deriveRequiredChanges,
-  isSettingRowId,
-  type AnalysisDetail,
-  type ConfigurationRow,
-  type RequiredChange,
-} from '@/lib/application-configuration';
+  deriveServiceInventory,
+  formatRowCost,
+  type InventoryAction,
+  type InventoryGroup,
+  type InventoryRow,
+  type RowCost,
+} from '@/lib/configuration-inventory';
 import type {
+  ApplicationArchitecture,
   ApplicationReadiness,
   DeploymentRequirementDriftSummary,
   EditableReadinessField,
@@ -33,20 +32,16 @@ import type {
 
 import { useApplicationPage } from '../application-page-context';
 import { EditDialog, RequirementDriftNotice } from '../readiness-components';
+import { DeploymentSize } from './deployment-size';
 
-// Commands can be long (a chained shell script, a full drizzle-kit
-// invocation) — these rows get the abbreviated + "Show full command"
-// treatment instead of wrapping or overflowing the table.
-const COMMAND_ROW_IDS = new Set(['build', 'start', 'migrations', 'worker']);
-const LONG_VALUE_THRESHOLD = 32;
+const COLUMN_COUNT = 6;
 
-// The Configuration tab's readiness surface — everything that used to live on
-// the overview page's "Deployment readiness" table, now framed around what a
-// vendor configures rather than what the analyser checked.
+const NODE_STATE_COPY: Record<'detected' | 'confirmed', string> = {
+  detected: 'Detected automatically',
+  confirmed: 'Confirmed',
+};
 
-/** The edit/fix dialogs both `RequiredChangesPanel` and `ServicesSection` /
- *  `BuildRuntimeSection` open — one instance, owned by the Configuration
- *  page so every section can route into the same dialog. */
+/** The one edit/fix dialog pair every row and the attention summary route into. */
 export function ConfigurationDialogs({
   applicationId,
   application,
@@ -87,11 +82,9 @@ export function ConfigurationDialogs({
   );
 }
 
-// Composes the Configuration tab's readiness-driven sections in ux-guidelines
-// §3 order: Required changes, then `children` (Environment variables, owned
-// by the caller), then Services, then Build & runtime. Self-contained so it
-// can be rendered on its own — it reads the page context and owns the one
-// edit/fix dialog pair every section below routes into.
+// The Configuration tab's analysis-driven part: the attention summary, the
+// deployment size and estimate, then the one "Services & resources" table.
+// `children` (the environment variables table) follows the services table.
 export function DeploymentConfiguration({ children }: { children?: ReactNode }) {
   const { data, loading, presentation, refresh, reanalyse } = useApplicationPage();
   const [editingField, setEditingField] = useState<EditableReadinessField | null>(null);
@@ -102,45 +95,40 @@ export function DeploymentConfiguration({ children }: { children?: ReactNode }) 
   // element to return focus to on close — keep the opener and restore it.
   const openerRef = useRef<HTMLElement | null>(null);
 
-  const rows = data ? deriveConfigurationRows(data.application, data.readiness) : [];
+  const inventory = data ? deriveServiceInventory(data) : null;
   const requiredChanges = data ? deriveRequiredChanges(data.readiness) : [];
-  const infrastructureRowIds = new Set(['database', 'redis', 'storage']);
-  const infrastructureRows = rows.filter((row) => infrastructureRowIds.has(row.id));
-  const preferenceRows = rows.filter((row) => !infrastructureRowIds.has(row.id));
+  const attentionItems = data && inventory ? deriveAttentionItems(data.readiness, inventory.groups) : [];
+  const hasAttention = requiredChanges.length > 0 || attentionItems.length > 0;
 
   // A link into this page (from the Overview tab, or a bookmarked URL) can
   // carry `#required-changes` — on load, and whenever the hash changes again
-  // without a full navigation, scroll to and focus the panel. When there is
-  // nothing required (the vendor already fixed everything, or arrived here
-  // straight after a re-analysis), focus the section heading instead of a
-  // panel that no longer exists.
+  // without a full navigation, scroll to and focus the summary. With nothing
+  // to fix, focus the services heading instead of a summary that is gone.
   useEffect(() => {
     if (!data) return;
     function focusRequiredChanges(): void {
       if (window.location.hash !== '#required-changes') return;
-      const target = requiredChanges.length > 0 ? panelRef.current : headingRef.current;
-      // jsdom (unit tests) has no `scrollIntoView` implementation — guard it
-      // rather than skip the real browser behaviour.
+      const target = hasAttention ? panelRef.current : headingRef.current;
+      // jsdom (unit tests) has no `scrollIntoView` implementation.
       target?.scrollIntoView?.({ block: 'start' });
       target?.focus();
     }
     focusRequiredChanges();
     window.addEventListener('hashchange', focusRequiredChanges);
     return () => window.removeEventListener('hashchange', focusRequiredChanges);
-  }, [data, requiredChanges.length]);
+  }, [data, hasAttention]);
 
   if (loading) {
     return (
       <>
-        {children}
         <DeploymentConfigurationSkeleton />
+        {children}
       </>
     );
   }
-  if (!data) return <>{children}</>;
+  if (!data || !inventory) return <>{children}</>;
 
   const { application, readiness } = data;
-  const details = deriveAnalysisDetails(readiness);
   const analyzing = application.analysisStatus === 'ANALYZING';
 
   function rememberOpener(): void {
@@ -150,43 +138,38 @@ export function DeploymentConfiguration({ children }: { children?: ReactNode }) 
     const opener = openerRef.current;
     requestAnimationFrame(() => opener?.focus());
   }
-  function openFix(): void {
+  function runAction(action: InventoryAction | RequiredChange['fix']): void {
     rememberOpener();
-    setFixOpen(true);
-  }
-  function openEdit(field: EditableReadinessField): void {
-    rememberOpener();
-    setEditingField(field);
+    if (action.kind === 'edit') setEditingField(action.field);
+    else setFixOpen(true);
   }
 
   return (
     <>
-      <RequiredChangesPanel ref={panelRef} changes={requiredChanges} onEdit={openEdit} onShowFix={openFix} />
+      <AttentionSummary ref={panelRef} changes={requiredChanges} items={attentionItems} onAction={runAction} />
 
-      {children}
+      {application.analysisStatus === 'COMPLETE' ? (
+        <DeploymentSize
+          plan={data.plan}
+          externalServices={inventory.externalServices}
+          unestimatedWorkload={inventory.unestimatedWorkload}
+        />
+      ) : null}
 
       <ServicesSection
-        architecture={readiness.architecture}
-        plan={data.plan}
-        rows={infrastructureRows}
-        analyzing={analyzing}
-        analysisStatus={application.analysisStatus}
-        onEdit={openEdit}
-        onShowFix={openFix}
-      />
-
-      <BuildRuntimeSection
         ref={headingRef}
-        rows={preferenceRows}
+        groups={inventory.groups}
         analyzing={analyzing}
         analysisStatus={application.analysisStatus}
         readinessSummary={presentation.readinessSummary}
         analyzedCommitSha={readiness.analyzedCommitSha}
-        details={details}
+        details={deriveAnalysisDetails(readiness)}
+        architecture={readiness.architecture ?? null}
         drifts={readiness.deploymentRequirementDrift}
-        onEdit={openEdit}
-        onShowFix={openFix}
+        onAction={runAction}
       />
+
+      {children}
 
       <ConfigurationDialogs
         applicationId={application.id}
@@ -212,115 +195,154 @@ export function DeploymentConfiguration({ children }: { children?: ReactNode }) 
   );
 }
 
-// The canonical vendor resource view (ux-guidelines §8): the detected
-// application architecture, what customers get from the plan, and the
-// analysis-driven infrastructure configuration — one "Services" section
-// instead of three separately-headed ones.
-export function ServicesSection({
-  architecture,
-  plan,
-  rows,
-  analyzing,
-  analysisStatus,
-  onEdit,
-  onShowFix,
-}: {
-  architecture: ApplicationReadiness['architecture'];
-  plan: DeploymentPlan | null;
-  rows: ConfigurationRow[];
-  analyzing: boolean;
-  analysisStatus: AnalysisStatus;
-  onEdit: (field: EditableReadinessField) => void;
-  onShowFix: () => void;
-}) {
-  const arch = architecture ?? null;
-  const hasContent = arch !== null || plan !== null || rows.length > 0 || analysisStatus === 'ANALYZING';
-  if (!hasContent) return null;
-
-  return (
-    <section id="services" aria-labelledby="services-heading" className="flex scroll-mt-20 flex-col gap-5">
-      <div>
-        <h2 id="services-heading" className="text-base font-semibold">
-          Services
-        </h2>
-        <p className="text-sm text-muted-foreground">
-          Detected components, and what each customer deployment gets in their AWS account.
-        </p>
-      </div>
-
-      {arch ? (
-        <ApplicationArchitectureSection architecture={arch} onEdit={onEdit} onShowFix={onShowFix} />
-      ) : null}
-
-      <PlannedInfrastructure plan={plan} />
-
-      {rows.length > 0 || analyzing ? (
-        <div className="flex flex-col gap-3">
-          <h3 className="text-sm font-medium text-muted-foreground">Configuration</h3>
-          <Card className="py-0">
-            <CardContent className="overflow-x-auto p-0">
-              <Table data-testid="readiness-infrastructure-table">
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Configuration</TableHead>
-                    <TableHead>Value</TableHead>
-                    <TableHead>Result</TableHead>
-                    <TableHead>Action</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody aria-busy={analyzing || undefined}>
-                  {rows.map((row) => (
-                    <ConfigurationTableRow key={row.id} row={row} onEdit={onEdit} onShowFix={onShowFix} />
-                  ))}
-                  {rows.length === 0 && analyzing ? (
-                    <ConfigurationTablePlaceholder analysisStatus={analysisStatus} />
-                  ) : null}
-                </TableBody>
-              </Table>
-            </CardContent>
-          </Card>
-        </div>
-      ) : null}
-    </section>
-  );
+/** One line of the attention summary that is not a required change: a link to the affected row. */
+interface AttentionItem {
+  id: string;
+  text: string;
+  href: string;
 }
 
-export const BuildRuntimeSection = forwardRef<HTMLHeadingElement, {
-  rows: ConfigurationRow[];
-  analyzing: boolean;
-  analysisStatus: AnalysisStatus;
-  readinessSummary: string | null;
-  analyzedCommitSha: string | null;
-  details: AnalysisDetail[];
-  drifts: DeploymentRequirementDriftSummary[];
-  onEdit: (field: EditableReadinessField) => void;
-  onShowFix: () => void;
-}>(function BuildRuntimeSection({
-  rows,
-  analyzing,
-  analysisStatus,
-  readinessSummary,
-  analyzedCommitSha,
-  details,
-  drifts,
-  onEdit,
-  onShowFix,
-}, ref) {
+function rowAnchor(row: InventoryRow): string {
+  return `#config-row-${row.id}`;
+}
+
+/**
+ * Everything that needs the vendor, once each: the architecture questions
+ * and the environment variables that still need a decision or a value.
+ * Recommended findings and external services stay on their own rows.
+ * Required findings render separately above these, with their Fix action.
+ */
+function deriveAttentionItems(readiness: ApplicationReadiness, groups: InventoryGroup[]): AttentionItem[] {
+  const rows = groups.flatMap((group) => group.rows);
+  const items: AttentionItem[] = [];
+  const unresolved = readiness.architecture?.unresolved ?? [];
+
+  unresolved.forEach((item, index) => {
+    const row = rows.find((candidate) => candidate.questionIndexes.includes(index));
+    items.push({ id: `question-${index}`, text: item.question, href: row ? rowAnchor(row) : '#services' });
+  });
+  const setup = readiness.environmentSetup ?? null;
+  if (setup && setup.needsDecision > 0) {
+    items.push({
+      id: 'env-decisions',
+      text: `${setup.needsDecision} environment ${setup.needsDecision === 1 ? 'variable needs' : 'variables need'} a decision`,
+      href: '#environment-variables',
+    });
+  }
+  if (setup && setup.missingValue > 0) {
+    items.push({
+      id: 'env-values',
+      text: `${setup.missingValue} environment ${setup.missingValue === 1 ? 'variable needs' : 'variables need'} a value`,
+      href: '#environment-variables',
+    });
+  }
+  return items;
+}
+
+const AttentionSummary = forwardRef<
+  HTMLDivElement,
+  {
+    changes: RequiredChange[];
+    items: AttentionItem[];
+    onAction: (fix: RequiredChange['fix']) => void;
+  }
+>(function AttentionSummary({ changes, items, onAction }, ref) {
+  if (changes.length === 0 && items.length === 0) return null;
   return (
-    <section id="build-runtime" aria-labelledby="build-runtime-heading" className="flex scroll-mt-20 flex-col gap-3">
+    <div
+      ref={ref}
+      id="required-changes"
+      tabIndex={-1}
+      className="scroll-mt-20 rounded-xl border border-destructive/40 bg-card outline-none"
+      aria-labelledby="required-changes-heading"
+      data-testid="attention-summary"
+    >
+      <div className="flex flex-col gap-3 p-4">
+        <div className="flex items-center gap-2">
+          <TriangleAlert className="size-4 shrink-0 text-destructive" aria-hidden />
+          <h2 id="required-changes-heading" className="text-base font-semibold">
+            Needs attention
+          </h2>
+        </div>
+        {changes.length > 0 ? (
+          <p className="text-sm text-muted-foreground">
+            {changes.length} {changes.length === 1 ? 'change' : 'changes'} needed before this application is ready to
+            deploy.
+          </p>
+        ) : null}
+        <ul className="flex flex-col gap-2">
+          {changes.map((change) => (
+            <li
+              key={change.finding.id}
+              className="flex flex-wrap items-start justify-between gap-3 rounded-lg border p-3"
+              data-testid={`required-change-${change.finding.id}`}
+            >
+              <div className="flex flex-col gap-0.5">
+                <p className="text-sm font-medium">{change.label}</p>
+                <p className="text-sm text-muted-foreground">{change.explanation}</p>
+                {change.fix.kind === 'instructions' ? (
+                  <p className="text-xs text-muted-foreground">Change your repository, then re-analyse.</p>
+                ) : null}
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                className="shrink-0"
+                onClick={() => onAction(change.fix)}
+                data-testid={`required-change-fix-${change.finding.id}`}
+              >
+                {change.fix.kind === 'edit' ? 'Fix' : 'Get fix instructions'}
+              </Button>
+            </li>
+          ))}
+          {items.map((item) => (
+            <li
+              key={item.id}
+              className="flex flex-wrap items-center justify-between gap-3 rounded-lg border px-3 py-2"
+              data-testid={`attention-item-${item.id}`}
+            >
+              <p className="min-w-0 text-sm">{item.text}</p>
+              <Button asChild variant="ghost" size="sm" className="shrink-0">
+                <a href={item.href}>Go to row</a>
+              </Button>
+            </li>
+          ))}
+        </ul>
+      </div>
+    </div>
+  );
+});
+
+const ServicesSection = forwardRef<
+  HTMLHeadingElement,
+  {
+    groups: InventoryGroup[];
+    analyzing: boolean;
+    analysisStatus: AnalysisStatus;
+    readinessSummary: string | null;
+    analyzedCommitSha: string | null;
+    details: AnalysisDetail[];
+    architecture: ApplicationArchitecture | null;
+    drifts: DeploymentRequirementDriftSummary[];
+    onAction: (action: InventoryAction) => void;
+  }
+>(function ServicesSection(
+  { groups, analyzing, analysisStatus, readinessSummary, analyzedCommitSha, details, architecture, drifts, onAction },
+  ref,
+) {
+  const hasKept = groups.some((group) =>
+    group.rows.some((row) => row.afterRemoval === 'Kept' || row.afterRemoval === 'Mixed'),
+  );
+  const detectedGroups = architecture?.groups ?? [];
+
+  return (
+    <section id="services" aria-labelledby="services-heading" className="flex scroll-mt-20 flex-col gap-3">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h2
-            id="build-runtime-heading"
-            ref={ref}
-            tabIndex={-1}
-            className="text-base font-semibold"
-          >
-            Build & runtime
+          <h2 id="services-heading" ref={ref} tabIndex={-1} className="text-base font-semibold outline-none">
+            Services & resources
           </h2>
-          {readinessSummary ? (
-            <p className="text-sm text-muted-foreground">{readinessSummary}</p>
-          ) : null}
+          {readinessSummary ? <p className="text-sm text-muted-foreground">{readinessSummary}</p> : null}
         </div>
         {analyzedCommitSha ? (
           <span className="shrink-0 text-sm text-muted-foreground" data-testid="readiness-commit">
@@ -330,36 +352,72 @@ export const BuildRuntimeSection = forwardRef<HTMLHeadingElement, {
       </div>
 
       <Card className="py-0">
-        <CardContent className="overflow-x-auto p-0">
-          <Table data-testid="readiness-table">
+        <CardContent className="p-0">
+          <Table data-testid="services-table" className="min-w-[56rem]">
             <TableHeader>
               <TableRow>
-                <TableHead>Configuration</TableHead>
-                <TableHead>Value</TableHead>
-                <TableHead>Result</TableHead>
-                <TableHead>Action</TableHead>
+                <TableHead className="w-48">Item</TableHead>
+                <TableHead>Configuration / resources</TableHead>
+                <TableHead className="w-32">Est. AWS/month</TableHead>
+                <TableHead className="w-28">After removal</TableHead>
+                <TableHead className="w-56">Issues</TableHead>
+                <TableHead className="w-44">Actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody aria-busy={analyzing || undefined}>
-              {rows.map((row) => (
-                <ConfigurationTableRow
-                  key={row.id}
-                  row={row}
-                  onEdit={onEdit}
-                  onShowFix={onShowFix}
-                />
+              {groups.map((group) => (
+                <Fragment key={group.id}>
+                  <TableRow className="bg-muted/50 hover:bg-muted/50" data-testid={`services-group-${group.id}`}>
+                    <TableHead colSpan={COLUMN_COUNT} scope="colgroup" className="text-foreground">
+                      {group.label}
+                    </TableHead>
+                  </TableRow>
+                  {group.rows.map((row) => (
+                    <ServiceRow key={row.id} row={row} onAction={onAction} />
+                  ))}
+                </Fragment>
               ))}
-              {rows.length === 0 ? (
-                <ConfigurationTablePlaceholder analysisStatus={analysisStatus} />
-              ) : null}
+              {groups.length === 0 ? <ServicesTablePlaceholder analysisStatus={analysisStatus} /> : null}
             </TableBody>
           </Table>
         </CardContent>
       </Card>
 
-      {details.length > 0 ? (
+      {hasKept ? (
+        <p className="text-xs text-muted-foreground">
+          Kept resources stay in the customer&apos;s AWS account after the deployment is removed, and can keep costing
+          money until the retained data is deleted.
+        </p>
+      ) : null}
+
+      {details.length > 0 || detectedGroups.length > 0 ? (
         <TechnicalDetails>
-          <AnalysisDetailsContent details={details} />
+          <div className="flex flex-col gap-4">
+            {detectedGroups.length > 0 ? (
+              <div data-testid="detected-components">
+                <h3 className="text-sm font-medium">Detected components</h3>
+                <ul className="mt-1 flex flex-col gap-1 text-sm text-muted-foreground">
+                  {detectedGroups.flatMap((group) =>
+                    group.nodes.map((node) => (
+                      <li key={`${group.group}-${node.label}`}>
+                        {node.label} · {NODE_STATE_COPY[node.state]}
+                      </li>
+                    )),
+                  )}
+                </ul>
+              </div>
+            ) : null}
+            {details.map((detail) => (
+              <div key={detail.id}>
+                <h3 className="text-sm font-medium">{detail.label}</h3>
+                <ul className="mt-1 flex flex-col gap-1 text-sm text-muted-foreground">
+                  {detail.lines.map((line, index) => (
+                    <li key={index}>{line}</li>
+                  ))}
+                </ul>
+              </div>
+            ))}
+          </div>
         </TechnicalDetails>
       ) : null}
       <RequirementDriftNotice drifts={drifts} />
@@ -367,150 +425,97 @@ export const BuildRuntimeSection = forwardRef<HTMLHeadingElement, {
   );
 });
 
-// The panel a vendor lands on from the Overview tab's "N changes required"
-// link (`#required-changes`) or scrolls to on their own — every blocking
-// finding in one place, each routed to the same fix (edit dialog or
-// instructions) the table row below uses.
-export function RequiredChangesPanel({
-  ref,
-  changes,
-  onEdit,
-  onShowFix,
-}: {
-  ref: React.Ref<HTMLDivElement>;
-  changes: RequiredChange[];
-  onEdit: (field: EditableReadinessField) => void;
-  onShowFix: () => void;
-}) {
-  if (changes.length === 0) return null;
-  return (
-    <div
-      ref={ref}
-      id="required-changes"
-      tabIndex={-1}
-      className="scroll-mt-20 rounded-xl border border-destructive/40 bg-card outline-none"
-      aria-labelledby="required-changes-heading"
-    >
-      <div className="flex flex-col gap-3 p-4">
-        <div className="flex items-center gap-2">
-          <TriangleAlert className="size-4 shrink-0 text-destructive" aria-hidden />
-          <h2 id="required-changes-heading" className="text-base font-semibold">
-            Required changes
-          </h2>
-        </div>
-        <p className="text-sm text-muted-foreground">
-          {changes.length} {changes.length === 1 ? 'change' : 'changes'} needed before this application is ready to
-          deploy.
-        </p>
-        <ul className="flex flex-col gap-2">
-          {changes.map((change) => {
-            const fix = change.fix;
-            return (
-              <li
-                key={change.finding.id}
-                className="flex flex-wrap items-start justify-between gap-3 rounded-lg border p-3"
-                data-testid={`required-change-${change.finding.id}`}
-              >
-                <div className="flex flex-col gap-0.5">
-                  <p className="text-sm font-medium">{change.label}</p>
-                  <p className="text-sm text-muted-foreground">{change.explanation}</p>
-                  {fix.kind === 'instructions' ? (
-                    <p className="text-xs text-muted-foreground">Change your repository, then re-analyse.</p>
-                  ) : null}
-                </div>
-                {fix.kind === 'edit' ? (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="shrink-0"
-                    onClick={() => onEdit(fix.field)}
-                    data-testid={`required-change-fix-${change.finding.id}`}
-                  >
-                    Fix
-                  </Button>
-                ) : (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="shrink-0"
-                    onClick={onShowFix}
-                    data-testid={`required-change-fix-${change.finding.id}`}
-                  >
-                    Get fix instructions
-                  </Button>
-                )}
-              </li>
-            );
-          })}
-        </ul>
-      </div>
-    </div>
-  );
+function costText(cost: RowCost): string | null {
+  if (cost === null) return null;
+  if (cost === 'billed-separately') return 'Billed separately';
+  if (cost === 'not-estimated') return 'Not estimated';
+  return formatRowCost(cost);
 }
 
-function ConfigurationTableRow({
-  row,
-  onEdit,
-  onShowFix,
-}: {
-  row: ConfigurationRow;
-  onEdit: (field: EditableReadinessField) => void;
-  onShowFix: () => void;
-}) {
-  const firstFindingId = row.findingIds[0];
-  const isSetting = isSettingRowId(row.id);
-  const testId = isSetting ? `readiness-setting-${row.id}` : `readiness-finding-${firstFindingId}`;
+function ServiceRow({ row, onAction }: { row: InventoryRow; onAction: (action: InventoryAction) => void }) {
+  const cost = costText(row.cost);
   const action = row.action;
+  const mixed = row.afterRemoval === 'Mixed';
 
   return (
-    <TableRow id={firstFindingId ? `readiness-row-${firstFindingId}` : undefined} data-testid={testId}>
-      <TableCell>
+    <TableRow id={`config-row-${row.id}`} className="scroll-mt-20" data-testid={row.testId}>
+      <TableCell className={row.indent ? 'pl-8 align-top text-muted-foreground' : 'align-top font-medium'}>
         <div className="flex items-center gap-1.5">
-          <span className="font-medium">{row.label}</span>
+          <span>{row.label}</span>
           {row.help ? (
-            <InfoPopover label={`Details for ${row.label}`}>
-              <p className="text-sm text-muted-foreground">{row.help}</p>
-            </InfoPopover>
+            <Popover>
+              <PopoverTrigger asChild>
+                <Button variant="ghost" size="icon-xs" aria-label={`Details for ${row.label}`} className="text-muted-foreground">
+                  <Info aria-hidden />
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent align="start" className="w-72">
+                <p className="text-sm text-muted-foreground">{row.help}</p>
+              </PopoverContent>
+            </Popover>
           ) : null}
         </div>
       </TableCell>
-      <TableCell>
-        <div className="flex min-w-0 flex-col gap-0.5">
-          {COMMAND_ROW_IDS.has(row.id) && row.value.length > LONG_VALUE_THRESHOLD ? (
-            <CommandValue value={row.value} />
-          ) : (
-            <span>{row.value}</span>
-          )}
+      <TableCell className="align-top">
+        <div className="flex min-w-0 flex-col gap-1">
+          {row.configuration ? (
+            row.command ? (
+              <code className="font-mono text-xs break-all whitespace-pre-wrap">{row.configuration}</code>
+            ) : (
+              <span>{row.configuration}</span>
+            )
+          ) : null}
           {row.detail ? <span className="text-xs text-muted-foreground">{row.detail}</span> : null}
+          {row.resources.length > 0 ? (
+            // AWS resource names stay one click away, so the page's top-level
+            // copy stays free of AWS terms (ux-guidelines §65).
+            <Collapsible data-testid={`${row.testId}-resources`}>
+              <CollapsibleTrigger className="group flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground">
+                Planned AWS resources ({row.resources.length})
+                <ChevronDown aria-hidden className="size-3.5 transition-transform group-data-[state=open]:rotate-180" />
+              </CollapsibleTrigger>
+              <CollapsibleContent>
+                <ul className="mt-1 flex flex-col gap-0.5 text-xs text-muted-foreground">
+                  {row.resources.map((resource) => (
+                    <li key={resource.id} data-testid={`inventory-resource-${resource.id}`}>
+                      <span className="text-foreground">{resource.name}</span> · {resource.purpose}
+                      {mixed ? ` · ${resource.afterRemoval}` : ''}
+                    </li>
+                  ))}
+                </ul>
+              </CollapsibleContent>
+            </Collapsible>
+          ) : null}
         </div>
       </TableCell>
-      <TableCell>
-        {/* Ready and Not used are already spelled out by the value cell next
-            to them — a pill repeating the same word adds noise, not
-            information. Change required / Recommended / Needs review keep
-            their badge because the value cell alone does not say that. */}
-        {row.result.label === 'Ready' || row.result.label === 'Not used' ? null : (
-          <Badge variant={row.result.variant}>{row.result.label}</Badge>
-        )}
+      <TableCell className="align-top tabular-nums">{cost}</TableCell>
+      <TableCell className="align-top">
+        {row.afterRemoval === 'Kept' ? (
+          <Badge variant="secondary">Kept</Badge>
+        ) : row.afterRemoval === 'Removed' || mixed ? (
+          <Badge variant="outline">{row.afterRemoval}</Badge>
+        ) : row.afterRemoval === 'Not determined' ? (
+          <span className="text-muted-foreground">Not determined</span>
+        ) : null}
       </TableCell>
-      <TableCell>
-        {action?.kind === 'edit' ? (
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => onEdit(action.field)}
-            data-testid={`readiness-setting-edit-${row.id}`}
-          >
-            {action.label}
+      <TableCell className="align-top">
+        <div className="flex flex-col gap-1">
+          {row.issues.map((issue, index) => (
+            <div key={index} className="flex flex-col items-start gap-0.5">
+              <Badge variant={issue.variant}>{issue.label}</Badge>
+              {issue.text ? <span className="text-xs text-muted-foreground">{issue.text}</span> : null}
+            </div>
+          ))}
+        </div>
+      </TableCell>
+      <TableCell className="align-top">
+        {action?.kind === 'link' ? (
+          <Button asChild variant="outline" size="sm" data-testid={action.testId}>
+            <a href={action.href}>{action.label}</a>
           </Button>
-        ) : action?.kind === 'fix' ? (
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={onShowFix}
-            data-testid={`readiness-finding-fix-${firstFindingId}`}
-          >
-            Fix
+        ) : action ? (
+          <Button variant="outline" size="sm" onClick={() => onAction(action)} data-testid={action.testId}>
+            {action.label}
           </Button>
         ) : null}
       </TableCell>
@@ -518,87 +523,33 @@ function ConfigurationTableRow({
   );
 }
 
-// A long build/start/migration/worker command: one abbreviated monospace
-// line (CSS truncation, not JS measurement) plus a popover with the exact
-// text and a copy button — keyboard-accessible without widening the table or
-// wrapping every other row.
-function CommandValue({ value }: { value: string }) {
-  const [copied, setCopied] = useState(false);
-
-  return (
-    <div className="flex min-w-0 items-center gap-1">
-      <code className="block max-w-56 truncate font-mono text-sm" title={value}>
-        {value}
-      </code>
-      <Popover onOpenChange={(open) => !open && setCopied(false)}>
-        <PopoverTrigger asChild>
-          <Button variant="ghost" size="sm" className="h-6 shrink-0 px-1.5 text-xs text-muted-foreground">
-            Show full command
-          </Button>
-        </PopoverTrigger>
-        <PopoverContent align="start" className="w-80 space-y-2">
-          <code className="block max-h-40 overflow-auto rounded-md border bg-muted px-2.5 py-2 font-mono text-xs break-all whitespace-pre-wrap">
-            {value}
-          </code>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={() => {
-              void navigator.clipboard.writeText(value).then(() => setCopied(true));
-            }}
-          >
-            {copied ? 'Copied' : 'Copy'}
-          </Button>
-        </PopoverContent>
-      </Popover>
-    </div>
-  );
-}
-
-// A single-line info affordance for a row's secondary text — same pattern as
-// the old readiness table's InfoPopover.
-function InfoPopover({ label, children }: { label: string; children: ReactNode }) {
-  return (
-    <Popover>
-      <PopoverTrigger asChild>
-        <Button variant="ghost" size="icon-xs" aria-label={label} className="text-muted-foreground">
-          <Info aria-hidden />
-        </Button>
-      </PopoverTrigger>
-      <PopoverContent align="start" className="w-72 space-y-1.5">
-        {children}
-      </PopoverContent>
-    </Popover>
-  );
-}
-
 // The rows only exist once an analysis has completed. While one runs, the
 // table keeps its geometry with skeleton rows; before the first analysis it
 // says what the vendor has to do to fill it.
-function ConfigurationTablePlaceholder({ analysisStatus }: { analysisStatus: AnalysisStatus }) {
+function ServicesTablePlaceholder({ analysisStatus }: { analysisStatus: AnalysisStatus }) {
   if (analysisStatus === 'ANALYZING') {
     return (
       <>
         <TableRow>
-          <TableCell colSpan={4} className="sr-only" role="status">
+          <TableCell colSpan={COLUMN_COUNT} className="sr-only" role="status">
             Checking deployment configuration…
           </TableCell>
         </TableRow>
         {[0, 1, 2].map((index) => (
           <TableRow key={index} aria-hidden data-testid="readiness-row-skeleton">
             <TableCell>
-              <div className="flex flex-col gap-1.5">
-                <Skeleton className="h-4 w-32" />
-                <Skeleton className="h-3 w-48" />
-              </div>
+              <Skeleton className="h-4 w-32" />
             </TableCell>
             <TableCell>
-              <Skeleton className="h-4 w-24" />
+              <Skeleton className="h-4 w-48" />
             </TableCell>
             <TableCell>
-              <Skeleton className="h-5 w-20 rounded-full" />
+              <Skeleton className="h-4 w-16" />
             </TableCell>
+            <TableCell>
+              <Skeleton className="h-5 w-16 rounded-full" />
+            </TableCell>
+            <TableCell />
             <TableCell />
           </TableRow>
         ))}
@@ -612,27 +563,10 @@ function ConfigurationTablePlaceholder({ analysisStatus }: { analysisStatus: Ana
       : 'Analyse the application to see its deployment configuration.';
   return (
     <TableRow>
-      <TableCell colSpan={4} className="text-muted-foreground" data-testid="readiness-empty">
+      <TableCell colSpan={COLUMN_COUNT} className="text-muted-foreground" data-testid="readiness-empty">
         {message}
       </TableCell>
     </TableRow>
-  );
-}
-
-function AnalysisDetailsContent({ details }: { details: AnalysisDetail[] }) {
-  return (
-    <div className="flex flex-col gap-4">
-      {details.map((detail) => (
-        <div key={detail.id}>
-          <h3 className="text-sm font-medium">{detail.label}</h3>
-          <ul className="mt-1 flex flex-col gap-1 text-sm text-muted-foreground">
-            {detail.lines.map((line, index) => (
-              <li key={index}>{line}</li>
-            ))}
-          </ul>
-        </div>
-      ))}
-    </div>
   );
 }
 

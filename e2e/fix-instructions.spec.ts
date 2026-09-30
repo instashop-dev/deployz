@@ -37,10 +37,10 @@ test('generating fix instructions never resolves findings — re-analysis recomp
   // ── The readiness verdict: ALMOST_READY, one required change. ──────────────
   await expect(page.getByTestId('application-state-heading')).toHaveText('1 change required before you can deploy');
 
-  // The readiness table and the finding live on the Configuration tab.
+  // The services table and the finding live on the Configuration tab.
   await page.getByRole('tab', { name: 'Configuration' }).click();
   await page.waitForURL('**/config');
-  await expect(page.getByTestId('readiness-table')).toBeVisible();
+  await expect(page.getByTestId('services-table')).toBeVisible();
   await expect(page.getByText('1 change required')).toBeVisible();
 
   // The finding is a 'health'-category finding, so it folds into the Health

@@ -22,7 +22,8 @@ Element.prototype.setPointerCapture = () => {};
 Element.prototype.releasePointerCapture = () => {};
 
 // The Configuration page's "Environment variables" section (docs/environment-variables.md):
-// summary counts, sort order, search/collapse, bulk classification, the
+// summary counts, grouped order with nothing collapsed, bulk classification,
+// custom values in the same table, truthful save failures, the
 // provider-select constraints (customer disallowed at build stage, Deployz
 // only for a providable key), the vendor runtime-secret warning, the
 // customer-facing preview, the needsReentry warning, and the save order
@@ -190,17 +191,21 @@ describe('Environment variables section', () => {
     );
   });
 
-  it('collapses optional rows by default and search filters by key', async () => {
+  it('shows every variable in ordered groups — nothing collapsed, nothing paged', async () => {
     await renderSection();
 
-    expect(byTestId('environment-variable-row-LOG_LEVEL')).toBeNull();
-    await click(byTestId('environment-variables-optional')?.querySelector('[data-slot="collapsible-trigger"]') ?? null);
+    const groups = Array.from(document.querySelectorAll('[data-testid^="environment-variables-group-"]')).map((el) =>
+      el.getAttribute('data-testid'),
+    );
+    expect(groups).toEqual([
+      'environment-variables-group-attention',
+      'environment-variables-group-deployz',
+      'environment-variables-group-optional',
+    ]);
     expect(byTestId('environment-variable-row-LOG_LEVEL')).not.toBeNull();
-
-    const search = byTestId('environment-variables-search');
-    await setValue(search, 'DATABASE');
-    expect(byTestId('environment-variable-row-DATABASE_URL')).not.toBeNull();
-    expect(byTestId('environment-variable-row-API_KEY')).toBeNull();
+    expect(byTestId('environment-variable-row-NEXT_PUBLIC_ANALYTICS_ID')).not.toBeNull();
+    expect(byTestId('environment-variable-value-INTERNAL_SECRET')?.textContent).toBe('Set by Deployz at install');
+    expect(byTestId('environment-variable-row-DATABASE_URL')?.textContent).toContain('Needs a decision');
   });
 
   it('bulk-marks selected rows optional and saves them with provider none', async () => {
@@ -240,6 +245,13 @@ describe('Environment variables section', () => {
 
   it('saves the suggested decision with a value entered on an undecided row', async () => {
     await renderSection();
+    // The re-read after the value save reports what the server now has.
+    mocks.fetchEnvironmentSettings.mockImplementation(async () =>
+      response({
+        settings: mocks.saveEnvironmentSettings.mock.calls[0]?.[1] ?? null,
+        vendorValueKeys: ['DATABASE_URL'],
+      }),
+    );
 
     await click(byTestId('environment-variable-edit-DATABASE_URL'));
     await setValue(document.getElementById('env-value-DATABASE_URL'), 'https://cdn.example.com');
@@ -248,15 +260,20 @@ describe('Environment variables section', () => {
 
     const [, settings] = mocks.saveEnvironmentSettings.mock.calls[0] as [string, { key: string; provider: string }[]];
     expect(settings.find((s) => s.key === 'DATABASE_URL')?.provider).toBe('vendor');
-    expect(mocks.saveConfig).toHaveBeenCalledWith('app-1', null, [
-      { key: 'DATABASE_URL', value: 'https://cdn.example.com', isSecret: false },
-    ]);
+    expect(mocks.saveConfig).toHaveBeenCalledWith(
+      'app-1',
+      null,
+      [{ key: 'DATABASE_URL', value: 'https://cdn.example.com', isSecret: false }],
+      [],
+    );
     expect(byTestId('environment-variables-summary')?.textContent).toContain('1 needs a decision');
+    expect(byTestId('environment-variable-row-DATABASE_URL')?.textContent).toContain('Ready');
+    expect(document.body.querySelector('[role="status"]')?.textContent).toBe('Saved.');
   });
 
   it('disables the customer provider option for a build-stage variable', async () => {
     await renderSection();
-    await click(byTestId('environment-variables-optional')?.querySelector('[data-slot="collapsible-trigger"]') ?? null);
+    await click(byTestId('environment-variable-edit-NEXT_PUBLIC_ANALYTICS_ID'));
 
     const trigger = byTestId('environment-variable-NEXT_PUBLIC_ANALYTICS_ID-provider');
     await click(trigger);
@@ -268,6 +285,7 @@ describe('Environment variables section', () => {
 
   it('disables the Deployz provider option for a key Deployz cannot provide', async () => {
     await renderSection();
+    await click(byTestId('environment-variable-edit-DATABASE_URL'));
 
     const trigger = byTestId('environment-variable-DATABASE_URL-provider');
     await click(trigger);
@@ -312,5 +330,137 @@ describe('Environment variables section', () => {
 
     await click(byTestId('environment-variable-row-API_KEY')?.querySelector('[data-testid^="environment-variable-edit-"]') ?? null);
     expect(byTestId('environment-variable-reentry-API_KEY')).not.toBeNull();
+  });
+});
+
+function saveButton(): Element | null {
+  return Array.from(document.querySelectorAll('button')).find((b) => b.textContent === 'Save changes') ?? null;
+}
+
+describe('Custom values in the same table', () => {
+  const CUSTOM: MaskedConfigEntry[] = [
+    { key: 'LOG_FORMAT', isSecret: false, value: 'json' },
+    { key: 'SMTP_PASSWORD', isSecret: true, value: null },
+  ];
+
+  it('lists saved defaults no variable covers as vendor rows, never showing a secret', async () => {
+    await renderSection(CUSTOM);
+
+    expect(byTestId('environment-variables-group-vendor')?.textContent).toContain('Set by vendor · 2');
+    expect(byTestId('environment-custom-row-LOG_FORMAT')?.textContent).toContain('json');
+    expect(byTestId('environment-custom-row-SMTP_PASSWORD')?.textContent).toContain('Secret saved');
+  });
+
+  it('saves an edited custom value in the vendor scope without touching the variable decisions', async () => {
+    await renderSection(CUSTOM);
+
+    await click(byTestId('environment-custom-row-LOG_FORMAT')?.querySelector('button') ?? null);
+    await setValue(document.getElementById('env-custom-LOG_FORMAT'), 'text');
+    await click(saveButton());
+
+    expect(mocks.saveEnvironmentSettings).not.toHaveBeenCalled();
+    expect(mocks.saveConfig).toHaveBeenCalledWith('app-1', null, [{ key: 'LOG_FORMAT', value: 'text', isSecret: false }], []);
+  });
+
+  it('stages a removal until Save', async () => {
+    await renderSection(CUSTOM);
+
+    const remove = Array.from(byTestId('environment-custom-row-SMTP_PASSWORD')?.querySelectorAll('button') ?? []).find(
+      (b) => b.textContent === 'Remove',
+    );
+    await click(remove ?? null);
+    expect(byTestId('environment-custom-row-SMTP_PASSWORD')?.textContent).toContain('Removing');
+    expect(mocks.saveConfig).not.toHaveBeenCalled();
+    await click(saveButton());
+
+    expect(mocks.saveConfig).toHaveBeenCalledWith('app-1', null, [], ['SMTP_PASSWORD']);
+  });
+
+  it('checks a new value’s name and a new secret’s value before saving anything', async () => {
+    await renderSection();
+
+    await click(byTestId('environment-variables-add-value'));
+    await click(saveButton());
+    expect(document.body.querySelector('[role="alert"]')?.textContent).toBe('Give every new value a name.');
+
+    await setValue(document.getElementById('environment-new-0'), 'DATABASE_URL');
+    await click(saveButton());
+    expect(document.body.querySelector('[role="alert"]')?.textContent).toBe(
+      'DATABASE_URL already exists. Edit the existing one instead.',
+    );
+
+    await setValue(document.getElementById('environment-new-0'), 'SENTRY_DSN');
+    await click(byTestId('environment-variables-add-secret'));
+    await setValue(document.getElementById('environment-new-1'), 'SMTP_TOKEN');
+    await click(saveButton());
+    expect(document.body.querySelector('[role="alert"]')?.textContent).toBe('Enter a value for SMTP_TOKEN.');
+    expect(mocks.saveConfig).not.toHaveBeenCalled();
+
+    await setValue(document.getElementById('environment-new-1-value'), 'token-value');
+    await click(saveButton());
+    expect(mocks.saveConfig).toHaveBeenCalledWith(
+      'app-1',
+      null,
+      [
+        { key: 'SENTRY_DSN', value: '', isSecret: false },
+        { key: 'SMTP_TOKEN', value: 'token-value', isSecret: true },
+      ],
+      [],
+    );
+  });
+
+  it('still shows saved values when the variable list fails to load', async () => {
+    mocks.fetchEnvironmentSettings.mockRejectedValue(new Error('boom'));
+    await renderSection(CUSTOM);
+
+    expect(byTestId('environment-variables-error')).not.toBeNull();
+    expect(byTestId('environment-custom-row-LOG_FORMAT')).not.toBeNull();
+    expect(byTestId('environment-variables-summary')).toBeNull();
+  });
+});
+
+describe('Truthful save feedback', () => {
+  async function enterValueOnUndecidedRow(): Promise<void> {
+    await click(byTestId('environment-variable-edit-DATABASE_URL'));
+    await setValue(document.getElementById('env-value-DATABASE_URL'), 'https://cdn.example.com');
+  }
+
+  it('says nothing was saved when the decisions fail, and never writes the values', async () => {
+    mocks.saveEnvironmentSettings.mockRejectedValue(new Error('down'));
+    await renderSection();
+    await enterValueOnUndecidedRow();
+    await click(saveButton());
+
+    expect(mocks.saveConfig).not.toHaveBeenCalled();
+    expect(document.body.textContent).toContain('Nothing was saved.');
+    expect(document.body.querySelector('[role="status"]')).toBeNull();
+  });
+
+  it('says the decisions were saved but the values were not when only the value write fails', async () => {
+    mocks.saveConfig.mockRejectedValue(new Error('down'));
+    await renderSection();
+    await enterValueOnUndecidedRow();
+    await click(saveButton());
+
+    expect(byTestId('environment-variables-partial-save')?.textContent).toContain(
+      'Your variable decisions were saved, but the values were not.',
+    );
+    // The value stays, so saving again retries it.
+    expect(document.body.textContent).toContain('Unsaved changes.');
+    await click(saveButton());
+    expect(mocks.saveConfig).toHaveBeenCalledTimes(2);
+  });
+
+  it('shows the server’s own problems when it rejects a decision', async () => {
+    const { EnvironmentSettingsError } = await import('../src/lib/environment-settings');
+    mocks.saveEnvironmentSettings.mockRejectedValue(
+      new EnvironmentSettingsError('invalid', ['DATABASE_URL: a customer value cannot be used at build time.']),
+    );
+    await renderSection();
+    await enterValueOnUndecidedRow();
+    await click(saveButton());
+
+    expect(document.body.textContent).toContain('DATABASE_URL: a customer value cannot be used at build time.');
+    expect(document.body.querySelector('[role="status"]')).toBeNull();
   });
 });
