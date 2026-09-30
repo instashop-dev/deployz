@@ -365,6 +365,40 @@ describe('config — setConfig writes', () => {
     });
   });
 
+  it('binds the secret to a deployment whose install is still running, besides the direct write', async () => {
+    // The relay is connected but the application stack may not exist yet, so
+    // the direct CONFIG_UPDATE can fail and lose the value (Hovod, Stage B
+    // sprint: S3 keys delivered mid-install never reached the task). The
+    // bound row is delivered by the install-time config fetch.
+    const store = createMockStore({ vendorDefaults: [] });
+    const secretWriter = createMockWriter();
+    const deps = buildDepsWithDeployments(store, secretWriter, [
+      { id: 'deployment-1', organizationId: 'org-1', state: 'INSTALLING' },
+    ]);
+    const bound: { deploymentId: string; key: string }[] = [];
+    deps.pendingSecrets.upsertBound = async (input) => {
+      bound.push({ deploymentId: input.deploymentId, key: input.key });
+    };
+
+    await setConfig(APP_ID, CUSTOMER_ID, [{ key: 'S3_SECRET_ACCESS_KEY', value: PLAINTEXT_SECRET, isSecret: true }], deps);
+
+    expect(bound).toEqual([{ deploymentId: 'deployment-1', key: 'S3_SECRET_ACCESS_KEY' }]);
+    expect(secretWriter.calls).toHaveLength(1);
+  });
+
+  it('does not bind a secret to a healthy deployment', async () => {
+    const store = createMockStore({ vendorDefaults: [] });
+    const deps = buildDeps(store, createMockWriter());
+    const bound: string[] = [];
+    deps.pendingSecrets.upsertBound = async (input) => {
+      bound.push(input.key);
+    };
+
+    await setConfig(APP_ID, CUSTOMER_ID, [{ key: 'DATABASE_URL', value: PLAINTEXT_SECRET, isSecret: true }], deps);
+
+    expect(bound).toEqual([]);
+  });
+
   it('vendor-scope secrets persist as masked placeholders with NO relay write', async () => {
     const store = createMockStore({ vendorDefaults: [] });
     const secretWriter = createMockWriter();
