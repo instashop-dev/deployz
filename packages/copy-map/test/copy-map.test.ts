@@ -573,3 +573,9 @@ describe('releaseBuildFailureSummary (Phase 8)', () => {
     }
   });
 });
+
+describe("failed-update remediation", () => {
+  it("does not claim the running release is serving; the deployment page states measured health", () => {
+    expect(FAILURE_REMEDIATION.ECS_DEPLOYMENT_FAILED.fix).not.toMatch(/serving traffic/i);
+  });
+});
