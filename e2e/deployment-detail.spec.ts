@@ -1027,6 +1027,9 @@ test('destructive and rare actions live behind the overflow menu', async ({ page
   await expect(willBeRetained.getByText(/Delete retained data removes them later/)).toBeVisible();
   await expect(disconnectPanel.getByText(/connector stays in your customer's AWS account until they delete its stack/)).toBeVisible();
   await page.keyboard.press('Escape');
+  // A dialog opened from the menu hands focus back to the menu button, so a
+  // keyboard user keeps their place.
+  await expect(actions.getByRole('button', { name: 'More actions' })).toBeFocused();
 });
 
 test('AWS identifiers and the raw event feed stay inside Technical details', async ({ page }) => {
