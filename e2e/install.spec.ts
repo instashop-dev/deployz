@@ -215,8 +215,11 @@ test('security page reveals the actual permissions only after expanding', async 
 test('install page links to security details and back', async ({ page, request }) => {
   const { installLinkId } = await seedInstall(request);
   await page.goto(`/install/${installLinkId}`);
-  await page.getByRole('link', { name: 'Security details' }).click();
-  await page.waitForURL(`**/install/${installLinkId}/security`);
+  // The in-progress customer flow no longer surfaces a Security details
+  // button — it stays out of the primary deployment tracker so the customer
+  // sees a clear progress card, not a trust page in the middle of an
+  // install. The Security page URL is unchanged; reach it directly.
+  await page.goto(`/install/${installLinkId}/security`);
   await expect(page.getByRole('heading', { name: 'Security details' })).toBeVisible();
 
   await page.getByRole('link', { name: 'Back to install' }).click();

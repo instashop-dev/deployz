@@ -3,19 +3,20 @@
 import { useEffect, useRef } from 'react';
 
 import type {
-  CustomerActivityItem,
   CustomerDeploymentStatus,
   CustomerTechnicalDetails,
   DeploymentPlan,
-  SpecComponent,
 } from '@deployz/contracts';
-import { AlertCircle, AlertTriangle, CheckCircle2, ExternalLink, Loader2 } from 'lucide-react';
+import { AlertTriangle, ExternalLink } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 
 import { StepList, type StepListItem } from '@/components/step-list';
 import { AwsInfrastructureDetails } from '@/components/aws-infrastructure-details';
 import { CustomDomainCard } from '@/components/custom-domain-card';
+import { DeploymentTracker, type DeploymentTrackerLiveDetail } from '@/components/deployment-tracker';
 import { FailurePanel } from '@/components/failure-panel';
+import { LiveAwsActivity } from '@/components/live-aws-activity';
+import { ResourcesTable } from '@/components/resources-table';
 import { TechnicalDetails } from '@/components/technical-details';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
@@ -23,16 +24,11 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import type { CustomDomainView } from '@/lib/domains';
 import {
-  COMPONENT_PROGRESS_LABEL,
-  COMPONENT_STATUS_TONE,
+  customerStepperSteps,
   isTerminalStage,
-  recentActivityTimeLabel,
-  specComponentPresentation,
-  STAGE_HEADLINE,
+  stepsFromStatus,
   stepWaitingOnInput,
   AWAITING_DOMAIN_STEP_DETAIL,
-  customerStepperSteps,
-  stepsFromStatus,
 } from '@/lib/deployment-progress';
 import { fetchDeployLinkStatus, type DeployLinkToken } from '@/lib/deploy-link-flow';
 import { fetchInstallStatus } from '@/lib/install-status';
@@ -42,8 +38,6 @@ import {
   STARTUP_FAILURE_TITLE,
 } from '@/lib/diagnostic-vocabulary';
 import { OWNERSHIP_NOTE } from '@/lib/security-details';
-import { TONE_DOT, TONE_TEXT } from '@/lib/status-tone';
-import { cn } from '@/lib/utils';
 import { useStatusPoll } from '@/lib/use-status-poll';
 
 /**
@@ -152,7 +146,6 @@ export function InstallProgress({
     );
   }
 
-  const headline = STAGE_HEADLINE[status.stage];
   // A relay outage never regresses the displayed stage (the server already
   // holds the last confirmed one); it only earns this quiet notice. Repeated
   // client-side fetch failures get the same treatment.
@@ -163,107 +156,109 @@ export function InstallProgress({
   const ready = status.stage === 'READY';
   const activity = status.recentActivity ?? [];
 
+  const trackerSteps = customerStepperSteps(
+    stepsFromStatus({ steps: status.steps, step: status.step, stage: status.stage }),
+  );
+  const waitingOnInput = stepWaitingOnInput({
+    step: status.step,
+    needsDomainSetup: status.needsDomainSetup,
+  });
+  const liveDetail: DeploymentTrackerLiveDetail | undefined =
+    !failed && !ready && !waitingOnInput
+      ? {
+          currentActivity: status.currentActivity,
+          takingLongerThanUsual: status.takingLongerThanUsual,
+          typicalDurationSeconds: status.typicalDurationSeconds,
+          stepStartedAt: status.stepStartedAt ?? null,
+          checkedAt: poll.checkedAt,
+          active,
+        }
+      : undefined;
+
   return (
     <div className="flex flex-col gap-6">
-      <Card>
-        <CardContent className="flex flex-col gap-4 py-4">
-          <div>
+      {failed ? (
+        <Card>
+          <CardContent className="flex flex-col gap-4 py-4">
             {/* The only aria-live region in this component — every other
                 update (steps, components, access) rides along with it. */}
-            <h2 aria-live="polite" className="text-base font-semibold">
-              {headline.title}
-            </h2>
-            <p className="mt-1 text-sm text-muted-foreground">{headline.body}</p>
-          </div>
+            <div>
+              <h2 aria-live="polite" className="text-base font-semibold">
+                Deployment failed
+              </h2>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Deployz stopped the deployment before it finished.
+              </p>
+            </div>
+            <CustomerFailurePanel
+              failure={status.failure}
+              technicalDetails={status.technicalDetails}
+              cleanup={status.cleanup ?? null}
+            />
+            {/* The attempt's own step list stays visible after the failure:
+                completed steps remain done, the interrupted step is the
+                failed one, and nothing is named as next — the operation
+                stopped there. */}
+            <StepList steps={customerStepListSteps(status)} />
+          </CardContent>
+        </Card>
+      ) : (
+        <DeploymentTracker
+          stage={status.stage}
+          steps={trackerSteps}
+          {...(liveDetail ? { liveDetail } : {})}
+        />
+      )}
 
-          {stale ? (
-            <p className="text-xs text-muted-foreground">
-              Status updates are temporarily unavailable — showing the last confirmed state.
-            </p>
-          ) : null}
+      {stale ? (
+        <p className="text-xs text-muted-foreground">
+          Status updates are temporarily unavailable — showing the last confirmed state.
+        </p>
+      ) : null}
 
-          {failed ? (
-            <>
-              <CustomerFailurePanel
-                failure={status.failure}
-                technicalDetails={status.technicalDetails}
-                cleanup={status.cleanup ?? null}
-              />
-              {/* The attempt's own step list stays visible after the failure:
-                  completed steps remain done, the interrupted step is the
-                  failed one, and nothing is named as next — the operation
-                  stopped there. */}
-              <StepList steps={customerStepListSteps(status)} />
-            </>
-          ) : (
-            <>
-              {/* AWS can report a resource failure well before the job
-                  itself lands on FAILED (a rollback can take many minutes) —
-                  this says so immediately instead of leaving the page silent. */}
-              {status.provisioningIssue ? (
-                <Alert variant="destructive">
-                  <AlertTriangle aria-hidden />
-                  <AlertTitle>AWS reported a problem</AlertTitle>
-                  <AlertDescription>{status.provisioningIssue.message}</AlertDescription>
-                </Alert>
-              ) : null}
+      {/* AWS can report a resource failure well before the job
+          itself lands on FAILED (a rollback can take many minutes) —
+          this says so immediately instead of leaving the page silent. */}
+      {!failed && status.provisioningIssue ? (
+        <Alert variant="destructive">
+          <AlertTriangle aria-hidden />
+          <AlertTitle>AWS reported a problem</AlertTitle>
+          <AlertDescription>{status.provisioningIssue.message}</AlertDescription>
+        </Alert>
+      ) : null}
 
-              {/* Ready is terminal: the completed setup steps are no longer
-                  news, so the card keeps only the headline and the action. */}
-              {ready ? null : (
-                <StepList
-                  steps={customerStepListSteps(status)}
-                  liveDetail={
-                    !stepWaitingOnInput({ step: status.step, needsDomainSetup: status.needsDomainSetup })
-                      ? {
-                          currentActivity: status.currentActivity,
-                          takingLongerThanUsual: status.takingLongerThanUsual,
-                          typicalDurationSeconds: status.typicalDurationSeconds,
-                          stepStartedAt: status.stepStartedAt ?? null,
-                          checkedAt: poll.checkedAt,
-                          active,
-                        }
-                      : undefined
-                  }
-                />
-              )}
+      {status.stage === 'WAITING_FOR_AWS' && quickCreateUrl ? (
+        <Button asChild variant="outline" size="sm" className="self-start">
+          <a href={quickCreateUrl} target="_blank" rel="noopener noreferrer">
+            Open AWS setup
+          </a>
+        </Button>
+      ) : null}
 
-              {status.stage === 'WAITING_FOR_AWS' && quickCreateUrl ? (
-                <Button asChild variant="outline" size="sm" className="self-start">
-                  <a href={quickCreateUrl} target="_blank" rel="noopener noreferrer">
-                    Open AWS setup
-                  </a>
-                </Button>
-              ) : null}
+      {status.stage === 'VERIFYING' && status.needsDomainSetup ? (
+        <p className="text-sm text-muted-foreground" data-testid="awaiting-domain-copy">
+          Your application is healthy. The last step is a secure address — set up a custom
+          domain below to finish.
+        </p>
+      ) : null}
 
-              {status.stage === 'VERIFYING' && status.needsDomainSetup ? (
-                <p className="text-sm text-muted-foreground">
-                  Your application is healthy. The last step is a secure address — set up a
-                  custom domain below to finish.
-                </p>
-              ) : null}
-
-              {ready && status.url ? (
-                <Button asChild className="self-start">
-                  <a href={status.url} target="_blank" rel="noreferrer">
-                    Open application
-                    <ExternalLink aria-hidden className="size-3.5" />
-                  </a>
-                </Button>
-              ) : null}
-            </>
-          )}
-        </CardContent>
-      </Card>
+      {ready && status.url ? (
+        <Button asChild className="self-start">
+          <a href={status.url} target="_blank" rel="noreferrer">
+            Open application
+            <ExternalLink aria-hidden className="size-3.5" />
+          </a>
+        </Button>
+      ) : null}
 
       {active && activity.length > 0 ? <LiveAwsActivity items={activity} stale={stale} /> : null}
 
-      {/* Component rows start with infrastructure work (ux-guidelines §8):
+      {/* Resources start with infrastructure work (ux-guidelines §8):
           while AWS is still connecting, every row would only say Waiting. */}
       {!failed && status.stage !== 'WAITING_FOR_AWS' && status.stage !== 'CONNECTING' ? (
-        <ComponentStatus
-          components={status.components}
+        <ResourcesTable
           specComponents={status.specComponents}
+          components={status.components}
           showState={!ready}
         />
       ) : null}
@@ -325,129 +320,6 @@ export function InstallProgress({
         />
       ) : null}
     </div>
-  );
-}
-
-/**
- * The activity feed while the deployment runs: the latest few human-readable
- * AWS events (already translated to customer copy and deduplicated by the
- * API) with a subtle live/freshness cue. Shown only once AWS has reported
- * something — an empty feed is not progress. The raw events are under
- * Technical details.
- */
-function LiveAwsActivity({ items, stale }: { items: CustomerActivityItem[]; stale: boolean }) {
-  const now = Date.now();
-  return (
-    <section aria-labelledby="deployment-activity" className="flex flex-col gap-3">
-      <div className="flex items-center gap-2">
-        <span
-          aria-hidden
-          className={cn(
-            'size-1.5 shrink-0 rounded-full',
-            stale ? TONE_DOT.attention : TONE_DOT.progress,
-            !stale && 'animate-pulse',
-          )}
-        />
-        <h2 id="deployment-activity" className="text-base font-semibold">
-          Live AWS activity
-        </h2>
-        <span className="text-xs text-muted-foreground">{stale ? 'Last confirmed update' : 'Live'}</span>
-      </div>
-      <ul className="flex flex-col gap-1.5">
-        {items.slice(0, 5).map((item) => (
-          <li key={item.key} className="flex items-start gap-2 text-xs text-muted-foreground">
-            <ActivityIcon state={item.state} />
-            <span className="flex-1">{item.message}</span>
-            <span className="shrink-0 tabular-nums">{recentActivityTimeLabel(item.at, now)}</span>
-          </li>
-        ))}
-      </ul>
-    </section>
-  );
-}
-
-/**
- * One row per component this deployment actually requires, with its state —
- * the backend's component labels are the only naming shown, never a
- * client-side guess. The spec-derived `specComponents` are the rows when the
- * deployment has a frozen spec; otherwise the legacy component list, without
- * the NOT_REQUIRED entries. At READY the rows name the services only: the
- * per-component state can lag the finished install (UX-BACKEND-003), and a
- * "Waiting" row under "Your application is ready" would contradict it.
- */
-function ComponentStatus({
-  components,
-  specComponents,
-  showState,
-}: {
-  components: CustomerDeploymentStatus['components'];
-  specComponents: SpecComponent[] | undefined;
-  showState: boolean;
-}) {
-  const legacyRows = components.filter((component) => component.status !== 'NOT_REQUIRED');
-  const specRows = specComponents ?? [];
-  if (specRows.length === 0 && legacyRows.length === 0) return null;
-  return (
-    <section aria-labelledby="deployment-resources" className="flex flex-col gap-3">
-      <h2 id="deployment-resources" className="text-base font-semibold">
-        Resources
-      </h2>
-      {specRows.length > 0 ? (
-        <ul data-testid="spec-components">
-          {specRows.map((component, index) => {
-            const view = specComponentPresentation(component);
-            return (
-              <li
-                key={component.componentId}
-                className={cn(
-                  'flex items-center justify-between gap-3 py-2',
-                  index < specRows.length - 1 && 'border-b',
-                )}
-              >
-                <span className="min-w-0 text-sm">
-                  {view.label}
-                  {view.detail ? (
-                    <span className="block text-xs text-muted-foreground">{view.detail}</span>
-                  ) : null}
-                </span>
-                {showState ? (
-                  <span className="flex shrink-0 items-center gap-2 text-xs text-muted-foreground">
-                    <span
-                      aria-hidden
-                      className={cn('size-1.5 rounded-full', TONE_DOT[view.tone])}
-                    />
-                    {view.stateLabel}
-                  </span>
-                ) : null}
-              </li>
-            );
-          })}
-        </ul>
-      ) : (
-        <ul>
-          {legacyRows.map((component, index) => (
-            <li
-              key={component.key}
-              className={cn(
-                'flex items-center justify-between gap-3 py-2',
-                index < legacyRows.length - 1 && 'border-b',
-              )}
-            >
-              <span className="min-w-0 text-sm">{component.label}</span>
-              {showState ? (
-                <span className="flex shrink-0 items-center gap-2 text-xs text-muted-foreground">
-                  <span
-                    aria-hidden
-                    className={cn('size-1.5 rounded-full', TONE_DOT[COMPONENT_STATUS_TONE[component.status]])}
-                  />
-                  {COMPONENT_PROGRESS_LABEL[component.status]}
-                </span>
-              ) : null}
-            </li>
-          ))}
-        </ul>
-      )}
-    </section>
   );
 }
 
@@ -620,17 +492,6 @@ function formatEventTime(iso: string): string {
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) return iso;
   return date.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-}
-
-function ActivityIcon({ state }: { state: CustomerActivityItem['state'] }) {
-  switch (state) {
-    case 'COMPLETE':
-      return <CheckCircle2 aria-hidden className={cn('mt-0.5 size-3.5 shrink-0', TONE_TEXT.positive)} />;
-    case 'FAILED':
-      return <AlertCircle aria-hidden className="mt-0.5 size-3.5 shrink-0 text-destructive" />;
-    case 'IN_PROGRESS':
-      return <Loader2 aria-hidden className={cn('mt-0.5 size-3.5 shrink-0 animate-spin', TONE_TEXT.progress)} />;
-  }
 }
 
 function DetailRow({ label, value }: { label: string; value: string }) {

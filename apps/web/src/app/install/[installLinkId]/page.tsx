@@ -215,17 +215,13 @@ export default async function InstallPage({
           />
         )}
 
-        {/* Security Details stays reachable in every post-launch state —
-            installing, ready, failed, and removed alike. */}
-        <Button asChild variant="link" className="h-auto w-fit px-0">
-          <Link href={securityHref}>Security details</Link>
-        </Button>
-
-        <p className="text-xs text-muted-foreground">
-          {/* The link is consumed as soon as the connector trades its
-              enrollment code — long before the install finishes — so this
-              says the link is spent without claiming the app is running. */}
-          {`This install link has been used. To install again, ask ${data.publisherName} for a new link.`}
+        {/* The enrollment code is single-use and is spent as soon as the
+            connector trades it — long before the install finishes. This copy
+            stays out of the primary flow: it must NOT look like a failure
+            note, only a de-emphasized footnote about the link itself. */}
+        <p className="text-xs text-muted-foreground" data-testid="consumed-link-notice">
+          This installation link has been consumed. A new link is required only for another
+          installation.
         </p>
       </div>
     );
