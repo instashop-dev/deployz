@@ -145,12 +145,21 @@ test.describe('scenario-ui browser suite', () => {
     // and the active https rung says what it waits for.
     // The anchored regexes keep the label spans from substring-colliding with
     // the activity feed's own sentences ("Application passed health checks.").
+    // The legacy wire-step list shares labels with the redesigned rung text
+    // (same source: STEP_LABEL.done), so the assertions are scoped to its
+    // own testid to keep Playwright strict mode from matching both.
     await page.getByTestId('step-list-done-toggle').click();
-    await expect(page.getByText(/^Network created/)).toBeVisible();
-    await expect(page.getByText(/^Database & storage created/)).toBeVisible();
-    await expect(page.getByText(/^Application started/)).toBeVisible();
-    await expect(page.getByText(/^Health check/)).toBeVisible();
-    await expect(page.getByText(/^Setting up HTTPS/)).toBeVisible();
+    const doneList = page.getByTestId('step-list-done-list');
+    await expect(doneList.getByText(/^Network created/)).toBeVisible();
+    await expect(doneList.getByText(/^Database & storage created/)).toBeVisible();
+    await expect(doneList.getByText(/^Application started/)).toBeVisible();
+    await expect(doneList.getByText(/^Health check/)).toBeVisible();
+    // The active wire step is rendered OUTSIDE the done-list (it carries
+    // its own (in progress) annotation + the awaiting-domain detail line
+    // below it). Asserting its label inside the done-list would be wrong
+    // by construction — the done-list only contains steps the deployment
+    // has finished. The awaiting-domain detail is the customer-facing
+    // proof that the TLS step is the one still active.
     await expect(page.getByText('Waiting for a custom domain to be added.')).toBeVisible();
     await expect(page.getByRole('heading', { name: 'Access' })).toBeVisible();
     const customerBodyText = await page.locator('body').innerText();

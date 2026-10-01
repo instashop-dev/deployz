@@ -329,6 +329,38 @@ export function customerStepperSteps(steps: ProgressStep[]): StepperStep[] {
   });
 }
 
+/** "4 of 5 steps complete" — the X-of-Y line shown on the tracker card. The
+ *  total counts every rung the server reported as applicable to this
+ *  deployment, so the same code reads correctly with or without REDIS. */
+export function stepperProgressCount(steps: StepperStep[]): { completed: number; total: number } {
+  const total = steps.length;
+  const completed = steps.filter((step) => step.state === 'done').length;
+  return { completed, total };
+}
+
+/** A short, customer-safe description of what one rung actually does. Lives
+ *  next to the rung title so the tracker explains each step, not just names
+ *  it. Drawn from the rung key — the only stable identity the server sends —
+ *  so this never drifts from the wire steps the rung folds. */
+export function stepperRungDescription(rungKey: string): string {
+  switch (rungKey) {
+    case 'account':
+      return 'Approve the Deployz connector in your AWS account.';
+    case 'infrastructure':
+      return 'Create the network, database, and storage for your application.';
+    case 'application':
+      return 'Run migrations, then start your application service.';
+    case 'health':
+      return 'Wait for your application to pass its health checks.';
+    case 'https':
+      return 'Issue a TLS certificate for your secure address.';
+    case 'ready':
+      return 'Your application is reachable and healthy.';
+    default:
+      return '';
+  }
+}
+
 /**
  * '3–8 minutes' (en dash) for a genuine range, or 'about N minutes' once
  * rounding collapses min and max to the same whole minute. The only place

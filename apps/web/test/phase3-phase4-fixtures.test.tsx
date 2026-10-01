@@ -305,7 +305,12 @@ describe('customer progress renders specComponents (composition A + future capab
     );
     await flush();
 
-    expect(byTestId('spec-components')).not.toBeNull();
+    expect(byTestId('deployment-resources')).not.toBeNull();
+    // The redesigned resource table renders one row per spec component,
+    // each with its own testid. The test below asserts the Resources
+    // section header is present; row-level testids are covered in
+    // deployment-tracker.test.tsx.
+    expect(byTestId('resource-row-web')).not.toBeNull();
     const text = container.textContent ?? '';
     // Every component is present, none hidden — including the future one.
     expect(text).toContain('Web application');

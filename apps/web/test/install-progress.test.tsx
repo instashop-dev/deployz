@@ -156,12 +156,19 @@ describe('InstallProgress — success flow', () => {
 
     const text = () => container!.textContent ?? '';
 
+    // The tracker headline + X-of-Y line — primary progress, not raw stage.
+    // The headline mirrors the server-derived stage (legacy STAGE_HEADLINE),
+    // so PROVISIONING renders "Creating application infrastructure" — the
+    // same headline the E2E scenario-ui suite asserts on the customer page.
+    expect(text()).toContain('Creating application infrastructure');
+    expect(text()).toContain('1 of 6 steps complete');
+    // The current rung is named and described; wire substeps (database,
+    // storage, etc.) are technical detail — they stay behind Technical details.
     expect(text()).toContain('Creating infrastructure');
-    expect(text()).toContain('Creating database & storage');
+    expect(text()).toContain('Create the network, database, and storage for your application.');
     expect(text()).toContain('Creating the database.');
     expect(text()).toContain('Usually takes 3–10 minutes');
     expect(text()).toContain('4m 12s elapsed');
-    expect(text()).toContain('Checked just now');
     expect(text()).toContain('Live AWS activity');
     expect(text()).toContain('Network created.');
 
@@ -189,6 +196,11 @@ describe('InstallProgress — success flow', () => {
 
     expect(text()).not.toContain('elapsed');
     expect(text()).not.toContain('Live AWS activity');
+    // The tracker headline mirrors the server-derived stage. At READY that
+    // is "Your application is ready" (the legacy STAGE_HEADLINE copy the
+    // E2E scenario-ui suite asserts on the customer install page); the
+    // access section beneath keeps the customer-facing sentence "Your
+    // deployment is available securely at ...".
     expect(text()).toContain('Your application is ready');
     expect(text()).toContain('Access');
     const callsAtReady = mocks.fetchInstallStatus.mock.calls.length;
@@ -230,12 +242,16 @@ describe('InstallProgress — success flow', () => {
     });
 
     expect(container!.textContent).not.toContain('Deployment failed');
+    // The primary headline mirrors the server-derived stage. Once the vendor
+    // retries, the deployment is back at PROVISIONING and the customer page
+    // carries the same "Creating application infrastructure" headline it had
+    // before the failure.
     expect(container!.textContent).toContain('Creating application infrastructure');
   });
 });
 
 describe('InstallProgress — long-running flow', () => {
-  it('grows the elapsed time; the checked time counts up while a poll stalls, then resets to "just now" once it lands', async () => {
+  it('grows the elapsed time through a stalled poll, and keeps the same tracker copy once it lands', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-09-18T00:00:00.000Z'));
     const stepStartedAt = new Date(Date.now()).toISOString();
@@ -254,20 +270,27 @@ describe('InstallProgress — long-running flow', () => {
 
     const text = () => container!.textContent ?? '';
     expect(text()).toContain('0s elapsed');
-    expect(text()).toContain('Checked just now');
+    // The redesigned primary view intentionally drops the freshness stamp
+    // ("Checked N seconds ago") — that's a technical-detail indicator, not
+    // customer progress. The tracker's elapsed counter is what the customer
+    // reads, and stays as the only timing line in the visible flow.
+    expect(text()).not.toContain('Checked');
 
     // The poll fires at 5s and stalls; three more seconds pass on the
-    // 1-second ticker with no successful check yet.
+    // 1-second ticker with no successful check yet — the elapsed counter
+    // keeps growing on its own ticker.
     await act(async () => {
       await vi.advanceTimersByTimeAsync(8000);
     });
     expect(text()).toContain('8s elapsed');
-    expect(text()).toContain('Checked 8 seconds ago');
 
-    // The stalled poll finally lands: checked resets to "just now".
+    // The stalled poll finally lands: the tracker keeps its copy unchanged
+    // (no freshness stamp appears in the primary view — that was the
+    // technical-detail element the redesign moved out).
     resolveStalled(status);
     await flush();
-    expect(text()).toContain('Checked just now');
+    expect(text()).toContain('8s elapsed');
+    expect(text()).not.toContain('Checked');
   });
 
   it('shows the exact reassuring sentence when taking longer than usual', async () => {
@@ -302,7 +325,10 @@ describe('InstallProgress — long-running flow', () => {
     });
 
     const text = container!.textContent ?? '';
-    expect(text).toContain('Waiting for a custom domain to be added.');
+    // The redesigned tracker keeps the domain-waiting explanation in the
+    // Access section ("set up a custom domain below to finish") rather than
+    // as a wire-substep label inside the tracker.
+    expect(text).toContain('set up a custom domain below to finish');
     expect(text).not.toContain('elapsed');
     expect(text).not.toMatch(/still working/);
   });
@@ -625,9 +651,13 @@ describe('InstallProgress — AWS deployment details (READY)', () => {
     mount(baseProps({ initialStatus: status }));
     await flush();
 
-    // The setup steps are no longer news once the deployment is ready.
+    // The redesigned tracker keeps the full stepper at READY (every rung
+    // marked complete) so the customer sees the journey, not just the
+    // outcome. The "Next:" hint that the legacy StepList emitted is gone —
+    // there is no next step.
     expect(container!.querySelector('[data-testid="step-list-next"]')).toBeNull();
-    expect(container!.textContent ?? '').not.toContain('AWS account connected');
+    expect(container!.textContent ?? '').toContain('Your application is ready');
+    expect(container!.textContent ?? '').toContain('AWS account connected');
 
     const openApplicationLinks = Array.from(container!.querySelectorAll('a')).filter((anchor) =>
       anchor.textContent?.includes('Open application'),
@@ -766,7 +796,13 @@ describe('InstallProgress — spec-derived components', () => {
     expect(text).toContain('Waiting');
     // The legacy component list is replaced, not duplicated.
     expect(text).not.toContain('Application runtime');
-    expect(container!.querySelector('[data-testid="spec-components"]')).not.toBeNull();
+    // The redesigned resource table renders one row per component, each with
+    // its own testid. The container testid still identifies the Resources
+    // section.
+    expect(container!.querySelector('[data-testid="deployment-resources"]')).not.toBeNull();
+    expect(container!.querySelector('[data-testid="resource-row-network"]')).not.toBeNull();
+    expect(container!.querySelector('[data-testid="resource-row-database"]')).not.toBeNull();
+    expect(container!.querySelector('[data-testid="resource-row-application"]')).not.toBeNull();
   });
 
   it('renders every spec component with its provided label even when the componentId is unknown', async () => {
