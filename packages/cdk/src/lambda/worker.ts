@@ -505,6 +505,9 @@ async function configUpdate(
     .where(
       and(
         eq(schema.deployments.customerId, message.customerId),
+        // One customer can run several of the vendor's applications: a save
+        // for one must never reach (or remove a same-named key from) another.
+        message.applicationId !== undefined ? eq(schema.deployments.applicationId, message.applicationId) : undefined,
         notInArray(schema.deployments.state, [
           'NOT_INSTALLED',
           'WAITING_FOR_RELAY',
@@ -519,6 +522,7 @@ async function configUpdate(
       event: 'worker:config-update-fanout',
       messageId,
       customerId: message.customerId,
+      applicationId: message.applicationId ?? null,
       deployments: deployments.length,
       // Values never leave the process in a log line — count only.
       secretCount: message.secrets?.length ?? 0,

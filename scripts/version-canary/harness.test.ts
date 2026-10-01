@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -8,6 +9,7 @@ import { canaryTags, loadConfig, mintRunId, releaseVersionFor, requireRealAwsOpt
 import { isTerminalJobState, waitFor, type ControlPlane } from './control-plane.js';
 import { isConnectorSecret, isRetainedDatabaseSecret, relayFunctionName, removeCanaryLeftovers } from './teardown.js';
 import { captureFailureDiagnostics, withDiagnosticsOnFailure, type DiagnosticsContext } from './diagnostics.js';
+import { buildEnvProbeScript, compareEnvProbe, expectedProbe, parseEnvProbeLines } from './env-probe.js';
 import { Evidence, renderSummary, type RunRecord } from './evidence.js';
 import {
   assertSameInfrastructure,
@@ -851,5 +853,40 @@ describe('createBootstrapStack client-request-token', () => {
     expect(tokenIndex).toBeGreaterThan(-1);
     expect(capturedArgs[tokenIndex + 1]).toBe(clientRequestTokenFor('deployz-bootstrap-app-12345678'));
     expect(capturedArgs[tokenIndex + 1]).toBe('deployz-bootstrap-app-12345678');
+  });
+});
+
+describe('env probe', () => {
+  it('builds a script that prints hashes only and refuses anything but a variable name', () => {
+    const script = buildEnvProbeScript(['DATABASE_URL', 'API_KEY']);
+    expect(script).toContain('printenv DATABASE_URL');
+    expect(script).toContain("echo 'ENVPROBE done'");
+    expect(() => buildEnvProbeScript(['A; rm -rf /'])).toThrow(/not an environment variable name/);
+  });
+
+  it('matches what a POSIX shell prints for the exact intended value', () => {
+    const value = 'sk_test_ÜNÏ "q" $HOME \\x `id` ';
+    let shellOut: string;
+    try {
+      shellOut = execFileSync('sh', ['-c', buildEnvProbeScript(['PROBE_VALUE', 'PROBE_ABSENT'])], {
+        env: { ...process.env, PROBE_VALUE: value, PROBE_ABSENT: undefined },
+        encoding: 'utf8',
+      });
+    } catch {
+      return; // no POSIX shell on this machine; the parser cases below still run
+    }
+    const probed = parseEnvProbeLines(shellOut.split('\n'));
+    expect(probed).not.toBeNull();
+    expect(compareEnvProbe(probed!, { PROBE_VALUE: expectedProbe(value), PROBE_ABSENT: expectedProbe(null) })).toEqual([]);
+    expect(compareEnvProbe(probed!, { PROBE_VALUE: expectedProbe(`${value}x`) })).toHaveLength(1);
+  });
+
+  it('reports unfinished output as null and names each mismatch', () => {
+    expect(parseEnvProbeLines(['ENVPROBE A absent'])).toBeNull();
+    const probed = parseEnvProbeLines(['ENVPROBE A absent', 'ENVPROBE B present 3 0123456789abcdef', 'ENVPROBE done'])!;
+    expect(probed).toEqual({ A: { present: false }, B: { present: true, length: 3, sha256Prefix: '0123456789abcdef' } });
+    expect(compareEnvProbe(probed, { A: { present: true }, B: { present: true }, C: expectedProbe(null) })).toEqual([
+      'A: expected present, got absent',
+    ]);
   });
 });

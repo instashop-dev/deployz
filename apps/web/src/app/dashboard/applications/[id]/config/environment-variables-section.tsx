@@ -663,7 +663,7 @@ function EnvironmentVariablesTable({
           {dirty && saveState !== 'saving' ? <p className="text-xs text-muted-foreground">Unsaved changes.</p> : null}
         </div>
         <p className="text-xs text-muted-foreground">
-          Changes apply to new release builds and new installations. Existing customer deployments do not change.
+          Build values apply to new release builds. Runtime values reach running customer deployments within a few minutes.
         </p>
       </CardContent>
     </Card>

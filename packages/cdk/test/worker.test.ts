@@ -483,6 +483,39 @@ describe('worker handler', () => {
     expect(after).toHaveLength(1);
   });
 
+  it("sends a CONFIG_UPDATE only to the saved application's deployments of that customer", async () => {
+    const [otherApplication] = await db
+      .insert(schema.applications)
+      .values({ organizationId, name: 'other', repoFullName: 'acme/other-app', repoUrl: 'https://github.com/acme/other-app' })
+      .returning();
+    const deployments = await db
+      .insert(schema.deployments)
+      .values(
+        [applicationId, otherApplication!.id].map((application) => ({
+          organizationId,
+          applicationId: application,
+          customerId,
+          region: 'us-east-1',
+          state: 'HEALTHY' as const,
+          installationId: randomUUID(),
+          enrollmentCode: randomUUID(),
+        })),
+      )
+      .returning();
+
+    await handleMessage(
+      deps(),
+      { type: 'CONFIG_UPDATE', customerId, applicationId, secrets: [{ key: 'STRIPE_SECRET_KEY', value: 'sk_app_a_only' }], removedKeys: ['LOG_LEVEL'] },
+      'msg-app-scoped',
+    );
+
+    const jobsFor = async (deploymentId: string) =>
+      db.select().from(schema.deploymentJobs).where(eq(schema.deploymentJobs.deploymentId, deploymentId));
+    expect(await jobsFor(deployments[0]!.id)).toHaveLength(1);
+    // The other application never receives this application's secret value or removal.
+    expect(await jobsFor(deployments[1]!.id)).toHaveLength(0);
+  });
+
   function buildEvent(
     releaseId: string,
     status: string,

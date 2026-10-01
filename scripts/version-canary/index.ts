@@ -8,14 +8,18 @@
  *                                                  one infrastructure profile: install + teardown, no version ladder.
  *   pnpm e2e:canary:versions cleanup --run-id <id> product destroy/purge + canary leftovers for a recorded run
  *   pnpm e2e:canary:versions audit --run-id <id>   leak audit for a recorded run (read-only)
+ *   pnpm e2e:canary:versions env-probe --stack <name> --keys A,B [--expect <file>]
+ *                                                  which env values the running container receives (hashes only)
  *
  * Always through scripts/e2e.mjs, which enforces DEPLOYZ_E2E_ALLOW_REAL_AWS=1
  * before anything runs; this file checks it again.
  */
+import { readFileSync } from 'node:fs';
 import { parseArgs } from 'node:util';
 
 import { loadConfig, requireRealAwsOptIn } from './config.js';
 import { ControlPlane } from './control-plane.js';
+import { compareEnvProbe, expectedProbe, probeRuntimeEnv } from './env-probe.js';
 import { Evidence, type RunRecord } from './evidence.js';
 import { runResilience } from './resilience.js';
 import { runCore, runProfile } from './scenarios.js';
@@ -24,7 +28,7 @@ import { destroyThroughProduct, leakAudit, removeCanaryLeftovers } from './teard
 
 function usage(): void {
   console.error(
-    'Usage: e2e:canary:versions <preflight|core [--keep] [--existing-image=<digest>] [--reuse-stack]|resilience [--keep]|profile --profile <pg|stateless|redis> [--run-id <id>]|cleanup --run-id <id>|audit --run-id <id>>',
+    'Usage: e2e:canary:versions <preflight|core [--keep] [--existing-image=<digest>] [--reuse-stack]|resilience [--keep]|profile --profile <pg|stateless|redis> [--run-id <id>]|cleanup --run-id <id>|audit --run-id <id>|env-probe --stack <name> --keys A,B [--expect <file>]>',
   );
 }
 
@@ -53,6 +57,9 @@ async function main(): Promise<void> {
       'existing-image': { type: 'string' },
       'reuse-stack': { type: 'boolean', default: false },
       profile: { type: 'string' },
+      stack: { type: 'string' },
+      keys: { type: 'string' },
+      expect: { type: 'string' },
     },
   });
   const [command] = positionals;
@@ -135,6 +142,23 @@ async function main(): Promise<void> {
         console.error(error instanceof Error ? error.message : String(error));
         evidence.finish('FAIL');
         process.exitCode = 1;
+      }
+      return;
+    }
+    case 'env-probe': {
+      if (!values['stack'] || !values['keys']) throw new Error('env-probe needs --stack <name> --keys A,B');
+      const keys = values['keys'].split(',').filter((key) => key.length > 0);
+      const { taskDefinition, values: probed } = await probeRuntimeEnv(config.region, values['stack'], keys, config.runId);
+      console.log(JSON.stringify({ taskDefinition, probed }, null, 2));
+      if (values['expect']) {
+        // { "KEY": "exact intended value" | null (absent) | true (present, any value) } — a local file, never committed.
+        const intended = JSON.parse(readFileSync(values['expect'], 'utf8')) as Record<string, string | null | true>;
+        const expected = Object.fromEntries(
+          Object.entries(intended).map(([key, value]) => [key, value === true ? { present: true as const } : expectedProbe(value)]),
+        );
+        const mismatches = compareEnvProbe(probed, expected);
+        console.log(mismatches.length === 0 ? 'env-probe: PASS' : `env-probe: FAIL\n${mismatches.join('\n')}`);
+        if (mismatches.length > 0) process.exitCode = 1;
       }
       return;
     }

@@ -191,8 +191,7 @@ Not provided by the platform:
 - Multi-Region or active-active deployments, on-premises, air-gapped
   environments.
 - Customer-selectable size profiles, changing the topology of an existing
-  deployment (a new requirement means a new deployment), per-customer builds,
-  pushing changed vendor defaults to existing deployments.
+  deployment (a new requirement means a new deployment), per-customer builds.
 - Customer-side controls inside Deployz: the customer approves the Quick
   Create and can only uninstall through the AWS console.
 - Deployment notifications by email or Slack, vendor-branded install pages,
