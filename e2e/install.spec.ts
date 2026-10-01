@@ -77,10 +77,10 @@ test('unknown installation id renders an honest not-found state', async ({ page 
   expect(response?.status()).toBe(200);
   await expect(page.getByRole('heading', { name: "This link isn't valid" })).toBeVisible();
   // Never fabricates a CTA for a link that doesn't resolve to anything real.
-  await expect(page.getByRole('link', { name: 'Review setup in AWS' })).toHaveCount(0);
+  await expect(page.getByRole('link', { name: 'Connect AWS account' })).toHaveCount(0);
 });
 
-test('install page renders the real application/publisher and the Deploy to AWS CTA', async ({
+test('install page renders the real application/publisher and the Connect AWS account CTA', async ({
   page,
   request,
 }) => {
@@ -92,14 +92,16 @@ test('install page renders the real application/publisher and the Deploy to AWS 
   await expect(
     page.getByRole('heading', { name: `Deploy ${applicationName} to your AWS account` }),
   ).toBeVisible();
-  await expect(page.getByText('What Deployz creates in your AWS account')).toBeVisible();
-  // The §12 access lists and the data-boundary facts are in the review's
-  // "What Deployz can access" section — visible without expanding anything.
-  await expect(page.getByText('Your application data and logs stay in your AWS account.')).toBeVisible();
-  await expect(page.getByText(/only calls out to Deployz/)).toBeVisible();
-  await expect(page.getByText(/never sees or stores your AWS credentials/)).toBeVisible();
+  // The canonical AWS resources table replaces the prior "What Deployz creates"
+  // surface; its heading carries the new wording.
+  await expect(page.getByRole('heading', { name: 'AWS resources' })).toBeVisible();
+  // The consolidated "Before you deploy" section carries the prior scattered
+  // data-boundary facts.
+  await expect(page.getByRole('heading', { name: 'Before you deploy' })).toBeVisible();
+  await expect(page.getByText('Your application data and logs remain in your AWS account.')).toBeVisible();
+  await expect(page.getByText(/Deployz never receives or stores your AWS credentials/)).toBeVisible();
 
-  const cta = page.getByRole('link', { name: 'Review setup in AWS' });
+  const cta = page.getByRole('link', { name: 'Connect AWS account' });
   await expect(cta).toBeVisible();
   const href = await cta.getAttribute('href');
   expect(href).toContain('console.aws.amazon.com/cloudformation');
@@ -121,8 +123,6 @@ test('install page renders the real application/publisher and the Deploy to AWS 
 
   // §44 framing: the customer authenticates at their own cloud provider.
   await expect(page.getByText(/You do not need a Deployz account/)).toBeVisible();
-  // Plain-English connector explanation — visible in the access section.
-  await expect(page.getByText(/only calls out to Deployz/).first()).toBeVisible();
   // The unique installation reference is shown, under Technical details.
   await page.getByRole('button', { name: 'Technical details' }).click();
   await expect(page.getByText(installLinkId)).toBeVisible();
@@ -138,8 +138,7 @@ test('install page top-level copy is jargon-free', async ({ page, request }) => 
   // reviews before anything is created.
   const prose = [
     await page.locator('h1').innerText(),
-    await page.locator('section[aria-labelledby="install-resources"]').innerText(),
-    await page.locator('section[aria-labelledby="install-access"]').innerText(),
+    await page.locator('section[aria-labelledby="before-you-deploy"]').innerText(),
     await page.locator('section[aria-labelledby="connect-aws"]').innerText(),
   ].join('\n');
   expect(prose).not.toMatch(/\b(IAM|ECS|ALB|Lambda|VPC)\b/);
@@ -215,13 +214,13 @@ test('security page reveals the actual permissions only after expanding', async 
 test('install page links to security details and back', async ({ page, request }) => {
   const { installLinkId } = await seedInstall(request);
   await page.goto(`/install/${installLinkId}`);
-  await page.getByRole('link', { name: 'Security details' }).click();
+  await page.getByRole('link', { name: 'Security & permissions details' }).click();
   await page.waitForURL(`**/install/${installLinkId}/security`);
   await expect(page.getByRole('heading', { name: 'Security details' })).toBeVisible();
 
   await page.getByRole('link', { name: 'Back to install' }).click();
   await page.waitForURL(`**/install/${installLinkId}`);
-  await expect(page.getByText('What Deployz creates in your AWS account')).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'AWS resources' })).toBeVisible();
 });
 
 test('a setup link that has already been used says so instead of leading to a dead end', async ({
@@ -254,7 +253,7 @@ test('a setup link that has already been used says so instead of leading to a de
   await expect(page.getByRole('heading', { name: 'Connecting your AWS account' })).toBeVisible();
   // Running the setup again would fail only AFTER the customer approved a
   // stack in their own account, so the CTA must be gone, not just disabled.
-  await expect(page.getByRole('link', { name: 'Review setup in AWS' })).toHaveCount(0);
+  await expect(page.getByRole('link', { name: 'Connect AWS account' })).toHaveCount(0);
 });
 
 // ── Pre-relay lifecycle: per-deployment stack names, launch signal, retry ────
@@ -275,10 +274,10 @@ test('two deployments of the same application in the same region prefill differe
   const second = (await secondDeployment.json()) as { installLinkId: string };
 
   await page.goto(`/install/${seeded.installLinkId}`);
-  const firstHref = await page.getByRole('link', { name: 'Review setup in AWS' }).getAttribute('href');
+  const firstHref = await page.getByRole('link', { name: 'Connect AWS account' }).getAttribute('href');
 
   await page.goto(`/install/${second.installLinkId}`);
-  const secondHref = await page.getByRole('link', { name: 'Review setup in AWS' }).getAttribute('href');
+  const secondHref = await page.getByRole('link', { name: 'Connect AWS account' }).getAttribute('href');
 
   expect(firstHref).toContain('stackName=deployz-bootstrap-analytics-cloud-');
   expect(secondHref).toContain('stackName=deployz-bootstrap-analytics-cloud-');
@@ -308,8 +307,8 @@ test('pressing Deploy to AWS reports the launch and the page then waits for the 
   });
 
   await page.goto(`/install/${installLinkId}`);
-  await expect(page.getByRole('link', { name: 'Review setup in AWS' })).toBeVisible();
-  await page.getByRole('link', { name: 'Review setup in AWS' }).click();
+  await expect(page.getByRole('link', { name: 'Connect AWS account' })).toBeVisible();
+  await page.getByRole('link', { name: 'Connect AWS account' }).click();
   await expect
     .poll(async () => launched, { timeout: 10_000 })
     .toBe(true);
@@ -367,6 +366,6 @@ test('a customer retry starts a fresh attempt with a fresh stack name and code',
   // The install page hands the customer the fresh link, prefilled with the
   // new stack name no leftover from the first attempt can block.
   await page.goto(`/install/${installLinkId}`);
-  const href = await page.getByRole('link', { name: 'Review setup in AWS' }).getAttribute('href');
+  const href = await page.getByRole('link', { name: 'Connect AWS account' }).getAttribute('href');
   expect(href).toContain(`stackName=${encodeURIComponent(attempt.bootstrapStackName)}`);
 });

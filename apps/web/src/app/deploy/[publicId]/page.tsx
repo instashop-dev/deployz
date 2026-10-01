@@ -2,7 +2,7 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { Loader2 } from 'lucide-react';
 
-import { CustomerInstallReview } from '@/components/customer-install-review';
+import { CustomerInstallSections } from '@/components/customer-install-sections';
 import { DeployLinkInvalidState, PoweredBy } from '@/components/deploy-link-invalid-state';
 import { InstallLaunchButton } from '@/components/install-launch-button';
 import { InstallProgress } from '@/components/install-progress';
@@ -148,18 +148,22 @@ export default async function DeployPage({
           <p className="mt-2 text-sm text-muted-foreground">Region: {regionLabel ?? data.region}</p>
         </div>
 
-        <CustomerInstallReview plan={data.plan} securityHref={securityHref} />
+        <CustomerInstallSections
+          plan={data.plan}
+          applicationName={data.application.name}
+          securityHref={securityHref}
+        />
 
         <section aria-labelledby="connect-aws" className="flex flex-col gap-3">
           <h2 id="connect-aws" className="text-base font-semibold">
-            Connect your AWS account
+            Connect AWS account
           </h2>
           <p className="text-sm text-muted-foreground">
             {data.application.name} runs in your own AWS account. To set it up, you approve the
             Deployz connector there.
           </p>
           <ol className="flex list-decimal flex-col gap-2 pl-5 text-sm text-muted-foreground">
-            <li>Select Review setup in AWS. The AWS console opens in a new tab.</li>
+            <li>Select Connect AWS account. The AWS console opens in a new tab.</li>
             <li>Check the AWS account and Region, then create the Deployz connector stack.</li>
             <li>
               Deployz creates the infrastructure and starts the application. Progress shows on this
@@ -171,11 +175,12 @@ export default async function DeployPage({
               installLinkId={publicId}
               quickCreateUrl={data.quickCreateUrl}
               deployLink={deployLink}
+              label="Connect AWS account"
             />
           ) : (
             <>
               <Button size="lg" className="w-fit" disabled>
-                Review setup in AWS
+                Connect AWS account
               </Button>
               <p className="text-sm text-muted-foreground">
                 The setup template isn&apos;t published for this Region yet. Ask the software provider

@@ -30,11 +30,14 @@ const QUICK_CREATE = 'https://console.aws.amazon.com/cloudformation/quickcreate'
 const SECURITY_HREF = `/deploy/${PUBLIC_ID}/security?token=${TOKEN}`;
 
 function securityLink(doc: Document): Element | undefined {
-  // The waiting/review layouts link straight to the security page; the
-  // launched layout's quiet disclosure row carries an "Open security
-  // details" action next to its collapsible trigger.
+  // The waiting/launched layouts link straight to the security page; the
+  // pre-launch review's "Before you deploy" section carries the same link
+  // via a "Security & permissions details" button.
   return [...doc.querySelectorAll('a')].find(
-    (anchor) => anchor.textContent === 'Security details' || anchor.textContent === 'Open security details',
+    (anchor) =>
+      anchor.textContent === 'Security details' ||
+      anchor.textContent === 'Open security details' ||
+      anchor.textContent === 'Security & permissions details',
   );
 }
 
@@ -110,13 +113,14 @@ describe('DeployPage', () => {
     expect(doc.body.textContent).toContain('Deploy Acme Analytics to your AWS account');
     expect(doc.body.textContent).toContain('runs in your own AWS account');
     // Plan-driven table content, not a hand-rolled resource-name list.
-    expect(doc.body.textContent).toContain('Database');
+    expect(doc.body.textContent).toContain('RDS PostgreSQL database');
     expect(doc.body.textContent).toContain('Stores persistent application data');
     expect(doc.body.textContent).toContain('US East (N. Virginia)');
     // No estimate in the fixture: the fallback stays explicit, never invented.
     expect(doc.body.textContent).toContain('AWS cost estimate unavailable.');
     expect(doc.body.textContent).toContain('Powered by Deployz');
-    expect(doc.querySelector('a[href="' + QUICK_CREATE + '"]')?.textContent).toBe('Review setup in AWS');
+    // The customer surface uses the brief's "Connect AWS account" CTA.
+    expect(doc.querySelector('a[href="' + QUICK_CREATE + '"]')?.textContent).toBe('Connect AWS account');
     expect(securityLink(doc)?.getAttribute('href')).toBe(SECURITY_HREF);
     // No internal identifiers in the page.
     expect(doc.body.textContent).not.toContain(PUBLIC_ID);

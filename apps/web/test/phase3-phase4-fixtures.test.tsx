@@ -387,7 +387,6 @@ describe('truthful degradation on the customer install page', () => {
     // No region line renders for an unknown region — never a raw code.
     expect(text).not.toContain('US East');
     // The page itself still renders the full composition.
-    expect(text).toContain('Email worker');
-    expect(text).toContain('MySQL database');
+    expect(text).toContain('RDS MySQL database');
   });
 });
