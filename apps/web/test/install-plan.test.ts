@@ -1,10 +1,11 @@
 import { describe, expect, it } from 'vitest';
 
-import { resolveDeploymentFootprint } from '@deployz/contracts';
+import { estimateFootprintCost, resolveDeploymentFootprint } from '@deployz/contracts';
 import type { DeploymentManifest, DeploymentPlan, FootprintResource } from '@deployz/contracts';
 import {
   awsResourceGroups,
   awsResourceRemovalLabel,
+  formatInstallCostCell,
   installPlanRegionLabel,
   installPlanRetentionNote,
   installPlanResourceGroups,
@@ -230,7 +231,7 @@ describe('installPlanResourceGroups', () => {
   it('renders one workload row for a single-workload deployment, carrying the workload sizing', () => {
     const rows = applicationRows(installPlanResourceGroups(footprintPlan({})));
     const workloadRows = rows.filter((row) => row.id.startsWith('workload-'));
-    expect(workloadRows).toEqual([
+    expect(workloadRows).toMatchObject([
       {
         id: 'workload-web',
         name: 'Web application',
@@ -315,5 +316,76 @@ describe('installPlanResourceGroups', () => {
     });
     const dataRows = groups.find((entry) => entry.group === 'data')!.rows;
     expect(dataRows.map((row) => row.serviceAndConfiguration)).toEqual(['RDS MySQL database · Database']);
+  });
+});
+
+describe('formatInstallCostCell', () => {
+  it('emits a compact range when both bounds exist', () => {
+    expect(formatInstallCostCell(18, 22)).toBe('~$18–22');
+  });
+
+  it('collapses equal min/max into a single number', () => {
+    expect(formatInstallCostCell(32, 32)).toBe('~$32');
+  });
+
+  it('emits a one-sided range when one bound is null', () => {
+    expect(formatInstallCostCell(null, 25)).toBe('~$25');
+    expect(formatInstallCostCell(15, null)).toBe('~$15');
+  });
+
+  it('emits an em dash when both bounds are null', () => {
+    expect(formatInstallCostCell(null, null)).toBe('—');
+  });
+});
+
+describe('installPlanResourceGroups cost cells', () => {
+  it('labels every connector row as Included — connector resources are not priced', () => {
+    const groups = installPlanResourceGroups(footprintPlan({}));
+    const connector = groups.find((group) => group.group === 'connector');
+    expect(connector).toBeDefined();
+    expect(connector!.rows.every((row) => row.costCell === 'Included')).toBe(true);
+  });
+
+  it('falls back to a dash when the plan carries no cost estimate', () => {
+    const planWithoutCosts: DeploymentPlan = {
+      ...footprintPlan({}),
+      costEstimate: null as unknown as DeploymentPlan['costEstimate'],
+    };
+    const groups = installPlanResourceGroups(planWithoutCosts);
+    const allRows = groups.flatMap((group) => group.rows);
+    // Connector rows are still "Included" (no estimate needed); every other
+    // row should be "—" because no cost item can be looked up.
+    for (const row of allRows) {
+      if (row.id.startsWith('workload-')) {
+        expect(row.costCell).toBe('—');
+      } else if (!row.id.startsWith('connector')) {
+        expect(row.costCell).toBe('—');
+      }
+    }
+  });
+
+  it('renders the monthly range from a priced workload cost item', () => {
+    const base = footprintPlan({});
+    // Attach a real cost estimate to the plan so the install table can
+    // look up per-row cells from `costEstimate.items`.
+    const plan: DeploymentPlan = {
+      ...base,
+      costEstimate: estimateFootprintCost(base.footprint!),
+    };
+    const groups = installPlanResourceGroups(plan);
+    const workloadRow = groups.flatMap((group) => group.rows).find((row) => row.id === 'workload-web')!;
+    // The cost item's resourceId matches the workload's footprint id, which
+    // `installPlanResourceGroups` strips the `workload-` prefix from to look
+    // up the cell.
+    const workloadFootprintId = plan.footprint!.workloads[0]!.id;
+    const item = plan.costEstimate!.items.find((entry) => entry.resourceId === workloadFootprintId);
+    expect(item).toBeDefined();
+    if (item!.pricingStatus === 'estimated') {
+      expect(workloadRow.costCell).toMatch(/^~\$\d+(–\d+)?$/);
+    } else if (item!.pricingStatus === 'usage_based') {
+      expect(workloadRow.costCell).toBe('Usage-based');
+    } else {
+      expect(workloadRow.costCell).toBe('Pricing unavailable');
+    }
   });
 });

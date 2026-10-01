@@ -2,7 +2,6 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { ChevronDown, Loader2 } from 'lucide-react';
 
-import { FootprintCost } from '@/components/footprint-cost';
 import { InstallLaunchButton } from '@/components/install-launch-button';
 import { InstallPlanTable } from '@/components/install-plan-table';
 import { InstallProgress } from '@/components/install-progress';
@@ -16,7 +15,7 @@ import { RELAY_STUCK_GUIDANCE } from '@/lib/deployment-vocabulary';
 import { cloudFormationStacksUrl } from '@/lib/aws-console';
 import { fetchInstallData } from '@/lib/install-data';
 import { formatMonthlyRange } from '@/lib/footprint';
-import { installPlanRegionLabel, installPlanRetentionNote, RETENTION_CHARGES_NOTE } from '@/lib/install-plan';
+import { installPlanRegionLabel } from '@/lib/install-plan';
 import { fetchPublicInstallData } from '@/lib/public-install-data';
 import { publicInstallErrorMessage } from '@/lib/public-install-types';
 import { fetchInstallStatusServer } from '@/lib/install-status';
@@ -259,7 +258,6 @@ export default async function InstallPage({
     );
   }
 
-  const retentionNote = installPlanRetentionNote(data.plan);
   const regionLabel = installPlanRegionLabel(data.region);
   const costRange = formatMonthlyRange(
     data.plan?.costEstimate?.monthlyMin ?? null,
@@ -270,104 +268,82 @@ export default async function InstallPage({
     : null;
 
   return (
-    <div className="mx-auto flex w-full max-w-3xl flex-col gap-10">
-      <header className="flex flex-col gap-4">
-        <div className="flex flex-col gap-2">
-          <h1 className="text-3xl font-semibold tracking-tight">
-            Deploy {data.applicationName} to your AWS account
-          </h1>
-          <p className="text-sm text-muted-foreground">
-            Requested by {data.publisherName} · Unlisted deployment link
-          </p>
-        </div>
-        <dl className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+    <div className="mx-auto flex w-full max-w-3xl flex-col gap-8">
+      <header className="flex flex-col gap-3">
+        <h1 className="text-2xl font-semibold tracking-tight">
+          Deploy {data.applicationName} to your AWS account
+        </h1>
+        <p className="text-sm text-muted-foreground">
+          Requested by {data.publisherName} · Unlisted deployment link
+        </p>
+        <dl className="grid grid-cols-2 gap-x-6 gap-y-3 sm:grid-cols-4">
           <div>
-            <dt className="text-xs font-medium uppercase text-muted-foreground">Application</dt>
+            <dt className="text-xs uppercase text-muted-foreground">Application</dt>
             <dd className="mt-1 text-sm font-medium">{data.applicationName}</dd>
           </div>
           <div>
-            <dt className="text-xs font-medium uppercase text-muted-foreground">Publisher</dt>
+            <dt className="text-xs uppercase text-muted-foreground">Publisher</dt>
             <dd className="mt-1 text-sm font-medium">{data.publisherName}</dd>
           </div>
           {regionLabel ? (
             <div>
-              <dt className="text-xs font-medium uppercase text-muted-foreground">Region</dt>
+              <dt className="text-xs uppercase text-muted-foreground">Region</dt>
               <dd className="mt-1 text-sm font-medium">{regionLabel}</dd>
             </div>
           ) : null}
-          {data.releaseVersion ? (
-            <div>
-              <dt className="text-xs font-medium uppercase text-muted-foreground">Release</dt>
-              <dd className="mt-1 text-sm font-medium">{data.releaseVersion}</dd>
-            </div>
-          ) : null}
-          <div>
-            <dt className="text-xs font-medium uppercase text-muted-foreground">
-              Estimated monthly AWS cost
-            </dt>
-            <dd className="mt-1 text-sm font-medium">
-              {costRange ?? 'Estimate unavailable'}
-            </dd>
-          </div>
           {expiryLabel ? (
             <div>
-              <dt className="text-xs font-medium uppercase text-muted-foreground">
-                Invitation expires
-              </dt>
+              <dt className="text-xs uppercase text-muted-foreground">Invitation expires</dt>
               <dd className="mt-1 text-sm font-medium">{expiryLabel}</dd>
             </div>
           ) : null}
+          <div>
+            <dt className="text-xs uppercase text-muted-foreground">Estimated AWS cost / month</dt>
+            <dd
+              className="mt-1 text-sm font-medium"
+              data-testid="install-header-cost"
+            >
+              {costRange ?? 'Estimate unavailable'}
+            </dd>
+          </div>
         </dl>
-        {retentionNote ? (
-          <p className="text-sm text-muted-foreground" data-testid="install-retention-warning">
-            {retentionNote} {RETENTION_CHARGES_NOTE}
-          </p>
-        ) : null}
       </header>
 
-      <section aria-labelledby="infrastructure" className="flex flex-col gap-3">
-        <h2 id="infrastructure" className="text-base font-semibold">
-          What Deployz will create
-        </h2>
+      <section aria-labelledby="aws-resources" className="flex flex-col gap-3">
+        <div className="flex flex-col gap-1">
+          <h2 id="aws-resources" className="text-base font-semibold">
+            AWS resources
+          </h2>
+          <p className="text-sm text-muted-foreground">
+            All AWS resources Deployz will create in your account.
+          </p>
+        </div>
         <InstallPlanTable plan={data.plan} regionLabel={regionLabel} />
-        <p className="text-sm text-muted-foreground">
-          Retained resources stay in your AWS account when the application is disconnected. Delete
-          them from the AWS console, or ask {data.publisherName} to purge them, to stop their
-          charges.
+        <p className="text-sm text-muted-foreground" data-testid="install-cost-disclaimer">
+          Estimated AWS cost. AWS bills your account directly; actual charges depend on usage.
         </p>
-        <FootprintCost estimate={data.plan?.costEstimate} />
+        <p className="text-sm text-muted-foreground" data-testid="install-retention-warning">
+          Most resources are removed with the deployment. Persistent resources are retained and may
+          continue to incur AWS charges.
+        </p>
       </section>
 
-      <section aria-labelledby="what-happens-next" className="flex flex-col gap-3">
-        <h2 id="what-happens-next" className="text-base font-semibold">
-          What happens next
+      <section aria-labelledby="before-you-deploy" className="flex flex-col gap-3">
+        <h2 id="before-you-deploy" className="text-base font-semibold">
+          Before you deploy
         </h2>
-        <ol className="flex list-decimal flex-col gap-2 pl-5 text-sm text-muted-foreground">
-          <li>Review the setup in AWS.</li>
-          <li>Approve creation of the Deployz connector.</li>
-          <li>Deployz prepares the infrastructure, starts the application and verifies HTTPS.</li>
-        </ol>
-      </section>
-
-      <section aria-labelledby="security-facts" className="flex flex-col gap-3">
-        <h2 id="security-facts" className="text-base font-semibold">
-          Your security and access
-        </h2>
-        <ul className="flex list-disc flex-col gap-1.5 pl-5 text-sm text-muted-foreground">
-          <li>Your AWS credentials stay in your AWS account — Deployz never sees or stores them.</li>
-          <li>
-            Your application data stays in your AWS account. Retained data survives a disconnect
-            until the publisher purges it or you delete it.
-          </li>
-          <li>
-            The Deployz connector only calls out to Deployz on a schedule. No inbound access to
-            your account is required.
-          </li>
+        <ul className="flex flex-col gap-2 text-sm text-muted-foreground">
+          <li>Resources are created in your AWS account.</li>
+          <li>AWS charges are billed directly to you — Deployz never receives a bill.</li>
+          <li>Deployz never sees or stores your AWS credentials.</li>
+          <li>Application data and logs stay in your AWS account.</li>
+          <li>Deployz manages only the resources required for this deployment.</li>
+          <li>Persistent resources can remain after the deployment is removed.</li>
         </ul>
         <Collapsible>
           <CollapsibleTrigger asChild>
             <Button variant="outline" size="sm" className="w-fit">
-              Security and access details
+              Security &amp; permissions details
               <ChevronDown aria-hidden className="ml-2 size-4" />
             </Button>
           </CollapsibleTrigger>
@@ -413,25 +389,18 @@ export default async function InstallPage({
       </section>
 
       <section aria-label="Install actions" className="flex flex-col gap-3">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-          {data.quickCreateUrl ? (
-            <InstallLaunchButton
-              installLinkId={installLinkId}
-              quickCreateUrl={data.quickCreateUrl}
-            />
-          ) : (
-            <Button size="lg" disabled>
-              Review setup in AWS
-            </Button>
-          )}
-        </div>
+        {data.quickCreateUrl ? (
+          <InstallLaunchButton
+            installLinkId={installLinkId}
+            quickCreateUrl={data.quickCreateUrl}
+          />
+        ) : (
+          <Button size="lg" disabled>
+            Review setup in AWS
+          </Button>
+        )}
         <p className="text-sm text-muted-foreground">
-          You&apos;ll review the CloudFormation setup in AWS before anything is created. No Deployz
-          account is required.
-        </p>
-        <p className="text-xs text-muted-foreground">
-          Requires an AWS identity that can create CloudFormation stacks and the resources listed
-          above.
+          Requires an AWS identity that can create CloudFormation stacks and the resources above.
         </p>
         {!data.quickCreateUrl && (
           <p className="text-xs text-muted-foreground">

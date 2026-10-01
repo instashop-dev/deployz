@@ -248,10 +248,14 @@ The customer install page's Resources summary and the vendor progress
 card list components from `specComponents`; a payload without them falls
 back to the legacy rendering byte-identically.
 
-- The customer install page groups "What Deployz will create" under the
-  plan groups (application, data, cache, storage, messaging, networking,
-  edge, security). The fallback chain is component group → kind map →
-  Application. Only non-empty groups render.
+- The customer install page groups "AWS resources" (the single canonical
+  infrastructure table) under the plan groups (application, data, cache,
+  storage, messaging, networking, edge, security). The fallback chain is
+  component group → kind map → Application. Only non-empty groups render.
+  The table adds an "Est. cost / month" column where the plan's cost model
+  has a per-row item; resources the model does not price show "Included",
+  "Usage-based", "Pricing unavailable", or "—" — never invented numbers.
+  The authoritative total renders in the table footer.
 - A logicalId the ownership records do not know buckets as one `other`
   component with a neutral detail. Raw AWS resource types never appear
   on customer primary surfaces.

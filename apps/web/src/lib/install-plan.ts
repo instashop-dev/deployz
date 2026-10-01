@@ -17,6 +17,7 @@ import {
   type AwsResourceGroup,
   type DeploymentPlan,
   type DeploymentPlanAwsResource,
+  type FootprintResource,
   type FootprintWorkload,
   type PlanComponentGroup,
   type Region,
@@ -193,6 +194,48 @@ export interface InstallResourceRow {
   serviceAndConfiguration: string;
   purpose: string;
   onRemoval: string;
+  /**
+   * The compact "Est. cost / month" cell for this row, derived from
+   * `plan.costEstimate` (the only source the install page shows costs from).
+   * Undefined when the plan carries no cost data at all — the table then
+   * renders a dash instead of guessing a number.
+   */
+  costCell?: string;
+}
+
+/** Stable labels the install table uses for cost cells that have no numeric estimate. */
+export const INSTALL_COST_CELL_LABELS = {
+  /** A resource the cost model does not price (connector, IAM, monitoring, …). */
+  included: 'Included',
+  /** A usage-billed resource (S3, NAT data transfer, …). */
+  usageBased: 'Usage-based',
+  /** A cost item the model could not price — the total stays incomplete. */
+  unavailable: 'Pricing unavailable',
+  /** No cost data on the plan at all. */
+  unknown: '—',
+} as const;
+
+/**
+ * A compact "Est. cost / month" cell for a single install-table row.
+ * `null` parts degrade gracefully to one-sided ranges; never invents
+ * precision the cost model did not compute.
+ */
+export function formatInstallCostCell(monthlyMin: number | null, monthlyMax: number | null): string {
+  if (monthlyMin === null && monthlyMax === null) return INSTALL_COST_CELL_LABELS.unknown;
+  if (monthlyMin === null) return `~$${Math.round(monthlyMax!)}`;
+  if (monthlyMax === null) return `~$${Math.round(monthlyMin)}`;
+  if (Math.round(monthlyMin) === Math.round(monthlyMax)) return `~$${Math.round(monthlyMin)}`;
+  return `~$${Math.round(monthlyMin)}–${Math.round(monthlyMax)}`;
+}
+
+type CostItem = NonNullable<DeploymentPlan['costEstimate']>['items'][number];
+
+/** Read `plan.costEstimate.items` keyed by `resourceId` for O(1) per-row lookup. */
+function costItemIndex(plan: DeploymentPlan | null): Map<string, CostItem> {
+  if (!plan) return new Map();
+  const estimate = plan.costEstimate;
+  if (!estimate) return new Map();
+  return new Map(estimate.items.map((item) => [item.resourceId, item]));
 }
 
 /**
@@ -248,6 +291,20 @@ function resolveAwsResourceGroup(
 }
 
 /**
+ * Resolve an AWS-resource catalog row (keyed by `componentKind`) to the
+ * footprint resource that priced it — used to look up the matching cost
+ * item by footprint id. Null when the plan's footprint does not carry a
+ * priced resource for that role (the cost cell renders "—" then).
+ */
+function componentKindToFootprintResource(
+  componentKind: DeploymentPlanAwsResource['componentKind'] | undefined,
+  resourceByRole: Map<string, FootprintResource>,
+): FootprintResource | null {
+  if (!componentKind) return null;
+  return resourceByRole.get(componentKind) ?? null;
+}
+
+/**
  * The install page's ONE infrastructure table: the Deployz connector's
  * resources first, then the application's — grouped by plan component group,
  * with exact sizing read from the plan's deployment footprint for every
@@ -262,6 +319,7 @@ export function installPlanResourceGroups(plan: DeploymentPlan | null): InstallR
     workloads.length > 1 ? `${workload.label} · ${workloadSizingLine(workload)}` : workloadSizingLine(workload),
   );
   const resourceByRole = new Map((footprint?.resources ?? []).map((resource) => [resource.role, resource]));
+  const costItems = costItemIndex(plan);
 
   const sizingFor = (kind: DeploymentPlanAwsResource['componentKind']): string | null => {
     if (kind === 'application') {
@@ -270,6 +328,32 @@ export function installPlanResourceGroups(plan: DeploymentPlan | null): InstallR
     const resource = resourceByRole.get(kind);
     if (!resource) return null;
     return resource.quantity > 1 ? `${resource.quantity} × ${resource.label}` : resource.label;
+  };
+
+  // Per-row cost cell. Connector rows have no pricing adapter (Lambda, IAM,
+  // EventBridge are billed under the customer's free tier or as part of the
+  // application stack) — they read "Included". Every application row reads
+  // from the plan's cost items, keyed by the footprint resource / workload
+  // id the adapter priced. A plan without a cost estimate still renders
+  // every row, just without a number.
+  const costCellFor = (row: { id: string; componentKind?: DeploymentPlanAwsResource['componentKind'] }): string => {
+    if (CONNECTOR_RESOURCES.some((resource) => resource.id === row.id)) {
+      return INSTALL_COST_CELL_LABELS.included;
+    }
+    if (row.id.startsWith('workload-')) {
+      const item = costItems.get(row.id.slice('workload-'.length));
+      if (!item) return INSTALL_COST_CELL_LABELS.unknown;
+      if (item.pricingStatus === 'usage_based') return INSTALL_COST_CELL_LABELS.usageBased;
+      if (item.pricingStatus === 'unavailable') return INSTALL_COST_CELL_LABELS.unavailable;
+      return formatInstallCostCell(item.monthlyMin ?? null, item.monthlyMax ?? null);
+    }
+    const footprintResource = componentKindToFootprintResource(row.componentKind, resourceByRole);
+    if (!footprintResource) return INSTALL_COST_CELL_LABELS.unknown;
+    const item = costItems.get(footprintResource.id);
+    if (!item) return INSTALL_COST_CELL_LABELS.unknown;
+    if (item.pricingStatus === 'usage_based') return INSTALL_COST_CELL_LABELS.usageBased;
+    if (item.pricingStatus === 'unavailable') return INSTALL_COST_CELL_LABELS.unavailable;
+    return formatInstallCostCell(item.monthlyMin ?? null, item.monthlyMax ?? null);
   };
 
   const workloadRows = workloads.map(installWorkloadRow);
@@ -281,18 +365,20 @@ export function installPlanResourceGroups(plan: DeploymentPlan | null): InstallR
       serviceAndConfiguration: resource.name,
       purpose: resource.purpose,
       onRemoval: INSTALL_RESOURCE_REMOVAL_LABEL[resource.lifecycle],
+      costCell: INSTALL_COST_CELL_LABELS.included,
     })),
     ...(plan?.awsResources ?? []).map((resource) => {
       const sizing = sizingFor(resource.componentKind);
-      return {
+      const row = {
         id: resource.id,
         name: resource.name,
         serviceAndConfiguration: sizing ? `${resource.name} · ${sizing}` : resource.name,
         purpose: resource.purpose,
         onRemoval: INSTALL_RESOURCE_REMOVAL_LABEL[resource.lifecycle],
       };
+      return { ...row, costCell: costCellFor({ id: row.id, componentKind: resource.componentKind }) };
     }),
-    ...workloadRows,
+    ...workloadRows.map((row) => ({ ...row, costCell: costCellFor({ id: row.id }) })),
   ];
 
   const groupForRow = (row: InstallResourceRow): PlanComponentGroup | 'connector' => {
