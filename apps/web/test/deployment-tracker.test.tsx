@@ -127,14 +127,13 @@ describe('Customer deployment progress — authoritative stepper', () => {
     await flush();
 
     const text = container!.textContent ?? '';
-    // The active wire step APPLICATION belongs to the third rung
-    // ("Start application" / "application"). The rungs preceding it —
-    // account (AWS_SETUP + RELAY_CONNECT) and infrastructure (PREPARING +
-    // NETWORK + DATABASE_STORAGE) — are done by this point; MIGRATION is a
-    // substep of the application rung and is therefore not a separate rung
-    // on the customer stepper. So at step=APPLICATION exactly two rungs
-    // are complete.
-    expect(text).toContain('Deploying application');
+    // The primary headline mirrors the server-derived stage (the legacy
+    // STAGE_HEADLINE map). For stage=PROVISIONING it reads "Creating
+    // application infrastructure" — the same headline the E2E scenario-ui
+    // suite asserts on the customer install page. The X-of-Y secondary line
+    // carries the granular progress: at step=APPLICATION exactly two rungs
+    // are complete (account, infrastructure).
+    expect(text).toContain('Creating application infrastructure');
     expect(text).toContain('2 of 6 steps complete');
   });
 

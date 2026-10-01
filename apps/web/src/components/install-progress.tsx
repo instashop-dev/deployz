@@ -206,6 +206,7 @@ export function InstallProgress({
         <DeploymentTracker
           stage={status.stage}
           steps={trackerSteps}
+          wireSteps={stepsFromStatus({ steps: status.steps, step: status.step, stage: status.stage })}
           {...(liveDetail ? { liveDetail } : {})}
         />
       )}

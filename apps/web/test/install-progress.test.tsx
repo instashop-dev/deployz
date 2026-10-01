@@ -157,7 +157,10 @@ describe('InstallProgress — success flow', () => {
     const text = () => container!.textContent ?? '';
 
     // The tracker headline + X-of-Y line — primary progress, not raw stage.
-    expect(text()).toContain('Deploying application');
+    // The headline mirrors the server-derived stage (legacy STAGE_HEADLINE),
+    // so PROVISIONING renders "Creating application infrastructure" — the
+    // same headline the E2E scenario-ui suite asserts on the customer page.
+    expect(text()).toContain('Creating application infrastructure');
     expect(text()).toContain('1 of 6 steps complete');
     // The current rung is named and described; wire substeps (database,
     // storage, etc.) are technical detail — they stay behind Technical details.
@@ -193,10 +196,12 @@ describe('InstallProgress — success flow', () => {
 
     expect(text()).not.toContain('elapsed');
     expect(text()).not.toContain('Live AWS activity');
-    // The redesigned tracker headline at READY is the simpler "Application
-    // ready" copy (the access section beneath keeps the customer-facing
-    // sentence "Your deployment is available securely at ...").
-    expect(text()).toContain('Application ready');
+    // The tracker headline mirrors the server-derived stage. At READY that
+    // is "Your application is ready" (the legacy STAGE_HEADLINE copy the
+    // E2E scenario-ui suite asserts on the customer install page); the
+    // access section beneath keeps the customer-facing sentence "Your
+    // deployment is available securely at ...".
+    expect(text()).toContain('Your application is ready');
     expect(text()).toContain('Access');
     const callsAtReady = mocks.fetchInstallStatus.mock.calls.length;
 
@@ -237,10 +242,11 @@ describe('InstallProgress — success flow', () => {
     });
 
     expect(container!.textContent).not.toContain('Deployment failed');
-    // The redesigned tracker replaces the prior "Creating application
-    // infrastructure" STAGE_HEADLINE with a simpler "Deploying application"
-    // primary headline — same progress, cleaner copy.
-    expect(container!.textContent).toContain('Deploying application');
+    // The primary headline mirrors the server-derived stage. Once the vendor
+    // retries, the deployment is back at PROVISIONING and the customer page
+    // carries the same "Creating application infrastructure" headline it had
+    // before the failure.
+    expect(container!.textContent).toContain('Creating application infrastructure');
   });
 });
 
@@ -650,7 +656,7 @@ describe('InstallProgress — AWS deployment details (READY)', () => {
     // outcome. The "Next:" hint that the legacy StepList emitted is gone —
     // there is no next step.
     expect(container!.querySelector('[data-testid="step-list-next"]')).toBeNull();
-    expect(container!.textContent ?? '').toContain('Application ready');
+    expect(container!.textContent ?? '').toContain('Your application is ready');
     expect(container!.textContent ?? '').toContain('AWS account connected');
 
     const openApplicationLinks = Array.from(container!.querySelectorAll('a')).filter((anchor) =>
