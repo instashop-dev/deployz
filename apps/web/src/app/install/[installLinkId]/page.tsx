@@ -2,7 +2,7 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { Loader2 } from 'lucide-react';
 
-import { CustomerInstallReview } from '@/components/customer-install-review';
+import { CustomerInstallSections } from '@/components/customer-install-sections';
 import { InstallLaunchButton } from '@/components/install-launch-button';
 import { InstallLoadError } from '@/components/install-load-error';
 import { InstallProgress } from '@/components/install-progress';
@@ -266,22 +266,26 @@ export default async function InstallPage({
         </dl>
       </header>
 
-      <CustomerInstallReview
+      <CustomerInstallSections
         plan={data.plan}
+        applicationName={data.applicationName}
         securityHref={securityHref}
-        technicalExtra={<ReferenceRow label="Installation reference" value={installLinkId} />}
       />
+
+      <TechnicalDetails>
+        <ReferenceRow label="Installation reference" value={installLinkId} />
+      </TechnicalDetails>
 
       <section aria-labelledby="connect-aws" className="flex flex-col gap-3">
         <h2 id="connect-aws" className="text-base font-semibold">
-          Connect your AWS account
+          Connect AWS account
         </h2>
         <p className="text-sm text-muted-foreground">
           {data.applicationName} runs in your own AWS account. To set it up, you approve the Deployz
           connector there.
         </p>
         <ol className="flex list-decimal flex-col gap-2 pl-5 text-sm text-muted-foreground">
-          <li>Select Review setup in AWS. The AWS console opens in a new tab.</li>
+          <li>Select Connect AWS account. The AWS console opens in a new tab.</li>
           <li>Check the AWS account and Region, then create the Deployz connector stack.</li>
           <li>
             Deployz creates the infrastructure and starts the application. Progress shows on this
@@ -289,11 +293,15 @@ export default async function InstallPage({
           </li>
         </ol>
         {data.quickCreateUrl ? (
-          <InstallLaunchButton installLinkId={installLinkId} quickCreateUrl={data.quickCreateUrl} />
+          <InstallLaunchButton
+            installLinkId={installLinkId}
+            quickCreateUrl={data.quickCreateUrl}
+            label="Connect AWS account"
+          />
         ) : (
           <>
             <Button size="lg" className="w-fit" disabled>
-              Review setup in AWS
+              Connect AWS account
             </Button>
             <p className="text-sm text-muted-foreground">
               {data.publisherName} hasn&apos;t published a setup template yet. Contact them for a

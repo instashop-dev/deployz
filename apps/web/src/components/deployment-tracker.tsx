@@ -259,6 +259,13 @@ function WireStepList({
             )}
             <span className={cn(current.state === 'attention' && 'font-medium text-destructive')}>
               {current.label}
+              <span className="sr-only">
+                {current.state === 'current'
+                  ? ' (in progress)'
+                  : current.state === 'attention'
+                    ? ' (failed)'
+                    : ''}
+              </span>
             </span>
           </span>
           {/* The TLS step's customer-DNS-dependent pause carries a static
