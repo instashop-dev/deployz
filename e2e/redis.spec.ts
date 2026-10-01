@@ -180,9 +180,7 @@ test('bullmq-worker: analyses as ready with the managed Redis passed check, then
   await page.goto(`/install/${installLinkId}`);
   // The customer review names components; the AWS resource names (the
   // ElastiCache cache among them) are under its Technical details.
-  const willCreateSection = page.locator('section[aria-labelledby="install-resources"]');
-  await willCreateSection.getByRole('button', { name: 'Technical details' }).click();
-  await willCreateSection.getByRole('button', { name: /AWS infrastructure details/ }).click();
+  const willCreateSection = page.locator('section[aria-labelledby="aws-resources"]');
   await expect(
     willCreateSection.getByRole('cell', { name: 'ElastiCache Valkey cache', exact: true }),
   ).toBeVisible();
