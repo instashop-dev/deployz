@@ -484,17 +484,30 @@ describe('worker handler', () => {
   });
 
   it("sends a CONFIG_UPDATE only to the saved application's deployments of that customer", async () => {
-    const [otherApplication] = await db
+    // Its own customer and applications: a running deployment of the shared
+    // application would be picked up by the build-completion tests below.
+    const [customer] = await db
+      .insert(schema.customers)
+      .values({ organizationId, name: 'Two apps', email: 'two-apps@acme.test' })
+      .returning();
+    const applications = await db
       .insert(schema.applications)
-      .values({ organizationId, name: 'other', repoFullName: 'acme/other-app', repoUrl: 'https://github.com/acme/other-app' })
+      .values(
+        ['acme/scoped-a', 'acme/scoped-b'].map((repo) => ({
+          organizationId,
+          name: repo,
+          repoFullName: repo,
+          repoUrl: `https://github.com/${repo}`,
+        })),
+      )
       .returning();
     const deployments = await db
       .insert(schema.deployments)
       .values(
-        [applicationId, otherApplication!.id].map((application) => ({
+        applications.map((application) => ({
           organizationId,
-          applicationId: application,
-          customerId,
+          applicationId: application.id,
+          customerId: customer!.id,
           region: 'us-east-1',
           state: 'HEALTHY' as const,
           installationId: randomUUID(),
@@ -505,7 +518,13 @@ describe('worker handler', () => {
 
     await handleMessage(
       deps(),
-      { type: 'CONFIG_UPDATE', customerId, applicationId, secrets: [{ key: 'STRIPE_SECRET_KEY', value: 'sk_app_a_only' }], removedKeys: ['LOG_LEVEL'] },
+      {
+        type: 'CONFIG_UPDATE',
+        customerId: customer!.id,
+        applicationId: applications[0]!.id,
+        secrets: [{ key: 'STRIPE_SECRET_KEY', value: 'sk_app_a_only' }],
+        removedKeys: ['LOG_LEVEL'],
+      },
       'msg-app-scoped',
     );
 
