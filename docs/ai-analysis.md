@@ -233,7 +233,7 @@ value:
 | Classification | Rule | Delivery |
 |---|---|---|
 | `deployz_managed` | the names the stack injects for THIS app (DATABASE_*, the Redis bindings, STORAGE/S3 bucket, AWS_REGION, PORT, HOSTNAME), and an S3 region/endpoint name the app reads when storage is provisioned | at install; S3 region/endpoint as a `derived` value on the first configuration pass |
-| `deployz_generated` | required + secret + app-internal name (…SECRET, SECRET_KEY(_BASE), ENCRYPTION_KEY, SIGNING_KEY, APP_KEY, SALT…), no third-party prefix, no connection suffix, not a catalog credential | minted once by the relay with `crypto.randomBytes` inside the customer's account |
+| `deployz_generated` | secret + app-internal name (…SECRET, SECRET_KEY(_BASE), ENCRYPTION_KEY, SIGNING_KEY, APP_KEY, SALT…), no third-party prefix, no connection suffix, no shared/webhook secret, not a catalog credential; required, or optional with purpose `internal_secret` (it usually falls back to a development default) | minted once by the relay with `crypto.randomBytes` inside the customer's account, unless the vendor saved another decision (`mintedEnvKeys`) |
 | `customer_required` | every other required key | a vendor decision on the configuration screen: the vendor supplies the value, or marks it "Set by customer" or optional (the name means "needs a vendor decision", not "the customer supplies it") |
 | `optional` | read with a default | optional |
 | `unknown` | declared only in a sample file | listed, never required |

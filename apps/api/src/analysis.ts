@@ -245,7 +245,12 @@ type ApplicationRow = typeof schema.applications.$inferSelect;
 // Version 37: a Django project whose image never migrates carries a suggested
 // migration command on the readiness finding (shown, never applied). Stored
 // rows lack it and must re-run.
-export const ANALYSIS_VERSION = 37;
+// Version 38 (OpenShip): a sibling app with only its own Dockerfile is a
+// separate image and leaves env scope; a schema-optional key that a boot guard
+// throws without is required; a zod member built by a helper is a read; an
+// optional internal secret with a generatable name is deployz_generated.
+// Stored v37 models over-require sibling keys and miss boot-required ones.
+export const ANALYSIS_VERSION = 38;
 
 export interface AnalysisRunnerDeps {
   db: RuntimeDb;

@@ -602,18 +602,87 @@ describe('false-required env vars (A1-001, A1-002)', () => {
     expect(byKey.has('SHARED_LIB_URL')).toBe(true);
   });
 
-  it('keeps a sibling workload with its own Dockerfile, a compose service or a Procfile entry (A1-008)', () => {
+  it('keeps a sibling workload a compose service or a Procfile entry points at (A1-008)', () => {
     const base: FileTree = {
       'apps/web/Dockerfile': 'FROM node:20\nCMD ["node", "apps/web/server.js"]\n',
       'apps/web/src/env.ts': 'fetch(process.env.WEB_API_URL);\n',
       'apps/worker/src/index.ts': 'fetch(process.env.WORKER_API_URL);\n',
     };
-    expect(modelByKey({ ...base, 'apps/worker/Dockerfile': 'FROM node:20\n' }).has('WORKER_API_URL')).toBe(true);
     expect(
       modelByKey({ ...base, 'docker-compose.yml': 'services:\n  worker:\n    build: ./apps/worker\n' }).has('WORKER_API_URL'),
     ).toBe(true);
     expect(modelByKey({ ...base, Procfile: 'worker: node apps/worker/dist/index.js\n' }).has('WORKER_API_URL')).toBe(true);
     expect(modelByKey(base).has('WORKER_API_URL')).toBe(false);
+  });
+
+  it('drops a sibling app that only has its own Dockerfile: a release has one image (OpenShip)', () => {
+    const tree: FileTree = {
+      'apps/api/Dockerfile': 'FROM oven/bun\nCOPY apps/ ./apps/\nCMD ["bun", "run", "apps/api/dist/index.js"]\n',
+      'apps/api/src/index.ts': 'fetch(process.env.API_UPSTREAM_URL);\n',
+      'apps/dashboard/Dockerfile': 'FROM node:20\n',
+      'apps/dashboard/src/lib/server/api.ts': 'fetch(process.env.INTERNAL_API_URL);\n',
+      'apps/cli/build/stage.ts': 'fetch(process.env.CLI_RELEASE_URL);\n',
+      // A build-override compose variant and a comment do not put a sibling in this image.
+      'docker/docker-compose.build.yml': 'services:\n  dashboard:\n    build:\n      dockerfile: apps/dashboard/Dockerfile\n',
+      'docker/docker-compose.yml': '# Keep in sync with apps/cli/src/lib/compose.ts\nservices:\n  api:\n    image: api\n',
+    };
+    const byKey = modelByKey(tree);
+    expect(byKey.get('API_UPSTREAM_URL')).toMatchObject({ required: true });
+    expect(byKey.has('INTERNAL_API_URL')).toBe(false);
+    expect(byKey.has('CLI_RELEASE_URL')).toBe(false);
+  });
+
+  it('matches a sibling directory by its whole name (apps/cli is not apps/client)', () => {
+    const tree: FileTree = {
+      'apps/web/Dockerfile': 'FROM node:20\nCOPY apps/client apps/client\n',
+      'apps/cli/src/index.ts': 'fetch(process.env.CLI_ONLY_URL);\n',
+      'apps/client/src/index.ts': 'fetch(process.env.CLIENT_URL);\n',
+    };
+    const byKey = modelByKey(tree);
+    expect(byKey.has('CLI_ONLY_URL')).toBe(false);
+    expect(byKey.has('CLIENT_URL')).toBe(true);
+  });
+
+  it('requires a schema-optional key that a boot guard throws without (OpenShip INTERNAL_TOKEN)', () => {
+    const tree: FileTree = {
+      'src/env.ts': [
+        "import { z } from 'zod';",
+        'const envSchema = z.object({',
+        '  INTERNAL_TOKEN: z.string().optional(),',
+        '  OBLIEN_CLIENT_ID: z.string().optional(),',
+        '  DEV_ONLY_TOKEN: z.string().optional(),',
+        '  PLAIN_GUARDED: z.string().optional(),',
+        '  BILLING_ENABLED: envBool("false"),',
+        '});',
+        'export const env = envSchema.parse(process.env);',
+        'if (env.DEPLOY_MODE !== "desktop" && !env.INTERNAL_TOKEN) {',
+        '  throw new Error("INTERNAL_TOKEN is required");',
+        '}',
+        'if (env.CLOUD_MODE && !env.OBLIEN_CLIENT_ID) throw new Error("cloud needs Oblien");',
+        'if (env.NODE_ENV !== "production" && !env.DEV_ONLY_TOKEN) throw new Error("dev needs it");',
+        'if (!env.PLAIN_GUARDED) throw new Error("missing");',
+        '',
+      ].join('\n'),
+    };
+    const byKey = modelByKey(tree);
+    expect(byKey.get('INTERNAL_TOKEN')).toMatchObject({ required: true });
+    expect(byKey.get('PLAIN_GUARDED')).toMatchObject({ required: true });
+    expect(byKey.get('OBLIEN_CLIENT_ID')).toMatchObject({ required: false });
+    expect(byKey.get('DEV_ONLY_TOKEN')).toMatchObject({ required: false });
+    // A helper-built member is read (not "sample file only"), and that read never requires it.
+    expect(byKey.get('BILLING_ENABLED')).toMatchObject({ required: false });
+    expect(byKey.get('BILLING_ENABLED')!.source).toContain('read in src/env.ts');
+  });
+
+  it('does not let a .env.example value make a required read optional', () => {
+    const tree: FileTree = {
+      '.env.example': 'INTERNAL_TOKEN=change-me-32-byte-random-hex\nAPI_BASE_URL=http://localhost:4000\nLOG_LEVEL=info\n',
+      'src/index.ts': 'fetch(process.env.API_BASE_URL);\nconst level = process.env.LOG_LEVEL ?? "warn";\n',
+    };
+    const byKey = modelByKey(tree);
+    expect(byKey.get('API_BASE_URL')).toMatchObject({ required: true });
+    expect(byKey.get('LOG_LEVEL')).toMatchObject({ required: false });
+    expect(byKey.get('INTERNAL_TOKEN')).toMatchObject({ required: false });
   });
 
   it('keeps a sibling app the Dockerfile itself names (A1-008)', () => {

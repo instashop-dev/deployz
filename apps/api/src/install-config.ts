@@ -1,8 +1,12 @@
-import { derivedS3EnvValue, generatedEnvKeys } from '@deployz/analysis';
-import { buildDeploymentResourceTags, requirementsFromSpec, type DeploymentManifest } from '@deployz/contracts';
+import { eq } from 'drizzle-orm';
+
+import { derivedS3EnvValue, mintedEnvKeys } from '@deployz/analysis';
+import { buildDeploymentResourceTags, deliversConfigValue, requirementsFromSpec } from '@deployz/contracts';
 import type { RuntimeDb } from '@deployz/db';
+import * as schema from '@deployz/db/schema';
 
 import { getConfig, type ConfigStore, type EffectiveConfigEntry } from './config.js';
+import { readEnvironmentSettings } from './environment-setup.js';
 import { ApiError } from './errors.js';
 import { DESIRED_COUNT_PARAMETER, buildInstallParameters } from './install-parameters.js';
 import { createOrReuseJob } from './jobs.js';
@@ -77,9 +81,19 @@ export async function buildRelayConfigEntries(
 ): Promise<RelayConfigEntry[]> {
   const view = await getConfig(deployment.applicationId, deployment.customerId, store);
   const manifest = readStoredManifest(deployment.desiredState);
-  const mintable = new Set<string>(manifest ? mintableKeys(manifest) : []);
+  const [application] = await db
+    .select({ environmentSettings: schema.applications.environmentSettings })
+    .from(schema.applications)
+    .where(eq(schema.applications.id, deployment.applicationId))
+    .limit(1);
+  const settings = application ? readEnvironmentSettings(application) : null;
+  const settingsByKey = new Map((settings ?? []).map((setting) => [setting.key, setting]));
+  const mintable = new Set<string>(manifest ? mintedEnvKeys(manifest, settings) : []);
   const entries: RelayConfigEntry[] = [];
   for (const entry of view.effective) {
+    // A value left from an earlier decision never overrides the key's
+    // current source (docs/environment-variables.md).
+    if (!deliversConfigValue(settingsByKey.get(entry.key), entry.source)) continue;
     if (entry.isSecret && vault !== undefined && deployment.id !== undefined) {
       try {
         const plaintext = await vault.readBound(deployment.id, entry.key);
@@ -142,21 +156,6 @@ export async function buildRelayConfigEntries(
     entries.push({ key, isSecret: true, source: 'generated', generated: true });
   }
   return entries;
-}
-
-/**
- * Keys the relay may mint inside the customer's account when no value has
- * reached it: the analyser's `deployz_generated` classification, plus every
- * secret whose purpose is an app-internal secret (a JWT/session/encryption
- * key the application only needs to be random) whatever its classification.
- * External credentials and customer-required values are never minted.
- */
-function mintableKeys(manifest: DeploymentManifest): string[] {
-  const generated = new Set(generatedEnvKeys(manifest));
-  for (const variable of manifest.environment.variables) {
-    if (variable.secret === true && variable.purpose === 'internal_secret') generated.add(variable.key);
-  }
-  return [...generated];
 }
 
 /**

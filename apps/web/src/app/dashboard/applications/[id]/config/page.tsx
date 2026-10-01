@@ -3,6 +3,8 @@
 import { useParams, useSearchParams } from 'next/navigation';
 import { Suspense, useEffect, useState, type FormEvent, type ReactNode } from 'react';
 
+import { deliversConfigValue, type EnvironmentSetting } from '@deployz/contracts';
+
 import { SecretInput } from '@/components/secret-input';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -18,6 +20,7 @@ import {
   type ConfigEntry,
   type MaskedConfigEntry,
 } from '@/lib/config';
+import { fetchEnvironmentSettings } from '@/lib/environment-settings';
 import { TONE_TEXT } from '@/lib/status-tone';
 import { cn } from '@/lib/utils';
 
@@ -117,6 +120,27 @@ function ConfigBody({
   onSaved: (next: ApplicationConfig) => void;
 }) {
   const { refresh } = useApplicationPage();
+  // A vendor default that the key's decision no longer delivers ("Set by
+  // customer", "Managed by Deployz", "Optional") is not shown as this
+  // customer's default.
+  const [settings, setSettings] = useState<EnvironmentSetting[] | null>(null);
+  useEffect(() => {
+    if (data.customerId === null) return;
+    let cancelled = false;
+    fetchEnvironmentSettings(data.applicationId).then(
+      (response) => {
+        if (!cancelled) setSettings(response.settings);
+      },
+      () => undefined,
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, [data.applicationId, data.customerId]);
+  const settingsByKey = new Map((settings ?? []).map((setting) => [setting.key, setting]));
+  const deliveredVendorDefaults = data.vendorDefaults.filter((entry) =>
+    deliversConfigValue(settingsByKey.get(entry.key), 'vendor'),
+  );
 
   return (
     <>
@@ -142,7 +166,7 @@ function ConfigBody({
           applicationId={data.applicationId}
           customerId={data.customerId}
           entries={data.customerOverrides}
-          vendorDefaults={data.vendorDefaults}
+          vendorDefaults={deliveredVendorDefaults}
           editable
           emptyMessage="No overrides for this customer yet."
           onSaved={onSaved}

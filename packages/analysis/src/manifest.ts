@@ -21,6 +21,7 @@ import {
   DEPLOYMENT_MANIFEST_SCHEMA_VERSION,
   type DeploymentManifest,
   type DeploymentManifestOverrides,
+  type EnvironmentSetting,
   type ManifestEnvBinding,
   type ManifestEnvVariable,
   type ManifestQueue,
@@ -33,6 +34,7 @@ import {
 
 import type { AnalysisResult } from './analyser.js';
 import type { BindingSemantic, InfrastructureBinding } from './bindings.js';
+import { isGeneratableSecretName } from './env-classification.js';
 import { resolveRedisEnvBindings } from './redis.js';
 
 /** Anything carrying the flat detector metadata record. */
@@ -579,6 +581,34 @@ const PROVISIONED_DATABASE_ENV_VARS = [
 export function generatedEnvKeys(manifest: DeploymentManifest): string[] {
   return manifest.environment.variables
     .filter((variable) => variable.classification === 'deployz_generated')
+    .map((variable) => variable.key);
+}
+
+/**
+ * Secrets the relay mints inside the customer's account when no value has
+ * reached it. A saved decision rules: only "Managed by Deployz" on an
+ * app-internal secret is minted. Without a decision: the `deployz_generated`
+ * classification, plus an internal secret with a generatable name that the
+ * analyser read as optional (kutt's envalid `devDefault`, DEPLOY-013). An
+ * optional secret such as an ACME HMAC key or an analytics project key is
+ * never minted: a random value turns on a feature the app then rejects.
+ */
+export function mintedEnvKeys(
+  manifest: DeploymentManifest,
+  settings: readonly EnvironmentSetting[] | null,
+): string[] {
+  const settingsByKey = new Map((settings ?? []).map((setting) => [setting.key, setting]));
+  return manifest.environment.variables
+    .filter((variable) => {
+      const internalSecret = variable.secret && variable.purpose === 'internal_secret';
+      const setting = settingsByKey.get(variable.key);
+      if (setting) {
+        return setting.provider === 'deployz' && (internalSecret || variable.classification === 'deployz_generated');
+      }
+      return (
+        variable.classification === 'deployz_generated' || (internalSecret && isGeneratableSecretName(variable.key))
+      );
+    })
     .map((variable) => variable.key);
 }
 

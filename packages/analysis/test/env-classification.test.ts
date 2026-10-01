@@ -12,7 +12,7 @@ import { analyseRepo } from '../src/analyser.js';
 import { derivedS3EnvValue } from '../src/bindings.js';
 import { classifyEnvVariables, isGeneratableSecretName } from '../src/env-classification.js';
 import type { FileTree } from '../src/detectors.js';
-import { evaluateManifestReadiness, generatedEnvKeys, normalizeDeploymentManifest } from '../src/manifest.js';
+import { evaluateManifestReadiness, generatedEnvKeys, mintedEnvKeys, normalizeDeploymentManifest } from '../src/manifest.js';
 
 const NO_REQUIREMENTS = {
   postgresRequired: false,
@@ -256,5 +256,62 @@ describe('S3 region/endpoint derived from the deployment region', () => {
       S3_SECRET_ACCESS_KEY: 'customer_required',
       S3_PUBLIC_BASE_URL: 'customer_required',
     });
+  });
+});
+
+describe('minted secrets (OpenShip)', () => {
+  const manifest = normalizeDeploymentManifest(
+    {
+      metadata: {
+        hasDockerfile: true,
+        dockerfilePath: 'Dockerfile',
+        port: '3000',
+        startupCommands: ['CMD: node x'],
+        envVarModel: [
+          // An optional internal secret with a development default: generated.
+          variable('BETTER_AUTH_SECRET', { required: false, secret: true, purpose: 'internal_secret', classification: 'optional' }),
+          // Optional internal secrets whose presence turns a feature on: never minted.
+          variable('OPENSHIP_ACME_EAB_HMAC_KEY', { required: false, secret: true, purpose: 'internal_secret', classification: 'optional' }),
+          variable('POSTHOG_PROJECT_KEY', { required: false, secret: true, purpose: 'internal_secret', classification: 'optional' }),
+          variable('INTERNAL_TOKEN', { required: true, secret: true, purpose: 'internal_secret', classification: 'customer_required' }),
+          variable('SESSION_SECRET', { secret: true, purpose: 'internal_secret', classification: 'deployz_generated' }),
+        ],
+      },
+    },
+    {},
+  );
+  const setting = (key: string, provider: 'deployz' | 'vendor' | 'customer' | 'none') => ({
+    key,
+    stage: 'runtime' as const,
+    required: false,
+    secret: true,
+    provider,
+  });
+
+  it('mints only generated and generatable internal secrets when the vendor has not decided', () => {
+    expect(mintedEnvKeys(manifest, null).sort()).toEqual(['BETTER_AUTH_SECRET', 'SESSION_SECRET']);
+  });
+
+  it('follows the saved decision: only "Managed by Deployz" is minted', () => {
+    const minted = mintedEnvKeys(manifest, [
+      setting('BETTER_AUTH_SECRET', 'none'),
+      setting('INTERNAL_TOKEN', 'deployz'),
+      setting('SESSION_SECRET', 'customer'),
+      setting('OPENSHIP_ACME_EAB_HMAC_KEY', 'vendor'),
+    ]);
+    expect(minted).toEqual(['INTERNAL_TOKEN']);
+  });
+
+  it('classifies an optional generatable internal secret as deployz_generated', () => {
+    const [classified] = classifyEnvVariables(
+      [variable('BETTER_AUTH_SECRET', { required: false, secret: true, purpose: 'internal_secret' })],
+      NO_REQUIREMENTS,
+    );
+    expect(classified!.classification).toBe('deployz_generated');
+    const [hmac] = classifyEnvVariables(
+      [variable('OPENSHIP_ACME_EAB_HMAC_KEY', { required: false, secret: true, purpose: 'internal_secret' })],
+      NO_REQUIREMENTS,
+    );
+    expect(hmac!.classification).toBe('optional');
   });
 });

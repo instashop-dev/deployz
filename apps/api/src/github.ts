@@ -1315,6 +1315,56 @@ export const GITHUB_FIXTURE_FILE_TREES: Readonly<Record<string, FileTree>> = {
     ].join('\n'),
     '.env.example': 'DATABASE_URL=\nSESSION_SECRET=\nLICENSE_KEY=\n',
   },
+  // One variable of every ownership shape (docs/environment-variables.md),
+  // for the environment-ownership spec: a required URL and a required
+  // third-party secret (vendor decisions), an app-internal secret Deployz
+  // generates, the managed database binding, defaulted and presence-guarded
+  // options, a build-time name and a sample-only key. The sample values are
+  // evidence only — they never make a required read optional.
+  'deployz-demo/env-matrix-app': {
+    'Dockerfile': [
+      'FROM node:20-alpine',
+      'WORKDIR /app',
+      'COPY package*.json ./',
+      'RUN npm ci --omit=dev',
+      'COPY . .',
+      'EXPOSE 3000',
+      'CMD ["node", "dist/index.js"]',
+    ].join('\n'),
+    'package.json': JSON.stringify({
+      name: 'env-matrix-app',
+      scripts: { start: 'node dist/index.js', 'db:migrate': 'npx drizzle-kit push' },
+      dependencies: { express: '^4.18.0', pg: '^8.12.0', stripe: '^16.0.0' },
+    }),
+    'src/index.ts': [
+      "import express from 'express';",
+      "import crypto from 'node:crypto';",
+      "import { Pool } from 'pg';",
+      "import Stripe from 'stripe';",
+      'const app = express();',
+      'const pool = new Pool({ connectionString: process.env.DATABASE_URL });',
+      'const apiBase = new URL(process.env.API_BASE_URL);',
+      'const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);',
+      'const level = process.env.LOG_LEVEL ?? "info";',
+      'const signups = process.env.FEATURE_SIGNUPS === "true";',
+      'const brand = process.env.NEXT_PUBLIC_BRAND_NAME ?? "Acme";',
+      'function sign(value: string): string {',
+      '  return crypto.createHmac("sha256", process.env.SESSION_SECRET).update(value).digest("hex");',
+      '}',
+      "app.get('/health', (_req, res) => res.json({ ok: true, tag: sign(String(apiBase) + level + signups + brand), pool: Boolean(pool && stripe) }));",
+      'app.listen(process.env.PORT || 3000);',
+      '',
+    ].join('\n'),
+    '.env.example': [
+      'DATABASE_URL=postgres://localhost:5432/app',
+      'API_BASE_URL=http://localhost:4000',
+      'STRIPE_SECRET_KEY=sk_test_replace_me',
+      'SESSION_SECRET=change-me',
+      'LOG_LEVEL=info',
+      'SAMPLE_ONLY_FLAG=1',
+      '',
+    ].join('\n'),
+  },
   // The same otherwise-READY express-api shape with a mongoose dependency —
   // a MongoDB app whose ONLY blocker is the unsupported database. Used by
   // the Phase 14 scenario-matrix spec to prove an unsupported repo is

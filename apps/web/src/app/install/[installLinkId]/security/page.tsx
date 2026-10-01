@@ -7,7 +7,7 @@ import { fetchInstallData } from '@/lib/install-data';
 import { fetchPublicInstallData } from '@/lib/public-install-data';
 
 export const metadata: Metadata = {
-  title: 'Security details · Deployz',
+  title: 'Security details',
   robots: { index: false, follow: false },
 };
 

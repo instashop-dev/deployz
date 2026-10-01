@@ -769,3 +769,84 @@ describe('config — secure storage against a real store', () => {
 function eqAppKey(applicationId: string, key: string) {
   return and(eq(schema.applicationConfigs.applicationId, applicationId), eq(schema.applicationConfigs.key, key));
 }
+
+describe('config — pre-relay removals and delivery rules against a real store', () => {
+  let client: PGlite | undefined;
+  let db: Db;
+  let applicationId: string;
+  let customerId: string;
+  let deploymentId: string;
+  let deps: ConfigDeps;
+  let pendingSecrets: ReturnType<typeof createDrizzlePendingSecretStore>;
+
+  beforeAll(async () => {
+    client = new PGlite();
+    await applyMigrations(client);
+    db = createDb(client);
+    await db.insert(schema.organization).values({ id: 'org-config-prerelay', name: 'Acme', slug: 'org-config-prerelay' });
+    const [application] = await db
+      .insert(schema.applications)
+      .values({ organizationId: 'org-config-prerelay', name: 'shop', repoFullName: 'acme/prerelay', repoUrl: 'https://github.com/acme/prerelay' })
+      .returning();
+    applicationId = application!.id;
+    const [customer] = await db
+      .insert(schema.customers)
+      .values({ organizationId: 'org-config-prerelay', name: 'Buyer', email: 'buyer@example.com' })
+      .returning();
+    customerId = customer!.id;
+    const [deployment] = await db
+      .insert(schema.deployments)
+      .values({
+        organizationId: 'org-config-prerelay',
+        applicationId,
+        customerId,
+        region: 'us-east-1',
+        state: 'WAITING_FOR_RELAY',
+        enrollmentCode: 'enrol-prerelay',
+      })
+      .returning();
+    deploymentId = deployment!.id;
+    const cipher = createCipherStub();
+    pendingSecrets = createDrizzlePendingSecretStore(db, cipher);
+    deps = createConfigDeps(db, pendingSecrets, cipher);
+  }, 60_000);
+
+  afterAll(async () => {
+    await client?.close();
+  });
+
+  it('removing one customer secret before the relay connects keeps the other pending secrets', async () => {
+    await setConfig(
+      applicationId,
+      customerId,
+      [
+        { key: 'LICENSE_KEY', value: 'license-a', isSecret: true },
+        { key: 'SMTP_PASS', value: 'smtp-a', isSecret: true },
+      ],
+      deps,
+    );
+    expect((await pendingSecrets.listBoundForDeployment(deploymentId)).map((row) => row.key).sort()).toEqual([
+      'LICENSE_KEY',
+      'SMTP_PASS',
+    ]);
+
+    await setConfig(applicationId, customerId, [], deps, ['SMTP_PASS']);
+
+    expect((await pendingSecrets.listBoundForDeployment(deploymentId)).map((row) => row.key)).toEqual(['LICENSE_KEY']);
+  });
+
+  it('counts a saved value as provided only when its source still supplies the key', async () => {
+    await db.insert(schema.applicationConfigs).values([
+      { applicationId, customerId: null, key: 'API_URL', value: 'https://stale.example.com', isSecret: false },
+      { applicationId, customerId: null, key: 'LOG_LEVEL', value: 'info', isSecret: false },
+    ]);
+    const settings = [
+      { key: 'API_URL', stage: 'runtime' as const, required: true, secret: false, provider: 'customer' as const },
+      { key: 'LOG_LEVEL', stage: 'runtime' as const, required: false, secret: false, provider: 'vendor' as const },
+    ];
+    const keys = await listProvidedConfigKeys(db, applicationId, customerId, settings);
+    expect(keys).toContain('LOG_LEVEL');
+    expect(keys).not.toContain('API_URL');
+    expect(await listProvidedConfigKeys(db, applicationId, customerId)).toContain('API_URL');
+  });
+});

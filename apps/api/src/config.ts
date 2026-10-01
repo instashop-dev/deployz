@@ -1,7 +1,7 @@
 import { and, eq, inArray, isNull, or, type SQL } from 'drizzle-orm';
 import { z } from 'zod';
 
-import { DEFAULT_PENDING_SECRET_TTL_MS } from '@deployz/contracts';
+import { DEFAULT_PENDING_SECRET_TTL_MS, deliversConfigValue, type EnvironmentSetting } from '@deployz/contracts';
 import type { RuntimeDb } from '@deployz/db';
 import * as schema from '@deployz/db/schema';
 
@@ -515,10 +515,9 @@ export async function setConfig(
     for (const key of deletes) {
       await deps.store.remove(applicationId, customerId, key);
     }
-    // Drop any staged rows for the deleted keys and any pre-relay bound rows
-    // (they are not encrypted with the same value the relay now has to
-    // remove, so the simplest correct action is to drop them — the relay
-    // config fetch will simply not see them).
+    // Drop the staged and pre-relay bound rows for the deleted keys only, so
+    // the relay config fetch does not see them. Rows for other keys stay:
+    // they still have to reach the deployment.
     if (customerId !== null) {
       for (const key of deletes) {
         await deps.pendingSecrets.deleteStagedForScope({
@@ -528,14 +527,7 @@ export async function setConfig(
         });
       }
       for (const deployment of scopeDeployments.preRelay) {
-        for (const key of deletes) {
-          await deps.pendingSecrets.deleteStagedForScope({
-            applicationId,
-            customerId: deployment.id,
-            key,
-          });
-        }
-        await deps.pendingSecrets.deleteBoundForDeployment(deployment.id);
+        await deps.pendingSecrets.deleteBoundForDeployment(deployment.id, deletes);
       }
     }
   }
@@ -800,6 +792,7 @@ export async function listProvidedConfigKeys(
   db: RuntimeDb,
   applicationId: string,
   customerId: string | null,
+  settings: readonly EnvironmentSetting[] | null = null,
 ): Promise<string[]> {
   if (!UUID_PATTERN.test(applicationId) || (customerId !== null && !UUID_PATTERN.test(customerId))) return [];
   const rows = await db
@@ -818,8 +811,11 @@ export async function listProvidedConfigKeys(
           : or(isNull(schema.applicationConfigs.customerId), eq(schema.applicationConfigs.customerId, customerId)),
       ),
     );
+  const settingsByKey = new Map((settings ?? []).map((setting) => [setting.key, setting]));
   const deliverable = rows.filter(
-    (row) => !(row.customerId === null && row.isSecret && row.encryptedValue === null),
+    (row) =>
+      !(row.customerId === null && row.isSecret && row.encryptedValue === null) &&
+      deliversConfigValue(settingsByKey.get(row.key), row.customerId === null ? 'vendor' : 'customer'),
   );
   return [...new Set(deliverable.map((row) => row.key))];
 }

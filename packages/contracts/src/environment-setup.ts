@@ -352,6 +352,21 @@ export function customerInputRows(evaluation: EnvironmentSetupEvaluation): Envir
   });
 }
 
+/**
+ * Whether a saved value from `source` reaches a deployment under the vendor's
+ * decision for its key. "Set by vendor" takes the vendor default or the
+ * vendor's per-customer override; "Set by customer" takes only the customer's
+ * value; "Managed by Deployz" and "Optional / not needed" take no saved value.
+ * A value left from an earlier decision therefore never overrides the new
+ * source. No decision keeps the legacy rule: every saved value is delivered.
+ */
+export function deliversConfigValue(setting: EnvironmentSetting | undefined, source: 'vendor' | 'customer'): boolean {
+  if (!setting) return true;
+  if (setting.provider === 'vendor') return true;
+  if (setting.provider === 'customer') return source === 'customer';
+  return false;
+}
+
 /** Build-stage keys whose settings have `provider: 'vendor'`. */
 export function buildStageVendorKeys(settings: readonly EnvironmentSetting[]): string[] {
   return settings.filter((setting) => setting.stage === 'build' && setting.provider === 'vendor').map((s) => s.key);

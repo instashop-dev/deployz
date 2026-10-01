@@ -177,7 +177,11 @@ const MANIFEST = {
   unsupported: [],
 };
 
-const db = undefined as unknown as import('@deployz/db').RuntimeDb;
+// The relay config read looks up the application's saved env-var decisions;
+// none are saved here.
+const db = {
+  select: () => ({ from: () => ({ where: () => ({ limit: async () => [] }) }) }),
+} as unknown as import('@deployz/db').RuntimeDb;
 
 describe('public-MVP regression baseline', () => {
   it('DEPLOY-027: a customer-required secret typed before the relay connects is retained and deliverable', async () => {

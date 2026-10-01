@@ -9,7 +9,7 @@ import { fetchDeployLinkData } from '@/lib/deploy-link-flow';
 export const dynamic = 'force-dynamic';
 
 export const metadata: Metadata = {
-  title: 'Security details · Deployz',
+  title: 'Security details',
   // Tokenized private links must stay out of search indexes.
   robots: { index: false, follow: false },
 };

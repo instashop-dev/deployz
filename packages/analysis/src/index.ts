@@ -132,7 +132,7 @@ export type {
 export { buildReadinessReport, reconcileReadiness, verdictFromReadiness } from './readiness-report.js';
 
 export type { ManifestSource, ManifestReadinessContext } from './manifest.js';
-export { normalizeDeploymentManifest, evaluateManifestReadiness, generatedEnvKeys } from './manifest.js';
+export { normalizeDeploymentManifest, evaluateManifestReadiness, generatedEnvKeys, mintedEnvKeys } from './manifest.js';
 
 export type { EnvClassificationContext } from './env-classification.js';
 export {

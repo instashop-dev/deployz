@@ -550,3 +550,95 @@ describe('post-install configuration', () => {
     expect(none.some((entry) => entry.source === 'derived')).toBe(false);
   });
 });
+
+describe('relay config follows the vendor decision for each key', () => {
+  let client: PGlite | undefined;
+  let db: Db;
+  let applicationId: string;
+  let customerId: string;
+  let otherCustomerId: string;
+  const organizationId = 'org-install-config-ownership';
+  const variables = [
+    { key: 'DATABASE_URL', required: true, secret: false, source: [], classification: 'deployz_managed' },
+    { key: 'API_URL', required: true, secret: false, source: [], classification: 'customer_required' },
+    { key: 'FEATURE_FLAG', required: false, secret: false, source: [], classification: 'optional' },
+    { key: 'LOG_LEVEL', required: false, secret: false, source: [], classification: 'optional' },
+    { key: 'SUPPORT_EMAIL', required: false, secret: false, source: [], classification: 'optional' },
+    { key: 'INTERNAL_TOKEN', required: true, secret: true, source: [], purpose: 'internal_secret', classification: 'customer_required' },
+    { key: 'OPENSHIP_ACME_EAB_HMAC_KEY', required: false, secret: true, source: [], purpose: 'internal_secret', classification: 'optional' },
+  ];
+
+  beforeAll(async () => {
+    client = new PGlite();
+    await applyMigrations(client);
+    db = createDb(client);
+    await db.insert(schema.organization).values({ id: organizationId, name: 'Acme', slug: organizationId });
+    const [application] = await db
+      .insert(schema.applications)
+      .values({
+        organizationId,
+        name: 'App',
+        repoFullName: 'acme/ownership',
+        repoUrl: 'https://github.com/acme/ownership',
+        defaultBranch: 'main',
+        analysisStatus: 'COMPLETE',
+        environmentSettings: [
+          // Was vendor-provided, now the customer's: the old vendor value must not reach anyone.
+          { key: 'API_URL', stage: 'runtime', required: true, secret: false, provider: 'customer' },
+          // Was customer-provided, now the vendor's: vendor default plus vendor overrides.
+          { key: 'LOG_LEVEL', stage: 'runtime', required: false, secret: false, provider: 'vendor' },
+          // Now not needed: no saved value is delivered.
+          { key: 'FEATURE_FLAG', stage: 'runtime', required: false, secret: false, provider: 'none' },
+          // Managed by Deployz: a stale vendor value never overrides the managed binding.
+          { key: 'DATABASE_URL', stage: 'runtime', required: true, secret: false, provider: 'deployz' },
+          { key: 'INTERNAL_TOKEN', stage: 'runtime', required: true, secret: true, provider: 'deployz' },
+        ],
+      })
+      .returning();
+    applicationId = application!.id;
+    const customers = await db
+      .insert(schema.customers)
+      .values([
+        { organizationId, name: 'Customer A', email: 'a@example.com' },
+        { organizationId, name: 'Customer B', email: 'b@example.com' },
+      ])
+      .returning();
+    customerId = customers[0]!.id;
+    otherCustomerId = customers[1]!.id;
+    await db.insert(schema.applicationConfigs).values([
+      { applicationId, customerId: null, key: 'API_URL', value: 'https://stale-vendor.example.com', isSecret: false },
+      { applicationId, customerId: null, key: 'FEATURE_FLAG', value: 'on', isSecret: false },
+      { applicationId, customerId: null, key: 'DATABASE_URL', value: 'postgres://localhost/dev', isSecret: false },
+      { applicationId, customerId: null, key: 'LOG_LEVEL', value: 'info', isSecret: false },
+      { applicationId, customerId: null, key: 'SUPPORT_EMAIL', value: 'help@vendor.example.com', isSecret: false },
+      { applicationId, customerId, key: 'API_URL', value: 'https://a.example.com', isSecret: false },
+      { applicationId, customerId, key: 'LOG_LEVEL', value: 'debug', isSecret: false },
+      { applicationId, customerId: otherCustomerId, key: 'API_URL', value: 'https://b.example.com', isSecret: false },
+    ]);
+  }, 60_000);
+
+  afterAll(async () => {
+    await client?.close();
+  });
+
+  function deploymentFor(customer: string) {
+    return { applicationId, customerId: customer, region: 'us-east-1', desiredState: { manifest: manifest(variables) } };
+  }
+
+  it('delivers each key only from its current source, per customer', async () => {
+    const a = await buildRelayConfigEntries(db, deploymentFor(customerId), createConfigStore(db));
+    expect(Object.fromEntries(a.map((entry) => [entry.key, entry.value ?? (entry.generated ? 'generated' : null)]))).toEqual({
+      API_URL: 'https://a.example.com',
+      LOG_LEVEL: 'debug',
+      SUPPORT_EMAIL: 'help@vendor.example.com',
+      INTERNAL_TOKEN: 'generated',
+    });
+    const b = await buildRelayConfigEntries(db, deploymentFor(otherCustomerId), createConfigStore(db));
+    expect(Object.fromEntries(b.map((entry) => [entry.key, entry.value ?? (entry.generated ? 'generated' : null)]))).toEqual({
+      API_URL: 'https://b.example.com',
+      LOG_LEVEL: 'info',
+      SUPPORT_EMAIL: 'help@vendor.example.com',
+      INTERNAL_TOKEN: 'generated',
+    });
+  });
+});
