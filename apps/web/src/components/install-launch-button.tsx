@@ -17,12 +17,15 @@ export function InstallLaunchButton({
   installLinkId,
   quickCreateUrl,
   deployLink = null,
+  label = 'Review setup in AWS',
 }: {
   installLinkId: string;
   quickCreateUrl: string;
   /** Set on the /deploy page: the launch signal resolves through the deploy
    *  link (token header) instead of the install link. */
   deployLink?: DeployLinkToken | null;
+  /** CTA label — customer install/deploy pages pass "Connect AWS account". */
+  label?: string;
 }) {
   const router = useRouter();
   return (
@@ -40,7 +43,7 @@ export function InstallLaunchButton({
           });
         }}
       >
-        Review setup in AWS
+        {label}
       </a>
     </Button>
   );

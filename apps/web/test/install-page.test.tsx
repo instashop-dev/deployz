@@ -102,8 +102,12 @@ describe('InstallPage per-deployment flow', () => {
     const doc = await renderPage();
 
     expect(doc.body.textContent).toContain('to your AWS account');
-    expect(doc.body.textContent).toContain('Application');
-    expect(doc.body.textContent).toContain('Review setup in AWS');
+    expect(doc.body.textContent).toContain('Connect AWS account');
+    // The new canonical AWS resources table replaces the prior component
+    // summary; every detailed AWS resource the plan carries renders.
+    expect(doc.body.textContent).toContain('AWS resources');
+    expect(doc.body.textContent).toContain('ECS Fargate service');
+    expect(doc.body.textContent).toContain('RDS PostgreSQL database');
   });
 
   it('delegates an unknown link to the invitation token gate', async () => {
