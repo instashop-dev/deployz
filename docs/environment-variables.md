@@ -36,7 +36,9 @@ their values reach release builds and customer deployments.
    fields, with the vendor's label and help text. The technical name is
    secondary. Installation is refused while a required value is missing. A
    blank or whitespace-only value counts as missing and is not saved. The
-   vendor's decision, not the browser, says which values are secret.
+   vendor's decision, not the browser, says which values are secret. The page
+   trims leading and trailing spaces from a plain value; a secret, and every
+   vendor value, is stored exactly as typed.
 
 ## Per-variable decision
 

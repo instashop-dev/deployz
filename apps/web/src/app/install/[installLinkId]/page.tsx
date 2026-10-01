@@ -29,7 +29,7 @@ import { fetchInstallStatusServer } from '@/lib/install-status';
 export const dynamic = 'force-dynamic';
 
 export const metadata: Metadata = {
-  title: 'Install your app · Deployz',
+  title: 'Install your app',
   // Unique private links must stay out of search indexes.
   robots: { index: false, follow: false },
 };

@@ -22,7 +22,7 @@ import { installPlanRegionLabel } from '@/lib/install-plan';
 export const dynamic = 'force-dynamic';
 
 export const metadata: Metadata = {
-  title: 'Deploy to AWS · Deployz',
+  title: 'Deploy to AWS',
   // Tokenized private links must stay out of search indexes.
   robots: { index: false, follow: false },
 };
