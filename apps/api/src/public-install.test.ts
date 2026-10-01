@@ -526,6 +526,34 @@ describe('public install links', () => {
     expect(deployments).toHaveLength(0);
   });
 
+  it('a blank or whitespace-only value never satisfies a required input', async () => {
+    const { link } = await insertEnabledLink(db, org.organizationId);
+    for (const value of ['', '   ']) {
+      const response = await confirm(link.id, confirmPayload({ config: [{ key: 'STRIPE_API_KEY', value, isSecret: true }] }));
+      expect(response.statusCode, value).toBe(422);
+    }
+    const deployments = await db
+      .select({ id: schema.deployments.id })
+      .from(schema.deployments)
+      .where(eq(schema.deployments.publicInstallLinkId, link.id));
+    expect(deployments).toHaveLength(0);
+  });
+
+  it('stores a secret input masked even when the client says it is not secret', async () => {
+    const { link, application } = await insertEnabledLink(db, org.organizationId);
+    const response = await confirm(
+      link.id,
+      confirmPayload({ config: [{ key: 'STRIPE_API_KEY', value: SECRET_VALUE, isSecret: false }] }),
+    );
+    expect(response.statusCode, response.body).toBe(201);
+    const rows = await db
+      .select()
+      .from(schema.applicationConfigs)
+      .where(and(eq(schema.applicationConfigs.applicationId, application.id), eq(schema.applicationConfigs.key, 'STRIPE_API_KEY')));
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ value: SECRET_MASK, isSecret: true });
+  });
+
   it('an unexpected config key is rejected with 422 and the key named', async () => {
     const { link } = await insertEnabledLink(db, org.organizationId);
     const response = await confirm(link.id, confirmPayload({ config: [...fullConfig(), { key: 'EVIL_KEY', value: 'x', isSecret: false }] }));
@@ -939,7 +967,7 @@ describe('publicInstallInputs', () => {
     expect(publicInstallInputs(inputsManifest(), settings)).toEqual([]);
   });
 
-  it('an explicit provider:customer setting asks for a key the mintable heuristic would otherwise skip', () => {
+  it('asks for a required internal secret Deployz cannot mint, with or without a decision', () => {
     const manifest = inputsManifest();
     manifest.environment.variables.push({
       key: 'LICENSE_KEY',
@@ -949,7 +977,8 @@ describe('publicInstallInputs', () => {
       purpose: 'internal_secret',
       classification: 'customer_required',
     });
-    expect(publicInstallInputs(manifest, null).map((input) => input.key)).toEqual(['STRIPE_SECRET_KEY']);
+    // A licence key is shared with another party: minting a random one never works.
+    expect(publicInstallInputs(manifest, null).map((input) => input.key)).toEqual(['LICENSE_KEY', 'STRIPE_SECRET_KEY']);
     const settings: EnvironmentSetting[] = [
       { key: 'LICENSE_KEY', stage: 'runtime', required: true, secret: true, provider: 'customer', label: 'License key' },
     ];

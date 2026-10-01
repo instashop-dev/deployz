@@ -264,15 +264,16 @@ export async function runApplicationPreflight(
     { metadata: application.detectedMetadata ?? {} },
     applicationToManifestOverrides(application),
   );
+  const settings = readEnvironmentSettings(application);
   const providedEnvKeys = [
-    ...(await listProvidedConfigKeys(db, application.id, customerId)),
+    ...(await listProvidedConfigKeys(db, application.id, customerId, settings)),
     ...extraProvidedEnvKeys,
   ];
   const result = evaluatePreflight({
     manifest,
     providedEnvKeys,
     readiness: effectiveReadinessReport(application),
-    settings: readEnvironmentSettings(application),
+    settings,
   });
   return { manifest, result };
 }
@@ -295,12 +296,13 @@ export async function runDeploymentPreflight(
       'Deployment has no valid deployment manifest. Run analysis or correct the application configuration first.',
     );
   }
-  const providedEnvKeys = await listProvidedConfigKeys(db, deployment.applicationId, deployment.customerId);
+  const settings = application ? readEnvironmentSettings(application) : null;
+  const providedEnvKeys = await listProvidedConfigKeys(db, deployment.applicationId, deployment.customerId, settings);
   return evaluatePreflight({
     manifest,
     providedEnvKeys,
     readiness: application ? effectiveReadinessReport(application) : null,
-    settings: application ? readEnvironmentSettings(application) : null,
+    settings,
   });
 }
 

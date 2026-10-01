@@ -711,7 +711,11 @@ function DetectedRow({
         ? 'Customer enters it at install'
         : setting.provider === 'deployz'
           ? 'Set by Deployz at install'
-          : (savedValueText(vendorEntry, setting.secret) ?? (setting.provider === 'vendor' ? 'Not set' : null));
+          : setting.provider === 'vendor'
+            ? (savedValueText(vendorEntry, setting.secret) ?? 'Not set')
+            : vendorEntry
+              ? 'Saved value not used'
+              : null;
 
   return (
     <>

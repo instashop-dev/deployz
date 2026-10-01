@@ -1,7 +1,7 @@
 import { and, desc, eq, inArray, isNull, or } from 'drizzle-orm';
 import { z } from 'zod';
 
-import { generatedEnvKeys } from '@deployz/analysis';
+import { mintedEnvKeys } from '@deployz/analysis';
 import {
   REGION_LABELS,
   SUPPORTED_AWS_REGIONS,
@@ -205,10 +205,7 @@ export function publicInstallInputs(
   manifest: DeploymentManifest,
   settings: readonly EnvironmentSetting[] | null,
 ): PublicInstallInput[] {
-  const mintable = new Set<string>(generatedEnvKeys(manifest));
-  for (const variable of manifest.environment.variables) {
-    if (variable.secret === true && variable.purpose === 'internal_secret') mintable.add(variable.key);
-  }
+  const mintable = new Set<string>(mintedEnvKeys(manifest, settings));
   const variablesByKey = new Map(manifest.environment.variables.map((variable) => [variable.key, variable]));
   const evaluation = evaluateEnvironmentSetup({
     variables: manifest.environment.variables,
@@ -390,14 +387,19 @@ export async function confirmPublicInstall(
   if (link.customerId === null && body.customer === undefined) {
     throw new ApiError(422, 'PUBLIC_INSTALL_CUSTOMER_REQUIRED', 'A customer name and email are required.');
   }
-  const bodyKeys = [...new Set(body.config.map((entry) => entry.key))];
+  // A blank value is no value: it never satisfies a required input, and it
+  // never reaches the deployment.
+  const submitted = body.config.filter((entry) => entry.value.trim() !== '');
+  const bodyKeys = [...new Set(submitted.map((entry) => entry.key))];
   const { manifest, result } = await runApplicationPreflight(db, application, link.customerId, bodyKeys);
   requirePreflightReady(result);
   const inputs = publicInstallInputs(manifest, readEnvironmentSettings(application));
-  const inputKeys = new Set(inputs.map((input) => input.key));
+  const inputsByKey = new Map(inputs.map((input) => [input.key, input]));
   const bodyKeySet = new Set(bodyKeys);
   const missing = inputs.filter((input) => input.required && !bodyKeySet.has(input.key)).map((input) => input.key);
-  const unexpected = bodyKeys.filter((key) => !inputKeys.has(key));
+  const unexpected = bodyKeys.filter((key) => !inputsByKey.has(key));
+  // The vendor's decision says which values are secret — never the client.
+  const config = submitted.map((entry) => ({ ...entry, isSecret: inputsByKey.get(entry.key)?.secret ?? true }));
   if (missing.length > 0 || unexpected.length > 0) {
     const sentences: string[] = [];
     if (missing.length > 0) sentences.push(`These values are required but missing: ${missing.join(', ')}.`);
@@ -492,7 +494,7 @@ export async function confirmPublicInstall(
       // Every dep here must read through THIS transaction: PGlite is
       // single-connection, so the shared (outer-db) pending-secrets store or
       // scope finder would deadlock against the tx's own lock.
-      await setConfig(link.applicationId, customerId, body.config, {
+      await setConfig(link.applicationId, customerId, config, {
         ...configDeps,
         store: createConfigStore(tx),
         secretWriter: createRelaySecretWriter(),
@@ -520,8 +522,8 @@ export async function confirmPublicInstall(
           invitationId: link.id,
           applicationId: link.applicationId,
           customerId,
-          inputKeyCount: body.config.length,
-          secretInputCount: body.config.filter((entry) => entry.isSecret).length,
+          inputKeyCount: config.length,
+          secretInputCount: config.filter((entry) => entry.isSecret).length,
         },
       });
       const { deployment } = await createDeploymentRecord(

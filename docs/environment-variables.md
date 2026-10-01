@@ -34,7 +34,9 @@ their values reach release builds and customer deployments.
 7. **Customer install page**: an **Application settings** section after the
    region and before the review. It shows only customer-provided runtime
    fields, with the vendor's label and help text. The technical name is
-   secondary. Installation is refused while a required value is missing.
+   secondary. Installation is refused while a required value is missing. A
+   blank or whitespace-only value counts as missing and is not saved. The
+   vendor's decision, not the browser, says which values are secret.
 
 ## Per-variable decision
 
@@ -82,9 +84,17 @@ come from well-known name prefixes (`NEXT_PUBLIC_`, `VITE_`,
   value is shown as evidence (not for secret-looking names); the vendor enters
   the value.
 - **Sibling apps are out of scope.** When the Dockerfile sits in `apps/<name>/`,
-  reads in another `apps/<other>/` directory do not count, unless that
-  directory has its own Dockerfile, a compose file or Procfile points at it, or
-  the Dockerfile names it. Shared `packages/*` still count. A non-secret value
+  reads in another `apps/<other>/` directory do not count, unless a production
+  compose file (`docker-compose.yml`, `compose.yml`) or a Procfile points at it,
+  or the Dockerfile names it. A sibling with only its own Dockerfile is a
+  separate image (a release has one image), so it does not count. Comment
+  lines and build-override compose variants are not references.
+- **Boot guards make a key required.** A key that the code refuses to start
+  without (`if (!env.KEY) throw`, or the same test limited only by "not in
+  mode X", such as `env.DEPLOY_MODE !== "desktop" && !env.KEY`) is required,
+  even when its zod schema says `.optional()`. A guard that applies only in a
+  named mode (`env.CLOUD_MODE && !env.KEY`) or only outside production does
+  not count. Shared `packages/*` still count. A non-secret value
   passed alone to a named converter (`Boolean(...)`, `formatBaseUri(...)`) is
   not required; `Number(...)` and `String(...)` are not converters in this sense.
 - **Deployz-derived S3 values.** When Deployz provisions storage and the app
@@ -97,6 +107,21 @@ come from well-known name prefixes (`NEXT_PUBLIC_`, `VITE_`,
 - **Precedence:** explicit vendor or customer value > Deployz-derived value >
   analysis evidence (sample values, suggestions). A derived value never
   replaces an explicit value.
+- **The saved decision selects the source** (`deliversConfigValue`). "Set by
+  vendor" delivers the vendor default, or the vendor's override for one
+  customer. "Set by customer" delivers only that customer's value, never a
+  vendor default. "Managed by Deployz" and "Optional / not needed" deliver no
+  saved value. A value saved under an earlier decision therefore never
+  overrides the new source. The preflight counts a value as provided only by
+  the same rule. A key with no saved decision keeps the legacy rule: every
+  saved value is delivered.
+- **Generated secrets** (`mintedEnvKeys`). With a saved decision, the relay
+  mints a key only when it is "Managed by Deployz" and an app-internal
+  secret. Without a decision, it mints `deployz_generated` keys: a required
+  secret with a generatable name, or an optional internal secret with a
+  generatable name (it usually falls back to a development default). An
+  optional secret such as an ACME HMAC key or an analytics project key is
+  never minted: a random value turns on a feature that the app then rejects.
 - **Credentials:** Deployz never creates AWS access keys or IAM users, and
   never derives a public bucket URL (`S3_PUBLIC_BASE_URL`). The AWS SDK gets
   credentials from the ECS task role through the default credential chain.
@@ -144,6 +169,10 @@ ever returns plaintext from an API except the relay's own authenticated
   update (for example, when a customer override for it is saved).
 - A customer override that the vendor edits reaches that customer's running
   deployment.
+- Known gap: when a decision changes so that a value is no longer delivered,
+  the value stays on a deployment that is already running. Later
+  configuration passes do not apply it again, but they do not remove it.
+  Remove it with the customer override editor, or reinstall.
 
 ## Security notes
 

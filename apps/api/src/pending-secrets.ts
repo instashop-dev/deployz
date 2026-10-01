@@ -1,4 +1,4 @@
-import { and, eq, isNull, lt, sql } from 'drizzle-orm';
+import { and, eq, inArray, isNull, lt, sql } from 'drizzle-orm';
 
 import { CONFIG_SECRET_KMS_CONTEXT_KEYS, CONFIG_SECRET_KMS_PURPOSE } from '@deployz/contracts';
 import type { RuntimeDb } from '@deployz/db';
@@ -233,8 +233,8 @@ export interface PendingSecretStore {
   }): Promise<MaterializeRow[]>;
   /** List bound rows for one deployment — no decrypt, just the ciphertext. */
   listBoundForDeployment(deploymentId: string): Promise<BoundRow[]>;
-  /** Delete every bound row for a deployment (e.g. on config-update ack). */
-  deleteBoundForDeployment(deploymentId: string): Promise<void>;
+  /** Delete the bound rows for a deployment (e.g. on config-update ack) — every key, or only `keys`. */
+  deleteBoundForDeployment(deploymentId: string, keys?: readonly string[]): Promise<void>;
   /** Delete one staged row by its scope triple. */
   deleteStagedForScope(input: {
     applicationId: string;
@@ -401,11 +401,16 @@ export function createDrizzlePendingSecretStore(
       return rows;
     },
 
-    async deleteBoundForDeployment(deploymentId) {
-      if (!UUID_PATTERN.test(deploymentId)) return;
+    async deleteBoundForDeployment(deploymentId, keys) {
+      if (!UUID_PATTERN.test(deploymentId) || keys?.length === 0) return;
       await db
         .delete(schema.pendingSecrets)
-        .where(eq(schema.pendingSecrets.deploymentId, deploymentId));
+        .where(
+          and(
+            eq(schema.pendingSecrets.deploymentId, deploymentId),
+            keys === undefined ? undefined : inArray(schema.pendingSecrets.key, [...keys]),
+          ),
+        );
     },
 
     async deleteStagedForScope(input) {

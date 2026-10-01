@@ -357,7 +357,6 @@ const JS_SOURCE = /\.(ts|js|mjs|cjs|jsx|tsx)$/;
 
 // Converters that take one env value and decide what an absent one means.
 // Number/parseInt/String are not here: they turn an absent value into NaN or "undefined".
-const DOCKERFILE_NAME_REGEX = /(?:^|\/)(?:dockerfile(?:[.-][\w.-]+)?|[\w.-]+\.dockerfile)$/i;
 const ENV_TRANSFORM_CALLEE_REGEX =
   /^(?:Boolean|format[A-Z]\w*|normali[sz]e[A-Z]\w*|\w+From[A-Z]\w*|load[A-Z]\w*|to[A-Z]\w*)$/;
 
@@ -559,27 +558,27 @@ function selectedDockerfile(tree: FileTree): { path: string; content: string } |
 /**
  * A monorepo builds one app from `apps/web/Dockerfile`; its sibling apps
  * (`apps/landing`) are other apps, so their env reads are not this
- * deployment's. A sibling stays in scope when it is a workload of its own: it
- * has a Dockerfile, a compose file or Procfile points at it, or the selected
- * Dockerfile names it.
+ * deployment's. A sibling stays in scope when a production compose file or a
+ * Procfile points at it, or the selected Dockerfile names it. A sibling with only its
+ * own Dockerfile is a separate image: a release has exactly one image, so its
+ * reads never reach this container. Comment lines are not references.
  */
 function siblingAppFilter(tree: FileTree): (path: string) => boolean {
   const dockerfile = selectedDockerfile(tree);
   const match = dockerfile ? /^((?:apps|services|applications)\/)([^/]+)\/(?:.+\/)?[^/]+$/.exec(dockerfile.path) : null;
   if (!dockerfile || !match) return () => false;
   const [, parent, own] = match as unknown as [string, string, string];
-  const references = [dockerfile.content];
+  const references = [dockerfile.content, ...listProductionComposeFiles(tree).map((path) => tree[path] ?? '')];
   for (const [path, content] of Object.entries(tree)) {
-    if (content && /(?:^|\/)(?:(?:docker-)?compose[^/]*\.ya?ml|Procfile)$/.test(path)) references.push(content);
+    if (content && /(?:^|\/)Procfile$/.test(path)) references.push(content);
   }
+  const referenceText = references.map((text) => text.replace(/^[ \t]*#.*$/gm, '')).join('\n');
   const workloads = new Map<string, boolean>();
   const isWorkload = (sibling: string): boolean => {
     let known = workloads.get(sibling);
     if (known === undefined) {
-      const dir = `${parent}${sibling}`;
-      known =
-        references.some((text) => text.includes(dir)) ||
-        Object.keys(tree).some((path) => path.startsWith(`${dir}/`) && DOCKERFILE_NAME_REGEX.test(path));
+      const dir = `${parent}${sibling}`.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      known = new RegExp(`${dir}(?![\\w.-])`).test(referenceText);
       workloads.set(sibling, known);
     }
     return known;
@@ -2501,6 +2500,44 @@ function scanZodEnvReads(content: string): { key: string; needsValue: boolean }[
   return found;
 }
 
+/**
+ * Members of the same zod env schema built by a local helper
+ * (`BILLING_ENABLED: envBool("false")`): the key is read, and the helper
+ * decides what absence means, so the read alone never requires it.
+ */
+function scanZodHelperEnvReads(content: string): { key: string; needsValue: boolean }[] {
+  if (scanZodEnvReads(content).length === 0) return [];
+  return [...content.matchAll(/^\s*([A-Z][A-Z0-9_]*)\s*:\s*[a-z][\w$]*\s*\(/gm)].map((match) => ({
+    key: match[1]!,
+    needsValue: false,
+  }));
+}
+
+/**
+ * Keys the app refuses to boot without: `if (!env.KEY) throw …`, or the same
+ * test narrowed only by "not in mode X" (`env.DEPLOY_MODE !== "desktop" &&
+ * !env.KEY`). Such a key is required even when its schema says `.optional()`.
+ * A guard that applies only in a named mode (`env.CLOUD_MODE && !env.KEY`) or
+ * only outside production does not count.
+ */
+function scanThrowGuardedEnvKeys(content: string): string[] {
+  const keys: string[] = [];
+  for (const guard of content.matchAll(/\bif\s*\(([^(){};]*)\)\s*\{?\s*throw\b/g)) {
+    const condition = guard[1] ?? '';
+    if (condition.includes('||')) continue;
+    const parts = condition.split('&&').map((part) => part.trim());
+    const negated = parts
+      .map((part) => /^!\s*(?:process\.)?env\.([A-Z][A-Z0-9_]*)$/.exec(part)?.[1])
+      .filter((key): key is string => key !== undefined);
+    const modeExclusions = parts.filter((part) => {
+      const literal = /^[\w$.]+\s*!==?\s*(['"`])([^'"`]*)\1$/.exec(part)?.[2];
+      return literal !== undefined && !/^prod(?:uction)?$/i.test(literal);
+    });
+    if (negated.length === 1 && negated.length + modeExclusions.length === parts.length) keys.push(negated[0]!);
+  }
+  return keys;
+}
+
 /** envalid validator objects fed to `cleanEnv` (`KEY: str()` vs `str({ default })`). */
 function scanEnvalidReads(content: string): { key: string; needsValue: boolean }[] {
   if (!content.includes('cleanEnv(') && !content.includes('envalid')) return [];
@@ -2937,6 +2974,9 @@ export function detectEnvVarModel(tree: FileTree, externalServices: string[] = [
   // Keys a zod schema declares `.optional()` or `.default()`: the schema says
   // the app tolerates their absence, whatever a bare read elsewhere suggests.
   const schemaOptionalKeys = new Set<string>();
+  // Keys a boot guard throws without (`scanThrowGuardedEnvKeys`): required
+  // whatever the schema says.
+  const bootRequiredKeys = new Set<string>();
   const recordRead = (key: string, needsValue: boolean, file: string): void => {
     const current = reads.get(key) ?? { needsValue: false, files: [] };
     if (needsValue) current.needsValue = true;
@@ -3114,6 +3154,7 @@ export function detectEnvVarModel(tree: FileTree, externalServices: string[] = [
       // objects, and a file-local throwing `env('KEY')` helper.
       for (const entry of [
         ...scanZodEnvReads(content),
+        ...scanZodHelperEnvReads(content),
         ...scanEnvalidReads(content),
         ...(hasThrowingEnvHelper(content) ? scanEnvHelperReads(content) : []),
       ]) {
@@ -3122,6 +3163,7 @@ export function detectEnvVarModel(tree: FileTree, externalServices: string[] = [
       for (const entry of scanZodEnvReads(content)) {
         if (!entry.needsValue) schemaOptionalKeys.add(entry.key);
       }
+      for (const key of scanThrowGuardedEnvKeys(content)) bootRequiredKeys.add(key);
     } else if (/schema\.prisma$/i.test(path)) {
       const envRegex = /env\(\s*["']([A-Z_][A-Z0-9_]*)["']\s*\)/g;
       let match: RegExpExecArray | null;
@@ -3182,7 +3224,10 @@ export function detectEnvVarModel(tree: FileTree, externalServices: string[] = [
     const declared = declarations.get(key);
     const read = reads.get(key);
     const buildArg = composeBuildArgs.get(key);
-    const needsValue = (read?.needsValue === true && !schemaOptionalKeys.has(key)) || buildArg !== undefined;
+    const needsValue =
+      (read?.needsValue === true && !schemaOptionalKeys.has(key)) ||
+      (read !== undefined && bootRequiredKeys.has(key)) ||
+      buildArg !== undefined;
     const hasDefault = declared?.realValue === true;
     const source: string[] = [];
     if (buildArg) source.push(buildArg);

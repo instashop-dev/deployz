@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   buildStageVendorKeys,
   customerInputRows,
+  deliversConfigValue,
   deployzProvidableKeys,
   environmentSettingsSchema,
   evaluateEnvironmentSetup,
@@ -307,5 +308,31 @@ describe('buildStageVendorKeys / missingBuildValues', () => {
     expect(buildStageVendorKeys(settings).sort()).toEqual(['A', 'B']);
     expect(missingBuildValues(settings, new Set())).toEqual(['A']);
     expect(missingBuildValues(settings, new Set(['A']))).toEqual([]);
+  });
+});
+
+describe('deliversConfigValue', () => {
+  const setting = (provider: 'deployz' | 'vendor' | 'customer' | 'none') => ({
+    key: 'API_URL',
+    stage: 'runtime' as const,
+    required: true,
+    secret: false,
+    provider,
+  });
+
+  it('delivers every saved value when the vendor has not decided', () => {
+    expect(deliversConfigValue(undefined, 'vendor')).toBe(true);
+    expect(deliversConfigValue(undefined, 'customer')).toBe(true);
+  });
+
+  it('never lets a value from an earlier decision override the current source', () => {
+    expect(deliversConfigValue(setting('vendor'), 'vendor')).toBe(true);
+    expect(deliversConfigValue(setting('vendor'), 'customer')).toBe(true);
+    expect(deliversConfigValue(setting('customer'), 'customer')).toBe(true);
+    expect(deliversConfigValue(setting('customer'), 'vendor')).toBe(false);
+    for (const provider of ['deployz', 'none'] as const) {
+      expect(deliversConfigValue(setting(provider), 'vendor')).toBe(false);
+      expect(deliversConfigValue(setting(provider), 'customer')).toBe(false);
+    }
   });
 });

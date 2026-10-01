@@ -89,12 +89,11 @@ function classifyOne(
   serviceKeys: Set<string>,
 ): EnvVariableClassification {
   if (managed.has(variable.key)) return 'deployz_managed';
-  if (variable.required) {
-    if (variable.secret && !serviceKeys.has(variable.key) && isGeneratableSecretName(variable.key)) {
-      return 'deployz_generated';
-    }
-    return 'customer_required';
-  }
+  const generatable = variable.secret && !serviceKeys.has(variable.key) && isGeneratableSecretName(variable.key);
+  // An optional internal secret usually falls back to a development default;
+  // a generated value replaces it (kutt's envalid `devDefault`, DEPLOY-013).
+  if (generatable && (variable.required || variable.purpose === 'internal_secret')) return 'deployz_generated';
+  if (variable.required) return 'customer_required';
   const isRead = variable.source.some((entry) => entry.startsWith('read in '));
   return isRead ? 'optional' : 'unknown';
 }
