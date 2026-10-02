@@ -519,4 +519,106 @@ describe('failure semantics, duplicate results and operation exclusivity', () =>
     expect(second.statusCode).toBe(200);
     expect((second.json() as { commands: unknown[] }).commands).toHaveLength(0);
   });
+  describe('service mutations never overlap', () => {
+    async function seedAt(
+      deploymentId: string,
+      type: (typeof schema.deploymentJobs.$inferInsert)['type'],
+      state: (typeof schema.deploymentJobs.$inferInsert)['state'],
+      secondsAgo: number,
+    ): Promise<string> {
+      const [row] = await db
+        .insert(schema.deploymentJobs)
+        .values({
+          deploymentId,
+          type,
+          state,
+          idempotencyKey: `${deploymentId}:${type}:${crypto.randomUUID()}`,
+          createdAt: new Date(Date.now() - secondsAgo * 1000),
+        })
+        .returning();
+      return row!.id;
+    }
+
+    async function claim(deployment: { installationId: string; token: string }): Promise<string[]> {
+      const response = await app.inject({
+        method: 'GET',
+        url: `/api/relay/commands?installationId=${deployment.installationId}`,
+        headers: { authorization: `Bearer ${deployment.token}` },
+      });
+      expect(response.statusCode, response.body).toBe(200);
+      return (response.json() as { commands: { id: string }[] }).commands.map((command) => command.id);
+    }
+
+    it('holds a CONFIG_UPDATE queued during an install until the install settles; domain jobs still flow', async () => {
+      const deployment = await seedDeployment({ state: 'INSTALLING' });
+      const install = await seedAt(deployment.id, 'INSTALL', 'RUNNING', 30);
+      const config = await seedAt(deployment.id, 'CONFIG_UPDATE', 'REQUESTED', 20);
+      const domain = await seedAt(deployment.id, 'CONFIGURE_DOMAIN', 'REQUESTED', 10);
+
+      expect(await claim(deployment)).toEqual([domain]);
+
+      await db.update(schema.deploymentJobs).set({ state: 'SUCCEEDED' }).where(eq(schema.deploymentJobs.id, install));
+      expect(await claim(deployment)).toEqual([config]);
+    });
+
+    it('hands out a CONFIG_UPDATE only as the first service mutation of a batch', async () => {
+      const behind = await seedDeployment();
+      const deploy = await seedAt(behind.id, 'DEPLOY_RELEASE', 'REQUESTED', 20);
+      const lateConfig = await seedAt(behind.id, 'CONFIG_UPDATE', 'REQUESTED', 10);
+      expect(await claim(behind)).toEqual([deploy]);
+      await db.update(schema.deploymentJobs).set({ state: 'SUCCEEDED' }).where(eq(schema.deploymentJobs.id, deploy));
+      expect(await claim(behind)).toEqual([lateConfig]);
+
+      // The post-install pair keeps its order in one batch: the relay hands
+      // the deploy back if the configuration rollout has to wait.
+      const first = await seedDeployment();
+      const config = await seedAt(first.id, 'CONFIG_UPDATE', 'REQUESTED', 20);
+      const autoDeploy = await seedAt(first.id, 'DEPLOY_RELEASE', 'REQUESTED', 10);
+      expect(await claim(first)).toEqual([config, autoDeploy]);
+    });
+
+    it('lets the relay hand back a claimed command it did not start, never one whose payload was redacted', async () => {
+      const deployment = await seedDeployment();
+      const config = await seedAt(deployment.id, 'CONFIG_UPDATE', 'REQUESTED', 20);
+      const deploy = await seedAt(deployment.id, 'DEPLOY_RELEASE', 'REQUESTED', 10);
+      expect(await claim(deployment)).toEqual([config, deploy]);
+
+      const release = (jobId: string, token = deployment.token) =>
+        app.inject({
+          method: 'POST',
+          url: `/api/relay/commands/${jobId}/release`,
+          headers: { authorization: `Bearer ${token}` },
+        });
+      expect((await release(deploy, 'wrong-token')).statusCode).toBe(401);
+      const handedBack = await release(deploy);
+      expect(handedBack.statusCode, handedBack.body).toBe(200);
+      expect(handedBack.json()).toEqual({ released: true });
+      const [row] = await db.select().from(schema.deploymentJobs).where(eq(schema.deploymentJobs.id, deploy));
+      expect(row!.state).toBe('REQUESTED');
+      expect((await release(config)).statusCode).toBe(409);
+
+      // The running CONFIG_UPDATE holds the deploy until it settles.
+      expect(await claim(deployment)).toEqual([]);
+    });
+
+    it('surfaces a failed CONFIG_UPDATE while the lifecycle and release pointer stay', async () => {
+      const v1 = await seedRelease('5.9.1', new Date());
+      const deployment = await seedDeployment({ state: 'HEALTHY', currentReleaseId: v1, healthStatus: 'HEALTHY' });
+      await seedAt(deployment.id, 'INSTALL', 'SUCCEEDED', 60);
+      const config = await seedAt(deployment.id, 'CONFIG_UPDATE', 'RUNNING', 10);
+
+      const response = await postResult(config, deployment.token, {
+        success: false,
+        error: 'ECS rolled service back; Secret values already written to the configuration secret were not restored.',
+        failureCode: 'ECS_DEPLOYMENT_FAILED',
+      });
+      expect(response.statusCode, response.body).toBe(200);
+
+      const row = await getDeploymentRow(deployment.id);
+      expect(row.state).toBe('HEALTHY');
+      expect(row.currentReleaseId).toBe(v1);
+      const derived = await getDerived(deployment.id);
+      expect(derived.deploymentStatus.failure?.code).toBe('ECS_DEPLOYMENT_FAILED');
+    });
+  });
 });

@@ -686,7 +686,7 @@ describe('config — relay write-through queue message', () => {
   it('carries entered secret VALUES transiently and keys for plain changes', async () => {
     const enqueueMock = vi.mocked(enqueue);
     enqueueMock.mockResolvedValue(true);
-    const writer = createRelaySecretWriter();
+    const writer = createRelaySecretWriter({} as never);
     await writer.writeSecrets(APP_ID, CUSTOMER_ID, [
       { key: 'DATABASE_URL', value: 'postgres://fresh-secret', isSecret: true },
       { key: 'LOG_LEVEL', value: 'debug', isSecret: false },
@@ -747,6 +747,29 @@ describe('config — secure storage against a real store', () => {
 
   afterAll(async () => {
     await client?.close();
+  });
+
+  it('without a queue, creates the CONFIG_UPDATE job inline for each deployment a relay can act on', async () => {
+    vi.mocked(enqueue).mockResolvedValue(false);
+    const [installed] = await db
+      .insert(schema.deployments)
+      .values({ organizationId: 'org-config-crypto', applicationId, customerId, region: 'us-east-1', state: 'HEALTHY', enrollmentCode: crypto.randomUUID() })
+      .returning();
+    await db
+      .insert(schema.deployments)
+      .values({ organizationId: 'org-config-crypto', applicationId, customerId, region: 'us-east-1', state: 'NOT_INSTALLED', enrollmentCode: crypto.randomUUID() });
+
+    await createRelaySecretWriter(db).writeSecrets(applicationId, customerId, [
+      { key: 'API_KEY', value: 'fresh-secret', isSecret: true },
+    ]);
+
+    const jobs = await db.select().from(schema.deploymentJobs).where(eq(schema.deploymentJobs.type, 'CONFIG_UPDATE'));
+    expect(jobs).toHaveLength(1);
+    expect(jobs[0]).toMatchObject({
+      deploymentId: installed!.id,
+      state: 'REQUESTED',
+      payload: { changedKeys: ['API_KEY'], secrets: [{ key: 'API_KEY', value: 'fresh-secret' }] },
+    });
   });
 
   it('setConfig -> createConfigStore round-trips a vendor secret through real ciphertext', async () => {

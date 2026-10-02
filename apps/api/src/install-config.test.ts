@@ -375,7 +375,12 @@ describe('post-install configuration', () => {
     const [job] = await db
       .select()
       .from(schema.deploymentJobs)
-      .where(and(eq(schema.deploymentJobs.deploymentId, deployment!.id), eq(schema.deploymentJobs.type, 'CONFIG_UPDATE')));
+      .where(
+        and(
+          eq(schema.deploymentJobs.deploymentId, deployment!.id),
+          eq(schema.deploymentJobs.idempotencyKey, `${deployment!.id}:CONFIG_UPDATE:install:install-job-secret-delivery`),
+        ),
+      );
     expect(job!.payload).toEqual({
       reason: 'install',
       changedKeys: expect.arrayContaining(['API_SECRET']),

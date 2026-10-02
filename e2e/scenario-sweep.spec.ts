@@ -4,7 +4,7 @@
  * exercise separately actually compose:
  *
  *   analyse → readiness → configuration (enter a value) → install → healthy
- *   → config update → successful update → failed update (previous release
+ *   → config update (rolled out and settled) → successful update → failed update (previous release
  *   stays live) → rollback → relay reset (disconnect + reconnect) →
  *   day-2 action refused until reconnected → successful update again →
  *   delete → purge.
@@ -24,11 +24,9 @@
  * lifecycle-sweep.ts). The relay is stopped and re-registered once, through
  * the real `relay/reset` route and a fresh enrollment code read from the
  * install page's Quick Create link — exactly how a rebuilt customer relay
- * reconnects. The worker-only CONFIG_UPDATE fan-out is deliberately NOT
- * exercised here: it is the control-plane worker Lambda's domain (see the
- * Phase 14 status-doc matrix), so the sweep asserts the reachable half of a
- * config change — the write is accepted and persisted while the relay is
- * connected and the deployment stays live.
+ * reconnects. Without a queue the API runs the CONFIG_UPDATE fan-out
+ * inline, so a config change reaches the running deployment through the
+ * real relay executor, which settles only once the rollout completed.
  */
 
 import { expect, test, type APIRequestContext } from '@playwright/test';
@@ -50,6 +48,7 @@ interface DeploymentResponse {
     stage: string;
     failure: { code: string | null; message: string; awsStatus: string | null } | null;
   };
+  jobs: Array<{ type: string; state: string }>;
 }
 
 interface ReadinessResponse {
@@ -220,10 +219,9 @@ test.describe('lifecycle-sweep', () => {
       await waitForInstallAutoDeploy(buildApi(request), deploymentId);
       expect(relayA.account.migrationRuns).toBe(1);
 
-      // ── Config update while live: a customer-scoped write is accepted and
-      // persisted, and the deployment stays HEALTHY (the write-through to the
-      // running application is the worker Lambda's fan-out — not reachable in
-      // this harness; see the file comment). ─────────────────────────────────
+      // ── Config update while live: a customer-scoped write is accepted,
+      // persisted and rolled out; the deployment stays HEALTHY, and the next
+      // deploy waits until the configuration update has settled. ───────────
       const liveConfig = await request.put(`${API_URL}/api/applications/${application.id}/config`, {
         data: { customerId: customer.id, entries: [{ key: 'LOG_LEVEL', value: 'debug', isSecret: false }] },
       });
@@ -232,6 +230,15 @@ test.describe('lifecycle-sweep', () => {
         .get(`${API_URL}/api/applications/${application.id}/config?customerId=${customer.id}`)
         .then((r) => r.json()) as { customerOverrides: Array<{ key: string; value: string | null }> };
       expect(readBack.customerOverrides.find((e) => e.key === 'LOG_LEVEL')?.value).toBe('debug');
+      await expect
+        .poll(
+          async () =>
+            (await getDeployment(request, deploymentId)).jobs
+              .filter((job) => job.type === 'CONFIG_UPDATE')
+              .every((job) => job.state === 'SUCCEEDED'),
+          { timeout: 20_000, message: 'waiting for the live config update to roll out' },
+        )
+        .toBe(true);
       expect((await getDeployment(request, deploymentId)).state).toBe('HEALTHY');
 
       // ── Successful update (v1) — and the migration stage really ran. ──────

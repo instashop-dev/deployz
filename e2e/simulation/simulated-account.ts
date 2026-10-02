@@ -44,7 +44,7 @@ import type { EcsDeployClient, EcsTaskDefinition, RegisterTaskDefinitionInput } 
 import type { EcsTaskReader } from '@deployz/relay/ecs-observe';
 import type { StackDeleter, EcsStandaloneTaskStopper } from '@deployz/relay/destroy';
 
-import type { ScenarioDefinition, TimelineEvent, UpdateRolloutOutcome } from './types.js';
+import type { ConfigRolloutOutcome, ScenarioDefinition, TimelineEvent, UpdateRolloutOutcome } from './types.js';
 
 const STACK_EVENT_RESOURCE_TYPE = 'AWS::CloudFormation::Stack';
 const SUCCESS_STATUSES: ReadonlySet<string> = new Set(['CREATE_COMPLETE', 'UPDATE_COMPLETE']);
@@ -63,6 +63,10 @@ interface ServiceDeployState {
   /** Sticky: read by the runtime-health heartbeat until the next update. */
   healthRolloutFailed: boolean;
   running: boolean;
+  /** The PRIMARY ECS deployment's id — a new one for every UpdateService. */
+  deploymentId: string;
+  /** One-shot: a configuration rollout the circuit breaker rolled back. */
+  failedDeployment: { id: string; taskDefinition: string } | null;
 }
 
 /**
@@ -76,6 +80,7 @@ interface ServiceDeployState {
 const FIXTURE_IMAGE_REPOSITORY = '123456789012.dkr.ecr.us-east-1.amazonaws.com/deployz-fixture';
 const BOOTSTRAP_IMAGE_DIGEST = `sha256:${'0'.repeat(64)}`;
 const RDS_CA_INIT_IMAGE = 'public.ecr.aws/amazonlinux/amazonlinux:2023-minimal';
+const CONFIG_SECRET_LOGICAL_ID = 'ApplicationConfigSecret';
 
 function isStackLevel(event: TimelineEvent): boolean {
   return event.resourceType === STACK_EVENT_RESOURCE_TYPE;
@@ -99,6 +104,8 @@ function physicalIdFor(resourceType: string, logicalId: string, stackName: strin
       return `${stackName}-storage-123456789012`;
     case 'AWS::ElastiCache::ReplicationGroup':
       return `${stackName}-redis`;
+    case 'AWS::SecretsManager::Secret':
+      return `arn:aws:secretsmanager:us-east-1:123456789012:secret:${stackName}-${logicalId}-AbCdEf`;
     default:
       return `${logicalId}-${stackName}`;
   }
@@ -170,6 +177,8 @@ export class SimulatedCustomerAccount {
    *  increases after a teardown. */
   createStackCalls = 0;
   private updateServiceCallIndex = 0;
+  private configRolloutCallIndex = 0;
+  private deploymentSequence = 0;
 
   // ── Phase 14 observability ───────────────────────────────────────────────
   // (migrationRuns above)
@@ -261,6 +270,21 @@ export class SimulatedCustomerAccount {
     }
     const stackName = this.stackNameValue;
     if (stackName === null) return [];
+    // Every compiled stack carries the application config secret the
+    // CONFIG_UPDATE executor writes into; it is complete by the time any ECS
+    // service is.
+    const serviceComplete = [...byResource.values()].some(
+      (event) => event.resourceType === 'AWS::ECS::Service' && SUCCESS_STATUSES.has(event.status),
+    );
+    if (serviceComplete && !byResource.has(CONFIG_SECRET_LOGICAL_ID)) {
+      byResource.set(CONFIG_SECRET_LOGICAL_ID, {
+        afterMs: 0,
+        atVirtualMs: 0,
+        logicalResourceId: CONFIG_SECRET_LOGICAL_ID,
+        resourceType: 'AWS::SecretsManager::Secret',
+        status: 'CREATE_COMPLETE',
+      });
+    }
     return [...byResource.entries()].map(([logicalId, event]) => ({
       logicalId,
       type: event.resourceType,
@@ -620,6 +644,8 @@ export class SimulatedCustomerAccount {
         jobRolloutFailed: false,
         healthRolloutFailed: false,
         running: false,
+        deploymentId: this.nextDeploymentId(),
+        failedDeployment: null,
       });
     }
   }
@@ -642,6 +668,25 @@ export class SimulatedCustomerAccount {
       desiredCount: state.desiredCount,
       healthy: state.running && !state.healthRolloutFailed,
     }));
+  }
+
+  private nextDeploymentId(): string {
+    this.deploymentSequence += 1;
+    return `ecs-svc/${String(this.deploymentSequence).padStart(19, '0')}`;
+  }
+
+  private nextConfigRolloutOutcome(): ConfigRolloutOutcome {
+    const outcome = this.scenario.configRollouts?.[this.configRolloutCallIndex] ?? 'succeed';
+    this.configRolloutCallIndex += 1;
+    return outcome;
+  }
+
+  /** The image a revision runs, for telling a configuration rollout from a release rollout. */
+  private imageOf(taskDefinitionArn: string): string | undefined {
+    const image = this.taskDefinitions.get(taskDefinitionArn)?.containerDefinitions.find(
+      (container) => typeof container.image === 'string' && container.image.includes('@'),
+    )?.image;
+    return typeof image === 'string' ? image : undefined;
   }
 
   private nextUpdateRolloutOutcome(): UpdateRolloutOutcome {
@@ -742,11 +787,23 @@ export class SimulatedCustomerAccount {
             if (state === undefined) return {};
             const failed = state.jobRolloutFailed;
             state.jobRolloutFailed = false;
+            const rolledBack = state.failedDeployment;
+            state.failedDeployment = null;
             return {
               desiredCount: state.desiredCount,
               runningCount: failed || !state.running ? 0 : state.desiredCount,
               taskDefinition: state.taskDefinitionArn,
-              deployments: [{ status: 'PRIMARY', rolloutState: failed ? 'FAILED' : 'COMPLETED' }],
+              deployments: [
+                {
+                  id: state.deploymentId,
+                  status: 'PRIMARY',
+                  taskDefinition: state.taskDefinitionArn,
+                  rolloutState: failed ? 'FAILED' : 'COMPLETED',
+                },
+                ...(rolledBack !== null
+                  ? [{ id: rolledBack.id, status: 'ACTIVE', taskDefinition: rolledBack.taskDefinition, rolloutState: 'FAILED' }]
+                  : []),
+              ],
               networkConfiguration: {
                 awsvpcConfiguration: {
                   subnets: ['subnet-11111aaa'],
@@ -786,11 +843,41 @@ export class SimulatedCustomerAccount {
         // new image, no rollout knob consumed.
         if (input.forceNewDeployment === true) {
           this.restarts += 1;
+          state.deploymentId = this.nextDeploymentId();
           state.jobRolloutFailed = false;
           state.healthRolloutFailed = false;
           state.running = state.runningDigest !== null;
           return;
         }
+        // A re-point at zero tasks (configuration delivered before the first
+        // start) runs nothing, so nothing rolls.
+        if (input.taskDefinition !== undefined && state.desiredCount === 0 && input.desiredCount === undefined) {
+          state.taskDefinitionArn = input.taskDefinition;
+          state.deploymentId = this.nextDeploymentId();
+          return;
+        }
+        // A configuration rollout: a new revision of the same image on a
+        // running service. 'rollback' is the ECS circuit breaker restoring
+        // the previous revision, which keeps serving.
+        if (
+          input.taskDefinition !== undefined &&
+          state.desiredCount > 0 &&
+          state.running &&
+          this.imageOf(input.taskDefinition) === this.imageOf(state.taskDefinitionArn)
+        ) {
+          const ours = this.nextDeploymentId();
+          if (this.nextConfigRolloutOutcome() === 'rollback') {
+            this.operationLog.push(`config-rollback:${state.logicalId}`);
+            state.failedDeployment = { id: ours, taskDefinition: input.taskDefinition };
+            state.deploymentId = this.nextDeploymentId();
+            return;
+          }
+          this.operationLog.push(`config:${state.logicalId}`);
+          state.taskDefinitionArn = input.taskDefinition;
+          state.deploymentId = ours;
+          return;
+        }
+        state.deploymentId = this.nextDeploymentId();
         const outcome = this.nextUpdateRolloutOutcome();
         if (input.taskDefinition !== undefined) state.taskDefinitionArn = input.taskDefinition;
         // First-start scaling rides the payload's per-workload count.

@@ -82,6 +82,7 @@ import {
 } from './purge.js';
 import {
   createConfigUpdateExecutor,
+  createConfigUpdateResumer,
   createRealConfigSecretsWriter,
   type EffectiveConfigEntry,
 } from './config-update.js';
@@ -348,6 +349,7 @@ function getEcsDeployClient(): EcsDeployClient {
             runningCount: service.runningCount ?? undefined,
             taskDefinition: service.taskDefinition ?? undefined,
             deployments: (service.deployments ?? []).map((deployment) => ({
+              id: deployment.id ?? undefined,
               status: deployment.status ?? undefined,
               rolloutState: deployment.rolloutState ?? undefined,
               taskDefinition: deployment.taskDefinition ?? undefined,
@@ -2191,6 +2193,8 @@ export function createRelayHandler(deps: RelayHandlerDeps) {
       },
       stackName: relayApplicationStackName(),
       installationId,
+      elb: getTargetHealthReader(),
+      pending: getPendingStore(installationId),
     });
 
     const pollDeps: PollDependencies = {
@@ -2260,6 +2264,14 @@ export function createRelayHandler(deps: RelayHandlerDeps) {
             deployResumerDeps(installDeps.installationId),
           )();
           if (deployResults.length > 0) return deployResults;
+          const configResults = await createConfigUpdateResumer({
+            cfn: getCloudFormationReader(),
+            ecs: getEcsDeployClient(),
+            elb: getTargetHealthReader(),
+            pending: getPendingStore(installationId),
+            stackName: relayApplicationStackName(),
+          })();
+          if (configResults.length > 0) return configResults;
           const destroyResults = await createDestroyResumer({
             cfn: getCloudFormationReader(),
             deleter: getStackDeleter(),

@@ -29,6 +29,7 @@ Three decisions with substantial detail have their own files:
 | 2026-09-28 | The MVP boundary expands to background workers, RDS MySQL and first-class migrations; one build artifact and no private services stay | Active |
 | 2026-09-29 | The MVP boundary expands to SQS queues and scheduled jobs | Active |
 | 2026-10-02 | A pending INSTALL carries command authority; only authorized recovery may recreate a stack ([`pending-command-authority.md`](pending-command-authority.md)) | Active |
+| 2026-10-02 | A configuration update settles on its rollout; service mutations never overlap | Active |
 
 ## AI explanations are on-demand and never change state (2026-08-25)
 
@@ -415,3 +416,34 @@ Multi-AZ database or a different instance class is the only way through would
 need a product decision, not a placement change — Multi-AZ roughly doubles the
 database charge.
 
+## A configuration update settles on its rollout (2026-10-02)
+
+CONFIG_UPDATE used to report success as soon as UpdateService returned. A
+configuration that broke the application was rolled back by the ECS
+circuit breaker while the job said it succeeded, and a pending secret was
+cleaned up as delivered.
+
+- Success now needs every changed service's rollout complete, with the
+  deploy executor's gates. The rollouts ride the relay's pending marker
+  and resume across invocations. A rollback fails the job; the lifecycle
+  state and release pointers stay, and the failure is surfaced.
+- The job error does not claim that the rollback restored secrets: a
+  secret value already written stays written. Automatic secret
+  restoration is out of scope.
+- Service mutations never overlap. The claim route holds service
+  mutations while one is running, and the relay hands back later
+  mutations of a batch once one defers. CONFIG_UPDATE stays outside the
+  unique index, so it can still be queued during an install; it is only
+  handed out after the install settles.
+- Without a queue (local development, simulated E2E) the API runs the
+  CONFIG_UPDATE fan-out inline, the documented `queue.ts` contract, so the
+  simulator covers the vendor configuration path.
+
+Rejected: putting CONFIG_UPDATE into the one-active-job index (it would
+lose secret values typed during an install); claiming one service
+mutation per poll (it would delay every configured first start by a full
+relay interval).
+
+Real-AWS qualification is recorded as pending in
+[`../testing/aws-e2e.md`](../testing/aws-e2e.md); the change deferred it
+by instruction and did not waive it.

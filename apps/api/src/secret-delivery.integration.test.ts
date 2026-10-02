@@ -8,9 +8,11 @@ import * as schema from '@deployz/db/schema';
 import { buildAuthHeaders, createAuthState } from '@deployz/relay/auth';
 import {
   createConfigUpdateExecutor,
+  createConfigUpdateResumer,
   type ConfigSecretsWriter,
 } from '@deployz/relay/config-update';
 import type { EcsDeployClient, EcsTaskDefinition } from '@deployz/relay/deploy';
+import { memoryPendingStore } from '@deployz/relay/pending';
 import type { CloudFormationReader } from '@deployz/relay/verify';
 
 import { createAuth, type Auth } from './auth.js';
@@ -86,6 +88,12 @@ function simulatedCustomerAccount(): SimulatedCustomerAws {
       async describeStackResources() {
         return [
           { logicalId: 'Service', type: 'AWS::ECS::Service', status: 'CREATE_COMPLETE', physicalId: SERVICE_ARN },
+          {
+            logicalId: 'TargetGroup',
+            type: 'AWS::ElasticLoadBalancingV2::TargetGroup',
+            status: 'CREATE_COMPLETE',
+            physicalId: 'arn:aws:elasticloadbalancing:us-east-1:123456789012:targetgroup/app/0123456789abcdef',
+          },
           {
             logicalId: 'AppConfigSecret',
             type: 'AWS::SecretsManager::Secret',
@@ -314,18 +322,14 @@ describe('secret delivery simulated-E2E (§31 phase 1.2)', () => {
     expect(configRead.statusCode).toBe(200);
     expect(JSON.stringify(configRead.json())).not.toContain(SECRET_VALUE);
 
-    // 3. The worker fan-out (covered in worker.test.ts) turns the write into
-    //    a CONFIG_UPDATE job whose payload carries the value transiently.
-    await db.insert(schema.deploymentJobs).values({
-      deploymentId: deployment.id,
-      type: 'CONFIG_UPDATE',
-      state: 'REQUESTED',
-      idempotencyKey: `${deployment.id}:CONFIG_UPDATE:sim-e2e`,
-      payload: {
-        changedKeys: ['DATABASE_URL'],
-        secrets: [{ key: 'DATABASE_URL', value: SECRET_VALUE }],
-      },
-    });
+    // 3. The queue-less API runs the fan-out inline (the worker runs it
+    //    behind the queue): a CONFIG_UPDATE job whose payload carries the
+    //    value transiently. It waits while the INSTALL runs; the install
+    //    settles here, so the next poll hands the configuration out.
+    await db
+      .update(schema.deploymentJobs)
+      .set({ state: 'SUCCEEDED' })
+      .where(and(eq(schema.deploymentJobs.deploymentId, deployment.id), eq(schema.deploymentJobs.type, 'INSTALL')));
 
     // 4. The relay claims the command: it receives the value exactly once…
     const claimed = await claimCommands();
@@ -337,14 +341,14 @@ describe('secret delivery simulated-E2E (§31 phase 1.2)', () => {
     const [storedJob] = await db
       .select()
       .from(schema.deploymentJobs)
-      .where(and(eq(schema.deploymentJobs.deploymentId, deployment.id), eq(schema.deploymentJobs.type, 'CONFIG_UPDATE')));
+      .where(eq(schema.deploymentJobs.id, configCommand!.id));
     expect(storedJob!.state).toBe('RUNNING');
     expect(JSON.stringify(storedJob!.payload)).not.toContain(SECRET_VALUE);
 
     // 6. The REAL relay executor runs: it fetches the effective config from
     //    the control plane, persists the value into the customer's Secrets
     //    Manager, and binds it into the task definition.
-    const executor = createConfigUpdateExecutor({
+    const configDeps = {
       cfn: account.cfn,
       ecs: account.ecs,
       secrets: account.secrets,
@@ -366,15 +370,21 @@ describe('secret delivery simulated-E2E (§31 phase 1.2)', () => {
       },
       stackName: 'deployz-app',
       installationId: RELAY_INSTALLATION_ID,
-    });
-    const result = await executor({
+      elb: { describeTargetHealth: async () => ({ targets: [{ state: 'healthy' }] }) },
+      pending: memoryPendingStore(),
+    };
+    const started = await createConfigUpdateExecutor(configDeps)({
       id: configCommand!.id,
       deploymentId: deployment.id,
       type: 'CONFIG_UPDATE',
       idempotencyKey: configCommand!.idempotencyKey,
       payload: configCommand!.payload,
     });
-    expect(result.success).toBe(true);
+    // A running service: the relay started the rollout and reports only once
+    // it completed.
+    expect(started.deferred).toBe(true);
+    const [result] = await createConfigUpdateResumer(configDeps)();
+    expect(result!.success).toBe(true);
 
     // The value is now persisted in the CUSTOMER's secret store…
     expect(account.configSecretJson()).toEqual({ DATABASE_URL: SECRET_VALUE });
@@ -391,7 +401,7 @@ describe('secret delivery simulated-E2E (§31 phase 1.2)', () => {
       method: 'POST',
       url: `/api/relay/commands/${configCommand!.id}/result`,
       headers: { 'content-type': 'application/json', authorization: `Bearer ${RELAY_TOKEN}` },
-      payload: JSON.stringify({ success: true, output: result.output }),
+      payload: JSON.stringify({ success: true, output: result!.output }),
     });
     expect(report.statusCode).toBe(200);
 

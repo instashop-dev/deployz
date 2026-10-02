@@ -81,6 +81,9 @@ export type EcsRolloutBehavior =
  *  'succeed'. */
 export type UpdateRolloutOutcome = 'succeed' | 'fail';
 
+/** A configuration rollout's outcome: 'rollback' is the ECS circuit breaker restoring the previous revision. */
+export type ConfigRolloutOutcome = 'succeed' | 'rollback';
+
 /** A resource CloudFormation reports DELETE_FAILED for — the blocker
  *  destroy.ts's `settleDestroy` looks for on a DELETE_FAILED stack. */
 export interface DestroyBlockedResource {
@@ -171,6 +174,9 @@ export interface ScenarioDefinition {
    *  consumed in order, one per UpdateService call. Absent or exhausted
    *  defaults to 'succeed'. */
   readonly updateRollouts?: readonly UpdateRolloutOutcome[];
+  /** CONFIG_UPDATE rollouts on running services, consumed in order, one per
+   *  UpdateService call. Absent or exhausted defaults to 'succeed'. */
+  readonly configRollouts?: readonly ConfigRolloutOutcome[];
   /**
    * Phase 4C: the outcome of the one-shot MIGRATION task a DEPLOY_RELEASE
    * runs (packages/relay/src/deploy.ts settleMigration). Absent defaults to
