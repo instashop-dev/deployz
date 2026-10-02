@@ -28,6 +28,7 @@ import { DEPLOYZ_INSTALLATION_TAG } from '@deployz/contracts';
 import {
   type CreateStackInput,
   type CreateStackOutcome,
+  type StackDescribeOutcome,
   type StackFailureEvent,
   type StackInstaller,
   type StackState,
@@ -160,6 +161,11 @@ export class SimulatedCustomerAccount {
   readonly operationLog: string[] = [];
   /** How many RESTART forceNewDeployment calls reached the account. */
   restarts = 0;
+  /** Every `CreateStack` call the relay's installer adapter received —
+   *  counted at the top of `createStack` so even an `AlreadyExists` answer
+   *  counts. The stale-install-resurrect regression asserts this never
+   *  increases after a teardown. */
+  createStackCalls = 0;
   private updateServiceCallIndex = 0;
 
   // ── Phase 14 observability ───────────────────────────────────────────────
@@ -265,6 +271,7 @@ export class SimulatedCustomerAccount {
   // ── CreateStack (shared by the StackInstaller adapter) ────────────────
 
   private async createStack(input: CreateStackInput): Promise<CreateStackOutcome> {
+    this.createStackCalls += 1;
     this.ensureStarted();
     if (this.stackNameValue !== null) {
       // After a recovery delete (deleteStartRealMs set, no destroy scenario),
@@ -400,6 +407,27 @@ export class SimulatedCustomerAccount {
           status,
           outputs,
           ...(statusReason !== undefined ? { statusReason } : {}),
+        };
+      },
+      describeStackOutcome: async (stackName: string): Promise<StackDescribeOutcome> => {
+        if (this.stackNameValue === null || stackName !== this.stackNameValue) {
+          return { found: false, absent: true };
+        }
+        if (this.deleteStartRealMs !== null) return { found: false, absent: true };
+        if (this.transientDescribeRemaining > 0) {
+          this.transientDescribeRemaining -= 1;
+          return { found: false, absent: false, errorCode: 'Throttling' };
+        }
+        const status = this.currentStackStatus();
+        const outputs = SUCCESS_STATUSES.has(status) ? { ...(this.scenario.outputs ?? {}) } : {};
+        const statusReason = this.latestStackStatusReason();
+        return {
+          found: true,
+          stack: {
+            status,
+            outputs,
+            ...(statusReason !== undefined ? { statusReason } : {}),
+          },
         };
       },
       describeStackEvents: async (stackName: string): Promise<StackFailureEvent[]> => {

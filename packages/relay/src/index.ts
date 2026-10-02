@@ -86,6 +86,7 @@ import {
   createStackInstaller,
   describeStoppedTaskEvidence,
   installApplicationStack,
+  type InstallCreateMode,
   type InstallOptions,
   type InstallOutcome,
   type StackInstaller,
@@ -101,7 +102,9 @@ import {
   createPendingStore,
   memoryPendingStore,
   pendingParameterName,
+  type PendingCommand,
   type PendingStore,
+  type PersistedCommandResult,
 } from './pending.js';
 import { pollOnce, reportCommandProgress, type PollDependencies } from './poll.js';
 import { fetchWithRetry, type SleepFn } from './retry.js';
@@ -652,6 +655,13 @@ export interface InstallExecutorDeps {
    * on its retry-install route, after proving no INSTALL ever succeeded.
    */
   readonly recover?: (stackName: string) => Promise<RecoveryReport>;
+  /**
+   * Validates that a command still has authority to provision before the
+   * relay resumes it. `true` = active, `false` = superseded (never
+   * provision), `null` = ambiguous/unavailable (defer, retry next poll).
+   * Optional so pre-existing wiring and test doubles keep compiling.
+   */
+  readonly checkAuthority?: (commandId: string) => Promise<boolean | null>;
   /** CloudFormation execution role ARN (`role/deployz/*`), when configured. */
   readonly executionRoleArn?: string;
   /**
@@ -723,7 +733,12 @@ export type VerifyRequest = Omit<VerifyOptions, 'cfn'>;
  */
 async function settleInstall(
   deps: InstallExecutorDeps,
-  request: { stackName: string; payload: Record<string, unknown> },
+  request: {
+    stackName: string;
+    payload: Record<string, unknown>;
+    commandId: string;
+    createMode: InstallCreateMode;
+  },
   collector?: StackEventCollector,
 ): Promise<
   | { readonly deferred: true; readonly status: string }
@@ -810,6 +825,15 @@ async function settleInstall(
 
   const deploymentTags = readDeploymentTagsFromPayload(request.payload);
 
+  // First-install recovery re-provisions a stack whose data is doomed. Only
+  // a recovery create may do that, and only when the control plane confirms
+  // the command still has authority; a non-recovery create never carries
+  // either field.
+  const authorizeRecoveryCreate =
+    request.createMode === 'recovery' && deps.checkAuthority
+      ? async () => (await deps.checkAuthority!(request.commandId)) === true
+      : undefined;
+
   const outcome = await deps.install({
     installationId: deps.installationId,
     templateUrl,
@@ -817,6 +841,8 @@ async function settleInstall(
     parameters,
     ...(deploymentTags ? { deploymentTags } : {}),
     ...(deps.executionRoleArn !== undefined ? { executionRoleArn: deps.executionRoleArn } : {}),
+    createMode: request.createMode,
+    ...(authorizeRecoveryCreate ? { authorizeRecoveryCreate } : {}),
     ...(collector ? { onPoll: (stackName: string) => collector.poll(stackName) } : {}),
   });
 
@@ -982,15 +1008,77 @@ export function createInstallExecutor(deps: InstallExecutorDeps): CommandExecuto
   return async (command) => {
     logCommandExecuted(command);
 
+    // A settled marker for this same command already holds the terminal
+    // answer. Re-reporting it must not provision anything again.
+    const pending = await deps.pending.read();
+    if (pending?.commandId === command.id && pending.phase === 'settled' && pending.result) {
+      return buildResultFromPending(pending);
+    }
+
+    // The control plane is the authority on whether this command may still
+    // provision. A `false` is final; a `null` is unknown, so the work is
+    // deferred rather than guessed at.
+    const authority = deps.checkAuthority ? await deps.checkAuthority(command.id) : undefined;
+    if (authority === false) {
+      return {
+        commandId: command.id,
+        idempotencyKey: command.idempotencyKey,
+        success: false,
+        error: 'Install command is no longer active — not provisioning',
+        failureCode: 'STACK_CREATE_FAILED',
+      };
+    }
+
     const stackName = readVerifyOptionsFromPayload(command.payload).stackName ?? relayApplicationStackName();
     const startedAt = (deps.now ?? (() => new Date().toISOString()))();
+
+    if (authority === null) {
+      // Authority is unknown, not denied. Record what we owe an answer to so
+      // the next poll retries; provision nothing now.
+      const recorded = await deps.pending.write({
+        commandId: command.id,
+        idempotencyKey: command.idempotencyKey,
+        type: command.type,
+        stackName,
+        startedAt,
+        payload: compactPendingInstallPayload(command.payload),
+      });
+      if (!recorded) {
+        return failure(
+          command,
+          `Install authority for "${stackName}" could not be confirmed, but the relay could not record ` +
+            'that it must report back — failing now rather than leaving the install unaccounted for',
+        );
+      }
+      console.log(
+        JSON.stringify({
+          event: 'relay:command-deferred',
+          commandId: command.id,
+          type: command.type,
+          stackName,
+          status: 'AUTHORITY_UNKNOWN',
+        }),
+      );
+      return {
+        commandId: command.id,
+        idempotencyKey: command.idempotencyKey,
+        success: false,
+        deferred: true,
+      };
+    }
+
     const collector = deps.createStackEventCollector?.({
       commandId: command.id,
       operationStartedAt: startedAt,
       stackName,
     });
+    const createMode: InstallCreateMode = isRecoveryRequested(command.payload) ? 'recovery' : 'fresh';
     const recoveryReport = await runRequestedRecovery(deps, command, stackName);
-    const settled = await settleInstall(deps, { stackName, payload: command.payload }, collector);
+    const settled = await settleInstall(
+      deps,
+      { stackName, payload: command.payload, commandId: command.id, createMode },
+      collector,
+    );
 
     if (!settled.deferred) {
       logInstall(command, stackName, settled.success, settled.error);
@@ -1074,6 +1162,38 @@ export function createInstallResumer(
     // settles its own, so a deferred deploy is never answered as an install.
     if (pending.type !== 'INSTALL') return [];
 
+    // A settled marker already holds the answer. Retry reporting it — never
+    // provision again — until a report is accepted.
+    if (pending.phase === 'settled' && pending.result) {
+      return [buildResultFromPending(pending)];
+    }
+
+    // Authority first: a superseded command must not recreate infrastructure
+    // during (or after) a teardown. A `null` keeps the marker for the next
+    // poll; a `false` clears it, but only while it is still this command's.
+    const authority = deps.checkAuthority ? await deps.checkAuthority(pending.commandId) : undefined;
+    if (authority === false) {
+      await deps.pending.compareAndSet(pending.commandId, null);
+      console.log(
+        JSON.stringify({
+          event: 'relay:install-superseded',
+          commandId: pending.commandId,
+          stackName: pending.stackName,
+        }),
+      );
+      return [];
+    }
+    if (authority === null) {
+      console.log(
+        JSON.stringify({
+          event: 'relay:install-authority-unknown',
+          commandId: pending.commandId,
+          stackName: pending.stackName,
+        }),
+      );
+      return [];
+    }
+
     const resumeAfter = pending.stackEventsCursor?.lastEventAt;
     const collector = deps.createStackEventCollector?.({
       commandId: pending.commandId,
@@ -1082,18 +1202,28 @@ export function createInstallResumer(
       ...(resumeAfter !== undefined ? { resumeAfter } : {}),
     });
 
+    const createMode: InstallCreateMode = isRecoveryRequested(pending.payload) ? 'recovery' : 'resume';
     const settled = await settleInstall(
       deps,
-      { stackName: pending.stackName, payload: pending.payload },
+      {
+        stackName: pending.stackName,
+        payload: pending.payload,
+        commandId: pending.commandId,
+        createMode,
+      },
       collector,
     );
 
     if (settled.deferred) {
       // Re-defer: carry forward whatever new events this attempt collected
       // so the next resume does not re-walk history it already reported.
+      // Compare-and-set: a newer command's marker is never overwritten.
       const lastEventAt = collector?.lastEventAt() ?? null;
       if (lastEventAt !== null) {
-        await deps.pending.write({ ...pending, stackEventsCursor: { lastEventAt } });
+        await deps.pending.compareAndSet(pending.commandId, {
+          ...pending,
+          stackEventsCursor: { lastEventAt },
+        });
       }
       console.log(
         JSON.stringify({
@@ -1135,12 +1265,34 @@ export function createInstallResumer(
         // Keep the pending record — the next poll's settleInstall will find
         // the stack gone (or still going) and either create it fresh or
         // defer again. Nothing to report to the control plane yet.
+        const lastEventAt = collector?.lastEventAt() ?? null;
+        if (lastEventAt !== null) {
+          await deps.pending.compareAndSet(pending.commandId, {
+            ...pending,
+            stackEventsCursor: { lastEventAt },
+          });
+        }
         return [];
       }
 
-      // DELETE_STUCK: recovery cannot make more progress on its own. Clear
-      // the pending record and report the failure honestly.
-      await deps.pending.clear();
+      // DELETE_STUCK: recovery cannot make more progress on its own. Persist
+      // the terminal failure in the marker (compare-and-set, so a newer
+      // command is never overwritten) and report it.
+      const result: PersistedCommandResult = {
+        success: false,
+        error:
+          `Stack "${pending.stackName}" is still ${report.lastStackStatus} after first-install ` +
+          `recovery cleared ${report.orphansDeleted.length} orphan(s) — recovery could not ` +
+          'unblock the delete',
+        failureCode: 'STACK_CREATE_FAILED',
+        output: settled.output,
+      };
+      await deps.pending.compareAndSet(pending.commandId, {
+        ...pending,
+        phase: 'settled',
+        result,
+        settledAt: new Date().toISOString(),
+      });
       console.log(
         JSON.stringify({
           event: 'relay:command-resumed',
@@ -1155,20 +1307,43 @@ export function createInstallResumer(
         {
           commandId: pending.commandId,
           idempotencyKey: pending.idempotencyKey,
-          success: false,
-          error:
-            `Stack "${pending.stackName}" is still ${report.lastStackStatus} after first-install ` +
-            `recovery cleared ${report.orphansDeleted.length} orphan(s) — recovery could not ` +
-            'unblock the delete',
-          failureCode: 'STACK_CREATE_FAILED',
-          output: settled.output,
+          ...result,
         },
       ];
     }
 
-    // Clear first: a result reported twice would re-emit the control
-    // plane's install event on every poll for the life of the deployment.
-    await deps.pending.clear();
+    // Persist the terminal answer BEFORE reporting: if the report fails, the
+    // marker still holds it, so the next poll retries without provisioning.
+    const result: PersistedCommandResult = settled.success
+      ? {
+          success: true,
+          output: { executed: true, type: pending.type, ...settled.output },
+        }
+      : {
+          success: false,
+          error: settled.error ?? 'Installation could not be verified',
+          failureCode: 'STACK_CREATE_FAILED',
+          ...(settled.evidence ? { evidence: settled.evidence } : {}),
+          output: settled.output,
+        };
+    const written = await deps.pending.compareAndSet(pending.commandId, {
+      ...pending,
+      phase: 'settled',
+      result,
+      settledAt: new Date().toISOString(),
+    });
+    if (!written) {
+      // A newer command owns the marker now — never overwrite it, and do not
+      // report this obsolete result.
+      console.log(
+        JSON.stringify({
+          event: 'relay:install-marker-superseded',
+          commandId: pending.commandId,
+          stackName: pending.stackName,
+        }),
+      );
+      return [];
+    }
 
     console.log(
       JSON.stringify({
@@ -1182,22 +1357,11 @@ export function createInstallResumer(
     );
 
     return [
-      settled.success
-        ? {
-            commandId: pending.commandId,
-            idempotencyKey: pending.idempotencyKey,
-            success: true,
-            output: { executed: true, type: pending.type, ...settled.output },
-          }
-        : {
-            commandId: pending.commandId,
-            idempotencyKey: pending.idempotencyKey,
-            success: false,
-            error: settled.error ?? 'Installation could not be verified',
-            failureCode: 'STACK_CREATE_FAILED',
-            ...(settled.evidence ? { evidence: settled.evidence } : {}),
-            output: settled.output,
-          },
+      {
+        commandId: pending.commandId,
+        idempotencyKey: pending.idempotencyKey,
+        ...result,
+      },
     ];
   };
 }
@@ -1209,6 +1373,20 @@ function failure(command: RelayCommand, error: string): RelayCommandResult {
     success: false,
     error,
     failureCode: 'STACK_CREATE_FAILED',
+  };
+}
+
+/** Rebuild a reportable result from a settled pending marker. */
+function buildResultFromPending(pending: PendingCommand): RelayCommandResult {
+  const result = pending.result as PersistedCommandResult;
+  return {
+    commandId: pending.commandId,
+    idempotencyKey: pending.idempotencyKey,
+    success: result.success,
+    ...(result.output ? { output: result.output } : {}),
+    ...(result.error ? { error: result.error } : {}),
+    ...(result.failureCode ? { failureCode: result.failureCode } : {}),
+    ...(result.evidence ? { evidence: result.evidence } : {}),
   };
 }
 
@@ -1296,6 +1474,31 @@ export async function readTemplateParameterNames(
     const declared = body?.Parameters;
     if (typeof declared !== 'object' || declared === null || Array.isArray(declared)) return null;
     return new Set(Object.keys(declared));
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Ask the control plane whether a command still has authority to provision.
+ * `true`/`false` come from a 200 body's `active` field; every other outcome
+ * (non-200, unparseable body, network failure) is ambiguous and returns
+ * `null`, so the caller defers rather than acting on an unknown.
+ */
+export async function fetchCommandAuthority(
+  fetchFn: FetchFn,
+  controlPlaneUrl: string,
+  authHeaders: Record<string, string>,
+  commandId: string,
+): Promise<boolean | null> {
+  try {
+    const response = await fetchFn(
+      `${controlPlaneUrl}/api/relay/commands/${encodeURIComponent(commandId)}/authority`,
+      { headers: authHeaders },
+    );
+    if (response.status !== 200) return null;
+    const body = (await response.json()) as { active?: unknown } | null;
+    return body?.active === true;
   } catch {
     return null;
   }
@@ -1462,6 +1665,13 @@ function createDefaultInstallDeps(
       ? {
           readTemplateParameters: (templateUrl: string) =>
             readTemplateParameterNames(reportContext.fetchFn, templateUrl),
+          checkAuthority: (commandId: string) =>
+            fetchCommandAuthority(
+              reportContext.fetchFn,
+              reportContext.controlPlaneUrl,
+              reportContext.getAuthHeaders(),
+              commandId,
+            ),
         }
       : {}),
     recover: (stackName) =>
@@ -1868,6 +2078,23 @@ export function createRelayHandler(deps: RelayHandlerDeps) {
       enrollmentCode,
       executors: { ...executors, CONFIG_UPDATE: configExecutor },
       idempotency,
+      // A result that reached the control plane is done: clear this
+      // command's marker, but only while it is still this command's. Wrapped
+      // so a store failure never breaks the poll.
+      onResultReported: async (result, reported) => {
+        if (!reported) return;
+        try {
+          await getPendingStore(installationId).compareAndSet(result.commandId, null);
+        } catch (err) {
+          console.error(
+            JSON.stringify({
+              event: 'relay:pending-cas-failed',
+              commandId: result.commandId,
+              error: String(err),
+            }),
+          );
+        }
+      },
       observe:
         deps.observe ??
         createObserveHook(
