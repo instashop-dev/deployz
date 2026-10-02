@@ -71,7 +71,7 @@ describe('compileDeploymentIntent', () => {
     const second = compileDeploymentIntent({ manifest: MANIFEST, region: 'us-east-1' });
 
     expect(first.templateHash).toBe(second.templateHash);
-    expect(first.spec.compilerVersion).toBe('dynamic-compiler-v2-2');
+    expect(first.spec.compilerVersion).toBe('dynamic-compiler-v2-3');
     expect(first.spec.templateHash).toBe(first.templateHash);
     expect(first.spec.artifactLocation).toBe(compilerArtifactUrl('us-east-1', first.templateHash));
     // The published spec re-parses from its stored JSON form.

@@ -36,13 +36,14 @@
  * INSTALL-time image baked in (`paramImageReference`) — DEPLOY_RELEASE and
  * ROLLBACK never touch CloudFormation, so a family's latest revision never
  * otherwise picks up a new release. `registerReleaseImageIntoFamily` is the
- * one generic, bounded step that keeps a named family current: describe its
- * latest ACTIVE revision, skip if it already runs the target digest
- * (idempotent/retry-safe), otherwise register a new revision with the
- * release image. It runs (a) for the migration family right before RunTask,
- * and (b) for every scheduled-job family the control plane names, but only
- * once a DEPLOY_RELEASE/ROLLBACK rollout has otherwise SETTLED — a failed
- * update must leave scheduled jobs on the previous image.
+ * one generic, bounded step that keeps a named family current: it copies the
+ * revision this stack itself created (never one another installation
+ * registered), reuses the family's latest revision only when it is exactly
+ * that copy, and returns the exact revision ARN. It runs (a) for the
+ * migration family right before RunTask, which runs that exact ARN, and (b)
+ * for every scheduled-job family the control plane names, but only once a
+ * DEPLOY_RELEASE/ROLLBACK rollout has otherwise SETTLED — a failed update
+ * must leave scheduled jobs on the previous image.
  */
 
 import type { FailureEvidence } from '@deployz/contracts';
@@ -51,6 +52,7 @@ import type { PendingStore } from './pending.js';
 import type { CloudFormationReader } from './verify.js';
 import { applicationContainers, applicationExits, essentialContainerNames } from './ecs-observe.js';
 import type { TargetHealthReader } from './ecs-health.js';
+import { listAllStackResources } from './stack-resources.js';
 
 /** The ECS write surface this module needs (injectable seam for testing). */
 export interface EcsDeployClient {
@@ -132,6 +134,8 @@ export interface EcsDeployClient {
  * the running service depends on.
  */
 export interface EcsTaskDefinition {
+  /** The exact revision described — read only, never registered. */
+  taskDefinitionArn?: string | undefined;
   family?: string | undefined;
   cpu?: string | undefined;
   memory?: string | undefined;
@@ -147,7 +151,7 @@ export interface EcsTaskDefinition {
   volumes?: unknown[];
 }
 
-export type RegisterTaskDefinitionInput = Omit<EcsTaskDefinition, 'containerDefinitions'> & {
+export type RegisterTaskDefinitionInput = Omit<EcsTaskDefinition, 'containerDefinitions' | 'taskDefinitionArn'> & {
   containerDefinitions: Record<string, unknown>[];
   /** The installation tag the relay's IAM conditions require on register. */
   tags?: { key: string; value: string }[];
@@ -241,8 +245,10 @@ const DIGEST_PATTERN = /^sha256:[0-9a-f]{64}$/;
 
 /**
  * The only shape a one-shot task-definition family name may take (mirrors
- * `deployzTaskFamily` in `@deployz/contracts`) — never a command, never
- * anything the relay could confuse for one.
+ * `deployzTaskFamily` in `@deployz/contracts`: `DeployzApp<Pascal>` plus the
+ * installation's suffix, or no suffix on an older stack) — never a command,
+ * never anything the relay could confuse for one. The family must also be
+ * one this stack created (`ownedFamilySource`).
  */
 const TASK_FAMILY_PATTERN = /^DeployzApp[A-Za-z0-9]+$/;
 
@@ -764,10 +770,12 @@ async function settleMigration(
     // INSTALL-time image baked in — DEPLOY_RELEASE/ROLLBACK never touch
     // CloudFormation, so its latest revision would otherwise still run
     // whatever image the last stack operation set, not this release's
-    // digest. Bring it current before RunTask (idempotent — a no-op once
-    // the latest revision already runs the digest).
+    // digest. Bring it current before RunTask, and run the EXACT revision
+    // that returns: a bare family name would run whatever revision is
+    // latest by then.
+    let migrationDefinitionArn: string;
     try {
-      await registerReleaseImageIntoFamily(deps, migrationTask.family, params.request);
+      migrationDefinitionArn = await registerReleaseImageIntoFamily(deps, migrationTask.family, params.request);
     } catch (err) {
       return {
         state: 'failed',
@@ -777,7 +785,7 @@ async function settleMigration(
 
     const { taskArns } = await deps.ecs.runTask({
       cluster,
-      taskDefinition: migrationTask.family,
+      taskDefinition: migrationDefinitionArn,
       count: 1,
       launchType: 'FARGATE',
       networkConfiguration: {
@@ -1123,14 +1131,82 @@ export function replaceApplicationImages(
   return copy;
 }
 
+const TASK_DEFINITION_TYPE = 'AWS::ECS::TaskDefinition';
+
+/** The family of a task-definition revision ARN (`…:task-definition/<family>:<revision>`). */
+function familyOfRevision(arn: string): string | null {
+  return /:task-definition\/([A-Za-z0-9_-]+):\d+$/.exec(arn)?.[1] ?? null;
+}
+
 /**
- * Registers the release image into a named, spec-frozen one-shot task
- * family: reads the family's latest ACTIVE revision (`describeTaskDefinition`
- * accepts a bare family name and answers with its newest active revision),
- * and registers a new revision only when that revision does not already run
- * the target digest. Idempotent and retry-safe — a repeated call after a
- * successful register is a no-op, so a re-offered command or a later
- * scheduled-job family in the same list never double-registers.
+ * The revision of `family` this deployment's own stack created — the only
+ * source the relay copies. An image match, or a tag the relay stamped on a
+ * copy, proves nothing: on an older stack the family name is shared by every
+ * installation in the account and Region, so its latest revision may be
+ * another installation's (other roles, other secrets, another database).
+ */
+async function ownedFamilySource(
+  deps: EcsDeployDeps,
+  family: string,
+): Promise<{ readonly arn: string; readonly definition: EcsTaskDefinition }> {
+  // Paged to completion: a large stack outgrows DescribeStackResources' 100.
+  const inventory = await listAllStackResources(deps.cfn, deps.stackName);
+  if (inventory === null) throw new Error(`The resources of stack "${deps.stackName}" could not be read`);
+  const owned = inventory.resources.filter(
+    (resource) =>
+      resource.type === TASK_DEFINITION_TYPE &&
+      COMPLETE_RESOURCE_STATUSES.has(resource.status) &&
+      resource.physicalId !== undefined &&
+      familyOfRevision(resource.physicalId) === family,
+  );
+  if (owned.length !== 1) {
+    throw new Error(`Stack "${deps.stackName}" created ${owned.length} task definitions of family "${family}", not one`);
+  }
+  const arn = owned[0]!.physicalId!;
+  const { taskDefinition } = await deps.ecs.describeTaskDefinition({ taskDefinition: arn });
+  if (taskDefinition.family !== family) {
+    throw new Error(`Task definition "${arn}" is of family "${String(taskDefinition.family)}", not "${family}"`);
+  }
+  return { arn, definition: taskDefinition };
+}
+
+/** Key-order-independent JSON, so two descriptions of one registration compare equal. */
+function canonical(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(canonical).join(',')}]`;
+  if (value !== null && typeof value === 'object') {
+    const record = value as Record<string, unknown>;
+    const keys = Object.keys(record).filter((key) => record[key] !== undefined).sort();
+    return `{${keys.map((key) => `${JSON.stringify(key)}:${canonical(record[key])}`).join(',')}}`;
+  }
+  return JSON.stringify(value);
+}
+
+/** True when `definition` registers exactly what `copy` registers (tags aside). */
+function sameRegistration(definition: EcsTaskDefinition, copy: RegisterTaskDefinitionInput): boolean {
+  const shape = (input: EcsTaskDefinition | RegisterTaskDefinitionInput): string =>
+    canonical({
+      family: input.family,
+      cpu: input.cpu,
+      memory: input.memory,
+      networkMode: input.networkMode,
+      requiresCompatibilities: input.requiresCompatibilities,
+      executionRoleArn: input.executionRoleArn,
+      taskRoleArn: input.taskRoleArn,
+      containerDefinitions: input.containerDefinitions,
+      volumes: input.volumes,
+    });
+  return shape(definition) === shape(copy);
+}
+
+/**
+ * Registers the release image into a named, spec-frozen one-shot task family
+ * and returns the EXACT revision ARN to use. The source is always the
+ * revision this stack created (`ownedFamilySource`); the copy replaces only
+ * the release image, so no configuration is lost. Idempotent and retry-safe:
+ * the stack's own revision, or the family's latest revision, is reused when
+ * it already is exactly that copy — on an older shared family, another
+ * installation's revision never is (its roles differ), so it is never
+ * adopted.
  *
  * Used for the migration family right before RunTask (Phase 4C/5: DEPLOY_
  * RELEASE and ROLLBACK never touch CloudFormation, so a family's latest
@@ -1141,19 +1217,21 @@ async function registerReleaseImageIntoFamily(
   deps: EcsDeployDeps,
   family: string,
   request: DeployRequest,
-): Promise<void> {
-  const { taskDefinition } = await deps.ecs.describeTaskDefinition({ taskDefinition: family });
-  const nextImage = `${request.imageRepository}@${request.imageDigest}`;
-  const alreadyOnDigest = taskDefinition.containerDefinitions.some((container) => container.image === nextImage);
-  if (alreadyOnDigest) return;
-  const replaced = replaceApplicationImages(taskDefinition, request);
-  if (!replaced) {
+): Promise<string> {
+  const source = await ownedFamilySource(deps, family);
+  const copy = replaceApplicationImages(source.definition, request);
+  if (!copy) {
     throw new Error(
       `Task family "${family}" has no container referencing repository "${request.imageRepository}"`,
     );
   }
-  replaced.tags = [{ key: 'deployz:installation', value: deps.installationId }];
-  await deps.ecs.registerTaskDefinition(replaced);
+  if (sameRegistration(source.definition, copy)) return source.arn;
+  const { taskDefinition: latest } = await deps.ecs.describeTaskDefinition({ taskDefinition: family });
+  if (latest.taskDefinitionArn !== undefined && latest.family === family && sameRegistration(latest, copy)) {
+    return latest.taskDefinitionArn;
+  }
+  copy.tags = [{ key: 'deployz:installation', value: deps.installationId }];
+  return (await deps.ecs.registerTaskDefinition(copy)).taskDefinitionArn;
 }
 
 /**

@@ -12,6 +12,7 @@ import {
   type EcsDeployClient,
   type EcsDeployDeps,
   type EcsTaskDefinition,
+  type RegisterTaskDefinitionInput,
 } from './deploy.js';
 import { memoryPendingStore } from './pending.js';
 import type { CloudFormationReader, StackResource } from './verify.js';
@@ -25,6 +26,9 @@ const MIGRATION_TASK_ARN = 'arn:aws:ecs:us-east-1:151955775369:task/app-cluster/
 /** The frozen migration seat the control plane puts on DEPLOY_RELEASE payloads. */
 const MIGRATION_TASK = { family: 'DeployzAppMigration', identity: 'a'.repeat(64) };
 const MIGRATION_DEF_ARN = 'arn:aws:ecs:us-east-1:151955775369:task-definition/DeployzAppMigration:3';
+const MIGRATION_FAMILY_ARN_PREFIX = 'arn:aws:ecs:us-east-1:151955775369:task-definition/DeployzAppMigration';
+const CLEANUP_FAMILY = 'DeployzAppCleanup';
+const CLEANUP_DEF_ARN = `arn:aws:ecs:us-east-1:151955775369:task-definition/${CLEANUP_FAMILY}:1`;
 
 interface FakeEcs {
   service?: {
@@ -102,17 +106,18 @@ function fakeEcs(state: FakeEcs): EcsDeployClient {
       return { services: state.service ? [state.service] : [] };
     },
     async describeTaskDefinition(input) {
-      const found = state.definitions.get(input.taskDefinition) ?? state.definitions.get(resolve(input.taskDefinition));
+      const arn = resolve(input.taskDefinition);
+      const found = state.definitions.get(arn);
       return {
         taskDefinition: found
-          ? { ...found, containerDefinitions: found.containerDefinitions.map((c) => ({ ...c })) }
+          ? { ...found, taskDefinitionArn: arn, containerDefinitions: found.containerDefinitions.map((c) => ({ ...c })) }
           : state.taskDefinition,
       };
     },
     async registerTaskDefinition(input) {
       if (state.failAt === 'register') throw new Error('AccessDenied');
       state.registered.push(input);
-      const arn = `arn:aws:ecs:us-east-1:151955775369:task-definition/app:${state.registered.length}`;
+      const arn = `arn:aws:ecs:us-east-1:151955775369:task-definition/${input.family ?? 'app'}:${state.registered.length}`;
       state.definitions.set(arn, {
         family: input.family,
         cpu: input.cpu,
@@ -202,17 +207,30 @@ function cfnWith(service: boolean): CloudFormationReader {
           status: 'CREATE_COMPLETE',
           physicalId: 'arn:aws:elasticloadbalancing:us-east-1:151955775369:targetgroup/app/c1b2d3e4f5a6b7c8',
         },
+        ...STACK_TASK_DEFINITIONS,
       ]
     : [{ logicalId: 'Bucket', type: 'AWS::S3::Bucket', status: 'CREATE_COMPLETE' }];
   return {
     async describeStack() {
-      return { found: true, stack: { stackName: 'deployz-app', status: 'CREATE_COMPLETE', tags: {} } };
+      return {
+        found: true,
+        stack: { stackName: 'deployz-app', status: 'CREATE_COMPLETE', tags: {}, stackId: 'stack-id-deployz-app' },
+      };
     },
     async describeStackResources() {
       return resources;
     },
+    async listStackResources() {
+      return { resources };
+    },
   };
 }
+
+/** The one-shot task definitions the stack itself created (exact revisions). */
+const STACK_TASK_DEFINITIONS: StackResource[] = [
+  { logicalId: 'MigrationTaskDefinition', type: 'AWS::ECS::TaskDefinition', status: 'CREATE_COMPLETE', physicalId: MIGRATION_DEF_ARN },
+  { logicalId: 'CleanupTaskDefinition', type: 'AWS::ECS::TaskDefinition', status: 'CREATE_COMPLETE', physicalId: CLEANUP_DEF_ARN },
+];
 
 /** The ELB reader the settle gate reads: every registered target healthy by default. */
 function fakeElb(state: FakeEcs) {
@@ -277,8 +295,12 @@ function baseState(overrides: Partial<FakeEcs> = {}): FakeEcs {
     definitions: new Map([
       [BASE_DEF_ARN, taskDefinition],
       [MIGRATION_DEF_ARN, migrationDefinition],
+      [CLEANUP_DEF_ARN, { ...migrationDefinition, family: CLEANUP_FAMILY }],
     ]),
-    latestByFamily: new Map([[MIGRATION_TASK.family, MIGRATION_DEF_ARN]]),
+    latestByFamily: new Map([
+      [MIGRATION_TASK.family, MIGRATION_DEF_ARN],
+      [CLEANUP_FAMILY, CLEANUP_DEF_ARN],
+    ]),
     runningDigest: DIGEST_V2,
     registered: [],
     updates: [],
@@ -478,7 +500,8 @@ describe('createEcsDeployExecutor', () => {
     );
     // The migration stage ran to completion before success was reported.
     expect(state.runTasks).toHaveLength(1);
-    expect(state.runTasks[0]).toMatchObject({ taskDefinition: 'DeployzAppMigration' });
+    // The EXACT revision just registered — never the bare family.
+    expect(state.runTasks[0]).toMatchObject({ taskDefinition: `${MIGRATION_FAMILY_ARN_PREFIX}:1` });
     expect(state.updates).toHaveLength(0);
     expect(result.success).toBe(true);
     // The early migration marker is cleared once the deploy settles — a
@@ -544,7 +567,7 @@ describe('createEcsDeployExecutor', () => {
     };
     expect(runInput.launchType).toBe('FARGATE');
     expect(runInput.count).toBe(1);
-    expect(runInput.taskDefinition).toBe('DeployzAppMigration');
+    expect(runInput.taskDefinition).toBe(`${MIGRATION_FAMILY_ARN_PREFIX}:1`);
     expect(runInput.networkConfiguration.awsvpcConfiguration).toEqual({
       subnets: ['subnet-a'],
       securityGroups: ['sg-1'],
@@ -1272,8 +1295,6 @@ describe('crash-loop detection — application exits only', () => {
 const INIT_EXIT_0 = { name: 'RdsCaBundle', exitCode: 0 };
 
 describe('scheduled-job family image registration (Phase 5)', () => {
-  const CLEANUP_FAMILY = 'DeployzAppCleanup';
-
   it('registers the release image into every scheduled-job family once the rollout settles', async () => {
     const state = baseState();
     state.runningDigest = DIGEST_V3; // the services already run the release
@@ -1295,19 +1316,41 @@ describe('scheduled-job family image registration (Phase 5)', () => {
     expect(state.runTasks).toHaveLength(0);
   });
 
-  it('is idempotent: skips registering when the family already runs the digest', async () => {
+  it('is idempotent: a retried deploy reuses the copy it registered, never a second revision', async () => {
     const state = baseState();
     state.runningDigest = DIGEST_V3;
-    state.definitions.set(CLEANUP_FAMILY, {
-      ...state.taskDefinition,
-      family: CLEANUP_FAMILY,
-      containerDefinitions: [{ name: 'app', image: `${REPO}@${DIGEST_V3}` }],
+    const command = deployCommand({ imageRepository: REPO, imageDigest: DIGEST_V3, scheduledJobFamilies: [CLEANUP_FAMILY] });
+    expect((await run(createEcsDeployExecutor(deps(state)), command)).success).toBe(true);
+    expect((await run(createEcsDeployExecutor(deps(state)), command)).success).toBe(true);
+    expect(state.registered).toHaveLength(1);
+  });
+
+  it('reuses the stack\'s own revision when it already runs the release image', async () => {
+    const state = baseState();
+    state.runningDigest = DIGEST_V2;
+    state.service!.taskDefinition = BASE_DEF_ARN;
+    const result = await run(
+      createEcsDeployExecutor(deps(state)),
+      deployCommand({ imageRepository: REPO, imageDigest: DIGEST_V2, scheduledJobFamilies: [CLEANUP_FAMILY] }),
+    );
+    expect(result.success).toBe(true);
+    expect(state.registered).toHaveLength(0);
+  });
+
+  it('never registers into a family its own stack did not create', async () => {
+    const state = baseState();
+    state.runningDigest = DIGEST_V3;
+    const foreign = 'DeployzAppCleanupotherinstallation';
+    state.definitions.set(`arn:aws:ecs:us-east-1:151955775369:task-definition/${foreign}:1`, {
+      ...state.definitions.get(CLEANUP_DEF_ARN)!,
+      family: foreign,
     });
     const result = await run(
       createEcsDeployExecutor(deps(state)),
-      deployCommand({ imageRepository: REPO, imageDigest: DIGEST_V3, scheduledJobFamilies: [CLEANUP_FAMILY] }),
+      deployCommand({ imageRepository: REPO, imageDigest: DIGEST_V3, scheduledJobFamilies: [foreign] }),
     );
-    expect(result.success).toBe(true);
+    // Never settles on a family it cannot prove is its own — and never copies it.
+    expect(result.deferred).toBe(true);
     expect(state.registered).toHaveLength(0);
   });
 
@@ -1336,6 +1379,132 @@ describe('scheduled-job family image registration (Phase 5)', () => {
     expect(
       readDeployRequest({ imageRepository: REPO, imageDigest: DIGEST_V3, scheduledJobFamilies: 'DeployzAppCleanup' }),
     ).toBeNull();
+  });
+});
+
+// An older stack names its families without an installation suffix, so a
+// second installation of the same application in the same account and
+// Region registers into the SAME family, with the SAME release image, but its
+// own roles and secrets.
+describe('one-shot families shared with another installation', () => {
+  const OTHER_ROLE = 'arn:aws:iam::151955775369:role/deployz/other-installation-task';
+
+  /** Registers another installation's revision of `family`, running `image`, as the family's latest. */
+  function foreignRevision(state: FakeEcs, family: string, source: string, image: string): string {
+    const arn = `arn:aws:ecs:us-east-1:151955775369:task-definition/${family}:${900 + state.definitions.size}`;
+    const own = state.definitions.get(source)!;
+    state.definitions.set(arn, {
+      ...own,
+      taskRoleArn: OTHER_ROLE,
+      containerDefinitions: own.containerDefinitions.map((c) => (c.name === 'app' ? { ...c, image } : { ...c })),
+    });
+    state.latestByFamily!.set(family, arn);
+    return arn;
+  }
+
+  const migrationDeploy = () =>
+    deployCommand({ imageRepository: REPO, imageDigest: DIGEST_V3, migrationTask: MIGRATION_TASK });
+
+  it("never runs or copies the other installation's revision, even when it runs the same image", async () => {
+    const state = baseState({ initContainerFirst: true });
+    const foreign = foreignRevision(state, MIGRATION_TASK.family, MIGRATION_DEF_ARN, `${REPO}@${DIGEST_V3}`);
+    await run(createEcsDeployExecutor(deps(state)), migrationDeploy());
+
+    const migrationCopy = state.registered[0] as RegisterTaskDefinitionInput;
+    expect(migrationCopy.family).toBe(MIGRATION_TASK.family);
+    expect(migrationCopy.taskRoleArn).toBe('arn:aws:iam::151955775369:role/deployz/app-task');
+    const ran = (state.runTasks[0] as { taskDefinition: string }).taskDefinition;
+    expect(ran).not.toBe(foreign);
+    expect(ran).not.toBe(MIGRATION_TASK.family);
+    expect(state.definitions.get(ran)!.taskRoleArn).toBe('arn:aws:iam::151955775369:role/deployz/app-task');
+  });
+
+  it('runs the revision it registered when another installation registers in between', async () => {
+    const state = baseState({ initContainerFirst: true });
+    const d = deps(state);
+    const ecs: EcsDeployClient = {
+      ...d.ecs,
+      async registerTaskDefinition(input) {
+        const registered = await d.ecs.registerTaskDefinition(input);
+        if (input.family === MIGRATION_TASK.family) {
+          foreignRevision(state, MIGRATION_TASK.family, MIGRATION_DEF_ARN, `${REPO}@${DIGEST_V3}`);
+        }
+        return registered;
+      },
+    };
+    const result = await run(createEcsDeployExecutor({ ...d, ecs }), migrationDeploy());
+    expect(result.deferred).toBe(true);
+    expect(state.runTasks[0]).toMatchObject({ taskDefinition: `${MIGRATION_FAMILY_ARN_PREFIX}:1` });
+    // The verdict reads the same exact revision.
+    expect((await d.pending.read())?.migration?.completedAt).toEqual(expect.any(String));
+  });
+
+  it('a retry after a failed RunTask reuses its own copy, never the newer foreign latest', async () => {
+    const state = baseState({ initContainerFirst: true });
+    const d = deps(state);
+    let failRunTask = true;
+    const ecs: EcsDeployClient = {
+      ...d.ecs,
+      async runTask(input) {
+        if (failRunTask) throw new Error('ThrottlingException');
+        return d.ecs.runTask(input);
+      },
+    };
+    const first = await run(createEcsDeployExecutor({ ...d, ecs }), migrationDeploy());
+    expect(first.success).toBe(false);
+    expect(state.runTasks).toHaveLength(0);
+
+    // The family's latest is now another installation's revision.
+    foreignRevision(state, MIGRATION_TASK.family, MIGRATION_DEF_ARN, `${REPO}@${DIGEST_V3}`);
+    failRunTask = false;
+    await run(createEcsDeployExecutor({ ...d, ecs }), migrationDeploy());
+    const ran = (state.runTasks[0] as { taskDefinition: string }).taskDefinition;
+    expect(state.definitions.get(ran)!.taskRoleArn).toBe('arn:aws:iam::151955775369:role/deployz/app-task');
+    expect(state.definitions.get(ran)!.containerDefinitions[0]!.image).toBe(`${REPO}@${DIGEST_V3}`);
+  });
+
+  it("a scheduled-job family never adopts the other installation's revision", async () => {
+    const state = baseState();
+    state.runningDigest = DIGEST_V3;
+    foreignRevision(state, CLEANUP_FAMILY, CLEANUP_DEF_ARN, `${REPO}@${DIGEST_V3}`);
+    const result = await run(
+      createEcsDeployExecutor(deps(state)),
+      deployCommand({ imageRepository: REPO, imageDigest: DIGEST_V3, scheduledJobFamilies: [CLEANUP_FAMILY] }),
+    );
+    expect(result.success).toBe(true);
+    // Its own copy, registered as the family's latest — the schedule runs it.
+    expect(state.registered).toHaveLength(1);
+    const copy = state.registered[0] as RegisterTaskDefinitionInput;
+    expect(copy.taskRoleArn).toBe('arn:aws:iam::151955775369:role/deployz/app-task');
+    expect(state.definitions.get(state.latestByFamily!.get(CLEANUP_FAMILY)!)!.taskRoleArn).toBe(
+      'arn:aws:iam::151955775369:role/deployz/app-task',
+    );
+  });
+
+  it('copies and runs nothing when its own stack resources cannot be read', async () => {
+    const state = baseState();
+    const d = deps(state);
+    const result = await run(
+      createEcsDeployExecutor({ ...d, cfn: { ...d.cfn, listStackResources: async () => null } }),
+      migrationDeploy(),
+    );
+    expect(result.success).toBe(false);
+    expect(result.error).toContain('could not be read');
+    expect(state.registered).toHaveLength(0);
+    expect(state.runTasks).toHaveLength(0);
+    expect(state.updates).toHaveLength(0);
+  });
+
+  it('a failed rollout leaves the scheduled-job family on the previous release', async () => {
+    const state = baseState();
+    state.service!.deployments = [{ status: 'PRIMARY', rolloutState: 'FAILED' }];
+    const result = await run(
+      createEcsDeployExecutor(deps(state)),
+      deployCommand({ imageRepository: REPO, imageDigest: DIGEST_V3, scheduledJobFamilies: [CLEANUP_FAMILY] }),
+    );
+    expect(result.failureCode).toBe('ECS_DEPLOYMENT_FAILED');
+    expect(state.registered).toHaveLength(0);
+    expect(state.latestByFamily!.get(CLEANUP_FAMILY)).toBe(CLEANUP_DEF_ARN);
   });
 });
 

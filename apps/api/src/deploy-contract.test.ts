@@ -5,7 +5,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { applyMigrations, createDb, type Db } from '@deployz/db';
 import * as schema from '@deployz/db/schema';
-import type { DeploymentManifest, DeploymentSpecV2 } from '@deployz/contracts';
+import { deployzTaskFamily, taskFamilySuffix, type DeploymentManifest, type DeploymentSpecV2 } from '@deployz/contracts';
 
 import { createAuth, type Auth } from './auth.js';
 import { compileDeploymentIntent } from './compiler-artifact.js';
@@ -234,11 +234,43 @@ describe('deploy contract, busy gate and restart', () => {
     // command itself stays frozen in the spec, never on the wire.
     expect(job?.payload).toMatchObject({
       migrationTask: {
-        family: 'DeployzAppMigration',
+        family: deployzTaskFamily('migration', taskFamilySuffix(deployment.installationId)),
         identity: migrationIdentity('npm run db:migrate', digestOf('v0.11.0')),
       },
     });
     expect(job?.payload).not.toHaveProperty('migrationCommand');
+  });
+
+  it('names a different migration family for each installation of the same spec and image', async () => {
+    const a = await seedDeployment({ specV2: migratingSpec() as unknown as Record<string, unknown> });
+    const b = await seedDeployment({ specV2: migratingSpec() as unknown as Record<string, unknown> });
+    const releaseId = await seedRelease('v0.11.1');
+    const families: string[] = [];
+    for (const deployment of [a, b]) {
+      const response = await post(`/api/deployments/${deployment.id}/deploy`, { releaseId });
+      expect(response.statusCode, response.body).toBe(202);
+      const [job] = await db
+        .select()
+        .from(schema.deploymentJobs)
+        .where(eq(schema.deploymentJobs.deploymentId, deployment.id));
+      families.push((job?.payload as { migrationTask: { family: string } }).migrationTask.family);
+    }
+    expect(families[0]).not.toBe(families[1]);
+    for (const family of families) expect(family).toMatch(/^DeployzApp[A-Za-z0-9]+$/);
+  });
+
+  it('keeps the shared family name of an artifact compiled before installation-scoped families', async () => {
+    const legacy = { ...migratingSpec(), compilerVersion: 'dynamic-compiler-v2-2' };
+    const deployment = await seedDeployment({ specV2: legacy as unknown as Record<string, unknown> });
+    const releaseId = await seedRelease('v0.11.2');
+
+    const response = await post(`/api/deployments/${deployment.id}/deploy`, { releaseId });
+    expect(response.statusCode, response.body).toBe(202);
+    const [job] = await db
+      .select()
+      .from(schema.deploymentJobs)
+      .where(eq(schema.deploymentJobs.deploymentId, deployment.id));
+    expect(job?.payload).toMatchObject({ migrationTask: { family: 'DeployzAppMigration' } });
   });
 
   it('skips the migration seat once the same identity has a SUCCEEDED deploy', async () => {
@@ -275,7 +307,7 @@ describe('deploy contract, busy gate and restart', () => {
       .where(eq(schema.deploymentJobs.deploymentId, deployment.id));
     const deployJob = jobs.find((job) => job.type === 'DEPLOY_RELEASE' && job.state === 'REQUESTED');
     expect(deployJob?.payload).toMatchObject({
-      migrationTask: { family: 'DeployzAppMigration' },
+      migrationTask: { family: deployzTaskFamily('migration', taskFamilySuffix(deployment.installationId)) },
     });
   });
 

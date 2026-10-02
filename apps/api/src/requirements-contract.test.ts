@@ -172,7 +172,7 @@ describe('requirements contract: manifest survives API -> job -> relay unchanged
         const deployment = await insertDeployment(application.id, effectiveManifest);
 
         // The real API function that mints an INSTALL job's payload.
-        const payload = await buildInstallPayload(db, deployment, createConfigStore(db));
+        const payload = await buildInstallPayload(db, deployment, createConfigStore(db), 'inst-requirements-1');
         expect(payload['manifest']).toEqual(readStoredManifest(deployment.desiredState));
 
         // Feed the payload into the REAL relay functions — the same ones
@@ -218,7 +218,7 @@ describe('requirements contract: manifest survives API -> job -> relay unchanged
     expect(manifest.redis.required).toBe(true);
     const deployment = await insertDeployment(application.id, manifest);
 
-    const payload = await buildInstallPayload(db, deployment, createConfigStore(db));
+    const payload = await buildInstallPayload(db, deployment, createConfigStore(db), 'inst-requirements-1');
     expect((payload['manifest'] as DeploymentManifest).redis.required).toBe(true);
     // The artifact URL is the deployment's own frozen compiled template.
     expect(payload['templateUrl']).toBe((deployment.specV2 as { artifactLocation: string }).artifactLocation);
@@ -262,7 +262,7 @@ describe('requirements contract: manifest survives API -> job -> relay unchanged
     // application row — AFTER this deployment already froze its manifest.
     await db.update(schema.applications).set({ redisRequired: false }).where(eq(schema.applications.id, application.id));
 
-    const payload = await buildInstallPayload(db, deployment, createConfigStore(db));
+    const payload = await buildInstallPayload(db, deployment, createConfigStore(db), 'inst-requirements-1');
     expect(payload['redisRequired']).toBe(true);
     expect(payload['databaseRequired']).toBe(true);
     expect((payload['manifest'] as DeploymentManifest).redis.required).toBe(true);

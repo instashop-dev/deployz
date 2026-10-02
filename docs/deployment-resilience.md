@@ -128,8 +128,9 @@ pipeline's own image-pull failure and the circuit breaker stay honest
 ## Migrations run once, before the rollout, and never on rollback
 
 A deployment whose frozen spec carries a migration workload compiles one
-`AWS::ECS::TaskDefinition` (family `DeployzAppMigration`) with the
-migration command baked in at compile time. DEPLOY_RELEASE then runs a
+`AWS::ECS::TaskDefinition` (family `DeployzAppMigration<suffix>`, see
+"Task families belong to one installation" below) with the migration command
+baked in at compile time. DEPLOY_RELEASE then runs a
 fixed order:
 
 ``` text
@@ -180,15 +181,18 @@ ROLLBACK never touch CloudFormation, so a family's latest revision would
 otherwise keep running whatever image the last stack operation set — never
 the new release. `registerReleaseImageIntoFamily`
 (`packages/relay/src/deploy.ts`) is the one generic, bounded step that keeps
-a named family current: it reads the family's latest ACTIVE revision, skips
-registration when that revision already runs the target digest (idempotent
-and retry-safe), and otherwise registers a new revision carrying the release
-image.
+a named family current. It copies the revision the deployment's own stack
+created (the `AWS::ECS::TaskDefinition` stack resource of that family),
+replacing only the release image, so no configuration is lost. It reuses
+that revision, or the family's latest revision, only when it is exactly that
+copy (idempotent and retry-safe); otherwise it registers the copy. It
+returns the exact revision ARN.
 
 - **The migration family** is brought current right before RunTask, on every
-  DEPLOY_RELEASE and ROLLBACK. This fixed a real Phase 4 defect: the
-  migration used to run whatever image the stack was installed with, never
-  the release image being deployed.
+  DEPLOY_RELEASE. RunTask runs the exact revision ARN that returns — never
+  the bare family, which another registration could move in between. This
+  fixed a real Phase 4 defect: the migration used to run whatever image the
+  stack was installed with, never the release image being deployed.
 - **Every scheduled-job family** is brought current only once a
   DEPLOY_RELEASE or ROLLBACK has otherwise **settled** — never before, never
   interleaved with the service rollout. A failed update must leave scheduled
@@ -205,7 +209,36 @@ image.
   `TASK_FAMILY_PATTERN = /^DeployzApp[A-Za-z0-9]+$/` is a trust-boundary
   check on every family name the control plane sends (the migration family
   and every scheduled-job family alike) — the relay can never be pointed at
-  an arbitrary family from a payload.
+  an arbitrary family from a payload. The family must also be one its own
+  stack created; any other family is refused before anything is copied.
+
+### Task families belong to one installation
+
+Every task-definition family a stack creates (each service, the migration,
+each scheduled job) is `DeployzApp<Pascal(componentId)><suffix>`. The suffix
+is the installation id's letters and digits, lower-cased
+(`taskFamilySuffix` in `@deployz/contracts`). It is stable for the stack's
+life for the same reason as the stack name `deployz-app-<id>`: a relay reset
+re-enrolls the same installation. The control plane passes it as the stack
+parameter `paramTaskFamilySuffix` at INSTALL (no default; only `[a-z0-9]+`),
+and computes the same family names for the DEPLOY_RELEASE and ROLLBACK
+payloads. Two installations in one AWS account and Region, even of
+the same application and image, therefore never share a family: the
+scheduler's revisionless target and its IAM scope name only this
+installation's family. A deploy of an installation-scoped stack without a
+registered installation is refused (409 `RELAY_NOT_CONNECTED`, the same
+refusal as any deploy without a connected relay).
+
+Stacks compiled before this change (`dynamic-compiler-v2-1`/`-2`) keep the
+shared names `DeployzApp<Pascal>`: their artifacts are frozen. On them the
+relay still copies only its own stack's revision (another installation's
+revision has other roles, so it is never reused), and RunTask runs the exact
+copy. A schedule on such a stack still targets the shared family's latest
+revision. If another installation registers last, that run fails on the
+scheduler role's PassRole scope, so it never runs as the other installation.
+The schedule picks up its own revision at this installation's next settled
+deploy. Moving such a stack to installation-scoped names needs a new
+deployment (post-MVP: no stack-update path exists).
 
 Scheduled-job task runs sit outside health and readiness semantics entirely.
 No ECS service backs a scheduled job, so nothing verifies it the way a

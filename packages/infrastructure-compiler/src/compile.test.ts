@@ -3,7 +3,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
-import { CAPABILITY_KEYS, estimateFootprintCost } from '@deployz/contracts';
+import { CAPABILITY_KEYS, TASK_FAMILY_SUFFIX_PARAMETER, deployzTaskFamily, estimateFootprintCost } from '@deployz/contracts';
 import type { DeployzIR, IrBinding, IrResource, IrSchedule, IrWorkload } from '@deployz/contracts';
 
 import { compileDeployzInfrastructure, logicalResourceId } from './index.js';
@@ -17,7 +17,18 @@ const here = dirname(fileURLToPath(import.meta.url));
 // The full postgres template (web + RDS PostgreSQL + Valkey + S3 + ALB),
 // pinned byte-for-byte. Phase 4B's MySQL capability must not move a single
 // postgres byte — this hash is the proof (see the mysql describe below).
-const POSTGRES_TEMPLATE_HASH_GOLDEN = '6aaf2bbd296c5d9735d3b25a4afadba9fb2c3513b3098b592b3f381c40bd91c2';
+// Moved deliberately since: database AZ placement (DbAz parameters) and
+// installation-scoped task families (the Family join and
+// `paramTaskFamilySuffix`) each changed every template.
+const POSTGRES_TEMPLATE_HASH_GOLDEN = '1d2290453b7aa9d0ad0e52dec8943f30cc0e95a68afa3bb46b2ea7fc7b604304';
+
+/** Evaluates the compiled `Family` join for one stack's suffix parameter value. */
+function familyFor(family: unknown, suffix: string): string {
+  const [separator, parts] = (family as { 'Fn::Join': [string, unknown[]] })['Fn::Join'];
+  return parts
+    .map((part) => (typeof part === 'string' ? part : (part as { Ref: string }).Ref === TASK_FAMILY_SUFFIX_PARAMETER ? suffix : '?'))
+    .join(separator);
+}
 
 // ── IR fixtures ──────────────────────────────────────────────────────────────
 
@@ -528,7 +539,7 @@ describe('multi-workload', () => {
     // one-shot tasks, and relay service discovery must never see a migration.
     expect(taskDef.verificationCheck).toBeUndefined();
     const family = taskDef.properties['Family'];
-    expect(family).toBe('DeployzAppMigration');
+    expect(familyFor(family, 'a1b2')).toBe(deployzTaskFamily('migration', 'a1b2'));
     // The analyzed command is FROZEN into the container — the relay runs the
     // definition as-is and can never inject a command of its own.
     const app = (taskDef.properties['ContainerDefinitions'] as unknown[])[0] as Record<string, unknown>;
@@ -917,6 +928,34 @@ describe('queue env injection (phase 5)', () => {
   });
 });
 
+describe('installation-scoped task families', () => {
+  const compiled = compileDeployzInfrastructure({ ir: makePhase5Ir(), region: null });
+  const template = compiled.template as {
+    Parameters: Record<string, Record<string, unknown>>;
+    Resources: Record<string, { Type: string; Properties: Record<string, unknown> }>;
+  };
+
+  it('every task definition family carries the installation suffix, so two installations never share one', () => {
+    const families = Object.entries(template.Resources)
+      .filter(([, resource]) => resource.Type === 'AWS::ECS::TaskDefinition')
+      .map(([logicalId, resource]) => [logicalId, resource.Properties['Family']] as const);
+    expect(families.length).toBeGreaterThan(1);
+    for (const [, family] of families) {
+      const a = familyFor(family, 'aaaa1111');
+      const b = familyFor(family, 'bbbb2222');
+      expect(a).not.toBe(b);
+      expect(a).toMatch(/^DeployzApp[A-Za-z0-9]+aaaa1111$/);
+    }
+  });
+
+  it('the suffix parameter has no default and admits only letters and digits', () => {
+    const parameter = template.Parameters[TASK_FAMILY_SUFFIX_PARAMETER]!;
+    expect(parameter['Type']).toBe('String');
+    expect(parameter).not.toHaveProperty('Default');
+    expect(parameter['AllowedPattern']).toBe('^[a-z0-9]+$');
+  });
+});
+
 describe('scheduled job (phase 5d)', () => {
   const ir = makePhase5Ir();
   const compiled = compileDeployzInfrastructure({ ir, region: null });
@@ -925,7 +964,7 @@ describe('scheduled job (phase 5d)', () => {
   it('compiles a frozen-command task definition, no service, no verification check', () => {
     const taskDef = byId.get(logicalResourceId('cleanup', 'task-definition'))!;
     expect(taskDef.cfnType).toBe('AWS::ECS::TaskDefinition');
-    expect(taskDef.properties['Family']).toBe('DeployzAppCleanup');
+    expect(familyFor(taskDef.properties['Family'], 'a1b2')).toBe('DeployzAppCleanupa1b2');
     const app = (taskDef.properties['ContainerDefinitions'] as unknown[])[0] as Record<string, unknown>;
     expect(app['Command']).toEqual(['sh', '-c', 'node dist/cleanup.js']);
     expect(taskDef.verificationCheck).toBeUndefined();
@@ -979,6 +1018,7 @@ describe('EventBridge Scheduler (phase 5c)', () => {
     expect(target['DeadLetterConfig']).toEqual({ Arn: { 'Fn::GetAtt': [logicalResourceId('cleanup-schedule-dlq', 'queue'), 'Arn'] } });
     const ecsParams = target['EcsParameters'] as Record<string, unknown>;
     expect(JSON.stringify(ecsParams['TaskDefinitionArn'])).toContain('DeployzAppCleanup');
+    expect(JSON.stringify(ecsParams['TaskDefinitionArn'])).toContain(`{"Ref":"${TASK_FAMILY_SUFFIX_PARAMETER}"}`);
     expect(JSON.stringify(ecsParams['TaskDefinitionArn'])).not.toContain(':*');
     expect(ecsParams['LaunchType']).toBe('FARGATE');
   });
@@ -1011,6 +1051,10 @@ describe('EventBridge Scheduler (phase 5c)', () => {
     const runTask = statements.find((s) => s['Action'] === 'ecs:RunTask')!;
     expect(runTask['Condition']).toEqual({ ArnEquals: { 'ecs:cluster': { 'Fn::GetAtt': [logicalResourceId('web', 'cluster'), 'Arn'] } } });
     expect(runTask['Resource']).toHaveLength(2);
+    // Only this installation's family: the suffix parameter scopes both ARNs.
+    for (const resource of runTask['Resource'] as unknown[]) {
+      expect(JSON.stringify(resource)).toContain(`"DeployzAppCleanup",{"Ref":"${TASK_FAMILY_SUFFIX_PARAMETER}"}`);
+    }
 
     const passRole = statements.find((s) => s['Action'] === 'iam:PassRole')!;
     expect(passRole['Condition']).toEqual({ StringEquals: { 'iam:PassedToService': 'ecs-tasks.amazonaws.com' } });
