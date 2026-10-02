@@ -483,6 +483,58 @@ describe('worker handler', () => {
     expect(after).toHaveLength(1);
   });
 
+  it("sends a CONFIG_UPDATE only to the saved application's deployments of that customer", async () => {
+    // Its own customer and applications: a running deployment of the shared
+    // application would be picked up by the build-completion tests below.
+    const [customer] = await db
+      .insert(schema.customers)
+      .values({ organizationId, name: 'Two apps', email: 'two-apps@acme.test' })
+      .returning();
+    const applications = await db
+      .insert(schema.applications)
+      .values(
+        ['acme/scoped-a', 'acme/scoped-b'].map((repo) => ({
+          organizationId,
+          name: repo,
+          repoFullName: repo,
+          repoUrl: `https://github.com/${repo}`,
+        })),
+      )
+      .returning();
+    const deployments = await db
+      .insert(schema.deployments)
+      .values(
+        applications.map((application) => ({
+          organizationId,
+          applicationId: application.id,
+          customerId: customer!.id,
+          region: 'us-east-1',
+          state: 'HEALTHY' as const,
+          installationId: randomUUID(),
+          enrollmentCode: randomUUID(),
+        })),
+      )
+      .returning();
+
+    await handleMessage(
+      deps(),
+      {
+        type: 'CONFIG_UPDATE',
+        customerId: customer!.id,
+        applicationId: applications[0]!.id,
+        secrets: [{ key: 'STRIPE_SECRET_KEY', value: 'sk_app_a_only' }],
+        removedKeys: ['LOG_LEVEL'],
+      },
+      'msg-app-scoped',
+    );
+
+    const jobsFor = async (deploymentId: string) =>
+      db.select().from(schema.deploymentJobs).where(eq(schema.deploymentJobs.deploymentId, deploymentId));
+    expect(await jobsFor(deployments[0]!.id)).toHaveLength(1);
+    // The other application never receives this application's secret value or removal.
+    expect(await jobsFor(deployments[1]!.id)).toHaveLength(0);
+  });
+
   function buildEvent(
     releaseId: string,
     status: string,

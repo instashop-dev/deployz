@@ -144,7 +144,7 @@ ever returns plaintext from an API except the relay's own authenticated
 
 | Value | Stored | Reaches |
 |---|---|---|
-| Vendor plain value | `application_configs.value` | Build: worker decrypts (trivially, not a secret) and passes it to CodeBuild as an environment var + `--build-arg NAME`. Runtime: served on `GET /api/relay/config`, applied by the post-install CONFIG_UPDATE executor. |
+| Vendor plain value | `application_configs.value` | Build: worker decrypts (trivially, not a secret) and passes it to CodeBuild as an environment var + `--build-arg NAME`. Runtime: served on `GET /api/relay/config`, applied by the post-install CONFIG_UPDATE executor and by the update each vendor save starts. |
 | Vendor secret | `application_configs.encrypted_value` — ciphertext from `SecretCipher.encrypt`, deterministic context (`organizationId` + `applicationId` + `key` + `scope: 'vendor'`, never stored) | Build: the worker decrypts with the same cipher (`listVendorValues`) before handing CodeBuild the build args. Runtime: the relay's `GET /api/relay/config` decrypts it the same way (`readVendorSecret`) and serves the plaintext over that authenticated channel only — never in a job payload. |
 | Customer value (install page) | DEPLOY-027 pending-secret vault (`pending_secrets` table, see `docs/pending-secret-delivery.md`) — staged before a deployment exists, bound to a deployment once one does | The relay's `GET /api/relay/config` decrypts the bound row and applies it via the post-install CONFIG_UPDATE executor. |
 | Customer override (vendor edits) | Customer-scope `application_configs` row (masked; plaintext never stored — it rides the relay write-through/pending-secret vault instead) | That customer's running deployment (CONFIG_UPDATE write-through), or the pending-secret vault when no relay can act on it yet. |
@@ -164,11 +164,18 @@ ever returns plaintext from an API except the relay's own authenticated
 
 ## Effect of later edits
 
-- Decisions and vendor values apply to **new release builds** (build
-  values) and **new installations** (runtime values). Saving them does not
-  start an update on existing customer deployments. A changed vendor
-  default reaches an existing deployment only at its next configuration
-  update (for example, when a customer override for it is saved).
+- Build values apply to **new release builds**. A release image never
+  changes after it is built.
+- A saved vendor runtime value, or a removed one, reaches every running
+  deployment of the application within a few minutes: one configuration
+  update per customer whose relay is connected. A removed vendor default
+  leaves a deployment only when that customer has no override for the key.
+  Vendor secret values do not travel in the queue; the relay reads them
+  through its authenticated config endpoint.
+- Saving decisions (who provides a key) does not start an update.
+- A deploy, a rollback and a restart change only the image. The runtime
+  configuration of a deployment stays as it is, so an older release never
+  changes the configuration, and a release does not reset it.
 - A customer override that the vendor edits reaches that customer's running
   deployment.
 - Known gap: when a decision changes so that a value is no longer delivered,
@@ -191,7 +198,6 @@ ever returns plaintext from an API except the relay's own authenticated
 - Customer-provided **build** values (a per-customer build does not exist).
 - Per-customer different values for a vendor-provided variable, except
   through the existing customer-override editor.
-- Pushing changed vendor defaults to existing deployments.
 - Detection of Dockerfile `ARG` names, and of variables read only
   indirectly (for example through a dynamic key or a config file that is
   loaded at runtime). The vendor can add these keys by hand in the values

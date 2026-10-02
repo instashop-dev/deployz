@@ -1,4 +1,4 @@
-import { and, eq, inArray, isNull, or, type SQL } from 'drizzle-orm';
+import { and, eq, inArray, isNull, ne, notInArray, or, type SQL } from 'drizzle-orm';
 import { z } from 'zod';
 
 import { DEFAULT_PENDING_SECRET_TTL_MS, deliversConfigValue, type EnvironmentSetting } from '@deployz/contracts';
@@ -122,13 +122,13 @@ export interface ConfigStore {
  * Manager via the relay. The control plane never persists plaintext secrets.
  */
 export interface ConfigSecretWriter {
-  writeSecrets(customerId: string, entries: readonly ConfigEntry[]): Promise<void>;
+  writeSecrets(applicationId: string, customerId: string, entries: readonly ConfigEntry[]): Promise<void>;
   /**
    * Remove secrets from the CUSTOMER's own secret store. A key deleted here
    * must not keep existing in their account — the control plane never held
    * the plaintext, so the relay is the only thing that can remove it.
    */
-  removeSecrets(customerId: string, keys: readonly string[]): Promise<void>;
+  removeSecrets(applicationId: string, customerId: string, keys: readonly string[]): Promise<void>;
 }
 
 export interface ConfigDeps {
@@ -152,6 +152,12 @@ export interface ConfigDeps {
    * the application's own row is the canonical source.
    */
   readonly findApplicationOrganizationId: (applicationId: string) => Promise<string | undefined>;
+  /**
+   * Customers with a deployment of this application whose relay can act on
+   * a configuration change now. A vendor-default change reaches them.
+   * Optional: without it, a vendor-default change reaches new installations only.
+   */
+  readonly findConfigurableCustomers?: (applicationId: string) => Promise<readonly string[]>;
 }
 
 // ── Secret masking (§31 write-only) ───────────────────────────────────────
@@ -374,7 +380,7 @@ export async function setConfig(
   // relay enrolls.
   if (customerId !== null && changedEntries.length > 0 && scopeDeployments.claimable.length > 0) {
     try {
-      await deps.secretWriter.writeSecrets(customerId, changedEntries);
+      await deps.secretWriter.writeSecrets(applicationId, customerId, changedEntries);
     } catch {
       throw new ApiError(
         502,
@@ -503,7 +509,7 @@ export async function setConfig(
     // CONFIG_UPDATE write-through.
     if (customerId !== null) {
       try {
-        await deps.secretWriter.removeSecrets(customerId, deletes);
+        await deps.secretWriter.removeSecrets(applicationId, customerId, deletes);
       } catch {
         throw new ApiError(
           502,
@@ -529,6 +535,28 @@ export async function setConfig(
       for (const deployment of scopeDeployments.preRelay) {
         await deps.pendingSecrets.deleteBoundForDeployment(deployment.id, deletes);
       }
+    }
+  }
+
+  // A vendor default reaches every running deployment of the application,
+  // as a customer override reaches that customer's. Vendor secrets never
+  // ride the queue: the relay decrypts them from its config read. A removed
+  // default leaves only deployments that have no override for the key.
+  if (customerId === null && deps.findConfigurableCustomers !== undefined && (changedEntries.length > 0 || deletes.length > 0)) {
+    const plainChanges = changedEntries.map((entry) => (entry.isSecret ? { ...entry, value: '' } : entry));
+    try {
+      for (const customer of await deps.findConfigurableCustomers(applicationId)) {
+        if (plainChanges.length > 0) await deps.secretWriter.writeSecrets(applicationId, customer, plainChanges);
+        const overridden = new Set((await deps.store.list(applicationId, customer)).map((entry) => entry.key));
+        const removed = deletes.filter((key) => !overridden.has(key));
+        if (removed.length > 0) await deps.secretWriter.removeSecrets(applicationId, customer, removed);
+      }
+    } catch {
+      throw new ApiError(
+        502,
+        'CONFIG_WRITE_FAILED',
+        'The configuration was saved, but it could not be sent to running deployments. Save again in a moment.',
+      );
     }
   }
 
@@ -705,20 +733,21 @@ export function createConfigStore(db: RuntimeDb): ConfigStore {
  */
 export function createRelaySecretWriter(): ConfigSecretWriter {
   return {
-    async writeSecrets(customerId, entries) {
+    async writeSecrets(applicationId, customerId, entries) {
       const secrets = entries
         .filter((entry) => entry.isSecret && entry.value.length > 0)
         .map(({ key, value }) => ({ key, value }));
       await enqueue({
         type: 'CONFIG_UPDATE',
         customerId,
+        applicationId,
         changedKeys: entries.map((entry) => entry.key),
         ...(secrets.length > 0 ? { secrets } : {}),
       });
     },
 
-    async removeSecrets(customerId, keys) {
-      await enqueue({ type: 'CONFIG_UPDATE', customerId, removedKeys: [...keys] });
+    async removeSecrets(applicationId, customerId, keys) {
+      await enqueue({ type: 'CONFIG_UPDATE', customerId, applicationId, removedKeys: [...keys] });
     },
   };
 }
@@ -758,6 +787,29 @@ export function createConfigDeps(
     cipher,
     findScopeDeployments: createScopeDeploymentsFinder(db),
     findApplicationOrganizationId: createApplicationOrganizationIdFinder(db),
+    findConfigurableCustomers: createConfigurableCustomersFinder(db),
+  };
+}
+
+/**
+ * Customers with a deployment of the application that a relay can act on now:
+ * past the pre-relay states, not being removed, relay not disconnected (the
+ * same filter as the worker's fan-out and the config route's relay gate).
+ */
+export function createConfigurableCustomersFinder(db: RuntimeDb): NonNullable<ConfigDeps['findConfigurableCustomers']> {
+  return async (applicationId) => {
+    if (!UUID_PATTERN.test(applicationId)) return [];
+    const rows = await db
+      .selectDistinct({ customerId: schema.deployments.customerId })
+      .from(schema.deployments)
+      .where(
+        and(
+          eq(schema.deployments.applicationId, applicationId),
+          notInArray(schema.deployments.state, [...PRE_RELAY_STATES] as (typeof schema.deployments.$inferSelect)['state'][]),
+          ne(schema.deployments.relayStatus, 'DISCONNECTED'),
+        ),
+      );
+    return rows.map((row) => row.customerId);
   };
 }
 

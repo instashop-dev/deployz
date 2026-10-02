@@ -128,6 +128,7 @@ import { handlePaddleWebhook } from './billing-webhooks.js';
 import { createPaddle, type PaddleBilling } from './paddle.js';
 import {
   createConfigStore,
+  createConfigurableCustomersFinder,
   createRelaySecretWriter,
   createScopeDeploymentsFinder,
   getConfig,
@@ -3118,6 +3119,7 @@ export async function buildServer({
         .limit(1);
       return rows[0]?.organizationId;
     },
+    findConfigurableCustomers: createConfigurableCustomersFinder(db),
   };
 
   app.get('/api/applications/:id/config', { preHandler: requireAuth }, async (request) => {

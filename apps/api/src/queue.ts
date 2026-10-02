@@ -25,6 +25,8 @@ export type QueueMessage =
   | {
       readonly type: 'CONFIG_UPDATE';
       readonly customerId: string;
+      /** The application whose configuration changed; only its deployments get the job. Absent on messages queued before it existed. */
+      readonly applicationId?: string | undefined;
       /** Keys whose values changed — never the values themselves. */
       readonly changedKeys?: readonly string[] | undefined;
       /**

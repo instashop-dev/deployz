@@ -7,6 +7,7 @@ import * as schema from '@deployz/db/schema';
 
 import {
   createConfigDeps,
+  createConfigurableCustomersFinder,
   createRelaySecretWriter,
   GENERATED_SECRET_MASK,
   SECRET_MASK,
@@ -152,11 +153,11 @@ function createMockWriter(): ConfigSecretWriter & {
   return {
     calls,
     removed,
-    writeSecrets: (customerId, entries) => {
+    writeSecrets: (_applicationId, customerId, entries) => {
       calls.push({ customerId, entries });
       return Promise.resolve();
     },
-    removeSecrets: (customerId, keys) => {
+    removeSecrets: (_applicationId, customerId, keys) => {
       removed.push({ customerId, keys });
       return Promise.resolve();
     },
@@ -475,6 +476,48 @@ describe('config — setConfig writes', () => {
   });
 });
 
+describe('config — a vendor default reaches running deployments', () => {
+  it('sends each configurable customer one update, with no vendor secret value, and removes only keys without an override', async () => {
+    const store = createMockStore({
+      vendorDefaults: [{ key: 'LOG_LEVEL', value: 'info', isSecret: false }],
+      overrides: { 'customer-b': [{ key: 'LOG_LEVEL', value: 'debug', isSecret: false }] },
+    });
+    const writer = createMockWriter();
+    const deps: ConfigDeps = {
+      ...buildDeps(store, writer),
+      findConfigurableCustomers: async () => ['customer-a', 'customer-b'],
+    };
+
+    await setConfig(
+      APP_ID,
+      null,
+      [
+        { key: 'FEATURE_FLAG', value: 'on', isSecret: false },
+        { key: 'STRIPE_SECRET_KEY', value: 'sk_live_vendor_only', isSecret: true },
+      ],
+      deps,
+      ['LOG_LEVEL'],
+    );
+
+    expect(writer.calls.map((call) => call.customerId)).toEqual(['customer-a', 'customer-b']);
+    for (const call of writer.calls) {
+      expect(call.entries).toEqual([
+        { key: 'FEATURE_FLAG', value: 'on', isSecret: false },
+        { key: 'STRIPE_SECRET_KEY', value: '', isSecret: true },
+      ]);
+    }
+    expect(JSON.stringify(writer.calls)).not.toContain('sk_live_vendor_only');
+    // customer-b overrides LOG_LEVEL, so the removed default leaves its value alone.
+    expect(writer.removed).toEqual([{ customerId: 'customer-a', keys: ['LOG_LEVEL'] }]);
+  });
+
+  it('reaches no deployment without the configurable-customers seam (new installations only)', async () => {
+    const writer = createMockWriter();
+    await setConfig(APP_ID, null, [{ key: 'FEATURE_FLAG', value: 'on', isSecret: false }], buildDeps(createMockStore({}), writer));
+    expect(writer.calls).toEqual([]);
+  });
+});
+
 describe('config — write validation', () => {
   it('rejects duplicate keys within one write', async () => {
     const store = createMockStore({});
@@ -644,7 +687,7 @@ describe('config — relay write-through queue message', () => {
     const enqueueMock = vi.mocked(enqueue);
     enqueueMock.mockResolvedValue(true);
     const writer = createRelaySecretWriter();
-    await writer.writeSecrets(CUSTOMER_ID, [
+    await writer.writeSecrets(APP_ID, CUSTOMER_ID, [
       { key: 'DATABASE_URL', value: 'postgres://fresh-secret', isSecret: true },
       { key: 'LOG_LEVEL', value: 'debug', isSecret: false },
       { key: 'TOUCHED_NOT_SECRET', value: '', isSecret: true },
@@ -653,6 +696,7 @@ describe('config — relay write-through queue message', () => {
     expect(enqueueMock).toHaveBeenCalledWith({
       type: 'CONFIG_UPDATE',
       customerId: CUSTOMER_ID,
+      applicationId: APP_ID,
       changedKeys: ['DATABASE_URL', 'LOG_LEVEL', 'TOUCHED_NOT_SECRET'],
       secrets: [{ key: 'DATABASE_URL', value: 'postgres://fresh-secret' }],
     });
@@ -833,6 +877,24 @@ describe('config — pre-relay removals and delivery rules against a real store'
     await setConfig(applicationId, customerId, [], deps, ['SMTP_PASS']);
 
     expect((await pendingSecrets.listBoundForDeployment(deploymentId)).map((row) => row.key)).toEqual(['LICENSE_KEY']);
+  });
+
+  it('finds only customers whose deployment a connected relay can configure now', async () => {
+    const finder = createConfigurableCustomersFinder(db);
+    // The only deployment so far waits for its relay.
+    expect(await finder(applicationId)).toEqual([]);
+    const customers = await db
+      .insert(schema.customers)
+      .values([
+        { organizationId: 'org-config-prerelay', name: 'Healthy', email: 'healthy@example.com' },
+        { organizationId: 'org-config-prerelay', name: 'Disconnected', email: 'disconnected@example.com' },
+      ])
+      .returning();
+    await db.insert(schema.deployments).values([
+      { organizationId: 'org-config-prerelay', applicationId, customerId: customers[0]!.id, region: 'us-east-1', state: 'HEALTHY', relayStatus: 'CONNECTED', enrollmentCode: 'enrol-healthy' },
+      { organizationId: 'org-config-prerelay', applicationId, customerId: customers[1]!.id, region: 'us-east-1', state: 'HEALTHY', relayStatus: 'DISCONNECTED', enrollmentCode: 'enrol-disconnected' },
+    ]);
+    expect(await finder(applicationId)).toEqual([customers[0]!.id]);
   });
 
   it('counts a saved value as provided only when its source still supplies the key', async () => {

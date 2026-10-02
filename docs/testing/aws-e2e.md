@@ -151,6 +151,26 @@ Troubleshooting below).
 | `--reuse-stack` | Skip bootstrap stack creation, application stack provisioning, and final infrastructure teardown; reuse a standing stack tagged `DeployzPersistent=true` and `DeployzTestMode=canary` (name defaults to `deployz-app`, override with `DEPLOYZ_E2E_CANARY_STACK_NAME`). Per-run resources (customer, deployment, releases) are still created and cleaned; infrastructure is left standing. Combine with `--keep` to leave both standing for the next reuse-stack run. Do not use when testing bootstrap or teardown logic itself. |
 | `--production` | `profile` only — see L6 below. |
 
+### Runtime environment probe (`env-probe`)
+
+`env-probe` proves which environment values a running application receives.
+It does not trust the database or the UI. It starts one Fargate task from the
+web service's current task definition. ECS injects the same `environment` and
+`secrets` as for the application container. The command is replaced by a
+shell script that prints, per key, `absent`, or `present` with the byte
+length and a SHA-256 prefix. A value is never printed.
+
+```bash
+DEPLOYZ_E2E_ALLOW_REAL_AWS=1 pnpm e2e:canary:versions env-probe --stack <application stack> --keys DATABASE_URL,REDIS_URL,API_KEY --expect <file>
+```
+
+The optional `--expect` file is a local JSON map, never committed:
+`"KEY": "exact intended value"`, `null` (must be absent) or `true` (present,
+any value, for a generated or managed secret). The command exits non-zero on
+a mismatch. Use it after an install, a configuration change, a release and a
+reanalysis, to show the exact value reached the container. The probe task is
+tagged `DeployzCanaryRun=<run id>` and stops by itself.
+
 ### The `core` scenario
 
 ```

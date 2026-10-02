@@ -352,3 +352,26 @@ What would change it: the real-AWS qualification passing promotes SQS and
 EventBridge Scheduler from `PREVIEW` to `SUPPORTED` maturity; a vendor need
 for FIFO ordering or for scheduled-job execution history could revisit
 those non-goals.
+
+## Vendor runtime values reach running deployments (2026-10-02)
+
+A saved or removed vendor runtime value now reaches every running
+deployment of the application, the same way a customer override already
+reaches that customer's deployment. Before, a vendor value reached only new
+installations: a vendor who shipped a wrong value had no product path to
+repair the customers already running it, because a deploy, a rollback and a
+restart change only the image and never read configuration again.
+
+- One `CONFIG_UPDATE` per customer with a connected relay; every message
+  names its application, so a customer who runs two of the vendor's
+  applications never receives one application's values or removals in the
+  other.
+- Vendor secret values never ride the queue. The relay decrypts them from
+  its authenticated config read.
+- A removed vendor default leaves a deployment only when that customer has
+  no override for the key.
+- Saving a decision (who provides a key) still starts no update.
+
+What would change it: vendors who need staged rollouts of configuration
+(one customer first) would need an explicit "apply to customers" step.
+
