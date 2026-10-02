@@ -3,9 +3,10 @@
 Architecture and product decisions whose reasoning is still worth knowing.
 Each entry states the decision, why, and what would change it. Completed
 implementation plans and one-off reports are not kept; git history has them.
-Two decisions with substantial detail have their own files:
-[`deploy-gate.md`](deploy-gate.md) and
-[`failed-install-recovery.md`](failed-install-recovery.md).
+Three decisions with substantial detail have their own files:
+[`deploy-gate.md`](deploy-gate.md),
+[`failed-install-recovery.md`](failed-install-recovery.md) and
+[`pending-command-authority.md`](pending-command-authority.md).
 
 | Date | Decision | Status |
 | --- | --- | --- |
@@ -27,6 +28,7 @@ Two decisions with substantial detail have their own files:
 | 2026-09-27 | Phase 3 passes without real-AWS validation; the runs move to the Final AWS Qualification backlog | Active |
 | 2026-09-28 | The MVP boundary expands to background workers, RDS MySQL and first-class migrations; one build artifact and no private services stay | Active |
 | 2026-09-29 | The MVP boundary expands to SQS queues and scheduled jobs | Active |
+| 2026-10-02 | A pending INSTALL carries command authority; only authorized recovery may recreate a stack ([`pending-command-authority.md`](pending-command-authority.md)) | Active |
 
 ## AI explanations are on-demand and never change state (2026-08-25)
 

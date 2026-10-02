@@ -617,6 +617,86 @@ describe('pollOnce — deferred commands', () => {
   });
 });
 
+// ── Result-report outcome hook ───────────────────────────────────────────────
+
+describe('pollOnce — onResultReported', () => {
+  const resumedResult = {
+    commandId: 'job-r1',
+    idempotencyKey: 'ik-r1',
+    success: true,
+    output: { executed: true },
+  };
+
+  it('passes true to onResultReported when the report is accepted', async () => {
+    const { fetchFn } = makeMockFetch();
+    const onResultReported = vi.fn(async () => {});
+    const deps = makeDeps({ fetchFn, resume: async () => [resumedResult], onResultReported });
+    const authState = createAuthState('inst-test', 'tok');
+    authState.registered = true;
+
+    await pollOnce(deps, authState);
+
+    expect(onResultReported).toHaveBeenCalledWith(resumedResult, true);
+  });
+
+  it('passes false to onResultReported when the report is refused', async () => {
+    const { fetchFn: baseFetch } = makeMockFetch();
+    const fetchFn: FetchFn = async (url, init) => {
+      if (url.includes('/result')) {
+        return { status: 500, headers: { get: () => null }, json: async () => ({}) };
+      }
+      return baseFetch(url, init);
+    };
+    const onResultReported = vi.fn(async () => {});
+    const deps = makeDeps({ fetchFn, resume: async () => [resumedResult], onResultReported });
+    const authState = createAuthState('inst-test', 'tok');
+    authState.registered = true;
+
+    await pollOnce(deps, authState);
+
+    expect(onResultReported).toHaveBeenCalledWith(resumedResult, false);
+  });
+
+  it('calls onResultReported for executor-loop results too', async () => {
+    const { fetchFn } = makeMockFetch({
+      commandsBody: {
+        commands: [
+          { id: 'job-x1', deploymentId: 'dep-1', type: 'INSTALL', idempotencyKey: 'ik-x1', payload: {} },
+        ],
+      },
+    });
+    const onResultReported = vi.fn(async () => {});
+    const deps = makeDeps({ fetchFn, onResultReported });
+    const authState = createAuthState('inst-test', 'tok');
+    authState.registered = true;
+
+    await pollOnce(deps, authState);
+
+    expect(onResultReported).toHaveBeenCalledWith(
+      expect.objectContaining({ commandId: 'job-x1', success: true }),
+      true,
+    );
+  });
+
+  it('keeps polling when onResultReported throws', async () => {
+    const { fetchFn } = makeMockFetch();
+    const deps = makeDeps({
+      fetchFn,
+      resume: async () => [resumedResult],
+      onResultReported: async () => {
+        throw new Error('hook exploded');
+      },
+    });
+    const authState = createAuthState('inst-test', 'tok');
+    authState.registered = true;
+
+    const result = await pollOnce(deps, authState);
+
+    expect(result.ok).toBe(true);
+    expect(result.resumed).toBe(1);
+  });
+});
+
 // ── Stack-event progress reporting ───────────────────────────────────────────
 
 describe('reportCommandProgress', () => {

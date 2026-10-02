@@ -995,6 +995,9 @@ describe('createPurgeExecutor', () => {
         async clear() {
           return true;
         },
+        async compareAndSet() {
+          return true;
+        },
       },
     });
     const result = await createPurgeExecutor(deps)(command());

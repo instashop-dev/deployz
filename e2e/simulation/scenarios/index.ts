@@ -24,6 +24,7 @@ import { retainedResources } from './retained-resources.js';
 import { rollbackFailure } from './rollback-failure.js';
 import { rollbackSuccess } from './rollback-success.js';
 import { slowProvision } from './slow-provision.js';
+import { staleInstallResurrect } from './stale-install-resurrect.js';
 import { transientAws } from './transient-aws.js';
 import { stateless } from './stateless.js';
 import { updateFailure } from './update-failure.js';
@@ -56,6 +57,7 @@ const SCENARIOS: Readonly<Record<string, ScenarioDefinition>> = {
   [phase4Composition.id]: phase4Composition,
   [phase5Composition.id]: phase5Composition,
   [slowProvision.id]: slowProvision,
+  [staleInstallResurrect.id]: staleInstallResurrect,
   [cloudformationFailure.id]: cloudformationFailure,
   [databaseFailure.id]: databaseFailure,
   [rdsAzCapacity.id]: rdsAzCapacity,
@@ -110,6 +112,7 @@ export {
   rollbackFailure,
   rollbackSuccess,
   slowProvision,
+  staleInstallResurrect,
   transientAws,
   stateless,
   updateFailure,

@@ -180,7 +180,7 @@ Three overlapping slices of `e2e/*.spec.ts`, run differently in CI (see
 
 ## Scenario catalogue
 
-Twenty scenario definitions are registered in
+Twenty-eight scenario definitions are registered in
 `e2e/simulation/scenarios/index.ts`; the table below has more rows because
 several ids (`duplicate-request`, `relay-death-destroy`, `deploy-link`,
 `release-unavailable`, `two-apps-1.0.0`, `retry-install-recovery`,
@@ -232,6 +232,7 @@ real browser.
 | `retry-install-recovery` | First install fails (cloudformation-rollback); vendor calls `POST /api/deployments/:id/retry-install` from FAILED; the route queues a fresh INSTALL job with recovery metadata | `state: INSTALLING` (the first relay-pickup tick) | "Installing" | Route returns 202 with a `jobId`; `install.retry.requested` event logged; double-click returns the same job id (200) | `e2e/scenario-recovery.spec.ts` |
 | `install-link-retry` | Mid-flight install-link retry: a relay started an install (state reaches INSTALLING), the customer calls `POST /api/install/:installLinkId/retry` while the installation is live | `state: NOT_INSTALLED`, a fresh enrollment code is minted; a new relay then installs to HEALTHY | "Not installed" then builds normally | `previousInstallationId` recorded; fresh Quick Create URL; install succeeds with the new relay | `e2e/scenario-recovery.spec.ts` |
 | `force-complete-repeated-failures` | DESTROY fails twice (delete-failure scenario); the deployment reaches FAILED with two FAILED DESTROY jobs; the vendor calls `disconnect/force-complete` | State stays `FAILED` — the force-complete gate (60-minute staleness) refuses in the simulated window | "Failed" | Two FAILED DESTROY jobs exist; force-complete returns 409 `DESTROY_NOT_STALE`; deployment unchanged | `e2e/scenario-resilience.spec.ts` |
+| `stale-install-resurrect` | A pending INSTALL is still deferred when its stack rolls back and fails; the vendor disconnects (DESTROY) and the stack is deleted; the relay then polls repeatedly and cold-starts | `state: DELETED` — DESTROY completes; the original INSTALL failure is unchanged, never a recreated stack | Never claims the install succeeded or that a new stack exists | No `CreateStack` after the DESTROY; `destroy.completed` event; the INSTALL job keeps its original FAILED result | `e2e/scenario-recovery.spec.ts` |
 | `default-https-i` | Default-HTTPS DNS write failures exhaust the budget (5 `unavailable` failures); the machine reaches ERROR and stays ERROR across heartbeats; vendor retry route (`POST default-https/retry`) resets the machine to PENDING, which recovers to ACTIVE/READY | ERROR → (retry) → ACTIVE (READY) | "Ready" after retry | `defaultHttps.status` stays ERROR across waits; retry route returns `'retrying'`; machine recovers to ACTIVE; no INSTALL/DESTROY re-triggered | `e2e/scenario-default-https.spec.ts` |
 
 Browser-level coverage: `e2e/scenario-ui.spec.ts` drives four of the original

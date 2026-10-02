@@ -16,6 +16,210 @@ const PENDING: PendingCommand = {
   payload: { redisRequired: true },
 };
 
+/**
+ * A fake SSM that stores one parameter value in memory. GetParameter is
+ * identified by `WithDecryption`, PutParameter by `Overwrite`, and anything
+ * else is treated as DeleteParameter — matching the commands this module
+ * actually sends.
+ */
+function makeSsmFake(initial?: string): {
+  send: ReturnType<typeof vi.fn>;
+  read: () => string | undefined;
+} {
+  let stored = initial;
+  const send = vi.fn(async (command: { input: Record<string, unknown> }) => {
+    const input = command.input;
+    if ('WithDecryption' in input) {
+      if (stored === undefined) {
+        const error = new Error('not found');
+        error.name = 'ParameterNotFound';
+        throw error;
+      }
+      return { Parameter: { Value: stored } };
+    }
+    if ('Overwrite' in input) {
+      stored = input['Value'] as string;
+      return {};
+    }
+    if (stored === undefined) {
+      const error = new Error('not found');
+      error.name = 'ParameterNotFound';
+      throw error;
+    }
+    stored = undefined;
+    return {};
+  });
+  return { send, read: () => stored };
+}
+
+describe('compareAndSet', () => {
+  it('writes when the stored marker still belongs to the expected command', async () => {
+    const store = toPendingStore(makeSsmFake(JSON.stringify(PENDING)), '/p');
+    const settled: PendingCommand = {
+      ...PENDING,
+      phase: 'settled',
+      result: { success: true, output: { executed: true } },
+      settledAt: '2026-08-26T12:05:00.000Z',
+    };
+
+    await expect(store.compareAndSet('cmd-1', settled)).resolves.toBe(true);
+    await expect(store.read()).resolves.toEqual(settled);
+  });
+
+  it('refuses to overwrite a newer command marker', async () => {
+    const store = toPendingStore(makeSsmFake(JSON.stringify({ ...PENDING, commandId: 'cmd-2' })), '/p');
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    await expect(store.compareAndSet('cmd-1', null)).resolves.toBe(false);
+    await expect(store.read()).resolves.toMatchObject({ commandId: 'cmd-2' });
+    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('relay:pending-cas-refused'));
+    errorSpy.mockRestore();
+  });
+
+  it('clears when the stored marker belongs to the expected command', async () => {
+    const store = toPendingStore(makeSsmFake(JSON.stringify(PENDING)), '/p');
+
+    await expect(store.compareAndSet('cmd-1', null)).resolves.toBe(true);
+    await expect(store.read()).resolves.toBeNull();
+  });
+
+  it('treats clearing an absent marker as done', async () => {
+    const store = toPendingStore(makeSsmFake(), '/p');
+
+    await expect(store.compareAndSet('cmd-1', null)).resolves.toBe(true);
+  });
+
+  it('refuses to create a marker when none exists', async () => {
+    const store = toPendingStore(makeSsmFake(), '/p');
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    await expect(store.compareAndSet('cmd-1', PENDING)).resolves.toBe(false);
+    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('relay:pending-cas-refused'));
+    errorSpy.mockRestore();
+  });
+
+  it('reports false when the underlying write fails', async () => {
+    const send = vi.fn(async (command: { input: Record<string, unknown> }) => {
+      if ('WithDecryption' in command.input) {
+        return { Parameter: { Value: JSON.stringify(PENDING) } };
+      }
+      throw new Error('AccessDeniedException');
+    });
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    await expect(
+      toPendingStore({ send }, '/p').compareAndSet('cmd-1', { ...PENDING, phase: 'settled' }),
+    ).resolves.toBe(false);
+    errorSpy.mockRestore();
+  });
+
+  it('reports false when the underlying clear fails', async () => {
+    const send = vi.fn(async (command: { input: Record<string, unknown> }) => {
+      if ('WithDecryption' in command.input) {
+        return { Parameter: { Value: JSON.stringify(PENDING) } };
+      }
+      throw new Error('AccessDeniedException');
+    });
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    await expect(toPendingStore({ send }, '/p').compareAndSet('cmd-1', null)).resolves.toBe(false);
+    errorSpy.mockRestore();
+  });
+
+  it('memoryPendingStore writes, clears, refuses a newer marker, and treats absent as cleared', async () => {
+    const store = memoryPendingStore();
+
+    // Creating while absent is refused.
+    await expect(store.compareAndSet('cmd-1', PENDING)).resolves.toBe(false);
+
+    await store.write(PENDING);
+    const settled: PendingCommand = { ...PENDING, phase: 'settled', result: { success: true } };
+    await expect(store.compareAndSet('cmd-1', settled)).resolves.toBe(true);
+    await expect(store.read()).resolves.toEqual(settled);
+
+    await expect(store.compareAndSet('cmd-2', null)).resolves.toBe(false);
+    await expect(store.compareAndSet('cmd-1', null)).resolves.toBe(true);
+    await expect(store.read()).resolves.toBeNull();
+    await expect(store.compareAndSet('cmd-1', null)).resolves.toBe(true);
+  });
+});
+
+describe('settled marker fields', () => {
+  it('round-trips phase, result and settledAt', async () => {
+    const store = toPendingStore(makeSsmFake(), '/p');
+    const settled: PendingCommand = {
+      ...PENDING,
+      phase: 'settled',
+      result: {
+        success: false,
+        error: 'boom',
+        failureCode: 'STACK_CREATE_FAILED',
+        output: { stackStatus: 'ROLLBACK_COMPLETE' },
+        evidence: {
+          container: { exitCode: 1, stopCode: 'x', stoppedReason: 'y', stoppedTaskCount: 1 },
+        },
+      },
+      settledAt: '2026-08-26T12:05:00.000Z',
+    };
+
+    await store.write(settled);
+
+    await expect(store.read()).resolves.toEqual(settled);
+  });
+
+  it('parses a legacy marker with none of them as running', async () => {
+    const send = vi.fn().mockResolvedValue({ Parameter: { Value: JSON.stringify(PENDING) } });
+
+    const parsed = await toPendingStore({ send }, '/p').read();
+
+    expect(parsed).toEqual(PENDING);
+    expect(parsed).not.toHaveProperty('phase');
+    expect(parsed).not.toHaveProperty('result');
+    expect(parsed).not.toHaveProperty('settledAt');
+  });
+
+  it('drops a malformed result, an unknown phase and a non-string settledAt', async () => {
+    const send = vi.fn().mockResolvedValue({
+      Parameter: {
+        Value: JSON.stringify({
+          ...PENDING,
+          phase: 'bogus',
+          result: { success: 'yes' },
+          settledAt: 42,
+        }),
+      },
+    });
+
+    const parsed = await toPendingStore({ send }, '/p').read();
+
+    expect(parsed).toEqual(PENDING);
+    expect(parsed).not.toHaveProperty('phase');
+    expect(parsed).not.toHaveProperty('result');
+    expect(parsed).not.toHaveProperty('settledAt');
+  });
+
+  it('keeps a result with only a success boolean and drops its malformed optional fields', async () => {
+    const send = vi.fn().mockResolvedValue({
+      Parameter: {
+        Value: JSON.stringify({
+          ...PENDING,
+          phase: 'settled',
+          result: { success: true, output: 'nope', error: 7, evidence: [] },
+          settledAt: '2026-08-26T12:05:00.000Z',
+        }),
+      },
+    });
+
+    const parsed = await toPendingStore({ send }, '/p').read();
+
+    expect(parsed).toMatchObject({ phase: 'settled', result: { success: true } });
+    expect(parsed?.result).not.toHaveProperty('output');
+    expect(parsed?.result).not.toHaveProperty('error');
+    expect(parsed?.result).not.toHaveProperty('evidence');
+  });
+});
+
+
 describe('memoryPendingStore', () => {
   it('round-trips a pending command', async () => {
     const store = memoryPendingStore();

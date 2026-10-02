@@ -13,6 +13,7 @@ import {
   createRelayHandler,
   createVerifyingExecutor,
   discoverAvailabilityZones,
+  fetchCommandAuthority,
   readDeploymentManifest,
   readDeploymentTagsFromPayload,
   readInstallParametersFromPayload,
@@ -1139,13 +1140,17 @@ describe('createInstallResumer', () => {
     });
   });
 
-  it('clears the marker once the result has been produced', async () => {
+  it('writes a settled marker once the result has been produced, and does not clear it', async () => {
     const pending = memoryPendingStore();
     await pending.write(pendingRecord);
 
     await createInstallResumer(makeResumeDeps({ pending }))();
 
-    expect(await pending.read()).toBeNull();
+    expect(await pending.read()).toMatchObject({
+      commandId: 'cmd-1',
+      phase: 'settled',
+      result: { success: true },
+    });
   });
 
   it('keeps waiting, and keeps the marker, while the stack is still creating', async () => {
@@ -1204,7 +1209,11 @@ describe('createInstallResumer', () => {
 
     expect(install).not.toHaveBeenCalled();
     expect(verify).not.toHaveBeenCalled();
-    expect(await pending.read()).toBeNull();
+    expect(await pending.read()).toMatchObject({
+      commandId: 'cmd-1',
+      phase: 'settled',
+      result: { success: false, failureCode: 'STACK_CREATE_FAILED' },
+    });
     expect(results).toHaveLength(1);
     expect(results[0]).toMatchObject({
       commandId: 'cmd-1',
@@ -1277,7 +1286,7 @@ describe('createInstallResumer', () => {
     expect(await pending.read()).not.toBeNull();
   });
 
-  it('clears the pending record and reports failure when recovery itself gets stuck', async () => {
+  it('writes a settled marker and reports failure when recovery itself gets stuck', async () => {
     const pending = memoryPendingStore();
     await pending.write({
       ...pendingRecord,
@@ -1315,7 +1324,11 @@ describe('createInstallResumer', () => {
       failureCode: 'STACK_CREATE_FAILED',
     });
     expect(results[0]!.error).toContain('DELETE_FAILED');
-    expect(await pending.read()).toBeNull();
+    expect(await pending.read()).toMatchObject({
+      commandId: 'cmd-1',
+      phase: 'settled',
+      result: { success: false, failureCode: 'STACK_CREATE_FAILED' },
+    });
   });
 
   it('reports a DELETE_FAILED install as a plain failure when the install was not a recovery arc', async () => {
@@ -1345,7 +1358,11 @@ describe('createInstallResumer', () => {
       success: false,
       failureCode: 'STACK_CREATE_FAILED',
     });
-    expect(await pending.read()).toBeNull();
+    expect(await pending.read()).toMatchObject({
+      commandId: 'cmd-1',
+      phase: 'settled',
+      result: { success: false, failureCode: 'STACK_CREATE_FAILED' },
+    });
   });
 
   it('resumes the collector from the pending startedAt and cursor', async () => {
@@ -1422,6 +1439,243 @@ describe('createInstallResumer', () => {
     expect(await pending.read()).toMatchObject({
       stackEventsCursor: { lastEventAt: '2026-08-26T12:07:00.000Z' },
     });
+  });
+
+  it('uses createMode resume for a normal resume and recovery for a recovery payload', async () => {
+    const pending = memoryPendingStore();
+    await pending.write(pendingRecord);
+    const install = vi.fn(async () => ({
+      state: 'succeeded' as const,
+      status: 'CREATE_COMPLETE',
+      outputs: {},
+    }));
+
+    await createInstallResumer(makeResumeDeps({ pending, install }))();
+    expect(install.mock.calls[0]![0]).toMatchObject({ createMode: 'resume' });
+
+    const recoveryPending = memoryPendingStore();
+    await recoveryPending.write({
+      ...pendingRecord,
+      payload: {
+        recovery: { neverInstalled: true },
+        redisRequired: false,
+        databaseRequired: true,
+        templateUrl: 'https://example.com/application-template-v1.json',
+      },
+    });
+    const recoveryInstall = vi.fn(async () => ({
+      state: 'succeeded' as const,
+      status: 'CREATE_COMPLETE',
+      outputs: {},
+    }));
+
+    await createInstallResumer(makeResumeDeps({ pending: recoveryPending, install: recoveryInstall }))();
+    expect(recoveryInstall.mock.calls[0]![0]).toMatchObject({ createMode: 'recovery' });
+  });
+
+  it('clears the marker and never provisions when authority says the command is superseded', async () => {
+    const pending = memoryPendingStore();
+    await pending.write(pendingRecord);
+    const install = vi.fn();
+    const recover = vi.fn();
+    const checkAuthority = vi.fn(async () => false);
+
+    const results = await createInstallResumer(
+      makeResumeDeps({ pending, install, recover, checkAuthority }),
+    )();
+
+    expect(results).toEqual([]);
+    expect(checkAuthority).toHaveBeenCalledWith('cmd-1');
+    expect(install).not.toHaveBeenCalled();
+    expect(recover).not.toHaveBeenCalled();
+    expect(await pending.read()).toBeNull();
+  });
+
+  it('keeps the marker and never mutates when authority is unknown', async () => {
+    const pending = memoryPendingStore();
+    await pending.write(pendingRecord);
+    const install = vi.fn();
+    const checkAuthority = vi.fn(async () => null);
+    const compareAndSet = vi.fn(pending.compareAndSet.bind(pending));
+
+    const results = await createInstallResumer(
+      makeResumeDeps({ pending: { ...pending, compareAndSet }, install, checkAuthority }),
+    )();
+
+    expect(results).toEqual([]);
+    expect(install).not.toHaveBeenCalled();
+    expect(compareAndSet).not.toHaveBeenCalled();
+    expect(await pending.read()).toEqual(pendingRecord);
+  });
+
+  it('returns the stored settled result on a second resume without provisioning again', async () => {
+    const pending = memoryPendingStore();
+    await pending.write(pendingRecord);
+    const firstInstall = vi.fn(async () => ({
+      state: 'succeeded' as const,
+      status: 'CREATE_COMPLETE',
+      outputs: {},
+    }));
+
+    const first = await createInstallResumer(makeResumeDeps({ pending, install: firstInstall }))();
+    expect(first[0]).toMatchObject({ success: true });
+
+    const secondInstall = vi.fn();
+    const second = await createInstallResumer(makeResumeDeps({ pending, install: secondInstall }))();
+
+    expect(secondInstall).not.toHaveBeenCalled();
+    expect(second).toHaveLength(1);
+    expect(second[0]).toMatchObject({ commandId: 'cmd-1', success: true });
+  });
+});
+
+describe('createInstallExecutor — authority and settled markers', () => {
+  const command = {
+    id: 'cmd-1',
+    deploymentId: 'dep-1',
+    type: 'INSTALL' as const,
+    idempotencyKey: 'dep-1:INSTALL',
+    payload: {
+      redisRequired: false,
+      databaseRequired: true,
+      templateUrl: 'https://example.com/application-template-v1.json',
+    },
+  };
+
+  function makeDeps(overrides: Partial<InstallExecutorDeps> = {}): InstallExecutorDeps {
+    return {
+      installationId: 'inst-1',
+      install: async () => ({ state: 'succeeded', status: 'CREATE_COMPLETE', outputs: {} }),
+      verify: async () => ({ verified: true, checks: [] }),
+      pending: memoryPendingStore(),
+      now: () => '2026-08-26T12:00:00.000Z',
+      ...overrides,
+    };
+  }
+
+  it('returns the stored settled result for the same command without provisioning', async () => {
+    const pending = memoryPendingStore();
+    await pending.write({
+      commandId: 'cmd-1',
+      idempotencyKey: 'dep-1:INSTALL',
+      type: 'INSTALL',
+      stackName: 'deployz-app',
+      startedAt: '2026-08-26T12:00:00.000Z',
+      payload: command.payload,
+      phase: 'settled',
+      result: { success: true, output: { executed: true, type: 'INSTALL' } },
+      settledAt: '2026-08-26T12:05:00.000Z',
+    });
+    const install = vi.fn();
+
+    const result = await createInstallExecutor(makeDeps({ pending, install }))(command);
+
+    expect(install).not.toHaveBeenCalled();
+    expect(result).toMatchObject({ commandId: 'cmd-1', success: true, output: { executed: true } });
+  });
+
+  it('does not provision and fails when authority says the command is no longer active', async () => {
+    const install = vi.fn();
+    const checkAuthority = vi.fn(async () => false);
+
+    const result = await createInstallExecutor(makeDeps({ install, checkAuthority }))(command);
+
+    expect(install).not.toHaveBeenCalled();
+    expect(result).toMatchObject({ success: false, failureCode: 'STACK_CREATE_FAILED' });
+    expect(result.error).toContain('no longer active');
+  });
+
+  it('defers without provisioning when authority is unknown, recording the marker', async () => {
+    const pending = memoryPendingStore();
+    const install = vi.fn();
+    const checkAuthority = vi.fn(async () => null);
+
+    const result = await createInstallExecutor(makeDeps({ pending, install, checkAuthority }))(command);
+
+    expect(install).not.toHaveBeenCalled();
+    expect(result).toMatchObject({ success: false, deferred: true });
+    expect(await pending.read()).toMatchObject({ commandId: 'cmd-1' });
+  });
+
+  it('passes createMode fresh for a normal create and recovery for a recovery payload', async () => {
+    const install = vi.fn(async () => ({
+      state: 'succeeded' as const,
+      status: 'CREATE_COMPLETE',
+      outputs: {},
+    }));
+
+    await createInstallExecutor(makeDeps({ install }))(command);
+    expect(install.mock.calls[0]![0]).toMatchObject({ createMode: 'fresh' });
+
+    const recoveryInstall = vi.fn(async () => ({
+      state: 'succeeded' as const,
+      status: 'CREATE_COMPLETE',
+      outputs: {},
+    }));
+    await createInstallExecutor(makeDeps({ install: recoveryInstall }))({
+      ...command,
+      payload: { ...command.payload, recovery: { neverInstalled: true } },
+    });
+    expect(recoveryInstall.mock.calls[0]![0]).toMatchObject({ createMode: 'recovery' });
+  });
+});
+
+describe('fetchCommandAuthority', () => {
+  function respond(status: number, body: unknown): FetchFn {
+    return async () => ({ status, headers: { get: () => null }, json: async () => body });
+  }
+
+  it('maps a 200 active body to true', async () => {
+    await expect(
+      fetchCommandAuthority(respond(200, { active: true, jobState: 'RUNNING' }), 'https://cp', {}, 'cmd-1'),
+    ).resolves.toBe(true);
+  });
+
+  it('maps a 200 inactive body to false', async () => {
+    await expect(
+      fetchCommandAuthority(respond(200, { active: false, jobState: 'CANCELLED' }), 'https://cp', {}, 'cmd-1'),
+    ).resolves.toBe(false);
+  });
+
+  it('maps a 404 to null', async () => {
+    await expect(fetchCommandAuthority(respond(404, {}), 'https://cp', {}, 'cmd-1')).resolves.toBeNull();
+  });
+
+  it('maps a 500 to null', async () => {
+    await expect(fetchCommandAuthority(respond(500, {}), 'https://cp', {}, 'cmd-1')).resolves.toBeNull();
+  });
+
+  it('maps a network failure to null', async () => {
+    const fetchFn: FetchFn = async () => {
+      throw new Error('ECONNRESET');
+    };
+
+    await expect(fetchCommandAuthority(fetchFn, 'https://cp', {}, 'cmd-1')).resolves.toBeNull();
+  });
+
+  it('maps an unparseable 200 body to null', async () => {
+    const fetchFn: FetchFn = async () => ({
+      status: 200,
+      headers: { get: () => null },
+      json: async () => {
+        throw new Error('bad json');
+      },
+    });
+
+    await expect(fetchCommandAuthority(fetchFn, 'https://cp', {}, 'cmd-1')).resolves.toBeNull();
+  });
+
+  it('builds the authority URL and passes the auth headers', async () => {
+    const requests: Array<{ url: string; headers?: Record<string, string> }> = [];
+    const fetchFn: FetchFn = async (url, init) => {
+      requests.push({ url, headers: init?.headers });
+      return { status: 200, headers: { get: () => null }, json: async () => ({ active: true }) };
+    };
+
+    await fetchCommandAuthority(fetchFn, 'https://api.deployz.dev', { Authorization: 'Bearer t' }, 'cmd-1');
+
+    expect(requests[0]?.url).toBe('https://api.deployz.dev/api/relay/commands/cmd-1/authority');
+    expect(requests[0]?.headers).toMatchObject({ Authorization: 'Bearer t' });
   });
 });
 

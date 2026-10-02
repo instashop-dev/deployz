@@ -24,8 +24,10 @@
 import { expect, test } from './simulation/fixtures.js';
 
 import { API_URL } from './simulation/fixtures.js';
+import { memoryPendingStore, type PendingCommand } from '@deployz/relay/pending';
 import { extractQuickCreateParam, startSimulatedRelay } from './simulation/relay-harness.js';
 import { getScenario } from './simulation/scenarios/index.js';
+import type { SimulatedCustomerAccount } from './simulation/simulated-account.js';
 
 interface DeploymentResponse {
   state: string;
@@ -34,6 +36,7 @@ interface DeploymentResponse {
 
 interface EventRow {
   eventType: string;
+  jobId?: string | null;
 }
 
 async function getEvents(request: import('@playwright/test').APIRequestContext, deploymentId: string): Promise<EventRow[]> {
@@ -172,6 +175,141 @@ test.describe('install-link-retry', () => {
       }
     } finally {
       relayA.stop();
+    }
+  });
+});
+
+// ── Item 5: stale INSTALL pending marker must not resurrect the stack ───────
+test.describe('stale-install-resurrect', () => {
+  test.use({ deployzScenario: 'stale-install-resurrect', deployzStartRelay: false });
+
+  test('@scenario:stale-install-resurrect a pending INSTALL marker left behind after a failed install + DESTROY does not recreate the stack on a cold-start relay', async ({
+    request,
+    deployzInstall,
+  }) => {
+    test.setTimeout(90_000);
+    const { deploymentId, installLinkId, enrollmentCode, installationId, api } = deployzInstall;
+
+    // a. Fetch the install info + RelayCredential (same pattern as install-link-retry).
+    const installInfo = await request.get(`${API_URL}/api/install/${installLinkId}`).then((r) => r.json()) as {
+      quickCreateUrl: string | null;
+    };
+    expect(installInfo.quickCreateUrl).not.toBeNull();
+    const relayCred = extractQuickCreateParam(installInfo.quickCreateUrl!, 'RelayCredential');
+
+    // b. Start relay 1 — the install fails (cloudformation-rollback timeline).
+    const relay1 = startSimulatedRelay({
+      scenario: getScenario('stale-install-resurrect'),
+      apiUrl: API_URL,
+      installationId,
+      enrollmentCode,
+      relayToken: relayCred,
+    });
+
+    let account: SimulatedCustomerAccount;
+    let stackName: string;
+
+    try {
+      const result1 = await relay1.waitForResult();
+      expect(result1.succeeded).toBe(false);
+      await expect
+        .poll(async () => (await api.getDeployment(deploymentId)).state, {
+          timeout: 20_000,
+          message: 'waiting for deployment to reach FAILED',
+        })
+        .toBe('FAILED');
+
+      account = relay1.account;
+      stackName = account.stackName!;
+      expect(stackName).not.toBeNull();
+    } finally {
+      relay1.stop();
+    }
+
+    // c. Find the install.failed event and read its jobId (the real FAILED INSTALL job).
+    const eventsAfterFail = await getEvents(request, deploymentId);
+    const installFailedEvent = eventsAfterFail.find((e) => e.eventType === 'install.failed');
+    expect(installFailedEvent).toBeDefined();
+    const installJobId = installFailedEvent!.jobId;
+    expect(installJobId).toBeTruthy();
+
+    // d. Simulate the teardown + failed marker clear: the relay's DESTROY executor
+    //    calls deleteStack, then the control plane clears the pending marker.
+    await account.stackDeleter().deleteStack(stackName, []);
+    const createCallsBefore = account.createStackCalls;
+
+    // e. Issue DESTROY via the real API.
+    const destroyResp = await request.post(`${API_URL}/api/deployments/${deploymentId}/destroy`, { data: {} });
+    expect([200, 202]).toContain(destroyResp.status());
+
+    // f. Build the stale pending marker (the INSTALL job that already failed).
+    const seed: PendingCommand = {
+      commandId: installJobId!,
+      idempotencyKey: `${deploymentId}:INSTALL`,
+      type: 'INSTALL',
+      stackName,
+      startedAt: new Date().toISOString(),
+      payload: {
+        templateUrl: 'https://simulated-templates.deployz.test/application/v1/compiled-template.json',
+        redisRequired: false,
+        databaseRequired: true,
+        stackName,
+      },
+    };
+
+    // Start relay 2 (cold start) with the stale marker seeded.
+    const relay2 = startSimulatedRelay({
+      scenario: getScenario('stale-install-resurrect'),
+      apiUrl: API_URL,
+      installationId,
+      enrollmentCode,
+      relayToken: relayCred,
+      account,
+      seedPending: seed,
+      pendingStore: memoryPendingStore(),
+    });
+
+    try {
+      // g. DESTROY completes and the stack is NOT resurrected.
+      await expect
+        .poll(async () => (await api.getDeployment(deploymentId)).state, {
+          timeout: 20_000,
+          message: 'waiting for deployment to reach DELETED',
+        })
+        .toBe('DELETED');
+
+      // No additional CreateStack calls.
+      expect(account.createStackCalls).toBe(createCallsBefore);
+
+      // The original failure is unchanged: exactly one install.failed event,
+      // no new INSTALL job, no install.completed.
+      const eventsAfterDestroy = await getEvents(request, deploymentId);
+      const installFailedEvents = eventsAfterDestroy.filter((e) => e.eventType === 'install.failed');
+      expect(installFailedEvents).toHaveLength(1);
+      expect(eventsAfterDestroy.some((e) => e.eventType === 'install.completed')).toBe(false);
+    } finally {
+      relay2.stop();
+    }
+
+    // h. Repeated cold start: a third relay with the same stale marker must
+    //    still not recreate the stack.
+    const relay3 = startSimulatedRelay({
+      scenario: getScenario('stale-install-resurrect'),
+      apiUrl: API_URL,
+      installationId,
+      enrollmentCode,
+      relayToken: relayCred,
+      account,
+      seedPending: seed,
+      pendingStore: memoryPendingStore(),
+    });
+
+    try {
+      // Wait ~1s of polls (pollTickMs defaults to 100ms).
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+      expect(account.createStackCalls).toBe(createCallsBefore);
+    } finally {
+      relay3.stop();
     }
   });
 });
