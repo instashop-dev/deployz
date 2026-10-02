@@ -4,12 +4,14 @@ import {
   computeEnvChanges,
   computeSecretChanges,
   createConfigUpdateExecutor,
+  createConfigUpdateResumer,
   findAppConfigSecretArn,
   generateSecretValue,
   type ConfigSecretsWriter,
   type EffectiveConfigEntry,
 } from './config-update.js';
 import type { EcsDeployClient, EcsTaskDefinition } from './deploy.js';
+import { memoryPendingStore } from './pending.js';
 import type { CloudFormationReader } from './verify.js';
 
 const SERVICE_ARN = 'arn:aws:ecs:us-east-1:151955775369:service/app-cluster/app-service';
@@ -22,6 +24,12 @@ function cfnWithService(options: { withConfigSecret?: boolean } = {}): CloudForm
       type: 'AWS::ECS::Service',
       status: 'CREATE_COMPLETE',
       physicalId: SERVICE_ARN,
+    },
+    {
+      logicalId: 'TargetGroup',
+      type: 'AWS::ElasticLoadBalancingV2::TargetGroup',
+      status: 'CREATE_COMPLETE',
+      physicalId: 'arn:aws:elasticloadbalancing:us-east-1:151955775369:targetgroup/app/c1b2d3e4f5a6b7c8',
     },
   ];
   if (options.withConfigSecret) {
@@ -44,20 +52,41 @@ function cfnWithService(options: { withConfigSecret?: boolean } = {}): CloudForm
   };
 }
 
+const CURRENT_DEF_ARN = 'arn:aws:ecs:us-east-1:151955775369:task-definition/app:7';
+const NEXT_DEF_ARN = 'arn:aws:ecs:us-east-1:151955775369:task-definition/app:8';
+
+/**
+ * One ECS service. It starts at zero tasks (an install that waits for its
+ * first start) unless `desiredCount` says otherwise. Every UpdateService
+ * creates a new deployment id; `rollout` decides how that deployment ends.
+ */
 function ecsWith(options: {
   taskDefinition?: EcsTaskDefinition;
   registered?: unknown[];
   updates?: unknown[];
+  desiredCount?: number;
+  rollout?: { state: 'COMPLETED' | 'IN_PROGRESS' | 'ROLLED_BACK' };
 }): EcsDeployClient {
+  let current = CURRENT_DEF_ARN;
+  let sequence = 1;
+  let deploymentId = 'ecs-svc/1';
+  let rolloutState = 'COMPLETED';
+  let failed: { id: string; taskDefinition: string } | null = null;
+  const desiredCount = options.desiredCount ?? 0;
   return {
     async describeServices() {
       return {
         services: [
           {
-            desiredCount: 1,
-            runningCount: 1,
-            taskDefinition: 'arn:aws:ecs:us-east-1:151955775369:task-definition/app:7',
-            deployments: [{ status: 'PRIMARY', rolloutState: 'COMPLETED' }],
+            desiredCount,
+            runningCount: desiredCount,
+            taskDefinition: current,
+            deployments: [
+              { id: deploymentId, status: 'PRIMARY', taskDefinition: current, rolloutState },
+              ...(failed !== null
+                ? [{ id: failed.id, status: 'ACTIVE', taskDefinition: failed.taskDefinition, rolloutState: 'FAILED' }]
+                : []),
+            ],
           },
         ],
       };
@@ -83,10 +112,24 @@ function ecsWith(options: {
     },
     async registerTaskDefinition(input) {
       options.registered?.push(input);
-      return { taskDefinitionArn: 'arn:aws:ecs:us-east-1:151955775369:task-definition/app:8' };
+      return { taskDefinitionArn: NEXT_DEF_ARN };
     },
     async updateService(input) {
       options.updates?.push(input);
+      sequence += 1;
+      const ours = `ecs-svc/${sequence}`;
+      const target = input.taskDefinition ?? current;
+      if (desiredCount > 0 && options.rollout?.state === 'ROLLED_BACK') {
+        // The circuit breaker restores the previous revision in a new deployment.
+        failed = { id: ours, taskDefinition: target };
+        sequence += 1;
+        deploymentId = `ecs-svc/${sequence}`;
+        rolloutState = 'COMPLETED';
+        return;
+      }
+      current = target;
+      deploymentId = ours;
+      rolloutState = desiredCount > 0 ? (options.rollout?.state ?? 'COMPLETED') : 'COMPLETED';
     },
     async listTasks() {
       return { taskArns: [] };
@@ -94,6 +137,18 @@ function ecsWith(options: {
     async describeTasks() {
       return { tasks: [] };
     },
+  };
+}
+
+/** The settle-gate readers: every ALB target healthy unless told otherwise, and a fresh marker store. */
+function rolloutDeps(targetState = 'healthy') {
+  return {
+    elb: {
+      async describeTargetHealth() {
+        return { targets: [{ state: targetState }] };
+      },
+    },
+    pending: memoryPendingStore(),
   };
 }
 
@@ -246,6 +301,7 @@ describe('createConfigUpdateExecutor', () => {
       fetchEffectiveConfig: async () => entries,
       stackName: 'deployz-app',
       installationId: 'inst-test',
+      ...rolloutDeps(),
     };
   }
 
@@ -296,6 +352,7 @@ describe('createConfigUpdateExecutor', () => {
       },
       stackName: 'deployz-app',
       installationId: 'inst-test',
+      ...rolloutDeps(),
     };
     const result = await createConfigUpdateExecutor(d)(configCommand());
     expect(result.success).toBe(false);
@@ -463,6 +520,7 @@ describe('createConfigUpdateExecutor', () => {
         [{ key: 'API_KEY', isSecret: true, source: 'customer' } satisfies EffectiveConfigEntry],
       stackName: 'deployz-app',
       installationId: 'inst-test',
+      ...rolloutDeps(),
     })(configCommand({ changedKeys: ['API_KEY'], secrets: [{ key: 'API_KEY', value: 'v' }] }));
     expect(result.success).toBe(false);
     expect(result.error).toContain('AppConfigSecret');
@@ -545,6 +603,7 @@ describe('createConfigUpdateExecutor — generated secrets (Phase 4)', () => {
       stackName: 'deployz-app',
       installationId: 'inst-test',
       generateSecret,
+      ...rolloutDeps(),
     };
   }
 
@@ -599,5 +658,119 @@ describe('createConfigUpdateExecutor — generated secrets (Phase 4)', () => {
     const b = generateSecretValue();
     expect(a).toMatch(/^[A-Za-z0-9_-]{43}$/);
     expect(a).not.toBe(b);
+  });
+});
+
+describe('CONFIG_UPDATE settlement — success only after every rollout completes', () => {
+  const command = (id = 'job-config', payload: Record<string, unknown> = { changedKeys: ['LOG_LEVEL'] }) => ({
+    id,
+    deploymentId: 'dep-1',
+    type: 'CONFIG_UPDATE' as const,
+    idempotencyKey: `dep-1:CONFIG_UPDATE:${id}`,
+    payload,
+  });
+  const debug: EffectiveConfigEntry[] = [{ key: 'LOG_LEVEL', isSecret: false, value: 'debug', source: 'vendor' }];
+
+  function running(
+    entries: EffectiveConfigEntry[],
+    ecsOptions: Parameters<typeof ecsWith>[0] = {},
+    secrets: ConfigSecretsWriter = fakeSecretsWriter(),
+    targetState = 'healthy',
+  ) {
+    return {
+      cfn: cfnWithService({ withConfigSecret: true }),
+      ecs: ecsWith({ desiredCount: 2, ...ecsOptions }),
+      secrets,
+      fetchEffectiveConfig: async () => entries,
+      stackName: 'deployz-app',
+      installationId: 'inst-test',
+      ...rolloutDeps(targetState),
+    };
+  }
+
+  it('defers a running rollout and records its target revision and deployment, never a secret value', async () => {
+    const d = running(debug, { rollout: { state: 'IN_PROGRESS' } });
+    const result = await createConfigUpdateExecutor(d)(
+      command('job-config', { changedKeys: ['LOG_LEVEL'], secrets: [{ key: 'API_KEY', value: 'plaintext-value' }] }),
+    );
+    expect(result.deferred).toBe(true);
+    const marker = await d.pending.read();
+    expect(marker?.type).toBe('CONFIG_UPDATE');
+    expect(marker?.payload['configRollouts']).toEqual({
+      [SERVICE_ARN]: { taskDefinition: NEXT_DEF_ARN, deploymentId: 'ecs-svc/2', newRevision: true },
+    });
+    expect(JSON.stringify(marker)).not.toContain('plaintext-value');
+
+    // Still rolling: the resumer reports nothing and keeps the marker.
+    expect(await createConfigUpdateResumer(d)()).toEqual([]);
+    expect(await d.pending.read()).not.toBeNull();
+  });
+
+  it('reports success once the rollout completed with its task count and healthy targets', async () => {
+    const d = running(debug);
+    expect((await createConfigUpdateExecutor(d)(command())).deferred).toBe(true);
+    const [result] = await createConfigUpdateResumer(d)();
+    expect(result).toMatchObject({ commandId: 'job-config', success: true, output: { alreadyApplied: false } });
+    expect(await d.pending.read()).toBeNull();
+  });
+
+  it('waits while an ALB target is not healthy yet', async () => {
+    const d = running(debug, {}, fakeSecretsWriter(), 'initial');
+    await createConfigUpdateExecutor(d)(command());
+    expect(await createConfigUpdateResumer(d)()).toEqual([]);
+  });
+
+  it('fails when the circuit breaker rolled back to the previous revision, and never claims secrets were restored', async () => {
+    const d = running(debug, { rollout: { state: 'ROLLED_BACK' } });
+    await createConfigUpdateExecutor(d)(command());
+    const [result] = await createConfigUpdateResumer(d)();
+    expect(result?.success).toBe(false);
+    expect(result?.failureCode).toBe('ECS_DEPLOYMENT_FAILED');
+    expect(result?.error).toContain(CURRENT_DEF_ARN);
+    expect(result?.error).toContain('were not restored');
+    expect(await d.pending.read()).toBeNull();
+  });
+
+  it('forces fresh tasks for a secret-only change on the same revision', async () => {
+    const updates: { forceNewDeployment?: boolean; taskDefinition?: string }[] = [];
+    const registered: unknown[] = [];
+    const bound: EcsTaskDefinition = {
+      family: 'app',
+      containerDefinitions: [
+        { name: 'app', image: 'repo@sha256:aaa', environment: [], secrets: [{ name: 'API_KEY', valueFrom: `${CONFIG_SECRET_ARN}:API_KEY::` }] },
+      ],
+    };
+    const d = running(
+      [{ key: 'API_KEY', isSecret: true, source: 'customer' }],
+      { taskDefinition: bound, updates, registered },
+      fakeSecretsWriter({ API_KEY: 'old' }),
+    );
+    const result = await createConfigUpdateExecutor(d)(
+      command('job-config', { changedKeys: ['API_KEY'], secrets: [{ key: 'API_KEY', value: 'new' }] }),
+    );
+    expect(result.deferred).toBe(true);
+    expect(registered).toHaveLength(0);
+    expect(updates).toEqual([{ cluster: 'app-cluster', service: SERVICE_ARN, forceNewDeployment: true }]);
+    expect((await d.pending.read())?.payload['configRollouts']).toEqual({
+      [SERVICE_ARN]: { taskDefinition: CURRENT_DEF_ARN, deploymentId: 'ecs-svc/2', newRevision: false },
+    });
+  });
+
+  it('delivers to a service at zero tasks at once: the definition is re-pointed, nothing waits', async () => {
+    const updates: unknown[] = [];
+    const d = running(debug, { desiredCount: 0, updates });
+    const result = await createConfigUpdateExecutor(d)(command());
+    expect(result.success).toBe(true);
+    expect(updates).toEqual([{ cluster: 'app-cluster', service: SERVICE_ARN, taskDefinition: NEXT_DEF_ARN }]);
+    expect(await d.pending.read()).toBeNull();
+  });
+
+  it('a re-offered command with its own marker only waits — it never applies the configuration twice', async () => {
+    const registered: unknown[] = [];
+    const d = running(debug, { registered, rollout: { state: 'IN_PROGRESS' } });
+    const executor = createConfigUpdateExecutor(d);
+    expect((await executor(command())).deferred).toBe(true);
+    expect((await executor(command())).deferred).toBe(true);
+    expect(registered).toHaveLength(1);
   });
 });

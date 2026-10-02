@@ -99,6 +99,9 @@ watchdog, and the stack-event progress route's settlement backstop):
 - A failed **CONFIG_UPDATE** or **PURGE** never touches deployment state
   (a failed purge used to resurrect a DELETED deployment); a purge failure
   lands on `cleanupState: PURGE_FAILED` instead, which keeps it retryable.
+  A failed CONFIG_UPDATE keeps the lifecycle state and the release
+  pointers; the status derivation surfaces it while it is the latest
+  configuration attempt (a failed release update takes precedence).
   Domain jobs (CONFIGURE_DOMAIN/REMOVE_DOMAIN) follow the same rule: their
   failures surface on the `custom_domains` row, never on the deployment.
 
@@ -216,6 +219,34 @@ visibility for a scheduled job is only through the customer's own ECS
 console and CloudWatch Logs — the same as for the migration task, which is
 likewise proven only by its exit code, never by a long-lived service.
 
+## A configuration update settles on its rollout
+
+A CONFIG_UPDATE reports success only after every service it changed
+completed its rollout (`packages/relay/src/config-update.ts`):
+
+- **Same gates as a deploy.** The service's PRIMARY deployment is the one
+  the update created and runs the target revision, its rollout is
+  COMPLETED with the expected task count, no task of a new revision is in
+  a crash loop, and every ALB target is healthy.
+- **Resumable.** The target revision and the ECS deployment id of each
+  rollout ride the relay's pending marker (`configRollouts`, key names
+  only, never a secret value). The resumer settles them on a later poll; a
+  re-offered command with its own marker only waits and never applies the
+  configuration twice.
+- **Rollback is failure.** A circuit-breaker rollback to the previous
+  revision (or a PRIMARY on another revision or deployment) fails the job
+  with `ECS_DEPLOYMENT_FAILED`. The previous revision keeps serving. Secret
+  values the update already wrote to the configuration secret are **not**
+  restored by the task rollback; automatic secret restoration is out of
+  scope, and the job error says so.
+- **Secret-only changes.** When the bindings stay the same but a bound
+  secret value changed, the relay forces fresh tasks
+  (`forceNewDeployment`) and waits for that rollout by its deployment id.
+- **Zero tasks.** A service at zero tasks (an install that waits for its
+  first start, DEPLOY-009) only gets its task definition re-pointed; the
+  update succeeds at once and the following deploy starts it. Pending-secret
+  delivery and the cleanup of bound rows on success are unchanged.
+
 ## Idempotency and exclusivity
 
 - Every operation has a durable idempotency key
@@ -237,8 +268,17 @@ likewise proven only by its exit code, never by a long-lived service.
   secret values live in the pending-secrets vault and are delivered through
   the authenticated relay config endpoint; for a connected relay they ride
   the job payload until the relay claims it, after which the stored payload
-  is redacted — see `docs/pending-secret-delivery.md`), and the relay
-  executes its commands sequentially anyway.
+  is redacted — see `docs/pending-secret-delivery.md`).
+- **Service mutations never overlap.** `GET /api/relay/commands` hands out
+  no service-mutating job (INSTALL, DEPLOY_RELEASE, ROLLBACK, RESTART,
+  CONFIG_UPDATE, DESTROY, PURGE) while another one of the deployment is
+  RUNNING, so a CONFIG_UPDATE queued during an install waits, still queued,
+  until the install settles. A CONFIG_UPDATE is handed out only as the
+  first service mutation of a batch. When a service mutation of a batch
+  defers, the relay hands each later service mutation of that batch back
+  unexecuted (`POST /api/relay/commands/:id/release` → REQUESTED); a job
+  whose claimed payload was redacted (INSTALL, CONFIG_UPDATE) is never
+  handed back. Domain jobs are not affected.
 - `GET /api/relay/commands` claims jobs atomically (single
   UPDATE … RETURNING), so overlapping polls cannot hand the same command
   out twice; `POST /api/relay/commands/:id/result` ignores results for
@@ -501,6 +541,8 @@ the same way the uncertain-result rule keeps reconciliation honest.
   (`docs/testing/simulated-e2e.md`) — including `duplicate-request`,
   `transient-aws`, and `relay-death-destroy` in
   `e2e/scenario-resilience.spec.ts`, `stale-install-resurrect` in
-  `e2e/scenario-recovery.spec.ts`, and the DESTROY-retains /
+  `e2e/scenario-recovery.spec.ts`, `config-update-failure` (a rolled-back
+  configuration fails while the previous revision serves, then a retry
+  succeeds) in `e2e/scenario-config-update.spec.ts`, and the DESTROY-retains /
   PURGE-removes proof in `retained-delete-recovery`
   (`e2e/scenario-lifecycle.spec.ts`).

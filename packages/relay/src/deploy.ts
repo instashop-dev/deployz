@@ -63,6 +63,8 @@ export interface EcsDeployClient {
       runningCount?: number | undefined;
       taskDefinition?: string | undefined;
       deployments?: {
+        /** The ECS deployment id — what tells two rollouts of one revision apart. */
+        id?: string | undefined;
         status?: string | undefined;
         rolloutState?: string | undefined;
         taskDefinition?: string | undefined;
@@ -957,7 +959,7 @@ function isImagePullFailure(stoppedReason: string | null | undefined): boolean {
   return stoppedReason !== undefined && stoppedReason !== null && IMAGE_PULL_FAILURE_MARKERS.test(stoppedReason);
 }
 
-function rolloutFailed(
+export function rolloutFailed(
   deployments: { status?: string | undefined; rolloutState?: string | undefined }[] | undefined,
 ): boolean {
   return deployments?.some((deployment) => deployment.rolloutState === 'FAILED') ?? false;
@@ -969,7 +971,7 @@ function rolloutFailed(
  * service that is not (or has never been) rolling exposes no COMPLETED
  * primary, so this is false and the deploy keeps waiting.
  */
-function primaryRolloutCompleted(
+export function primaryRolloutCompleted(
   deployments: { status?: string | undefined; rolloutState?: string | undefined }[] | undefined,
 ): boolean {
   return deployments?.find((deployment) => deployment.status === 'PRIMARY')?.rolloutState === 'COMPLETED';
@@ -992,7 +994,9 @@ const COMPLETE_RESOURCE_STATUSES: ReadonlySet<string> = new Set(['CREATE_COMPLET
  * Absent target group (never completed, or not readable) also means not
  * healthy — the deploy keeps waiting rather than guessing.
  */
-async function deploymentTargetsHealthy(deps: EcsDeployDeps): Promise<boolean> {
+export async function deploymentTargetsHealthy(
+  deps: Pick<EcsDeployDeps, 'cfn' | 'elb' | 'stackName'>,
+): Promise<boolean> {
   const resources = await deps.cfn.describeStackResources(deps.stackName);
   const targetGroup = resources.find(
     (resource) => resource.type === TARGET_GROUP_TYPE && COMPLETE_RESOURCE_STATUSES.has(resource.status),
@@ -1027,10 +1031,10 @@ async function observeRunningDigest(
  * another stop code and are never counted. `essential` names that
  * revision's application containers; a helper's exit never counts.
  */
-const CRASH_LOOP_THRESHOLD = 3;
+export const CRASH_LOOP_THRESHOLD = 3;
 
-async function crashedTasksOfRevision(
-  deps: EcsDeployDeps,
+export async function crashedTasksOfRevision(
+  deps: Pick<EcsDeployDeps, 'ecs'>,
   cluster: string,
   serviceArn: string,
   taskDefinitionArn: string,

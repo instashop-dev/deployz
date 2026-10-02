@@ -565,6 +565,28 @@ describe('pollOnce — deferred commands', () => {
     expect(getRequests().some((r) => r.url.includes('/result'))).toBe(false);
   });
 
+  it('hands back a later service mutation while an earlier one of the batch is in flight', async () => {
+    const config = { ...inFlight, id: 'job-config', type: 'CONFIG_UPDATE', idempotencyKey: 'dep-1:CONFIG_UPDATE:m' };
+    const deploy = { ...inFlight, id: 'job-deploy', type: 'DEPLOY_RELEASE', idempotencyKey: 'dep-1:DEPLOY_RELEASE:r' };
+    const domain = { ...inFlight, id: 'job-domain', type: 'CONFIGURE_DOMAIN', idempotencyKey: 'dep-1:CONFIGURE_DOMAIN' };
+    const executors = makeExecutors();
+    executors['CONFIG_UPDATE'] = async (cmd) => ({ commandId: cmd.id, idempotencyKey: cmd.idempotencyKey, success: false, deferred: true });
+    const deployRan = vi.fn(executors['DEPLOY_RELEASE']!);
+    executors['DEPLOY_RELEASE'] = deployRan;
+    executors['CONFIGURE_DOMAIN'] = executors['INSTALL']!;
+    const { fetchFn, getRequests } = makeMockFetch({ commandsBody: { commands: [config, deploy, domain] } });
+    const authState = createAuthState('inst-test', 'tok');
+    authState.registered = true;
+
+    const result = await pollOnce(makeDeps({ fetchFn, executors }), authState);
+
+    expect(deployRan).not.toHaveBeenCalled();
+    expect(getRequests().filter((r) => r.url.endsWith('/release'))).toEqual([
+      expect.objectContaining({ url: 'https://api.deployz.dev/api/relay/commands/job-deploy/release', method: 'POST' }),
+    ]);
+    expect(result).toMatchObject({ fetched: 3, executed: 2, deferred: 1, succeeded: 1, released: 1 });
+  });
+
   it('counts a deferred command as neither succeeded nor failed', async () => {
     const { fetchFn } = makeMockFetch({ commandsBody: { commands: [inFlight] } });
     const deps = makeDeps({ fetchFn, executors: deferringExecutors() });

@@ -47,6 +47,12 @@ import {
 import { buildAuthHeaders, createAuthState, type AuthState, type FetchFn } from '@deployz/relay/auth';
 import { type CommandExecutor, IdempotencyStore } from '@deployz/relay/commands';
 import {
+  createConfigUpdateExecutor,
+  createConfigUpdateResumer,
+  type ConfigUpdateDeps,
+  type EffectiveConfigEntry,
+} from '@deployz/relay/config-update';
+import {
   createEcsDeployExecutor,
   createEcsDeployResumer,
   createRestartExecutor,
@@ -489,6 +495,37 @@ export function startSimulatedRelay(options: StartSimulatedRelayOptions): Simula
     },
   };
 
+  // The real CONFIG_UPDATE executor over the simulated account. The
+  // application config secret is an in-memory JSON document; the effective
+  // configuration comes from the control plane's authenticated relay channel.
+  const configSecrets: Record<string, string> = {};
+  const configDeps: ConfigUpdateDeps = {
+    cfn: account.cloudFormationReader(),
+    ecs: account.ecsDeployClient(),
+    elb: account.targetHealthReader(),
+    pending,
+    installationId,
+    get stackName() {
+      return stackNameOrDefault();
+    },
+    secrets: {
+      async getSecretValue({ SecretId }) {
+        return { arn: SecretId, secretString: configSecrets[SecretId] };
+      },
+      async putSecretValue({ SecretId, secretString }) {
+        configSecrets[SecretId] = secretString;
+      },
+    },
+    fetchEffectiveConfig: async () => {
+      const response = await fetchFn(
+        `${apiUrl}/api/relay/config?installationId=${encodeURIComponent(installationId)}`,
+        { headers: buildAuthHeaders(authState) },
+      );
+      if (response.status !== 200) throw new Error(`Config fetch returned HTTP ${response.status}`);
+      return ((await response.json()) as { entries: EffectiveConfigEntry[] }).entries;
+    },
+  };
+
   // The DESTROY write seam. `rds`/`cache` are omitted: every lifecycle
   // scenario destroys a deployment that completed a real install, so the
   // control plane always sends `dataDeletionAuthorized: false` (server.ts's
@@ -644,16 +681,9 @@ export function startSimulatedRelay(options: StartSimulatedRelayOptions): Simula
       // comment). Over the simulated account the orphan lists are empty, so a
       // PURGE of a cleanly-deleted deployment settles to success.
       PURGE: trackLatest(createPurgeExecutor(purgeDeps)),
-      // AI MVP Phase 4: a successful INSTALL queues one CONFIG_UPDATE job (the
-      // first configuration pass — saved values plus the app-internal secrets
-      // Deployz generates). The simulated account has no Secrets Manager, so
-      // the pass is answered as applied with nothing minted.
-      CONFIG_UPDATE: trackLatest(async (command) => ({
-        commandId: command.id,
-        idempotencyKey: command.idempotencyKey,
-        success: true,
-        output: { executed: true, type: command.type, alreadyApplied: true, generatedKeys: [], unboundSecretKeys: [] },
-      })),
+      // The real CONFIG_UPDATE executor: the post-install configuration pass
+      // and every vendor/customer configuration change.
+      CONFIG_UPDATE: trackLatest(createConfigUpdateExecutor(configDeps)),
       // Phase 11 default HTTPS — the healthy simulated path. When the control
       // plane's automatic default-HTTPS machine is on (Cloudflare config in
       // production, or the DEPLOYZ_DEFAULT_HTTPS_FIXTURE opt-in under the E2E
@@ -792,6 +822,7 @@ export function startSimulatedRelay(options: StartSimulatedRelayOptions): Simula
       const pendingBefore = await pending.read();
       let results = await createInstallResumer(installDeps)();
       if (results.length === 0) results = await createEcsDeployResumer(deployDeps)();
+      if (results.length === 0) results = await createConfigUpdateResumer(configDeps)();
       if (results.length === 0) results = await createDestroyResumer(destroyDeps)();
       if (results.length === 0) results = await createPurgeResumer(purgeDeps)();
       if (results.length > 0 && pendingBefore) {

@@ -12,6 +12,7 @@ import {
   createConfigUpdateExecutor,
   type ConfigSecretsWriter,
 } from '@deployz/relay/config-update';
+import { memoryPendingStore } from '@deployz/relay/pending';
 import type { EcsDeployClient, EcsTaskDefinition } from '@deployz/relay/deploy';
 import type { CloudFormationReader } from '@deployz/relay/verify';
 
@@ -129,8 +130,9 @@ function simulatedCustomerAccount(): SimulatedCustomerAws {
         return {
           services: [
             {
-              desiredCount: 1,
-              runningCount: 1,
+              // DEPLOY-009: the install waits for configuration at zero tasks.
+              desiredCount: 0,
+              runningCount: 0,
               taskDefinition: TASK_DEF_ARN,
               deployments: [{ status: 'PRIMARY', rolloutState: 'COMPLETED' }],
             },
@@ -415,6 +417,8 @@ describe('pending-secret delivery simulated-E2E (DEPLOY-027 Phase 4)', () => {
       },
       stackName: 'deployz-app',
       installationId: RELAY_INSTALLATION_ID,
+      elb: { describeTargetHealth: async () => ({ targets: [] }) },
+      pending: memoryPendingStore(),
     });
     const result = await executor({
       id: configCommand!.id,

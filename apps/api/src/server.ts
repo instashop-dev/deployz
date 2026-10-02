@@ -927,6 +927,19 @@ async function migrationIdentityConfirmed(
   return rows.length > 0;
 }
 
+/** Job types that change the stack or its ECS services — the relay runs one at a time. */
+const SERVICE_MUTATING_JOB_TYPES: ReadonlySet<string> = new Set([
+  'INSTALL',
+  'DEPLOY_RELEASE',
+  'ROLLBACK',
+  'RESTART',
+  'CONFIG_UPDATE',
+  'DESTROY',
+  'PURGE',
+  'MIGRATION',
+  'INFRA_UPGRADE',
+]);
+
 /**
  * One mutating operation per deployment: before creating any mutating job,
  * refuse if another is still active. Concurrency here means two executors
@@ -3121,7 +3134,7 @@ export async function buildServer({
   // PUT writes them through the relay to the customer's Secrets Manager
   // before persisting the masked placeholder in the control plane.
   const configStore = createConfigStore(db);
-  const configSecretWriter = createRelaySecretWriter();
+  const configSecretWriter = createRelaySecretWriter(db);
   // DEPLOY-027 (Phase 4): the cipher + the at-rest pending_secrets store +
   // the scope-deployments query, wired from env so production uses KMS and
   // local/test environments degrade to the cipher stub. In Lambda a missing
@@ -7536,23 +7549,60 @@ export async function buildServer({
     const { installationId } = request.query as { installationId?: string };
     const deployment = await requireRelayDeployment(installationId, token);
 
+    // Service mutations never overlap: while one is RUNNING (a rollout the
+    // relay is still waiting on) no other is handed out, and a CONFIG_UPDATE
+    // is handed out only as the first service mutation of a batch. A
+    // CONFIG_UPDATE queued during an install therefore waits, still queued,
+    // until the install settles.
+    const candidates = await db
+      .select({
+        id: schema.deploymentJobs.id,
+        type: schema.deploymentJobs.type,
+        state: schema.deploymentJobs.state,
+        createdAt: schema.deploymentJobs.createdAt,
+      })
+      .from(schema.deploymentJobs)
+      .where(
+        and(
+          eq(schema.deploymentJobs.deploymentId, deployment.id),
+          inArray(schema.deploymentJobs.state, ['REQUESTED', 'QUEUED', 'WAITING', 'RUNNING']),
+        ),
+      );
+    const mutationRunning = candidates.some(
+      (job) => job.state === 'RUNNING' && SERVICE_MUTATING_JOB_TYPES.has(job.type),
+    );
+    const claimIds: string[] = [];
+    let mutationClaimed = false;
+    for (const job of candidates.sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime())) {
+      if (job.state === 'RUNNING') continue;
+      if (SERVICE_MUTATING_JOB_TYPES.has(job.type)) {
+        if (mutationRunning || (job.type === 'CONFIG_UPDATE' && mutationClaimed)) continue;
+        mutationClaimed = true;
+      }
+      claimIds.push(job.id);
+    }
+
     // Atomic claim: transition and read in one statement, so two overlapping
     // polls (a client retry racing the original) can never both receive the
     // same command — the second poll's UPDATE matches zero rows. WAITING jobs
     // are claimed back too: the watchdog parks a job there when the relay
     // goes quiet mid-operation, and this poll IS the relay returning.
-    const jobs = (
-      await db
-        .update(schema.deploymentJobs)
-        .set({ state: 'RUNNING', startedAt: new Date(), lastProgressAt: new Date() })
-        .where(
-          and(
-            eq(schema.deploymentJobs.deploymentId, deployment.id),
-            inArray(schema.deploymentJobs.state, ['REQUESTED', 'QUEUED', 'WAITING']),
-          ),
-        )
-        .returning()
-    ).sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
+    const jobs =
+      claimIds.length === 0
+        ? []
+        : (
+            await db
+              .update(schema.deploymentJobs)
+              .set({ state: 'RUNNING', startedAt: new Date(), lastProgressAt: new Date() })
+              .where(
+                and(
+                  eq(schema.deploymentJobs.deploymentId, deployment.id),
+                  inArray(schema.deploymentJobs.id, claimIds),
+                  inArray(schema.deploymentJobs.state, ['REQUESTED', 'QUEUED', 'WAITING']),
+                ),
+              )
+              .returning()
+          ).sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
 
     // Payload redaction rides the claim: the relay reads the value ONCE from
     // this response (built from the pre-redaction rows below); the stored row
@@ -7630,6 +7680,39 @@ export async function buildServer({
   // being torn down, or (INSTALL) that a later DESTROY superseded is no longer
   // safe to run. Auth mirrors the result route: the token must belong to the
   // JOB'S deployment.
+  // The relay hands back a command it claimed but did not start, because
+  // another service mutation of the same batch is still in flight. The job
+  // returns to REQUESTED and is offered again once that one settles. A job
+  // whose claimed payload was redacted (INSTALL parameters, CONFIG_UPDATE
+  // secret values) cannot be handed back: its values are gone.
+  app.post('/api/relay/commands/:id/release', async (request, reply) => {
+    const token = requireBearerToken(request);
+    const { id } = request.params as { id: string };
+    requireUuidId(id);
+
+    const [job] = await db.select().from(schema.deploymentJobs).where(eq(schema.deploymentJobs.id, id)).limit(1);
+    if (!job) {
+      throw new NotFoundError('Job not found');
+    }
+    const [deployment] = await db
+      .select()
+      .from(schema.deployments)
+      .where(eq(schema.deployments.id, job.deploymentId))
+      .limit(1);
+    if (!deployment || !verifyRelayTokenWithRotation(deployment.relayTokenHash, token, oldRelayToken(request))) {
+      throw new ApiError(401, 'UNAUTHORIZED', 'Invalid relay credentials');
+    }
+    if (job.type === 'INSTALL' || job.type === 'CONFIG_UPDATE') {
+      throw new ApiError(409, 'COMMAND_NOT_RELEASABLE', 'This command cannot be handed back after it was claimed.');
+    }
+    const released = await db
+      .update(schema.deploymentJobs)
+      .set({ state: 'REQUESTED', startedAt: null, lastProgressAt: new Date() })
+      .where(and(eq(schema.deploymentJobs.id, job.id), eq(schema.deploymentJobs.state, 'RUNNING')))
+      .returning();
+    return reply.code(200).send({ released: released.length > 0 });
+  });
+
   app.get('/api/relay/commands/:id/authority', async (request, reply) => {
     const token = requireBearerToken(request);
     const { id } = request.params as { id: string };

@@ -218,6 +218,8 @@ export interface PollResult {
   deferred: number;
   /** Results for earlier-deferred commands that finished since the last poll. */
   resumed: number;
+  /** Commands handed back unexecuted because another service mutation was still in flight. */
+  released?: number;
   /** Whether the poll completed without transport errors. */
   ok: boolean;
   /** Error message if the poll itself failed (not individual commands). */
@@ -366,8 +368,18 @@ export async function pollOnce(
   let succeeded = 0;
   let failed = 0;
   let deferred = 0;
+  let released = 0;
+  // Once a service mutation is in flight (deferred), no later command of the
+  // batch may mutate the same services: it is handed back, unexecuted, and
+  // the control plane offers it again once the first one settled.
+  let mutationInFlight = false;
 
   for (const command of commands) {
+    if (mutationInFlight && SERVICE_MUTATING_COMMANDS.has(command.type)) {
+      await releaseCommand(fetchFn, controlPlaneUrl, authHeaders, command.id, deps.sleep);
+      released += 1;
+      continue;
+    }
     const result = await dispatchCommand(command, executors, idempotency);
 
     // A deferred command has been started, not finished. Reporting anything
@@ -376,6 +388,7 @@ export async function pollOnce(
     // unearned Healthy this whole design exists to prevent.
     if (result.deferred) {
       deferred += 1;
+      if (SERVICE_MUTATING_COMMANDS.has(command.type)) mutationInFlight = true;
       continue;
     }
 
@@ -397,13 +410,50 @@ export async function pollOnce(
 
   return {
     fetched: commands.length,
-    executed: commands.length,
+    executed: commands.length - released,
     succeeded,
     failed,
     deferred,
     resumed,
+    ...(released > 0 ? { released } : {}),
     ok: true,
   };
+}
+
+/** Commands that change the stack or its ECS services — never two at once. */
+const SERVICE_MUTATING_COMMANDS: ReadonlySet<string> = new Set([
+  'INSTALL',
+  'DEPLOY_RELEASE',
+  'ROLLBACK',
+  'RESTART',
+  'CONFIG_UPDATE',
+  'DESTROY',
+  'PURGE',
+]);
+
+/**
+ * Hand an unexecuted command back to the control plane, which offers it
+ * again on a later poll. Best-effort: a command that cannot be handed back
+ * stays claimed until the watchdog re-offers it.
+ */
+async function releaseCommand(
+  fetchFn: FetchFn,
+  controlPlaneUrl: string,
+  authHeaders: Record<string, string>,
+  commandId: string,
+  sleep?: SleepFn,
+): Promise<void> {
+  try {
+    const response = await fetchWithRetry(
+      fetchFn,
+      `${controlPlaneUrl}/api/relay/commands/${encodeURIComponent(commandId)}/release`,
+      { method: 'POST', headers: authHeaders },
+      sleep,
+    );
+    console.log(JSON.stringify({ event: 'relay:command-released', commandId, status: response.status }));
+  } catch (err) {
+    console.error(JSON.stringify({ event: 'relay:command-release-failed', commandId, error: String(err) }));
+  }
 }
 
 // ── Reporting helpers ────────────────────────────────────────────────────────

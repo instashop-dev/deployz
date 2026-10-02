@@ -1701,14 +1701,26 @@ describe('server — relay bearer auth, INSTALL job, and command/result/health f
   });
 
   it('serves a secret-bearing CONFIG_UPDATE payload once, then scrubs the stored row (§1.2)', async () => {
+    // An idle deployment of its own: the INSTALL above is still RUNNING, and
+    // no service mutation is handed out alongside a running one.
+    const token = 'relay-token-config-redaction';
+    const installationId = 'inst-config-redaction';
+    const idle = await insertDeployment(db, org.organizationId, deployment.applicationId, deployment.customerId, {
+      state: 'HEALTHY',
+      installationId,
+      enrollmentCode: crypto.randomUUID(),
+      enrollmentUsedAt: new Date(),
+      relayTokenHash: hashRelayToken(token),
+      relayStatus: 'CONNECTED',
+    });
     const secretValue = 'plaintext-rides-the-claim-once';
     const [job] = await db
       .insert(schema.deploymentJobs)
       .values({
-        deploymentId: deployment.id,
+        deploymentId: idle.id,
         type: 'CONFIG_UPDATE',
         state: 'REQUESTED',
-        idempotencyKey: `${deployment.id}:CONFIG_UPDATE:secret-redaction`,
+        idempotencyKey: `${idle.id}:CONFIG_UPDATE:secret-redaction`,
         payload: {
           changedKeys: ['API_KEY'],
           secrets: [{ key: 'API_KEY', value: secretValue }],
@@ -1718,8 +1730,8 @@ describe('server — relay bearer auth, INSTALL job, and command/result/health f
 
     const response = await app.inject({
       method: 'GET',
-      url: `/api/relay/commands?installationId=${RELAY_INSTALLATION_ID}`,
-      headers: { authorization: `Bearer ${RELAY_TOKEN}` },
+      url: `/api/relay/commands?installationId=${installationId}`,
+      headers: { authorization: `Bearer ${token}` },
     });
     expect(response.statusCode).toBe(200);
     const body = response.json() as {

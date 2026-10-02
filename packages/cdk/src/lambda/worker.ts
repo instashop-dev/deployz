@@ -19,11 +19,10 @@ import { and, eq, inArray, isNotNull, isNull, lt, notInArray, or, sql } from 'dr
 
 import { reconcileBilling } from '@deployz/api/billing';
 import { markDeploymentLive } from '@deployz/api/billing-lifecycle';
-import { listVendorValues } from '@deployz/api/config';
+import { fanOutConfigUpdate, listVendorValues } from '@deployz/api/config';
 import { mintInstallationToken } from '@deployz/api/github';
 import type { SecretCipher } from '@deployz/api/pending-secrets';
 import {
-  createOrReuseJob,
   flipHealthyDeploymentsToUpdateAvailable,
   hasStartedInstall,
   newerReadyReleaseExists,
@@ -479,79 +478,6 @@ async function failRelease(
   });
 }
 
-// ── CONFIG_UPDATE ────────────────────────────────────────────────────────
-
-type ConfigUpdateMessage = Extract<QueueMessage, { type: 'CONFIG_UPDATE' }>;
-
-/**
- * Turns a config write-through into per-deployment CONFIG_UPDATE jobs. The
- * durable payload carries newly-entered secret VALUES only long enough for
- * the relay to claim them — `GET /api/relay/commands` serves the payload
- * once and scrubs the values from the stored row in the same request (see
- * `redactClaimedPayload` in server.ts). The control-plane DB never keeps
- * plaintext secret values.
- */
-async function configUpdate(
-  db: RuntimeDb,
-  message: ConfigUpdateMessage,
-  messageId: string,
-): Promise<void> {
-  // Only deployments a relay can actually act on: nothing is enrolled before
-  // install, and nothing remains to configure during/after removal. A job
-  // created for those rows would sit REQUESTED until the watchdog failed it.
-  const deployments = await db
-    .select()
-    .from(schema.deployments)
-    .where(
-      and(
-        eq(schema.deployments.customerId, message.customerId),
-        // One customer can run several of the vendor's applications: a save
-        // for one must never reach (or remove a same-named key from) another.
-        message.applicationId !== undefined ? eq(schema.deployments.applicationId, message.applicationId) : undefined,
-        notInArray(schema.deployments.state, [
-          'NOT_INSTALLED',
-          'WAITING_FOR_RELAY',
-          'DELETING',
-          'DELETED',
-        ]),
-      ),
-    );
-
-  console.log(
-    JSON.stringify({
-      event: 'worker:config-update-fanout',
-      messageId,
-      customerId: message.customerId,
-      applicationId: message.applicationId ?? null,
-      deployments: deployments.length,
-      // Values never leave the process in a log line — count only.
-      secretCount: message.secrets?.length ?? 0,
-    }),
-  );
-
-  for (const deployment of deployments) {
-    // CONFIG_UPDATE sits outside the one-active-mutating-job index on
-    // purpose: the secret value rides this payload transiently (§31 phase
-    // 1.2) and skipping the fanout because an install/deploy is active
-    // would lose it. The relay executes its commands sequentially, so the
-    // config job simply runs after whatever is in flight.
-    await createOrReuseJob(db, {
-      deploymentId: deployment.id,
-      type: 'CONFIG_UPDATE',
-      // Keyed on the SQS message, so a redelivery of the same write reuses
-      // the job it already created while a genuinely new write makes a new
-      // one - writing the same key twice is a legitimate second job.
-      idempotencyKey: `${deployment.id}:CONFIG_UPDATE:${messageId}`,
-      payload: {
-        ...(message.changedKeys ? { changedKeys: [...message.changedKeys] } : {}),
-        ...(message.secrets ? { secrets: message.secrets.map((s) => ({ ...s })) } : {}),
-        ...(message.removedKeys ? { removedKeys: [...message.removedKeys] } : {}),
-      },
-      requestedBy: null,
-    });
-  }
-}
-
 // ── CodeBuild completion ─────────────────────────────────────────────────
 
 function readVariable(
@@ -701,7 +627,7 @@ export async function handleMessage(
       await buildRelease(deps, message.releaseId);
       return;
     case 'CONFIG_UPDATE':
-      await configUpdate(deps.db, message, messageId);
+      await fanOutConfigUpdate(deps.db, message, messageId);
       return;
   }
 }

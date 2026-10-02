@@ -168,7 +168,11 @@ ever returns plaintext from an API except the relay's own authenticated
   changes after it is built.
 - A saved vendor runtime value, or a removed one, reaches every running
   deployment of the application within a few minutes: one configuration
-  update per customer whose relay is connected. A removed vendor default
+  update per customer whose relay is connected. The update succeeds only
+  after the new tasks are running and healthy. If ECS rolls it back, the
+  previous configuration revision keeps serving and the update shows as
+  failed; secret values it already saved stay in the customer's secret
+  store and are not rolled back. Save the corrected value again to retry. A removed vendor default
   leaves a deployment only when that customer has no override for the key.
   Vendor secret values do not travel in the queue; the relay reads them
   through its authenticated config endpoint.
