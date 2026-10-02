@@ -1,3 +1,5 @@
+import { eq } from 'drizzle-orm';
+
 import {
   evaluateManifestReadiness,
   generatedEnvKeys,
@@ -13,6 +15,7 @@ import {
   type ManifestReadinessFinding,
 } from '@deployz/contracts';
 import type { RuntimeDb } from '@deployz/db';
+import * as schema from '@deployz/db/schema';
 
 import { listProvidedConfigKeys } from './config.js';
 import { ApiError } from './errors.js';
@@ -296,7 +299,17 @@ export async function runDeploymentPreflight(
       'Deployment has no valid deployment manifest. Run analysis or correct the application configuration first.',
     );
   }
-  const settings = application ? readEnvironmentSettings(application) : null;
+  // The vendor's saved decisions always apply — without them a key the vendor
+  // marked "Managed by Deployz" or optional would block the install as if
+  // nobody had decided it. Callers that pass no application still get them.
+  const [settingsRow] = application
+    ? [application]
+    : await db
+        .select({ environmentSettings: schema.applications.environmentSettings })
+        .from(schema.applications)
+        .where(eq(schema.applications.id, deployment.applicationId))
+        .limit(1);
+  const settings = settingsRow ? readEnvironmentSettings(settingsRow) : null;
   const providedEnvKeys = await listProvidedConfigKeys(db, deployment.applicationId, deployment.customerId, settings);
   return evaluatePreflight({
     manifest,

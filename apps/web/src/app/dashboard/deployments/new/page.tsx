@@ -199,11 +199,16 @@ function NewDeploymentScreen() {
     setSelectedApplicationId(defaultInviteApplication(appsState.applications)?.id ?? null);
   }, [appsState, selectedApplicationId]);
 
+  // An existing customer's own saved values count, exactly as deployment
+  // creation evaluates them; a new customer has only the vendor defaults.
   useEffect(() => {
     if (!selectedApplicationId) return;
     let cancelled = false;
     setPreflight(null);
-    fetchApplicationPreflight(selectedApplicationId)
+    fetchApplicationPreflight(
+      selectedApplicationId,
+      selectedCustomerId !== NEW_CUSTOMER_VALUE ? selectedCustomerId : undefined,
+    )
       .then((result) => {
         if (!cancelled) setPreflight(result);
       })
@@ -213,7 +218,7 @@ function NewDeploymentScreen() {
     return () => {
       cancelled = true;
     };
-  }, [selectedApplicationId]);
+  }, [selectedApplicationId, selectedCustomerId]);
 
   // Customer mode: fetch the vendor's subscription status so the page can
   // show the self-serve subscription entry (evaluation/canceled) or the
@@ -630,7 +635,11 @@ function NewDeploymentScreen() {
               {preflight ? (
                 <PreflightSummary
                   result={preflight}
-                  title="Deployment preflight — with your default configuration"
+                  title={
+                    usingExistingCustomer
+                      ? "Deployment preflight — with this customer's configuration"
+                      : 'Deployment preflight — with your default configuration'
+                  }
                 />
               ) : null}
 
