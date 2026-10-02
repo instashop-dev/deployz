@@ -643,6 +643,44 @@ describe('installApplicationStack', () => {
     expect(outcome.state === 'failed' && outcome.reason).not.toMatch(/deleted/i);
   });
 
+  it('creates on a fresh install when the stack is outside the tag-scoped read grant (not created yet)', async () => {
+    // Real AWS, 2026-10-02: the relay's DescribeStacks grant is scoped to its
+    // installation tag, so a stack that does not exist yet answers
+    // AccessDenied, never "does not exist".
+    const describeStackOutcome = vi
+      .fn<NonNullable<StackInstaller['describeStackOutcome']>>()
+      .mockResolvedValueOnce({ found: false, absent: false, errorCode: 'AccessDenied' })
+      .mockResolvedValue({ found: true, stack: complete() });
+    const installer = scriptedInstaller([], { describeStackOutcome });
+
+    const outcome = await installApplicationStack({
+      installer,
+      installationId: 'inst-1',
+      templateUrl: 'https://example.com/app.json',
+      ...NEVER_SLEEP,
+    });
+
+    expect(installer.createCalls).toHaveLength(1);
+    expect(outcome.state).toBe('succeeded');
+  });
+
+  it('never creates on AccessDenied when resuming an install', async () => {
+    const installer = scriptedInstaller([], {
+      describeStackOutcome: async () => ({ found: false, absent: false, errorCode: 'AccessDenied' }),
+    });
+
+    const outcome = await installApplicationStack({
+      installer,
+      installationId: 'inst-1',
+      templateUrl: 'https://example.com/app.json',
+      createMode: 'resume',
+      ...NEVER_SLEEP,
+    });
+
+    expect(installer.createCalls).toHaveLength(0);
+    expect(outcome.state).toBe('failed');
+  });
+
   it('rides out a single unreadable read and succeeds when the stack becomes readable', async () => {
     const describeStackOutcome = vi
       .fn<NonNullable<StackInstaller['describeStackOutcome']>>()

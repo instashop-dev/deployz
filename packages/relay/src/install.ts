@@ -280,6 +280,11 @@ const UNREADABLE_POLLS_BEFORE_FAILING = 3;
  */
 const ABSENT_POLLS_BEFORE_FAILING = 3;
 
+/** CloudFormation's answer for a stack outside the relay's tag-scoped read grant — including one not created yet. */
+function isAccessDenied(errorCode: string | undefined): boolean {
+  return errorCode === 'AccessDenied' || errorCode === 'AccessDeniedException';
+}
+
 /**
  * Create the application stack if it is not already there, then watch it
  * until it settles or the time budget runs out.
@@ -384,6 +389,14 @@ async function run(options: InstallOptions): Promise<InstallOutcome> {
         outputs: {},
       };
     }
+    const refused = await createStack();
+    if (refused !== null) return refused;
+  } else if (createMode === 'fresh' && isAccessDenied(initial.errorCode)) {
+    // The relay's stack-read grant is scoped to its installation tag, and a
+    // stack that does not exist yet has no tags: CloudFormation answers
+    // AccessDenied, not "does not exist". A fresh install therefore creates;
+    // CloudFormation refuses CreateStack for a name that already exists, and
+    // that race is adopted as an in-flight create.
     const refused = await createStack();
     if (refused !== null) return refused;
   } else {
