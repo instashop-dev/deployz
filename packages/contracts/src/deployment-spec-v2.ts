@@ -118,6 +118,13 @@ export function deployzTaskFamily(componentId: string): string {
   return `DeployzApp${pascal}`;
 }
 
+/** The container `Command` a frozen workload command compiles to. The compiler
+ *  bakes it into every task definition, and the relay encodes a migration
+ *  correction with the same function, so both always agree. */
+export function workloadContainerCommand(command: string): string[] {
+  return ['sh', '-c', command];
+}
+
 /** The frozen one-shot migration the spec compiled, with the CloudFormation
  *  logical id and ECS task-definition family the relay runs. Null when the
  *  spec is uncompiled or carries no one-shot workload.

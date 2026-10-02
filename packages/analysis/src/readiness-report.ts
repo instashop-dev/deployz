@@ -104,6 +104,12 @@ export interface ReadinessReportContext {
    * worker-like code without one is a recommended configuration gap.
    */
   workerCommandResolved?: boolean | undefined;
+  /**
+   * A migration script the API found but could not confirm the runtime image
+   * can run (the selected Dockerfile's runtime stage does not provide its
+   * runner). The vendor must enter a command or choose no separate migration.
+   */
+  migrationNeedsInput?: { candidate: string; reason: string } | null | undefined;
 }
 
 /**
@@ -116,6 +122,8 @@ export interface ReadinessReportContext {
 export interface ReadinessResolution {
   containerPort: number | null;
   startCommand: string | null;
+  /** The vendor entered a migration command or chose no separate migration. */
+  migrationCommandDecided?: boolean | undefined;
 }
 
 // ── Passed-check labels ─────────────────────────────────────────────────────
@@ -565,6 +573,24 @@ export function buildReadinessReport(
     }
   }
 
+  if (context.migrationNeedsInput) {
+    const { candidate, reason } = context.migrationNeedsInput;
+    findings.push({
+      id: 'migration-command-needs-input',
+      category: 'database',
+      title: 'Choose how Deployz runs database migrations',
+      severity: 'required',
+      blocking: false,
+      plainEnglishExplanation: `Deployz found the migration script "${candidate}", but cannot confirm that the built image can run it.`,
+      whyItMatters:
+        'Deployz runs the migration command inside the built image before each release. A command the image cannot run fails every deploy.',
+      technicalEvidence: `Migration script: ${candidate}. Not confirmed because ${reason}.`,
+      suggestedOutcome:
+        'Enter a migration command that the built image can run, or choose "No separate migration" in the application settings.',
+      confidence: 'needs_confirmation',
+    });
+  }
+
   const worker = finding('worker');
   if (worker?.detected && context.workerCommandResolved === true) {
     // Phase 4A: a resolved worker start command is a second process Deployz
@@ -684,11 +710,13 @@ function assembleReport(findings: ReadinessFinding[], passed: PassedCheck[]): Re
 const RESOLVABLE_FINDINGS: Record<string, (resolution: ReadinessResolution) => boolean> = {
   'port-unresolved': (resolution) => resolution.containerPort !== null,
   'start-command-missing': (resolution) => resolution.startCommand !== null,
+  'migration-command-needs-input': (resolution) => resolution.migrationCommandDecided === true,
 };
 
 const RESOLVED_LABELS: Partial<Record<string, string>> = {
   'port-unresolved': 'Application port set in the application details',
   'start-command-missing': 'Start command set in the application details',
+  'migration-command-needs-input': 'Migration choice set in the application details',
 };
 
 /**

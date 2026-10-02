@@ -281,6 +281,13 @@ export const deploymentManifestSchema = z
          * on manifests written before the field existed.
          */
         mode: z.enum(['pre_deploy', 'startup', 'none', 'unknown']).optional(),
+        /**
+         * True when analysis found a migration script whose runner the
+         * runtime image is not shown to provide, and the vendor has not yet
+         * entered a command or chosen no separate migration. Blocks
+         * provisioning. Absent on manifests written before the field existed.
+         */
+        needsCommand: z.boolean().optional(),
       })
       .strict(),
     worker: z

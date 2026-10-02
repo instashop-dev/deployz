@@ -8,7 +8,7 @@ import type {
   IrSchedule,
   IrWorkload,
 } from '@deployz/contracts';
-import { CAPABILITY_KEYS, defaultInfrastructureSizeProfile } from '@deployz/contracts';
+import { CAPABILITY_KEYS, defaultInfrastructureSizeProfile, workloadContainerCommand } from '@deployz/contracts';
 
 import { logicalResourceId, logicalIdViolations } from './stable-identity.js';
 import { translateScheduleExpression } from './schedule-expression.js';
@@ -831,7 +831,7 @@ function compileMigrationTask(ctx: EcsContext, workload: IrWorkload, profile: In
     Image: ref('paramImageReference'),
     // The analyzed, frozen command — the graph only ever creates a migration
     // workload WITH a resolved command, so this is always present.
-    ...(workload.command !== null ? { Command: ['sh', '-c', workload.command] } : {}),
+    ...(workload.command !== null ? { Command: workloadContainerCommand(workload.command) } : {}),
     LogConfiguration: { LogDriver: 'awslogs', Options: { 'awslogs-group': ref(logGroup), 'awslogs-stream-prefix': 'deployz-migrate', 'awslogs-region': ref('AWS::Region') } },
     Environment: environment,
     Secrets: secrets,
@@ -898,7 +898,7 @@ function compileWorkloadService(ctx: EcsContext, workload: IrWorkload, profile: 
     // keeps the image's own CMD — the web command slot may hold a detector
     // pattern label, never a runnable override here.
     ...(workload.kind === 'worker' && workload.command !== null
-      ? { Command: ['sh', '-c', workload.command] }
+      ? { Command: workloadContainerCommand(workload.command) }
       : {}),
     ...(workload.port !== null ? { PortMappings: [{ ContainerPort: ref('paramContainerPort'), Protocol: 'tcp' }] } : {}),
     LogConfiguration: { LogDriver: 'awslogs', Options: { 'awslogs-group': ref(logGroup), 'awslogs-stream-prefix': 'deployz-app', 'awslogs-region': ref('AWS::Region') } },
@@ -1102,7 +1102,7 @@ function compileScheduledJobTask(ctx: EcsContext, workload: IrWorkload, profile:
     Name: 'App',
     Essential: true,
     Image: ref('paramImageReference'),
-    ...(workload.command !== null ? { Command: ['sh', '-c', workload.command] } : {}),
+    ...(workload.command !== null ? { Command: workloadContainerCommand(workload.command) } : {}),
     LogConfiguration: { LogDriver: 'awslogs', Options: { 'awslogs-group': ref(logGroup), 'awslogs-stream-prefix': 'deployz-job', 'awslogs-region': ref('AWS::Region') } },
     Environment: environment,
     Secrets: secrets,

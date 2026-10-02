@@ -120,17 +120,30 @@ JVM databases), `unsupported-redis-setup`,
 service and declared workers), `unsupported-persistent-volume`,
 `unsupported-gpu`, `local-file-storage`
 (blocking); `container-setup`, `port-unresolved`, `start-command-missing`,
-`health-check`, `localhost-binding` (required); `database-migrations`,
+`health-check`, `localhost-binding`, `migration-command-needs-input`
+(required); `database-migrations`,
 `worker-command`, `worker-process` (recommended). For a Django project
 (`manage.py` with `DJANGO_SETTINGS_MODULE`) whose image runs no migration,
 `database-migrations` names `python <path>/manage.py migrate --noinput` as the
-suggested migration command; the vendor sets it, Deployz never applies it. A declared worker
+suggested migration command; the vendor sets it, Deployz never applies it.
+A migration script is persisted only when the selected Dockerfile's
+runtime stage, and the stages it is built `FROM`, provides its runner: a
+bare ORM CLI gets `npx` only when that Node image also holds the CLI in
+node_modules (installed there, or copied from a stage that installed it,
+counting a production-only install for production dependencies only).
+Dependencies alone never prove it, `bunx` is never substituted and
+nothing is installed at run time. Anything else (a Bun or distroless
+image, a removed npm, pnpm without corepack, an unreadable base image, no
+Dockerfile) is `migration-command-needs-input`: it records
+`migrationNeedsInput`, sets `migration.needsCommand` and blocks
+deployment until the vendor enters a command or chooses "No separate
+migration" — both are vendor overrides that re-analysis keeps. A declared worker
 process is `worker-process` — informational, because Deployz now runs it
 as its own service. Worker-like code with no declared start command is
 `worker-command` and sets `worker.needsCommand`: a needs-input question
 that is never provisioned from weak evidence such as a queue library
 alone. `reconcileReadiness` applies the vendor's
-container port and start command as a view, so the page, the persisted
+container port, start command and migration choice as a view, so the page, the persisted
 verdict and the fix instructions agree without a re-analysis.
 
 Adding a rule: add the finding in `readiness-report.ts` (id, copy, severity,

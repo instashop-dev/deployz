@@ -375,6 +375,7 @@ function getEcsDeployClient(): EcsDeployClient {
         const taskDefinition = response.taskDefinition;
         return {
           taskDefinition: {
+            taskDefinitionArn: taskDefinition?.taskDefinitionArn ?? undefined,
             family: taskDefinition?.family ?? undefined,
             cpu: taskDefinition?.cpu ?? undefined,
             memory: taskDefinition?.memory ?? undefined,

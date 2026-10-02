@@ -205,6 +205,90 @@ test.describe('migration failure (phase 4c)', () => {
   });
 });
 
+test.describe('migration recovery on an existing deployment', () => {
+  test.use({ deployzScenario: 'migration-correction' });
+
+  async function failedFirstDeploy(request: APIRequestContext, deploymentId: string): Promise<{ applicationId: string; releaseId: string }> {
+    await expect
+      .poll(async () => (await getDeployment(request, deploymentId)).deploymentStatus.failure?.code ?? null, {
+        timeout: 30_000,
+        message: 'waiting for the frozen migration to fail',
+      })
+      .toBe('MIGRATION_FAILED');
+    expect((await getDeployment(request, deploymentId)).state).toBe('UPDATE_AVAILABLE');
+    const applicationId = await getApplicationId(request, deploymentId);
+    const releases = (await (await request.get(`${API_URL}/api/applications/${applicationId}/releases`)).json()) as {
+      releases: { id: string }[];
+    };
+    return { applicationId, releaseId: releases.releases[0]!.id };
+  }
+
+  async function redeployUntilHealthy(request: APIRequestContext, deploymentId: string, releaseId: string): Promise<void> {
+    const response = await request.post(`${API_URL}/api/deployments/${deploymentId}/deploy`, { data: { releaseId } });
+    expect(response.status(), await response.text()).toBe(202);
+    await expect
+      .poll(async () => {
+        const deployment = await getDeployment(request, deploymentId);
+        return deployment.currentReleaseId === releaseId ? deployment.state : null;
+      }, { timeout: 30_000, message: 'waiting for the recovered release to serve' })
+      .toBe('HEALTHY');
+  }
+
+  test('@scenario:migration-correction a corrected command recovers the same image and keeps the init container', async ({
+    request,
+    deployzInstall,
+  }) => {
+    test.setTimeout(120_000);
+    const { deploymentId, relay } = deployzInstall;
+    const { applicationId, releaseId } = await failedFirstDeploy(request, deploymentId);
+    const frozen = relay!.account.lastMigrationDefinition();
+
+    const patch = await request.patch(`${API_URL}/api/applications/${applicationId}`, {
+      data: { migrationCommand: 'node scripts/migrate.js' },
+    });
+    expect(patch.ok()).toBe(true);
+    await redeployUntilHealthy(request, deploymentId, releaseId);
+
+    // The same release image ran a second, corrected migration revision.
+    expect(relay!.account.migrationRuns).toBe(2);
+    const corrected = relay!.account.lastMigrationDefinition()!;
+    expect(corrected.family).toBe('DeployzAppMigration');
+    const [app, init] = corrected.containerDefinitions;
+    expect(app).toMatchObject({ name: 'App', command: ['sh', '-c', 'node scripts/migrate.js'] });
+    expect(app?.image).toBe(frozen?.containerDefinitions[0]?.image);
+    expect(init).toEqual(frozen?.containerDefinitions[1]);
+    expect(relay!.account.operationLog.filter((entry) => entry.startsWith('migration:'))).toHaveLength(2);
+
+    // A confirmed corrected identity never runs again for the same image.
+    const again = await request.post(`${API_URL}/api/deployments/${deploymentId}/deploy`, { data: { releaseId } });
+    expect(again.status()).toBe(202);
+    await expect
+      .poll(async () => (await getDeployment(request, deploymentId)).jobs.filter((job) => job.state === 'SUCCEEDED' && job.type === 'DEPLOY_RELEASE').length, {
+        timeout: 30_000,
+      })
+      .toBe(2);
+    expect(relay!.account.migrationRuns).toBe(2);
+  });
+
+  test('@scenario:migration-correction "No separate migration" deploys without a migration run', async ({
+    request,
+    deployzInstall,
+  }) => {
+    test.setTimeout(120_000);
+    const { deploymentId, relay } = deployzInstall;
+    const { applicationId, releaseId } = await failedFirstDeploy(request, deploymentId);
+
+    const patch = await request.patch(`${API_URL}/api/applications/${applicationId}`, {
+      data: { migrationCommand: null },
+    });
+    expect(patch.ok()).toBe(true);
+    await redeployUntilHealthy(request, deploymentId, releaseId);
+
+    expect(relay!.account.migrationRuns).toBe(1);
+    expect(relay!.account.operationLog.some((entry) => entry.startsWith('update:'))).toBe(true);
+  });
+});
+
 /** Resolves the application that owns a deployment (for release creation). */
 async function getApplicationId(request: APIRequestContext, deploymentId: string): Promise<string> {
   const deployment = (await request.get(`${API_URL}/api/deployments/${deploymentId}`).then((r) => r.json())) as {

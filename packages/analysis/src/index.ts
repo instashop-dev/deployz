@@ -9,7 +9,14 @@
  * creating a workspace dependency cycle (cdk already depends on api).
  */
 
-export type { FileTree, DetectorFinding, DetectorSource, PostgresRequirement, RuntimeFamily } from './detectors.js';
+export type {
+  FileTree,
+  DetectorFinding,
+  DetectorSource,
+  MigrationRunnerVerdict,
+  PostgresRequirement,
+  RuntimeFamily,
+} from './detectors.js';
 export {
   detectDockerfile,
   listDockerfileCandidates,
@@ -26,6 +33,7 @@ export {
   detectMigrationCommand,
   detectStartupCommand,
   detectRuntime,
+  migrationRunnerVerdict,
   detectBindAddress,
   detectDockerfileBuildContext,
   detectGitCopyInDockerfile,

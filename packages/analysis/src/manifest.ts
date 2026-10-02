@@ -545,6 +545,11 @@ export function normalizeDeploymentManifest(
       // startup / none / unknown).
       command: overrides.migrationCommand ?? null,
       ...(migrationModeOf(meta) !== undefined ? { mode: migrationModeOf(meta) } : {}),
+      ...(meta['migrationNeedsInput'] !== undefined &&
+      meta['migrationNeedsInput'] !== null &&
+      !stringArray(meta['vendorOverrides']).includes('migrationCommand')
+        ? { needsCommand: true }
+        : {}),
     },
     worker: {
       // Legacy single slot: the FIRST worker's command, so consumers written
@@ -717,7 +722,15 @@ export function evaluateManifestReadiness(
     }
   }
 
-  if (manifest.database.postgres && !manifest.migration.command) {
+  if (manifest.migration.needsCommand === true) {
+    errors.push({
+      id: 'migration-command-needs-input',
+      category: 'database',
+      severity: 'error',
+      message:
+        'Deployz cannot confirm that the built image can run the detected migration script. Enter a migration command or choose "No separate migration" in the application settings before deploying.',
+    });
+  } else if (manifest.database.postgres && !manifest.migration.command) {
     warnings.push({
       id: 'migration-command-missing',
       category: 'database',

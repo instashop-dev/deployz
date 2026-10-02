@@ -29,6 +29,7 @@ Three decisions with substantial detail have their own files:
 | 2026-09-28 | The MVP boundary expands to background workers, RDS MySQL and first-class migrations; one build artifact and no private services stay | Active |
 | 2026-09-29 | The MVP boundary expands to SQS queues and scheduled jobs | Active |
 | 2026-10-02 | A pending INSTALL carries command authority; only authorized recovery may recreate a stack ([`pending-command-authority.md`](pending-command-authority.md)) | Active |
+| 2026-10-02 | A migration correction rides the migration seat as a new revision of the same family | Active |
 
 ## AI explanations are on-demand and never change state (2026-08-25)
 
@@ -415,3 +416,38 @@ Multi-AZ database or a different instance class is the only way through would
 need a product decision, not a placement change — Multi-AZ roughly doubles the
 database charge.
 
+## A migration correction rides the migration seat (2026-10-02)
+
+An existing deployment froze its migration command at creation. When that
+command was wrong (for example an invented `npx …` the image could not
+run), every release deployment failed `MIGRATION_FAILED`, and editing the
+application changed only new deployments. The only repair was a new
+deployment.
+
+- The spec, the compiled artifact and the stack stay immutable. The
+  application's migration setting and its vendor-override marker give the
+  effective policy (frozen, corrected, or no separate migration), and each
+  DEPLOY_RELEASE snapshots it when it is queued.
+- The family-only payload contract gets one narrow amendment: the
+  migration seat may carry the vendor's `command`. The relay accepts it
+  only for a family that its deployment's own stack contains, puts it
+  only into the application container of a new revision of that family
+  (the compiler's command encoding), and runs that exact revision ARN.
+  RunTask never carries a command override, and a top-level command is
+  still dropped.
+- A correction never adds a migration step to a deployment that was
+  created without one; that needs a new deployment.
+- Analysis stops adding `npx` without proof that the runtime image has
+  the runner and the CLI. Uncertainty becomes a blocking vendor question.
+
+Rejected: a RunTask command override (it bypasses the task definition the
+relay can validate); recompiling the stack (it changes frozen
+infrastructure); substituting `bunx` or installing tooling at run time
+(Deployz would invent a command the vendor never ran).
+
+Real-AWS qualification of the correction path is recorded as pending in
+[`../testing/aws-e2e.md`](../testing/aws-e2e.md); the change deferred it
+by instruction and did not waive it.
+
+What would change it: a vendor need for per-deployment migration
+commands, or relays that cannot be updated to read the seat's command.
