@@ -11,8 +11,8 @@ import { retainedResources } from './retained-resources.js';
  * 'queue')`, packages/infrastructure-compiler/src/stable-identity.ts), and an
  * EventBridge Scheduler schedule (`cleanup-schedule`, logical id
  * `CleanupScheduleSchedule`) targeting the one-shot scheduled-job task
- * definition `CleanupTaskDefinition` (family `DeployzAppCleanup`,
- * `deployzTaskFamily('cleanup')`). Every logical id here is derived by hand
+ * definition `CleanupTaskDefinition` (family `DeployzAppCleanup<suffix>`,
+ * `deployzTaskFamily('cleanup', suffix)`). Every logical id here is derived by hand
  * from the same `pascalCase(componentId, resourceRole)` rule the compiler and
  * `@deployz/contracts` pin with golden tests, exactly like
  * `phase4-composition.ts` hand-derives `EmailWorkerService` — no dynamic

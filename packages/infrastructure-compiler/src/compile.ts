@@ -116,7 +116,7 @@ const PUBLIC_SUBNET_CIDRS = ['10.0.0.0/18', '10.0.64.0/18'] as const;
 const PRIVATE_SUBNET_CIDRS = ['10.0.128.0/18', '10.0.192.0/18'] as const;
 
 // ── Compiler version / capability registry identity ─────────────────────────
-export const COMPILER_VERSION = 'dynamic-compiler-v2-2' as const;
+export const COMPILER_VERSION = 'dynamic-compiler-v2-3' as const;
 
 interface ResInput {
   readonly componentId: string;
@@ -804,7 +804,7 @@ function compileMigrationTask(ctx: EcsContext, workload: IrWorkload, profile: In
         ContainerDefinitions: containerDefs,
         Cpu: String(profile.workload.cpuUnits),
         ExecutionRoleArn: getAtt(execRole, 'Arn'),
-        Family: `DeployzApp${pascal(componentId)}`,
+        Family: taskFamily(componentId),
         Memory: String(profile.workload.memoryMiB),
         NetworkMode: 'awsvpc',
         RequiresCompatibilities: ['FARGATE'],
@@ -874,7 +874,7 @@ function compileWorkloadService(ctx: EcsContext, workload: IrWorkload, profile: 
         ContainerDefinitions: containerDefs,
         Cpu: String(profile.workload.cpuUnits),
         ExecutionRoleArn: getAtt(execRole, 'Arn'),
-        Family: `DeployzApp${pascal(componentId)}`,
+        Family: taskFamily(componentId),
         Memory: String(profile.workload.memoryMiB),
         NetworkMode: 'awsvpc',
         RequiresCompatibilities: ['FARGATE'],
@@ -1075,7 +1075,7 @@ function compileScheduledJobTask(ctx: EcsContext, workload: IrWorkload, profile:
         ContainerDefinitions: containerDefs,
         Cpu: String(profile.workload.cpuUnits),
         ExecutionRoleArn: getAtt(execRole, 'Arn'),
-        Family: `DeployzApp${pascal(componentId)}`,
+        Family: taskFamily(componentId),
         Memory: String(profile.workload.memoryMiB),
         NetworkMode: 'awsvpc',
         RequiresCompatibilities: ['FARGATE'],
@@ -1175,16 +1175,18 @@ function scheduleActionStatement(action: string, res_: { family: { revisionless:
  * (Phase 5C): a confused-deputy-guarded role, IAM derived ONLY from the
  * schedule's own invoke/dead-letter bindings, and the schedule resource
  * targeting the ALWAYS-latest (revisionless) task definition family — the
- * relay registers each release as a new revision of the same family.
+ * relay registers each release as a new revision of the same family. The
+ * family is unique to the installation, so no other installation's revision
+ * can ever be its latest.
  */
 function compileSchedule(ir: DeployzIR, schedule: IrSchedule, ids: NetIds): ResolvedResource[] {
   const id = schedule.id;
   const role = logicalResourceId(id, 'scheduler-role');
   const policy = logicalResourceId(id, 'scheduler-role-policy');
 
-  const family = `DeployzApp${pascal(schedule.targetWorkloadId)}`;
-  const familyRevisionless = join('', ['arn:', ref('AWS::Partition'), ':ecs:', ref('AWS::Region'), ':', ref('AWS::AccountId'), `:task-definition/${family}`]);
-  const familyAllRevisions = join('', ['arn:', ref('AWS::Partition'), ':ecs:', ref('AWS::Region'), ':', ref('AWS::AccountId'), `:task-definition/${family}:*`]);
+  const familyArn = ['arn:', ref('AWS::Partition'), ':ecs:', ref('AWS::Region'), ':', ref('AWS::AccountId'), ':task-definition/', taskFamily(schedule.targetWorkloadId)];
+  const familyRevisionless = join('', familyArn);
+  const familyAllRevisions = join('', [...familyArn, ':*']);
   const clusterArn = getAtt(logicalResourceId('web', 'cluster'), 'Arn');
   const jobTaskRoleArn = getAtt(logicalResourceId(schedule.targetWorkloadId, 'task-role'), 'Arn');
   const execRoleArn = getAtt(logicalResourceId('web', 'task-execution-role'), 'Arn');
@@ -1268,6 +1270,7 @@ function compileSchedule(ir: DeployzIR, schedule: IrSchedule, ids: NetIds): Reso
 
 function compileParameters(): ResolvedParameter[] {
   return [
+    { id: 'paramTaskFamilySuffix', type: 'String', noEcho: false, allowedPattern: '^[a-z0-9]+$', description: 'Installation-unique suffix of every task-definition family this stack creates. No default: a stack can never fall back to a family another installation shares.' },
     { id: 'paramDesiredCount', type: 'Number', noEcho: false, defaultValue: '1', description: 'Number of application tasks the service starts with. 0 defers the first start to the configured deploy that follows the install.' },
     { id: 'paramImageReference', type: 'String', noEcho: false, defaultValue: `${DEFAULT_IMAGE_REPOSITORY}@${DEFAULT_IMAGE_DIGEST}`, description: 'Container image reference (repository@sha256:...) the application task definitions run.' },
     { id: 'paramContainerPort', type: 'Number', noEcho: true, defaultValue: String(APP_PORT), description: 'TCP port the application container listens on.' },
@@ -1292,6 +1295,16 @@ function compileOutputs(ctx: { hasDb: boolean; db: { instance: string; secret: s
     outputs.push({ id: 'CacheEndpoint', value: getAtt(ctx.cache.replicationGroup, 'PrimaryEndPoint.Address') });
   }
   return outputs;
+}
+
+/**
+ * The task-definition family of one workload: `DeployzApp<Pascal>` plus the
+ * installation's suffix (`paramTaskFamilySuffix`). Two installations in one
+ * AWS account and Region never share a family. Mirrors `deployzTaskFamily`
+ * in `@deployz/contracts`.
+ */
+function taskFamily(componentId: string): unknown {
+  return join('', [`DeployzApp${pascal(componentId)}`, ref('paramTaskFamilySuffix')]);
 }
 
 function pascal(token: string): string {

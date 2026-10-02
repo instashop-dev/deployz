@@ -335,7 +335,7 @@ test.describe('phase5-composition', () => {
       const v1Digest = afterV1[0]!.runningImageDigest;
       for (const service of afterV1) expect(service.runningImageDigest).toBe(v1Digest);
       const cleanupDigestAfterV1 = (
-        await relay.account.ecsDeployClient().describeTaskDefinition({ taskDefinition: 'DeployzAppCleanup' })
+        await relay.account.ecsDeployClient().describeTaskDefinition({ taskDefinition: relay.account.taskFamily('cleanup') })
       ).taskDefinition.containerDefinitions[0]!.image as string;
       expect(cleanupDigestAfterV1).toContain(v1Digest!);
 
@@ -356,7 +356,7 @@ test.describe('phase5-composition', () => {
       const rollbackDigest = afterRollback[0]!.runningImageDigest;
       expect(rollbackDigest).not.toBe(v1Digest);
       const cleanupDigestAfterRollback = (
-        await relay.account.ecsDeployClient().describeTaskDefinition({ taskDefinition: 'DeployzAppCleanup' })
+        await relay.account.ecsDeployClient().describeTaskDefinition({ taskDefinition: relay.account.taskFamily('cleanup') })
       ).taskDefinition.containerDefinitions[0]!.image as string;
       expect(cleanupDigestAfterRollback).toContain(rollbackDigest!);
       expect(cleanupDigestAfterRollback).not.toBe(cleanupDigestAfterV1);
@@ -365,7 +365,7 @@ test.describe('phase5-composition', () => {
       // `family:DeployzAppCleanup` task, exit code 1) leaves deployment
       // health/readiness entirely unchanged — nothing in the deploy/verify
       // path ever runs or watches a scheduled job's own tasks. ───────────────
-      const failedTaskArn = relay.account.runStandaloneTask('DeployzAppCleanup');
+      const failedTaskArn = relay.account.runStandaloneTask(relay.account.taskFamily('cleanup'));
       relay.account.stopStandaloneTask(failedTaskArn);
       const beforeFailureHealth = await getDeployment(request, deploymentId);
       await new Promise((resolve) => setTimeout(resolve, 500));
@@ -377,7 +377,7 @@ test.describe('phase5-composition', () => {
       // ── DESTROY: a RUNNING standalone cleanup task is stopped before the
       // cluster is deleted; the database is RETAINED, the queues/schedule
       // are removed with the stack. ───────────────────────────────────────────
-      const runningTaskArn = relay.account.runStandaloneTask('DeployzAppCleanup');
+      const runningTaskArn = relay.account.runStandaloneTask(relay.account.taskFamily('cleanup'));
       const destroy = await request.post(`${API_URL}/api/deployments/${deploymentId}/destroy`, { data: {} });
       expect(destroy.status()).toBe(202);
       await expect

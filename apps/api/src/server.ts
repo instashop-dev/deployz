@@ -183,7 +183,7 @@ import {
 import { buildFailureContext, toStructuredEvent } from './failure-context.js';
 import { createDrizzlePendingSecretStore, createSecretCipherFromEnv } from './pending-secrets.js';
 import { retryEligibilityFor } from './retry-eligibility.js';
-import { buildInstallPayload, buildRelayConfigEntries, queuePostInstallConfig } from './install-config.js';
+import { buildInstallPayload, buildRelayConfigEntries, queuePostInstallConfig, requireTaskFamilySuffix } from './install-config.js';
 import { requirePreflightReady, runApplicationPreflight, runDeploymentPreflight } from './preflight.js';
 import {
   confirmPublicInstall,
@@ -773,7 +773,8 @@ interface DeployPayload {
   migrationTask?: { family: string; identity: string };
   /**
    * Scheduled-job ECS task-definition families (Phase 5) — derived ONLY from
-   * the frozen spec's `oneShotTasksFromSpec(spec, 'scheduled-job')`. The
+   * the frozen spec's `oneShotTasksFromSpec(spec, 'scheduled-job', …)` and
+   * the installation's task-family suffix. The
    * relay registers the release image into each of them once the rollout
    * settles; it never runs them (`AWS::Scheduler::Schedule` does). Sent on
    * both DEPLOY_RELEASE and ROLLBACK payloads — unlike the migration seat,
@@ -791,7 +792,11 @@ function scheduledJobFamiliesFor(deployment: DeploymentRow | undefined): string[
   if (deployment === undefined) return undefined;
   const spec = readStoredDeploymentSpec(deployment.specV2);
   if (!spec) return undefined;
-  const families = oneShotTasksFromSpec(spec, 'scheduled-job').map((task) => task.family);
+  const families = oneShotTasksFromSpec(
+    spec,
+    'scheduled-job',
+    requireTaskFamilySuffix(spec, deployment.installationId),
+  ).map((task) => task.family);
   return families.length > 0 ? families : undefined;
 }
 
@@ -864,7 +869,9 @@ async function requireDeployableRelease(
     // SUCCEEDED deploy already confirming the same migration identity.
     // ROLLBACK builds its payload WITHOUT the deployment row, so a rollback
     // (and RESTART, whose payload is empty) can never carry the seat.
-    const migration = spec ? migrationTaskFromSpec(spec) : null;
+    const migration = spec
+      ? migrationTaskFromSpec(spec, requireTaskFamilySuffix(spec, deployment.installationId))
+      : null;
     const frozenCommand =
       spec?.graph.workloads.find((workload) => workload.kind === 'migration')?.command ?? null;
     if (migration !== null && frozenCommand !== null) {
@@ -6221,7 +6228,7 @@ export async function buildServer({
       idempotencyKey,
       payload: {
         recovery: { neverInstalled: true },
-        ...(await buildInstallPayload(db, deployment, configStore)),
+        ...(await buildInstallPayload(db, deployment, configStore, deployment.installationId)),
       },
       requestedBy: actorId,
     });
@@ -7399,7 +7406,7 @@ export async function buildServer({
               deploymentId: deployment.id,
               type: 'INSTALL',
               idempotencyKey: await retryAwareIdempotencyKey(db, deployment.id, 'INSTALL', `${deployment.id}:INSTALL`),
-              payload: await buildInstallPayload(db, deployment, configStore),
+              payload: await buildInstallPayload(db, deployment, configStore, body.installationId!),
               requestedBy: null,
             })
           ).job

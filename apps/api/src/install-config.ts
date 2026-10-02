@@ -1,7 +1,14 @@
 import { eq } from 'drizzle-orm';
 
 import { derivedS3EnvValue, mintedEnvKeys } from '@deployz/analysis';
-import { buildDeploymentResourceTags, deliversConfigValue, requirementsFromSpec } from '@deployz/contracts';
+import {
+  TASK_FAMILY_SUFFIX_PARAMETER,
+  buildDeploymentResourceTags,
+  deliversConfigValue,
+  requirementsFromSpec,
+  taskFamilySuffixForSpec,
+  type DeploymentSpecV2,
+} from '@deployz/contracts';
 import type { RuntimeDb } from '@deployz/db';
 import * as schema from '@deployz/db/schema';
 
@@ -174,6 +181,24 @@ export async function configPrecedesFirstStart(
 }
 
 /**
+ * The task-family suffix of a deployment's compiled stack (empty for an
+ * artifact with shared family names). Refused when the stack needs a suffix
+ * and no installation is registered: no family could be named, and a deploy
+ * must never run without its migration.
+ */
+export function requireTaskFamilySuffix(spec: DeploymentSpecV2, installationId: string | null): string {
+  const suffix = taskFamilySuffixForSpec(spec, installationId);
+  if (suffix === null) {
+    throw new ApiError(
+      409,
+      'INSTALLATION_NOT_REGISTERED',
+      'This deployment has no registered AWS installation yet. Connect it to AWS first.',
+    );
+  }
+  return suffix;
+}
+
+/**
  * The INSTALL job's payload: the compiled template's URL + parameters, the
  * Redis/database flags, the deployment identity tags, the canonical manifest
  * and — when configuration must precede the first start and there is a
@@ -186,6 +211,8 @@ export async function configPrecedesFirstStart(
  * deployment's frozen spec (the compiled artifact the relay must fetch and
  * the verification contract it must satisfy), never re-derived — a
  * deployment created before the compiler existed fails closed here.
+ * `installationId` names the installation the stack is created for; its
+ * task-family suffix makes every task family of the stack its own.
  */
 export async function buildInstallPayload(
   db: RuntimeDb,
@@ -199,6 +226,7 @@ export async function buildInstallPayload(
     specV2: Record<string, unknown> | null;
   },
   store: ConfigStore,
+  installationId: string | null,
 ): Promise<Record<string, unknown>> {
   const manifest = readStoredManifest(deployment.desiredState);
   if (!manifest) {
@@ -217,13 +245,14 @@ export async function buildInstallPayload(
     );
   }
   const requirements = requirementsFromSpec(spec)!;
+  const familySuffix = requireTaskFamilySuffix(spec, installationId);
   const startAfterConfig = await configPrecedesFirstStart(db, deployment, store);
   const { parameters, releaseId } = await buildInstallParameters(db, deployment.id, {
     startAfterConfig,
   });
   return {
     templateUrl: spec.artifactLocation,
-    parameters,
+    parameters: familySuffix === '' ? parameters : { ...parameters, [TASK_FAMILY_SUFFIX_PARAMETER]: familySuffix },
     databaseRequired: requirements.databaseRequired,
     redisRequired: requirements.redisRequired,
     // Control-plane-minted deployz identity tags. The relay applies them as

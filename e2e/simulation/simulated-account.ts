@@ -24,7 +24,7 @@
  * `/install`, `/stack-events`, `/ecs-health`).
  */
 
-import { DEPLOYZ_INSTALLATION_TAG } from '@deployz/contracts';
+import { DEPLOYZ_INSTALLATION_TAG, TASK_FAMILY_SUFFIX_PARAMETER } from '@deployz/contracts';
 import {
   type CreateStackInput,
   type CreateStackOutcome,
@@ -76,6 +76,8 @@ interface ServiceDeployState {
 const FIXTURE_IMAGE_REPOSITORY = '123456789012.dkr.ecr.us-east-1.amazonaws.com/deployz-fixture';
 const BOOTSTRAP_IMAGE_DIGEST = `sha256:${'0'.repeat(64)}`;
 const RDS_CA_INIT_IMAGE = 'public.ecr.aws/amazonlinux/amazonlinux:2023-minimal';
+const TASK_DEFINITION_TYPE = 'AWS::ECS::TaskDefinition';
+const MIGRATION_TASK_DEFINITION = 'MigrationTaskDefinition';
 
 function isStackLevel(event: TimelineEvent): boolean {
   return event.resourceType === STACK_EVENT_RESOURCE_TYPE;
@@ -124,6 +126,10 @@ export class SimulatedCustomerAccount {
    * behaviour.
    */
   private readonly taskDefinitionsByFamily = new Map<string, string>();
+  /** Family → the revision CloudFormation created for it — the stack resource's physical id. */
+  private readonly stackTaskDefinitionArns = new Map<string, string>();
+  /** The stack's `paramTaskFamilySuffix`: every family the stack creates ends with it. */
+  private taskFamilySuffix = '';
   /**
    * One deploy/health state per ECS service (Phase 4A: one service per
    * workload), keyed by the service's ARN. Created lazily the first time a
@@ -261,14 +267,39 @@ export class SimulatedCustomerAccount {
     }
     const stackName = this.stackNameValue;
     if (stackName === null) return [];
-    return [...byResource.entries()].map(([logicalId, event]) => ({
+    const resources: StackResource[] = [...byResource.entries()].map(([logicalId, event]) => ({
       logicalId,
       type: event.resourceType,
       status: event.status,
-      physicalId: physicalIdFor(event.resourceType, logicalId, stackName),
+      physicalId:
+        event.resourceType === TASK_DEFINITION_TYPE
+          ? this.stackTaskDefinitionArn(logicalId)
+          : physicalIdFor(event.resourceType, logicalId, stackName),
       timestamp: this.eventTimestampIso(event),
       ...(event.statusReason !== undefined ? { statusReason: event.statusReason } : {}),
     }));
+    // A database-backed fixture application always analyses with a migration
+    // command (fixtures.ts), so its compiled stack also creates the migration
+    // task definition — alongside the application service.
+    const service = resources.find(
+      (resource) => resource.type === 'AWS::ECS::Service' && resource.status === 'CREATE_COMPLETE',
+    );
+    if (this.scenario.postgres !== false && service !== undefined && !byResource.has(MIGRATION_TASK_DEFINITION)) {
+      resources.push({
+        logicalId: MIGRATION_TASK_DEFINITION,
+        type: TASK_DEFINITION_TYPE,
+        status: 'CREATE_COMPLETE',
+        physicalId: this.stackTaskDefinitionArn(MIGRATION_TASK_DEFINITION),
+        ...(service.timestamp !== undefined ? { timestamp: service.timestamp } : {}),
+      });
+    }
+    return resources;
+  }
+
+  /** The revision CloudFormation created for a `<Component>TaskDefinition` resource. */
+  private stackTaskDefinitionArn(logicalId: string): string {
+    const family = this.taskFamily(logicalId.replace(/TaskDefinition$/, ''));
+    return this.stackTaskDefinitionArns.get(family) ?? this.ensureTaskFamily(family);
   }
 
   // ── CreateStack (shared by the StackInstaller adapter) ────────────────
@@ -283,6 +314,7 @@ export class SimulatedCustomerAccount {
       if (this.deleteStartRealMs !== null && !this.scenario.destroy) {
         this.stackNameValue = input.stackName;
         this.installationTag = input.tags[DEPLOYZ_INSTALLATION_TAG] ?? '';
+        this.taskFamilySuffix = input.parameters[TASK_FAMILY_SUFFIX_PARAMETER] ?? '';
         this.deleteStartRealMs = null;
         return { created: true, stackId: this.stackIdValue };
       }
@@ -292,6 +324,7 @@ export class SimulatedCustomerAccount {
     }
     this.stackNameValue = input.stackName;
     this.installationTag = input.tags[DEPLOYZ_INSTALLATION_TAG] ?? '';
+    this.taskFamilySuffix = input.parameters[TASK_FAMILY_SUFFIX_PARAMETER] ?? '';
     return { created: true, stackId: this.stackIdValue };
   }
 
@@ -550,16 +583,20 @@ export class SimulatedCustomerAccount {
 
   // ── Deploy/rollback (D2) ─────────────────────────────────────────────────
 
-  /** `DeployzApp<pascal(componentId)>` — the compiler's task-def family shape
-   *  (WebService → DeployzAppWeb, EmailWorkerService → DeployzAppEmailWorker). */
+  /** `DeployzApp<pascal(componentId)>` + the stack's task-family suffix — the
+   *  compiler's task-def family shape (WebService → DeployzAppWeb<suffix>). */
   private familyForLogicalId(logicalId: string): string {
-    const component = logicalId.replace(/Service$/, '');
+    return this.taskFamily(logicalId.replace(/Service$/, ''));
+  }
+
+  /** The family this stack's compiled template names for a component. */
+  taskFamily(component: string): string {
     const pascal = component
       .split(/[^A-Za-z0-9]+/)
       .filter((word) => word.length > 0)
       .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
       .join('');
-    return `DeployzApp${pascal}`;
+    return `DeployzApp${pascal}${this.taskFamilySuffix}`;
   }
 
   /** The stack's ECS services in resource order — web first (compile order). */
@@ -598,6 +635,7 @@ export class SimulatedCustomerAccount {
       ],
     });
     this.taskDefinitionsByFamily.set(family, arn);
+    this.stackTaskDefinitionArns.set(family, arn);
     return arn;
   }
 
@@ -871,7 +909,7 @@ export class SimulatedCustomerAccount {
     const found = this.taskDefinitions.get(arn);
     if (found === undefined) throw new Error(`Unknown task definition "${taskDefinition}"`);
     return {
-      taskDefinition: { ...found, containerDefinitions: found.containerDefinitions.map((c) => ({ ...c })) },
+      taskDefinition: { ...found, taskDefinitionArn: arn, containerDefinitions: found.containerDefinitions.map((c) => ({ ...c })) },
     };
   }
 

@@ -90,7 +90,8 @@ that ever touches the customer's AWS account.
    newest READY release.
 7. **Deploy** — DEPLOY_RELEASE runs the frozen migration (if the spec has a
    migration workload) as a one-shot ECS task — the compiler baked the
-   command into a single task definition (family `DeployzAppMigration`) — and
+   command into a single task definition (family `DeployzAppMigration<suffix>`,
+   unique to the installation) — and
    then updates every service to the pinned digest. The migration always runs
    after the infrastructure and the database are ready and before any service
    updates; its identity (sha256 over the frozen command plus the image
