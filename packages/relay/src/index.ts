@@ -988,13 +988,6 @@ async function settleInstall(
 /** The maximum number of AZ slots the compiler emits. */
 const DB_AZ_SLOT_COUNT = 8;
 
-/** One availability zone from DescribeAvailabilityZones. */
-interface AvailabilityZone {
-  readonly zoneName: string;
-  readonly state: string;
-  readonly zoneType: string;
-}
-
 /**
  * Discover the available, enabled standard AZs in the region.
  *

@@ -279,8 +279,6 @@ function compileNetwork(ids: NetIds): ResolvedResource[] {
 function compileDbSubnets(ids: NetIds): ResolvedResource[] {
   const out: ResolvedResource[] = [];
   for (let i = 3; i <= DB_AZ_SLOT_COUNT; i++) {
-    const subnetId = logicalResourceId('network', `db-subnet-${i}`);
-    const conditionId = `condDbAz${i}`;
     out.push(res({
       componentId: 'network',
       componentKind: 'network',
