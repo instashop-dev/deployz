@@ -838,6 +838,10 @@ describe('BootstrapStack — application provisioning', () => {
 
     for (const action of [
       'ec2:CreateVpc',
+      // AWS::EC2::VPCCidrBlock (the database-only subnets' secondary CIDR):
+      // without it every database install rolled back (real AWS, 2026-10-02).
+      'ec2:AssociateVpcCidrBlock',
+      'ec2:DisassociateVpcCidrBlock',
       'ec2:CreateNatGateway',
       'ec2:CreateSecurityGroup',
       'ecs:CreateCluster',

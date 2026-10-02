@@ -1450,6 +1450,8 @@
                 "ec2:AttachInternetGateway",
                 "ec2:DetachInternetGateway",
                 "ec2:ModifyVpcAttribute",
+                "ec2:AssociateVpcCidrBlock",
+                "ec2:DisassociateVpcCidrBlock",
                 "ec2:ModifySubnetAttribute",
                 "ec2:AuthorizeSecurityGroupIngress",
                 "ec2:AuthorizeSecurityGroupEgress",
@@ -1717,7 +1719,7 @@
           "S3Bucket": {
             "Fn::Sub": "cdk-hnb659fds-assets-${AWS::AccountId}-${AWS::Region}"
           },
-          "S3Key": "8d5e36064971f04bd3a2465a56ad2d376cd539396e9310a9149ca9253c0d7d99.zip"
+          "S3Key": "340cff4d29e2123ae4b26b9872750506bb7965f5a1f34b986dff1e9115a9333d.zip"
         },
         "Environment": {
           "Variables": {
