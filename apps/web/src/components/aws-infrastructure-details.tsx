@@ -73,7 +73,12 @@ export function AwsInfrastructureDetails({
                   </TableRow>
                   {groupEntry.resources.map((resource) => (
                     <TableRow key={resource.id} data-testid={`aws-resource-${resource.id}`}>
-                      <TableCell className="font-medium">{resource.name}</TableCell>
+                      <TableCell className="font-medium">
+                        {resource.name}
+                        {resource.label !== undefined && (
+                          <span className="ml-2 text-xs text-muted-foreground">· {resource.label}</span>
+                        )}
+                      </TableCell>
                       <TableCell className="text-muted-foreground">{resource.purpose}</TableCell>
                       <TableCell className="text-muted-foreground">
                         {awsResourceRemovalLabel(resource.lifecycle)}

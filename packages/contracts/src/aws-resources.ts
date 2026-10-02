@@ -55,6 +55,8 @@ export interface AwsResourceDefinition {
   readonly lifecycle: 'delete' | 'retain';
   /** Whether a deployment with this profile creates the resource. */
   readonly requiredBy: (profile: InfrastructureRequirements) => boolean;
+  /** Optional customer-facing label shown alongside the name (e.g. "Single-AZ database · automatic placement"). */
+  readonly label?: string;
 }
 
 const ALWAYS = (): boolean => true;
@@ -121,6 +123,27 @@ export const AWS_RESOURCES: readonly AwsResourceDefinition[] = [
     group: 'data',
     componentKind: 'database',
     resourceType: 'AWS::RDS::DBInstance',
+    lifecycle: 'retain',
+    requiredBy: WITH_POSTGRES,
+    label: 'Single-AZ database · automatic placement',
+  },
+  {
+    id: 'db_subnet_group',
+    name: 'Database subnet group',
+    purpose: 'Groups the subnets the database can use for automatic placement',
+    group: 'data',
+    componentKind: 'database',
+    resourceType: 'AWS::RDS::DBSubnetGroup',
+    lifecycle: 'retain',
+    requiredBy: WITH_POSTGRES,
+  },
+  {
+    id: 'db_subnets',
+    name: 'Database subnets',
+    purpose: 'Isolated subnets that give the database more placement options',
+    group: 'data',
+    componentKind: 'database',
+    resourceType: 'AWS::EC2::Subnet',
     lifecycle: 'retain',
     requiredBy: WITH_POSTGRES,
   },
@@ -292,6 +315,7 @@ export const deploymentPlanAwsResourceSchema = z
     group: awsResourceGroupSchema,
     componentKind: infrastructureComponentKindSchema,
     lifecycle: z.enum(['delete', 'retain']),
+    label: z.string().optional(),
   })
   .strict();
 export type DeploymentPlanAwsResource = z.infer<typeof deploymentPlanAwsResourceSchema>;
@@ -304,5 +328,6 @@ export function toPlanAwsResource(resource: AwsResourceDefinition): DeploymentPl
     group: resource.group,
     componentKind: resource.componentKind,
     lifecycle: resource.lifecycle,
+    ...(resource.label === undefined ? {} : { label: resource.label }),
   };
 }

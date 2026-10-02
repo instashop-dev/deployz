@@ -65,7 +65,7 @@ account:
 | Database (optional) | RDS PostgreSQL 16 or RDS MySQL 8.0, `db.t4g.micro`, 20 GB (autoscaling to 100 GB), 7-day backups, deletion protection | Provisioned only when the analysis manifest requires PostgreSQL or MySQL. **Retained** on disconnect. |
 | Cache (optional) | ElastiCache Valkey (Redis-compatible), single `cache.t4g.micro` node, no TLS, no cluster mode | Provisioned only when the manifest requires Redis. Deleted on disconnect. |
 | Storage | One S3 bucket, always created | **Retained** on disconnect. |
-| Network | Dedicated VPC, public/private subnets, NAT, security groups | Deleted on disconnect. |
+| Network | Dedicated VPC, public/private subnets, NAT, security groups | Plus isolated DB-only subnets in the remaining available AZs when a database is present. Deleted on disconnect. |
 | Messaging (optional) | SQS Standard queue, plus an optional dead-letter queue (the same capability, reached by a redrive edge) | Provisioned only when the analysis finds strong evidence of both a producer and a consumer. FIFO is not supported. Deleted on disconnect. `PREVIEW` maturity. |
 | Scheduling (optional) | EventBridge Scheduler schedule invoking one one-shot ECS scheduled job | Provisioned only from a `render.yaml` `type: cron` service or a Kubernetes `CronJob` manifest naming both a schedule and a command. Deleted on disconnect. `PREVIEW` maturity. |
 | Endpoint | Permanent `https://d-<deployment-id>.deployz.dev` URL, plus an optional vendor-managed custom domain | See [`../networking-and-https.md`](../networking-and-https.md). |

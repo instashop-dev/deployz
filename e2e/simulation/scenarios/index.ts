@@ -4,6 +4,7 @@ import { cloudformationFailure } from './cloudformation-failure.js';
 import { cloudformationRollback } from './cloudformation-rollback.js';
 import { databaseFailure } from './database-failure.js';
 import { deleteFailure } from './delete-failure.js';
+import { rdsAzCapacity } from './rds-az-capacity.js';
 import { ecsFailure } from './ecs-failure.js';
 import { happyPath } from './happy-path.js';
 import { healthcheckFailure } from './healthcheck-failure.js';
@@ -57,6 +58,7 @@ const SCENARIOS: Readonly<Record<string, ScenarioDefinition>> = {
   [slowProvision.id]: slowProvision,
   [cloudformationFailure.id]: cloudformationFailure,
   [databaseFailure.id]: databaseFailure,
+  [rdsAzCapacity.id]: rdsAzCapacity,
   [redisFailure.id]: redisFailure,
   [redisSuccess.id]: redisSuccess,
   [bootstrapFailure.id]: bootstrapFailure,
@@ -89,6 +91,7 @@ export {
   databaseFailure,
   deleteFailure,
   ecsFailure,
+  rdsAzCapacity,
   happyPath,
   healthcheckFailure,
   lifecycleSweep,

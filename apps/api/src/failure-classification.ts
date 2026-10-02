@@ -201,6 +201,13 @@ export function refineFailureCode(input: {
     return 'CONTAINER_START_FAILED';
   }
 
+  // 4f. RDS AZ-capacity — a specific capacity unavailability in the AZs where
+  //     the database would run. Distinct from a generic database-create
+  //     failure: the account has enough quota, but the specific zone or zones
+  //     have no room for a new instance right now. Checked before the generic
+  //     RDS failure so this specific code wins.
+  if (text.includes('insufficientdbinstancecapacity')) return 'RDS_AZ_CAPACITY';
+
   // 5. The failed resource itself names the component.
   if (failedType.startsWith('AWS::RDS::')) return 'DATABASE_CREATE_FAILED';
   if (failedType.startsWith('AWS::ElastiCache::')) return 'REDIS_PROVISIONING_FAILED';

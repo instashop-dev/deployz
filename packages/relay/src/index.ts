@@ -21,6 +21,10 @@
 import type { ScheduledEvent } from 'aws-lambda';
 
 import {
+  DescribeAvailabilityZonesCommand,
+  EC2Client,
+} from '@aws-sdk/client-ec2';
+import {
   DescribeServicesCommand,
   DescribeTaskDefinitionCommand,
   DescribeTasksCommand,
@@ -647,6 +651,15 @@ export interface InstallExecutorDeps {
   readonly verify: (options: VerifyRequest) => Promise<VerificationResult>;
   readonly pending: PendingStore;
   /**
+   * EC2 client for AZ discovery. When provided, the relay discovers the
+   * available AZs before creating the stack and fills the template's
+   * `paramDbAz1` … `paramDbAzN` parameters. When absent (older wiring, or a
+   * test that doesn't care about AZ placement), the install proceeds without
+   * AZ parameters — the template's defaults (empty strings) keep the DB-only
+   * subnets out of the subnet group.
+   */
+  readonly ec2?: Pick<EC2Client, 'send'>;
+  /**
    * First-install recovery. Runs before `install`, and only when the command
    * payload carries `recovery.neverInstalled` — the control plane sets that
    * on its retry-install route, after proving no INSTALL ever succeeded.
@@ -798,6 +811,39 @@ async function settleInstall(
     ...readInstallParametersFromPayload(request.payload),
     ...(manifest ? buildInstallParametersFromManifest(manifest) : {}),
   };
+
+  // AZ discovery — fill the template's paramDbAz1 … paramDbAzN parameters
+  // with the available AZs in the region. The compiler emits DB-only subnets
+  // for slots 3..N, so the database subnet group covers all available AZs.
+  // Fail closed: a discovery failure or too many AZs refuses the install
+  // rather than silently truncating the subnet group.
+  if (deps.ec2) {
+    const zones = await discoverAvailabilityZones(deps.ec2);
+    if (zones === null) {
+      return {
+        deferred: false,
+        success: false,
+        error:
+          'AZ discovery failed — the relay could not determine the available ' +
+          'availability zones in this region, refusing to provision',
+        output: {},
+      };
+    }
+    const azParams = buildDbAzParameters(zones);
+    if (azParams === null) {
+      return {
+        deferred: false,
+        success: false,
+        error:
+          `AZ discovery found ${zones.length} available zones, but the compiler ` +
+          `supports at most ${DB_AZ_SLOT_COUNT} — refusing to provision rather than ` +
+          'silently truncating the database subnet group',
+        output: {},
+      };
+    }
+    Object.assign(parameters, azParams);
+  }
+
   const declared = deps.readTemplateParameters ? await deps.readTemplateParameters(templateUrl) : null;
   if (declared !== null) {
     const dropped = Object.keys(parameters).filter((name) => !declared.has(name));
@@ -909,6 +955,89 @@ async function settleInstall(
       checks: verification.checks,
     },
   };
+}
+
+// ── AZ discovery ─────────────────────────────────────────────────────────────
+
+/** The maximum number of AZ slots the compiler emits. */
+const DB_AZ_SLOT_COUNT = 8;
+
+/** One availability zone from DescribeAvailabilityZones. */
+interface AvailabilityZone {
+  readonly zoneName: string;
+  readonly state: string;
+  readonly zoneType: string;
+}
+
+/**
+ * Discover the available, enabled standard AZs in the region.
+ *
+ * The relay calls DescribeAvailabilityZones before creating the stack and
+ * fills the template's `paramDbAz1` … `paramDbAzN` parameters with the
+ * discovered zones. The compiler emits DB-only subnets for slots 3..N, so
+ * the database subnet group covers all available AZs — not just the two
+ * where the private subnets happen to sit.
+ *
+ * Excludes unavailable/disabled, Local, and Wavelength Zones. Requires at
+ * least two distinct zones. Returns null on any failure (the caller then
+ * fails the install honestly rather than guessing).
+ */
+export async function discoverAvailabilityZones(
+  ec2: Pick<EC2Client, 'send'>,
+): Promise<readonly string[] | null> {
+  try {
+    const response = (await ec2.send(
+      new DescribeAvailabilityZonesCommand({
+        Filters: [{ Name: 'state', Values: ['available'] }],
+      }),
+    )) as {
+      AvailabilityZones?: {
+        ZoneName?: string;
+        State?: string;
+        ZoneType?: string;
+      }[];
+    };
+
+    const zones = (response.AvailabilityZones ?? [])
+      .filter((zone) => {
+        if (zone.State !== 'available') return false;
+        if (zone.ZoneType === 'local') return false;
+        if (zone.ZoneType === 'wavelength') return false;
+        return true;
+      })
+      .map((zone) => zone.ZoneName ?? '')
+      .filter((name) => name.length > 0)
+      .sort();
+
+    if (zones.length < 2) return null;
+    return zones;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Fill the AZ parameters for the database subnet group.
+ *
+ * The compiler emits `paramDbAz1` … `paramDbAzN` parameters. The relay fills
+ * them with the discovered AZs. Slots 1-2 are the private subnets (already
+ * placed by the compiler via Fn::GetAZs); slots 3-N are DB-only subnets.
+ *
+ * Returns the parameter values to merge into the install parameters, or null
+ * when AZ discovery failed or the region has more AZs than the compiler
+ * supports.
+ */
+export function buildDbAzParameters(
+  zones: readonly string[],
+): Record<string, string> | null {
+  if (zones.length < 2 || zones.length > DB_AZ_SLOT_COUNT) return null;
+  const params: Record<string, string> = {};
+  for (let i = 0; i < zones.length; i++) {
+    const zone = zones[i];
+    if (zone === undefined) return null;
+    params[`paramDbAz${i + 1}`] = zone;
+  }
+  return params;
 }
 
 /**
@@ -1441,6 +1570,7 @@ function createDefaultInstallDeps(
     installationId,
     ...(executionRoleArn ? { executionRoleArn } : {}),
     stoppedTaskEvidence,
+    ec2: new EC2Client({}),
     install: (options) =>
       installApplicationStack({
         ...options,

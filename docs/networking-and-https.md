@@ -12,7 +12,10 @@ Every application stack creates its own VPC (two public and two private
 subnets across two AZs, one NAT gateway with an Elastic IP, an internet
 gateway), an internet-facing Application Load Balancer in the public subnets,
 and the ECS Fargate service, the optional RDS instance and the optional
-Valkey cache in the private subnets. Security groups: the ALB accepts 80 and
+Valkey cache in the private subnets. A deployment with a database also adds
+isolated DB-only subnets in every other available AZ of the region; they carry
+no NAT gateway and no internet route, and exist only so the RDS subnet group
+can span the whole region. Security groups: the ALB accepts 80 and
 443 from the internet (443 is opened at publish time even though the listener
 is added later); the service accepts traffic only from the ALB; the database
 accepts 5432 only from the service security group; the cache accepts 6379

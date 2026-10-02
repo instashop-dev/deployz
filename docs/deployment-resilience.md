@@ -375,6 +375,26 @@ own resource list, never by name); recreate; re-verify. Retained S3 buckets
 are deliberately left (inert, empty, blocked by IAM tag-condition
 semantics). The decision record is `docs/decisions/failed-install-recovery.md`.
 
+## AZ placement resolution
+
+The database subnet group covers all available, enabled standard AZs in
+the customer's region. The relay discovers the AZs via
+`DescribeAvailabilityZones` **before creating the stack** and fills the
+template's `paramDbAz1` … `paramDbAzN` parameters. The compiler emits
+DB-only subnets for slots 3..N, so the subnet group always covers every
+available AZ — not just the two where the private subnets happen to sit.
+
+Placement is resolved **only before the first stack creation**. A resumed
+or retried install reuses the same template and the same AZ parameters;
+the relay never re-discovers AZs for an existing stack. This keeps the
+placement deterministic and avoids stack recreation loops.
+
+If AZ discovery fails (the API call errors, or the region has fewer than
+two available zones), the install fails honestly with a clear error
+rather than silently truncating the subnet group. A retry after a
+confirmed failed-first-install cleanup re-discovers the AZs — the
+customer's capacity may have changed since the first attempt.
+
 ## Health is verified, never assumed
 
 CloudFormation success alone never marks a deployment healthy: INSTALL

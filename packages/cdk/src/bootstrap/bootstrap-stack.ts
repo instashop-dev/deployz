@@ -302,6 +302,10 @@ const PHASE_2_PURGE_NETWORK_DISCOVER_ACTIONS = [
   'ec2:DescribeRouteTables',
   'ec2:DescribeInternetGateways',
   'ec2:DescribeNatGateways',
+  // Install-time AZ discovery for RDS AZ placement — the relay calls
+  // DescribeAvailabilityZones before CreateStack to fill the template's
+  // paramDbAz1…paramDbAzN. Condition-free like the Describe* reads here.
+  'ec2:DescribeAvailabilityZones',
   'ec2:DescribeNetworkInterfaces',
   'rds:DescribeDBSubnetGroups',
 ] as const;

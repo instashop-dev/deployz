@@ -139,7 +139,12 @@ describe('inventory deduplication', () => {
       'log_group',
       'health_alarm',
     ]);
-    expect(row(inventory, 'database').resources.map((resource) => resource.id)).toEqual(['database', 'database_secrets']);
+    expect(row(inventory, 'database').resources.map((resource) => resource.id)).toEqual([
+      'database',
+      'db_subnet_group',
+      'db_subnets',
+      'database_secrets',
+    ]);
     expect(row(inventory, 'redis').resources.map((resource) => resource.id)).toEqual(['cache']);
     expect(row(inventory, 'storage').resources.map((resource) => resource.id)).toEqual(['storage_bucket']);
     expect(row(inventory, 'network').resources.map((resource) => resource.id)).toEqual([
@@ -190,6 +195,8 @@ describe('inventory deduplication', () => {
     expect(database.afterRemoval).toBe('Mixed');
     expect(database.resources.map((resource) => [resource.id, resource.afterRemoval])).toEqual([
       ['database', 'Kept'],
+      ['db_subnet_group', 'Kept'],
+      ['db_subnets', 'Kept'],
       ['database_secrets', 'Removed'],
     ]);
     expect(row(inventoryFor(STANDARD_PLAN), 'database').afterRemoval).toBe('Kept');

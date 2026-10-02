@@ -401,3 +401,82 @@ describe('isRetainedDataDeleteBlocked', () => {
     ).toBe(false);
   });
 });
+
+describe('refineFailureCode — RDS AZ capacity', () => {
+  it('maps InsufficientDBInstanceCapacity to RDS_AZ_CAPACITY', () => {
+    expect(
+      refineFailureCode({
+        reported: 'STACK_CREATE_FAILED',
+        errorText: null,
+        stackEvents: [
+          {
+            resourceType: 'AWS::RDS::DBInstance',
+            resourceStatus: 'CREATE_FAILED',
+            resourceStatusReason: 'InsufficientDBInstanceCapacity: There is not enough capacity for the requested DB instance class in this Availability Zone.',
+          },
+        ],
+      }),
+    ).toBe('RDS_AZ_CAPACITY');
+  });
+
+  it('maps the full incident message to RDS_AZ_CAPACITY', () => {
+    expect(
+      refineFailureCode({
+        reported: 'STACK_CREATE_FAILED',
+        errorText: 'InsufficientDBInstanceCapacity: There is not enough capacity for the requested DB instance class in this Availability Zone.',
+        stackEvents: [],
+      }),
+    ).toBe('RDS_AZ_CAPACITY');
+  });
+
+  it('does not fall through to DATABASE_CREATE_FAILED for InsufficientDBInstanceCapacity', () => {
+    const result = refineFailureCode({
+      reported: 'STACK_CREATE_FAILED',
+      errorText: null,
+      stackEvents: [
+        {
+          resourceType: 'AWS::RDS::DBInstance',
+          resourceStatus: 'CREATE_FAILED',
+          resourceStatusReason: 'InsufficientDBInstanceCapacity: There is not enough capacity for the requested DB instance class in this Availability Zone.',
+        },
+      ],
+    });
+    expect(result).toBe('RDS_AZ_CAPACITY');
+    expect(result).not.toBe('DATABASE_CREATE_FAILED');
+  });
+
+  it('still classifies permission-denied, quota-exceeded, and unrelated RDS failures as before', () => {
+    // Permission denied
+    expect(
+      refineFailureCode({
+        reported: 'STACK_CREATE_FAILED',
+        errorText: 'User: arn:aws:sts::123:assumed-role/x is not authorized to perform: rds:CreateDBInstance',
+        stackEvents: [],
+      }),
+    ).toBe('AWS_PERMISSION_DENIED');
+
+    // Quota exceeded
+    expect(
+      refineFailureCode({
+        reported: 'STACK_CREATE_FAILED',
+        errorText: 'LimitExceeded: too many vCPUs requested',
+        stackEvents: [],
+      }),
+    ).toBe('QUOTA_EXCEEDED');
+
+    // Unrelated RDS failure (generic capacity, not InsufficientDBInstanceCapacity)
+    expect(
+      refineFailureCode({
+        reported: 'STACK_CREATE_FAILED',
+        errorText: null,
+        stackEvents: [
+          {
+            resourceType: 'AWS::RDS::DBInstance',
+            resourceStatus: 'CREATE_FAILED',
+            resourceStatusReason: 'Instance class db.t3.micro is not supported in this Availability Zone',
+          },
+        ],
+      }),
+    ).toBe('DATABASE_CREATE_FAILED');
+  });
+});

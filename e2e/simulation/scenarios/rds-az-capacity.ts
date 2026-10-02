@@ -1,22 +1,23 @@
 import type { ScenarioDefinition } from '../types.js';
 
 /**
- * RDS fails on a generic (non-AZ-capacity) reason and the stack rolls back to
- * `ROLLBACK_COMPLETE`. Network completes fine first, so
- * `snapshotFailedStep` (apps/api/src/deployment-status.ts) has exactly one
- * failed category to report: `database` — e2e/scenario-provisioning.spec.ts
- * pins the resulting `deploymentStatus.step` as `DATABASE_STORAGE`, which
- * ./cloudformation-rollback.ts's existing test does not assert.
+ * RDS fails with InsufficientDBInstanceCapacity — the exact incident that
+ * motivated the AZ-placement fix. The stack rolls back to ROLLBACK_COMPLETE.
  *
- * The reason is deliberately NOT `InsufficientDBInstanceCapacity`: that
- * wording classifies as the more specific `RDS_AZ_CAPACITY` before the
- * generic RDS rule is reached, and ./rds-az-capacity.ts covers it. This
- * scenario keeps the generic `DATABASE_CREATE_FAILED` path covered.
+ * This scenario reproduces the original failure mode: the database subnet
+ * group only covers two AZs, and AWS reports no capacity in either. The fix
+ * widens the subnet group to all available AZs, so a retry can succeed when
+ * capacity becomes available in a different AZ.
+ *
+ * The scenario asserts:
+ * - The stack rolls back to ROLLBACK_COMPLETE
+ * - The failure is classified as RDS_AZ_CAPACITY (not DATABASE_CREATE_FAILED)
+ * - The deployment settles FAILED with the correct failure code
  */
-export const databaseFailure: ScenarioDefinition = {
-  id: 'database-failure',
+export const rdsAzCapacity: ScenarioDefinition = {
+  id: 'rds-az-capacity',
   description:
-    'RDS CREATE_FAILED on a generic reason; stack rolls back to ROLLBACK_COMPLETE. Terminal FAILED with failure code DATABASE_CREATE_FAILED and step DATABASE_STORAGE.',
+    'RDS CREATE_FAILED on InsufficientDBInstanceCapacity; stack rolls back to ROLLBACK_COMPLETE. Terminal FAILED with failure code RDS_AZ_CAPACITY.',
   finalStackStatus: 'ROLLBACK_COMPLETE',
   redisRequired: false,
   timeline: [
@@ -30,7 +31,7 @@ export const databaseFailure: ScenarioDefinition = {
       resourceType: 'AWS::RDS::DBInstance',
       status: 'CREATE_FAILED',
       statusReason:
-        'InvalidParameterCombination: The parameter group family postgres16 is not compatible with the specified engine version.',
+        'InsufficientDBInstanceCapacity: There is not enough capacity for the requested DB instance class in this Availability Zone.',
     },
     {
       afterMs: 230,

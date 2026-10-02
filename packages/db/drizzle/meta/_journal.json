@@ -351,6 +351,13 @@
       "when": 1893888000000,
       "tag": "0049_async_component_kinds",
       "breakpoints": true
+    },
+    {
+      "idx": 50,
+      "version": "7",
+      "when": 1893974400000,
+      "tag": "0050_rds_az_capacity",
+      "breakpoints": true
     }
   ]
 }
