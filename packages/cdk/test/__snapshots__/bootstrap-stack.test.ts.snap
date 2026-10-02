@@ -1205,6 +1205,8 @@ exports[`BootstrapStack > matches the committed snapshot 1`] = `
                 "ec2:AttachInternetGateway",
                 "ec2:DetachInternetGateway",
                 "ec2:ModifyVpcAttribute",
+                "ec2:AssociateVpcCidrBlock",
+                "ec2:DisassociateVpcCidrBlock",
                 "ec2:ModifySubnetAttribute",
                 "ec2:AuthorizeSecurityGroupIngress",
                 "ec2:AuthorizeSecurityGroupEgress",
