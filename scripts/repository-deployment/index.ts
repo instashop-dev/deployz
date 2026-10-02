@@ -334,8 +334,9 @@ interface Series {
 async function ensureVendor(evidenceDir: string, config: CanaryConfig): Promise<ControlPlane> {
   const api = new ControlPlane(config.apiUrl, config.webUrl);
   const series = readSeries(evidenceDir);
-  if (series.vendor) {
-    await api.signIn(series.vendor);
+  const existing = config.vendor ?? series.vendor;
+  if (existing) {
+    await api.signIn(existing);
     return api;
   }
   const stamp = new Date().toISOString().replace(/[-:T.Z]/g, '').slice(0, 14);
@@ -356,13 +357,17 @@ async function activateOrganization(api: ControlPlane, organizationId: string): 
  * organization holds, so every attempt runs in the series organization (the product still allows one
  * application per repository per organization; use --reuse-application to retry a repository).
  */
-async function createAttemptOrganization(api: ControlPlane, name: string, evidenceDir: string): Promise<string> {
+async function createAttemptOrganization(api: ControlPlane, name: string, evidenceDir: string, persistentVendor: boolean): Promise<string> {
   const series = readSeries(evidenceDir);
   if (series.organizationId) return activateOrganization(api, series.organizationId);
-  const { body } = await api.request<{ id: string }>('POST', '/api/organizations', { name });
-  await api.request('POST', `/api/organizations/${body.id}/activate`, {});
-  writeSeries(evidenceDir, { ...readSeries(evidenceDir), organizationId: body.id });
-  return body.id;
+  // A persistent vendor (DEPLOYZ_CANARY_VENDOR_EMAIL) runs in the organization that already holds the binding.
+  const id = persistentVendor
+    ? (await api.request<{ organization: { id: string } | null }>('GET', '/api/me')).body.organization?.id
+    : (await api.request<{ id: string }>('POST', '/api/organizations', { name })).body.id;
+  if (!id) throw new Error('the persistent canary vendor has no organization');
+  await api.request('POST', `/api/organizations/${id}/activate`, {});
+  writeSeries(evidenceDir, { ...readSeries(evidenceDir), organizationId: id });
+  return id;
 }
 
 async function probe(url: string): Promise<{ status: number | null; error?: string }> {
@@ -460,7 +465,7 @@ async function runAttempt(series: Series, options: RunOptions, config: DeployCon
   const reused = options.reuseApplication ? readSeries(options.evidenceDir).applications?.[entry.id] : undefined;
   const organizationId = reused
     ? await activateOrganization(series.api, reused.organizationId)
-    : await createAttemptOrganization(series.api, `Stage B ${entry.id} ${runId.slice(-9)}`, options.evidenceDir);
+    : await createAttemptOrganization(series.api, `Stage B ${entry.id} ${runId.slice(-9)}`, options.evidenceDir, series.config.vendor !== null);
   if (reused) console.log(`  reusing organization ${organizationId} and application ${reused.applicationId}`);
   stageBRun(evidence).stageB.organizationId = organizationId;
   evidence.save();

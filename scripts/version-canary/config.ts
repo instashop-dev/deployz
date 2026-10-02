@@ -60,6 +60,14 @@ export interface CanaryConfig {
   readonly controlPlaneRegion: string;
   readonly expectedAccountId: string;
   readonly githubInstallationId: string;
+  /**
+   * The persistent canary vendor (env DEPLOYZ_CANARY_VENDOR_EMAIL and
+   * DEPLOYZ_CANARY_VENDOR_PASSWORD). The control plane refuses to bind an
+   * installation that another organization holds, so a fresh organization
+   * per run can bind it at most once; this vendor's organization holds the
+   * binding across runs. Null signs up a fresh vendor per run.
+   */
+  readonly vendor: { email: string; password: string } | null;
   readonly fixtureRepo: string;
   readonly resultsDir: string;
   /** Skip the destroy/purge/teardown at the end (debugging only). */
@@ -135,6 +143,16 @@ function loadProfile(env: NodeJS.ProcessEnv, overrideName?: string): CanaryProfi
   return { name: name as CanaryProfileName, ...shape };
 }
 
+function loadVendor(env: NodeJS.ProcessEnv): { email: string; password: string } | null {
+  const email = env['DEPLOYZ_CANARY_VENDOR_EMAIL'] ?? '';
+  const password = env['DEPLOYZ_CANARY_VENDOR_PASSWORD'] ?? '';
+  if (email === '' && password === '') return null;
+  if (email === '' || password === '') {
+    throw new Error('Set both DEPLOYZ_CANARY_VENDOR_EMAIL and DEPLOYZ_CANARY_VENDOR_PASSWORD, or neither.');
+  }
+  return { email, password };
+}
+
 export function loadConfig(
   env: NodeJS.ProcessEnv,
   overrides: Partial<Pick<CanaryConfig, 'runId' | 'keep' | 'existingImageDigest' | 'reuseStack'>> & {
@@ -152,9 +170,10 @@ export function loadConfig(
     region: env['AWS_REGION'] ?? 'us-east-1',
     controlPlaneRegion: env['DEPLOYZ_CONTROL_PLANE_REGION'] ?? 'us-east-1',
     expectedAccountId: env['DEPLOYZ_CANARY_EXPECTED_ACCOUNT'] ?? '151955775369',
-    githubInstallationId: env['DEPLOYZ_CANARY_GITHUB_INSTALLATION_ID'] ?? '156387233',
+    githubInstallationId: env['DEPLOYZ_CANARY_GITHUB_INSTALLATION_ID'] || '156387233',
+    vendor: loadVendor(env),
     // An explicit fixture repo always wins over the profile's default.
-    fixtureRepo: env['DEPLOYZ_CANARY_FIXTURE_REPO'] ?? profile?.fixtureRepo ?? DEFAULT_FIXTURE_REPO,
+    fixtureRepo: env['DEPLOYZ_CANARY_FIXTURE_REPO'] || (profile?.fixtureRepo ?? DEFAULT_FIXTURE_REPO),
     resultsDir: resolve(env['DEPLOYZ_CANARY_RESULTS_DIR'] ?? 'canary-results'),
     keep: overrides.keep ?? false,
     existingImageDigest: validateDigest(overrides.existingImageDigest ?? env['DEPLOYZ_E2E_EXISTING_IMAGE_DIGEST'] ?? null),

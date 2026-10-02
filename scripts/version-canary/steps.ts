@@ -139,12 +139,18 @@ export async function setUpVendorAndApplication(canary: Canary): Promise<string>
   const { config, evidence, api } = canary;
   const requirements = applicationRequirements(config.profile);
   const applicationId = await evidence.step('Vendor sign-up, GitHub binding, application', async (details) => {
-    const email = `canary-${config.runId.toLowerCase()}@deployz-canary.example.com`;
-    const password = `Canary-${config.runId}-${randomBytes(9).toString('base64url')}`;
-    await api.signUp({ name: `Canary ${config.runId}`, email, password });
-    evidence.run.vendor = { email };
-    evidence.saveCredentials(email, password);
-    details['vendorEmail'] = email;
+    if (config.vendor) {
+      await api.signIn(config.vendor);
+      evidence.run.vendor = { email: config.vendor.email };
+      details['vendorEmail'] = config.vendor.email;
+    } else {
+      const email = `canary-${config.runId.toLowerCase()}@deployz-canary.example.com`;
+      const password = `Canary-${config.runId}-${randomBytes(9).toString('base64url')}`;
+      await api.signUp({ name: `Canary ${config.runId}`, email, password });
+      evidence.run.vendor = { email };
+      evidence.saveCredentials(email, password);
+      details['vendorEmail'] = email;
+    }
 
     await api.bindGithubInstallation(config.githubInstallationId);
     const installations = await api.listGithubInstallations();

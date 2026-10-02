@@ -115,7 +115,7 @@ async function main(): Promise<void> {
       const evidence = Evidence.open(config.resultsDir, values['run-id']);
       evidence.run.scenario = 'cleanup';
       const api = new ControlPlane(config.apiUrl, config.webUrl);
-      const credentials = evidence.loadCredentials();
+      const credentials = config.vendor ?? evidence.loadCredentials();
       if (credentials) await api.signIn(credentials);
       const canary: Canary = { config, evidence, api };
       try {

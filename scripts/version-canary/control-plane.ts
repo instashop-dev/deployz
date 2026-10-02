@@ -226,7 +226,11 @@ export class ControlPlane {
     );
     const location = headers.get('location') ?? '';
     if (status < 300 || !location.includes('github=connected')) {
-      throw new Error(`GitHub binding did not report connected (status ${status}, location ${location})`);
+      throw new Error(
+        `GitHub binding did not report connected (status ${status}, location ${location}). ` +
+          `If installation ${installationId} is bound to another organization, run as the vendor that holds it ` +
+          `(DEPLOYZ_CANARY_VENDOR_EMAIL/DEPLOYZ_CANARY_VENDOR_PASSWORD) — see docs/testing/aws-e2e.md.`,
+      );
     }
     return location;
   }
@@ -252,8 +256,19 @@ export class ControlPlane {
     databaseRequired?: boolean;
     redisRequired?: boolean;
   }): Promise<{ id: string }> {
-    const { body } = await this.request<{ id: string }>('POST', '/api/applications', input);
-    return body;
+    // A persistent vendor organization keeps the application across runs: an
+    // application with deployment history cannot be removed, and the product
+    // allows one application per repository per organization. Reuse it.
+    const { status, body } = await this.request<{ id: string } | { error: { details?: { applicationId?: string } } }>(
+      'POST',
+      '/api/applications',
+      input,
+      { allowStatus: [409] },
+    );
+    if (status !== 409) return body as { id: string };
+    const applicationId = 'error' in body ? body.error.details?.applicationId : undefined;
+    if (!applicationId) throw new ControlPlaneError(409, null, `POST /api/applications -> 409: ${JSON.stringify(body)}`, body);
+    return { id: applicationId };
   }
 
   async getApplication(id: string): Promise<Record<string, unknown>> {
