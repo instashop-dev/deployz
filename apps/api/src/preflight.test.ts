@@ -1,11 +1,14 @@
+import { PGlite } from '@electric-sql/pglite';
 import { describe, expect, it } from 'vitest';
 
 import type { ReadinessReport } from '@deployz/analysis';
 import type { DeploymentManifest } from '@deployz/contracts';
 
 import type { EnvironmentSetting } from '@deployz/contracts';
+import { applyMigrations, createDb } from '@deployz/db';
+import * as schema from '@deployz/db/schema';
 
-import { evaluatePreflight, requirePreflightReady } from './preflight.js';
+import { evaluatePreflight, requirePreflightReady, runDeploymentPreflight } from './preflight.js';
 
 // AI MVP Phase 5 — the preflight gate: manifest gate + this customer's
 // configuration + the readiness report's remaining findings, as one result
@@ -239,4 +242,42 @@ describe('requirePreflightReady', () => {
     const unsupported = evaluatePreflight({ manifest: manifest({ unsupported: ['x'] }), providedEnvKeys: [], readiness: null });
     expect(() => requirePreflightReady(unsupported)).toThrow(expect.objectContaining({ code: 'MANIFEST_NOT_COMPATIBLE' }));
   });
+});
+
+describe('runDeploymentPreflight — the install gates', () => {
+  it("applies the vendor's saved decisions when the caller passes no application (launch, retry, relay register)", async () => {
+    const client = new PGlite();
+    await applyMigrations(client);
+    const db = createDb(client);
+    try {
+      await db.insert(schema.organization).values({ id: 'org-preflight-gates', name: 'Acme', slug: 'org-preflight-gates' });
+      const internalToken = { key: 'INTERNAL_TOKEN', required: true, secret: true, source: [], purpose: 'internal_secret' as const, classification: 'customer_required' as const };
+      const [application] = await db
+        .insert(schema.applications)
+        .values({
+          organizationId: 'org-preflight-gates',
+          name: 'openship',
+          repoFullName: 'acme/openship',
+          repoUrl: 'https://github.com/acme/openship',
+          environmentSettings: [{ key: 'INTERNAL_TOKEN', stage: 'runtime', required: true, secret: true, provider: 'deployz' }],
+        })
+        .returning();
+      const [customer] = await db
+        .insert(schema.customers)
+        .values({ organizationId: 'org-preflight-gates', name: 'Customer', email: 'c@example.com' })
+        .returning();
+      const desiredState = {
+        manifest: manifest({ environment: { variables: [manifest().environment.variables[0]!, internalToken] } }),
+      };
+
+      const result = await runDeploymentPreflight(
+        db,
+        { applicationId: application!.id, customerId: customer!.id, desiredState },
+        null,
+      );
+      expect(result.ready).toBe(true);
+    } finally {
+      await client.close();
+    }
+  }, 60_000);
 });
