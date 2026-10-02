@@ -286,11 +286,18 @@ items are additions, not replacements:
 5. **Combined Phase 4 topology** — the full
    `deployz-demo/composed-app` composition end to end, from analysis to
    purge.
+6. **Migration correction** — after a failed frozen migration, a
+   same-image correction registers a new revision of the migration family
+   (only the application container's command and image change; the RDS CA
+   init container stays) and recovers; "No separate migration" deploys
+   without a run. The change that added it deferred this run by
+   instruction; the run is not waived.
 
 These runs should become targeted canary profiles before the Phase 4
 shapes face real customer installs; until then the simulated scenarios
 (`multi-worker-sweep`, `mysql-sweep`, `migration-success`,
-`migration-failure`, `phase4-composition`) are the standing evidence.
+`migration-failure`, `migration-correction`, `phase4-composition`) are the
+standing evidence.
 
 **AWS Gate C (2026-09-28) — first real-AWS evidence.** Stage B ran the
 independent repository `Synapsr/Hovod` (`repo-221`) through the product
@@ -306,7 +313,7 @@ ROLLBACK → Disconnect → Purge → leak audit, all passing after seven fixes
   on that install (#399); the fix is verified in the compiled
   artifact, and a live task on a fresh MySQL install is still to show
   3306.
-- Items 1, 3, 4 and 5: **still pending.** Hovod runs its worker as a
+- Items 1, 3, 4, 5 and 6: **still pending.** Hovod runs its worker as a
   second process in the web task and its migrations inside API
   startup, so no separate worker service and no migration workload were
   provisioned.

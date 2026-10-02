@@ -3471,13 +3471,19 @@ const RUNTIME_MANIFESTS: { pattern: RegExp; runtime: RuntimeFamily }[] = [
   { pattern: /(?:^|\/)Cargo\.toml$/, runtime: 'rust' },
 ];
 
-function runtimeFromImage(image: string): RuntimeFamily | null {
-  // Strip a digest, a tag and a registry host (`public.ecr.aws/docker/
-  // library/node:22`) down to the image name before matching.
+/**
+ * Strip a digest, a tag and a registry host (`public.ecr.aws/docker/
+ * library/node:22`) down to the image name.
+ */
+function imageName(image: string): string {
   const withoutDigest = image.split('@')[0] ?? image;
   const tagIndex = withoutDigest.lastIndexOf(':');
   const path = tagIndex > withoutDigest.lastIndexOf('/') ? withoutDigest.slice(0, tagIndex) : withoutDigest;
-  const name = path.replace(/^[^/]+\.[^/]+\//, '').replace(/^library\//, '');
+  return path.replace(/^[^/]+\.[^/]+\//, '').replace(/^library\//, '');
+}
+
+function runtimeFromImage(image: string): RuntimeFamily | null {
+  const name = imageName(image);
   return RUNTIME_IMAGES.find(({ pattern }) => pattern.test(name))?.runtime ?? null;
 }
 
@@ -3626,6 +3632,173 @@ export function detectRuntime(tree: FileTree): DetectorFinding {
   }
 
   return { detector: 'runtime', detected: false };
+}
+
+// 15b. Migration runner
+// ---------------------------------------------------------------------------
+
+/** Whether the runtime image can run a migration command the way Deployz runs it. */
+export type MigrationRunnerVerdict =
+  | { readonly runnable: true; readonly needsNpx: boolean }
+  | { readonly runnable: false; readonly reason: string };
+
+/** The package runners a migration command can start with. */
+const JS_RUNNERS: ReadonlySet<string> = new Set(['npx', 'npm', 'yarn', 'pnpm', 'bun', 'bunx', 'node', 'deno']);
+
+/** Bare ORM CLI invocation (a package.json script) → the package that ships the binary. */
+const ORM_CLI_PACKAGES: Readonly<Record<string, string>> = {
+  prisma: 'prisma',
+  'drizzle-kit': 'drizzle-kit',
+  knex: 'knex',
+  sequelize: 'sequelize-cli',
+  'sequelize-cli': 'sequelize-cli',
+  typeorm: 'typeorm',
+  'node-pg-migrate': 'node-pg-migrate',
+  migrate: 'migrate',
+};
+
+const NODE_MODULES_INSTALL_REGEX =
+  /\b(?:npm\s+(?:ci|install|i)|yarn\s+install|pnpm\s+(?:install|i)|bun\s+install)\b(?![^\n]*(?:\s-g\b|--global\b))/;
+const PRODUCTION_ONLY_REGEX = /--omit[= ]dev\b|--production\b|--prod\b|--only[= ]prod|NODE_ENV[= ]["']?production\b/;
+
+interface RuntimeImage {
+  /** The external image the runtime stage ancestry starts from. */
+  readonly base: string;
+  readonly hasShell: boolean;
+  readonly tools: ReadonlySet<string>;
+  /** What the runtime image shows of installed node_modules. */
+  readonly nodeModules: 'none' | 'production' | 'all';
+}
+
+/** The runtime stage and its `FROM <stage>` ancestry, runtime stage first. */
+function dockerfileStageChain(stages: DockerfileStage[], index: number): DockerfileStage[] {
+  const chain: DockerfileStage[] = [];
+  let position = index;
+  let stage = stages[position];
+  while (stage !== undefined && chain.length <= stages.length) {
+    chain.push(stage);
+    const parent = resolveDockerfileStage(stage.image, stages, position);
+    if (parent === undefined) break;
+    position = stages.indexOf(parent);
+    stage = parent;
+  }
+  return chain;
+}
+
+function nodeModulesOf(text: string): 'none' | 'production' | 'all' {
+  const installs = text.split('\n').filter((line) => NODE_MODULES_INSTALL_REGEX.test(line));
+  if (installs.length === 0) return 'none';
+  return PRODUCTION_ONLY_REGEX.test(text) ? 'production' : 'all';
+}
+
+/**
+ * What the selected Dockerfile's runtime stage provides, read from the final
+ * stage and the stages it is built `FROM`: the base image's own tools, the
+ * runners its instructions install or remove, and the node_modules it
+ * installs or copies from another stage. Null when the base image is a
+ * build argument or another value that cannot be read.
+ */
+function runtimeImageOf(content: string): RuntimeImage | null {
+  const stages = parseDockerfileStages(content);
+  const chain = dockerfileStageChain(stages, stages.length - 1);
+  const base = chain.at(-1)?.image;
+  if (base === undefined || base.includes('$')) return null;
+  const text = chain.map((stage) => stage.body).join('\n');
+  const name = imageName(base);
+  const tools = new Set<string>();
+  if (/(?:^|\/)node$/.test(name) && !name.startsWith('chainguard/')) {
+    for (const tool of ['node', 'npm', 'npx', 'yarn']) tools.add(tool);
+  } else if (/(?:^|\/)bun$/.test(name)) {
+    for (const tool of ['bun', 'bunx']) tools.add(tool);
+  } else if (/(?:^|\/)deno$/.test(name)) {
+    tools.add('deno');
+  }
+  if (tools.has('npm')) {
+    if (/\bcorepack\s+enable\b|\bnpm\s+(?:i|install)\s+(?:-g|--global)\b[^\n]*\bpnpm\b/.test(text)) tools.add('pnpm');
+    if (/\brm\b[^\n]*\/(?:npm|npx)\b/.test(text)) {
+      tools.delete('npm');
+      tools.delete('npx');
+    }
+  }
+
+  // A COPY --from carries node_modules when it names them, or copies the
+  // whole working directory the source stage installed into.
+  let nodeModules = nodeModulesOf(text);
+  for (const stage of chain) {
+    for (const copy of parseCopyFromLines(stage.body)) {
+      const from = resolveDockerfileStage(copy.from, stages, stages.indexOf(stage));
+      if (from === undefined) continue;
+      const fromChain = dockerfileStageChain(stages, stages.indexOf(from));
+      const fromText = fromChain.map((s) => s.body).join('\n');
+      const workdir = fromChain
+        .map((s) => [...s.body.matchAll(DOCKERFILE_WORKDIR_REGEX)].at(-1)?.[1])
+        .find((dir) => dir !== undefined)
+        ?.replace(/\/$/, '');
+      const carriesNodeModules = copy.sources.some(
+        (source) => source.includes('node_modules') || source.replace(/\/$/, '') === workdir,
+      );
+      if (!carriesNodeModules) continue;
+      const copied = nodeModulesOf(fromText);
+      if (copied === 'all' || (copied === 'production' && nodeModules === 'none')) nodeModules = copied;
+    }
+  }
+  return { base, hasShell: !/^(?:distroless\/|scratch$)/.test(name), tools, nodeModules };
+}
+
+/** Whether a package.json in the tree declares the package for the node_modules the image holds. */
+function packageInstalled(tree: FileTree, pkg: string, nodeModules: RuntimeImage['nodeModules']): boolean {
+  if (nodeModules === 'none') return false;
+  return parsePackageJsonsWithPath(tree).some(({ pkg: manifest }) => {
+    const dependencies = manifest['dependencies'];
+    const devDependencies = manifest['devDependencies'];
+    const inProduction = typeof dependencies === 'object' && dependencies !== null && pkg in dependencies;
+    const inDevelopment = typeof devDependencies === 'object' && devDependencies !== null && pkg in devDependencies;
+    return inProduction || (nodeModules === 'all' && inDevelopment);
+  });
+}
+
+/**
+ * Whether the image Deployz builds from the selected Dockerfile can run a
+ * migration command as the relay runs it: `sh -c <command>` at the image's
+ * WORKDIR, without the package script runner's PATH. Only a JavaScript
+ * package runner (or a bare ORM CLI, which needs `npx`) is checked; any
+ * other command is left to the vendor. The runner must ship with the
+ * runtime image or be installed by its instructions, and a CLI that `npx`
+ * starts must already be in the image's node_modules, because `npx` would
+ * otherwise download it at run time. Dependencies alone never prove that.
+ * Anything uncertain is not runnable, so the vendor decides.
+ */
+export function migrationRunnerVerdict(tree: FileTree, command: string): MigrationRunnerVerdict {
+  const [first = '', ...rest] = command.trim().split(/\s+/);
+  const bareCli = ORM_CLI_PACKAGES[first] !== undefined;
+  const runner = bareCli ? 'npx' : first;
+  if (!JS_RUNNERS.has(runner)) return { runnable: true, needsNpx: false };
+
+  const dockerfile = selectedDockerfile(tree);
+  if (dockerfile === null) {
+    return { runnable: false, reason: 'no Dockerfile shows what the runtime image contains' };
+  }
+  const image = runtimeImageOf(dockerfile.content);
+  if (image === null) {
+    return { runnable: false, reason: `the runtime image of ${dockerfile.path} cannot be determined` };
+  }
+  if (!image.hasShell) {
+    return { runnable: false, reason: `the runtime image ${image.base} has no shell to run a command` };
+  }
+  if (!image.tools.has(runner)) {
+    return { runnable: false, reason: `the runtime image ${image.base} is not shown to provide ${runner}` };
+  }
+  if (runner === 'npx') {
+    const cli = bareCli ? first : rest.find((token) => !token.startsWith('-'));
+    const pkg = cli !== undefined ? (ORM_CLI_PACKAGES[cli] ?? cli) : undefined;
+    if (pkg === undefined || !packageInstalled(tree, pkg, image.nodeModules)) {
+      return {
+        runnable: false,
+        reason: `the runtime image is not shown to contain ${pkg ?? 'the command'}, so npx would download it at run time`,
+      };
+    }
+  }
+  return { runnable: true, needsNpx: bareCli };
 }
 
 // 16. Bind address

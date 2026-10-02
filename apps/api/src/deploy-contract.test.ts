@@ -300,6 +300,158 @@ describe('deploy contract, busy gate and restart', () => {
     });
   });
 
+  describe('migration policy snapshot (correction / no separate migration)', () => {
+    const CORRECTED = 'bunx prisma migrate deploy';
+
+    /** A fresh application (the policy is application-level), its release and a migrating deployment. */
+    async function migratingSetup(version: string, spec: DeploymentSpecV2 | null = migratingSpec()) {
+      const [application] = await db
+        .insert(schema.applications)
+        .values({
+          organizationId,
+          name: 'Migrating',
+          repoFullName: `acme/mig-${crypto.randomUUID().slice(0, 8)}`,
+          repoUrl: 'https://github.com/acme/mig',
+          defaultBranch: 'main',
+          migrationCommand: 'npm run db:migrate',
+        })
+        .returning();
+      const [release] = await db
+        .insert(schema.releases)
+        .values({
+          applicationId: application!.id,
+          version,
+          gitSha: 'abc123',
+          imageDigest: digestFor(version),
+          buildStatus: 'SUCCEEDED',
+          releaseStatus: 'READY',
+        })
+        .returning();
+      const deployment = await seedDeployment({
+        applicationId: application!.id,
+        ...(spec !== null ? { specV2: spec as unknown as Record<string, unknown> } : {}),
+      });
+      return { appId: application!.id, releaseId: release!.id, deployment };
+    }
+
+    function setMigration(appId: string, migrationCommand: string | null) {
+      return app.inject({
+        method: 'PATCH',
+        url: `/api/applications/${appId}`,
+        headers: { cookie, 'content-type': 'application/json' },
+        payload: JSON.stringify({ migrationCommand }),
+      });
+    }
+
+    async function deployJobs(deploymentId: string) {
+      return (
+        await db.select().from(schema.deploymentJobs).where(eq(schema.deploymentJobs.deploymentId, deploymentId))
+      ).filter((job) => job.type === 'DEPLOY_RELEASE');
+    }
+
+    it('records an explicit null as the vendor decision "No separate migration"', async () => {
+      const { appId } = await migratingSetup('v7.0.0');
+      const response = await setMigration(appId, null);
+      expect(response.statusCode, response.body).toBe(200);
+      const [row] = await db.select().from(schema.applications).where(eq(schema.applications.id, appId));
+      expect(row?.migrationCommand).toBeNull();
+      expect(row?.detectedMetadata?.['vendorOverrides']).toContain('migrationCommand');
+    });
+
+    it('snapshots a same-image correction: the command and a new identity ride the seat', async () => {
+      const { appId, releaseId, deployment } = await migratingSetup('v7.1.0');
+      // The frozen command already ran for this exact image.
+      await seedConfirmedMigration(deployment.id, migrationIdentity('npm run db:migrate', digestOf('v7.1.0')));
+      await setMigration(appId, CORRECTED);
+
+      const response = await post(`/api/deployments/${deployment.id}/deploy`, { releaseId });
+      expect(response.statusCode, response.body).toBe(202);
+
+      const job = (await deployJobs(deployment.id)).find((entry) => entry.state === 'REQUESTED');
+      expect(job?.payload).toMatchObject({
+        migrationTask: {
+          family: 'DeployzAppMigration',
+          identity: migrationIdentity(CORRECTED, digestOf('v7.1.0')),
+          command: CORRECTED,
+        },
+        migrationPolicy: expect.stringMatching(/^corrected:[0-9a-f]{16}$/),
+      });
+      expect(job?.idempotencyKey).toMatch(new RegExp(`^${deployment.id}:DEPLOY_RELEASE:${releaseId}:migration:corrected:`));
+    });
+
+    it('skips the migration for "No separate migration" and keys the job on that policy', async () => {
+      const { appId, releaseId, deployment } = await migratingSetup('v7.2.0');
+      await setMigration(appId, null);
+
+      const response = await post(`/api/deployments/${deployment.id}/deploy`, { releaseId });
+      expect(response.statusCode, response.body).toBe(202);
+
+      const [job] = await deployJobs(deployment.id);
+      expect(job?.payload).not.toHaveProperty('migrationTask');
+      expect(job?.payload).toMatchObject({ migrationPolicy: 'skip' });
+      expect(job?.idempotencyKey).toBe(`${deployment.id}:DEPLOY_RELEASE:${releaseId}:migration:skip`);
+    });
+
+    it('treats a correction equal to the frozen command as the frozen policy', async () => {
+      const { appId, releaseId, deployment } = await migratingSetup('v7.3.0');
+      await setMigration(appId, 'npm run db:migrate');
+      await setMigration(appId, 'npm run db:migrate ');
+
+      await post(`/api/deployments/${deployment.id}/deploy`, { releaseId });
+
+      const [job] = await deployJobs(deployment.id);
+      expect(job?.payload).not.toHaveProperty('migrationPolicy');
+      expect(job?.payload).toMatchObject({
+        migrationTask: { identity: migrationIdentity('npm run db:migrate', digestOf('v7.3.0')) },
+      });
+      expect((job?.payload as { migrationTask: object }).migrationTask).not.toHaveProperty('command');
+      expect(job?.idempotencyKey).toBe(`${deployment.id}:DEPLOY_RELEASE:${releaseId}`);
+    });
+
+    it('never changes an active job: a policy edit while a deploy is active is refused as busy', async () => {
+      const { appId, releaseId, deployment } = await migratingSetup('v7.4.0');
+      expect((await post(`/api/deployments/${deployment.id}/deploy`, { releaseId })).statusCode).toBe(202);
+      const [active] = await deployJobs(deployment.id);
+
+      await setMigration(appId, CORRECTED);
+      const response = await post(`/api/deployments/${deployment.id}/deploy`, { releaseId });
+      expect(response.statusCode).toBe(409);
+      expect(response.json()).toMatchObject({ error: { code: 'DEPLOYMENT_BUSY' } });
+
+      const jobs = await deployJobs(deployment.id);
+      expect(jobs).toHaveLength(1);
+      expect(jobs[0]?.payload).toEqual(active?.payload);
+    });
+
+    it('refuses to enable a migration on a deployment created without a migration step', async () => {
+      const { appId, releaseId, deployment } = await migratingSetup('v7.5.0', null);
+      await setMigration(appId, CORRECTED);
+
+      const response = await post(`/api/deployments/${deployment.id}/deploy`, { releaseId });
+      expect(response.statusCode).toBe(409);
+      expect(response.json()).toMatchObject({ error: { code: 'MIGRATION_WORKLOAD_MISSING' } });
+      expect(await deployJobs(deployment.id)).toHaveLength(0);
+
+      const bulk = await post(`/api/applications/${appId}/deploy-bulk`, { releaseId });
+      expect(bulk.statusCode, bulk.body).toBe(200);
+      expect(bulk.json().results).toEqual([
+        expect.objectContaining({ deploymentId: deployment.id, status: 'SKIPPED', reason: expect.stringContaining('No separate migration') }),
+      ]);
+    });
+
+    it('bulk deploy snapshots each target policy the same way as the single route', async () => {
+      const { appId, releaseId, deployment } = await migratingSetup('v7.6.0');
+      await setMigration(appId, CORRECTED);
+
+      const bulk = await post(`/api/applications/${appId}/deploy-bulk`, { releaseId });
+      expect(bulk.json().results).toEqual([expect.objectContaining({ status: 'REQUESTED' })]);
+
+      const [job] = await deployJobs(deployment.id);
+      expect(job?.payload).toMatchObject({ migrationTask: { command: CORRECTED } });
+      expect(job?.idempotencyKey).toMatch(/:migration:corrected:/);
+    });
+  });
+
   it('rollback and restart payloads never carry the migration seat', async () => {
     const deployment = await seedDeployment({ specV2: migratingSpec() as unknown as Record<string, unknown> });
     const releaseId = await seedRelease('v0.15.0');

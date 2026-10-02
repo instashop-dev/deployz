@@ -266,15 +266,23 @@ describe('effectiveReadinessReport — vendor configuration resolves findings', 
   const startFinding = finding({ id: 'start-command-missing', category: 'container', title: 'Tell Deployz how to start your app', confidence: 'confirmed' });
   const stored = report({ requiredCount: 2, findings: [portFinding, startFinding] });
 
-  it('reads the container port column and the manifest-only start command as the resolution', () => {
+  it('reads the container port column, the manifest-only start command and the migration choice as the resolution', () => {
     expect(
       readinessResolution({ containerPort: 8080, detectedMetadata: { manifestOverrides: { startCommand: 'node x.js' } } }),
-    ).toEqual({ containerPort: 8080, startCommand: 'node x.js' });
+    ).toEqual({ containerPort: 8080, startCommand: 'node x.js', migrationCommandDecided: false });
     expect(readinessResolution({ containerPort: null, detectedMetadata: { manifestOverrides: { startCommand: '' } } })).toEqual({
       containerPort: null,
       startCommand: null,
+      migrationCommandDecided: false,
     });
-    expect(readinessResolution({ containerPort: null, detectedMetadata: null })).toEqual({ containerPort: null, startCommand: null });
+    expect(readinessResolution({ containerPort: null, detectedMetadata: null })).toEqual({
+      containerPort: null,
+      startCommand: null,
+      migrationCommandDecided: false,
+    });
+    expect(
+      readinessResolution({ containerPort: null, detectedMetadata: { vendorOverrides: ['migrationCommand'] } }).migrationCommandDecided,
+    ).toBe(true);
   });
 
   it('applies the resolution to the stored report without changing it', () => {

@@ -175,9 +175,11 @@ export interface ScenarioDefinition {
    * Phase 4C: the outcome of the one-shot MIGRATION task a DEPLOY_RELEASE
    * runs (packages/relay/src/deploy.ts settleMigration). Absent defaults to
    * 'succeed'. A 'fail' answer is a STOPPED task with exit code 1 and a
-   * migration-shaped stoppedReason.
+   * migration-shaped stoppedReason. 'fail-frozen' fails only a revision that
+   * still runs the frozen command, so a vendor correction (a new revision
+   * with another command) succeeds.
    */
-  readonly migrationBehavior?: 'succeed' | 'fail';
+  readonly migrationBehavior?: 'succeed' | 'fail' | 'fail-frozen';
   /** DESTROY behaviour. Absent means no lifecycle scenario in this test ever
    *  calls DeleteStack against this account. */
   readonly destroy?: DestroyScenario;

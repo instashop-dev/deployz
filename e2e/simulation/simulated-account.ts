@@ -24,7 +24,7 @@
  * `/install`, `/stack-events`, `/ecs-health`).
  */
 
-import { DEPLOYZ_INSTALLATION_TAG } from '@deployz/contracts';
+import { DEPLOYZ_INSTALLATION_TAG, deployzTaskFamily, workloadContainerCommand } from '@deployz/contracts';
 import {
   type CreateStackInput,
   type CreateStackOutcome,
@@ -76,6 +76,10 @@ interface ServiceDeployState {
 const FIXTURE_IMAGE_REPOSITORY = '123456789012.dkr.ecr.us-east-1.amazonaws.com/deployz-fixture';
 const BOOTSTRAP_IMAGE_DIGEST = `sha256:${'0'.repeat(64)}`;
 const RDS_CA_INIT_IMAGE = 'public.ecr.aws/amazonlinux/amazonlinux:2023-minimal';
+/** The migration family and the frozen command the fixtures' seeded `npm run db:migrate` compiles to. */
+const MIGRATION_FAMILY = deployzTaskFamily('migration');
+const FROZEN_MIGRATION_COMMAND = workloadContainerCommand('npm run db:migrate');
+const MIGRATION_TASK_LOGICAL_ID = 'MigrationTaskDefinition';
 
 function isStackLevel(event: TimelineEvent): boolean {
   return event.resourceType === STACK_EVENT_RESOURCE_TYPE;
@@ -124,6 +128,8 @@ export class SimulatedCustomerAccount {
    * behaviour.
    */
   private readonly taskDefinitionsByFamily = new Map<string, string>();
+  /** Family → the revision the stack itself created (its CloudFormation physical id). */
+  private readonly stackTaskDefinitionByFamily = new Map<string, string>();
   /**
    * One deploy/health state per ECS service (Phase 4A: one service per
    * workload), keyed by the service's ARN. Created lazily the first time a
@@ -261,11 +267,30 @@ export class SimulatedCustomerAccount {
     }
     const stackName = this.stackNameValue;
     if (stackName === null) return [];
+    // The compiled stack carries the migration task definition whenever the
+    // app has a migration command, and the fixtures configure one for every
+    // database app: it is complete by the time any ECS service is.
+    const serviceComplete = [...byResource.values()].some(
+      (event) => event.resourceType === 'AWS::ECS::Service' && SUCCESS_STATUSES.has(event.status),
+    );
+    if (serviceComplete && this.scenario.postgres !== false && !byResource.has(MIGRATION_TASK_LOGICAL_ID)) {
+      byResource.set(MIGRATION_TASK_LOGICAL_ID, {
+        afterMs: 0,
+        atVirtualMs: 0,
+        logicalResourceId: MIGRATION_TASK_LOGICAL_ID,
+        resourceType: 'AWS::ECS::TaskDefinition',
+        status: 'CREATE_COMPLETE',
+      });
+    }
     return [...byResource.entries()].map(([logicalId, event]) => ({
       logicalId,
       type: event.resourceType,
       status: event.status,
-      physicalId: physicalIdFor(event.resourceType, logicalId, stackName),
+      // A task definition's physical id is the exact revision the stack created.
+      physicalId:
+        event.resourceType === 'AWS::ECS::TaskDefinition'
+          ? this.stackTaskDefinitionArn(logicalId)
+          : physicalIdFor(event.resourceType, logicalId, stackName),
       timestamp: this.eventTimestampIso(event),
       ...(event.statusReason !== undefined ? { statusReason: event.statusReason } : {}),
     }));
@@ -590,15 +615,34 @@ export class SimulatedCustomerAccount {
       memory: '512',
       networkMode: 'awsvpc',
       requiresCompatibilities: ['FARGATE'],
-      // The compiler's container shape: the essential application container,
-      // then the non-essential RDS CA init container.
+      // The compiler's container shape: the essential application container
+      // (the migration family carries its frozen command), then the
+      // non-essential RDS CA init container.
       containerDefinitions: [
-        { name: 'App', image: `${FIXTURE_IMAGE_REPOSITORY}@${BOOTSTRAP_IMAGE_DIGEST}`, essential: true },
+        {
+          name: 'App',
+          image: `${FIXTURE_IMAGE_REPOSITORY}@${BOOTSTRAP_IMAGE_DIGEST}`,
+          essential: true,
+          ...(family === MIGRATION_FAMILY ? { command: [...FROZEN_MIGRATION_COMMAND] } : {}),
+        },
         { name: 'RdsCaBundle', image: RDS_CA_INIT_IMAGE, essential: false },
       ],
     });
     this.taskDefinitionsByFamily.set(family, arn);
+    this.stackTaskDefinitionByFamily.set(family, arn);
     return arn;
+  }
+
+  /** The revision the stack created for a task-definition logical id (`MigrationTaskDefinition` → `DeployzAppMigration`). */
+  private stackTaskDefinitionArn(logicalId: string): string {
+    const family = this.familyForLogicalId(logicalId.replace(/TaskDefinition$/, ''));
+    this.ensureTaskFamily(family);
+    return this.stackTaskDefinitionByFamily.get(family)!;
+  }
+
+  /** The task definition the last migration task ran, for scenario assertions. */
+  lastMigrationDefinition(): EcsTaskDefinition | undefined {
+    return this.migrationTaskDefinitionArn === null ? undefined : this.taskDefinitions.get(this.migrationTaskDefinitionArn);
   }
 
   /** Lazily creates the deploy state for every revealed service. */
@@ -689,8 +733,11 @@ export class SimulatedCustomerAccount {
     return {
       tasks: taskArns.flatMap((taskArn): SimulatedTask[] => {
         if (taskArn === this.migrationTaskArn && this.migrationTaskDefinitionArn !== null) {
-          const failed = this.scenario.migrationBehavior === 'fail';
           const definition = this.taskDefinitions.get(this.migrationTaskDefinitionArn);
+          const command = definition?.containerDefinitions.find((container) => container.essential !== false)?.['command'];
+          const frozen = JSON.stringify(command) === JSON.stringify(FROZEN_MIGRATION_COMMAND);
+          const failed =
+            this.scenario.migrationBehavior === 'fail' || (this.scenario.migrationBehavior === 'fail-frozen' && frozen);
           const containers = [...(definition?.containerDefinitions ?? [])]
             .sort((a, b) => Number(a.essential !== false) - Number(b.essential !== false))
             .map((container) => ({
@@ -871,7 +918,11 @@ export class SimulatedCustomerAccount {
     const found = this.taskDefinitions.get(arn);
     if (found === undefined) throw new Error(`Unknown task definition "${taskDefinition}"`);
     return {
-      taskDefinition: { ...found, containerDefinitions: found.containerDefinitions.map((c) => ({ ...c })) },
+      taskDefinition: {
+        ...found,
+        taskDefinitionArn: arn,
+        containerDefinitions: found.containerDefinitions.map((c) => ({ ...c })),
+      },
     };
   }
 

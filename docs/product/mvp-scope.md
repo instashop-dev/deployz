@@ -125,7 +125,9 @@ see [`user-flows.md#who-chooses-the-aws-region`](user-flows.md#who-chooses-the-a
   URL.
 - **Day-2 operations**: deploy a release (the migration runs once as a
   one-shot task before any service updates; an already-run migration is not
-  repeated), roll back (never re-runs migrations and warns that it does not
+  repeated; a corrected migration command, or "No separate migration",
+  applies to an existing deployment on its next release deployment without
+  changing its infrastructure), roll back (never re-runs migrations and warns that it does not
   reverse them), restart, update
   configuration, retry a failed install, reset the relay, retry default
   HTTPS.

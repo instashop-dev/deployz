@@ -24,9 +24,11 @@
  * DEPLOY_RELEASE additionally runs a migration stage before any service
  * rollout (Phase 4C): the spec-frozen one-shot migration task definition —
  * compiled from analyzed state with the command BAKED IN — is RunTask'd
- * as-is on the same cluster/VPC/secrets as the app services. No load
- * balancer, no command override (this module can never receive or inject
- * one), polled until STOPPED. Exit code 0 continues the deploy; anything
+ * on the same cluster/VPC/secrets as the app services. No load balancer, no
+ * RunTask command override, polled until STOPPED. A vendor's migration
+ * correction rides the seat and becomes a new revision of the same family
+ * (only the application container's command and image change); the relay
+ * then runs that exact revision. Exit code 0 continues the deploy; anything
  * else fails with MIGRATION_FAILED, names the migration task, and no
  * service is touched. ROLLBACK never runs migrations: schema changes are
  * never auto-reversed.
@@ -45,7 +47,7 @@
  * update must leave scheduled jobs on the previous image.
  */
 
-import type { FailureEvidence } from '@deployz/contracts';
+import { workloadContainerCommand, type FailureEvidence } from '@deployz/contracts';
 import type { CommandExecutor, RelayCommand, RelayCommandResult } from './commands.js';
 import type { PendingStore } from './pending.js';
 import type { CloudFormationReader } from './verify.js';
@@ -132,6 +134,8 @@ export interface EcsDeployClient {
  * the running service depends on.
  */
 export interface EcsTaskDefinition {
+  /** The exact revision AWS answered with — read only, never copied into a registration. */
+  taskDefinitionArn?: string | undefined;
   family?: string | undefined;
   cpu?: string | undefined;
   memory?: string | undefined;
@@ -194,6 +198,13 @@ export interface DeployMigrationTask {
    * control plane records confirmation against it, never this module.
    */
   readonly identity: string;
+  /**
+   * The vendor's migration correction, snapshotted when the job was queued,
+   * or null to run the frozen command the stack compiled. It replaces only
+   * the application container's command in a new revision of THIS family;
+   * nothing else in the task definition changes.
+   */
+  readonly command: string | null;
 }
 
 /** A deploy request after payload validation. */
@@ -246,16 +257,20 @@ const DIGEST_PATTERN = /^sha256:[0-9a-f]{64}$/;
  */
 const TASK_FAMILY_PATTERN = /^DeployzApp[A-Za-z0-9]+$/;
 
+/** The longest migration correction the relay accepts. */
+const MIGRATION_COMMAND_MAX_LENGTH = 4096;
+
 /** Parses and validates the control plane's deploy payload contract. */
 export function readDeployRequest(payload: Record<string, unknown>): DeployRequest | null {
   const imageRepository = payload['imageRepository'];
   const imageDigest = payload['imageDigest'];
   if (typeof imageRepository !== 'string' || imageRepository.length === 0) return null;
   if (typeof imageDigest !== 'string' || !DIGEST_PATTERN.test(imageDigest)) return null;
-  // The frozen migration rides as a NAMED task-definition family — never a
-  // command. A payload carrying a legacy `migrationCommand` (a pre-4C control
-  // plane) is ignored outright: this module must never accept an arbitrary
-  // execution-time command, and an uncompiled migration cannot be run anyway.
+  // The frozen migration rides as a NAMED task-definition family. A payload
+  // carrying a legacy top-level `migrationCommand` (a pre-4C control plane)
+  // is ignored outright. The one exception is the seat's own `command`: the
+  // vendor's correction, which only replaces the application container's
+  // command in a new revision of the named family — never a RunTask override.
   const rawMigration = payload['migrationTask'];
   let migrationTask: DeployMigrationTask | null = null;
   if (rawMigration !== undefined && rawMigration !== null) {
@@ -265,7 +280,18 @@ export function readDeployRequest(payload: Record<string, unknown>): DeployReque
     const identity = record['identity'];
     if (typeof family !== 'string' || !TASK_FAMILY_PATTERN.test(family)) return null;
     if (typeof identity !== 'string' || !/^[0-9a-f]{64}$/.test(identity)) return null;
-    migrationTask = { family, identity };
+    const command = record['command'];
+    if (
+      command !== undefined &&
+      command !== null &&
+      (typeof command !== 'string' ||
+        command.trim().length === 0 ||
+        command.length > MIGRATION_COMMAND_MAX_LENGTH ||
+        command.includes('\0'))
+    ) {
+      return null;
+    }
+    migrationTask = { family, identity, command: typeof command === 'string' ? command : null };
   }
   // Workload seats are optional (an older control plane omits them) but a
   // malformed one is rejected outright, never partially trusted.
@@ -765,9 +791,11 @@ async function settleMigration(
     // CloudFormation, so its latest revision would otherwise still run
     // whatever image the last stack operation set, not this release's
     // digest. Bring it current before RunTask (idempotent — a no-op once
-    // the latest revision already runs the digest).
+    // the latest revision already runs the digest and the command), and run
+    // exactly the revision that results.
+    let revision: string;
     try {
-      await registerReleaseImageIntoFamily(deps, migrationTask.family, params.request);
+      revision = await migrationRevision(deps, migrationTask, params.request);
     } catch (err) {
       return {
         state: 'failed',
@@ -777,7 +805,7 @@ async function settleMigration(
 
     const { taskArns } = await deps.ecs.runTask({
       cluster,
-      taskDefinition: migrationTask.family,
+      taskDefinition: revision,
       count: 1,
       launchType: 'FARGATE',
       networkConfiguration: {
@@ -1141,19 +1169,105 @@ async function registerReleaseImageIntoFamily(
   deps: EcsDeployDeps,
   family: string,
   request: DeployRequest,
-): Promise<void> {
+  applicationCommand?: readonly string[],
+): Promise<string | undefined> {
   const { taskDefinition } = await deps.ecs.describeTaskDefinition({ taskDefinition: family });
   const nextImage = `${request.imageRepository}@${request.imageDigest}`;
   const alreadyOnDigest = taskDefinition.containerDefinitions.some((container) => container.image === nextImage);
-  if (alreadyOnDigest) return;
+  const commandCurrent =
+    applicationCommand === undefined ||
+    sameCommand(
+      applicationContainer(taskDefinition.containerDefinitions, request.imageRepository)?.['command'],
+      applicationCommand,
+    );
+  if (alreadyOnDigest && commandCurrent) return taskDefinition.taskDefinitionArn;
   const replaced = replaceApplicationImages(taskDefinition, request);
   if (!replaced) {
     throw new Error(
       `Task family "${family}" has no container referencing repository "${request.imageRepository}"`,
     );
   }
+  if (applicationCommand !== undefined) {
+    const container = applicationContainer(replaced.containerDefinitions, request.imageRepository);
+    if (container === undefined) {
+      throw new Error(`Task family "${family}" has no single application container to carry the command`);
+    }
+    container['command'] = [...applicationCommand];
+  }
   replaced.tags = [{ key: 'deployz:installation', value: deps.installationId }];
-  await deps.ecs.registerTaskDefinition(replaced);
+  return (await deps.ecs.registerTaskDefinition(replaced)).taskDefinitionArn;
+}
+
+/**
+ * The application container of a task definition: its one essential
+ * container that runs an image from the release repository. A helper (the
+ * RDS CA init container) is never essential and never matches. Undefined
+ * when there is not exactly one.
+ */
+function applicationContainer<T extends { image?: unknown; essential?: unknown }>(
+  containers: T[],
+  imageRepository: string,
+): T | undefined {
+  const matches = containers.filter(
+    (container) =>
+      container.essential !== false &&
+      typeof container.image === 'string' &&
+      container.image.startsWith(`${imageRepository}@`),
+  );
+  return matches.length === 1 ? matches[0] : undefined;
+}
+
+function sameCommand(current: unknown, expected: readonly string[]): boolean {
+  return (
+    Array.isArray(current) &&
+    current.length === expected.length &&
+    current.every((part, index) => part === expected[index])
+  );
+}
+
+/** `arn:aws:ecs:…:task-definition/<family>:<revision>` → `<family>`. */
+function taskDefinitionFamily(arn: string): string | null {
+  return /:task-definition\/([^:/]+):\d+$/.exec(arn)?.[1] ?? null;
+}
+
+/**
+ * The exact migration revision to run. The named family must be a task
+ * definition of this deployment's own stack — never another family the
+ * relay can reach. The command is the vendor's correction when the seat
+ * carries one, otherwise the frozen command of the revision the stack
+ * itself created, so a removed correction restores the frozen command. Only
+ * the application container's command and image change; the entrypoint,
+ * roles, secrets, volumes, networking and init containers are copied from
+ * the family's latest revision.
+ */
+async function migrationRevision(
+  deps: EcsDeployDeps,
+  migrationTask: DeployMigrationTask,
+  request: DeployRequest,
+): Promise<string> {
+  const resources = await deps.cfn.describeStackResources(deps.stackName);
+  const owned = resources.find(
+    (resource) =>
+      resource.type === 'AWS::ECS::TaskDefinition' &&
+      resource.physicalId !== undefined &&
+      taskDefinitionFamily(resource.physicalId) === migrationTask.family,
+  );
+  if (owned?.physicalId === undefined) {
+    throw new Error(`Task family "${migrationTask.family}" is not part of stack "${deps.stackName}"`);
+  }
+  let command: readonly string[] | undefined;
+  if (migrationTask.command !== null) {
+    command = workloadContainerCommand(migrationTask.command);
+  } else {
+    const { taskDefinition } = await deps.ecs.describeTaskDefinition({ taskDefinition: owned.physicalId });
+    const frozen = applicationContainer(taskDefinition.containerDefinitions, request.imageRepository)?.['command'];
+    command = Array.isArray(frozen) && frozen.every((part) => typeof part === 'string') ? frozen : undefined;
+  }
+  const revision = await registerReleaseImageIntoFamily(deps, migrationTask.family, request, command);
+  if (revision === undefined) {
+    throw new Error(`Task family "${migrationTask.family}" answered with no revision ARN`);
+  }
+  return revision;
 }
 
 /**

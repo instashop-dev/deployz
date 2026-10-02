@@ -1104,7 +1104,7 @@ export const GITHUB_FIXTURE_FILE_TREES: Readonly<Record<string, FileTree>> = {
     'package.json': JSON.stringify({
       name: 'express-api',
       scripts: { start: 'node dist/index.js', 'db:migrate': 'npx drizzle-kit push' },
-      dependencies: { express: '^4.18.0', pg: '^8.12.0' },
+      dependencies: { express: '^4.18.0', pg: '^8.12.0', 'drizzle-kit': '^0.24.0' },
     }),
     'src/index.ts': [
       "import express from 'express';",
@@ -1152,7 +1152,7 @@ export const GITHUB_FIXTURE_FILE_TREES: Readonly<Record<string, FileTree>> = {
     'package.json': JSON.stringify({
       name: 'bullmq-worker',
       scripts: { start: 'node dist/index.js', 'db:migrate': 'npx drizzle-kit push' },
-      dependencies: { express: '^4.18.0', pg: '^8.12.0', bullmq: '^5.7.0' },
+      dependencies: { express: '^4.18.0', pg: '^8.12.0', bullmq: '^5.7.0', 'drizzle-kit': '^0.24.0' },
     }),
     'src/index.ts': [
       "import express from 'express';",
@@ -1181,7 +1181,7 @@ export const GITHUB_FIXTURE_FILE_TREES: Readonly<Record<string, FileTree>> = {
     'package.json': JSON.stringify({
       name: 'static-api',
       scripts: { start: 'node dist/index.js', 'db:migrate': 'npx migrate up' },
-      dependencies: { express: '^4.18.0' },
+      dependencies: { express: '^4.18.0', migrate: '^2.1.0' },
     }),
     'src/index.ts': [
       "import express from 'express';",
@@ -1214,8 +1214,7 @@ export const GITHUB_FIXTURE_FILE_TREES: Readonly<Record<string, FileTree>> = {
       name: 'nextjs-prisma',
       packageManager: 'pnpm@9.0.0',
       scripts: { build: 'next build', start: 'next start', 'db:migrate': 'prisma migrate deploy' },
-      dependencies: { next: '^14.2.0', '@prisma/client': '^5.14.0' },
-      devDependencies: { prisma: '^5.14.0' },
+      dependencies: { next: '^14.2.0', '@prisma/client': '^5.14.0', prisma: '^5.14.0' },
     }),
     'prisma/schema.prisma': [
       'datasource db {',
@@ -1293,7 +1292,7 @@ export const GITHUB_FIXTURE_FILE_TREES: Readonly<Record<string, FileTree>> = {
     'package.json': JSON.stringify({
       name: 'config-required-app',
       scripts: { start: 'node dist/index.js', 'db:migrate': 'npx drizzle-kit push' },
-      dependencies: { express: '^4.18.0', pg: '^8.12.0' },
+      dependencies: { express: '^4.18.0', pg: '^8.12.0', 'drizzle-kit': '^0.24.0' },
     }),
     'src/index.ts': [
       "import express from 'express';",
@@ -1334,7 +1333,7 @@ export const GITHUB_FIXTURE_FILE_TREES: Readonly<Record<string, FileTree>> = {
     'package.json': JSON.stringify({
       name: 'env-matrix-app',
       scripts: { start: 'node dist/index.js', 'db:migrate': 'npx drizzle-kit push' },
-      dependencies: { express: '^4.18.0', pg: '^8.12.0', stripe: '^16.0.0' },
+      dependencies: { express: '^4.18.0', pg: '^8.12.0', stripe: '^16.0.0', 'drizzle-kit': '^0.24.0' },
     }),
     'src/index.ts': [
       "import express from 'express';",
@@ -1394,7 +1393,7 @@ export const GITHUB_FIXTURE_FILE_TREES: Readonly<Record<string, FileTree>> = {
     'package.json': JSON.stringify({
       name: 'multi-worker-app',
       scripts: { start: 'node dist/index.js', 'db:migrate': 'npx drizzle-kit push' },
-      dependencies: { express: '^4.18.0', pg: '^8.12.0' },
+      dependencies: { express: '^4.18.0', pg: '^8.12.0', 'drizzle-kit': '^0.24.0' },
     }),
     'src/index.ts': [
       "import express from 'express';",
@@ -1424,7 +1423,7 @@ export const GITHUB_FIXTURE_FILE_TREES: Readonly<Record<string, FileTree>> = {
     'package.json': JSON.stringify({
       name: 'mysql-api',
       scripts: { start: 'node dist/index.js', 'db:migrate': 'npx drizzle-kit push' },
-      dependencies: { express: '^4.18.0', mysql2: '^3.9.0' },
+      dependencies: { express: '^4.18.0', mysql2: '^3.9.0', 'drizzle-kit': '^0.24.0' },
     }),
     'src/index.ts': [
       "import express from 'express';",

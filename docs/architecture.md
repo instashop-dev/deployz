@@ -93,9 +93,14 @@ that ever touches the customer's AWS account.
    command into a single task definition (family `DeployzAppMigration`) — and
    then updates every service to the pinned digest. The migration always runs
    after the infrastructure and the database are ready and before any service
-   updates; its identity (sha256 over the frozen command plus the image
+   updates; its identity (sha256 over the effective command plus the image
    digest) makes it run exactly once per release — a retry of an
-   already-succeeded migration skips the run. A failed migration fails the
+   already-succeeded migration skips the run. The application's migration
+   setting can correct the command or skip the migration on an existing
+   deployment's next release deployment without changing its spec or
+   stack: the relay registers a new revision of the same family that
+   changes only the application container's command and image
+   ([`deployment-resilience.md`](deployment-resilience.md)). A failed migration fails the
    job with `MIGRATION_FAILED` (task family, exit code, stopped reason); no
    service is updated, the previous release keeps serving, and the deployment
    returns to `UPDATE_AVAILABLE`. Before a

@@ -17,6 +17,7 @@ import {
   detectDeclaredWorkerCommands,
   listDockerfileCandidates,
   mergeAiAnalysis,
+  migrationRunnerVerdict,
   selectAiContextFiles,
   verdictFromReadiness,
 } from '@deployz/analysis';
@@ -250,7 +251,13 @@ type ApplicationRow = typeof schema.applications.$inferSelect;
 // throws without is required; a zod member built by a helper is a read; an
 // optional internal secret with a generatable name is deployz_generated.
 // Stored v37 models over-require sibling keys and miss boot-required ones.
-export const ANALYSIS_VERSION = 38;
+// Version 39: a migration script is persisted only when the selected
+// Dockerfile's runtime stage (and the stages it is built FROM) provides its
+// runner, and `npx` is added only when that image also holds the CLI in its
+// node_modules. Anything else becomes the blocking "Needs input" question
+// `migration-command-needs-input`. Stored v38 rows may carry an `npx …`
+// command the image cannot run and must re-run.
+export const ANALYSIS_VERSION = 39;
 
 export interface AnalysisRunnerDeps {
   db: RuntimeDb;
@@ -385,6 +392,15 @@ export async function runApplicationAnalysis(
         }
       : { ...analysis, metadata };
     const contractFieldUpdates = deriveContractFieldUpdates(vendorOverrides, tree, mergedAnalysis, aiResolved);
+    // A migration script the runtime image is not shown to run is an open
+    // vendor question until the vendor owns the field (a command, or no
+    // separate migration).
+    const migrationResolution = vendorOverrides.includes('migrationCommand')
+      ? undefined
+      : detectedMigrationCommand(tree, mergedAnalysis, aiResolved);
+    const migrationNeedsInput =
+      migrationResolution !== undefined && 'candidate' in migrationResolution ? migrationResolution : null;
+    const detectedMigration = resolveMigrationCommand(tree);
 
     // The semantic readiness report is built from the MERGED metadata, so a
     // start/migration command the AI resolved counts as resolved here too.
@@ -392,11 +408,13 @@ export async function runApplicationAnalysis(
     const resolvedWorkerCommands = resolveWorkerCommands(tree);
     const readiness: ReadinessReport = buildReadinessReport(mergedAnalysis, {
       workerCommandResolved: resolvedWorkerCommands.length > 0,
+      migrationNeedsInput,
     });
     const applicationAnalysis = buildApplicationAnalysis(mergedAnalysis, {
       analysisVersion: ANALYSIS_VERSION,
       aiResolved,
-      resolvedMigrationCommand: resolveMigrationCommand(tree) ?? null,
+      resolvedMigrationCommand:
+        detectedMigration !== undefined && 'command' in detectedMigration ? detectedMigration.command : null,
     });
     // The metadata record this run persists — extracted once so the Jev
     // shadow below judges exactly the state that lands in the row.
@@ -411,6 +429,7 @@ export async function runApplicationAnalysis(
       resolvedWorkerCommand: resolvedWorkerCommands[0]?.command ?? null,
       readiness,
       application: applicationAnalysis,
+      ...(migrationNeedsInput !== null ? { migrationNeedsInput } : {}),
       vendorOverrides,
       ...(manifestOverrides !== undefined ? { manifestOverrides } : {}),
       analysisVersion: ANALYSIS_VERSION,
@@ -812,22 +831,26 @@ const DEV_MIGRATION_REGEX = /migrate[\s:-]dev\b/i;
 const DEPLOY_MIGRATION_REGEX =
   /prisma\s+migrate\s+deploy\b|drizzle-kit\s+(?:push|migrate)\b|knex\s+migrate:(?:latest|up)\b|sequelize\s+db:migrate\b|typeorm\s+migration:run\b|node-pg-migrate\b|npx\s+migrate\b/;
 
-// The vendor's package.json script is written to run via npm/pnpm/yarn's own
-// script runner (developer machine, CI) or by a Dockerfile's start script
-// that already resolved its own PATH — both put the package's own
-// `node_modules/.bin` on PATH before the command runs. The relay's
-// DEPLOY_RELEASE executor runs neither: it runs `sh -c <command>` directly
-// inside the built image (docker/Dockerfile's final stage sets no PATH
-// pointing at any node_modules/.bin), so a bare CLI-binary invocation exits
-// 127 ("command not found") there even though it works everywhere the
-// vendor tested it. A command already qualified by npx/npm/pnpm/yarn/bun/
-// node/deno, or given as a path, is left alone — never second-guess a
-// vendor's already-qualified command.
-const BARE_ORM_CLI_REGEX = /^(?:prisma|drizzle-kit|knex|sequelize-cli|sequelize|typeorm|node-pg-migrate|migrate)\b/;
+/**
+ * A migration command analysis can persist, or a script it found but cannot
+ * confirm the built image runs — then the vendor decides
+ * (`migration-command-needs-input`).
+ */
+type MigrationCommandResolution = { command: string } | { candidate: string; reason: string };
 
-/** Prefix a bare ORM-CLI invocation with `npx` so it resolves regardless of PATH. */
-function applyNpxPrefix(command: string): string {
-  return BARE_ORM_CLI_REGEX.test(command) ? `npx ${command}` : command;
+/**
+ * The vendor's package.json script is written to run via npm/pnpm/yarn's own
+ * script runner, which puts the package's `node_modules/.bin` on PATH. The
+ * relay's DEPLOY_RELEASE executor runs `sh -c <command>` directly inside the
+ * built image, so a bare CLI-binary invocation exits 127 there. A bare ORM
+ * CLI gets `npx` only when the runtime image provides `npx` and already holds
+ * the CLI (`migrationRunnerVerdict`); a runner the image is not shown to
+ * provide is never added, substituted or installed — the vendor decides.
+ */
+function qualifyMigrationCommand(tree: FileTree, command: string, packageDir: string): MigrationCommandResolution {
+  const verdict = migrationRunnerVerdict(tree, command);
+  if (!verdict.runnable) return { candidate: command, reason: verdict.reason };
+  return { command: withPrismaSchemaFlag(verdict.needsNpx ? `npx ${command}` : command, packageDir, tree) };
 }
 
 const NPX_PRISMA_MIGRATE_DEPLOY_REGEX = /^npx\s+prisma\s+migrate\s+deploy\b/;
@@ -938,11 +961,11 @@ function withPrismaSchemaFlag(command: string, packageDir: string, tree: FileTre
  * The selected script's literal value is then rewritten into a command that
  * is actually runnable where the relay executes it: `sh -c <command>` inside
  * the built image, at the image's runtime WORKDIR, with no node_modules/.bin
- * on PATH (see `applyNpxPrefix`/`withPrismaSchemaFlag`) — the package.json
- * author wrote it assuming npm/pnpm/yarn's own script-running environment,
- * not the relay's.
+ * on PATH (see `qualifyMigrationCommand`/`withPrismaSchemaFlag`) — the
+ * package.json author wrote it assuming npm/pnpm/yarn's own script-running
+ * environment, not the relay's.
  */
-function resolveMigrationCommand(tree: FileTree): string | undefined {
+function resolveMigrationCommand(tree: FileTree): MigrationCommandResolution | undefined {
   const candidates = collectScriptsWithDir(tree).filter(
     ([key, command]) => MIGRATION_SCRIPT_KEY_REGEX.test(key) || DEPLOY_MIGRATION_REGEX.test(command),
   );
@@ -950,7 +973,32 @@ function resolveMigrationCommand(tree: FileTree): string | undefined {
   if (safeCandidates.length === 0) return undefined;
   const deployShaped = safeCandidates.find(([, command]) => DEPLOY_MIGRATION_REGEX.test(command));
   const [, command, packageDir] = (deployShaped ?? safeCandidates[0])!;
-  return withPrismaSchemaFlag(applyNpxPrefix(command), packageDir, tree);
+  return qualifyMigrationCommand(tree, command, packageDir);
+}
+
+/**
+ * The migration command analysis writes for a field the vendor does not own.
+ * DEPLOY-029: mode 'startup' means the built image already migrates itself
+ * when it starts (the selected Dockerfile's CMD/ENTRYPOINT chain carries the
+ * evidence — see `analyseRepo`). Persisting a detected package.json script
+ * there would run it a second time as a pre-deploy step against a command the
+ * image was never built to run standalone (umami: `sh: npx: not found`), so
+ * the column is cleared — also a value a pre-fix analysis already invented.
+ * Undefined leaves the column as it is: finding nothing never clears it.
+ */
+function detectedMigrationCommand(
+  tree: FileTree,
+  analysis: AnalysisResult,
+  aiResolved: string[],
+): MigrationCommandResolution | { command: null } | undefined {
+  if (analysis.metadata['migrationMode'] === 'startup') return { command: null };
+  const resolved = resolveMigrationCommand(tree);
+  if (resolved) return resolved;
+  const migrationCommands = analysis.metadata['migrationCommands'];
+  if (aiResolved.includes('migrationCommands') && Array.isArray(migrationCommands) && typeof migrationCommands[0] === 'string') {
+    return qualifyMigrationCommand(tree, migrationCommands[0], '');
+  }
+  return undefined;
 }
 
 /**
@@ -1077,29 +1125,13 @@ function deriveContractFieldUpdates(
     }
   }
 
-  // DEPLOY-029: mode 'startup' means the built image already migrates
-  // itself when it starts (the selected Dockerfile's CMD/ENTRYPOINT chain
-  // carries the evidence — see `analyseRepo`). Persisting a detected
-  // package.json migration script as `migrationCommand` there would run it
-  // a second time as a pre-deploy step against a command the image was
-  // never built to run standalone (umami: `sh: npx: not found`). Never
-  // invented — and a value a PRE-FIX (v19) analysis already invented and
-  // persisted is explicitly cleared on re-analysis, since leaving the
-  // column as-is would keep the relay running it. Only the vendor's own
-  // value is left alone.
+  // Only the vendor's own value is left alone. A script the image is not
+  // shown to run clears the column, so an earlier invented `npx …` command
+  // never keeps running; the open question carries the script instead.
   if (!vendorOwned.has('migrationCommand')) {
-    if (analysis.metadata['migrationMode'] === 'startup') {
-      updates.migrationCommand = null;
-    } else {
-      const command = resolveMigrationCommand(tree);
-      if (command) {
-        updates.migrationCommand = command;
-      } else if (aiResolved.includes('migrationCommands')) {
-        const migrationCommands = analysis.metadata['migrationCommands'];
-        if (Array.isArray(migrationCommands) && typeof migrationCommands[0] === 'string') {
-          updates.migrationCommand = migrationCommands[0];
-        }
-      }
+    const resolution = detectedMigrationCommand(tree, analysis, aiResolved);
+    if (resolution !== undefined) {
+      updates.migrationCommand = 'command' in resolution ? resolution.command : null;
     }
   }
 

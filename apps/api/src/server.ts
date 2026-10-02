@@ -768,9 +768,17 @@ interface DeployPayload {
   /**
    * The frozen one-shot migration seat (Phase 4C) — the compiled task family
    * plus the control-plane-computed identity. Absent when the frozen spec has
-   * no migration workload or the identity is already confirmed.
+   * no migration workload, the vendor chose no separate migration, or the
+   * identity is already confirmed. `command` is present only for a vendor
+   * correction; the relay puts it into a new revision of the same family.
    */
-  migrationTask?: { family: string; identity: string };
+  migrationTask?: { family: string; identity: string; command?: string };
+  /**
+   * The effective migration policy this job snapshotted when it differs
+   * from the frozen command: `skip`, or `corrected:<fingerprint>`. Absent
+   * for the frozen policy. It is part of the job's idempotency key.
+   */
+  migrationPolicy?: string;
   /**
    * Scheduled-job ECS task-definition families (Phase 5) — derived ONLY from
    * the frozen spec's `oneShotTasksFromSpec(spec, 'scheduled-job')`. The
@@ -859,18 +867,34 @@ async function requireDeployableRelease(
       }));
     }
     // Phase 4C: the frozen one-shot migration. The relay receives the NAMED
-    // task-definition family the compiler froze from the analyzed command —
-    // never the command itself — and only when this deployment has no
-    // SUCCEEDED deploy already confirming the same migration identity.
-    // ROLLBACK builds its payload WITHOUT the deployment row, so a rollback
-    // (and RESTART, whose payload is empty) can never carry the seat.
+    // task-definition family the compiler froze from the analyzed command,
+    // and only when this deployment has no SUCCEEDED deploy already
+    // confirming the same migration identity. The application's migration
+    // setting decides the effective policy, snapshotted here: the frozen
+    // command, a vendor correction (the only command that rides the seat),
+    // or no separate migration. ROLLBACK builds its payload WITHOUT the
+    // deployment row, so a rollback (and RESTART, whose payload is empty)
+    // can never carry the seat.
     const migration = spec ? migrationTaskFromSpec(spec) : null;
     const frozenCommand =
-      spec?.graph.workloads.find((workload) => workload.kind === 'migration')?.command ?? null;
-    if (migration !== null && frozenCommand !== null) {
-      const identity = migrationIdentity(frozenCommand, imageDigest);
+      migration !== null
+        ? (spec?.graph.workloads.find((workload) => workload.kind === 'migration')?.command ?? null)
+        : null;
+    const policy = await migrationPolicyFor(db, applicationId, frozenCommand);
+    if (policy.mode === 'skipped') {
+      payload.migrationPolicy = 'skip';
+    } else if (policy.mode === 'corrected') {
+      payload.migrationPolicy = `corrected:${createHash('sha256').update(policy.command).digest('hex').slice(0, 16)}`;
+    }
+    if (migration !== null && frozenCommand !== null && policy.mode !== 'skipped') {
+      const command = policy.mode === 'corrected' ? policy.command : frozenCommand;
+      const identity = migrationIdentity(command, imageDigest);
       if (!(await migrationIdentityConfirmed(db, deployment.id, identity))) {
-        payload.migrationTask = { family: migration.family, identity };
+        payload.migrationTask = {
+          family: migration.family,
+          identity,
+          ...(policy.mode === 'corrected' ? { command } : {}),
+        };
       }
     }
     // Phase 5: scheduled-job families, derived only from the frozen spec —
@@ -885,16 +909,15 @@ async function requireDeployableRelease(
 }
 
 /**
- * The migration identity (Phase 4C): sha256 over the FROZEN migration command
- * and the release's immutable image digest. Both inputs are frozen at
- * release time — the command in the spec's graph (compiled into the
- * migration task definition), the digest in the release row — so a changed
- * command or a new image always means a new identity (the migration runs
- * again), and an unchanged combination is never re-run once a deploy with
- * the same identity has SUCCEEDED for this deployment.
+ * The migration identity (Phase 4C): sha256 over the EFFECTIVE migration
+ * command (the frozen command, or the vendor's correction) and the release's
+ * immutable image digest. A changed command or a new image always means a
+ * new identity (the migration runs again, also for the same image), and an
+ * unchanged combination is never re-run once a deploy with the same identity
+ * has SUCCEEDED for this deployment.
  */
-export function migrationIdentity(frozenCommand: string, imageDigest: string): string {
-  return createHash('sha256').update(`${frozenCommand}\n${imageDigest}`).digest('hex');
+export function migrationIdentity(command: string, imageDigest: string): string {
+  return createHash('sha256').update(`${command}\n${imageDigest}`).digest('hex');
 }
 
 /**
@@ -925,6 +948,54 @@ async function migrationIdentityConfirmed(
     )
     .limit(1);
   return rows.length > 0;
+}
+
+type MigrationPolicy =
+  | { mode: 'frozen' }
+  | { mode: 'corrected'; command: string }
+  | { mode: 'skipped' };
+
+/**
+ * The effective migration policy for one deployment's next DEPLOY_RELEASE,
+ * from the application's migration setting and its vendor-override marker:
+ * no override runs the frozen command; an explicit command is a correction;
+ * an explicit null (no separate migration) skips the migration. The
+ * deployment's spec and topology never change — a correction is accepted
+ * only when the frozen deployment already has a migration workload
+ * (`frozenCommand` is null when it does not).
+ */
+async function migrationPolicyFor(
+  db: RuntimeDb,
+  applicationId: string,
+  frozenCommand: string | null,
+): Promise<MigrationPolicy> {
+  const [application] = await db
+    .select({
+      migrationCommand: schema.applications.migrationCommand,
+      detectedMetadata: schema.applications.detectedMetadata,
+    })
+    .from(schema.applications)
+    .where(eq(schema.applications.id, applicationId))
+    .limit(1);
+  if (!application || !readVendorOverrides(application.detectedMetadata).includes('migrationCommand')) {
+    return { mode: 'frozen' };
+  }
+  const command = application.migrationCommand?.trim() || null;
+  if (command === null) return frozenCommand === null ? { mode: 'frozen' } : { mode: 'skipped' };
+  if (frozenCommand === null) {
+    throw new ApiError(
+      409,
+      'MIGRATION_WORKLOAD_MISSING',
+      'This deployment was created without a separate migration step, so a migration command cannot be added to it. Choose "No separate migration" for the application, or create a new deployment.',
+    );
+  }
+  return command === frozenCommand ? { mode: 'frozen' } : { mode: 'corrected', command };
+}
+
+/** The base idempotency key of a DEPLOY_RELEASE: one per release and effective migration policy. */
+function deployReleaseKey(deploymentId: string, releaseId: string, payload: DeployPayload): string {
+  const base = `${deploymentId}:DEPLOY_RELEASE:${releaseId}`;
+  return payload.migrationPolicy === undefined ? base : `${base}:migration:${payload.migrationPolicy}`;
 }
 
 /**
@@ -3679,14 +3750,18 @@ export async function buildServer({
 
     if (Object.keys(set).length === 0 && !manifestOnlyChanged) return existing;
     // The details form re-submits every field on every save, so only a value
-    // that actually differs counts as the vendor claiming that field.
+    // that actually differs counts as the vendor claiming that field. An
+    // explicit null migration command is the vendor's "No separate
+    // migration" decision, so it always claims the field.
     const claimed = CONTRACT_FIELDS.filter(
-      (field) => set[field] !== undefined && set[field] !== existing[field],
+      (field) =>
+        set[field] !== undefined &&
+        (set[field] !== existing[field] || (field === 'migrationCommand' && body.migrationCommand === null)),
     );
-    // A field explicitly set to null relinquishes vendor ownership so the next
-    // analysis re-detects it (see analysis.ts deriveContractFieldUpdates).
+    // Any other field explicitly set to null relinquishes vendor ownership so
+    // the next analysis re-detects it (see analysis.ts deriveContractFieldUpdates).
     const released = CONTRACT_FIELDS.filter(
-      (field) => body[field] === null,
+      (field) => field !== 'migrationCommand' && body[field] === null,
     );
     if (claimed.length > 0 || released.length > 0 || manifestOnlyChanged) {
       if (claimed.length > 0 || released.length > 0) {
@@ -3701,7 +3776,10 @@ export async function buildServer({
     // A port or start command the vendor sets (or clears) resolves (or
     // restores) a readiness finding — keep the persisted verdict in step with
     // the readiness page, which applies the same reconciliation on read.
-    if (existing.analysisStatus === 'COMPLETE' && (claimed.includes('containerPort') || manifestOnlyChanged)) {
+    if (
+      existing.analysisStatus === 'COMPLETE' &&
+      (claimed.includes('containerPort') || claimed.includes('migrationCommand') || manifestOnlyChanged)
+    ) {
       const effective = effectiveReadinessReport({
         containerPort: 'containerPort' in set ? (set.containerPort as number | null) : existing.containerPort,
         detectedMetadata: nextMetadata,
@@ -5183,9 +5261,10 @@ export async function buildServer({
    * fresh installation serves real traffic without a manual deploy step.
    *
    * Best-effort: no READY release (nothing built yet) or a payload that stops
-   * validating simply skips. The job uses the SAME idempotency key as the
-   * manual deploy route (`${deployment.id}:DEPLOY_RELEASE:<releaseId>`), so a
-   * vendor-driven deploy of the same release reuses it instead of racing it.
+   * validating simply skips, and so does a migration command the frozen
+   * deployment has no migration step for. The job uses the SAME idempotency
+   * key as the manual deploy route (`deployReleaseKey`), so a vendor-driven
+   * deploy of the same release reuses it instead of racing it.
    *
    * The deployment state is deliberately NOT advanced (`inFlightState: null`):
    * the INSTALLING → HEALTHY transition belongs to the relay's runtime-health
@@ -5218,6 +5297,7 @@ export async function buildServer({
         break;
       } catch (error) {
         if (error instanceof ApiError && error.code === 'RELEASE_UNAVAILABLE') continue;
+        if (error instanceof ApiError && error.code === 'MIGRATION_WORKLOAD_MISSING') return;
         throw error;
       }
     }
@@ -5226,7 +5306,7 @@ export async function buildServer({
     const { job, created } = await createOrReuseJob(db, {
       deploymentId: deployment.id,
       type: 'DEPLOY_RELEASE',
-      idempotencyKey: `${deployment.id}:DEPLOY_RELEASE:${release.id}`,
+      idempotencyKey: deployReleaseKey(deployment.id, release.id, payload),
       payload,
       requestedBy: null,
     });
@@ -5260,7 +5340,7 @@ export async function buildServer({
         db,
         deployment.id,
         'DEPLOY_RELEASE',
-        `${deployment.id}:DEPLOY_RELEASE:${body.releaseId}`,
+        deployReleaseKey(deployment.id, body.releaseId, payload),
       ));
     await requireDeploymentIdle(db, deployment.id, idempotencyKey);
     const { job, created } = await createOrReuseJob(db, {
@@ -5345,11 +5425,23 @@ export async function buildServer({
         });
         continue;
       }
+      // Phase 4A/4C: each target resolves its own per-workload seats and
+      // migration policy from ITS frozen spec — the same derivation as the
+      // single-deploy route (a target may be on an older compiled generation
+      // than another, or have no migration step to correct).
+      let targetPayload: DeployPayload;
+      try {
+        targetPayload = await requireDeployableRelease(db, releaseImages, body.releaseId, id, deployment);
+      } catch (error) {
+        if (!(error instanceof ApiError && error.code === 'MIGRATION_WORKLOAD_MISSING')) throw error;
+        results.push({ deploymentId: deployment.id, status: 'SKIPPED', reason: error.message });
+        continue;
+      }
       const idempotencyKey = await retryAwareIdempotencyKey(
         db,
         deployment.id,
         'DEPLOY_RELEASE',
-        `${deployment.id}:DEPLOY_RELEASE:${body.releaseId}`,
+        deployReleaseKey(deployment.id, body.releaseId, targetPayload),
       );
       const busy = await db
         .select({ id: schema.deploymentJobs.id })
@@ -5382,11 +5474,6 @@ export async function buildServer({
         });
         continue;
       }
-      // Phase 4A/4C: each target resolves its own per-workload seats and
-      // migration-identity state from ITS frozen spec — the same derivation
-      // as the single-deploy route (a target may be on an older compiled
-      // generation than another).
-      const targetPayload = await requireDeployableRelease(db, releaseImages, body.releaseId, id, deployment);
       const { job, created } = await createOrReuseJob(db, {
         deploymentId: deployment.id,
         type: 'DEPLOY_RELEASE',
