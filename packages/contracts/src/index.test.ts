@@ -81,6 +81,13 @@ describe('failureCodeSchema (§61 stable taxonomy)', () => {
   it('includes the relay state-write failure code', () => {
     expect(failureCodeSchema.options).toContain('RELAY_STATE_WRITE_FAILED');
   });
+
+  // RDS AZ placement: RDS reporting no capacity for the requested instance
+  // class needs its own code so it stops being reported as the generic
+  // DATABASE_CREATE_FAILED.
+  it('includes the RDS AZ-capacity failure code', () => {
+    expect(failureCodeSchema.options).toContain('RDS_AZ_CAPACITY');
+  });
 });
 
 describe('billing enums (Paddle migration Phase 3)', () => {

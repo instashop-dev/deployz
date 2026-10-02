@@ -349,6 +349,7 @@ const FAILURE_COMPONENT: Record<FailureCode, string | null> = {
   AWS_PERMISSION_DENIED: null,
   STACK_CREATE_FAILED: null,
   STACK_DELETE_FAILED: null,
+  RDS_AZ_CAPACITY: 'database',
   DATABASE_CREATE_FAILED: 'database',
   DATABASE_CONNECTION_FAILED: 'database',
   IMAGE_PULL_FAILED: 'runtime',

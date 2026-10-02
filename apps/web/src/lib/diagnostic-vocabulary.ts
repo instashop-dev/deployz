@@ -31,6 +31,7 @@ export const FAILURE_CODES = [
   'AWS_PERMISSION_DENIED',
   'STACK_CREATE_FAILED',
   'STACK_DELETE_FAILED',
+  'RDS_AZ_CAPACITY',
   'DATABASE_CREATE_FAILED',
   'DATABASE_CONNECTION_FAILED',
   'IMAGE_PULL_FAILED',
@@ -133,6 +134,12 @@ export const FAILURE_CODE_COPY: Record<FailureCode, FailureCopy> = {
     label: 'Disconnect failed',
     description: "The removal couldn't complete. Your data is safe.",
     severity: 'critical',
+  },
+  RDS_AZ_CAPACITY: {
+    label: 'Database capacity unavailable',
+    description:
+      "The cloud provider doesn't have enough capacity for the database in the available zones. Retry after the previous attempt is fully rolled back.",
+    severity: 'warning',
   },
   DATABASE_CREATE_FAILED: {
     label: 'Database setup failed',
@@ -289,6 +296,7 @@ export const FAILURE_RECOVERABILITY: Record<FailureCode, FailureRecoverability> 
   AWS_PERMISSION_DENIED: 'USER_ACTION',
   STACK_CREATE_FAILED: 'USER_ACTION',
   STACK_DELETE_FAILED: 'USER_ACTION',
+  RDS_AZ_CAPACITY: 'USER_ACTION',
   DATABASE_CREATE_FAILED: 'USER_ACTION',
   DATABASE_CONNECTION_FAILED: 'RECONCILE_FIRST',
   IMAGE_PULL_FAILED: 'DEPLOYZ_ACTION',

@@ -37,6 +37,8 @@ describe('requiredAwsResources', () => {
       'ecs_service',
       'load_balancer',
       'database',
+      'db_subnet_group',
+      'db_subnets',
       'storage_bucket',
       'app_config_secret',
       'database_secrets',

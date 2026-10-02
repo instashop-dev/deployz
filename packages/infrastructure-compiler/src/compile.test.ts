@@ -17,9 +17,10 @@ const here = dirname(fileURLToPath(import.meta.url));
 // The full postgres template (web + RDS PostgreSQL + Valkey + S3 + ALB),
 // pinned byte-for-byte. Phase 4B's MySQL capability must not move a single
 // postgres byte — this hash is the proof (see the mysql describe below).
-// Moved deliberately once since: installation-scoped task families changed
-// every template (the Family join and `paramTaskFamilySuffix`).
-const POSTGRES_TEMPLATE_HASH_GOLDEN = '9630b51a12e8ba94c6c443a6486915ee2c5954748117cf43903251a6f0932bc1';
+// Moved deliberately since: database AZ placement (DbAz parameters) and
+// installation-scoped task families (the Family join and
+// `paramTaskFamilySuffix`) each changed every template.
+const POSTGRES_TEMPLATE_HASH_GOLDEN = '1d2290453b7aa9d0ad0e52dec8943f30cc0e95a68afa3bb46b2ea7fc7b604304';
 
 /** Evaluates the compiled `Family` join for one stack's suffix parameter value. */
 function familyFor(family: unknown, suffix: string): string {
@@ -1180,5 +1181,191 @@ describe('footprint + pricing (phase 5)', () => {
       expect(item.monthlyMin).toBeUndefined();
       expect(item.monthlyMax).toBeUndefined();
     }
+  });
+});
+
+// ── RDS AZ placement (multi-AZ subnet group) ─────────────────────────────────
+// The DB subnet group spans every available AZ: slots 1-2 are the VPC's
+// private subnets, slots 3-8 are conditionally created DB-only subnets carved
+// from a secondary VPC CIDR block. The relay fills paramDbAz1..paramDbAz8 from
+// the region's AZ list; empty parameters collapse to AWS::NoValue.
+
+const DB_VPC_CIDR_BLOCK = '10.1.0.0/20';
+const DB_AZ_SLOT_COUNT = 8;
+const DB_ONLY_SUBNET_COUNT = DB_AZ_SLOT_COUNT - 2;
+const DB_ONLY_SUBNET_CIDRS = [
+  '10.1.2.0/24', '10.1.3.0/24', '10.1.4.0/24', '10.1.5.0/24', '10.1.6.0/24', '10.1.7.0/24',
+];
+
+function dbSubnetGroupSubnetIds(template: Record<string, unknown>): unknown[] {
+  const subnetGroup = (template['Resources'] as Record<string, unknown>)['PrimaryDbSubnetGroup'] as { Properties: { SubnetIds: unknown[] } };
+  return subnetGroup.Properties.SubnetIds;
+}
+
+describe('rds az placement', () => {
+  const ir = makeIr({ postgres: true, redis: true });
+  const compiled = compileDeployzInfrastructure({ ir, region: null });
+  const template = compiled.template;
+
+  it('compiling the same input twice yields byte-identical output', () => {
+    const again = compileDeployzInfrastructure({ ir: makeIr({ postgres: true, redis: true }), region: null });
+    expect(JSON.stringify(again.template)).toBe(JSON.stringify(template));
+    expect(again.artifact.templateHash).toBe(compiled.artifact.templateHash);
+  });
+
+  it('the DB subnet group always keeps both private subnets plus conditional DB-only slots', () => {
+    const subnetIds = dbSubnetGroupSubnetIds(template);
+    expect(subnetIds[0]).toEqual({ Ref: 'NetworkPrivateSubnet1' });
+    expect(subnetIds[1]).toEqual({ Ref: 'NetworkPrivateSubnet2' });
+    expect(subnetIds).toHaveLength(2 + DB_ONLY_SUBNET_COUNT);
+    for (let i = 3; i <= DB_AZ_SLOT_COUNT; i++) {
+      const entry = subnetIds[i - 1] as { 'Fn::If': [string, unknown, unknown] };
+      expect(entry['Fn::If'][0]).toBe(`condDbAz${i}`);
+      expect(entry['Fn::If'][1]).toEqual({ Ref: `NetworkDbSubnet${i}` });
+      expect(entry['Fn::If'][2]).toEqual({ Ref: 'AWS::NoValue' });
+    }
+  });
+
+  it('emits exactly DB_AZ_SLOT_COUNT - 2 DB-only subnets with non-overlapping CIDRs inside the DB block, in deterministic order', () => {
+    const resources = template['Resources'] as Record<string, { Type: string; Properties: Record<string, unknown> }>;
+    const dbSubnets = Object.entries(resources)
+      .filter(([, r]) => r.Type === 'AWS::EC2::Subnet' && r.Properties['CidrBlock'] !== undefined && String(r.Properties['CidrBlock']).startsWith('10.1.'))
+      .sort(([a], [b]) => a.localeCompare(b));
+
+    expect(dbSubnets).toHaveLength(DB_ONLY_SUBNET_COUNT);
+    // Stable logical ids in deterministic slot order.
+    expect(dbSubnets.map(([id]) => id)).toEqual(
+      Array.from({ length: DB_ONLY_SUBNET_COUNT }, (_, i) => `NetworkDbSubnet${i + 3}`),
+    );
+    // Non-overlapping /24 CIDRs, each inside DB_VPC_CIDR_BLOCK, in slot order.
+    const cidrs = dbSubnets.map(([, r]) => r.Properties['CidrBlock'] as string);
+    expect(cidrs).toEqual(DB_ONLY_SUBNET_CIDRS);
+    for (const cidr of cidrs) {
+      const [network, prefix] = cidr.split('/');
+      expect(network.startsWith('10.1.')).toBe(true);
+      expect(Number(prefix)).toBe(24);
+      const thirdOctet = Number(network.split('.')[2]);
+      expect(thirdOctet).toBeGreaterThanOrEqual(0);
+      expect(thirdOctet).toBeLessThanOrEqual(15);
+    }
+    // Each DB-only subnet references its AZ parameter and the shared VPC.
+    for (let i = 3; i <= DB_AZ_SLOT_COUNT; i++) {
+      const subnet = resources[`NetworkDbSubnet${i}`];
+      expect(subnet.Properties['AvailabilityZone']).toEqual({ Ref: `paramDbAz${i}` });
+      expect(subnet.Properties['VpcId']).toEqual({ Ref: 'NetworkVpc' });
+    }
+  });
+
+  it('carries the secondary VPC CIDR block resource the DB subnets depend on', () => {
+    const resources = template['Resources'] as Record<string, { Type: string; Properties: Record<string, unknown>; DependsOn?: string[] }>;
+    const cidrBlock = resources['NetworkDbVpcCidrBlock'];
+    expect(cidrBlock).toBeDefined();
+    expect(cidrBlock.Type).toBe('AWS::EC2::VPCCidrBlock');
+    expect(cidrBlock.Properties['CidrBlock']).toBe(DB_VPC_CIDR_BLOCK);
+    expect(cidrBlock.Properties['VpcId']).toEqual({ Ref: 'NetworkVpc' });
+    for (let i = 3; i <= DB_AZ_SLOT_COUNT; i++) {
+      expect(resources[`NetworkDbSubnet${i}`].DependsOn).toContain('NetworkDbVpcCidrBlock');
+    }
+  });
+
+  it('empty DbAz parameters produce AWS::NoValue branches and a valid template for any region', () => {
+    // All DbAz parameters default to '' — every conditional slot collapses to
+    // AWS::NoValue, so the subnet group degrades to the two private subnets.
+    const parameters = template['Parameters'] as Record<string, { Default?: unknown }>;
+    for (let i = 1; i <= DB_AZ_SLOT_COUNT; i++) {
+      expect(parameters[`paramDbAz${i}`]).toBeDefined();
+      expect(parameters[`paramDbAz${i}`].Default).toBe('');
+    }
+    const conditions = template['Conditions'] as Record<string, unknown>;
+    expect(Object.keys(conditions)).toHaveLength(DB_ONLY_SUBNET_COUNT);
+    for (let i = 3; i <= DB_AZ_SLOT_COUNT; i++) {
+      expect(conditions[`condDbAz${i}`]).toEqual({ 'Fn::Not': [{ 'Fn::Equals': [{ Ref: `paramDbAz${i}` }, ''] }] });
+    }
+    // A region with only 2 AZs leaves slots 3-8 empty: the template is still
+    // valid because every slot has an AWS::NoValue branch.
+    const twoAzRegion = compileDeployzInfrastructure({ ir, region: 'us-east-2' });
+    expect(dbSubnetGroupSubnetIds(twoAzRegion.template)).toEqual(dbSubnetGroupSubnetIds(template));
+    expect(twoAzRegion.artifact.templateHash).toBe(compiled.artifact.templateHash);
+  });
+
+  it('both PostgreSQL and MySQL get the widened subnet group and neither sets AvailabilityZone', () => {
+    const mysql = compileDeployzInfrastructure({ ir: makeIr({ postgres: true, redis: true, dbEngine: 'mysql' }), region: null });
+    for (const result of [compiled, mysql]) {
+      const subnetIds = dbSubnetGroupSubnetIds(result.template);
+      expect(subnetIds).toHaveLength(2 + DB_ONLY_SUBNET_COUNT);
+      expect(subnetIds[0]).toEqual({ Ref: 'NetworkPrivateSubnet1' });
+      expect(subnetIds[1]).toEqual({ Ref: 'NetworkPrivateSubnet2' });
+      const instance = (result.template['Resources'] as Record<string, { Properties: Record<string, unknown> }>)['PrimaryDbInstance'];
+      expect(instance.Properties).not.toHaveProperty('AvailabilityZone');
+    }
+  });
+
+  it('DB-only subnets are isolated: no route table, no NAT gateway, no public IP', () => {
+    const resources = template['Resources'] as Record<string, { Type: string; Properties: Record<string, unknown> }>;
+    const dbSubnetIds = new Set(Array.from({ length: DB_ONLY_SUBNET_COUNT }, (_, i) => `NetworkDbSubnet${i + 3}`));
+
+    // No route table or route-table association references a DB-only subnet.
+    for (const [id, r] of Object.entries(resources)) {
+      if (r.Type === 'AWS::EC2::RouteTable' || r.Type === 'AWS::EC2::SubnetRouteTableAssociation' || r.Type === 'AWS::EC2::Route') {
+        const props = JSON.stringify(r.Properties);
+        for (const dbSubnetId of dbSubnetIds) {
+          expect(props, `${id} must not reference ${dbSubnetId}`).not.toContain(dbSubnetId);
+        }
+      }
+      // No public IP association on any subnet.
+      if (r.Type === 'AWS::EC2::Subnet' && dbSubnetIds.has(id)) {
+        expect(r.Properties['MapPublicIpOnLaunch']).toBe(false);
+      }
+    }
+    // Exactly one NAT gateway exists, and it is referenced only by the two
+    // private subnets' routes.
+    const natGateways = Object.values(resources).filter((r) => r.Type === 'AWS::EC2::NatGateway');
+    expect(natGateways).toHaveLength(1);
+    const natRefs = Object.entries(resources)
+      .filter(([, r]) => JSON.stringify(r.Properties).includes('NetworkNatGateway'))
+      .map(([id]) => id)
+      .sort();
+    expect(natRefs).toEqual(['NetworkPrivateRoute1', 'NetworkPrivateRoute2']);
+  });
+
+  it('preserved invariants: ECS/ALB in exactly two AZs, single NAT gateway, one Single-AZ database', () => {
+    const resources = template['Resources'] as Record<string, { Type: string; Properties: Record<string, unknown> }>;
+
+    // ECS service runs in exactly the two private subnets.
+    const service = resources['WebService'];
+    expect(service.Properties['NetworkConfiguration']).toEqual({
+      AwsvpcConfiguration: {
+        AssignPublicIp: 'DISABLED',
+        SecurityGroups: [{ 'Fn::GetAtt': ['WebServiceSecurityGroup', 'GroupId'] }],
+        Subnets: [{ Ref: 'NetworkPrivateSubnet1' }, { Ref: 'NetworkPrivateSubnet2' }],
+      },
+    });
+    // ALB runs in exactly the two public subnets.
+    const alb = resources['EndpointLoadBalancer'];
+    expect(alb.Properties['Subnets']).toEqual([{ Ref: 'NetworkPublicSubnet1' }, { Ref: 'NetworkPublicSubnet2' }]);
+    // Single NAT gateway.
+    expect(Object.values(resources).filter((r) => r.Type === 'AWS::EC2::NatGateway')).toHaveLength(1);
+    // One Single-AZ database with unchanged size/engine/storage/encryption/
+    // security/backups/deletion protection/retention.
+    const instances = Object.values(resources).filter((r) => r.Type === 'AWS::RDS::DBInstance');
+    expect(instances).toHaveLength(1);
+    const db = instances[0]!.Properties;
+    expect(db).not.toHaveProperty('AvailabilityZone');
+    expect(db['DBInstanceClass']).toBe('db.t4g.micro');
+    expect(db['Engine']).toBe('postgres');
+    expect(db['EngineVersion']).toBe('16');
+    expect(db['AllocatedStorage']).toBe('20');
+    expect(db['MaxAllocatedStorage']).toBe(100);
+    expect(db['StorageEncrypted']).toBe(true);
+    expect(db['StorageType']).toBe('gp2');
+    expect(db['BackupRetentionPeriod']).toBe(7);
+    expect(db['PreferredBackupWindow']).toBe('03:00-05:00');
+    expect(db['DeleteAutomatedBackups']).toBe(false);
+    expect(db['DeletionProtection']).toBe(true);
+    expect(db['PubliclyAccessible']).toBe(false);
+    expect(db['VPCSecurityGroups']).toEqual([{ 'Fn::GetAtt': ['PrimaryDbSecurityGroup', 'GroupId'] }]);
+    const subnetGroupResource = resources['PrimaryDbSubnetGroup'];
+    expect(subnetGroupResource['UpdateReplacePolicy']).toBe('Retain');
+    expect(subnetGroupResource['DeletionPolicy']).toBe('Retain');
   });
 });

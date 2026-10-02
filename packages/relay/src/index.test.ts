@@ -5,12 +5,14 @@ import type { ScheduledEvent } from 'aws-lambda';
 import { type FetchFn, type SecretsClient } from './auth.js';
 import { IdempotencyStore, type CommandExecutor } from './commands.js';
 import {
+  buildDbAzParameters,
   compactPendingInstallPayload,
   createInstallExecutor,
   createInstallResumer,
   createObserveHook,
   createRelayHandler,
   createVerifyingExecutor,
+  discoverAvailabilityZones,
   fetchCommandAuthority,
   readDeploymentManifest,
   readDeploymentTagsFromPayload,
@@ -2585,5 +2587,177 @@ describe('Stage B phase 2 — post-install binding-alias registration', () => {
 
     expect(result.success).toBe(false);
     expect(String(result.error)).toContain('register denied');
+  });
+});
+
+// ── AZ discovery ─────────────────────────────────────────────────────────────
+
+describe('discoverAvailabilityZones', () => {
+  function makeEc2Client(zones: { ZoneName?: string; State?: string; ZoneType?: string }[]) {
+    return {
+      send: vi.fn().mockResolvedValue({ AvailabilityZones: zones }),
+    };
+  }
+
+  it('returns only available standard zones, sorted', async () => {
+    const ec2 = makeEc2Client([
+      { ZoneName: 'us-east-1c', State: 'available', ZoneType: 'availability-zone' },
+      { ZoneName: 'us-east-1a', State: 'available', ZoneType: 'availability-zone' },
+      { ZoneName: 'us-east-1b', State: 'available', ZoneType: 'local' },
+      { ZoneName: 'us-east-1d', State: 'available', ZoneType: 'wavelength' },
+      { ZoneName: 'us-east-1e', State: 'unavailable', ZoneType: 'availability-zone' },
+    ]);
+
+    const zones = await discoverAvailabilityZones(ec2 as never);
+
+    expect(zones).toEqual(['us-east-1a', 'us-east-1c']);
+  });
+
+  it('succeeds with exactly two available zones', async () => {
+    const ec2 = makeEc2Client([
+      { ZoneName: 'us-east-1a', State: 'available', ZoneType: 'availability-zone' },
+      { ZoneName: 'us-east-1b', State: 'available', ZoneType: 'availability-zone' },
+    ]);
+
+    const zones = await discoverAvailabilityZones(ec2 as never);
+
+    expect(zones).toEqual(['us-east-1a', 'us-east-1b']);
+  });
+
+  it('returns null when fewer than two usable zones remain', async () => {
+    const ec2 = makeEc2Client([
+      { ZoneName: 'us-east-1a', State: 'available', ZoneType: 'availability-zone' },
+    ]);
+
+    expect(await discoverAvailabilityZones(ec2 as never)).toBeNull();
+  });
+
+  it('returns null when all zones are local', async () => {
+    const ec2 = makeEc2Client([
+      { ZoneName: 'us-east-1a', State: 'available', ZoneType: 'local' },
+      { ZoneName: 'us-east-1b', State: 'available', ZoneType: 'local' },
+    ]);
+
+    expect(await discoverAvailabilityZones(ec2 as never)).toBeNull();
+  });
+
+  it('returns null when the EC2 send throws', async () => {
+    const ec2 = {
+      send: vi.fn().mockRejectedValue(new Error('Throttling')),
+    };
+
+    expect(await discoverAvailabilityZones(ec2 as never)).toBeNull();
+  });
+});
+
+describe('buildDbAzParameters', () => {
+  it('returns null when more than 8 zones are available', () => {
+    const zones = Array.from({ length: 9 }, (_, i) => `us-east-1${String.fromCharCode(97 + i)}`);
+    expect(buildDbAzParameters(zones)).toBeNull();
+  });
+
+  it('returns null when fewer than 2 zones are available', () => {
+    expect(buildDbAzParameters([])).toBeNull();
+    expect(buildDbAzParameters(['us-east-1a'])).toBeNull();
+  });
+
+  it('maps exactly 2 zones to paramDbAz1 and paramDbAz2', () => {
+    expect(buildDbAzParameters(['us-east-1a', 'us-east-1b'])).toEqual({
+      paramDbAz1: 'us-east-1a',
+      paramDbAz2: 'us-east-1b',
+    });
+  });
+
+  it('maps exactly 8 zones to paramDbAz1 through paramDbAz8', () => {
+    const zones = Array.from({ length: 8 }, (_, i) => `us-east-1${String.fromCharCode(97 + i)}`);
+    const params = buildDbAzParameters(zones);
+    expect(params).not.toBeNull();
+    expect(Object.keys(params!)).toHaveLength(8);
+    expect(params!['paramDbAz1']).toBe('us-east-1a');
+    expect(params!['paramDbAz8']).toBe('us-east-1h');
+  });
+});
+
+describe('settleInstall AZ wiring', () => {
+  const command = {
+    id: 'cmd-az',
+    deploymentId: 'dep-1',
+    type: 'INSTALL' as const,
+    idempotencyKey: 'dep-1:INSTALL',
+    payload: {
+      redisRequired: false,
+      databaseRequired: true,
+      templateUrl: 'https://example.com/application-template-v1.json',
+    },
+  };
+
+  function makeInstallDeps(overrides: Partial<InstallExecutorDeps> = {}): InstallExecutorDeps {
+    return {
+      installationId: 'inst-1',
+      install: async () => ({ state: 'succeeded', status: 'CREATE_COMPLETE', outputs: {} }),
+      verify: async () => ({ verified: true, checks: [] }),
+      pending: memoryPendingStore(),
+      now: () => '2026-08-26T12:00:00.000Z',
+      ...overrides,
+    };
+  }
+
+  it('injects the discovered AZ parameters when creating the stack', async () => {
+    const ec2 = {
+      send: vi.fn().mockResolvedValue({
+        AvailabilityZones: [
+          { ZoneName: 'us-east-1b', State: 'available', ZoneType: 'availability-zone' },
+          { ZoneName: 'us-east-1a', State: 'available', ZoneType: 'availability-zone' },
+        ],
+      }),
+    };
+    const install = vi.fn(async () => ({
+      state: 'succeeded' as const,
+      status: 'CREATE_COMPLETE',
+      outputs: {},
+    }));
+
+    await createInstallExecutor(makeInstallDeps({ install, ec2: ec2 as never }))(command);
+
+    expect(install.mock.calls[0]![0]).toMatchObject({
+      parameters: {
+        paramDbAz1: 'us-east-1a',
+        paramDbAz2: 'us-east-1b',
+      },
+    });
+  });
+
+  it('fails explicitly when AZ discovery is required but unsuccessful', async () => {
+    const ec2 = {
+      send: vi.fn().mockRejectedValue(new Error('Throttling')),
+    };
+    const install = vi.fn();
+
+    const result = await createInstallExecutor(makeInstallDeps({ install, ec2: ec2 as never }))(command);
+
+    expect(result.success).toBe(false);
+    expect(result.failureCode).toBe('STACK_CREATE_FAILED');
+    expect(result.error).toMatch(/AZ discovery failed/i);
+    expect(install).not.toHaveBeenCalled();
+  });
+
+  it('fails explicitly when more than 8 AZs are discovered', async () => {
+    const ec2 = {
+      send: vi.fn().mockResolvedValue({
+        AvailabilityZones: Array.from({ length: 9 }, (_, i) => ({
+          ZoneName: `us-east-1${String.fromCharCode(97 + i)}`,
+          State: 'available',
+          ZoneType: 'availability-zone',
+        })),
+      }),
+    };
+    const install = vi.fn();
+
+    const result = await createInstallExecutor(makeInstallDeps({ install, ec2: ec2 as never }))(command);
+
+    expect(result.success).toBe(false);
+    expect(result.failureCode).toBe('STACK_CREATE_FAILED');
+    expect(result.error).toMatch(/at most 8/i);
+    expect(install).not.toHaveBeenCalled();
   });
 });

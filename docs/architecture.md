@@ -190,7 +190,8 @@ that would replace or delete managed resources fail closed.
 ## What the application stack contains
 
 The compiled stack contains: a VPC (two public and two private subnets, one
-NAT gateway), an ECS cluster, and one Fargate service per persistent
+NAT gateway, plus isolated DB-only subnets in the remaining available AZs when
+a database is present), an ECS cluster, and one Fargate service per persistent
 workload (`small-v1`: 0.25 vCPU / 512 MiB per task, deployment circuit
 breaker with rollback). The web workload runs behind the internet-facing
 ALB (one HTTP listener, a target group, an unhealthy-target alarm); each
@@ -233,6 +234,19 @@ so workers and the migration task verify TLS the same way. MySQL also
 binds `MYSQL_URL` and the `DB_*` aliases. Aliases such as `DB_HOST` /
 `DB_USER` are bound from
 the analysis manifest.
+
+The database is a **Single-AZ database with automatic placement**. The
+compiler emits a DB subnet group that covers all available, enabled
+standard AZs in the customer's region: the two private subnets (which the
+ECS services also use) plus DB-only subnets in every other available AZ.
+The DB-only subnets are isolated — no NAT gateway, no internet route —
+and exist only to give the database more placement options. The relay
+discovers the AZs via `DescribeAvailabilityZones` before creating the
+stack and fills the template's `paramDbAz1` … `paramDbAzN` parameters.
+The DB instance's `AvailabilityZone` is unset, so RDS chooses one subnet
+from the group at create time. This avoids the `InsufficientDBInstanceCapacity`
+failure that occurs when the subnet group only covers two AZs and AWS
+reports no capacity in either.
 
 The HTTPS listener and its certificate are **not** in the template; the
 relay adds them after install.
