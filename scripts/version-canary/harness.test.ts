@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { canaryTags, loadConfig, mintRunId, releaseVersionFor, requireRealAwsOptIn, validateDigest } from './config.js';
-import { isTerminalJobState, waitFor, type ControlPlane } from './control-plane.js';
+import { ControlPlane, isTerminalJobState, waitFor } from './control-plane.js';
 import { isConnectorSecret, isRetainedDatabaseSecret, relayFunctionName, removeCanaryLeftovers } from './teardown.js';
 import { captureFailureDiagnostics, withDiagnosticsOnFailure, type DiagnosticsContext } from './diagnostics.js';
 import { Evidence, renderSummary, type RunRecord } from './evidence.js';
@@ -71,6 +71,35 @@ describe('run identity', () => {
     expect(config.region).toBe('us-east-1');
     expect(loadConfig({ DEPLOYZ_CANARY_API_URL: 'http://localhost:3001/' }).apiUrl).toBe('http://localhost:3001');
     expect(loadConfig({}, { runId: 'fixed' }).runId).toBe('fixed');
+  });
+
+  it('reads the persistent canary vendor from env, and refuses half of it', () => {
+    expect(loadConfig({}).vendor).toBeNull();
+    expect(loadConfig({ DEPLOYZ_CANARY_VENDOR_EMAIL: 'v@example.com', DEPLOYZ_CANARY_VENDOR_PASSWORD: 'p' }).vendor).toEqual({
+      email: 'v@example.com',
+      password: 'p',
+    });
+    expect(() => loadConfig({ DEPLOYZ_CANARY_VENDOR_EMAIL: 'v@example.com' })).toThrow('or neither');
+  });
+});
+
+describe('createApplication in a persistent vendor organization', () => {
+  const input = { name: 'n', githubInstallationId: '1', repoFullName: 'o/r', repoUrl: 'https://github.com/o/r', defaultBranch: 'main' };
+
+  it('reuses the application the organization already has for the repository', async () => {
+    const api = new ControlPlane('http://api', 'http://web');
+    vi.spyOn(api, 'request').mockResolvedValue({
+      status: 409,
+      body: { error: { code: 'APPLICATION_ALREADY_CONNECTED', details: { applicationId: 'app-1' } } },
+      headers: new Headers(),
+    });
+    await expect(api.createApplication(input)).resolves.toEqual({ id: 'app-1' });
+  });
+
+  it('fails on a 409 that names no application', async () => {
+    const api = new ControlPlane('http://api', 'http://web');
+    vi.spyOn(api, 'request').mockResolvedValue({ status: 409, body: { error: { code: 'OTHER' } }, headers: new Headers() });
+    await expect(api.createApplication(input)).rejects.toThrow('409');
   });
 });
 

@@ -67,6 +67,60 @@ canary (tsx, scripts/version-canary)          test AWS account
   reads: CFN, ECS tasks, ECR, ALB, tags           RDS ← /canary/markers
 ```
 
+### The canary vendor and GitHub installation
+
+The control plane does not bind a GitHub installation that another
+organization holds (`/api/github/setup` redirects with `github=failed`). A
+GitHub account can have only one installation of the Deployz App, and the
+`instashop-dev` installation belongs to a real vendor organization. Thus the
+canary uses its own GitHub account and one persistent vendor organization
+that holds that installation across runs. Do not bind the canary to an
+installation that a real vendor uses.
+
+One-time operator setup:
+
+1. Create a GitHub organization for the canary only (for example
+   `deployz-canary`).
+2. Generate the fixture repository in it:
+   `pnpm canary:fixture-repo --repo <canary-org>/deployz-canary-app`. Keep it
+   public: the runner reads its tags with `gh` and the workflow token.
+3. Install the Deployz GitHub App on the canary organization. Record the
+   installation id (the number at the end of the installation's settings
+   URL).
+4. In the dashboard of the target control plane, sign up the canary vendor
+   (for example `canary@<your-domain>`). Then connect GitHub and select the
+   canary organization. This binds the installation to the vendor's
+   organization. Use this vendor for the canary only, with one organization.
+5. Set these values:
+
+   | Name | Where (CI) | Value |
+   | --- | --- | --- |
+   | `DEPLOYZ_CANARY_GITHUB_INSTALLATION_ID` | repository variable | The installation id from step 3. |
+   | `DEPLOYZ_CANARY_FIXTURE_REPO` | repository variable | `<canary-org>/deployz-canary-app` |
+   | `DEPLOYZ_CANARY_VENDOR_EMAIL` | repository secret | The vendor email from step 4. |
+   | `DEPLOYZ_CANARY_VENDOR_PASSWORD` | repository secret | The vendor password from step 4. |
+
+   For a local run, export the same four values.
+
+With the vendor values set, a run signs in instead of signing up. The bind
+call is then a no-op re-bind by the holder. The organization keeps one
+canary application per fixture repository: an application with deployment
+history cannot be removed, so each run reuses it (the create call answers
+`409 APPLICATION_ALREADY_CONNECTED` with its id). Customers, deployments,
+releases and stacks are still new for each run. `cleanup --run-id` signs in
+with the same vendor values. Do not run two canaries at the same time with
+the same vendor.
+
+Without the vendor values, a run signs up a fresh vendor. This works only
+when no organization holds the installation yet, for example on a local
+control plane.
+
+Stage B (`scripts/repository-deployment`) reads the same values. With a
+persistent vendor it runs every attempt in that vendor's organization, and
+the repositories it deploys must be reachable through the canary
+installation (set `fork` in `deploy-config.yaml` to a repository in the
+canary GitHub organization).
+
 ### The fixture application
 
 `packages/fixture` is the Deployz-controlled application every canary run
@@ -491,6 +545,9 @@ invisible to unit tests, CI and the simulator — not a judgment call:
 - **Preflight refuses the account, or `aws login` expiry** — you are not
   authenticated to the test account, or the session expired mid-run
   (`aws login` as its root/admin user re-authenticates; re-run afterwards).
+- **`GitHub binding did not report connected` (`github=failed`)** — another
+  organization holds the installation. Set the canary vendor values and
+  installation id (see "The canary vendor and GitHub installation").
 - **Install link has no Quick Create URL** — the bootstrap template is not
   published for this control plane (`BOOTSTRAP_TEMPLATE_URL` unset).
 - **`CreateStack` refuses parameters** — the relay must include the fix for

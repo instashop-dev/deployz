@@ -63,6 +63,12 @@ jobs:
       AWS_REGION: us-east-1
       DEPLOYZ_E2E_ALLOW_REAL_AWS: '1'
       GH_TOKEN: ${{ github.token }}
+      # The persistent canary vendor and its own GitHub installation
+      # (docs/testing/aws-e2e.md, "The canary vendor and GitHub installation").
+      DEPLOYZ_CANARY_GITHUB_INSTALLATION_ID: ${{ vars.DEPLOYZ_CANARY_GITHUB_INSTALLATION_ID }}
+      DEPLOYZ_CANARY_FIXTURE_REPO: ${{ vars.DEPLOYZ_CANARY_FIXTURE_REPO }}
+      DEPLOYZ_CANARY_VENDOR_EMAIL: ${{ secrets.DEPLOYZ_CANARY_VENDOR_EMAIL }}
+      DEPLOYZ_CANARY_VENDOR_PASSWORD: ${{ secrets.DEPLOYZ_CANARY_VENDOR_PASSWORD }}
     steps:
       - name: Checkout
         uses: actions/checkout@v7
