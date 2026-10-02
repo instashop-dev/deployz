@@ -92,6 +92,17 @@ export interface StackState {
   readonly outputs: Readonly<Record<string, string>>;
 }
 
+/**
+ * What a describe said. A confirmed `absent` means "there is no such stack";
+ * `found: false` with `absent: false` means the read itself failed — a
+ * throttle, a permission denial or a transport error — which is never
+ * evidence that the stack is gone.
+ */
+export type StackDescribeOutcome =
+  | { readonly found: true; readonly stack: StackState }
+  | { readonly found: false; readonly absent: true }
+  | { readonly found: false; readonly absent: false; readonly errorCode?: string };
+
 export interface CreateStackInput {
   readonly stackName: string;
   readonly templateUrl: string;
@@ -118,6 +129,14 @@ export type CreateStackOutcome =
       readonly message: string;
     };
 
+/**
+ * Why this install may create a stack. `fresh` is a first install; `resume`
+ * continues an install that must adopt an existing stack and never recreates
+ * a missing one; `recovery` is the authorized first-install recovery pass,
+ * which may recreate after the previous stack is deleted.
+ */
+export type InstallCreateMode = 'fresh' | 'resume' | 'recovery';
+
 /** A resource-level `CREATE_FAILED` event, the actual cause behind a rollback. */
 export interface StackFailureEvent {
   readonly logicalResourceId: string;
@@ -132,6 +151,12 @@ export interface StackInstaller {
   createStack(input: CreateStackInput): Promise<CreateStackOutcome>;
   /** `null` when there is no such stack — including when it cannot be read. */
   describeStack(stackName: string): Promise<StackState | null>;
+  /**
+   * Optional richer read: separates a confirmed absence from a failed read.
+   * `run` prefers it when present and otherwise wraps `describeStack`, where
+   * every failure reads as a confirmed absence.
+   */
+  describeStackOutcome?(stackName: string): Promise<StackDescribeOutcome>;
   /**
    * Every `CREATE_FAILED` resource event for a stack, already stripped of
    * events with no reason. Empty when there are none or the events could not
@@ -166,6 +191,14 @@ export interface InstallOptions {
   readonly pollIntervalMs?: number;
   readonly now?: () => number;
   readonly sleep?: (ms: number) => Promise<void>;
+  /** Why this install may create. Defaults to `'fresh'`. */
+  readonly createMode?: InstallCreateMode;
+  /**
+   * Recovery only: re-checked immediately before every `CreateStack`, so a
+   * grant that expired while this install waited cannot leak into a create.
+   * Absent means recovery creates without a separate authorization step.
+   */
+  readonly authorizeRecoveryCreate?: () => Promise<boolean>;
   /**
    * Called once per wait-loop tick, and once more after the loop reaches a
    * terminal state, with the stack name being watched. Wired to the
@@ -229,16 +262,22 @@ export function buildInstallParametersFromManifest(
 }
 
 /**
- * How many consecutive unreadable polls mean the stack is really gone.
- *
- * `describeStack` maps every failure to `null` — that is the fail-closed
- * rule, and it is right for the question "is there a stack to adopt?". It
- * is too blunt for the question "is the stack we are watching still there?":
- * one throttled call during a twenty-minute watch would fail an install that
- * is going fine, permanently, because the control plane does not re-issue a
- * job it has already reported on. A run of them is a different matter.
+ * How many consecutive unreadable polls mean the read is broken, not that
+ * the stack is gone. `describeStack` maps every failure to `null`; the richer
+ * `describeStackOutcome` separates a confirmed absence from a failed read.
+ * One throttled or denied read during a twenty-minute watch must not fail an
+ * install that is going fine, permanently, because the control plane does not
+ * re-issue a job it has already reported on. A run of them is a different
+ * matter.
  */
 const UNREADABLE_POLLS_BEFORE_FAILING = 3;
+
+/**
+ * How many consecutive confirmed absences mean the watched stack is gone.
+ * The stack was readable a moment ago and the reads now confirm nothing is
+ * there: something deleted it, and this install did not produce a stack.
+ */
+const ABSENT_POLLS_BEFORE_FAILING = 3;
 
 /**
  * Create the application stack if it is not already there, then watch it
@@ -272,11 +311,25 @@ async function run(options: InstallOptions): Promise<InstallOutcome> {
     now = () => Date.now(),
     sleep = defaultSleep,
     onPoll,
+    createMode = 'fresh',
+    authorizeRecoveryCreate,
   } = options;
 
   const deadline = now() + budgetMs;
 
+  const unauthorizedRecovery = (): InstallOutcome => ({
+    state: 'failed',
+    reason: `Recovery is no longer authorized for stack "${stackName}" — not recreating`,
+    outputs: {},
+  });
+
   const createStack = async (): Promise<InstallOutcome | null> => {
+    // Recovery recreates a stack the control plane authorized. The grant is
+    // re-read immediately before the write, so one that expired while this
+    // install waited cannot leak into a create.
+    if (createMode === 'recovery' && authorizeRecoveryCreate) {
+      if (!(await authorizeRecoveryCreate())) return unauthorizedRecovery();
+    }
     const created = await installer.createStack({
       stackName,
       templateUrl,
@@ -299,21 +352,46 @@ async function run(options: InstallOptions): Promise<InstallOutcome> {
     return null;
   };
 
+  // A confirmed absence and a failed read are different answers. `describe`
+  // prefers the richer read when the installer offers it and falls back to
+  // `describeStack`, where every failure reads as a confirmed absence.
+  const describe = async (): Promise<StackDescribeOutcome> => {
+    if (installer.describeStackOutcome) {
+      return installer.describeStackOutcome(stackName);
+    }
+    const stack = await installer.describeStack(stackName);
+    return stack === null ? { found: false, absent: true } : { found: true, stack };
+  };
+
   // Describe before create. This is what makes a re-delivered or resumed
   // INSTALL safe: an existing stack is adopted, never duplicated.
-  const existing = await installer.describeStack(stackName);
-  if (existing !== null) {
-    const settled = await settle(existing, stackName, installer, options.stoppedTaskEvidence);
+  const initial = await describe();
+  let last: StackState | null = null;
+  let unreadable = 0;
+  let absent = 0;
+  let createdAfterDelete = false;
+
+  if (initial.found) {
+    last = initial.stack;
+    const settled = await settle(initial.stack, stackName, installer, options.stoppedTaskEvidence);
     if (settled) return settled;
-  } else {
+  } else if (initial.absent) {
+    if (createMode === 'resume') {
+      return {
+        state: 'failed',
+        reason: `Stack "${stackName}" no longer exists; a resumed install does not recreate it`,
+        outputs: {},
+      };
+    }
     const refused = await createStack();
     if (refused !== null) return refused;
+  } else {
+    // Unreadable, not absent: the stack may be there, so never create. Watch
+    // it and let a run of failed reads decide.
+    unreadable = 1;
   }
 
   // Watch it settle.
-  let last: StackState | null = existing;
-  let unreadable = 0;
-  let createdAfterDelete = false;
   for (;;) {
     if (now() >= deadline) {
       return { state: 'in-progress', status: last?.status ?? 'CREATE_IN_PROGRESS' };
@@ -329,51 +407,71 @@ async function run(options: InstallOptions): Promise<InstallOutcome> {
       // Event collection is enrichment, never a reason the wait loop stops.
     }
 
-    const state = await installer.describeStack(stackName);
-    if (state === null) {
+    const outcome = await describe();
+    if (outcome.found) {
+      unreadable = 0;
+      absent = 0;
+      last = outcome.stack;
+      const settled = await settle(outcome.stack, stackName, installer, options.stoppedTaskEvidence);
+      if (settled) {
+        // One more collection pass now that the stack has a verdict, so the
+        // tail events between the last tick and the terminal state are not
+        // lost to the invocation ending.
+        try {
+          await onPoll?.(stackName);
+        } catch {
+          // Same rule as above — never the reason the outcome is lost.
+        }
+        return settled;
+      }
+      continue;
+    }
+
+    if (outcome.absent) {
+      unreadable = 0;
       // An adopted DELETE_IN_PROGRESS finishing is not a loss of access —
       // it is first-install recovery (or a concurrent destroy) clearing the
-      // failed previous stack. This install's job is the NEW stack, so
-      // create it now and keep watching. (Observed live: recovery deleted
-      // the wedged stack, and the install then failed itself on the empty
-      // reads instead of creating.)
-      if (last?.status === 'DELETE_IN_PROGRESS' && !createdAfterDelete) {
+      // failed previous stack. Only an authorized recovery may recreate it.
+      if (
+        last?.status === 'DELETE_IN_PROGRESS' &&
+        createMode === 'recovery' &&
+        !createdAfterDelete
+      ) {
         const refused = await createStack();
         if (refused !== null) return refused;
         createdAfterDelete = true;
-        unreadable = 0;
+        absent = 0;
         last = null;
         continue;
       }
-      unreadable += 1;
-      if (unreadable >= UNREADABLE_POLLS_BEFORE_FAILING) {
-        // It was there a moment ago, and has been unreadable ever since.
-        // Something deleted it, or the read stopped being permitted —
-        // either way this install did not produce a stack.
+      absent += 1;
+      if (absent >= ABSENT_POLLS_BEFORE_FAILING) {
+        // It was there a moment ago, and is confirmed gone now: something
+        // deleted it, and this install did not produce a stack.
         return {
           state: 'failed',
           reason:
-            `Stack "${stackName}" has been unreadable for ${unreadable} consecutive checks — ` +
-            'it was deleted, or the relay lost access to it',
+            `Stack "${stackName}" was deleted while this install was watching it — ` +
+            `${absent} consecutive checks found no stack`,
           outputs: {},
         };
       }
       continue;
     }
 
-    unreadable = 0;
-    last = state;
-    const settled = await settle(state, stackName, installer, options.stoppedTaskEvidence);
-    if (settled) {
-      // One more collection pass now that the stack has a verdict, so the
-      // tail events between the last tick and the terminal state are not
-      // lost to the invocation ending.
-      try {
-        await onPoll?.(stackName);
-      } catch {
-        // Same rule as above — never the reason the outcome is lost.
-      }
-      return settled;
+    absent = 0;
+    unreadable += 1;
+    if (unreadable >= UNREADABLE_POLLS_BEFORE_FAILING) {
+      // The read itself is broken — throttled, denied or a transport error.
+      // That is not evidence the stack is gone.
+      const code = outcome.errorCode ? ` (${outcome.errorCode})` : '';
+      return {
+        state: 'failed',
+        reason:
+          `Stack "${stackName}" could not be read for ${unreadable} consecutive checks${code} — ` +
+          'throttling, permission or transport, not a missing stack',
+        outputs: {},
+      };
     }
   }
 }
@@ -640,6 +738,51 @@ export function toInstaller(client: SendsCommands): StackInstaller {
         };
       } catch {
         return null;
+      }
+    },
+
+    async describeStackOutcome(stackName: string): Promise<StackDescribeOutcome> {
+      try {
+        const response = (await client.send(
+          new DescribeStacksCommand({ StackName: stackName }),
+        )) as {
+          Stacks?: {
+            StackStatus?: string;
+            StackStatusReason?: string;
+            Outputs?: { OutputKey?: string; OutputValue?: string }[];
+          }[];
+        };
+
+        const stack = response.Stacks?.[0];
+        if (!stack?.StackStatus) return { found: false, absent: true };
+
+        const outputs: Record<string, string> = {};
+        for (const output of stack.Outputs ?? []) {
+          if (output.OutputKey !== undefined && output.OutputValue !== undefined) {
+            outputs[output.OutputKey] = output.OutputValue;
+          }
+        }
+
+        return {
+          found: true,
+          stack: {
+            status: stack.StackStatus,
+            ...(stack.StackStatusReason !== undefined
+              ? { statusReason: stack.StackStatusReason }
+              : {}),
+            outputs,
+          },
+        };
+      } catch (err) {
+        const errorCode = err instanceof Error ? err.name : undefined;
+        if (errorCode === 'ValidationError' && /does not exist/i.test(message(err))) {
+          return { found: false, absent: true };
+        }
+        return {
+          found: false,
+          absent: false,
+          ...(errorCode !== undefined ? { errorCode } : {}),
+        };
       }
     },
 

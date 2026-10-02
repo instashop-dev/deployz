@@ -56,7 +56,7 @@ import { createDestroyExecutor, createDestroyResumer, type DestroyDeps } from '@
 import { observeRuntimeHealth } from '@deployz/relay/ecs-health';
 import { observeRunningImageDigest } from '@deployz/relay/ecs-observe';
 import { installApplicationStack } from '@deployz/relay/install';
-import { memoryPendingStore } from '@deployz/relay/pending';
+import { memoryPendingStore, type PendingCommand, type PendingStore } from '@deployz/relay/pending';
 import { pollOnce, reportCommandProgress, type PollDependencies } from '@deployz/relay/poll';
 import { buildProvisioningSnapshot } from '@deployz/relay/provision-progress';
 import { listAllStackResources } from '@deployz/relay/stack-resources';
@@ -326,6 +326,18 @@ export interface StartSimulatedRelayOptions {
    * hostname still follows the healthy two-phase ACM flow below.
    */
   readonly failConfigureForHostnameRegex?: string;
+  /**
+   * Seed a pending command into the store before the first poll. Used by the
+   * stale-install-resurrect scenario to simulate a relay that died mid-install
+   * and left a pending marker behind.
+   */
+  readonly seedPending?: PendingCommand;
+  /**
+   * Use a custom pending store instead of the default in-memory one. Used by
+   * the stale-install-resurrect scenario to ensure a cold start with a fresh
+   * store.
+   */
+  readonly pendingStore?: PendingStore;
 }
 
 export interface InstallSettlement {
@@ -396,7 +408,7 @@ export function startSimulatedRelay(options: StartSimulatedRelayOptions): Simula
   // (packages/relay/src/index.ts's `getPendingStore`), and is what lets the
   // `resume` composition below peek a still-pending command's `type` before
   // its own resumer clears it.
-  const pending = memoryPendingStore();
+  const pending = options.pendingStore ?? memoryPendingStore();
 
   // Two-phase ACM issuance bookkeeping, keyed by lowercased hostname: each
   // hostname is first answered PENDING_VALIDATION (with the records the
@@ -423,6 +435,16 @@ export function startSimulatedRelay(options: StartSimulatedRelayOptions): Simula
         budgetMs: 30_000,
       }),
     verify: (request) => verifyInstallation({ ...request, cfn: account.cloudFormationReader() }),
+    checkAuthority: async (commandId) => {
+      try {
+        const res = await fetchFn(`${apiUrl}/api/relay/commands/${encodeURIComponent(commandId)}/authority`, { headers: buildAuthHeaders(authState) });
+        if (res.status !== 200) return null;
+        const body = (await res.json()) as { active?: unknown };
+        return body.active === true;
+      } catch {
+        return null;
+      }
+    },
     pending,
     createStackEventCollector: ({ commandId, operationStartedAt, stackName, resumeAfter }) =>
       createStackEventCollector({
@@ -781,9 +803,14 @@ export function startSimulatedRelay(options: StartSimulatedRelayOptions): Simula
 
   let stopped = false;
   let timer: ReturnType<typeof setTimeout> | undefined;
+  let seeded = false;
 
   async function tick(): Promise<void> {
     if (stopped) return;
+    if (!seeded) {
+      seeded = true;
+      if (options.seedPending) await pending.write(options.seedPending);
+    }
     try {
       await pollOnce(pollDeps, authState);
     } catch {

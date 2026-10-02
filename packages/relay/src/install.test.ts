@@ -41,6 +41,9 @@ function scriptedInstaller(
           index += 1;
           return state;
         },
+    ...(overrides.describeStackOutcome
+      ? { describeStackOutcome: overrides.describeStackOutcome }
+      : {}),
     describeStackEvents: overrides.describeStackEvents ? overrides.describeStackEvents : async () => [],
   };
 }
@@ -478,11 +481,184 @@ describe('installApplicationStack', () => {
       installer,
       installationId: 'inst-1',
       templateUrl: 'https://example.com/app.json',
+      createMode: 'recovery',
       ...NEVER_SLEEP,
     });
 
     expect(outcome.state).toBe('succeeded');
     expect(installer.createCalls).toHaveLength(1);
+  });
+
+  it('does not recreate after an adopted deletion unless the mode is recovery', async () => {
+    for (const createMode of ['resume', 'fresh'] as const) {
+      const installer = scriptedInstaller([
+        { status: 'DELETE_IN_PROGRESS', outputs: {} },
+        { status: 'DELETE_IN_PROGRESS', outputs: {} },
+        null,
+        null,
+        null,
+      ]);
+
+      const outcome = await installApplicationStack({
+        installer,
+        installationId: 'inst-1',
+        templateUrl: 'https://example.com/app.json',
+        createMode,
+        ...NEVER_SLEEP,
+      });
+
+      expect(installer.createCalls).toHaveLength(0);
+      expect(outcome.state).toBe('failed');
+    }
+  });
+
+  it('does not create in resume mode when the stack is absent at the first describe', async () => {
+    const installer = scriptedInstaller([null, complete()]);
+
+    const outcome = await installApplicationStack({
+      installer,
+      installationId: 'inst-1',
+      templateUrl: 'https://example.com/app.json',
+      createMode: 'resume',
+      ...NEVER_SLEEP,
+    });
+
+    expect(outcome.state).toBe('failed');
+    expect(installer.createCalls).toHaveLength(0);
+    expect(outcome.state === 'failed' && outcome.reason).toContain('no longer exists');
+  });
+
+  it('creates in recovery mode when the stack is absent at the first describe', async () => {
+    const installer = scriptedInstaller([
+      null,
+      { status: 'CREATE_IN_PROGRESS', outputs: {} },
+      complete(),
+    ]);
+
+    const outcome = await installApplicationStack({
+      installer,
+      installationId: 'inst-1',
+      templateUrl: 'https://example.com/app.json',
+      createMode: 'recovery',
+      ...NEVER_SLEEP,
+    });
+
+    expect(outcome.state).toBe('succeeded');
+    expect(installer.createCalls).toHaveLength(1);
+  });
+
+  it('does not create in recovery mode when recovery is no longer authorized', async () => {
+    const installer = scriptedInstaller([null, complete()]);
+    const authorizeRecoveryCreate = vi.fn().mockResolvedValue(false);
+
+    const outcome = await installApplicationStack({
+      installer,
+      installationId: 'inst-1',
+      templateUrl: 'https://example.com/app.json',
+      createMode: 'recovery',
+      authorizeRecoveryCreate,
+      ...NEVER_SLEEP,
+    });
+
+    expect(outcome.state).toBe('failed');
+    expect(installer.createCalls).toHaveLength(0);
+    expect(outcome.state === 'failed' && outcome.reason).toContain('no longer authorized');
+  });
+
+  it('rechecks recovery authorization immediately before recreating after a completed deletion', async () => {
+    const order: string[] = [];
+    const installer = scriptedInstaller(
+      [
+        { status: 'DELETE_IN_PROGRESS', outputs: {} },
+        { status: 'DELETE_IN_PROGRESS', outputs: {} },
+        null,
+        { status: 'CREATE_IN_PROGRESS', outputs: {} },
+        complete(),
+      ],
+      {
+        createStack: async () => {
+          order.push('createStack');
+          return { created: true, stackId: 'stack-id-1' };
+        },
+      },
+    );
+    const authorizeRecoveryCreate = vi.fn(async () => {
+      order.push('authorizeRecoveryCreate');
+      return true;
+    });
+
+    const outcome = await installApplicationStack({
+      installer,
+      installationId: 'inst-1',
+      templateUrl: 'https://example.com/app.json',
+      createMode: 'recovery',
+      authorizeRecoveryCreate,
+      ...NEVER_SLEEP,
+    });
+
+    expect(outcome.state).toBe('succeeded');
+    expect(authorizeRecoveryCreate).toHaveBeenCalledTimes(1);
+    expect(order).toEqual(['authorizeRecoveryCreate', 'createStack']);
+  });
+
+  it('does not recreate after a completed deletion when recovery authorization is refused', async () => {
+    const installer = scriptedInstaller([
+      { status: 'DELETE_IN_PROGRESS', outputs: {} },
+      { status: 'DELETE_IN_PROGRESS', outputs: {} },
+      null,
+      { status: 'CREATE_IN_PROGRESS', outputs: {} },
+      complete(),
+    ]);
+    const authorizeRecoveryCreate = vi.fn().mockResolvedValue(false);
+
+    const outcome = await installApplicationStack({
+      installer,
+      installationId: 'inst-1',
+      templateUrl: 'https://example.com/app.json',
+      createMode: 'recovery',
+      authorizeRecoveryCreate,
+      ...NEVER_SLEEP,
+    });
+
+    expect(outcome.state).toBe('failed');
+    expect(installer.createCalls).toHaveLength(0);
+    expect(outcome.state === 'failed' && outcome.reason).toContain('no longer authorized');
+  });
+
+  it('fails after repeated unreadable reads without creating and names the error code', async () => {
+    const installer = scriptedInstaller([], {
+      describeStackOutcome: async () => ({ found: false, absent: false, errorCode: 'Throttling' }),
+    });
+
+    const outcome = await installApplicationStack({
+      installer,
+      installationId: 'inst-1',
+      templateUrl: 'https://example.com/app.json',
+      ...NEVER_SLEEP,
+    });
+
+    expect(outcome.state).toBe('failed');
+    expect(installer.createCalls).toHaveLength(0);
+    expect(outcome.state === 'failed' && outcome.reason).toContain('Throttling');
+    expect(outcome.state === 'failed' && outcome.reason).not.toMatch(/deleted/i);
+  });
+
+  it('rides out a single unreadable read and succeeds when the stack becomes readable', async () => {
+    const describeStackOutcome = vi
+      .fn<NonNullable<StackInstaller['describeStackOutcome']>>()
+      .mockResolvedValueOnce({ found: false, absent: false, errorCode: 'Throttling' })
+      .mockResolvedValue({ found: true, stack: complete() });
+    const installer = scriptedInstaller([], { describeStackOutcome });
+
+    const outcome = await installApplicationStack({
+      installer,
+      installationId: 'inst-1',
+      templateUrl: 'https://example.com/app.json',
+      ...NEVER_SLEEP,
+    });
+
+    expect(outcome.state).toBe('succeeded');
+    expect(installer.createCalls).toHaveLength(0);
   });
 
   it('fails when the stack disappears mid-create', async () => {
@@ -502,7 +678,7 @@ describe('installApplicationStack', () => {
     });
 
     expect(outcome.state).toBe('failed');
-    expect(outcome.state === 'failed' && outcome.reason).toMatch(/unreadable/i);
+    expect(outcome.state === 'failed' && outcome.reason).toMatch(/deleted/i);
   });
 
   it('never lets an installer exception escape', async () => {
@@ -772,6 +948,52 @@ describe('toInstaller', () => {
     const send = vi.fn().mockRejectedValue(new Error('ValidationError'));
 
     await expect(toInstaller({ send }).describeStack('deployz-app')).resolves.toBeNull();
+  });
+
+  it('reports a described stack as found through describeStackOutcome', async () => {
+    const send = vi.fn().mockResolvedValue({
+      Stacks: [
+        {
+          StackStatus: 'CREATE_COMPLETE',
+          StackStatusReason: 'all good',
+          Outputs: [{ OutputKey: 'PublicEndpoint', OutputValue: 'app.example.com' }],
+        },
+      ],
+    });
+
+    await expect(toInstaller({ send }).describeStackOutcome!('deployz-app')).resolves.toEqual({
+      found: true,
+      stack: {
+        status: 'CREATE_COMPLETE',
+        statusReason: 'all good',
+        outputs: { PublicEndpoint: 'app.example.com' },
+      },
+    });
+  });
+
+  it('maps a missing-stack ValidationError to a confirmed absence', async () => {
+    const error = new Error('Stack with id deployz-app does not exist');
+    error.name = 'ValidationError';
+    const send = vi.fn().mockRejectedValue(error);
+
+    await expect(toInstaller({ send }).describeStackOutcome!('deployz-app')).resolves.toEqual({
+      found: false,
+      absent: true,
+    });
+  });
+
+  it('maps an AccessDeniedException to an unreadable outcome, while describeStack still returns null', async () => {
+    const error = new Error('not authorized');
+    error.name = 'AccessDeniedException';
+    const send = vi.fn().mockRejectedValue(error);
+    const installer = toInstaller({ send });
+
+    await expect(installer.describeStackOutcome!('deployz-app')).resolves.toEqual({
+      found: false,
+      absent: false,
+      errorCode: 'AccessDeniedException',
+    });
+    await expect(installer.describeStack('deployz-app')).resolves.toBeNull();
   });
 
   it('reads CREATE_FAILED resource events, ignoring other statuses', async () => {

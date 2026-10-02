@@ -238,6 +238,50 @@ likewise proven only by its exit code, never by a long-lived service.
   (describe-before-create/delete, running-digest short-circuit), so a
   re-delivered or re-offered command converges on real AWS state instead of
   duplicating a mutation.
+- **A pending command carries authority.** Before it resumes or provisions,
+  the relay asks the control plane whether the command is still active
+  (`GET /api/relay/commands/:id/authority`). A superseded command never
+  mutates AWS; an ambiguous answer defers every mutation. See
+  "Pending-command authority and safe recreation" below.
+
+## Pending-command authority and safe recreation
+
+A deferred INSTALL must never recreate a stack the control plane has
+superseded. Before it resumes or provisions, the relay asks the control
+plane `GET /api/relay/commands/:id/authority` (authenticated with the
+relay bearer token; returns `{active, jobState, reason?}`). Authority is
+false when the job settled or was cancelled, when the deployment is
+DELETING/DELETED, or when a later DESTROY superseded an INSTALL. A network
+or 5xx answer is ambiguous: the relay defers all mutations and asks again
+on the next poll. The decision record is
+`docs/decisions/pending-command-authority.md`.
+
+`installApplicationStack` has three create modes:
+
+- `fresh` — a first install creates the stack when it is absent.
+- `resume` — a resumed install adopts an existing stack and never recreates
+  a missing one.
+- `recovery` — the authorized first-install recovery may recreate after
+  `DELETE_IN_PROGRESS` becomes absent. Recovery rechecks authorization
+  immediately before every `CreateStack`.
+
+A read distinguishes a confirmed absent stack from a failed read. A
+throttle, a permission denial or a transport error (`absent: false` plus an
+`errorCode`) is never evidence that the stack was deleted. A run of
+unreadable reads fails the install with that distinction; it does not claim
+the stack was deleted.
+
+On terminal settle the INSTALL resumer writes a `settled` marker (the
+result plus `settledAt`) instead of clearing first. The marker is cleared
+only after the result report succeeds (`onResultReported`). A failed report
+retries without rerunning provisioning. Every clear and write uses
+`compareAndSet`, so a newer command's marker is never cleared or
+overwritten.
+
+DESTROY cancels an obsolete INSTALL before the idle check: a DISCONNECTED
+relay's active INSTALL can never complete, so it must not block the
+teardown the vendor asked for. A CONNECTED relay's in-flight INSTALL still
+blocks DESTROY through operation exclusivity.
 
 ## Reconciliation: the watchdog repairs, it does not guess
 
@@ -375,6 +419,13 @@ own resource list, never by name); recreate; re-verify. Retained S3 buckets
 are deliberately left (inert, empty, blocked by IAM tag-condition
 semantics). The decision record is `docs/decisions/failed-install-recovery.md`.
 
+Recovery is the only recreation path. A normal install creates a stack
+only when none exists; a resumed install adopts an existing stack and
+never recreates a missing one. Only the authorized recovery pass may
+recreate a stack the previous attempt lost — see "Pending-command
+authority and safe recreation" above and
+`docs/decisions/pending-command-authority.md`.
+
 ## Health is verified, never assumed
 
 CloudFormation success alone never marks a deployment healthy: INSTALL
@@ -420,6 +471,7 @@ the same way the uncertain-result rule keeps reconciliation honest.
 - End-to-end failure boundaries: the simulated scenario suite
   (`docs/testing/simulated-e2e.md`) — including `duplicate-request`,
   `transient-aws`, and `relay-death-destroy` in
-  `e2e/scenario-resilience.spec.ts`, and the DESTROY-retains /
+  `e2e/scenario-resilience.spec.ts`, `stale-install-resurrect` in
+  `e2e/scenario-recovery.spec.ts`, and the DESTROY-retains /
   PURGE-removes proof in `retained-delete-recovery`
   (`e2e/scenario-lifecycle.spec.ts`).

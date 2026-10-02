@@ -27,6 +27,20 @@ import {
   PutParameterCommand,
   SSMClient,
 } from '@aws-sdk/client-ssm';
+import type { FailureEvidence } from '@deployz/contracts';
+
+/**
+ * The terminal answer a settled pending marker carries. Kept in the marker so
+ * a result report that failed to reach the control plane can be retried on the
+ * next poll without provisioning anything again.
+ */
+export interface PersistedCommandResult {
+  readonly success: boolean;
+  readonly output?: Record<string, unknown>;
+  readonly error?: string;
+  readonly failureCode?: string;
+  readonly evidence?: FailureEvidence;
+}
 
 /** A command the relay started and still owes the control plane an answer to. */
 export interface PendingCommand {
@@ -62,6 +76,20 @@ export interface PendingCommand {
    * marker written by an older relay version still parses.
    */
   readonly migration?: { readonly taskArn: string; readonly completedAt?: string };
+  /**
+   * Whether the marker is still being worked (`running`) or carries a
+   * terminal answer (`settled`). Optional so a marker written by an older
+   * relay version, before this field existed, still parses; absent reads as
+   * running.
+   */
+  readonly phase?: 'running' | 'settled';
+  /**
+   * The terminal answer for a settled marker, kept so a result report that
+   * failed can be retried without provisioning again.
+   */
+  readonly result?: PersistedCommandResult;
+  /** ISO timestamp of when the marker settled. */
+  readonly settledAt?: string;
 }
 
 export interface PendingStore {
@@ -70,6 +98,13 @@ export interface PendingStore {
   write(pending: PendingCommand): Promise<boolean>;
   /** `false` when the marker may still be there. */
   clear(): Promise<boolean>;
+  /**
+   * Write or clear the marker only while it still belongs to
+   * `expectedCommandId`. A newer command's marker is never cleared or
+   * overwritten, and creating a marker while none exists is refused (only
+   * clearing an absent marker is a success).
+   */
+  compareAndSet(expectedCommandId: string, next: PendingCommand | null): Promise<boolean>;
 }
 
 /** Default parameter name for an installation's pending command. */
@@ -88,7 +123,7 @@ export const PENDING_MARKER_MAX_LENGTH = 4096;
 /** In-memory store — the fallback when no parameter name is configured. */
 export function memoryPendingStore(): PendingStore {
   let pending: PendingCommand | null = null;
-  return {
+  const store: PendingStore = {
     async read() {
       return pending;
     },
@@ -100,7 +135,26 @@ export function memoryPendingStore(): PendingStore {
       pending = null;
       return true;
     },
+    async compareAndSet(expectedCommandId, next) {
+      if (pending === null) {
+        if (next === null) return true;
+        console.error(JSON.stringify({ event: 'relay:pending-cas-refused', expectedCommandId }));
+        return false;
+      }
+      if (pending.commandId !== expectedCommandId) {
+        console.error(
+          JSON.stringify({
+            event: 'relay:pending-cas-refused',
+            expectedCommandId,
+            currentCommandId: pending.commandId,
+          }),
+        );
+        return false;
+      }
+      return next === null ? store.clear() : store.write(next);
+    },
   };
+  return store;
 }
 
 /** The one method of the SDK client this module uses. */
@@ -123,7 +177,7 @@ function describeError(err: unknown): { name: string; message: string } {
  * `toInstaller` in `./install.ts`.
  */
 export function toPendingStore(client: SendsCommands, parameterName: string): PendingStore {
-  return {
+  const store: PendingStore = {
     async read(): Promise<PendingCommand | null> {
       try {
         // The marker is a SecureString (see `write`): without
@@ -206,12 +260,69 @@ export function toPendingStore(client: SendsCommands, parameterName: string): Pe
         return false;
       }
     },
+
+    async compareAndSet(expectedCommandId, next): Promise<boolean> {
+      const current = await store.read();
+      if (current === null) {
+        if (next === null) return true;
+        logCasRefused(parameterName, expectedCommandId);
+        return false;
+      }
+      if (current.commandId !== expectedCommandId) {
+        logCasRefused(parameterName, expectedCommandId, current.commandId);
+        return false;
+      }
+      const applied = next === null ? await store.clear() : await store.write(next);
+      if (!applied) {
+        console.error(
+          JSON.stringify({ event: 'relay:pending-cas-failed', parameterName, expectedCommandId }),
+        );
+      }
+      return applied;
+    },
   };
+  return store;
+}
+
+/** One structured line for a refused compare-and-set — never the marker value. */
+function logCasRefused(
+  parameterName: string,
+  expectedCommandId: string,
+  currentCommandId?: string,
+): void {
+  console.error(
+    JSON.stringify({
+      event: 'relay:pending-cas-refused',
+      parameterName,
+      expectedCommandId,
+      ...(currentCommandId !== undefined ? { currentCommandId } : {}),
+    }),
+  );
 }
 
 /** Production store — credentials come from the standard SDK chain. */
 export function createPendingStore(parameterName: string, region?: string): PendingStore {
   return toPendingStore(new SSMClient(region === undefined ? {} : { region }), parameterName);
+}
+
+/** Defensive read of a settled marker's stored result; a malformed one is dropped. */
+function parsePersistedResult(raw: unknown): PersistedCommandResult | undefined {
+  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return undefined;
+  const record = raw as Record<string, unknown>;
+  if (typeof record['success'] !== 'boolean') return undefined;
+  const output = record['output'];
+  const evidence = record['evidence'];
+  return {
+    success: record['success'],
+    ...(typeof output === 'object' && output !== null && !Array.isArray(output)
+      ? { output: output as Record<string, unknown> }
+      : {}),
+    ...(typeof record['error'] === 'string' ? { error: record['error'] } : {}),
+    ...(typeof record['failureCode'] === 'string' ? { failureCode: record['failureCode'] } : {}),
+    ...(typeof evidence === 'object' && evidence !== null && !Array.isArray(evidence)
+      ? { evidence: evidence as FailureEvidence }
+      : {}),
+  };
 }
 
 /**
@@ -260,6 +371,11 @@ function parse(value: string): PendingCommand | null {
         })()
       : undefined;
 
+  const phaseRaw = candidate['phase'];
+  const phase = phaseRaw === 'settled' || phaseRaw === 'running' ? phaseRaw : undefined;
+  const result = parsePersistedResult(candidate['result']);
+  const settledAt = typeof candidate['settledAt'] === 'string' ? candidate['settledAt'] : undefined;
+
   return {
     commandId: candidate['commandId'] as string,
     idempotencyKey: candidate['idempotencyKey'] as string,
@@ -272,5 +388,8 @@ function parse(value: string): PendingCommand | null {
         : {},
     ...(stackEventsCursor !== undefined ? { stackEventsCursor } : {}),
     ...(migration !== undefined ? { migration } : {}),
+    ...(phase !== undefined ? { phase } : {}),
+    ...(result !== undefined ? { result } : {}),
+    ...(settledAt !== undefined ? { settledAt } : {}),
   };
 }

@@ -972,6 +972,35 @@ async function requireDeploymentIdle(
 }
 
 /**
+ * Whether a claimed or pending relay command is still authoritative: the
+ * control plane's answer to the relay's "must I still run this?" probe. A
+ * command that settled, whose deployment is being torn down, or (for an
+ * INSTALL) that a later DESTROY superseded must not keep mutating AWS.
+ * `latestDestroyCreatedAt` is the deployment's newest DESTROY createdAt, or
+ * null when none exists.
+ */
+export function relayCommandAuthority(
+  job: Pick<DeploymentJobRow, 'type' | 'state' | 'createdAt'>,
+  deployment: Pick<DeploymentRow, 'state'>,
+  latestDestroyCreatedAt: Date | null,
+): { active: boolean; reason?: string } {
+  if (!['REQUESTED', 'QUEUED', 'WAITING', 'RUNNING'].includes(job.state)) {
+    return { active: false, reason: 'settled' };
+  }
+  if (deployment.state === 'DELETING' || deployment.state === 'DELETED') {
+    return { active: false, reason: 'teardown' };
+  }
+  if (
+    job.type === 'INSTALL' &&
+    latestDestroyCreatedAt !== null &&
+    latestDestroyCreatedAt.getTime() >= job.createdAt.getTime()
+  ) {
+    return { active: false, reason: 'superseded_by_teardown' };
+  }
+  return { active: true };
+}
+
+/**
  * Derived idempotency key that a settled prior attempt does not poison. The
  * fixed derived keys exist to absorb double-clicks and replays, but
  * createOrReuseJob hands the same row back regardless of state — so once an
@@ -5547,6 +5576,33 @@ export async function buildServer({
     const idempotencyKey =
       clientIdempotencyKey(request, deployment.id, 'DESTROY') ??
       (await retryAwareIdempotencyKey(db, deployment.id, 'DESTROY', `${deployment.id}:DESTROY`));
+    // A DISCONNECTED relay can never complete an active INSTALL, so that
+    // install is obsolete and must not block the teardown the vendor asked
+    // for. A CONNECTED relay's in-flight INSTALL is genuinely in progress and
+    // still blocks DESTROY through the idle check below. Only INSTALL jobs
+    // are cancelled — every other job type is left alone.
+    if (deployment.relayStatus === 'DISCONNECTED') {
+      const cancelledInstalls = await db
+        .update(schema.deploymentJobs)
+        .set({ state: 'CANCELLED', finishedAt: new Date() })
+        .where(
+          and(
+            eq(schema.deploymentJobs.deploymentId, deployment.id),
+            eq(schema.deploymentJobs.type, 'INSTALL'),
+            inArray(schema.deploymentJobs.state, ['REQUESTED', 'QUEUED', 'WAITING', 'RUNNING']),
+          ),
+        )
+        .returning();
+      if (cancelledInstalls.length > 0) {
+        request.log.info(
+          {
+            deploymentId: deployment.id,
+            cancelledInstallJobIds: cancelledInstalls.map((row) => row.id),
+          },
+          'cancelled obsolete INSTALL for disconnected relay before DESTROY',
+        );
+      }
+    }
     await requireDeploymentIdle(db, deployment.id, idempotencyKey);
     // Data deletion during a wedged destroy is authorized ONLY for a
     // deployment that never completed an install — its retained database is
@@ -7567,6 +7623,55 @@ export async function buildServer({
         probeUrl: resolveProbeUrl(installJobs, manifest?.health.path ?? null, activeDomain, defaultHttps),
       },
     };
+  });
+
+  // Whether a claimed/pending command is still authoritative. The relay asks
+  // before it keeps mutating AWS: a command that settled, whose deployment is
+  // being torn down, or (INSTALL) that a later DESTROY superseded is no longer
+  // safe to run. Auth mirrors the result route: the token must belong to the
+  // JOB'S deployment.
+  app.get('/api/relay/commands/:id/authority', async (request, reply) => {
+    const token = requireBearerToken(request);
+    const { id } = request.params as { id: string };
+    requireUuidId(id);
+
+    const jobRows = await db.select().from(schema.deploymentJobs).where(eq(schema.deploymentJobs.id, id)).limit(1);
+    if (jobRows.length === 0) {
+      throw new NotFoundError('Job not found');
+    }
+    const job = jobRows[0]!;
+
+    const deploymentRows = await db
+      .select()
+      .from(schema.deployments)
+      .where(eq(schema.deployments.id, job.deploymentId))
+      .limit(1);
+    const deployment = deploymentRows[0];
+    if (
+      !deployment ||
+      !verifyRelayTokenWithRotation(deployment.relayTokenHash, token, oldRelayToken(request))
+    ) {
+      throw new ApiError(401, 'UNAUTHORIZED', 'Invalid relay credentials');
+    }
+
+    const [latestDestroy] = await db
+      .select({ createdAt: schema.deploymentJobs.createdAt })
+      .from(schema.deploymentJobs)
+      .where(
+        and(
+          eq(schema.deploymentJobs.deploymentId, deployment.id),
+          eq(schema.deploymentJobs.type, 'DESTROY'),
+        ),
+      )
+      .orderBy(desc(schema.deploymentJobs.createdAt))
+      .limit(1);
+
+    const authority = relayCommandAuthority(job, deployment, latestDestroy?.createdAt ?? null);
+    return reply.code(200).send({
+      active: authority.active,
+      jobState: job.state,
+      ...(authority.reason ? { reason: authority.reason } : {}),
+    });
   });
 
   app.post('/api/relay/commands/:id/result', async (request, reply) => {

@@ -122,6 +122,13 @@ export interface PollDependencies {
    * array means "nothing owed, or still not finished".
    */
   resume?: () => Promise<RelayCommandResult[]>;
+  /**
+   * Called after EVERY result report attempt — from the resume loop and the
+   * executor loop alike — with whether the control plane accepted it (2xx).
+   * A throwing hook is swallowed: reporting bookkeeping must never break a
+   * poll.
+   */
+  readonly onResultReported?: (result: RelayCommandResult, reported: boolean) => Promise<void>;
   /** Reported at enrollment and on every heartbeat (see identity.ts). */
   identity?: Record<string, unknown>;
   /** Observes the image digest actually running in ECS; null = unknown. */
@@ -284,7 +291,8 @@ export async function pollOnce(
       console.error(JSON.stringify({ event: 'relay:resume-failed', error: String(err) }));
     }
     for (const result of finished) {
-      await reportCommandResult(fetchFn, controlPlaneUrl, authHeaders, result, deps.sleep);
+      const reported = await reportCommandResult(fetchFn, controlPlaneUrl, authHeaders, result, deps.sleep);
+      await notifyResultReported(deps, result, reported);
       resumed += 1;
     }
   }
@@ -378,7 +386,8 @@ export async function pollOnce(
     }
 
     // ── 5. Report result back to the control plane ───────────────────
-    await reportCommandResult(fetchFn, controlPlaneUrl, authHeaders, result, deps.sleep);
+    const reported = await reportCommandResult(fetchFn, controlPlaneUrl, authHeaders, result, deps.sleep);
+    await notifyResultReported(deps, result, reported);
   }
 
   // ── 6. Report observed state (§59) ────────────────────────────────────
@@ -405,7 +414,7 @@ async function reportCommandResult(
   authHeaders: Record<string, string>,
   result: RelayCommandResult,
   sleep?: SleepFn,
-): Promise<void> {
+): Promise<boolean> {
   const payload: CommandReportPayload = {
     commandId: result.commandId,
     idempotencyKey: result.idempotencyKey,
@@ -435,10 +444,36 @@ async function reportCommandResult(
       console.error(
         JSON.stringify({ event: 'relay:result-report-failed', commandId: result.commandId, status: response.status }),
       );
+      return false;
     }
+    return true;
   } catch (err) {
     console.error(
       JSON.stringify({ event: 'relay:result-report-failed', commandId: result.commandId, error: String(err) }),
+    );
+    return false;
+  }
+}
+
+/**
+ * Tell the caller whether a result actually reached the control plane. The
+ * hook is best-effort: a throwing callback is logged and swallowed, because
+ * the poll's job is to keep reporting, not to fail on bookkeeping.
+ */
+async function notifyResultReported(
+  deps: PollDependencies,
+  result: RelayCommandResult,
+  reported: boolean,
+): Promise<void> {
+  try {
+    await deps.onResultReported?.(result, reported);
+  } catch (err) {
+    console.error(
+      JSON.stringify({
+        event: 'relay:on-result-reported-failed',
+        commandId: result.commandId,
+        error: String(err),
+      }),
     );
   }
 }
