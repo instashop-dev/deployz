@@ -65,6 +65,7 @@ Every failure carries one of 24 stable codes and a recoverability class
 | `MISSING_SECRET` | USER_ACTION | A required secret was never provided |
 | `MIGRATION_FAILED` | USER_ACTION | The one-off migration task exited non-zero (runs as `sh -c <command>`) |
 | `ECS_DEPLOYMENT_FAILED` | USER_ACTION | The circuit breaker rolled the service back; the previous release keeps serving |
+| `RDS_AZ_CAPACITY` | USER_ACTION | RDS returned `InsufficientDBInstanceCapacity` for the requested instance class. Regional capacity, not a quota or permissions fault. The retry rediscovers AZs; wait for the rollback to finish first |
 | `DATABASE_CREATE_FAILED` / `DATABASE_CONNECTION_FAILED` / `RDS_UNAVAILABLE` | USER_ACTION / RECONCILE_FIRST | RDS provisioning or connectivity; the app must accept `sslmode=require` with the RDS CA bundle the template mounts |
 | `REDIS_PROVISIONING_FAILED` / `REDIS_CONNECTION_FAILED` | DEPLOYZ_ACTION / RECONCILE_FIRST | Valkey replication group; TLS clients (`rediss://`) are unsupported |
 | `RELAY_DISCONNECTED` | RECONCILE_FIRST | No heartbeat for 15 minutes, or a WAITING job aged past 24 hours |

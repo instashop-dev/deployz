@@ -377,3 +377,41 @@ restart change only the image and never read configuration again.
 What would change it: vendors who need staged rollouts of configuration
 (one customer first) would need an explicit "apply to customers" step.
 
+## The database spans all available AZs; the customer never picks one (2026-10-02)
+
+RDS rejected installs with `InsufficientDBInstanceCapacity` because the
+database subnet group only covered the two AZs that hold the private subnets.
+The compute placement was correct and stayed correct; only the database had no
+freedom to move. In a region where the requested instance class was exhausted
+in those two AZs, the install could not succeed, and retrying it unchanged
+could not succeed either.
+
+- The relay discovers the region's available, enabled standard AZs through
+  `DescribeAvailabilityZones` and passes them to the compiler as bounded
+  `DbAz1`–`DbAz8` parameters. Fewer than two usable zones, or more than the
+  eight slots, fails the attempt explicitly instead of silently narrowing.
+- The compiler emits DB-only subnets for the slots beyond the two compute AZs.
+  They are isolated — no NAT gateway, no internet route — and they exist only
+  to give the subnet group somewhere else to go. The primary `/16` is fully
+  allocated, so they live in a secondary VPC CIDR block.
+- The DB instance's `AvailabilityZone` stays unset, so RDS picks one subnet
+  from the group. The database remains **Single-AZ**, with its class, engine,
+  storage, encryption, security, backups, deletion protection and retention
+  unchanged.
+- Placement is resolved only before a stack is created. An adopted or resumed
+  stack keeps the placement it already has, and the extra subnets are owned,
+  inventoried and purged with everything else.
+- The failure now has its own code, `RDS_AZ_CAPACITY`, ahead of the generic
+  database-create failure, so the customer reads "capacity unavailable, retry
+  once the rollback finishes" instead of quota advice.
+
+The database costs the same whether it lands in one AZ or another, but a
+single-AZ database reached cross-AZ from the Fargate service can bill EC2
+cross-AZ data transfer. That is shown as a usage-dependent charge, never as a
+change to the estimated infrastructure total.
+
+What would change it: a regional capacity crunch severe enough that a
+Multi-AZ database or a different instance class is the only way through would
+need a product decision, not a placement change — Multi-AZ roughly doubles the
+database charge.
+

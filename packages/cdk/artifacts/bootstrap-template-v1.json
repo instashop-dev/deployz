@@ -734,6 +734,7 @@
                 "ec2:DescribeRouteTables",
                 "ec2:DescribeInternetGateways",
                 "ec2:DescribeNatGateways",
+                "ec2:DescribeAvailabilityZones",
                 "ec2:DescribeNetworkInterfaces",
                 "rds:DescribeDBSubnetGroups"
               ],
@@ -1123,6 +1124,7 @@
                 "ec2:DescribeRouteTables",
                 "ec2:DescribeInternetGateways",
                 "ec2:DescribeNatGateways",
+                "ec2:DescribeAvailabilityZones",
                 "ec2:DescribeNetworkInterfaces",
                 "rds:DescribeDBSubnetGroups"
               ],
@@ -1715,7 +1717,7 @@
           "S3Bucket": {
             "Fn::Sub": "cdk-hnb659fds-assets-${AWS::AccountId}-${AWS::Region}"
           },
-          "S3Key": "5121c1e2c93a9de4513aaccad1966f36db4435810be05c0aaa58e9148a017e41.zip"
+          "S3Key": "8d5e36064971f04bd3a2465a56ad2d376cd539396e9310a9149ca9253c0d7d99.zip"
         },
         "Environment": {
           "Variables": {

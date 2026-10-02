@@ -35,6 +35,7 @@ describe('§61 failure codes', () => {
       'AWS_PERMISSION_DENIED',
       'STACK_CREATE_FAILED',
       'STACK_DELETE_FAILED',
+      'RDS_AZ_CAPACITY',
       'DATABASE_CREATE_FAILED',
       'DATABASE_CONNECTION_FAILED',
       'IMAGE_PULL_FAILED',

@@ -206,7 +206,7 @@ test.describe('database-failure', () => {
       (event) => event.logicalResourceId === 'ApplicationDatabase' && event.resourceStatus === 'CREATE_FAILED',
     );
     expect(dbEvent).toBeDefined();
-    expect(dbEvent!.resourceStatusReason).toContain('InsufficientDBInstanceCapacity');
+    expect(dbEvent!.resourceStatusReason).toContain('InvalidParameterCombination');
   });
 });
 
@@ -384,5 +384,54 @@ test.describe('relay-disconnect', () => {
     // in this scenario. relay.stop() (in the fixture's teardown) only clears
     // the poll-cycle timer, which is safe even though the last poll cycle's
     // `pollOnce()` promise is permanently pending.
+  });
+});
+
+test.describe('rds-az-capacity', () => {
+  test.use({ deployzScenario: 'rds-az-capacity' });
+
+  test('@scenario:rds-az-capacity terminal FAILED with failure code RDS_AZ_CAPACITY', async ({
+    deployzInstall,
+  }) => {
+    test.setTimeout(30_000);
+    const { deploymentId, api } = deployzInstall;
+
+    await expect
+      .poll(async () => (await api.getDeployment(deploymentId)).state, {
+        timeout: 15_000,
+        message: 'waiting for deployment.state to reach FAILED',
+      })
+      .toBe('FAILED');
+
+    // The terminal ROLLBACK_COMPLETE status follows the settlement on a
+    // later progress batch while AWS finishes the rollback.
+    await expect
+      .poll(
+        async () =>
+          ((await api.getDeployment(deploymentId)) as unknown as DeploymentResponse).deploymentStatus.failure
+            ?.awsStatus,
+        { timeout: 15_000, message: 'waiting for the terminal rollback stack status' },
+      )
+      .toBe('ROLLBACK_COMPLETE');
+
+    const deployment = (await api.getDeployment(deploymentId)) as unknown as DeploymentResponse;
+    expect(deployment.deploymentStatus.stage).toBe('FAILED');
+    // Refinement: the failed resource is the RDS instance, and the specific
+    // InsufficientDBInstanceCapacity reason maps to RDS_AZ_CAPACITY — not
+    // the generic DATABASE_CREATE_FAILED.
+    expect(deployment.deploymentStatus.failure!.code).toBe('RDS_AZ_CAPACITY');
+    expect(deployment.deploymentStatus.failure!.awsStatus).toBe('ROLLBACK_COMPLETE');
+    // Honest, observed production behaviour: `snapshotFailedStep`
+    // (apps/api/src/deployment-status.ts) finds exactly one failed category
+    // (`database`) since NETWORK completed fine first, so the FAILED-stage
+    // step lands on DATABASE_STORAGE.
+    expect(deployment.deploymentStatus.step).toBe('DATABASE_STORAGE');
+
+    const events = (await api.getStackEvents(deploymentId)) as StackEventRow[];
+    const dbEvent = events.find(
+      (event) => event.logicalResourceId === 'ApplicationDatabase' && event.resourceStatus === 'CREATE_FAILED',
+    );
+    expect(dbEvent).toBeDefined();
+    expect(dbEvent!.resourceStatusReason).toContain('InsufficientDBInstanceCapacity');
   });
 });

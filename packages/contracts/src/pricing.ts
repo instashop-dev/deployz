@@ -104,7 +104,7 @@ function itemLabel(entry: { label: string; configuration: Record<string, unknown
 export function estimateFootprintCost(footprint: DeploymentFootprint): FootprintCostEstimate {
   const factor = footprint.region === null ? 1 : (REGION_PRICE_FACTOR[footprint.region] ?? 1);
   const items: FootprintCostItem[] = [];
-  const usageDependent = new Set<string>(['Outbound internet data transfer']);
+  const usageDependent = new Set<string>(['Outbound internet data transfer', 'Cross-AZ data transfer']);
   let minSum = 0;
   let maxSum = 0;
   let complete = true;

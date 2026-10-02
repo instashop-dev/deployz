@@ -314,6 +314,7 @@ export const FAILURE_CODES = [
   'AWS_PERMISSION_DENIED',
   'STACK_CREATE_FAILED',
   'STACK_DELETE_FAILED',
+  'RDS_AZ_CAPACITY',
   'DATABASE_CREATE_FAILED',
   'DATABASE_CONNECTION_FAILED',
   'IMAGE_PULL_FAILED',
@@ -367,6 +368,7 @@ export const FAILURE_RECOVERABILITY: Record<FailureCode, FailureRecoverability> 
   AWS_PERMISSION_DENIED: 'USER_ACTION',
   STACK_CREATE_FAILED: 'USER_ACTION',
   STACK_DELETE_FAILED: 'USER_ACTION',
+  RDS_AZ_CAPACITY: 'USER_ACTION',
   DATABASE_CREATE_FAILED: 'USER_ACTION',
   DATABASE_CONNECTION_FAILED: 'RECONCILE_FIRST',
   IMAGE_PULL_FAILED: 'DEPLOYZ_ACTION',
@@ -467,6 +469,12 @@ export const FAILURE_CODE_COPY: Record<FailureCode, FailureCopy> = {
     label: 'Disconnect failed',
     description: "The removal couldn't complete. Your data is safe.",
     severity: 'critical',
+  },
+  RDS_AZ_CAPACITY: {
+    label: 'Database capacity unavailable',
+    description:
+      "The cloud provider doesn't have enough capacity for the database in the available zones. Retry after the previous attempt is fully rolled back.",
+    severity: 'warning',
   },
   DATABASE_CREATE_FAILED: {
     label: 'Database setup failed',
@@ -632,6 +640,11 @@ export const FAILURE_REMEDIATION: Record<FailureCode, FailureRemediation> = {
     what: 'Disconnecting this deployment did not complete.',
     why: 'One of the resources being removed failed, so the removal stopped part-way.',
     fix: 'Open Technical detail for the failing resource, then retry the disconnect. Your data is safe — the database and files are kept.',
+  },
+  RDS_AZ_CAPACITY: {
+    what: "The cloud provider couldn't create the database — not enough capacity in the available zones.",
+    why: 'The account has enough quota, but the specific zone or zones where the database would run have no room for a new instance right now.',
+    fix: 'Wait for the previous attempt to finish rolling back, then run the install link again. If it keeps failing, contact Deployz support.',
   },
   DATABASE_CREATE_FAILED: {
     what: 'The database could not be created.',

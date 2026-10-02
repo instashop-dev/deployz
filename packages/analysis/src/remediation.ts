@@ -250,6 +250,25 @@ const REMEDIATION_TABLE: Record<FailureCode, Omit<Remediation, 'code'>> = {
     automatic: false,
   },
 
+  // RDS_AZ_CAPACITY — RDS reported no capacity for the requested instance
+  // class in the target Availability Zone. Placement is automatic, so the
+  // fix is a fresh attempt, never a quota change.
+  RDS_AZ_CAPACITY: {
+    summary: 'AWS has no database capacity available in that region right now.',
+    steps: [
+      'Wait until the rollback finishes, then retry the deployment.',
+      'Retry picks new Availability Zones automatically.',
+      'If retries keep failing, send the failure reference to Deployz support.',
+    ],
+    technicalDetail: [
+      'AWS returned InsufficientDBInstanceCapacity for the requested DB instance class.',
+      'This is regional capacity, not a quota or permissions problem.',
+      'The next attempt rediscovers Availability Zones before creating the stack.',
+    ],
+    requiresManual: true,
+    automatic: false,
+  },
+
   // 13. DATABASE_CREATE_FAILED
   DATABASE_CREATE_FAILED: {
     summary: 'The database could not be created.',

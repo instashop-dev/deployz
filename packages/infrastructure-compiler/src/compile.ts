@@ -115,6 +115,21 @@ const VPC_CIDR = '10.0.0.0/16';
 const PUBLIC_SUBNET_CIDRS = ['10.0.0.0/18', '10.0.64.0/18'] as const;
 const PRIVATE_SUBNET_CIDRS = ['10.0.128.0/18', '10.0.192.0/18'] as const;
 
+// Secondary VPC CIDR for DB-only subnets — the /16 is fully allocated to
+// public/private subnets, so DB subnets carve from a separate block.
+const DB_VPC_CIDR_BLOCK = '10.1.0.0/20';
+const DB_SUBNET_CIDRS = [
+  '10.1.0.0/24', '10.1.1.0/24', '10.1.2.0/24', '10.1.3.0/24',
+  '10.1.4.0/24', '10.1.5.0/24', '10.1.6.0/24', '10.1.7.0/24',
+  '10.1.8.0/24', '10.1.9.0/24', '10.1.10.0/24', '10.1.11.0/24',
+  '10.1.12.0/24', '10.1.13.0/24', '10.1.14.0/24', '10.1.15.0/24',
+] as const;
+
+// Maximum number of AZ slots the compiler emits. us-east-1 has 6 today;
+// 8 gives bounded headroom. The relay must fail explicitly when the
+// available count exceeds this.
+const DB_AZ_SLOT_COUNT = 8;
+
 // ── Compiler version / capability registry identity ─────────────────────────
 export const COMPILER_VERSION = 'dynamic-compiler-v2-2' as const;
 
@@ -246,6 +261,40 @@ function compileNetwork(ids: NetIds): ResolvedResource[] {
     dependsOn: [logicalResourceId('network', 'public-route-1'), logicalResourceId('network', 'public-route-table-association-1')],
   }));
 
+  // Secondary VPC CIDR for DB-only subnets — the /16 is fully allocated.
+  out.push(res({
+    ...net, resourceRole: 'db-vpc-cidr-block', cfnType: 'AWS::EC2::VPCCidrBlock',
+    properties: { CidrBlock: DB_VPC_CIDR_BLOCK, VpcId: ref(ids.vpc) },
+  }));
+
+  return out;
+}
+
+/**
+ * DB-only subnets for AZ slots 3..N. Each subnet is conditionally created
+ * based on whether the corresponding AZ parameter is non-empty. These subnets
+ * have no NAT gateway and no internet route — they are isolated from the
+ * internet and only reachable from the VPC's private subnets.
+ */
+function compileDbSubnets(ids: NetIds): ResolvedResource[] {
+  const out: ResolvedResource[] = [];
+  for (let i = 3; i <= DB_AZ_SLOT_COUNT; i++) {
+    out.push(res({
+      componentId: 'network',
+      componentKind: 'network',
+      capability: 'aws.network',
+      resourceRole: `db-subnet-${i}`,
+      cfnType: 'AWS::EC2::Subnet',
+      properties: {
+        AvailabilityZone: ref(`paramDbAz${i}`),
+        CidrBlock: DB_SUBNET_CIDRS[i - 1],
+        MapPublicIpOnLaunch: false,
+        Tags: tags('network'),
+        VpcId: ref(ids.vpc),
+      },
+      dependsOn: [logicalResourceId('network', 'db-vpc-cidr-block')],
+    }));
+  }
   return out;
 }
 
@@ -408,10 +457,18 @@ function compileRds(dbResource: IrResource, profile: InfrastructureSizeProfile, 
     properties: { GroupDescription: engine.securityGroupDescription, SecurityGroupEgress: [{ CidrIp: '0.0.0.0/0', Description: 'Allow all outbound traffic by default', IpProtocol: '-1' }], Tags: tags(componentId), VpcId: ref(ids.vpc) },
   }));
 
+  // Build the subnet group with all available AZs. Slots 1-2 are the private
+  // subnets; slots 3-N are conditionally included DB-only subnets.
+  const subnetIds: unknown[] = [ref(ids.privateSubnets[0]), ref(ids.privateSubnets[1])];
+  for (let i = 3; i <= DB_AZ_SLOT_COUNT; i++) {
+    subnetIds.push({
+      'Fn::If': [`condDbAz${i}`, ref(logicalResourceId('network', `db-subnet-${i}`)), { Ref: 'AWS::NoValue' }],
+    });
+  }
   out.push(res({
     componentId, componentKind: 'database', capability: engine.capability, resourceRole: 'subnet-group',
     cfnType: 'AWS::RDS::DBSubnetGroup', stateful: true, retention: 'retain',
-    properties: { DBSubnetGroupDescription: `Subnet group for ${componentId} database`, SubnetIds: [ref(ids.privateSubnets[0]), ref(ids.privateSubnets[1])], Tags: tags(componentId) },
+    properties: { DBSubnetGroupDescription: `Subnet group for ${componentId} database`, SubnetIds: subnetIds, Tags: tags(componentId) },
   }));
 
   out.push(res({
@@ -1267,6 +1324,16 @@ function compileSchedule(ir: DeployzIR, schedule: IrSchedule, ids: NetIds): Reso
 // ── Parameters / outputs / conditions ───────────────────────────────────────
 
 function compileParameters(): ResolvedParameter[] {
+  const azParams: ResolvedParameter[] = [];
+  for (let i = 1; i <= DB_AZ_SLOT_COUNT; i++) {
+    azParams.push({
+      id: `paramDbAz${i}`,
+      type: 'String',
+      noEcho: false,
+      defaultValue: '',
+      description: `Availability Zone for database subnet slot ${i}. Empty means the slot is unused.`,
+    });
+  }
   return [
     { id: 'paramDesiredCount', type: 'Number', noEcho: false, defaultValue: '1', description: 'Number of application tasks the service starts with. 0 defers the first start to the configured deploy that follows the install.' },
     { id: 'paramImageReference', type: 'String', noEcho: false, defaultValue: `${DEFAULT_IMAGE_REPOSITORY}@${DEFAULT_IMAGE_DIGEST}`, description: 'Container image reference (repository@sha256:...) the application task definitions run.' },
@@ -1274,6 +1341,7 @@ function compileParameters(): ResolvedParameter[] {
     { id: 'paramHealthCheckPath', type: 'String', noEcho: true, defaultValue: HEALTH_CHECK_PATH, description: 'Path the ALB target group and container health checks probe.' },
     { id: 'paramAppApiKey', type: 'String', noEcho: true, defaultValue: '', description: 'Application API key (vendor/customer secret).' },
     { id: 'paramAppSigningSecret', type: 'String', noEcho: true, defaultValue: '', description: 'Application signing secret (vendor/customer secret).' },
+    ...azParams,
   ];
 }
 
@@ -1394,6 +1462,7 @@ export function compileInfrastructure(input: CompileInput): CompiledGraph {
 
   const resources: ResolvedResource[] = [
     ...compileNetwork(ids),
+    ...compileDbSubnets(ids),
     compileAppSecret(),
     ...compileS3(),
     // Every workload's tasks log to their own group — the migration and
@@ -1424,6 +1493,14 @@ export function compileInfrastructure(input: CompileInput): CompiledGraph {
     throw new Error(`compiler: logical id violations:\n${violations.join('\n')}`);
   }
 
+  const conditions: ResolvedCondition[] = [];
+  for (let i = 3; i <= DB_AZ_SLOT_COUNT; i++) {
+    conditions.push({
+      id: `condDbAz${i}`,
+      expression: { 'Fn::Not': [{ 'Fn::Equals': [{ Ref: `paramDbAz${i}` }, ''] }] },
+    });
+  }
+
   const graph: ResolvedAwsGraph = {
     resources,
     parameters: compileParameters(),
@@ -1434,7 +1511,7 @@ export function compileInfrastructure(input: CompileInput): CompiledGraph {
       cache,
       hasIngress: publicWorkload !== undefined,
     }),
-    conditions: [] as ResolvedCondition[],
+    conditions,
   };
 
   return {
