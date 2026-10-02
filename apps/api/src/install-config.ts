@@ -183,16 +183,17 @@ export async function configPrecedesFirstStart(
 /**
  * The task-family suffix of a deployment's compiled stack (empty for an
  * artifact with shared family names). Refused when the stack needs a suffix
- * and no installation is registered: no family could be named, and a deploy
- * must never run without its migration.
+ * and no installation is registered (the same refusal as a deploy without a
+ * connected relay): no family could be named, and a deploy must never run
+ * without its migration.
  */
 export function requireTaskFamilySuffix(spec: DeploymentSpecV2, installationId: string | null): string {
   const suffix = taskFamilySuffixForSpec(spec, installationId);
   if (suffix === null) {
     throw new ApiError(
       409,
-      'INSTALLATION_NOT_REGISTERED',
-      'This deployment has no registered AWS installation yet. Connect it to AWS first.',
+      'RELAY_NOT_CONNECTED',
+      'No relay is connected to this deployment. Reconnect it before deploying.',
     );
   }
   return suffix;

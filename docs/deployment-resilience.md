@@ -217,14 +217,17 @@ returns the exact revision ARN.
 Every task-definition family a stack creates (each service, the migration,
 each scheduled job) is `DeployzApp<Pascal(componentId)><suffix>`. The suffix
 is the installation id's letters and digits, lower-cased
-(`taskFamilySuffix` in `@deployz/contracts`). The control plane passes it
-as the stack parameter `paramTaskFamilySuffix` at INSTALL (no default; only
-`[a-z0-9]+`), and computes the same family names for the DEPLOY_RELEASE and
-ROLLBACK payloads. Two installations in one AWS account and Region, even of
+(`taskFamilySuffix` in `@deployz/contracts`). It is stable for the stack's
+life for the same reason as the stack name `deployz-app-<id>`: a relay reset
+re-enrolls the same installation. The control plane passes it as the stack
+parameter `paramTaskFamilySuffix` at INSTALL (no default; only `[a-z0-9]+`),
+and computes the same family names for the DEPLOY_RELEASE and ROLLBACK
+payloads. Two installations in one AWS account and Region, even of
 the same application and image, therefore never share a family: the
 scheduler's revisionless target and its IAM scope name only this
 installation's family. A deploy of an installation-scoped stack without a
-registered installation is refused (409 `INSTALLATION_NOT_REGISTERED`).
+registered installation is refused (409 `RELAY_NOT_CONNECTED`, the same
+refusal as any deploy without a connected relay).
 
 Stacks compiled before this change (`dynamic-compiler-v2-1`/`-2`) keep the
 shared names `DeployzApp<Pascal>`: their artifacts are frozen. On them the

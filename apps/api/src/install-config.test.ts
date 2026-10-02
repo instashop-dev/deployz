@@ -199,7 +199,7 @@ describe('post-install configuration', () => {
     const [deployment] = await db.select().from(schema.deployments).where(eq(schema.deployments.id, deploymentId));
     await expect(buildInstallPayload(db, deployment!, createConfigStore(db), null)).rejects.toMatchObject({
       statusCode: 409,
-      code: 'INSTALLATION_NOT_REGISTERED',
+      code: 'RELAY_NOT_CONNECTED',
     });
   });
 
