@@ -69,6 +69,23 @@ export function applicationContainers<T extends { name?: string | undefined }>(
   return list.filter((container) => container.name === undefined || essential.has(container.name));
 }
 
+/**
+ * The containers of a stopped task whose exit code belongs to the
+ * application. A runtime container carries no `essential` field, so the
+ * names must come from the revision the task ran. Unlike
+ * `applicationContainers`, an unnamed container never counts: a helper's
+ * exit must never be read as the application's.
+ */
+export function applicationExits<T extends { name?: string | undefined; exitCode?: number | undefined }>(
+  containers: readonly T[] | undefined,
+  essential: ReadonlySet<string>,
+): (T & { exitCode: number })[] {
+  return (containers ?? []).filter(
+    (container): container is T & { exitCode: number } =>
+      container.name !== undefined && essential.has(container.name) && container.exitCode !== undefined,
+  );
+}
+
 export interface ObserveDigestDeps {
   readonly cfn: CloudFormationReader;
   readonly ecs: EcsTaskReader;

@@ -46,6 +46,7 @@ import {
   type FailureEvidence,
 } from '@deployz/contracts';
 import type { EcsDeployClient } from './deploy.js';
+import { applicationExits, essentialContainerNames } from './ecs-observe.js';
 import type { CloudFormationReader } from './verify.js';
 
 /** CFN logical id of the template's container-port parameter (CDK strips the underscore from `param_ContainerPort`). */
@@ -537,13 +538,15 @@ async function withResourceFailureDetail(
  * tasks, described with the same reads and the same IAM the deploy path's
  * crash-loop detector already uses (stack resources → service → stopped
  * tasks; never logs — the relay role is denied log reads by design). The
- * most common stopped task is the verdict. Never throws: any error means
- * no evidence, and the failure settlement proceeds unchanged.
+ * most common stopped task is the verdict. Only an application container's
+ * exit code counts, by name from the revision each task ran — a helper's
+ * exit is never reported as the application's. Never throws: any error
+ * means no evidence, and the failure settlement proceeds unchanged.
  */
 export async function describeStoppedTaskEvidence(
   deps: {
     readonly cfn: Pick<CloudFormationReader, 'describeStackResources'>;
-    readonly ecs: Pick<EcsDeployClient, 'listTasks' | 'describeTasks'>;
+    readonly ecs: Pick<EcsDeployClient, 'listTasks' | 'describeTasks' | 'describeTaskDefinition'>;
   },
   stackName: string,
 ): Promise<FailureEvidence | null> {
@@ -564,11 +567,20 @@ export async function describeStoppedTaskEvidence(
       string,
       { count: number; exitCode: number | null; stopCode: string | null; stoppedReason: string | null }
     >();
+    const essentialByRevision = new Map<string, ReadonlySet<string>>();
     for (const task of tasks) {
-      const containers = task.containers ?? [];
-      const exited =
-        containers.find((container) => container.exitCode !== undefined && container.exitCode !== 0) ??
-        containers.find((container) => container.exitCode !== undefined);
+      let essential: ReadonlySet<string> = new Set();
+      if (task.taskDefinitionArn !== undefined) {
+        essential =
+          essentialByRevision.get(task.taskDefinitionArn) ??
+          essentialContainerNames(
+            (await deps.ecs.describeTaskDefinition({ taskDefinition: task.taskDefinitionArn })).taskDefinition
+              .containerDefinitions,
+          );
+        essentialByRevision.set(task.taskDefinitionArn, essential);
+      }
+      const exits = applicationExits(task.containers, essential);
+      const exited = exits.find((container) => container.exitCode !== 0) ?? exits[0];
       const exitCode = exited?.exitCode ?? null;
       const signature = `${exitCode ?? ''}\n${task.stopCode ?? ''}\n${task.stoppedReason ?? ''}`;
       const existing = stopped.get(signature);

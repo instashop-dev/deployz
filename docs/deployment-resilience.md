@@ -145,6 +145,16 @@ install / database ready
   updated, the previous release keeps serving, and the deployment
   returns to `UPDATE_AVAILABLE` — a failed migration is a failed update,
   not a failed deployment.
+- **Verdict.** Only the application container's own exit code 0 succeeds.
+  ECS reports runtime containers without their `essential` flag, so the
+  relay finds the application container in the exact revision the task ran
+  (its one essential container that runs the release image) and reads that
+  container's exit code by name. A missing or ambiguous container, or a
+  missing exit code, fails `MIGRATION_FAILED`; it never succeeds. A failed
+  AWS read defers to the next poll on the same task. The crash-loop detector
+  and the install failure evidence read exit codes the same way: an exit of
+  a helper container (the RDS CA init container) never counts as the
+  application's.
 - **Exactly-once by identity.** The deploy payload's migration identity
   is sha256 over the frozen command plus the image digest. A SUCCEEDED
   DEPLOY_RELEASE job row carrying that identity proves the migration

@@ -75,6 +75,7 @@ interface ServiceDeployState {
  */
 const FIXTURE_IMAGE_REPOSITORY = '123456789012.dkr.ecr.us-east-1.amazonaws.com/deployz-fixture';
 const BOOTSTRAP_IMAGE_DIGEST = `sha256:${'0'.repeat(64)}`;
+const RDS_CA_INIT_IMAGE = 'public.ecr.aws/amazonlinux/amazonlinux:2023-minimal';
 
 function isStackLevel(event: TimelineEvent): boolean {
   return event.resourceType === STACK_EVENT_RESOURCE_TYPE;
@@ -133,6 +134,8 @@ export class SimulatedCustomerAccount {
   /** Which service each listed task ARN belongs to (for DescribeTasks). */
   private readonly taskServiceByArn = new Map<string, string>();
   private migrationTaskArn: string | null = null;
+  /** The exact revision the migration RunTask resolved to — what ECS reports the task ran. */
+  private migrationTaskDefinitionArn: string | null = null;
   /** How many one-off migration tasks the relay's deploy stage has started. */
   migrationRuns = 0;
   /**
@@ -587,7 +590,12 @@ export class SimulatedCustomerAccount {
       memory: '512',
       networkMode: 'awsvpc',
       requiresCompatibilities: ['FARGATE'],
-      containerDefinitions: [{ name: 'app', image: `${FIXTURE_IMAGE_REPOSITORY}@${BOOTSTRAP_IMAGE_DIGEST}` }],
+      // The compiler's container shape: the essential application container,
+      // then the non-essential RDS CA init container.
+      containerDefinitions: [
+        { name: 'App', image: `${FIXTURE_IMAGE_REPOSITORY}@${BOOTSTRAP_IMAGE_DIGEST}`, essential: true },
+        { name: 'RdsCaBundle', image: RDS_CA_INIT_IMAGE, essential: false },
+      ],
     });
     this.taskDefinitionsByFamily.set(family, arn);
     return arn;
@@ -663,7 +671,7 @@ export class SimulatedCustomerAccount {
       stopCode?: string;
       stoppedReason?: string;
       taskDefinitionArn?: string;
-      containers?: { imageDigest?: string; exitCode?: number }[];
+      containers?: { name?: string; imageDigest?: string; exitCode?: number }[];
     }[];
   } {
     type SimulatedTask = {
@@ -671,29 +679,31 @@ export class SimulatedCustomerAccount {
       stopCode?: string;
       stoppedReason?: string;
       taskDefinitionArn?: string;
-      containers?: { imageDigest?: string; exitCode?: number }[];
+      containers?: { name?: string; imageDigest?: string; exitCode?: number }[];
     };
     // The one-off migration task answers STOPPED immediately: exit 0, or —
     // when the scenario's migrationBehavior says 'fail' — exit 1 with the
-    // stoppedReason a real failed migration produces.
+    // stoppedReason a real failed migration produces. Like real ECS, it names
+    // the exact revision it ran and reports named containers with no
+    // `essential` field, the RDS CA init container (always exit 0) FIRST.
     return {
       tasks: taskArns.flatMap((taskArn): SimulatedTask[] => {
-        if (taskArn === this.migrationTaskArn) {
-          if (this.scenario.migrationBehavior === 'fail') {
-            return [
-              {
-                lastStatus: 'STOPPED',
-                stopCode: 'EssentialContainerExited',
-                stoppedReason: 'migration failed: relation "deployz" does not exist',
-                containers: [{ exitCode: 1 }],
-              },
-            ];
-          }
+        if (taskArn === this.migrationTaskArn && this.migrationTaskDefinitionArn !== null) {
+          const failed = this.scenario.migrationBehavior === 'fail';
+          const definition = this.taskDefinitions.get(this.migrationTaskDefinitionArn);
+          const containers = [...(definition?.containerDefinitions ?? [])]
+            .sort((a, b) => Number(a.essential !== false) - Number(b.essential !== false))
+            .map((container) => ({
+              ...(container.name !== undefined ? { name: container.name } : {}),
+              exitCode: container.essential === false || !failed ? 0 : 1,
+            }));
           return [
             {
               lastStatus: 'STOPPED',
               stopCode: 'EssentialContainerExited',
-              containers: [{ exitCode: 0 }],
+              ...(failed ? { stoppedReason: 'migration failed: relation "deployz" does not exist' } : {}),
+              taskDefinitionArn: this.migrationTaskDefinitionArn,
+              containers,
             },
           ];
         }
@@ -829,6 +839,9 @@ export class SimulatedCustomerAccount {
         this.migrationRuns += 1;
         this.operationLog.push(`migration:${input.taskDefinition}`);
         this.migrationTaskArn = 'arn:aws:ecs:us-east-1:123456789012:task/simulated/migration-1';
+        this.migrationTaskDefinitionArn = this.taskDefinitions.has(input.taskDefinition)
+          ? input.taskDefinition
+          : this.ensureTaskFamily(input.taskDefinition);
         return { taskArns: [this.migrationTaskArn] };
       },
     };

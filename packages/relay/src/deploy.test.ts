@@ -24,6 +24,7 @@ const BASE_DEF_ARN = 'arn:aws:ecs:us-east-1:151955775369:task-definition/app:7';
 const MIGRATION_TASK_ARN = 'arn:aws:ecs:us-east-1:151955775369:task/app-cluster/migration-1';
 /** The frozen migration seat the control plane puts on DEPLOY_RELEASE payloads. */
 const MIGRATION_TASK = { family: 'DeployzAppMigration', identity: 'a'.repeat(64) };
+const MIGRATION_DEF_ARN = 'arn:aws:ecs:us-east-1:151955775369:task-definition/DeployzAppMigration:3';
 
 interface FakeEcs {
   service?: {
@@ -49,10 +50,26 @@ interface FakeEcs {
     lastStatus?: string;
     stopCode?: string;
     stoppedReason?: string;
+    /** The `app` container's exit code; absent means it reported none. */
     exitCode?: number;
+    /** Replaces the reported containers outright (names, order, exit codes). */
+    containers?: { name?: string; exitCode?: number }[];
+    /** Replaces the revision the task reports it ran (`null`: none). */
+    taskDefinitionArn?: string | null;
   } | null;
+  /** The exact revision the last RunTask resolved its task definition to. */
+  ranTaskDefinitionArn?: string;
+  /** Family → its latest registered revision ARN. */
+  latestByFamily?: Map<string, string>;
   /** Stopped tasks ECS still remembers (ListTasks desiredStatus STOPPED). */
-  stoppedTasks?: { taskDefinitionArn: string; exitCode: number; stopCode?: string; stoppedReason?: string }[];
+  stoppedTasks?: {
+    taskDefinitionArn: string;
+    exitCode: number;
+    stopCode?: string;
+    stoppedReason?: string;
+    /** Replaces the default single `app` container. */
+    containers?: { name?: string; exitCode?: number }[];
+  }[];
   /**
    * Every task lists a finished, non-essential init container BEFORE the
    * application container (the RDS CA bundle of DEPLOY-007), with its own
@@ -64,25 +81,28 @@ interface FakeEcs {
 
 const INIT_DIGEST = 'sha256:' + '9'.repeat(64);
 
+/** Runtime containers as ECS reports them: named, and never with an `essential` field. */
 function withInitContainer(
   state: FakeEcs,
   containers: { imageDigest?: string; exitCode?: number }[],
-): { name?: string; imageDigest?: string; exitCode?: number; essential?: boolean }[] {
-  if (!state.initContainerFirst) return containers;
-  // The RDS CA init sidecar is non-essential — its exit code (always 0) must
-  // never stand in for an essential container's verdict.
-  const init = { name: 'RdsCaBundle', imageDigest: INIT_DIGEST, exitCode: 0, essential: false };
-  return [init, ...containers.map((container) => ({ name: 'app', ...container }))];
+): { name?: string; imageDigest?: string; exitCode?: number }[] {
+  const app = containers.map((container) => ({ name: 'app', ...container }));
+  if (!state.initContainerFirst) return app;
+  return [{ name: 'RdsCaBundle', imageDigest: INIT_DIGEST, exitCode: 0 }, ...app];
 }
 
 function fakeEcs(state: FakeEcs): EcsDeployClient {
+  const resolve = (taskDefinition: string): string =>
+    state.definitions.has(taskDefinition)
+      ? taskDefinition
+      : (state.latestByFamily?.get(taskDefinition) ?? BASE_DEF_ARN);
   return {
     async describeServices() {
       if (state.failAt === 'describeServices') throw new Error('AccessDenied');
       return { services: state.service ? [state.service] : [] };
     },
     async describeTaskDefinition(input) {
-      const found = state.definitions.get(input.taskDefinition);
+      const found = state.definitions.get(input.taskDefinition) ?? state.definitions.get(resolve(input.taskDefinition));
       return {
         taskDefinition: found
           ? { ...found, containerDefinitions: found.containerDefinitions.map((c) => ({ ...c })) }
@@ -104,6 +124,7 @@ function fakeEcs(state: FakeEcs): EcsDeployClient {
         containerDefinitions: input.containerDefinitions as unknown as EcsTaskDefinition['containerDefinitions'],
         ...(input.volumes ? { volumes: input.volumes } : {}),
       });
+      if (input.family !== undefined) (state.latestByFamily ??= new Map()).set(input.family, arn);
       return { taskDefinitionArn: arn };
     },
     async updateService(input) {
@@ -126,7 +147,7 @@ function fakeEcs(state: FakeEcs): EcsDeployClient {
             stopCode: t.stopCode ?? 'EssentialContainerExited',
             stoppedReason: t.stoppedReason ?? 'Essential container in task exited',
             taskDefinitionArn: t.taskDefinitionArn,
-            containers: [{ exitCode: t.exitCode }],
+            containers: t.containers ?? [{ name: 'app', exitCode: t.exitCode }],
           })),
         };
       }
@@ -136,30 +157,18 @@ function fakeEcs(state: FakeEcs): EcsDeployClient {
         // the container never started) is representable. An unconfigured
         // migration task defaults to an instant STOPPED/exit-0 completion,
         // which is what the "runs the migration one-off" test relies on.
-        if (state.migrationTask === undefined) {
-          return {
-            tasks: [
-              {
-                lastStatus: 'STOPPED',
-                stopCode: 'EssentialContainerExited',
-                stoppedReason: 'Essential container exited',
-                containers: [{ exitCode: 0 }],
-              },
-            ],
-          };
-        }
+        const migration = state.migrationTask ?? { stopCode: 'EssentialContainerExited', exitCode: 0 };
+        const ran = migration.taskDefinitionArn === undefined ? state.ranTaskDefinitionArn : migration.taskDefinitionArn;
         return {
           tasks: [
             {
-              lastStatus: state.migrationTask?.lastStatus ?? 'STOPPED',
-              ...(state.migrationTask?.stopCode !== undefined ? { stopCode: state.migrationTask.stopCode } : {}),
-              ...(state.migrationTask?.stoppedReason !== undefined
-                ? { stoppedReason: state.migrationTask.stoppedReason }
-                : {}),
-              containers: withInitContainer(
-                state,
-                state.migrationTask?.exitCode !== undefined ? [{ exitCode: state.migrationTask.exitCode }] : [],
-              ),
+              lastStatus: migration.lastStatus ?? 'STOPPED',
+              ...(migration.stopCode !== undefined ? { stopCode: migration.stopCode } : {}),
+              ...(migration.stoppedReason !== undefined ? { stoppedReason: migration.stoppedReason } : {}),
+              ...(ran !== null && ran !== undefined ? { taskDefinitionArn: ran } : {}),
+              containers:
+                migration.containers ??
+                withInitContainer(state, [migration.exitCode !== undefined ? { exitCode: migration.exitCode } : {}]),
             },
           ],
         };
@@ -172,6 +181,7 @@ function fakeEcs(state: FakeEcs): EcsDeployClient {
     },
     async runTask(input) {
       state.runTasks.push(input);
+      state.ranTaskDefinitionArn = resolve(input.taskDefinition);
       return { taskArns: [MIGRATION_TASK_ARN] };
     },
   };
@@ -241,6 +251,18 @@ function baseState(overrides: Partial<FakeEcs> = {}): FakeEcs {
         : []),
     ],
   };
+  // The stack's own migration revision: the application container, plus the
+  // non-essential RDS CA init container when the stack has a database.
+  const migrationDefinition: EcsTaskDefinition = {
+    ...taskDefinition,
+    family: MIGRATION_TASK.family,
+    containerDefinitions: [
+      { name: 'app', image: `${REPO}@${DIGEST_V2}`, essential: true },
+      ...(overrides.initContainerFirst
+        ? [{ name: 'RdsCaBundle', image: 'public.ecr.aws/amazonlinux/amazonlinux:2023-minimal', essential: false }]
+        : []),
+    ],
+  };
   return {
     service: {
       desiredCount: 1,
@@ -252,7 +274,11 @@ function baseState(overrides: Partial<FakeEcs> = {}): FakeEcs {
       },
     },
     taskDefinition,
-    definitions: new Map([[BASE_DEF_ARN, taskDefinition]]),
+    definitions: new Map([
+      [BASE_DEF_ARN, taskDefinition],
+      [MIGRATION_DEF_ARN, migrationDefinition],
+    ]),
+    latestByFamily: new Map([[MIGRATION_TASK.family, MIGRATION_DEF_ARN]]),
     runningDigest: DIGEST_V2,
     registered: [],
     updates: [],
@@ -1033,6 +1059,217 @@ describe('createEcsDeployExecutor', () => {
     expect(result.failureCode).toBe('AWS_PERMISSION_DENIED');
   });
 });
+
+// Real ECS runtime containers carry no `essential` field: the verdict must
+// come from the application container, named by the revision that ran.
+describe('migration verdict — the application container of the revision that ran', () => {
+  const INIT = { name: 'RdsCaBundle', exitCode: 0 };
+  const migrationDeploy = () =>
+    deployCommand({ imageRepository: REPO, imageDigest: DIGEST_V3, migrationTask: MIGRATION_TASK });
+
+  for (const order of ['init container first', 'application container first'] as const) {
+    for (const exitCode of [0, 1, 127]) {
+      it(`application exit ${exitCode}, ${order}: only exit 0 continues to the rollout`, async () => {
+        const state = baseState({ initContainerFirst: true });
+        const app = { name: 'app', exitCode };
+        state.migrationTask = {
+          stopCode: 'EssentialContainerExited',
+          containers: order === 'init container first' ? [INIT, app] : [app, INIT],
+        };
+        const d = deps(state);
+        const result = await run(createEcsDeployExecutor(d), migrationDeploy());
+        if (exitCode === 0) {
+          expect(result.deferred).toBe(true);
+          expect(state.updates).toHaveLength(1);
+          expect((await d.pending.read())?.migration?.completedAt).toEqual(expect.any(String));
+          return;
+        }
+        expect(result.success).toBe(false);
+        expect(result.failureCode).toBe('MIGRATION_FAILED');
+        expect(result.error).toContain(`exit code ${exitCode} `);
+        expect(result.evidence?.container?.exitCode).toBe(exitCode);
+        expect(state.updates).toHaveLength(0);
+        expect(await d.pending.read()).toBeNull();
+      });
+    }
+  }
+
+  async function expectNeverConfirmed(state: FakeEcs, problem: string): Promise<void> {
+    const d = deps(state);
+    const result = await run(createEcsDeployExecutor(d), migrationDeploy());
+    expect(result.success).toBe(false);
+    expect(result.deferred).toBeUndefined();
+    expect(result.failureCode).toBe('MIGRATION_FAILED');
+    expect(result.error).toContain('exit code unknown');
+    expect(result.error).toContain(problem);
+    expect(result.evidence?.container?.exitCode).toBeNull();
+    expect(state.updates).toHaveLength(0);
+    expect(await d.pending.read()).toBeNull();
+  }
+
+  it('cannot succeed when the application container is missing from the task', async () => {
+    const state = baseState({ initContainerFirst: true });
+    state.migrationTask = { stopCode: 'EssentialContainerExited', containers: [INIT] };
+    await expectNeverConfirmed(state, '0 containers named "app"');
+  });
+
+  it('cannot succeed on unnamed containers, even when one exited 0', async () => {
+    const state = baseState({ initContainerFirst: true });
+    state.migrationTask = { stopCode: 'EssentialContainerExited', containers: [{ exitCode: 0 }] };
+    await expectNeverConfirmed(state, '0 containers named "app"');
+  });
+
+  it('cannot succeed when the application container reported no exit code', async () => {
+    const state = baseState({ initContainerFirst: true });
+    state.migrationTask = { stopCode: 'TaskFailedToStart', containers: [INIT, { name: 'app' }] };
+    await expectNeverConfirmed(state, 'container "app" reported no exit code');
+  });
+
+  it('cannot succeed when the task reports the application name twice', async () => {
+    const state = baseState();
+    state.migrationTask = {
+      stopCode: 'EssentialContainerExited',
+      containers: [
+        { name: 'app', exitCode: 0 },
+        { name: 'app', exitCode: 0 },
+      ],
+    };
+    await expectNeverConfirmed(state, '2 containers named "app"');
+  });
+
+  it('cannot succeed when two essential containers run the release image', async () => {
+    const state = baseState();
+    state.definitions.get(MIGRATION_DEF_ARN)!.containerDefinitions.push({ name: 'twin', image: `${REPO}@${DIGEST_V2}` });
+    state.migrationTask = { stopCode: 'EssentialContainerExited', containers: [{ name: 'app', exitCode: 0 }] };
+    await expectNeverConfirmed(state, 'has 2 named essential containers');
+  });
+
+  it('cannot succeed when the revision that ran does not run the release image', async () => {
+    const state = baseState();
+    state.migrationTask = {
+      stopCode: 'EssentialContainerExited',
+      taskDefinitionArn: MIGRATION_DEF_ARN,
+      containers: [{ name: 'app', exitCode: 0 }],
+    };
+    await expectNeverConfirmed(state, `${MIGRATION_DEF_ARN} has 0 named essential containers`);
+  });
+
+  it('cannot succeed when the task names no task definition', async () => {
+    const state = baseState();
+    state.migrationTask = { stopCode: 'EssentialContainerExited', taskDefinitionArn: null, exitCode: 0 };
+    await expectNeverConfirmed(state, 'the task names no task definition');
+  });
+
+  it('defers on a failed read of the revision, then resumes the SAME task to its verdict', async () => {
+    const state = baseState({ initContainerFirst: true });
+    const d = deps(state);
+    let throttled = true;
+    const ecs: EcsDeployClient = {
+      ...d.ecs,
+      async describeTaskDefinition(input) {
+        if (throttled && input.taskDefinition === state.ranTaskDefinitionArn) throw new Error('ThrottlingException');
+        return d.ecs.describeTaskDefinition(input);
+      },
+    };
+    const first = await run(createEcsDeployExecutor({ ...d, ecs }), migrationDeploy());
+    expect(first.deferred).toBe(true);
+    expect(state.updates).toHaveLength(0);
+    expect((await d.pending.read())?.migration).toEqual({ taskArn: MIGRATION_TASK_ARN });
+
+    throttled = false;
+    expect(await createEcsDeployResumer({ ...d, ecs })()).toHaveLength(0);
+    expect(state.runTasks).toHaveLength(1);
+    expect(state.updates).toHaveLength(1);
+    expect((await d.pending.read())?.migration?.completedAt).toEqual(expect.any(String));
+  });
+
+  it('defers on a failed read of the task — a throttle is never a failure', async () => {
+    const state = baseState();
+    const d = deps(state);
+    const ecs: EcsDeployClient = {
+      ...d.ecs,
+      async describeTasks(input) {
+        if (input.tasks[0] === MIGRATION_TASK_ARN) throw new Error('ThrottlingException');
+        return d.ecs.describeTasks(input);
+      },
+    };
+    const result = await run(createEcsDeployExecutor({ ...d, ecs }), migrationDeploy());
+    expect(result.deferred).toBe(true);
+    expect(state.updates).toHaveLength(0);
+    expect((await d.pending.read())?.migration).toEqual({ taskArn: MIGRATION_TASK_ARN });
+  });
+
+  it('a resumed migration whose application exits 127 fails without a rollout, a second run or a confirmation', async () => {
+    const state = baseState({ initContainerFirst: true });
+    state.migrationTask = { lastStatus: 'RUNNING' };
+    const d = deps(state);
+    const first = await run(
+      createEcsDeployExecutor({ ...d, migrationPollIntervalMs: 0, migrationPollMaxAttempts: 1 }),
+      migrationDeploy(),
+    );
+    expect(first.deferred).toBe(true);
+
+    state.migrationTask = {
+      stopCode: 'EssentialContainerExited',
+      stoppedReason: 'Essential container in task exited',
+      containers: [INIT, { name: 'app', exitCode: 127 }],
+    };
+    const results = await createEcsDeployResumer(d)();
+    expect(results).toHaveLength(1);
+    expect(results[0]!.success).toBe(false);
+    expect(results[0]!.failureCode).toBe('MIGRATION_FAILED');
+    expect(results[0]!.error).toContain('exit code 127');
+    expect(results[0]!.evidence?.container?.exitCode).toBe(127);
+    expect(state.runTasks).toHaveLength(1);
+    expect(state.updates).toHaveLength(0);
+    expect(await d.pending.read()).toBeNull();
+  });
+});
+
+describe('crash-loop detection — application exits only', () => {
+  async function resumeWithStopped(state: FakeEcs) {
+    state.taskDefinition.containerDefinitions[0] = { name: 'app', image: `${REPO}@${DIGEST_V3}` };
+    state.runningDigest = null;
+    const d = deps(state);
+    await d.pending.write({
+      commandId: 'job-1',
+      idempotencyKey: 'dep-1:DEPLOY_RELEASE',
+      type: 'DEPLOY_RELEASE',
+      stackName: 'deployz-app',
+      startedAt: new Date().toISOString(),
+      payload: { imageRepository: REPO, imageDigest: DIGEST_V3 },
+    });
+    return createEcsDeployResumer(d)();
+  }
+
+  it("never counts a helper's non-zero exit as the application crashing", async () => {
+    const state = baseState({ initContainerFirst: true });
+    const task = {
+      taskDefinitionArn: BASE_DEF_ARN,
+      exitCode: 1,
+      containers: [{ name: 'RdsCaBundle', exitCode: 1 }, { name: 'app', exitCode: 0 }],
+    };
+    state.stoppedTasks = [task, task, task];
+    expect(await resumeWithStopped(state)).toHaveLength(0);
+  });
+
+  it('counts the application exit by name in either container order', async () => {
+    const state = baseState({ initContainerFirst: true });
+    const initFirst = [INIT_EXIT_0, { name: 'app', exitCode: 1 }];
+    const appFirst = [{ name: 'app', exitCode: 1 }, INIT_EXIT_0];
+    state.stoppedTasks = [initFirst, appFirst, initFirst].map((containers) => ({
+      taskDefinitionArn: BASE_DEF_ARN,
+      exitCode: 1,
+      containers,
+    }));
+    const results = await resumeWithStopped(state);
+    expect(results).toHaveLength(1);
+    expect(results[0]!.failureCode).toBe('CONTAINER_START_FAILED');
+    expect(results[0]!.error).toContain('3 tasks of the new revision exited with code 1');
+  });
+});
+
+const INIT_EXIT_0 = { name: 'RdsCaBundle', exitCode: 0 };
 
 describe('scheduled-job family image registration (Phase 5)', () => {
   const CLEANUP_FAMILY = 'DeployzAppCleanup';
