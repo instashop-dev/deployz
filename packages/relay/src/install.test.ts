@@ -1071,8 +1071,15 @@ describe('install failure evidence (Phase 1)', () => {
     };
   }
 
+  const REVISION = 'arn:aws:ecs:us-east-1:151955775369:task-definition/DeployzAppWeb:4';
+
   function ecsWithStoppedTasks(
-    tasks: { taskDefinitionArn?: string; exitCode?: number; stopCode?: string; stoppedReason?: string }[],
+    tasks: {
+      exitCode?: number;
+      stopCode?: string;
+      stoppedReason?: string;
+      containers?: { name?: string; exitCode?: number }[];
+    }[],
     failDescribe = false,
   ) {
     return {
@@ -1081,14 +1088,25 @@ describe('install failure evidence (Phase 1)', () => {
       },
       async describeTasks() {
         if (failDescribe) throw new Error('AccessDenied');
+        // Runtime containers as ECS reports them: named, no `essential` field.
         return {
           tasks: tasks.map((task) => ({
             lastStatus: 'STOPPED',
             stopCode: task.stopCode,
             stoppedReason: task.stoppedReason,
-            taskDefinitionArn: task.taskDefinitionArn,
-            containers: [{ exitCode: task.exitCode }],
+            taskDefinitionArn: REVISION,
+            containers: task.containers ?? [{ name: 'App', exitCode: task.exitCode }],
           })),
+        };
+      },
+      async describeTaskDefinition() {
+        return {
+          taskDefinition: {
+            containerDefinitions: [
+              { name: 'App', image: 'repo@sha256:abc', essential: true },
+              { name: 'RdsCaBundle', image: 'public.ecr.aws/amazonlinux/amazonlinux:2023-minimal', essential: false },
+            ],
+          },
         };
       },
     };
@@ -1162,6 +1180,31 @@ describe('install failure evidence (Phase 1)', () => {
         stoppedTaskCount: 2,
       },
     });
+  });
+
+  it("describeStoppedTaskEvidence reports the application's exit code, never a helper's, in either container order", async () => {
+    for (const containers of [
+      [{ name: 'RdsCaBundle', exitCode: 1 }, { name: 'App', exitCode: 127 }],
+      [{ name: 'App', exitCode: 127 }, { name: 'RdsCaBundle', exitCode: 1 }],
+    ]) {
+      const evidence = await describeStoppedTaskEvidence(
+        { cfn: cfnWithService(), ecs: ecsWithStoppedTasks([{ stopCode: 'EssentialContainerExited', containers }]) },
+        'deployz-app',
+      );
+      expect(evidence?.container?.exitCode).toBe(127);
+    }
+
+    // The application never reported an exit code: the helper's 1 is not it.
+    const evidence = await describeStoppedTaskEvidence(
+      {
+        cfn: cfnWithService(),
+        ecs: ecsWithStoppedTasks([
+          { stopCode: 'TaskFailedToStart', containers: [{ name: 'RdsCaBundle', exitCode: 1 }, { name: 'App' }] },
+        ]),
+      },
+      'deployz-app',
+    );
+    expect(evidence?.container?.exitCode).toBeNull();
   });
 
   it('describeStoppedTaskEvidence returns null on any error or when nothing stopped', async () => {

@@ -49,7 +49,7 @@ import type { FailureEvidence } from '@deployz/contracts';
 import type { CommandExecutor, RelayCommand, RelayCommandResult } from './commands.js';
 import type { PendingStore } from './pending.js';
 import type { CloudFormationReader } from './verify.js';
-import { applicationContainers, essentialContainerNames } from './ecs-observe.js';
+import { applicationContainers, applicationExits, essentialContainerNames } from './ecs-observe.js';
 import type { TargetHealthReader } from './ecs-health.js';
 
 /** The ECS write surface this module needs (injectable seam for testing). */
@@ -107,9 +107,6 @@ export interface EcsDeployClient {
             name?: string | undefined;
             imageDigest?: string | undefined;
             exitCode?: number | undefined;
-            /** Absent means essential (ECS defaults to true) — the migration
-             *  verdict only ever reads an essential container's exit code. */
-            essential?: boolean | undefined;
           }[]
         | undefined;
     }[];
@@ -503,7 +500,17 @@ export async function settleEcsDeploy(
     // in-progress until the control plane's 24-hour grace. Once the service
     // runs this request's revision, its own stopped tasks are the verdict.
     if (!settled && alreadyRegistered) {
-      const crashed = await crashedTasksOfRevision(deps, cluster, view.arn, target ?? serviceTaskDefinition);
+      // The application's names come from the revision whose tasks are
+      // inspected, never from another revision.
+      const inspected = target ?? serviceTaskDefinition;
+      const inspectedEssential =
+        inspected === serviceTaskDefinition
+          ? essential
+          : essentialContainerNames(
+              (await deps.ecs.describeTaskDefinition({ taskDefinition: inspected })).taskDefinition
+                .containerDefinitions,
+            );
+      const crashed = await crashedTasksOfRevision(deps, cluster, view.arn, inspected, inspectedEssential);
       if (crashed.count >= CRASH_LOOP_THRESHOLD) {
         failures.push({
           view,
@@ -705,8 +712,9 @@ type MigrationOutcome =
  * anything else fails the job with MIGRATION_FAILED (exit code + stoppedReason
  * as detail — never log bodies: the relay role deliberately has no
  * logs:GetLogEvents). An outcome is only ever `completed` after the task was
- * actually observed STOPPED with exit 0 — an undescribable task fails without
- * recording anything (reconcile-before-fail: never guess).
+ * actually observed STOPPED with the application container's exit code 0. A
+ * failed AWS read defers to the next poll; a task ECS no longer knows fails
+ * without recording anything (reconcile-before-fail: never guess).
  */
 async function settleMigration(
   deps: EcsDeployDeps,
@@ -813,12 +821,22 @@ async function settleMigration(
     }
   }
 
+  const releaseImage = `${params.request.imageRepository}@${params.request.imageDigest}`;
   const pollIntervalMs = deps.migrationPollIntervalMs ?? 10_000;
   const maxAttempts = deps.migrationPollMaxAttempts ?? 24;
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
     if (attempt > 0) await sleep(pollIntervalMs);
-    const { tasks } = await deps.ecs.describeTasks({ cluster, tasks: [taskArn] });
-    const task = tasks[0];
+    let task: Awaited<ReturnType<EcsDeployClient['describeTasks']>>['tasks'][number] | undefined;
+    let exit: MigrationExit | null = null;
+    try {
+      task = (await deps.ecs.describeTasks({ cluster, tasks: [taskArn] })).tasks[0];
+      if (task?.lastStatus === 'STOPPED') exit = await migrationApplicationExit(deps, task, releaseImage);
+    } catch (err) {
+      // A failed read says nothing about the task. Defer: the next poll asks
+      // again about the SAME task, and nothing is confirmed or failed.
+      console.log(JSON.stringify({ event: 'relay:migration-read-deferred', taskArn, error: String(err) }));
+      return { state: 'in-progress', migration: { taskArn } };
+    }
     if (task === undefined) {
       // Reconcile-before-fail: we asked, and got no answer — that is an
       // UNKNOWN outcome, never a success. Fail honestly; nothing is recorded
@@ -828,17 +846,15 @@ async function settleMigration(
         reason: `Migration task "${taskArn}" could not be described`,
       };
     }
-    if (task.lastStatus !== 'STOPPED') continue;
-    // The migration's verdict is the ESSENTIAL container's exit code — the
-    // RDS CA init sidecar (essential: false) always exits 0 first, and its
-    // code must never stand in for the migration's own.
-    const exitCode = (task.containers ?? []).find(
-      (container) => container.essential !== false && container.exitCode !== undefined,
-    )?.exitCode;
+    if (task.lastStatus !== 'STOPPED' || exit === null) continue;
+    // Only the application container's own exit code 0 is a success. The RDS
+    // CA init container also exits 0, in any container order; a missing
+    // identity or exit code is never a number, so it can never pass as 0.
+    const exitCode = exit.exitCode;
     if (exitCode !== 0) {
       return {
         state: 'failed',
-        reason: `Migration workload "${migrationTask.family}" failed: exit code ${exitCode ?? 'unknown'} (${task.stopCode ?? 'STOPPED'}: ${task.stoppedReason ?? 'no reason given'})`,
+        reason: `Migration workload "${migrationTask.family}" failed: exit code ${exitCode ?? `unknown, ${exit.problem}`} (${task.stopCode ?? 'STOPPED'}: ${task.stoppedReason ?? 'no reason given'})`,
         // §14.2 ECR-image-pull classification: the migration task never ran
         // because its image could not be pulled. The migration runs the SAME
         // image as the service update, so a pull denial here is the ECR
@@ -873,6 +889,46 @@ async function settleMigration(
     state: 'in-progress',
     migration: { taskArn },
   };
+}
+
+type MigrationExit =
+  | { readonly exitCode: number }
+  | { readonly exitCode: null; readonly problem: string };
+
+/**
+ * The application container's exit code in a stopped migration task. A
+ * runtime container carries no `essential` field, so the identity comes from
+ * the exact revision the task ran: its one essential container that runs the
+ * release image. The exit code is then read by that container's name.
+ * Throws only when an AWS read fails.
+ */
+async function migrationApplicationExit(
+  deps: EcsDeployDeps,
+  task: Awaited<ReturnType<EcsDeployClient['describeTasks']>>['tasks'][number],
+  releaseImage: string,
+): Promise<MigrationExit> {
+  if (task.taskDefinitionArn === undefined) {
+    return { exitCode: null, problem: 'the task names no task definition' };
+  }
+  const { taskDefinition } = await deps.ecs.describeTaskDefinition({ taskDefinition: task.taskDefinitionArn });
+  const candidates = taskDefinition.containerDefinitions.filter(
+    (container) => container.essential !== false && container.image === releaseImage,
+  );
+  const name = candidates.length === 1 ? candidates[0]!.name : undefined;
+  if (typeof name !== 'string' || name.length === 0) {
+    return {
+      exitCode: null,
+      problem: `${task.taskDefinitionArn} has ${candidates.length} named essential containers running ${releaseImage}, not one`,
+    };
+  }
+  const reported = (task.containers ?? []).filter((container) => container.name === name);
+  if (reported.length !== 1) {
+    return { exitCode: null, problem: `the task reports ${reported.length} containers named "${name}", not one` };
+  }
+  const exitCode = reported[0]!.exitCode;
+  return exitCode === undefined
+    ? { exitCode: null, problem: `container "${name}" reported no exit code` }
+    : { exitCode };
 }
 
 function sleep(ms: number): Promise<void> {
@@ -968,7 +1024,8 @@ async function observeRunningDigest(
  * Stopped tasks of one task-definition revision whose essential container
  * exited non-zero — the crash loop ECS's circuit breaker does not count.
  * Tasks the scheduler stopped (an old revision draining, a scale-down) have
- * another stop code and are never counted.
+ * another stop code and are never counted. `essential` names that
+ * revision's application containers; a helper's exit never counts.
  */
 const CRASH_LOOP_THRESHOLD = 3;
 
@@ -977,6 +1034,7 @@ async function crashedTasksOfRevision(
   cluster: string,
   serviceArn: string,
   taskDefinitionArn: string,
+  essential: ReadonlySet<string>,
 ): Promise<{ count: number; exitCode: number | null; stopCode: string | null; stoppedReason: string }> {
   const { taskArns } = await deps.ecs.listTasks({ cluster, serviceName: serviceArn, desiredStatus: 'STOPPED' });
   if (taskArns.length === 0) return { count: 0, exitCode: null, stopCode: null, stoppedReason: '' };
@@ -987,7 +1045,7 @@ async function crashedTasksOfRevision(
   let stoppedReason = '';
   for (const task of tasks) {
     if (task.taskDefinitionArn !== taskDefinitionArn || task.stopCode !== 'EssentialContainerExited') continue;
-    const failed = task.containers?.find((c) => c.exitCode !== undefined && c.exitCode !== 0);
+    const failed = applicationExits(task.containers, essential).find((c) => c.exitCode !== 0);
     if (!failed) continue;
     count += 1;
     exitCode = failed.exitCode ?? null;
