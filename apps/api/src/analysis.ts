@@ -268,7 +268,16 @@ type ApplicationRow = typeof schema.applications.$inferSelect;
 // not local state; Helm/k8s/Terraform/Pulumi samples under deployment
 // directories are a warning, not a rejection. Stored v39 rows can carry a
 // false NOT_COMPATIBLE verdict.
-export const ANALYSIS_VERSION = 40;
+// Version 41 (MVP compatibility hardening, phase 3): the health path comes
+// from the selected Dockerfile/Compose HEALTHCHECK, then a dedicated health
+// route with its global prefix and URI version, then a framework route, and
+// otherwise the vendor is asked (no feature route ending in status, no route
+// of another binary, no silent /health); a production Dockerfile outranks
+// dev/base/sidecar images and a symlinked Dockerfile is resolved; the port
+// comes from the runtime stage; a dev script or a process the CMD already
+// starts is never a worker. Stored v40 rows can carry a wrong health path,
+// port or Dockerfile.
+export const ANALYSIS_VERSION = 41;
 
 export interface AnalysisRunnerDeps {
   db: RuntimeDb;
