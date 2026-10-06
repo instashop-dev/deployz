@@ -372,14 +372,14 @@ describe('§11.4 architecture rejections', () => {
 
   it('kubernetes', () => {
     const tree: FileTree = {
-      'k8s/kustomization.yaml': 'apiVersion: kustomize.config.k8s.io/v1beta1\nkind: Kustomization\n',
+      'kustomization.yaml': 'apiVersion: kustomize.config.k8s.io/v1beta1\nkind: Kustomization\n',
     };
     expect(rejection(tree, 'kubernetes')?.detected).toBe(true);
   });
 
   it('kubernetes via a plain Deployment manifest (no kustomize/helm files)', () => {
     const tree: FileTree = {
-      'deploy/web.yaml': [
+      'web.yaml': [
         'apiVersion: apps/v1',
         'kind: Deployment',
         'metadata:',
@@ -402,9 +402,9 @@ describe('§11.4 architecture rejections', () => {
       'docker-compose.yml': [
         'services:',
         '  web:',
-        '    image: node:20-alpine',
+        '    image: myorg/web',
         '  admin:',
-        '    image: node:20-alpine',
+        '    image: myorg/admin',
         '',
       ].join('\n'),
     };
@@ -413,13 +413,13 @@ describe('§11.4 architecture rejections', () => {
 
   it('persistent volume', () => {
     const tree: FileTree = {
-      'k8s/pvc.yaml': 'apiVersion: v1\nkind: PersistentVolumeClaim\nmetadata:\n  name: data\n',
+      'pvc.yaml': 'apiVersion: v1\nkind: PersistentVolumeClaim\nmetadata:\n  name: data\n',
     };
     expect(rejection(tree, 'persistent-volume')?.detected).toBe(true);
   });
 
   it('terraform', () => {
-    const tree: FileTree = { 'infra/main.tf': 'resource "aws_instance" "web" {}\n' };
+    const tree: FileTree = { 'main.tf': 'resource "aws_instance" "web" {}\n' };
     expect(rejection(tree, 'terraform')?.detected).toBe(true);
   });
 

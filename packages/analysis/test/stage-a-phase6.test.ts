@@ -67,7 +67,7 @@ describe('COMP-036 — IaC in non-runtime directories is not the app deployment'
     expect(checkPulumi(tree)).toMatchObject({ detected: false });
     expect(checkTerraform(tree)).toMatchObject({ detected: false });
     expect(checkPulumi({ 'package.json': JSON.stringify({ dependencies: { '@pulumi/aws': '^6.0.0' } }) })).toMatchObject({ detected: true });
-    expect(checkTerraform({ 'infra/main.tf': 'resource "aws_instance" "x" {}\n' })).toMatchObject({ detected: true });
+    expect(checkTerraform({ 'main.tf': 'resource "aws_instance" "x" {}\n' })).toMatchObject({ detected: true });
   });
 });
 

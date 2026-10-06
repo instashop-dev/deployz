@@ -297,7 +297,7 @@ describe('COMP-010 — optional compose service (deploy.replicas: 0)', () => {
 describe('COMP-033 — deployment descriptors fire the cloud checks', () => {
   it('kustomization.yaml fires the kubernetes rejection', () => {
     const tree: FileTree = {
-      'k8s/kustomization.yaml': 'apiVersion: kustomize.config.k8s.io/v1beta1\nkind: Kustomization\n',
+      'kustomization.yaml': 'apiVersion: kustomize.config.k8s.io/v1beta1\nkind: Kustomization\n',
       'package.json': JSON.stringify({ name: 'x', scripts: { start: 'node index.js' } }),
     };
     expect(rejectedDependency(tree, 'kubernetes')).toContain('kustomization.yaml');
@@ -305,7 +305,7 @@ describe('COMP-033 — deployment descriptors fire the cloud checks', () => {
 
   it('a .tf file fires the terraform rejection', () => {
     const tree: FileTree = {
-      'infra/main.tf': 'resource "aws_instance" "web" {}\n',
+      'main.tf': 'resource "aws_instance" "web" {}\n',
       'package.json': JSON.stringify({ name: 'x', scripts: { start: 'node index.js' } }),
     };
     expect(rejectedDependency(tree, 'terraform')).toContain('main.tf');
