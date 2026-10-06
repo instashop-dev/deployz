@@ -11,13 +11,14 @@ import {
   buildApplicationAnalysis,
   buildReadinessReport,
   collectScripts,
-  collectScriptsWithDir,
   collectUnresolvedQuestions,
   deriveAmbiguities,
   detectDeclaredWorkerCommands,
+  dockerfileWorkdirs,
   listDockerfileCandidates,
   mergeAiAnalysis,
   selectAiContextFiles,
+  selectMigrationScript,
   verdictFromReadiness,
 } from '@deployz/analysis';
 import type { RuntimeDb } from '@deployz/db';
@@ -793,24 +794,7 @@ export interface UnsupportedCheck {
 // (shared with the §18 detectors) reads every workspace package's scripts,
 // not just the root manifest's — a monorepo's migration/worker script
 // usually lives in the app package, not the workspace root.
-const MIGRATION_SCRIPT_KEY_REGEX = /migrat/i;
 const WORKER_SCRIPT_KEY_REGEX = /^worker$|worker[:-]?start|start[:-]?worker/i;
-
-// A dev-mode migration command must never reach `migrationCommand` — it runs
-// unattended against the production database on every deploy (the relay's
-// DEPLOY_RELEASE executor runs it), and a dev-mode command is built to prompt
-// interactively / reset data, not to run unattended. Matches "migrate dev",
-// "migrate-dev", and "migrate:dev" (which also covers a ":migrate-dev"
-// script-key form, since that substring contains "migrate-dev").
-const DEV_MIGRATION_REGEX = /migrate[\s:-]dev\b/i;
-
-// The deploy-safe subset of MIGRATION_PATTERNS' vocabulary (detectors.ts) —
-// commands that apply already-generated migrations non-interactively, as
-// opposed to a codegen step (`drizzle-kit generate`) or an ambiguous bare
-// `prisma migrate` that could resolve to either deploy or dev depending on
-// the rest of the command.
-const DEPLOY_MIGRATION_REGEX =
-  /prisma\s+migrate\s+deploy\b|drizzle-kit\s+(?:push|migrate)\b|knex\s+migrate:(?:latest|up)\b|sequelize\s+db:migrate\b|typeorm\s+migration:run\b|node-pg-migrate\b|npx\s+migrate\b/;
 
 // The vendor's package.json script is written to run via npm/pnpm/yarn's own
 // script runner (developer machine, CI) or by a Dockerfile's start script
@@ -859,34 +843,6 @@ function selectedDockerfileContent(tree: FileTree): string | undefined {
 }
 
 /**
- * The image's runtime working directory and the directory the repository was
- * copied into, read from the LAST build stage of a Dockerfile (an earlier
- * stage's WORKDIR never survives into the runtime image): the first WORKDIR
- * in that stage is where the repo lands (e.g. `/app`), and the last WORKDIR
- * is where `CMD`/the relay's `sh -c <command>` actually runs from — they
- * differ whenever the final stage `WORKDIR`s into a subdirectory afterwards
- * (Documenso's `docker/Dockerfile` sets `WORKDIR /app` then later `WORKDIR
- * /app/apps/remix`). Relative WORKDIRs chain off the previous one, as Docker
- * itself resolves them. No WORKDIR at all means both default to the same
- * directory, so no relative adjustment is needed.
- */
-function dockerfileWorkdirs(content: string): { imageRoot: string; runtimeCwd: string } {
-  const lastStageStart = [...content.matchAll(/^\s*FROM\s+\S+/gim)].at(-1)?.index ?? 0;
-  const finalStage = content.slice(lastStageStart);
-
-  const dirs: string[] = [];
-  let current = '/';
-  for (const match of finalStage.matchAll(/^\s*WORKDIR\s+(\S+)/gim)) {
-    const raw = match[1]!.replace(/^["']|["']$/g, '');
-    current = raw.startsWith('/') ? raw : posixPath.join(current, raw);
-    dirs.push(current);
-  }
-  const imageRoot = dirs[0] ?? '/';
-  const runtimeCwd = dirs.at(-1) ?? imageRoot;
-  return { imageRoot, runtimeCwd };
-}
-
-/**
  * If `command` (after the npx-prefix rewrite) is a Prisma `migrate deploy`
  * invocation with no explicit `--schema`, append one computed from the
  * schema's real location relative to the image's runtime WORKDIR. Prisma's
@@ -925,15 +881,12 @@ function withPrismaSchemaFlag(command: string, packageDir: string, tree: FileTre
  * unattended against the production database on every deploy, so this picks
  * defensively:
  *
- *   0. A candidate is a script whose KEY mentions migrations, or whose VALUE
- *      is already a deploy-shaped command under any key (`update-db: prisma
- *      migrate deploy` — Stage A COMP-006).
- *   1. Drop every dev-shaped candidate outright (`DEV_MIGRATION_REGEX`) —
- *      never a candidate for this field, regardless of what else exists.
- *   2. Among what is left, prefer a deploy-shaped command
- *      (`DEPLOY_MIGRATION_REGEX`) over an ambiguous one.
- *   3. If nothing survives step 1, return undefined — an absent migration
- *      command is safer than a dev-mode one running unattended.
+ *   The script comes from `selectMigrationScript` (@deployz/analysis): only a
+ *   safe, deploy-shaped migration script of the deployed app's own package —
+ *   never a create/generate/push/reset, test, copy/build step, chain with an unsafe step, or
+ *   workspace-filtered command, and never a devDependency-only CLI. When
+ *   nothing qualifies this returns undefined — an absent migration command is
+ *   safer than a wrong one running unattended.
  *
  * The selected script's literal value is then rewritten into a command that
  * is actually runnable where the relay executes it: `sh -c <command>` inside
@@ -943,13 +896,9 @@ function withPrismaSchemaFlag(command: string, packageDir: string, tree: FileTre
  * not the relay's.
  */
 function resolveMigrationCommand(tree: FileTree): string | undefined {
-  const candidates = collectScriptsWithDir(tree).filter(
-    ([key, command]) => MIGRATION_SCRIPT_KEY_REGEX.test(key) || DEPLOY_MIGRATION_REGEX.test(command),
-  );
-  const safeCandidates = candidates.filter(([, command]) => !DEV_MIGRATION_REGEX.test(command));
-  if (safeCandidates.length === 0) return undefined;
-  const deployShaped = safeCandidates.find(([, command]) => DEPLOY_MIGRATION_REGEX.test(command));
-  const [, command, packageDir] = (deployShaped ?? safeCandidates[0])!;
+  const script = selectMigrationScript(tree);
+  if (!script) return undefined;
+  const [, command, packageDir] = script;
   return withPrismaSchemaFlag(applyNpxPrefix(command), packageDir, tree);
 }
 

@@ -33,6 +33,8 @@ export {
   detectExternalServiceRequirements,
   collectScripts,
   collectScriptsWithDir,
+  selectMigrationScript,
+  dockerfileWorkdirs,
   detectDeclaredWorkerCommands,
   detectDeclaredWorkerCommand,
   isRuntimeSourcePath,

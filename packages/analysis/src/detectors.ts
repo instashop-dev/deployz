@@ -6,6 +6,8 @@
  * No AI, no network, no side effects.
  */
 
+import { posix as posixPath } from 'node:path';
+
 import type { ManifestEnvVariable } from '@deployz/contracts';
 
 // ── Types ───────────────────────────────────────────────────────────────────
@@ -2030,9 +2032,10 @@ const MIGRATION_DEV_REGEX = /migrate[\s:-]dev\b/i;
 
 /** Migration commands an application can legitimately run at STARTUP. */
 const STARTUP_MIGRATION_PATTERNS: { pattern: RegExp; name: string }[] = [
-  { pattern: /python\s+manage\.py\s+migrate\b/, name: 'python manage.py migrate' },
+  // `\bmanage\.py` also covers a uwsgi `hook-pre-app = exec:./manage.py migrate`.
+  { pattern: /\bmanage\.py\s+migrate\b/, name: 'python manage.py migrate' },
   { pattern: /prisma\s+migrate\s+deploy\b/, name: 'prisma migrate deploy' },
-  { pattern: /rails\s+db:(?:prepare|migrate)\b/, name: 'rails db:prepare/db:migrate' },
+  { pattern: /\b(?:rails|rake)\s+db:(?:prepare|migrate)\b/, name: 'rails db:prepare/db:migrate' },
   { pattern: /flask\s+db\s+upgrade\b/, name: 'flask db upgrade' },
   { pattern: /alembic\s+upgrade\s+head\b/, name: 'alembic upgrade head' },
   { pattern: /php\s+artisan\s+migrate\s+--force/, name: 'php artisan migrate --force' },
@@ -2040,11 +2043,25 @@ const STARTUP_MIGRATION_PATTERNS: { pattern: RegExp; name: string }[] = [
   { pattern: /typeorm\s+migration:run\b/, name: 'typeorm migration:run' },
   { pattern: /\bflyway\s+migrate\b/, name: 'flyway migrate' },
   { pattern: /\bliquibase\s+(?:update|migrate)\b/, name: 'liquibase update/migrate' },
+  { pattern: /\bsequelize(?:-cli)?\s+db:migrate\b/, name: 'sequelize db:migrate' },
+  { pattern: /\bdrizzle-kit\s+migrate\b/, name: 'drizzle-kit migrate' },
+  { pattern: /\bnode-pg-migrate\s+up\b/, name: 'node-pg-migrate up' },
+  // The app's own migrate script chained before its start command.
+  {
+    pattern: /\b(?:npm\s+run|yarn|pnpm(?:\s+run)?)\s+(?:db[:-])?migrate(?::(?:deploy|latest|up|prod))?(?=\s|$|[&;"'\]])/,
+    name: 'migrate script',
+  },
+  // A binary's own migrate-on-boot flag (`./app -migrate`).
+  { pattern: /(?:^|[\s"',])--?(?:auto-)?migrate(?:=true)?(?=[\s"',\]]|$)/, name: 'binary migrate flag' },
 ];
+
+/** An `ENV RUN_MIGRATIONS=1` / `AUTO_MIGRATE=true` style switch in the Dockerfile. */
+const STARTUP_MIGRATION_ENV_REGEX =
+  /^\s*ENV\s+.*\b(?:RUN_MIGRATIONS?|AUTO_MIGRAT(?:E|IONS?)|MIGRATE_ON_START(?:UP)?)\b\s*[= ]\s*["']?(?:1|true|yes|on)\b/im;
 
 /** A deploy-safe migration command text (the same family apps/api resolves). */
 const DEPLOY_MIGRATION_COMMAND_REGEX =
-  /prisma\s+migrate\s+deploy\b|drizzle-kit\s+(?:push|migrate)\b|knex\s+migrate:(?:latest|up)\b|sequelize\s+db:migrate\b|typeorm\s+migration:run\b|node-pg-migrate\b|npx\s+migrate\b/;
+  /prisma\s+migrate\s+deploy\b|drizzle-kit\s+migrate\b|knex\s+migrate:(?:latest|up)\b|sequelize\s+db:migrate\b|typeorm\s+migration:run\b|node-pg-migrate\b|npx\s+migrate\b/;
 
 /** One piece of startup-migration evidence. */
 export interface MigrationStartupEvidence {
@@ -2064,7 +2081,7 @@ export interface MigrationStartupEvidence {
 }
 
 /** A token in Dockerfile CMD/ENTRYPOINT text (or a script it runs) that names a script file. */
-const SCRIPT_PATH_TOKEN_REGEX = /[\w./-]+\.(?:sh|js|mjs|cjs|ts)\b/g;
+const SCRIPT_PATH_TOKEN_REGEX = /[\w./-]+\.(?:sh|js|mjs|cjs|ts|ini)\b/g;
 
 /**
  * Maximum number of script-to-script hops followed from the CMD/ENTRYPOINT
@@ -2113,25 +2130,159 @@ export function extractCmdScriptPaths(text: string, tree: FileTree, dockerDir: s
   return found;
 }
 
-/** True when the command text is deploy-shaped and not dev-mode. */
-export function isDeploySafeMigrationCommand(command: string): boolean {
-  return !MIGRATION_DEV_REGEX.test(command) && DEPLOY_MIGRATION_COMMAND_REGEX.test(command);
+const MIGRATION_SCRIPT_KEY_REGEX = /migrat/i;
+
+// A script key that creates, undoes, copies, builds or tests migrations, or is
+// the app's own start/dev command — never a run of the pending migrations.
+const UNSAFE_MIGRATION_KEY_REGEX =
+  /(?:^|[:_-])(?:create|generate|gen|make|new|rollback|down|undo|revert|reset|drop|fresh|seed|copy|build|test|push|prototype|dev|start|status)(?:$|[:_-])/i;
+
+// Any step of a command that is not a plain "apply pending migrations": a
+// create/generate/rollback/reset step, a dev schema sync (`push`), a test run,
+// a copy/build/rename step, a seed, or a workspace/monorepo runner or `../`
+// path (not available at the image WORKDIR). One unsafe step in a chain makes
+// the whole command unsafe.
+const UNSAFE_MIGRATION_COMMAND_REGEX = new RegExp(
+  [
+    String.raw`\bmigrat\w*(?:\.[cm]?[jt]s)?[\s:-]+(?:create|make|new|generate|rollback|down|reset|drop|fresh|revert|undo)\b`,
+    String.raw`\bmakemigrations\b`,
+    String.raw`\bdrizzle-kit\s+(?:generate|push|studio|drop|check|up)\b`,
+    String.raw`\bprisma\s+(?:migrate\s+(?:reset|diff)|db\s+(?:push|seed|execute))\b`,
+    String.raw`\bdb[\s:]push\b|\bdb:(?:reset|seed|drop)\b`,
+    String.raw`\b(?:vitest|jest|mocha|ava|playwright|cypress)\b`,
+    String.raw`(?:^|[\s;&|])(?:cp|mkdir|rsync|mv|rm|copyfiles|cpx|rimraf|tsc)\s`,
+    String.raw`\b(?:rename|seed|build)\b`,
+    String.raw`\bpnpm\s+(?:--filter|-F|-r|--recursive|--dir|-C)\b|\byarn\s+workspaces?\b|\bnpm\b[^&;|]*\s(?:-w|--workspaces?)\b|\bturbo\b|\bnx\s|\.\./`,
+  ].join('|'),
+  'i',
+);
+
+// Migration CLIs that normally sit in devDependencies, mapped to the package
+// that provides them. The relay runs the command in the runtime image, where
+// a devDependency is missing unless the Dockerfile kept dev dependencies.
+const DEV_CLI_PACKAGES: Record<string, string> = {
+  prisma: 'prisma',
+  'drizzle-kit': 'drizzle-kit',
+  knex: 'knex',
+  sequelize: 'sequelize-cli',
+  'sequelize-cli': 'sequelize-cli',
+  typeorm: 'typeorm',
+  tsx: 'tsx',
+  'ts-node': 'ts-node',
+  'dotenv-flow': 'dotenv-flow',
+  'dotenv-cli': 'dotenv-cli',
+  dotenv: 'dotenv-cli',
+  'node-pg-migrate': 'node-pg-migrate',
+  'db-migrate': 'db-migrate',
+};
+const DEV_CLI_TOKEN_REGEX = new RegExp(`(?:^|[\\s;&|(])(${Object.keys(DEV_CLI_PACKAGES).join('|')})(?=\\s|$)`, 'g');
+
+/**
+ * The image's runtime working directory and the directory the repository was
+ * copied into, read from the LAST build stage of a Dockerfile (an earlier
+ * stage's WORKDIR never survives into the runtime image): the first WORKDIR
+ * in that stage is where the repo lands (e.g. `/app`), and the last WORKDIR
+ * is where `CMD`/the relay's `sh -c <command>` actually runs from — they
+ * differ whenever the final stage `WORKDIR`s into a subdirectory afterwards
+ * (Documenso's `docker/Dockerfile` sets `WORKDIR /app` then later `WORKDIR
+ * /app/apps/remix`). Relative WORKDIRs chain off the previous one, as Docker
+ * itself resolves them. No WORKDIR at all means both default to the same
+ * directory, so no relative adjustment is needed.
+ */
+export function dockerfileWorkdirs(content: string): { imageRoot: string; runtimeCwd: string } {
+  const lastStageStart = [...content.matchAll(/^\s*FROM\s+\S+/gim)].at(-1)?.index ?? 0;
+  const finalStage = content.slice(lastStageStart);
+
+  const dirs: string[] = [];
+  let current = '/';
+  for (const match of finalStage.matchAll(/^\s*WORKDIR\s+(\S+)/gim)) {
+    const raw = match[1]!.replace(/^["']|["']$/g, '');
+    current = raw.startsWith('/') ? raw : posixPath.join(current, raw);
+    dirs.push(current);
+  }
+  const imageRoot = dirs[0] ?? '/';
+  const runtimeCwd = dirs.at(-1) ?? imageRoot;
+  return { imageRoot, runtimeCwd };
+}
+
+/** True when a Dockerfile stage runs a plain (non-production) package install and never prunes. */
+function stageInstallsDevDependencies(stage: string): boolean {
+  const lines = stage.split('\n');
+  const installs = lines.filter((line) =>
+    /^\s*RUN\b.*\b(?:npm\s+(?:ci|install|i)\b|pnpm\s+(?:install|i)\b|yarn(?:\s+install)?(?=\s*(?:&&|;|\\|$)|\s+-))/i.test(line),
+  );
+  return (
+    installs.some((line) => !/--prod|--omit=dev|--only=prod|NODE_ENV=production/i.test(line)) &&
+    !lines.some((line) => /\bprune\b/i.test(line))
+  );
 }
 
 /**
- * A deploy-safe migration script exists in any package.json (script key or a
- * deploy-shaped command value), mirroring apps/api's resolveMigrationCommand
- * convention — this is the mode='pre_deploy' signal.
+ * True when the selected Dockerfile's FINAL stage evidently keeps dev
+ * dependencies: it runs a plain install itself, or copies the whole app dir
+ * or `node_modules` from an earlier stage that did.
  */
-export function hasPreDeployMigration(tree: FileTree): boolean {
-  for (const [key, command] of collectScripts(tree)) {
-    // A migration chained into the app's own start/dev command runs at
-    // STARTUP, not as a pre-deploy step — never pre_deploy evidence.
-    if (key === 'start' || key === 'dev') continue;
-    if (isDeploySafeMigrationCommand(command)) return true;
-    if (/migrat/i.test(key) && !MIGRATION_DEV_REGEX.test(command)) return true;
+function finalStageKeepsDevDependencies(content: string): boolean {
+  const stages = content.split(/^(?=\s*FROM\s)/im).filter((stage) => /^\s*FROM\s/i.test(stage));
+  const finalStage = stages.at(-1);
+  if (finalStage === undefined) return false;
+  if (stageInstallsDevDependencies(finalStage)) return true;
+  for (const match of finalStage.matchAll(/^\s*COPY\s+--from=(\S+)\s+(\S+)/gim)) {
+    const [, from, source] = match;
+    const index = stages.findIndex(
+      (stage, i) => from === String(i) || new RegExp(`^\\s*FROM\\s+\\S+\\s+AS\\s+${from}\\b`, 'i').test(stage),
+    );
+    const copiesDependencies = match[0].includes('node_modules') || /^(?:\.\/?|\/[\w-]+\/?\.?)$/.test(source!);
+    if (index >= 0 && index < stages.length - 1 && copiesDependencies && stageInstallsDevDependencies(stages[index]!)) {
+      return true;
+    }
   }
   return false;
+}
+
+/** True when `name` is a runtime dependency of the package.json in `dir`. */
+function hasRuntimeDependency(tree: FileTree, dir: string, name: string): boolean {
+  const manifest = parsePackageJsonsWithPath(tree).find(({ path }) => path === (dir ? `${dir}/package.json` : 'package.json'));
+  return ['dependencies', 'optionalDependencies'].some((field) => {
+    const deps = manifest?.pkg[field];
+    return typeof deps === 'object' && deps !== null && name in deps;
+  });
+}
+
+/**
+ * The migration script Deployz may freeze into the pre-deploy one-shot task:
+ * a migration-shaped script of the DEPLOYED app's own package (the repo root,
+ * the Dockerfile's directory, or the runtime WORKDIR's package) that applies
+ * pending migrations and nothing else, and whose CLI exists in the runtime
+ * image. Prefers a deploy-shaped command. Undefined when nothing is
+ * evidently safe — an absent command is safer than a wrong one running
+ * unattended against the production database.
+ */
+export function selectMigrationScript(tree: FileTree): [key: string, command: string, packageDir: string] | undefined {
+  const dockerfile = selectedDockerfile(tree);
+  const appDirs = new Set(['']);
+  if (dockerfile) {
+    const { imageRoot, runtimeCwd } = dockerfileWorkdirs(dockerfile.content);
+    appDirs.add(dockerfile.path.includes('/') ? dockerfile.path.split('/').slice(0, -1).join('/') : '');
+    appDirs.add(posixPath.relative(imageRoot, runtimeCwd));
+  }
+  const keepsDevDependencies = dockerfile !== null && finalStageKeepsDevDependencies(dockerfile.content);
+
+  const safe = collectScriptsWithDir(tree).filter(([key, command, dir]) => {
+    if (!MIGRATION_SCRIPT_KEY_REGEX.test(key) && !DEPLOY_MIGRATION_COMMAND_REGEX.test(command)) return false;
+    if (!appDirs.has(dir) || UNSAFE_MIGRATION_KEY_REGEX.test(key)) return false;
+    if (MIGRATION_DEV_REGEX.test(command) || UNSAFE_MIGRATION_COMMAND_REGEX.test(command)) return false;
+    if (keepsDevDependencies) return true;
+    return [...command.matchAll(DEV_CLI_TOKEN_REGEX)].every(([, cli]) =>
+      hasRuntimeDependency(tree, dir, DEV_CLI_PACKAGES[cli!]!),
+    );
+  });
+  return safe.find(([, command]) => DEPLOY_MIGRATION_COMMAND_REGEX.test(command)) ?? safe[0];
+}
+
+/** A safe migration script exists for the deployed app — the mode='pre_deploy' signal. */
+export function hasPreDeployMigration(tree: FileTree): boolean {
+  return selectMigrationScript(tree) !== undefined;
 }
 
 /**
@@ -2153,11 +2304,20 @@ export function detectStartupMigrationEvidence(tree: FileTree): MigrationStartup
     }
   };
 
+  const dockerfile = selectedDockerfile(tree);
+  // A start script that CMD/ENTRYPOINT calls (`npm start`) is what the image
+  // boots, so it counts as Dockerfile-command evidence.
+  const imageRunsStartScript =
+    dockerfile !== null &&
+    /\b(?:npm|yarn|pnpm)\s+(?:run\s+)?start\b/.test(
+      `${CMD_REGEX.exec(dockerfile.content)?.[1] ?? ''} ${ENTRYPOINT_REGEX.exec(dockerfile.content)?.[1] ?? ''}`,
+    );
   for (const [name, command] of collectScripts(tree)) {
-    if (name === 'start' || name === 'dev') consider(command, `package.json script "${name}"`, false);
+    if (name === 'start' || name === 'dev') {
+      consider(command, `package.json script "${name}"`, name === 'start' && imageRunsStartScript);
+    }
   }
 
-  const dockerfile = selectedDockerfile(tree);
   const dockerDir = dockerfile?.path?.includes('/') ? (dockerfile.path.split('/').slice(0, -1).join('/') ?? '') : '';
   // Files already scanned through the CMD/ENTRYPOINT chain, so the
   // independent boot-script heuristic below never double-counts them.
@@ -2168,6 +2328,9 @@ export function detectStartupMigrationEvidence(tree: FileTree): MigrationStartup
     const entry = ENTRYPOINT_REGEX.exec(dockerfile.content)?.[1];
     if (cmd) consider(cmd, `CMD (${dockerfile.path})`, true);
     if (entry) consider(entry, `ENTRYPOINT (${dockerfile.path})`, true);
+    if (STARTUP_MIGRATION_ENV_REGEX.test(dockerfile.content)) {
+      evidence.push({ source: `ENV (${dockerfile.path})`, pattern: 'migrate-on-start ENV', fromDockerCommand: true });
+    }
 
     // Follow the script(s) CMD/ENTRYPOINT name (`sh scripts/start-docker.sh`,
     // `["sh", "scripts/start-docker.sh"]`), and every script THOSE scripts
