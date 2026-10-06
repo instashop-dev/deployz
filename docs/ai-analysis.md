@@ -133,6 +133,35 @@ alone. `reconcileReadiness` applies the vendor's
 container port and start command as a view, so the page, the persisted
 verdict and the fix instructions agree without a re-analysis.
 
+Gate scoping. The architecture and storage blockers read only the files that
+describe the production deployment:
+
+- Compose: only the production Compose file counts. It is the root
+  `docker-compose.production.yml`/`docker-compose.yml`, not a file in a
+  `dev`, `test`, `docs`, `examples`, `contrib`, `build` or `demo` directory,
+  not an `override`/`dev`/`ci` variant, and not a file that mounts the
+  repository checkout (`.:/app`). Services on the same build or image are one
+  application: the extra services are workers or replicas. Infrastructure
+  images, bare runtime images (`node`), dev servers and database studios are
+  not application services. A service built from its own Dockerfile that the
+  app neither depends on nor names, next to an app that builds and tags its
+  own image, is an optional extra. Only two independent required
+  application services give `unsupported-multi-service`.
+- Local storage: `VOLUME` is read from the selected Dockerfile only, and a
+  Compose volume only from the production file and the application service.
+  Static, build, source, cache, log and socket mounts do not count. A volume
+  that holds only the SQLite file is not local state when PostgreSQL can be
+  selected. An uploads, media or attachments volume is not local state when
+  the app has an S3 SDK and a variable that selects it (`UPLOAD_PROVIDER`,
+  `ACTIVE_STORAGE_SERVICE`, `STORAGE_TYPE`, an `S3_*_BUCKET` name).
+- Deployment files: Helm charts, Kubernetes manifests, Kustomize, Terraform
+  and Pulumi files in `charts`, `helm`, `k8s`, `kubernetes`, `deploy`,
+  `deployments`, `infra`, `terraform`, `install`, `contrib` or `*-docker`
+  directories do not block. They give the `deployment-files-ignored`
+  warning and the manifest field `ignoredDeploymentFiles`. Root-level files,
+  files elsewhere, and the manifests of a Go module that imports
+  `client-go` or `controller-runtime` still block. Azure files still block.
+
 Adding a rule: add the finding in `readiness-report.ts` (id, copy, severity,
 confidence), a test in `readiness-report.test.ts`, and — when the deployment
 gate must enforce it — the matching check in `manifest.ts` /

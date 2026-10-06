@@ -211,10 +211,14 @@ export function isRuntimeSourcePath(path: string): boolean {
 // Compose files that describe dev/test/example tooling rather than the app's
 // own production deployment shape — by path segment or by filename flavour.
 const NON_PRODUCTION_COMPOSE_SEGMENT_REGEX =
-  /(?:^|\/)(?:development|dev|test|testing|tests|suites?|e2e|ci|[\w.-]*examples?|[\w.-]*samples?|local|\.devcontainer|playwright|benchmarks?|devenv)(?:\/|$)/i;
+  /(?:^|\/)(?:development|dev|test|testing|tests|suites?|e2e|ci|[\w.-]*examples?|[\w.-]*samples?|demos?|local|\.devcontainer|playwright|benchmarks?|devenv|docs?|contrib|build|debug)(?:\/|$)/i;
 const NON_PRODUCTION_COMPOSE_FILENAME_REGEX =
-  /(?:docker-compose|compose)\.(?:dev|development|test|testing|override|local|example|sample|ci)\.ya?ml$/i;
-const COMPOSE_FILE_REGEX = /(?:^|\/)(?:docker-compose|compose)\.ya?ml$/i;
+  /(?:docker-compose|compose)[.-](?:dev|development|test|testing|override|local|example|sample|ci|e2e|debug|demo|build)(?:[.-][\w.-]+)?\.ya?ml$/i;
+const COMPOSE_FILE_REGEX = /(?:^|\/)(?:docker-compose|compose)(?:\.(?:prod|production))?\.ya?ml$/i;
+const PRODUCTION_COMPOSE_FILE_REGEX = /(?:docker-compose|compose)\.(?:prod|production)\.ya?ml$/i;
+// A volume that mounts the repository checkout (`.:/app`, `./../:/src`)
+// belongs to a development stack: the image is not what runs.
+const SOURCE_MOUNT_REGEX = /^\s*-\s*["']?(?:\.{1,2}|(?:\.\.?\/)+\.{0,2}|\$\{?PWD\}?)\/?:/m;
 
 export function isProductionComposeFile(path: string): boolean {
   return !NON_PRODUCTION_COMPOSE_SEGMENT_REGEX.test(path) && !NON_PRODUCTION_COMPOSE_FILENAME_REGEX.test(path);
@@ -228,8 +232,13 @@ export function isProductionComposeFile(path: string): boolean {
  */
 export function listProductionComposeFiles(tree: FileTree): string[] {
   return Object.keys(tree)
-    .filter((path) => COMPOSE_FILE_REGEX.test(path) && isProductionComposeFile(path))
-    .sort((a, b) => a.split('/').length - b.split('/').length || a.localeCompare(b));
+    .filter((path) => COMPOSE_FILE_REGEX.test(path) && isProductionComposeFile(path) && !SOURCE_MOUNT_REGEX.test(tree[path] ?? ''))
+    .sort(
+      (a, b) =>
+        a.split('/').length - b.split('/').length ||
+        Number(PRODUCTION_COMPOSE_FILE_REGEX.test(b)) - Number(PRODUCTION_COMPOSE_FILE_REGEX.test(a)) ||
+        a.localeCompare(b),
+    );
 }
 
 /**
@@ -253,12 +262,15 @@ export interface ComposeService {
   ports: string[];
   /** The service's `command:` override, flattened to one line (Stage A COMP-015). */
   command: string | null;
+  /** The `build:` context, Dockerfile, target and args, flattened and sorted; null when the service pulls an image. */
+  build: string | null;
+  /** The service's raw lines, for dependency and reference checks. */
+  body: string;
 }
 
 export function composeServices(tree: FileTree): { file: string; services: ComposeService[] } | null {
-  const candidates = Object.keys(tree).filter((p) => COMPOSE_FILE_REGEX.test(p) && isProductionComposeFile(p));
-  if (candidates.length === 0) return null;
-  const path = candidates.find((p) => !p.includes('/')) ?? candidates[0]!;
+  const path = listProductionComposeFiles(tree)[0];
+  if (path === undefined) return null;
   const content = tree[path] ?? '';
   const oneShot = new Set<string>();
   for (const match of content.matchAll(/^\s+([a-zA-Z0-9_-]+):\s*\r?\n\s+condition:\s*service_completed_successfully/gm)) {
@@ -270,6 +282,8 @@ export function composeServices(tree: FileTree): { file: string; services: Compo
   let inVolumes = false;
   let inPorts = false;
   let inCommand = false;
+  let buildIndent = -1;
+  let buildParts: string[] = [];
   // The file's own indentation: a service header sits one level under
   // `services:`, its keys one level deeper (two or four spaces alike).
   let serviceIndent = -1;
@@ -290,14 +304,23 @@ export function composeServices(tree: FileTree): { file: string; services: Compo
     if (serviceIndent === -1) serviceIndent = indent;
     const serviceHeader = indent === serviceIndent ? /^\s*([a-zA-Z0-9_.-]+):\s*$/.exec(line) : null;
     if (serviceHeader) {
-      current = { name: serviceHeader[1]!, image: null, optional: false, volumes: [], ports: [], command: null };
+      current = { name: serviceHeader[1]!, image: null, optional: false, volumes: [], ports: [], command: null, build: null, body: '' };
       inVolumes = false;
       inPorts = false;
       inCommand = false;
+      buildIndent = -1;
+      buildParts = [];
       if (!oneShot.has(current.name)) services.push(current);
       continue;
     }
     if (!current) continue;
+    current.body += `${line}\n`;
+    if (buildIndent !== -1 && indent <= buildIndent) buildIndent = -1;
+    if (buildIndent !== -1) {
+      buildParts.push(line.trim().replace(/["']/g, ''));
+      current.build = [...buildParts].sort().join('|');
+      continue;
+    }
     const keyLine = /^\s*([a-zA-Z_]+):\s*(.*)$/.exec(line);
     const isServiceKey = keyLine !== null && indent > serviceIndent && !line.trimStart().startsWith('-');
     if (isServiceKey) {
@@ -307,6 +330,11 @@ export function composeServices(tree: FileTree): { file: string; services: Compo
     }
     if (isServiceKey && keyLine[1] === 'image') current.image = /^["']?([^\s"']+)/.exec(keyLine[2] ?? '')?.[1] ?? null;
     if (isServiceKey && keyLine[1] === 'profiles') current.optional = true;
+    if (isServiceKey && keyLine[1] === 'build') {
+      const value = (keyLine[2] ?? '').trim();
+      if (value === '') buildIndent = indent;
+      current.build = value === '' ? '' : `context: ${value.replace(/["']/g, '')}`;
+    }
     // COMP-010: `deploy.replicas: 0` declares an OPTIONAL service (a worker
     // kept for reference but never scaled by the default stack).
     if (isServiceKey && keyLine[1] === 'replicas' && (keyLine[2] ?? '').trim() === '0') {
@@ -336,13 +364,26 @@ export function composeServices(tree: FileTree): { file: string; services: Compo
 export const INFRA_COMPOSE_IMAGE_REGEX =
   /postgres|postgis|pgvector|pgadmin|adminer|mysql|mariadb|mssql|sqlserver|sql-edge|oracle|cockroach|mongo|redis|valkey|keydb|elasticsearch|opensearch|rabbitmq|kafka|zookeeper|nats|minio|seaweedfs|garage|memcached|localstack|azurite|mailhog|mailpit|maildev|mailcatcher|smtp|postfix|clickhouse|dynamodb|meilisearch|typesense|qdrant|weaviate|milvus|chroma|nginx|caddy|traefik|haproxy|httpd|keycloak|gotenberg|tika|browserless|chrome|chromium|playwright|searxng|rustfs|ollama|vllm|prometheus|grafana|loki|jaeger|tempo|otel|temporalio|getsentry\/spotlight|pictrs|spicedb|authzed|cubejs|hashicorp\/vault/i;
 
-/** Compose services that run the application itself: not infrastructure, not profile-gated. */
+// A bare language runtime image or a front-end/ORM dev server is a tool the
+// stack runs next to the app (a build helper, a dev server, a database
+// studio), never the application image.
+const TOOL_COMPOSE_IMAGE_REGEX =
+  /^(?:docker\.io\/)?(?:library\/)?(?:node|python|ruby|golang|php|openjdk|eclipse-temurin|maven|gradle|bun|deno|alpine|busybox|ubuntu|debian)(?:[:@]|$)/i;
+const DEV_TOOL_COMMAND_REGEX =
+  /\b(?:vite|webpack(?:-dev-server)?|storybook|nodemon|prisma\s+studio|next\s+dev|(?:npm|yarn|pnpm|bun)\s+(?:run\s+)?(?:dev|watch))\b/i;
+
+/** Compose services that run the application itself: not infrastructure, not a dev tool, not profile-gated. */
 export function composeApplicationServices(tree: FileTree): { file: string; services: ComposeService[] } | null {
   const compose = composeServices(tree);
   if (!compose) return null;
   return {
     file: compose.file,
-    services: compose.services.filter((s) => !s.optional && (!s.image || !INFRA_COMPOSE_IMAGE_REGEX.test(s.image))),
+    services: compose.services.filter(
+      (s) =>
+        !s.optional &&
+        (!s.image || (!INFRA_COMPOSE_IMAGE_REGEX.test(s.image) && !TOOL_COMPOSE_IMAGE_REGEX.test(s.image))) &&
+        !(s.command !== null && DEV_TOOL_COMMAND_REGEX.test(s.command)),
+    ),
   };
 }
 
@@ -1675,7 +1716,29 @@ const DATABASE_VOLUME_REGEX = /(?:database|\bdb\b|sqlite|postgres|pgdata|mysql|m
 // and customisation directories the operator fills before start (themes,
 // plugins, certificates) carry no state the app writes at runtime.
 const NON_STATE_MOUNT_REGEX =
-  /:ro$|\.sock(?::|$)|[^/]\.[a-z]{2,5}(?::[a-z]+)?$|\.env(?::[a-z]+)?$|\/(?:custom|config|conf|plugins?|themes?|certs?|ssl|secrets?|extensions?|addons?)\/?(?::[a-z]+)?$/i;
+  /:ro$|\.sock(?::|$)|[^/]\.[a-z]{2,5}(?::[a-z]+)?$|\.env(?::[a-z]+)?$|\/(?:custom|config|conf|plugins?|themes?|certs?|ssl|secrets?|extensions?|addons?|static|staticfiles|node_modules|vendor|bundle|build|dist|sockets?)\/?(?::[a-z]+)?$/i;
+// User-uploaded files: the one kind of local state an S3 option replaces.
+const UPLOAD_VOLUME_REGEX = /upload|media|attachment|avatar|public\/system|(?:^|[/:])files?(?:[/:]|$)|\/storage(?:[/:]|$)/i;
+const S3_SDK_TOKENS = ['boto3', 'django-storages', 'aws-sdk', '@aws-sdk/client-s3', 'aws-sdk-s3', 'fog-aws', 'league/flysystem-aws-s3-v3', 'minio'] as const;
+// The variable that picks object storage for uploads (`UPLOAD_PROVIDER=s3`,
+// `ACTIVE_STORAGE_SERVICE=amazon`, `FILE_STORAGE=s3`) or names its bucket.
+const OBJECT_STORAGE_SELECTOR_REGEX =
+  /\b(?:UPLOAD_PROVIDER|(?:FILE|MEDIA|UPLOAD|ATTACHMENTS?)_STORAGE(?:_TYPE|_PROVIDER|_BACKEND|_DRIVER)?|STORAGE_(?:TYPE|PROVIDER|DRIVER|BACKEND)|ACTIVE_STORAGE_SERVICE|FILESYSTEM_(?:DISK|DRIVER)|[A-Z][A-Z0-9_]*S3[A-Z0-9_]*BUCKET[A-Z0-9_]*|AWS_STORAGE_BUCKET_NAME)\b/;
+
+/** The app ships an S3 SDK and a variable that switches uploads to it. */
+function offersObjectStorageOption(tree: FileTree): boolean {
+  if (!S3_SDK_TOKENS.some((token) => findDependencyEvidence(tree, token).length > 0)) return false;
+  return Object.entries(tree).some(
+    ([path, content]) => content && isRuntimeSourcePath(path) && !/\.(?:md|txt|lock)$/i.test(path) && OBJECT_STORAGE_SELECTOR_REGEX.test(content),
+  );
+}
+
+/** Every value under `volume` is a SQLite/DB file path: the volume only holds the embedded database. */
+function holdsOnlyEmbeddedDatabase(volume: string, texts: string[]): boolean {
+  const escaped = volume.replace(/\/$/, '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const contents = texts.flatMap((text) => [...text.matchAll(new RegExp(`['"= ]${escaped}/([^'"\\s]+)`, 'g'))].map((m) => m[1]!));
+  return contents.length > 0 && contents.every((content) => /\.(?:sqlite3?|db)$|sqlite/i.test(content));
+}
 // Container-side paths that hold only transient state — logs, caches, search
 // indexes and temp dirs. A volume mounted there is a log/cache volume, not
 // durable application data: a cache write, a temp file, a generated asset and
@@ -1693,6 +1756,8 @@ const EPHEMERAL_CONTAINER_PATH_REGEX =
 export function detectLocalFilesystem(tree: FileTree): DetectorFinding {
   const detected: string[] = [];
   const hasPostgresDriver = detectPostgresql(tree).detected;
+  let objectStorage: boolean | undefined;
+  const hasObjectStorageOption = (): boolean => (objectStorage ??= offersObjectStorageOption(tree));
 
   const dockerfile = selectedDockerfile(tree);
   for (const match of dockerfile?.content.matchAll(DOCKERFILE_VOLUME_REGEX) ?? []) {
@@ -1700,6 +1765,8 @@ export function detectLocalFilesystem(tree: FileTree): DetectorFinding {
     const paths = raw.startsWith('[') ? raw.match(/"([^"]+)"/g)?.map((p) => p.slice(1, -1)) ?? [] : raw.split(/\s+/);
     for (const volume of paths) {
       if (hasPostgresDriver && DATABASE_VOLUME_REGEX.test(volume)) continue;
+      if (hasPostgresDriver && holdsOnlyEmbeddedDatabase(volume, [dockerfile?.content ?? ''])) continue;
+      if (UPLOAD_VOLUME_REGEX.test(volume) && hasObjectStorageOption()) continue;
       // A VOLUME for logs/caches/tmp (`VOLUME /tmp/…`, `VOLUME /…/cache`) is
       // transient state, not durable application data.
       if (EPHEMERAL_CONTAINER_PATH_REGEX.test(volume)) continue;
@@ -1721,6 +1788,8 @@ export function detectLocalFilesystem(tree: FileTree): DetectorFinding {
       // log/cache volume (transient), not durable app data.
       const target = volume.includes(':') ? volume.slice(volume.indexOf(':') + 1).replace(/:(?:rw|ro|z|Z)+$/, '') : volume;
       if (EPHEMERAL_CONTAINER_PATH_REGEX.test(target)) continue;
+      if (hasPostgresDriver && holdsOnlyEmbeddedDatabase(target, [service.body])) continue;
+      if (UPLOAD_VOLUME_REGEX.test(volume) && hasObjectStorageOption()) continue;
       detected.push(`volume ${volume} (${compose?.file} ${service.name})`);
     }
   }

@@ -129,7 +129,7 @@ describe('COMP-026 — Compose sidecars and profile-gated services are not appli
 
     // Two NON-worker application services are still the unsupported shape.
     const twoApps: FileTree = {
-      'docker-compose.yml': 'services:\n  server:\n    image: twentycrm/twenty\n  studio:\n    image: twentycrm/twenty\n',
+      'docker-compose.yml': 'services:\n  server:\n    image: twentycrm/twenty\n  studio:\n    image: twentycrm/studio\n',
     };
     expect(checkDockerComposeMultiService(twoApps)).toMatchObject({ detected: true, dependency: 'docker-compose-multi-service' });
   });

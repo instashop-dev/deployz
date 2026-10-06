@@ -449,6 +449,7 @@ export function normalizeDeploymentManifest(
   // dependency alone.
   const declaredWorkers = toDeclaredWorkers(meta, overrides);
   const workerNeedsCommand = meta['hasWorkerProcesses'] === true && declaredWorkers.length === 0;
+  const ignoredDeploymentFiles = stringArray(meta['ignoredDeploymentFiles']);
   // Phase 5 — SQS queues and scheduled jobs, resolved by async-detection.ts.
   const {
     queues: declaredQueues,
@@ -560,6 +561,7 @@ export function normalizeDeploymentManifest(
     environment: {
       variables: toEnvVariables(meta['envVarModel'], meta['envVars']),
     },
+    ...(ignoredDeploymentFiles.length > 0 ? { ignoredDeploymentFiles } : {}),
     externalServices: stringArray(meta['externalServices']),
     unsupported,
   };
@@ -724,6 +726,15 @@ export function evaluateManifestReadiness(
       category: 'database',
       severity: 'warning',
       message: `This app uses ${manifest.database.engine === 'mysql' ? 'MySQL' : 'PostgreSQL'} but has no migration command; schema updates will not run on deploy.`,
+    });
+  }
+
+  if (manifest.ignoredDeploymentFiles && manifest.ignoredDeploymentFiles.length > 0) {
+    warnings.push({
+      id: 'deployment-files-ignored',
+      category: 'compatibility',
+      severity: 'warning',
+      message: `Deployz ignores the deployment files in this repository (${manifest.ignoredDeploymentFiles.slice(0, 3).join(', ')}). It builds the Dockerfile and provisions the infrastructure itself.`,
     });
   }
 

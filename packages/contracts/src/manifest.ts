@@ -321,6 +321,8 @@ export const deploymentManifestSchema = z
         variables: z.array(manifestEnvVariableSchema),
       })
       .strict(),
+    /** Helm, Kubernetes or Terraform files in deployment or sample directories that Deployz ignores (optional/additive, shown as a warning). */
+    ignoredDeploymentFiles: z.array(z.string()).optional(),
     /** External (non-Deployz) services the app integrates with. Informational. */
     externalServices: z.array(z.string()),
     /** Why the app is not compatible with Deployz hosting, when it isn't. */

@@ -222,7 +222,7 @@ describe('multi-worker manifest — compose worker service without a command', (
   it('two command-less NON-worker-named app services still reject as an unsupported multi-service compose', () => {
     const analysis = analyseRepo({
       ...BASE,
-      'docker-compose.yml': ['services:', '  web:', '    build: .', '  admin:', '    build: .', ''].join('\n'),
+      'docker-compose.yml': ['services:', '  web:', '    build: ./web', '  admin:', '    build: ./admin', ''].join('\n'),
     });
     expect(
       analysis.rejections.some((r) => r.dependency === 'docker-compose-multi-service' && r.detected),

@@ -6,7 +6,7 @@
  * No AI, no network, no side effects.
  */
 
-import type { FileTree } from './detectors.js';
+import type { ComposeService, FileTree } from './detectors.js';
 import {
   collectDependencyNames,
   composeApplicationServices,
@@ -472,6 +472,49 @@ function runtimeTree(tree: FileTree): FileTree {
   return Object.fromEntries(Object.entries(tree).filter(([path]) => isRuntimeSourcePath(path)));
 }
 
+// Helm charts, Kubernetes manifests, Terraform and the like in a deployment
+// or sample directory are options for self-hosters. They do not run beside
+// the app, so they warn and never block (docs and example directories are
+// already outside `isRuntimeSourcePath`).
+const DEPLOYMENT_SAMPLE_DIR_REGEX =
+  /(?:^|\/)(?:charts?|helm|k8s|kube|kubernetes|deploy|deployments?|infra|infrastructure|terraform|contrib|install|[\w.-]+-docker)(?:\/|$)/i;
+
+function outsideDeploymentSamples(paths: string[]): string[] {
+  return paths.filter((path) => !DEPLOYMENT_SAMPLE_DIR_REGEX.test(path));
+}
+
+/** A Go module that talks to the Kubernetes API is a cluster platform: its manifests are its runtime. */
+function usesKubernetesClient(tree: FileTree): boolean {
+  return contentMatches(tree, /(?:^|\/)go\.mod$/, /^\s*(?:k8s\.io\/client-go|sigs\.k8s\.io\/controller-runtime)\s/m).length > 0;
+}
+
+function kubernetesFiles(tree: FileTree): string[] {
+  return [
+    ...filePathsMatching(tree, /(?:^|\/)kustomization\.ya?ml$/i),
+    ...filePathsMatching(tree, /(?:^|\/)Chart\.ya?ml$|(?:^|\/)helmfile\.ya?ml$/i),
+    ...contentMatches(tree, /\.ya?ml$/, /^apiVersion:\s*apps\/v1\s*$[\s\S]*?^kind:\s*Deployment\s*$/m),
+  ];
+}
+
+function terraformFiles(tree: FileTree): string[] {
+  return filePathsMatching(tree, /\.tf$/).concat(
+    filePathsMatching(tree, /(?:^|\/)(?:\.terraform(?:\.lock)?\.hcl|terraform\.tfstate(?:\.backup)?|\.terraform\/)/),
+  );
+}
+
+function pulumiConfigFiles(tree: FileTree): string[] {
+  return filePathsMatching(tree, /(?:^|\/)Pulumi(?:\.\w+)?\.ya?ml$/);
+}
+
+/** Deployment files the checks ignore because they sit in a deployment or sample directory; shown as a warning. */
+export function listIgnoredDeploymentFiles(tree: FileTree): string[] {
+  const kubernetes = checkKubernetes(tree).detected ? [] : kubernetesFiles(tree);
+  const ignored = [...kubernetes, ...terraformFiles(tree), ...pulumiConfigFiles(tree)].filter((path) =>
+    DEPLOYMENT_SAMPLE_DIR_REGEX.test(path),
+  );
+  return [...new Set(ignored)];
+}
+
 /** Production SQLite (embedded file DB): Node drivers, Prisma provider, Go driver, sqlite:// URLs. */
 export function checkSqlite(tree: FileTree): RejectionFinding {
   const deps = collectDependencyNames(tree);
@@ -626,19 +669,12 @@ export function checkRabbitMq(tree: FileTree): RejectionFinding {
 
 /** Kubernetes: kustomize/Helm/manifests. */
 export function checkKubernetes(tree: FileTree): RejectionFinding {
-  const kustomize = filePathsMatching(tree, /(?:^|\/)kustomization\.ya?ml$/i);
-  const helm = filePathsMatching(tree, /(?:^|\/)Chart\.ya?ml$|(?:^|\/)helmfile\.ya?ml$/i);
-  const manifests = contentMatches(
-    tree,
-    /\.ya?ml$/,
-    /^apiVersion:\s*apps\/v1\s*$[\s\S]*?^kind:\s*Deployment\s*$/m,
-  );
-  if (kustomize.length > 0 || helm.length > 0 || manifests.length > 0) {
-    const evidence = [...kustomize, ...helm, ...manifests].slice(0, 3).join(', ');
+  const files = kubernetesFiles(tree);
+  if (outsideDeploymentSamples(files).length > 0 || (files.length > 0 && usesKubernetesClient(tree))) {
     return {
       detected: true,
       dependency: 'kubernetes',
-      reason: `Unsupported architecture: Kubernetes manifests are present (${evidence}). Deployz runs the app as a single container, not on a Kubernetes cluster.`,
+      reason: `Unsupported architecture: Kubernetes manifests are present (${files.slice(0, 3).join(', ')}). Deployz runs the app as a single container, not on a Kubernetes cluster.`,
     };
   }
   return { detected: false, dependency: 'none', reason: 'No Kubernetes manifests detected' };
@@ -661,13 +697,38 @@ export function checkServerless(tree: FileTree): RejectionFinding {
   return { detected: false, dependency: 'none', reason: 'No serverless configuration detected' };
 }
 
-/** Docker Compose defining TWO OR MORE application services — a multi-service app, not one container. */
+/** The image a Compose service pulls, without its tag or digest. */
+function composeImageName(image: string): string {
+  return image.replace(/(?<=[\w}])(?:@sha256:.*|:[^/:${}]+)$/, '');
+}
+
+/** The build lines that name the Dockerfile: context and dockerfile, without args or target. */
+function composeDockerfileOf(build: string): string {
+  return build
+    .split('|')
+    .filter((line) => /^(?:context|dockerfile):/.test(line))
+    .join('|');
+}
+
+/** Docker Compose defining TWO OR MORE independent application services — a multi-service app, not one container. */
 export function checkDockerComposeMultiService(tree: FileTree): RejectionFinding {
   const compose = composeApplicationServices(tree);
   if (!compose || compose.services.length === 0) {
     return { detected: false, dependency: 'none', reason: 'No multi-service compose app detected' };
   }
-  const appServices = compose.services;
+  // Services that run the same build or image are one application: the extra
+  // ones are workers or replicas. A service that builds an image and tags it
+  // shares that image with every service that pulls the tag.
+  const buildOfImage = new Map<string, string>();
+  for (const service of compose.services) {
+    if (service.build && service.image) buildOfImage.set(composeImageName(service.image), service.build);
+  }
+  const groups = new Map<string, ComposeService[]>();
+  for (const service of compose.services) {
+    const image = service.image ? composeImageName(service.image) : null;
+    const key = service.build || (image ? (buildOfImage.get(image) ?? image) : '(inherited)');
+    groups.set(key, [...(groups.get(key) ?? []), service]);
+  }
   // Phase 4A: a service that declares a worker process gets its own ECS
   // service, so it is no longer a "second application container" — only
   // non-worker application services count against the one-app-container
@@ -675,16 +736,35 @@ export function checkDockerComposeMultiService(tree: FileTree): RejectionFinding
   // worker candidate (weak evidence — `worker.needsCommand`), not a second
   // app container; it never gets auto-provisioned, but it doesn't block
   // either.
-  const nonWorkerAppServices = appServices.filter((s) => {
+  const isNonWorker = (s: ComposeService): boolean => {
     if (s.command !== null && isWorkerServiceCommand(s.name, s.command)) return false;
     if (s.command === null && WORKER_SERVICE_NAME_REGEX.test(s.name)) return false;
     return true;
-  });
-  if (nonWorkerAppServices.length >= 2) {
+  };
+  const apps = [...groups.entries()].filter(([, members]) => members.some(isNonWorker));
+  // A group built from its own Dockerfile that no other application service
+  // depends on or names, next to an app that builds and tags its own image, is
+  // an optional extra of the same repository (a second API), not a required
+  // component.
+  const mentions = (from: ComposeService[], to: ComposeService[]): boolean =>
+    from.some((a) => to.some((b) => a.body.split(/[^\w.-]+/).includes(b.name)));
+  const isOptionalBuild = ([key, members]: [string, ComposeService[]]): boolean => {
+    const others = apps.filter(([otherKey]) => otherKey !== key);
+    return (
+      members.every((s) => s.build && !s.image) &&
+      others.some(([, g]) => g.some((s) => s.image && s.build)) &&
+      others.every(
+        ([otherKey, g]) =>
+          composeDockerfileOf(otherKey) !== composeDockerfileOf(key) && !mentions(members, g) && !mentions(g, members),
+      )
+    );
+  };
+  const required = apps.filter((entry) => !isOptionalBuild(entry));
+  if (required.length >= 2) {
     return {
       detected: true,
       dependency: 'docker-compose-multi-service',
-      reason: `Unsupported architecture: ${compose.file} defines ${nonWorkerAppServices.length} application services (${nonWorkerAppServices.map((s) => s.name).join(', ')}). Deployz runs ONE web process per deployment plus declared background workers.`,
+      reason: `Unsupported architecture: ${compose.file} defines ${required.length} application services (${required.map(([, members]) => members.find(isNonWorker)!.name).join(', ')}). Deployz runs ONE web process per deployment plus declared background workers.`,
     };
   }
   return { detected: false, dependency: 'none', reason: 'No multi-service compose app detected' };
@@ -692,7 +772,7 @@ export function checkDockerComposeMultiService(tree: FileTree): RejectionFinding
 
 /** Persistent volumes: k8s PVCs, Terraform EFS/EBS, compose named volumes referenced by an app service. */
 export function checkPersistentVolumes(tree: FileTree): RejectionFinding {
-  const pvc = contentMatches(tree, /\.ya?ml$/, /^kind:\s*PersistentVolumeClaim\s*$/m);
+  const pvc = outsideDeploymentSamples(contentMatches(tree, /\.ya?ml$/, /^kind:\s*PersistentVolumeClaim\s*$/m));
   if (pvc.length > 0) {
     return {
       detected: true,
@@ -700,7 +780,7 @@ export function checkPersistentVolumes(tree: FileTree): RejectionFinding {
       reason: `Unsupported infrastructure: a Kubernetes persistent volume claim is declared (${pvc[0]}). Deployz provides object storage, not attachable volumes.`,
     };
   }
-  const iac = contentMatches(tree, /\.tf$/, /aws_efs_file_system|aws_ebs_volume|aws_fsx/);
+  const iac = outsideDeploymentSamples(contentMatches(tree, /\.tf$/, /aws_efs_file_system|aws_ebs_volume|aws_fsx/));
   if (iac.length > 0) {
     return {
       detected: true,
@@ -724,9 +804,7 @@ export function checkPersistentVolumes(tree: FileTree): RejectionFinding {
 
 /** Terraform IaC. */
 export function checkTerraform(tree: FileTree): RejectionFinding {
-  const files = filePathsMatching(tree, /\.tf$/).concat(
-    filePathsMatching(tree, /(?:^|\/)(?:\.terraform(?:\.lock)?\.hcl|terraform\.tfstate(?:\.backup)?|\.terraform\/)/),
-  );
+  const files = outsideDeploymentSamples(terraformFiles(tree));
   if (files.length > 0) {
     return {
       detected: true,
@@ -739,7 +817,7 @@ export function checkTerraform(tree: FileTree): RejectionFinding {
 
 /** Pulumi IaC. */
 export function checkPulumi(tree: FileTree): RejectionFinding {
-  const config = filePathsMatching(tree, /(?:^|\/)Pulumi(?:\.\w+)?\.ya?ml$/);
+  const config = outsideDeploymentSamples(pulumiConfigFiles(tree));
   const deps = collectDependencyNames(runtimeTree(tree)).filter((d) => d.startsWith('@pulumi/'));
   if (config.length > 0 || deps.length > 0) {
     const evidence = config.length > 0 ? config[0] : deps[0];

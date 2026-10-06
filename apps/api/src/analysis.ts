@@ -259,7 +259,14 @@ type ApplicationRow = typeof schema.applications.$inferSelect;
 // copy, devDependency-only CLI, workspace filter) is never frozen into the
 // pre-deploy task. Stored v38 rows miss bindings and selectors and can carry
 // an unsafe migration command.
-export const ANALYSIS_VERSION = 39;
+// Version 40 (MVP compatibility hardening, phase 2): only the production
+// Compose file counts, a same-build or same-image service is a worker, and
+// infrastructure/dev-tool services are not app services; a VOLUME counts only
+// from the selected Dockerfile, a SQLite-only or S3-capable uploads volume is
+// not local state; Helm/k8s/Terraform/Pulumi samples under deployment
+// directories are a warning, not a rejection. Stored v39 rows can carry a
+// false NOT_COMPATIBLE verdict.
+export const ANALYSIS_VERSION = 40;
 
 export interface AnalysisRunnerDeps {
   db: RuntimeDb;

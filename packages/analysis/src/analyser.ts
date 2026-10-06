@@ -59,6 +59,7 @@ import {
   checkGpu,
   checkExplicitPersistentDataDir,
   checkRequiredThirdPartyService,
+  listIgnoredDeploymentFiles,
 } from './rejection.js';
 
 import { classifyEnvVariables } from './env-classification.js';
@@ -373,6 +374,7 @@ export function analyseRepo(tree: FileTree): AnalysisResult {
   // straight after analysis.
   const detectedRejections = rejections.filter((r) => r.detected);
   metadata['unsupportedReasons'] = detectedRejections.map((r) => r.reason);
+  metadata['ignoredDeploymentFiles'] = listIgnoredDeploymentFiles(tree).slice(0, 5);
 
   // Phase 4A — every declared worker process (Procfile non-web process,
   // compose worker service) rides the metadata so the deployment manifest's
