@@ -196,7 +196,7 @@ function findFileContent(tree: FileTree, pathRegex: RegExp): string | null {
 // disk write or an environment read there says nothing about the app at
 // runtime (Stage A COMP-003, COMP-016).
 const NON_RUNTIME_SEGMENT_REGEX =
-  /(?:^|\/)(?:__tests__|__mocks__|__fixtures__|(?:[\w.-]*[-_])?tests?|testdata|specs?|(?:[\w.-]*[-_])?e2e|cypress|evaluations?|fixtures?|stories|scripts?|tools?|bin|docs?|extra|\.?examples?|benchmarks?|\.github|\.husky|\.devcontainer|\.vscode)(?:\/|$)/i;
+  /(?:^|\/)(?:__tests__|__mocks__|__fixtures__|(?:[\w.-]*[-_])?tests?|testdata|specs?|(?:[\w.-]*[-_])?e2e|cypress|evaluations?|fixtures?|stories|scripts?|tools?|bin|docs?|extra|\.?examples?|\.?storybook|playwright|benchmarks?|\.github|\.husky|\.devcontainer|\.vscode)(?:\/|$)/i;
 const NON_RUNTIME_FILE_REGEX =
   /(?:\.(?:test|spec|stories|e2e|cy)\.[cm]?[jt]sx?$|(?:^|\/)(?:[\w.-]+\.config\.[cm]?[jt]s|\.(?:eslintrc|prettierrc|babelrc)(?:\.[cm]?js)?|conftest\.py|test_[\w-]+\.py|[\w-]+_test\.(?:py|go|rb))$)/i;
 
@@ -3027,6 +3027,50 @@ const ENV_SAMPLE_FILE_REGEX = /(?:^|\/)\.env\.(?:example|sample|template)$/i;
 // `envBool(process.env.X, false)`.
 const DEFAULTING_HELPER_REGEX = /^(?:parse|read|get|load|resolve|env|to)\w*$|(?:Number|Boolean|Bool|String|Int|Float|List|Env)$/;
 
+/** Source evidence for a variable whose sample value is a path (`BASE_URL=/app`), not a URL. */
+export const SAMPLE_PATH_EVIDENCE = 'sample value is a path';
+
+/** A framework prefix whose variables are inlined into client code at build time. */
+export const CLIENT_BUILD_PREFIX_REGEX = /^(?:NEXT_PUBLIC|VITE|REACT_APP|PUBLIC|NUXT_PUBLIC|EXPO_PUBLIC|GATSBY|STORYBOOK)_/;
+
+/** A directory of browser code: its env reads are inlined at build time. */
+export const CLIENT_DIRECTORY_REGEX = /(?:^|\/)(?:client|frontend|front-end|ui)\//;
+
+/** Names that mean "the address this app is served from". */
+export const OWN_URL_NAME_REGEX =
+  /^(?:PUBLIC_URL|APP_URL|BASE_URL|SITE_URL|ROOT_URL|WEB_URL|APP_BASE_URL|PUBLIC_ORIGIN|ORIGIN|NEXTAUTH_URL|AUTH_URL|SITE_ROOT)$/;
+
+/** A tuning value (a limit, a size, a timeout, a flag): the app has a default for it. */
+const TUNING_NAME_REGEX =
+  /(?:^|_)(?:LIMITS?|MAX|MIN|TIMEOUT|INTERVAL|SIZE|BYTES|COUNT|THRESHOLD|CONCURRENCY|THREADS|TTL|PCT|MS|SECONDS|EXPIRY|DURATION|DELAY|RETRIES|ENABLED|DISABLED|DEBUG|VERBOSE|LEVEL|FORMAT)(?:_|$)|^(?:ALLOW|SHOW|USE|ENABLE|DISABLE)_/;
+
+/** An integration the app switches on only when its key is present: mail, error and usage monitoring, chat, social login. */
+const OPTIONAL_INTEGRATION_NAME_REGEX =
+  /^(?:MAIL|SMTP|EMAIL|MAILER|MAILGUN|SENDGRID|POSTMARK|RESEND|SES|SENTRY|POSTHOG|AMPLITUDE|ANALYTICS|DATADOG|NEWRELIC|NEW_RELIC|BUGSNAG|ROLLBAR|MIXPANEL|SCOUT|SLACK|DISCORD|TELEGRAM|TWILIO|OIDC|OAUTH|SAML|LDAP)_|_CLIENT_(?:ID|SECRET)$/;
+
+/**
+ * Whether a read makes the variable required. A strong read (a boot guard, a
+ * schema without default, an `assert` helper, `ENV.fetch`, a Go `required`
+ * tag) always does. A weak read (a bare argument, a stored value, a config
+ * file lookup) only proves that the app reads the key. It does not make a
+ * tuning value or an optional integration credential required: the app has a
+ * default, or the integration is off without it. A client build-time name
+ * counts only when it is the app's own address (`NEXT_PUBLIC_BASE_URL`); it
+ * is a build input, never derived.
+ */
+function readNeedsValue(
+  key: string,
+  read: { needsValue: boolean; strong: boolean },
+  optionalIntegration: boolean,
+): boolean {
+  if (read.strong) return true;
+  if (!read.needsValue) return false;
+  if (CLIENT_BUILD_PREFIX_REGEX.test(key)) {
+    return OWN_URL_NAME_REGEX.test(key) || OWN_URL_NAME_REGEX.test(key.replace(CLIENT_BUILD_PREFIX_REGEX, ''));
+  }
+  return !optionalIntegration && !TUNING_NAME_REGEX.test(key);
+}
+
 /** A value that documents "no usable default" (blank or a named placeholder). */
 function isPlaceholderValue(value: string): boolean {
   const trimmed = value.trim();
@@ -3066,11 +3110,15 @@ function scanZodEnvReads(content: string): { key: string; needsValue: boolean }[
   const isZod = /(?:from\s+['"]zod['"]|require\(\s*['"]zod['"]\s*\))/.test(content);
   if (!isZod || !(content.includes('.object(') || /\bcreateEnv\s*\(/.test(content)) || !content.includes('process.env')) return [];
   const found: { key: string; needsValue: boolean }[] = [];
+  // A schema parsed only inside a function (`getSlackEnv()`) is checked when
+  // its feature runs, not at boot.
+  const parseIndents = [...content.matchAll(/^([ \t]*)\S.*\.(?:safeParse|parse)\(\s*process\.env\b/gm)].map((m) => m[1]!);
+  const lazy = parseIndents.length > 0 && parseIndents.every((indent) => indent.length > 0);
   const memberRegex = /^\s*([A-Z][A-Z0-9_]*)\s*:\s*z\./gm;
   let match: RegExpExecArray | null;
   while ((match = memberRegex.exec(content)) !== null) {
     const chain = sliceToChainEnd(content, memberRegex.lastIndex);
-    const optional = /(?:\.default\s*\(|\.optional\s*\(|\.nullish\s*\(|\.catch\s*\()/.test(chain);
+    const optional = lazy || /(?:\.default\s*\(|\.optional\s*\(|\.nullish\s*\(|\.catch\s*\()/.test(chain);
     found.push({ key: match[1]!, needsValue: !optional });
   }
   return found;
@@ -3089,6 +3137,12 @@ function scanZodHelperEnvReads(content: string): { key: string; needsValue: bool
   }));
 }
 
+/** The header of a request handler right before a statement: `async function get(req, res) {`. */
+const REQUEST_HANDLER_HEADER_REGEX = /\b(?:req|request|reply|ctx)\b[^()]*\)\s*(?:=>\s*)?\{\s*$/;
+
+/** A feature switch: a guard on it protects one feature, never the boot. */
+const FEATURE_FLAG_NAME_REGEX = /(?:^|_)(?:ENABLED?|DISABLED?)(?:_|$)/;
+
 /**
  * Keys the app refuses to boot without: `if (!env.KEY) throw …`, or the same
  * test narrowed only by "not in mode X" (`env.DEPLOY_MODE !== "desktop" &&
@@ -3101,6 +3155,8 @@ function scanThrowGuardedEnvKeys(content: string): string[] {
   for (const guard of content.matchAll(/\bif\s*\(([^(){};]*)\)\s*\{?\s*throw\b/g)) {
     const condition = guard[1] ?? '';
     if (condition.includes('||')) continue;
+    // A guard that opens a request handler fails one request, not the boot.
+    if (REQUEST_HANDLER_HEADER_REGEX.test(content.slice(Math.max(0, guard.index - 160), guard.index))) continue;
     const parts = condition.split('&&').map((part) => part.trim());
     const negated = parts
       .map((part) => /^!\s*(?:process\.)?env\.([A-Z][A-Z0-9_]*)$/.exec(part)?.[1])
@@ -3109,7 +3165,9 @@ function scanThrowGuardedEnvKeys(content: string): string[] {
       const literal = /^[\w$.]+\s*!==?\s*(['"`])([^'"`]*)\1$/.exec(part)?.[2];
       return literal !== undefined && !/^prod(?:uction)?$/i.test(literal);
     });
-    if (negated.length === 1 && negated.length + modeExclusions.length === parts.length) keys.push(negated[0]!);
+    if (negated.length === 1 && negated.length + modeExclusions.length === parts.length && !FEATURE_FLAG_NAME_REGEX.test(negated[0]!)) {
+      keys.push(negated[0]!);
+    }
   }
   return keys;
 }
@@ -3488,11 +3546,11 @@ function detectComposeBuildArgs(tree: FileTree): Map<string, string> {
   const bareArgs = new Set([...dockerfile.content.matchAll(/^\s*ARG\s+([A-Z][A-Z0-9_]*)\s*$/gm)].map((m) => m[1]!));
   if (bareArgs.size === 0) return found;
   for (const [path, content] of Object.entries(tree)) {
-    if (!content || !COMPOSE_FILE_REGEX.test(path)) continue;
+    if (!content || !isProductionComposeFile(path)) continue;
     for (const block of content.matchAll(/^[ \t]*args:[ \t]*\n((?:[ \t]+[^\n]*\n?)+)/gm)) {
       for (const entry of (block[1] ?? '').matchAll(/^[ \t]*-?[ \t]*([A-Z][A-Z0-9_]*)[ \t]*[=:][ \t]*["']?([^\s"'#]+)/gm)) {
         const key = entry[1]!;
-        if (!bareArgs.has(key) || found.has(key)) continue;
+        if (!bareArgs.has(key) || found.has(key) || entry[2]!.startsWith('$')) continue;
         const value = isSecretName(key) ? '' : `=${entry[2]!.slice(0, 40)}`;
         found.set(key, `${path} build arg ${key}${value}`);
       }
@@ -3778,7 +3836,7 @@ function isRequiredEngineSelector(key: string): boolean {
 function scanConfigFileEnvReads(path: string, content: string): { key: string; needsValue: boolean }[] {
   const found: { key: string; needsValue: boolean }[] = [];
   const add = (key: string, hasDefault: boolean): void => {
-    found.push({ key, needsValue: !hasDefault && isSecretName(key) });
+    found.push({ key, needsValue: !hasDefault && (isSecretName(key) || OWN_URL_NAME_REGEX.test(key)) });
   };
   if (/\.php$/i.test(path)) {
     for (const m of content.matchAll(/\benv\(\s*["']([A-Z][A-Z0-9_]*)["']\s*(,)?/g)) add(m[1]!, m[2] !== undefined);
@@ -3809,7 +3867,7 @@ export function detectEnvVarModel(
   provisioned?: ProvisionedResources,
 ): ManifestEnvVariable[] {
   // ── 1. Declarations: every KEY=VALUE line in any env file we ship with. ──
-  const declarations = new Map<string, { realValue: boolean; sampleEmpty: boolean; files: string[] }>();
+  const declarations = new Map<string, { realValue: boolean; sampleEmpty: boolean; samplePath: boolean; files: string[] }>();
   for (const [path, content] of Object.entries(tree)) {
     if (!content || !/^\.env(\.\w+)?$/i.test(path)) continue;
     const isSample = ENV_SAMPLE_FILE_REGEX.test(path);
@@ -3822,11 +3880,12 @@ export function detectEnvVarModel(
       const key = match[1];
       if (!key) continue;
       const value = (match[2] ?? '').replace(/\s+#.*$/, '').trim();
-      const current = declarations.get(key) ?? { realValue: false, sampleEmpty: false, files: [] };
+      const current = declarations.get(key) ?? { realValue: false, sampleEmpty: false, samplePath: false, files: [] };
       // A sample value (`S3_ENDPOINT=http://minio:9000` in .env.example) is
       // documentation, never a runtime default.
       if (!isSample && !isPlaceholderValue(value)) current.realValue = true;
       if (isSample && isPlaceholderValue(value)) current.sampleEmpty = true;
+      if (isSample && value.startsWith('/')) current.samplePath = true;
       if (!current.files.includes(path)) current.files.push(path);
       declarations.set(key, current);
     }
@@ -3853,16 +3912,20 @@ export function detectEnvVarModel(
 
   // ── 2. Reads: which variables the app actually reads, and whether a read
   //      NEEDS a value vs. tolerates absence (fallback or presence guard). ──
-  const reads = new Map<string, { needsValue: boolean; files: string[] }>();
+  const reads = new Map<string, { needsValue: boolean; strong: boolean; files: string[] }>();
   // Keys a zod schema declares `.optional()` or `.default()`: the schema says
   // the app tolerates their absence, whatever a bare read elsewhere suggests.
   const schemaOptionalKeys = new Set<string>();
   // Keys a boot guard throws without (`scanThrowGuardedEnvKeys`): required
   // whatever the schema says.
   const bootRequiredKeys = new Set<string>();
-  const recordRead = (key: string, needsValue: boolean, file: string): void => {
-    const current = reads.get(key) ?? { needsValue: false, files: [] };
+  // A `weak` read is a heuristic: a bare argument, a stored value or a
+  // config-file lookup. It proves the app reads the key, not that the app
+  // refuses to start without it.
+  const recordRead = (key: string, needsValue: boolean, file: string, weak = false): void => {
+    const current = reads.get(key) ?? { needsValue: false, strong: false, files: [] };
     if (needsValue) current.needsValue = true;
+    if (needsValue && !weak) current.strong = true;
     if (!current.files.includes(file)) current.files.push(file);
     reads.set(key, current);
   };
@@ -4032,7 +4095,14 @@ export function detectEnvVarModel(
           ENV_TRANSFORM_CALLEE_REGEX.test(/([A-Za-z_$][\w$]*)\s*\(\s*$/.exec(head)?.[1] ?? '') &&
           /^\s*\)/.test(tail);
         // A typed config class only exposes the value; its consumer decides whether it is needed.
-        recordRead(key, !hasFallback && !isGuard && !isBareTransform && bareNeedsValue && !TYPED_CONFIG_FILE_REGEX.test(path), path);
+        // Client code reads the value at build time; a bare read there is not a runtime need.
+        const clientRead = CLIENT_DIRECTORY_REGEX.test(path) && !throwGuarded;
+        recordRead(
+          key,
+          !hasFallback && !isGuard && !isBareTransform && bareNeedsValue && !TYPED_CONFIG_FILE_REGEX.test(path) && !clientRead,
+          path,
+          !throwGuarded,
+        );
       }
       // Stage B phase 3 (COMP-017): schema-library and helper-form reads —
       // zod object schemas parsed against process.env, envalid validator
@@ -4063,7 +4133,7 @@ export function detectEnvVarModel(
         if (match[1]) recordRead(match[1], true, path);
       }
     } else if (PY_SOURCE.test(path)) {
-      const indexRegex = /os\.environ\[["']([A-Z_][A-Z0-9_]*)["']\]/g;
+      const indexRegex = /os\.environ\[["']([A-Z_][A-Z0-9_]*)["']\](?!\s*=(?!=))/g;
       let match: RegExpExecArray | null;
       while ((match = indexRegex.exec(content)) !== null) {
         if (match[1]) recordRead(match[1], true, path);
@@ -4082,8 +4152,12 @@ export function detectEnvVarModel(
       const fetchRegex = /ENV\.fetch\(\s*["']([A-Z_][A-Z0-9_]*)["']/g;
       let match: RegExpExecArray | null;
       while ((match = fetchRegex.exec(content)) !== null) {
-        const hasDefault = content.slice(match.index, match.index + 80).includes(',');
-        if (match[1]) recordRead(match[1], !hasDefault, path);
+        const hasDefault = /,|\)\s*(?:\{|do\b)/.test(content.slice(match.index, match.index + 80));
+        // The same file tests the key for presence (`ENV['X'].to_s.empty?`, `if ENV['X']`).
+        const presenceTested = new RegExp(
+          `ENV\\[["']${match[1]}["']\\](?:\\.to_s)?\\.(?:empty|blank|present|nil)\\?|(?:if|unless)\\s+ENV\\[["']${match[1]}["']\\]|ENV\\.key\\?\\(\\s*["']${match[1]}["']`,
+        ).test(content);
+        if (match[1]) recordRead(match[1], !hasDefault && !presenceTested, path);
       }
     } else if (JAVA_SOURCE_REGEX.test(path)) {
       for (const entry of scanJvmEnvReads(content)) {
@@ -4100,7 +4174,7 @@ export function detectEnvVarModel(
       }
     } else if (CONFIG_ENV_FILE_REGEX.test(path)) {
       for (const entry of scanConfigFileEnvReads(path, content)) {
-        recordRead(entry.key, entry.needsValue, path);
+        recordRead(entry.key, entry.needsValue, path, true);
       }
     }
   }
@@ -4135,8 +4209,11 @@ export function detectEnvVarModel(
     const declared = declarations.get(key);
     const read = reads.get(key);
     const buildArg = composeBuildArgs.get(key);
+    // §11.3: a credential of a service the repository evidences stays required.
+    const serviceKey = findExternalServiceForEnvKey(tree, externalServices, key);
+    const optionalIntegration = !serviceKey?.evidenced && OPTIONAL_INTEGRATION_NAME_REGEX.test(key);
     const needsValue =
-      (read?.needsValue === true && !schemaOptionalKeys.has(key)) ||
+      (read !== undefined && readNeedsValue(key, read, optionalIntegration) && !schemaOptionalKeys.has(key)) ||
       (read !== undefined && bootRequiredKeys.has(key)) ||
       buildArg !== undefined;
     const hasDefault = declared?.realValue === true;
@@ -4147,6 +4224,7 @@ export function detectEnvVarModel(
     if (selector) source.push(selector.evidence);
     if (declared) {
       for (const file of declared.files) source.push(`${file} declares ${key}`);
+      if (declared.samplePath) source.push(SAMPLE_PATH_EVIDENCE);
     }
     for (const file of nestedSampleFiles.get(key) ?? []) source.push(`${file} declares ${key}`);
     if (read) {
@@ -4163,7 +4241,6 @@ export function detectEnvVarModel(
     let secret = isSecretName(key);
     // §11.3 upgrade: an evidenced well-known service credential is a secret
     // and is required — the SDK cannot operate without it.
-    const serviceKey = findExternalServiceForEnvKey(tree, externalServices, key);
     if (serviceKey?.evidenced) {
       secret = true;
       source.push(`${serviceKey.service} requires ${key}`);
@@ -4197,9 +4274,10 @@ export function detectEnvVarModel(
 /**
  * A name that itself names a location (a URI/URL/endpoint/host) is never a
  * secret, even when it contains TOKEN/KEY: outline's OIDC_TOKEN_URI points
- * at a discovery endpoint, not a credential (DEPLOY-030).
+ * at a discovery endpoint, not a credential (DEPLOY-030). A public or
+ * publishable key is published to clients, so it is not a secret either.
  */
-const LOCATION_SUFFIX_REGEX = /_(?:URI|URL|ENDPOINT|HOST)$/i;
+const LOCATION_SUFFIX_REGEX = /_(?:URI|URL|ENDPOINT|HOST|PUBLIC_KEY|PUBLISHABLE_KEY)$/i;
 
 /**
  * A token count or limit (BOOK_RAG_CHUNK_MAX_TOKENS, LLM_TOKEN_LIMIT) is a

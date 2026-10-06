@@ -6,7 +6,8 @@
  *
  *   - deployz_managed   — Deployz injects it at install (database, cache,
  *                         storage bindings, the port) or derives it from
- *                         the deployment region (S3 region/endpoint).
+ *                         the deployment region (S3 region/endpoint) or the
+ *                         default HTTPS URL (the app's own public URL).
  *   - deployz_generated — an application-internal secret (session/JWT/
  *                         encryption keys) Deployz generates with
  *                         cryptographic randomness inside the customer's
@@ -21,6 +22,7 @@
 import type { EnvVariableClassification, ManifestEnvVariable } from '@deployz/contracts';
 
 import { isDerivedS3EnvVariable, postgresSemantic } from './bindings.js';
+import { isDerivedUrlEnvVariable } from './derived-url.js';
 import { EXTERNAL_SERVICE_CATALOG } from './detectors.js';
 
 export interface EnvClassificationContext {
@@ -124,6 +126,8 @@ export function classifyEnvVariables(
     for (const variable of model) if (isDerivedS3EnvVariable(variable)) managed.add(variable.key);
   }
   for (const name of context.queueBindingNames) managed.add(name);
+  // The app's own public URL is the deployment's default HTTPS URL.
+  for (const variable of model) if (isDerivedUrlEnvVariable(variable)) managed.add(variable.key);
   const serviceKeys = externalServiceKeys(context.externalServices);
 
   return model.map((variable) => ({ ...variable, classification: classifyOne(variable, managed, serviceKeys) }));
