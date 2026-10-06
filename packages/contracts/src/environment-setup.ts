@@ -54,7 +54,7 @@ export const environmentSettingSchema = z
     binding: environmentBindingSchema.optional(),
   })
   .strict();
-export type EnvironmentSetting= z.infer<typeof environmentSettingSchema>;
+export type EnvironmentSetting = z.infer<typeof environmentSettingSchema>;
 
 /**
  * The keys a vendor may set `provider: 'deployz'` for: the analysis
