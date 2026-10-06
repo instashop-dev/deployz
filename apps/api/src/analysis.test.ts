@@ -162,7 +162,7 @@ describe('analysis — runApplicationAnalysis (fixture mode, end-to-end)', () =>
     // §35 contract fields backfilled from the analysis (were null/false).
     expect(row.containerPort).toBe(3000);
     expect(row.healthPath).toBe('/health');
-    expect(row.migrationCommand).toBe('npx drizzle-kit push');
+    expect(row.migrationCommand).toBe('npx drizzle-kit migrate');
     expect(row.databaseRequired).toBe(true);
 
     // The canonical projection is persisted beside the flat metadata,
@@ -176,7 +176,7 @@ describe('analysis — runApplicationAnalysis (fixture mode, end-to-end)', () =>
       network: { port: { value: 3000, source: 'dockerfile' } },
       database: { required: true, type: 'postgres' },
       healthCheck: { detected: true, path: '/health' },
-      migrations: { command: 'npx drizzle-kit push', tools: ['drizzle-kit'] },
+      migrations: { command: 'npx drizzle-kit migrate', tools: ['drizzle-kit'] },
     });
     expect(detected?.environmentVariables.map((v) => v.key)).toContain('DATABASE_URL');
   });
@@ -365,7 +365,7 @@ describe('analysis — runApplicationAnalysis (fixture mode, end-to-end)', () =>
 
     const row = await loadApplication(db, application.id);
     expect(row.containerPort).toBe(3000);
-    expect(row.migrationCommand).toBe('npx drizzle-kit push');
+    expect(row.migrationCommand).toBe('npx drizzle-kit migrate');
   });
 
   it('never overrides a contract field the vendor edited', async () => {
@@ -513,7 +513,7 @@ describe('analysis — migration/worker command resolution (deploy-safe, workspa
           'db:migrate:dev': 'prisma migrate dev',
           'db:migrate': 'prisma migrate deploy',
         },
-        dependencies: { express: '^4.18.0' },
+        dependencies: { express: '^4.18.0', prisma: '^5.0.0' },
       }),
     };
 
@@ -558,7 +558,7 @@ describe('analysis — migration/worker command resolution (deploy-safe, workspa
       'package.json': JSON.stringify({
         name: 'migrate-by-value',
         scripts: { start: 'node index.js', 'update-db': 'prisma migrate deploy', 'build-db-schema': 'prisma db pull' },
-        dependencies: { express: '^4.18.0' },
+        dependencies: { express: '^4.18.0', prisma: '^5.0.0' },
       }),
     };
 
@@ -568,7 +568,7 @@ describe('analysis — migration/worker command resolution (deploy-safe, workspa
     expect(row.migrationCommand).toBe('npx prisma migrate deploy');
   });
 
-  it('resolves a migration command from a workspace package script, not just the root manifest', async () => {
+  it('resolves a migration command from the deployed workspace package script, not just the root manifest', async () => {
     const application = await insertApplication(db, orgId, {
       githubInstallationId: 'install-1',
       repoFullName: 'acme/migrate-workspace-package',
@@ -576,10 +576,11 @@ describe('analysis — migration/worker command resolution (deploy-safe, workspa
     });
     const files = {
       'package.json': JSON.stringify({ name: 'root', private: true, workspaces: ['apps/*'] }),
+      'apps/api/Dockerfile': ['FROM node:20-alpine', 'WORKDIR /app', 'CMD ["node", "index.js"]'].join('\n'),
       'apps/api/package.json': JSON.stringify({
         name: 'api',
-        scripts: { start: 'node index.js', 'db:migrate': 'drizzle-kit push' },
-        dependencies: { express: '^4.18.0' },
+        scripts: { start: 'node index.js', 'db:migrate': 'drizzle-kit migrate' },
+        dependencies: { express: '^4.18.0', 'drizzle-kit': '^0.31.0' },
       }),
     };
 
@@ -587,7 +588,7 @@ describe('analysis — migration/worker command resolution (deploy-safe, workspa
 
     const row = await loadApplication(db, application.id);
     expect(row.analysisStatus).toBe('COMPLETE');
-    expect(row.migrationCommand).toBe('npx drizzle-kit push');
+    expect(row.migrationCommand).toBe('npx drizzle-kit migrate');
   });
 
   // Production-verified defect: `resolveMigrationCommand` used to copy the
@@ -619,13 +620,8 @@ describe('analysis — migration/worker command resolution (deploy-safe, workspa
         ].join('\n'),
         'apps/remix/package.json': JSON.stringify({
           name: 'remix',
-          scripts: { start: 'node build/server/main.js' },
-          dependencies: { express: '^4.18.0' },
-        }),
-        'packages/prisma/package.json': JSON.stringify({
-          name: 'prisma-pkg',
-          scripts: { 'prisma:migrate-deploy': 'prisma migrate deploy' },
-          dependencies: { prisma: '^6.19.0' },
+          scripts: { start: 'node build/server/main.js', 'prisma:migrate-deploy': 'prisma migrate deploy' },
+          dependencies: { express: '^4.18.0', prisma: '^6.19.0' },
         }),
         'packages/prisma/schema.prisma': [
           'datasource db {',
@@ -650,17 +646,18 @@ describe('analysis — migration/worker command resolution (deploy-safe, workspa
         defaultBranch: 'main',
       });
       const files = {
-        'package.json': JSON.stringify({ name: 'root', private: true, workspaces: ['apps/*', 'packages/*'] }),
+        'package.json': JSON.stringify({
+          name: 'root',
+          private: true,
+          workspaces: ['apps/*', 'packages/*'],
+          scripts: { 'prisma:migrate-deploy': 'prisma migrate deploy' },
+          dependencies: { prisma: '^6.19.0' },
+        }),
         'docker/Dockerfile': ['FROM node:20-alpine', 'WORKDIR /app', 'CMD ["node", "apps/remix/build/server/main.js"]'].join('\n'),
         'apps/remix/package.json': JSON.stringify({
           name: 'remix',
           scripts: { start: 'node build/server/main.js' },
           dependencies: { express: '^4.18.0' },
-        }),
-        'packages/prisma/package.json': JSON.stringify({
-          name: 'prisma-pkg',
-          scripts: { 'prisma:migrate-deploy': 'prisma migrate deploy' },
-          dependencies: { prisma: '^6.19.0' },
         }),
         'packages/prisma/schema.prisma': 'datasource db {\n  provider = "postgresql"\n  url      = env("DATABASE_URL")\n}\n',
       };
@@ -682,7 +679,7 @@ describe('analysis — migration/worker command resolution (deploy-safe, workspa
         'package.json': JSON.stringify({
           name: 'app',
           scripts: { start: 'node dist/index.js', 'db:migrate': 'prisma migrate deploy' },
-          dependencies: { express: '^4.18.0' },
+          dependencies: { express: '^4.18.0', prisma: '^5.0.0' },
         }),
         'prisma/schema.prisma': 'datasource db {\n  provider = "postgresql"\n  url      = env("DATABASE_URL")\n}\n',
       };
@@ -707,7 +704,7 @@ describe('analysis — migration/worker command resolution (deploy-safe, workspa
             start: 'node main.js',
             'db:migrate': 'npx prisma migrate deploy --schema prisma/schema.prisma',
           },
-          dependencies: { express: '^4.18.0' },
+          dependencies: { express: '^4.18.0', prisma: '^5.0.0' },
         }),
         'prisma/schema.prisma': 'datasource db {\n  provider = "postgresql"\n  url      = env("DATABASE_URL")\n}\n',
       };
@@ -748,7 +745,7 @@ describe('analysis — migration/worker command resolution (deploy-safe, workspa
         'package.json': JSON.stringify({
           name: 'app',
           scripts: { start: 'node index.js', 'db:migrate': 'pnpm prisma migrate deploy' },
-          dependencies: { express: '^4.18.0' },
+          dependencies: { express: '^4.18.0', prisma: '^5.0.0' },
         }),
       };
 
@@ -982,8 +979,8 @@ describe('analysis — runApplicationAnalysis (real mode failure paths)', () => 
         sha === 'sha-pkg'
           ? JSON.stringify({
               name: 'widgets',
-              scripts: { start: 'node index.js', 'db:migrate': 'npx drizzle-kit push' },
-              dependencies: { express: '^4.18.0', pg: '^8.12.0' },
+              scripts: { start: 'node index.js', 'db:migrate': 'npx drizzle-kit migrate' },
+              dependencies: { express: '^4.18.0', pg: '^8.12.0', 'drizzle-kit': '^0.31.0' },
             })
           : 'FROM node:20-alpine\nHEALTHCHECK CMD curl -f http://localhost:3000/health\nCMD ["node", "index.js"]\n';
       return {
