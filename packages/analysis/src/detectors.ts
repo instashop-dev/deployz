@@ -2760,6 +2760,8 @@ export function selectMigrationScript(tree: FileTree): [key: string, command: st
   const keepsDevDependencies = dockerfile !== null && finalStageKeepsDevDependencies(dockerfile.content);
 
   const safe = collectScriptsWithDir(tree).filter(([key, command, dir]) => {
+    // A blank value is a comment entry (`"// use x migrations:run": ""`), not a script.
+    if (command.trim() === '') return false;
     if (!MIGRATION_SCRIPT_KEY_REGEX.test(key) && !DEPLOY_MIGRATION_COMMAND_REGEX.test(command)) return false;
     if (!appDirs.has(dir) || UNSAFE_MIGRATION_KEY_REGEX.test(key)) return false;
     if (MIGRATION_DEV_REGEX.test(command) || UNSAFE_MIGRATION_COMMAND_REGEX.test(command)) return false;
