@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-import type { ManifestEnvVariable } from './manifest.js';
+import type { DeploymentManifest, ManifestEnvBinding, ManifestEnvVariable } from './manifest.js';
 
 // ---------------------------------------------------------------------------
 // Vendor decisions for how each detected env var gets its value
@@ -17,6 +17,21 @@ export type EnvironmentProvider = z.infer<typeof environmentProviderSchema>;
 export const environmentStageSchema = z.enum(['build', 'runtime']);
 export type EnvironmentStage = z.infer<typeof environmentStageSchema>;
 
+/** The managed values a vendor can map an application variable to, per resource. */
+export const ENVIRONMENT_BINDING_KINDS = {
+  database: ['url', 'host', 'port', 'database', 'username', 'password', 'jdbc_url'],
+  cache: ['url', 'host', 'port'],
+  storage: ['bucket'],
+} as const;
+
+export const environmentBindingSchema = z
+  .object({
+    resource: z.enum(['database', 'cache', 'storage']),
+    kind: z.enum(['url', 'host', 'port', 'bucket', 'database', 'username', 'password', 'jdbc_url']),
+  })
+  .strict();
+export type EnvironmentBinding = z.infer<typeof environmentBindingSchema>;
+
 export const environmentSettingSchema = z
   .object({
     key: z
@@ -31,9 +46,15 @@ export const environmentSettingSchema = z
     label: z.string().trim().max(80).optional(),
     /** Customer-facing, only meaningful for provider 'customer'. */
     help: z.string().trim().max(300).optional(),
+    /**
+     * Maps the variable to a managed value (for example the database URL).
+     * Only for provider 'deployz' at runtime. The key may be a name that
+     * analysis did not detect.
+     */
+    binding: environmentBindingSchema.optional(),
   })
   .strict();
-export type EnvironmentSetting = z.infer<typeof environmentSettingSchema>;
+export type EnvironmentSetting= z.infer<typeof environmentSettingSchema>;
 
 /**
  * The keys a vendor may set `provider: 'deployz'` for: the analysis
@@ -82,6 +103,23 @@ export const environmentSettingsSchema = z
           path: [index, 'provider'],
         });
       }
+      if (setting.binding) {
+        if (setting.provider !== 'deployz' || setting.stage !== 'runtime') {
+          ctx.addIssue({
+            code: 'custom',
+            message: 'A managed value is only for a runtime setting that Deployz provides.',
+            path: [index, 'binding'],
+          });
+        } else if (
+          !(ENVIRONMENT_BINDING_KINDS[setting.binding.resource] as readonly string[]).includes(setting.binding.kind)
+        ) {
+          ctx.addIssue({
+            code: 'custom',
+            message: `A ${setting.binding.resource} has no "${setting.binding.kind}" value.`,
+            path: [index, 'binding', 'kind'],
+          });
+        }
+      }
       if (setting.provider === 'none' && setting.required) {
         ctx.addIssue({
           code: 'custom',
@@ -93,22 +131,74 @@ export const environmentSettingsSchema = z
   });
 export type EnvironmentSettings = z.infer<typeof environmentSettingsSchema>;
 
+/** Which managed resources the manifest provisions. */
+export function provisionedResources(manifest: DeploymentManifest): Record<EnvironmentBinding['resource'], boolean> {
+  return {
+    database: manifest.database.postgres,
+    cache: manifest.redis.required,
+    storage: manifest.storage.required,
+  };
+}
+
 /**
  * Problems the schema does not catch: `provider: 'deployz'` on a key the
- * manifest does not allow Deployz to provide. Plain, short messages
+ * manifest does not allow Deployz to provide, and a managed value for a
+ * resource the manifest does not provision. Plain, short messages
  * (ASD-STE100 style) for display alongside the setting.
  */
 export function validateEnvironmentSettings(
   settings: readonly EnvironmentSetting[],
   allowedDeployzKeys: ReadonlySet<string>,
+  provisioned: Record<EnvironmentBinding['resource'], boolean>,
 ): string[] {
   const problems: string[] = [];
   for (const setting of settings) {
-    if (setting.provider === 'deployz' && !allowedDeployzKeys.has(setting.key)) {
+    if (setting.binding) {
+      if (!provisioned[setting.binding.resource]) {
+        problems.push(`Deployz does not provide a ${setting.binding.resource} for this application. Remove "${setting.key}".`);
+      }
+    } else if (setting.provider === 'deployz' && !allowedDeployzKeys.has(setting.key)) {
       problems.push(`Deployz cannot provide "${setting.key}". Choose a different source.`);
     }
   }
   return problems;
+}
+
+/**
+ * The manifest with the vendor's mapped variables added to its env bindings,
+ * so every task definition receives them. A mapped database value clears
+ * `database.connectionUnverified`. Preflight and the frozen deployment
+ * manifest both use this one function. Returns the manifest unchanged when no
+ * setting maps a value.
+ */
+export function applyEnvironmentBindings(
+  manifest: DeploymentManifest,
+  settings: readonly EnvironmentSetting[] | null,
+): DeploymentManifest {
+  const mapped = (settings ?? []).filter((setting) => setting.binding !== undefined);
+  if (mapped.length === 0) return manifest;
+  const provisioned = provisionedResources(manifest);
+  const added = (resource: EnvironmentBinding['resource'], existing: readonly ManifestEnvBinding[]): ManifestEnvBinding[] => {
+    const names = new Set(existing.map((binding) => binding.name));
+    return mapped.flatMap(({ key, binding }) =>
+      provisioned[resource] && binding?.resource === resource && !names.has(key) ? [{ name: key, kind: binding.kind }] : [],
+    );
+  };
+  const database = { ...manifest.database };
+  if (provisioned.database && mapped.some((setting) => setting.binding?.resource === 'database')) {
+    const existing = database.envBindings ?? [];
+    database.envBindings = [...existing, ...added('database', existing)];
+    delete database.connectionUnverified;
+  }
+  return {
+    ...manifest,
+    database,
+    redis: { ...manifest.redis, envBindings: [...manifest.redis.envBindings, ...added('cache', manifest.redis.envBindings)] },
+    storage: {
+      ...manifest.storage,
+      envBindings: [...manifest.storage.envBindings, ...added('storage', manifest.storage.envBindings)],
+    },
+  };
 }
 
 const BUILD_STAGE_KEY_PATTERN = /^(NEXT_PUBLIC_|VITE_|REACT_APP_|NUXT_PUBLIC_|EXPO_PUBLIC_|GATSBY_|PUBLIC_)/;

@@ -45,12 +45,14 @@ import {
   buildUpdatePlan,
   compareInfrastructureExpectations,
   applicationStackNameForInstallation,
+  applyEnvironmentBindings,
   deployzProvidableKeys,
   deploymentPlanSchema,
   deploymentStateAfterFailedJob,
   deploymentTypeSchema,
   environmentSettingsSchema,
   failureCodeSchema,
+  provisionedResources,
   validateEnvironmentSettings,
   failureEvidenceSchema,
   healthComponentsSchema,
@@ -1352,10 +1354,10 @@ async function computeReadiness(
  * The application's current effective manifest — the single construction
  * computeApplicationRequirements and computeDeploymentRequirementDrift share.
  */
-function effectiveApplicationManifest(app: ManifestApplicationRow): DeploymentManifest {
-  return normalizeDeploymentManifest(
-    { metadata: app.detectedMetadata ?? {} },
-    applicationToManifestOverrides(app),
+function effectiveApplicationManifest(app: ManifestApplicationRow & { environmentSettings?: unknown }): DeploymentManifest {
+  return applyEnvironmentBindings(
+    normalizeDeploymentManifest({ metadata: app.detectedMetadata ?? {} }, applicationToManifestOverrides(app)),
+    readEnvironmentSettings(app),
   );
 }
 
@@ -3241,6 +3243,7 @@ export async function buildServer({
       settings: readEnvironmentSettings(app),
       variables: manifest.environment.variables,
       deployzKeys: [...deployzProvidableKeys(manifest.environment.variables)],
+      provisioned: provisionedResources(manifest),
       vendorValueKeys,
     };
   }
@@ -3266,6 +3269,7 @@ export async function buildServer({
     const problems = validateEnvironmentSettings(
       parsedBody.data.settings,
       deployzProvidableKeys(manifest.environment.variables),
+      provisionedResources(manifest),
     );
     if (problems.length > 0) {
       throw new ApiError(422, 'ENVIRONMENT_SETTINGS_INVALID', problems.join(' '), { problems });

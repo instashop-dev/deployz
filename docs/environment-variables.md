@@ -52,12 +52,15 @@ pure evaluation: `packages/contracts/src/environment-setup.ts`.
 | Secret | yes / no |
 | Who provides | Managed by Deployz · Set by vendor · Set by customer · Optional / not needed |
 | Label, help | Customer-facing text, for "Set by customer" only |
+| Managed value | Only for "Managed by Deployz" at runtime: a `binding` with a `resource` (`database`, `cache`, `storage`) and a `kind` |
 
 Rules (server-validated):
 - **Managed by Deployz** is allowed only for keys that Deployz really
   supplies: managed bindings (database, cache, storage, port, a provisioned
   queue and its dead-letter queue), the application's own public URL, and
-  app-internal secrets that the relay generates.
+  app-internal secrets that the relay generates. One exception: a setting
+  with a managed value (see "Map a variable to a managed value") can use any
+  valid variable name.
 - **Set by customer** and **Managed by Deployz** are runtime only.
 - A variable without a saved decision keeps the behaviour it had before
   this feature (legacy default). Existing applications keep working without
@@ -68,6 +71,37 @@ the service catalog) and show their source. Uncertain detections (sample
 file only, low confidence) are marked **Uncertain**. Build-time suggestions
 come from well-known name prefixes (`NEXT_PUBLIC_`, `VITE_`,
 `REACT_APP_`, …). The vendor confirms them.
+
+## Map a variable to a managed value
+
+Some apps read their database connection through a name that analysis cannot
+see (for example `GF_DATABASE_URL` from an ini override, `MM_SQLSETTINGS_DATASOURCE`,
+or a name that a config library builds). When Deployz provisions a managed
+database and no standard or detected name has evidence of a read, the
+manifest has `database.connectionUnverified`. The readiness gate then reports
+`database-connection-unverified` and the state is **Needs configuration**.
+No deployment starts, because the app would connect to nothing or to an
+embedded default.
+
+To resolve it, in **Configuration → Environment variables**:
+
+1. Choose **Managed by Deployz** for the variable that the app reads, or use
+   **Add managed value** to enter a name that analysis did not detect.
+2. In **Value**, choose the managed value: Database URL, Database host,
+   Database port, Database name, Database user, Database password, JDBC URL,
+   Redis URL, Redis host, Redis port, or Bucket name. The list shows only the
+   resources that the application has.
+3. Save.
+
+The saved setting has `binding: { resource, kind }`. The kind must fit the
+resource: database `url`, `host`, `port`, `database`, `username`, `password`,
+`jdbc_url`; cache `url`, `host`, `port`; storage `bucket`. The server refuses
+a managed value for a non-Deployz provider, for the build stage, and for a
+resource that the application does not have. A mapped name counts as provided
+for the required-variable checks. The relay does not generate a value for it.
+A mapped database value clears `connectionUnverified`. The mapping applies
+to new deployments and to the next preflight. A running deployment keeps its
+frozen manifest.
 
 ## Defaults, derived values and precedence
 

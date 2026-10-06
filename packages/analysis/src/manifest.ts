@@ -149,6 +149,28 @@ const STANDARD_DATABASE_BINDINGS: readonly { name: string; kind: ManifestEnvBind
   { name: 'DATABASE_PASSWORD', kind: 'password' },
 ];
 
+/**
+ * Whether the managed database's connection variable is unverified: neither a
+ * standard name nor a detected alias is evidenced as read or declared by the
+ * application. A detected alias is evidenced by construction (code read, env
+ * file, Prisma datasource). Rows analysed before the env model and the
+ * bindings existed carry no evidence, so they never fire.
+ */
+function isDatabaseConnectionUnverified(
+  meta: Record<string, unknown>,
+  bindings: readonly ManifestEnvBinding[],
+  variables: readonly ManifestEnvVariable[],
+): boolean {
+  if (!Array.isArray(meta['infrastructureBindings']) || !Array.isArray(meta['envVarModel'])) return false;
+  const standard = new Set(STANDARD_DATABASE_BINDINGS.map((binding) => binding.name));
+  const evidenced = new Set(
+    variables
+      .filter((variable) => variable.source.some((text) => text.startsWith('read in ') || text.includes(' declares ')))
+      .map((variable) => variable.key),
+  );
+  return !bindings.some((binding) => !standard.has(binding.name) || evidenced.has(binding.name));
+}
+
 /** The canonical storage binding plus detected alias bucket names. */
 const STANDARD_STORAGE_BINDINGS: readonly { name: string; kind: ManifestEnvBinding['kind'] }[] = [
   { name: 'AWS_S3_BUCKET', kind: 'bucket' },
@@ -462,6 +484,12 @@ export function normalizeDeploymentManifest(
     toDeclaredQuestions(meta),
   );
 
+  const envVariables = toEnvVariables(meta['envVarModel'], meta['envVars']);
+  const databaseBindings = toEnvBindings(
+    readInfrastructureBindings(meta).filter((b) => b.resource === 'postgres'),
+    STANDARD_DATABASE_BINDINGS,
+  );
+
   const manifest: DeploymentManifest = {
     schemaVersion: DEPLOYMENT_MANIFEST_SCHEMA_VERSION,
     application: {
@@ -505,10 +533,10 @@ export function normalizeDeploymentManifest(
       // (MEMOS_DSN, PAPERLESS_DBHOST, …). Absent when no DB is provisioned.
       ...(postgresRequired
         ? {
-            envBindings: toEnvBindings(
-              readInfrastructureBindings(meta).filter((b) => b.resource === 'postgres'),
-              STANDARD_DATABASE_BINDINGS,
-            ),
+            envBindings: databaseBindings,
+            ...(isDatabaseConnectionUnverified(meta, databaseBindings, envVariables)
+              ? { connectionUnverified: true }
+              : {}),
           }
         : {}),
     },
@@ -559,7 +587,7 @@ export function normalizeDeploymentManifest(
     ...(declaredScheduledJobs.length > 0 ? { scheduledJobs: declaredScheduledJobs } : {}),
     ...(declaredQuestions.length > 0 ? { questions: declaredQuestions } : {}),
     environment: {
-      variables: toEnvVariables(meta['envVarModel'], meta['envVars']),
+      variables: envVariables,
     },
     ...(ignoredDeploymentFiles.length > 0 ? { ignoredDeploymentFiles } : {}),
     externalServices: stringArray(meta['externalServices']),
@@ -606,7 +634,7 @@ export function mintedEnvKeys(
       const internalSecret = variable.secret && variable.purpose === 'internal_secret';
       const setting = settingsByKey.get(variable.key);
       if (setting) {
-        return setting.provider === 'deployz' && (internalSecret || variable.classification === 'deployz_generated');
+        return setting.provider === 'deployz' && !setting.binding && (internalSecret || variable.classification === 'deployz_generated');
       }
       return (
         variable.classification === 'deployz_generated' || (internalSecret && isGeneratableSecretName(variable.key))
@@ -718,6 +746,17 @@ export function evaluateManifestReadiness(
         message: `This app requires environment variables that have no value yet: ${list}. Set them in the application's Configuration screen before deploying.`,
       });
     }
+  }
+
+  if (manifest.database.connectionUnverified === true) {
+    errors.push({
+      id: 'database-connection-unverified',
+      category: 'database',
+      severity: 'error',
+      message:
+        'Deployz did not find which environment variable the app reads for its database connection. ' +
+        'In Configuration, set that variable to "Managed by Deployz" and choose the database value.',
+    });
   }
 
   if (manifest.database.postgres && !manifest.migration.command) {

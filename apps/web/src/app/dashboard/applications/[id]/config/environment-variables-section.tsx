@@ -2,6 +2,7 @@
 
 import {
   evaluateEnvironmentSetup,
+  type EnvironmentBinding,
   type EnvironmentProvider,
   type EnvironmentSetting,
   type EnvironmentSetupRow,
@@ -60,12 +61,32 @@ const GROUP_LABEL: Record<EnvGroupId, string> = {
 
 const GROUP_ORDER: readonly EnvGroupId[] = ['new', 'attention', 'vendor', 'customer', 'deployz', 'optional'];
 
-/** A value being added but not yet saved. */
+/** The managed values a variable can be mapped to. Only those of a provisioned resource show. */
+const MANAGED_VALUES: readonly { label: string; binding: EnvironmentBinding }[] = [
+  { label: 'Database URL', binding: { resource: 'database', kind: 'url' } },
+  { label: 'Database host', binding: { resource: 'database', kind: 'host' } },
+  { label: 'Database port', binding: { resource: 'database', kind: 'port' } },
+  { label: 'Database name', binding: { resource: 'database', kind: 'database' } },
+  { label: 'Database user', binding: { resource: 'database', kind: 'username' } },
+  { label: 'Database password', binding: { resource: 'database', kind: 'password' } },
+  { label: 'JDBC URL', binding: { resource: 'database', kind: 'jdbc_url' } },
+  { label: 'Redis URL', binding: { resource: 'cache', kind: 'url' } },
+  { label: 'Redis host', binding: { resource: 'cache', kind: 'host' } },
+  { label: 'Redis port', binding: { resource: 'cache', kind: 'port' } },
+  { label: 'Bucket name', binding: { resource: 'storage', kind: 'bucket' } },
+];
+
+type ManagedValue = (typeof MANAGED_VALUES)[number];
+
+const managedValueId = (binding: EnvironmentBinding): string => `${binding.resource}:${binding.kind}`;
+
+/** A value being added but not yet saved. A `binding` makes it a managed value, not a typed one. */
 interface DraftEntry {
   id: number;
   key: string;
   value: string;
   isSecret: boolean;
+  binding?: EnvironmentBinding;
 }
 
 type EnvItem =
@@ -98,6 +119,9 @@ function normalizeSetting(next: EnvironmentSetting): EnvironmentSetting {
   }
   if (result.provider === 'none') {
     result.required = false;
+  }
+  if (result.provider !== 'deployz') {
+    delete result.binding;
   }
   return result;
 }
@@ -200,6 +224,10 @@ function EnvironmentVariablesTable({
   const variables = useMemo(() => response?.variables ?? [], [response]);
   const savedSettings = useMemo(() => response?.settings ?? [], [response]);
   const deployzKeys = useMemo(() => new Set(response?.deployzKeys ?? []), [response]);
+  const managedValues = useMemo(
+    () => MANAGED_VALUES.filter((value) => response?.provisioned[value.binding.resource] === true),
+    [response],
+  );
   const vendorValueKeys = useMemo(() => new Set(response?.vendorValueKeys ?? []), [response]);
 
   const liveSettings = useMemo<EnvironmentSetting[]>(() => {
@@ -248,7 +276,8 @@ function EnvironmentVariablesTable({
     if (loadState !== 'loaded') return [];
     const detected = new Set(variables.map((variable) => variable.key));
     return liveSettings.filter(
-      (setting) => !detected.has(setting.key) && (setting.required || setting.provider !== 'none'),
+      (setting) =>
+        !detected.has(setting.key) && !setting.binding && (setting.required || setting.provider !== 'none'),
     );
   }, [loadState, variables, liveSettings]);
 
@@ -325,8 +354,11 @@ function EnvironmentVariablesTable({
     markChanged();
   }
 
-  function addEntry(isSecret: boolean): void {
-    setNewEntries((current) => [...current, { id: nextEntryId, key: '', value: '', isSecret }]);
+  function addEntry(isSecret: boolean, binding?: EnvironmentBinding): void {
+    setNewEntries((current) => [
+      ...current,
+      { id: nextEntryId, key: '', value: '', isSecret, ...(binding ? { binding } : {}) },
+    ]);
     setNextEntryId((current) => current + 1);
     markChanged();
   }
@@ -343,7 +375,7 @@ function EnvironmentVariablesTable({
       const key = entry.key.trim();
       if (key.length === 0) return 'Give every new value a name.';
       if (known.has(key)) return `${key} already exists. Edit the existing one instead.`;
-      if (entry.isSecret && entry.value.length === 0) return `Enter a value for ${key}.`;
+      if (entry.isSecret && !entry.binding && entry.value.length === 0) return `Enter a value for ${key}.`;
       known.add(key);
     }
     return null;
@@ -367,6 +399,19 @@ function EnvironmentVariablesTable({
       const row = rowsByKey.get(key);
       if (value.length === 0 || settingsByKey.has(key) || !row) continue;
       settingsByKey.set(key, currentSetting(row, undefined));
+      decisionsAccepted = true;
+    }
+
+    for (const entry of newEntries) {
+      if (!entry.binding) continue;
+      settingsByKey.set(entry.key.trim(), {
+        key: entry.key.trim(),
+        stage: 'runtime',
+        required: false,
+        secret: false,
+        provider: 'deployz',
+        binding: entry.binding,
+      });
       decisionsAccepted = true;
     }
 
@@ -395,7 +440,9 @@ function EnvironmentVariablesTable({
         entries.push({ key, value, isSecret: settingsByKey.get(key)?.secret ?? false });
       }
     }
-    for (const entry of newEntries) entries.push({ key: entry.key.trim(), value: entry.value, isSecret: entry.isSecret });
+    for (const entry of newEntries) {
+      if (!entry.binding) entries.push({ key: entry.key.trim(), value: entry.value, isSecret: entry.isSecret });
+    }
 
     if (entries.length > 0 || removed.size > 0) {
       try {
@@ -463,6 +510,17 @@ function EnvironmentVariablesTable({
           >
             Add secret
           </Button>
+          {managedValues[0] ? (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              data-testid="environment-variables-add-managed"
+              onClick={() => addEntry(false, managedValues[0]!.binding)}
+            >
+              Add managed value
+            </Button>
+          ) : null}
         </CardAction>
       </CardHeader>
       <CardContent className="flex flex-col gap-4">
@@ -576,6 +634,7 @@ function EnvironmentVariablesTable({
                       selected={selected.has(item.key)}
                       expanded={expanded === item.key}
                       deployzKeys={deployzKeys}
+                      managedValues={managedValues}
                       onToggleSelected={() => toggleSelected(item.key)}
                       onToggleExpanded={() => setExpanded(expanded === item.key ? null : item.key)}
                       onUpdate={(patch) => updateRow(item.key, patch)}
@@ -597,6 +656,7 @@ function EnvironmentVariablesTable({
                       <TableCell colSpan={COLUMN_COUNT}>
                         <DraftField
                           draft={item.draft}
+                          managedValues={managedValues}
                           inputId={`environment-new-${item.draft.id}`}
                           onChange={(patch) => updateEntry(item.draft.id, patch)}
                           onRemove={() => {
@@ -683,6 +743,7 @@ function DetectedRow({
   selected,
   expanded,
   deployzKeys,
+  managedValues,
   onToggleSelected,
   onToggleExpanded,
   onUpdate,
@@ -696,12 +757,14 @@ function DetectedRow({
   selected: boolean;
   expanded: boolean;
   deployzKeys: Set<string>;
+  managedValues: readonly ManagedValue[];
   onToggleSelected: () => void;
   onToggleExpanded: () => void;
   onUpdate: (patch: Partial<EnvironmentSetting>) => void;
   onValueDraft: (value: string) => void;
 }) {
   const badge = STATUS_BADGE[row.status];
+  const automatic = deployzKeys.has(row.key);
   const valueText =
     valueDraft !== undefined && valueDraft.length > 0
       ? setting.secret
@@ -799,13 +862,20 @@ function DetectedRow({
                   <Label>Who provides</Label>
                   <Select
                     value={setting.provider}
-                    onValueChange={(value) => onUpdate({ provider: value as EnvironmentProvider })}
+                    onValueChange={(value) =>
+                      onUpdate({
+                        provider: value as EnvironmentProvider,
+                        ...(value === 'deployz' && !automatic && !setting.binding && managedValues[0]
+                          ? { binding: managedValues[0].binding }
+                          : {}),
+                      })
+                    }
                   >
                     <SelectTrigger size="sm" aria-label={`Who provides ${row.key}`} data-testid={`environment-variable-${row.key}-provider`}>
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="deployz" disabled={!deployzKeys.has(row.key)}>
+                      <SelectItem value="deployz" disabled={!automatic && managedValues.length === 0}>
                         Managed by Deployz
                       </SelectItem>
                       <SelectItem value="vendor">Set by vendor</SelectItem>
@@ -816,6 +886,18 @@ function DetectedRow({
                     </SelectContent>
                   </Select>
                 </div>
+                {setting.provider === 'deployz' && !automatic ? (
+                  <div className="flex flex-col gap-1.5">
+                    <Label>Value</Label>
+                    <ManagedValueSelect
+                      label={`Managed value for ${row.key}`}
+                      testId={`environment-variable-${row.key}-binding`}
+                      options={managedValues}
+                      value={setting.binding}
+                      onChange={(binding) => onUpdate({ binding })}
+                    />
+                  </div>
+                ) : null}
                 <div className="flex items-center gap-2">
                   <Switch
                     id={`env-required-${row.key}`}
@@ -1067,15 +1149,54 @@ function CustomRow({
   );
 }
 
+function ManagedValueSelect({
+  id,
+  label,
+  testId,
+  options,
+  value,
+  onChange,
+}: {
+  id?: string;
+  label: string;
+  testId: string;
+  options: readonly ManagedValue[];
+  value: EnvironmentBinding | undefined;
+  onChange: (binding: EnvironmentBinding) => void;
+}) {
+  return (
+    <Select
+      value={value ? managedValueId(value) : ''}
+      onValueChange={(next) => {
+        const option = options.find((candidate) => managedValueId(candidate.binding) === next);
+        if (option) onChange(option.binding);
+      }}
+    >
+      <SelectTrigger id={id} size="sm" aria-label={label} data-testid={testId}>
+        <SelectValue placeholder="Choose a value" />
+      </SelectTrigger>
+      <SelectContent>
+        {options.map((option) => (
+          <SelectItem key={managedValueId(option.binding)} value={managedValueId(option.binding)}>
+            {option.label}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  );
+}
+
 // A value being added. The name is checked on save (empty, duplicate); the
 // value goes through a write-only secret field when the draft is a secret.
 function DraftField({
   draft,
+  managedValues,
   inputId,
   onChange,
   onRemove,
 }: {
   draft: DraftEntry;
+  managedValues: readonly ManagedValue[];
   inputId: string;
   onChange: (patch: Partial<DraftEntry>) => void;
   onRemove: () => void;
@@ -1084,7 +1205,7 @@ function DraftField({
   return (
     <div className="flex flex-col gap-3 py-1">
       <div className="flex items-center gap-2">
-        <p className="text-sm font-medium">New {draft.isSecret ? 'secret' : 'value'}</p>
+        <p className="text-sm font-medium">New {draft.binding ? 'managed value' : draft.isSecret ? 'secret' : 'value'}</p>
         {draft.isSecret ? <Badge variant="secondary">Secret</Badge> : null}
       </div>
       <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
@@ -1101,7 +1222,16 @@ function DraftField({
         </div>
         <div className="flex flex-1 flex-col gap-2">
           <Label htmlFor={valueId}>Value</Label>
-          {draft.isSecret ? (
+          {draft.binding ? (
+            <ManagedValueSelect
+              id={valueId}
+              label="Managed value"
+              testId="environment-draft-binding"
+              options={managedValues}
+              value={draft.binding}
+              onChange={(binding) => onChange({ binding })}
+            />
+          ) : draft.isSecret ? (
             <SecretInput id={valueId} value={draft.value} onChange={(event) => onChange({ value: event.target.value })} />
           ) : (
             <Input id={valueId} autoComplete="off" value={draft.value} onChange={(event) => onChange({ value: event.target.value })} />

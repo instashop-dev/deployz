@@ -252,6 +252,15 @@ export const deploymentManifestSchema = z
          * name; the engine field is what actually distinguishes the engine.
          */
         engine: z.enum(['postgres', 'mysql']).optional(),
+        /**
+         * True when a managed relational database is provisioned but no
+         * binding name (standard or alias) is evidenced as read or declared by
+         * the application, so the app may read the connection under a name
+         * analysis cannot see. Blocks readiness until the vendor maps a
+         * variable to a managed database value. Absent otherwise, so existing
+         * manifests stay byte-identical.
+         */
+        connectionUnverified: z.boolean().optional(),
       })
       .strict(),
     redis: z
