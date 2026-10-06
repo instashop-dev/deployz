@@ -103,7 +103,13 @@ describe('COMP-037 — engines declared outside Node manifests', () => {
       'docker-compose.yml': 'services:\n  plausible:\n    build: .\n  plausible_events_db:\n    image: clickhouse/clickhouse-server:24.3\n',
     };
     expect(checkOtherUnsupportedDatabases(plausible)).toMatchObject({ detected: true, dependency: 'clickhouse' });
-    expect(checkOtherUnsupportedDatabases({ 'mix.exs': '{:ecto_ch, "~> 0.3"}\n' })).toMatchObject({ detected: false });
+    expect(checkOtherUnsupportedDatabases({ 'mix.exs': '{:ecto_ch, "~> 0.3"}\n{:postgrex, ">= 0.0.0"}\n' })).toMatchObject({
+      detected: true,
+      dependency: 'clickhouse',
+    });
+    expect(checkOtherUnsupportedDatabases({ 'package.json': '{"dependencies":{"@clickhouse/client":"1.0.0"}}' })).toMatchObject({
+      detected: false,
+    });
     expect(checkOtherUnsupportedDatabases({ 'build.gradle': 'runtimeOnly "com.h2database:h2"\n' })).toMatchObject({ detected: true, dependency: 'h2' });
     expect(checkOtherUnsupportedDatabases({ 'build.gradle': 'runtimeOnly "com.h2database:h2"\nruntimeOnly "org.postgresql:postgresql"\n' })).toMatchObject({
       detected: false,

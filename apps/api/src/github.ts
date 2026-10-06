@@ -778,9 +778,11 @@ const ENTRY_FILE_REGEX =
 // Files that read the environment and name the datastore the app uses:
 // `environment.service.ts`, `env/GlobalValues.ts`, `configs/database.config.ts`. They are few
 // and small, and a deep one would otherwise lose its slot to hundreds of `index.ts`. A plain
-// `env.ts` stays with the entry files: front ends carry one too.
+// `env.ts` stays with the entry files: front ends carry one too. A typed config class
+// (`config-variables.ts`) and a plugin or storage manager (`NcPluginMgrv2.ts`) hold the
+// app's storage env names the same way.
 const ENV_CONFIG_FILE_REGEX =
-  /(?:^|\/)(?:environment(?:\.(?:service|config))?|env\.(?:service|config))\.[a-z]+$|(?:^|\/)(?:env|environment)\/[^/]+\.(?:[cm]?[jt]s|py|rb|go)$|(?:^|\/)configs\/[\w.-]+\.config\.[cm]?[jt]s$/i;
+  /(?:^|\/)(?:environment(?:\.(?:service|config))?|env\.(?:service|config)|[\w.-]*config-variables|[\w.-]*(?:plugin|storage)-?(?:mgr|manager)[\w.-]*)\.[a-z]+$|(?:^|\/)(?:env|environment)\/[^/]+\.(?:[cm]?[jt]s|py|rb|go)$|(?:^|\/)configs\/[\w.-]+\.config\.[cm]?[jt]s$/i;
 
 //
 // Dockerfiles, Compose files and env samples come before package manifests:

@@ -58,6 +58,7 @@ import {
   checkGcp,
   checkGpu,
   checkExplicitPersistentDataDir,
+  checkRequiredConfigFileMount,
   checkRequiredThirdPartyService,
   listIgnoredDeploymentFiles,
 } from './rejection.js';
@@ -141,6 +142,7 @@ const REJECTION_CHECKS = [
   checkGcp,
   checkGpu,
   checkExplicitPersistentDataDir,
+  checkRequiredConfigFileMount,
   checkRequiredThirdPartyService,
 ] as const;
 

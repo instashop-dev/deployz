@@ -2413,7 +2413,7 @@ export function detectS3(tree: FileTree): DetectorFinding {
 
   // Check env files for S3_BUCKET / AWS_S3_BUCKET
   for (const path of Object.keys(tree)) {
-    if (/^\.env(\.\w+)?$/i.test(path)) {
+    if (/^\.env(\.\w+)?$/i.test(path) || (/\.ini$/i.test(path) && isRuntimeSourcePath(path))) {
       const content = tree[path];
       if (content && S3_ENV_REGEX.test(content)) {
         if (!detected.includes('AWS_S3_BUCKET')) {
@@ -3730,6 +3730,31 @@ function scanDefaultedEnvReads(content: string): [string, string][] {
   return found;
 }
 
+/**
+ * Fields of a class-validator env schema (`class ConfigVariables { @IsOptional() STORAGE_TYPE: StorageDriverType = StorageDriverType.LOCAL; }`):
+ * `[name, default]`. An enum member default is read as its member name (`LOCAL`).
+ */
+function scanValidatedConfigFields(content: string): [string, string | null][] {
+  if (!/\bfrom\s+["']class-validator["']/.test(content)) return [];
+  return [
+    ...content.matchAll(/^[ \t]+([A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+)[?!]?(?:[ \t]*:[ \t]*[^=;\n]+?)?(?:[ \t]*=[ \t]*([^;\n]*))?[ \t]*;/gm),
+  ].map((m): [string, string | null] => {
+    const initializer = m[2]?.trim() ?? '';
+    return [m[1]!, /^["'`]([^"'`\n]*)["'`]$/.exec(initializer)?.[1] ?? /^\w+\.([A-Z][A-Z0-9_]*)$/.exec(initializer)?.[1] ?? null];
+  });
+}
+
+/**
+ * Python `ConfigParser` whose `before_get` lets `os.getenv(option)` override every ini key
+ * (CTFd): each `config_ini["section"]["KEY"]` read is an env variable, with its `or "default"`.
+ */
+function scanIniEnvOverrideReads(content: string): [string, string | null][] {
+  if (!/def before_get\b[\s\S]{0,400}?(?:os\.getenv|os\.environ\.get)\(\s*option\b/.test(content)) return [];
+  return [...content.matchAll(/\[["'][\w.-]+["']\]\[["']([A-Z][A-Z0-9_]*)["']\]\)?(?:[ \t]*\\?\s*or\s+["']([^"'\n]*)["'])?/g)].map(
+    (m): [string, string | null] => [m[1]!, m[2] ?? null],
+  );
+}
+
 /** Env reads compared with a literal (`os.getenv("DB") == "postgres"`): `[name, literal]`. */
 function scanComparedEnvReads(content: string): [string, string][] {
   const found: [string, string][] = [];
@@ -3839,6 +3864,9 @@ function unresolvedSelectors(
     if (!content || !isRuntimeSourcePath(path) || isSiblingApp(path)) continue;
     if (!SELECTOR_SOURCE_REGEX.test(path) && !CONFIG_ENV_FILE_REGEX.test(path)) continue;
     for (const [name, value] of scanDefaultedEnvReads(content)) add(codeDefaults, name, value, path);
+    for (const [name, value] of [...scanValidatedConfigFields(content), ...scanIniEnvOverrideReads(content)]) {
+      if (value !== null) add(codeDefaults, name, value, path);
+    }
     for (const [name, value] of scanComparedEnvReads(content)) add(compared, name, value, path);
     if (GO_SOURCE.test(path)) for (const [name, value] of scanViperEnvDefaults(content)) add(codeDefaults, name, value, path);
     if (JS_SOURCE.test(path) && ENV_DEFAULTS_FILE_REGEX.test(path)) {
@@ -4194,6 +4222,7 @@ export function detectEnvVarModel(
         if (!entry.needsValue) schemaOptionalKeys.add(entry.key);
       }
       for (const m of content.matchAll(DECORATED_ENV_REGEX)) recordRead(m[1]!, false, path);
+      for (const [name] of scanValidatedConfigFields(content)) recordRead(name, false, path);
       for (const m of content.matchAll(ENV_HELPER_CALL_REGEX)) {
         recordRead(m[2]!, /^(?:assert|require|mustGet)/.test(m[1]!) && m[3] === undefined, path);
       }
@@ -4223,6 +4252,7 @@ export function detectEnvVarModel(
       for (const entry of [...scanPydanticSettingsReads(content), ...scanDjangoEnvironReads(content)]) {
         recordRead(entry.key, entry.needsValue, path);
       }
+      for (const [name] of scanIniEnvOverrideReads(content)) recordRead(name, false, path);
     } else if (RB_SOURCE.test(path)) {
       const fetchRegex = /ENV\.fetch\(\s*["']([A-Z_][A-Z0-9_]*)["']/g;
       let match: RegExpExecArray | null;
