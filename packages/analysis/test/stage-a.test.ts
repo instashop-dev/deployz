@@ -100,7 +100,7 @@ describe('COMP-004 / COMP-005 — health paths', () => {
     expect(detectHealthEndpoint(tree)).toMatchObject({ detected: true, path: '/api/healthcheck' });
   });
 
-  it('reads the URL a Dockerfile HEALTHCHECK probes, below a route registration in code', () => {
+  it('reads the URL a Dockerfile HEALTHCHECK probes, above a route registration in code', () => {
     const healthcheckOnly: FileTree = {
       Dockerfile: 'FROM node:22\nHEALTHCHECK --interval=5s CMD curl -f http://localhost:3000/api/heartbeat || exit 1\n',
     };
@@ -110,7 +110,7 @@ describe('COMP-004 / COMP-005 — health paths', () => {
       ...healthcheckOnly,
       'src/index.ts': "app.get('/health', (_req, res) => res.json({ ok: true }));\n",
     };
-    expect(detectHealthEndpoint(withRoute).path).toBe('/health');
+    expect(detectHealthEndpoint(withRoute).path).toBe('/api/heartbeat');
   });
 
   it('reads the URL a production Compose healthcheck probes', () => {

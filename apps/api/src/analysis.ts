@@ -15,7 +15,9 @@ import {
   deriveAmbiguities,
   detectDeclaredWorkerCommands,
   dockerfileWorkdirs,
+  isDevToolCommand,
   listDockerfileCandidates,
+  mainCommandRunsWorker,
   mergeAiAnalysis,
   selectAiContextFiles,
   selectMigrationScript,
@@ -266,7 +268,16 @@ type ApplicationRow = typeof schema.applications.$inferSelect;
 // not local state; Helm/k8s/Terraform/Pulumi samples under deployment
 // directories are a warning, not a rejection. Stored v39 rows can carry a
 // false NOT_COMPATIBLE verdict.
-export const ANALYSIS_VERSION = 40;
+// Version 41 (MVP compatibility hardening, phase 3): the health path comes
+// from the selected Dockerfile/Compose HEALTHCHECK, then a dedicated health
+// route with its global prefix and URI version, then a framework route, and
+// otherwise the vendor is asked (no feature route ending in status, no route
+// of another binary, no silent /health); a production Dockerfile outranks
+// dev/base/sidecar images and a symlinked Dockerfile is resolved; the port
+// comes from the runtime stage; a dev script or a process the CMD already
+// starts is never a worker. Stored v40 rows can carry a wrong health path,
+// port or Dockerfile.
+export const ANALYSIS_VERSION = 41;
 
 export interface AnalysisRunnerDeps {
   db: RuntimeDb;
@@ -921,7 +932,9 @@ function resolveMigrationCommand(tree: FileTree): string | undefined {
  * Resolve EVERY declared worker start command (Phase 4A: one workload per
  * declared process): a Procfile/Compose-declared process leads (each keeps
  * its own slug id and source), then one `worker` entry from a package.json
- * worker script in any workspace package. Empty when nothing resolves —
+ * worker script in any workspace package. A dev or watch script is never a
+ * worker, nor is a script the image's start command already runs next to the
+ * web process. Empty when nothing resolves—
  * worker-like code without a command never produces a workload here.
  */
 export interface ResolvedWorkerCommand {
@@ -938,8 +951,8 @@ export function resolveWorkerCommands(tree: FileTree): ResolvedWorkerCommand[] {
     seen.add(declared.id);
     workers.push({ id: declared.id, command: declared.command, source: declared.source });
   }
-  if (workers.length === 0) {
-    const match = collectScripts(tree).find(([key]) => WORKER_SCRIPT_KEY_REGEX.test(key));
+  if (workers.length === 0 && !mainCommandRunsWorker(tree)) {
+    const match = collectScripts(tree).find(([key, command]) => WORKER_SCRIPT_KEY_REGEX.test(key) && !isDevToolCommand(command));
     if (match?.[1] !== undefined) {
       workers.push({ id: 'worker', command: match[1], source: 'package.json' });
     }

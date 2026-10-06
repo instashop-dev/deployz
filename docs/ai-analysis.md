@@ -75,6 +75,28 @@ Repository (GitHub tree, bounded)
   selected Dockerfile builds or runs Node. A Python image does not get a
   sibling front end's `react-scripts build`. The Compose port comes from an
   application service, never from a database, cache or proxy service.
+- **Runtime precision:** the image is the production stage of the selected
+  Dockerfile. This stage is the last stage that is not a dev, test or build
+  stage, together with the stages it is built from. A Dockerfile in a test,
+  example or dev-container directory, a base image (system packages only, no
+  CMD, ENTRYPOINT, EXPOSE or COPY) and a Dockerfile that starts a dev server
+  are never selected. A Dockerfile named production or prod ranks first. An
+  arm or multi-process variant ranks last. The port is the ENV PORT or EXPOSE of the production stage. An
+  image with a front web server (nginx, caddy) publishes port 80. The health
+  path, in order: the URL that the HEALTHCHECK of the production stage or a
+  production Compose app service probes; a dedicated route that the app
+  registers, with the framework prefix and URI version; the Spring actuator
+  route. A dedicated route ends in a health word, and only an API root, a
+  version or one namespace (for example system) comes before it.
+  `status` is accepted only under an API root, or in a JS server. `readyz` and
+  `livez` are not taken from source. A route is not used when it is in
+  another language than the one the image starts, when two apps in the
+  repository register a route and the start command does not name one of
+  them, or when a front web server hides the app behind a prefix. In these
+  cases the detector reports no path and the vendor is asked. A Dockerfile
+  that is a git symlink is read from its target file. A package.json worker
+  script is not a worker when it is a dev or watch command, or when the
+  start command already runs the worker.
 - **One relational database:** a required MySQL database gets the same
   bindings (the `DATABASE_*` names plus the names the app reads, such as
   `DB_HOST`), migration mode and migration findings as PostgreSQL.
