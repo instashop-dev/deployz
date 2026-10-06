@@ -251,7 +251,15 @@ type ApplicationRow = typeof schema.applications.$inferSelect;
 // throws without is required; a zod member built by a helper is a read; an
 // optional internal secret with a generatable name is deployz_generated.
 // Stored v37 models over-require sibling keys and miss boot-required ones.
-export const ANALYSIS_VERSION = 38;
+// Version 39 (MVP compatibility hardening, phase 1): the app's own names for
+// managed values (SQLALCHEMY_DATABASE_URI, SPRING_DATASOURCE_URL, Prisma
+// datasource env names, *_REDIS_URI, config-file reads) become bindings; an
+// engine or storage selector whose default keeps data on the container disk
+// is required; and an unsafe migration script (create/generate/push, test,
+// copy, devDependency-only CLI, workspace filter) is never frozen into the
+// pre-deploy task. Stored v38 rows miss bindings and selectors and can carry
+// an unsafe migration command.
+export const ANALYSIS_VERSION = 39;
 
 export interface AnalysisRunnerDeps {
   db: RuntimeDb;

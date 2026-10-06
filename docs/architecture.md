@@ -219,8 +219,8 @@ health-check path, and the generated application secrets. Each worker
 service runs one task.
 
 Redis details: the app receives `REDIS_URL` (`redis://<endpoint>:6379`),
-`REDIS_HOST` and `REDIS_PORT`; other detected alias names are bound after
-install by the relay. `REDIS_PASSWORD` is never resolved (no AUTH in the
+`REDIS_HOST` and `REDIS_PORT`; other detected alias names are in the
+compiled task definitions too (see "Alias bindings" below). `REDIS_PASSWORD` is never resolved (no AUTH in the
 MVP). The cache security group allows 6379 from the whole VPC CIDR, wider
 than the database rule. Detection tiers and the supported/unsupported
 matrix are in [`ai-analysis.md`](ai-analysis.md).
@@ -234,6 +234,17 @@ so workers and the migration task verify TLS the same way. MySQL also
 binds `MYSQL_URL` and the `DB_*` aliases. Aliases such as `DB_HOST` /
 `DB_USER` are bound from
 the analysis manifest.
+
+Alias bindings: the compiler writes every alias name in the manifest's
+database, cache and storage `envBindings` (for example `MEMOS_DSN`,
+`SQLALCHEMY_DATABASE_URI`, `BACKEND_CACHE_REDIS_URI`,
+`S3_ATTACHMENTS_BUCKET`) into every task definition: web, workers, the
+migration task and the scheduled jobs. An alias copies the value of the
+standard name. It never replaces a standard or platform name. The
+`jdbc_url` kind (`SPRING_DATASOURCE_URL`) gets
+`jdbc:postgresql://<host>:5432/deployz?sslmode=require` (or the
+`jdbc:mysql://…?sslMode=REQUIRED` form). The relay's post-install alias step
+stays for artifacts that an earlier compiler version made.
 
 The database is a **Single-AZ database with automatic placement**. The
 compiler emits a DB subnet group that covers all available, enabled
