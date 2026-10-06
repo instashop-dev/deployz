@@ -273,10 +273,8 @@ describe('analysis — runApplicationAnalysis (fixture mode, end-to-end)', () =>
     // and `prisma/schema.prisma` (this fixture's schema location) is
     // already Prisma's default lookup path relative to that cwd.
     expect(row.migrationCommand).toBe('npx prisma migrate deploy');
-    // The only health-check evidence in this fixture is the app-router
-    // route file app/api/health/route.ts — the Dockerfile's HEALTHCHECK
-    // curls /health (a stale/generic default), but the route the app
-    // actually serves is /api/health, and that must win.
+    // The Dockerfile's HEALTHCHECK curls the app-router route file
+    // app/api/health/route.ts: its probed path is the health path.
     expect(row.healthPath).toBe('/api/health');
 
     const metadata = row.detectedMetadata as {
