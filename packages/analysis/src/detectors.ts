@@ -3146,6 +3146,22 @@ function scanDefaultedEnvReads(content: string): [string, string][] {
   }
   // Spring / shell `${X:default}`
   for (const m of content.matchAll(/\$\{([A-Z][A-Z0-9_]*):-?([^}\n]*)\}/g)) found.push([m[1]!, m[2]!]);
+  // Schema defaults: envalid `X: str({ default: 'd' })`, zod `X: z.enum([…]).default('d')`
+  for (const m of content.matchAll(/\b([A-Z][A-Z0-9_]*)\s*:\s*\w+\(\s*\{[^}]*?\bdefault\s*:\s*["'`]([^"'`\n]*)["'`]/g)) {
+    found.push([m[1]!, m[2]!]);
+  }
+  for (const m of content.matchAll(/\b([A-Z][A-Z0-9_]*)\s*:\s*z\.[^\n]*?\.default\(\s*["'`]([^"'`\n]*)["'`]/g)) found.push([m[1]!, m[2]!]);
+  return found;
+}
+
+/** Env reads compared with a literal (`os.getenv("DB") == "postgres"`): `[name, literal]`. */
+function scanComparedEnvReads(content: string): [string, string][] {
+  const found: [string, string][] = [];
+  for (const m of content.matchAll(
+    /(?:process\.env\.([A-Z][A-Z0-9_]*)|\b(?:os\.getenv|os\.environ\.get|getenv|env)\(\s*["']([A-Z][A-Z0-9_]*)["']\s*\)|ENV\[\s*["']([A-Z][A-Z0-9_]*)["']\s*\])\s*(?:===?|!==?)\s*["']([^"'\n]+)["']/g,
+  )) {
+    found.push([(m[1] ?? m[2] ?? m[3])!, m[4]!]);
+  }
   return found;
 }
 
@@ -3197,6 +3213,7 @@ function unresolvedSelectors(
   type Value = { value: string; file: string };
   const codeDefaults = new Map<string, Value[]>();
   const sampleValues = new Map<string, Value[]>();
+  const compared = new Map<string, Value[]>();
   const add = (map: Map<string, Value[]>, name: string, value: string, file: string): void => {
     if (!DB_SELECTOR_NAME_REGEX.test(name) && !STORAGE_SELECTOR_NAME_REGEX.test(name)) return;
     map.set(name, [...(map.get(name) ?? []), { value, file }]);
@@ -3205,6 +3222,7 @@ function unresolvedSelectors(
     if (!content || !isRuntimeSourcePath(path) || isSiblingApp(path)) continue;
     if (!SELECTOR_SOURCE_REGEX.test(path) && !CONFIG_ENV_FILE_REGEX.test(path)) continue;
     for (const [name, value] of scanDefaultedEnvReads(content)) add(codeDefaults, name, value, path);
+    for (const [name, value] of scanComparedEnvReads(content)) add(compared, name, value, path);
     if (GO_SOURCE.test(path)) for (const [name, value] of scanViperEnvDefaults(content)) add(codeDefaults, name, value, path);
   }
   for (const path of [...appEnvSampleFiles(tree, isSiblingApp), ...listProductionComposeFiles(tree)]) {
@@ -3213,35 +3231,43 @@ function unresolvedSelectors(
 
   const result = new Map<string, { evidence: string; files: string[] }>();
   const engine = provisioned.database;
-  for (const name of new Set([...codeDefaults.keys(), ...sampleValues.keys()])) {
+  for (const name of new Set([...codeDefaults.keys(), ...sampleValues.keys(), ...compared.keys()])) {
     const isDb = engine !== null && DB_SELECTOR_NAME_REGEX.test(name);
     const isStorage = !isDb && provisioned.storage && STORAGE_SELECTOR_NAME_REGEX.test(name);
     if (!isDb && !isStorage) continue;
     const fromCode = codeDefaults.get(name) ?? [];
     // A sample value is only a default for a variable the app actually reads.
     const fromSamples = fromCode.length > 0 || reads.has(name) ? (sampleValues.get(name) ?? []) : [];
-    const bad = [...fromCode, ...fromSamples].find(({ value }) =>
-      isStorage
-        ? LOCAL_STORAGE_VALUE_REGEX.test(value)
-        : EMBEDDED_ENGINE_REGEX.test(value) ||
-          (['postgres', 'mysql'] as const).some((other) => other !== engine && ENGINE_VALUE_REGEX[other].test(value)),
-    );
+    const wanted = isStorage ? S3_STORAGE_VALUE_REGEX : ENGINE_VALUE_REGEX[engine!];
+    // A selector with no default that the code only compares with the
+    // provisioned value (`os.getenv("DB") == "postgres"`) takes the other
+    // branch when unset.
+    const unsetFallback =
+      fromCode.length === 0 && (compared.get(name) ?? []).some(({ value }) => wanted.test(value)) ? { value: 'unset' } : undefined;
+    const bad =
+      [...fromCode, ...fromSamples].find(({ value }) =>
+        isStorage
+          ? LOCAL_STORAGE_VALUE_REGEX.test(value)
+          : EMBEDDED_ENGINE_REGEX.test(value) ||
+            (['postgres', 'mysql'] as const).some((other) => other !== engine && ENGINE_VALUE_REGEX[other].test(value)),
+      ) ?? unsetFallback;
     if (!bad) continue;
 
-    const wanted = isStorage ? S3_STORAGE_VALUE_REGEX : ENGINE_VALUE_REGEX[engine!];
     const values: string[] = [];
     const note = (value: string): void => {
       if (/^[\w.-]+$/.test(value) && wanted.test(value) && !values.includes(value)) values.push(value);
     };
     for (const { value } of sampleValues.get(name) ?? []) note(value);
-    const files = [...new Set([...fromCode.map((entry) => entry.file), ...(reads.get(name)?.files ?? [])])];
+    const files = [
+      ...new Set([...fromCode, ...(compared.get(name) ?? [])].map((entry) => entry.file).concat(reads.get(name)?.files ?? [])),
+    ];
     for (const file of files) {
       for (const literal of (tree[file] ?? '').matchAll(/["'`]([^"'`\s]{1,60})["'`]/g)) note(literal[1]!);
     }
     const hint = values.length > 0 ? values.slice(0, 3).map((value) => `"${value}"`).join(' or ') : null;
     const evidence = isStorage
       ? `storage selector: default "${bad.value}" stores files on the container disk — set ${hint ?? 'an S3 value'} to use the managed S3 bucket`
-      : `engine selector: default "${bad.value}" ${EMBEDDED_ENGINE_REGEX.test(bad.value) ? 'stores data on the container disk' : `is not the managed ${ENGINE_LABEL[engine!]} engine`} — set ${hint ?? `a ${ENGINE_LABEL[engine!]} value`} to use the managed ${ENGINE_LABEL[engine!]} database`;
+      : `engine selector: ${bad === unsetFallback ? 'when unset the app uses another engine' : `default "${bad.value}" ${EMBEDDED_ENGINE_REGEX.test(bad.value) ? 'stores data on the container disk' : `is not the managed ${ENGINE_LABEL[engine!]} engine`}`} — set ${hint ?? `a ${ENGINE_LABEL[engine!]} value`} to use the managed ${ENGINE_LABEL[engine!]} database`;
     result.set(name, { evidence, files });
   }
   return result;

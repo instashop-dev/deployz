@@ -508,3 +508,50 @@ describe('Phase 1 — storage selectors', () => {
     });
   });
 });
+
+describe('engine selectors: schema defaults and comparison switches', () => {
+  const pgDeps = JSON.stringify({ name: 'app', dependencies: { pg: '^8.0.0', 'better-sqlite3': '^9.0.0', envalid: '^8.0.0' } });
+  it('requires an envalid selector whose schema default is SQLite', () => {
+    const model = detectEnvVarModel(
+      {
+        'package.json': pgDeps,
+        'server/env.js': 'const env = cleanEnv(process.env, {\n  DB_CLIENT: str({ choices: ["pg", "better-sqlite3"], default: "better-sqlite3" }),\n});',
+      },
+      [],
+      { database: 'postgres', storage: false },
+    );
+    const selector = model.find((entry) => entry.key === 'DB_CLIENT');
+    expect(selector?.required).toBe(true);
+    expect(selector?.source.join(' ')).toContain('"pg"');
+  });
+
+  it('requires a Python selector the settings only compare with the provisioned engine', () => {
+    const model = detectEnvVarModel(
+      {
+        'requirements.txt': 'Django\npsycopg2\n',
+        'hc/settings.py': 'import os\nif os.getenv("DB") == "postgres":\n    DATABASES = {}\n',
+      },
+      [],
+      { database: 'postgres', storage: false },
+    );
+    expect(model.find((entry) => entry.key === 'DB')?.required).toBe(true);
+  });
+
+  it('does not require a schema selector that defaults to the provisioned engine', () => {
+    const model = detectEnvVarModel(
+      { 'package.json': pgDeps, 'env.js': 'cleanEnv(process.env, { DB_CLIENT: str({ default: "pg" }) });' },
+      [],
+      { database: 'postgres', storage: false },
+    );
+    expect(model.find((entry) => entry.key === 'DB_CLIENT')?.required ?? false).toBe(false);
+  });
+
+  it('does not require a compared selector when no database is provisioned', () => {
+    const model = detectEnvVarModel(
+      { 'requirements.txt': 'Django\n', 'settings.py': 'import os\nif os.getenv("DB") == "postgres":\n    pass\n' },
+      [],
+      { database: null, storage: false },
+    );
+    expect(model.find((entry) => entry.key === 'DB')?.required ?? false).toBe(false);
+  });
+});
