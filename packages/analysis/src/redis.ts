@@ -11,6 +11,7 @@
 import type { FileTree } from './detectors.js';
 import {
   collectDependencyNames,
+  detectEnvVarModel,
   isProductionComposeFile,
   listProductionComposeFiles,
   parsePackageJsons,
@@ -90,6 +91,13 @@ const ENV_BINDING_KIND: Partial<Record<string, RedisEnvBindingKind>> = {
   REDIS_PORT: 'port',
   // REDIS_PASSWORD intentionally has no kind — no auth in MVP (spec §21).
 };
+
+/**
+ * App-specific Redis connection names (`BACKEND_CACHE_REDIS_URI`,
+ * `NANGO_REDIS_URL`, `SENTRY_REDIS_HOST`): the app names its own variables, so
+ * the suffix decides what the value is. A password is never one of them.
+ */
+const PREFIXED_REDIS_ENV_REGEX = /(?:^|_)REDIS_(URL|URI|DSN|HOST|PORT)$/;
 
 const DEFAULT_ENV_BINDINGS: RedisEnvBinding[] = [
   { name: 'REDIS_URL', kind: 'url' },
@@ -616,7 +624,13 @@ export function assessRedis(tree: FileTree): RedisRequirement {
   if (purposes.length === 0) purposes.push('unknown');
 
   const evidence = [...new Set(signals.map((s) => s.evidence))];
-  const orderedConnectionEnvVars = KNOWN_REDIS_ENV_VARS.filter((v) => connectionEnvVars.has(v));
+  const knownConnectionEnvVars = KNOWN_REDIS_ENV_VARS.filter((v) => connectionEnvVars.has(v));
+  // Names the app reads (or its env sample documents) outside the known list.
+  const appConnectionEnvVars = detectEnvVarModel(tree)
+    .map((variable) => variable.key)
+    .filter((key) => PREFIXED_REDIS_ENV_REGEX.test(key) && !(KNOWN_REDIS_ENV_VARS as readonly string[]).includes(key))
+    .sort();
+  const orderedConnectionEnvVars = [...knownConnectionEnvVars, ...appConnectionEnvVars];
 
   const compatibility = evaluateCompatibility(tree);
   const required = confidence === 'high' && compatibility.supported;
@@ -651,6 +665,11 @@ export function resolveRedisEnvBindings(connectionEnvVars: string[]): RedisEnvBi
     const kind = ENV_BINDING_KIND[name];
     if (!kind) continue;
     bindings.push({ name, kind });
+  }
+  for (const name of [...present].sort()) {
+    const suffix = PREFIXED_REDIS_ENV_REGEX.exec(name)?.[1];
+    if (suffix === undefined || (KNOWN_REDIS_ENV_VARS as readonly string[]).includes(name)) continue;
+    bindings.push({ name, kind: suffix === 'HOST' ? 'host' : suffix === 'PORT' ? 'port' : 'url' });
   }
 
   return bindings.length > 0 ? bindings : DEFAULT_ENV_BINDINGS;

@@ -565,7 +565,7 @@ function selectedDockerfile(tree: FileTree): { path: string; content: string } |
  * own Dockerfile is a separate image: a release has exactly one image, so its
  * reads never reach this container. Comment lines are not references.
  */
-function siblingAppFilter(tree: FileTree): (path: string) => boolean {
+export function siblingAppFilter(tree: FileTree): (path: string) => boolean {
   const dockerfile = selectedDockerfile(tree);
   const match = dockerfile ? /^((?:apps|services|applications)\/)([^/]+)\/(?:.+\/)?[^/]+$/.exec(dockerfile.path) : null;
   if (!dockerfile || !match) return () => false;
@@ -2904,8 +2904,25 @@ const INFRA_BINDING_NAMES = new Set<string>([
   'DB_USERNAME',
   'DB_PASSWORD',
   'DB_PASS',
+  'DB_CONNECTION_URI',
+  'DSN',
+  'SQLALCHEMY_DATABASE_URI',
   'POSTGRES_URL',
   'POSTGRESQL_URL',
+  'POSTGRES_URI',
+  'POSTGRES_CONNECTION_STRING',
+  'POSTGRES_DATABASE',
+  'POSTGRES_USERNAME',
+  'POSTGRES_SERVER',
+  'MYSQL_URL',
+  'MYSQL_HOST',
+  'MYSQL_PORT',
+  'MYSQL_DATABASE',
+  'MYSQL_USER',
+  'MYSQL_PASSWORD',
+  'SPRING_DATASOURCE_URL',
+  'SPRING_DATASOURCE_USERNAME',
+  'SPRING_DATASOURCE_PASSWORD',
   'REDIS_URL',
   'REDIS_HOST',
   'REDIS_PORT',
@@ -2923,7 +2940,7 @@ const INFRA_BINDING_NAMES = new Set<string>([
 
 /** Alias shapes the infrastructure-binding phase can inject (MEMOS_DSN, PAPERLESS_DBHOST…). */
 const INFRA_BINDING_ALIAS_REGEX =
-  /(?:_DSN|_DATABASE_URL|_DATABASE_URI|_DB_URL|_DB_URI|_POSTGRES_URL|_POSTGRESQL_URL|_DBHOST|_DBPORT|_DBNAME|_DBUSER|_DBPASS|_BUCKET(?:_NAME)?|_S3_REGION)$/i;
+  /(?:_DSN|_DATABASE_URL|_DATABASE_URI|_DB_URL|_DB_URI|_POSTGRES_URL|_POSTGRESQL_URL|_DBHOST|_DBPORT|_DBNAME|_DBUSER|_DBPASS|_BUCKET(?:_NAME)?|_S3_REGION|_DB_CONNECTION_(?:URI|URL|STRING)|_POSTGRES_URI|_MYSQL_URL|_DB_{1,2}(?:HOST|PORT|NAME|DATABASE|USER|USERNAME|PASSWORD|PASS)|_POSTGRES(?:DB)?_(?:HOST|PORT|DB|DATABASE|USER|USERNAME|PASSWORD)|_DATASOURCE_(?:URL|JDBC_URL|USERNAME|PASSWORD)|_JDBC_URL|_REDIS_(?:URL|URI|DSN|HOST|PORT))$/i;
 
 /** Every §11.3 external-service catalog key (a vendor credential name). */
 function externalServiceCatalogKeys(): Set<string> {
@@ -3082,31 +3099,183 @@ function detectComposeBuildArgs(tree: FileTree): Map<string, string> {
  * **throw** for that key still means required (Documenso's
  * NEXT_PRIVATE_DATABASE_REPLICA_URLS, COMP false-positive fix).
  */
-/** Engine-selector variables that decide which database engine the app uses. */
-const ENGINE_SELECTOR_NAMES = ['DB', 'DB_ENGINE', 'DATABASE_ENGINE', 'DB_CLIENT', 'DB_BACKEND'];
-
-/**
- * COMP-022 — engine selectors defaulting to a non-PostgreSQL engine while a
- * PostgreSQL driver is also present. The selector read must then be REQUIRED:
- * without a value the app boots on SQLite inside the container and silently
- * drops data instead of using the provisioned database.
- */
-function unresolvedEngineSelectors(tree: FileTree): Set<string> {
-  const selectors = new Set<string>();
-  for (const [path, content] of Object.entries(tree)) {
-    if (!content || !isRuntimeSourcePath(path)) continue;
-    for (const name of ENGINE_SELECTOR_NAMES) {
-      const defaulted = new RegExp(
-        `(?:["']${name}["']\\s*[,)]\\s*["']?(?:sqlite|sqlite3)|process\\.env\\.${name}\\s*\\|\\|\\s*["'](?:sqlite|sqlite3)|os\\.getenv\\s*\\(\\s*["']${name}["'][^)]*["'](?:sqlite|sqlite3))`,
-      ).test(content);
-      if (defaulted) selectors.add(name);
-    }
-  }
-  if (selectors.size === 0) return selectors;
-  return detectPostgresql(tree).detected ? selectors : new Set<string>();
+/** The managed resources Deployz provisions for the app; a selector only matters for what is provisioned. */
+export interface ProvisionedResources {
+  database: 'postgres' | 'mysql' | null;
+  storage: boolean;
 }
 
-export function detectEnvVarModel(tree: FileTree, externalServices: string[] = []): ManifestEnvVariable[] {
+// A selector names the engine/backend the app uses: DB, DB_TYPE, DATABASE_CLIENT,
+// DB_CONNECTION, MB_DB_TYPE, PAPERLESS_DBENGINE, MEMOS_DRIVER. A `*_DRIVER` only
+// counts when its default is a database engine, so MAIL_DRIVER=smtp never does.
+// The database NAME of a known engine (POSTGRES_DB) is not a selector.
+const DB_SELECTOR_NAME_REGEX =
+  /^(?!(?:POSTGRES|POSTGRESQL|MYSQL|MARIADB|PG)_)(?:(?:[A-Z0-9]+_)*(?:DB|DATABASE)(?:_(?:CLIENT|TYPE|DRIVER|ENGINE|DIALECT|BACKEND|CONNECTION|ADAPTER|VENDOR|PROVIDER))?|[A-Z0-9_]*_DBENGINE|[A-Z0-9]+_DRIVER)$/;
+const STORAGE_SELECTOR_NAME_REGEX =
+  /(?:^|_)(?:FILE_)?STORAGE(?:_(?:TYPE|DRIVER|PROVIDER|BACKEND|SERVICE|MODE))?$|(?:^|_)UPLOAD_PROVIDER$|_STORAGE_PROVIDER$|^ACTIVE_STORAGE_SERVICE$/;
+
+const EMBEDDED_ENGINE_REGEX = /^(?:sqlite3?|better-sqlite3|libsql|h2|bolt|django\.db\.backends\.sqlite3)(?:$|[:/])/i;
+const ENGINE_VALUE_REGEX = {
+  postgres: /^(?:pg|pgsql|postgres(?:ql|db)?|node-postgres|postgis|django\.db\.backends\.postgresql\w*)(?:$|[:/+])/i,
+  mysql: /^(?:mysql2?|mariadb|django\.db\.backends\.mysql|mysql\+\w+)(?:$|[:/])/i,
+};
+const ENGINE_LABEL = { postgres: 'PostgreSQL', mysql: 'MySQL' };
+const LOCAL_STORAGE_VALUE_REGEX = /^(?:local|disk|fs|file|filesystem|local[_-]?disk)$/i;
+const S3_STORAGE_VALUE_REGEX = /^(?:s3|aws|amazon|amazons3|aws[-_]?s3|s_3)$/i;
+
+/** Files whose env reads and defaults can name a selector. */
+const SELECTOR_SOURCE_REGEX = /\.(?:[cm]?[jt]sx?|py|rb|go|php|java|kt|kts|scala)$/i;
+/** Rails `config/*.yml`, Laravel `config/*.php` and Spring `application*` — small files that read env vars. */
+const CONFIG_ENV_FILE_REGEX =
+  /(?:^|\/)config\/[\w.-]+\.(?:ya?ml|php)$|(?:^|\/)application(?:-[\w.-]+)?\.(?:properties|ya?ml)$/i;
+
+/** Env reads with an inline default, in every language the tree carries: `[name, default]`. */
+function scanDefaultedEnvReads(content: string): [string, string][] {
+  const found: [string, string][] = [];
+  // JS `env.X || 'd'`, `process.env['X'] ?? 'd'`
+  for (const m of content.matchAll(/\benv(?:\.([A-Z][A-Z0-9_]*)|\[\s*["']([A-Z][A-Z0-9_]*)["']\s*\])\s*(?:\|\||\?\?)\s*["'`]([^"'`\n]*)["'`]/g)) {
+    found.push([(m[1] ?? m[2])!, m[3]!]);
+  }
+  // Ruby `ENV['X'] || 'd'`
+  for (const m of content.matchAll(/\bENV\[\s*["']([A-Z][A-Z0-9_]*)["']\s*\]\s*\|\|\s*["']([^"'\n]*)["']/g)) {
+    found.push([m[1]!, m[2]!]);
+  }
+  // `os.getenv("X", "d")`, `os.environ.get`, `ENV.fetch`, PHP/Strapi `env('X', 'd')`, `env.get('X', 'd')`, Go `getEnv("X", "d")`
+  for (const m of content.matchAll(/\b\w*env\w*(?:\.(?:get|fetch|getenv))?\s*\(\s*["'`]([A-Za-z0-9_]+)["'`]\s*,\s*(?:default\s*=\s*)?["'`]([^"'`\n]*)["'`]/gi)) {
+    if (m[1] === m[1]!.toUpperCase()) found.push([m[1]!, m[2]!]);
+  }
+  // Spring / shell `${X:default}`
+  for (const m of content.matchAll(/\$\{([A-Z][A-Z0-9_]*):-?([^}\n]*)\}/g)) found.push([m[1]!, m[2]!]);
+  return found;
+}
+
+/** Go viper `SetDefault("driver", "sqlite")` or a flag default under `SetEnvPrefix("memos")` → `MEMOS_DRIVER`. */
+function scanViperEnvDefaults(content: string): [string, string][] {
+  const prefix = /viper\.SetEnvPrefix\(\s*"([A-Za-z][A-Za-z0-9_-]*)"\s*\)/.exec(content)?.[1];
+  if (prefix === undefined || !/viper\.AutomaticEnv\s*\(/.test(content)) return [];
+  const found: [string, string][] = [];
+  for (const m of content.matchAll(
+    /viper\.SetDefault\(\s*"([a-zA-Z][\w-]*)"\s*,\s*"([^"\n]*)"|\.(?:Persistent)?Flags\(\)\.String\w*\(\s*"([a-zA-Z][\w-]*)"\s*,\s*"([^"\n]*)"/g,
+  )) {
+    const key = (m[1] ?? m[3])!;
+    found.push([`${prefix.toUpperCase().replace(/-/g, '_')}_${key.toUpperCase().replace(/-/g, '_')}`, (m[2] ?? m[4])!]);
+  }
+  return found;
+}
+
+/** `KEY=value` / `KEY: value` lines of a sample or compose file. */
+function envLineValues(content: string): [string, string][] {
+  return [...content.matchAll(/^[ \t]*-?[ \t]*([A-Z][A-Z0-9_]*)[ \t]*[=:][ \t]*["']?([^\s"'#]*)/gm)].map(
+    (m): [string, string] => [m[1]!, m[2]!],
+  );
+}
+
+/** Env sample files at any depth of the selected app — not sibling apps, docs, tests or examples. */
+function appEnvSampleFiles(tree: FileTree, isSiblingApp: (path: string) => boolean): string[] {
+  return Object.keys(tree).filter(
+    (path) => tree[path] && ENV_SAMPLE_FILE_REGEX.test(path) && isRuntimeSourcePath(path) && !isSiblingApp(path),
+  );
+}
+
+/**
+ * COMP-022, generalised — selectors whose default is an embedded or different
+ * engine (or local disk storage) while a managed one is provisioned. Such a
+ * selector must be REQUIRED: without a value the app boots on SQLite or the
+ * container disk and silently drops data instead of using the provisioned
+ * resource. Never flagged when the default already names the provisioned
+ * engine, or when the resource is not provisioned.
+ *
+ * Each selector carries an evidence string that names the value to use when
+ * the code or a sample file shows it.
+ */
+function unresolvedSelectors(
+  tree: FileTree,
+  isSiblingApp: (path: string) => boolean,
+  provisioned: ProvisionedResources,
+  reads: ReadonlyMap<string, { files: string[] }>,
+): Map<string, { evidence: string; files: string[] }> {
+  type Value = { value: string; file: string };
+  const codeDefaults = new Map<string, Value[]>();
+  const sampleValues = new Map<string, Value[]>();
+  const add = (map: Map<string, Value[]>, name: string, value: string, file: string): void => {
+    if (!DB_SELECTOR_NAME_REGEX.test(name) && !STORAGE_SELECTOR_NAME_REGEX.test(name)) return;
+    map.set(name, [...(map.get(name) ?? []), { value, file }]);
+  };
+  for (const [path, content] of Object.entries(tree)) {
+    if (!content || !isRuntimeSourcePath(path) || isSiblingApp(path)) continue;
+    if (!SELECTOR_SOURCE_REGEX.test(path) && !CONFIG_ENV_FILE_REGEX.test(path)) continue;
+    for (const [name, value] of scanDefaultedEnvReads(content)) add(codeDefaults, name, value, path);
+    if (GO_SOURCE.test(path)) for (const [name, value] of scanViperEnvDefaults(content)) add(codeDefaults, name, value, path);
+  }
+  for (const path of [...appEnvSampleFiles(tree, isSiblingApp), ...listProductionComposeFiles(tree)]) {
+    for (const [name, value] of envLineValues(tree[path] ?? '')) add(sampleValues, name, value, path);
+  }
+
+  const result = new Map<string, { evidence: string; files: string[] }>();
+  const engine = provisioned.database;
+  for (const name of new Set([...codeDefaults.keys(), ...sampleValues.keys()])) {
+    const isDb = engine !== null && DB_SELECTOR_NAME_REGEX.test(name);
+    const isStorage = !isDb && provisioned.storage && STORAGE_SELECTOR_NAME_REGEX.test(name);
+    if (!isDb && !isStorage) continue;
+    const fromCode = codeDefaults.get(name) ?? [];
+    // A sample value is only a default for a variable the app actually reads.
+    const fromSamples = fromCode.length > 0 || reads.has(name) ? (sampleValues.get(name) ?? []) : [];
+    const bad = [...fromCode, ...fromSamples].find(({ value }) =>
+      isStorage
+        ? LOCAL_STORAGE_VALUE_REGEX.test(value)
+        : EMBEDDED_ENGINE_REGEX.test(value) ||
+          (['postgres', 'mysql'] as const).some((other) => other !== engine && ENGINE_VALUE_REGEX[other].test(value)),
+    );
+    if (!bad) continue;
+
+    const wanted = isStorage ? S3_STORAGE_VALUE_REGEX : ENGINE_VALUE_REGEX[engine!];
+    const values: string[] = [];
+    const note = (value: string): void => {
+      if (/^[\w.-]+$/.test(value) && wanted.test(value) && !values.includes(value)) values.push(value);
+    };
+    for (const { value } of sampleValues.get(name) ?? []) note(value);
+    const files = [...new Set([...fromCode.map((entry) => entry.file), ...(reads.get(name)?.files ?? [])])];
+    for (const file of files) {
+      for (const literal of (tree[file] ?? '').matchAll(/["'`]([^"'`\s]{1,60})["'`]/g)) note(literal[1]!);
+    }
+    const hint = values.length > 0 ? values.slice(0, 3).map((value) => `"${value}"`).join(' or ') : null;
+    const evidence = isStorage
+      ? `storage selector: default "${bad.value}" stores files on the container disk — set ${hint ?? 'an S3 value'} to use the managed S3 bucket`
+      : `engine selector: default "${bad.value}" ${EMBEDDED_ENGINE_REGEX.test(bad.value) ? 'stores data on the container disk' : `is not the managed ${ENGINE_LABEL[engine!]} engine`} — set ${hint ?? `a ${ENGINE_LABEL[engine!]} value`} to use the managed ${ENGINE_LABEL[engine!]} database`;
+    result.set(name, { evidence, files });
+  }
+  return result;
+}
+
+/** Env reads in framework config files; a read without a default is required only for a secret. */
+function scanConfigFileEnvReads(path: string, content: string): { key: string; needsValue: boolean }[] {
+  const found: { key: string; needsValue: boolean }[] = [];
+  const add = (key: string, hasDefault: boolean): void => {
+    found.push({ key, needsValue: !hasDefault && isSecretName(key) });
+  };
+  if (/\.php$/i.test(path)) {
+    for (const m of content.matchAll(/\benv\(\s*["']([A-Z][A-Z0-9_]*)["']\s*(,)?/g)) add(m[1]!, m[2] !== undefined);
+  } else if (/application[^/]*\.(?:properties|ya?ml)$/i.test(path)) {
+    for (const m of content.matchAll(/\$\{([A-Z][A-Z0-9_]*)(:[^}]*)?\}/g)) add(m[1]!, m[2] !== undefined);
+    // Spring relaxed binding: a `spring.datasource` property is also read from SPRING_DATASOURCE_*.
+    const configuresDatasource = /\.properties$/i.test(path)
+      ? /^\s*spring\.datasource\./m.test(content)
+      : /^spring:[ \t]*\r?\n(?:[ \t]+.*\r?\n|[ \t]*\r?\n)*?[ \t]+datasource:/m.test(content);
+    if (configuresDatasource) {
+      for (const key of ['SPRING_DATASOURCE_URL', 'SPRING_DATASOURCE_USERNAME', 'SPRING_DATASOURCE_PASSWORD']) add(key, true);
+    }
+  } else {
+    for (const m of content.matchAll(/\bENV\[\s*["']([A-Z][A-Z0-9_]*)["']\s*\]\s*(\|\|)?/g)) add(m[1]!, m[2] !== undefined);
+    for (const m of content.matchAll(/\bENV\.fetch\(\s*["']([A-Z][A-Z0-9_]*)["']\s*(,|\)\s*\{)?/g)) add(m[1]!, m[2] !== undefined);
+  }
+  return found;
+}
+
+export function detectEnvVarModel(
+  tree: FileTree,
+  externalServices: string[] = [],
+  provisioned?: ProvisionedResources,
+): ManifestEnvVariable[] {
   // ── 1. Declarations: every KEY=VALUE line in any env file we ship with. ──
   const declarations = new Map<string, { realValue: boolean; sampleEmpty: boolean; files: string[] }>();
   for (const [path, content] of Object.entries(tree)) {
@@ -3131,6 +3300,19 @@ export function detectEnvVarModel(tree: FileTree, externalServices: string[] = [
     }
   }
 
+  // Sample files deeper in the app (`apps/api/.env.example`) document binding
+  // names too. They never feed `declarations`, so they cannot change which
+  // variables are required; only infrastructure-binding names are listed.
+  const isSiblingApp = siblingAppFilter(tree);
+  const nestedSampleFiles = new Map<string, string[]>();
+  for (const path of appEnvSampleFiles(tree, isSiblingApp)) {
+    if (!path.includes('/')) continue;
+    for (const [key] of envLineValues(tree[path] ?? '')) {
+      if (classifyEnvVarPurpose(key).purpose !== 'infrastructure_binding') continue;
+      nestedSampleFiles.set(key, [...(nestedSampleFiles.get(key) ?? []), path]);
+    }
+  }
+
   // ── 2. Reads: which variables the app actually reads, and whether a read
   //      NEEDS a value vs. tolerates absence (fallback or presence guard). ──
   const reads = new Map<string, { needsValue: boolean; files: string[] }>();
@@ -3151,7 +3333,6 @@ export function detectEnvVarModel(tree: FileTree, externalServices: string[] = [
   // `process.env.EE_ENV_LOADED = 'true'`) is set by the app itself, so a read
   // of it is never the vendor's to configure.
   const assignedKeys = new Set<string>();
-  const isSiblingApp = siblingAppFilter(tree);
   for (const [path, content] of Object.entries(tree)) {
     if (!content || !JS_SOURCE.test(path) || !isRuntimeSourcePath(path) || isSiblingApp(path)) continue;
     for (const assigned of content.matchAll(JS_ENV_ASSIGNMENT_REGEX)) {
@@ -3369,8 +3550,22 @@ export function detectEnvVarModel(tree: FileTree, externalServices: string[] = [
       for (const entry of scanDotnetEnvReads(content)) {
         recordRead(entry.key, entry.needsValue, path);
       }
+    } else if (CONFIG_ENV_FILE_REGEX.test(path)) {
+      for (const entry of scanConfigFileEnvReads(path, content)) {
+        recordRead(entry.key, entry.needsValue, path);
+      }
     }
   }
+
+  // Selectors with a bad default are reads too (a Ruby `ENV['DB'] || 'sqlite'`
+  // or a PHP `env('DB_CONNECTION', 'sqlite')` is not caught above).
+  const selectors = unresolvedSelectors(
+    tree,
+    isSiblingApp,
+    provisioned ?? { database: detectPostgresql(tree).detected ? 'postgres' : null, storage: detectS3(tree).detected },
+    reads,
+  );
+  for (const [name, selector] of selectors) for (const file of selector.files) recordRead(name, false, file);
 
   // A Dockerfile `ARG NAME` with no default that the repository's compose file
   // feeds through `build.args` is a build input the image needs
@@ -3380,7 +3575,12 @@ export function detectEnvVarModel(tree: FileTree, externalServices: string[] = [
   const composeBuildArgs = detectComposeBuildArgs(tree);
 
   // ── 3. Combine into the model. ──
-  const keys = new Set<string>([...declarations.keys(), ...reads.keys(), ...composeBuildArgs.keys()]);
+  const keys = new Set<string>([
+    ...declarations.keys(),
+    ...reads.keys(),
+    ...composeBuildArgs.keys(),
+    ...nestedSampleFiles.keys(),
+  ]);
   const entries: ManifestEnvVariable[] = [];
 
   for (const key of [...keys].sort()) {
@@ -3395,20 +3595,22 @@ export function detectEnvVarModel(tree: FileTree, externalServices: string[] = [
     const source: string[] = [];
     if (buildArg) source.push(buildArg);
 
+    const selector = selectors.get(key);
+    if (selector) source.push(selector.evidence);
     if (declared) {
       for (const file of declared.files) source.push(`${file} declares ${key}`);
     }
+    for (const file of nestedSampleFiles.get(key) ?? []) source.push(`${file} declares ${key}`);
     if (read) {
       for (const file of read.files) source.push(`read in ${file}`);
     }
 
     // A defaulted/guarded read that never NEEDS the value is never required,
     // even when a sample line is empty — and a platform-provided variable is
-    // never the vendor's to configure. COMP-022: an engine selector defaulting
-    // to SQLite next to a PostgreSQL driver is the one exception — it must be
-    // set for the provisioned database to be used.
-    const required =
-      (needsValue || unresolvedEngineSelectors(tree).has(key)) && !hasDefault && !isPlatformEnvVar(key);
+    // never the vendor's to configure. COMP-022: a selector defaulting to an
+    // embedded engine or local disk next to the provisioned resource is the
+    // one exception — it must be set for that resource to be used.
+    const required = (needsValue || selector !== undefined) && !hasDefault && !isPlatformEnvVar(key);
 
     let secret = isSecretName(key);
     // §11.3 upgrade: an evidenced well-known service credential is a secret
