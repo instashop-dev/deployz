@@ -562,3 +562,27 @@ describe('deployment files in sample directories warn and never block', () => {
     expect(manifest.ignoredDeploymentFiles).toBeUndefined();
   });
 });
+
+describe('compose volumes of a service that builds another Dockerfile', () => {
+  const base = {
+    'package.json': JSON.stringify({ name: 'app', dependencies: { pg: '^8.0.0' } }),
+    'docker/Dockerfile': 'FROM node:20\nWORKDIR /app\nCOPY . .\nEXPOSE 3000\nCMD ["node", "index.js"]\n',
+    'docker/Dockerfile.compose': 'FROM example/app:latest\nCOPY ./entry.sh /entry.sh\nENTRYPOINT ["sh", "/entry.sh"]\n',
+  };
+  it('ignores the volume of a compose-only wrapper image', () => {
+    const tree = {
+      ...base,
+      'docker-compose.yml':
+        'services:\n  main:\n    build:\n      context: ./docker\n      dockerfile: Dockerfile.compose\n    volumes:\n      - app_storage:/app/storage\n  postgres:\n    image: postgres:16\nvolumes:\n  app_storage:\n',
+    };
+    expect(detectLocalFilesystem(tree).detected).toBe(false);
+  });
+  it('keeps the volume of the service that builds the selected Dockerfile', () => {
+    const tree = {
+      ...base,
+      'docker-compose.yml':
+        'services:\n  main:\n    build:\n      context: .\n      dockerfile: docker/Dockerfile\n    volumes:\n      - app_storage:/app/storage\n  postgres:\n    image: postgres:16\nvolumes:\n  app_storage:\n',
+    };
+    expect(detectLocalFilesystem(tree).detected).toBe(true);
+  });
+});

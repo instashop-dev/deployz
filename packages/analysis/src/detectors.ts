@@ -268,6 +268,27 @@ export interface ComposeService {
   body: string;
 }
 
+/** The repository path of the Dockerfile a compose `build:` names, or null when the service pulls an image. */
+export function composeBuildDockerfile(composeFile: string, build: string | null): string | null {
+  if (build === null) return null;
+  const part = (key: string): string | undefined =>
+    build.split('|').find((entry) => entry.startsWith(`${key}:`))?.slice(key.length + 1).trim();
+  const composeDir = composeFile.includes('/') ? composeFile.slice(0, composeFile.lastIndexOf('/')) : '';
+  const context = posixJoin(composeDir, part('context') ?? '.');
+  return posixJoin(context, part('dockerfile') ?? 'Dockerfile');
+}
+
+/** Join and normalize repository-relative paths (`a/./b/../c` → `a/c`). */
+function posixJoin(...parts: string[]): string {
+  const segments: string[] = [];
+  for (const segment of parts.join('/').split('/')) {
+    if (segment === '' || segment === '.') continue;
+    if (segment === '..') segments.pop();
+    else segments.push(segment);
+  }
+  return segments.join('/');
+}
+
 export function composeServices(tree: FileTree): { file: string; services: ComposeService[] } | null {
   const path = listProductionComposeFiles(tree)[0];
   if (path === undefined) return null;
@@ -2127,6 +2148,10 @@ export function detectLocalFilesystem(tree: FileTree): DetectorFinding {
 
   const compose = composeApplicationServices(tree);
   for (const service of compose?.services ?? []) {
+    // A service that builds a different Dockerfile packages the app another
+    // way (a compose-only wrapper image); its volumes are not this image's.
+    const built = compose && composeBuildDockerfile(compose.file, service.build);
+    if (built && dockerfile && built !== dockerfile.path) continue;
     for (const volume of service.volumes) {
       if (NON_STATE_MOUNT_REGEX.test(volume)) continue;
       if (hasPostgresDriver && DATABASE_VOLUME_REGEX.test(volume)) continue;
@@ -2717,7 +2742,8 @@ function hasRuntimeDependency(tree: FileTree, dir: string, name: string): boolea
  * evidently safe — an absent command is safer than a wrong one running
  * unattended against the production database.
  */
-export function selectMigrationScript(tree: FileTree): [key: string, command: string, packageDir: string] | undefined {
+/** The package directories the image runs: the root, the Dockerfile's directory and the runtime WORKDIR. */
+function deployedPackageDirs(tree: FileTree): Set<string> {
   const dockerfile = selectedDockerfile(tree);
   const appDirs = new Set(['']);
   if (dockerfile) {
@@ -2725,6 +2751,12 @@ export function selectMigrationScript(tree: FileTree): [key: string, command: st
     appDirs.add(dockerfile.path.includes('/') ? dockerfile.path.split('/').slice(0, -1).join('/') : '');
     appDirs.add(posixPath.relative(imageRoot, runtimeCwd));
   }
+  return appDirs;
+}
+
+export function selectMigrationScript(tree: FileTree): [key: string, command: string, packageDir: string] | undefined {
+  const dockerfile = selectedDockerfile(tree);
+  const appDirs = deployedPackageDirs(tree);
   const keepsDevDependencies = dockerfile !== null && finalStageKeepsDevDependencies(dockerfile.content);
 
   const safe = collectScriptsWithDir(tree).filter(([key, command, dir]) => {
@@ -2889,6 +2921,20 @@ export const ENTRYPOINT_REGEX = /^ENTRYPOINT\s+(.+)$/m;
  * Detect the application startup command from the selected Dockerfile's
  * CMD/ENTRYPOINT instructions and package.json "start" script.
  */
+/** A start script that builds before it runs: a compiler or bundler step. */
+const START_BUILD_STEP_REGEX = /(?:^|&&|;)\s*(?:npx\s+)?(?:tsc|webpack|vite\s+build|next\s+build|nest\s+build|turbo|nx|lerna|(?:npm|yarn|pnpm)\s+(?:run\s+)?build)\b/;
+
+/** A package.json directory that is a JavaScript workspace root. */
+function isWorkspaceRoot(tree: FileTree, dir: string): boolean {
+  const prefix = dir === '' ? '' : `${dir}/`;
+  if (tree[`${prefix}pnpm-workspace.yaml`] !== undefined) return true;
+  try {
+    return 'workspaces' in (JSON.parse(tree[`${prefix}package.json`] ?? '{}') as Record<string, unknown>);
+  } catch {
+    return false;
+  }
+}
+
 export function detectStartupCommand(tree: FileTree): DetectorFinding {
   const sources: string[] = [];
   let source: DetectorSource | undefined;
@@ -2908,9 +2954,13 @@ export function detectStartupCommand(tree: FileTree): DetectorFinding {
     if (sources.length > 0) source = 'dockerfile';
   }
 
-  // 2. package.json "start" script, when it belongs to the image.
-  for (const [name, command] of nodeManifestsApplyToImage(tree) ? collectScripts(tree) : []) {
-    if (name === 'start') {
+  // 2. package.json "start" script, when it belongs to the image. A workspace
+  //    root's script orchestrates packages, and a script that compiles first
+  //    (`tsc && node dist/app.js`) needs build tools the runtime image may not
+  //    have — neither is the container's command, so the vendor is asked.
+  const appDirs = deployedPackageDirs(tree);
+  for (const [name, command, dir] of nodeManifestsApplyToImage(tree) ? collectScriptsWithDir(tree) : []) {
+    if (name === 'start' && appDirs.has(dir) && !isWorkspaceRoot(tree, dir) && !START_BUILD_STEP_REGEX.test(command)) {
       sources.push(`start: ${command}`);
       source ??= 'package-manifest';
     }
@@ -3671,7 +3721,7 @@ export interface ProvisionedResources {
 const DB_SELECTOR_NAME_REGEX =
   /^(?!(?:POSTGRES|POSTGRESQL|MYSQL|MARIADB|PG)_)(?:(?:[A-Z0-9]+_)*(?:DB|DATABASE)(?:_(?:CLIENT|TYPE|DRIVER|ENGINE|DIALECT|BACKEND|CONNECTION|ADAPTER|VENDOR|PROVIDER))?|[A-Z0-9_]*_DBENGINE|[A-Z0-9]+_DRIVER)$/;
 const STORAGE_SELECTOR_NAME_REGEX =
-  /(?:^|_)(?:FILE_)?STORAGE(?:_(?:TYPE|DRIVER|PROVIDER|BACKEND|SERVICE|MODE))?$|(?:^|_)UPLOAD_PROVIDER$|_STORAGE_PROVIDER$|^ACTIVE_STORAGE_SERVICE$/;
+  /(?:^|_)(?:FILE_)?STORAGE(?:_(?:TYPE|DRIVER|PROVIDER|BACKEND|SERVICE|MODE|LOCATIONS?))?$|(?:^|_)UPLOAD_PROVIDER$|_STORAGE_PROVIDER$|^ACTIVE_STORAGE_SERVICE$/;
 
 const EMBEDDED_ENGINE_REGEX = /^(?:sqlite3?|better-sqlite3|libsql|h2|bolt|django\.db\.backends\.sqlite3)(?:$|[:/])/i;
 const ENGINE_VALUE_REGEX = {
@@ -4908,6 +4958,43 @@ export function detectGitCopyInDockerfile(tree: FileTree): DetectorFinding {
     details: `Dockerfile copies .git from the build context, which the tarball build never has: ${matches.join('; ')} (${dockerfile.path})`,
     source: 'dockerfile',
   };
+}
+
+/**
+ * The full repository path list, when the caller knows it. The tree holds only
+ * the files analysis reads; the fetch layer attaches every tracked path under
+ * this symbol (never an enumerable key, so no detector sees it as a file).
+ */
+export const TREE_PATHS: unique symbol = Symbol.for('deployz.analysis.treePaths');
+
+/**
+ * `COPY`/`ADD` sources of the selected Dockerfile (no `--from`) that are not in
+ * the repository, from the root or from the Dockerfile's directory: a build
+ * output a CI step makes before `docker build` (listmonk's `COPY listmonk .`,
+ * tolgee's prebuilt `BOOT-INF`). The release build has only the repository, so
+ * that Dockerfile can never build. Empty when the path list is unknown.
+ */
+export function detectDockerfileMissingCopySources(tree: FileTree): string[] {
+  const paths = (tree as FileTree & { [TREE_PATHS]?: readonly string[] })[TREE_PATHS];
+  const dockerfile = selectedDockerfile(tree);
+  if (!paths || !dockerfile) return [];
+  const dockerDir = dockerfile.path.includes('/') ? dockerfile.path.slice(0, dockerfile.path.lastIndexOf('/')) : '';
+  const exists = (path: string): boolean => paths.some((candidate) => candidate === path || candidate.startsWith(`${path}/`));
+  const missing: string[] = [];
+  for (const match of dockerfile.content.replace(/\\\r?\n/g, ' ').matchAll(DOCKERFILE_COPY_ADD_REGEX)) {
+    const args = match[1] ?? '';
+    if (COPY_FROM_FLAG_REGEX.test(args)) continue;
+    // Flags may precede the JSON form (`COPY --chown=app ["a b", "./"]`).
+    for (const token of copyAddSources(args.replace(/^(?:\s*--\S+)+\s*(?=\[)/, ''))) {
+      if (/[*?$[]|^[a-z]+:\/\//i.test(token) || GIT_SOURCE_TOKEN_REGEX.test(token)) continue;
+      // A leading `/` is still relative to the build context.
+      const source = token.replace(/^\/+/, '').replace(/^\.\//, '').replace(/\/+$/, '');
+      if (source === '' || source === '.') continue;
+      if (exists(source) || (dockerDir !== '' && exists(`${dockerDir}/${source}`))) continue;
+      if (!missing.includes(source)) missing.push(source);
+    }
+  }
+  return missing;
 }
 
 // 18. Dockerfile build context

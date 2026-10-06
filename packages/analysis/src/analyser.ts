@@ -33,6 +33,8 @@ import {
   detectStartupMigrationEvidence,
   detectDeclaredWorkerCommands,
   hasPreDeployMigration,
+  isRuntimeSourcePath,
+  detectDockerfileMissingCopySources,
 } from './detectors.js';
 
 import type { RejectionFinding } from './rejection.js';
@@ -63,7 +65,7 @@ import {
   listIgnoredDeploymentFiles,
 } from './rejection.js';
 
-import { classifyEnvVariables } from './env-classification.js';
+import { classifyEnvVariables, MANAGED_DATABASE_ENV_VARS } from './env-classification.js';
 import type { RedisRequirement } from './redis.js';
 import { assessRedis, resolveRedisEnvBindings } from './redis.js';
 import { deriveAmbiguities } from './evidence.js';
@@ -437,6 +439,15 @@ export function analyseRepo(tree: FileTree): AnalysisResult {
   // under (MEMOS_DSN, PAPERLESS_DBHOST, CELERY_BROKER_URL, …). Purely derived
   // read-model over the env-var model — never feeds back into a verdict.
   metadata['infrastructureBindings'] = deriveInfrastructureBindings(tree, result);
+  metadata['dockerfileMissingSources'] = detectDockerfileMissingCopySources(tree);
+  // A standard database name written in a runtime file (a Go `case "DATABASE_URL":`,
+  // a compose `environment:` entry) is evidence that the app reads it, even
+  // when the read shape is not one the env-var model parses.
+  metadata['databaseNamesMentioned'] = MANAGED_DATABASE_ENV_VARS.filter((name) =>
+    Object.entries(tree).some(
+      ([path, content]) => Boolean(content) && isRuntimeSourcePath(path) && new RegExp(`\\b${name}\\b`).test(content!),
+    ),
+  );
   return result;
 }
 

@@ -196,6 +196,8 @@ export const deploymentManifestSchema = z
         command: z.string().nullable(),
         /** Build context directory — usually the app root. */
         context: z.string().min(1),
+        /** Dockerfile COPY sources that are not in the repository (a CI build output); absent when none. */
+        missingSources: z.array(z.string()).optional(),
       })
       .strict(),
     web: z

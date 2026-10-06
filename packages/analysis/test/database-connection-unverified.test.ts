@@ -74,3 +74,15 @@ describe('database.connectionUnverified', () => {
     expect(manifest.database).not.toHaveProperty('connectionUnverified');
   });
 });
+
+describe('database guard: a standard name written in runtime source', () => {
+  it('does not ask when a Go config switch names DATABASE_URL', () => {
+    const tree = {
+      'go.mod': 'module example.com/app\n\nrequire github.com/lib/pq v1.10.9\n',
+      'Dockerfile': 'FROM golang:1.22\nCOPY . .\nRUN go build -o /app\nEXPOSE 8080\nCMD ["/app"]\n',
+      'internal/config/parser.go': 'package config\n\nimport _ "github.com/lib/pq"\n\nfunc parse(key, value string) {\n\tswitch key {\n\tcase "DATABASE_URL":\n\t\tdatabaseURL = value\n\t}\n}\n',
+    };
+    const analysis = analyseRepo(tree);
+    expect(analysis.metadata['databaseNamesMentioned']).toContain('DATABASE_URL');
+  });
+});

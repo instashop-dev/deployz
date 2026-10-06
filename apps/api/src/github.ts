@@ -11,6 +11,7 @@ import {
   ENTRYPOINT_REGEX,
   CMD_CHAIN_MAX_DEPTH,
   type FileTree,
+  TREE_PATHS,
 } from '@deployz/analysis';
 import type { RuntimeDb } from '@deployz/db';
 import * as schema from '@deployz/db/schema';
@@ -1095,6 +1096,11 @@ export async function buildFileTreeForAnalysis(
       tree[entry.path] = '';
     }
   }
+  // Every tracked path, so a detector can tell a missing file from an unfetched one.
+  Object.defineProperty(tree, TREE_PATHS, {
+    value: entries.filter((entry) => entry.type === 'blob').map((entry) => entry.path),
+    enumerable: false,
+  });
 
   return tree;
 }

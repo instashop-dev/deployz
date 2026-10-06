@@ -701,3 +701,17 @@ describe('residual selector and binding shapes', () => {
     expect(model.map((entry) => entry.key)).not.toContain('SPRING_DATASOURCE_URL');
   });
 });
+
+describe('storage selector: a storage location list that defaults to local disk', () => {
+  it('requires STORAGE_LOCATIONS when S3 is used and the default is local', () => {
+    const model = detectEnvVarModel(
+      {
+        'package.json': JSON.stringify({ name: 'app', dependencies: { '@aws-sdk/client-s3': '^3.0.0' } }),
+        'src/env.ts': 'const value = process.env.STORAGE_LOCATIONS || "local";\nexport default value;\n',
+      },
+      [],
+      { database: null, storage: true },
+    );
+    expect(model.find((entry) => entry.key === 'STORAGE_LOCATIONS')?.required).toBe(true);
+  });
+});

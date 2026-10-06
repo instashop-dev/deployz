@@ -147,6 +147,14 @@ const STANDARD_DATABASE_BINDINGS: readonly { name: string; kind: ManifestEnvBind
   { name: 'DATABASE_NAME', kind: 'database' },
   { name: 'DATABASE_USER', kind: 'username' },
   { name: 'DATABASE_PASSWORD', kind: 'password' },
+  // The `DB_*` family is the most common set of connection parts after the
+  // DATABASE_* names (Laravel, Knex, TypeORM, wiki.js, homarr); an app whose
+  // reads analysis cannot see still gets it.
+  { name: 'DB_HOST', kind: 'host' },
+  { name: 'DB_PORT', kind: 'port' },
+  { name: 'DB_NAME', kind: 'database' },
+  { name: 'DB_USER', kind: 'username' },
+  { name: 'DB_PASSWORD', kind: 'password' },
 ];
 
 /**
@@ -163,11 +171,12 @@ function isDatabaseConnectionUnverified(
 ): boolean {
   if (!Array.isArray(meta['infrastructureBindings']) || !Array.isArray(meta['envVarModel'])) return false;
   const standard = new Set(STANDARD_DATABASE_BINDINGS.map((binding) => binding.name));
-  const evidenced = new Set(
-    variables
+  const evidenced = new Set([
+    ...variables
       .filter((variable) => variable.source.some((text) => text.startsWith('read in ') || text.includes(' declares ')))
       .map((variable) => variable.key),
-  );
+    ...stringArray(meta['databaseNamesMentioned']),
+  ]);
   return !bindings.some((binding) => !standard.has(binding.name) || evidenced.has(binding.name));
 }
 
@@ -506,6 +515,10 @@ export function normalizeDeploymentManifest(
       // is addressed by its own path (`docker build -f path`), and a nested
       // Dockerfile that does `COPY apps/api/package.json` needs the root.
       context: overrides.buildContext ?? '.',
+      // A vendor-chosen Dockerfile is the vendor's call; the detected one is checked.
+      ...(overrides.dockerfilePath === undefined && stringArray(meta['dockerfileMissingSources']).length > 0
+        ? { missingSources: stringArray(meta['dockerfileMissingSources']) }
+        : {}),
     },
     web: {
       command: overrides.startCommand ?? stringArray(meta['startupCommands'])[0] ?? null,
@@ -676,6 +689,14 @@ export function evaluateManifestReadiness(
       category: 'container',
       severity: 'error',
       message: 'No Dockerfile was found; Deployz cannot build an image without container instructions.',
+    });
+  }
+  if (manifest.application.dockerfilePath && (manifest.build.missingSources?.length ?? 0) > 0) {
+    errors.push({
+      id: 'dockerfile-missing-sources',
+      category: 'container',
+      severity: 'error',
+      message: `The Dockerfile copies ${manifest.build.missingSources!.join(', ')}, which the repository does not contain (a build step makes it before docker build). Deployz builds from the repository only. Add a Dockerfile that builds the app from source, or select another Dockerfile.`,
     });
   }
   if (!manifest.web.port || manifest.web.portIsDefault === true) {
