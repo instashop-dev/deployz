@@ -277,7 +277,16 @@ type ApplicationRow = typeof schema.applications.$inferSelect;
 // comes from the runtime stage; a dev script or a process the CMD already
 // starts is never a worker. Stored v40 rows can carry a wrong health path,
 // port or Dockerfile.
-export const ANALYSIS_VERSION = 41;
+// Version 42 (MVP compatibility hardening, phase 4): Valkey is provisioned
+// only on strong required Redis evidence (an optional cache, a README or a
+// Compose service alone no longer provisions it); MySQL is detected from
+// Laravel config defaults, pdo_mysql, Django ENGINE, jdbc:mysql and ORM
+// dialects; a tuning value, an optional integration credential, a client
+// build-time name or a non-runtime read is no longer required config; and a
+// required public URL variable (PUBLIC_URL, APP_URL, BASE_URL, …) is managed
+// with the deployment's default HTTPS URL. Stored v41 rows over-provision
+// Redis and over-ask.
+export const ANALYSIS_VERSION = 42;
 
 export interface AnalysisRunnerDeps {
   db: RuntimeDb;
