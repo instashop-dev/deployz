@@ -370,7 +370,12 @@ export const INFRA_COMPOSE_IMAGE_REGEX =
 const TOOL_COMPOSE_IMAGE_REGEX =
   /^(?:docker\.io\/)?(?:library\/)?(?:node|python|ruby|golang|php|openjdk|eclipse-temurin|maven|gradle|bun|deno|alpine|busybox|ubuntu|debian)(?:[:@]|$)/i;
 const DEV_TOOL_COMMAND_REGEX =
-  /\b(?:vite|webpack(?:-dev-server)?|storybook|nodemon|prisma\s+studio|next\s+dev|(?:npm|yarn|pnpm|bun)\s+(?:run\s+)?(?:dev|watch))\b/i;
+  /\b(?:vite|webpack(?:-dev-server)?|storybook|nodemon|ts-node-dev|tsx\s+watch|jest|vitest|prisma\s+studio|next\s+dev|(?:npm|yarn|pnpm|bun)\s+(?:run\s+)?(?:dev|watch))\b|--watch\b/i;
+
+/** Whether a command runs a development or test tool (a watcher, a dev server, a test runner), never a production process. */
+export function isDevToolCommand(command: string): boolean {
+  return DEV_TOOL_COMMAND_REGEX.test(command);
+}
 
 /** Compose services that run the application itself: not infrastructure, not a dev tool, not profile-gated. */
 export function composeApplicationServices(tree: FileTree): { file: string; services: ComposeService[] } | null {
@@ -545,40 +550,143 @@ const EXACT_DOCKERFILE_NAME_REGEX = /(?:^|\/)dockerfile$/i;
 // is never the image Deployz should build — it ranks below every other
 // candidate regardless of depth (Stage A COMP-007, COMP-027).
 const DEV_DOCKERFILE_REGEX =
-  /(?:^|\/)(?:\.devcontainer|\.cursor|\.github|\.vscode|\.idea|\.gitpod|dev|development|[\w-]*tests?|e2e|ci|cypress|examples?|samples?|debian|rpm|operator|hack|tools?|scaletest|dogfood|docs?|benchmarks?|playwright)(?:\/|$)|(?:^|\/)[\w.-]*(?:postgres|spilo|redis|nginx|caddy|proxy|chrome|chromium|keycloak|elasticsearch|meilisearch|mysql|mariadb|minio|gotenberg)[\w.-]*\/|(?:^|\/)[\w-]*(?:gitpod|dev|test|ci|preview|staging)[\w-]*\.dockerfile$|(?:^|\/)dockerfile(?:[.-]\w+)*[.-](?:dev|development|test|e2e|ci|compose|fips|coverage|integration|tilt|gitpod|alpine|debian|ubuntu|cpu|gpu|cuda|rocm|arm|arm64|ppc64le|rock|rock_base|deb|rpm)(?:[.-]\w+)*$/i;
+  /(?:^|\/)(?:\.devcontainer|\.cursor|\.github|\.vscode|\.idea|\.gitpod|dev|development|[\w-]*tests?|e2e|ci|cypress|examples?|samples?|debian|rpm|operator|hack|tools?|scaletest|dogfood|docs?|benchmarks?|playwright|engine|runners?|sidecars?|base|[\w-]+-base)(?:\/|$)|(?:^|\/)[\w.-]*(?:postgres|spilo|redis|nginx|caddy|proxy|chrome|chromium|keycloak|elasticsearch|meilisearch|mysql|mariadb|minio|gotenberg)[\w.-]*\/|(?:^|\/)[\w-]*(?:gitpod|dev|test|ci|preview|staging)[\w-]*\.dockerfile$|(?:^|\/)dockerfile(?:[.-]\w+)*[.-](?:dev|development|test|e2e|ci|compose|fips|coverage|integration|tilt|gitpod|alpine|debian|ubuntu|cpu|gpu|cuda|rocm|arm|arm64|ppc64le|rock|rock_base|deb|rpm)(?:[.-]\w+)*$/i;
 
-function compareDockerfileCandidates(a: string, b: string): number {
-  const aDev = DEV_DOCKERFILE_REGEX.test(a);
-  const bDev = DEV_DOCKERFILE_REGEX.test(b);
-  if (aDev !== bDev) return aDev ? 1 : -1;
+// A variant of the same image for other hardware or a bundled-process layout
+// ranks below the plain one (`dev/build-arm`, `docker/multi-process`).
+const DOCKERFILE_VARIANT_REGEX =
+  /(?:^|\/)[\w.-]*(?:[-_.](?:arm|arm64|armv\d+|aarch64)|multi[-_]?(?:process|service|container))[\w.-]*(?:\/|$)/i;
+const PRODUCTION_DOCKERFILE_REGEX = /(?:^|[/._-])prod(?:uction)?(?:[/._-]|$)/i;
+// A runtime that is evidently a development server: a Dockerfile that runs
+// one is never the production image.
+const DEV_RUNTIME_REGEX =
+  /--env[= ]dev\b|\bAPP_ENV=dev(?:elopment)?\b|\bNODE_ENV=development\b|\b(?:npm|yarn|pnpm|bun)(?: run)? (?:dev|start:dev)\b|\bnodemon\b/i;
 
-  const depthDiff = a.split('/').length - b.split('/').length;
-  if (depthDiff !== 0) return depthDiff;
+/** A stage name that marks tooling, never the production runtime image. */
+const NON_RUNTIME_STAGE_NAME_REGEX =
+  /(?:^|[-_.])(?:dev|development|devel|test|tests|debug|local|e2e|ci|build|builder|deps|dependencies|base|fetch|prep|assets|plugins?)(?:[-_.]|$)/i;
 
-  const aExact = EXACT_DOCKERFILE_NAME_REGEX.test(a);
-  const bExact = EXACT_DOCKERFILE_NAME_REGEX.test(b);
-  if (aExact !== bExact) return aExact ? -1 : 1;
+/** Join continuation lines and drop comment lines, so one instruction is one line. */
+function normalizeDockerfile(content: string): string {
+  return content
+    .replace(/\\r?\n/g, ' ')
+    .split(/\r?\n/)
+    .filter((line) => !/^\s*#/.test(line))
+    .join('\n');
+}
 
-  // Fewer name segments first: `Dockerfile.server` over `Dockerfile.server.gpu`.
-  const segmentDiff = (a.split('/').pop() ?? '').split('.').length - (b.split('/').pop() ?? '').split('.').length;
-  if (segmentDiff !== 0) return segmentDiff;
+/**
+ * The text of the stage `docker build` produces for production: the last
+ * stage whose name is not tooling (a trailing `dev` or `test` target is not
+ * the image to deploy) and whose lineage runs something, plus every stage it
+ * is built `FROM`. Global `ARG`s before the first `FROM` come first.
+ */
+function productionStageText(content: string): string {
+  const clean = normalizeDockerfile(content);
+  const stages = parseDockerfileStages(clean);
+  if (stages.length === 0) return clean;
+  const lineageOf = (index: number): number[] => {
+    const chain = [index];
+    for (let current = index; ; ) {
+      const image = stages[current]!.image.toLowerCase();
+      let parent = -1;
+      for (let i = current - 1; i >= 0; i -= 1) {
+        if (stages[i]!.name === image || String(i) === image) {
+          parent = i;
+          break;
+        }
+      }
+      if (parent < 0) return chain.reverse();
+      chain.push(parent);
+      current = parent;
+    }
+  };
+  const textOf = (index: number): string => lineageOf(index).map((i) => stages[i]!.body).join('\n');
+  let selected = stages.length - 1;
+  for (let i = stages.length - 1; i >= 0; i -= 1) {
+    const name = stages[i]!.name;
+    if ((name === null || !NON_RUNTIME_STAGE_NAME_REGEX.test(name)) && /^\s*(?:CMD|ENTRYPOINT|EXPOSE)\b/im.test(textOf(i))) {
+      selected = i;
+      break;
+    }
+  }
+  const firstFrom = clean.search(/^\s*FROM\s/im);
+  return `${firstFrom > 0 ? clean.slice(0, firstFrom) : ''}\n${textOf(selected)}`;
+}
 
-  return a.localeCompare(b);
+// Directories whose Dockerfiles build a test image, a dev container or an
+// example, never the application (a `dev/` build directory still can).
+const NON_APP_DOCKERFILE_DIR_REGEX =
+  /(?:^|\/)(?:\.devcontainer|\.cursor|\.github|\.vscode|\.idea|\.gitpod|[\w-]*tests?(?:ing)?|e2e|ci|cypress|examples?|samples?|docs?|benchmarks?|playwright)(?:\/|$)/i;
+
+/**
+ * A Dockerfile that cannot be the production image: one in a test, example or
+ * dev-container directory, one that builds a base layer (installs system
+ * packages, but has no CMD, ENTRYPOINT or EXPOSE and copies nothing in), or
+ * one that starts a development server.
+ */
+function isUnusableDockerfile(path: string, content: string): boolean {
+  if (NON_APP_DOCKERFILE_DIR_REGEX.test(path)) return true;
+  if (content.length === 0) return false;
+  const runtime = productionStageText(content);
+  const lines = runtime.split('\n');
+  if (lines.some((line) => /^\s*(?:CMD|ENTRYPOINT)\b/i.test(line) && DEV_RUNTIME_REGEX.test(line))) return true;
+  const startsSomething = lines.some((line) => /^\s*(?:CMD|ENTRYPOINT|EXPOSE)\b/i.test(line));
+  const copiesApp = lines.some((line) => /^\s*(?:COPY|ADD)\b/i.test(line));
+  const installsSystemPackages = lines.some((line) => /^\s*RUN\b.*\b(?:apt-get|apt|apk|yum|dnf|microdnf)\b/i.test(line));
+  return installsSystemPackages && !startsSomething && !copiesApp;
+}
+
+function compareDockerfileCandidates(tree: FileTree): (a: string, b: string) => number {
+  return (a, b) => {
+    const aUnusable = isUnusableDockerfile(a, tree[a] ?? '');
+    const bUnusable = isUnusableDockerfile(b, tree[b] ?? '');
+    if (aUnusable !== bUnusable) return aUnusable ? 1 : -1;
+
+    const aDev = DEV_DOCKERFILE_REGEX.test(a);
+    const bDev = DEV_DOCKERFILE_REGEX.test(b);
+    if (aDev !== bDev) return aDev ? 1 : -1;
+
+    const aVariant = DOCKERFILE_VARIANT_REGEX.test(a);
+    const bVariant = DOCKERFILE_VARIANT_REGEX.test(b);
+    if (aVariant !== bVariant) return aVariant ? 1 : -1;
+
+    const aProd = PRODUCTION_DOCKERFILE_REGEX.test(a);
+    const bProd = PRODUCTION_DOCKERFILE_REGEX.test(b);
+    if (aProd !== bProd) return aProd ? -1 : 1;
+
+    const depthDiff = a.split('/').length - b.split('/').length;
+    if (depthDiff !== 0) return depthDiff;
+
+    const aExact = EXACT_DOCKERFILE_NAME_REGEX.test(a);
+    const bExact = EXACT_DOCKERFILE_NAME_REGEX.test(b);
+    if (aExact !== bExact) return aExact ? -1 : 1;
+
+    // Fewer name segments first: `Dockerfile.server` over `Dockerfile.server.gpu`.
+    const segmentDiff = (a.split('/').pop() ?? '').split('.').length - (b.split('/').pop() ?? '').split('.').length;
+    if (segmentDiff !== 0) return segmentDiff;
+
+    return a.localeCompare(b);
+  };
 }
 
 /**
  * Detect a Dockerfile (case-insensitive: `Dockerfile`, `dockerfile`, `Dockerfile.prod`, etc.).
+ * A repository whose only Dockerfiles are dev or base images has none Deployz can build.
  */
 export function detectDockerfile(tree: FileTree): DetectorFinding {
   const match = Object.keys(tree).filter(isDockerfilePath);
   if (match.length === 0) {
     return { detector: 'dockerfile', detected: false };
   }
-  const ranked = [...match].sort(compareDockerfileCandidates);
+  const selected = selectedDockerfile(tree);
+  if (!selected) {
+    return { detector: 'dockerfile', detected: false, details: `Only dev or base Dockerfile(s): ${match.join(', ')}` };
+  }
   return {
     detector: 'dockerfile',
     detected: true,
-    value: ranked[0],
+    value: selected.path,
     details: `Found ${match.length} Dockerfile(s): ${match.join(', ')}`,
   };
 }
@@ -591,12 +699,12 @@ export function detectDockerfile(tree: FileTree): DetectorFinding {
  * `detectDockerfile`'s "pick the most likely one" behavior.
  */
 export function listDockerfileCandidates(tree: FileTree): string[] {
-  return Object.keys(tree).filter(isDockerfilePath).sort(compareDockerfileCandidates);
+  return Object.keys(tree).filter(isDockerfilePath).sort(compareDockerfileCandidates(tree));
 }
 
-/** The Dockerfile Deployz would build — the top-ranked candidate — with its content. */
+/** The Dockerfile Deployz would build — the top-ranked usable candidate — with its content. */
 function selectedDockerfile(tree: FileTree): { path: string; content: string } | null {
-  const path = listDockerfileCandidates(tree)[0];
+  const path = listDockerfileCandidates(tree).find((candidate) => !isUnusableDockerfile(candidate, tree[candidate] ?? ''));
   if (path === undefined) return null;
   return { path, content: tree[path] ?? '' };
 }
@@ -696,7 +804,7 @@ const NON_HTTP_PORTS = new Set(['22', '25', '53', '465', '587', '3306', '5432', 
  * Dockerfile sets with `ENV`/`ARG` (`EXPOSE ${APP_PORT}` after
  * `ENV APP_PORT=9000`), skipping non-HTTP ports (Stage A COMP-028).
  */
-function exposedPort(dockerfile: string): string | null {
+function exposedPorts(dockerfile: string): string[] {
   const values: string[] = [];
   for (const match of dockerfile.matchAll(DOCKERFILE_EXPOSE_REGEX)) {
     for (const token of (match[1] ?? '').trim().split(/\s+/)) {
@@ -711,7 +819,34 @@ function exposedPort(dockerfile: string): string | null {
       }
     }
   }
+  return values;
+}
+
+function exposedPort(dockerfile: string): string | null {
+  const values = exposedPorts(dockerfile);
   return values.find((value) => !NON_HTTP_PORTS.has(value)) ?? values[0] ?? null;
+}
+
+// A web server in the image that fronts the app (an all-in-one image), and the
+// base images that serve on port 80 without an EXPOSE.
+const FRONT_SERVER_REGEX = /\b(?:caddy|nginx|httpd|apache2|haproxy|traefik)\b/i;
+const FRONT_SERVER_BASE_IMAGE_REGEX = /^\s*FROM\s+(?:--\S+\s+)*\S*(?:nginx|httpd|caddy|apache)\S*/im;
+
+/**
+ * The port the production stage of a Dockerfile serves on: its own `ENV PORT`
+ * or `EXPOSE`, never a builder or dev stage's. An image that fronts the app
+ * with a web server publishes that server's port 80, not the backend's `ENV PORT`.
+ */
+function runtimeDockerfilePort(content: string): { value: string; source: 'env' | 'dockerfile-expose'; via: string } | null {
+  const runtime = productionStageText(content);
+  if (exposedPorts(runtime).includes('80') && FRONT_SERVER_REGEX.test(runtime)) {
+    return { value: '80', source: 'dockerfile-expose', via: 'EXPOSE' };
+  }
+  const envPort = [...runtime.matchAll(new RegExp(DOCKERFILE_ENV_PORT_REGEX.source, 'gm'))].at(-1)?.[1];
+  if (envPort) return { value: envPort, source: 'env', via: 'ENV PORT' };
+  const port = exposedPort(runtime);
+  if (port) return { value: port, source: 'dockerfile-expose', via: 'EXPOSE' };
+  return FRONT_SERVER_BASE_IMAGE_REGEX.test(runtime) ? { value: '80', source: 'dockerfile-expose', via: 'base image default' } : null;
 }
 
 /**
@@ -837,26 +972,23 @@ export function detectPort(tree: FileTree): DetectorFinding {
     }
   }
 
-  // 3. The selected Dockerfile's explicit ENV PORT.
+  // 3. The selected Dockerfile's production stage: ENV PORT, EXPOSE, or the
+  //    base image's own port.
   const dockerfile = selectedDockerfile(tree);
-  const envPort = dockerfile ? DOCKERFILE_ENV_PORT_REGEX.exec(dockerfile.content) : null;
-  if (dockerfile && envPort?.[1]) {
+  const dockerfilePort = dockerfile ? runtimeDockerfilePort(dockerfile.content) : null;
+  if (dockerfile && dockerfilePort) {
     return result(
-      { value: envPort[1], source: 'env', confidence: 'high', details: `Port ${envPort[1]} detected in ${dockerfile.path} (ENV PORT)` },
+      {
+        value: dockerfilePort.value,
+        source: dockerfilePort.source,
+        confidence: 'high',
+        details: `Port ${dockerfilePort.value} detected in ${dockerfile.path} (${dockerfilePort.via})`,
+      },
       'dockerfile',
     );
   }
 
-  // 4. The selected Dockerfile's EXPOSE instruction.
-  const exposed = dockerfile ? exposedPort(dockerfile.content) : null;
-  if (dockerfile && exposed) {
-    return result(
-      { value: exposed, source: 'dockerfile-expose', confidence: 'high', details: `Port ${exposed} detected in ${dockerfile.path} (EXPOSE)` },
-      'dockerfile',
-    );
-  }
-
-  // 5. Source code: process.env.PORT || fallback.
+  // 4. Source code: process.env.PORT || fallback.
   for (const [path, content] of Object.entries(tree)) {
     if (/\.(ts|js|mjs|cjs|jsx|tsx)$/.test(path)) {
       const match = PORT_PROCESS_REGEX.exec(content);
@@ -869,7 +1001,7 @@ export function detectPort(tree: FileTree): DetectorFinding {
     }
   }
 
-  // 6. The application service's production Compose port mapping
+  // 5. The application service's production Compose port mapping
   //    (host:container — the container side). A database, cache or proxy
   //    service's mapping is never the application's port.
   const composeApps = composeApplicationServices(tree);
@@ -883,7 +1015,7 @@ export function detectPort(tree: FileTree): DetectorFinding {
     }
   }
 
-  // 7. Runtime literals (Go/Python/Java/Ruby/PHP start commands).
+  // 6. Runtime literals (Go/Python/Java/Ruby/PHP start commands).
   const literal = runtimeLiteralPort(tree);
   if (literal) {
     return result(
@@ -892,7 +1024,7 @@ export function detectPort(tree: FileTree): DetectorFinding {
     );
   }
 
-  // 8. Framework default — prefill only, never silently deployable.
+  // 7. Framework default — prefill only, never silently deployable.
   const frameworkDefault = frameworkDefaultPort(tree);
   if (frameworkDefault && LITERAL_PORT.test(frameworkDefault)) {
     return result(
@@ -912,7 +1044,6 @@ export function detectPort(tree: FileTree): DetectorFinding {
 // 4. Health endpoint
 // ---------------------------------------------------------------------------
 
-const HEALTHCHECK_REGEX = /HEALTHCHECK\b/i;
 // Route registrations, including the prefixed forms a real application uses:
 // `/health`, `/healthz`, `/api/health`, `/api/v1/healthcheck`. The receiver
 // group (what precedes `.get(`) feeds mount composition; the path group is
@@ -925,7 +1056,9 @@ const HEALTHCHECK_REGEX = /HEALTHCHECK\b/i;
 // starts with a slash, so `/healthful` (keyword glued to more word chars)
 // still does not match.
 const HEALTH_ROUTE_REGEX =
-  /([A-Za-z_$][\w$]*)?\s*\.?\s*(?:get|post|put|all|route)\s*\(.*?(['"`])([\w/-]*\/(?:health|healthz|healthcheck|heartbeat|readyz|livez|up|status|ping|alive|_health)(?:\/[\w-]*)*)\2/i;
+  /([A-Za-z_$][\w$]*)?\s*\.?\s*(?:get|post|put|all|route)\s*\(.*?(['"`])([\w/-]*\/(?:health|healthz|healthcheck|heartbeat|readyz|livez|up|status|ping|alive|_health)(?:\/[\w-]*)*)\2/gi;
+const HEALTH_ROUTE_OBJECT_REGEX =
+  /\burl:\s*(['"`])(\/[\w/-]*\/?(?:health|healthz|healthcheck|heartbeat|livez|up|status|ping|alive|_health)(?:\/[\w-]*)*)\1/g;
 const HEALTH_HTTP_ADAPTER_REGEX =
   /\.getHttpAdapter\(\)\..*?(['"`])([\w/-]*\/(?:health|healthz|healthcheck|heartbeat|readyz|livez|up|status|ping|alive|_health)(?:\/[\w-]*)*)\1/;
 const HEALTH_SCRIPT_REGEX = /^healthcheck$/i;
@@ -959,14 +1092,16 @@ const HEALTH_PATH_PRIORITY = {
   // A URL inside a Dockerfile HEALTHCHECK / Compose healthcheck names the
   // path the image's own check probes — real evidence, but it can lag a
   // moved route, so it ranks below anything found in code (Stage A COMP-005).
-  HEALTHCHECK_URL: 2,
+  HEALTHCHECK_URL: -1,
+  // The framework's standard route (Spring Actuator), used when no route is declared.
+  FRAMEWORK_STANDARD: 2,
 } as const;
 const HEALTH_PATH_SEGMENT_REGEX = /(?:^|\/)(?:health|healthz|healthcheck|heartbeat|readyz|livez|up|status|ping|alive|_health)$/i;
 // A health URL in a container/compose health check: `curl -f http://localhost:3000/api/heartbeat`.
 // The host is the container itself (localhost, a loopback/any address, or a
 // `$VAR`), never a documentation link that happens to sit on the same line.
 const HEALTHCHECK_URL_REGEX =
-  /https?:\/\/(?:localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1\]|\$\{?[\w:-]+\}?)(?::\$?\{?[\w:-]+\}?)?(\/[\w./-]*)?(?=["'\s]|$)/;
+  /(?:https?:\/\/(?:localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1\]|\$\{?[\w:-]+\}?)|(?:localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1\]):\d+)(?::\$?\{?[\w:-]+\}?)?(?:\{[^}\s]*\})?(\/[\w./-]*)?(?=["'\s?#]|$)/;
 // A HEALTHCHECK that runs a script shipped in the image (`CMD node
 // healthcheck.js`) names its URL inside that script (Stage A COMP-034).
 const HEALTHCHECK_SCRIPT_REGEX = /[\w./-]+\.(?:[cm]?js|sh|py|rb)\b/g;
@@ -977,7 +1112,7 @@ const HEALTHCHECK_SCRIPT_REGEX = /[\w./-]+\.(?:[cm]?js|sh|py|rb)\b/g;
 // `Route::get('/up')`, `MapGet("/health", …)`, `@GetMapping("/x")`.
 // Only literals whose LAST segment is a well-known health name count.
 const HEALTH_ROUTE_LITERAL_REGEX =
-  /(?:HandleFunc|Handle|GET|Get|get|Post|post|Put|put|Route|Map|path|add_url_rule|url|GetMapping|RequestMapping|value)\s*(?:\(|::)?\s*["'](?:(?:GET|HEAD|POST)\s+)?(\/?(?:[\w.-]+\/)*(?:health|healthz|healthcheck|heartbeat|readyz|livez|up|status|ping|alive|_health))\/?["']/gi;
+  /(HandleFunc|Handle|GET|Get|get|Post|post|Put|put|Route|Router|Map|path|add_url_rule|url|GetMapping|RequestMapping|value)\s*(?:\(|::)?\s*["'](?:(?:GET|HEAD|POST)\s+)?(\/?(?:[\w.-]+\/)*(?:health|healthz|healthcheck|heartbeat|readyz|livez|up|status|ping|alive|_health))\/?["']/gi;
 export const LANGUAGE_SOURCE_REGEX = /\.(?:go|py|rb|php|cs|java|kt|kts|scala|ex|exs)$/i;
 
 /** Ensure a captured/derived health path starts with a leading slash. */
@@ -1085,98 +1220,244 @@ function findActuatorExposure(tree: FileTree): 'enabled' | 'excluded' {
   return 'enabled';
 }
 
+// The prefix segments a dedicated health route may sit behind: an API root, a
+// version, or a namespace such as `system` (`/api/v4/system/ping`).
+const HEALTH_PREFIX_SEGMENT_REGEX = /^(?:api|v\d+(?:\.\d+)*|system|internal|backend|server|management|public)$/i;
+const HEALTH_WORD_REGEX = /^(?:health|healthz|healthcheck|health-check|health_check|heartbeat|ping|alive|up|_health)$/i;
+const HEALTH_PROBE_WORD_REGEX = /^(?:live|liveness|ready|readiness|alive|status)$/i;
+const HEALTH_GROUP_WORD_REGEX = /^(?:health|healthz|healthcheck)$/i;
+
 /**
- * Detect a health check endpoint from Dockerfile HEALTHCHECK, package.json scripts,
- * route patterns in source code, or a file-based route path.
+ * Whether a route path is a dedicated health endpoint rather than a feature
+ * route that happens to end in a health word (`/csv/status`,
+ * `/v1/integrations/status`, `/api/v1/ai/health`). The last segment must be a
+ * health word, and only API roots, versions and a namespace may precede it.
+ * `status` is too common a feature name to stand alone behind a namespace; it
+ * counts only directly under an API root, or under `/` in a JS server whose
+ * routes are written out in full. `readyz` and `livez` are orchestrator
+ * probes that apps often serve on a separate management listener, so they
+ * never prove a route on the public port.
+ */
+function isDedicatedHealthPath(path: string, options: { relativeFramework?: boolean; bareStatus?: boolean } = {}): boolean {
+  const segments = path.split(/[?#]/)[0]!.split('/').filter(Boolean);
+  const last = segments.pop()?.toLowerCase();
+  if (last === undefined) return false;
+  if (last === 'status' && !HEALTH_GROUP_WORD_REGEX.test(segments.at(-1) ?? '')) {
+    return !options.relativeFramework && (segments.length > 0 || options.bareStatus === true) && segments.every((segment) => /^(?:api|v\d+)$/i.test(segment));
+  }
+  if (HEALTH_PROBE_WORD_REGEX.test(last) && segments.length > 0 && HEALTH_GROUP_WORD_REGEX.test(segments.at(-1)!)) {
+    segments.pop();
+  } else if (!HEALTH_WORD_REGEX.test(last)) {
+    return false;
+  }
+  return segments.every((segment) => HEALTH_PREFIX_SEGMENT_REGEX.test(segment));
+}
+
+/** The paths a health check command (or the script it runs) requests on the container itself. */
+function probedUrlPaths(text: string): string[] {
+  return [...text.matchAll(new RegExp(HEALTHCHECK_URL_REGEX.source, 'g'))].map((match) => match[1] ?? '/');
+}
+
+/**
+ * The URL path a container health check probes, read from its command or the
+ * script it runs. Null when it names no URL, or several different ones (a
+ * script that checks more than one service).
+ */
+function healthcheckProbePath(command: string, tree: FileTree): string | null {
+  let paths = probedUrlPaths(command);
+  for (const script of command.match(HEALTHCHECK_SCRIPT_REGEX) ?? []) {
+    if (paths.length > 0) break;
+    const basename = script.split('/').pop() ?? script;
+    const file = Object.keys(tree).find((path) => path === script || path.endsWith(`/${basename}`) || path === basename);
+    if (file) paths = probedUrlPaths(tree[file] ?? '');
+  }
+  const distinct = [...new Set(paths)];
+  return distinct.length === 1 ? distinct[0]! : null;
+}
+
+const SOURCE_FILE_RUNTIMES: [RegExp, RuntimeFamily][] = [
+  [/\.[cm]?[jt]sx?$/, 'node'],
+  [/\.py$/, 'python'],
+  [/\.go$/, 'go'],
+  [/\.(?:java|kt|kts|scala)$/, 'jvm'],
+  [/\.php$/, 'php'],
+  [/\.rb$/, 'ruby'],
+  [/\.cs$/, 'dotnet'],
+  [/\.exs?$/, 'elixir'],
+  [/\.rs$/, 'rust'],
+];
+const START_COMMAND_RUNTIMES: [RegExp, RuntimeFamily][] = [
+  [/\b(?:node|npm|npx|yarn|pnpm|bun|tsx|deno)\b/i, 'node'],
+  [/\b(?:python3?|gunicorn|uvicorn|hypercorn|daphne|flask|celery|poetry)\b|manage\.py/i, 'python'],
+  [/\bjava\b|\.jar\b/i, 'jvm'],
+  [/\b(?:php|php-fpm|apache2-foreground|apache2ctl)\b/i, 'php'],
+  [/\b(?:bundle|rails|puma|unicorn|ruby)\b/i, 'ruby'],
+  [/\bdotnet\b/i, 'dotnet'],
+];
+
+/**
+ * The one runtime the production stage starts, read from its CMD/ENTRYPOINT
+ * and the shell script that command runs; null when the command names none
+ * or several (a compiled binary, a script that starts a node and a go process).
+ */
+function startedRuntime(tree: FileTree, runtimeText: string): RuntimeFamily | null {
+  const text = startCommandText(tree, runtimeText);
+  const families = new Set(START_COMMAND_RUNTIMES.filter(([pattern]) => pattern.test(text)).map(([, family]) => family));
+  return families.size === 1 ? [...families][0]! : null;
+}
+
+/** What the production stage runs at start: its CMD/ENTRYPOINT, the shell script and the package scripts that command runs. */
+function startCommandText(tree: FileTree, runtimeText: string): string {
+  let text = runtimeText
+    .split('\n')
+    .filter((line) => /^\s*(?:CMD|ENTRYPOINT)\b/i.test(line))
+    .map((line) => execFormToShell(line.replace(/^\s*(?:CMD|ENTRYPOINT)\s+/i, '')))
+    .join('\n');
+  for (const script of text.match(/[\w./-]+\.sh\b/g) ?? []) {
+    const basename = script.split('/').pop() ?? script;
+    const file = Object.keys(tree).find((path) => path === basename || path.endsWith(`/${basename}`));
+    if (file) text += `\n${tree[file] ?? ''}`;
+  }
+  const scripts = collectScripts(tree);
+  for (const [, name] of text.matchAll(/\b(?:npm|yarn|pnpm|bun)\s+(?:run\s+)?([\w:-]+)/g)) {
+    text += `\n${scripts.find(([key]) => key === name)?.[1] ?? ''}`;
+  }
+  return text;
+}
+
+/**
+ * Whether the selected Dockerfile's start command already runs the worker
+ * next to the web process (`concurrently "next start" "tsx worker.ts"`, a
+ * start script that runs both): a second worker workload would run it twice.
+ */
+export function mainCommandRunsWorker(tree: FileTree): boolean {
+  const dockerfile = selectedDockerfile(tree);
+  if (!dockerfile) return false;
+  const text = startCommandText(tree, productionStageText(dockerfile.content));
+  return /\b(?:concurrently|npm-run-all|run-p|honcho|foreman|overmind|supervisord|pm2)\b/.test(text) && /\bworkers?\b/i.test(text);
+}
+
+/** The app or package a source file belongs to: the nearest directory above it that holds a dependency manifest. */
+function sourceGroup(tree: FileTree, path: string): string {
+  const files = Object.keys(tree);
+  for (let dir = path.split('/').slice(0, -1); dir.length > 0; dir = dir.slice(0, -1)) {
+    const prefix = `${dir.join('/')}/`;
+    if (files.some((file) => file.startsWith(prefix) && !file.slice(prefix.length).includes('/') && isDependencyManifest(file))) {
+      return prefix;
+    }
+  }
+  return '';
+}
+
+/**
+ * Detect the health endpoint. In order of trust: the probe of the selected
+ * Dockerfile's HEALTHCHECK or of a production Compose app service; an exact
+ * dedicated route registered by the application (with its framework prefix
+ * and version); the framework's standard route. A route that is not served by
+ * the image the selected Dockerfile starts, or that two apps both register, is
+ * never a confident answer — the detector reports nothing and the vendor is asked.
  */
 export function detectHealthEndpoint(tree: FileTree): DetectorFinding {
-  const sources: string[] = [];
-  const pathCandidates: { path: string; priority: number; source: DetectorSource }[] = [];
+  interface HealthCandidate {
+    path: string;
+    priority: number;
+    source: DetectorSource;
+    label: string;
+    file?: string;
+  }
+  const candidates: HealthCandidate[] = [];
+  const addCandidate = (candidate: HealthCandidate, options?: { relativeFramework?: boolean }): void => {
+    const bareStatus = candidate.file !== undefined && /\.[cm]?[jt]sx?$/.test(candidate.file);
+    if (candidate.priority < 0 || isDedicatedHealthPath(candidate.path, { ...options, bareStatus })) candidates.push(candidate);
+  };
 
   // 0. Router mounts, collected first because a mount and the routes it
   // carries usually live in different files.
-  const mounts: { mounter: string; prefix: string; router: string }[] = [];
+  const mounts: { mounter: string; prefix: string; router: string; file: string }[] = [];
   for (const [path, content] of Object.entries(tree)) {
     if (!/\.(ts|js|mjs|cjs|jsx|tsx)$/.test(path) || !content) continue;
     for (const match of content.matchAll(ROUTER_MOUNT_REGEX)) {
       if (match[1] && match[2] && match[3]) {
-        mounts.push({ mounter: match[1], prefix: match[2], router: match[3] });
+        mounts.push({ mounter: match[1], prefix: match[2], router: match[3], file: path });
       }
     }
   }
 
   // 0b. A router mounted at a health prefix (`apiRouter.use('/health', router)`)
-  //     registers that path whatever the inner routes are called.
+  //     registers that path whatever the inner routes are called — when the
+  //     mounting router itself is mounted somewhere known, or is the app.
   for (const mount of mounts) {
-    if (HEALTH_PATH_SEGMENT_REGEX.test(mount.prefix)) {
-      sources.push(`health router mount (${mount.prefix})`);
-      pathCandidates.push({
-        path: composeMountedPath(mount.mounter, mount.prefix, mounts) ?? mount.prefix,
-        priority: HEALTH_PATH_PRIORITY.ROUTE_REGISTRATION,
-        source: 'source',
-      });
-    }
+    if (!HEALTH_PATH_SEGMENT_REGEX.test(mount.prefix)) continue;
+    const composed = composeMountedPath(mount.mounter, mount.prefix, mounts);
+    if (composed === undefined && !/^(?:app|server|application|fastify|instance)$/i.test(mount.mounter)) continue;
+    addCandidate({
+      path: composed ?? mount.prefix,
+      priority: HEALTH_PATH_PRIORITY.ROUTE_REGISTRATION,
+      source: 'source',
+      label: `health router mount (${mount.prefix})`,
+      file: mount.file,
+    });
   }
 
   // 1. The selected Dockerfile's HEALTHCHECK instruction — the image Deployz
-  //    builds, not a sibling dev/packaging image.
+  //    builds, in its production stage, not a sibling dev/packaging image.
   const dockerfile = selectedDockerfile(tree);
-  if (dockerfile && HEALTHCHECK_REGEX.test(dockerfile.content)) {
-    sources.push('HEALTHCHECK (Dockerfile)');
-    const healthcheckLine = /HEALTHCHECK\b[^\n]*/i.exec(dockerfile.content)?.[0] ?? '';
-    let url = HEALTHCHECK_URL_REGEX.exec(healthcheckLine);
-    for (const script of healthcheckLine.match(HEALTHCHECK_SCRIPT_REGEX) ?? []) {
-      if (url) break;
-      const basename = script.split('/').pop() ?? script;
-      const file = Object.keys(tree).find((path) => path === script || path.endsWith(`/${basename}`) || path === basename);
-      if (file) url = HEALTHCHECK_URL_REGEX.exec(tree[file] ?? '');
-    }
-    if (url) {
-      pathCandidates.push({ path: url[1] ?? '/', priority: HEALTH_PATH_PRIORITY.HEALTHCHECK_URL, source: 'dockerfile' });
-    }
+  const runtimeText = dockerfile ? productionStageText(dockerfile.content) : '';
+  const healthcheckLine = runtimeText
+    .split('\n')
+    .filter((line) => /^\s*HEALTHCHECK\b/i.test(line) && !/^\s*HEALTHCHECK\s+NONE\b/i.test(line))
+    .at(-1);
+  const probedPath = healthcheckLine === undefined ? null : healthcheckProbePath(healthcheckLine, tree);
+  if (probedPath !== null) {
+    addCandidate({ path: probedPath, priority: HEALTH_PATH_PRIORITY.HEALTHCHECK_URL, source: 'dockerfile', label: 'HEALTHCHECK (Dockerfile)' });
   }
 
-  // 1b. A production Compose healthcheck that probes a URL.
-  for (const path of listProductionComposeFiles(tree)) {
-    const healthcheck = /healthcheck:[\s\S]*?test:[^\n]*/.exec(tree[path] ?? '')?.[0] ?? '';
-    const url = HEALTHCHECK_URL_REGEX.exec(healthcheck);
-    if (url) {
-      sources.push(`healthcheck (${path})`);
-      pathCandidates.push({ path: url[1] ?? '/', priority: HEALTH_PATH_PRIORITY.HEALTHCHECK_URL, source: 'compose' });
+  // 1b. A production Compose application service's healthcheck that probes a URL.
+  for (const service of composeApplicationServices(tree)?.services ?? []) {
+    const healthcheck = /healthcheck:[\s\S]*?test:[^\n]*/.exec(service.body)?.[0] ?? '';
+    const composePath = healthcheckProbePath(healthcheck, tree);
+    if (composePath !== null) {
+      addCandidate({ path: composePath, priority: HEALTH_PATH_PRIORITY.HEALTHCHECK_URL, source: 'compose', label: `healthcheck (${service.name})` });
       break;
     }
   }
 
-  // 1c. Route registrations across frameworks (Go/Python/Ruby/PHP/.NET/JVM/
+  // 1c. A package.json "healthcheck" script that probes a URL.
+  for (const [name, command] of collectScripts(tree)) {
+    const scriptPath = HEALTH_SCRIPT_REGEX.test(name) ? healthcheckProbePath(command, tree) : null;
+    if (scriptPath !== null) {
+      addCandidate({
+        path: scriptPath,
+        priority: HEALTH_PATH_PRIORITY.HEALTHCHECK_URL,
+        source: 'package-manifest',
+        label: `healthcheck (package.json script "${name}")`,
+      });
+    }
+  }
+
+  // 1d. Route registrations across frameworks (Go/Python/Ruby/PHP/.NET/JVM/
   //     Elixir/Rails) name their health route as a plain string literal.
-  //     Stage B phase 5 (COMP-005): health-ish names now include the common
-  //     non-standard routes (/up, /status, /ping, /alive, /_health, …) — a
-  //     declaration must exist; a name is never assumed on its own.
+  //     A declaration must exist; a name is never assumed on its own.
   const actuatorDependency = Object.entries(tree).some(
     ([path, content]) =>
       content &&
       /(?:^|\/)(?:pom\.xml|build\.gradle(?:\.kts)?)$/.test(path) &&
       /spring-boot(?:-starter)?-actuator/.test(content),
   );
+  // Spring Boot Actuator: /actuator/health when the dependency exists and the
+  // exposure config does not exclude health. It ranks BELOW an explicit route
+  // declaration in code — a controller that maps its own health path wins.
+  const hasJvmSource = Object.keys(tree).some((path) => /\.(?:java|kt|kts|scala)$/.test(path) && isRuntimeSourcePath(path));
+  if (actuatorDependency && hasJvmSource && findActuatorExposure(tree) !== 'excluded') {
+    candidates.push({
+      path: `${findSpringContextPath(tree)}/actuator/health`,
+      priority: HEALTH_PATH_PRIORITY.FRAMEWORK_STANDARD,
+      source: 'source',
+      label: 'actuator health (spring-boot-actuator)',
+    });
+  }
   for (const [path, content] of Object.entries(tree)) {
     if (!LANGUAGE_SOURCE_REGEX.test(path) || !content || !isRuntimeSourcePath(path)) continue;
-
-    // ── Spring Boot Actuator: /actuator/health when the dependency exists and
-    //    the exposure config does not exclude health. ──
-    if (actuatorDependency && /\.(?:java|kt|kts|scala)$/.test(path)) {
-      const contextPath = findSpringContextPath(tree);
-      const exposure = findActuatorExposure(tree);
-      if (exposure !== 'excluded') {
-        sources.push(`actuator health (${path})`);
-        pathCandidates.push({
-          path: `${contextPath}/actuator/health`,
-          // The actuator default ranks BELOW an explicit route declaration in
-          // code — a controller that maps its own health path wins.
-          priority: HEALTH_PATH_PRIORITY.HEALTHCHECK_URL,
-          source: 'source',
-        });
-      }
-    }
 
     // Class-level @RequestMapping("/api/v1") prefixes a controller's methods.
     const javaPrefixes: string[] = [];
@@ -1187,8 +1468,18 @@ export function detectHealthEndpoint(tree: FileTree): DetectorFinding {
     }
 
     for (const match of content.matchAll(HEALTH_ROUTE_LITERAL_REGEX)) {
-      const raw = match[1];
+      const [, call, raw] = match;
       if (!raw) continue;
+      // A call on a nested router object (`api.BaseRoutes.System.Handle("/ping")`)
+      // registers a path relative to a prefix this file does not show.
+      if (/[\w$]+\.[\w$]+\.[\w$]+\.\s*$/.test(content.slice(Math.max(0, (match.index ?? 0) - 80), match.index))) continue;
+      // Only Django's `path('health/')` and Ruby's `get "up"` name a route
+      // without its leading slash; elsewhere a slash-less literal is a query
+      // parameter or a map key (`.Get("status")`).
+      const djangoCall = /^(?:path|re_path|url|add_url_rule)$/i.test(call ?? '');
+      if (!raw.startsWith('/') && !djangoCall && !path.endsWith('.rb')) continue;
+      // An included Django urlconf (`app_name = …`) is mounted under a prefix this file does not show.
+      if (djangoCall && /^\s*app_name\s*=/m.test(content)) continue;
       let routePath = raw.startsWith('/') ? raw : `/${raw}`;
       // Laravel API routes are served under /api; the file says so.
       if (/(?:^|\/)routes\/api\.php$/i.test(path) && !routePath.startsWith('/api')) {
@@ -1197,12 +1488,10 @@ export function detectHealthEndpoint(tree: FileTree): DetectorFinding {
       if (javaPrefixes.length > 0 && !routePath.startsWith(javaPrefixes[0]!)) {
         routePath = `${javaPrefixes[0]!.replace(/\/+$/, '')}${routePath}`;
       }
-      sources.push(`health route (${path})`);
-      pathCandidates.push({
-        path: routePath,
-        priority: HEALTH_PATH_PRIORITY.ROUTE_REGISTRATION,
-        source: 'source',
-      });
+      addCandidate(
+        { path: routePath, priority: HEALTH_PATH_PRIORITY.ROUTE_REGISTRATION, source: 'source', label: `health route (${path})`, file: path },
+        { relativeFramework: djangoCall },
+      );
     }
   }
 
@@ -1214,25 +1503,25 @@ export function detectHealthEndpoint(tree: FileTree): DetectorFinding {
       const raw = match[1]!;
       if (!HEALTH_PATH_SEGMENT_REGEX.test(raw)) continue;
       const routePath = scopes.length > 0 ? `${scopes[0]!.replace(/\/+$/, '')}${raw}` : raw;
-      sources.push(`health route (${path})`);
-      pathCandidates.push({
-        path: routePath,
-        priority: HEALTH_PATH_PRIORITY.ROUTE_REGISTRATION,
-        source: 'source',
-      });
+      addCandidate({ path: routePath, priority: HEALTH_PATH_PRIORITY.ROUTE_REGISTRATION, source: 'source', label: `health route (${path})`, file: path });
     }
   }
 
   // ── NestJS: `@Controller('health')` with an empty `@Get()`, under the
-  //    literal `app.setGlobalPrefix('api')` of the bootstrap file. ──
+  //    literal `app.setGlobalPrefix('api')` and URI `enableVersioning` of the
+  //    bootstrap file. ──
   let nestGlobalPrefix = '';
+  let nestPrefixOptions = '';
+  let nestDefaultVersion = '';
   for (const [path, content] of Object.entries(tree)) {
     if (!/\.ts$/.test(path) || !content || !isRuntimeSourcePath(path)) continue;
-    const prefix = /\.setGlobalPrefix\(\s*['"]([^'"/]+)['"]/.exec(content)?.[1];
-    if (prefix) {
-      nestGlobalPrefix = `/${prefix}`;
-      break;
-    }
+    const prefix = /\.setGlobalPrefix\(\s*['"]([^'"/]+)['"]([^;]*)/.exec(content);
+    if (!prefix?.[1]) continue;
+    nestGlobalPrefix = `/${prefix[1]}`;
+    nestPrefixOptions = prefix[2] ?? '';
+    nestDefaultVersion =
+      /enableVersioning\(\s*\{(?=[^}]*VersioningType\.URI)[^}]*defaultVersion:\s*\[?\s*['"](\d+)['"]/.exec(content)?.[1] ?? '';
+    break;
   }
   for (const [path, content] of Object.entries(tree)) {
     if (!/\.ts$/.test(path) || !content || !isRuntimeSourcePath(path)) continue;
@@ -1240,95 +1529,101 @@ export function detectHealthEndpoint(tree: FileTree): DetectorFinding {
     if (!controller || !/@Get\(\s*(?:['"]{2})?\s*\)/.test(content)) continue;
     const routePath = `/${controller.replace(/^\/+/, '')}`;
     if (!HEALTH_PATH_SEGMENT_REGEX.test(routePath)) continue;
-    sources.push(`NestJS health controller (${path})`);
-    pathCandidates.push({
-      path: `${nestGlobalPrefix}${routePath}`,
+    const prefix = nestPrefixOptions.includes(`'${controller}'`) ? '' : nestGlobalPrefix;
+    const version = /VERSION_NEUTRAL|\bversion:/.test(content) || !nestDefaultVersion ? '' : `/v${nestDefaultVersion}`;
+    addCandidate({
+      path: `${prefix}${version}${routePath}`,
       priority: HEALTH_PATH_PRIORITY.ROUTE_REGISTRATION,
       source: 'source',
+      label: `NestJS health controller (${path})`,
+      file: path,
     });
-  }
-
-  // 2. package.json "healthcheck" script
-  for (const [name] of collectScripts(tree)) {
-    if (HEALTH_SCRIPT_REGEX.test(name)) {
-      sources.push(`healthcheck (package.json script "${name}")`);
-    }
   }
 
   // 3. Route patterns in source code, or a file-based route path
   for (const [path, content] of Object.entries(tree)) {
-    if (/\.(ts|js|mjs|cjs|jsx|tsx)$/.test(path)) {
-      // Only a file inside a file-based router (`routes`, `pages`, `app`, or
-      // an `api` segment) declares a URL by its name; a model or controller
-      // called `heartbeat.js` does not (Stage A COMP-004).
-      if (
-        HEALTH_ROUTE_FILE_REGEX.test(path) &&
-        path.split('/').some((segment) => ROUTER_ROOT_DIRS.has(segment) || segment === 'api')
-      ) {
-        sources.push(`health route file (${path})`);
-        pathCandidates.push({ path: deriveHealthPathFromFile(path), priority: HEALTH_PATH_PRIORITY.FILE_ROUTE, source: 'source' });
+    if (!/\.(ts|js|mjs|cjs|jsx|tsx)$/.test(path)) continue;
+    // Only a file inside a file-based router (`routes`, `pages`, `app`, or
+    // an `api` segment) declares a URL by its name; a model or controller
+    // called `heartbeat.js` does not (Stage A COMP-004).
+    if (
+      HEALTH_ROUTE_FILE_REGEX.test(path) &&
+      path.split('/').some((segment) => ROUTER_ROOT_DIRS.has(segment) || segment === 'api')
+    ) {
+      addCandidate({ path: deriveHealthPathFromFile(path), priority: HEALTH_PATH_PRIORITY.FILE_ROUTE, source: 'source', label: `health route file (${path})`, file: path });
+    }
+    // The first dedicated health route of a file wins (`/health/live` before `/health/ready`).
+    for (const routeMatch of content.matchAll(HEALTH_ROUTE_REGEX)) {
+      if (!routeMatch[3]) continue;
+      const before = candidates.length;
+      addCandidate({
+        path: composeMountedPath(routeMatch[1], normalizeHealthPath(routeMatch[3]), mounts) ?? normalizeHealthPath(routeMatch[3]),
+        priority: HEALTH_PATH_PRIORITY.ROUTE_REGISTRATION,
+        source: 'source',
+        label: `/health route (${path})`,
+        file: path,
+      });
+      if (candidates.length > before) break;
+    }
+    // Fastify route objects: `{ method: 'GET', url: '/api/status' }`.
+    if (/fastify/i.test(content)) {
+      for (const routeObject of content.matchAll(HEALTH_ROUTE_OBJECT_REGEX)) {
+        addCandidate({ path: routeObject[2]!, priority: HEALTH_PATH_PRIORITY.ROUTE_REGISTRATION, source: 'source', label: `/health route (${path})`, file: path });
       }
-      const routeMatch = HEALTH_ROUTE_REGEX.exec(content);
-      if (routeMatch) {
-        sources.push(`/health route (${path})`);
-        if (routeMatch[3]) {
-          pathCandidates.push({
-            path:
-              composeMountedPath(routeMatch[1], normalizeHealthPath(routeMatch[3]), mounts) ??
-              normalizeHealthPath(routeMatch[3]),
-            priority: HEALTH_PATH_PRIORITY.ROUTE_REGISTRATION,
-            source: 'source',
-          });
-        }
-      }
-      const adapterMatch = HEALTH_HTTP_ADAPTER_REGEX.exec(content);
-      if (adapterMatch) {
-        sources.push(`/health adapter (${path})`);
-        if (adapterMatch[2]) {
-          pathCandidates.push({
-            path: normalizeHealthPath(adapterMatch[2]),
-            priority: HEALTH_PATH_PRIORITY.ROUTE_REGISTRATION,
-            source: 'source',
-          });
-        }
-      }
+    }
+    const adapterMatch = HEALTH_HTTP_ADAPTER_REGEX.exec(content);
+    if (adapterMatch?.[2]) {
+      addCandidate({ path: normalizeHealthPath(adapterMatch[2]), priority: HEALTH_PATH_PRIORITY.ROUTE_REGISTRATION, source: 'source', label: `/health adapter (${path})`, file: path });
     }
   }
 
-  if (sources.length === 0) {
+  // A route the selected Dockerfile's image does not start (a go sidecar next
+  // to a node server) or that two apps of the repository both register is not
+  // a confident answer.
+  const started = dockerfile ? startedRuntime(tree, runtimeText) : null;
+  const scoped = candidates.filter((candidate) => {
+    if (candidate.file === undefined || started === null) return true;
+    const language = SOURCE_FILE_RUNTIMES.find(([pattern]) => pattern.test(candidate.file!))?.[1];
+    return language === undefined || language === started;
+  });
+  const routeGroups = new Set(scoped.flatMap((candidate) => (candidate.file === undefined ? [] : [sourceGroup(tree, candidate.file)])));
+  // Behind a web server that fronts the app on port 80 (an all-in-one image),
+  // the app's own routes sit under a proxy prefix the source does not show.
+  const fronted = FRONT_SERVER_REGEX.test(runtimeText) && exposedPorts(runtimeText).includes('80');
+  // Several apps register a route: only the one the start command names is the image's.
+  const startText = routeGroups.size > 1 ? startCommandText(tree, runtimeText) : '';
+  const namedGroups = [...routeGroups].filter((group) => group !== '' && startText.includes(group.slice(0, -1)));
+  const confident = scoped.filter((candidate) => {
+    if (candidate.file === undefined) return true;
+    if (fronted) return false;
+    return routeGroups.size <= 1 || (namedGroups.length === 1 && sourceGroup(tree, candidate.file) === namedGroups[0]);
+  });
+
+  if (confident.length === 0) {
     return { detector: 'health-endpoint', detected: false };
   }
 
   // The most specific candidate wins (lowest priority number); on an equal
   // priority the longer path wins — when a repo both registers `/health`
   // directly and mounts a health router under `/api`, the longer mounted
-  // path is the one the app actually serves at that URL. When no source
-  // named a literal path (Dockerfile HEALTHCHECK / healthcheck script only),
-  // "/health" remains the faithful default — that IS the conventional path
-  // those two sources check.
-  const bestCandidate = pathCandidates.reduce<(typeof pathCandidates)[number] | undefined>(
-    (best, candidate) => {
-      if (best === undefined || candidate.priority < best.priority) return candidate;
-      if (candidate.priority === best.priority && candidate.path.length > best.path.length) return candidate;
-      return best;
-    },
-    undefined,
-  );
-  const path = bestCandidate?.path ?? '/health';
-  // Stage B phase 5: `/` is a ROOT check (the app's own HEALTHCHECK probes the
-  // home page) — never treated as an explicit health route.
-  const mode = path === '/' ? 'root' : 'explicit';
+  // path is the one the app actually serves at that URL.
+  const best = confident.reduce((winner, candidate) => {
+    if (candidate.priority < winner.priority) return candidate;
+    if (candidate.priority === winner.priority && candidate.path.length > winner.path.length) return candidate;
+    return winner;
+  });
+  const sources = confident.map((candidate) => candidate.label);
 
   return {
     detector: 'health-endpoint',
     detected: true,
     value: sources,
     details: `Health endpoint detected via: ${sources.join('; ')}`,
-    path,
-    // Without a literal path the evidence is the image's own HEALTHCHECK or
-    // a package.json script — never a route Deployz read from source.
-    mode,
-    source: bestCandidate?.source ?? (dockerfile && HEALTHCHECK_REGEX.test(dockerfile.content) ? 'dockerfile' : 'package-manifest'),
+    path: best.path,
+    // `/` is a ROOT check (the app's own HEALTHCHECK probes the home page) —
+    // never treated as an explicit health route.
+    mode: best.path === '/' ? 'root' : 'explicit',
+    source: best.source,
   };
 }
 
@@ -1972,7 +2267,7 @@ export function detectDeclaredWorkerCommands(tree: FileTree): DeclaredWorkerComm
     for (const match of content.matchAll(/^([\w.-]+):\s*(.+)$/gm)) {
       const name = match[1]!;
       const command = match[2]!.trim();
-      if (command.length === 0 || NON_PERSISTENT_PROCESS_NAME_REGEX.test(name)) continue;
+      if (command.length === 0 || NON_PERSISTENT_PROCESS_NAME_REGEX.test(name) || isDevToolCommand(command)) continue;
       push(slugProcessId(name), command, path);
     }
   }

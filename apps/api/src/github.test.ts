@@ -440,6 +440,46 @@ describe('github — repository tree fetch (§18 analysis input)', () => {
     expect(calls).toHaveLength(4);
   });
 
+  it('resolves a symlinked Dockerfile to the content of its target file', async () => {
+    const fetchFn: FetchFn = async (url) => {
+      if (url.includes('/git/trees/')) {
+        return makeFetchResponse(200, {
+          tree: [
+            { path: 'Dockerfile', type: 'blob', mode: '120000', sha: 'sha-link', size: 17 },
+            { path: 'docker/Dockerfile', type: 'blob', mode: '100644', sha: 'sha-real', size: 30 },
+            { path: 'apps/web/Dockerfile.prod', type: 'blob', mode: '120000', sha: 'sha-rel', size: 20 },
+            { path: 'apps/web/Dockerfile.real', type: 'blob', mode: '100644', sha: 'sha-rel-real', size: 30 },
+          ],
+        });
+      }
+      const sha = url.split('/').pop();
+      const content = {
+        'sha-link': 'docker/Dockerfile',
+        'sha-real': 'FROM node\nCMD ["node", "server.js"]',
+        'sha-rel': 'Dockerfile.real',
+        'sha-rel-real': 'FROM node:22',
+      }[sha!];
+      return makeFetchResponse(200, { content: Buffer.from(content ?? '').toString('base64'), encoding: 'base64' });
+    };
+
+    const tree = await buildFileTreeForAnalysis(REF, 'tok', fetchFn);
+
+    expect(tree['Dockerfile']).toBe('FROM node\nCMD ["node", "server.js"]');
+    expect(tree['apps/web/Dockerfile.prod']).toBe('FROM node:22');
+  });
+
+  it('drops a symlink whose target is missing instead of reading the path as content', async () => {
+    const fetchFn: FetchFn = async (url) => {
+      if (url.includes('/git/trees/')) {
+        return makeFetchResponse(200, {
+          tree: [{ path: 'Dockerfile', type: 'blob', mode: '120000', sha: 'sha-link', size: 10 }],
+        });
+      }
+      return makeFetchResponse(200, { content: Buffer.from('nowhere/Dockerfile').toString('base64'), encoding: 'base64' });
+    };
+    expect(await buildFileTreeForAnalysis(REF, 'tok', fetchFn)).toEqual({});
+  });
+
   it('fetches deployment descriptors the cloud checks read (COMP-033)', async () => {
     const calls: string[] = [];
     const fetchFn: FetchFn = async (url) => {

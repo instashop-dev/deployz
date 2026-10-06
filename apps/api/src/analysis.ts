@@ -15,7 +15,9 @@ import {
   deriveAmbiguities,
   detectDeclaredWorkerCommands,
   dockerfileWorkdirs,
+  isDevToolCommand,
   listDockerfileCandidates,
+  mainCommandRunsWorker,
   mergeAiAnalysis,
   selectAiContextFiles,
   selectMigrationScript,
@@ -921,7 +923,9 @@ function resolveMigrationCommand(tree: FileTree): string | undefined {
  * Resolve EVERY declared worker start command (Phase 4A: one workload per
  * declared process): a Procfile/Compose-declared process leads (each keeps
  * its own slug id and source), then one `worker` entry from a package.json
- * worker script in any workspace package. Empty when nothing resolves —
+ * worker script in any workspace package. A dev or watch script is never a
+ * worker, nor is a script the image's start command already runs next to the
+ * web process. Empty when nothing resolves—
  * worker-like code without a command never produces a workload here.
  */
 export interface ResolvedWorkerCommand {
@@ -938,8 +942,8 @@ export function resolveWorkerCommands(tree: FileTree): ResolvedWorkerCommand[] {
     seen.add(declared.id);
     workers.push({ id: declared.id, command: declared.command, source: declared.source });
   }
-  if (workers.length === 0) {
-    const match = collectScripts(tree).find(([key]) => WORKER_SCRIPT_KEY_REGEX.test(key));
+  if (workers.length === 0 && !mainCommandRunsWorker(tree)) {
+    const match = collectScripts(tree).find(([key, command]) => WORKER_SCRIPT_KEY_REGEX.test(key) && !isDevToolCommand(command));
     if (match?.[1] !== undefined) {
       workers.push({ id: 'worker', command: match[1], source: 'package.json' });
     }

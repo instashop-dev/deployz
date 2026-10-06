@@ -1,4 +1,5 @@
 import { createHmac, createSign, timingSafeEqual } from 'node:crypto';
+import { posix as posixPath } from 'node:path';
 
 import { eq } from 'drizzle-orm';
 
@@ -603,6 +604,8 @@ export async function listRepositories(
 interface GitTreeEntry {
   path: string;
   type: string; // 'blob' | 'tree' | 'commit'
+  // '120000' marks a symlink: its blob content is the link target path.
+  mode?: string | undefined;
   sha: string;
   size?: number | undefined;
 }
@@ -957,6 +960,24 @@ async function fetchBlobContent(
   }
 }
 
+// A git symlink's blob holds only its target path. A detector must read the
+// target file's content, so a symlinked Dockerfile resolves to the real one.
+async function fetchEntryContent(
+  ref: RepositoryRef,
+  entry: GitTreeEntry,
+  entriesByPath: ReadonlyMap<string, GitTreeEntry>,
+  installationToken: string,
+  fetchFn: FetchFn,
+): Promise<string | null> {
+  const content = await fetchBlobContent(ref, entry.sha, installationToken, fetchFn);
+  if (entry.mode !== '120000' || content === null) return content;
+  const dir = entry.path.includes('/') ? entry.path.slice(0, entry.path.lastIndexOf('/')) : '';
+  const target = posixPath.normalize(posixPath.join(dir, content.trim()));
+  const targetEntry = entriesByPath.get(target);
+  if (targetEntry?.type !== 'blob' || targetEntry.mode === '120000') return null;
+  return fetchBlobContent(ref, targetEntry.sha, installationToken, fetchFn);
+}
+
 const EMPTY_PROTECTED_PATHS: ReadonlySet<string> = new Set();
 
 // DEPLOY-029: resolve the selected Dockerfile's CMD/ENTRYPOINT script chain
@@ -978,17 +999,17 @@ async function resolveCmdChainProtectedPaths(
 ): Promise<ReadonlySet<string>> {
   const protectedPaths = new Set<string>();
   const knownPaths: FileTree = {};
-  const shaByPath = new Map<string, string>();
+  const entryByPath = new Map<string, GitTreeEntry>();
   for (const entry of relevantEntries) {
     knownPaths[entry.path] = '';
-    shaByPath.set(entry.path, entry.sha);
+    entryByPath.set(entry.path, entry);
   }
 
   const dockerfilePath = listDockerfileCandidates(knownPaths)[0];
-  const dockerfileSha = dockerfilePath !== undefined ? shaByPath.get(dockerfilePath) : undefined;
-  if (dockerfilePath === undefined || dockerfileSha === undefined) return protectedPaths;
+  const dockerfileEntry = dockerfilePath !== undefined ? entryByPath.get(dockerfilePath) : undefined;
+  if (dockerfilePath === undefined || dockerfileEntry === undefined) return protectedPaths;
 
-  const dockerfileContent = await fetchBlobContent(ref, dockerfileSha, installationToken, fetchFn);
+  const dockerfileContent = await fetchEntryContent(ref, dockerfileEntry, entryByPath, installationToken, fetchFn);
   if (dockerfileContent === null) return protectedPaths;
 
   const dockerDir = dockerfilePath.includes('/') ? dockerfilePath.split('/').slice(0, -1).join('/') : '';
@@ -1001,9 +1022,9 @@ async function resolveCmdChainProtectedPaths(
     const next: string[] = [];
     for (const path of frontier) {
       protectedPaths.add(path);
-      const sha = shaByPath.get(path);
-      if (sha === undefined) continue;
-      const content = await fetchBlobContent(ref, sha, installationToken, fetchFn);
+      const scriptEntry = entryByPath.get(path);
+      if (scriptEntry === undefined) continue;
+      const content = await fetchBlobContent(ref, scriptEntry.sha, installationToken, fetchFn);
       if (content === null) continue;
       next.push(...extractCmdScriptPaths(content, knownPaths, dockerDir, visited));
     }
@@ -1035,6 +1056,7 @@ export async function buildFileTreeForAnalysis(
       ? await resolveCmdChainProtectedPaths(ref, relevantEntries, installationToken, fetchFn)
       : EMPTY_PROTECTED_PATHS;
 
+  const entriesByPath = new Map(entries.map((entry) => [entry.path, entry]));
   const candidates = relevantEntries
     .filter((entry) => entry.size === undefined || entry.size <= ANALYSIS_MAX_FILE_BYTES)
     .sort((a, b) => compareRelevance(a.path, b.path, protectedPaths))
@@ -1052,7 +1074,7 @@ export async function buildFileTreeForAnalysis(
       while (next < candidates.length) {
         const entry = candidates[next++];
         if (!entry) break;
-        const content = await fetchBlobContent(ref, entry.sha, installationToken, fetchFn);
+        const content = await fetchEntryContent(ref, entry, entriesByPath, installationToken, fetchFn);
         if (content !== null) {
           tree[entry.path] = content;
         }
@@ -1220,7 +1242,7 @@ export const GITHUB_FIXTURE_FILE_TREES: Readonly<Record<string, FileTree>> = {
       'COPY . .',
       'RUN npm run build',
       'EXPOSE 3000',
-      'HEALTHCHECK --interval=30s --timeout=3s CMD curl -f http://localhost:3000/health || exit 1',
+      'HEALTHCHECK --interval=30s --timeout=3s CMD curl -f http://localhost:3000/api/health || exit 1',
       'CMD ["npm", "start"]',
     ].join('\n'),
     'package.json': JSON.stringify({
