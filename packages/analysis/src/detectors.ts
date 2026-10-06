@@ -1971,6 +1971,16 @@ export function assessPostgres(tree: FileTree): PostgresRequirement {
     }
   }
 
+  // A drizzle config for the postgresql dialect (`configs/postgresql.config.ts`):
+  // an app with a SQLite default and a PostgreSQL option names its dialects
+  // this way, so a PostgreSQL driver plus this config is a configured engine.
+  for (const [path, content] of Object.entries(tree)) {
+    if (hasDependency && /\.config\.[cm]?[jt]s$/.test(path) && content && /\bdialect\s*:\s*["']postgres(?:ql)?["']/.test(content)) {
+      hasIndependentEvidence = true;
+      evidence.push(`postgresql dialect configured in ${path}`);
+    }
+  }
+
   // A known connection env var referenced in an env file, docker-compose, or
   // source — a JS `process.env` read, or the name as a string literal in Go,
   // Python or Ruby configuration (Stage A COMP-013).
@@ -2468,6 +2478,32 @@ const STARTUP_MIGRATION_PATTERNS: { pattern: RegExp; name: string }[] = [
   { pattern: /(?:^|[\s"',])--?(?:auto-)?migrate(?:=true)?(?=[\s"',\]]|$)/, name: 'binary migrate flag' },
 ];
 
+/**
+ * Application code that applies migrations itself when it runs (a migrator
+ * API call, not a CLI command). Every regex of an entry must match the file.
+ */
+const STARTUP_CODE_MIGRATION_PATTERNS: { all: RegExp[]; name: string }[] = [
+  { all: [/\.migrate\.(?:latest|up)\s*\(/], name: 'knex migrate.latest()' },
+  { all: [/\bnew\s+Umzug\b/, /\.up\s*\(/], name: 'umzug up()' },
+  { all: [/drizzle-orm\/[\w-]+\/migrator/, /\bmigrate\s*\(/], name: 'drizzle migrate()' },
+  { all: [/\bdb-migrate\b/, /\bgetInstance\s*\(/, /\.up\s*\(/], name: 'db-migrate up()' },
+  { all: [/(?<!\bfunction\s+)\b(?:runMigrations|migrateDb|checkPendingMigrations)\s*\(/], name: 'migration runner call' },
+  { all: [/\bmigrationsRun\s*:\s*true\b/], name: 'typeorm migrationsRun' },
+  {
+    all: [/\b(?:exec|spawn)\w*\s*\(/, /prisma\s+migrate\s+deploy\b|["']migrate["']\s*,\s*["']deploy["']/],
+    name: 'prisma migrate deploy',
+  },
+  { all: [/golang-migrate\/migrate/, /\.Up\s*\(\s*\)/], name: 'golang-migrate Up()' },
+  { all: [/\bgoose\.Up(?:Context|To)?\s*\(/], name: 'goose.Up()' },
+  { all: [/\bflask_migrate\b/, /\bupgrade\s*\(/], name: 'flask-migrate upgrade()' },
+  { all: [/\bcall_command\(\s*['"]migrate['"]/], name: 'django call_command migrate' },
+  { all: [/\bcommand\.upgrade\s*\(/], name: 'alembic command.upgrade()' },
+];
+
+const APP_CODE_FILE_REGEX = /\.(?:[cm]?[jt]sx?|py|go)$/;
+// Migration definitions and seed data are never the code that runs them.
+const MIGRATION_DEFINITION_SEGMENT_REGEX = /(?:^|\/)(?:migrations?|seeds?|seeders?|cli)(?:\/|$)/i;
+
 /** An `ENV RUN_MIGRATIONS=1` / `AUTO_MIGRATE=true` style switch in the Dockerfile. */
 const STARTUP_MIGRATION_ENV_REGEX =
   /^\s*ENV\s+.*\b(?:RUN_MIGRATIONS?|AUTO_MIGRAT(?:E|IONS?)|MIGRATE_ON_START(?:UP)?)\b\s*[= ]\s*["']?(?:1|true|yes|on)\b/im;
@@ -2483,9 +2519,9 @@ export interface MigrationStartupEvidence {
   readonly pattern: string;
   /**
    * True when the evidence is the selected Dockerfile's own CMD/ENTRYPOINT
-   * text, or a script that CMD/ENTRYPOINT invokes (directly or through
-   * another script it calls) — the exact chain the built image runs at
-   * boot. `analyser.ts` gives this evidence precedence over a package.json
+   * text, a script that CMD/ENTRYPOINT invokes (directly or through
+   * another script it calls), or application code that migrates when the
+   * app runs — the exact chain the built image runs at boot. `analyser.ts` gives this evidence precedence over a package.json
    * deploy-shaped script (DEPLOY-029): the image was built to migrate
    * itself, so re-running the script as a separate pre-deploy step invents
    * a command the image never runs standalone.
@@ -2518,7 +2554,10 @@ function resolveCmdScriptPath(token: string, tree: FileTree, dockerDir: string):
   for (const candidate of candidates) {
     if (Object.prototype.hasOwnProperty.call(tree, candidate)) return candidate;
   }
-  return undefined;
+  // The image copies a subdirectory to its root (`COPY server .`): a script
+  // named from there still resolves when exactly one tree path ends with it.
+  const suffixed = Object.keys(tree).filter((path) => path.endsWith(`/${clean}`));
+  return suffixed.length === 1 ? suffixed[0] : undefined;
 }
 
 /**
@@ -2543,7 +2582,14 @@ export function extractCmdScriptPaths(text: string, tree: FileTree, dockerDir: s
   return found;
 }
 
+/** `dist/db/migrate.js` and `src/db/migrate.ts` are the same script: compare the file name without extension. */
+function scriptStem(path: string): string {
+  return (path.split('/').pop() ?? path).replace(/\.[^.]+$/, '');
+}
+
 const MIGRATION_SCRIPT_KEY_REGEX = /migrat/i;
+// A script that runs a database tool by file (`db:migrate`, `migrate`), never the app's own start or dev command.
+const DB_TOOL_SCRIPT_KEY_REGEX = /migrat|(?:^|[:_-])db(?:$|[:_-])/i;
 
 // A script key that creates, undoes, copies, builds or tests migrations, or is
 // the app's own start/dev command — never a run of the pending migrations.
@@ -2717,7 +2763,36 @@ export function detectStartupMigrationEvidence(tree: FileTree): MigrationStartup
     }
   };
 
+  const considerCode = (path: string, fromDockerCommand: boolean): void => {
+    const content = tree[path] ?? '';
+    const found = STARTUP_CODE_MIGRATION_PATTERNS.find(({ all }) => all.every((regex) => regex.test(content)));
+    if (found) evidence.push({ source: path, pattern: found.name, fromDockerCommand });
+  };
+
   const dockerfile = selectedDockerfile(tree);
+  const dockerDir = dockerfile?.path?.includes('/') ? (dockerfile.path.split('/').slice(0, -1).join('/') ?? '') : '';
+  // Files already scanned through the CMD/ENTRYPOINT chain, so the
+  // independent boot-script heuristic below never double-counts them.
+  const chainVisited = new Set<string>();
+
+  // Follow the script(s) a boot command names (`sh scripts/start-docker.sh`,
+  // `node db/init.js`), and every script THOSE scripts call in turn, up to
+  // depth 3, never visiting a file twice.
+  const followScripts = (text: string, fromDockerCommand: boolean): void => {
+    let frontier = extractCmdScriptPaths(text, tree, dockerDir, chainVisited);
+    for (let depth = 0; depth < CMD_CHAIN_MAX_DEPTH && frontier.length > 0; depth += 1) {
+      const next: string[] = [];
+      for (const path of frontier) {
+        const content = tree[path];
+        if (content === undefined) continue;
+        consider(content, path, fromDockerCommand);
+        if (APP_CODE_FILE_REGEX.test(path)) considerCode(path, fromDockerCommand);
+        next.push(...extractCmdScriptPaths(content, tree, dockerDir, chainVisited));
+      }
+      frontier = next;
+    }
+  };
+
   // A start script that CMD/ENTRYPOINT calls (`npm start`) is what the image
   // boots, so it counts as Dockerfile-command evidence.
   const imageRunsStartScript =
@@ -2729,12 +2804,8 @@ export function detectStartupMigrationEvidence(tree: FileTree): MigrationStartup
     if (name === 'start' || name === 'dev') {
       consider(command, `package.json script "${name}"`, name === 'start' && imageRunsStartScript);
     }
+    if (name === 'start') followScripts(command, imageRunsStartScript);
   }
-
-  const dockerDir = dockerfile?.path?.includes('/') ? (dockerfile.path.split('/').slice(0, -1).join('/') ?? '') : '';
-  // Files already scanned through the CMD/ENTRYPOINT chain, so the
-  // independent boot-script heuristic below never double-counts them.
-  const chainVisited = new Set<string>();
 
   if (dockerfile) {
     const cmd = CMD_REGEX.exec(dockerfile.content)?.[1];
@@ -2745,23 +2816,10 @@ export function detectStartupMigrationEvidence(tree: FileTree): MigrationStartup
       evidence.push({ source: `ENV (${dockerfile.path})`, pattern: 'migrate-on-start ENV', fromDockerCommand: true });
     }
 
-    // Follow the script(s) CMD/ENTRYPOINT name (`sh scripts/start-docker.sh`,
-    // `["sh", "scripts/start-docker.sh"]`), and every script THOSE scripts
-    // call in turn (`node scripts/check-db.js`), up to depth 3, never
-    // visiting a file twice — the built image runs this exact chain at boot,
-    // regardless of which directory the scripts live in (DEPLOY-029: umami's
-    // migration lived two hops below CMD, under `scripts/`).
-    let frontier = extractCmdScriptPaths(`${cmd ?? ''} ${entry ?? ''}`, tree, dockerDir, chainVisited);
-    for (let depth = 0; depth < CMD_CHAIN_MAX_DEPTH && frontier.length > 0; depth += 1) {
-      const next: string[] = [];
-      for (const path of frontier) {
-        const content = tree[path];
-        if (content === undefined) continue;
-        consider(content, path, true);
-        next.push(...extractCmdScriptPaths(content, tree, dockerDir, chainVisited));
-      }
-      frontier = next;
-    }
+    // The built image runs this exact chain at boot, regardless of which
+    // directory the scripts live in (DEPLOY-029: umami's migration lived two
+    // hops below CMD, under `scripts/`).
+    followScripts(`${cmd ?? ''} ${entry ?? ''}`, true);
   }
 
   for (const [path, content] of Object.entries(tree)) {
@@ -2772,6 +2830,21 @@ export function detectStartupMigrationEvidence(tree: FileTree): MigrationStartup
       !path.includes('/') || (dockerDir.length > 0 && path.startsWith(`${dockerDir}/`));
     if (!isBootScript || !nearRoot) continue;
     consider(content, path, false);
+  }
+
+  // Application code that calls a migrator (`knex.migrate.latest()`): the app
+  // migrates itself when it runs. A file that only a package.json CLI script
+  // runs (`tsx src/db/migrate.ts`) is a pre-deploy tool, not the app — it
+  // counts only when the boot chain above reached it.
+  const cliStems = new Set<string>();
+  for (const [name, command] of collectScripts(tree)) {
+    if (!DB_TOOL_SCRIPT_KEY_REGEX.test(name)) continue;
+    for (const token of command.match(SCRIPT_PATH_TOKEN_REGEX) ?? []) cliStems.add(scriptStem(token));
+  }
+  for (const [path, content] of Object.entries(tree)) {
+    if (chainVisited.has(path) || !content || !APP_CODE_FILE_REGEX.test(path) || !isRuntimeSourcePath(path)) continue;
+    if (MIGRATION_DEFINITION_SEGMENT_REGEX.test(path) || cliStems.has(scriptStem(path))) continue;
+    considerCode(path, true);
   }
 
   return evidence;
@@ -3780,14 +3853,16 @@ function unresolvedSelectors(
 
   const result = new Map<string, { evidence: string; files: string[] }>();
   const engine = provisioned.database;
+  const sampleNamesEngineSelector = [...sampleValues.keys()].some((name) => DB_SELECTOR_NAME_REGEX.test(name));
   for (const name of new Set([...codeDefaults.keys(), ...sampleValues.keys(), ...compared.keys(), ...imageDefaults.keys()])) {
     const isStorage = provisioned.storage && STORAGE_SELECTOR_NAME_REGEX.test(name);
     const isDb = !isStorage && engine !== null && DB_SELECTOR_NAME_REGEX.test(name);
     if (!isDb && !isStorage) continue;
     // The image's `ENV` value wins over any default in the code, and over a comparison.
     const image = imageDefaults.get(name);
-    // An image `ENV` for a variable the app never reads says nothing.
-    if (image && !reads.has(name) && !codeDefaults.has(name)) continue;
+    // An image `ENV` for a variable the app never reads says nothing — except next to an env sample
+    // that documents an engine selector: the app reads its selectors where the fetched tree does not reach.
+    if (image && !(isDb && sampleNamesEngineSelector) && !reads.has(name) && !codeDefaults.has(name)) continue;
     const fromCode = image ?? codeDefaults.get(name) ?? [];
     const comparedHere = image ? [] : (compared.get(name) ?? []);
     // A sample value is only a default for a variable the app actually reads.
