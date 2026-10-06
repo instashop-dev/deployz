@@ -1369,3 +1369,94 @@ describe('rds az placement', () => {
     expect(subnetGroupResource['DeletionPolicy']).toBe('Retain');
   });
 });
+
+describe('app-specific binding aliases', () => {
+  type Container = { Environment: Array<{ Name: string; Value?: unknown }>; Secrets: Array<{ Name: string; ValueFrom?: unknown }> };
+  const base = makeIr({ postgres: true, redis: true, workers: [{ componentId: 'jobs', command: 'node worker.js' }] });
+  const withAliases: DeployzIR = {
+    ...base,
+    workloads: [
+      ...base.workloads,
+      {
+        componentId: 'migration',
+        kind: 'migration',
+        label: 'Database migration',
+        buildArtifactId: 'app',
+        command: 'flask db upgrade',
+        port: null,
+        public: false,
+        healthCheck: null,
+        desiredCount: 1,
+        compute: base.workloads[0]!.compute,
+        dependencyCapabilityKeys: [CAPABILITY_KEYS.RDS_POSTGRES],
+      },
+    ],
+    resources: base.resources.map((resource) => {
+      if (resource.componentId === 'primary-db') {
+        return {
+          ...resource,
+          envBindings: [
+            { name: 'DATABASE_URL', kind: 'url' as const },
+            { name: 'SQLALCHEMY_DATABASE_URI', kind: 'url' as const },
+            { name: 'SPRING_DATASOURCE_URL', kind: 'jdbc_url' as const },
+            { name: 'DB_HOST', kind: 'host' as const },
+            { name: 'DB_PASSWORD', kind: 'password' as const },
+            { name: 'PORT', kind: 'port' as const },
+          ],
+        };
+      }
+      if (resource.componentId === 'cache') return { ...resource, envBindings: [{ name: 'BACKEND_CACHE_REDIS_URI', kind: 'url' as const }] };
+      if (resource.componentId === 'storage') return { ...resource, envBindings: [{ name: 'S3_ATTACHMENTS_BUCKET', kind: 'bucket' as const }] };
+      return resource;
+    }),
+  };
+  const result = compileDeployzInfrastructure({ ir: withAliases, region: null });
+  const taskDefs = result.resolvedGraph.resources.filter((r) => r.cfnType === 'AWS::ECS::TaskDefinition');
+  const appOf = (props: Record<string, unknown>) =>
+    (props['ContainerDefinitions'] as Container[]).find((c) => (c as unknown as { Name: string }).Name === 'App')!;
+
+  it('binds every alias on every task definition, the migration included', () => {
+    expect(taskDefs.map((r) => r.logicalId).sort()).toEqual(['JobsTaskDefinition', 'MigrationTaskDefinition', 'WebTaskDefinition']);
+    for (const taskDef of taskDefs) {
+      const app = appOf(taskDef.properties);
+      const env = app.Environment.map((e) => e.Name);
+      const secrets = app.Secrets.map((s) => s.Name);
+      expect(secrets).toContain('SQLALCHEMY_DATABASE_URI');
+      expect(secrets).toContain('DB_PASSWORD');
+      expect(env).toEqual(expect.arrayContaining(['SPRING_DATASOURCE_URL', 'DB_HOST', 'BACKEND_CACHE_REDIS_URI', 'S3_ATTACHMENTS_BUCKET']));
+    }
+  });
+
+  it('copies the standard values: URL secret, master password, endpoint, JDBC URL, cache URL, bucket', () => {
+    const app = appOf(taskDefs.find((r) => r.logicalId === 'WebTaskDefinition')!.properties);
+    const secret = (name: string) => app.Secrets.find((s) => s.Name === name)?.ValueFrom;
+    const env = (name: string) => app.Environment.find((e) => e.Name === name)?.Value;
+    expect(secret('SQLALCHEMY_DATABASE_URI')).toEqual(secret('DATABASE_URL'));
+    expect(secret('DB_PASSWORD')).toEqual(secret('DATABASE_PASSWORD'));
+    expect(env('DB_HOST')).toEqual(env('DATABASE_HOST'));
+    expect(env('BACKEND_CACHE_REDIS_URI')).toEqual(env('REDIS_URL'));
+    expect(env('S3_ATTACHMENTS_BUCKET')).toEqual(env('AWS_S3_BUCKET'));
+    expect(JSON.stringify(env('SPRING_DATASOURCE_URL'))).toContain('jdbc:postgresql://');
+    expect(JSON.stringify(env('SPRING_DATASOURCE_URL'))).toContain(':5432/deployz?sslmode=require');
+  });
+
+  it('never replaces a standard or platform name', () => {
+    const app = appOf(taskDefs.find((r) => r.logicalId === 'WebTaskDefinition')!.properties);
+    expect(app.Environment.filter((e) => e.Name === 'PORT')).toHaveLength(1);
+    expect(app.Secrets.filter((s) => s.Name === 'DATABASE_URL')).toHaveLength(1);
+  });
+
+  it('builds a mysql JDBC URL for a mysql database', () => {
+    const mysqlBase = makeIr({ postgres: true, redis: false, dbEngine: 'mysql' });
+    const mysqlIr: DeployzIR = {
+      ...mysqlBase,
+      resources: mysqlBase.resources.map((r) =>
+        r.componentId === 'primary-db' ? { ...r, envBindings: [{ name: 'SPRING_DATASOURCE_URL', kind: 'jdbc_url' as const }] } : r,
+      ),
+    };
+    const web = compileDeployzInfrastructure({ ir: mysqlIr, region: null }).resolvedGraph.resources.find((r) => r.logicalId === 'WebTaskDefinition')!;
+    const value = appOf(web.properties).Environment.find((e) => e.Name === 'SPRING_DATASOURCE_URL')?.Value;
+    expect(JSON.stringify(value)).toContain('jdbc:mysql://');
+    expect(JSON.stringify(value)).toContain(':3306/deployz?sslMode=REQUIRED');
+  });
+});

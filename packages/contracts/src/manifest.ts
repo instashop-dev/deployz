@@ -21,7 +21,7 @@ import { scheduleExpressionSchema, scheduleRetryPolicySchema, scheduleTimezoneSc
 export const manifestEnvBindingSchema = z
   .object({
     name: z.string().min(1),
-    kind: z.enum(['url', 'host', 'port', 'bucket', 'database', 'username', 'password', 'arn']),
+    kind: z.enum(['url', 'host', 'port', 'bucket', 'database', 'username', 'password', 'arn', 'jdbc_url']),
   })
   .strict();
 export type ManifestEnvBinding = z.infer<typeof manifestEnvBindingSchema>;
