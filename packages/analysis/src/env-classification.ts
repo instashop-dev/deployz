@@ -20,11 +20,13 @@
 
 import type { EnvVariableClassification, ManifestEnvVariable } from '@deployz/contracts';
 
-import { isDerivedS3EnvVariable } from './bindings.js';
+import { isDerivedS3EnvVariable, postgresSemantic } from './bindings.js';
 import { EXTERNAL_SERVICE_CATALOG } from './detectors.js';
 
 export interface EnvClassificationContext {
   postgresRequired: boolean;
+  /** Env names the schema itself reads for the database URL (Prisma `datasource`), whatever they are called. */
+  databaseBindingNames?: string[];
   redisRequired: boolean;
   /** The Redis env names Deployz injects when Redis is required. */
   redisBindingNames: string[];
@@ -109,7 +111,11 @@ export function classifyEnvVariables(
   context: EnvClassificationContext,
 ): ManifestEnvVariable[] {
   const managed = new Set<string>(MANAGED_PLATFORM_ENV_VARS);
-  if (context.postgresRequired) for (const name of MANAGED_DATABASE_ENV_VARS) managed.add(name);
+  if (context.postgresRequired) {
+    for (const name of [...MANAGED_DATABASE_ENV_VARS, ...(context.databaseBindingNames ?? [])]) managed.add(name);
+    // Alias names the binding phase injects (MEMOS_DSN, SPRING_DATASOURCE_URL, …).
+    for (const variable of model) if (postgresSemantic(variable.key) !== null) managed.add(variable.key);
+  }
   if (context.redisRequired) for (const name of context.redisBindingNames) managed.add(name);
   if (context.storageRequired) {
     for (const name of MANAGED_STORAGE_ENV_VARS) managed.add(name);

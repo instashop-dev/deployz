@@ -103,6 +103,7 @@ function normalizeHealthSection(
 function toManifestKind(semantic: BindingSemantic): ManifestEnvBinding['kind'] | null {
   switch (semantic) {
     case 'url':
+    case 'jdbc_url':
     case 'host':
     case 'port':
     case 'bucket':

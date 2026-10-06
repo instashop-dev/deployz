@@ -666,6 +666,46 @@ describe('github — repository tree fetch (§18 analysis input)', () => {
     expect(tree).toHaveProperty('nested/.env.example');
   });
 
+  it('fetches framework config files that read env vars and keeps them above ordinary source', async () => {
+    const sources = Array.from({ length: ANALYSIS_MAX_FILES + 5 }, (_, i) => ({
+      path: `src/feature${i}.ts`,
+      type: 'blob' as const,
+      sha: `sha-src-${i}`,
+      size: 10,
+    }));
+    const configs = [
+      'config/database.yml',
+      'config/filesystems.php',
+      'config/locales/en.yml',
+      'src/main/resources/application.properties',
+      'src/main/resources/application-prod.yml',
+    ];
+    const fetchFn: FetchFn = async (url) => {
+      if (url.includes('/git/trees/')) {
+        return makeFetchResponse(200, {
+          tree: [
+            ...sources,
+            ...configs.map((path, i) => ({ path, type: 'blob', sha: `sha-config-${i}`, size: 10 })),
+          ],
+        });
+      }
+      const sha = url.split('/').pop();
+      return makeFetchResponse(200, {
+        content: Buffer.from(`content-${sha}`).toString('base64'),
+        encoding: 'base64',
+      });
+    };
+
+    const tree = await buildFileTreeForAnalysis(REF, 'tok', fetchFn);
+
+    expect(Object.keys(tree)).toHaveLength(ANALYSIS_MAX_FILES);
+    expect(tree).toHaveProperty('config/database.yml');
+    expect(tree).toHaveProperty('config/filesystems.php');
+    expect(tree).toHaveProperty('src/main/resources/application.properties');
+    expect(tree).toHaveProperty('src/main/resources/application-prod.yml');
+    expect(tree).not.toHaveProperty('config/locales/en.yml');
+  });
+
   it('keeps a NestJS health.controller.ts inside the ANALYSIS_MAX_FILES cap (A1-003)', async () => {
     const services = Array.from({ length: ANALYSIS_MAX_FILES + 5 }, (_, i) => ({
       path: `apps/server/src/feature${i}/feature${i}.service.ts`,

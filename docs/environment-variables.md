@@ -106,6 +106,29 @@ come from well-known name prefixes (`NEXT_PUBLIC_`, `VITE_`,
   `derived` plain value: the deployment Region, or
   `https://s3.<region>.amazonaws.com`. The template already injects
   `AWS_REGION` and the bucket names.
+- **App-specific binding names.** Deployz sets its managed database, cache
+  and bucket values under the names the app reads. Analysis finds these names
+  from code reads, `.env.example` files at any depth inside the selected app
+  (not in docs, examples or sibling apps), Prisma `datasource` blocks
+  (`url`, `directUrl`, `shadowDatabaseUrl`, whatever the variable is called),
+  and framework config files: Rails `config/*.yml`, Laravel `config/*.php` and
+  Spring `application*.properties|yml` (a `spring.datasource` property means
+  the app reads `SPRING_DATASOURCE_*`). A config-file read without a default
+  is required only for a secret name. JDBC names (`*_DATASOURCE_URL`,
+  `*_JDBC_URL`) get a JDBC URL. A Redis name that ends in `REDIS_URL`,
+  `REDIS_URI`, `REDIS_DSN`, `REDIS_HOST` or `REDIS_PORT` is bound only when
+  Redis is required. `REDIS_PASSWORD` is never bound.
+- **Selectors must be set.** A selector is an env variable that picks the
+  database engine (`DB_TYPE`, `DATABASE_CLIENT`, `DB_CONNECTION`,
+  `*_DBENGINE`, `<APP>_DRIVER` with an engine default) or the file storage
+  (`STORAGE_TYPE`, `ACTIVE_STORAGE_SERVICE`, `UPLOAD_PROVIDER`). When its
+  default (code, config file, sample or compose value) is an embedded engine
+  (`sqlite`, `h2`, …), a different engine, or local disk, and Deployz
+  provisions the managed resource, the selector is **required**. The app
+  would otherwise store data on the container disk. The source line shows the
+  value to use (`pg`, `s3`, …) when the code or a sample file shows it. A
+  selector whose default already names the provisioned engine, or whose
+  resource is not provisioned, is not required.
 - **Precedence:** explicit vendor or customer value > Deployz-derived value >
   analysis evidence (sample values, suggestions). A derived value never
   replaces an explicit value.

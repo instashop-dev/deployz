@@ -669,6 +669,11 @@ const COMPOSE_REGEX = /(?:^|\/)(?:docker-)?compose(?:\.[\w.-]+)?\.ya?ml$/i;
 // .env.example/.env.template/.env.sample at any depth — the checked-in env
 // samples vendors actually commit (never a real `.env`, which is gitignored).
 const ENV_SAMPLE_REGEX = /(?:^|\/)\.env\.(?:example|template|sample)$/i;
+// Framework config files that read env vars under the app's own names: Rails
+// `config/*.yml` (ERB), Laravel `config/*.php`, Spring `application*.properties|yml`.
+// Direct children of `config/` only — `config/locales/` would flood the cap.
+const CONFIG_ENV_FILE_REGEX =
+  /(?:^|\/)config\/[\w.-]+\.(?:ya?ml|php)$|(?:^|\/)application(?:-[\w.-]+)?\.(?:properties|ya?ml)$/i;
 // File-based health routes — the same shape detectHealthEndpoint matches on
 // the path rather than on the file's contents — and a NestJS
 // `health.controller.ts`, whose `@Controller('health')` is the only evidence.
@@ -716,6 +721,7 @@ function isRelevantPath(path: string): boolean {
   if (OTHER_MANIFEST_REGEX.test(path)) return true;
   if (DOCKERFILE_REGEX.test(path)) return true;
   if (PRISMA_SCHEMA_REGEX.test(path)) return true;
+  if (CONFIG_ENV_FILE_REGEX.test(path)) return true;
   if (COMPOSE_REGEX.test(path)) return true;
   if (ENV_SAMPLE_REGEX.test(path)) return true;
   if (DEPLOYMENT_DESCRIPTOR_REGEX.test(path)) return true;
@@ -787,7 +793,7 @@ function relevancePriority(path: string, protectedPaths: ReadonlySet<string>): n
   if (MANIFEST_REGEX.test(path)) return 1;
   if (OTHER_MANIFEST_REGEX.test(path)) return 1;
   if (!path.includes('/')) return 2; // generic (unnamed) root files
-  if (PRISMA_SCHEMA_REGEX.test(path)) return 3;
+  if (PRISMA_SCHEMA_REGEX.test(path) || CONFIG_ENV_FILE_REGEX.test(path)) return 3;
   if (HEALTH_ROUTE_FILE_REGEX.test(path)) return 4;
   if (ENTRY_FILE_REGEX.test(path)) return 5; // entry, routing and configuration source
   return 6; // other source files
