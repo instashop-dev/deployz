@@ -469,6 +469,39 @@ function tokenPattern(token: string): string {
   return `(?<![A-Za-z0-9_@/.-])${escaped}(?![A-Za-z0-9_])`;
 }
 
+// Python dev tooling lives in its own groups or files: a `dev` entry of
+// `[dependency-groups]`, `[tool.poetry.group.dev.dependencies]`,
+// `requirements-dev.txt`. A driver declared only there (`psycopg2-binary` for
+// the test suite) is not installed in the image the app runs from.
+const PY_DEV_GROUP = 'dev|test|tests|lint|docs|typing';
+const PY_DEV_TABLE_REGEX = new RegExp(
+  String.raw`^\s*\[\[?(?:tool\.poetry\.dev-dependencies|tool\.pdm\.dev-dependencies|tool\.poetry\.group\.(?:${PY_DEV_GROUP})\.dependencies)\]\]?\s*$`,
+);
+const PY_DEV_GROUP_REGEX = new RegExp(String.raw`^\s*(?:${PY_DEV_GROUP})\s*=`);
+const PY_DEV_REQUIREMENTS_REGEX = /(?:^|\/)requirements[-_.](?:dev|test|tests|lint|docs|ci)[\w.-]*\.txt$/i;
+
+/** A dependency manifest's content without the Python dev-only declarations. */
+function runtimeManifestContent(path: string, content: string): string {
+  if (PY_DEV_REQUIREMENTS_REGEX.test(path)) return '';
+  if (!/(?:^|\/)pyproject\.toml$/.test(path)) return content;
+  let inDevTable = false;
+  let inGroups = false;
+  let inDevGroup = false;
+  return content
+    .split('\n')
+    .filter((line) => {
+      if (/^\s*\[/.test(line) && /\]\s*$/.test(line)) {
+        inDevTable = PY_DEV_TABLE_REGEX.test(line);
+        inGroups = /^\s*\[dependency-groups\]\s*$/.test(line);
+        inDevGroup = false;
+      } else if (inGroups && /^\s*[\w-]+\s*=/.test(line)) {
+        inDevGroup = PY_DEV_GROUP_REGEX.test(line);
+      }
+      return !inDevTable && !inDevGroup;
+    })
+    .join('\n');
+}
+
 /**
  * Files where a dependency token appears in a DEPENDENCY position: a declared
  * dependency in a package manifest, a `require('x')`/`import x from 'x'`
@@ -489,7 +522,7 @@ export function findDependencyEvidence(tree: FileTree, token: string): string[] 
       }
       continue;
     }
-    if (isDependencyManifest(path) && new RegExp(tokenPattern(token)).test(content)) {
+    if (isDependencyManifest(path) && new RegExp(tokenPattern(token)).test(runtimeManifestContent(path, content))) {
       evidence.push(path);
       continue;
     }
@@ -1733,7 +1766,9 @@ const LANGUAGE_PG_SIGNALS: { token: string; name: string }[] = [
 // ["postgres"] }`, `sqlx … "postgres"`), or a PHP image that installs the
 // PostgreSQL PDO extension (`docker-php-ext-install pdo_pgsql`).
 const RUST_PG_FEATURE_REGEX = /(?:diesel|sqlx|sea-orm)[^\n]*\bpostgres(?:ql)?\b|features\s*=\s*\[[^\]]*"postgres(?:ql)?"|diesel\/postgres/;
-const PHP_PG_EXTENSION_REGEX = /(?:docker-php-ext-install|install-php-extensions)\b[^\n]*\bpdo_pgsql\b/;
+const LARAVEL_CONFIG_REGEX = /(?:^|\/)config\/database\.php$/;
+const LARAVEL_PGSQL_CONNECTION_REGEX = /['"]driver['"]\s*=>\s*['"]pgsql['"]/;
+const PHP_PG_EXTENSION_REGEX =/(?:docker-php-ext-install|install-php-extensions)\b[^\n]*\bpdo_pgsql\b/;
 
 /**
  * Language-level PostgreSQL evidence (drivers declared in Python/Ruby/Go
@@ -1764,6 +1799,11 @@ function detectLanguagePostgres(tree: FileTree): string[] {
     if (isDockerfilePath(path) && PHP_PG_EXTENSION_REGEX.test(content.replace(/\\\r?\n/g, ' ')) && !detected.includes('pdo_pgsql (PHP)')) {
       detected.push('pdo_pgsql (PHP)');
     }
+    // A Laravel app that lists a `pgsql` connection supports PostgreSQL next to
+    // its default engine, so a MySQL default does not make MySQL the only engine.
+    if (LARAVEL_CONFIG_REGEX.test(path) && LARAVEL_PGSQL_CONNECTION_REGEX.test(content) && !detected.includes('pgsql connection (Laravel)')) {
+      detected.push('pgsql connection (Laravel)');
+    }
   }
   // A postgresql:// connection URL in code is driver-independent evidence
   // (Python's sqlalchemy engine URL, Django settings, Go config strings).
@@ -1786,7 +1826,7 @@ function detectLanguagePostgres(tree: FileTree): string[] {
  * Go, is a direct requirement rather than an `// indirect` one.
  */
 function languageDriverDeclaredAtRuntime(tree: FileTree, signal: string): boolean {
-  if (signal === 'postgres feature (Rust)' || signal === 'pdo_pgsql (PHP)') return true;
+  if (signal === 'postgres feature (Rust)' || signal === 'pdo_pgsql (PHP)' || signal === 'pgsql connection (Laravel)') return true;
   const token = LANGUAGE_PG_SIGNALS.find((candidate) => candidate.name === signal)?.token;
   if (!token) return false;
   return findDependencyEvidence(tree, token).some((path) => {
@@ -1795,6 +1835,12 @@ function languageDriverDeclaredAtRuntime(tree: FileTree, signal: string): boolea
     const line = new RegExp(`^[^\\n]*${tokenPattern(token)}[^\\n]*$`, 'm').exec(tree[path] ?? '')?.[0] ?? '';
     return !/\/\/\s*indirect/.test(line);
   });
+}
+
+/** True when a Dockerfile installs one of the PHP extensions (`docker-php-ext-install pdo_mysql`). */
+export function installsPhpExtension(tree: FileTree, extensions: readonly string[]): boolean {
+  const pattern = new RegExp(`(?:docker-php-ext-install|install-php-extensions)\\b[^\\n]*\\b(?:${extensions.join('|')})\\b`);
+  return Object.entries(tree).some(([path, content]) => isDockerfilePath(path) && pattern.test(content.replace(/\\\r?\n/g, ' ')));
 }
 
 /**
