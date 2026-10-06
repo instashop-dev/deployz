@@ -166,6 +166,16 @@ install / database ready
   names. The payload carries `{family, identity}`; a payload with a
   command string is rejected and dropped — the relay can never execute
   an arbitrary command.
+- **Analysis freezes only a safe command.** `selectMigrationScript`
+  (`packages/analysis`) accepts only a script of the deployed app's own
+  package that applies pending migrations. It rejects create, generate,
+  push, reset, rollback and seed steps, test runs, copy/build/rename steps,
+  chains with an unsafe step, workspace-filter or `../` commands, and a CLI
+  that is only a devDependency (unless the final Dockerfile stage keeps dev
+  dependencies). If the image already migrates at boot (CMD/ENTRYPOINT
+  chain, uwsgi hook, binary flag, or `RUN_MIGRATIONS`-style ENV), the mode
+  is `startup` and no command is frozen. If nothing is safe, no command is
+  frozen and the "no migration command" warning stays.
 - **ROLLBACK and RESTART never run migrations.** Application rollback
   restores the image and service configuration only; it never reverses
   database migrations, and no down-migration orchestration exists. Every

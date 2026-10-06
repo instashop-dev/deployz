@@ -6,6 +6,8 @@
  * No AI, no network, no side effects.
  */
 
+import { posix as posixPath } from 'node:path';
+
 import type { ManifestEnvVariable } from '@deployz/contracts';
 
 // ── Types ───────────────────────────────────────────────────────────────────
@@ -194,13 +196,16 @@ function findFileContent(tree: FileTree, pathRegex: RegExp): string | null {
 // disk write or an environment read there says nothing about the app at
 // runtime (Stage A COMP-003, COMP-016).
 const NON_RUNTIME_SEGMENT_REGEX =
-  /(?:^|\/)(?:__tests__|__mocks__|__fixtures__|(?:[\w.-]*[-_])?tests?|testdata|specs?|(?:[\w.-]*[-_])?e2e|cypress|fixtures?|stories|scripts?|tools?|bin|docs?|extra|examples?|benchmarks?|\.github|\.husky|\.devcontainer|\.vscode)(?:\/|$)/i;
+  /(?:^|\/)(?:__tests__|__mocks__|__fixtures__|(?:[\w.-]*[-_])?tests?|testdata|specs?|(?:[\w.-]*[-_])?e2e|cypress|evaluations?|fixtures?|stories|scripts?|tools?|bin|docs?|extra|\.?examples?|benchmarks?|\.github|\.husky|\.devcontainer|\.vscode)(?:\/|$)/i;
 const NON_RUNTIME_FILE_REGEX =
   /(?:\.(?:test|spec|stories|e2e|cy)\.[cm]?[jt]sx?$|(?:^|\/)(?:[\w.-]+\.config\.[cm]?[jt]s|\.(?:eslintrc|prettierrc|babelrc)(?:\.[cm]?js)?|conftest\.py|test_[\w-]+\.py|[\w-]+_test\.(?:py|go|rb))$)/i;
 
+// A typed config class (`configs/database.config.ts`) is app code, unlike a tool's `jest.config.js`.
+const TYPED_CONFIG_FILE_REGEX = /(?:^|\/)configs\/[\w.-]+\.config\.[cm]?[jt]s$/i;
+
 /** True for source the deployed container actually runs. */
 export function isRuntimeSourcePath(path: string): boolean {
-  return !NON_RUNTIME_SEGMENT_REGEX.test(path) && !NON_RUNTIME_FILE_REGEX.test(path);
+  return !NON_RUNTIME_SEGMENT_REGEX.test(path) && (!NON_RUNTIME_FILE_REGEX.test(path) || TYPED_CONFIG_FILE_REGEX.test(path));
 }
 
 // Compose files that describe dev/test/example tooling rather than the app's
@@ -370,7 +375,7 @@ const JS_ENV_ASSIGNMENT_REGEX =
 // `process.env` at every site. `env.KEY` / `env['KEY']` count as reads only
 // inside such a module, so a front end's `import.meta.env.VITE_X` does not.
 const CONFIG_ENV_BINDING_REGEX =
-  /\b(?:const|let|var)\s+env\s*=|\bimport\s+(?:\{[^}]*\benv\b[^}]*\}|env)\s+from\b|=\s*useEnv\s*\(/;
+  /\b(?:const|let|var)\s+env\s*=|\bimport\s+(?:\{[^}]*\benv\b[^}]*\}|env)\s+from\b|=\s*useEnv\s*\(|[(,]\s*env\s*:\s*(?:\w+\.)?\w*Env\w*\b/;
 const CONFIG_ENV_READ_SOURCE =
   String.raw`(?<![\w.$])env\s*(?:\.\s*([A-Z][A-Z0-9_]*)\b|\[\s*["']([A-Z][A-Z0-9_]*)["']\s*\])`;
 
@@ -563,7 +568,7 @@ function selectedDockerfile(tree: FileTree): { path: string; content: string } |
  * own Dockerfile is a separate image: a release has exactly one image, so its
  * reads never reach this container. Comment lines are not references.
  */
-function siblingAppFilter(tree: FileTree): (path: string) => boolean {
+export function siblingAppFilter(tree: FileTree): (path: string) => boolean {
   const dockerfile = selectedDockerfile(tree);
   const match = dockerfile ? /^((?:apps|services|applications)\/)([^/]+)\/(?:.+\/)?[^/]+$/.exec(dockerfile.path) : null;
   if (!dockerfile || !match) return () => false;
@@ -2030,9 +2035,10 @@ const MIGRATION_DEV_REGEX = /migrate[\s:-]dev\b/i;
 
 /** Migration commands an application can legitimately run at STARTUP. */
 const STARTUP_MIGRATION_PATTERNS: { pattern: RegExp; name: string }[] = [
-  { pattern: /python\s+manage\.py\s+migrate\b/, name: 'python manage.py migrate' },
+  // `\bmanage\.py` also covers a uwsgi `hook-pre-app = exec:./manage.py migrate`.
+  { pattern: /\bmanage\.py\s+migrate\b/, name: 'python manage.py migrate' },
   { pattern: /prisma\s+migrate\s+deploy\b/, name: 'prisma migrate deploy' },
-  { pattern: /rails\s+db:(?:prepare|migrate)\b/, name: 'rails db:prepare/db:migrate' },
+  { pattern: /\b(?:rails|rake)\s+db:(?:prepare|migrate)\b/, name: 'rails db:prepare/db:migrate' },
   { pattern: /flask\s+db\s+upgrade\b/, name: 'flask db upgrade' },
   { pattern: /alembic\s+upgrade\s+head\b/, name: 'alembic upgrade head' },
   { pattern: /php\s+artisan\s+migrate\s+--force/, name: 'php artisan migrate --force' },
@@ -2040,11 +2046,25 @@ const STARTUP_MIGRATION_PATTERNS: { pattern: RegExp; name: string }[] = [
   { pattern: /typeorm\s+migration:run\b/, name: 'typeorm migration:run' },
   { pattern: /\bflyway\s+migrate\b/, name: 'flyway migrate' },
   { pattern: /\bliquibase\s+(?:update|migrate)\b/, name: 'liquibase update/migrate' },
+  { pattern: /\bsequelize(?:-cli)?\s+db:migrate\b/, name: 'sequelize db:migrate' },
+  { pattern: /\bdrizzle-kit\s+migrate\b/, name: 'drizzle-kit migrate' },
+  { pattern: /\bnode-pg-migrate\s+up\b/, name: 'node-pg-migrate up' },
+  // The app's own migrate script chained before its start command.
+  {
+    pattern: /\b(?:npm\s+run|yarn|pnpm(?:\s+run)?)\s+(?:db[:-])?migrate(?::(?:deploy|latest|up|prod))?(?=\s|$|[&;"'\]])/,
+    name: 'migrate script',
+  },
+  // A binary's own migrate-on-boot flag (`./app -migrate`).
+  { pattern: /(?:^|[\s"',])--?(?:auto-)?migrate(?:=true)?(?=[\s"',\]]|$)/, name: 'binary migrate flag' },
 ];
+
+/** An `ENV RUN_MIGRATIONS=1` / `AUTO_MIGRATE=true` style switch in the Dockerfile. */
+const STARTUP_MIGRATION_ENV_REGEX =
+  /^\s*ENV\s+.*\b(?:RUN_MIGRATIONS?|AUTO_MIGRAT(?:E|IONS?)|MIGRATE_ON_START(?:UP)?)\b\s*[= ]\s*["']?(?:1|true|yes|on)\b/im;
 
 /** A deploy-safe migration command text (the same family apps/api resolves). */
 const DEPLOY_MIGRATION_COMMAND_REGEX =
-  /prisma\s+migrate\s+deploy\b|drizzle-kit\s+(?:push|migrate)\b|knex\s+migrate:(?:latest|up)\b|sequelize\s+db:migrate\b|typeorm\s+migration:run\b|node-pg-migrate\b|npx\s+migrate\b/;
+  /prisma\s+migrate\s+deploy\b|drizzle-kit\s+migrate\b|knex\s+migrate:(?:latest|up)\b|sequelize\s+db:migrate\b|typeorm\s+migration:run\b|node-pg-migrate\b|npx\s+migrate\b/;
 
 /** One piece of startup-migration evidence. */
 export interface MigrationStartupEvidence {
@@ -2064,7 +2084,7 @@ export interface MigrationStartupEvidence {
 }
 
 /** A token in Dockerfile CMD/ENTRYPOINT text (or a script it runs) that names a script file. */
-const SCRIPT_PATH_TOKEN_REGEX = /[\w./-]+\.(?:sh|js|mjs|cjs|ts)\b/g;
+const SCRIPT_PATH_TOKEN_REGEX = /[\w./-]+\.(?:sh|js|mjs|cjs|ts|ini)\b/g;
 
 /**
  * Maximum number of script-to-script hops followed from the CMD/ENTRYPOINT
@@ -2113,25 +2133,159 @@ export function extractCmdScriptPaths(text: string, tree: FileTree, dockerDir: s
   return found;
 }
 
-/** True when the command text is deploy-shaped and not dev-mode. */
-export function isDeploySafeMigrationCommand(command: string): boolean {
-  return !MIGRATION_DEV_REGEX.test(command) && DEPLOY_MIGRATION_COMMAND_REGEX.test(command);
+const MIGRATION_SCRIPT_KEY_REGEX = /migrat/i;
+
+// A script key that creates, undoes, copies, builds or tests migrations, or is
+// the app's own start/dev command — never a run of the pending migrations.
+const UNSAFE_MIGRATION_KEY_REGEX =
+  /(?:^|[:_-])(?:create|generate|gen|make|new|rollback|down|undo|revert|reset|drop|fresh|seed|copy|build|test|push|prototype|dev|start|status)(?:$|[:_-])/i;
+
+// Any step of a command that is not a plain "apply pending migrations": a
+// create/generate/rollback/reset step, a dev schema sync (`push`), a test run,
+// a copy/build/rename step, a seed, or a workspace/monorepo runner or `../`
+// path (not available at the image WORKDIR). One unsafe step in a chain makes
+// the whole command unsafe.
+const UNSAFE_MIGRATION_COMMAND_REGEX = new RegExp(
+  [
+    String.raw`\bmigrat\w*(?:\.[cm]?[jt]s)?[\s:-]+(?:create|make|new|generate|rollback|down|reset|drop|fresh|revert|undo)\b`,
+    String.raw`\bmakemigrations\b`,
+    String.raw`\bdrizzle-kit\s+(?:generate|push|studio|drop|check|up)\b`,
+    String.raw`\bprisma\s+(?:migrate\s+(?:reset|diff)|db\s+(?:push|seed|execute))\b`,
+    String.raw`\bdb[\s:]push\b|\bdb:(?:reset|seed|drop)\b`,
+    String.raw`\b(?:vitest|jest|mocha|ava|playwright|cypress)\b`,
+    String.raw`(?:^|[\s;&|])(?:cp|mkdir|rsync|mv|rm|copyfiles|cpx|rimraf|tsc)\s`,
+    String.raw`\b(?:rename|seed|build)\b`,
+    String.raw`\bpnpm\s+(?:--filter|-F|-r|--recursive|--dir|-C)\b|\byarn\s+workspaces?\b|\bnpm\b[^&;|]*\s(?:-w|--workspaces?)\b|\bturbo\b|\bnx\s|\.\./`,
+  ].join('|'),
+  'i',
+);
+
+// Migration CLIs that normally sit in devDependencies, mapped to the package
+// that provides them. The relay runs the command in the runtime image, where
+// a devDependency is missing unless the Dockerfile kept dev dependencies.
+const DEV_CLI_PACKAGES: Record<string, string> = {
+  prisma: 'prisma',
+  'drizzle-kit': 'drizzle-kit',
+  knex: 'knex',
+  sequelize: 'sequelize-cli',
+  'sequelize-cli': 'sequelize-cli',
+  typeorm: 'typeorm',
+  tsx: 'tsx',
+  'ts-node': 'ts-node',
+  'dotenv-flow': 'dotenv-flow',
+  'dotenv-cli': 'dotenv-cli',
+  dotenv: 'dotenv-cli',
+  'node-pg-migrate': 'node-pg-migrate',
+  'db-migrate': 'db-migrate',
+};
+const DEV_CLI_TOKEN_REGEX = new RegExp(`(?:^|[\\s;&|(])(${Object.keys(DEV_CLI_PACKAGES).join('|')})(?=\\s|$)`, 'g');
+
+/**
+ * The image's runtime working directory and the directory the repository was
+ * copied into, read from the LAST build stage of a Dockerfile (an earlier
+ * stage's WORKDIR never survives into the runtime image): the first WORKDIR
+ * in that stage is where the repo lands (e.g. `/app`), and the last WORKDIR
+ * is where `CMD`/the relay's `sh -c <command>` actually runs from — they
+ * differ whenever the final stage `WORKDIR`s into a subdirectory afterwards
+ * (Documenso's `docker/Dockerfile` sets `WORKDIR /app` then later `WORKDIR
+ * /app/apps/remix`). Relative WORKDIRs chain off the previous one, as Docker
+ * itself resolves them. No WORKDIR at all means both default to the same
+ * directory, so no relative adjustment is needed.
+ */
+export function dockerfileWorkdirs(content: string): { imageRoot: string; runtimeCwd: string } {
+  const lastStageStart = [...content.matchAll(/^\s*FROM\s+\S+/gim)].at(-1)?.index ?? 0;
+  const finalStage = content.slice(lastStageStart);
+
+  const dirs: string[] = [];
+  let current = '/';
+  for (const match of finalStage.matchAll(/^\s*WORKDIR\s+(\S+)/gim)) {
+    const raw = match[1]!.replace(/^["']|["']$/g, '');
+    current = raw.startsWith('/') ? raw : posixPath.join(current, raw);
+    dirs.push(current);
+  }
+  const imageRoot = dirs[0] ?? '/';
+  const runtimeCwd = dirs.at(-1) ?? imageRoot;
+  return { imageRoot, runtimeCwd };
+}
+
+/** True when a Dockerfile stage runs a plain (non-production) package install and never prunes. */
+function stageInstallsDevDependencies(stage: string): boolean {
+  const lines = stage.split('\n');
+  const installs = lines.filter((line) =>
+    /^\s*RUN\b.*\b(?:npm\s+(?:ci|install|i)\b|pnpm\s+(?:install|i)\b|yarn(?:\s+install)?(?=\s*(?:&&|;|\\|$)|\s+-))/i.test(line),
+  );
+  return (
+    installs.some((line) => !/--prod|--omit=dev|--only=prod|NODE_ENV=production/i.test(line)) &&
+    !lines.some((line) => /\bprune\b/i.test(line))
+  );
 }
 
 /**
- * A deploy-safe migration script exists in any package.json (script key or a
- * deploy-shaped command value), mirroring apps/api's resolveMigrationCommand
- * convention — this is the mode='pre_deploy' signal.
+ * True when the selected Dockerfile's FINAL stage evidently keeps dev
+ * dependencies: it runs a plain install itself, or copies the whole app dir
+ * or `node_modules` from an earlier stage that did.
  */
-export function hasPreDeployMigration(tree: FileTree): boolean {
-  for (const [key, command] of collectScripts(tree)) {
-    // A migration chained into the app's own start/dev command runs at
-    // STARTUP, not as a pre-deploy step — never pre_deploy evidence.
-    if (key === 'start' || key === 'dev') continue;
-    if (isDeploySafeMigrationCommand(command)) return true;
-    if (/migrat/i.test(key) && !MIGRATION_DEV_REGEX.test(command)) return true;
+function finalStageKeepsDevDependencies(content: string): boolean {
+  const stages = content.split(/^(?=\s*FROM\s)/im).filter((stage) => /^\s*FROM\s/i.test(stage));
+  const finalStage = stages.at(-1);
+  if (finalStage === undefined) return false;
+  if (stageInstallsDevDependencies(finalStage)) return true;
+  for (const match of finalStage.matchAll(/^\s*COPY\s+--from=(\S+)\s+(\S+)/gim)) {
+    const [, from, source] = match;
+    const index = stages.findIndex(
+      (stage, i) => from === String(i) || new RegExp(`^\\s*FROM\\s+\\S+\\s+AS\\s+${from}\\b`, 'i').test(stage),
+    );
+    const copiesDependencies = match[0].includes('node_modules') || /^(?:\.\/?|\/[\w-]+\/?\.?)$/.test(source!);
+    if (index >= 0 && index < stages.length - 1 && copiesDependencies && stageInstallsDevDependencies(stages[index]!)) {
+      return true;
+    }
   }
   return false;
+}
+
+/** True when `name` is a runtime dependency of the package.json in `dir`. */
+function hasRuntimeDependency(tree: FileTree, dir: string, name: string): boolean {
+  const manifest = parsePackageJsonsWithPath(tree).find(({ path }) => path === (dir ? `${dir}/package.json` : 'package.json'));
+  return ['dependencies', 'optionalDependencies'].some((field) => {
+    const deps = manifest?.pkg[field];
+    return typeof deps === 'object' && deps !== null && name in deps;
+  });
+}
+
+/**
+ * The migration script Deployz may freeze into the pre-deploy one-shot task:
+ * a migration-shaped script of the DEPLOYED app's own package (the repo root,
+ * the Dockerfile's directory, or the runtime WORKDIR's package) that applies
+ * pending migrations and nothing else, and whose CLI exists in the runtime
+ * image. Prefers a deploy-shaped command. Undefined when nothing is
+ * evidently safe — an absent command is safer than a wrong one running
+ * unattended against the production database.
+ */
+export function selectMigrationScript(tree: FileTree): [key: string, command: string, packageDir: string] | undefined {
+  const dockerfile = selectedDockerfile(tree);
+  const appDirs = new Set(['']);
+  if (dockerfile) {
+    const { imageRoot, runtimeCwd } = dockerfileWorkdirs(dockerfile.content);
+    appDirs.add(dockerfile.path.includes('/') ? dockerfile.path.split('/').slice(0, -1).join('/') : '');
+    appDirs.add(posixPath.relative(imageRoot, runtimeCwd));
+  }
+  const keepsDevDependencies = dockerfile !== null && finalStageKeepsDevDependencies(dockerfile.content);
+
+  const safe = collectScriptsWithDir(tree).filter(([key, command, dir]) => {
+    if (!MIGRATION_SCRIPT_KEY_REGEX.test(key) && !DEPLOY_MIGRATION_COMMAND_REGEX.test(command)) return false;
+    if (!appDirs.has(dir) || UNSAFE_MIGRATION_KEY_REGEX.test(key)) return false;
+    if (MIGRATION_DEV_REGEX.test(command) || UNSAFE_MIGRATION_COMMAND_REGEX.test(command)) return false;
+    if (keepsDevDependencies) return true;
+    return [...command.matchAll(DEV_CLI_TOKEN_REGEX)].every(([, cli]) =>
+      hasRuntimeDependency(tree, dir, DEV_CLI_PACKAGES[cli!]!),
+    );
+  });
+  return safe.find(([, command]) => DEPLOY_MIGRATION_COMMAND_REGEX.test(command)) ?? safe[0];
+}
+
+/** A safe migration script exists for the deployed app — the mode='pre_deploy' signal. */
+export function hasPreDeployMigration(tree: FileTree): boolean {
+  return selectMigrationScript(tree) !== undefined;
 }
 
 /**
@@ -2153,11 +2307,20 @@ export function detectStartupMigrationEvidence(tree: FileTree): MigrationStartup
     }
   };
 
+  const dockerfile = selectedDockerfile(tree);
+  // A start script that CMD/ENTRYPOINT calls (`npm start`) is what the image
+  // boots, so it counts as Dockerfile-command evidence.
+  const imageRunsStartScript =
+    dockerfile !== null &&
+    /\b(?:npm|yarn|pnpm)\s+(?:run\s+)?start\b/.test(
+      `${CMD_REGEX.exec(dockerfile.content)?.[1] ?? ''} ${ENTRYPOINT_REGEX.exec(dockerfile.content)?.[1] ?? ''}`,
+    );
   for (const [name, command] of collectScripts(tree)) {
-    if (name === 'start' || name === 'dev') consider(command, `package.json script "${name}"`, false);
+    if (name === 'start' || name === 'dev') {
+      consider(command, `package.json script "${name}"`, name === 'start' && imageRunsStartScript);
+    }
   }
 
-  const dockerfile = selectedDockerfile(tree);
   const dockerDir = dockerfile?.path?.includes('/') ? (dockerfile.path.split('/').slice(0, -1).join('/') ?? '') : '';
   // Files already scanned through the CMD/ENTRYPOINT chain, so the
   // independent boot-script heuristic below never double-counts them.
@@ -2168,6 +2331,9 @@ export function detectStartupMigrationEvidence(tree: FileTree): MigrationStartup
     const entry = ENTRYPOINT_REGEX.exec(dockerfile.content)?.[1];
     if (cmd) consider(cmd, `CMD (${dockerfile.path})`, true);
     if (entry) consider(entry, `ENTRYPOINT (${dockerfile.path})`, true);
+    if (STARTUP_MIGRATION_ENV_REGEX.test(dockerfile.content)) {
+      evidence.push({ source: `ENV (${dockerfile.path})`, pattern: 'migrate-on-start ENV', fromDockerCommand: true });
+    }
 
     // Follow the script(s) CMD/ENTRYPOINT name (`sh scripts/start-docker.sh`,
     // `["sh", "scripts/start-docker.sh"]`), and every script THOSE scripts
@@ -2646,16 +2812,31 @@ export function scanViperEnvKeys(content: string): string[] {
   if (!content.includes('viper.')) return [];
   const prefixMatch = /viper\.SetEnvPrefix\(\s*"([A-Za-z][A-Za-z0-9_-]*)"\s*\)/.exec(content);
   if (!prefixMatch || !/viper\.AutomaticEnv\s*\(/.test(content)) return [];
-  const prefix = prefixMatch[1]!.toUpperCase().replace(/-/g, '_');
+  const prefix = prefixMatch[1]!;
   const keys = new Set<string>();
   const keyRegex =
-    /viper\.(?:Get\w*|SetDefault|BindEnv|IsSet)\(\s*"([a-zA-Z][\w-]*)"|\.(?:Persistent)?Flags\(\)\.\w+\(\s*"([a-zA-Z][\w-]*)"/g;
+    /viper\.(?:Get\w*|SetDefault|BindEnv|IsSet)\(\s*"([a-zA-Z][\w.-]*)"|\.(?:Persistent)?Flags\(\)\.\w+\(\s*"([a-zA-Z][\w.-]*)"/g;
   let match: RegExpExecArray | null;
   while ((match = keyRegex.exec(content)) !== null) {
-    const key = (match[1] ?? match[2])!;
-    keys.add(`${prefix}_${key.toUpperCase().replace(/-/g, '_')}`);
+    const name = viperEnvName(content, prefix, (match[1] ?? match[2])!);
+    if (name !== null) keys.add(name);
+  }
+  for (const key of viperTypedKeys(content).values()) {
+    const name = viperEnvName(content, prefix, key);
+    if (name !== null) keys.add(name);
   }
   return [...keys].sort();
+}
+
+/** The env name viper reads for a key: `PREFIX_KEY`, with `-` and (given `SetEnvKeyReplacer`) `.` as `_`. */
+function viperEnvName(content: string, prefix: string, key: string): string | null {
+  if (key.includes('.') && !/SetEnvKeyReplacer\(\s*strings\.NewReplacer\([^)]*"\."/.test(content)) return null;
+  return `${prefix.toUpperCase().replace(/-/g, '_')}_${key.toUpperCase().replace(/[-.]/g, '_')}`;
+}
+
+/** Typed config keys (``DatabaseType Key = `database.type` ``) by identifier. */
+function viperTypedKeys(content: string): Map<string, string> {
+  return new Map([...content.matchAll(/^[ \t]*(\w+)[ \t]+\w*Key[ \t]*=[ \t]*[`"]([a-z][\w.-]*)[`"]/gm)].map((m) => [m[1]!, m[2]!]));
 }
 
 /** Go `os.Getenv` / `os.LookupEnv`, required only with an adjacent missing-check or a required struct tag. */
@@ -2741,8 +2922,25 @@ const INFRA_BINDING_NAMES = new Set<string>([
   'DB_USERNAME',
   'DB_PASSWORD',
   'DB_PASS',
+  'DB_CONNECTION_URI',
+  'DSN',
+  'SQLALCHEMY_DATABASE_URI',
   'POSTGRES_URL',
   'POSTGRESQL_URL',
+  'POSTGRES_URI',
+  'POSTGRES_CONNECTION_STRING',
+  'POSTGRES_DATABASE',
+  'POSTGRES_USERNAME',
+  'POSTGRES_SERVER',
+  'MYSQL_URL',
+  'MYSQL_HOST',
+  'MYSQL_PORT',
+  'MYSQL_DATABASE',
+  'MYSQL_USER',
+  'MYSQL_PASSWORD',
+  'SPRING_DATASOURCE_URL',
+  'SPRING_DATASOURCE_USERNAME',
+  'SPRING_DATASOURCE_PASSWORD',
   'REDIS_URL',
   'REDIS_HOST',
   'REDIS_PORT',
@@ -2760,7 +2958,7 @@ const INFRA_BINDING_NAMES = new Set<string>([
 
 /** Alias shapes the infrastructure-binding phase can inject (MEMOS_DSN, PAPERLESS_DBHOST…). */
 const INFRA_BINDING_ALIAS_REGEX =
-  /(?:_DSN|_DATABASE_URL|_DATABASE_URI|_DB_URL|_DB_URI|_POSTGRES_URL|_POSTGRESQL_URL|_DBHOST|_DBPORT|_DBNAME|_DBUSER|_DBPASS|_BUCKET(?:_NAME)?|_S3_REGION)$/i;
+  /(?:_DSN|_DATABASE_URL|_DATABASE_URI|_DB_URL|_DB_URI|_POSTGRES_URL|_POSTGRESQL_URL|_DBHOST|_DBPORT|_DBNAME|_DBUSER|_DBPASS|_BUCKET(?:_NAME)?|_S3_REGION|_DB_CONNECTION_(?:URI|URL|STRING)|_POSTGRES_URI|_MYSQL_URL|_DB_{1,2}(?:HOST|PORT|NAME|DATABASE|USER|USERNAME|PASSWORD|PASS)|_POSTGRES(?:DB)?_(?:HOST|PORT|DB|DATABASE|USER|USERNAME|PASSWORD)|_DATASOURCE_(?:URL|JDBC_URL|USERNAME|PASSWORD)|_JDBC_URL|_REDIS_(?:URL|URI|DSN|HOST|PORT))$/i;
 
 /** Every §11.3 external-service catalog key (a vendor credential name). */
 function externalServiceCatalogKeys(): Set<string> {
@@ -2919,31 +3117,287 @@ function detectComposeBuildArgs(tree: FileTree): Map<string, string> {
  * **throw** for that key still means required (Documenso's
  * NEXT_PRIVATE_DATABASE_REPLICA_URLS, COMP false-positive fix).
  */
-/** Engine-selector variables that decide which database engine the app uses. */
-const ENGINE_SELECTOR_NAMES = ['DB', 'DB_ENGINE', 'DATABASE_ENGINE', 'DB_CLIENT', 'DB_BACKEND'];
-
-/**
- * COMP-022 — engine selectors defaulting to a non-PostgreSQL engine while a
- * PostgreSQL driver is also present. The selector read must then be REQUIRED:
- * without a value the app boots on SQLite inside the container and silently
- * drops data instead of using the provisioned database.
- */
-function unresolvedEngineSelectors(tree: FileTree): Set<string> {
-  const selectors = new Set<string>();
-  for (const [path, content] of Object.entries(tree)) {
-    if (!content || !isRuntimeSourcePath(path)) continue;
-    for (const name of ENGINE_SELECTOR_NAMES) {
-      const defaulted = new RegExp(
-        `(?:["']${name}["']\\s*[,)]\\s*["']?(?:sqlite|sqlite3)|process\\.env\\.${name}\\s*\\|\\|\\s*["'](?:sqlite|sqlite3)|os\\.getenv\\s*\\(\\s*["']${name}["'][^)]*["'](?:sqlite|sqlite3))`,
-      ).test(content);
-      if (defaulted) selectors.add(name);
-    }
-  }
-  if (selectors.size === 0) return selectors;
-  return detectPostgresql(tree).detected ? selectors : new Set<string>();
+/** The managed resources Deployz provisions for the app; a selector only matters for what is provisioned. */
+export interface ProvisionedResources {
+  database: 'postgres' | 'mysql' | null;
+  storage: boolean;
 }
 
-export function detectEnvVarModel(tree: FileTree, externalServices: string[] = []): ManifestEnvVariable[] {
+// A selector names the engine/backend the app uses: DB, DB_TYPE, DATABASE_CLIENT,
+// DB_CONNECTION, MB_DB_TYPE, PAPERLESS_DBENGINE, MEMOS_DRIVER. A `*_DRIVER` only
+// counts when its default is a database engine, so MAIL_DRIVER=smtp never does.
+// The database NAME of a known engine (POSTGRES_DB) is not a selector.
+const DB_SELECTOR_NAME_REGEX =
+  /^(?!(?:POSTGRES|POSTGRESQL|MYSQL|MARIADB|PG)_)(?:(?:[A-Z0-9]+_)*(?:DB|DATABASE)(?:_(?:CLIENT|TYPE|DRIVER|ENGINE|DIALECT|BACKEND|CONNECTION|ADAPTER|VENDOR|PROVIDER))?|[A-Z0-9_]*_DBENGINE|[A-Z0-9]+_DRIVER)$/;
+const STORAGE_SELECTOR_NAME_REGEX =
+  /(?:^|_)(?:FILE_)?STORAGE(?:_(?:TYPE|DRIVER|PROVIDER|BACKEND|SERVICE|MODE))?$|(?:^|_)UPLOAD_PROVIDER$|_STORAGE_PROVIDER$|^ACTIVE_STORAGE_SERVICE$/;
+
+const EMBEDDED_ENGINE_REGEX = /^(?:sqlite3?|better-sqlite3|libsql|h2|bolt|django\.db\.backends\.sqlite3)(?:$|[:/])/i;
+const ENGINE_VALUE_REGEX = {
+  postgres: /^(?:pg|pgsql|postgres(?:ql|db)?|node-postgres|postgis|django\.db\.backends\.postgresql\w*)(?:$|[:/+])/i,
+  mysql: /^(?:mysql2?|mariadb|django\.db\.backends\.mysql|mysql\+\w+)(?:$|[:/])/i,
+};
+const ENGINE_LABEL = { postgres: 'PostgreSQL', mysql: 'MySQL' };
+const LOCAL_STORAGE_VALUE_REGEX = /^(?:local|disk|fs|file|filesystem|local[_-]?disk)$/i;
+const S3_STORAGE_VALUE_REGEX = /^(?:s3|aws|amazon|amazons3|aws[-_]?s3|s_3)$/i;
+
+/** Files whose env reads and defaults can name a selector. */
+const SELECTOR_SOURCE_REGEX = /\.(?:[cm]?[jt]sx?|py|rb|go|php|java|kt|kts|scala)$/i;
+/** Rails `config/*.yml`, Laravel `config/*.php`, a `config.yml` and Spring `application*` — small files that read env vars. */
+const CONFIG_ENV_FILE_REGEX =
+  /(?:^|\/)config\/[\w.-]+\.(?:ya?ml|php)$|(?:^|\/)config\.ya?ml$|(?:^|\/)application(?:-[\w.-]+)?\.(?:properties|ya?ml)$/i;
+
+/** A typed config class field bound to an env var: `@Env('DB_TYPE', schema) type: DbType = 'sqlite';`. */
+const DECORATED_ENV_REGEX = /@Env\(\s*["']([A-Z][A-Z0-9_]*)["']/g;
+const DECORATED_ENV_DEFAULT_REGEX =
+  /@Env\(\s*["']([A-Z][A-Z0-9_]*)["'][^;]*?\)\s*(?:(?:public|private|protected|readonly)\s+)*\w+[?!]?\s*(?::\s*[^=;\n]+?)?\s*=\s*(["'`])([^"'`\n]*)\2\s*;/g;
+
+/** Env reads through an imported helper: `assertEnv('DB_URL')` throws when unset, `getEnv('X')` does not. */
+const ENV_HELPER_CALL_REGEX = /(?<![\w.$])(assertEnv|requireEnv|mustGetEnv|getEnv\w*)\(\s*["']([A-Z][A-Z0-9_]*)["']\s*(,)?/g;
+/** Env names listed for a boot check: `requiredEnvVars.push('DB_HOST', …)`, `validateEnv(['STORAGE_LOCATIONS'])`. */
+const ENV_NAME_LIST_REGEX = /\brequired\w*env\w*(?:\s*:[^=;\n]+)?\s*(?:=\s*\[|\.push\()([^\])]*)|\bvalidate\w*env\w*\(\s*\[([^\]]*)/gi;
+
+/** Env reads with an inline default, in every language the tree carries: `[name, default]`. */
+function scanDefaultedEnvReads(content: string): [string, string][] {
+  const found: [string, string][] = [];
+  // JS `env.X || 'd'`, `process.env['X'] ?? 'd'`
+  for (const m of content.matchAll(/\benv(?:\.([A-Z][A-Z0-9_]*)|\[\s*["']([A-Z][A-Z0-9_]*)["']\s*\])\s*(?:\|\||\?\?)\s*["'`]([^"'`\n]*)["'`]/g)) {
+    found.push([(m[1] ?? m[2])!, m[3]!]);
+  }
+  // Ruby `ENV['X'] || 'd'`
+  for (const m of content.matchAll(/\bENV\[\s*["']([A-Z][A-Z0-9_]*)["']\s*\]\s*\|\|\s*["']([^"'\n]*)["']/g)) {
+    found.push([m[1]!, m[2]!]);
+  }
+  // `os.getenv("X", "d")`, `os.environ.get`, `ENV.fetch`, PHP/Strapi `env('X', 'd')`, `env.get('X', 'd')`,
+  // django-environ `env.str('X', 'd')`, Go `getEnv("X", "d")`
+  for (const m of content.matchAll(/\b\w*env\w*(?:\.(?:get|fetch|getenv|str|url|db_url))?\s*\(\s*["'`]([A-Za-z0-9_]+)["'`]\s*,\s*(?:default\s*=\s*)?["'`]([^"'`\n]*)["'`]/gi)) {
+    if (m[1] === m[1]!.toUpperCase()) found.push([m[1]!, m[2]!]);
+  }
+  // NestJS `configService.get<string>('X', 'd')`
+  for (const m of content.matchAll(/\.get(?:OrThrow)?(?:<[^>\n]*>)?\(\s*["'`]([A-Z][A-Z0-9_]*)["'`]\s*,\s*["'`]([^"'`\n]*)["'`]\s*\)/g)) {
+    found.push([m[1]!, m[2]!]);
+  }
+  // Typed config class `@Env('X', schema?) prop: T = 'd'`
+  for (const m of content.matchAll(DECORATED_ENV_DEFAULT_REGEX)) found.push([m[1]!, m[3]!]);
+  // Spring / shell `${X:default}`
+  for (const m of content.matchAll(/\$\{([A-Z][A-Z0-9_]*):-?([^}\n]*)\}/g)) found.push([m[1]!, m[2]!]);
+  // Schema defaults: envalid `X: str({ default: 'd' })`, zod `X: z.enum([…]).default('d')`
+  for (const m of content.matchAll(/\b([A-Z][A-Z0-9_]*)\s*:\s*\w+\(\s*\{[^}]*?\bdefault\s*:\s*["'`]([^"'`\n]*)["'`]/g)) {
+    found.push([m[1]!, m[2]!]);
+  }
+  for (const m of content.matchAll(/\b([A-Z][A-Z0-9_]*)\s*:\s*z\.[^\n]*?\.default\(\s*["'`]([^"'`\n]*)["'`]/g)) found.push([m[1]!, m[2]!]);
+  return found;
+}
+
+/** Env reads compared with a literal (`os.getenv("DB") == "postgres"`): `[name, literal]`. */
+function scanComparedEnvReads(content: string): [string, string][] {
+  const found: [string, string][] = [];
+  for (const m of content.matchAll(
+    /(?:process\.env\.([A-Z][A-Z0-9_]*)|\b(?:os\.getenv|os\.environ\.get|getenv|env)\(\s*["']([A-Z][A-Z0-9_]*)["']\s*\)|ENV\[\s*["']([A-Z][A-Z0-9_]*)["']\s*\])\s*(?:===?|!==?)\s*["']([^"'\n]+)["']/g,
+  )) {
+    found.push([(m[1] ?? m[2] ?? m[3])!, m[4]!]);
+  }
+  return found;
+}
+
+/** django-environ reads (`env.str('X')`): only an engine selector without a default needs a value; settings guard the rest. */
+function scanDjangoEnvironReads(content: string): { key: string; needsValue: boolean }[] {
+  if (!/\bimport environ\b|\benviron\.Env\(/.test(content)) return [];
+  const constructorDefaults = new Set([...content.matchAll(/\b([A-Z][A-Z0-9_]*)\s*=\s*\(/g)].map((m) => m[1]!));
+  return [...content.matchAll(/\benv(?:\.\w+)?\(\s*["']([A-Z][A-Z0-9_]*)["']\s*(,)?/g)].map((m) => ({
+    key: m[1]!,
+    needsValue: m[2] === undefined && !constructorDefaults.has(m[1]!) && isRequiredEngineSelector(m[1]!),
+  }));
+}
+
+/**
+ * Go viper `SetDefault("driver", "sqlite")`, a flag default or a typed-key
+ * `DatabaseType.setDefault("sqlite")` under `SetEnvPrefix("memos")` → `MEMOS_DRIVER`.
+ */
+function scanViperEnvDefaults(content: string): [string, string][] {
+  const prefix = /viper\.SetEnvPrefix\(\s*"([A-Za-z][A-Za-z0-9_-]*)"\s*\)/.exec(content)?.[1];
+  if (prefix === undefined || !/viper\.AutomaticEnv\s*\(/.test(content)) return [];
+  const found: [string, string][] = [];
+  const typedKeys = viperTypedKeys(content);
+  for (const m of content.matchAll(
+    /viper\.SetDefault\(\s*"([a-zA-Z][\w.-]*)"\s*,\s*"([^"\n]*)"|\.(?:Persistent)?Flags\(\)\.String\w*\(\s*"([a-zA-Z][\w.-]*)"\s*,\s*"([^"\n]*)"|\b(\w+)\.setDefault\(\s*"([^"\n]*)"/g,
+  )) {
+    const key = m[1] ?? m[3] ?? typedKeys.get(m[5] ?? '');
+    const name = key === undefined ? null : viperEnvName(content, prefix, key);
+    if (name !== null) found.push([name, (m[2] ?? m[4] ?? m[6])!]);
+  }
+  return found;
+}
+
+/** `KEY=value` / `KEY: value` lines of a sample or compose file. */
+function envLineValues(content: string): [string, string][] {
+  return [...content.matchAll(/^[ \t]*-?[ \t]*([A-Z][A-Z0-9_]*)[ \t]*[=:][ \t]*["']?([^\s"'#]*)/gm)].map(
+    (m): [string, string] => [m[1]!, m[2]!],
+  );
+}
+
+/** Files that hold an env defaults map: `env.ts`, `env/constants/defaults.ts`. */
+const ENV_DEFAULTS_FILE_REGEX = /(?:^|\/)(?:env|environment)(?:\/|\.[cm]?[jt]s$)|(?:^|\/)defaults?\.[cm]?[jt]s$/i;
+
+/** `NAME: 'value',` entries of an env defaults map (`const defaults = { DB_CLIENT: 'sqlite3' }`). */
+function scanDefaultsMapEnvValues(content: string): [string, string][] {
+  return [...content.matchAll(/^[ \t]*([A-Z][A-Z0-9_]*)[ \t]*:[ \t]*(["'`])([^"'`\n]*)\2[ \t]*,?[ \t]*(?:\/\/.*)?$/gm)].map(
+    (m): [string, string] => [m[1]!, m[3]!],
+  );
+}
+
+/** `ENV NAME=value` / `ENV NAME value` pairs of a Dockerfile — the image's own default for each variable. */
+function dockerfileEnvValues(content: string): [string, string][] {
+  const found: [string, string][] = [];
+  for (const m of content.replace(/\\r?\n/g, ' ').matchAll(/^[ \t]*ENV[ \t]+(.+)$/gim)) {
+    const body = m[1]!;
+    const pairs = [...body.matchAll(/([A-Za-z_][A-Za-z0-9_]*)=(?:"([^"]*)"|'([^']*)'|(\S*))/g)];
+    if (pairs.length === 0) {
+      const legacy = /^([A-Za-z_][A-Za-z0-9_]*)[ \t]+["']?([^"'\s]*)/.exec(body);
+      if (legacy) found.push([legacy[1]!, legacy[2]!]);
+    }
+    for (const pair of pairs) found.push([pair[1]!, pair[2] ?? pair[3] ?? pair[4]!]);
+  }
+  return found;
+}
+
+/** Env sample files at any depth of the selected app — not sibling apps, docs, tests or examples. */
+function appEnvSampleFiles(tree: FileTree, isSiblingApp: (path: string) => boolean): string[] {
+  return Object.keys(tree).filter(
+    (path) => tree[path] && ENV_SAMPLE_FILE_REGEX.test(path) && isRuntimeSourcePath(path) && !isSiblingApp(path),
+  );
+}
+
+/**
+ * COMP-022, generalised — selectors whose default is an embedded or different
+ * engine (or local disk storage) while a managed one is provisioned. Such a
+ * selector must be REQUIRED: without a value the app boots on SQLite or the
+ * container disk and silently drops data instead of using the provisioned
+ * resource. Never flagged when the default already names the provisioned
+ * engine, or when the resource is not provisioned.
+ *
+ * Each selector carries an evidence string that names the value to use when
+ * the code or a sample file shows it.
+ */
+function unresolvedSelectors(
+  tree: FileTree,
+  isSiblingApp: (path: string) => boolean,
+  provisioned: ProvisionedResources,
+  reads: ReadonlyMap<string, { files: string[] }>,
+): Map<string, { evidence: string; files: string[] }> {
+  type Value = { value: string; file: string };
+  const codeDefaults = new Map<string, Value[]>();
+  const sampleValues = new Map<string, Value[]>();
+  const compared = new Map<string, Value[]>();
+  const imageDefaults = new Map<string, Value[]>();
+  const add = (map: Map<string, Value[]>, name: string, value: string, file: string): void => {
+    if (!DB_SELECTOR_NAME_REGEX.test(name) && !STORAGE_SELECTOR_NAME_REGEX.test(name)) return;
+    map.set(name, [...(map.get(name) ?? []), { value, file }]);
+  };
+  for (const [path, content] of Object.entries(tree)) {
+    if (!content || !isRuntimeSourcePath(path) || isSiblingApp(path)) continue;
+    if (!SELECTOR_SOURCE_REGEX.test(path) && !CONFIG_ENV_FILE_REGEX.test(path)) continue;
+    for (const [name, value] of scanDefaultedEnvReads(content)) add(codeDefaults, name, value, path);
+    for (const [name, value] of scanComparedEnvReads(content)) add(compared, name, value, path);
+    if (GO_SOURCE.test(path)) for (const [name, value] of scanViperEnvDefaults(content)) add(codeDefaults, name, value, path);
+    if (JS_SOURCE.test(path) && ENV_DEFAULTS_FILE_REGEX.test(path)) {
+      for (const [name, value] of scanDefaultsMapEnvValues(content)) add(codeDefaults, name, value, path);
+    }
+  }
+  const dockerfile = selectedDockerfile(tree);
+  if (dockerfile) for (const [name, value] of dockerfileEnvValues(dockerfile.content)) add(imageDefaults, name, value, dockerfile.path);
+  for (const path of [...appEnvSampleFiles(tree, isSiblingApp), ...listProductionComposeFiles(tree)]) {
+    for (const [name, value] of envLineValues(tree[path] ?? '')) add(sampleValues, name, value, path);
+  }
+
+  const result = new Map<string, { evidence: string; files: string[] }>();
+  const engine = provisioned.database;
+  for (const name of new Set([...codeDefaults.keys(), ...sampleValues.keys(), ...compared.keys(), ...imageDefaults.keys()])) {
+    const isStorage = provisioned.storage && STORAGE_SELECTOR_NAME_REGEX.test(name);
+    const isDb = !isStorage && engine !== null && DB_SELECTOR_NAME_REGEX.test(name);
+    if (!isDb && !isStorage) continue;
+    // The image's `ENV` value wins over any default in the code, and over a comparison.
+    const image = imageDefaults.get(name);
+    // An image `ENV` for a variable the app never reads says nothing.
+    if (image && !reads.has(name) && !codeDefaults.has(name)) continue;
+    const fromCode = image ?? codeDefaults.get(name) ?? [];
+    const comparedHere = image ? [] : (compared.get(name) ?? []);
+    // A sample value is only a default for a variable the app actually reads.
+    const fromSamples = fromCode.length > 0 || reads.has(name) ? (sampleValues.get(name) ?? []) : [];
+    const wanted = isStorage ? S3_STORAGE_VALUE_REGEX : ENGINE_VALUE_REGEX[engine!];
+    // A selector with no default that the code only compares with the
+    // provisioned value (`os.getenv("DB") == "postgres"`) takes the other
+    // branch when unset.
+    const unsetFallback =
+      fromCode.length === 0 && comparedHere.some(({ value }) => wanted.test(value)) ? { value: 'unset' } : undefined;
+    const bad =
+      [...fromCode, ...fromSamples].find(({ value }) =>
+        isStorage
+          ? LOCAL_STORAGE_VALUE_REGEX.test(value)
+          : EMBEDDED_ENGINE_REGEX.test(value) ||
+            (['postgres', 'mysql'] as const).some((other) => other !== engine && ENGINE_VALUE_REGEX[other].test(value)),
+      ) ?? unsetFallback;
+    if (!bad) continue;
+
+    const values: string[] = [];
+    const note = (value: string): void => {
+      if (/^[\w.-]+$/.test(value) && wanted.test(value) && !values.includes(value)) values.push(value);
+    };
+    for (const { value } of sampleValues.get(name) ?? []) note(value);
+    const files = [
+      ...new Set([...fromCode, ...comparedHere].map((entry) => entry.file).concat(reads.get(name)?.files ?? [])),
+    ];
+    for (const file of files) {
+      for (const literal of (tree[file] ?? '').matchAll(/["'`]([^"'`\s]{1,60})["'`]/g)) note(literal[1]!);
+    }
+    const hint = values.length > 0 ? values.slice(0, 3).map((value) => `"${value}"`).join(' or ') : null;
+    const evidence = isStorage
+      ? `storage selector: default "${bad.value}" stores files on the container disk — set ${hint ?? 'an S3 value'} to use the managed S3 bucket`
+      : `engine selector: ${bad === unsetFallback ? 'when unset the app uses another engine' : `default "${bad.value}" ${EMBEDDED_ENGINE_REGEX.test(bad.value) ? 'stores data on the container disk' : `is not the managed ${ENGINE_LABEL[engine!]} engine`}`} — set ${hint ?? `a ${ENGINE_LABEL[engine!]} value`} to use the managed ${ENGINE_LABEL[engine!]} database`;
+    result.set(name, { evidence, files });
+  }
+  return result;
+}
+
+/** A database engine selector (`DB_TYPE`, `DJANGO_DB_ENGINE`) read with no default must be set. */
+function isRequiredEngineSelector(key: string): boolean {
+  return DB_SELECTOR_NAME_REGEX.test(key) && /(?:^|_)(?:DB|DATABASE|DBENGINE)(?:_|$)/.test(key);
+}
+
+/** Env reads in framework config files; a read without a default is required only for a secret. */
+function scanConfigFileEnvReads(path: string, content: string): { key: string; needsValue: boolean }[] {
+  const found: { key: string; needsValue: boolean }[] = [];
+  const add = (key: string, hasDefault: boolean): void => {
+    found.push({ key, needsValue: !hasDefault && isSecretName(key) });
+  };
+  if (/\.php$/i.test(path)) {
+    for (const m of content.matchAll(/\benv\(\s*["']([A-Z][A-Z0-9_]*)["']\s*(,)?/g)) add(m[1]!, m[2] !== undefined);
+  } else if (/application[^/]*\.(?:properties|ya?ml)$/i.test(path)) {
+    for (const m of content.matchAll(/\$\{([A-Z][A-Z0-9_]*)(:[^}]*)?\}/g)) add(m[1]!, m[2] !== undefined);
+    // Spring relaxed binding: a `spring.datasource` property is also read from SPRING_DATASOURCE_*.
+    const configuresDatasource = /\.properties$/i.test(path)
+      ? /^\s*spring\.datasource\./m.test(content)
+      : /^spring:[ \t]*\r?\n(?:[ \t]+\S[^\r\n]*\r?\n|[ \t]*\r?\n)*?[ \t]+datasource:/m.test(content);
+    if (configuresDatasource) {
+      for (const key of ['SPRING_DATASOURCE_URL', 'SPRING_DATASOURCE_USERNAME', 'SPRING_DATASOURCE_PASSWORD']) add(key, true);
+    }
+  } else {
+    for (const m of content.matchAll(/\bENV\[\s*["']([A-Z][A-Z0-9_]*)["']\s*\]\s*(\|\|)?/g)) add(m[1]!, m[2] !== undefined);
+    for (const m of content.matchAll(/\bENV\.fetch\(\s*["']([A-Z][A-Z0-9_]*)["']\s*(,|\)\s*\{)?/g)) add(m[1]!, m[2] !== undefined);
+    // `$(NAME)` / `${NAME:default}` substitution in a YAML config; the engine selector has no other source
+    for (const m of content.matchAll(/\$[({]([A-Z][A-Z0-9_]*)(:[^)}\n]*)?[)}]/g)) {
+      const key = m[1]!;
+      found.push({ key, needsValue: m[2] === undefined && (isSecretName(key) || isRequiredEngineSelector(key)) });
+    }
+  }
+  return found;
+}
+
+export function detectEnvVarModel(
+  tree: FileTree,
+  externalServices: string[] = [],
+  provisioned?: ProvisionedResources,
+): ManifestEnvVariable[] {
   // ── 1. Declarations: every KEY=VALUE line in any env file we ship with. ──
   const declarations = new Map<string, { realValue: boolean; sampleEmpty: boolean; files: string[] }>();
   for (const [path, content] of Object.entries(tree)) {
@@ -2968,6 +3422,25 @@ export function detectEnvVarModel(tree: FileTree, externalServices: string[] = [
     }
   }
 
+  // Sample files deeper in the app (`apps/api/.env.example`) document binding
+  // names too. They never feed `declarations`, so they cannot change which
+  // variables are required; only infrastructure-binding names are listed.
+  const isSiblingApp = siblingAppFilter(tree);
+  const nestedSampleFiles = new Map<string, string[]>();
+  for (const path of appEnvSampleFiles(tree, isSiblingApp)) {
+    if (!path.includes('/')) continue;
+    for (const [key] of envLineValues(tree[path] ?? '')) {
+      if (classifyEnvVarPurpose(key).purpose !== 'infrastructure_binding') continue;
+      nestedSampleFiles.set(key, [...(nestedSampleFiles.get(key) ?? []), path]);
+    }
+  }
+  // The selected Dockerfile's `ENV` names a binding the image reads too.
+  const imageDockerfile = selectedDockerfile(tree);
+  for (const [key] of imageDockerfile ? dockerfileEnvValues(imageDockerfile.content) : []) {
+    if (classifyEnvVarPurpose(key).purpose !== 'infrastructure_binding') continue;
+    nestedSampleFiles.set(key, [...(nestedSampleFiles.get(key) ?? []), imageDockerfile!.path]);
+  }
+
   // ── 2. Reads: which variables the app actually reads, and whether a read
   //      NEEDS a value vs. tolerates absence (fallback or presence guard). ──
   const reads = new Map<string, { needsValue: boolean; files: string[] }>();
@@ -2988,7 +3461,6 @@ export function detectEnvVarModel(tree: FileTree, externalServices: string[] = [
   // `process.env.EE_ENV_LOADED = 'true'`) is set by the app itself, so a read
   // of it is never the vendor's to configure.
   const assignedKeys = new Set<string>();
-  const isSiblingApp = siblingAppFilter(tree);
   for (const [path, content] of Object.entries(tree)) {
     if (!content || !JS_SOURCE.test(path) || !isRuntimeSourcePath(path) || isSiblingApp(path)) continue;
     for (const assigned of content.matchAll(JS_ENV_ASSIGNMENT_REGEX)) {
@@ -3014,6 +3486,8 @@ export function detectEnvVarModel(tree: FileTree, externalServices: string[] = [
         if (!key) continue;
         // A glob in prose (`process.env.NEXT_PUBLIC_*`) names no variable.
         if (content[match.index + match[0].length] === '*') continue;
+        // A read in a comment (`* parseTimeout(process.env.X)`) is documentation.
+        if (/^\s*(?:\*|\/\/)/.test(content.slice(content.lastIndexOf('\n', match.index) + 1, match.index))) continue;
         // The same file tests the key for presence (`Boolean(process.env.X)`,
         // `!!process.env.X`, `if (process.env.X)`, `process.env.X && …`), so it tolerates its absence.
         const presenceTested = new RegExp(
@@ -3147,7 +3621,8 @@ export function detectEnvVarModel(tree: FileTree, externalServices: string[] = [
           !isSecretName(key) &&
           ENV_TRANSFORM_CALLEE_REGEX.test(/([A-Za-z_$][\w$]*)\s*\(\s*$/.exec(head)?.[1] ?? '') &&
           /^\s*\)/.test(tail);
-        recordRead(key, !hasFallback && !isGuard && !isBareTransform && bareNeedsValue, path);
+        // A typed config class only exposes the value; its consumer decides whether it is needed.
+        recordRead(key, !hasFallback && !isGuard && !isBareTransform && bareNeedsValue && !TYPED_CONFIG_FILE_REGEX.test(path), path);
       }
       // Stage B phase 3 (COMP-017): schema-library and helper-form reads —
       // zod object schemas parsed against process.env, envalid validator
@@ -3162,6 +3637,13 @@ export function detectEnvVarModel(tree: FileTree, externalServices: string[] = [
       }
       for (const entry of scanZodEnvReads(content)) {
         if (!entry.needsValue) schemaOptionalKeys.add(entry.key);
+      }
+      for (const m of content.matchAll(DECORATED_ENV_REGEX)) recordRead(m[1]!, false, path);
+      for (const m of content.matchAll(ENV_HELPER_CALL_REGEX)) {
+        recordRead(m[2]!, /^(?:assert|require|mustGet)/.test(m[1]!) && m[3] === undefined, path);
+      }
+      for (const m of content.matchAll(ENV_NAME_LIST_REGEX)) {
+        for (const name of (m[1] ?? m[2] ?? '').matchAll(/["']([A-Z][A-Z0-9_]*)["']/g)) recordRead(name[1]!, false, path);
       }
       for (const key of scanThrowGuardedEnvKeys(content)) bootRequiredKeys.add(key);
     } else if (/schema\.prisma$/i.test(path)) {
@@ -3183,7 +3665,7 @@ export function detectEnvVarModel(tree: FileTree, externalServices: string[] = [
         if (match[1]) recordRead(match[1], false, path);
       }
       // Stage B phase 3 (COMP-017): pydantic v2 BaseSettings class fields.
-      for (const entry of scanPydanticSettingsReads(content)) {
+      for (const entry of [...scanPydanticSettingsReads(content), ...scanDjangoEnvironReads(content)]) {
         recordRead(entry.key, entry.needsValue, path);
       }
     } else if (RB_SOURCE.test(path)) {
@@ -3206,8 +3688,22 @@ export function detectEnvVarModel(tree: FileTree, externalServices: string[] = [
       for (const entry of scanDotnetEnvReads(content)) {
         recordRead(entry.key, entry.needsValue, path);
       }
+    } else if (CONFIG_ENV_FILE_REGEX.test(path)) {
+      for (const entry of scanConfigFileEnvReads(path, content)) {
+        recordRead(entry.key, entry.needsValue, path);
+      }
     }
   }
+
+  // Selectors with a bad default are reads too (a Ruby `ENV['DB'] || 'sqlite'`
+  // or a PHP `env('DB_CONNECTION', 'sqlite')` is not caught above).
+  const selectors = unresolvedSelectors(
+    tree,
+    isSiblingApp,
+    provisioned ?? { database: detectPostgresql(tree).detected ? 'postgres' : null, storage: detectS3(tree).detected },
+    reads,
+  );
+  for (const [name, selector] of selectors) for (const file of selector.files) recordRead(name, false, file);
 
   // A Dockerfile `ARG NAME` with no default that the repository's compose file
   // feeds through `build.args` is a build input the image needs
@@ -3217,7 +3713,12 @@ export function detectEnvVarModel(tree: FileTree, externalServices: string[] = [
   const composeBuildArgs = detectComposeBuildArgs(tree);
 
   // ── 3. Combine into the model. ──
-  const keys = new Set<string>([...declarations.keys(), ...reads.keys(), ...composeBuildArgs.keys()]);
+  const keys = new Set<string>([
+    ...declarations.keys(),
+    ...reads.keys(),
+    ...composeBuildArgs.keys(),
+    ...nestedSampleFiles.keys(),
+  ]);
   const entries: ManifestEnvVariable[] = [];
 
   for (const key of [...keys].sort()) {
@@ -3232,20 +3733,22 @@ export function detectEnvVarModel(tree: FileTree, externalServices: string[] = [
     const source: string[] = [];
     if (buildArg) source.push(buildArg);
 
+    const selector = selectors.get(key);
+    if (selector) source.push(selector.evidence);
     if (declared) {
       for (const file of declared.files) source.push(`${file} declares ${key}`);
     }
+    for (const file of nestedSampleFiles.get(key) ?? []) source.push(`${file} declares ${key}`);
     if (read) {
       for (const file of read.files) source.push(`read in ${file}`);
     }
 
     // A defaulted/guarded read that never NEEDS the value is never required,
     // even when a sample line is empty — and a platform-provided variable is
-    // never the vendor's to configure. COMP-022: an engine selector defaulting
-    // to SQLite next to a PostgreSQL driver is the one exception — it must be
-    // set for the provisioned database to be used.
-    const required =
-      (needsValue || unresolvedEngineSelectors(tree).has(key)) && !hasDefault && !isPlatformEnvVar(key);
+    // never the vendor's to configure. COMP-022: a selector defaulting to an
+    // embedded engine or local disk next to the provisioned resource is the
+    // one exception — it must be set for that resource to be used.
+    const required = (needsValue || selector !== undefined) && !hasDefault && !isPlatformEnvVar(key);
 
     let secret = isSecretName(key);
     // §11.3 upgrade: an evidenced well-known service credential is a secret

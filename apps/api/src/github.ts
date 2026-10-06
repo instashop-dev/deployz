@@ -643,8 +643,9 @@ const IGNORED_DIR_SEGMENTS = new Set([
 // it for DEPLOY-029: `detectStartupMigrationEvidence` follows the shell
 // script(s) a Dockerfile CMD/ENTRYPOINT invokes (and every script those call
 // in turn) — without it here, that script is never fetched in real (non-
-// fixture) mode and the detector has nothing to read.
-const SOURCE_EXTENSION_REGEX = /\.(sh|ts|js|mjs|cjs|jsx|tsx|py|rb|go)$/i;
+// fixture) mode and the detector has nothing to read. `ini` joins it for the
+// same reason: a CMD `uwsgi --ini uwsgi.ini` can carry a `hook-pre-app` migration.
+const SOURCE_EXTENSION_REGEX = /\.(sh|ini|ts|js|mjs|cjs|jsx|tsx|py|rb|go)$/i;
 // A manifest, a Dockerfile or a Prisma schema anywhere in the tree — a
 // workspace repository keeps all three outside the root, and the detectors
 // read every one of them (packages/analysis/src/detectors.ts).
@@ -669,6 +670,11 @@ const COMPOSE_REGEX = /(?:^|\/)(?:docker-)?compose(?:\.[\w.-]+)?\.ya?ml$/i;
 // .env.example/.env.template/.env.sample at any depth — the checked-in env
 // samples vendors actually commit (never a real `.env`, which is gitignored).
 const ENV_SAMPLE_REGEX = /(?:^|\/)\.env\.(?:example|template|sample)$/i;
+// Framework config files that read env vars under the app's own names: Rails
+// `config/*.yml` (ERB), Laravel `config/*.php`, Spring `application*.properties|yml`.
+// Direct children of `config/` only — `config/locales/` would flood the cap.
+const CONFIG_ENV_FILE_REGEX =
+  /(?:^|\/)config\/[\w.-]+\.(?:ya?ml|php)$|(?:^|\/)config\.ya?ml$|(?:^|\/)application(?:-[\w.-]+)?\.(?:properties|ya?ml)$/i;
 // File-based health routes — the same shape detectHealthEndpoint matches on
 // the path rather than on the file's contents — and a NestJS
 // `health.controller.ts`, whose `@Controller('health')` is the only evidence.
@@ -716,6 +722,7 @@ function isRelevantPath(path: string): boolean {
   if (OTHER_MANIFEST_REGEX.test(path)) return true;
   if (DOCKERFILE_REGEX.test(path)) return true;
   if (PRISMA_SCHEMA_REGEX.test(path)) return true;
+  if (CONFIG_ENV_FILE_REGEX.test(path)) return true;
   if (COMPOSE_REGEX.test(path)) return true;
   if (ENV_SAMPLE_REGEX.test(path)) return true;
   if (DEPLOYMENT_DESCRIPTOR_REGEX.test(path)) return true;
@@ -765,6 +772,12 @@ function isLockfilePath(path: string): boolean {
 // more source files than the cap (a Go or Django tree can carry hundreds).
 const ENTRY_FILE_REGEX =
   /(?:^|\/)(?:main|server|app|index|routes?|router|handlers?|config|settings|urls|options|env)\.[a-z]+$|(?:^|\/)(?:routes?|server|config|http)\//i;
+// Files that read the environment and name the datastore the app uses:
+// `environment.service.ts`, `env/GlobalValues.ts`, `configs/database.config.ts`. They are few
+// and small, and a deep one would otherwise lose its slot to hundreds of `index.ts`. A plain
+// `env.ts` stays with the entry files: front ends carry one too.
+const ENV_CONFIG_FILE_REGEX =
+  /(?:^|\/)(?:environment(?:\.(?:service|config))?|env\.(?:service|config))\.[a-z]+$|(?:^|\/)(?:env|environment)\/[^/]+\.(?:[cm]?[jt]s|py|rb|go)$|(?:^|\/)configs\/[\w.-]+\.config\.[cm]?[jt]s$/i;
 
 //
 // Dockerfiles, Compose files and env samples come before package manifests:
@@ -787,8 +800,8 @@ function relevancePriority(path: string, protectedPaths: ReadonlySet<string>): n
   if (MANIFEST_REGEX.test(path)) return 1;
   if (OTHER_MANIFEST_REGEX.test(path)) return 1;
   if (!path.includes('/')) return 2; // generic (unnamed) root files
-  if (PRISMA_SCHEMA_REGEX.test(path)) return 3;
-  if (HEALTH_ROUTE_FILE_REGEX.test(path)) return 4;
+  if (PRISMA_SCHEMA_REGEX.test(path) || CONFIG_ENV_FILE_REGEX.test(path)) return 3;
+  if (HEALTH_ROUTE_FILE_REGEX.test(path) || ENV_CONFIG_FILE_REGEX.test(path)) return 4;
   if (ENTRY_FILE_REGEX.test(path)) return 5; // entry, routing and configuration source
   return 6; // other source files
 }
@@ -1103,8 +1116,8 @@ export const GITHUB_FIXTURE_FILE_TREES: Readonly<Record<string, FileTree>> = {
     ].join('\n'),
     'package.json': JSON.stringify({
       name: 'express-api',
-      scripts: { start: 'node dist/index.js', 'db:migrate': 'npx drizzle-kit push' },
-      dependencies: { express: '^4.18.0', pg: '^8.12.0' },
+      scripts: { start: 'node dist/index.js', 'db:migrate': 'npx drizzle-kit migrate' },
+      dependencies: { 'drizzle-kit': '^0.31.0', express: '^4.18.0', pg: '^8.12.0' },
     }),
     'src/index.ts': [
       "import express from 'express';",
@@ -1151,8 +1164,8 @@ export const GITHUB_FIXTURE_FILE_TREES: Readonly<Record<string, FileTree>> = {
     ].join('\n'),
     'package.json': JSON.stringify({
       name: 'bullmq-worker',
-      scripts: { start: 'node dist/index.js', 'db:migrate': 'npx drizzle-kit push' },
-      dependencies: { express: '^4.18.0', pg: '^8.12.0', bullmq: '^5.7.0' },
+      scripts: { start: 'node dist/index.js', 'db:migrate': 'npx drizzle-kit migrate' },
+      dependencies: { 'drizzle-kit': '^0.31.0', express: '^4.18.0', pg: '^8.12.0', bullmq: '^5.7.0' },
     }),
     'src/index.ts': [
       "import express from 'express';",
@@ -1214,8 +1227,7 @@ export const GITHUB_FIXTURE_FILE_TREES: Readonly<Record<string, FileTree>> = {
       name: 'nextjs-prisma',
       packageManager: 'pnpm@9.0.0',
       scripts: { build: 'next build', start: 'next start', 'db:migrate': 'prisma migrate deploy' },
-      dependencies: { next: '^14.2.0', '@prisma/client': '^5.14.0' },
-      devDependencies: { prisma: '^5.14.0' },
+      dependencies: { next: '^14.2.0', '@prisma/client': '^5.14.0', prisma: '^5.14.0' },
     }),
     'prisma/schema.prisma': [
       'datasource db {',
@@ -1292,8 +1304,8 @@ export const GITHUB_FIXTURE_FILE_TREES: Readonly<Record<string, FileTree>> = {
     ].join('\n'),
     'package.json': JSON.stringify({
       name: 'config-required-app',
-      scripts: { start: 'node dist/index.js', 'db:migrate': 'npx drizzle-kit push' },
-      dependencies: { express: '^4.18.0', pg: '^8.12.0' },
+      scripts: { start: 'node dist/index.js', 'db:migrate': 'npx drizzle-kit migrate' },
+      dependencies: { 'drizzle-kit': '^0.31.0', express: '^4.18.0', pg: '^8.12.0' },
     }),
     'src/index.ts': [
       "import express from 'express';",
@@ -1333,8 +1345,8 @@ export const GITHUB_FIXTURE_FILE_TREES: Readonly<Record<string, FileTree>> = {
     ].join('\n'),
     'package.json': JSON.stringify({
       name: 'env-matrix-app',
-      scripts: { start: 'node dist/index.js', 'db:migrate': 'npx drizzle-kit push' },
-      dependencies: { express: '^4.18.0', pg: '^8.12.0', stripe: '^16.0.0' },
+      scripts: { start: 'node dist/index.js', 'db:migrate': 'npx drizzle-kit migrate' },
+      dependencies: { 'drizzle-kit': '^0.31.0', express: '^4.18.0', pg: '^8.12.0', stripe: '^16.0.0' },
     }),
     'src/index.ts': [
       "import express from 'express';",
@@ -1393,8 +1405,8 @@ export const GITHUB_FIXTURE_FILE_TREES: Readonly<Record<string, FileTree>> = {
     ].join('\n'),
     'package.json': JSON.stringify({
       name: 'multi-worker-app',
-      scripts: { start: 'node dist/index.js', 'db:migrate': 'npx drizzle-kit push' },
-      dependencies: { express: '^4.18.0', pg: '^8.12.0' },
+      scripts: { start: 'node dist/index.js', 'db:migrate': 'npx drizzle-kit migrate' },
+      dependencies: { 'drizzle-kit': '^0.31.0', express: '^4.18.0', pg: '^8.12.0' },
     }),
     'src/index.ts': [
       "import express from 'express';",
@@ -1423,8 +1435,8 @@ export const GITHUB_FIXTURE_FILE_TREES: Readonly<Record<string, FileTree>> = {
     ].join('\n'),
     'package.json': JSON.stringify({
       name: 'mysql-api',
-      scripts: { start: 'node dist/index.js', 'db:migrate': 'npx drizzle-kit push' },
-      dependencies: { express: '^4.18.0', mysql2: '^3.9.0' },
+      scripts: { start: 'node dist/index.js', 'db:migrate': 'npx drizzle-kit migrate' },
+      dependencies: { 'drizzle-kit': '^0.31.0', express: '^4.18.0', mysql2: '^3.9.0' },
     }),
     'src/index.ts': [
       "import express from 'express';",

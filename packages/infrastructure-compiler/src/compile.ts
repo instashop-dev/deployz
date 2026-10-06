@@ -7,6 +7,7 @@ import type {
   IrResource,
   IrSchedule,
   IrWorkload,
+  ManifestEnvBinding,
 } from '@deployz/contracts';
 import { CAPABILITY_KEYS, defaultInfrastructureSizeProfile } from '@deployz/contracts';
 
@@ -131,7 +132,7 @@ const DB_SUBNET_CIDRS = [
 const DB_AZ_SLOT_COUNT = 8;
 
 // ── Compiler version / capability registry identity ─────────────────────────
-export const COMPILER_VERSION = 'dynamic-compiler-v2-3' as const;
+export const COMPILER_VERSION = 'dynamic-compiler-v2-4' as const;
 
 interface ResInput {
   readonly componentId: string;
@@ -579,6 +580,8 @@ interface EcsContext {
   readonly hasRedis: boolean;
   readonly db: { componentId: string; engine: 'postgres' | 'mysql'; secret: string; urlSecret: string; instance: string } | undefined;
   readonly cache: { componentId: string; replicationGroup: string } | undefined;
+  /** The app's own env names for each managed value (MEMOS_DSN, SPRING_DATASOURCE_URL, …), from the IR resources. */
+  readonly aliases: readonly { readonly resource: 'db' | 'cache' | 'storage'; readonly binding: ManifestEnvBinding }[];
 }
 
 /** Statements granting read access to a set of Secrets Manager secret logical ids. */
@@ -804,10 +807,67 @@ function appEnvironment(ctx: EcsContext, extraEnv: readonly unknown[] = []): { e
       { Name: 'REDIS_PORT', Value: String(REDIS_PORT) },
     );
   }
+  // The app's own names for the same managed values, after the standard
+  // names and never replacing one. Every task definition (web, workers, the
+  // migration and scheduled jobs) gets them from the template itself.
+  const taken = new Set([...environment, ...secrets].map((entry) => (entry as { Name: string }).Name));
+  for (const { resource, binding } of ctx.aliases) {
+    if (taken.has(binding.name)) continue;
+    const entry = aliasEntry(ctx, resource, binding.kind);
+    if (entry === null) continue;
+    taken.add(binding.name);
+    if (entry.secret) secrets.push({ Name: binding.name, ValueFrom: entry.value });
+    else environment.push({ Name: binding.name, Value: entry.value });
+  }
   // Queue env bindings (Phase 5A) — per-workload only, appended after the
   // shared environment every workload sees.
   environment.push(...extraEnv);
   return { environment, secrets };
+}
+
+/** The value one alias binding resolves to, or null when the resource has no such value. */
+function aliasEntry(
+  ctx: EcsContext,
+  resource: 'db' | 'cache' | 'storage',
+  kind: ManifestEnvBinding['kind'],
+): { secret: boolean; value: unknown } | null {
+  if (resource === 'db') {
+    if (ctx.db === undefined) return null;
+    const host = getAtt(ctx.db.instance, 'Endpoint.Address');
+    const port = ctx.db.engine === 'mysql' ? MYSQL_DB_PORT : DB_PORT;
+    switch (kind) {
+      case 'url':
+        return { secret: true, value: ref(ctx.db.urlSecret) };
+      case 'password':
+        return { secret: true, value: join('', [ref(ctx.db.secret), ':password::']) };
+      case 'host':
+        return { secret: false, value: host };
+      case 'port':
+        return { secret: false, value: String(port) };
+      case 'database':
+        return { secret: false, value: DB_NAME };
+      case 'username':
+        return { secret: false, value: DB_USER };
+      case 'jdbc_url':
+        return {
+          secret: false,
+          value: ctx.db.engine === 'mysql'
+            ? join('', ['jdbc:mysql://', host, `:${port}/${DB_NAME}?sslMode=REQUIRED`])
+            : join('', ['jdbc:postgresql://', host, `:${port}/${DB_NAME}?sslmode=require`]),
+        };
+      default:
+        return null;
+    }
+  }
+  if (resource === 'cache') {
+    if (ctx.cache === undefined) return null;
+    const host = getAtt(ctx.cache.replicationGroup, 'PrimaryEndPoint.Address');
+    if (kind === 'url') return { secret: false, value: join('', ['redis://', host, `:${REDIS_PORT}`]) };
+    if (kind === 'host') return { secret: false, value: host };
+    if (kind === 'port') return { secret: false, value: String(REDIS_PORT) };
+    return null;
+  }
+  return kind === 'bucket' ? { secret: false, value: ref(logicalResourceId('storage', 'bucket')) } : null;
 }
 
 /**
@@ -1449,7 +1509,13 @@ export function compileInfrastructure(input: CompileInput): CompiledGraph {
       }
     : undefined;
 
-  const ctx: EcsContext = { ids, hasDb: db !== undefined, hasRedis: cache !== undefined, db, cache };
+  const storageResource = resourceByCapability(ir, CAPABILITY_KEYS.S3);
+  const aliases = [
+    ...(db !== undefined ? (dbResource?.envBindings ?? []).map((binding) => ({ resource: 'db' as const, binding })) : []),
+    ...(cache !== undefined ? (cacheResource?.envBindings ?? []).map((binding) => ({ resource: 'cache' as const, binding })) : []),
+    ...(storageResource?.envBindings ?? []).map((binding) => ({ resource: 'storage' as const, binding })),
+  ];
+  const ctx: EcsContext = { ids, hasDb: db !== undefined, hasRedis: cache !== undefined, db, cache, aliases };
 
   // Only PUBLIC workloads sit behind the ALB — a worker gets no target group,
   // no listener and no HTTP health check.

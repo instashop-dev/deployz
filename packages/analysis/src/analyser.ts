@@ -65,7 +65,7 @@ import { classifyEnvVariables } from './env-classification.js';
 import type { RedisRequirement } from './redis.js';
 import { assessRedis, resolveRedisEnvBindings } from './redis.js';
 import { deriveAmbiguities } from './evidence.js';
-import { deriveInfrastructureBindings } from './bindings.js';
+import { deriveInfrastructureBindings, prismaDatasourceEnvNames } from './bindings.js';
 import { detectAsyncWorkloads } from './async-detection.js';
 
 // ── Types ───────────────────────────────────────────────────────────────────
@@ -402,16 +402,20 @@ export function analyseRepo(tree: FileTree): AnalysisResult {
   // Phase 4 — who supplies each value, decided from the requirements above.
   // A required MySQL database manages the same generic DATABASE_* names as
   // PostgreSQL, so both engines mark the managed-database env vars.
+  const databaseRequired = postgresMeta?.required === true || mysql.required;
+  const storageRequired = findings.find((f) => f.detector === 's3')?.detected === true;
   metadata['envVarModel'] = classifyEnvVariables(
     detectEnvVarModel(
       tree,
       serviceRequirements.map((r) => r.service),
+      { database: mysql.required ? 'mysql' : databaseRequired ? 'postgres' : null, storage: storageRequired },
     ),
     {
-      postgresRequired: postgresMeta?.required === true || mysql.required,
+      postgresRequired: databaseRequired,
+      databaseBindingNames: prismaDatasourceEnvNames(tree),
       redisRequired: redis.required,
       redisBindingNames: resolveRedisEnvBindings(redis.connectionEnvVars).map((binding) => binding.name),
-      storageRequired: findings.find((f) => f.detector === 's3')?.detected === true,
+      storageRequired,
       externalServices: serviceRequirements.map((r) => r.service),
       queueBindingNames,
     },

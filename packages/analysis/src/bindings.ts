@@ -19,6 +19,7 @@ import type { ManifestEnvVariable } from '@deployz/contracts';
 
 import type { AnalysisResult } from './analyser.js';
 import { resolveRedisEnvBindings } from './redis.js';
+import { isRuntimeSourcePath, siblingAppFilter } from './detectors.js';
 import type { FileTree } from './detectors.js';
 
 // ── Types ───────────────────────────────────────────────────────────────────
@@ -28,6 +29,7 @@ export type BindingResource = 'postgres' | 'redis' | 's3';
 /** What the provisioned value is: an URL or one of its parts. */
 export type BindingSemantic =
   | 'url'
+  | 'jdbc_url'
   | 'host'
   | 'port'
   | 'database'
@@ -84,9 +86,8 @@ function envVarModelByKey(meta: Record<string, unknown>): Map<string, ManifestEn
   return new Map(entries.map((entry) => [entry.key, entry]));
 }
 
-// ── Root env-file value reader (only for placeholder-vs-real classification) ─
+// ── Env-file value reader (only for placeholder-vs-real classification) ────
 
-const ENV_FILE_REGEX = /^\.env(\.\w+)?$/i;
 const ENV_LINE_REGEX = /^[ \t]*([A-Z_][A-Z0-9_]*)[ \t]*=[ \t]*(.*)$/gm;
 
 /** A sample value that documents "fill me in" rather than a real default. */
@@ -98,18 +99,42 @@ function isPlaceholderValue(value: string): boolean {
   );
 }
 
-/** Whether any root env file declares `key` with a real (non-placeholder) value. */
-function hasRealEnvFileValue(tree: FileTree, key: string): boolean {
-  for (const [path, content] of Object.entries(tree)) {
-    if (!content || !ENV_FILE_REGEX.test(path)) continue;
+/** Whether any env file the model lists as declaring `key` gives it a real (non-placeholder) value. */
+function hasRealEnvFileValue(tree: FileTree, entry: ManifestEnvVariable): boolean {
+  for (const text of entry.source) {
+    const path = text.endsWith(` declares ${entry.key}`) ? text.slice(0, -` declares ${entry.key}`.length) : null;
+    const content = path === null ? undefined : tree[path];
+    if (!content) continue;
     const regex = new RegExp(ENV_LINE_REGEX.source, ENV_LINE_REGEX.flags);
     let match: RegExpExecArray | null;
     while ((match = regex.exec(content)) !== null) {
-      if (match[1] !== key) continue;
+      if (match[1] !== entry.key) continue;
       if (!isPlaceholderValue(match[2] ?? '')) return true;
     }
   }
   return false;
+}
+
+/**
+ * The env names a Prisma `datasource` block reads for its connection
+ * (`url`, `directUrl`, `shadowDatabaseUrl`), whatever they are called — the
+ * schema itself says they hold the database URL. SQLite/MongoDB/SQL Server
+ * datasources are not the managed database, so they are skipped.
+ */
+export function prismaDatasourceEnvNames(tree: FileTree): string[] {
+  const names = new Set<string>();
+  const isSiblingApp = siblingAppFilter(tree);
+  for (const [path, content] of Object.entries(tree)) {
+    if (!content || !/schema\.prisma$/i.test(path) || !isRuntimeSourcePath(path) || isSiblingApp(path)) continue;
+    for (const block of content.matchAll(/datasource\s+\w+\s*\{([^}]*)\}/g)) {
+      const body = block[1] ?? '';
+      if (!/provider\s*=\s*["'](?:postgresql|postgres|mysql)["']/.test(body)) continue;
+      for (const read of body.matchAll(/\b(?:url|directUrl|shadowDatabaseUrl)\s*=\s*env\(\s*["']([A-Za-z_][A-Za-z0-9_]*)["']\s*\)/g)) {
+        names.add(read[1]!);
+      }
+    }
+  }
+  return [...names].sort();
 }
 
 // ── Evidence classification ─────────────────────────────────────────────────
@@ -137,7 +162,7 @@ function evidenceForVar(model: Map<string, ManifestEnvVariable>, tree: FileTree,
     return { source: 'explicit', confidence: 'high' };
   }
   if (!entry.source.some((text) => text.includes(' declares '))) return null;
-  return hasRealEnvFileValue(tree, key)
+  return hasRealEnvFileValue(tree, entry)
     ? { source: 'detected', confidence: 'high' }
     : { source: 'detected', confidence: 'medium' };
 }
@@ -145,45 +170,92 @@ function evidenceForVar(model: Map<string, ManifestEnvVariable>, tree: FileTree,
 // ── Candidate name classification per resource ──────────────────────────────
 
 const URL_SUFFIX_REGEX =
-  /(?:_DSN|_DATABASE_URL|_DATABASE_URI|_DB_URL|_DB_URI|_POSTGRES_URL|_POSTGRESQL_URL|_SQLALCHEMY_DATABASE_URI)$/i;
+  /(?:_DSN|_DATABASE_URL|_DATABASE_URI|_DB_URL|_DB_URI|_POSTGRES_URL|_POSTGRESQL_URL|_SQLALCHEMY_DATABASE_URI|_DB_CONNECTION_(?:URI|URL|STRING)|_POSTGRES_URI|_MYSQL_URL)$/i;
 const EXACT_URL_NAMES = new Set([
   'DATABASE_URL',
   'DATABASE_URI',
   'DB_URL',
   'DB_URI',
   'DB_CONNECTION_STRING',
+  'DB_CONNECTION_URI',
   'POSTGRES_URL',
   'POSTGRESQL_URL',
+  'POSTGRES_URI',
+  'POSTGRES_CONNECTION_STRING',
+  'MYSQL_URL',
+  'SQLALCHEMY_DATABASE_URI',
+  'DSN',
 ]);
 
-const HOST_SUFFIX_REGEX = /(?:_DBHOST|_DATABASE_HOST|_PGHOST)$/i;
-const PORT_SUFFIX_REGEX = /(?:_DBPORT|_DATABASE_PORT|_PGPORT)$/i;
-const DATABASE_SUFFIX_REGEX = /(?:_DBNAME|_DATABASE_NAME)$/i;
-const USER_SUFFIX_REGEX = /(?:_DBUSER|_DATABASE_USER)$/i;
-const PASSWORD_SUFFIX_REGEX = /(?:_DBPASS|_DBPASSWORD|_DATABASE_PASSWORD)$/i;
+// A JDBC URL (`jdbc:postgresql://host:5432/db`) is a different string from the
+// plain connection URL, so Spring-style names get their own semantic.
+const JDBC_URL_REGEX = /(?:_DATASOURCE_URL|_DATASOURCE_JDBC_URL|_JDBC_URL)$/i;
+
+// `__` is the nested-config delimiter (`Database__DB_HOST`-style names).
+const HOST_SUFFIX_REGEX = /(?:_DBHOST|_DATABASE_HOST|_PGHOST|_DB_{1,2}HOST|_POSTGRES(?:DB)?_HOST)$/i;
+const PORT_SUFFIX_REGEX = /(?:_DBPORT|_DATABASE_PORT|_PGPORT|_DB_{1,2}PORT|_POSTGRES(?:DB)?_PORT)$/i;
+const DATABASE_SUFFIX_REGEX =
+  /(?:_DBNAME|_DATABASE_(?:NAME|DATABASE)|_DB_{1,2}(?:NAME|DATABASE)|_POSTGRES(?:DB)?_(?:DB|DATABASE))$/i;
+const USER_SUFFIX_REGEX =
+  /(?:_DBUSER|_DATABASE_USER(?:NAME)?|_DB_{1,2}(?:USER|USERNAME)|_POSTGRES(?:DB)?_(?:USER|USERNAME)|_DATASOURCE_USERNAME)$/i;
+const PASSWORD_SUFFIX_REGEX =
+  /(?:_DBPASS|_DBPASSWORD|_DATABASE_PASSWORD|_DB_{1,2}(?:PASSWORD|PASS)|_POSTGRES(?:DB)?_PASSWORD|_DATASOURCE_PASSWORD)$/i;
 
 // The `DB_*` family (kutt, directus, and the Laravel/Knex/TypeORM defaults
 // that follow them) is the most common set of discrete connection parts
 // after the standard names — DEPLOY-005: a Wave 1 install with none of them
 // bound connected to localhost.
-const EXACT_HOST_NAMES = new Set(['PGHOST', 'DATABASE_HOST', 'POSTGRES_HOST', 'DBHOST', 'DB_HOST']);
-const EXACT_PORT_NAMES = new Set(['PGPORT', 'DATABASE_PORT', 'POSTGRES_PORT', 'DBPORT', 'DB_PORT']);
-const EXACT_DATABASE_NAMES = new Set(['PGDATABASE', 'DATABASE_NAME', 'POSTGRES_DB', 'DBNAME', 'DB_NAME', 'DB_DATABASE']);
-const EXACT_USER_NAMES = new Set(['PGUSER', 'DATABASE_USER', 'POSTGRES_USER', 'DBUSER', 'DB_USER', 'DB_USERNAME']);
+const EXACT_HOST_NAMES = new Set([
+  'PGHOST',
+  'DATABASE_HOST',
+  'POSTGRES_HOST',
+  'POSTGRES_SERVER',
+  'MYSQL_HOST',
+  'DBHOST',
+  'DB_HOST',
+]);
+const EXACT_PORT_NAMES = new Set(['PGPORT', 'DATABASE_PORT', 'POSTGRES_PORT', 'MYSQL_PORT', 'DBPORT', 'DB_PORT']);
+const EXACT_DATABASE_NAMES = new Set([
+  'PGDATABASE',
+  'DATABASE_NAME',
+  'POSTGRES_DB',
+  'POSTGRES_DATABASE',
+  'MYSQL_DATABASE',
+  'DBNAME',
+  'DB_NAME',
+  'DB_DATABASE',
+]);
+const EXACT_USER_NAMES = new Set([
+  'PGUSER',
+  'DATABASE_USER',
+  'DATABASE_USERNAME',
+  'POSTGRES_USER',
+  'POSTGRES_USERNAME',
+  'MYSQL_USER',
+  'DBUSER',
+  'DB_USER',
+  'DB_USERNAME',
+]);
 const EXACT_PASSWORD_NAMES = new Set([
   'PGPASSWORD',
   'DATABASE_PASSWORD',
   'POSTGRES_PASSWORD',
+  'MYSQL_PASSWORD',
   'DBPASSWORD',
   'DBPASS',
   'DB_PASSWORD',
   'DB_PASS',
 ]);
 
+// `SENTRY_DSN` ends in `_DSN` but is an error tracker's address, never the database.
+const ERROR_TRACKER_NAME_REGEX = /(?:^|_)(?:SENTRY|GLITCHTIP|BUGSNAG|ROLLBAR|HONEYBADGER)(?:_|$)/;
+
 /** The postgres semantic a variable name carries, when the name is a known convention. */
-function postgresSemantic(name: string): BindingSemantic | null {
+export function postgresSemantic(name: string): BindingSemantic | null {
   const upper = name.toUpperCase();
+  if (ERROR_TRACKER_NAME_REGEX.test(upper)) return null;
   if (EXACT_URL_NAMES.has(upper) || URL_SUFFIX_REGEX.test(upper)) return 'url';
+  if (JDBC_URL_REGEX.test(upper)) return 'jdbc_url';
   if (EXACT_HOST_NAMES.has(upper) || HOST_SUFFIX_REGEX.test(upper)) return 'host';
   if (EXACT_PORT_NAMES.has(upper) || PORT_SUFFIX_REGEX.test(upper)) return 'port';
   if (EXACT_DATABASE_NAMES.has(upper) || DATABASE_SUFFIX_REGEX.test(upper)) return 'database';
@@ -268,6 +340,11 @@ export function deriveInfrastructureBindings(tree: FileTree, analysis: AnalysisR
       bindings.push({ resource: 'postgres', semantic, applicationVariable: name, source: 'explicit', confidence: 'high' });
     }
     const seen = new Set(POSTGRES_STANDARD_BINDINGS.map(([name]) => name));
+    for (const name of prismaDatasourceEnvNames(tree)) {
+      if (seen.has(name)) continue;
+      seen.add(name);
+      bindings.push({ resource: 'postgres', semantic: 'url', applicationVariable: name, source: 'explicit', confidence: 'high' });
+    }
     for (const key of model.keys()) {
       if (seen.has(key)) continue;
       const semantic = postgresSemantic(key);
