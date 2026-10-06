@@ -555,3 +555,149 @@ describe('engine selectors: schema defaults and comparison switches', () => {
     expect(model.find((entry) => entry.key === 'DB')?.required ?? false).toBe(false);
   });
 });
+
+describe('residual selector and binding shapes', () => {
+  const required = (tree: FileTree, key: string, provisioned: ProvisionedResources = POSTGRES): boolean =>
+    variable(tree, key, provisioned)?.required ?? false;
+  const tsApp: FileTree = { 'package.json': '{"dependencies":{"pg":"^8.0.0"}}' };
+
+  it('requires a selector the image ENV defaults to SQLite', () => {
+    const tree = {
+      ...tsApp,
+      Dockerfile: 'FROM node:20\nENV \\\n\tDB_CLIENT="sqlite3" \\\n\tNODE_ENV="production"\n',
+      'api/src/db.ts': "import env from './env';\nconst client = env['DB_CLIENT'];\n",
+    };
+    expect(required(tree, 'DB_CLIENT')).toBe(true);
+  });
+
+  it('lets the image ENV win over a code default, and ignores an ENV the app never reads', () => {
+    const code = "const t = process.env.DB_TYPE || 'sqlite';\n";
+    expect(required({ ...tsApp, Dockerfile: 'FROM node:20\nENV DB_TYPE=postgres\n', 'src/db.ts': code }, 'DB_TYPE')).toBe(false);
+    expect(required({ ...tsApp, Dockerfile: 'FROM node:20\nENV DB_TYPE=sqlite\n', 'src/x.ts': 'export {};\n' }, 'DB_TYPE')).toBe(false);
+  });
+
+  it('requires a NestJS ConfigService storage selector that defaults to local, not one defaulting to s3', () => {
+    const read = (value: string): FileTree => ({
+      ...tsApp,
+      'src/environment.service.ts': `return this.configService.get<string>('STORAGE_DRIVER', '${value}');\n`,
+    });
+    expect(required(read('local'), 'STORAGE_DRIVER', { database: null, storage: true })).toBe(true);
+    expect(required(read('s3'), 'STORAGE_DRIVER', { database: null, storage: true })).toBe(false);
+  });
+
+  it('requires a selector from an env defaults map read through a typed env parameter', () => {
+    const tree = (client: string): FileTree => ({
+      ...tsApp,
+      'src/env.ts': `const defaults: EnvVariables = {\n\tDB_CLIENT: '${client}',\n\tPOSTGRES_HOST: '',\n};\n`,
+      'src/config.ts': 'function dbConfig(env: EnvVariables) {\n\treturn env.DB_CLIENT === "pg" ? env.POSTGRES_HOST : null;\n}\n',
+    });
+    expect(required(tree('sqlite3'), 'DB_CLIENT')).toBe(true);
+    expect(variable(tree('sqlite3'), 'POSTGRES_HOST')?.source.join(' ')).toContain('read in src/config.ts');
+    expect(required(tree('pg'), 'DB_CLIENT')).toBe(false);
+  });
+
+  it('requires an @Env decorated config field defaulting to SQLite and only reads the others', () => {
+    const tree = (type: string): FileTree => ({
+      ...tsApp,
+      'packages/config/src/configs/database.config.ts': `class Postgres {\n\t@Env('DB_POSTGRESDB_HOST')\n\thost: string = 'localhost';\n}\nclass Db {\n\t@Env('DB_TYPE', schema)\n\ttype: DbType = '${type}';\n}\n`,
+    });
+    expect(required(tree('sqlite'), 'DB_TYPE')).toBe(true);
+    expect(variable(tree('sqlite'), 'DB_POSTGRESDB_HOST')?.required).toBe(false);
+    expect(required(tree('postgresdb'), 'DB_TYPE')).toBe(false);
+  });
+
+  it('reads env names an app lists for its boot check and imported env helpers', () => {
+    const model = detectEnvVarModel(
+      {
+        ...tsApp,
+        'src/database.ts': "const requiredEnvVars = ['DB_CLIENT'];\nrequiredEnvVars.push('DB_HOST', 'DB_PORT');\n",
+        'src/globals.ts': "const url = assertEnv('DB_URL');\nconst note = getEnv('NOTE_TEXT');\n",
+      },
+      [],
+      POSTGRES,
+    );
+    const byKey = Object.fromEntries(model.map((entry) => [entry.key, entry]));
+    expect(byKey['DB_HOST']?.source.join(' ')).toContain('read in src/database.ts');
+    expect(byKey['DB_URL']?.required).toBe(true);
+    expect(byKey['NOTE_TEXT']?.required).toBe(false);
+  });
+
+  it('does not read a variable named only in a comment', () => {
+    const tree = { ...tsApp, 'src/a.ts': '/**\n * parse(process.env.DOC_ONLY_KEY)\n */\n// process.env.OTHER_KEY\n' };
+    const keys = detectEnvVarModel(tree, [], POSTGRES).map((entry) => entry.key);
+    expect(keys).not.toContain('DOC_ONLY_KEY');
+    expect(keys).not.toContain('OTHER_KEY');
+  });
+
+  it('requires a django-environ engine selector without a default but not a defaulted or other read', () => {
+    const tree: FileTree = {
+      'requirements.txt': 'Django\npsycopg2\ndjango-environ\n',
+      'settings/main.py':
+        "import environ\nenv = environ.Env(DJANGO_DEBUG=(bool, False))\nENGINE = env.str('DJANGO_DB_ENGINE')\nHOST = env.str('DJANGO_DB_HOST', '')\nKEY = env.str('DJANGO_MAIL_KEY')\n",
+    };
+    expect(required(tree, 'DJANGO_DB_ENGINE')).toBe(true);
+    expect(required(tree, 'DJANGO_DB_HOST')).toBe(false);
+    expect(required(tree, 'DJANGO_MAIL_KEY')).toBe(false);
+  });
+
+  it('requires a YAML config engine selector with no default but not an unrelated driver', () => {
+    const tree: FileTree = {
+      ...tsApp,
+      'dev/build/config.yml': "db:\n  type: $(DB_TYPE)\n  host: '$(DB_HOST)'\ncache:\n  driver: $(CACHE_DRIVER)\nlogLevel: $(LOG_LEVEL:info)\n",
+      '.examples/pg/config.yaml': 'path: ${EXAMPLE_ONLY}\n',
+    };
+    expect(required(tree, 'DB_TYPE')).toBe(true);
+    expect(required(tree, 'DB_HOST')).toBe(false);
+    expect(required(tree, 'CACHE_DRIVER')).toBe(false);
+    expect(variable(tree, 'EXAMPLE_ONLY')).toBeUndefined();
+  });
+
+  it('requires a Go viper typed-key selector under a prefix with dotted keys', () => {
+    const go = (type: string): FileTree => ({
+      'go.mod': 'module app\n',
+      'pkg/config/config.go': [
+        'viper.SetEnvPrefix("app")',
+        'viper.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))',
+        'viper.AutomaticEnv()',
+        'DatabaseType Key = `database.type`',
+        'DatabaseHost Key = `database.host`',
+        `DatabaseType.setDefault("${type}")`,
+        '',
+      ].join('\n'),
+    });
+    expect(required(go('sqlite'), 'APP_DATABASE_TYPE')).toBe(true);
+    expect(variable(go('sqlite'), 'APP_DATABASE_HOST')?.source.join(' ')).toContain('read in pkg/config/config.go');
+    expect(required(go('postgres'), 'APP_DATABASE_TYPE')).toBe(false);
+  });
+
+  it('binds names an image ENV declares and database usernames, but never an error tracker DSN', () => {
+    const tree = app({
+      Dockerfile: 'FROM python:3\nENV SQLALCHEMY_DATABASE_URI="sqlite:////tmp/a.db"\nCMD ["python","app.py"]\n',
+      'config/app.rb': "ENV.fetch('DATABASE_USERNAME')\nENV.fetch('APP_DATABASE_DATABASE')\nENV.fetch('SENTRY_DSN')\n",
+    });
+    const bindings = databaseBindings(tree);
+    expect(bindings['SQLALCHEMY_DATABASE_URI']).toBe('url');
+    expect(bindings['DATABASE_USERNAME']).toBe('username');
+    expect(bindings['APP_DATABASE_DATABASE']).toBe('database');
+    expect(bindings).not.toHaveProperty('SENTRY_DSN');
+  });
+
+  it('treats a typed config under configs/ as runtime source but not a tool config', () => {
+    const tree: FileTree = {
+      ...tsApp,
+      'tools/vite.config.ts': "const t = process.env.TOOL_ONLY || 'x';\n",
+      'src/configs/a.config.ts': "const t = process.env.APP_ONLY || 'x';\nconst s = process.env.AUTH_CLIENT_SECRET;\n",
+    };
+    const keys = detectEnvVarModel(tree, [], POSTGRES).map((entry) => entry.key);
+    expect(keys).toContain('APP_ONLY');
+    expect(keys).not.toContain('TOOL_ONLY');
+    expect(variable(tree, 'AUTH_CLIENT_SECRET')?.required).toBe(false);
+  });
+
+  it('scans a long Spring application.yaml without a datasource block in linear time', () => {
+    const settings = Array.from({ length: 40 }, (_, i) => `  key${i}:\n    value: x${i}`).join('\n');
+    const yaml = `spring:\n${settings}\nhalo:\n  work-dir: x\n`;
+    const model = detectEnvVarModel({ ...tsApp, 'src/main/resources/application.yaml': yaml }, [], POSTGRES);
+    expect(model.map((entry) => entry.key)).not.toContain('SPRING_DATASOURCE_URL');
+  });
+});

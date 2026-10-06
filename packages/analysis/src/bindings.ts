@@ -195,9 +195,9 @@ const JDBC_URL_REGEX = /(?:_DATASOURCE_URL|_DATASOURCE_JDBC_URL|_JDBC_URL)$/i;
 const HOST_SUFFIX_REGEX = /(?:_DBHOST|_DATABASE_HOST|_PGHOST|_DB_{1,2}HOST|_POSTGRES(?:DB)?_HOST)$/i;
 const PORT_SUFFIX_REGEX = /(?:_DBPORT|_DATABASE_PORT|_PGPORT|_DB_{1,2}PORT|_POSTGRES(?:DB)?_PORT)$/i;
 const DATABASE_SUFFIX_REGEX =
-  /(?:_DBNAME|_DATABASE_NAME|_DB_{1,2}(?:NAME|DATABASE)|_POSTGRES(?:DB)?_(?:DB|DATABASE))$/i;
+  /(?:_DBNAME|_DATABASE_(?:NAME|DATABASE)|_DB_{1,2}(?:NAME|DATABASE)|_POSTGRES(?:DB)?_(?:DB|DATABASE))$/i;
 const USER_SUFFIX_REGEX =
-  /(?:_DBUSER|_DATABASE_USER|_DB_{1,2}(?:USER|USERNAME)|_POSTGRES(?:DB)?_(?:USER|USERNAME)|_DATASOURCE_USERNAME)$/i;
+  /(?:_DBUSER|_DATABASE_USER(?:NAME)?|_DB_{1,2}(?:USER|USERNAME)|_POSTGRES(?:DB)?_(?:USER|USERNAME)|_DATASOURCE_USERNAME)$/i;
 const PASSWORD_SUFFIX_REGEX =
   /(?:_DBPASS|_DBPASSWORD|_DATABASE_PASSWORD|_DB_{1,2}(?:PASSWORD|PASS)|_POSTGRES(?:DB)?_PASSWORD|_DATASOURCE_PASSWORD)$/i;
 
@@ -228,6 +228,7 @@ const EXACT_DATABASE_NAMES = new Set([
 const EXACT_USER_NAMES = new Set([
   'PGUSER',
   'DATABASE_USER',
+  'DATABASE_USERNAME',
   'POSTGRES_USER',
   'POSTGRES_USERNAME',
   'MYSQL_USER',
@@ -246,9 +247,13 @@ const EXACT_PASSWORD_NAMES = new Set([
   'DB_PASS',
 ]);
 
+// `SENTRY_DSN` ends in `_DSN` but is an error tracker's address, never the database.
+const ERROR_TRACKER_NAME_REGEX = /(?:^|_)(?:SENTRY|GLITCHTIP|BUGSNAG|ROLLBAR|HONEYBADGER)(?:_|$)/;
+
 /** The postgres semantic a variable name carries, when the name is a known convention. */
 export function postgresSemantic(name: string): BindingSemantic | null {
   const upper = name.toUpperCase();
+  if (ERROR_TRACKER_NAME_REGEX.test(upper)) return null;
   if (EXACT_URL_NAMES.has(upper) || URL_SUFFIX_REGEX.test(upper)) return 'url';
   if (JDBC_URL_REGEX.test(upper)) return 'jdbc_url';
   if (EXACT_HOST_NAMES.has(upper) || HOST_SUFFIX_REGEX.test(upper)) return 'host';

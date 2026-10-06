@@ -674,7 +674,7 @@ const ENV_SAMPLE_REGEX = /(?:^|\/)\.env\.(?:example|template|sample)$/i;
 // `config/*.yml` (ERB), Laravel `config/*.php`, Spring `application*.properties|yml`.
 // Direct children of `config/` only — `config/locales/` would flood the cap.
 const CONFIG_ENV_FILE_REGEX =
-  /(?:^|\/)config\/[\w.-]+\.(?:ya?ml|php)$|(?:^|\/)application(?:-[\w.-]+)?\.(?:properties|ya?ml)$/i;
+  /(?:^|\/)config\/[\w.-]+\.(?:ya?ml|php)$|(?:^|\/)config\.ya?ml$|(?:^|\/)application(?:-[\w.-]+)?\.(?:properties|ya?ml)$/i;
 // File-based health routes — the same shape detectHealthEndpoint matches on
 // the path rather than on the file's contents — and a NestJS
 // `health.controller.ts`, whose `@Controller('health')` is the only evidence.
@@ -772,6 +772,12 @@ function isLockfilePath(path: string): boolean {
 // more source files than the cap (a Go or Django tree can carry hundreds).
 const ENTRY_FILE_REGEX =
   /(?:^|\/)(?:main|server|app|index|routes?|router|handlers?|config|settings|urls|options|env)\.[a-z]+$|(?:^|\/)(?:routes?|server|config|http)\//i;
+// Files that read the environment and name the datastore the app uses:
+// `environment.service.ts`, `env/GlobalValues.ts`, `configs/database.config.ts`. They are few
+// and small, and a deep one would otherwise lose its slot to hundreds of `index.ts`. A plain
+// `env.ts` stays with the entry files: front ends carry one too.
+const ENV_CONFIG_FILE_REGEX =
+  /(?:^|\/)(?:environment(?:\.(?:service|config))?|env\.(?:service|config))\.[a-z]+$|(?:^|\/)(?:env|environment)\/[^/]+\.(?:[cm]?[jt]s|py|rb|go)$|(?:^|\/)configs\/[\w.-]+\.config\.[cm]?[jt]s$/i;
 
 //
 // Dockerfiles, Compose files and env samples come before package manifests:
@@ -795,7 +801,7 @@ function relevancePriority(path: string, protectedPaths: ReadonlySet<string>): n
   if (OTHER_MANIFEST_REGEX.test(path)) return 1;
   if (!path.includes('/')) return 2; // generic (unnamed) root files
   if (PRISMA_SCHEMA_REGEX.test(path) || CONFIG_ENV_FILE_REGEX.test(path)) return 3;
-  if (HEALTH_ROUTE_FILE_REGEX.test(path)) return 4;
+  if (HEALTH_ROUTE_FILE_REGEX.test(path) || ENV_CONFIG_FILE_REGEX.test(path)) return 4;
   if (ENTRY_FILE_REGEX.test(path)) return 5; // entry, routing and configuration source
   return 6; // other source files
 }

@@ -196,13 +196,16 @@ function findFileContent(tree: FileTree, pathRegex: RegExp): string | null {
 // disk write or an environment read there says nothing about the app at
 // runtime (Stage A COMP-003, COMP-016).
 const NON_RUNTIME_SEGMENT_REGEX =
-  /(?:^|\/)(?:__tests__|__mocks__|__fixtures__|(?:[\w.-]*[-_])?tests?|testdata|specs?|(?:[\w.-]*[-_])?e2e|cypress|fixtures?|stories|scripts?|tools?|bin|docs?|extra|examples?|benchmarks?|\.github|\.husky|\.devcontainer|\.vscode)(?:\/|$)/i;
+  /(?:^|\/)(?:__tests__|__mocks__|__fixtures__|(?:[\w.-]*[-_])?tests?|testdata|specs?|(?:[\w.-]*[-_])?e2e|cypress|evaluations?|fixtures?|stories|scripts?|tools?|bin|docs?|extra|\.?examples?|benchmarks?|\.github|\.husky|\.devcontainer|\.vscode)(?:\/|$)/i;
 const NON_RUNTIME_FILE_REGEX =
   /(?:\.(?:test|spec|stories|e2e|cy)\.[cm]?[jt]sx?$|(?:^|\/)(?:[\w.-]+\.config\.[cm]?[jt]s|\.(?:eslintrc|prettierrc|babelrc)(?:\.[cm]?js)?|conftest\.py|test_[\w-]+\.py|[\w-]+_test\.(?:py|go|rb))$)/i;
 
+// A typed config class (`configs/database.config.ts`) is app code, unlike a tool's `jest.config.js`.
+const TYPED_CONFIG_FILE_REGEX = /(?:^|\/)configs\/[\w.-]+\.config\.[cm]?[jt]s$/i;
+
 /** True for source the deployed container actually runs. */
 export function isRuntimeSourcePath(path: string): boolean {
-  return !NON_RUNTIME_SEGMENT_REGEX.test(path) && !NON_RUNTIME_FILE_REGEX.test(path);
+  return !NON_RUNTIME_SEGMENT_REGEX.test(path) && (!NON_RUNTIME_FILE_REGEX.test(path) || TYPED_CONFIG_FILE_REGEX.test(path));
 }
 
 // Compose files that describe dev/test/example tooling rather than the app's
@@ -372,7 +375,7 @@ const JS_ENV_ASSIGNMENT_REGEX =
 // `process.env` at every site. `env.KEY` / `env['KEY']` count as reads only
 // inside such a module, so a front end's `import.meta.env.VITE_X` does not.
 const CONFIG_ENV_BINDING_REGEX =
-  /\b(?:const|let|var)\s+env\s*=|\bimport\s+(?:\{[^}]*\benv\b[^}]*\}|env)\s+from\b|=\s*useEnv\s*\(/;
+  /\b(?:const|let|var)\s+env\s*=|\bimport\s+(?:\{[^}]*\benv\b[^}]*\}|env)\s+from\b|=\s*useEnv\s*\(|[(,]\s*env\s*:\s*(?:\w+\.)?\w*Env\w*\b/;
 const CONFIG_ENV_READ_SOURCE =
   String.raw`(?<![\w.$])env\s*(?:\.\s*([A-Z][A-Z0-9_]*)\b|\[\s*["']([A-Z][A-Z0-9_]*)["']\s*\])`;
 
@@ -2809,16 +2812,31 @@ export function scanViperEnvKeys(content: string): string[] {
   if (!content.includes('viper.')) return [];
   const prefixMatch = /viper\.SetEnvPrefix\(\s*"([A-Za-z][A-Za-z0-9_-]*)"\s*\)/.exec(content);
   if (!prefixMatch || !/viper\.AutomaticEnv\s*\(/.test(content)) return [];
-  const prefix = prefixMatch[1]!.toUpperCase().replace(/-/g, '_');
+  const prefix = prefixMatch[1]!;
   const keys = new Set<string>();
   const keyRegex =
-    /viper\.(?:Get\w*|SetDefault|BindEnv|IsSet)\(\s*"([a-zA-Z][\w-]*)"|\.(?:Persistent)?Flags\(\)\.\w+\(\s*"([a-zA-Z][\w-]*)"/g;
+    /viper\.(?:Get\w*|SetDefault|BindEnv|IsSet)\(\s*"([a-zA-Z][\w.-]*)"|\.(?:Persistent)?Flags\(\)\.\w+\(\s*"([a-zA-Z][\w.-]*)"/g;
   let match: RegExpExecArray | null;
   while ((match = keyRegex.exec(content)) !== null) {
-    const key = (match[1] ?? match[2])!;
-    keys.add(`${prefix}_${key.toUpperCase().replace(/-/g, '_')}`);
+    const name = viperEnvName(content, prefix, (match[1] ?? match[2])!);
+    if (name !== null) keys.add(name);
+  }
+  for (const key of viperTypedKeys(content).values()) {
+    const name = viperEnvName(content, prefix, key);
+    if (name !== null) keys.add(name);
   }
   return [...keys].sort();
+}
+
+/** The env name viper reads for a key: `PREFIX_KEY`, with `-` and (given `SetEnvKeyReplacer`) `.` as `_`. */
+function viperEnvName(content: string, prefix: string, key: string): string | null {
+  if (key.includes('.') && !/SetEnvKeyReplacer\(\s*strings\.NewReplacer\([^)]*"\."/.test(content)) return null;
+  return `${prefix.toUpperCase().replace(/-/g, '_')}_${key.toUpperCase().replace(/[-.]/g, '_')}`;
+}
+
+/** Typed config keys (``DatabaseType Key = `database.type` ``) by identifier. */
+function viperTypedKeys(content: string): Map<string, string> {
+  return new Map([...content.matchAll(/^[ \t]*(\w+)[ \t]+\w*Key[ \t]*=[ \t]*[`"]([a-z][\w.-]*)[`"]/gm)].map((m) => [m[1]!, m[2]!]));
 }
 
 /** Go `os.Getenv` / `os.LookupEnv`, required only with an adjacent missing-check or a required struct tag. */
@@ -3125,9 +3143,19 @@ const S3_STORAGE_VALUE_REGEX = /^(?:s3|aws|amazon|amazons3|aws[-_]?s3|s_3)$/i;
 
 /** Files whose env reads and defaults can name a selector. */
 const SELECTOR_SOURCE_REGEX = /\.(?:[cm]?[jt]sx?|py|rb|go|php|java|kt|kts|scala)$/i;
-/** Rails `config/*.yml`, Laravel `config/*.php` and Spring `application*` — small files that read env vars. */
+/** Rails `config/*.yml`, Laravel `config/*.php`, a `config.yml` and Spring `application*` — small files that read env vars. */
 const CONFIG_ENV_FILE_REGEX =
-  /(?:^|\/)config\/[\w.-]+\.(?:ya?ml|php)$|(?:^|\/)application(?:-[\w.-]+)?\.(?:properties|ya?ml)$/i;
+  /(?:^|\/)config\/[\w.-]+\.(?:ya?ml|php)$|(?:^|\/)config\.ya?ml$|(?:^|\/)application(?:-[\w.-]+)?\.(?:properties|ya?ml)$/i;
+
+/** A typed config class field bound to an env var: `@Env('DB_TYPE', schema) type: DbType = 'sqlite';`. */
+const DECORATED_ENV_REGEX = /@Env\(\s*["']([A-Z][A-Z0-9_]*)["']/g;
+const DECORATED_ENV_DEFAULT_REGEX =
+  /@Env\(\s*["']([A-Z][A-Z0-9_]*)["'][^;]*?\)\s*(?:(?:public|private|protected|readonly)\s+)*\w+[?!]?\s*(?::\s*[^=;\n]+?)?\s*=\s*(["'`])([^"'`\n]*)\2\s*;/g;
+
+/** Env reads through an imported helper: `assertEnv('DB_URL')` throws when unset, `getEnv('X')` does not. */
+const ENV_HELPER_CALL_REGEX = /(?<![\w.$])(assertEnv|requireEnv|mustGetEnv|getEnv\w*)\(\s*["']([A-Z][A-Z0-9_]*)["']\s*(,)?/g;
+/** Env names listed for a boot check: `requiredEnvVars.push('DB_HOST', …)`, `validateEnv(['STORAGE_LOCATIONS'])`. */
+const ENV_NAME_LIST_REGEX = /\brequired\w*env\w*(?:\s*:[^=;\n]+)?\s*(?:=\s*\[|\.push\()([^\])]*)|\bvalidate\w*env\w*\(\s*\[([^\]]*)/gi;
 
 /** Env reads with an inline default, in every language the tree carries: `[name, default]`. */
 function scanDefaultedEnvReads(content: string): [string, string][] {
@@ -3140,10 +3168,17 @@ function scanDefaultedEnvReads(content: string): [string, string][] {
   for (const m of content.matchAll(/\bENV\[\s*["']([A-Z][A-Z0-9_]*)["']\s*\]\s*\|\|\s*["']([^"'\n]*)["']/g)) {
     found.push([m[1]!, m[2]!]);
   }
-  // `os.getenv("X", "d")`, `os.environ.get`, `ENV.fetch`, PHP/Strapi `env('X', 'd')`, `env.get('X', 'd')`, Go `getEnv("X", "d")`
-  for (const m of content.matchAll(/\b\w*env\w*(?:\.(?:get|fetch|getenv))?\s*\(\s*["'`]([A-Za-z0-9_]+)["'`]\s*,\s*(?:default\s*=\s*)?["'`]([^"'`\n]*)["'`]/gi)) {
+  // `os.getenv("X", "d")`, `os.environ.get`, `ENV.fetch`, PHP/Strapi `env('X', 'd')`, `env.get('X', 'd')`,
+  // django-environ `env.str('X', 'd')`, Go `getEnv("X", "d")`
+  for (const m of content.matchAll(/\b\w*env\w*(?:\.(?:get|fetch|getenv|str|url|db_url))?\s*\(\s*["'`]([A-Za-z0-9_]+)["'`]\s*,\s*(?:default\s*=\s*)?["'`]([^"'`\n]*)["'`]/gi)) {
     if (m[1] === m[1]!.toUpperCase()) found.push([m[1]!, m[2]!]);
   }
+  // NestJS `configService.get<string>('X', 'd')`
+  for (const m of content.matchAll(/\.get(?:OrThrow)?(?:<[^>\n]*>)?\(\s*["'`]([A-Z][A-Z0-9_]*)["'`]\s*,\s*["'`]([^"'`\n]*)["'`]\s*\)/g)) {
+    found.push([m[1]!, m[2]!]);
+  }
+  // Typed config class `@Env('X', schema?) prop: T = 'd'`
+  for (const m of content.matchAll(DECORATED_ENV_DEFAULT_REGEX)) found.push([m[1]!, m[3]!]);
   // Spring / shell `${X:default}`
   for (const m of content.matchAll(/\$\{([A-Z][A-Z0-9_]*):-?([^}\n]*)\}/g)) found.push([m[1]!, m[2]!]);
   // Schema defaults: envalid `X: str({ default: 'd' })`, zod `X: z.enum([…]).default('d')`
@@ -3165,16 +3200,31 @@ function scanComparedEnvReads(content: string): [string, string][] {
   return found;
 }
 
-/** Go viper `SetDefault("driver", "sqlite")` or a flag default under `SetEnvPrefix("memos")` → `MEMOS_DRIVER`. */
+/** django-environ reads (`env.str('X')`): only an engine selector without a default needs a value; settings guard the rest. */
+function scanDjangoEnvironReads(content: string): { key: string; needsValue: boolean }[] {
+  if (!/\bimport environ\b|\benviron\.Env\(/.test(content)) return [];
+  const constructorDefaults = new Set([...content.matchAll(/\b([A-Z][A-Z0-9_]*)\s*=\s*\(/g)].map((m) => m[1]!));
+  return [...content.matchAll(/\benv(?:\.\w+)?\(\s*["']([A-Z][A-Z0-9_]*)["']\s*(,)?/g)].map((m) => ({
+    key: m[1]!,
+    needsValue: m[2] === undefined && !constructorDefaults.has(m[1]!) && isRequiredEngineSelector(m[1]!),
+  }));
+}
+
+/**
+ * Go viper `SetDefault("driver", "sqlite")`, a flag default or a typed-key
+ * `DatabaseType.setDefault("sqlite")` under `SetEnvPrefix("memos")` → `MEMOS_DRIVER`.
+ */
 function scanViperEnvDefaults(content: string): [string, string][] {
   const prefix = /viper\.SetEnvPrefix\(\s*"([A-Za-z][A-Za-z0-9_-]*)"\s*\)/.exec(content)?.[1];
   if (prefix === undefined || !/viper\.AutomaticEnv\s*\(/.test(content)) return [];
   const found: [string, string][] = [];
+  const typedKeys = viperTypedKeys(content);
   for (const m of content.matchAll(
-    /viper\.SetDefault\(\s*"([a-zA-Z][\w-]*)"\s*,\s*"([^"\n]*)"|\.(?:Persistent)?Flags\(\)\.String\w*\(\s*"([a-zA-Z][\w-]*)"\s*,\s*"([^"\n]*)"/g,
+    /viper\.SetDefault\(\s*"([a-zA-Z][\w.-]*)"\s*,\s*"([^"\n]*)"|\.(?:Persistent)?Flags\(\)\.String\w*\(\s*"([a-zA-Z][\w.-]*)"\s*,\s*"([^"\n]*)"|\b(\w+)\.setDefault\(\s*"([^"\n]*)"/g,
   )) {
-    const key = (m[1] ?? m[3])!;
-    found.push([`${prefix.toUpperCase().replace(/-/g, '_')}_${key.toUpperCase().replace(/-/g, '_')}`, (m[2] ?? m[4])!]);
+    const key = m[1] ?? m[3] ?? typedKeys.get(m[5] ?? '');
+    const name = key === undefined ? null : viperEnvName(content, prefix, key);
+    if (name !== null) found.push([name, (m[2] ?? m[4] ?? m[6])!]);
   }
   return found;
 }
@@ -3184,6 +3234,31 @@ function envLineValues(content: string): [string, string][] {
   return [...content.matchAll(/^[ \t]*-?[ \t]*([A-Z][A-Z0-9_]*)[ \t]*[=:][ \t]*["']?([^\s"'#]*)/gm)].map(
     (m): [string, string] => [m[1]!, m[2]!],
   );
+}
+
+/** Files that hold an env defaults map: `env.ts`, `env/constants/defaults.ts`. */
+const ENV_DEFAULTS_FILE_REGEX = /(?:^|\/)(?:env|environment)(?:\/|\.[cm]?[jt]s$)|(?:^|\/)defaults?\.[cm]?[jt]s$/i;
+
+/** `NAME: 'value',` entries of an env defaults map (`const defaults = { DB_CLIENT: 'sqlite3' }`). */
+function scanDefaultsMapEnvValues(content: string): [string, string][] {
+  return [...content.matchAll(/^[ \t]*([A-Z][A-Z0-9_]*)[ \t]*:[ \t]*(["'`])([^"'`\n]*)\2[ \t]*,?[ \t]*(?:\/\/.*)?$/gm)].map(
+    (m): [string, string] => [m[1]!, m[3]!],
+  );
+}
+
+/** `ENV NAME=value` / `ENV NAME value` pairs of a Dockerfile — the image's own default for each variable. */
+function dockerfileEnvValues(content: string): [string, string][] {
+  const found: [string, string][] = [];
+  for (const m of content.replace(/\\r?\n/g, ' ').matchAll(/^[ \t]*ENV[ \t]+(.+)$/gim)) {
+    const body = m[1]!;
+    const pairs = [...body.matchAll(/([A-Za-z_][A-Za-z0-9_]*)=(?:"([^"]*)"|'([^']*)'|(\S*))/g)];
+    if (pairs.length === 0) {
+      const legacy = /^([A-Za-z_][A-Za-z0-9_]*)[ \t]+["']?([^"'\s]*)/.exec(body);
+      if (legacy) found.push([legacy[1]!, legacy[2]!]);
+    }
+    for (const pair of pairs) found.push([pair[1]!, pair[2] ?? pair[3] ?? pair[4]!]);
+  }
+  return found;
 }
 
 /** Env sample files at any depth of the selected app — not sibling apps, docs, tests or examples. */
@@ -3214,6 +3289,7 @@ function unresolvedSelectors(
   const codeDefaults = new Map<string, Value[]>();
   const sampleValues = new Map<string, Value[]>();
   const compared = new Map<string, Value[]>();
+  const imageDefaults = new Map<string, Value[]>();
   const add = (map: Map<string, Value[]>, name: string, value: string, file: string): void => {
     if (!DB_SELECTOR_NAME_REGEX.test(name) && !STORAGE_SELECTOR_NAME_REGEX.test(name)) return;
     map.set(name, [...(map.get(name) ?? []), { value, file }]);
@@ -3224,18 +3300,28 @@ function unresolvedSelectors(
     for (const [name, value] of scanDefaultedEnvReads(content)) add(codeDefaults, name, value, path);
     for (const [name, value] of scanComparedEnvReads(content)) add(compared, name, value, path);
     if (GO_SOURCE.test(path)) for (const [name, value] of scanViperEnvDefaults(content)) add(codeDefaults, name, value, path);
+    if (JS_SOURCE.test(path) && ENV_DEFAULTS_FILE_REGEX.test(path)) {
+      for (const [name, value] of scanDefaultsMapEnvValues(content)) add(codeDefaults, name, value, path);
+    }
   }
+  const dockerfile = selectedDockerfile(tree);
+  if (dockerfile) for (const [name, value] of dockerfileEnvValues(dockerfile.content)) add(imageDefaults, name, value, dockerfile.path);
   for (const path of [...appEnvSampleFiles(tree, isSiblingApp), ...listProductionComposeFiles(tree)]) {
     for (const [name, value] of envLineValues(tree[path] ?? '')) add(sampleValues, name, value, path);
   }
 
   const result = new Map<string, { evidence: string; files: string[] }>();
   const engine = provisioned.database;
-  for (const name of new Set([...codeDefaults.keys(), ...sampleValues.keys(), ...compared.keys()])) {
-    const isDb = engine !== null && DB_SELECTOR_NAME_REGEX.test(name);
-    const isStorage = !isDb && provisioned.storage && STORAGE_SELECTOR_NAME_REGEX.test(name);
+  for (const name of new Set([...codeDefaults.keys(), ...sampleValues.keys(), ...compared.keys(), ...imageDefaults.keys()])) {
+    const isStorage = provisioned.storage && STORAGE_SELECTOR_NAME_REGEX.test(name);
+    const isDb = !isStorage && engine !== null && DB_SELECTOR_NAME_REGEX.test(name);
     if (!isDb && !isStorage) continue;
-    const fromCode = codeDefaults.get(name) ?? [];
+    // The image's `ENV` value wins over any default in the code, and over a comparison.
+    const image = imageDefaults.get(name);
+    // An image `ENV` for a variable the app never reads says nothing.
+    if (image && !reads.has(name) && !codeDefaults.has(name)) continue;
+    const fromCode = image ?? codeDefaults.get(name) ?? [];
+    const comparedHere = image ? [] : (compared.get(name) ?? []);
     // A sample value is only a default for a variable the app actually reads.
     const fromSamples = fromCode.length > 0 || reads.has(name) ? (sampleValues.get(name) ?? []) : [];
     const wanted = isStorage ? S3_STORAGE_VALUE_REGEX : ENGINE_VALUE_REGEX[engine!];
@@ -3243,7 +3329,7 @@ function unresolvedSelectors(
     // provisioned value (`os.getenv("DB") == "postgres"`) takes the other
     // branch when unset.
     const unsetFallback =
-      fromCode.length === 0 && (compared.get(name) ?? []).some(({ value }) => wanted.test(value)) ? { value: 'unset' } : undefined;
+      fromCode.length === 0 && comparedHere.some(({ value }) => wanted.test(value)) ? { value: 'unset' } : undefined;
     const bad =
       [...fromCode, ...fromSamples].find(({ value }) =>
         isStorage
@@ -3259,7 +3345,7 @@ function unresolvedSelectors(
     };
     for (const { value } of sampleValues.get(name) ?? []) note(value);
     const files = [
-      ...new Set([...fromCode, ...(compared.get(name) ?? [])].map((entry) => entry.file).concat(reads.get(name)?.files ?? [])),
+      ...new Set([...fromCode, ...comparedHere].map((entry) => entry.file).concat(reads.get(name)?.files ?? [])),
     ];
     for (const file of files) {
       for (const literal of (tree[file] ?? '').matchAll(/["'`]([^"'`\s]{1,60})["'`]/g)) note(literal[1]!);
@@ -3271,6 +3357,11 @@ function unresolvedSelectors(
     result.set(name, { evidence, files });
   }
   return result;
+}
+
+/** A database engine selector (`DB_TYPE`, `DJANGO_DB_ENGINE`) read with no default must be set. */
+function isRequiredEngineSelector(key: string): boolean {
+  return DB_SELECTOR_NAME_REGEX.test(key) && /(?:^|_)(?:DB|DATABASE|DBENGINE)(?:_|$)/.test(key);
 }
 
 /** Env reads in framework config files; a read without a default is required only for a secret. */
@@ -3286,13 +3377,18 @@ function scanConfigFileEnvReads(path: string, content: string): { key: string; n
     // Spring relaxed binding: a `spring.datasource` property is also read from SPRING_DATASOURCE_*.
     const configuresDatasource = /\.properties$/i.test(path)
       ? /^\s*spring\.datasource\./m.test(content)
-      : /^spring:[ \t]*\r?\n(?:[ \t]+.*\r?\n|[ \t]*\r?\n)*?[ \t]+datasource:/m.test(content);
+      : /^spring:[ \t]*\r?\n(?:[ \t]+\S[^\r\n]*\r?\n|[ \t]*\r?\n)*?[ \t]+datasource:/m.test(content);
     if (configuresDatasource) {
       for (const key of ['SPRING_DATASOURCE_URL', 'SPRING_DATASOURCE_USERNAME', 'SPRING_DATASOURCE_PASSWORD']) add(key, true);
     }
   } else {
     for (const m of content.matchAll(/\bENV\[\s*["']([A-Z][A-Z0-9_]*)["']\s*\]\s*(\|\|)?/g)) add(m[1]!, m[2] !== undefined);
     for (const m of content.matchAll(/\bENV\.fetch\(\s*["']([A-Z][A-Z0-9_]*)["']\s*(,|\)\s*\{)?/g)) add(m[1]!, m[2] !== undefined);
+    // `$(NAME)` / `${NAME:default}` substitution in a YAML config; the engine selector has no other source
+    for (const m of content.matchAll(/\$[({]([A-Z][A-Z0-9_]*)(:[^)}\n]*)?[)}]/g)) {
+      const key = m[1]!;
+      found.push({ key, needsValue: m[2] === undefined && (isSecretName(key) || isRequiredEngineSelector(key)) });
+    }
   }
   return found;
 }
@@ -3337,6 +3433,12 @@ export function detectEnvVarModel(
       if (classifyEnvVarPurpose(key).purpose !== 'infrastructure_binding') continue;
       nestedSampleFiles.set(key, [...(nestedSampleFiles.get(key) ?? []), path]);
     }
+  }
+  // The selected Dockerfile's `ENV` names a binding the image reads too.
+  const imageDockerfile = selectedDockerfile(tree);
+  for (const [key] of imageDockerfile ? dockerfileEnvValues(imageDockerfile.content) : []) {
+    if (classifyEnvVarPurpose(key).purpose !== 'infrastructure_binding') continue;
+    nestedSampleFiles.set(key, [...(nestedSampleFiles.get(key) ?? []), imageDockerfile!.path]);
   }
 
   // ── 2. Reads: which variables the app actually reads, and whether a read
@@ -3384,6 +3486,8 @@ export function detectEnvVarModel(
         if (!key) continue;
         // A glob in prose (`process.env.NEXT_PUBLIC_*`) names no variable.
         if (content[match.index + match[0].length] === '*') continue;
+        // A read in a comment (`* parseTimeout(process.env.X)`) is documentation.
+        if (/^\s*(?:\*|\/\/)/.test(content.slice(content.lastIndexOf('\n', match.index) + 1, match.index))) continue;
         // The same file tests the key for presence (`Boolean(process.env.X)`,
         // `!!process.env.X`, `if (process.env.X)`, `process.env.X && …`), so it tolerates its absence.
         const presenceTested = new RegExp(
@@ -3517,7 +3621,8 @@ export function detectEnvVarModel(
           !isSecretName(key) &&
           ENV_TRANSFORM_CALLEE_REGEX.test(/([A-Za-z_$][\w$]*)\s*\(\s*$/.exec(head)?.[1] ?? '') &&
           /^\s*\)/.test(tail);
-        recordRead(key, !hasFallback && !isGuard && !isBareTransform && bareNeedsValue, path);
+        // A typed config class only exposes the value; its consumer decides whether it is needed.
+        recordRead(key, !hasFallback && !isGuard && !isBareTransform && bareNeedsValue && !TYPED_CONFIG_FILE_REGEX.test(path), path);
       }
       // Stage B phase 3 (COMP-017): schema-library and helper-form reads —
       // zod object schemas parsed against process.env, envalid validator
@@ -3532,6 +3637,13 @@ export function detectEnvVarModel(
       }
       for (const entry of scanZodEnvReads(content)) {
         if (!entry.needsValue) schemaOptionalKeys.add(entry.key);
+      }
+      for (const m of content.matchAll(DECORATED_ENV_REGEX)) recordRead(m[1]!, false, path);
+      for (const m of content.matchAll(ENV_HELPER_CALL_REGEX)) {
+        recordRead(m[2]!, /^(?:assert|require|mustGet)/.test(m[1]!) && m[3] === undefined, path);
+      }
+      for (const m of content.matchAll(ENV_NAME_LIST_REGEX)) {
+        for (const name of (m[1] ?? m[2] ?? '').matchAll(/["']([A-Z][A-Z0-9_]*)["']/g)) recordRead(name[1]!, false, path);
       }
       for (const key of scanThrowGuardedEnvKeys(content)) bootRequiredKeys.add(key);
     } else if (/schema\.prisma$/i.test(path)) {
@@ -3553,7 +3665,7 @@ export function detectEnvVarModel(
         if (match[1]) recordRead(match[1], false, path);
       }
       // Stage B phase 3 (COMP-017): pydantic v2 BaseSettings class fields.
-      for (const entry of scanPydanticSettingsReads(content)) {
+      for (const entry of [...scanPydanticSettingsReads(content), ...scanDjangoEnvironReads(content)]) {
         recordRead(entry.key, entry.needsValue, path);
       }
     } else if (RB_SOURCE.test(path)) {

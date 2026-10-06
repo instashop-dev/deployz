@@ -735,6 +735,35 @@ describe('github — repository tree fetch (§18 analysis input)', () => {
     expect(tree).toHaveProperty('apps/server/src/integrations/health/health.controller.ts');
   });
 
+  it('keeps env and config-class source and a config.yml inside the ANALYSIS_MAX_FILES cap', async () => {
+    const services = Array.from({ length: ANALYSIS_MAX_FILES + 5 }, (_, i) => ({
+      path: `apps/server/src/feature${i}/index.ts`,
+      type: 'blob' as const,
+      sha: `sha-index-${i}`,
+      size: 10,
+    }));
+    const wanted = [
+      'apps/server/src/integrations/environment/environment.service.ts',
+      'packages/shared/src/node/env/GlobalValues.ts',
+      'packages/config/src/configs/database.config.ts',
+      'dev/build/config.yml',
+    ];
+    const fetchFn: FetchFn = async (url) => {
+      if (url.includes('/git/trees/')) {
+        return makeFetchResponse(200, {
+          tree: [...services, ...wanted.map((path) => ({ path, type: 'blob', sha: `sha-${path}`, size: 10 }))],
+        });
+      }
+      const sha = url.split('/').pop();
+      return makeFetchResponse(200, { content: Buffer.from(`content-${sha}`).toString('base64'), encoding: 'base64' });
+    };
+
+    const tree = await buildFileTreeForAnalysis(REF, 'tok', fetchFn);
+
+    expect(Object.keys(tree)).toHaveLength(ANALYSIS_MAX_FILES);
+    for (const path of wanted) expect(tree).toHaveProperty(path);
+  });
+
   it("protects the selected Dockerfile's CMD/ENTRYPOINT script chain from the ANALYSIS_MAX_FILES trim on a large repository (DEPLOY-029)", async () => {
     // An umami-shaped 250-file repository: CMD -> scripts/start-docker.sh
     // -> scripts/check-db.js. `scripts/` sinks both to the LOWEST relevance

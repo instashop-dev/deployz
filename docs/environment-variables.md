@@ -128,7 +128,12 @@ come from well-known name prefixes (`NEXT_PUBLIC_`, `VITE_`,
   would otherwise store data on the container disk. The source line shows the
   value to use (`pg`, `s3`, …) when the code or a sample file shows it. A
   selector whose default already names the provisioned engine, or whose
-  resource is not provisioned, is not required.
+  resource is not provisioned, is not required. The default can come from the
+  selected Dockerfile `ENV` (it wins over a code default), an env defaults map
+  (`env.ts`), a `@Env('X') field = 'sqlite'` config class, a typed viper key,
+  a NestJS `get('X', 'local')` or a Django-environ `env.str('X', …)` read. A
+  YAML `config.yml` that reads an engine selector as `$(DB_TYPE)` with no
+  default also makes it required.
 - **Precedence:** explicit vendor or customer value > Deployz-derived value >
   analysis evidence (sample values, suggestions). A derived value never
   replaces an explicit value.
