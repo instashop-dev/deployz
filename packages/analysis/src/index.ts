@@ -112,6 +112,7 @@ export type {
   InfrastructureBinding,
 } from './bindings.js';
 export { deriveInfrastructureBindings, derivedS3EnvValue } from './bindings.js';
+export { derivedUrlEnvValue, isDerivedUrlEnvVariable } from './derived-url.js';
 
 export type {
   CompatibilityVerdict,

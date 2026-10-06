@@ -709,7 +709,7 @@ describe('false-required env vars (A1-001, A1-002)', () => {
     expect(byKey.get('AUTH_TYPE')).toMatchObject({ required: false });
     expect(byKey.get('SERVICE_ENDPOINT')).toMatchObject({ required: true });
     // Number(undefined) is NaN: the coercion alone does not handle absence.
-    expect(modelByKey({ 'lib/n.ts': 'const size = Number(process.env.MAX_MESSAGE_BYTES);\n' }).get('MAX_MESSAGE_BYTES')).toMatchObject({
+    expect(modelByKey({ 'lib/n.ts': 'const id = Number(process.env.PARTITION_ID);\n' }).get('PARTITION_ID')).toMatchObject({
       required: true,
     });
   });

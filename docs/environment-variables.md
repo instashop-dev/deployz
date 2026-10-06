@@ -56,8 +56,8 @@ pure evaluation: `packages/contracts/src/environment-setup.ts`.
 Rules (server-validated):
 - **Managed by Deployz** is allowed only for keys that Deployz really
   supplies: managed bindings (database, cache, storage, port, a provisioned
-  queue and its dead-letter queue) and app-internal secrets that the relay
-  generates.
+  queue and its dead-letter queue), the application's own public URL, and
+  app-internal secrets that the relay generates.
 - **Set by customer** and **Managed by Deployz** are runtime only.
 - A variable without a saved decision keeps the behaviour it had before
   this feature (legacy default). Existing applications keep working without
@@ -80,11 +80,33 @@ come from well-known name prefixes (`NEXT_PUBLIC_`, `VITE_`,
   itself (`process.env.X = ...`), a `createEnv` `runtimeEnv` pass-through
   (`KEY: process.env.KEY`), and a key that a zod schema declares
   `.optional()` or `.default()` are not required, whatever other bare reads
-  exist.
-- **Compose build args.** A Dockerfile `ARG NAME` with no default that a compose
-  file sets under `build.args` is a required **build** variable. The compose
-  value is shown as evidence (not for secret-looking names); the vendor enters
-  the value.
+  exist. A read in a test, `e2e`, `playwright`, `storybook`, `docs` or
+  `examples` folder, and a read in a `client`, `frontend` or `ui` folder, is not
+  required. A Ruby `ENV.fetch("X") { default }` has a default. A key that the
+  same file tests for presence is not required. A zod schema that the code
+  parses only inside a function is checked when its feature runs, not at boot.
+- **Weak reads.** A bare read (an argument, a stored value, a config-file
+  lookup) only proves that the app reads the key. It does not make a key
+  required when the key is a tuning value (a name with `LIMIT`, `MAX`, `SIZE`,
+  `TIMEOUT`, `INTERVAL`, `ENABLED`, `LEVEL`, an `ALLOW_`, `SHOW_` or `USE_`
+  prefix, and similar), or when it is a credential of an optional integration
+  (mail, error and usage monitoring, chat, social login) that the repository
+  does not evidence as a service SDK. A key that a boot guard, a schema without
+  default, an `assert` helper, `ENV.fetch` without default, or a Go `required`
+  tag needs stays required. A throw guard inside a request handler, or on a
+  feature switch (`*_ENABLED`), is not a boot guard.
+- **Client build-time names.** `NEXT_PUBLIC_*`, `VITE_*`, `REACT_APP_*` and
+  `PUBLIC_*` names are inlined at build time. A bare read of one does not
+  make it required, unless it is the application's own address
+  (`NEXT_PUBLIC_BASE_URL`). That name stays a customer value and is never
+  derived.
+- **Compose build args.** A Dockerfile `ARG NAME` with no default that a
+  production compose file sets to a literal value under `build.args` is a
+  required **build** variable. The compose value is shown as evidence (not
+  for secret-looking names); the vendor enters the value. A Dockerfile `ARG`
+  that no compose file sets, a value that compose only forwards from the
+  environment (`${NAME}`), and an arg in a test or `e2e` compose file are not
+  required.
 - **Sibling apps are out of scope.** When the Dockerfile sits in `apps/<name>/`,
   reads in another `apps/<other>/` directory do not count, unless a production
   compose file (`docker-compose.yml`, `compose.yml`) or a Procfile points at it,
@@ -134,6 +156,18 @@ come from well-known name prefixes (`NEXT_PUBLIC_`, `VITE_`,
   a NestJS `get('X', 'local')` or a Django-environ `env.str('X', …)` read. A
   YAML `config.yml` that reads an engine selector as `$(DB_TYPE)` with no
   default also makes it required.
+- **Deployz-derived public URL.** When the app reads its own public URL with
+  no default, the variable is **Managed by Deployz**. The names are
+  `PUBLIC_URL`, `APP_URL`, `BASE_URL`, `SITE_URL`, `ROOT_URL`, `WEB_URL`,
+  `APP_BASE_URL`, `PUBLIC_ORIGIN`, `ORIGIN`, `NEXTAUTH_URL`, `AUTH_URL`,
+  `SITE_ROOT`, and `<APP>_PUBLIC_URL`, `<APP>_BASE_URL`, `<APP>_APP_URL`,
+  `<APP>_SITE_URL`, `<APP>_ROOT_URL`, `<APP>_EXTERNAL_URL`.
+  `GET /api/relay/config` serves it as a `derived` plain value: the default
+  HTTPS URL of the deployment, `https://d-<deploymentId>.deployz.dev`. A
+  provider-prefixed name (`OPENAI_BASE_URL`, `S3_PUBLIC_URL`), a client
+  build-time name, a variable whose sample value is a path (`BASE_URL=/app`),
+  and a variable that only browser code reads are not derived. They stay
+  **Set by customer**. Any other URL variable also stays **Set by customer**.
 - **Precedence:** explicit vendor or customer value > Deployz-derived value >
   analysis evidence (sample values, suggestions). A derived value never
   replaces an explicit value.

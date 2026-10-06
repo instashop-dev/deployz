@@ -1,6 +1,6 @@
 import { eq } from 'drizzle-orm';
 
-import { derivedS3EnvValue, mintedEnvKeys } from '@deployz/analysis';
+import { derivedS3EnvValue, derivedUrlEnvValue, mintedEnvKeys } from '@deployz/analysis';
 import {
   TASK_FAMILY_SUFFIX_PARAMETER,
   buildDeploymentResourceTags,
@@ -13,6 +13,7 @@ import type { RuntimeDb } from '@deployz/db';
 import * as schema from '@deployz/db/schema';
 
 import { getConfig, type ConfigStore, type EffectiveConfigEntry } from './config.js';
+import { getDefaultDeploymentUrl } from './default-https.js';
 import { readEnvironmentSettings } from './environment-setup.js';
 import { ApiError } from './errors.js';
 import { DESIRED_COUNT_PARAMETER, buildInstallParameters } from './install-parameters.js';
@@ -69,7 +70,7 @@ export interface PendingSecretVault {
  * The entries the relay applies: every effective config entry (plain values
  * travel, secret values never do) plus, for each key without a vendor or
  * customer value, the value Deployz derives (S3 region/endpoint from the
- * deployment region) or an entry the relay mints (a generated key). When a
+ * deployment region, the app's own public URL from the default HTTPS URL) or an entry the relay mints (a generated key). When a
  * `vault` is passed (production path), pending-secrets rows are decrypted in this
  * seam — values the vendor typed before the relay enrolled reach the
  * customer via this read, not via the queue message.
@@ -149,10 +150,13 @@ export async function buildRelayConfigEntries(
   const configured = new Set(entries.map((entry) => entry.key));
   // Precedence: an explicit vendor/customer value (above) always wins over a
   // derived value.
-  if (manifest?.storage.required === true) {
+  if (manifest !== null) {
+    const defaultUrl = deployment.id === undefined ? null : getDefaultDeploymentUrl(deployment.id);
     for (const variable of manifest.environment.variables) {
       if (configured.has(variable.key)) continue;
-      const value = derivedS3EnvValue(variable, deployment.region);
+      const value =
+        (manifest.storage.required ? derivedS3EnvValue(variable, deployment.region) : null) ??
+        (defaultUrl === null ? null : derivedUrlEnvValue(variable, defaultUrl));
       if (value === null) continue;
       configured.add(variable.key);
       entries.push({ key: variable.key, isSecret: false, value, source: 'derived' });
