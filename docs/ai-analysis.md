@@ -101,6 +101,33 @@ Repository (GitHub tree, bounded)
   bindings (the `DATABASE_*` names plus the names the app reads, such as
   `DB_HOST`), migration mode and migration findings as PostgreSQL.
   `databaseState` names the engine that the manifest provisions.
+- **Database engine:** PostgreSQL wins when the app can run on it. The
+  engine is MySQL only when a MySQL driver and one independent signal are
+  present and PostgreSQL is not a runtime option. The independent signal
+  is a `mysql://` or `mysql+pymysql://` URL, a `MYSQL_*` variable, a
+  MySQL image in the production Compose file, a Prisma, Django, Spring
+  (`jdbc:mysql`), Sequelize or Knex setting, a Dockerfile that installs
+  `pdo_mysql`, or a Laravel default connection of `mysql`. A PostgreSQL
+  driver that only a Python dev group or a dev requirements file declares
+  does not count. A Laravel app that lists a `pgsql` connection keeps
+  PostgreSQL. A MariaDB-only client (`mariadb-java-client`, a Laravel
+  default of `mariadb`) stays unsupported. A MySQL driver next to a
+  MariaDB image or client is MySQL.
+- **Redis requirement:** Deployz provisions Redis only on strong
+  evidence: a Redis client that the app builds at boot from a configured
+  connection variable, or a queue library that needs Redis (BullMQ, Bull,
+  Sidekiq, RQ, Celery with the `redis` extra). A client library, a
+  connection variable, a Compose Redis service, or a README mention is
+  not enough alone. A client library plus a configured connection
+  variable is enough. Evidence that Redis is optional removes the
+  requirement: a switch such as `REDIS_ENABLED` or `USE_CELERY`, a
+  connection variable that an env sample comments out or calls optional,
+  a connection variable that the code tests before it uses it, a backend
+  selector whose default is not Redis (`CACHE_DRIVER=file`,
+  `JOBS_PROVIDER=local`), an image that installs its own Redis server, or
+  code that sets the connection itself. An env sample comment that says
+  Redis is required overrides this evidence. The result is then
+  `medium` confidence and the manifest does not request Redis.
 - **AI fallback** (`repository-ai.ts`): asked only when a real question is
   open (multiple Dockerfiles, monorepo target, unknown start/build command
   or port, unclear database or Redis requirement), with at most eight files

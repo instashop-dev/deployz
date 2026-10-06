@@ -13,6 +13,7 @@ import {
   collectDependencyNames,
   detectEnvVarModel,
   isProductionComposeFile,
+  isRuntimeSourcePath,
   listProductionComposeFiles,
   parsePackageJsons,
 } from './detectors.js';
@@ -183,6 +184,11 @@ function hasPythonDependency(content: string, pkgName: string): boolean {
   return regex.test(content);
 }
 
+/** Whether a Python manifest declares `pkgName` with an extra (`celery[redis]`). */
+function hasPythonExtra(content: string, pkgName: string, extra: string): boolean {
+  return new RegExp(`(^|[\\s"',])${pkgName}\\[[^\\]]*\\b${extra}\\b[^\\]]*\\]`, 'im').test(content);
+}
+
 function hasRubyGem(content: string, gemName: string): boolean {
   const escaped = gemName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   const regex = new RegExp(`gem\\s+['"]${escaped}['"]`, 'i');
@@ -193,13 +199,22 @@ function hasRubyGem(content: string, gemName: string): boolean {
 //
 // Every signal is tagged with a tier. For confidence purposes:
 //   - any 'very-high' or 'high' signal, on its own, is enough for `high`;
-//   - 'medium' signals need ≥2 DISTINCT types to reach `high` (a lone one
-//     is `medium`) — `type` groups signals that shouldn't independently
-//     corroborate each other (e.g. both `redis` and `ioredis` present are
-//     still just "an npm Redis client dependency", not two signals);
-//   - 'low' signals never affect confidence on their own.
+//   - 'medium' signals reach `high` only as a Redis client library plus a
+//     configured connection variable; otherwise they make it `medium`;
+//   - 'low' signals never affect confidence on their own;
+//   - evidence that the integration is optional caps the result at `medium`.
 
 type SignalTier = 'very-high' | 'high' | 'medium' | 'low';
+
+/** Signal types that show a Redis client library is installed — never a requirement alone. */
+const CLIENT_LIBRARY_SIGNAL_TYPES = new Set([
+  'npm-redis-client',
+  'python-redis-client',
+  'python-django-redis',
+  'ruby-redis-client',
+  'go-redis-client',
+  'php-redis-client',
+]);
 
 interface Signal {
   tier: SignalTier;
@@ -229,10 +244,12 @@ function collectComposeImages(tree: FileTree): { path: string; image: string }[]
 }
 
 /**
- * Only the app's PRIMARY production Compose file proves Redis is part of
- * its deployment shape. A root variant (`docker-compose.sqlite-redis.yml`)
- * shows Redis is an option, so it is recorded as evidence without weight;
- * a dev/test/example Compose file is not evidence at all (Stage A COMP-011).
+ * Only the app's PRIMARY production Compose file shows Redis in its
+ * deployment shape — and a Compose Redis service alone is supporting
+ * evidence, not a requirement: Compose files start Redis next to apps that
+ * run without it. A root variant (`docker-compose.sqlite-redis.yml`) shows
+ * Redis is an option, so it is recorded as evidence without weight; a
+ * dev/test/example Compose file is not evidence at all (Stage A COMP-011).
  */
 function collectComposeSignals(tree: FileTree, signals: Signal[]): void {
   const primary = listProductionComposeFiles(tree)[0];
@@ -240,7 +257,7 @@ function collectComposeSignals(tree: FileTree, signals: Signal[]): void {
     if (!/redis|valkey/i.test(image) || !isProductionComposeFile(path)) continue;
     if (path === primary) {
       signals.push({
-        tier: 'very-high',
+        tier: 'medium',
         type: 'compose-image',
         evidence: `docker-compose service using a Redis/Valkey image (${image}) in ${path}`,
       });
@@ -271,22 +288,25 @@ const REDIS_IMPORT_REGEX = /(?:from\s+['"]redis['"]|require\(\s*['"]redis['"]\s*
 const GUARD_WINDOW_CHARS = 240;
 // The guard must open a block that is still open where the client is built;
 // a braceless single-statement `if` scopes only its own statement.
-const REDIS_GUARD_REGEX = /if\s*\([^)]*(?:REDIS|CACHE|ENABLED)[^)]*\)\s*\{[^{}]*$/;
+const REDIS_GUARD_REGEX = /if\s*\([^)]*(?:REDIS|CACHE|ENABLED)[^)]*\)\s*\{[^{}]*$/i;
 
 function isGuardedInit(content: string, index: number): boolean {
   return REDIS_GUARD_REGEX.test(content.slice(Math.max(0, index - GUARD_WINDOW_CHARS), index));
 }
 
-function collectSourceClientInitSignals(tree: FileTree, signals: Signal[]): void {
+// A client is a boot-time requirement only when the app configures where the
+// server is: a client built from a user-supplied URL (a Redis monitor type, a
+// "test this connection" feature) has no connection variable of its own.
+function collectSourceClientInitSignals(tree: FileTree, signals: Signal[], configured: boolean): void {
   for (const [path, content] of Object.entries(tree)) {
-    if (!isSourceFile(path)) continue;
+    if (!isSourceFile(path) || !isRuntimeSourcePath(path)) continue;
 
     for (const { pattern, name, purpose } of CLIENT_INIT_PATTERNS) {
       const index = content.search(pattern);
       if (index === -1) continue;
       const guarded = isGuardedInit(content, index);
       signals.push({
-        tier: guarded ? 'low' : 'very-high',
+        tier: guarded ? 'low' : configured ? 'very-high' : 'medium',
         type: guarded ? 'source-client-init-guarded' : 'source-client-init',
         evidence: `Redis client initialization (${name}${guarded ? ', behind a configuration guard' : ''}) in ${path}`,
         purpose,
@@ -297,7 +317,7 @@ function collectSourceClientInitSignals(tree: FileTree, signals: Signal[]): void
     if (createIndex !== -1 && REDIS_IMPORT_REGEX.test(content)) {
       const guarded = isGuardedInit(content, createIndex);
       signals.push({
-        tier: guarded ? 'low' : 'very-high',
+        tier: guarded ? 'low' : configured ? 'very-high' : 'medium',
         type: guarded ? 'source-client-init-guarded' : 'source-client-init',
         evidence: `Redis client initialization (createClient() with a redis import${guarded ? ', behind a configuration guard' : ''}) in ${path}`,
       });
@@ -305,7 +325,7 @@ function collectSourceClientInitSignals(tree: FileTree, signals: Signal[]): void
   }
 }
 
-// -- High: known Redis env var referenced -------------------------------------
+// -- Medium: known Redis env var referenced ----------------------------------
 
 function collectEnvVarSignals(tree: FileTree, signals: Signal[], connectionEnvVars: Set<string>): void {
   // .env.example / .env.template / .env.sample (any depth).
@@ -319,11 +339,11 @@ function collectEnvVarSignals(tree: FileTree, signals: Signal[], connectionEnvVa
     for (const [name, value] of vars) {
       if (UNCONDITIONAL_ENV_VARS.has(name)) {
         connectionEnvVars.add(name);
-        signals.push({ tier: 'high', type: 'known-env-var', evidence: `${name} referenced in ${path}` });
+        signals.push({ tier: 'medium', type: 'known-env-var', evidence: `${name} referenced in ${path}` });
       } else if (CONDITIONAL_ENV_VARS.has(name)) {
         if (isRedisScheme(value) || hasOtherRedisEvidenceInFile) {
           connectionEnvVars.add(name);
-          signals.push({ tier: 'high', type: 'known-env-var', evidence: `${name} referenced in ${path}` });
+          signals.push({ tier: 'medium', type: 'known-env-var', evidence: `${name} referenced in ${path}` });
         }
       }
     }
@@ -343,7 +363,7 @@ function collectEnvVarSignals(tree: FileTree, signals: Signal[], connectionEnvVa
       }
 
       connectionEnvVars.add(name);
-      signals.push({ tier: 'high', type: 'known-env-var', evidence: `process.env.${name} referenced in ${path}` });
+      signals.push({ tier: 'medium', type: 'known-env-var', evidence: `process.env.${name} referenced in ${path}` });
     }
   }
 }
@@ -374,9 +394,12 @@ function collectNpmJobLibrarySignals(tree: FileTree, signals: Signal[]): void {
 // -- High/Medium: Python (celery+broker, rq, django-redis, bare redis) -------
 
 function collectPythonSignals(tree: FileTree, signals: Signal[], connectionEnvVars: Set<string>): void {
-  const files = [...findFiles(tree, REQUIREMENTS_FILE_REGEX), ...findFiles(tree, PYPROJECT_FILE_REGEX)];
+  const files = [...findFiles(tree, REQUIREMENTS_FILE_REGEX), ...findFiles(tree, PYPROJECT_FILE_REGEX)].filter(
+    isRuntimeSourcePath,
+  );
 
   let hasCelery = false;
+  let hasCeleryRedisExtra = false;
   let hasRedisClient = false;
 
   for (const path of files) {
@@ -384,23 +407,25 @@ function collectPythonSignals(tree: FileTree, signals: Signal[], connectionEnvVa
     if (!content) continue;
 
     if (hasPythonDependency(content, 'celery')) hasCelery = true;
+    if (hasPythonExtra(content, 'celery', 'redis')) hasCeleryRedisExtra = true;
     if (hasPythonDependency(content, 'redis')) hasRedisClient = true;
 
     if (hasPythonDependency(content, 'rq')) {
       signals.push({ tier: 'high', type: 'python-rq', evidence: `rq dependency in ${path}`, purpose: 'background_jobs' });
     }
     if (hasPythonDependency(content, 'django-redis')) {
-      signals.push({ tier: 'high', type: 'python-django-redis', evidence: `django-redis dependency in ${path}`, purpose: 'cache' });
+      signals.push({ tier: 'medium', type: 'python-django-redis', evidence: `django-redis dependency in ${path}`, purpose: 'cache' });
     }
   }
 
-  // A redis-ish broker signal: a redis-scheme CELERY_BROKER_URL/CELERY_RESULT_BACKEND
-  // (already resolved by collectEnvVarSignals into connectionEnvVars), or a bare
-  // `redis` client dependency alongside celery.
+  // A Redis broker signal: the `celery[redis]` extra, or a redis-scheme
+  // CELERY_BROKER_URL/CELERY_RESULT_BACKEND (already resolved by
+  // collectEnvVarSignals into connectionEnvVars). A bare `redis` client next to
+  // celery proves nothing — celery runs on RabbitMQ, SQS or a database too.
   const hasBrokerSignal =
-    connectionEnvVars.has('CELERY_BROKER_URL') || connectionEnvVars.has('CELERY_RESULT_BACKEND') || hasRedisClient;
+    hasCeleryRedisExtra || connectionEnvVars.has('CELERY_BROKER_URL') || connectionEnvVars.has('CELERY_RESULT_BACKEND');
 
-  if (hasCelery && hasBrokerSignal) {
+  if ((hasCelery || hasCeleryRedisExtra) && hasBrokerSignal) {
     signals.push({
       tier: 'high',
       type: 'python-celery-broker',
@@ -512,6 +537,223 @@ function collectReadmeSignals(tree: FileTree, signals: Signal[]): void {
   }
 }
 
+// ── Optional-integration evidence ───────────────────────────────────────────
+//
+// A Redis client, a queue library or a connection variable proves the app CAN
+// use Redis, not that it needs it: most apps ship Redis as one selectable
+// backend and run without it by default. Each rule below is evidence that
+// configuration switches Redis on, so a managed Redis would sit unused.
+
+// Redis connection variables only: a tuning knob such as REDIS_KEY_PREFIX or
+// REDIS_PASSWORD says nothing about whether a server must exist. Upstash's
+// REST client is an HTTP service, not the Redis protocol Deployz hosts.
+const CONNECTION_ENV_REGEX = /(?:^|_)REDIS(?:_[A-Z0-9]+)*_(?:URL|URI|DSN|HOSTS?|HOSTNAME|PORT)$|[A-Z0-9]+_REDIS$/;
+const NOT_CONNECTION_ENV_REGEX = /UPSTASH|(?:^|_)REST(?:_|$)/;
+const REDIS_NAME_REGEX = /\b[A-Z0-9_]*REDIS[A-Z0-9_]*\b/g;
+const OPTIONAL_NOTE_REGEX = /\boptional(?:ly)?\b|\bnot required\b|\brequired only\b|\bonly required\b/i;
+const REQUIRED_NOTE_REGEX = /\brequired\b/i;
+
+// The app's own switch for the Redis-backed feature: `USE_REDIS`,
+// `REDIS_ENABLED`, `USE_CELERY`. A switch for tracing, metrics or logging is not one.
+const REDIS_SWITCH_REGEX =
+  /\b(?:[A-Z0-9]+_)*(?:USE|ENABLED?)_(?:[A-Z0-9]+_)*(?:REDIS|CELERY|SIDEKIQ|BULLMQ?)\b|\b(?:[A-Z0-9]+_)*(?:REDIS|CELERY|SIDEKIQ|BULLMQ?)_ENABLED?\b/g;
+const NOT_INTEGRATION_SWITCH_REGEX = /OTEL|INSTRUMENT|TELEMETRY|SENTRY|TRAC|LOG|DEBUG|METRIC|MONITOR|WATCH/;
+const TRUTHY_VALUE_REGEX = /^(?:true|1|yes|on)$/i;
+
+// A backend selector (`CACHE_DRIVER=file`, `QUEUE_CONNECTION=sync`,
+// `JOBS_PROVIDER=local`) names the backend the app starts with.
+const BACKEND_SELECTOR_REGEX =
+  /^(?:[A-Z0-9]+_)*(?:CACHE|QUEUE|SESSION|JOBS?|BROKER)(?:_[A-Z0-9]+)*_(?:DRIVER|STORE|CONNECTION|PROVIDER|BACKEND|TYPE|ADAPTER)$/;
+
+// An image that installs its own Redis server runs it next to the app.
+const DOCKERFILE_REGEX = /(?:^|\/)(?:dockerfile(?:[.-][\w.-]+)?|[\w.-]+\.dockerfile)$/i;
+const EMBEDDED_REDIS_INSTALL_REGEX =
+  /\b(?:apt-get|apt|apk|yum|dnf|microdnf)\b[^\n]*\binstall\b[^\n]*\b(?:redis(?:-server)?|valkey)(?![\w-])/i;
+// Boot code that fills in the connection when none is configured
+// (`ENV['REDIS_URL'] = …` after it starts a bundled server).
+const CONNECTION_DEFAULT_REGEX =
+  /(?:ENV\[['"]([A-Z0-9_]*REDIS[A-Z0-9_]*)['"]\]|process\.env\.([A-Z0-9_]*REDIS[A-Z0-9_]*))\s*(?:\|\||\?\?)?=(?![=>])/;
+
+function isConnectionEnvVar(name: string): boolean {
+  return CONNECTION_ENV_REGEX.test(name) && !NOT_CONNECTION_ENV_REGEX.test(name);
+}
+
+interface EnvDeclaration {
+  name: string;
+  value: string;
+  commented: boolean;
+  /** A comment directly above (or after) the line calls the variable optional. */
+  optional: boolean;
+  /** A comment directly above the line says the variable is required. */
+  required: boolean;
+}
+
+/** Declarations of an env sample, each with the comment block that documents it. */
+function parseEnvDeclarations(content: string): EnvDeclaration[] {
+  const declarations: EnvDeclaration[] = [];
+  let note = '';
+  for (const raw of content.split(/\r?\n/)) {
+    const line = raw.trim();
+    const match = /^(#\s*)?([A-Z][A-Z0-9_]*)\s*=\s*(.*)$/.exec(line);
+    if (match) {
+      const rest = match[3] ?? '';
+      const optional = OPTIONAL_NOTE_REGEX.test(`${note} ${/\s#\s*(.*)$/.exec(rest)?.[1] ?? ''}`);
+      declarations.push({
+        name: match[2] ?? '',
+        value: rest.replace(/\s+#.*$/, '').trim().replace(/^['"]|['"]$/g, ''),
+        commented: Boolean(match[1]),
+        optional,
+        required: !optional && REQUIRED_NOTE_REGEX.test(note),
+      });
+      note = '';
+    } else if (line.startsWith('#')) {
+      note += ` ${line}`;
+    } else {
+      note = '';
+    }
+  }
+  return declarations;
+}
+
+/** The comment lines directly above a source line. */
+function commentBlockAbove(content: string, lineStart: number): string {
+  const lines = content.slice(Math.max(0, lineStart - 600), lineStart).split('\n');
+  lines.pop();
+  const block: string[] = [];
+  for (let i = lines.length - 1; i >= 0 && /^\s*(?:\/\/|\/\*|\*|#)/.test(lines[i] ?? ''); i--) block.push(lines[i] ?? '');
+  return block.join(' ');
+}
+
+/** Whether the line uses the variable only after testing that it is set. */
+function isPresenceGuarded(line: string, name: string): boolean {
+  const operand = String.raw`[\w.$\[\]'"]*`;
+  return new RegExp(
+    String.raw`\bif\b(?![^\n]*\bnot\b)[^\n!]*\b${name}\b|(?:!!\s*|Boolean\(\s*|&&\s*)${operand}\b${name}\b|\b${name}['"\])]*\s*(?:&&|\?(?![?.])|\.(?:present|blank|nil|empty)\?)`,
+  ).test(line);
+}
+
+/** Whether the line gives the variable a fallback value. */
+function hasFallbackValue(line: string, name: string): boolean {
+  return new RegExp(
+    String.raw`\b${name}\b[^\n]*?(?:\|\||\?\?)\s*['"\d]|\b${name}\b['"]?\s*,\s*(?:default\s*=\s*)?['"\d]|\b${name}\b[^\n]*\.default\(`,
+  ).test(line);
+}
+
+type ConnectionStatus = Map<string, 'set' | 'optional'>;
+
+interface ConnectionVars {
+  /** `set`: the app expects a connection. `optional`: it works without one. */
+  status: ConnectionStatus;
+  /** The same, without counting a type that merely declares the variable optional. */
+  untypedStatus: ConnectionStatus;
+  /** An env sample comment says a connection variable is required. */
+  documentedRequired: boolean;
+}
+
+/**
+ * The Redis connection variables the repository configures. Set: an env
+ * sample sets it, the source gives it a fallback value, or the source reads
+ * it plainly. Optional: a sample comments it out or calls it optional, the
+ * source documents it as optional, or a read first tests it is set — unless a
+ * sample or a fallback shows the app expects a connection anyway. A type that
+ * merely declares it optional (`REDIS_URL?: string`, `.optional()`) is weaker
+ * evidence: such a schema often leaves validation to the code that connects,
+ * so `untypedStatus` leaves it out.
+ */
+function collectConnectionVars(tree: FileTree): ConnectionVars {
+  const sampleSet = new Set<string>();
+  const sampleOptional = new Set<string>();
+  const source = new Map<string, { guarded: number; fallback: number; noted: number; typed: number }>();
+  let documentedRequired = false;
+
+  for (const path of findFiles(tree, ENV_SAMPLE_FILE_REGEX)) {
+    for (const declaration of parseEnvDeclarations(tree[path] ?? '')) {
+      if (!isConnectionEnvVar(declaration.name)) continue;
+      if (declaration.commented || declaration.optional) sampleOptional.add(declaration.name);
+      else if (declaration.value !== '') sampleSet.add(declaration.name);
+      if (declaration.required && !declaration.commented) documentedRequired = true;
+    }
+  }
+
+  for (const [path, content] of Object.entries(tree)) {
+    if (!isSourceFile(path) || !isRuntimeSourcePath(path)) continue;
+    for (const match of content.matchAll(REDIS_NAME_REGEX)) {
+      const name = match[0];
+      if (!isConnectionEnvVar(name)) continue;
+      const index = match.index ?? 0;
+      const lineStart = content.lastIndexOf('\n', index) + 1;
+      const lineEnd = content.indexOf('\n', index);
+      const line = content.slice(lineStart, lineEnd === -1 ? undefined : lineEnd);
+      const entry = source.get(name) ?? { guarded: 0, fallback: 0, noted: 0, typed: 0 };
+      if (isPresenceGuarded(line, name)) entry.guarded += 1;
+      if (hasFallbackValue(line, name)) entry.fallback += 1;
+      if (OPTIONAL_NOTE_REGEX.test(`${commentBlockAbove(content, lineStart)} ${/(?:\/\/|#|\/\*).*$/.exec(line)?.[0] ?? ''}`)) {
+        entry.noted += 1;
+      }
+      if (new RegExp(`\\b${name}\\s*\\?\\s*:|\\b${name}\\b[^\\n]*\\.(?:optional|nullish)\\(|\\b${name}\\b[^\\n]*\\bOptional\\[`).test(line)) {
+        entry.typed += 1;
+      }
+      source.set(name, entry);
+    }
+  }
+
+  const resolve = (typedCounts: boolean): ConnectionStatus => {
+    const status: ConnectionStatus = new Map();
+    for (const name of new Set([...sampleSet, ...sampleOptional, ...source.keys()])) {
+      // A port names no server: apps default it to 6379 whether or not they need one.
+      if (name.endsWith('_PORT')) continue;
+      const entry = source.get(name);
+      if (sampleSet.has(name) || (entry && entry.fallback > 0)) status.set(name, 'set');
+      else if (sampleOptional.has(name) || (entry && (entry.noted > 0 || entry.guarded > 0 || (typedCounts && entry.typed > 0)))) {
+        status.set(name, 'optional');
+      } else if (entry) status.set(name, 'set');
+    }
+    return status;
+  };
+  return { status: resolve(true), untypedStatus: resolve(false), documentedRequired };
+}
+
+/** Why the repository's Redis is optional, or null when nothing says so. */
+function findOptionalReason(tree: FileTree, status: ConnectionStatus, documentedRequired: boolean): string | null {
+  // A sample that says Redis is required settles it, whatever else is selectable.
+  if (documentedRequired) return null;
+
+  const samples = findFiles(tree, ENV_SAMPLE_FILE_REGEX).flatMap((path) =>
+    parseEnvDeclarations(tree[path] ?? '').map((declaration) => ({ ...declaration, path })),
+  );
+  const switchedOn = new Set(samples.filter((d) => TRUTHY_VALUE_REGEX.test(d.value) && !d.commented).map((d) => d.name));
+  const composePaths = Object.keys(tree).filter((path) => COMPOSE_FILE_REGEX.test(path) && isProductionComposeFile(path));
+  for (const path of [...findFiles(tree, ENV_SAMPLE_FILE_REGEX), ...composePaths, ...Object.keys(tree).filter(isSourceFile)]) {
+    if (!isRuntimeSourcePath(path)) continue;
+    for (const [switchName] of (tree[path] ?? '').matchAll(REDIS_SWITCH_REGEX)) {
+      if (!switchedOn.has(switchName) && !NOT_INTEGRATION_SWITCH_REGEX.test(switchName)) {
+        return `${switchName} switches Redis on in ${path}`;
+      }
+    }
+  }
+
+  const selectors = samples.filter((d) => !d.commented && d.value !== '' && BACKEND_SELECTOR_REGEX.test(d.name));
+  const selectedOther = selectors.find((d) => !/redis/i.test(d.value));
+  if (selectedOther && !selectors.some((d) => /redis/i.test(d.value))) {
+    return `${selectedOther.name}=${selectedOther.value} in ${selectedOther.path} is not Redis by default`;
+  }
+
+  for (const [path, content] of Object.entries(tree)) {
+    if (!isRuntimeSourcePath(path)) continue;
+    if (DOCKERFILE_REGEX.test(path) && EMBEDDED_REDIS_INSTALL_REGEX.test(content.replace(/\\\r?\n/g, ' '))) {
+      return `the image in ${path} installs its own Redis server`;
+    }
+    const assigned = isSourceFile(path) ? CONNECTION_DEFAULT_REGEX.exec(content) : null;
+    const assignedName = assigned?.[1] ?? assigned?.[2];
+    if (assignedName && isConnectionEnvVar(assignedName)) return `${path} sets ${assignedName} itself when none is configured`;
+  }
+
+  if (status.size > 0 && [...status.values()].every((value) => value === 'optional')) {
+    return `${[...status.keys()].sort().join(', ')} ${status.size === 1 ? 'is' : 'are'} optional`;
+  }
+  return null;
+}
+
 // ── Compatibility ────────────────────────────────────────────────────────────
 
 const STACK_MODULE_DEPS = ['@redis/json', '@redis/search', 'redis-om'];
@@ -597,7 +839,13 @@ export function assessRedis(tree: FileTree): RedisRequirement {
   const connectionEnvVars = new Set<string>();
 
   collectComposeSignals(tree, signals);
-  collectSourceClientInitSignals(tree, signals);
+  const composeRedis = signals.some((s) => s.type === 'compose-image');
+  const { status, untypedStatus, documentedRequired } = collectConnectionVars(tree);
+  // An app whose own Compose stack runs Redis is not made optional by a type
+  // that merely declares its connection variable optional.
+  const strongStatus = composeRedis ? untypedStatus : status;
+  const hasConfiguredConnection = (vars: ConnectionStatus): boolean => [...vars.values()].includes('set');
+  collectSourceClientInitSignals(tree, signals, hasConfiguredConnection(strongStatus));
   collectEnvVarSignals(tree, signals, connectionEnvVars);
   collectNpmJobLibrarySignals(tree, signals);
   collectPythonSignals(tree, signals, connectionEnvVars);
@@ -607,14 +855,22 @@ export function assessRedis(tree: FileTree): RedisRequirement {
   collectNpmClientSignals(tree, signals);
   collectReadmeSignals(tree, signals);
 
-  const hasVeryHigh = signals.some((s) => s.tier === 'very-high');
-  const hasHigh = signals.some((s) => s.tier === 'high');
-  const mediumTypes = new Set(signals.filter((s) => s.tier === 'medium').map((s) => s.type));
+  // A queue library or an unconditional client is a requirement; a client
+  // library needs a configured connection next to it. A Compose Redis service
+  // alone or a connection variable alone is not one: both ship in apps that
+  // run without Redis.
+  const hasStrongSignal = signals.some((s) => s.tier === 'very-high' || s.tier === 'high');
+  const hasClientLibrary = signals.some((s) => CLIENT_LIBRARY_SIGNAL_TYPES.has(s.type));
+  const strongOptionalReason = findOptionalReason(tree, strongStatus, documentedRequired);
+  const optionalReason = composeRedis ? findOptionalReason(tree, status, documentedRequired) : strongOptionalReason;
 
   let confidence: RedisConfidence;
-  if (hasVeryHigh || hasHigh || mediumTypes.size >= 2) {
+  if (
+    (hasStrongSignal && !strongOptionalReason) ||
+    (hasClientLibrary && hasConfiguredConnection(status) && !optionalReason)
+  ) {
     confidence = 'high';
-  } else if (mediumTypes.size === 1) {
+  } else if (signals.some((s) => s.tier !== 'low')) {
     confidence = 'medium';
   } else {
     confidence = 'low';
@@ -624,6 +880,8 @@ export function assessRedis(tree: FileTree): RedisRequirement {
   if (purposes.length === 0) purposes.push('unknown');
 
   const evidence = [...new Set(signals.map((s) => s.evidence))];
+  const reason = (hasStrongSignal ? strongOptionalReason : optionalReason) ?? optionalReason;
+  if (reason && confidence !== 'high') evidence.push(`Redis looks optional: ${reason}`);
   const knownConnectionEnvVars = KNOWN_REDIS_ENV_VARS.filter((v) => connectionEnvVars.has(v));
   // Names the app reads (or its env sample documents) outside the known list.
   const appConnectionEnvVars = detectEnvVarModel(tree)
