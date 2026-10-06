@@ -15,6 +15,7 @@ import {
   detectPostgresql,
   DIALECT_AGNOSTIC_DRIVERS,
   findDependencyEvidence,
+  installsPhpExtension,
   isProductionComposeFile,
   isRuntimeSourcePath,
   isWorkerServiceCommand,
@@ -108,7 +109,20 @@ const MYSQL_LANGUAGE_TOKENS = [
   'mysql-connector-j',
   'mysql-connector-java',
   'r2dbc-mysql',
+  'asyncmy',
+  'ext-pdo_mysql',
+  'ext-mysqli',
 ] as const;
+const PHP_MYSQL_EXTENSIONS = ['pdo_mysql', 'mysqli'] as const;
+// Configuration that names MySQL as the engine: a SQLAlchemy/Go/PHP connection
+// URL in source, a Django `ENGINE`, a Spring datasource URL, or the dialect of
+// a config-driven JS ORM (Sequelize `dialect`, Knex `client`, Drizzle import).
+const MYSQL_URL_REGEX = /mysql(?:\+\w+)?:\/\//;
+const DJANGO_MYSQL_ENGINE_REGEX = /['"]ENGINE['"]\s*:\s*['"]django\.db\.backends\.mysql['"]/;
+const SPRING_CONFIG_REGEX = /(?:^|\/)application(?:-[\w.]+)?\.(?:properties|ya?ml)$/;
+const SPRING_MYSQL_URL_REGEX = /jdbc:mysql:/;
+const JS_SOURCE_REGEX = /\.(?:ts|js|mjs|cjs|tsx|jsx)$/;
+const MYSQL_ORM_DIALECT_REGEX = /\b(?:dialect|client)\s*:\s*['"]mysql2?['"]|drizzle-orm\/mysql(?:2|-core)/;
 // MariaDB-specific drivers speak a dialect Deployz does NOT host (RDS MySQL
 // only) — a lone MariaDB driver stays a rejection (Phase 4B).
 const MARIA_LANGUAGE_TOKENS = ['mariadb-java-client', 'myxql'] as const;
@@ -184,6 +198,39 @@ export function assessMysql(tree: FileTree): MySqlRequirement {
     hasIndependentEvidence = true;
     evidence.push('provider = "mysql" in the Prisma schema');
   }
+  // A Laravel config whose default connection is MySQL. Laravel ships its
+  // MySQL support in the framework, so the config is the dependency too.
+  const laravel = Object.entries(tree).find(
+    ([path, content]) =>
+      !!content &&
+      isRuntimeSourcePath(path) &&
+      ((/(?:^|\/)config\/database\.php$/.test(path) && LARAVEL_MYSQL_DEFAULT_REGEX.test(content)) ||
+        (/(?:^|\/)\.env\.(?:example|sample|template)$/i.test(path) && LARAVEL_MYSQL_ENV_REGEX.test(content))),
+  );
+  if (laravel) {
+    hasDependency = true;
+    hasIndependentEvidence = true;
+    evidence.push(`${laravel[0]} sets DB_CONNECTION to mysql`);
+  }
+  // An image that installs the PHP MySQL extension, or a Django, Spring or
+  // JS ORM configuration naming MySQL, is both the driver and the engine.
+  if (installsPhpExtension(tree, PHP_MYSQL_EXTENSIONS)) {
+    hasDependency = true;
+    hasIndependentEvidence = true;
+    evidence.push('a Dockerfile installs the PHP MySQL extension');
+  }
+  for (const [path, content] of Object.entries(tree)) {
+    if (!content || !isRuntimeSourcePath(path)) continue;
+    const named =
+      (path.endsWith('.py') && DJANGO_MYSQL_ENGINE_REGEX.test(content)) ||
+      (SPRING_CONFIG_REGEX.test(path) && SPRING_MYSQL_URL_REGEX.test(content)) ||
+      (JS_SOURCE_REGEX.test(path) && MYSQL_ORM_DIALECT_REGEX.test(content));
+    if (named) {
+      hasDependency = true;
+      hasIndependentEvidence = true;
+      evidence.push(`${path} configures MySQL as the database engine`);
+    }
+  }
   if (!hasDependency) return { required: false, detected: false, evidence: [] };
   if (engineIsConfigurable(tree)) {
     // A PostgreSQL-specific driver is declared: PostgreSQL is the engine in
@@ -191,12 +238,18 @@ export function assessMysql(tree: FileTree): MySqlRequirement {
     return { required: false, detected: false, evidence: [] };
   }
 
-  // A mysql:// connection URL referenced in an env file, docker-compose, or
-  // source (runtime paths only — the same boundary assessPostgres draws).
+  // A mysql:// connection URL (`mysql+pymysql://` for SQLAlchemy) referenced
+  // in an env file, docker-compose, or source (runtime paths only — the same
+  // boundary assessPostgres draws).
   for (const [path, content] of Object.entries(tree)) {
     if (!content || !isRuntimeSourcePath(path)) continue;
-    if (/(?:^|\/)\.env(\.\w+)?$/i.test(path) || /(?:^|\/)(?:docker-)?compose(?:\.[\w.-]+)?\.ya?ml$/i.test(path)) {
-      if (/mariadb:\/\//.test(content) === false && /mysql:\/\//.test(content)) {
+    if (
+      /(?:^|\/)\.env(\.\w+)?$/i.test(path) ||
+      /(?:^|\/)(?:docker-)?compose(?:\.[\w.-]+)?\.ya?ml$/i.test(path) ||
+      LANGUAGE_SOURCE_REGEX.test(path) ||
+      JS_SOURCE_REGEX.test(path)
+    ) {
+      if (/mariadb:\/\//.test(content) === false && MYSQL_URL_REGEX.test(content)) {
         hasIndependentEvidence = true;
         evidence.push(`a mysql:// connection URL in ${path}`);
         break;
@@ -241,19 +294,6 @@ export function assessMysql(tree: FileTree): MySqlRequirement {
     }
   }
 
-  // A Laravel config whose default connection is MySQL.
-  const laravel = Object.entries(tree).find(
-    ([path, content]) =>
-      !!content &&
-      isRuntimeSourcePath(path) &&
-      ((/(?:^|\/)config\/database\.php$/.test(path) && LARAVEL_MYSQL_DEFAULT_REGEX.test(content)) ||
-        (/(?:^|\/)\.env\.(?:example|sample|template)$/i.test(path) && LARAVEL_MYSQL_ENV_REGEX.test(content))),
-  );
-  if (laravel) {
-    hasIndependentEvidence = true;
-    evidence.push(`${laravel[0]} sets DB_CONNECTION to mysql`);
-  }
-
   return {
     required: hasDependency && hasIndependentEvidence,
     detected: true,
@@ -269,7 +309,8 @@ export function assessMysql(tree: FileTree): MySqlRequirement {
 export function checkMysql(tree: FileTree): RejectionFinding {
   for (const token of MARIA_LANGUAGE_TOKENS) {
     const evidence = findDependencyEvidence(tree, token).filter(isRuntimeSourcePath);
-    if (evidence.length > 0 && !engineIsConfigurable(tree)) {
+    // A MySQL driver next to the MariaDB one makes MariaDB an option, not the requirement.
+    if (evidence.length > 0 && !engineIsConfigurable(tree) && !assessMysql(tree).detected) {
       return {
         detected: true,
         dependency: 'mariadb',
@@ -430,7 +471,7 @@ export function checkOtherUnsupportedDatabases(tree: FileTree): RejectionFinding
       };
     }
   }
-  if (!engineIsConfigurable(tree)) {
+  if (!engineIsConfigurable(tree) && !assessMysql(tree).required) {
     for (const token of EMBEDDED_JVM_DB_TOKENS) {
       const evidence = findDependencyEvidence(tree, token).filter(isRuntimeSourcePath);
       if (evidence.length > 0) {

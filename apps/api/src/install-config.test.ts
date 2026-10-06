@@ -561,6 +561,56 @@ describe('post-install configuration', () => {
     const none = await buildRelayConfigEntries(db, noStorage!, createConfigStore(db));
     expect(none.some((entry) => entry.source === 'derived')).toBe(false);
   });
+
+  it('derives the application public URL from the default HTTPS URL, below any explicit value', async () => {
+    const [application] = await db
+      .insert(schema.applications)
+      .values({
+        organizationId,
+        name: 'Wiki',
+        repoFullName: 'acme/wiki',
+        repoUrl: 'https://github.com/acme/wiki',
+        defaultBranch: 'main',
+        analysisStatus: 'COMPLETE',
+      })
+      .returning();
+    const read = ['read in src/server.ts'];
+    const variables = [
+      { key: 'APP_URL', required: true, secret: false, source: read, classification: 'deployz_managed' },
+      { key: 'NEXTAUTH_URL', required: true, secret: false, source: read, classification: 'deployz_managed' },
+      { key: 'OPENAI_BASE_URL', required: true, secret: false, source: read, classification: 'customer_required' },
+      { key: 'NEXT_PUBLIC_APP_URL', required: true, secret: false, source: read, classification: 'customer_required' },
+    ];
+    const [deployment] = await db
+      .insert(schema.deployments)
+      .values({
+        organizationId,
+        applicationId: application!.id,
+        customerId,
+        region: 'eu-west-1',
+        state: 'INSTALLING',
+        desiredState: { manifest: manifest(variables) },
+        enrollmentCode: 'enrol-wiki',
+      })
+      .returning();
+
+    const url = `https://d-${deployment!.id}.deployz.dev`;
+    const derived = await buildRelayConfigEntries(db, deployment!, createConfigStore(db));
+    expect([...derived].sort((a, b) => a.key.localeCompare(b.key))).toEqual([
+      { key: 'APP_URL', isSecret: false, value: url, source: 'derived' },
+      { key: 'NEXTAUTH_URL', isSecret: false, value: url, source: 'derived' },
+    ]);
+
+    // An explicit vendor value always wins over the derived one.
+    await db
+      .insert(schema.applicationConfigs)
+      .values({ applicationId: application!.id, customerId: null, key: 'APP_URL', value: 'https://wiki.example', isSecret: false });
+    const explicit = await buildRelayConfigEntries(db, deployment!, createConfigStore(db));
+    expect([...explicit].sort((a, b) => a.key.localeCompare(b.key))).toMatchObject([
+      { key: 'APP_URL', value: 'https://wiki.example', source: 'vendor' },
+      { key: 'NEXTAUTH_URL', value: url, source: 'derived' },
+    ]);
+  });
 });
 
 describe('relay config follows the vendor decision for each key', () => {

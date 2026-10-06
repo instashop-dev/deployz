@@ -20,15 +20,6 @@ describe('assessRedis', () => {
       expect(result.evidence.length).toBeGreaterThan(0);
     });
 
-    it('docker-compose service using a redis image → high confidence', () => {
-      const tree: FileTree = {
-        'docker-compose.yml': 'services:\n  cache:\n    image: redis:7\n',
-      };
-      const result = assessRedis(tree);
-      expect(result.confidence).toBe('high');
-      expect(result.required).toBe(true);
-    });
-
     it('source-code `new Redis(` client initialization → high confidence (very-high signal)', () => {
       const tree: FileTree = {
         'src/cache.ts': "import Redis from 'ioredis';\nconst client = new Redis(process.env.REDIS_URL);\n",
@@ -59,14 +50,6 @@ describe('assessRedis', () => {
       expect(result.purposes).toEqual(['broker']);
       expect(result.required).toBe(true);
       expect(result.connectionEnvVars).toEqual(['CELERY_BROKER_URL']);
-    });
-
-    it('django-redis dependency → cache purpose', () => {
-      const tree: FileTree = { 'requirements.txt': 'django-redis==5.4.0\n' };
-      const result = assessRedis(tree);
-      expect(result.confidence).toBe('high');
-      expect(result.purposes).toEqual(['cache']);
-      expect(result.required).toBe(true);
     });
 
     it("Gemfile gem 'sidekiq' → background_jobs purpose", () => {
@@ -126,14 +109,31 @@ describe('assessRedis', () => {
       expect(result.required).toBe(false);
     });
 
-    it('two distinct medium-bucket signals escalate to high confidence', () => {
+    it('docker-compose service using a redis image alone → medium confidence, not required', () => {
+      const tree: FileTree = {
+        'docker-compose.yml': 'services:\n  cache:\n    image: redis:7\n',
+      };
+      const result = assessRedis(tree);
+      expect(result.confidence).toBe('medium');
+      expect(result.required).toBe(false);
+    });
+
+    it('django-redis dependency → medium confidence, cache purpose, not required', () => {
+      const tree: FileTree = { 'requirements.txt': 'django-redis==5.4.0\n' };
+      const result = assessRedis(tree);
+      expect(result.confidence).toBe('medium');
+      expect(result.purposes).toEqual(['cache']);
+      expect(result.required).toBe(false);
+    });
+
+    it('two client libraries without a configured connection stay medium', () => {
       const tree: FileTree = {
         'package.json': JSON.stringify({ dependencies: { ioredis: '^5.4.0' } }),
         'go.mod': 'module example.com/app\n\nrequire github.com/redis/go-redis/v9 v9.5.1\n',
       };
       const result = assessRedis(tree);
-      expect(result.confidence).toBe('high');
-      expect(result.required).toBe(true);
+      expect(result.confidence).toBe('medium');
+      expect(result.required).toBe(false);
     });
   });
 
