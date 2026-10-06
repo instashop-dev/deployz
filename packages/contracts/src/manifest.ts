@@ -196,6 +196,8 @@ export const deploymentManifestSchema = z
         command: z.string().nullable(),
         /** Build context directory — usually the app root. */
         context: z.string().min(1),
+        /** Dockerfile COPY sources that are not in the repository (a CI build output); absent when none. */
+        missingSources: z.array(z.string()).optional(),
       })
       .strict(),
     web: z
@@ -252,6 +254,15 @@ export const deploymentManifestSchema = z
          * name; the engine field is what actually distinguishes the engine.
          */
         engine: z.enum(['postgres', 'mysql']).optional(),
+        /**
+         * True when a managed relational database is provisioned but no
+         * binding name (standard or alias) is evidenced as read or declared by
+         * the application, so the app may read the connection under a name
+         * analysis cannot see. Blocks readiness until the vendor maps a
+         * variable to a managed database value. Absent otherwise, so existing
+         * manifests stay byte-identical.
+         */
+        connectionUnverified: z.boolean().optional(),
       })
       .strict(),
     redis: z

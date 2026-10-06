@@ -97,6 +97,20 @@ Repository (GitHub tree, bounded)
   that is a git symlink is read from its target file. A package.json worker
   script is not a worker when it is a dev or watch command, or when the
   start command already runs the worker.
+- **Build and start checks:** when the selected Dockerfile copies a file or
+  directory that the repository does not contain (a build output that a CI
+  step makes before `docker build`), the gate blocks with
+  `dockerfile-missing-sources`. The vendor adds a Dockerfile that builds the
+  app from source, or selects another one. A package.json `start` script is
+  the container command only when it belongs to a package that the image
+  runs (the root, the Dockerfile directory or the runtime WORKDIR), the
+  package is not a workspace root, and the script does not build first
+  (`tsc && node …`). Otherwise the vendor is asked for the start command.
+- **Migrations at boot:** a migration that the app runs from its own code at
+  boot (knex `migrate.latest()`, Umzug, Drizzle `migrate()`, TypeORM
+  `runMigrations()`, golang-migrate, Flask-Migrate `upgrade()`, Django
+  `call_command('migrate')`) sets the migration mode to `startup`. Then no
+  pre-deploy command is kept.
 - **One relational database:** a required MySQL database gets the same
   bindings (the `DATABASE_*` names plus the names the app reads, such as
   `DB_HOST`), migration mode and migration findings as PostgreSQL.

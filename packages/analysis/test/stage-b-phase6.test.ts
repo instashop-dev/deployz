@@ -385,3 +385,18 @@ describe('startup migration evidence — entrypoint chains, uwsgi and switches',
     expect(detectStartupMigrationEvidence({ Dockerfile: 'FROM node:20\nENV RUN_MIGRATIONS=0\nCMD yarn migrate:dev\n' })).toEqual([]);
   });
 });
+
+describe('migration script selection: comment entries', () => {
+  it('ignores a blank comment-style script and a dev-prefixed migrate script', () => {
+    const tree = {
+      'package.json': JSON.stringify({
+        name: 'app',
+        scripts: {
+          '// DEPRECATED - use hogli migrations:run instead': '',
+          'dev:migrate:postgres': 'export DEBUG=1 && python manage.py migrate',
+        },
+      }),
+    };
+    expect(selectMigrationScript(tree)).toBeUndefined();
+  });
+});

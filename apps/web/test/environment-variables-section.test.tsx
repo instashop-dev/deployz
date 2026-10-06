@@ -93,6 +93,7 @@ function response(overrides: Partial<EnvironmentSettingsResponse> = {}): Environ
       },
     ],
     deployzKeys: ['INTERNAL_SECRET'],
+    provisioned: { database: false, cache: false, storage: false },
     vendorValueKeys: [],
     ...overrides,
   };
@@ -343,6 +344,77 @@ describe('Environment variables section', () => {
       (el) => el.textContent === 'Managed by Deployz',
     );
     expect(deployzItem?.getAttribute('data-disabled')).not.toBeNull();
+  });
+
+  it('offers the managed values of the application resources when Managed by Deployz is chosen', async () => {
+    mocks.fetchEnvironmentSettings.mockResolvedValue(
+      response({ provisioned: { database: true, cache: false, storage: false } }),
+    );
+    await renderSection();
+    await click(byTestId('environment-variable-edit-DATABASE_URL'));
+    await click(byTestId('environment-variable-DATABASE_URL-provider'));
+    await click(
+      Array.from(document.querySelectorAll('[data-slot="select-item"]')).find(
+        (el) => el.textContent === 'Managed by Deployz',
+      ) ?? null,
+    );
+
+    const valueTrigger = byTestId('environment-variable-DATABASE_URL-binding');
+    expect(valueTrigger?.textContent).toBe('Database URL');
+    await click(valueTrigger);
+    const labels = Array.from(document.querySelectorAll('[data-slot="select-item"]')).map((el) => el.textContent);
+    expect(labels).toEqual([
+      'Database URL',
+      'Database host',
+      'Database port',
+      'Database name',
+      'Database user',
+      'Database password',
+      'JDBC URL',
+    ]);
+    await click(
+      Array.from(document.querySelectorAll('[data-slot="select-item"]')).find((el) => el.textContent === 'JDBC URL') ??
+        null,
+    );
+    await click(saveButton());
+
+    const [, settings] = mocks.saveEnvironmentSettings.mock.calls[0] as [string, { key: string; binding?: unknown }[]];
+    expect(settings.find((s) => s.key === 'DATABASE_URL')?.binding).toEqual({ resource: 'database', kind: 'jdbc_url' });
+  });
+
+  it('shows no value select for a key Deployz already provides', async () => {
+    mocks.fetchEnvironmentSettings.mockResolvedValue(
+      response({ provisioned: { database: true, cache: false, storage: false } }),
+    );
+    await renderSection();
+    await click(byTestId('environment-variable-edit-INTERNAL_SECRET'));
+    expect(byTestId('environment-variable-INTERNAL_SECRET-binding')).toBeNull();
+  });
+
+  it('adds a managed value for a name analysis did not detect', async () => {
+    mocks.fetchEnvironmentSettings.mockResolvedValue(
+      response({ provisioned: { database: true, cache: true, storage: false } }),
+    );
+    await renderSection();
+    await click(byTestId('environment-variables-add-managed'));
+    await setValue(document.getElementById('environment-new-0'), 'GF_DATABASE_URL');
+    await click(saveButton());
+
+    const [, settings] = mocks.saveEnvironmentSettings.mock.calls[0] as [string, unknown[]];
+    expect(settings).toContainEqual({
+      key: 'GF_DATABASE_URL',
+      stage: 'runtime',
+      required: false,
+      secret: false,
+      provider: 'deployz',
+      binding: { resource: 'database', kind: 'url' },
+    });
+    expect(mocks.saveConfig).not.toHaveBeenCalled();
+  });
+
+  it('hides Add managed value when the application has no managed resource', async () => {
+    await renderSection();
+    expect(byTestId('environment-variables-add-managed')).toBeNull();
   });
 
   it('shows the vendor runtime-secret warning for a vendor-provided runtime secret', async () => {

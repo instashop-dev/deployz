@@ -177,7 +177,8 @@ Rejected at analysis time, with evidence, never silently adapted:
   workers (extra long-running application services), Kubernetes,
   Serverless/SAM, the
   repository's own Terraform/Pulumi/CloudFormation, Azure, GCP.
-- Persistent volumes or local disk state, GPUs, Windows, ARM64 or privileged
+- Persistent volumes or local disk state (including a data directory or a
+  configuration file that the image expects to be mounted), GPUs, Windows, ARM64 or privileged
   containers.
 
 Not provided by the platform:

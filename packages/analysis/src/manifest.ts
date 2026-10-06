@@ -147,7 +147,38 @@ const STANDARD_DATABASE_BINDINGS: readonly { name: string; kind: ManifestEnvBind
   { name: 'DATABASE_NAME', kind: 'database' },
   { name: 'DATABASE_USER', kind: 'username' },
   { name: 'DATABASE_PASSWORD', kind: 'password' },
+  // The `DB_*` family is the most common set of connection parts after the
+  // DATABASE_* names (Laravel, Knex, TypeORM, wiki.js, homarr); an app whose
+  // reads analysis cannot see still gets it.
+  { name: 'DB_HOST', kind: 'host' },
+  { name: 'DB_PORT', kind: 'port' },
+  { name: 'DB_NAME', kind: 'database' },
+  { name: 'DB_USER', kind: 'username' },
+  { name: 'DB_PASSWORD', kind: 'password' },
 ];
+
+/**
+ * Whether the managed database's connection variable is unverified: neither a
+ * standard name nor a detected alias is evidenced as read or declared by the
+ * application. A detected alias is evidenced by construction (code read, env
+ * file, Prisma datasource). Rows analysed before the env model and the
+ * bindings existed carry no evidence, so they never fire.
+ */
+function isDatabaseConnectionUnverified(
+  meta: Record<string, unknown>,
+  bindings: readonly ManifestEnvBinding[],
+  variables: readonly ManifestEnvVariable[],
+): boolean {
+  if (!Array.isArray(meta['infrastructureBindings']) || !Array.isArray(meta['envVarModel'])) return false;
+  const standard = new Set(STANDARD_DATABASE_BINDINGS.map((binding) => binding.name));
+  const evidenced = new Set([
+    ...variables
+      .filter((variable) => variable.source.some((text) => text.startsWith('read in ') || text.includes(' declares ')))
+      .map((variable) => variable.key),
+    ...stringArray(meta['databaseNamesMentioned']),
+  ]);
+  return !bindings.some((binding) => !standard.has(binding.name) || evidenced.has(binding.name));
+}
 
 /** The canonical storage binding plus detected alias bucket names. */
 const STANDARD_STORAGE_BINDINGS: readonly { name: string; kind: ManifestEnvBinding['kind'] }[] = [
@@ -462,6 +493,12 @@ export function normalizeDeploymentManifest(
     toDeclaredQuestions(meta),
   );
 
+  const envVariables = toEnvVariables(meta['envVarModel'], meta['envVars']);
+  const databaseBindings = toEnvBindings(
+    readInfrastructureBindings(meta).filter((b) => b.resource === 'postgres'),
+    STANDARD_DATABASE_BINDINGS,
+  );
+
   const manifest: DeploymentManifest = {
     schemaVersion: DEPLOYMENT_MANIFEST_SCHEMA_VERSION,
     application: {
@@ -478,6 +515,10 @@ export function normalizeDeploymentManifest(
       // is addressed by its own path (`docker build -f path`), and a nested
       // Dockerfile that does `COPY apps/api/package.json` needs the root.
       context: overrides.buildContext ?? '.',
+      // A vendor-chosen Dockerfile is the vendor's call; the detected one is checked.
+      ...(overrides.dockerfilePath === undefined && stringArray(meta['dockerfileMissingSources']).length > 0
+        ? { missingSources: stringArray(meta['dockerfileMissingSources']) }
+        : {}),
     },
     web: {
       command: overrides.startCommand ?? stringArray(meta['startupCommands'])[0] ?? null,
@@ -505,10 +546,10 @@ export function normalizeDeploymentManifest(
       // (MEMOS_DSN, PAPERLESS_DBHOST, …). Absent when no DB is provisioned.
       ...(postgresRequired
         ? {
-            envBindings: toEnvBindings(
-              readInfrastructureBindings(meta).filter((b) => b.resource === 'postgres'),
-              STANDARD_DATABASE_BINDINGS,
-            ),
+            envBindings: databaseBindings,
+            ...(isDatabaseConnectionUnverified(meta, databaseBindings, envVariables)
+              ? { connectionUnverified: true }
+              : {}),
           }
         : {}),
     },
@@ -559,7 +600,7 @@ export function normalizeDeploymentManifest(
     ...(declaredScheduledJobs.length > 0 ? { scheduledJobs: declaredScheduledJobs } : {}),
     ...(declaredQuestions.length > 0 ? { questions: declaredQuestions } : {}),
     environment: {
-      variables: toEnvVariables(meta['envVarModel'], meta['envVars']),
+      variables: envVariables,
     },
     ...(ignoredDeploymentFiles.length > 0 ? { ignoredDeploymentFiles } : {}),
     externalServices: stringArray(meta['externalServices']),
@@ -606,7 +647,7 @@ export function mintedEnvKeys(
       const internalSecret = variable.secret && variable.purpose === 'internal_secret';
       const setting = settingsByKey.get(variable.key);
       if (setting) {
-        return setting.provider === 'deployz' && (internalSecret || variable.classification === 'deployz_generated');
+        return setting.provider === 'deployz' && !setting.binding && (internalSecret || variable.classification === 'deployz_generated');
       }
       return (
         variable.classification === 'deployz_generated' || (internalSecret && isGeneratableSecretName(variable.key))
@@ -648,6 +689,14 @@ export function evaluateManifestReadiness(
       category: 'container',
       severity: 'error',
       message: 'No Dockerfile was found; Deployz cannot build an image without container instructions.',
+    });
+  }
+  if (manifest.application.dockerfilePath && (manifest.build.missingSources?.length ?? 0) > 0) {
+    errors.push({
+      id: 'dockerfile-missing-sources',
+      category: 'container',
+      severity: 'error',
+      message: `The Dockerfile copies ${manifest.build.missingSources!.join(', ')}, which the repository does not contain (a build step makes it before docker build). Deployz builds from the repository only. Add a Dockerfile that builds the app from source, or select another Dockerfile.`,
     });
   }
   if (!manifest.web.port || manifest.web.portIsDefault === true) {
@@ -718,6 +767,17 @@ export function evaluateManifestReadiness(
         message: `This app requires environment variables that have no value yet: ${list}. Set them in the application's Configuration screen before deploying.`,
       });
     }
+  }
+
+  if (manifest.database.connectionUnverified === true) {
+    errors.push({
+      id: 'database-connection-unverified',
+      category: 'database',
+      severity: 'error',
+      message:
+        'Deployz did not find which environment variable the app reads for its database connection. ' +
+        'In Configuration, set that variable to "Managed by Deployz" and choose the database value.',
+    });
   }
 
   if (manifest.database.postgres && !manifest.migration.command) {

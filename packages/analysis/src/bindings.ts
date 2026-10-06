@@ -274,7 +274,7 @@ const POSTGRES_STANDARD_BINDINGS: readonly [string, BindingSemantic][] = [
   ['DATABASE_PASSWORD', 'password'],
 ];
 
-const BUCKET_NAME_REGEX = /(?:^|_)(?:AWS_)?S3_BUCKET(?:_NAME)?$|_BUCKET_NAME$|_BUCKET$/i;
+const BUCKET_NAME_REGEX = /(?:^|_)(?:AWS_)?S3_BUCKET(?:_NAME)?$|_S3_NAME$|_BUCKET_NAME$|_BUCKET$/i;
 const BUCKET_STANDARD_NAMES = new Set(['STORAGE_BUCKET', 'S3_BUCKET', 'AWS_S3_BUCKET']);
 
 const REGION_NAME_REGEX = /^AWS_REGION$|^S3_REGION$|_S3_REGION$/i;

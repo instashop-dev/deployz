@@ -246,6 +246,19 @@ standard name. It never replaces a standard or platform name. The
 `jdbc:mysql://…?sslMode=REQUIRED` form). The relay's post-install alias step
 stays for artifacts that an earlier compiler version made.
 
+Vendor-mapped names join the manifest bindings. A vendor can map any
+variable name to a managed value in Configuration (a setting with a
+`binding`, see `docs/environment-variables.md`), also a name that analysis
+did not detect. `applyEnvironmentBindings`
+(`packages/contracts/src/environment-setup.ts`) appends each mapped name to
+the `envBindings` of the matching resource, and it skips a name that is
+already bound. Preflight and the manifest that a new deployment freezes both
+use it, so the compiler binds the mapped name as it binds a detected alias.
+When analysis finds no evidence that the app reads a database connection
+variable, the manifest has `database.connectionUnverified`. The readiness
+gate then blocks with `database-connection-unverified` until the vendor maps
+a database value.
+
 The database is a **Single-AZ database with automatic placement**. The
 compiler emits a DB subnet group that covers all available, enabled
 standard AZs in the customer's region: the two private subnets (which the

@@ -268,6 +268,27 @@ export interface ComposeService {
   body: string;
 }
 
+/** The repository path of the Dockerfile a compose `build:` names, or null when the service pulls an image. */
+export function composeBuildDockerfile(composeFile: string, build: string | null): string | null {
+  if (build === null) return null;
+  const part = (key: string): string | undefined =>
+    build.split('|').find((entry) => entry.startsWith(`${key}:`))?.slice(key.length + 1).trim();
+  const composeDir = composeFile.includes('/') ? composeFile.slice(0, composeFile.lastIndexOf('/')) : '';
+  const context = posixJoin(composeDir, part('context') ?? '.');
+  return posixJoin(context, part('dockerfile') ?? 'Dockerfile');
+}
+
+/** Join and normalize repository-relative paths (`a/./b/../c` → `a/c`). */
+function posixJoin(...parts: string[]): string {
+  const segments: string[] = [];
+  for (const segment of parts.join('/').split('/')) {
+    if (segment === '' || segment === '.') continue;
+    if (segment === '..') segments.pop();
+    else segments.push(segment);
+  }
+  return segments.join('/');
+}
+
 export function composeServices(tree: FileTree): { file: string; services: ComposeService[] } | null {
   const path = listProductionComposeFiles(tree)[0];
   if (path === undefined) return null;
@@ -1971,6 +1992,16 @@ export function assessPostgres(tree: FileTree): PostgresRequirement {
     }
   }
 
+  // A drizzle config for the postgresql dialect (`configs/postgresql.config.ts`):
+  // an app with a SQLite default and a PostgreSQL option names its dialects
+  // this way, so a PostgreSQL driver plus this config is a configured engine.
+  for (const [path, content] of Object.entries(tree)) {
+    if (hasDependency && /\.config\.[cm]?[jt]s$/.test(path) && content && /\bdialect\s*:\s*["']postgres(?:ql)?["']/.test(content)) {
+      hasIndependentEvidence = true;
+      evidence.push(`postgresql dialect configured in ${path}`);
+    }
+  }
+
   // A known connection env var referenced in an env file, docker-compose, or
   // source — a JS `process.env` read, or the name as a string literal in Go,
   // Python or Ruby configuration (Stage A COMP-013).
@@ -2117,6 +2148,10 @@ export function detectLocalFilesystem(tree: FileTree): DetectorFinding {
 
   const compose = composeApplicationServices(tree);
   for (const service of compose?.services ?? []) {
+    // A service that builds a different Dockerfile packages the app another
+    // way (a compose-only wrapper image); its volumes are not this image's.
+    const built = compose && composeBuildDockerfile(compose.file, service.build);
+    if (built && dockerfile && built !== dockerfile.path) continue;
     for (const volume of service.volumes) {
       if (NON_STATE_MOUNT_REGEX.test(volume)) continue;
       if (hasPostgresDriver && DATABASE_VOLUME_REGEX.test(volume)) continue;
@@ -2403,7 +2438,7 @@ export function detectS3(tree: FileTree): DetectorFinding {
 
   // Check env files for S3_BUCKET / AWS_S3_BUCKET
   for (const path of Object.keys(tree)) {
-    if (/^\.env(\.\w+)?$/i.test(path)) {
+    if (/^\.env(\.\w+)?$/i.test(path) || (/\.ini$/i.test(path) && isRuntimeSourcePath(path))) {
       const content = tree[path];
       if (content && S3_ENV_REGEX.test(content)) {
         if (!detected.includes('AWS_S3_BUCKET')) {
@@ -2468,6 +2503,32 @@ const STARTUP_MIGRATION_PATTERNS: { pattern: RegExp; name: string }[] = [
   { pattern: /(?:^|[\s"',])--?(?:auto-)?migrate(?:=true)?(?=[\s"',\]]|$)/, name: 'binary migrate flag' },
 ];
 
+/**
+ * Application code that applies migrations itself when it runs (a migrator
+ * API call, not a CLI command). Every regex of an entry must match the file.
+ */
+const STARTUP_CODE_MIGRATION_PATTERNS: { all: RegExp[]; name: string }[] = [
+  { all: [/\.migrate\.(?:latest|up)\s*\(/], name: 'knex migrate.latest()' },
+  { all: [/\bnew\s+Umzug\b/, /\.up\s*\(/], name: 'umzug up()' },
+  { all: [/drizzle-orm\/[\w-]+\/migrator/, /\bmigrate\s*\(/], name: 'drizzle migrate()' },
+  { all: [/\bdb-migrate\b/, /\bgetInstance\s*\(/, /\.up\s*\(/], name: 'db-migrate up()' },
+  { all: [/(?<!\bfunction\s+)\b(?:runMigrations|migrateDb|checkPendingMigrations)\s*\(/], name: 'migration runner call' },
+  { all: [/\bmigrationsRun\s*:\s*true\b/], name: 'typeorm migrationsRun' },
+  {
+    all: [/\b(?:exec|spawn)\w*\s*\(/, /prisma\s+migrate\s+deploy\b|["']migrate["']\s*,\s*["']deploy["']/],
+    name: 'prisma migrate deploy',
+  },
+  { all: [/golang-migrate\/migrate/, /\.Up\s*\(\s*\)/], name: 'golang-migrate Up()' },
+  { all: [/\bgoose\.Up(?:Context|To)?\s*\(/], name: 'goose.Up()' },
+  { all: [/\bflask_migrate\b/, /\bupgrade\s*\(/], name: 'flask-migrate upgrade()' },
+  { all: [/\bcall_command\(\s*['"]migrate['"]/], name: 'django call_command migrate' },
+  { all: [/\bcommand\.upgrade\s*\(/], name: 'alembic command.upgrade()' },
+];
+
+const APP_CODE_FILE_REGEX = /\.(?:[cm]?[jt]sx?|py|go)$/;
+// Migration definitions and seed data are never the code that runs them.
+const MIGRATION_DEFINITION_SEGMENT_REGEX = /(?:^|\/)(?:migrations?|seeds?|seeders?|cli)(?:\/|$)/i;
+
 /** An `ENV RUN_MIGRATIONS=1` / `AUTO_MIGRATE=true` style switch in the Dockerfile. */
 const STARTUP_MIGRATION_ENV_REGEX =
   /^\s*ENV\s+.*\b(?:RUN_MIGRATIONS?|AUTO_MIGRAT(?:E|IONS?)|MIGRATE_ON_START(?:UP)?)\b\s*[= ]\s*["']?(?:1|true|yes|on)\b/im;
@@ -2483,9 +2544,9 @@ export interface MigrationStartupEvidence {
   readonly pattern: string;
   /**
    * True when the evidence is the selected Dockerfile's own CMD/ENTRYPOINT
-   * text, or a script that CMD/ENTRYPOINT invokes (directly or through
-   * another script it calls) — the exact chain the built image runs at
-   * boot. `analyser.ts` gives this evidence precedence over a package.json
+   * text, a script that CMD/ENTRYPOINT invokes (directly or through
+   * another script it calls), or application code that migrates when the
+   * app runs — the exact chain the built image runs at boot. `analyser.ts` gives this evidence precedence over a package.json
    * deploy-shaped script (DEPLOY-029): the image was built to migrate
    * itself, so re-running the script as a separate pre-deploy step invents
    * a command the image never runs standalone.
@@ -2518,7 +2579,10 @@ function resolveCmdScriptPath(token: string, tree: FileTree, dockerDir: string):
   for (const candidate of candidates) {
     if (Object.prototype.hasOwnProperty.call(tree, candidate)) return candidate;
   }
-  return undefined;
+  // The image copies a subdirectory to its root (`COPY server .`): a script
+  // named from there still resolves when exactly one tree path ends with it.
+  const suffixed = Object.keys(tree).filter((path) => path.endsWith(`/${clean}`));
+  return suffixed.length === 1 ? suffixed[0] : undefined;
 }
 
 /**
@@ -2543,7 +2607,14 @@ export function extractCmdScriptPaths(text: string, tree: FileTree, dockerDir: s
   return found;
 }
 
+/** `dist/db/migrate.js` and `src/db/migrate.ts` are the same script: compare the file name without extension. */
+function scriptStem(path: string): string {
+  return (path.split('/').pop() ?? path).replace(/\.[^.]+$/, '');
+}
+
 const MIGRATION_SCRIPT_KEY_REGEX = /migrat/i;
+// A script that runs a database tool by file (`db:migrate`, `migrate`), never the app's own start or dev command.
+const DB_TOOL_SCRIPT_KEY_REGEX = /migrat|(?:^|[:_-])db(?:$|[:_-])/i;
 
 // A script key that creates, undoes, copies, builds or tests migrations, or is
 // the app's own start/dev command — never a run of the pending migrations.
@@ -2671,7 +2742,8 @@ function hasRuntimeDependency(tree: FileTree, dir: string, name: string): boolea
  * evidently safe — an absent command is safer than a wrong one running
  * unattended against the production database.
  */
-export function selectMigrationScript(tree: FileTree): [key: string, command: string, packageDir: string] | undefined {
+/** The package directories the image runs: the root, the Dockerfile's directory and the runtime WORKDIR. */
+function deployedPackageDirs(tree: FileTree): Set<string> {
   const dockerfile = selectedDockerfile(tree);
   const appDirs = new Set(['']);
   if (dockerfile) {
@@ -2679,9 +2751,17 @@ export function selectMigrationScript(tree: FileTree): [key: string, command: st
     appDirs.add(dockerfile.path.includes('/') ? dockerfile.path.split('/').slice(0, -1).join('/') : '');
     appDirs.add(posixPath.relative(imageRoot, runtimeCwd));
   }
+  return appDirs;
+}
+
+export function selectMigrationScript(tree: FileTree): [key: string, command: string, packageDir: string] | undefined {
+  const dockerfile = selectedDockerfile(tree);
+  const appDirs = deployedPackageDirs(tree);
   const keepsDevDependencies = dockerfile !== null && finalStageKeepsDevDependencies(dockerfile.content);
 
   const safe = collectScriptsWithDir(tree).filter(([key, command, dir]) => {
+    // A blank value is a comment entry (`"// use x migrations:run": ""`), not a script.
+    if (command.trim() === '') return false;
     if (!MIGRATION_SCRIPT_KEY_REGEX.test(key) && !DEPLOY_MIGRATION_COMMAND_REGEX.test(command)) return false;
     if (!appDirs.has(dir) || UNSAFE_MIGRATION_KEY_REGEX.test(key)) return false;
     if (MIGRATION_DEV_REGEX.test(command) || UNSAFE_MIGRATION_COMMAND_REGEX.test(command)) return false;
@@ -2717,7 +2797,36 @@ export function detectStartupMigrationEvidence(tree: FileTree): MigrationStartup
     }
   };
 
+  const considerCode = (path: string, fromDockerCommand: boolean): void => {
+    const content = tree[path] ?? '';
+    const found = STARTUP_CODE_MIGRATION_PATTERNS.find(({ all }) => all.every((regex) => regex.test(content)));
+    if (found) evidence.push({ source: path, pattern: found.name, fromDockerCommand });
+  };
+
   const dockerfile = selectedDockerfile(tree);
+  const dockerDir = dockerfile?.path?.includes('/') ? (dockerfile.path.split('/').slice(0, -1).join('/') ?? '') : '';
+  // Files already scanned through the CMD/ENTRYPOINT chain, so the
+  // independent boot-script heuristic below never double-counts them.
+  const chainVisited = new Set<string>();
+
+  // Follow the script(s) a boot command names (`sh scripts/start-docker.sh`,
+  // `node db/init.js`), and every script THOSE scripts call in turn, up to
+  // depth 3, never visiting a file twice.
+  const followScripts = (text: string, fromDockerCommand: boolean): void => {
+    let frontier = extractCmdScriptPaths(text, tree, dockerDir, chainVisited);
+    for (let depth = 0; depth < CMD_CHAIN_MAX_DEPTH && frontier.length > 0; depth += 1) {
+      const next: string[] = [];
+      for (const path of frontier) {
+        const content = tree[path];
+        if (content === undefined) continue;
+        consider(content, path, fromDockerCommand);
+        if (APP_CODE_FILE_REGEX.test(path)) considerCode(path, fromDockerCommand);
+        next.push(...extractCmdScriptPaths(content, tree, dockerDir, chainVisited));
+      }
+      frontier = next;
+    }
+  };
+
   // A start script that CMD/ENTRYPOINT calls (`npm start`) is what the image
   // boots, so it counts as Dockerfile-command evidence.
   const imageRunsStartScript =
@@ -2729,12 +2838,8 @@ export function detectStartupMigrationEvidence(tree: FileTree): MigrationStartup
     if (name === 'start' || name === 'dev') {
       consider(command, `package.json script "${name}"`, name === 'start' && imageRunsStartScript);
     }
+    if (name === 'start') followScripts(command, imageRunsStartScript);
   }
-
-  const dockerDir = dockerfile?.path?.includes('/') ? (dockerfile.path.split('/').slice(0, -1).join('/') ?? '') : '';
-  // Files already scanned through the CMD/ENTRYPOINT chain, so the
-  // independent boot-script heuristic below never double-counts them.
-  const chainVisited = new Set<string>();
 
   if (dockerfile) {
     const cmd = CMD_REGEX.exec(dockerfile.content)?.[1];
@@ -2745,23 +2850,10 @@ export function detectStartupMigrationEvidence(tree: FileTree): MigrationStartup
       evidence.push({ source: `ENV (${dockerfile.path})`, pattern: 'migrate-on-start ENV', fromDockerCommand: true });
     }
 
-    // Follow the script(s) CMD/ENTRYPOINT name (`sh scripts/start-docker.sh`,
-    // `["sh", "scripts/start-docker.sh"]`), and every script THOSE scripts
-    // call in turn (`node scripts/check-db.js`), up to depth 3, never
-    // visiting a file twice — the built image runs this exact chain at boot,
-    // regardless of which directory the scripts live in (DEPLOY-029: umami's
-    // migration lived two hops below CMD, under `scripts/`).
-    let frontier = extractCmdScriptPaths(`${cmd ?? ''} ${entry ?? ''}`, tree, dockerDir, chainVisited);
-    for (let depth = 0; depth < CMD_CHAIN_MAX_DEPTH && frontier.length > 0; depth += 1) {
-      const next: string[] = [];
-      for (const path of frontier) {
-        const content = tree[path];
-        if (content === undefined) continue;
-        consider(content, path, true);
-        next.push(...extractCmdScriptPaths(content, tree, dockerDir, chainVisited));
-      }
-      frontier = next;
-    }
+    // The built image runs this exact chain at boot, regardless of which
+    // directory the scripts live in (DEPLOY-029: umami's migration lived two
+    // hops below CMD, under `scripts/`).
+    followScripts(`${cmd ?? ''} ${entry ?? ''}`, true);
   }
 
   for (const [path, content] of Object.entries(tree)) {
@@ -2772,6 +2864,21 @@ export function detectStartupMigrationEvidence(tree: FileTree): MigrationStartup
       !path.includes('/') || (dockerDir.length > 0 && path.startsWith(`${dockerDir}/`));
     if (!isBootScript || !nearRoot) continue;
     consider(content, path, false);
+  }
+
+  // Application code that calls a migrator (`knex.migrate.latest()`): the app
+  // migrates itself when it runs. A file that only a package.json CLI script
+  // runs (`tsx src/db/migrate.ts`) is a pre-deploy tool, not the app — it
+  // counts only when the boot chain above reached it.
+  const cliStems = new Set<string>();
+  for (const [name, command] of collectScripts(tree)) {
+    if (!DB_TOOL_SCRIPT_KEY_REGEX.test(name)) continue;
+    for (const token of command.match(SCRIPT_PATH_TOKEN_REGEX) ?? []) cliStems.add(scriptStem(token));
+  }
+  for (const [path, content] of Object.entries(tree)) {
+    if (chainVisited.has(path) || !content || !APP_CODE_FILE_REGEX.test(path) || !isRuntimeSourcePath(path)) continue;
+    if (MIGRATION_DEFINITION_SEGMENT_REGEX.test(path) || cliStems.has(scriptStem(path))) continue;
+    considerCode(path, true);
   }
 
   return evidence;
@@ -2816,6 +2923,20 @@ export const ENTRYPOINT_REGEX = /^ENTRYPOINT\s+(.+)$/m;
  * Detect the application startup command from the selected Dockerfile's
  * CMD/ENTRYPOINT instructions and package.json "start" script.
  */
+/** A start script that builds before it runs: a compiler or bundler step. */
+const START_BUILD_STEP_REGEX = /(?:^|&&|;)\s*(?:npx\s+)?(?:tsc|webpack|vite\s+build|next\s+build|nest\s+build|turbo|nx|lerna|(?:npm|yarn|pnpm)\s+(?:run\s+)?build)\b/;
+
+/** A package.json directory that is a JavaScript workspace root. */
+function isWorkspaceRoot(tree: FileTree, dir: string): boolean {
+  const prefix = dir === '' ? '' : `${dir}/`;
+  if (tree[`${prefix}pnpm-workspace.yaml`] !== undefined) return true;
+  try {
+    return 'workspaces' in (JSON.parse(tree[`${prefix}package.json`] ?? '{}') as Record<string, unknown>);
+  } catch {
+    return false;
+  }
+}
+
 export function detectStartupCommand(tree: FileTree): DetectorFinding {
   const sources: string[] = [];
   let source: DetectorSource | undefined;
@@ -2835,9 +2956,13 @@ export function detectStartupCommand(tree: FileTree): DetectorFinding {
     if (sources.length > 0) source = 'dockerfile';
   }
 
-  // 2. package.json "start" script, when it belongs to the image.
-  for (const [name, command] of nodeManifestsApplyToImage(tree) ? collectScripts(tree) : []) {
-    if (name === 'start') {
+  // 2. package.json "start" script, when it belongs to the image. A workspace
+  //    root's script orchestrates packages, and a script that compiles first
+  //    (`tsc && node dist/app.js`) needs build tools the runtime image may not
+  //    have — neither is the container's command, so the vendor is asked.
+  const appDirs = deployedPackageDirs(tree);
+  for (const [name, command, dir] of nodeManifestsApplyToImage(tree) ? collectScriptsWithDir(tree) : []) {
+    if (name === 'start' && appDirs.has(dir) && !isWorkspaceRoot(tree, dir) && !START_BUILD_STEP_REGEX.test(command)) {
       sources.push(`start: ${command}`);
       source ??= 'package-manifest';
     }
@@ -3598,7 +3723,7 @@ export interface ProvisionedResources {
 const DB_SELECTOR_NAME_REGEX =
   /^(?!(?:POSTGRES|POSTGRESQL|MYSQL|MARIADB|PG)_)(?:(?:[A-Z0-9]+_)*(?:DB|DATABASE)(?:_(?:CLIENT|TYPE|DRIVER|ENGINE|DIALECT|BACKEND|CONNECTION|ADAPTER|VENDOR|PROVIDER))?|[A-Z0-9_]*_DBENGINE|[A-Z0-9]+_DRIVER)$/;
 const STORAGE_SELECTOR_NAME_REGEX =
-  /(?:^|_)(?:FILE_)?STORAGE(?:_(?:TYPE|DRIVER|PROVIDER|BACKEND|SERVICE|MODE))?$|(?:^|_)UPLOAD_PROVIDER$|_STORAGE_PROVIDER$|^ACTIVE_STORAGE_SERVICE$/;
+  /(?:^|_)(?:FILE_)?STORAGE(?:_(?:TYPE|DRIVER|PROVIDER|BACKEND|SERVICE|MODE|LOCATIONS?))?$|(?:^|_)UPLOAD_PROVIDER$|_STORAGE_PROVIDER$|^ACTIVE_STORAGE_SERVICE$/;
 
 const EMBEDDED_ENGINE_REGEX = /^(?:sqlite3?|better-sqlite3|libsql|h2|bolt|django\.db\.backends\.sqlite3)(?:$|[:/])/i;
 const ENGINE_VALUE_REGEX = {
@@ -3655,6 +3780,31 @@ function scanDefaultedEnvReads(content: string): [string, string][] {
   }
   for (const m of content.matchAll(/\b([A-Z][A-Z0-9_]*)\s*:\s*z\.[^\n]*?\.default\(\s*["'`]([^"'`\n]*)["'`]/g)) found.push([m[1]!, m[2]!]);
   return found;
+}
+
+/**
+ * Fields of a class-validator env schema (`class ConfigVariables { @IsOptional() STORAGE_TYPE: StorageDriverType = StorageDriverType.LOCAL; }`):
+ * `[name, default]`. An enum member default is read as its member name (`LOCAL`).
+ */
+function scanValidatedConfigFields(content: string): [string, string | null][] {
+  if (!/\bfrom\s+["']class-validator["']/.test(content)) return [];
+  return [
+    ...content.matchAll(/^[ \t]+([A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+)[?!]?(?:[ \t]*:[ \t]*[^=;\n]+?)?(?:[ \t]*=[ \t]*([^;\n]*))?[ \t]*;/gm),
+  ].map((m): [string, string | null] => {
+    const initializer = m[2]?.trim() ?? '';
+    return [m[1]!, /^["'`]([^"'`\n]*)["'`]$/.exec(initializer)?.[1] ?? /^\w+\.([A-Z][A-Z0-9_]*)$/.exec(initializer)?.[1] ?? null];
+  });
+}
+
+/**
+ * Python `ConfigParser` whose `before_get` lets `os.getenv(option)` override every ini key
+ * (CTFd): each `config_ini["section"]["KEY"]` read is an env variable, with its `or "default"`.
+ */
+function scanIniEnvOverrideReads(content: string): [string, string | null][] {
+  if (!/def before_get\b[\s\S]{0,400}?(?:os\.getenv|os\.environ\.get)\(\s*option\b/.test(content)) return [];
+  return [...content.matchAll(/\[["'][\w.-]+["']\]\[["']([A-Z][A-Z0-9_]*)["']\]\)?(?:[ \t]*\\?\s*or\s+["']([^"'\n]*)["'])?/g)].map(
+    (m): [string, string | null] => [m[1]!, m[2] ?? null],
+  );
 }
 
 /** Env reads compared with a literal (`os.getenv("DB") == "postgres"`): `[name, literal]`. */
@@ -3766,6 +3916,9 @@ function unresolvedSelectors(
     if (!content || !isRuntimeSourcePath(path) || isSiblingApp(path)) continue;
     if (!SELECTOR_SOURCE_REGEX.test(path) && !CONFIG_ENV_FILE_REGEX.test(path)) continue;
     for (const [name, value] of scanDefaultedEnvReads(content)) add(codeDefaults, name, value, path);
+    for (const [name, value] of [...scanValidatedConfigFields(content), ...scanIniEnvOverrideReads(content)]) {
+      if (value !== null) add(codeDefaults, name, value, path);
+    }
     for (const [name, value] of scanComparedEnvReads(content)) add(compared, name, value, path);
     if (GO_SOURCE.test(path)) for (const [name, value] of scanViperEnvDefaults(content)) add(codeDefaults, name, value, path);
     if (JS_SOURCE.test(path) && ENV_DEFAULTS_FILE_REGEX.test(path)) {
@@ -3780,14 +3933,16 @@ function unresolvedSelectors(
 
   const result = new Map<string, { evidence: string; files: string[] }>();
   const engine = provisioned.database;
+  const sampleNamesEngineSelector = [...sampleValues.keys()].some((name) => DB_SELECTOR_NAME_REGEX.test(name));
   for (const name of new Set([...codeDefaults.keys(), ...sampleValues.keys(), ...compared.keys(), ...imageDefaults.keys()])) {
     const isStorage = provisioned.storage && STORAGE_SELECTOR_NAME_REGEX.test(name);
     const isDb = !isStorage && engine !== null && DB_SELECTOR_NAME_REGEX.test(name);
     if (!isDb && !isStorage) continue;
     // The image's `ENV` value wins over any default in the code, and over a comparison.
     const image = imageDefaults.get(name);
-    // An image `ENV` for a variable the app never reads says nothing.
-    if (image && !reads.has(name) && !codeDefaults.has(name)) continue;
+    // An image `ENV` for a variable the app never reads says nothing — except next to an env sample
+    // that documents an engine selector: the app reads its selectors where the fetched tree does not reach.
+    if (image && !(isDb && sampleNamesEngineSelector) && !reads.has(name) && !codeDefaults.has(name)) continue;
     const fromCode = image ?? codeDefaults.get(name) ?? [];
     const comparedHere = image ? [] : (compared.get(name) ?? []);
     // A sample value is only a default for a variable the app actually reads.
@@ -4119,6 +4274,7 @@ export function detectEnvVarModel(
         if (!entry.needsValue) schemaOptionalKeys.add(entry.key);
       }
       for (const m of content.matchAll(DECORATED_ENV_REGEX)) recordRead(m[1]!, false, path);
+      for (const [name] of scanValidatedConfigFields(content)) recordRead(name, false, path);
       for (const m of content.matchAll(ENV_HELPER_CALL_REGEX)) {
         recordRead(m[2]!, /^(?:assert|require|mustGet)/.test(m[1]!) && m[3] === undefined, path);
       }
@@ -4148,6 +4304,7 @@ export function detectEnvVarModel(
       for (const entry of [...scanPydanticSettingsReads(content), ...scanDjangoEnvironReads(content)]) {
         recordRead(entry.key, entry.needsValue, path);
       }
+      for (const [name] of scanIniEnvOverrideReads(content)) recordRead(name, false, path);
     } else if (RB_SOURCE.test(path)) {
       const fetchRegex = /ENV\.fetch\(\s*["']([A-Z_][A-Z0-9_]*)["']/g;
       let match: RegExpExecArray | null;
@@ -4803,6 +4960,43 @@ export function detectGitCopyInDockerfile(tree: FileTree): DetectorFinding {
     details: `Dockerfile copies .git from the build context, which the tarball build never has: ${matches.join('; ')} (${dockerfile.path})`,
     source: 'dockerfile',
   };
+}
+
+/**
+ * The full repository path list, when the caller knows it. The tree holds only
+ * the files analysis reads; the fetch layer attaches every tracked path under
+ * this symbol (never an enumerable key, so no detector sees it as a file).
+ */
+export const TREE_PATHS: unique symbol = Symbol.for('deployz.analysis.treePaths');
+
+/**
+ * `COPY`/`ADD` sources of the selected Dockerfile (no `--from`) that are not in
+ * the repository, from the root or from the Dockerfile's directory: a build
+ * output a CI step makes before `docker build` (listmonk's `COPY listmonk .`,
+ * tolgee's prebuilt `BOOT-INF`). The release build has only the repository, so
+ * that Dockerfile can never build. Empty when the path list is unknown.
+ */
+export function detectDockerfileMissingCopySources(tree: FileTree): string[] {
+  const paths = (tree as FileTree & { [TREE_PATHS]?: readonly string[] })[TREE_PATHS];
+  const dockerfile = selectedDockerfile(tree);
+  if (!paths || !dockerfile) return [];
+  const dockerDir = dockerfile.path.includes('/') ? dockerfile.path.slice(0, dockerfile.path.lastIndexOf('/')) : '';
+  const exists = (path: string): boolean => paths.some((candidate) => candidate === path || candidate.startsWith(`${path}/`));
+  const missing: string[] = [];
+  for (const match of dockerfile.content.replace(/\\\r?\n/g, ' ').matchAll(DOCKERFILE_COPY_ADD_REGEX)) {
+    const args = match[1] ?? '';
+    if (COPY_FROM_FLAG_REGEX.test(args)) continue;
+    // Flags may precede the JSON form (`COPY --chown=app ["a b", "./"]`).
+    for (const token of copyAddSources(args.replace(/^(?:\s*--\S+)+\s*(?=\[)/, ''))) {
+      if (/[*?$[]|^[a-z]+:\/\//i.test(token) || GIT_SOURCE_TOKEN_REGEX.test(token)) continue;
+      // A leading `/` is still relative to the build context.
+      const source = token.replace(/^\/+/, '').replace(/^\.\//, '').replace(/\/+$/, '');
+      if (source === '' || source === '.') continue;
+      if (exists(source) || (dockerDir !== '' && exists(`${dockerDir}/${source}`))) continue;
+      if (!missing.includes(source)) missing.push(source);
+    }
+  }
+  return missing;
 }
 
 // 18. Dockerfile build context

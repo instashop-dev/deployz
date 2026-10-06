@@ -438,6 +438,7 @@ const CLICKHOUSE_TOKENS = [
   'github.com/ClickHouse/clickhouse-go',
   'clickhouse-jdbc',
 ] as const;
+const CLICKHOUSE_ECTO_ADAPTERS: readonly string[] = ['ecto_ch', 'clickhousex'];
 const CLICKHOUSE_ENV_REGEX = /^CLICKHOUSE_(?:URL|HOST|DATABASE_URL|DB_URL)$/;
 const EMBEDDED_JVM_DB_TOKENS = ['com.h2database', 'org.hsqldb', 'org.apache.derby'] as const;
 
@@ -459,10 +460,13 @@ export function checkOtherUnsupportedDatabases(tree: FileTree): RejectionFinding
   }
   // ClickHouse clients in any manifest, with the same corroboration; an
   // embedded JVM database (H2, HSQLDB, Derby) with no PostgreSQL driver next
-  // to it is the app's only database (Stage A COMP-037).
+  // to it is the app's only database (Stage A COMP-037). An Ecto adapter is no
+  // client for someone else's database: it makes ClickHouse an Ecto repo of the app.
   for (const token of CLICKHOUSE_TOKENS) {
     if (findDependencyEvidence(tree, token).filter(isRuntimeSourcePath).length === 0) continue;
-    const corroboration = databaseCorroboration(tree, /clickhouse/i, CLICKHOUSE_ENV_REGEX, null);
+    const corroboration = CLICKHOUSE_ECTO_ADAPTERS.includes(token)
+      ? `the app's Ecto repo runs on ClickHouse through ${token}`
+      : databaseCorroboration(tree, /clickhouse/i, CLICKHOUSE_ENV_REGEX, null);
     if (corroboration) {
       return {
         detected: true,
@@ -691,12 +695,18 @@ export function checkRabbitMq(tree: FileTree): RejectionFinding {
     }
   }
   if (client) {
+    // A settings module that hard-codes the broker host (`RABBITMQ_HOST = "127.0.0.1"`) needs that broker as well.
     const key = brokerConnectionRequired(tree, RABBITMQ_ENV_REGEX);
-    if (key) {
+    const literal = Object.entries(tree).flatMap(([path, content]) => {
+      const setting = /^(RABBITMQ_(?:URL|HOST)|AMQP_URL)\s*=\s*["']/m.exec(content ?? '');
+      return setting && /\.py$/.test(path) && isRuntimeSourcePath(path) ? [`${setting[1]} is set in ${path}`] : [];
+    })[0];
+    const corroboration = key ? `${key} is required` : literal;
+    if (corroboration) {
       return {
         detected: true,
         dependency: 'rabbitmq',
-        reason: `Unsupported infrastructure: ${client}, and ${key} is required. Deployz does not host RabbitMQ.`,
+        reason: `Unsupported infrastructure: ${client}, and ${corroboration}. Deployz does not host RabbitMQ.`,
       };
     }
   }
@@ -1038,7 +1048,7 @@ function findExplicitDurableDir(tree: FileTree): string | null {
     for (const m of folded.matchAll(/^\s*ENV\s+(.+)$/gm)) {
       for (const pair of (m[1] ?? '').split(/\s+(?=[A-Z][A-Z0-9_]*\s*=)/)) {
         const kv = /^([A-Z][A-Z0-9_]*)\s*=\s*"?([^"\s]+)/.exec(pair);
-        if (kv?.[1] && isDurableImageDirVar(kv[1]) && isLocalDirValue(kv[2] ?? '')) {
+        if (kv?.[1] && (isDurableImageDirVar(kv[1]) || isDataHomeVar(kv[1], kv[2] ?? '')) && isLocalDirValue(kv[2] ?? '')) {
           return `${kv[1]}=${kv[2]} (${selected})`;
         }
       }
@@ -1080,6 +1090,11 @@ function isDurableImageDirVar(name: string): boolean {
   );
 }
 
+/** An app home variable that points at the conventional data mount (livebook `LIVEBOOK_HOME=/data`). */
+function isDataHomeVar(name: string, value: string): boolean {
+  return /^[A-Z][A-Z0-9_]*_HOME$/.test(name) && /^\/data(?:\/|$)/.test(value);
+}
+
 /** A declared value is a local directory, not a URL or an interpolation token. */
 function isLocalDirValue(value: string): boolean {
   if (!value) return false;
@@ -1091,7 +1106,30 @@ function isLocalDirValue(value: string): boolean {
 }
 
 /**
- * COMP-031 — a REQUIRED third-party service in the production Compose file
+ * An image `ENV` that points the app at a configuration FILE no instruction of the
+ * Dockerfile creates (authelia `X_AUTHELIA_CONFIG=/config/configuration.yml`): the
+ * container exits until that file is mounted, and Deployz mounts no files.
+ */
+export function checkRequiredConfigFileMount(tree: FileTree): RejectionFinding {
+  const selected = listDockerfileCandidates(tree)[0];
+  const lines = (selected === undefined ? '' : (tree[selected] ?? '')).replace(/\\\s*\r?\n\s*/g, ' ').split('\n');
+  for (const line of lines.filter((entry) => /^\s*ENV\b/.test(entry))) {
+    for (const pair of line.matchAll(/\b([A-Z][A-Z0-9_]*_CONFIG(?:_FILE|_PATH)?)\s*=\s*"?(\/[\w./-]+\/[\w.-]+\.(?:ya?ml|toml|json|conf|ini))\b/g)) {
+      const directory = pair[2]!.slice(0, pair[2]!.lastIndexOf('/'));
+      if (!lines.some((entry) => !/^\s*ENV\b/.test(entry) && entry.includes(directory))) {
+        return {
+          detected: true,
+          dependency: 'local-filesystem',
+          reason: `Unsupported storage: the image reads its configuration from ${pair[2]} (${pair[1]} in ${selected}), and no Dockerfile instruction creates that file. Deployz does not mount configuration files.`,
+        };
+      }
+    }
+  }
+  return { detected: false, dependency: 'none', reason: 'No required configuration file mount detected' };
+}
+
+/**
+ * COMP-031— a REQUIRED third-party service in the production Compose file
  * (a workflow engine such as Temporal that Deployz does not provision) makes
  * the app undeployable. Only default-stack (non-optional) services count.
  */

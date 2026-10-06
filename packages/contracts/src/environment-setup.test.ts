@@ -73,11 +73,14 @@ describe('deployzProvidableKeys', () => {
   });
 });
 
+const NO_RESOURCES = { database: false, cache: false, storage: false };
+
 describe('validateEnvironmentSettings', () => {
   it('flags provider deployz on a disallowed key', () => {
     const problems = validateEnvironmentSettings(
       [{ key: 'STRIPE_KEY', stage: 'runtime', required: true, secret: true, provider: 'deployz' }],
       new Set(['DATABASE_URL']),
+      NO_RESOURCES,
     );
     expect(problems).toHaveLength(1);
     expect(problems[0]).toContain('STRIPE_KEY');
@@ -87,6 +90,7 @@ describe('validateEnvironmentSettings', () => {
     const problems = validateEnvironmentSettings(
       [{ key: 'DATABASE_URL', stage: 'runtime', required: true, secret: false, provider: 'deployz' }],
       new Set(['DATABASE_URL']),
+      NO_RESOURCES,
     );
     expect(problems).toEqual([]);
   });

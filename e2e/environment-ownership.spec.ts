@@ -117,7 +117,9 @@ test('a key moved from vendor to customer reaches each customer only from that c
   // ── Vendor → customer. ────────────────────────────────────────────────────
   await page.getByTestId('environment-variable-edit-API_BASE_URL').click();
   await page.getByTestId('environment-variable-API_BASE_URL-provider').click();
-  await expect(page.getByRole('option', { name: 'Managed by Deployz' })).toHaveAttribute('aria-disabled', 'true');
+  // Any runtime key can be mapped to a managed value (docs/environment-variables.md),
+  // so "Managed by Deployz" stays available; this key goes to the customer.
+  await expect(page.getByRole('option', { name: 'Managed by Deployz' })).not.toHaveAttribute('aria-disabled', 'true');
   await page.getByRole('option', { name: 'Set by customer' }).click();
   await page.locator('#env-label-API_BASE_URL').fill('API base URL');
   await page.getByRole('button', { name: 'Save changes' }).click();

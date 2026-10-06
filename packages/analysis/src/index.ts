@@ -54,7 +54,7 @@ export type {
   ExternalServiceDefinition,
   ExternalServiceRequirement,
 } from './detectors.js';
-export { EXTERNAL_SERVICE_CATALOG } from './detectors.js';
+export { EXTERNAL_SERVICE_CATALOG, TREE_PATHS } from './detectors.js';
 
 export type { RejectionFinding } from './rejection.js';
 export {

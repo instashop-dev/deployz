@@ -775,7 +775,7 @@ describe('github — repository tree fetch (§18 analysis input)', () => {
     expect(tree).toHaveProperty('apps/server/src/integrations/health/health.controller.ts');
   });
 
-  it('keeps env and config-class source and a config.yml inside the ANALYSIS_MAX_FILES cap', async () => {
+  it('keeps env and config-class source, a typed config class, a plugin manager and a config.yml inside the ANALYSIS_MAX_FILES cap', async () => {
     const services = Array.from({ length: ANALYSIS_MAX_FILES + 5 }, (_, i) => ({
       path: `apps/server/src/feature${i}/index.ts`,
       type: 'blob' as const,
@@ -786,6 +786,8 @@ describe('github — repository tree fetch (§18 analysis input)', () => {
       'apps/server/src/integrations/environment/environment.service.ts',
       'packages/shared/src/node/env/GlobalValues.ts',
       'packages/config/src/configs/database.config.ts',
+      'packages/server/src/engine/core-modules/twenty-config/config-variables.ts',
+      'packages/nocodb/src/helpers/NcPluginMgrv2.ts',
       'dev/build/config.yml',
     ];
     const fetchFn: FetchFn = async (url) => {

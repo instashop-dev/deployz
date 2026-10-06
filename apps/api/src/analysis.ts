@@ -286,7 +286,20 @@ type ApplicationRow = typeof schema.applications.$inferSelect;
 // required public URL variable (PUBLIC_URL, APP_URL, BASE_URL, …) is managed
 // with the deployment's default HTTPS URL. Stored v41 rows over-provision
 // Redis and over-ask.
-export const ANALYSIS_VERSION = 42;
+// Version 43 (MVP compatibility hardening, phase 5): migrations an app runs
+// from its own code at boot are startup mode; PostgreSQL is provisioned next to
+// a SQLite default when a postgres dialect is configured; a provisioned
+// database whose connection names the app never shows blocks with
+// `database-connection-unverified` (the vendor maps the variable); a
+// Dockerfile that copies files the repository lacks blocks with
+// `dockerfile-missing-sources`; the DB_* names are standard database
+// bindings; a compose volume of a service that builds another Dockerfile is
+// not this image's state; a workspace-root, build-first or out-of-image
+// start script is not the container command; config classes, ini env
+// overrides and S3 name shapes feed bindings and selectors; and a mandatory
+// ClickHouse repo, a required config-file mount, an image data dir and a
+// hard-coded RabbitMQ host reject. Stored v42 rows can carry silent fallbacks.
+export const ANALYSIS_VERSION = 43;
 
 export interface AnalysisRunnerDeps {
   db: RuntimeDb;
