@@ -6,8 +6,8 @@
   "cohort": "boundary",
   "customerRealism": "medium",
   "difficulty": 3,
-  "deployzSha": "5d99c3ec44e19cc4140949253f15cc42e810c431",
-  "analysisVersion": 15,
+  "deployzSha": "fbee536ffe76c3629d03526ba0d542090c48e901",
+  "analysisVersion": 43,
   "tree": {
     "files": 201,
     "entries": 857,
@@ -40,20 +40,20 @@
     "runtime": "node",
     "appRoot": ".",
     "dockerfilePath": "docker/dockerfile",
-    "port": 3001,
+    "port": 3000,
     "startCommand": "CMD: [\"node\", \"server/server.js\"]",
     "healthDetected": true,
     "healthPath": "/status",
     "postgres": false,
     "postgresDetected": true,
-    "redis": true,
+    "redis": false,
     "redisDetected": true,
-    "redisConfidence": "high",
+    "redisConfidence": "medium",
     "storage": false,
     "worker": false,
     "workerCommand": null,
-    "migration": true,
-    "migrationCommand": "node extra/reset-migrate-aggregate-table-state.js",
+    "migration": false,
+    "migrationCommand": null,
     "externalServices": [
       "resend",
       "sendgrid",
@@ -63,10 +63,7 @@
     "requiredEnvVars": [
       "LOCALAPPDATA",
       "PROGRAMFILES",
-      "UPTIME_KUMA_DB_POOL_MAX_CONNECTIONS",
-      "UPTIME_KUMA_DB_SOCKET",
-      "UPTIME_KUMA_PORT",
-      "UPTIME_KUMA_WS_ORIGIN_CHECK"
+      "UPTIME_KUMA_PORT"
     ],
     "unsupported": [
       "local-filesystem"
@@ -81,7 +78,8 @@
     ],
     "unresolvedQuestions": [
       "multiple-dockerfiles",
-      "database-requirement-unclear"
+      "database-requirement-unclear",
+      "redis-requirement-unclear"
     ]
   },
   "comparisons": [
@@ -100,9 +98,8 @@
     {
       "fact": "redis",
       "expected": false,
-      "actual": true,
-      "match": false,
-      "kind": "fact"
+      "actual": false,
+      "match": true
     },
     {
       "fact": "worker",
@@ -119,8 +116,9 @@
     {
       "fact": "migration",
       "expected": true,
-      "actual": true,
-      "match": true
+      "actual": false,
+      "match": false,
+      "kind": "fact"
     },
     {
       "fact": "appRoot",
@@ -137,8 +135,9 @@
     {
       "fact": "port",
       "expected": 3001,
-      "actual": 3001,
-      "match": true
+      "actual": 3000,
+      "match": false,
+      "kind": "fact"
     },
     {
       "fact": "unsupported",
@@ -154,14 +153,18 @@
   ],
   "mismatches": [
     {
-      "fact": "redis",
+      "fact": "migration",
       "kind": "fact",
-      "expected": false,
-      "actual": true,
-      "finding": {
-        "id": "COMP-011",
-        "type": "ANALYSIS_BUG"
-      }
+      "expected": true,
+      "actual": false,
+      "finding": null
+    },
+    {
+      "fact": "port",
+      "kind": "fact",
+      "expected": 3001,
+      "actual": 3000,
+      "finding": null
     },
     {
       "fact": "unsupported",

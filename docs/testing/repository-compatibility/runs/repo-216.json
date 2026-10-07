@@ -6,10 +6,10 @@
   "cohort": "boundary",
   "customerRealism": "high",
   "difficulty": 3,
-  "deployzSha": "5d99c3ec44e19cc4140949253f15cc42e810c431",
-  "analysisVersion": 15,
+  "deployzSha": "fbee536ffe76c3629d03526ba0d542090c48e901",
+  "analysisVersion": 43,
   "tree": {
-    "files": 203,
+    "files": 202,
     "entries": 12129,
     "truncated": false
   },
@@ -43,33 +43,30 @@
     "port": 3000,
     "startCommand": "CMD: [\"node\", \"src/service.js\"]",
     "healthDetected": true,
-    "healthPath": "/readyz",
+    "healthPath": "/health",
     "postgres": false,
     "postgresDetected": false,
     "redis": false,
     "redisDetected": false,
     "redisConfidence": "low",
     "storage": true,
-    "worker": false,
+    "worker": true,
     "workerCommand": null,
-    "migration": true,
-    "migrationCommand": "ts-node-transpile-only --skip-project .scripts/make-migration.ts",
+    "migration": false,
+    "migrationCommand": null,
     "externalServices": [
       "smtp",
       "twilio"
     ],
     "requiredEnvVars": [
-      "GITHUB_TOKEN",
-      "MAIL_URL",
-      "MOBILE_DDP_URL",
-      "MOBILE_ROOT_URL",
-      "TRACING_ENABLED"
+      "SERVICE"
     ],
     "unsupported": [
       "docker-compose-multi-service"
     ],
     "readinessFindings": [
-      "unsupported-multi-service"
+      "unsupported-multi-service",
+      "worker-command"
     ],
     "gateFindings": [
       "unsupported",
@@ -102,8 +99,9 @@
     {
       "fact": "worker",
       "expected": false,
-      "actual": false,
-      "match": true
+      "actual": true,
+      "match": false,
+      "kind": "fact"
     },
     {
       "fact": "storage",
@@ -115,9 +113,8 @@
     {
       "fact": "migration",
       "expected": false,
-      "actual": true,
-      "match": false,
-      "kind": "fact"
+      "actual": false,
+      "match": true
     },
     {
       "fact": "appRoot",
@@ -153,14 +150,14 @@
   ],
   "mismatches": [
     {
-      "fact": "storage",
+      "fact": "worker",
       "kind": "fact",
       "expected": false,
       "actual": true,
       "finding": null
     },
     {
-      "fact": "migration",
+      "fact": "storage",
       "kind": "fact",
       "expected": false,
       "actual": true,

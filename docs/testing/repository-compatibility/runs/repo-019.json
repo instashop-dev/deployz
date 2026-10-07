@@ -6,8 +6,8 @@
   "cohort": "realistic",
   "customerRealism": "high",
   "difficulty": 4,
-  "deployzSha": "5d99c3ec44e19cc4140949253f15cc42e810c431",
-  "analysisVersion": 15,
+  "deployzSha": "fbee536ffe76c3629d03526ba0d542090c48e901",
+  "analysisVersion": 43,
   "tree": {
     "files": 201,
     "entries": 967,
@@ -42,7 +42,7 @@
     "port": 3000,
     "startCommand": "CMD: [\"sh\", \"-c\", \"export PATH=/data/node_modules/.bin:$PATH && prisma migrate deploy --schema=/data/packages/prisma/schema.prisma && exec concurrently -k -n web,worker \\\"cd /data/apps/web && exec next start\\\" \\\"cd /data/apps/worker && exec tsx worker.ts\\\"\"]",
     "healthDetected": true,
-    "healthPath": "/health",
+    "healthPath": "/",
     "postgres": true,
     "postgresDetected": true,
     "redis": false,
@@ -50,9 +50,9 @@
     "redisConfidence": "low",
     "storage": true,
     "worker": false,
-    "workerCommand": "dotenv -- yarn workspace @linkwarden/worker start",
-    "migration": true,
-    "migrationCommand": "npx prisma migrate deploy --schema packages/prisma/schema.prisma",
+    "workerCommand": null,
+    "migration": false,
+    "migrationCommand": null,
     "externalServices": [
       "sentry",
       "smtp",
@@ -61,17 +61,15 @@
     "requiredEnvVars": [
       "DATABASE_URL",
       "MEILI_MASTER_KEY",
-      "NEXT_PUBLIC_OLLAMA_ENDPOINT_URL",
-      "PROXY",
-      "SPACES_BUCKET_NAME",
-      "SPACES_KEY",
-      "SPACES_SECRET",
-      "STRIPE_SECRET_KEY"
+      "SPACES_BUCKET_NAME"
     ],
     "unsupported": [],
-    "readinessFindings": [],
+    "readinessFindings": [
+      "database-migrations"
+    ],
     "gateFindings": [
-      "required-env-vars-missing"
+      "required-env-vars-missing",
+      "migration-command-missing"
     ],
     "unresolvedQuestions": []
   },
@@ -110,8 +108,9 @@
     {
       "fact": "migration",
       "expected": true,
-      "actual": true,
-      "match": true
+      "actual": false,
+      "match": false,
+      "kind": "fact"
     },
     {
       "fact": "appRoot",
@@ -134,9 +133,8 @@
     {
       "fact": "healthPath",
       "expected": "/",
-      "actual": "/health",
-      "match": false,
-      "kind": "fact"
+      "actual": "/",
+      "match": true
     },
     {
       "fact": "unsupported",
@@ -157,14 +155,11 @@
       }
     },
     {
-      "fact": "healthPath",
+      "fact": "migration",
       "kind": "fact",
-      "expected": "/",
-      "actual": "/health",
-      "finding": {
-        "id": "COMP-005",
-        "type": "ANALYSIS_MISSING_SIGNAL"
-      }
+      "expected": true,
+      "actual": false,
+      "finding": null
     }
   ],
   "match": false

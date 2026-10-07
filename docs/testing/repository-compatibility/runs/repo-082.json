@@ -6,8 +6,8 @@
   "cohort": "realistic",
   "customerRealism": "high",
   "difficulty": 3,
-  "deployzSha": "5d99c3ec44e19cc4140949253f15cc42e810c431",
-  "analysisVersion": 15,
+  "deployzSha": "fbee536ffe76c3629d03526ba0d542090c48e901",
+  "analysisVersion": 43,
   "tree": {
     "files": 206,
     "entries": 17733,
@@ -34,16 +34,16 @@
   "status": "analysed",
   "failure": null,
   "actual": {
-    "compatibility": "NOT_COMPATIBLE",
-    "analysisVerdict": "NOT_COMPATIBLE",
-    "readinessState": "NEEDS_CHANGES",
+    "compatibility": "NEEDS_CONFIGURATION",
+    "analysisVerdict": "NEEDS_ATTENTION",
+    "readinessState": "ALMOST_READY",
     "runtime": "node",
     "appRoot": ".",
     "dockerfilePath": "server/build/Dockerfile",
     "port": 8065,
     "startCommand": "CMD: [\"/mattermost/bin/mattermost\"]",
-    "healthDetected": true,
-    "healthPath": "/upgrade_to_enterprise/status",
+    "healthDetected": false,
+    "healthPath": null,
     "postgres": true,
     "postgresDetected": true,
     "redis": false,
@@ -56,15 +56,14 @@
     "migrationCommand": null,
     "externalServices": [],
     "requiredEnvVars": [],
-    "unsupported": [
-      "docker-compose-multi-service"
-    ],
+    "unsupported": [],
     "readinessFindings": [
-      "unsupported-multi-service",
+      "health-check",
       "database-migrations"
     ],
     "gateFindings": [
-      "unsupported",
+      "health-path-required",
+      "database-connection-unverified",
       "migration-command-missing"
     ],
     "unresolvedQuestions": [
@@ -77,9 +76,8 @@
     {
       "fact": "compatibility",
       "expected": "NEEDS_CONFIGURATION",
-      "actual": "NOT_COMPATIBLE",
-      "match": false,
-      "kind": "false-rejection"
+      "actual": "NEEDS_CONFIGURATION",
+      "match": true
     },
     {
       "fact": "postgres",
@@ -135,31 +133,18 @@
     {
       "fact": "healthPath",
       "expected": "/api/v4/system/ping",
-      "actual": "/upgrade_to_enterprise/status",
+      "actual": null,
       "match": false,
       "kind": "fact"
     },
     {
       "fact": "unsupported",
       "expected": [],
-      "actual": [
-        "docker-compose-multi-service"
-      ],
-      "match": false,
-      "kind": "fact"
+      "actual": [],
+      "match": true
     }
   ],
   "mismatches": [
-    {
-      "fact": "compatibility",
-      "kind": "false-rejection",
-      "expected": "NEEDS_CONFIGURATION",
-      "actual": "NOT_COMPATIBLE",
-      "finding": {
-        "id": "COMP-026",
-        "type": "ANALYSIS_BUG"
-      }
-    },
     {
       "fact": "worker",
       "kind": "fact",
@@ -194,22 +179,10 @@
       "fact": "healthPath",
       "kind": "fact",
       "expected": "/api/v4/system/ping",
-      "actual": "/upgrade_to_enterprise/status",
+      "actual": null,
       "finding": {
         "id": "COMP-005",
         "type": "ANALYSIS_MISSING_SIGNAL"
-      }
-    },
-    {
-      "fact": "unsupported",
-      "kind": "fact",
-      "expected": [],
-      "actual": [
-        "docker-compose-multi-service"
-      ],
-      "finding": {
-        "id": "COMP-026",
-        "type": "ANALYSIS_BUG"
       }
     }
   ],

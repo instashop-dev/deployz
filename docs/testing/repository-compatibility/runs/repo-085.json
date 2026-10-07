@@ -6,8 +6,8 @@
   "cohort": "realistic",
   "customerRealism": "high",
   "difficulty": 4,
-  "deployzSha": "5d99c3ec44e19cc4140949253f15cc42e810c431",
-  "analysisVersion": 15,
+  "deployzSha": "fbee536ffe76c3629d03526ba0d542090c48e901",
+  "analysisVersion": 43,
   "tree": {
     "files": 201,
     "entries": 9590,
@@ -33,7 +33,7 @@
   "status": "analysed",
   "failure": null,
   "actual": {
-    "compatibility": "NEEDS_CONFIGURATION",
+    "compatibility": "READY",
     "analysisVerdict": "NEEDS_ATTENTION",
     "readinessState": "ALMOST_READY",
     "runtime": "node",
@@ -42,7 +42,7 @@
     "port": 3000,
     "startCommand": "ENTRYPOINT: [\"scripts/start.sh\"]",
     "healthDetected": true,
-    "healthPath": "/api/healthcheck",
+    "healthPath": "/health",
     "postgres": true,
     "postgresDetected": true,
     "redis": true,
@@ -51,23 +51,23 @@
     "storage": true,
     "worker": true,
     "workerCommand": null,
-    "migration": true,
-    "migrationCommand": "dotenv-flow -p ../../apps/nextjs-app -- node ./scripts/run-prisma-command.mjs migrate",
+    "migration": false,
+    "migrationCommand": null,
     "externalServices": [
       "sentry",
       "smtp"
     ],
     "requiredEnvVars": [
-      "MAX_FREE_ROW_LIMIT",
       "PRISMA_DATABASE_URL"
     ],
     "unsupported": [],
     "readinessFindings": [
       "port-unresolved",
+      "database-migrations",
       "worker-command"
     ],
     "gateFindings": [
-      "required-env-vars-missing"
+      "migration-command-missing"
     ],
     "unresolvedQuestions": [
       "multiple-dockerfiles",
@@ -78,8 +78,9 @@
     {
       "fact": "compatibility",
       "expected": "NEEDS_CONFIGURATION",
-      "actual": "NEEDS_CONFIGURATION",
-      "match": true
+      "actual": "READY",
+      "match": false,
+      "kind": "configuration-detection"
     },
     {
       "fact": "postgres",
@@ -108,8 +109,9 @@
     {
       "fact": "migration",
       "expected": true,
-      "actual": true,
-      "match": true
+      "actual": false,
+      "match": false,
+      "kind": "fact"
     },
     {
       "fact": "appRoot",
@@ -132,9 +134,8 @@
     {
       "fact": "healthPath",
       "expected": "/health",
-      "actual": "/api/healthcheck",
-      "match": false,
-      "kind": "fact"
+      "actual": "/health",
+      "match": true
     },
     {
       "fact": "unsupported",
@@ -145,14 +146,21 @@
   ],
   "mismatches": [
     {
-      "fact": "healthPath",
-      "kind": "fact",
-      "expected": "/health",
-      "actual": "/api/healthcheck",
+      "fact": "compatibility",
+      "kind": "configuration-detection",
+      "expected": "NEEDS_CONFIGURATION",
+      "actual": "READY",
       "finding": {
-        "id": "COMP-005",
+        "id": "COMP-030",
         "type": "ANALYSIS_MISSING_SIGNAL"
       }
+    },
+    {
+      "fact": "migration",
+      "kind": "fact",
+      "expected": true,
+      "actual": false,
+      "finding": null
     }
   ],
   "match": false

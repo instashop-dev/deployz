@@ -6,8 +6,8 @@
   "cohort": "realistic",
   "customerRealism": "high",
   "difficulty": 3,
-  "deployzSha": "5d99c3ec44e19cc4140949253f15cc42e810c431",
-  "analysisVersion": 15,
+  "deployzSha": "fbee536ffe76c3629d03526ba0d542090c48e901",
+  "analysisVersion": 43,
   "tree": {
     "files": 193,
     "entries": 1542,
@@ -38,16 +38,16 @@
     "readinessState": "ALMOST_READY",
     "runtime": "node",
     "appRoot": ".",
-    "dockerfilePath": "extras/docker/base/Dockerfile",
-    "port": 27017,
-    "startCommand": null,
+    "dockerfilePath": "extras/docker/production/Dockerfile",
+    "port": 8000,
+    "startCommand": "CMD: [\"/home/wger/entrypoint.sh\"]",
     "healthDetected": false,
     "healthPath": null,
     "postgres": true,
     "postgresDetected": true,
-    "redis": true,
+    "redis": false,
     "redisDetected": true,
-    "redisConfidence": "high",
+    "redisConfidence": "medium",
     "storage": false,
     "worker": true,
     "workerCommand": null,
@@ -55,25 +55,25 @@
     "migrationCommand": null,
     "externalServices": [],
     "requiredEnvVars": [
-      "DJANGO_SETTINGS_MODULE"
+      "DJANGO_DB_DATABASE",
+      "DJANGO_DB_ENGINE"
     ],
     "unsupported": [],
     "readinessFindings": [
-      "start-command-missing",
       "health-check",
       "database-migrations",
-      "worker-command"
+      "worker-command",
+      "async-question-schedule-crontab-extras-docker-demo-crontab"
     ],
     "gateFindings": [
-      "start-command-missing",
       "health-path-required",
       "required-env-vars-missing",
       "migration-command-missing"
     ],
     "unresolvedQuestions": [
       "multiple-dockerfiles",
-      "start-command-unknown",
-      "build-command-unknown"
+      "build-command-unknown",
+      "redis-requirement-unclear"
     ]
   },
   "comparisons": [
@@ -92,9 +92,8 @@
     {
       "fact": "redis",
       "expected": false,
-      "actual": true,
-      "match": false,
-      "kind": "fact"
+      "actual": false,
+      "match": true
     },
     {
       "fact": "worker",
@@ -125,16 +124,14 @@
     {
       "fact": "dockerfilePath",
       "expected": "extras/docker/production/Dockerfile",
-      "actual": "extras/docker/base/Dockerfile",
-      "match": false,
-      "kind": "fact"
+      "actual": "extras/docker/production/Dockerfile",
+      "match": true
     },
     {
       "fact": "port",
       "expected": 8000,
-      "actual": 27017,
-      "match": false,
-      "kind": "fact"
+      "actual": 8000,
+      "match": true
     },
     {
       "fact": "unsupported",
@@ -144,16 +141,6 @@
     }
   ],
   "mismatches": [
-    {
-      "fact": "redis",
-      "kind": "fact",
-      "expected": false,
-      "actual": true,
-      "finding": {
-        "id": "COMP-011",
-        "type": "ANALYSIS_BUG"
-      }
-    },
     {
       "fact": "storage",
       "kind": "fact",
@@ -172,26 +159,6 @@
       "finding": {
         "id": "COMP-014",
         "type": "ANALYSIS_MISSING_SIGNAL"
-      }
-    },
-    {
-      "fact": "dockerfilePath",
-      "kind": "fact",
-      "expected": "extras/docker/production/Dockerfile",
-      "actual": "extras/docker/base/Dockerfile",
-      "finding": {
-        "id": "COMP-027",
-        "type": "ANALYSIS_BUG"
-      }
-    },
-    {
-      "fact": "port",
-      "kind": "fact",
-      "expected": 8000,
-      "actual": 27017,
-      "finding": {
-        "id": "COMP-027",
-        "type": "ANALYSIS_BUG"
       }
     }
   ],

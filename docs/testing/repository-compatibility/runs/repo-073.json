@@ -6,10 +6,10 @@
   "cohort": "boundary",
   "customerRealism": "medium",
   "difficulty": 2,
-  "deployzSha": "5d99c3ec44e19cc4140949253f15cc42e810c431",
-  "analysisVersion": 15,
+  "deployzSha": "fbee536ffe76c3629d03526ba0d542090c48e901",
+  "analysisVersion": 43,
   "tree": {
-    "files": 10,
+    "files": 14,
     "entries": 218,
     "truncated": false
   },
@@ -58,18 +58,17 @@
     "externalServices": [],
     "requiredEnvVars": [],
     "unsupported": [
-      "kafka",
-      "kubernetes"
+      "kafka"
     ],
     "readinessFindings": [
       "unsupported-message-queue",
-      "unsupported-architecture",
       "health-check"
     ],
     "gateFindings": [
       "unsupported",
-      "unsupported",
-      "health-path-required"
+      "dockerfile-missing-sources",
+      "health-path-required",
+      "deployment-files-ignored"
     ],
     "unresolvedQuestions": []
   },
@@ -141,11 +140,9 @@
         "kafka"
       ],
       "actual": [
-        "kafka",
-        "kubernetes"
+        "kafka"
       ],
-      "match": false,
-      "kind": "fact"
+      "match": true
     }
   ],
   "mismatches": [
@@ -157,21 +154,6 @@
       "finding": {
         "id": "COMP-005",
         "type": "ANALYSIS_MISSING_SIGNAL"
-      }
-    },
-    {
-      "fact": "unsupported",
-      "kind": "fact",
-      "expected": [
-        "kafka"
-      ],
-      "actual": [
-        "kafka",
-        "kubernetes"
-      ],
-      "finding": {
-        "id": "COMP-040",
-        "type": "ANALYSIS_BUG"
       }
     }
   ],

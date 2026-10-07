@@ -1,49 +1,48 @@
 {
-  "id": "repo-083",
-  "repository": "windmill-labs/windmill",
-  "commit": "0d6bce4a12226adb83fc6050064eb2e80372e36e",
-  "set": "unseen",
+  "id": "repo-301",
+  "repository": "Klarline/retail-inventory-platform",
+  "commit": "3a2b8a3004991d50dfb475200164906d511536e6",
+  "set": "improvement",
   "cohort": "realistic",
   "customerRealism": "high",
-  "difficulty": 4,
+  "difficulty": 3,
   "deployzSha": "fbee536ffe76c3629d03526ba0d542090c48e901",
   "analysisVersion": 43,
   "tree": {
-    "files": 207,
-    "entries": 10797,
+    "files": 88,
+    "entries": 187,
     "truncated": false
   },
   "expected": {
     "compatibility": "READY",
     "runtime": [
-      "rust",
       "node"
     ],
-    "monorepo": true,
+    "monorepo": false,
     "postgres": true,
     "redis": false,
     "worker": true,
     "storage": false,
     "migration": true,
-    "appRoot": ".",
-    "dockerfilePath": "Dockerfile",
-    "port": 8000,
-    "healthPath": "/api/health/status",
+    "appRoot": "api",
+    "dockerfilePath": "api/Dockerfile",
+    "port": 8080,
+    "healthPath": "/",
     "unsupported": []
   },
   "status": "analysed",
   "failure": null,
   "actual": {
-    "compatibility": "NOT_COMPATIBLE",
-    "analysisVerdict": "NOT_COMPATIBLE",
-    "readinessState": "NEEDS_CHANGES",
+    "compatibility": "NEEDS_CONFIGURATION",
+    "analysisVerdict": "READY",
+    "readinessState": "READY",
     "runtime": "node",
-    "appRoot": ".",
-    "dockerfilePath": "Dockerfile",
-    "port": 8000,
-    "startCommand": "CMD: [\"windmill\"]",
-    "healthDetected": false,
-    "healthPath": null,
+    "appRoot": "api",
+    "dockerfilePath": "api/Dockerfile",
+    "port": 8080,
+    "startCommand": "CMD: [\"node\", \"index.js\"]",
+    "healthDetected": true,
+    "healthPath": "/ping",
     "postgres": true,
     "postgresDetected": true,
     "redis": false,
@@ -51,42 +50,37 @@
     "redisConfidence": "low",
     "storage": false,
     "worker": true,
-    "workerCommand": null,
+    "workerCommand": "node workers/sqs-consumer.js",
     "migration": false,
     "migrationCommand": null,
-    "externalServices": [
-      "anthropic",
-      "openai",
-      "stripe"
+    "externalServices": [],
+    "requiredEnvVars": [
+      "AWS_ACCESS_KEY_ID",
+      "AWS_SECRET_ACCESS_KEY",
+      "DATABASE_URL",
+      "JWT_SECRET"
     ],
-    "requiredEnvVars": [],
     "unsupported": [
-      "docker-compose-multi-service"
+      "background-worker"
     ],
     "readinessFindings": [
-      "unsupported-multi-service",
-      "build-context-git-metadata",
-      "health-check",
       "database-migrations",
-      "worker-command"
+      "worker-process",
+      "async-question-queue-sqs-queue-url"
     ],
     "gateFindings": [
-      "unsupported",
-      "unsupported",
-      "health-path-required",
+      "required-env-vars-missing",
       "migration-command-missing"
     ],
-    "unresolvedQuestions": [
-      "multiple-dockerfiles"
-    ]
+    "unresolvedQuestions": []
   },
   "comparisons": [
     {
       "fact": "compatibility",
       "expected": "READY",
-      "actual": "NOT_COMPATIBLE",
+      "actual": "NEEDS_CONFIGURATION",
       "match": false,
-      "kind": "false-rejection"
+      "kind": "configuration-detection"
     },
     {
       "fact": "postgres",
@@ -121,26 +115,26 @@
     },
     {
       "fact": "appRoot",
-      "expected": ".",
-      "actual": ".",
+      "expected": "api",
+      "actual": "api",
       "match": true
     },
     {
       "fact": "dockerfilePath",
-      "expected": "Dockerfile",
-      "actual": "Dockerfile",
+      "expected": "api/Dockerfile",
+      "actual": "api/Dockerfile",
       "match": true
     },
     {
       "fact": "port",
-      "expected": 8000,
-      "actual": 8000,
+      "expected": 8080,
+      "actual": 8080,
       "match": true
     },
     {
       "fact": "healthPath",
-      "expected": "/api/health/status",
-      "actual": null,
+      "expected": "/",
+      "actual": "/ping",
       "match": false,
       "kind": "fact"
     },
@@ -148,7 +142,7 @@
       "fact": "unsupported",
       "expected": [],
       "actual": [
-        "docker-compose-multi-service"
+        "background-worker"
       ],
       "match": false,
       "kind": "fact"
@@ -157,45 +151,33 @@
   "mismatches": [
     {
       "fact": "compatibility",
-      "kind": "false-rejection",
+      "kind": "configuration-detection",
       "expected": "READY",
-      "actual": "NOT_COMPATIBLE",
-      "finding": {
-        "id": "COMP-010",
-        "type": "ANALYSIS_MISSING_SIGNAL"
-      }
+      "actual": "NEEDS_CONFIGURATION",
+      "finding": null
     },
     {
       "fact": "migration",
       "kind": "fact",
       "expected": true,
       "actual": false,
-      "finding": {
-        "id": "COMP-014",
-        "type": "ANALYSIS_MISSING_SIGNAL"
-      }
+      "finding": null
     },
     {
       "fact": "healthPath",
       "kind": "fact",
-      "expected": "/api/health/status",
-      "actual": null,
-      "finding": {
-        "id": "COMP-005",
-        "type": "ANALYSIS_MISSING_SIGNAL"
-      }
+      "expected": "/",
+      "actual": "/ping",
+      "finding": null
     },
     {
       "fact": "unsupported",
       "kind": "fact",
       "expected": [],
       "actual": [
-        "docker-compose-multi-service"
+        "background-worker"
       ],
-      "finding": {
-        "id": "COMP-010",
-        "type": "ANALYSIS_MISSING_SIGNAL"
-      }
+      "finding": null
     }
   ],
   "match": false

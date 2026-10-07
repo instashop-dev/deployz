@@ -6,8 +6,8 @@
   "cohort": "realistic",
   "customerRealism": "high",
   "difficulty": 4,
-  "deployzSha": "5d99c3ec44e19cc4140949253f15cc42e810c431",
-  "analysisVersion": 15,
+  "deployzSha": "fbee536ffe76c3629d03526ba0d542090c48e901",
+  "analysisVersion": 43,
   "tree": {
     "files": 203,
     "entries": 1917,
@@ -34,15 +34,15 @@
   "failure": null,
   "actual": {
     "compatibility": "NEEDS_CONFIGURATION",
-    "analysisVerdict": "READY",
-    "readinessState": "READY",
+    "analysisVerdict": "NEEDS_ATTENTION",
+    "readinessState": "ALMOST_READY",
     "runtime": "node",
     "appRoot": ".",
     "dockerfilePath": "Dockerfile",
     "port": 1337,
     "startCommand": "CMD: [\"./start.sh\"]",
-    "healthDetected": true,
-    "healthPath": "/health",
+    "healthDetected": false,
+    "healthPath": null,
     "postgres": true,
     "postgresDetected": true,
     "redis": false,
@@ -51,30 +51,27 @@
     "storage": true,
     "worker": false,
     "workerCommand": null,
-    "migration": true,
-    "migrationCommand": "npx knex migrate:latest --cwd db",
+    "migration": false,
+    "migrationCommand": null,
     "externalServices": [
       "smtp"
     ],
     "requiredEnvVars": [
-      "ACTIVE_USERS_LIMIT",
       "BASE_URL",
-      "DEFAULT_ADMIN_EMAIL",
-      "DEFAULT_ADMIN_NAME",
-      "DEFAULT_ADMIN_PASSWORD",
-      "DEFAULT_ADMIN_USERNAME",
       "INTERNAL_ACCESS_TOKEN",
-      "MAX_UPLOAD_FILE_SIZE",
       "S3_ACCESS_KEY_ID",
       "S3_SECRET_ACCESS_KEY",
-      "SECRET_KEY",
-      "SMTP_PASSWORD",
-      "STORAGE_LIMIT"
+      "SECRET_KEY"
     ],
     "unsupported": [],
-    "readinessFindings": [],
+    "readinessFindings": [
+      "health-check",
+      "database-migrations"
+    ],
     "gateFindings": [
-      "required-env-vars-missing"
+      "health-path-required",
+      "required-env-vars-missing",
+      "migration-command-missing"
     ],
     "unresolvedQuestions": [
       "multiple-dockerfiles"
@@ -114,8 +111,9 @@
     {
       "fact": "migration",
       "expected": true,
-      "actual": true,
-      "match": true
+      "actual": false,
+      "match": false,
+      "kind": "fact"
     },
     {
       "fact": "appRoot",
@@ -138,7 +136,7 @@
     {
       "fact": "healthPath",
       "expected": "/",
-      "actual": "/health",
+      "actual": null,
       "match": false,
       "kind": "fact"
     },
@@ -151,10 +149,17 @@
   ],
   "mismatches": [
     {
+      "fact": "migration",
+      "kind": "fact",
+      "expected": true,
+      "actual": false,
+      "finding": null
+    },
+    {
       "fact": "healthPath",
       "kind": "fact",
       "expected": "/",
-      "actual": "/health",
+      "actual": null,
       "finding": {
         "id": "COMP-005",
         "type": "ANALYSIS_MISSING_SIGNAL"

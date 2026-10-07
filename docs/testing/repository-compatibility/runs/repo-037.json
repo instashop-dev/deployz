@@ -6,8 +6,8 @@
   "cohort": "realistic",
   "customerRealism": "medium",
   "difficulty": 5,
-  "deployzSha": "5d99c3ec44e19cc4140949253f15cc42e810c431",
-  "analysisVersion": 15,
+  "deployzSha": "fbee536ffe76c3629d03526ba0d542090c48e901",
+  "analysisVersion": 43,
   "tree": {
     "files": 206,
     "entries": 12476,
@@ -43,7 +43,7 @@
     "runtime": "python",
     "appRoot": ".",
     "dockerfilePath": "Dockerfile",
-    "port": 50070,
+    "port": 3000,
     "startCommand": "CMD: [\"/app/docker/entrypoints/run-server.sh\"]",
     "healthDetected": true,
     "healthPath": "/health",
@@ -54,7 +54,7 @@
     "redisConfidence": "high",
     "storage": true,
     "worker": true,
-    "workerCommand": null,
+    "workerCommand": "/app/docker/docker-bootstrap.sh worker",
     "migration": false,
     "migrationCommand": null,
     "externalServices": [],
@@ -62,12 +62,14 @@
       "SUPERSET_HOME"
     ],
     "unsupported": [
+      "background-worker",
       "docker-compose-multi-service"
     ],
     "readinessFindings": [
       "unsupported-multi-service",
+      "port-unresolved",
       "database-migrations",
-      "worker-command"
+      "worker-process"
     ],
     "gateFindings": [
       "unsupported",
@@ -133,7 +135,7 @@
     {
       "fact": "port",
       "expected": 8088,
-      "actual": 50070,
+      "actual": 3000,
       "match": false,
       "kind": "fact"
     },
@@ -150,10 +152,10 @@
         "docker-compose-multi-service"
       ],
       "actual": [
+        "background-worker",
         "docker-compose-multi-service"
       ],
-      "match": false,
-      "kind": "fact"
+      "match": true
     }
   ],
   "mismatches": [
@@ -191,25 +193,10 @@
       "fact": "port",
       "kind": "fact",
       "expected": 8088,
-      "actual": 50070,
+      "actual": 3000,
       "finding": {
         "id": "COMP-028",
         "type": "ANALYSIS_BUG"
-      }
-    },
-    {
-      "fact": "unsupported",
-      "kind": "fact",
-      "expected": [
-        "background-worker",
-        "docker-compose-multi-service"
-      ],
-      "actual": [
-        "docker-compose-multi-service"
-      ],
-      "finding": {
-        "id": "COMP-015",
-        "type": "ANALYSIS_MISSING_SIGNAL"
       }
     }
   ],

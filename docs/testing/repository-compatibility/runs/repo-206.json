@@ -6,8 +6,8 @@
   "cohort": "realistic",
   "customerRealism": "high",
   "difficulty": 2,
-  "deployzSha": "5d99c3ec44e19cc4140949253f15cc42e810c431",
-  "analysisVersion": 15,
+  "deployzSha": "fbee536ffe76c3629d03526ba0d542090c48e901",
+  "analysisVersion": 43,
   "tree": {
     "files": 202,
     "entries": 34285,
@@ -33,9 +33,9 @@
   "status": "analysed",
   "failure": null,
   "actual": {
-    "compatibility": "NOT_COMPATIBLE",
-    "analysisVerdict": "NOT_COMPATIBLE",
-    "readinessState": "NEEDS_CHANGES",
+    "compatibility": "NEEDS_CONFIGURATION",
+    "analysisVerdict": "NEEDS_ATTENTION",
+    "readinessState": "ALMOST_READY",
     "runtime": "node",
     "appRoot": ".",
     "dockerfilePath": "Dockerfile",
@@ -57,19 +57,16 @@
       "smtp"
     ],
     "requiredEnvVars": [
-      "APP_AES_SECRET_KEY",
-      "APP_AES_SECRET_KEY_PATH"
+      "NODE_MODULES_PATH",
+      "PLUGIN_PACKAGE_PREFIX"
     ],
-    "unsupported": [
-      "docker-compose-multi-service"
-    ],
+    "unsupported": [],
     "readinessFindings": [
-      "unsupported-multi-service",
       "health-check",
       "database-migrations"
     ],
     "gateFindings": [
-      "unsupported",
+      "dockerfile-missing-sources",
       "health-path-required",
       "required-env-vars-missing",
       "migration-command-missing"
@@ -83,9 +80,8 @@
     {
       "fact": "compatibility",
       "expected": "NEEDS_CONFIGURATION",
-      "actual": "NOT_COMPATIBLE",
-      "match": false,
-      "kind": "false-rejection"
+      "actual": "NEEDS_CONFIGURATION",
+      "match": true
     },
     {
       "fact": "postgres",
@@ -147,21 +143,11 @@
     {
       "fact": "unsupported",
       "expected": [],
-      "actual": [
-        "docker-compose-multi-service"
-      ],
-      "match": false,
-      "kind": "fact"
+      "actual": [],
+      "match": true
     }
   ],
   "mismatches": [
-    {
-      "fact": "compatibility",
-      "kind": "false-rejection",
-      "expected": "NEEDS_CONFIGURATION",
-      "actual": "NOT_COMPATIBLE",
-      "finding": null
-    },
     {
       "fact": "storage",
       "kind": "fact",
@@ -181,15 +167,6 @@
       "kind": "fact",
       "expected": "/api/__health_check",
       "actual": null,
-      "finding": null
-    },
-    {
-      "fact": "unsupported",
-      "kind": "fact",
-      "expected": [],
-      "actual": [
-        "docker-compose-multi-service"
-      ],
       "finding": null
     }
   ],

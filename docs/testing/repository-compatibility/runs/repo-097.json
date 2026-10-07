@@ -6,8 +6,8 @@
   "cohort": "boundary",
   "customerRealism": "high",
   "difficulty": 3,
-  "deployzSha": "5d99c3ec44e19cc4140949253f15cc42e810c431",
-  "analysisVersion": 15,
+  "deployzSha": "fbee536ffe76c3629d03526ba0d542090c48e901",
+  "analysisVersion": 43,
   "tree": {
     "files": 203,
     "entries": 2378,
@@ -35,9 +35,9 @@
   "status": "analysed",
   "failure": null,
   "actual": {
-    "compatibility": "NEEDS_CONFIGURATION",
-    "analysisVerdict": "NEEDS_ATTENTION",
-    "readinessState": "ALMOST_READY",
+    "compatibility": "NOT_COMPATIBLE",
+    "analysisVerdict": "NOT_COMPATIBLE",
+    "readinessState": "NEEDS_CHANGES",
     "runtime": "elixir",
     "appRoot": ".",
     "dockerfilePath": "Dockerfile",
@@ -59,15 +59,20 @@
     "requiredEnvVars": [
       "MIX_ENV"
     ],
-    "unsupported": [],
+    "unsupported": [
+      "other-database"
+    ],
     "readinessFindings": [
+      "unsupported-database-other",
       "health-check",
       "database-migrations",
       "worker-command"
     ],
     "gateFindings": [
+      "unsupported",
       "health-path-required",
       "required-env-vars-missing",
+      "database-connection-unverified",
       "migration-command-missing"
     ],
     "unresolvedQuestions": [
@@ -78,9 +83,8 @@
     {
       "fact": "compatibility",
       "expected": "NOT_COMPATIBLE",
-      "actual": "NEEDS_CONFIGURATION",
-      "match": false,
-      "kind": "false-acceptance"
+      "actual": "NOT_COMPATIBLE",
+      "match": true
     },
     {
       "fact": "postgres",
@@ -144,22 +148,13 @@
       "expected": [
         "other-database"
       ],
-      "actual": [],
-      "match": false,
-      "kind": "fact"
+      "actual": [
+        "other-database"
+      ],
+      "match": true
     }
   ],
   "mismatches": [
-    {
-      "fact": "compatibility",
-      "kind": "false-acceptance",
-      "expected": "NOT_COMPATIBLE",
-      "actual": "NEEDS_CONFIGURATION",
-      "finding": {
-        "id": "COMP-037",
-        "type": "ANALYSIS_MISSING_SIGNAL"
-      }
-    },
     {
       "fact": "storage",
       "kind": "fact",
@@ -187,18 +182,6 @@
       "actual": null,
       "finding": {
         "id": "COMP-005",
-        "type": "ANALYSIS_MISSING_SIGNAL"
-      }
-    },
-    {
-      "fact": "unsupported",
-      "kind": "fact",
-      "expected": [
-        "other-database"
-      ],
-      "actual": [],
-      "finding": {
-        "id": "COMP-037",
         "type": "ANALYSIS_MISSING_SIGNAL"
       }
     }

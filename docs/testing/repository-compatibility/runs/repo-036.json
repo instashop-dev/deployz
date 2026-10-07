@@ -6,10 +6,10 @@
   "cohort": "realistic",
   "customerRealism": "high",
   "difficulty": 5,
-  "deployzSha": "5d99c3ec44e19cc4140949253f15cc42e810c431",
-  "analysisVersion": 15,
+  "deployzSha": "fbee536ffe76c3629d03526ba0d542090c48e901",
+  "analysisVersion": 43,
   "tree": {
-    "files": 155,
+    "files": 159,
     "entries": 663,
     "truncated": false
   },
@@ -40,10 +40,10 @@
     "runtime": "python",
     "appRoot": "standalone",
     "dockerfilePath": "standalone/Dockerfile",
-    "port": 80,
+    "port": 8000,
     "startCommand": "ENTRYPOINT: [ \"/opt/django-helpdesk/standalone/entrypoint.sh\" ]",
-    "healthDetected": true,
-    "healthPath": "/status",
+    "healthDetected": false,
+    "healthPath": null,
     "postgres": true,
     "postgresDetected": true,
     "redis": false,
@@ -57,7 +57,6 @@
     "externalServices": [],
     "requiredEnvVars": [
       "DJANGO_HELPDESK_SECRET_KEY",
-      "DJANGO_SETTINGS_MODULE",
       "EMAIL_HOST",
       "EMAIL_PORT"
     ],
@@ -66,11 +65,15 @@
     ],
     "readinessFindings": [
       "local-file-storage",
+      "port-unresolved",
+      "health-check",
       "database-migrations",
       "worker-command"
     ],
     "gateFindings": [
       "unsupported",
+      "dockerfile-missing-sources",
+      "health-path-required",
       "required-env-vars-missing",
       "migration-command-missing"
     ],
@@ -132,9 +135,8 @@
     {
       "fact": "port",
       "expected": 8000,
-      "actual": 80,
-      "match": false,
-      "kind": "fact"
+      "actual": 8000,
+      "match": true
     },
     {
       "fact": "unsupported",
@@ -156,16 +158,6 @@
       "finding": {
         "id": "COMP-014",
         "type": "ANALYSIS_MISSING_SIGNAL"
-      }
-    },
-    {
-      "fact": "port",
-      "kind": "fact",
-      "expected": 8000,
-      "actual": 80,
-      "finding": {
-        "id": "COMP-028",
-        "type": "ANALYSIS_BUG"
       }
     }
   ],
