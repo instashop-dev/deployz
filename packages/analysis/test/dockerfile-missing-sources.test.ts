@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { analyseRepo } from '../src/analyser.js';
-import { detectDockerfileMissingCopySources, TREE_PATHS, type FileTree } from '../src/detectors.js';
+import { detectDockerfileBuildContext, detectDockerfileMissingCopySources, TREE_PATHS, type FileTree } from '../src/detectors.js';
 import { evaluateManifestReadiness, normalizeDeploymentManifest } from '../src/manifest.js';
 
 function withPaths(tree: Record<string, string>, extra: string[] = []): FileTree {
@@ -51,5 +51,23 @@ describe('Dockerfile COPY sources the repository does not contain', () => {
 
   it('checks nothing when the full path list is unknown', () => {
     expect(detectDockerfileMissingCopySources({ Dockerfile: 'FROM alpine\nCOPY missing .\nCMD ["./missing"]\n' })).toEqual([]);
+  });
+});
+
+describe('build context for a Dockerfile in a subdirectory', () => {
+  it('is the repository root when a COPY source exists only at the root', () => {
+    const tree = withPaths(
+      { 'scripts/Dockerfile': 'FROM golang:1.25 AS backend\nCOPY go.mod go.sum ./\nRUN go mod download\nCOPY . .\nCMD ["./memos"]\n' },
+      ['go.mod', 'go.sum', 'cmd/memos/main.go'],
+    );
+    expect(detectDockerfileBuildContext(tree)).toMatchObject({ detected: true, value: '.' });
+  });
+
+  it('stays the Dockerfile directory when the source sits next to it', () => {
+    const tree = withPaths(
+      { 'docker/Dockerfile': 'FROM node:20\nCOPY package.json ./\nCMD ["node", "index.js"]\n', 'docker/package.json': '{}' },
+      ['package.json'],
+    );
+    expect(detectDockerfileBuildContext(tree).detected).toBe(false);
   });
 });

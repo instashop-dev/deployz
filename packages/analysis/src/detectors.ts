@@ -5027,13 +5027,19 @@ export function detectDockerfileBuildContext(tree: FileTree): DetectorFinding {
   const collapsed = dockerfile.content.replace(/\\\r?\n/g, ' ');
   const evidence = new Set<string>();
   if (TURBO_PRUNE_REGEX.test(collapsed)) evidence.add('turbo prune');
+  // With the full path list: a source that exists only at the root (`COPY go.mod
+  // go.sum ./` in `scripts/Dockerfile`) needs the root as its context.
+  const paths = (tree as FileTree & { [TREE_PATHS]?: readonly string[] })[TREE_PATHS];
+  const exists = (path: string): boolean =>
+    paths !== undefined && paths.some((candidate) => candidate === path || candidate.startsWith(`${path}/`));
   for (const match of collapsed.matchAll(DOCKERFILE_COPY_ADD_REGEX)) {
     const args = match[1] ?? '';
     if (COPY_FROM_FLAG_REGEX.test(args)) continue;
     for (const token of copyAddSources(args)) {
       const source = token.replace(/^\.\//, '');
       if (/[$*?]|^[a-z]+:\/\//i.test(source)) continue;
-      if (source === directory || source.startsWith(`${directory}/`) || WORKSPACE_ROOT_FILES.has(source)) {
+      const rootOnly = source !== '.' && exists(source) && !exists(`${directory}/${source}`);
+      if (source === directory || source.startsWith(`${directory}/`) || WORKSPACE_ROOT_FILES.has(source) || rootOnly) {
         evidence.add(`COPY ${source}`);
       }
     }
