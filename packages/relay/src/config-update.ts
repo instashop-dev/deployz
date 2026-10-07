@@ -39,7 +39,12 @@ import {
 
 import type { CommandExecutor } from './commands.js';
 import type { CloudFormationReader, StackResource } from './verify.js';
-import type { EcsDeployClient, RegisterTaskDefinitionInput } from './deploy.js';
+import {
+  sameRegistration,
+  type EcsDeployClient,
+  type EcsTaskDefinition,
+  type RegisterTaskDefinitionInput,
+} from './deploy.js';
 
 /** One entry from the control plane's effective configuration. */
 export interface EffectiveConfigEntry {
@@ -182,6 +187,77 @@ export function findAppConfigSecretArn(resources: readonly StackResource[]): str
   return secret?.physicalId ?? null;
 }
 
+/**
+ * The application container: the one with environment variables, or the
+ * first one — the same heuristic the deploy executor uses.
+ */
+function applicationContainer(definition: EcsTaskDefinition): Record<string, unknown> | undefined {
+  return (
+    definition.containerDefinitions.find(
+      (container) =>
+        Array.isArray(container['environment']) && (container['environment'] as unknown[]).length > 0,
+    ) ?? definition.containerDefinitions[0]
+  );
+}
+
+/** The config secret's stored key/value object (empty when it holds no JSON object). */
+async function readStoredSecrets(deps: Pick<ConfigUpdateDeps, 'secrets'>, arn: string): Promise<Record<string, unknown>> {
+  const existing = await deps.secrets.getSecretValue({ SecretId: arn });
+  if (existing.secretString === undefined) return {};
+  try {
+    const parsed: unknown = JSON.parse(existing.secretString);
+    if (typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)) {
+      return { ...(parsed as Record<string, unknown>) };
+    }
+  } catch {
+    // Not a JSON object — treat as empty rather than corrupting what the
+    // application stack manages with a lost merge.
+  }
+  return {};
+}
+
+/**
+ * The keys of the effective configuration `definition` does not carry yet —
+ * what a CONFIG_UPDATE pass would still change on it (DEPLOY-009). Empty
+ * means the revision is configured. Read-only: the secret store is read,
+ * never written. A secret the pass would make available (a value it
+ * delivers, a key it mints) counts as required; a key no pass can bind is
+ * left out, exactly as the pass leaves it unbound.
+ */
+export async function unappliedConfigurationKeys(
+  deps: Pick<ConfigUpdateDeps, 'cfn' | 'secrets' | 'fetchEffectiveConfig' | 'stackName'>,
+  definition: EcsTaskDefinition,
+): Promise<string[]> {
+  const desired = await deps.fetchEffectiveConfig();
+  if (desired.length === 0) return [];
+  const appContainer = applicationContainer(definition);
+  if (!appContainer) return desired.map((entry) => entry.key);
+
+  const currentEnv = (appContainer['environment'] as { name?: string; value?: string }[]) ?? [];
+  const unapplied = computeEnvChanges(desired, currentEnv)?.changes.map((change) => change.name) ?? [];
+
+  const desiredSecrets = desired.filter((entry) => entry.isSecret);
+  if (desiredSecrets.length > 0) {
+    const secretArn = findAppConfigSecretArn(await deps.cfn.describeStackResources(deps.stackName));
+    if (secretArn === null) return [...unapplied, ...desiredSecrets.map((entry) => entry.key)];
+    const stored = await readStoredSecrets(deps, secretArn);
+    const available = new Set(
+      desiredSecrets
+        .filter(
+          (entry) =>
+            entry.generated === true ||
+            (typeof entry.value === 'string' && entry.value.length > 0) ||
+            (typeof stored[entry.key] === 'string' && (stored[entry.key] as string).length > 0),
+        )
+        .map((entry) => entry.key),
+    );
+    const currentSecrets = (appContainer['secrets'] as { name?: string; valueFrom?: string }[]) ?? [];
+    const secretDelta = computeSecretChanges(desired, currentSecrets, secretArn, [], available);
+    unapplied.push(...(secretDelta?.bindings.map((binding) => binding.name) ?? []));
+  }
+  return unapplied;
+}
+
 async function settleConfigUpdate(
   deps: ConfigUpdateDeps,
   removedKeys: readonly string[] = [],
@@ -239,20 +315,7 @@ async function settleConfigUpdate(
     }
     secretArn = arn;
 
-    const existing = await deps.secrets.getSecretValue({ SecretId: arn });
-    let merged: Record<string, unknown> = {};
-    if (existing.secretString !== undefined) {
-      try {
-        const parsed: unknown = JSON.parse(existing.secretString);
-        if (typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)) {
-          merged = { ...(parsed as Record<string, unknown>) };
-        }
-      } catch {
-        // Not a JSON object — treat as empty rather than corrupting what
-        // the application stack manages with a lost merge.
-        merged = {};
-      }
-    }
+    const merged = await readStoredSecrets(deps, arn);
     let changed = false;
     // Pending pre-relay values arrive in the desired entries (the vault
     // overlay on /api/relay/config), not the command payload. A same-key
@@ -314,13 +377,7 @@ async function settleConfigUpdate(
       taskDefinition: liveService.taskDefinition,
     });
 
-    // Find the application container (the one with environment variables or
-    // the first one — same heuristic the deploy executor uses).
-    const appContainer =
-      taskDefinition.containerDefinitions.find(
-        (container) =>
-          Array.isArray(container['environment']) && (container['environment'] as unknown[]).length > 0,
-      ) ?? taskDefinition.containerDefinitions[0];
+    const appContainer = applicationContainer(taskDefinition);
     if (!appContainer) {
       return { state: 'failed', reason: 'Task definition has no container definitions' };
     }
@@ -403,11 +460,21 @@ async function settleConfigUpdate(
       tags: [{ key: 'deployz:installation', value: deps.installationId }],
     };
 
-    const registered = await deps.ecs.registerTaskDefinition(nextDefinition);
+    // A replayed pass whose earlier attempt registered this exact revision
+    // but never attached it reuses that revision instead of registering a
+    // duplicate.
+    const { taskDefinition: latest } =
+      delta.taskDefinition.family !== undefined
+        ? await deps.ecs.describeTaskDefinition({ taskDefinition: delta.taskDefinition.family })
+        : { taskDefinition: undefined };
+    const configuredArn =
+      latest?.taskDefinitionArn !== undefined && sameRegistration(latest, nextDefinition)
+        ? latest.taskDefinitionArn
+        : (await deps.ecs.registerTaskDefinition(nextDefinition)).taskDefinitionArn;
     await deps.ecs.updateService({
       cluster,
       service: delta.arn,
-      taskDefinition: registered.taskDefinitionArn,
+      taskDefinition: configuredArn,
     });
   }
 

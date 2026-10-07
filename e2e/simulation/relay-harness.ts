@@ -487,6 +487,9 @@ export function startSimulatedRelay(options: StartSimulatedRelayOptions): Simula
     get stackName() {
       return stackNameOrDefault();
     },
+    // The simulated CONFIG_UPDATE below applies nothing, so a first start
+    // has no configuration to wait for.
+    unappliedConfiguration: async () => [],
   };
 
   // The DESTROY write seam. `rds`/`cache` are omitted: every lifecycle
