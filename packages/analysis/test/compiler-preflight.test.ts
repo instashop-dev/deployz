@@ -18,7 +18,7 @@ function baseIr(overrides: Partial<DeployzIR> = {}): DeployzIR {
     metadata: {
       graphSchemaVersion: 1,
       capabilityRegistryVersion: 'phase1-2026-09-25',
-      sizeProfileId: 'small-v1',
+      sizeProfileId: 'small-v2',
       region: 'us-east-1',
     },
     ...overrides,

@@ -89,7 +89,7 @@ function tags(componentId: string): Array<{ Key: string; Value: string }> {
   ];
 }
 
-// ── Fixed sizing / engine constants (pinned to the small-v1 profile + the
+// ── Fixed sizing / engine constants (pinned to the active profile + the
 //    runtime-v1 template constants; see sizing parity) ───────────────────────
 const DB_ENGINE = 'postgres';
 const DB_ENGINE_VERSION = '16';
@@ -492,7 +492,7 @@ function compileRds(dbResource: IrResource, profile: InfrastructureSizeProfile, 
       PreferredBackupWindow: '03:00-05:00',
       PubliclyAccessible: false,
       StorageEncrypted: true,
-      StorageType: 'gp2',
+      StorageType: profile.database.storageType,
       Tags: tags(componentId),
       VPCSecurityGroups: [getAtt(sg, 'GroupId')],
     },

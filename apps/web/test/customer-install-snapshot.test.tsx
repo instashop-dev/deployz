@@ -45,7 +45,7 @@ export function buildSnapshotFixture(): { plan: DeploymentPlan; envVarInputs: Re
         { id: 'web', role: 'web', label: 'Web application', quantity: 1, compute: { provider: 'aws', service: 'ecs-fargate', cpuUnits: 256, memoryMiB: 512, sizeLabel: 'Small' }, lifecycle: { persistent: false } },
       ],
       resources: [
-        { id: 'database', label: 'RDS PostgreSQL', service: 'rds-postgres', category: 'database', quantity: 1, lifecycle: { persistent: true, retainOnDelete: true }, configuration: { engine: 'postgres', engineVersion: '16', instanceType: 'db.t4g.micro', storageGb: 20 } },
+        { id: 'database', label: 'RDS PostgreSQL', service: 'rds-postgres', category: 'database', quantity: 1, lifecycle: { persistent: true, retainOnDelete: true }, configuration: { engine: 'postgres', engineVersion: '16', instanceType: 'db.t3.micro', storageGb: 20 } },
         { id: 'storage_bucket', label: 'S3 bucket', service: 's3', category: 'storage', quantity: 1, lifecycle: { persistent: true, retainOnDelete: true }, configuration: {} },
         { id: 'cache', label: 'ElastiCache Valkey', service: 'elasticache-valkey', category: 'cache', quantity: 1, lifecycle: { persistent: false, retainOnDelete: false }, configuration: { nodeType: 'cache.t4g.micro' } },
       ],

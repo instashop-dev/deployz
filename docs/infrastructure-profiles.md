@@ -11,12 +11,14 @@ the frozen spec's graph → planner → IR chain; the size profile only decides
 
 | Key | Label | Workload | Database | Cache |
 | --- | --- | --- | --- | --- |
-| `small-v1` | Small | 0.25 vCPU / 512 MiB × 1 task | `db.t4g.micro`, 20 GB (autoscaling to 100 GB) | `cache.t4g.micro` × 1 |
+| `small-v1` | Small | 0.25 vCPU / 512 MiB × 1 task | `db.t4g.micro`, 20 GB (autoscaling to 100 GB), gp2 | `cache.t4g.micro` × 1 |
+| `small-v2` | Small | 0.25 vCPU / 512 MiB × 1 task | `db.t3.micro`, 20 GB (autoscaling to 100 GB), gp3 | `cache.t4g.micro` × 1 |
 
-`small-v1` is the only published profile. Engine and version stay
-manifest-driven constants (PostgreSQL 16, Valkey), never profile fields.
-Values the compiled stack fixes regardless of profile: two AZs, one NAT
-gateway, single-AZ RDS with 7-day backups, one cache node.
+`small-v1` is the original published profile, frozen and immutable.
+`small-v2` is the current default for newly created deployments. Engine
+and version stay manifest-driven constants (PostgreSQL 16, Valkey), never
+profile fields. Values the compiled stack fixes regardless of profile: two
+AZs, one NAT gateway, single-AZ RDS with 7-day backups, one cache node.
 
 ## Resolution
 
@@ -27,9 +29,10 @@ gateway, single-AZ RDS with 7-day backups, one cache node.
 - Every new deployment freezes its profile in `deployments.desired_state` as
   `{ id, version }`, written once at creation.
 - A deployment created before the registry has no stored reference and
-  resolves to `small-v1` (`resolveStoredInfrastructureSizeProfile`); no
-  migration is needed.
+  resolves to the current default (`small-v2` today) via
+  `resolveStoredInfrastructureSizeProfile`; no migration is needed.
 - Profiles are immutable: a published `id` + `version` never changes.
+  `small-v1` is frozen/legacy; `small-v2` is the current Small default.
 - `GET /api/public-install/:linkId/plan?region=…&profile=small` resolves the
   footprint, plan and server-side pricing by profile id; an unknown id is
   `422 UNKNOWN_PROFILE`, never a guess. Only `small` is published, so no
@@ -60,13 +63,13 @@ rather than a number.
 
 ## Pinning
 
-The compiler tests pin `small-v1` sizing onto the compiled CloudFormation
-(the lifecycle/sizing parity tests of the removed static templates are
-gone): editing a sizing value in the registry changes what the compiler
-emits, and the compiler's determinism and composition tests fail if the
-change silently moves an unrelated resource. The frozen profile reaches
-CloudFormation through the planner when the deployment is created; an
-existing deployment keeps the artifact it was installed with.
+The compiler tests pin both `small-v1` and `small-v2` sizing onto the
+compiled CloudFormation (the lifecycle/sizing parity tests of the removed
+static templates are gone): editing a sizing value in the registry changes
+what the compiler emits, and the compiler's determinism and composition
+tests fail if the change silently moves an unrelated resource. The frozen
+profile reaches CloudFormation through the planner when the deployment is
+created; an existing deployment keeps the artifact it was installed with.
 
 ## Future work (deferred, not MVP)
 
@@ -76,5 +79,5 @@ and a **security/cost review** before it can ship; it is not a new entry in
 this registry alone, because it changes the compiled resource graph.
 `large` is likewise deferred. When either ships, add it to
 `INFRASTRUCTURE_SIZE_PROFILES` as a new immutable version; do not edit
-`small-v1`. A second sizing generation also needs a per-version sizing
-registry for historical footprints.
+`small-v1` or `small-v2`. A per-version sizing registry for historical
+footprints is already in place.

@@ -3,7 +3,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
-import { CAPABILITY_KEYS, TASK_FAMILY_SUFFIX_PARAMETER, deployzTaskFamily, estimateFootprintCost } from '@deployz/contracts';
+import { CAPABILITY_KEYS, SMALL_PROFILE, TASK_FAMILY_SUFFIX_PARAMETER, deployzTaskFamily, estimateFootprintCost } from '@deployz/contracts';
 import type { DeployzIR, IrBinding, IrResource, IrSchedule, IrWorkload } from '@deployz/contracts';
 
 import { compileDeployzInfrastructure, logicalResourceId } from './index.js';
@@ -20,7 +20,7 @@ const here = dirname(fileURLToPath(import.meta.url));
 // Moved deliberately since: database AZ placement (DbAz parameters) and
 // installation-scoped task families (the Family join and
 // `paramTaskFamilySuffix`) each changed every template.
-const POSTGRES_TEMPLATE_HASH_GOLDEN = '1d2290453b7aa9d0ad0e52dec8943f30cc0e95a68afa3bb46b2ea7fc7b604304';
+const POSTGRES_TEMPLATE_HASH_GOLDEN = 'cede93c8c3667e8b29f9d1ba9ab316db583756c640009e92dbd3ae002327bef6';
 
 /** Evaluates the compiled `Family` join for one stack's suffix parameter value. */
 function familyFor(family: unknown, suffix: string): string {
@@ -1351,13 +1351,13 @@ describe('rds az placement', () => {
     expect(instances).toHaveLength(1);
     const db = instances[0]!.Properties;
     expect(db).not.toHaveProperty('AvailabilityZone');
-    expect(db['DBInstanceClass']).toBe('db.t4g.micro');
+    expect(db['DBInstanceClass']).toBe('db.t3.micro');
     expect(db['Engine']).toBe('postgres');
     expect(db['EngineVersion']).toBe('16');
     expect(db['AllocatedStorage']).toBe('20');
     expect(db['MaxAllocatedStorage']).toBe(100);
     expect(db['StorageEncrypted']).toBe(true);
-    expect(db['StorageType']).toBe('gp2');
+    expect(db['StorageType']).toBe('gp3');
     expect(db['BackupRetentionPeriod']).toBe(7);
     expect(db['PreferredBackupWindow']).toBe('03:00-05:00');
     expect(db['DeleteAutomatedBackups']).toBe(false);
@@ -1367,6 +1367,33 @@ describe('rds az placement', () => {
     const subnetGroupResource = resources['PrimaryDbSubnetGroup'];
     expect(subnetGroupResource['UpdateReplacePolicy']).toBe('Retain');
     expect(subnetGroupResource['DeletionPolicy']).toBe('Retain');
+  });
+});
+
+describe('small-v1 frozen profile', () => {
+  it('compiles to db.t4g.micro and gp2 when explicitly frozen', () => {
+    const { template } = compileDeployzInfrastructure({
+      ir: makeIr({ postgres: true, redis: true }),
+      region: null,
+      sizeProfile: SMALL_PROFILE,
+    });
+    const resources = template['Resources'] as Record<string, { Type: string; Properties: Record<string, unknown> }>;
+    const instances = Object.values(resources).filter((r) => r.Type === 'AWS::RDS::DBInstance');
+    expect(instances).toHaveLength(1);
+    const db = instances[0]!.Properties;
+    expect(db['DBInstanceClass']).toBe('db.t4g.micro');
+    expect(db['StorageType']).toBe('gp2');
+  });
+});
+
+describe('compiler determinism', () => {
+  it('produces identical output regardless of region', () => {
+    const ir = makeIr({ postgres: true, redis: true });
+    const a = compileDeployzInfrastructure({ ir, region: 'us-east-1' });
+    const b = compileDeployzInfrastructure({ ir, region: 'eu-west-1' });
+    const c = compileDeployzInfrastructure({ ir, region: null });
+    expect(a.artifact.templateHash).toBe(b.artifact.templateHash);
+    expect(a.artifact.templateHash).toBe(c.artifact.templateHash);
   });
 });
 

@@ -13,8 +13,8 @@ import { z } from 'zod';
 // Profiles are immutable: a published `id`+`version` never changes its values.
 // A topology- or sizing-changing option (a future `minimal` profile, a
 // different RDS class) requires a NEW version plus a new `infra_version` and a
-// security review — it never mutates a published entry. `small-v1` is the only
-// published profile today and captures exactly the pre-registry sizing.
+// security review — it never mutates a published entry. `small-v1` is the
+// original published profile; `small-v2` is the current default.
 
 export const INFRASTRUCTURE_SIZE_PROFILE_SCHEMA_VERSION = 1 as const;
 
@@ -32,6 +32,7 @@ export interface InfrastructureSizeProfile {
     readonly instanceClass: string;
     readonly storageGb: number;
     readonly maxStorageGb: number;
+    readonly storageType: string;
   };
   readonly cache: {
     readonly nodeType: string;
@@ -44,7 +45,7 @@ export const SMALL_PROFILE: InfrastructureSizeProfile = {
   version: 1,
   label: 'Small',
   description:
-    'A single web container (0.25 vCPU / 512 MiB), a db.t4g.micro PostgreSQL 16 instance (20 GB), and a single-node Valkey cache when the application needs one.',
+    'A single web container (0.25 vCPU / 512 MiB), a db.t4g.micro PostgreSQL 16 instance (20 GB, gp2), and a single-node Valkey cache when the application needs one.',
   workload: {
     cpuUnits: 256,
     memoryMiB: 512,
@@ -54,6 +55,30 @@ export const SMALL_PROFILE: InfrastructureSizeProfile = {
     instanceClass: 'db.t4g.micro',
     storageGb: 20,
     maxStorageGb: 100,
+    storageType: 'gp2',
+  },
+  cache: {
+    nodeType: 'cache.t4g.micro',
+    nodeCount: 1,
+  },
+};
+
+export const SMALL_V2_PROFILE: InfrastructureSizeProfile = {
+  id: 'small',
+  version: 2,
+  label: 'Small',
+  description:
+    'A single web container (0.25 vCPU / 512 MiB), a db.t3.micro PostgreSQL 16 instance (20 GB, gp3), and a single-node Valkey cache when the application needs one.',
+  workload: {
+    cpuUnits: 256,
+    memoryMiB: 512,
+    desiredCount: 1,
+  },
+  database: {
+    instanceClass: 'db.t3.micro',
+    storageGb: 20,
+    maxStorageGb: 100,
+    storageType: 'gp3',
   },
   cache: {
     nodeType: 'cache.t4g.micro',
@@ -63,13 +88,13 @@ export const SMALL_PROFILE: InfrastructureSizeProfile = {
 
 // The published registry. Adding a new profile appends here and appends a
 // `resolveInfrastructureSizeProfile` entry; it never edits `SMALL_PROFILE`.
-export const INFRASTRUCTURE_SIZE_PROFILES: readonly InfrastructureSizeProfile[] = [SMALL_PROFILE];
+export const INFRASTRUCTURE_SIZE_PROFILES: readonly InfrastructureSizeProfile[] = [SMALL_PROFILE, SMALL_V2_PROFILE];
 
 const PROFILES_BY_KEY = new Map<string, InfrastructureSizeProfile>(
   INFRASTRUCTURE_SIZE_PROFILES.map((profile) => [profileKey(profile), profile]),
 );
 
-/** The stable registry key for a profile: `small-v1`. */
+/** The stable registry key for a profile: `small-v1`, `small-v2`. */
 export function profileKey(profile: InfrastructureSizeProfile): string {
   return `${profile.id}-v${profile.version}`;
 }
@@ -82,9 +107,9 @@ export function resolveInfrastructureSizeProfile(
   return PROFILES_BY_KEY.get(`${id}-v${version}`);
 }
 
-/** The one profile the MVP publishes and every deployment defaults to. */
+/** The current default profile for newly created deployments. */
 export function defaultInfrastructureSizeProfile(): InfrastructureSizeProfile {
-  return SMALL_PROFILE;
+  return SMALL_V2_PROFILE;
 }
 
 /** Zod schema for the frozen profile reference stored in a deployment's desired state. */

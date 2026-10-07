@@ -135,7 +135,7 @@ behind each step is in [`../architecture.md`](../architecture.md).
 | Deployz-managed bindings (`DATABASE_*`, Redis, S3, `AWS_REGION`, `PORT`) | Deployz | At install | Injected by the compiled application stack. |
 | Recommended Region | Vendor (optional) | On an invitation or public link | Shown as a badge and pre-selected. |
 | Region | Customer (public link, invitation) or vendor (vendor-created deployment, legacy deploy link) | At creation | Immutable afterwards. |
-| Infrastructure size | Nobody | At creation | `small-v1` is frozen on every deployment. |
+| Infrastructure size | Nobody | At creation | `small-v2` is frozen on every deployment. |
 | Deployment type | Vendor | At creation | TEST via the create page; every customer confirmation is PRODUCTION. |
 | AWS account | Customer | At launch | Whichever account runs the Quick Create. |
 | Custom domain hostname | Vendor | Day 2 | |

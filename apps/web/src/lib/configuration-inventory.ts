@@ -7,6 +7,7 @@
 // prices itself: sizes, resources and prices are the API's.
 
 import {
+  defaultInfrastructureSizeProfile,
   INFRASTRUCTURE_SIZE_PROFILES,
   type DeploymentPlan,
   type DeploymentPlanAwsResource,
@@ -207,7 +208,7 @@ const SIZE_CHOICES = [
 export interface SizeOption {
   id: string;
   label: string;
-  /** Registry key (`small-v1`) when a published profile backs this size. */
+  /** Registry key (`small-v2`) when a published profile backs this size. */
   profileKey: string | null;
   available: boolean;
   selected: boolean;
@@ -219,9 +220,9 @@ export interface SizeOption {
  * default — a size without a published profile is never selectable.
  */
 export function deriveSizeOptions(plan: DeploymentPlan | null): SizeOption[] {
-  const planSize = plan?.footprint?.workloads[0]?.compute.sizeLabel ?? INFRASTRUCTURE_SIZE_PROFILES[0]?.label ?? null;
+  const planSize = plan?.footprint?.workloads[0]?.compute.sizeLabel ?? defaultInfrastructureSizeProfile().label ?? null;
   return SIZE_CHOICES.map((choice) => {
-    const profile = INFRASTRUCTURE_SIZE_PROFILES.find((entry) => entry.id === choice.id);
+    const profile = INFRASTRUCTURE_SIZE_PROFILES.find((entry) => entry.id === choice.id && entry.version === defaultInfrastructureSizeProfile().version);
     return {
       id: choice.id,
       label: choice.label,
