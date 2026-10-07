@@ -132,7 +132,10 @@ const DB_SUBNET_CIDRS = [
 const DB_AZ_SLOT_COUNT = 8;
 
 // ── Compiler version / capability registry identity ─────────────────────────
-export const COMPILER_VERSION = 'dynamic-compiler-v2-4' as const;
+export const COMPILER_VERSION = 'dynamic-compiler-v2-5' as const;
+
+/** Seconds ECS ignores ALB health checks after a web task starts. */
+export const WEB_HEALTH_CHECK_GRACE_SECONDS = 300;
 
 interface ResInput {
   readonly componentId: string;
@@ -1025,7 +1028,10 @@ function compileWorkloadService(ctx: EcsContext, workload: IrWorkload, profile: 
         EnableECSManagedTags: false,
         // The ALB grace period only applies to a load-balanced service — a
         // worker has no HTTP health check at all (service-stability only).
-        ...(ingress !== undefined ? { HealthCheckGracePeriodSeconds: 60 } : {}),
+        // It covers a boot that migrates first: an app that needs about 90 s on
+        // 0.25 vCPU (ghostfolio: prisma migrate, seed, Nest) was killed after
+        // 60 s and every rollout of it failed.
+        ...(ingress !== undefined ? { HealthCheckGracePeriodSeconds: WEB_HEALTH_CHECK_GRACE_SECONDS } : {}),
         LaunchType: 'FARGATE',
         ...(ingress !== undefined
           ? { LoadBalancers: [{ ContainerName: 'App', ContainerPort: ref('paramContainerPort'), TargetGroupArn: ref(ingress.targetGroup) }] }

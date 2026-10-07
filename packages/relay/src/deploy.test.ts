@@ -249,6 +249,7 @@ function deps(state: FakeEcs, service = true): EcsDeployDeps {
     pending: memoryPendingStore(),
     stackName: 'deployz-app',
     installationId: 'inst-test',
+    unappliedConfiguration: async () => [],
   };
 }
 

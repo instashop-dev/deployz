@@ -6,6 +6,7 @@ import {
   createConfigUpdateExecutor,
   findAppConfigSecretArn,
   generateSecretValue,
+  unappliedConfigurationKeys,
   type ConfigSecretsWriter,
   type EffectiveConfigEntry,
 } from './config-update.js';
@@ -599,5 +600,80 @@ describe('createConfigUpdateExecutor — generated secrets (Phase 4)', () => {
     const b = generateSecretValue();
     expect(a).toMatch(/^[A-Za-z0-9_-]{43}$/);
     expect(a).not.toBe(b);
+  });
+});
+
+describe('unappliedConfigurationKeys', () => {
+  function definition(
+    environment: { name: string; value: string }[],
+    secretBindings: { name: string; valueFrom: string }[] = [],
+  ): EcsTaskDefinition {
+    return {
+      family: 'app',
+      containerDefinitions: [{ name: 'app', image: 'repo@sha256:aaa', environment, secrets: secretBindings }],
+    };
+  }
+
+  function keysFor(
+    entries: EffectiveConfigEntry[],
+    taskDefinition: EcsTaskDefinition,
+    secrets: ReturnType<typeof fakeSecretsWriter> = fakeSecretsWriter(),
+  ) {
+    return unappliedConfigurationKeys(
+      {
+        cfn: cfnWithService({ withConfigSecret: true }),
+        secrets,
+        fetchEffectiveConfig: async () => entries,
+        stackName: 'deployz-app',
+      },
+      taskDefinition,
+    );
+  }
+
+  const plain: EffectiveConfigEntry[] = [{ key: 'LOG_LEVEL', isSecret: false, value: 'debug', source: 'vendor' }];
+
+  it('reports a plain value the definition lacks (DEPLOY-009)', async () => {
+    expect(await keysFor(plain, definition([{ name: 'LOG_LEVEL', value: 'info' }]))).toEqual(['LOG_LEVEL']);
+    expect(await keysFor(plain, definition([]))).toEqual(['LOG_LEVEL']);
+  });
+
+  it('reports nothing when every value already matches (DEPLOY-009)', async () => {
+    expect(await keysFor(plain, definition([{ name: 'LOG_LEVEL', value: 'debug' }]))).toEqual([]);
+  });
+
+  it('reports a generated secret the definition does not bind yet, without minting it (DEPLOY-009)', async () => {
+    const secrets = fakeSecretsWriter();
+    const entries: EffectiveConfigEntry[] = [
+      { key: 'AUTH_SECRET', isSecret: true, generated: true, source: 'vendor' },
+    ];
+    expect(await keysFor(entries, definition([{ name: 'LOG_LEVEL', value: 'info' }]), secrets)).toEqual(['AUTH_SECRET']);
+    expect(secrets.puts()).toBe(0);
+    expect(secrets.current()).toEqual({});
+  });
+
+  it('reports a secret that has a stored or delivered value and no binding (DEPLOY-009)', async () => {
+    const entries: EffectiveConfigEntry[] = [
+      { key: 'API_KEY', isSecret: true, source: 'customer' },
+      { key: 'DB_PASSWORD', isSecret: true, value: 'delivered', source: 'customer' },
+    ];
+    expect(await keysFor(entries, definition([]), fakeSecretsWriter({ API_KEY: 'stored' }))).toEqual([
+      'API_KEY',
+      'DB_PASSWORD',
+    ]);
+  });
+
+  it('reports nothing for a secret that is already bound (DEPLOY-009)', async () => {
+    const entries: EffectiveConfigEntry[] = [{ key: 'API_KEY', isSecret: true, source: 'customer' }];
+    const bound = definition([], [{ name: 'API_KEY', valueFrom: `${CONFIG_SECRET_ARN}:API_KEY::` }]);
+    expect(await keysFor(entries, bound, fakeSecretsWriter({ API_KEY: 'stored' }))).toEqual([]);
+  });
+
+  it('does not report a secret no pass could bind: no value anywhere and not generated (DEPLOY-009)', async () => {
+    const entries: EffectiveConfigEntry[] = [{ key: 'API_KEY', isSecret: true, source: 'customer' }];
+    expect(await keysFor(entries, definition([]))).toEqual([]);
+  });
+
+  it('reports nothing for an empty effective configuration (DEPLOY-009)', async () => {
+    expect(await keysFor([], definition([]))).toEqual([]);
   });
 });

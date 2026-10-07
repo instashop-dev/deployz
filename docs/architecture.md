@@ -194,7 +194,9 @@ NAT gateway, plus isolated DB-only subnets in the remaining available AZs when
 a database is present), an ECS cluster, and one Fargate service per persistent
 workload (`small-v2`: 0.25 vCPU / 512 MiB per task, deployment circuit
 breaker with rollback). The web workload runs behind the internet-facing
-ALB (one HTTP listener, a target group, an unhealthy-target alarm); each
+ALB (one HTTP listener, a target group, an unhealthy-target alarm, and a
+300-second health-check grace period, so an app that migrates at boot is not
+stopped before it listens); each
 declared worker runs its own private service — one task, its own log group
 and security group, no ALB target, no HTTP health check. Every workload
 gets a task definition with the same frozen image and its own frozen
