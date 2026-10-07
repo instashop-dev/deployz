@@ -299,7 +299,11 @@ type ApplicationRow = typeof schema.applications.$inferSelect;
 // overrides and S3 name shapes feed bindings and selectors; and a mandatory
 // ClickHouse repo, a required config-file mount, an image data dir and a
 // hard-coded RabbitMQ host reject. Stored v42 rows can carry silent fallbacks.
-export const ANALYSIS_VERSION = 43;
+// Version 44 (memos AWS canary): a Dockerfile in a subdirectory whose COPY
+// source exists only at the repository root (`COPY go.mod go.sum ./` in
+// `scripts/Dockerfile`) builds with the root as its context. Stored v43 rows
+// build such a Dockerfile from its own directory and the build fails.
+export const ANALYSIS_VERSION = 44;
 
 export interface AnalysisRunnerDeps {
   db: RuntimeDb;
