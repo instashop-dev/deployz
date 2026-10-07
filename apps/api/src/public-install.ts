@@ -303,7 +303,7 @@ export async function resolvePublicInstallPlan(
     throw new ApiError(410, 'PUBLIC_INSTALL_LINK_USED', 'This installation link has already been used.');
   }
   const profile =
-    profileId !== undefined ? resolveInfrastructureSizeProfile(profileId, 1) : defaultInfrastructureSizeProfile();
+    profileId !== undefined ? resolveInfrastructureSizeProfile(profileId, defaultInfrastructureSizeProfile().version) : defaultInfrastructureSizeProfile();
   if (profile === undefined) {
     throw new ApiError(422, 'UNKNOWN_PROFILE', `Unknown infrastructure profile "${profileId}".`);
   }

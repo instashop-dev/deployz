@@ -20,7 +20,7 @@ export interface FootprintRow {
   title: string;
   /** The resolved sizing line ("1 × Small", "PostgreSQL"). */
   primary: string;
-  /** The exact AWS identifiers line ("RDS · db.t4g.micro · 20 GB"). */
+  /** The exact AWS identifiers line ("RDS · db.t3.micro · 20 GB"). */
   detail: string | null;
   /** Lifecycle wording; null when the row is not material for persistence. */
   lifecycle: string | null;

@@ -97,7 +97,7 @@ describe('FootprintSummary', () => {
     expect(web.textContent).toContain('0.25 vCPU');
     const database = container.querySelector('[data-testid="footprint-row-database"]')!;
     expect(database.textContent).toContain('PostgreSQL');
-    expect(database.textContent).toContain('db.t4g.micro');
+    expect(database.textContent).toContain('db.t3.micro');
     expect(database.textContent).toContain('20 GB');
     const cache = container.querySelector('[data-testid="footprint-row-cache"]')!;
     expect(cache.textContent).toContain('Redis (Valkey)');

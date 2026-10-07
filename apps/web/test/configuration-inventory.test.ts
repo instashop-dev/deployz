@@ -289,7 +289,7 @@ describe('deployment sizes', () => {
   it('offers only published profiles and defaults to the size the plan was built with', () => {
     const options = deriveSizeOptions(STANDARD_PLAN);
     expect(options.map((option) => [option.label, option.available, option.selected, option.profileKey])).toEqual([
-      ['Small', true, true, 'small-v1'],
+      ['Small', true, true, 'small-v2'],
       ['Medium', false, false, null],
       ['Large', false, false, null],
     ]);

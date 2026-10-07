@@ -192,7 +192,7 @@ that would replace or delete managed resources fail closed.
 The compiled stack contains: a VPC (two public and two private subnets, one
 NAT gateway, plus isolated DB-only subnets in the remaining available AZs when
 a database is present), an ECS cluster, and one Fargate service per persistent
-workload (`small-v1`: 0.25 vCPU / 512 MiB per task, deployment circuit
+workload (`small-v2`: 0.25 vCPU / 512 MiB per task, deployment circuit
 breaker with rollback). The web workload runs behind the internet-facing
 ALB (one HTTP listener, a target group, an unhealthy-target alarm, and a
 300-second health-check grace period, so an app that migrates at boot is not
@@ -210,8 +210,8 @@ execution role. Optional resources are composed from the IR:
 
 | Capability adds | Lifecycle on destroy |
 | --- | --- |
-| RDS PostgreSQL 16 instance (`db.t4g.micro`, 20→100 GB, 7-day backups, deletion protection), subnet group, master secret + URL secret | **Retain** |
-| RDS MySQL 8.0 instance (same class, storage, backup and protection settings), subnet group, master secret + URL secret | **Retain** |
+| RDS PostgreSQL 16 instance (`db.t3.micro`, 20→100 GB, gp3, 7-day backups, deletion protection), subnet group, master secret + URL secret | **Retain** |
+| RDS MySQL 8.0 instance (same class, storage type, backup and protection settings), subnet group, master secret + URL secret | **Retain** |
 | ElastiCache Valkey replication group (one `cache.t4g.micro` node, no Multi-AZ, TLS off), cache subnet group and security group | Delete |
 | SQS Standard queue (SSE-managed, TLS-only queue policy), plus an optional dead-letter queue (same capability, reached by a queue → queue redrive edge) | Delete |
 | EventBridge Scheduler schedule (cron or rate expression, optional IANA timezone, bounded retry policy) invoking one scheduled-job task definition — no ECS service, no ALB, no verification check; the task definition targets the same Fargate task family the relay updates on every release, so a schedule always runs the latest deployed image | Delete |
@@ -327,7 +327,7 @@ derivation, so the vendor page and the customer page can never disagree.
 - The Region is chosen at deployment creation and is immutable
   ([`product/user-flows.md#who-chooses-the-aws-region`](product/user-flows.md#who-chooses-the-aws-region)).
 - Sizing is frozen per deployment from the immutable profile registry
-  (`small-v1` today) — [`infrastructure-profiles.md`](infrastructure-profiles.md).
+  (`small-v2` today) — [`infrastructure-profiles.md`](infrastructure-profiles.md).
 
 ## Installation invitations and links
 

@@ -155,11 +155,12 @@ Cloudflare edge. See [`../networking-and-https.md`](../networking-and-https.md).
 
 ## Infrastructure profiles are immutable and frozen per deployment (2026-09-03, registry 2026-09-22)
 
-Sizing lives in an immutable registry (`small-v1` today) and is frozen into
+Sizing lives in an immutable registry (`small-v2` today) and is frozen into
 `desired_state.infrastructureProfile` at creation. A new size is a new
-registry version plus republished templates; `small-v1` is never edited. A
-topology-changing `minimal` profile (no NAT, fewer AZs) needs a new
-infrastructure version and a security and cost review, not a registry row.
+registry version plus republished templates; `small-v1` and `small-v2` are
+never edited. A topology-changing `minimal` profile (no NAT, fewer AZs)
+needs a new infrastructure version and a security and cost review, not a
+registry row.
 See [`../infrastructure-profiles.md`](../infrastructure-profiles.md).
 
 ## Jev shadow analysis is not adopted (2026-09-20)
