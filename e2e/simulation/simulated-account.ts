@@ -278,6 +278,21 @@ export class SimulatedCustomerAccount {
       timestamp: this.eventTimestampIso(event),
       ...(event.statusReason !== undefined ? { statusReason: event.statusReason } : {}),
     }));
+    // The compiled stack creates each service's own task definition
+    // (`<Component>TaskDefinition`) alongside the service.
+    for (const created of resources.filter(
+      (resource) => resource.type === 'AWS::ECS::Service' && resource.status === 'CREATE_COMPLETE',
+    )) {
+      const logicalId = created.logicalId.replace(/Service$/, 'TaskDefinition');
+      if (byResource.has(logicalId)) continue;
+      resources.push({
+        logicalId,
+        type: TASK_DEFINITION_TYPE,
+        status: 'CREATE_COMPLETE',
+        physicalId: this.stackTaskDefinitionArn(logicalId),
+        ...(created.timestamp !== undefined ? { timestamp: created.timestamp } : {}),
+      });
+    }
     // A database-backed fixture application always analyses with a migration
     // command (fixtures.ts), so its compiled stack also creates the migration
     // task definition — alongside the application service.

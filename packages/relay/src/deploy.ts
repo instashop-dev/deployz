@@ -1208,14 +1208,23 @@ export function replaceApplicationImages(
 
 type NamedEntry = { name?: string | undefined; [field: string]: unknown };
 
+function namedEntries(value: unknown): NamedEntry[] {
+  return (Array.isArray(value) ? value : []).filter(
+    (entry): entry is NamedEntry => typeof (entry as NamedEntry | null)?.name === 'string',
+  );
+}
+
 /** `base` entries with `overlay` entries merged in by name — the overlay wins; order is stable. */
-function mergeByName(base: unknown, overlay: unknown): NamedEntry[] {
+function mergeByName(base: NamedEntry[], overlay: NamedEntry[]): NamedEntry[] {
   const merged = new Map<string, NamedEntry>();
-  for (const entry of [...(Array.isArray(base) ? base : []), ...(Array.isArray(overlay) ? overlay : [])]) {
-    const named = entry as NamedEntry;
-    if (typeof named.name === 'string') merged.set(named.name, { ...named });
-  }
+  for (const entry of [...base, ...overlay]) merged.set(entry.name!, { ...entry });
   return [...merged.values()];
+}
+
+/** The `runtime` entries that are not exactly an entry of `compiled` — what was delivered after install. */
+function deliveredEntries(runtime: unknown, compiled: unknown): NamedEntry[] {
+  const compiledShapes = new Set(namedEntries(compiled).map(canonical));
+  return namedEntries(runtime).filter((entry) => !compiledShapes.has(canonical(entry)));
 }
 
 /**
@@ -1224,7 +1233,13 @@ function mergeByName(base: unknown, overlay: unknown): NamedEntry[] {
  * sizing, command, entry point, mounts, logging, dependencies, other
  * containers) stays the one-shot's own. Only the application container's
  * `environment` and `secrets` change: the one-shot's entries, with the
- * runtime application container's entries merged in by name (runtime wins).
+ * entries delivered to the runtime after install merged in by name (the
+ * delivered value wins). Delivered means not exactly as in `compiledRuntime`,
+ * the runtime service's own stack-created revision: vendor/customer values,
+ * generated secrets and aliases are delivered, and so is a vendor value that
+ * replaces a compiler-managed name (an external `DATABASE_URL`). An entry
+ * compiled into the runtime only for its own workload (a per-workload queue
+ * binding) never reaches the one-shot, which keeps its own compiled entries.
  * Secrets stay ECS references (`valueFrom`) — no value is ever resolved.
  *
  * The application container is the one container running an image from the
@@ -1236,6 +1251,7 @@ function mergeByName(base: unknown, overlay: unknown): NamedEntry[] {
 export function overlayEffectiveApplicationConfig(
   oneShot: EcsTaskDefinition,
   runtime: EcsTaskDefinition,
+  compiledRuntime: EcsTaskDefinition,
   imageRepository: string,
 ): EcsTaskDefinition {
   const isApplication = (container: EcsTaskDefinition['containerDefinitions'][number]): boolean =>
@@ -1253,12 +1269,24 @@ export function overlayEffectiveApplicationConfig(
       `Effective application configuration could not be resolved: the configured runtime revision ${String(runtime.taskDefinitionArn ?? runtime.family)} has no application container "${name}"`,
     );
   }
+  const compiled = compiledRuntime.containerDefinitions.find((container) => container.name === name);
+  if (compiled === undefined) {
+    throw new Error(
+      `Effective application configuration could not be resolved: the stack's runtime revision ${String(compiledRuntime.taskDefinitionArn ?? compiledRuntime.family)} has no container "${name}"`,
+    );
+  }
   return {
     ...oneShot,
     containerDefinitions: oneShot.containerDefinitions.map((container) => {
       if (container !== candidates[0]) return { ...container };
-      const environment = mergeByName(container['environment'], source['environment']);
-      const secrets = mergeByName(container['secrets'], source['secrets']);
+      const environment = mergeByName(
+        namedEntries(container['environment']),
+        deliveredEntries(source['environment'], compiled['environment']),
+      );
+      const secrets = mergeByName(
+        namedEntries(container['secrets']),
+        deliveredEntries(source['secrets'], compiled['secrets']),
+      );
       return {
         ...container,
         ...(environment.length > 0 ? { environment } : {}),
@@ -1360,14 +1388,15 @@ async function registerReleaseImageIntoFamily(
   request: DeployRequest,
   runtime: EcsTaskDefinition | undefined,
 ): Promise<string> {
-  if (runtime === undefined) {
+  if (runtime?.family === undefined) {
     throw new Error(
       `Effective application configuration could not be resolved: no configured runtime service names the configuration for task family "${family}"`,
     );
   }
+  const compiledRuntime = await ownedFamilySource(deps, runtime.family);
   const source = await ownedFamilySource(deps, family);
   const copy = replaceApplicationImages(
-    overlayEffectiveApplicationConfig(source.definition, runtime, request.imageRepository),
+    overlayEffectiveApplicationConfig(source.definition, runtime, compiledRuntime.definition, request.imageRepository),
     request,
   );
   if (!copy) {
