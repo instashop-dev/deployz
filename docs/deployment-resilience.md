@@ -207,6 +207,39 @@ that revision, or the family's latest revision, only when it is exactly that
 copy (idempotent and retry-safe); otherwise it registers the copy. It
 returns the exact revision ARN.
 
+**One-shot release tasks use the same effective application configuration
+as the configured runtime workload.** The stack's one-shot revision has only
+the compiler-managed bindings; vendor and customer values, Deployz-generated
+secret references and binding aliases reach the services through later
+revisions (CONFIG_UPDATE, the alias step), never the one-shot families. So
+each copy takes three sources:
+
+- **Structure** from the stack's one-shot revision: family, roles, sizing,
+  command, entry point, mounts, logging, container dependencies and the
+  init container stay as compiled.
+- **Environment and secret references** from the configured revision of the
+  `web` workload's service: the service its workload seat names, else the
+  compiled `WebService` (a ROLLBACK payload has no seats), else the stack's
+  only service. Only the entries delivered after install are copied: the
+  entries that differ from the service's own stack-created revision. A
+  vendor value that replaces a compiler-managed name (an external
+  `DATABASE_URL`) is delivered, so it wins. A binding compiled for the web
+  workload only (its queue) is not, so the one-shot keeps its own compiled
+  bindings. The application container is the one container that runs an
+  image from the release repository, matched by name, never by position;
+  init and sidecar containers are never a source or a target. Secrets stay
+  `valueFrom` references; the relay resolves no value.
+- **Image** from the requested release digest.
+
+This fails closed. If no runtime service, its stack-created revision or
+the application container can be identified, the migration fails before RunTask (`MIGRATION_FAILED`) and a
+scheduled-job family stays in progress. While that service revision does not
+carry the effective configuration yet (`unappliedConfigurationKeys`, the
+first-start guard), the migration does not start and the command stays in
+progress. Scheduled-job families copy the settled service revision. A later
+CONFIG_UPDATE does not change the one-shot families; the next deploy brings
+them current.
+
 - **The migration family** is brought current right before RunTask, on every
   DEPLOY_RELEASE. RunTask runs the exact revision ARN that returns — never
   the bare family, which another registration could move in between. This

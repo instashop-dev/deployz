@@ -5,6 +5,7 @@ import {
   createEcsDeployExecutor,
   createEcsDeployResumer,
   createRestartExecutor,
+  overlayEffectiveApplicationConfig,
   readDeployRequest,
   replaceApplicationImages,
   settleEcsDeploy,
@@ -228,6 +229,7 @@ function cfnWith(service: boolean): CloudFormationReader {
 
 /** The one-shot task definitions the stack itself created (exact revisions). */
 const STACK_TASK_DEFINITIONS: StackResource[] = [
+  { logicalId: 'WebTaskDefinition', type: 'AWS::ECS::TaskDefinition', status: 'CREATE_COMPLETE', physicalId: BASE_DEF_ARN },
   { logicalId: 'MigrationTaskDefinition', type: 'AWS::ECS::TaskDefinition', status: 'CREATE_COMPLETE', physicalId: MIGRATION_DEF_ARN },
   { logicalId: 'CleanupTaskDefinition', type: 'AWS::ECS::TaskDefinition', status: 'CREATE_COMPLETE', physicalId: CLEANUP_DEF_ARN },
 ];
@@ -1163,9 +1165,31 @@ describe('migration verdict — the application container of the revision that r
 
   it('cannot succeed when two essential containers run the release image', async () => {
     const state = baseState();
-    state.definitions.get(MIGRATION_DEF_ARN)!.containerDefinitions.push({ name: 'twin', image: `${REPO}@${DIGEST_V2}` });
-    state.migrationTask = { stopCode: 'EssentialContainerExited', containers: [{ name: 'app', exitCode: 0 }] };
+    const twinArn = `${MIGRATION_FAMILY_ARN_PREFIX}:99`;
+    const own = state.definitions.get(MIGRATION_DEF_ARN)!;
+    state.definitions.set(twinArn, {
+      ...own,
+      containerDefinitions: [
+        { name: 'app', image: `${REPO}@${DIGEST_V3}` },
+        { name: 'twin', image: `${REPO}@${DIGEST_V3}` },
+      ],
+    });
+    state.migrationTask = {
+      stopCode: 'EssentialContainerExited',
+      taskDefinitionArn: twinArn,
+      containers: [{ name: 'app', exitCode: 0 }],
+    };
     await expectNeverConfirmed(state, 'has 2 named essential containers');
+  });
+
+  it('never runs a migration family with two containers running the release repository', async () => {
+    const state = baseState();
+    state.definitions.get(MIGRATION_DEF_ARN)!.containerDefinitions.push({ name: 'twin', image: `${REPO}@${DIGEST_V2}` });
+    const result = await run(createEcsDeployExecutor(deps(state)), migrationDeploy());
+    expect(result.success).toBe(false);
+    expect(result.failureCode).toBe('MIGRATION_FAILED');
+    expect(result.error).toContain('has 2 named containers referencing repository');
+    expect(state.runTasks).toHaveLength(0);
   });
 
   it('cannot succeed when the revision that ran does not run the release image', async () => {
@@ -1917,5 +1941,383 @@ describe('deploy idempotency through dispatch', () => {
     const cached = idempotency.get(command.idempotencyKey)!;
     expect(cached.success).toBe(true);
     expect(state.updates.length).toBe(updatesBefore);
+  });
+});
+
+// One-shot tasks (the migration, every scheduled job) run with the SAME
+// effective application configuration as the configured runtime service:
+// the stack's one-shot revision is the structure, the service's configured
+// revision is the environment + secret references, the release is the image.
+describe('one-shot tasks inherit the effective application configuration', () => {
+  const DB_URL_SECRET = 'arn:aws:secretsmanager:us-east-1:151955775369:secret:db-url';
+  const CONFIG_SECRET = 'arn:aws:secretsmanager:us-east-1:151955775369:secret:app-config';
+  const RDS_CA = { name: 'RdsCaBundle', image: 'public.ecr.aws/amazonlinux/amazonlinux:2023-minimal', essential: false };
+  const WEB_QUEUE = 'https://sqs.us-east-1.amazonaws.com/151955775369/emails';
+  const CONFIGURED_DEF_ARN = 'arn:aws:ecs:us-east-1:151955775369:task-definition/app:8';
+
+  /** The stack's one-shot revision: compiler-managed bindings and the frozen command. */
+  function oneShotDefinition(family: string): EcsTaskDefinition {
+    return {
+      family,
+      cpu: '512',
+      memory: '1024',
+      networkMode: 'awsvpc',
+      requiresCompatibilities: ['FARGATE'],
+      executionRoleArn: 'arn:aws:iam::151955775369:role/deployz/app-execution',
+      taskRoleArn: 'arn:aws:iam::151955775369:role/deployz/migration-task',
+      containerDefinitions: [
+        {
+          name: 'app',
+          image: `${REPO}@${DIGEST_V2}`,
+          essential: true,
+          command: ['sh', '-c', 'npm run migrate'],
+          entryPoint: ['/docker-entrypoint.sh'],
+          dependsOn: [{ condition: 'SUCCESS', containerName: 'RdsCaBundle' }],
+          mountPoints: [{ containerPath: '/rds-ca', readOnly: true, sourceVolume: 'rds-ca' }],
+          logConfiguration: { logDriver: 'awslogs', options: { 'awslogs-stream-prefix': 'deployz-app' } },
+          environment: [
+            { name: 'NODE_ENV', value: 'production' },
+            { name: 'LOG_LEVEL', value: 'template' },
+          ],
+          secrets: [{ name: 'DATABASE_URL', valueFrom: DB_URL_SECRET }],
+        },
+        { ...RDS_CA, command: ['sh', '-c', 'fetch'], mountPoints: [{ containerPath: '/rds-ca', sourceVolume: 'rds-ca' }] },
+      ],
+      volumes: [{ name: 'rds-ca' }],
+    };
+  }
+
+  /**
+   * The web service's own stack-created revision: the compiler-managed
+   * bindings, and a queue binding compiled for the web workload only.
+   */
+  function compiledService(): EcsTaskDefinition {
+    return {
+      family: 'app',
+      cpu: '256',
+      memory: '512',
+      networkMode: 'awsvpc',
+      requiresCompatibilities: ['FARGATE'],
+      executionRoleArn: 'arn:aws:iam::151955775369:role/deployz/app-execution',
+      taskRoleArn: 'arn:aws:iam::151955775369:role/deployz/app-task',
+      containerDefinitions: [
+        { ...RDS_CA, environment: [{ name: 'SIDECAR_ONLY', value: '1' }] },
+        {
+          name: 'app',
+          image: `${REPO}@${DIGEST_V2}`,
+          portMappings: [{ containerPort: 3000 }],
+          environment: [
+            { name: 'NODE_ENV', value: 'production' },
+            { name: 'LOG_LEVEL', value: 'template' },
+            { name: 'QUEUE_URL', value: WEB_QUEUE },
+          ],
+          secrets: [{ name: 'DATABASE_URL', valueFrom: DB_URL_SECRET }],
+        },
+      ],
+    };
+  }
+
+  /**
+   * The configured service revision: CONFIG_UPDATE's vendor/customer values
+   * and generated secrets plus the binding aliases — with the init container
+   * FIRST, carrying its own environment, so position and sidecars never count.
+   */
+  function configuredService(): EcsTaskDefinition {
+    return {
+      family: 'app',
+      cpu: '256',
+      memory: '512',
+      networkMode: 'awsvpc',
+      requiresCompatibilities: ['FARGATE'],
+      executionRoleArn: 'arn:aws:iam::151955775369:role/deployz/app-execution',
+      taskRoleArn: 'arn:aws:iam::151955775369:role/deployz/app-task',
+      containerDefinitions: [
+        { ...RDS_CA, environment: [{ name: 'SIDECAR_ONLY', value: '1' }] },
+        {
+          name: 'app',
+          image: `${REPO}@${DIGEST_V2}`,
+          portMappings: [{ containerPort: 3000 }],
+          environment: [
+            { name: 'NODE_ENV', value: 'production' },
+            { name: 'LOG_LEVEL', value: 'configured' },
+            { name: 'QUEUE_URL', value: WEB_QUEUE },
+            { name: 'MEMOS_DRIVER', value: 'postgres' },
+          ],
+          secrets: [
+            { name: 'DATABASE_URL', valueFrom: DB_URL_SECRET },
+            { name: 'MEMOS_DSN', valueFrom: DB_URL_SECRET },
+            { name: 'JWT_SECRET', valueFrom: `${CONFIG_SECRET}:JWT_SECRET::` },
+          ],
+        },
+      ],
+    };
+  }
+
+  type Container = Record<string, unknown> & { name?: string; image?: string };
+  const container = (definition: { containerDefinitions: unknown[] }, name: string): Container =>
+    definition.containerDefinitions.find((c) => (c as Container).name === name) as Container;
+
+  /**
+   * A state whose service runs the configured revision (the stack created
+   * the compiled one) and whose one-shot families are the stack's own.
+   */
+  function configuredState(): FakeEcs {
+    const state = baseState();
+    state.taskDefinition = configuredService();
+    state.service!.taskDefinition = CONFIGURED_DEF_ARN;
+    state.definitions.set(CONFIGURED_DEF_ARN, state.taskDefinition);
+    state.definitions.set(BASE_DEF_ARN, compiledService());
+    state.definitions.set(MIGRATION_DEF_ARN, oneShotDefinition(MIGRATION_TASK.family));
+    state.definitions.set(CLEANUP_DEF_ARN, oneShotDefinition(CLEANUP_FAMILY));
+    return state;
+  }
+
+  function expectEffectiveConfiguration(registered: { containerDefinitions: unknown[] }): void {
+    const app = container(registered, 'app');
+    // Vendor/customer values and the binding alias, with compiler-managed
+    // bindings kept; the runtime value wins a same-name collision.
+    expect(app['environment']).toEqual([
+      { name: 'NODE_ENV', value: 'production' },
+      { name: 'LOG_LEVEL', value: 'configured' },
+      { name: 'MEMOS_DRIVER', value: 'postgres' },
+    ]);
+    // Secret REFERENCES only — the generated secret and the alias included.
+    expect(app['secrets']).toEqual([
+      { name: 'DATABASE_URL', valueFrom: DB_URL_SECRET },
+      { name: 'MEMOS_DSN', valueFrom: DB_URL_SECRET },
+      { name: 'JWT_SECRET', valueFrom: `${CONFIG_SECRET}:JWT_SECRET::` },
+    ]);
+  }
+
+  describe('overlayEffectiveApplicationConfig', () => {
+    it('merges the runtime environment and secrets by name onto the one-shot application container', () => {
+      expectEffectiveConfiguration(
+        overlayEffectiveApplicationConfig(oneShotDefinition(MIGRATION_TASK.family), configuredService(), compiledService(), REPO),
+      );
+    });
+
+    it('keeps one-shot-only entries and every structural field of the one-shot definition', () => {
+      const oneShot = oneShotDefinition(MIGRATION_TASK.family);
+      (container(oneShot, 'app')['environment'] as unknown[]).push({ name: 'MIGRATION_ONLY', value: 'yes' });
+      const result = overlayEffectiveApplicationConfig(oneShot, configuredService(), compiledService(), REPO);
+      const app = container(result, 'app');
+      expect(app['environment']).toContainEqual({ name: 'MIGRATION_ONLY', value: 'yes' });
+      const { environment: _env, secrets: _secrets, ...structure } = app;
+      const { environment: _oneShotEnv, secrets: _oneShotSecrets, ...oneShotStructure } = container(oneShot, 'app');
+      expect(structure).toEqual(oneShotStructure);
+      const { containerDefinitions: _containers, ...definition } = result;
+      const { containerDefinitions: _oneShotContainers, ...oneShotDefinitionFields } = oneShot;
+      expect(definition).toEqual(oneShotDefinitionFields);
+    });
+
+    it('never sources from, or writes onto, an init or sidecar container', () => {
+      const result = overlayEffectiveApplicationConfig(oneShotDefinition(MIGRATION_TASK.family), configuredService(), compiledService(), REPO);
+      expect(container(result, 'app')['environment']).not.toContainEqual({ name: 'SIDECAR_ONLY', value: '1' });
+      expect(container(result, 'RdsCaBundle')).toEqual(container(oneShotDefinition(MIGRATION_TASK.family), 'RdsCaBundle'));
+    });
+
+    it('matches the application container by name, whatever the container order', () => {
+      const oneShot = oneShotDefinition(MIGRATION_TASK.family);
+      oneShot.containerDefinitions.reverse();
+      const runtime = configuredService();
+      runtime.containerDefinitions.reverse();
+      expectEffectiveConfiguration(overlayEffectiveApplicationConfig(oneShot, runtime, compiledService(), REPO));
+    });
+
+    it('never carries a binding compiled for the runtime workload only onto the one-shot', () => {
+      const oneShot = oneShotDefinition(MIGRATION_TASK.family);
+      (container(oneShot, 'app')['environment'] as unknown[]).push({ name: 'QUEUE_URL', value: 'cleanup-queue' });
+      const result = overlayEffectiveApplicationConfig(oneShot, configuredService(), compiledService(), REPO);
+      expect(container(result, 'app')['environment']).toContainEqual({ name: 'QUEUE_URL', value: 'cleanup-queue' });
+      const withoutQueue = overlayEffectiveApplicationConfig(
+        oneShotDefinition(MIGRATION_TASK.family),
+        configuredService(),
+        compiledService(),
+        REPO,
+      );
+      expect((container(withoutQueue, 'app')['environment'] as { name: string }[]).map((e) => e.name)).not.toContain(
+        'QUEUE_URL',
+      );
+    });
+
+    it('a vendor value that replaces a compiler-managed name reaches the one-shot (an external database)', () => {
+      const external = `${CONFIG_SECRET}:DATABASE_URL::`;
+      const runtime = configuredService();
+      container(runtime, 'app')['secrets'] = [{ name: 'DATABASE_URL', valueFrom: external }];
+      const result = overlayEffectiveApplicationConfig(oneShotDefinition(MIGRATION_TASK.family), runtime, compiledService(), REPO);
+      expect(container(result, 'app')['secrets']).toEqual([{ name: 'DATABASE_URL', valueFrom: external }]);
+    });
+
+    it('fails closed when the runtime revision has no application container of that name', () => {
+      const runtime = configuredService();
+      runtime.containerDefinitions = runtime.containerDefinitions.map((c) => (c.name === 'app' ? { ...c, name: 'web' } : c));
+      expect(() => overlayEffectiveApplicationConfig(oneShotDefinition(MIGRATION_TASK.family), runtime, compiledService(), REPO)).toThrow(
+        /Effective application configuration could not be resolved/,
+      );
+    });
+
+    it('fails closed when the runtime container of that name does not run the application image', () => {
+      const runtime = configuredService();
+      runtime.containerDefinitions = runtime.containerDefinitions.map((c) =>
+        c.name === 'app' ? { ...c, image: 'public.ecr.aws/other:1' } : c,
+      );
+      expect(() => overlayEffectiveApplicationConfig(oneShotDefinition(MIGRATION_TASK.family), runtime, compiledService(), REPO)).toThrow(
+        /Effective application configuration could not be resolved/,
+      );
+    });
+  });
+
+  it('the migration runs a revision carrying the effective configuration; only its app container gets the release image', async () => {
+    const state = configuredState();
+    const result = await run(
+      createEcsDeployExecutor(deps(state)),
+      deployCommand({ imageRepository: REPO, imageDigest: DIGEST_V3, migrationTask: MIGRATION_TASK }),
+    );
+    expect(result.deferred).toBe(true);
+    const migration = state.registered[0] as RegisterTaskDefinitionInput;
+    expect(migration.family).toBe(MIGRATION_TASK.family);
+    expectEffectiveConfiguration(migration);
+    expect(container(migration, 'app')['image']).toBe(`${REPO}@${DIGEST_V3}`);
+    expect(container(migration, 'app')['command']).toEqual(['sh', '-c', 'npm run migrate']);
+    expect(container(migration, 'RdsCaBundle')['image']).toBe(RDS_CA.image);
+    expect(migration.taskRoleArn).toBe('arn:aws:iam::151955775369:role/deployz/migration-task');
+    expect(state.runTasks[0]).toMatchObject({ taskDefinition: `${MIGRATION_FAMILY_ARN_PREFIX}:1` });
+  });
+
+  it('a scheduled-job family gets the same effective configuration once the rollout settles', async () => {
+    const state = configuredState();
+    state.runningDigest = DIGEST_V3;
+    container(state.taskDefinition, 'app')['image'] = `${REPO}@${DIGEST_V3}`;
+    const result = await run(
+      createEcsDeployExecutor(deps(state)),
+      deployCommand({ imageRepository: REPO, imageDigest: DIGEST_V3, scheduledJobFamilies: [CLEANUP_FAMILY] }),
+    );
+    expect(result.success).toBe(true);
+    const job = state.registered[0] as RegisterTaskDefinitionInput;
+    expect(job.family).toBe(CLEANUP_FAMILY);
+    expectEffectiveConfiguration(job);
+    expect(container(job, 'app')['image']).toBe(`${REPO}@${DIGEST_V3}`);
+    expect(container(job, 'app')['command']).toEqual(['sh', '-c', 'npm run migrate']);
+  });
+
+  it('a retried scheduled-job registration reuses the configured copy, never a second revision', async () => {
+    const state = configuredState();
+    state.runningDigest = DIGEST_V3;
+    const command = deployCommand({ imageRepository: REPO, imageDigest: DIGEST_V3, scheduledJobFamilies: [CLEANUP_FAMILY] });
+    expect((await run(createEcsDeployExecutor(deps(state)), command)).success).toBe(true);
+    expect((await run(createEcsDeployExecutor(deps(state)), command)).success).toBe(true);
+    expect(state.registered).toHaveLength(1);
+  });
+
+  it('never runs the migration when the configured runtime revision cannot supply the configuration', async () => {
+    const state = configuredState();
+    container(state.taskDefinition, 'app')['name'] = 'web';
+    const result = await run(
+      createEcsDeployExecutor(deps(state)),
+      deployCommand({ imageRepository: REPO, imageDigest: DIGEST_V3, migrationTask: MIGRATION_TASK }),
+    );
+    expect(result.success).toBe(false);
+    expect(result.error).toMatch(/Effective application configuration could not be resolved/);
+    expect(state.runTasks).toHaveLength(0);
+    expect(state.registered).toHaveLength(0);
+    expect(state.updates).toHaveLength(0);
+  });
+
+  /**
+   * A two-service stack: a worker service whose configured revision carries
+   * a different MEMOS_DRIVER (listed FIRST), and the web-candidate service
+   * running the configured revision.
+   */
+  async function twoServiceDeps(state: FakeEcs, webLogicalId: string): Promise<EcsDeployDeps> {
+    const workerArn = 'arn:aws:ecs:us-east-1:151955775369:service/app-cluster/worker-service';
+    const workerDefArn = 'arn:aws:ecs:us-east-1:151955775369:task-definition/worker:4';
+    const worker = configuredService();
+    container(worker, 'app')['environment'] = [{ name: 'MEMOS_DRIVER', value: 'worker-only' }];
+    state.definitions.set(workerDefArn, worker);
+    const base = deps(state);
+    const resources: StackResource[] = [
+      { logicalId: 'EmailWorkerService', type: 'AWS::ECS::Service', status: 'CREATE_COMPLETE', physicalId: workerArn },
+      { logicalId: webLogicalId, type: 'AWS::ECS::Service', status: 'CREATE_COMPLETE', physicalId: SERVICE_ARN },
+      ...(await base.cfn.describeStackResources('deployz-app')).filter((r) => r.type !== 'AWS::ECS::Service'),
+    ];
+    return {
+      ...base,
+      cfn: { ...base.cfn, describeStackResources: async () => resources, listStackResources: async () => ({ resources }) },
+      ecs: {
+        ...base.ecs,
+        async describeServices(input) {
+          const [service] = (await base.ecs.describeServices(input)).services;
+          return {
+            services: input.services.map((arn) => (arn === workerArn ? { ...service!, taskDefinition: workerDefArn } : service!)),
+          };
+        },
+      },
+    };
+  }
+
+  it('takes the configuration from the service of the web seat, not from another workload', async () => {
+    const state = configuredState();
+    const result = await run(
+      createEcsDeployExecutor(await twoServiceDeps(state, 'PublicService')),
+      deployCommand({
+        imageRepository: REPO,
+        imageDigest: DIGEST_V3,
+        migrationTask: MIGRATION_TASK,
+        workloads: [
+          { id: 'email-worker', serviceLogicalId: 'EmailWorkerService', desiredCount: 1 },
+          { id: 'web', serviceLogicalId: 'PublicService', desiredCount: 1 },
+        ],
+      }),
+    );
+    expect(result.deferred).toBe(true);
+    expectEffectiveConfiguration(state.registered[0] as RegisterTaskDefinitionInput);
+  });
+
+  it('a ROLLBACK without workload seats takes the configuration from the compiled web service', async () => {
+    const state = configuredState();
+    state.runningDigest = DIGEST_V3;
+    const result = await run(
+      createEcsDeployExecutor(await twoServiceDeps(state, 'WebService')),
+      deployCommand({ imageRepository: REPO, imageDigest: DIGEST_V3, scheduledJobFamilies: [CLEANUP_FAMILY] }, 'ROLLBACK'),
+    );
+    expect(result.success).toBe(true);
+    const job = state.registered[0] as RegisterTaskDefinitionInput;
+    expect(job.family).toBe(CLEANUP_FAMILY);
+    expectEffectiveConfiguration(job);
+  });
+
+  it('never runs the migration when no configured runtime service can be named', async () => {
+    const state = configuredState();
+    const result = await run(
+      createEcsDeployExecutor(await twoServiceDeps(state, 'PublicService')),
+      deployCommand({ imageRepository: REPO, imageDigest: DIGEST_V3, migrationTask: MIGRATION_TASK }),
+    );
+    expect(result.success).toBe(false);
+    expect(result.error).toMatch(/Effective application configuration could not be resolved/);
+    expect(state.runTasks).toHaveLength(0);
+  });
+
+  it('never registers a scheduled-job family when no configured runtime service can be named', async () => {
+    const state = configuredState();
+    state.runningDigest = DIGEST_V3;
+    const result = await run(
+      createEcsDeployExecutor(await twoServiceDeps(state, 'PublicService')),
+      deployCommand({ imageRepository: REPO, imageDigest: DIGEST_V3, scheduledJobFamilies: [CLEANUP_FAMILY] }),
+    );
+    expect(result.deferred).toBe(true);
+    expect(state.registered).toHaveLength(0);
+  });
+
+  it('waits, without running anything, while the runtime revision does not carry the effective configuration yet', async () => {
+    const state = configuredState();
+    const d: EcsDeployDeps = { ...deps(state), unappliedConfiguration: async () => ['MEMOS_DRIVER'] };
+    const result = await run(
+      createEcsDeployExecutor(d),
+      deployCommand({ imageRepository: REPO, imageDigest: DIGEST_V3, migrationTask: MIGRATION_TASK }),
+    );
+    expect(result.deferred).toBe(true);
+    expect(state.runTasks).toHaveLength(0);
+    expect(state.registered).toHaveLength(0);
+    expect(state.updates).toHaveLength(0);
   });
 });
