@@ -19,8 +19,9 @@ const here = dirname(fileURLToPath(import.meta.url));
 // postgres byte — this hash is the proof (see the mysql describe below).
 // Moved deliberately since: database AZ placement (DbAz parameters) and
 // installation-scoped task families (the Family join and
-// `paramTaskFamilySuffix`) each changed every template.
-const POSTGRES_TEMPLATE_HASH_GOLDEN = '1d2290453b7aa9d0ad0e52dec8943f30cc0e95a68afa3bb46b2ea7fc7b604304';
+// `paramTaskFamilySuffix`) and the 300 s web health-check grace each changed
+// every template.
+const POSTGRES_TEMPLATE_HASH_GOLDEN = '3cfcf1340ab8d7c35bc19f93652d805c324d16cbe5aec7edbf5ff33f3b28b010';
 
 /** Evaluates the compiled `Family` join for one stack's suffix parameter value. */
 function familyFor(family: unknown, suffix: string): string {
@@ -1458,5 +1459,16 @@ describe('app-specific binding aliases', () => {
     const value = appOf(web.properties).Environment.find((e) => e.Name === 'SPRING_DATASOURCE_URL')?.Value;
     expect(JSON.stringify(value)).toContain('jdbc:mysql://');
     expect(JSON.stringify(value)).toContain(':3306/deployz?sslMode=REQUIRED');
+  });
+});
+
+describe('web health-check grace', () => {
+  it('gives a load-balanced service 300 s before ALB health checks count, and a worker none', () => {
+    const result = compileDeployzInfrastructure({ ir: makeIr({ postgres: true, redis: false, workers: [{ componentId: 'jobs', command: 'node worker.js' }] }), region: null });
+    const services = result.resolvedGraph.resources.filter((r) => r.cfnType === 'AWS::ECS::Service');
+    const web = services.find((r) => r.logicalId === 'WebService')!;
+    const worker = services.find((r) => r.logicalId === 'JobsService')!;
+    expect(web.properties['HealthCheckGracePeriodSeconds']).toBe(300);
+    expect(worker.properties).not.toHaveProperty('HealthCheckGracePeriodSeconds');
   });
 });
