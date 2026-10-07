@@ -92,7 +92,11 @@ that ever touches the customer's AWS account.
    migration workload) as a one-shot ECS task — the compiler baked the
    command into a single task definition (family `DeployzAppMigration<suffix>`,
    unique to the installation) — and
-   then updates every service to the pinned digest. The migration always runs
+   then updates every service to the pinned digest. The migration and the
+   scheduled jobs run with the same effective application configuration as
+   the configured web service: compiler-managed bindings, vendor and customer
+   values, Deployz-generated secret references and binding aliases
+   (`docs/deployment-resilience.md`). The migration always runs
    after the infrastructure and the database are ready and before any service
    updates; its identity (sha256 over the frozen command plus the image
    digest) makes it run exactly once per release — a retry of an

@@ -39,7 +39,12 @@
  * one generic, bounded step that keeps a named family current: it copies the
  * revision this stack itself created (never one another installation
  * registered), reuses the family's latest revision only when it is exactly
- * that copy, and returns the exact revision ARN. It runs (a) for the
+ * that copy, and returns the exact revision ARN. The copy also carries the
+ * effective application configuration (environment + secret references) of
+ * the configured runtime service (`overlayEffectiveApplicationConfig`):
+ * vendor/customer values, generated secrets and binding aliases reach the
+ * services through later revisions, never through the stack's one-shot
+ * revision. It runs (a) for the
  * migration family right before RunTask, which runs that exact ARN, and (b)
  * for every scheduled-job family the control plane names, but only once a
  * DEPLOY_RELEASE/ROLLBACK rollout has otherwise SETTLED — a failed update
@@ -570,13 +575,18 @@ export async function settleEcsDeploy(
     };
   }
 
+  // The configured runtime revision every one-shot task of this release
+  // takes its effective application configuration from.
+  const runtimeView = configuredRuntimeView(views, workloads);
+  const runtimeDefinition = runtimeView === null ? undefined : definitions.get(runtimeView.arn);
+
   // Every service already runs this release, stable and verified — nothing
   // to roll (a retried command must not mutate twice). Enforced by code, not
   // convention: when a migration seat is present, success may only be
   // returned AFTER the migration stage has run — so the early return is
   // gated on there being no migration to run.
   if (!anyServiceNeedsUpdate && request.migrationTask === null) {
-    return settleSuccess(deps, request, context.migration ?? undefined);
+    return settleSuccess(deps, request, context.migration ?? undefined, runtimeDefinition);
   }
 
   // DEPLOY-009: the configured task definition must be attached before first
@@ -586,13 +596,20 @@ export async function settleEcsDeploy(
   // configures the service interleave (a later relay invocation, a failed or
   // replayed pass). Until then nothing is mutated: the service stays at zero
   // and the command waits for a later poll.
+  //
+  // The same guard covers the configured runtime revision a migration about
+  // to start takes its effective configuration from: a one-shot task never
+  // runs with configuration the services do not carry yet.
+  const migrationStarting =
+    request.migrationTask !== null && context.allowMigration && (context.migration ?? null) === null;
   for (const view of views) {
-    if ((view.service!.desiredCount ?? 0) !== 0) continue;
+    const firstStart = (view.service!.desiredCount ?? 0) === 0;
+    if (!firstStart && !(migrationStarting && view === runtimeView)) continue;
     const unapplied = await deps.unappliedConfiguration(definitions.get(view.arn)!);
     if (unapplied.length > 0) {
       console.log(
         JSON.stringify({
-          event: 'relay:first-start-awaiting-configuration',
+          event: firstStart ? 'relay:first-start-awaiting-configuration' : 'relay:migration-awaiting-configuration',
           service: view.arn,
           taskDefinition: view.service!.taskDefinition,
           keys: unapplied,
@@ -619,6 +636,7 @@ export async function settleEcsDeploy(
       migrationTask: request.migrationTask,
       pendingMigration: context.migration ?? null,
       request,
+      runtimeDefinition,
       markerCommandId: context.markerCommandId,
       markerIdempotencyKey: context.markerIdempotencyKey,
       markerType: context.markerType,
@@ -640,7 +658,7 @@ export async function settleEcsDeploy(
   // A seat the executor refused to run (ROLLBACK/RESTART, by the gate above)
   // cannot gate the success path: those commands never carry migrations.
   if (!anyServiceNeedsUpdate) {
-    return settleSuccess(deps, request, migration);
+    return settleSuccess(deps, request, migration, runtimeDefinition);
   }
 
   // ── Roll every service that still needs it ──────────────────────────────
@@ -767,6 +785,9 @@ async function settleMigration(
     /** The deploy request — needed to register the release image into the
      *  migration family before it runs (see `registerReleaseImageIntoFamily`). */
     request: DeployRequest;
+    /** The configured runtime revision the migration takes its effective
+     *  configuration from — undefined when none could be resolved. */
+    runtimeDefinition: EcsTaskDefinition | undefined;
     /** Marker fields for the early migration write after RunTask succeeds. */
     markerCommandId?: string | undefined;
     markerIdempotencyKey?: string | undefined;
@@ -804,7 +825,12 @@ async function settleMigration(
     // latest by then.
     let migrationDefinitionArn: string;
     try {
-      migrationDefinitionArn = await registerReleaseImageIntoFamily(deps, migrationTask.family, params.request);
+      migrationDefinitionArn = await registerReleaseImageIntoFamily(
+        deps,
+        migrationTask.family,
+        params.request,
+        params.runtimeDefinition,
+      );
     } catch (err) {
       return {
         state: 'failed',
@@ -1112,6 +1138,26 @@ async function findServiceViews(deps: EcsDeployDeps): Promise<ServiceView[]> {
     .map((resource) => ({ logicalId: resource.logicalId, arn: resource.physicalId! }));
 }
 
+/** The compiler's logical id for the `web` workload's ECS service (`logicalResourceId('web', 'service')`). */
+const WEB_SERVICE_LOGICAL_ID = 'WebService';
+
+/**
+ * The service whose configured revision is the effective-configuration
+ * source for one-shot tasks: the public `web` workload's service — named by
+ * its workload seat, or by the compiler's fixed logical id when the payload
+ * has no seats (a ROLLBACK) — or else the stack's only service. Null when
+ * none of these names exactly one service: the caller fails closed instead
+ * of guessing by position.
+ */
+function configuredRuntimeView(views: readonly ServiceView[], workloads: readonly DeployWorkload[]): ServiceView | null {
+  const webLogicalId = workloads.find((workload) => workload.id === 'web')?.serviceLogicalId ?? WEB_SERVICE_LOGICAL_ID;
+  return (
+    views.find((view) => view.logicalId === webLogicalId) ??
+    views.find((view) => view.logicalId === WEB_SERVICE_LOGICAL_ID) ??
+    (views.length === 1 ? views[0]! : null)
+  );
+}
+
 /** The revision this command rolled out for one service, when it rolled one. */
 function resolveTarget(
   context: DeploySettleContext,
@@ -1158,6 +1204,68 @@ export function replaceApplicationImages(
     ...(taskDefinition.volumes ? { volumes: taskDefinition.volumes } : {}),
   };
   return copy;
+}
+
+type NamedEntry = { name?: string | undefined; [field: string]: unknown };
+
+/** `base` entries with `overlay` entries merged in by name — the overlay wins; order is stable. */
+function mergeByName(base: unknown, overlay: unknown): NamedEntry[] {
+  const merged = new Map<string, NamedEntry>();
+  for (const entry of [...(Array.isArray(base) ? base : []), ...(Array.isArray(overlay) ? overlay : [])]) {
+    const named = entry as NamedEntry;
+    if (typeof named.name === 'string') merged.set(named.name, { ...named });
+  }
+  return [...merged.values()];
+}
+
+/**
+ * The one-shot definition with the configured runtime's effective
+ * application configuration overlaid. Everything structural (family, roles,
+ * sizing, command, entry point, mounts, logging, dependencies, other
+ * containers) stays the one-shot's own. Only the application container's
+ * `environment` and `secrets` change: the one-shot's entries, with the
+ * runtime application container's entries merged in by name (runtime wins).
+ * Secrets stay ECS references (`valueFrom`) — no value is ever resolved.
+ *
+ * The application container is the one container running an image from the
+ * release repository, matched in the runtime revision by NAME — never by
+ * position, and never an init or sidecar container. Throws when either side
+ * cannot be identified: a one-shot task never runs with known-incomplete
+ * configuration.
+ */
+export function overlayEffectiveApplicationConfig(
+  oneShot: EcsTaskDefinition,
+  runtime: EcsTaskDefinition,
+  imageRepository: string,
+): EcsTaskDefinition {
+  const isApplication = (container: EcsTaskDefinition['containerDefinitions'][number]): boolean =>
+    typeof container.image === 'string' && container.image.startsWith(`${imageRepository}@`);
+  const candidates = oneShot.containerDefinitions.filter(isApplication);
+  const name = candidates.length === 1 ? candidates[0]!.name : undefined;
+  if (typeof name !== 'string' || name.length === 0) {
+    throw new Error(
+      `Task family "${String(oneShot.family)}" has ${candidates.length} named containers referencing repository "${imageRepository}", not one`,
+    );
+  }
+  const source = runtime.containerDefinitions.find((container) => container.name === name);
+  if (source === undefined || !isApplication(source)) {
+    throw new Error(
+      `Effective application configuration could not be resolved: the configured runtime revision ${String(runtime.taskDefinitionArn ?? runtime.family)} has no application container "${name}"`,
+    );
+  }
+  return {
+    ...oneShot,
+    containerDefinitions: oneShot.containerDefinitions.map((container) => {
+      if (container !== candidates[0]) return { ...container };
+      const environment = mergeByName(container['environment'], source['environment']);
+      const secrets = mergeByName(container['secrets'], source['secrets']);
+      return {
+        ...container,
+        ...(environment.length > 0 ? { environment } : {}),
+        ...(secrets.length > 0 ? { secrets } : {}),
+      };
+    }),
+  };
 }
 
 const TASK_DEFINITION_TYPE = 'AWS::ECS::TaskDefinition';
@@ -1230,8 +1338,12 @@ export function sameRegistration(definition: EcsTaskDefinition, copy: RegisterTa
 /**
  * Registers the release image into a named, spec-frozen one-shot task family
  * and returns the EXACT revision ARN to use. The source is always the
- * revision this stack created (`ownedFamilySource`); the copy replaces only
- * the release image, so no configuration is lost. Idempotent and retry-safe:
+ * revision this stack created (`ownedFamilySource`); the copy overlays the
+ * configured runtime's effective application configuration
+ * (`overlayEffectiveApplicationConfig`) and replaces the release image, so
+ * the one-shot runs with the same environment and secret references as the
+ * services. Without a configured runtime revision it throws — never a
+ * fallback to the stack's unconfigured revision. Idempotent and retry-safe:
  * the stack's own revision, or the family's latest revision, is reused when
  * it already is exactly that copy — on an older shared family, another
  * installation's revision never is (its roles differ), so it is never
@@ -1246,9 +1358,18 @@ async function registerReleaseImageIntoFamily(
   deps: EcsDeployDeps,
   family: string,
   request: DeployRequest,
+  runtime: EcsTaskDefinition | undefined,
 ): Promise<string> {
+  if (runtime === undefined) {
+    throw new Error(
+      `Effective application configuration could not be resolved: no configured runtime service names the configuration for task family "${family}"`,
+    );
+  }
   const source = await ownedFamilySource(deps, family);
-  const copy = replaceApplicationImages(source.definition, request);
+  const copy = replaceApplicationImages(
+    overlayEffectiveApplicationConfig(source.definition, runtime, request.imageRepository),
+    request,
+  );
   if (!copy) {
     throw new Error(
       `Task family "${family}" has no container referencing repository "${request.imageRepository}"`,
@@ -1270,9 +1391,13 @@ async function registerReleaseImageIntoFamily(
  * the previous image. `AWS::Scheduler::Schedule` runs the family's latest
  * revision; this never RunTask's it — that stays Scheduler's job alone.
  */
-async function registerScheduledJobFamilies(deps: EcsDeployDeps, request: DeployRequest): Promise<void> {
+async function registerScheduledJobFamilies(
+  deps: EcsDeployDeps,
+  request: DeployRequest,
+  runtime: EcsTaskDefinition | undefined,
+): Promise<void> {
   for (const family of request.scheduledJobFamilies) {
-    await registerReleaseImageIntoFamily(deps, family, request);
+    await registerReleaseImageIntoFamily(deps, family, request, runtime);
   }
 }
 
@@ -1290,10 +1415,12 @@ async function settleSuccess(
   deps: EcsDeployDeps,
   request: DeployRequest,
   migration: PendingMigration | undefined,
+  runtime: EcsTaskDefinition | undefined,
 ): Promise<EcsDeployOutcome> {
   try {
-    await registerScheduledJobFamilies(deps, request);
-  } catch {
+    await registerScheduledJobFamilies(deps, request, runtime);
+  } catch (err) {
+    console.log(JSON.stringify({ event: 'relay:scheduled-job-registration-deferred', error: String(err) }));
     return { state: 'in-progress', ...(migration !== undefined ? { migration } : {}) };
   }
   return { state: 'succeeded', alreadyRunning: true };
