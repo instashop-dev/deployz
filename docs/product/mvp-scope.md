@@ -77,7 +77,8 @@ migration) shares the one build artifact; there is exactly one image per
 deployment. Sizing is
 frozen per deployment in an immutable profile registry
 ([`../infrastructure-profiles.md`](../infrastructure-profiles.md)); today
-only `small-v1` exists and the customer is not offered a choice.
+`small-v2` is the current Small default (`small-v1` stays frozen for
+existing deployments) and the customer is not offered a choice.
 
 Plan and status payloads may also name `worker`, `queue` and `schedule`
 component kinds. All three are real, provisioned components: a `queue` is
