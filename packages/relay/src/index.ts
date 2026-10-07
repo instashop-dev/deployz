@@ -57,6 +57,7 @@ import {
   createRestartExecutor,
   type EcsDeployClient,
   type EcsDeployDeps,
+  type EcsTaskDefinition,
 } from './deploy.js';
 import { observeRunningImageDigest, type EcsTaskReader } from './ecs-observe.js';
 import { observeRuntimeHealth, type EcsServiceReader, type TargetHealthReader } from './ecs-health.js';
@@ -83,6 +84,7 @@ import {
 import {
   createConfigUpdateExecutor,
   createRealConfigSecretsWriter,
+  unappliedConfigurationKeys,
   type EffectiveConfigEntry,
 } from './config-update.js';
 import {
@@ -1838,7 +1840,10 @@ function createDefaultInstallDeps(
 }
 
 /** The deploy-side twin of `createDefaultInstallDeps`. */
-function deployResumerDeps(installationId: string): EcsDeployDeps {
+function deployResumerDeps(
+  installationId: string,
+  unappliedConfiguration: EcsDeployDeps['unappliedConfiguration'],
+): EcsDeployDeps {
   return {
     cfn: getCloudFormationReader(),
     ecs: getEcsDeployClient(),
@@ -1846,6 +1851,7 @@ function deployResumerDeps(installationId: string): EcsDeployDeps {
     pending: getPendingStore(installationId),
     stackName: relayApplicationStackName(),
     installationId,
+    unappliedConfiguration,
   };
 }
 
@@ -1874,7 +1880,10 @@ function deployResumerDeps(installationId: string): EcsDeployDeps {
  *
  * The command vocabulary + dispatch + idempotency layer around them IS real.
  */
-function createDefaultExecutors(installDeps: InstallExecutorDeps): Record<string, CommandExecutor> {
+function createDefaultExecutors(
+  installDeps: InstallExecutorDeps,
+  unappliedConfiguration: EcsDeployDeps['unappliedConfiguration'],
+): Record<string, CommandExecutor> {
   const noop: CommandExecutor = async (command) => {
     logCommandExecuted(command);
     return {
@@ -1903,6 +1912,7 @@ function createDefaultExecutors(installDeps: InstallExecutorDeps): Record<string
     pending: getPendingStore(installDeps.installationId),
     stackName: relayApplicationStackName(),
     installationId: installDeps.installationId,
+    unappliedConfiguration,
   };
 
   const destroyDeps = {
@@ -2099,7 +2109,37 @@ export function createRelayHandler(deps: RelayHandlerDeps) {
     controlPlaneUrl: controlPlaneUrlForInstall,
     getAuthHeaders: () => (authState ? buildAuthHeaders(authState) : {}),
   });
-  const executors = deps.executors ?? createDefaultExecutors(installDeps);
+  // The effective configuration over the CURRENT auth token — read when
+  // called, so it is always the token this invocation authenticated with.
+  // CONFIG_UPDATE applies it; a first start checks that it reached the task
+  // definition (DEPLOY-009).
+  const fetchEffectiveConfig = async (): Promise<EffectiveConfigEntry[]> => {
+    const controlPlaneUrl = process.env['DEPLOYZ_CONTROL_PLANE_URL'] ?? '';
+    const installationId = process.env['DEPLOYZ_INSTALLATION_ID'] ?? '';
+    // A throttled control plane must not fail the configuration pass.
+    const response = await fetchWithRetry(
+      deps.fetchFn,
+      `${controlPlaneUrl}/api/relay/config?installationId=${encodeURIComponent(installationId)}`,
+      { headers: authState ? buildAuthHeaders(authState) : {} },
+      deps.sleep,
+    );
+    if (response.status !== 200) {
+      throw new Error(`Config fetch returned HTTP ${response.status}`);
+    }
+    const body = (await response.json()) as { entries: EffectiveConfigEntry[] };
+    return body.entries;
+  };
+  const unappliedConfiguration = (definition: EcsTaskDefinition): Promise<string[]> =>
+    unappliedConfigurationKeys(
+      {
+        cfn: getCloudFormationReader(),
+        secrets: createRealConfigSecretsWriter(),
+        fetchEffectiveConfig,
+        stackName: relayApplicationStackName(),
+      },
+      definition,
+    );
+  const executors = deps.executors ?? createDefaultExecutors(installDeps, unappliedConfiguration);
   const idempotency = deps.idempotency ?? new IdempotencyStore();
 
   // Deployment facts the commands response refreshes every poll. The §59
@@ -2166,30 +2206,11 @@ export function createRelayHandler(deps: RelayHandlerDeps) {
       }
     }
 
-    // CONFIG_UPDATE is wired here rather than in createDefaultExecutors
-    // because its config fetch needs the CURRENT auth token — the one this
-    // invocation authenticated with — and authState is only available inside
-    // the handler closure.
-    const state = authState;
     const configExecutor = createConfigUpdateExecutor({
       cfn: getCloudFormationReader(),
       ecs: getEcsDeployClient(),
       secrets: createRealConfigSecretsWriter(),
-      fetchEffectiveConfig: async () => {
-        const headers = buildAuthHeaders(state);
-        // A throttled control plane must not fail the configuration pass.
-        const response = await fetchWithRetry(
-          deps.fetchFn,
-          `${controlPlaneUrl}/api/relay/config?installationId=${encodeURIComponent(installationId)}`,
-          { headers },
-          deps.sleep,
-        );
-        if (response.status !== 200) {
-          throw new Error(`Config fetch returned HTTP ${response.status}`);
-        }
-        const body = (await response.json()) as { entries: EffectiveConfigEntry[] };
-        return body.entries;
-      },
+      fetchEffectiveConfig,
       stackName: relayApplicationStackName(),
       installationId,
     });
@@ -2258,7 +2279,7 @@ export function createRelayHandler(deps: RelayHandlerDeps) {
           const installResults = await createInstallResumer(installDeps)();
           if (installResults.length > 0) return installResults;
           const deployResults = await createEcsDeployResumer(
-            deployResumerDeps(installDeps.installationId),
+            deployResumerDeps(installDeps.installationId, unappliedConfiguration),
           )();
           if (deployResults.length > 0) return deployResults;
           const destroyResults = await createDestroyResumer({

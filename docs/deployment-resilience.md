@@ -88,6 +88,15 @@ watchdog, and the stack-event progress route's settlement backstop):
   (queued first) registers the configured task-definition revision, and the
   auto-deploy of the newest READY release scales the service up and waits
   for the rollout (`packages/relay/src/deploy.ts`, `FIRST_START_DESIRED_COUNT`).
+  The configured task definition must be attached before first scale-up.
+  Command order alone does not guarantee this: two relay invocations can
+  run the two commands at the same time, and a failed CONFIG_UPDATE does not
+  stop the deploy. So the deploy scales a zero-task service only when its
+  revision already carries the effective configuration
+  (`unappliedConfigurationKeys`, `packages/relay/src/config-update.ts`). If
+  not, it changes nothing, keeps zero tasks, and stays in progress until a
+  CONFIG_UPDATE attaches the configured revision. The scale-up then sets
+  that revision and the task count in one `UpdateService`.
   Such an install counts as a running workload only once a deploy has
   started it (`hasStartedInstall`), so a failed first deploy marks the
   deployment `FAILED` like a failed install would; the relay scales the

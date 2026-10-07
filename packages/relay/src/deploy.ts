@@ -171,6 +171,12 @@ export interface EcsDeployDeps {
   readonly stackName: string;
   /** Stamped on every registered task-definition copy (IAM tag boundary). */
   readonly installationId: string;
+  /**
+   * The keys of the effective configuration a task definition does not
+   * carry yet (`unappliedConfigurationKeys`, ./config-update.ts). Asked only
+   * for a service at zero tasks: its first start waits until this is empty.
+   */
+  readonly unappliedConfiguration: (definition: EcsTaskDefinition) => Promise<readonly string[]>;
   readonly now?: () => string;
   /** How long the in-invocation migration poll waits between DescribeTasks calls. */
   readonly migrationPollIntervalMs?: number;
@@ -571,6 +577,29 @@ export async function settleEcsDeploy(
   // gated on there being no migration to run.
   if (!anyServiceNeedsUpdate && request.migrationTask === null) {
     return settleSuccess(deps, request, context.migration ?? undefined);
+  }
+
+  // DEPLOY-009: the configured task definition must be attached before first
+  // scale-up. A service at zero tasks starts only on a revision that already
+  // carries the effective configuration — never on the template's
+  // unconfigured revision, however this command and the CONFIG_UPDATE that
+  // configures the service interleave (a later relay invocation, a failed or
+  // replayed pass). Until then nothing is mutated: the service stays at zero
+  // and the command waits for a later poll.
+  for (const view of views) {
+    if ((view.service!.desiredCount ?? 0) !== 0) continue;
+    const unapplied = await deps.unappliedConfiguration(definitions.get(view.arn)!);
+    if (unapplied.length > 0) {
+      console.log(
+        JSON.stringify({
+          event: 'relay:first-start-awaiting-configuration',
+          service: view.arn,
+          taskDefinition: view.service!.taskDefinition,
+          keys: unapplied,
+        }),
+      );
+      return { state: 'in-progress', ...(context.migration ? { migration: context.migration } : {}) };
+    }
   }
 
   // Migration stage — before any service update, so the previous release
@@ -1182,7 +1211,7 @@ function canonical(value: unknown): string {
 }
 
 /** True when `definition` registers exactly what `copy` registers (tags aside). */
-function sameRegistration(definition: EcsTaskDefinition, copy: RegisterTaskDefinitionInput): boolean {
+export function sameRegistration(definition: EcsTaskDefinition, copy: RegisterTaskDefinitionInput): boolean {
   const shape = (input: EcsTaskDefinition | RegisterTaskDefinitionInput): string =>
     canonical({
       family: input.family,
@@ -1380,18 +1409,7 @@ export function createEcsDeployExecutor(deps: EcsDeployDeps): CommandExecutor {
       type: command.type,
       stackName: deps.stackName,
       startedAt: (deps.now ?? (() => new Date().toISOString()))(),
-      // A first start from zero rides the marker so the resumer can scale a
-      // rolled-back rollout back down (DEPLOY-009); the revision rolled out
-      // rides along so the resumer can tell a rollback from a rollout
-      // (DEPLOY-015).
-      payload: {
-        ...command.payload,
-        ...(outcome.startedFromZero ? { startedFromZero: true } : {}),
-        ...(outcome.targetTaskDefinitionArn ? { targetTaskDefinitionArn: outcome.targetTaskDefinitionArn } : {}),
-        ...(outcome.targetTaskDefinitionArns
-          ? { targetTaskDefinitionArns: outcome.targetTaskDefinitionArns }
-          : {}),
-      },
+      payload: { ...command.payload, ...rolloutFacts(outcome) },
       ...(outcome.migration ? { migration: outcome.migration } : {}),
     });
     if (!recorded) {
@@ -1409,6 +1427,20 @@ export function createEcsDeployExecutor(deps: EcsDeployDeps): CommandExecutor {
       }),
     );
     return { commandId: command.id, idempotencyKey: command.idempotencyKey, success: false, deferred: true };
+  };
+}
+
+/**
+ * What a started rollout records on the pending marker. A first start from
+ * zero rides the marker so the resumer can scale a rolled-back rollout back
+ * down (DEPLOY-009); the revision rolled out rides along so the resumer can
+ * tell a rollback from a rollout (DEPLOY-015).
+ */
+function rolloutFacts(outcome: Extract<EcsDeployOutcome, { state: 'in-progress' }>): Record<string, unknown> {
+  return {
+    ...(outcome.startedFromZero ? { startedFromZero: true } : {}),
+    ...(outcome.targetTaskDefinitionArn ? { targetTaskDefinitionArn: outcome.targetTaskDefinitionArn } : {}),
+    ...(outcome.targetTaskDefinitionArns ? { targetTaskDefinitionArns: outcome.targetTaskDefinitionArns } : {}),
   };
 }
 
@@ -1455,8 +1487,21 @@ export function createEcsDeployResumer(deps: EcsDeployDeps): () => Promise<Relay
       // completion onto the marker: a stopped task ages out of DescribeTasks,
       // and re-polling it on later polls would eventually fail a deploy
       // whose migration already succeeded. One extra write, exactly once.
-      if (outcome.migration !== undefined && outcome.migration.completedAt !== pending.migration?.completedAt) {
-        await deps.pending.write({ ...pending, migration: outcome.migration });
+      const migrationCompleted =
+        outcome.migration !== undefined && outcome.migration.completedAt !== pending.migration?.completedAt;
+      // A rollout this pass started (after a migration, or a first start
+      // that waited for its configuration) is recorded exactly once, as the
+      // executor records one it starts.
+      const rolloutStarted =
+        outcome.targetTaskDefinitionArns !== undefined &&
+        pending.payload['targetTaskDefinitionArns'] === undefined &&
+        pending.payload['targetTaskDefinitionArn'] === undefined;
+      if (migrationCompleted || rolloutStarted) {
+        await deps.pending.write({
+          ...pending,
+          payload: { ...pending.payload, ...rolloutFacts(outcome) },
+          ...(outcome.migration !== undefined ? { migration: outcome.migration } : {}),
+        });
       }
       console.log(
         JSON.stringify({
