@@ -1,0 +1,35 @@
+{
+  "taskId": "P1-VERIFY-07",
+  "testedCommit": "e6a3b58ee2363923fef21faca86611fa3bf84538",
+  "executor": "campaign-worker",
+  "model": "sonnet",
+  "startedAt": "2026-10-08T18:59:25Z",
+  "finishedAt": "2026-10-08T19:05:21Z",
+  "proposedStatus": "COMPLETE",
+  "commands": [
+    { "command": "gh api repos/<repo>/git/trees/<commit>?recursive=1 (10 apps)", "exitCode": 0, "summary": "Saved pinned file trees to scratch space." },
+    { "command": "curl raw.githubusercontent.com source reads at pinned commits", "exitCode": 0, "summary": "Read Dockerfiles, compose files, entrypoints, manifests." },
+    { "command": "pnpm exec tsx validate.mts (scratch script, temporary copy removed)", "exitCode": 0, "summary": "10 apps pass expectedFactsSchema; every expected key has a citation; every citation path exists in the pinned tree." }
+  ],
+  "evidence": ["campaign/corpus/labels/verify-07.yaml"],
+  "forbiddenInputsRead": [],
+  "notes": [
+    "repo-561 kestra: NOT_COMPATIBLE. Dockerfile is an overlay on an external base image with no application build; reference setup needs the Docker socket.",
+    "repo-562 Part-DB: NEEDS_CONFIGURATION. Default SQLite and uploads volumes; set PostgreSQL DATABASE_URL.",
+    "repo-563 Lychee: NEEDS_CONFIGURATION. Self-contained; pgsql and env setup; worker is the same image with LYCHEE_MODE=worker.",
+    "repo-564 lago-api: NEEDS_CONFIGURATION. Rails with PostgreSQL, Redis, Sidekiq worker, S3 gem.",
+    "repo-565 open-webui: NOT_COMPATIBLE. Local data dir state by default and heavy ML image.",
+    "repo-566 openfga: NEEDS_CONFIGURATION. Needs run command and PostgreSQL datastore; migrate command exists.",
+    "repo-567 cloudreve: NOT_COMPATIBLE. Dockerfile copies a prebuilt binary, runs aria2, data volume.",
+    "repo-568 dokploy: NOT_COMPATIBLE. Needs Docker socket and Swarm control.",
+    "repo-569 activepieces: NEEDS_CONFIGURATION. PostgreSQL, Redis, separate worker mode of same image; unsandboxed mode.",
+    "repo-570 dex: NOT_COMPATIBLE. Baked config is a dev example with SQLite; real use needs a mounted config file."
+  ],
+  "uncertainties": [
+    "Part-DB and Lychee: local upload volumes are treated as optional, so verdict is NEEDS_CONFIGURATION, not NOT_COMPATIBLE.",
+    "Dex and open-webui NOT_COMPATIBLE rests on the local-disk-state and mounted-config non-goals; a stricter or looser reading could differ.",
+    "Optional Redis (Lychee, open-webui) labelled false; optional PostgreSQL labelled true where the app supports it as a database choice.",
+    "migration omitted for apps that only migrate automatically inside the app (open-webui, dex, kestra, activepieces, cloudreve).",
+    "lago-api port 3000 is the Puma/Rails default, not an explicit EXPOSE; kestra healthPath omitted (management port)."
+  ]
+}

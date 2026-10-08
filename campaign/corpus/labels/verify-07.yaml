@@ -1,0 +1,437 @@
+taskId: P1-VERIFY-07
+testedCommit: e6a3b58ee2363923fef21faca86611fa3bf84538
+apps:
+  - id: repo-561
+    repo: kestra-io/kestra
+    commit: af6395aed86ca48bec7068275f91a789d80f660b
+    expected:
+      compatibility: NOT_COMPATIBLE
+      runtime: [java]
+      monorepo: true
+      postgres: true
+      redis: false
+      worker: false
+      dockerfilePath: Dockerfile
+      port: 8080
+    citations:
+      compatibility:
+        - path: Dockerfile
+          reason: Runtime image only copies a docker/ overlay onto an external prebuilt base image; it never builds the Gradle application, so no self-contained Dockerfile exists.
+        - path: docker-compose.yml
+          reason: Reference setup mounts /var/run/docker.sock and a host work dir and runs as root, so it needs the Docker socket and local disk state.
+      runtime:
+        - path: build.gradle
+          reason: Gradle build of a JVM (Java) application.
+      monorepo:
+        - path: settings.gradle
+          reason: Multi-module Gradle build.
+      postgres:
+        - path: docker-compose.yml
+          reason: Reference setup uses postgres:18 with repository and queue type postgres.
+      redis:
+        - path: docker-compose.yml
+          reason: No Redis service or setting; only postgres.
+      worker:
+        - path: docker-compose.yml
+          reason: Single kestra service running "server standalone"; no separate worker process declared.
+      dockerfilePath:
+        - path: Dockerfile
+          reason: Root Dockerfile.
+      port:
+        - path: docker-compose.yml
+          reason: Publishes 8080:8080 for the web server.
+  - id: repo-562
+    repo: Part-DB/Part-DB-server
+    commit: a108b6d6cdca47947b58536081f9fabf3b0569c8
+    expected:
+      compatibility: NEEDS_CONFIGURATION
+      runtime: [php]
+      monorepo: false
+      postgres: true
+      redis: false
+      worker: false
+      migration: true
+      dockerfilePath: Dockerfile
+      port: 80
+    citations:
+      compatibility:
+        - path: Dockerfile
+          reason: Self-contained multi-stage build, but DATABASE_URL defaults to SQLite in uploads/ and uploads and public/media are VOLUMEs, so the vendor must set a PostgreSQL DATABASE_URL.
+      runtime:
+        - path: composer.json
+          reason: Symfony PHP application.
+      monorepo:
+        - path: composer.json
+          reason: Single PHP package at the repository root.
+      postgres:
+        - path: Dockerfile
+          reason: Installs php-pgsql; DATABASE_URL is a Doctrine DBAL URL that accepts PostgreSQL.
+      redis:
+        - path: composer.json
+          reason: No Redis client dependency.
+      worker:
+        - path: Procfile
+          reason: Only a web process is declared.
+      migration:
+        - path: .docker/partdb-entrypoint.sh
+          reason: Runs doctrine:migrations:migrate when DB_AUTOMIGRATE=true.
+      dockerfilePath:
+        - path: Dockerfile
+          reason: Root Dockerfile builds the production image.
+      port:
+        - path: Dockerfile
+          reason: EXPOSE 80.
+  - id: repo-563
+    repo: LycheeOrg/Lychee
+    commit: 5e13568285f938c8852622ca0c4265c9430322ca
+    expected:
+      compatibility: NEEDS_CONFIGURATION
+      runtime: [php]
+      monorepo: false
+      postgres: true
+      redis: false
+      worker: true
+      storage: true
+      migration: true
+      dockerfilePath: Dockerfile
+      port: 8000
+      healthPath: /
+    citations:
+      compatibility:
+        - path: Dockerfile
+          reason: Self-contained multi-stage FrankenPHP build; vendor must set DB_CONNECTION=pgsql, APP_KEY and related variables (default is SQLite).
+      runtime:
+        - path: composer.json
+          reason: Laravel PHP application.
+      monorepo:
+        - path: composer.json
+          reason: Single PHP package at the repository root.
+      postgres:
+        - path: .env.example
+          reason: DB_CONNECTION can be sqlite, mysql or pgsql; Dockerfile installs pdo_pgsql.
+      redis:
+        - path: .env.example
+          reason: Redis only optional (cache and queue default to file and database).
+      worker:
+        - path: docker-compose.yaml
+          reason: lychee_worker service runs the same image with LYCHEE_MODE=worker.
+      storage:
+        - path: .env.example
+          reason: Optional S3 bucket settings (AWS_BUCKET and related) for file storage.
+      migration:
+        - path: docker/scripts/entrypoint.sh
+          reason: Web mode runs php artisan migrate --force before start.
+      dockerfilePath:
+        - path: Dockerfile
+          reason: Root Dockerfile.
+      port:
+        - path: Dockerfile
+          reason: EXPOSE 8000 and Octane started on port 8000.
+      healthPath:
+        - path: Dockerfile
+          reason: HEALTHCHECK curls http://localhost:8000/.
+  - id: repo-564
+    repo: getlago/lago-api
+    commit: 7df8e11e481a60cdeca171a05e3fb4538208de5a
+    expected:
+      compatibility: NEEDS_CONFIGURATION
+      runtime: [ruby]
+      monorepo: false
+      postgres: true
+      redis: true
+      worker: true
+      storage: true
+      migration: true
+      dockerfilePath: Dockerfile
+      port: 3000
+      healthPath: /health
+    citations:
+      compatibility:
+        - path: Dockerfile
+          reason: Builds from public ghcr base images and bundles gems; one image serves web and worker via different commands, so it needs PostgreSQL, Redis and a Sidekiq worker configured.
+      runtime:
+        - path: Gemfile
+          reason: Rails application.
+      monorepo:
+        - path: Gemfile
+          reason: Single Rails app at the repository root.
+      postgres:
+        - path: Gemfile
+          reason: pg gem; DATABASE_URL in .env.dist is PostgreSQL.
+      redis:
+        - path: Gemfile
+          reason: redis and sidekiq gems.
+      worker:
+        - path: scripts/start.worker.sh
+          reason: Starts sidekiq as the background worker command.
+      storage:
+        - path: Gemfile
+          reason: aws-sdk-s3 gem for file storage.
+      migration:
+        - path: scripts/migrate.sh
+          reason: Runs rails db:migrate and role seeding.
+      dockerfilePath:
+        - path: Dockerfile
+          reason: Root Dockerfile (CMD /app/scripts/start.sh).
+      port:
+        - path: config/puma.rb
+          reason: Puma port defaults to 3000 (ENV PORT); rails s is used to serve.
+      healthPath:
+        - path: config/routes.rb
+          reason: get "/health" route.
+  - id: repo-565
+    repo: open-webui/open-webui
+    commit: 8bd8b4fac5e059578ac0c74b3c18d11139f88b7d
+    expected:
+      compatibility: NOT_COMPATIBLE
+      runtime: [python]
+      monorepo: false
+      postgres: true
+      redis: false
+      worker: false
+      dockerfilePath: Dockerfile
+      port: 8080
+      healthPath: /health
+    citations:
+      compatibility:
+        - path: Dockerfile
+          reason: Defaults keep SQLite, embedded vector store, uploads and model caches under /app/backend/data (local disk state), and the image bakes in torch and sentence-transformers models, too heavy for the 0.25 vCPU / 512 MiB task.
+      runtime:
+        - path: pyproject.toml
+          reason: Python FastAPI backend (with Svelte frontend built in Docker).
+      monorepo:
+        - path: package.json
+          reason: Single app with frontend and backend in one root, no workspaces.
+      postgres:
+        - path: .env.example
+          reason: DATABASE_URL configurable; Python backend supports PostgreSQL via SQLAlchemy.
+      redis:
+        - path: .env.example
+          reason: Redis only optional (valkey vector store option).
+      worker:
+        - path: Dockerfile
+          reason: Single CMD start.sh; no separate worker process.
+      dockerfilePath:
+        - path: Dockerfile
+          reason: Root Dockerfile.
+      port:
+        - path: Dockerfile
+          reason: ENV PORT=8080 and EXPOSE 8080.
+      healthPath:
+        - path: Dockerfile
+          reason: HEALTHCHECK curls /health.
+  - id: repo-566
+    repo: openfga/openfga
+    commit: 526995eb202464e2cace266fb5be56c212af9ecf
+    expected:
+      compatibility: NEEDS_CONFIGURATION
+      runtime: [go]
+      monorepo: false
+      postgres: true
+      redis: false
+      worker: false
+      migration: true
+      dockerfilePath: Dockerfile
+      port: 8080
+      healthPath: /healthz
+    citations:
+      compatibility:
+        - path: Dockerfile
+          reason: Self-contained Go build, but ENTRYPOINT has no default command, so the vendor must set the run command and a PostgreSQL datastore URI.
+      runtime:
+        - path: go.mod
+          reason: Go module.
+      monorepo:
+        - path: go.mod
+          reason: Single Go module.
+      postgres:
+        - path: docker-compose.yaml
+          reason: Uses OPENFGA_DATASTORE_ENGINE=postgres with a postgres service.
+      redis:
+        - path: docker-compose.yaml
+          reason: No Redis service.
+      worker:
+        - path: docker-compose.yaml
+          reason: Only a one-shot migrate service and the server; no worker.
+      migration:
+        - path: docker-compose.yaml
+          reason: migrate service runs "migrate" before the server.
+      dockerfilePath:
+        - path: Dockerfile
+          reason: Root Dockerfile.
+      port:
+        - path: docker-compose.yaml
+          reason: HTTP API published on 8080 (gRPC 8081, playground 3000).
+      healthPath:
+        - path: cmd/run/run.go
+          reason: grpc-gateway registers the health endpoint (WithHealthzEndpoint) at /healthz.
+  - id: repo-567
+    repo: cloudreve/cloudreve
+    commit: 9f1e0b8333f5c7304a09e1dcb3f9c170dddd63f3
+    expected:
+      compatibility: NOT_COMPATIBLE
+      runtime: [go]
+      monorepo: false
+      postgres: true
+      redis: true
+      worker: false
+      dockerfilePath: Dockerfile
+      port: 5212
+    citations:
+      compatibility:
+        - path: Dockerfile
+          reason: Copies a prebuilt cloudreve binary (not built from source), runs aria2 under supervisor and declares VOLUME /cloudreve/data for persistent state.
+      runtime:
+        - path: go.mod
+          reason: Go module.
+      monorepo:
+        - path: go.mod
+          reason: Single Go module.
+      postgres:
+        - path: docker-compose.yml
+          reason: Reference setup uses a postgresql service with CR_CONF_Database.Type=postgres.
+      redis:
+        - path: docker-compose.yml
+          reason: Reference setup includes a redis service and CR_CONF_Redis.Server.
+      worker:
+        - path: .build/entrypoint.sh
+          reason: Entrypoint starts aria2 via supervisor plus the app in one container; no declared separate worker command.
+      dockerfilePath:
+        - path: Dockerfile
+          reason: Root Dockerfile.
+      port:
+        - path: Dockerfile
+          reason: EXPOSE 5212.
+  - id: repo-568
+    repo: Dokploy/dokploy
+    commit: 5be17d3dd01d9489521cde2eca7d997b14c54653
+    expected:
+      compatibility: NOT_COMPATIBLE
+      runtime: [node]
+      monorepo: true
+      postgres: true
+      redis: false
+      worker: false
+      migration: true
+      dockerfilePath: Dockerfile
+      port: 3000
+      healthPath: /api/trpc/settings.health
+    citations:
+      compatibility:
+        - path: Dockerfile
+          reason: Installs Docker engine and manages the host Docker daemon and Swarm; it needs the Docker socket, which Fargate cannot provide.
+        - path: apps/dokploy/package.json
+          reason: dockerode dependency confirms Docker-daemon control.
+      runtime:
+        - path: package.json
+          reason: Node.js application (Next.js).
+      monorepo:
+        - path: pnpm-workspace.yaml
+          reason: pnpm workspace (apps/dokploy, packages/server).
+      postgres:
+        - path: apps/dokploy/package.json
+          reason: postgres client dependency; Dockerfile CMD waits for postgres.
+      redis:
+        - path: apps/dokploy/server/queues/in-memory-queue.ts
+          reason: Queue is in-memory; no Redis client dependency.
+      worker:
+        - path: Dockerfile
+          reason: Single CMD runs the server; schedule and monitoring are separate Dockerfiles.
+      migration:
+        - path: apps/dokploy/migration.ts
+          reason: Dockerfile CMD runs dist/migration.mjs before the server.
+      dockerfilePath:
+        - path: Dockerfile
+          reason: Root Dockerfile.
+      port:
+        - path: Dockerfile
+          reason: EXPOSE 3000.
+      healthPath:
+        - path: Dockerfile
+          reason: HEALTHCHECK curls /api/trpc/settings.health.
+  - id: repo-569
+    repo: activepieces/activepieces
+    commit: 6f408036fdc92752506815df43c21a96b4e75a46
+    expected:
+      compatibility: NEEDS_CONFIGURATION
+      runtime: [node]
+      monorepo: true
+      postgres: true
+      redis: true
+      worker: true
+      dockerfilePath: Dockerfile
+      port: 80
+      healthPath: /api/v1/health
+    citations:
+      compatibility:
+        - path: Dockerfile
+          reason: Self-contained multi-stage build; one image runs app and worker by AP_CONTAINER_TYPE, and the vendor must supply PostgreSQL, Redis and secrets.
+        - path: .env.example
+          reason: AP_EXECUTION_MODE=UNSANDBOXED, so no privileged sandbox is needed.
+      runtime:
+        - path: package.json
+          reason: Node/TypeScript application built with Bun and Turbo.
+      monorepo:
+        - path: turbo.json
+          reason: Turborepo workspace with many packages.
+      postgres:
+        - path: docker-compose.yml
+          reason: postgres service and AP_POSTGRES_* settings.
+      redis:
+        - path: docker-compose.yml
+          reason: redis service required by app.
+      worker:
+        - path: docker-entrypoint.sh
+          reason: AP_CONTAINER_TYPE=WORKER starts the worker bootstrap process.
+      dockerfilePath:
+        - path: Dockerfile
+          reason: Root Dockerfile (Dockerfile.worker is a separate worker image).
+      port:
+        - path: Dockerfile
+          reason: EXPOSE 80 and AP_PORT defaults to 80.
+      healthPath:
+        - path: Dockerfile
+          reason: HEALTHCHECK curls /api/v1/health.
+  - id: repo-570
+    repo: dexidp/dex
+    commit: 05a275057112ba93e17db21f600b756f000f1c21
+    expected:
+      compatibility: NOT_COMPATIBLE
+      runtime: [go]
+      monorepo: false
+      postgres: true
+      redis: false
+      worker: false
+      dockerfilePath: Dockerfile
+      port: 5556
+      healthPath: /healthz
+    citations:
+      compatibility:
+        - path: config.docker.yaml
+          reason: Baked-in config is a development example with SQLite storage and no real connectors; real use needs a custom config file mounted into /etc/dex.
+        - path: Dockerfile
+          reason: CMD dex serve /etc/dex/config.docker.yaml expects that config file.
+      runtime:
+        - path: go.mod
+          reason: Go module.
+      monorepo:
+        - path: go.mod
+          reason: Single root module (api/v2 is a nested API module).
+      postgres:
+        - path: storage/sql/config.go
+          reason: SQL storage backends include PostgreSQL.
+      redis:
+        - path: go.mod
+          reason: No Redis storage backend.
+      worker:
+        - path: Dockerfile
+          reason: Single dex serve process.
+      dockerfilePath:
+        - path: Dockerfile
+          reason: Root Dockerfile.
+      port:
+        - path: config.docker.yaml
+          reason: web.http defaults to 0.0.0.0:5556.
+      healthPath:
+        - path: server/server.go
+          reason: Routes register /healthz.
