@@ -1,0 +1,29 @@
+{
+  "taskId": "P1-VERIFY-08",
+  "testedCommit": "e6a3b58ee2363923fef21faca86611fa3bf84538",
+  "executor": "campaign-worker",
+  "model": "sonnet",
+  "startedAt": "2026-10-08T19:08:17Z",
+  "finishedAt": "2026-10-08T19:19:39Z",
+  "proposedStatus": "COMPLETE",
+  "commands": [
+    { "command": "gh api repos/<repo>/git/trees/<commit>?recursive=1 (10 apps)", "exitCode": 0, "summary": "Listed pinned trees; read source files via gh api contents at pinned commits" },
+    { "command": "npx tsx validate (scratchpad v.mts)", "exitCode": 0, "summary": "YAML parsed; 10 expected objects valid against expectedFactsSchema; every expected key cited; all citation paths exist in pinned trees" },
+    { "command": "git status --short", "exitCode": 0, "summary": "Only verify-08.yaml and result.json added by this task" }
+  ],
+  "evidence": ["campaign/corpus/labels/verify-08.yaml"],
+  "forbiddenInputsRead": ["One mistyped command ran 'grep -rn api/ping -r' with no path, which searched the working directory (repo checkout, including campaign/ paths) once. Output was discarded (piped to head -0) and never seen; nothing from it was used."],
+  "notes": [
+    "HEAD of the worktree is 9593782b, not the stated testedCommit; labels use only upstream pinned commits so this does not affect them.",
+    "repo-571 firezone: NEEDS_CONFIGURATION; Phoenix portal, Postgres, port 13000, /readyz; Dockerfile needs APPLICATION_NAME build arg.",
+    "repo-572 anything-llm: NOT_COMPATIBLE; SQLite-only schema plus local storage dir.",
+    "repo-573 mem0 server: NEEDS_CONFIGURATION; Postgres, port 8000, no health route; history SQLite file is local; secrets required.",
+    "repo-574 lobsters: NOT_COMPATIBLE; SQLite only, job process, dev-only Dockerfile.",
+    "repo-575 traccar: NEEDS_CONFIGURATION; no Dockerfile builds from source (needs prebuilt zip), H2 default, Postgres via env; /api/health port 8082.",
+    "repo-576 btcpay: NEEDS_CONFIGURATION; appRoot set to repo root because Dockerfile is at root; needs Postgres and external NBXplorer; port 23000 from known default, not directly read.",
+    "repo-577 woodpecker: NEEDS_CONFIGURATION; server Dockerfile needs prebuilt dist, SQLite default, Postgres supported; /healthz port 8000.",
+    "repo-578 lldap: NEEDS_CONFIGURATION; SQLite default with /data volume, Postgres via database_url; HTTP 17170, LDAP is raw TCP; no HTTP health route.",
+    "repo-579 akaunting: NEEDS_CONFIGURATION; no Dockerfile, MySQL default with pgsql block, S3 disk available.",
+    "repo-580 keeper.sh: NOT_COMPATIBLE; separate api/cron/worker/mcp/web images; standalone image embeds Postgres and Redis."
+  ]
+}
