@@ -26,6 +26,11 @@
       "command": "node check: every phase 1-5 worker task lists campaign/corpus/holdout.yaml in forbiddenInputs",
       "exitCode": 0,
       "summary": "no task missing the holdout forbiddenInputs entry"
+    },
+    {
+      "command": "gh api repos/<r>/contents/Dockerfile?ref=<sha> for nopCommerce, remark42, teslamate, full-stack-fastapi-template",
+      "exitCode": 0,
+      "summary": "root Dockerfile present for the first three (appPath .), absent for fastapi (appPath backend)"
     }
   ],
   "evidence": [
@@ -33,5 +38,5 @@
     "campaign/corpus/split.json",
     "campaign/corpus/holdout.yaml"
   ],
-  "notes": "Ids follow batch-file order (realistic-01..07, messy-01..02, boundary-01). corpus.json holds pins and layout only and does not mark split membership; selection hints (expectedNeeds, boundaryReason, labelingRisk) are left out so that label and verify workers read source only. labelBatch n = the source batch n, so P1-LABEL-0n/P1-VERIFY-0n slice by labelBatch. Holdout membership is recorded only in split.json and holdout.yaml."
+  "notes": "Ids follow batch-file order (realistic-01..07, messy-01..02, boundary-01). corpus.json holds pins and layout only and does not mark split membership; selection hints (expectedNeeds, boundaryReason, labelingRisk) are left out so that label and verify workers read source only. labelBatch n = the source batch n, so P1-LABEL-0n/P1-VERIFY-0n slice by labelBatch. Holdout membership is recorded only in split.json and holdout.yaml. Correction in the same attempt: the realistic batches have no appPath field; Opus derived it from validity evidence (backend, templates/with-postgres, server, apiserver, packages/sync-service; all other realistic entries root)."
 }

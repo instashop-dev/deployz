@@ -4,8 +4,8 @@
   "status": "CONTINUE",
   "phase": 1,
   "currentTask": null,
-  "nextAction": "Run P1-LABEL-01 (campaign-worker; corpus.json entries with labelBatch 1 only).",
-  "updatedAt": "2026-10-08T13:41:42Z",
+  "nextAction": "Run P1-LABEL-01 (campaign-worker) as the first task of the next run (timebox 40 > 38: long-run exception). Give only corpus.json entries with labelBatch 1, manifest.ts and mvp-scope.md.",
+  "updatedAt": "2026-10-08T13:42:56Z",
   "checkout": {
     "path": "C:/Users/Tejas/Desktop/deployz-mvp-test",
     "kind": "git worktree of C:/Users/Tejas/Desktop/deployz",

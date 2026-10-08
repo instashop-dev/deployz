@@ -9,7 +9,7 @@
   },
   "idRange": "repo-501..repo-600",
   "idCollisionCheck": "docs/testing/repository-compatibility/benchmark.yaml ids end at repo-301; no repo-501..repo-600 id exists",
-  "notes": "Pins and layout only. Selection-time hints (expectedNeeds, boundaryReason, labelingRisk) stay in the candidates files and are not part of the labeling input. Split membership is not recorded here; see split.json.",
+  "notes": "Pins and layout only. Selection-time hints (expectedNeeds, boundaryReason, labelingRisk) stay in the candidates files and are not part of the labeling input. Split membership is not recorded here; see split.json. appPath names the target application subtree only; labelers determine appRoot and dockerfilePath from source. The realistic selection batches did not record appPath, so Opus derived it (5 subdirectory targets).",
   "entries": [
     {
       "id": "repo-501",
@@ -17,14 +17,15 @@
       "commit": "f27b4721507824e57ebd0286ff1a84d82e83bf59",
       "defaultBranch": "master",
       "cohort": "realistic",
-      "appPath": ".",
+      "appPath": "backend",
       "license": "MIT",
       "family": "full-stack-fastapi-template",
       "labelBatch": 1,
       "source": {
         "file": "campaign/corpus/candidates/realistic-01.json",
         "candidateId": "fastapi-fullstack"
-      }
+      },
+      "appPathSource": "Opus, from the selection validity evidence (entry point and build file paths) and a root Dockerfile check at the pinned commit"
     },
     {
       "id": "repo-502",
@@ -39,7 +40,8 @@
       "source": {
         "file": "campaign/corpus/candidates/realistic-01.json",
         "candidateId": "redash"
-      }
+      },
+      "appPathSource": "Opus, from the selection validity evidence (entry point and build file paths) and a root Dockerfile check at the pinned commit"
     },
     {
       "id": "repo-503",
@@ -54,7 +56,8 @@
       "source": {
         "file": "campaign/corpus/candidates/realistic-01.json",
         "candidateId": "label-studio"
-      }
+      },
+      "appPathSource": "Opus, from the selection validity evidence (entry point and build file paths) and a root Dockerfile check at the pinned commit"
     },
     {
       "id": "repo-504",
@@ -69,7 +72,8 @@
       "source": {
         "file": "campaign/corpus/candidates/realistic-01.json",
         "candidateId": "koel"
-      }
+      },
+      "appPathSource": "Opus, from the selection validity evidence (entry point and build file paths) and a root Dockerfile check at the pinned commit"
     },
     {
       "id": "repo-505",
@@ -84,7 +88,8 @@
       "source": {
         "file": "campaign/corpus/candidates/realistic-01.json",
         "candidateId": "spring-petclinic"
-      }
+      },
+      "appPathSource": "Opus, from the selection validity evidence (entry point and build file paths) and a root Dockerfile check at the pinned commit"
     },
     {
       "id": "repo-506",
@@ -99,7 +104,8 @@
       "source": {
         "file": "campaign/corpus/candidates/realistic-01.json",
         "candidateId": "shiori"
-      }
+      },
+      "appPathSource": "Opus, from the selection validity evidence (entry point and build file paths) and a root Dockerfile check at the pinned commit"
     },
     {
       "id": "repo-507",
@@ -107,14 +113,15 @@
       "commit": "c66a7bec07dd7f30bdcd98320351c70846da4f0e",
       "defaultBranch": "main",
       "cohort": "realistic",
-      "appPath": ".",
+      "appPath": "templates/with-postgres",
       "license": "MIT",
       "family": "payload",
       "labelBatch": 1,
       "source": {
         "file": "campaign/corpus/candidates/realistic-01.json",
         "candidateId": "payload-with-postgres"
-      }
+      },
+      "appPathSource": "Opus, from the selection validity evidence (entry point and build file paths) and a root Dockerfile check at the pinned commit"
     },
     {
       "id": "repo-508",
@@ -129,7 +136,8 @@
       "source": {
         "file": "campaign/corpus/candidates/realistic-01.json",
         "candidateId": "gotenberg"
-      }
+      },
+      "appPathSource": "Opus, from the selection validity evidence (entry point and build file paths) and a root Dockerfile check at the pinned commit"
     },
     {
       "id": "repo-509",
@@ -144,7 +152,8 @@
       "source": {
         "file": "campaign/corpus/candidates/realistic-01.json",
         "candidateId": "inbox-zero"
-      }
+      },
+      "appPathSource": "Opus, from the selection validity evidence (entry point and build file paths) and a root Dockerfile check at the pinned commit"
     },
     {
       "id": "repo-510",
@@ -159,7 +168,8 @@
       "source": {
         "file": "campaign/corpus/candidates/realistic-01.json",
         "candidateId": "campfire"
-      }
+      },
+      "appPathSource": "Opus, from the selection validity evidence (entry point and build file paths) and a root Dockerfile check at the pinned commit"
     },
     {
       "id": "repo-511",
@@ -174,7 +184,8 @@
       "source": {
         "file": "campaign/corpus/candidates/realistic-02.json",
         "candidateId": "discourse"
-      }
+      },
+      "appPathSource": "Opus, from the selection validity evidence (entry point and build file paths) and a root Dockerfile check at the pinned commit"
     },
     {
       "id": "repo-512",
@@ -189,7 +200,8 @@
       "source": {
         "file": "campaign/corpus/candidates/realistic-02.json",
         "candidateId": "forem"
-      }
+      },
+      "appPathSource": "Opus, from the selection validity evidence (entry point and build file paths) and a root Dockerfile check at the pinned commit"
     },
     {
       "id": "repo-513",
@@ -204,7 +216,8 @@
       "source": {
         "file": "campaign/corpus/candidates/realistic-02.json",
         "candidateId": "saleor"
-      }
+      },
+      "appPathSource": "Opus, from the selection validity evidence (entry point and build file paths) and a root Dockerfile check at the pinned commit"
     },
     {
       "id": "repo-514",
@@ -219,7 +232,8 @@
       "source": {
         "file": "campaign/corpus/candidates/realistic-02.json",
         "candidateId": "hexpm"
-      }
+      },
+      "appPathSource": "Opus, from the selection validity evidence (entry point and build file paths) and a root Dockerfile check at the pinned commit"
     },
     {
       "id": "repo-515",
@@ -234,7 +248,8 @@
       "source": {
         "file": "campaign/corpus/candidates/realistic-02.json",
         "candidateId": "eshop"
-      }
+      },
+      "appPathSource": "Opus, from the selection validity evidence (entry point and build file paths) and a root Dockerfile check at the pinned commit"
     },
     {
       "id": "repo-516",
@@ -242,14 +257,15 @@
       "commit": "56f4e7b45d4101ef8d3ed1bf5764542c5ae3d37a",
       "defaultBranch": "main",
       "cohort": "realistic",
-      "appPath": ".",
+      "appPath": "server",
       "license": "AGPL-3.0",
       "family": "ente",
       "labelBatch": 2,
       "source": {
         "file": "campaign/corpus/candidates/realistic-02.json",
         "candidateId": "ente"
-      }
+      },
+      "appPathSource": "Opus, from the selection validity evidence (entry point and build file paths) and a root Dockerfile check at the pinned commit"
     },
     {
       "id": "repo-517",
@@ -257,14 +273,15 @@
       "commit": "cd2f225f431c21d980f5b5cda86512e8a7bef79c",
       "defaultBranch": "main",
       "cohort": "realistic",
-      "appPath": ".",
+      "appPath": "apiserver",
       "license": "Apache-2.0",
       "family": "dependency-track",
       "labelBatch": 2,
       "source": {
         "file": "campaign/corpus/candidates/realistic-02.json",
         "candidateId": "dependency-track"
-      }
+      },
+      "appPathSource": "Opus, from the selection validity evidence (entry point and build file paths) and a root Dockerfile check at the pinned commit"
     },
     {
       "id": "repo-518",
@@ -279,7 +296,8 @@
       "source": {
         "file": "campaign/corpus/candidates/realistic-02.json",
         "candidateId": "cachet"
-      }
+      },
+      "appPathSource": "Opus, from the selection validity evidence (entry point and build file paths) and a root Dockerfile check at the pinned commit"
     },
     {
       "id": "repo-519",
@@ -294,7 +312,8 @@
       "source": {
         "file": "campaign/corpus/candidates/realistic-02.json",
         "candidateId": "trigger-dev"
-      }
+      },
+      "appPathSource": "Opus, from the selection validity evidence (entry point and build file paths) and a root Dockerfile check at the pinned commit"
     },
     {
       "id": "repo-520",
@@ -309,7 +328,8 @@
       "source": {
         "file": "campaign/corpus/candidates/realistic-02.json",
         "candidateId": "mathesar"
-      }
+      },
+      "appPathSource": "Opus, from the selection validity evidence (entry point and build file paths) and a root Dockerfile check at the pinned commit"
     },
     {
       "id": "repo-521",
@@ -324,7 +344,8 @@
       "source": {
         "file": "campaign/corpus/candidates/realistic-03.json",
         "candidateId": "whoami"
-      }
+      },
+      "appPathSource": "Opus, from the selection validity evidence (entry point and build file paths) and a root Dockerfile check at the pinned commit"
     },
     {
       "id": "repo-522",
@@ -339,7 +360,8 @@
       "source": {
         "file": "campaign/corpus/candidates/realistic-03.json",
         "candidateId": "dufs"
-      }
+      },
+      "appPathSource": "Opus, from the selection validity evidence (entry point and build file paths) and a root Dockerfile check at the pinned commit"
     },
     {
       "id": "repo-523",
@@ -354,7 +376,8 @@
       "source": {
         "file": "campaign/corpus/candidates/realistic-03.json",
         "candidateId": "dawarich"
-      }
+      },
+      "appPathSource": "Opus, from the selection validity evidence (entry point and build file paths) and a root Dockerfile check at the pinned commit"
     },
     {
       "id": "repo-524",
@@ -369,7 +392,8 @@
       "source": {
         "file": "campaign/corpus/candidates/realistic-03.json",
         "candidateId": "microblog"
-      }
+      },
+      "appPathSource": "Opus, from the selection validity evidence (entry point and build file paths) and a root Dockerfile check at the pinned commit"
     },
     {
       "id": "repo-525",
@@ -384,7 +408,8 @@
       "source": {
         "file": "campaign/corpus/candidates/realistic-03.json",
         "candidateId": "komga"
-      }
+      },
+      "appPathSource": "Opus, from the selection validity evidence (entry point and build file paths) and a root Dockerfile check at the pinned commit"
     },
     {
       "id": "repo-526",
@@ -399,7 +424,8 @@
       "source": {
         "file": "campaign/corpus/candidates/realistic-03.json",
         "candidateId": "nopcommerce"
-      }
+      },
+      "appPathSource": "Opus, from the selection validity evidence (entry point and build file paths) and a root Dockerfile check at the pinned commit"
     },
     {
       "id": "repo-527",
@@ -414,7 +440,8 @@
       "source": {
         "file": "campaign/corpus/candidates/realistic-03.json",
         "candidateId": "parse-server"
-      }
+      },
+      "appPathSource": "Opus, from the selection validity evidence (entry point and build file paths) and a root Dockerfile check at the pinned commit"
     },
     {
       "id": "repo-528",
@@ -422,14 +449,15 @@
       "commit": "3f9809fb0bd894cb74470d434749673492ad7acf",
       "defaultBranch": "main",
       "cohort": "realistic",
-      "appPath": ".",
+      "appPath": "packages/sync-service",
       "license": "Apache-2.0",
       "family": "electric",
       "labelBatch": 3,
       "source": {
         "file": "campaign/corpus/candidates/realistic-03.json",
         "candidateId": "electric"
-      }
+      },
+      "appPathSource": "Opus, from the selection validity evidence (entry point and build file paths) and a root Dockerfile check at the pinned commit"
     },
     {
       "id": "repo-529",
@@ -444,7 +472,8 @@
       "source": {
         "file": "campaign/corpus/candidates/realistic-03.json",
         "candidateId": "snipe-it"
-      }
+      },
+      "appPathSource": "Opus, from the selection validity evidence (entry point and build file paths) and a root Dockerfile check at the pinned commit"
     },
     {
       "id": "repo-530",
@@ -459,7 +488,8 @@
       "source": {
         "file": "campaign/corpus/candidates/realistic-03.json",
         "candidateId": "asynqmon"
-      }
+      },
+      "appPathSource": "Opus, from the selection validity evidence (entry point and build file paths) and a root Dockerfile check at the pinned commit"
     },
     {
       "id": "repo-531",
@@ -474,7 +504,8 @@
       "source": {
         "file": "campaign/corpus/candidates/realistic-04.json",
         "candidateId": "linkding"
-      }
+      },
+      "appPathSource": "Opus, from the selection validity evidence (entry point and build file paths) and a root Dockerfile check at the pinned commit"
     },
     {
       "id": "repo-532",
@@ -489,7 +520,8 @@
       "source": {
         "file": "campaign/corpus/candidates/realistic-04.json",
         "candidateId": "pretix"
-      }
+      },
+      "appPathSource": "Opus, from the selection validity evidence (entry point and build file paths) and a root Dockerfile check at the pinned commit"
     },
     {
       "id": "repo-533",
@@ -504,7 +536,8 @@
       "source": {
         "file": "campaign/corpus/candidates/realistic-04.json",
         "candidateId": "atuin"
-      }
+      },
+      "appPathSource": "Opus, from the selection validity evidence (entry point and build file paths) and a root Dockerfile check at the pinned commit"
     },
     {
       "id": "repo-534",
@@ -519,7 +552,8 @@
       "source": {
         "file": "campaign/corpus/candidates/realistic-04.json",
         "candidateId": "hapi-fhir-jpaserver-starter"
-      }
+      },
+      "appPathSource": "Opus, from the selection validity evidence (entry point and build file paths) and a root Dockerfile check at the pinned commit"
     },
     {
       "id": "repo-535",
@@ -534,7 +568,8 @@
       "source": {
         "file": "campaign/corpus/candidates/realistic-04.json",
         "candidateId": "sure"
-      }
+      },
+      "appPathSource": "Opus, from the selection validity evidence (entry point and build file paths) and a root Dockerfile check at the pinned commit"
     },
     {
       "id": "repo-536",
@@ -549,7 +584,8 @@
       "source": {
         "file": "campaign/corpus/candidates/realistic-04.json",
         "candidateId": "invoiceshelf"
-      }
+      },
+      "appPathSource": "Opus, from the selection validity evidence (entry point and build file paths) and a root Dockerfile check at the pinned commit"
     },
     {
       "id": "repo-537",
@@ -564,7 +600,8 @@
       "source": {
         "file": "campaign/corpus/candidates/realistic-04.json",
         "candidateId": "actual"
-      }
+      },
+      "appPathSource": "Opus, from the selection validity evidence (entry point and build file paths) and a root Dockerfile check at the pinned commit"
     },
     {
       "id": "repo-538",
@@ -579,7 +616,8 @@
       "source": {
         "file": "campaign/corpus/candidates/realistic-04.json",
         "candidateId": "pocketbase"
-      }
+      },
+      "appPathSource": "Opus, from the selection validity evidence (entry point and build file paths) and a root Dockerfile check at the pinned commit"
     },
     {
       "id": "repo-539",
@@ -594,7 +632,8 @@
       "source": {
         "file": "campaign/corpus/candidates/realistic-04.json",
         "candidateId": "navidrome"
-      }
+      },
+      "appPathSource": "Opus, from the selection validity evidence (entry point and build file paths) and a root Dockerfile check at the pinned commit"
     },
     {
       "id": "repo-540",
@@ -609,7 +648,8 @@
       "source": {
         "file": "campaign/corpus/candidates/realistic-04.json",
         "candidateId": "excalidraw"
-      }
+      },
+      "appPathSource": "Opus, from the selection validity evidence (entry point and build file paths) and a root Dockerfile check at the pinned commit"
     },
     {
       "id": "repo-541",
@@ -624,7 +664,8 @@
       "source": {
         "file": "campaign/corpus/candidates/realistic-05.json",
         "candidateId": "profilarr"
-      }
+      },
+      "appPathSource": "Opus, from the selection validity evidence (entry point and build file paths) and a root Dockerfile check at the pinned commit"
     },
     {
       "id": "repo-542",
@@ -639,7 +680,8 @@
       "source": {
         "file": "campaign/corpus/candidates/realistic-05.json",
         "candidateId": "convertx"
-      }
+      },
+      "appPathSource": "Opus, from the selection validity evidence (entry point and build file paths) and a root Dockerfile check at the pinned commit"
     },
     {
       "id": "repo-543",
@@ -654,7 +696,8 @@
       "source": {
         "file": "campaign/corpus/candidates/realistic-05.json",
         "candidateId": "teslamate"
-      }
+      },
+      "appPathSource": "Opus, from the selection validity evidence (entry point and build file paths) and a root Dockerfile check at the pinned commit"
     },
     {
       "id": "repo-544",
@@ -669,7 +712,8 @@
       "source": {
         "file": "campaign/corpus/candidates/realistic-05.json",
         "candidateId": "kavita"
-      }
+      },
+      "appPathSource": "Opus, from the selection validity evidence (entry point and build file paths) and a root Dockerfile check at the pinned commit"
     },
     {
       "id": "repo-545",
@@ -684,7 +728,8 @@
       "source": {
         "file": "campaign/corpus/candidates/realistic-05.json",
         "candidateId": "remark42"
-      }
+      },
+      "appPathSource": "Opus, from the selection validity evidence (entry point and build file paths) and a root Dockerfile check at the pinned commit"
     },
     {
       "id": "repo-546",
@@ -699,7 +744,8 @@
       "source": {
         "file": "campaign/corpus/candidates/realistic-05.json",
         "candidateId": "etherpad"
-      }
+      },
+      "appPathSource": "Opus, from the selection validity evidence (entry point and build file paths) and a root Dockerfile check at the pinned commit"
     },
     {
       "id": "repo-547",
@@ -714,7 +760,8 @@
       "source": {
         "file": "campaign/corpus/candidates/realistic-05.json",
         "candidateId": "bakerydemo"
-      }
+      },
+      "appPathSource": "Opus, from the selection validity evidence (entry point and build file paths) and a root Dockerfile check at the pinned commit"
     },
     {
       "id": "repo-548",
@@ -729,7 +776,8 @@
       "source": {
         "file": "campaign/corpus/candidates/realistic-05.json",
         "candidateId": "leantime"
-      }
+      },
+      "appPathSource": "Opus, from the selection validity evidence (entry point and build file paths) and a root Dockerfile check at the pinned commit"
     },
     {
       "id": "repo-549",
@@ -744,7 +792,8 @@
       "source": {
         "file": "campaign/corpus/candidates/realistic-05.json",
         "candidateId": "zammad"
-      }
+      },
+      "appPathSource": "Opus, from the selection validity evidence (entry point and build file paths) and a root Dockerfile check at the pinned commit"
     },
     {
       "id": "repo-550",
@@ -759,7 +808,8 @@
       "source": {
         "file": "campaign/corpus/candidates/realistic-05.json",
         "candidateId": "ntfy"
-      }
+      },
+      "appPathSource": "Opus, from the selection validity evidence (entry point and build file paths) and a root Dockerfile check at the pinned commit"
     },
     {
       "id": "repo-551",
@@ -774,7 +824,8 @@
       "source": {
         "file": "campaign/corpus/candidates/realistic-06.json",
         "candidateId": "spliit"
-      }
+      },
+      "appPathSource": "Opus, from the selection validity evidence (entry point and build file paths) and a root Dockerfile check at the pinned commit"
     },
     {
       "id": "repo-552",
@@ -789,7 +840,8 @@
       "source": {
         "file": "campaign/corpus/candidates/realistic-06.json",
         "candidateId": "misskey"
-      }
+      },
+      "appPathSource": "Opus, from the selection validity evidence (entry point and build file paths) and a root Dockerfile check at the pinned commit"
     },
     {
       "id": "repo-553",
@@ -804,7 +856,8 @@
       "source": {
         "file": "campaign/corpus/candidates/realistic-06.json",
         "candidateId": "shynet"
-      }
+      },
+      "appPathSource": "Opus, from the selection validity evidence (entry point and build file paths) and a root Dockerfile check at the pinned commit"
     },
     {
       "id": "repo-554",
@@ -819,7 +872,8 @@
       "source": {
         "file": "campaign/corpus/candidates/realistic-06.json",
         "candidateId": "mailpit"
-      }
+      },
+      "appPathSource": "Opus, from the selection validity evidence (entry point and build file paths) and a root Dockerfile check at the pinned commit"
     },
     {
       "id": "repo-555",
@@ -834,7 +888,8 @@
       "source": {
         "file": "campaign/corpus/candidates/realistic-06.json",
         "candidateId": "tianji"
-      }
+      },
+      "appPathSource": "Opus, from the selection validity evidence (entry point and build file paths) and a root Dockerfile check at the pinned commit"
     },
     {
       "id": "repo-556",
@@ -849,7 +904,8 @@
       "source": {
         "file": "campaign/corpus/candidates/realistic-06.json",
         "candidateId": "wakapi"
-      }
+      },
+      "appPathSource": "Opus, from the selection validity evidence (entry point and build file paths) and a root Dockerfile check at the pinned commit"
     },
     {
       "id": "repo-557",
@@ -864,7 +920,8 @@
       "source": {
         "file": "campaign/corpus/candidates/realistic-06.json",
         "candidateId": "sqlpage"
-      }
+      },
+      "appPathSource": "Opus, from the selection validity evidence (entry point and build file paths) and a root Dockerfile check at the pinned commit"
     },
     {
       "id": "repo-558",
@@ -879,7 +936,8 @@
       "source": {
         "file": "campaign/corpus/candidates/realistic-06.json",
         "candidateId": "rustypaste"
-      }
+      },
+      "appPathSource": "Opus, from the selection validity evidence (entry point and build file paths) and a root Dockerfile check at the pinned commit"
     },
     {
       "id": "repo-559",
@@ -894,7 +952,8 @@
       "source": {
         "file": "campaign/corpus/candidates/realistic-06.json",
         "candidateId": "rauthy"
-      }
+      },
+      "appPathSource": "Opus, from the selection validity evidence (entry point and build file paths) and a root Dockerfile check at the pinned commit"
     },
     {
       "id": "repo-560",
@@ -909,7 +968,8 @@
       "source": {
         "file": "campaign/corpus/candidates/realistic-06.json",
         "candidateId": "kener"
-      }
+      },
+      "appPathSource": "Opus, from the selection validity evidence (entry point and build file paths) and a root Dockerfile check at the pinned commit"
     },
     {
       "id": "repo-561",
@@ -924,7 +984,8 @@
       "source": {
         "file": "campaign/corpus/candidates/realistic-07.json",
         "candidateId": "kestra"
-      }
+      },
+      "appPathSource": "Opus, from the selection validity evidence (entry point and build file paths) and a root Dockerfile check at the pinned commit"
     },
     {
       "id": "repo-562",
@@ -939,7 +1000,8 @@
       "source": {
         "file": "campaign/corpus/candidates/realistic-07.json",
         "candidateId": "part-db"
-      }
+      },
+      "appPathSource": "Opus, from the selection validity evidence (entry point and build file paths) and a root Dockerfile check at the pinned commit"
     },
     {
       "id": "repo-563",
@@ -954,7 +1016,8 @@
       "source": {
         "file": "campaign/corpus/candidates/realistic-07.json",
         "candidateId": "lychee"
-      }
+      },
+      "appPathSource": "Opus, from the selection validity evidence (entry point and build file paths) and a root Dockerfile check at the pinned commit"
     },
     {
       "id": "repo-564",
@@ -969,7 +1032,8 @@
       "source": {
         "file": "campaign/corpus/candidates/realistic-07.json",
         "candidateId": "lago-api"
-      }
+      },
+      "appPathSource": "Opus, from the selection validity evidence (entry point and build file paths) and a root Dockerfile check at the pinned commit"
     },
     {
       "id": "repo-565",
@@ -984,7 +1048,8 @@
       "source": {
         "file": "campaign/corpus/candidates/realistic-07.json",
         "candidateId": "open-webui"
-      }
+      },
+      "appPathSource": "Opus, from the selection validity evidence (entry point and build file paths) and a root Dockerfile check at the pinned commit"
     },
     {
       "id": "repo-566",
@@ -999,7 +1064,8 @@
       "source": {
         "file": "campaign/corpus/candidates/realistic-07.json",
         "candidateId": "openfga"
-      }
+      },
+      "appPathSource": "Opus, from the selection validity evidence (entry point and build file paths) and a root Dockerfile check at the pinned commit"
     },
     {
       "id": "repo-567",
@@ -1014,7 +1080,8 @@
       "source": {
         "file": "campaign/corpus/candidates/realistic-07.json",
         "candidateId": "cloudreve"
-      }
+      },
+      "appPathSource": "Opus, from the selection validity evidence (entry point and build file paths) and a root Dockerfile check at the pinned commit"
     },
     {
       "id": "repo-568",
@@ -1029,7 +1096,8 @@
       "source": {
         "file": "campaign/corpus/candidates/realistic-07.json",
         "candidateId": "dokploy"
-      }
+      },
+      "appPathSource": "Opus, from the selection validity evidence (entry point and build file paths) and a root Dockerfile check at the pinned commit"
     },
     {
       "id": "repo-569",
@@ -1044,7 +1112,8 @@
       "source": {
         "file": "campaign/corpus/candidates/realistic-07.json",
         "candidateId": "activepieces"
-      }
+      },
+      "appPathSource": "Opus, from the selection validity evidence (entry point and build file paths) and a root Dockerfile check at the pinned commit"
     },
     {
       "id": "repo-570",
@@ -1059,7 +1128,8 @@
       "source": {
         "file": "campaign/corpus/candidates/realistic-07.json",
         "candidateId": "dex"
-      }
+      },
+      "appPathSource": "Opus, from the selection validity evidence (entry point and build file paths) and a root Dockerfile check at the pinned commit"
     },
     {
       "id": "repo-571",
@@ -1074,7 +1144,8 @@
       "source": {
         "file": "campaign/corpus/candidates/messy-01.json",
         "candidateId": "firezone"
-      }
+      },
+      "appPathSource": "recorded at selection"
     },
     {
       "id": "repo-572",
@@ -1089,7 +1160,8 @@
       "source": {
         "file": "campaign/corpus/candidates/messy-01.json",
         "candidateId": "anything-llm"
-      }
+      },
+      "appPathSource": "recorded at selection"
     },
     {
       "id": "repo-573",
@@ -1104,7 +1176,8 @@
       "source": {
         "file": "campaign/corpus/candidates/messy-01.json",
         "candidateId": "mem0-server"
-      }
+      },
+      "appPathSource": "recorded at selection"
     },
     {
       "id": "repo-574",
@@ -1119,7 +1192,8 @@
       "source": {
         "file": "campaign/corpus/candidates/messy-01.json",
         "candidateId": "lobsters"
-      }
+      },
+      "appPathSource": "recorded at selection"
     },
     {
       "id": "repo-575",
@@ -1134,7 +1208,8 @@
       "source": {
         "file": "campaign/corpus/candidates/messy-01.json",
         "candidateId": "traccar"
-      }
+      },
+      "appPathSource": "recorded at selection"
     },
     {
       "id": "repo-576",
@@ -1149,7 +1224,8 @@
       "source": {
         "file": "campaign/corpus/candidates/messy-01.json",
         "candidateId": "btcpayserver"
-      }
+      },
+      "appPathSource": "recorded at selection"
     },
     {
       "id": "repo-577",
@@ -1164,7 +1240,8 @@
       "source": {
         "file": "campaign/corpus/candidates/messy-01.json",
         "candidateId": "woodpecker"
-      }
+      },
+      "appPathSource": "recorded at selection"
     },
     {
       "id": "repo-578",
@@ -1179,7 +1256,8 @@
       "source": {
         "file": "campaign/corpus/candidates/messy-01.json",
         "candidateId": "lldap"
-      }
+      },
+      "appPathSource": "recorded at selection"
     },
     {
       "id": "repo-579",
@@ -1194,7 +1272,8 @@
       "source": {
         "file": "campaign/corpus/candidates/messy-01.json",
         "candidateId": "akaunting"
-      }
+      },
+      "appPathSource": "recorded at selection"
     },
     {
       "id": "repo-580",
@@ -1209,7 +1288,8 @@
       "source": {
         "file": "campaign/corpus/candidates/messy-01.json",
         "candidateId": "keeper-sh"
-      }
+      },
+      "appPathSource": "recorded at selection"
     },
     {
       "id": "repo-581",
@@ -1224,7 +1304,8 @@
       "source": {
         "file": "campaign/corpus/candidates/messy-02.json",
         "candidateId": "60s"
-      }
+      },
+      "appPathSource": "recorded at selection"
     },
     {
       "id": "repo-582",
@@ -1239,7 +1320,8 @@
       "source": {
         "file": "campaign/corpus/candidates/messy-02.json",
         "candidateId": "trilium"
-      }
+      },
+      "appPathSource": "recorded at selection"
     },
     {
       "id": "repo-583",
@@ -1254,7 +1336,8 @@
       "source": {
         "file": "campaign/corpus/candidates/messy-02.json",
         "candidateId": "ghost"
-      }
+      },
+      "appPathSource": "recorded at selection"
     },
     {
       "id": "repo-584",
@@ -1269,7 +1352,8 @@
       "source": {
         "file": "campaign/corpus/candidates/messy-02.json",
         "candidateId": "checkmate"
-      }
+      },
+      "appPathSource": "recorded at selection"
     },
     {
       "id": "repo-585",
@@ -1284,7 +1368,8 @@
       "source": {
         "file": "campaign/corpus/candidates/messy-02.json",
         "candidateId": "calibre-web"
-      }
+      },
+      "appPathSource": "recorded at selection"
     },
     {
       "id": "repo-586",
@@ -1299,7 +1384,8 @@
       "source": {
         "file": "campaign/corpus/candidates/messy-02.json",
         "candidateId": "appsmith"
-      }
+      },
+      "appPathSource": "recorded at selection"
     },
     {
       "id": "repo-587",
@@ -1314,7 +1400,8 @@
       "source": {
         "file": "campaign/corpus/candidates/messy-02.json",
         "candidateId": "rybbit"
-      }
+      },
+      "appPathSource": "recorded at selection"
     },
     {
       "id": "repo-588",
@@ -1329,7 +1416,8 @@
       "source": {
         "file": "campaign/corpus/candidates/messy-02.json",
         "candidateId": "mautic"
-      }
+      },
+      "appPathSource": "recorded at selection"
     },
     {
       "id": "repo-589",
@@ -1344,7 +1432,8 @@
       "source": {
         "file": "campaign/corpus/candidates/messy-02.json",
         "candidateId": "openproject"
-      }
+      },
+      "appPathSource": "recorded at selection"
     },
     {
       "id": "repo-590",
@@ -1359,7 +1448,8 @@
       "source": {
         "file": "campaign/corpus/candidates/messy-02.json",
         "candidateId": "grocy"
-      }
+      },
+      "appPathSource": "recorded at selection"
     },
     {
       "id": "repo-591",
@@ -1374,7 +1464,8 @@
       "source": {
         "file": "campaign/corpus/candidates/boundary-01.json",
         "candidateId": "nightscout"
-      }
+      },
+      "appPathSource": "recorded at selection"
     },
     {
       "id": "repo-592",
@@ -1389,7 +1480,8 @@
       "source": {
         "file": "campaign/corpus/candidates/boundary-01.json",
         "candidateId": "audiobookshelf"
-      }
+      },
+      "appPathSource": "recorded at selection"
     },
     {
       "id": "repo-593",
@@ -1404,7 +1496,8 @@
       "source": {
         "file": "campaign/corpus/candidates/boundary-01.json",
         "candidateId": "glance"
-      }
+      },
+      "appPathSource": "recorded at selection"
     },
     {
       "id": "repo-594",
@@ -1419,7 +1512,8 @@
       "source": {
         "file": "campaign/corpus/candidates/boundary-01.json",
         "candidateId": "invokeai"
-      }
+      },
+      "appPathSource": "recorded at selection"
     },
     {
       "id": "repo-595",
@@ -1434,7 +1528,8 @@
       "source": {
         "file": "campaign/corpus/candidates/boundary-01.json",
         "candidateId": "kubero"
-      }
+      },
+      "appPathSource": "recorded at selection"
     },
     {
       "id": "repo-596",
@@ -1449,7 +1544,8 @@
       "source": {
         "file": "campaign/corpus/candidates/boundary-01.json",
         "candidateId": "dnn-platform"
-      }
+      },
+      "appPathSource": "recorded at selection"
     },
     {
       "id": "repo-597",
@@ -1464,7 +1560,8 @@
       "source": {
         "file": "campaign/corpus/candidates/boundary-01.json",
         "candidateId": "openpanel"
-      }
+      },
+      "appPathSource": "recorded at selection"
     },
     {
       "id": "repo-598",
@@ -1479,7 +1576,8 @@
       "source": {
         "file": "campaign/corpus/candidates/boundary-01.json",
         "candidateId": "akhq"
-      }
+      },
+      "appPathSource": "recorded at selection"
     },
     {
       "id": "repo-599",
@@ -1494,7 +1592,8 @@
       "source": {
         "file": "campaign/corpus/candidates/boundary-01.json",
         "candidateId": "opensearch-dashboards"
-      }
+      },
+      "appPathSource": "recorded at selection"
     },
     {
       "id": "repo-600",
@@ -1509,7 +1608,8 @@
       "source": {
         "file": "campaign/corpus/candidates/boundary-01.json",
         "candidateId": "rancher"
-      }
+      },
+      "appPathSource": "recorded at selection"
     }
   ]
 }
