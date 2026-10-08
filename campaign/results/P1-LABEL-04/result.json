@@ -1,0 +1,33 @@
+{
+  "taskId": "P1-LABEL-04",
+  "testedCommit": "e6a3b58ee2363923fef21faca86611fa3bf84538",
+  "executor": "campaign-worker",
+  "model": "sonnet",
+  "startedAt": "2026-10-08T00:00:00Z",
+  "finishedAt": "2026-10-08T00:40:00Z",
+  "proposedStatus": "COMPLETE",
+  "commands": [
+    { "command": "gh api repos/<repo>/git/trees/<commit>?recursive=1 (10 repositories)", "exitCode": 0, "summary": "Fetched all 10 pinned trees; none truncated" },
+    { "command": "gh api repos/<repo>/contents/<path>?ref=<commit> (Dockerfiles, compose, settings, health routes)", "exitCode": 0, "summary": "Read source files at pinned commits" },
+    { "command": "node gen.cjs (scratchpad): write initial-04.yaml, validate expected with zod copy, check every citation path against pinned trees", "exitCode": 0, "summary": "10 apps, 0 missing citations, 0 bad paths" },
+    { "command": "pnpm exec tsx -e (parse initial-04.yaml, expectedFactsSchema.parse per app)", "exitCode": 0, "summary": "ok 10: all expected objects parse with the real expectedFactsSchema" }
+  ],
+  "evidence": [
+    "campaign/corpus/labels/initial-04.yaml"
+  ],
+  "notes": [
+    "Local HEAD was f486a31e when finished; testedCommit is the value given by the coordinator (e6a3b58e).",
+    "repo-531 linkding: close call. Postgres is supported (LD_DB_ENGINE=postgres) but the Huey queue (SqliteHuey data/tasks.sqlite3), assets, previews and secret key stay on local disk, so NOT_COMPATIBLE with local-filesystem. worker=true from supervisord-tasks.conf although bootstrap.sh starts it in-process. Dockerfile is docker/default.Dockerfile, not a root file.",
+    "repo-532 pretix: close call. Postgres is supported, Redis/Celery broker is optional (redis=false), but /data media volume and nginx-served media make it NOT_COMPATIBLE. Health path /healthcheck/ comes from src/pretix/urls.py.",
+    "repo-533 atuin: NEEDS_CONFIGURATION because host defaults to 127.0.0.1, db_uri has no default (server.toml also shows sqlite and mysql) and the image has ENTRYPOINT without CMD (start subcommand needed). Migrations run inside server startup, so migration=false.",
+    "repo-534 HAPI FHIR: default datasource is in-memory H2; Postgres needs SPRING_DATASOURCE_* and HIBERNATE_DIALECT env. migration=false (hbm2ddl update at startup). Dockerfile has several targets; the last one (default) is labeled.",
+    "repo-535 sure: close call between READY and NEEDS_CONFIGURATION. Active Storage defaults to local disk (ACTIVE_STORAGE_SERVICE must be amazon), and the sidekiq worker command is only in compose.example.yml and Procfile.dev. migration=true from db:prepare in bin/docker-entrypoint.",
+    "repo-536 InvoiceShelf: defaults to SQLite and local storage; supports pgsql and s3. Queue default is sync, so worker=false; the scheduler runs in-container through s6 and is not a declared worker. migration=true from the entrypoint script.",
+    "repo-537 actual: root Dockerfile is a development container; the production image is sync-server.Dockerfile. SQLite and files under /data make it NOT_COMPATIBLE.",
+    "repo-538 pocketbase: no Dockerfile in the repo and data in pb_data (SQLite); NOT_COMPATIBLE. dockerfilePath omitted. Port 8090 and /api/health are the serve defaults, but the default bind is 127.0.0.1.",
+    "repo-539 navidrome: SQLite plus /data and /music volumes; NOT_COMPATIBLE. /ping is a middleware heartbeat. monorepo=false although plugins/ has separate go.mod files.",
+    "repo-540 excalidraw: static nginx image, READY. runtime=node (build stage) and healthPath '/'; collaboration uses external Firebase, not counted as a Deployz service. Compose file is development-only.",
+    "Pocketbase and the other Go/SQLite apps use only the local-filesystem unsupported tag; the UNSUPPORTED_FAMILIES list has no sqlite name.",
+    "Validation used a zod copy plus the real expectedFactsSchema through tsx; no scratchpad file is listed as evidence."
+  ]
+}
