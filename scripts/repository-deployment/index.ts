@@ -4,6 +4,8 @@
  *   pnpm benchmark:deploy --gate                       B1 (+ offline B2) over every repository, no AWS
  *   pnpm benchmark:deploy --gate --repo repo-001       one entry (repeat --repo for several)
  *   pnpm benchmark:deploy --dry-run --wave wave-1      print the plan, touch nothing
+ *   pnpm benchmark:deploy --local --repo repo-001      gate, source and Docker build on this machine, no AWS
+ *   pnpm benchmark:deploy --local --resume             keep finished builds with unchanged inputs
  *   pnpm benchmark:deploy --real-aws --repo repo-001   the whole funnel (needs DEPLOYZ_E2E_ALLOW_REAL_AWS=1)
  *   pnpm benchmark:deploy --real-aws --wave wave-1
  *   pnpm benchmark:deploy --real-aws --resume          finish unfinished cleanups, then continue the selection
@@ -18,6 +20,7 @@
  * audit's subject, not a harness failure.
  */
 import { execFileSync } from 'node:child_process';
+import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
@@ -51,6 +54,8 @@ import { configFor, deploymentClassFor, loadDeployConfig, providedKeys, requireS
 import { runRepositoryAttempt, DEFAULT_TIMEOUTS, type DeployDeps } from './deploy.js';
 import { describeDependencies, describeStoppedTasks, describeTaskDefinitionEnv, resourceStillExists, tailApplicationLogs } from './evidence.js';
 import { gateSection } from './gate.js';
+import { runLocalBuild, runProcess } from './local-build.js';
+import { inputsHash, type LocalIdentity } from './local-results.js';
 import { activeRunsBlock, listUnfinishedLedgers, openLedger, readSeries, stageBRun, stageBRunId, writeSeries, type StageBRunRecord } from './ledger.js';
 import {
   buildStageBSummary,
@@ -80,6 +85,8 @@ export interface RunOptions {
   wave: string | undefined;
   finding: string | undefined;
   gate: boolean;
+  /** Gate, source packaging and Docker build on this machine; no AWS. */
+  local: boolean;
   dryRun: boolean;
   realAws: boolean;
   resume: boolean;
@@ -118,6 +125,7 @@ export function parseRunArgs(argv: readonly string[]): RunOptions {
       wave: { type: 'string' },
       finding: { type: 'string' },
       gate: { type: 'boolean', default: false },
+      local: { type: 'boolean', default: false },
       'dry-run': { type: 'boolean', default: false },
       'real-aws': { type: 'boolean', default: false },
       resume: { type: 'boolean', default: false },
@@ -148,8 +156,9 @@ export function parseRunArgs(argv: readonly string[]): RunOptions {
   }
   const maxActive = values['max-active'] ? Number(values['max-active']) : 2;
   if (!Number.isInteger(maxActive) || maxActive < 1) throw new Error('--max-active must be a positive integer');
-  const modes = [values.gate, values['dry-run'], values['real-aws'], values.cleanup, values.audit].filter(Boolean).length;
-  if (modes === 0 && !values.resume) throw new Error('choose a mode: --gate, --dry-run, --real-aws, --cleanup or --audit');
+  const modes = [values.gate, values.local, values['dry-run'], values['real-aws'], values.cleanup, values.audit].filter(Boolean).length;
+  if (values.local && (values['real-aws'] || values.cleanup || values.audit || values.gate)) throw new Error('--local is exclusive with --gate, --real-aws, --cleanup and --audit');
+  if (modes === 0 && !values.resume) throw new Error('choose a mode: --gate, --local, --dry-run, --real-aws, --cleanup or --audit');
   if (values['real-aws'] && values.gate) throw new Error('--gate and --real-aws are exclusive (the funnel runs the gate itself)');
   const benchmarkPath = values.benchmark ? resolve(values.benchmark) : BENCHMARK_PATH;
   if (benchmarkPath !== BENCHMARK_PATH && !(values['runs-dir'] && values['evidence-dir'])) {
@@ -162,6 +171,7 @@ export function parseRunArgs(argv: readonly string[]): RunOptions {
     wave: values.wave,
     finding: values.finding,
     gate: values.gate ?? false,
+    local: values.local ?? false,
     dryRun: values['dry-run'] ?? false,
     realAws: values['real-aws'] ?? false,
     resume: values.resume ?? false,
@@ -190,7 +200,7 @@ export function parseRunArgs(argv: readonly string[]): RunOptions {
  * the explicit flag; a dry run never needs either, and never reads AWS.
  */
 export function requireRealAws(options: RunOptions, env: NodeJS.ProcessEnv): void {
-  if (!(options.realAws || options.cleanup || options.audit || options.resume)) return;
+  if (options.local || !(options.realAws || options.cleanup || options.audit || options.resume)) return;
   requireRealAwsOptIn(env);
 }
 
@@ -344,6 +354,62 @@ export async function runGateAudit(
     await session.close();
   }
   return results;
+}
+
+// ── Local Docker build ─────────────────────────────────────────────────────
+
+export async function runLocalAudit(
+  entries: readonly BenchmarkEntry[],
+  config: DeployConfig,
+  options: Pick<RunOptions, 'offline' | 'cacheDir' | 'runsDir' | 'evidenceDir' | 'ai' | 'resume'>,
+  sha: string,
+): Promise<void> {
+  const token = resolveGithubToken();
+  const session = await openAnalysisSession(createSnapshotFetch({ cacheDir: options.cacheDir, token: options.offline ? null : token, offline: options.offline }), { ai: options.ai });
+  try {
+    for (const entry of entries) {
+      process.stdout.write(`${entry.id} ${entry.repository}@${entry.commit.slice(0, 7)} … `);
+      const repoConfig = configFor(config, entry.id);
+      const raw = await session.analyse(entry);
+      const { gate } = gateSection(entry, raw, repoConfig, ANALYSIS_VERSION);
+      const identity: LocalIdentity = {
+        id: entry.id,
+        repository: entry.repository,
+        commit: entry.commit,
+        set: entry.set,
+        cohort: entry.cohort,
+        deployzCommit: sha,
+        analysisVersion: ANALYSIS_VERSION,
+        ai: raw.ai ? { ...raw.ai } : null,
+        inputsHash: inputsHash({ deployzCommit: sha, commit: entry.commit, aiMode: options.ai, config: repoConfig }),
+      };
+      const result = await runLocalBuild({
+        identity,
+        gate: {
+          status: gate.status === 'PASS' ? 'PASS' : 'FAIL',
+          detail: gate.detail,
+          evidence: { verdict: gate.verdict, outcome: gate.outcome, configuredVerdict: gate.configuredVerdict, manifest: gate.manifest },
+          build: gate.verdict !== null && gate.verdict !== 'NOT_COMPATIBLE',
+        },
+        detectedMetadata: raw.row.detectedMetadata ?? {},
+        repository: entry.repository,
+        overrides: { dockerfilePath: repoConfig.overrides?.dockerfilePath, buildContext: repoConfig.overrides?.buildContext },
+        buildArgs: (repoConfig.buildVariables ?? []).map(({ key, value }) => ({ name: key, value })),
+        resume: options.resume,
+        runsDir: options.runsDir,
+        logsDir: options.evidenceDir,
+        cacheDir: options.cacheDir,
+        token,
+        fetchFn: fetch,
+        run: runProcess,
+        hostEnv: process.env,
+        tmpRoot: tmpdir(),
+      });
+      console.log(`gate ${result.stages.gate.status}, build ${result.stages.build.status}`);
+    }
+  } finally {
+    await session.close();
+  }
 }
 
 // ── Real AWS ───────────────────────────────────────────────────────────────
@@ -685,6 +751,16 @@ async function main(): Promise<number> {
 
   if (options.dryRun) {
     console.log(renderPlan(buildPlan(entries, config, existing, options), options));
+    return 0;
+  }
+
+  if (options.local) {
+    if (entries.length === 0) {
+      console.error('No repositories selected.');
+      return 1;
+    }
+    await runLocalAudit(entries, config, options, sha);
+    console.log(`Wrote ${entries.length} local result file(s) to ${options.runsDir}`);
     return 0;
   }
 

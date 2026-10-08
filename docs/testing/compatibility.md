@@ -206,7 +206,38 @@ DEPLOYZ_E2E_ALLOW_REAL_AWS=1 pnpm benchmark:deploy --real-aws --resume
 DEPLOYZ_E2E_ALLOW_REAL_AWS=1 pnpm benchmark:deploy --cleanup --repo repo-001
 DEPLOYZ_E2E_ALLOW_REAL_AWS=1 pnpm benchmark:deploy --audit
 pnpm benchmark:deploy --gate --benchmark <path> --deploy-config <path> --runs-dir <dir> --evidence-dir <dir>
+pnpm benchmark:deploy --local --repo repo-001 --benchmark <path> --runs-dir <dir> --evidence-dir <dir>
 ```
+
+**Local Docker build (`--local`, no AWS).** For each selected repository:
+the gate (as `--gate`), then the source, then `docker build`. The source is
+the GitHub tarball of the pinned commit (`GET /repos/{owner}/{repo}/tarball/{commit}`,
+cached under `<--cache>/source/`), extracted with `tar xzf … --strip-components=1`
+as the buildspec does. The Dockerfile and the build context follow
+`buildRelease` in `packages/cdk/src/lambda/worker.ts`: a vendor override
+(`overrides.dockerfilePath`, `overrides.buildContext`) wins, then the detected
+Dockerfile and context, then the top-level `docker/` rule, then the Dockerfile's
+directory; a test fails when those product lines change. The build runs with
+`--platform linux/amd64`, the labels `deployz-campaign=fresh-100` and
+`deployz-campaign-repo=<id>`, the tag `deployz-campaign/<id>:<commit12>` and a
+30-minute timeout. The child environment is an allowlist (`PATH`, `SYSTEMROOT`,
+`HOME`, `USERPROFILE`, `DOCKER_*`) plus the values of `buildVariables`
+(`--build-arg NAME`); no host environment or credential reaches Docker. A
+repository without a Dockerfile fails the build as in production; the harness
+never adds one. A Docker Hub rate limit is recorded as `infrastructure`.
+
+`<runs-dir>/<id>.local.json` records the stages `gate`, `source`, `build`,
+`run`, `probes` and `cleanup` (`NOT_ATTEMPTED`, `IN_PROGRESS`, `PASS`, `FAIL`,
+`SKIPPED`) and is written atomically at the start and end of each stage. The
+build evidence has the Dockerfile, context, platform, exit code, duration, image
+id and size, and the last 40 sanitized log lines; the full log is
+`<--evidence-dir>/<id>-build.log`. `--local --resume` keeps a result whose
+`inputsHash` (Deployz commit, repository commit, AI mode and deploy-config entry)
+is unchanged and whose build finished; a build PASS whose image is gone is
+rebuilt, and any other state starts again. `--local` is exclusive with `--gate`,
+`--real-aws`, `--cleanup` and `--audit`. The run stage and the probes are not
+implemented yet. Images stay on the machine until removed
+(`docker image rm`; they carry the campaign label).
 
 `--benchmark <path>` and `--deploy-config <path>` read any corpus and
 deploy-config file instead of the committed ones; `--runs-dir` and

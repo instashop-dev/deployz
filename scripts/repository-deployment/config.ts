@@ -168,6 +168,8 @@ export const repositoryConfigSchema = z
       .optional(),
     overrides: vendorOverridesSchema.optional(),
     config: z.array(configValueSchema).optional(),
+    /** Build-stage variables: the local Docker build passes each one as `--build-arg NAME`. */
+    buildVariables: z.array(configValueSchema).optional(),
     /** Secret keys the harness generates at run time (never values). */
     secrets: z.array(secretSpecSchema).optional(),
     verify: verifySchema.optional(),
