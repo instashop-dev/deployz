@@ -4,8 +4,8 @@
   "status": "CONTINUE",
   "phase": 2,
   "currentTask": null,
-  "nextAction": "Run P2-IMPL-LOCAL-BUILD (campaign-worker, timebox 45, first task of the next run; long-run exception). Then P2-IMPL-LOCAL-RUN (45), P2-SMOKE-RUN (40), P2-GATE. ai-gateway is AVAILABLE and baseline.aiMode is production-equivalent.",
-  "updatedAt": "2026-10-08T22:23:06.299Z",
+  "nextAction": "Run P2-IMPL-LOCAL-RUN (campaign-worker, timebox 45, first task of the next run; long-run exception; design scope (d) plus the run/probe/cleanup/reconcile/local-summary parts of (e), on top of harness commit 8b1de844). Then P2-SMOKE-RUN (40), P2-GATE. Docker Desktop must run.",
+  "updatedAt": "2026-10-08T23:01:03.923Z",
   "checkout": {
     "path": "C:/Users/Tejas/Desktop/deployz-mvp-test",
     "kind": "git worktree of C:/Users/Tejas/Desktop/deployz",
@@ -227,6 +227,10 @@
     {
       "commit": "e6a3b58ee2363923fef21faca86611fa3bf84538",
       "task": "P2-AI-LIVE-VALIDATE"
+    },
+    {
+      "commit": "e6a3b58ee2363923fef21faca86611fa3bf84538",
+      "task": "P2-IMPL-LOCAL-BUILD"
     }
   ],
   "attempts": {
@@ -279,18 +283,18 @@
     "P2-DESIGN": 1,
     "P2-IMPL-CORPUS-FLAGS": 1,
     "P2-IMPL-AI-MODE": 1,
-    "P2-AI-LIVE-VALIDATE": 1
+    "P2-AI-LIVE-VALIDATE": 1,
+    "P2-IMPL-LOCAL-BUILD": 1
   },
   "lastResult": {
-    "task": "P2-AI-LIVE-VALIDATE",
+    "task": "P2-IMPL-LOCAL-BUILD",
     "status": "COMPLETE",
-    "at": "2026-10-08T22:23:06.299Z",
+    "at": "2026-10-08T23:01:03.923Z",
+    "summary": "Harness commit 8b1de844: --local build stage (pinned-commit tarball, --strip-components=1, worker.ts Dockerfile/context precedence with text drift guard, linux/amd64, 30 min timeout, env allowlist, atomic <id>.local.json, --resume with inputsHash). Opus re-ran: typecheck:scripts exit 0; vitest repository-compatibility + repository-deployment 219/219 (34 new); no apps/packages or docs/testing/*/runs change; no campaign-labelled container/image/network left. Smoke repo-524 real docker build 68 s, FAIL on psycopg2-binary (repository result); --resume kept the FAIL.",
     "evidence": [
-      "campaign/results/P2-AI-LIVE-VALIDATE/result.json",
-      "campaign/results/P2-AI-LIVE-VALIDATE/stage-a-live/repo-501.json",
-      "campaign/results/P2-AI-LIVE-VALIDATE/stage-a-invalid-key/repo-501.json"
-    ],
-    "summary": "Worker sonnet, attempt 1. Live test 2/2 (Opus re-ran: 2 passed, 9.3 s and 5.0 s). analyseRepositoryWithAi 4 calls with production options all returned content, max 9566 ms vs 30000 ms budget. Stage A repo-501 --ai live: 1 request, completed, model equal to deployed AI_MODEL (Opus compared by equality). Invalid key in child env only: auth-error (401), not success or fallback. Opus secret scan of results and logs: 0 hits. No apps/packages/scripts/docs change. repo-501 here is a validation run, not a Phase 3 first-run result (its migration fact mismatch is noted only)."
+      "campaign/results/P2-IMPL-LOCAL-BUILD/result.json",
+      "campaign/results/P2-IMPL-LOCAL-BUILD/smoke/repo-524.local.json"
+    ]
   },
   "gates": {
     "smokeReviewed": true,
@@ -604,6 +608,11 @@
       "task": "P2-IMPL-AI-MODE",
       "runStart": "2026-10-08T22:08:08Z",
       "reason": "First task of the run; timeboxMinutes 45 > 38 and no resumable steps (one harness implementation change, design scope (b))."
+    },
+    {
+      "task": "P2-IMPL-LOCAL-BUILD",
+      "runStart": "2026-10-08T22:43:03Z",
+      "reason": "First task of the run; timeboxMinutes 45 > 38 and no resumable steps (one harness implementation change, design scope (c) and the build part of (e))."
     }
   ]
 }

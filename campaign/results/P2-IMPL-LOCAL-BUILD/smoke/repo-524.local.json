@@ -1,0 +1,124 @@
+{
+  "schemaVersion": 1,
+  "id": "repo-524",
+  "repository": "miguelgrinberg/microblog",
+  "commit": "a975ef64864354867c88e0ed3a17ba7d17dca752",
+  "set": "improvement",
+  "cohort": "realistic",
+  "deployzCommit": "8dfb7f3f539b0424d8e998f1c89f3d16027d0892",
+  "analysisVersion": 44,
+  "ai": {
+    "mode": "off",
+    "model": null,
+    "requests": 0,
+    "outcome": "not-requested",
+    "error": null
+  },
+  "inputsHash": "ed83b6fb321c5d0a7201a2904206e9de6fd0f733cb03561a2204c3de32cb6dbb",
+  "stages": {
+    "gate": {
+      "status": "PASS",
+      "startedAt": "2026-10-08T22:54:34.492Z",
+      "finishedAt": "2026-10-08T22:54:34.500Z",
+      "durationMs": 8,
+      "detail": null,
+      "evidence": {
+        "verdict": "NEEDS_CONFIGURATION",
+        "outcome": "correct-accept",
+        "configuredVerdict": "NEEDS_CONFIGURATION",
+        "manifest": {
+          "dockerfilePath": "Dockerfile",
+          "buildContext": ".",
+          "appRoot": ".",
+          "port": 5000,
+          "healthPath": "/",
+          "healthMode": "vendor_required",
+          "migrationCommand": null,
+          "migrationMode": "startup",
+          "postgres": true,
+          "redis": true,
+          "storage": false,
+          "databaseBindings": [
+            "DATABASE_HOST",
+            "DATABASE_NAME",
+            "DATABASE_PASSWORD",
+            "DATABASE_PORT",
+            "DATABASE_URL",
+            "DATABASE_USER",
+            "DB_HOST",
+            "DB_NAME",
+            "DB_PASSWORD",
+            "DB_PORT",
+            "DB_USER"
+          ],
+          "redisBindings": [
+            "REDIS_HOST",
+            "REDIS_PORT",
+            "REDIS_URL"
+          ],
+          "storageBindings": [],
+          "generatedKeys": [
+            "SECRET_KEY"
+          ]
+        }
+      }
+    },
+    "source": {
+      "status": "PASS",
+      "startedAt": "2026-10-08T22:54:34.505Z",
+      "finishedAt": "2026-10-08T22:54:34.760Z",
+      "durationMs": 255,
+      "detail": null,
+      "evidence": {
+        "commit": "a975ef64864354867c88e0ed3a17ba7d17dca752",
+        "archiveCached": true,
+        "archiveBytes": null
+      }
+    },
+    "build": {
+      "status": "FAIL",
+      "startedAt": "2026-10-08T22:54:34.762Z",
+      "finishedAt": "2026-10-08T22:55:42.883Z",
+      "durationMs": 68121,
+      "detail": "docker build exited 1",
+      "evidence": {
+        "dockerfilePath": "Dockerfile",
+        "buildContext": ".",
+        "platform": "linux/amd64",
+        "image": "deployz-campaign/repo-524:a975ef648643",
+        "exitCode": 1,
+        "durationMs": 68104,
+        "buildArgNames": [],
+        "logTail": "#8 24.02       or with the pg_config option in 'setup.cfg'.\n#8 24.02       \n#8 24.02       If you prefer to avoid building psycopg2 from source, please install the PyPI\n#8 24.02       'psycopg2-binary' package instead.\n#8 24.02       \n#8 24.02       For further information please check the 'doc/src/install.rst' file (also at\n#8 24.02       <https://www.psycopg.org/docs/install.html>).\n#8 24.02       \n#8 24.02       [end of output]\n#8 24.02   \n#8 24.02   note: This error originates from a subprocess, and is likely not a problem with pip.\n#8 24.02 ERROR: Failed to build 'psycopg2-binary' when getting requirements to build wheel\n#8 ERROR: process \"/bin/sh -c pip install -r requirements.txt\" did not complete successfully: exit code: 1\n------\n > [3/9] RUN pip install -r requirements.txt:\n24.02       If you prefer to avoid building psycopg2 from source, please install the PyPI\n24.02       'psycopg2-binary' package instead.\n24.02       \n24.02       For further information please check the 'doc/src/install.rst' file (also at\n24.02       <https://www.psycopg.org/docs/install.html>).\n24.02       \n24.02       [end of output]\n24.02   \n24.02   note: This error originates from a subprocess, and is likely not a problem with pip.\n24.02 ERROR: Failed to build 'psycopg2-binary' when getting requirements to build wheel\n------\n\n \u001b[33m1 warning found (use docker --debug to expand):\n\u001b[0m - LegacyKeyValueFormat: \"ENV key=value\" should be used instead of legacy \"ENV key value\" format (line 12)\nDockerfile:4\n--------------------\n   2 |     \n   3 |     COPY requirements.txt requirements.txt\n   4 | >>> RUN pip install -r requirements.txt\n   5 |     RUN pip install gunicorn pymysql cryptography\n   6 |     \n--------------------\nERROR: failed to build: failed to solve: process \"/bin/sh -c pip install -r requirements.txt\" did not complete successfully: exit code: 1\n\nView build details: docker-desktop://dashboard/build/desktop-linux/desktop-linux/sv9o18b0typ1msgob1ho29wrn",
+        "failure": "build",
+        "rebuilt": false
+      }
+    },
+    "run": {
+      "status": "NOT_ATTEMPTED",
+      "startedAt": null,
+      "finishedAt": null,
+      "durationMs": null,
+      "detail": null,
+      "evidence": {}
+    },
+    "probes": {
+      "status": "NOT_ATTEMPTED",
+      "startedAt": null,
+      "finishedAt": null,
+      "durationMs": null,
+      "detail": null,
+      "evidence": {}
+    },
+    "cleanup": {
+      "status": "NOT_ATTEMPTED",
+      "startedAt": null,
+      "finishedAt": null,
+      "durationMs": null,
+      "detail": null,
+      "evidence": {}
+    }
+  },
+  "classification": "build",
+  "remediation": null
+}

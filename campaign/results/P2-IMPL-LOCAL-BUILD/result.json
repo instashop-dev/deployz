@@ -1,0 +1,37 @@
+{
+  "taskId": "P2-IMPL-LOCAL-BUILD",
+  "testedCommit": "e6a3b58ee2363923fef21faca86611fa3bf84538",
+  "executor": "campaign-worker",
+  "model": "sonnet",
+  "startedAt": "2026-10-08T22:44:20Z",
+  "finishedAt": "2026-10-08T22:58:38Z",
+  "proposedStatus": "COMPLETE",
+  "commands": [
+    { "command": "pnpm typecheck:scripts", "exitCode": 0, "summary": "all five script projects typecheck" },
+    { "command": "pnpm exec vitest run --project repository-compatibility --project repository-deployment", "exitCode": 0, "summary": "5 files, 219 tests pass (34 new in local-build.test.ts)" },
+    { "command": "pnpm exec eslint scripts/repository-deployment/{local-build,local-results,local-build.test,index}.ts", "exitCode": 0, "summary": "no lint output" },
+    { "command": "pnpm benchmark:deploy --local --repo repo-524 --online --benchmark campaign/corpus/benchmark.yaml --deploy-config <empty> --runs-dir campaign/results/P2-IMPL-LOCAL-BUILD/smoke --evidence-dir campaign/logs/P2-IMPL-LOCAL-BUILD/smoke", "exitCode": 0, "summary": "smoke on microblog: gate PASS, source PASS, real docker build ran 68 s and FAILED on psycopg2 (repository result, not a harness fault); first attempt found the GNU tar C: host trap, fixed with a relative archive name and cwd" },
+    { "command": "pnpm benchmark:deploy --local --resume (same arguments)", "exitCode": 0, "summary": "recorded build FAIL with the same inputsHash kept, no second docker build" },
+    { "command": "docker ps -a / images / network ls / volume ls --filter label=deployz-campaign=fresh-100", "exitCode": 0, "summary": "no container, image, network or volume left" },
+    { "command": "git commit 8b1de844 feat(harness): local Docker build stage (--local) ...", "exitCode": 0, "summary": "6 files, harness and docs only; nothing under apps/ or packages/" }
+  ],
+  "evidence": [
+    "scripts/repository-deployment/local-build.ts",
+    "scripts/repository-deployment/local-results.ts",
+    "scripts/repository-deployment/local-build.test.ts",
+    "campaign/results/P2-IMPL-LOCAL-BUILD/smoke/repo-524.local.json",
+    "campaign/logs/P2-IMPL-LOCAL-BUILD/smoke-cmd.log"
+  ],
+  "notes": [
+    "Commit 8b1de844f3d1287915916171d111400070aeb6af on campaign/fresh-100. The branch HEAD at start was 8dfb7f3f; testedCommit is the value the coordinator gave.",
+    "Deviation: source archives are cached under the --cache directory (<cache>/source/<owner>__<repo>/<commit>.tar.gz, default the ignored docs/testing/repository-compatibility/.cache), not campaign/.cache/source; set --cache campaign/.cache to get the design path.",
+    "Deviation: tar runs with cwd = archive directory and a relative archive name, because Git-for-Windows GNU tar reads C: in -f as a remote host.",
+    "Deviation: the child environment allowlist also has HOME and USERPROFILE (Docker CLI config lookup), besides PATH, SYSTEMROOT and DOCKER_*.",
+    "Deviation: --local is also exclusive with --gate (the local mode runs the gate itself); design listed only --real-aws, --cleanup, --audit.",
+    "Addition: optional buildVariables list in the deploy-config repository entry (same shape as config); design says build args come from 'deploy-config build variables' but the schema had none.",
+    "Build with a Windows host: files extracted on Windows lose Unix mode bits; Docker Desktop sets 0755 on context files. Run-stage results for scripts that need exact modes may differ from CodeBuild.",
+    "A failed or interrupted source/build stage is only sticky for FAIL results; a thrown harness error leaves the stage IN_PROGRESS so --resume restarts it. Source fetch and tar errors are recorded as source FAIL.",
+    "The smoke deploy-config needs --deploy-config (campaign/corpus/deploy-config.yaml does not exist yet); an empty 'version: 1' file in campaign/logs was used.",
+    "Not implemented (later task P2-IMPL-LOCAL-RUN): run, probes, cleanup stages, resume reconcile of labelled containers, local-summary files, Stage A --resume."
+  ]
+}
