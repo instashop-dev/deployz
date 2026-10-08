@@ -1,0 +1,31 @@
+{
+  "taskId": "P0-BASELINE-CHECKS",
+  "testedCommit": "e164b7af445636447e27a62c81ed6b542f0029c7",
+  "executor": "campaign-worker",
+  "model": "sonnet",
+  "startedAt": "2026-10-08T07:16:42Z",
+  "finishedAt": "2026-10-08T07:21:04Z",
+  "proposedStatus": "COMPLETE",
+  "commands": [
+    {"command": "pnpm typecheck:scripts", "exitCode": 0, "summary": "5 tsconfig projects typechecked, no errors, 75.7s"},
+    {"command": "pnpm test:static", "exitCode": 0, "summary": "13 pass, 0 fail, 0 skip, 2.2s"},
+    {"command": "pnpm exec vitest run --project scripts/repository-compatibility", "exitCode": 1, "summary": "Startup Error: No projects matched the filter; project names are directory basenames, no tests ran (log: vitest-repository-compatibility.attempt0-nomatch.log; same for the other two with the scripts/ prefix)"},
+    {"command": "pnpm exec vitest run --project repository-compatibility", "exitCode": 0, "summary": "1 file, 19 passed, 0 failed, 0 skipped, 67.6s"},
+    {"command": "pnpm exec vitest run --project repository-deployment", "exitCode": 0, "summary": "1 file, 131 passed, 0 failed, 0 skipped, 11.6s"},
+    {"command": "pnpm exec vitest run --project version-canary", "exitCode": 0, "summary": "1 file, 72 passed, 0 failed, 0 skipped, 8.9s"}
+  ],
+  "failures": [],
+  "evidence": [
+    "campaign/logs/P0-BASELINE-CHECKS/typecheck-scripts.log",
+    "campaign/logs/P0-BASELINE-CHECKS/test-static.log",
+    "campaign/logs/P0-BASELINE-CHECKS/vitest-repository-compatibility.attempt0-nomatch.log",
+    "campaign/logs/P0-BASELINE-CHECKS/vitest-repository-compatibility.log",
+    "campaign/logs/P0-BASELINE-CHECKS/vitest-repository-deployment.log",
+    "campaign/logs/P0-BASELINE-CHECKS/vitest-version-canary.log",
+    "campaign/results/P0-BASELINE-CHECKS/ci-status.txt"
+  ],
+  "notes": [
+    "Correct vitest filter is --project <dirname> (e.g. repository-compatibility), not scripts/<dirname>. The first attempt with the scripts/ prefix failed at startup for all three projects; reruns with the correct name passed.",
+    "No test failures, no RPC timeouts. CI for this commit: CI push run success, Deploy API success, Deploy web success."
+  ]
+}

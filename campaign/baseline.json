@@ -1,0 +1,35 @@
+{
+  "campaign": "deployz-fresh-100",
+  "frozenAt": "2026-10-08T07:47:00Z",
+  "frozenBy": "opus (P0-FREEZE)",
+  "commit": "e164b7af445636447e27a62c81ed6b542f0029c7",
+  "branch": "campaign/fresh-100",
+  "analysisVersion": 44,
+  "analysisVersionSource": "apps/api/src/analysis.ts:306",
+  "compilerVersion": "dynamic-compiler-v2-5",
+  "compilerVersionSource": "packages/infrastructure-compiler/src/compile.ts:135",
+  "infrastructureProfile": { "id": "small", "version": 2 },
+  "infrastructureProfileSource": "packages/contracts/src/profile.ts:112 defaultInfrastructureSizeProfile() returns SMALL_V2_PROFILE",
+  "aiMode": "diagnostic-ai-off",
+  "aiModeNotes": "Production equivalence is not verified. The worktree .env (ignored, mtime 2026-10-08 13:08 IST, not in the main checkout .env) now sets AI_GATEWAY_BASE_URL (host gateway.ai.cloudflare.com), AI_PROVIDER_API_KEY (non-empty) and AI_MODEL equal to AI_MODEL_DEFAULT workers-ai/@cf/deepseek-ai/deepseek-v4-flash-0731 (apps/api/src/ai-config.ts:14). AI_FIXTURE_MODE is absent. No one confirmed that these values equal the production gateway configuration, and AWS access to compare is not authorized. Until the user confirms equality, runs are diagnostic AI-off and are labeled separately. No secret values are recorded here.",
+  "toolchain": {
+    "node": "v24.14.0",
+    "pnpm": "10.12.4",
+    "git": "2.53.0",
+    "docker": {
+      "serverVersion": "29.8.2",
+      "context": "desktop-linux",
+      "platform": "linux/x86_64",
+      "cpus": 4,
+      "memoryBytes": 4034154496,
+      "memoryGiB": 3.76
+    }
+  },
+  "dependencies": "pnpm install --frozen-lockfile and pnpm build at this commit (P0-ENV-SETUP); pnpm-lock.yaml unchanged",
+  "evidence": [
+    "campaign/results/P0-SMOKE/result.json",
+    "campaign/results/P0-ENV-SETUP/result.json",
+    "campaign/results/P0-BASELINE-CHECKS/result.json",
+    "campaign/results/P0-HARDENING-VERIFY/result.json"
+  ]
+}

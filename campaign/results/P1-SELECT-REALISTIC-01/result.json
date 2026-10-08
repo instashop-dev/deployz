@@ -1,0 +1,26 @@
+{
+  "taskId": "P1-SELECT-REALISTIC-01",
+  "testedCommit": "e164b7af445636447e27a62c81ed6b542f0029c7",
+  "executor": "campaign-worker",
+  "model": "sonnet",
+  "startedAt": "2026-10-08T08:00:00Z",
+  "finishedAt": "2026-10-08T08:20:00Z",
+  "proposedStatus": "COMPLETE",
+  "commands": [
+    {"command": "gh api repos/<owner>/<repo> (metadata for 14 shortlisted repos)", "exitCode": 0, "summary": "Checked fork, archived, default branch, license, pushedAt"},
+    {"command": "gh api repos/<repo>/contents (root listings)", "exitCode": 0, "summary": "Checked Dockerfile or standard build file presence"},
+    {"command": "gh api repos/<repo>/commits/<default-branch> then commits/<sha>, contents/<path>?ref=<sha>, commits/<sha>/check-runs, commits/<sha>/status", "exitCode": 0, "summary": "Pinned 10 SHAs; re-fetch returned same sha for all 10; entry and build files exist at pinned commit"},
+    {"command": "node (scratchpad gen.mjs) writes campaign/corpus/candidates/realistic-01.json", "exitCode": 0, "summary": "10 candidates written; exclusion check recorded"}
+  ],
+  "evidence": [
+    "campaign/corpus/candidates/realistic-01.json",
+    "campaign/logs/P1-SELECT-REALISTIC-01/verify.txt"
+  ],
+  "notes": [
+    "No Deployz analysis, build or Docker run on any candidate. Only gh api reads.",
+    "Zero matches against excluded-families.json by owner/repo or family name; none is a fork; none from instashop-dev.",
+    "Runtimes: Python x3, PHP, Java, Go x2, Node/TS x2, Ruby. Needs hints are guesses, not labels.",
+    "Boundary risks for later labeling: payload-with-postgres is a subdirectory template (templates/with-postgres); koel has no Dockerfile (composer build); campfire uses SQLite by default; inbox-zero license is NOASSERTION; fastapi-fullstack ships React frontend plus backend.",
+    "CI is informational: label-studio, payload and inbox-zero heads have some failed check runs; others green or pending status."
+  ]
+}

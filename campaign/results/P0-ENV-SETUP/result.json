@@ -1,0 +1,21 @@
+{
+  "taskId": "P0-ENV-SETUP",
+  "testedCommit": "e164b7af445636447e27a62c81ed6b542f0029c7",
+  "executor": "campaign-worker",
+  "model": "sonnet",
+  "startedAt": "2026-10-08T06:53:42Z",
+  "finishedAt": "2026-10-08T07:04:25Z",
+  "proposedStatus": "COMPLETE",
+  "commands": [
+    {"command": "pnpm install --frozen-lockfile", "exitCode": 0, "summary": "Installed in 246 s"},
+    {"command": "git diff --quiet pnpm-lock.yaml", "exitCode": 0, "summary": "Lockfile unchanged"},
+    {"command": "pnpm build", "exitCode": 0, "summary": "10 of 10 turbo tasks successful in 385 s"}
+  ],
+  "evidence": ["campaign/results/P0-ENV-SETUP/result.json"],
+  "durationsSeconds": {"install": 246, "build": 385},
+  "diskFreeBefore": "15360999424 bytes (14.3 GiB)",
+  "diskFreeAfter": "14969036800 bytes (13.94 GiB)",
+  "lockfileUnchanged": true,
+  "buildFailures": [],
+  "notes": ["Raw logs (git-ignored): campaign/logs/P0-ENV-SETUP/install.log and build.log", "Build warning only: turbo found no output files for @deployz/web#build (turbo.json outputs); not a failure", "Install printed an ignored build scripts notice; no action taken"]
+}

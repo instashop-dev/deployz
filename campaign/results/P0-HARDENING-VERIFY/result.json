@@ -1,0 +1,38 @@
+{
+  "taskId": "P0-HARDENING-VERIFY",
+  "testedCommit": "e164b7af445636447e27a62c81ed6b542f0029c7",
+  "executor": "campaign-worker",
+  "model": "sonnet",
+  "startedAt": "2026-10-08T07:36:00Z",
+  "finishedAt": "2026-10-08T07:41:45Z",
+  "proposedStatus": "COMPLETE",
+  "commands": [
+    {"command": "git merge-base --is-ancestor <c> HEAD for 3c927afb 38b2d472 3bc65f9c 1e639cd9 e164b7af", "exitCode": 0, "summary": "all five exit 0"},
+    {"command": "pnpm exec vitest run packages/relay/src/deploy.test.ts", "exitCode": 0, "summary": "99 passed, 0 failed, 0 skipped"},
+    {"command": "pnpm exec vitest run packages/relay/src/config-update.test.ts", "exitCode": 0, "summary": "31 passed"},
+    {"command": "pnpm exec vitest run packages/relay/src/first-start.test.ts", "exitCode": 0, "summary": "7 passed"},
+    {"command": "pnpm exec vitest run packages/infrastructure-compiler/src/compile.test.ts", "exitCode": 0, "summary": "77 passed"},
+    {"command": "pnpm exec vitest run packages/infrastructure-compiler/src/safety.test.ts", "exitCode": 0, "summary": "6 passed"},
+    {"command": "pnpm exec vitest run packages/contracts/src/profile.test.ts", "exitCode": 0, "summary": "6 passed"},
+    {"command": "pnpm exec vitest run packages/contracts/src/footprint.test.ts", "exitCode": 0, "summary": "11 passed"},
+    {"command": "pnpm exec vitest run packages/analysis/test/compiler-preflight.test.ts", "exitCode": 0, "summary": "12 passed"},
+    {"command": "pnpm exec vitest run packages/analysis/test/dockerfile-missing-sources.test.ts", "exitCode": 0, "summary": "7 passed"},
+    {"command": "pnpm exec vitest run apps/api/src/compiler-artifact.test.ts", "exitCode": 0, "summary": "7 passed"},
+    {"command": "pnpm exec vitest run apps/api/src/public-install.test.ts", "exitCode": 0, "summary": "36 passed"}
+  ],
+  "failures": [],
+  "evidence": [
+    "campaign/logs/P0-HARDENING-VERIFY/relay-deploy.log",
+    "campaign/logs/P0-HARDENING-VERIFY/relay-config-update.log",
+    "campaign/logs/P0-HARDENING-VERIFY/relay-first-start.log",
+    "campaign/logs/P0-HARDENING-VERIFY/compiler-compile.log",
+    "campaign/logs/P0-HARDENING-VERIFY/compiler-safety.log",
+    "campaign/logs/P0-HARDENING-VERIFY/contracts-profile.log",
+    "campaign/logs/P0-HARDENING-VERIFY/contracts-footprint.log",
+    "campaign/logs/P0-HARDENING-VERIFY/analysis-compiler-preflight.log",
+    "campaign/logs/P0-HARDENING-VERIFY/analysis-dockerfile-missing-sources.log",
+    "campaign/logs/P0-HARDENING-VERIFY/api-compiler-artifact.log",
+    "campaign/logs/P0-HARDENING-VERIFY/api-public-install.log"
+  ],
+  "notes": ["No skips or failures reported by vitest summaries. Logs are in ignored campaign/logs/."]
+}

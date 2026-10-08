@@ -1,0 +1,2606 @@
+{
+  "schemaVersion": 1,
+  "campaign": "deployz-fresh-100",
+  "statusValues": [
+    "PENDING",
+    "READY",
+    "IN_PROGRESS",
+    "CONTINUE",
+    "RETRYABLE",
+    "BLOCKED",
+    "COMPLETE"
+  ],
+  "eligibility": "The earliest task in array order whose status is READY, CONTINUE or RETRYABLE (attempts below the retry limit), or PENDING with every prerequisite COMPLETE, every gate true in state.json gates, and every required capability AVAILABLE in state.json capabilities. Generated tasks are inserted before their phase gate.",
+  "resultContract": "Each worker task writes campaign/results/<task id>/result.json: { taskId, testedCommit, executor, model, startedAt, finishedAt, proposedStatus, commands: [{ command, exitCode, summary }], evidence: [paths], notes }. Per-repo evidence goes beside it as <repo id>.json. Evidence is redacted; raw logs go to campaign/logs/ (ignored).",
+  "tasks": [
+    {
+      "id": "P0-SMOKE",
+      "phase": 0,
+      "title": "Smoke: read package.json and write one small evidence result",
+      "executor": "campaign-worker",
+      "status": "COMPLETE",
+      "prerequisites": [],
+      "gates": [],
+      "requires": [],
+      "inputs": [
+        "package.json"
+      ],
+      "forbiddenInputs": [
+        "campaign/corpus/holdout.yaml",
+        "campaign/results/holdout/"
+      ],
+      "artifacts": [
+        "campaign/results/P0-SMOKE/result.json"
+      ],
+      "completionChecks": [
+        "campaign/results/P0-SMOKE/result.json is valid JSON with taskId \"P0-SMOKE\", testedCommit equal to the commit recorded in state.json, a non-empty commands list with exit codes, and every listed evidence path exists",
+        "result.json field \"file\" is \"package.json\" and field \"sha256\" equals the SHA-256 that Opus computes again for package.json at the tested commit",
+        "result.json field \"packageName\" equals the \"name\" field of package.json",
+        "Opus confirms from the run that campaign-worker ran in the foreground with model sonnet and that no other task started",
+        "No file outside campaign/results/P0-SMOKE/ changed during the run (git status --short before and after the run differ only there)"
+      ],
+      "timeboxMinutes": 5,
+      "notes": [
+        "Harmless: no install, no build, no network, no AWS. Write only campaign/results/P0-SMOKE/result.json."
+      ]
+    },
+    {
+      "id": "P0-ENV-SETUP",
+      "phase": 0,
+      "title": "Install locked dependencies and build packages; record durations",
+      "executor": "campaign-worker",
+      "status": "COMPLETE",
+      "prerequisites": [
+        "P0-SMOKE"
+      ],
+      "gates": [
+        "smokeReviewed"
+      ],
+      "requires": [
+        "node",
+        "pnpm",
+        "disk>=10GB"
+      ],
+      "inputs": [],
+      "forbiddenInputs": [
+        "campaign/corpus/holdout.yaml",
+        "campaign/results/holdout/"
+      ],
+      "artifacts": [
+        "campaign/results/P0-ENV-SETUP/result.json"
+      ],
+      "completionChecks": [
+        "campaign/results/P0-ENV-SETUP/result.json is valid JSON with taskId \"P0-ENV-SETUP\", testedCommit equal to the commit recorded in state.json, a non-empty commands list with exit codes, and every listed evidence path exists",
+        "`pnpm install --frozen-lockfile` exit code 0 and pnpm-lock.yaml unchanged (git diff --quiet pnpm-lock.yaml)",
+        "`pnpm build` exit code 0, or each failure is recorded with its package and first error line",
+        "Durations and free disk space before/after are recorded"
+      ],
+      "timeboxMinutes": 20,
+      "notes": []
+    },
+    {
+      "id": "P0-BASELINE-CHECKS",
+      "phase": 0,
+      "title": "Run harness and static baseline checks; isolate pre-existing failures",
+      "executor": "campaign-worker",
+      "status": "COMPLETE",
+      "prerequisites": [
+        "P0-ENV-SETUP"
+      ],
+      "gates": [],
+      "requires": [],
+      "inputs": [],
+      "forbiddenInputs": [
+        "campaign/corpus/holdout.yaml",
+        "campaign/results/holdout/"
+      ],
+      "artifacts": [
+        "campaign/results/P0-BASELINE-CHECKS/result.json"
+      ],
+      "completionChecks": [
+        "campaign/results/P0-BASELINE-CHECKS/result.json is valid JSON with taskId \"P0-BASELINE-CHECKS\", testedCommit equal to the commit recorded in state.json, a non-empty commands list with exit codes, and every listed evidence path exists",
+        "Results recorded for `pnpm typecheck:scripts`, `pnpm test:static`, and `pnpm vitest run --project` for the repository-compatibility, repository-deployment and version-canary harness projects",
+        "Every failure is listed with test name and first error line, and is classified as regression or pre-existing (compare with memory note on local env failures and with origin/main CI)"
+      ],
+      "timeboxMinutes": 30,
+      "notes": [
+        "2026-10-08 attempt 1 COMPLETE. 0 failures. Vitest --project uses directory basenames (repository-compatibility, repository-deployment, version-canary), not scripts/ paths."
+      ]
+    },
+    {
+      "id": "P0-HARDENING-VERIFY",
+      "phase": 0,
+      "title": "Verify recent hardening (#492-#496) is present and its targeted tests pass",
+      "executor": "campaign-worker",
+      "status": "COMPLETE",
+      "prerequisites": [
+        "P0-BASELINE-CHECKS"
+      ],
+      "gates": [],
+      "requires": [],
+      "inputs": [
+        "git log -5 on the baseline commit"
+      ],
+      "forbiddenInputs": [
+        "campaign/corpus/holdout.yaml",
+        "campaign/results/holdout/"
+      ],
+      "artifacts": [
+        "campaign/results/P0-HARDENING-VERIFY/result.json"
+      ],
+      "completionChecks": [
+        "campaign/results/P0-HARDENING-VERIFY/result.json is valid JSON with taskId \"P0-HARDENING-VERIFY\", testedCommit equal to the commit recorded in state.json, a non-empty commands list with exit codes, and every listed evidence path exists",
+        "Commits 3c927afb, 38b2d472, 3bc65f9c, 1e639cd9 and e164b7af are ancestors of the tested commit (git merge-base --is-ancestor)",
+        "Targeted vitest files changed by those commits (relay deploy/config-update, infrastructure-compiler compile/safety, contracts profile, analysis compiler-preflight) pass or failures are recorded"
+      ],
+      "timeboxMinutes": 25,
+      "notes": [
+        "2026-10-08 attempt 1 COMPLETE: 5/5 ancestor checks exit 0; 11 targeted vitest files 299/299 passed. Opus re-checked logs."
+      ]
+    },
+    {
+      "id": "P0-FREEZE",
+      "phase": 0,
+      "title": "Freeze baseline commit, ANALYSIS_VERSION, compiler, profile and AI settings",
+      "executor": "opus",
+      "status": "COMPLETE",
+      "prerequisites": [
+        "P0-HARDENING-VERIFY"
+      ],
+      "gates": [],
+      "requires": [],
+      "inputs": [],
+      "forbiddenInputs": [
+        "campaign/corpus/holdout.yaml",
+        "campaign/results/holdout/"
+      ],
+      "artifacts": [
+        "campaign/baseline.json",
+        "state.json baseline block"
+      ],
+      "completionChecks": [
+        "campaign/baseline.json records commit SHA, ANALYSIS_VERSION, infrastructure-compiler version, default infrastructure profile, AI mode, Node/pnpm/Docker versions and Docker CPU/memory limits",
+        "AI mode is \"production-equivalent\" only when an AI gateway configuration equal to production is available; otherwise the capability ai-gateway is recorded as BLOCKED in state.json and diagnostic AI-off runs are labeled separately",
+        "state.json baseline.commit equals the SHA in baseline.json"
+      ],
+      "timeboxMinutes": 15,
+      "notes": [
+        "COMPLETE 2026-10-08T07:47:47.928Z by Opus.",
+        "AI mode diagnostic-ai-off: worktree .env has gateway vars but production equality is not confirmed."
+      ]
+    },
+    {
+      "id": "P0-GATE",
+      "phase": 0,
+      "title": "Phase 0 review: known baseline; checks pass or pre-existing failures isolated",
+      "executor": "opus",
+      "status": "COMPLETE",
+      "prerequisites": [
+        "P0-FREEZE"
+      ],
+      "gates": [],
+      "requires": [],
+      "inputs": [],
+      "forbiddenInputs": [
+        "campaign/corpus/holdout.yaml",
+        "campaign/results/holdout/"
+      ],
+      "artifacts": [
+        "campaign/results/P0-GATE/review.md"
+      ],
+      "completionChecks": [
+        "review.md states the gate verdict with evidence paths for each Phase 0 task",
+        "state.json phase advances to 1 only when the verdict is PASS"
+      ],
+      "timeboxMinutes": 10,
+      "notes": [
+        "COMPLETE 2026-10-08T07:47:47.928Z by Opus.",
+        "Verdict PASS; phase advanced to 1."
+      ]
+    },
+    {
+      "id": "P1-EXCLUDE",
+      "phase": 1,
+      "title": "Build the exclusion list of all prior corpus, audit, pilot and canary families",
+      "executor": "campaign-worker",
+      "status": "COMPLETE",
+      "prerequisites": [
+        "P0-GATE"
+      ],
+      "gates": [],
+      "requires": [],
+      "inputs": [
+        "docs/testing/repository-compatibility/benchmark.yaml",
+        "docs/testing/repository-deployment/deploy-config.yaml",
+        "docs/testing/repository-compatibility/findings.md",
+        "docs/testing/repository-deployment/findings.md",
+        "docs/testing/gate-d/findings.md",
+        "docs/testing/aws-e2e.md",
+        "docs/testing/manual-checklist.md",
+        "scripts/version-canary/fixture-repo.ts"
+      ],
+      "forbiddenInputs": [
+        "campaign/corpus/holdout.yaml",
+        "campaign/results/holdout/"
+      ],
+      "artifacts": [
+        "campaign/corpus/excluded-families.json",
+        "campaign/results/P1-EXCLUDE/result.json"
+      ],
+      "completionChecks": [
+        "campaign/results/P1-EXCLUDE/result.json is valid JSON with taskId \"P1-EXCLUDE\", testedCommit equal to the commit recorded in state.json, a non-empty commands list with exit codes, and every listed evidence path exists",
+        "excluded-families.json lists each owner/repo with source file, plus upstream/fork family where known; it contains every repository: value in benchmark.yaml (124 entries)",
+        "Documenso and the version-canary fixture are present"
+      ],
+      "timeboxMinutes": 25,
+      "notes": [
+        "COMPLETE 2026-10-08T07:51:08.439Z. Opus verified: 143 entries, all 123 benchmark repository: entries present, documenso/documenso and instashop-dev/deployz-canary-app present. The check text \"124 entries\" came from a raw grep count; line 3092 is a prose note containing \"repository:\", so the real count is 123."
+      ]
+    },
+    {
+      "id": "P1-SELECT-REALISTIC-01",
+      "phase": 1,
+      "title": "Select and pin 10 fresh realistic candidate apps (batch 1); check repository validity",
+      "executor": "campaign-worker",
+      "status": "COMPLETE",
+      "prerequisites": [
+        "P1-EXCLUDE"
+      ],
+      "gates": [],
+      "requires": [
+        "github-auth"
+      ],
+      "inputs": [
+        "campaign/plan.md",
+        "campaign/corpus/excluded-families.json",
+        "campaign/corpus/candidates/ (earlier batches, to avoid duplicates)"
+      ],
+      "forbiddenInputs": [
+        "campaign/corpus/holdout.yaml",
+        "campaign/results/holdout/",
+        "docs/testing/repository-compatibility/runs/",
+        "docs/testing/repository-deployment/runs/"
+      ],
+      "artifacts": [
+        "campaign/corpus/candidates/realistic-01.json",
+        "campaign/results/P1-SELECT-REALISTIC-01/result.json"
+      ],
+      "completionChecks": [
+        "campaign/results/P1-SELECT-REALISTIC-01/result.json is valid JSON with taskId \"P1-SELECT-REALISTIC-01\", testedCommit equal to the commit recorded in state.json, a non-empty commands list with exit codes, and every listed evidence path exists",
+        "Exactly 10 candidates, each with owner/repo, 40-char commit SHA verified with `gh api repos/<r>/commits/<sha>`, license, cohort, selection reason and validity evidence (default branch builds/has app entry point, not archived-broken)",
+        "No candidate family appears in excluded-families.json or in an earlier candidates file",
+        "No Deployz analysis or build was run on any candidate"
+      ],
+      "timeboxMinutes": 40,
+      "notes": [
+        "Realistic: apps a customer would plausibly deploy inside the MVP boundary; mix of runtimes and of Postgres/Redis/storage/worker needs."
+      ]
+    },
+    {
+      "id": "P1-SELECT-REALISTIC-02",
+      "phase": 1,
+      "title": "Select and pin 10 fresh realistic candidate apps (batch 2); check repository validity",
+      "executor": "campaign-worker",
+      "status": "PENDING",
+      "prerequisites": [
+        "P1-EXCLUDE"
+      ],
+      "gates": [],
+      "requires": [
+        "github-auth"
+      ],
+      "inputs": [
+        "campaign/plan.md",
+        "campaign/corpus/excluded-families.json",
+        "campaign/corpus/candidates/ (earlier batches, to avoid duplicates)"
+      ],
+      "forbiddenInputs": [
+        "campaign/corpus/holdout.yaml",
+        "campaign/results/holdout/",
+        "docs/testing/repository-compatibility/runs/",
+        "docs/testing/repository-deployment/runs/"
+      ],
+      "artifacts": [
+        "campaign/corpus/candidates/realistic-02.json",
+        "campaign/results/P1-SELECT-REALISTIC-02/result.json"
+      ],
+      "completionChecks": [
+        "campaign/results/P1-SELECT-REALISTIC-02/result.json is valid JSON with taskId \"P1-SELECT-REALISTIC-02\", testedCommit equal to the commit recorded in state.json, a non-empty commands list with exit codes, and every listed evidence path exists",
+        "Exactly 10 candidates, each with owner/repo, 40-char commit SHA verified with `gh api repos/<r>/commits/<sha>`, license, cohort, selection reason and validity evidence (default branch builds/has app entry point, not archived-broken)",
+        "No candidate family appears in excluded-families.json or in an earlier candidates file",
+        "No Deployz analysis or build was run on any candidate"
+      ],
+      "timeboxMinutes": 40,
+      "notes": [
+        "Realistic: apps a customer would plausibly deploy inside the MVP boundary; mix of runtimes and of Postgres/Redis/storage/worker needs."
+      ]
+    },
+    {
+      "id": "P1-SELECT-REALISTIC-03",
+      "phase": 1,
+      "title": "Select and pin 10 fresh realistic candidate apps (batch 3); check repository validity",
+      "executor": "campaign-worker",
+      "status": "PENDING",
+      "prerequisites": [
+        "P1-EXCLUDE"
+      ],
+      "gates": [],
+      "requires": [
+        "github-auth"
+      ],
+      "inputs": [
+        "campaign/plan.md",
+        "campaign/corpus/excluded-families.json",
+        "campaign/corpus/candidates/ (earlier batches, to avoid duplicates)"
+      ],
+      "forbiddenInputs": [
+        "campaign/corpus/holdout.yaml",
+        "campaign/results/holdout/",
+        "docs/testing/repository-compatibility/runs/",
+        "docs/testing/repository-deployment/runs/"
+      ],
+      "artifacts": [
+        "campaign/corpus/candidates/realistic-03.json",
+        "campaign/results/P1-SELECT-REALISTIC-03/result.json"
+      ],
+      "completionChecks": [
+        "campaign/results/P1-SELECT-REALISTIC-03/result.json is valid JSON with taskId \"P1-SELECT-REALISTIC-03\", testedCommit equal to the commit recorded in state.json, a non-empty commands list with exit codes, and every listed evidence path exists",
+        "Exactly 10 candidates, each with owner/repo, 40-char commit SHA verified with `gh api repos/<r>/commits/<sha>`, license, cohort, selection reason and validity evidence (default branch builds/has app entry point, not archived-broken)",
+        "No candidate family appears in excluded-families.json or in an earlier candidates file",
+        "No Deployz analysis or build was run on any candidate"
+      ],
+      "timeboxMinutes": 40,
+      "notes": [
+        "Realistic: apps a customer would plausibly deploy inside the MVP boundary; mix of runtimes and of Postgres/Redis/storage/worker needs."
+      ]
+    },
+    {
+      "id": "P1-SELECT-REALISTIC-04",
+      "phase": 1,
+      "title": "Select and pin 10 fresh realistic candidate apps (batch 4); check repository validity",
+      "executor": "campaign-worker",
+      "status": "PENDING",
+      "prerequisites": [
+        "P1-EXCLUDE"
+      ],
+      "gates": [],
+      "requires": [
+        "github-auth"
+      ],
+      "inputs": [
+        "campaign/plan.md",
+        "campaign/corpus/excluded-families.json",
+        "campaign/corpus/candidates/ (earlier batches, to avoid duplicates)"
+      ],
+      "forbiddenInputs": [
+        "campaign/corpus/holdout.yaml",
+        "campaign/results/holdout/",
+        "docs/testing/repository-compatibility/runs/",
+        "docs/testing/repository-deployment/runs/"
+      ],
+      "artifacts": [
+        "campaign/corpus/candidates/realistic-04.json",
+        "campaign/results/P1-SELECT-REALISTIC-04/result.json"
+      ],
+      "completionChecks": [
+        "campaign/results/P1-SELECT-REALISTIC-04/result.json is valid JSON with taskId \"P1-SELECT-REALISTIC-04\", testedCommit equal to the commit recorded in state.json, a non-empty commands list with exit codes, and every listed evidence path exists",
+        "Exactly 10 candidates, each with owner/repo, 40-char commit SHA verified with `gh api repos/<r>/commits/<sha>`, license, cohort, selection reason and validity evidence (default branch builds/has app entry point, not archived-broken)",
+        "No candidate family appears in excluded-families.json or in an earlier candidates file",
+        "No Deployz analysis or build was run on any candidate"
+      ],
+      "timeboxMinutes": 40,
+      "notes": [
+        "Realistic: apps a customer would plausibly deploy inside the MVP boundary; mix of runtimes and of Postgres/Redis/storage/worker needs."
+      ]
+    },
+    {
+      "id": "P1-SELECT-REALISTIC-05",
+      "phase": 1,
+      "title": "Select and pin 10 fresh realistic candidate apps (batch 5); check repository validity",
+      "executor": "campaign-worker",
+      "status": "PENDING",
+      "prerequisites": [
+        "P1-EXCLUDE"
+      ],
+      "gates": [],
+      "requires": [
+        "github-auth"
+      ],
+      "inputs": [
+        "campaign/plan.md",
+        "campaign/corpus/excluded-families.json",
+        "campaign/corpus/candidates/ (earlier batches, to avoid duplicates)"
+      ],
+      "forbiddenInputs": [
+        "campaign/corpus/holdout.yaml",
+        "campaign/results/holdout/",
+        "docs/testing/repository-compatibility/runs/",
+        "docs/testing/repository-deployment/runs/"
+      ],
+      "artifacts": [
+        "campaign/corpus/candidates/realistic-05.json",
+        "campaign/results/P1-SELECT-REALISTIC-05/result.json"
+      ],
+      "completionChecks": [
+        "campaign/results/P1-SELECT-REALISTIC-05/result.json is valid JSON with taskId \"P1-SELECT-REALISTIC-05\", testedCommit equal to the commit recorded in state.json, a non-empty commands list with exit codes, and every listed evidence path exists",
+        "Exactly 10 candidates, each with owner/repo, 40-char commit SHA verified with `gh api repos/<r>/commits/<sha>`, license, cohort, selection reason and validity evidence (default branch builds/has app entry point, not archived-broken)",
+        "No candidate family appears in excluded-families.json or in an earlier candidates file",
+        "No Deployz analysis or build was run on any candidate"
+      ],
+      "timeboxMinutes": 40,
+      "notes": [
+        "Realistic: apps a customer would plausibly deploy inside the MVP boundary; mix of runtimes and of Postgres/Redis/storage/worker needs."
+      ]
+    },
+    {
+      "id": "P1-SELECT-REALISTIC-06",
+      "phase": 1,
+      "title": "Select and pin 10 fresh realistic candidate apps (batch 6); check repository validity",
+      "executor": "campaign-worker",
+      "status": "PENDING",
+      "prerequisites": [
+        "P1-EXCLUDE"
+      ],
+      "gates": [],
+      "requires": [
+        "github-auth"
+      ],
+      "inputs": [
+        "campaign/plan.md",
+        "campaign/corpus/excluded-families.json",
+        "campaign/corpus/candidates/ (earlier batches, to avoid duplicates)"
+      ],
+      "forbiddenInputs": [
+        "campaign/corpus/holdout.yaml",
+        "campaign/results/holdout/",
+        "docs/testing/repository-compatibility/runs/",
+        "docs/testing/repository-deployment/runs/"
+      ],
+      "artifacts": [
+        "campaign/corpus/candidates/realistic-06.json",
+        "campaign/results/P1-SELECT-REALISTIC-06/result.json"
+      ],
+      "completionChecks": [
+        "campaign/results/P1-SELECT-REALISTIC-06/result.json is valid JSON with taskId \"P1-SELECT-REALISTIC-06\", testedCommit equal to the commit recorded in state.json, a non-empty commands list with exit codes, and every listed evidence path exists",
+        "Exactly 10 candidates, each with owner/repo, 40-char commit SHA verified with `gh api repos/<r>/commits/<sha>`, license, cohort, selection reason and validity evidence (default branch builds/has app entry point, not archived-broken)",
+        "No candidate family appears in excluded-families.json or in an earlier candidates file",
+        "No Deployz analysis or build was run on any candidate"
+      ],
+      "timeboxMinutes": 40,
+      "notes": [
+        "Realistic: apps a customer would plausibly deploy inside the MVP boundary; mix of runtimes and of Postgres/Redis/storage/worker needs."
+      ]
+    },
+    {
+      "id": "P1-SELECT-REALISTIC-07",
+      "phase": 1,
+      "title": "Select and pin 10 fresh realistic candidate apps (batch 7); check repository validity",
+      "executor": "campaign-worker",
+      "status": "PENDING",
+      "prerequisites": [
+        "P1-EXCLUDE"
+      ],
+      "gates": [],
+      "requires": [
+        "github-auth"
+      ],
+      "inputs": [
+        "campaign/plan.md",
+        "campaign/corpus/excluded-families.json",
+        "campaign/corpus/candidates/ (earlier batches, to avoid duplicates)"
+      ],
+      "forbiddenInputs": [
+        "campaign/corpus/holdout.yaml",
+        "campaign/results/holdout/",
+        "docs/testing/repository-compatibility/runs/",
+        "docs/testing/repository-deployment/runs/"
+      ],
+      "artifacts": [
+        "campaign/corpus/candidates/realistic-07.json",
+        "campaign/results/P1-SELECT-REALISTIC-07/result.json"
+      ],
+      "completionChecks": [
+        "campaign/results/P1-SELECT-REALISTIC-07/result.json is valid JSON with taskId \"P1-SELECT-REALISTIC-07\", testedCommit equal to the commit recorded in state.json, a non-empty commands list with exit codes, and every listed evidence path exists",
+        "Exactly 10 candidates, each with owner/repo, 40-char commit SHA verified with `gh api repos/<r>/commits/<sha>`, license, cohort, selection reason and validity evidence (default branch builds/has app entry point, not archived-broken)",
+        "No candidate family appears in excluded-families.json or in an earlier candidates file",
+        "No Deployz analysis or build was run on any candidate"
+      ],
+      "timeboxMinutes": 40,
+      "notes": [
+        "Realistic: apps a customer would plausibly deploy inside the MVP boundary; mix of runtimes and of Postgres/Redis/storage/worker needs."
+      ]
+    },
+    {
+      "id": "P1-SELECT-MESSY-01",
+      "phase": 1,
+      "title": "Select and pin 10 fresh messy candidate apps (batch 1); check repository validity",
+      "executor": "campaign-worker",
+      "status": "PENDING",
+      "prerequisites": [
+        "P1-EXCLUDE"
+      ],
+      "gates": [],
+      "requires": [
+        "github-auth"
+      ],
+      "inputs": [
+        "campaign/plan.md",
+        "campaign/corpus/excluded-families.json",
+        "campaign/corpus/candidates/ (earlier batches, to avoid duplicates)"
+      ],
+      "forbiddenInputs": [
+        "campaign/corpus/holdout.yaml",
+        "campaign/results/holdout/",
+        "docs/testing/repository-compatibility/runs/",
+        "docs/testing/repository-deployment/runs/"
+      ],
+      "artifacts": [
+        "campaign/corpus/candidates/messy-01.json",
+        "campaign/results/P1-SELECT-MESSY-01/result.json"
+      ],
+      "completionChecks": [
+        "campaign/results/P1-SELECT-MESSY-01/result.json is valid JSON with taskId \"P1-SELECT-MESSY-01\", testedCommit equal to the commit recorded in state.json, a non-empty commands list with exit codes, and every listed evidence path exists",
+        "Exactly 10 candidates, each with owner/repo, 40-char commit SHA verified with `gh api repos/<r>/commits/<sha>`, license, cohort, selection reason and validity evidence (default branch builds/has app entry point, not archived-broken)",
+        "No candidate family appears in excluded-families.json or in an earlier candidates file",
+        "No Deployz analysis or build was run on any candidate"
+      ],
+      "timeboxMinutes": 40,
+      "notes": [
+        "Messy: realistic but irregular layouts (monorepo subdirectory, non-root Dockerfile, mixed runtimes, missing docs)."
+      ]
+    },
+    {
+      "id": "P1-SELECT-MESSY-02",
+      "phase": 1,
+      "title": "Select and pin 10 fresh messy candidate apps (batch 2); check repository validity",
+      "executor": "campaign-worker",
+      "status": "PENDING",
+      "prerequisites": [
+        "P1-EXCLUDE"
+      ],
+      "gates": [],
+      "requires": [
+        "github-auth"
+      ],
+      "inputs": [
+        "campaign/plan.md",
+        "campaign/corpus/excluded-families.json",
+        "campaign/corpus/candidates/ (earlier batches, to avoid duplicates)"
+      ],
+      "forbiddenInputs": [
+        "campaign/corpus/holdout.yaml",
+        "campaign/results/holdout/",
+        "docs/testing/repository-compatibility/runs/",
+        "docs/testing/repository-deployment/runs/"
+      ],
+      "artifacts": [
+        "campaign/corpus/candidates/messy-02.json",
+        "campaign/results/P1-SELECT-MESSY-02/result.json"
+      ],
+      "completionChecks": [
+        "campaign/results/P1-SELECT-MESSY-02/result.json is valid JSON with taskId \"P1-SELECT-MESSY-02\", testedCommit equal to the commit recorded in state.json, a non-empty commands list with exit codes, and every listed evidence path exists",
+        "Exactly 10 candidates, each with owner/repo, 40-char commit SHA verified with `gh api repos/<r>/commits/<sha>`, license, cohort, selection reason and validity evidence (default branch builds/has app entry point, not archived-broken)",
+        "No candidate family appears in excluded-families.json or in an earlier candidates file",
+        "No Deployz analysis or build was run on any candidate"
+      ],
+      "timeboxMinutes": 40,
+      "notes": [
+        "Messy: realistic but irregular layouts (monorepo subdirectory, non-root Dockerfile, mixed runtimes, missing docs)."
+      ]
+    },
+    {
+      "id": "P1-SELECT-BOUNDARY-01",
+      "phase": 1,
+      "title": "Select and pin 10 fresh boundary candidate apps (batch 1); check repository validity",
+      "executor": "campaign-worker",
+      "status": "PENDING",
+      "prerequisites": [
+        "P1-EXCLUDE"
+      ],
+      "gates": [],
+      "requires": [
+        "github-auth"
+      ],
+      "inputs": [
+        "campaign/plan.md",
+        "campaign/corpus/excluded-families.json",
+        "campaign/corpus/candidates/ (earlier batches, to avoid duplicates)"
+      ],
+      "forbiddenInputs": [
+        "campaign/corpus/holdout.yaml",
+        "campaign/results/holdout/",
+        "docs/testing/repository-compatibility/runs/",
+        "docs/testing/repository-deployment/runs/"
+      ],
+      "artifacts": [
+        "campaign/corpus/candidates/boundary-01.json",
+        "campaign/results/P1-SELECT-BOUNDARY-01/result.json"
+      ],
+      "completionChecks": [
+        "campaign/results/P1-SELECT-BOUNDARY-01/result.json is valid JSON with taskId \"P1-SELECT-BOUNDARY-01\", testedCommit equal to the commit recorded in state.json, a non-empty commands list with exit codes, and every listed evidence path exists",
+        "Exactly 10 candidates, each with owner/repo, 40-char commit SHA verified with `gh api repos/<r>/commits/<sha>`, license, cohort, selection reason and validity evidence (default branch builds/has app entry point, not archived-broken)",
+        "No candidate family appears in excluded-families.json or in an earlier candidates file",
+        "No Deployz analysis or build was run on any candidate"
+      ],
+      "timeboxMinutes": 40,
+      "notes": [
+        "Boundary apps fall outside the MVP by design (see docs/product/mvp-scope.md); choose clear, source-backed reasons."
+      ]
+    },
+    {
+      "id": "P1-FREEZE-CORPUS",
+      "phase": 1,
+      "title": "Freeze the 100-app corpus; assign ids repo-501..repo-600; stratified 80/20 split",
+      "executor": "opus",
+      "status": "PENDING",
+      "prerequisites": [
+        "P1-SELECT-REALISTIC-01",
+        "P1-SELECT-REALISTIC-02",
+        "P1-SELECT-REALISTIC-03",
+        "P1-SELECT-REALISTIC-04",
+        "P1-SELECT-REALISTIC-05",
+        "P1-SELECT-REALISTIC-06",
+        "P1-SELECT-REALISTIC-07",
+        "P1-SELECT-MESSY-01",
+        "P1-SELECT-MESSY-02",
+        "P1-SELECT-BOUNDARY-01"
+      ],
+      "gates": [],
+      "requires": [],
+      "inputs": [],
+      "forbiddenInputs": [
+        "campaign/corpus/holdout.yaml",
+        "campaign/results/holdout/"
+      ],
+      "artifacts": [
+        "campaign/corpus/corpus.json",
+        "campaign/corpus/holdout.yaml (ids and pins only)",
+        "campaign/corpus/split.json"
+      ],
+      "completionChecks": [
+        "corpus.json has 100 entries: 70 realistic, 20 messy, 10 boundary; ids repo-501..repo-600 do not collide with benchmark.yaml ids",
+        "split.json records the deterministic seed and method; 80 improvement and 20 holdout, stratified 14/4/2 holdout by cohort",
+        "Holdout ids are written only to holdout.yaml and split.json; later execution/fix tasks list holdout.yaml in forbiddenInputs"
+      ],
+      "timeboxMinutes": 20,
+      "notes": []
+    },
+    {
+      "id": "P1-LABEL-01",
+      "phase": 1,
+      "title": "Initial expected-behavior labels for corpus batch 1 (10 apps) from source only",
+      "executor": "campaign-worker",
+      "status": "PENDING",
+      "prerequisites": [
+        "P1-FREEZE-CORPUS"
+      ],
+      "gates": [],
+      "requires": [
+        "github-auth"
+      ],
+      "inputs": [
+        "campaign/corpus/corpus.json (batch slice only)",
+        "scripts/repository-compatibility/manifest.ts (expected facts schema)",
+        "docs/product/mvp-scope.md"
+      ],
+      "forbiddenInputs": [
+        "campaign/corpus/holdout.yaml",
+        "campaign/results/holdout/",
+        "campaign/results/P1-VERIFY-*",
+        "campaign/corpus/labels/verify-*",
+        "docs/testing/repository-compatibility/runs/",
+        "any Deployz analysis output"
+      ],
+      "artifacts": [
+        "campaign/corpus/labels/initial-01.yaml",
+        "campaign/results/P1-LABEL-01/result.json"
+      ],
+      "completionChecks": [
+        "campaign/results/P1-LABEL-01/result.json is valid JSON with taskId \"P1-LABEL-01\", testedCommit equal to the commit recorded in state.json, a non-empty commands list with exit codes, and every listed evidence path exists",
+        "Each of the 10 apps has expected facts that parse with expectedFactsSchema (compatibility, runtime, monorepo, postgres, redis, worker, optional storage/migration/appRoot/dockerfilePath/port/healthPath/unsupported)",
+        "Every fact cites source file paths at the pinned commit"
+      ],
+      "timeboxMinutes": 40,
+      "notes": []
+    },
+    {
+      "id": "P1-LABEL-02",
+      "phase": 1,
+      "title": "Initial expected-behavior labels for corpus batch 2 (10 apps) from source only",
+      "executor": "campaign-worker",
+      "status": "PENDING",
+      "prerequisites": [
+        "P1-FREEZE-CORPUS"
+      ],
+      "gates": [],
+      "requires": [
+        "github-auth"
+      ],
+      "inputs": [
+        "campaign/corpus/corpus.json (batch slice only)",
+        "scripts/repository-compatibility/manifest.ts (expected facts schema)",
+        "docs/product/mvp-scope.md"
+      ],
+      "forbiddenInputs": [
+        "campaign/corpus/holdout.yaml",
+        "campaign/results/holdout/",
+        "campaign/results/P1-VERIFY-*",
+        "campaign/corpus/labels/verify-*",
+        "docs/testing/repository-compatibility/runs/",
+        "any Deployz analysis output"
+      ],
+      "artifacts": [
+        "campaign/corpus/labels/initial-02.yaml",
+        "campaign/results/P1-LABEL-02/result.json"
+      ],
+      "completionChecks": [
+        "campaign/results/P1-LABEL-02/result.json is valid JSON with taskId \"P1-LABEL-02\", testedCommit equal to the commit recorded in state.json, a non-empty commands list with exit codes, and every listed evidence path exists",
+        "Each of the 10 apps has expected facts that parse with expectedFactsSchema (compatibility, runtime, monorepo, postgres, redis, worker, optional storage/migration/appRoot/dockerfilePath/port/healthPath/unsupported)",
+        "Every fact cites source file paths at the pinned commit"
+      ],
+      "timeboxMinutes": 40,
+      "notes": []
+    },
+    {
+      "id": "P1-LABEL-03",
+      "phase": 1,
+      "title": "Initial expected-behavior labels for corpus batch 3 (10 apps) from source only",
+      "executor": "campaign-worker",
+      "status": "PENDING",
+      "prerequisites": [
+        "P1-FREEZE-CORPUS"
+      ],
+      "gates": [],
+      "requires": [
+        "github-auth"
+      ],
+      "inputs": [
+        "campaign/corpus/corpus.json (batch slice only)",
+        "scripts/repository-compatibility/manifest.ts (expected facts schema)",
+        "docs/product/mvp-scope.md"
+      ],
+      "forbiddenInputs": [
+        "campaign/corpus/holdout.yaml",
+        "campaign/results/holdout/",
+        "campaign/results/P1-VERIFY-*",
+        "campaign/corpus/labels/verify-*",
+        "docs/testing/repository-compatibility/runs/",
+        "any Deployz analysis output"
+      ],
+      "artifacts": [
+        "campaign/corpus/labels/initial-03.yaml",
+        "campaign/results/P1-LABEL-03/result.json"
+      ],
+      "completionChecks": [
+        "campaign/results/P1-LABEL-03/result.json is valid JSON with taskId \"P1-LABEL-03\", testedCommit equal to the commit recorded in state.json, a non-empty commands list with exit codes, and every listed evidence path exists",
+        "Each of the 10 apps has expected facts that parse with expectedFactsSchema (compatibility, runtime, monorepo, postgres, redis, worker, optional storage/migration/appRoot/dockerfilePath/port/healthPath/unsupported)",
+        "Every fact cites source file paths at the pinned commit"
+      ],
+      "timeboxMinutes": 40,
+      "notes": []
+    },
+    {
+      "id": "P1-LABEL-04",
+      "phase": 1,
+      "title": "Initial expected-behavior labels for corpus batch 4 (10 apps) from source only",
+      "executor": "campaign-worker",
+      "status": "PENDING",
+      "prerequisites": [
+        "P1-FREEZE-CORPUS"
+      ],
+      "gates": [],
+      "requires": [
+        "github-auth"
+      ],
+      "inputs": [
+        "campaign/corpus/corpus.json (batch slice only)",
+        "scripts/repository-compatibility/manifest.ts (expected facts schema)",
+        "docs/product/mvp-scope.md"
+      ],
+      "forbiddenInputs": [
+        "campaign/corpus/holdout.yaml",
+        "campaign/results/holdout/",
+        "campaign/results/P1-VERIFY-*",
+        "campaign/corpus/labels/verify-*",
+        "docs/testing/repository-compatibility/runs/",
+        "any Deployz analysis output"
+      ],
+      "artifacts": [
+        "campaign/corpus/labels/initial-04.yaml",
+        "campaign/results/P1-LABEL-04/result.json"
+      ],
+      "completionChecks": [
+        "campaign/results/P1-LABEL-04/result.json is valid JSON with taskId \"P1-LABEL-04\", testedCommit equal to the commit recorded in state.json, a non-empty commands list with exit codes, and every listed evidence path exists",
+        "Each of the 10 apps has expected facts that parse with expectedFactsSchema (compatibility, runtime, monorepo, postgres, redis, worker, optional storage/migration/appRoot/dockerfilePath/port/healthPath/unsupported)",
+        "Every fact cites source file paths at the pinned commit"
+      ],
+      "timeboxMinutes": 40,
+      "notes": []
+    },
+    {
+      "id": "P1-LABEL-05",
+      "phase": 1,
+      "title": "Initial expected-behavior labels for corpus batch 5 (10 apps) from source only",
+      "executor": "campaign-worker",
+      "status": "PENDING",
+      "prerequisites": [
+        "P1-FREEZE-CORPUS"
+      ],
+      "gates": [],
+      "requires": [
+        "github-auth"
+      ],
+      "inputs": [
+        "campaign/corpus/corpus.json (batch slice only)",
+        "scripts/repository-compatibility/manifest.ts (expected facts schema)",
+        "docs/product/mvp-scope.md"
+      ],
+      "forbiddenInputs": [
+        "campaign/corpus/holdout.yaml",
+        "campaign/results/holdout/",
+        "campaign/results/P1-VERIFY-*",
+        "campaign/corpus/labels/verify-*",
+        "docs/testing/repository-compatibility/runs/",
+        "any Deployz analysis output"
+      ],
+      "artifacts": [
+        "campaign/corpus/labels/initial-05.yaml",
+        "campaign/results/P1-LABEL-05/result.json"
+      ],
+      "completionChecks": [
+        "campaign/results/P1-LABEL-05/result.json is valid JSON with taskId \"P1-LABEL-05\", testedCommit equal to the commit recorded in state.json, a non-empty commands list with exit codes, and every listed evidence path exists",
+        "Each of the 10 apps has expected facts that parse with expectedFactsSchema (compatibility, runtime, monorepo, postgres, redis, worker, optional storage/migration/appRoot/dockerfilePath/port/healthPath/unsupported)",
+        "Every fact cites source file paths at the pinned commit"
+      ],
+      "timeboxMinutes": 40,
+      "notes": []
+    },
+    {
+      "id": "P1-LABEL-06",
+      "phase": 1,
+      "title": "Initial expected-behavior labels for corpus batch 6 (10 apps) from source only",
+      "executor": "campaign-worker",
+      "status": "PENDING",
+      "prerequisites": [
+        "P1-FREEZE-CORPUS"
+      ],
+      "gates": [],
+      "requires": [
+        "github-auth"
+      ],
+      "inputs": [
+        "campaign/corpus/corpus.json (batch slice only)",
+        "scripts/repository-compatibility/manifest.ts (expected facts schema)",
+        "docs/product/mvp-scope.md"
+      ],
+      "forbiddenInputs": [
+        "campaign/corpus/holdout.yaml",
+        "campaign/results/holdout/",
+        "campaign/results/P1-VERIFY-*",
+        "campaign/corpus/labels/verify-*",
+        "docs/testing/repository-compatibility/runs/",
+        "any Deployz analysis output"
+      ],
+      "artifacts": [
+        "campaign/corpus/labels/initial-06.yaml",
+        "campaign/results/P1-LABEL-06/result.json"
+      ],
+      "completionChecks": [
+        "campaign/results/P1-LABEL-06/result.json is valid JSON with taskId \"P1-LABEL-06\", testedCommit equal to the commit recorded in state.json, a non-empty commands list with exit codes, and every listed evidence path exists",
+        "Each of the 10 apps has expected facts that parse with expectedFactsSchema (compatibility, runtime, monorepo, postgres, redis, worker, optional storage/migration/appRoot/dockerfilePath/port/healthPath/unsupported)",
+        "Every fact cites source file paths at the pinned commit"
+      ],
+      "timeboxMinutes": 40,
+      "notes": []
+    },
+    {
+      "id": "P1-LABEL-07",
+      "phase": 1,
+      "title": "Initial expected-behavior labels for corpus batch 7 (10 apps) from source only",
+      "executor": "campaign-worker",
+      "status": "PENDING",
+      "prerequisites": [
+        "P1-FREEZE-CORPUS"
+      ],
+      "gates": [],
+      "requires": [
+        "github-auth"
+      ],
+      "inputs": [
+        "campaign/corpus/corpus.json (batch slice only)",
+        "scripts/repository-compatibility/manifest.ts (expected facts schema)",
+        "docs/product/mvp-scope.md"
+      ],
+      "forbiddenInputs": [
+        "campaign/corpus/holdout.yaml",
+        "campaign/results/holdout/",
+        "campaign/results/P1-VERIFY-*",
+        "campaign/corpus/labels/verify-*",
+        "docs/testing/repository-compatibility/runs/",
+        "any Deployz analysis output"
+      ],
+      "artifacts": [
+        "campaign/corpus/labels/initial-07.yaml",
+        "campaign/results/P1-LABEL-07/result.json"
+      ],
+      "completionChecks": [
+        "campaign/results/P1-LABEL-07/result.json is valid JSON with taskId \"P1-LABEL-07\", testedCommit equal to the commit recorded in state.json, a non-empty commands list with exit codes, and every listed evidence path exists",
+        "Each of the 10 apps has expected facts that parse with expectedFactsSchema (compatibility, runtime, monorepo, postgres, redis, worker, optional storage/migration/appRoot/dockerfilePath/port/healthPath/unsupported)",
+        "Every fact cites source file paths at the pinned commit"
+      ],
+      "timeboxMinutes": 40,
+      "notes": []
+    },
+    {
+      "id": "P1-LABEL-08",
+      "phase": 1,
+      "title": "Initial expected-behavior labels for corpus batch 8 (10 apps) from source only",
+      "executor": "campaign-worker",
+      "status": "PENDING",
+      "prerequisites": [
+        "P1-FREEZE-CORPUS"
+      ],
+      "gates": [],
+      "requires": [
+        "github-auth"
+      ],
+      "inputs": [
+        "campaign/corpus/corpus.json (batch slice only)",
+        "scripts/repository-compatibility/manifest.ts (expected facts schema)",
+        "docs/product/mvp-scope.md"
+      ],
+      "forbiddenInputs": [
+        "campaign/corpus/holdout.yaml",
+        "campaign/results/holdout/",
+        "campaign/results/P1-VERIFY-*",
+        "campaign/corpus/labels/verify-*",
+        "docs/testing/repository-compatibility/runs/",
+        "any Deployz analysis output"
+      ],
+      "artifacts": [
+        "campaign/corpus/labels/initial-08.yaml",
+        "campaign/results/P1-LABEL-08/result.json"
+      ],
+      "completionChecks": [
+        "campaign/results/P1-LABEL-08/result.json is valid JSON with taskId \"P1-LABEL-08\", testedCommit equal to the commit recorded in state.json, a non-empty commands list with exit codes, and every listed evidence path exists",
+        "Each of the 10 apps has expected facts that parse with expectedFactsSchema (compatibility, runtime, monorepo, postgres, redis, worker, optional storage/migration/appRoot/dockerfilePath/port/healthPath/unsupported)",
+        "Every fact cites source file paths at the pinned commit"
+      ],
+      "timeboxMinutes": 40,
+      "notes": []
+    },
+    {
+      "id": "P1-LABEL-09",
+      "phase": 1,
+      "title": "Initial expected-behavior labels for corpus batch 9 (10 apps) from source only",
+      "executor": "campaign-worker",
+      "status": "PENDING",
+      "prerequisites": [
+        "P1-FREEZE-CORPUS"
+      ],
+      "gates": [],
+      "requires": [
+        "github-auth"
+      ],
+      "inputs": [
+        "campaign/corpus/corpus.json (batch slice only)",
+        "scripts/repository-compatibility/manifest.ts (expected facts schema)",
+        "docs/product/mvp-scope.md"
+      ],
+      "forbiddenInputs": [
+        "campaign/corpus/holdout.yaml",
+        "campaign/results/holdout/",
+        "campaign/results/P1-VERIFY-*",
+        "campaign/corpus/labels/verify-*",
+        "docs/testing/repository-compatibility/runs/",
+        "any Deployz analysis output"
+      ],
+      "artifacts": [
+        "campaign/corpus/labels/initial-09.yaml",
+        "campaign/results/P1-LABEL-09/result.json"
+      ],
+      "completionChecks": [
+        "campaign/results/P1-LABEL-09/result.json is valid JSON with taskId \"P1-LABEL-09\", testedCommit equal to the commit recorded in state.json, a non-empty commands list with exit codes, and every listed evidence path exists",
+        "Each of the 10 apps has expected facts that parse with expectedFactsSchema (compatibility, runtime, monorepo, postgres, redis, worker, optional storage/migration/appRoot/dockerfilePath/port/healthPath/unsupported)",
+        "Every fact cites source file paths at the pinned commit"
+      ],
+      "timeboxMinutes": 40,
+      "notes": []
+    },
+    {
+      "id": "P1-LABEL-10",
+      "phase": 1,
+      "title": "Initial expected-behavior labels for corpus batch 10 (10 apps) from source only",
+      "executor": "campaign-worker",
+      "status": "PENDING",
+      "prerequisites": [
+        "P1-FREEZE-CORPUS"
+      ],
+      "gates": [],
+      "requires": [
+        "github-auth"
+      ],
+      "inputs": [
+        "campaign/corpus/corpus.json (batch slice only)",
+        "scripts/repository-compatibility/manifest.ts (expected facts schema)",
+        "docs/product/mvp-scope.md"
+      ],
+      "forbiddenInputs": [
+        "campaign/corpus/holdout.yaml",
+        "campaign/results/holdout/",
+        "campaign/results/P1-VERIFY-*",
+        "campaign/corpus/labels/verify-*",
+        "docs/testing/repository-compatibility/runs/",
+        "any Deployz analysis output"
+      ],
+      "artifacts": [
+        "campaign/corpus/labels/initial-10.yaml",
+        "campaign/results/P1-LABEL-10/result.json"
+      ],
+      "completionChecks": [
+        "campaign/results/P1-LABEL-10/result.json is valid JSON with taskId \"P1-LABEL-10\", testedCommit equal to the commit recorded in state.json, a non-empty commands list with exit codes, and every listed evidence path exists",
+        "Each of the 10 apps has expected facts that parse with expectedFactsSchema (compatibility, runtime, monorepo, postgres, redis, worker, optional storage/migration/appRoot/dockerfilePath/port/healthPath/unsupported)",
+        "Every fact cites source file paths at the pinned commit"
+      ],
+      "timeboxMinutes": 40,
+      "notes": []
+    },
+    {
+      "id": "P1-VERIFY-01",
+      "phase": 1,
+      "title": "Independent verification labels for corpus batch 1, blind to initial labels and Deployz output",
+      "executor": "campaign-worker",
+      "status": "PENDING",
+      "prerequisites": [
+        "P1-LABEL-01"
+      ],
+      "gates": [],
+      "requires": [
+        "github-auth"
+      ],
+      "inputs": [
+        "campaign/corpus/corpus.json (batch slice only)",
+        "scripts/repository-compatibility/manifest.ts",
+        "docs/product/mvp-scope.md"
+      ],
+      "forbiddenInputs": [
+        "campaign/corpus/holdout.yaml",
+        "campaign/results/holdout/",
+        "campaign/corpus/labels/initial-*",
+        "campaign/results/P1-LABEL-*",
+        "docs/testing/repository-compatibility/runs/",
+        "any Deployz analysis output"
+      ],
+      "artifacts": [
+        "campaign/corpus/labels/verify-01.yaml",
+        "campaign/results/P1-VERIFY-01/result.json"
+      ],
+      "completionChecks": [
+        "campaign/results/P1-VERIFY-01/result.json is valid JSON with taskId \"P1-VERIFY-01\", testedCommit equal to the commit recorded in state.json, a non-empty commands list with exit codes, and every listed evidence path exists",
+        "Same schema and source citations as the initial labels; produced in a separate worker run that did not read initial-*.yaml"
+      ],
+      "timeboxMinutes": 40,
+      "notes": [
+        "Run as a fresh campaign-worker invocation. Do not give this worker the initial labels."
+      ]
+    },
+    {
+      "id": "P1-VERIFY-02",
+      "phase": 1,
+      "title": "Independent verification labels for corpus batch 2, blind to initial labels and Deployz output",
+      "executor": "campaign-worker",
+      "status": "PENDING",
+      "prerequisites": [
+        "P1-LABEL-02"
+      ],
+      "gates": [],
+      "requires": [
+        "github-auth"
+      ],
+      "inputs": [
+        "campaign/corpus/corpus.json (batch slice only)",
+        "scripts/repository-compatibility/manifest.ts",
+        "docs/product/mvp-scope.md"
+      ],
+      "forbiddenInputs": [
+        "campaign/corpus/holdout.yaml",
+        "campaign/results/holdout/",
+        "campaign/corpus/labels/initial-*",
+        "campaign/results/P1-LABEL-*",
+        "docs/testing/repository-compatibility/runs/",
+        "any Deployz analysis output"
+      ],
+      "artifacts": [
+        "campaign/corpus/labels/verify-02.yaml",
+        "campaign/results/P1-VERIFY-02/result.json"
+      ],
+      "completionChecks": [
+        "campaign/results/P1-VERIFY-02/result.json is valid JSON with taskId \"P1-VERIFY-02\", testedCommit equal to the commit recorded in state.json, a non-empty commands list with exit codes, and every listed evidence path exists",
+        "Same schema and source citations as the initial labels; produced in a separate worker run that did not read initial-*.yaml"
+      ],
+      "timeboxMinutes": 40,
+      "notes": [
+        "Run as a fresh campaign-worker invocation. Do not give this worker the initial labels."
+      ]
+    },
+    {
+      "id": "P1-VERIFY-03",
+      "phase": 1,
+      "title": "Independent verification labels for corpus batch 3, blind to initial labels and Deployz output",
+      "executor": "campaign-worker",
+      "status": "PENDING",
+      "prerequisites": [
+        "P1-LABEL-03"
+      ],
+      "gates": [],
+      "requires": [
+        "github-auth"
+      ],
+      "inputs": [
+        "campaign/corpus/corpus.json (batch slice only)",
+        "scripts/repository-compatibility/manifest.ts",
+        "docs/product/mvp-scope.md"
+      ],
+      "forbiddenInputs": [
+        "campaign/corpus/holdout.yaml",
+        "campaign/results/holdout/",
+        "campaign/corpus/labels/initial-*",
+        "campaign/results/P1-LABEL-*",
+        "docs/testing/repository-compatibility/runs/",
+        "any Deployz analysis output"
+      ],
+      "artifacts": [
+        "campaign/corpus/labels/verify-03.yaml",
+        "campaign/results/P1-VERIFY-03/result.json"
+      ],
+      "completionChecks": [
+        "campaign/results/P1-VERIFY-03/result.json is valid JSON with taskId \"P1-VERIFY-03\", testedCommit equal to the commit recorded in state.json, a non-empty commands list with exit codes, and every listed evidence path exists",
+        "Same schema and source citations as the initial labels; produced in a separate worker run that did not read initial-*.yaml"
+      ],
+      "timeboxMinutes": 40,
+      "notes": [
+        "Run as a fresh campaign-worker invocation. Do not give this worker the initial labels."
+      ]
+    },
+    {
+      "id": "P1-VERIFY-04",
+      "phase": 1,
+      "title": "Independent verification labels for corpus batch 4, blind to initial labels and Deployz output",
+      "executor": "campaign-worker",
+      "status": "PENDING",
+      "prerequisites": [
+        "P1-LABEL-04"
+      ],
+      "gates": [],
+      "requires": [
+        "github-auth"
+      ],
+      "inputs": [
+        "campaign/corpus/corpus.json (batch slice only)",
+        "scripts/repository-compatibility/manifest.ts",
+        "docs/product/mvp-scope.md"
+      ],
+      "forbiddenInputs": [
+        "campaign/corpus/holdout.yaml",
+        "campaign/results/holdout/",
+        "campaign/corpus/labels/initial-*",
+        "campaign/results/P1-LABEL-*",
+        "docs/testing/repository-compatibility/runs/",
+        "any Deployz analysis output"
+      ],
+      "artifacts": [
+        "campaign/corpus/labels/verify-04.yaml",
+        "campaign/results/P1-VERIFY-04/result.json"
+      ],
+      "completionChecks": [
+        "campaign/results/P1-VERIFY-04/result.json is valid JSON with taskId \"P1-VERIFY-04\", testedCommit equal to the commit recorded in state.json, a non-empty commands list with exit codes, and every listed evidence path exists",
+        "Same schema and source citations as the initial labels; produced in a separate worker run that did not read initial-*.yaml"
+      ],
+      "timeboxMinutes": 40,
+      "notes": [
+        "Run as a fresh campaign-worker invocation. Do not give this worker the initial labels."
+      ]
+    },
+    {
+      "id": "P1-VERIFY-05",
+      "phase": 1,
+      "title": "Independent verification labels for corpus batch 5, blind to initial labels and Deployz output",
+      "executor": "campaign-worker",
+      "status": "PENDING",
+      "prerequisites": [
+        "P1-LABEL-05"
+      ],
+      "gates": [],
+      "requires": [
+        "github-auth"
+      ],
+      "inputs": [
+        "campaign/corpus/corpus.json (batch slice only)",
+        "scripts/repository-compatibility/manifest.ts",
+        "docs/product/mvp-scope.md"
+      ],
+      "forbiddenInputs": [
+        "campaign/corpus/holdout.yaml",
+        "campaign/results/holdout/",
+        "campaign/corpus/labels/initial-*",
+        "campaign/results/P1-LABEL-*",
+        "docs/testing/repository-compatibility/runs/",
+        "any Deployz analysis output"
+      ],
+      "artifacts": [
+        "campaign/corpus/labels/verify-05.yaml",
+        "campaign/results/P1-VERIFY-05/result.json"
+      ],
+      "completionChecks": [
+        "campaign/results/P1-VERIFY-05/result.json is valid JSON with taskId \"P1-VERIFY-05\", testedCommit equal to the commit recorded in state.json, a non-empty commands list with exit codes, and every listed evidence path exists",
+        "Same schema and source citations as the initial labels; produced in a separate worker run that did not read initial-*.yaml"
+      ],
+      "timeboxMinutes": 40,
+      "notes": [
+        "Run as a fresh campaign-worker invocation. Do not give this worker the initial labels."
+      ]
+    },
+    {
+      "id": "P1-VERIFY-06",
+      "phase": 1,
+      "title": "Independent verification labels for corpus batch 6, blind to initial labels and Deployz output",
+      "executor": "campaign-worker",
+      "status": "PENDING",
+      "prerequisites": [
+        "P1-LABEL-06"
+      ],
+      "gates": [],
+      "requires": [
+        "github-auth"
+      ],
+      "inputs": [
+        "campaign/corpus/corpus.json (batch slice only)",
+        "scripts/repository-compatibility/manifest.ts",
+        "docs/product/mvp-scope.md"
+      ],
+      "forbiddenInputs": [
+        "campaign/corpus/holdout.yaml",
+        "campaign/results/holdout/",
+        "campaign/corpus/labels/initial-*",
+        "campaign/results/P1-LABEL-*",
+        "docs/testing/repository-compatibility/runs/",
+        "any Deployz analysis output"
+      ],
+      "artifacts": [
+        "campaign/corpus/labels/verify-06.yaml",
+        "campaign/results/P1-VERIFY-06/result.json"
+      ],
+      "completionChecks": [
+        "campaign/results/P1-VERIFY-06/result.json is valid JSON with taskId \"P1-VERIFY-06\", testedCommit equal to the commit recorded in state.json, a non-empty commands list with exit codes, and every listed evidence path exists",
+        "Same schema and source citations as the initial labels; produced in a separate worker run that did not read initial-*.yaml"
+      ],
+      "timeboxMinutes": 40,
+      "notes": [
+        "Run as a fresh campaign-worker invocation. Do not give this worker the initial labels."
+      ]
+    },
+    {
+      "id": "P1-VERIFY-07",
+      "phase": 1,
+      "title": "Independent verification labels for corpus batch 7, blind to initial labels and Deployz output",
+      "executor": "campaign-worker",
+      "status": "PENDING",
+      "prerequisites": [
+        "P1-LABEL-07"
+      ],
+      "gates": [],
+      "requires": [
+        "github-auth"
+      ],
+      "inputs": [
+        "campaign/corpus/corpus.json (batch slice only)",
+        "scripts/repository-compatibility/manifest.ts",
+        "docs/product/mvp-scope.md"
+      ],
+      "forbiddenInputs": [
+        "campaign/corpus/holdout.yaml",
+        "campaign/results/holdout/",
+        "campaign/corpus/labels/initial-*",
+        "campaign/results/P1-LABEL-*",
+        "docs/testing/repository-compatibility/runs/",
+        "any Deployz analysis output"
+      ],
+      "artifacts": [
+        "campaign/corpus/labels/verify-07.yaml",
+        "campaign/results/P1-VERIFY-07/result.json"
+      ],
+      "completionChecks": [
+        "campaign/results/P1-VERIFY-07/result.json is valid JSON with taskId \"P1-VERIFY-07\", testedCommit equal to the commit recorded in state.json, a non-empty commands list with exit codes, and every listed evidence path exists",
+        "Same schema and source citations as the initial labels; produced in a separate worker run that did not read initial-*.yaml"
+      ],
+      "timeboxMinutes": 40,
+      "notes": [
+        "Run as a fresh campaign-worker invocation. Do not give this worker the initial labels."
+      ]
+    },
+    {
+      "id": "P1-VERIFY-08",
+      "phase": 1,
+      "title": "Independent verification labels for corpus batch 8, blind to initial labels and Deployz output",
+      "executor": "campaign-worker",
+      "status": "PENDING",
+      "prerequisites": [
+        "P1-LABEL-08"
+      ],
+      "gates": [],
+      "requires": [
+        "github-auth"
+      ],
+      "inputs": [
+        "campaign/corpus/corpus.json (batch slice only)",
+        "scripts/repository-compatibility/manifest.ts",
+        "docs/product/mvp-scope.md"
+      ],
+      "forbiddenInputs": [
+        "campaign/corpus/holdout.yaml",
+        "campaign/results/holdout/",
+        "campaign/corpus/labels/initial-*",
+        "campaign/results/P1-LABEL-*",
+        "docs/testing/repository-compatibility/runs/",
+        "any Deployz analysis output"
+      ],
+      "artifacts": [
+        "campaign/corpus/labels/verify-08.yaml",
+        "campaign/results/P1-VERIFY-08/result.json"
+      ],
+      "completionChecks": [
+        "campaign/results/P1-VERIFY-08/result.json is valid JSON with taskId \"P1-VERIFY-08\", testedCommit equal to the commit recorded in state.json, a non-empty commands list with exit codes, and every listed evidence path exists",
+        "Same schema and source citations as the initial labels; produced in a separate worker run that did not read initial-*.yaml"
+      ],
+      "timeboxMinutes": 40,
+      "notes": [
+        "Run as a fresh campaign-worker invocation. Do not give this worker the initial labels."
+      ]
+    },
+    {
+      "id": "P1-VERIFY-09",
+      "phase": 1,
+      "title": "Independent verification labels for corpus batch 9, blind to initial labels and Deployz output",
+      "executor": "campaign-worker",
+      "status": "PENDING",
+      "prerequisites": [
+        "P1-LABEL-09"
+      ],
+      "gates": [],
+      "requires": [
+        "github-auth"
+      ],
+      "inputs": [
+        "campaign/corpus/corpus.json (batch slice only)",
+        "scripts/repository-compatibility/manifest.ts",
+        "docs/product/mvp-scope.md"
+      ],
+      "forbiddenInputs": [
+        "campaign/corpus/holdout.yaml",
+        "campaign/results/holdout/",
+        "campaign/corpus/labels/initial-*",
+        "campaign/results/P1-LABEL-*",
+        "docs/testing/repository-compatibility/runs/",
+        "any Deployz analysis output"
+      ],
+      "artifacts": [
+        "campaign/corpus/labels/verify-09.yaml",
+        "campaign/results/P1-VERIFY-09/result.json"
+      ],
+      "completionChecks": [
+        "campaign/results/P1-VERIFY-09/result.json is valid JSON with taskId \"P1-VERIFY-09\", testedCommit equal to the commit recorded in state.json, a non-empty commands list with exit codes, and every listed evidence path exists",
+        "Same schema and source citations as the initial labels; produced in a separate worker run that did not read initial-*.yaml"
+      ],
+      "timeboxMinutes": 40,
+      "notes": [
+        "Run as a fresh campaign-worker invocation. Do not give this worker the initial labels."
+      ]
+    },
+    {
+      "id": "P1-VERIFY-10",
+      "phase": 1,
+      "title": "Independent verification labels for corpus batch 10, blind to initial labels and Deployz output",
+      "executor": "campaign-worker",
+      "status": "PENDING",
+      "prerequisites": [
+        "P1-LABEL-10"
+      ],
+      "gates": [],
+      "requires": [
+        "github-auth"
+      ],
+      "inputs": [
+        "campaign/corpus/corpus.json (batch slice only)",
+        "scripts/repository-compatibility/manifest.ts",
+        "docs/product/mvp-scope.md"
+      ],
+      "forbiddenInputs": [
+        "campaign/corpus/holdout.yaml",
+        "campaign/results/holdout/",
+        "campaign/corpus/labels/initial-*",
+        "campaign/results/P1-LABEL-*",
+        "docs/testing/repository-compatibility/runs/",
+        "any Deployz analysis output"
+      ],
+      "artifacts": [
+        "campaign/corpus/labels/verify-10.yaml",
+        "campaign/results/P1-VERIFY-10/result.json"
+      ],
+      "completionChecks": [
+        "campaign/results/P1-VERIFY-10/result.json is valid JSON with taskId \"P1-VERIFY-10\", testedCommit equal to the commit recorded in state.json, a non-empty commands list with exit codes, and every listed evidence path exists",
+        "Same schema and source citations as the initial labels; produced in a separate worker run that did not read initial-*.yaml"
+      ],
+      "timeboxMinutes": 40,
+      "notes": [
+        "Run as a fresh campaign-worker invocation. Do not give this worker the initial labels."
+      ]
+    },
+    {
+      "id": "P1-RECONCILE-01",
+      "phase": 1,
+      "title": "Reconcile initial and verification labels for batches 1 and 2 against source files",
+      "executor": "campaign-worker",
+      "status": "PENDING",
+      "prerequisites": [
+        "P1-VERIFY-01",
+        "P1-VERIFY-02"
+      ],
+      "gates": [],
+      "requires": [],
+      "inputs": [
+        "campaign/corpus/labels/initial-01.yaml",
+        "campaign/corpus/labels/verify-01.yaml",
+        "campaign/corpus/labels/initial-02.yaml",
+        "campaign/corpus/labels/verify-02.yaml"
+      ],
+      "forbiddenInputs": [
+        "campaign/corpus/holdout.yaml",
+        "campaign/results/holdout/",
+        "docs/testing/repository-compatibility/runs/",
+        "any Deployz analysis output"
+      ],
+      "artifacts": [
+        "campaign/corpus/labels/final-01.yaml",
+        "campaign/corpus/labels/final-02.yaml",
+        "campaign/results/P1-RECONCILE-01/result.json"
+      ],
+      "completionChecks": [
+        "campaign/results/P1-RECONCILE-01/result.json is valid JSON with taskId \"P1-RECONCILE-01\", testedCommit equal to the commit recorded in state.json, a non-empty commands list with exit codes, and every listed evidence path exists",
+        "Every disagreement is listed with both values, the source evidence read, and the final value",
+        "Apps found invalid are marked REPO_INVALID with evidence, not dropped silently"
+      ],
+      "timeboxMinutes": 40,
+      "notes": []
+    },
+    {
+      "id": "P1-RECONCILE-02",
+      "phase": 1,
+      "title": "Reconcile initial and verification labels for batches 3 and 4 against source files",
+      "executor": "campaign-worker",
+      "status": "PENDING",
+      "prerequisites": [
+        "P1-VERIFY-03",
+        "P1-VERIFY-04"
+      ],
+      "gates": [],
+      "requires": [],
+      "inputs": [
+        "campaign/corpus/labels/initial-03.yaml",
+        "campaign/corpus/labels/verify-03.yaml",
+        "campaign/corpus/labels/initial-04.yaml",
+        "campaign/corpus/labels/verify-04.yaml"
+      ],
+      "forbiddenInputs": [
+        "campaign/corpus/holdout.yaml",
+        "campaign/results/holdout/",
+        "docs/testing/repository-compatibility/runs/",
+        "any Deployz analysis output"
+      ],
+      "artifacts": [
+        "campaign/corpus/labels/final-03.yaml",
+        "campaign/corpus/labels/final-04.yaml",
+        "campaign/results/P1-RECONCILE-02/result.json"
+      ],
+      "completionChecks": [
+        "campaign/results/P1-RECONCILE-02/result.json is valid JSON with taskId \"P1-RECONCILE-02\", testedCommit equal to the commit recorded in state.json, a non-empty commands list with exit codes, and every listed evidence path exists",
+        "Every disagreement is listed with both values, the source evidence read, and the final value",
+        "Apps found invalid are marked REPO_INVALID with evidence, not dropped silently"
+      ],
+      "timeboxMinutes": 40,
+      "notes": []
+    },
+    {
+      "id": "P1-RECONCILE-03",
+      "phase": 1,
+      "title": "Reconcile initial and verification labels for batches 5 and 6 against source files",
+      "executor": "campaign-worker",
+      "status": "PENDING",
+      "prerequisites": [
+        "P1-VERIFY-05",
+        "P1-VERIFY-06"
+      ],
+      "gates": [],
+      "requires": [],
+      "inputs": [
+        "campaign/corpus/labels/initial-05.yaml",
+        "campaign/corpus/labels/verify-05.yaml",
+        "campaign/corpus/labels/initial-06.yaml",
+        "campaign/corpus/labels/verify-06.yaml"
+      ],
+      "forbiddenInputs": [
+        "campaign/corpus/holdout.yaml",
+        "campaign/results/holdout/",
+        "docs/testing/repository-compatibility/runs/",
+        "any Deployz analysis output"
+      ],
+      "artifacts": [
+        "campaign/corpus/labels/final-05.yaml",
+        "campaign/corpus/labels/final-06.yaml",
+        "campaign/results/P1-RECONCILE-03/result.json"
+      ],
+      "completionChecks": [
+        "campaign/results/P1-RECONCILE-03/result.json is valid JSON with taskId \"P1-RECONCILE-03\", testedCommit equal to the commit recorded in state.json, a non-empty commands list with exit codes, and every listed evidence path exists",
+        "Every disagreement is listed with both values, the source evidence read, and the final value",
+        "Apps found invalid are marked REPO_INVALID with evidence, not dropped silently"
+      ],
+      "timeboxMinutes": 40,
+      "notes": []
+    },
+    {
+      "id": "P1-RECONCILE-04",
+      "phase": 1,
+      "title": "Reconcile initial and verification labels for batches 7 and 8 against source files",
+      "executor": "campaign-worker",
+      "status": "PENDING",
+      "prerequisites": [
+        "P1-VERIFY-07",
+        "P1-VERIFY-08"
+      ],
+      "gates": [],
+      "requires": [],
+      "inputs": [
+        "campaign/corpus/labels/initial-07.yaml",
+        "campaign/corpus/labels/verify-07.yaml",
+        "campaign/corpus/labels/initial-08.yaml",
+        "campaign/corpus/labels/verify-08.yaml"
+      ],
+      "forbiddenInputs": [
+        "campaign/corpus/holdout.yaml",
+        "campaign/results/holdout/",
+        "docs/testing/repository-compatibility/runs/",
+        "any Deployz analysis output"
+      ],
+      "artifacts": [
+        "campaign/corpus/labels/final-07.yaml",
+        "campaign/corpus/labels/final-08.yaml",
+        "campaign/results/P1-RECONCILE-04/result.json"
+      ],
+      "completionChecks": [
+        "campaign/results/P1-RECONCILE-04/result.json is valid JSON with taskId \"P1-RECONCILE-04\", testedCommit equal to the commit recorded in state.json, a non-empty commands list with exit codes, and every listed evidence path exists",
+        "Every disagreement is listed with both values, the source evidence read, and the final value",
+        "Apps found invalid are marked REPO_INVALID with evidence, not dropped silently"
+      ],
+      "timeboxMinutes": 40,
+      "notes": []
+    },
+    {
+      "id": "P1-RECONCILE-05",
+      "phase": 1,
+      "title": "Reconcile initial and verification labels for batches 9 and 10 against source files",
+      "executor": "campaign-worker",
+      "status": "PENDING",
+      "prerequisites": [
+        "P1-VERIFY-09",
+        "P1-VERIFY-10"
+      ],
+      "gates": [],
+      "requires": [],
+      "inputs": [
+        "campaign/corpus/labels/initial-09.yaml",
+        "campaign/corpus/labels/verify-09.yaml",
+        "campaign/corpus/labels/initial-10.yaml",
+        "campaign/corpus/labels/verify-10.yaml"
+      ],
+      "forbiddenInputs": [
+        "campaign/corpus/holdout.yaml",
+        "campaign/results/holdout/",
+        "docs/testing/repository-compatibility/runs/",
+        "any Deployz analysis output"
+      ],
+      "artifacts": [
+        "campaign/corpus/labels/final-09.yaml",
+        "campaign/corpus/labels/final-10.yaml",
+        "campaign/results/P1-RECONCILE-05/result.json"
+      ],
+      "completionChecks": [
+        "campaign/results/P1-RECONCILE-05/result.json is valid JSON with taskId \"P1-RECONCILE-05\", testedCommit equal to the commit recorded in state.json, a non-empty commands list with exit codes, and every listed evidence path exists",
+        "Every disagreement is listed with both values, the source evidence read, and the final value",
+        "Apps found invalid are marked REPO_INVALID with evidence, not dropped silently"
+      ],
+      "timeboxMinutes": 40,
+      "notes": []
+    },
+    {
+      "id": "P1-GATE",
+      "phase": 1,
+      "title": "Phase 1 review: 100 fresh families, source-backed labels, stratified 80/20 split",
+      "executor": "opus",
+      "status": "PENDING",
+      "prerequisites": [
+        "P1-RECONCILE-01",
+        "P1-RECONCILE-02",
+        "P1-RECONCILE-03",
+        "P1-RECONCILE-04",
+        "P1-RECONCILE-05"
+      ],
+      "gates": [],
+      "requires": [],
+      "inputs": [],
+      "forbiddenInputs": [
+        "campaign/corpus/holdout.yaml",
+        "campaign/results/holdout/"
+      ],
+      "artifacts": [
+        "campaign/corpus/benchmark.yaml (80 improvement entries, benchmark.yaml schema)",
+        "campaign/corpus/holdout.yaml (20 entries with final labels)",
+        "campaign/results/P1-GATE/review.md"
+      ],
+      "completionChecks": [
+        "campaign/corpus/benchmark.yaml parses with parseBenchmark (no duplicate ids/pins) and has 80 entries with set \"improvement\"",
+        "holdout.yaml has 20 entries with final labels and set \"unseen\"; no holdout id appears in benchmark.yaml",
+        "No family in either file appears in excluded-families.json",
+        "review.md records the gate verdict; REPO_INVALID replacements (if any) were selected and labeled through the same separate label/verify steps"
+      ],
+      "timeboxMinutes": 25,
+      "notes": []
+    },
+    {
+      "id": "P2-DESIGN",
+      "phase": 2,
+      "title": "Define minimal extensions of the existing benchmark harnesses for the campaign",
+      "executor": "opus",
+      "status": "PENDING",
+      "prerequisites": [
+        "P1-GATE"
+      ],
+      "gates": [],
+      "requires": [],
+      "inputs": [
+        "scripts/repository-compatibility/",
+        "scripts/repository-deployment/",
+        "packages/cdk/src/pipeline/build-pipeline.ts",
+        "docs/testing/compatibility.md"
+      ],
+      "forbiddenInputs": [
+        "campaign/corpus/holdout.yaml",
+        "campaign/results/holdout/"
+      ],
+      "artifacts": [
+        "campaign/results/P2-DESIGN/design.md"
+      ],
+      "completionChecks": [
+        "design.md names each change, the files it touches, and the deterministic tests it adds; no new framework, no Python, no new paid service",
+        "Covers: (a) --benchmark/--runs-dir for Stage A and benchmark path for Stage B gate, (b) recorded AI mode per result, (c) a local Docker build stage reusing the production Dockerfile/context selection and linux/amd64 platform, (d) an isolated local run stage with disposable Postgres/Redis containers, no host mounts or credentials, timeouts, and functional probes, (e) per-stage evidence and --resume"
+      ],
+      "timeboxMinutes": 25,
+      "notes": []
+    },
+    {
+      "id": "P2-IMPL-CORPUS-FLAGS",
+      "phase": 2,
+      "title": "Stage A/Stage B: read a campaign corpus and runs dir by flag; historical runs untouched",
+      "executor": "campaign-worker",
+      "status": "PENDING",
+      "prerequisites": [
+        "P2-DESIGN"
+      ],
+      "gates": [],
+      "requires": [],
+      "inputs": [
+        "campaign/results/P2-DESIGN/design.md"
+      ],
+      "forbiddenInputs": [
+        "campaign/corpus/holdout.yaml",
+        "campaign/results/holdout/"
+      ],
+      "artifacts": [
+        "campaign/results/P2-IMPL-CORPUS-FLAGS/result.json",
+        "harness source changes committed locally on campaign/fresh-100"
+      ],
+      "completionChecks": [
+        "campaign/results/P2-IMPL-CORPUS-FLAGS/result.json is valid JSON with taskId \"P2-IMPL-CORPUS-FLAGS\", testedCommit equal to the commit recorded in state.json, a non-empty commands list with exit codes, and every listed evidence path exists",
+        "Change matches design.md and touches no product code",
+        "New deterministic vitest tests pass; `pnpm typecheck:scripts` passes; existing harness tests still pass",
+        "Existing docs/testing/*/runs/ files are unchanged (git diff --quiet on those paths)"
+      ],
+      "timeboxMinutes": 45,
+      "notes": []
+    },
+    {
+      "id": "P2-IMPL-AI-MODE",
+      "phase": 2,
+      "title": "Record AI mode in every result; allow the configured production-equivalent AI gateway when present",
+      "executor": "campaign-worker",
+      "status": "PENDING",
+      "prerequisites": [
+        "P2-IMPL-CORPUS-FLAGS"
+      ],
+      "gates": [],
+      "requires": [],
+      "inputs": [
+        "campaign/results/P2-DESIGN/design.md"
+      ],
+      "forbiddenInputs": [
+        "campaign/corpus/holdout.yaml",
+        "campaign/results/holdout/"
+      ],
+      "artifacts": [
+        "campaign/results/P2-IMPL-AI-MODE/result.json",
+        "harness source changes committed locally on campaign/fresh-100"
+      ],
+      "completionChecks": [
+        "campaign/results/P2-IMPL-AI-MODE/result.json is valid JSON with taskId \"P2-IMPL-AI-MODE\", testedCommit equal to the commit recorded in state.json, a non-empty commands list with exit codes, and every listed evidence path exists",
+        "Change matches design.md and touches no product code",
+        "New deterministic vitest tests pass; `pnpm typecheck:scripts` passes; existing harness tests still pass",
+        "Existing docs/testing/*/runs/ files are unchanged (git diff --quiet on those paths)",
+        "In production-equivalent mode, scripts/repository-compatibility/analyse.ts builds the gateway from AI_GATEWAY_BASE_URL, AI_PROVIDER_API_KEY, AI_MODEL and AI_GATEWAY_TOKEN the way apps/api/src/env.ts does (no createAiGateway(undefined)) and keeps the production REPO_AI_TIMEOUT_MS path; AI-off stays an explicit diagnostic mode"
+      ],
+      "timeboxMinutes": 45,
+      "notes": []
+    },
+    {
+      "id": "P2-AI-LIVE-VALIDATE",
+      "phase": 2,
+      "title": "Validate production-equivalent AI: live gateway test and repository-analysis latency against the 30 s production budget",
+      "executor": "campaign-worker",
+      "status": "PENDING",
+      "prerequisites": [
+        "P2-IMPL-AI-MODE"
+      ],
+      "gates": [],
+      "requires": [],
+      "inputs": [
+        "packages/analysis/test/ai-live.test.ts",
+        "packages/analysis/src/repository-ai.ts",
+        "apps/api/src/analysis.ts",
+        "state.json aiConfiguration"
+      ],
+      "forbiddenInputs": [
+        "campaign/corpus/holdout.yaml",
+        "campaign/results/holdout/"
+      ],
+      "artifacts": [
+        "campaign/results/P2-AI-LIVE-VALIDATE/result.json"
+      ],
+      "completionChecks": [
+        "campaign/results/P2-AI-LIVE-VALIDATE/result.json is valid JSON with taskId \"P2-AI-LIVE-VALIDATE\", testedCommit equal to the commit recorded in state.json, a non-empty commands list with exit codes, and every listed evidence path exists",
+        "`DEPLOYZ_LIVE_AI=1 node --env-file=.env node_modules/vitest/vitest.mjs run packages/analysis/test/ai-live.test.ts` reports 2 passed, 0 failed, 0 skipped. A skip, timeout or failure is not a pass",
+        "Latency of analyseRepositoryWithAi with the production configuration is measured over at least 3 calls and compared with REPO_AI_TIMEOUT_MS (30 s)",
+        "One Stage A run on one improvement app through the harness records aiMode production-equivalent and shows whether the AI step completed or fell back",
+        "If the call exceeds the production budget, the result is BLOCKED with that root cause and Opus records it as a product finding (Phase 4 root-cause family), not a test change",
+        "No secret value appears in any output or tracked file"
+      ],
+      "timeboxMinutes": 30,
+      "notes": [
+        "Setup run 2026-10-08: 1/2 passed; analyseRepositoryWithAi timed out at 30 s in 3 runs. Opus sets capability ai-gateway AVAILABLE only after this task is COMPLETE."
+      ]
+    },
+    {
+      "id": "P2-IMPL-LOCAL-BUILD",
+      "phase": 2,
+      "title": "Local Docker build stage with production-equivalent source packaging, Dockerfile and context selection",
+      "executor": "campaign-worker",
+      "status": "PENDING",
+      "prerequisites": [
+        "P2-IMPL-AI-MODE"
+      ],
+      "gates": [],
+      "requires": [
+        "docker"
+      ],
+      "inputs": [
+        "campaign/results/P2-DESIGN/design.md"
+      ],
+      "forbiddenInputs": [
+        "campaign/corpus/holdout.yaml",
+        "campaign/results/holdout/"
+      ],
+      "artifacts": [
+        "campaign/results/P2-IMPL-LOCAL-BUILD/result.json",
+        "harness source changes committed locally on campaign/fresh-100"
+      ],
+      "completionChecks": [
+        "campaign/results/P2-IMPL-LOCAL-BUILD/result.json is valid JSON with taskId \"P2-IMPL-LOCAL-BUILD\", testedCommit equal to the commit recorded in state.json, a non-empty commands list with exit codes, and every listed evidence path exists",
+        "Change matches design.md and touches no product code",
+        "New deterministic vitest tests pass; `pnpm typecheck:scripts` passes; existing harness tests still pass",
+        "Existing docs/testing/*/runs/ files are unchanged (git diff --quiet on those paths)"
+      ],
+      "timeboxMinutes": 45,
+      "notes": []
+    },
+    {
+      "id": "P2-IMPL-LOCAL-RUN",
+      "phase": 2,
+      "title": "Isolated local run stage and functional probes (health, DB write, migration, Redis/worker, storage where applicable)",
+      "executor": "campaign-worker",
+      "status": "PENDING",
+      "prerequisites": [
+        "P2-IMPL-LOCAL-BUILD"
+      ],
+      "gates": [],
+      "requires": [
+        "docker"
+      ],
+      "inputs": [
+        "campaign/results/P2-DESIGN/design.md"
+      ],
+      "forbiddenInputs": [
+        "campaign/corpus/holdout.yaml",
+        "campaign/results/holdout/"
+      ],
+      "artifacts": [
+        "campaign/results/P2-IMPL-LOCAL-RUN/result.json",
+        "harness source changes committed locally on campaign/fresh-100"
+      ],
+      "completionChecks": [
+        "campaign/results/P2-IMPL-LOCAL-RUN/result.json is valid JSON with taskId \"P2-IMPL-LOCAL-RUN\", testedCommit equal to the commit recorded in state.json, a non-empty commands list with exit codes, and every listed evidence path exists",
+        "Change matches design.md and touches no product code",
+        "New deterministic vitest tests pass; `pnpm typecheck:scripts` passes; existing harness tests still pass",
+        "Existing docs/testing/*/runs/ files are unchanged (git diff --quiet on those paths)"
+      ],
+      "timeboxMinutes": 45,
+      "notes": []
+    },
+    {
+      "id": "P2-SMOKE-RUN",
+      "phase": 2,
+      "title": "Harness smoke: Stage A on 2 improvement apps, local build+run on 1 app, interrupt and --resume once",
+      "executor": "campaign-worker",
+      "status": "PENDING",
+      "prerequisites": [
+        "P2-IMPL-CORPUS-FLAGS",
+        "P2-IMPL-AI-MODE",
+        "P2-IMPL-LOCAL-BUILD",
+        "P2-IMPL-LOCAL-RUN",
+        "P2-AI-LIVE-VALIDATE"
+      ],
+      "gates": [],
+      "requires": [
+        "docker",
+        "github-auth"
+      ],
+      "inputs": [],
+      "forbiddenInputs": [
+        "campaign/corpus/holdout.yaml",
+        "campaign/results/holdout/"
+      ],
+      "artifacts": [
+        "campaign/results/P2-SMOKE-RUN/",
+        "campaign/results/P2-SMOKE-RUN/result.json"
+      ],
+      "completionChecks": [
+        "campaign/results/P2-SMOKE-RUN/result.json is valid JSON with taskId \"P2-SMOKE-RUN\", testedCommit equal to the commit recorded in state.json, a non-empty commands list with exit codes, and every listed evidence path exists",
+        "Two Stage A result files and one local build/run result exist with stage evidence and timings",
+        "A resumed run skips completed stages and produces the same result",
+        "No container, network or volume created by the run remains (docker ps -a / network ls / volume ls filtered by campaign label)",
+        "No token, password, email, AWS key, private key or .env value appears in any new tracked file (grep check passes)"
+      ],
+      "timeboxMinutes": 40,
+      "notes": []
+    },
+    {
+      "id": "P2-GATE",
+      "phase": 2,
+      "title": "Phase 2 review: smoke run works; no new testing framework",
+      "executor": "opus",
+      "status": "PENDING",
+      "prerequisites": [
+        "P2-SMOKE-RUN"
+      ],
+      "gates": [],
+      "requires": [],
+      "inputs": [],
+      "forbiddenInputs": [
+        "campaign/corpus/holdout.yaml",
+        "campaign/results/holdout/"
+      ],
+      "artifacts": [
+        "campaign/results/P2-GATE/review.md"
+      ],
+      "completionChecks": [
+        "review.md records the verdict and the measured per-app durations used to size Phase 3 batches"
+      ],
+      "timeboxMinutes": 10,
+      "notes": []
+    },
+    {
+      "id": "P3-COMPAT-01",
+      "phase": 3,
+      "title": "First-run Stage A compatibility for improvement apps 1-10",
+      "executor": "campaign-worker",
+      "status": "PENDING",
+      "prerequisites": [
+        "P2-GATE"
+      ],
+      "gates": [],
+      "requires": [
+        "github-auth",
+        "ai-gateway"
+      ],
+      "inputs": [
+        "campaign/corpus/benchmark.yaml"
+      ],
+      "forbiddenInputs": [
+        "campaign/corpus/holdout.yaml",
+        "campaign/results/holdout/"
+      ],
+      "artifacts": [
+        "campaign/results/first-run/compat/ (10 files)",
+        "campaign/results/P3-COMPAT-01/result.json"
+      ],
+      "completionChecks": [
+        "campaign/results/P3-COMPAT-01/result.json is valid JSON with taskId \"P3-COMPAT-01\", testedCommit equal to the commit recorded in state.json, a non-empty commands list with exit codes, and every listed evidence path exists",
+        "One result per app with analysis outcome, gate state, compared facts and mismatches; a failed analysis is recorded, not skipped",
+        "AI mode recorded in each result equals the frozen baseline AI mode"
+      ],
+      "timeboxMinutes": 30,
+      "notes": []
+    },
+    {
+      "id": "P3-COMPAT-02",
+      "phase": 3,
+      "title": "First-run Stage A compatibility for improvement apps 11-20",
+      "executor": "campaign-worker",
+      "status": "PENDING",
+      "prerequisites": [
+        "P3-COMPAT-01"
+      ],
+      "gates": [],
+      "requires": [
+        "github-auth",
+        "ai-gateway"
+      ],
+      "inputs": [
+        "campaign/corpus/benchmark.yaml"
+      ],
+      "forbiddenInputs": [
+        "campaign/corpus/holdout.yaml",
+        "campaign/results/holdout/"
+      ],
+      "artifacts": [
+        "campaign/results/first-run/compat/ (10 files)",
+        "campaign/results/P3-COMPAT-02/result.json"
+      ],
+      "completionChecks": [
+        "campaign/results/P3-COMPAT-02/result.json is valid JSON with taskId \"P3-COMPAT-02\", testedCommit equal to the commit recorded in state.json, a non-empty commands list with exit codes, and every listed evidence path exists",
+        "One result per app with analysis outcome, gate state, compared facts and mismatches; a failed analysis is recorded, not skipped",
+        "AI mode recorded in each result equals the frozen baseline AI mode"
+      ],
+      "timeboxMinutes": 30,
+      "notes": []
+    },
+    {
+      "id": "P3-COMPAT-03",
+      "phase": 3,
+      "title": "First-run Stage A compatibility for improvement apps 21-30",
+      "executor": "campaign-worker",
+      "status": "PENDING",
+      "prerequisites": [
+        "P3-COMPAT-02"
+      ],
+      "gates": [],
+      "requires": [
+        "github-auth",
+        "ai-gateway"
+      ],
+      "inputs": [
+        "campaign/corpus/benchmark.yaml"
+      ],
+      "forbiddenInputs": [
+        "campaign/corpus/holdout.yaml",
+        "campaign/results/holdout/"
+      ],
+      "artifacts": [
+        "campaign/results/first-run/compat/ (10 files)",
+        "campaign/results/P3-COMPAT-03/result.json"
+      ],
+      "completionChecks": [
+        "campaign/results/P3-COMPAT-03/result.json is valid JSON with taskId \"P3-COMPAT-03\", testedCommit equal to the commit recorded in state.json, a non-empty commands list with exit codes, and every listed evidence path exists",
+        "One result per app with analysis outcome, gate state, compared facts and mismatches; a failed analysis is recorded, not skipped",
+        "AI mode recorded in each result equals the frozen baseline AI mode"
+      ],
+      "timeboxMinutes": 30,
+      "notes": []
+    },
+    {
+      "id": "P3-COMPAT-04",
+      "phase": 3,
+      "title": "First-run Stage A compatibility for improvement apps 31-40",
+      "executor": "campaign-worker",
+      "status": "PENDING",
+      "prerequisites": [
+        "P3-COMPAT-03"
+      ],
+      "gates": [],
+      "requires": [
+        "github-auth",
+        "ai-gateway"
+      ],
+      "inputs": [
+        "campaign/corpus/benchmark.yaml"
+      ],
+      "forbiddenInputs": [
+        "campaign/corpus/holdout.yaml",
+        "campaign/results/holdout/"
+      ],
+      "artifacts": [
+        "campaign/results/first-run/compat/ (10 files)",
+        "campaign/results/P3-COMPAT-04/result.json"
+      ],
+      "completionChecks": [
+        "campaign/results/P3-COMPAT-04/result.json is valid JSON with taskId \"P3-COMPAT-04\", testedCommit equal to the commit recorded in state.json, a non-empty commands list with exit codes, and every listed evidence path exists",
+        "One result per app with analysis outcome, gate state, compared facts and mismatches; a failed analysis is recorded, not skipped",
+        "AI mode recorded in each result equals the frozen baseline AI mode"
+      ],
+      "timeboxMinutes": 30,
+      "notes": []
+    },
+    {
+      "id": "P3-COMPAT-05",
+      "phase": 3,
+      "title": "First-run Stage A compatibility for improvement apps 41-50",
+      "executor": "campaign-worker",
+      "status": "PENDING",
+      "prerequisites": [
+        "P3-COMPAT-04"
+      ],
+      "gates": [],
+      "requires": [
+        "github-auth",
+        "ai-gateway"
+      ],
+      "inputs": [
+        "campaign/corpus/benchmark.yaml"
+      ],
+      "forbiddenInputs": [
+        "campaign/corpus/holdout.yaml",
+        "campaign/results/holdout/"
+      ],
+      "artifacts": [
+        "campaign/results/first-run/compat/ (10 files)",
+        "campaign/results/P3-COMPAT-05/result.json"
+      ],
+      "completionChecks": [
+        "campaign/results/P3-COMPAT-05/result.json is valid JSON with taskId \"P3-COMPAT-05\", testedCommit equal to the commit recorded in state.json, a non-empty commands list with exit codes, and every listed evidence path exists",
+        "One result per app with analysis outcome, gate state, compared facts and mismatches; a failed analysis is recorded, not skipped",
+        "AI mode recorded in each result equals the frozen baseline AI mode"
+      ],
+      "timeboxMinutes": 30,
+      "notes": []
+    },
+    {
+      "id": "P3-COMPAT-06",
+      "phase": 3,
+      "title": "First-run Stage A compatibility for improvement apps 51-60",
+      "executor": "campaign-worker",
+      "status": "PENDING",
+      "prerequisites": [
+        "P3-COMPAT-05"
+      ],
+      "gates": [],
+      "requires": [
+        "github-auth",
+        "ai-gateway"
+      ],
+      "inputs": [
+        "campaign/corpus/benchmark.yaml"
+      ],
+      "forbiddenInputs": [
+        "campaign/corpus/holdout.yaml",
+        "campaign/results/holdout/"
+      ],
+      "artifacts": [
+        "campaign/results/first-run/compat/ (10 files)",
+        "campaign/results/P3-COMPAT-06/result.json"
+      ],
+      "completionChecks": [
+        "campaign/results/P3-COMPAT-06/result.json is valid JSON with taskId \"P3-COMPAT-06\", testedCommit equal to the commit recorded in state.json, a non-empty commands list with exit codes, and every listed evidence path exists",
+        "One result per app with analysis outcome, gate state, compared facts and mismatches; a failed analysis is recorded, not skipped",
+        "AI mode recorded in each result equals the frozen baseline AI mode"
+      ],
+      "timeboxMinutes": 30,
+      "notes": []
+    },
+    {
+      "id": "P3-COMPAT-07",
+      "phase": 3,
+      "title": "First-run Stage A compatibility for improvement apps 61-70",
+      "executor": "campaign-worker",
+      "status": "PENDING",
+      "prerequisites": [
+        "P3-COMPAT-06"
+      ],
+      "gates": [],
+      "requires": [
+        "github-auth",
+        "ai-gateway"
+      ],
+      "inputs": [
+        "campaign/corpus/benchmark.yaml"
+      ],
+      "forbiddenInputs": [
+        "campaign/corpus/holdout.yaml",
+        "campaign/results/holdout/"
+      ],
+      "artifacts": [
+        "campaign/results/first-run/compat/ (10 files)",
+        "campaign/results/P3-COMPAT-07/result.json"
+      ],
+      "completionChecks": [
+        "campaign/results/P3-COMPAT-07/result.json is valid JSON with taskId \"P3-COMPAT-07\", testedCommit equal to the commit recorded in state.json, a non-empty commands list with exit codes, and every listed evidence path exists",
+        "One result per app with analysis outcome, gate state, compared facts and mismatches; a failed analysis is recorded, not skipped",
+        "AI mode recorded in each result equals the frozen baseline AI mode"
+      ],
+      "timeboxMinutes": 30,
+      "notes": []
+    },
+    {
+      "id": "P3-COMPAT-08",
+      "phase": 3,
+      "title": "First-run Stage A compatibility for improvement apps 71-80",
+      "executor": "campaign-worker",
+      "status": "PENDING",
+      "prerequisites": [
+        "P3-COMPAT-07"
+      ],
+      "gates": [],
+      "requires": [
+        "github-auth",
+        "ai-gateway"
+      ],
+      "inputs": [
+        "campaign/corpus/benchmark.yaml"
+      ],
+      "forbiddenInputs": [
+        "campaign/corpus/holdout.yaml",
+        "campaign/results/holdout/"
+      ],
+      "artifacts": [
+        "campaign/results/first-run/compat/ (10 files)",
+        "campaign/results/P3-COMPAT-08/result.json"
+      ],
+      "completionChecks": [
+        "campaign/results/P3-COMPAT-08/result.json is valid JSON with taskId \"P3-COMPAT-08\", testedCommit equal to the commit recorded in state.json, a non-empty commands list with exit codes, and every listed evidence path exists",
+        "One result per app with analysis outcome, gate state, compared facts and mismatches; a failed analysis is recorded, not skipped",
+        "AI mode recorded in each result equals the frozen baseline AI mode"
+      ],
+      "timeboxMinutes": 30,
+      "notes": []
+    },
+    {
+      "id": "P3-BUILD-PLAN",
+      "phase": 3,
+      "title": "Queue local build/run tasks of 2-3 eligible apps each from measured durations",
+      "executor": "opus",
+      "status": "PENDING",
+      "prerequisites": [
+        "P3-COMPAT-01",
+        "P3-COMPAT-02",
+        "P3-COMPAT-03",
+        "P3-COMPAT-04",
+        "P3-COMPAT-05",
+        "P3-COMPAT-06",
+        "P3-COMPAT-07",
+        "P3-COMPAT-08"
+      ],
+      "gates": [],
+      "requires": [],
+      "inputs": [],
+      "forbiddenInputs": [
+        "campaign/corpus/holdout.yaml",
+        "campaign/results/holdout/"
+      ],
+      "artifacts": [
+        "tasks.json: new P3-BUILD-nn tasks inserted before P3-GATE",
+        "campaign/results/P3-BUILD-PLAN/plan.md"
+      ],
+      "completionChecks": [
+        "Every improvement app that the gate or its expected label marks deployable (with normal vendor config) is in exactly one P3-BUILD task; ineligible apps are listed with reasons",
+        "Each new task has prerequisites, artifacts and completion checks in the same form as the other tasks",
+        "Every generated task that needs push, PR, merge or publication lists gate \"publicationPolicyConfirmed\"; every merge follows state.json policy.publication.mergeProcedure"
+      ],
+      "timeboxMinutes": 15,
+      "notes": []
+    },
+    {
+      "id": "P3-GATE",
+      "phase": 3,
+      "title": "Phase 3 review: evidence for every attempt; unsupported/unverified reported honestly",
+      "executor": "opus",
+      "status": "PENDING",
+      "prerequisites": [
+        "P3-BUILD-PLAN"
+      ],
+      "gates": [],
+      "requires": [],
+      "inputs": [],
+      "forbiddenInputs": [
+        "campaign/corpus/holdout.yaml",
+        "campaign/results/holdout/"
+      ],
+      "artifacts": [
+        "campaign/results/P3-GATE/review.md",
+        "campaign/results/first-run/summary.md"
+      ],
+      "completionChecks": [
+        "Every one of the 80 apps has first-run analysis evidence and either build/run evidence or a recorded ineligibility reason",
+        "Summary uses explicit denominators per stage"
+      ],
+      "timeboxMinutes": 15,
+      "notes": [
+        "Opus adds the generated P3-BUILD-nn ids to this task's prerequisites when it queues them."
+      ]
+    },
+    {
+      "id": "P4-GROUP",
+      "phase": 4,
+      "title": "Group first-run failures by root cause; queue one fix task per systemic MVP defect family",
+      "executor": "opus",
+      "status": "PENDING",
+      "prerequisites": [
+        "P3-GATE"
+      ],
+      "gates": [],
+      "requires": [],
+      "inputs": [],
+      "forbiddenInputs": [
+        "campaign/corpus/holdout.yaml",
+        "campaign/results/holdout/"
+      ],
+      "artifacts": [
+        "campaign/results/P4-GROUP/families.md",
+        "tasks.json: P4-FIX-<family> and P4-RERUN-nn tasks inserted before P4-GATE"
+      ],
+      "completionChecks": [
+        "Each failure maps to one root-cause family with classification from compatibility.md vocabulary",
+        "Each fix task covers one family and names its deterministic regression test location",
+        "Rerun tasks cover all 80 apps in batches of 10 (compat) and 2-3 (builds)",
+        "Every generated task that needs push, PR, merge or publication lists gate \"publicationPolicyConfirmed\"; every merge follows state.json policy.publication.mergeProcedure"
+      ],
+      "timeboxMinutes": 25,
+      "notes": []
+    },
+    {
+      "id": "P4-GATE",
+      "phase": 4,
+      "title": "Phase 4 review: candidate checks pass; critical defects resolved or release-blocking",
+      "executor": "opus",
+      "status": "PENDING",
+      "prerequisites": [
+        "P4-GROUP"
+      ],
+      "gates": [
+        "publicationPolicyConfirmed"
+      ],
+      "requires": [],
+      "inputs": [],
+      "forbiddenInputs": [
+        "campaign/corpus/holdout.yaml",
+        "campaign/results/holdout/"
+      ],
+      "artifacts": [
+        "campaign/results/P4-GATE/review.md"
+      ],
+      "completionChecks": [
+        "Final 80-app results are stored separately from first-run and remediated results",
+        "Each fix has a focused PR with green CI, or is recorded as blocked by publication policy"
+      ],
+      "timeboxMinutes": 15,
+      "notes": [
+        "Opus adds the generated P4 task ids to this task's prerequisites."
+      ]
+    },
+    {
+      "id": "P5-PLAN",
+      "phase": 5,
+      "title": "Select 10-12 representative vendor/customer workflows and queue one task per workflow",
+      "executor": "opus",
+      "status": "PENDING",
+      "prerequisites": [
+        "P4-GATE"
+      ],
+      "gates": [],
+      "requires": [],
+      "inputs": [
+        "docs/testing/simulated-e2e.md",
+        "docs/product/user-flows.md"
+      ],
+      "forbiddenInputs": [
+        "campaign/corpus/holdout.yaml",
+        "campaign/results/holdout/"
+      ],
+      "artifacts": [
+        "campaign/results/P5-PLAN/workflows.md",
+        "tasks.json: P5-WF-nn tasks"
+      ],
+      "completionChecks": [
+        "Each workflow maps to an existing simulated scenario or spec; lifecycle bugs use simulated scenarios, not AWS",
+        "Every generated task that needs push, PR, merge or publication lists gate \"publicationPolicyConfirmed\"; every merge follows state.json policy.publication.mergeProcedure"
+      ],
+      "timeboxMinutes": 15,
+      "notes": []
+    },
+    {
+      "id": "P5-GATE",
+      "phase": 5,
+      "title": "Phase 5 review: no critical workflow inconsistencies",
+      "executor": "opus",
+      "status": "PENDING",
+      "prerequisites": [
+        "P5-PLAN"
+      ],
+      "gates": [],
+      "requires": [],
+      "inputs": [],
+      "forbiddenInputs": [
+        "campaign/corpus/holdout.yaml",
+        "campaign/results/holdout/"
+      ],
+      "artifacts": [
+        "campaign/results/P5-GATE/review.md"
+      ],
+      "completionChecks": [
+        "Every P5-WF task has evidence; critical inconsistencies are fixed (Phase 4 rules) or release-blocking"
+      ],
+      "timeboxMinutes": 10,
+      "notes": []
+    },
+    {
+      "id": "P6-FREEZE-CANDIDATE",
+      "phase": 6,
+      "title": "Freeze the candidate commit before the holdout evaluation",
+      "executor": "opus",
+      "status": "PENDING",
+      "prerequisites": [
+        "P5-GATE"
+      ],
+      "gates": [
+        "publicationPolicyConfirmed"
+      ],
+      "requires": [],
+      "inputs": [],
+      "forbiddenInputs": [
+        "campaign/corpus/holdout.yaml",
+        "campaign/results/holdout/"
+      ],
+      "artifacts": [
+        "state.json candidate block"
+      ],
+      "completionChecks": [
+        "state.json candidate.commit is set, CI for it is green, and no further fix task may start until P6-GATE"
+      ],
+      "timeboxMinutes": 10,
+      "notes": []
+    },
+    {
+      "id": "P6-HOLDOUT-COMPAT-01",
+      "phase": 6,
+      "title": "Holdout Stage A, apps 1-10, once, at the frozen candidate",
+      "executor": "campaign-worker",
+      "status": "PENDING",
+      "prerequisites": [
+        "P6-FREEZE-CANDIDATE"
+      ],
+      "gates": [],
+      "requires": [
+        "github-auth",
+        "ai-gateway"
+      ],
+      "inputs": [
+        "campaign/corpus/holdout.yaml"
+      ],
+      "forbiddenInputs": [
+        "campaign/results/first-run/",
+        "campaign/results/final/"
+      ],
+      "artifacts": [
+        "campaign/results/holdout/compat/",
+        "campaign/results/P6-HOLDOUT-COMPAT-01/result.json"
+      ],
+      "completionChecks": [
+        "campaign/results/P6-HOLDOUT-COMPAT-01/result.json is valid JSON with taskId \"P6-HOLDOUT-COMPAT-01\", testedCommit equal to the commit recorded in state.json, a non-empty commands list with exit codes, and every listed evidence path exists",
+        "testedCommit equals state.json candidate.commit",
+        "No code or label change occurs during the evaluation (git status clean outside campaign/results/holdout/)"
+      ],
+      "timeboxMinutes": 30,
+      "notes": []
+    },
+    {
+      "id": "P6-HOLDOUT-COMPAT-02",
+      "phase": 6,
+      "title": "Holdout Stage A, apps 11-20, once, at the frozen candidate",
+      "executor": "campaign-worker",
+      "status": "PENDING",
+      "prerequisites": [
+        "P6-HOLDOUT-COMPAT-01"
+      ],
+      "gates": [],
+      "requires": [
+        "github-auth",
+        "ai-gateway"
+      ],
+      "inputs": [
+        "campaign/corpus/holdout.yaml"
+      ],
+      "forbiddenInputs": [
+        "campaign/results/first-run/",
+        "campaign/results/final/"
+      ],
+      "artifacts": [
+        "campaign/results/holdout/compat/",
+        "campaign/results/P6-HOLDOUT-COMPAT-02/result.json"
+      ],
+      "completionChecks": [
+        "campaign/results/P6-HOLDOUT-COMPAT-02/result.json is valid JSON with taskId \"P6-HOLDOUT-COMPAT-02\", testedCommit equal to the commit recorded in state.json, a non-empty commands list with exit codes, and every listed evidence path exists",
+        "testedCommit equals state.json candidate.commit",
+        "No code or label change occurs during the evaluation (git status clean outside campaign/results/holdout/)"
+      ],
+      "timeboxMinutes": 30,
+      "notes": []
+    },
+    {
+      "id": "P6-HOLDOUT-BUILD-PLAN",
+      "phase": 6,
+      "title": "Queue holdout local build/run tasks of 2-3 apps",
+      "executor": "opus",
+      "status": "PENDING",
+      "prerequisites": [
+        "P6-HOLDOUT-COMPAT-01",
+        "P6-HOLDOUT-COMPAT-02"
+      ],
+      "gates": [],
+      "requires": [],
+      "inputs": [],
+      "forbiddenInputs": [
+        "campaign/corpus/holdout.yaml",
+        "campaign/results/holdout/"
+      ],
+      "artifacts": [
+        "tasks.json: P6-HOLDOUT-BUILD-nn tasks"
+      ],
+      "completionChecks": [
+        "Every eligible holdout app is in exactly one task; tasks run once with no tuning",
+        "Every generated task that needs push, PR, merge or publication lists gate \"publicationPolicyConfirmed\"; every merge follows state.json policy.publication.mergeProcedure"
+      ],
+      "timeboxMinutes": 10,
+      "notes": []
+    },
+    {
+      "id": "P6-GATE",
+      "phase": 6,
+      "title": "Phase 6 review: separate first holdout results; no tuning during evaluation",
+      "executor": "opus",
+      "status": "PENDING",
+      "prerequisites": [
+        "P6-HOLDOUT-BUILD-PLAN"
+      ],
+      "gates": [],
+      "requires": [],
+      "inputs": [],
+      "forbiddenInputs": [
+        "campaign/corpus/holdout.yaml",
+        "campaign/results/holdout/"
+      ],
+      "artifacts": [
+        "campaign/results/holdout/summary.md",
+        "campaign/results/P6-GATE/review.md"
+      ],
+      "completionChecks": [
+        "Holdout summary is separate from improvement results and uses explicit denominators"
+      ],
+      "timeboxMinutes": 10,
+      "notes": []
+    },
+    {
+      "id": "P7-PLAN",
+      "phase": 7,
+      "title": "Select 6-8 representative apps for real AWS; queue one AWS app per task, day-2 tasks and canary checks",
+      "executor": "opus",
+      "status": "PENDING",
+      "prerequisites": [
+        "P6-GATE"
+      ],
+      "gates": [
+        "awsAuthorized",
+        "publicationPolicyConfirmed"
+      ],
+      "requires": [
+        "aws-test-account",
+        "aws-login",
+        "deployed-candidate"
+      ],
+      "inputs": [
+        "docs/testing/compatibility.md (Stage B)",
+        "docs/testing/aws-e2e.md"
+      ],
+      "forbiddenInputs": [
+        "campaign/corpus/holdout.yaml",
+        "campaign/results/holdout/"
+      ],
+      "artifacts": [
+        "campaign/results/P7-PLAN/plan.md",
+        "tasks.json: P7-AWS-<repo>, P7-DAY2-<repo>, P7-CANARY-*, P7-LEAK-AUDIT tasks"
+      ],
+      "completionChecks": [
+        "The deployed control-plane revision equals the tested remote candidate",
+        "Each AWS task names one app, region, the --real-aws command, and its ledger path",
+        "No task overlaps a version-canary run in the same Region",
+        "Every generated task that needs push, PR, merge or publication lists gate \"publicationPolicyConfirmed\"; every merge follows state.json policy.publication.mergeProcedure",
+        "Every generated AWS task lists gate \"awsAuthorized\", requires aws-test-account and aws-login, and starts by checking aws sts get-caller-identity against policy.aws.account"
+      ],
+      "timeboxMinutes": 20,
+      "notes": [
+        "Uses pnpm benchmark:deploy --real-aws with DEPLOYZ_E2E_ALLOW_REAL_AWS=1, its preflight account check, ledger, --resume and cleanup. If AWS is unavailable, record \"AWS qualification pending\"."
+      ]
+    },
+    {
+      "id": "P7-GATE",
+      "phase": 7,
+      "title": "Phase 7 review: HTTPS/functional/lifecycle success and clean leak audit",
+      "executor": "opus",
+      "status": "PENDING",
+      "prerequisites": [
+        "P7-PLAN"
+      ],
+      "gates": [],
+      "requires": [],
+      "inputs": [],
+      "forbiddenInputs": [
+        "campaign/corpus/holdout.yaml",
+        "campaign/results/holdout/"
+      ],
+      "artifacts": [
+        "campaign/results/P7-GATE/review.md"
+      ],
+      "completionChecks": [
+        "Every P7 task has COMPLETE status and evidence, the final `pnpm benchmark:deploy --audit` reports no disposable leftovers, and no pending cleanup exists in any ledger"
+      ],
+      "timeboxMinutes": 15,
+      "notes": []
+    },
+    {
+      "id": "P8-REPORT",
+      "phase": 8,
+      "title": "Write campaign/report.md and mark the campaign COMPLETE",
+      "executor": "opus",
+      "status": "PENDING",
+      "prerequisites": [
+        "P7-GATE"
+      ],
+      "gates": [
+        "publicationPolicyConfirmed"
+      ],
+      "requires": [],
+      "inputs": [],
+      "forbiddenInputs": [
+        "campaign/corpus/holdout.yaml",
+        "campaign/results/holdout/"
+      ],
+      "artifacts": [
+        "campaign/report.md",
+        "state.json status COMPLETE"
+      ],
+      "completionChecks": [
+        "report.md has stage metrics with explicit denominators, first/pristine/remediated/final/holdout results kept separate, fixes with PR links, remaining gaps, and a launch/harden/expand recommendation",
+        "No unresolved critical failure is left unreported"
+      ],
+      "timeboxMinutes": 30,
+      "notes": []
+    }
+  ],
+  "generatedTaskRules": [
+    "A generated task that needs push, pull request, merge or publication lists gate publicationPolicyConfirmed and follows state.json policy.publication (mergeProcedure for any merge).",
+    "A generated task that touches real AWS lists gate awsAuthorized and requires aws-test-account and aws-login.",
+    "Generated tasks keep the holdout forbiddenInputs default unless they are Phase 6 holdout tasks."
+  ]
+}

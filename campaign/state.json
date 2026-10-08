@@ -1,0 +1,198 @@
+{
+  "schemaVersion": 1,
+  "campaign": "deployz-fresh-100",
+  "status": "CONTINUE",
+  "phase": 1,
+  "currentTask": null,
+  "nextAction": "Run P1-SELECT-REALISTIC-02 with campaign-worker.",
+  "updatedAt": "2026-10-08T08:44:31.711Z",
+  "checkout": {
+    "path": "C:/Users/Tejas/Desktop/deployz-mvp-test",
+    "kind": "git worktree of C:/Users/Tejas/Desktop/deployz",
+    "branch": "campaign/fresh-100",
+    "remote": "origin https://github.com/instashop-dev/deployz.git",
+    "setupCommit": "e164b7af"
+  },
+  "baseline": {
+    "commit": "e164b7af445636447e27a62c81ed6b542f0029c7",
+    "analysisVersion": 44,
+    "compilerVersion": "dynamic-compiler-v2-5",
+    "infrastructureProfile": {
+      "id": "small",
+      "version": 2
+    },
+    "aiMode": "diagnostic-ai-off",
+    "frozenAt": "2026-10-08T07:47:00Z",
+    "notes": "Frozen by P0-FREEZE. See campaign/baseline.json."
+  },
+  "candidate": {
+    "commit": null,
+    "frozenAt": null,
+    "notes": "Set by P6-FREEZE-CANDIDATE."
+  },
+  "testedCommits": [
+    {
+      "commit": "e164b7af445636447e27a62c81ed6b542f0029c7",
+      "task": "P0-SMOKE"
+    },
+    {
+      "commit": "e164b7af445636447e27a62c81ed6b542f0029c7",
+      "task": "P0-ENV-SETUP"
+    },
+    {
+      "commit": "e164b7af445636447e27a62c81ed6b542f0029c7",
+      "task": "P0-BASELINE-CHECKS"
+    },
+    {
+      "commit": "e164b7af445636447e27a62c81ed6b542f0029c7",
+      "task": "P0-HARDENING-VERIFY"
+    },
+    {
+      "commit": "e164b7af445636447e27a62c81ed6b542f0029c7",
+      "task": "P0-FREEZE"
+    },
+    {
+      "commit": "e164b7af445636447e27a62c81ed6b542f0029c7",
+      "task": "P0-GATE"
+    },
+    {
+      "commit": "e164b7af445636447e27a62c81ed6b542f0029c7",
+      "task": "P1-EXCLUDE"
+    },
+    {
+      "commit": "e164b7af445636447e27a62c81ed6b542f0029c7",
+      "task": "P1-SELECT-REALISTIC-01"
+    }
+  ],
+  "attempts": {
+    "P0-SMOKE": 1,
+    "P0-ENV-SETUP": 1,
+    "P0-BASELINE-CHECKS": 1,
+    "P0-HARDENING-VERIFY": 1,
+    "P0-FREEZE": 1,
+    "P0-GATE": 1,
+    "P1-EXCLUDE": 1,
+    "P1-SELECT-REALISTIC-01": 1
+  },
+  "lastResult": {
+    "taskId": "P1-SELECT-REALISTIC-01",
+    "status": "COMPLETE",
+    "evidence": "campaign/results/P1-SELECT-REALISTIC-01/result.json",
+    "verifiedAt": "2026-10-08T08:05:02.519Z",
+    "notes": "10 realistic candidates in campaign/corpus/candidates/realistic-01.json. Opus re-verified all 10 SHAs with gh api, zero owner/repo or family matches in excluded-families.json (gotenberg appears in benchmark.yaml only as a Documenso dev-sidecar note), commands are gh api reads only. Risks for labeling: campfire SQLite-only (possible boundary case), payload is a subdirectory template, koel has no Dockerfile, inbox-zero license NOASSERTION."
+  },
+  "gates": {
+    "smokeReviewed": true,
+    "publicationPolicyConfirmed": true,
+    "awsAuthorized": true
+  },
+  "capabilities": {
+    "node": {
+      "status": "AVAILABLE",
+      "detail": "v24.14.0"
+    },
+    "pnpm": {
+      "status": "AVAILABLE",
+      "detail": "10.12.4"
+    },
+    "git": {
+      "status": "AVAILABLE",
+      "detail": "2.53.0"
+    },
+    "github-auth": {
+      "status": "AVAILABLE",
+      "detail": "gh logged in as instashop-dev; scopes repo, workflow, read:org, gist"
+    },
+    "docker": {
+      "status": "AVAILABLE",
+      "detail": "Docker Desktop 29.8.2, linux/amd64, context desktop-linux, 4 CPUs, 3.8 GB memory. Docker Desktop must be running during each routine run."
+    },
+    "disk>=10GB": {
+      "status": "AVAILABLE",
+      "detail": "13.94 GiB free on C: after P0-ENV-SETUP (2026-10-08). Prune campaign images after each build batch."
+    },
+    "dependencies-installed": {
+      "status": "AVAILABLE",
+      "detail": "pnpm install --frozen-lockfile (246 s) and pnpm build (385 s, 10/10) at e164b7af on 2026-10-08; lockfile unchanged."
+    },
+    "ai-gateway": {
+      "status": "BLOCKED",
+      "detail": "Credentials are production-equivalent (equal to the deployed Lambda, checked 2026-10-08). Still blocked: (1) live validation failed - analyseRepositoryWithAi exceeds the 30 s budget that production also uses; (2) the Stage A harness uses createAiGateway(undefined). Opus sets AVAILABLE only when P2-IMPL-AI-MODE and P2-AI-LIVE-VALIDATE are COMPLETE. See aiConfiguration."
+    },
+    "aws-test-account": {
+      "status": "AVAILABLE",
+      "detail": "Account 151955775369 matches the harness allowlist; verified 2026-10-08T08:44:31.711Z. Shared with the production control plane - see policy.aws."
+    },
+    "aws-login": {
+      "status": "AVAILABLE",
+      "detail": "aws login session valid on 2026-10-08T08:44:31.711Z (root user). Sessions expire; recheck at the start of each AWS task and BLOCK if expired - only the user can log in again."
+    },
+    "deployed-candidate": {
+      "status": "PENDING",
+      "detail": "Required from Phase 7 only. The deployed control plane must run the tested candidate commit."
+    }
+  },
+  "policy": {
+    "resources": "TEST-only. Local Docker containers, networks, volumes and images carry the label deployz-campaign=fresh-100 and are removed after each task. No production data, no customer installations.",
+    "environment": "Windows 10, Git Bash and PowerShell, Docker Desktop with WSL 2 Linux containers. Untrusted app code runs only in disposable containers with no host mounts and no host credentials.",
+    "aws": {
+      "allowed": true,
+      "authorizedBy": "User, 2026-10-08: planned Phase 7 campaign deployments, day-2 tests and cleanup, within existing campaign limits.",
+      "account": "151955775369 - the harness test account (expectedAccountId default in scripts/version-canary/config.ts; DEPLOYZ_CANARY_EXPECTED_ACCOUNT). Verified 2026-10-08T08:44:31.711Z with aws sts get-caller-identity (identity: account root user via aws login).",
+      "regions": [
+        "us-east-1"
+      ],
+      "sharedAccountWarning": "This account also holds the production Deployz control plane (CloudFormation stack Deployz: API Lambda, database, queues, KMS keys, buckets) and other installations. Never modify, delete or purge anything that the campaign did not create and record in its own ledger.",
+      "protectedResources": "Stack Deployz and every resource it owns; CDKToolkit; deployz-templates-* and the bootstrap template bucket; the CodeBuild/ECR build pipeline; Lightsail service deployz-web; Route 53/ACM/Cloudflare records for deployz.dev; any installation or stack without the Stage B campaign tags; any version-canary run in progress.",
+      "rules": "Start of every AWS task: aws sts get-caller-identity must return account 151955775369, else BLOCKED. DEPLOYZ_E2E_ALLOW_REAL_AWS=1 with --real-aws, one app per task, ledger and --resume, cleanup in the same task, never overlap a version-canary run in the same Region, preserve unrelated resources, never discard a pending cleanup. No AWS before Phase 7 tasks are queued by P7-PLAN. No production control-plane changes (no cdk deploy, no workflow_dispatch)."
+    },
+    "publication": {
+      "commitToCampaignBranch": "GRANTED: commits on campaign/fresh-100 and on campaign fix branches (campaign/fix-<family>). Only campaign files, harness changes and focused fixes; no unrelated changes.",
+      "pushBranches": "GRANTED: push campaign/fresh-100 and campaign/fix-* branches to instashop-dev/deployz. No force-push, no push to main, no tag push.",
+      "openPullRequests": "GRANTED: create and update focused PRs against main, one root-cause family per fix PR. Campaign reports and redacted artifacts go through a PR from campaign/fresh-100.",
+      "mergePullRequests": "GRANTED only through policy.publication.mergeProcedure: all required checks SUCCESS on the current PR head and an Opus review of that head. No admin bypass, no merge with missing, pending or failed checks.",
+      "publishTemplatesOrDeploy": "GRANTED only as the automatic production run that a merge of an approved campaign PR triggers: CI on main -> \"Deploy API\" (CDK stack Deployz, api.deployz.dev; also republishes bootstrap templates because BOOTSTRAP_REPUBLISH=on) and/or \"Deploy web\" (Lightsail deployz-web, app.deployz.dev), each only when its path filter matches. After such a merge the coordinator watches those runs and records their result. NOT GRANTED: manual workflow_dispatch of deploy-api/deploy-web/aws-canary, local cdk deploy, local publish:bootstrap, changes to repository variables or secrets, and the production canary (--production).",
+      "requiredChecks": "Check runs of the CI workflow on the PR head commit, as named on recent PRs (#495, #496): \"Plan tests\", \"Test and build\", \"Simulated E2E (fixture-1)\", \"Simulated E2E (fixture-2)\", \"Simulated E2E (fixture-3)\", \"Simulated E2E (scenarios)\", \"PR Gate\".",
+      "stagingEnvironment": "None exists. The repository has no GitHub environments and no staging deploy workflow; deploy-api and deploy-web target production only. The AWS test account is only the customer-side account for Stage B and the version canary, and stays under gates.awsAuthorized.",
+      "publishedContent": "Never include credentials, .env values, evidence-dir ledgers, cached corpus source (.cache/) or raw logs in a commit, PR, comment or artifact. Run a secret/redaction grep on the staged diff before each push.",
+      "authorizedBy": "User, 2026-10-08, in the Code tab session (includes production deploys triggered by merging approved campaign fixes).",
+      "notes": "A task that needs an action outside these grants is BLOCKED, not done. If a merge-triggered production deploy fails, stop new merges, record the failure as a release blocker and leave recovery to the user unless a separate grant exists.",
+      "mergeProcedure": "Mandatory, because GitHub requires no checks on main (do not change rulesets). (1) gh pr view <n> --json headRefOid,statusCheckRollup,mergeable. (2) \"Plan tests\" and \"PR Gate\" must exist with conclusion SUCCESS on headRefOid. (3) Every other CI check run on headRefOid must be SUCCESS, or SKIPPED only when PR Gate passed (PR Gate fails a skip the plan needed). (4) Any missing, queued, in-progress, pending, failed, cancelled, timed-out, neutral or action-required check means NOT passing. (5) Opus reviews the full diff of headRefOid and writes campaign/results/<task id>/review.md naming that SHA. (6) Merge with gh api -X PUT repos/instashop-dev/deployz/pulls/<n>/merge -f sha=<headRefOid> so a newer push cannot be merged unreviewed. (7) Watch the CI-on-main and Deploy API/Deploy web runs it triggers and record their results."
+    },
+    "retry": {
+      "transientRetriesAfterInitial": 2,
+      "scope": "per task, counted across runs in attempts",
+      "blocked": "Not retried until its prerequisite changes or the user marks it READY."
+    },
+    "budget": {
+      "softMinutesPerRun": 45,
+      "executionTasksPerRun": 1,
+      "agents": "At most one campaign-worker at a time, in the foreground. No parallel, nested or background agents."
+    },
+    "holdout": "The 20 holdout apps are only in campaign/corpus/holdout.yaml after P1-FREEZE-CORPUS. No execution or fix task before Phase 6 reads holdout.yaml or campaign/results/holdout/. Historical sets (benchmark.yaml unseen/unseen2) and historical runs/ stay unchanged.",
+    "labels": "Initial labels and verification labels come from separate worker runs, from source only. The verifier never sees initial labels or Deployz output. Labels are never changed to match output.",
+    "stateWrites": "Only Opus edits campaign/state.json and campaign/tasks.json. Write <file>.tmp, validate JSON, then rename over the file.",
+    "measurement": "Do not upgrade models, dependencies or candidate code during a measurement run. Record intentional changes in state.json and handoff.md.",
+    "candidateVersion": "Not frozen. Baseline e164b7af frozen by P0-FREEZE."
+  },
+  "models": {
+    "coordinator": "Opus (set in the routine settings; the global default model in ~/.claude/settings.json is sonnet, so the routine must select Opus explicitly)",
+    "worker": "campaign-worker, model: sonnet (.claude/agents/campaign-worker.md). No CLAUDE_CODE_SUBAGENT_MODEL override is set."
+  },
+  "aiConfiguration": {
+    "credentials": "production-equivalent",
+    "source": "Deployed API Lambda Deployz-ApiLambdaFunction8FC74655-cJvQd51xjme6 (stack Deployz, us-east-1, export Deployz-ApiFunctionArn), read-only lambda get-function-configuration",
+    "verifiedAt": "2026-10-08T08:44:31.711Z",
+    "equalToDeployed": [
+      "AI_GATEWAY_BASE_URL",
+      "AI_PROVIDER_API_KEY",
+      "AI_MODEL"
+    ],
+    "absentInDeployed": [
+      "AI_GATEWAY_TOKEN"
+    ],
+    "liveValidation": "FAILED 2026-10-08: DEPLOYZ_LIVE_AI=1 node --env-file=.env vitest run packages/analysis/test/ai-live.test.ts -> 1 passed, 1 failed. explainDiagnostic passed (about 4 s). analyseRepositoryWithAi timed out at the 30 s test timeout (same result in 3 runs). Production uses the same 30 s budget (REPO_AI_TIMEOUT_MS in packages/analysis/src/repository-ai.ts, applied in apps/api/src/analysis.ts), so production repository AI analysis probably also times out and falls back. Log: campaign/logs/setup-ai-live/run.log (ignored).",
+    "harnessIntegration": "PENDING: scripts/repository-compatibility/analyse.ts passes createAiGateway(undefined), so Stage A runs without AI. P2-IMPL-AI-MODE owns the change; P2-AI-LIVE-VALIDATE owns the live validation.",
+    "baselineNote": "baseline.aiMode stays diagnostic-ai-off until P2-AI-LIVE-VALIDATE is COMPLETE. Then Opus records the intentional change to production-equivalent before any Phase 3 measurement run."
+  }
+}

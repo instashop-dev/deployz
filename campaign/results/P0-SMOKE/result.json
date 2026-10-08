@@ -1,0 +1,20 @@
+{
+  "taskId": "P0-SMOKE",
+  "testedCommit": "e164b7af445636447e27a62c81ed6b542f0029c7",
+  "executor": "campaign-worker",
+  "model": "sonnet",
+  "startedAt": "2026-10-08T06:45:49Z",
+  "finishedAt": "2026-10-08T06:47:00Z",
+  "proposedStatus": "COMPLETE",
+  "file": "package.json",
+  "sha256": "fba48ae6b77ba61deae6bfc3e0462388cbe1fa5e0a10d3bf20358c9c0167a2ae",
+  "packageName": "deployz",
+  "commands": [
+    { "command": "git rev-parse HEAD", "exitCode": 0, "summary": "HEAD is e164b7af445636447e27a62c81ed6b542f0029c7" },
+    { "command": "git show HEAD:package.json | sha256sum", "exitCode": 0, "summary": "sha256 fba48ae6...a2ae" },
+    { "command": "git diff --quiet HEAD -- package.json", "exitCode": 0, "summary": "working-tree package.json unchanged" },
+    { "command": "grep -m1 '\"name\"' package.json", "exitCode": 0, "summary": "name is deployz" }
+  ],
+  "evidence": ["campaign/results/P0-SMOKE/result.json"],
+  "notes": []
+}

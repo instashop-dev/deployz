@@ -1,0 +1,1675 @@
+{
+  "generatedFrom": "e164b7af445636447e27a62c81ed6b542f0029c7",
+  "entries": [
+    {
+      "repository": "umami-software/umami",
+      "sources": [
+        "docs/testing/repository-compatibility/benchmark.yaml",
+        "docs/testing/repository-compatibility/runs/repo-001.json",
+        "docs/testing/repository-deployment/runs/repo-001.json",
+        "scripts/jev-eval/runs/repo-001.json",
+        "docs/testing/repository-deployment/deploy-config.yaml",
+        "docs/audits/100-repo-mvp-capability-audit.md"
+      ],
+      "family": "umami",
+      "notes": "benchmark repo-001"
+    },
+    {
+      "repository": "Unleash/unleash",
+      "sources": [
+        "docs/testing/repository-compatibility/benchmark.yaml",
+        "docs/testing/repository-compatibility/runs/repo-002.json",
+        "docs/testing/repository-deployment/runs/repo-002.json",
+        "scripts/jev-eval/runs/repo-002.json",
+        "docs/testing/repository-deployment/deploy-config.yaml",
+        "docs/audits/100-repo-mvp-capability-audit.md"
+      ],
+      "family": "unleash",
+      "notes": "benchmark repo-002"
+    },
+    {
+      "repository": "thedevs-network/kutt",
+      "sources": [
+        "docs/testing/repository-compatibility/benchmark.yaml",
+        "docs/testing/repository-compatibility/runs/repo-003.json",
+        "docs/testing/repository-deployment/runs/repo-003.json",
+        "scripts/jev-eval/runs/repo-003.json",
+        "docs/testing/repository-deployment/deploy-config.yaml",
+        "docs/audits/100-repo-mvp-capability-audit.md"
+      ],
+      "family": "kutt",
+      "notes": "benchmark repo-003"
+    },
+    {
+      "repository": "instashop-dev/kutt",
+      "sources": [
+        "docs/testing/repository-deployment/deploy-config.yaml",
+        "docs/testing/repository-deployment/runs/repo-003.json"
+      ],
+      "family": "kutt",
+      "notes": "instashop-dev fork of thedevs-network/kutt used for the deployment harness (repo-003); fork of thedevs-network/kutt used by the deployment harness (repo-003)"
+    },
+    {
+      "repository": "miniflux/v2",
+      "sources": [
+        "docs/testing/repository-compatibility/benchmark.yaml",
+        "docs/testing/repository-compatibility/runs/repo-004.json",
+        "docs/testing/repository-deployment/runs/repo-004.json",
+        "scripts/jev-eval/runs/repo-004.json",
+        "docs/testing/repository-deployment/deploy-config.yaml",
+        "docs/audits/100-repo-mvp-capability-audit.md"
+      ],
+      "family": "miniflux",
+      "notes": "benchmark repo-004"
+    },
+    {
+      "repository": "instashop-dev/v2",
+      "sources": [
+        "docs/testing/repository-deployment/deploy-config.yaml",
+        "docs/testing/repository-deployment/runs/repo-004.json"
+      ],
+      "family": "miniflux",
+      "notes": "instashop-dev fork of miniflux/v2 used for the deployment harness (repo-004); fork of miniflux/v2 used by the deployment harness (repo-004)"
+    },
+    {
+      "repository": "Flagsmith/flagsmith",
+      "sources": [
+        "docs/testing/repository-compatibility/benchmark.yaml",
+        "docs/testing/repository-compatibility/runs/repo-005.json",
+        "docs/testing/repository-deployment/runs/repo-005.json",
+        "scripts/jev-eval/runs/repo-005.json",
+        "docs/testing/repository-deployment/deploy-config.yaml",
+        "docs/audits/100-repo-mvp-capability-audit.md"
+      ],
+      "family": "flagsmith",
+      "notes": "benchmark repo-005"
+    },
+    {
+      "repository": "documenso/documenso",
+      "sources": [
+        "docs/testing/repository-compatibility/benchmark.yaml",
+        "docs/testing/repository-compatibility/runs/repo-006.json",
+        "docs/testing/repository-deployment/runs/repo-006.json",
+        "scripts/jev-eval/runs/repo-006.json",
+        "docs/audits/100-repo-mvp-capability-audit.md"
+      ],
+      "family": "documenso",
+      "notes": "benchmark repo-006; standing manual-checklist and AWS canary app (docs/testing/manual-checklist.md, aws-e2e.md)"
+    },
+    {
+      "repository": "ghostfolio/ghostfolio",
+      "sources": [
+        "docs/testing/repository-compatibility/benchmark.yaml",
+        "docs/testing/repository-compatibility/runs/repo-007.json",
+        "docs/testing/repository-deployment/runs/repo-007.json",
+        "scripts/jev-eval/runs/repo-007.json",
+        "docs/testing/repository-deployment/deploy-config.yaml",
+        "docs/audits/100-repo-mvp-capability-audit.md"
+      ],
+      "family": "ghostfolio",
+      "notes": "benchmark repo-007"
+    },
+    {
+      "repository": "instashop-dev/ghostfolio",
+      "sources": [
+        "docs/testing/repository-deployment/deploy-config.yaml",
+        "docs/testing/repository-deployment/runs/repo-007.json"
+      ],
+      "family": "ghostfolio",
+      "notes": "instashop-dev fork of ghostfolio/ghostfolio used for the deployment harness (repo-007); fork of ghostfolio/ghostfolio used by the deployment harness (repo-007)"
+    },
+    {
+      "repository": "TwiN/gatus",
+      "sources": [
+        "docs/testing/repository-compatibility/benchmark.yaml",
+        "docs/testing/repository-compatibility/runs/repo-008.json",
+        "docs/testing/repository-deployment/runs/repo-008.json",
+        "scripts/jev-eval/runs/repo-008.json",
+        "docs/testing/repository-deployment/deploy-config.yaml",
+        "docs/audits/100-repo-mvp-capability-audit.md",
+        "docs/testing/repository-deployment/findings.md"
+      ],
+      "family": "gatus",
+      "notes": "benchmark repo-008"
+    },
+    {
+      "repository": "heroku/node-js-getting-started",
+      "sources": [
+        "docs/testing/repository-compatibility/benchmark.yaml",
+        "docs/testing/repository-compatibility/runs/repo-009.json",
+        "docs/testing/repository-deployment/runs/repo-009.json",
+        "scripts/jev-eval/runs/repo-009.json",
+        "docs/audits/100-repo-mvp-capability-audit.md"
+      ],
+      "family": "node-js-getting-started",
+      "notes": "benchmark repo-009"
+    },
+    {
+      "repository": "knadh/listmonk",
+      "sources": [
+        "docs/testing/repository-compatibility/benchmark.yaml",
+        "docs/testing/repository-compatibility/runs/repo-010.json",
+        "docs/testing/repository-deployment/runs/repo-010.json",
+        "scripts/jev-eval/runs/repo-010.json",
+        "docs/audits/100-repo-mvp-capability-audit.md"
+      ],
+      "family": "listmonk",
+      "notes": "benchmark repo-010"
+    },
+    {
+      "repository": "healthchecks/healthchecks",
+      "sources": [
+        "docs/testing/repository-compatibility/benchmark.yaml",
+        "docs/testing/repository-compatibility/runs/repo-011.json",
+        "docs/testing/repository-deployment/runs/repo-011.json",
+        "scripts/jev-eval/runs/repo-011.json",
+        "docs/audits/100-repo-mvp-capability-audit.md"
+      ],
+      "family": "healthchecks",
+      "notes": "benchmark repo-011"
+    },
+    {
+      "repository": "diced/zipline",
+      "sources": [
+        "docs/testing/repository-compatibility/benchmark.yaml",
+        "docs/testing/repository-compatibility/runs/repo-012.json",
+        "docs/testing/repository-deployment/runs/repo-012.json",
+        "scripts/jev-eval/runs/repo-012.json",
+        "docs/testing/repository-deployment/deploy-config.yaml",
+        "docs/audits/100-repo-mvp-capability-audit.md"
+      ],
+      "family": "zipline",
+      "notes": "benchmark repo-012"
+    },
+    {
+      "repository": "instashop-dev/zipline",
+      "sources": [
+        "docs/testing/repository-deployment/deploy-config.yaml"
+      ],
+      "family": "zipline",
+      "notes": "instashop-dev fork of diced/zipline used for the deployment harness (repo-012)"
+    },
+    {
+      "repository": "louislam/uptime-kuma",
+      "sources": [
+        "docs/testing/repository-compatibility/benchmark.yaml",
+        "docs/testing/repository-compatibility/runs/repo-013.json",
+        "docs/testing/repository-deployment/runs/repo-013.json",
+        "scripts/jev-eval/runs/repo-013.json",
+        "docs/audits/100-repo-mvp-capability-audit.md"
+      ],
+      "family": "uptime-kuma",
+      "notes": "benchmark repo-013"
+    },
+    {
+      "repository": "automatisch/automatisch",
+      "sources": [
+        "docs/testing/repository-compatibility/benchmark.yaml",
+        "docs/testing/repository-compatibility/runs/repo-014.json",
+        "docs/testing/repository-deployment/runs/repo-014.json",
+        "scripts/jev-eval/runs/repo-014.json",
+        "docs/audits/100-repo-mvp-capability-audit.md"
+      ],
+      "family": "automatisch",
+      "notes": "benchmark repo-014"
+    },
+    {
+      "repository": "immich-app/immich",
+      "sources": [
+        "docs/testing/repository-compatibility/benchmark.yaml",
+        "docs/testing/repository-compatibility/runs/repo-015.json",
+        "docs/testing/repository-deployment/runs/repo-015.json",
+        "scripts/jev-eval/runs/repo-015.json",
+        "docs/audits/100-repo-mvp-capability-audit.md"
+      ],
+      "family": "immich",
+      "notes": "benchmark repo-015"
+    },
+    {
+      "repository": "outline/outline",
+      "sources": [
+        "docs/testing/repository-compatibility/benchmark.yaml",
+        "docs/testing/repository-compatibility/runs/repo-016.json",
+        "docs/testing/repository-deployment/runs/repo-016.json",
+        "scripts/jev-eval/runs/repo-016.json",
+        "docs/testing/repository-deployment/deploy-config.yaml",
+        "docs/audits/100-repo-mvp-capability-audit.md"
+      ],
+      "family": "outline",
+      "notes": "benchmark repo-016"
+    },
+    {
+      "repository": "lukevella/rallly",
+      "sources": [
+        "docs/testing/repository-compatibility/benchmark.yaml",
+        "docs/testing/repository-compatibility/runs/repo-017.json",
+        "docs/testing/repository-deployment/runs/repo-017.json",
+        "scripts/jev-eval/runs/repo-017.json",
+        "docs/testing/repository-deployment/deploy-config.yaml",
+        "docs/audits/100-repo-mvp-capability-audit.md"
+      ],
+      "family": "rallly",
+      "notes": "benchmark repo-017"
+    },
+    {
+      "repository": "instashop-dev/rallly",
+      "sources": [
+        "docs/testing/repository-deployment/deploy-config.yaml"
+      ],
+      "family": "rallly",
+      "notes": "instashop-dev fork of lukevella/rallly used for the deployment harness (repo-017)"
+    },
+    {
+      "repository": "docmost/docmost",
+      "sources": [
+        "docs/testing/repository-compatibility/benchmark.yaml",
+        "docs/testing/repository-compatibility/runs/repo-018.json",
+        "docs/testing/repository-deployment/runs/repo-018.json",
+        "scripts/jev-eval/runs/repo-018.json",
+        "docs/testing/repository-deployment/deploy-config.yaml",
+        "docs/audits/100-repo-mvp-capability-audit.md"
+      ],
+      "family": "docmost",
+      "notes": "benchmark repo-018"
+    },
+    {
+      "repository": "instashop-dev/docmost",
+      "sources": [
+        "docs/testing/repository-deployment/deploy-config.yaml"
+      ],
+      "family": "docmost",
+      "notes": "instashop-dev fork of docmost/docmost used for the deployment harness (repo-018)"
+    },
+    {
+      "repository": "linkwarden/linkwarden",
+      "sources": [
+        "docs/testing/repository-compatibility/benchmark.yaml",
+        "docs/testing/repository-compatibility/runs/repo-019.json",
+        "docs/testing/repository-deployment/runs/repo-019.json",
+        "scripts/jev-eval/runs/repo-019.json",
+        "docs/audits/100-repo-mvp-capability-audit.md"
+      ],
+      "family": "linkwarden",
+      "notes": "benchmark repo-019"
+    },
+    {
+      "repository": "papermark/papermark",
+      "sources": [
+        "docs/testing/repository-compatibility/benchmark.yaml",
+        "docs/testing/repository-compatibility/runs/repo-020.json",
+        "docs/testing/repository-deployment/runs/repo-020.json",
+        "scripts/jev-eval/runs/repo-020.json",
+        "docs/audits/100-repo-mvp-capability-audit.md"
+      ],
+      "family": "papermark",
+      "notes": "benchmark repo-020"
+    },
+    {
+      "repository": "directus/directus",
+      "sources": [
+        "docs/testing/repository-compatibility/benchmark.yaml",
+        "docs/testing/repository-compatibility/runs/repo-021.json",
+        "docs/testing/repository-deployment/runs/repo-021.json",
+        "scripts/jev-eval/runs/repo-021.json",
+        "docs/testing/repository-deployment/deploy-config.yaml",
+        "docs/audits/100-repo-mvp-capability-audit.md"
+      ],
+      "family": "directus",
+      "notes": "benchmark repo-021"
+    },
+    {
+      "repository": "ToolJet/ToolJet",
+      "sources": [
+        "docs/testing/repository-compatibility/benchmark.yaml",
+        "docs/testing/repository-compatibility/runs/repo-022.json",
+        "docs/testing/repository-deployment/runs/repo-022.json",
+        "scripts/jev-eval/runs/repo-022.json",
+        "docs/testing/repository-deployment/deploy-config.yaml",
+        "docs/audits/100-repo-mvp-capability-audit.md"
+      ],
+      "family": "tooljet",
+      "notes": "benchmark repo-022"
+    },
+    {
+      "repository": "requarks/wiki",
+      "sources": [
+        "docs/testing/repository-compatibility/benchmark.yaml",
+        "docs/testing/repository-compatibility/runs/repo-023.json",
+        "docs/testing/repository-deployment/runs/repo-023.json",
+        "scripts/jev-eval/runs/repo-023.json",
+        "docs/testing/repository-deployment/deploy-config.yaml",
+        "docs/audits/100-repo-mvp-capability-audit.md",
+        "docs/testing/repository-deployment/findings.md"
+      ],
+      "family": "wiki.js",
+      "notes": "benchmark repo-023"
+    },
+    {
+      "repository": "calcom/cal.diy",
+      "sources": [
+        "docs/testing/repository-compatibility/benchmark.yaml",
+        "docs/testing/repository-compatibility/runs/repo-024.json",
+        "docs/testing/repository-deployment/runs/repo-024.json",
+        "scripts/jev-eval/runs/repo-024.json",
+        "docs/testing/repository-deployment/deploy-config.yaml",
+        "docs/audits/100-repo-mvp-capability-audit.md"
+      ],
+      "family": "cal.com",
+      "notes": "benchmark repo-024"
+    },
+    {
+      "repository": "lobehub/lobehub",
+      "sources": [
+        "docs/testing/repository-compatibility/benchmark.yaml",
+        "docs/testing/repository-compatibility/runs/repo-025.json",
+        "docs/testing/repository-deployment/runs/repo-025.json",
+        "scripts/jev-eval/runs/repo-025.json",
+        "docs/audits/100-repo-mvp-capability-audit.md"
+      ],
+      "family": "lobe-chat",
+      "notes": "benchmark repo-025"
+    },
+    {
+      "repository": "amruthpillai/reactive-resume",
+      "sources": [
+        "docs/testing/repository-compatibility/benchmark.yaml",
+        "docs/testing/repository-compatibility/runs/repo-026.json",
+        "docs/testing/repository-deployment/runs/repo-026.json",
+        "scripts/jev-eval/runs/repo-026.json",
+        "docs/testing/repository-deployment/deploy-config.yaml",
+        "docs/audits/100-repo-mvp-capability-audit.md"
+      ],
+      "family": "reactive-resume",
+      "notes": "benchmark repo-026"
+    },
+    {
+      "repository": "instashop-dev/reactive-resume",
+      "sources": [
+        "docs/testing/repository-deployment/deploy-config.yaml"
+      ],
+      "family": "reactive-resume",
+      "notes": "instashop-dev fork of amruthpillai/reactive-resume used for the deployment harness (repo-026)"
+    },
+    {
+      "repository": "plankanban/planka",
+      "sources": [
+        "docs/testing/repository-compatibility/benchmark.yaml",
+        "docs/testing/repository-compatibility/runs/repo-027.json",
+        "docs/testing/repository-deployment/runs/repo-027.json",
+        "scripts/jev-eval/runs/repo-027.json",
+        "docs/audits/100-repo-mvp-capability-audit.md"
+      ],
+      "family": "planka",
+      "notes": "benchmark repo-027"
+    },
+    {
+      "repository": "Infisical/infisical",
+      "sources": [
+        "docs/testing/repository-compatibility/benchmark.yaml",
+        "docs/testing/repository-compatibility/runs/repo-028.json",
+        "docs/testing/repository-deployment/runs/repo-028.json",
+        "scripts/jev-eval/runs/repo-028.json",
+        "docs/audits/100-repo-mvp-capability-audit.md"
+      ],
+      "family": "infisical",
+      "notes": "benchmark repo-028"
+    },
+    {
+      "repository": "postalsys/emailengine",
+      "sources": [
+        "docs/testing/repository-compatibility/benchmark.yaml",
+        "docs/testing/repository-compatibility/runs/repo-029.json",
+        "docs/testing/repository-deployment/runs/repo-029.json",
+        "scripts/jev-eval/runs/repo-029.json",
+        "docs/testing/repository-deployment/deploy-config.yaml",
+        "docs/audits/100-repo-mvp-capability-audit.md"
+      ],
+      "family": "emailengine",
+      "notes": "benchmark repo-029"
+    },
+    {
+      "repository": "instashop-dev/emailengine",
+      "sources": [
+        "docs/testing/repository-deployment/deploy-config.yaml"
+      ],
+      "family": "emailengine",
+      "notes": "instashop-dev fork of postalsys/emailengine used for the deployment harness (repo-029)"
+    },
+    {
+      "repository": "verdaccio/verdaccio",
+      "sources": [
+        "docs/testing/repository-compatibility/benchmark.yaml",
+        "docs/testing/repository-compatibility/runs/repo-030.json",
+        "docs/testing/repository-deployment/runs/repo-030.json",
+        "scripts/jev-eval/runs/repo-030.json",
+        "docs/audits/100-repo-mvp-capability-audit.md"
+      ],
+      "family": "verdaccio",
+      "notes": "benchmark repo-030"
+    },
+    {
+      "repository": "gethomepage/homepage",
+      "sources": [
+        "docs/testing/repository-compatibility/benchmark.yaml",
+        "docs/testing/repository-compatibility/runs/repo-031.json",
+        "docs/testing/repository-deployment/runs/repo-031.json",
+        "scripts/jev-eval/runs/repo-031.json",
+        "docs/audits/100-repo-mvp-capability-audit.md"
+      ],
+      "family": "homepage",
+      "notes": "benchmark repo-031"
+    },
+    {
+      "repository": "mealie-recipes/mealie",
+      "sources": [
+        "docs/testing/repository-compatibility/benchmark.yaml",
+        "docs/testing/repository-compatibility/runs/repo-032.json",
+        "docs/testing/repository-deployment/runs/repo-032.json",
+        "scripts/jev-eval/runs/repo-032.json",
+        "docs/audits/100-repo-mvp-capability-audit.md"
+      ],
+      "family": "mealie",
+      "notes": "benchmark repo-032"
+    },
+    {
+      "repository": "paperless-ngx/paperless-ngx",
+      "sources": [
+        "docs/testing/repository-compatibility/benchmark.yaml",
+        "docs/testing/repository-compatibility/runs/repo-033.json",
+        "docs/testing/repository-deployment/runs/repo-033.json",
+        "scripts/jev-eval/runs/repo-033.json",
+        "docs/audits/100-repo-mvp-capability-audit.md"
+      ],
+      "family": "paperless-ngx",
+      "notes": "benchmark repo-033"
+    },
+    {
+      "repository": "CTFd/CTFd",
+      "sources": [
+        "docs/testing/repository-compatibility/benchmark.yaml",
+        "docs/testing/repository-compatibility/runs/repo-034.json",
+        "docs/testing/repository-deployment/runs/repo-034.json",
+        "scripts/jev-eval/runs/repo-034.json",
+        "docs/audits/100-repo-mvp-capability-audit.md"
+      ],
+      "family": "ctfd",
+      "notes": "benchmark repo-034"
+    },
+    {
+      "repository": "spiral-project/ihatemoney",
+      "sources": [
+        "docs/testing/repository-compatibility/benchmark.yaml",
+        "docs/testing/repository-compatibility/runs/repo-035.json",
+        "docs/testing/repository-deployment/runs/repo-035.json",
+        "scripts/jev-eval/runs/repo-035.json",
+        "docs/testing/repository-deployment/deploy-config.yaml",
+        "docs/audits/100-repo-mvp-capability-audit.md"
+      ],
+      "family": "ihatemoney",
+      "notes": "benchmark repo-035"
+    },
+    {
+      "repository": "django-helpdesk/django-helpdesk",
+      "sources": [
+        "docs/testing/repository-compatibility/benchmark.yaml",
+        "docs/testing/repository-compatibility/runs/repo-036.json",
+        "docs/testing/repository-deployment/runs/repo-036.json",
+        "scripts/jev-eval/runs/repo-036.json",
+        "docs/audits/100-repo-mvp-capability-audit.md"
+      ],
+      "family": "django-helpdesk",
+      "notes": "benchmark repo-036"
+    },
+    {
+      "repository": "apache/superset",
+      "sources": [
+        "docs/testing/repository-compatibility/benchmark.yaml",
+        "docs/testing/repository-compatibility/runs/repo-037.json",
+        "docs/testing/repository-deployment/runs/repo-037.json",
+        "scripts/jev-eval/runs/repo-037.json",
+        "docs/audits/100-repo-mvp-capability-audit.md"
+      ],
+      "family": "superset",
+      "notes": "benchmark repo-037"
+    },
+    {
+      "repository": "apache/answer",
+      "sources": [
+        "docs/testing/repository-compatibility/benchmark.yaml",
+        "docs/testing/repository-compatibility/runs/repo-038.json",
+        "docs/testing/repository-deployment/runs/repo-038.json",
+        "scripts/jev-eval/runs/repo-038.json",
+        "docs/audits/100-repo-mvp-capability-audit.md",
+        "docs/testing/repository-compatibility/findings.md"
+      ],
+      "family": "answer",
+      "notes": "benchmark repo-038"
+    },
+    {
+      "repository": "usememos/memos",
+      "sources": [
+        "docs/testing/repository-compatibility/benchmark.yaml",
+        "docs/testing/repository-compatibility/runs/repo-039.json",
+        "docs/testing/repository-deployment/runs/repo-039.json",
+        "scripts/jev-eval/runs/repo-039.json",
+        "docs/testing/repository-deployment/deploy-config.yaml",
+        "docs/audits/100-repo-mvp-capability-audit.md"
+      ],
+      "family": "memos",
+      "notes": "benchmark repo-039"
+    },
+    {
+      "repository": "authelia/authelia",
+      "sources": [
+        "docs/testing/repository-compatibility/benchmark.yaml",
+        "docs/testing/repository-compatibility/runs/repo-040.json",
+        "docs/testing/repository-deployment/runs/repo-040.json",
+        "scripts/jev-eval/runs/repo-040.json",
+        "docs/audits/100-repo-mvp-capability-audit.md"
+      ],
+      "family": "authelia",
+      "notes": "benchmark repo-040"
+    },
+    {
+      "repository": "coder/coder",
+      "sources": [
+        "docs/testing/repository-compatibility/benchmark.yaml",
+        "docs/testing/repository-compatibility/runs/repo-041.json",
+        "docs/testing/repository-deployment/runs/repo-041.json",
+        "scripts/jev-eval/runs/repo-041.json",
+        "docs/testing/repository-deployment/deploy-config.yaml",
+        "docs/audits/100-repo-mvp-capability-audit.md"
+      ],
+      "family": "coder",
+      "notes": "benchmark repo-041"
+    },
+    {
+      "repository": "grafana/grafana",
+      "sources": [
+        "docs/testing/repository-compatibility/benchmark.yaml",
+        "docs/testing/repository-compatibility/runs/repo-042.json",
+        "docs/testing/repository-deployment/runs/repo-042.json",
+        "scripts/jev-eval/runs/repo-042.json",
+        "docs/audits/100-repo-mvp-capability-audit.md"
+      ],
+      "family": "grafana",
+      "notes": "benchmark repo-042"
+    },
+    {
+      "repository": "huginn/huginn",
+      "sources": [
+        "docs/testing/repository-compatibility/benchmark.yaml",
+        "docs/testing/repository-compatibility/runs/repo-043.json",
+        "docs/testing/repository-deployment/runs/repo-043.json",
+        "scripts/jev-eval/runs/repo-043.json",
+        "docs/testing/repository-deployment/deploy-config.yaml",
+        "docs/audits/100-repo-mvp-capability-audit.md"
+      ],
+      "family": "huginn",
+      "notes": "benchmark repo-043"
+    },
+    {
+      "repository": "firefly-iii/firefly-iii",
+      "sources": [
+        "docs/testing/repository-compatibility/benchmark.yaml",
+        "docs/testing/repository-compatibility/runs/repo-044.json",
+        "docs/testing/repository-deployment/runs/repo-044.json",
+        "scripts/jev-eval/runs/repo-044.json",
+        "docs/audits/100-repo-mvp-capability-audit.md"
+      ],
+      "family": "firefly-iii",
+      "notes": "benchmark repo-044"
+    },
+    {
+      "repository": "monicahq/monica",
+      "sources": [
+        "docs/testing/repository-compatibility/benchmark.yaml",
+        "docs/testing/repository-compatibility/runs/repo-045.json",
+        "docs/testing/repository-deployment/runs/repo-045.json",
+        "scripts/jev-eval/runs/repo-045.json",
+        "docs/audits/100-repo-mvp-capability-audit.md"
+      ],
+      "family": "monica",
+      "notes": "benchmark repo-045"
+    },
+    {
+      "repository": "kanboard/kanboard",
+      "sources": [
+        "docs/testing/repository-compatibility/benchmark.yaml",
+        "docs/testing/repository-compatibility/runs/repo-046.json",
+        "docs/testing/repository-deployment/runs/repo-046.json",
+        "scripts/jev-eval/runs/repo-046.json",
+        "docs/audits/100-repo-mvp-capability-audit.md"
+      ],
+      "family": "kanboard",
+      "notes": "benchmark repo-046"
+    },
+    {
+      "repository": "halo-dev/halo",
+      "sources": [
+        "docs/testing/repository-compatibility/benchmark.yaml",
+        "docs/testing/repository-compatibility/runs/repo-047.json",
+        "docs/testing/repository-deployment/runs/repo-047.json",
+        "scripts/jev-eval/runs/repo-047.json",
+        "docs/audits/100-repo-mvp-capability-audit.md"
+      ],
+      "family": "halo",
+      "notes": "benchmark repo-047"
+    },
+    {
+      "repository": "tolgee/tolgee-platform",
+      "sources": [
+        "docs/testing/repository-compatibility/benchmark.yaml",
+        "docs/testing/repository-compatibility/runs/repo-048.json",
+        "docs/testing/repository-deployment/runs/repo-048.json",
+        "scripts/jev-eval/runs/repo-048.json",
+        "docs/audits/100-repo-mvp-capability-audit.md"
+      ],
+      "family": "tolgee",
+      "notes": "benchmark repo-048"
+    },
+    {
+      "repository": "OrchardCMS/OrchardCore",
+      "sources": [
+        "docs/testing/repository-compatibility/benchmark.yaml",
+        "docs/testing/repository-compatibility/runs/repo-049.json",
+        "docs/testing/repository-deployment/runs/repo-049.json",
+        "scripts/jev-eval/runs/repo-049.json",
+        "docs/audits/100-repo-mvp-capability-audit.md"
+      ],
+      "family": "orchardcore",
+      "notes": "benchmark repo-049"
+    },
+    {
+      "repository": "livebook-dev/livebook",
+      "sources": [
+        "docs/testing/repository-compatibility/benchmark.yaml",
+        "docs/testing/repository-compatibility/runs/repo-050.json",
+        "docs/testing/repository-deployment/runs/repo-050.json",
+        "scripts/jev-eval/runs/repo-050.json",
+        "docs/audits/100-repo-mvp-capability-audit.md"
+      ],
+      "family": "livebook",
+      "notes": "benchmark repo-050"
+    },
+    {
+      "repository": "docusealco/docuseal",
+      "sources": [
+        "docs/testing/repository-compatibility/benchmark.yaml",
+        "docs/testing/repository-compatibility/runs/repo-051.json",
+        "docs/testing/repository-deployment/runs/repo-051.json",
+        "scripts/jev-eval/runs/repo-051.json",
+        "docs/testing/repository-deployment/deploy-config.yaml",
+        "docs/audits/100-repo-mvp-capability-audit.md"
+      ],
+      "family": "docuseal",
+      "notes": "benchmark repo-051"
+    },
+    {
+      "repository": "instashop-dev/docuseal",
+      "sources": [
+        "docs/testing/repository-deployment/deploy-config.yaml",
+        "docs/testing/repository-deployment/runs/repo-051.json"
+      ],
+      "family": "docuseal",
+      "notes": "instashop-dev fork of docusealco/docuseal used for the deployment harness (repo-051); fork of docusealco/docuseal used by the deployment harness (repo-051)"
+    },
+    {
+      "repository": "laurent22/joplin",
+      "sources": [
+        "docs/testing/repository-compatibility/benchmark.yaml",
+        "docs/testing/repository-compatibility/runs/repo-052.json",
+        "docs/testing/repository-deployment/runs/repo-052.json",
+        "scripts/jev-eval/runs/repo-052.json",
+        "docs/audits/100-repo-mvp-capability-audit.md"
+      ],
+      "family": "joplin",
+      "notes": "benchmark repo-052"
+    },
+    {
+      "repository": "n8n-io/n8n",
+      "sources": [
+        "docs/testing/repository-compatibility/benchmark.yaml",
+        "docs/testing/repository-compatibility/runs/repo-053.json",
+        "docs/testing/repository-deployment/runs/repo-053.json",
+        "scripts/jev-eval/runs/repo-053.json",
+        "docs/testing/repository-deployment/deploy-config.yaml",
+        "docs/audits/100-repo-mvp-capability-audit.md"
+      ],
+      "family": "n8n",
+      "notes": "benchmark repo-053"
+    },
+    {
+      "repository": "hoppscotch/hoppscotch",
+      "sources": [
+        "docs/testing/repository-compatibility/benchmark.yaml",
+        "docs/testing/repository-compatibility/runs/repo-054.json",
+        "docs/testing/repository-deployment/runs/repo-054.json",
+        "scripts/jev-eval/runs/repo-054.json",
+        "docs/audits/100-repo-mvp-capability-audit.md"
+      ],
+      "family": "hoppscotch",
+      "notes": "benchmark repo-054"
+    },
+    {
+      "repository": "nocodb/nocodb",
+      "sources": [
+        "docs/testing/repository-compatibility/benchmark.yaml",
+        "docs/testing/repository-compatibility/runs/repo-055.json",
+        "docs/testing/repository-deployment/runs/repo-055.json",
+        "scripts/jev-eval/runs/repo-055.json",
+        "docs/testing/repository-deployment/deploy-config.yaml",
+        "docs/audits/100-repo-mvp-capability-audit.md"
+      ],
+      "family": "nocodb",
+      "notes": "benchmark repo-055"
+    },
+    {
+      "repository": "gristlabs/grist-core",
+      "sources": [
+        "docs/testing/repository-compatibility/benchmark.yaml",
+        "docs/testing/repository-compatibility/runs/repo-056.json",
+        "docs/testing/repository-deployment/runs/repo-056.json",
+        "scripts/jev-eval/runs/repo-056.json",
+        "docs/audits/100-repo-mvp-capability-audit.md"
+      ],
+      "family": "grist",
+      "notes": "benchmark repo-056"
+    },
+    {
+      "repository": "gitroomhq/postiz-app",
+      "sources": [
+        "docs/testing/repository-compatibility/benchmark.yaml",
+        "docs/testing/repository-compatibility/runs/repo-057.json",
+        "docs/testing/repository-deployment/runs/repo-057.json",
+        "scripts/jev-eval/runs/repo-057.json",
+        "docs/audits/100-repo-mvp-capability-audit.md"
+      ],
+      "family": "postiz",
+      "notes": "benchmark repo-057"
+    },
+    {
+      "repository": "go-gitea/gitea",
+      "sources": [
+        "docs/testing/repository-compatibility/benchmark.yaml",
+        "docs/testing/repository-compatibility/runs/repo-058.json",
+        "docs/testing/repository-deployment/runs/repo-058.json",
+        "scripts/jev-eval/runs/repo-058.json",
+        "docs/audits/100-repo-mvp-capability-audit.md"
+      ],
+      "family": "gitea",
+      "notes": "benchmark repo-058"
+    },
+    {
+      "repository": "go-vikunja/vikunja",
+      "sources": [
+        "docs/testing/repository-compatibility/benchmark.yaml",
+        "docs/testing/repository-compatibility/runs/repo-059.json",
+        "docs/testing/repository-deployment/runs/repo-059.json",
+        "scripts/jev-eval/runs/repo-059.json",
+        "docs/audits/100-repo-mvp-capability-audit.md"
+      ],
+      "family": "vikunja",
+      "notes": "benchmark repo-059"
+    },
+    {
+      "repository": "wallabag/wallabag",
+      "sources": [
+        "docs/testing/repository-compatibility/benchmark.yaml",
+        "docs/testing/repository-compatibility/runs/repo-060.json",
+        "docs/testing/repository-deployment/runs/repo-060.json",
+        "scripts/jev-eval/runs/repo-060.json",
+        "docs/testing/repository-deployment/deploy-config.yaml",
+        "docs/audits/100-repo-mvp-capability-audit.md"
+      ],
+      "family": "wallabag",
+      "notes": "benchmark repo-060"
+    },
+    {
+      "repository": "logto-io/logto",
+      "sources": [
+        "docs/testing/repository-compatibility/benchmark.yaml",
+        "docs/testing/repository-compatibility/runs/repo-061.json",
+        "docs/testing/repository-deployment/runs/repo-061.json",
+        "scripts/jev-eval/runs/repo-061.json",
+        "docs/audits/100-repo-mvp-capability-audit.md"
+      ],
+      "family": "logto",
+      "notes": "benchmark repo-061"
+    },
+    {
+      "repository": "metabase/metabase",
+      "sources": [
+        "docs/testing/repository-compatibility/benchmark.yaml",
+        "docs/testing/repository-compatibility/runs/repo-062.json",
+        "docs/testing/repository-deployment/runs/repo-062.json",
+        "scripts/jev-eval/runs/repo-062.json",
+        "docs/audits/100-repo-mvp-capability-audit.md"
+      ],
+      "family": "metabase",
+      "notes": "benchmark repo-062"
+    },
+    {
+      "repository": "keycloak/keycloak",
+      "sources": [
+        "docs/testing/repository-compatibility/benchmark.yaml",
+        "docs/testing/repository-compatibility/runs/repo-063.json",
+        "docs/testing/repository-deployment/runs/repo-063.json",
+        "scripts/jev-eval/runs/repo-063.json",
+        "docs/audits/100-repo-mvp-capability-audit.md"
+      ],
+      "family": "keycloak",
+      "notes": "benchmark repo-063"
+    },
+    {
+      "repository": "casdoor/casdoor",
+      "sources": [
+        "docs/testing/repository-compatibility/benchmark.yaml",
+        "docs/testing/repository-compatibility/runs/repo-064.json",
+        "docs/testing/repository-deployment/runs/repo-064.json",
+        "scripts/jev-eval/runs/repo-064.json",
+        "docs/audits/100-repo-mvp-capability-audit.md"
+      ],
+      "family": "casdoor",
+      "notes": "benchmark repo-064"
+    },
+    {
+      "repository": "ory/kratos",
+      "sources": [
+        "docs/testing/repository-compatibility/benchmark.yaml",
+        "docs/testing/repository-compatibility/runs/repo-065.json",
+        "docs/testing/repository-deployment/runs/repo-065.json",
+        "scripts/jev-eval/runs/repo-065.json",
+        "docs/audits/100-repo-mvp-capability-audit.md"
+      ],
+      "family": "kratos",
+      "notes": "benchmark repo-065"
+    },
+    {
+      "repository": "karakeep-app/karakeep",
+      "sources": [
+        "docs/testing/repository-compatibility/benchmark.yaml",
+        "docs/testing/repository-compatibility/runs/repo-066.json",
+        "docs/testing/repository-deployment/runs/repo-066.json",
+        "scripts/jev-eval/runs/repo-066.json",
+        "docs/audits/100-repo-mvp-capability-audit.md"
+      ],
+      "family": "karakeep",
+      "notes": "benchmark repo-066"
+    },
+    {
+      "repository": "formbricks/formbricks",
+      "sources": [
+        "docs/testing/repository-compatibility/benchmark.yaml",
+        "docs/testing/repository-compatibility/runs/repo-067.json",
+        "docs/testing/repository-deployment/runs/repo-067.json",
+        "scripts/jev-eval/runs/repo-067.json",
+        "docs/audits/100-repo-mvp-capability-audit.md"
+      ],
+      "family": "formbricks",
+      "notes": "benchmark repo-067"
+    },
+    {
+      "repository": "baptisteArno/typebot.io",
+      "sources": [
+        "docs/testing/repository-compatibility/benchmark.yaml",
+        "docs/testing/repository-compatibility/runs/repo-068.json",
+        "docs/testing/repository-deployment/runs/repo-068.json",
+        "scripts/jev-eval/runs/repo-068.json",
+        "docs/audits/100-repo-mvp-capability-audit.md"
+      ],
+      "family": "typebot",
+      "notes": "benchmark repo-068"
+    },
+    {
+      "repository": "twentyhq/twenty",
+      "sources": [
+        "docs/testing/repository-compatibility/benchmark.yaml",
+        "docs/testing/repository-compatibility/runs/repo-069.json",
+        "docs/testing/repository-deployment/runs/repo-069.json",
+        "scripts/jev-eval/runs/repo-069.json",
+        "docs/audits/100-repo-mvp-capability-audit.md"
+      ],
+      "family": "twenty",
+      "notes": "benchmark repo-069"
+    },
+    {
+      "repository": "LemmyNet/lemmy",
+      "sources": [
+        "docs/testing/repository-compatibility/benchmark.yaml",
+        "docs/testing/repository-compatibility/runs/repo-070.json",
+        "docs/testing/repository-deployment/runs/repo-070.json",
+        "scripts/jev-eval/runs/repo-070.json",
+        "docs/audits/100-repo-mvp-capability-audit.md"
+      ],
+      "family": "lemmy",
+      "notes": "benchmark repo-070"
+    },
+    {
+      "repository": "chatwoot/chatwoot",
+      "sources": [
+        "docs/testing/repository-compatibility/benchmark.yaml",
+        "docs/testing/repository-compatibility/runs/repo-071.json",
+        "docs/testing/repository-deployment/runs/repo-071.json",
+        "scripts/jev-eval/runs/repo-071.json",
+        "docs/audits/100-repo-mvp-capability-audit.md"
+      ],
+      "family": "chatwoot",
+      "notes": "benchmark repo-071"
+    },
+    {
+      "repository": "zulip/zulip",
+      "sources": [
+        "docs/testing/repository-compatibility/benchmark.yaml",
+        "docs/testing/repository-compatibility/runs/repo-072.json",
+        "docs/testing/repository-deployment/runs/repo-072.json",
+        "scripts/jev-eval/runs/repo-072.json",
+        "docs/testing/repository-deployment/deploy-config.yaml",
+        "docs/audits/100-repo-mvp-capability-audit.md"
+      ],
+      "family": "zulip",
+      "notes": "benchmark repo-072"
+    },
+    {
+      "repository": "obsidiandynamics/kafdrop",
+      "sources": [
+        "docs/testing/repository-compatibility/benchmark.yaml",
+        "docs/testing/repository-compatibility/runs/repo-073.json",
+        "docs/testing/repository-deployment/runs/repo-073.json",
+        "scripts/jev-eval/runs/repo-073.json",
+        "docs/audits/100-repo-mvp-capability-audit.md"
+      ],
+      "family": "kafdrop",
+      "notes": "benchmark repo-073"
+    },
+    {
+      "repository": "dani-garcia/vaultwarden",
+      "sources": [
+        "docs/testing/repository-compatibility/benchmark.yaml",
+        "docs/testing/repository-compatibility/runs/repo-074.json",
+        "docs/testing/repository-deployment/runs/repo-074.json",
+        "scripts/jev-eval/runs/repo-074.json",
+        "docs/testing/repository-deployment/deploy-config.yaml",
+        "docs/audits/100-repo-mvp-capability-audit.md"
+      ],
+      "family": "vaultwarden",
+      "notes": "benchmark repo-074"
+    },
+    {
+      "repository": "dgtlmoon/changedetection.io",
+      "sources": [
+        "docs/testing/repository-compatibility/benchmark.yaml",
+        "docs/testing/repository-compatibility/runs/repo-075.json",
+        "docs/testing/repository-deployment/runs/repo-075.json",
+        "scripts/jev-eval/runs/repo-075.json",
+        "docs/audits/100-repo-mvp-capability-audit.md"
+      ],
+      "family": "changedetection.io",
+      "notes": "benchmark repo-075"
+    },
+    {
+      "repository": "danny-avila/LibreChat",
+      "sources": [
+        "docs/testing/repository-compatibility/benchmark.yaml",
+        "docs/testing/repository-compatibility/runs/repo-076.json",
+        "docs/testing/repository-deployment/runs/repo-076.json",
+        "scripts/jev-eval/runs/repo-076.json",
+        "docs/audits/100-repo-mvp-capability-audit.md"
+      ],
+      "family": "librechat",
+      "notes": "benchmark repo-076"
+    },
+    {
+      "repository": "argoproj/argo-cd",
+      "sources": [
+        "docs/testing/repository-compatibility/benchmark.yaml",
+        "docs/testing/repository-compatibility/runs/repo-077.json",
+        "docs/testing/repository-deployment/runs/repo-077.json",
+        "scripts/jev-eval/runs/repo-077.json",
+        "docs/audits/100-repo-mvp-capability-audit.md"
+      ],
+      "family": "argo-cd",
+      "notes": "benchmark repo-077"
+    },
+    {
+      "repository": "GoogleCloudPlatform/microservices-demo",
+      "sources": [
+        "docs/testing/repository-compatibility/benchmark.yaml",
+        "docs/testing/repository-compatibility/runs/repo-078.json",
+        "docs/testing/repository-deployment/runs/repo-078.json",
+        "scripts/jev-eval/runs/repo-078.json",
+        "docs/audits/100-repo-mvp-capability-audit.md"
+      ],
+      "family": "microservices-demo",
+      "notes": "benchmark repo-078"
+    },
+    {
+      "repository": "Azure-Samples/azure-search-openai-demo",
+      "sources": [
+        "docs/testing/repository-compatibility/benchmark.yaml",
+        "docs/testing/repository-compatibility/runs/repo-079.json",
+        "docs/testing/repository-deployment/runs/repo-079.json",
+        "scripts/jev-eval/runs/repo-079.json",
+        "docs/audits/100-repo-mvp-capability-audit.md"
+      ],
+      "family": "azure-search-openai-demo",
+      "notes": "benchmark repo-079"
+    },
+    {
+      "repository": "vllm-project/vllm",
+      "sources": [
+        "docs/testing/repository-compatibility/benchmark.yaml",
+        "docs/testing/repository-compatibility/runs/repo-080.json",
+        "docs/testing/repository-deployment/runs/repo-080.json",
+        "scripts/jev-eval/runs/repo-080.json",
+        "docs/audits/100-repo-mvp-capability-audit.md"
+      ],
+      "family": "vllm",
+      "notes": "benchmark repo-080"
+    },
+    {
+      "repository": "hedgedoc/hedgedoc",
+      "sources": [
+        "docs/testing/repository-compatibility/benchmark.yaml",
+        "docs/testing/repository-compatibility/runs/repo-081.json",
+        "docs/testing/repository-deployment/runs/repo-081.json",
+        "scripts/jev-eval/runs/repo-081.json",
+        "docs/audits/100-repo-mvp-capability-audit.md"
+      ],
+      "family": "hedgedoc",
+      "notes": "benchmark repo-081"
+    },
+    {
+      "repository": "mattermost/mattermost",
+      "sources": [
+        "docs/testing/repository-compatibility/benchmark.yaml",
+        "docs/testing/repository-compatibility/runs/repo-082.json",
+        "docs/testing/repository-deployment/runs/repo-082.json",
+        "scripts/jev-eval/runs/repo-082.json",
+        "docs/testing/repository-deployment/deploy-config.yaml",
+        "docs/audits/100-repo-mvp-capability-audit.md"
+      ],
+      "family": "mattermost",
+      "notes": "benchmark repo-082"
+    },
+    {
+      "repository": "windmill-labs/windmill",
+      "sources": [
+        "docs/testing/repository-compatibility/benchmark.yaml",
+        "docs/testing/repository-compatibility/runs/repo-083.json",
+        "docs/testing/repository-deployment/runs/repo-083.json",
+        "scripts/jev-eval/runs/repo-083.json",
+        "docs/testing/repository-deployment/deploy-config.yaml",
+        "docs/audits/100-repo-mvp-capability-audit.md"
+      ],
+      "family": "windmill",
+      "notes": "benchmark repo-083"
+    },
+    {
+      "repository": "NangoHQ/nango",
+      "sources": [
+        "docs/testing/repository-compatibility/benchmark.yaml",
+        "docs/testing/repository-compatibility/runs/repo-084.json",
+        "docs/testing/repository-deployment/runs/repo-084.json",
+        "scripts/jev-eval/runs/repo-084.json",
+        "docs/testing/repository-deployment/deploy-config.yaml",
+        "docs/audits/100-repo-mvp-capability-audit.md",
+        "docs/testing/gate-d/findings.md"
+      ],
+      "family": "nango",
+      "notes": "benchmark repo-084"
+    },
+    {
+      "repository": "teableio/teable",
+      "sources": [
+        "docs/testing/repository-compatibility/benchmark.yaml",
+        "docs/testing/repository-compatibility/runs/repo-085.json",
+        "docs/testing/repository-deployment/runs/repo-085.json",
+        "scripts/jev-eval/runs/repo-085.json",
+        "docs/audits/100-repo-mvp-capability-audit.md"
+      ],
+      "family": "teable",
+      "notes": "benchmark repo-085"
+    },
+    {
+      "repository": "wger-project/wger",
+      "sources": [
+        "docs/testing/repository-compatibility/benchmark.yaml",
+        "docs/testing/repository-compatibility/runs/repo-086.json",
+        "docs/testing/repository-deployment/runs/repo-086.json",
+        "scripts/jev-eval/runs/repo-086.json",
+        "docs/audits/100-repo-mvp-capability-audit.md"
+      ],
+      "family": "wger",
+      "notes": "benchmark repo-086"
+    },
+    {
+      "repository": "TandoorRecipes/recipes",
+      "sources": [
+        "docs/testing/repository-compatibility/benchmark.yaml",
+        "docs/testing/repository-compatibility/runs/repo-087.json",
+        "docs/testing/repository-deployment/runs/repo-087.json",
+        "scripts/jev-eval/runs/repo-087.json",
+        "docs/testing/repository-deployment/deploy-config.yaml",
+        "docs/audits/100-repo-mvp-capability-audit.md"
+      ],
+      "family": "recipes",
+      "notes": "benchmark repo-087"
+    },
+    {
+      "repository": "netbox-community/netbox",
+      "sources": [
+        "docs/testing/repository-compatibility/benchmark.yaml",
+        "docs/testing/repository-compatibility/runs/repo-088.json",
+        "docs/testing/repository-deployment/runs/repo-088.json",
+        "scripts/jev-eval/runs/repo-088.json",
+        "docs/testing/repository-deployment/deploy-config.yaml",
+        "docs/audits/100-repo-mvp-capability-audit.md"
+      ],
+      "family": "netbox",
+      "notes": "benchmark repo-088"
+    },
+    {
+      "repository": "Stirling-Tools/Stirling-PDF",
+      "sources": [
+        "docs/testing/repository-compatibility/benchmark.yaml",
+        "docs/testing/repository-compatibility/runs/repo-089.json",
+        "docs/testing/repository-deployment/runs/repo-089.json",
+        "scripts/jev-eval/runs/repo-089.json",
+        "docs/testing/repository-deployment/deploy-config.yaml",
+        "docs/audits/100-repo-mvp-capability-audit.md"
+      ],
+      "family": "stirling-pdf",
+      "notes": "benchmark repo-089"
+    },
+    {
+      "repository": "sosedoff/pgweb",
+      "sources": [
+        "docs/testing/repository-compatibility/benchmark.yaml",
+        "docs/testing/repository-compatibility/runs/repo-090.json",
+        "docs/testing/repository-deployment/runs/repo-090.json",
+        "scripts/jev-eval/runs/repo-090.json",
+        "docs/testing/repository-deployment/deploy-config.yaml",
+        "docs/audits/100-repo-mvp-capability-audit.md",
+        "docs/testing/repository-compatibility/findings.md"
+      ],
+      "family": "pgweb",
+      "notes": "benchmark repo-090"
+    },
+    {
+      "repository": "instashop-dev/pgweb",
+      "sources": [
+        "docs/testing/repository-deployment/deploy-config.yaml",
+        "docs/testing/repository-deployment/runs/repo-090.json"
+      ],
+      "family": "pgweb",
+      "notes": "instashop-dev fork of sosedoff/pgweb used for the deployment harness (repo-090); fork of sosedoff/pgweb used by the deployment harness (repo-090)"
+    },
+    {
+      "repository": "nextcloud/server",
+      "sources": [
+        "docs/testing/repository-compatibility/benchmark.yaml",
+        "docs/testing/repository-compatibility/runs/repo-091.json",
+        "docs/testing/repository-deployment/runs/repo-091.json",
+        "scripts/jev-eval/runs/repo-091.json",
+        "docs/audits/100-repo-mvp-capability-audit.md"
+      ],
+      "family": "nextcloud",
+      "notes": "benchmark repo-091"
+    },
+    {
+      "repository": "Lissy93/dashy",
+      "sources": [
+        "docs/testing/repository-compatibility/benchmark.yaml",
+        "docs/testing/repository-compatibility/runs/repo-092.json",
+        "docs/testing/repository-deployment/runs/repo-092.json",
+        "scripts/jev-eval/runs/repo-092.json",
+        "docs/testing/repository-deployment/deploy-config.yaml",
+        "docs/audits/100-repo-mvp-capability-audit.md"
+      ],
+      "family": "dashy",
+      "notes": "benchmark repo-092"
+    },
+    {
+      "repository": "instashop-dev/dashy",
+      "sources": [
+        "docs/testing/repository-deployment/deploy-config.yaml"
+      ],
+      "family": "dashy",
+      "notes": "instashop-dev fork of Lissy93/dashy used for the deployment harness (repo-092)"
+    },
+    {
+      "repository": "thelounge/thelounge",
+      "sources": [
+        "docs/testing/repository-compatibility/benchmark.yaml",
+        "docs/testing/repository-compatibility/runs/repo-093.json",
+        "docs/testing/repository-deployment/runs/repo-093.json",
+        "scripts/jev-eval/runs/repo-093.json",
+        "docs/audits/100-repo-mvp-capability-audit.md"
+      ],
+      "family": "thelounge",
+      "notes": "benchmark repo-093"
+    },
+    {
+      "repository": "homarr-labs/homarr",
+      "sources": [
+        "docs/testing/repository-compatibility/benchmark.yaml",
+        "docs/testing/repository-compatibility/runs/repo-094.json",
+        "docs/testing/repository-deployment/runs/repo-094.json",
+        "scripts/jev-eval/runs/repo-094.json",
+        "docs/testing/repository-deployment/deploy-config.yaml",
+        "docs/audits/100-repo-mvp-capability-audit.md",
+        "docs/testing/repository-compatibility/findings.md"
+      ],
+      "family": "homarr",
+      "notes": "benchmark repo-094"
+    },
+    {
+      "repository": "openstatusHQ/openstatus",
+      "sources": [
+        "docs/testing/repository-compatibility/benchmark.yaml",
+        "docs/testing/repository-compatibility/runs/repo-095.json",
+        "docs/testing/repository-deployment/runs/repo-095.json",
+        "scripts/jev-eval/runs/repo-095.json",
+        "docs/audits/100-repo-mvp-capability-audit.md"
+      ],
+      "family": "openstatus",
+      "notes": "benchmark repo-095"
+    },
+    {
+      "repository": "mastodon/mastodon",
+      "sources": [
+        "docs/testing/repository-compatibility/benchmark.yaml",
+        "docs/testing/repository-compatibility/runs/repo-096.json",
+        "docs/testing/repository-deployment/runs/repo-096.json",
+        "scripts/jev-eval/runs/repo-096.json",
+        "docs/audits/100-repo-mvp-capability-audit.md"
+      ],
+      "family": "mastodon",
+      "notes": "benchmark repo-096"
+    },
+    {
+      "repository": "plausible/analytics",
+      "sources": [
+        "docs/testing/repository-compatibility/benchmark.yaml",
+        "docs/testing/repository-compatibility/runs/repo-097.json",
+        "docs/testing/repository-deployment/runs/repo-097.json",
+        "scripts/jev-eval/runs/repo-097.json",
+        "docs/testing/repository-deployment/deploy-config.yaml",
+        "docs/audits/100-repo-mvp-capability-audit.md"
+      ],
+      "family": "analytics",
+      "notes": "benchmark repo-097"
+    },
+    {
+      "repository": "wekan/wekan",
+      "sources": [
+        "docs/testing/repository-compatibility/benchmark.yaml",
+        "docs/testing/repository-compatibility/runs/repo-098.json",
+        "docs/testing/repository-deployment/runs/repo-098.json",
+        "scripts/jev-eval/runs/repo-098.json",
+        "docs/audits/100-repo-mvp-capability-audit.md"
+      ],
+      "family": "wekan",
+      "notes": "benchmark repo-098"
+    },
+    {
+      "repository": "BookStackApp/BookStack",
+      "sources": [
+        "docs/testing/repository-compatibility/benchmark.yaml",
+        "docs/testing/repository-compatibility/runs/repo-099.json",
+        "docs/testing/repository-deployment/runs/repo-099.json",
+        "scripts/jev-eval/runs/repo-099.json",
+        "docs/audits/100-repo-mvp-capability-audit.md"
+      ],
+      "family": "bookstack",
+      "notes": "benchmark repo-099"
+    },
+    {
+      "repository": "penpot/penpot",
+      "sources": [
+        "docs/testing/repository-compatibility/benchmark.yaml",
+        "docs/testing/repository-compatibility/runs/repo-100.json",
+        "docs/testing/repository-deployment/runs/repo-100.json",
+        "scripts/jev-eval/runs/repo-100.json",
+        "docs/audits/100-repo-mvp-capability-audit.md"
+      ],
+      "family": "penpot",
+      "notes": "benchmark repo-100"
+    },
+    {
+      "repository": "DIYgod/RSSHub",
+      "sources": [
+        "docs/testing/repository-compatibility/benchmark.yaml",
+        "docs/testing/repository-compatibility/runs/repo-201.json",
+        "docs/testing/repository-deployment/runs/repo-201.json",
+        "scripts/jev-eval/runs/repo-201.json"
+      ],
+      "family": "rsshub",
+      "notes": "benchmark repo-201"
+    },
+    {
+      "repository": "element-hq/synapse",
+      "sources": [
+        "docs/testing/repository-compatibility/benchmark.yaml",
+        "docs/testing/repository-compatibility/runs/repo-202.json",
+        "docs/testing/repository-deployment/runs/repo-202.json",
+        "scripts/jev-eval/runs/repo-202.json"
+      ],
+      "family": "synapse",
+      "notes": "benchmark repo-202"
+    },
+    {
+      "repository": "getfider/fider",
+      "sources": [
+        "docs/testing/repository-compatibility/benchmark.yaml",
+        "docs/testing/repository-compatibility/runs/repo-203.json",
+        "docs/testing/repository-deployment/runs/repo-203.json",
+        "scripts/jev-eval/runs/repo-203.json",
+        "docs/testing/repository-deployment/deploy-config.yaml"
+      ],
+      "family": "fider",
+      "notes": "benchmark repo-203"
+    },
+    {
+      "repository": "instashop-dev/fider",
+      "sources": [
+        "docs/testing/repository-deployment/deploy-config.yaml",
+        "docs/testing/repository-deployment/runs/repo-203.json"
+      ],
+      "family": "fider",
+      "notes": "instashop-dev fork of getfider/fider used for the deployment harness (repo-203); fork of getfider/fider used by the deployment harness (repo-203)"
+    },
+    {
+      "repository": "shlinkio/shlink",
+      "sources": [
+        "docs/testing/repository-compatibility/benchmark.yaml",
+        "docs/testing/repository-compatibility/runs/repo-204.json",
+        "docs/testing/repository-deployment/runs/repo-204.json",
+        "scripts/jev-eval/runs/repo-204.json",
+        "docs/testing/repository-deployment/deploy-config.yaml"
+      ],
+      "family": "shlink",
+      "notes": "benchmark repo-204"
+    },
+    {
+      "repository": "alfio-event/alf.io",
+      "sources": [
+        "docs/testing/repository-compatibility/benchmark.yaml",
+        "docs/testing/repository-compatibility/runs/repo-205.json",
+        "docs/testing/repository-deployment/runs/repo-205.json",
+        "scripts/jev-eval/runs/repo-205.json"
+      ],
+      "family": "alf.io",
+      "notes": "benchmark repo-205"
+    },
+    {
+      "repository": "nocobase/nocobase",
+      "sources": [
+        "docs/testing/repository-compatibility/benchmark.yaml",
+        "docs/testing/repository-compatibility/runs/repo-206.json",
+        "docs/testing/repository-deployment/runs/repo-206.json",
+        "scripts/jev-eval/runs/repo-206.json",
+        "docs/testing/repository-deployment/deploy-config.yaml"
+      ],
+      "family": "nocobase",
+      "notes": "benchmark repo-206"
+    },
+    {
+      "repository": "khoj-ai/khoj",
+      "sources": [
+        "docs/testing/repository-compatibility/benchmark.yaml",
+        "docs/testing/repository-compatibility/runs/repo-207.json",
+        "docs/testing/repository-deployment/runs/repo-207.json",
+        "scripts/jev-eval/runs/repo-207.json",
+        "docs/testing/repository-deployment/deploy-config.yaml"
+      ],
+      "family": "khoj",
+      "notes": "benchmark repo-207"
+    },
+    {
+      "repository": "baserow/baserow",
+      "sources": [
+        "docs/testing/repository-compatibility/benchmark.yaml",
+        "docs/testing/repository-compatibility/runs/repo-208.json",
+        "docs/testing/repository-deployment/runs/repo-208.json",
+        "scripts/jev-eval/runs/repo-208.json"
+      ],
+      "family": "baserow",
+      "notes": "benchmark repo-208"
+    },
+    {
+      "repository": "searxng/searxng",
+      "sources": [
+        "docs/testing/repository-compatibility/benchmark.yaml",
+        "docs/testing/repository-compatibility/runs/repo-209.json",
+        "docs/testing/repository-deployment/runs/repo-209.json",
+        "scripts/jev-eval/runs/repo-209.json"
+      ],
+      "family": "searxng",
+      "notes": "benchmark repo-209"
+    },
+    {
+      "repository": "FreshRSS/FreshRSS",
+      "sources": [
+        "docs/testing/repository-compatibility/benchmark.yaml",
+        "docs/testing/repository-compatibility/runs/repo-210.json",
+        "docs/testing/repository-deployment/runs/repo-210.json",
+        "scripts/jev-eval/runs/repo-210.json"
+      ],
+      "family": "freshrss",
+      "notes": "benchmark repo-210"
+    },
+    {
+      "repository": "toeverything/AFFiNE",
+      "sources": [
+        "docs/testing/repository-compatibility/benchmark.yaml",
+        "docs/testing/repository-compatibility/runs/repo-211.json",
+        "docs/testing/repository-deployment/runs/repo-211.json",
+        "scripts/jev-eval/runs/repo-211.json",
+        "docs/testing/repository-deployment/deploy-config.yaml"
+      ],
+      "family": "affine",
+      "notes": "benchmark repo-211"
+    },
+    {
+      "repository": "NodeBB/NodeBB",
+      "sources": [
+        "docs/testing/repository-compatibility/benchmark.yaml",
+        "docs/testing/repository-compatibility/runs/repo-212.json",
+        "docs/testing/repository-deployment/runs/repo-212.json",
+        "scripts/jev-eval/runs/repo-212.json"
+      ],
+      "family": "nodebb",
+      "notes": "benchmark repo-212"
+    },
+    {
+      "repository": "langfuse/langfuse",
+      "sources": [
+        "docs/testing/repository-compatibility/benchmark.yaml",
+        "docs/testing/repository-compatibility/runs/repo-213.json",
+        "docs/testing/repository-deployment/runs/repo-213.json",
+        "scripts/jev-eval/runs/repo-213.json"
+      ],
+      "family": "langfuse",
+      "notes": "benchmark repo-213"
+    },
+    {
+      "repository": "makeplane/plane",
+      "sources": [
+        "docs/testing/repository-compatibility/benchmark.yaml",
+        "docs/testing/repository-compatibility/runs/repo-214.json",
+        "docs/testing/repository-deployment/runs/repo-214.json",
+        "scripts/jev-eval/runs/repo-214.json"
+      ],
+      "family": "plane",
+      "notes": "benchmark repo-214"
+    },
+    {
+      "repository": "pixelfed/pixelfed",
+      "sources": [
+        "docs/testing/repository-compatibility/benchmark.yaml",
+        "docs/testing/repository-compatibility/runs/repo-215.json",
+        "docs/testing/repository-deployment/runs/repo-215.json",
+        "scripts/jev-eval/runs/repo-215.json"
+      ],
+      "family": "pixelfed",
+      "notes": "benchmark repo-215"
+    },
+    {
+      "repository": "RocketChat/Rocket.Chat",
+      "sources": [
+        "docs/testing/repository-compatibility/benchmark.yaml",
+        "docs/testing/repository-compatibility/runs/repo-216.json",
+        "docs/testing/repository-deployment/runs/repo-216.json",
+        "scripts/jev-eval/runs/repo-216.json"
+      ],
+      "family": "rocket.chat",
+      "notes": "benchmark repo-216"
+    },
+    {
+      "repository": "PostHog/posthog",
+      "sources": [
+        "docs/testing/repository-compatibility/benchmark.yaml",
+        "docs/testing/repository-compatibility/runs/repo-217.json",
+        "docs/testing/repository-deployment/runs/repo-217.json",
+        "scripts/jev-eval/runs/repo-217.json"
+      ],
+      "family": "posthog",
+      "notes": "benchmark repo-217"
+    },
+    {
+      "repository": "gotify/server",
+      "sources": [
+        "docs/testing/repository-compatibility/benchmark.yaml",
+        "docs/testing/repository-compatibility/runs/repo-218.json",
+        "docs/testing/repository-deployment/runs/repo-218.json",
+        "scripts/jev-eval/runs/repo-218.json"
+      ],
+      "family": "gotify",
+      "notes": "benchmark repo-218"
+    },
+    {
+      "repository": "appwrite/appwrite",
+      "sources": [
+        "docs/testing/repository-compatibility/benchmark.yaml",
+        "docs/testing/repository-compatibility/runs/repo-219.json",
+        "docs/testing/repository-deployment/runs/repo-219.json",
+        "scripts/jev-eval/runs/repo-219.json"
+      ],
+      "family": "appwrite",
+      "notes": "benchmark repo-219"
+    },
+    {
+      "repository": "headlamp-k8s/headlamp",
+      "sources": [
+        "docs/testing/repository-compatibility/benchmark.yaml",
+        "docs/testing/repository-compatibility/runs/repo-220.json",
+        "docs/testing/repository-deployment/runs/repo-220.json",
+        "scripts/jev-eval/runs/repo-220.json",
+        "docs/testing/repository-deployment/deploy-config.yaml"
+      ],
+      "family": "headlamp",
+      "notes": "benchmark repo-220"
+    },
+    {
+      "repository": "Synapsr/Hovod",
+      "sources": [
+        "docs/testing/repository-compatibility/benchmark.yaml",
+        "docs/testing/repository-deployment/deploy-config.yaml",
+        "docs/testing/aws-e2e.md",
+        "docs/dynamic-infrastructure-implementation-plan.md"
+      ],
+      "family": "hovod",
+      "notes": "benchmark repo-221"
+    },
+    {
+      "repository": "instashop-dev/deployz-phase5-canary",
+      "sources": [
+        "docs/testing/repository-compatibility/benchmark.yaml",
+        "docs/testing/repository-deployment/runs/repo-300.json",
+        "docs/testing/repository-deployment/deploy-config.yaml",
+        "docs/testing/gate-d/findings.md"
+      ],
+      "family": "deployz-phase5-canary",
+      "notes": "benchmark repo-300; instashop-dev fork of instashop-dev/deployz-phase5-canary used for the deployment harness (repo-300)"
+    },
+    {
+      "repository": "Klarline/retail-inventory-platform",
+      "sources": [
+        "docs/testing/repository-compatibility/benchmark.yaml",
+        "docs/testing/repository-deployment/runs/repo-301.json",
+        "docs/testing/repository-deployment/deploy-config.yaml",
+        "docs/testing/gate-d/findings.md"
+      ],
+      "family": "retail-inventory-platform",
+      "notes": "benchmark repo-301; instashop-dev fork of Klarline/retail-inventory-platform used for the deployment harness (repo-301)"
+    },
+    {
+      "repository": "instashop-dev/umami",
+      "sources": [
+        "docs/testing/repository-deployment/runs/repo-001.json"
+      ],
+      "family": "umami",
+      "notes": "fork of umami-software/umami used by the deployment harness (repo-001)"
+    },
+    {
+      "repository": "instashop-dev/gatus",
+      "sources": [
+        "docs/testing/repository-deployment/runs/repo-008.json"
+      ],
+      "family": "gatus",
+      "notes": "fork of TwiN/gatus used by the deployment harness (repo-008)"
+    },
+    {
+      "repository": "instashop-dev/outline",
+      "sources": [
+        "docs/testing/repository-deployment/runs/repo-016.json"
+      ],
+      "family": "outline",
+      "notes": "fork of outline/outline used by the deployment harness (repo-016)"
+    },
+    {
+      "repository": "instashop-dev/directus",
+      "sources": [
+        "docs/testing/repository-deployment/runs/repo-021.json"
+      ],
+      "family": "directus",
+      "notes": "fork of directus/directus used by the deployment harness (repo-021)"
+    },
+    {
+      "repository": "instashop-dev/ihatemoney",
+      "sources": [
+        "docs/testing/repository-deployment/runs/repo-035.json"
+      ],
+      "family": "ihatemoney",
+      "notes": "fork of spiral-project/ihatemoney used by the deployment harness (repo-035)"
+    },
+    {
+      "repository": "instashop-dev/memos",
+      "sources": [
+        "docs/testing/repository-deployment/runs/repo-039.json"
+      ],
+      "family": "memos",
+      "notes": "fork of usememos/memos used by the deployment harness (repo-039)"
+    },
+    {
+      "repository": "instashop-dev/deployz-canary-app",
+      "sources": [
+        "scripts/version-canary/fixture-repo.ts",
+        "docs/testing/aws-e2e.md",
+        "scripts/version-canary/config.ts"
+      ],
+      "family": "deployz-canary-app",
+      "notes": "version-canary fixture repository (DEFAULT_FIXTURE_REPO), generated from packages/fixture"
+    },
+    {
+      "repository": "instashop-dev/Hovod",
+      "sources": [
+        "docs/dynamic-infrastructure-implementation-plan.md"
+      ],
+      "family": "hovod",
+      "notes": "unmodified fork of Synapsr/Hovod used in Gate C AWS qualification"
+    }
+  ]
+}

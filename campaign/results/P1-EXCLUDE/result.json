@@ -1,0 +1,26 @@
+{
+  "taskId": "P1-EXCLUDE",
+  "testedCommit": "e164b7af445636447e27a62c81ed6b542f0029c7",
+  "executor": "campaign-worker",
+  "model": "sonnet",
+  "startedAt": "2026-10-08T00:00:00Z",
+  "finishedAt": "2026-10-08T00:30:00Z",
+  "proposedStatus": "COMPLETE",
+  "commands": [
+    { "command": "git rev-parse HEAD", "exitCode": 0, "summary": "e164b7af445636447e27a62c81ed6b542f0029c7" },
+    { "command": "grep -c 'repository:' docs/testing/repository-compatibility/benchmark.yaml", "exitCode": 0, "summary": "124 lines; one is a prose note, so 123 real repository values" },
+    { "command": "node (regex parse of repository: values in benchmark.yaml)", "exitCode": 0, "summary": "123 repository values, 123 unique" },
+    { "command": "node build script (scratchpad) writing campaign/corpus/excluded-families.json", "exitCode": 0, "summary": "143 entries: 123 benchmark, 20 other (19 instashop-dev forks plus the version-canary fixture repo)" },
+    { "command": "node validation script: JSON.parse + benchmark coverage check", "exitCode": 0, "summary": "143 unique entries; 0 benchmark repositories missing; documenso/documenso and instashop-dev/deployz-canary-app present" },
+    { "command": "node -e JSON.parse(campaign/results/P1-EXCLUDE/result.json)", "exitCode": 0, "summary": "valid JSON" }
+  ],
+  "evidence": ["campaign/corpus/excluded-families.json"],
+  "notes": [
+    "All 8 input files exist.",
+    "benchmark.yaml has 123 repository values (grep count 124 includes a prose line). Includes repo-300 instashop-dev/deployz-phase5-canary and repo-221 Synapsr/Hovod.",
+    "Other entries are instashop-dev forks from deploy-config.yaml fork: values and deploy run repositoryUsed fields, the fixture repo instashop-dev/deployz-canary-app, and instashop-dev/Hovod from docs/dynamic-infrastructure-implementation-plan.md. Fork entries carry the upstream family.",
+    "Not listed: synthetic test fixtures (acme/api, o/r, deployz-demo/async-app) and dependency paths in logs (npm/cli, aws-sdk-go, lib/pq).",
+    "Family is a lowercase project name derived from the repo name; it is a best-effort label, not verified against upstream. Same-family check should also compare project names, e.g. cal.diy is cal.com.",
+    "Sources for run records are per-repo JSON files in docs/testing/repository-compatibility/runs, docs/testing/repository-deployment/runs and scripts/jev-eval/runs. docs/audits/100-repo-mvp-capability-audit.md also lists repo-001..100."
+  ]
+}

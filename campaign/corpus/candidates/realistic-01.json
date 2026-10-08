@@ -1,0 +1,498 @@
+{
+  "taskId": "P1-SELECT-REALISTIC-01",
+  "testedCommit": "e164b7af445636447e27a62c81ed6b542f0029c7",
+  "cohort": "realistic",
+  "exclusionCheck": {
+    "method": "Each candidate owner/repo compared case-insensitively against all 100+ \"repository\" values in campaign/corpus/excluded-families.json, and each repo name, project family name and common aliases compared against all \"family\" values (including forks of the same project under other owners such as instashop-dev). Family names are unverified so project identity was also checked manually (e.g. Payload CMS, Redash, Koel, Shiori, Gotenberg, Label Studio, Inbox Zero, Campfire, Spring PetClinic, FastAPI full-stack template are not in the list). No instashop-dev repo used; gh api confirmed fork=false for all.",
+    "perCandidate": [
+      {
+        "id": "fastapi-fullstack",
+        "repo": "fastapi/full-stack-fastapi-template",
+        "ownerRepoMatch": false,
+        "familyNameMatch": false,
+        "instashopDev": false,
+        "fork": false,
+        "result": "clear"
+      },
+      {
+        "id": "redash",
+        "repo": "getredash/redash",
+        "ownerRepoMatch": false,
+        "familyNameMatch": false,
+        "instashopDev": false,
+        "fork": false,
+        "result": "clear"
+      },
+      {
+        "id": "label-studio",
+        "repo": "HumanSignal/label-studio",
+        "ownerRepoMatch": false,
+        "familyNameMatch": false,
+        "instashopDev": false,
+        "fork": false,
+        "result": "clear"
+      },
+      {
+        "id": "koel",
+        "repo": "koel/koel",
+        "ownerRepoMatch": false,
+        "familyNameMatch": false,
+        "instashopDev": false,
+        "fork": false,
+        "result": "clear"
+      },
+      {
+        "id": "spring-petclinic",
+        "repo": "spring-projects/spring-petclinic",
+        "ownerRepoMatch": false,
+        "familyNameMatch": false,
+        "instashopDev": false,
+        "fork": false,
+        "result": "clear"
+      },
+      {
+        "id": "shiori",
+        "repo": "go-shiori/shiori",
+        "ownerRepoMatch": false,
+        "familyNameMatch": false,
+        "instashopDev": false,
+        "fork": false,
+        "result": "clear"
+      },
+      {
+        "id": "payload-with-postgres",
+        "repo": "payloadcms/payload",
+        "ownerRepoMatch": false,
+        "familyNameMatch": false,
+        "instashopDev": false,
+        "fork": false,
+        "result": "clear"
+      },
+      {
+        "id": "gotenberg",
+        "repo": "gotenberg/gotenberg",
+        "ownerRepoMatch": false,
+        "familyNameMatch": false,
+        "instashopDev": false,
+        "fork": false,
+        "result": "clear"
+      },
+      {
+        "id": "inbox-zero",
+        "repo": "elie222/inbox-zero",
+        "ownerRepoMatch": false,
+        "familyNameMatch": false,
+        "instashopDev": false,
+        "fork": false,
+        "result": "clear"
+      },
+      {
+        "id": "campfire",
+        "repo": "basecamp/once-campfire",
+        "ownerRepoMatch": false,
+        "familyNameMatch": false,
+        "instashopDev": false,
+        "fork": false,
+        "result": "clear"
+      }
+    ]
+  },
+  "candidates": [
+    {
+      "id": "fastapi-fullstack",
+      "family": "full-stack-fastapi-template",
+      "repo": "fastapi/full-stack-fastapi-template",
+      "defaultBranch": "master",
+      "commit": "f27b4721507824e57ebd0286ff1a84d82e83bf59",
+      "commitVerified": {
+        "call": "gh api repos/fastapi/full-stack-fastapi-template/commits/f27b4721507824e57ebd0286ff1a84d82e83bf59",
+        "returnedSha": "f27b4721507824e57ebd0286ff1a84d82e83bf59",
+        "matches": true
+      },
+      "license": "MIT",
+      "archived": false,
+      "fork": false,
+      "pushedAt": "2026-10-07T19:41:20Z",
+      "cohort": "realistic",
+      "runtime": "python (FastAPI) + React",
+      "expectedNeeds": [
+        "postgres"
+      ],
+      "selectionReason": "Official FastAPI full-stack template; common customer starting point; backend Dockerfile, Postgres.",
+      "validity": {
+        "entryPoint": {
+          "path": "backend/app/main.py",
+          "type": "file",
+          "confirmedAtCommit": true
+        },
+        "buildFile": {
+          "path": "backend/Dockerfile",
+          "type": "file",
+          "confirmedAtCommit": true
+        },
+        "ci": {
+          "checkRuns": "success=7",
+          "combinedStatus": "pending",
+          "note": "informational only; unknown/mixed is acceptable"
+        }
+      }
+    },
+    {
+      "id": "redash",
+      "family": "redash",
+      "repo": "getredash/redash",
+      "defaultBranch": "master",
+      "commit": "e170795256ae028930e4760192e5dc3f59bb420c",
+      "commitVerified": {
+        "call": "gh api repos/getredash/redash/commits/e170795256ae028930e4760192e5dc3f59bb420c",
+        "returnedSha": "e170795256ae028930e4760192e5dc3f59bb420c",
+        "matches": true
+      },
+      "license": "BSD-2-Clause",
+      "archived": false,
+      "fork": false,
+      "pushedAt": "2026-10-04T18:55:34Z",
+      "cohort": "realistic",
+      "runtime": "python (Flask)",
+      "expectedNeeds": [
+        "postgres",
+        "redis",
+        "worker"
+      ],
+      "selectionReason": "Maintained BI app; web plus RQ worker from same image; Postgres and Redis.",
+      "validity": {
+        "entryPoint": {
+          "path": "redash/app.py",
+          "type": "file",
+          "confirmedAtCommit": true
+        },
+        "buildFile": {
+          "path": "Dockerfile",
+          "type": "file",
+          "confirmedAtCommit": true
+        },
+        "ci": {
+          "checkRuns": "success=12",
+          "combinedStatus": "pending",
+          "note": "informational only; unknown/mixed is acceptable"
+        }
+      }
+    },
+    {
+      "id": "label-studio",
+      "family": "label-studio",
+      "repo": "HumanSignal/label-studio",
+      "defaultBranch": "develop",
+      "commit": "766b7ce5c60fb6c7a601493e7bf8860cdd73c841",
+      "commitVerified": {
+        "call": "gh api repos/HumanSignal/label-studio/commits/766b7ce5c60fb6c7a601493e7bf8860cdd73c841",
+        "returnedSha": "766b7ce5c60fb6c7a601493e7bf8860cdd73c841",
+        "matches": true
+      },
+      "license": "Apache-2.0",
+      "archived": false,
+      "fork": false,
+      "pushedAt": "2026-10-08T07:41:32Z",
+      "cohort": "realistic",
+      "runtime": "python (Django)",
+      "expectedNeeds": [
+        "postgres",
+        "redis",
+        "s3"
+      ],
+      "selectionReason": "Data labeling app with root Dockerfile; Postgres, optional S3 storage.",
+      "validity": {
+        "entryPoint": {
+          "path": "label_studio/manage.py",
+          "type": "file",
+          "confirmedAtCommit": true
+        },
+        "buildFile": {
+          "path": "Dockerfile",
+          "type": "file",
+          "confirmedAtCommit": true
+        },
+        "ci": {
+          "checkRuns": "null=2,failure=1,skipped=2,success=25",
+          "combinedStatus": "success",
+          "note": "informational only; unknown/mixed is acceptable"
+        }
+      }
+    },
+    {
+      "id": "koel",
+      "family": "koel",
+      "repo": "koel/koel",
+      "defaultBranch": "master",
+      "commit": "72ab1e8d9bc4b744b2043a5259e1a06d733a9a29",
+      "commitVerified": {
+        "call": "gh api repos/koel/koel/commits/72ab1e8d9bc4b744b2043a5259e1a06d733a9a29",
+        "returnedSha": "72ab1e8d9bc4b744b2043a5259e1a06d733a9a29",
+        "matches": true
+      },
+      "license": "MIT",
+      "archived": false,
+      "fork": false,
+      "pushedAt": "2026-10-08T06:25:32Z",
+      "cohort": "realistic",
+      "runtime": "php (Laravel)",
+      "expectedNeeds": [
+        "postgres",
+        "s3",
+        "worker"
+      ],
+      "selectionReason": "Personal music streaming; Laravel, supports Postgres and S3 media; no root Dockerfile (composer build).",
+      "validity": {
+        "entryPoint": {
+          "path": "public/index.php",
+          "type": "file",
+          "confirmedAtCommit": true
+        },
+        "buildFile": {
+          "path": "composer.json",
+          "type": "file",
+          "confirmedAtCommit": true
+        },
+        "ci": {
+          "checkRuns": "success=7",
+          "combinedStatus": "pending",
+          "note": "informational only; unknown/mixed is acceptable"
+        }
+      }
+    },
+    {
+      "id": "spring-petclinic",
+      "family": "spring-petclinic",
+      "repo": "spring-projects/spring-petclinic",
+      "defaultBranch": "main",
+      "commit": "500158f732419217507c7656904b8e6aa1bcc0d6",
+      "commitVerified": {
+        "call": "gh api repos/spring-projects/spring-petclinic/commits/500158f732419217507c7656904b8e6aa1bcc0d6",
+        "returnedSha": "500158f732419217507c7656904b8e6aa1bcc0d6",
+        "matches": true
+      },
+      "license": "Apache-2.0",
+      "archived": false,
+      "fork": false,
+      "pushedAt": "2026-09-29T15:37:54Z",
+      "cohort": "realistic",
+      "runtime": "java (Spring Boot)",
+      "expectedNeeds": [
+        "postgres"
+      ],
+      "selectionReason": "Canonical Spring Boot sample; Maven build, Postgres profile; common Java deploy test.",
+      "validity": {
+        "entryPoint": {
+          "path": "src/main/java/org/springframework/samples/petclinic/PetClinicApplication.java",
+          "type": "file",
+          "confirmedAtCommit": true
+        },
+        "buildFile": {
+          "path": "pom.xml",
+          "type": "file",
+          "confirmedAtCommit": true
+        },
+        "ci": {
+          "checkRuns": "success=2",
+          "combinedStatus": "pending",
+          "note": "informational only; unknown/mixed is acceptable"
+        }
+      }
+    },
+    {
+      "id": "shiori",
+      "family": "shiori",
+      "repo": "go-shiori/shiori",
+      "defaultBranch": "master",
+      "commit": "9a9a426acaca0e57e205bf20266a44954aaa8264",
+      "commitVerified": {
+        "call": "gh api repos/go-shiori/shiori/commits/9a9a426acaca0e57e205bf20266a44954aaa8264",
+        "returnedSha": "9a9a426acaca0e57e205bf20266a44954aaa8264",
+        "matches": true
+      },
+      "license": "MIT",
+      "archived": false,
+      "fork": false,
+      "pushedAt": "2026-07-10T06:36:40Z",
+      "cohort": "realistic",
+      "runtime": "go",
+      "expectedNeeds": [
+        "postgres"
+      ],
+      "selectionReason": "Bookmark manager; single Go binary with root Dockerfile; Postgres supported.",
+      "validity": {
+        "entryPoint": {
+          "path": "main.go",
+          "type": "file",
+          "confirmedAtCommit": true
+        },
+        "buildFile": {
+          "path": "Dockerfile",
+          "type": "file",
+          "confirmedAtCommit": true
+        },
+        "ci": {
+          "checkRuns": "success=30",
+          "combinedStatus": "success",
+          "note": "informational only; unknown/mixed is acceptable"
+        }
+      }
+    },
+    {
+      "id": "payload-with-postgres",
+      "family": "payload",
+      "repo": "payloadcms/payload",
+      "defaultBranch": "main",
+      "commit": "c66a7bec07dd7f30bdcd98320351c70846da4f0e",
+      "commitVerified": {
+        "call": "gh api repos/payloadcms/payload/commits/c66a7bec07dd7f30bdcd98320351c70846da4f0e",
+        "returnedSha": "c66a7bec07dd7f30bdcd98320351c70846da4f0e",
+        "matches": true
+      },
+      "license": "MIT",
+      "archived": false,
+      "fork": false,
+      "pushedAt": "2026-10-08T02:09:18Z",
+      "cohort": "realistic",
+      "runtime": "node/ts (Next.js + Payload CMS)",
+      "expectedNeeds": [
+        "postgres",
+        "s3"
+      ],
+      "selectionReason": "Payload CMS Postgres template (subdirectory templates/with-postgres with own Dockerfile); S3 media plugin possible.",
+      "validity": {
+        "entryPoint": {
+          "path": "templates/with-postgres/src/payload.config.ts",
+          "type": "file",
+          "confirmedAtCommit": true
+        },
+        "buildFile": {
+          "path": "templates/with-postgres/Dockerfile",
+          "type": "file",
+          "confirmedAtCommit": true
+        },
+        "ci": {
+          "checkRuns": "failure=1,skipped=4,success=25",
+          "combinedStatus": "pending",
+          "note": "informational only; unknown/mixed is acceptable"
+        }
+      }
+    },
+    {
+      "id": "gotenberg",
+      "family": "gotenberg",
+      "repo": "gotenberg/gotenberg",
+      "defaultBranch": "main",
+      "commit": "c83dbd7bafacb3734ebadf2e33a4049a17d45ec9",
+      "commitVerified": {
+        "call": "gh api repos/gotenberg/gotenberg/commits/c83dbd7bafacb3734ebadf2e33a4049a17d45ec9",
+        "returnedSha": "c83dbd7bafacb3734ebadf2e33a4049a17d45ec9",
+        "matches": true
+      },
+      "license": "MIT",
+      "archived": false,
+      "fork": false,
+      "pushedAt": "2026-10-05T11:33:00Z",
+      "cohort": "realistic",
+      "runtime": "go",
+      "expectedNeeds": [],
+      "selectionReason": "Stateless document conversion API; Dockerfile under build/; common stateless service.",
+      "validity": {
+        "entryPoint": {
+          "path": "cmd/gotenberg/main.go",
+          "type": "file",
+          "confirmedAtCommit": true
+        },
+        "buildFile": {
+          "path": "build/Dockerfile",
+          "type": "file",
+          "confirmedAtCommit": true
+        },
+        "ci": {
+          "checkRuns": "skipped=7,success=9",
+          "combinedStatus": "pending",
+          "note": "informational only; unknown/mixed is acceptable"
+        }
+      }
+    },
+    {
+      "id": "inbox-zero",
+      "family": "inbox-zero",
+      "repo": "elie222/inbox-zero",
+      "defaultBranch": "main",
+      "commit": "84fd613d3dc1b3dbe8c3f46f9ec85d9e8681621c",
+      "commitVerified": {
+        "call": "gh api repos/elie222/inbox-zero/commits/84fd613d3dc1b3dbe8c3f46f9ec85d9e8681621c",
+        "returnedSha": "84fd613d3dc1b3dbe8c3f46f9ec85d9e8681621c",
+        "matches": true
+      },
+      "license": "NOASSERTION",
+      "archived": false,
+      "fork": false,
+      "pushedAt": "2026-10-08T07:56:28Z",
+      "cohort": "realistic",
+      "runtime": "node/ts (Next.js monorepo)",
+      "expectedNeeds": [
+        "postgres",
+        "redis"
+      ],
+      "selectionReason": "AI email assistant; Next.js app in apps/web; Postgres and Redis; docker/Dockerfile.prod.",
+      "validity": {
+        "entryPoint": {
+          "path": "apps/web/package.json",
+          "type": "file",
+          "confirmedAtCommit": true
+        },
+        "buildFile": {
+          "path": "docker/Dockerfile.prod",
+          "type": "file",
+          "confirmedAtCommit": true
+        },
+        "ci": {
+          "checkRuns": "cancelled=1,failure=4,skipped=9,success=16",
+          "combinedStatus": "success",
+          "note": "informational only; unknown/mixed is acceptable"
+        }
+      }
+    },
+    {
+      "id": "campfire",
+      "family": "once-campfire",
+      "repo": "basecamp/once-campfire",
+      "defaultBranch": "main",
+      "commit": "008ea1ab2af0f84021e25047c67b64d30a601339",
+      "commitVerified": {
+        "call": "gh api repos/basecamp/once-campfire/commits/008ea1ab2af0f84021e25047c67b64d30a601339",
+        "returnedSha": "008ea1ab2af0f84021e25047c67b64d30a601339",
+        "matches": true
+      },
+      "license": "MIT",
+      "archived": false,
+      "fork": false,
+      "pushedAt": "2026-10-08T05:55:33Z",
+      "cohort": "realistic",
+      "runtime": "ruby (Rails)",
+      "expectedNeeds": [
+        "redis"
+      ],
+      "selectionReason": "Rails team chat with root Dockerfile; Redis for Action Cable; uses SQLite by default (may exceed boundary).",
+      "validity": {
+        "entryPoint": {
+          "path": "config.ru",
+          "type": "file",
+          "confirmedAtCommit": true
+        },
+        "buildFile": {
+          "path": "Dockerfile",
+          "type": "file",
+          "confirmedAtCommit": true
+        },
+        "ci": {
+          "checkRuns": "success=12",
+          "combinedStatus": "pending",
+          "note": "informational only; unknown/mixed is acceptable"
+        }
+      }
+    }
+  ]
+}

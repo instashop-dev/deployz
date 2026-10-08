@@ -1,0 +1,3 @@
+completed	success	Deploy web	Deploy web	main	workflow_run	37623993719	11s	2026-10-07T12:51:01Z
+completed	success	Deploy API	Deploy API	main	workflow_run	37623993706	2m47s	2026-10-07T12:51:01Z
+completed	success	fix(relay): one-shot tasks inherit the configured runtime's effective…	CI	main	push	37623033601	7m47s	2026-10-07T12:43:12Z
