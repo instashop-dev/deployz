@@ -1,0 +1,561 @@
+{
+  "taskId": "P1-SELECT-MESSY-01",
+  "testedCommit": "e6a3b58ee2363923fef21faca86611fa3bf84538",
+  "cohort": "messy",
+  "exclusionCheck": {
+    "method": "Each candidate owner/repo (current name from gh api) compared case-insensitively by script against all repository values in campaign/corpus/excluded-families.json and repo values in realistic-01..07.json; candidate id and project name compared against excluded families and ids/repo names of realistic-01..07. Project names whole-word grepped in docs/testing/repository-compatibility/benchmark.yaml. gh api confirmed fork=false and archived=false.",
+    "perCandidate": [
+      {
+        "id": "firezone",
+        "repo": "firezone/firezone",
+        "ownerRepoMatch": false,
+        "familyNameMatch": false,
+        "benchmarkYamlWholeWordHits": 0,
+        "fork": false,
+        "archived": false,
+        "result": "clear"
+      },
+      {
+        "id": "anything-llm",
+        "repo": "Mintplex-Labs/anything-llm",
+        "ownerRepoMatch": false,
+        "familyNameMatch": false,
+        "benchmarkYamlWholeWordHits": 0,
+        "fork": false,
+        "archived": false,
+        "result": "clear"
+      },
+      {
+        "id": "mem0-server",
+        "repo": "mem0ai/mem0",
+        "ownerRepoMatch": false,
+        "familyNameMatch": false,
+        "benchmarkYamlWholeWordHits": 0,
+        "fork": false,
+        "archived": false,
+        "result": "clear"
+      },
+      {
+        "id": "lobsters",
+        "repo": "lobsters/lobsters",
+        "ownerRepoMatch": false,
+        "familyNameMatch": false,
+        "benchmarkYamlWholeWordHits": 0,
+        "fork": false,
+        "archived": false,
+        "result": "clear"
+      },
+      {
+        "id": "traccar",
+        "repo": "traccar/traccar",
+        "ownerRepoMatch": false,
+        "familyNameMatch": false,
+        "benchmarkYamlWholeWordHits": 0,
+        "fork": false,
+        "archived": false,
+        "result": "clear"
+      },
+      {
+        "id": "btcpayserver",
+        "repo": "btcpayserver/btcpayserver",
+        "ownerRepoMatch": false,
+        "familyNameMatch": false,
+        "benchmarkYamlWholeWordHits": 0,
+        "fork": false,
+        "archived": false,
+        "result": "clear"
+      },
+      {
+        "id": "woodpecker",
+        "repo": "woodpecker-ci/woodpecker",
+        "ownerRepoMatch": false,
+        "familyNameMatch": false,
+        "benchmarkYamlWholeWordHits": 0,
+        "fork": false,
+        "archived": false,
+        "result": "clear"
+      },
+      {
+        "id": "lldap",
+        "repo": "lldap/lldap",
+        "ownerRepoMatch": false,
+        "familyNameMatch": false,
+        "benchmarkYamlWholeWordHits": 0,
+        "fork": false,
+        "archived": false,
+        "result": "clear"
+      },
+      {
+        "id": "akaunting",
+        "repo": "akaunting/akaunting",
+        "ownerRepoMatch": false,
+        "familyNameMatch": false,
+        "benchmarkYamlWholeWordHits": 0,
+        "fork": false,
+        "archived": false,
+        "result": "clear"
+      },
+      {
+        "id": "keeper-sh",
+        "repo": "ridafkih/keeper.sh",
+        "ownerRepoMatch": false,
+        "familyNameMatch": false,
+        "benchmarkYamlWholeWordHits": 0,
+        "fork": false,
+        "archived": false,
+        "result": "clear"
+      }
+    ]
+  },
+  "candidates": [
+    {
+      "id": "firezone",
+      "family": "elixir",
+      "repo": "firezone/firezone",
+      "defaultBranch": "main",
+      "commit": "29ee99456ae20d839667bbb4d143b0eb97091607",
+      "commitVerified": {
+        "call": "gh api repos/firezone/firezone/commits/29ee99456ae20d839667bbb4d143b0eb97091607",
+        "returnedSha": "29ee99456ae20d839667bbb4d143b0eb97091607",
+        "matches": true
+      },
+      "license": "Apache-2.0",
+      "archived": false,
+      "fork": false,
+      "pushedAt": "2026-10-08T10:03:03Z",
+      "cohort": "messy",
+      "runtime": "elixir (mix/phoenix)",
+      "appPath": "elixir",
+      "irregularity": [
+        "monorepo-subdirectory",
+        "mixed-runtimes (elixir + rust + kotlin/swift clients)"
+      ],
+      "expectedNeeds": [
+        "postgres"
+      ],
+      "selectionReason": "Elixir Phoenix control-plane portal in the elixir/ subdirectory of a multi-language monorepo (Rust, Swift, Kotlin clients); Dockerfile only in the subdirectory.",
+      "validity": {
+        "entryPoint": {
+          "path": "elixir/lib/portal/application.ex",
+          "type": "file",
+          "confirmedAtCommit": true
+        },
+        "buildFile": {
+          "path": "elixir/Dockerfile",
+          "type": "file",
+          "confirmedAtCommit": true
+        },
+        "ci": {
+          "checkRuns": "failure=2,skipped=11,success=87",
+          "note": "informational only; unknown/mixed is acceptable"
+        }
+      },
+      "labelingRisk": "Risk: Dockerfile build context may need repo root rather than elixir/; many env vars (secrets, auth providers) required at boot; Postgres needed; the product is a VPN control plane and may be only partly useful as a plain web app."
+    },
+    {
+      "id": "anything-llm",
+      "family": "node",
+      "repo": "Mintplex-Labs/anything-llm",
+      "defaultBranch": "master",
+      "commit": "3c7e73b8104e25327b9db3c4a8eeaf3ac4af237f",
+      "commitVerified": {
+        "call": "gh api repos/Mintplex-Labs/anything-llm/commits/3c7e73b8104e25327b9db3c4a8eeaf3ac4af237f",
+        "returnedSha": "3c7e73b8104e25327b9db3c4a8eeaf3ac4af237f",
+        "matches": true
+      },
+      "license": "MIT",
+      "archived": false,
+      "fork": false,
+      "pushedAt": "2026-10-08T01:13:33Z",
+      "cohort": "messy",
+      "runtime": "node (yarn, three packages)",
+      "appPath": ".",
+      "irregularity": [
+        "non-root-dockerfile (docker/Dockerfile)",
+        "multi-package-monorepo (server, frontend, collector)"
+      ],
+      "expectedNeeds": [
+        "optional postgres",
+        "local-storage volume"
+      ],
+      "selectionReason": "Node LLM chat app with server/, frontend/ and collector/ packages; the only Dockerfile is in docker/ and the context is the repo root.",
+      "validity": {
+        "entryPoint": {
+          "path": "server/index.js",
+          "type": "file",
+          "confirmedAtCommit": true
+        },
+        "buildFile": {
+          "path": "docker/Dockerfile",
+          "type": "file",
+          "confirmedAtCommit": true
+        },
+        "ci": {
+          "checkRuns": "success=2",
+          "note": "informational only; unknown/mixed is acceptable"
+        }
+      },
+      "labelingRisk": "Risk: Dockerfile in docker/ with root build context; default storage is SQLite plus local volume (no Postgres by default); runs collector as a second process in the same container; LLM provider keys are optional runtime config."
+    },
+    {
+      "id": "mem0-server",
+      "family": "python",
+      "repo": "mem0ai/mem0",
+      "defaultBranch": "main",
+      "commit": "b7ad69afda6b6ed030347c66d48a13e4de9dec08",
+      "commitVerified": {
+        "call": "gh api repos/mem0ai/mem0/commits/b7ad69afda6b6ed030347c66d48a13e4de9dec08",
+        "returnedSha": "b7ad69afda6b6ed030347c66d48a13e4de9dec08",
+        "matches": true
+      },
+      "license": "Apache-2.0",
+      "archived": false,
+      "fork": false,
+      "pushedAt": "2026-10-07T13:12:17Z",
+      "cohort": "messy",
+      "runtime": "python (fastapi, pip)",
+      "appPath": "server",
+      "irregularity": [
+        "monorepo-subdirectory",
+        "mixed-runtimes (python, typescript sdk, dashboard)"
+      ],
+      "expectedNeeds": [
+        "postgres"
+      ],
+      "selectionReason": "FastAPI memory-service in the server/ subdirectory of a large multi-SDK monorepo; separate dashboard/ and alembic migrations; Dockerfile inside the subdirectory.",
+      "validity": {
+        "entryPoint": {
+          "path": "server/main.py",
+          "type": "file",
+          "confirmedAtCommit": true
+        },
+        "buildFile": {
+          "path": "server/Dockerfile",
+          "type": "file",
+          "confirmedAtCommit": true
+        },
+        "ci": {
+          "checkRuns": "skipped=11,success=7",
+          "note": "informational only; unknown/mixed is acceptable"
+        }
+      },
+      "labelingRisk": "Risk: server needs an LLM API key and a vector store backend (pgvector/Postgres) configured; alembic migrations; dev.Dockerfile and Dockerfile both exist; compose file is the primary documented path."
+    },
+    {
+      "id": "lobsters",
+      "family": "ruby",
+      "repo": "lobsters/lobsters",
+      "defaultBranch": "main",
+      "commit": "9fefd21bee25e4b4fddcfc318023b2d8cd7d8a5e",
+      "commitVerified": {
+        "call": "gh api repos/lobsters/lobsters/commits/9fefd21bee25e4b4fddcfc318023b2d8cd7d8a5e",
+        "returnedSha": "9fefd21bee25e4b4fddcfc318023b2d8cd7d8a5e",
+        "matches": true
+      },
+      "license": "NOASSERTION",
+      "archived": false,
+      "fork": false,
+      "pushedAt": "2026-10-05T21:12:42Z",
+      "cohort": "messy",
+      "runtime": "ruby (rails)",
+      "appPath": ".",
+      "irregularity": [
+        "no-production-dockerfile (only Dockerfile.dev)",
+        "unusual-deploy-tooling (hatchbox/Procfile)"
+      ],
+      "expectedNeeds": [
+        "mysql (not postgres)"
+      ],
+      "selectionReason": "Rails app with no production Dockerfile (only Dockerfile.dev); deploy tooling is hatchbox/Procfile; MySQL/Trilogy database.",
+      "validity": {
+        "entryPoint": {
+          "path": "config.ru",
+          "type": "file",
+          "confirmedAtCommit": true
+        },
+        "buildFile": {
+          "path": "Gemfile",
+          "type": "file",
+          "confirmedAtCommit": true
+        },
+        "ci": {
+          "checkRuns": "success=11",
+          "note": "informational only; unknown/mixed is acceptable"
+        }
+      },
+      "labelingRisk": "Risk: database is MySQL/MariaDB, which may be outside the MVP Postgres boundary; license is NOASSERTION in GitHub metadata (custom LICENSE file); no production Docker path so expected result may be unsupported-database or generated Dockerfile."
+    },
+    {
+      "id": "traccar",
+      "family": "java",
+      "repo": "traccar/traccar",
+      "defaultBranch": "master",
+      "commit": "323cdae38fdf101ea13b97196cfbdcb259101ed7",
+      "commitVerified": {
+        "call": "gh api repos/traccar/traccar/commits/323cdae38fdf101ea13b97196cfbdcb259101ed7",
+        "returnedSha": "323cdae38fdf101ea13b97196cfbdcb259101ed7",
+        "matches": true
+      },
+      "license": "Apache-2.0",
+      "archived": false,
+      "fork": false,
+      "pushedAt": "2026-10-08T04:12:55Z",
+      "cohort": "messy",
+      "runtime": "java (gradle)",
+      "appPath": ".",
+      "irregularity": [
+        "non-root-dockerfile (docker/Dockerfile.*)",
+        "non-standard-source-layout",
+        "tcp-device-ports-plus-http"
+      ],
+      "expectedNeeds": [
+        "optional postgres (H2 default)"
+      ],
+      "selectionReason": "GPS tracking server in Java; three Dockerfile variants only under docker/; uses many non-HTTP TCP/UDP device ports besides the web UI; web UI is a git submodule.",
+      "validity": {
+        "entryPoint": {
+          "path": "src/main/java/org/traccar/Main.java",
+          "type": "file",
+          "confirmedAtCommit": true
+        },
+        "buildFile": {
+          "path": "build.gradle",
+          "type": "file",
+          "confirmedAtCommit": true
+        },
+        "ci": {
+          "checkRuns": "success=1",
+          "note": "informational only; unknown/mixed is acceptable"
+        }
+      },
+      "labelingRisk": "Risk: Dockerfiles in docker/ expect a prebuilt target/ layout; web UI lives in a submodule (traccar-web) that may be absent at the pinned SHA; many raw TCP ports are outside the HTTP web-app boundary; default DB is H2."
+    },
+    {
+      "id": "btcpayserver",
+      "family": "dotnet",
+      "repo": "btcpayserver/btcpayserver",
+      "defaultBranch": "master",
+      "commit": "cbee1f8c782f0f3c8fa5457cf4a3a47e92c0e059",
+      "commitVerified": {
+        "call": "gh api repos/btcpayserver/btcpayserver/commits/cbee1f8c782f0f3c8fa5457cf4a3a47e92c0e059",
+        "returnedSha": "cbee1f8c782f0f3c8fa5457cf4a3a47e92c0e059",
+        "matches": true
+      },
+      "license": "MIT",
+      "archived": false,
+      "fork": false,
+      "pushedAt": "2026-10-08T11:01:29Z",
+      "cohort": "messy",
+      "runtime": ".NET (aspnet core)",
+      "appPath": "BTCPayServer",
+      "irregularity": [
+        "monorepo-subdirectory (solution with many projects)",
+        "external-service-dependencies (bitcoin nodes)"
+      ],
+      "expectedNeeds": [
+        "postgres",
+        "external bitcoin/lightning nodes"
+      ],
+      "selectionReason": ".NET solution with the web app in BTCPayServer/ among several class-library projects; root Dockerfile builds from the solution; Postgres backend.",
+      "validity": {
+        "entryPoint": {
+          "path": "BTCPayServer/Program.cs",
+          "type": "file",
+          "confirmedAtCommit": true
+        },
+        "buildFile": {
+          "path": "Dockerfile",
+          "type": "file",
+          "confirmedAtCommit": true
+        },
+        "ci": {
+          "checkRuns": "failure=1,success=3",
+          "note": "informational only; unknown/mixed is acceptable"
+        }
+      },
+      "labelingRisk": "Risk: needs a Bitcoin full node/NBXplorer to be useful, which is outside the MVP boundary, but the web app may boot without it in degraded mode; Postgres connection string via env; label may be 'deployable with limited function'."
+    },
+    {
+      "id": "woodpecker",
+      "family": "go",
+      "repo": "woodpecker-ci/woodpecker",
+      "defaultBranch": "main",
+      "commit": "5e87e8acf9f2458a1667268468afbbf3a546d111",
+      "commitVerified": {
+        "call": "gh api repos/woodpecker-ci/woodpecker/commits/5e87e8acf9f2458a1667268468afbbf3a546d111",
+        "returnedSha": "5e87e8acf9f2458a1667268468afbbf3a546d111",
+        "matches": true
+      },
+      "license": "Apache-2.0",
+      "archived": false,
+      "fork": false,
+      "pushedAt": "2026-10-08T12:00:53Z",
+      "cohort": "messy",
+      "runtime": "go (server) + vue frontend (pnpm)",
+      "appPath": ".",
+      "irregularity": [
+        "non-root-dockerfile (docker/Dockerfile.server.*)",
+        "mixed-runtimes (go + vue web/)",
+        "multiple-binaries (server, agent, cli)"
+      ],
+      "expectedNeeds": [
+        "postgres",
+        "forge (github/gitea) oauth"
+      ],
+      "selectionReason": "Go CI server with a Vue UI under web/, separate server/agent/cli binaries, and Dockerfiles only under docker/.",
+      "validity": {
+        "entryPoint": {
+          "path": "cmd/server/main.go",
+          "type": "file",
+          "confirmedAtCommit": true
+        },
+        "buildFile": {
+          "path": "docker/Dockerfile.server.multiarch.rootless",
+          "type": "file",
+          "confirmedAtCommit": true
+        },
+        "ci": {
+          "checkRuns": "none",
+          "note": "informational only; unknown/mixed is acceptable"
+        }
+      },
+      "labelingRisk": "Risk: server Dockerfile expects prebuilt multiarch binaries (copied from a make build); needs forge OAuth settings to start; agent is a separate service; default DB is SQLite."
+    },
+    {
+      "id": "lldap",
+      "family": "rust",
+      "repo": "lldap/lldap",
+      "defaultBranch": "main",
+      "commit": "99c510a7a603df1cdaca00a9ffff95ec73b296eb",
+      "commitVerified": {
+        "call": "gh api repos/lldap/lldap/commits/99c510a7a603df1cdaca00a9ffff95ec73b296eb",
+        "returnedSha": "99c510a7a603df1cdaca00a9ffff95ec73b296eb",
+        "matches": true
+      },
+      "license": "GPL-3.0",
+      "archived": false,
+      "fork": false,
+      "pushedAt": "2026-09-26T11:31:51Z",
+      "cohort": "messy",
+      "runtime": "rust (cargo workspace)",
+      "appPath": ".",
+      "irregularity": [
+        "cargo-workspace (server, app wasm frontend, crates)",
+        "unusual-build-tool (wasm frontend build)",
+        "non-http-ldap-port"
+      ],
+      "expectedNeeds": [
+        "optional postgres (SQLite default)"
+      ],
+      "selectionReason": "Rust LDAP user-management server with a wasm frontend in app/; cargo workspace layout; serves web UI on 17170 plus LDAP on 3890.",
+      "validity": {
+        "entryPoint": {
+          "path": "server/src/main.rs",
+          "type": "file",
+          "confirmedAtCommit": true
+        },
+        "buildFile": {
+          "path": "Dockerfile",
+          "type": "file",
+          "confirmedAtCommit": true
+        },
+        "ci": {
+          "checkRuns": "cancelled=1,skipped=10,success=9",
+          "note": "informational only; unknown/mixed is acceptable"
+        }
+      },
+      "labelingRisk": "Risk: the primary protocol is LDAP (TCP 3890), not HTTP; web UI port 17170 is secondary; Dockerfile build needs wasm toolchain; default DB is SQLite."
+    },
+    {
+      "id": "akaunting",
+      "family": "php",
+      "repo": "akaunting/akaunting",
+      "defaultBranch": "master",
+      "commit": "c76e98112bbb1c5e1dce61f9beb2dc75a07d153b",
+      "commitVerified": {
+        "call": "gh api repos/akaunting/akaunting/commits/c76e98112bbb1c5e1dce61f9beb2dc75a07d153b",
+        "returnedSha": "c76e98112bbb1c5e1dce61f9beb2dc75a07d153b",
+        "matches": true
+      },
+      "license": "NOASSERTION",
+      "archived": false,
+      "fork": false,
+      "pushedAt": "2026-10-07T21:33:45Z",
+      "cohort": "messy",
+      "runtime": "php (laravel)",
+      "appPath": ".",
+      "irregularity": [
+        "no-dockerfile",
+        "no-deploy-docs-in-repo",
+        "asset-build-with-webpack-mix"
+      ],
+      "expectedNeeds": [
+        "mysql/mariadb (postgres secondary)"
+      ],
+      "selectionReason": "Laravel accounting app with no Dockerfile and no compose file in the repo; assets built via webpack-mix; deployment docs live on an external site.",
+      "validity": {
+        "entryPoint": {
+          "path": "artisan",
+          "type": "file",
+          "confirmedAtCommit": true
+        },
+        "buildFile": {
+          "path": "composer.json",
+          "type": "file",
+          "confirmedAtCommit": true
+        },
+        "ci": {
+          "checkRuns": "success=6",
+          "note": "informational only; unknown/mixed is acceptable"
+        }
+      },
+      "labelingRisk": "Risk: default documented database is MySQL; Postgres support is secondary; no Dockerfile so Deployz must generate one; license metadata is NOASSERTION (custom license file); installer wizard on first run."
+    },
+    {
+      "id": "keeper-sh",
+      "family": "bun",
+      "repo": "ridafkih/keeper.sh",
+      "defaultBranch": "main",
+      "commit": "06ffc53df8634c47272710c4cbf5a5148eeee08b",
+      "commitVerified": {
+        "call": "gh api repos/ridafkih/keeper.sh/commits/06ffc53df8634c47272710c4cbf5a5148eeee08b",
+        "returnedSha": "06ffc53df8634c47272710c4cbf5a5148eeee08b",
+        "matches": true
+      },
+      "license": "AGPL-3.0",
+      "archived": false,
+      "fork": false,
+      "pushedAt": "2026-10-05T18:14:21Z",
+      "cohort": "messy",
+      "runtime": "bun (turbo monorepo)",
+      "appPath": ".",
+      "irregularity": [
+        "bun-runtime",
+        "non-root-dockerfile (docker/standalone/Dockerfile, docker/services/Dockerfile)",
+        "multi-service-monorepo (applications/web, services/api, cron, worker, mcp)"
+      ],
+      "expectedNeeds": [
+        "postgres",
+        "redis"
+      ],
+      "selectionReason": "Bun/turbo monorepo calendar-sync app; Dockerfiles only under docker/; web, api, cron and worker are separate services; needs Postgres and Redis.",
+      "validity": {
+        "entryPoint": {
+          "path": "services/api/src/index.ts",
+          "type": "file",
+          "confirmedAtCommit": true
+        },
+        "buildFile": {
+          "path": "docker/standalone/Dockerfile",
+          "type": "file",
+          "confirmedAtCommit": true
+        },
+        "ci": {
+          "checkRuns": "success=4",
+          "note": "informational only; unknown/mixed is acceptable"
+        }
+      },
+      "labelingRisk": "Risk: standalone image bundles several services behind Caddy; services need a shared Postgres and Redis; AGPL license; Bun runtime support is uncertain; calendar provider OAuth config is optional."
+    }
+  ]
+}

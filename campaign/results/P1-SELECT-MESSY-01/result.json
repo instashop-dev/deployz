@@ -1,0 +1,41 @@
+{
+  "taskId": "P1-SELECT-MESSY-01",
+  "testedCommit": "e6a3b58ee2363923fef21faca86611fa3bf84538",
+  "executor": "campaign-worker",
+  "model": "sonnet",
+  "startedAt": "2026-10-08T12:30:00Z",
+  "finishedAt": "2026-10-08T13:05:00Z",
+  "proposedStatus": "COMPLETE",
+  "commands": [
+    {
+      "command": "gh api repos/<r> (metadata, 14 probes)",
+      "exitCode": 0,
+      "summary": "Probed 14 repos; saaskit dropped (archived)"
+    },
+    {
+      "command": "gh api repos/<r>/contents/<dir> (layout probes)",
+      "exitCode": 0,
+      "summary": "Listed directories to confirm irregular layouts"
+    },
+    {
+      "command": "python -I campaign/logs/P1-SELECT-MESSY-01/gen.py",
+      "exitCode": 0,
+      "summary": "Pinned HEAD SHA, verified via commits/<sha>, checked file types, check-runs, exclusion by script, benchmark.yaml whole-word grep (0 hits); wrote messy-01.json"
+    },
+    {
+      "command": "python -I (validate messy-01.json: 10 candidates, 40-char SHAs, entry/build confirmed file)",
+      "exitCode": 0,
+      "summary": "All 10 pass"
+    }
+  ],
+  "evidence": [
+    "campaign/corpus/candidates/messy-01.json",
+    "campaign/logs/P1-SELECT-MESSY-01/gen.py"
+  ],
+  "notes": [
+    "Repo HEAD at run time was c1bcb17ee896b9d23929c0e7f2a3e10d3dc54836 (testedCommit is the baseline from state.json).",
+    "Dropped: denoland/saaskit (archived). Deno candidate not found; Bun covered by keeper.sh.",
+    "No clone, build or Deployz analysis run.",
+    "Labeling risks are recorded per candidate in labelingRisk."
+  ]
+}
