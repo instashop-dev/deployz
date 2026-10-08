@@ -4,8 +4,8 @@
   "status": "CONTINUE",
   "phase": 2,
   "currentTask": null,
-  "nextAction": "Run P2-IMPL-AI-MODE (campaign-worker, timebox 45 > 38: first task of a fresh run with a long-run exception; scope (b) of campaign/results/P2-DESIGN/design.md only). Then P2-AI-LIVE-VALIDATE (30), P2-IMPL-LOCAL-BUILD (45), P2-IMPL-LOCAL-RUN (45), P2-SMOKE-RUN (40), P2-GATE.",
-  "updatedAt": "2026-10-08T22:06:50.221Z",
+  "nextAction": "Run P2-AI-LIVE-VALIDATE (campaign-worker, timebox 30) as the first task of the next run; it is the first live use of --ai live. Then P2-IMPL-LOCAL-BUILD (45), P2-IMPL-LOCAL-RUN (45), P2-SMOKE-RUN (40), P2-GATE. baseline.aiMode changes only after P2-AI-LIVE-VALIDATE is COMPLETE (Opus).",
+  "updatedAt": "2026-10-08T22:16:48.186Z",
   "checkout": {
     "path": "C:/Users/Tejas/Desktop/deployz-mvp-test",
     "kind": "git worktree of C:/Users/Tejas/Desktop/deployz",
@@ -219,6 +219,10 @@
     {
       "commit": "e6a3b58ee2363923fef21faca86611fa3bf84538",
       "task": "P2-IMPL-CORPUS-FLAGS"
+    },
+    {
+      "commit": "e6a3b58ee2363923fef21faca86611fa3bf84538",
+      "task": "P2-IMPL-AI-MODE"
     }
   ],
   "attempts": {
@@ -269,21 +273,25 @@
     "P1-RECONCILE-05": 1,
     "P1-GATE": 1,
     "P2-DESIGN": 1,
-    "P2-IMPL-CORPUS-FLAGS": 1
+    "P2-IMPL-CORPUS-FLAGS": 1,
+    "P2-IMPL-AI-MODE": 1
   },
   "lastResult": {
-    "task": "P2-IMPL-CORPUS-FLAGS",
+    "task": "P2-IMPL-AI-MODE",
     "status": "COMPLETE",
-    "at": "2026-10-08T22:06:50.221Z",
+    "at": "2026-10-08T22:16:48.186Z",
     "evidence": [
-      "campaign/results/P2-IMPL-CORPUS-FLAGS/result.json",
+      "campaign/results/P2-IMPL-AI-MODE/result.json",
+      "scripts/repository-compatibility/ai-mode.ts",
+      "scripts/repository-compatibility/ai-mode.test.ts",
+      "scripts/repository-compatibility/analyse.ts",
       "scripts/repository-compatibility/index.ts",
-      "scripts/repository-compatibility/harness.test.ts",
+      "scripts/repository-compatibility/report.ts",
       "scripts/repository-deployment/index.ts",
-      "scripts/repository-deployment/harness.test.ts",
+      "scripts/repository-deployment/ai-mode.test.ts",
       "docs/testing/compatibility.md"
     ],
-    "summary": "Design scope (a): Stage A --benchmark/--runs-dir, Stage B --benchmark/--deploy-config; a non-default --benchmark needs --runs-dir (Stage A, unless --no-write) or --runs-dir and --evidence-dir (Stage B). Stage A main exported with injectable argv/session for a fake-session test. Opus re-ran: pnpm typecheck:scripts exit 0; vitest repository-compatibility + repository-deployment 158/158 (24 + 134, 8 new); docs/testing/*/runs unchanged; no product code."
+    "summary": "Design scope (b), harness commit d19dac55: --ai off|live on Stage A and Stage B, off default (createAiGateway(undefined), no AI request). live reads describeAiGatewayConfig from @deployz/api/ai-config then createAiGateway; fails fast naming AI_GATEWAY_BASE_URL/AI_PROVIDER_API_KEY (the two production requires; design.md agrees) or reused-secret, no values. REPO_AI_TIMEOUT_MS path unchanged (runApplicationAnalysis). Per-result ai {mode, model, requests, outcome, error} with sanitized error; Stage A summary aiByMode/aiByOutcome; runs dir refuses mixed modes. Opus re-ran: pnpm typecheck:scripts exit 0; vitest repository-compatibility + repository-deployment 185/185 (27 new); docs/testing/*/runs unchanged; no apps/ or packages/ change; Stage B gate loop is sequential so per-session instrumentation is per-entry. No live AI request made."
   },
   "gates": {
     "smokeReviewed": true,
@@ -592,6 +600,11 @@
       "task": "P2-IMPL-CORPUS-FLAGS",
       "runStart": "2026-10-08T21:58:02Z",
       "reason": "First task of the run; timeboxMinutes 45 > 38 and no resumable steps (one harness implementation change, design scope (a))."
+    },
+    {
+      "task": "P2-IMPL-AI-MODE",
+      "runStart": "2026-10-08T22:08:08Z",
+      "reason": "First task of the run; timeboxMinutes 45 > 38 and no resumable steps (one harness implementation change, design scope (b))."
     }
   ]
 }

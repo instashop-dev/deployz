@@ -1,0 +1,28 @@
+{
+  "taskId": "P2-IMPL-AI-MODE",
+  "testedCommit": "e6a3b58ee2363923fef21faca86611fa3bf84538",
+  "executor": "campaign-worker",
+  "model": "sonnet",
+  "startedAt": "2026-10-09T00:00:00Z",
+  "finishedAt": "2026-10-09T01:00:00Z",
+  "proposedStatus": "COMPLETE",
+  "commands": [
+    { "command": "pnpm typecheck:scripts", "exitCode": 0, "summary": "all five script projects typecheck" },
+    { "command": "pnpm exec vitest run --project repository-compatibility", "exitCode": 0, "summary": "2 files, 50 tests pass (26 new in ai-mode.test.ts)" },
+    { "command": "pnpm exec vitest run --project repository-deployment", "exitCode": 0, "summary": "2 files, 135 tests pass (1 new in ai-mode.test.ts)" },
+    { "command": "git commit (harness, tests, docs/testing/compatibility.md)", "exitCode": 0, "summary": "commit d19dac5566340a1be010611af5731837651de353; nothing under apps/ or packages/" }
+  ],
+  "evidence": [
+    "scripts/repository-compatibility/ai-mode.ts",
+    "scripts/repository-compatibility/ai-mode.test.ts",
+    "scripts/repository-deployment/ai-mode.test.ts",
+    "docs/testing/compatibility.md"
+  ],
+  "notes": [
+    "Implements design section (b) only. --ai off|live on both harnesses; default off keeps createAiGateway(undefined).",
+    "Live mode uses describeAiGatewayConfig from @deployz/api/ai-config then createAiGateway; production REPO_AI_TIMEOUT_MS path in runApplicationAnalysis is unchanged.",
+    "Live mode requires AI_GATEWAY_BASE_URL and AI_PROVIDER_API_KEY (as in production); AI_MODEL has a default and AI_GATEWAY_TOKEN is optional in production, so neither is a fail-fast variable.",
+    "Rejected-answer (schema/spend) is detected from the persisted 'AI analysis unavailable' warning because applyAiFallback swallows errors after generate returns.",
+    "Stage A summary.json/summary.md gain aiByMode and aiByOutcome. No live AI request was made. Existing docs/testing/*/runs files are unchanged."
+  ]
+}

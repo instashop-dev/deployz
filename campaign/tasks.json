@@ -1802,7 +1802,7 @@
       "phase": 2,
       "title": "Explicit live-AI mode in the campaign harness using the production AI configuration and gateway; deterministic AI-off stays the default",
       "executor": "campaign-worker",
-      "status": "PENDING",
+      "status": "COMPLETE",
       "prerequisites": [
         "P2-IMPL-CORPUS-FLAGS",
         "P1-AI-TIMEOUT-FIX"
