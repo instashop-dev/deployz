@@ -1,0 +1,882 @@
+# Final reconciled labels (rule set R1). Source files at the pinned commit decide every value.
+# Batch 5 (repo-541..repo-550); initial labels reconciled against verification labels.
+taskId: P1-RECONCILE-03
+testedCommit: e6a3b58ee2363923fef21faca86611fa3bf84538
+rules: R1
+apps:
+  - id: repo-541
+    repo: Dictionarry-Hub/profilarr
+    commit: 7fec444c1dc660b261b72c55a685b9e8f6957ea6
+    finalStatus: LABELED
+    expected:
+      compatibility: NOT_COMPATIBLE
+      runtime:
+        - deno
+      monorepo: false
+      postgres: false
+      redis: false
+      worker: false
+      appRoot: .
+      dockerfilePath: Dockerfile
+      port: 6868
+      healthPath: /api/v1/health
+      unsupported:
+        - local-filesystem
+    citations:
+      compatibility:
+        - path: Dockerfile
+          reason: State lives in the /config volume (APP_BASE_PATH=/config, VOLUME /config) with SQLite through sqlite-libs; local disk state
+        - path: compose.yml
+          reason: Compose file mounts ./config:/config for persistent data
+      runtime:
+        - path: Dockerfile
+          reason: Runtime stage is denoland/deno:alpine; the app is a deno compile binary
+        - path: deno.jsonc
+          reason: Deno project configuration
+      monorepo:
+        - path: deno.jsonc
+          reason: Single Deno project at the repository root; no workspace key
+      postgres:
+        - path: deno.jsonc
+          reason: Database driver is @db/sqlite; no PostgreSQL driver
+      redis:
+        - path: compose.yml
+          reason: Compose stack has no Redis service
+      worker:
+        - path: scripts/entrypoint.sh
+          reason: Entrypoint ends with exec /app/profilarr; one process
+      appRoot:
+        - path: deno.jsonc
+          reason: Application is at the repository root
+      dockerfilePath:
+        - path: Dockerfile
+          reason: Root multi-stage Dockerfile builds the app from source
+      port:
+        - path: Dockerfile
+          reason: ENV PORT=6868 and EXPOSE 6868
+      healthPath:
+        - path: Dockerfile
+          reason: HEALTHCHECK curls /api/v1/health
+        - path: src/routes/api/v1/health/+server.ts
+          reason: Health route
+      unsupported:
+        - path: Dockerfile
+          reason: Persistent SQLite data in the /config volume
+        - path: compose.yml
+          reason: Mounted ./config volume
+    reconciliation:
+      - field: dockerfilePath
+        initial: omitted
+        verify: Dockerfile
+        final: Dockerfile
+        rule: R1
+        evidence:
+          - path: Dockerfile
+            reason: Root Dockerfile exists, builds from source and sets EXPOSE and HEALTHCHECK
+      - field: unsupported
+        initial:
+          - local-filesystem
+        verify: []
+        final:
+          - local-filesystem
+        rule: R6
+        evidence:
+          - path: Dockerfile
+            reason: SQLite state in the /config volume; R6 maps SQLite and a data directory to local-filesystem
+          - path: compose.yml
+            reason: Mounted ./config volume
+    notes:
+      - Numbered in-app migrations (src/lib/server/db/migrations.ts) run inside the process; no migration command, so migration is omitted (R5).
+  - id: repo-542
+    repo: C4illin/ConvertX
+    commit: 70675b9910d6827bbdb7f27e7bd96f23237e3a4f
+    finalStatus: LABELED
+    expected:
+      compatibility: NOT_COMPATIBLE
+      runtime:
+        - bun
+      monorepo: false
+      postgres: false
+      redis: false
+      worker: false
+      appRoot: .
+      dockerfilePath: Dockerfile
+      port: 3000
+      healthPath: /healthcheck
+      unsupported:
+        - local-filesystem
+    citations:
+      compatibility:
+        - path: src/db/db.ts
+          reason: bun:sqlite database at DB_PATH, default ./data/mydb.sqlite
+        - path: compose.yaml
+          reason: Mounts ./data:/app/data for the database and converted files
+        - path: Dockerfile
+          reason: RUN mkdir data; uploads and results use the local data directory
+      runtime:
+        - path: Dockerfile
+          reason: Release stage installs Bun and runs bun run dist/src/index.js
+        - path: package.json
+          reason: "Bun scripts (start: bun run src/index.tsx)"
+      monorepo:
+        - path: package.json
+          reason: Single package; no workspaces key
+      postgres:
+        - path: src/db/db.ts
+          reason: Database is SQLite, not PostgreSQL
+      redis:
+        - path: package.json
+          reason: No Redis dependency
+      worker:
+        - path: Dockerfile
+          reason: "Single CMD: bun run dist/src/index.js"
+      appRoot:
+        - path: package.json
+          reason: Application is at the repository root
+      dockerfilePath:
+        - path: Dockerfile
+          reason: Root Dockerfile builds the app from source
+      port:
+        - path: Dockerfile
+          reason: EXPOSE 3000/tcp
+      healthPath:
+        - path: src/pages/healthcheck.tsx
+          reason: GET /healthcheck returns status ok without authentication
+      unsupported:
+        - path: src/db/db.ts
+          reason: Embedded SQLite file on local disk
+        - path: compose.yaml
+          reason: Persistent ./data volume
+    reconciliation:
+      - field: dockerfilePath
+        initial: omitted
+        verify: Dockerfile
+        final: Dockerfile
+        rule: R1
+        evidence:
+          - path: Dockerfile
+            reason: Root Dockerfile exists and builds from source
+      - field: healthPath
+        initial: omitted
+        verify: omitted
+        final: /healthcheck
+        rule: R1
+        evidence:
+          - path: src/pages/healthcheck.tsx
+            reason: Route /healthcheck exists in source; both initial and verify omitted it
+      - field: unsupported
+        initial:
+          - local-filesystem
+        verify: []
+        final:
+          - local-filesystem
+        rule: R6
+        evidence:
+          - path: src/db/db.ts
+            reason: bun:sqlite file database; R6 maps SQLite to local-filesystem
+          - path: compose.yaml
+            reason: Mounted ./data volume
+    notes:
+      - "runtime bun: R7 lists no bun value; the production image runs Bun (see notes in result.json)."
+      - Schema is created in-process (db.ts) with no migration tool; migration omitted.
+  - id: repo-543
+    repo: teslamate-org/teslamate
+    commit: 96119f65a98ecc2f6d3584c07af4d0b952326daa
+    finalStatus: LABELED
+    expected:
+      compatibility: NEEDS_CONFIGURATION
+      runtime:
+        - elixir
+      monorepo: false
+      postgres: true
+      redis: false
+      worker: false
+      migration: true
+      appRoot: .
+      dockerfilePath: Dockerfile
+      port: 4000
+      healthPath: /health_check
+    citations:
+      compatibility:
+        - path: elixir/config/runtime.exs
+          reason: In prod DATABASE_USER, DATABASE_PASS and DATABASE_HOST use fetch_env! with no default; ENCRYPTION_KEY has no prod default
+        - path: Dockerfile
+          reason: Builds the Elixir release from the elixir/ subtree; CMD bin/teslamate start
+      runtime:
+        - path: elixir/mix.exs
+          reason: Elixir Mix project
+        - path: Dockerfile
+          reason: Release runs on debian:trixie-slim
+      monorepo:
+        - path: Dockerfile
+          reason: One release built from elixir/; no workspace
+      postgres:
+        - path: elixir/mix.exs
+          reason: postgrex and ecto_sql dependencies
+        - path: elixir/config/runtime.exs
+          reason: Reads DATABASE_HOST, DATABASE_USER, DATABASE_PASS, DATABASE_NAME
+      redis:
+        - path: elixir/mix.exs
+          reason: No Redis dependency
+      worker:
+        - path: Dockerfile
+          reason: "Single CMD: bin/teslamate start"
+      migration:
+        - path: entrypoint.sh
+          reason: Runs TeslaMate.Release.wait_for_database_and_migrate() before start
+        - path: elixir/lib/teslamate/release.ex
+          reason: Release migrate function
+      appRoot:
+        - path: Dockerfile
+          reason: Root Dockerfile builds the application
+      dockerfilePath:
+        - path: Dockerfile
+          reason: Root Dockerfile
+      port:
+        - path: Dockerfile
+          reason: EXPOSE 4000
+      healthPath:
+        - path: elixir/lib/teslamate_web/health_check.ex
+          reason: Plug answers 200 on /health_check
+    reconciliation:
+      - field: compatibility
+        initial: READY
+        verify: NEEDS_CONFIGURATION
+        final: NEEDS_CONFIGURATION
+        rule: R1
+        evidence:
+          - path: elixir/config/runtime.exs
+            reason: Prod requires DATABASE_* via fetch_env! and an ENCRYPTION_KEY with no default; the app cannot start without them
+          - path: entrypoint.sh
+            reason: Entrypoint waits for the database before start
+      - field: dockerfilePath
+        initial: omitted
+        verify: Dockerfile
+        final: Dockerfile
+        rule: R1
+        evidence:
+          - path: Dockerfile
+            reason: Root Dockerfile exists
+    notes:
+      - Database variable names are DATABASE_HOST/USER/PASS/NAME, not a single DATABASE_URL, and ENCRYPTION_KEY is a secret; hence NEEDS_CONFIGURATION.
+  - id: repo-544
+    repo: Kareadita/Kavita
+    commit: f75863cb77c0f6aa26e0794a1848294e63c9d07d
+    finalStatus: LABELED
+    expected:
+      compatibility: NOT_COMPATIBLE
+      runtime:
+        - dotnet
+      monorepo: false
+      postgres: false
+      redis: false
+      worker: false
+      migration: true
+      appRoot: .
+      dockerfilePath: Dockerfile
+      port: 5000
+      healthPath: /api/health
+      unsupported:
+        - local-filesystem
+    citations:
+      compatibility:
+        - path: Dockerfile
+          reason: "COPY _output/*.tar.gz and UI/Web/dist/browser: prebuilt artifacts that the repository does not contain and the Dockerfile does not build"
+        - path: Kavita.Database/Kavita.Database.csproj
+          reason: Only Microsoft.EntityFrameworkCore.Sqlite; SQLite is the only database
+        - path: entrypoint.sh
+          reason: Copies appsettings.json into /kavita/config and keeps data on local disk
+      runtime:
+        - path: Kavita.sln
+          reason: .NET solution
+        - path: global.json
+          reason: .NET SDK pin
+      monorepo:
+        - path: Kavita.sln
+          reason: One solution for the server; the Angular UI is built into it
+      postgres:
+        - path: Kavita.Database/Kavita.Database.csproj
+          reason: Only the SQLite EF provider is referenced
+      redis:
+        - path: Kavita.Server/Kavita.Server.csproj
+          reason: No Redis package
+      worker:
+        - path: entrypoint.sh
+          reason: "Single process: ./Kavita"
+      migration:
+        - path: Kavita.Database/Migrations/20201213205325_AddUser.cs
+          reason: Entity Framework migrations
+      appRoot:
+        - path: Kavita.sln
+          reason: Solution at the repository root
+      dockerfilePath:
+        - path: Dockerfile
+          reason: Root Dockerfile
+      port:
+        - path: Dockerfile
+          reason: EXPOSE 5000
+      healthPath:
+        - path: Dockerfile
+          reason: HEALTHCHECK curls /api/health
+        - path: Kavita.Server/Controllers/HealthController.cs
+          reason: Health controller
+      unsupported:
+        - path: Kavita.Database/Kavita.Database.csproj
+          reason: Embedded SQLite database
+        - path: entrypoint.sh
+          reason: Config and data stored in /kavita/config on local disk
+    reconciliation:
+      - field: migration
+        initial: false
+        verify: false
+        final: true
+        rule: R1
+        evidence:
+          - path: Kavita.Database/Migrations/20201213205325_AddUser.cs
+            reason: EF Core migration classes exist; R5 names EF as a migration tool
+      - field: dockerfilePath
+        initial: omitted
+        verify: Dockerfile
+        final: Dockerfile
+        rule: R1
+        evidence:
+          - path: Dockerfile
+            reason: Root Dockerfile exists
+      - field: unsupported
+        initial:
+          - local-filesystem
+        verify: []
+        final:
+          - local-filesystem
+        rule: R1
+        evidence:
+          - path: Kavita.Database/Kavita.Database.csproj
+            reason: "SQLite is the only database provider (R6: local-filesystem)"
+          - path: entrypoint.sh
+            reason: Config file and data directory on local disk
+    notes:
+      - "The verdict has two independent causes: SQLite plus a local config and data directory (local-filesystem), and a Dockerfile that copies prebuilt artifacts. Only the first one sets an unsupported family (R6)."
+  - id: repo-545
+    repo: umputun/remark42
+    commit: 419ef4f0bd817e9217a5ce0d808fb3acc192972d
+    finalStatus: LABELED
+    expected:
+      compatibility: NOT_COMPATIBLE
+      runtime:
+        - go
+      monorepo: false
+      postgres: false
+      redis: false
+      worker: false
+      appRoot: .
+      dockerfilePath: Dockerfile
+      port: 8080
+      healthPath: /ping
+      unsupported:
+        - other-database
+        - local-filesystem
+    citations:
+      compatibility:
+        - path: backend/app/store/engine/bolt.go
+          reason: Comments are stored in BoltDB files on local disk
+        - path: docker-compose.yml
+          reason: Mounts ./var:/srv/var for persistent data
+        - path: backend/app/cmd/server.go
+          reason: Backup location default ./var/backup
+      runtime:
+        - path: backend/go.mod
+          reason: Go backend
+        - path: Dockerfile
+          reason: Backend builds on umputun/baseimage:buildgo
+      monorepo:
+        - path: Dockerfile
+          reason: Go backend and frontend are built into one image; one deployable
+      postgres:
+        - path: backend/go.mod
+          reason: Only bbolt is used for storage; no PostgreSQL driver
+      redis:
+        - path: backend/go.mod
+          reason: No direct Redis dependency
+      worker:
+        - path: Dockerfile
+          reason: "Single CMD: /srv/remark42 server"
+      appRoot:
+        - path: backend/go.mod
+          reason: Application is at the repository root
+      dockerfilePath:
+        - path: Dockerfile
+          reason: Root Dockerfile builds frontend and backend
+      port:
+        - path: Dockerfile
+          reason: EXPOSE 8080
+      healthPath:
+        - path: Dockerfile
+          reason: HEALTHCHECK curls /ping
+      unsupported:
+        - path: backend/app/store/engine/bolt.go
+          reason: "BoltDB is an embedded database (R6: other-database)"
+        - path: docker-compose.yml
+          reason: "Data and backups on the local ./var volume (R6: local-filesystem)"
+    reconciliation:
+      - field: dockerfilePath
+        initial: omitted
+        verify: Dockerfile
+        final: Dockerfile
+        rule: R1
+        evidence:
+          - path: Dockerfile
+            reason: Root Dockerfile exists
+      - field: unsupported
+        initial:
+          - local-filesystem
+        verify: []
+        final:
+          - other-database
+          - local-filesystem
+        rule: R1
+        evidence:
+          - path: backend/app/store/engine/bolt.go
+            reason: BoltDB store; R6 maps BoltDB to other-database
+          - path: docker-compose.yml
+            reason: Local ./var data volume; R6 maps a data directory to local-filesystem
+    notes:
+      - The BoltDB store is the only main store, so no configuration removes the non-goal.
+  - id: repo-546
+    repo: ether/etherpad
+    commit: 8b6f9e462f712c3d15d8941e85e12f70dc4693f4
+    finalStatus: LABELED
+    expected:
+      compatibility: NEEDS_CONFIGURATION
+      runtime:
+        - node
+      monorepo: true
+      postgres: true
+      redis: false
+      worker: false
+      appRoot: .
+      dockerfilePath: Dockerfile
+      port: 9001
+      healthPath: /health
+    citations:
+      compatibility:
+        - path: settings.json.docker
+          reason: 'dbType default is dirty (local file): "${DB_TYPE:dirty}"; DB_TYPE=postgres must be set'
+        - path: docker-compose.yml
+          reason: Reference stack sets DB_TYPE=postgres with DB_HOST, DB_USER, DB_PASS
+      runtime:
+        - path: Dockerfile
+          reason: node:24-alpine stages; production target runs node
+        - path: package.json
+          reason: Node project
+      monorepo:
+        - path: pnpm-workspace.yaml
+          reason: pnpm workspace with several packages
+      postgres:
+        - path: docker-compose.yml
+          reason: Postgres service and DB_TYPE=postgres
+        - path: settings.json.docker
+          reason: dbType and dbSettings read DB_* variables
+      redis:
+        - path: docker-compose.yml
+          reason: No Redis service
+      worker:
+        - path: Dockerfile
+          reason: "Single CMD: node server"
+      appRoot:
+        - path: package.json
+          reason: Application is at the repository root
+      dockerfilePath:
+        - path: Dockerfile
+          reason: Root Dockerfile; production is the last stage
+      port:
+        - path: Dockerfile
+          reason: EXPOSE 9001
+      healthPath:
+        - path: Dockerfile
+          reason: HEALTHCHECK fetches /health
+    reconciliation:
+      - field: dockerfilePath
+        initial: omitted
+        verify: Dockerfile
+        final: Dockerfile
+        rule: R1
+        evidence:
+          - path: Dockerfile
+            reason: Root Dockerfile exists; production is the last build stage
+    notes:
+      - "No migration command: database tables are created at startup by the data layer."
+  - id: repo-547
+    repo: wagtail/bakerydemo
+    commit: c8f8255593c0efcfab5fef2fb19d60895227748a
+    finalStatus: LABELED
+    expected:
+      compatibility: NEEDS_CONFIGURATION
+      runtime:
+        - python
+      monorepo: false
+      postgres: true
+      redis: false
+      worker: false
+      storage: true
+      migration: true
+      appRoot: .
+      dockerfilePath: Dockerfile
+      port: 8000
+    citations:
+      compatibility:
+        - path: bakerydemo/settings/production.py
+          reason: Media uses local disk unless AWS_STORAGE_BUCKET_NAME is set (S3Boto3Storage); the secret key falls back to an ephemeral value
+        - path: Dockerfile
+          reason: VOLUME /code/bakerydemo/media/images/ for local uploads
+        - path: docker-entrypoint.sh
+          reason: Waits for psql $DATABASE_URL before start
+      runtime:
+        - path: Dockerfile
+          reason: python:3.12-slim image
+        - path: requirements/production.txt
+          reason: Django and Wagtail dependencies
+      monorepo:
+        - path: manage.py
+          reason: Single Django project
+      postgres:
+        - path: docker-compose.yml
+          reason: Postgres service and DATABASE_URL
+        - path: docker-entrypoint.sh
+          reason: Uses psql against DATABASE_URL
+      redis:
+        - path: bakerydemo/settings/production.py
+          reason: REDIS_URL is optional; without it CACHES uses LocMemCache
+      worker:
+        - path: etc/uwsgi.ini
+          reason: Single uwsgi web process
+      storage:
+        - path: bakerydemo/settings/production.py
+          reason: S3 storage is the option that removes local uploads; the verdict depends on it
+      migration:
+        - path: docker-entrypoint.sh
+          reason: Runs manage.py migrate --noinput
+        - path: Procfile
+          reason: "release: manage.py migrate"
+      appRoot:
+        - path: manage.py
+          reason: Application is at the repository root
+      dockerfilePath:
+        - path: Dockerfile
+          reason: Root Dockerfile
+      port:
+        - path: Dockerfile
+          reason: ENV PORT=8000 and EXPOSE 8000
+        - path: etc/uwsgi.ini
+          reason: http-socket on $(PORT)
+    reconciliation:
+      - field: redis
+        initial: false
+        verify: true
+        final: false
+        rule: R4
+        evidence:
+          - path: bakerydemo/settings/production.py
+            reason: Redis is used only when REDIS_URL is set; the default cache is LocMemCache, so Redis is optional
+      - field: dockerfilePath
+        initial: omitted
+        verify: Dockerfile
+        final: Dockerfile
+        rule: R1
+        evidence:
+          - path: Dockerfile
+            reason: Root Dockerfile exists
+    notes:
+      - No health endpoint found in the source tree; healthPath omitted.
+      - The default CMD is "uwsgi", so the entrypoint check for /venv/bin/uwsgi does not match and migrate is not run by the default CMD; the migrate command is still named in source (R5).
+  - id: repo-548
+    repo: Leantime/leantime
+    commit: dab5daae888b2148b6af80453402a5ae88cf6b56
+    finalStatus: LABELED
+    expected:
+      compatibility: NOT_COMPATIBLE
+      runtime:
+        - php
+      monorepo: false
+      postgres: true
+      redis: false
+      worker: false
+      migration: true
+      appRoot: .
+      dockerfilePath: .docker/Dockerfile
+      port: 8080
+      healthPath: /health
+    citations:
+      compatibility:
+        - path: .docker/Dockerfile
+          reason: ARG LEAN_VERSION has no default; the image downloads a release tarball from GitHub releases and copies nothing from the repository, so the default build fails
+        - path: .docker/docker-compose.yml
+          reason: Compose file uses the published leantime/leantime image, not a build of this Dockerfile
+      runtime:
+        - path: composer.json
+          reason: PHP project (php ^8.2)
+        - path: .docker/Dockerfile
+          reason: php:8.3-fpm-alpine image
+      monorepo:
+        - path: composer.json
+          reason: Single PHP application
+      postgres:
+        - path: config/sample.env
+          reason: LEAN_DB_DEFAULT_CONNECTION accepts pgsql; port 5432 for PostgreSQL
+        - path: .docker/Dockerfile
+          reason: Installs pdo_pgsql
+        - path: app/Core/Database/LtPostgresConnection.php
+          reason: PostgreSQL connection class
+      redis:
+        - path: .docker/start.sh
+          reason: LEAN_REDIS_PASSWORD_FILE is optional; no Redis service is required
+      worker:
+        - path: .docker/config/supervisord.conf
+          reason: Supervisor runs php-fpm, nginx and a scheduler inside one container; no separate worker process is declared
+      migration:
+        - path: app/Command/MigrateCommand.php
+          reason: Named command db:migrate
+      appRoot:
+        - path: composer.json
+          reason: Application is at the repository root
+      dockerfilePath:
+        - path: .docker/Dockerfile
+          reason: Only production Dockerfile; it is in .docker, not at the root
+      port:
+        - path: .docker/Dockerfile
+          reason: EXPOSE 8080
+      healthPath:
+        - path: app/Domain/Status/Controllers/Health.php
+          reason: Public GET /health probe with a database check
+    reconciliation:
+      - field: postgres
+        initial: false
+        verify: false
+        final: true
+        rule: R3
+        evidence:
+          - path: config/sample.env
+            reason: LEAN_DB_DEFAULT_CONNECTION option pgsql
+          - path: app/Core/Database/LtPostgresConnection.php
+            reason: PostgreSQL support in source
+      - field: migration
+        initial: false
+        verify: false
+        final: true
+        rule: R5
+        evidence:
+          - path: app/Command/MigrateCommand.php
+            reason: Named migration command db:migrate
+      - field: healthPath
+        initial: /health
+        verify: omitted
+        final: /health
+        rule: R8
+        evidence:
+          - path: app/Domain/Status/Controllers/Health.php
+            reason: Source documents GET /health as an unauthenticated probe
+      - field: unsupported
+        initial: []
+        verify:
+          - mysql
+        final: []
+        rule: R6
+        evidence:
+          - path: .docker/Dockerfile
+            reason: The cause is the Dockerfile that fails on the pinned source (LEAN_VERSION build argument not set), which R6 excludes
+          - path: config/sample.env
+            reason: MySQL is supported (R3) and PostgreSQL is a configuration option, so no unsupported family applies
+    notes:
+      - "NOT_COMPATIBLE rests on the Dockerfile: it fetches a released tarball (LEAN_VERSION has no default) and does not build from the pinned source. This is a judgement call next to the NEEDS_CONFIGURATION build-argument case; recorded in result.json."
+      - A scheduler (schedule:work) runs under supervisord in the same container; not a separately declared worker, so worker is false.
+  - id: repo-549
+    repo: zammad/zammad
+    commit: abbd632a08bf6468467ce1a093c3b50744008f95
+    finalStatus: LABELED
+    expected:
+      compatibility: NOT_COMPATIBLE
+      runtime:
+        - ruby
+      monorepo: false
+      postgres: true
+      redis: false
+      worker: true
+      migration: true
+      appRoot: .
+      dockerfilePath: Dockerfile
+      unsupported:
+        - background-worker
+    citations:
+      compatibility:
+        - path: bin/docker-entrypoint
+          reason: One image with modes zammad-init, zammad-nginx, zammad-railsserver, zammad-scheduler and zammad-websocket; no default command; a websocket server on its own port and an nginx proxy are required
+        - path: Procfile
+          reason: Declares web, websocket and worker processes
+        - path: Dockerfile
+          reason: ENTRYPOINT only; no CMD and no EXPOSE
+      runtime:
+        - path: Gemfile
+          reason: Ruby on Rails application
+        - path: Dockerfile
+          reason: ruby:3.4 slim image
+      monorepo:
+        - path: Dockerfile
+          reason: One Rails application image; pnpm workspace holds frontend packages only
+      postgres:
+        - path: config/database/database.yml
+          reason: PostgreSQL adapter
+        - path: Gemfile
+          reason: pg gem
+      redis:
+        - path: config/application.rb
+          reason: Redis is used only when REDIS_URL or REDIS_SENTINELS is set; otherwise the file session store is used
+      worker:
+        - path: Procfile
+          reason: "worker: script/background-worker.rb"
+        - path: bin/docker-entrypoint
+          reason: zammad-scheduler mode runs script/background-worker.rb
+      migration:
+        - path: bin/docker-entrypoint
+          reason: zammad-init runs rake db:migrate
+      appRoot:
+        - path: Gemfile
+          reason: Application is at the repository root
+      dockerfilePath:
+        - path: Dockerfile
+          reason: Root Dockerfile
+      unsupported:
+        - path: Procfile
+          reason: Required websocket server runs as an extra long-running service
+        - path: bin/docker-entrypoint
+          reason: Websocket (port 6042), scheduler, nginx and one-off init run as separate containers of one image
+    reconciliation:
+      - field: redis
+        initial: false
+        verify: true
+        final: false
+        rule: R4
+        evidence:
+          - path: config/application.rb
+            reason: websocket_session_store uses Redis only when REDIS_URL is set; the default is the file store
+          - path: lib/zammad/service/redis.rb
+            reason: Redis client reads REDIS_URL
+      - field: dockerfilePath
+        initial: omitted
+        verify: Dockerfile
+        final: Dockerfile
+        rule: R1
+        evidence:
+          - path: Dockerfile
+            reason: Root Dockerfile exists
+      - field: unsupported
+        initial:
+          - elasticsearch
+        verify: []
+        final:
+          - background-worker
+        rule: R6
+        evidence:
+          - path: bin/docker-entrypoint
+            reason: ELASTICSEARCH_ENABLED=false removes Elasticsearch, so it is not the cause; the websocket and nginx services are
+          - path: Procfile
+            reason: "websocket process is an extra long-running service (R6: background-worker)"
+    notes:
+      - "No single web port: puma default 3000, nginx 8080, websocket 6042; port and healthPath omitted (R8). The monitoring health check needs a token."
+  - id: repo-550
+    repo: binwiederhier/ntfy
+    commit: b475ae8851f4d1519d150091a446debf6f24b11b
+    finalStatus: LABELED
+    expected:
+      compatibility: NEEDS_CONFIGURATION
+      runtime:
+        - go
+      monorepo: false
+      postgres: true
+      redis: false
+      worker: false
+      appRoot: .
+      dockerfilePath: Dockerfile-build
+      port: 80
+      healthPath: /v1/health
+    citations:
+      compatibility:
+        - path: Dockerfile
+          reason: Root Dockerfile does COPY ntfy (prebuilt binary), so it does not build
+        - path: Dockerfile-build
+          reason: Multi-stage build from source; ENTRYPOINT ntfy has no CMD, so the serve command must be set
+        - path: server/server.yml
+          reason: Defaults keep the cache in memory and need no local file
+        - path: docker-compose.yml
+          reason: "Reference stack runs command: serve"
+      runtime:
+        - path: go.mod
+          reason: Go module
+        - path: Dockerfile-build
+          reason: Go build stage, alpine runtime
+      monorepo:
+        - path: go.mod
+          reason: Single Go module with embedded web app
+      postgres:
+        - path: server/server.yml
+          reason: database-url selects PostgreSQL for all database-backed stores
+        - path: go.mod
+          reason: jackc/pgx dependency
+      redis:
+        - path: go.mod
+          reason: No Redis dependency
+      worker:
+        - path: Dockerfile-build
+          reason: Single ntfy entrypoint
+      appRoot:
+        - path: go.mod
+          reason: Application is at the repository root
+      dockerfilePath:
+        - path: Dockerfile-build
+          reason: The Dockerfile that builds the web app and the Go binary from source
+      port:
+        - path: Dockerfile-build
+          reason: EXPOSE 80/tcp
+      healthPath:
+        - path: server/server.go
+          reason: apiHealthPath is /v1/health
+    reconciliation:
+      - field: compatibility
+        initial: NOT_COMPATIBLE
+        verify: NEEDS_CONFIGURATION
+        final: NEEDS_CONFIGURATION
+        rule: R1
+        evidence:
+          - path: Dockerfile
+            reason: Root Dockerfile copies a prebuilt binary and cannot build
+          - path: Dockerfile-build
+            reason: A production Dockerfile that builds from source exists, so a supported configuration (a non-default Dockerfile and the serve command) removes the problem
+          - path: server/server.yml
+            reason: Cache and auth files are optional; no required local state
+      - field: postgres
+        initial: false
+        verify: false
+        final: true
+        rule: R3
+        evidence:
+          - path: server/server.yml
+            reason: database-url enables PostgreSQL as the production store
+          - path: go.mod
+            reason: pgx driver dependency
+      - field: dockerfilePath
+        initial: omitted
+        verify: Dockerfile-build
+        final: Dockerfile-build
+        rule: R1
+        evidence:
+          - path: Dockerfile-build
+            reason: Builds the web app and Go binary from source
+      - field: unsupported
+        initial:
+          - local-filesystem
+        verify: []
+        final: []
+        rule: R6
+        evidence:
+          - path: server/server.yml
+            reason: cache-file and attachment-cache-dir are optional; default is in-memory with no local file
+    notes:
+      - SQLite is optional (cache-file, auth-file) and PostgreSQL is an option, so no unsupported family. Attachments are off by default; S3 is optional.

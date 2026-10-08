@@ -1,0 +1,31 @@
+{
+  "taskId": "P1-RECONCILE-03",
+  "testedCommit": "e6a3b58ee2363923fef21faca86611fa3bf84538",
+  "executor": "campaign-worker",
+  "model": "sonnet",
+  "startedAt": "2026-10-08T20:33:16Z",
+  "finishedAt": "2026-10-08T20:47:50Z",
+  "proposedStatus": "COMPLETE",
+  "commands": [
+    { "command": "gh api repos/<repo>/git/trees/<sha>?recursive=1 (20 repos)", "exitCode": 0, "summary": "Saved pinned trees for repo-541..repo-560 to the scratchpad" },
+    { "command": "curl https://raw.githubusercontent.com/<repo>/<sha>/<path> (source files)", "exitCode": 0, "summary": "Read pinned source files for all 20 apps" },
+    { "command": "node_modules/.bin/tsx <scratchpad>/p1-reconcile-03/gen.cjs", "exitCode": 0, "summary": "Wrote final-05.yaml and final-06.yaml; checks passed: expectedFactsSchema parse, ids/repos/commits equal slices, all cited and evidence paths exist in pinned trees, all 51 initial/verify/final differences have reconciliation entries" }
+  ],
+  "evidence": [
+    "campaign/corpus/labels/final-05.yaml",
+    "campaign/corpus/labels/final-06.yaml"
+  ],
+  "notes": [
+    "Counts: 20 LABELED, 0 REPO_INVALID. Compatibility: 11 NOT_COMPATIBLE, 7 NEEDS_CONFIGURATION, 2 READY.",
+    "REPO_INVALID list: none.",
+    "Unclear rule: R7 has no value for Bun (repo-542 uses bun; the production image runs Bun). Use bun, or map to node if the scorer expects that.",
+    "Unclear rule: R1..R9 have no monorepo rule. Agreed labels kept as given (workspace repos etherpad, misskey, tianji true; zammad, remark42 false). repo-559 (Cargo workspace, many crates, one binary) set true.",
+    "Unclear rule: whether Deployz-provisioned database URL variables with non-standard names (repo-551 POSTGRES_PRISMA_URL) count as vendor values. Treated as provisioned, so READY.",
+    "Judgement calls: repo-548 NOT_COMPATIBLE because the only Dockerfile has ARG LEAN_VERSION with no default and downloads a release tarball (does not build the pinned source); a reader could argue NEEDS_CONFIGURATION. repo-550 NEEDS_CONFIGURATION because Dockerfile-build is a production Dockerfile and a supported configuration (non-default Dockerfile, serve command) removes the prebuilt-binary problem. repo-545 sets two families (other-database for BoltDB, local-filesystem for the data volume).",
+    "Cases where R1 gave a value different from both labelers: repo-542 healthPath, repo-544 migration, repo-548 postgres/migration, repo-549 unsupported, repo-550 postgres, repo-551 storage, repo-559 monorepo/healthPath/port.",
+    "Normalization used for the difference check: absent storage/migration equal false, absent unsupported equals empty, absent appRoot equals '.' (all appPath are '.'). appRoot '.' is written in every final entry.",
+    "Deviation: raw GitHub reads used gh api for trees and curl for raw files; no clone or build. No source file was executed.",
+    "No forbidden input was read: no holdout.yaml, no campaign/results/holdout, no docs/testing/repository-compatibility/runs, no Deployz analysis output, no other file in campaign/corpus/labels besides the permitted ones; the labels directory was not listed.",
+    "Scratch files (trees, source copies, gen.cjs, data5.cjs, data6.cjs) are in the scratchpad p1-reconcile-03 folder. No containers, networks or volumes were created. No commit."
+  ]
+}
