@@ -391,7 +391,7 @@
       "phase": 1,
       "title": "Select and pin 10 fresh realistic candidate apps (batch 3); check repository validity",
       "executor": "campaign-worker",
-      "status": "PENDING",
+      "status": "COMPLETE",
       "prerequisites": [
         "P1-EXCLUDE"
       ],

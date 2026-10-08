@@ -4,8 +4,8 @@
   "status": "CONTINUE",
   "phase": 1,
   "currentTask": null,
-  "nextAction": "Run P1-SELECT-REALISTIC-03 (campaign-worker). campaign/fresh-100 contains e6a3b58e (merge 97d16310) and @deployz/analysis dist is rebuilt (tsc exit 0).",
-  "updatedAt": "2026-10-08T10:08:51.973Z",
+  "nextAction": "Run P1-SELECT-REALISTIC-04 (campaign-worker).",
+  "updatedAt": "2026-10-08T10:19:29.638Z",
   "checkout": {
     "path": "C:/Users/Tejas/Desktop/deployz-mvp-test",
     "kind": "git worktree of C:/Users/Tejas/Desktop/deployz",
@@ -71,6 +71,10 @@
     {
       "commit": "366d3f5b9eefc1cedd3cfcfa8675d7f1232d8122",
       "task": "P1-AI-TIMEOUT-FIX"
+    },
+    {
+      "commit": "e6a3b58ee2363923fef21faca86611fa3bf84538",
+      "task": "P1-SELECT-REALISTIC-03"
     }
   ],
   "attempts": {
@@ -84,13 +88,14 @@
     "P1-SELECT-REALISTIC-01": 1,
     "P1-SELECT-REALISTIC-02": 1,
     "P1-AI-TIMEOUT-DIAGNOSE": 1,
-    "P1-AI-TIMEOUT-FIX": 1
+    "P1-AI-TIMEOUT-FIX": 1,
+    "P1-SELECT-REALISTIC-03": 1
   },
   "lastResult": {
-    "taskId": "P1-AI-TIMEOUT-FIX",
+    "taskId": "P1-SELECT-REALISTIC-03",
     "status": "COMPLETE",
-    "at": "2026-10-08T10:08:02.257Z",
-    "summary": "PR #498 merged as e6a3b58e after 7/7 checks SUCCESS and Opus review of 366d3f5b. CI on main success; Deploy API success (control plane deployed); Deploy web skipped by path filter. Baseline now e6a3b58e, ANALYSIS_VERSION 45. Evidence: campaign/results/P1-AI-TIMEOUT-FIX/."
+    "at": "2026-10-08T10:19:29.638Z",
+    "summary": "10 candidates in campaign/corpus/candidates/realistic-03.json (whoami, dufs, dawarich, microblog, komga, nopCommerce, parse-server, electric, snipe-it, asynqmon). Opus re-verified all 10 SHAs and archived/fork=false with gh api, no exclusion or earlier-batch match, benchmark.yaml has only an incidental traefik hit."
   },
   "gates": {
     "smokeReviewed": true,

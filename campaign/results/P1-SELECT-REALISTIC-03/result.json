@@ -1,0 +1,34 @@
+{
+  "taskId": "P1-SELECT-REALISTIC-03",
+  "testedCommit": "e6a3b58ee2363923fef21faca86611fa3bf84538",
+  "executor": "campaign-worker",
+  "model": "sonnet",
+  "startedAt": "2026-10-08T09:10:00Z",
+  "finishedAt": "2026-10-08T09:25:00Z",
+  "proposedStatus": "COMPLETE",
+  "commands": [
+    { "command": "gh api repos/<repo> (metadata) for 10 repos", "exitCode": 0, "summary": "license, archived=false, fork=false, pushed_at, default branch read; snipe/snipe-it resolved to grokability/snipe-it" },
+    { "command": "gh api repos/<repo>/contents (root listings)", "exitCode": 0, "summary": "chose entry point and build file paths" },
+    { "command": "gh api repos/<repo>/commits/<defaultBranch> then repos/<repo>/commits/<sha> for 10 repos", "exitCode": 0, "summary": "HEAD SHA pinned and re-read; returned SHA equals pinned SHA for all 10" },
+    { "command": "gh api repos/<repo>/contents/<path>?ref=<sha> for entry and build file, 10 repos", "exitCode": 0, "summary": "all 20 paths are type file at the pinned commit" },
+    { "command": "gh api repos/<repo>/commits/<sha>/check-runs and /status, 10 repos", "exitCode": 0, "summary": "CI summary recorded (informational)" },
+    { "command": "node scratchpad/gen.mjs (exclusion script + JSON writer)", "exitCode": 0, "summary": "all 10 clear against excluded-families.json, realistic-01.json, realistic-02.json; 0 whole-word hits in benchmark.yaml; wrote realistic-03.json" }
+  ],
+  "evidence": [
+    "campaign/corpus/candidates/realistic-03.json",
+    "campaign/results/P1-SELECT-REALISTIC-03/result.json"
+  ],
+  "notes": [
+    "No candidate was cloned, built or analyzed. gh api reads only. Forbidden inputs not read.",
+    "Needs mix: stateless whoami; storage-only dufs and komga; Redis-only asynqmon; Postgres-only microblog, electric; Postgres+storage nopcommerce, parse-server; Postgres/Redis/worker/storage dawarich; MySQL/Redis/worker snipe-it. Runtimes: Go x2, Rust, Ruby, Python, Kotlin, .NET, Node, Elixir, PHP.",
+    "Risk snipe-it: repo renamed to grokability/snipe-it; MySQL-first, Postgres not officially supported; label as boundary-risk database. Laravel queue and uploads.",
+    "Risk electric: monorepo; deployable service is packages/sync-service (subpath, own Dockerfile); needs Postgres with logical replication (wal_level=logical), which RDS parameter groups must allow.",
+    "Risk nopcommerce: license NOASSERTION (custom license); default branch develop; app under src/Presentation/Nop.Web; first-run installer wizard configures DB; Dockerfile at root; SQL Server/MySQL/Postgres supported.",
+    "Risk komga: SQLite embedded DB and local library path; Gradle multi-module with komga/ module and separate webui; Dockerfile not at root (uses Conveyor/jib style packaging), so build mode needs care.",
+    "Risk dawarich: Rails with Sidekiq, Redis and PostGIS (extension needed); docker/ directory holds Dockerfiles; large but single app.",
+    "Risk parse-server: library-like server; MongoDB is default DB, Postgres supported; start needs env APP_ID and MASTER_KEY; CI failure=3 (informational).",
+    "Risk microblog: SQLite default, Postgres optional via DATABASE_URL; Elasticsearch optional; last push 2025-04 (older, but not archived).",
+    "Risk asynqmon: last push 2024-05; needs an existing Asynq Redis; no database. whoami: CI failure=1 (informational). dufs: writes to a served directory, needs persistent storage for uploads.",
+    "Screened out before pinning: none rejected on metadata; Elixir slot taken by electric instead of livebook/hexpm (excluded or used). Candidates considered but not chosen to keep batch mixed and avoid heavy monorepos: ghost (MySQL only), jellyfin."
+  ]
+}

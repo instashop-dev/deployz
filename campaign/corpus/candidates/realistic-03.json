@@ -1,0 +1,500 @@
+{
+  "taskId": "P1-SELECT-REALISTIC-03",
+  "testedCommit": "e6a3b58ee2363923fef21faca86611fa3bf84538",
+  "cohort": "realistic",
+  "exclusionCheck": {
+    "method": "Each candidate owner/repo (current name from gh api) compared case-insensitively by script against all \"repository\" values in campaign/corpus/excluded-families.json and repo values in realistic-01.json and realistic-02.json; repo name, id and project family name compared against all \"family\" values, all repo-name parts of excluded repositories, and family and repo names of realistic-01 and realistic-02. Project names whole-word grepped in docs/testing/repository-compatibility/benchmark.yaml. gh api confirmed fork=false for all.",
+    "perCandidate": [
+      {
+        "id": "whoami",
+        "repo": "traefik/whoami",
+        "ownerRepoMatch": false,
+        "familyNameMatch": false,
+        "benchmarkYamlWholeWordHits": 0,
+        "fork": false,
+        "result": "clear"
+      },
+      {
+        "id": "dufs",
+        "repo": "sigoden/dufs",
+        "ownerRepoMatch": false,
+        "familyNameMatch": false,
+        "benchmarkYamlWholeWordHits": 0,
+        "fork": false,
+        "result": "clear"
+      },
+      {
+        "id": "dawarich",
+        "repo": "Freika/dawarich",
+        "ownerRepoMatch": false,
+        "familyNameMatch": false,
+        "benchmarkYamlWholeWordHits": 0,
+        "fork": false,
+        "result": "clear"
+      },
+      {
+        "id": "microblog",
+        "repo": "miguelgrinberg/microblog",
+        "ownerRepoMatch": false,
+        "familyNameMatch": false,
+        "benchmarkYamlWholeWordHits": 0,
+        "fork": false,
+        "result": "clear"
+      },
+      {
+        "id": "komga",
+        "repo": "gotson/komga",
+        "ownerRepoMatch": false,
+        "familyNameMatch": false,
+        "benchmarkYamlWholeWordHits": 0,
+        "fork": false,
+        "result": "clear"
+      },
+      {
+        "id": "nopcommerce",
+        "repo": "nopSolutions/nopCommerce",
+        "ownerRepoMatch": false,
+        "familyNameMatch": false,
+        "benchmarkYamlWholeWordHits": 0,
+        "fork": false,
+        "result": "clear"
+      },
+      {
+        "id": "parse-server",
+        "repo": "parse-community/parse-server",
+        "ownerRepoMatch": false,
+        "familyNameMatch": false,
+        "benchmarkYamlWholeWordHits": 0,
+        "fork": false,
+        "result": "clear"
+      },
+      {
+        "id": "electric",
+        "repo": "electric-sql/electric",
+        "ownerRepoMatch": false,
+        "familyNameMatch": false,
+        "benchmarkYamlWholeWordHits": 0,
+        "fork": false,
+        "result": "clear"
+      },
+      {
+        "id": "snipe-it",
+        "repo": "grokability/snipe-it",
+        "ownerRepoMatch": false,
+        "familyNameMatch": false,
+        "benchmarkYamlWholeWordHits": 0,
+        "fork": false,
+        "result": "clear"
+      },
+      {
+        "id": "asynqmon",
+        "repo": "hibiken/asynqmon",
+        "ownerRepoMatch": false,
+        "familyNameMatch": false,
+        "benchmarkYamlWholeWordHits": 0,
+        "fork": false,
+        "result": "clear"
+      }
+    ]
+  },
+  "candidates": [
+    {
+      "id": "whoami",
+      "family": "go",
+      "repo": "traefik/whoami",
+      "defaultBranch": "master",
+      "commit": "1ce75d01b6978863647da42557a707a479da3a51",
+      "commitVerified": {
+        "call": "gh api repos/traefik/whoami/commits/1ce75d01b6978863647da42557a707a479da3a51",
+        "returnedSha": "1ce75d01b6978863647da42557a707a479da3a51",
+        "matches": true
+      },
+      "license": "Apache-2.0",
+      "archived": false,
+      "fork": false,
+      "pushedAt": "2026-07-29T15:40:34Z",
+      "cohort": "realistic",
+      "runtime": "go (Go)",
+      "expectedNeeds": [
+        "stateless"
+      ],
+      "selectionReason": "Tiny stateless Go HTTP service with Dockerfile; simplest realistic deploy.",
+      "validity": {
+        "entryPoint": {
+          "path": "app.go",
+          "type": "file",
+          "confirmedAtCommit": true
+        },
+        "buildFile": {
+          "path": "go.mod",
+          "type": "file",
+          "confirmedAtCommit": true
+        },
+        "ci": {
+          "checkRuns": "failure=1,success=2",
+          "combinedStatus": "pending",
+          "note": "informational only; unknown/mixed is acceptable"
+        }
+      }
+    },
+    {
+      "id": "dufs",
+      "family": "rust",
+      "repo": "sigoden/dufs",
+      "defaultBranch": "main",
+      "commit": "fe7fd564f80dfbac361c8e0589c3845638149d38",
+      "commitVerified": {
+        "call": "gh api repos/sigoden/dufs/commits/fe7fd564f80dfbac361c8e0589c3845638149d38",
+        "returnedSha": "fe7fd564f80dfbac361c8e0589c3845638149d38",
+        "matches": true
+      },
+      "license": "Apache-2.0",
+      "archived": false,
+      "fork": false,
+      "pushedAt": "2026-06-29T12:01:47Z",
+      "cohort": "realistic",
+      "runtime": "rust",
+      "expectedNeeds": [
+        "storage"
+      ],
+      "selectionReason": "Rust static file server with upload; filesystem storage, no database; Dockerfile present.",
+      "validity": {
+        "entryPoint": {
+          "path": "src/main.rs",
+          "type": "file",
+          "confirmedAtCommit": true
+        },
+        "buildFile": {
+          "path": "Cargo.toml",
+          "type": "file",
+          "confirmedAtCommit": true
+        },
+        "ci": {
+          "checkRuns": "success=3",
+          "combinedStatus": "pending",
+          "note": "informational only; unknown/mixed is acceptable"
+        }
+      }
+    },
+    {
+      "id": "dawarich",
+      "family": "ruby",
+      "repo": "Freika/dawarich",
+      "defaultBranch": "master",
+      "commit": "e32b70701b2467b862d4b5bc27ac428999997c1b",
+      "commitVerified": {
+        "call": "gh api repos/Freika/dawarich/commits/e32b70701b2467b862d4b5bc27ac428999997c1b",
+        "returnedSha": "e32b70701b2467b862d4b5bc27ac428999997c1b",
+        "matches": true
+      },
+      "license": "AGPL-3.0",
+      "archived": false,
+      "fork": false,
+      "pushedAt": "2026-10-05T14:23:02Z",
+      "cohort": "realistic",
+      "runtime": "ruby (Rails)",
+      "expectedNeeds": [
+        "postgres",
+        "redis",
+        "worker",
+        "storage"
+      ],
+      "selectionReason": "Self-hosted location history Rails app with Sidekiq worker, Redis, Postgres/PostGIS and file uploads.",
+      "validity": {
+        "entryPoint": {
+          "path": "config.ru",
+          "type": "file",
+          "confirmedAtCommit": true
+        },
+        "buildFile": {
+          "path": "Gemfile",
+          "type": "file",
+          "confirmedAtCommit": true
+        },
+        "ci": {
+          "checkRuns": "success=27,skipped=1,failure=2",
+          "combinedStatus": "pending",
+          "note": "informational only; unknown/mixed is acceptable"
+        }
+      }
+    },
+    {
+      "id": "microblog",
+      "family": "python",
+      "repo": "miguelgrinberg/microblog",
+      "defaultBranch": "main",
+      "commit": "a975ef64864354867c88e0ed3a17ba7d17dca752",
+      "commitVerified": {
+        "call": "gh api repos/miguelgrinberg/microblog/commits/a975ef64864354867c88e0ed3a17ba7d17dca752",
+        "returnedSha": "a975ef64864354867c88e0ed3a17ba7d17dca752",
+        "matches": true
+      },
+      "license": "MIT",
+      "archived": false,
+      "fork": false,
+      "pushedAt": "2025-04-06T19:01:35Z",
+      "cohort": "realistic",
+      "runtime": "python (Flask)",
+      "expectedNeeds": [
+        "postgres"
+      ],
+      "selectionReason": "Classic small Flask app with Dockerfile; SQLite by default, Postgres optional; simple customer-style app.",
+      "validity": {
+        "entryPoint": {
+          "path": "microblog.py",
+          "type": "file",
+          "confirmedAtCommit": true
+        },
+        "buildFile": {
+          "path": "requirements.txt",
+          "type": "file",
+          "confirmedAtCommit": true
+        },
+        "ci": {
+          "checkRuns": "none",
+          "combinedStatus": "pending",
+          "note": "informational only; unknown/mixed is acceptable"
+        }
+      }
+    },
+    {
+      "id": "komga",
+      "family": "kotlin",
+      "repo": "gotson/komga",
+      "defaultBranch": "master",
+      "commit": "519e352aa894b2fdc80660f1dde21b98cf328e3e",
+      "commitVerified": {
+        "call": "gh api repos/gotson/komga/commits/519e352aa894b2fdc80660f1dde21b98cf328e3e",
+        "returnedSha": "519e352aa894b2fdc80660f1dde21b98cf328e3e",
+        "matches": true
+      },
+      "license": "MIT",
+      "archived": false,
+      "fork": false,
+      "pushedAt": "2026-10-08T06:47:28Z",
+      "cohort": "realistic",
+      "runtime": "java/kotlin (Spring Boot, Gradle)",
+      "expectedNeeds": [
+        "storage"
+      ],
+      "selectionReason": "Comics/books media server in Kotlin; embedded SQLite, large media library storage; Gradle multi-module.",
+      "validity": {
+        "entryPoint": {
+          "path": "komga/build.gradle.kts",
+          "type": "file",
+          "confirmedAtCommit": true
+        },
+        "buildFile": {
+          "path": "build.gradle.kts",
+          "type": "file",
+          "confirmedAtCommit": true
+        },
+        "ci": {
+          "checkRuns": "success=9",
+          "combinedStatus": "success",
+          "note": "informational only; unknown/mixed is acceptable"
+        }
+      }
+    },
+    {
+      "id": "nopcommerce",
+      "family": "dotnet",
+      "repo": "nopSolutions/nopCommerce",
+      "defaultBranch": "develop",
+      "commit": "2f8f8a1ee5816845bf0bb5e30c09199e71e82e4c",
+      "commitVerified": {
+        "call": "gh api repos/nopSolutions/nopCommerce/commits/2f8f8a1ee5816845bf0bb5e30c09199e71e82e4c",
+        "returnedSha": "2f8f8a1ee5816845bf0bb5e30c09199e71e82e4c",
+        "matches": true
+      },
+      "license": "NOASSERTION",
+      "archived": false,
+      "fork": false,
+      "pushedAt": "2026-10-08T04:44:39Z",
+      "cohort": "realistic",
+      "runtime": "dotnet (ASP.NET Core)",
+      "expectedNeeds": [
+        "postgres",
+        "storage"
+      ],
+      "selectionReason": "E-commerce platform with Dockerfile and PostgreSQL compose file; ASP.NET Core web app.",
+      "validity": {
+        "entryPoint": {
+          "path": "src/Presentation/Nop.Web/Program.cs",
+          "type": "file",
+          "confirmedAtCommit": true
+        },
+        "buildFile": {
+          "path": "src/Presentation/Nop.Web/Nop.Web.csproj",
+          "type": "file",
+          "confirmedAtCommit": true
+        },
+        "ci": {
+          "checkRuns": "success=1",
+          "combinedStatus": "pending",
+          "note": "informational only; unknown/mixed is acceptable"
+        }
+      }
+    },
+    {
+      "id": "parse-server",
+      "family": "parse-server",
+      "repo": "parse-community/parse-server",
+      "defaultBranch": "alpha",
+      "commit": "0c4db0a18388277fd402ae695d793b47fc5528e3",
+      "commitVerified": {
+        "call": "gh api repos/parse-community/parse-server/commits/0c4db0a18388277fd402ae695d793b47fc5528e3",
+        "returnedSha": "0c4db0a18388277fd402ae695d793b47fc5528e3",
+        "matches": true
+      },
+      "license": "Apache-2.0",
+      "archived": false,
+      "fork": false,
+      "pushedAt": "2026-10-07T19:05:14Z",
+      "cohort": "realistic",
+      "runtime": "node (JS)",
+      "expectedNeeds": [
+        "postgres",
+        "storage"
+      ],
+      "selectionReason": "Node backend-as-a-service server with Dockerfile; Postgres or Mongo, file adapters, optional Redis cache.",
+      "validity": {
+        "entryPoint": {
+          "path": "src/cli/parse-server.js",
+          "type": "file",
+          "confirmedAtCommit": true
+        },
+        "buildFile": {
+          "path": "package.json",
+          "type": "file",
+          "confirmedAtCommit": true
+        },
+        "ci": {
+          "checkRuns": "failure=3,success=10",
+          "combinedStatus": "pending",
+          "note": "informational only; unknown/mixed is acceptable"
+        }
+      }
+    },
+    {
+      "id": "electric",
+      "family": "electric",
+      "repo": "electric-sql/electric",
+      "defaultBranch": "main",
+      "commit": "3f9809fb0bd894cb74470d434749673492ad7acf",
+      "commitVerified": {
+        "call": "gh api repos/electric-sql/electric/commits/3f9809fb0bd894cb74470d434749673492ad7acf",
+        "returnedSha": "3f9809fb0bd894cb74470d434749673492ad7acf",
+        "matches": true
+      },
+      "license": "Apache-2.0",
+      "archived": false,
+      "fork": false,
+      "pushedAt": "2026-10-06T16:09:45Z",
+      "cohort": "realistic",
+      "runtime": "elixir (OTP release)",
+      "expectedNeeds": [
+        "postgres"
+      ],
+      "selectionReason": "Elixir sync service (packages/sync-service) reading a Postgres logical replication stream; Dockerfile in subpath.",
+      "validity": {
+        "entryPoint": {
+          "path": "packages/sync-service/lib/electric/application.ex",
+          "type": "file",
+          "confirmedAtCommit": true
+        },
+        "buildFile": {
+          "path": "packages/sync-service/mix.exs",
+          "type": "file",
+          "confirmedAtCommit": true
+        },
+        "ci": {
+          "checkRuns": "skipped=13,success=5,failure=1",
+          "combinedStatus": "failure",
+          "note": "informational only; unknown/mixed is acceptable"
+        }
+      }
+    },
+    {
+      "id": "snipe-it",
+      "family": "snipe-it",
+      "repo": "grokability/snipe-it",
+      "defaultBranch": "master",
+      "commit": "18fb61ab50d2d87489bb90723a8e9611f5fe1f58",
+      "commitVerified": {
+        "call": "gh api repos/grokability/snipe-it/commits/18fb61ab50d2d87489bb90723a8e9611f5fe1f58",
+        "returnedSha": "18fb61ab50d2d87489bb90723a8e9611f5fe1f58",
+        "matches": true
+      },
+      "license": "AGPL-3.0",
+      "archived": false,
+      "fork": false,
+      "pushedAt": "2026-10-07T21:06:43Z",
+      "cohort": "realistic",
+      "runtime": "php (Laravel)",
+      "expectedNeeds": [
+        "mysql",
+        "redis",
+        "worker",
+        "storage"
+      ],
+      "selectionReason": "Asset management Laravel app with Dockerfile, queue, uploads; MySQL-first, Postgres not officially supported (boundary risk).",
+      "validity": {
+        "entryPoint": {
+          "path": "public/index.php",
+          "type": "file",
+          "confirmedAtCommit": true
+        },
+        "buildFile": {
+          "path": "composer.json",
+          "type": "file",
+          "confirmedAtCommit": true
+        },
+        "ci": {
+          "checkRuns": "success=10",
+          "combinedStatus": "pending",
+          "note": "informational only; unknown/mixed is acceptable"
+        }
+      }
+    },
+    {
+      "id": "asynqmon",
+      "family": "asynqmon",
+      "repo": "hibiken/asynqmon",
+      "defaultBranch": "master",
+      "commit": "d1b889456de3c98c22de24642b6f836a29da3140",
+      "commitVerified": {
+        "call": "gh api repos/hibiken/asynqmon/commits/d1b889456de3c98c22de24642b6f836a29da3140",
+        "returnedSha": "d1b889456de3c98c22de24642b6f836a29da3140",
+        "matches": true
+      },
+      "license": "MIT",
+      "archived": false,
+      "fork": false,
+      "pushedAt": "2024-05-21T00:11:44Z",
+      "cohort": "realistic",
+      "runtime": "go (Go + React)",
+      "expectedNeeds": [
+        "redis"
+      ],
+      "selectionReason": "Go web UI for Asynq task queues; needs only Redis; Dockerfile present; Go backend with embedded React UI.",
+      "validity": {
+        "entryPoint": {
+          "path": "cmd/asynqmon/main.go",
+          "type": "file",
+          "confirmedAtCommit": true
+        },
+        "buildFile": {
+          "path": "go.mod",
+          "type": "file",
+          "confirmedAtCommit": true
+        },
+        "ci": {
+          "checkRuns": "success=30",
+          "combinedStatus": "pending",
+          "note": "informational only; unknown/mixed is acceptable"
+        }
+      }
+    }
+  ]
+}
