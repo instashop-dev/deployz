@@ -1,0 +1,34 @@
+{
+  "taskId": "P1-VERIFY-04",
+  "testedCommit": "e6a3b58ee2363923fef21faca86611fa3bf84538",
+  "executor": "campaign-worker",
+  "model": "sonnet",
+  "startedAt": "2026-10-08T17:06:27Z",
+  "finishedAt": "2026-10-08T17:13:47Z",
+  "proposedStatus": "COMPLETE",
+  "commands": [
+    {"command": "gh api git trees (recursive) for 10 pinned repos", "exitCode": 0, "summary": "Tree listings saved to scratchpad for path checks"},
+    {"command": "curl raw.githubusercontent.com at pinned SHAs for Dockerfiles, compose, config, routes", "exitCode": 0, "summary": "Read source of all 10 apps"},
+    {"command": "python -I validate verify-04.yaml (citations exist in pinned tree, every expected field cited)", "exitCode": 0, "summary": "ok 10 apps, no missing paths"}
+  ],
+  "evidence": [
+    "campaign/corpus/labels/verify-04.yaml"
+  ],
+  "forbiddenInputsRead": [],
+  "notes": [
+    "Labels written from source only; initial labels and Deployz output not read.",
+    "unsupported field omitted for all apps: sqlite is not in UNSUPPORTED_FAMILIES (repo-537, 538, 539 are NOT_COMPATIBLE for SQLite and local disk state)."
+  ],
+  "uncertainties": {
+    "repo-531": ["NEEDS_CONFIGURATION vs NOT_COMPATIBLE (SQLite default, data dir)", "Dockerfile at docker/default.Dockerfile, not root", "Huey worker in-container, worker=false"],
+    "repo-532": ["Config file mount vs env config", "redis=false because optional", "healthcheck Host handling not verified"],
+    "repo-533": ["ENTRYPOINT needs start arg; could be NOT_COMPATIBLE", "Cargo workspace may be seen as monorepo", "sqlite/mysql also supported"],
+    "repo-534": ["H2 default may look READY", "Lucene local index optional", "actuator path assumes no context path"],
+    "repo-535": ["Could be READY", "RAILS_FORCE_SSL defaults true", "Disk storage default"],
+    "repo-536": ["Postgres not documented for production compose", "Dockerfile in docker/production", "Scheduler in-container, worker=false"],
+    "repo-537": ["Root Dockerfile is dev container", "NOT_COMPATIBLE based on SQLite only", "client plus server monorepo"],
+    "repo-538": ["No Dockerfile", "Framework library, not an app", "Default bind 127.0.0.1"],
+    "repo-539": ["SQLite plus mounted music library", "/ping under base URL"],
+    "repo-540": ["Port 80 inferred from nginx base image", "Runtime node vs static/nginx", "No collaboration server in repo"]
+  }
+}
