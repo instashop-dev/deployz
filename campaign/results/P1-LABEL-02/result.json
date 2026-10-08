@@ -1,0 +1,53 @@
+{
+  "taskId": "P1-LABEL-02",
+  "testedCommit": "e6a3b58ee2363923fef21faca86611fa3bf84538",
+  "executor": "campaign-worker",
+  "model": "sonnet",
+  "startedAt": "2026-10-08T13:45:00Z",
+  "finishedAt": "2026-10-08T14:21:00Z",
+  "proposedStatus": "COMPLETE",
+  "commands": [
+    {
+      "command": "gh api repos/<repo>/git/trees/<commit>?recursive=1 (10 repositories)",
+      "exitCode": 0,
+      "summary": "Saved the file tree of each pinned commit in the scratchpad for path checks"
+    },
+    {
+      "command": "gh api repos/<repo>/contents/<path>?ref=<commit> (source reads)",
+      "exitCode": 0,
+      "summary": "Read Dockerfiles, compose files, Procfile, config and manifests at the pinned commits; some probe paths returned 404 and were not used"
+    },
+    {
+      "command": "pnpm exec tsx <scratchpad>/validate.ts <scratchpad>",
+      "exitCode": 0,
+      "summary": "10 apps parse with expectedFactsSchema, every expected key has a citation, every cited path exists in the pinned tree"
+    }
+  ],
+  "evidence": [
+    "campaign/corpus/labels/initial-02.yaml"
+  ],
+  "notes": [
+    "Summary repo-511 discourse: NOT_COMPATIBLE (no Dockerfile in repo); ruby, postgres, redis, Sidekiq worker, S3 option, port 3000, /srv/status.",
+    "Summary repo-512 forem: NEEDS_CONFIGURATION; ruby, postgres, redis, Procfile sidekiq worker, release-tasks migration, Dockerfile port 3000, /api/health_checks/app.",
+    "Summary repo-513 saleor: NEEDS_CONFIGURATION; python, postgres, redis, celery worker, S3 media option, port 8000, /health/.",
+    "Summary repo-514 hexpm: NOT_COMPATIBLE; elixir, postgres, Oban worker deployment, S3/GCS buckets, Dockerfile has no CMD or EXPOSE, many cluster and bucket env values.",
+    "Summary repo-515 eShop: NOT_COMPATIBLE; dotnet Aspire microservices, no Dockerfile, RabbitMQ, postgres, redis, two processor workers.",
+    "Summary repo-516 ente server: NEEDS_CONFIGURATION; go, postgres, S3 storage, startup migrations, server/Dockerfile, port 8080, /ping.",
+    "Summary repo-517 dependency-track apiserver: NOT_COMPATIBLE; java, postgres, Dockerfile needs prebuilt target/ jars, local file storage, health only on management port 9000.",
+    "Summary repo-518 cachet 3.x: NOT_COMPATIBLE (no Dockerfile); php Laravel, SQLite default, database queue and cache.",
+    "Summary repo-519 trigger.dev: NOT_COMPATIBLE; node monorepo, postgres, redis, ClickHouse (other-database), Electric and extra services; docker/Dockerfile port 3000, /healthcheck.",
+    "Summary repo-520 mathesar: NOT_COMPATIBLE; python, postgres, default Dockerfile stage embeds Postgres with VOLUMEs, media on volumes; port 8000, /healthz/ready/.",
+    "Close call: a missing Dockerfile (511, 515, 518) is labeled NOT_COMPATIBLE from 'Needs a Dockerfile' in mvp-scope.md. If Deployz policy treats it as NEEDS_CONFIGURATION, three labels change.",
+    "Close call: 512 forem has a default Docker target that is the development stage; production target needed. NEEDS_CONFIGURATION chosen over NOT_COMPATIBLE.",
+    "Close call: 513 saleor redis and worker are optional in code (eager Celery without broker); labeled true for a real deployment. Worker command is only in pyproject.toml poe tasks.",
+    "Close call: 514 hexpm worker true (separate Oban worker deployment of same release) and NOT_COMPATIBLE for missing start command; NEEDS_CONFIGURATION is possible.",
+    "Close call: 517 dependency-track NOT_COMPATIBLE rests on the prebuilt-jar Dockerfile and local data directory.",
+    "Close call: 518 cachet postgres false because the source default is SQLite, although PostgreSQL is a supported option.",
+    "Close call: 519 trigger.dev ClickHouse is optional in the entrypoint but required in the shipped compose; unsupported [other-database] set.",
+    "Close call: 520 mathesar minimal Docker stage could be NEEDS_CONFIGURATION; NOT_COMPATIBLE follows the default build stage.",
+    "Open question: migration=true is used when the app has migrations, even if the app runs them at start (ente, dependency-track, eShop). The convention is in the file header.",
+    "Open question: monorepo=false for discourse (pnpm workspace only holds frontend packages of the same app).",
+    "Open question: runtime vocabulary used is ruby, python, elixir, dotnet, go, java, php, node; confirm these match the normalizer names.",
+    "Omitted facts: dockerfilePath for 515 and 518 (no Dockerfile); port and healthPath for 514, 515, 518; healthPath for 517; storage for 515 and 519; unsupported for all apps except 519 (RabbitMQ and local-filesystem are not in the family map)."
+  ]
+}
