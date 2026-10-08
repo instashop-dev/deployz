@@ -1947,7 +1947,7 @@
       "phase": 2,
       "title": "Harness smoke: Stage A on 2 improvement apps, local build+run on 1 app, interrupt and --resume once",
       "executor": "campaign-worker",
-      "status": "PENDING",
+      "status": "COMPLETE",
       "prerequisites": [
         "P2-IMPL-CORPUS-FLAGS",
         "P2-IMPL-AI-MODE",
@@ -1977,7 +1977,10 @@
         "No token, password, email, AWS key, private key or .env value appears in any new tracked file (grep check passes)"
       ],
       "timeboxMinutes": 40,
-      "notes": []
+      "notes": [
+        "2026-10-08 Opus: harness gap for P2-GATE review: scripts/repository-deployment/index.ts 769-772 exits 2 (deploy-config names unknown repository) with a non-default --benchmark and the default deploy-config; guard at 169-171 does not require --deploy-config. Phase 3 needs --deploy-config or a harness fix."
+      ],
+      "attempts": 1
     },
     {
       "id": "P2-GATE",

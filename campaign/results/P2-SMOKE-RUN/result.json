@@ -1,0 +1,69 @@
+{
+  "taskId": "P2-SMOKE-RUN",
+  "testedCommit": "e6a3b58ee2363923fef21faca86611fa3bf84538",
+  "harnessCommit": "3ba32b385bd913812d51553569e3c1097081cbb7",
+  "executor": "campaign-worker",
+  "model": "sonnet",
+  "startedAt": "2026-10-08T23:29:32Z",
+  "finishedAt": "2026-10-08T23:57:00Z",
+  "proposedStatus": "COMPLETE",
+  "summary": "Stage A live-AI on repo-530 and repo-540 wrote 2 result files (verdict NEEDS_CONFIGURATION for both, label READY). Local mode ran repo-530 (build FAIL: yarn network errors, a repository/network result, 321 s) and repo-556 (gate, source, build PASS; run PASS; probes FAIL: health 404 on /heartbeat, dbWrite no rows). repo-556 was killed during probes and resumed once: gate, source and build were skipped (same start times, durations, no rebuild), run and probes redone as one unit, labelled leftovers (3 containers, 1 network) removed first. A second --resume left the result file byte-identical; Stage A --resume kept both entries. No labelled container, network, volume or image remains. Secret scan clean.",
+  "apps": [
+    { "id": "repo-530", "why": "Stage A and first local attempt: small Go app, READY label, Dockerfile build. Local build failed on yarn network errors." },
+    { "id": "repo-540", "why": "Stage A only: second improvement app, READY label, Dockerfile." },
+    { "id": "repo-556", "why": "Local build and run replacement: small Go app (muety/wakapi) with Postgres. repo-530 build failed; repo-593 gate failed offline (no snapshot cache). The repo-556 snapshot cache was made by an extra Stage A run into campaign/logs (ignored)." }
+  ],
+  "commands": [
+    { "command": "node --env-file=.env tsx scripts/repository-compatibility/index.ts --ai live --benchmark campaign/corpus/benchmark.yaml --repo repo-530 --repo repo-540 --runs-dir campaign/results/P2-SMOKE-RUN/stage-a/", "exitCode": 0, "durationSec": 77 },
+    { "command": "tsx scripts/repository-deployment/index.ts --local --benchmark campaign/corpus/benchmark.yaml --repo repo-530 --runs-dir ... --evidence-dir ... (no --deploy-config)", "exitCode": 2, "durationSec": 1, "note": "harness gap, see deviations" },
+    { "command": "same with --deploy-config campaign/logs/P2-SMOKE-RUN/empty-deploy-config.yaml (content: version: 1) --repo repo-530", "exitCode": 1, "durationSec": 331, "note": "exit 1 = build FAIL recorded" },
+    { "command": "same with --repo repo-593", "exitCode": 0, "durationSec": 3, "note": "gate FAIL: snapshot cache miss (offline); result file removed" },
+    { "command": "tsx scripts/repository-compatibility/index.ts --ai off --repo repo-556 --runs-dir campaign/logs/P2-SMOKE-RUN/stage-a-cache/", "exitCode": 0, "durationSec": 20, "note": "fills snapshot cache; not Stage A evidence" },
+    { "command": "tsx scripts/repository-deployment/index.ts --local ... --repo repo-556 (killed with taskkill while probes IN_PROGRESS)", "exitCode": null, "durationSec": 405, "note": "interrupted on purpose" },
+    { "command": "same plus --resume (first)", "exitCode": 0, "durationSec": 347 },
+    { "command": "same plus --resume (second, everything finished)", "exitCode": 0, "durationSec": 18 },
+    { "command": "tsx scripts/repository-compatibility/index.ts --ai live --resume ... --repo repo-530 --repo repo-540", "exitCode": 0, "durationSec": 10 }
+  ],
+  "stageA": {
+    "repo-530": { "resultFile": "campaign/results/P2-SMOKE-RUN/stage-a/repo-530.json", "verdict": "NEEDS_CONFIGURATION (label READY; 4 mismatches)", "timings": "Stage A run 77 s for both repos; AI latency 11301 ms", "ai": { "mode": "live", "requests": 1, "model": "workers-ai/@cf/deepseek-ai/deepseek-v4-flash-0731", "outcome": "completed" } },
+    "repo-540": { "resultFile": "campaign/results/P2-SMOKE-RUN/stage-a/repo-540.json", "verdict": "NEEDS_CONFIGURATION (label READY; 1 mismatch)", "timings": "AI latency 25100 ms", "ai": { "mode": "live", "requests": 1, "model": "workers-ai/@cf/deepseek-ai/deepseek-v4-flash-0731", "outcome": "completed" } },
+    "resume": "Second run with --resume printed 'kept (same Deployz commit, analysis version, commit and AI mode)' for both entries; no AI call."
+  },
+  "local": {
+    "resultPaths": ["campaign/results/P2-SMOKE-RUN/stage-b/repo-556.local.json", "campaign/results/P2-SMOKE-RUN/stage-b/repo-530.local.json", "campaign/results/P2-SMOKE-RUN/stage-b/local-summary.json", "campaign/results/P2-SMOKE-RUN/stage-b/local-summary.md"],
+    "repo-556": {
+      "stages": { "gate": "PASS 8 ms", "source": "PASS 2540 ms", "build": "PASS 374836 ms", "run": "PASS 15303 ms (resumed run)", "probes": "FAIL 301403 ms", "cleanup": "PASS 2900 ms" },
+      "probes": { "health": "FAIL /heartbeat 404 for 300 s", "start": "PASS", "migration": "NOT_APPLICABLE", "dbWrite": "FAIL no rows outside migration tables", "redis": "NOT_APPLICABLE", "storage": "NOT_APPLICABLE" },
+      "note": "Repository result. Storage not needed, so the SeaweedFS path was NOT exercised. Local run used --ai off."
+    },
+    "repo-530": {
+      "stages": { "gate": "PASS", "source": "PASS 4527 ms", "build": "FAIL 320794 ms (yarn install and build: network connection trouble)", "run": "SKIPPED", "probes": "SKIPPED", "cleanup": "PASS" }
+    }
+  },
+  "resume": {
+    "interruptPoint": "repo-556, process killed while probes IN_PROGRESS (run PASS, app and db containers up, one probe container). Snapshot: campaign/logs/P2-SMOKE-RUN/repo-556.interrupted.json",
+    "skippedStages": ["gate", "source", "build"],
+    "redone": ["run", "probes (one resume unit by design)", "cleanup"],
+    "reconcile": "removed 3 containers, 1 network, 0 volumes left by the earlier run",
+    "equalityCheck": "gate, source and build startedAt, durationMs and evidence are the same before and after resume (no rebuild). A second --resume left repo-556.local.json byte-identical (cmp). Not compared with a separate uninterrupted full run: timebox."
+  },
+  "cleanup": { "containers": 0, "networks": 0, "volumes": 0, "images": 0, "check": "docker ps -a, network ls, volume ls, image ls filtered by label deployz-campaign=fresh-100 all return 0 after removal of image deployz-campaign/repo-556:a8d880569328" },
+  "secretScan": { "scope": "campaign/results/P2-SMOKE-RUN/", "patterns": "AWS key, private key, email, GitHub token, sk- key, password assignment", "hits": 0, "envValueCheck": "Every .env value of 8+ characters was searched: 1 hit, AI_MODEL (public model id, not a secret) in the two Stage A files. No token or key value found." },
+  "evidence": [
+    "campaign/results/P2-SMOKE-RUN/stage-a/repo-530.json",
+    "campaign/results/P2-SMOKE-RUN/stage-a/repo-540.json",
+    "campaign/results/P2-SMOKE-RUN/stage-b/repo-556.local.json",
+    "campaign/results/P2-SMOKE-RUN/stage-b/repo-530.local.json",
+    "campaign/results/P2-SMOKE-RUN/stage-b/local-summary.json",
+    "campaign/results/P2-SMOKE-RUN/stage-b/local-summary.md"
+  ],
+  "deviations": [
+    "Harness gap: scripts/repository-deployment/index.ts lines 769-772. With a non-default --benchmark and the default deploy-config.yaml, main fails with 'deploy-config names unknown repository repo-008' (exit 2). The guard at lines 169-171 requires --runs-dir and --evidence-dir but not --deploy-config. Workaround: a minimal config 'version: 1' in campaign/logs. Proposed fix: require --deploy-config too, or skip the check in local mode.",
+    "Harness note: --local reads Stage A snapshots offline. A repo without a Stage A cache fails the gate with a snapshot cache miss (repo-593). Run Stage A for the repo first.",
+    "--local was run without --ai live (the task command did not include it); local result ai.mode is off.",
+    "Local app changed from repo-530 to repo-556 because the repo-530 build failed on network errors (kept as evidence).",
+    "Equality check is against a re-resume, not a separate uninterrupted run.",
+    "SeaweedFS path not exercised (no chosen app needs object storage).",
+    "Raw logs are in campaign/logs/P2-SMOKE-RUN/ (ignored)."
+  ]
+}

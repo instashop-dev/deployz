@@ -4,8 +4,8 @@
   "status": "CONTINUE",
   "phase": 2,
   "currentTask": null,
-  "nextAction": "Run P2-SMOKE-RUN (campaign-worker, timebox 40, first task of the next run; long-run exception: 40 > 38). Stage A on 2 improvement apps (--ai live, node --env-file=.env), local build+run on 1 app, one interrupt and --resume; needs docker and github-auth. Note for the smoke: the SeaweedFS storage path has run only against fakes. Then P2-GATE.",
-  "updatedAt": "2026-10-08T23:27:09.897Z",
+  "nextAction": "Run P2-GATE (Opus, timebox 10) as the first task of the next run; this run did not start it (elapsed 31 min + 10 > 38). Review P2-SMOKE-RUN gaps first: Stage B needs --deploy-config with a non-default --benchmark (scripts/repository-deployment/index.ts 769-772; guard 169-171) - fix or make it a required flag before Phase 3; --local needs a Stage A cache; SeaweedFS storage path is still only fake-tested. Size Phase 3 batches from the measured durations (Stage A ~40 s/app with live AI; local build 321-375 s, run+probes ~5 min when health fails).",
+  "updatedAt": "2026-10-08T23:57:07.620Z",
   "checkout": {
     "path": "C:/Users/Tejas/Desktop/deployz-mvp-test",
     "kind": "git worktree of C:/Users/Tejas/Desktop/deployz",
@@ -235,6 +235,10 @@
     {
       "commit": "e6a3b58ee2363923fef21faca86611fa3bf84538",
       "task": "P2-IMPL-LOCAL-RUN"
+    },
+    {
+      "commit": "e6a3b58ee2363923fef21faca86611fa3bf84538",
+      "task": "P2-SMOKE-RUN"
     }
   ],
   "attempts": {
@@ -289,15 +293,16 @@
     "P2-IMPL-AI-MODE": 1,
     "P2-AI-LIVE-VALIDATE": 1,
     "P2-IMPL-LOCAL-BUILD": 1,
-    "P2-IMPL-LOCAL-RUN": 1
+    "P2-IMPL-LOCAL-RUN": 1,
+    "P2-SMOKE-RUN": 1
   },
   "lastResult": {
-    "task": "P2-IMPL-LOCAL-RUN",
+    "task": "P2-SMOKE-RUN",
     "status": "COMPLETE",
-    "at": "2026-10-08T23:27:09.897Z",
-    "summary": "Harness commit 64f3d534 (not pushed): local-run.ts (labelled per-repo network, postgres/valkey/SeaweedFS S3 stand-in and curl probe pinned by digest, one-off migration container, start/health/migration/dbWrite/redis/storage probes, always-run cleanup with leak check), local-summary.{json,md}, --keep-image, --local --resume reconcile, Stage A --resume. Opus re-ran: typecheck:scripts exit 0; vitest repository-compatibility + repository-deployment 255/255; no apps/packages or docs/testing/*/runs change; 0 labelled containers/networks/volumes/images left; secret scan 0 hits. Worker smoke: synthetic alpine httpd app, start+health PASS over the real network, cleanup PASS. Deviations accepted: SeaweedFS instead of MinIO (MinIO images no longer pullable; storage path only tested with fakes), dbWrite ignores migration bookkeeping tables, no separate worker probe (manifest has no worker field), migration FAIL = run FAIL and probes SKIPPED, inputsHash adds dependency image digests and a finished repo is not rebuilt on resume.",
+    "at": "2026-10-08T23:57:07.620Z",
+    "summary": "Harness smoke at harness HEAD 3ba32b38. Stage A --ai live on repo-530 and repo-540 (both NEEDS_CONFIGURATION vs label READY; 1 live AI request each, model workers-ai/@cf/deepseek-ai/deepseek-v4-flash-0731); Stage A --resume kept both with no AI call. Local: repo-530 build FAIL (yarn network errors, kept as evidence); repo-556 gate/source/build PASS (build 375 s), run PASS, probes FAIL (health 404 on /heartbeat, dbWrite no rows) - repository results. Interrupt during probes; --resume reconciled 3 containers + 1 network, skipped gate/source/build (unchanged timings), redid run+probes; second --resume byte-identical. Opus checked: evidence paths exist, 0 labelled containers/networks/volumes/images, secret scan 0 hits, campaign/logs ignored, only campaign files changed. Gaps: Stage B needs --deploy-config with a non-default --benchmark (index.ts 769-772, guard 169-171 misses it; worked around with a minimal config under campaign/logs); --local needs a Stage A snapshot cache first; local run done without --ai live; SeaweedFS path not exercised; equality vs a re-resume, not an uninterrupted run.",
     "evidence": [
-      "campaign/results/P2-IMPL-LOCAL-RUN/result.json"
+      "campaign/results/P2-SMOKE-RUN/result.json"
     ]
   },
   "gates": {
@@ -622,6 +627,11 @@
       "task": "P2-IMPL-LOCAL-RUN",
       "runStart": "2026-10-08T23:02:04Z",
       "reason": "First task of the run; timeboxMinutes 45 > 38 and no resumable steps (one harness implementation change, design scope (d) and the run/resume/reconcile/summary parts of (e))."
+    },
+    {
+      "task": "P2-SMOKE-RUN",
+      "runStart": "2026-10-08T23:28:07Z",
+      "reason": "First task of the run; timeboxMinutes 40 > 38 and no resumable steps (one harness smoke run with an interrupt and --resume)."
     }
   ]
 }

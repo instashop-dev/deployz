@@ -1,0 +1,119 @@
+{
+  "schemaVersion": 1,
+  "id": "repo-530",
+  "repository": "hibiken/asynqmon",
+  "commit": "d1b889456de3c98c22de24642b6f836a29da3140",
+  "set": "improvement",
+  "cohort": "realistic",
+  "deployzCommit": "3ba32b385bd913812d51553569e3c1097081cbb7",
+  "analysisVersion": 44,
+  "ai": {
+    "mode": "off",
+    "model": null,
+    "requests": 1,
+    "outcome": "fallback",
+    "error": "AiGatewayNotAvailableError: Cloudflare AI Gateway is not configured, so the \"unconfigured\" model cannot be reached. Set AI_GATEWAY_BASE_URL and AI_PROVIDER_API_KEY to enable AI explanations (AI_GATEWAY_TOKEN only for an authenticated gateway)."
+  },
+  "inputsHash": "5d3a46b41697c1b18ca90aa47982c56a471f1c81b81e20b237ee4c3b0fb54f7a",
+  "stages": {
+    "gate": {
+      "status": "PASS",
+      "startedAt": "2026-10-08T23:33:45.774Z",
+      "finishedAt": "2026-10-08T23:33:45.786Z",
+      "durationMs": 12,
+      "detail": null,
+      "evidence": {
+        "verdict": "NEEDS_CONFIGURATION",
+        "outcome": "correct-accept",
+        "configuredVerdict": "NEEDS_CONFIGURATION",
+        "manifest": {
+          "dockerfilePath": "Dockerfile",
+          "buildContext": ".",
+          "appRoot": ".",
+          "port": null,
+          "healthPath": "/",
+          "healthMode": "vendor_required",
+          "migrationCommand": null,
+          "migrationMode": "none",
+          "postgres": false,
+          "redis": false,
+          "storage": false,
+          "databaseBindings": [],
+          "redisBindings": [],
+          "storageBindings": [],
+          "generatedKeys": []
+        }
+      }
+    },
+    "source": {
+      "status": "PASS",
+      "startedAt": "2026-10-08T23:33:45.799Z",
+      "finishedAt": "2026-10-08T23:33:50.326Z",
+      "durationMs": 4527,
+      "detail": null,
+      "evidence": {
+        "commit": "d1b889456de3c98c22de24642b6f836a29da3140",
+        "archiveCached": false,
+        "archiveBytes": 2149174
+      }
+    },
+    "build": {
+      "status": "FAIL",
+      "startedAt": "2026-10-08T23:33:50.329Z",
+      "finishedAt": "2026-10-08T23:39:11.123Z",
+      "durationMs": 320794,
+      "detail": "docker build exited 1",
+      "evidence": {
+        "dockerfilePath": "Dockerfile",
+        "buildContext": ".",
+        "platform": "linux/amd64",
+        "image": "deployz-campaign/repo-530:d1b889456de3",
+        "exitCode": 1,
+        "durationMs": 320662,
+        "buildArgNames": [],
+        "logTail": "#13 [frontend 5/5] RUN yarn install && yarn build\n#13 122.6 info There appears to be trouble with your network connection. Retrying...\n#13 156.2 info There appears to be trouble with your network connection. Retrying...\n#13 189.4 info There appears to be trouble with your network connection. Retrying...\n#13 228.3 info Visit https://yarnpkg.com/en/docs/cli/install for documentation about this command.\n#13 228.3 error Error: https://registry.yarnpkg.com/@material-ui/icons/-/icons-4.11.2.tgz: ESOCKETTIMEDOUT\n#13 228.3     at ClientRequest.<anonymous> (/usr/local/lib/node_modules/yarn/lib/cli.js:142037:19)\n#13 228.3     at Object.onceWrapper (node:events:631:28)\n#13 228.3     at ClientRequest.emit (node:events:517:28)\n#13 228.3     at TLSSocket.emitRequestTimeout (node:_http_client:847:9)\n#13 228.3     at Object.onceWrapper (node:events:631:28)\n#13 228.3     at TLSSocket.emit (node:events:529:35)\n#13 228.3     at Socket._onTimeout (node:net:598:8)\n#13 228.3     at listOnTimeout (node:internal/timers:569:17)\n#13 228.3     at process.processTimers (node:internal/timers:512:7)\n#13 ERROR: process \"/bin/sh -c yarn install && yarn build\" did not complete successfully: exit code: 1\n------\n > [frontend 5/5] RUN yarn install && yarn build:\n228.3 error Error: https://registry.yarnpkg.com/@material-ui/icons/-/icons-4.11.2.tgz: ESOCKETTIMEDOUT\n228.3     at ClientRequest.<anonymous> (/usr/local/lib/node_modules/yarn/lib/cli.js:142037:19)\n228.3     at Object.onceWrapper (node:events:631:28)\n228.3     at ClientRequest.emit (node:events:517:28)\n228.3     at TLSSocket.emitRequestTimeout (node:_http_client:847:9)\n228.3     at Object.onceWrapper (node:events:631:28)\n228.3     at TLSSocket.emit (node:events:529:35)\n228.3     at Socket._onTimeout (node:net:598:8)\n228.3     at listOnTimeout (node:internal/timers:569:17)\n228.3     at process.processTimers (node:internal/timers:512:7)\n------\nDockerfile:21\n--------------------\n  19 |     \n  20 |     # Run yarn scripts (install & build).\n  21 | >>> RUN yarn install && yarn build\n  22 |     \n  23 |     #\n--------------------\nERROR: failed to build: failed to solve: process \"/bin/sh -c yarn install && yarn build\" did not complete successfully: exit code: 1\n\nView build details: docker-desktop://dashboard/build/desktop-linux/desktop-linux/oeqax2ou93fif6d3x2s9fbpqj",
+        "failure": "build",
+        "rebuilt": false
+      }
+    },
+    "run": {
+      "status": "SKIPPED",
+      "startedAt": "2026-10-08T23:39:11.321Z",
+      "finishedAt": "2026-10-08T23:39:11.335Z",
+      "durationMs": 14,
+      "detail": "the build did not pass",
+      "evidence": {}
+    },
+    "probes": {
+      "status": "SKIPPED",
+      "startedAt": "2026-10-08T23:39:11.351Z",
+      "finishedAt": "2026-10-08T23:39:11.365Z",
+      "durationMs": 14,
+      "detail": "the build did not pass",
+      "evidence": {}
+    },
+    "cleanup": {
+      "status": "PASS",
+      "startedAt": "2026-10-08T23:39:11.376Z",
+      "finishedAt": "2026-10-08T23:39:17.506Z",
+      "durationMs": 6130,
+      "detail": null,
+      "evidence": {
+        "removed": {
+          "containers": 0,
+          "networks": 0,
+          "volumes": 0
+        },
+        "imageRemoved": false,
+        "keepImage": false,
+        "leaks": {
+          "containers": [],
+          "networks": [],
+          "volumes": []
+        }
+      }
+    }
+  },
+  "classification": "build",
+  "remediation": null
+}

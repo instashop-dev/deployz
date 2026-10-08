@@ -1,0 +1,135 @@
+{
+  "schemaVersion": 1,
+  "repositories": 2,
+  "classifications": {
+    "build": 1,
+    "probes": 1
+  },
+  "aiModes": {
+    "off": 2
+  },
+  "stages": {
+    "gate": {
+      "attempted": 2,
+      "NOT_ATTEMPTED": 0,
+      "IN_PROGRESS": 0,
+      "PASS": 2,
+      "FAIL": 0,
+      "SKIPPED": 0
+    },
+    "source": {
+      "attempted": 2,
+      "NOT_ATTEMPTED": 0,
+      "IN_PROGRESS": 0,
+      "PASS": 2,
+      "FAIL": 0,
+      "SKIPPED": 0
+    },
+    "build": {
+      "attempted": 2,
+      "NOT_ATTEMPTED": 0,
+      "IN_PROGRESS": 0,
+      "PASS": 1,
+      "FAIL": 1,
+      "SKIPPED": 0
+    },
+    "run": {
+      "attempted": 2,
+      "NOT_ATTEMPTED": 0,
+      "IN_PROGRESS": 0,
+      "PASS": 1,
+      "FAIL": 0,
+      "SKIPPED": 1
+    },
+    "probes": {
+      "attempted": 2,
+      "NOT_ATTEMPTED": 0,
+      "IN_PROGRESS": 0,
+      "PASS": 0,
+      "FAIL": 1,
+      "SKIPPED": 1
+    },
+    "cleanup": {
+      "attempted": 2,
+      "NOT_ATTEMPTED": 0,
+      "IN_PROGRESS": 0,
+      "PASS": 2,
+      "FAIL": 0,
+      "SKIPPED": 0
+    }
+  },
+  "probes": {
+    "start": {
+      "attempted": 1,
+      "PASS": 1,
+      "FAIL": 0,
+      "UNVERIFIED": 0,
+      "NOT_APPLICABLE": 0
+    },
+    "health": {
+      "attempted": 1,
+      "PASS": 0,
+      "FAIL": 1,
+      "UNVERIFIED": 0,
+      "NOT_APPLICABLE": 0
+    },
+    "migration": {
+      "attempted": 1,
+      "PASS": 0,
+      "FAIL": 0,
+      "UNVERIFIED": 0,
+      "NOT_APPLICABLE": 1
+    },
+    "dbWrite": {
+      "attempted": 1,
+      "PASS": 0,
+      "FAIL": 1,
+      "UNVERIFIED": 0,
+      "NOT_APPLICABLE": 0
+    },
+    "redis": {
+      "attempted": 1,
+      "PASS": 0,
+      "FAIL": 0,
+      "UNVERIFIED": 0,
+      "NOT_APPLICABLE": 1
+    },
+    "storage": {
+      "attempted": 1,
+      "PASS": 0,
+      "FAIL": 0,
+      "UNVERIFIED": 0,
+      "NOT_APPLICABLE": 1
+    }
+  },
+  "durations": [
+    {
+      "id": "repo-530",
+      "repository": "hibiken/asynqmon",
+      "classification": "build",
+      "totalMs": 331491,
+      "stages": {
+        "gate": 12,
+        "source": 4527,
+        "build": 320794,
+        "run": 14,
+        "probes": 14,
+        "cleanup": 6130
+      }
+    },
+    {
+      "id": "repo-556",
+      "repository": "muety/wakapi",
+      "classification": "probes",
+      "totalMs": 696990,
+      "stages": {
+        "gate": 8,
+        "source": 2540,
+        "build": 374836,
+        "run": 15303,
+        "probes": 301403,
+        "cleanup": 2900
+      }
+    }
+  ]
+}

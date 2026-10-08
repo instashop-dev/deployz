@@ -1,0 +1,188 @@
+{
+  "schemaVersion": 1,
+  "id": "repo-556",
+  "repository": "muety/wakapi",
+  "commit": "a8d88056932881329845609a749025a1513564db",
+  "set": "improvement",
+  "cohort": "realistic",
+  "deployzCommit": "3ba32b385bd913812d51553569e3c1097081cbb7",
+  "analysisVersion": 44,
+  "ai": {
+    "mode": "off",
+    "model": null,
+    "requests": 0,
+    "outcome": "not-requested",
+    "error": null
+  },
+  "inputsHash": "d180443f0206ef732769b47739290f71b5a951113d498051f1a6385f42f346ad",
+  "stages": {
+    "gate": {
+      "status": "PASS",
+      "startedAt": "2026-10-08T23:41:35.078Z",
+      "finishedAt": "2026-10-08T23:41:35.086Z",
+      "durationMs": 8,
+      "detail": null,
+      "evidence": {
+        "verdict": "NEEDS_CONFIGURATION",
+        "outcome": "correct-accept",
+        "configuredVerdict": "NEEDS_CONFIGURATION",
+        "manifest": {
+          "dockerfilePath": "Dockerfile",
+          "buildContext": ".",
+          "appRoot": ".",
+          "port": 3000,
+          "healthPath": "/heartbeat",
+          "healthMode": "explicit",
+          "migrationCommand": null,
+          "migrationMode": "unknown",
+          "postgres": true,
+          "redis": false,
+          "storage": false,
+          "databaseBindings": [
+            "DATABASE_HOST",
+            "DATABASE_NAME",
+            "DATABASE_PASSWORD",
+            "DATABASE_PORT",
+            "DATABASE_URL",
+            "DATABASE_USER",
+            "DB_HOST",
+            "DB_NAME",
+            "DB_PASSWORD",
+            "DB_PORT",
+            "DB_USER",
+            "WAKAPI_DB_DSN",
+            "WAKAPI_DB_HOST",
+            "WAKAPI_DB_NAME",
+            "WAKAPI_DB_PASSWORD",
+            "WAKAPI_DB_PORT",
+            "WAKAPI_DB_USER"
+          ],
+          "redisBindings": [],
+          "storageBindings": [],
+          "generatedKeys": [
+            "WAKAPI_COOKIE_KEY",
+            "WAKAPI_PASSWORD_SALT"
+          ]
+        }
+      }
+    },
+    "source": {
+      "status": "PASS",
+      "startedAt": "2026-10-08T23:41:35.093Z",
+      "finishedAt": "2026-10-08T23:41:37.633Z",
+      "durationMs": 2540,
+      "detail": null,
+      "evidence": {
+        "commit": "a8d88056932881329845609a749025a1513564db",
+        "archiveCached": false,
+        "archiveBytes": 1035554
+      }
+    },
+    "build": {
+      "status": "PASS",
+      "startedAt": "2026-10-08T23:41:37.636Z",
+      "finishedAt": "2026-10-08T23:47:52.472Z",
+      "durationMs": 374836,
+      "detail": null,
+      "evidence": {
+        "dockerfilePath": "Dockerfile",
+        "buildContext": ".",
+        "platform": "linux/amd64",
+        "image": "deployz-campaign/repo-556:a8d880569328",
+        "exitCode": 0,
+        "durationMs": 374316,
+        "buildArgNames": [],
+        "logTail": "#14 204.2 github.com/muety/wakapi/static/docs\n#14 204.6 command-line-arguments\n#14 DONE 221.6s\n\n#15 [build-env 7/9] RUN GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -ldflags \"-s -w\" -v -o healthcheck scripts/healthcheck.go\n#15 4.307 command-line-arguments\n#15 DONE 8.1s\n\n#16 [build-env 8/9] WORKDIR /staging\n#16 DONE 1.7s\n\n#17 [build-env 9/9] RUN mkdir ./data ./app &&     cp /src/wakapi app/ &&     cp /src/healthcheck app/ &&     cp /src/config.default.yml app/config.yml &&     sed -i 's/listen_ipv6: ::1/listen_ipv6: \"-\"/g' app/config.yml\n#17 DONE 4.4s\n\n#18 [stage-1 3/4] COPY --from=build-env --chown=root:root /staging/app /app\n#18 DONE 1.8s\n\n#19 [stage-1 4/4] COPY --from=build-env --chown=nonroot:nonroot /staging/data /data\n#19 DONE 1.7s\n\n#20 exporting to image\n#20 exporting layers\n#20 exporting layers 4.1s done\n#20 exporting manifest sha256:fa69de544bbf38c68c023a171ee97107dcb5a19f7f8667e00eb77c63b57bdc75 0.1s done\n#20 exporting config sha256:b556413d12c5bcfcbb91b069bf9ea0d61a556f3df14ac8c6f4282228d74792b2\n#20 exporting config sha256:b556413d12c5bcfcbb91b069bf9ea0d61a556f3df14ac8c6f4282228d74792b2 0.1s done\n#20 exporting attestation manifest sha256:4a72898e22bdb7683a8edea083d3f92220e772737d290b58f0ef96f4a6ff144b\n#20 exporting attestation manifest sha256:4a72898e22bdb7683a8edea083d3f92220e772737d290b58f0ef96f4a6ff144b 0.1s done\n#20 exporting manifest list sha256:85c98c1645422039e210fede221d7620820e987a9daf2636ce441f2f100da7b8 0.1s done\n#20 naming to docker.io/deployz-campaign/repo-556:a8d880569328\n#20 naming to docker.io/deployz-campaign/repo-556:a8d880569328 0.0s done\n#20 unpacking to docker.io/deployz-campaign/repo-556:a8d880569328\n#20 unpacking to docker.io/deployz-campaign/repo-556:a8d880569328 2.3s done\n#20 DONE 7.0s\n\n \u001b[33m2 warnings found (use docker --debug to expand):\n\u001b[0m - SecretsUsedInArgOrEnv: Do not use ARG or ENV instructions for sensitive data (ENV \"WAKAPI_DB_PASSWORD\") (line 35)\n - SecretsUsedInArgOrEnv: Do not use ARG or ENV instructions for sensitive data (ENV \"WAKAPI_PASSWORD_SALT\") (line 35)\n\nView build details: docker-desktop://dashboard/build/desktop-linux/desktop-linux/vuofdmb6b2fbdjythr3gat2xx",
+        "imageId": "sha256:85c98c1645422039e210fede221d7620820e987a9daf2636ce441f2f100da7b8",
+        "imageBytes": 71431209,
+        "failure": null,
+        "rebuilt": false
+      }
+    },
+    "run": {
+      "status": "PASS",
+      "startedAt": "2026-10-08T23:49:05.853Z",
+      "finishedAt": "2026-10-08T23:49:21.156Z",
+      "durationMs": 15303,
+      "detail": null,
+      "evidence": {
+        "image": "deployz-campaign/repo-556:a8d880569328",
+        "port": 3000,
+        "healthPath": "/heartbeat",
+        "dependencies": [
+          "postgres"
+        ],
+        "environmentNames": [
+          "DATABASE_URL",
+          "DB_HOST",
+          "DB_NAME",
+          "DB_PASSWORD",
+          "DB_PORT",
+          "DB_USER",
+          "PORT"
+        ],
+        "migration": null
+      }
+    },
+    "probes": {
+      "status": "FAIL",
+      "startedAt": "2026-10-08T23:49:21.161Z",
+      "finishedAt": "2026-10-08T23:54:22.564Z",
+      "durationMs": 301403,
+      "detail": "failed: health, dbWrite",
+      "evidence": {
+        "probes": {
+          "health": {
+            "status": "FAIL",
+            "detail": "/heartbeat did not answer 200-399 in 300 s (last status 404)"
+          },
+          "start": {
+            "status": "PASS",
+            "detail": "still running 60 s after start"
+          },
+          "migration": {
+            "status": "NOT_APPLICABLE",
+            "detail": "the manifest has no migration command"
+          },
+          "dbWrite": {
+            "status": "FAIL",
+            "detail": "no rows outside migration bookkeeping tables"
+          },
+          "redis": {
+            "status": "NOT_APPLICABLE",
+            "detail": "the manifest needs no Redis"
+          },
+          "storage": {
+            "status": "NOT_APPLICABLE",
+            "detail": "the manifest needs no storage"
+          }
+        },
+        "url": "http://app:3000/heartbeat",
+        "appLogTail": "\u001b[37m2026-10-08 23:50:13.012\u001b[0m \u001b[96mINFO\u001b[0m \u001b[97m[request]\u001b[0m \u001b[95mstatus\u001b[0m=\u001b[94m\"404\"\u001b[0m \u001b[95mmethod\u001b[0m=\u001b[94m\"GET\"\u001b[0m \u001b[95muri\u001b[0m=\u001b[94m\"/heartbeat\"\u001b[0m \u001b[95mduration\u001b[0m=\u001b[94m\"56.626µs\"\u001b[0m \u001b[95mbytes\u001b[0m=\u001b[94m\"19\"\u001b[0m \u001b[95maddr\u001b[0m=\u001b[94m\"172.18.0.4:38528\"\u001b[0m \u001b[95muser\u001b[0m=\u001b[94m\"-\"\u001b[0m\n\u001b[37m2026-10-08 23:50:19.147\u001b[0m \u001b[96mINFO\u001b[0m \u001b[97m[request]\u001b[0m \u001b[95mstatus\u001b[0m=\u001b[94m\"404\"\u001b[0m \u001b[95mmethod\u001b[0m=\u001b[94m\"GET\"\u001b[0m \u001b[95muri\u001b[0m=\u001b[94m\"/heartbeat\"\u001b[0m \u001b[95mduration\u001b[0m=\u001b[94m\"68.123µs\"\u001b[0m \u001b[95mbytes\u001b[0m=\u001b[94m\"19\"\u001b[0m \u001b[95maddr\u001b[0m=\u001b[94m\"172.18.0.4:46114\"\u001b[0m \u001b[95muser\u001b[0m=\u001b[94m\"-\"\u001b[0m\n\u001b[37m2026-10-08 23:50:25.334\u001b[0m \u001b[96mINFO\u001b[0m \u001b[97m[request]\u001b[0m \u001b[95mstatus\u001b[0m=\u001b[94m\"404\"\u001b[0m \u001b[95mmethod\u001b[0m=\u001b[94m\"GET\"\u001b[0m \u001b[95muri\u001b[0m=\u001b[94m\"/heartbeat\"\u001b[0m \u001b[95mduration\u001b[0m=\u001b[94m\"105.135µs\"\u001b[0m \u001b[95mbytes\u001b[0m=\u001b[94m\"19\"\u001b[0m \u001b[95maddr\u001b[0m=\u001b[94m\"172.18.0.4:46122\"\u001b[0m \u001b[95muser\u001b[0m=\u001b[94m\"-\"\u001b[0m\n\u001b[37m2026-10-08 23:50:31.482\u001b[0m \u001b[96mINFO\u001b[0m \u001b[97m[request]\u001b[0m \u001b[95mstatus\u001b[0m=\u001b[94m\"404\"\u001b[0m \u001b[95mmethod\u001b[0m=\u001b[94m\"GET\"\u001b[0m \u001b[95muri\u001b[0m=\u001b[94m\"/heartbeat\"\u001b[0m \u001b[95mduration\u001b[0m=\u001b[94m\"51.422µs\"\u001b[0m \u001b[95mbytes\u001b[0m=\u001b[94m\"19\"\u001b[0m \u001b[95maddr\u001b[0m=\u001b[94m\"172.18.0.4:50580\"\u001b[0m \u001b[95muser\u001b[0m=\u001b[94m\"-\"\u001b[0m\n\u001b[37m2026-10-08 23:50:37.645\u001b[0m \u001b[96mINFO\u001b[0m \u001b[97m[request]\u001b[0m \u001b[95mstatus\u001b[0m=\u001b[94m\"404\"\u001b[0m \u001b[95mmethod\u001b[0m=\u001b[94m\"GET\"\u001b[0m \u001b[95muri\u001b[0m=\u001b[94m\"/heartbeat\"\u001b[0m \u001b[95mduration\u001b[0m=\u001b[94m\"39.915µs\"\u001b[0m \u001b[95mbytes\u001b[0m=\u001b[94m\"19\"\u001b[0m \u001b[95maddr\u001b[0m=\u001b[94m\"172.18.0.4:36746\"\u001b[0m \u001b[95muser\u001b[0m=\u001b[94m\"-\"\u001b[0m\n\u001b[37m2026-10-08 23:50:44.575\u001b[0m \u001b[96mINFO\u001b[0m \u001b[97m[request]\u001b[0m \u001b[95mstatus\u001b[0m=\u001b[94m\"404\"\u001b[0m \u001b[95mmethod\u001b[0m=\u001b[94m\"GET\"\u001b[0m \u001b[95muri\u001b[0m=\u001b[94m\"/heartbeat\"\u001b[0m \u001b[95mduration\u001b[0m=\u001b[94m\"46.207µs\"\u001b[0m \u001b[95mbytes\u001b[0m=\u001b[94m\"19\"\u001b[0m \u001b[95maddr\u001b[0m=\u001b[94m\"172.18.0.4:36752\"\u001b[0m \u001b[95muser\u001b[0m=\u001b[94m\"-\"\u001b[0m\n\u001b[37m2026-10-08 23:50:51.873\u001b[0m \u001b[96mINFO\u001b[0m \u001b[97m[request]\u001b[0m \u001b[95mstatus\u001b[0m=\u001b[94m\"404\"\u001b[0m \u001b[95mmethod\u001b[0m=\u001b[94m\"GET\"\u001b[0m \u001b[95muri\u001b[0m=\u001b[94m\"/heartbeat\"\u001b[0m \u001b[95mduration\u001b[0m=\u001b[94m\"41.117µs\"\u001b[0m \u001b[95mbytes\u001b[0m=\u001b[94m\"19\"\u001b[0m \u001b[95maddr\u001b[0m=\u001b[94m\"172.18.0.4:55810\"\u001b[0m \u001b[95muser\u001b[0m=\u001b[94m\"-\"\u001b[0m\n\u001b[37m2026-10-08 23:50:58.310\u001b[0m \u001b[96mINFO\u001b[0m \u001b[97m[request]\u001b[0m \u001b[95mstatus\u001b[0m=\u001b[94m\"404\"\u001b[0m \u001b[95mmethod\u001b[0m=\u001b[94m\"GET\"\u001b[0m \u001b[95muri\u001b[0m=\u001b[94m\"/heartbeat\"\u001b[0m \u001b[95mduration\u001b[0m=\u001b[94m\"53.922µs\"\u001b[0m \u001b[95mbytes\u001b[0m=\u001b[94m\"19\"\u001b[0m \u001b[95maddr\u001b[0m=\u001b[94m\"172.18.0.4:56440\"\u001b[0m \u001b[95muser\u001b[0m=\u001b[94m\"-\"\u001b[0m\n\u001b[37m2026-10-08 23:51:04.506\u001b[0m \u001b[96mINFO\u001b[0m \u001b[97m[request]\u001b[0m \u001b[95mstatus\u001b[0m=\u001b[94m\"404\"\u001b[0m \u001b[95mmethod\u001b[0m=\u001b[94m\"GET\"\u001b[0m \u001b[95muri\u001b[0m=\u001b[94m\"/heartbeat\"\u001b[0m \u001b[95mduration\u001b[0m=\u001b[94m\"57.624µs\"\u001b[0m \u001b[95mbytes\u001b[0m=\u001b[94m\"19\"\u001b[0m \u001b[95maddr\u001b[0m=\u001b[94m\"172.18.0.4:56444\"\u001b[0m \u001b[95muser\u001b[0m=\u001b[94m\"-\"\u001b[0m\n\u001b[37m2026-10-08 23:51:10.787\u001b[0m \u001b[96mINFO\u001b[0m \u001b[97m[request]\u001b[0m \u001b[95mstatus\u001b[0m=\u001b[94m\"404\"\u001b[0m \u001b[95mmethod\u001b[0m=\u001b[94m\"GET\"\u001b[0m \u001b[95muri\u001b[0m=\u001b[94m\"/heartbeat\"\u001b[0m \u001b[95mduration\u001b[0m=\u001b[94m\"42.515µs\"\u001b[0m \u001b[95mbytes\u001b[0m=\u001b[94m\"19\"\u001b[0m \u001b[95maddr\u001b[0m=\u001b[94m\"172.18.0.4:41364\"\u001b[0m \u001b[95muser\u001b[0m=\u001b[94m\"-\"\u001b[0m\n\u001b[37m2026-10-08 23:51:17.245\u001b[0m \u001b[96mINFO\u001b[0m \u001b[97m[request]\u001b[0m \u001b[95mstatus\u001b[0m=\u001b[94m\"404\"\u001b[0m \u001b[95mmethod\u001b[0m=\u001b[94m\"GET\"\u001b[0m \u001b[95muri\u001b[0m=\u001b[94m\"/heartbeat\"\u001b[0m \u001b[95mduration\u001b[0m=\u001b[94m\"68.912µs\"\u001b[0m \u001b[95mbytes\u001b[0m=\u001b[94m\"19\"\u001b[0m \u001b[95maddr\u001b[0m=\u001b[94m\"172.18.0.4:56538\"\u001b[0m \u001b[95muser\u001b[0m=\u001b[94m\"-\"\u001b[0m\n\u001b[37m2026-10-08 23:51:23.479\u001b[0m \u001b[96mINFO\u001b[0m \u001b[97m[request]\u001b[0m \u001b[95mstatus\u001b[0m=\u001b[94m\"404\"\u001b[0m \u001b[95mmethod\u001b[0m=\u001b[94m\"GET\"\u001b[0m \u001b[95muri\u001b[0m=\u001b[94m\"/heartbeat\"\u001b[0m \u001b[95mduration\u001b[0m=\u001b[94m\"127.651µs\"\u001b[0m \u001b[95mbytes\u001b[0m=\u001b[94m\"19\"\u001b[0m \u001b[95maddr\u001b[0m=\u001b[94m\"172.18.0.4:56554\"\u001b[0m \u001b[95muser\u001b[0m=\u001b[94m\"-\"\u001b[0m\n\u001b[37m2026-10-08 23:51:29.704\u001b[0m \u001b[96mINFO\u001b[0m \u001b[97m[request]\u001b[0m \u001b[95mstatus\u001b[0m=\u001b[94m\"404\"\u001b[0m \u001b[95mmethod\u001b[0m=\u001b[94m\"GET\"\u001b[0m \u001b[95muri\u001b[0m=\u001b[94m\"/heartbeat\"\u001b[0m \u001b[95mduration\u001b[0m=\u001b[94m\"84.133µs\"\u001b[0m \u001b[95mbytes\u001b[0m=\u001b[94m\"19\"\u001b[0m \u001b[95maddr\u001b[0m=\u001b[94m\"172.18.0.4:55912\"\u001b[0m \u001b[95muser\u001b[0m=\u001b[94m\"-\"\u001b[0m\n\u001b[37m2026-10-08 23:51:36.051\u001b[0m \u001b[96mINFO\u001b[0m \u001b[97m[request]\u001b[0m \u001b[95mstatus\u001b[0m=\u001b[94m\"404\"\u001b[0m \u001b[95mmethod\u001b[0m=\u001b[94m\"GET\"\u001b[0m \u001b[95muri\u001b[0m=\u001b[94m\"/heartbeat\"\u001b[0m \u001b[95mduration\u001b[0m=\u001b[94m\"43.517µs\"\u001b[0m \u001b[95mbytes\u001b[0m=\u001b[94m\"19\"\u001b[0m \u001b[95maddr\u001b[0m=\u001b[94m\"172.18.0.4:55918\"\u001b[0m \u001b[95muser\u001b[0m=\u001b[94m\"-\"\u001b[0m\n\u001b[37m2026-10-08 23:51:42.109\u001b[0m \u001b[96mINFO\u001b[0m \u001b[97m[request]\u001b[0m \u001b[95mstatus\u001b[0m=\u001b[94m\"404\"\u001b[0m \u001b[95mmethod\u001b[0m=\u001b[94m\"GET\"\u001b[0m \u001b[95muri\u001b[0m=\u001b[94m\"/heartbeat\"\u001b[0m \u001b[95mduration\u001b[0m=\u001b[94m\"47.016µs\"\u001b[0m \u001b[95mbytes\u001b[0m=\u001b[94m\"19\"\u001b[0m \u001b[95maddr\u001b[0m=\u001b[94m\"172.18.0.4:56466\"\u001b[0m \u001b[95muser\u001b[0m=\u001b[94m\"-\"\u001b[0m\n\u001b[37m2026-10-08 23:51:48.221\u001b[0m \u001b[96mINFO\u001b[0m \u001b[97m[request]\u001b[0m \u001b[95mstatus\u001b[0m=\u001b[94m\"404\"\u001b[0m \u001b[95mmethod\u001b[0m=\u001b[94m\"GET\"\u001b[0m \u001b[95muri\u001b[0m=\u001b[94m\"/heartbeat\"\u001b[0m \u001b[95mduration\u001b[0m=\u001b[94m\"51.019µs\"\u001b[0m \u001b[95mbytes\u001b[0m=\u001b[94m\"19\"\u001b[0m \u001b[95maddr\u001b[0m=\u001b[94m\"172.18.0.4:39570\"\u001b[0m \u001b[95muser\u001b[0m=\u001b[94m\"-\"\u001b[0m\n\u001b[37m2026-10-08 23:51:54.440\u001b[0m \u001b[96mINFO\u001b[0m \u001b[97m[request]\u001b[0m \u001b[95mstatus\u001b[0m=\u001b[94m\"404\"\u001b[0m \u001b[95mmethod\u001b[0m=\u001b[94m\"GET\"\u001b[0m \u001b[95muri\u001b[0m=\u001b[94m\"/heartbeat\"\u001b[0m \u001b[95mduration\u001b[0m=\u001b[94m\"54.417µs\"\u001b[0m \u001b[95mbytes\u001b[0m=\u001b[94m\"19\"\u001b[0m \u001b[95maddr\u001b[0m=\u001b[94m\"172.18.0.4:39576\"\u001b[0m \u001b[95muser\u001b[0m=\u001b[94m\"-\"\u001b[0m\n\u001b[37m2026-10-08 23:52:00.587\u001b[0m \u001b[96mINFO\u001b[0m \u001b[97m[request]\u001b[0m \u001b[95mstatus\u001b[0m=\u001b[94m\"404\"\u001b[0m \u001b[95mmethod\u001b[0m=\u001b[94m\"GET\"\u001b[0m \u001b[95muri\u001b[0m=\u001b[94m\"/heartbeat\"\u001b[0m \u001b[95mduration\u001b[0m=\u001b[94m\"42.813µs\"\u001b[0m \u001b[95mbytes\u001b[0m=\u001b[94m\"19\"\u001b[0m \u001b[95maddr\u001b[0m=\u001b[94m\"172.18.0.4:48596\"\u001b[0m \u001b[95muser\u001b[0m=\u001b[94m\"-\"\u001b[0m\n\u001b[37m2026-10-08 23:52:06.755\u001b[0m \u001b[96mINFO\u001b[0m \u001b[97m[request]\u001b[0m \u001b[95mstatus\u001b[0m=\u001b[94m\"404\"\u001b[0m \u001b[95mmethod\u001b[0m=\u001b[94m\"GET\"\u001b[0m \u001b[95muri\u001b[0m=\u001b[94m\"/heartbeat\"\u001b[0m \u001b[95mduration\u001b[0m=\u001b[94m\"45.111µs\"\u001b[0m \u001b[95mbytes\u001b[0m=\u001b[94m\"19\"\u001b[0m \u001b[95maddr\u001b[0m=\u001b[94m\"172.18.0.4:48600\"\u001b[0m \u001b[95muser\u001b[0m=\u001b[94m\"-\"\u001b[0m\n\u001b[37m2026-10-08 23:52:12.947\u001b[0m \u001b[96mINFO\u001b[0m \u001b[97m[request]\u001b[0m \u001b[95mstatus\u001b[0m=\u001b[94m\"404\"\u001b[0m \u001b[95mmethod\u001b[0m=\u001b[94m\"GET\"\u001b[0m \u001b[95muri\u001b[0m=\u001b[94m\"/heartbeat\"\u001b[0m \u001b[95mduration\u001b[0m=\u001b[94m\"67.407µs\"\u001b[0m \u001b[95mbytes\u001b[0m=\u001b[94m\"19\"\u001b[0m \u001b[95maddr\u001b[0m=\u001b[94m\"172.18.0.4:54616\"\u001b[0m \u001b[95muser\u001b[0m=\u001b[94m\"-\"\u001b[0m\n\u001b[37m2026-10-08 23:52:19.048\u001b[0m \u001b[96mINFO\u001b[0m \u001b[97m[request]\u001b[0m \u001b[95mstatus\u001b[0m=\u001b[94m\"404\"\u001b[0m \u001b[95mmethod\u001b[0m=\u001b[94m\"GET\"\u001b[0m \u001b[95muri\u001b[0m=\u001b[94m\"/heartbeat\"\u001b[0m \u001b[95mduration\u001b[0m=\u001b[94m\"53.033µs\"\u001b[0m \u001b[95mbytes\u001b[0m=\u001b[94m\"19\"\u001b[0m \u001b[95maddr\u001b[0m=\u001b[94m\"172.18.0.4:35616\"\u001b[0m \u001b[95muser\u001b[0m=\u001b[94m\"-\"\u001b[0m\n\u001b[37m2026-10-08 23:52:25.166\u001b[0m \u001b[96mINFO\u001b[0m \u001b[97m[request]\u001b[0m \u001b[95mstatus\u001b[0m=\u001b[94m\"404\"\u001b[0m \u001b[95mmethod\u001b[0m=\u001b[94m\"GET\"\u001b[0m \u001b[95muri\u001b[0m=\u001b[94m\"/heartbeat\"\u001b[0m \u001b[95mduration\u001b[0m=\u001b[94m\"110.132µs\"\u001b[0m \u001b[95mbytes\u001b[0m=\u001b[94m\"19\"\u001b[0m \u001b[95maddr\u001b[0m=\u001b[94m\"172.18.0.4:35630\"\u001b[0m \u001b[95muser\u001b[0m=\u001b[94m\"-\"\u001b[0m\n\u001b[37m2026-10-08 23:52:31.442\u001b[0m \u001b[96mINFO\u001b[0m \u001b[97m[request]\u001b[0m \u001b[95mstatus\u001b[0m=\u001b[94m\"404\"\u001b[0m \u001b[95mmethod\u001b[0m=\u001b[94m\"GET\"\u001b[0m \u001b[95muri\u001b[0m=\u001b[94m\"/heartbeat\"\u001b[0m \u001b[95mduration\u001b[0m=\u001b[94m\"135.381µs\"\u001b[0m \u001b[95mbytes\u001b[0m=\u001b[94m\"19\"\u001b[0m \u001b[95maddr\u001b[0m=\u001b[94m\"172.18.0.4:39200\"\u001b[0m \u001b[95muser\u001b[0m=\u001b[94m\"-\"\u001b[0m\n\u001b[37m2026-10-08 23:52:38.603\u001b[0m \u001b[96mINFO\u001b[0m \u001b[97m[request]\u001b[0m \u001b[95mstatus\u001b[0m=\u001b[94m\"404\"\u001b[0m \u001b[95mmethod\u001b[0m=\u001b[94m\"GET\"\u001b[0m \u001b[95muri\u001b[0m=\u001b[94m\"/heartbeat\"\u001b[0m \u001b[95mduration\u001b[0m=\u001b[94m\"59.414µs\"\u001b[0m \u001b[95mbytes\u001b[0m=\u001b[94m\"19\"\u001b[0m \u001b[95maddr\u001b[0m=\u001b[94m\"172.18.0.4:34502\"\u001b[0m \u001b[95muser\u001b[0m=\u001b[94m\"-\"\u001b[0m\n\u001b[37m2026-10-08 23:52:45.572\u001b[0m \u001b[96mINFO\u001b[0m \u001b[97m[request]\u001b[0m \u001b[95mstatus\u001b[0m=\u001b[94m\"404\"\u001b[0m \u001b[95mmethod\u001b[0m=\u001b[94m\"GET\"\u001b[0m \u001b[95muri\u001b[0m=\u001b[94m\"/heartbeat\"\u001b[0m \u001b[95mduration\u001b[0m=\u001b[94m\"67.797µs\"\u001b[0m \u001b[95mbytes\u001b[0m=\u001b[94m\"19\"\u001b[0m \u001b[95maddr\u001b[0m=\u001b[94m\"172.18.0.4:34508\"\u001b[0m \u001b[95muser\u001b[0m=\u001b[94m\"-\"\u001b[0m\n\u001b[37m2026-10-08 23:52:51.895\u001b[0m \u001b[96mINFO\u001b[0m \u001b[97m[request]\u001b[0m \u001b[95mstatus\u001b[0m=\u001b[94m\"404\"\u001b[0m \u001b[95mmethod\u001b[0m=\u001b[94m\"GET\"\u001b[0m \u001b[95muri\u001b[0m=\u001b[94m\"/heartbeat\"\u001b[0m \u001b[95mduration\u001b[0m=\u001b[94m\"56.712µs\"\u001b[0m \u001b[95mbytes\u001b[0m=\u001b[94m\"19\"\u001b[0m \u001b[95maddr\u001b[0m=\u001b[94m\"172.18.0.4:39504\"\u001b[0m \u001b[95muser\u001b[0m=\u001b[94m\"-\"\u001b[0m\n\u001b[37m2026-10-08 23:52:58.078\u001b[0m \u001b[96mINFO\u001b[0m \u001b[97m[request]\u001b[0m \u001b[95mstatus\u001b[0m=\u001b[94m\"404\"\u001b[0m \u001b[95mmethod\u001b[0m=\u001b[94m\"GET\"\u001b[0m \u001b[95muri\u001b[0m=\u001b[94m\"/heartbeat\"\u001b[0m \u001b[95mduration\u001b[0m=\u001b[94m\"114.124µs\"\u001b[0m \u001b[95mbytes\u001b[0m=\u001b[94m\"19\"\u001b[0m \u001b[95maddr\u001b[0m=\u001b[94m\"172.18.0.4:38796\"\u001b[0m \u001b[95muser\u001b[0m=\u001b[94m\"-\"\u001b[0m\n\u001b[37m2026-10-08 23:53:04.178\u001b[0m \u001b[96mINFO\u001b[0m \u001b[97m[request]\u001b[0m \u001b[95mstatus\u001b[0m=\u001b[94m\"404\"\u001b[0m \u001b[95mmethod\u001b[0m=\u001b[94m\"GET\"\u001b[0m \u001b[95muri\u001b[0m=\u001b[94m\"/heartbeat\"\u001b[0m \u001b[95mduration\u001b[0m=\u001b[94m\"34.607µs\"\u001b[0m \u001b[95mbytes\u001b[0m=\u001b[94m\"19\"\u001b[0m \u001b[95maddr\u001b[0m=\u001b[94m\"172.18.0.4:38812\"\u001b[0m \u001b[95muser\u001b[0m=\u001b[94m\"-\"\u001b[0m\n\u001b[37m2026-10-08 23:53:10.468\u001b[0m \u001b[96mINFO\u001b[0m \u001b[97m[request]\u001b[0m \u001b[95mstatus\u001b[0m=\u001b[94m\"404\"\u001b[0m \u001b[95mmethod\u001b[0m=\u001b[94m\"GET\"\u001b[0m \u001b[95muri\u001b[0m=\u001b[94m\"/heartbeat\"\u001b[0m \u001b[95mduration\u001b[0m=\u001b[94m\"123.216µs\"\u001b[0m \u001b[95mbytes\u001b[0m=\u001b[94m\"19\"\u001b[0m \u001b[95maddr\u001b[0m=\u001b[94m\"172.18.0.4:59190\"\u001b[0m \u001b[95muser\u001b[0m=\u001b[94m\"-\"\u001b[0m\n\u001b[37m2026-10-08 23:53:16.558\u001b[0m \u001b[96mINFO\u001b[0m \u001b[97m[request]\u001b[0m \u001b[95mstatus\u001b[0m=\u001b[94m\"404\"\u001b[0m \u001b[95mmethod\u001b[0m=\u001b[94m\"GET\"\u001b[0m \u001b[95muri\u001b[0m=\u001b[94m\"/heartbeat\"\u001b[0m \u001b[95mduration\u001b[0m=\u001b[94m\"47.798µs\"\u001b[0m \u001b[95mbytes\u001b[0m=\u001b[94m\"19\"\u001b[0m \u001b[95maddr\u001b[0m=\u001b[94m\"172.18.0.4:59192\"\u001b[0m \u001b[95muser\u001b[0m=\u001b[94m\"-\"\u001b[0m\n\u001b[37m2026-10-08 23:53:22.698\u001b[0m \u001b[96mINFO\u001b[0m \u001b[97m[request]\u001b[0m \u001b[95mstatus\u001b[0m=\u001b[94m\"404\"\u001b[0m \u001b[95mmethod\u001b[0m=\u001b[94m\"GET\"\u001b[0m \u001b[95muri\u001b[0m=\u001b[94m\"/heartbeat\"\u001b[0m \u001b[95mduration\u001b[0m=\u001b[94m\"117.621µs\"\u001b[0m \u001b[95mbytes\u001b[0m=\u001b[94m\"19\"\u001b[0m \u001b[95maddr\u001b[0m=\u001b[94m\"172.18.0.4:37698\"\u001b[0m \u001b[95muser\u001b[0m=\u001b[94m\"-\"\u001b[0m\n\u001b[37m2026-10-08 23:53:28.983\u001b[0m \u001b[96mINFO\u001b[0m \u001b[97m[request]\u001b[0m \u001b[95mstatus\u001b[0m=\u001b[94m\"404\"\u001b[0m \u001b[95mmethod\u001b[0m=\u001b[94m\"GET\"\u001b[0m \u001b[95muri\u001b[0m=\u001b[94m\"/heartbeat\"\u001b[0m \u001b[95mduration\u001b[0m=\u001b[94m\"34.206µs\"\u001b[0m \u001b[95mbytes\u001b[0m=\u001b[94m\"19\"\u001b[0m \u001b[95maddr\u001b[0m=\u001b[94m\"172.18.0.4:43776\"\u001b[0m \u001b[95muser\u001b[0m=\u001b[94m\"-\"\u001b[0m\n\u001b[37m2026-10-08 23:53:35.181\u001b[0m \u001b[96mINFO\u001b[0m \u001b[97m[request]\u001b[0m \u001b[95mstatus\u001b[0m=\u001b[94m\"404\"\u001b[0m \u001b[95mmethod\u001b[0m=\u001b[94m\"GET\"\u001b[0m \u001b[95muri\u001b[0m=\u001b[94m\"/heartbeat\"\u001b[0m \u001b[95mduration\u001b[0m=\u001b[94m\"55.209µs\"\u001b[0m \u001b[95mbytes\u001b[0m=\u001b[94m\"19\"\u001b[0m \u001b[95maddr\u001b[0m=\u001b[94m\"172.18.0.4:43780\"\u001b[0m \u001b[95muser\u001b[0m=\u001b[94m\"-\"\u001b[0m\n\u001b[37m2026-10-08 23:53:41.679\u001b[0m \u001b[96mINFO\u001b[0m \u001b[97m[request]\u001b[0m \u001b[95mstatus\u001b[0m=\u001b[94m\"404\"\u001b[0m \u001b[95mmethod\u001b[0m=\u001b[94m\"GET\"\u001b[0m \u001b[95muri\u001b[0m=\u001b[94m\"/heartbeat\"\u001b[0m \u001b[95mduration\u001b[0m=\u001b[94m\"51.107µs\"\u001b[0m \u001b[95mbytes\u001b[0m=\u001b[94m\"19\"\u001b[0m \u001b[95maddr\u001b[0m=\u001b[94m\"172.18.0.4:60740\"\u001b[0m \u001b[95muser\u001b[0m=\u001b[94m\"-\"\u001b[0m\n\u001b[37m2026-10-08 23:53:47.878\u001b[0m \u001b[96mINFO\u001b[0m \u001b[97m[request]\u001b[0m \u001b[95mstatus\u001b[0m=\u001b[94m\"404\"\u001b[0m \u001b[95mmethod\u001b[0m=\u001b[94m\"GET\"\u001b[0m \u001b[95muri\u001b[0m=\u001b[94m\"/heartbeat\"\u001b[0m \u001b[95mduration\u001b[0m=\u001b[94m\"108.098µs\"\u001b[0m \u001b[95mbytes\u001b[0m=\u001b[94m\"19\"\u001b[0m \u001b[95maddr\u001b[0m=\u001b[94m\"172.18.0.4:56468\"\u001b[0m \u001b[95muser\u001b[0m=\u001b[94m\"-\"\u001b[0m\n\u001b[37m2026-10-08 23:53:54.333\u001b[0m \u001b[96mINFO\u001b[0m \u001b[97m[request]\u001b[0m \u001b[95mstatus\u001b[0m=\u001b[94m\"404\"\u001b[0m \u001b[95mmethod\u001b[0m=\u001b[94m\"GET\"\u001b[0m \u001b[95muri\u001b[0m=\u001b[94m\"/heartbeat\"\u001b[0m \u001b[95mduration\u001b[0m=\u001b[94m\"46.013µs\"\u001b[0m \u001b[95mbytes\u001b[0m=\u001b[94m\"19\"\u001b[0m \u001b[95maddr\u001b[0m=\u001b[94m\"172.18.0.4:56474\"\u001b[0m \u001b[95muser\u001b[0m=\u001b[94m\"-\"\u001b[0m\n\u001b[37m2026-10-08 23:54:01.433\u001b[0m \u001b[96mINFO\u001b[0m \u001b[97m[request]\u001b[0m \u001b[95mstatus\u001b[0m=\u001b[94m\"404\"\u001b[0m \u001b[95mmethod\u001b[0m=\u001b[94m\"GET\"\u001b[0m \u001b[95muri\u001b[0m=\u001b[94m\"/heartbeat\"\u001b[0m \u001b[95mduration\u001b[0m=\u001b[94m\"62.917µs\"\u001b[0m \u001b[95mbytes\u001b[0m=\u001b[94m\"19\"\u001b[0m \u001b[95maddr\u001b[0m=\u001b[94m\"172.18.0.4:39764\"\u001b[0m \u001b[95muser\u001b[0m=\u001b[94m\"-\"\u001b[0m\n\u001b[37m2026-10-08 23:54:07.636\u001b[0m \u001b[96mINFO\u001b[0m \u001b[97m[request]\u001b[0m \u001b[95mstatus\u001b[0m=\u001b[94m\"404\"\u001b[0m \u001b[95mmethod\u001b[0m=\u001b[94m\"GET\"\u001b[0m \u001b[95muri\u001b[0m=\u001b[94m\"/heartbeat\"\u001b[0m \u001b[95mduration\u001b[0m=\u001b[94m\"49.608µs\"\u001b[0m \u001b[95mbytes\u001b[0m=\u001b[94m\"19\"\u001b[0m \u001b[95maddr\u001b[0m=\u001b[94m\"172.18.0.4:58320\"\u001b[0m \u001b[95muser\u001b[0m=\u001b[94m\"-\"\u001b[0m\n\u001b[37m2026-10-08 23:54:15.085\u001b[0m \u001b[96mINFO\u001b[0m \u001b[97m[request]\u001b[0m \u001b[95mstatus\u001b[0m=\u001b[94m\"404\"\u001b[0m \u001b[95mmethod\u001b[0m=\u001b[94m\"GET\"\u001b[0m \u001b[95muri\u001b[0m=\u001b[94m\"/heartbeat\"\u001b[0m \u001b[95mduration\u001b[0m=\u001b[94m\"55.906µs\"\u001b[0m \u001b[95mbytes\u001b[0m=\u001b[94m\"19\"\u001b[0m \u001b[95maddr\u001b[0m=\u001b[94m\"172.18.0.4:58332\"\u001b[0m \u001b[95muser\u001b[0m=\u001b[94m\"-\"\u001b[0m\n\u001b[37m2026-10-08 23:54:21.693\u001b[0m \u001b[96mINFO\u001b[0m \u001b[97m[request]\u001b[0m \u001b[95mstatus\u001b[0m=\u001b[94m\"404\"\u001b[0m \u001b[95mmethod\u001b[0m=\u001b[94m\"GET\"\u001b[0m \u001b[95muri\u001b[0m=\u001b[94m\"/heartbeat\"\u001b[0m \u001b[95mduration\u001b[0m=\u001b[94m\"52.599µs\"\u001b[0m \u001b[95mbytes\u001b[0m=\u001b[94m\"19\"\u001b[0m \u001b[95maddr\u001b[0m=\u001b[94m\"172.18.0.4:46808\"\u001b[0m \u001b[95muser\u001b[0m=\u001b[94m\"-\"\u001b[0m"
+      }
+    },
+    "cleanup": {
+      "status": "PASS",
+      "startedAt": "2026-10-08T23:54:22.570Z",
+      "finishedAt": "2026-10-08T23:54:25.470Z",
+      "durationMs": 2900,
+      "detail": null,
+      "evidence": {
+        "removed": {
+          "containers": 2,
+          "networks": 1,
+          "volumes": 0
+        },
+        "imageRemoved": true,
+        "keepImage": false,
+        "leaks": {
+          "containers": [],
+          "networks": [],
+          "volumes": []
+        }
+      }
+    }
+  },
+  "classification": "probes",
+  "remediation": null
+}
