@@ -1,0 +1,934 @@
+# Final reconciled labels (rule set R1), corpus batch 4 (repo-531..repo-540). Source files at the pinned commit decide every value.
+taskId: P1-RECONCILE-02
+testedCommit: e6a3b58ee2363923fef21faca86611fa3bf84538
+rules: R1
+apps:
+  - id: repo-531
+    repo: sissbruecker/linkding
+    commit: 27b7303baf41bb28babc610ac8eaa486e1ddfab5
+    finalStatus: LABELED
+    expected:
+      compatibility: NOT_COMPATIBLE
+      runtime:
+        - python
+      monorepo: false
+      postgres: true
+      redis: false
+      worker: false
+      migration: true
+      appRoot: .
+      dockerfilePath: docker/default.Dockerfile
+      port: 9090
+      healthPath: /health
+      unsupported:
+        - local-filesystem
+    citations:
+      compatibility:
+        - path: bookmarks/settings/base.py
+          reason: Favicons, previews and user assets are written to data/ folders (LD_FAVICON_FOLDER, LD_ASSET_FOLDER) and the Huey task queue is a SQLite file at data/tasks.sqlite3; none has an env or S3 option
+        - path: bootstrap.sh
+          reason: Creates data/favicons, data/previews and data/assets, and the secret key file under data/; the image stores state on local disk
+        - path: docker/default.Dockerfile
+          reason: No Dockerfile at the repository root; the production Dockerfile is under docker/
+      runtime:
+        - path: pyproject.toml
+          reason: Python Django project
+      monorepo:
+        - path: pyproject.toml
+          reason: Single Python project; package.json only builds frontend assets
+      postgres:
+        - path: bookmarks/settings/base.py
+          reason: LD_DB_ENGINE=postgres selects the Django PostgreSQL backend; SQLite is the default
+      redis:
+        - path: pyproject.toml
+          reason: No Redis client dependency; background tasks use SQLite-backed Huey
+      worker:
+        - path: supervisord-tasks.conf
+          reason: jobs program (python manage.py run_huey) is started by bootstrap.sh inside the web container; no separate worker command is needed
+      migration:
+        - path: bootstrap.sh
+          reason: python manage.py migrate runs on every container start
+      appRoot:
+        - path: manage.py
+          reason: Django project at the repository root
+      dockerfilePath:
+        - path: docker/default.Dockerfile
+          reason: Production Dockerfile (docker/alpine.Dockerfile is the alternative); there is no root Dockerfile
+      port:
+        - path: docker/default.Dockerfile
+          reason: EXPOSE 9090
+        - path: bootstrap.sh
+          reason: LD_SERVER_PORT defaults to 9090
+      healthPath:
+        - path: bookmarks/urls.py
+          reason: path("health", health_view)
+        - path: docker/default.Dockerfile
+          reason: HEALTHCHECK curls /${LD_CONTEXT_PATH}health
+      unsupported:
+        - path: bookmarks/settings/base.py
+          reason: HUEY uses huey.SqliteHuey with a file under data/; assets and favicons folders under data/
+        - path: bootstrap.sh
+          reason: Creates data/ folders for assets, favicons, previews and the secret key
+    reconciliation:
+      - field: compatibility
+        initial: NOT_COMPATIBLE
+        verify: NEEDS_CONFIGURATION
+        final: NOT_COMPATIBLE
+        rule: R1
+        evidence:
+          - path: bookmarks/settings/base.py
+            reason: Favicons, previews and user assets are written to data/ folders (LD_FAVICON_FOLDER, LD_ASSET_FOLDER) and the Huey task queue is a SQLite file at data/tasks.sqlite3; none has an env or S3 option
+          - path: bootstrap.sh
+            reason: Creates data/favicons, data/previews and data/assets, and the secret key file under data/; the image stores state on local disk
+          - path: docker/default.Dockerfile
+            reason: No Dockerfile at the repository root; the production Dockerfile is under docker/
+      - field: worker
+        initial: true
+        verify: false
+        final: false
+        rule: R4
+        evidence:
+          - path: supervisord-tasks.conf
+            reason: jobs program (python manage.py run_huey) is started by bootstrap.sh inside the web container; no separate worker command is needed
+      - field: storage
+        initial: false
+        verify: omitted
+        final: omitted
+        rule: R4
+        evidence:
+          - path: bookmarks/settings/base.py
+            reason: Assets, favicons and previews are written to local data/ folders; no S3 backend
+      - field: migration
+        initial: true
+        verify: omitted
+        final: true
+        rule: R5
+        evidence:
+          - path: bootstrap.sh
+            reason: python manage.py migrate runs on every container start
+      - field: unsupported
+        initial:
+          - local-filesystem
+        verify: omitted
+        final:
+          - local-filesystem
+        rule: R6
+        evidence:
+          - path: bookmarks/settings/base.py
+            reason: HUEY uses huey.SqliteHuey with a file under data/; assets and favicons folders under data/
+          - path: bootstrap.sh
+            reason: Creates data/ folders for assets, favicons, previews and the secret key
+    notes:
+      - "NOT_COMPATIBLE: the default path keeps assets, favicons, the secret key and the task queue on local disk (R1 data directory, local uploads with no S3 option). The Postgres switch by LD_DB_ENGINE does not remove them."
+      - "worker is false: the image already starts the Huey consumer inside the web container (R4: no separate worker process is needed)."
+  - id: repo-532
+    repo: pretix/pretix
+    commit: ba36d649c6ed1dde278c35d9ae4e609723c78bce
+    finalStatus: LABELED
+    expected:
+      compatibility: NOT_COMPATIBLE
+      runtime:
+        - python
+      monorepo: false
+      postgres: true
+      redis: false
+      worker: false
+      migration: true
+      appRoot: .
+      dockerfilePath: Dockerfile
+      port: 80
+      healthPath: /healthcheck/
+      unsupported:
+        - local-filesystem
+    citations:
+      compatibility:
+        - path: Dockerfile
+          reason: VOLUME ["/etc/pretix", "/data"]; the image expects a mounted config directory and data directory
+        - path: deployment/docker/pretix.bash
+          reason: DATA_DIR=/data/ and /data/media and /data/logs are created at start
+        - path: src/pretix/settings.py
+          reason: MEDIA_ROOT is DATA_DIR/media and the secret key file is DATA_DIR/.secret; no S3 media backend; default database is SQLite under DATA_DIR
+      runtime:
+        - path: pyproject.toml
+          reason: Python Django project
+        - path: Dockerfile
+          reason: Python base image
+      monorepo:
+        - path: pyproject.toml
+          reason: Single Python package under src/
+      postgres:
+        - path: src/pretix/settings.py
+          reason: postgresql backend is supported; MySQL and MariaDB are refused
+      redis:
+        - path: src/pretix/settings.py
+          reason: Redis is used only when a [redis] option is set; optional
+      worker:
+        - path: deployment/docker/supervisord/pretixtask.conf
+          reason: Celery task worker runs under supervisord inside the same container (CMD all)
+        - path: Dockerfile
+          reason: ENTRYPOINT pretix with CMD all starts web and task worker together
+      migration:
+        - path: deployment/docker/pretix.bash
+          reason: python3 -m pretix migrate --noinput unless AUTOMIGRATE=skip
+      appRoot:
+        - path: Dockerfile
+          reason: Dockerfile at the repository root builds the whole repository
+      dockerfilePath:
+        - path: Dockerfile
+          reason: Root Dockerfile
+      port:
+        - path: Dockerfile
+          reason: EXPOSE 80
+        - path: deployment/docker/nginx.conf
+          reason: nginx listens on 80 and proxies to gunicorn
+      healthPath:
+        - path: src/pretix/urls.py
+          reason: re_path ^healthcheck/$ maps to health.healthcheck
+      unsupported:
+        - path: Dockerfile
+          reason: VOLUME /data and /etc/pretix
+        - path: src/pretix/settings.py
+          reason: Uploaded media under DATA_DIR/media on local disk
+    reconciliation:
+      - field: compatibility
+        initial: NOT_COMPATIBLE
+        verify: NEEDS_CONFIGURATION
+        final: NOT_COMPATIBLE
+        rule: R1
+        evidence:
+          - path: Dockerfile
+            reason: VOLUME ["/etc/pretix", "/data"]; the image expects a mounted config directory and data directory
+          - path: deployment/docker/pretix.bash
+            reason: DATA_DIR=/data/ and /data/media and /data/logs are created at start
+          - path: src/pretix/settings.py
+            reason: MEDIA_ROOT is DATA_DIR/media and the secret key file is DATA_DIR/.secret; no S3 media backend; default database is SQLite under DATA_DIR
+      - field: worker
+        initial: true
+        verify: false
+        final: false
+        rule: R4
+        evidence:
+          - path: deployment/docker/supervisord/pretixtask.conf
+            reason: Celery task worker runs under supervisord inside the same container (CMD all)
+          - path: Dockerfile
+            reason: ENTRYPOINT pretix with CMD all starts web and task worker together
+      - field: storage
+        initial: false
+        verify: omitted
+        final: omitted
+        rule: R4
+        evidence:
+          - path: src/pretix/settings.py
+            reason: MEDIA_ROOT is DATA_DIR/media; no S3 storage backend selection
+      - field: migration
+        initial: true
+        verify: omitted
+        final: true
+        rule: R5
+        evidence:
+          - path: deployment/docker/pretix.bash
+            reason: python3 -m pretix migrate --noinput unless AUTOMIGRATE=skip
+      - field: unsupported
+        initial:
+          - local-filesystem
+        verify: omitted
+        final:
+          - local-filesystem
+        rule: R6
+        evidence:
+          - path: Dockerfile
+            reason: VOLUME /data and /etc/pretix
+          - path: src/pretix/settings.py
+            reason: Uploaded media under DATA_DIR/media on local disk
+    notes:
+      - "NOT_COMPATIBLE: local media and data directory with no S3 option (R1). Environment config removes the config file but not the data directory."
+      - "worker is false: celery runs inside the image through supervisord (R4)."
+  - id: repo-533
+    repo: atuinsh/atuin
+    commit: 184200a6cc1e747dcdc8f58c97bf72c52179d57f
+    finalStatus: LABELED
+    expected:
+      compatibility: NEEDS_CONFIGURATION
+      runtime:
+        - rust
+      monorepo: true
+      postgres: true
+      redis: false
+      worker: false
+      migration: true
+      appRoot: .
+      dockerfilePath: Dockerfile
+      port: 8888
+      healthPath: /healthz
+    citations:
+      compatibility:
+        - path: crates/atuin-server/src/settings.rs
+          reason: host defaults to 127.0.0.1 and db_uri has no default; ATUIN_HOST and ATUIN_DB_URI must be set
+        - path: Dockerfile
+          reason: ENTRYPOINT atuin-server with no CMD; the start subcommand must be supplied
+      runtime:
+        - path: Cargo.toml
+          reason: Rust cargo workspace
+        - path: Dockerfile
+          reason: cargo build --release --bin atuin-server
+      monorepo:
+        - path: Cargo.toml
+          reason: Workspace of many crates (crates/*) next to the server crate
+      postgres:
+        - path: crates/atuin-server/Cargo.toml
+          reason: sqlx with the postgres feature
+        - path: crates/atuin-server/src/db/postgres/mod.rs
+          reason: PostgreSQL database implementation
+      redis:
+        - path: crates/atuin-server/Cargo.toml
+          reason: No Redis dependency
+      worker:
+        - path: crates/atuin-server/src/bin/main.rs
+          reason: Only Start and DefaultConfig commands; no worker process
+      migration:
+        - path: crates/atuin-server/src/db/mysql/migrations/20231203124112_create-store.sql
+          reason: Versioned sqlx migration directories per database under crates/atuin-server/src/db/
+        - path: crates/atuin-server/src/db/postgres/mod.rs
+          reason: Applies the sqlx migrations at server start
+      appRoot:
+        - path: Cargo.toml
+          reason: Workspace root
+      dockerfilePath:
+        - path: Dockerfile
+          reason: Root Dockerfile builds only atuin-server
+      port:
+        - path: crates/atuin-server/src/settings.rs
+          reason: set_default("port", 8888)
+        - path: Dockerfile
+          reason: HEALTHCHECK uses ATUIN_PORT default 8888
+      healthPath:
+        - path: crates/atuin-server/src/router.rs
+          reason: route /healthz
+        - path: Dockerfile
+          reason: HEALTHCHECK curls /healthz
+    reconciliation:
+      - field: monorepo
+        initial: true
+        verify: false
+        final: true
+        rule: none (no rule in R1)
+        evidence:
+          - path: Cargo.toml
+            reason: Workspace of many crates (crates/*) next to the server crate
+      - field: storage
+        initial: false
+        verify: omitted
+        final: omitted
+        rule: R4
+        evidence:
+          - path: crates/atuin-server/Cargo.toml
+            reason: No object storage dependency
+      - field: migration
+        initial: false
+        verify: omitted
+        final: true
+        rule: R5
+        evidence:
+          - path: crates/atuin-server/src/db/mysql/migrations/20231203124112_create-store.sql
+            reason: Versioned sqlx migration directories per database under crates/atuin-server/src/db/
+          - path: crates/atuin-server/src/db/postgres/mod.rs
+            reason: Applies the sqlx migrations at server start
+    notes:
+      - "monorepo is true: the repository is a Cargo workspace of many crates; no rule covers this (see unclear rules)."
+      - "migration is true: sqlx migrations ship with the server and run at start (R5 also when at startup)."
+  - id: repo-534
+    repo: hapifhir/hapi-fhir-jpaserver-starter
+    commit: 377e6eba316920082e6a90551b488e4599a71eb8
+    finalStatus: LABELED
+    expected:
+      compatibility: NEEDS_CONFIGURATION
+      runtime:
+        - java
+      monorepo: false
+      postgres: true
+      redis: false
+      worker: false
+      appRoot: .
+      dockerfilePath: Dockerfile
+      port: 8080
+      healthPath: /actuator/health
+    citations:
+      compatibility:
+        - path: src/main/resources/application.yaml
+          reason: Datasource defaults to in-memory H2 (jdbc:h2:mem:test_mem); SPRING_DATASOURCE_URL and HIBERNATE_DIALECT must be set for PostgreSQL
+        - path: docker-compose.yml
+          reason: Reference setup sets the PostgreSQL datasource variables
+      runtime:
+        - path: pom.xml
+          reason: Maven Java project
+        - path: Dockerfile
+          reason: Temurin JDK build stage, distroless Java 21 runtime
+      monorepo:
+        - path: pom.xml
+          reason: Single Maven module
+      postgres:
+        - path: docker-compose.yml
+          reason: postgres service and HapiFhirPostgresDialect
+        - path: src/main/resources/application.yaml
+          reason: Dialect comments name PostgreSQL
+      redis:
+        - path: pom.xml
+          reason: No Redis dependency
+      worker:
+        - path: Dockerfile
+          reason: Single java ENTRYPOINT; no worker process
+      appRoot:
+        - path: pom.xml
+          reason: Maven project at the repository root
+      dockerfilePath:
+        - path: Dockerfile
+          reason: Last stage (default, distroless) is the runtime image
+      port:
+        - path: src/main/resources/application.yaml
+          reason: server.port 8080
+      healthPath:
+        - path: src/main/resources/application.yaml
+          reason: management exposure includes only the health actuator endpoint
+    reconciliation:
+      - field: storage
+        initial: false
+        verify: omitted
+        final: omitted
+        rule: R4
+        evidence:
+          - path: src/main/resources/application.yaml
+            reason: Binary storage filesystem option is commented out; Lucene indexing is off by default
+      - field: migration
+        initial: false
+        verify: omitted
+        final: omitted
+        rule: R5
+        evidence:
+          - path: src/main/resources/application.yaml
+            reason: Hibernate hbm2ddl creates schema at startup; no migration tool or command
+    notes:
+      - "NEEDS_CONFIGURATION: default H2 in-memory store must be switched to PostgreSQL by environment (R1)."
+  - id: repo-535
+    repo: we-promise/sure
+    commit: 00dd977fbad504b56af1921ec3c34fcd1925218c
+    finalStatus: LABELED
+    expected:
+      compatibility: NEEDS_CONFIGURATION
+      runtime:
+        - ruby
+      monorepo: false
+      postgres: true
+      redis: true
+      worker: true
+      storage: true
+      migration: true
+      appRoot: .
+      dockerfilePath: Dockerfile
+      port: 3000
+      healthPath: /up
+    citations:
+      compatibility:
+        - path: compose.example.yml
+          reason: The sidekiq worker command (bundle exec sidekiq) is not in the Dockerfile; SECRET_KEY_BASE, DB_HOST and REDIS_URL must be set
+        - path: config/environments/production.rb
+          reason: Active Storage service defaults to local; ACTIVE_STORAGE_SERVICE must select an S3 service
+      runtime:
+        - path: Gemfile
+          reason: Ruby on Rails app
+        - path: Dockerfile
+          reason: ruby base image
+      monorepo:
+        - path: Gemfile
+          reason: One Rails app at the root; desktop/ and mobile/ are thin clients
+      postgres:
+        - path: compose.example.yml
+          reason: postgres:16 db service and DB_HOST
+        - path: config/database.yml
+          reason: Rails database configuration
+      redis:
+        - path: compose.example.yml
+          reason: REDIS_URL and a redis service; sidekiq needs it
+      worker:
+        - path: compose.example.yml
+          reason: worker service runs bundle exec sidekiq with the same image
+        - path: Procfile.dev
+          reason: "worker: bundle exec sidekiq"
+      storage:
+        - path: config/storage.yml
+          reason: amazon S3 service selected through ACTIVE_STORAGE_SERVICE; local Disk is the default
+      migration:
+        - path: bin/docker-entrypoint
+          reason: Runs ./bin/rails db:prepare before rails server
+      appRoot:
+        - path: Gemfile
+          reason: Rails app at the repository root
+      dockerfilePath:
+        - path: Dockerfile
+          reason: Root Dockerfile
+      port:
+        - path: Dockerfile
+          reason: EXPOSE 3000
+        - path: config/puma.rb
+          reason: port from PORT, default 3000
+      healthPath:
+        - path: config/routes.rb
+          reason: get "up" => rails/health#show
+    reconciliation:
+      - field: storage
+        initial: true
+        verify: omitted
+        final: true
+        rule: R4
+        evidence:
+          - path: config/storage.yml
+            reason: amazon S3 service selected through ACTIVE_STORAGE_SERVICE; local Disk is the default
+      - field: migration
+        initial: true
+        verify: omitted
+        final: true
+        rule: R5
+        evidence:
+          - path: bin/docker-entrypoint
+            reason: Runs ./bin/rails db:prepare before rails server
+    notes:
+      - storage is true because the verdict depends on the S3 option that removes default local uploads (R4).
+  - id: repo-536
+    repo: InvoiceShelf/InvoiceShelf
+    commit: ef9e9cbc9987fe5083867374cc46637029eff868
+    finalStatus: LABELED
+    expected:
+      compatibility: NEEDS_CONFIGURATION
+      runtime:
+        - php
+      monorepo: false
+      postgres: true
+      redis: false
+      worker: false
+      storage: true
+      migration: true
+      appRoot: .
+      dockerfilePath: docker/production/Dockerfile
+      port: 8080
+      healthPath: /up
+    citations:
+      compatibility:
+        - path: docker/production/entrypoint.d/00-setup.sh
+          reason: Defaults to SQLite and a generated .env; INVOICESHELF_DOTENV=false with APP_KEY and DB variables gives environment-only configuration
+        - path: config/filesystems.php
+          reason: FILESYSTEM_DISK defaults to local; an s3 disk must be selected
+        - path: docker/production/Dockerfile
+          reason: Dockerfile is not at the repository root
+      runtime:
+        - path: composer.json
+          reason: Laravel PHP app
+        - path: docker/production/Dockerfile
+          reason: serversideup php 8.4 base image
+      monorepo:
+        - path: composer.json
+          reason: Single Laravel app; mobile/ is a client
+      postgres:
+        - path: docker/production/Dockerfile
+          reason: Installs the pgsql PHP extension and postgresql-client
+        - path: config/database.php
+          reason: pgsql connection selected by DB_CONNECTION
+      redis:
+        - path: config/queue.php
+          reason: QUEUE_CONNECTION defaults to sync
+        - path: docker/production/docker-compose.mysql.yml
+          reason: Reference stack uses file cache and file session; no redis service
+      worker:
+        - path: config/queue.php
+          reason: Default queue connection is sync; no queue worker is declared
+        - path: docker/production/Dockerfile
+          reason: Scheduler runs inside the same container through s6 overlay
+      storage:
+        - path: config/filesystems.php
+          reason: s3 and s3compat disks exist; local is the default
+      migration:
+        - path: docker/production/entrypoint.d/00-setup.sh
+          reason: Runs artisan migrate --force on start when the app is installed
+      appRoot:
+        - path: artisan
+          reason: Laravel app at the repository root
+      dockerfilePath:
+        - path: docker/production/Dockerfile
+          reason: Production Dockerfile; docker/development/Dockerfile is for development
+      port:
+        - path: docker/production/docker-compose.mysql.yml
+          reason: Maps host 8090 to container 8080
+      healthPath:
+        - path: bootstrap/app.php
+          reason: "health: /up"
+    reconciliation:
+      - field: storage
+        initial: true
+        verify: omitted
+        final: true
+        rule: R4
+        evidence:
+          - path: config/filesystems.php
+            reason: s3 and s3compat disks exist; local is the default
+      - field: migration
+        initial: true
+        verify: omitted
+        final: true
+        rule: R5
+        evidence:
+          - path: docker/production/entrypoint.d/00-setup.sh
+            reason: Runs artisan migrate --force on start when the app is installed
+    notes:
+      - storage is true because the verdict depends on the S3 option that removes default local uploads (R4).
+  - id: repo-537
+    repo: actualbudget/actual
+    commit: 5240d5b051ac0a994dd2ed05cf6fbe64a9d3b013
+    finalStatus: LABELED
+    expected:
+      compatibility: NOT_COMPATIBLE
+      runtime:
+        - node
+      monorepo: true
+      postgres: false
+      redis: false
+      worker: false
+      migration: true
+      appRoot: .
+      dockerfilePath: sync-server.Dockerfile
+      port: 5006
+      healthPath: /health
+      unsupported:
+        - local-filesystem
+    citations:
+      compatibility:
+        - path: packages/sync-server/src/load-config.js
+          reason: dataDir, serverFiles and userFiles default under /data; budget files and databases live there
+        - path: sync-server.Dockerfile
+          reason: Creates /data for server state
+        - path: packages/sync-server/package.json
+          reason: better-sqlite3 is the only database dependency
+      runtime:
+        - path: sync-server.Dockerfile
+          reason: node:24 build and runtime image
+      monorepo:
+        - path: package.json
+          reason: Yarn workspaces monorepo
+      postgres:
+        - path: packages/sync-server/package.json
+          reason: No PostgreSQL client dependency
+      redis:
+        - path: packages/sync-server/package.json
+          reason: No Redis dependency
+      worker:
+        - path: sync-server.Dockerfile
+          reason: Single node build/app.js process
+      migration:
+        - path: packages/sync-server/package.json
+          reason: db:migrate script runs build/scripts/run-migrations.js up
+        - path: packages/sync-server/migrations/1694360479680-create-account-db.js
+          reason: Versioned migration files
+      appRoot:
+        - path: package.json
+          reason: Workspace root; the Dockerfile builds from the repository root
+      dockerfilePath:
+        - path: sync-server.Dockerfile
+          reason: Production image; the root Dockerfile is a development container
+      port:
+        - path: sync-server.Dockerfile
+          reason: EXPOSE 5006
+      healthPath:
+        - path: packages/sync-server/src/app.ts
+          reason: app.get("/health")
+      unsupported:
+        - path: packages/sync-server/src/load-config.js
+          reason: Default data directory /data with SQLite and user files
+        - path: packages/sync-server/package.json
+          reason: better-sqlite3 only
+    reconciliation:
+      - field: storage
+        initial: false
+        verify: omitted
+        final: omitted
+        rule: R4
+        evidence:
+          - path: packages/sync-server/src/load-config.js
+            reason: User files are stored on local disk; no S3 option
+      - field: migration
+        initial: false
+        verify: omitted
+        final: true
+        rule: R5
+        evidence:
+          - path: packages/sync-server/package.json
+            reason: db:migrate script runs build/scripts/run-migrations.js up
+          - path: packages/sync-server/migrations/1694360479680-create-account-db.js
+            reason: Versioned migration files
+      - field: unsupported
+        initial:
+          - local-filesystem
+        verify: omitted
+        final:
+          - local-filesystem
+        rule: R6
+        evidence:
+          - path: packages/sync-server/src/load-config.js
+            reason: Default data directory /data with SQLite and user files
+          - path: packages/sync-server/package.json
+            reason: better-sqlite3 only
+    notes:
+      - "NOT_COMPATIBLE: SQLite database and budget files in /data (R1, R6 local-filesystem)."
+  - id: repo-538
+    repo: pocketbase/pocketbase
+    commit: 5cec579da984436a258602a46a96302fbd31f77c
+    finalStatus: LABELED
+    expected:
+      compatibility: NOT_COMPATIBLE
+      runtime:
+        - go
+      monorepo: false
+      postgres: false
+      redis: false
+      worker: false
+      migration: true
+      appRoot: .
+      port: 8090
+      healthPath: /api/health
+      unsupported:
+        - local-filesystem
+    citations:
+      compatibility:
+        - path: examples/base/main.go
+          reason: The runnable app is an example main; the repository has no Dockerfile (R2)
+        - path: core/base.go
+          reason: Data lives in the pb_data directory (SQLite database and uploaded files) created on local disk
+      runtime:
+        - path: go.mod
+          reason: Go module
+      monorepo:
+        - path: go.mod
+          reason: Single Go module; ui/ is the embedded admin UI
+      postgres:
+        - path: go.mod
+          reason: Only the modernc SQLite driver; no PostgreSQL driver
+      redis:
+        - path: go.mod
+          reason: No Redis dependency
+      worker:
+        - path: examples/base/main.go
+          reason: Single serve process
+      migration:
+        - path: examples/base/main.go
+          reason: Registers the migrate command through plugins/migratecmd
+        - path: plugins/migratecmd/migratecmd.go
+          reason: migrate command implementation
+      appRoot:
+        - path: go.mod
+          reason: Module at the repository root
+      port:
+        - path: cmd/serve.go
+          reason: serve default address 127.0.0.1:8090
+      healthPath:
+        - path: apis/health.go
+          reason: GET /health
+        - path: apis/base.go
+          reason: apiGroup is /api and binds the health api
+      unsupported:
+        - path: core/base.go
+          reason: pb_data directory holds the SQLite database and uploaded files
+        - path: core/db_connect.go
+          reason: Embedded SQLite connection
+    reconciliation:
+      - field: storage
+        initial: false
+        verify: omitted
+        final: omitted
+        rule: R4
+        evidence:
+          - path: core/base.go
+            reason: Files are stored in pb_data on local disk; S3 is an optional setting, not the default
+      - field: migration
+        initial: false
+        verify: omitted
+        final: true
+        rule: R5
+        evidence:
+          - path: examples/base/main.go
+            reason: Registers the migrate command through plugins/migratecmd
+          - path: plugins/migratecmd/migratecmd.go
+            reason: migrate command implementation
+      - field: unsupported
+        initial:
+          - local-filesystem
+        verify: omitted
+        final:
+          - local-filesystem
+        rule: R6
+        evidence:
+          - path: core/base.go
+            reason: pb_data directory holds the SQLite database and uploaded files
+          - path: core/db_connect.go
+            reason: Embedded SQLite connection
+    notes:
+      - "NOT_COMPATIBLE: no Dockerfile (R2) and SQLite/pb_data local state (R1). dockerfilePath omitted."
+      - Default bind is 127.0.0.1:8090 without --http; port taken from that default.
+  - id: repo-539
+    repo: navidrome/navidrome
+    commit: 52135913d4747c8f8ddcfd8e7004202b8f53b594
+    finalStatus: LABELED
+    expected:
+      compatibility: NOT_COMPATIBLE
+      runtime:
+        - go
+      monorepo: false
+      postgres: false
+      redis: false
+      worker: false
+      migration: true
+      appRoot: .
+      dockerfilePath: Dockerfile
+      port: 4533
+      healthPath: /ping
+      unsupported:
+        - local-filesystem
+    citations:
+      compatibility:
+        - path: Dockerfile
+          reason: VOLUME ["/data", "/music"]; ND_DATAFOLDER and ND_MUSICFOLDER point to them
+        - path: db/db.go
+          reason: Database dialect is sqlite3 only
+      runtime:
+        - path: go.mod
+          reason: Go module
+        - path: Dockerfile
+          reason: Builds the navidrome Go binary
+      monorepo:
+        - path: go.mod
+          reason: One Go module; the ui is built inside the same Dockerfile
+      postgres:
+        - path: db/db.go
+          reason: Dialect is sqlite3 only
+      redis:
+        - path: go.mod
+          reason: No Redis client dependency
+      worker:
+        - path: Dockerfile
+          reason: Single navidrome ENTRYPOINT
+      migration:
+        - path: db/db.go
+          reason: goose migrations applied at server start (embedded db/migrations)
+      appRoot:
+        - path: go.mod
+          reason: Module at the repository root
+      dockerfilePath:
+        - path: Dockerfile
+          reason: Root Dockerfile
+      port:
+        - path: Dockerfile
+          reason: ENV ND_PORT=4533 and EXPOSE ${ND_PORT}
+      healthPath:
+        - path: server/server.go
+          reason: middleware.Heartbeat("/ping")
+      unsupported:
+        - path: Dockerfile
+          reason: /data (SQLite, cache) and /music volumes
+        - path: db/db.go
+          reason: SQLite database file
+    reconciliation:
+      - field: storage
+        initial: false
+        verify: omitted
+        final: omitted
+        rule: R4
+        evidence:
+          - path: Dockerfile
+            reason: Music library is read from a local /music volume; no S3 backend
+      - field: migration
+        initial: false
+        verify: omitted
+        final: true
+        rule: R5
+        evidence:
+          - path: db/db.go
+            reason: goose migrations applied at server start (embedded db/migrations)
+      - field: unsupported
+        initial:
+          - local-filesystem
+        verify: omitted
+        final:
+          - local-filesystem
+        rule: R6
+        evidence:
+          - path: Dockerfile
+            reason: /data (SQLite, cache) and /music volumes
+          - path: db/db.go
+            reason: SQLite database file
+    notes:
+      - "NOT_COMPATIBLE: SQLite database and local music library volume (R1, R6 local-filesystem)."
+  - id: repo-540
+    repo: excalidraw/excalidraw
+    commit: 4c00f31ddcc20086bac1020428819fe0b9a30bce
+    finalStatus: LABELED
+    expected:
+      compatibility: READY
+      runtime:
+        - node
+      monorepo: true
+      postgres: false
+      redis: false
+      worker: false
+      appRoot: .
+      dockerfilePath: Dockerfile
+      port: 80
+      healthPath: /
+    citations:
+      compatibility:
+        - path: Dockerfile
+          reason: Multi-stage build; the final nginx image serves the static build with no required environment, state or external service
+      runtime:
+        - path: Dockerfile
+          reason: node:24 build stage; the runtime stage is static nginx
+        - path: package.json
+          reason: Yarn project
+      monorepo:
+        - path: package.json
+          reason: "Yarn workspaces: excalidraw-app, packages/*, examples/*"
+      postgres:
+        - path: package.json
+          reason: No database dependency
+      redis:
+        - path: package.json
+          reason: No Redis dependency
+      worker:
+        - path: Dockerfile
+          reason: Static nginx only
+      appRoot:
+        - path: package.json
+          reason: Workspace root with the build:app:docker script
+      dockerfilePath:
+        - path: Dockerfile
+          reason: Root Dockerfile; docker-compose.yml builds the same file for development
+      port:
+        - path: Dockerfile
+          reason: nginx:stable-alpine-slim listens on port 80 by default; no EXPOSE line
+        - path: docker-compose.yml
+          reason: Maps 3000:80
+      healthPath:
+        - path: Dockerfile
+          reason: HEALTHCHECK wget http://localhost (root path)
+    reconciliation:
+      - field: storage
+        initial: false
+        verify: omitted
+        final: omitted
+        rule: R4
+        evidence:
+          - path: Dockerfile
+            reason: Static files baked into the image; collaboration uses external services
+      - field: migration
+        initial: false
+        verify: omitted
+        final: omitted
+        rule: R5
+        evidence:
+          - path: Dockerfile
+            reason: No migration step
+    notes:
+      - runtime node is the build runtime; the production image is static nginx (R7 has no nginx or static value).

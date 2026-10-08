@@ -1,0 +1,955 @@
+{
+  "taskId": "P1-RECONCILE-02",
+  "testedCommit": "e6a3b58ee2363923fef21faca86611fa3bf84538",
+  "executor": "campaign-worker",
+  "model": "sonnet",
+  "startedAt": "2026-10-08T20:18:25Z",
+  "finishedAt": "2026-10-08T20:29:42Z",
+  "proposedStatus": "COMPLETE",
+  "commands": [
+    {
+      "command": "gh api repos/<repo>/git/trees/<sha>?recursive=1 (20 pinned repositories)",
+      "exitCode": 0,
+      "summary": "Tree listings saved to scratchpad; 20 of 20 returned"
+    },
+    {
+      "command": "curl raw.githubusercontent.com/<repo>/<sha>/<path> (via scratchpad f.sh, about 120 files)",
+      "exitCode": 0,
+      "summary": "Pinned source files read for all 20 apps"
+    },
+    {
+      "command": "pnpm exec tsx scratchpad/p1-reconcile-02/gen.mts",
+      "exitCode": 0,
+      "summary": "Wrote final-03.yaml and final-04.yaml; 20 expected blocks pass expectedFactsSchema; ids, repos and commits equal the slices; every cited and evidence path exists in the pinned tree; every initial/verify difference has a reconciliation entry; 0 errors"
+    }
+  ],
+  "evidence": [
+    "campaign/corpus/labels/final-03.yaml",
+    "campaign/corpus/labels/final-04.yaml"
+  ],
+  "notes": [
+    "Counts: batch 3 READY 3, NEEDS_CONFIGURATION 2, NOT_COMPATIBLE 5; batch 4 READY 1, NEEDS_CONFIGURATION 4, NOT_COMPATIBLE 5. REPO_INVALID: none.",
+    "Deviation: git HEAD at start was 4cb79253cd6b638019a58a3b06aceec1368b5a95, not the tested commit; testedCommit in the files is the value given by the coordinator (e6a3b58ee2363923fef21faca86611fa3bf84538), as in final-01.yaml.",
+    "Unclear rule R1/R4: worker. \"Declared separate worker process\" does not say whether a supervisord program that the image CMD already starts counts. Applied: worker true only when a separate command must be started that the image does not start (Procfile or compose service). linkding, pretix, snipe-it and similar are worker false.",
+    "Unclear rule R4: redis and worker for optional features. microblog (repo-524) uses Redis and rq only for the export-posts feature; applied R4 optional, so redis false and worker false (both earlier labels said true).",
+    "Unclear rule R5: FluentMigrator (nopCommerce), Flyway (komga), sqlx (atuin), goose (navidrome) and the pocketbase migrate command (registered in examples/base/main.go) are treated as migration tools or named commands, so migration true. Hibernate hbm2ddl (hapi-fhir) and schema created by the server (parse-server, electric) are opaque in-app schema creation, so migration omitted.",
+    "Unclear rule: monorepo has no definition in R1. Used: the repository holds several packages or modules next to the target app (Cargo workspace for atuin, Gradle modules for komga, yarn workspaces for actual and excalidraw, pnpm workspace for electric).",
+    "Unclear rule R7: excalidraw final image is static nginx; R7 has no nginx or static value. Used node (build runtime).",
+    "Unclear rule R6: when the verdict has two causes (for example no buildable Dockerfile and SQLite or a data directory), the family for the local-state cause is listed; the missing-Dockerfile or failing-Dockerfile cause adds no entry. Applied to komga, pocketbase and electric.",
+    "Unclear rule R1: snipe-it (repo-529) is a close call between NOT_COMPATIBLE and NEEDS_CONFIGURATION. The image declares VOLUME /var/lib/snipeit for keys, backups and uploads; an S3 disk removes only uploads. Kept NOT_COMPATIBLE.",
+    "Unclear rule R1: dufs (repo-522) image starts with no arguments and serves its working directory, but its purpose is the mounted data directory passed as an argument. Kept NOT_COMPATIBLE.",
+    "R3 applied to snipe-it: verify listed unsupported mysql; MySQL 8.0 is supported and the app is not MariaDB-only, so no mysql entry.",
+    "Where initial or verify omitted storage or migration and the source has no S3 requirement or migration tool, the final omits the key; reconciliation lists initial false versus verify omitted as a difference.",
+    "Inputs read: only the permitted files (label-rules.md, initial/verify 03 and 04, final-01.yaml for shape, slice-03.json, slice-04.json, manifest.ts, normalize.ts lines 25-45, mvp-scope.md grep for Redis lines only) and pinned GitHub source. No Deployz output, no holdout, no other label file. Nothing outside the permitted list.",
+    "Scratch files (trees, fetched sources, generator) are in the session scratchpad p1-reconcile-02/. No containers started. No git state changed; no commit."
+  ],
+  "disagreements": [
+    {
+      "id": "repo-521",
+      "field": "storage",
+      "initial": false,
+      "verify": "omitted",
+      "final": "omitted",
+      "rule": "R4",
+      "evidence": [
+        {
+          "path": "app.go",
+          "reason": "Handlers only echo request data; no file storage"
+        }
+      ]
+    },
+    {
+      "id": "repo-521",
+      "field": "migration",
+      "initial": false,
+      "verify": "omitted",
+      "final": "omitted",
+      "rule": "R5",
+      "evidence": [
+        {
+          "path": "app.go",
+          "reason": "No schema or migration code"
+        }
+      ]
+    },
+    {
+      "id": "repo-522",
+      "field": "storage",
+      "initial": false,
+      "verify": "omitted",
+      "final": "omitted",
+      "rule": "R4",
+      "evidence": [
+        {
+          "path": "src/server.rs",
+          "reason": "Reads and writes the local served directory; no S3 option"
+        }
+      ]
+    },
+    {
+      "id": "repo-522",
+      "field": "migration",
+      "initial": false,
+      "verify": "omitted",
+      "final": "omitted",
+      "rule": "R5",
+      "evidence": [
+        {
+          "path": "src/server.rs",
+          "reason": "No schema or migration"
+        }
+      ]
+    },
+    {
+      "id": "repo-522",
+      "field": "unsupported",
+      "initial": [
+        "local-filesystem"
+      ],
+      "verify": "omitted",
+      "final": [
+        "local-filesystem"
+      ],
+      "rule": "R6",
+      "evidence": [
+        {
+          "path": "README.md",
+          "reason": "Needs a mounted data directory; mvp-scope.md rejects persistent volumes and local disk state"
+        },
+        {
+          "path": "src/args.rs",
+          "reason": "serve_path is a filesystem path"
+        }
+      ]
+    },
+    {
+      "id": "repo-524",
+      "field": "redis",
+      "initial": true,
+      "verify": true,
+      "final": false,
+      "rule": "R4",
+      "evidence": [
+        {
+          "path": "app/models.py",
+          "reason": "Redis is used only for rq export-posts tasks (launch_task, get_rq_job); the web app starts and works without it"
+        },
+        {
+          "path": "app/__init__.py",
+          "reason": "Redis.from_url and the rq Queue are created lazily at app start"
+        }
+      ]
+    },
+    {
+      "id": "repo-524",
+      "field": "worker",
+      "initial": true,
+      "verify": true,
+      "final": false,
+      "rule": "R4",
+      "evidence": [
+        {
+          "path": "Procfile",
+          "reason": "worker: rq worker microblog-tasks is declared, but the Dockerfile ENTRYPOINT starts only the web process"
+        },
+        {
+          "path": "app/main/routes.py",
+          "reason": "The worker is needed only by the export_posts route"
+        }
+      ]
+    },
+    {
+      "id": "repo-524",
+      "field": "storage",
+      "initial": false,
+      "verify": "omitted",
+      "final": "omitted",
+      "rule": "R4",
+      "evidence": [
+        {
+          "path": "app/tasks.py",
+          "reason": "Tasks export posts by email; no uploads and no S3"
+        }
+      ]
+    },
+    {
+      "id": "repo-525",
+      "field": "runtime",
+      "initial": [
+        "jvm"
+      ],
+      "verify": [
+        "java"
+      ],
+      "final": [
+        "java"
+      ],
+      "rule": "R7",
+      "evidence": [
+        {
+          "path": "komga/build.gradle.kts",
+          "reason": "Kotlin Spring Boot on the JVM (R7 runtime java)"
+        }
+      ]
+    },
+    {
+      "id": "repo-525",
+      "field": "storage",
+      "initial": false,
+      "verify": "omitted",
+      "final": "omitted",
+      "rule": "R4",
+      "evidence": [
+        {
+          "path": "komga/build.gradle.kts",
+          "reason": "Reads the book library from local disk; no S3 option"
+        }
+      ]
+    },
+    {
+      "id": "repo-525",
+      "field": "migration",
+      "initial": false,
+      "verify": "omitted",
+      "final": true,
+      "rule": "R5",
+      "evidence": [
+        {
+          "path": "komga/build.gradle.kts",
+          "reason": "Flyway plugin and flyway-core; versioned migrations run at boot"
+        },
+        {
+          "path": "komga/src/flyway/kotlin/db/migration/sqlite/V20200810154730__thumbnails_part_2.kt",
+          "reason": "Flyway migration source"
+        }
+      ]
+    },
+    {
+      "id": "repo-525",
+      "field": "unsupported",
+      "initial": [
+        "other-database",
+        "local-filesystem"
+      ],
+      "verify": "omitted",
+      "final": [
+        "local-filesystem"
+      ],
+      "rule": "R6",
+      "evidence": [
+        {
+          "path": "komga/build.gradle.kts",
+          "reason": "SQLite is the only database"
+        },
+        {
+          "path": "komga/docker/Dockerfile.tpl",
+          "reason": "VOLUME /config holds the databases; the media library is local disk"
+        }
+      ]
+    },
+    {
+      "id": "repo-526",
+      "field": "storage",
+      "initial": false,
+      "verify": "omitted",
+      "final": "omitted",
+      "rule": "R4",
+      "evidence": [
+        {
+          "path": "Dockerfile",
+          "reason": "Pictures go to wwwroot/images on disk; no S3 option in the core"
+        }
+      ]
+    },
+    {
+      "id": "repo-526",
+      "field": "migration",
+      "initial": false,
+      "verify": "omitted",
+      "final": true,
+      "rule": "R5",
+      "evidence": [
+        {
+          "path": "src/Libraries/Nop.Data/Nop.Data.csproj",
+          "reason": "FluentMigrator packages (core, MySql, Postgres, SqlServer runners)"
+        },
+        {
+          "path": "src/Libraries/Nop.Data/Migrations/IMigrationManager.cs",
+          "reason": "Versioned migration classes in the Migrations folder"
+        }
+      ]
+    },
+    {
+      "id": "repo-526",
+      "field": "healthPath",
+      "initial": "omitted",
+      "verify": "omitted",
+      "final": "/keepalive/index",
+      "rule": "R8",
+      "evidence": [
+        {
+          "path": "src/Presentation/Nop.Web/Controllers/KeepAliveController.cs",
+          "reason": "Index action returns \"I am alive!\" without extra filters"
+        },
+        {
+          "path": "src/Libraries/Nop.Services/Common/NopCommonDefaults.cs",
+          "reason": "KeepAlivePath is \"keepalive/index\""
+        }
+      ]
+    },
+    {
+      "id": "repo-526",
+      "field": "unsupported",
+      "initial": [
+        "local-filesystem"
+      ],
+      "verify": "omitted",
+      "final": [
+        "local-filesystem"
+      ],
+      "rule": "R6",
+      "evidence": [
+        {
+          "path": "Dockerfile",
+          "reason": "Data directories and uploads must persist on local disk"
+        },
+        {
+          "path": "src/Libraries/Nop.Data/NopDataSettingsDefaults.cs",
+          "reason": "dataSettings.json config file written to App_Data"
+        }
+      ]
+    },
+    {
+      "id": "repo-527",
+      "field": "storage",
+      "initial": false,
+      "verify": "omitted",
+      "final": "omitted",
+      "rule": "R4",
+      "evidence": [
+        {
+          "path": "src/Options/Definitions.js",
+          "reason": "Files default to the database adapter; no S3 requirement"
+        }
+      ]
+    },
+    {
+      "id": "repo-527",
+      "field": "migration",
+      "initial": false,
+      "verify": "omitted",
+      "final": "omitted",
+      "rule": "R5",
+      "evidence": [
+        {
+          "path": "src/Adapters/Storage/Postgres/PostgresStorageAdapter.js",
+          "reason": "Schema is created and updated by the server at run time; no migration tool or command"
+        }
+      ]
+    },
+    {
+      "id": "repo-528",
+      "field": "storage",
+      "initial": false,
+      "verify": "omitted",
+      "final": "omitted",
+      "rule": "R4",
+      "evidence": [
+        {
+          "path": "packages/sync-service/config/runtime.exs",
+          "reason": "Shape storage is a local file directory; no S3 option"
+        }
+      ]
+    },
+    {
+      "id": "repo-528",
+      "field": "migration",
+      "initial": false,
+      "verify": "omitted",
+      "final": "omitted",
+      "rule": "R5",
+      "evidence": [
+        {
+          "path": "packages/sync-service/Dockerfile",
+          "reason": "No migration tool or command; the service manages its own state"
+        }
+      ]
+    },
+    {
+      "id": "repo-528",
+      "field": "unsupported",
+      "initial": [
+        "local-filesystem"
+      ],
+      "verify": "omitted",
+      "final": [
+        "local-filesystem"
+      ],
+      "rule": "R6",
+      "evidence": [
+        {
+          "path": "packages/sync-service/config/runtime.exs",
+          "reason": "Persistent local storage directory by default"
+        }
+      ]
+    },
+    {
+      "id": "repo-529",
+      "field": "storage",
+      "initial": true,
+      "verify": "omitted",
+      "final": "omitted",
+      "rule": "R4",
+      "evidence": [
+        {
+          "path": ".env.example",
+          "reason": "PRIVATE_FILESYSTEM_DISK and PUBLIC_FILESYSTEM_DISK can be S3 disks, but the verdict does not depend on that option: keys and backups stay in /var/lib/snipeit"
+        }
+      ]
+    },
+    {
+      "id": "repo-529",
+      "field": "unsupported",
+      "initial": [
+        "local-filesystem"
+      ],
+      "verify": [
+        "mysql"
+      ],
+      "final": [
+        "local-filesystem"
+      ],
+      "rule": "R6",
+      "evidence": [
+        {
+          "path": "docker/startup.sh",
+          "reason": "Needs persistent /var/lib/snipeit for keys, uploads and dumps"
+        },
+        {
+          "path": "Dockerfile",
+          "reason": "VOLUME /var/lib/snipeit"
+        }
+      ]
+    },
+    {
+      "id": "repo-530",
+      "field": "storage",
+      "initial": false,
+      "verify": "omitted",
+      "final": "omitted",
+      "rule": "R4",
+      "evidence": [
+        {
+          "path": "cmd/asynqmon/main.go",
+          "reason": "Stateless monitor; no file storage"
+        }
+      ]
+    },
+    {
+      "id": "repo-530",
+      "field": "migration",
+      "initial": false,
+      "verify": "omitted",
+      "final": "omitted",
+      "rule": "R5",
+      "evidence": [
+        {
+          "path": "cmd/asynqmon/main.go",
+          "reason": "No schema"
+        }
+      ]
+    },
+    {
+      "id": "repo-531",
+      "field": "compatibility",
+      "initial": "NOT_COMPATIBLE",
+      "verify": "NEEDS_CONFIGURATION",
+      "final": "NOT_COMPATIBLE",
+      "rule": "R1",
+      "evidence": [
+        {
+          "path": "bookmarks/settings/base.py",
+          "reason": "Favicons, previews and user assets are written to data/ folders (LD_FAVICON_FOLDER, LD_ASSET_FOLDER) and the Huey task queue is a SQLite file at data/tasks.sqlite3; none has an env or S3 option"
+        },
+        {
+          "path": "bootstrap.sh",
+          "reason": "Creates data/favicons, data/previews and data/assets, and the secret key file under data/; the image stores state on local disk"
+        },
+        {
+          "path": "docker/default.Dockerfile",
+          "reason": "No Dockerfile at the repository root; the production Dockerfile is under docker/"
+        }
+      ]
+    },
+    {
+      "id": "repo-531",
+      "field": "worker",
+      "initial": true,
+      "verify": false,
+      "final": false,
+      "rule": "R4",
+      "evidence": [
+        {
+          "path": "supervisord-tasks.conf",
+          "reason": "jobs program (python manage.py run_huey) is started by bootstrap.sh inside the web container; no separate worker command is needed"
+        }
+      ]
+    },
+    {
+      "id": "repo-531",
+      "field": "storage",
+      "initial": false,
+      "verify": "omitted",
+      "final": "omitted",
+      "rule": "R4",
+      "evidence": [
+        {
+          "path": "bookmarks/settings/base.py",
+          "reason": "Assets, favicons and previews are written to local data/ folders; no S3 backend"
+        }
+      ]
+    },
+    {
+      "id": "repo-531",
+      "field": "migration",
+      "initial": true,
+      "verify": "omitted",
+      "final": true,
+      "rule": "R5",
+      "evidence": [
+        {
+          "path": "bootstrap.sh",
+          "reason": "python manage.py migrate runs on every container start"
+        }
+      ]
+    },
+    {
+      "id": "repo-531",
+      "field": "unsupported",
+      "initial": [
+        "local-filesystem"
+      ],
+      "verify": "omitted",
+      "final": [
+        "local-filesystem"
+      ],
+      "rule": "R6",
+      "evidence": [
+        {
+          "path": "bookmarks/settings/base.py",
+          "reason": "HUEY uses huey.SqliteHuey with a file under data/; assets and favicons folders under data/"
+        },
+        {
+          "path": "bootstrap.sh",
+          "reason": "Creates data/ folders for assets, favicons, previews and the secret key"
+        }
+      ]
+    },
+    {
+      "id": "repo-532",
+      "field": "compatibility",
+      "initial": "NOT_COMPATIBLE",
+      "verify": "NEEDS_CONFIGURATION",
+      "final": "NOT_COMPATIBLE",
+      "rule": "R1",
+      "evidence": [
+        {
+          "path": "Dockerfile",
+          "reason": "VOLUME [\"/etc/pretix\", \"/data\"]; the image expects a mounted config directory and data directory"
+        },
+        {
+          "path": "deployment/docker/pretix.bash",
+          "reason": "DATA_DIR=/data/ and /data/media and /data/logs are created at start"
+        },
+        {
+          "path": "src/pretix/settings.py",
+          "reason": "MEDIA_ROOT is DATA_DIR/media and the secret key file is DATA_DIR/.secret; no S3 media backend; default database is SQLite under DATA_DIR"
+        }
+      ]
+    },
+    {
+      "id": "repo-532",
+      "field": "worker",
+      "initial": true,
+      "verify": false,
+      "final": false,
+      "rule": "R4",
+      "evidence": [
+        {
+          "path": "deployment/docker/supervisord/pretixtask.conf",
+          "reason": "Celery task worker runs under supervisord inside the same container (CMD all)"
+        },
+        {
+          "path": "Dockerfile",
+          "reason": "ENTRYPOINT pretix with CMD all starts web and task worker together"
+        }
+      ]
+    },
+    {
+      "id": "repo-532",
+      "field": "storage",
+      "initial": false,
+      "verify": "omitted",
+      "final": "omitted",
+      "rule": "R4",
+      "evidence": [
+        {
+          "path": "src/pretix/settings.py",
+          "reason": "MEDIA_ROOT is DATA_DIR/media; no S3 storage backend selection"
+        }
+      ]
+    },
+    {
+      "id": "repo-532",
+      "field": "migration",
+      "initial": true,
+      "verify": "omitted",
+      "final": true,
+      "rule": "R5",
+      "evidence": [
+        {
+          "path": "deployment/docker/pretix.bash",
+          "reason": "python3 -m pretix migrate --noinput unless AUTOMIGRATE=skip"
+        }
+      ]
+    },
+    {
+      "id": "repo-532",
+      "field": "unsupported",
+      "initial": [
+        "local-filesystem"
+      ],
+      "verify": "omitted",
+      "final": [
+        "local-filesystem"
+      ],
+      "rule": "R6",
+      "evidence": [
+        {
+          "path": "Dockerfile",
+          "reason": "VOLUME /data and /etc/pretix"
+        },
+        {
+          "path": "src/pretix/settings.py",
+          "reason": "Uploaded media under DATA_DIR/media on local disk"
+        }
+      ]
+    },
+    {
+      "id": "repo-533",
+      "field": "monorepo",
+      "initial": true,
+      "verify": false,
+      "final": true,
+      "rule": "none (no rule in R1)",
+      "evidence": [
+        {
+          "path": "Cargo.toml",
+          "reason": "Workspace of many crates (crates/*) next to the server crate"
+        }
+      ]
+    },
+    {
+      "id": "repo-533",
+      "field": "storage",
+      "initial": false,
+      "verify": "omitted",
+      "final": "omitted",
+      "rule": "R4",
+      "evidence": [
+        {
+          "path": "crates/atuin-server/Cargo.toml",
+          "reason": "No object storage dependency"
+        }
+      ]
+    },
+    {
+      "id": "repo-533",
+      "field": "migration",
+      "initial": false,
+      "verify": "omitted",
+      "final": true,
+      "rule": "R5",
+      "evidence": [
+        {
+          "path": "crates/atuin-server/src/db/mysql/migrations/20231203124112_create-store.sql",
+          "reason": "Versioned sqlx migration directories per database under crates/atuin-server/src/db/"
+        },
+        {
+          "path": "crates/atuin-server/src/db/postgres/mod.rs",
+          "reason": "Applies the sqlx migrations at server start"
+        }
+      ]
+    },
+    {
+      "id": "repo-534",
+      "field": "storage",
+      "initial": false,
+      "verify": "omitted",
+      "final": "omitted",
+      "rule": "R4",
+      "evidence": [
+        {
+          "path": "src/main/resources/application.yaml",
+          "reason": "Binary storage filesystem option is commented out; Lucene indexing is off by default"
+        }
+      ]
+    },
+    {
+      "id": "repo-534",
+      "field": "migration",
+      "initial": false,
+      "verify": "omitted",
+      "final": "omitted",
+      "rule": "R5",
+      "evidence": [
+        {
+          "path": "src/main/resources/application.yaml",
+          "reason": "Hibernate hbm2ddl creates schema at startup; no migration tool or command"
+        }
+      ]
+    },
+    {
+      "id": "repo-535",
+      "field": "storage",
+      "initial": true,
+      "verify": "omitted",
+      "final": true,
+      "rule": "R4",
+      "evidence": [
+        {
+          "path": "config/storage.yml",
+          "reason": "amazon S3 service selected through ACTIVE_STORAGE_SERVICE; local Disk is the default"
+        }
+      ]
+    },
+    {
+      "id": "repo-535",
+      "field": "migration",
+      "initial": true,
+      "verify": "omitted",
+      "final": true,
+      "rule": "R5",
+      "evidence": [
+        {
+          "path": "bin/docker-entrypoint",
+          "reason": "Runs ./bin/rails db:prepare before rails server"
+        }
+      ]
+    },
+    {
+      "id": "repo-536",
+      "field": "storage",
+      "initial": true,
+      "verify": "omitted",
+      "final": true,
+      "rule": "R4",
+      "evidence": [
+        {
+          "path": "config/filesystems.php",
+          "reason": "s3 and s3compat disks exist; local is the default"
+        }
+      ]
+    },
+    {
+      "id": "repo-536",
+      "field": "migration",
+      "initial": true,
+      "verify": "omitted",
+      "final": true,
+      "rule": "R5",
+      "evidence": [
+        {
+          "path": "docker/production/entrypoint.d/00-setup.sh",
+          "reason": "Runs artisan migrate --force on start when the app is installed"
+        }
+      ]
+    },
+    {
+      "id": "repo-537",
+      "field": "storage",
+      "initial": false,
+      "verify": "omitted",
+      "final": "omitted",
+      "rule": "R4",
+      "evidence": [
+        {
+          "path": "packages/sync-server/src/load-config.js",
+          "reason": "User files are stored on local disk; no S3 option"
+        }
+      ]
+    },
+    {
+      "id": "repo-537",
+      "field": "migration",
+      "initial": false,
+      "verify": "omitted",
+      "final": true,
+      "rule": "R5",
+      "evidence": [
+        {
+          "path": "packages/sync-server/package.json",
+          "reason": "db:migrate script runs build/scripts/run-migrations.js up"
+        },
+        {
+          "path": "packages/sync-server/migrations/1694360479680-create-account-db.js",
+          "reason": "Versioned migration files"
+        }
+      ]
+    },
+    {
+      "id": "repo-537",
+      "field": "unsupported",
+      "initial": [
+        "local-filesystem"
+      ],
+      "verify": "omitted",
+      "final": [
+        "local-filesystem"
+      ],
+      "rule": "R6",
+      "evidence": [
+        {
+          "path": "packages/sync-server/src/load-config.js",
+          "reason": "Default data directory /data with SQLite and user files"
+        },
+        {
+          "path": "packages/sync-server/package.json",
+          "reason": "better-sqlite3 only"
+        }
+      ]
+    },
+    {
+      "id": "repo-538",
+      "field": "storage",
+      "initial": false,
+      "verify": "omitted",
+      "final": "omitted",
+      "rule": "R4",
+      "evidence": [
+        {
+          "path": "core/base.go",
+          "reason": "Files are stored in pb_data on local disk; S3 is an optional setting, not the default"
+        }
+      ]
+    },
+    {
+      "id": "repo-538",
+      "field": "migration",
+      "initial": false,
+      "verify": "omitted",
+      "final": true,
+      "rule": "R5",
+      "evidence": [
+        {
+          "path": "examples/base/main.go",
+          "reason": "Registers the migrate command through plugins/migratecmd"
+        },
+        {
+          "path": "plugins/migratecmd/migratecmd.go",
+          "reason": "migrate command implementation"
+        }
+      ]
+    },
+    {
+      "id": "repo-538",
+      "field": "unsupported",
+      "initial": [
+        "local-filesystem"
+      ],
+      "verify": "omitted",
+      "final": [
+        "local-filesystem"
+      ],
+      "rule": "R6",
+      "evidence": [
+        {
+          "path": "core/base.go",
+          "reason": "pb_data directory holds the SQLite database and uploaded files"
+        },
+        {
+          "path": "core/db_connect.go",
+          "reason": "Embedded SQLite connection"
+        }
+      ]
+    },
+    {
+      "id": "repo-539",
+      "field": "storage",
+      "initial": false,
+      "verify": "omitted",
+      "final": "omitted",
+      "rule": "R4",
+      "evidence": [
+        {
+          "path": "Dockerfile",
+          "reason": "Music library is read from a local /music volume; no S3 backend"
+        }
+      ]
+    },
+    {
+      "id": "repo-539",
+      "field": "migration",
+      "initial": false,
+      "verify": "omitted",
+      "final": true,
+      "rule": "R5",
+      "evidence": [
+        {
+          "path": "db/db.go",
+          "reason": "goose migrations applied at server start (embedded db/migrations)"
+        }
+      ]
+    },
+    {
+      "id": "repo-539",
+      "field": "unsupported",
+      "initial": [
+        "local-filesystem"
+      ],
+      "verify": "omitted",
+      "final": [
+        "local-filesystem"
+      ],
+      "rule": "R6",
+      "evidence": [
+        {
+          "path": "Dockerfile",
+          "reason": "/data (SQLite, cache) and /music volumes"
+        },
+        {
+          "path": "db/db.go",
+          "reason": "SQLite database file"
+        }
+      ]
+    },
+    {
+      "id": "repo-540",
+      "field": "storage",
+      "initial": false,
+      "verify": "omitted",
+      "final": "omitted",
+      "rule": "R4",
+      "evidence": [
+        {
+          "path": "Dockerfile",
+          "reason": "Static files baked into the image; collaboration uses external services"
+        }
+      ]
+    },
+    {
+      "id": "repo-540",
+      "field": "migration",
+      "initial": false,
+      "verify": "omitted",
+      "final": "omitted",
+      "rule": "R5",
+      "evidence": [
+        {
+          "path": "Dockerfile",
+          "reason": "No migration step"
+        }
+      ]
+    }
+  ]
+}

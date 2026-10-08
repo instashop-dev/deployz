@@ -1552,7 +1552,7 @@
       "phase": 1,
       "title": "Reconcile initial and verification labels for batches 3 and 4 against source files",
       "executor": "campaign-worker",
-      "status": "PENDING",
+      "status": "COMPLETE",
       "prerequisites": [
         "P1-VERIFY-03",
         "P1-VERIFY-04"
