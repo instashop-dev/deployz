@@ -1,0 +1,451 @@
+taskId: P1-VERIFY-02
+testedCommit: e6a3b58ee2363923fef21faca86611fa3bf84538
+apps:
+  - id: repo-511
+    repo: discourse/discourse
+    commit: 3c43d1696fadfd0abc2b8ac2cb5b230651f0e509
+    expected:
+      compatibility: NEEDS_CONFIGURATION
+      runtime: [ruby]
+      monorepo: false
+      postgres: true
+      redis: true
+      worker: true
+      migration: true
+      appRoot: "."
+      healthPath: /srv/status
+    citations:
+      compatibility:
+        - path: Gemfile
+          reason: Rails app with no Dockerfile in the tree, so a Dockerfile must be added before it can build.
+        - path: config/database.yml
+          reason: Requires PostgreSQL and many DISCOURSE_* settings.
+      runtime:
+        - path: Gemfile
+          reason: Ruby gem manifest pinning Ruby 3.4.
+      monorepo:
+        - path: pnpm-workspace.yaml
+          reason: Workspace holds the bundled frontend and plugins of one Rails app, not separate services.
+      postgres:
+        - path: config/database.yml
+          reason: Adapter is postgresql.
+      redis:
+        - path: Gemfile
+          reason: Depends on the redis gem for cache and Sidekiq.
+      worker:
+        - path: config/sidekiq.yml
+          reason: Sidekiq job processor runs as a separate process.
+      migration:
+        - path: db/migrate/20000225050318_add_schema_migration_details.rb
+          reason: Rails migrations exist and must run on deploy.
+      appRoot:
+        - path: Gemfile
+          reason: Rails app is at the repository root.
+      healthPath:
+        - path: config/routes.rb
+          reason: Route "srv/status" maps to forums#status.
+  - id: repo-512
+    repo: forem/forem
+    commit: d98655f8f894df738594789519c2bc3a1b9ea733
+    expected:
+      compatibility: NEEDS_CONFIGURATION
+      runtime: [ruby]
+      monorepo: false
+      postgres: true
+      redis: true
+      worker: true
+      migration: true
+      appRoot: "."
+      dockerfilePath: Dockerfile
+      port: 3000
+    citations:
+      compatibility:
+        - path: Dockerfile
+          reason: Multi-stage Dockerfile; last stage is development, production stage has VOLUME on public/.
+        - path: Procfile
+          reason: Needs release task, web and a separate Sidekiq worker with many required env values.
+      runtime:
+        - path: Gemfile
+          reason: Ruby gem manifest.
+      monorepo:
+        - path: Gemfile
+          reason: Single Rails app at the root.
+      postgres:
+        - path: Gemfile
+          reason: Depends on the pg gem.
+      redis:
+        - path: Gemfile
+          reason: Depends on redis and Sidekiq.
+      worker:
+        - path: Procfile
+          reason: Declares sidekiq_worker process.
+      migration:
+        - path: Procfile
+          reason: Declares a release process that runs release-tasks.sh.
+        - path: release-tasks.sh
+          reason: Runs rails app_initializer:setup which migrates the database.
+      appRoot:
+        - path: Gemfile
+          reason: Rails app is at the repository root.
+      dockerfilePath:
+        - path: Dockerfile
+          reason: Root Dockerfile.
+      port:
+        - path: Dockerfile
+          reason: CMD starts rails server on port 3000.
+  - id: repo-513
+    repo: saleor/saleor
+    commit: bb75f87973abe24056a5d0dff1708ca097e95599
+    expected:
+      compatibility: NEEDS_CONFIGURATION
+      runtime: [python]
+      monorepo: false
+      postgres: true
+      redis: true
+      worker: true
+      migration: true
+      appRoot: "."
+      dockerfilePath: Dockerfile
+      port: 8000
+      healthPath: /health/
+    citations:
+      compatibility:
+        - path: Dockerfile
+          reason: Builds and runs uvicorn on 8000; needs database, broker and secrets, and a separate Celery worker.
+      runtime:
+        - path: pyproject.toml
+          reason: Python project.
+      monorepo:
+        - path: pyproject.toml
+          reason: Single Django project at the root.
+      postgres:
+        - path: pyproject.toml
+          reason: Depends on psycopg.
+      redis:
+        - path: pyproject.toml
+          reason: Celery with redis extra and redis client.
+      worker:
+        - path: pyproject.toml
+          reason: Celery dependency; tasks run in a separate worker when a broker is set.
+      migration:
+        - path: saleor/settings.py
+          reason: Django app using dj_database_url database, so manage.py migrate is required.
+      appRoot:
+        - path: pyproject.toml
+          reason: Project is at the repository root.
+      dockerfilePath:
+        - path: Dockerfile
+          reason: Root Dockerfile.
+      port:
+        - path: Dockerfile
+          reason: EXPOSE 8000 and uvicorn --port=8000.
+      healthPath:
+        - path: saleor/asgi/__init__.py
+          reason: Wraps the application with health_check at /health/.
+  - id: repo-514
+    repo: hexpm/hexpm
+    commit: 151266fa511769aa56a17df804fe7a55219858a2
+    expected:
+      compatibility: NEEDS_CONFIGURATION
+      runtime: [elixir]
+      monorepo: false
+      postgres: true
+      redis: false
+      worker: true
+      storage: true
+      migration: true
+      appRoot: "."
+      dockerfilePath: Dockerfile
+    citations:
+      compatibility:
+        - path: Dockerfile
+          reason: Builds a release image but sets no CMD or port; many required HEXPM_* settings.
+        - path: config/runtime.exs
+          reason: Requires many bucket, key and service settings.
+      runtime:
+        - path: mix.exs
+          reason: Elixir Mix project.
+      monorepo:
+        - path: mix.exs
+          reason: Single Mix project at the root.
+      postgres:
+        - path: mix.exs
+          reason: Depends on ecto_sql and postgrex.
+      redis:
+        - path: mix.exs
+          reason: No Redis client dependency.
+      worker:
+        - path: config/runtime.exs
+          reason: HEXPM_MODE worker runs Oban queues as a separate deployment.
+      storage:
+        - path: mix.exs
+          reason: Depends on ex_aws_s3; runtime.exs configures S3 buckets.
+      migration:
+        - path: lib/hexpm/release_tasks.ex
+          reason: Release task module runs Ecto migrations.
+      appRoot:
+        - path: mix.exs
+          reason: Project is at the repository root.
+      dockerfilePath:
+        - path: Dockerfile
+          reason: Root Dockerfile.
+  - id: repo-515
+    repo: dotnet/eShop
+    commit: dc7ea499cd356924fb6689b3702964a5869dbae9
+    expected:
+      compatibility: NOT_COMPATIBLE
+      runtime: [dotnet]
+      monorepo: true
+      postgres: true
+      redis: true
+      worker: true
+      appRoot: "."
+    citations:
+      compatibility:
+        - path: src/eShop.AppHost/AppHost.cs
+          reason: Aspire microservices with many services, RabbitMQ and YARP; no Dockerfile in the tree.
+      runtime:
+        - path: eShop.slnx
+          reason: .NET solution.
+      monorepo:
+        - path: src/eShop.AppHost/AppHost.cs
+          reason: Orchestrates many separate service projects.
+      postgres:
+        - path: src/eShop.AppHost/AppHost.cs
+          reason: AddPostgres with four databases.
+      redis:
+        - path: src/eShop.AppHost/AppHost.cs
+          reason: AddRedis used by basket-api.
+      worker:
+        - path: src/eShop.AppHost/AppHost.cs
+          reason: order-processor and payment-processor background services.
+      appRoot:
+        - path: eShop.slnx
+          reason: Solution is at the repository root.
+  - id: repo-516
+    repo: ente/ente
+    commit: 56f4e7b45d4101ef8d3ed1bf5764542c5ae3d37a
+    expected:
+      compatibility: NEEDS_CONFIGURATION
+      runtime: [go]
+      monorepo: true
+      postgres: true
+      redis: false
+      worker: false
+      storage: true
+      migration: true
+      appRoot: server
+      dockerfilePath: server/Dockerfile
+      port: 8080
+      healthPath: /ping
+    citations:
+      compatibility:
+        - path: server/Dockerfile
+          reason: Builds the museum server; needs database, S3-compatible storage and key configuration.
+        - path: server/configurations/local.yaml
+          reason: Shows required db, s3 and key settings.
+      runtime:
+        - path: server/go.mod
+          reason: Go module.
+      monorepo:
+        - path: server/go.mod
+          reason: Server is one app inside a repository holding web, mobile and desktop apps.
+      postgres:
+        - path: server/go.mod
+          reason: Depends on lib/pq and golang-migrate postgres.
+      redis:
+        - path: server/go.mod
+          reason: No Redis client dependency.
+      worker:
+        - path: server/cmd/museum/main.go
+          reason: Background jobs run in-process with robfig/cron.
+      storage:
+        - path: server/configurations/local.yaml
+          reason: s3 section configures object storage buckets.
+      migration:
+        - path: server/cmd/museum/main.go
+          reason: Runs golang-migrate Up from the migrations directory at start.
+      appRoot:
+        - path: server/go.mod
+          reason: Application root is server.
+      dockerfilePath:
+        - path: server/Dockerfile
+          reason: Server Dockerfile.
+      port:
+        - path: server/cmd/museum/main.go
+          reason: Default port is 8080 unless http.port is set.
+      healthPath:
+        - path: server/cmd/museum/main.go
+          reason: Public API route GET /ping.
+  - id: repo-517
+    repo: DependencyTrack/dependency-track
+    commit: cd2f225f431c21d980f5b5cda86512e8a7bef79c
+    expected:
+      compatibility: NEEDS_CONFIGURATION
+      runtime: [java]
+      monorepo: true
+      postgres: true
+      redis: false
+      worker: false
+      appRoot: apiserver
+      dockerfilePath: apiserver/src/main/docker/Dockerfile
+      port: 8080
+    citations:
+      compatibility:
+        - path: apiserver/src/main/docker/Dockerfile
+          reason: Dockerfile copies a pre-built target/ jar, so a Maven build must run first; also writes local data to /data.
+      runtime:
+        - path: apiserver/pom.xml
+          reason: Maven Java project.
+      monorepo:
+        - path: apiserver/pom.xml
+          reason: Multi-module Maven build; apiserver is one module.
+      postgres:
+        - path: apiserver/pom.xml
+          reason: Depends on the postgresql JDBC driver.
+      redis:
+        - path: apiserver/pom.xml
+          reason: Cache uses database provider; no Redis dependency.
+      worker:
+        - path: apiserver/src/main/docker/Dockerfile
+          reason: Single java process; tasks run in-process.
+      appRoot:
+        - path: apiserver/pom.xml
+          reason: Application module is apiserver.
+      dockerfilePath:
+        - path: apiserver/src/main/docker/Dockerfile
+          reason: Dockerfile for the API server.
+      port:
+        - path: apiserver/src/main/docker/Dockerfile
+          reason: EXPOSE 8080 9000; 8080 is the main server, 9000 is management.
+  - id: repo-518
+    repo: cachethq/cachet
+    commit: 40bd0819ee46ee7094c336a1240a2a7a1291ccb8
+    expected:
+      compatibility: NEEDS_CONFIGURATION
+      runtime: [php]
+      monorepo: false
+      postgres: false
+      redis: false
+      worker: true
+      migration: true
+      appRoot: "."
+    citations:
+      compatibility:
+        - path: .env.example
+          reason: No Dockerfile; defaults to SQLite and database queue, so a Dockerfile and a real database must be configured.
+      runtime:
+        - path: composer.json
+          reason: PHP 8.3 Laravel project.
+      monorepo:
+        - path: composer.json
+          reason: Single Laravel app at the root.
+      postgres:
+        - path: .env.example
+          reason: Default DB_CONNECTION is sqlite; PostgreSQL is optional.
+      redis:
+        - path: .env.example
+          reason: Session, cache and queue default to database, not Redis.
+      worker:
+        - path: config/queue.php
+          reason: Default queue is the database queue, which needs a queue worker process.
+      migration:
+        - path: database/migrations/2026_08_10_092944_create_jobs_table.php
+          reason: Laravel migrations must run on deploy.
+      appRoot:
+        - path: composer.json
+          reason: App is at the repository root.
+  - id: repo-519
+    repo: triggerdotdev/trigger.dev
+    commit: 3c7056abbd854e0c803fc7c3a95b094caee16b21
+    expected:
+      compatibility: NOT_COMPATIBLE
+      runtime: [node]
+      monorepo: true
+      postgres: true
+      redis: true
+      worker: true
+      migration: true
+      appRoot: "."
+      dockerfilePath: docker/Dockerfile
+      port: 3000
+      healthPath: /healthcheck
+      unsupported: [other-database]
+    citations:
+      compatibility:
+        - path: hosting/docker/webapp/docker-compose.yml
+          reason: Requires ClickHouse, Electric, registry, MinIO and a supervisor service besides Postgres and Redis.
+      runtime:
+        - path: package.json
+          reason: Node pnpm workspace.
+      monorepo:
+        - path: apps/webapp/package.json
+          reason: Webapp is one of many workspace packages.
+      postgres:
+        - path: hosting/docker/webapp/docker-compose.yml
+          reason: postgres service used by the webapp.
+      redis:
+        - path: hosting/docker/webapp/docker-compose.yml
+          reason: redis service used by the webapp.
+      worker:
+        - path: apps/supervisor/package.json
+          reason: Separate supervisor service runs alongside the webapp.
+      migration:
+        - path: docker/Dockerfile
+          reason: Image entrypoint runs Prisma migrations before start.
+      appRoot:
+        - path: package.json
+          reason: Workspace root.
+      dockerfilePath:
+        - path: docker/Dockerfile
+          reason: Webapp Dockerfile.
+      port:
+        - path: docker/Dockerfile
+          reason: EXPOSE 3000.
+      healthPath:
+        - path: apps/webapp/app/routes/healthcheck.tsx
+          reason: Route file for /healthcheck.
+      unsupported:
+        - path: hosting/docker/webapp/docker-compose.yml
+          reason: Webapp requires CLICKHOUSE_URL and a ClickHouse server.
+  - id: repo-520
+    repo: mathesar-foundation/mathesar
+    commit: 0c05987885c93cdbe5bf9f7fa49b833d02a312cc
+    expected:
+      compatibility: NEEDS_CONFIGURATION
+      runtime: [python]
+      monorepo: false
+      postgres: true
+      redis: false
+      worker: false
+      appRoot: "."
+      dockerfilePath: Dockerfile
+      port: 8000
+    citations:
+      compatibility:
+        - path: Dockerfile
+          reason: Last stage bundles Postgres with VOLUME mounts; the minimal target needs an external Postgres and an explicit target.
+      runtime:
+        - path: requirements.txt
+          reason: Python Django app.
+      monorepo:
+        - path: pyproject.toml
+          reason: Single Django project with a frontend build, not separate services.
+      postgres:
+        - path: docker-compose.yml
+          reason: Needs PostgreSQL for its internal and user databases.
+      redis:
+        - path: requirements.txt
+          reason: No Redis dependency.
+      worker:
+        - path: docker-compose.yml
+          reason: Only web and db services.
+      appRoot:
+        - path: pyproject.toml
+          reason: Project is at the repository root.
+      dockerfilePath:
+        - path: Dockerfile
+          reason: Root Dockerfile.
+      port:
+        - path: Dockerfile
+          reason: EXPOSE 8000.

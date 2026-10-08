@@ -1,0 +1,30 @@
+{
+  "taskId": "P1-VERIFY-02",
+  "testedCommit": "e6a3b58ee2363923fef21faca86611fa3bf84538",
+  "executor": "campaign-worker",
+  "model": "sonnet",
+  "startedAt": "2026-10-08T00:00:00Z",
+  "finishedAt": "2026-10-08T00:00:00Z",
+  "proposedStatus": "COMPLETE",
+  "commands": [
+    { "command": "gh api repos/<repo>/git/trees/<commit>?recursive=1 (10 repos) and gh api repos/<repo>/contents/<path>?ref=<commit> (source reads)", "exitCode": 0, "summary": "Read-only source reads at pinned commits; one 404 for mathesar bin/mathesar (file is not in the source tree, built into the package)" },
+    { "command": "npx tsx scratchpad/check.ts < /dev/null", "exitCode": 0, "summary": "All 10 apps pass expectedFactsSchema; every expected key has citations; ids, repos, commits match slice; every cited path is in the pinned tree" }
+  ],
+  "evidence": [
+    "campaign/corpus/labels/verify-02.yaml"
+  ],
+  "notes": [
+    "General rule used: READY not used. NEEDS_CONFIGURATION when repo is deployable in principle but needs env values, a missing Dockerfile, a worker command, or a build step. NOT_COMPATIBLE only for unsupported architecture. A missing Dockerfile was treated as NEEDS_CONFIGURATION, not NOT_COMPATIBLE.",
+    "repo-511 discourse: no Dockerfile in tree (compat could be NOT_COMPATIBLE if the gate treats it as hard). Port not set (pitchfork config not read). Worker true from sidekiq, but no Procfile or declared start command. storage omitted (S3 optional). monorepo false although pnpm workspace exists.",
+    "repo-512 forem: compat uncertain; Dockerfile last stage is development and production stage has VOLUME public/. healthPath omitted: health_checks route is under the api namespace and may need the /api prefix. storage omitted (carrierwave/fog-aws optional). Elasticsearch not found in Gemfile.",
+    "repo-513 saleor: redis true because Celery broker is Redis/SQS, only active when CELERY_BROKER_URL is set (otherwise tasks run eagerly). worker true but no start command declared. storage omitted (local media default, S3 optional). compat could be READY if env values are ignored.",
+    "repo-514 hexpm: Dockerfile has no CMD or EXPOSE; port omitted (HEXPM_PORT not defaulted in the part read). healthPath omitted (no health route found). worker true via HEXPM_MODE=worker, a separate deployment. storage true from many S3 bucket settings; may be required or optional.",
+    "repo-515 eShop: NOT_COMPATIBLE from Aspire multi-service layout with RabbitMQ and no Dockerfile. No unsupported entry because RabbitMQ is not in the UNSUPPORTED_FAMILIES map. appRoot '.' is arbitrary for a multi-service solution.",
+    "repo-516 ente: compat could be READY. Redis false (no client in go.mod). Migration true runs at server start. Port 8080 is a default that http.port can override.",
+    "repo-517 dependency-track: Dockerfile needs a pre-built target/ from Maven, so compat could be NOT_COMPATIBLE. Health is on management port 9000 only, so healthPath omitted. Default file storage is local /data; S3 optional; storage and migration omitted.",
+    "repo-518 cachet: no Dockerfile. postgres false because default is SQLite (Postgres is optional); this may differ from a label that expects Postgres. worker true from database queue default, not a declared process. Cachet core is in the cachethq/core package, not in this tree.",
+    "repo-519 trigger.dev: NOT_COMPATIBLE because webapp needs ClickHouse (mapped to other-database), plus Electric, registry and MinIO. worker true from the separate supervisor app; uncertain. port 3000 and healthPath /healthcheck from Dockerfile and compose healthcheck. appRoot '.' is the workspace root.",
+    "repo-520 mathesar: compat uncertain; last Dockerfile stage bundles Postgres with VOLUME mounts, minimal target uses external Postgres. migration omitted. healthPath omitted. Dockerfile references bin/mathesar which is built into the package and is not in the source tree.",
+    "startedAt and finishedAt are approximate placeholders; the worker had no clock command run."
+  ]
+}
