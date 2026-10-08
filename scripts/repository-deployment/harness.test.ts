@@ -1,6 +1,6 @@
 import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
@@ -17,6 +17,8 @@ import { activeRunsBlock, listUnfinishedLedgers, openLedger, readSeries, stageBR
 import {
   BENCHMARK_PATH,
   DEPLOY_CONFIG_PATH,
+  EVIDENCE_DIR,
+  RUNS_DIR,
   STAGE_B_DIR,
   assertRealAwsRepos,
   buildPlan,
@@ -2001,5 +2003,31 @@ describe('findings registry', () => {
     const ids = [...new Set([...doc.matchAll(/^\| (DEPLOY-\d{3}) \|/gm)].map((m) => m[1]!))].sort();
     expect(ids.length).toBeGreaterThan(0);
     for (const id of ids) expect(doc).toMatch(new RegExp(`^## ${id} — `, 'm'));
+  });
+});
+
+describe('corpus and deploy-config flags', () => {
+  it('keeps the defaults when the flags are absent', () => {
+    const options = parseRunArgs(['--gate']);
+    expect(options.benchmarkPath).toBe(BENCHMARK_PATH);
+    expect(options.deployConfigPath).toBe(DEPLOY_CONFIG_PATH);
+    expect(options.runsDir).toBe(RUNS_DIR);
+    expect(options.evidenceDir).toBe(EVIDENCE_DIR);
+  });
+
+  it('resolves --benchmark, --deploy-config, --runs-dir and --evidence-dir to absolute paths', () => {
+    const options = parseRunArgs(['--gate', '--benchmark', 'corpus/benchmark.yaml', '--deploy-config', 'corpus/deploy-config.yaml', '--runs-dir', 'out/runs', '--evidence-dir', 'logs/evidence']);
+    expect(options.benchmarkPath).toBe(resolve('corpus/benchmark.yaml'));
+    expect(options.deployConfigPath).toBe(resolve('corpus/deploy-config.yaml'));
+    expect(options.runsDir).toBe(resolve('out/runs'));
+    expect(options.evidenceDir).toBe(resolve('logs/evidence'));
+  });
+
+  it('refuses a non-default --benchmark without both --runs-dir and --evidence-dir', () => {
+    const message = 'a non-default --benchmark needs --runs-dir and --evidence-dir';
+    expect(() => parseRunArgs(['--gate', '--benchmark', 'corpus/benchmark.yaml'])).toThrow(message);
+    expect(() => parseRunArgs(['--gate', '--benchmark', 'corpus/benchmark.yaml', '--runs-dir', 'out/runs'])).toThrow(message);
+    expect(() => parseRunArgs(['--gate', '--benchmark', 'corpus/benchmark.yaml', '--evidence-dir', 'logs/evidence'])).toThrow(message);
+    expect(parseRunArgs(['--gate', '--benchmark', BENCHMARK_PATH]).runsDir).toBe(RUNS_DIR);
   });
 });

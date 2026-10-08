@@ -4,8 +4,8 @@
   "status": "CONTINUE",
   "phase": 2,
   "currentTask": null,
-  "nextAction": "Run P2-IMPL-CORPUS-FLAGS (campaign-worker, timebox 45 > 38: first task of a fresh run with a long-run exception; scope (a) of campaign/results/P2-DESIGN/design.md only). Then P2-IMPL-AI-MODE (45), P2-AI-LIVE-VALIDATE (30), P2-IMPL-LOCAL-BUILD (45), P2-IMPL-LOCAL-RUN (45), P2-SMOKE-RUN (40), P2-GATE.",
-  "updatedAt": "2026-10-08T21:39:12.464Z",
+  "nextAction": "Run P2-IMPL-AI-MODE (campaign-worker, timebox 45 > 38: first task of a fresh run with a long-run exception; scope (b) of campaign/results/P2-DESIGN/design.md only). Then P2-AI-LIVE-VALIDATE (30), P2-IMPL-LOCAL-BUILD (45), P2-IMPL-LOCAL-RUN (45), P2-SMOKE-RUN (40), P2-GATE.",
+  "updatedAt": "2026-10-08T22:06:50.221Z",
   "checkout": {
     "path": "C:/Users/Tejas/Desktop/deployz-mvp-test",
     "kind": "git worktree of C:/Users/Tejas/Desktop/deployz",
@@ -215,6 +215,10 @@
     {
       "commit": "e6a3b58ee2363923fef21faca86611fa3bf84538",
       "task": "P2-DESIGN"
+    },
+    {
+      "commit": "e6a3b58ee2363923fef21faca86611fa3bf84538",
+      "task": "P2-IMPL-CORPUS-FLAGS"
     }
   ],
   "attempts": {
@@ -264,16 +268,22 @@
     "P1-RECONCILE-04": 1,
     "P1-RECONCILE-05": 1,
     "P1-GATE": 1,
-    "P2-DESIGN": 1
+    "P2-DESIGN": 1,
+    "P2-IMPL-CORPUS-FLAGS": 1
   },
   "lastResult": {
-    "task": "P2-DESIGN",
+    "task": "P2-IMPL-CORPUS-FLAGS",
     "status": "COMPLETE",
-    "at": "2026-10-08T21:39:12.464Z",
+    "at": "2026-10-08T22:06:50.221Z",
     "evidence": [
-      "campaign/results/P2-DESIGN/design.md"
+      "campaign/results/P2-IMPL-CORPUS-FLAGS/result.json",
+      "scripts/repository-compatibility/index.ts",
+      "scripts/repository-compatibility/harness.test.ts",
+      "scripts/repository-deployment/index.ts",
+      "scripts/repository-deployment/harness.test.ts",
+      "docs/testing/compatibility.md"
     ],
-    "summary": "Design for minimal harness extensions: (a) --benchmark/--runs-dir (Stage A) and --benchmark/--deploy-config (Stage B, --runs-dir exists) with a guard against writing campaign results into docs/testing runs; (b) --ai off|live via describeAiGatewayConfig + counting gateway proxy, ai record per result, no mixed modes per runs dir; (c) --local build: GitHub tarball of pinned commit, strip-components=1, worker.ts Dockerfile/context precedence copy with drift guard, docker build --platform linux/amd64, 30 min timeout, env allowlist; (d) labelled per-repo bridge network, postgres:16/valkey:8/minio, no mounts/ports/privileged, registry env names, 6 probes with UNVERIFIED never success, labelled cleanup and leak check; (e) <id>.local.json per-stage records written atomically, --resume with reconcile and inputsHash. No product code, no new framework."
+    "summary": "Design scope (a): Stage A --benchmark/--runs-dir, Stage B --benchmark/--deploy-config; a non-default --benchmark needs --runs-dir (Stage A, unless --no-write) or --runs-dir and --evidence-dir (Stage B). Stage A main exported with injectable argv/session for a fake-session test. Opus re-ran: pnpm typecheck:scripts exit 0; vitest repository-compatibility + repository-deployment 158/158 (24 + 134, 8 new); docs/testing/*/runs unchanged; no product code."
   },
   "gates": {
     "smokeReviewed": true,
@@ -577,6 +587,11 @@
       "task": "P1-RECONCILE-05",
       "runStart": "2026-10-08T21:17:03Z",
       "reason": "First task of the run; timeboxMinutes 40 > 38 and no resumable steps (one 20-app reconciliation of batches 9 and 10)."
+    },
+    {
+      "task": "P2-IMPL-CORPUS-FLAGS",
+      "runStart": "2026-10-08T21:58:02Z",
+      "reason": "First task of the run; timeboxMinutes 45 > 38 and no resumable steps (one harness implementation change, design scope (a))."
     }
   ]
 }

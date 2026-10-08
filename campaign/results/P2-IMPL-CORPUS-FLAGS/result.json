@@ -1,0 +1,26 @@
+{
+  "taskId": "P2-IMPL-CORPUS-FLAGS",
+  "testedCommit": "e6a3b58ee2363923fef21faca86611fa3bf84538",
+  "executor": "campaign-worker",
+  "model": "sonnet",
+  "startedAt": "2026-10-09T03:20:00Z",
+  "finishedAt": "2026-10-09T03:40:00Z",
+  "proposedStatus": "COMPLETE",
+  "commands": [
+    { "command": "pnpm typecheck:scripts", "exitCode": 0, "summary": "all five script projects typecheck" },
+    { "command": "pnpm exec vitest run --project repository-compatibility", "exitCode": 0, "summary": "24 passed (5 new)" },
+    { "command": "pnpm exec vitest run --project repository-deployment", "exitCode": 0, "summary": "134 passed (3 new)" }
+  ],
+  "evidence": [
+    "scripts/repository-compatibility/index.ts",
+    "scripts/repository-compatibility/harness.test.ts",
+    "scripts/repository-deployment/index.ts",
+    "scripts/repository-deployment/harness.test.ts",
+    "docs/testing/compatibility.md"
+  ],
+  "notes": [
+    "Stage A main is now exported with an injectable session opener (default unchanged) so the run test needs no network.",
+    "Stage B guard applies to every mode, including --dry-run, as the design states.",
+    "A campaign benchmark with the default deploy-config fails on unknown ids; pass --deploy-config (Phase 3 artifact)."
+  ]
+}

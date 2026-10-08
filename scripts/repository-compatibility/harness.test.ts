@@ -1,11 +1,11 @@
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import { openAnalysisSession, type AnalysisSession } from './analyse.js';
-import { AUDIT_DIR, BENCHMARK_PATH, parseRunArgs, runEntry } from './index.js';
+import { AUDIT_DIR, BENCHMARK_PATH, RUNS_DIR, main, parseRunArgs, runEntry } from './index.js';
 import { loadBenchmark, parseBenchmark, selectEntries, type BenchmarkEntry, type FindingRef } from './manifest.js';
 import { classifyMismatches, compareFacts, normalizeActual, type ActualFacts } from './normalize.js';
 import { buildSummary, renderSummary } from './report.js';
@@ -473,5 +473,76 @@ describe('production analysis path over a snapshot', () => {
     } finally {
       await empty.close();
     }
+  });
+});
+
+describe('corpus and runs-dir flags', () => {
+  let dir: string;
+  beforeAll(() => {
+    dir = mkdtempSync(join(tmpdir(), 'compat-flags-'));
+  });
+  afterAll(() => {
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('keeps the defaults when the flags are absent', () => {
+    const options = parseRunArgs([]);
+    expect(options.benchmarkPath).toBe(BENCHMARK_PATH);
+    expect(options.runsDir).toBe(RUNS_DIR);
+  });
+
+  it('resolves --benchmark and --runs-dir to absolute paths', () => {
+    const options = parseRunArgs(['--benchmark', 'corpus/benchmark.yaml', '--runs-dir', 'out/runs']);
+    expect(options.benchmarkPath).toBe(resolve('corpus/benchmark.yaml'));
+    expect(options.runsDir).toBe(resolve('out/runs'));
+  });
+
+  it('refuses a non-default --benchmark without --runs-dir unless nothing is written', () => {
+    expect(() => parseRunArgs(['--benchmark', 'corpus/benchmark.yaml'])).toThrow('a non-default --benchmark needs --runs-dir');
+    expect(parseRunArgs(['--benchmark', 'corpus/benchmark.yaml', '--no-write']).write).toBe(false);
+    expect(parseRunArgs(['--benchmark', BENCHMARK_PATH]).runsDir).toBe(RUNS_DIR);
+  });
+
+  it('runs a two-entry benchmark and writes only into the given runs dir', async () => {
+    const benchmarkPath = join(dir, 'benchmark.yaml');
+    writeFileSync(benchmarkPath, VALID_MANIFEST);
+    const runsDir = join(dir, 'runs');
+    const defaultRunsBefore = existsSync(RUNS_DIR) ? readdirSync(RUNS_DIR).sort() : [];
+    const analysed: string[] = [];
+    const fakeSession = {
+      analyse: async (entry: BenchmarkEntry) => {
+        analysed.push(entry.id);
+        return { status: 'failed', failure: 'fake session', treeFiles: 0 };
+      },
+      close: async () => {},
+    } as unknown as AnalysisSession;
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const write = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+    try {
+      const code = await main(['--offline', '--benchmark', benchmarkPath, '--runs-dir', runsDir, '--cache', join(dir, 'cache')], async () => fakeSession);
+      expect(code).toBe(1);
+    } finally {
+      log.mockRestore();
+      write.mockRestore();
+    }
+    expect(analysed).toEqual(['repo-001', 'repo-002']);
+    expect(readdirSync(runsDir).sort()).toEqual(['repo-001.json', 'repo-002.json', 'summary.json', 'summary.md']);
+    expect(JSON.parse(readFileSync(join(runsDir, 'repo-002.json'), 'utf8'))).toMatchObject({ id: 'repo-002', repository: 'acme/worker', status: 'failed' });
+    expect(existsSync(RUNS_DIR) ? readdirSync(RUNS_DIR).sort() : []).toEqual(defaultRunsBefore);
+  });
+
+  it('writes no summary for a partial run', async () => {
+    const benchmarkPath = join(dir, 'benchmark.yaml');
+    const runsDir = join(dir, 'partial');
+    const fakeSession = { analyse: async () => ({ status: 'failed', failure: 'fake session', treeFiles: 0 }), close: async () => {} } as unknown as AnalysisSession;
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const write = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+    try {
+      await main(['--offline', '--repo', 'repo-001', '--benchmark', benchmarkPath, '--runs-dir', runsDir, '--cache', join(dir, 'cache')], async () => fakeSession);
+    } finally {
+      log.mockRestore();
+      write.mockRestore();
+    }
+    expect(readdirSync(runsDir)).toEqual(['repo-001.json']);
   });
 });

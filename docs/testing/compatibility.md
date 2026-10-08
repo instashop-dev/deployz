@@ -30,7 +30,14 @@ pnpm benchmark:compat --repo repo-001    # one entry (repeat --repo for several)
 pnpm benchmark:compat --set unseen       # one benchmark set
 pnpm benchmark:compat --offline          # cached snapshots only, no GitHub
 pnpm benchmark:compat --no-write         # print the summary, write nothing
+pnpm benchmark:compat --benchmark <path> --runs-dir <dir>   # another corpus file, results into <dir>
 ```
+
+`--benchmark <path>` reads any corpus file instead of `benchmark.yaml`, and
+`--runs-dir <dir>` writes the result files and the summary to any directory
+instead of `repository-compatibility/runs/`. A non-default `--benchmark` needs
+`--runs-dir` unless `--no-write` is set, so another corpus never writes into
+the committed runs. A partial run (`--repo` or `--set`) still writes no summary.
 
 **The corpus** (`benchmark.yaml`) has 120 entries across three cohorts
 (`realistic`, `messy`, `boundary` — repositories that fall outside the MVP by
@@ -183,7 +190,16 @@ DEPLOYZ_E2E_ALLOW_REAL_AWS=1 pnpm benchmark:deploy --real-aws --repo repo-001
 DEPLOYZ_E2E_ALLOW_REAL_AWS=1 pnpm benchmark:deploy --real-aws --resume
 DEPLOYZ_E2E_ALLOW_REAL_AWS=1 pnpm benchmark:deploy --cleanup --repo repo-001
 DEPLOYZ_E2E_ALLOW_REAL_AWS=1 pnpm benchmark:deploy --audit
+pnpm benchmark:deploy --gate --benchmark <path> --deploy-config <path> --runs-dir <dir> --evidence-dir <dir>
 ```
+
+`--benchmark <path>` and `--deploy-config <path>` read any corpus and
+deploy-config file instead of the committed ones; `--runs-dir` and
+`--evidence-dir` move the results and the evidence. A non-default `--benchmark`
+needs both `--runs-dir` and `--evidence-dir`, so another corpus never writes
+into the committed runs. A repository with no entry in the deploy-config file
+keeps the empty configuration. The deploy-config file must not name a
+repository id that the benchmark file lacks.
 
 **Findings** are systemic (`DEPLOY-nnn`, in
 [`repository-deployment/findings.md`](repository-deployment/findings.md)),

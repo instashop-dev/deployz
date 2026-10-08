@@ -11,7 +11,8 @@
  *   pnpm benchmark:deploy --audit                      account scan for Stage B tags and recorded installations
  *
  * Reads docs/testing/repository-compatibility/benchmark.yaml (by id — never
- * copied) and docs/testing/repository-deployment/deploy-config.yaml, writes
+ * copied) and docs/testing/repository-deployment/deploy-config.yaml (or
+ * --benchmark and --deploy-config), writes
  * docs/testing/repository-deployment/runs/<id>.json and the summaries.
  * Exit code 1 when the harness itself failed; a product failure is the
  * audit's subject, not a harness failure.
@@ -92,6 +93,8 @@ export interface RunOptions {
   cacheDir: string;
   evidenceDir: string;
   runsDir: string;
+  benchmarkPath: string;
+  deployConfigPath: string;
   /** Overrides AWS_REGION for this process's install (customer) region; validated against SUPPORTED_AWS_REGIONS. */
   region: string | undefined;
   /** The global real-AWS concurrency guard across processes sharing the evidence dir. Default 2. */
@@ -125,6 +128,8 @@ export function parseRunArgs(argv: readonly string[]): RunOptions {
       cache: { type: 'string' },
       'evidence-dir': { type: 'string' },
       'runs-dir': { type: 'string' },
+      benchmark: { type: 'string' },
+      'deploy-config': { type: 'string' },
       region: { type: 'string' },
       'max-active': { type: 'string' },
       'require-smoke': { type: 'boolean', default: false },
@@ -142,6 +147,10 @@ export function parseRunArgs(argv: readonly string[]): RunOptions {
   const modes = [values.gate, values['dry-run'], values['real-aws'], values.cleanup, values.audit].filter(Boolean).length;
   if (modes === 0 && !values.resume) throw new Error('choose a mode: --gate, --dry-run, --real-aws, --cleanup or --audit');
   if (values['real-aws'] && values.gate) throw new Error('--gate and --real-aws are exclusive (the funnel runs the gate itself)');
+  const benchmarkPath = values.benchmark ? resolve(values.benchmark) : BENCHMARK_PATH;
+  if (benchmarkPath !== BENCHMARK_PATH && !(values['runs-dir'] && values['evidence-dir'])) {
+    throw new Error('a non-default --benchmark needs --runs-dir and --evidence-dir');
+  }
   return {
     ids: values.repo ?? [],
     set: values.set,
@@ -162,6 +171,8 @@ export function parseRunArgs(argv: readonly string[]): RunOptions {
     cacheDir: values.cache ? resolve(values.cache) : CACHE_DIR,
     evidenceDir: values['evidence-dir'] ? resolve(values['evidence-dir']) : EVIDENCE_DIR,
     runsDir: values['runs-dir'] ? resolve(values['runs-dir']) : RUNS_DIR,
+    benchmarkPath,
+    deployConfigPath: values['deploy-config'] ? resolve(values['deploy-config']) : DEPLOY_CONFIG_PATH,
     region: values.region,
     maxActive,
     requireSmoke: values['require-smoke'] ?? false,
@@ -650,8 +661,8 @@ function writeSummaries(runsDir: string, sha: string): void {
 
 async function main(): Promise<number> {
   const options = parseRunArgs(process.argv.slice(2));
-  const benchmark = loadBenchmark(BENCHMARK_PATH);
-  const config = loadDeployConfig(DEPLOY_CONFIG_PATH);
+  const benchmark = loadBenchmark(options.benchmarkPath);
+  const config = loadDeployConfig(options.deployConfigPath);
   for (const entry of config.repositories) {
     if (!benchmark.repositories.some((b) => b.id === entry.id)) throw new Error(`deploy-config names unknown repository ${entry.id}`);
   }

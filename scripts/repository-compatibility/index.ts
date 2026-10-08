@@ -6,8 +6,9 @@
  *   pnpm benchmark:compat --set unseen          one benchmark set
  *   pnpm benchmark:compat --offline             cached snapshots only, no GitHub
  *   pnpm benchmark:compat --no-write            print the summary, write nothing
+ *   pnpm benchmark:compat --benchmark b.yaml --runs-dir out   another corpus, results into out
  *
- * Reads docs/testing/repository-compatibility/benchmark.yaml, runs each
+ * Reads docs/testing/repository-compatibility/benchmark.yaml (or --benchmark), runs each
  * pinned snapshot through the production analysis path, compares the
  * result with the expected facts, and writes runs/<id>.json plus
  * runs/summary.{json,md}. Exit code 1 when a repository could not be
@@ -39,6 +40,8 @@ export interface RunOptions {
   offline: boolean;
   write: boolean;
   cacheDir: string;
+  benchmarkPath: string;
+  runsDir: string;
 }
 
 export function parseRunArgs(argv: readonly string[]): RunOptions {
@@ -50,15 +53,22 @@ export function parseRunArgs(argv: readonly string[]): RunOptions {
       offline: { type: 'boolean', default: false },
       'no-write': { type: 'boolean', default: false },
       cache: { type: 'string' },
+      benchmark: { type: 'string' },
+      'runs-dir': { type: 'string' },
     },
     strict: true,
   });
+  const benchmarkPath = values.benchmark ? resolve(values.benchmark) : BENCHMARK_PATH;
+  const write = !(values['no-write'] ?? false);
+  if (write && benchmarkPath !== BENCHMARK_PATH && !values['runs-dir']) throw new Error('a non-default --benchmark needs --runs-dir');
   return {
     ids: values.repo ?? [],
     set: values.set,
     offline: values.offline ?? false,
-    write: !(values['no-write'] ?? false),
+    write,
     cacheDir: values.cache ? resolve(values.cache) : CACHE_DIR,
+    benchmarkPath,
+    runsDir: values['runs-dir'] ? resolve(values['runs-dir']) : RUNS_DIR,
   };
 }
 
@@ -97,9 +107,9 @@ export async function runEntry(
   return { ...base, status: 'analysed', failure: null, actual, comparisons, mismatches, match: mismatches.length === 0 };
 }
 
-async function main(): Promise<number> {
-  const options = parseRunArgs(process.argv.slice(2));
-  const benchmark = loadBenchmark(BENCHMARK_PATH);
+export async function main(argv: readonly string[] = process.argv.slice(2), openSession: typeof openAnalysisSession = openAnalysisSession): Promise<number> {
+  const options = parseRunArgs(argv);
+  const benchmark = loadBenchmark(options.benchmarkPath);
   const entries = selectEntries(benchmark, { ids: options.ids, set: options.set });
   if (entries.length === 0) {
     console.error('No repositories selected.');
@@ -113,7 +123,7 @@ async function main(): Promise<number> {
   const fetchFn = createSnapshotFetch({ cacheDir: options.cacheDir, token, offline: options.offline });
   const context = { deployzSha: deployzSha(), analysisVersion: ANALYSIS_VERSION, cacheDir: options.cacheDir };
 
-  const session = await openAnalysisSession(fetchFn);
+  const session = await openSession(fetchFn);
   const results: RunResult[] = [];
   try {
     for (const entry of entries) {
@@ -130,10 +140,10 @@ async function main(): Promise<number> {
   const summary = buildSummary(results, context.deployzSha, context.analysisVersion);
   console.log(`\n${renderSummary(results, summary)}`);
   if (options.write) {
-    writeRunFiles(RUNS_DIR, results);
+    writeRunFiles(options.runsDir, results);
     // A partial run must not overwrite the corpus-wide summary.
-    if (options.ids.length === 0 && options.set === undefined) writeSummaryFiles(RUNS_DIR, results, summary);
-    console.log(`Wrote ${results.length} result file(s) to ${RUNS_DIR}`);
+    if (options.ids.length === 0 && options.set === undefined) writeSummaryFiles(options.runsDir, results, summary);
+    console.log(`Wrote ${results.length} result file(s) to ${options.runsDir}`);
   }
   return summary.failed > 0 ? 1 : 0;
 }

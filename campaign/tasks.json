@@ -1771,7 +1771,7 @@
       "phase": 2,
       "title": "Stage A/Stage B: read a campaign corpus and runs dir by flag; historical runs untouched",
       "executor": "campaign-worker",
-      "status": "PENDING",
+      "status": "COMPLETE",
       "prerequisites": [
         "P2-DESIGN"
       ],
