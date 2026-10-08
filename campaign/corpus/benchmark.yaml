@@ -1,0 +1,1862 @@
+# Fresh-100 campaign improvement set (P1-GATE). Expected facts are the final source-backed labels (rule set R1).
+# customer_realism: realistic=high, messy=medium, boundary=low. difficulty: READY 2, otherwise 3; +1 messy; +1 monorepo; max 5.
+version: 1
+findings: []
+repositories:
+  - id: repo-501
+    repository: fastapi/full-stack-fastapi-template
+    commit: f27b4721507824e57ebd0286ff1a84d82e83bf59
+    cohort: realistic
+    set: improvement
+    expected:
+      compatibility: NEEDS_CONFIGURATION
+      runtime:
+        - python
+      monorepo: true
+      postgres: true
+      redis: false
+      worker: false
+      migration: true
+      appRoot: backend
+      dockerfilePath: backend/Dockerfile
+      port: 8000
+      healthPath: /api/v1/utils/health-check/
+    customer_realism: high
+    difficulty: 4
+    findings: []
+    notes:
+      - Final label from campaign/corpus/labels/final-01.yaml (P1-RECONCILE-01, rules R1); source citations there.
+  - id: repo-502
+    repository: getredash/redash
+    commit: e170795256ae028930e4760192e5dc3f59bb420c
+    cohort: realistic
+    set: improvement
+    expected:
+      compatibility: NEEDS_CONFIGURATION
+      runtime:
+        - python
+      monorepo: false
+      postgres: true
+      redis: true
+      worker: true
+      migration: true
+      appRoot: .
+      dockerfilePath: Dockerfile
+      port: 5000
+      healthPath: /ping
+    customer_realism: high
+    difficulty: 3
+    findings: []
+    notes:
+      - Final label from campaign/corpus/labels/final-01.yaml (P1-RECONCILE-01, rules R1); source citations there.
+  - id: repo-503
+    repository: HumanSignal/label-studio
+    commit: 766b7ce5c60fb6c7a601493e7bf8860cdd73c841
+    cohort: realistic
+    set: improvement
+    expected:
+      compatibility: NEEDS_CONFIGURATION
+      runtime:
+        - python
+      monorepo: false
+      postgres: true
+      redis: false
+      worker: false
+      storage: true
+      migration: true
+      appRoot: .
+      dockerfilePath: Dockerfile
+      port: 8080
+      healthPath: /health
+    customer_realism: high
+    difficulty: 3
+    findings: []
+    notes:
+      - Final label from campaign/corpus/labels/final-01.yaml (P1-RECONCILE-01, rules R1); source citations there.
+  - id: repo-505
+    repository: spring-projects/spring-petclinic
+    commit: 500158f732419217507c7656904b8e6aa1bcc0d6
+    cohort: realistic
+    set: improvement
+    expected:
+      compatibility: NOT_COMPATIBLE
+      runtime:
+        - java
+      monorepo: false
+      postgres: true
+      redis: false
+      worker: false
+      appRoot: .
+      port: 8080
+      healthPath: /actuator/health
+    customer_realism: high
+    difficulty: 3
+    findings: []
+    notes:
+      - Final label from campaign/corpus/labels/final-01.yaml (P1-RECONCILE-01, rules R1); source citations there.
+  - id: repo-507
+    repository: payloadcms/payload
+    commit: c66a7bec07dd7f30bdcd98320351c70846da4f0e
+    cohort: realistic
+    set: improvement
+    expected:
+      compatibility: NOT_COMPATIBLE
+      runtime:
+        - node
+      monorepo: true
+      postgres: true
+      redis: false
+      worker: false
+      migration: true
+      appRoot: templates/with-postgres
+      dockerfilePath: templates/with-postgres/Dockerfile
+      port: 3000
+    customer_realism: high
+    difficulty: 4
+    findings: []
+    notes:
+      - Final label from campaign/corpus/labels/final-01.yaml (P1-RECONCILE-01, rules R1); source citations there.
+  - id: repo-508
+    repository: gotenberg/gotenberg
+    commit: c83dbd7bafacb3734ebadf2e33a4049a17d45ec9
+    cohort: realistic
+    set: improvement
+    expected:
+      compatibility: NEEDS_CONFIGURATION
+      runtime:
+        - go
+      monorepo: false
+      postgres: false
+      redis: false
+      worker: false
+      appRoot: .
+      dockerfilePath: build/Dockerfile
+      port: 3000
+      healthPath: /health
+    customer_realism: high
+    difficulty: 3
+    findings: []
+    notes:
+      - Final label from campaign/corpus/labels/final-01.yaml (P1-RECONCILE-01, rules R1); source citations there.
+  - id: repo-509
+    repository: elie222/inbox-zero
+    commit: 84fd613d3dc1b3dbe8c3f46f9ec85d9e8681621c
+    cohort: realistic
+    set: improvement
+    expected:
+      compatibility: NEEDS_CONFIGURATION
+      runtime:
+        - node
+      monorepo: true
+      postgres: true
+      redis: false
+      worker: false
+      migration: true
+      appRoot: .
+      dockerfilePath: docker/Dockerfile.prod
+      port: 3000
+      healthPath: /api/health
+    customer_realism: high
+    difficulty: 4
+    findings: []
+    notes:
+      - Final label from campaign/corpus/labels/final-01.yaml (P1-RECONCILE-01, rules R1); source citations there.
+  - id: repo-510
+    repository: basecamp/once-campfire
+    commit: 008ea1ab2af0f84021e25047c67b64d30a601339
+    cohort: realistic
+    set: improvement
+    expected:
+      compatibility: NOT_COMPATIBLE
+      runtime:
+        - ruby
+      monorepo: false
+      postgres: false
+      redis: true
+      worker: true
+      migration: true
+      appRoot: .
+      dockerfilePath: Dockerfile
+      port: 80
+      healthPath: /up
+      unsupported:
+        - local-filesystem
+    customer_realism: high
+    difficulty: 3
+    findings: []
+    notes:
+      - Final label from campaign/corpus/labels/final-01.yaml (P1-RECONCILE-01, rules R1); source citations there.
+  - id: repo-511
+    repository: discourse/discourse
+    commit: 3c43d1696fadfd0abc2b8ac2cb5b230651f0e509
+    cohort: realistic
+    set: improvement
+    expected:
+      compatibility: NOT_COMPATIBLE
+      runtime:
+        - ruby
+      monorepo: false
+      postgres: true
+      redis: true
+      worker: false
+      migration: true
+      appRoot: .
+      port: 3000
+      healthPath: /srv/status
+    customer_realism: high
+    difficulty: 3
+    findings: []
+    notes:
+      - Final label from campaign/corpus/labels/final-02.yaml (P1-RECONCILE-01, rules R1); source citations there.
+  - id: repo-513
+    repository: saleor/saleor
+    commit: bb75f87973abe24056a5d0dff1708ca097e95599
+    cohort: realistic
+    set: improvement
+    expected:
+      compatibility: NEEDS_CONFIGURATION
+      runtime:
+        - python
+      monorepo: false
+      postgres: true
+      redis: false
+      worker: false
+      storage: true
+      migration: true
+      appRoot: .
+      dockerfilePath: Dockerfile
+      port: 8000
+      healthPath: /health/
+    customer_realism: high
+    difficulty: 3
+    findings: []
+    notes:
+      - Final label from campaign/corpus/labels/final-02.yaml (P1-RECONCILE-01, rules R1); source citations there.
+  - id: repo-514
+    repository: hexpm/hexpm
+    commit: 151266fa511769aa56a17df804fe7a55219858a2
+    cohort: realistic
+    set: improvement
+    expected:
+      compatibility: NEEDS_CONFIGURATION
+      runtime:
+        - elixir
+      monorepo: false
+      postgres: true
+      redis: false
+      worker: true
+      storage: true
+      migration: true
+      appRoot: .
+      dockerfilePath: Dockerfile
+    customer_realism: high
+    difficulty: 3
+    findings: []
+    notes:
+      - Final label from campaign/corpus/labels/final-02.yaml (P1-RECONCILE-01, rules R1); source citations there.
+  - id: repo-515
+    repository: dotnet/eShop
+    commit: dc7ea499cd356924fb6689b3702964a5869dbae9
+    cohort: realistic
+    set: improvement
+    expected:
+      compatibility: NOT_COMPATIBLE
+      runtime:
+        - dotnet
+      monorepo: true
+      postgres: true
+      redis: true
+      worker: true
+      migration: true
+      appRoot: .
+      unsupported:
+        - rabbitmq
+        - background-worker
+    customer_realism: high
+    difficulty: 4
+    findings: []
+    notes:
+      - Final label from campaign/corpus/labels/final-02.yaml (P1-RECONCILE-01, rules R1); source citations there.
+  - id: repo-516
+    repository: ente/ente
+    commit: 56f4e7b45d4101ef8d3ed1bf5764542c5ae3d37a
+    cohort: realistic
+    set: improvement
+    expected:
+      compatibility: NEEDS_CONFIGURATION
+      runtime:
+        - go
+      monorepo: true
+      postgres: true
+      redis: false
+      worker: false
+      storage: true
+      migration: true
+      appRoot: server
+      dockerfilePath: server/Dockerfile
+      port: 8080
+      healthPath: /ping
+    customer_realism: high
+    difficulty: 4
+    findings: []
+    notes:
+      - Final label from campaign/corpus/labels/final-02.yaml (P1-RECONCILE-01, rules R1); source citations there.
+  - id: repo-517
+    repository: DependencyTrack/dependency-track
+    commit: cd2f225f431c21d980f5b5cda86512e8a7bef79c
+    cohort: realistic
+    set: improvement
+    expected:
+      compatibility: NOT_COMPATIBLE
+      runtime:
+        - java
+      monorepo: true
+      postgres: true
+      redis: false
+      worker: false
+      migration: true
+      appRoot: apiserver
+      dockerfilePath: apiserver/src/main/docker/Dockerfile
+      port: 8080
+    customer_realism: high
+    difficulty: 4
+    findings: []
+    notes:
+      - Final label from campaign/corpus/labels/final-02.yaml (P1-RECONCILE-01, rules R1); source citations there.
+  - id: repo-518
+    repository: cachethq/cachet
+    commit: 40bd0819ee46ee7094c336a1240a2a7a1291ccb8
+    cohort: realistic
+    set: improvement
+    expected:
+      compatibility: NOT_COMPATIBLE
+      runtime:
+        - php
+      monorepo: false
+      postgres: true
+      redis: false
+      worker: false
+      migration: true
+      appRoot: .
+      healthPath: /up
+    customer_realism: high
+    difficulty: 3
+    findings: []
+    notes:
+      - Final label from campaign/corpus/labels/final-02.yaml (P1-RECONCILE-01, rules R1); source citations there.
+  - id: repo-519
+    repository: triggerdotdev/trigger.dev
+    commit: 3c7056abbd854e0c803fc7c3a95b094caee16b21
+    cohort: realistic
+    set: improvement
+    expected:
+      compatibility: NOT_COMPATIBLE
+      runtime:
+        - node
+      monorepo: true
+      postgres: true
+      redis: true
+      worker: false
+      migration: true
+      appRoot: .
+      dockerfilePath: docker/Dockerfile
+      port: 3000
+      healthPath: /healthcheck
+      unsupported:
+        - other-database
+        - background-worker
+    customer_realism: high
+    difficulty: 4
+    findings: []
+    notes:
+      - Final label from campaign/corpus/labels/final-02.yaml (P1-RECONCILE-01, rules R1); source citations there.
+  - id: repo-520
+    repository: mathesar-foundation/mathesar
+    commit: 0c05987885c93cdbe5bf9f7fa49b833d02a312cc
+    cohort: realistic
+    set: improvement
+    expected:
+      compatibility: NEEDS_CONFIGURATION
+      runtime:
+        - python
+      monorepo: false
+      postgres: true
+      redis: false
+      worker: false
+      storage: true
+      migration: true
+      appRoot: .
+      dockerfilePath: Dockerfile
+      port: 8000
+      healthPath: /healthz/ready/
+    customer_realism: high
+    difficulty: 3
+    findings: []
+    notes:
+      - Final label from campaign/corpus/labels/final-02.yaml (P1-RECONCILE-01, rules R1); source citations there.
+  - id: repo-522
+    repository: sigoden/dufs
+    commit: fe7fd564f80dfbac361c8e0589c3845638149d38
+    cohort: realistic
+    set: improvement
+    expected:
+      compatibility: NOT_COMPATIBLE
+      runtime:
+        - rust
+      monorepo: false
+      postgres: false
+      redis: false
+      worker: false
+      appRoot: .
+      dockerfilePath: Dockerfile
+      port: 5000
+      healthPath: /__dufs__/health
+      unsupported:
+        - local-filesystem
+    customer_realism: high
+    difficulty: 3
+    findings: []
+    notes:
+      - Final label from campaign/corpus/labels/final-03.yaml (P1-RECONCILE-02, rules R1); source citations there.
+  - id: repo-523
+    repository: Freika/dawarich
+    commit: e32b70701b2467b862d4b5bc27ac428999997c1b
+    cohort: realistic
+    set: improvement
+    expected:
+      compatibility: NEEDS_CONFIGURATION
+      runtime:
+        - ruby
+      monorepo: false
+      postgres: true
+      redis: true
+      worker: true
+      storage: true
+      migration: true
+      appRoot: .
+      dockerfilePath: docker/Dockerfile
+      port: 3000
+      healthPath: /api/v1/health
+    customer_realism: high
+    difficulty: 3
+    findings: []
+    notes:
+      - Final label from campaign/corpus/labels/final-03.yaml (P1-RECONCILE-02, rules R1); source citations there.
+  - id: repo-524
+    repository: miguelgrinberg/microblog
+    commit: a975ef64864354867c88e0ed3a17ba7d17dca752
+    cohort: realistic
+    set: improvement
+    expected:
+      compatibility: READY
+      runtime:
+        - python
+      monorepo: false
+      postgres: true
+      redis: false
+      worker: false
+      migration: true
+      appRoot: .
+      dockerfilePath: Dockerfile
+      port: 5000
+    customer_realism: high
+    difficulty: 2
+    findings: []
+    notes:
+      - Final label from campaign/corpus/labels/final-03.yaml (P1-RECONCILE-02, rules R1); source citations there.
+  - id: repo-525
+    repository: gotson/komga
+    commit: 519e352aa894b2fdc80660f1dde21b98cf328e3e
+    cohort: realistic
+    set: improvement
+    expected:
+      compatibility: NOT_COMPATIBLE
+      runtime:
+        - java
+      monorepo: true
+      postgres: false
+      redis: false
+      worker: false
+      migration: true
+      appRoot: .
+      port: 25600
+      unsupported:
+        - local-filesystem
+    customer_realism: high
+    difficulty: 4
+    findings: []
+    notes:
+      - Final label from campaign/corpus/labels/final-03.yaml (P1-RECONCILE-02, rules R1); source citations there.
+  - id: repo-528
+    repository: electric-sql/electric
+    commit: 3f9809fb0bd894cb74470d434749673492ad7acf
+    cohort: realistic
+    set: improvement
+    expected:
+      compatibility: NOT_COMPATIBLE
+      runtime:
+        - elixir
+      monorepo: true
+      postgres: true
+      redis: false
+      worker: false
+      appRoot: packages/sync-service
+      dockerfilePath: packages/sync-service/Dockerfile
+      port: 3000
+      healthPath: /v1/health
+      unsupported:
+        - local-filesystem
+    customer_realism: high
+    difficulty: 4
+    findings: []
+    notes:
+      - Final label from campaign/corpus/labels/final-03.yaml (P1-RECONCILE-02, rules R1); source citations there.
+  - id: repo-529
+    repository: grokability/snipe-it
+    commit: 18fb61ab50d2d87489bb90723a8e9611f5fe1f58
+    cohort: realistic
+    set: improvement
+    expected:
+      compatibility: NOT_COMPATIBLE
+      runtime:
+        - php
+      monorepo: false
+      postgres: false
+      redis: false
+      worker: false
+      migration: true
+      appRoot: .
+      dockerfilePath: Dockerfile
+      port: 80
+      healthPath: /health
+      unsupported:
+        - local-filesystem
+    customer_realism: high
+    difficulty: 3
+    findings: []
+    notes:
+      - Final label from campaign/corpus/labels/final-03.yaml (P1-RECONCILE-02, rules R1); source citations there.
+  - id: repo-530
+    repository: hibiken/asynqmon
+    commit: d1b889456de3c98c22de24642b6f836a29da3140
+    cohort: realistic
+    set: improvement
+    expected:
+      compatibility: READY
+      runtime:
+        - go
+      monorepo: false
+      postgres: false
+      redis: true
+      worker: false
+      appRoot: .
+      dockerfilePath: Dockerfile
+      port: 8080
+    customer_realism: high
+    difficulty: 2
+    findings: []
+    notes:
+      - Final label from campaign/corpus/labels/final-03.yaml (P1-RECONCILE-02, rules R1); source citations there.
+  - id: repo-534
+    repository: hapifhir/hapi-fhir-jpaserver-starter
+    commit: 377e6eba316920082e6a90551b488e4599a71eb8
+    cohort: realistic
+    set: improvement
+    expected:
+      compatibility: NEEDS_CONFIGURATION
+      runtime:
+        - java
+      monorepo: false
+      postgres: true
+      redis: false
+      worker: false
+      appRoot: .
+      dockerfilePath: Dockerfile
+      port: 8080
+      healthPath: /actuator/health
+    customer_realism: high
+    difficulty: 3
+    findings: []
+    notes:
+      - Final label from campaign/corpus/labels/final-04.yaml (P1-RECONCILE-02, rules R1); source citations there.
+  - id: repo-536
+    repository: InvoiceShelf/InvoiceShelf
+    commit: ef9e9cbc9987fe5083867374cc46637029eff868
+    cohort: realistic
+    set: improvement
+    expected:
+      compatibility: NEEDS_CONFIGURATION
+      runtime:
+        - php
+      monorepo: false
+      postgres: true
+      redis: false
+      worker: false
+      storage: true
+      migration: true
+      appRoot: .
+      dockerfilePath: docker/production/Dockerfile
+      port: 8080
+      healthPath: /up
+    customer_realism: high
+    difficulty: 3
+    findings: []
+    notes:
+      - Final label from campaign/corpus/labels/final-04.yaml (P1-RECONCILE-02, rules R1); source citations there.
+  - id: repo-537
+    repository: actualbudget/actual
+    commit: 5240d5b051ac0a994dd2ed05cf6fbe64a9d3b013
+    cohort: realistic
+    set: improvement
+    expected:
+      compatibility: NOT_COMPATIBLE
+      runtime:
+        - node
+      monorepo: true
+      postgres: false
+      redis: false
+      worker: false
+      migration: true
+      appRoot: .
+      dockerfilePath: sync-server.Dockerfile
+      port: 5006
+      healthPath: /health
+      unsupported:
+        - local-filesystem
+    customer_realism: high
+    difficulty: 4
+    findings: []
+    notes:
+      - Final label from campaign/corpus/labels/final-04.yaml (P1-RECONCILE-02, rules R1); source citations there.
+  - id: repo-538
+    repository: pocketbase/pocketbase
+    commit: 5cec579da984436a258602a46a96302fbd31f77c
+    cohort: realistic
+    set: improvement
+    expected:
+      compatibility: NOT_COMPATIBLE
+      runtime:
+        - go
+      monorepo: false
+      postgres: false
+      redis: false
+      worker: false
+      migration: true
+      appRoot: .
+      port: 8090
+      healthPath: /api/health
+      unsupported:
+        - local-filesystem
+    customer_realism: high
+    difficulty: 3
+    findings: []
+    notes:
+      - Final label from campaign/corpus/labels/final-04.yaml (P1-RECONCILE-02, rules R1); source citations there.
+  - id: repo-539
+    repository: navidrome/navidrome
+    commit: 52135913d4747c8f8ddcfd8e7004202b8f53b594
+    cohort: realistic
+    set: improvement
+    expected:
+      compatibility: NOT_COMPATIBLE
+      runtime:
+        - go
+      monorepo: false
+      postgres: false
+      redis: false
+      worker: false
+      migration: true
+      appRoot: .
+      dockerfilePath: Dockerfile
+      port: 4533
+      healthPath: /ping
+      unsupported:
+        - local-filesystem
+    customer_realism: high
+    difficulty: 3
+    findings: []
+    notes:
+      - Final label from campaign/corpus/labels/final-04.yaml (P1-RECONCILE-02, rules R1); source citations there.
+  - id: repo-540
+    repository: excalidraw/excalidraw
+    commit: 4c00f31ddcc20086bac1020428819fe0b9a30bce
+    cohort: realistic
+    set: improvement
+    expected:
+      compatibility: READY
+      runtime:
+        - node
+      monorepo: true
+      postgres: false
+      redis: false
+      worker: false
+      appRoot: .
+      dockerfilePath: Dockerfile
+      port: 80
+      healthPath: /
+    customer_realism: high
+    difficulty: 3
+    findings: []
+    notes:
+      - Final label from campaign/corpus/labels/final-04.yaml (P1-RECONCILE-02, rules R1); source citations there.
+  - id: repo-541
+    repository: Dictionarry-Hub/profilarr
+    commit: 7fec444c1dc660b261b72c55a685b9e8f6957ea6
+    cohort: realistic
+    set: improvement
+    expected:
+      compatibility: NOT_COMPATIBLE
+      runtime:
+        - deno
+      monorepo: false
+      postgres: false
+      redis: false
+      worker: false
+      appRoot: .
+      dockerfilePath: Dockerfile
+      port: 6868
+      healthPath: /api/v1/health
+      unsupported:
+        - local-filesystem
+    customer_realism: high
+    difficulty: 3
+    findings: []
+    notes:
+      - Final label from campaign/corpus/labels/final-05.yaml (P1-RECONCILE-03, rules R1); source citations there.
+  - id: repo-542
+    repository: C4illin/ConvertX
+    commit: 70675b9910d6827bbdb7f27e7bd96f23237e3a4f
+    cohort: realistic
+    set: improvement
+    expected:
+      compatibility: NOT_COMPATIBLE
+      runtime:
+        - bun
+      monorepo: false
+      postgres: false
+      redis: false
+      worker: false
+      appRoot: .
+      dockerfilePath: Dockerfile
+      port: 3000
+      healthPath: /healthcheck
+      unsupported:
+        - local-filesystem
+    customer_realism: high
+    difficulty: 3
+    findings: []
+    notes:
+      - Final label from campaign/corpus/labels/final-05.yaml (P1-RECONCILE-03, rules R1); source citations there.
+  - id: repo-543
+    repository: teslamate-org/teslamate
+    commit: 96119f65a98ecc2f6d3584c07af4d0b952326daa
+    cohort: realistic
+    set: improvement
+    expected:
+      compatibility: NEEDS_CONFIGURATION
+      runtime:
+        - elixir
+      monorepo: false
+      postgres: true
+      redis: false
+      worker: false
+      migration: true
+      appRoot: .
+      dockerfilePath: Dockerfile
+      port: 4000
+      healthPath: /health_check
+    customer_realism: high
+    difficulty: 3
+    findings: []
+    notes:
+      - Final label from campaign/corpus/labels/final-05.yaml (P1-RECONCILE-03, rules R1); source citations there.
+  - id: repo-544
+    repository: Kareadita/Kavita
+    commit: f75863cb77c0f6aa26e0794a1848294e63c9d07d
+    cohort: realistic
+    set: improvement
+    expected:
+      compatibility: NOT_COMPATIBLE
+      runtime:
+        - dotnet
+      monorepo: false
+      postgres: false
+      redis: false
+      worker: false
+      migration: true
+      appRoot: .
+      dockerfilePath: Dockerfile
+      port: 5000
+      healthPath: /api/health
+      unsupported:
+        - local-filesystem
+    customer_realism: high
+    difficulty: 3
+    findings: []
+    notes:
+      - Final label from campaign/corpus/labels/final-05.yaml (P1-RECONCILE-03, rules R1); source citations there.
+  - id: repo-545
+    repository: umputun/remark42
+    commit: 419ef4f0bd817e9217a5ce0d808fb3acc192972d
+    cohort: realistic
+    set: improvement
+    expected:
+      compatibility: NOT_COMPATIBLE
+      runtime:
+        - go
+      monorepo: false
+      postgres: false
+      redis: false
+      worker: false
+      appRoot: .
+      dockerfilePath: Dockerfile
+      port: 8080
+      healthPath: /ping
+      unsupported:
+        - other-database
+        - local-filesystem
+    customer_realism: high
+    difficulty: 3
+    findings: []
+    notes:
+      - Final label from campaign/corpus/labels/final-05.yaml (P1-RECONCILE-03, rules R1); source citations there.
+  - id: repo-547
+    repository: wagtail/bakerydemo
+    commit: c8f8255593c0efcfab5fef2fb19d60895227748a
+    cohort: realistic
+    set: improvement
+    expected:
+      compatibility: NEEDS_CONFIGURATION
+      runtime:
+        - python
+      monorepo: false
+      postgres: true
+      redis: false
+      worker: false
+      storage: true
+      migration: true
+      appRoot: .
+      dockerfilePath: Dockerfile
+      port: 8000
+    customer_realism: high
+    difficulty: 3
+    findings: []
+    notes:
+      - Final label from campaign/corpus/labels/final-05.yaml (P1-RECONCILE-03, rules R1); source citations there.
+  - id: repo-548
+    repository: Leantime/leantime
+    commit: dab5daae888b2148b6af80453402a5ae88cf6b56
+    cohort: realistic
+    set: improvement
+    expected:
+      compatibility: NOT_COMPATIBLE
+      runtime:
+        - php
+      monorepo: false
+      postgres: true
+      redis: false
+      worker: false
+      migration: true
+      appRoot: .
+      dockerfilePath: .docker/Dockerfile
+      port: 8080
+      healthPath: /health
+    customer_realism: high
+    difficulty: 3
+    findings: []
+    notes:
+      - Final label from campaign/corpus/labels/final-05.yaml (P1-RECONCILE-03, rules R1); source citations there.
+  - id: repo-549
+    repository: zammad/zammad
+    commit: abbd632a08bf6468467ce1a093c3b50744008f95
+    cohort: realistic
+    set: improvement
+    expected:
+      compatibility: NOT_COMPATIBLE
+      runtime:
+        - ruby
+      monorepo: false
+      postgres: true
+      redis: false
+      worker: true
+      migration: true
+      appRoot: .
+      dockerfilePath: Dockerfile
+      unsupported:
+        - background-worker
+    customer_realism: high
+    difficulty: 3
+    findings: []
+    notes:
+      - Final label from campaign/corpus/labels/final-05.yaml (P1-RECONCILE-03, rules R1); source citations there.
+  - id: repo-550
+    repository: binwiederhier/ntfy
+    commit: b475ae8851f4d1519d150091a446debf6f24b11b
+    cohort: realistic
+    set: improvement
+    expected:
+      compatibility: NEEDS_CONFIGURATION
+      runtime:
+        - go
+      monorepo: false
+      postgres: true
+      redis: false
+      worker: false
+      appRoot: .
+      dockerfilePath: Dockerfile-build
+      port: 80
+      healthPath: /v1/health
+    customer_realism: high
+    difficulty: 3
+    findings: []
+    notes:
+      - Final label from campaign/corpus/labels/final-05.yaml (P1-RECONCILE-03, rules R1); source citations there.
+  - id: repo-551
+    repository: spliit-app/spliit
+    commit: b73d551a6dea3a27f3d5d42a805b86edcb1ee651
+    cohort: realistic
+    set: improvement
+    expected:
+      compatibility: READY
+      runtime:
+        - node
+      monorepo: false
+      postgres: true
+      redis: false
+      worker: false
+      migration: true
+      appRoot: .
+      dockerfilePath: Dockerfile
+      port: 3000
+      healthPath: /api/health
+    customer_realism: high
+    difficulty: 2
+    findings: []
+    notes:
+      - Final label from campaign/corpus/labels/final-06.yaml (P1-RECONCILE-03, rules R1); source citations there.
+  - id: repo-552
+    repository: misskey-dev/misskey
+    commit: 5f501341d49d2bc3fa7e817ce7548a82174326eb
+    cohort: realistic
+    set: improvement
+    expected:
+      compatibility: NOT_COMPATIBLE
+      runtime:
+        - node
+      monorepo: true
+      postgres: true
+      redis: true
+      worker: false
+      migration: true
+      appRoot: .
+      dockerfilePath: Dockerfile
+      port: 3000
+      healthPath: /healthz
+      unsupported:
+        - local-filesystem
+    customer_realism: high
+    difficulty: 4
+    findings: []
+    notes:
+      - Final label from campaign/corpus/labels/final-06.yaml (P1-RECONCILE-03, rules R1); source citations there.
+  - id: repo-554
+    repository: axllent/mailpit
+    commit: b8603907d47334fc6fdc43e4eb1b230d0bbf7303
+    cohort: realistic
+    set: improvement
+    expected:
+      compatibility: NOT_COMPATIBLE
+      runtime:
+        - go
+      monorepo: false
+      postgres: false
+      redis: false
+      worker: false
+      appRoot: .
+      dockerfilePath: Dockerfile
+      port: 8025
+      healthPath: /livez
+      unsupported:
+        - local-filesystem
+    customer_realism: high
+    difficulty: 3
+    findings: []
+    notes:
+      - Final label from campaign/corpus/labels/final-06.yaml (P1-RECONCILE-03, rules R1); source citations there.
+  - id: repo-555
+    repository: msgbyte/tianji
+    commit: 45578dd32121319c28d3bc5abffa70c225631eb2
+    cohort: realistic
+    set: improvement
+    expected:
+      compatibility: READY
+      runtime:
+        - node
+      monorepo: true
+      postgres: true
+      redis: false
+      worker: false
+      migration: true
+      appRoot: .
+      dockerfilePath: Dockerfile
+      port: 12345
+      healthPath: /health
+    customer_realism: high
+    difficulty: 3
+    findings: []
+    notes:
+      - Final label from campaign/corpus/labels/final-06.yaml (P1-RECONCILE-03, rules R1); source citations there.
+  - id: repo-556
+    repository: muety/wakapi
+    commit: a8d88056932881329845609a749025a1513564db
+    cohort: realistic
+    set: improvement
+    expected:
+      compatibility: NEEDS_CONFIGURATION
+      runtime:
+        - go
+      monorepo: false
+      postgres: true
+      redis: false
+      worker: false
+      appRoot: .
+      dockerfilePath: Dockerfile
+      port: 3000
+      healthPath: /api/health
+    customer_realism: high
+    difficulty: 3
+    findings: []
+    notes:
+      - Final label from campaign/corpus/labels/final-06.yaml (P1-RECONCILE-03, rules R1); source citations there.
+  - id: repo-557
+    repository: sqlpage/SQLPage
+    commit: 78f310a0194fb809ffb27e4fa0e29d81d814badb
+    cohort: realistic
+    set: improvement
+    expected:
+      compatibility: NOT_COMPATIBLE
+      runtime:
+        - rust
+      monorepo: false
+      postgres: true
+      redis: false
+      worker: false
+      appRoot: .
+      dockerfilePath: Dockerfile
+      port: 8080
+      unsupported:
+        - local-filesystem
+    customer_realism: high
+    difficulty: 3
+    findings: []
+    notes:
+      - Final label from campaign/corpus/labels/final-06.yaml (P1-RECONCILE-03, rules R1); source citations there.
+  - id: repo-558
+    repository: orhun/rustypaste
+    commit: 161a104c618889ddd2b17acbe124d593d97e47c4
+    cohort: realistic
+    set: improvement
+    expected:
+      compatibility: NOT_COMPATIBLE
+      runtime:
+        - rust
+      monorepo: false
+      postgres: false
+      redis: false
+      worker: false
+      appRoot: .
+      dockerfilePath: Dockerfile
+      port: 8000
+      unsupported:
+        - local-filesystem
+    customer_realism: high
+    difficulty: 3
+    findings: []
+    notes:
+      - Final label from campaign/corpus/labels/final-06.yaml (P1-RECONCILE-03, rules R1); source citations there.
+  - id: repo-559
+    repository: sebadob/rauthy
+    commit: 79bdf2eb6fb01d1f86f2e99ee718036d04201204
+    cohort: realistic
+    set: improvement
+    expected:
+      compatibility: NOT_COMPATIBLE
+      runtime:
+        - rust
+      monorepo: true
+      postgres: true
+      redis: false
+      worker: false
+      appRoot: .
+      dockerfilePath: Dockerfile
+      port: 8080
+      healthPath: /auth/v1/health
+    customer_realism: high
+    difficulty: 4
+    findings: []
+    notes:
+      - Final label from campaign/corpus/labels/final-06.yaml (P1-RECONCILE-03, rules R1); source citations there.
+  - id: repo-560
+    repository: rajnandan1/kener
+    commit: 74a6228b862f276c4f42177b340ae997fe9dfca2
+    cohort: realistic
+    set: improvement
+    expected:
+      compatibility: NEEDS_CONFIGURATION
+      runtime:
+        - node
+      monorepo: false
+      postgres: true
+      redis: true
+      worker: false
+      migration: true
+      appRoot: .
+      dockerfilePath: Dockerfile
+      port: 3000
+      healthPath: /healthcheck
+    customer_realism: high
+    difficulty: 3
+    findings: []
+    notes:
+      - Final label from campaign/corpus/labels/final-06.yaml (P1-RECONCILE-03, rules R1); source citations there.
+  - id: repo-561
+    repository: kestra-io/kestra
+    commit: af6395aed86ca48bec7068275f91a789d80f660b
+    cohort: realistic
+    set: improvement
+    expected:
+      compatibility: NOT_COMPATIBLE
+      runtime:
+        - java
+      monorepo: false
+      postgres: true
+      redis: false
+      worker: false
+      migration: true
+      appRoot: .
+      dockerfilePath: Dockerfile
+      port: 8080
+    customer_realism: high
+    difficulty: 3
+    findings: []
+    notes:
+      - Final label from campaign/corpus/labels/final-07.yaml (P1-RECONCILE-04, rules R1); source citations there.
+  - id: repo-562
+    repository: Part-DB/Part-DB-server
+    commit: a108b6d6cdca47947b58536081f9fabf3b0569c8
+    cohort: realistic
+    set: improvement
+    expected:
+      compatibility: NOT_COMPATIBLE
+      runtime:
+        - php
+      monorepo: false
+      postgres: true
+      redis: false
+      worker: false
+      migration: true
+      appRoot: .
+      dockerfilePath: Dockerfile
+      port: 80
+      unsupported:
+        - local-filesystem
+    customer_realism: high
+    difficulty: 3
+    findings: []
+    notes:
+      - Final label from campaign/corpus/labels/final-07.yaml (P1-RECONCILE-04, rules R1); source citations there.
+  - id: repo-563
+    repository: LycheeOrg/Lychee
+    commit: 5e13568285f938c8852622ca0c4265c9430322ca
+    cohort: realistic
+    set: improvement
+    expected:
+      compatibility: NEEDS_CONFIGURATION
+      runtime:
+        - php
+      monorepo: false
+      postgres: true
+      redis: false
+      worker: false
+      storage: true
+      migration: true
+      appRoot: .
+      dockerfilePath: Dockerfile
+      port: 8000
+      healthPath: /up
+    customer_realism: high
+    difficulty: 3
+    findings: []
+    notes:
+      - Final label from campaign/corpus/labels/final-07.yaml (P1-RECONCILE-04, rules R1); source citations there.
+  - id: repo-564
+    repository: getlago/lago-api
+    commit: 7df8e11e481a60cdeca171a05e3fb4538208de5a
+    cohort: realistic
+    set: improvement
+    expected:
+      compatibility: NEEDS_CONFIGURATION
+      runtime:
+        - ruby
+      monorepo: false
+      postgres: true
+      redis: true
+      worker: true
+      storage: true
+      migration: true
+      appRoot: .
+      dockerfilePath: Dockerfile
+      port: 3000
+      healthPath: /health
+    customer_realism: high
+    difficulty: 3
+    findings: []
+    notes:
+      - Final label from campaign/corpus/labels/final-07.yaml (P1-RECONCILE-04, rules R1); source citations there.
+  - id: repo-565
+    repository: open-webui/open-webui
+    commit: 8bd8b4fac5e059578ac0c74b3c18d11139f88b7d
+    cohort: realistic
+    set: improvement
+    expected:
+      compatibility: NEEDS_CONFIGURATION
+      runtime:
+        - python
+      monorepo: false
+      postgres: true
+      redis: false
+      worker: false
+      storage: true
+      migration: true
+      appRoot: .
+      dockerfilePath: Dockerfile
+      port: 8080
+      healthPath: /health
+    customer_realism: high
+    difficulty: 3
+    findings: []
+    notes:
+      - Final label from campaign/corpus/labels/final-07.yaml (P1-RECONCILE-04, rules R1); source citations there.
+  - id: repo-566
+    repository: openfga/openfga
+    commit: 526995eb202464e2cace266fb5be56c212af9ecf
+    cohort: realistic
+    set: improvement
+    expected:
+      compatibility: NEEDS_CONFIGURATION
+      runtime:
+        - go
+      monorepo: false
+      postgres: true
+      redis: false
+      worker: false
+      migration: true
+      appRoot: .
+      dockerfilePath: Dockerfile
+      port: 8080
+      healthPath: /healthz
+    customer_realism: high
+    difficulty: 3
+    findings: []
+    notes:
+      - Final label from campaign/corpus/labels/final-07.yaml (P1-RECONCILE-04, rules R1); source citations there.
+  - id: repo-569
+    repository: activepieces/activepieces
+    commit: 6f408036fdc92752506815df43c21a96b4e75a46
+    cohort: realistic
+    set: improvement
+    expected:
+      compatibility: NEEDS_CONFIGURATION
+      runtime:
+        - node
+      monorepo: true
+      postgres: true
+      redis: true
+      worker: false
+      migration: true
+      appRoot: .
+      dockerfilePath: Dockerfile
+      port: 80
+      healthPath: /api/v1/health
+    customer_realism: high
+    difficulty: 4
+    findings: []
+    notes:
+      - Final label from campaign/corpus/labels/final-07.yaml (P1-RECONCILE-04, rules R1); source citations there.
+  - id: repo-570
+    repository: dexidp/dex
+    commit: 05a275057112ba93e17db21f600b756f000f1c21
+    cohort: realistic
+    set: improvement
+    expected:
+      compatibility: NOT_COMPATIBLE
+      runtime:
+        - go
+      monorepo: false
+      postgres: true
+      redis: false
+      worker: false
+      appRoot: .
+      dockerfilePath: Dockerfile
+      port: 5556
+      healthPath: /healthz
+      unsupported:
+        - local-filesystem
+    customer_realism: high
+    difficulty: 3
+    findings: []
+    notes:
+      - Final label from campaign/corpus/labels/final-07.yaml (P1-RECONCILE-04, rules R1); source citations there.
+  - id: repo-572
+    repository: Mintplex-Labs/anything-llm
+    commit: 3c7e73b8104e25327b9db3c4a8eeaf3ac4af237f
+    cohort: messy
+    set: improvement
+    expected:
+      compatibility: NOT_COMPATIBLE
+      runtime:
+        - node
+      monorepo: true
+      postgres: false
+      redis: false
+      worker: false
+      migration: true
+      appRoot: .
+      dockerfilePath: docker/Dockerfile
+      port: 3001
+      healthPath: /api/ping
+      unsupported:
+        - local-filesystem
+    customer_realism: medium
+    difficulty: 5
+    findings: []
+    notes:
+      - Final label from campaign/corpus/labels/final-08.yaml (P1-RECONCILE-04, rules R1); source citations there.
+  - id: repo-573
+    repository: mem0ai/mem0
+    commit: b7ad69afda6b6ed030347c66d48a13e4de9dec08
+    cohort: messy
+    set: improvement
+    expected:
+      compatibility: NEEDS_CONFIGURATION
+      runtime:
+        - python
+      monorepo: true
+      postgres: true
+      redis: false
+      worker: false
+      migration: true
+      appRoot: server
+      dockerfilePath: server/Dockerfile
+      port: 8000
+      healthPath: /auth/setup-status
+    customer_realism: medium
+    difficulty: 5
+    findings: []
+    notes:
+      - Final label from campaign/corpus/labels/final-08.yaml (P1-RECONCILE-04, rules R1); source citations there.
+  - id: repo-574
+    repository: lobsters/lobsters
+    commit: 9fefd21bee25e4b4fddcfc318023b2d8cd7d8a5e
+    cohort: messy
+    set: improvement
+    expected:
+      compatibility: NOT_COMPATIBLE
+      runtime:
+        - ruby
+      monorepo: false
+      postgres: false
+      redis: false
+      worker: true
+      migration: true
+      appRoot: .
+      port: 3000
+      unsupported:
+        - local-filesystem
+    customer_realism: medium
+    difficulty: 4
+    findings: []
+    notes:
+      - Final label from campaign/corpus/labels/final-08.yaml (P1-RECONCILE-04, rules R1); source citations there.
+  - id: repo-575
+    repository: traccar/traccar
+    commit: 323cdae38fdf101ea13b97196cfbdcb259101ed7
+    cohort: messy
+    set: improvement
+    expected:
+      compatibility: NOT_COMPATIBLE
+      runtime:
+        - java
+      monorepo: false
+      postgres: true
+      redis: false
+      worker: false
+      migration: true
+      appRoot: .
+      port: 8082
+      healthPath: /api/health
+    customer_realism: medium
+    difficulty: 4
+    findings: []
+    notes:
+      - Final label from campaign/corpus/labels/final-08.yaml (P1-RECONCILE-04, rules R1); source citations there.
+  - id: repo-576
+    repository: btcpayserver/btcpayserver
+    commit: cbee1f8c782f0f3c8fa5457cf4a3a47e92c0e059
+    cohort: messy
+    set: improvement
+    expected:
+      compatibility: NOT_COMPATIBLE
+      runtime:
+        - dotnet
+      monorepo: false
+      postgres: true
+      redis: false
+      worker: false
+      migration: true
+      appRoot: BTCPayServer
+      dockerfilePath: Dockerfile
+      port: 23000
+      healthPath: /api/v1/health
+      unsupported:
+        - local-filesystem
+        - background-worker
+    customer_realism: medium
+    difficulty: 4
+    findings: []
+    notes:
+      - Final label from campaign/corpus/labels/final-08.yaml (P1-RECONCILE-04, rules R1); source citations there.
+  - id: repo-577
+    repository: woodpecker-ci/woodpecker
+    commit: 5e87e8acf9f2458a1667268468afbbf3a546d111
+    cohort: messy
+    set: improvement
+    expected:
+      compatibility: NOT_COMPATIBLE
+      runtime:
+        - go
+      monorepo: true
+      postgres: true
+      redis: false
+      worker: false
+      appRoot: .
+      dockerfilePath: docker/Dockerfile.server.multiarch.rootless
+      port: 8000
+      healthPath: /api/healthz
+      unsupported:
+        - background-worker
+    customer_realism: medium
+    difficulty: 5
+    findings: []
+    notes:
+      - Final label from campaign/corpus/labels/final-08.yaml (P1-RECONCILE-04, rules R1); source citations there.
+  - id: repo-579
+    repository: akaunting/akaunting
+    commit: c76e98112bbb1c5e1dce61f9beb2dc75a07d153b
+    cohort: messy
+    set: improvement
+    expected:
+      compatibility: NOT_COMPATIBLE
+      runtime:
+        - php
+      monorepo: false
+      postgres: true
+      redis: false
+      worker: false
+      migration: true
+      appRoot: .
+    customer_realism: medium
+    difficulty: 4
+    findings: []
+    notes:
+      - Final label from campaign/corpus/labels/final-08.yaml (P1-RECONCILE-04, rules R1); source citations there.
+  - id: repo-580
+    repository: ridafkih/keeper.sh
+    commit: 06ffc53df8634c47272710c4cbf5a5148eeee08b
+    cohort: messy
+    set: improvement
+    expected:
+      compatibility: NOT_COMPATIBLE
+      runtime:
+        - node
+      monorepo: true
+      postgres: true
+      redis: true
+      worker: true
+      migration: true
+      appRoot: .
+      dockerfilePath: docker/services/Dockerfile
+      port: 3000
+      healthPath: /
+      unsupported:
+        - background-worker
+    customer_realism: medium
+    difficulty: 5
+    findings: []
+    notes:
+      - Final label from campaign/corpus/labels/final-08.yaml (P1-RECONCILE-04, rules R1); source citations there.
+  - id: repo-582
+    repository: TriliumNext/Trilium
+    commit: fba16cdb1b59e8a3cf46a36137159df9736d835c
+    cohort: messy
+    set: improvement
+    expected:
+      compatibility: NOT_COMPATIBLE
+      runtime:
+        - node
+      monorepo: true
+      postgres: false
+      redis: false
+      worker: false
+      appRoot: apps/server
+      dockerfilePath: apps/server/Dockerfile
+      port: 8080
+      unsupported:
+        - local-filesystem
+    customer_realism: medium
+    difficulty: 5
+    findings: []
+    notes:
+      - Final label from campaign/corpus/labels/final-09.yaml (P1-RECONCILE-05, rules R1); source citations there.
+  - id: repo-583
+    repository: TryGhost/Ghost
+    commit: 1867c8aa836eee9cc1e7bdea994f32d8461d3c46
+    cohort: messy
+    set: improvement
+    expected:
+      compatibility: NOT_COMPATIBLE
+      runtime:
+        - node
+      monorepo: true
+      postgres: false
+      redis: false
+      worker: false
+      migration: true
+      appRoot: ghost/core
+      dockerfilePath: Dockerfile.production
+      port: 2368
+      unsupported:
+        - local-filesystem
+    customer_realism: medium
+    difficulty: 5
+    findings: []
+    notes:
+      - Final label from campaign/corpus/labels/final-09.yaml (P1-RECONCILE-05, rules R1); source citations there.
+  - id: repo-585
+    repository: janeczku/calibre-web
+    commit: 6e840acbda8d62fdd159bf3855c01872d629a914
+    cohort: messy
+    set: improvement
+    expected:
+      compatibility: NOT_COMPATIBLE
+      runtime:
+        - python
+      monorepo: false
+      postgres: false
+      redis: false
+      worker: false
+      port: 8083
+      unsupported:
+        - local-filesystem
+    customer_realism: medium
+    difficulty: 4
+    findings: []
+    notes:
+      - Final label from campaign/corpus/labels/final-09.yaml (P1-RECONCILE-05, rules R1); source citations there.
+  - id: repo-586
+    repository: appsmithorg/appsmith
+    commit: 4b4d52cbe621ab37c4ded93de7b6ca17ba44edb6
+    cohort: messy
+    set: improvement
+    expected:
+      compatibility: NOT_COMPATIBLE
+      runtime:
+        - java
+      monorepo: true
+      postgres: false
+      redis: true
+      worker: false
+      appRoot: app/server
+      dockerfilePath: Dockerfile
+      port: 80
+      unsupported:
+        - mongodb
+    customer_realism: medium
+    difficulty: 5
+    findings: []
+    notes:
+      - Final label from campaign/corpus/labels/final-09.yaml (P1-RECONCILE-05, rules R1); source citations there.
+  - id: repo-587
+    repository: rybbit-io/rybbit
+    commit: 90e4f85756fe8c6fda7775f3cfb45d0a2d5830da
+    cohort: messy
+    set: improvement
+    expected:
+      compatibility: NOT_COMPATIBLE
+      runtime:
+        - node
+      monorepo: true
+      postgres: true
+      redis: true
+      worker: false
+      migration: true
+      appRoot: server
+      dockerfilePath: server/Dockerfile
+      port: 3001
+      healthPath: /api/health
+      unsupported:
+        - other-database
+    customer_realism: medium
+    difficulty: 5
+    findings: []
+    notes:
+      - Final label from campaign/corpus/labels/final-09.yaml (P1-RECONCILE-05, rules R1); source citations there.
+  - id: repo-588
+    repository: mautic/mautic
+    commit: 6d4a4b2981600915872aef6fdeee0f8d8595d60b
+    cohort: messy
+    set: improvement
+    expected:
+      compatibility: NOT_COMPATIBLE
+      runtime:
+        - php
+      monorepo: false
+      postgres: false
+      redis: false
+      worker: false
+      migration: true
+      unsupported:
+        - local-filesystem
+    customer_realism: medium
+    difficulty: 4
+    findings: []
+    notes:
+      - Final label from campaign/corpus/labels/final-09.yaml (P1-RECONCILE-05, rules R1); source citations there.
+  - id: repo-589
+    repository: opf/openproject
+    commit: df3826b28eddd5f2e9c7ab72a07a0dc8c5351df6
+    cohort: messy
+    set: improvement
+    expected:
+      compatibility: NOT_COMPATIBLE
+      runtime:
+        - ruby
+      monorepo: false
+      postgres: true
+      redis: false
+      worker: true
+      migration: true
+      dockerfilePath: docker/prod/Dockerfile
+      port: 80
+      healthPath: /health_check
+      unsupported:
+        - local-filesystem
+    customer_realism: medium
+    difficulty: 4
+    findings: []
+    notes:
+      - Final label from campaign/corpus/labels/final-09.yaml (P1-RECONCILE-05, rules R1); source citations there.
+  - id: repo-590
+    repository: grocy/grocy
+    commit: 41206cb90154e0d17d3e108cc1f182b94fdb465d
+    cohort: messy
+    set: improvement
+    expected:
+      compatibility: NOT_COMPATIBLE
+      runtime:
+        - php
+      monorepo: false
+      postgres: false
+      redis: false
+      worker: false
+      unsupported:
+        - local-filesystem
+    customer_realism: medium
+    difficulty: 4
+    findings: []
+    notes:
+      - Final label from campaign/corpus/labels/final-09.yaml (P1-RECONCILE-05, rules R1); source citations there.
+  - id: repo-591
+    repository: nightscout/cgm-remote-monitor
+    commit: 92d0834219aa771b5837dbcbf1baeb839a200cf6
+    cohort: boundary
+    set: improvement
+    expected:
+      compatibility: NOT_COMPATIBLE
+      runtime:
+        - node
+      monorepo: false
+      postgres: false
+      redis: false
+      worker: false
+      dockerfilePath: Dockerfile
+      port: 1337
+      healthPath: /api/v1/status
+      unsupported:
+        - mongodb
+    customer_realism: low
+    difficulty: 3
+    findings: []
+    notes:
+      - Final label from campaign/corpus/labels/final-10.yaml (P1-RECONCILE-05, rules R1); source citations there.
+  - id: repo-592
+    repository: advplyr/audiobookshelf
+    commit: 743d9152208507a1dbf7c95c94290071338f44bd
+    cohort: boundary
+    set: improvement
+    expected:
+      compatibility: NOT_COMPATIBLE
+      runtime:
+        - node
+      monorepo: false
+      postgres: false
+      redis: false
+      worker: false
+      dockerfilePath: Dockerfile
+      port: 80
+      healthPath: /healthcheck
+      unsupported:
+        - local-filesystem
+    customer_realism: low
+    difficulty: 3
+    findings: []
+    notes:
+      - Final label from campaign/corpus/labels/final-10.yaml (P1-RECONCILE-05, rules R1); source citations there.
+  - id: repo-593
+    repository: glanceapp/glance
+    commit: 372466c6d75318670dc66e4e452179350fc50c97
+    cohort: boundary
+    set: improvement
+    expected:
+      compatibility: NOT_COMPATIBLE
+      runtime:
+        - go
+      monorepo: false
+      postgres: false
+      redis: false
+      worker: false
+      dockerfilePath: Dockerfile
+      port: 8080
+      healthPath: /api/healthz
+      unsupported:
+        - local-filesystem
+    customer_realism: low
+    difficulty: 3
+    findings: []
+    notes:
+      - Final label from campaign/corpus/labels/final-10.yaml (P1-RECONCILE-05, rules R1); source citations there.
+  - id: repo-594
+    repository: invoke-ai/InvokeAI
+    commit: c7a1b55be06e208fccdd06fa8a9ce9f3ce1ed5c7
+    cohort: boundary
+    set: improvement
+    expected:
+      compatibility: NOT_COMPATIBLE
+      runtime:
+        - python
+      monorepo: false
+      postgres: false
+      redis: false
+      worker: false
+      dockerfilePath: docker/Dockerfile
+      port: 9090
+      unsupported:
+        - local-filesystem
+    customer_realism: low
+    difficulty: 3
+    findings: []
+    notes:
+      - Final label from campaign/corpus/labels/final-10.yaml (P1-RECONCILE-05, rules R1); source citations there.
+  - id: repo-596
+    repository: dnnsoftware/Dnn.Platform
+    commit: 206201c84855ff4b5b6499e135b04a86e2ce0580
+    cohort: boundary
+    set: improvement
+    expected:
+      compatibility: NOT_COMPATIBLE
+      runtime:
+        - dotnet
+      monorepo: true
+      postgres: false
+      redis: false
+      worker: false
+      appRoot: DNN Platform/Website
+      unsupported:
+        - other-database
+        - windows
+    customer_realism: low
+    difficulty: 4
+    findings: []
+    notes:
+      - Final label from campaign/corpus/labels/final-10.yaml (P1-RECONCILE-05, rules R1); source citations there.
+  - id: repo-597
+    repository: Openpanel-dev/openpanel
+    commit: 7c4d22ae4b6b20fb08eb5c94a0cd3cfebb3d32ca
+    cohort: boundary
+    set: improvement
+    expected:
+      compatibility: NOT_COMPATIBLE
+      runtime:
+        - node
+      monorepo: true
+      postgres: true
+      redis: true
+      worker: true
+      migration: true
+      appRoot: apps/api
+      dockerfilePath: apps/api/Dockerfile
+      port: 3000
+      healthPath: /healthcheck
+      unsupported:
+        - other-database
+    customer_realism: low
+    difficulty: 4
+    findings: []
+    notes:
+      - Final label from campaign/corpus/labels/final-10.yaml (P1-RECONCILE-05, rules R1); source citations there.
+  - id: repo-599
+    repository: opensearch-project/OpenSearch-Dashboards
+    commit: c860eedf96d8f34f2240bae1c6c67bdebd2ede55
+    cohort: boundary
+    set: improvement
+    expected:
+      compatibility: NOT_COMPATIBLE
+      runtime:
+        - node
+      monorepo: true
+      postgres: false
+      redis: false
+      worker: false
+      port: 5601
+      healthPath: /api/status
+      unsupported:
+        - elasticsearch
+    customer_realism: low
+    difficulty: 4
+    findings: []
+    notes:
+      - Final label from campaign/corpus/labels/final-10.yaml (P1-RECONCILE-05, rules R1); source citations there.
+  - id: repo-600
+    repository: rancher/rancher
+    commit: 28deadd2bb635bfa42746354a94974a281286e1c
+    cohort: boundary
+    set: improvement
+    expected:
+      compatibility: NOT_COMPATIBLE
+      runtime:
+        - go
+      monorepo: false
+      postgres: false
+      redis: false
+      worker: false
+      dockerfilePath: package/Dockerfile
+      port: 80
+      healthPath: /healthz
+      unsupported:
+        - kubernetes
+        - local-filesystem
+    customer_realism: low
+    difficulty: 3
+    findings: []
+    notes:
+      - Final label from campaign/corpus/labels/final-10.yaml (P1-RECONCILE-05, rules R1); source citations there.
