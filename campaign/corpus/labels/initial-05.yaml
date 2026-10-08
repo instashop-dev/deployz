@@ -1,0 +1,226 @@
+# Initial expected-behavior labels, corpus batch 5 (repo-541..repo-550). Source-only labels.
+labels:
+  - id: repo-541
+    repo: Dictionarry-Hub/profilarr
+    commit: 7fec444c1dc660b261b72c55a685b9e8f6957ea6
+    expected:
+      compatibility: NOT_COMPATIBLE
+      runtime: [deno]
+      monorepo: false
+      postgres: false
+      redis: false
+      worker: false
+      port: 6868
+      healthPath: /api/v1/health
+      unsupported: [local-filesystem]
+    citations:
+      compatibility: [Dockerfile, compose.yml]
+      runtime: [Dockerfile, deno.jsonc]
+      monorepo: [deno.jsonc]
+      postgres: [Dockerfile, src/lib/server/db/migrations.ts]
+      redis: [Dockerfile, compose.yml]
+      worker: [Dockerfile, compose.yml]
+      port: [Dockerfile]
+      healthPath: [Dockerfile, src/routes/api/v1/health/+server.ts]
+      unsupported: [Dockerfile, compose.yml]
+  - id: repo-542
+    repo: C4illin/ConvertX
+    commit: 70675b9910d6827bbdb7f27e7bd96f23237e3a4f
+    expected:
+      compatibility: NOT_COMPATIBLE
+      runtime: [bun]
+      monorepo: false
+      postgres: false
+      redis: false
+      worker: false
+      port: 3000
+      unsupported: [local-filesystem]
+    citations:
+      compatibility: [Dockerfile, compose.yaml, src/db/db.ts]
+      runtime: [package.json, Dockerfile]
+      monorepo: [package.json]
+      postgres: [src/db/db.ts, package.json]
+      redis: [package.json]
+      worker: [Dockerfile, package.json]
+      port: [Dockerfile]
+      unsupported: [src/db/db.ts, compose.yaml]
+  - id: repo-543
+    repo: teslamate-org/teslamate
+    commit: 96119f65a98ecc2f6d3584c07af4d0b952326daa
+    expected:
+      compatibility: READY
+      runtime: [elixir]
+      monorepo: false
+      postgres: true
+      redis: false
+      worker: false
+      migration: true
+      port: 4000
+      healthPath: /health_check
+    citations:
+      compatibility: [Dockerfile, entrypoint.sh, elixir/config/runtime.exs]
+      runtime: [Dockerfile, elixir/mix.exs]
+      monorepo: [Dockerfile, elixir/mix.exs]
+      postgres: [elixir/mix.exs, elixir/config/runtime.exs]
+      redis: [elixir/mix.exs]
+      worker: [Dockerfile, entrypoint.sh]
+      migration: [entrypoint.sh, elixir/lib/teslamate/release.ex]
+      port: [Dockerfile, elixir/config/runtime.exs]
+      healthPath: [elixir/lib/teslamate_web/health_check.ex]
+  - id: repo-544
+    repo: Kareadita/Kavita
+    commit: f75863cb77c0f6aa26e0794a1848294e63c9d07d
+    expected:
+      compatibility: NOT_COMPATIBLE
+      runtime: [dotnet]
+      monorepo: false
+      postgres: false
+      redis: false
+      worker: false
+      port: 5000
+      healthPath: /api/health
+      unsupported: [local-filesystem]
+    citations:
+      compatibility: [Dockerfile, Kavita.Database/Kavita.Database.csproj]
+      runtime: [Kavita.Server/Kavita.Server.csproj, Dockerfile]
+      monorepo: [Kavita.Server/Kavita.Server.csproj]
+      postgres: [Kavita.Database/Kavita.Database.csproj]
+      redis: [Kavita.Server/Kavita.Server.csproj]
+      worker: [Dockerfile]
+      port: [Dockerfile]
+      healthPath: [Dockerfile, Kavita.Server/Controllers/HealthController.cs]
+      unsupported: [Kavita.Database/Kavita.Database.csproj, Dockerfile]
+  - id: repo-545
+    repo: umputun/remark42
+    commit: 419ef4f0bd817e9217a5ce0d808fb3acc192972d
+    expected:
+      compatibility: NOT_COMPATIBLE
+      runtime: [go]
+      monorepo: false
+      postgres: false
+      redis: false
+      worker: false
+      port: 8080
+      healthPath: /ping
+      unsupported: [local-filesystem]
+    citations:
+      compatibility: [Dockerfile, docker-compose.yml, backend/app/store/engine/bolt.go]
+      runtime: [Dockerfile, backend/go.mod]
+      monorepo: [frontend/apps/remark42/package.json, backend/go.mod]
+      postgres: [backend/go.mod, backend/app/store/engine/bolt.go]
+      redis: [backend/go.mod]
+      worker: [Dockerfile]
+      port: [Dockerfile]
+      healthPath: [Dockerfile]
+      unsupported: [backend/app/store/engine/bolt.go, docker-compose.yml]
+  - id: repo-546
+    repo: ether/etherpad
+    commit: 8b6f9e462f712c3d15d8941e85e12f70dc4693f4
+    expected:
+      compatibility: NEEDS_CONFIGURATION
+      runtime: [node]
+      monorepo: true
+      postgres: true
+      redis: false
+      worker: false
+      port: 9001
+      healthPath: /health
+    citations:
+      compatibility: [Dockerfile, settings.json.docker, docker-compose.yml]
+      runtime: [Dockerfile, package.json, src/package.json]
+      monorepo: [pnpm-workspace.yaml, src/package.json]
+      postgres: [docker-compose.yml, settings.json.docker, src/package.json]
+      redis: [docker-compose.yml, settings.json.docker]
+      worker: [Dockerfile, package.json]
+      port: [Dockerfile, settings.json.docker]
+      healthPath: [Dockerfile, src/tests/backend/specs/health.ts]
+  - id: repo-547
+    repo: wagtail/bakerydemo
+    commit: c8f8255593c0efcfab5fef2fb19d60895227748a
+    expected:
+      compatibility: NEEDS_CONFIGURATION
+      runtime: [python]
+      monorepo: false
+      postgres: true
+      redis: false
+      worker: false
+      storage: true
+      migration: true
+      port: 8000
+    citations:
+      compatibility: [Dockerfile, bakerydemo/settings/production.py, bakerydemo/settings/base.py]
+      runtime: [Dockerfile, requirements.txt]
+      monorepo: [package.json, Dockerfile]
+      postgres: [docker-compose.yml, bakerydemo/settings/base.py, docker-entrypoint.sh]
+      redis: [bakerydemo/settings/production.py, docker-compose.yml]
+      worker: [Procfile, etc/uwsgi.ini]
+      storage: [bakerydemo/settings/production.py, Dockerfile]
+      migration: [docker-entrypoint.sh, Procfile]
+      port: [Dockerfile, etc/uwsgi.ini]
+  - id: repo-548
+    repo: Leantime/leantime
+    commit: dab5daae888b2148b6af80453402a5ae88cf6b56
+    expected:
+      compatibility: NOT_COMPATIBLE
+      runtime: [php]
+      monorepo: false
+      postgres: false
+      redis: false
+      worker: false
+      dockerfilePath: .docker/Dockerfile
+      port: 8080
+      healthPath: /health
+    citations:
+      compatibility: [.docker/Dockerfile, .docker/docker-compose.yml, composer.json]
+      runtime: [composer.json, .docker/Dockerfile]
+      monorepo: [composer.json, package.json]
+      postgres: [composer.json, config/sample.env, .docker/docker-compose.yml]
+      redis: [composer.json, .docker/Dockerfile]
+      worker: [.docker/config/supervisord.conf]
+      dockerfilePath: [.docker/Dockerfile]
+      port: [.docker/Dockerfile, .docker/config/nginx.conf]
+      healthPath: [app/Domain/Status/Controllers/Health.php]
+  - id: repo-549
+    repo: zammad/zammad
+    commit: abbd632a08bf6468467ce1a093c3b50744008f95
+    expected:
+      compatibility: NOT_COMPATIBLE
+      runtime: [ruby]
+      monorepo: false
+      postgres: true
+      redis: false
+      worker: true
+      migration: true
+      unsupported: [elasticsearch]
+    citations:
+      compatibility: [Dockerfile, Procfile, bin/docker-entrypoint]
+      runtime: [Gemfile, Dockerfile]
+      monorepo: [pnpm-workspace.yaml, package.json]
+      postgres: [Gemfile, Dockerfile, bin/docker-entrypoint]
+      redis: [Gemfile, config/cable.yml]
+      worker: [Procfile]
+      migration: [bin/docker-entrypoint]
+      unsupported: [Gemfile, bin/docker-entrypoint]
+  - id: repo-550
+    repo: binwiederhier/ntfy
+    commit: b475ae8851f4d1519d150091a446debf6f24b11b
+    expected:
+      compatibility: NOT_COMPATIBLE
+      runtime: [go]
+      monorepo: false
+      postgres: false
+      redis: false
+      worker: false
+      port: 80
+      healthPath: /v1/health
+      unsupported: [local-filesystem]
+    citations:
+      compatibility: [Dockerfile, docker-compose.yml, Dockerfile-build]
+      runtime: [go.mod, Dockerfile-build]
+      monorepo: [go.mod]
+      postgres: [go.mod, server/config.go]
+      redis: [go.mod]
+      worker: [Dockerfile, docker-compose.yml]
+      port: [Dockerfile, server/config.go]
+      healthPath: [server/server.go]
+      unsupported: [docker-compose.yml, go.mod]
