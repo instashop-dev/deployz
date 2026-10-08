@@ -20,6 +20,7 @@ Rules:
 - No push, pull request, merge or publication unless state.json policy.publication grants it.
 - Never enter, print or store a secret. Keep tokens, passwords, emails, AWS keys and .env values out of every tracked file. Raw logs go to campaign/logs/ (ignored); evidence under campaign/results/ is redacted.
 - A recorded repository failure is a valid result. Missing evidence is not. Do not report success for compile-only, mocked or skipped checks.
+- If the coordinator gives a stopBy time, do not start a new repository or step after it. Finish the current step and its cleanup, then report proposedStatus CONTINUE with a progress block. If the coordinator gives recorded progress, resume from it; do not repeat completed steps, and reuse the harness `--resume` where it exists.
 
 When you finish, write campaign/results/<task id>/result.json:
 
@@ -34,8 +35,9 @@ When you finish, write campaign/results/<task id>/result.json:
   "proposedStatus": "COMPLETE | CONTINUE | RETRYABLE | BLOCKED",
   "commands": [{ "command": "<command>", "exitCode": 0, "summary": "<one line>" }],
   "evidence": ["<paths>"],
-  "notes": ["<blocker, transient error or next step>"]
+  "notes": ["<blocker, transient error or next step>"],
+  "progress": { "completed": ["<repo ids or steps>"], "next": "<next repo or step>", "resume": "<command or instruction>" }
 }
 ```
 
-Then reply to the coordinator with the task id, proposed status, evidence paths and any blocker, in short Simplified Technical English.
+Include `progress` only when proposedStatus is CONTINUE. Then reply to the coordinator with the task id, proposed status, evidence paths and any blocker, in short Simplified Technical English.

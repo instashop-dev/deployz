@@ -5,7 +5,7 @@
   "phase": 1,
   "currentTask": null,
   "nextAction": "Run P1-SELECT-MESSY-02 (campaign-worker).",
-  "updatedAt": "2026-10-08T12:49:49.000Z",
+  "updatedAt": "2026-10-08T13:00:51.523Z",
   "checkout": {
     "path": "C:/Users/Tejas/Desktop/deployz-mvp-test",
     "kind": "git worktree of C:/Users/Tejas/Desktop/deployz",
@@ -203,18 +203,24 @@
     "retry": {
       "transientRetriesAfterInitial": 2,
       "scope": "per task, counted across runs in attempts",
-      "blocked": "Not retried until its prerequisite changes or the user marks it READY."
+      "blocked": "Not retried until its prerequisite changes or the user marks it READY.",
+      "continuation": "CONTINUE resumes recorded progress and increments continuations[task], not attempts. Only a new attempt after RETRYABLE or an interrupted run without progress increments attempts."
     },
     "budget": {
       "softMinutesPerRun": 45,
-      "executionTasksPerRun": 1,
-      "agents": "At most one campaign-worker at a time, in the foreground. No parallel, nested or background agents."
+      "startNewTaskUntilMinute": 38,
+      "reserveMinutes": 7,
+      "measuredFrom": "Run start T0 (the coordinator records it before the lock acquire).",
+      "executionTasksPerRun": "Sequential, no fixed count: after each verified checkpoint select the next eligible task. Start a task only if elapsed + timeboxMinutes <= 38.",
+      "longTasks": "The first task of a run always starts. A task with resumable steps gets stopBy = T0 + 38 min and returns CONTINUE with progress. A task with timeboxMinutes > 38 and no resumable steps runs alone in a fresh run; record it in runExceptions.",
+      "agents": "At most one campaign-worker at a time, in the foreground, a fresh invocation per task with only its permitted inputs. No parallel, nested or background agents."
     },
     "holdout": "The 20 holdout apps are only in campaign/corpus/holdout.yaml after P1-FREEZE-CORPUS. No execution or fix task before Phase 6 reads holdout.yaml or campaign/results/holdout/. Historical sets (benchmark.yaml unseen/unseen2) and historical runs/ stay unchanged.",
     "labels": "Initial labels and verification labels come from separate worker runs, from source only. The verifier never sees initial labels or Deployz output. Labels are never changed to match output.",
     "stateWrites": "Only Opus edits campaign/state.json and campaign/tasks.json. Write <file>.tmp, validate JSON, then rename over the file.",
     "measurement": "Do not upgrade models, dependencies or candidate code during a measurement run. Record intentional changes in state.json and handoff.md.",
-    "candidateVersion": "Not frozen. Baseline e164b7af frozen by P0-FREEZE."
+    "candidateVersion": "Not frozen. Baseline e164b7af frozen by P0-FREEZE.",
+    "concurrency": "Every coordinator (scheduled or manual) acquires campaign/coordinator.lock with node campaign/lock.mjs before it changes campaign files or dispatches a worker, and releases it on exit. Exit code 3 = another owner: exit without changes. Recover only with evidence that the owner is not active (owner process gone, or the owner's Desktop session isRunning false and its routine run not running); elapsed time is not evidence. Recovered locks are kept in campaign/logs/locks/. The lock file is ignored by git."
   },
   "models": {
     "coordinator": "Opus (set in the routine settings; the global default model in ~/.claude/settings.json is sonnet, so the routine must select Opus explicitly)",
@@ -280,5 +286,8 @@
         "conclusion": "success (deploy job skipped)"
       }
     }
-  ]
+  ],
+  "continuations": {},
+  "progress": {},
+  "runExceptions": []
 }

@@ -11,7 +11,7 @@
     "COMPLETE"
   ],
   "eligibility": "The earliest task in array order whose status is READY, CONTINUE or RETRYABLE (attempts below the retry limit), or PENDING with every prerequisite COMPLETE, every gate true in state.json gates, and every required capability AVAILABLE in state.json capabilities. Generated tasks are inserted before their phase gate.",
-  "resultContract": "Each worker task writes campaign/results/<task id>/result.json: { taskId, testedCommit, executor, model, startedAt, finishedAt, proposedStatus, commands: [{ command, exitCode, summary }], evidence: [paths], notes }. Per-repo evidence goes beside it as <repo id>.json. Evidence is redacted; raw logs go to campaign/logs/ (ignored).",
+  "resultContract": "Each worker task writes campaign/results/<task id>/result.json: { taskId, testedCommit, executor, model, startedAt, finishedAt, proposedStatus, commands: [{ command, exitCode, summary }], evidence: [paths], notes, progress? }. progress = { completed, next, resume } is required with proposedStatus CONTINUE. Per-repo evidence goes beside it as <repo id>.json. Evidence is redacted; raw logs go to campaign/logs/ (ignored).",
   "tasks": [
     {
       "id": "P0-SMOKE",
