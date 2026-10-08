@@ -1,0 +1,853 @@
+# Final labels, corpus batch 10 (repo-591 to repo-600), task P1-RECONCILE-05, rule set R1 (campaign/corpus/label-rules.md).
+# Every value is decided from repository source at the pinned commit. No Deployz output was used.
+# reconciliation lists every field where the initial label, the verification label or the final label differ.
+# An absent field and an empty unsupported list count as equal. null means the field is absent.
+taskId: P1-RECONCILE-05
+testedCommit: e6a3b58ee2363923fef21faca86611fa3bf84538
+rules: R1
+apps:
+- id: repo-591
+  repo: nightscout/cgm-remote-monitor
+  commit: 92d0834219aa771b5837dbcbf1baeb839a200cf6
+  finalStatus: LABELED
+  expected:
+    compatibility: NOT_COMPATIBLE
+    runtime:
+    - node
+    monorepo: false
+    postgres: false
+    redis: false
+    worker: false
+    dockerfilePath: Dockerfile
+    port: 1337
+    healthPath: /api/v1/status
+    unsupported:
+    - mongodb
+  citations:
+    compatibility:
+    - path: package.json
+      reason: Depends on the mongodb driver and mongo-url-parser; the server needs a MongoDB connection, which the MVP does not host.
+    - path: lib/server/env.js
+      reason: Storage URI comes only from MONGO_CONNECTION / MONGODB_URI; MongoDB is the required datastore and is outside the MVP.
+    - path: docker-compose.yml
+      reason: The reference deployment runs a mongo:5 service and sets MONGO_CONNECTION to it.
+    runtime:
+    - path: package.json
+      reason: Node.js app; start script is node lib/server/server.js.
+    - path: package.json
+      reason: Node application, start script is node lib/server/server.js, engines node >=20.
+    monorepo:
+    - path: package.json
+      reason: Single package at the repository root, no workspaces.
+    - path: package.json
+      reason: Single root package; static/colorbrewer/package.json is a vendored asset, not a workspace.
+    postgres:
+    - path: package.json
+      reason: No PostgreSQL driver; storage is MongoDB only.
+    - path: package.json
+      reason: Dependencies list mongodb and no PostgreSQL client.
+    redis:
+    - path: package.json
+      reason: No Redis client dependency.
+    worker:
+    - path: Procfile
+      reason: Procfile declares only the web process.
+    - path: Procfile
+      reason: Procfile declares only a web process.
+    dockerfilePath:
+    - path: Dockerfile
+      reason: Runtime Dockerfile at the repository root.
+    - path: Dockerfile
+      reason: Multi-stage Dockerfile at the repository root builds and runs the app.
+    port:
+    - path: Dockerfile
+      reason: EXPOSE 1337.
+    - path: Dockerfile
+      reason: EXPOSE 1337; env.js also defaults PORT to 1337.
+    healthPath:
+    - path: lib/api/index.js
+      reason: Mounts the /status route under the API prefix, giving /api/v1/status.
+    unsupported:
+    - path: package.json
+      reason: mongodb dependency is in the unsupported mongodb family.
+    - path: package.json
+      reason: mongodb driver dependency maps to the mongodb unsupported family.
+  reconciliation:
+  - field: healthPath
+    initial: null
+    verify: /api/v1/status
+    final: /api/v1/status
+    rule: R8
+    evidence:
+    - path: lib/server/app.js
+      reason: app.use("/api/v1", api) mounts the API router.
+    - path: lib/api/status.js
+      reason: Registers api.get("/status") that returns the status JSON.
+- id: repo-592
+  repo: advplyr/audiobookshelf
+  commit: 743d9152208507a1dbf7c95c94290071338f44bd
+  finalStatus: LABELED
+  expected:
+    compatibility: NOT_COMPATIBLE
+    runtime:
+    - node
+    monorepo: false
+    postgres: false
+    redis: false
+    worker: false
+    dockerfilePath: Dockerfile
+    port: 80
+    healthPath: /healthcheck
+    unsupported:
+    - local-filesystem
+  citations:
+    compatibility:
+    - path: docker-compose.yml
+      reason: The app needs persistent mounted /config, /metadata and media directories; local disk state is outside the MVP.
+    - path: package.json
+      reason: Data is stored in SQLite (sqlite3, sequelize), which the MVP does not support.
+    - path: docker-compose.yml
+      reason: Needs persistent /config, /metadata, /audiobooks and /podcasts volumes; local disk state is outside the MVP.
+    runtime:
+    - path: package.json
+      reason: Node.js server, started with node dist-server/index.js.
+    - path: package.json
+      reason: Node server, start script node dist-server/index.js.
+    monorepo:
+    - path: package.json
+      reason: Root server package plus a client folder, but no workspace definition.
+    - path: Dockerfile
+      reason: One deployable server; the client directory is built into it as static output.
+    postgres:
+    - path: package.json
+      reason: SQLite only; no PostgreSQL driver.
+    - path: package.json
+      reason: Only sqlite3 and sequelize; no PostgreSQL driver.
+    redis:
+    - path: package.json
+      reason: No Redis client dependency.
+    worker:
+    - path: Dockerfile
+      reason: Single CMD node dist-server/index.js; no separate worker process.
+    dockerfilePath:
+    - path: Dockerfile
+      reason: Runtime Dockerfile at the repository root.
+    - path: Dockerfile
+      reason: Multi-stage Dockerfile at the repository root.
+    port:
+    - path: Dockerfile
+      reason: EXPOSE 80 and ENV PORT=80.
+    healthPath:
+    - path: server/Server.js
+      reason: Registers router.get('/healthcheck') returning 200.
+    unsupported:
+    - path: Dockerfile
+      reason: CONFIG_PATH=/config and METADATA_PATH=/metadata hold the persistent local state.
+    - path: package.json
+      reason: The only database is embedded SQLite (sqlite3); SQLite maps to local-filesystem under R6.
+  reconciliation:
+  - field: healthPath
+    initial: null
+    verify: /healthcheck
+    final: /healthcheck
+    rule: R8
+    evidence:
+    - path: server/Server.js
+      reason: router.get("/healthcheck", ...) returns 200.
+  - field: unsupported
+    initial: null
+    verify:
+    - other-database
+    final:
+    - local-filesystem
+    rule: R6
+    evidence:
+    - path: Dockerfile
+      reason: CONFIG_PATH=/config and METADATA_PATH=/metadata are persistent local directories.
+    - path: package.json
+      reason: The only database is embedded SQLite; R6 maps SQLite and data directories to local-filesystem, not other-database.
+- id: repo-593
+  repo: glanceapp/glance
+  commit: 372466c6d75318670dc66e4e452179350fc50c97
+  finalStatus: LABELED
+  expected:
+    compatibility: NOT_COMPATIBLE
+    runtime:
+    - go
+    monorepo: false
+    postgres: false
+    redis: false
+    worker: false
+    dockerfilePath: Dockerfile
+    port: 8080
+    healthPath: /api/healthz
+    unsupported:
+    - local-filesystem
+  citations:
+    compatibility:
+    - path: Dockerfile
+      reason: ENTRYPOINT requires a configuration file at /app/config/glance.yml that the image expects to be mounted; this is outside the MVP.
+    - path: docs/configuration.md
+      reason: The whole dashboard is defined by the mounted glance.yml file.
+    - path: Dockerfile
+      reason: ENTRYPOINT passes --config /app/config/glance.yml but the image does not contain that file; the image expects a mounted configuration file.
+    runtime:
+    - path: Dockerfile
+      reason: Go binary built with go build.
+    - path: go.mod
+      reason: Go module.
+    monorepo:
+    - path: Dockerfile
+      reason: Single Go module at the repository root.
+    - path: go.mod
+      reason: Single root Go module.
+    postgres:
+    - path: Dockerfile
+      reason: No database; the app is a stateless dashboard.
+    - path: go.mod
+      reason: No database; configuration is a YAML file.
+    redis:
+    - path: Dockerfile
+      reason: No Redis service is used.
+    - path: go.mod
+      reason: No Redis dependency.
+    worker:
+    - path: Dockerfile
+      reason: Single entrypoint process.
+    - path: Dockerfile
+      reason: Single binary entrypoint.
+    dockerfilePath:
+    - path: Dockerfile
+      reason: Runtime Dockerfile at the repository root.
+    - path: Dockerfile
+      reason: Root Dockerfile builds the binary.
+    port:
+    - path: Dockerfile
+      reason: EXPOSE 8080/tcp.
+    healthPath:
+    - path: internal/glance/glance.go
+      reason: Registers GET /api/healthz.
+    unsupported:
+    - path: Dockerfile
+      reason: ENTRYPOINT passes --config /app/config/glance.yml, a configuration file that the image expects to be mounted.
+  reconciliation:
+  - field: healthPath
+    initial: null
+    verify: /api/healthz
+    final: /api/healthz
+    rule: R8
+    evidence:
+    - path: internal/glance/glance.go
+      reason: mux.HandleFunc("GET /api/healthz", ...).
+  - field: unsupported
+    initial: null
+    verify: null
+    final:
+    - local-filesystem
+    rule: R6
+    evidence:
+    - path: Dockerfile
+      reason: ENTRYPOINT passes --config /app/config/glance.yml; the image does not contain that file, so it must be mounted (R1, R6 mounted config file).
+- id: repo-594
+  repo: invoke-ai/InvokeAI
+  commit: c7a1b55be06e208fccdd06fa8a9ce9f3ce1ed5c7
+  finalStatus: LABELED
+  expected:
+    compatibility: NOT_COMPATIBLE
+    runtime:
+    - python
+    monorepo: false
+    postgres: false
+    redis: false
+    worker: false
+    dockerfilePath: docker/Dockerfile
+    port: 9090
+    unsupported:
+    - local-filesystem
+  citations:
+    compatibility:
+    - path: docker/docker-compose.yml
+      reason: Requires a GPU reservation (nvidia) and a bind-mounted INVOKEAI_ROOT for models and database; GPUs and local disk state are outside the MVP.
+    - path: docker/Dockerfile
+      reason: GPU_DRIVER=cuda build argument; the image targets GPU inference.
+    - path: docker/docker-compose.yml
+      reason: Requires an NVIDIA GPU reservation (or ROCm), a bind-mounted INVOKEAI_ROOT and a model cache volume.
+    runtime:
+    - path: pyproject.toml
+      reason: Python package; the image runs invokeai-web.
+    - path: pyproject.toml
+      reason: Python >=3.12, <3.13 package.
+    monorepo:
+    - path: pyproject.toml
+      reason: One Python package with a bundled frontend; no workspace manager at the root.
+    - path: pyproject.toml
+      reason: One Python package; the frontend is built into it.
+    postgres:
+    - path: pyproject.toml
+      reason: Uses a local SQLite database under INVOKEAI_ROOT; no PostgreSQL.
+    - path: pyproject.toml
+      reason: No PostgreSQL driver listed; the app uses its local SQLite database.
+    redis:
+    - path: pyproject.toml
+      reason: No Redis dependency.
+    worker:
+    - path: docker/Dockerfile
+      reason: Single CMD invokeai-web.
+    dockerfilePath:
+    - path: docker/Dockerfile
+      reason: The only Dockerfile, under docker/.
+    - path: docker/Dockerfile
+      reason: The Dockerfile lives under docker/.
+    port:
+    - path: docker/docker-compose.yml
+      reason: Port defaults to INVOKEAI_PORT 9090.
+    - path: docker/docker-compose.yml
+      reason: Publishes INVOKEAI_PORT defaulting to 9090; the Dockerfile has no EXPOSE.
+    unsupported:
+    - path: docker/docker-compose.yml
+      reason: INVOKEAI_ROOT is a bind-mounted directory that holds the SQLite database, models and outputs.
+    - path: docker/Dockerfile
+      reason: INVOKEAI_ROOT=/invokeai is the local data directory of the image.
+  reconciliation:
+  - field: unsupported
+    initial: null
+    verify:
+    - other-database
+    final:
+    - local-filesystem
+    rule: R6
+    evidence:
+    - path: docker/docker-compose.yml
+      reason: The only state is the bind-mounted INVOKEAI_ROOT (SQLite database, models, outputs); R6 maps SQLite and data directories to local-filesystem.
+- id: repo-595
+  repo: kubero-dev/kubero
+  commit: 36a5046c379c5e9e5e0b2c1b80c218bfaa811144
+  finalStatus: LABELED
+  expected:
+    compatibility: NOT_COMPATIBLE
+    runtime:
+    - node
+    monorepo: true
+    postgres: false
+    redis: false
+    worker: false
+    migration: true
+    appRoot: server
+    dockerfilePath: Dockerfile
+    port: 2000
+    unsupported:
+    - local-filesystem
+    - kubernetes
+  citations:
+    compatibility:
+    - path: server/prisma/schema.prisma
+      reason: Prisma datasource provider is sqlite; the MVP does not support SQLite.
+    - path: docker-compose.yaml
+      reason: Mounts server/config.yaml and server/db (local disk state) and needs a Kubernetes cluster via kubeconfig; Kubernetes control is outside the MVP.
+    - path: Dockerfile
+      reason: Sets DATABASE_TYPE=sqlite with a file database under /app/server/db.
+    runtime:
+    - path: server/package.json
+      reason: NestJS app on Node.js, started with node main.
+    - path: server/package.json
+      reason: NestJS Node application, start:prod runs node dist/main.
+    monorepo:
+    - path: client/package.json
+      reason: Separate client and server packages; the server is the app path.
+    - path: server/package.json
+      reason: Server package.
+    postgres:
+    - path: server/prisma/schema.prisma
+      reason: Datasource is sqlite, not PostgreSQL.
+    - path: server/prisma/schema.prisma
+      reason: Prisma datasource provider is sqlite.
+    redis:
+    - path: server/package.json
+      reason: Redis code in server/src/addons manages Redis for deployed apps; it is not a Kubero runtime dependency.
+    - path: server/package.json
+      reason: No Redis client dependency.
+    worker:
+    - path: Dockerfile
+      reason: Single CMD node main.
+    migration:
+    - path: server/prisma/migrations
+      reason: Prisma migrations with a prisma migrate deploy script in server/package.json.
+    appRoot:
+    - path: server/package.json
+      reason: Server application package, as pinned by the slice appPath.
+    dockerfilePath:
+    - path: Dockerfile
+      reason: Runtime Dockerfile at the repository root, building server and client.
+    - path: Dockerfile
+      reason: Dockerfile at repository root builds both server and client.
+    port:
+    - path: server/src/main.ts
+      reason: app.listen(process.env.PORT ?? 2000).
+    unsupported:
+    - path: server/prisma/schema.prisma
+      reason: Datasource provider is sqlite (SQLite maps to local-filesystem under R6).
+    - path: docker-compose.yaml
+      reason: Mounts server/db and server/config.yaml; needs a Kubernetes cluster through KUBECONFIG_BASE64 or KUBECONFIG_PATH.
+    - path: server/.env.template
+      reason: KUBECONFIG_PATH, KUBERO_CONTEXT and KUBERO_NAMESPACE configure the Kubernetes cluster that Kubero controls.
+  reconciliation:
+  - field: monorepo
+    initial: false
+    verify: true
+    final: true
+    rule: 'none (R1 to R9 do not define monorepo; same layout as repo-584: the app path is one of several top-level packages built together)'
+    evidence:
+    - path: Dockerfile
+      reason: Builds both the server and the client directory from the repository root.
+    - path: client/package.json
+      reason: Separate client package beside server; the corpus appPath is server.
+  - field: migration
+    initial: true
+    verify: null
+    final: true
+    rule: R5
+    evidence:
+    - path: server/prisma/migrations
+      reason: Prisma migrations directory.
+    - path: server/package.json
+      reason: prisma:deploy and prisma:migrate scripts run prisma migrate deploy.
+  - field: appRoot
+    initial: null
+    verify: server
+    final: server
+    rule: R8
+    evidence:
+    - path: server/package.json
+      reason: The application package lives in the corpus appPath, which is not the repository root; R8 sets appRoot to appPath.
+  - field: unsupported
+    initial: null
+    verify:
+    - other-database
+    final:
+    - local-filesystem
+    - kubernetes
+    rule: R6
+    evidence:
+    - path: server/prisma/schema.prisma
+      reason: Datasource provider is sqlite, a local file; R6 maps SQLite to local-filesystem.
+    - path: docker-compose.yaml
+      reason: Kubero controls a Kubernetes cluster through kubeconfig; the verdict also depends on kubernetes.
+- id: repo-596
+  repo: dnnsoftware/Dnn.Platform
+  commit: 206201c84855ff4b5b6499e135b04a86e2ce0580
+  finalStatus: LABELED
+  expected:
+    compatibility: NOT_COMPATIBLE
+    runtime:
+    - dotnet
+    monorepo: true
+    postgres: false
+    redis: false
+    worker: false
+    appRoot: DNN Platform/Website
+    unsupported:
+    - other-database
+    - windows
+  citations:
+    compatibility:
+    - path: DNN Platform/Website/DotNetNuke.Website.csproj
+      reason: .NET Framework ASP.NET WebForms CMS that needs IIS on Windows and SQL Server; no Dockerfile exists. Windows and SQL Server are outside the MVP.
+    - path: DNN Platform/Website/DotNetNuke.Website.csproj
+      reason: ASP.NET web site targeting .NET Framework 4.8 (Windows/IIS); no Dockerfile exists for the app.
+    runtime:
+    - path: DNN Platform/Website/DotNetNuke.Website.csproj
+      reason: .NET project.
+    - path: DNN Platform/Website/DotNetNuke.Website.csproj
+      reason: .NET Framework 4.8 project.
+    monorepo:
+    - path: DNN Platform/Website
+      reason: The website is one of many projects in a large Visual Studio solution.
+    - path: DNN_Platform.sln
+      reason: Solution with dozens of projects.
+    postgres:
+    - path: DNN Platform/Website/Install
+      reason: Installer targets SQL Server, not PostgreSQL.
+    - path: DNN Platform/Website/release.config
+      reason: Connection string uses System.Data.SqlClient (SQL Server).
+    redis:
+    - path: DNN Platform/Website/DotNetNuke.Website.csproj
+      reason: No Redis dependency.
+    - path: DNN_Platform.sln
+      reason: No Redis component in the solution.
+    worker:
+    - path: DNN Platform/Website/DotNetNuke.Website.csproj
+      reason: Scheduler runs inside the web process; no separate worker.
+    - path: DNN_Platform.sln
+      reason: No separate worker process; scheduler runs in the web process.
+    appRoot:
+    - path: DNN Platform/Website/Default.aspx
+      reason: Web site root as pinned by the slice appPath.
+    unsupported:
+    - path: DNN Platform/Website/release.config
+      reason: SiteSqlServer connection string uses System.Data.SqlClient (SQL Server).
+    - path: DNN Platform/Website/DotNetNuke.Website.csproj
+      reason: 'TargetFrameworkVersion v4.8 with the ASP.NET web site project type: .NET Framework, which runs only on Windows.'
+  reconciliation:
+  - field: appRoot
+    initial: null
+    verify: DNN Platform/Website
+    final: DNN Platform/Website
+    rule: R8
+    evidence:
+    - path: DNN Platform/Website/DotNetNuke.Website.csproj
+      reason: The website project lives in the corpus appPath, not the repository root; R8 sets appRoot to appPath.
+  - field: unsupported
+    initial: null
+    verify:
+    - other-database
+    final:
+    - other-database
+    - windows
+    rule: R6
+    evidence:
+    - path: DNN Platform/Website/release.config
+      reason: SQL Server connection string (other-database).
+    - path: DNN Platform/Website/DotNetNuke.Website.csproj
+      reason: .NET Framework 4.8 web site project (Windows only); R1 lists Windows as a non-goal and R6 names others by lowercase product name.
+- id: repo-597
+  repo: Openpanel-dev/openpanel
+  commit: 7c4d22ae4b6b20fb08eb5c94a0cd3cfebb3d32ca
+  finalStatus: LABELED
+  expected:
+    compatibility: NOT_COMPATIBLE
+    runtime:
+    - node
+    monorepo: true
+    postgres: true
+    redis: true
+    worker: true
+    migration: true
+    appRoot: apps/api
+    dockerfilePath: apps/api/Dockerfile
+    port: 3000
+    healthPath: /healthcheck
+    unsupported:
+    - other-database
+  citations:
+    compatibility:
+    - path: packages/db/package.json
+      reason: Requires ClickHouse (@clickhouse/client) as an analytics store, which the MVP does not host.
+    - path: docker-compose.yml
+      reason: Runs op-ch (ClickHouse) next to Postgres and Redis.
+    - path: packages/db/package.json
+      reason: Requires ClickHouse (@clickhouse/client) as the event store in addition to PostgreSQL.
+    runtime:
+    - path: apps/api/package.json
+      reason: Node.js Fastify API.
+    - path: apps/api/package.json
+      reason: Node Fastify API built with tsdown.
+    monorepo:
+    - path: pnpm-workspace.yaml
+      reason: pnpm workspace with apps and packages.
+    postgres:
+    - path: docker-compose.yml
+      reason: op-db is postgres, used through Prisma in packages/db.
+    - path: docker-compose.yml
+      reason: op-db service is postgres:14.
+    - path: packages/db/package.json
+      reason: Prisma is used for PostgreSQL.
+    redis:
+    - path: docker-compose.yml
+      reason: op-kv is Redis, used for queues and cache.
+    - path: docker-compose.yml
+      reason: op-kv service is redis.
+    worker:
+    - path: apps/worker
+      reason: A separate worker app consumes the queue.
+    - path: apps/worker/Dockerfile
+      reason: A separate worker app with its own Dockerfile consumes the queue.
+    migration:
+    - path: packages/db/package.json
+      reason: migrate:deploy runs prisma migrate deploy and code migrations.
+    appRoot:
+    - path: apps/api
+      reason: Requested app path and workspace package.
+    - path: apps/api/package.json
+      reason: API app as pinned by the slice appPath.
+    dockerfilePath:
+    - path: apps/api/Dockerfile
+      reason: API Dockerfile, built from the repository root context.
+    port:
+    - path: apps/api/Dockerfile
+      reason: EXPOSE 3000; src/index.ts defaults API_PORT to 3000.
+    - path: apps/api/Dockerfile
+      reason: EXPOSE 3000.
+    healthPath:
+    - path: apps/api/src/index.ts
+      reason: Registers GET /healthcheck, /healthz/live and /healthz/ready.
+    unsupported:
+    - path: packages/db/package.json
+      reason: ClickHouse is in the unsupported other-database family.
+    - path: packages/db/package.json
+      reason: '@clickhouse/client dependency maps to other-database.'
+  reconciliation:
+  - field: migration
+    initial: true
+    verify: null
+    final: true
+    rule: R5
+    evidence:
+    - path: packages/db/package.json
+      reason: migrate:deploy runs prisma migrate deploy and the code migrations.
+  - field: healthPath
+    initial: null
+    verify: /healthcheck
+    final: /healthcheck
+    rule: R8
+    evidence:
+    - path: apps/api/src/app.ts
+      reason: instance.get("/healthcheck", ...) plus /healthz/live and /healthz/ready.
+- id: repo-598
+  repo: tchiotludo/akhq
+  commit: 4440816b892070fb7ba651a40d09a9e8bffac503
+  finalStatus: LABELED
+  expected:
+    compatibility: NOT_COMPATIBLE
+    runtime:
+    - java
+    monorepo: false
+    postgres: false
+    redis: false
+    worker: false
+    dockerfilePath: Dockerfile
+    port: 8080
+    unsupported:
+    - kafka
+  citations:
+    compatibility:
+    - path: docker-compose.yml
+      reason: The app is a GUI for Apache Kafka and cannot start usefully without a Kafka cluster; Kafka is not provided by the MVP.
+    - path: Dockerfile
+      reason: Configuration is expected as a mounted application.yml.
+    - path: docker-compose.yml
+      reason: Is a management UI for an external Apache Kafka cluster configured through AKHQ_CONFIGURATION; Kafka is outside the MVP.
+    runtime:
+    - path: build.gradle
+      reason: Java Micronaut app built with Gradle.
+    - path: build.gradle
+      reason: Micronaut application on Java 25, mainClass org.akhq.App.
+    monorepo:
+    - path: build.gradle
+      reason: Gradle root with an embedded client build; one deployable app.
+    - path: build.gradle
+      reason: Single Gradle application; client/ is the bundled UI.
+    postgres:
+    - path: build.gradle
+      reason: No database; state is read from Kafka.
+    - path: build.gradle
+      reason: No PostgreSQL dependency; no database.
+    redis:
+    - path: build.gradle
+      reason: No Redis dependency.
+    worker:
+    - path: Dockerfile
+      reason: Single CMD ./akhq.
+    dockerfilePath:
+    - path: Dockerfile
+      reason: Runtime Dockerfile at the repository root.
+    - path: Dockerfile
+      reason: Root Dockerfile.
+    port:
+    - path: docker-compose.yml
+      reason: Maps 8080:8080; Micronaut default HTTP port. Management endpoints use 28081 separately.
+    unsupported:
+    - path: docker-compose.yml
+      reason: AKHQ is configured only with Kafka bootstrap.servers and cannot run without a Kafka cluster.
+    - path: Dockerfile
+      reason: Image expects the configuration in /app/application.yml (MICRONAUT_CONFIG_FILES); no Kafka connection is built in.
+  reconciliation:
+  - field: port
+    initial: null
+    verify: 8080
+    final: 8080
+    rule: R8
+    evidence:
+    - path: docker-compose.yml
+      reason: Publishes 8080:8080; Micronaut default HTTP port.
+  - field: unsupported
+    initial: null
+    verify: null
+    final:
+    - kafka
+    rule: R6
+    evidence:
+    - path: docker-compose.yml
+      reason: AKHQ is a UI for a Kafka cluster configured only by bootstrap.servers; R1 Kafka required.
+- id: repo-599
+  repo: opensearch-project/OpenSearch-Dashboards
+  commit: c860eedf96d8f34f2240bae1c6c67bdebd2ede55
+  finalStatus: LABELED
+  expected:
+    compatibility: NOT_COMPATIBLE
+    runtime:
+    - node
+    monorepo: true
+    postgres: false
+    redis: false
+    worker: false
+    port: 5601
+    healthPath: /api/status
+    unsupported:
+    - elasticsearch
+  citations:
+    compatibility:
+    - path: config/opensearch_dashboards.yml
+      reason: The app is a UI that requires an OpenSearch cluster (opensearch.hosts); OpenSearch is not supported by the MVP.
+    - path: Dockerfile
+      reason: The root Dockerfile is a CI build image with Chrome and Java, not a runtime image.
+    - path: config/opensearch_dashboards.yml
+      reason: Requires an OpenSearch cluster (opensearch.hosts); OpenSearch is outside the MVP.
+    runtime:
+    - path: package.json
+      reason: Node.js application.
+    - path: package.json
+      reason: Node application, engines node >=14.20.1 <23.
+    monorepo:
+    - path: package.json
+      reason: Yarn workspaces monorepo.
+    - path: package.json
+      reason: Yarn workspaces with many packages and plugins.
+    postgres:
+    - path: package.json
+      reason: Stores data in OpenSearch, not PostgreSQL.
+    - path: package.json
+      reason: Data lives in OpenSearch; no PostgreSQL driver.
+    redis:
+    - path: package.json
+      reason: No Redis dependency.
+    worker:
+    - path: package.json
+      reason: Single server process.
+    - path: package.json
+      reason: Single server entry (scripts/opensearch_dashboards).
+    port:
+    - path: config/opensearch_dashboards.yml
+      reason: 'Commented default server.port: 5601.'
+    healthPath:
+    - path: src/core/server/status/routes/status.ts
+      reason: Registers the /api/status route.
+    unsupported:
+    - path: config/opensearch_dashboards.yml
+      reason: Requires OpenSearch, in the unsupported elasticsearch family.
+    - path: config/opensearch_dashboards.yml
+      reason: Needs OpenSearch hosts (maps to the elasticsearch family).
+  reconciliation:
+  - field: dockerfilePath
+    initial: null
+    verify: Dockerfile
+    final: null
+    rule: R2
+    evidence:
+    - path: Dockerfile
+      reason: Root Dockerfile is a CI build and test image (Chrome, JDK 8, xvfb) with no CMD and no application; it is not a production Dockerfile, so dockerfilePath is omitted.
+  - field: port
+    initial: null
+    verify: 5601
+    final: 5601
+    rule: R8
+    evidence:
+    - path: config/opensearch_dashboards.yml
+      reason: Default server.port 5601 (commented default).
+  - field: healthPath
+    initial: null
+    verify: /api/status
+    final: /api/status
+    rule: R8
+    evidence:
+    - path: src/core/server/status/routes/status.ts
+      reason: Registers the /api/status route.
+- id: repo-600
+  repo: rancher/rancher
+  commit: 28deadd2bb635bfa42746354a94974a281286e1c
+  finalStatus: LABELED
+  expected:
+    compatibility: NOT_COMPATIBLE
+    runtime:
+    - go
+    monorepo: false
+    postgres: false
+    redis: false
+    worker: false
+    dockerfilePath: package/Dockerfile
+    port: 80
+    healthPath: /healthz
+    unsupported:
+    - kubernetes
+    - local-filesystem
+  citations:
+    compatibility:
+    - path: package/Dockerfile
+      reason: Rancher is a Kubernetes management platform that runs inside a Kubernetes cluster with embedded control plane components; Kubernetes is outside the MVP.
+    - path: package/Dockerfile
+      reason: Embeds k3s, declares VOLUME /var/lib/rancher, /var/lib/kubelet and /var/lib/cni, and manages Kubernetes clusters; Kubernetes and persistent volumes are outside the MVP.
+    runtime:
+    - path: go.mod
+      reason: Go module.
+    monorepo:
+    - path: go.mod
+      reason: Single Go module at the root.
+    - path: go.mod
+      reason: One main Go module; sub-modules are tooling.
+    postgres:
+    - path: go.mod
+      reason: State is stored in the Kubernetes API; no PostgreSQL.
+    - path: go.mod
+      reason: State is stored in the Kubernetes API, not PostgreSQL.
+    redis:
+    - path: go.mod
+      reason: No Redis in the module.
+    - path: go.mod
+      reason: No Redis dependency.
+    worker:
+    - path: main.go
+      reason: One server binary.
+    - path: package/Dockerfile
+      reason: Single entrypoint.sh.
+    dockerfilePath:
+    - path: package/Dockerfile
+      reason: Product image Dockerfile.
+    - path: package/Dockerfile
+      reason: Server image Dockerfile (Dockerfile.runtime is a base runtime image).
+    port:
+    - path: chart/templates/deployment.yaml
+      reason: containerPort 80; probes target port 80.
+    healthPath:
+    - path: chart/templates/deployment.yaml
+      reason: Liveness and readiness probes use /healthz.
+    unsupported:
+    - path: package/Dockerfile
+      reason: Embeds k3s and kubectl and manages Kubernetes clusters.
+    - path: package/Dockerfile
+      reason: VOLUME /var/lib/rancher, /var/lib/kubelet, /var/lib/cni and /var/log hold persistent local state.
+  reconciliation:
+  - field: port
+    initial: null
+    verify: 80
+    final: 80
+    rule: R8
+    evidence:
+    - path: chart/templates/deployment.yaml
+      reason: containerPort 80; probes target port 80 (the Dockerfile has no EXPOSE).
+  - field: healthPath
+    initial: null
+    verify: /healthz
+    final: /healthz
+    rule: R8
+    evidence:
+    - path: chart/templates/deployment.yaml
+      reason: Liveness and readiness probes request /healthz.
+  - field: unsupported
+    initial: null
+    verify: null
+    final:
+    - kubernetes
+    - local-filesystem
+    rule: R6
+    evidence:
+    - path: package/Dockerfile
+      reason: Embeds k3s and manages Kubernetes clusters; VOLUME lines hold persistent local state.
