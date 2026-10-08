@@ -52,6 +52,6 @@
 
 ## Next action
 
-The next routine run: delegate `P1-SELECT-REALISTIC-03` to campaign-worker. Before Phase 3 measurement, rebuild packages at the new baseline (`pnpm build`; `packages/analysis` changed). `ai-gateway` stays BLOCKED until `P2-IMPL-AI-MODE` and `P2-AI-LIVE-VALIDATE` are COMPLETE.
+The next routine run: delegate `P1-SELECT-REALISTIC-03` to campaign-worker. The branch contains `e6a3b58e` (merge `97d16310`) and `@deployz/analysis` dist is rebuilt. `ai-gateway` stays BLOCKED until `P2-IMPL-AI-MODE` and `P2-AI-LIVE-VALIDATE` are COMPLETE.
 
 Caution: on 2026-10-08 a user-directed session and the routine run worked on the same checkout at the same time. Do not run a manual session against this checkout while the routine is active.
