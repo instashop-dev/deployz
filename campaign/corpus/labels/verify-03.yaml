@@ -1,0 +1,494 @@
+taskId: P1-VERIFY-03
+testedCommit: e6a3b58ee2363923fef21faca86611fa3bf84538
+apps:
+  - id: repo-521
+    repo: traefik/whoami
+    commit: 1ce75d01b6978863647da42557a707a479da3a51
+    expected:
+      compatibility: READY
+      runtime:
+        - go
+      monorepo: false
+      postgres: false
+      redis: false
+      worker: false
+      appRoot: .
+      dockerfilePath: Dockerfile
+      port: 80
+      healthPath: /health
+    citations:
+      compatibility:
+        - path: Dockerfile
+          reason: Self-contained multi-stage Dockerfile; no database, cache or volume needed
+      runtime:
+        - path: go.mod
+          reason: Go module
+      monorepo:
+        - path: go.mod
+          reason: Single Go module at repository root
+      postgres:
+        - path: go.mod
+          reason: No database driver dependency
+      redis:
+        - path: go.mod
+          reason: No Redis client dependency
+      worker:
+        - path: app.go
+          reason: Single HTTP server process; no worker
+      appRoot:
+        - path: Dockerfile
+          reason: Dockerfile and sources at repository root
+      dockerfilePath:
+        - path: Dockerfile
+          reason: Primary Dockerfile (buildx.Dockerfile is the multi-arch variant)
+      port:
+        - path: Dockerfile
+          reason: EXPOSE 80
+        - path: app.go
+          reason: port flag defaults to 80 (WHOAMI_PORT_NUMBER)
+      healthPath:
+        - path: app.go
+          reason: mux.Handle /health with healthHandler; returns 200 by default
+  - id: repo-522
+    repo: sigoden/dufs
+    commit: fe7fd564f80dfbac361c8e0589c3845638149d38
+    expected:
+      compatibility: NOT_COMPATIBLE
+      runtime:
+        - rust
+      monorepo: false
+      postgres: false
+      redis: false
+      worker: false
+      appRoot: .
+      dockerfilePath: Dockerfile
+      port: 5000
+      healthPath: /__dufs__/health
+    citations:
+      compatibility:
+        - path: README.md
+          reason: Docker usage mounts a host data directory at /data; the app is a file server over a mounted directory (persistent volume / local disk state)
+        - path: Dockerfile
+          reason: FROM scratch image with no data volume baked in
+      runtime:
+        - path: Cargo.toml
+          reason: Rust crate
+      monorepo:
+        - path: Cargo.toml
+          reason: Single crate
+      postgres:
+        - path: Cargo.toml
+          reason: No database dependency
+      redis:
+        - path: Cargo.toml
+          reason: No Redis dependency
+      worker:
+        - path: src/main.rs
+          reason: Single server process
+      appRoot:
+        - path: Cargo.toml
+          reason: Crate at repository root
+      dockerfilePath:
+        - path: Dockerfile
+          reason: Builds from source; Dockerfile-release downloads release binaries
+      port:
+        - path: src/args.rs
+          reason: default_port() returns 5000
+      healthPath:
+        - path: src/server.rs
+          reason: HEALTH_CHECK_PATH is __dufs__/health
+  - id: repo-523
+    repo: Freika/dawarich
+    commit: e32b70701b2467b862d4b5bc27ac428999997c1b
+    expected:
+      compatibility: NEEDS_CONFIGURATION
+      runtime:
+        - ruby
+      monorepo: false
+      postgres: true
+      redis: true
+      worker: true
+      storage: true
+      migration: true
+      appRoot: .
+      dockerfilePath: docker/Dockerfile
+      port: 3000
+      healthPath: /api/v1/health
+    citations:
+      compatibility:
+        - path: docker/Dockerfile
+          reason: ENTRYPOINT is bundle exec with no CMD; the web start command needs vendor input
+        - path: config/storage.yml
+          reason: Default storage backend is local Disk; S3 needs STORAGE_BACKEND and AWS_* variables
+      runtime:
+        - path: Gemfile
+          reason: Ruby on Rails app
+      monorepo:
+        - path: Gemfile
+          reason: Single Rails app
+      postgres:
+        - path: config/database.yml
+          reason: postgis adapter
+        - path: Gemfile
+          reason: pg and activerecord-postgis-adapter gems
+      redis:
+        - path: Gemfile
+          reason: redis and sidekiq gems
+      worker:
+        - path: Procfile
+          reason: worker process runs sidekiq
+      storage:
+        - path: config/storage.yml
+          reason: S3 service defined
+      migration:
+        - path: Procfile
+          reason: release process runs rails db:migrate
+      appRoot:
+        - path: Gemfile
+          reason: Rails app at repository root
+      dockerfilePath:
+        - path: docker/Dockerfile
+          reason: Production Dockerfile lives under docker/
+      port:
+        - path: config/puma.rb
+          reason: Puma port defaults to 3000
+        - path: docker/Dockerfile
+          reason: EXPOSE $RAILS_PORT with RAILS_PORT=3000
+      healthPath:
+        - path: config/routes.rb
+          reason: api v1 namespace defines get health
+  - id: repo-524
+    repo: miguelgrinberg/microblog
+    commit: a975ef64864354867c88e0ed3a17ba7d17dca752
+    expected:
+      compatibility: READY
+      runtime:
+        - python
+      monorepo: false
+      postgres: true
+      redis: true
+      worker: true
+      migration: true
+      appRoot: .
+      dockerfilePath: Dockerfile
+      port: 5000
+    citations:
+      compatibility:
+        - path: Dockerfile
+          reason: Complete Dockerfile with boot.sh entrypoint that runs migrations and gunicorn
+        - path: config.py
+          reason: DATABASE_URL, REDIS_URL and optional ELASTICSEARCH_URL are env-driven
+      runtime:
+        - path: requirements.txt
+          reason: Flask app
+      monorepo:
+        - path: requirements.txt
+          reason: Single Python app
+      postgres:
+        - path: requirements.txt
+          reason: psycopg2-binary; config.py rewrites postgres:// DATABASE_URL
+      redis:
+        - path: config.py
+          reason: REDIS_URL used by rq
+      worker:
+        - path: Procfile
+          reason: worker process runs rq worker microblog-tasks
+      migration:
+        - path: boot.sh
+          reason: flask db upgrade before gunicorn starts
+      appRoot:
+        - path: microblog.py
+          reason: App entry at repository root
+      dockerfilePath:
+        - path: Dockerfile
+          reason: Only Dockerfile
+      port:
+        - path: boot.sh
+          reason: gunicorn -b :5000
+        - path: Dockerfile
+          reason: EXPOSE 5000
+  - id: repo-525
+    repo: gotson/komga
+    commit: 519e352aa894b2fdc80660f1dde21b98cf328e3e
+    expected:
+      compatibility: NOT_COMPATIBLE
+      runtime:
+        - java
+      monorepo: true
+      postgres: false
+      redis: false
+      worker: false
+      appRoot: .
+      port: 25600
+    citations:
+      compatibility:
+        - path: komga/docker/Dockerfile.tpl
+          reason: VOLUME /config holds database, search index and settings; a media library must also be mounted
+        - path: komga/src/main/resources/application.yml
+          reason: Database is SQLite files under the config directory
+      runtime:
+        - path: build.gradle.kts
+          reason: Kotlin/JVM Gradle build
+      monorepo:
+        - path: build.gradle.kts
+          reason: Multi-module Gradle build with komga, next-ui and komga-tray
+      postgres:
+        - path: komga/build.gradle.kts
+          reason: sqlite-jdbc only; no Postgres driver
+      redis:
+        - path: komga/build.gradle.kts
+          reason: No Redis dependency
+      worker:
+        - path: komga/build.gradle.kts
+          reason: Single Spring Boot process; tasks run in-process
+      appRoot:
+        - path: build.gradle.kts
+          reason: Gradle root at repository root
+      port:
+        - path: komga/docker/Dockerfile.tpl
+          reason: EXPOSE 25600
+  - id: repo-526
+    repo: nopSolutions/nopCommerce
+    commit: 2f8f8a1ee5816845bf0bb5e30c09199e71e82e4c
+    expected:
+      compatibility: NOT_COMPATIBLE
+      runtime:
+        - dotnet
+      monorepo: false
+      postgres: true
+      redis: false
+      worker: false
+      appRoot: .
+      dockerfilePath: Dockerfile
+      port: 80
+    citations:
+      compatibility:
+        - path: src/Libraries/Nop.Data/NopDataSettingsDefaults.cs
+          reason: Connection settings are written by the install wizard to App_Data/dataSettings.json on local disk
+        - path: Dockerfile
+          reason: Uploaded images, plugins, backups and keys live in writable directories inside the image (local disk state)
+      runtime:
+        - path: Dockerfile
+          reason: ASP.NET image running Nop.Web.dll
+      monorepo:
+        - path: src/NopCommerce.sln
+          reason: One solution that builds one web app
+      postgres:
+        - path: src/Libraries/Nop.Data/DataProviders/PostgreSqlDataProvider.cs
+          reason: PostgreSQL is a supported provider
+        - path: postgresql-docker-compose.yml
+          reason: Postgres compose variant
+      redis:
+        - path: src/Libraries/Nop.Services/Caching/RedisCacheManager.cs
+          reason: Redis is an optional cache, not required
+      worker:
+        - path: Dockerfile
+          reason: Single entrypoint; scheduled tasks run in-process
+      appRoot:
+        - path: Dockerfile
+          reason: Dockerfile and src/ at repository root
+      dockerfilePath:
+        - path: Dockerfile
+          reason: Root Dockerfile
+      port:
+        - path: Dockerfile
+          reason: ASPNETCORE_URLS http://+:80 and EXPOSE 80
+  - id: repo-527
+    repo: parse-community/parse-server
+    commit: 0c4db0a18388277fd402ae695d793b47fc5528e3
+    expected:
+      compatibility: NEEDS_CONFIGURATION
+      runtime:
+        - node
+      monorepo: false
+      postgres: true
+      redis: false
+      worker: false
+      appRoot: .
+      dockerfilePath: Dockerfile
+      port: 1337
+      healthPath: /parse/health
+    citations:
+      compatibility:
+        - path: Dockerfile
+          reason: Entrypoint needs vendor-supplied app id, master key, server URL and a database URI; default store is MongoDB, Postgres must be chosen
+        - path: package.json
+          reason: Both mongodb and pg-promise are dependencies
+      runtime:
+        - path: package.json
+          reason: Node package
+      monorepo:
+        - path: package.json
+          reason: Single package
+      postgres:
+        - path: package.json
+          reason: pg-promise supports a Postgres databaseURI
+      redis:
+        - path: package.json
+          reason: redis client is for optional cache adapter only
+      worker:
+        - path: Dockerfile
+          reason: Single node ./bin/parse-server entrypoint
+      appRoot:
+        - path: package.json
+          reason: Package at repository root
+      dockerfilePath:
+        - path: Dockerfile
+          reason: Root Dockerfile
+      port:
+        - path: Dockerfile
+          reason: ENV PORT=1337 and EXPOSE $PORT
+      healthPath:
+        - path: src/ParseServer.ts
+          reason: api.use /health under default mountPath /parse
+  - id: repo-528
+    repo: electric-sql/electric
+    commit: 3f9809fb0bd894cb74470d434749673492ad7acf
+    expected:
+      compatibility: NOT_COMPATIBLE
+      runtime:
+        - elixir
+      monorepo: true
+      postgres: true
+      redis: false
+      worker: false
+      appRoot: packages/sync-service
+      dockerfilePath: packages/sync-service/Dockerfile
+      port: 3000
+      healthPath: /v1/health
+    citations:
+      compatibility:
+        - path: packages/sync-service/README.md
+          reason: Consumes the Postgres logical replication stream, which needs wal_level=logical on the source database
+        - path: packages/sync-service/config/runtime.exs
+          reason: Shape storage defaults to files under ELECTRIC_STORAGE_DIR (./persistent)
+        - path: packages/sync-service/Dockerfile
+          reason: COPY --from=electric-telemetry needs a named build context outside the app directory
+      runtime:
+        - path: packages/sync-service/mix.exs
+          reason: Elixir mix project
+      monorepo:
+        - path: packages/sync-service/package.json
+          reason: App sits in packages/ of a multi-package repository
+      postgres:
+        - path: packages/sync-service/config/runtime.exs
+          reason: DATABASE_URL required
+      redis:
+        - path: packages/sync-service/mix.exs
+          reason: No Redis dependency
+      worker:
+        - path: packages/sync-service/Dockerfile
+          reason: Single release entrypoint
+      appRoot:
+        - path: packages/sync-service/mix.exs
+          reason: Service root
+      dockerfilePath:
+        - path: packages/sync-service/Dockerfile
+          reason: Service Dockerfile
+      port:
+        - path: packages/sync-service/Dockerfile
+          reason: HEALTHCHECK uses ELECTRIC_PORT defaulting to 3000
+      healthPath:
+        - path: packages/sync-service/lib/electric/plug/router.ex
+          reason: get /v1/health routes to HealthCheckPlug
+  - id: repo-529
+    repo: grokability/snipe-it
+    commit: 18fb61ab50d2d87489bb90723a8e9611f5fe1f58
+    expected:
+      compatibility: NOT_COMPATIBLE
+      runtime:
+        - php
+      monorepo: false
+      postgres: false
+      redis: false
+      worker: false
+      migration: true
+      appRoot: .
+      dockerfilePath: Dockerfile
+      port: 80
+      healthPath: /health
+      unsupported:
+        - mysql
+    citations:
+      compatibility:
+        - path: Dockerfile
+          reason: Image links uploads and keys into VOLUME /var/lib/snipeit (persistent local disk)
+        - path: docker-compose.yml
+          reason: Reference deployment uses MariaDB plus a storage volume
+      runtime:
+        - path: composer.json
+          reason: PHP Laravel app
+      monorepo:
+        - path: composer.json
+          reason: Single app
+      postgres:
+        - path: Dockerfile.alpine
+          reason: Image installs only pdo_mysql, no pgsql extension
+      redis:
+        - path: config/database.php
+          reason: Redis is optional and not required by the image
+      worker:
+        - path: Procfile
+          reason: Only a web process is declared
+      migration:
+        - path: docker/startup.sh
+          reason: php artisan migrate --force at start
+      appRoot:
+        - path: composer.json
+          reason: Laravel app at repository root
+      dockerfilePath:
+        - path: Dockerfile
+          reason: Ubuntu-based default image (Dockerfile.alpine is a variant)
+      port:
+        - path: Dockerfile
+          reason: EXPOSE 80
+      healthPath:
+        - path: routes/web.php
+          reason: health route at /health
+      unsupported:
+        - path: config/database.php
+          reason: Default DB_CONNECTION is mysql
+        - path: docker-compose.yml
+          reason: Uses MariaDB
+  - id: repo-530
+    repo: hibiken/asynqmon
+    commit: d1b889456de3c98c22de24642b6f836a29da3140
+    expected:
+      compatibility: READY
+      runtime:
+        - go
+      monorepo: false
+      postgres: false
+      redis: true
+      worker: false
+      appRoot: .
+      dockerfilePath: Dockerfile
+      port: 8080
+    citations:
+      compatibility:
+        - path: Dockerfile
+          reason: Self-contained build; Redis connection is env driven (REDIS_URL)
+      runtime:
+        - path: go.mod
+          reason: Go module
+      monorepo:
+        - path: go.mod
+          reason: Single Go module; the ui directory is built inside the Dockerfile
+      postgres:
+        - path: go.mod
+          reason: No SQL driver
+      redis:
+        - path: cmd/asynqmon/main.go
+          reason: REDIS_URL / REDIS_ADDR needed to reach the monitored Redis
+      worker:
+        - path: cmd/asynqmon/main.go
+          reason: Single web UI server
+      appRoot:
+        - path: Dockerfile
+          reason: Builds ./cmd/asynqmon from repository root
+      dockerfilePath:
+        - path: Dockerfile
+          reason: Only Dockerfile
+      port:
+        - path: cmd/asynqmon/main.go
+          reason: PORT env defaults to 8080

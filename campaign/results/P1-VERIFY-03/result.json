@@ -1,0 +1,46 @@
+{
+  "taskId": "P1-VERIFY-03",
+  "testedCommit": "e6a3b58ee2363923fef21faca86611fa3bf84538",
+  "executor": "campaign-worker",
+  "model": "sonnet",
+  "startedAt": "2026-10-08T16:55:21Z",
+  "finishedAt": "2026-10-08T17:02:31Z",
+  "proposedStatus": "COMPLETE",
+  "commands": [
+    {
+      "command": "gh api repos/<repo>/git/trees/<commit>?recursive=1 (10 apps)",
+      "exitCode": 0,
+      "summary": "Fetched pinned trees"
+    },
+    {
+      "command": "gh api repos/<repo>/contents/<path>?ref=<commit> (source reads)",
+      "exitCode": 0,
+      "summary": "Read Dockerfiles, configs, entrypoints read-only"
+    },
+    {
+      "command": "node scratchpad/gen3.mjs",
+      "exitCode": 0,
+      "summary": "Wrote campaign/corpus/labels/verify-03.yaml"
+    },
+    {
+      "command": "pnpm exec tsx scratchpad/validate3.mts </dev/null",
+      "exitCode": 0,
+      "summary": "expectedFactsSchema parse, ids/repos/commits, citations and tree paths all OK"
+    }
+  ],
+  "evidence": [
+    "campaign/corpus/labels/verify-03.yaml"
+  ],
+  "notes": [
+    "repo-521 whoami: confident READY.",
+    "repo-522 dufs: NOT_COMPATIBLE judged from README Docker usage mounting /data (local disk state); image runs without a mount but serves nothing useful. Could be READY.",
+    "repo-523 dawarich: NEEDS_CONFIGURATION; Dockerfile has ENTRYPOINT bundle exec and no CMD, storage defaults to local Disk (S3 via env), needs PostGIS extension on Postgres (unverified on RDS flow). Workers from Procfile sidekiq.",
+    "repo-524 microblog: READY; Elasticsearch is optional (not labelled unsupported); no health route so healthPath omitted; sqlite fallback only when DATABASE_URL unset.",
+    "repo-525 komga: NOT_COMPATIBLE (SQLite in /config volume, media mount). Runtime label \"java\" is a guess for Kotlin/JVM; dockerfilePath omitted because only Dockerfile.tpl (template) exists.",
+    "repo-526 nopCommerce: NOT_COMPATIBLE (install wizard writes App_Data/dataSettings.json, local uploads). postgres true because Postgres is a supported provider but SQL Server is the default; uncertain. No health route found.",
+    "repo-527 parse-server: NEEDS_CONFIGURATION with postgres true; default store is MongoDB and mongodb is a hard dependency, so an alternative label is NOT_COMPATIBLE with unsupported mongodb. Health path assumes default mountPath /parse.",
+    "repo-528 electric: NOT_COMPATIBLE (needs wal_level=logical, file storage by default, Dockerfile needs named build context electric-telemetry). dockerfilePath given repo-root relative; convention unclear. MEMORY storage option exists.",
+    "repo-529 snipe-it: NOT_COMPATIBLE with unsupported mysql (image has only pdo_mysql, upload volume). Reading of mysql as unsupported follows the UNSUPPORTED_FAMILIES map though mvp-scope.md lists RDS MySQL 8.0.",
+    "repo-530 asynqmon: READY; Redis required; no Dockerfile EXPOSE, port 8080 from PORT default; no dedicated health route found."
+  ]
+}
