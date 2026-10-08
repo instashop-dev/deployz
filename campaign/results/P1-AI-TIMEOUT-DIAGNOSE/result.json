@@ -1,0 +1,31 @@
+{
+  "taskId": "P1-AI-TIMEOUT-DIAGNOSE",
+  "testedCommit": "e164b7af445636447e27a62c81ed6b542f0029c7",
+  "executor": "opus",
+  "model": "opus",
+  "startedAt": "2026-10-08T08:54:42.369Z",
+  "finishedAt": "2026-10-08T09:01:06.599Z",
+  "proposedStatus": "COMPLETE",
+  "commands": [
+    {
+      "command": "node --env-file=.env <scratchpad>/ai-diagnose.mjs campaign/results/P1-AI-TIMEOUT-DIAGNOSE/timings.json",
+      "exitCode": 0,
+      "summary": "7 live runs: control ok; 3 production-option runs failed with AI_NoObjectGeneratedError after 67-73 s (6/6 attempts finish=length, 0 content chars); 30 s budget run aborted (TimeoutError); 2 reasoning-off runs ok in 15.8 s and 19.8 s"
+    },
+    {
+      "command": "secret check: .env AI_GATEWAY_BASE_URL/AI_PROVIDER_API_KEY values searched in timings.json and probe.log",
+      "exitCode": 0,
+      "summary": "no match"
+    }
+  ],
+  "evidence": [
+    "campaign/results/P1-AI-TIMEOUT-DIAGNOSE/diagnosis.md",
+    "campaign/results/P1-AI-TIMEOUT-DIAGNOSE/timings.json"
+  ],
+  "notes": [
+    "Root cause: with reasoning on, the model spends all 2500 completion tokens on reasoning_content, so no JSON is returned (parsing failure), and each attempt takes 33-38 s, longer than the 30 s production budget. Authentication and routing are ruled out (HTTP 200, configured model). Cancellation is the symptom.",
+    "Recommendation: reasoning: false for repository analysis, keep REPO_AI_TIMEOUT_MS at 30 s. Measured 9-16 s per attempt.",
+    "Executor deviation: the setup session ran this task as Opus because the campaign-worker agent was created after this session started and is not loadable here. The probe script is in the session scratchpad, not tracked. Raw log: campaign/logs/P1-AI-TIMEOUT-DIAGNOSE/probe.log (ignored)."
+  ],
+  "campaignCommit": "18c06ea7a1b6820e168bf75690203952d539d179"
+}

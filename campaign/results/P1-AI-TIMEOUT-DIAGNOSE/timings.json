@@ -1,0 +1,279 @@
+{
+  "probe": "P1-AI-TIMEOUT-DIAGNOSE",
+  "at": "2026-10-08T09:01:06.599Z",
+  "modelConfigured": true,
+  "runs": [
+    {
+      "name": "control-explainDiagnostic",
+      "budgetMs": 60000,
+      "outcome": "ok",
+      "totalMs": 17054,
+      "requests": [
+        {
+          "host": "gateway.ai.cloudflare.com",
+          "status": 200,
+          "headersMs": 16941,
+          "bodyMs": 16951,
+          "bodyBytes": 2410,
+          "finishReason": "stop",
+          "promptTokens": 326,
+          "completionTokens": 397,
+          "reasoningTokens": null,
+          "hasReasoningContent": true,
+          "contentChars": 468
+        }
+      ],
+      "gatewayLog": [
+        {
+          "ai": "generate",
+          "modelEqualsConfigured": true,
+          "latencyMs": 17051,
+          "attempts": 1,
+          "ok": true,
+          "promptTokens": 326,
+          "completionTokens": 397
+        }
+      ]
+    },
+    {
+      "name": "repo-ai-production-options-unbounded-1",
+      "budgetMs": 120000,
+      "outcome": "error",
+      "errorName": "AI_NoObjectGeneratedError",
+      "errorMessage": "No object generated: the model did not return a response.",
+      "cause": null,
+      "totalMs": 66723,
+      "requests": [
+        {
+          "host": "gateway.ai.cloudflare.com",
+          "status": 200,
+          "headersMs": 33425,
+          "bodyMs": 33429,
+          "bodyBytes": 11984,
+          "finishReason": "length",
+          "promptTokens": 773,
+          "completionTokens": 2500,
+          "reasoningTokens": null,
+          "hasReasoningContent": true,
+          "contentChars": 0
+        },
+        {
+          "host": "gateway.ai.cloudflare.com",
+          "status": 200,
+          "headersMs": 32770,
+          "bodyMs": 32773,
+          "bodyBytes": 11848,
+          "finishReason": "length",
+          "promptTokens": 773,
+          "completionTokens": 2500,
+          "reasoningTokens": null,
+          "hasReasoningContent": true,
+          "contentChars": 0
+        }
+      ],
+      "gatewayLog": [
+        {
+          "ai": "repository-analysis",
+          "modelEqualsConfigured": true,
+          "latencyMs": 66722,
+          "attempts": 2,
+          "ok": false
+        }
+      ]
+    },
+    {
+      "name": "repo-ai-production-options-unbounded-2",
+      "budgetMs": 120000,
+      "outcome": "error",
+      "errorName": "AI_NoObjectGeneratedError",
+      "errorMessage": "No object generated: the model did not return a response.",
+      "cause": null,
+      "totalMs": 73123,
+      "requests": [
+        {
+          "host": "gateway.ai.cloudflare.com",
+          "status": 200,
+          "headersMs": 34814,
+          "bodyMs": 34816,
+          "bodyBytes": 11877,
+          "finishReason": "length",
+          "promptTokens": 773,
+          "completionTokens": 2500,
+          "reasoningTokens": null,
+          "hasReasoningContent": true,
+          "contentChars": 0
+        },
+        {
+          "host": "gateway.ai.cloudflare.com",
+          "status": 200,
+          "headersMs": 37794,
+          "bodyMs": 37796,
+          "bodyBytes": 11782,
+          "finishReason": "length",
+          "promptTokens": 773,
+          "completionTokens": 2500,
+          "reasoningTokens": null,
+          "hasReasoningContent": true,
+          "contentChars": 0
+        }
+      ],
+      "gatewayLog": [
+        {
+          "ai": "repository-analysis",
+          "modelEqualsConfigured": true,
+          "latencyMs": 73123,
+          "attempts": 2,
+          "ok": false
+        }
+      ]
+    },
+    {
+      "name": "repo-ai-production-options-unbounded-3",
+      "budgetMs": 120000,
+      "outcome": "error",
+      "errorName": "AI_NoObjectGeneratedError",
+      "errorMessage": "No object generated: the model did not return a response.",
+      "cause": null,
+      "totalMs": 68427,
+      "requests": [
+        {
+          "host": "gateway.ai.cloudflare.com",
+          "status": 200,
+          "headersMs": 34293,
+          "bodyMs": 34295,
+          "bodyBytes": 11857,
+          "finishReason": "length",
+          "promptTokens": 773,
+          "completionTokens": 2500,
+          "reasoningTokens": null,
+          "hasReasoningContent": true,
+          "contentChars": 0
+        },
+        {
+          "host": "gateway.ai.cloudflare.com",
+          "status": 200,
+          "headersMs": 33620,
+          "bodyMs": 33623,
+          "bodyBytes": 11925,
+          "finishReason": "length",
+          "promptTokens": 773,
+          "completionTokens": 2500,
+          "reasoningTokens": null,
+          "hasReasoningContent": true,
+          "contentChars": 0
+        }
+      ],
+      "gatewayLog": [
+        {
+          "ai": "repository-analysis",
+          "modelEqualsConfigured": true,
+          "latencyMs": 68427,
+          "attempts": 2,
+          "ok": false
+        }
+      ]
+    },
+    {
+      "name": "repo-ai-production-budget-30s",
+      "budgetMs": 30000,
+      "outcome": "error",
+      "errorName": "TimeoutError",
+      "errorMessage": "The operation was aborted due to timeout",
+      "cause": null,
+      "totalMs": 30020,
+      "requests": [
+        {
+          "host": "gateway.ai.cloudflare.com",
+          "failedMs": 30018,
+          "fetchError": "TimeoutError: The operation was aborted due to timeout"
+        }
+      ],
+      "gatewayLog": [
+        {
+          "ai": "repository-analysis",
+          "modelEqualsConfigured": true,
+          "latencyMs": 30020,
+          "attempts": 1,
+          "ok": false
+        }
+      ]
+    },
+    {
+      "name": "repo-ai-reasoning-off-1",
+      "budgetMs": 120000,
+      "outcome": "ok",
+      "totalMs": 15843,
+      "requests": [
+        {
+          "host": "gateway.ai.cloudflare.com",
+          "status": 200,
+          "headersMs": 15836,
+          "bodyMs": 15838,
+          "bodyBytes": 2493,
+          "finishReason": "stop",
+          "promptTokens": 694,
+          "completionTokens": 522,
+          "reasoningTokens": null,
+          "hasReasoningContent": false,
+          "contentChars": 1908
+        }
+      ],
+      "gatewayLog": [
+        {
+          "ai": "repository-analysis",
+          "modelEqualsConfigured": true,
+          "latencyMs": 15842,
+          "attempts": 1,
+          "ok": true,
+          "promptTokens": 694,
+          "completionTokens": 522
+        }
+      ]
+    },
+    {
+      "name": "repo-ai-reasoning-off-2",
+      "budgetMs": 120000,
+      "outcome": "ok",
+      "totalMs": 19757,
+      "requests": [
+        {
+          "host": "gateway.ai.cloudflare.com",
+          "status": 200,
+          "headersMs": 10214,
+          "bodyMs": 10216,
+          "bodyBytes": 2633,
+          "finishReason": "stop",
+          "promptTokens": 694,
+          "completionTokens": 557,
+          "reasoningTokens": null,
+          "hasReasoningContent": false,
+          "contentChars": 2005
+        },
+        {
+          "host": "gateway.ai.cloudflare.com",
+          "status": 200,
+          "headersMs": 9026,
+          "bodyMs": 9027,
+          "bodyBytes": 2603,
+          "finishReason": "stop",
+          "promptTokens": 694,
+          "completionTokens": 547,
+          "reasoningTokens": null,
+          "hasReasoningContent": false,
+          "contentChars": 2006
+        }
+      ],
+      "gatewayLog": [
+        {
+          "ai": "repository-analysis",
+          "modelEqualsConfigured": true,
+          "latencyMs": 19756,
+          "attempts": 2,
+          "ok": true,
+          "promptTokens": 694,
+          "completionTokens": 547
+        }
+      ]
+    }
+  ]
+}

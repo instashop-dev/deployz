@@ -1,0 +1,508 @@
+{
+  "taskId": "P1-SELECT-REALISTIC-02",
+  "testedCommit": "e164b7af445636447e27a62c81ed6b542f0029c7",
+  "cohort": "realistic",
+  "exclusionCheck": {
+    "method": "Each candidate owner/repo (current name from gh api, plus former name ente-io/ente) compared case-insensitively by script against all 143 \"repository\" values in campaign/corpus/excluded-families.json and all repo values in campaign/corpus/candidates/realistic-01.json; repo name and project family name compared against all \"family\" values, all repo-name parts of excluded repositories, and realistic-01 family and repo names. Upstream and product names checked manually (no Discourse, Forem/DEV, Saleor, Hex.pm, eShop, Ente, Dependency-Track, Cachet, Trigger.dev or Mathesar entry; none is a fork or rename of an excluded project). No instashop-dev repo used; gh api confirmed fork=false for all. AppFlowy-Cloud was rejected because it is archived.",
+    "perCandidate": [
+      {
+        "id": "discourse",
+        "repo": "discourse/discourse",
+        "ownerRepoMatch": false,
+        "familyNameMatch": false,
+        "instashopDev": false,
+        "fork": false,
+        "result": "clear"
+      },
+      {
+        "id": "forem",
+        "repo": "forem/forem",
+        "ownerRepoMatch": false,
+        "familyNameMatch": false,
+        "instashopDev": false,
+        "fork": false,
+        "result": "clear"
+      },
+      {
+        "id": "saleor",
+        "repo": "saleor/saleor",
+        "ownerRepoMatch": false,
+        "familyNameMatch": false,
+        "instashopDev": false,
+        "fork": false,
+        "result": "clear"
+      },
+      {
+        "id": "hexpm",
+        "repo": "hexpm/hexpm",
+        "ownerRepoMatch": false,
+        "familyNameMatch": false,
+        "instashopDev": false,
+        "fork": false,
+        "result": "clear"
+      },
+      {
+        "id": "eshop",
+        "repo": "dotnet/eShop",
+        "ownerRepoMatch": false,
+        "familyNameMatch": false,
+        "instashopDev": false,
+        "fork": false,
+        "result": "clear"
+      },
+      {
+        "id": "ente",
+        "repo": "ente/ente",
+        "ownerRepoMatch": false,
+        "familyNameMatch": false,
+        "instashopDev": false,
+        "fork": false,
+        "result": "clear"
+      },
+      {
+        "id": "dependency-track",
+        "repo": "DependencyTrack/dependency-track",
+        "ownerRepoMatch": false,
+        "familyNameMatch": false,
+        "instashopDev": false,
+        "fork": false,
+        "result": "clear"
+      },
+      {
+        "id": "cachet",
+        "repo": "cachethq/cachet",
+        "ownerRepoMatch": false,
+        "familyNameMatch": false,
+        "instashopDev": false,
+        "fork": false,
+        "result": "clear"
+      },
+      {
+        "id": "trigger-dev",
+        "repo": "triggerdotdev/trigger.dev",
+        "ownerRepoMatch": false,
+        "familyNameMatch": false,
+        "instashopDev": false,
+        "fork": false,
+        "result": "clear"
+      },
+      {
+        "id": "mathesar",
+        "repo": "mathesar-foundation/mathesar",
+        "ownerRepoMatch": false,
+        "familyNameMatch": false,
+        "instashopDev": false,
+        "fork": false,
+        "result": "clear"
+      }
+    ]
+  },
+  "candidates": [
+    {
+      "id": "discourse",
+      "family": "discourse",
+      "repo": "discourse/discourse",
+      "defaultBranch": "main",
+      "commit": "3c43d1696fadfd0abc2b8ac2cb5b230651f0e509",
+      "commitVerified": {
+        "call": "gh api repos/discourse/discourse/commits/3c43d1696fadfd0abc2b8ac2cb5b230651f0e509",
+        "returnedSha": "3c43d1696fadfd0abc2b8ac2cb5b230651f0e509",
+        "matches": true
+      },
+      "license": "GPL-2.0",
+      "archived": false,
+      "fork": false,
+      "pushedAt": "2026-10-08T08:44:52Z",
+      "cohort": "realistic",
+      "runtime": "ruby (Rails)",
+      "expectedNeeds": [
+        "postgres",
+        "redis",
+        "worker"
+      ],
+      "selectionReason": "Forum platform; Rails with Sidekiq workers, Postgres and Redis; no root Dockerfile (launcher-based images).",
+      "validity": {
+        "entryPoint": {
+          "path": "config.ru",
+          "type": "file",
+          "confirmedAtCommit": true
+        },
+        "buildFile": {
+          "path": "Gemfile",
+          "type": "file",
+          "confirmedAtCommit": true
+        },
+        "ci": {
+          "checkRuns": "success=15",
+          "combinedStatus": "pending",
+          "note": "informational only; unknown/mixed is acceptable"
+        }
+      }
+    },
+    {
+      "id": "forem",
+      "family": "forem",
+      "repo": "forem/forem",
+      "defaultBranch": "main",
+      "commit": "d98655f8f894df738594789519c2bc3a1b9ea733",
+      "commitVerified": {
+        "call": "gh api repos/forem/forem/commits/d98655f8f894df738594789519c2bc3a1b9ea733",
+        "returnedSha": "d98655f8f894df738594789519c2bc3a1b9ea733",
+        "matches": true
+      },
+      "license": "AGPL-3.0",
+      "archived": false,
+      "fork": false,
+      "pushedAt": "2026-10-07T19:54:11Z",
+      "cohort": "realistic",
+      "runtime": "ruby (Rails)",
+      "expectedNeeds": [
+        "postgres",
+        "redis",
+        "worker",
+        "s3"
+      ],
+      "selectionReason": "Community publishing platform; Rails, Sidekiq, Postgres, Redis; root Dockerfile.",
+      "validity": {
+        "entryPoint": {
+          "path": "config.ru",
+          "type": "file",
+          "confirmedAtCommit": true
+        },
+        "buildFile": {
+          "path": "Dockerfile",
+          "type": "file",
+          "confirmedAtCommit": true
+        },
+        "ci": {
+          "checkRuns": "skipped=16,success=14",
+          "combinedStatus": "success",
+          "note": "informational only; unknown/mixed is acceptable"
+        }
+      }
+    },
+    {
+      "id": "saleor",
+      "family": "saleor",
+      "repo": "saleor/saleor",
+      "defaultBranch": "main",
+      "commit": "bb75f87973abe24056a5d0dff1708ca097e95599",
+      "commitVerified": {
+        "call": "gh api repos/saleor/saleor/commits/bb75f87973abe24056a5d0dff1708ca097e95599",
+        "returnedSha": "bb75f87973abe24056a5d0dff1708ca097e95599",
+        "matches": true
+      },
+      "license": "BSD-3-Clause",
+      "archived": false,
+      "fork": false,
+      "pushedAt": "2026-10-08T08:06:09Z",
+      "cohort": "realistic",
+      "runtime": "python (Django, GraphQL)",
+      "expectedNeeds": [
+        "postgres",
+        "redis",
+        "worker",
+        "s3"
+      ],
+      "selectionReason": "Headless commerce API; Django with Celery workers, Postgres, Redis; root Dockerfile.",
+      "validity": {
+        "entryPoint": {
+          "path": "manage.py",
+          "type": "file",
+          "confirmedAtCommit": true
+        },
+        "buildFile": {
+          "path": "Dockerfile",
+          "type": "file",
+          "confirmedAtCommit": true
+        },
+        "ci": {
+          "checkRuns": "skipped=1,success=11",
+          "combinedStatus": "pending",
+          "note": "informational only; unknown/mixed is acceptable"
+        }
+      }
+    },
+    {
+      "id": "hexpm",
+      "family": "hexpm",
+      "repo": "hexpm/hexpm",
+      "defaultBranch": "main",
+      "commit": "151266fa511769aa56a17df804fe7a55219858a2",
+      "commitVerified": {
+        "call": "gh api repos/hexpm/hexpm/commits/151266fa511769aa56a17df804fe7a55219858a2",
+        "returnedSha": "151266fa511769aa56a17df804fe7a55219858a2",
+        "matches": true
+      },
+      "license": null,
+      "archived": false,
+      "fork": false,
+      "pushedAt": "2026-10-07T23:35:55Z",
+      "cohort": "realistic",
+      "runtime": "elixir (Phoenix)",
+      "expectedNeeds": [
+        "postgres",
+        "s3"
+      ],
+      "selectionReason": "Hex package registry; Phoenix app with Postgres and object storage; root Dockerfile. No SPDX license metadata.",
+      "validity": {
+        "entryPoint": {
+          "path": "lib/hexpm/application.ex",
+          "type": "file",
+          "confirmedAtCommit": true
+        },
+        "buildFile": {
+          "path": "Dockerfile",
+          "type": "file",
+          "confirmedAtCommit": true
+        },
+        "ci": {
+          "checkRuns": "success=9",
+          "combinedStatus": "pending",
+          "note": "informational only; unknown/mixed is acceptable"
+        }
+      }
+    },
+    {
+      "id": "eshop",
+      "family": "eshop",
+      "repo": "dotnet/eShop",
+      "defaultBranch": "main",
+      "commit": "dc7ea499cd356924fb6689b3702964a5869dbae9",
+      "commitVerified": {
+        "call": "gh api repos/dotnet/eShop/commits/dc7ea499cd356924fb6689b3702964a5869dbae9",
+        "returnedSha": "dc7ea499cd356924fb6689b3702964a5869dbae9",
+        "matches": true
+      },
+      "license": "MIT",
+      "archived": false,
+      "fork": false,
+      "pushedAt": "2026-10-05T01:49:33Z",
+      "cohort": "realistic",
+      "runtime": "dotnet (ASP.NET Core, Aspire)",
+      "expectedNeeds": [
+        "postgres",
+        "redis",
+        "worker"
+      ],
+      "selectionReason": ".NET reference commerce app; multiple services with Postgres, Redis, RabbitMQ; Aspire AppHost, no root Dockerfile.",
+      "validity": {
+        "entryPoint": {
+          "path": "src/eShop.AppHost/AppHost.cs",
+          "type": "file",
+          "confirmedAtCommit": true
+        },
+        "buildFile": {
+          "path": "eShop.slnx",
+          "type": "file",
+          "confirmedAtCommit": true
+        },
+        "ci": {
+          "checkRuns": "failure=1,success=9",
+          "combinedStatus": "pending",
+          "note": "informational only; unknown/mixed is acceptable"
+        }
+      }
+    },
+    {
+      "id": "ente",
+      "family": "ente",
+      "repo": "ente/ente",
+      "defaultBranch": "main",
+      "commit": "56f4e7b45d4101ef8d3ed1bf5764542c5ae3d37a",
+      "commitVerified": {
+        "call": "gh api repos/ente/ente/commits/56f4e7b45d4101ef8d3ed1bf5764542c5ae3d37a",
+        "returnedSha": "56f4e7b45d4101ef8d3ed1bf5764542c5ae3d37a",
+        "matches": true
+      },
+      "license": "AGPL-3.0",
+      "archived": false,
+      "fork": false,
+      "pushedAt": "2026-10-08T08:46:32Z",
+      "cohort": "realistic",
+      "runtime": "go (museum server)",
+      "expectedNeeds": [
+        "postgres",
+        "s3"
+      ],
+      "selectionReason": "Photo storage server in a large monorepo; Go with Postgres and S3-compatible storage; server/Dockerfile. Repo renamed from ente-io/ente to ente/ente.",
+      "validity": {
+        "entryPoint": {
+          "path": "server/cmd/museum/main.go",
+          "type": "file",
+          "confirmedAtCommit": true
+        },
+        "buildFile": {
+          "path": "server/Dockerfile",
+          "type": "file",
+          "confirmedAtCommit": true
+        },
+        "ci": {
+          "checkRuns": "success=2",
+          "combinedStatus": "pending",
+          "note": "informational only; unknown/mixed is acceptable"
+        }
+      }
+    },
+    {
+      "id": "dependency-track",
+      "family": "dependency-track",
+      "repo": "DependencyTrack/dependency-track",
+      "defaultBranch": "main",
+      "commit": "cd2f225f431c21d980f5b5cda86512e8a7bef79c",
+      "commitVerified": {
+        "call": "gh api repos/DependencyTrack/dependency-track/commits/cd2f225f431c21d980f5b5cda86512e8a7bef79c",
+        "returnedSha": "cd2f225f431c21d980f5b5cda86512e8a7bef79c",
+        "matches": true
+      },
+      "license": "Apache-2.0",
+      "archived": false,
+      "fork": false,
+      "pushedAt": "2026-10-08T08:24:51Z",
+      "cohort": "realistic",
+      "runtime": "java (Maven, apiserver)",
+      "expectedNeeds": [
+        "postgres"
+      ],
+      "selectionReason": "Software composition analysis platform; Java API server with Postgres; apiserver Dockerfile; v5 modular layout.",
+      "validity": {
+        "entryPoint": {
+          "path": "apiserver/src/main/java/org/dependencytrack/Application.java",
+          "type": "file",
+          "confirmedAtCommit": true
+        },
+        "buildFile": {
+          "path": "apiserver/src/main/docker/Dockerfile",
+          "type": "file",
+          "confirmedAtCommit": true
+        },
+        "ci": {
+          "checkRuns": "skipped=22,success=8",
+          "combinedStatus": "pending",
+          "note": "informational only; unknown/mixed is acceptable"
+        }
+      }
+    },
+    {
+      "id": "cachet",
+      "family": "cachet",
+      "repo": "cachethq/cachet",
+      "defaultBranch": "3.x",
+      "commit": "40bd0819ee46ee7094c336a1240a2a7a1291ccb8",
+      "commitVerified": {
+        "call": "gh api repos/cachethq/cachet/commits/40bd0819ee46ee7094c336a1240a2a7a1291ccb8",
+        "returnedSha": "40bd0819ee46ee7094c336a1240a2a7a1291ccb8",
+        "matches": true
+      },
+      "license": "NOASSERTION",
+      "archived": false,
+      "fork": false,
+      "pushedAt": "2026-10-05T13:48:52Z",
+      "cohort": "realistic",
+      "runtime": "php (Laravel)",
+      "expectedNeeds": [
+        "postgres",
+        "redis",
+        "worker"
+      ],
+      "selectionReason": "Status page app on the 3.x default branch; Laravel with queue, Postgres supported; no Dockerfile.",
+      "validity": {
+        "entryPoint": {
+          "path": "public/index.php",
+          "type": "file",
+          "confirmedAtCommit": true
+        },
+        "buildFile": {
+          "path": "composer.json",
+          "type": "file",
+          "confirmedAtCommit": true
+        },
+        "ci": {
+          "checkRuns": "failure=3,success=1",
+          "combinedStatus": "pending",
+          "note": "informational only; unknown/mixed is acceptable"
+        }
+      }
+    },
+    {
+      "id": "trigger-dev",
+      "family": "trigger.dev",
+      "repo": "triggerdotdev/trigger.dev",
+      "defaultBranch": "main",
+      "commit": "3c7056abbd854e0c803fc7c3a95b094caee16b21",
+      "commitVerified": {
+        "call": "gh api repos/triggerdotdev/trigger.dev/commits/3c7056abbd854e0c803fc7c3a95b094caee16b21",
+        "returnedSha": "3c7056abbd854e0c803fc7c3a95b094caee16b21",
+        "matches": true
+      },
+      "license": "Apache-2.0",
+      "archived": false,
+      "fork": false,
+      "pushedAt": "2026-10-07T13:36:22Z",
+      "cohort": "realistic",
+      "runtime": "node/ts (Remix monorepo)",
+      "expectedNeeds": [
+        "postgres",
+        "redis",
+        "worker"
+      ],
+      "selectionReason": "Background-jobs platform; Remix webapp with Postgres and Redis, supervisor worker; docker/Dockerfile.",
+      "validity": {
+        "entryPoint": {
+          "path": "apps/webapp/package.json",
+          "type": "file",
+          "confirmedAtCommit": true
+        },
+        "buildFile": {
+          "path": "docker/Dockerfile",
+          "type": "file",
+          "confirmedAtCommit": true
+        },
+        "ci": {
+          "checkRuns": "failure=1,skipped=28,success=1",
+          "combinedStatus": "pending",
+          "note": "informational only; unknown/mixed is acceptable"
+        }
+      }
+    },
+    {
+      "id": "mathesar",
+      "family": "mathesar",
+      "repo": "mathesar-foundation/mathesar",
+      "defaultBranch": "develop",
+      "commit": "0c05987885c93cdbe5bf9f7fa49b833d02a312cc",
+      "commitVerified": {
+        "call": "gh api repos/mathesar-foundation/mathesar/commits/0c05987885c93cdbe5bf9f7fa49b833d02a312cc",
+        "returnedSha": "0c05987885c93cdbe5bf9f7fa49b833d02a312cc",
+        "matches": true
+      },
+      "license": "GPL-3.0",
+      "archived": false,
+      "fork": false,
+      "pushedAt": "2026-10-07T23:09:00Z",
+      "cohort": "realistic",
+      "runtime": "python (Django) + Svelte",
+      "expectedNeeds": [
+        "postgres"
+      ],
+      "selectionReason": "Spreadsheet-like Postgres UI; Django with root Dockerfile and compose; needs Postgres.",
+      "validity": {
+        "entryPoint": {
+          "path": "manage.py",
+          "type": "file",
+          "confirmedAtCommit": true
+        },
+        "buildFile": {
+          "path": "Dockerfile",
+          "type": "file",
+          "confirmedAtCommit": true
+        },
+        "ci": {
+          "checkRuns": "success=30",
+          "combinedStatus": "pending",
+          "note": "informational only; unknown/mixed is acceptable"
+        }
+      }
+    }
+  ]
+}

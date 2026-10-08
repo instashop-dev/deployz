@@ -277,11 +277,82 @@
       ]
     },
     {
+      "status": "COMPLETE",
+      "gates": [],
+      "requires": [],
+      "inputs": [
+        "packages/analysis/src/ai-gateway.ts",
+        "packages/analysis/src/repository-ai.ts",
+        "apps/api/src/analysis.ts",
+        "packages/analysis/test/ai-live.test.ts",
+        "docs/ai-analysis.md",
+        "state.json aiConfiguration"
+      ],
+      "forbiddenInputs": [
+        "campaign/corpus/holdout.yaml",
+        "campaign/results/holdout/"
+      ],
+      "timeboxMinutes": 30,
+      "notes": [],
+      "id": "P1-AI-TIMEOUT-DIAGNOSE",
+      "phase": 1,
+      "executor": "campaign-worker",
+      "prerequisites": [
+        "P0-GATE"
+      ],
+      "title": "Diagnose the 30 s analyseRepositoryWithAi timeout: provider latency vs authentication, routing, parsing and cancellation",
+      "artifacts": [
+        "campaign/results/P1-AI-TIMEOUT-DIAGNOSE/result.json",
+        "campaign/results/P1-AI-TIMEOUT-DIAGNOSE/diagnosis.md"
+      ],
+      "completionChecks": [
+        "campaign/results/P1-AI-TIMEOUT-DIAGNOSE/result.json is valid JSON with taskId \"P1-AI-TIMEOUT-DIAGNOSE\", testedCommit equal to the commit recorded in state.json, a non-empty commands list with exit codes, and every listed evidence path exists",
+        "At least 3 timed repository-AI calls with the production configuration from .env (loaded by the process, never printed), each with: HTTP status, time to response headers, total time, attempts/retries, abort cause and sanitized error class/message",
+        "diagnosis.md classifies the cause as provider latency, authentication, routing/URL, response parsing/schema, or cancellation, with the measurement that shows it; each other class is ruled in or out with evidence",
+        "diagnosis.md records the production analysis budget chain (REPO_AI_TIMEOUT_MS, attempt timeout and retries, the Lambda/worker timeout that runs analysis) and recommends one bounded timeout inside that chain, or no change",
+        "No product code, test or doc change in this task; no credential, URL query secret or header value in any output or file"
+      ]
+    },
+    {
+      "status": "PENDING",
+      "gates": [
+        "publicationPolicyConfirmed"
+      ],
+      "requires": [],
+      "inputs": [
+        "campaign/results/P1-AI-TIMEOUT-DIAGNOSE/diagnosis.md"
+      ],
+      "forbiddenInputs": [
+        "campaign/corpus/holdout.yaml",
+        "campaign/results/holdout/"
+      ],
+      "timeboxMinutes": 45,
+      "notes": [],
+      "id": "P1-AI-TIMEOUT-FIX",
+      "phase": 1,
+      "executor": "campaign-worker",
+      "prerequisites": [
+        "P1-AI-TIMEOUT-DIAGNOSE"
+      ],
+      "title": "Apply the diagnosed AI timeout decision: one focused fix PR with tests and docs, or record that no change is needed",
+      "artifacts": [
+        "campaign/results/P1-AI-TIMEOUT-FIX/result.json",
+        "campaign/results/P1-AI-TIMEOUT-FIX/review.md (Opus, when a PR is merged)"
+      ],
+      "completionChecks": [
+        "campaign/results/P1-AI-TIMEOUT-FIX/result.json is valid JSON with taskId \"P1-AI-TIMEOUT-FIX\", testedCommit equal to the commit recorded in state.json, a non-empty commands list with exit codes, and every listed evidence path exists",
+        "If a change is made: one root cause only, on branch campaign/fix-ai-timeout; the bounded timeout stays inside the production budget chain from diagnosis.md; targeted vitest tests that assert the timeout pass; docs/ai-analysis.md (or the authoritative doc in docs/README.md) is updated; ANALYSIS_VERSION is bumped only if analysis output can change",
+        "If a change is made: the PR is merged only through state.json policy.publication.mergeProcedure, and the CI-on-main and Deploy API runs it triggers are recorded",
+        "If no change is needed: diagnosis.md evidence shows the timeout is not a Deployz defect, and the blocker is recorded with its real cause (for example provider latency outside Deployz control)",
+        "Opus records the intentional baseline change (new commit, unchanged or bumped ANALYSIS_VERSION) in state.json before any Phase 3 measurement"
+      ]
+    },
+    {
       "id": "P1-SELECT-REALISTIC-02",
       "phase": 1,
       "title": "Select and pin 10 fresh realistic candidate apps (batch 2); check repository validity",
       "executor": "campaign-worker",
-      "status": "PENDING",
+      "status": "COMPLETE",
       "prerequisites": [
         "P1-EXCLUDE"
       ],
@@ -1719,11 +1790,12 @@
     {
       "id": "P2-IMPL-AI-MODE",
       "phase": 2,
-      "title": "Record AI mode in every result; allow the configured production-equivalent AI gateway when present",
+      "title": "Explicit live-AI mode in the campaign harness using the production AI configuration and gateway; deterministic AI-off stays the default",
       "executor": "campaign-worker",
       "status": "PENDING",
       "prerequisites": [
-        "P2-IMPL-CORPUS-FLAGS"
+        "P2-IMPL-CORPUS-FLAGS",
+        "P1-AI-TIMEOUT-FIX"
       ],
       "gates": [],
       "requires": [],
@@ -1743,7 +1815,11 @@
         "Change matches design.md and touches no product code",
         "New deterministic vitest tests pass; `pnpm typecheck:scripts` passes; existing harness tests still pass",
         "Existing docs/testing/*/runs/ files are unchanged (git diff --quiet on those paths)",
-        "In production-equivalent mode, scripts/repository-compatibility/analyse.ts builds the gateway from AI_GATEWAY_BASE_URL, AI_PROVIDER_API_KEY, AI_MODEL and AI_GATEWAY_TOKEN the way apps/api/src/env.ts does (no createAiGateway(undefined)) and keeps the production REPO_AI_TIMEOUT_MS path; AI-off stays an explicit diagnostic mode"
+        "In production-equivalent mode, scripts/repository-compatibility/analyse.ts builds the gateway from AI_GATEWAY_BASE_URL, AI_PROVIDER_API_KEY, AI_MODEL and AI_GATEWAY_TOKEN the way apps/api/src/env.ts does (no createAiGateway(undefined)) and keeps the production REPO_AI_TIMEOUT_MS path; AI-off stays an explicit diagnostic mode",
+        "The harness takes an explicit mode flag (live AI or AI off). AI off stays the default, makes no network AI request, and gives the same results as before; existing harness tests pass unchanged",
+        "Live mode reads AI_GATEWAY_BASE_URL, AI_PROVIDER_API_KEY, AI_MODEL and AI_GATEWAY_TOKEN through the same config reader and createAiGateway path as apps/api; it fails fast with the missing variable names when one is absent",
+        "Each result records aiMode, the selected model name, the number of AI requests made, and the AI outcome (completed, timeout, auth error, routing error, parse error, fallback) with a sanitized error",
+        "Deterministic vitest tests cover mode selection, missing configuration, and outcome recording with a fake gateway (no network)"
       ],
       "timeboxMinutes": 45,
       "notes": []
@@ -1755,7 +1831,8 @@
       "executor": "campaign-worker",
       "status": "PENDING",
       "prerequisites": [
-        "P2-IMPL-AI-MODE"
+        "P2-IMPL-AI-MODE",
+        "P1-AI-TIMEOUT-FIX"
       ],
       "gates": [],
       "requires": [],
@@ -1778,7 +1855,10 @@
         "Latency of analyseRepositoryWithAi with the production configuration is measured over at least 3 calls and compared with REPO_AI_TIMEOUT_MS (30 s)",
         "One Stage A run on one improvement app through the harness records aiMode production-equivalent and shows whether the AI step completed or fell back",
         "If the call exceeds the production budget, the result is BLOCKED with that root cause and Opus records it as a product finding (Phase 4 root-cause family), not a test change",
-        "No secret value appears in any output or tracked file"
+        "No secret value appears in any output or tracked file",
+        "Live harness run evidence shows a request count above 0 and the model name equal to the deployed production AI_MODEL (compared by equality, not printed beside credentials)",
+        "A live run with a deliberately invalid provider key (set only in the child process environment) is recorded as an auth error, not as success or silent fallback",
+        "Opus sets capability ai-gateway AVAILABLE and baseline.aiMode production-equivalent only when every check of this task passes"
       ],
       "timeboxMinutes": 30,
       "notes": [
@@ -2502,13 +2582,88 @@
       "notes": []
     },
     {
+      "status": "PENDING",
+      "gates": [
+        "publicationPolicyConfirmed"
+      ],
+      "requires": [],
+      "inputs": [
+        ".github/workflows/deploy-api.yml",
+        ".github/workflows/deploy-web.yml",
+        "state.json candidate and policy.publication"
+      ],
+      "forbiddenInputs": [
+        "campaign/corpus/holdout.yaml",
+        "campaign/results/holdout/"
+      ],
+      "timeboxMinutes": 30,
+      "notes": [],
+      "id": "P7-DEPLOY-CANDIDATE",
+      "phase": 7,
+      "executor": "opus",
+      "prerequisites": [
+        "P6-GATE"
+      ],
+      "title": "Get the frozen candidate onto the control plane through the existing deployment workflow, within the publication grant",
+      "artifacts": [
+        "campaign/results/P7-DEPLOY-CANDIDATE/deploy.md"
+      ],
+      "completionChecks": [
+        "deploy.md names the candidate commit, the main commit that carries it, and the CI and Deploy API/Deploy web run ids, head SHAs and conclusions",
+        "The only route used is a merge to main through policy.publication.mergeProcedure (automatic deploy). If the deployed revision must change without such a merge, the task is BLOCKED with the missing authorization: workflow_dispatch of Deploy API (and Deploy web if needed) at the candidate SHA",
+        "If deploy-api skipped because no API path changed, deploy.md shows git diff --quiet <deployed/api tag> <candidate> over the deploy-api PATHS set"
+      ]
+    },
+    {
+      "status": "PENDING",
+      "gates": [
+        "awsAuthorized"
+      ],
+      "requires": [
+        "aws-test-account",
+        "aws-login"
+      ],
+      "inputs": [
+        "campaign/results/P7-DEPLOY-CANDIDATE/deploy.md",
+        "packages/cdk/src/deployz-stack.ts",
+        "packages/cdk/src/pipeline/build-pipeline.ts"
+      ],
+      "forbiddenInputs": [
+        "campaign/corpus/holdout.yaml",
+        "campaign/results/holdout/"
+      ],
+      "timeboxMinutes": 40,
+      "notes": [
+        "Opus sets capability deployed-candidate AVAILABLE with the deployed-version.json identifiers only when this task is COMPLETE."
+      ],
+      "id": "P7-VERIFY-CANDIDATE",
+      "phase": 7,
+      "executor": "campaign-worker",
+      "prerequisites": [
+        "P7-DEPLOY-CANDIDATE"
+      ],
+      "title": "Verify from AWS that the control-plane components the harness uses run the candidate (read-only)",
+      "artifacts": [
+        "campaign/results/P7-VERIFY-CANDIDATE/result.json",
+        "campaign/results/P7-VERIFY-CANDIDATE/deployed-version.json"
+      ],
+      "completionChecks": [
+        "campaign/results/P7-VERIFY-CANDIDATE/result.json is valid JSON with taskId \"P7-VERIFY-CANDIDATE\", testedCommit equal to the commit recorded in state.json, a non-empty commands list with exit codes, and every listed evidence path exists",
+        "aws sts get-caller-identity returns policy.aws.account; only read-only AWS calls are used",
+        "deployed-version.json records: candidate commit; deployed/api tag SHA; stack Deployz status and LastUpdatedTime (after the deploy run start); for the API and worker Lambdas the CodeSha256, LastModified and the asset S3 key from get-template; the CodeBuild project buildspec hash; the published bootstrap template and relay artifact object keys/ETags",
+        "Lambda asset keys equal the asset hashes from a local cdk synth at the candidate commit (synth only, never deploy), and the published bootstrap template equals the candidate output; any component that cannot be matched is listed as unverified and the task is BLOCKED",
+        "A local checkout, a tag, or a green deploy job alone is not accepted as evidence"
+      ]
+    },
+    {
       "id": "P7-PLAN",
       "phase": 7,
       "title": "Select 6-8 representative apps for real AWS; queue one AWS app per task, day-2 tasks and canary checks",
       "executor": "opus",
       "status": "PENDING",
       "prerequisites": [
-        "P6-GATE"
+        "P6-GATE",
+        "P7-VERIFY-CANDIDATE"
       ],
       "gates": [
         "awsAuthorized",
@@ -2536,7 +2691,8 @@
         "Each AWS task names one app, region, the --real-aws command, and its ledger path",
         "No task overlaps a version-canary run in the same Region",
         "Every generated task that needs push, PR, merge or publication lists gate \"publicationPolicyConfirmed\"; every merge follows state.json policy.publication.mergeProcedure",
-        "Every generated AWS task lists gate \"awsAuthorized\", requires aws-test-account and aws-login, and starts by checking aws sts get-caller-identity against policy.aws.account"
+        "Every generated AWS task lists gate \"awsAuthorized\", requires aws-test-account and aws-login, and starts by checking aws sts get-caller-identity against policy.aws.account",
+        "Every generated AWS task lists P7-VERIFY-CANDIDATE as a prerequisite, requires deployed-candidate, and first re-checks that stack Deployz LastUpdatedTime and the Lambda CodeSha256 values still equal deployed-version.json (BLOCKED if the control plane changed)"
       ],
       "timeboxMinutes": 20,
       "notes": [
@@ -2563,7 +2719,8 @@
         "campaign/results/P7-GATE/review.md"
       ],
       "completionChecks": [
-        "Every P7 task has COMPLETE status and evidence, the final `pnpm benchmark:deploy --audit` reports no disposable leftovers, and no pending cleanup exists in any ledger"
+        "Every P7 task has COMPLETE status and evidence, the final `pnpm benchmark:deploy --audit` reports no disposable leftovers, and no pending cleanup exists in any ledger",
+        "Every AWS result records the candidate commit and the deployed-version.json identifiers it ran against"
       ],
       "timeboxMinutes": 15,
       "notes": []
@@ -2601,6 +2758,7 @@
   "generatedTaskRules": [
     "A generated task that needs push, pull request, merge or publication lists gate publicationPolicyConfirmed and follows state.json policy.publication (mergeProcedure for any merge).",
     "A generated task that touches real AWS lists gate awsAuthorized and requires aws-test-account and aws-login.",
-    "Generated tasks keep the holdout forbiddenInputs default unless they are Phase 6 holdout tasks."
+    "Generated tasks keep the holdout forbiddenInputs default unless they are Phase 6 holdout tasks.",
+    "A generated Phase 7 AWS task lists P7-VERIFY-CANDIDATE as a prerequisite, requires deployed-candidate, records the candidate commit and the deployed-version.json identifiers, and stops BLOCKED if the deployed control plane changed since verification."
   ]
 }

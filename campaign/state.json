@@ -4,8 +4,8 @@
   "status": "CONTINUE",
   "phase": 1,
   "currentTask": null,
-  "nextAction": "Run P1-SELECT-REALISTIC-02 with campaign-worker.",
-  "updatedAt": "2026-10-08T08:44:31.711Z",
+  "nextAction": "Run P1-AI-TIMEOUT-FIX: one focused PR on campaign/fix-ai-timeout that passes reasoning:false for repository analysis, keeps REPO_AI_TIMEOUT_MS at 30 s, adds a request-body unit test, updates docs/ai-analysis.md and applies the ANALYSIS_VERSION rule; merge only through policy.publication.mergeProcedure (this merge deploys the production API).",
+  "updatedAt": "2026-10-08T09:02:17.117Z",
   "checkout": {
     "path": "C:/Users/Tejas/Desktop/deployz-mvp-test",
     "kind": "git worktree of C:/Users/Tejas/Desktop/deployz",
@@ -62,6 +62,10 @@
     {
       "commit": "e164b7af445636447e27a62c81ed6b542f0029c7",
       "task": "P1-SELECT-REALISTIC-01"
+    },
+    {
+      "commit": "e164b7af445636447e27a62c81ed6b542f0029c7",
+      "task": "P1-SELECT-REALISTIC-02"
     }
   ],
   "attempts": {
@@ -72,14 +76,15 @@
     "P0-FREEZE": 1,
     "P0-GATE": 1,
     "P1-EXCLUDE": 1,
-    "P1-SELECT-REALISTIC-01": 1
+    "P1-SELECT-REALISTIC-01": 1,
+    "P1-SELECT-REALISTIC-02": 1,
+    "P1-AI-TIMEOUT-DIAGNOSE": 1
   },
   "lastResult": {
-    "taskId": "P1-SELECT-REALISTIC-01",
+    "taskId": "P1-AI-TIMEOUT-DIAGNOSE",
     "status": "COMPLETE",
-    "evidence": "campaign/results/P1-SELECT-REALISTIC-01/result.json",
-    "verifiedAt": "2026-10-08T08:05:02.519Z",
-    "notes": "10 realistic candidates in campaign/corpus/candidates/realistic-01.json. Opus re-verified all 10 SHAs with gh api, zero owner/repo or family matches in excluded-families.json (gotenberg appears in benchmark.yaml only as a Documenso dev-sidecar note), commands are gh api reads only. Risks for labeling: campfire SQLite-only (possible boundary case), payload is a subdirectory template, koel has no Dockerfile, inbox-zero license NOASSERTION."
+    "at": "2026-10-08T09:02:17.116Z",
+    "summary": "Root cause found: reasoning-on repository AI spends all 2500 output tokens on reasoning (finish=length, no JSON) and takes 33-38 s per attempt; production 30 s budget always aborts. Auth/routing ruled out. reasoning:false succeeds in 9-16 s. Evidence: campaign/results/P1-AI-TIMEOUT-DIAGNOSE/."
   },
   "gates": {
     "smokeReviewed": true,
@@ -117,7 +122,7 @@
     },
     "ai-gateway": {
       "status": "BLOCKED",
-      "detail": "Credentials are production-equivalent (equal to the deployed Lambda, checked 2026-10-08). Still blocked: (1) live validation failed - analyseRepositoryWithAi exceeds the 30 s budget that production also uses; (2) the Stage A harness uses createAiGateway(undefined). Opus sets AVAILABLE only when P2-IMPL-AI-MODE and P2-AI-LIVE-VALIDATE are COMPLETE. See aiConfiguration."
+      "detail": "Credentials are production-equivalent (equal to the deployed Lambda). Blocked until P1-AI-TIMEOUT-DIAGNOSE, P1-AI-TIMEOUT-FIX, P2-IMPL-AI-MODE and P2-AI-LIVE-VALIDATE are COMPLETE. See aiConfiguration."
     },
     "aws-test-account": {
       "status": "AVAILABLE",
@@ -129,7 +134,7 @@
     },
     "deployed-candidate": {
       "status": "PENDING",
-      "detail": "Required from Phase 7 only. The deployed control plane must run the tested candidate commit."
+      "detail": "Set AVAILABLE only by Opus after P7-VERIFY-CANDIDATE: AWS-side identifiers (stack update time, Lambda CodeSha256 and asset keys, buildspec, bootstrap/relay artifacts) match the candidate. No version endpoint exists in the API, so a tag or green deploy job is not enough."
     }
   },
   "policy": {
@@ -191,8 +196,8 @@
     "absentInDeployed": [
       "AI_GATEWAY_TOKEN"
     ],
-    "liveValidation": "FAILED 2026-10-08: DEPLOYZ_LIVE_AI=1 node --env-file=.env vitest run packages/analysis/test/ai-live.test.ts -> 1 passed, 1 failed. explainDiagnostic passed (about 4 s). analyseRepositoryWithAi timed out at the 30 s test timeout (same result in 3 runs). Production uses the same 30 s budget (REPO_AI_TIMEOUT_MS in packages/analysis/src/repository-ai.ts, applied in apps/api/src/analysis.ts), so production repository AI analysis probably also times out and falls back. Log: campaign/logs/setup-ai-live/run.log (ignored).",
-    "harnessIntegration": "PENDING: scripts/repository-compatibility/analyse.ts passes createAiGateway(undefined), so Stage A runs without AI. P2-IMPL-AI-MODE owns the change; P2-AI-LIVE-VALIDATE owns the live validation.",
+    "liveValidation": "FAILED, diagnosed 2026-10-08 (P1-AI-TIMEOUT-DIAGNOSE): analyseRepositoryWithAi with production options returns HTTP 200 but finish_reason=length with 0 content (reasoning uses all 2500 completion tokens) in 6/6 attempts, 33-38 s each; the 30 s production budget aborts it. Production repository AI fallback probably never succeeds now. reasoning:false: 2/2 ok in 15.8 s and 19.8 s. Fix queued as P1-AI-TIMEOUT-FIX.",
+    "harnessIntegration": "PENDING: scripts/repository-compatibility/analyse.ts passes createAiGateway(undefined). P2-IMPL-AI-MODE adds an explicit live-AI mode; P2-AI-LIVE-VALIDATE proves live requests, model and failure recording.",
     "baselineNote": "baseline.aiMode stays diagnostic-ai-off until P2-AI-LIVE-VALIDATE is COMPLETE. Then Opus records the intentional change to production-equivalent before any Phase 3 measurement run."
   }
 }

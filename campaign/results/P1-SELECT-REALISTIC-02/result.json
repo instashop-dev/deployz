@@ -1,0 +1,37 @@
+{
+  "taskId": "P1-SELECT-REALISTIC-02",
+  "testedCommit": "e164b7af445636447e27a62c81ed6b542f0029c7",
+  "executor": "campaign-worker",
+  "model": "sonnet",
+  "startedAt": "2026-10-08T08:30:00Z",
+  "finishedAt": "2026-10-08T08:50:00Z",
+  "proposedStatus": "COMPLETE",
+  "status": "COMPLETE",
+  "commands": [
+    { "command": "gh api repos/<repo> (metadata) for 12 repos (10 selected, AppFlowy-Cloud and medusajs/medusa screened out)", "exitCode": 0, "summary": "license, archived, fork, pushed_at, default branch read; AppFlowy-Cloud archived so rejected" },
+    { "command": "gh api repos/<repo>/contents and repos/<repo>/git/trees (root/dir listings)", "exitCode": 0, "summary": "chose entry point and build file paths" },
+    { "command": "gh api repos/<repo>/commits/<defaultBranch> then repos/<repo>/commits/<sha> for 10 repos", "exitCode": 0, "summary": "HEAD SHA pinned and re-read; returned SHA equals pinned SHA for all 10" },
+    { "command": "gh api repos/<repo>/contents/<path>?ref=<sha> for entry and build file, 10 repos", "exitCode": 0, "summary": "all 20 paths are type file at the pinned commit" },
+    { "command": "gh api repos/<repo>/commits/<sha>/check-runs and /status, 10 repos", "exitCode": 0, "summary": "CI summary recorded (informational)" },
+    { "command": "node scratchpad/gen.mjs (exclusion script + JSON writer)", "exitCode": 0, "summary": "all 10 clear against excluded-families.json and realistic-01.json; wrote realistic-02.json" }
+  ],
+  "evidence": [
+    "campaign/corpus/candidates/realistic-02.json",
+    "campaign/results/P1-SELECT-REALISTIC-02/result.json"
+  ],
+  "notes": [
+    "No candidate was cloned, built or analyzed. gh api reads only.",
+    "Needs mix: Postgres expected for 10/10; Redis or worker expected for 7/10 (discourse, forem, saleor, eshop, cachet, trigger-dev; ente/hexpm/dependency-track/mathesar are Postgres plus storage or none). Runtimes: Ruby x2, Python x2, Elixir, .NET, Go, Java, PHP, Node/TS.",
+    "Risk discourse: no Dockerfile in repo (images come from the separate discourse_docker launcher); Rails with Sidekiq, Redis, and many plugins. Label deploy mode carefully.",
+    "Risk forem: very heavy Rails app, Elasticsearch-free now but needs Sidekiq, Redis, Postgres, many third-party keys; Dockerfile and Containerfile both present.",
+    "Risk saleor: Dockerfile builds API only; Celery worker uses same image with different command; Postgres extensions needed.",
+    "Risk hexpm: no SPDX license in GitHub metadata (license null); Elixir release; needs S3-like storage and other services; labels depend on config/runtime.exs.",
+    "Risk eshop: no Dockerfile at root; Aspire AppHost orchestrates many services (Postgres, Redis, RabbitMQ), so labeling must treat it as multi-service. CI shows 1 failure (informational).",
+    "Risk ente: monorepo; only server/ is deployable; renamed from ente-io/ente to ente/ente; needs Postgres and S3 (MinIO in compose). Selected path is subdirectory.",
+    "Risk dependency-track: monorepo in v5 modular layout; Dockerfile under apiserver/src/main/docker may expect prebuilt artifacts from Maven; frontend is a separate repo.",
+    "Risk cachet: default branch is 3.x (not main); no Dockerfile; license NOASSERTION; CI shows failure=3 (informational); small Laravel app.",
+    "Risk trigger-dev: large Turborepo monorepo; docker/Dockerfile is for the webapp; separate supervisor app for workers; CI failure=1 (informational).",
+    "Risk mathesar: it connects to a user Postgres database and also keeps its own metadata DB; Dockerfile plus Caddy; develop is the default branch.",
+    "Rejected during screening: AppFlowy-IO/AppFlowy-Cloud (archived); medusajs/medusa (library monorepo without a single app entry point)."
+  ]
+}
