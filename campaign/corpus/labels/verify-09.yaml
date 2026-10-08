@@ -1,0 +1,453 @@
+taskId: P1-VERIFY-09
+testedCommit: e6a3b58ee2363923fef21faca86611fa3bf84538
+apps:
+  - id: repo-581
+    repo: vikiboss/60s
+    commit: d582aa65d44f76e91c434174c9cf44684d30755f
+    expected:
+      compatibility: READY
+      runtime: [node]
+      monorepo: false
+      postgres: false
+      redis: false
+      worker: false
+      dockerfilePath: Dockerfile
+      port: 4399
+      healthPath: /health
+    citations:
+      compatibility:
+        - path: Dockerfile
+          reason: "Production multi-stage Dockerfile runs CMD node node.ts as non-root user; no database, cache or volume needed"
+        - path: src/config.ts
+          reason: "Only optional env vars (HOST, PORT, DEBUG); PORT has a default so no required configuration"
+      runtime:
+        - path: Dockerfile
+          reason: "Base image node:lts-alpine and CMD node node.ts; deno.json exists but the container runs Node"
+        - path: package.json
+          reason: "pnpm project with start script using node node.ts"
+      monorepo:
+        - path: package.json
+          reason: "Single package, no workspaces field"
+        - path: pnpm-workspace.yaml
+          reason: "Contains only onlyBuiltDependencies, no packages list"
+      postgres:
+        - path: package.json
+          reason: "No database driver in dependencies"
+      redis:
+        - path: package.json
+          reason: "No redis client in dependencies"
+      worker:
+        - path: Dockerfile
+          reason: "Single CMD, one process; no worker or queue"
+      dockerfilePath:
+        - path: Dockerfile
+          reason: "Only Dockerfile, at repository root"
+      port:
+        - path: Dockerfile
+          reason: "EXPOSE 4399"
+        - path: src/config.ts
+          reason: "port from PORT env, default 4399"
+      healthPath:
+        - path: src/router.ts
+          reason: "rootRouter.get('/health', ...) route exists (also appRouter /health)"
+  - id: repo-582
+    repo: TriliumNext/Trilium
+    commit: fba16cdb1b59e8a3cf46a36137159df9736d835c
+    expected:
+      compatibility: NOT_COMPATIBLE
+      runtime: [node]
+      monorepo: true
+      postgres: false
+      redis: false
+      worker: false
+      appRoot: apps/server
+      dockerfilePath: apps/server/Dockerfile
+      port: 8080
+    citations:
+      compatibility:
+        - path: apps/server/Dockerfile
+          reason: "Image keeps all state in TRILIUM_DATA_DIR=/home/node/trilium-data, a mounted volume; COPY ./dist needs a pre-built workspace output"
+        - path: apps/server/package.json
+          reason: "Storage is embedded SQLite (better-sqlite3), not PostgreSQL"
+        - path: docker-compose.yml
+          reason: "Official run mounts ./trilium-data:/home/node/trilium-data (persistent local disk)"
+      runtime:
+        - path: apps/server/Dockerfile
+          reason: "FROM node image; start-docker.sh runs node ./main.mjs"
+      monorepo:
+        - path: apps/server/package.json
+          reason: "Package @triliumnext/server is one app in an apps/* pnpm workspace"
+      postgres:
+        - path: apps/server/package.json
+          reason: "Only better-sqlite3; no PostgreSQL driver"
+      redis:
+        - path: apps/server/package.json
+          reason: "No redis dependency"
+      worker:
+        - path: apps/server/start-docker.sh
+          reason: "Single process: exec node ./main.mjs"
+      appRoot:
+        - path: apps/server/package.json
+          reason: "Server application lives in apps/server"
+      dockerfilePath:
+        - path: apps/server/Dockerfile
+          reason: "Production Dockerfile for the server app"
+      port:
+        - path: apps/server/Dockerfile
+          reason: "EXPOSE 8080"
+  - id: repo-583
+    repo: TryGhost/Ghost
+    commit: 1867c8aa836eee9cc1e7bdea994f32d8461d3c46
+    expected:
+      compatibility: NOT_COMPATIBLE
+      runtime: [node]
+      monorepo: true
+      postgres: false
+      redis: false
+      worker: false
+      appRoot: ghost/core
+      dockerfilePath: Dockerfile.production
+      port: 2368
+    citations:
+      compatibility:
+        - path: Dockerfile.production
+          reason: "Last (default) stage 'full' COPYs ghost/core/core/built/admin that CI injects and the repo does not contain; writable content/ dir holds uploads; build context is the monorepo root"
+        - path: ghost/core/core/shared/config/env/config.production.json
+          reason: "Production config database client is mysql with local content path content/"
+        - path: ghost/core/core/server/adapters/storage/LocalImagesStorage.ts
+          reason: "Default storage adapter writes uploads to local disk"
+      runtime:
+        - path: Dockerfile.production
+          reason: "node:bookworm-slim, CMD node index.js"
+      monorepo:
+        - path: Dockerfile.production
+          reason: "Build context is the monorepo root; pnpm deploy --filter ghost"
+      postgres:
+        - path: ghost/core/package.json
+          reason: "Only mysql2 and better-sqlite3 database drivers; no pg"
+      redis:
+        - path: ghost/core/package.json
+          reason: "cache-manager-ioredis is an optional cache adapter; production config does not require Redis"
+      worker:
+        - path: Dockerfile.production
+          reason: "Single CMD node index.js"
+      appRoot:
+        - path: ghost/core/package.json
+          reason: "Application package 'ghost' lives in ghost/core"
+      dockerfilePath:
+        - path: Dockerfile.production
+          reason: "Only production Dockerfile, at repo root"
+      port:
+        - path: Dockerfile.production
+          reason: "EXPOSE 2368"
+        - path: ghost/core/core/shared/config/defaults.json
+          reason: "server.port 2368"
+  - id: repo-584
+    repo: bluewave-labs/Checkmate
+    commit: 523f6a79a1c2071bed60301306c8d054c79673de
+    expected:
+      compatibility: NOT_COMPATIBLE
+      runtime: [node]
+      monorepo: true
+      postgres: false
+      redis: false
+      worker: false
+      appRoot: server
+      dockerfilePath: docker/Dockerfile
+      port: 52345
+      unsupported: [mongodb]
+    citations:
+      compatibility:
+        - path: server/.env.example
+          reason: "DB_CONNECTION_STRING=mongodb://... is required"
+        - path: server/package.json
+          reason: "mongoose dependency; MongoDB is not supported"
+      runtime:
+        - path: docker/Dockerfile
+          reason: "node:24-slim, CMD node dist/index.js"
+      monorepo:
+        - path: docker/Dockerfile
+          reason: "Builds client/ and server/ together from the repo root context"
+      postgres:
+        - path: server/package.json
+          reason: "No PostgreSQL driver"
+      redis:
+        - path: server/package.json
+          reason: "No redis client dependency"
+      worker:
+        - path: docker/docker-compose.yaml
+          reason: "One checkmate service; worker mode (QUEUE_MODE) is optional and default runs in-process"
+      appRoot:
+        - path: server/package.json
+          reason: "Server app in server/"
+      dockerfilePath:
+        - path: docker/Dockerfile
+          reason: "Only application Dockerfile; context is repo root"
+      port:
+        - path: docker/Dockerfile
+          reason: "EXPOSE 52345 52346; 52345 is the app port"
+        - path: docker/docker-compose.yaml
+          reason: "ports 52345:52345"
+      unsupported:
+        - path: server/package.json
+          reason: "mongoose"
+        - path: server/.env.example
+          reason: "mongodb:// connection string"
+  - id: repo-585
+    repo: janeczku/calibre-web
+    commit: 6e840acbda8d62fdd159bf3855c01872d629a914
+    expected:
+      compatibility: NOT_COMPATIBLE
+      runtime: [python]
+      monorepo: false
+      postgres: false
+      redis: false
+      worker: false
+      port: 8083
+    citations:
+      compatibility:
+        - path: cps/config_sql.py
+          reason: "Requires a Calibre library directory with metadata.db (SQLite) on local disk"
+        - path: cps/constants.py
+          reason: "Settings kept in app.db (SQLite) file; no Dockerfile in repo"
+      runtime:
+        - path: requirements.txt
+          reason: "Flask/tornado Python app"
+        - path: cps.py
+          reason: "Python entrypoint"
+      monorepo:
+        - path: pyproject.toml
+          reason: "Single package"
+      postgres:
+        - path: requirements.txt
+          reason: "SQLAlchemy with SQLite only; no psycopg driver"
+      redis:
+        - path: requirements.txt
+          reason: "No redis client"
+      worker:
+        - path: cps.py
+          reason: "Single web process entrypoint"
+      port:
+        - path: cps/constants.py
+          reason: "DEFAULT_PORT = 8083"
+  - id: repo-586
+    repo: appsmithorg/appsmith
+    commit: 4b4d52cbe621ab37c4ded93de7b6ca17ba44edb6
+    expected:
+      compatibility: NOT_COMPATIBLE
+      runtime: [java]
+      monorepo: true
+      postgres: false
+      redis: true
+      worker: false
+      appRoot: app/server
+      dockerfilePath: Dockerfile
+      port: 80
+      unsupported: [mongodb]
+    citations:
+      compatibility:
+        - path: app/server/envs/dev.env.example
+          reason: "APPSMITH_DB_URL is a mongodb:// URL and APPSMITH_REDIS_URL is required"
+        - path: Dockerfile
+          reason: "All-in-one supervisord image bundling several services; not a single web service"
+      runtime:
+        - path: app/server/pom.xml
+          reason: "Maven Java server"
+        - path: app/server/Procfile
+          reason: "java -jar start command"
+      monorepo:
+        - path: app/server/pom.xml
+          reason: "Multi-module server inside a repo that also holds app/client"
+      postgres:
+        - path: app/server/envs/dev.env.example
+          reason: "Database is MongoDB, not PostgreSQL"
+      redis:
+        - path: app/server/envs/dev.env.example
+          reason: "APPSMITH_REDIS_URL=redis://127.0.0.1:6379"
+      worker:
+        - path: Dockerfile
+          reason: "Services are launched by supervisord inside one image; no separate declared worker"
+      appRoot:
+        - path: app/server/pom.xml
+          reason: "Server application in app/server"
+      dockerfilePath:
+        - path: Dockerfile
+          reason: "Only product Dockerfile, at repo root (app/server has none)"
+      port:
+        - path: Dockerfile
+          reason: "EXPOSE 80 and 443"
+      unsupported:
+        - path: app/server/envs/dev.env.example
+          reason: "APPSMITH_DB_URL=mongodb://..."
+  - id: repo-587
+    repo: rybbit-io/rybbit
+    commit: 90e4f85756fe8c6fda7775f3cfb45d0a2d5830da
+    expected:
+      compatibility: NOT_COMPATIBLE
+      runtime: [node]
+      monorepo: true
+      postgres: true
+      redis: true
+      worker: false
+      migration: true
+      appRoot: server
+      dockerfilePath: server/Dockerfile
+      port: 3001
+      unsupported: [other-database]
+    citations:
+      compatibility:
+        - path: server/.env.example
+          reason: "Requires ClickHouse (CLICKHOUSE_HOST) besides PostgreSQL and Redis"
+        - path: server/package.json
+          reason: "@clickhouse/client dependency; ClickHouse is not supported"
+      runtime:
+        - path: server/Dockerfile
+          reason: "node:24-alpine, CMD node dist/cluster.js"
+      monorepo:
+        - path: server/Dockerfile
+          reason: "pnpm workspace with client, server, shared packages"
+      postgres:
+        - path: server/.env.example
+          reason: "POSTGRES_HOST etc."
+        - path: server/package.json
+          reason: "pg, postgres, drizzle-orm"
+      redis:
+        - path: server/.env.example
+          reason: "REDIS_HOST etc."
+        - path: server/package.json
+          reason: "ioredis dependency"
+      worker:
+        - path: server/Dockerfile
+          reason: "Single CMD node dist/cluster.js"
+      migration:
+        - path: server/docker-entrypoint.sh
+          reason: "Runs drizzle-kit migrate before start"
+      appRoot:
+        - path: server/package.json
+          reason: "rybbit-backend package in server/"
+      dockerfilePath:
+        - path: server/Dockerfile
+          reason: "Backend Dockerfile (context repo root)"
+      port:
+        - path: server/Dockerfile
+          reason: "EXPOSE 3001"
+      unsupported:
+        - path: server/package.json
+          reason: "@clickhouse/client"
+        - path: docker-compose.yml
+          reason: "clickhouse service is required"
+  - id: repo-588
+    repo: mautic/mautic
+    commit: 6d4a4b2981600915872aef6fdeee0f8d8595d60b
+    expected:
+      compatibility: NOT_COMPATIBLE
+      runtime: [php]
+      monorepo: false
+      postgres: false
+      redis: false
+      worker: false
+    citations:
+      compatibility:
+        - path: .ddev/config.yaml
+          reason: "Only development setup (DDEV, MariaDB 10.11); no production Dockerfile, so no container build"
+        - path: app/config/config.php
+          reason: "Doctrine DBAL via mautic.db_driver with PDO MySQL options; MySQL/MariaDB family only, PostgreSQL not supported"
+        - path: composer.json
+          reason: "PHP project skeleton; media/files and config/local.php need persistent writable disk"
+      runtime:
+        - path: composer.json
+          reason: "PHP 8.x Symfony-based app"
+      monorepo:
+        - path: composer.json
+          reason: "Single composer project"
+      postgres:
+        - path: app/config/config.php
+          reason: "MySQL-style PDO config; no pgsql driver"
+      redis:
+        - path: .ddev/docker-compose.redis.yaml
+          reason: "Redis only as optional dev add-on; not required by the app"
+      worker:
+        - path: composer.json
+          reason: "No declared worker process; no Dockerfile or Procfile"
+  - id: repo-589
+    repo: opf/openproject
+    commit: df3826b28eddd5f2e9c7ab72a07a0dc8c5351df6
+    expected:
+      compatibility: NOT_COMPATIBLE
+      runtime: [ruby]
+      monorepo: false
+      postgres: true
+      redis: false
+      worker: true
+      migration: true
+      dockerfilePath: docker/prod/Dockerfile
+      port: 8080
+      healthPath: /health_check
+    citations:
+      compatibility:
+        - path: docker/prod/Dockerfile
+          reason: "VOLUME for attachments/app data (OPENPROJECT_ATTACHMENTS__STORAGE__PATH on local disk); last stage is the all-in-one image with embedded PostgreSQL and a PGDATA volume"
+        - path: Procfile
+          reason: "Web plus a separate worker process required"
+      runtime:
+        - path: docker/prod/Dockerfile
+          reason: "ruby base image, Rails app"
+      monorepo:
+        - path: docker/prod/Dockerfile
+          reason: "Single Rails application"
+      postgres:
+        - path: docker/prod/migrate
+          reason: "Uses psql with DATABASE_URL"
+      redis:
+        - path: docker/prod/Dockerfile
+          reason: "Cache is file_store or memcache; no Redis"
+      worker:
+        - path: Procfile
+          reason: "worker: ./packaging/scripts/worker (background jobs)"
+      migration:
+        - path: docker/prod/web
+          reason: "MIGRATE=true runs bundle exec rake db:migrate"
+        - path: docker/prod/seeder
+          reason: "Runs migrate and db:seed"
+      dockerfilePath:
+        - path: docker/prod/Dockerfile
+          reason: "Production Dockerfile (docker/ci and docker/dev are not production)"
+      port:
+        - path: docker/prod/web
+          reason: "PORT defaults to 8080"
+        - path: docker/prod/Dockerfile
+          reason: "EXPOSE 8080 in slim target"
+      healthPath:
+        - path: config/routes.rb
+          reason: "get '/health_check' mapped to OkComputer web check"
+  - id: repo-590
+    repo: grocy/grocy
+    commit: 41206cb90154e0d17d3e108cc1f182b94fdb465d
+    expected:
+      compatibility: NOT_COMPATIBLE
+      runtime: [php]
+      monorepo: false
+      postgres: false
+      redis: false
+      worker: false
+    citations:
+      compatibility:
+        - path: services/DatabaseService.php
+          reason: "Uses SQLite file GROCY_DATAPATH/grocy_*.db on local disk; no Dockerfile in repo"
+        - path: data/.gitignore
+          reason: "data/ directory holds runtime state"
+      runtime:
+        - path: composer.json
+          reason: "PHP 8.5 Slim app"
+      monorepo:
+        - path: composer.json
+          reason: "Single composer project"
+      postgres:
+        - path: services/DatabaseService.php
+          reason: "PDO Sqlite only"
+      redis:
+        - path: composer.json
+          reason: "No redis dependency"
+      worker:
+        - path: app.php
+          reason: "Single web entrypoint; no worker"

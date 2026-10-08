@@ -1,0 +1,28 @@
+{
+  "taskId": "P1-VERIFY-09",
+  "testedCommit": "e6a3b58ee2363923fef21faca86611fa3bf84538",
+  "executor": "campaign-worker",
+  "model": "sonnet",
+  "startedAt": "2026-10-08T19:23:56Z",
+  "finishedAt": "2026-10-08T19:29:44Z",
+  "proposedStatus": "COMPLETE",
+  "commands": [
+    { "command": "gh api repos/<repo>/git/trees/<commit>?recursive=1 (10 repos)", "exitCode": 0, "summary": "Fetched pinned trees for all 10 apps" },
+    { "command": "gh api repos/<repo>/contents/<path>?ref=<commit> (many files)", "exitCode": 0, "summary": "Read pinned source; a few probes returned 404 for absent files (expected)" },
+    { "command": "tsx val.mjs (parse YAML, expectedFactsSchema, citation paths vs pinned trees)", "exitCode": 0, "summary": "10 apps, 0 errors" }
+  ],
+  "evidence": ["campaign/corpus/labels/verify-09.yaml"],
+  "forbiddenInputsRead": [],
+  "notes": [
+    "repo-581 60s: READY. Family says deno but Dockerfile runs node node.ts; runtime labelled node. Low uncertainty.",
+    "repo-582 Trilium: NOT_COMPATIBLE (SQLite data dir volume). unsupported left empty because sqlite is not in UNSUPPORTED_FAMILIES. Medium uncertainty.",
+    "repo-583 Ghost: NOT_COMPATIBLE because default Dockerfile.production stage needs CI-injected admin build, local content disk, MySQL. MySQL 8 is supported by mvp-scope but UNSUPPORTED_FAMILIES maps mysql as unsupported; I did not rely on it and left unsupported empty. High uncertainty (could be NEEDS_CONFIGURATION).",
+    "repo-584 Checkmate: NOT_COMPATIBLE, MongoDB. Low uncertainty. Health endpoint /livez is on separate port 52346 so healthPath omitted.",
+    "repo-585 calibre-web: NOT_COMPATIBLE (no Dockerfile, SQLite Calibre library on disk). Medium uncertainty.",
+    "repo-586 Appsmith: NOT_COMPATIBLE (MongoDB, Redis, all-in-one image). app/server has no Dockerfile; root Dockerfile used. Low uncertainty on verdict.",
+    "repo-587 Rybbit: NOT_COMPATIBLE (ClickHouse required) with postgres, redis, drizzle migration. unsupported other-database. Low uncertainty.",
+    "repo-588 Mautic: NOT_COMPATIBLE (no production Dockerfile, MySQL/MariaDB only, local config/media disk). Medium uncertainty (could be NEEDS_CONFIGURATION).",
+    "repo-589 OpenProject: NOT_COMPATIBLE (attachment volume, default last Dockerfile stage all-in-one with bundled Postgres, separate worker). port 8080 from slim target; default stage would be 80. Medium uncertainty.",
+    "repo-590 Grocy: NOT_COMPATIBLE (no Dockerfile, SQLite file in data/). Low uncertainty."
+  ]
+}
