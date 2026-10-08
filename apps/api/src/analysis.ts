@@ -303,7 +303,11 @@ type ApplicationRow = typeof schema.applications.$inferSelect;
 // source exists only at the repository root (`COPY go.mod go.sum ./` in
 // `scripts/Dockerfile`) builds with the root as its context. Stored v43 rows
 // build such a Dockerfile from its own directory and the build fails.
-export const ANALYSIS_VERSION = 44;
+// Version 45 (repository AI thinking off): the AI fallback now answers inside
+// REPO_AI_TIMEOUT_MS. Stored v44 rows never received an AI answer (every
+// attempt spent its output budget on reasoning and timed out), so an open
+// question was left to deterministic metadata only.
+export const ANALYSIS_VERSION = 45;
 
 export interface AnalysisRunnerDeps {
   db: RuntimeDb;

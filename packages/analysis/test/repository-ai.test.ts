@@ -374,6 +374,22 @@ describe('analyseRepositoryWithAi', () => {
 
     expect(seenOptions?.maxOutputTokens).toBe(REPO_AI_MAX_OUTPUT_TOKENS);
   });
+
+  it('switches the model thinking off so the JSON fits the output budget and the timeout', async () => {
+    // Verified live: with thinking on, every attempt spent the whole output
+    // budget on reasoning (no JSON) and outlasted REPO_AI_TIMEOUT_MS.
+    let seenOptions: AiGenerateOptions | undefined;
+    const capturingGateway: AiGateway = {
+      async generate(_prompt, _schema, options) {
+        seenOptions = options;
+        return { object: validAiObject, usage: { promptTokens: 500, completionTokens: 100 } };
+      },
+    };
+
+    await analyseRepositoryWithAi(baseAiInput, capturingGateway);
+
+    expect(seenOptions?.reasoning).toBe(false);
+  });
 });
 
 // ==========================================================================

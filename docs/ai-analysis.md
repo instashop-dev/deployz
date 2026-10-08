@@ -148,7 +148,10 @@ Repository (GitHub tree, bounded)
   / 24k characters of context, sample env files stripped to key names, and
   a strict output schema. `mergeAiAnalysis` lets the AI fill a gap, never
   overwrite; a required-database or Redis flip needs corroborating
-  deterministic evidence.
+  deterministic evidence. The call runs with model thinking off and a
+  30 s budget (`REPO_AI_TIMEOUT_MS`, two attempts inside it). With thinking
+  on, the production model spent the whole output budget on reasoning, so no
+  JSON came back and every attempt took longer than the budget.
 
 ## The canonical model
 
