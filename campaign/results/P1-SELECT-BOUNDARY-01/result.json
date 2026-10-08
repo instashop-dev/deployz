@@ -1,0 +1,31 @@
+{
+  "taskId": "P1-SELECT-BOUNDARY-01",
+  "testedCommit": "e6a3b58ee2363923fef21faca86611fa3bf84538",
+  "executor": "campaign-worker",
+  "model": "sonnet",
+  "startedAt": "2026-10-08T13:20:00Z",
+  "finishedAt": "2026-10-08T13:50:00Z",
+  "proposedStatus": "COMPLETE",
+  "commands": [
+    { "command": "gh api repos/<r> (10 candidates + dropped options)", "exitCode": 0, "summary": "Confirmed default branch, license, archived=false, fork=false, pushed_at for all 10 selected repos; two options dropped as archived" },
+    { "command": "gh api repos/<r>/commits/<sha> (10 candidates)", "exitCode": 0, "summary": "Returned SHA equals pinned 40-char SHA for all 10" },
+    { "command": "gh api repos/<r>/git/trees/<sha> and contents/<path>?ref=<sha>", "exitCode": 0, "summary": "Entry point and build file confirmed at pinned SHA; boundary evidence lines read from repository source" },
+    { "command": "gh api repos/<r>/commits/<sha>/check-runs", "exitCode": 0, "summary": "CI check-run counts recorded (informational)" },
+    { "command": "grep -n -i -w -c <project name> docs/testing/repository-compatibility/benchmark.yaml", "exitCode": 0, "summary": "0 whole-word hits for all 11 project names checked" },
+    { "command": "node scratchpad/gen.js; node -e validate boundary-01.json", "exitCode": 0, "summary": "Wrote boundary-01.json; 10 candidates, all commits 40 characters" },
+    { "command": "gh api repos/opensearch-project/OpenSearch-Dashboards (repo, commits/<sha>, contents, check-runs, git/trees) and 4 other replacement options", "exitCode": 0, "summary": "Replacement verified: SHA c860eedf matches, not archived, not a fork, Apache-2.0, entry scripts/opensearch_dashboards.js and Dockerfile exist at SHA" },
+    { "command": "grep -n -i -w -E \"opensearch|opensearch-dashboards|kibana\" docs/testing/repository-compatibility/benchmark.yaml", "exitCode": 0, "summary": "1 unrelated hit (Mattermost dev compose note, line 2568)" },
+    { "command": "node scratchpad/swap.js", "exitCode": 0, "summary": "Replaced pterodactyl/panel with OpenSearch-Dashboards in boundary-01.json; 10 unique candidates" }
+  ],
+  "evidence": [
+    "campaign/corpus/candidates/boundary-01.json"
+  ],
+  "notes": [
+    "pterodactyl/panel was rejected by Opus (MySQL also supported, so MariaDB is not a clear boundary) and replaced by opensearch-project/OpenSearch-Dashboards (Elasticsearch/OpenSearch as required store). Earlier notes below that name pterodactyl, MariaDB or the mariadb category are superseded. Replacement caveat: its root Dockerfile is a CI image, labeling risk high; cerebro (stale), elastalert2 (headless) and OpenMetadata/OpenCTI (no clear single Dockerfile) were considered and not chosen.",
+    "No Deployz analysis, build or harness run. Source read through gh api only.",
+    "Boundary categories: mongodb, sqlite+persistent volume, mounted config file, gpu, kubernetes-only, windows, second worker Dockerfile + clickhouse, kafka broker, mariadb, privileged container.",
+    "Weakest case: pterodactyl/panel (MariaDB reference stack but MySQL also works). DNN has no Dockerfile (buildFile null, Windows). Rancher has no root Dockerfile (package/Dockerfile).",
+    "Local git HEAD is d4aac18b; testedCommit recorded as given by the coordinator (e6a3b58e).",
+    "Not covered: no non-HTTP protocol candidate, because mvp-scope.md has no explicit non-HTTP non-goal. No Elasticsearch/OpenSearch candidate with a usable Dockerfile was found; add in a later batch."
+  ]
+}

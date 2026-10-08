@@ -4,8 +4,8 @@
   "status": "CONTINUE",
   "phase": 1,
   "currentTask": null,
-  "nextAction": "Run P1-SELECT-BOUNDARY-01 (campaign-worker) as the first task of the next run (timebox 40 > 38: long-run exception).",
-  "updatedAt": "2026-10-08T13:14:16Z",
+  "nextAction": "Run P1-FREEZE-CORPUS (Opus, timebox 20) as the first task of the next run.",
+  "updatedAt": "2026-10-08T13:40:10Z",
   "checkout": {
     "path": "C:/Users/Tejas/Desktop/deployz-mvp-test",
     "kind": "git worktree of C:/Users/Tejas/Desktop/deployz",
@@ -99,6 +99,10 @@
     {
       "commit": "e6a3b58ee2363923fef21faca86611fa3bf84538",
       "task": "P1-SELECT-MESSY-02"
+    },
+    {
+      "commit": "e6a3b58ee2363923fef21faca86611fa3bf84538",
+      "task": "P1-SELECT-BOUNDARY-01"
     }
   ],
   "attempts": {
@@ -119,13 +123,14 @@
     "P1-SELECT-REALISTIC-06": 1,
     "P1-SELECT-REALISTIC-07": 1,
     "P1-SELECT-MESSY-01": 1,
-    "P1-SELECT-MESSY-02": 1
+    "P1-SELECT-MESSY-02": 1,
+    "P1-SELECT-BOUNDARY-01": 1
   },
   "lastResult": {
-    "taskId": "P1-SELECT-MESSY-02",
+    "taskId": "P1-SELECT-BOUNDARY-01",
     "status": "COMPLETE",
-    "at": "2026-10-08T13:14:16Z",
-    "summary": "10 messy candidates in campaign/corpus/candidates/messy-02.json (60s [Deno+package.json], Trilium [apps/server], Ghost [Dockerfile.production, MySQL], Checkmate [docker/, MongoDB], calibre-web [no Dockerfile], appsmith [Java/React/Node, MongoDB], rybbit [client/+server/ Dockerfiles], mautic [no Dockerfile, MySQL], opf/openproject [docker/prod/], grocy [no Dockerfile, public/ web root]). Opus rejected gogs/gogs (upstream of excluded Gitea, repo-058); the worker replaced it with grocy in the same attempt. Opus re-verified all 10 SHAs, archived/fork false, entry point and build file are files at the SHA; no name match in excluded-families.json, earlier batches or benchmark.yaml (one incidental calibre hit in a Stirling PDF note)."
+    "at": "2026-10-08T13:40:10Z",
+    "summary": "10 boundary candidates in campaign/corpus/candidates/boundary-01.json: nightscout/cgm-remote-monitor (MongoDB), advplyr/audiobookshelf (SQLite + local disk), glanceapp/glance (mounted config file), invoke-ai/InvokeAI (GPU), kubero-dev/kubero (Kubernetes-only), dnnsoftware/Dnn.Platform (Windows), Openpanel-dev/openpanel (worker with a second Dockerfile + ClickHouse), tchiotludo/akhq (Kafka), rancher/rancher (privileged), opensearch-project/OpenSearch-Dashboards (OpenSearch store). Each reason cites docs/product/mvp-scope.md non-goals. Opus rejected pterodactyl/panel (MySQL works and RDS MySQL is in scope, so MariaDB is not a clear boundary); the worker replaced it in the same attempt. Opus re-verified all 10 SHAs with gh api, archived/fork false, no match in excluded-families.json or earlier batches; benchmark.yaml whole-word hits 0 (one incidental opensearch service note per worker)."
   },
   "gates": {
     "smokeReviewed": true,
@@ -298,6 +303,11 @@
     {
       "task": "P1-SELECT-MESSY-02",
       "runStart": "2026-10-08T13:04:22Z",
+      "reason": "First task of the run; timeboxMinutes 40 > 38 and no resumable steps (one 10-candidate selection batch)."
+    },
+    {
+      "task": "P1-SELECT-BOUNDARY-01",
+      "runStart": "2026-10-08T13:27:57Z",
       "reason": "First task of the run; timeboxMinutes 40 > 38 and no resumable steps (one 10-candidate selection batch)."
     }
   ]

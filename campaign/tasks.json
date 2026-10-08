@@ -664,7 +664,7 @@
       "phase": 1,
       "title": "Select and pin 10 fresh boundary candidate apps (batch 1); check repository validity",
       "executor": "campaign-worker",
-      "status": "PENDING",
+      "status": "COMPLETE",
       "prerequisites": [
         "P1-EXCLUDE"
       ],

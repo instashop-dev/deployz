@@ -1,0 +1,588 @@
+{
+  "taskId": "P1-SELECT-BOUNDARY-01",
+  "testedCommit": "e6a3b58ee2363923fef21faca86611fa3bf84538",
+  "cohort": "boundary",
+  "exclusionCheck": {
+    "method": "Each owner/repo (current name from gh api repos/<r>) compared case-insensitively against all repository and family values in campaign/corpus/excluded-families.json, the 90 already-selected repos listed by the coordinator, and the repos in realistic-01..07, messy-01 and messy-02 file names. Project names grepped whole-word (grep -w -i) in docs/testing/repository-compatibility/benchmark.yaml: nightscout, audiobookshelf, glance, InvokeAI, kubero, dnn, dotnetnuke, openpanel, akhq, rancher gave 0 hits each (pterodactyl later removed). Replacement opensearch-dashboards: 1 unrelated hit. Lineage checked from known project history: no candidate is a fork, upstream, rename or successor of an excluded or selected repo. gh api confirmed fork=false and archived=false for all 10. Dropped while selecting: huggingface/text-generation-inference (archived), kubernetes-retired/dashboard (archived), Graylog2/graylog2-server (no usable Dockerfile), jellyfin/jellyfin (no Dockerfile in repo; replaced by audiobookshelf), redpanda-data/console (no Dockerfile, no SPDX license; replaced by akhq). Coordinator review: pterodactyl/panel rejected (MySQL also supported, so MariaDB is not a clear boundary) and replaced by opensearch-project/OpenSearch-Dashboards after the same checks.",
+    "perCandidate": [
+      {
+        "id": "nightscout",
+        "repo": "nightscout/cgm-remote-monitor",
+        "ownerRepoMatch": false,
+        "familyNameMatch": false,
+        "lineageMatch": false,
+        "benchmarkYamlWholeWordHits": 0,
+        "fork": false,
+        "archived": false,
+        "result": "clear"
+      },
+      {
+        "id": "audiobookshelf",
+        "repo": "advplyr/audiobookshelf",
+        "ownerRepoMatch": false,
+        "familyNameMatch": false,
+        "lineageMatch": false,
+        "benchmarkYamlWholeWordHits": 0,
+        "fork": false,
+        "archived": false,
+        "result": "clear"
+      },
+      {
+        "id": "glance",
+        "repo": "glanceapp/glance",
+        "ownerRepoMatch": false,
+        "familyNameMatch": false,
+        "lineageMatch": false,
+        "benchmarkYamlWholeWordHits": 0,
+        "fork": false,
+        "archived": false,
+        "result": "clear"
+      },
+      {
+        "id": "invokeai",
+        "repo": "invoke-ai/InvokeAI",
+        "ownerRepoMatch": false,
+        "familyNameMatch": false,
+        "lineageMatch": false,
+        "benchmarkYamlWholeWordHits": 0,
+        "fork": false,
+        "archived": false,
+        "result": "clear"
+      },
+      {
+        "id": "kubero",
+        "repo": "kubero-dev/kubero",
+        "ownerRepoMatch": false,
+        "familyNameMatch": false,
+        "lineageMatch": false,
+        "benchmarkYamlWholeWordHits": 0,
+        "fork": false,
+        "archived": false,
+        "result": "clear"
+      },
+      {
+        "id": "dnn-platform",
+        "repo": "dnnsoftware/Dnn.Platform",
+        "ownerRepoMatch": false,
+        "familyNameMatch": false,
+        "lineageMatch": false,
+        "benchmarkYamlWholeWordHits": 0,
+        "fork": false,
+        "archived": false,
+        "result": "clear"
+      },
+      {
+        "id": "openpanel",
+        "repo": "Openpanel-dev/openpanel",
+        "ownerRepoMatch": false,
+        "familyNameMatch": false,
+        "lineageMatch": false,
+        "benchmarkYamlWholeWordHits": 0,
+        "fork": false,
+        "archived": false,
+        "result": "clear"
+      },
+      {
+        "id": "akhq",
+        "repo": "tchiotludo/akhq",
+        "ownerRepoMatch": false,
+        "familyNameMatch": false,
+        "lineageMatch": false,
+        "benchmarkYamlWholeWordHits": 0,
+        "fork": false,
+        "archived": false,
+        "result": "clear"
+      },
+      {
+        "id": "opensearch-dashboards",
+        "repo": "opensearch-project/OpenSearch-Dashboards",
+        "ownerRepoMatch": false,
+        "familyNameMatch": false,
+        "lineageMatch": false,
+        "benchmarkYamlWholeWordHits": 1,
+        "benchmarkYamlHitNote": "unrelated Mattermost dev-compose mention at line 2568",
+        "fork": false,
+        "archived": false,
+        "result": "clear"
+      },
+      {
+        "id": "rancher",
+        "repo": "rancher/rancher",
+        "ownerRepoMatch": false,
+        "familyNameMatch": false,
+        "lineageMatch": false,
+        "benchmarkYamlWholeWordHits": 0,
+        "fork": false,
+        "archived": false,
+        "result": "clear"
+      }
+    ]
+  },
+  "candidates": [
+    {
+      "id": "nightscout",
+      "family": "nightscout",
+      "repo": "nightscout/cgm-remote-monitor",
+      "defaultBranch": "master",
+      "commit": "92d0834219aa771b5837dbcbf1baeb839a200cf6",
+      "commitVerified": {
+        "call": "gh api repos/nightscout/cgm-remote-monitor/commits/92d0834219aa771b5837dbcbf1baeb839a200cf6",
+        "returnedSha": "92d0834219aa771b5837dbcbf1baeb839a200cf6",
+        "matches": true
+      },
+      "license": "AGPL-3.0",
+      "archived": false,
+      "fork": false,
+      "pushedAt": "2026-10-08T00:47:38Z",
+      "cohort": "boundary",
+      "runtime": "node (express)",
+      "appPath": ".",
+      "boundaryReason": {
+        "category": "database-mongodb",
+        "scopeCitation": "mvp-scope.md 'Explicit MVP non-goals' (line 173-175): \"Databases other than PostgreSQL and RDS MySQL: ... MongoDB\"",
+        "repoEvidence": "docker-compose.yml:10-14 runs image mongo:5.0.32 with /data/db volume; package.json:137 depends on mongodb ^5.9.2; docker-compose.yml:45 documents MONGO_CONNECTION as the database setting."
+      },
+      "expectedNeeds": [
+        "mongodb",
+        "env-config"
+      ],
+      "selectionReason": "Node CGM monitor whose only datastore is MongoDB; clear MongoDB boundary case with a root Dockerfile.",
+      "validity": {
+        "entryPoint": {
+          "path": "lib/server/server.js",
+          "type": "file",
+          "confirmedAtCommit": true
+        },
+        "buildFile": {
+          "path": "Dockerfile",
+          "type": "file",
+          "confirmedAtCommit": true
+        },
+        "ci": {
+          "checkRuns": "failure=4,skipped=1,success=25",
+          "note": "informational only; unknown/mixed is acceptable"
+        }
+      },
+      "lineageCheck": "No fork, parent, rename or successor relation to any excluded or selected repository (nightscout is the only project of this name). Project name 'nightscout' not in benchmark.yaml.",
+      "labelingRisk": "Medium: analysis may read MONGO_CONNECTION as a plain env var and miss the MongoDB requirement."
+    },
+    {
+      "id": "audiobookshelf",
+      "family": "audiobookshelf",
+      "repo": "advplyr/audiobookshelf",
+      "defaultBranch": "master",
+      "commit": "743d9152208507a1dbf7c95c94290071338f44bd",
+      "commitVerified": {
+        "call": "gh api repos/advplyr/audiobookshelf/commits/743d9152208507a1dbf7c95c94290071338f44bd",
+        "returnedSha": "743d9152208507a1dbf7c95c94290071338f44bd",
+        "matches": true
+      },
+      "license": "GPL-3.0",
+      "archived": false,
+      "fork": false,
+      "pushedAt": "2026-10-05T22:45:25Z",
+      "cohort": "boundary",
+      "runtime": "node (express, sqlite3)",
+      "appPath": ".",
+      "boundaryReason": {
+        "category": "persistent-volume-sqlite",
+        "scopeCitation": "mvp-scope.md 'Explicit MVP non-goals' (line 173-182): \"SQLite\" and \"Persistent volumes or local disk state\"",
+        "repoEvidence": "Dockerfile:75-76 sets CONFIG_PATH=/config and METADATA_PATH=/metadata; docker-compose.yml:9-22 mounts ./audiobooks, ./podcasts, ./metadata, ./config as volumes 'needed to keep your library persistent'; package.json:60 depends on sqlite3 ^5.1.7 (only database)."
+      },
+      "expectedNeeds": [
+        "local-disk-state",
+        "sqlite"
+      ],
+      "selectionReason": "Node media server with embedded SQLite and library data on mounted volumes; no external database option.",
+      "validity": {
+        "entryPoint": {
+          "path": "index.js",
+          "type": "file",
+          "confirmedAtCommit": true
+        },
+        "buildFile": {
+          "path": "Dockerfile",
+          "type": "file",
+          "confirmedAtCommit": true
+        },
+        "ci": {
+          "checkRuns": "skipped=7,success=9",
+          "note": "informational only; unknown/mixed is acceptable"
+        }
+      },
+      "lineageCheck": "No lineage to any excluded or selected repository; Kavita and komga are unrelated media servers. Name not in benchmark.yaml.",
+      "labelingRisk": "Low: SQLite and volumes are explicit; port 80 and a health route are likely detected."
+    },
+    {
+      "id": "glance",
+      "family": "glance",
+      "repo": "glanceapp/glance",
+      "defaultBranch": "main",
+      "commit": "372466c6d75318670dc66e4e452179350fc50c97",
+      "commitVerified": {
+        "call": "gh api repos/glanceapp/glance/commits/372466c6d75318670dc66e4e452179350fc50c97",
+        "returnedSha": "372466c6d75318670dc66e4e452179350fc50c97",
+        "matches": true
+      },
+      "license": "AGPL-3.0",
+      "archived": false,
+      "fork": false,
+      "pushedAt": "2026-09-05T12:22:32Z",
+      "cohort": "boundary",
+      "runtime": "go",
+      "appPath": ".",
+      "boundaryReason": {
+        "category": "mounted-config-file",
+        "scopeCitation": "mvp-scope.md 'Explicit MVP non-goals' (line 181-182): \"a configuration file that the image expects to be mounted\"",
+        "repoEvidence": "Dockerfile final lines: ENTRYPOINT [\"/app/glance\", \"--config\", \"/app/config/glance.yml\"] with no config copied into the image; docs/configuration.md documents glance.yml as the only configuration source."
+      },
+      "expectedNeeds": [
+        "config-file-mount"
+      ],
+      "selectionReason": "Stateless Go dashboard that cannot start without a mounted glance.yml; clean file-mount boundary case.",
+      "validity": {
+        "entryPoint": {
+          "path": "main.go",
+          "type": "file",
+          "confirmedAtCommit": true
+        },
+        "buildFile": {
+          "path": "Dockerfile",
+          "type": "file",
+          "confirmedAtCommit": true
+        },
+        "ci": {
+          "checkRuns": "success=19",
+          "note": "informational only; unknown/mixed is acceptable"
+        }
+      },
+      "lineageCheck": "No lineage to any excluded or selected repository (OpenStack Glance is unrelated). Name 'glance' has no whole-word hit in benchmark.yaml.",
+      "labelingRisk": "Medium: some labelers may treat the missing config as a needs-input item instead of a boundary case; no database or env vars."
+    },
+    {
+      "id": "invokeai",
+      "family": "invokeai",
+      "repo": "invoke-ai/InvokeAI",
+      "defaultBranch": "main",
+      "commit": "c7a1b55be06e208fccdd06fa8a9ce9f3ce1ed5c7",
+      "commitVerified": {
+        "call": "gh api repos/invoke-ai/InvokeAI/commits/c7a1b55be06e208fccdd06fa8a9ce9f3ce1ed5c7",
+        "returnedSha": "c7a1b55be06e208fccdd06fa8a9ce9f3ce1ed5c7",
+        "matches": true
+      },
+      "license": "Apache-2.0",
+      "archived": false,
+      "fork": false,
+      "pushedAt": "2026-10-08T13:35:13Z",
+      "cohort": "boundary",
+      "runtime": "python (uv, FastAPI)",
+      "appPath": ".",
+      "boundaryReason": {
+        "category": "gpu",
+        "scopeCitation": "mvp-scope.md 'Explicit MVP non-goals' (line 181-182): \"GPUs\"",
+        "repoEvidence": "docker/Dockerfile:62 ARG GPU_DRIVER=cuda and :87 'uv sync --extra $GPU_DRIVER'; docker/docker-compose.yml:38-41 reserves 'driver: nvidia' 'capabilities: [gpu]'."
+      },
+      "expectedNeeds": [
+        "gpu",
+        "local-disk-state"
+      ],
+      "selectionReason": "Stable Diffusion application whose official image targets CUDA and whose compose file reserves an NVIDIA GPU.",
+      "validity": {
+        "entryPoint": {
+          "path": "invokeai/app/run_app.py",
+          "type": "file",
+          "confirmedAtCommit": true
+        },
+        "buildFile": {
+          "path": "docker/Dockerfile",
+          "type": "file",
+          "confirmedAtCommit": true
+        },
+        "ci": {
+          "checkRuns": "failure=1,success=15",
+          "note": "informational only; unknown/mixed is acceptable"
+        }
+      },
+      "lineageCheck": "No lineage to any excluded or selected repository (vllm and open-webui are unrelated). Name 'InvokeAI' not in benchmark.yaml.",
+      "labelingRisk": "Medium: GPU_DRIVER=cpu build exists, so a labeler may judge it deployable on CPU; Dockerfile is in docker/, not the root."
+    },
+    {
+      "id": "kubero",
+      "family": "kubero",
+      "repo": "kubero-dev/kubero",
+      "defaultBranch": "main",
+      "commit": "36a5046c379c5e9e5e0b2c1b80c218bfaa811144",
+      "commitVerified": {
+        "call": "gh api repos/kubero-dev/kubero/commits/36a5046c379c5e9e5e0b2c1b80c218bfaa811144",
+        "returnedSha": "36a5046c379c5e9e5e0b2c1b80c218bfaa811144",
+        "matches": true
+      },
+      "license": "GPL-3.0",
+      "archived": false,
+      "fork": false,
+      "pushedAt": "2026-09-09T23:54:32Z",
+      "cohort": "boundary",
+      "runtime": "node (NestJS)",
+      "appPath": "server",
+      "boundaryReason": {
+        "category": "kubernetes-only",
+        "scopeCitation": "mvp-scope.md 'Explicit MVP non-goals' (line 177-180): \"Kubernetes\"; line 19-21: \"not ... a Kubernetes platform\"",
+        "repoEvidence": "README.md:15 'deploy ... on Kubernetes'; README.md:50 'Kubernetes native ... All data is stored on your Kubernetes etcd'; server/package.json:39 depends on @kubernetes/client-node; docker-compose.kind.yaml and kind.yaml run it on a kind cluster."
+      },
+      "expectedNeeds": [
+        "kubernetes-api"
+      ],
+      "selectionReason": "Kubernetes-native PaaS whose function and storage are the Kubernetes API; cannot run without a cluster.",
+      "validity": {
+        "entryPoint": {
+          "path": "server/src/main.ts",
+          "type": "file",
+          "confirmedAtCommit": true
+        },
+        "buildFile": {
+          "path": "Dockerfile",
+          "type": "file",
+          "confirmedAtCommit": true
+        },
+        "ci": {
+          "checkRuns": "failure=3,success=27",
+          "note": "informational only; unknown/mixed is acceptable"
+        }
+      },
+      "lineageCheck": "No lineage to any excluded or selected repository (argo-cd and Dokploy are separate projects; Kubero is not a fork of either). Name not in benchmark.yaml.",
+      "labelingRisk": "Low: Kubernetes dependency is explicit; the Dockerfile builds and may start, so a start-only test can pass while the function fails."
+    },
+    {
+      "id": "dnn-platform",
+      "family": "dnn",
+      "repo": "dnnsoftware/Dnn.Platform",
+      "defaultBranch": "develop",
+      "commit": "206201c84855ff4b5b6499e135b04a86e2ce0580",
+      "commitVerified": {
+        "call": "gh api repos/dnnsoftware/Dnn.Platform/commits/206201c84855ff4b5b6499e135b04a86e2ce0580",
+        "returnedSha": "206201c84855ff4b5b6499e135b04a86e2ce0580",
+        "matches": true
+      },
+      "license": "MIT",
+      "archived": false,
+      "fork": false,
+      "pushedAt": "2026-10-06T22:54:01Z",
+      "cohort": "boundary",
+      "runtime": "dotnet framework 4.8 (ASP.NET WebForms, IIS)",
+      "appPath": "DNN Platform/Website",
+      "boundaryReason": {
+        "category": "windows-runtime",
+        "scopeCitation": "mvp-scope.md 'Explicit MVP non-goals' (line 181-182): \"Windows\"",
+        "repoEvidence": "DNN Platform/DotNetNuke.Web/DotNetNuke.Web.csproj:6 <TargetFramework>net48</TargetFramework>; DNN Platform/Website/Global.asax is the ASP.NET Framework entry; repo has build.ps1 and azure-pipelines.yml and no Dockerfile."
+      },
+      "expectedNeeds": [
+        "windows",
+        "mssql-database"
+      ],
+      "selectionReason": "Mature .NET Framework CMS that only runs on Windows/IIS; no Linux container path exists.",
+      "validity": {
+        "entryPoint": {
+          "path": "DNN Platform/Website/Global.asax",
+          "type": "file",
+          "confirmedAtCommit": true
+        },
+        "buildFile": null,
+        "ci": {
+          "checkRuns": "skipped=2,success=14",
+          "note": "informational only; unknown/mixed is acceptable; buildFile null: repo has no Dockerfile at this commit (Windows .NET Framework app)"
+        }
+      },
+      "lineageCheck": "No lineage to any excluded or selected repository (OrchardCore and nopCommerce are unrelated .NET projects). Names 'dnn' and 'dotnetnuke' not in benchmark.yaml.",
+      "labelingRisk": "Low: no Dockerfile and a net48 target make the boundary clear; SQL Server is a second unsupported database."
+    },
+    {
+      "id": "openpanel",
+      "family": "openpanel",
+      "repo": "Openpanel-dev/openpanel",
+      "defaultBranch": "main",
+      "commit": "7c4d22ae4b6b20fb08eb5c94a0cd3cfebb3d32ca",
+      "commitVerified": {
+        "call": "gh api repos/Openpanel-dev/openpanel/commits/7c4d22ae4b6b20fb08eb5c94a0cd3cfebb3d32ca",
+        "returnedSha": "7c4d22ae4b6b20fb08eb5c94a0cd3cfebb3d32ca",
+        "matches": true
+      },
+      "license": "AGPL-3.0",
+      "archived": false,
+      "fork": false,
+      "pushedAt": "2026-10-08T13:06:03Z",
+      "cohort": "boundary",
+      "runtime": "node (pnpm monorepo, Fastify, BullMQ worker)",
+      "appPath": "apps/api",
+      "boundaryReason": {
+        "category": "second-build-artifact-and-clickhouse",
+        "scopeCitation": "mvp-scope.md line 191-192: \"a worker that needs a different Dockerfile is unsupported\"; line 173-175: \"Databases other than PostgreSQL ...: ClickHouse\"",
+        "repoEvidence": "apps/api/Dockerfile, apps/worker/Dockerfile and apps/start/Dockerfile are three separate images (each EXPOSE 3000); docker-compose.yml:25 runs clickhouse/clickhouse-server:26.1.3.52 with a /var/lib/clickhouse volume."
+      },
+      "expectedNeeds": [
+        "clickhouse",
+        "postgresql",
+        "redis",
+        "separate-worker-dockerfile"
+      ],
+      "selectionReason": "Analytics app with a worker built from its own Dockerfile plus a required ClickHouse store.",
+      "validity": {
+        "entryPoint": {
+          "path": "apps/api/src/index.ts",
+          "type": "file",
+          "confirmedAtCommit": true
+        },
+        "buildFile": {
+          "path": "apps/api/Dockerfile",
+          "type": "file",
+          "confirmedAtCommit": true
+        },
+        "ci": {
+          "checkRuns": "success=11",
+          "note": "informational only; unknown/mixed is acceptable"
+        }
+      },
+      "lineageCheck": "No lineage to any excluded or selected repository (umami, plausible/analytics, rybbit and shynet are separate analytics projects, not forks). Name not in benchmark.yaml.",
+      "labelingRisk": "Medium: two boundary reasons overlap; labelers may pick one primary reason and miss the other. PostgreSQL and Redis use is inferred from the monorepo, not re-verified here."
+    },
+    {
+      "id": "akhq",
+      "family": "akhq",
+      "repo": "tchiotludo/akhq",
+      "defaultBranch": "dev",
+      "commit": "4440816b892070fb7ba651a40d09a9e8bffac503",
+      "commitVerified": {
+        "call": "gh api repos/tchiotludo/akhq/commits/4440816b892070fb7ba651a40d09a9e8bffac503",
+        "returnedSha": "4440816b892070fb7ba651a40d09a9e8bffac503",
+        "matches": true
+      },
+      "license": "Apache-2.0",
+      "archived": false,
+      "fork": false,
+      "pushedAt": "2026-10-05T12:05:05Z",
+      "cohort": "boundary",
+      "runtime": "java (Micronaut, Gradle)",
+      "appPath": ".",
+      "boundaryReason": {
+        "category": "message-broker-kafka",
+        "scopeCitation": "mvp-scope.md line 165: \"Message brokers other than SQS Standard: Kafka, RabbitMQ.\"",
+        "repoEvidence": "application.example.yml:67-70 configures connections with bootstrap.servers \"kafka:9092\" as the only backend; src/main/java/org/akhq/App.java is the entry (build.gradle:21 mainClass org.akhq.App)."
+      },
+      "expectedNeeds": [
+        "kafka"
+      ],
+      "selectionReason": "Kafka management UI with a root Dockerfile; useless without a Kafka cluster, which Deployz does not provision.",
+      "validity": {
+        "entryPoint": {
+          "path": "src/main/java/org/akhq/App.java",
+          "type": "file",
+          "confirmedAtCommit": true
+        },
+        "buildFile": {
+          "path": "Dockerfile",
+          "type": "file",
+          "confirmedAtCommit": true
+        },
+        "ci": {
+          "checkRuns": "success=11",
+          "note": "informational only; unknown/mixed is acceptable"
+        }
+      },
+      "lineageCheck": "No lineage to any excluded or selected repository; obsidiandynamics/kafdrop (excluded) is an independent Kafka UI, not a fork or predecessor. Name not in benchmark.yaml.",
+      "labelingRisk": "Medium: the app talks to an external Kafka cluster, so a labeler could call it deployable with a vendor-supplied broker URL; same function as excluded kafdrop."
+    },
+    {
+      "id": "opensearch-dashboards",
+      "family": "opensearch-dashboards",
+      "repo": "opensearch-project/OpenSearch-Dashboards",
+      "defaultBranch": "main",
+      "commit": "c860eedf96d8f34f2240bae1c6c67bdebd2ede55",
+      "commitVerified": {
+        "call": "gh api repos/opensearch-project/OpenSearch-Dashboards/commits/c860eedf96d8f34f2240bae1c6c67bdebd2ede55",
+        "returnedSha": "c860eedf96d8f34f2240bae1c6c67bdebd2ede55",
+        "matches": true
+      },
+      "license": "Apache-2.0",
+      "archived": false,
+      "fork": false,
+      "pushedAt": "2026-10-08T09:03:11Z",
+      "cohort": "boundary",
+      "runtime": "node (Kibana-derived, yarn monorepo)",
+      "appPath": ".",
+      "boundaryReason": {
+        "category": "database-elasticsearch-opensearch",
+        "scopeCitation": "mvp-scope.md 'Explicit MVP non-goals' (line 173-175): \"Databases other than PostgreSQL and RDS MySQL: ... Elasticsearch/OpenSearch\"",
+        "repoEvidence": "config/opensearch_dashboards.yml:26 defines opensearch.hosts (default http://localhost:9200) as the only backend setting; package.json:67 start script runs scripts/opensearch_dashboards; the app stores all saved objects in an OpenSearch index and cannot run without an OpenSearch cluster."
+      },
+      "expectedNeeds": [
+        "opensearch",
+        "config-file-mount"
+      ],
+      "selectionReason": "Large maintained web app whose only data store is an external OpenSearch cluster, which Deployz does not provision.",
+      "validity": {
+        "entryPoint": {
+          "path": "scripts/opensearch_dashboards.js",
+          "type": "file",
+          "confirmedAtCommit": true
+        },
+        "buildFile": {
+          "path": "Dockerfile",
+          "type": "file",
+          "confirmedAtCommit": true
+        },
+        "ci": {
+          "checkRuns": "skipped=2,success=28",
+          "note": "informational only; unknown/mixed is acceptable; root Dockerfile is a CI/test build image (Chrome, openjdk-8), not a production app image; release images come from src/dev/build/tasks/os_packages/docker_generator"
+        }
+      },
+      "lineageCheck": "No fork, parent, rename or successor relation to any excluded, selected or other boundary-01 repository. Historic note: the code descends from Kibana 7.10 (elastic/kibana), which is in no list; GitHub reports fork=false. Whole-word grep of benchmark.yaml for opensearch, opensearch-dashboards, kibana gave 1 hit (line 2568), a Mattermost dev compose note listing an opensearch support service, not this project.",
+      "labelingRisk": "High: root Dockerfile is a CI image, so build-file detection may be wrong; OpenSearch may appear only as a config key; a labeler may treat it as missing a Dockerfile instead of an unsupported store."
+    },
+    {
+      "id": "rancher",
+      "family": "rancher",
+      "repo": "rancher/rancher",
+      "defaultBranch": "main",
+      "commit": "28deadd2bb635bfa42746354a94974a281286e1c",
+      "commitVerified": {
+        "call": "gh api repos/rancher/rancher/commits/28deadd2bb635bfa42746354a94974a281286e1c",
+        "returnedSha": "28deadd2bb635bfa42746354a94974a281286e1c",
+        "matches": true
+      },
+      "license": "Apache-2.0",
+      "archived": false,
+      "fork": false,
+      "pushedAt": "2026-10-08T10:45:21Z",
+      "cohort": "boundary",
+      "runtime": "go",
+      "appPath": ".",
+      "boundaryReason": {
+        "category": "privileged-container",
+        "scopeCitation": "mvp-scope.md line 181-182: \"privileged containers\"; line 177-180: \"Kubernetes\"",
+        "repoEvidence": "README.md:21 install command 'docker run -d --restart=unless-stopped -p 80:80 -p 443:443 --privileged rancher/rancher'; package/Dockerfile has ENTRYPOINT [\"entrypoint.sh\"]; main.go is the entry."
+      },
+      "expectedNeeds": [
+        "privileged",
+        "kubernetes-api"
+      ],
+      "selectionReason": "Kubernetes management server whose official run command needs a privileged container.",
+      "validity": {
+        "entryPoint": {
+          "path": "main.go",
+          "type": "file",
+          "confirmedAtCommit": true
+        },
+        "buildFile": {
+          "path": "package/Dockerfile",
+          "type": "file",
+          "confirmedAtCommit": true
+        },
+        "ci": {
+          "checkRuns": "failure=1,skipped=26,success=3",
+          "note": "informational only; unknown/mixed is acceptable"
+        }
+      },
+      "lineageCheck": "No lineage to any excluded or selected repository (Rancher is not a fork of argo-cd, headlamp or coder). Name not in benchmark.yaml.",
+      "labelingRisk": "Medium: the privileged detail is in README only; the repo has no root Dockerfile (package/Dockerfile and Dockerfile.runtime instead)."
+    }
+  ]
+}
