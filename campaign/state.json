@@ -4,8 +4,8 @@
   "status": "CONTINUE",
   "phase": 2,
   "currentTask": null,
-  "nextAction": "Run P2-AI-LIVE-VALIDATE (campaign-worker, timebox 30) as the first task of the next run; it is the first live use of --ai live. Then P2-IMPL-LOCAL-BUILD (45), P2-IMPL-LOCAL-RUN (45), P2-SMOKE-RUN (40), P2-GATE. baseline.aiMode changes only after P2-AI-LIVE-VALIDATE is COMPLETE (Opus).",
-  "updatedAt": "2026-10-08T22:16:48.186Z",
+  "nextAction": "Run P2-IMPL-LOCAL-BUILD (campaign-worker, timebox 45, first task of the next run; long-run exception). Then P2-IMPL-LOCAL-RUN (45), P2-SMOKE-RUN (40), P2-GATE. ai-gateway is AVAILABLE and baseline.aiMode is production-equivalent.",
+  "updatedAt": "2026-10-08T22:23:06.299Z",
   "checkout": {
     "path": "C:/Users/Tejas/Desktop/deployz-mvp-test",
     "kind": "git worktree of C:/Users/Tejas/Desktop/deployz",
@@ -21,10 +21,10 @@
       "id": "small",
       "version": 2
     },
-    "aiMode": "diagnostic-ai-off",
+    "aiMode": "production-equivalent",
     "frozenAt": "2026-10-08T07:47:00Z",
-    "notes": "Intentional baseline change by P1-AI-TIMEOUT-FIX (PR #498): repository AI reasoning off, ANALYSIS_VERSION 44 -> 45. Compiler, profile and aiMode unchanged. No Phase 3 measurement was run at the old baseline. campaign/fresh-100 contains it (merge 97d16310); @deployz/analysis dist rebuilt 2026-10-08.",
-    "changedAt": "2026-10-08T10:08:02.257Z"
+    "notes": "Intentional baseline change by P1-AI-TIMEOUT-FIX (PR #498): repository AI reasoning off, ANALYSIS_VERSION 44 -> 45. Compiler, profile and aiMode unchanged. No Phase 3 measurement was run at the old baseline. campaign/fresh-100 contains it (merge 97d16310); @deployz/analysis dist rebuilt 2026-10-08. Intentional aiMode change diagnostic-ai-off -> production-equivalent by Opus after P2-AI-LIVE-VALIDATE COMPLETE (2026-10-08); before any Phase 3 measurement. Commit, compiler and profile unchanged.",
+    "changedAt": "2026-10-08T22:23:06.299Z"
   },
   "candidate": {
     "commit": null,
@@ -223,6 +223,10 @@
     {
       "commit": "e6a3b58ee2363923fef21faca86611fa3bf84538",
       "task": "P2-IMPL-AI-MODE"
+    },
+    {
+      "commit": "e6a3b58ee2363923fef21faca86611fa3bf84538",
+      "task": "P2-AI-LIVE-VALIDATE"
     }
   ],
   "attempts": {
@@ -274,24 +278,19 @@
     "P1-GATE": 1,
     "P2-DESIGN": 1,
     "P2-IMPL-CORPUS-FLAGS": 1,
-    "P2-IMPL-AI-MODE": 1
+    "P2-IMPL-AI-MODE": 1,
+    "P2-AI-LIVE-VALIDATE": 1
   },
   "lastResult": {
-    "task": "P2-IMPL-AI-MODE",
+    "task": "P2-AI-LIVE-VALIDATE",
     "status": "COMPLETE",
-    "at": "2026-10-08T22:16:48.186Z",
+    "at": "2026-10-08T22:23:06.299Z",
     "evidence": [
-      "campaign/results/P2-IMPL-AI-MODE/result.json",
-      "scripts/repository-compatibility/ai-mode.ts",
-      "scripts/repository-compatibility/ai-mode.test.ts",
-      "scripts/repository-compatibility/analyse.ts",
-      "scripts/repository-compatibility/index.ts",
-      "scripts/repository-compatibility/report.ts",
-      "scripts/repository-deployment/index.ts",
-      "scripts/repository-deployment/ai-mode.test.ts",
-      "docs/testing/compatibility.md"
+      "campaign/results/P2-AI-LIVE-VALIDATE/result.json",
+      "campaign/results/P2-AI-LIVE-VALIDATE/stage-a-live/repo-501.json",
+      "campaign/results/P2-AI-LIVE-VALIDATE/stage-a-invalid-key/repo-501.json"
     ],
-    "summary": "Design scope (b), harness commit d19dac55: --ai off|live on Stage A and Stage B, off default (createAiGateway(undefined), no AI request). live reads describeAiGatewayConfig from @deployz/api/ai-config then createAiGateway; fails fast naming AI_GATEWAY_BASE_URL/AI_PROVIDER_API_KEY (the two production requires; design.md agrees) or reused-secret, no values. REPO_AI_TIMEOUT_MS path unchanged (runApplicationAnalysis). Per-result ai {mode, model, requests, outcome, error} with sanitized error; Stage A summary aiByMode/aiByOutcome; runs dir refuses mixed modes. Opus re-ran: pnpm typecheck:scripts exit 0; vitest repository-compatibility + repository-deployment 185/185 (27 new); docs/testing/*/runs unchanged; no apps/ or packages/ change; Stage B gate loop is sequential so per-session instrumentation is per-entry. No live AI request made."
+    "summary": "Worker sonnet, attempt 1. Live test 2/2 (Opus re-ran: 2 passed, 9.3 s and 5.0 s). analyseRepositoryWithAi 4 calls with production options all returned content, max 9566 ms vs 30000 ms budget. Stage A repo-501 --ai live: 1 request, completed, model equal to deployed AI_MODEL (Opus compared by equality). Invalid key in child env only: auth-error (401), not success or fallback. Opus secret scan of results and logs: 0 hits. No apps/packages/scripts/docs change. repo-501 here is a validation run, not a Phase 3 first-run result (its migration fact mismatch is noted only)."
   },
   "gates": {
     "smokeReviewed": true,
@@ -328,8 +327,8 @@
       "detail": "pnpm install --frozen-lockfile (246 s) and pnpm build (385 s, 10/10) at e164b7af on 2026-10-08; lockfile unchanged."
     },
     "ai-gateway": {
-      "status": "BLOCKED",
-      "detail": "Credentials are production-equivalent (equal to the deployed Lambda). Blocked until P1-AI-TIMEOUT-DIAGNOSE, P1-AI-TIMEOUT-FIX, P2-IMPL-AI-MODE and P2-AI-LIVE-VALIDATE are COMPLETE. See aiConfiguration."
+      "status": "AVAILABLE",
+      "detail": "P2-AI-LIVE-VALIDATE COMPLETE 2026-10-08: ai-live.test.ts 2/2 (worker and Opus re-run); analyseRepositoryWithAi 4/4 content, max 9.6 s < 30 s REPO_AI_TIMEOUT_MS; harness --ai live records requests>0 and model equal to deployed AI_MODEL; invalid key recorded as auth-error. Use --ai live with .env loaded (node --env-file=.env)."
     },
     "aws-test-account": {
       "status": "AVAILABLE",
@@ -409,9 +408,9 @@
     "absentInDeployed": [
       "AI_GATEWAY_TOKEN"
     ],
-    "liveValidation": "FAILED, diagnosed 2026-10-08 (P1-AI-TIMEOUT-DIAGNOSE): analyseRepositoryWithAi with production options returns HTTP 200 but finish_reason=length with 0 content (reasoning uses all 2500 completion tokens) in 6/6 attempts, 33-38 s each; the 30 s production budget aborts it. Production repository AI fallback probably never succeeds now. reasoning:false: 2/2 ok in 15.8 s and 19.8 s. Fix queued as P1-AI-TIMEOUT-FIX.",
-    "harnessIntegration": "PENDING: scripts/repository-compatibility/analyse.ts passes createAiGateway(undefined). P2-IMPL-AI-MODE adds an explicit live-AI mode; P2-AI-LIVE-VALIDATE proves live requests, model and failure recording.",
-    "baselineNote": "baseline.aiMode stays diagnostic-ai-off until P2-AI-LIVE-VALIDATE is COMPLETE. Then Opus records the intentional change to production-equivalent before any Phase 3 measurement run."
+    "liveValidation": "PASSED 2026-10-08 (P2-AI-LIVE-VALIDATE): live test 2/2; analyseRepositoryWithAi 9566/7110/7785/6903 ms (small live-test input; real repository prompts can be slower, Phase 3 records per-result outcome); invalid key -> auth-error.",
+    "harnessIntegration": "DONE: --ai live (d19dac55) proven on repo-501: mode live, 1 request, outcome completed, model equal to deployed AI_MODEL.",
+    "baselineNote": "baseline.aiMode is production-equivalent since P2-AI-LIVE-VALIDATE. Phase 3 first-run and Phase 6 holdout runs use --ai live."
   },
   "openPullRequests": [],
   "previousBaselines": [

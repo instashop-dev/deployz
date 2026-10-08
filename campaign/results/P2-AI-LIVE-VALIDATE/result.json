@@ -1,0 +1,85 @@
+{
+  "taskId": "P2-AI-LIVE-VALIDATE",
+  "testedCommit": "e6a3b58ee2363923fef21faca86611fa3bf84538",
+  "executor": "campaign-worker",
+  "model": "sonnet",
+  "proposedStatus": "COMPLETE",
+  "commands": [
+    {
+      "cmd": "DEPLOYZ_LIVE_AI=1 node --env-file=.env node_modules/vitest/vitest.mjs run packages/analysis/test/ai-live.test.ts",
+      "exitCode": 0,
+      "summary": "2 passed, 0 failed, 0 skipped (7.8 s and 4.1 s gateway calls)"
+    },
+    {
+      "cmd": "node --env-file=.env node_modules/tsx/dist/cli.mjs campaign/tmp/ai-latency.ts",
+      "exitCode": 0,
+      "summary": "4 analyseRepositoryWithAi calls with production gateway config and 30 s abort signal, all returned content, max 9566 ms"
+    },
+    {
+      "cmd": "node --env-file=.env tsx scripts/repository-compatibility/index.ts --benchmark campaign/corpus/benchmark.yaml --runs-dir campaign/results/P2-AI-LIVE-VALIDATE/stage-a-live --repo repo-501 --ai live",
+      "exitCode": 0,
+      "summary": "ai mode live, 1 request, outcome completed"
+    },
+    {
+      "cmd": "AI_PROVIDER_API_KEY=<invalid> same harness command, runs-dir stage-a-invalid-key",
+      "exitCode": 0,
+      "summary": "ai mode live, 1 request, outcome auth-error (Unauthorized)"
+    }
+  ],
+  "liveTest": {
+    "passed": 2,
+    "failed": 0,
+    "skipped": 0
+  },
+  "latency": {
+    "calls": [
+      {
+        "ms": 9566,
+        "outcome": "content"
+      },
+      {
+        "ms": 7110,
+        "outcome": "content"
+      },
+      {
+        "ms": 7785,
+        "outcome": "content"
+      },
+      {
+        "ms": 6903,
+        "outcome": "content"
+      }
+    ],
+    "maxMs": 9566,
+    "budgetMs": 30000,
+    "withinBudget": true
+  },
+  "stageA": {
+    "repoId": "repo-501",
+    "runsDir": "campaign/results/P2-AI-LIVE-VALIDATE/stage-a-live",
+    "aiMode": "live (production-equivalent)",
+    "model": "workers-ai/@cf/deepseek-ai/deepseek-v4-flash-0731",
+    "modelEqualsDeployed": true,
+    "requests": 1,
+    "outcome": "completed"
+  },
+  "invalidKey": {
+    "outcome": "auth-error",
+    "errorClass": "AI_APICallError: Unauthorized (HTTP 401)",
+    "recordedAsAuthError": true
+  },
+  "secretsCheck": "0 matches of AI_PROVIDER_API_KEY and AI_GATEWAY_BASE_URL values in 6 result and log files",
+  "evidence": [
+    "campaign/results/P2-AI-LIVE-VALIDATE/stage-a-live/repo-501.json",
+    "campaign/results/P2-AI-LIVE-VALIDATE/stage-a-invalid-key/repo-501.json"
+  ],
+  "notes": [
+    "Worktree HEAD is 4aba1a89, a descendant of e6a3b58e; no apps/ or packages/ change between them. testedCommit records the baseline product commit as instructed.",
+    "Raw logs in campaign/logs/P2-AI-LIVE-VALIDATE/ (ignored); throwaway scripts in campaign/tmp/ (ignored).",
+    "Latency input is the ai-live test monorepo-shaped input (small); real repository prompts are larger, so production latency can be higher. Stage A repo-501 completed inside the budget with a real prompt.",
+    "Stage A repo-501 verdict NEEDS_CONFIGURATION matched; fact mismatch migration (expected true, actual false) is a labeling or product matter for Stage A analysis, not an AI-validation matter.",
+    "Model equality checked against AI_MODEL in .env by string equality: true."
+  ],
+  "startedAt": "2026-10-08T22:10:06Z",
+  "finishedAt": "2026-10-08T22:22:06.520Z"
+}
