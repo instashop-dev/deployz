@@ -1,0 +1,41 @@
+{
+  "taskId": "P1-LABEL-01",
+  "testedCommit": "e6a3b58ee2363923fef21faca86611fa3bf84538",
+  "executor": "campaign-worker",
+  "model": "sonnet",
+  "startedAt": "2026-10-08T00:00:00Z",
+  "finishedAt": "2026-10-08T00:40:00Z",
+  "proposedStatus": "COMPLETE",
+  "commands": [
+    { "command": "gh api repos/<repo>/git/trees/<commit>?recursive=1 (10 repositories)", "exitCode": 0, "summary": "Saved the file tree of each pinned commit to the scratchpad" },
+    { "command": "gh api repos/<repo>/contents/<path>?ref=<commit> (source files only)", "exitCode": 0, "summary": "Read Dockerfiles, compose files, configs and entrypoints; one 404 on a probe path was expected" },
+    { "command": "pnpm exec tsx scratchpad/label-01/validate.mts (first run)", "exitCode": 1, "summary": "One cited koel migration path did not exist; corrected" },
+    { "command": "pnpm exec tsx scratchpad/label-01/validate.mts (second run)", "exitCode": 0, "summary": "10 entries parse with expectedFactsSchema; every expected key has a citation; every cited path exists at the pinned commit" }
+  ],
+  "evidence": [
+    "campaign/corpus/labels/initial-01.yaml",
+    "C:/Users/Tejas/AppData/Local/Temp/claude/C--Users-Tejas-Desktop-deployz-mvp-test/5cc311bc-c178-4216-a942-0671b4c8d527/scratchpad/label-01/validate.mts"
+  ],
+  "summaries": {
+    "repo-501": "NEEDS_CONFIGURATION. Python FastAPI, Postgres, alembic migration in prestart.sh, port 8000. Build context is the repository root, not backend.",
+    "repo-502": "NEEDS_CONFIGURATION. Python Redash, Postgres, Redis, RQ worker and scheduler from the same image, port 5000, /ping.",
+    "repo-503": "NOT_COMPATIBLE. Label Studio keeps media and data in a local data directory (local-filesystem). Postgres by config, port 8080, /health.",
+    "repo-504": "NEEDS_CONFIGURATION. PHP Laravel (Koel) has no Dockerfile. Postgres is supported (default MySQL). Migrations present, /up.",
+    "repo-505": "NEEDS_CONFIGURATION. Java Spring PetClinic has no Dockerfile. Default profile is H2; the postgres profile is needed. /actuator/health.",
+    "repo-506": "NOT_COMPATIBLE. Shiori keeps SQLite and archives in a local data directory; root Dockerfile needs a prebuilt dist binary. Port 8080.",
+    "repo-507": "NEEDS_CONFIGURATION. Payload with-postgres template: Dockerfile needs output standalone and a lockfile; media goes to local disk. Port 3000.",
+    "repo-508": "NEEDS_CONFIGURATION. Gotenberg is a stateless Go API on port 3000, /health. Multi-target Dockerfile (default last target is a Lambda variant).",
+    "repo-509": "NEEDS_CONFIGURATION. Inbox Zero: Postgres, HTTP Redis (Upstash REST protocol), worker from the same image, prisma migrate, port 3000, /api/health.",
+    "repo-510": "NOT_COMPATIBLE. Campfire uses SQLite, local disk storage, and runs Redis and resque workers inside one container. Port 80, /up."
+  },
+  "notes": [
+    "The coordinator gave testedCommit e6a3b58e...; the checkout HEAD at run time was 1c5fb5e67b5886ac1e4668dbe8c7c6e38e2f60a0. The value given by the coordinator is recorded as instructed.",
+    "No Deployz analysis output was read or run. No application code was run or built. No containers were created.",
+    "Open question 1: dockerfilePath and appRoot are written relative to the repository root. Check the convention that the Deployz manifest uses.",
+    "Open question 2: the postgres fact is true when the app supports PostgreSQL by configuration even if its default is SQLite or MySQL (repo-503, 504, 505, 506). Verifiers should confirm this rule.",
+    "Open question 3: the MVP scope lists RDS MySQL 8.0 as supported, but UNSUPPORTED_FAMILIES in normalize.ts still maps mysql to unsupported. Koel was labeled postgres true to avoid this conflict.",
+    "Open question 4: the unsupported list has no SQLite family name; repo-510 uses only local-filesystem and explains SQLite in notes.",
+    "Open question 5: repo-503 and repo-507 are close calls between NOT_COMPATIBLE and NEEDS_CONFIGURATION (local media storage). repo-501 could be READY if the build context can be set.",
+    "Open question 6: the worker label for repo-509 is an assumption because the queue backend can be internal."
+  ]
+}

@@ -4,8 +4,8 @@
   "status": "CONTINUE",
   "phase": 1,
   "currentTask": null,
-  "nextAction": "Run P1-LABEL-01 (campaign-worker) as the first task of the next run (timebox 40 > 38: long-run exception). Give only corpus.json entries with labelBatch 1, manifest.ts and mvp-scope.md.",
-  "updatedAt": "2026-10-08T13:42:56Z",
+  "nextAction": "Run P1-LABEL-02 (campaign-worker) as the first task of the next run (timebox 40 > 38: long-run exception). Give only the labelBatch 2 slice of corpus.json (no source/candidate fields), manifest.ts, normalize.ts UNSUPPORTED_FAMILIES and mvp-scope.md.",
+  "updatedAt": "2026-10-08T14:08:40Z",
   "checkout": {
     "path": "C:/Users/Tejas/Desktop/deployz-mvp-test",
     "kind": "git worktree of C:/Users/Tejas/Desktop/deployz",
@@ -107,6 +107,10 @@
     {
       "commit": "e6a3b58ee2363923fef21faca86611fa3bf84538",
       "task": "P1-FREEZE-CORPUS"
+    },
+    {
+      "commit": "e6a3b58ee2363923fef21faca86611fa3bf84538",
+      "task": "P1-LABEL-01"
     }
   ],
   "attempts": {
@@ -129,13 +133,14 @@
     "P1-SELECT-MESSY-01": 1,
     "P1-SELECT-MESSY-02": 1,
     "P1-SELECT-BOUNDARY-01": 1,
-    "P1-FREEZE-CORPUS": 1
+    "P1-FREEZE-CORPUS": 1,
+    "P1-LABEL-01": 1
   },
   "lastResult": {
-    "taskId": "P1-FREEZE-CORPUS",
+    "taskId": "P1-LABEL-01",
     "status": "COMPLETE",
-    "at": "2026-10-08T13:41:42Z",
-    "summary": "Corpus frozen: campaign/corpus/corpus.json (100 entries repo-501..repo-600; 70 realistic, 20 messy, 10 boundary; no benchmark.yaml id collision), split.json (seed deployz-fresh-100/P1-FREEZE-CORPUS/2026-10-08, sha256 rank per cohort; improvement 56/16/8, holdout 14/4/2), holdout.yaml (20 ids and pins). Holdout membership only in split.json and holdout.yaml; all phase 1-5 worker tasks forbid holdout.yaml."
+    "at": "2026-10-08T14:08:40Z",
+    "summary": "campaign/corpus/labels/initial-01.yaml: 10 source-only labels (repo-501..510). Opus validator (campaign/logs/opus-verify/v.mts, ignored) exit 0: 10/10 expected objects parse with expectedFactsSchema, every fact has a citation, every cited path exists in the gh tree at the pinned commit. Labels: 7 NEEDS_CONFIGURATION, 3 NOT_COMPATIBLE (503, 506, 510). Open label conventions for reconcile: postgres=true when PostgreSQL is supported by configuration; UNSUPPORTED_FAMILIES maps mysql to unsupported but mvp-scope.md lists RDS MySQL; no sqlite family name."
   },
   "gates": {
     "smokeReviewed": true,
@@ -314,6 +319,11 @@
       "task": "P1-SELECT-BOUNDARY-01",
       "runStart": "2026-10-08T13:27:57Z",
       "reason": "First task of the run; timeboxMinutes 40 > 38 and no resumable steps (one 10-candidate selection batch)."
+    },
+    {
+      "task": "P1-LABEL-01",
+      "runStart": "2026-10-08T13:57:56Z",
+      "reason": "First task of the run; timeboxMinutes 40 > 38 and no resumable steps (one 10-app labeling batch)."
     }
   ]
 }
