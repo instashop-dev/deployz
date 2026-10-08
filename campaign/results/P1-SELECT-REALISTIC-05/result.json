@@ -1,0 +1,55 @@
+{
+  "taskId": "P1-SELECT-REALISTIC-05",
+  "testedCommit": "e6a3b58ee2363923fef21faca86611fa3bf84538",
+  "executor": "campaign-worker",
+  "model": "sonnet",
+  "startedAt": "2026-10-08T11:00:00Z",
+  "finishedAt": "2026-10-08T11:47:00.771Z",
+  "proposedStatus": "COMPLETE",
+  "commands": [
+    {
+      "command": "gh api -X GET search/repositories (topic deno, bun, self-hosted deno) and repos/<repo> metadata + contents for about 17 screened repos",
+      "exitCode": 0,
+      "summary": "found Deno (profilarr) and Bun (ConvertX) apps; teslamate/teslamate returned HTTP 404 (exit 1) and was replaced by teslamate-org/teslamate; lobsters dropped (no root Dockerfile)"
+    },
+    {
+      "command": "node gen.mjs (scratchpad): gh api repos/<repo>/commits/<defaultBranch> then repos/<repo>/commits/<sha>, 10 repos",
+      "exitCode": 0,
+      "summary": "HEAD SHA pinned and re-read; returned SHA equals pinned SHA for all 10"
+    },
+    {
+      "command": "gh api repos/<repo>/contents/<path>?ref=<sha> for entry and build file, 10 repos",
+      "exitCode": 0,
+      "summary": "all 20 paths are type file at the pinned commit"
+    },
+    {
+      "command": "gh api repos/<repo>/commits/<sha>/check-runs and /status, 10 repos",
+      "exitCode": 0,
+      "summary": "CI summary recorded (informational)"
+    },
+    {
+      "command": "node exclusion checks in gen.mjs against excluded-families.json, realistic-01..04.json, benchmark.yaml",
+      "exitCode": 0,
+      "summary": "all 10 clear; 0 benchmark.yaml hits"
+    }
+  ],
+  "evidence": [
+    "campaign/corpus/candidates/realistic-05.json",
+    "campaign/results/P1-SELECT-REALISTIC-05/result.json"
+  ],
+  "notes": [
+    "No candidate was cloned, built or analyzed. gh api reads only. Forbidden inputs not read.",
+    "Runtimes: Deno (profilarr), Bun (ConvertX), Elixir, .NET, Go x2, Node, Python, PHP, Ruby. No Rust this batch. Root Dockerfile present for 9 of 10 (not leantime).",
+    "Risk profilarr: Risk: Deno runtime is rare; Dockerfile.parser is a second Dockerfile; develop is default branch; data is a mounted config dir (storage by local data, not S3); needs Radarr/Sonarr to be useful but starts alone.",
+    "Risk convertx: Risk: converter binaries (ffmpeg, imagemagick etc.) are installed in the image, heavy image; SQLite and uploads need a persistent dir; auth setup on first run; JWT secret env.",
+    "Risk teslamate: Risk: app lives under elixir/ subdirectory while Dockerfile is at root; Grafana dashboards are a separate service; needs Tesla API token at runtime for real use, but boots without it; MQTT broker optional.",
+    "Risk kavita: Risk: default branch is develop; sqlite on config dir; needs mounted library folder; Dockerfile uses prebuilt build artifacts (build.sh, copy_runtime.sh) so root Docker build may not be self-contained; Angular UI in UI/.",
+    "Risk remark42: Risk: Go module is in backend/ not root; BoltDB file needs persistent dir; SECRET and SITE env required; frontend built in Dockerfile.",
+    "Risk etherpad: Risk: default DB is dirty file on disk, Postgres is optional config; pnpm workspace; default branch develop; plugins install at runtime; settings.json.docker.",
+    "Risk bakerydemo: Risk: demo/sample site rather than product; SQLite default, Postgres via DATABASE_URL; media uploads on local disk; Node build for static assets; Procfile and heroku.yml also present.",
+    "Risk leantime: Risk: needs MySQL/MariaDB, which is outside Postgres-only MVP data scope (expect unsupported datastore); Dockerfile is under .docker/ not root; file uploads on local disk.",
+    "Risk zammad: Risk: very large app; official image is multi-process (web, websocket, scheduler) in one Dockerfile; Elasticsearch optional and not supported by MVP; storage defaults to DB or filesystem.",
+    "Risk ntfy: Risk: Dockerfile expects prebuilt binary from goreleaser (copies from build context); web app in web/ built by make; SQLite cache and attachment dirs optional; Postgres supported in newer versions.",
+    "CI: teslamate failure=2 and remark42 failure=2 check runs at pinned commit; zammad has no GitHub check runs (uses GitLab CI). Informational only."
+  ]
+}

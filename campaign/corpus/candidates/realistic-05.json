@@ -1,0 +1,497 @@
+{
+  "taskId": "P1-SELECT-REALISTIC-05",
+  "testedCommit": "e6a3b58ee2363923fef21faca86611fa3bf84538",
+  "cohort": "realistic",
+  "exclusionCheck": {
+    "method": "Each candidate owner/repo (current name from gh api) compared case-insensitively by script against all \"repository\" values in campaign/corpus/excluded-families.json and repo values in realistic-01..04.json; repo name and id compared against all \"family\" values, all repo-name parts of excluded repositories, and ids and repo names of realistic-01..04. Project names whole-word grepped (case-insensitive, hyphen-aware) in docs/testing/repository-compatibility/benchmark.yaml. gh api confirmed fork=false and archived=false for all. teslamate/teslamate returned 404 (moved) and was replaced by teslamate-org/teslamate; lobsters/lobsters was dropped because it has only Dockerfile.dev.",
+    "perCandidate": [
+      {
+        "id": "profilarr",
+        "repo": "Dictionarry-Hub/profilarr",
+        "ownerRepoMatch": false,
+        "familyNameMatch": false,
+        "benchmarkYamlWholeWordHits": 0,
+        "fork": false,
+        "result": "clear"
+      },
+      {
+        "id": "convertx",
+        "repo": "C4illin/ConvertX",
+        "ownerRepoMatch": false,
+        "familyNameMatch": false,
+        "benchmarkYamlWholeWordHits": 0,
+        "fork": false,
+        "result": "clear"
+      },
+      {
+        "id": "teslamate",
+        "repo": "teslamate-org/teslamate",
+        "ownerRepoMatch": false,
+        "familyNameMatch": false,
+        "benchmarkYamlWholeWordHits": 0,
+        "fork": false,
+        "result": "clear"
+      },
+      {
+        "id": "kavita",
+        "repo": "Kareadita/Kavita",
+        "ownerRepoMatch": false,
+        "familyNameMatch": false,
+        "benchmarkYamlWholeWordHits": 0,
+        "fork": false,
+        "result": "clear"
+      },
+      {
+        "id": "remark42",
+        "repo": "umputun/remark42",
+        "ownerRepoMatch": false,
+        "familyNameMatch": false,
+        "benchmarkYamlWholeWordHits": 0,
+        "fork": false,
+        "result": "clear"
+      },
+      {
+        "id": "etherpad",
+        "repo": "ether/etherpad",
+        "ownerRepoMatch": false,
+        "familyNameMatch": false,
+        "benchmarkYamlWholeWordHits": 0,
+        "fork": false,
+        "result": "clear"
+      },
+      {
+        "id": "bakerydemo",
+        "repo": "wagtail/bakerydemo",
+        "ownerRepoMatch": false,
+        "familyNameMatch": false,
+        "benchmarkYamlWholeWordHits": 0,
+        "fork": false,
+        "result": "clear"
+      },
+      {
+        "id": "leantime",
+        "repo": "Leantime/leantime",
+        "ownerRepoMatch": false,
+        "familyNameMatch": false,
+        "benchmarkYamlWholeWordHits": 0,
+        "fork": false,
+        "result": "clear"
+      },
+      {
+        "id": "zammad",
+        "repo": "zammad/zammad",
+        "ownerRepoMatch": false,
+        "familyNameMatch": false,
+        "benchmarkYamlWholeWordHits": 0,
+        "fork": false,
+        "result": "clear"
+      },
+      {
+        "id": "ntfy",
+        "repo": "binwiederhier/ntfy",
+        "ownerRepoMatch": false,
+        "familyNameMatch": false,
+        "benchmarkYamlWholeWordHits": 0,
+        "fork": false,
+        "result": "clear"
+      }
+    ]
+  },
+  "candidates": [
+    {
+      "id": "profilarr",
+      "family": "deno",
+      "repo": "Dictionarry-Hub/profilarr",
+      "defaultBranch": "develop",
+      "commit": "7fec444c1dc660b261b72c55a685b9e8f6957ea6",
+      "commitVerified": {
+        "call": "gh api repos/Dictionarry-Hub/profilarr/commits/7fec444c1dc660b261b72c55a685b9e8f6957ea6",
+        "returnedSha": "7fec444c1dc660b261b72c55a685b9e8f6957ea6",
+        "matches": true
+      },
+      "license": "AGPL-3.0",
+      "archived": false,
+      "fork": false,
+      "pushedAt": "2026-10-08T11:29:15Z",
+      "cohort": "realistic",
+      "runtime": "deno (SvelteKit on Deno)",
+      "expectedNeeds": [
+        "storage"
+      ],
+      "selectionReason": "Deno-based Radarr/Sonarr config manager web app with root Dockerfile and deno.jsonc; SQLite data dir on storage. Covers the Deno requirement.",
+      "validity": {
+        "entryPoint": {
+          "path": "src/hooks.server.ts",
+          "type": "file",
+          "confirmedAtCommit": true
+        },
+        "buildFile": {
+          "path": "deno.jsonc",
+          "type": "file",
+          "confirmedAtCommit": true
+        },
+        "ci": {
+          "checkRuns": "skipped=1,success=10",
+          "combinedStatus": "pending",
+          "note": "informational only; unknown/mixed is acceptable"
+        }
+      }
+    },
+    {
+      "id": "convertx",
+      "family": "bun",
+      "repo": "C4illin/ConvertX",
+      "defaultBranch": "main",
+      "commit": "70675b9910d6827bbdb7f27e7bd96f23237e3a4f",
+      "commitVerified": {
+        "call": "gh api repos/C4illin/ConvertX/commits/70675b9910d6827bbdb7f27e7bd96f23237e3a4f",
+        "returnedSha": "70675b9910d6827bbdb7f27e7bd96f23237e3a4f",
+        "matches": true
+      },
+      "license": "AGPL-3.0",
+      "archived": false,
+      "fork": false,
+      "pushedAt": "2026-10-07T13:48:45Z",
+      "cohort": "realistic",
+      "runtime": "bun (Elysia)",
+      "expectedNeeds": [
+        "storage"
+      ],
+      "selectionReason": "Self-hosted file converter on Bun/Elysia with root Dockerfile; SQLite and uploads on storage. Covers the Bun requirement.",
+      "validity": {
+        "entryPoint": {
+          "path": "src/index.tsx",
+          "type": "file",
+          "confirmedAtCommit": true
+        },
+        "buildFile": {
+          "path": "package.json",
+          "type": "file",
+          "confirmedAtCommit": true
+        },
+        "ci": {
+          "checkRuns": "success=8",
+          "combinedStatus": "pending",
+          "note": "informational only; unknown/mixed is acceptable"
+        }
+      }
+    },
+    {
+      "id": "teslamate",
+      "family": "elixir",
+      "repo": "teslamate-org/teslamate",
+      "defaultBranch": "main",
+      "commit": "96119f65a98ecc2f6d3584c07af4d0b952326daa",
+      "commitVerified": {
+        "call": "gh api repos/teslamate-org/teslamate/commits/96119f65a98ecc2f6d3584c07af4d0b952326daa",
+        "returnedSha": "96119f65a98ecc2f6d3584c07af4d0b952326daa",
+        "matches": true
+      },
+      "license": "AGPL-3.0",
+      "archived": false,
+      "fork": false,
+      "pushedAt": "2026-10-07T08:02:33Z",
+      "cohort": "realistic",
+      "runtime": "elixir (Phoenix)",
+      "expectedNeeds": [
+        "postgres"
+      ],
+      "selectionReason": "Tesla data logger Phoenix app with root Dockerfile; Postgres required, MQTT optional.",
+      "validity": {
+        "entryPoint": {
+          "path": "elixir/mix.exs",
+          "type": "file",
+          "confirmedAtCommit": true
+        },
+        "buildFile": {
+          "path": "elixir/mix.exs",
+          "type": "file",
+          "confirmedAtCommit": true
+        },
+        "ci": {
+          "checkRuns": "failure=2,skipped=14,success=14",
+          "combinedStatus": "pending",
+          "note": "informational only; unknown/mixed is acceptable"
+        }
+      }
+    },
+    {
+      "id": "kavita",
+      "family": "dotnet",
+      "repo": "Kareadita/Kavita",
+      "defaultBranch": "develop",
+      "commit": "f75863cb77c0f6aa26e0794a1848294e63c9d07d",
+      "commitVerified": {
+        "call": "gh api repos/Kareadita/Kavita/commits/f75863cb77c0f6aa26e0794a1848294e63c9d07d",
+        "returnedSha": "f75863cb77c0f6aa26e0794a1848294e63c9d07d",
+        "matches": true
+      },
+      "license": "GPL-3.0",
+      "archived": false,
+      "fork": false,
+      "pushedAt": "2026-10-08T11:36:54Z",
+      "cohort": "realistic",
+      "runtime": "dotnet (ASP.NET Core + Angular)",
+      "expectedNeeds": [
+        "storage"
+      ],
+      "selectionReason": "Self-hosted manga/book server on .NET with root Dockerfile; SQLite and media library on storage.",
+      "validity": {
+        "entryPoint": {
+          "path": "Kavita.Server/Program.cs",
+          "type": "file",
+          "confirmedAtCommit": true
+        },
+        "buildFile": {
+          "path": "Kavita.sln",
+          "type": "file",
+          "confirmedAtCommit": true
+        },
+        "ci": {
+          "checkRuns": "success=1",
+          "combinedStatus": "pending",
+          "note": "informational only; unknown/mixed is acceptable"
+        }
+      }
+    },
+    {
+      "id": "remark42",
+      "family": "go",
+      "repo": "umputun/remark42",
+      "defaultBranch": "master",
+      "commit": "419ef4f0bd817e9217a5ce0d808fb3acc192972d",
+      "commitVerified": {
+        "call": "gh api repos/umputun/remark42/commits/419ef4f0bd817e9217a5ce0d808fb3acc192972d",
+        "returnedSha": "419ef4f0bd817e9217a5ce0d808fb3acc192972d",
+        "matches": true
+      },
+      "license": "MIT",
+      "archived": false,
+      "fork": false,
+      "pushedAt": "2026-10-01T11:54:58Z",
+      "cohort": "realistic",
+      "runtime": "go (Go + Preact)",
+      "expectedNeeds": [
+        "storage"
+      ],
+      "selectionReason": "Comment engine in Go with root Dockerfile; embedded BoltDB on storage, stateless otherwise.",
+      "validity": {
+        "entryPoint": {
+          "path": "backend/app/main.go",
+          "type": "file",
+          "confirmedAtCommit": true
+        },
+        "buildFile": {
+          "path": "backend/go.mod",
+          "type": "file",
+          "confirmedAtCommit": true
+        },
+        "ci": {
+          "checkRuns": "failure=2,skipped=23,success=5",
+          "combinedStatus": "pending",
+          "note": "informational only; unknown/mixed is acceptable"
+        }
+      }
+    },
+    {
+      "id": "etherpad",
+      "family": "node",
+      "repo": "ether/etherpad",
+      "defaultBranch": "develop",
+      "commit": "8b6f9e462f712c3d15d8941e85e12f70dc4693f4",
+      "commitVerified": {
+        "call": "gh api repos/ether/etherpad/commits/8b6f9e462f712c3d15d8941e85e12f70dc4693f4",
+        "returnedSha": "8b6f9e462f712c3d15d8941e85e12f70dc4693f4",
+        "matches": true
+      },
+      "license": "Apache-2.0",
+      "archived": false,
+      "fork": false,
+      "pushedAt": "2026-10-07T15:58:45Z",
+      "cohort": "realistic",
+      "runtime": "node (pnpm workspace)",
+      "expectedNeeds": [
+        "postgres"
+      ],
+      "selectionReason": "Collaborative editor Node app with root Dockerfile; Postgres supported, dirty-file default.",
+      "validity": {
+        "entryPoint": {
+          "path": "src/node/server.ts",
+          "type": "file",
+          "confirmedAtCommit": true
+        },
+        "buildFile": {
+          "path": "package.json",
+          "type": "file",
+          "confirmedAtCommit": true
+        },
+        "ci": {
+          "checkRuns": "success=7",
+          "combinedStatus": "pending",
+          "note": "informational only; unknown/mixed is acceptable"
+        }
+      }
+    },
+    {
+      "id": "bakerydemo",
+      "family": "python",
+      "repo": "wagtail/bakerydemo",
+      "defaultBranch": "main",
+      "commit": "c8f8255593c0efcfab5fef2fb19d60895227748a",
+      "commitVerified": {
+        "call": "gh api repos/wagtail/bakerydemo/commits/c8f8255593c0efcfab5fef2fb19d60895227748a",
+        "returnedSha": "c8f8255593c0efcfab5fef2fb19d60895227748a",
+        "matches": true
+      },
+      "license": "BSD-3-Clause",
+      "archived": false,
+      "fork": false,
+      "pushedAt": "2026-10-08T08:26:44Z",
+      "cohort": "realistic",
+      "runtime": "python (Django, Wagtail)",
+      "expectedNeeds": [
+        "postgres",
+        "storage"
+      ],
+      "selectionReason": "Wagtail CMS demo site with root Dockerfile and manage.py; Postgres supported, media uploads.",
+      "validity": {
+        "entryPoint": {
+          "path": "manage.py",
+          "type": "file",
+          "confirmedAtCommit": true
+        },
+        "buildFile": {
+          "path": "requirements.txt",
+          "type": "file",
+          "confirmedAtCommit": true
+        },
+        "ci": {
+          "checkRuns": "success=30",
+          "combinedStatus": "pending",
+          "note": "informational only; unknown/mixed is acceptable"
+        }
+      }
+    },
+    {
+      "id": "leantime",
+      "family": "php",
+      "repo": "Leantime/leantime",
+      "defaultBranch": "master",
+      "commit": "dab5daae888b2148b6af80453402a5ae88cf6b56",
+      "commitVerified": {
+        "call": "gh api repos/Leantime/leantime/commits/dab5daae888b2148b6af80453402a5ae88cf6b56",
+        "returnedSha": "dab5daae888b2148b6af80453402a5ae88cf6b56",
+        "matches": true
+      },
+      "license": "AGPL-3.0",
+      "archived": false,
+      "fork": false,
+      "pushedAt": "2026-10-07T16:40:03Z",
+      "cohort": "realistic",
+      "runtime": "php (Laravel-style, custom)",
+      "expectedNeeds": [
+        "mysql",
+        "storage"
+      ],
+      "selectionReason": "Project management PHP app; MySQL required, user file uploads.",
+      "validity": {
+        "entryPoint": {
+          "path": "index.php",
+          "type": "file",
+          "confirmedAtCommit": true
+        },
+        "buildFile": {
+          "path": "composer.json",
+          "type": "file",
+          "confirmedAtCommit": true
+        },
+        "ci": {
+          "checkRuns": "success=12",
+          "combinedStatus": "pending",
+          "note": "informational only; unknown/mixed is acceptable"
+        }
+      }
+    },
+    {
+      "id": "zammad",
+      "family": "ruby",
+      "repo": "zammad/zammad",
+      "defaultBranch": "develop",
+      "commit": "abbd632a08bf6468467ce1a093c3b50744008f95",
+      "commitVerified": {
+        "call": "gh api repos/zammad/zammad/commits/abbd632a08bf6468467ce1a093c3b50744008f95",
+        "returnedSha": "abbd632a08bf6468467ce1a093c3b50744008f95",
+        "matches": true
+      },
+      "license": "AGPL-3.0",
+      "archived": false,
+      "fork": false,
+      "pushedAt": "2026-10-08T10:51:30Z",
+      "cohort": "realistic",
+      "runtime": "ruby (Rails)",
+      "expectedNeeds": [
+        "postgres",
+        "redis",
+        "worker",
+        "storage"
+      ],
+      "selectionReason": "Helpdesk Rails app with root Dockerfile; Postgres, Redis, background scheduler/worker, Elasticsearch optional.",
+      "validity": {
+        "entryPoint": {
+          "path": "config.ru",
+          "type": "file",
+          "confirmedAtCommit": true
+        },
+        "buildFile": {
+          "path": "Gemfile",
+          "type": "file",
+          "confirmedAtCommit": true
+        },
+        "ci": {
+          "checkRuns": "none",
+          "combinedStatus": "pending",
+          "note": "informational only; unknown/mixed is acceptable"
+        }
+      }
+    },
+    {
+      "id": "ntfy",
+      "family": "go",
+      "repo": "binwiederhier/ntfy",
+      "defaultBranch": "main",
+      "commit": "b475ae8851f4d1519d150091a446debf6f24b11b",
+      "commitVerified": {
+        "call": "gh api repos/binwiederhier/ntfy/commits/b475ae8851f4d1519d150091a446debf6f24b11b",
+        "returnedSha": "b475ae8851f4d1519d150091a446debf6f24b11b",
+        "matches": true
+      },
+      "license": "Apache-2.0",
+      "archived": false,
+      "fork": false,
+      "pushedAt": "2026-10-08T02:33:45Z",
+      "cohort": "realistic",
+      "runtime": "go (Go + React)",
+      "expectedNeeds": [
+        "storage"
+      ],
+      "selectionReason": "Pub-sub notification server in Go with root Dockerfile; SQLite caches on storage; small stateless-leaning service.",
+      "validity": {
+        "entryPoint": {
+          "path": "main.go",
+          "type": "file",
+          "confirmedAtCommit": true
+        },
+        "buildFile": {
+          "path": "go.mod",
+          "type": "file",
+          "confirmedAtCommit": true
+        },
+        "ci": {
+          "checkRuns": "success=3",
+          "combinedStatus": "pending",
+          "note": "informational only; unknown/mixed is acceptable"
+        }
+      }
+    }
+  ]
+}
