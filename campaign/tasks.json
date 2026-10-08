@@ -1009,7 +1009,7 @@
       "phase": 1,
       "title": "Initial expected-behavior labels for corpus batch 8 (10 apps) from source only",
       "executor": "campaign-worker",
-      "status": "PENDING",
+      "status": "COMPLETE",
       "prerequisites": [
         "P1-FREEZE-CORPUS"
       ],

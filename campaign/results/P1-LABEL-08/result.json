@@ -1,0 +1,45 @@
+{
+  "taskId": "P1-LABEL-08",
+  "testedCommit": "e6a3b58ee2363923fef21faca86611fa3bf84538",
+  "executor": "campaign-worker",
+  "model": "sonnet",
+  "startedAt": "2026-10-08T15:20:00Z",
+  "finishedAt": "2026-10-08T15:48:00Z",
+  "proposedStatus": "COMPLETE",
+  "commands": [
+    { "command": "gh api repos/<repo>/git/trees/<commit>?recursive=1 (10 repos)", "exitCode": 0, "summary": "Listed the file tree of each app at its pinned commit." },
+    { "command": "gh api -H 'Accept: application/vnd.github.raw' repos/<repo>/contents/<path>?ref=<commit> (many files)", "exitCode": 0, "summary": "Read Dockerfiles, configs, manifests and entrypoints at the pinned commits; a few probes for missing paths returned 404 and were not used." },
+    { "command": "npx tsx <scratchpad>/validate.ts <scratchpad>", "exitCode": 0, "summary": "YAML parse, expectedFactsSchema parse, id/repo/commit equal to slice, every fact has citations, every cited path exists in the pinned tree: 0 failures." }
+  ],
+  "evidence": [
+    "campaign/corpus/labels/initial-08.yaml"
+  ],
+  "notes": [
+    "Source only. No Deployz analysis was run and no Deployz result was read.",
+    "Convention: postgres/redis are true only when the default or required configuration uses them. SQLite or H2 defaults give postgres false even if PostgreSQL is an optional backend (anything-llm, lobsters, traccar, woodpecker, lldap).",
+    "Convention: migration is set only when a migration command exists in an entrypoint, release script, compose command or install step. It is omitted when migrations run implicitly in-process (lobsters, traccar, btcpayserver, woodpecker, lldap). storage is omitted for all apps (no S3 requirement).",
+    "Convention: dockerfilePath is relative to the repository root. It is omitted when the repo has no usable application Dockerfile (lobsters has only Dockerfile.dev, akaunting has none, traccar Dockerfiles need a release zip that is not in the repo).",
+    "repo-571 firezone: NEEDS_CONFIGURATION. Dockerfile needs the APPLICATION_NAME build arg, and the listener port has no default (env only). Port left unset. Health /readyz from Portal.Health plug.",
+    "repo-572 anything-llm: NOT_COMPATIBLE. SQLite datasource and local storage dir; PostgreSQL needs a schema edit. SQLite is not in the UNSUPPORTED_FAMILIES names I was allowed to use, so unsupported is not set.",
+    "repo-573 mem0 server: NEEDS_CONFIGURATION. Dockerfile CMD does not run alembic (only the compose command does); second database mem0_app needed; no dedicated health route, so /auth/setup-status (used by the Makefile) is the health path.",
+    "repo-574 lobsters: NOT_COMPATIBLE. Production database.yml.sample is SQLite only (four database files) and storage is on local disk; no production Dockerfile. worker true from Procfile.dev job: bin/jobs. SQLite name not available for unsupported.",
+    "repo-575 traccar: NOT_COMPATIBLE. Dockerfiles copy a prebuilt release zip; GPS device TCP ports 5000-5500; default embedded H2 (unsupported other-database, the map name for h2). jedis is optional so redis false.",
+    "repo-576 btcpayserver: NOT_COMPATIBLE. Needs NBXplorer plus a Bitcoin node (external long-running services) and a /datadir volume. Port left unset because the default Kestrel port was not found in source. Postgres is required (SQLite and MySQL rejected). Auto-migration is in-process, so migration is omitted.",
+    "repo-577 woodpecker: NOT_COMPATIBLE. Server Dockerfile copies a prebuilt dist binary; default sqlite3; separate agent service with Docker socket and gRPC 9000. Worker false because the agent is a separate image.",
+    "repo-578 lldap: NOT_COMPATIBLE. Core service is LDAP on TCP 3890, /data config and SQLite default. Port 17170 is the web UI. No HTTP health route found, so healthPath is omitted (healthcheck is an LDAP check).",
+    "repo-579 akaunting: NOT_COMPATIBLE. No Dockerfile, default DB_CONNECTION mysql (unsupported mysql), web installer writes .env. Laravel also supports pgsql, so this is a judgment call that could be NEEDS_CONFIGURATION if a reviewer prefers it.",
+    "repo-580 keeper.sh: NEEDS_CONFIGURATION. docker/services/Dockerfile bundles web, api, cron and worker under s6 with Postgres and Redis. Browser calls the API on port 3001, so a second public route needs configuration. A standalone Dockerfile that bundles Postgres and Redis also exists; the services Dockerfile was chosen."
+  ],
+  "summary": [
+    "repo-571 firezone/firezone: NEEDS_CONFIGURATION, elixir, postgres, migration, health /readyz",
+    "repo-572 Mintplex-Labs/anything-llm: NOT_COMPATIBLE, SQLite plus local storage",
+    "repo-573 mem0ai/mem0: NEEDS_CONFIGURATION, FastAPI with pgvector Postgres, migration command missing in image",
+    "repo-574 lobsters/lobsters: NOT_COMPATIBLE, SQLite only, solid_queue worker",
+    "repo-575 traccar/traccar: NOT_COMPATIBLE, H2 default, release-zip Dockerfile, device TCP ports",
+    "repo-576 btcpayserver/btcpayserver: NOT_COMPATIBLE, needs NBXplorer and Bitcoin node",
+    "repo-577 woodpecker-ci/woodpecker: NOT_COMPATIBLE, prebuilt-binary Dockerfile, sqlite, separate agent",
+    "repo-578 lldap/lldap: NOT_COMPATIBLE, LDAP TCP service, SQLite and /data volume",
+    "repo-579 akaunting/akaunting: NOT_COMPATIBLE, MySQL default, no Dockerfile",
+    "repo-580 ridafkih/keeper.sh: NEEDS_CONFIGURATION, Bun, Postgres, Redis, worker and cron"
+  ]
+}
