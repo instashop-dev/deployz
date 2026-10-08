@@ -1513,7 +1513,7 @@
       "phase": 1,
       "title": "Reconcile initial and verification labels for batches 1 and 2 against source files",
       "executor": "campaign-worker",
-      "status": "PENDING",
+      "status": "COMPLETE",
       "prerequisites": [
         "P1-VERIFY-01",
         "P1-VERIFY-02"
@@ -1543,7 +1543,9 @@
         "Apps found invalid are marked REPO_INVALID with evidence, not dropped silently"
       ],
       "timeboxMinutes": 40,
-      "notes": []
+      "notes": [
+        "2026-10-08: COMPLETE. Rule set R1 in campaign/corpus/label-rules.md (Opus) applies to P1-RECONCILE-01..05."
+      ]
     },
     {
       "id": "P1-RECONCILE-02",
@@ -1561,7 +1563,8 @@
         "campaign/corpus/labels/initial-03.yaml",
         "campaign/corpus/labels/verify-03.yaml",
         "campaign/corpus/labels/initial-04.yaml",
-        "campaign/corpus/labels/verify-04.yaml"
+        "campaign/corpus/labels/verify-04.yaml",
+        "campaign/corpus/label-rules.md"
       ],
       "forbiddenInputs": [
         "campaign/corpus/holdout.yaml",
@@ -1598,7 +1601,8 @@
         "campaign/corpus/labels/initial-05.yaml",
         "campaign/corpus/labels/verify-05.yaml",
         "campaign/corpus/labels/initial-06.yaml",
-        "campaign/corpus/labels/verify-06.yaml"
+        "campaign/corpus/labels/verify-06.yaml",
+        "campaign/corpus/label-rules.md"
       ],
       "forbiddenInputs": [
         "campaign/corpus/holdout.yaml",
@@ -1635,7 +1639,8 @@
         "campaign/corpus/labels/initial-07.yaml",
         "campaign/corpus/labels/verify-07.yaml",
         "campaign/corpus/labels/initial-08.yaml",
-        "campaign/corpus/labels/verify-08.yaml"
+        "campaign/corpus/labels/verify-08.yaml",
+        "campaign/corpus/label-rules.md"
       ],
       "forbiddenInputs": [
         "campaign/corpus/holdout.yaml",
@@ -1672,7 +1677,8 @@
         "campaign/corpus/labels/initial-09.yaml",
         "campaign/corpus/labels/verify-09.yaml",
         "campaign/corpus/labels/initial-10.yaml",
-        "campaign/corpus/labels/verify-10.yaml"
+        "campaign/corpus/labels/verify-10.yaml",
+        "campaign/corpus/label-rules.md"
       ],
       "forbiddenInputs": [
         "campaign/corpus/holdout.yaml",

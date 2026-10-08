@@ -1,0 +1,831 @@
+# Final reconciled labels (rule set R1). Source files at the pinned commit decide every value.
+taskId: P1-RECONCILE-01
+testedCommit: e6a3b58ee2363923fef21faca86611fa3bf84538
+rules: R1
+apps:
+  - id: repo-501
+    repo: fastapi/full-stack-fastapi-template
+    commit: f27b4721507824e57ebd0286ff1a84d82e83bf59
+    finalStatus: LABELED
+    expected:
+      compatibility: NEEDS_CONFIGURATION
+      runtime:
+        - python
+      monorepo: true
+      postgres: true
+      redis: false
+      worker: false
+      migration: true
+      appRoot: backend
+      dockerfilePath: backend/Dockerfile
+      port: 8000
+      healthPath: /api/v1/utils/health-check/
+    citations:
+      compatibility:
+        - path: backend/app/core/config.py
+          reason: SECRET_KEY, FIRST_SUPERUSER and FIRST_SUPERUSER_PASSWORD have no default; the app cannot start without them
+        - path: backend/Dockerfile
+          reason: COPY paths are relative to the repository root (./backend/..., ./frontend), so the build context is not the app root; no EXPOSE
+        - path: compose.yml
+          reason: Build context is the repository root and backend env values are marked required
+      runtime:
+        - path: backend/pyproject.toml
+          reason: Python >=3.14 FastAPI project
+      monorepo:
+        - path: pyproject.toml
+          reason: uv workspace with member backend; the frontend is a separate package at the repository root
+        - path: backend/Dockerfile
+          reason: Builds the frontend and the backend from the repository root
+      postgres:
+        - path: backend/app/core/config.py
+          reason: DATABASE_URL is a PostgresDsn, rewritten to the postgresql+psycopg scheme
+        - path: compose.yml
+          reason: db service is postgres
+      redis:
+        - path: backend/pyproject.toml
+          reason: No Redis dependency
+      worker:
+        - path: backend/Dockerfile
+          reason: Single CMD fastapi run; no worker process declared
+        - path: compose.yml
+          reason: Only backend, db, proxy and adminer services
+      migration:
+        - path: backend/scripts/prestart.sh
+          reason: alembic upgrade head, then creates initial data
+        - path: backend/alembic.ini
+          reason: Alembic configuration
+      appRoot:
+        - path: backend/pyproject.toml
+          reason: Backend application subtree given by the batch slice
+      dockerfilePath:
+        - path: backend/Dockerfile
+          reason: Dockerfile is in the backend directory
+      port:
+        - path: compose.yml
+          reason: Backend healthcheck and traefik port use 8000 (fastapi run default)
+      healthPath:
+        - path: backend/app/api/routes/utils.py
+          reason: GET /utils/health-check/ under the /api/v1 prefix
+        - path: compose.yml
+          reason: Healthcheck curls http://localhost:8000/api/v1/utils/health-check/
+    reconciliation:
+      - field: compatibility
+        initial: NEEDS_CONFIGURATION
+        verify: READY
+        final: NEEDS_CONFIGURATION
+        rule: R1
+        evidence:
+          - path: backend/app/core/config.py
+            reason: SECRET_KEY, FIRST_SUPERUSER, FIRST_SUPERUSER_PASSWORD are required without defaults
+          - path: backend/Dockerfile
+            reason: Build context is the repository root, not the app root
+    notes:
+      - "NEEDS_CONFIGURATION: required secrets and a repository-root build context. Migration (alembic upgrade head) runs from scripts/prestart.sh, not from the image CMD."
+      - No EXPOSE; port 8000 is the fastapi run default.
+  - id: repo-502
+    repo: getredash/redash
+    commit: e170795256ae028930e4760192e5dc3f59bb420c
+    finalStatus: LABELED
+    expected:
+      compatibility: NEEDS_CONFIGURATION
+      runtime: &a1
+        - python
+      monorepo: false
+      postgres: true
+      redis: true
+      worker: true
+      migration: true
+      appRoot: .
+      dockerfilePath: Dockerfile
+      port: 5000
+      healthPath: /ping
+    citations:
+      compatibility:
+        - path: redash/settings/__init__.py
+          reason: REDASH_COOKIE_SECRET is required; startup fails without it
+        - path: bin/docker-entrypoint
+          reason: Image CMD is server only; worker and scheduler need the arguments worker and scheduler, and database tables need create_db
+        - path: Dockerfile
+          reason: Final stage is python:3.13; ENTRYPOINT docker-entrypoint, CMD server
+      runtime:
+        - path: Dockerfile
+          reason: Final stage is python:3.13-slim; Node is used only in the frontend-builder stage
+      monorepo:
+        - path: pnpm-workspace.yaml
+          reason: Workspace holds the frontend and viz-lib packages that build into one Python app image; judged a single application
+      postgres:
+        - path: compose.yaml
+          reason: REDASH_DATABASE_URL is postgresql://
+      redis:
+        - path: compose.yaml
+          reason: REDASH_REDIS_URL; RQ queues need Redis
+      worker:
+        - path: bin/docker-entrypoint
+          reason: worker (RQ via supervisord) and scheduler commands
+        - path: worker.conf
+          reason: supervisord program runs manage.py rq worker
+      migration:
+        - path: migrations/alembic.ini
+          reason: Alembic migrations in migrations/versions
+        - path: bin/docker-entrypoint
+          reason: create_db command creates tables for a first install
+      appRoot:
+        - path: Dockerfile
+          reason: Dockerfile at the repository root
+      dockerfilePath:
+        - path: Dockerfile
+          reason: Root Dockerfile
+      port:
+        - path: Dockerfile
+          reason: EXPOSE 5000
+        - path: bin/docker-entrypoint
+          reason: gunicorn binds [::]:5000 by default
+      healthPath:
+        - path: redash/handlers/__init__.py
+          reason: GET /ping route
+    reconciliation:
+      - field: compatibility
+        initial: NEEDS_CONFIGURATION
+        verify: READY
+        final: NEEDS_CONFIGURATION
+        rule: R1
+        evidence:
+          - path: redash/settings/__init__.py
+            reason: REDASH_COOKIE_SECRET is required
+          - path: bin/docker-entrypoint
+            reason: Default CMD is server; worker and scheduler need arguments the image does not set
+      - field: runtime
+        initial:
+          - python
+        verify:
+          - python
+          - node
+        final: *a1
+        rule: R7
+        evidence:
+          - path: Dockerfile
+            reason: The production image is python:3.13-slim; Node is only in the frontend-builder stage
+    notes:
+      - Worker and scheduler run as extra arguments of the same image (declared in bin/docker-entrypoint).
+      - "monorepo false: the pnpm workspace only builds the frontend."
+  - id: repo-503
+    repo: HumanSignal/label-studio
+    commit: 766b7ce5c60fb6c7a601493e7bf8860cdd73c841
+    finalStatus: LABELED
+    expected:
+      compatibility: NEEDS_CONFIGURATION
+      runtime: &a2
+        - python
+      monorepo: false
+      postgres: true
+      redis: false
+      worker: false
+      storage: true
+      migration: true
+      appRoot: .
+      dockerfilePath: Dockerfile
+      port: 8080
+      healthPath: /health
+    citations:
+      compatibility:
+        - path: label_studio/core/settings/label_studio.py
+          reason: Default DJANGO_DB is sqlite in the data directory; PostgreSQL is chosen by environment
+        - path: label_studio/core/settings/base.py
+          reason: Default media storage is FileSystemStorage in the data directory; STORAGE_TYPE=s3 and POSTGRE_* settings remove the local state
+        - path: label_studio/core/utils/secret_key.py
+          reason: SECRET_KEY from the environment replaces the key file in the data directory
+      runtime:
+        - path: Dockerfile
+          reason: Production stage is python alpine; Node is used only in the frontend-builder stage
+      monorepo:
+        - path: Dockerfile
+          reason: web/ frontend and label_studio/ backend build into one image; single application
+      postgres:
+        - path: label_studio/core/settings/base.py
+          reason: PostgreSQL settings (POSTGRE_* env); selected with DJANGO_DB=default
+        - path: label_studio/core/settings/label_studio.py
+          reason: DJANGO_DB defaults to sqlite
+      redis:
+        - path: label_studio/core/settings/base.py
+          reason: REDIS_ENABLED = False; open-source edition does not support Redis
+      worker:
+        - path: docker-compose.yml
+          reason: Only nginx, app and db services; no worker service
+      storage:
+        - path: label_studio/core/settings/base.py
+          reason: STORAGE_TYPE=s3 switches the default file storage to S3; the default is FileSystemStorage
+      migration:
+        - path: deploy/docker-entrypoint.d/common/30-run-db-migrations.sh
+          reason: python manage.py locked_migrate when POSTGRE_HOST is set
+      appRoot:
+        - path: Dockerfile
+          reason: Dockerfile at repository root; slice appPath is .
+      dockerfilePath:
+        - path: Dockerfile
+          reason: Root Dockerfile
+      port:
+        - path: Dockerfile
+          reason: EXPOSE 8080
+      healthPath:
+        - path: label_studio/core/urls.py
+          reason: health/ route to views.health
+    reconciliation:
+      - field: compatibility
+        initial: NOT_COMPATIBLE
+        verify: NEEDS_CONFIGURATION
+        final: NEEDS_CONFIGURATION
+        rule: R1
+        evidence:
+          - path: label_studio/core/settings/base.py
+            reason: STORAGE_TYPE=s3 and PostgreSQL by DJANGO_DB remove the local data; media default is local with an S3 option
+          - path: label_studio/core/utils/secret_key.py
+            reason: SECRET_KEY can come from the environment
+      - field: runtime
+        initial:
+          - python
+        verify:
+          - python
+          - node
+        final: *a2
+        rule: R7
+        evidence:
+          - path: Dockerfile
+            reason: Production stage is python alpine; Node is a build stage only
+      - field: storage
+        initial: omitted
+        verify: omitted
+        final: true
+        rule: R4
+        evidence:
+          - path: label_studio/core/settings/base.py
+            reason: Local uploads are removed only by STORAGE_TYPE=s3
+      - field: unsupported
+        initial:
+          - local-filesystem
+        verify: omitted
+        final: omitted
+        rule: R6
+        evidence:
+          - path: label_studio/core/settings/base.py
+            reason: Verdict is NEEDS_CONFIGURATION, and unsupported is set only on NOT_COMPATIBLE apps
+    notes:
+      - SQLite and local media are the defaults; the verdict assumes DJANGO_DB=default (PostgreSQL), STORAGE_TYPE=s3 and SECRET_KEY set. storage true follows that.
+      - Redis is disabled in this edition; RQ queues do not need a worker process here.
+  - id: repo-504
+    repo: koel/koel
+    commit: 72ab1e8d9bc4b744b2043a5259e1a06d733a9a29
+    finalStatus: LABELED
+    expected:
+      compatibility: NOT_COMPATIBLE
+      runtime: &a3
+        - php
+      monorepo: false
+      postgres: true
+      redis: false
+      worker: false
+      migration: true
+      appRoot: .
+      healthPath: /up
+    citations:
+      compatibility:
+        - path: composer.json
+          reason: Laravel application; the repository has no Dockerfile at the pinned commit
+        - path: .env.example
+          reason: Defaults are DB_CONNECTION=mysql, STORAGE_DRIVER=local
+      runtime:
+        - path: composer.json
+          reason: PHP 8.3 Laravel; Node only builds frontend assets
+      monorepo:
+        - path: composer.json
+          reason: Single Laravel application at the repository root
+      postgres:
+        - path: config/database.php
+          reason: pgsql connection is defined next to mysql; DB_CONNECTION selects it
+      redis:
+        - path: config/queue.php
+          reason: Default queue is database
+        - path: config/cache.php
+          reason: Default cache is file
+      worker:
+        - path: config/queue.php
+          reason: Default queue is database; no worker process declared in the repository
+      migration:
+        - path: database/migrations/2014_10_12_000000_create_users_table.php
+          reason: Laravel migrations (artisan migrate)
+      appRoot:
+        - path: composer.json
+          reason: Application at repository root
+      healthPath:
+        - path: bootstrap/app.php
+          reason: "health: '/up'"
+    reconciliation:
+      - field: compatibility
+        initial: NEEDS_CONFIGURATION
+        verify: NEEDS_CONFIGURATION
+        final: NOT_COMPATIBLE
+        rule: R2
+        evidence:
+          - path: composer.json
+            reason: Laravel application; no Dockerfile in the tree (see the pinned tree listing)
+      - field: runtime
+        initial:
+          - php
+        verify:
+          - php
+          - node
+        final: *a3
+        rule: R7
+        evidence:
+          - path: composer.json
+            reason: PHP is the runtime; Node only builds assets
+      - field: postgres
+        initial: true
+        verify: false
+        final: true
+        rule: R3
+        evidence:
+          - path: config/database.php
+            reason: pgsql connection is supported; mysql is only the default
+    notes:
+      - No Dockerfile, so NOT_COMPATIBLE by R2. Redis, worker and storage are optional (file cache, sync queue, local media).
+  - id: repo-505
+    repo: spring-projects/spring-petclinic
+    commit: 500158f732419217507c7656904b8e6aa1bcc0d6
+    finalStatus: LABELED
+    expected:
+      compatibility: NOT_COMPATIBLE
+      runtime:
+        - java
+      monorepo: false
+      postgres: true
+      redis: false
+      worker: false
+      appRoot: .
+      port: 8080
+      healthPath: /actuator/health
+    citations:
+      compatibility:
+        - path: pom.xml
+          reason: Spring Boot Maven project; no Dockerfile that builds a production image (only .devcontainer/Dockerfile)
+        - path: .devcontainer/Dockerfile
+          reason: Development container only
+      runtime:
+        - path: pom.xml
+          reason: Spring Boot (Java) Maven project
+      monorepo:
+        - path: pom.xml
+          reason: Single module
+      postgres:
+        - path: src/main/resources/application-postgres.properties
+          reason: postgres profile with POSTGRES_URL, POSTGRES_USER, POSTGRES_PASS
+      redis:
+        - path: pom.xml
+          reason: No Redis dependency; cache is Caffeine in-process
+      worker:
+        - path: pom.xml
+          reason: No messaging or batch dependency; single web process
+      appRoot:
+        - path: pom.xml
+          reason: Application at repository root
+      port:
+        - path: src/main/resources/application.properties
+          reason: No server.port set, so the Spring Boot default 8080 applies
+      healthPath:
+        - path: src/main/resources/application.properties
+          reason: Actuator endpoints are exposed; Spring Boot serves /actuator/health
+    reconciliation:
+      - field: compatibility
+        initial: NEEDS_CONFIGURATION
+        verify: NEEDS_CONFIGURATION
+        final: NOT_COMPATIBLE
+        rule: R2
+        evidence:
+          - path: .devcontainer/Dockerfile
+            reason: Only a development container Dockerfile exists
+          - path: pom.xml
+            reason: No image build plugin
+      - field: storage
+        initial: false
+        verify: omitted
+        final: omitted
+        rule: R4
+        evidence:
+          - path: pom.xml
+            reason: No object storage dependency; storage is omitted unless required
+      - field: migration
+        initial: false
+        verify: false
+        final: omitted
+        rule: R5
+        evidence:
+          - path: src/main/resources/application.properties
+            reason: Schema scripts via spring.sql.init; no migration tool or migration command
+    notes:
+      - No production Dockerfile (R2). H2 default is replaceable by the postgres profile. Port 8080 and /actuator/health are framework defaults.
+      - "migration and storage are omitted: no migration tool, no object storage need."
+  - id: repo-506
+    repo: go-shiori/shiori
+    commit: 9a9a426acaca0e57e205bf20266a44954aaa8264
+    finalStatus: LABELED
+    expected:
+      compatibility: NOT_COMPATIBLE
+      runtime:
+        - go
+      monorepo: false
+      postgres: true
+      redis: false
+      worker: false
+      migration: true
+      appRoot: .
+      dockerfilePath: Dockerfile
+      port: 8080
+      healthPath: /system/liveness
+      unsupported: &a4
+        - local-filesystem
+    citations:
+      compatibility:
+        - path: Dockerfile
+          reason: "COPY dist/shiori_${TARGETOS}_${TARGETARCH}${TARGETVARIANT}/shiori: the dist binary is not in the repository and the Dockerfile does not build it"
+        - path: internal/config/config.go
+          reason: Data directory (SQLite file, archives, thumbnails) is local disk state
+      runtime:
+        - path: go.mod
+          reason: Go module
+      monorepo:
+        - path: go.mod
+          reason: Single Go module at the repository root
+      postgres:
+        - path: go.mod
+          reason: github.com/lib/pq driver; PostgreSQL selected by SHIORI_DATABASE_URL
+        - path: docker-compose.yaml
+          reason: postgres URL in the commented SHIORI_DATABASE_URL example
+      redis:
+        - path: go.mod
+          reason: No Redis dependency
+      worker:
+        - path: Procfile
+          reason: Single web process
+      migration:
+        - path: internal/database/migrations.go
+          reason: Versioned migrations run at startup
+        - path: internal/database/migrations/mysql/0000_system_create.up.sql
+          reason: Embedded SQL migration files
+      appRoot:
+        - path: go.mod
+          reason: Application at repository root
+      dockerfilePath:
+        - path: Dockerfile
+          reason: Root Dockerfile (also Dockerfile.alpine and a development-only Dockerfile.compose)
+      port:
+        - path: Dockerfile
+          reason: ENV PORT=8080 and EXPOSE
+        - path: internal/cmd/serve.go
+          reason: port flag default 8080
+      healthPath:
+        - path: internal/http/server.go
+          reason: GET /system/liveness route
+      unsupported:
+        - path: internal/config/config.go
+          reason: Storage.DataDir holds the SQLite file and local content
+        - path: Dockerfile
+          reason: WORKDIR /shiori data directory
+    reconciliation:
+      - field: compatibility
+        initial: NOT_COMPATIBLE
+        verify: NEEDS_CONFIGURATION
+        final: NOT_COMPATIBLE
+        rule: R1
+        evidence:
+          - path: Dockerfile
+            reason: Copies dist/shiori_... which is not in the pinned tree and is not built by the Dockerfile
+      - field: migration
+        initial: false
+        verify: false
+        final: true
+        rule: R5
+        evidence:
+          - path: internal/database/migrations.go
+            reason: Versioned migration framework with embedded SQL files, run at startup
+      - field: healthPath
+        initial: omitted
+        verify: /system/liveness
+        final: /system/liveness
+        rule: R8
+        evidence:
+          - path: internal/http/server.go
+            reason: GET /system/liveness is registered
+      - field: unsupported
+        initial:
+          - local-filesystem
+        verify: omitted
+        final: *a4
+        rule: R6
+        evidence:
+          - path: internal/config/config.go
+            reason: Data directory holds archives and thumbnails even when DATABASE_URL points to PostgreSQL
+    notes:
+      - Prebuilt dist/ binary is not in the repository. unsupported lists local-filesystem because the data directory (archives, thumbnails) stays local even with PostgreSQL.
+      - "Alternative reading: the prebuilt artifact alone decides, and R6 says to omit unsupported for that cause."
+  - id: repo-507
+    repo: payloadcms/payload
+    commit: c66a7bec07dd7f30bdcd98320351c70846da4f0e
+    finalStatus: LABELED
+    expected:
+      compatibility: NOT_COMPATIBLE
+      runtime:
+        - node
+      monorepo: true
+      postgres: true
+      redis: false
+      worker: false
+      migration: true
+      appRoot: templates/with-postgres
+      dockerfilePath: templates/with-postgres/Dockerfile
+      port: 3000
+    citations:
+      compatibility:
+        - path: templates/with-postgres/Dockerfile
+          reason: The build exits with "Lockfile not found" because the template directory has no lockfile, and it needs output standalone in next.config.ts
+        - path: templates/with-postgres/next.config.ts
+          reason: "No output: standalone, so COPY .next/standalone fails"
+        - path: templates/with-postgres/src/collections/Media.ts
+          reason: Upload collection writes to local disk; no storage adapter in the template
+      runtime:
+        - path: templates/with-postgres/package.json
+          reason: Next.js and Payload on Node
+      monorepo:
+        - path: pnpm-workspace.yaml
+          reason: Repository is the Payload pnpm monorepo; the template is a subtree of it
+      postgres:
+        - path: templates/with-postgres/src/payload.config.ts
+          reason: postgresAdapter with DATABASE_URL
+      redis:
+        - path: templates/with-postgres/package.json
+          reason: No Redis dependency
+      worker:
+        - path: templates/with-postgres/package.json
+          reason: Only dev, build and start scripts; no worker
+      migration:
+        - path: templates/with-postgres/src/migrations/index.ts
+          reason: Payload migrations; run with payload migrate (ci script)
+        - path: templates/with-postgres/package.json
+          reason: ci script runs payload migrate
+      appRoot:
+        - path: templates/with-postgres/package.json
+          reason: Application subtree given by the batch slice
+      dockerfilePath:
+        - path: templates/with-postgres/Dockerfile
+          reason: Dockerfile inside the template
+      port:
+        - path: templates/with-postgres/Dockerfile
+          reason: EXPOSE 3000 and ENV PORT 3000
+    reconciliation:
+      - field: compatibility
+        initial: NEEDS_CONFIGURATION
+        verify: NEEDS_CONFIGURATION
+        final: NOT_COMPATIBLE
+        rule: R1
+        evidence:
+          - path: templates/with-postgres/Dockerfile
+            reason: Exits with "Lockfile not found"; the template has no lockfile
+          - path: templates/with-postgres/next.config.ts
+            reason: "No output: standalone, which the Dockerfile COPY needs"
+    notes:
+      - "R1 reading: the Dockerfile cannot build a production image from the tree (no lockfile, no standalone output). Both labelers chose NEEDS_CONFIGURATION; the fix needs repository changes, not configuration values."
+      - No health route in the template.
+  - id: repo-508
+    repo: gotenberg/gotenberg
+    commit: c83dbd7bafacb3734ebadf2e33a4049a17d45ec9
+    finalStatus: LABELED
+    expected:
+      compatibility: NEEDS_CONFIGURATION
+      runtime:
+        - go
+      monorepo: false
+      postgres: false
+      redis: false
+      worker: false
+      appRoot: .
+      dockerfilePath: build/Dockerfile
+      port: 3000
+      healthPath: /health
+    citations:
+      compatibility:
+        - path: build/Dockerfile
+          reason: Dockerfile is not at the app root and the build context must be the repository root; the last stage is gotenberg-aws-lambda-chromium, so the target gotenberg must be chosen
+        - path: compose.yaml
+          reason: Stateless API; no required values
+      runtime:
+        - path: go.mod
+          reason: Go module
+      monorepo:
+        - path: go.mod
+          reason: Single Go module
+      postgres:
+        - path: go.mod
+          reason: No database dependency
+      redis:
+        - path: go.mod
+          reason: No Redis dependency
+      worker:
+        - path: build/Dockerfile
+          reason: Single CMD gotenberg
+      appRoot:
+        - path: go.mod
+          reason: Application at repository root
+      dockerfilePath:
+        - path: build/Dockerfile
+          reason: Dockerfile is in the build directory
+      port:
+        - path: build/Dockerfile
+          reason: EXPOSE 3000
+        - path: pkg/modules/api/api.go
+          reason: api-port flag default 3000
+      healthPath:
+        - path: pkg/modules/api/api.go
+          reason: /health route
+    reconciliation:
+      - field: compatibility
+        initial: NEEDS_CONFIGURATION
+        verify: READY
+        final: NEEDS_CONFIGURATION
+        rule: R1
+        evidence:
+          - path: build/Dockerfile
+            reason: Dockerfile outside the app root with a root build context; default last stage is gotenberg-aws-lambda-chromium
+      - field: storage
+        initial: false
+        verify: omitted
+        final: omitted
+        rule: R4
+        evidence:
+          - path: go.mod
+            reason: No object storage need; omitted
+      - field: migration
+        initial: false
+        verify: false
+        final: omitted
+        rule: R5
+        evidence:
+          - path: go.mod
+            reason: No database, no migration; omitted
+    notes:
+      - Build target gotenberg must be chosen; Dockerfile is at build/Dockerfile with the repository root as context.
+  - id: repo-509
+    repo: elie222/inbox-zero
+    commit: 84fd613d3dc1b3dbe8c3f46f9ec85d9e8681621c
+    finalStatus: LABELED
+    expected:
+      compatibility: NEEDS_CONFIGURATION
+      runtime:
+        - node
+      monorepo: true
+      postgres: true
+      redis: false
+      worker: false
+      migration: true
+      appRoot: .
+      dockerfilePath: docker/Dockerfile.prod
+      port: 3000
+      healthPath: /api/health
+    citations:
+      compatibility:
+        - path: apps/web/env.ts
+          reason: "Required values with no default: DATABASE_URL, GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GOOGLE_PUBSUB_TOPIC_NAME, EMAIL_ENCRYPT_SECRET, EMAIL_ENCRYPT_SALT, INTERNAL_API_KEY"
+        - path: docker/Dockerfile.prod
+          reason: Production Dockerfile is not at the app root
+      runtime:
+        - path: apps/web/package.json
+          reason: Next.js on Node
+      monorepo:
+        - path: pnpm-workspace.yaml
+          reason: pnpm and turbo workspace with apps/ and packages/
+      postgres:
+        - path: apps/web/env.ts
+          reason: DATABASE_URL is required; Prisma with PostgreSQL
+        - path: docker-compose.yml
+          reason: db service is postgres:16
+      redis:
+        - path: apps/web/env.ts
+          reason: REDIS_HTTP_URL, REDIS_HTTP_TOKEN and REDIS_URL are all optional
+      worker:
+        - path: docker-compose.yml
+          reason: worker service is in the optional queue-worker profile
+        - path: apps/web/env.ts
+          reason: QUEUE_BACKEND is optional (bullmq, internal or qstash)
+      migration:
+        - path: docker/scripts/migrate.sh
+          reason: prisma migrate deploy
+        - path: docker/scripts/start.sh
+          reason: Runs migrate.sh at web startup unless SKIP_DB_MIGRATIONS=true
+      appRoot:
+        - path: docker/Dockerfile.prod
+          reason: Build context is the repository root; slice appPath is .
+      dockerfilePath:
+        - path: docker/Dockerfile.prod
+          reason: Production Dockerfile
+      port:
+        - path: docker/Dockerfile.prod
+          reason: EXPOSE 3000
+      healthPath:
+        - path: apps/web/app/api/health/route.ts
+          reason: GET returns status ok without a key header
+    reconciliation:
+      - field: redis
+        initial: true
+        verify: true
+        final: false
+        rule: R4
+        evidence:
+          - path: apps/web/env.ts
+            reason: All Redis variables are optional
+      - field: worker
+        initial: true
+        verify: true
+        final: false
+        rule: R4
+        evidence:
+          - path: docker-compose.yml
+            reason: worker service is under the optional queue-worker profile
+          - path: apps/web/env.ts
+            reason: QUEUE_BACKEND optional
+    notes:
+      - Redis, queue worker and unsubscribe-worker are optional (QUEUE_BACKEND internal is possible), so redis and worker are false.
+  - id: repo-510
+    repo: basecamp/once-campfire
+    commit: 008ea1ab2af0f84021e25047c67b64d30a601339
+    finalStatus: LABELED
+    expected:
+      compatibility: NOT_COMPATIBLE
+      runtime:
+        - ruby
+      monorepo: false
+      postgres: false
+      redis: true
+      worker: true
+      migration: true
+      appRoot: .
+      dockerfilePath: Dockerfile
+      port: 80
+      healthPath: /up
+      unsupported: &a5
+        - local-filesystem
+    citations:
+      compatibility:
+        - path: config/database.yml
+          reason: Production database is a SQLite file under storage/db
+        - path: config/storage.yml
+          reason: Active Storage uses the Disk service under storage/files
+        - path: Procfile
+          reason: One container runs web, an in-container redis-server and resque-pool
+      runtime:
+        - path: Gemfile
+          reason: Rails application
+      monorepo:
+        - path: Gemfile
+          reason: Single Rails application
+      postgres:
+        - path: config/database.yml
+          reason: adapter sqlite3 only
+      redis:
+        - path: config/cable.yml
+          reason: Action Cable uses the redis adapter with REDIS_URL
+        - path: Procfile
+          reason: redis-server runs inside the container
+      worker:
+        - path: Procfile
+          reason: "workers: resque-pool"
+      migration:
+        - path: bin/start-app
+          reason: ./bin/rails db:prepare at start
+      appRoot:
+        - path: Dockerfile
+          reason: Dockerfile at repository root
+      dockerfilePath:
+        - path: Dockerfile
+          reason: Root Dockerfile
+      port:
+        - path: Dockerfile
+          reason: "EXPOSE 80 443; Thruster fronts Rails (bin/boot runs Procfile web: thrust)"
+      healthPath:
+        - path: config/routes.rb
+          reason: get up => rails/health#show
+      unsupported:
+        - path: config/database.yml
+          reason: SQLite file under storage/db
+        - path: config/storage.yml
+          reason: Disk storage service under storage/files
+    reconciliation:
+      - field: unsupported
+        initial:
+          - local-filesystem
+        verify: omitted
+        final: *a5
+        rule: R6
+        evidence:
+          - path: config/database.yml
+            reason: SQLite file under storage/db
+          - path: config/storage.yml
+            reason: Disk storage service
+    notes:
+      - SQLite, Disk storage, in-container redis-server and resque-pool. Port 80 is the Thruster listener.
