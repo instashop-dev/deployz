@@ -9,7 +9,7 @@ import { execFile, spawn } from 'node:child_process';
 import { appendFileSync, existsSync, mkdirSync, mkdtempSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { basename, dirname, join, resolve } from 'node:path';
 
-import { emptyLocalResult, readLocalResult, recordStage, sanitizeLocal, type LocalIdentity, type LocalResult, type StageOutcome } from './local-results.js';
+import { LOCAL_STAGES, emptyLocalResult, isOpenStage, readLocalResult, recordStage, sanitizeLocal, type LocalIdentity, type LocalResult, type StageOutcome } from './local-results.js';
 
 export const BUILD_PLATFORM = 'linux/amd64';
 export const BUILD_TIMEOUT_MS = 30 * 60_000;
@@ -281,6 +281,7 @@ export async function runLocalBuild(ctx: LocalBuildContext): Promise<LocalResult
   let rebuilt = false;
   const existing = ctx.resume ? readLocalResult(ctx.runsDir, identity.id) : null;
   if (existing && existing.inputsHash === identity.inputsHash) {
+    if (!LOCAL_STAGES.some((name) => isOpenStage(existing.stages[name]))) return existing;
     const build = existing.stages.build;
     if (build.status === 'FAIL') return existing;
     if (build.status === 'PASS') {

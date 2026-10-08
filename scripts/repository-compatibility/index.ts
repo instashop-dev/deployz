@@ -7,6 +7,7 @@
  *   pnpm benchmark:compat --offline             cached snapshots only, no GitHub
  *   pnpm benchmark:compat --no-write            print the summary, write nothing
  *   pnpm benchmark:compat --ai live             production AI gateway from the environment (default: --ai off)
+ *   pnpm benchmark:compat --resume              skip an entry whose result has the same Deployz commit, analysis version, commit and AI mode
  *   pnpm benchmark:compat --benchmark b.yaml --runs-dir out   another corpus, results into out
  *
  * Reads docs/testing/repository-compatibility/benchmark.yaml (or --benchmark), runs each
@@ -26,7 +27,7 @@ import { AI_OFF_RECORD, parseAiMode, type AiMode } from './ai-mode.js';
 import { openAnalysisSession } from './analyse.js';
 import { loadBenchmark, selectEntries, type BenchmarkEntry, type FindingRef } from './manifest.js';
 import { classifyMismatches, compareFacts, normalizeActual } from './normalize.js';
-import { buildSummary, renderSummary, writeRunFiles, writeSummaryFiles, type RunResult } from './report.js';
+import { buildSummary, readRunFile, renderSummary, writeRunFiles, writeSummaryFiles, type RunResult } from './report.js';
 import { createSnapshotFetch, readCachedTree, resolveGithubToken } from './snapshot.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -45,6 +46,7 @@ export interface RunOptions {
   benchmarkPath: string;
   runsDir: string;
   ai: AiMode;
+  resume: boolean;
 }
 
 export function parseRunArgs(argv: readonly string[]): RunOptions {
@@ -59,6 +61,7 @@ export function parseRunArgs(argv: readonly string[]): RunOptions {
       benchmark: { type: 'string' },
       'runs-dir': { type: 'string' },
       ai: { type: 'string' },
+      resume: { type: 'boolean', default: false },
     },
     strict: true,
   });
@@ -74,7 +77,21 @@ export function parseRunArgs(argv: readonly string[]): RunOptions {
     benchmarkPath,
     runsDir: values['runs-dir'] ? resolve(values['runs-dir']) : RUNS_DIR,
     ai: parseAiMode(values.ai),
+    resume: values.resume ?? false,
   };
+}
+
+/** `--resume`: a recorded result is reused when the Deployz commit, analysis version, repository commit and AI mode all match. */
+export function resumableResult(
+  runsDir: string,
+  entry: Pick<BenchmarkEntry, 'id' | 'commit'>,
+  context: { deployzSha: string; analysisVersion: number },
+  aiMode: AiMode,
+): RunResult | null {
+  const previous = readRunFile(runsDir, entry.id);
+  if (!previous) return null;
+  const same = previous.deployzSha === context.deployzSha && previous.analysisVersion === context.analysisVersion && previous.commit === entry.commit && (previous.ai?.mode ?? 'off') === aiMode;
+  return same ? previous : null;
 }
 
 function deployzSha(): string {
@@ -133,6 +150,12 @@ export async function main(argv: readonly string[] = process.argv.slice(2), open
   const results: RunResult[] = [];
   try {
     for (const entry of entries) {
+      const kept = options.resume ? resumableResult(options.runsDir, entry, context, options.ai) : null;
+      if (kept) {
+        results.push(kept);
+        console.log(`${entry.id} ${entry.repository}@${entry.commit.slice(0, 7)} … kept (same Deployz commit, analysis version, commit and AI mode)`);
+        continue;
+      }
       process.stdout.write(`${entry.id} ${entry.repository}@${entry.commit.slice(0, 7)} … `);
       const result = await runEntry(entry, benchmark.findings, session, context);
       results.push(result);

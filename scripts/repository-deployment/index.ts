@@ -5,7 +5,8 @@
  *   pnpm benchmark:deploy --gate --repo repo-001       one entry (repeat --repo for several)
  *   pnpm benchmark:deploy --dry-run --wave wave-1      print the plan, touch nothing
  *   pnpm benchmark:deploy --local --repo repo-001      gate, source and Docker build on this machine, no AWS
- *   pnpm benchmark:deploy --local --resume             keep finished builds with unchanged inputs
+ *   pnpm benchmark:deploy --local --resume             remove labelled leftovers, keep finished stages with unchanged inputs
+ *   pnpm benchmark:deploy --local --keep-image         keep the built image after the run
  *   pnpm benchmark:deploy --real-aws --repo repo-001   the whole funnel (needs DEPLOYZ_E2E_ALLOW_REAL_AWS=1)
  *   pnpm benchmark:deploy --real-aws --wave wave-1
  *   pnpm benchmark:deploy --real-aws --resume          finish unfinished cleanups, then continue the selection
@@ -20,6 +21,7 @@
  * audit's subject, not a harness failure.
  */
 import { execFileSync } from 'node:child_process';
+import { randomBytes } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -50,12 +52,13 @@ import { ControlPlane, sleep } from '../version-canary/control-plane.js';
 import { Evidence } from '../version-canary/evidence.js';
 import { destroyThroughProduct, leakAudit, removeCanaryLeftovers } from '../version-canary/teardown.js';
 import { applyCleanupToClassification, cleanupAttempt } from './cleanup.js';
-import { configFor, deploymentClassFor, loadDeployConfig, providedKeys, requireSmokeContract, type DeployConfig, type DeploymentClass, type RepositoryConfig } from './config.js';
-import { runRepositoryAttempt, DEFAULT_TIMEOUTS, type DeployDeps } from './deploy.js';
+import { APP_URL_TOKEN, configFor, deploymentClassFor, loadDeployConfig, providedKeys, requireSmokeContract, secretKey, secretValue, type DeployConfig, type DeploymentClass, type RepositoryConfig } from './config.js';
+import { generateSecret, runRepositoryAttempt, DEFAULT_TIMEOUTS, type DeployDeps } from './deploy.js';
 import { describeDependencies, describeStoppedTasks, describeTaskDefinitionEnv, resourceStillExists, tailApplicationLogs } from './evidence.js';
-import { gateSection } from './gate.js';
-import { runLocalBuild, runProcess } from './local-build.js';
-import { inputsHash, type LocalIdentity } from './local-results.js';
+import { gateSection, manifestFacts } from './gate.js';
+import { runProcess } from './local-build.js';
+import { RUN_IMAGES, reconcileLeftovers, runLocalRepository, systemClock } from './local-run.js';
+import { inputsHash, writeLocalSummary, type LocalIdentity } from './local-results.js';
 import { activeRunsBlock, listUnfinishedLedgers, openLedger, readSeries, stageBRun, stageBRunId, writeSeries, type StageBRunRecord } from './ledger.js';
 import {
   buildStageBSummary,
@@ -94,6 +97,8 @@ export interface RunOptions {
   audit: boolean;
   force: boolean;
   keep: boolean;
+  /** `--local` keeps the built image after the run (default: removed in the cleanup stage). */
+  keepImage: boolean;
   /** Retries reuse the repository's application (and any release it already built). */
   reuseApplication: boolean;
   offline: boolean;
@@ -133,6 +138,7 @@ export function parseRunArgs(argv: readonly string[]): RunOptions {
       audit: { type: 'boolean', default: false },
       force: { type: 'boolean', default: false },
       keep: { type: 'boolean', default: false },
+      'keep-image': { type: 'boolean', default: false },
       'reuse-application': { type: 'boolean', default: false },
       online: { type: 'boolean', default: false },
       concurrency: { type: 'string' },
@@ -179,6 +185,7 @@ export function parseRunArgs(argv: readonly string[]): RunOptions {
     audit: values.audit ?? false,
     force: values.force ?? false,
     keep: values.keep ?? false,
+    keepImage: values['keep-image'] ?? false,
     reuseApplication: values['reuse-application'] ?? false,
     offline: !(values.online ?? false),
     concurrency,
@@ -356,14 +363,27 @@ export async function runGateAudit(
   return results;
 }
 
-// ── Local Docker build ─────────────────────────────────────────────────────
+// ── Local Docker build and run ─────────────────────────────────────────────
+
+/** Deploy-config values and secrets as app environment; `${DEPLOYZ_APP_URL}` becomes the in-network address. */
+export function localAppEnvironment(repoConfig: RepositoryConfig, env: NodeJS.ProcessEnv = process.env): { name: string; value: string }[] {
+  const values = (repoConfig.config ?? []).map(({ key, value }) => ({ name: key, value: value.split(APP_URL_TOKEN).join('http://app') }));
+  const secrets = (repoConfig.secrets ?? []).map((spec) => ({ name: secretKey(spec), value: secretValue(spec, generateSecret, env) }));
+  return [...values, ...secrets];
+}
 
 export async function runLocalAudit(
   entries: readonly BenchmarkEntry[],
   config: DeployConfig,
-  options: Pick<RunOptions, 'offline' | 'cacheDir' | 'runsDir' | 'evidenceDir' | 'ai' | 'resume'>,
+  options: Pick<RunOptions, 'offline' | 'cacheDir' | 'runsDir' | 'evidenceDir' | 'ai' | 'resume' | 'keepImage'>,
   sha: string,
 ): Promise<void> {
+  if (options.resume) {
+    const found = await reconcileLeftovers(runProcess, process.env, entries.map((entry) => entry.id));
+    for (const [id, count] of Object.entries(found)) {
+      if (count.containers + count.networks + count.volumes > 0) console.log(`${id}: removed ${count.containers} container(s), ${count.networks} network(s), ${count.volumes} volume(s) left by an earlier run`);
+    }
+  }
   const token = resolveGithubToken();
   const session = await openAnalysisSession(createSnapshotFetch({ cacheDir: options.cacheDir, token: options.offline ? null : token, offline: options.offline }), { ai: options.ai });
   try {
@@ -371,7 +391,7 @@ export async function runLocalAudit(
       process.stdout.write(`${entry.id} ${entry.repository}@${entry.commit.slice(0, 7)} … `);
       const repoConfig = configFor(config, entry.id);
       const raw = await session.analyse(entry);
-      const { gate } = gateSection(entry, raw, repoConfig, ANALYSIS_VERSION);
+      const { gate, configuredManifest } = gateSection(entry, raw, repoConfig, ANALYSIS_VERSION);
       const identity: LocalIdentity = {
         id: entry.id,
         repository: entry.repository,
@@ -381,9 +401,9 @@ export async function runLocalAudit(
         deployzCommit: sha,
         analysisVersion: ANALYSIS_VERSION,
         ai: raw.ai ? { ...raw.ai } : null,
-        inputsHash: inputsHash({ deployzCommit: sha, commit: entry.commit, aiMode: options.ai, config: repoConfig }),
+        inputsHash: inputsHash({ deployzCommit: sha, commit: entry.commit, aiMode: options.ai, config: { repository: repoConfig, images: RUN_IMAGES } }),
       };
-      const result = await runLocalBuild({
+      const result = await runLocalRepository({
         identity,
         gate: {
           status: gate.status === 'PASS' ? 'PASS' : 'FAIL',
@@ -404,8 +424,14 @@ export async function runLocalAudit(
         run: runProcess,
         hostEnv: process.env,
         tmpRoot: tmpdir(),
+        manifest: configuredManifest ? manifestFacts(configuredManifest) : null,
+        appEnv: localAppEnvironment(repoConfig),
+        keepImage: options.keepImage,
+        runId: randomBytes(4).toString('hex'),
+        generatePassword: () => generateSecret('hex32'),
+        clock: systemClock,
       });
-      console.log(`gate ${result.stages.gate.status}, build ${result.stages.build.status}`);
+      console.log(`gate ${result.stages.gate.status}, build ${result.stages.build.status}, run ${result.stages.run.status}, probes ${result.stages.probes.status}, cleanup ${result.stages.cleanup.status} -> ${result.classification ?? 'incomplete'}`);
     }
   } finally {
     await session.close();
@@ -760,6 +786,7 @@ async function main(): Promise<number> {
       return 1;
     }
     await runLocalAudit(entries, config, options, sha);
+    writeLocalSummary(options.runsDir);
     console.log(`Wrote ${entries.length} local result file(s) to ${options.runsDir}`);
     return 0;
   }

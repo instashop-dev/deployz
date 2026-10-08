@@ -173,6 +173,12 @@ export function renderSummary(results: readonly RunResult[], summary: RunSummary
   return lines.join('\n');
 }
 
+/** The recorded result of one entry, or null when there is none. */
+export function readRunFile(dir: string, id: string): RunResult | null {
+  const file = join(dir, `${id}.json`);
+  return existsSync(file) ? (JSON.parse(readFileSync(file, 'utf8')) as RunResult) : null;
+}
+
 /** One runs dir never mixes AI modes: a result file written in another mode is not replaced. */
 export function writeRunFiles(dir: string, results: readonly RunResult[]): void {
   for (const result of results) {

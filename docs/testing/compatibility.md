@@ -207,6 +207,8 @@ DEPLOYZ_E2E_ALLOW_REAL_AWS=1 pnpm benchmark:deploy --cleanup --repo repo-001
 DEPLOYZ_E2E_ALLOW_REAL_AWS=1 pnpm benchmark:deploy --audit
 pnpm benchmark:deploy --gate --benchmark <path> --deploy-config <path> --runs-dir <dir> --evidence-dir <dir>
 pnpm benchmark:deploy --local --repo repo-001 --benchmark <path> --runs-dir <dir> --evidence-dir <dir>
+pnpm benchmark:deploy --local --resume [--keep-image] --benchmark <path> --runs-dir <dir> --evidence-dir <dir>
+pnpm benchmark:compat --resume --benchmark <path> --runs-dir <dir>
 ```
 
 **Local Docker build (`--local`, no AWS).** For each selected repository:
@@ -226,18 +228,57 @@ directory; a test fails when those product lines change. The build runs with
 repository without a Dockerfile fails the build as in production; the harness
 never adds one. A Docker Hub rate limit is recorded as `infrastructure`.
 
+**Local run stage and probes.** After a passing build, the image runs in one
+disposable bridge network per repository (`deployz-campaign-<id>-<run id>`).
+Egress is open as in production; no port is published and probes run from a
+disposable `curl` container on the same network. Every container and network
+has the labels `deployz-campaign=fresh-100` and `deployz-campaign-repo=<id>`.
+There is no bind mount, no Docker socket, no `--privileged`, no host network,
+no host environment and no host credential; the app gets `--memory 1g --cpus 1`.
+Dependencies start only when the gate manifest needs them, pinned by digest in
+`local-run.ts`: `postgres:16-alpine` (the engine major version the compiler
+plans), `valkey/valkey:8-alpine` and a SeaweedFS S3 stand-in (MinIO images are no
+longer published). Passwords are generated per run. The app environment has the
+deploy-config values and secrets (`${DEPLOYZ_APP_URL}` becomes `http://app`),
+`PORT`, and the binding names of `packages/contracts/src/capability-registry.ts`
+(`DATABASE_URL`, `DB_*`, `REDIS_URL`, `S3_BUCKET`, …) with local endpoints; a test
+guards the names. A manifest `migrationCommand` runs once with `sh -c` in a
+one-off container of the same image before the app starts.
+
+Probes, each `PASS`, `FAIL`, `NOT_APPLICABLE` or `UNVERIFIED` (UNVERIFIED is never
+success; a run whose probes all pass but one is UNVERIFIED is `local-unverified`):
+`health` (200–399 from the manifest health path within 5 minutes), `start` (the
+container still runs 60 s after start), `migration` (exit 0 and more tables in
+the public schema), `dbWrite` (rows above 0 outside migration bookkeeping tables,
+counted with `psql`), `redis` (a client or a key from the app) and `storage` (an
+object in the bucket; otherwise UNVERIFIED). The run stage has a 10-minute
+timeout. Cleanup runs in `finally` after any build attempt: it removes the labelled
+containers (`rm -f -v`), networks and volumes and the image, then lists the three
+resource types by label; a leftover fails the cleanup stage. `--keep-image` keeps
+the image. A failed run stage (migration, dependency, start, timeout) skips the
+probes. A non-zero migration is a run-stage failure, not a probe.
+
 `<runs-dir>/<id>.local.json` records the stages `gate`, `source`, `build`,
 `run`, `probes` and `cleanup` (`NOT_ATTEMPTED`, `IN_PROGRESS`, `PASS`, `FAIL`,
 `SKIPPED`) and is written atomically at the start and end of each stage. The
-build evidence has the Dockerfile, context, platform, exit code, duration, image
-id and size, and the last 40 sanitized log lines; the full log is
-`<--evidence-dir>/<id>-build.log`. `--local --resume` keeps a result whose
-`inputsHash` (Deployz commit, repository commit, AI mode and deploy-config entry)
-is unchanged and whose build finished; a build PASS whose image is gone is
-rebuilt, and any other state starts again. `--local` is exclusive with `--gate`,
-`--real-aws`, `--cleanup` and `--audit`. The run stage and the probes are not
-implemented yet. Images stay on the machine until removed
-(`docker image rm`; they carry the campaign label).
+`classification` is `local-success`, `local-unverified`, the first failing stage, or
+null while a stage is open. The build evidence has the Dockerfile, context,
+platform, exit code, duration, image id and size, and the last 40 sanitized log
+lines; the full logs are `<--evidence-dir>/<id>-build.log` and `<id>-run.log`.
+`<runs-dir>/local-summary.{json,md}` count attempted, PASS, FAIL, SKIPPED per
+stage, PASS, FAIL, UNVERIFIED, NOT_APPLICABLE per probe, and the duration of each
+repository. `--local --resume` first removes the labelled containers, networks
+and volumes of the selected repositories, then per repository: a changed
+`inputsHash` (Deployz commit, repository commit, AI mode, deploy-config entry and
+the dependency image digests) starts again; otherwise finished stages are kept
+(a repository with no open stage is skipped, even if its image was removed), a
+build PASS whose image is gone is rebuilt while later stages are open, and an
+open stage re-runs. `run` and `probes` are one unit: an open one redoes both.
+`--local` is exclusive with `--gate`, `--real-aws`, `--cleanup` and `--audit`.
+
+`pnpm benchmark:compat --resume` reuses a recorded `<runs-dir>/<id>.json` whose
+Deployz commit, analysis version, repository commit and AI mode all match the
+current run, and analyses the other entries.
 
 `--benchmark <path>` and `--deploy-config <path>` read any corpus and
 deploy-config file instead of the committed ones; `--runs-dir` and
