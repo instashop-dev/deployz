@@ -1,0 +1,21 @@
+{
+  "taskId": "P1-VERIFY-01",
+  "testedCommit": "e6a3b58ee2363923fef21faca86611fa3bf84538",
+  "executor": "campaign-worker",
+  "model": "sonnet",
+  "startedAt": "2026-10-08T00:00:00Z",
+  "finishedAt": "2026-10-08T00:40:00Z",
+  "proposedStatus": "COMPLETE",
+  "commands": [
+    { "command": "gh api repos/<repo>/git/trees/<commit>?recursive=1 (10 repos) and gh api repos/<repo>/contents/<path>?ref=<commit>", "exitCode": 0, "summary": "Read source of 10 pinned apps from GitHub only" },
+    { "command": "npx tsx <scratchpad>/check.ts (stdin /dev/null)", "exitCode": 0, "summary": "10 apps: expected parses with expectedFactsSchema; every expected key has citations; all cited paths exist in the pinned tree; ids/repos/commits match slice" }
+  ],
+  "evidence": ["campaign/corpus/labels/verify-01.yaml"],
+  "notes": [
+    "Labels written from source only; no Deployz analysis run and no forbidden input read.",
+    "Uncertain: repo-501 and repo-509 and repo-507 dockerfilePath/appRoot convention (repo-root relative used); repo-501 Dockerfile needs repo-root build context.",
+    "Uncertain: repo-503 label-studio and repo-510 campfire depend on local disk state (sqlite/data dir); no UNSUPPORTED_FAMILIES name fits, so unsupported is empty.",
+    "repo-509 inbox-zero has @prisma/client, which UNSUPPORTED_FAMILIES maps to mysql, but the Prisma datasource is postgresql; no unsupported entry expected.",
+    "repo-504 koel and repo-505 petclinic have no Dockerfile; koel default DB is mysql (postgres false), petclinic default DB is h2."
+  ]
+}
