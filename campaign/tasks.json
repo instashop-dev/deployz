@@ -1914,7 +1914,7 @@
       "phase": 2,
       "title": "Isolated local run stage and functional probes (health, DB write, migration, Redis/worker, storage where applicable)",
       "executor": "campaign-worker",
-      "status": "PENDING",
+      "status": "COMPLETE",
       "prerequisites": [
         "P2-IMPL-LOCAL-BUILD"
       ],

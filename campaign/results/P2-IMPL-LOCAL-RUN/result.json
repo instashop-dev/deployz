@@ -1,0 +1,34 @@
+{
+  "taskId": "P2-IMPL-LOCAL-RUN",
+  "testedCommit": "e6a3b58ee2363923fef21faca86611fa3bf84538",
+  "executor": "campaign-worker",
+  "model": "sonnet",
+  "startedAt": "2026-10-08T22:50:00Z",
+  "finishedAt": "2026-10-08T23:30:00Z",
+  "proposedStatus": "COMPLETE",
+  "commands": [
+    { "command": "pnpm exec vitest run --root scripts/repository-deployment", "exitCode": 0, "summary": "4 files, 202 tests pass (new local-run.test.ts; existing harness and local-build tests unchanged)" },
+    { "command": "pnpm exec vitest run --root scripts/repository-compatibility", "exitCode": 0, "summary": "3 files, 53 tests pass (new resume.test.ts)" },
+    { "command": "pnpm typecheck:scripts", "exitCode": 0, "summary": "all five script projects typecheck" },
+    { "command": "git diff --quiet -- docs/testing/repository-compatibility/runs docs/testing/repository-deployment/runs", "exitCode": 0, "summary": "existing runs files unchanged" },
+    { "command": "pnpm exec tsx campaign/logs/P2-IMPL-LOCAL-RUN/smoke/smoke.ts (real Docker, labelled, synthetic alpine httpd app, postgres+valkey)", "exitCode": 0, "summary": "run PASS; health PASS 200 and start PASS; migration/dbWrite/redis FAIL as expected for a static app; cleanup PASS; 0 containers, networks, volumes, images with label deployz-campaign=fresh-100 remain" },
+    { "command": "git commit (harness)", "exitCode": 0, "summary": "64f3d5346820040db8b215b0b76b3ed23c5502ce on campaign/fresh-100, not pushed" }
+  ],
+  "evidence": [
+    "scripts/repository-deployment/local-run.ts",
+    "scripts/repository-deployment/local-run.test.ts",
+    "scripts/repository-compatibility/resume.test.ts",
+    "docs/testing/compatibility.md"
+  ],
+  "notes": [
+    "Harness commit 64f3d5346820040db8b215b0b76b3ed23c5502ce. No product code, no new dependency, no new pnpm script. Raw smoke logs: campaign/logs/P2-IMPL-LOCAL-RUN/ (ignored).",
+    "Deviation: the S3 stand-in is SeaweedFS (chrislusf/seaweedfs by digest), not MinIO, because minio/minio and quay.io/minio/minio are no longer pullable. The storage probe is PASS only when the bucket lists an object written by the app (no access log); otherwise UNVERIFIED. The SeaweedFS path was not exercised in the real-Docker smoke (storage=false); only unit-tested with fakes.",
+    "Deviation: dbWrite counts rows outside known migration bookkeeping tables (_prisma_migrations, django_migrations, etc.), stricter than design.md, so a migration alone cannot pass it. Framework seed rows (e.g. Django content types) still count.",
+    "Deviation: no separate worker container probe (manifest facts have no worker field); redis probe checks CLIENT LIST (a client other than the probe) or DBSIZE > 0.",
+    "Deviation: a failed migration is a run-stage FAIL (failure=migration) and the probes stage is SKIPPED; the migration probe records PASS/FAIL only when the app started. run and probes are one resume unit (open one redoes both).",
+    "classifyLocal gains local-unverified (all stages PASS but a probe UNVERIFIED). runLocalBuild now returns early on resume when no stage is open, so a finished repo whose image was removed by cleanup is not rebuilt. inputsHash config now includes the dependency image digests. Cleanup is SKIPPED when no build was attempted.",
+    "Stage A --resume: skips an entry whose <runs-dir>/<id>.json has the same deployzSha, analysisVersion, commit and ai.mode; kept results are included in the summary. Stage A has no containers, so no reconcile step applies there.",
+    "Pre-existing, not touched: eslint reports two unused imports in scripts/repository-deployment/evidence.ts.",
+    "Baseline testedCommit is as given by the coordinator; the checkout HEAD before this commit was e2f73ea9."
+  ]
+}
