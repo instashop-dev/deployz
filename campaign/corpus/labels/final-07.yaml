@@ -1,0 +1,930 @@
+# Final labels, corpus batch 07 (P1-RECONCILE-04), rule set R1 (campaign/corpus/label-rules.md).
+# Every value is decided from repository source at the pinned commit. No Deployz output was used.
+# reconciliation lists every field where the initial label, the verification label or the final label differ.
+# An absent field and an empty unsupported list count as equal. null means the field is absent.
+taskId: P1-RECONCILE-04
+testedCommit: e6a3b58ee2363923fef21faca86611fa3bf84538
+rules: R1
+apps:
+  - id: repo-561
+    repo: kestra-io/kestra
+    commit: af6395aed86ca48bec7068275f91a789d80f660b
+    finalStatus: LABELED
+    expected:
+      compatibility: NOT_COMPATIBLE
+      runtime:
+        - java
+      monorepo: false
+      postgres: true
+      redis: false
+      worker: false
+      migration: true
+      appRoot: .
+      dockerfilePath: Dockerfile
+      port: 8080
+    citations:
+      compatibility:
+        - path: Dockerfile
+          reason: Builds only on top of an external base image and copies the docker/ overlay. It never builds Kestra, and CMD is --help.
+        - path: docker/usr/local/bin/docker-entrypoint.sh
+          reason: Runs exec /app/kestra. That binary is not in the repository and no Dockerfile builds it.
+        - path: Dockerfile.base
+          reason: The base image Dockerfile installs only a JRE and uv. It does not contain the Kestra application.
+      runtime:
+        - path: build.gradle
+          reason: Gradle JVM (Java) build.
+      monorepo:
+        - path: settings.gradle
+          reason: Multi-module Gradle build of one Kestra server distribution (one deployable). The ui package is bundled into it.
+      postgres:
+        - path: docker-compose.yml
+          reason: Reference setup uses postgres as repository and queue backend.
+      redis:
+        - path: docker-compose.yml
+          reason: No Redis service or setting in the reference setup.
+      worker:
+        - path: docker-compose.yml
+          reason: One kestra service runs "server standalone". The worker runs in the same process.
+      migration:
+        - path: cli/src/main/java/io/kestra/cli/commands/migrations/MigrationCommand.java
+          reason: The CLI has a named "migrate" command group.
+        - path: cli/src/main/java/io/kestra/cli/commands/migrations/RunMigrationCommand.java
+          reason: '"migrate run" applies all pending database migration scripts.'
+      appRoot:
+        - path: build.gradle
+          reason: Gradle root project at the repository root (slice appPath ".").
+      dockerfilePath:
+        - path: Dockerfile
+          reason: Root Dockerfile.
+      port:
+        - path: docker-compose.yml
+          reason: Publishes 8080:8080 for the web server.
+    reconciliation:
+      - field: monorepo
+        initial: false
+        verify: true
+        final: false
+        rule: none (R1 has no monorepo rule; see notes)
+        evidence:
+          - path: settings.gradle
+            reason: Multi-module Gradle build of one Kestra server distribution (one deployable). The ui package is bundled into it.
+      - field: storage
+        initial: true
+        verify: null
+        final: null
+        rule: R4
+        evidence:
+          - path: docker-compose.yml
+            reason: "Local internal storage under /app/storage is configured in the reference compose. No S3 option is needed for the verdict, because the missing application build decides it. R4: omit storage."
+      - field: migration
+        initial: false
+        verify: null
+        final: true
+        rule: R5
+        evidence:
+          - path: cli/src/main/java/io/kestra/cli/commands/migrations/MigrationCommand.java
+            reason: The CLI has a named "migrate" command group.
+          - path: cli/src/main/java/io/kestra/cli/commands/migrations/RunMigrationCommand.java
+            reason: '"migrate run" applies all pending database migration scripts.'
+      - field: appRoot
+        initial: null
+        verify: null
+        final: .
+        rule: R8
+        evidence:
+          - path: build.gradle
+            reason: Gradle root project at the repository root (slice appPath ".").
+      - field: unsupported
+        initial:
+          - local-filesystem
+        verify: null
+        final: null
+        rule: R6
+        evidence:
+          - path: Dockerfile
+            reason: "The prebuilt-artifact cause decides the verdict. The compose storage and Docker socket are reference-setup choices, not image requirements. R6: omit unsupported for this cause."
+    notes:
+      - "Verdict is the prebuilt artifact (R1): /app/kestra comes from CI, not from the Dockerfile. Local storage and the Docker socket appear only in the reference compose."
+  - id: repo-562
+    repo: Part-DB/Part-DB-server
+    commit: a108b6d6cdca47947b58536081f9fabf3b0569c8
+    finalStatus: LABELED
+    expected:
+      compatibility: NOT_COMPATIBLE
+      runtime:
+        - php
+      monorepo: false
+      postgres: true
+      redis: false
+      worker: false
+      migration: true
+      appRoot: .
+      dockerfilePath: Dockerfile
+      port: 80
+      unsupported:
+        - local-filesystem
+    citations:
+      compatibility:
+        - path: Dockerfile
+          reason: DATABASE_URL defaults to SQLite in uploads/app.db, and uploads and public/media are declared VOLUMEs. Attachments are local files.
+        - path: composer.json
+          reason: No S3 or other object-storage adapter among the dependencies, so local uploads stay required even after a switch to PostgreSQL.
+      runtime:
+        - path: composer.json
+          reason: Symfony PHP application.
+      monorepo:
+        - path: composer.json
+          reason: One application at the repository root.
+      postgres:
+        - path: Dockerfile
+          reason: Installs php-pgsql. DATABASE_URL is a Doctrine DBAL URL that accepts PostgreSQL.
+      redis:
+        - path: composer.json
+          reason: No Redis client dependency.
+      worker:
+        - path: Procfile
+          reason: Only a web process is declared.
+      migration:
+        - path: .docker/partdb-entrypoint.sh
+          reason: With DB_AUTOMIGRATE=true the entrypoint runs doctrine:migrations:migrate.
+      appRoot:
+        - path: composer.json
+          reason: Application at the repository root (slice appPath ".").
+      dockerfilePath:
+        - path: Dockerfile
+          reason: Root Dockerfile builds the production image.
+      port:
+        - path: Dockerfile
+          reason: EXPOSE 80.
+      unsupported:
+        - path: Dockerfile
+          reason: VOLUME for /var/www/html/uploads and public/media, with no object-storage option.
+    reconciliation:
+      - field: compatibility
+        initial: NOT_COMPATIBLE
+        verify: NEEDS_CONFIGURATION
+        final: NOT_COMPATIBLE
+        rule: R1
+        evidence:
+          - path: Dockerfile
+            reason: DATABASE_URL defaults to SQLite in uploads/app.db, and uploads and public/media are declared VOLUMEs. Attachments are local files.
+          - path: composer.json
+            reason: No S3 or other object-storage adapter among the dependencies, so local uploads stay required even after a switch to PostgreSQL.
+      - field: storage
+        initial: true
+        verify: null
+        final: null
+        rule: R4
+        evidence:
+          - path: composer.json
+            reason: "Attachments are local files with no S3 option. R4: storage is true only for required S3-compatible storage, so omit it."
+      - field: appRoot
+        initial: null
+        verify: null
+        final: .
+        rule: R8
+        evidence:
+          - path: composer.json
+            reason: Application at the repository root (slice appPath ".").
+      - field: unsupported
+        initial:
+          - local-filesystem
+        verify: null
+        final:
+          - local-filesystem
+        rule: R6
+        evidence:
+          - path: Dockerfile
+            reason: VOLUME for /var/www/html/uploads and public/media, with no object-storage option.
+    notes:
+      - R1 NEEDS_CONFIGURATION needs "no other local state stays required". Uploads and media volumes stay required, so the verdict is NOT_COMPATIBLE.
+  - id: repo-563
+    repo: LycheeOrg/Lychee
+    commit: 5e13568285f938c8852622ca0c4265c9430322ca
+    finalStatus: LABELED
+    expected:
+      compatibility: NEEDS_CONFIGURATION
+      runtime:
+        - php
+      monorepo: false
+      postgres: true
+      redis: false
+      worker: false
+      storage: true
+      migration: true
+      appRoot: .
+      dockerfilePath: Dockerfile
+      port: 8000
+      healthPath: /up
+    citations:
+      compatibility:
+        - path: .env.example
+          reason: APP_KEY is empty and DB_CONNECTION defaults to sqlite, so the vendor must set the key and a PostgreSQL connection.
+        - path: config/filesystems.php
+          reason: The default images disk is local, with a documented s3 disk. S3_ENABLED in .env.example switches uploads to a bucket, so local uploads have an S3 option.
+        - path: Dockerfile
+          reason: Self-contained multi-stage FrankenPHP build with a default CMD.
+      runtime:
+        - path: composer.json
+          reason: Laravel PHP application.
+      monorepo:
+        - path: composer.json
+          reason: One application at the repository root.
+      postgres:
+        - path: .env.example
+          reason: DB_CONNECTION can be sqlite, mysql or pgsql.
+      redis:
+        - path: .env.example
+          reason: Cache and sessions default to file and queue to sync. Redis is optional.
+      worker:
+        - path: .env.example
+          reason: QUEUE_CONNECTION defaults to sync, so no worker process is needed.
+        - path: docker-compose.yaml
+          reason: The lychee_worker service is only recommended ("For improved reactivity ... we recommend to use a worker").
+      storage:
+        - path: config/filesystems.php
+          reason: The verdict depends on the S3 option (AWS_BUCKET and related variables) that replaces default local uploads.
+      migration:
+        - path: docker/scripts/entrypoint.sh
+          reason: Web mode runs php artisan migrate --force before start.
+      appRoot:
+        - path: composer.json
+          reason: Application at the repository root (slice appPath ".").
+      dockerfilePath:
+        - path: Dockerfile
+          reason: Root Dockerfile.
+      port:
+        - path: Dockerfile
+          reason: EXPOSE 8000 and Octane starts on port 8000.
+      healthPath:
+        - path: routes/web_v2.php
+          reason: Dedicated GET /up health route that needs no admin user. The compose healthcheck also calls /up.
+    reconciliation:
+      - field: compatibility
+        initial: NOT_COMPATIBLE
+        verify: NEEDS_CONFIGURATION
+        final: NEEDS_CONFIGURATION
+        rule: R1
+        evidence:
+          - path: .env.example
+            reason: APP_KEY is empty and DB_CONNECTION defaults to sqlite, so the vendor must set the key and a PostgreSQL connection.
+          - path: config/filesystems.php
+            reason: The default images disk is local, with a documented s3 disk. S3_ENABLED in .env.example switches uploads to a bucket, so local uploads have an S3 option.
+          - path: Dockerfile
+            reason: Self-contained multi-stage FrankenPHP build with a default CMD.
+      - field: worker
+        initial: true
+        verify: true
+        final: false
+        rule: R4
+        evidence:
+          - path: .env.example
+            reason: QUEUE_CONNECTION defaults to sync, so no worker process is needed.
+          - path: docker-compose.yaml
+            reason: The lychee_worker service is only recommended ("For improved reactivity ... we recommend to use a worker").
+      - field: appRoot
+        initial: null
+        verify: null
+        final: .
+        rule: R8
+        evidence:
+          - path: composer.json
+            reason: Application at the repository root (slice appPath ".").
+      - field: healthPath
+        initial: /up
+        verify: /
+        final: /up
+        rule: R8
+        evidence:
+          - path: routes/web_v2.php
+            reason: Dedicated GET /up health route that needs no admin user. The compose healthcheck also calls /up.
+      - field: unsupported
+        initial:
+          - local-filesystem
+        verify: null
+        final: null
+        rule: R6
+        evidence:
+          - path: config/filesystems.php
+            reason: "Verdict is NEEDS_CONFIGURATION, because the S3 option removes local uploads. R6: unsupported only on NOT_COMPATIBLE apps."
+    notes:
+      - Initial said NOT_COMPATIBLE (local uploads). The S3 option removes local uploads, so R1 gives NEEDS_CONFIGURATION.
+      - "Worker is recommended, not required (R4 optional): default queue is sync."
+  - id: repo-564
+    repo: getlago/lago-api
+    commit: 7df8e11e481a60cdeca171a05e3fb4538208de5a
+    finalStatus: LABELED
+    expected:
+      compatibility: NEEDS_CONFIGURATION
+      runtime:
+        - ruby
+      monorepo: false
+      postgres: true
+      redis: true
+      worker: true
+      storage: true
+      migration: true
+      appRoot: .
+      dockerfilePath: Dockerfile
+      port: 3000
+      healthPath: /health
+    citations:
+      compatibility:
+        - path: scripts/start.sh
+          reason: Default CMD migrates, seeds and starts Rails. The vendor must still set secrets and keys, and run Sidekiq separately.
+        - path: Dockerfile
+          reason: Self-contained build from public base images with CMD /app/scripts/start.sh.
+      runtime:
+        - path: Gemfile
+          reason: Rails application.
+      monorepo:
+        - path: Gemfile
+          reason: One Rails application at the repository root.
+      postgres:
+        - path: config/database.yml
+          reason: PostgreSQL adapter with DATABASE_URL.
+      redis:
+        - path: Gemfile
+          reason: Sidekiq and the redis gem. Redis backs the job queue and cache.
+      worker:
+        - path: scripts/start.worker.sh
+          reason: A separate Sidekiq worker start script runs from the same image.
+      storage:
+        - path: config/environments/production.rb
+          reason: Active Storage uses the local disk unless LAGO_USE_AWS_S3 is true.
+        - path: config/storage.yml
+          reason: S3 service configuration for invoice files. The verdict depends on this S3 option.
+      migration:
+        - path: scripts/migrate.sh
+          reason: Declared migration script that runs db:migrate.
+      appRoot:
+        - path: Gemfile
+          reason: Application at the repository root (slice appPath ".").
+      dockerfilePath:
+        - path: Dockerfile
+          reason: Root Dockerfile.
+      port:
+        - path: config/puma.rb
+          reason: Puma listens on ENV PORT, default 3000.
+      healthPath:
+        - path: config/routes.rb
+          reason: Declares get "/health" and get "/ready".
+    reconciliation:
+      - field: appRoot
+        initial: null
+        verify: null
+        final: .
+        rule: R8
+        evidence:
+          - path: Gemfile
+            reason: Application at the repository root (slice appPath ".").
+    notes:
+      - Initial and verify agree on compatibility. Storage kept true because default local Active Storage needs the S3 option (R4).
+  - id: repo-565
+    repo: open-webui/open-webui
+    commit: 8bd8b4fac5e059578ac0c74b3c18d11139f88b7d
+    finalStatus: LABELED
+    expected:
+      compatibility: NEEDS_CONFIGURATION
+      runtime:
+        - python
+      monorepo: false
+      postgres: true
+      redis: false
+      worker: false
+      storage: true
+      migration: true
+      appRoot: .
+      dockerfilePath: Dockerfile
+      port: 8080
+      healthPath: /health
+    citations:
+      compatibility:
+        - path: backend/open_webui/env.py
+          reason: DATA_DIR and SQLite are only defaults. DATABASE_URL replaces the SQLite database.
+        - path: backend/open_webui/config.py
+          reason: STORAGE_PROVIDER (local default, s3 option) moves uploads to S3, and VECTOR_DB (chroma default, pgvector option) moves the vector store to PostgreSQL. Every local default has an environment switch.
+        - path: backend/start.sh
+          reason: WEBUI_SECRET_KEY has a file fallback only when it is unset, so the key can come from the environment.
+      runtime:
+        - path: backend/requirements.txt
+          reason: FastAPI backend served by uvicorn.
+      monorepo:
+        - path: package.json
+          reason: The SvelteKit frontend builds into the backend image. One deployable.
+      postgres:
+        - path: backend/open_webui/env.py
+          reason: DATABASE_URL accepts a PostgreSQL URL; the SQLite path is only the default.
+      redis:
+        - path: backend/open_webui/config.py
+          reason: Redis is not required. The default vector store and cache need no Redis service.
+      worker:
+        - path: Dockerfile
+          reason: CMD runs start.sh, which starts a single uvicorn process.
+      storage:
+        - path: backend/open_webui/config.py
+          reason: The verdict depends on STORAGE_PROVIDER=s3, which replaces local file uploads.
+      migration:
+        - path: backend/open_webui/alembic.ini
+          reason: Alembic migrations exist; they run at app startup (R5 counts a migration tool even then).
+      appRoot:
+        - path: package.json
+          reason: Application at the repository root (slice appPath ".").
+      dockerfilePath:
+        - path: Dockerfile
+          reason: Root Dockerfile.
+      port:
+        - path: Dockerfile
+          reason: ENV PORT=8080 and EXPOSE 8080.
+      healthPath:
+        - path: Dockerfile
+          reason: HEALTHCHECK calls /health.
+    reconciliation:
+      - field: compatibility
+        initial: NOT_COMPATIBLE
+        verify: NOT_COMPATIBLE
+        final: NEEDS_CONFIGURATION
+        rule: R1
+        evidence:
+          - path: backend/open_webui/env.py
+            reason: DATA_DIR and SQLite are only defaults. DATABASE_URL replaces the SQLite database.
+          - path: backend/open_webui/config.py
+            reason: STORAGE_PROVIDER (local default, s3 option) moves uploads to S3, and VECTOR_DB (chroma default, pgvector option) moves the vector store to PostgreSQL. Every local default has an environment switch.
+          - path: backend/start.sh
+            reason: WEBUI_SECRET_KEY has a file fallback only when it is unset, so the key can come from the environment.
+      - field: storage
+        initial: true
+        verify: null
+        final: true
+        rule: R4
+        evidence:
+          - path: backend/open_webui/config.py
+            reason: The verdict depends on STORAGE_PROVIDER=s3, which replaces local file uploads.
+      - field: migration
+        initial: false
+        verify: null
+        final: true
+        rule: R5
+        evidence:
+          - path: backend/open_webui/alembic.ini
+            reason: Alembic migrations exist; they run at app startup (R5 counts a migration tool even then).
+      - field: appRoot
+        initial: null
+        verify: null
+        final: .
+        rule: R8
+        evidence:
+          - path: package.json
+            reason: Application at the repository root (slice appPath ".").
+      - field: unsupported
+        initial:
+          - local-filesystem
+        verify: null
+        final: null
+        rule: R6
+        evidence:
+          - path: backend/open_webui/config.py
+            reason: "Verdict is NEEDS_CONFIGURATION, because every local default has an environment switch. R6: unsupported only on NOT_COMPATIBLE apps."
+    notes:
+      - "Judgement call: initial and verify both said NOT_COMPATIBLE (data directory). R1 says NOT_COMPATIBLE only when no supported configuration removes the local state. DATABASE_URL, STORAGE_PROVIDER=s3 and VECTOR_DB=pgvector remove SQLite, uploads and the vector store, so the final is NEEDS_CONFIGURATION."
+  - id: repo-566
+    repo: openfga/openfga
+    commit: 526995eb202464e2cace266fb5be56c212af9ecf
+    finalStatus: LABELED
+    expected:
+      compatibility: NEEDS_CONFIGURATION
+      runtime:
+        - go
+      monorepo: false
+      postgres: true
+      redis: false
+      worker: false
+      migration: true
+      appRoot: .
+      dockerfilePath: Dockerfile
+      port: 8080
+      healthPath: /healthz
+    citations:
+      compatibility:
+        - path: Dockerfile
+          reason: Self-contained Go build, but ENTRYPOINT is /openfga with no CMD, so the vendor must set the "run" command.
+        - path: docker-compose.yaml
+          reason: run needs OPENFGA_DATASTORE_ENGINE=postgres and a URI, and migrate runs first.
+      runtime:
+        - path: go.mod
+          reason: Go module.
+      monorepo:
+        - path: go.mod
+          reason: One Go module and one binary (cmd/openfga).
+      postgres:
+        - path: docker-compose.yaml
+          reason: Postgres datastore.
+      redis:
+        - path: docker-compose.yaml
+          reason: No Redis service.
+      worker:
+        - path: docker-compose.yaml
+          reason: Only a one-shot migrate service and the server.
+      migration:
+        - path: cmd/migrate/migrate.go
+          reason: The binary has a migrate subcommand.
+        - path: docker-compose.yaml
+          reason: The migrate service runs "migrate" before the server.
+      appRoot:
+        - path: go.mod
+          reason: Module at the repository root (slice appPath ".").
+      dockerfilePath:
+        - path: Dockerfile
+          reason: Root Dockerfile builds ./cmd/openfga.
+      port:
+        - path: Dockerfile
+          reason: EXPOSE 8080 for HTTP (8081 gRPC, 3000 playground).
+      healthPath:
+        - path: cmd/run/run.go
+          reason: The gRPC gateway registers WithHealthzEndpoint, which serves /healthz.
+    reconciliation:
+      - field: storage
+        initial: false
+        verify: null
+        final: null
+        rule: R4
+        evidence:
+          - path: docker-compose.yaml
+            reason: "No file or object storage; data goes to PostgreSQL. R4: omit storage."
+      - field: appRoot
+        initial: null
+        verify: null
+        final: .
+        rule: R8
+        evidence:
+          - path: go.mod
+            reason: Module at the repository root (slice appPath ".").
+  - id: repo-567
+    repo: cloudreve/cloudreve
+    commit: 9f1e0b8333f5c7304a09e1dcb3f9c170dddd63f3
+    finalStatus: LABELED
+    expected:
+      compatibility: NOT_COMPATIBLE
+      runtime:
+        - go
+      monorepo: false
+      postgres: true
+      redis: false
+      worker: false
+      appRoot: .
+      dockerfilePath: Dockerfile
+      port: 5212
+      unsupported:
+        - local-filesystem
+    citations:
+      compatibility:
+        - path: Dockerfile
+          reason: COPY cloudreve ./cloudreve copies a binary that is not in the repository and is not built. It also declares VOLUME /cloudreve/data.
+      runtime:
+        - path: go.mod
+          reason: Go module.
+      monorepo:
+        - path: go.mod
+          reason: One Go application.
+      postgres:
+        - path: docker-compose.yml
+          reason: Reference setup uses CR_CONF_Database.Type=postgres.
+      redis:
+        - path: application/dependency/dependency.go
+          reason: The KV cache uses Redis only when Redis.Server is set. Otherwise it uses an in-memory store (Redis is optional).
+      worker:
+        - path: docker-compose.yml
+          reason: Only the cloudreve service. Background jobs run in-process.
+      appRoot:
+        - path: go.mod
+          reason: Module at the repository root (slice appPath ".").
+      dockerfilePath:
+        - path: Dockerfile
+          reason: Root Dockerfile.
+      port:
+        - path: Dockerfile
+          reason: EXPOSE 5212.
+      unsupported:
+        - path: Dockerfile
+          reason: VOLUME /cloudreve/data holds the local storage policy files, and the entrypoint runs aria2 under supervisor.
+    reconciliation:
+      - field: redis
+        initial: true
+        verify: true
+        final: false
+        rule: R4
+        evidence:
+          - path: application/dependency/dependency.go
+            reason: "Redis is optional (in-memory fallback). R4: optional services are false."
+      - field: storage
+        initial: true
+        verify: null
+        final: null
+        rule: R4
+        evidence:
+          - path: Dockerfile
+            reason: "File storage is the local data directory; no S3 requirement. R4: omit storage."
+      - field: migration
+        initial: false
+        verify: null
+        final: null
+        rule: R5
+        evidence:
+          - path: cmd/migrate.go
+            reason: "The only migrate command is the v3-to-v4 data migration, not a schema migration for a deployment. Schema setup is opaque in-app. R5: omit migration."
+      - field: appRoot
+        initial: null
+        verify: null
+        final: .
+        rule: R8
+        evidence:
+          - path: go.mod
+            reason: Module at the repository root (slice appPath ".").
+      - field: unsupported
+        initial:
+          - local-filesystem
+        verify: null
+        final:
+          - local-filesystem
+        rule: R6
+        evidence:
+          - path: Dockerfile
+            reason: VOLUME /cloudreve/data holds the local storage policy files, and the entrypoint runs aria2 under supervisor.
+    notes:
+      - Redis is optional (R4). cmd/migrate.go is a v3-to-v4 data migration, not a schema migration command, and schema updates run in-process (R5 opaque), so migration is omitted.
+  - id: repo-568
+    repo: Dokploy/dokploy
+    commit: 5be17d3dd01d9489521cde2eca7d997b14c54653
+    finalStatus: LABELED
+    expected:
+      compatibility: NOT_COMPATIBLE
+      runtime:
+        - node
+      monorepo: true
+      postgres: true
+      redis: false
+      worker: false
+      migration: true
+      appRoot: .
+      dockerfilePath: Dockerfile
+      port: 3000
+      healthPath: /api/trpc/settings.health
+      unsupported:
+        - docker
+        - local-filesystem
+    citations:
+      compatibility:
+        - path: apps/dokploy/setup.ts
+          reason: Initializes Docker Swarm, a Docker network and Traefik on the host, and creates host directories.
+        - path: Dockerfile
+          reason: Installs the Docker engine in the image and copies .env.production, which is not in the repository, so the build fails on the pinned source.
+      runtime:
+        - path: package.json
+          reason: Node and pnpm workspace.
+      monorepo:
+        - path: pnpm-workspace.yaml
+          reason: Workspace of apps/api, apps/dokploy, apps/schedules and packages/server.
+      postgres:
+        - path: apps/dokploy/.env.example
+          reason: DATABASE_URL is a PostgreSQL URL.
+      redis:
+        - path: apps/dokploy/package.json
+          reason: No Redis client dependency; the queue is in-memory.
+      worker:
+        - path: Dockerfile
+          reason: CMD starts one server process. The schedules and monitoring apps have separate Dockerfiles.
+      migration:
+        - path: apps/dokploy/package.json
+          reason: Has a migration:run script, and the Dockerfile CMD runs dist/migration.mjs before the server.
+      appRoot:
+        - path: Dockerfile
+          reason: The Dockerfile at the repository root builds the app with the root as build context (slice appPath ".").
+      dockerfilePath:
+        - path: Dockerfile
+          reason: Root Dockerfile builds the apps/dokploy filter.
+      port:
+        - path: Dockerfile
+          reason: EXPOSE 3000.
+      healthPath:
+        - path: Dockerfile
+          reason: HEALTHCHECK calls /api/trpc/settings.health.
+      unsupported:
+        - path: packages/server/src/constants/index.ts
+          reason: Uses dockerode and the Docker socket to control the host Docker daemon.
+        - path: apps/dokploy/setup.ts
+          reason: Creates host directories and Swarm state on the local host.
+    reconciliation:
+      - field: storage
+        initial: false
+        verify: null
+        final: null
+        rule: R4
+        evidence:
+          - path: Dockerfile
+            reason: "No object storage use in the image. R4: omit storage."
+      - field: appRoot
+        initial: apps/dokploy
+        verify: null
+        final: .
+        rule: R8
+        evidence:
+          - path: Dockerfile
+            reason: The Dockerfile at the repository root builds the app with the root as build context (slice appPath ".").
+      - field: unsupported
+        initial:
+          - local-filesystem
+        verify: null
+        final:
+          - docker
+          - local-filesystem
+        rule: R6
+        evidence:
+          - path: packages/server/src/constants/index.ts
+            reason: Uses dockerode and the Docker socket to control the host Docker daemon.
+          - path: apps/dokploy/setup.ts
+            reason: Creates host directories and Swarm state on the local host.
+    notes:
+      - appRoot is "." (slice appPath). The Dockerfile at the root builds apps/dokploy. Initial gave apps/dokploy.
+  - id: repo-569
+    repo: activepieces/activepieces
+    commit: 6f408036fdc92752506815df43c21a96b4e75a46
+    finalStatus: LABELED
+    expected:
+      compatibility: NEEDS_CONFIGURATION
+      runtime:
+        - node
+      monorepo: true
+      postgres: true
+      redis: true
+      worker: false
+      migration: true
+      appRoot: .
+      dockerfilePath: Dockerfile
+      port: 80
+      healthPath: /api/v1/health
+    citations:
+      compatibility:
+        - path: .env.example
+          reason: Needs vendor secrets (AP_ENCRYPTION_KEY, AP_JWT_SECRET) and PostgreSQL and Redis hosts. AP_EXECUTION_MODE=UNSANDBOXED needs no privileged sandbox.
+        - path: Dockerfile
+          reason: Self-contained multi-stage build.
+      runtime:
+        - path: package.json
+          reason: Node/TypeScript workspace.
+      monorepo:
+        - path: turbo.json
+          reason: Turborepo workspace with API, worker, web, engine and many piece packages.
+      postgres:
+        - path: docker-compose.yml
+          reason: PostgreSQL service and AP_POSTGRES_* settings.
+      redis:
+        - path: docker-compose.yml
+          reason: Redis service and AP_REDIS_* settings; the app requires Redis.
+      worker:
+        - path: docker-entrypoint.sh
+          reason: AP_CONTAINER_TYPE defaults to WORKER_AND_APP, which runs the worker in the same container. A separate worker is a scale option.
+      migration:
+        - path: packages/server/api/src/app/database/migration-data-source.ts
+          reason: TypeORM migration data source.
+        - path: packages/server/api/src/app/database/migration/postgres/1676238396411-initialize-schema.ts
+          reason: TypeORM migration files exist (R5 counts a migration tool that runs at startup).
+      appRoot:
+        - path: package.json
+          reason: Workspace root at the repository root (slice appPath ".").
+      dockerfilePath:
+        - path: Dockerfile
+          reason: Root Dockerfile builds web, engine, api and worker.
+      port:
+        - path: Dockerfile
+          reason: EXPOSE 80; AP_PORT defaults to 80 in the entrypoint.
+      healthPath:
+        - path: Dockerfile
+          reason: HEALTHCHECK calls /api/v1/health.
+    reconciliation:
+      - field: worker
+        initial: false
+        verify: true
+        final: false
+        rule: R4
+        evidence:
+          - path: docker-entrypoint.sh
+            reason: AP_CONTAINER_TYPE defaults to WORKER_AND_APP, which runs the worker in the same container. A separate worker is a scale option.
+      - field: storage
+        initial: false
+        verify: null
+        final: null
+        rule: R4
+        evidence:
+          - path: docker-compose.yml
+            reason: "The ./cache volume is a cache only; no object-storage requirement. R4: omit storage."
+      - field: migration
+        initial: false
+        verify: null
+        final: true
+        rule: R5
+        evidence:
+          - path: packages/server/api/src/app/database/migration-data-source.ts
+            reason: TypeORM migration data source.
+          - path: packages/server/api/src/app/database/migration/postgres/1676238396411-initialize-schema.ts
+            reason: TypeORM migration files exist (R5 counts a migration tool that runs at startup).
+      - field: appRoot
+        initial: null
+        verify: null
+        final: .
+        rule: R8
+        evidence:
+          - path: package.json
+            reason: Workspace root at the repository root (slice appPath ".").
+    notes:
+      - "Worker false: the default container type runs app and worker together (R4). Verify said true."
+  - id: repo-570
+    repo: dexidp/dex
+    commit: 05a275057112ba93e17db21f600b756f000f1c21
+    finalStatus: LABELED
+    expected:
+      compatibility: NOT_COMPATIBLE
+      runtime:
+        - go
+      monorepo: false
+      postgres: true
+      redis: false
+      worker: false
+      appRoot: .
+      dockerfilePath: Dockerfile
+      port: 5556
+      healthPath: /healthz
+      unsupported:
+        - local-filesystem
+    citations:
+      compatibility:
+        - path: config.docker.yaml
+          reason: The only config in the image is a development example template. It fixes storage to type sqlite3 at /var/dex/dex.db, so PostgreSQL needs a different config file.
+        - path: Dockerfile
+          reason: CMD reads /etc/dex/config.docker.yaml. A production config must be mounted or added.
+      runtime:
+        - path: go.mod
+          reason: Go module.
+      monorepo:
+        - path: go.mod
+          reason: One Dex binary; api/v2 is a client library module.
+      postgres:
+        - path: storage/sql/config.go
+          reason: SQL storage backends include PostgreSQL.
+      redis:
+        - path: go.mod
+          reason: No Redis storage backend.
+      worker:
+        - path: Dockerfile
+          reason: One dex serve process.
+      appRoot:
+        - path: go.mod
+          reason: Module at the repository root (slice appPath ".").
+      dockerfilePath:
+        - path: Dockerfile
+          reason: Root Dockerfile.
+      port:
+        - path: config.docker.yaml
+          reason: web.http defaults to 0.0.0.0:5556.
+      healthPath:
+        - path: server/server.go
+          reason: Registers the /healthz handler.
+      unsupported:
+        - path: config.docker.yaml
+          reason: The default storage is a SQLite file under /var/dex, and the config file is expected to be replaced by a mounted one.
+    reconciliation:
+      - field: storage
+        initial: false
+        verify: null
+        final: null
+        rule: R4
+        evidence:
+          - path: config.docker.yaml
+            reason: "Dex keeps data in its storage backend, not a file store. R4: omit storage."
+      - field: migration
+        initial: false
+        verify: null
+        final: null
+        rule: R5
+        evidence:
+          - path: storage/sql/migrate.go
+            reason: "Storage schema migrations are an in-app list applied at server start, with no named command. R5: omit migration."
+      - field: appRoot
+        initial: null
+        verify: null
+        final: .
+        rule: R8
+        evidence:
+          - path: go.mod
+            reason: Module at the repository root (slice appPath ".").
+      - field: unsupported
+        initial:
+          - local-filesystem
+        verify: null
+        final:
+          - local-filesystem
+        rule: R6
+        evidence:
+          - path: config.docker.yaml
+            reason: The default storage is a SQLite file under /var/dex, and the config file is expected to be replaced by a mounted one.
+    notes:
+      - Schema setup is an in-app migration list with no named command, so migration is omitted (R5 opaque in-app).

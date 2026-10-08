@@ -1,0 +1,1093 @@
+# Final labels, corpus batch 08 (P1-RECONCILE-04), rule set R1 (campaign/corpus/label-rules.md).
+# Every value is decided from repository source at the pinned commit. No Deployz output was used.
+# reconciliation lists every field where the initial label, the verification label or the final label differ.
+# An absent field and an empty unsupported list count as equal. null means the field is absent.
+taskId: P1-RECONCILE-04
+testedCommit: e6a3b58ee2363923fef21faca86611fa3bf84538
+rules: R1
+apps:
+  - id: repo-571
+    repo: firezone/firezone
+    commit: 29ee99456ae20d839667bbb4d143b0eb97091607
+    finalStatus: LABELED
+    expected:
+      compatibility: NEEDS_CONFIGURATION
+      runtime:
+        - elixir
+      monorepo: true
+      postgres: true
+      redis: false
+      worker: false
+      migration: true
+      appRoot: elixir
+      dockerfilePath: elixir/Dockerfile
+      healthPath: /readyz
+    citations:
+      compatibility:
+        - path: elixir/Dockerfile
+          reason: The release name comes from the APPLICATION_NAME build arg, which has no default, so a plain build needs a build argument.
+        - path: elixir/config/runtime.exs
+          reason: Listener ports, external URLs and secrets come only from required environment variables.
+        - path: elixir/lib/portal/config/definitions.ex
+          reason: The public HTTP port (PHOENIX_HTTP_PUBLIC_PORT) has no default; the listener is off until it is set.
+      runtime:
+        - path: elixir/mix.exs
+          reason: Mix project for the Phoenix app (:portal).
+      monorepo:
+        - path: elixir/mix.exs
+          reason: The Elixir portal is one app in a multi-language repository.
+        - path: rust/Dockerfile
+          reason: A second, independently built component in the same repository.
+      postgres:
+        - path: elixir/mix.exs
+          reason: postgrex, ecto_sql and phoenix_ecto dependencies.
+      redis:
+        - path: elixir/mix.exs
+          reason: No Redis client in the dependency list.
+      worker:
+        - path: elixir/mix.exs
+          reason: Oban jobs run inside the same release.
+        - path: elixir/rel/overlays/bin/server
+          reason: One start command (bin/server) runs migrate and then the release.
+      migration:
+        - path: elixir/rel/overlays/bin/migrate
+          reason: Release migrate script; bin/server also calls it before start.
+      appRoot:
+        - path: elixir/mix.exs
+          reason: Mix project root is the elixir directory (slice appPath).
+      dockerfilePath:
+        - path: elixir/Dockerfile
+          reason: Only Dockerfile of the app; build context is the elixir directory.
+      healthPath:
+        - path: elixir/lib/portal/health.ex
+          reason: Plug answers GET /readyz with 200 or 503.
+    reconciliation:
+      - field: storage
+        initial: null
+        verify: false
+        final: null
+        rule: R4
+        evidence:
+          - path: elixir/mix.exs
+            reason: "No application object storage dependency. R4: omit storage."
+      - field: port
+        initial: null
+        verify: 13000
+        final: null
+        rule: R8
+        evidence:
+          - path: elixir/lib/portal/config/definitions.ex
+            reason: "phoenix_http_public_port defaults to nil (listener off). The 13000 in config.exs is only the endpoint URL port, not a listen port. R8: omit port."
+    notes:
+      - "Port omitted: the production listen port has no default (R8). Verify gave 13000 from the endpoint url setting only."
+  - id: repo-572
+    repo: Mintplex-Labs/anything-llm
+    commit: 3c7e73b8104e25327b9db3c4a8eeaf3ac4af237f
+    finalStatus: LABELED
+    expected:
+      compatibility: NOT_COMPATIBLE
+      runtime:
+        - node
+      monorepo: true
+      postgres: false
+      redis: false
+      worker: false
+      migration: true
+      appRoot: .
+      dockerfilePath: docker/Dockerfile
+      port: 3001
+      healthPath: /api/ping
+      unsupported:
+        - local-filesystem
+    citations:
+      compatibility:
+        - path: server/prisma/schema.prisma
+          reason: The datasource is SQLite at file:../storage/anythingllm.db. PostgreSQL needs a code edit of the schema and a rebuild, so no environment switch exists.
+        - path: docker/docker-entrypoint.sh
+          reason: Warns that data is lost without a persistent STORAGE_DIR.
+      runtime:
+        - path: package.json
+          reason: Node.js project.
+      monorepo:
+        - path: package.json
+          reason: Scripts drive three separate packages (server, collector, frontend).
+        - path: collector/package.json
+          reason: The collector is a separate Node package and process.
+      postgres:
+        - path: server/prisma/schema.prisma
+          reason: The PostgreSQL datasource is commented out and needs a schema edit.
+      redis:
+        - path: server/package.json
+          reason: No Redis client dependency.
+      worker:
+        - path: docker/docker-entrypoint.sh
+          reason: The collector starts as a second process in the same container; no separate worker command.
+      migration:
+        - path: docker/docker-entrypoint.sh
+          reason: Runs npx prisma migrate deploy before the server.
+      appRoot:
+        - path: package.json
+          reason: Root package and Docker build context at the repository root (slice appPath ".").
+      dockerfilePath:
+        - path: docker/Dockerfile
+          reason: Main application image.
+      port:
+        - path: server/index.js
+          reason: Listens on SERVER_PORT or 3001.
+      healthPath:
+        - path: docker/docker-healthcheck.sh
+          reason: The health check requests /api/ping.
+      unsupported:
+        - path: server/prisma/schema.prisma
+          reason: "SQLite database file in the storage directory (R6: SQLite maps to local-filesystem)."
+        - path: docker/docker-compose.yml
+          reason: Bind-mounts server/storage and the collector hotdir as persistent local state.
+    reconciliation:
+      - field: storage
+        initial: null
+        verify: false
+        final: null
+        rule: R4
+        evidence:
+          - path: docker/docker-entrypoint.sh
+            reason: "Storage is the local STORAGE_DIR, not object storage. R4: omit storage."
+      - field: appRoot
+        initial: null
+        verify: .
+        final: .
+        rule: R8
+        evidence:
+          - path: package.json
+            reason: Root package and Docker build context at the repository root (slice appPath ".").
+      - field: unsupported
+        initial: null
+        verify:
+          - sqlite
+          - local-filesystem
+        final:
+          - local-filesystem
+        rule: R6
+        evidence:
+          - path: server/prisma/schema.prisma
+            reason: "SQLite database file in the storage directory (R6: SQLite maps to local-filesystem)."
+          - path: docker/docker-compose.yml
+            reason: Bind-mounts server/storage and the collector hotdir as persistent local state.
+    notes:
+      - 'R6 has no "sqlite" family: SQLite maps to local-filesystem.'
+  - id: repo-573
+    repo: mem0ai/mem0
+    commit: b7ad69afda6b6ed030347c66d48a13e4de9dec08
+    finalStatus: LABELED
+    expected:
+      compatibility: NEEDS_CONFIGURATION
+      runtime:
+        - python
+      monorepo: true
+      postgres: true
+      redis: false
+      worker: false
+      migration: true
+      appRoot: server
+      dockerfilePath: server/Dockerfile
+      port: 8000
+      healthPath: /auth/setup-status
+    citations:
+      compatibility:
+        - path: server/Dockerfile
+          reason: CMD runs uvicorn with --reload and does not run the Alembic migration, so a migration command must be configured.
+        - path: server/.env.example
+          reason: Requires OPENAI_API_KEY, JWT_SECRET and POSTGRES_PASSWORD; APP_DB_NAME needs a second database.
+        - path: server/main.py
+          reason: HISTORY_DB_PATH defaults to the SQLite file /app/history/history.db. The path is an environment value, and SQLiteManager accepts :memory:, so the vendor can remove the local file.
+        - path: mem0/memory/storage.py
+          reason: SQLiteManager takes any db_path, including :memory:.
+      runtime:
+        - path: server/requirements.txt
+          reason: FastAPI and uvicorn Python dependencies.
+      monorepo:
+        - path: server/dashboard/Dockerfile
+          reason: The server directory holds a second deployable (dashboard) inside the larger mem0 repository.
+      postgres:
+        - path: server/db.py
+          reason: The app database URL is postgresql+psycopg.
+        - path: server/main.py
+          reason: The vector store provider is pgvector from POSTGRES_* variables.
+      redis:
+        - path: server/requirements.txt
+          reason: No Redis client dependency.
+      worker:
+        - path: server/Dockerfile
+          reason: Single uvicorn process; no worker command.
+      migration:
+        - path: server/alembic.ini
+          reason: Alembic is configured for the app database.
+        - path: server/docker-compose.yaml
+          reason: The compose command runs alembic upgrade head before uvicorn.
+      appRoot:
+        - path: server/main.py
+          reason: The API application lives under server (slice appPath).
+      dockerfilePath:
+        - path: server/Dockerfile
+          reason: Production image for the API server (dev.Dockerfile is for compose).
+      port:
+        - path: server/Dockerfile
+          reason: EXPOSE 8000 and uvicorn --port 8000.
+      healthPath:
+        - path: server/routers/auth.py
+          reason: GET /auth/setup-status needs no authentication and returns 200.
+        - path: server/Makefile
+          reason: The wait-api target polls /auth/setup-status as the readiness check. The API has no dedicated health route.
+    reconciliation:
+      - field: storage
+        initial: null
+        verify: false
+        final: null
+        rule: R4
+        evidence:
+          - path: server/main.py
+            reason: "Only a local history database path; no object storage. R4: omit storage."
+      - field: healthPath
+        initial: /auth/setup-status
+        verify: null
+        final: /auth/setup-status
+        rule: R8
+        evidence:
+          - path: server/routers/auth.py
+            reason: GET /auth/setup-status needs no authentication and returns 200.
+          - path: server/Makefile
+            reason: The wait-api target polls /auth/setup-status as the readiness check. The API has no dedicated health route.
+    notes:
+      - The SQLite history file is configurable through HISTORY_DB_PATH, so R1 gives NEEDS_CONFIGURATION, not NOT_COMPATIBLE.
+      - healthPath /auth/setup-status is the only unauthenticated readiness route (Makefile evidence).
+  - id: repo-574
+    repo: lobsters/lobsters
+    commit: 9fefd21bee25e4b4fddcfc318023b2d8cd7d8a5e
+    finalStatus: LABELED
+    expected:
+      compatibility: NOT_COMPATIBLE
+      runtime:
+        - ruby
+      monorepo: false
+      postgres: false
+      redis: false
+      worker: true
+      migration: true
+      appRoot: .
+      port: 3000
+      unsupported:
+        - local-filesystem
+    citations:
+      compatibility:
+        - path: Dockerfile.dev
+          reason: Only a development Dockerfile exists; no production Dockerfile.
+        - path: config/database.yml.sample
+          reason: Production primary, cache, queue and rack_attack databases are all SQLite files under storage/.
+        - path: Gemfile
+          reason: Only the sqlite3 database gem; no PostgreSQL or MySQL adapter.
+      runtime:
+        - path: Gemfile
+          reason: Ruby on Rails application.
+      monorepo:
+        - path: Gemfile
+          reason: One Rails application at the repository root.
+      postgres:
+        - path: Gemfile
+          reason: No pg gem; sqlite3 only.
+      redis:
+        - path: Gemfile
+          reason: solid_cache and solid_queue are database backed; no Redis gem.
+      worker:
+        - path: Procfile.dev
+          reason: Declares a separate job process (bin/jobs) next to web.
+        - path: config/environments/production.rb
+          reason: The Active Job adapter is solid_queue.
+      migration:
+        - path: db/migrate/20250818182728_add_fts_tables.rb
+          reason: Rails migrations are present (db:migrate).
+      appRoot:
+        - path: Gemfile
+          reason: Application at the repository root (slice appPath ".").
+      port:
+        - path: docker-compose.yaml
+          reason: Publishes 3000:3000 (Rails default port).
+      unsupported:
+        - path: config/database.yml.sample
+          reason: "SQLite production databases under storage/ and no other adapter (R6: SQLite maps to local-filesystem)."
+        - path: config/environments/production.rb
+          reason: Active Storage uses the local disk service.
+    reconciliation:
+      - field: storage
+        initial: null
+        verify: false
+        final: null
+        rule: R4
+        evidence:
+          - path: config/environments/production.rb
+            reason: "Active Storage uses the local disk service, with no S3 option. R4: omit storage."
+      - field: migration
+        initial: null
+        verify: true
+        final: true
+        rule: R5
+        evidence:
+          - path: db/migrate/20250818182728_add_fts_tables.rb
+            reason: Rails migrations are present (db:migrate).
+      - field: appRoot
+        initial: null
+        verify: .
+        final: .
+        rule: R8
+        evidence:
+          - path: Gemfile
+            reason: Application at the repository root (slice appPath ".").
+      - field: unsupported
+        initial: null
+        verify:
+          - sqlite
+          - background-worker
+        final:
+          - local-filesystem
+        rule: R6
+        evidence:
+          - path: config/database.yml.sample
+            reason: "SQLite production databases under storage/ and no other adapter (R6: SQLite maps to local-filesystem)."
+          - path: config/environments/production.rb
+            reason: Active Storage uses the local disk service.
+    notes:
+      - "Worker true: Procfile.dev declares bin/jobs and production uses solid_queue (declared separate process, R4)."
+      - port 3000 comes from the dev compose and the Rails default; there is no production Dockerfile.
+  - id: repo-575
+    repo: traccar/traccar
+    commit: 323cdae38fdf101ea13b97196cfbdcb259101ed7
+    finalStatus: LABELED
+    expected:
+      compatibility: NOT_COMPATIBLE
+      runtime:
+        - java
+      monorepo: false
+      postgres: true
+      redis: false
+      worker: false
+      migration: true
+      appRoot: .
+      port: 8082
+      healthPath: /api/health
+    citations:
+      compatibility:
+        - path: docker/Dockerfile.alpine
+          reason: COPY traccar-other-$VERSION.zip is a release archive that the repository does not contain and the Dockerfile does not build.
+        - path: docker/Dockerfile.debian
+          reason: Same prebuilt archive copy.
+        - path: docker/Dockerfile.ubuntu
+          reason: Same prebuilt archive copy.
+      runtime:
+        - path: build.gradle
+          reason: Java 21 Gradle project.
+      monorepo:
+        - path: settings.gradle
+          reason: Single Gradle project.
+      postgres:
+        - path: docker/compose/traccar-timescaledb.yaml
+          reason: Reference setup sets DATABASE_DRIVER=org.postgresql.Driver and a PostgreSQL URL by environment.
+        - path: setup/traccar.xml
+          reason: H2 is only the default; the driver and URL are configurable.
+      redis:
+        - path: build.gradle
+          reason: jedis is a client for optional event forwarding; no Redis service is required.
+      worker:
+        - path: docker/Dockerfile.alpine
+          reason: Single java -jar tracker-server.jar process.
+      migration:
+        - path: schema/changelog-master.xml
+          reason: Liquibase changelog set for the database schema.
+        - path: build.gradle
+          reason: liquibase-core dependency. R5 counts a migration tool that runs at startup.
+      appRoot:
+        - path: build.gradle
+          reason: Project at the repository root (slice appPath ".").
+      port:
+        - path: docker/compose/traccar-timescaledb.yaml
+          reason: Web and API port 8082 is published.
+      healthPath:
+        - path: src/main/java/org/traccar/api/resource/HealthResource.java
+          reason: Health resource; the compose healthcheck calls /api/health.
+    reconciliation:
+      - field: compatibility
+        initial: NOT_COMPATIBLE
+        verify: NEEDS_CONFIGURATION
+        final: NOT_COMPATIBLE
+        rule: R1
+        evidence:
+          - path: docker/Dockerfile.alpine
+            reason: COPY traccar-other-$VERSION.zip is a release archive that the repository does not contain and the Dockerfile does not build.
+          - path: docker/Dockerfile.debian
+            reason: Same prebuilt archive copy.
+          - path: docker/Dockerfile.ubuntu
+            reason: Same prebuilt archive copy.
+      - field: postgres
+        initial: false
+        verify: true
+        final: true
+        rule: R3
+        evidence:
+          - path: docker/compose/traccar-timescaledb.yaml
+            reason: Reference setup sets DATABASE_DRIVER=org.postgresql.Driver and a PostgreSQL URL by environment.
+          - path: setup/traccar.xml
+            reason: H2 is only the default; the driver and URL are configurable.
+      - field: storage
+        initial: null
+        verify: false
+        final: null
+        rule: R4
+        evidence:
+          - path: build.gradle
+            reason: "No object-storage dependency. R4: omit storage."
+      - field: migration
+        initial: null
+        verify: false
+        final: true
+        rule: R5
+        evidence:
+          - path: schema/changelog-master.xml
+            reason: Liquibase changelog set for the database schema.
+          - path: build.gradle
+            reason: liquibase-core dependency. R5 counts a migration tool that runs at startup.
+      - field: appRoot
+        initial: null
+        verify: .
+        final: .
+        rule: R8
+        evidence:
+          - path: build.gradle
+            reason: Project at the repository root (slice appPath ".").
+      - field: unsupported
+        initial:
+          - other-database
+        verify: null
+        final: null
+        rule: R6
+        evidence:
+          - path: docker/Dockerfile.alpine
+            reason: "The prebuilt-artifact cause decides the verdict, and the H2 default is replaced by PostgreSQL through environment values. R6: omit unsupported."
+    notes:
+      - "dockerfilePath omitted: three equal variants, none default (R8)."
+      - The device-protocol TCP ports 5000-5500 are extra listeners; the verdict does not depend on them.
+  - id: repo-576
+    repo: btcpayserver/btcpayserver
+    commit: cbee1f8c782f0f3c8fa5457cf4a3a47e92c0e059
+    finalStatus: LABELED
+    expected:
+      compatibility: NOT_COMPATIBLE
+      runtime:
+        - dotnet
+      monorepo: false
+      postgres: true
+      redis: false
+      worker: false
+      migration: true
+      appRoot: BTCPayServer
+      dockerfilePath: Dockerfile
+      port: 23000
+      healthPath: /api/v1/health
+      unsupported:
+        - local-filesystem
+        - background-worker
+    citations:
+      compatibility:
+        - path: Dockerfile
+          reason: Declares VOLUME /datadir with BTCPAY_DATADIR=/datadir for settings, plugins and keys.
+        - path: BTCPayServer/Configuration/DefaultConfiguration.cs
+          reason: The default chain (btc) needs an external NBXplorer URL backed by a full node, which is an extra long-running service. The default bind is 127.0.0.1.
+      runtime:
+        - path: BTCPayServer/BTCPayServer.csproj
+          reason: ASP.NET Core web project.
+      monorepo:
+        - path: btcpayserver.sln
+          reason: One deployable web project (BTCPayServer) with supporting libraries; no second deployable.
+      postgres:
+        - path: BTCPayServer/Configuration/DefaultConfiguration.cs
+          reason: The --postgres connection string is the supported database.
+      redis:
+        - path: BTCPayServer/BTCPayServer.csproj
+          reason: No Redis package referenced.
+      worker:
+        - path: Docker/docker-entrypoint.sh
+          reason: The entrypoint runs only dotnet BTCPayServer.dll; background tasks are hosted services in that process.
+      migration:
+        - path: BTCPayServer.Data/Migrations/20200225133433_AddApiKeyLabel.cs
+          reason: EF Core migrations exist; the app applies them at startup (R5 counts a migration tool also then).
+      appRoot:
+        - path: BTCPayServer/BTCPayServer.csproj
+          reason: Web project directory (slice appPath).
+      dockerfilePath:
+        - path: Dockerfile
+          reason: Root Dockerfile builds the BTCPayServer project and uses the repository root as build context.
+      port:
+        - path: BTCPayServer.Common/BTCPayNetwork.cs
+          reason: Default port is 23000 for mainnet.
+      healthPath:
+        - path: BTCPayServer/Controllers/GreenField/GreenfieldHealthController.cs
+          reason: GET ~/api/v1/health.
+      unsupported:
+        - path: Dockerfile
+          reason: "VOLUME /datadir is persistent local state (R6: data directory maps to local-filesystem)."
+        - path: BTCPayServer/Configuration/DefaultConfiguration.cs
+          reason: NBXplorer and a Bitcoin node are required long-running services outside the web service (R6 background-worker).
+    reconciliation:
+      - field: compatibility
+        initial: NOT_COMPATIBLE
+        verify: NEEDS_CONFIGURATION
+        final: NOT_COMPATIBLE
+        rule: R1
+        evidence:
+          - path: Dockerfile
+            reason: Declares VOLUME /datadir with BTCPAY_DATADIR=/datadir for settings, plugins and keys.
+          - path: BTCPayServer/Configuration/DefaultConfiguration.cs
+            reason: The default chain (btc) needs an external NBXplorer URL backed by a full node, which is an extra long-running service. The default bind is 127.0.0.1.
+      - field: monorepo
+        initial: true
+        verify: true
+        final: false
+        rule: none (R1 has no monorepo rule; see notes)
+        evidence:
+          - path: btcpayserver.sln
+            reason: One deployable web project (BTCPayServer) with supporting libraries; no second deployable.
+      - field: storage
+        initial: null
+        verify: false
+        final: null
+        rule: R4
+        evidence:
+          - path: Dockerfile
+            reason: "Local data directory only; no required bucket. R4: omit storage."
+      - field: migration
+        initial: null
+        verify: false
+        final: true
+        rule: R5
+        evidence:
+          - path: BTCPayServer.Data/Migrations/20200225133433_AddApiKeyLabel.cs
+            reason: EF Core migrations exist; the app applies them at startup (R5 counts a migration tool also then).
+      - field: appRoot
+        initial: BTCPayServer
+        verify: .
+        final: BTCPayServer
+        rule: R8
+        evidence:
+          - path: BTCPayServer/BTCPayServer.csproj
+            reason: Web project directory (slice appPath).
+      - field: port
+        initial: null
+        verify: 23000
+        final: 23000
+        rule: R8
+        evidence:
+          - path: BTCPayServer.Common/BTCPayNetwork.cs
+            reason: Default port is 23000 for mainnet.
+      - field: unsupported
+        initial: null
+        verify: null
+        final:
+          - local-filesystem
+          - background-worker
+        rule: R6
+        evidence:
+          - path: Dockerfile
+            reason: "VOLUME /datadir is persistent local state (R6: data directory maps to local-filesystem)."
+          - path: BTCPayServer/Configuration/DefaultConfiguration.cs
+            reason: NBXplorer and a Bitcoin node are required long-running services outside the web service (R6 background-worker).
+    notes:
+      - "EF Core migrations are applied by the app at startup: R5 counts them, so migration is true."
+      - "monorepo false: one deployable web project (initial-07 header convention; R1 has no monorepo rule)."
+  - id: repo-577
+    repo: woodpecker-ci/woodpecker
+    commit: 5e87e8acf9f2458a1667268468afbbf3a546d111
+    finalStatus: LABELED
+    expected:
+      compatibility: NOT_COMPATIBLE
+      runtime:
+        - go
+      monorepo: true
+      postgres: true
+      redis: false
+      worker: false
+      appRoot: .
+      dockerfilePath: docker/Dockerfile.server.multiarch.rootless
+      port: 8000
+      healthPath: /api/healthz
+      unsupported:
+        - background-worker
+    citations:
+      compatibility:
+        - path: docker/Dockerfile.server.multiarch.rootless
+          reason: COPY dist/server/... copies a prebuilt woodpecker-server binary; dist/ is not in the repository and the Dockerfile does not build it.
+        - path: docker/Dockerfile.server.alpine.multiarch.rootless
+          reason: The alpine variant copies the same prebuilt dist binary.
+      runtime:
+        - path: go.mod
+          reason: Go module.
+      monorepo:
+        - path: docker/Dockerfile.agent.multiarch
+          reason: "The agent has its own Dockerfile: a second independently deployable component next to the server and CLI."
+        - path: go.mod
+          reason: One Go module with server, agent and CLI binaries.
+      postgres:
+        - path: cmd/server/flags.go
+          reason: WOODPECKER_DATABASE_DRIVER selects the database; postgres is supported and sqlite3 is the default.
+      redis:
+        - path: go.mod
+          reason: No Redis dependency.
+      worker:
+        - path: docker-compose.example.yaml
+          reason: The agent is a separate service with its own image, not a worker command in the server image.
+      appRoot:
+        - path: go.mod
+          reason: Module at the repository root (slice appPath ".").
+      dockerfilePath:
+        - path: docker/Dockerfile.server.multiarch.rootless
+          reason: Server image.
+      port:
+        - path: cmd/server/flags.go
+          reason: server-addr defaults to :8000.
+      healthPath:
+        - path: server/router/api.go
+          reason: Registers GET /healthz under the /api base (apiBase).
+        - path: cmd/server/health.go
+          reason: The image HEALTHCHECK ping requests /api/healthz.
+      unsupported:
+        - path: docker-compose.example.yaml
+          reason: The server needs a separate woodpecker-agent service (own image, gRPC port 9000, Docker socket) to run pipelines.
+    reconciliation:
+      - field: compatibility
+        initial: NOT_COMPATIBLE
+        verify: NEEDS_CONFIGURATION
+        final: NOT_COMPATIBLE
+        rule: R1
+        evidence:
+          - path: docker/Dockerfile.server.multiarch.rootless
+            reason: COPY dist/server/... copies a prebuilt woodpecker-server binary; dist/ is not in the repository and the Dockerfile does not build it.
+          - path: docker/Dockerfile.server.alpine.multiarch.rootless
+            reason: The alpine variant copies the same prebuilt dist binary.
+      - field: monorepo
+        initial: false
+        verify: true
+        final: true
+        rule: none (R1 has no monorepo rule; see notes)
+        evidence:
+          - path: docker/Dockerfile.agent.multiarch
+            reason: "The agent has its own Dockerfile: a second independently deployable component next to the server and CLI."
+          - path: go.mod
+            reason: One Go module with server, agent and CLI binaries.
+      - field: postgres
+        initial: false
+        verify: true
+        final: true
+        rule: R3
+        evidence:
+          - path: cmd/server/flags.go
+            reason: WOODPECKER_DATABASE_DRIVER selects the database; postgres is supported and sqlite3 is the default.
+      - field: storage
+        initial: null
+        verify: false
+        final: null
+        rule: R4
+        evidence:
+          - path: go.mod
+            reason: "No object-storage requirement for the server. R4: omit storage."
+      - field: migration
+        initial: null
+        verify: false
+        final: null
+        rule: R5
+        evidence:
+          - path: server/store/datastore/migration/migration.go
+            reason: "Schema migrations are an in-process list that runs at startup, with no migration tool or command. R5: omit migration."
+      - field: appRoot
+        initial: null
+        verify: .
+        final: .
+        rule: R8
+        evidence:
+          - path: go.mod
+            reason: Module at the repository root (slice appPath ".").
+      - field: dockerfilePath
+        initial: docker/Dockerfile.server.multiarch.rootless
+        verify: null
+        final: docker/Dockerfile.server.multiarch.rootless
+        rule: R8
+        evidence:
+          - path: docker/Dockerfile.server.multiarch.rootless
+            reason: Server image.
+      - field: healthPath
+        initial: /api/healthz
+        verify: /healthz
+        final: /api/healthz
+        rule: R8
+        evidence:
+          - path: server/router/api.go
+            reason: Registers GET /healthz under the /api base (apiBase).
+          - path: cmd/server/health.go
+            reason: The image HEALTHCHECK ping requests /api/healthz.
+      - field: unsupported
+        initial: null
+        verify: null
+        final:
+          - background-worker
+        rule: R6
+        evidence:
+          - path: docker-compose.example.yaml
+            reason: The server needs a separate woodpecker-agent service (own image, gRPC port 9000, Docker socket) to run pipelines.
+    notes:
+      - Verdict is the prebuilt dist binary (R1). The agent service is a second required service (R6 background-worker).
+  - id: repo-578
+    repo: lldap/lldap
+    commit: 99c510a7a603df1cdaca00a9ffff95ec73b296eb
+    finalStatus: LABELED
+    expected:
+      compatibility: NOT_COMPATIBLE
+      runtime:
+        - rust
+      monorepo: false
+      postgres: true
+      redis: false
+      worker: false
+      appRoot: .
+      dockerfilePath: Dockerfile
+      port: 17170
+      unsupported:
+        - local-filesystem
+    citations:
+      compatibility:
+        - path: docker-entrypoint.sh
+          reason: Exits unless /data exists and is writable; the message says to mount a volume. It copies the config file into /data.
+        - path: lldap_config.docker_template.toml
+          reason: Default database_url is the SQLite file /data/users.db, and the CMD config file is /data/lldap_config.toml.
+        - path: Dockerfile
+          reason: The Dockerfile never creates /data, and CMD uses --config-file /data/lldap_config.toml.
+      runtime:
+        - path: Cargo.toml
+          reason: Rust workspace.
+      monorepo:
+        - path: Cargo.toml
+          reason: Cargo workspace that builds one deployable server (lldap) with the web app compiled into it.
+      postgres:
+        - path: lldap_config.docker_template.toml
+          reason: database_url accepts a PostgreSQL URL.
+      redis:
+        - path: Cargo.toml
+          reason: No Redis crate.
+      worker:
+        - path: Dockerfile
+          reason: Single lldap process started by the entrypoint.
+      appRoot:
+        - path: Cargo.toml
+          reason: Cargo workspace root at the repository root (slice appPath ".").
+      dockerfilePath:
+        - path: Dockerfile
+          reason: Root Dockerfile builds the server and web frontend.
+      port:
+        - path: Dockerfile
+          reason: HTTP_PORT is 17170 (web UI); LDAP_PORT is 3890.
+      unsupported:
+        - path: docker-entrypoint.sh
+          reason: A mounted /data volume with the configuration file is required (R1 mounted config file; R6 local-filesystem).
+    reconciliation:
+      - field: compatibility
+        initial: NOT_COMPATIBLE
+        verify: NEEDS_CONFIGURATION
+        final: NOT_COMPATIBLE
+        rule: R1
+        evidence:
+          - path: docker-entrypoint.sh
+            reason: Exits unless /data exists and is writable; the message says to mount a volume. It copies the config file into /data.
+          - path: lldap_config.docker_template.toml
+            reason: Default database_url is the SQLite file /data/users.db, and the CMD config file is /data/lldap_config.toml.
+          - path: Dockerfile
+            reason: The Dockerfile never creates /data, and CMD uses --config-file /data/lldap_config.toml.
+      - field: monorepo
+        initial: true
+        verify: true
+        final: false
+        rule: none (R1 has no monorepo rule; see notes)
+        evidence:
+          - path: Cargo.toml
+            reason: Cargo workspace that builds one deployable server (lldap) with the web app compiled into it.
+      - field: postgres
+        initial: false
+        verify: true
+        final: true
+        rule: R3
+        evidence:
+          - path: lldap_config.docker_template.toml
+            reason: database_url accepts a PostgreSQL URL.
+      - field: storage
+        initial: null
+        verify: false
+        final: null
+        rule: R4
+        evidence:
+          - path: Cargo.toml
+            reason: "No object storage. R4: omit storage."
+      - field: migration
+        initial: null
+        verify: false
+        final: null
+        rule: R5
+        evidence:
+          - path: crates/sql-backend-handler/src/sql_migrations.rs
+            reason: "Schema migrations run in-process at startup. The migration-tool crate only converts data between databases. R5: omit migration."
+      - field: appRoot
+        initial: null
+        verify: .
+        final: .
+        rule: R8
+        evidence:
+          - path: Cargo.toml
+            reason: Cargo workspace root at the repository root (slice appPath ".").
+      - field: unsupported
+        initial: null
+        verify: null
+        final:
+          - local-filesystem
+        rule: R6
+        evidence:
+          - path: docker-entrypoint.sh
+            reason: A mounted /data volume with the configuration file is required (R1 mounted config file; R6 local-filesystem).
+    notes:
+      - Verify said NEEDS_CONFIGURATION. R1 lists a configuration file that the image expects to be mounted as NOT_COMPATIBLE; the entrypoint exits without a writable /data.
+      - In-process schema migrations only (migration_tool is a data converter), so migration is omitted.
+  - id: repo-579
+    repo: akaunting/akaunting
+    commit: c76e98112bbb1c5e1dce61f9beb2dc75a07d153b
+    finalStatus: LABELED
+    expected:
+      compatibility: NOT_COMPATIBLE
+      runtime:
+        - php
+      monorepo: false
+      postgres: true
+      redis: false
+      worker: false
+      migration: true
+      appRoot: .
+    citations:
+      compatibility:
+        - path: composer.json
+          reason: Laravel application with no Dockerfile anywhere in the repository (R2).
+        - path: nginx.example.com.conf
+          reason: Only a PHP-FPM nginx example is provided for deployment.
+      runtime:
+        - path: composer.json
+          reason: Laravel 10 on PHP 8.1.
+      monorepo:
+        - path: composer.json
+          reason: One Laravel application at the root.
+      postgres:
+        - path: README.md
+          reason: The requirements list names PostgreSQL among the supported databases.
+        - path: config/database.php
+          reason: Full pgsql connection block.
+      redis:
+        - path: .env.example
+          reason: File cache and session, sync queue; Redis is not required.
+      worker:
+        - path: .env.example
+          reason: QUEUE_CONNECTION=sync, so no separate worker.
+      migration:
+        - path: database/migrations/2022_05_10_000000_core_v300.php
+          reason: Laravel migrations applied by php artisan install.
+        - path: README.md
+          reason: Install uses php artisan install with database options.
+      appRoot:
+        - path: composer.json
+          reason: Application at the repository root (slice appPath ".").
+    reconciliation:
+      - field: compatibility
+        initial: NOT_COMPATIBLE
+        verify: NEEDS_CONFIGURATION
+        final: NOT_COMPATIBLE
+        rule: R1
+        evidence:
+          - path: composer.json
+            reason: Laravel application with no Dockerfile anywhere in the repository (R2).
+          - path: nginx.example.com.conf
+            reason: Only a PHP-FPM nginx example is provided for deployment.
+      - field: postgres
+        initial: false
+        verify: true
+        final: true
+        rule: R3
+        evidence:
+          - path: README.md
+            reason: The requirements list names PostgreSQL among the supported databases.
+          - path: config/database.php
+            reason: Full pgsql connection block.
+      - field: storage
+        initial: null
+        verify: true
+        final: null
+        rule: R4
+        evidence:
+          - path: config/filesystems.php
+            reason: "Local uploads disk with an optional s3 disk. The missing Dockerfile decides the verdict, not the S3 option. R4: omit storage."
+      - field: appRoot
+        initial: null
+        verify: .
+        final: .
+        rule: R8
+        evidence:
+          - path: composer.json
+            reason: Application at the repository root (slice appPath ".").
+      - field: unsupported
+        initial:
+          - mysql
+        verify: null
+        final: null
+        rule: R6
+        evidence:
+          - path: composer.json
+            reason: "The missing-Dockerfile cause decides the verdict. R6: omit unsupported; MySQL is never an unsupported entry (R3)."
+    notes:
+      - "No Dockerfile at the pinned commit: NOT_COMPATIBLE by R2. MySQL default is not a blocker (R3), so initial unsupported [mysql] is removed."
+  - id: repo-580
+    repo: ridafkih/keeper.sh
+    commit: 06ffc53df8634c47272710c4cbf5a5148eeee08b
+    finalStatus: LABELED
+    expected:
+      compatibility: NOT_COMPATIBLE
+      runtime:
+        - node
+      monorepo: true
+      postgres: true
+      redis: true
+      worker: true
+      migration: true
+      appRoot: .
+      dockerfilePath: docker/services/Dockerfile
+      port: 3000
+      healthPath: /
+      unsupported:
+        - background-worker
+    citations:
+      compatibility:
+        - path: deploy/compose.yaml
+          reason: The production layout runs separate api, cron, worker, mcp and web services plus Redis.
+        - path: docker/services/Dockerfile
+          reason: No Dockerfile at the app root. The services image runs web (3000), api (3001), cron and worker as four s6 processes, and the browser needs the API on a second public port (VITE_API_URL).
+        - path: README.md
+          reason: The recommended standalone image bundles PostgreSQL, Redis and Caddy; the granular images split the services.
+      runtime:
+        - path: package.json
+          reason: Bun workspace (packageManager bun).
+        - path: docker/services/Dockerfile
+          reason: The runtime image installs and runs bun; R7 has no bun entry, so the JavaScript runtime value is node.
+      monorepo:
+        - path: package.json
+          reason: Workspaces packages/*, applications/*, services/*, with a Dockerfile per service.
+      postgres:
+        - path: docker/services/rootfs/etc/s6-overlay/scripts/init-db
+          reason: Runs the database migration script against DATABASE_URL (PostgreSQL).
+      redis:
+        - path: README.md
+          reason: REDIS_URL is required by api, cron and worker.
+      worker:
+        - path: services/worker/Dockerfile
+          reason: A dedicated worker service with its own Dockerfile.
+      migration:
+        - path: docker/services/rootfs/etc/s6-overlay/scripts/init-db
+          reason: Runs packages/database/scripts/migrate.ts before api and worker start.
+      appRoot:
+        - path: package.json
+          reason: Monorepo root (slice appPath ".").
+      dockerfilePath:
+        - path: docker/services/Dockerfile
+          reason: Combined services image; there is no root Dockerfile.
+      port:
+        - path: docker/services/rootfs/etc/s6-overlay/s6-rc.d/web/run
+          reason: The web process listens on PORT=3000.
+      healthPath:
+        - path: docker/services/Dockerfile
+          reason: HEALTHCHECK requests http://localhost:3000/.
+      unsupported:
+        - path: deploy/compose.yaml
+          reason: Separate api, cron, worker and mcp application services beyond the web service (R6 background-worker).
+    reconciliation:
+      - field: compatibility
+        initial: NEEDS_CONFIGURATION
+        verify: NOT_COMPATIBLE
+        final: NOT_COMPATIBLE
+        rule: R1
+        evidence:
+          - path: deploy/compose.yaml
+            reason: The production layout runs separate api, cron, worker, mcp and web services plus Redis.
+          - path: docker/services/Dockerfile
+            reason: No Dockerfile at the app root. The services image runs web (3000), api (3001), cron and worker as four s6 processes, and the browser needs the API on a second public port (VITE_API_URL).
+          - path: README.md
+            reason: The recommended standalone image bundles PostgreSQL, Redis and Caddy; the granular images split the services.
+      - field: runtime
+        initial:
+          - bun
+        verify:
+          - bun
+        final:
+          - node
+        rule: R7
+        evidence:
+          - path: package.json
+            reason: Bun workspace (packageManager bun).
+          - path: docker/services/Dockerfile
+            reason: The runtime image installs and runs bun; R7 has no bun entry, so the JavaScript runtime value is node.
+      - field: storage
+        initial: null
+        verify: false
+        final: null
+        rule: R4
+        evidence:
+          - path: compose.yaml
+            reason: "No object storage service. R4: omit storage."
+      - field: appRoot
+        initial: null
+        verify: .
+        final: .
+        rule: R8
+        evidence:
+          - path: package.json
+            reason: Monorepo root (slice appPath ".").
+      - field: dockerfilePath
+        initial: docker/services/Dockerfile
+        verify: null
+        final: docker/services/Dockerfile
+        rule: R8
+        evidence:
+          - path: docker/services/Dockerfile
+            reason: Combined services image; there is no root Dockerfile.
+      - field: port
+        initial: 3000
+        verify: null
+        final: 3000
+        rule: R8
+        evidence:
+          - path: docker/services/rootfs/etc/s6-overlay/s6-rc.d/web/run
+            reason: The web process listens on PORT=3000.
+      - field: healthPath
+        initial: /
+        verify: null
+        final: /
+        rule: R8
+        evidence:
+          - path: docker/services/Dockerfile
+            reason: HEALTHCHECK requests http://localhost:3000/.
+      - field: unsupported
+        initial: null
+        verify:
+          - docker-compose-multi-service
+          - background-worker
+        final:
+          - background-worker
+        rule: R6
+        evidence:
+          - path: deploy/compose.yaml
+            reason: Separate api, cron, worker and mcp application services beyond the web service (R6 background-worker).
+    notes:
+      - Verify said NOT_COMPATIBLE; initial said NEEDS_CONFIGURATION. The api is a second public HTTP service and cron and worker are extra services (R1 extra long-running application services).
+      - R7 has no bun value; node is used.

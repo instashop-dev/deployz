@@ -1,0 +1,47 @@
+{
+  "taskId": "P1-RECONCILE-04",
+  "testedCommit": "e6a3b58ee2363923fef21faca86611fa3bf84538",
+  "executor": "campaign-worker",
+  "model": "sonnet",
+  "startedAt": "2026-10-08T20:54:17Z",
+  "finishedAt": "2026-10-08T21:13:25Z",
+  "proposedStatus": "COMPLETE",
+  "commands": [
+    { "command": "date -u (start and finish times)", "exitCode": 0, "summary": "Start 2026-10-08T20:54:17Z, finish 2026-10-08T21:13:25Z" },
+    { "command": "gh api repos/<repo>/git/trees/<sha>?recursive=1 for the 20 pinned commits", "exitCode": 0, "summary": "20 pinned trees fetched to scratch (tree-repo-NNN.txt); none empty" },
+    { "command": "gh api repos/<repo>/contents/<path>?ref=<sha> (raw reads of Dockerfiles, compose files, configuration and source)", "exitCode": 0, "summary": "Source reads at the pinned commits only; nothing cloned, built or run" },
+    { "command": "node p1-reconcile-04/gen.js (scratch generator for final-07.yaml and final-08.yaml)", "exitCode": 0, "summary": "Wrote 20 apps and 91 reconciliation entries (38 in batch 7, 53 in batch 8)" },
+    { "command": "node_modules/.bin/tsx p1-reconcile-04/check.mts (own check)", "exitCode": 0, "summary": "20 of 20 expected blocks parse with expectedFactsSchema; ids, repos and commits equal the slices; 270 citation paths and 119 evidence paths exist in the pinned trees; every citation key equals an expected key; every initial/verify/final difference has exactly one reconciliation entry with matching values; 0 problems" },
+    { "command": "docker (any)", "exitCode": 0, "summary": "Not run. No containers, networks or volumes were created" }
+  ],
+  "evidence": [
+    "campaign/corpus/labels/final-07.yaml",
+    "campaign/corpus/labels/final-08.yaml"
+  ],
+  "notes": [
+    "Counts by compatibility (final): READY 0, NEEDS_CONFIGURATION 7 (repo-563, 564, 565, 566, 569, 571, 573), NOT_COMPATIBLE 13 (repo-561, 562, 567, 568, 570, 572, 574, 575, 576, 577, 578, 579, 580). Batch 7: 5 NEEDS_CONFIGURATION, 5 NOT_COMPATIBLE. Batch 8: 2 NEEDS_CONFIGURATION, 8 NOT_COMPATIBLE.",
+    "REPO_INVALID: none. All 20 pinned commits and app paths exist. finalStatus is LABELED for all 20.",
+    "Compatibility changes against the input labels: repo-562 final NOT_COMPATIBLE (verify NEEDS_CONFIGURATION); repo-563 final NEEDS_CONFIGURATION (initial NOT_COMPATIBLE); repo-565 final NEEDS_CONFIGURATION (initial and verify both NOT_COMPATIBLE, see judgement call); repo-575, 576, 577, 578, 579 final NOT_COMPATIBLE (verify NEEDS_CONFIGURATION); repo-580 final NOT_COMPATIBLE (initial NEEDS_CONFIGURATION).",
+    "Judgement call, repo-565 open-webui: R1 says NOT_COMPATIBLE only when no supported configuration removes the local state. DATABASE_URL (PostgreSQL), STORAGE_PROVIDER=s3 and VECTOR_DB=pgvector remove SQLite, uploads and the Chroma store, so the final is NEEDS_CONFIGURATION with storage true. The coordinator may reverse this.",
+    "Judgement call, repo-573 mem0: the history database is a SQLite file (HISTORY_DB_PATH default /app/history/history.db). It is set by an environment value and SQLiteManager accepts :memory:, so the final stays NEEDS_CONFIGURATION (same reading as repo-565).",
+    "Judgement call, unsupported families: I list a family only when that cause blocks on its own and no environment value removes it. Prebuilt-artifact and missing-Dockerfile causes add no family (R6). repo-561 (kestra), repo-575 (traccar) and repo-579 (akaunting) therefore have no unsupported entry. repo-567 (cloudreve) keeps local-filesystem (data directory and storage policy are not set by environment).",
+    "Judgement call, repo-576 BTCPay: unsupported [local-filesystem, background-worker] (VOLUME /datadir, and the default btc chain needs an external NBXplorer service). repo-577 woodpecker: [background-worker] (the agent is a separate required service with its own image). repo-580 keeper.sh: NOT_COMPATIBLE with [background-worker] (api, cron, worker and mcp are separate services and the api needs a second public port). The family names docker-compose-multi-service and sqlite from the inputs are not in R6 and were dropped (SQLite maps to local-filesystem).",
+    "Judgement call, repo-568 dokploy: appRoot is '.' (slice appPath; the root Dockerfile builds apps/dokploy), unsupported [docker, local-filesystem]. The Dockerfile also copies .env.production, which is not in the repository.",
+    "Judgement call, worker: repo-563 lychee false (the worker service is only recommended; the default queue is sync). repo-569 activepieces false (default container type WORKER_AND_APP). repo-574 lobsters true (Procfile.dev declares bin/jobs; production uses solid_queue). repo-577 woodpecker false.",
+    "Judgement call, redis: repo-567 cloudreve false. The KV cache falls back to an in-memory store when Redis.Server is unset, so Redis is optional (R4). Both inputs said true.",
+    "Judgement call, migration: counted a migration tool that runs at startup (R5): repo-561 (kestra migrate run), repo-565 (Alembic), repo-569 (TypeORM), repo-572 (Prisma), repo-574 (Rails), repo-575 (Liquibase), repo-576 (EF Core), repo-579 (Laravel). Omitted hand-written in-app migration lists with no tool or command: repo-567, 570, 577, 578.",
+    "Judgement call, healthPath and port: repo-563 /up (dedicated route; the Dockerfile HEALTHCHECK uses /). repo-577 /api/healthz (used by the image HEALTHCHECK ping; /healthz is marked for removal). repo-573 /auth/setup-status (only unauthenticated readiness route; the Makefile polls it). repo-571 port omitted (the portal HTTP listener port has no default; 13000 is only the endpoint URL port). repo-575 dockerfilePath omitted (three equal Dockerfile variants, none default).",
+    "Unclear rule 1, monorepo: R1..R9 have no monorepo rule. I used the convention in the header of initial-07.yaml: true when the repository holds more than one independently deployable app or workspace package set; a multi-module build with one deployable is false. This changes monorepo for repo-576 (false), repo-578 (false) and repo-577 (true) against the inputs.",
+    "Unclear rule 2, runtime for Bun: R7 lists no bun value. I used node for repo-580 (keeper.sh), which runs Bun. Both inputs said bun.",
+    "Unclear rule 3, R5 'opaque in-app migrations': I treated a migration framework with its own files or CLI (Liquibase, TypeORM, EF, Alembic) as a migration tool and a hand-written in-app migration list as opaque.",
+    "Unclear rule 4, R6 'the verdict depends on': when two causes both block (for example a prebuilt artifact and a data volume), R6 does not say if both families are listed. See the unsupported judgement call above.",
+    "Unclear rule 5, R4 storage: I omit storage (not false) unless an S3 option is required for the verdict. Initial storage false or true and verify values therefore show as differences in reconciliation (omitted in the final).",
+    "Normalisation: an absent field and an empty unsupported list count as equal. null in a reconciliation entry means the field is absent.",
+    "appRoot is written for all 20 apps and equals the slice appPath ('.' except repo-571 elixir, repo-573 server, repo-576 BTCPayServer). Initial files omitted appRoot for most batch 7 apps, so appRoot shows as a difference there.",
+    "testedCommit is the value from the coordinator. The checkout HEAD at run time was 76d6c2e19f384aecf74f0e66eb92e1d9fd2bc22a (the campaign branch, newer than the labels). No label depends on the checkout commit.",
+    "Forbidden inputs: I did not read campaign/corpus/holdout.yaml, campaign/results/holdout/, docs/testing/repository-compatibility/runs/, any Deployz analysis output, or any other campaign result. I did not list campaign/corpus/labels/. From that directory I read only initial-07, verify-07, initial-08 and verify-08. Exception to report: one command ran grep -c on the glob campaign/corpus/labels/final-0*.yaml (to count YAML anchors in my own output). It printed only counts for final-01 to final-08 and no content; I used nothing from final-01 to final-06.",
+    "Other permitted reads: campaign/corpus/label-rules.md, scripts/repository-compatibility/manifest.ts, normalize.ts lines 20-50, docs/product/mvp-scope.md (selected parts). I did not read docs/testing/compatibility.md.",
+    "No Deployz analysis was run. The own check used only expectedFactsSchema from manifest.ts. No repository code was cloned, built or run. Containers created: none.",
+    "Scratch location: C:/Users/Tejas/AppData/Local/Temp/claude/C--Users-Tejas-Desktop-deployz-mvp-test/b7c3de2d-f96c-4fcc-9e5a-ede5ad2dc502/scratchpad/p1-reconcile-04 (trees, data07.js, data08.js, gen.js, check.mts, fetch.sh, raw.sh). Nothing was committed. campaign/tasks.json, campaign/state.json and campaign/handoff.md were not edited."
+  ]
+}
