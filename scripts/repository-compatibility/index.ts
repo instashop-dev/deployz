@@ -6,6 +6,7 @@
  *   pnpm benchmark:compat --set unseen          one benchmark set
  *   pnpm benchmark:compat --offline             cached snapshots only, no GitHub
  *   pnpm benchmark:compat --no-write            print the summary, write nothing
+ *   pnpm benchmark:compat --ai live             production AI gateway from the environment (default: --ai off)
  *   pnpm benchmark:compat --benchmark b.yaml --runs-dir out   another corpus, results into out
  *
  * Reads docs/testing/repository-compatibility/benchmark.yaml (or --benchmark), runs each
@@ -21,6 +22,7 @@ import { parseArgs } from 'node:util';
 
 import { ANALYSIS_VERSION } from '@deployz/api/analysis';
 
+import { AI_OFF_RECORD, parseAiMode, type AiMode } from './ai-mode.js';
 import { openAnalysisSession } from './analyse.js';
 import { loadBenchmark, selectEntries, type BenchmarkEntry, type FindingRef } from './manifest.js';
 import { classifyMismatches, compareFacts, normalizeActual } from './normalize.js';
@@ -42,6 +44,7 @@ export interface RunOptions {
   cacheDir: string;
   benchmarkPath: string;
   runsDir: string;
+  ai: AiMode;
 }
 
 export function parseRunArgs(argv: readonly string[]): RunOptions {
@@ -55,6 +58,7 @@ export function parseRunArgs(argv: readonly string[]): RunOptions {
       cache: { type: 'string' },
       benchmark: { type: 'string' },
       'runs-dir': { type: 'string' },
+      ai: { type: 'string' },
     },
     strict: true,
   });
@@ -69,6 +73,7 @@ export function parseRunArgs(argv: readonly string[]): RunOptions {
     cacheDir: values.cache ? resolve(values.cache) : CACHE_DIR,
     benchmarkPath,
     runsDir: values['runs-dir'] ? resolve(values['runs-dir']) : RUNS_DIR,
+    ai: parseAiMode(values.ai),
   };
 }
 
@@ -95,6 +100,7 @@ export async function runEntry(
     difficulty: entry.difficulty,
     deployzSha: context.deployzSha,
     analysisVersion: context.analysisVersion,
+    ai: raw.ai ?? AI_OFF_RECORD,
     tree: { files: raw.treeFiles, entries: cachedTree?.entries ?? null, truncated: cachedTree?.truncated ?? null },
     expected: entry.expected,
   };
@@ -123,7 +129,7 @@ export async function main(argv: readonly string[] = process.argv.slice(2), open
   const fetchFn = createSnapshotFetch({ cacheDir: options.cacheDir, token, offline: options.offline });
   const context = { deployzSha: deployzSha(), analysisVersion: ANALYSIS_VERSION, cacheDir: options.cacheDir };
 
-  const session = await openSession(fetchFn);
+  const session = await openSession(fetchFn, { ai: options.ai });
   const results: RunResult[] = [];
   try {
     for (const entry of entries) {

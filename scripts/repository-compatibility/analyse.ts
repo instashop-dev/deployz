@@ -8,9 +8,11 @@
  *   `evaluateManifestReadiness`) the way `POST /api/deployments` runs it.
  *
  * The database is an in-process PGlite with the real migrations (the same
- * seam apps/api's own tests use); GitHub is the snapshot fetch. The AI
- * gateway is unconfigured, so the §15 fallback degrades deterministically
- * and the questions it would have asked are recorded, not answered.
+ * seam apps/api's own tests use); GitHub is the snapshot fetch. By default
+ * the AI gateway is unconfigured (`ai: 'off'`), so the §15 fallback degrades
+ * deterministically and the questions it would have asked are recorded, not
+ * answered. `ai: 'live'` builds the production gateway from the environment
+ * (see ai-mode.ts); each analysis then records its AI requests and outcome.
  */
 import { generateKeyPairSync, randomUUID } from 'node:crypto';
 
@@ -19,7 +21,6 @@ import { eq } from 'drizzle-orm';
 
 import {
   analyseRepo,
-  createAiGateway,
   evaluateManifestReadiness,
   normalizeDeploymentManifest,
   type AnalysisResult,
@@ -31,6 +32,7 @@ import type { DeploymentManifest, ManifestReadinessResult } from '@deployz/contr
 import { applyMigrations, createDb, type Db } from '@deployz/db';
 import * as schema from '@deployz/db/schema';
 
+import { buildSessionGateway, instrumentGateway, type AiMode, type AiRecord } from './ai-mode.js';
 import type { BenchmarkEntry } from './manifest.js';
 import { BENCHMARK_INSTALLATION_TOKEN } from './snapshot.js';
 
@@ -47,6 +49,8 @@ export interface RawAnalysis {
   gate: ManifestReadinessResult | null;
   /** Files the production tree fetch handed the detectors. */
   treeFiles: number;
+  /** AI mode, model, request count and outcome of this analysis. */
+  ai?: AiRecord;
 }
 
 export interface AnalysisSession {
@@ -63,7 +67,17 @@ function ephemeralAppKey(): string {
   }).privateKey;
 }
 
-export async function openAnalysisSession(fetchFn: FetchFn): Promise<AnalysisSession> {
+/** `applyAiFallback` stores this warning when the AI step threw after the analysis was otherwise complete. */
+function aiAnswerRejected(row: ApplicationRow): boolean {
+  const aiAnalysis = (row.detectedMetadata as { aiAnalysis?: { warnings?: unknown } } | null)?.aiAnalysis;
+  return Array.isArray(aiAnalysis?.warnings) && aiAnalysis.warnings.includes('AI analysis unavailable');
+}
+
+export async function openAnalysisSession(
+  fetchFn: FetchFn,
+  options: { ai?: AiMode; env?: Record<string, string | undefined> } = {},
+): Promise<AnalysisSession> {
+  const instrumented = instrumentGateway(buildSessionGateway(options.ai ?? 'off', options.env));
   const client = new PGlite();
   await applyMigrations(client);
   const db: Db = createDb(client);
@@ -73,7 +87,7 @@ export async function openAnalysisSession(fetchFn: FetchFn): Promise<AnalysisSes
     githubAppId: 'benchmark',
     githubAppPrivateKey: ephemeralAppKey(),
     githubFixtureMode: false,
-    aiGateway: createAiGateway(undefined),
+    aiGateway: instrumented.gateway,
   };
 
   return {
@@ -96,12 +110,14 @@ export async function openAnalysisSession(fetchFn: FetchFn): Promise<AnalysisSes
         .returning();
       const applicationId = inserted!.id;
 
+      instrumented.begin();
       await runApplicationAnalysis(deps, applicationId);
 
       const [row] = await db.select().from(schema.applications).where(eq(schema.applications.id, applicationId)).limit(1);
       if (!row) throw new Error(`application ${applicationId} vanished during analysis`);
+      const ai = instrumented.finish({ rejectedAnswer: aiAnswerRejected(row) });
       if (row.analysisStatus !== 'COMPLETE') {
-        return { status: 'failed', failure: row.compatibilityReason, row, analysis: null, manifest: null, gate: null, treeFiles: 0 };
+        return { status: 'failed', failure: row.compatibilityReason, row, analysis: null, manifest: null, gate: null, treeFiles: 0, ai };
       }
 
       // The persisted row carries the merged metadata but not the rejection
@@ -118,7 +134,7 @@ export async function openAnalysisSession(fetchFn: FetchFn): Promise<AnalysisSes
       );
       const gate = evaluateManifestReadiness(manifest, { providedEnvKeys: [] });
 
-      return { status: 'analysed', failure: null, row, analysis, manifest, gate, treeFiles: Object.keys(tree).length };
+      return { status: 'analysed', failure: null, row, analysis, manifest, gate, treeFiles: Object.keys(tree).length, ai };
     },
     async close() {
       await client.close();

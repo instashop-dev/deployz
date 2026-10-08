@@ -25,6 +25,7 @@ import { parseArgs } from 'node:util';
 import { ANALYSIS_VERSION } from '@deployz/api/analysis';
 import { SUPPORTED_AWS_REGIONS } from '@deployz/contracts';
 
+import { parseAiMode, type AiMode } from '../repository-compatibility/ai-mode.js';
 import { openAnalysisSession } from '../repository-compatibility/analyse.js';
 import { loadBenchmark, selectEntries, type Benchmark, type BenchmarkEntry } from '../repository-compatibility/manifest.js';
 import { createSnapshotFetch, resolveGithubToken } from '../repository-compatibility/snapshot.js';
@@ -103,6 +104,8 @@ export interface RunOptions {
   requireSmoke: boolean;
   /** Builds and deploys a second release after the smoke contract passes, then re-runs it. */
   exerciseUpdate: boolean;
+  /** `off` (default) makes no AI request; `live` uses the production AI gateway from the environment. */
+  ai: AiMode;
 }
 
 export function parseRunArgs(argv: readonly string[]): RunOptions {
@@ -134,6 +137,7 @@ export function parseRunArgs(argv: readonly string[]): RunOptions {
       'max-active': { type: 'string' },
       'require-smoke': { type: 'boolean', default: false },
       'exercise-update': { type: 'boolean', default: false },
+      ai: { type: 'string' },
     },
     strict: true,
   });
@@ -177,6 +181,7 @@ export function parseRunArgs(argv: readonly string[]): RunOptions {
     maxActive,
     requireSmoke: values['require-smoke'] ?? false,
     exerciseUpdate: values['exercise-update'] ?? false,
+    ai: parseAiMode(values.ai),
   };
 }
 
@@ -294,12 +299,12 @@ export function renderPlan(plan: readonly PlanLine[], options: Pick<RunOptions, 
 export async function runGateAudit(
   entries: readonly BenchmarkEntry[],
   config: DeployConfig,
-  options: Pick<RunOptions, 'offline' | 'cacheDir' | 'runsDir'>,
+  options: Pick<RunOptions, 'offline' | 'cacheDir' | 'runsDir' | 'ai'>,
   sha: string,
 ): Promise<StageBResult[]> {
   const token = options.offline ? null : resolveGithubToken();
   const fetchFn = createSnapshotFetch({ cacheDir: options.cacheDir, token, offline: options.offline });
-  const session = await openAnalysisSession(fetchFn);
+  const session = await openAnalysisSession(fetchFn, { ai: options.ai });
   const results: StageBResult[] = [];
   try {
     for (const entry of entries) {
@@ -310,6 +315,13 @@ export async function runGateAudit(
       const raw = await session.analyse(entry);
       const { gate } = gateSection(entry, raw, repoConfig, ANALYSIS_VERSION);
       result.gate = gate;
+      if (raw.ai && (!existing || existing.mode === 'gate')) {
+        const previousMode = (existing?.evidence.ai as { mode?: string } | undefined)?.mode;
+        if (previousMode !== undefined && previousMode !== raw.ai.mode) {
+          throw new Error(`${entry.id} was recorded with --ai ${previousMode}; refusing to replace it with --ai ${raw.ai.mode} (use another --runs-dir)`);
+        }
+        result.evidence = { ...result.evidence, ai: raw.ai };
+      }
       result.findingIds = [...repoConfig.findings];
       if (!existing || existing.mode === 'gate') {
         result.deployzCommit = sha;

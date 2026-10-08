@@ -4,9 +4,10 @@
  * analysis version identify a run, so a rerun on the same commit and
  * snapshots reproduces the files byte for byte.
  */
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
+import { countAi, type AiRecord } from './ai-mode.js';
 import type { BenchmarkEntry, ExpectedFacts, FindingType } from './manifest.js';
 import { FINDING_TYPES } from './manifest.js';
 import type { ActualFacts, ClassifiedMismatch, Comparison } from './normalize.js';
@@ -21,6 +22,7 @@ export interface RunResult {
   difficulty: number;
   deployzSha: string;
   analysisVersion: number;
+  ai: AiRecord;
   status: 'analysed' | 'failed';
   failure: string | null;
   tree: { files: number; entries: number | null; truncated: boolean | null };
@@ -50,6 +52,8 @@ export interface RunSummary {
   unexplained: { id: string; fact: string; expected: unknown; actual: unknown }[];
   bySet: Record<string, { total: number; analysed: number; verdictMatch: number; fullMatch: number }>;
   byCohort: Record<string, { total: number; analysed: number; verdictMatch: number; fullMatch: number }>;
+  aiByMode: Record<string, number>;
+  aiByOutcome: Record<string, number>;
 }
 
 function percent(numerator: number, denominator: number): number {
@@ -82,6 +86,7 @@ export function buildSummary(results: readonly RunResult[], deployzSha: string, 
     return Object.fromEntries(Object.entries(groups).sort(([a], [b]) => a.localeCompare(b)));
   };
 
+  const ai = countAi(results.map((result) => result.ai));
   return {
     deployzSha,
     analysisVersion,
@@ -99,6 +104,8 @@ export function buildSummary(results: readonly RunResult[], deployzSha: string, 
     unexplained,
     bySet: group((result) => result.set),
     byCohort: group((result) => result.cohort),
+    aiByMode: ai.byMode,
+    aiByOutcome: ai.byOutcome,
   };
 }
 
@@ -124,6 +131,8 @@ export function renderSummary(results: readonly RunResult[], summary: RunSummary
     `| False rejections | ${summary.falseRejections} |`,
     `| Configuration-detection mismatches | ${summary.configurationMismatches} |`,
     `| Unexplained mismatches | ${summary.unexplained.length} |`,
+    '',
+    `AI mode: ${Object.entries(summary.aiByMode).map(([mode, n]) => `${mode} ${n}`).join(', ') || '—'} · outcomes: ${Object.entries(summary.aiByOutcome).map(([outcome, n]) => `${outcome} ${n}`).join(', ') || '—'}`,
     '',
     '## Mismatches by finding type',
     '',
@@ -164,7 +173,16 @@ export function renderSummary(results: readonly RunResult[], summary: RunSummary
   return lines.join('\n');
 }
 
+/** One runs dir never mixes AI modes: a result file written in another mode is not replaced. */
 export function writeRunFiles(dir: string, results: readonly RunResult[]): void {
+  for (const result of results) {
+    const file = join(dir, `${result.id}.json`);
+    if (!existsSync(file)) continue;
+    const previous = (JSON.parse(readFileSync(file, 'utf8')) as { ai?: { mode?: string } }).ai?.mode ?? 'off';
+    if (previous !== result.ai.mode) {
+      throw new Error(`${file} was written with --ai ${previous}; refusing to replace it with --ai ${result.ai.mode} (use another --runs-dir)`);
+    }
+  }
   mkdirSync(dir, { recursive: true });
   for (const result of results) {
     writeFileSync(join(dir, `${result.id}.json`), `${JSON.stringify(result, null, 2)}\n`);

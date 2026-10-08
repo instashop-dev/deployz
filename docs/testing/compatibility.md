@@ -31,6 +31,7 @@ pnpm benchmark:compat --set unseen       # one benchmark set
 pnpm benchmark:compat --offline          # cached snapshots only, no GitHub
 pnpm benchmark:compat --no-write         # print the summary, write nothing
 pnpm benchmark:compat --benchmark <path> --runs-dir <dir>   # another corpus file, results into <dir>
+pnpm benchmark:compat --ai live          # production AI gateway from the environment
 ```
 
 `--benchmark <path>` reads any corpus file instead of `benchmark.yaml`, and
@@ -38,6 +39,20 @@ pnpm benchmark:compat --benchmark <path> --runs-dir <dir>   # another corpus fil
 instead of `repository-compatibility/runs/`. A non-default `--benchmark` needs
 `--runs-dir` unless `--no-write` is set, so another corpus never writes into
 the committed runs. A partial run (`--repo` or `--set`) still writes no summary.
+
+**AI mode.** `--ai off` (the default) leaves the AI gateway unconfigured: the
+fallback degrades deterministically and no AI request is made. This is a
+diagnostic mode, not production behavior. `--ai live` builds the gateway from
+`AI_GATEWAY_BASE_URL`, `AI_PROVIDER_API_KEY`, `AI_MODEL` and the optional
+`AI_GATEWAY_TOKEN` through the same reader and `createAiGateway` path as
+`apps/api`, and keeps the production `REPO_AI_TIMEOUT_MS`. It fails before the
+first repository and names the missing variables. Each result records
+`ai: { mode, model, requests, outcome, error }` (Stage B gate results record it
+in `evidence.ai`); `outcome` is `completed`, `timeout`, `auth-error`,
+`routing-error`, `parse-error`, `fallback` or `not-requested`, and `error` is
+sanitized (no key, token or URL). One runs directory never mixes modes: a result
+file written in the other mode is not replaced. `pnpm benchmark:deploy --gate`
+takes the same `--ai` flag.
 
 **The corpus** (`benchmark.yaml`) has 120 entries across three cohorts
 (`realistic`, `messy`, `boundary` — repositories that fall outside the MVP by
