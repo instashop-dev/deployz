@@ -1,0 +1,521 @@
+taskId: P1-VERIFY-06
+testedCommit: e6a3b58ee2363923fef21faca86611fa3bf84538
+apps:
+  - id: repo-551
+    repo: spliit-app/spliit
+    commit: b73d551a6dea3a27f3d5d42a805b86edcb1ee651
+    expected:
+      compatibility: READY
+      runtime:
+        - node
+      monorepo: false
+      postgres: true
+      redis: false
+      worker: false
+      storage: true
+      migration: true
+      dockerfilePath: Dockerfile
+      port: 3000
+      healthPath: /api/health
+    citations:
+      compatibility:
+        - path: Dockerfile
+          reason: Self-contained multi-stage Dockerfile; standalone Next.js server, no mounted volumes or config files needed.
+      runtime:
+        - path: package.json
+          reason: Next.js app, engines node >=24, npm lockfile.
+      monorepo:
+        - path: package.json
+          reason: Single package, no workspaces.
+      postgres:
+        - path: prisma/schema.prisma
+          reason: Prisma datasource provider is postgresql.
+      redis:
+        - path: package.json
+          reason: No Redis dependency; compose.yaml has only app and postgres db.
+      worker:
+        - path: scripts/container-entrypoint.sh
+          reason: Entrypoint runs migrate deploy then one node server.js; no worker process.
+      storage:
+        - path: .env.example
+          reason: Optional S3 upload (ENABLE_EXPENSE_DOCUMENTS, S3_UPLOAD_* vars); opt-in feature.
+      migration:
+        - path: scripts/container-entrypoint.sh
+          reason: Runs prisma migrate deploy at container start.
+      dockerfilePath:
+        - path: Dockerfile
+          reason: Root Dockerfile.
+      port:
+        - path: Dockerfile
+          reason: ENV PORT=3000 and EXPOSE 3000/tcp.
+      healthPath:
+        - path: src/app/api/health/route.ts
+          reason: GET /api/health returns readiness incl. DB check.
+    uncertainties:
+      - Storage is an opt-in S3 feature; label true means code uses S3 but the app runs without it.
+      - Migration runs inside the entrypoint, not as a separate vendor command.
+  - id: repo-552
+    repo: misskey-dev/misskey
+    commit: 5f501341d49d2bc3fa7e817ce7548a82174326eb
+    expected:
+      compatibility: NOT_COMPATIBLE
+      runtime:
+        - node
+      monorepo: true
+      postgres: true
+      redis: true
+      worker: false
+      storage: true
+      migration: true
+      dockerfilePath: Dockerfile
+      port: 3000
+      healthPath: /healthz
+    citations:
+      compatibility:
+        - path: compose_example.yml
+          reason: Mounts ./.config (default.yml) and ./files volumes; config is read from .config/default.yml, which is not in the image.
+      runtime:
+        - path: package.json
+          reason: Node/pnpm workspace; Dockerfile uses node image.
+      monorepo:
+        - path: pnpm-workspace.yaml
+          reason: pnpm workspace with packages/backend, frontend and others.
+      postgres:
+        - path: .config/example.yml
+          reason: "db: section with PostgreSQL host/port/user."
+      redis:
+        - path: .config/example.yml
+          reason: "redis: section is required config; compose_example.yml runs a redis service."
+      worker:
+        - path: package.json
+          reason: start runs a single backend entry (built/entry.js); jobs run in-process.
+      storage:
+        - path: compose_example.yml
+          reason: Drive files stored on a local ./files volume by default.
+      migration:
+        - path: package.json
+          reason: migrateandstart script runs pnpm migrate then start.
+      dockerfilePath:
+        - path: Dockerfile
+          reason: Root Dockerfile.
+      port:
+        - path: .config/example.yml
+          reason: "port: 3000; compose maps 3000."
+      healthPath:
+        - path: healthcheck.sh
+          reason: curl http://localhost:${PORT}/healthz.
+    uncertainties:
+      - NOT_COMPATIBLE rests on the required mounted .config/default.yml and local files volume (MVP non-goal); a vendor could bake a config file into the image, which would change the verdict.
+      - packages/backend/scripts/compile_config.js reads only .config YAML; a few values have env fallbacks but db and redis do not.
+  - id: repo-553
+    repo: milesmcc/shynet
+    commit: ca35caba3af2b888acc990b99152c500a1c44461
+    expected:
+      compatibility: READY
+      runtime:
+        - python
+      monorepo: false
+      postgres: true
+      redis: false
+      worker: false
+      storage: false
+      migration: true
+      dockerfilePath: Dockerfile
+      port: 8080
+      healthPath: /healthz/
+    citations:
+      compatibility:
+        - path: Dockerfile
+          reason: Self-contained Django image with gunicorn; env-driven config, PostgreSQL via DB_* vars.
+      runtime:
+        - path: pyproject.toml
+          reason: Django app managed with poetry.
+      monorepo:
+        - path: Dockerfile
+          reason: One app under shynet/; single image.
+      postgres:
+        - path: TEMPLATE.env
+          reason: PostgreSQL DB_* settings are the default; SQLite is an opt-in alternative.
+      redis:
+        - path: TEMPLATE.env
+          reason: Redis only for multi-instance setups (commented out).
+      worker:
+        - path: shynet/shynet/settings.py
+          reason: CELERY_TASK_ALWAYS_EAGER defaults True; no separate worker needed for single instance.
+      storage:
+        - path: shynet/shynet/settings.py
+          reason: No S3 or object storage settings.
+      migration:
+        - path: shynet/startup_checks.sh
+          reason: Runs manage.py migrate at startup.
+      dockerfilePath:
+        - path: Dockerfile
+          reason: Root Dockerfile.
+      port:
+        - path: shynet/webserver.sh
+          reason: gunicorn binds 0.0.0.0:${PORT:-8080}; Dockerfile EXPOSE 8080.
+      healthPath:
+        - path: shynet/shynet/urls.py
+          reason: healthz/ routes to django-health-check.
+    uncertainties:
+      - Django ALLOWED_HOSTS defaults to localhost; ALB health probes with another Host header could return 400 unless ALLOWED_HOSTS is set.
+      - DJANGO_SECRET_KEY and ALLOWED_HOSTS are required env values.
+  - id: repo-554
+    repo: axllent/mailpit
+    commit: b8603907d47334fc6fdc43e4eb1b230d0bbf7303
+    expected:
+      compatibility: NEEDS_CONFIGURATION
+      runtime:
+        - go
+      monorepo: false
+      postgres: false
+      redis: false
+      worker: false
+      storage: false
+      migration: false
+      dockerfilePath: Dockerfile
+      port: 8025
+      healthPath: /livez
+    citations:
+      compatibility:
+        - path: Dockerfile
+          reason: "EXPOSE 1025 1110 8025: HTTP UI is 8025, so the port needs vendor selection; data is ephemeral unless a database file is set."
+      runtime:
+        - path: go.mod
+          reason: Go module.
+      monorepo:
+        - path: go.mod
+          reason: Single Go module at root.
+      postgres:
+        - path: go.mod
+          reason: Only modernc.org/sqlite; no PostgreSQL driver.
+      redis:
+        - path: go.mod
+          reason: No Redis client.
+      worker:
+        - path: Dockerfile
+          reason: Single /mailpit binary entrypoint.
+      storage:
+        - path: config/config.go
+          reason: Database is an optional local SQLite file; no object storage.
+      migration:
+        - path: Dockerfile
+          reason: No migration command; SQLite schema managed in process.
+      dockerfilePath:
+        - path: Dockerfile
+          reason: Root Dockerfile.
+      port:
+        - path: config/config.go
+          reason: HTTPListen default [::]:8025 (web UI).
+      healthPath:
+        - path: server/server.go
+          reason: Routes GET livez and readyz.
+    uncertainties:
+      - SMTP (1025) is the product core and is not reachable through an HTTP load balancer; only the web UI is deployable.
+      - Alternative verdict NOT_COMPATIBLE if SMTP-only use is required.
+      - /readyz also valid as health path.
+  - id: repo-555
+    repo: msgbyte/tianji
+    commit: 45578dd32121319c28d3bc5abffa70c225631eb2
+    expected:
+      compatibility: READY
+      runtime:
+        - node
+      monorepo: true
+      postgres: true
+      redis: false
+      worker: false
+      storage: false
+      migration: true
+      dockerfilePath: Dockerfile
+      port: 12345
+      healthPath: /health
+    citations:
+      compatibility:
+        - path: Dockerfile
+          reason: Self-contained image, env-driven config; Postgres via DATABASE_URL; ClickHouse and Redis optional.
+      runtime:
+        - path: package.json
+          reason: Node, pnpm workspace.
+      monorepo:
+        - path: pnpm-workspace.yaml
+          reason: pnpm workspace with src/client, src/server and others.
+      postgres:
+        - path: src/server/prisma/schema.prisma
+          reason: Prisma provider postgresql.
+      redis:
+        - path: src/server/utils/env.ts
+          reason: redisUrl is optional; memory cache otherwise.
+      worker:
+        - path: Dockerfile
+          reason: One CMD launches a single server process; cron/monitors run in-process.
+      storage:
+        - path: src/server/utils/env.ts
+          reason: No S3 settings in env config.
+      migration:
+        - path: Dockerfile
+          reason: CMD runs prisma migrate deploy before starting server.
+      dockerfilePath:
+        - path: Dockerfile
+          reason: Root Dockerfile.
+      port:
+        - path: Dockerfile
+          reason: EXPOSE 12345.
+      healthPath:
+        - path: src/server/router/health.ts
+          reason: Health router mounted at /health.
+    uncertainties:
+      - mysql2 and ClickHouse are optional monitor/analytics integrations, not hosted databases; a dependency scanner may false-positive on mysql.
+      - CMD also launches a tianji-reporter background process inside the same container.
+  - id: repo-556
+    repo: muety/wakapi
+    commit: a8d88056932881329845609a749025a1513564db
+    expected:
+      compatibility: NEEDS_CONFIGURATION
+      runtime:
+        - go
+      monorepo: false
+      postgres: true
+      redis: false
+      worker: false
+      storage: false
+      migration: false
+      dockerfilePath: Dockerfile
+      port: 3000
+      healthPath: /api/health
+    citations:
+      compatibility:
+        - path: Dockerfile
+          reason: Image defaults to SQLite at /data; Postgres needs WAKAPI_DB_* env vars, which the vendor must map.
+      runtime:
+        - path: go.mod
+          reason: Go module.
+      monorepo:
+        - path: go.mod
+          reason: Single Go module.
+      postgres:
+        - path: config.default.yml
+          reason: Supports postgres dialect via db.dialect / WAKAPI_DB_TYPE; not default.
+      redis:
+        - path: go.mod
+          reason: No Redis client.
+      worker:
+        - path: main.go
+          reason: Scheduled jobs run in process.
+      storage:
+        - path: config.default.yml
+          reason: No object storage settings.
+      migration:
+        - path: config.default.yml
+          reason: skip_migrations option; migrations run in process at startup.
+      dockerfilePath:
+        - path: Dockerfile
+          reason: Root Dockerfile.
+      port:
+        - path: Dockerfile
+          reason: EXPOSE 3000.
+      healthPath:
+        - path: routes/api/health.go
+          reason: Registers GET /health under the /api router; scripts/healthcheck.go calls /api/health.
+    uncertainties:
+      - Postgres only if vendor sets WAKAPI_DB_TYPE=postgres plus host/user/password/name; Wakapi does not read DATABASE_URL.
+      - With default SQLite the repo would be NOT_COMPATIBLE.
+  - id: repo-557
+    repo: sqlpage/SQLPage
+    commit: 78f310a0194fb809ffb27e4fa0e29d81d814badb
+    expected:
+      compatibility: NOT_COMPATIBLE
+      runtime:
+        - rust
+      monorepo: false
+      postgres: false
+      redis: false
+      worker: false
+      storage: false
+      migration: false
+      dockerfilePath: Dockerfile
+      port: 8080
+    citations:
+      compatibility:
+        - path: README.md
+          reason: The repo is the SQLPage engine; the site is a web root of .sql files mounted at /var/www and defaults to SQLite on local disk.
+      runtime:
+        - path: Cargo.toml
+          reason: Rust crate.
+      monorepo:
+        - path: Cargo.toml
+          reason: Single crate.
+      postgres:
+        - path: Dockerfile
+          reason: Default image uses bundled SQLite (/etc/sqlpage/sqlpage.db); Postgres only if user sets DATABASE_URL.
+      redis:
+        - path: Cargo.toml
+          reason: No Redis dependency.
+      worker:
+        - path: Dockerfile
+          reason: Single binary CMD.
+      storage:
+        - path: Dockerfile
+          reason: No object storage.
+      migration:
+        - path: Dockerfile
+          reason: No migration command.
+      dockerfilePath:
+        - path: Dockerfile
+          reason: Root Dockerfile.
+      port:
+        - path: Dockerfile
+          reason: EXPOSE 8080.
+    uncertainties:
+      - No health endpoint found, so healthPath omitted.
+  - id: repo-558
+    repo: orhun/rustypaste
+    commit: 161a104c618889ddd2b17acbe124d593d97e47c4
+    expected:
+      compatibility: NOT_COMPATIBLE
+      runtime:
+        - rust
+      monorepo: false
+      postgres: false
+      redis: false
+      worker: false
+      storage: true
+      migration: false
+      dockerfilePath: Dockerfile
+      port: 8000
+    citations:
+      compatibility:
+        - path: docker-compose.yml
+          reason: Mounts ./upload and ./config.toml; the scratch image has no config file and main exits if config.toml is missing.
+      runtime:
+        - path: Cargo.toml
+          reason: Rust crate.
+      monorepo:
+        - path: Cargo.toml
+          reason: Single crate.
+      postgres:
+        - path: Cargo.toml
+          reason: No database dependency; files stored on disk.
+      redis:
+        - path: Cargo.toml
+          reason: No Redis dependency.
+      worker:
+        - path: Dockerfile
+          reason: Single binary CMD.
+      storage:
+        - path: config.toml
+          reason: upload_path = ./upload on local disk (persistent file store).
+      migration:
+        - path: Dockerfile
+          reason: No migration.
+      dockerfilePath:
+        - path: Dockerfile
+          reason: Root Dockerfile.
+      port:
+        - path: Dockerfile
+          reason: SERVER__ADDRESS=0.0.0.0:8000 and EXPOSE 8000.
+    uncertainties:
+      - storage true means local-disk uploads, not S3.
+      - No dedicated health endpoint; GET / serves landing page, so healthPath omitted.
+  - id: repo-559
+    repo: sebadob/rauthy
+    commit: 79bdf2eb6fb01d1f86f2e99ee718036d04201204
+    expected:
+      compatibility: NOT_COMPATIBLE
+      runtime:
+        - rust
+      monorepo: true
+      postgres: false
+      redis: false
+      worker: false
+      storage: false
+      migration: false
+      dockerfilePath: Dockerfile
+      port: 8080
+    citations:
+      compatibility:
+        - path: Dockerfile
+          reason: Dockerfile only COPYs prebuilt ./out/rauthy_$TARGETARCH binaries and has no build stage; default state is embedded Hiqlite in a data dir.
+      runtime:
+        - path: Cargo.toml
+          reason: Rust workspace.
+      monorepo:
+        - path: Cargo.toml
+          reason: Cargo workspace with multiple crates under src/.
+      postgres:
+        - path: config.toml
+          reason: Hiqlite is the default database; Postgres is opt-in (hiqlite = false).
+      redis:
+        - path: Cargo.toml
+          reason: No Redis dependency.
+      worker:
+        - path: Dockerfile
+          reason: Single binary, CMD serve.
+      storage:
+        - path: config.toml
+          reason: Data kept in local data_dir by Hiqlite; no object storage.
+      migration:
+        - path: Dockerfile
+          reason: No migration command; schema managed by the binary.
+      dockerfilePath:
+        - path: Dockerfile
+          reason: Root Dockerfile.
+      port:
+        - path: config.toml
+          reason: port_http = 8080 with scheme http.
+    uncertainties:
+      - A /health route exists in src/api/src/generic.rs but the mount prefix is not confirmed, so healthPath omitted.
+      - If Postgres mode plus an external build were used the verdict could move to NEEDS_CONFIGURATION.
+  - id: repo-560
+    repo: rajnandan1/kener
+    commit: 74a6228b862f276c4f42177b340ae997fe9dfca2
+    expected:
+      compatibility: READY
+      runtime:
+        - node
+      monorepo: false
+      postgres: true
+      redis: true
+      worker: false
+      storage: false
+      migration: false
+      dockerfilePath: Dockerfile
+      port: 3000
+      healthPath: /healthcheck
+    citations:
+      compatibility:
+        - path: docker-compose.yml
+          reason: "Env-driven config: DATABASE_URL (postgres supported) and REDIS_URL; no required mounts if Postgres is used."
+      runtime:
+        - path: package.json
+          reason: SvelteKit app on Node 24.
+      monorepo:
+        - path: package.json
+          reason: Single package.
+      postgres:
+        - path: knexfile.ts
+          reason: Knex reads DATABASE_URL; supports postgresql://; default is SQLite.
+      redis:
+        - path: docker-compose.yml
+          reason: "Comment: Redis is required for BullMQ queues, caching and scheduler."
+      worker:
+        - path: knexfile.ts
+          reason: Web and BullMQ workers share one process (two DB pools).
+      storage:
+        - path: Dockerfile
+          reason: Only local database dir used for SQLite; no object storage.
+      migration:
+        - path: scripts/main.ts
+          reason: db.migrate.latest() runs at startup inside the app.
+      dockerfilePath:
+        - path: Dockerfile
+          reason: Root Dockerfile.
+      port:
+        - path: Dockerfile
+          reason: ARG PORT=3000, EXPOSE ${PORT}.
+      healthPath:
+        - path: scripts/main.ts
+          reason: Express route base + /healthcheck.
+    uncertainties:
+      - Default DATABASE_URL is SQLite; READY assumes the platform supplies a Postgres DATABASE_URL.
+      - KENER_SECRET_KEY and ORIGIN are required env values.

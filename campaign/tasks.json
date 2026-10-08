@@ -1318,7 +1318,7 @@
       "phase": 1,
       "title": "Independent verification labels for corpus batch 6, blind to initial labels and Deployz output",
       "executor": "campaign-worker",
-      "status": "PENDING",
+      "status": "COMPLETE",
       "prerequisites": [
         "P1-LABEL-06"
       ],

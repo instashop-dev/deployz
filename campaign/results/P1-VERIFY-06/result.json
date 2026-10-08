@@ -1,0 +1,47 @@
+{
+  "taskId": "P1-VERIFY-06",
+  "testedCommit": "e6a3b58ee2363923fef21faca86611fa3bf84538",
+  "executor": "campaign-worker",
+  "model": "sonnet",
+  "startedAt": "2026-10-08T18:29:37Z",
+  "finishedAt": "2026-10-08T18:36:40Z",
+  "proposedStatus": "COMPLETE",
+  "commands": [
+    {
+      "command": "gh api repos/<repo>/git/trees/<sha>?recursive=1 (10 apps)",
+      "exitCode": 0,
+      "summary": "Fetched pinned git trees; none truncated"
+    },
+    {
+      "command": "curl raw.githubusercontent.com/<repo>/<sha>/<path> (source read only)",
+      "exitCode": 0,
+      "summary": "Read Dockerfiles, compose, config, health routes, entrypoints at pinned commits"
+    },
+    {
+      "command": "node --experimental-strip-types val.mjs campaign/corpus/labels/verify-06.yaml",
+      "exitCode": 0,
+      "summary": "10 apps pass expectedFactsSchema; every expected key cited; all citation paths exist in pinned trees; 0 problems"
+    },
+    {
+      "command": "regenerate verify-06.yaml with citations as map keyed by expected field, then rerun schema and tree check",
+      "exitCode": 0,
+      "summary": "10 apps, 0 problems; expected values, paths and reasons unchanged; no key field"
+    }
+  ],
+  "evidence": [
+    "campaign/corpus/labels/verify-06.yaml"
+  ],
+  "forbiddenInputsRead": [],
+  "notes": [
+    "Verdicts: repo-551 READY, repo-552 NOT_COMPATIBLE, repo-553 READY, repo-554 NEEDS_CONFIGURATION, repo-555 READY, repo-556 NEEDS_CONFIGURATION, repo-557 NOT_COMPATIBLE, repo-558 NOT_COMPATIBLE, repo-559 NOT_COMPATIBLE, repo-560 READY.",
+    "healthPath omitted for repo-557, repo-558, repo-559 (no confirmed health endpoint).",
+    "Checkout HEAD was 1225a1e1, an descendant of tested commit e6a3b58e; no Deployz analysis was run."
+  ],
+  "uncertainties": [
+    "repo-552: NOT_COMPATIBLE depends on required mounted .config/default.yml plus local files volume.",
+    "repo-554: SMTP core not reachable via ALB; port choice among 1025/1110/8025 makes it NEEDS_CONFIGURATION.",
+    "repo-556 and repo-560: Postgres is non-default; labels assume Postgres configuration (Wakapi via WAKAPI_DB_* env, Kener via DATABASE_URL).",
+    "repo-551 and repo-558: storage flag meaning (opt-in S3 vs local-disk uploads) is ambiguous.",
+    "repo-559: health route prefix not confirmed."
+  ]
+}
