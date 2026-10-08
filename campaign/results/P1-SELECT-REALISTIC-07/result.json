@@ -1,0 +1,47 @@
+{
+  "taskId": "P1-SELECT-REALISTIC-07",
+  "testedCommit": "e6a3b58ee2363923fef21faca86611fa3bf84538",
+  "executor": "campaign-worker",
+  "model": "sonnet",
+  "startedAt": "2026-10-08T12:20:00Z",
+  "finishedAt": "2026-10-08T12:30:51.000Z",
+  "proposedStatus": "COMPLETE",
+  "commands": [
+    {
+      "command": "gh api repos/<repo> metadata and root contents listing for 29 screened repos",
+      "exitCode": 0,
+      "summary": "akkoma/akkoma HTTP 404 (exit 1, repo path wrong); 19 dropped for no root Dockerfile, archived (AppFlowy-Cloud, Flowise) or stale (kafka-ui)"
+    },
+    {
+      "command": "gh api repos/<repo>, commits/<defaultBranch>, commits/<sha>, 10 repos (node gen.mjs, scratchpad)",
+      "exitCode": 0,
+      "summary": "HEAD SHA pinned and re-read; returned SHA equals pinned SHA for all 10; archived=false, fork=false"
+    },
+    {
+      "command": "gh api repos/<repo>/contents/<entry|Dockerfile>?ref=<sha>, 10 repos",
+      "exitCode": 0,
+      "summary": "all 20 paths are type file at the pinned commit"
+    },
+    {
+      "command": "gh api repos/<repo>/commits/<sha>/check-runs, 10 repos",
+      "exitCode": 0,
+      "summary": "CI summary recorded (informational); first run lost open-webui SHA to a node maxBuffer limit, fixed and rerun clean"
+    },
+    {
+      "command": "node exclusion checks in gen.mjs against excluded-families.json, realistic-01..06.json, benchmark.yaml",
+      "exitCode": 0,
+      "summary": "all 10 clear; dex has 3 benchmark.yaml hits that are the argocd-dex component, not a duplicate"
+    }
+  ],
+  "evidence": [
+    "campaign/corpus/candidates/realistic-07.json",
+    "campaign/results/P1-SELECT-REALISTIC-07/result.json"
+  ],
+  "notes": [
+    "No candidate was cloned, built or analyzed. gh api reads only. Forbidden inputs not read.",
+    "Selected: kestra-io/kestra (Java, S3), Part-DB/Part-DB-server (PHP), LycheeOrg/Lychee (PHP, S3), getlago/lago-api (Ruby), open-webui/open-webui (Python), openfga/openfga (Go), cloudreve/cloudreve (Go, S3), Dokploy/dokploy (Node), activepieces/activepieces (Node), dexidp/dex (Go).",
+    "Dropped: coollabsio/coolify, goauthentik/authentik, zitadel/zitadel, hatchet-dev/hatchet, bytebase/bytebase, opf/openproject, supertokens-core, ory/hydra, solidtime, InvenTree, PeerTube, rybbit, backstage, lightdash, woodpecker (no root Dockerfile); AppFlowy-Cloud and Flowise (archived); provectus/kafka-ui (stale since 2024-07, no root Dockerfile); akkoma/akkoma (404).",
+    "Labeling risks: Dokploy needs Docker socket/Swarm (likely outside MVP); several apps default to SQLite (Part-DB, Lychee, open-webui, cloudreve); kestra and openfga Dockerfiles may need prebuilt artifacts; dex needs mounted config.yaml; lago-api and activepieces need separate worker processes; NOASSERTION licenses on open-webui, dokploy, activepieces.",
+    "CI: kestra, dokploy, dex have one failure check run at the pinned commit. Informational only."
+  ]
+}

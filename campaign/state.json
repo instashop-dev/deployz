@@ -4,8 +4,8 @@
   "status": "CONTINUE",
   "phase": 1,
   "currentTask": null,
-  "nextAction": "Run P1-SELECT-REALISTIC-07 (campaign-worker).",
-  "updatedAt": "2026-10-08T12:16:38.840Z",
+  "nextAction": "Run P1-SELECT-MESSY-01 (campaign-worker).",
+  "updatedAt": "2026-10-08T12:32:07.343Z",
   "checkout": {
     "path": "C:/Users/Tejas/Desktop/deployz-mvp-test",
     "kind": "git worktree of C:/Users/Tejas/Desktop/deployz",
@@ -87,6 +87,10 @@
     {
       "commit": "e6a3b58ee2363923fef21faca86611fa3bf84538",
       "task": "P1-SELECT-REALISTIC-06"
+    },
+    {
+      "commit": "e6a3b58ee2363923fef21faca86611fa3bf84538",
+      "task": "P1-SELECT-REALISTIC-07"
     }
   ],
   "attempts": {
@@ -104,13 +108,14 @@
     "P1-SELECT-REALISTIC-03": 1,
     "P1-SELECT-REALISTIC-04": 1,
     "P1-SELECT-REALISTIC-05": 1,
-    "P1-SELECT-REALISTIC-06": 1
+    "P1-SELECT-REALISTIC-06": 1,
+    "P1-SELECT-REALISTIC-07": 1
   },
   "lastResult": {
-    "taskId": "P1-SELECT-REALISTIC-06",
+    "taskId": "P1-SELECT-REALISTIC-07",
     "status": "COMPLETE",
-    "at": "2026-10-08T12:16:38.840Z",
-    "summary": "10 candidates in campaign/corpus/candidates/realistic-06.json (spliit, misskey, shynet, mailpit, tianji, wakapi, SQLPage [Rust], rustypaste [Rust], rauthy [Rust], kener). Opus re-verified all 10 SHAs, archived/fork=false, root Dockerfile at SHA with gh api; no match in excluded-families.json, realistic-01..05; one incidental benchmark.yaml hit (mailpit as a Laravel Sail dev service)."
+    "at": "2026-10-08T12:32:07.343Z",
+    "summary": "10 candidates in campaign/corpus/candidates/realistic-07.json (kestra [Java], Part-DB [PHP], Lychee [PHP], lago-api, open-webui, openfga, cloudreve, dokploy, activepieces, dex). Opus re-verified all 10 SHAs, archived/fork=false, root Dockerfile at SHA with gh api; no name match in excluded-families.json, realistic-01..06; benchmark.yaml hits only for dex (argocd-dex component of excluded Argo CD)."
   },
   "gates": {
     "smokeReviewed": true,

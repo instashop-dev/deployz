@@ -1,0 +1,515 @@
+{
+  "taskId": "P1-SELECT-REALISTIC-07",
+  "testedCommit": "e6a3b58ee2363923fef21faca86611fa3bf84538",
+  "cohort": "realistic",
+  "exclusionCheck": {
+    "method": "Each candidate owner/repo (current name from gh api) compared case-insensitively by script against all repository values in campaign/corpus/excluded-families.json and repo values in realistic-01..06.json; candidate id and project name compared against excluded families and ids of realistic-01..06. Project names whole-word grepped in docs/testing/repository-compatibility/benchmark.yaml. gh api confirmed fork=false and archived=false.",
+    "perCandidate": [
+      {
+        "id": "kestra",
+        "repo": "kestra-io/kestra",
+        "ownerRepoMatch": false,
+        "familyNameMatch": false,
+        "benchmarkYamlWholeWordHits": 0,
+        "fork": false,
+        "archived": false,
+        "result": "clear"
+      },
+      {
+        "id": "part-db",
+        "repo": "Part-DB/Part-DB-server",
+        "ownerRepoMatch": false,
+        "familyNameMatch": false,
+        "benchmarkYamlWholeWordHits": 0,
+        "fork": false,
+        "archived": false,
+        "result": "clear"
+      },
+      {
+        "id": "lychee",
+        "repo": "LycheeOrg/Lychee",
+        "ownerRepoMatch": false,
+        "familyNameMatch": false,
+        "benchmarkYamlWholeWordHits": 0,
+        "fork": false,
+        "archived": false,
+        "result": "clear"
+      },
+      {
+        "id": "lago-api",
+        "repo": "getlago/lago-api",
+        "ownerRepoMatch": false,
+        "familyNameMatch": false,
+        "benchmarkYamlWholeWordHits": 0,
+        "fork": false,
+        "archived": false,
+        "result": "clear"
+      },
+      {
+        "id": "open-webui",
+        "repo": "open-webui/open-webui",
+        "ownerRepoMatch": false,
+        "familyNameMatch": false,
+        "benchmarkYamlWholeWordHits": 0,
+        "fork": false,
+        "archived": false,
+        "result": "clear"
+      },
+      {
+        "id": "openfga",
+        "repo": "openfga/openfga",
+        "ownerRepoMatch": false,
+        "familyNameMatch": false,
+        "benchmarkYamlWholeWordHits": 0,
+        "fork": false,
+        "archived": false,
+        "result": "clear"
+      },
+      {
+        "id": "cloudreve",
+        "repo": "cloudreve/cloudreve",
+        "ownerRepoMatch": false,
+        "familyNameMatch": false,
+        "benchmarkYamlWholeWordHits": 0,
+        "fork": false,
+        "archived": false,
+        "result": "clear"
+      },
+      {
+        "id": "dokploy",
+        "repo": "Dokploy/dokploy",
+        "ownerRepoMatch": false,
+        "familyNameMatch": false,
+        "benchmarkYamlWholeWordHits": 0,
+        "fork": false,
+        "archived": false,
+        "result": "clear"
+      },
+      {
+        "id": "activepieces",
+        "repo": "activepieces/activepieces",
+        "ownerRepoMatch": false,
+        "familyNameMatch": false,
+        "benchmarkYamlWholeWordHits": 0,
+        "fork": false,
+        "archived": false,
+        "result": "clear"
+      },
+      {
+        "id": "dex",
+        "repo": "dexidp/dex",
+        "ownerRepoMatch": false,
+        "familyNameMatch": false,
+        "benchmarkYamlWholeWordHits": 3,
+        "fork": false,
+        "archived": false,
+        "result": "clear",
+        "note": "3 benchmark.yaml hits at lines 2389-2394 are the argocd-dex component of Argo CD (excluded family argo-cd); dexidp/dex is a separate project and repo, not a duplicate"
+      }
+    ]
+  },
+  "candidates": [
+    {
+      "id": "kestra",
+      "family": "java",
+      "repo": "kestra-io/kestra",
+      "defaultBranch": "develop",
+      "commit": "af6395aed86ca48bec7068275f91a789d80f660b",
+      "commitVerified": {
+        "call": "gh api repos/kestra-io/kestra/commits/af6395aed86ca48bec7068275f91a789d80f660b",
+        "returnedSha": "af6395aed86ca48bec7068275f91a789d80f660b",
+        "matches": true
+      },
+      "license": "Apache-2.0",
+      "archived": false,
+      "fork": false,
+      "pushedAt": "2026-10-08T11:51:45Z",
+      "cohort": "realistic",
+      "runtime": "java (gradle)",
+      "expectedNeeds": [
+        "postgres",
+        "object-storage (S3 internal storage optional)"
+      ],
+      "selectionReason": "Java event-driven workflow orchestrator; Postgres repository/queue backend, S3-compatible internal storage option; root Dockerfile.",
+      "validity": {
+        "entryPoint": {
+          "path": "build.gradle",
+          "type": "file",
+          "confirmedAtCommit": true
+        },
+        "buildFile": {
+          "path": "Dockerfile",
+          "type": "file",
+          "confirmedAtCommit": true
+        },
+        "ci": {
+          "checkRuns": "success=24,in_progress=1,failure=1",
+          "note": "informational only; unknown/mixed is acceptable"
+        }
+      },
+      "labelingRisk": "Risk: Dockerfile expects prebuilt jar from gradle build (Dockerfile.pr and base exist); default docker mode is standalone with H2 and local storage; Postgres/S3 need config via KESTRA_CONFIGURATION; large Gradle monorepo build; default branch develop."
+    },
+    {
+      "id": "part-db",
+      "family": "php",
+      "repo": "Part-DB/Part-DB-server",
+      "defaultBranch": "master",
+      "commit": "a108b6d6cdca47947b58536081f9fabf3b0569c8",
+      "commitVerified": {
+        "call": "gh api repos/Part-DB/Part-DB-server/commits/a108b6d6cdca47947b58536081f9fabf3b0569c8",
+        "returnedSha": "a108b6d6cdca47947b58536081f9fabf3b0569c8",
+        "matches": true
+      },
+      "license": "AGPL-3.0",
+      "archived": false,
+      "fork": false,
+      "pushedAt": "2026-10-07T05:14:02Z",
+      "cohort": "realistic",
+      "runtime": "php (Symfony)",
+      "expectedNeeds": [
+        "postgres"
+      ],
+      "selectionReason": "PHP Symfony inventory manager with root Dockerfile; Postgres supported via DATABASE_URL; stateless apart from DB and media volume.",
+      "validity": {
+        "entryPoint": {
+          "path": "composer.json",
+          "type": "file",
+          "confirmedAtCommit": true
+        },
+        "buildFile": {
+          "path": "Dockerfile",
+          "type": "file",
+          "confirmedAtCommit": true
+        },
+        "ci": {
+          "checkRuns": "success=30",
+          "note": "informational only; unknown/mixed is acceptable"
+        }
+      },
+      "labelingRisk": "Risk: default DB is SQLite; Postgres via DATABASE_URL; uploads/media on local disk (storage need); APP_SECRET required; migrations at start; Dockerfile-frankenphp variant also present."
+    },
+    {
+      "id": "lychee",
+      "family": "php",
+      "repo": "LycheeOrg/Lychee",
+      "defaultBranch": "master",
+      "commit": "5e13568285f938c8852622ca0c4265c9430322ca",
+      "commitVerified": {
+        "call": "gh api repos/LycheeOrg/Lychee/commits/5e13568285f938c8852622ca0c4265c9430322ca",
+        "returnedSha": "5e13568285f938c8852622ca0c4265c9430322ca",
+        "matches": true
+      },
+      "license": "MIT",
+      "archived": false,
+      "fork": false,
+      "pushedAt": "2026-10-08T12:03:54Z",
+      "cohort": "realistic",
+      "runtime": "php (Laravel)",
+      "expectedNeeds": [
+        "postgres",
+        "object-storage (S3 optional)"
+      ],
+      "selectionReason": "PHP Laravel photo gallery with root Dockerfile; Postgres supported; S3 photo storage option.",
+      "validity": {
+        "entryPoint": {
+          "path": "composer.json",
+          "type": "file",
+          "confirmedAtCommit": true
+        },
+        "buildFile": {
+          "path": "Dockerfile",
+          "type": "file",
+          "confirmedAtCommit": true
+        },
+        "ci": {
+          "checkRuns": "success=23,in_progress=6,skipped=1",
+          "note": "informational only; unknown/mixed is acceptable"
+        }
+      },
+      "labelingRisk": "Risk: default DB is SQLite; Postgres via DB_CONNECTION=pgsql; APP_KEY required; photos on local disk by default; queue worker optional; Dockerfile-legacy also present."
+    },
+    {
+      "id": "lago-api",
+      "family": "ruby",
+      "repo": "getlago/lago-api",
+      "defaultBranch": "main",
+      "commit": "7df8e11e481a60cdeca171a05e3fb4538208de5a",
+      "commitVerified": {
+        "call": "gh api repos/getlago/lago-api/commits/7df8e11e481a60cdeca171a05e3fb4538208de5a",
+        "returnedSha": "7df8e11e481a60cdeca171a05e3fb4538208de5a",
+        "matches": true
+      },
+      "license": "AGPL-3.0",
+      "archived": false,
+      "fork": false,
+      "pushedAt": "2026-10-08T11:24:50Z",
+      "cohort": "realistic",
+      "runtime": "ruby (Rails)",
+      "expectedNeeds": [
+        "postgres",
+        "redis",
+        "worker",
+        "object-storage (S3 optional)"
+      ],
+      "selectionReason": "Rails billing API with root Dockerfile; Postgres, Redis and Sidekiq worker; optional S3 storage.",
+      "validity": {
+        "entryPoint": {
+          "path": "Gemfile",
+          "type": "file",
+          "confirmedAtCommit": true
+        },
+        "buildFile": {
+          "path": "Dockerfile",
+          "type": "file",
+          "confirmedAtCommit": true
+        },
+        "ci": {
+          "checkRuns": "success=13",
+          "note": "informational only; unknown/mixed is acceptable"
+        }
+      },
+      "labelingRisk": "Risk: separate sidekiq/clock worker processes; API only, front end is a separate repo; secrets (SECRET_KEY_BASE, RSA key) needed; clickhouse optional; Dockerfile.dev also present."
+    },
+    {
+      "id": "open-webui",
+      "family": "python",
+      "repo": "open-webui/open-webui",
+      "defaultBranch": "main",
+      "commit": "8bd8b4fac5e059578ac0c74b3c18d11139f88b7d",
+      "commitVerified": {
+        "call": "gh api repos/open-webui/open-webui/commits/8bd8b4fac5e059578ac0c74b3c18d11139f88b7d",
+        "returnedSha": "8bd8b4fac5e059578ac0c74b3c18d11139f88b7d",
+        "matches": true
+      },
+      "license": "NOASSERTION",
+      "archived": false,
+      "fork": false,
+      "pushedAt": "2026-10-08T12:22:18Z",
+      "cohort": "realistic",
+      "runtime": "python (FastAPI) + SvelteKit",
+      "expectedNeeds": [
+        "postgres (optional)",
+        "redis (optional)",
+        "object-storage (S3 optional)"
+      ],
+      "selectionReason": "Python FastAPI + Svelte chat UI with root Dockerfile; Postgres via DATABASE_URL, Redis for websockets, S3 storage option.",
+      "validity": {
+        "entryPoint": {
+          "path": "pyproject.toml",
+          "type": "file",
+          "confirmedAtCommit": true
+        },
+        "buildFile": {
+          "path": "Dockerfile",
+          "type": "file",
+          "confirmedAtCommit": true
+        },
+        "ci": {
+          "checkRuns": "success=30",
+          "note": "informational only; unknown/mixed is acceptable"
+        }
+      },
+      "labelingRisk": "Risk: default DB is SQLite in data dir; Postgres via DATABASE_URL; WEBUI_SECRET_KEY required; Ollama/LLM backend not in scope; large image with ML dependencies; license NOASSERTION (custom license)."
+    },
+    {
+      "id": "openfga",
+      "family": "go",
+      "repo": "openfga/openfga",
+      "defaultBranch": "main",
+      "commit": "526995eb202464e2cace266fb5be56c212af9ecf",
+      "commitVerified": {
+        "call": "gh api repos/openfga/openfga/commits/526995eb202464e2cace266fb5be56c212af9ecf",
+        "returnedSha": "526995eb202464e2cace266fb5be56c212af9ecf",
+        "matches": true
+      },
+      "license": "Apache-2.0",
+      "archived": false,
+      "fork": false,
+      "pushedAt": "2026-10-07T05:48:40Z",
+      "cohort": "realistic",
+      "runtime": "go",
+      "expectedNeeds": [
+        "postgres"
+      ],
+      "selectionReason": "Go authorization server with root Dockerfile; Postgres datastore; HTTP and gRPC.",
+      "validity": {
+        "entryPoint": {
+          "path": "go.mod",
+          "type": "file",
+          "confirmedAtCommit": true
+        },
+        "buildFile": {
+          "path": "Dockerfile",
+          "type": "file",
+          "confirmedAtCommit": true
+        },
+        "ci": {
+          "checkRuns": "success=13",
+          "note": "informational only; unknown/mixed is acceptable"
+        }
+      },
+      "labelingRisk": "Risk: Dockerfile may copy prebuilt binary (goreleaser) so build context differs; needs separate migrate command run before run; gRPC port plus HTTP 8080; default datastore is in-memory."
+    },
+    {
+      "id": "cloudreve",
+      "family": "go",
+      "repo": "cloudreve/cloudreve",
+      "defaultBranch": "master",
+      "commit": "9f1e0b8333f5c7304a09e1dcb3f9c170dddd63f3",
+      "commitVerified": {
+        "call": "gh api repos/cloudreve/cloudreve/commits/9f1e0b8333f5c7304a09e1dcb3f9c170dddd63f3",
+        "returnedSha": "9f1e0b8333f5c7304a09e1dcb3f9c170dddd63f3",
+        "matches": true
+      },
+      "license": "GPL-3.0",
+      "archived": false,
+      "fork": false,
+      "pushedAt": "2026-09-21T06:15:15Z",
+      "cohort": "realistic",
+      "runtime": "go + React",
+      "expectedNeeds": [
+        "postgres",
+        "redis (optional)",
+        "object-storage (S3 supported)"
+      ],
+      "selectionReason": "Go file-management service with root Dockerfile; Postgres supported; S3 and other storage policies.",
+      "validity": {
+        "entryPoint": {
+          "path": "go.mod",
+          "type": "file",
+          "confirmedAtCommit": true
+        },
+        "buildFile": {
+          "path": "Dockerfile",
+          "type": "file",
+          "confirmedAtCommit": true
+        },
+        "ci": {
+          "checkRuns": "none",
+          "note": "informational only; unknown/mixed is acceptable"
+        }
+      },
+      "labelingRisk": "Risk: default DB is SQLite; Postgres via CR_CONF_Database env; Dockerfile may copy prebuilt assets; uploads on local disk by default; GPL-3.0; first-run admin credentials printed to log."
+    },
+    {
+      "id": "dokploy",
+      "family": "node",
+      "repo": "Dokploy/dokploy",
+      "defaultBranch": "canary",
+      "commit": "5be17d3dd01d9489521cde2eca7d997b14c54653",
+      "commitVerified": {
+        "call": "gh api repos/Dokploy/dokploy/commits/5be17d3dd01d9489521cde2eca7d997b14c54653",
+        "returnedSha": "5be17d3dd01d9489521cde2eca7d997b14c54653",
+        "matches": true
+      },
+      "license": "NOASSERTION",
+      "archived": false,
+      "fork": false,
+      "pushedAt": "2026-10-07T21:10:33Z",
+      "cohort": "realistic",
+      "runtime": "next.js + node (pnpm monorepo)",
+      "expectedNeeds": [
+        "postgres",
+        "redis"
+      ],
+      "selectionReason": "Next.js self-hosted PaaS with root Dockerfile; Postgres and Redis required.",
+      "validity": {
+        "entryPoint": {
+          "path": "package.json",
+          "type": "file",
+          "confirmedAtCommit": true
+        },
+        "buildFile": {
+          "path": "Dockerfile",
+          "type": "file",
+          "confirmedAtCommit": true
+        },
+        "ci": {
+          "checkRuns": "skipped=2,success=14,failure=1",
+          "note": "informational only; unknown/mixed is acceptable"
+        }
+      },
+      "labelingRisk": "Risk: assumes Docker socket and Docker Swarm on the host (container orchestration), which is outside the MVP deploy model; default branch canary; Postgres/Redis hosts via env; license NOASSERTION."
+    },
+    {
+      "id": "activepieces",
+      "family": "node",
+      "repo": "activepieces/activepieces",
+      "defaultBranch": "main",
+      "commit": "6f408036fdc92752506815df43c21a96b4e75a46",
+      "commitVerified": {
+        "call": "gh api repos/activepieces/activepieces/commits/6f408036fdc92752506815df43c21a96b4e75a46",
+        "returnedSha": "6f408036fdc92752506815df43c21a96b4e75a46",
+        "matches": true
+      },
+      "license": "NOASSERTION",
+      "archived": false,
+      "fork": false,
+      "pushedAt": "2026-10-08T12:16:32Z",
+      "cohort": "realistic",
+      "runtime": "node (nx monorepo, nest/fastify + angular)",
+      "expectedNeeds": [
+        "postgres",
+        "redis",
+        "worker"
+      ],
+      "selectionReason": "TypeScript workflow automation with root Dockerfile; Postgres and Redis required; separate worker image.",
+      "validity": {
+        "entryPoint": {
+          "path": "package.json",
+          "type": "file",
+          "confirmedAtCommit": true
+        },
+        "buildFile": {
+          "path": "Dockerfile",
+          "type": "file",
+          "confirmedAtCommit": true
+        },
+        "ci": {
+          "checkRuns": "in_progress=1,success=10,skipped=2",
+          "note": "informational only; unknown/mixed is acceptable"
+        }
+      },
+      "labelingRisk": "Risk: Dockerfile.worker is a separate process; heavy nx build; AP_ENCRYPTION_KEY and AP_JWT_SECRET required; default DB may be PGlite when AP_DB_TYPE unset; license NOASSERTION (MIT + EE)."
+    },
+    {
+      "id": "dex",
+      "family": "go",
+      "repo": "dexidp/dex",
+      "defaultBranch": "master",
+      "commit": "05a275057112ba93e17db21f600b756f000f1c21",
+      "commitVerified": {
+        "call": "gh api repos/dexidp/dex/commits/05a275057112ba93e17db21f600b756f000f1c21",
+        "returnedSha": "05a275057112ba93e17db21f600b756f000f1c21",
+        "matches": true
+      },
+      "license": "Apache-2.0",
+      "archived": false,
+      "fork": false,
+      "pushedAt": "2026-10-07T23:00:46Z",
+      "cohort": "realistic",
+      "runtime": "go",
+      "expectedNeeds": [
+        "postgres (storage backend optional)"
+      ],
+      "selectionReason": "Go OIDC identity provider with root Dockerfile; Postgres storage backend; HTTP.",
+      "validity": {
+        "entryPoint": {
+          "path": "go.mod",
+          "type": "file",
+          "confirmedAtCommit": true
+        },
+        "buildFile": {
+          "path": "Dockerfile",
+          "type": "file",
+          "confirmedAtCommit": true
+        },
+        "ci": {
+          "checkRuns": "success=14,failure=1,skipped=1",
+          "note": "informational only; unknown/mixed is acceptable"
+        }
+      },
+      "labelingRisk": "Risk: config.yaml (issuer, connectors, staticClients) must be supplied; default storage is in-memory or sqlite; multi-stage build with helper images."
+    }
+  ]
+}
