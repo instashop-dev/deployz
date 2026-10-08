@@ -1,0 +1,558 @@
+{
+  "taskId": "P1-SELECT-MESSY-02",
+  "testedCommit": "e6a3b58ee2363923fef21faca86611fa3bf84538",
+  "cohort": "messy",
+  "exclusionCheck": {
+    "method": "Each candidate owner/repo (current name from gh api) compared case-insensitively by script against all repository, family and repo-name values in campaign/corpus/excluded-families.json and against repo, id, family and repo names in realistic-01..07.json and messy-01.json; repos named as dropped in earlier batches (AppFlowy-Cloud, filebrowser, svix-webhooks, pocket-id, NodeBB, FreshRSS, gotify/server, lobsters) also compared. Entry point and build file confirmed by listing the git tree at the pinned SHA with gh api. gh api confirmed fork=false and archived=false. Drops this batch: openproject/openproject returned 404 (moved to opf/openproject); medusajs/medusa dropped (no Dockerfile and library-style monorepo, not a deployable app). Coordinator review: gogs/gogs dropped because go-gitea/gitea (excluded, repo-058) is a fork of Gogs; replaced by grocy/grocy after a lineage check (no fork, no parent, no rename or successor relation to any excluded or earlier-batch repository).",
+    "perCandidate": [
+      {
+        "id": "60s",
+        "repo": "vikiboss/60s",
+        "ownerRepoMatch": false,
+        "familyNameMatch": false,
+        "fork": false,
+        "archived": false,
+        "result": "clear"
+      },
+      {
+        "id": "trilium",
+        "repo": "TriliumNext/Trilium",
+        "ownerRepoMatch": false,
+        "familyNameMatch": false,
+        "fork": false,
+        "archived": false,
+        "result": "clear"
+      },
+      {
+        "id": "ghost",
+        "repo": "TryGhost/Ghost",
+        "ownerRepoMatch": false,
+        "familyNameMatch": false,
+        "fork": false,
+        "archived": false,
+        "result": "clear"
+      },
+      {
+        "id": "checkmate",
+        "repo": "bluewave-labs/Checkmate",
+        "ownerRepoMatch": false,
+        "familyNameMatch": false,
+        "fork": false,
+        "archived": false,
+        "result": "clear"
+      },
+      {
+        "id": "calibre-web",
+        "repo": "janeczku/calibre-web",
+        "ownerRepoMatch": false,
+        "familyNameMatch": false,
+        "fork": false,
+        "archived": false,
+        "result": "clear"
+      },
+      {
+        "id": "appsmith",
+        "repo": "appsmithorg/appsmith",
+        "ownerRepoMatch": false,
+        "familyNameMatch": false,
+        "fork": false,
+        "archived": false,
+        "result": "clear"
+      },
+      {
+        "id": "rybbit",
+        "repo": "rybbit-io/rybbit",
+        "ownerRepoMatch": false,
+        "familyNameMatch": false,
+        "fork": false,
+        "archived": false,
+        "result": "clear"
+      },
+      {
+        "id": "mautic",
+        "repo": "mautic/mautic",
+        "ownerRepoMatch": false,
+        "familyNameMatch": false,
+        "fork": false,
+        "archived": false,
+        "result": "clear"
+      },
+      {
+        "id": "openproject",
+        "repo": "opf/openproject",
+        "ownerRepoMatch": false,
+        "familyNameMatch": false,
+        "fork": false,
+        "archived": false,
+        "result": "clear"
+      },
+      {
+        "id": "grocy",
+        "repo": "grocy/grocy",
+        "ownerRepoMatch": false,
+        "familyNameMatch": false,
+        "lineageMatch": false,
+        "fork": false,
+        "archived": false,
+        "result": "clear"
+      }
+    ]
+  },
+  "candidates": [
+    {
+      "id": "60s",
+      "family": "deno",
+      "repo": "vikiboss/60s",
+      "defaultBranch": "main",
+      "commit": "d582aa65d44f76e91c434174c9cf44684d30755f",
+      "commitVerified": {
+        "call": "gh api repos/vikiboss/60s/commits/d582aa65d44f76e91c434174c9cf44684d30755f",
+        "returnedSha": "d582aa65d44f76e91c434174c9cf44684d30755f",
+        "matches": true
+      },
+      "license": "MIT",
+      "archived": false,
+      "fork": false,
+      "pushedAt": "2026-09-10T01:41:27Z",
+      "cohort": "messy",
+      "runtime": "deno (std http server)",
+      "appPath": ".",
+      "irregularity": [
+        "deno-runtime",
+        "dockerfile-plus-package.json-mixed"
+      ],
+      "expectedNeeds": [
+        "none"
+      ],
+      "selectionReason": "Deno HTTP API app; the repo has deno.json and a package.json, runtime is Deno not Node.",
+      "validity": {
+        "entryPoint": {
+          "path": "deno.ts",
+          "type": "file",
+          "confirmedAtCommit": true
+        },
+        "buildFile": {
+          "path": "Dockerfile",
+          "type": "file",
+          "confirmedAtCommit": true
+        },
+        "ci": {
+          "checkRuns": "success=1",
+          "note": "informational only; unknown/mixed is acceptable"
+        }
+      },
+      "labelingRisk": "Risk: Deno runtime may be unsupported; app is a stateless API with optional env tokens; package.json beside deno.json can mislead detection."
+    },
+    {
+      "id": "trilium",
+      "family": "node",
+      "repo": "TriliumNext/Trilium",
+      "defaultBranch": "main",
+      "commit": "fba16cdb1b59e8a3cf46a36137159df9736d835c",
+      "commitVerified": {
+        "call": "gh api repos/TriliumNext/Trilium/commits/fba16cdb1b59e8a3cf46a36137159df9736d835c",
+        "returnedSha": "fba16cdb1b59e8a3cf46a36137159df9736d835c",
+        "matches": true
+      },
+      "license": "AGPL-3.0",
+      "archived": false,
+      "fork": false,
+      "pushedAt": "2026-10-08T12:18:36Z",
+      "cohort": "messy",
+      "runtime": "node (pnpm workspace)",
+      "appPath": "apps/server",
+      "irregularity": [
+        "monorepo-subdirectory (apps/server)",
+        "non-root-dockerfile (apps/server/Dockerfile, .alpine, .legacy)",
+        "many-workspace-packages"
+      ],
+      "expectedNeeds": [
+        "local sqlite volume"
+      ],
+      "selectionReason": "Note-taking server inside a pnpm workspace with about 20 packages; three Dockerfile variants only under apps/server/.",
+      "validity": {
+        "entryPoint": {
+          "path": "apps/server/src/main.ts",
+          "type": "file",
+          "confirmedAtCommit": true
+        },
+        "buildFile": {
+          "path": "apps/server/Dockerfile",
+          "type": "file",
+          "confirmedAtCommit": true
+        },
+        "ci": {
+          "checkRuns": "skipped=15,success=15",
+          "note": "informational only; unknown/mixed is acceptable"
+        }
+      },
+      "labelingRisk": "Risk: Docker build context is the repo root, not apps/server; default storage is SQLite on a volume; desktop and mobile apps live in the same workspace."
+    },
+    {
+      "id": "ghost",
+      "family": "node",
+      "repo": "TryGhost/Ghost",
+      "defaultBranch": "main",
+      "commit": "1867c8aa836eee9cc1e7bdea994f32d8461d3c46",
+      "commitVerified": {
+        "call": "gh api repos/TryGhost/Ghost/commits/1867c8aa836eee9cc1e7bdea994f32d8461d3c46",
+        "returnedSha": "1867c8aa836eee9cc1e7bdea994f32d8461d3c46",
+        "matches": true
+      },
+      "license": "MIT",
+      "archived": false,
+      "fork": false,
+      "pushedAt": "2026-10-08T13:09:30Z",
+      "cohort": "messy",
+      "runtime": "node (yarn/pnpm monorepo)",
+      "appPath": "ghost/core",
+      "irregularity": [
+        "monorepo-subdirectory (ghost/core)",
+        "non-standard-dockerfile-name (Dockerfile.production)",
+        "many-app-packages"
+      ],
+      "expectedNeeds": [
+        "mysql"
+      ],
+      "selectionReason": "Publishing platform monorepo; the only production build file is Dockerfile.production at root and the server is in ghost/core; many admin app packages under apps/.",
+      "validity": {
+        "entryPoint": {
+          "path": "ghost/core/index.js",
+          "type": "file",
+          "confirmedAtCommit": true
+        },
+        "buildFile": {
+          "path": "Dockerfile.production",
+          "type": "file",
+          "confirmedAtCommit": true
+        },
+        "ci": {
+          "checkRuns": "in_progress=3,queued=7,skipped=7,success=8",
+          "note": "informational only; unknown/mixed is acceptable"
+        }
+      },
+      "labelingRisk": "Risk: database is MySQL (outside Postgres boundary); Dockerfile.production may need prebuilt assets; SQLite is for development only."
+    },
+    {
+      "id": "checkmate",
+      "family": "node",
+      "repo": "bluewave-labs/Checkmate",
+      "defaultBranch": "develop",
+      "commit": "523f6a79a1c2071bed60301306c8d054c79673de",
+      "commitVerified": {
+        "call": "gh api repos/bluewave-labs/Checkmate/commits/523f6a79a1c2071bed60301306c8d054c79673de",
+        "returnedSha": "523f6a79a1c2071bed60301306c8d054c79673de",
+        "matches": true
+      },
+      "license": "AGPL-3.0",
+      "archived": false,
+      "fork": false,
+      "pushedAt": "2026-10-07T22:11:07Z",
+      "cohort": "messy",
+      "runtime": "node (client + server packages)",
+      "appPath": "server",
+      "irregularity": [
+        "non-root-dockerfile (docker/Dockerfile)",
+        "split-client-server",
+        "default-branch-develop"
+      ],
+      "expectedNeeds": [
+        "mongodb",
+        "redis"
+      ],
+      "selectionReason": "Uptime monitor with separate client/ (Vite React) and server/ (TypeScript) packages; Dockerfile lives under docker/ and the default branch is develop.",
+      "validity": {
+        "entryPoint": {
+          "path": "server/src/index.ts",
+          "type": "file",
+          "confirmedAtCommit": true
+        },
+        "buildFile": {
+          "path": "docker/Dockerfile",
+          "type": "file",
+          "confirmedAtCommit": true
+        },
+        "ci": {
+          "checkRuns": "skipped=1,success=4",
+          "note": "informational only; unknown/mixed is acceptable"
+        }
+      },
+      "labelingRisk": "Risk: MongoDB and Redis backends are outside the Postgres boundary; client and server are separate images in compose; build context is the repo root."
+    },
+    {
+      "id": "calibre-web",
+      "family": "python",
+      "repo": "janeczku/calibre-web",
+      "defaultBranch": "master",
+      "commit": "6e840acbda8d62fdd159bf3855c01872d629a914",
+      "commitVerified": {
+        "call": "gh api repos/janeczku/calibre-web/commits/6e840acbda8d62fdd159bf3855c01872d629a914",
+        "returnedSha": "6e840acbda8d62fdd159bf3855c01872d629a914",
+        "matches": true
+      },
+      "license": "GPL-3.0",
+      "archived": false,
+      "fork": false,
+      "pushedAt": "2026-10-03T10:10:03Z",
+      "cohort": "messy",
+      "runtime": "python (flask, pip)",
+      "appPath": ".",
+      "irregularity": [
+        "no-dockerfile",
+        "no-compose-file",
+        "entry-script-at-root (cps.py)"
+      ],
+      "expectedNeeds": [
+        "sqlite (calibre library volume)"
+      ],
+      "selectionReason": "Python Flask ebook web UI with no Dockerfile or compose file in the repo and both requirements.txt and pyproject.toml.",
+      "validity": {
+        "entryPoint": {
+          "path": "cps.py",
+          "type": "file",
+          "confirmedAtCommit": true
+        },
+        "buildFile": {
+          "path": "requirements.txt",
+          "type": "file",
+          "confirmedAtCommit": true
+        },
+        "ci": {
+          "checkRuns": "none",
+          "note": "informational only; unknown/mixed is acceptable"
+        }
+      },
+      "labelingRisk": "Risk: requires an external Calibre library directory (metadata.db) on disk; SQLite only; Deployz must generate a Dockerfile; optional system packages (ImageMagick, Kepubify)."
+    },
+    {
+      "id": "appsmith",
+      "family": "java",
+      "repo": "appsmithorg/appsmith",
+      "defaultBranch": "release",
+      "commit": "4b4d52cbe621ab37c4ded93de7b6ca17ba44edb6",
+      "commitVerified": {
+        "call": "gh api repos/appsmithorg/appsmith/commits/4b4d52cbe621ab37c4ded93de7b6ca17ba44edb6",
+        "returnedSha": "4b4d52cbe621ab37c4ded93de7b6ca17ba44edb6",
+        "matches": true
+      },
+      "license": "Apache-2.0",
+      "archived": false,
+      "fork": false,
+      "pushedAt": "2026-10-08T12:57:50Z",
+      "cohort": "messy",
+      "runtime": "java (maven) + react client + node rts",
+      "appPath": "app/server",
+      "irregularity": [
+        "monorepo-subdirectory (app/server, app/client)",
+        "mixed-runtimes (java, node, react)",
+        "default-branch-release"
+      ],
+      "expectedNeeds": [
+        "mongodb",
+        "redis"
+      ],
+      "selectionReason": "Low-code platform with a Java Spring server, React client and Node RTS under app/; root Dockerfile assembles prebuilt parts; default branch is release.",
+      "validity": {
+        "entryPoint": {
+          "path": "app/server/appsmith-server/src/main/java/com/appsmith/server/ServerApplication.java",
+          "type": "file",
+          "confirmedAtCommit": true
+        },
+        "buildFile": {
+          "path": "Dockerfile",
+          "type": "file",
+          "confirmedAtCommit": true
+        },
+        "ci": {
+          "checkRuns": "skipped=5,success=25",
+          "note": "informational only; unknown/mixed is acceptable"
+        }
+      },
+      "labelingRisk": "Risk: root Dockerfile is an all-in-one image with MongoDB, Redis, nginx and supervisor; needs prebuilt artifacts; very large build; MongoDB is outside Postgres boundary."
+    },
+    {
+      "id": "rybbit",
+      "family": "node",
+      "repo": "rybbit-io/rybbit",
+      "defaultBranch": "master",
+      "commit": "90e4f85756fe8c6fda7775f3cfb45d0a2d5830da",
+      "commitVerified": {
+        "call": "gh api repos/rybbit-io/rybbit/commits/90e4f85756fe8c6fda7775f3cfb45d0a2d5830da",
+        "returnedSha": "90e4f85756fe8c6fda7775f3cfb45d0a2d5830da",
+        "matches": true
+      },
+      "license": "AGPL-3.0",
+      "archived": false,
+      "fork": false,
+      "pushedAt": "2026-10-07T04:34:42Z",
+      "cohort": "messy",
+      "runtime": "node (npm, two packages)",
+      "appPath": "server",
+      "irregularity": [
+        "two-dockerfiles-in-subdirectories (client/, server/)",
+        "no-root-dockerfile",
+        "multi-service"
+      ],
+      "expectedNeeds": [
+        "postgres",
+        "clickhouse"
+      ],
+      "selectionReason": "Web analytics with separate Next.js client/ and Fastify server/ packages, each with its own Dockerfile and no root Dockerfile.",
+      "validity": {
+        "entryPoint": {
+          "path": "server/src/index.ts",
+          "type": "file",
+          "confirmedAtCommit": true
+        },
+        "buildFile": {
+          "path": "server/Dockerfile",
+          "type": "file",
+          "confirmedAtCommit": true
+        },
+        "ci": {
+          "checkRuns": "failure=1,skipped=3,success=11",
+          "note": "informational only; unknown/mixed is acceptable"
+        }
+      },
+      "labelingRisk": "Risk: needs ClickHouse in addition to Postgres, which is outside the MVP boundary; two images must be deployed together; domain and secrets required."
+    },
+    {
+      "id": "mautic",
+      "family": "php",
+      "repo": "mautic/mautic",
+      "defaultBranch": "7.x",
+      "commit": "6d4a4b2981600915872aef6fdeee0f8d8595d60b",
+      "commitVerified": {
+        "call": "gh api repos/mautic/mautic/commits/6d4a4b2981600915872aef6fdeee0f8d8595d60b",
+        "returnedSha": "6d4a4b2981600915872aef6fdeee0f8d8595d60b",
+        "matches": true
+      },
+      "license": "NOASSERTION",
+      "archived": false,
+      "fork": false,
+      "pushedAt": "2026-10-08T07:52:51Z",
+      "cohort": "messy",
+      "runtime": "php (symfony, composer)",
+      "appPath": ".",
+      "irregularity": [
+        "no-dockerfile",
+        "legacy-app-dir-layout (app/AppKernel.php)",
+        "default-branch-7.x"
+      ],
+      "expectedNeeds": [
+        "mysql/mariadb"
+      ],
+      "selectionReason": "Marketing automation Symfony app with no Dockerfile in the repo (only .ddev config), legacy app/ kernel layout and default branch 7.x.",
+      "validity": {
+        "entryPoint": {
+          "path": "index.php",
+          "type": "file",
+          "confirmedAtCommit": true
+        },
+        "buildFile": {
+          "path": "composer.json",
+          "type": "file",
+          "confirmedAtCommit": true
+        },
+        "ci": {
+          "checkRuns": "failure=1,skipped=4,success=25",
+          "note": "informational only; unknown/mixed is acceptable"
+        }
+      },
+      "labelingRisk": "Risk: MySQL/MariaDB only; web installer on first run; cron jobs needed; license metadata NOASSERTION; no Dockerfile so Deployz must generate one."
+    },
+    {
+      "id": "openproject",
+      "family": "ruby",
+      "repo": "opf/openproject",
+      "defaultBranch": "dev",
+      "commit": "df3826b28eddd5f2e9c7ab72a07a0dc8c5351df6",
+      "commitVerified": {
+        "call": "gh api repos/opf/openproject/commits/df3826b28eddd5f2e9c7ab72a07a0dc8c5351df6",
+        "returnedSha": "df3826b28eddd5f2e9c7ab72a07a0dc8c5351df6",
+        "matches": true
+      },
+      "license": "GPL-3.0",
+      "archived": false,
+      "fork": false,
+      "pushedAt": "2026-10-08T13:06:06Z",
+      "cohort": "messy",
+      "runtime": "ruby (rails) + angular frontend",
+      "appPath": ".",
+      "irregularity": [
+        "non-root-dockerfile (docker/prod/Dockerfile)",
+        "mixed-runtimes (rails + angular in frontend/)",
+        "multi-process (web, worker, seeder)"
+      ],
+      "expectedNeeds": [
+        "postgres",
+        "memcached (optional)"
+      ],
+      "selectionReason": "Rails project-management app with an Angular frontend; the production Dockerfile is only under docker/prod/ and the default branch is dev; repository moved to the opf org.",
+      "validity": {
+        "entryPoint": {
+          "path": "config.ru",
+          "type": "file",
+          "confirmedAtCommit": true
+        },
+        "buildFile": {
+          "path": "docker/prod/Dockerfile",
+          "type": "file",
+          "confirmedAtCommit": true
+        },
+        "ci": {
+          "checkRuns": "success=11",
+          "note": "informational only; unknown/mixed is acceptable"
+        }
+      },
+      "labelingRisk": "Risk: production Dockerfile is a multi-stage all-in-one build with a custom entrypoint; needs web, worker and seeder processes; heavy build."
+    },
+    {
+      "id": "grocy",
+      "family": "php",
+      "repo": "grocy/grocy",
+      "defaultBranch": "master",
+      "commit": "41206cb90154e0d17d3e108cc1f182b94fdb465d",
+      "commitVerified": {
+        "call": "gh api repos/grocy/grocy/commits/41206cb90154e0d17d3e108cc1f182b94fdb465d",
+        "returnedSha": "41206cb90154e0d17d3e108cc1f182b94fdb465d",
+        "matches": true
+      },
+      "license": "MIT",
+      "archived": false,
+      "fork": false,
+      "pushedAt": "2026-09-16T20:14:38Z",
+      "cohort": "messy",
+      "runtime": "php (slim framework, composer + yarn assets)",
+      "appPath": ".",
+      "irregularity": [
+        "no-dockerfile",
+        "no-compose-file",
+        "web-root-in-public/ (public/index.php)",
+        "mixed-package-managers (composer + npm)"
+      ],
+      "expectedNeeds": [
+        "sqlite (local volume)"
+      ],
+      "selectionReason": "Self-hosted household inventory PHP app with no Dockerfile or compose file in the repo, web root in public/, and both composer.json and package.json.",
+      "validity": {
+        "entryPoint": {
+          "path": "public/index.php",
+          "type": "file",
+          "confirmedAtCommit": true
+        },
+        "buildFile": {
+          "path": "composer.json",
+          "type": "file",
+          "confirmedAtCommit": true
+        },
+        "ci": {
+          "checkRuns": "none",
+          "note": "informational only; unknown/mixed is acceptable"
+        }
+      },
+      "lineageCheck": "gh api shows fork=false and no parent. No known upstream, rename or successor relation to any excluded or earlier-batch repository (PHP household-inventory app; no shared code lineage with Snipe-IT, Akaunting, InvoiceShelf or others). Not a fork or rebrand of another project.",
+      "labelingRisk": "Risk: SQLite only, needs a persistent data volume; Deployz must generate a Dockerfile; PHP extensions and writable data/ directory required; no Postgres option."
+    }
+  ]
+}
