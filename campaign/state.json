@@ -4,8 +4,8 @@
   "status": "CONTINUE",
   "phase": 2,
   "currentTask": null,
-  "nextAction": "Run P2-DESIGN (Opus, timebox 25): design.md for the minimal harness extensions (corpus/runs-dir flags, AI mode per result, local Docker build stage, isolated local run stage, per-stage evidence and --resume). Then P2-IMPL-CORPUS-FLAGS (worker, timebox 45; long-run exception as the first task of a run).",
-  "updatedAt": "2026-10-08T21:32:50.856Z",
+  "nextAction": "Run P2-IMPL-CORPUS-FLAGS (campaign-worker, timebox 45 > 38: first task of a fresh run with a long-run exception; scope (a) of campaign/results/P2-DESIGN/design.md only). Then P2-IMPL-AI-MODE (45), P2-AI-LIVE-VALIDATE (30), P2-IMPL-LOCAL-BUILD (45), P2-IMPL-LOCAL-RUN (45), P2-SMOKE-RUN (40), P2-GATE.",
+  "updatedAt": "2026-10-08T21:39:12.464Z",
   "checkout": {
     "path": "C:/Users/Tejas/Desktop/deployz-mvp-test",
     "kind": "git worktree of C:/Users/Tejas/Desktop/deployz",
@@ -211,6 +211,10 @@
     {
       "commit": "e6a3b58ee2363923fef21faca86611fa3bf84538",
       "task": "P1-GATE"
+    },
+    {
+      "commit": "e6a3b58ee2363923fef21faca86611fa3bf84538",
+      "task": "P2-DESIGN"
     }
   ],
   "attempts": {
@@ -259,18 +263,17 @@
     "P1-RECONCILE-03": 1,
     "P1-RECONCILE-04": 1,
     "P1-RECONCILE-05": 1,
-    "P1-GATE": 1
+    "P1-GATE": 1,
+    "P2-DESIGN": 1
   },
   "lastResult": {
-    "task": "P1-GATE",
+    "task": "P2-DESIGN",
     "status": "COMPLETE",
-    "at": "2026-10-08T21:32:50.856Z",
+    "at": "2026-10-08T21:39:12.464Z",
     "evidence": [
-      "campaign/corpus/benchmark.yaml",
-      "campaign/corpus/holdout.yaml",
-      "campaign/results/P1-GATE/review.md"
+      "campaign/results/P2-DESIGN/design.md"
     ],
-    "summary": "P1-GATE PASS. benchmark.yaml: parseBenchmark OK, 80 set improvement (56/16/8). holdout.yaml: parseBenchmark OK, 20 set unseen with final labels (14/4/2); no overlap, 100 distinct pins, no excluded repository, 0 REPO_INVALID. Open rule questions settled with no label change (monorepo/runtime not compared; windows/GPU per R1; env-switch reading consistent; R5; R6 two causes; 551 kept READY). customer_realism and difficulty set by a fixed recorded rule. Phase advanced to 2."
+    "summary": "Design for minimal harness extensions: (a) --benchmark/--runs-dir (Stage A) and --benchmark/--deploy-config (Stage B, --runs-dir exists) with a guard against writing campaign results into docs/testing runs; (b) --ai off|live via describeAiGatewayConfig + counting gateway proxy, ai record per result, no mixed modes per runs dir; (c) --local build: GitHub tarball of pinned commit, strip-components=1, worker.ts Dockerfile/context precedence copy with drift guard, docker build --platform linux/amd64, 30 min timeout, env allowlist; (d) labelled per-repo bridge network, postgres:16/valkey:8/minio, no mounts/ports/privileged, registry env names, 6 probes with UNVERIFIED never success, labelled cleanup and leak check; (e) <id>.local.json per-stage records written atomically, --resume with reconcile and inputsHash. No product code, no new framework."
   },
   "gates": {
     "smokeReviewed": true,

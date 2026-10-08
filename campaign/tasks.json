@@ -1738,7 +1738,7 @@
       "phase": 2,
       "title": "Define minimal extensions of the existing benchmark harnesses for the campaign",
       "executor": "opus",
-      "status": "PENDING",
+      "status": "COMPLETE",
       "prerequisites": [
         "P1-GATE"
       ],
@@ -1762,7 +1762,9 @@
         "Covers: (a) --benchmark/--runs-dir for Stage A and benchmark path for Stage B gate, (b) recorded AI mode per result, (c) a local Docker build stage reusing the production Dockerfile/context selection and linux/amd64 platform, (d) an isolated local run stage with disposable Postgres/Redis containers, no host mounts or credentials, timeouts, and functional probes, (e) per-stage evidence and --resume"
       ],
       "timeboxMinutes": 25,
-      "notes": []
+      "notes": [
+        "2026-10-08 routine run 21:33:59Z: COMPLETE (attempt 1, Opus). design.md covers (a)-(e); implementation order CORPUS-FLAGS -> AI-MODE -> LOCAL-BUILD -> LOCAL-RUN. Build-input selection is a harness copy of worker.ts buildRelease with a text drift guard (scripts do not import packages/cdk)."
+      ]
     },
     {
       "id": "P2-IMPL-CORPUS-FLAGS",
