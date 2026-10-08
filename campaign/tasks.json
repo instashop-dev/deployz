@@ -970,7 +970,7 @@
       "phase": 1,
       "title": "Initial expected-behavior labels for corpus batch 7 (10 apps) from source only",
       "executor": "campaign-worker",
-      "status": "PENDING",
+      "status": "COMPLETE",
       "prerequisites": [
         "P1-FREEZE-CORPUS"
       ],
@@ -1001,7 +1001,8 @@
         "Every fact cites source file paths at the pinned commit"
       ],
       "timeboxMinutes": 40,
-      "notes": []
+      "notes": [],
+      "attempts": 1
     },
     {
       "id": "P1-LABEL-08",

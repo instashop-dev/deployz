@@ -1,0 +1,39 @@
+{
+  "taskId": "P1-LABEL-07",
+  "testedCommit": "e6a3b58ee2363923fef21faca86611fa3bf84538",
+  "executor": "campaign-worker",
+  "model": "sonnet",
+  "startedAt": "2026-10-08T00:00:00Z",
+  "finishedAt": "2026-10-08T01:00:00Z",
+  "proposedStatus": "COMPLETE",
+  "commands": [
+    { "command": "gh api repos/<repo>/git/trees/<commit>?recursive=1 (10 apps)", "exitCode": 0, "summary": "Saved pinned file lists; none truncated." },
+    { "command": "gh api -H 'Accept: application/vnd.github.raw' repos/<repo>/contents/<path>?ref=<commit>", "exitCode": 0, "summary": "Read Dockerfiles, compose files, env examples, entrypoints and manifests at the pinned commits." },
+    { "command": "npx tsx <scratchpad>/validate.mts <scratchpad>", "exitCode": 0, "summary": "Parsed YAML, expectedFactsSchema passes for 10 apps, ids/repos/commits equal the slice, every fact key has an existing-path citation." }
+  ],
+  "evidence": [
+    "campaign/corpus/labels/initial-07.yaml"
+  ],
+  "notes": [
+    "Judgment: apps whose image expects a mounted data directory or a local-disk default (Kestra, Part-DB, Lychee, Open WebUI, Cloudreve, Dex) are NOT_COMPATIBLE with local-filesystem, per the mvp-scope non-goal, even where an optional S3 or PostgreSQL setting exists.",
+    "Judgment: Dokploy is NOT_COMPATIBLE because it manages Docker Swarm and host directories; the Dockerfile also copies .env.production, which is not in the repo. The unsupported list has no Docker-daemon name, so local-filesystem is used.",
+    "Judgment: Cloudreve Dockerfile copies a prebuilt binary that is not in the repo; recorded in the compatibility citation.",
+    "Judgment: postgres is true when PostgreSQL is a supported production option, even if the default is SQLite or memory. redis is true only when the documented deployment needs it (Lago, Cloudreve, Activepieces).",
+    "Judgment: migration is false when migrations only run inside app startup with no named command (Open WebUI, Activepieces, Dex, Kestra, Cloudreve).",
+    "Judgment: Activepieces worker is false because the default container type runs app and worker together.",
+    "Judgment: Lychee compatibility could instead be NEEDS_CONFIGURATION if S3 were treated as a full upload backend; the default images disk is local, so NOT_COMPATIBLE was chosen.",
+    "labeledAt and the result timestamps are approximate."
+  ],
+  "summary": {
+    "repo-561": "kestra-io/kestra: NOT_COMPATIBLE, local storage volume and Docker socket in reference setup.",
+    "repo-562": "Part-DB/Part-DB-server: NOT_COMPATIBLE, uploads and media volumes, SQLite default.",
+    "repo-563": "LycheeOrg/Lychee: NOT_COMPATIBLE, local uploads disk; worker mode and migrate command exist.",
+    "repo-564": "getlago/lago-api: NEEDS_CONFIGURATION, Postgres + Redis + Sidekiq/clock workers, S3 storage, many secrets.",
+    "repo-565": "open-webui/open-webui: NOT_COMPATIBLE, state in /app/backend/data volume.",
+    "repo-566": "openfga/openfga: NEEDS_CONFIGURATION, no CMD (needs run), Postgres datastore, migrate command.",
+    "repo-567": "cloudreve/cloudreve: NOT_COMPATIBLE, data volume, prebuilt binary not in repo.",
+    "repo-568": "Dokploy/dokploy: NOT_COMPATIBLE, needs Docker Swarm and host directories.",
+    "repo-569": "activepieces/activepieces: NEEDS_CONFIGURATION, Postgres + Redis, secrets, app+worker in one container.",
+    "repo-570": "dexidp/dex: NOT_COMPATIBLE, image default config uses SQLite file and is a dev example."
+  }
+}
