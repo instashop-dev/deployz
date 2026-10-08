@@ -31,6 +31,7 @@ Three decisions with substantial detail have their own files:
 | 2026-10-02 | A pending INSTALL carries command authority; only authorized recovery may recreate a stack ([`pending-command-authority.md`](pending-command-authority.md)) | Active |
 | 2026-10-02 | A migration correction rides the migration seat as a new revision of the same family | Active |
 | 2026-10-02 | A configuration update settles on its rollout; service mutations never overlap | Active |
+| 2026-10-08 | Staging is a second stack in the same account and Cloudflare zone, with the `s-` hostname prefix, and promotion to production needs an approval | Active |
 | 2026-10-10 | A repository with no buildable Dockerfile is NOT_COMPATIBLE when the evidence is complete | Active |
 | 2026-10-10 | An image that runs several supervised application processes (s6-overlay, supervisord) is NOT_COMPATIBLE | Active |
 | 2026-10-12 | A deploy fails closed when the application needs a database or cache that the deployment does not have | Active |
@@ -635,3 +636,32 @@ configured first start at zero tasks are excluded for the same reason.
 
 What would change it: a heartbeat-independent deadline (a scheduled sweep), or
 a window per application size.
+## Staging shares the production account and zone (2026-10-08)
+
+The staging control plane is a second stack of the same CDK app in the
+**same AWS account and Region** as production, and it shares the
+`deployz.dev` Cloudflare zone. A second account and a second zone were
+rejected for the MVP: both add a bootstrap, a billing surface and a
+credential set to operate, for an environment whose only job is to prove a
+change before it reaches customers.
+
+What keeps the two apart is naming, not isolation by account:
+
+- The stage selects the stack id, the config-secret KMS alias, the ECR
+  repository and the prefix of the regional template buckets. Each stage's
+  names are written out, never derived with a suffix, because the KMS key and
+  the ECR repository are retained — a renamed key leaves stored ciphertext
+  unreadable. An unknown stage value fails the synth instead of falling back
+  to production's names.
+- Staging's default hostnames carry the prefix `s-`, so its namespace guard
+  can never write or delete a production `d-` record in the shared zone.
+- Staging has its own `COOKIE_PREFIX`, GitHub App, OAuth app, auth secret and
+  Cloudflare token.
+
+Promotion to production needs an approval: a change is deployed to staging
+first, and a human approves before the same commit reaches production.
+
+What would change it: a staging workload heavy enough to contend with
+production for account-level quota, or a compliance requirement to separate
+non-production data, would need a second account.
+

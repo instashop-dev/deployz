@@ -120,6 +120,11 @@ refuses to deploy if any is missing: `CLOUDFLARE_ZONE_ID`,
 `api.deployz.dev` CNAME must be DNS-only (not proxied) or TLS to the API
 fails with a Cloudflare 525.
 
+`DEPLOYZ_DEFAULT_HOSTNAME_PREFIX` controls which names the control plane
+mints and which names its namespace guard lets it write. Every control plane
+that shares the zone therefore needs its own prefix: staging uses `s-`, so it
+can never write or delete a production `d-` record.
+
 ### Cloudflare client behaviour
 
 Search-then-create/update (Cloudflare has no upsert; a concurrent-create

@@ -24,7 +24,8 @@ instead. One deploy runs at a time. It:
    (`CDK_DEFAULT_ACCOUNT`, `API_CERTIFICATE_ARN`, `BETTER_AUTH_SECRET`, the
    GitHub OAuth and App keys, the SES keys, the four Cloudflare keys);
 3. refuses when `PADDLE_API_KEY` is set but the other Paddle values are not;
-4. builds, runs `cdk deploy Deployz`, then polls
+4. builds, runs `cdk deploy --all` (the app holds one stack, and its id comes
+   from `DEPLOYZ_STAGE`; production is `Deployz`), then polls
    `https://api.deployz.dev/health/ready` (database and schema) for up to
    five minutes. `CREATE_COMPLETE` alone can hide an initialization crash
    (a failed migration, a missing KMS key ARN); the readiness poll is the
@@ -76,13 +77,57 @@ reads is validated in `apps/api/src/env.ts`.
 | Release builds | `DOCKERHUB_SECRET_NAME` (variable) | [`../docker-hub-credentials.md`](../docker-hub-credentials.md). Unresolvable name fails every build; empty means unset. |
 | Billing | `PADDLE_API_KEY`, `PADDLE_WEBHOOK_SECRET`, `PADDLE_CLIENT_TOKEN`, `PADDLE_PRICE_PLATFORM`, `PADDLE_PRICE_DEPLOYMENT`, `PADDLE_ENVIRONMENT` (variable, defaults to `sandbox`), `BILLING_ENFORCEMENT` (variable; `off` pauses the production-deployment subscription gate) | [`../billing/paddle-billing.md`](../billing/paddle-billing.md) |
 | Secrets | `DEPLOYZ_KMS_KEY_ARN` | Set by CDK from the stack's own key; the API fails to start without it |
-| Set by CDK | `DATABASE_URL`, `JOB_QUEUE_URL`, `DEPLOYZ_ECR_REPOSITORY_NAME`, `BUILD_LOG_GROUP_NAME`, `SOURCE_BUCKET`, `BUILD_PROJECT_NAME` | Not in the workflow |
+| Set by CDK | `DATABASE_URL`, `JOB_QUEUE_URL`, `DEPLOYZ_ECR_REPOSITORY_NAME`, `DEPLOYZ_TEMPLATE_BUCKET_PREFIX`, `BUILD_LOG_GROUP_NAME`, `SOURCE_BUCKET`, `BUILD_PROJECT_NAME` | Not in the workflow. `DEPLOYZ_TEMPLATE_BUCKET_PREFIX` is set only outside production, where the API defaults it to `deployz-templates`. |
 
 `TEAM_ADMIN_EMAILS` and `GITHUB_FIXTURE_MODE` are local-development only and
 are ignored or excluded inside Lambda. Production Team Admin access is
 `user.platform_role = 'ADMIN'`, set by SQL
 ([`../admin/team-admin.md`](../admin/team-admin.md)). The `JEV_*` keys are
 allowlisted but never set; Jev is off in production by decision.
+
+## Staging
+
+A staging control plane is a second stack of the same CDK app in the same AWS
+account and Region. `DEPLOYZ_STAGE` (or `-c stage=staging`) selects the stage.
+It gives the stack its own id and its own account-unique names
+(`packages/cdk/src/stage.ts`):
+
+| Name | Production | Staging |
+| --- | --- | --- |
+| Stack id | `Deployz` | `DeployzStaging` |
+| KMS alias | `alias/deployz-config-secrets` | `alias/deployz-staging-config-secrets` |
+| ECR repository | `deployz-images` | `deployz-staging-images` |
+| Template bucket prefix | `deployz-templates` | `deployz-staging-templates` |
+
+Each stage's names are written out, not derived with a suffix. The KMS key
+and the ECR repository are `RemovalPolicy.RETAIN`: a rename leaves every
+stored ciphertext unreadable and every stored image unreachable. The staging
+bucket prefix is `deployz-staging-templates`, not
+`deployz-templates-staging`, because the API's S3 grant is a wildcard on
+`<prefix>-*` and a staging bucket must stay outside production's grant.
+
+An unknown stage value fails the synth; it never falls back to production's
+names. `cdk diff -c local=true -c stage=staging` previews the staging stack.
+
+Staging shares the `deployz.dev` Cloudflare zone, so it needs its own
+default-hostname prefix (`DEPLOYZ_DEFAULT_HOSTNAME_PREFIX=s-`) and its own
+session-cookie name (`COOKIE_PREFIX`).
+
+### Prerequisites an operator must do first
+
+CDK cannot create these; the deploy fails or the environment is unusable
+without them.
+
+1. An ACM certificate for `api.staging.deployz.dev` in `us-east-1`, validated
+   by a DNS-only Cloudflare CNAME. A proxied record fails TLS with 525.
+2. A Lightsail certificate for `app.staging.deployz.dev` and
+   `staging.deployz.dev`.
+3. The S3 bucket `deployz-staging-templates-us-east-1`, with public read.
+4. A "Deployz Staging" GitHub App and a separate OAuth app, both pointed at
+   the staging hosts.
+5. A new `BETTER_AUTH_SECRET` and a separate Cloudflare zone-edit token.
+6. Enough `us-east-1` VPC and Elastic IP quota. The default is five of each,
+   and staging adds one of each.
 
 ## Database migrations
 

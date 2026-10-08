@@ -260,6 +260,11 @@ export const env = {
   // Created by the BuildPipeline (default `deployz-images`); the stack wires
   // the real name into the Lambda environment so a rename cannot drift.
   ecrRepositoryName: process.env.DEPLOYZ_ECR_REPOSITORY_NAME ?? 'deployz-images',
+  // Prefix of the regional buckets each deployment's compiled template is
+  // published into (`<prefix>-<region>`). Default `deployz-templates` is
+  // production's own prefix; the stack wires the real name into the Lambda
+  // environment so a rename cannot drift.
+  templateBucketPrefix: process.env.DEPLOYZ_TEMPLATE_BUCKET_PREFIX?.trim() || 'deployz-templates',
   // The release build project's log group, read for failed-build evidence.
   // Unset (local, E2E) → build logs read as unavailable; nothing else changes.
   buildLogGroupName: process.env.BUILD_LOG_GROUP_NAME,

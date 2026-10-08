@@ -109,6 +109,11 @@ jobs:
       AWS_REGION: us-east-1
       CDK_DEFAULT_REGION: us-east-1
       CDK_DEFAULT_ACCOUNT: ${{ secrets.AWS_ACCOUNT_ID }}
+      # Selects the stack id and every stage-derived resource name (KMS alias,
+      # ECR repository, template-bucket prefix; packages/cdk/src/stage.ts). A
+      # literal until the GitHub Environments work gives staging its own
+      # environment and sets this per environment.
+      DEPLOYZ_STAGE: production
 
       # Everything below is read by packages/cdk collectEnvVars() and becomes
       # the deployed Lambda's environment. That function builds the
@@ -296,11 +301,13 @@ jobs:
           echo "Connector build id: ${id}"
           echo "BOOTSTRAP_BUILD_ID=${id}" >> "$GITHUB_ENV"
 
+      # `--all` instead of a stack name: the app holds exactly one stack, and
+      # its id now comes from DEPLOYZ_STAGE.
       - name: Deploy the control-plane stack
         working-directory: packages/cdk
         run: |
           set -euo pipefail
-          npx cdk deploy Deployz \
+          npx cdk deploy --all \
             --require-approval never \
             --app "npx tsx bin/deployz.ts"
 
@@ -376,4 +383,11 @@ jobs:
           bucket="${BOOTSTRAP_TEMPLATE_URL#https://}"
           bucket="${bucket%%.s3.*}"
           echo "Publishing into bucket: ${bucket}"
-          TEMPLATE_BUCKET="${bucket}" pnpm --filter @deployz/cdk run publish:bootstrap
+          # Every region other than us-east-1 publishes into
+          # <prefix>-<region>, so the prefix has to name THIS stage's buckets.
+          # A literal, not a value derived from DEPLOYZ_STAGE: a shell mapping
+          # from stage to prefix is a second copy of the table in
+          # packages/cdk/src/stage.ts, and this workflow deploys production
+          # only.
+          TEMPLATE_BUCKET="${bucket}" TEMPLATE_BUCKET_PREFIX=deployz-templates \
+            pnpm --filter @deployz/cdk run publish:bootstrap
