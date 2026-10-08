@@ -2,13 +2,16 @@
   "campaign": "deployz-fresh-100",
   "frozenAt": "2026-10-08T07:47:00Z",
   "frozenBy": "opus (P0-FREEZE)",
-  "commit": "e164b7af445636447e27a62c81ed6b542f0029c7",
+  "commit": "e6a3b58ee2363923fef21faca86611fa3bf84538",
   "branch": "campaign/fresh-100",
-  "analysisVersion": 44,
+  "analysisVersion": 45,
   "analysisVersionSource": "apps/api/src/analysis.ts:306",
   "compilerVersion": "dynamic-compiler-v2-5",
   "compilerVersionSource": "packages/infrastructure-compiler/src/compile.ts:135",
-  "infrastructureProfile": { "id": "small", "version": 2 },
+  "infrastructureProfile": {
+    "id": "small",
+    "version": 2
+  },
   "infrastructureProfileSource": "packages/contracts/src/profile.ts:112 defaultInfrastructureSizeProfile() returns SMALL_V2_PROFILE",
   "aiMode": "diagnostic-ai-off",
   "aiModeNotes": "Production equivalence is not verified. The worktree .env (ignored, mtime 2026-10-08 13:08 IST, not in the main checkout .env) now sets AI_GATEWAY_BASE_URL (host gateway.ai.cloudflare.com), AI_PROVIDER_API_KEY (non-empty) and AI_MODEL equal to AI_MODEL_DEFAULT workers-ai/@cf/deepseek-ai/deepseek-v4-flash-0731 (apps/api/src/ai-config.ts:14). AI_FIXTURE_MODE is absent. No one confirmed that these values equal the production gateway configuration, and AWS access to compare is not authorized. Until the user confirms equality, runs are diagnostic AI-off and are labeled separately. No secret values are recorded here.",
@@ -31,5 +34,14 @@
     "campaign/results/P0-ENV-SETUP/result.json",
     "campaign/results/P0-BASELINE-CHECKS/result.json",
     "campaign/results/P0-HARDENING-VERIFY/result.json"
-  ]
+  ],
+  "history": [
+    {
+      "commit": "e164b7af445636447e27a62c81ed6b542f0029c7",
+      "analysisVersion": 44,
+      "frozenAt": "2026-10-08T07:47:00Z"
+    }
+  ],
+  "changedAt": "2026-10-08T10:08:02.257Z",
+  "changedBy": "opus (P1-AI-TIMEOUT-FIX, PR #498)"
 }

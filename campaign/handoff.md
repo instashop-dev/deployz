@@ -1,8 +1,8 @@
 # Fresh-100 campaign handoff
 
 **Status:** CONTINUE. Phase 1. P0-GATE PASS on 2026-10-08.
-**Checkout:** `C:/Users/Tejas/Desktop/deployz-mvp-test`, branch `campaign/fresh-100`, tested commit `e164b7af` (equal to `origin/main` on 2026-10-08).
-**Eligible now:** `P1-AI-TIMEOUT-FIX` (campaign-worker; gate `publicationPolicyConfirmed`).
+**Checkout:** `C:/Users/Tejas/Desktop/deployz-mvp-test`, branch `campaign/fresh-100`. Baseline commit `e6a3b58e` (ANALYSIS_VERSION 45; origin/main after PR #498, merged into the campaign branch on 2026-10-08).
+**Eligible now:** `P1-SELECT-REALISTIC-03` (campaign-worker).
 
 ## Done
 
@@ -17,6 +17,7 @@
 - 2026-10-08: `P1-SELECT-REALISTIC-01` COMPLETE (attempt 1, worker sonnet). `campaign/corpus/candidates/realistic-01.json`: fastapi-fullstack, redash, label-studio, koel, spring-petclinic, shiori, payload (templates/with-postgres), gotenberg, inbox-zero, once-campfire. Opus checked all 10 SHAs again with `gh api` and found no owner/repo or family match in the excluded list. The only gotenberg hit in benchmark.yaml is a Documenso dev-sidecar note. Labeling risks: campfire is SQLite-only (possible boundary case), payload is a subdirectory, koel has no Dockerfile, inbox-zero license is NOASSERTION.
 - 2026-10-08: `P1-SELECT-REALISTIC-02` COMPLETE (attempt 1, worker sonnet). `campaign/corpus/candidates/realistic-02.json`: discourse, forem, saleor, hexpm, dotnet/eShop, ente (server/), dependency-track, cachet (branch 3.x), trigger.dev, mathesar. Opus checked all 10 SHAs again with `gh api` (archived and fork false) and found no owner/repo or name match in the excluded list or realistic-01. Whole-word grep of benchmark.yaml finds only incidental mentions (Trigger.dev as an external service of another app, `hexpm/elixir` as a base image). All 10 need Postgres; 6 need Redis or a worker. Labeling risks: no Dockerfile for discourse, eShop (multi-service Aspire) and cachet; monorepos ente, dependency-track and trigger.dev; cachet CI fails; hexpm license is null.
 - 2026-10-08: `P1-AI-TIMEOUT-DIAGNOSE` COMPLETE (attempt 1, Opus in the setup session, user-directed; the worker agent was not loadable in that session). Root cause: with reasoning on, repository AI spends all 2500 completion tokens on reasoning (`finish_reason: length`, 0 content characters, `AI_NoObjectGeneratedError` in 6/6 attempts) and each attempt takes 33–38 s, longer than the 30 s production budget. Authentication and routing are ruled out (HTTP 200, configured model). The 30 s abort is a symptom. Production repository AI fallback probably never succeeds now. `reasoning: false` succeeded in 15.8 s and 19.8 s. Evidence: `campaign/results/P1-AI-TIMEOUT-DIAGNOSE/` (`diagnosis.md`, `timings.json`); raw log ignored.
+- 2026-10-08: `P1-AI-TIMEOUT-FIX` COMPLETE (attempt 1; Opus executor in a user-directed session, then the routine coordinator merged). PR #498 (`reasoning: false` for repository AI, 30 s budget unchanged, unit test, docs, ANALYSIS_VERSION 45). 7/7 required checks SUCCESS on head `366d3f5b`; Opus review of that SHA in `review.md`; merged with the SHA guard as `e6a3b58e`. CI on main 37760203485 success; Deploy API 37760970569 success (control plane deployed); Deploy web 37760970049 success, deploy job skipped by path filter. Live AI: 3 recorded runs 2/2 (repository call 8–21 s); PR body reports 8/9 unrecorded runs. Baseline changed intentionally to `e6a3b58e` / v45 (old baseline kept in `state.json` `previousBaselines` and `baseline.json` `history`). Evidence: `campaign/results/P1-AI-TIMEOUT-FIX/`.
 - Phase 3–7 execution tasks are queued by the planning tasks `P3-BUILD-PLAN`, `P4-GROUP`, `P5-PLAN`, `P6-HOLDOUT-BUILD-PLAN` and `P7-PLAN` from measured results.
 
 ## Blockers and pending prerequisites
@@ -51,4 +52,6 @@
 
 ## Next action
 
-The next routine run: delegate `P1-AI-TIMEOUT-FIX` to campaign-worker. Follow `campaign/results/P1-AI-TIMEOUT-DIAGNOSE/diagnosis.md`: on branch `campaign/fix-ai-timeout`, pass `reasoning: false` for repository analysis, keep `REPO_AI_TIMEOUT_MS` at 30 s, add a request-body unit test, update `docs/ai-analysis.md`, apply the ANALYSIS_VERSION rule, and run the live test (`DEPLOYZ_LIVE_AI=1`, `.env` loaded; it must pass 2/2). Open one focused PR. Opus merges only through `policy.publication.mergeProcedure`. This merge deploys the production API, so watch CI on main and Deploy API and record the result. Then Opus records the new baseline commit. After that, `P1-SELECT-REALISTIC-03` continues the corpus selection.
+The next routine run: delegate `P1-SELECT-REALISTIC-03` to campaign-worker. Before Phase 3 measurement, rebuild packages at the new baseline (`pnpm build`; `packages/analysis` changed). `ai-gateway` stays BLOCKED until `P2-IMPL-AI-MODE` and `P2-AI-LIVE-VALIDATE` are COMPLETE.
+
+Caution: on 2026-10-08 a user-directed session and the routine run worked on the same checkout at the same time. Do not run a manual session against this checkout while the routine is active.

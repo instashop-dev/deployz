@@ -314,7 +314,7 @@
       ]
     },
     {
-      "status": "PENDING",
+      "status": "COMPLETE",
       "gates": [
         "publicationPolicyConfirmed"
       ],

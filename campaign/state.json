@@ -4,8 +4,8 @@
   "status": "CONTINUE",
   "phase": 1,
   "currentTask": null,
-  "nextAction": "Run P1-AI-TIMEOUT-FIX: one focused PR on campaign/fix-ai-timeout that passes reasoning:false for repository analysis, keeps REPO_AI_TIMEOUT_MS at 30 s, adds a request-body unit test, updates docs/ai-analysis.md and applies the ANALYSIS_VERSION rule; merge only through policy.publication.mergeProcedure (this merge deploys the production API).",
-  "updatedAt": "2026-10-08T09:02:17.117Z",
+  "nextAction": "Merge origin/main (e6a3b58e) into campaign/fresh-100 and rebuild @deployz/analysis, then run P1-SELECT-REALISTIC-03 (campaign-worker).",
+  "updatedAt": "2026-10-08T10:08:02.257Z",
   "checkout": {
     "path": "C:/Users/Tejas/Desktop/deployz-mvp-test",
     "kind": "git worktree of C:/Users/Tejas/Desktop/deployz",
@@ -14,8 +14,8 @@
     "setupCommit": "e164b7af"
   },
   "baseline": {
-    "commit": "e164b7af445636447e27a62c81ed6b542f0029c7",
-    "analysisVersion": 44,
+    "commit": "e6a3b58ee2363923fef21faca86611fa3bf84538",
+    "analysisVersion": 45,
     "compilerVersion": "dynamic-compiler-v2-5",
     "infrastructureProfile": {
       "id": "small",
@@ -23,7 +23,8 @@
     },
     "aiMode": "diagnostic-ai-off",
     "frozenAt": "2026-10-08T07:47:00Z",
-    "notes": "Frozen by P0-FREEZE. See campaign/baseline.json."
+    "notes": "Intentional baseline change by P1-AI-TIMEOUT-FIX (PR #498): repository AI reasoning off, ANALYSIS_VERSION 44 -> 45. Compiler, profile and aiMode unchanged. No Phase 3 measurement was run at the old baseline. campaign/fresh-100 must contain this commit (merge origin/main) and packages/analysis dist must be rebuilt before measurement.",
+    "changedAt": "2026-10-08T10:08:02.257Z"
   },
   "candidate": {
     "commit": null,
@@ -66,6 +67,10 @@
     {
       "commit": "e164b7af445636447e27a62c81ed6b542f0029c7",
       "task": "P1-SELECT-REALISTIC-02"
+    },
+    {
+      "commit": "366d3f5b9eefc1cedd3cfcfa8675d7f1232d8122",
+      "task": "P1-AI-TIMEOUT-FIX"
     }
   ],
   "attempts": {
@@ -78,13 +83,14 @@
     "P1-EXCLUDE": 1,
     "P1-SELECT-REALISTIC-01": 1,
     "P1-SELECT-REALISTIC-02": 1,
-    "P1-AI-TIMEOUT-DIAGNOSE": 1
+    "P1-AI-TIMEOUT-DIAGNOSE": 1,
+    "P1-AI-TIMEOUT-FIX": 1
   },
   "lastResult": {
-    "taskId": "P1-AI-TIMEOUT-DIAGNOSE",
+    "taskId": "P1-AI-TIMEOUT-FIX",
     "status": "COMPLETE",
-    "at": "2026-10-08T09:02:17.116Z",
-    "summary": "Root cause found: reasoning-on repository AI spends all 2500 output tokens on reasoning (finish=length, no JSON) and takes 33-38 s per attempt; production 30 s budget always aborts. Auth/routing ruled out. reasoning:false succeeds in 9-16 s. Evidence: campaign/results/P1-AI-TIMEOUT-DIAGNOSE/."
+    "at": "2026-10-08T10:08:02.257Z",
+    "summary": "PR #498 merged as e6a3b58e after 7/7 checks SUCCESS and Opus review of 366d3f5b. CI on main success; Deploy API success (control plane deployed); Deploy web skipped by path filter. Baseline now e6a3b58e, ANALYSIS_VERSION 45. Evidence: campaign/results/P1-AI-TIMEOUT-FIX/."
   },
   "gates": {
     "smokeReviewed": true,
@@ -199,5 +205,50 @@
     "liveValidation": "FAILED, diagnosed 2026-10-08 (P1-AI-TIMEOUT-DIAGNOSE): analyseRepositoryWithAi with production options returns HTTP 200 but finish_reason=length with 0 content (reasoning uses all 2500 completion tokens) in 6/6 attempts, 33-38 s each; the 30 s production budget aborts it. Production repository AI fallback probably never succeeds now. reasoning:false: 2/2 ok in 15.8 s and 19.8 s. Fix queued as P1-AI-TIMEOUT-FIX.",
     "harnessIntegration": "PENDING: scripts/repository-compatibility/analyse.ts passes createAiGateway(undefined). P2-IMPL-AI-MODE adds an explicit live-AI mode; P2-AI-LIVE-VALIDATE proves live requests, model and failure recording.",
     "baselineNote": "baseline.aiMode stays diagnostic-ai-off until P2-AI-LIVE-VALIDATE is COMPLETE. Then Opus records the intentional change to production-equivalent before any Phase 3 measurement run."
-  }
+  },
+  "openPullRequests": [],
+  "previousBaselines": [
+    {
+      "commit": "e164b7af445636447e27a62c81ed6b542f0029c7",
+      "analysisVersion": 44,
+      "compilerVersion": "dynamic-compiler-v2-5",
+      "infrastructureProfile": {
+        "id": "small",
+        "version": 2
+      },
+      "aiMode": "diagnostic-ai-off",
+      "frozenAt": "2026-10-08T07:47:00Z",
+      "notes": "Frozen by P0-FREEZE. See campaign/baseline.json.",
+      "supersededAt": "2026-10-08T10:08:02.257Z",
+      "supersededBy": "P1-AI-TIMEOUT-FIX"
+    }
+  ],
+  "mergedPullRequests": [
+    {
+      "task": "P1-AI-TIMEOUT-FIX",
+      "number": 498,
+      "url": "https://github.com/instashop-dev/deployz/pull/498",
+      "branch": "campaign/fix-ai-timeout",
+      "headSha": "366d3f5b9eefc1cedd3cfcfa8675d7f1232d8122",
+      "worktree": "C:/Users/Tejas/Desktop/deployz-fix-ai-timeout",
+      "openedAt": "2026-10-08T09:48:50.813Z",
+      "state": "MERGED",
+      "mergedAt": "2026-10-08T09:57:12Z",
+      "mergedBy": "instashop-dev (user, through GitHub; head equal to the reviewed SHA, all 7 required checks SUCCESS before the merge)",
+      "mergeCommit": "e6a3b58ee2363923fef21faca86611fa3bf84538",
+      "review": "campaign/results/P1-AI-TIMEOUT-FIX/review.md",
+      "ciOnMain": {
+        "run": 37760203485,
+        "conclusion": "success"
+      },
+      "deployApi": {
+        "run": 37760970569,
+        "conclusion": "success"
+      },
+      "deployWeb": {
+        "run": 37760970049,
+        "conclusion": "success (deploy job skipped)"
+      }
+    }
+  ]
 }

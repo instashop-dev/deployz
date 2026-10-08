@@ -1,0 +1,52 @@
+{
+  "taskId": "P1-AI-TIMEOUT-FIX",
+  "testedCommit": "366d3f5b9eefc1cedd3cfcfa8675d7f1232d8122",
+  "executor": "opus",
+  "model": "opus",
+  "startedAt": "2026-10-08T09:13:00Z",
+  "finishedAt": "2026-10-08T10:08:02.257Z",
+  "proposedStatus": "COMPLETE",
+  "commands": [
+    {
+      "command": "pnpm exec vitest run packages/analysis/test/repository-ai.test.ts packages/analysis/test/ai-gateway.test.ts",
+      "exitCode": 0,
+      "summary": "70 passed"
+    },
+    {
+      "command": "pnpm exec vitest run apps/api/src/analysis.test.ts",
+      "exitCode": 0,
+      "summary": "44 passed"
+    },
+    {
+      "command": "DEPLOYZ_LIVE_AI=1 node --env-file=<campaign .env> node_modules/vitest/vitest.mjs run packages/analysis/test/ai-live.test.ts (9 runs after the fix)",
+      "exitCode": 0,
+      "summary": "8 of 9 runs 2/2 passed; repository call 8-21 s; one run failed after 21 s (error not captured)"
+    },
+    {
+      "command": "node scripts/test-affected.mjs --escalation",
+      "exitCode": 0,
+      "summary": "risk critical (full CI regression); no AWS layer required"
+    },
+    {
+      "command": "gh pr create (PR #498) and CI on head 366d3f5b",
+      "exitCode": 0,
+      "summary": "7/7 required checks SUCCESS on head 366d3f5b; merged by the routine coordinator (Opus) with gh api -X PUT .../pulls/498/merge -f sha=366d3f5b (squash) at 2026-10-08T09:57Z as e6a3b58e"
+    },
+    {
+      "command": "gh run list --commit e6a3b58e; gh run view 37760970569 / 37760970049",
+      "exitCode": 0,
+      "summary": "CI on main 37760203485 success; Deploy API 37760970569 success (Check the commit, Deploy control plane); Deploy web 37760970049 success with Build and deploy skipped (no web path change)"
+    }
+  ],
+  "evidence": [
+    "campaign/results/P1-AI-TIMEOUT-FIX/review.md",
+    "https://github.com/instashop-dev/deployz/pull/498"
+  ],
+  "notes": [
+    "Live test assertions were stale since #187 (flat schema); updated to the field-object schema.",
+    "Some live runs needed a retry after a rejected first answer; separate finding, not this root cause.",
+    "Executor deviation: Opus in the setup session (worker agent not loadable here).",
+    "Post-merge production runs recorded; no release blocker."
+  ],
+  "mergedCommit": "e6a3b58ee2363923fef21faca86611fa3bf84538"
+}
