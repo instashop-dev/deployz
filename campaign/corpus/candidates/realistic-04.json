@@ -1,0 +1,503 @@
+{
+  "taskId": "P1-SELECT-REALISTIC-04",
+  "testedCommit": "e6a3b58ee2363923fef21faca86611fa3bf84538",
+  "cohort": "realistic",
+  "exclusionCheck": {
+    "method": "Each candidate owner/repo (current name from gh api) compared case-insensitively by script against all \"repository\" values in campaign/corpus/excluded-families.json and repo values in realistic-01.json, realistic-02.json and realistic-03.json; repo name, id and family compared against all \"family\" values, all repo-name parts of excluded repositories, and family, id and repo names of realistic-01..03. Project names whole-word grepped (case-insensitive, hyphen-aware) in docs/testing/repository-compatibility/benchmark.yaml. gh api confirmed fork=false and archived=false for all. Three first-pick candidates (NodeBB/NodeBB, FreshRSS/FreshRSS, gotify/server) were dropped because they are in excluded-families.json; filebrowser/filebrowser was dropped because it is archived.",
+    "perCandidate": [
+      {
+        "id": "linkding",
+        "repo": "sissbruecker/linkding",
+        "ownerRepoMatch": false,
+        "familyNameMatch": false,
+        "benchmarkYamlWholeWordHits": 0,
+        "fork": false,
+        "result": "clear"
+      },
+      {
+        "id": "pretix",
+        "repo": "pretix/pretix",
+        "ownerRepoMatch": false,
+        "familyNameMatch": false,
+        "benchmarkYamlWholeWordHits": 0,
+        "fork": false,
+        "result": "clear"
+      },
+      {
+        "id": "atuin",
+        "repo": "atuinsh/atuin",
+        "ownerRepoMatch": false,
+        "familyNameMatch": false,
+        "benchmarkYamlWholeWordHits": 0,
+        "fork": false,
+        "result": "clear"
+      },
+      {
+        "id": "hapi-fhir-jpaserver-starter",
+        "repo": "hapifhir/hapi-fhir-jpaserver-starter",
+        "ownerRepoMatch": false,
+        "familyNameMatch": false,
+        "benchmarkYamlWholeWordHits": 0,
+        "fork": false,
+        "result": "clear"
+      },
+      {
+        "id": "sure",
+        "repo": "we-promise/sure",
+        "ownerRepoMatch": false,
+        "familyNameMatch": false,
+        "benchmarkYamlWholeWordHits": 1,
+        "fork": false,
+        "result": "clear",
+        "benchmarkYamlNote": "1 hit is the English word \"sure\" in prose (benchmark line 1391 area), not a project reference"
+      },
+      {
+        "id": "invoiceshelf",
+        "repo": "InvoiceShelf/InvoiceShelf",
+        "ownerRepoMatch": false,
+        "familyNameMatch": false,
+        "benchmarkYamlWholeWordHits": 0,
+        "fork": false,
+        "result": "clear"
+      },
+      {
+        "id": "actual",
+        "repo": "actualbudget/actual",
+        "ownerRepoMatch": false,
+        "familyNameMatch": false,
+        "benchmarkYamlWholeWordHits": 10,
+        "fork": false,
+        "result": "clear",
+        "benchmarkYamlNote": "10 hits are the English word \"actual\" in prose (e.g. \"actual document\"), not a project reference"
+      },
+      {
+        "id": "pocketbase",
+        "repo": "pocketbase/pocketbase",
+        "ownerRepoMatch": false,
+        "familyNameMatch": false,
+        "benchmarkYamlWholeWordHits": 0,
+        "fork": false,
+        "result": "clear"
+      },
+      {
+        "id": "navidrome",
+        "repo": "navidrome/navidrome",
+        "ownerRepoMatch": false,
+        "familyNameMatch": false,
+        "benchmarkYamlWholeWordHits": 0,
+        "fork": false,
+        "result": "clear"
+      },
+      {
+        "id": "excalidraw",
+        "repo": "excalidraw/excalidraw",
+        "ownerRepoMatch": false,
+        "familyNameMatch": false,
+        "benchmarkYamlWholeWordHits": 0,
+        "fork": false,
+        "result": "clear"
+      }
+    ]
+  },
+  "candidates": [
+    {
+      "id": "linkding",
+      "family": "python",
+      "repo": "sissbruecker/linkding",
+      "defaultBranch": "master",
+      "commit": "27b7303baf41bb28babc610ac8eaa486e1ddfab5",
+      "commitVerified": {
+        "call": "gh api repos/sissbruecker/linkding/commits/27b7303baf41bb28babc610ac8eaa486e1ddfab5",
+        "returnedSha": "27b7303baf41bb28babc610ac8eaa486e1ddfab5",
+        "matches": true
+      },
+      "license": "MIT",
+      "archived": false,
+      "fork": false,
+      "pushedAt": "2026-10-01T17:49:41Z",
+      "cohort": "realistic",
+      "runtime": "python (Django)",
+      "expectedNeeds": [
+        "postgres",
+        "worker"
+      ],
+      "selectionReason": "Bookmark manager Django app with root-level manage.py and Docker setup; SQLite default, Postgres optional, background task worker.",
+      "validity": {
+        "entryPoint": {
+          "path": "manage.py",
+          "type": "file",
+          "confirmedAtCommit": true
+        },
+        "buildFile": {
+          "path": "pyproject.toml",
+          "type": "file",
+          "confirmedAtCommit": true
+        },
+        "ci": {
+          "checkRuns": "success=7",
+          "combinedStatus": "pending",
+          "note": "informational only; unknown/mixed is acceptable"
+        }
+      }
+    },
+    {
+      "id": "pretix",
+      "family": "python",
+      "repo": "pretix/pretix",
+      "defaultBranch": "master",
+      "commit": "ba36d649c6ed1dde278c35d9ae4e609723c78bce",
+      "commitVerified": {
+        "call": "gh api repos/pretix/pretix/commits/ba36d649c6ed1dde278c35d9ae4e609723c78bce",
+        "returnedSha": "ba36d649c6ed1dde278c35d9ae4e609723c78bce",
+        "matches": true
+      },
+      "license": "NOASSERTION",
+      "archived": false,
+      "fork": false,
+      "pushedAt": "2026-10-08T10:35:41Z",
+      "cohort": "realistic",
+      "runtime": "python (Django)",
+      "expectedNeeds": [
+        "postgres",
+        "redis",
+        "worker",
+        "storage"
+      ],
+      "selectionReason": "Event ticketing Django app with root Dockerfile; Postgres, Redis cache, Celery worker, media uploads.",
+      "validity": {
+        "entryPoint": {
+          "path": "src/pretix/wsgi.py",
+          "type": "file",
+          "confirmedAtCommit": true
+        },
+        "buildFile": {
+          "path": "setup.py",
+          "type": "file",
+          "confirmedAtCommit": true
+        },
+        "ci": {
+          "checkRuns": "in_progress=5,success=7",
+          "combinedStatus": "pending",
+          "note": "informational only; unknown/mixed is acceptable"
+        }
+      }
+    },
+    {
+      "id": "atuin",
+      "family": "rust",
+      "repo": "atuinsh/atuin",
+      "defaultBranch": "main",
+      "commit": "184200a6cc1e747dcdc8f58c97bf72c52179d57f",
+      "commitVerified": {
+        "call": "gh api repos/atuinsh/atuin/commits/184200a6cc1e747dcdc8f58c97bf72c52179d57f",
+        "returnedSha": "184200a6cc1e747dcdc8f58c97bf72c52179d57f",
+        "matches": true
+      },
+      "license": "MIT",
+      "archived": false,
+      "fork": false,
+      "pushedAt": "2026-10-07T22:49:15Z",
+      "cohort": "realistic",
+      "runtime": "rust (Cargo workspace)",
+      "expectedNeeds": [
+        "postgres"
+      ],
+      "selectionReason": "Shell history sync server (Rust) with root Dockerfile; server needs only Postgres.",
+      "validity": {
+        "entryPoint": {
+          "path": "crates/atuin/src/main.rs",
+          "type": "file",
+          "confirmedAtCommit": true
+        },
+        "buildFile": {
+          "path": "Cargo.toml",
+          "type": "file",
+          "confirmedAtCommit": true
+        },
+        "ci": {
+          "checkRuns": "skipped=6,success=6",
+          "combinedStatus": "success",
+          "note": "informational only; unknown/mixed is acceptable"
+        }
+      }
+    },
+    {
+      "id": "hapi-fhir-jpaserver-starter",
+      "family": "java",
+      "repo": "hapifhir/hapi-fhir-jpaserver-starter",
+      "defaultBranch": "master",
+      "commit": "377e6eba316920082e6a90551b488e4599a71eb8",
+      "commitVerified": {
+        "call": "gh api repos/hapifhir/hapi-fhir-jpaserver-starter/commits/377e6eba316920082e6a90551b488e4599a71eb8",
+        "returnedSha": "377e6eba316920082e6a90551b488e4599a71eb8",
+        "matches": true
+      },
+      "license": "Apache-2.0",
+      "archived": false,
+      "fork": false,
+      "pushedAt": "2026-10-05T21:16:56Z",
+      "cohort": "realistic",
+      "runtime": "java (Spring Boot, Maven)",
+      "expectedNeeds": [
+        "postgres"
+      ],
+      "selectionReason": "Single-service Java FHIR server with root Dockerfile and pom.xml; H2 default, Postgres supported.",
+      "validity": {
+        "entryPoint": {
+          "path": "src/main/java/ca/uhn/fhir/jpa/starter/Application.java",
+          "type": "file",
+          "confirmedAtCommit": true
+        },
+        "buildFile": {
+          "path": "pom.xml",
+          "type": "file",
+          "confirmedAtCommit": true
+        },
+        "ci": {
+          "checkRuns": "success=9",
+          "combinedStatus": "pending",
+          "note": "informational only; unknown/mixed is acceptable"
+        }
+      }
+    },
+    {
+      "id": "sure",
+      "family": "ruby",
+      "repo": "we-promise/sure",
+      "defaultBranch": "main",
+      "commit": "00dd977fbad504b56af1921ec3c34fcd1925218c",
+      "commitVerified": {
+        "call": "gh api repos/we-promise/sure/commits/00dd977fbad504b56af1921ec3c34fcd1925218c",
+        "returnedSha": "00dd977fbad504b56af1921ec3c34fcd1925218c",
+        "matches": true
+      },
+      "license": "AGPL-3.0",
+      "archived": false,
+      "fork": false,
+      "pushedAt": "2026-10-08T08:51:02Z",
+      "cohort": "realistic",
+      "runtime": "ruby (Rails)",
+      "expectedNeeds": [
+        "postgres",
+        "redis",
+        "worker",
+        "storage"
+      ],
+      "selectionReason": "Personal finance Rails app with root Dockerfile, Sidekiq worker, Redis, Postgres, uploads.",
+      "validity": {
+        "entryPoint": {
+          "path": "config.ru",
+          "type": "file",
+          "confirmedAtCommit": true
+        },
+        "buildFile": {
+          "path": "Gemfile",
+          "type": "file",
+          "confirmedAtCommit": true
+        },
+        "ci": {
+          "checkRuns": "skipped=13,success=16,waiting=1",
+          "combinedStatus": "pending",
+          "note": "informational only; unknown/mixed is acceptable"
+        }
+      }
+    },
+    {
+      "id": "invoiceshelf",
+      "family": "php",
+      "repo": "InvoiceShelf/InvoiceShelf",
+      "defaultBranch": "3.x",
+      "commit": "ef9e9cbc9987fe5083867374cc46637029eff868",
+      "commitVerified": {
+        "call": "gh api repos/InvoiceShelf/InvoiceShelf/commits/ef9e9cbc9987fe5083867374cc46637029eff868",
+        "returnedSha": "ef9e9cbc9987fe5083867374cc46637029eff868",
+        "matches": true
+      },
+      "license": "AGPL-3.0",
+      "archived": false,
+      "fork": false,
+      "pushedAt": "2026-10-07T11:19:08Z",
+      "cohort": "realistic",
+      "runtime": "php (Laravel)",
+      "expectedNeeds": [
+        "postgres",
+        "worker",
+        "storage"
+      ],
+      "selectionReason": "Invoicing Laravel app with docker dir, queue worker, file storage; MySQL, Postgres or SQLite.",
+      "validity": {
+        "entryPoint": {
+          "path": "public/index.php",
+          "type": "file",
+          "confirmedAtCommit": true
+        },
+        "buildFile": {
+          "path": "composer.json",
+          "type": "file",
+          "confirmedAtCommit": true
+        },
+        "ci": {
+          "checkRuns": "success=6",
+          "combinedStatus": "pending",
+          "note": "informational only; unknown/mixed is acceptable"
+        }
+      }
+    },
+    {
+      "id": "actual",
+      "family": "node",
+      "repo": "actualbudget/actual",
+      "defaultBranch": "master",
+      "commit": "5240d5b051ac0a994dd2ed05cf6fbe64a9d3b013",
+      "commitVerified": {
+        "call": "gh api repos/actualbudget/actual/commits/5240d5b051ac0a994dd2ed05cf6fbe64a9d3b013",
+        "returnedSha": "5240d5b051ac0a994dd2ed05cf6fbe64a9d3b013",
+        "matches": true
+      },
+      "license": "MIT",
+      "archived": false,
+      "fork": false,
+      "pushedAt": "2026-10-08T03:32:05Z",
+      "cohort": "realistic",
+      "runtime": "node (TypeScript, Yarn monorepo)",
+      "expectedNeeds": [
+        "storage"
+      ],
+      "selectionReason": "Budgeting sync server with root Dockerfile and sync-server.Dockerfile; SQLite files on persistent storage.",
+      "validity": {
+        "entryPoint": {
+          "path": "packages/sync-server/package.json",
+          "type": "file",
+          "confirmedAtCommit": true
+        },
+        "buildFile": {
+          "path": "package.json",
+          "type": "file",
+          "confirmedAtCommit": true
+        },
+        "ci": {
+          "checkRuns": "skipped=15,success=15",
+          "combinedStatus": "pending",
+          "note": "informational only; unknown/mixed is acceptable"
+        }
+      }
+    },
+    {
+      "id": "pocketbase",
+      "family": "go",
+      "repo": "pocketbase/pocketbase",
+      "defaultBranch": "master",
+      "commit": "5cec579da984436a258602a46a96302fbd31f77c",
+      "commitVerified": {
+        "call": "gh api repos/pocketbase/pocketbase/commits/5cec579da984436a258602a46a96302fbd31f77c",
+        "returnedSha": "5cec579da984436a258602a46a96302fbd31f77c",
+        "matches": true
+      },
+      "license": "MIT",
+      "archived": false,
+      "fork": false,
+      "pushedAt": "2026-10-02T08:39:50Z",
+      "cohort": "realistic",
+      "runtime": "go",
+      "expectedNeeds": [
+        "storage"
+      ],
+      "selectionReason": "Go backend with embedded SQLite and file storage, single binary; no root Dockerfile (standard Go build via examples/base).",
+      "validity": {
+        "entryPoint": {
+          "path": "examples/base/main.go",
+          "type": "file",
+          "confirmedAtCommit": true
+        },
+        "buildFile": {
+          "path": "go.mod",
+          "type": "file",
+          "confirmedAtCommit": true
+        },
+        "ci": {
+          "checkRuns": "success=3",
+          "combinedStatus": "pending",
+          "note": "informational only; unknown/mixed is acceptable"
+        }
+      }
+    },
+    {
+      "id": "navidrome",
+      "family": "go",
+      "repo": "navidrome/navidrome",
+      "defaultBranch": "master",
+      "commit": "52135913d4747c8f8ddcfd8e7004202b8f53b594",
+      "commitVerified": {
+        "call": "gh api repos/navidrome/navidrome/commits/52135913d4747c8f8ddcfd8e7004202b8f53b594",
+        "returnedSha": "52135913d4747c8f8ddcfd8e7004202b8f53b594",
+        "matches": true
+      },
+      "license": "GPL-3.0",
+      "archived": false,
+      "fork": false,
+      "pushedAt": "2026-10-07T18:01:06Z",
+      "cohort": "realistic",
+      "runtime": "go (Go + React)",
+      "expectedNeeds": [
+        "storage"
+      ],
+      "selectionReason": "Music streaming server in Go with root Dockerfile; SQLite and music library on storage.",
+      "validity": {
+        "entryPoint": {
+          "path": "main.go",
+          "type": "file",
+          "confirmedAtCommit": true
+        },
+        "buildFile": {
+          "path": "go.mod",
+          "type": "file",
+          "confirmedAtCommit": true
+        },
+        "ci": {
+          "checkRuns": "skipped=14,success=16",
+          "combinedStatus": "pending",
+          "note": "informational only; unknown/mixed is acceptable"
+        }
+      }
+    },
+    {
+      "id": "excalidraw",
+      "family": "node",
+      "repo": "excalidraw/excalidraw",
+      "defaultBranch": "master",
+      "commit": "4c00f31ddcc20086bac1020428819fe0b9a30bce",
+      "commitVerified": {
+        "call": "gh api repos/excalidraw/excalidraw/commits/4c00f31ddcc20086bac1020428819fe0b9a30bce",
+        "returnedSha": "4c00f31ddcc20086bac1020428819fe0b9a30bce",
+        "matches": true
+      },
+      "license": "MIT",
+      "archived": false,
+      "fork": false,
+      "pushedAt": "2026-10-08T09:11:55Z",
+      "cohort": "realistic",
+      "runtime": "node (React, Vite, Yarn monorepo)",
+      "expectedNeeds": [
+        "stateless"
+      ],
+      "selectionReason": "Whiteboard web app with root Dockerfile (static build served by nginx); stateless.",
+      "validity": {
+        "entryPoint": {
+          "path": "excalidraw-app/index.tsx",
+          "type": "file",
+          "confirmedAtCommit": true
+        },
+        "buildFile": {
+          "path": "package.json",
+          "type": "file",
+          "confirmedAtCommit": true
+        },
+        "ci": {
+          "checkRuns": "success=3",
+          "combinedStatus": "success",
+          "note": "informational only; unknown/mixed is acceptable"
+        }
+      }
+    }
+  ]
+}

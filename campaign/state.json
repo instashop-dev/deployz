@@ -4,8 +4,8 @@
   "status": "CONTINUE",
   "phase": 1,
   "currentTask": null,
-  "nextAction": "Run P1-SELECT-REALISTIC-04 (campaign-worker).",
-  "updatedAt": "2026-10-08T10:19:29.638Z",
+  "nextAction": "Run P1-SELECT-REALISTIC-05 (campaign-worker).",
+  "updatedAt": "2026-10-08T10:43:29.047Z",
   "checkout": {
     "path": "C:/Users/Tejas/Desktop/deployz-mvp-test",
     "kind": "git worktree of C:/Users/Tejas/Desktop/deployz",
@@ -75,6 +75,10 @@
     {
       "commit": "e6a3b58ee2363923fef21faca86611fa3bf84538",
       "task": "P1-SELECT-REALISTIC-03"
+    },
+    {
+      "commit": "e6a3b58ee2363923fef21faca86611fa3bf84538",
+      "task": "P1-SELECT-REALISTIC-04"
     }
   ],
   "attempts": {
@@ -89,13 +93,14 @@
     "P1-SELECT-REALISTIC-02": 1,
     "P1-AI-TIMEOUT-DIAGNOSE": 1,
     "P1-AI-TIMEOUT-FIX": 1,
-    "P1-SELECT-REALISTIC-03": 1
+    "P1-SELECT-REALISTIC-03": 1,
+    "P1-SELECT-REALISTIC-04": 1
   },
   "lastResult": {
-    "taskId": "P1-SELECT-REALISTIC-03",
+    "taskId": "P1-SELECT-REALISTIC-04",
     "status": "COMPLETE",
-    "at": "2026-10-08T10:19:29.638Z",
-    "summary": "10 candidates in campaign/corpus/candidates/realistic-03.json (whoami, dufs, dawarich, microblog, komga, nopCommerce, parse-server, electric, snipe-it, asynqmon). Opus re-verified all 10 SHAs and archived/fork=false with gh api, no exclusion or earlier-batch match, benchmark.yaml has only an incidental traefik hit."
+    "at": "2026-10-08T10:43:29.047Z",
+    "summary": "10 candidates in campaign/corpus/candidates/realistic-04.json (linkding, pretix, atuin, hapi-fhir-jpaserver-starter, sure, InvoiceShelf, actual, pocketbase, navidrome, excalidraw). Opus re-verified all 10 SHAs and archived/fork=false with gh api; no exclusion or earlier-batch match (also checked maybe/crater lineage names); benchmark.yaml hits only for English words sure/actual."
   },
   "gates": {
     "smokeReviewed": true,

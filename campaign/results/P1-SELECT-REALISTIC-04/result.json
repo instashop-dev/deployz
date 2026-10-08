@@ -1,0 +1,60 @@
+{
+  "taskId": "P1-SELECT-REALISTIC-04",
+  "testedCommit": "e6a3b58ee2363923fef21faca86611fa3bf84538",
+  "executor": "campaign-worker",
+  "model": "sonnet",
+  "startedAt": "2026-10-08T10:00:00Z",
+  "finishedAt": "2026-10-08T10:42:17.792Z",
+  "proposedStatus": "COMPLETE",
+  "commands": [
+    {
+      "command": "gh api repos/<repo> (metadata) for 14 screened repos",
+      "exitCode": 0,
+      "summary": "license, archived, fork, pushed_at, default branch read; filebrowser/filebrowser archived=true, rejected"
+    },
+    {
+      "command": "gh api repos/<repo>/contents (root listings), 10 repos",
+      "exitCode": 0,
+      "summary": "chose entry point and build file paths"
+    },
+    {
+      "command": "node scratchpad/gen.mjs: gh api repos/<repo>/commits/<defaultBranch> then repos/<repo>/commits/<sha>, 10 repos",
+      "exitCode": 0,
+      "summary": "HEAD SHA pinned and re-read; returned SHA equals pinned SHA for all 10"
+    },
+    {
+      "command": "gh api repos/<repo>/contents/<path>?ref=<sha> for entry and build file, 10 repos",
+      "exitCode": 0,
+      "summary": "all 20 paths are type file at the pinned commit"
+    },
+    {
+      "command": "gh api repos/<repo>/commits/<sha>/check-runs and /status, 10 repos",
+      "exitCode": 0,
+      "summary": "CI summary recorded (informational)"
+    },
+    {
+      "command": "node exclusion script against excluded-families.json, realistic-01..03.json, benchmark.yaml",
+      "exitCode": 0,
+      "summary": "all 10 clear; NodeBB, FreshRSS, gotify/server found excluded in first screen and replaced; benchmark.yaml hits only for prose words sure (1) and actual (10)"
+    }
+  ],
+  "evidence": [
+    "campaign/corpus/candidates/realistic-04.json",
+    "campaign/results/P1-SELECT-REALISTIC-04/result.json"
+  ],
+  "notes": [
+    "No candidate was cloned, built or analyzed. gh api reads only. Forbidden inputs not read.",
+    "Needs mix: stateless excalidraw; storage-only actual, pocketbase, navidrome; Postgres-only atuin, hapi-fhir; Postgres+worker linkding; Postgres+worker+storage invoiceshelf; Postgres+Redis+worker(+storage) pretix, sure. Runtimes: Python x2, Rust, Java, Ruby, PHP, Node x2, Go x2. No Deno/Bun candidate (no suitable single-app repo found in time).",
+    "Risk linkding: SQLite is the default; Postgres is optional via env; background tasks run as a separate supervisord process (worker label is by design, not by compose). No Dockerfile at repo root (docker/ directory holds Dockerfiles).",
+    "Risk pretix: license NOASSERTION (Apache-2.0 with additional terms); app code under src/pretix; Celery worker and Redis are optional in settings but normal in production; Dockerfile is at root.",
+    "Risk atuin: Rust workspace; server runs as atuin server start from crates; entryPoint is the CLI crates/atuin/src/main.rs; database is Postgres (server) or SQLite.",
+    "Risk hapi-fhir-jpaserver-starter: default DB is in-memory H2; Postgres is a config choice; a WAR/Spring Boot build with Maven; heavy JVM memory.",
+    "Risk sure: Rails app, we-promise/sure is the maintained community continuation of maybe-finance/maybe (GitHub fork=false for this repo); Sidekiq worker needs Redis; pushed continuously, large Rails app.",
+    "Risk invoiceshelf: default branch is 3.x (not master/main); Laravel with Vue frontend built by pnpm/vite; docker/ directory holds Dockerfiles, none at root; database may be MySQL, Postgres or SQLite.",
+    "Risk actual: Yarn monorepo; deployable sync-server is packages/sync-server; Dockerfile and sync-server.Dockerfile at root; SQLite files need persistent storage (storage label by data location, not S3).",
+    "Risk pocketbase: no root Dockerfile; the repo is a Go framework, runnable main is examples/base/main.go; embedded SQLite and local file storage. Label as storage need by local data dir.",
+    "Risk navidrome: SQLite DB and music library on filesystem; Go plus React UI built in Dockerfile; needs a mounted music folder, which may be seen as storage or an unsupported mount.",
+    "Risk excalidraw: Yarn monorepo, deployable app in excalidraw-app; Dockerfile builds static assets served by nginx; Firebase/collab server is external and optional.",
+    "CI: pretix check-runs include in_progress=5; sure includes waiting=1 (informational only)."
+  ]
+}
