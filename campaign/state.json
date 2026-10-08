@@ -4,8 +4,8 @@
   "status": "CONTINUE",
   "phase": 1,
   "currentTask": null,
-  "nextAction": "Run P1-LABEL-06 (campaign-worker) as the first task of the next run (timebox 40 > 38: long-run exception). Give only the labelBatch 6 slice of corpus.json (no source/appPathSource fields), manifest.ts, normalize.ts UNSUPPORTED_FAMILIES and mvp-scope.md; forbid all other label files; tell the worker the file shape (top-level taskId/testedCommit/apps, citations as {path, reason}).",
-  "updatedAt": "2026-10-08T14:58:02.506Z",
+  "nextAction": "Run P1-LABEL-07 (campaign-worker) as the first task of the next run (timebox 40 > 38: long-run exception). Same input set as P1-LABEL-06: labelBatch 7 slice of corpus.json (no source/appPathSource), manifest.ts, normalize.ts UNSUPPORTED_FAMILIES, mvp-scope.md; forbid other label files; give the file shape (top-level taskId/testedCommit/apps, citations as {path, reason}).",
+  "updatedAt": "2026-10-08T15:21:36.989Z",
   "checkout": {
     "path": "C:/Users/Tejas/Desktop/deployz-mvp-test",
     "kind": "git worktree of C:/Users/Tejas/Desktop/deployz",
@@ -127,6 +127,10 @@
     {
       "commit": "e6a3b58ee2363923fef21faca86611fa3bf84538",
       "task": "P1-LABEL-05"
+    },
+    {
+      "commit": "e6a3b58ee2363923fef21faca86611fa3bf84538",
+      "task": "P1-LABEL-06"
     }
   ],
   "attempts": {
@@ -154,17 +158,18 @@
     "P1-LABEL-02": 1,
     "P1-LABEL-03": 1,
     "P1-LABEL-04": 1,
-    "P1-LABEL-05": 1
+    "P1-LABEL-05": 1,
+    "P1-LABEL-06": 1
   },
   "lastResult": {
-    "taskId": "P1-LABEL-05",
+    "task": "P1-LABEL-06",
     "status": "COMPLETE",
-    "at": "2026-10-08T14:58:02.505Z",
-    "summary": "initial-05.yaml: repo-541..550; 1 READY (543 teslamate), 2 NEEDS_CONFIGURATION (546 etherpad, 547 bakerydemo), 7 NOT_COMPATIBLE (541 profilarr, 542 ConvertX, 544 Kavita, 545 remark42, 548 Leantime, 549 zammad, 550 ntfy). Opus validator v.mts exit 0 (ids, schema, citations, cited paths at pinned commits); pins equal the corpus slice. File uses top-level labels: and plain-path citations (batches 1-4 use apps: and {path, reason}).",
+    "at": "2026-10-08T15:21:36.989Z",
     "evidence": [
-      "campaign/corpus/labels/initial-05.yaml",
-      "campaign/results/P1-LABEL-05/result.json"
-    ]
+      "campaign/corpus/labels/initial-06.yaml",
+      "campaign/results/P1-LABEL-06/result.json"
+    ],
+    "summary": "repo-551..560: 0 READY, 5 NEEDS_CONFIGURATION (551,553,555,556,560), 5 NOT_COMPATIBLE (552,554,557,558,559). Opus validator v.mts exit 0; pins equal corpus.json."
   },
   "gates": {
     "smokeReviewed": true,
@@ -368,6 +373,11 @@
       "task": "P1-LABEL-05",
       "runStart": "2026-10-08T14:49:03Z",
       "reason": "First task of the run; timeboxMinutes 40 > 38 and no resumable steps (one 10-app labeling batch)."
+    },
+    {
+      "task": "P1-LABEL-06",
+      "runStart": "2026-10-08T15:13:05Z",
+      "reason": "First task of the run; timeboxMinutes 40 > 38 and no resumable steps (one 10-app label batch)."
     }
   ]
 }

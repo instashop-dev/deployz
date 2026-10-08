@@ -1,0 +1,32 @@
+{
+  "taskId": "P1-LABEL-06",
+  "testedCommit": "e6a3b58ee2363923fef21faca86611fa3bf84538",
+  "executor": "campaign-worker",
+  "model": "sonnet",
+  "startedAt": "2026-10-08T00:00:00Z",
+  "finishedAt": "2026-10-08T00:30:00Z",
+  "proposedStatus": "COMPLETE",
+  "commands": [
+    { "command": "gh api repos/<repo>/git/trees/<commit>?recursive=1 (10 repos)", "exitCode": 0, "summary": "Listed pinned trees for all 10 repositories" },
+    { "command": "gh api repos/<repo>/contents/<path>?ref=<commit> (Dockerfiles, compose, config, entrypoints, package manifests)", "exitCode": 0, "summary": "Read source files at pinned commits" },
+    { "command": "npx tsx <scratchpad>/validate.mts", "exitCode": 0, "summary": "Parsed initial-06.yaml; all 10 expected blocks pass expectedFactsSchema; every key has a citation whose path exists in the pinned tree; ids, repos and commits match the slice; 0 problems" }
+  ],
+  "evidence": ["campaign/corpus/labels/initial-06.yaml"],
+  "notes": [
+    "Checkout HEAD was 15082aa8 when labeling; testedCommit recorded as given by the coordinator.",
+    "SQLite has no UNSUPPORTED_FAMILIES name; local-filesystem is used for embedded SQLite or data dir cases.",
+    "Judgment calls: repo-554 mailpit is NOT_COMPATIBLE (embedded SQLite store, SMTP-centric); repo-560 kener migration=true from package.json migrate script although the app also migrates at startup; repo-553 shynet worker=false because celeryworker.sh is optional (Celery eager by default)."
+  ],
+  "summary": {
+    "repo-551": "spliit: NEEDS_CONFIGURATION, Postgres via Prisma, S3 optional, migrate deploy in entrypoint, port 3000",
+    "repo-552": "misskey: NOT_COMPATIBLE, needs mounted .config/default.yml and files volume; Postgres and Redis",
+    "repo-553": "shynet: NEEDS_CONFIGURATION, Django, Postgres env config, migrate in startup_checks, port 8080",
+    "repo-554": "mailpit: NOT_COMPATIBLE, embedded SQLite store and SMTP-centric service",
+    "repo-555": "tianji: NEEDS_CONFIGURATION, Postgres DATABASE_URL and JWT_SECRET, prisma migrate in CMD, port 12345",
+    "repo-556": "wakapi: NEEDS_CONFIGURATION, image defaults to SQLite, must be set to Postgres, port 3000, /api/health",
+    "repo-557": "SQLPage: NOT_COMPATIBLE, mounted web root and local SQLite default",
+    "repo-558": "rustypaste: NOT_COMPATIBLE, local upload dir and mounted config.toml",
+    "repo-559": "rauthy: NOT_COMPATIBLE, Dockerfile needs a prebuilt binary not in repo, default Hiqlite data dir",
+    "repo-560": "kener: NEEDS_CONFIGURATION, needs Redis, secret key, ORIGIN and Postgres URL, port 3000"
+  }
+}
