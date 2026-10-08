@@ -1,0 +1,60 @@
+{
+  "taskId": "P1-SELECT-REALISTIC-06",
+  "testedCommit": "e6a3b58ee2363923fef21faca86611fa3bf84538",
+  "executor": "campaign-worker",
+  "model": "sonnet",
+  "startedAt": "2026-10-08T12:00:00Z",
+  "finishedAt": "2026-10-08T12:14:47.928Z",
+  "proposedStatus": "COMPLETE",
+  "commands": [
+    {
+      "command": "gh api repos/<repo> metadata and root Dockerfile/server/Dockerfile contents for 14 screened repos",
+      "exitCode": 0,
+      "summary": "svix/svix-webhooks dropped (Dockerfile only in server/); pocket-id/pocket-id dropped (no root Dockerfile); sissbruecker/x was a typo probe (HTTP 404, exit 1)"
+    },
+    {
+      "command": "gh api repos/<repo>/contents (root listing), 10 repos",
+      "exitCode": 0,
+      "summary": "entry and build files identified"
+    },
+    {
+      "command": "node gen.mjs (scratchpad): gh api repos/<repo>/commits/<defaultBranch> then repos/<repo>/commits/<sha>, 10 repos",
+      "exitCode": 0,
+      "summary": "HEAD SHA pinned and re-read; returned SHA equals pinned SHA for all 10"
+    },
+    {
+      "command": "gh api repos/<repo>/contents/<path>?ref=<sha> for entry and build file, 10 repos",
+      "exitCode": 0,
+      "summary": "all 20 paths are type file at the pinned commit"
+    },
+    {
+      "command": "gh api repos/<repo>/commits/<sha>/check-runs and /status, 10 repos",
+      "exitCode": 0,
+      "summary": "CI summary recorded (informational)"
+    },
+    {
+      "command": "node exclusion checks in gen.mjs against excluded-families.json, realistic-01..05.json, benchmark.yaml",
+      "exitCode": 0,
+      "summary": "all 10 clear; 1 benchmark.yaml hit (mailpit, Laravel Sail service mention, not a duplicate)"
+    }
+  ],
+  "evidence": [
+    "campaign/corpus/candidates/realistic-06.json",
+    "campaign/results/P1-SELECT-REALISTIC-06/result.json"
+  ],
+  "notes": [
+    "No candidate was cloned, built or analyzed. gh api reads only. Forbidden inputs not read.",
+    "Runtimes: Next.js, Node x3, Python, Go x2, Rust x3 (SQLPage, rustypaste, rauthy). Root Dockerfile present for all 10.",
+    "spliit Risk: Prisma migrations at start; optional S3 receipt storage; compose.yaml is dev oriented; Next build may need DB env at build time.",
+    "misskey Risk: .config/default.yml must be provided at runtime (DB/Redis hosts); pnpm monorepo, heavy build; optional object storage; Redis required; default branch develop.",
+    "shynet Risk: last push 2026-03, slow maintenance; Celery worker and webserver run as separate modes; Postgres required; many env vars (DB, Django hosts); nginx.conf sidecar.",
+    "mailpit Risk: SMTP port is TCP non-HTTP so health check only on 8025; Dockerfile may copy a prebuilt binary (goreleaser); default branch develop; data in sqlite file.",
+    "tianji Risk: large pnpm monorepo, memory-heavy build; Prisma migrations; optional ClickHouse; JWT_SECRET env required.",
+    "wakapi Risk: default DB is SQLite in data dir; Postgres via WAKAPI_DB_* envs; entrypoint.sh drops privileges; config.default.yml; optional SMTP.",
+    "sqlpage Risk: it is a server that serves .sql files from a mounted dir, so app content must be supplied (repo has only examples/ and sqlpage/ dirs); needs DATABASE_URL; npm frontend build in build.rs; compose points at multiple DBs.",
+    "rustypaste Risk: config.toml with auth_tokens must be provided or auth is off; uploads on local disk (storage need); no Postgres; multi stage Rust build.",
+    "rauthy Risk: Dockerfile may copy prebuilt binary/assets (Dockerfile_builder exists); config.toml with secrets (encryption keys, bootstrap admin) required; embedded Hiqlite default so Postgres is optional; frontend build step.",
+    "kener Risk: default DB SQLite; Postgres via DATABASE_URL; Redis optional; docker-entrypoint.sh runs migrations; KENER_SECRET_KEY and ORIGIN env required.",
+    "CI: kener has failure=1 check run at pinned commit. Informational only."
+  ]
+}

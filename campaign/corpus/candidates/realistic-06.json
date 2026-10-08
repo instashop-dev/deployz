@@ -1,0 +1,509 @@
+{
+  "taskId": "P1-SELECT-REALISTIC-06",
+  "testedCommit": "e6a3b58ee2363923fef21faca86611fa3bf84538",
+  "cohort": "realistic",
+  "exclusionCheck": {
+    "method": "Each candidate owner/repo (current name from gh api) compared case-insensitively by script against all \"repository\" values in campaign/corpus/excluded-families.json and repo values in realistic-01..05.json; candidate id compared against excluded families and ids of realistic-01..05. Project names whole-word grepped (case-insensitive) in docs/testing/repository-compatibility/benchmark.yaml. gh api confirmed fork=false and archived=false for all. svix/svix-webhooks was dropped (Dockerfile only under server/, not root); pocket-id/pocket-id was dropped (no root Dockerfile).",
+    "perCandidate": [
+      {
+        "id": "spliit",
+        "repo": "spliit-app/spliit",
+        "ownerRepoMatch": false,
+        "familyNameMatch": false,
+        "benchmarkYamlWholeWordHits": 0,
+        "fork": false,
+        "result": "clear"
+      },
+      {
+        "id": "misskey",
+        "repo": "misskey-dev/misskey",
+        "ownerRepoMatch": false,
+        "familyNameMatch": false,
+        "benchmarkYamlWholeWordHits": 0,
+        "fork": false,
+        "result": "clear"
+      },
+      {
+        "id": "shynet",
+        "repo": "milesmcc/shynet",
+        "ownerRepoMatch": false,
+        "familyNameMatch": false,
+        "benchmarkYamlWholeWordHits": 0,
+        "fork": false,
+        "result": "clear"
+      },
+      {
+        "id": "mailpit",
+        "repo": "axllent/mailpit",
+        "ownerRepoMatch": false,
+        "familyNameMatch": false,
+        "benchmarkYamlWholeWordHits": 1,
+        "fork": false,
+        "result": "clear",
+        "note": "1 benchmark.yaml hit at line 1395 is a mention of mailpit as a Laravel Sail dev compose service, not the mailpit repo; not a duplicate"
+      },
+      {
+        "id": "tianji",
+        "repo": "msgbyte/tianji",
+        "ownerRepoMatch": false,
+        "familyNameMatch": false,
+        "benchmarkYamlWholeWordHits": 0,
+        "fork": false,
+        "result": "clear"
+      },
+      {
+        "id": "wakapi",
+        "repo": "muety/wakapi",
+        "ownerRepoMatch": false,
+        "familyNameMatch": false,
+        "benchmarkYamlWholeWordHits": 0,
+        "fork": false,
+        "result": "clear"
+      },
+      {
+        "id": "sqlpage",
+        "repo": "sqlpage/SQLPage",
+        "ownerRepoMatch": false,
+        "familyNameMatch": false,
+        "benchmarkYamlWholeWordHits": 0,
+        "fork": false,
+        "result": "clear"
+      },
+      {
+        "id": "rustypaste",
+        "repo": "orhun/rustypaste",
+        "ownerRepoMatch": false,
+        "familyNameMatch": false,
+        "benchmarkYamlWholeWordHits": 0,
+        "fork": false,
+        "result": "clear"
+      },
+      {
+        "id": "rauthy",
+        "repo": "sebadob/rauthy",
+        "ownerRepoMatch": false,
+        "familyNameMatch": false,
+        "benchmarkYamlWholeWordHits": 0,
+        "fork": false,
+        "result": "clear"
+      },
+      {
+        "id": "kener",
+        "repo": "rajnandan1/kener",
+        "ownerRepoMatch": false,
+        "familyNameMatch": false,
+        "benchmarkYamlWholeWordHits": 0,
+        "fork": false,
+        "result": "clear"
+      }
+    ]
+  },
+  "candidates": [
+    {
+      "id": "spliit",
+      "family": "nextjs",
+      "repo": "spliit-app/spliit",
+      "defaultBranch": "main",
+      "commit": "b73d551a6dea3a27f3d5d42a805b86edcb1ee651",
+      "commitVerified": {
+        "call": "gh api repos/spliit-app/spliit/commits/b73d551a6dea3a27f3d5d42a805b86edcb1ee651",
+        "returnedSha": "b73d551a6dea3a27f3d5d42a805b86edcb1ee651",
+        "matches": true
+      },
+      "license": "MIT",
+      "archived": false,
+      "fork": false,
+      "pushedAt": "2026-10-08T09:11:22Z",
+      "cohort": "realistic",
+      "runtime": "next.js (Prisma, Postgres)",
+      "expectedNeeds": [
+        "postgres"
+      ],
+      "selectionReason": "Expense-sharing Next.js app with root Dockerfile and Prisma on Postgres; stateless apart from Postgres.",
+      "validity": {
+        "entryPoint": {
+          "path": "package.json",
+          "type": "file",
+          "confirmedAtCommit": true
+        },
+        "buildFile": {
+          "path": "Dockerfile",
+          "type": "file",
+          "confirmedAtCommit": true
+        },
+        "ci": {
+          "checkRuns": "success=4",
+          "combinedStatus": "pending",
+          "note": "informational only; unknown/mixed is acceptable"
+        }
+      },
+      "labelingRisk": "Risk: Prisma migrations at start; optional S3 receipt storage; compose.yaml is dev oriented; Next build may need DB env at build time."
+    },
+    {
+      "id": "misskey",
+      "family": "nodejs",
+      "repo": "misskey-dev/misskey",
+      "defaultBranch": "develop",
+      "commit": "5f501341d49d2bc3fa7e817ce7548a82174326eb",
+      "commitVerified": {
+        "call": "gh api repos/misskey-dev/misskey/commits/5f501341d49d2bc3fa7e817ce7548a82174326eb",
+        "returnedSha": "5f501341d49d2bc3fa7e817ce7548a82174326eb",
+        "matches": true
+      },
+      "license": "AGPL-3.0",
+      "archived": false,
+      "fork": false,
+      "pushedAt": "2026-10-07T20:13:13Z",
+      "cohort": "realistic",
+      "runtime": "node (pnpm monorepo, TypeScript)",
+      "expectedNeeds": [
+        "postgres",
+        "redis",
+        "worker"
+      ],
+      "selectionReason": "Federated social platform with root Dockerfile, needs Postgres and Redis; larger realistic Postgres+Redis app. Default branch develop.",
+      "validity": {
+        "entryPoint": {
+          "path": "package.json",
+          "type": "file",
+          "confirmedAtCommit": true
+        },
+        "buildFile": {
+          "path": "Dockerfile",
+          "type": "file",
+          "confirmedAtCommit": true
+        },
+        "ci": {
+          "checkRuns": "success=12,skipped=18",
+          "combinedStatus": "pending",
+          "note": "informational only; unknown/mixed is acceptable"
+        }
+      },
+      "labelingRisk": "Risk: .config/default.yml must be provided at runtime (DB/Redis hosts); pnpm monorepo, heavy build; optional object storage; Redis required; default branch develop."
+    },
+    {
+      "id": "shynet",
+      "family": "django",
+      "repo": "milesmcc/shynet",
+      "defaultBranch": "master",
+      "commit": "ca35caba3af2b888acc990b99152c500a1c44461",
+      "commitVerified": {
+        "call": "gh api repos/milesmcc/shynet/commits/ca35caba3af2b888acc990b99152c500a1c44461",
+        "returnedSha": "ca35caba3af2b888acc990b99152c500a1c44461",
+        "matches": true
+      },
+      "license": "Apache-2.0",
+      "archived": false,
+      "fork": false,
+      "pushedAt": "2026-03-15T23:00:29Z",
+      "cohort": "realistic",
+      "runtime": "python (Django, poetry)",
+      "expectedNeeds": [
+        "postgres",
+        "redis",
+        "worker"
+      ],
+      "selectionReason": "Privacy-friendly web analytics, Django with root Dockerfile, Postgres, optional Redis/Celery.",
+      "validity": {
+        "entryPoint": {
+          "path": "pyproject.toml",
+          "type": "file",
+          "confirmedAtCommit": true
+        },
+        "buildFile": {
+          "path": "Dockerfile",
+          "type": "file",
+          "confirmedAtCommit": true
+        },
+        "ci": {
+          "checkRuns": "success=5",
+          "combinedStatus": "pending",
+          "note": "informational only; unknown/mixed is acceptable"
+        }
+      },
+      "labelingRisk": "Risk: last push 2026-03, slow maintenance; Celery worker and webserver run as separate modes; Postgres required; many env vars (DB, Django hosts); nginx.conf sidecar."
+    },
+    {
+      "id": "mailpit",
+      "family": "go",
+      "repo": "axllent/mailpit",
+      "defaultBranch": "develop",
+      "commit": "b8603907d47334fc6fdc43e4eb1b230d0bbf7303",
+      "commitVerified": {
+        "call": "gh api repos/axllent/mailpit/commits/b8603907d47334fc6fdc43e4eb1b230d0bbf7303",
+        "returnedSha": "b8603907d47334fc6fdc43e4eb1b230d0bbf7303",
+        "matches": true
+      },
+      "license": "MIT",
+      "archived": false,
+      "fork": false,
+      "pushedAt": "2026-10-07T02:25:05Z",
+      "cohort": "realistic",
+      "runtime": "go (embedded web UI, esbuild)",
+      "expectedNeeds": [
+        "storage"
+      ],
+      "selectionReason": "Email testing SMTP server with web UI, Go, root Dockerfile. Mostly stateless; SQLite optional. Two ports (SMTP 1025, HTTP 8025).",
+      "validity": {
+        "entryPoint": {
+          "path": "main.go",
+          "type": "file",
+          "confirmedAtCommit": true
+        },
+        "buildFile": {
+          "path": "Dockerfile",
+          "type": "file",
+          "confirmedAtCommit": true
+        },
+        "ci": {
+          "checkRuns": "success=8",
+          "combinedStatus": "pending",
+          "note": "informational only; unknown/mixed is acceptable"
+        }
+      },
+      "labelingRisk": "Risk: SMTP port is TCP non-HTTP so health check only on 8025; Dockerfile may copy a prebuilt binary (goreleaser); default branch develop; data in sqlite file."
+    },
+    {
+      "id": "tianji",
+      "family": "nodejs",
+      "repo": "msgbyte/tianji",
+      "defaultBranch": "master",
+      "commit": "45578dd32121319c28d3bc5abffa70c225631eb2",
+      "commitVerified": {
+        "call": "gh api repos/msgbyte/tianji/commits/45578dd32121319c28d3bc5abffa70c225631eb2",
+        "returnedSha": "45578dd32121319c28d3bc5abffa70c225631eb2",
+        "matches": true
+      },
+      "license": "Apache-2.0",
+      "archived": false,
+      "fork": false,
+      "pushedAt": "2026-10-08T02:31:52Z",
+      "cohort": "realistic",
+      "runtime": "node (pnpm monorepo, React + Fastify/tRPC)",
+      "expectedNeeds": [
+        "postgres"
+      ],
+      "selectionReason": "All-in-one analytics, uptime and monitoring app with root Dockerfile and Postgres-only datastore.",
+      "validity": {
+        "entryPoint": {
+          "path": "package.json",
+          "type": "file",
+          "confirmedAtCommit": true
+        },
+        "buildFile": {
+          "path": "Dockerfile",
+          "type": "file",
+          "confirmedAtCommit": true
+        },
+        "ci": {
+          "checkRuns": "success=12",
+          "combinedStatus": "pending",
+          "note": "informational only; unknown/mixed is acceptable"
+        }
+      },
+      "labelingRisk": "Risk: large pnpm monorepo, memory-heavy build; Prisma migrations; optional ClickHouse; JWT_SECRET env required."
+    },
+    {
+      "id": "wakapi",
+      "family": "go",
+      "repo": "muety/wakapi",
+      "defaultBranch": "master",
+      "commit": "a8d88056932881329845609a749025a1513564db",
+      "commitVerified": {
+        "call": "gh api repos/muety/wakapi/commits/a8d88056932881329845609a749025a1513564db",
+        "returnedSha": "a8d88056932881329845609a749025a1513564db",
+        "matches": true
+      },
+      "license": "MIT",
+      "archived": false,
+      "fork": false,
+      "pushedAt": "2026-10-07T17:03:19Z",
+      "cohort": "realistic",
+      "runtime": "go (SQLite/Postgres)",
+      "expectedNeeds": [
+        "postgres"
+      ],
+      "selectionReason": "WakaTime-compatible coding stats server, Go with root Dockerfile, Postgres via config. Small stateless-ish service.",
+      "validity": {
+        "entryPoint": {
+          "path": "main.go",
+          "type": "file",
+          "confirmedAtCommit": true
+        },
+        "buildFile": {
+          "path": "Dockerfile",
+          "type": "file",
+          "confirmedAtCommit": true
+        },
+        "ci": {
+          "checkRuns": "success=6",
+          "combinedStatus": "pending",
+          "note": "informational only; unknown/mixed is acceptable"
+        }
+      },
+      "labelingRisk": "Risk: default DB is SQLite in data dir; Postgres via WAKAPI_DB_* envs; entrypoint.sh drops privileges; config.default.yml; optional SMTP."
+    },
+    {
+      "id": "sqlpage",
+      "family": "rust",
+      "repo": "sqlpage/SQLPage",
+      "defaultBranch": "main",
+      "commit": "78f310a0194fb809ffb27e4fa0e29d81d814badb",
+      "commitVerified": {
+        "call": "gh api repos/sqlpage/SQLPage/commits/78f310a0194fb809ffb27e4fa0e29d81d814badb",
+        "returnedSha": "78f310a0194fb809ffb27e4fa0e29d81d814badb",
+        "matches": true
+      },
+      "license": "MIT",
+      "archived": false,
+      "fork": false,
+      "pushedAt": "2026-10-08T11:38:10Z",
+      "cohort": "realistic",
+      "runtime": "rust (actix-web)",
+      "expectedNeeds": [
+        "postgres"
+      ],
+      "selectionReason": "Rust SQL-driven web app server with root Dockerfile and Cargo.lock. Covers Rust requirement. Repo renamed from lovasoa/SQLpage.",
+      "validity": {
+        "entryPoint": {
+          "path": "Cargo.toml",
+          "type": "file",
+          "confirmedAtCommit": true
+        },
+        "buildFile": {
+          "path": "Dockerfile",
+          "type": "file",
+          "confirmedAtCommit": true
+        },
+        "ci": {
+          "checkRuns": "success=30",
+          "combinedStatus": "pending",
+          "note": "informational only; unknown/mixed is acceptable"
+        }
+      },
+      "labelingRisk": "Risk: it is a server that serves .sql files from a mounted dir, so app content must be supplied (repo has only examples/ and sqlpage/ dirs); needs DATABASE_URL; npm frontend build in build.rs; compose points at multiple DBs."
+    },
+    {
+      "id": "rustypaste",
+      "family": "rust",
+      "repo": "orhun/rustypaste",
+      "defaultBranch": "master",
+      "commit": "161a104c618889ddd2b17acbe124d593d97e47c4",
+      "commitVerified": {
+        "call": "gh api repos/orhun/rustypaste/commits/161a104c618889ddd2b17acbe124d593d97e47c4",
+        "returnedSha": "161a104c618889ddd2b17acbe124d593d97e47c4",
+        "matches": true
+      },
+      "license": "MIT",
+      "archived": false,
+      "fork": false,
+      "pushedAt": "2026-10-06T17:21:49Z",
+      "cohort": "realistic",
+      "runtime": "rust (actix-web)",
+      "expectedNeeds": [
+        "storage"
+      ],
+      "selectionReason": "Rust minimal file upload and pastebin server with root Dockerfile. Stateless besides uploads on disk. Second Rust app.",
+      "validity": {
+        "entryPoint": {
+          "path": "Cargo.toml",
+          "type": "file",
+          "confirmedAtCommit": true
+        },
+        "buildFile": {
+          "path": "Dockerfile",
+          "type": "file",
+          "confirmedAtCommit": true
+        },
+        "ci": {
+          "checkRuns": "success=12",
+          "combinedStatus": "pending",
+          "note": "informational only; unknown/mixed is acceptable"
+        }
+      },
+      "labelingRisk": "Risk: config.toml with auth_tokens must be provided or auth is off; uploads on local disk (storage need); no Postgres; multi stage Rust build."
+    },
+    {
+      "id": "rauthy",
+      "family": "rust",
+      "repo": "sebadob/rauthy",
+      "defaultBranch": "main",
+      "commit": "79bdf2eb6fb01d1f86f2e99ee718036d04201204",
+      "commitVerified": {
+        "call": "gh api repos/sebadob/rauthy/commits/79bdf2eb6fb01d1f86f2e99ee718036d04201204",
+        "returnedSha": "79bdf2eb6fb01d1f86f2e99ee718036d04201204",
+        "matches": true
+      },
+      "license": "Apache-2.0",
+      "archived": false,
+      "fork": false,
+      "pushedAt": "2026-10-07T16:34:05Z",
+      "cohort": "realistic",
+      "runtime": "rust (axum, SvelteKit frontend)",
+      "expectedNeeds": [
+        "postgres",
+        "storage"
+      ],
+      "selectionReason": "Rust OpenID Connect identity provider with root Dockerfile, Postgres supported, frontend built in SvelteKit. Third Rust app, heavier.",
+      "validity": {
+        "entryPoint": {
+          "path": "Cargo.toml",
+          "type": "file",
+          "confirmedAtCommit": true
+        },
+        "buildFile": {
+          "path": "Dockerfile",
+          "type": "file",
+          "confirmedAtCommit": true
+        },
+        "ci": {
+          "checkRuns": "success=3",
+          "combinedStatus": "pending",
+          "note": "informational only; unknown/mixed is acceptable"
+        }
+      },
+      "labelingRisk": "Risk: Dockerfile may copy prebuilt binary/assets (Dockerfile_builder exists); config.toml with secrets (encryption keys, bootstrap admin) required; embedded Hiqlite default so Postgres is optional; frontend build step."
+    },
+    {
+      "id": "kener",
+      "family": "nodejs",
+      "repo": "rajnandan1/kener",
+      "defaultBranch": "main",
+      "commit": "74a6228b862f276c4f42177b340ae997fe9dfca2",
+      "commitVerified": {
+        "call": "gh api repos/rajnandan1/kener/commits/74a6228b862f276c4f42177b340ae997fe9dfca2",
+        "returnedSha": "74a6228b862f276c4f42177b340ae997fe9dfca2",
+        "matches": true
+      },
+      "license": "MIT",
+      "archived": false,
+      "fork": false,
+      "pushedAt": "2026-10-08T11:27:47Z",
+      "cohort": "realistic",
+      "runtime": "node (SvelteKit)",
+      "expectedNeeds": [
+        "postgres",
+        "redis"
+      ],
+      "selectionReason": "Status page and uptime monitoring app (SvelteKit), root Dockerfile, SQLite or Postgres via DATABASE_URL, optional Redis.",
+      "validity": {
+        "entryPoint": {
+          "path": "package.json",
+          "type": "file",
+          "confirmedAtCommit": true
+        },
+        "buildFile": {
+          "path": "Dockerfile",
+          "type": "file",
+          "confirmedAtCommit": true
+        },
+        "ci": {
+          "checkRuns": "success=2,failure=1",
+          "combinedStatus": "pending",
+          "note": "informational only; unknown/mixed is acceptable"
+        }
+      },
+      "labelingRisk": "Risk: default DB SQLite; Postgres via DATABASE_URL; Redis optional; docker-entrypoint.sh runs migrations; KENER_SECRET_KEY and ORIGIN env required."
+    }
+  ]
+}
