@@ -492,4 +492,43 @@ describe('DeployzStack', () => {
       }
     });
   });
+
+  // COOKIE_PREFIX (apps/api/src/env.ts) renames the session cookie, which is
+  // the only thing that keeps a staging control plane out of production's
+  // session while both share the '.deployz.dev' cookie domain. Unset must stay
+  // absent, because production keeps Better Auth's default cookie name.
+  describe('COOKIE_PREFIX session isolation', () => {
+    const KEY = 'COOKIE_PREFIX';
+
+    it('passes COOKIE_PREFIX into the API Lambda environment when set', () => {
+      process.env[KEY] = 'deployz-staging';
+      try {
+        const template = Template.fromStack(new DeployzStack(new App(), 'DeployzTest'));
+        template.hasResourceProperties('AWS::Lambda::Function', {
+          Environment: Match.objectLike({
+            Variables: Match.objectLike({ [KEY]: 'deployz-staging' }),
+          }),
+        });
+      } finally {
+        delete process.env[KEY];
+      }
+    });
+
+    it('omits COOKIE_PREFIX when unset (absent = the default cookie name)', () => {
+      const previous = process.env[KEY];
+      delete process.env[KEY];
+      try {
+        const template = Template.fromStack(new DeployzStack(new App(), 'DeployzTest'));
+        const environments = Object.values(template.findResources('AWS::Lambda::Function')).map(
+          (resource) =>
+            (resource.Properties as { Environment?: { Variables?: Record<string, unknown> } })
+              .Environment?.Variables ?? {},
+        );
+        expect(environments.some((env) => KEY in env)).toBe(false);
+      } finally {
+        if (previous === undefined) delete process.env[KEY];
+        else process.env[KEY] = previous;
+      }
+    });
+  });
 });

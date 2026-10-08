@@ -78,6 +78,13 @@ const marketingUrl = origin(process.env.MARKETING_URL) ?? webUrl;
 // both sides are localhost and host-scoped cookies already work.
 const cookieDomain = process.env.COOKIE_DOMAIN?.trim() || undefined;
 
+// Changes the session-cookie name, so a second control plane in the same
+// cookie domain (staging under '.deployz.dev') cannot read this one's cookie.
+// Build the web image with the same value as NEXT_PUBLIC_COOKIE_PREFIX, or the
+// middleware looks for a cookie name the API never sets. Unset keeps Better
+// Auth's default name.
+const cookiePrefix = process.env.COOKIE_PREFIX?.trim() || undefined;
+
 if (!process.env.BETTER_AUTH_SECRET) {
   console.warn(
     '[auth] BETTER_AUTH_SECRET not set — Better Auth will use an ephemeral dev secret. Set it in .env.',
@@ -214,6 +221,7 @@ export const env = {
   // because dev (and any single-host deployment) has marketing === web.
   webOrigins: [...new Set([webUrl, marketingUrl])],
   cookieDomain,
+  cookiePrefix,
   databaseUrl: process.env.DATABASE_URL,
   betterAuthSecret: process.env.BETTER_AUTH_SECRET,
   githubClientId: process.env.GITHUB_CLIENT_ID ?? '',

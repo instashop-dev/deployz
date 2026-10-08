@@ -460,6 +460,7 @@ function collectEnvVars(): Record<string, string> {
     'WEB_URL',
     'MARKETING_URL',
     'COOKIE_DOMAIN',
+    'COOKIE_PREFIX',
     'AI_GATEWAY_BASE_URL',
     'AI_MODEL',
     'AI_PROVIDER_API_KEY',

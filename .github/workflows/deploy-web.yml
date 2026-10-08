@@ -30,6 +30,9 @@ on:
       app_host:
         description: Dashboard hostname
         default: app.deployz.dev
+      cookie_prefix:
+        description: Session-cookie prefix; production leaves it empty
+        default: ''
 
 # One deployment at a time. Lightsail replaces the running container in place,
 # and two overlapping deployments race each other's health checks.
@@ -45,6 +48,7 @@ env:
   API_URL: ${{ inputs.api_url || 'https://api.deployz.dev' }}
   MARKETING_HOST: ${{ inputs.marketing_host || 'deployz.dev' }}
   APP_HOST: ${{ inputs.app_host || 'app.deployz.dev' }}
+  COOKIE_PREFIX: ${{ inputs.cookie_prefix || '' }}
 
 jobs:
   # Deploys only a commit that CI has proven on main, and only while it is
@@ -178,6 +182,7 @@ jobs:
             --build-arg "NEXT_PUBLIC_APP_HOST=$APP_HOST" \
             --build-arg "NEXT_PUBLIC_MARKETING_HOST=$MARKETING_HOST" \
             --build-arg "NEXT_PUBLIC_SITE_URL=https://$MARKETING_HOST" \
+            --build-arg "NEXT_PUBLIC_COOKIE_PREFIX=$COOKIE_PREFIX" \
             -t "deployz-web:${DEPLOY_SHA}" .
 
       # Every push stores a new image (":<service>.web.<N>") and Lightsail

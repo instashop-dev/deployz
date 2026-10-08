@@ -65,7 +65,7 @@ reads is validated in `apps/api/src/env.ts`.
 
 | Group | Keys | Notes |
 | --- | --- | --- |
-| Public URLs | `API_URL`, `WEB_URL`, `MARKETING_URL`, `COOKIE_DOMAIN`, `BETTER_AUTH_URL`, `EMAIL_FROM` | Hard-coded in the workflow |
+| Public URLs | `API_URL`, `WEB_URL`, `MARKETING_URL`, `COOKIE_DOMAIN`, `COOKIE_PREFIX`, `BETTER_AUTH_URL`, `EMAIL_FROM` | Hard-coded in the workflow. `COOKIE_PREFIX` is optional. It changes the session-cookie name. A different name keeps a second control plane in the same cookie domain out of this one's session. `deploy-api.yml` does not set it, so production keeps Better Auth's default cookie name. Build the web image with the same value as the `NEXT_PUBLIC_COOKIE_PREFIX` build argument, or the dashboard looks for a cookie name the API never sets. |
 | API domain | `API_DOMAIN_NAME`, `API_CERTIFICATE_ARN` | Both required or the `api.deployz.dev` mapping is removed. The certificate is requested out of band; the Cloudflare `api` CNAME must be DNS-only or TLS fails with 525. |
 | Auth and GitHub | `BETTER_AUTH_SECRET`, `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`, `GITHUB_APP_ID`, `GITHUB_APP_PRIVATE_KEY`, `GITHUB_WEBHOOK_SECRET`, `GITHUB_APP_INSTALL_URL` | The GitHub App's **Setup URL** must be `<WEB_URL>/github/setup` with "Redirect on update" enabled; that page binds the installation to the vendor's organisation and offers sign-in when needed. An installation already bound to another organisation is never rebound (the vendor lands on `?github=failed`); restoring a wrong binding is an operator DB edit. |
 | Email | `AWS_SES_ACCESS_KEY_ID`, `AWS_SES_SECRET_ACCESS_KEY` | Organisation membership email only |
