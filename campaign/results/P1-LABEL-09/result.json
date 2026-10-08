@@ -1,0 +1,26 @@
+{
+  "taskId": "P1-LABEL-09",
+  "testedCommit": "e6a3b58ee2363923fef21faca86611fa3bf84538",
+  "executor": "campaign-worker",
+  "model": "sonnet",
+  "startedAt": "2026-10-08T00:00:00Z",
+  "finishedAt": "2026-10-08T00:40:00Z",
+  "proposedStatus": "COMPLETE",
+  "commands": [
+    { "command": "gh api repos/<repo>/git/trees/<commit>?recursive=1 (10 repos)", "exitCode": 0, "summary": "Fetched pinned trees for all 10 apps" },
+    { "command": "gh api repos/<repo>/contents/<path>?ref=<commit> (source reads)", "exitCode": 0, "summary": "Read Dockerfiles, compose files, entrypoints, manifests at the pinned commits" },
+    { "command": "node scratchpad/gen09.mjs", "exitCode": 0, "summary": "Wrote campaign/corpus/labels/initial-09.yaml" },
+    { "command": "npx tsx scratchpad/validate09.mts", "exitCode": 0, "summary": "OK: expectedFactsSchema parse, id/repo/commit match slice, all facts cited, all cited paths exist in pinned trees" }
+  ],
+  "evidence": ["campaign/corpus/labels/initial-09.yaml"],
+  "notes": [
+    "Labels come from repository source only; no Deployz analysis or results were used.",
+    "postgres and redis are true only when the default or required configuration uses them (driver plus compose/Dockerfile/config evidence).",
+    "migration is set only when a migration command exists in an entrypoint, release script or compose command (repo-587, repo-589).",
+    "worker is true only when a separate worker start command is declared (repo-589). Optional worker modes (repo-584 QUEUE_MODE) are false.",
+    "unsupported uses local-filesystem for SQLite/data-directory/local content state, mongodb, other-database (ClickHouse). MySQL is not listed as unsupported because docs/product/mvp-scope.md lists RDS MySQL 8.0 as supported; repo-583 and repo-588 are NOT_COMPATIBLE for local-filesystem state.",
+    "repo-581 is family deno, but its Dockerfile runs node node.ts, so runtime is node and compatibility READY.",
+    "healthPath and port are set only when the source declares them; repo-584 health (/livez) is on a separate port 52346, so no healthPath is given.",
+    "Judgement calls to review in verification: repo-583 Ghost and repo-589 OpenProject default to local content/attachment storage (S3 storage is configurable); repo-588 Mautic local config/media."
+  ]
+}

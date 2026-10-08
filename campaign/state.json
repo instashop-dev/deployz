@@ -4,8 +4,8 @@
   "status": "CONTINUE",
   "phase": 1,
   "currentTask": null,
-  "nextAction": "Run P1-LABEL-09 (campaign-worker) as the first task of the next run (timebox 40 > 38: long-run exception). Same input set as P1-LABEL-08: labelBatch 9 slice of corpus.json entries (no source/appPathSource/cohort), manifest.ts, normalize.ts UNSUPPORTED_FAMILIES, mvp-scope.md; forbid other label files; give the file shape (top-level taskId/testedCommit/apps, citations as {path, reason}). v-07.mts needs the slice as a plain JSON array.",
-  "updatedAt": "2026-10-08T15:49:21.072Z",
+  "nextAction": "Run P1-LABEL-10 (campaign-worker) as the first task of the next run (timebox 40 > 38: long-run exception). Same input set as P1-LABEL-09: labelBatch 10 slice of corpus.json entries (no source/appPathSource/cohort), manifest.ts, normalize.ts UNSUPPORTED_FAMILIES, mvp-scope.md; forbid other label files (also tell the worker not to list labels/); give the file shape. v-07.mts needs the slice as a plain JSON array. Then P1-VERIFY-01..10.",
+  "updatedAt": "2026-10-08T15:59:37.256Z",
   "checkout": {
     "path": "C:/Users/Tejas/Desktop/deployz-mvp-test",
     "kind": "git worktree of C:/Users/Tejas/Desktop/deployz",
@@ -139,6 +139,10 @@
     {
       "commit": "e6a3b58ee2363923fef21faca86611fa3bf84538",
       "task": "P1-LABEL-08"
+    },
+    {
+      "commit": "e6a3b58ee2363923fef21faca86611fa3bf84538",
+      "task": "P1-LABEL-09"
     }
   ],
   "attempts": {
@@ -169,17 +173,18 @@
     "P1-LABEL-05": 1,
     "P1-LABEL-06": 1,
     "P1-LABEL-07": 1,
-    "P1-LABEL-08": 1
+    "P1-LABEL-08": 1,
+    "P1-LABEL-09": 1
   },
   "lastResult": {
-    "task": "P1-LABEL-08",
+    "task": "P1-LABEL-09",
     "status": "COMPLETE",
-    "at": "2026-10-08T15:49:21.072Z",
+    "at": "2026-10-08T15:59:37.256Z",
     "evidence": [
-      "campaign/corpus/labels/initial-08.yaml",
-      "campaign/results/P1-LABEL-08/result.json"
+      "campaign/corpus/labels/initial-09.yaml",
+      "campaign/results/P1-LABEL-09/result.json"
     ],
-    "summary": "repo-571..580: 0 READY, 3 NEEDS_CONFIGURATION (571,573,580), 7 NOT_COMPATIBLE (572,574,575,576,577,578,579). Opus validator v-07.mts exit 0 (array slice); pins equal corpus.json; traccar prebuilt-zip Dockerfile spot-checked."
+    "summary": "repo-581..590: 1 READY (581), 0 NEEDS_CONFIGURATION, 9 NOT_COMPATIBLE (582,583,585,588,589,590 local-filesystem; 584,586 mongodb; 587 other-database). Opus validator v-07.mts exit 0 (array slice); 60s Dockerfile CMD node spot-checked. Worker listed labels/ file names once (no content read)."
   },
   "gates": {
     "smokeReviewed": true,
@@ -397,6 +402,11 @@
     {
       "task": "P1-LABEL-08",
       "runStart": "2026-10-08T15:37:00Z",
+      "reason": "First task of the run; timeboxMinutes 40 > 38 and no resumable steps (one 10-app labeling batch)."
+    },
+    {
+      "task": "P1-LABEL-09",
+      "runStart": "2026-10-08T15:51:01Z",
       "reason": "First task of the run; timeboxMinutes 40 > 38 and no resumable steps (one 10-app labeling batch)."
     }
   ]
