@@ -1,0 +1,44 @@
+{
+  "taskId": "P1-VERIFY-10",
+  "testedCommit": "e6a3b58ee2363923fef21faca86611fa3bf84538",
+  "executor": "campaign-worker",
+  "model": "sonnet",
+  "startedAt": "2026-10-08T19:33:24Z",
+  "finishedAt": "2026-10-08T19:39:58Z",
+  "proposedStatus": "COMPLETE",
+  "commands": [
+    {
+      "command": "gh api repos/<repo>/git/trees/<commit>?recursive=1 (10 repos)",
+      "exitCode": 0,
+      "summary": "All 10 pinned trees fetched, none truncated"
+    },
+    {
+      "command": "gh api repos/<repo>/contents/<path>?ref=<commit> (Dockerfiles, manifests, routes, configs)",
+      "exitCode": 0,
+      "summary": "Read pinned source for each app"
+    },
+    {
+      "command": "node scratchpad/val.mjs",
+      "exitCode": 0,
+      "summary": "YAML parses; 10 apps present once; every citation path exists in its pinned tree; every expected field cited"
+    }
+  ],
+  "evidence": [
+    "campaign/corpus/labels/verify-10.yaml"
+  ],
+  "forbiddenInputsRead": [],
+  "notes": [
+    "All 10 apps labelled NOT_COMPATIBLE.",
+    "repo-591 nightscout: MongoDB required (unsupported mongodb). healthPath /api/v1/status inferred from lib/api/index.js mounting /status under the API prefix; moderate confidence.",
+    "repo-592 audiobookshelf: SQLite plus persistent /config and /metadata volumes. unsupported uses other-database because the family map has no sqlite key; could be labelled differently by another reviewer.",
+    "repo-593 glance: no database, but ENTRYPOINT needs a mounted /app/config/glance.yml not in the image; NOT_COMPATIBLE follows the mvp-scope rule on mounted config files. Could go NEEDS_CONFIGURATION if the analyser treats the file as configurable. No unsupported family.",
+    "repo-594 InvokeAI: GPU (CUDA default), bind-mounted root, SQLite. Port 9090 from compose and config default; no health route found. unsupported other-database is a SQLite proxy.",
+    "repo-595 kubero: appPath server but the Dockerfile is at repo root. SQLite via Prisma (schema provider sqlite), mounted config.yaml, needs Kubernetes access. monorepo true is a judgement (separate client and server packages, no workspace file). No health route found.",
+    "repo-596 DNN: .NET Framework 4.8 on IIS and SQL Server, no Dockerfile, so dockerfilePath omitted and port omitted. unsupported other-database stands for SQL Server.",
+    "repo-597 openpanel: PostgreSQL, Redis and ClickHouse required; ClickHouse makes it NOT_COMPATIBLE. worker true because apps/worker has its own Dockerfile. If ClickHouse were optional the label could change; compose and packages/db show it as core.",
+    "repo-598 akhq: no database; it is a Kafka admin UI, so Kafka is the blocker. Its Dockerfile copies a pre-assembled docker/ dir and cannot build from source alone. Health endpoint is on management port 28081, so healthPath omitted.",
+    "repo-599 OpenSearch Dashboards: root Dockerfile is a CI image with no CMD or app; needs an OpenSearch cluster. Port 5601 and /api/status from source.",
+    "repo-600 rancher: embeds k3s, many VOLUMEs, manages Kubernetes. Port 80 and /healthz taken from the Helm chart probes, not the Dockerfile (no EXPOSE); main.go default HTTP port is 8080, so port is uncertain.",
+    "monorepo labels: true for kubero, dnn, openpanel, osd; false for others. appRoot included for kubero, dnn, openpanel from the slice appPath."
+  ]
+}
