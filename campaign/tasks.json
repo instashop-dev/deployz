@@ -1704,7 +1704,7 @@
       "phase": 1,
       "title": "Phase 1 review: 100 fresh families, source-backed labels, stratified 80/20 split",
       "executor": "opus",
-      "status": "IN_PROGRESS",
+      "status": "COMPLETE",
       "prerequisites": [
         "P1-RECONCILE-01",
         "P1-RECONCILE-02",

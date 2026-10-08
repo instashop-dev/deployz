@@ -2,10 +2,10 @@
   "schemaVersion": 1,
   "campaign": "deployz-fresh-100",
   "status": "CONTINUE",
-  "phase": 1,
-  "currentTask": "P1-GATE",
-  "nextAction": "Run P1-GATE (Opus, timebox 25) as the first task of a new run. First settle the open rule questions and cross-batch consistency items in handoff.md (P1-RECONCILE-02..05 entries); if a rule changes, recheck the affected final files. Then build benchmark.yaml (80) and holdout.yaml (20) and write review.md.",
-  "updatedAt": "2026-10-08T21:30:08.630Z",
+  "phase": 2,
+  "currentTask": null,
+  "nextAction": "Run P2-DESIGN (Opus, timebox 25): design.md for the minimal harness extensions (corpus/runs-dir flags, AI mode per result, local Docker build stage, isolated local run stage, per-stage evidence and --resume). Then P2-IMPL-CORPUS-FLAGS (worker, timebox 45; long-run exception as the first task of a run).",
+  "updatedAt": "2026-10-08T21:32:50.856Z",
   "checkout": {
     "path": "C:/Users/Tejas/Desktop/deployz-mvp-test",
     "kind": "git worktree of C:/Users/Tejas/Desktop/deployz",
@@ -207,6 +207,10 @@
     {
       "commit": "e6a3b58ee2363923fef21faca86611fa3bf84538",
       "task": "P1-RECONCILE-05"
+    },
+    {
+      "commit": "e6a3b58ee2363923fef21faca86611fa3bf84538",
+      "task": "P1-GATE"
     }
   ],
   "attempts": {
@@ -258,15 +262,15 @@
     "P1-GATE": 1
   },
   "lastResult": {
-    "task": "P1-RECONCILE-05",
+    "task": "P1-GATE",
     "status": "COMPLETE",
-    "at": "2026-10-08T21:29:39.817Z",
+    "at": "2026-10-08T21:32:50.856Z",
     "evidence": [
-      "campaign/corpus/labels/final-09.yaml",
-      "campaign/corpus/labels/final-10.yaml",
-      "campaign/results/P1-RECONCILE-05/result.json"
+      "campaign/corpus/benchmark.yaml",
+      "campaign/corpus/holdout.yaml",
+      "campaign/results/P1-GATE/review.md"
     ],
-    "summary": "Final labels batches 9-10 (rules R1): 1 READY (581), 0 NEEDS_CONFIGURATION, 19 NOT_COMPATIBLE (582-600), 0 REPO_INVALID. Opus validator v-07.mts exit 0 for both files; Opus difference check: 31 field differences, 0 unrecorded. Opus spot-checked repo-589 OpenProject: default last stage all-in-one EXPOSE 80 (port 80 final)."
+    "summary": "P1-GATE PASS. benchmark.yaml: parseBenchmark OK, 80 set improvement (56/16/8). holdout.yaml: parseBenchmark OK, 20 set unseen with final labels (14/4/2); no overlap, 100 distinct pins, no excluded repository, 0 REPO_INVALID. Open rule questions settled with no label change (monorepo/runtime not compared; windows/GPU per R1; env-switch reading consistent; R5; R6 two causes; 551 kept READY). customer_realism and difficulty set by a fixed recorded rule. Phase advanced to 2."
   },
   "gates": {
     "smokeReviewed": true,
