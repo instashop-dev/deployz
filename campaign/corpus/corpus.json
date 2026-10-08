@@ -1,0 +1,1515 @@
+{
+  "taskId": "P1-FREEZE-CORPUS",
+  "testedCommit": "e6a3b58ee2363923fef21faca86611fa3bf84538",
+  "frozenAt": "2026-10-08T13:41:08Z",
+  "counts": {
+    "realistic": 70,
+    "messy": 20,
+    "boundary": 10
+  },
+  "idRange": "repo-501..repo-600",
+  "idCollisionCheck": "docs/testing/repository-compatibility/benchmark.yaml ids end at repo-301; no repo-501..repo-600 id exists",
+  "notes": "Pins and layout only. Selection-time hints (expectedNeeds, boundaryReason, labelingRisk) stay in the candidates files and are not part of the labeling input. Split membership is not recorded here; see split.json.",
+  "entries": [
+    {
+      "id": "repo-501",
+      "repo": "fastapi/full-stack-fastapi-template",
+      "commit": "f27b4721507824e57ebd0286ff1a84d82e83bf59",
+      "defaultBranch": "master",
+      "cohort": "realistic",
+      "appPath": ".",
+      "license": "MIT",
+      "family": "full-stack-fastapi-template",
+      "labelBatch": 1,
+      "source": {
+        "file": "campaign/corpus/candidates/realistic-01.json",
+        "candidateId": "fastapi-fullstack"
+      }
+    },
+    {
+      "id": "repo-502",
+      "repo": "getredash/redash",
+      "commit": "e170795256ae028930e4760192e5dc3f59bb420c",
+      "defaultBranch": "master",
+      "cohort": "realistic",
+      "appPath": ".",
+      "license": "BSD-2-Clause",
+      "family": "redash",
+      "labelBatch": 1,
+      "source": {
+        "file": "campaign/corpus/candidates/realistic-01.json",
+        "candidateId": "redash"
+      }
+    },
+    {
+      "id": "repo-503",
+      "repo": "HumanSignal/label-studio",
+      "commit": "766b7ce5c60fb6c7a601493e7bf8860cdd73c841",
+      "defaultBranch": "develop",
+      "cohort": "realistic",
+      "appPath": ".",
+      "license": "Apache-2.0",
+      "family": "label-studio",
+      "labelBatch": 1,
+      "source": {
+        "file": "campaign/corpus/candidates/realistic-01.json",
+        "candidateId": "label-studio"
+      }
+    },
+    {
+      "id": "repo-504",
+      "repo": "koel/koel",
+      "commit": "72ab1e8d9bc4b744b2043a5259e1a06d733a9a29",
+      "defaultBranch": "master",
+      "cohort": "realistic",
+      "appPath": ".",
+      "license": "MIT",
+      "family": "koel",
+      "labelBatch": 1,
+      "source": {
+        "file": "campaign/corpus/candidates/realistic-01.json",
+        "candidateId": "koel"
+      }
+    },
+    {
+      "id": "repo-505",
+      "repo": "spring-projects/spring-petclinic",
+      "commit": "500158f732419217507c7656904b8e6aa1bcc0d6",
+      "defaultBranch": "main",
+      "cohort": "realistic",
+      "appPath": ".",
+      "license": "Apache-2.0",
+      "family": "spring-petclinic",
+      "labelBatch": 1,
+      "source": {
+        "file": "campaign/corpus/candidates/realistic-01.json",
+        "candidateId": "spring-petclinic"
+      }
+    },
+    {
+      "id": "repo-506",
+      "repo": "go-shiori/shiori",
+      "commit": "9a9a426acaca0e57e205bf20266a44954aaa8264",
+      "defaultBranch": "master",
+      "cohort": "realistic",
+      "appPath": ".",
+      "license": "MIT",
+      "family": "shiori",
+      "labelBatch": 1,
+      "source": {
+        "file": "campaign/corpus/candidates/realistic-01.json",
+        "candidateId": "shiori"
+      }
+    },
+    {
+      "id": "repo-507",
+      "repo": "payloadcms/payload",
+      "commit": "c66a7bec07dd7f30bdcd98320351c70846da4f0e",
+      "defaultBranch": "main",
+      "cohort": "realistic",
+      "appPath": ".",
+      "license": "MIT",
+      "family": "payload",
+      "labelBatch": 1,
+      "source": {
+        "file": "campaign/corpus/candidates/realistic-01.json",
+        "candidateId": "payload-with-postgres"
+      }
+    },
+    {
+      "id": "repo-508",
+      "repo": "gotenberg/gotenberg",
+      "commit": "c83dbd7bafacb3734ebadf2e33a4049a17d45ec9",
+      "defaultBranch": "main",
+      "cohort": "realistic",
+      "appPath": ".",
+      "license": "MIT",
+      "family": "gotenberg",
+      "labelBatch": 1,
+      "source": {
+        "file": "campaign/corpus/candidates/realistic-01.json",
+        "candidateId": "gotenberg"
+      }
+    },
+    {
+      "id": "repo-509",
+      "repo": "elie222/inbox-zero",
+      "commit": "84fd613d3dc1b3dbe8c3f46f9ec85d9e8681621c",
+      "defaultBranch": "main",
+      "cohort": "realistic",
+      "appPath": ".",
+      "license": "NOASSERTION",
+      "family": "inbox-zero",
+      "labelBatch": 1,
+      "source": {
+        "file": "campaign/corpus/candidates/realistic-01.json",
+        "candidateId": "inbox-zero"
+      }
+    },
+    {
+      "id": "repo-510",
+      "repo": "basecamp/once-campfire",
+      "commit": "008ea1ab2af0f84021e25047c67b64d30a601339",
+      "defaultBranch": "main",
+      "cohort": "realistic",
+      "appPath": ".",
+      "license": "MIT",
+      "family": "once-campfire",
+      "labelBatch": 1,
+      "source": {
+        "file": "campaign/corpus/candidates/realistic-01.json",
+        "candidateId": "campfire"
+      }
+    },
+    {
+      "id": "repo-511",
+      "repo": "discourse/discourse",
+      "commit": "3c43d1696fadfd0abc2b8ac2cb5b230651f0e509",
+      "defaultBranch": "main",
+      "cohort": "realistic",
+      "appPath": ".",
+      "license": "GPL-2.0",
+      "family": "discourse",
+      "labelBatch": 2,
+      "source": {
+        "file": "campaign/corpus/candidates/realistic-02.json",
+        "candidateId": "discourse"
+      }
+    },
+    {
+      "id": "repo-512",
+      "repo": "forem/forem",
+      "commit": "d98655f8f894df738594789519c2bc3a1b9ea733",
+      "defaultBranch": "main",
+      "cohort": "realistic",
+      "appPath": ".",
+      "license": "AGPL-3.0",
+      "family": "forem",
+      "labelBatch": 2,
+      "source": {
+        "file": "campaign/corpus/candidates/realistic-02.json",
+        "candidateId": "forem"
+      }
+    },
+    {
+      "id": "repo-513",
+      "repo": "saleor/saleor",
+      "commit": "bb75f87973abe24056a5d0dff1708ca097e95599",
+      "defaultBranch": "main",
+      "cohort": "realistic",
+      "appPath": ".",
+      "license": "BSD-3-Clause",
+      "family": "saleor",
+      "labelBatch": 2,
+      "source": {
+        "file": "campaign/corpus/candidates/realistic-02.json",
+        "candidateId": "saleor"
+      }
+    },
+    {
+      "id": "repo-514",
+      "repo": "hexpm/hexpm",
+      "commit": "151266fa511769aa56a17df804fe7a55219858a2",
+      "defaultBranch": "main",
+      "cohort": "realistic",
+      "appPath": ".",
+      "license": null,
+      "family": "hexpm",
+      "labelBatch": 2,
+      "source": {
+        "file": "campaign/corpus/candidates/realistic-02.json",
+        "candidateId": "hexpm"
+      }
+    },
+    {
+      "id": "repo-515",
+      "repo": "dotnet/eShop",
+      "commit": "dc7ea499cd356924fb6689b3702964a5869dbae9",
+      "defaultBranch": "main",
+      "cohort": "realistic",
+      "appPath": ".",
+      "license": "MIT",
+      "family": "eshop",
+      "labelBatch": 2,
+      "source": {
+        "file": "campaign/corpus/candidates/realistic-02.json",
+        "candidateId": "eshop"
+      }
+    },
+    {
+      "id": "repo-516",
+      "repo": "ente/ente",
+      "commit": "56f4e7b45d4101ef8d3ed1bf5764542c5ae3d37a",
+      "defaultBranch": "main",
+      "cohort": "realistic",
+      "appPath": ".",
+      "license": "AGPL-3.0",
+      "family": "ente",
+      "labelBatch": 2,
+      "source": {
+        "file": "campaign/corpus/candidates/realistic-02.json",
+        "candidateId": "ente"
+      }
+    },
+    {
+      "id": "repo-517",
+      "repo": "DependencyTrack/dependency-track",
+      "commit": "cd2f225f431c21d980f5b5cda86512e8a7bef79c",
+      "defaultBranch": "main",
+      "cohort": "realistic",
+      "appPath": ".",
+      "license": "Apache-2.0",
+      "family": "dependency-track",
+      "labelBatch": 2,
+      "source": {
+        "file": "campaign/corpus/candidates/realistic-02.json",
+        "candidateId": "dependency-track"
+      }
+    },
+    {
+      "id": "repo-518",
+      "repo": "cachethq/cachet",
+      "commit": "40bd0819ee46ee7094c336a1240a2a7a1291ccb8",
+      "defaultBranch": "3.x",
+      "cohort": "realistic",
+      "appPath": ".",
+      "license": "NOASSERTION",
+      "family": "cachet",
+      "labelBatch": 2,
+      "source": {
+        "file": "campaign/corpus/candidates/realistic-02.json",
+        "candidateId": "cachet"
+      }
+    },
+    {
+      "id": "repo-519",
+      "repo": "triggerdotdev/trigger.dev",
+      "commit": "3c7056abbd854e0c803fc7c3a95b094caee16b21",
+      "defaultBranch": "main",
+      "cohort": "realistic",
+      "appPath": ".",
+      "license": "Apache-2.0",
+      "family": "trigger.dev",
+      "labelBatch": 2,
+      "source": {
+        "file": "campaign/corpus/candidates/realistic-02.json",
+        "candidateId": "trigger-dev"
+      }
+    },
+    {
+      "id": "repo-520",
+      "repo": "mathesar-foundation/mathesar",
+      "commit": "0c05987885c93cdbe5bf9f7fa49b833d02a312cc",
+      "defaultBranch": "develop",
+      "cohort": "realistic",
+      "appPath": ".",
+      "license": "GPL-3.0",
+      "family": "mathesar",
+      "labelBatch": 2,
+      "source": {
+        "file": "campaign/corpus/candidates/realistic-02.json",
+        "candidateId": "mathesar"
+      }
+    },
+    {
+      "id": "repo-521",
+      "repo": "traefik/whoami",
+      "commit": "1ce75d01b6978863647da42557a707a479da3a51",
+      "defaultBranch": "master",
+      "cohort": "realistic",
+      "appPath": ".",
+      "license": "Apache-2.0",
+      "family": "go",
+      "labelBatch": 3,
+      "source": {
+        "file": "campaign/corpus/candidates/realistic-03.json",
+        "candidateId": "whoami"
+      }
+    },
+    {
+      "id": "repo-522",
+      "repo": "sigoden/dufs",
+      "commit": "fe7fd564f80dfbac361c8e0589c3845638149d38",
+      "defaultBranch": "main",
+      "cohort": "realistic",
+      "appPath": ".",
+      "license": "Apache-2.0",
+      "family": "rust",
+      "labelBatch": 3,
+      "source": {
+        "file": "campaign/corpus/candidates/realistic-03.json",
+        "candidateId": "dufs"
+      }
+    },
+    {
+      "id": "repo-523",
+      "repo": "Freika/dawarich",
+      "commit": "e32b70701b2467b862d4b5bc27ac428999997c1b",
+      "defaultBranch": "master",
+      "cohort": "realistic",
+      "appPath": ".",
+      "license": "AGPL-3.0",
+      "family": "ruby",
+      "labelBatch": 3,
+      "source": {
+        "file": "campaign/corpus/candidates/realistic-03.json",
+        "candidateId": "dawarich"
+      }
+    },
+    {
+      "id": "repo-524",
+      "repo": "miguelgrinberg/microblog",
+      "commit": "a975ef64864354867c88e0ed3a17ba7d17dca752",
+      "defaultBranch": "main",
+      "cohort": "realistic",
+      "appPath": ".",
+      "license": "MIT",
+      "family": "python",
+      "labelBatch": 3,
+      "source": {
+        "file": "campaign/corpus/candidates/realistic-03.json",
+        "candidateId": "microblog"
+      }
+    },
+    {
+      "id": "repo-525",
+      "repo": "gotson/komga",
+      "commit": "519e352aa894b2fdc80660f1dde21b98cf328e3e",
+      "defaultBranch": "master",
+      "cohort": "realistic",
+      "appPath": ".",
+      "license": "MIT",
+      "family": "kotlin",
+      "labelBatch": 3,
+      "source": {
+        "file": "campaign/corpus/candidates/realistic-03.json",
+        "candidateId": "komga"
+      }
+    },
+    {
+      "id": "repo-526",
+      "repo": "nopSolutions/nopCommerce",
+      "commit": "2f8f8a1ee5816845bf0bb5e30c09199e71e82e4c",
+      "defaultBranch": "develop",
+      "cohort": "realistic",
+      "appPath": ".",
+      "license": "NOASSERTION",
+      "family": "dotnet",
+      "labelBatch": 3,
+      "source": {
+        "file": "campaign/corpus/candidates/realistic-03.json",
+        "candidateId": "nopcommerce"
+      }
+    },
+    {
+      "id": "repo-527",
+      "repo": "parse-community/parse-server",
+      "commit": "0c4db0a18388277fd402ae695d793b47fc5528e3",
+      "defaultBranch": "alpha",
+      "cohort": "realistic",
+      "appPath": ".",
+      "license": "Apache-2.0",
+      "family": "parse-server",
+      "labelBatch": 3,
+      "source": {
+        "file": "campaign/corpus/candidates/realistic-03.json",
+        "candidateId": "parse-server"
+      }
+    },
+    {
+      "id": "repo-528",
+      "repo": "electric-sql/electric",
+      "commit": "3f9809fb0bd894cb74470d434749673492ad7acf",
+      "defaultBranch": "main",
+      "cohort": "realistic",
+      "appPath": ".",
+      "license": "Apache-2.0",
+      "family": "electric",
+      "labelBatch": 3,
+      "source": {
+        "file": "campaign/corpus/candidates/realistic-03.json",
+        "candidateId": "electric"
+      }
+    },
+    {
+      "id": "repo-529",
+      "repo": "grokability/snipe-it",
+      "commit": "18fb61ab50d2d87489bb90723a8e9611f5fe1f58",
+      "defaultBranch": "master",
+      "cohort": "realistic",
+      "appPath": ".",
+      "license": "AGPL-3.0",
+      "family": "snipe-it",
+      "labelBatch": 3,
+      "source": {
+        "file": "campaign/corpus/candidates/realistic-03.json",
+        "candidateId": "snipe-it"
+      }
+    },
+    {
+      "id": "repo-530",
+      "repo": "hibiken/asynqmon",
+      "commit": "d1b889456de3c98c22de24642b6f836a29da3140",
+      "defaultBranch": "master",
+      "cohort": "realistic",
+      "appPath": ".",
+      "license": "MIT",
+      "family": "asynqmon",
+      "labelBatch": 3,
+      "source": {
+        "file": "campaign/corpus/candidates/realistic-03.json",
+        "candidateId": "asynqmon"
+      }
+    },
+    {
+      "id": "repo-531",
+      "repo": "sissbruecker/linkding",
+      "commit": "27b7303baf41bb28babc610ac8eaa486e1ddfab5",
+      "defaultBranch": "master",
+      "cohort": "realistic",
+      "appPath": ".",
+      "license": "MIT",
+      "family": "python",
+      "labelBatch": 4,
+      "source": {
+        "file": "campaign/corpus/candidates/realistic-04.json",
+        "candidateId": "linkding"
+      }
+    },
+    {
+      "id": "repo-532",
+      "repo": "pretix/pretix",
+      "commit": "ba36d649c6ed1dde278c35d9ae4e609723c78bce",
+      "defaultBranch": "master",
+      "cohort": "realistic",
+      "appPath": ".",
+      "license": "NOASSERTION",
+      "family": "python",
+      "labelBatch": 4,
+      "source": {
+        "file": "campaign/corpus/candidates/realistic-04.json",
+        "candidateId": "pretix"
+      }
+    },
+    {
+      "id": "repo-533",
+      "repo": "atuinsh/atuin",
+      "commit": "184200a6cc1e747dcdc8f58c97bf72c52179d57f",
+      "defaultBranch": "main",
+      "cohort": "realistic",
+      "appPath": ".",
+      "license": "MIT",
+      "family": "rust",
+      "labelBatch": 4,
+      "source": {
+        "file": "campaign/corpus/candidates/realistic-04.json",
+        "candidateId": "atuin"
+      }
+    },
+    {
+      "id": "repo-534",
+      "repo": "hapifhir/hapi-fhir-jpaserver-starter",
+      "commit": "377e6eba316920082e6a90551b488e4599a71eb8",
+      "defaultBranch": "master",
+      "cohort": "realistic",
+      "appPath": ".",
+      "license": "Apache-2.0",
+      "family": "java",
+      "labelBatch": 4,
+      "source": {
+        "file": "campaign/corpus/candidates/realistic-04.json",
+        "candidateId": "hapi-fhir-jpaserver-starter"
+      }
+    },
+    {
+      "id": "repo-535",
+      "repo": "we-promise/sure",
+      "commit": "00dd977fbad504b56af1921ec3c34fcd1925218c",
+      "defaultBranch": "main",
+      "cohort": "realistic",
+      "appPath": ".",
+      "license": "AGPL-3.0",
+      "family": "ruby",
+      "labelBatch": 4,
+      "source": {
+        "file": "campaign/corpus/candidates/realistic-04.json",
+        "candidateId": "sure"
+      }
+    },
+    {
+      "id": "repo-536",
+      "repo": "InvoiceShelf/InvoiceShelf",
+      "commit": "ef9e9cbc9987fe5083867374cc46637029eff868",
+      "defaultBranch": "3.x",
+      "cohort": "realistic",
+      "appPath": ".",
+      "license": "AGPL-3.0",
+      "family": "php",
+      "labelBatch": 4,
+      "source": {
+        "file": "campaign/corpus/candidates/realistic-04.json",
+        "candidateId": "invoiceshelf"
+      }
+    },
+    {
+      "id": "repo-537",
+      "repo": "actualbudget/actual",
+      "commit": "5240d5b051ac0a994dd2ed05cf6fbe64a9d3b013",
+      "defaultBranch": "master",
+      "cohort": "realistic",
+      "appPath": ".",
+      "license": "MIT",
+      "family": "node",
+      "labelBatch": 4,
+      "source": {
+        "file": "campaign/corpus/candidates/realistic-04.json",
+        "candidateId": "actual"
+      }
+    },
+    {
+      "id": "repo-538",
+      "repo": "pocketbase/pocketbase",
+      "commit": "5cec579da984436a258602a46a96302fbd31f77c",
+      "defaultBranch": "master",
+      "cohort": "realistic",
+      "appPath": ".",
+      "license": "MIT",
+      "family": "go",
+      "labelBatch": 4,
+      "source": {
+        "file": "campaign/corpus/candidates/realistic-04.json",
+        "candidateId": "pocketbase"
+      }
+    },
+    {
+      "id": "repo-539",
+      "repo": "navidrome/navidrome",
+      "commit": "52135913d4747c8f8ddcfd8e7004202b8f53b594",
+      "defaultBranch": "master",
+      "cohort": "realistic",
+      "appPath": ".",
+      "license": "GPL-3.0",
+      "family": "go",
+      "labelBatch": 4,
+      "source": {
+        "file": "campaign/corpus/candidates/realistic-04.json",
+        "candidateId": "navidrome"
+      }
+    },
+    {
+      "id": "repo-540",
+      "repo": "excalidraw/excalidraw",
+      "commit": "4c00f31ddcc20086bac1020428819fe0b9a30bce",
+      "defaultBranch": "master",
+      "cohort": "realistic",
+      "appPath": ".",
+      "license": "MIT",
+      "family": "node",
+      "labelBatch": 4,
+      "source": {
+        "file": "campaign/corpus/candidates/realistic-04.json",
+        "candidateId": "excalidraw"
+      }
+    },
+    {
+      "id": "repo-541",
+      "repo": "Dictionarry-Hub/profilarr",
+      "commit": "7fec444c1dc660b261b72c55a685b9e8f6957ea6",
+      "defaultBranch": "develop",
+      "cohort": "realistic",
+      "appPath": ".",
+      "license": "AGPL-3.0",
+      "family": "deno",
+      "labelBatch": 5,
+      "source": {
+        "file": "campaign/corpus/candidates/realistic-05.json",
+        "candidateId": "profilarr"
+      }
+    },
+    {
+      "id": "repo-542",
+      "repo": "C4illin/ConvertX",
+      "commit": "70675b9910d6827bbdb7f27e7bd96f23237e3a4f",
+      "defaultBranch": "main",
+      "cohort": "realistic",
+      "appPath": ".",
+      "license": "AGPL-3.0",
+      "family": "bun",
+      "labelBatch": 5,
+      "source": {
+        "file": "campaign/corpus/candidates/realistic-05.json",
+        "candidateId": "convertx"
+      }
+    },
+    {
+      "id": "repo-543",
+      "repo": "teslamate-org/teslamate",
+      "commit": "96119f65a98ecc2f6d3584c07af4d0b952326daa",
+      "defaultBranch": "main",
+      "cohort": "realistic",
+      "appPath": ".",
+      "license": "AGPL-3.0",
+      "family": "elixir",
+      "labelBatch": 5,
+      "source": {
+        "file": "campaign/corpus/candidates/realistic-05.json",
+        "candidateId": "teslamate"
+      }
+    },
+    {
+      "id": "repo-544",
+      "repo": "Kareadita/Kavita",
+      "commit": "f75863cb77c0f6aa26e0794a1848294e63c9d07d",
+      "defaultBranch": "develop",
+      "cohort": "realistic",
+      "appPath": ".",
+      "license": "GPL-3.0",
+      "family": "dotnet",
+      "labelBatch": 5,
+      "source": {
+        "file": "campaign/corpus/candidates/realistic-05.json",
+        "candidateId": "kavita"
+      }
+    },
+    {
+      "id": "repo-545",
+      "repo": "umputun/remark42",
+      "commit": "419ef4f0bd817e9217a5ce0d808fb3acc192972d",
+      "defaultBranch": "master",
+      "cohort": "realistic",
+      "appPath": ".",
+      "license": "MIT",
+      "family": "go",
+      "labelBatch": 5,
+      "source": {
+        "file": "campaign/corpus/candidates/realistic-05.json",
+        "candidateId": "remark42"
+      }
+    },
+    {
+      "id": "repo-546",
+      "repo": "ether/etherpad",
+      "commit": "8b6f9e462f712c3d15d8941e85e12f70dc4693f4",
+      "defaultBranch": "develop",
+      "cohort": "realistic",
+      "appPath": ".",
+      "license": "Apache-2.0",
+      "family": "node",
+      "labelBatch": 5,
+      "source": {
+        "file": "campaign/corpus/candidates/realistic-05.json",
+        "candidateId": "etherpad"
+      }
+    },
+    {
+      "id": "repo-547",
+      "repo": "wagtail/bakerydemo",
+      "commit": "c8f8255593c0efcfab5fef2fb19d60895227748a",
+      "defaultBranch": "main",
+      "cohort": "realistic",
+      "appPath": ".",
+      "license": "BSD-3-Clause",
+      "family": "python",
+      "labelBatch": 5,
+      "source": {
+        "file": "campaign/corpus/candidates/realistic-05.json",
+        "candidateId": "bakerydemo"
+      }
+    },
+    {
+      "id": "repo-548",
+      "repo": "Leantime/leantime",
+      "commit": "dab5daae888b2148b6af80453402a5ae88cf6b56",
+      "defaultBranch": "master",
+      "cohort": "realistic",
+      "appPath": ".",
+      "license": "AGPL-3.0",
+      "family": "php",
+      "labelBatch": 5,
+      "source": {
+        "file": "campaign/corpus/candidates/realistic-05.json",
+        "candidateId": "leantime"
+      }
+    },
+    {
+      "id": "repo-549",
+      "repo": "zammad/zammad",
+      "commit": "abbd632a08bf6468467ce1a093c3b50744008f95",
+      "defaultBranch": "develop",
+      "cohort": "realistic",
+      "appPath": ".",
+      "license": "AGPL-3.0",
+      "family": "ruby",
+      "labelBatch": 5,
+      "source": {
+        "file": "campaign/corpus/candidates/realistic-05.json",
+        "candidateId": "zammad"
+      }
+    },
+    {
+      "id": "repo-550",
+      "repo": "binwiederhier/ntfy",
+      "commit": "b475ae8851f4d1519d150091a446debf6f24b11b",
+      "defaultBranch": "main",
+      "cohort": "realistic",
+      "appPath": ".",
+      "license": "Apache-2.0",
+      "family": "go",
+      "labelBatch": 5,
+      "source": {
+        "file": "campaign/corpus/candidates/realistic-05.json",
+        "candidateId": "ntfy"
+      }
+    },
+    {
+      "id": "repo-551",
+      "repo": "spliit-app/spliit",
+      "commit": "b73d551a6dea3a27f3d5d42a805b86edcb1ee651",
+      "defaultBranch": "main",
+      "cohort": "realistic",
+      "appPath": ".",
+      "license": "MIT",
+      "family": "nextjs",
+      "labelBatch": 6,
+      "source": {
+        "file": "campaign/corpus/candidates/realistic-06.json",
+        "candidateId": "spliit"
+      }
+    },
+    {
+      "id": "repo-552",
+      "repo": "misskey-dev/misskey",
+      "commit": "5f501341d49d2bc3fa7e817ce7548a82174326eb",
+      "defaultBranch": "develop",
+      "cohort": "realistic",
+      "appPath": ".",
+      "license": "AGPL-3.0",
+      "family": "nodejs",
+      "labelBatch": 6,
+      "source": {
+        "file": "campaign/corpus/candidates/realistic-06.json",
+        "candidateId": "misskey"
+      }
+    },
+    {
+      "id": "repo-553",
+      "repo": "milesmcc/shynet",
+      "commit": "ca35caba3af2b888acc990b99152c500a1c44461",
+      "defaultBranch": "master",
+      "cohort": "realistic",
+      "appPath": ".",
+      "license": "Apache-2.0",
+      "family": "django",
+      "labelBatch": 6,
+      "source": {
+        "file": "campaign/corpus/candidates/realistic-06.json",
+        "candidateId": "shynet"
+      }
+    },
+    {
+      "id": "repo-554",
+      "repo": "axllent/mailpit",
+      "commit": "b8603907d47334fc6fdc43e4eb1b230d0bbf7303",
+      "defaultBranch": "develop",
+      "cohort": "realistic",
+      "appPath": ".",
+      "license": "MIT",
+      "family": "go",
+      "labelBatch": 6,
+      "source": {
+        "file": "campaign/corpus/candidates/realistic-06.json",
+        "candidateId": "mailpit"
+      }
+    },
+    {
+      "id": "repo-555",
+      "repo": "msgbyte/tianji",
+      "commit": "45578dd32121319c28d3bc5abffa70c225631eb2",
+      "defaultBranch": "master",
+      "cohort": "realistic",
+      "appPath": ".",
+      "license": "Apache-2.0",
+      "family": "nodejs",
+      "labelBatch": 6,
+      "source": {
+        "file": "campaign/corpus/candidates/realistic-06.json",
+        "candidateId": "tianji"
+      }
+    },
+    {
+      "id": "repo-556",
+      "repo": "muety/wakapi",
+      "commit": "a8d88056932881329845609a749025a1513564db",
+      "defaultBranch": "master",
+      "cohort": "realistic",
+      "appPath": ".",
+      "license": "MIT",
+      "family": "go",
+      "labelBatch": 6,
+      "source": {
+        "file": "campaign/corpus/candidates/realistic-06.json",
+        "candidateId": "wakapi"
+      }
+    },
+    {
+      "id": "repo-557",
+      "repo": "sqlpage/SQLPage",
+      "commit": "78f310a0194fb809ffb27e4fa0e29d81d814badb",
+      "defaultBranch": "main",
+      "cohort": "realistic",
+      "appPath": ".",
+      "license": "MIT",
+      "family": "rust",
+      "labelBatch": 6,
+      "source": {
+        "file": "campaign/corpus/candidates/realistic-06.json",
+        "candidateId": "sqlpage"
+      }
+    },
+    {
+      "id": "repo-558",
+      "repo": "orhun/rustypaste",
+      "commit": "161a104c618889ddd2b17acbe124d593d97e47c4",
+      "defaultBranch": "master",
+      "cohort": "realistic",
+      "appPath": ".",
+      "license": "MIT",
+      "family": "rust",
+      "labelBatch": 6,
+      "source": {
+        "file": "campaign/corpus/candidates/realistic-06.json",
+        "candidateId": "rustypaste"
+      }
+    },
+    {
+      "id": "repo-559",
+      "repo": "sebadob/rauthy",
+      "commit": "79bdf2eb6fb01d1f86f2e99ee718036d04201204",
+      "defaultBranch": "main",
+      "cohort": "realistic",
+      "appPath": ".",
+      "license": "Apache-2.0",
+      "family": "rust",
+      "labelBatch": 6,
+      "source": {
+        "file": "campaign/corpus/candidates/realistic-06.json",
+        "candidateId": "rauthy"
+      }
+    },
+    {
+      "id": "repo-560",
+      "repo": "rajnandan1/kener",
+      "commit": "74a6228b862f276c4f42177b340ae997fe9dfca2",
+      "defaultBranch": "main",
+      "cohort": "realistic",
+      "appPath": ".",
+      "license": "MIT",
+      "family": "nodejs",
+      "labelBatch": 6,
+      "source": {
+        "file": "campaign/corpus/candidates/realistic-06.json",
+        "candidateId": "kener"
+      }
+    },
+    {
+      "id": "repo-561",
+      "repo": "kestra-io/kestra",
+      "commit": "af6395aed86ca48bec7068275f91a789d80f660b",
+      "defaultBranch": "develop",
+      "cohort": "realistic",
+      "appPath": ".",
+      "license": "Apache-2.0",
+      "family": "java",
+      "labelBatch": 7,
+      "source": {
+        "file": "campaign/corpus/candidates/realistic-07.json",
+        "candidateId": "kestra"
+      }
+    },
+    {
+      "id": "repo-562",
+      "repo": "Part-DB/Part-DB-server",
+      "commit": "a108b6d6cdca47947b58536081f9fabf3b0569c8",
+      "defaultBranch": "master",
+      "cohort": "realistic",
+      "appPath": ".",
+      "license": "AGPL-3.0",
+      "family": "php",
+      "labelBatch": 7,
+      "source": {
+        "file": "campaign/corpus/candidates/realistic-07.json",
+        "candidateId": "part-db"
+      }
+    },
+    {
+      "id": "repo-563",
+      "repo": "LycheeOrg/Lychee",
+      "commit": "5e13568285f938c8852622ca0c4265c9430322ca",
+      "defaultBranch": "master",
+      "cohort": "realistic",
+      "appPath": ".",
+      "license": "MIT",
+      "family": "php",
+      "labelBatch": 7,
+      "source": {
+        "file": "campaign/corpus/candidates/realistic-07.json",
+        "candidateId": "lychee"
+      }
+    },
+    {
+      "id": "repo-564",
+      "repo": "getlago/lago-api",
+      "commit": "7df8e11e481a60cdeca171a05e3fb4538208de5a",
+      "defaultBranch": "main",
+      "cohort": "realistic",
+      "appPath": ".",
+      "license": "AGPL-3.0",
+      "family": "ruby",
+      "labelBatch": 7,
+      "source": {
+        "file": "campaign/corpus/candidates/realistic-07.json",
+        "candidateId": "lago-api"
+      }
+    },
+    {
+      "id": "repo-565",
+      "repo": "open-webui/open-webui",
+      "commit": "8bd8b4fac5e059578ac0c74b3c18d11139f88b7d",
+      "defaultBranch": "main",
+      "cohort": "realistic",
+      "appPath": ".",
+      "license": "NOASSERTION",
+      "family": "python",
+      "labelBatch": 7,
+      "source": {
+        "file": "campaign/corpus/candidates/realistic-07.json",
+        "candidateId": "open-webui"
+      }
+    },
+    {
+      "id": "repo-566",
+      "repo": "openfga/openfga",
+      "commit": "526995eb202464e2cace266fb5be56c212af9ecf",
+      "defaultBranch": "main",
+      "cohort": "realistic",
+      "appPath": ".",
+      "license": "Apache-2.0",
+      "family": "go",
+      "labelBatch": 7,
+      "source": {
+        "file": "campaign/corpus/candidates/realistic-07.json",
+        "candidateId": "openfga"
+      }
+    },
+    {
+      "id": "repo-567",
+      "repo": "cloudreve/cloudreve",
+      "commit": "9f1e0b8333f5c7304a09e1dcb3f9c170dddd63f3",
+      "defaultBranch": "master",
+      "cohort": "realistic",
+      "appPath": ".",
+      "license": "GPL-3.0",
+      "family": "go",
+      "labelBatch": 7,
+      "source": {
+        "file": "campaign/corpus/candidates/realistic-07.json",
+        "candidateId": "cloudreve"
+      }
+    },
+    {
+      "id": "repo-568",
+      "repo": "Dokploy/dokploy",
+      "commit": "5be17d3dd01d9489521cde2eca7d997b14c54653",
+      "defaultBranch": "canary",
+      "cohort": "realistic",
+      "appPath": ".",
+      "license": "NOASSERTION",
+      "family": "node",
+      "labelBatch": 7,
+      "source": {
+        "file": "campaign/corpus/candidates/realistic-07.json",
+        "candidateId": "dokploy"
+      }
+    },
+    {
+      "id": "repo-569",
+      "repo": "activepieces/activepieces",
+      "commit": "6f408036fdc92752506815df43c21a96b4e75a46",
+      "defaultBranch": "main",
+      "cohort": "realistic",
+      "appPath": ".",
+      "license": "NOASSERTION",
+      "family": "node",
+      "labelBatch": 7,
+      "source": {
+        "file": "campaign/corpus/candidates/realistic-07.json",
+        "candidateId": "activepieces"
+      }
+    },
+    {
+      "id": "repo-570",
+      "repo": "dexidp/dex",
+      "commit": "05a275057112ba93e17db21f600b756f000f1c21",
+      "defaultBranch": "master",
+      "cohort": "realistic",
+      "appPath": ".",
+      "license": "Apache-2.0",
+      "family": "go",
+      "labelBatch": 7,
+      "source": {
+        "file": "campaign/corpus/candidates/realistic-07.json",
+        "candidateId": "dex"
+      }
+    },
+    {
+      "id": "repo-571",
+      "repo": "firezone/firezone",
+      "commit": "29ee99456ae20d839667bbb4d143b0eb97091607",
+      "defaultBranch": "main",
+      "cohort": "messy",
+      "appPath": "elixir",
+      "license": "Apache-2.0",
+      "family": "elixir",
+      "labelBatch": 8,
+      "source": {
+        "file": "campaign/corpus/candidates/messy-01.json",
+        "candidateId": "firezone"
+      }
+    },
+    {
+      "id": "repo-572",
+      "repo": "Mintplex-Labs/anything-llm",
+      "commit": "3c7e73b8104e25327b9db3c4a8eeaf3ac4af237f",
+      "defaultBranch": "master",
+      "cohort": "messy",
+      "appPath": ".",
+      "license": "MIT",
+      "family": "node",
+      "labelBatch": 8,
+      "source": {
+        "file": "campaign/corpus/candidates/messy-01.json",
+        "candidateId": "anything-llm"
+      }
+    },
+    {
+      "id": "repo-573",
+      "repo": "mem0ai/mem0",
+      "commit": "b7ad69afda6b6ed030347c66d48a13e4de9dec08",
+      "defaultBranch": "main",
+      "cohort": "messy",
+      "appPath": "server",
+      "license": "Apache-2.0",
+      "family": "python",
+      "labelBatch": 8,
+      "source": {
+        "file": "campaign/corpus/candidates/messy-01.json",
+        "candidateId": "mem0-server"
+      }
+    },
+    {
+      "id": "repo-574",
+      "repo": "lobsters/lobsters",
+      "commit": "9fefd21bee25e4b4fddcfc318023b2d8cd7d8a5e",
+      "defaultBranch": "main",
+      "cohort": "messy",
+      "appPath": ".",
+      "license": "NOASSERTION",
+      "family": "ruby",
+      "labelBatch": 8,
+      "source": {
+        "file": "campaign/corpus/candidates/messy-01.json",
+        "candidateId": "lobsters"
+      }
+    },
+    {
+      "id": "repo-575",
+      "repo": "traccar/traccar",
+      "commit": "323cdae38fdf101ea13b97196cfbdcb259101ed7",
+      "defaultBranch": "master",
+      "cohort": "messy",
+      "appPath": ".",
+      "license": "Apache-2.0",
+      "family": "java",
+      "labelBatch": 8,
+      "source": {
+        "file": "campaign/corpus/candidates/messy-01.json",
+        "candidateId": "traccar"
+      }
+    },
+    {
+      "id": "repo-576",
+      "repo": "btcpayserver/btcpayserver",
+      "commit": "cbee1f8c782f0f3c8fa5457cf4a3a47e92c0e059",
+      "defaultBranch": "master",
+      "cohort": "messy",
+      "appPath": "BTCPayServer",
+      "license": "MIT",
+      "family": "dotnet",
+      "labelBatch": 8,
+      "source": {
+        "file": "campaign/corpus/candidates/messy-01.json",
+        "candidateId": "btcpayserver"
+      }
+    },
+    {
+      "id": "repo-577",
+      "repo": "woodpecker-ci/woodpecker",
+      "commit": "5e87e8acf9f2458a1667268468afbbf3a546d111",
+      "defaultBranch": "main",
+      "cohort": "messy",
+      "appPath": ".",
+      "license": "Apache-2.0",
+      "family": "go",
+      "labelBatch": 8,
+      "source": {
+        "file": "campaign/corpus/candidates/messy-01.json",
+        "candidateId": "woodpecker"
+      }
+    },
+    {
+      "id": "repo-578",
+      "repo": "lldap/lldap",
+      "commit": "99c510a7a603df1cdaca00a9ffff95ec73b296eb",
+      "defaultBranch": "main",
+      "cohort": "messy",
+      "appPath": ".",
+      "license": "GPL-3.0",
+      "family": "rust",
+      "labelBatch": 8,
+      "source": {
+        "file": "campaign/corpus/candidates/messy-01.json",
+        "candidateId": "lldap"
+      }
+    },
+    {
+      "id": "repo-579",
+      "repo": "akaunting/akaunting",
+      "commit": "c76e98112bbb1c5e1dce61f9beb2dc75a07d153b",
+      "defaultBranch": "master",
+      "cohort": "messy",
+      "appPath": ".",
+      "license": "NOASSERTION",
+      "family": "php",
+      "labelBatch": 8,
+      "source": {
+        "file": "campaign/corpus/candidates/messy-01.json",
+        "candidateId": "akaunting"
+      }
+    },
+    {
+      "id": "repo-580",
+      "repo": "ridafkih/keeper.sh",
+      "commit": "06ffc53df8634c47272710c4cbf5a5148eeee08b",
+      "defaultBranch": "main",
+      "cohort": "messy",
+      "appPath": ".",
+      "license": "AGPL-3.0",
+      "family": "bun",
+      "labelBatch": 8,
+      "source": {
+        "file": "campaign/corpus/candidates/messy-01.json",
+        "candidateId": "keeper-sh"
+      }
+    },
+    {
+      "id": "repo-581",
+      "repo": "vikiboss/60s",
+      "commit": "d582aa65d44f76e91c434174c9cf44684d30755f",
+      "defaultBranch": "main",
+      "cohort": "messy",
+      "appPath": ".",
+      "license": "MIT",
+      "family": "deno",
+      "labelBatch": 9,
+      "source": {
+        "file": "campaign/corpus/candidates/messy-02.json",
+        "candidateId": "60s"
+      }
+    },
+    {
+      "id": "repo-582",
+      "repo": "TriliumNext/Trilium",
+      "commit": "fba16cdb1b59e8a3cf46a36137159df9736d835c",
+      "defaultBranch": "main",
+      "cohort": "messy",
+      "appPath": "apps/server",
+      "license": "AGPL-3.0",
+      "family": "node",
+      "labelBatch": 9,
+      "source": {
+        "file": "campaign/corpus/candidates/messy-02.json",
+        "candidateId": "trilium"
+      }
+    },
+    {
+      "id": "repo-583",
+      "repo": "TryGhost/Ghost",
+      "commit": "1867c8aa836eee9cc1e7bdea994f32d8461d3c46",
+      "defaultBranch": "main",
+      "cohort": "messy",
+      "appPath": "ghost/core",
+      "license": "MIT",
+      "family": "node",
+      "labelBatch": 9,
+      "source": {
+        "file": "campaign/corpus/candidates/messy-02.json",
+        "candidateId": "ghost"
+      }
+    },
+    {
+      "id": "repo-584",
+      "repo": "bluewave-labs/Checkmate",
+      "commit": "523f6a79a1c2071bed60301306c8d054c79673de",
+      "defaultBranch": "develop",
+      "cohort": "messy",
+      "appPath": "server",
+      "license": "AGPL-3.0",
+      "family": "node",
+      "labelBatch": 9,
+      "source": {
+        "file": "campaign/corpus/candidates/messy-02.json",
+        "candidateId": "checkmate"
+      }
+    },
+    {
+      "id": "repo-585",
+      "repo": "janeczku/calibre-web",
+      "commit": "6e840acbda8d62fdd159bf3855c01872d629a914",
+      "defaultBranch": "master",
+      "cohort": "messy",
+      "appPath": ".",
+      "license": "GPL-3.0",
+      "family": "python",
+      "labelBatch": 9,
+      "source": {
+        "file": "campaign/corpus/candidates/messy-02.json",
+        "candidateId": "calibre-web"
+      }
+    },
+    {
+      "id": "repo-586",
+      "repo": "appsmithorg/appsmith",
+      "commit": "4b4d52cbe621ab37c4ded93de7b6ca17ba44edb6",
+      "defaultBranch": "release",
+      "cohort": "messy",
+      "appPath": "app/server",
+      "license": "Apache-2.0",
+      "family": "java",
+      "labelBatch": 9,
+      "source": {
+        "file": "campaign/corpus/candidates/messy-02.json",
+        "candidateId": "appsmith"
+      }
+    },
+    {
+      "id": "repo-587",
+      "repo": "rybbit-io/rybbit",
+      "commit": "90e4f85756fe8c6fda7775f3cfb45d0a2d5830da",
+      "defaultBranch": "master",
+      "cohort": "messy",
+      "appPath": "server",
+      "license": "AGPL-3.0",
+      "family": "node",
+      "labelBatch": 9,
+      "source": {
+        "file": "campaign/corpus/candidates/messy-02.json",
+        "candidateId": "rybbit"
+      }
+    },
+    {
+      "id": "repo-588",
+      "repo": "mautic/mautic",
+      "commit": "6d4a4b2981600915872aef6fdeee0f8d8595d60b",
+      "defaultBranch": "7.x",
+      "cohort": "messy",
+      "appPath": ".",
+      "license": "NOASSERTION",
+      "family": "php",
+      "labelBatch": 9,
+      "source": {
+        "file": "campaign/corpus/candidates/messy-02.json",
+        "candidateId": "mautic"
+      }
+    },
+    {
+      "id": "repo-589",
+      "repo": "opf/openproject",
+      "commit": "df3826b28eddd5f2e9c7ab72a07a0dc8c5351df6",
+      "defaultBranch": "dev",
+      "cohort": "messy",
+      "appPath": ".",
+      "license": "GPL-3.0",
+      "family": "ruby",
+      "labelBatch": 9,
+      "source": {
+        "file": "campaign/corpus/candidates/messy-02.json",
+        "candidateId": "openproject"
+      }
+    },
+    {
+      "id": "repo-590",
+      "repo": "grocy/grocy",
+      "commit": "41206cb90154e0d17d3e108cc1f182b94fdb465d",
+      "defaultBranch": "master",
+      "cohort": "messy",
+      "appPath": ".",
+      "license": "MIT",
+      "family": "php",
+      "labelBatch": 9,
+      "source": {
+        "file": "campaign/corpus/candidates/messy-02.json",
+        "candidateId": "grocy"
+      }
+    },
+    {
+      "id": "repo-591",
+      "repo": "nightscout/cgm-remote-monitor",
+      "commit": "92d0834219aa771b5837dbcbf1baeb839a200cf6",
+      "defaultBranch": "master",
+      "cohort": "boundary",
+      "appPath": ".",
+      "license": "AGPL-3.0",
+      "family": "nightscout",
+      "labelBatch": 10,
+      "source": {
+        "file": "campaign/corpus/candidates/boundary-01.json",
+        "candidateId": "nightscout"
+      }
+    },
+    {
+      "id": "repo-592",
+      "repo": "advplyr/audiobookshelf",
+      "commit": "743d9152208507a1dbf7c95c94290071338f44bd",
+      "defaultBranch": "master",
+      "cohort": "boundary",
+      "appPath": ".",
+      "license": "GPL-3.0",
+      "family": "audiobookshelf",
+      "labelBatch": 10,
+      "source": {
+        "file": "campaign/corpus/candidates/boundary-01.json",
+        "candidateId": "audiobookshelf"
+      }
+    },
+    {
+      "id": "repo-593",
+      "repo": "glanceapp/glance",
+      "commit": "372466c6d75318670dc66e4e452179350fc50c97",
+      "defaultBranch": "main",
+      "cohort": "boundary",
+      "appPath": ".",
+      "license": "AGPL-3.0",
+      "family": "glance",
+      "labelBatch": 10,
+      "source": {
+        "file": "campaign/corpus/candidates/boundary-01.json",
+        "candidateId": "glance"
+      }
+    },
+    {
+      "id": "repo-594",
+      "repo": "invoke-ai/InvokeAI",
+      "commit": "c7a1b55be06e208fccdd06fa8a9ce9f3ce1ed5c7",
+      "defaultBranch": "main",
+      "cohort": "boundary",
+      "appPath": ".",
+      "license": "Apache-2.0",
+      "family": "invokeai",
+      "labelBatch": 10,
+      "source": {
+        "file": "campaign/corpus/candidates/boundary-01.json",
+        "candidateId": "invokeai"
+      }
+    },
+    {
+      "id": "repo-595",
+      "repo": "kubero-dev/kubero",
+      "commit": "36a5046c379c5e9e5e0b2c1b80c218bfaa811144",
+      "defaultBranch": "main",
+      "cohort": "boundary",
+      "appPath": "server",
+      "license": "GPL-3.0",
+      "family": "kubero",
+      "labelBatch": 10,
+      "source": {
+        "file": "campaign/corpus/candidates/boundary-01.json",
+        "candidateId": "kubero"
+      }
+    },
+    {
+      "id": "repo-596",
+      "repo": "dnnsoftware/Dnn.Platform",
+      "commit": "206201c84855ff4b5b6499e135b04a86e2ce0580",
+      "defaultBranch": "develop",
+      "cohort": "boundary",
+      "appPath": "DNN Platform/Website",
+      "license": "MIT",
+      "family": "dnn",
+      "labelBatch": 10,
+      "source": {
+        "file": "campaign/corpus/candidates/boundary-01.json",
+        "candidateId": "dnn-platform"
+      }
+    },
+    {
+      "id": "repo-597",
+      "repo": "Openpanel-dev/openpanel",
+      "commit": "7c4d22ae4b6b20fb08eb5c94a0cd3cfebb3d32ca",
+      "defaultBranch": "main",
+      "cohort": "boundary",
+      "appPath": "apps/api",
+      "license": "AGPL-3.0",
+      "family": "openpanel",
+      "labelBatch": 10,
+      "source": {
+        "file": "campaign/corpus/candidates/boundary-01.json",
+        "candidateId": "openpanel"
+      }
+    },
+    {
+      "id": "repo-598",
+      "repo": "tchiotludo/akhq",
+      "commit": "4440816b892070fb7ba651a40d09a9e8bffac503",
+      "defaultBranch": "dev",
+      "cohort": "boundary",
+      "appPath": ".",
+      "license": "Apache-2.0",
+      "family": "akhq",
+      "labelBatch": 10,
+      "source": {
+        "file": "campaign/corpus/candidates/boundary-01.json",
+        "candidateId": "akhq"
+      }
+    },
+    {
+      "id": "repo-599",
+      "repo": "opensearch-project/OpenSearch-Dashboards",
+      "commit": "c860eedf96d8f34f2240bae1c6c67bdebd2ede55",
+      "defaultBranch": "main",
+      "cohort": "boundary",
+      "appPath": ".",
+      "license": "Apache-2.0",
+      "family": "opensearch-dashboards",
+      "labelBatch": 10,
+      "source": {
+        "file": "campaign/corpus/candidates/boundary-01.json",
+        "candidateId": "opensearch-dashboards"
+      }
+    },
+    {
+      "id": "repo-600",
+      "repo": "rancher/rancher",
+      "commit": "28deadd2bb635bfa42746354a94974a281286e1c",
+      "defaultBranch": "main",
+      "cohort": "boundary",
+      "appPath": ".",
+      "license": "Apache-2.0",
+      "family": "rancher",
+      "labelBatch": 10,
+      "source": {
+        "file": "campaign/corpus/candidates/boundary-01.json",
+        "candidateId": "rancher"
+      }
+    }
+  ]
+}

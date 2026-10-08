@@ -4,8 +4,8 @@
   "status": "CONTINUE",
   "phase": 1,
   "currentTask": null,
-  "nextAction": "Run P1-FREEZE-CORPUS (Opus, timebox 20) as the first task of the next run.",
-  "updatedAt": "2026-10-08T13:40:10Z",
+  "nextAction": "Run P1-LABEL-01 (campaign-worker; corpus.json entries with labelBatch 1 only).",
+  "updatedAt": "2026-10-08T13:41:42Z",
   "checkout": {
     "path": "C:/Users/Tejas/Desktop/deployz-mvp-test",
     "kind": "git worktree of C:/Users/Tejas/Desktop/deployz",
@@ -103,6 +103,10 @@
     {
       "commit": "e6a3b58ee2363923fef21faca86611fa3bf84538",
       "task": "P1-SELECT-BOUNDARY-01"
+    },
+    {
+      "commit": "e6a3b58ee2363923fef21faca86611fa3bf84538",
+      "task": "P1-FREEZE-CORPUS"
     }
   ],
   "attempts": {
@@ -124,13 +128,14 @@
     "P1-SELECT-REALISTIC-07": 1,
     "P1-SELECT-MESSY-01": 1,
     "P1-SELECT-MESSY-02": 1,
-    "P1-SELECT-BOUNDARY-01": 1
+    "P1-SELECT-BOUNDARY-01": 1,
+    "P1-FREEZE-CORPUS": 1
   },
   "lastResult": {
-    "taskId": "P1-SELECT-BOUNDARY-01",
+    "taskId": "P1-FREEZE-CORPUS",
     "status": "COMPLETE",
-    "at": "2026-10-08T13:40:10Z",
-    "summary": "10 boundary candidates in campaign/corpus/candidates/boundary-01.json: nightscout/cgm-remote-monitor (MongoDB), advplyr/audiobookshelf (SQLite + local disk), glanceapp/glance (mounted config file), invoke-ai/InvokeAI (GPU), kubero-dev/kubero (Kubernetes-only), dnnsoftware/Dnn.Platform (Windows), Openpanel-dev/openpanel (worker with a second Dockerfile + ClickHouse), tchiotludo/akhq (Kafka), rancher/rancher (privileged), opensearch-project/OpenSearch-Dashboards (OpenSearch store). Each reason cites docs/product/mvp-scope.md non-goals. Opus rejected pterodactyl/panel (MySQL works and RDS MySQL is in scope, so MariaDB is not a clear boundary); the worker replaced it in the same attempt. Opus re-verified all 10 SHAs with gh api, archived/fork false, no match in excluded-families.json or earlier batches; benchmark.yaml whole-word hits 0 (one incidental opensearch service note per worker)."
+    "at": "2026-10-08T13:41:42Z",
+    "summary": "Corpus frozen: campaign/corpus/corpus.json (100 entries repo-501..repo-600; 70 realistic, 20 messy, 10 boundary; no benchmark.yaml id collision), split.json (seed deployz-fresh-100/P1-FREEZE-CORPUS/2026-10-08, sha256 rank per cohort; improvement 56/16/8, holdout 14/4/2), holdout.yaml (20 ids and pins). Holdout membership only in split.json and holdout.yaml; all phase 1-5 worker tasks forbid holdout.yaml."
   },
   "gates": {
     "smokeReviewed": true,

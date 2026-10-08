@@ -703,7 +703,7 @@
       "phase": 1,
       "title": "Freeze the 100-app corpus; assign ids repo-501..repo-600; stratified 80/20 split",
       "executor": "opus",
-      "status": "PENDING",
+      "status": "COMPLETE",
       "prerequisites": [
         "P1-SELECT-REALISTIC-01",
         "P1-SELECT-REALISTIC-02",

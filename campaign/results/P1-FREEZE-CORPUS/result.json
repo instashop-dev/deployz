@@ -1,0 +1,37 @@
+{
+  "taskId": "P1-FREEZE-CORPUS",
+  "testedCommit": "e6a3b58ee2363923fef21faca86611fa3bf84538",
+  "executor": "opus",
+  "model": "claude-opus-5-5",
+  "startedAt": "2026-10-08T13:41:00Z",
+  "finishedAt": "2026-10-08T13:41:42Z",
+  "proposedStatus": "COMPLETE",
+  "commands": [
+    {
+      "command": "node freeze.js (scratchpad; reads the 10 candidates files, writes corpus.json, split.json, holdout.yaml atomically)",
+      "exitCode": 0,
+      "summary": "100 entries; holdout 14/4/2; improvement 56/16/8"
+    },
+    {
+      "command": "node check: ids unique repo-501..repo-600, partition of improvement+holdout = 100, no id in benchmark.yaml",
+      "exitCode": 0,
+      "summary": "100 unique, partition true, 0 collisions (benchmark.yaml max repo-301)"
+    },
+    {
+      "command": "pnpm exec node -e yaml.parse(holdout.yaml)",
+      "exitCode": 0,
+      "summary": "20 repositories, all split.json holdout ids present"
+    },
+    {
+      "command": "node check: every phase 1-5 worker task lists campaign/corpus/holdout.yaml in forbiddenInputs",
+      "exitCode": 0,
+      "summary": "no task missing the holdout forbiddenInputs entry"
+    }
+  ],
+  "evidence": [
+    "campaign/corpus/corpus.json",
+    "campaign/corpus/split.json",
+    "campaign/corpus/holdout.yaml"
+  ],
+  "notes": "Ids follow batch-file order (realistic-01..07, messy-01..02, boundary-01). corpus.json holds pins and layout only and does not mark split membership; selection hints (expectedNeeds, boundaryReason, labelingRisk) are left out so that label and verify workers read source only. labelBatch n = the source batch n, so P1-LABEL-0n/P1-VERIFY-0n slice by labelBatch. Holdout membership is recorded only in split.json and holdout.yaml."
+}
