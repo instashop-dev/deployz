@@ -4,8 +4,8 @@
   "status": "CONTINUE",
   "phase": 4,
   "currentTask": null,
-  "nextAction": "Next Phase 4 task in tasks.json order (P4-FIX-FALSE-REJECTION), then LOCAL-STATE, START-COMMAND, MIGRATION-RUNTIME, AI-RELIABILITY, HARNESS-TAR, HARNESS-READINESS, SYNC-CANDIDATE, RERUN-COMPAT-01..08, RERUN-BUILD-PLAN, P4-GATE. Fix branches start from origin/main a1970323.",
-  "updatedAt": "2026-10-09T19:45:38Z",
+  "nextAction": "Resume P4-FIX-FALSE-REJECTION (continuation 1) from state.progress: remaining apps 563, 503, 520, 547, 516 on branch campaign/fix-false-rejection (PR #503, last pushed 100ddd60). Keep a rejection where label-rules R1 holds; record per-app outcome. Then P4-MERGE-FALSE-REJECTION and the rest of the Phase 4 queue.",
+  "updatedAt": "2026-10-09T20:08:53Z",
   "checkout": {
     "path": "C:/Users/Tejas/Desktop/deployz-mvp-test",
     "kind": "git worktree of C:/Users/Tejas/Desktop/deployz",
@@ -428,6 +428,10 @@
       "commit": "4de9cc796776fdf5ab931ceced415d618b4a41fb",
       "task": "P4-FIX-UNBUILDABLE-DOCKERFILE",
       "note": "PR #502 head; CI run 37980181617 green"
+    },
+    {
+      "commit": "e6a3b58ee2363923fef21faca86611fa3bf84538",
+      "task": "P4-FIX-FALSE-REJECTION"
     }
   ],
   "attempts": {
@@ -529,15 +533,16 @@
     "P4-FIX-HARNESS-PROBES": 1,
     "P4-DIAG-START": 1,
     "P4-FIX-UNBUILDABLE-DOCKERFILE": 1,
-    "P4-MERGE-UNBUILDABLE-DOCKERFILE": 1
+    "P4-MERGE-UNBUILDABLE-DOCKERFILE": 1,
+    "P4-FIX-FALSE-REJECTION": 1
   },
   "lastResult": {
-    "task": "P4-MERGE-UNBUILDABLE-DOCKERFILE",
-    "status": "COMPLETE",
-    "at": "2026-10-09T19:45:38Z",
-    "summary": "PR #502 reviewed at 4de9cc79 (APPROVE, 2 non-blocking notes) and merged as a1970323; CI on main, Deploy API and Deploy web success. origin/main now ANALYSIS_VERSION 46.",
+    "task": "P4-FIX-FALSE-REJECTION",
+    "status": "CONTINUE",
+    "at": "2026-10-09T20:08:53Z",
+    "summary": "PR #503 (head 100ddd60, base a1970323, ANALYSIS_VERSION 47, COMP-043): repo-509 (rediss:// in env-sample comment) and repo-569 (Pulumi package in deploy/ sample dir) fixed; regression 42/42 on branch (Opus re-run), 2/42 fail on main sources; PR CI 7/7 SUCCESS. Remaining: repo-503, 516, 520, 547, 563 (each a separate signal; R1 may keep some rejections).",
     "evidence": [
-      "campaign/results/P4-MERGE-UNBUILDABLE-DOCKERFILE/review.md"
+      "campaign/results/P4-FIX-FALSE-REJECTION/result.json"
     ]
   },
   "gates": {
@@ -662,7 +667,14 @@
     "harnessIntegration": "DONE: --ai live (d19dac55) proven on repo-501: mode live, 1 request, outcome completed, model equal to deployed AI_MODEL.",
     "baselineNote": "baseline.aiMode is production-equivalent since P2-AI-LIVE-VALIDATE. Phase 3 first-run and Phase 6 holdout runs use --ai live."
   },
-  "openPullRequests": [],
+  "openPullRequests": [
+    {
+      "number": 503,
+      "branch": "campaign/fix-false-rejection",
+      "head": "100ddd60668b1568ebb01dd212f332d971985efd",
+      "task": "P4-FIX-FALSE-REJECTION"
+    }
+  ],
   "previousBaselines": [
     {
       "commit": "e164b7af445636447e27a62c81ed6b542f0029c7",
@@ -741,7 +753,24 @@
     "P3-BUILD-21": 1,
     "P4-FIX-UNBUILDABLE-DOCKERFILE": 1
   },
-  "progress": {},
+  "progress": {
+    "P4-FIX-FALSE-REJECTION": {
+      "completed": [
+        "repo-509",
+        "repo-569",
+        "branch pushed",
+        "PR 503 opened",
+        "COMP-043 entry and registry"
+      ],
+      "next": "Fix repo-563, 503, 520, 547, 516 signals on campaign/fix-false-rejection (worktree C:/Users/Tejas/Desktop/deployz-fix-ai-timeout); then check PR 503 CI",
+      "resume": "git switch campaign/fix-false-rejection in the worktree (last pushed 100ddd60668b1568ebb01dd212f332d971985efd); rebuild packages/analysis (pnpm build) before pnpm benchmark:compat --offline; copy the campaign scripts/repository-compatibility files temporarily to get --benchmark and revert them before commit; update COMP-043 status; no extra ANALYSIS_VERSION bump needed unless output changes again",
+      "branch": "campaign/fix-false-rejection",
+      "lastPushedSha": "100ddd60668b1568ebb01dd212f332d971985efd",
+      "pr": 503,
+      "worktree": "C:/Users/Tejas/Desktop/deployz-fix-ai-timeout",
+      "prCiAtHead": "all 7 required checks SUCCESS on 100ddd60 (Opus check 2026-10-09T20:10Z)"
+    }
+  },
   "runExceptions": [
     {
       "task": "P1-SELECT-MESSY-02",

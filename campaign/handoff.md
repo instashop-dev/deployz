@@ -1,8 +1,8 @@
 # Fresh-100 campaign handoff
 
-**Status:** CONTINUE. Phase 4. P0-GATE, P1-GATE, P2-GATE and P3-GATE PASS; P4-GROUP COMPLETE. C: 15.1 GB free at 2026-10-09T18:54Z (after fstrim); Docker Desktop running.
+**Status:** CONTINUE. Phase 4. P0-GATE, P1-GATE, P2-GATE and P3-GATE PASS; P4-GROUP COMPLETE. C: 15 GB free at 2026-10-09T19:47Z (after fstrim); Docker Desktop running.
 **Checkout:** `C:/Users/Tejas/Desktop/deployz-mvp-test`, branch `campaign/fresh-100`. Baseline commit `e6a3b58e` (ANALYSIS_VERSION 45; origin/main after PR #498, merged into the campaign branch on 2026-10-08).
-**Eligible now:** the next Phase 4 task in tasks.json order (`P4-FIX-FALSE-REJECTION`). origin/main is `a1970323` (PR #502 merged). `docker`, `disk>=3GB` and `ai-gateway` AVAILABLE.
+**Eligible now:** resume `P4-FIX-FALSE-REJECTION` (CONTINUE, PR #503 open, head `100ddd60`). origin/main is `a1970323`. `docker`, `disk>=3GB` and `ai-gateway` AVAILABLE.
 
 ## Done
 
@@ -123,6 +123,8 @@
 - 2026-10-09T19:18Z run: `P4-FIX-UNBUILDABLE-DOCKERFILE` COMPLETE (attempt 1, continuation 1, worker sonnet). PR CI run 37979103418 on e26d1bcb failed 1 test (COMP-042 missing from the benchmark.yaml finding registry); worker added it (head `4de9cc79`); Opus re-ran harness.test.ts 19/19. CI run 37980181617 on `4de9cc79`: all 7 required checks SUCCESS (full vitest 6000+ tests, simulated E2E x4, PR Gate) = test:affected evidence. Evidence: `campaign/results/P4-FIX-UNBUILDABLE-DOCKERFILE/result.json`.
 - 2026-10-09T19:18Z run: `P4-MERGE-UNBUILDABLE-DOCKERFILE` COMPLETE (Opus). Review of head `4de9cc79` APPROVE (non-blocking: dev-only `*.dockerfile` basename regex matches dev/test/ci substrings; no dedicated fix-instructions entry). Merged with the SHA guard as `a1970323` (origin/main, ANALYSIS_VERSION 46). CI on main 37981209431, Deploy API 37981932220 and Deploy web 37981932365 (deploy skipped) all success. Evidence: `campaign/results/P4-MERGE-UNBUILDABLE-DOCKERFILE/review.md`.
 
+- 2026-10-09T20:10Z run: `P4-FIX-FALSE-REJECTION` CONTINUE (attempt 1, worker sonnet). PR #503 (https://github.com/instashop-dev/deployz/pull/503), branch `campaign/fix-false-rejection` head `100ddd60` from origin/main `a1970323`, worktree `C:/Users/Tejas/Desktop/deployz-fix-ai-timeout`. Fixed: repo-569 (`checkPulumi` ignores a Pulumi package in a deployment sample directory) and repo-509 (`rediss://` check strips comments in env samples). ANALYSIS_VERSION 47, COMP-043 in findings.md and benchmark.yaml. Opus re-ran false-rejection-scoping.test.ts on the branch: 42/42 (worker: 2/42 fail on main sources). PR CI on `100ddd60`: all 7 required checks SUCCESS. Local full vitest timed out (9 min); `pnpm typecheck` does not exist (tsc per package passed). Remaining, each a separate signal: repo-563 (optional image-only Compose service counted as a second app), 503 (`./mydata` volume, no S3 option: R1 may keep it), 516 (picks `cli/Dockerfile`), 520 (media and secrets volumes, `Dockerfile.devdb` db service), 547 (no S3 evidence in cached tree). Evidence: `campaign/results/P4-FIX-FALSE-REJECTION/result.json`.
+
 ## Blockers and pending prerequisites
 
 - AI gateway: 5xx outage from about 00:16Z to before 00:44Z on 2026-10-09; AVAILABLE since. If 5xx returns, probe one app (command in `state.json` capabilities.ai-gateway.detail).
@@ -156,7 +158,7 @@
 
 ## Next action
 
-First: P4-FIX-FALSE-REJECTION (new branch from origin/main a1970323), then the rest of the Phase 4 queue.
+First: resume P4-FIX-FALSE-REJECTION from state.json progress (remaining apps 563, 503, 520, 547, 516 on PR #503; keep R1 rejections and record each outcome), then P4-MERGE-FALSE-REJECTION.
 
 Run the Phase 4 queue in tasks.json order: P4-FIX/MERGE-UNBUILDABLE-DOCKERFILE, -FALSE-REJECTION, -LOCAL-STATE, -START-COMMAND, -MIGRATION-RUNTIME, -AI-RELIABILITY, P4-SYNC-CANDIDATE, P4-RERUN-COMPAT-01..08, P4-RERUN-BUILD-PLAN, P4-GATE. Harness fix tasks leave changes uncommitted; Opus verifies and commits them on campaign/fresh-100. Product fixes go through focused PRs; P4-MERGE-x follows policy.publication.mergeProcedure and watches CI on main and Deploy API/Deploy web. Family F1 changes the gate meaning of a missing or unbuildable Dockerfile (NEEDS_CONFIGURATION -> NOT_COMPATIBLE only with complete evidence); the Opus review of that PR must check mvp-scope.md and decisions/README.md. User decisions 2026-10-09: P4-FIX-HARNESS-TAR READY (option B: replace symlinks with copies of in-snapshot targets, skip others, count both in evidence); P4-FIX-HARNESS-READINESS READY (option A: pull stand-in images before the 90 s readiness window).
 

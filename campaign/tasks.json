@@ -3895,7 +3895,7 @@
       "phase": 4,
       "title": "Fix F4: Gate rejects an app whose blocker a supported configuration removes (focused PR)",
       "executor": "campaign-worker",
-      "status": "PENDING",
+      "status": "CONTINUE",
       "prerequisites": [
         "P4-MERGE-UNBUILDABLE-DOCKERFILE"
       ],
