@@ -4,8 +4,8 @@
   "status": "CONTINUE",
   "phase": 3,
   "currentTask": null,
-  "nextAction": "Phase 3: run P3-COMPAT-01..08 (Stage A, live AI, ~7 min each). Before P3-BUILD tasks the user must free disk on C: (7.1 GiB free; need 10 GiB).",
-  "updatedAt": "2026-10-09T00:00:57.839Z",
+  "nextAction": "Run P3-COMPAT-02..08 (timebox 15 each). Phase 4 candidates so far: repository AI timeout/parse-error 5/9 in P3-COMPAT-01. Builds need disk>=10GB (user action).",
+  "updatedAt": "2026-10-09T00:09:33.786Z",
   "checkout": {
     "path": "C:/Users/Tejas/Desktop/deployz-mvp-test",
     "kind": "git worktree of C:/Users/Tejas/Desktop/deployz",
@@ -243,6 +243,10 @@
     {
       "commit": "e6a3b58ee2363923fef21faca86611fa3bf84538",
       "task": "P2-GATE"
+    },
+    {
+      "commit": "e6a3b58ee2363923fef21faca86611fa3bf84538",
+      "task": "P3-COMPAT-01"
     }
   ],
   "attempts": {
@@ -299,15 +303,17 @@
     "P2-IMPL-LOCAL-BUILD": 1,
     "P2-IMPL-LOCAL-RUN": 1,
     "P2-SMOKE-RUN": 1,
-    "P2-GATE": 1
+    "P2-GATE": 1,
+    "P3-COMPAT-01": 1
   },
   "lastResult": {
-    "task": "P2-GATE",
+    "task": "P3-COMPAT-01",
     "status": "COMPLETE",
-    "at": "2026-10-09T00:00:57.838Z",
-    "summary": "Phase 2 gate PASS. Smoke run evidence verified; no new testing framework (only existing harnesses, no package/lockfile change). Measured sizing: Stage A ~40 s/app live AI; local 332-697 s/app. Decisions for Phase 3: deploy-config.yaml created by P3-BUILD-PLAN, --local --ai live, default cache, 2 apps per build task, one network-timeout retry, early storage app. New: disk 7.1 GiB < 10 GiB, disk>=10GB UNAVAILABLE (blocks builds only).",
+    "at": "2026-10-09T00:09:33.778Z",
+    "summary": "Stage A --ai live on repo-501..513 (10 apps), exit 0, 5 min. Verdict matches label 4/10 (501, 502, 508, 513); 40 fact mismatches, all UNEXPLAINED. AI outcomes: 4 completed, 3 timeout (AbortError at the 30 s budget), 2 parse-error (AI_NoObjectGeneratedError), 1 not-requested - a Phase 4 candidate (AI fallback fails 5/9 at baseline). Deviation: files stamp analysisVersion 44 (stale apps/api/dist); behavior equals baseline 45 (see task note); dist rebuilt. Opus checks: evidence paths exist, 10 per-app files with status/actual/comparisons/mismatches, ai.mode live in all, secret and .env-value scan 0 hits.",
     "evidence": [
-      "campaign/results/P2-GATE/review.md"
+      "campaign/results/P3-COMPAT-01/result.json",
+      "campaign/results/first-run/compat/"
     ]
   },
   "gates": {

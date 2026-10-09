@@ -1,0 +1,261 @@
+{
+  "taskId": "P3-COMPAT-01",
+  "testedCommit": "e6a3b58ee2363923fef21faca86611fa3bf84538",
+  "executor": "campaign-worker",
+  "model": "sonnet",
+  "startedAt": "2026-10-09T00:01:51Z",
+  "finishedAt": "2026-10-09T00:07:18.662Z",
+  "proposedStatus": "COMPLETE",
+  "summary": "10 of 10 apps analysed with --ai live. Verdict matches 4/10 (501,502,508,513). 0 apps with all facts matching. 40 total mismatches, all UNEXPLAINED by the harness. AI outcomes: completed 4, timeout 3, parse-error 2, not-requested 1.",
+  "commands": [
+    {
+      "command": "node --env-file=.env node_modules/tsx/dist/cli.mjs scripts/repository-compatibility/index.ts --ai live --benchmark campaign/corpus/benchmark.yaml --runs-dir campaign/results/first-run/compat/ --repo repo-501 ... --repo repo-513 (10 repos)",
+      "exitCode": 0,
+      "summary": "Wrote 10 result files; about 5 min total; raw log campaign/logs/P3-COMPAT-01/run.log"
+    }
+  ],
+  "perApp": [
+    {
+      "id": "repo-501",
+      "verdict": {
+        "expected": "NEEDS_CONFIGURATION",
+        "actual": "NEEDS_CONFIGURATION",
+        "match": true
+      },
+      "gateState": [
+        "required-env-vars-missing",
+        "migration-command-missing"
+      ],
+      "mismatchCount": 1,
+      "ai": {
+        "mode": "live",
+        "requests": 1,
+        "model": "workers-ai/@cf/deepseek-ai/deepseek-v4-flash-0731",
+        "outcome": "timeout",
+        "error": "AbortError: This operation was aborted"
+      },
+      "duration": "not recorded per app by harness"
+    },
+    {
+      "id": "repo-502",
+      "verdict": {
+        "expected": "NEEDS_CONFIGURATION",
+        "actual": "NEEDS_CONFIGURATION",
+        "match": true
+      },
+      "gateState": [
+        "database-connection-unverified",
+        "migration-command-missing"
+      ],
+      "mismatchCount": 1,
+      "ai": {
+        "mode": "live",
+        "requests": 1,
+        "model": "workers-ai/@cf/deepseek-ai/deepseek-v4-flash-0731",
+        "outcome": "parse-error",
+        "error": "AI_NoObjectGeneratedError: No object generated: response did"
+      },
+      "duration": "not recorded per app by harness"
+    },
+    {
+      "id": "repo-503",
+      "verdict": {
+        "expected": "NEEDS_CONFIGURATION",
+        "actual": "NOT_COMPATIBLE",
+        "match": false
+      },
+      "gateState": [
+        "unsupported",
+        "unsupported",
+        "health-path-required",
+        "migration-command-missing"
+      ],
+      "mismatchCount": 6,
+      "ai": {
+        "mode": "live",
+        "requests": 1,
+        "model": "workers-ai/@cf/deepseek-ai/deepseek-v4-flash-0731",
+        "outcome": "parse-error",
+        "error": "AI_NoObjectGeneratedError: No object generated: response did"
+      },
+      "duration": "not recorded per app by harness"
+    },
+    {
+      "id": "repo-505",
+      "verdict": {
+        "expected": "NOT_COMPATIBLE",
+        "actual": "NEEDS_CONFIGURATION",
+        "match": false
+      },
+      "gateState": [
+        "dockerfile-missing",
+        "start-command-missing",
+        "health-path-required",
+        "migration-command-missing"
+      ],
+      "mismatchCount": 2,
+      "ai": {
+        "mode": "live",
+        "requests": 1,
+        "model": "workers-ai/@cf/deepseek-ai/deepseek-v4-flash-0731",
+        "outcome": "completed",
+        "error": null
+      },
+      "duration": "not recorded per app by harness"
+    },
+    {
+      "id": "repo-507",
+      "verdict": {
+        "expected": "NOT_COMPATIBLE",
+        "actual": "NEEDS_CONFIGURATION",
+        "match": false
+      },
+      "gateState": [
+        "health-path-required",
+        "required-env-vars-missing",
+        "migration-command-missing"
+      ],
+      "mismatchCount": 5,
+      "ai": {
+        "mode": "live",
+        "requests": 1,
+        "model": "workers-ai/@cf/deepseek-ai/deepseek-v4-flash-0731",
+        "outcome": "completed",
+        "error": null
+      },
+      "duration": "not recorded per app by harness"
+    },
+    {
+      "id": "repo-508",
+      "verdict": {
+        "expected": "NEEDS_CONFIGURATION",
+        "actual": "NEEDS_CONFIGURATION",
+        "match": true
+      },
+      "gateState": [
+        "health-path-required"
+      ],
+      "mismatchCount": 1,
+      "ai": {
+        "mode": "live",
+        "requests": 0,
+        "model": "workers-ai/@cf/deepseek-ai/deepseek-v4-flash-0731",
+        "outcome": "not-requested",
+        "error": null
+      },
+      "duration": "not recorded per app by harness"
+    },
+    {
+      "id": "repo-509",
+      "verdict": {
+        "expected": "NEEDS_CONFIGURATION",
+        "actual": "NOT_COMPATIBLE",
+        "match": false
+      },
+      "gateState": [
+        "unsupported",
+        "required-env-vars-missing",
+        "migration-command-missing"
+      ],
+      "mismatchCount": 3,
+      "ai": {
+        "mode": "live",
+        "requests": 1,
+        "model": "workers-ai/@cf/deepseek-ai/deepseek-v4-flash-0731",
+        "outcome": "timeout",
+        "error": "AbortError: This operation was aborted"
+      },
+      "duration": "not recorded per app by harness"
+    },
+    {
+      "id": "repo-510",
+      "verdict": {
+        "expected": "NOT_COMPATIBLE",
+        "actual": "NEEDS_CONFIGURATION",
+        "match": false
+      },
+      "gateState": [
+        "required-env-vars-missing"
+      ],
+      "mismatchCount": 4,
+      "ai": {
+        "mode": "live",
+        "requests": 1,
+        "model": "workers-ai/@cf/deepseek-ai/deepseek-v4-flash-0731",
+        "outcome": "completed",
+        "error": null
+      },
+      "duration": "not recorded per app by harness"
+    },
+    {
+      "id": "repo-511",
+      "verdict": {
+        "expected": "NOT_COMPATIBLE",
+        "actual": "NEEDS_CONFIGURATION",
+        "match": false
+      },
+      "gateState": [
+        "dockerfile-missing",
+        "health-path-required",
+        "database-connection-unverified",
+        "migration-command-missing"
+      ],
+      "mismatchCount": 5,
+      "ai": {
+        "mode": "live",
+        "requests": 1,
+        "model": "workers-ai/@cf/deepseek-ai/deepseek-v4-flash-0731",
+        "outcome": "completed",
+        "error": null
+      },
+      "duration": "not recorded per app by harness"
+    },
+    {
+      "id": "repo-513",
+      "verdict": {
+        "expected": "NEEDS_CONFIGURATION",
+        "actual": "NEEDS_CONFIGURATION",
+        "match": true
+      },
+      "gateState": [
+        "health-path-required",
+        "database-connection-unverified",
+        "migration-command-missing"
+      ],
+      "mismatchCount": 4,
+      "ai": {
+        "mode": "live",
+        "requests": 1,
+        "model": "workers-ai/@cf/deepseek-ai/deepseek-v4-flash-0731",
+        "outcome": "timeout",
+        "error": "AbortError: This operation was aborted"
+      },
+      "duration": "not recorded per app by harness"
+    }
+  ],
+  "evidence": [
+    "campaign/results/first-run/compat/repo-501.json",
+    "campaign/results/first-run/compat/repo-502.json",
+    "campaign/results/first-run/compat/repo-503.json",
+    "campaign/results/first-run/compat/repo-505.json",
+    "campaign/results/first-run/compat/repo-507.json",
+    "campaign/results/first-run/compat/repo-508.json",
+    "campaign/results/first-run/compat/repo-509.json",
+    "campaign/results/first-run/compat/repo-510.json",
+    "campaign/results/first-run/compat/repo-511.json",
+    "campaign/results/first-run/compat/repo-513.json",
+    "campaign/logs/P3-COMPAT-01/run.log"
+  ],
+  "deviations": [
+    "Worktree HEAD is 03466c48 (harness deployzSha in results), not baseline e6a3b58; testedCommit set to the baseline as instructed. scripts/ unchanged per coordinator.",
+    "Harness writes no summary file in the runs dir and no per-app duration; total wall time about 5 min (00:01:51Z to 00:06:53Z).",
+    "AI live calls timed out (3) or returned parse errors (2); analysis continued without AI output. Recorded as is, not retried."
+  ],
+  "notes": [
+    "Secret scan of compat results: 0 hits (30 env values of 8+ chars checked, plus key/token/email patterns)."
+  ],
+  "secretScan": {
+    "hits": 0,
+    "envValuesChecked": 30
+  }
+}

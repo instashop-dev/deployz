@@ -1,0 +1,146 @@
+{
+  "id": "repo-501",
+  "repository": "fastapi/full-stack-fastapi-template",
+  "commit": "f27b4721507824e57ebd0286ff1a84d82e83bf59",
+  "set": "improvement",
+  "cohort": "realistic",
+  "customerRealism": "high",
+  "difficulty": 4,
+  "deployzSha": "03466c482f6e727a28f944d0cd0ac6d997b5d4a6",
+  "analysisVersion": 44,
+  "ai": {
+    "mode": "live",
+    "model": "workers-ai/@cf/deepseek-ai/deepseek-v4-flash-0731",
+    "requests": 1,
+    "outcome": "timeout",
+    "error": "AbortError: This operation was aborted"
+  },
+  "tree": {
+    "files": 163,
+    "entries": 305,
+    "truncated": false
+  },
+  "expected": {
+    "compatibility": "NEEDS_CONFIGURATION",
+    "runtime": [
+      "python"
+    ],
+    "monorepo": true,
+    "postgres": true,
+    "redis": false,
+    "worker": false,
+    "migration": true,
+    "appRoot": "backend",
+    "dockerfilePath": "backend/Dockerfile",
+    "port": 8000,
+    "healthPath": "/api/v1/utils/health-check/"
+  },
+  "status": "analysed",
+  "failure": null,
+  "actual": {
+    "compatibility": "NEEDS_CONFIGURATION",
+    "analysisVerdict": "NEEDS_ATTENTION",
+    "readinessState": "ALMOST_READY",
+    "runtime": "python",
+    "appRoot": "backend",
+    "dockerfilePath": "backend/Dockerfile",
+    "port": 8000,
+    "startCommand": "CMD: [\"fastapi\", \"run\", \"--workers\", \"4\"]",
+    "healthDetected": true,
+    "healthPath": "/api/v1/utils/health-check/",
+    "postgres": true,
+    "postgresDetected": true,
+    "redis": false,
+    "redisDetected": false,
+    "redisConfidence": "low",
+    "storage": false,
+    "worker": false,
+    "workerCommand": null,
+    "migration": false,
+    "migrationCommand": null,
+    "externalServices": [],
+    "requiredEnvVars": [
+      "ELSE"
+    ],
+    "unsupported": [],
+    "readinessFindings": [
+      "port-unresolved",
+      "database-migrations"
+    ],
+    "gateFindings": [
+      "required-env-vars-missing",
+      "migration-command-missing"
+    ],
+    "unresolvedQuestions": [
+      "multiple-dockerfiles",
+      "monorepo-target"
+    ]
+  },
+  "comparisons": [
+    {
+      "fact": "compatibility",
+      "expected": "NEEDS_CONFIGURATION",
+      "actual": "NEEDS_CONFIGURATION",
+      "match": true
+    },
+    {
+      "fact": "postgres",
+      "expected": true,
+      "actual": true,
+      "match": true
+    },
+    {
+      "fact": "redis",
+      "expected": false,
+      "actual": false,
+      "match": true
+    },
+    {
+      "fact": "worker",
+      "expected": false,
+      "actual": false,
+      "match": true
+    },
+    {
+      "fact": "migration",
+      "expected": true,
+      "actual": false,
+      "match": false,
+      "kind": "fact"
+    },
+    {
+      "fact": "appRoot",
+      "expected": "backend",
+      "actual": "backend",
+      "match": true
+    },
+    {
+      "fact": "dockerfilePath",
+      "expected": "backend/Dockerfile",
+      "actual": "backend/Dockerfile",
+      "match": true
+    },
+    {
+      "fact": "port",
+      "expected": 8000,
+      "actual": 8000,
+      "match": true
+    },
+    {
+      "fact": "healthPath",
+      "expected": "/api/v1/utils/health-check/",
+      "actual": "/api/v1/utils/health-check/",
+      "match": true
+    }
+  ],
+  "mismatches": [
+    {
+      "fact": "migration",
+      "kind": "fact",
+      "expected": true,
+      "actual": false,
+      "finding": null
+    }
+  ],
+  "match": false
+}

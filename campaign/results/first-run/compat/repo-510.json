@@ -1,0 +1,187 @@
+{
+  "id": "repo-510",
+  "repository": "basecamp/once-campfire",
+  "commit": "008ea1ab2af0f84021e25047c67b64d30a601339",
+  "set": "improvement",
+  "cohort": "realistic",
+  "customerRealism": "high",
+  "difficulty": 3,
+  "deployzSha": "03466c482f6e727a28f944d0cd0ac6d997b5d4a6",
+  "analysisVersion": 44,
+  "ai": {
+    "mode": "live",
+    "model": "workers-ai/@cf/deepseek-ai/deepseek-v4-flash-0731",
+    "requests": 1,
+    "outcome": "completed",
+    "error": null
+  },
+  "tree": {
+    "files": 200,
+    "entries": 927,
+    "truncated": false
+  },
+  "expected": {
+    "compatibility": "NOT_COMPATIBLE",
+    "runtime": [
+      "ruby"
+    ],
+    "monorepo": false,
+    "postgres": false,
+    "redis": true,
+    "worker": true,
+    "migration": true,
+    "appRoot": ".",
+    "dockerfilePath": "Dockerfile",
+    "port": 80,
+    "healthPath": "/up",
+    "unsupported": [
+      "local-filesystem"
+    ]
+  },
+  "status": "analysed",
+  "failure": null,
+  "actual": {
+    "compatibility": "NEEDS_CONFIGURATION",
+    "analysisVerdict": "READY",
+    "readinessState": "READY",
+    "runtime": "ruby",
+    "appRoot": ".",
+    "dockerfilePath": "Dockerfile",
+    "port": 80,
+    "startCommand": "CMD: [\"bin/boot\"]",
+    "healthDetected": true,
+    "healthPath": "/up",
+    "postgres": false,
+    "postgresDetected": false,
+    "redis": false,
+    "redisDetected": true,
+    "redisConfidence": "medium",
+    "storage": false,
+    "worker": true,
+    "workerCommand": "redis-server config/redis.conf",
+    "migration": false,
+    "migrationCommand": null,
+    "externalServices": [],
+    "requiredEnvVars": [
+      "BENCH_LABELS"
+    ],
+    "unsupported": [
+      "background-worker"
+    ],
+    "readinessFindings": [
+      "worker-process"
+    ],
+    "gateFindings": [
+      "required-env-vars-missing"
+    ],
+    "unresolvedQuestions": [
+      "multiple-dockerfiles",
+      "redis-requirement-unclear"
+    ]
+  },
+  "comparisons": [
+    {
+      "fact": "compatibility",
+      "expected": "NOT_COMPATIBLE",
+      "actual": "NEEDS_CONFIGURATION",
+      "match": false,
+      "kind": "false-acceptance"
+    },
+    {
+      "fact": "postgres",
+      "expected": false,
+      "actual": false,
+      "match": true
+    },
+    {
+      "fact": "redis",
+      "expected": true,
+      "actual": false,
+      "match": false,
+      "kind": "fact"
+    },
+    {
+      "fact": "worker",
+      "expected": true,
+      "actual": true,
+      "match": true
+    },
+    {
+      "fact": "migration",
+      "expected": true,
+      "actual": false,
+      "match": false,
+      "kind": "fact"
+    },
+    {
+      "fact": "appRoot",
+      "expected": ".",
+      "actual": ".",
+      "match": true
+    },
+    {
+      "fact": "dockerfilePath",
+      "expected": "Dockerfile",
+      "actual": "Dockerfile",
+      "match": true
+    },
+    {
+      "fact": "port",
+      "expected": 80,
+      "actual": 80,
+      "match": true
+    },
+    {
+      "fact": "healthPath",
+      "expected": "/up",
+      "actual": "/up",
+      "match": true
+    },
+    {
+      "fact": "unsupported",
+      "expected": [
+        "local-filesystem"
+      ],
+      "actual": [
+        "background-worker"
+      ],
+      "match": false,
+      "kind": "fact"
+    }
+  ],
+  "mismatches": [
+    {
+      "fact": "compatibility",
+      "kind": "false-acceptance",
+      "expected": "NOT_COMPATIBLE",
+      "actual": "NEEDS_CONFIGURATION",
+      "finding": null
+    },
+    {
+      "fact": "redis",
+      "kind": "fact",
+      "expected": true,
+      "actual": false,
+      "finding": null
+    },
+    {
+      "fact": "migration",
+      "kind": "fact",
+      "expected": true,
+      "actual": false,
+      "finding": null
+    },
+    {
+      "fact": "unsupported",
+      "kind": "fact",
+      "expected": [
+        "local-filesystem"
+      ],
+      "actual": [
+        "background-worker"
+      ],
+      "finding": null
+    }
+  ],
+  "match": false
+}

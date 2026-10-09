@@ -2013,7 +2013,7 @@
       "phase": 3,
       "title": "First-run Stage A compatibility for improvement apps 1-10",
       "executor": "campaign-worker",
-      "status": "PENDING",
+      "status": "COMPLETE",
       "prerequisites": [
         "P2-GATE"
       ],
@@ -2040,8 +2040,10 @@
       ],
       "timeboxMinutes": 30,
       "notes": [
-        "2026-10-09 P2-GATE: run `node --env-file=.env node_modules/.bin/tsx scripts/repository-compatibility/index.ts --ai live --benchmark campaign/corpus/benchmark.yaml --runs-dir campaign/results/first-run/compat/` (or the equivalent tsx form used in P2-SMOKE-RUN) with this batch's --repo ids; do not pass --cache (the default cache feeds the later --local builds). Measured: about 40 s per app with live AI."
-      ]
+        "2026-10-09 P2-GATE: run `node --env-file=.env node_modules/.bin/tsx scripts/repository-compatibility/index.ts --ai live --benchmark campaign/corpus/benchmark.yaml --runs-dir campaign/results/first-run/compat/` (or the equivalent tsx form used in P2-SMOKE-RUN) with this batch's --repo ids; do not pass --cache (the default cache feeds the later --local builds). Measured: about 40 s per app with live AI.",
+        "2026-10-09 Opus verification: the 10 result files stamp analysisVersion 44 because apps/api/dist was built at e164b7af and not rebuilt after PR #498. Behavior equals the baseline: between e164b7af and e6a3b58e the only non-test source changes are the ANALYSIS_VERSION constant (apps/api/src/analysis.ts) and `reasoning: false` (packages/analysis/src/repository-ai.ts), and packages/analysis/dist (rebuilt 2026-10-08 15:38 +0530) contains `reasoning: false`. Kept as the first-run sample (not re-run, to avoid best-of-two sampling). Opus rebuilt apps/api/dist (tsc, 34 s) at 00:12Z; later batches stamp 45. P2-SMOKE-RUN and P2-AI-LIVE-VALIDATE Stage A files have the same stale stamp."
+      ],
+      "attempts": 1
     },
     {
       "id": "P3-COMPAT-02",
@@ -2073,9 +2075,10 @@
         "One result per app with analysis outcome, gate state, compared facts and mismatches; a failed analysis is recorded, not skipped",
         "AI mode recorded in each result equals the frozen baseline AI mode"
       ],
-      "timeboxMinutes": 30,
+      "timeboxMinutes": 15,
       "notes": [
-        "2026-10-09 P2-GATE: run `node --env-file=.env node_modules/.bin/tsx scripts/repository-compatibility/index.ts --ai live --benchmark campaign/corpus/benchmark.yaml --runs-dir campaign/results/first-run/compat/` (or the equivalent tsx form used in P2-SMOKE-RUN) with this batch's --repo ids; do not pass --cache (the default cache feeds the later --local builds). Measured: about 40 s per app with live AI."
+        "2026-10-09 P2-GATE: run `node --env-file=.env node_modules/.bin/tsx scripts/repository-compatibility/index.ts --ai live --benchmark campaign/corpus/benchmark.yaml --runs-dir campaign/results/first-run/compat/` (or the equivalent tsx form used in P2-SMOKE-RUN) with this batch's --repo ids; do not pass --cache (the default cache feeds the later --local builds). Measured: about 40 s per app with live AI.",
+        "2026-10-09 Opus: timebox 30 -> 15 from the measured P3-COMPAT-01 duration (10 apps in 5 min with live AI)."
       ]
     },
     {
@@ -2108,9 +2111,10 @@
         "One result per app with analysis outcome, gate state, compared facts and mismatches; a failed analysis is recorded, not skipped",
         "AI mode recorded in each result equals the frozen baseline AI mode"
       ],
-      "timeboxMinutes": 30,
+      "timeboxMinutes": 15,
       "notes": [
-        "2026-10-09 P2-GATE: run `node --env-file=.env node_modules/.bin/tsx scripts/repository-compatibility/index.ts --ai live --benchmark campaign/corpus/benchmark.yaml --runs-dir campaign/results/first-run/compat/` (or the equivalent tsx form used in P2-SMOKE-RUN) with this batch's --repo ids; do not pass --cache (the default cache feeds the later --local builds). Measured: about 40 s per app with live AI."
+        "2026-10-09 P2-GATE: run `node --env-file=.env node_modules/.bin/tsx scripts/repository-compatibility/index.ts --ai live --benchmark campaign/corpus/benchmark.yaml --runs-dir campaign/results/first-run/compat/` (or the equivalent tsx form used in P2-SMOKE-RUN) with this batch's --repo ids; do not pass --cache (the default cache feeds the later --local builds). Measured: about 40 s per app with live AI.",
+        "2026-10-09 Opus: timebox 30 -> 15 from the measured P3-COMPAT-01 duration (10 apps in 5 min with live AI)."
       ]
     },
     {
@@ -2143,9 +2147,10 @@
         "One result per app with analysis outcome, gate state, compared facts and mismatches; a failed analysis is recorded, not skipped",
         "AI mode recorded in each result equals the frozen baseline AI mode"
       ],
-      "timeboxMinutes": 30,
+      "timeboxMinutes": 15,
       "notes": [
-        "2026-10-09 P2-GATE: run `node --env-file=.env node_modules/.bin/tsx scripts/repository-compatibility/index.ts --ai live --benchmark campaign/corpus/benchmark.yaml --runs-dir campaign/results/first-run/compat/` (or the equivalent tsx form used in P2-SMOKE-RUN) with this batch's --repo ids; do not pass --cache (the default cache feeds the later --local builds). Measured: about 40 s per app with live AI."
+        "2026-10-09 P2-GATE: run `node --env-file=.env node_modules/.bin/tsx scripts/repository-compatibility/index.ts --ai live --benchmark campaign/corpus/benchmark.yaml --runs-dir campaign/results/first-run/compat/` (or the equivalent tsx form used in P2-SMOKE-RUN) with this batch's --repo ids; do not pass --cache (the default cache feeds the later --local builds). Measured: about 40 s per app with live AI.",
+        "2026-10-09 Opus: timebox 30 -> 15 from the measured P3-COMPAT-01 duration (10 apps in 5 min with live AI)."
       ]
     },
     {
@@ -2178,9 +2183,10 @@
         "One result per app with analysis outcome, gate state, compared facts and mismatches; a failed analysis is recorded, not skipped",
         "AI mode recorded in each result equals the frozen baseline AI mode"
       ],
-      "timeboxMinutes": 30,
+      "timeboxMinutes": 15,
       "notes": [
-        "2026-10-09 P2-GATE: run `node --env-file=.env node_modules/.bin/tsx scripts/repository-compatibility/index.ts --ai live --benchmark campaign/corpus/benchmark.yaml --runs-dir campaign/results/first-run/compat/` (or the equivalent tsx form used in P2-SMOKE-RUN) with this batch's --repo ids; do not pass --cache (the default cache feeds the later --local builds). Measured: about 40 s per app with live AI."
+        "2026-10-09 P2-GATE: run `node --env-file=.env node_modules/.bin/tsx scripts/repository-compatibility/index.ts --ai live --benchmark campaign/corpus/benchmark.yaml --runs-dir campaign/results/first-run/compat/` (or the equivalent tsx form used in P2-SMOKE-RUN) with this batch's --repo ids; do not pass --cache (the default cache feeds the later --local builds). Measured: about 40 s per app with live AI.",
+        "2026-10-09 Opus: timebox 30 -> 15 from the measured P3-COMPAT-01 duration (10 apps in 5 min with live AI)."
       ]
     },
     {
@@ -2213,9 +2219,10 @@
         "One result per app with analysis outcome, gate state, compared facts and mismatches; a failed analysis is recorded, not skipped",
         "AI mode recorded in each result equals the frozen baseline AI mode"
       ],
-      "timeboxMinutes": 30,
+      "timeboxMinutes": 15,
       "notes": [
-        "2026-10-09 P2-GATE: run `node --env-file=.env node_modules/.bin/tsx scripts/repository-compatibility/index.ts --ai live --benchmark campaign/corpus/benchmark.yaml --runs-dir campaign/results/first-run/compat/` (or the equivalent tsx form used in P2-SMOKE-RUN) with this batch's --repo ids; do not pass --cache (the default cache feeds the later --local builds). Measured: about 40 s per app with live AI."
+        "2026-10-09 P2-GATE: run `node --env-file=.env node_modules/.bin/tsx scripts/repository-compatibility/index.ts --ai live --benchmark campaign/corpus/benchmark.yaml --runs-dir campaign/results/first-run/compat/` (or the equivalent tsx form used in P2-SMOKE-RUN) with this batch's --repo ids; do not pass --cache (the default cache feeds the later --local builds). Measured: about 40 s per app with live AI.",
+        "2026-10-09 Opus: timebox 30 -> 15 from the measured P3-COMPAT-01 duration (10 apps in 5 min with live AI)."
       ]
     },
     {
@@ -2248,9 +2255,10 @@
         "One result per app with analysis outcome, gate state, compared facts and mismatches; a failed analysis is recorded, not skipped",
         "AI mode recorded in each result equals the frozen baseline AI mode"
       ],
-      "timeboxMinutes": 30,
+      "timeboxMinutes": 15,
       "notes": [
-        "2026-10-09 P2-GATE: run `node --env-file=.env node_modules/.bin/tsx scripts/repository-compatibility/index.ts --ai live --benchmark campaign/corpus/benchmark.yaml --runs-dir campaign/results/first-run/compat/` (or the equivalent tsx form used in P2-SMOKE-RUN) with this batch's --repo ids; do not pass --cache (the default cache feeds the later --local builds). Measured: about 40 s per app with live AI."
+        "2026-10-09 P2-GATE: run `node --env-file=.env node_modules/.bin/tsx scripts/repository-compatibility/index.ts --ai live --benchmark campaign/corpus/benchmark.yaml --runs-dir campaign/results/first-run/compat/` (or the equivalent tsx form used in P2-SMOKE-RUN) with this batch's --repo ids; do not pass --cache (the default cache feeds the later --local builds). Measured: about 40 s per app with live AI.",
+        "2026-10-09 Opus: timebox 30 -> 15 from the measured P3-COMPAT-01 duration (10 apps in 5 min with live AI)."
       ]
     },
     {
@@ -2283,9 +2291,10 @@
         "One result per app with analysis outcome, gate state, compared facts and mismatches; a failed analysis is recorded, not skipped",
         "AI mode recorded in each result equals the frozen baseline AI mode"
       ],
-      "timeboxMinutes": 30,
+      "timeboxMinutes": 15,
       "notes": [
-        "2026-10-09 P2-GATE: run `node --env-file=.env node_modules/.bin/tsx scripts/repository-compatibility/index.ts --ai live --benchmark campaign/corpus/benchmark.yaml --runs-dir campaign/results/first-run/compat/` (or the equivalent tsx form used in P2-SMOKE-RUN) with this batch's --repo ids; do not pass --cache (the default cache feeds the later --local builds). Measured: about 40 s per app with live AI."
+        "2026-10-09 P2-GATE: run `node --env-file=.env node_modules/.bin/tsx scripts/repository-compatibility/index.ts --ai live --benchmark campaign/corpus/benchmark.yaml --runs-dir campaign/results/first-run/compat/` (or the equivalent tsx form used in P2-SMOKE-RUN) with this batch's --repo ids; do not pass --cache (the default cache feeds the later --local builds). Measured: about 40 s per app with live AI.",
+        "2026-10-09 Opus: timebox 30 -> 15 from the measured P3-COMPAT-01 duration (10 apps in 5 min with live AI)."
       ]
     },
     {
