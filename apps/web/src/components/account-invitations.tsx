@@ -4,7 +4,7 @@ import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { apiRequest, errorMessage } from '@/lib/api-client';
 import type { PendingInvitation } from '@/lib/me';
 
@@ -36,7 +36,6 @@ export function AccountInvitations({ invitations }: { invitations: PendingInvita
     <Card>
       <CardHeader>
         <CardTitle>Invitations</CardTitle>
-        <CardDescription>Organizations that have invited you to join.</CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-4">
         {invitations.map((invitation) => (

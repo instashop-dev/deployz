@@ -841,7 +841,7 @@ export function fixInstructionsGeneratedLabel(generatedAt: string): string {
 
 /** The reuse note shown when the document came from the cache. */
 export const FIX_INSTRUCTIONS_REUSED_NOTE =
-  'Reused the instructions generated earlier for this analysis. Regenerate to write them again.';
+  'Reused from earlier. Regenerate for a new version.';
 
 /** A successful fix-instructions generation. */
 export interface FixInstructions {

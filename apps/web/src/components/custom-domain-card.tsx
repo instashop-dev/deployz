@@ -204,7 +204,7 @@ export function CustomDomainCard(props: {
               </>
             ) : (
               <p className="text-sm text-muted-foreground">
-                No custom domain is set up for this deployment yet.
+                No custom domain yet.
               </p>
             )
           ) : null}
@@ -312,8 +312,7 @@ function DomainStatusBody({
       return (
         <>
           <p className="text-sm text-muted-foreground">
-            Your domain is verified. Deployz is configuring HTTPS and connecting it to this
-            deployment.
+            Domain verified. Deployz is configuring HTTPS.
           </p>
           <DomainProgressNotice code={domain.error} />
           <div className="flex flex-col gap-2">
@@ -337,7 +336,7 @@ function DomainStatusBody({
       return (
         <>
           <div className="flex flex-col gap-1">
-            <p className="text-sm text-muted-foreground">Your deployment is available securely at:</p>
+            <p className="text-sm text-muted-foreground">Available securely at:</p>
             <a
               href={`https://${domain.hostname}`}
               target="_blank"

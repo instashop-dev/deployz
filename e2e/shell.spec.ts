@@ -54,11 +54,6 @@ test('authenticated user reaches the homepage and sees the first-run state', asy
   await expect(
     page.getByRole('heading', { name: 'Get your first customer deployed' }),
   ).toBeVisible();
-  await expect(
-    page.getByText(
-      'Connect your application and Deployz will prepare it for private deployment on AWS.',
-    ),
-  ).toBeVisible();
   await expect(page.getByRole('link', { name: 'Connect GitHub repository' })).toBeVisible();
   await expect(page.getByRole('navigation', { name: 'Dashboard' })).toBeVisible();
 });

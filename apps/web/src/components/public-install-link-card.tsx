@@ -49,7 +49,7 @@ async function copyText(text: string, successMessage: string): Promise<void> {
     await navigator.clipboard.writeText(text);
     toast.success(successMessage);
   } catch {
-    toast.error('We could not copy the text. Copy it by hand.');
+    toast.error('Couldn\'t copy. Copy it manually.');
   }
 }
 
@@ -88,10 +88,10 @@ export function InstallLinkControls({ applicationId, installLink, onChanged, pri
     } catch (cause) {
       if (cause instanceof ApiRequestError) {
         if (cause.code === 'PUBLIC_INSTALL_LINK_EXISTS') {
-          setError('A live install link already exists for this application.');
+          setError('An install link already exists.');
           await onChanged();
         } else if (cause.code === 'UNAUTHORIZED') {
-          setError('You are signed out. Sign in again to continue.');
+          setError('Signed out. Sign in again.');
         } else {
           setError(errorMessage(cause));
         }
@@ -113,9 +113,9 @@ export function InstallLinkControls({ applicationId, installLink, onChanged, pri
     } catch (cause) {
       if (cause instanceof ApiRequestError) {
         if (cause.code === 'PUBLIC_INSTALL_LINK_REVOKED') {
-          setError('This install link has been revoked and cannot be enabled again.');
+          setError('This link is revoked and cannot be enabled.');
         } else if (cause.code === 'UNAUTHORIZED') {
-          setError('You are signed out. Sign in again to continue.');
+          setError('Signed out. Sign in again.');
         } else {
           setError(errorMessage(cause));
         }
@@ -292,8 +292,7 @@ export function InstallLinkControls({ applicationId, installLink, onChanged, pri
           <AlertDialogHeader>
             <AlertDialogTitle>Regenerate this install link?</AlertDialogTitle>
             <AlertDialogDescription>
-              This creates a new install link. The old link stops working immediately.
-              Customers using the old link must use the new one.
+              The old link stops working immediately. Customers must use the new link.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -324,8 +323,8 @@ export function InstallLinkControls({ applicationId, installLink, onChanged, pri
           <AlertDialogHeader>
             <AlertDialogTitle>Revoke this install link?</AlertDialogTitle>
             <AlertDialogDescription>
-              This link will stop working. Customers who open it see a message that the link is no longer valid.
-              You can create a new link at any time. No AWS resources are destroyed.
+              The link stops working. Customers who open it see an invalid-link message. You can
+              create a new link. No AWS resources are destroyed.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

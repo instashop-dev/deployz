@@ -65,7 +65,7 @@ const NEEDS_REVIEW: ConfigurationRowResult = { label: 'Needs review', variant: '
 // variables, so the help text (and the value words) say "connected", never
 // "used" — "Not used" would wrongly suggest no bucket exists.
 const STORAGE_HELP =
-  'Every deployment gets a storage bucket, kept if the deployment is uninstalled. This setting controls whether Deployz passes the bucket name to your app.';
+  'Every deployment gets a storage bucket, kept after uninstall. This setting controls whether the bucket name is passed to your app.';
 const STORAGE_CONNECTED_VALUE = 'Connected (bucket name passed to the app)';
 const STORAGE_NOT_CONNECTED_VALUE = 'Bucket created, not connected';
 

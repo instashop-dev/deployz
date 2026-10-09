@@ -114,7 +114,7 @@ export function DeploymentHero({
         )}
         {status.statusUpdatesUnavailable ? (
           <p className="text-sm text-muted-foreground">
-            Status updates are temporarily unavailable — showing the last confirmed state.
+            Status updates unavailable — showing the last confirmed state.
           </p>
         ) : null}
 

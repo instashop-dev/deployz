@@ -209,7 +209,7 @@ describe('ReleaseFailureDetails', () => {
 
   it('keeps the details when the AI fails', async () => {
     mocks.fetchBuildFailure.mockResolvedValue(details());
-    mocks.explainBuildFailure.mockRejectedValue(new Error('The AI explanation is not available right now.'));
+    mocks.explainBuildFailure.mockRejectedValue(new Error('The AI explanation is unavailable.'));
     await renderPanel();
     await act(async () => {
       button('Explain with AI')!.click();

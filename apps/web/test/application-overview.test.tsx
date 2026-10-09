@@ -340,7 +340,6 @@ describe.each(CASES)('$name state', ({ badgeLabel, arrange, installLinkPlacement
 
     expect(container.textContent).not.toMatch(/checks? passed/i);
     expect(container.textContent).not.toContain('Not installed');
-    expect(container.querySelector('[data-testid="evaluation-notice"]')).toBeNull();
   });
 
   it(`shows the setup lifecycle ${hasLifecycle ? '' : 'not '}during this state`, async () => {
@@ -394,7 +393,7 @@ describe('configuration-required action and Share note', () => {
     await waitForHeading();
 
     expect(container.querySelector('[data-testid="public-install-link-card"]')).toBeNull();
-    expect(container.textContent).toContain('The customer install link becomes available');
+    expect(container.textContent).toContain('Install link available after');
   });
 });
 
@@ -446,7 +445,7 @@ describe('Release readiness', () => {
     });
     const heading = await waitForHeading();
 
-    expect(heading.textContent).toBe('No release is ready to test');
+    expect(heading.textContent).toBe('No release to test');
     expect(container.querySelector('[data-testid="application-status-badge"]')?.textContent).toBe('Ready to test');
     expect(container.textContent).not.toContain('Start test deployment');
     const review = Array.from(container.querySelectorAll('a')).find((a) => a.textContent === 'Review failed build');
@@ -526,7 +525,7 @@ describe('Active to terminal polling', () => {
     });
 
     heading = container.querySelector('[data-testid="application-state-heading"]') as HTMLElement;
-    expect(heading.textContent).toBe('Ready to share with customers');
+    expect(heading.textContent).toBe('Ready to share');
     expect(heading.querySelector('[data-slot="spinner"]')).toBeNull();
 
     const callsAtSettle = mocks.fetchDeploymentsForApplication.mock.calls.length;

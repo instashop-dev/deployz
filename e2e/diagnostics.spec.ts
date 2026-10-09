@@ -154,9 +154,7 @@ test('the diagnostics deep link redirects to the infrastructure check, and a non
   // A freshly seeded deployment is NOT_INSTALLED: no infrastructure check
   // has run, so the page says there is nothing to check — never a pass.
   await expect(page.getByTestId('infra-check-outcome')).toContainText('Nothing to check yet');
-  await expect(
-    page.getByText('This deployment has not been installed yet, so there is nothing to diagnose.'),
-  ).toBeVisible();
+  await expect(page.getByTestId('infra-check-outcome')).toContainText('Not installed yet.');
 });
 
 test('diagnostics deep-link copy is jargon-free', async ({ page }) => {

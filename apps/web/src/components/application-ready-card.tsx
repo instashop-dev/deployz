@@ -11,6 +11,7 @@ import { databaseEngineName } from '@/lib/readiness';
 export function ApplicationReadyCard({ application }: { application: Application }) {
   const runtime = application.detectedMetadata?.['hasDockerfile'] === true ? 'Docker' : null;
   const facts: { label: string; value: string }[] = [
+    { label: 'Application', value: application.name },
     ...(runtime === null ? [] : [{ label: 'Runtime', value: runtime }]),
     {
       label: 'Database',
@@ -22,15 +23,9 @@ export function ApplicationReadyCard({ application }: { application: Application
 
   return (
     <section aria-labelledby="ready" className="flex max-w-xl flex-col gap-6">
-      <div>
-        <h1 id="ready" className="text-2xl font-semibold tracking-tight">
-          Your application is analysed
-        </h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Next, test {application.name} in your own AWS account, then share the install link with
-          customers.
-        </p>
-      </div>
+      <h1 id="ready" className="text-2xl font-semibold tracking-tight">
+        Application analysed
+      </h1>
 
       <dl className="flex flex-col gap-2 text-sm">
         {facts.map((fact) => (

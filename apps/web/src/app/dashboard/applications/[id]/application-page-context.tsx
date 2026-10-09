@@ -126,7 +126,7 @@ export function ApplicationPageProvider({ id, children }: { id: string; children
       setRestartCount((count) => count + 1);
       await refresh();
     } catch {
-      toast.error("We couldn't start the analysis. Try again in a moment.");
+      toast.error("Couldn't start the analysis. Try again.");
     } finally {
       setReanalysing(false);
     }

@@ -173,7 +173,7 @@ export function PublicInstallFlow({ linkId, resolve, token, customerKnown = fals
         </h2>
         {resolve.recommendedRegion ? (
           <p className="text-sm text-muted-foreground">
-            {resolve.publisher.name} recommends {installPlanRegionLabel(resolve.recommendedRegion) ?? resolve.recommendedRegion}. You make the final choice.
+            {resolve.publisher.name} recommends {installPlanRegionLabel(resolve.recommendedRegion) ?? resolve.recommendedRegion}.
           </p>
         ) : null}
         <Select value={region} onValueChange={setRegion}>
@@ -193,7 +193,7 @@ export function PublicInstallFlow({ linkId, resolve, token, customerKnown = fals
         </Select>
         {planLoading ? (
           <p className="flex items-center gap-2 text-sm text-muted-foreground" aria-live="polite">
-            <Spinner aria-hidden /> Updating the plan and estimate for this Region…
+            <Spinner aria-hidden /> Updating for this Region…
           </p>
         ) : null}
       </section>
@@ -319,7 +319,7 @@ export function PublicInstallFlow({ linkId, resolve, token, customerKnown = fals
 
       <section aria-label="Deploy actions" className="flex flex-col gap-3">
         <p className="text-sm text-muted-foreground">
-          Next, you connect your AWS account. Nothing is created in AWS until you approve it there.
+          Next, you connect your AWS account. Nothing is created until you approve it there.
         </p>
         <Button
           size="lg"

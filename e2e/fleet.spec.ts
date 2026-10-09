@@ -239,7 +239,7 @@ test('deployment detail page renders the §24 overview, infrastructure rows, and
   // Scoped to the infrastructure section: the preflight card above it
   // legitimately lists "Database" as a passed check.
   const infrastructure = page.locator('section[aria-labelledby="infrastructure"]');
-  await expect(infrastructure.getByText('This deployment has not been installed yet.')).toBeVisible();
+  await expect(infrastructure.getByText('Not installed yet.')).toBeVisible();
   await expect(infrastructure.getByText('Deployz connector', { exact: true })).toBeVisible();
   await expect(infrastructure.getByText('Database', { exact: true })).toHaveCount(0);
 });

@@ -200,7 +200,7 @@ const STATE_CASES: Record<ApplicationState, StateCase> = {
   unavailable: {
     input: { data: null, installLinks: [], stale: false, analysisTakingLonger: false },
     badgeLabel: 'Unavailable',
-    heading: 'This application is temporarily unavailable',
+    heading: 'Application unavailable',
     primaryActionId: 'retry-load',
     polling: null,
     busy: false,
@@ -211,7 +211,7 @@ const STATE_CASES: Record<ApplicationState, StateCase> = {
   analysing: {
     input: makeInput({ readiness: { analysisStatus: 'ANALYZING', state: 'ANALYSIS_INCOMPLETE' } }),
     badgeLabel: 'Analysing',
-    heading: 'Analysing your application',
+    heading: 'Analysing application',
     primaryActionId: null,
     polling: ANALYSIS_POLL_MS,
     busy: true,
@@ -224,7 +224,7 @@ const STATE_CASES: Record<ApplicationState, StateCase> = {
       readiness: { analysisStatus: 'FAILED', state: 'ANALYSIS_INCOMPLETE', failureReason: 'Boom' },
     }),
     badgeLabel: 'Analysis failed',
-    heading: "We couldn't analyse your application",
+    heading: 'Analysis failed',
     primaryActionId: 'retry-analysis',
     polling: null,
     busy: false,
@@ -272,7 +272,7 @@ const STATE_CASES: Record<ApplicationState, StateCase> = {
   'test-queued': {
     input: makeInput({ deployments: [deployment({ state: 'NOT_INSTALLED' })] }),
     badgeLabel: 'Testing',
-    heading: 'Your test deployment has not started',
+    heading: 'Test deployment not started',
     primaryActionId: 'continue-test',
     polling: TEST_DEPLOYMENT_POLL_MS,
     busy: false,
@@ -294,7 +294,7 @@ const STATE_CASES: Record<ApplicationState, StateCase> = {
   'test-removing': {
     input: makeInput({ deployments: [deployment({ state: 'DELETING' })] }),
     badgeLabel: 'Testing',
-    heading: 'Removing the test deployment',
+    heading: 'Removing test deployment',
     primaryActionId: 'view-progress',
     polling: TEST_DEPLOYMENT_POLL_MS,
     busy: true,
@@ -316,7 +316,7 @@ const STATE_CASES: Record<ApplicationState, StateCase> = {
   'ready-to-share': {
     input: makeInput({ deployments: [deployment({ state: 'HEALTHY' })] }),
     badgeLabel: 'Ready to share',
-    heading: 'Ready to share with customers',
+    heading: 'Ready to share',
     primaryActionId: 'create-install-link',
     polling: null,
     busy: false,
@@ -340,7 +340,7 @@ const STATE_CASES: Record<ApplicationState, StateCase> = {
       readiness: { analysisStatus: 'QUEUED' as ApplicationReadiness['analysisStatus'] },
     }),
     badgeLabel: 'Status unknown',
-    heading: "We can't show this application's status",
+    heading: 'Status unavailable',
     primaryActionId: 'analyse',
     polling: null,
     busy: false,
@@ -656,7 +656,7 @@ describe('install link derivation', () => {
     const result = deriveApplicationPresentation(readyToShareInput([link({ status: 'revoked' })]));
     expect(result.installLink).toEqual({
       kind: 'create',
-      note: 'The previous link was revoked. Create a new link to share the application.',
+      note: 'The previous link was revoked. Create a new one to share.',
     });
   });
 
@@ -686,7 +686,7 @@ describe('install link derivation', () => {
     const result = deriveApplicationPresentation(readyToShareInput('error'));
     expect(result.installLink).toEqual({
       kind: 'error',
-      message: "We couldn't load the customer install link. Try again in a moment.",
+      message: "Couldn't load the install link. Try again.",
     });
   });
 
@@ -804,7 +804,7 @@ describe('release naming', () => {
       makeInput({ deployments: [deployment({ state: 'HEALTHY' })], releases: [building] }),
     );
     expect(result.state).toBe('ready-to-share');
-    expect(result.message).toMatch(/cannot install yet/i);
+    expect(result.message).toMatch(/cannot install/i);
     expect(result.secondaryActions).toContainEqual({
       id: 'view-releases',
       label: 'View releases',
@@ -818,7 +818,7 @@ describe('release naming', () => {
       makeInput({ deployments: [deployment({ state: 'HEALTHY' })], releases: 'error' }),
     );
     expect(result.state).toBe('ready-to-share');
-    expect(result.message).toBe('Your test deployment passed. Send the install link to your customers.');
+    expect(result.message).toBe('Test passed. Send the install link to customers.');
     expect(result.notices).toEqual([]);
   });
 
@@ -844,7 +844,7 @@ describe('release naming', () => {
     expect(result.message).not.toContain('v0.1.1');
     expect(result.notices).toContainEqual({
       tone: 'warning',
-      text: 'Release v0.1.1 failed to build. Customers still get v0.1.0.',
+      text: 'Release v0.1.1 failed to build. Customers get v0.1.0.',
     });
   });
 
@@ -898,7 +898,7 @@ describe('customers-active test-deployment attention notice', () => {
     const test = deployment({ state: 'FAILED' });
     const result = deriveApplicationPresentation(makeInput({ deployments: [test, customer({ state: 'HEALTHY' })] }));
     expect(result.state).toBe('customers-active');
-    expect(result.notices).toContainEqual({ tone: 'warning', text: 'The test deployment needs attention.' });
+    expect(result.notices).toContainEqual({ tone: 'warning', text: 'Test deployment needs attention.' });
   });
 });
 
@@ -1018,7 +1018,7 @@ describe('configuration-review (environment setup)', () => {
       }),
     );
     expect(result.state).toBe('analysis-failed');
-    expect(result.heading).toBe("We couldn't analyse your application");
+    expect(result.heading).toBe('Analysis failed');
   });
 
   it('needsDecision === 0 leaves existing ready states untouched', () => {
@@ -1126,7 +1126,7 @@ describe('release readiness is shown apart from the analysis state', () => {
     const result = withReleases([release({ status: 'FAILED' })]);
     expect(result.state).toBe('ready-to-test');
     expect(result.badge.label).toBe('Ready to test');
-    expect(result.heading).toBe('No release is ready to test');
+    expect(result.heading).toBe('No release to test');
     expect(result.primaryAction).toMatchObject({ id: 'view-releases', href: '/dashboard/applications/app-1/releases' });
   });
 

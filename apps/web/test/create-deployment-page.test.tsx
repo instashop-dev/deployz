@@ -235,7 +235,7 @@ describe('create-installation page (invitation-first)', () => {
     expect(container.textContent).toContain('Invitation created');
     expect(container.textContent).toContain(`#${INVITATION.token}`);
     expect(container.textContent).toContain(
-      'a deployment is created only after their confirmation',
+      'A deployment is created only after they confirm',
     );
   });
 
@@ -281,7 +281,7 @@ describe('create-installation page (invitation-first)', () => {
       'us-east-1',
     ]);
     expect(container.textContent).toContain(
-      'Optional. Your customer makes the final region choice before deployment.',
+      'Optional. The customer chooses the final region.',
     );
 
     await act(async () => {
@@ -334,7 +334,7 @@ describe('create-installation page (invitation-first)', () => {
 
     const container = await renderPage();
 
-    expect(container.textContent).toContain("We couldn't load your customers.");
+    expect(container.textContent).toContain("Couldn't load customers.");
     expect(customerPickerTrigger().textContent).toBe('Create new customer');
 
     await fillNewCustomer(container);
