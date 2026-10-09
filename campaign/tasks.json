@@ -3423,7 +3423,7 @@
       "phase": 3,
       "title": "First-run local build/run of improvement apps repo-585, repo-588",
       "executor": "campaign-worker",
-      "status": "PENDING",
+      "status": "COMPLETE",
       "prerequisites": [
         "P3-BUILD-PLAN"
       ],
@@ -3457,8 +3457,10 @@
       "notes": [
         "2026-10-09 P3-BUILD-PLAN (Opus): command `node --env-file=.env node_modules/tsx/dist/cli.mjs scripts/repository-deployment/index.ts --local --ai live --benchmark campaign/corpus/benchmark.yaml --deploy-config campaign/corpus/deploy-config.yaml --runs-dir campaign/results/first-run/build/ --evidence-dir campaign/logs/P3-BUILD-26/evidence/ --repo repo-585 --repo repo-588`; default cache (no --cache). Resumable: on stopBy, interrupt at a safe point and return CONTINUE with progress; the next run adds --resume.",
         "Retry a build once when its log tail shows only registry network timeouts; if it fails again classify it as an environment failure (separate denominator).",
-        "Before the run, the worker may add to deploy-config.yaml, for this task's apps only, the configuration a vendor would enter from the app's own documented env example or install docs (config values without secrets; secrets as generated keys). No repository-specific hacks."
-      ]
+        "Before the run, the worker may add to deploy-config.yaml, for this task's apps only, the configuration a vendor would enter from the app's own documented env example or install docs (config values without secrets; secrets as generated keys). No repository-specific hacks.",
+        "2026-10-09T17:41Z Opus verification: completion checks pass. repo-585 (calibre-web) and repo-588 (mautic): AI live completed; gate FAIL (false-acceptance, verdict NEEDS_CONFIGURATION); source PASS; build FAIL (the repository has no root Dockerfile; manifest dockerfilePath null, but the harness built ./Dockerfile: same family as repo-525/579); run/probes SKIPPED; cleanup PASS (build cache pruned). No deploy-config change. 0 labelled resources; C: 5.6 GB free."
+      ],
+      "attempts": 1
     },
     {
       "id": "P3-BUILD-27",

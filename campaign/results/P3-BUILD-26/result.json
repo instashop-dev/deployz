@@ -1,0 +1,26 @@
+{
+  "taskId": "P3-BUILD-26",
+  "testedCommit": "e6a3b58ee2363923fef21faca86611fa3bf84538",
+  "executor": "campaign-worker",
+  "model": "sonnet",
+  "startedAt": "2026-10-09T17:39:47Z",
+  "finishedAt": "2026-10-09T17:41:14Z",
+  "proposedStatus": "COMPLETE",
+  "commands": [
+    { "command": "node --env-file=.env node_modules/tsx/dist/cli.mjs scripts/repository-deployment/index.ts --local --ai live --benchmark campaign/corpus/benchmark.yaml --deploy-config campaign/corpus/deploy-config.yaml --runs-dir campaign/results/first-run/build/ --evidence-dir campaign/logs/P3-BUILD-26/evidence/ --repo repo-585 --repo repo-588", "exitCode": 0, "summary": "both apps: gate FAIL (false-acceptance, verdict NEEDS_CONFIGURATION), source PASS, build FAIL (no Dockerfile in repo; docker build: open Dockerfile: no such file), run/probes SKIPPED (build did not pass), cleanup PASS" }
+  ],
+  "evidence": [
+    "campaign/results/first-run/build/repo-585.local.json",
+    "campaign/results/first-run/build/repo-588.local.json",
+    "campaign/logs/P3-BUILD-26/evidence/repo-585-build.log",
+    "campaign/logs/P3-BUILD-26/evidence/repo-588-build.log",
+    "campaign/logs/P3-BUILD-26/run.log"
+  ],
+  "notes": [
+    "No deploy-config.yaml changes were made.",
+    "AI mode live for both apps (model workers-ai/@cf/deepseek-ai/deepseek-v4-flash-0731).",
+    "Build failure is a repository result (no Dockerfile found; Deployz gate false-acceptance), not a network timeout; no retry.",
+    "Working tree HEAD was 5abe33bc (campaign commits above baseline e6a3b58e); testedCommit is the baseline commit given by the coordinator.",
+    "No container, network, volume or image with label deployz-campaign=fresh-100 remains."
+  ]
+}

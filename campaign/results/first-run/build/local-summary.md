@@ -1,11 +1,11 @@
 # Local Docker run summary
 
-Repositories: 50
+Repositories: 52
 
 ## Classification
 
 - build: 5
-- gate: 29
+- gate: 31
 - local-success: 1
 - probes: 10
 - run: 3
@@ -15,12 +15,12 @@ Repositories: 50
 
 | Stage | Attempted | PASS | FAIL | SKIPPED | IN_PROGRESS |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| gate | 50 | 21 | 29 | 0 | 0 |
-| source | 50 | 37 | 6 | 7 | 0 |
-| build | 50 | 19 | 18 | 13 | 0 |
-| run | 50 | 15 | 4 | 31 | 0 |
-| probes | 50 | 2 | 13 | 35 | 0 |
-| cleanup | 50 | 37 | 0 | 13 | 0 |
+| gate | 52 | 21 | 31 | 0 | 0 |
+| source | 52 | 39 | 6 | 7 | 0 |
+| build | 52 | 19 | 20 | 13 | 0 |
+| run | 52 | 15 | 4 | 33 | 0 |
+| probes | 52 | 2 | 13 | 37 | 0 |
+| cleanup | 52 | 39 | 0 | 13 | 0 |
 
 ## Probes
 
@@ -87,3 +87,5 @@ Repositories: 50
 | repo-577 | woodpecker-ci/woodpecker | gate | 9.6 |
 | repo-579 | akaunting/akaunting | gate | 11.5 |
 | repo-580 | ridafkih/keeper.sh | gate | 9.1 |
+| repo-585 | janeczku/calibre-web | gate | 6.5 |
+| repo-588 | mautic/mautic | gate | 20.4 |

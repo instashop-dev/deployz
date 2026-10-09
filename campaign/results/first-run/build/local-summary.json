@@ -1,63 +1,63 @@
 {
   "schemaVersion": 1,
-  "repositories": 50,
+  "repositories": 52,
   "classifications": {
     "source": 2,
     "probes": 10,
-    "gate": 29,
+    "gate": 31,
     "run": 3,
     "build": 5,
     "local-success": 1
   },
   "aiModes": {
-    "live": 50
+    "live": 52
   },
   "stages": {
     "gate": {
-      "attempted": 50,
+      "attempted": 52,
       "NOT_ATTEMPTED": 0,
       "IN_PROGRESS": 0,
       "PASS": 21,
-      "FAIL": 29,
+      "FAIL": 31,
       "SKIPPED": 0
     },
     "source": {
-      "attempted": 50,
+      "attempted": 52,
       "NOT_ATTEMPTED": 0,
       "IN_PROGRESS": 0,
-      "PASS": 37,
+      "PASS": 39,
       "FAIL": 6,
       "SKIPPED": 7
     },
     "build": {
-      "attempted": 50,
+      "attempted": 52,
       "NOT_ATTEMPTED": 0,
       "IN_PROGRESS": 0,
       "PASS": 19,
-      "FAIL": 18,
+      "FAIL": 20,
       "SKIPPED": 13
     },
     "run": {
-      "attempted": 50,
+      "attempted": 52,
       "NOT_ATTEMPTED": 0,
       "IN_PROGRESS": 0,
       "PASS": 15,
       "FAIL": 4,
-      "SKIPPED": 31
+      "SKIPPED": 33
     },
     "probes": {
-      "attempted": 50,
+      "attempted": 52,
       "NOT_ATTEMPTED": 0,
       "IN_PROGRESS": 0,
       "PASS": 2,
       "FAIL": 13,
-      "SKIPPED": 35
+      "SKIPPED": 37
     },
     "cleanup": {
-      "attempted": 50,
+      "attempted": 52,
       "NOT_ATTEMPTED": 0,
       "IN_PROGRESS": 0,
-      "PASS": 37,
+      "PASS": 39,
       "FAIL": 0,
       "SKIPPED": 13
     }
@@ -805,6 +805,34 @@
         "run": 2,
         "probes": 2,
         "cleanup": 1377
+      }
+    },
+    {
+      "id": "repo-585",
+      "repository": "janeczku/calibre-web",
+      "classification": "gate",
+      "totalMs": 6462,
+      "stages": {
+        "gate": 6,
+        "source": 3076,
+        "build": 2105,
+        "run": 3,
+        "probes": 2,
+        "cleanup": 1270
+      }
+    },
+    {
+      "id": "repo-588",
+      "repository": "mautic/mautic",
+      "classification": "gate",
+      "totalMs": 20370,
+      "stages": {
+        "gate": 2,
+        "source": 18250,
+        "build": 857,
+        "run": 2,
+        "probes": 2,
+        "cleanup": 1257
       }
     }
   ]
