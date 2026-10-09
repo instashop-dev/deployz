@@ -32,6 +32,7 @@ const mocks = vi.hoisted(() => ({
   createInvitation: vi.fn(),
   fetchRegions: vi.fn(),
   fetchApplicationPreflight: vi.fn(),
+  fetchReleases: vi.fn(),
 }));
 
 vi.mock('../src/lib/applications', async (importOriginal) => {
@@ -57,13 +58,21 @@ vi.mock('../src/lib/regions', () => ({
   fetchRegions: mocks.fetchRegions,
 }));
 
-vi.mock('../src/lib/preflight', () => ({
-  fetchApplicationPreflight: mocks.fetchApplicationPreflight,
-}));
+vi.mock('../src/lib/preflight', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../src/lib/preflight')>();
+  return { ...actual, fetchApplicationPreflight: mocks.fetchApplicationPreflight };
+});
+
+vi.mock('../src/lib/releases', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../src/lib/releases')>();
+  return { ...actual, fetchReleases: mocks.fetchReleases };
+});
 
 const NewDeploymentPage = (await import('../src/app/dashboard/deployments/new/page')).default;
 type Customer = import('../src/lib/customers').Customer;
 type Application = import('../src/lib/applications').Application;
+type Release = import('../src/lib/releases').Release;
+type PreflightResult = import('../src/lib/preflight').PreflightResult;
 
 /**
  * Component tests for the create-installation page (invitation-first): the
@@ -110,6 +119,34 @@ function customer(overrides: Partial<Customer> = {}): Customer {
     externalReference: null,
     createdAt: '2026-08-01T00:00:00.000Z',
     updatedAt: '2026-08-01T00:00:00.000Z',
+    ...overrides,
+  };
+}
+
+function release(overrides: Partial<Release> = {}): Release {
+  return {
+    id: 'rel-1',
+    version: 'f164f6917200',
+    status: 'READY',
+    failureReason: null,
+    gitSha: 'f164f6917200'.padEnd(40, '0'),
+    createdAt: '2026-08-01T00:00:00.000Z',
+    ...overrides,
+  };
+}
+
+function preflightResult(overrides: Partial<PreflightResult> = {}): PreflightResult {
+  return {
+    state: 'READY',
+    ready: true,
+    blockers: [],
+    warnings: [],
+    checks: Array.from({ length: 11 }, (_, index) => ({
+      id: `check-${index}`,
+      label: `Check ${index}`,
+      status: 'passed' as const,
+      detail: null,
+    })),
     ...overrides,
   };
 }
@@ -187,6 +224,7 @@ beforeEach(() => {
   mocks.createInvitation.mockReset().mockResolvedValue(INVITATION);
   mocks.fetchRegions.mockReset().mockResolvedValue([{ value: 'us-east-1', label: 'US East (N. Virginia)' }]);
   mocks.fetchApplicationPreflight.mockReset().mockRejectedValue(new Error('no preflight in this test'));
+  mocks.fetchReleases.mockReset().mockResolvedValue([release()]);
 });
 
 afterEach(() => {
@@ -420,5 +458,121 @@ describe('create-installation page (invitation-first)', () => {
     );
     expect(mocks.createInvitation).not.toHaveBeenCalled();
     expect(container.textContent).toContain('Deployment created');
+  });
+});
+
+describe('create test deployment page (readiness and release status)', () => {
+  function submitHint(container: HTMLElement): string | null {
+    return container.querySelector('#submit-hint')?.textContent ?? null;
+  }
+
+  it('shows one passed line with collapsed checks and enables the action when the release is ready', async () => {
+    mocks.fetchApplicationPreflight.mockResolvedValue(preflightResult());
+
+    const container = await renderPage('test=true');
+
+    expect(container.querySelector('[data-testid="preflight-heading"]')?.textContent).toBe('11 checks passed');
+    expect(container.querySelector('[data-testid="preflight-passed"]')).toBeNull();
+    expect(container.querySelector('[data-testid="install-release"]')?.textContent).toContain(
+      'Release f164f6917200 is ready',
+    );
+    expect(submitButton(container).disabled).toBe(false);
+    expect(submitHint(container)).toBeNull();
+
+    const toggle = Array.from(container.querySelectorAll('button')).find((button) =>
+      (button.textContent ?? '').includes('View details'),
+    ) as HTMLButtonElement;
+    await act(async () => {
+      click(toggle);
+    });
+    expect(container.querySelectorAll('[data-testid="preflight-passed"] li')).toHaveLength(11);
+  });
+
+  it('shows blockers without a click and keeps the action disabled', async () => {
+    mocks.fetchApplicationPreflight.mockResolvedValue(
+      preflightResult({
+        state: 'ACTION_REQUIRED',
+        ready: false,
+        blockers: [{ id: 'required-env-vars-missing', category: 'configuration', severity: 'error', message: 'x' }],
+        checks: [
+          { id: 'customer-variables', label: 'Required customer variables', status: 'blocked', detail: 'Missing: STRIPE_SECRET_KEY' },
+          { id: 'container', label: 'Application build configuration', status: 'passed', detail: 'Dockerfile' },
+        ],
+      }),
+    );
+
+    const container = await renderPage('test=true');
+
+    expect(container.querySelector('[data-testid="preflight-heading"]')?.textContent).toBe(
+      'Fix 1 issue before deploying',
+    );
+    expect(container.querySelector('[data-testid="preflight-attention"]')?.textContent).toContain(
+      'Missing: STRIPE_SECRET_KEY',
+    );
+    expect(submitButton(container).disabled).toBe(true);
+    expect(submitHint(container)).toBe('Fix the issues above to continue');
+  });
+
+  it('shows a loading state while the checks run', async () => {
+    mocks.fetchApplicationPreflight.mockReturnValue(new Promise(() => {}));
+
+    const container = await renderPage('test=true');
+
+    expect(container.textContent).toContain('Running deployment checks…');
+    expect(submitButton(container).disabled).toBe(true);
+    expect(submitHint(container)).toBe('Available when checks complete');
+  });
+
+  it('shows a building release inline and waits for the build', async () => {
+    mocks.fetchApplicationPreflight.mockResolvedValue(preflightResult());
+    mocks.fetchReleases.mockResolvedValue([release({ status: 'BUILDING' })]);
+
+    const container = await renderPage('test=true');
+
+    expect(container.querySelector('[data-testid="install-release-building"]')?.textContent).toBe(
+      'Building release f164f6917200…',
+    );
+    expect(submitButton(container).disabled).toBe(true);
+    expect(submitHint(container)).toBe('Available when the build completes');
+  });
+
+  it('shows a failed build with corrective actions', async () => {
+    mocks.fetchApplicationPreflight.mockResolvedValue(preflightResult());
+    mocks.fetchReleases.mockResolvedValue([release({ status: 'FAILED', failureReason: 'build failed' })]);
+    mocks.fetchApplications.mockResolvedValue([
+      application({ detectedMetadata: { analysisCommitSha: 'abc1234def5678' } }),
+    ]);
+
+    const container = await renderPage('test=true');
+
+    const missing = container.querySelector('[data-testid="install-release-missing"]');
+    expect(missing?.textContent).toContain('The last release build failed');
+    expect(missing?.textContent).toContain('Build release from commit abc1234');
+    expect(missing?.querySelector('a')?.getAttribute('href')).toBe('/dashboard/applications/app-1/releases');
+    expect(submitButton(container).disabled).toBe(true);
+    expect(submitHint(container)).toBe('Available after a release is built');
+  });
+
+  it('re-runs the checks and drops the stale result when the application changes', async () => {
+    mocks.fetchApplications.mockResolvedValue([
+      application({ id: 'app-1', name: 'Acme App' }),
+      application({ id: 'app-2', name: 'Other App' }),
+    ]);
+    mocks.fetchApplicationPreflight.mockResolvedValueOnce(preflightResult());
+    mocks.fetchApplicationPreflight.mockReturnValueOnce(new Promise(() => {}));
+
+    const container = await renderPage('test=true');
+    expect(container.querySelector('[data-testid="preflight-heading"]')?.textContent).toBe('11 checks passed');
+
+    const applicationSelect = container.querySelector('#application') as HTMLSelectElement;
+    await act(async () => {
+      applicationSelect.value = 'app-2';
+      applicationSelect.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+
+    expect(mocks.fetchApplicationPreflight).toHaveBeenLastCalledWith('app-2', undefined);
+    expect(container.querySelector('[data-testid="preflight-heading"]')).toBeNull();
+    expect(container.textContent).toContain('Running deployment checks…');
+    expect(submitButton(container).disabled).toBe(true);
   });
 });

@@ -32,38 +32,34 @@ export interface PreflightResult {
 }
 
 export interface PreflightPresentation {
+  /** The one status line, e.g. "11 checks passed". */
   heading: string;
   /** Visual tone — ready is green, warnings amber, blocked red. */
   tone: 'ready' | 'attention' | 'blocked';
-  /** One supporting line. */
-  summary: string;
 }
 
-/** The headline, tone and supporting line for a preflight state. */
-export function preflightPresentation(result: PreflightResult): PreflightPresentation {
-  const blockers = result.blockers.length;
-  const warnings = result.warnings.length;
+function plural(count: number, one: string, many: string): string {
+  return `${count} ${count === 1 ? one : many}`;
+}
+
+/** The status line and tone for a preflight result with `passedCount` passed checks. */
+export function preflightPresentation(result: PreflightResult, passedCount: number): PreflightPresentation {
+  const passed = plural(passedCount, 'check passed', 'checks passed');
   switch (result.state) {
     case 'READY':
-      return { heading: 'Ready to deploy', tone: 'ready', summary: 'Every deployment check passed.' };
+      return { heading: passed, tone: 'ready' };
     case 'READY_WITH_WARNINGS':
       return {
-        heading: 'Ready to deploy',
+        heading: `${passed}, ${plural(result.warnings.length, 'recommendation', 'recommendations')}`,
         tone: 'attention',
-        summary: `${warnings} ${warnings === 1 ? 'recommendation' : 'recommendations'} — deployment can go ahead.`,
       };
     case 'ACTION_REQUIRED':
       return {
-        heading: 'Action required',
+        heading: `Fix ${plural(result.blockers.length, 'issue', 'issues')} before deploying`,
         tone: 'blocked',
-        summary: `Fix ${blockers === 1 ? 'this issue' : `these ${blockers} issues`} before deployment.`,
       };
     case 'UNSUPPORTED':
-      return {
-        heading: "Can't deploy this application yet",
-        tone: 'blocked',
-        summary: 'This application needs changes before Deployz can deploy it.',
-      };
+      return { heading: "Can't deploy this application yet", tone: 'blocked' };
   }
 }
 
