@@ -1,0 +1,120 @@
+{
+  "schemaVersion": 1,
+  "id": "repo-596",
+  "repository": "dnnsoftware/Dnn.Platform",
+  "commit": "206201c84855ff4b5b6499e135b04a86e2ce0580",
+  "set": "improvement",
+  "cohort": "boundary",
+  "deployzCommit": "5483fa4ec5168e8e627b192b5aab0912ce0d3d88",
+  "analysisVersion": 45,
+  "ai": {
+    "mode": "live",
+    "model": "workers-ai/@cf/deepseek-ai/deepseek-v4-flash-0731",
+    "requests": 1,
+    "outcome": "completed",
+    "error": null
+  },
+  "inputsHash": "258c47cae6f6a405b8c66a51be3495d5c8f71502629e99226d7c7688aa2f74b3",
+  "stages": {
+    "gate": {
+      "status": "FAIL",
+      "startedAt": "2026-10-09T17:44:37.764Z",
+      "finishedAt": "2026-10-09T17:44:37.768Z",
+      "durationMs": 4,
+      "detail": null,
+      "evidence": {
+        "verdict": "NEEDS_CONFIGURATION",
+        "outcome": "false-acceptance",
+        "configuredVerdict": "NEEDS_CONFIGURATION",
+        "manifest": {
+          "dockerfilePath": null,
+          "buildContext": ".",
+          "appRoot": ".",
+          "port": null,
+          "healthPath": "/",
+          "healthMode": "vendor_required",
+          "migrationCommand": null,
+          "migrationMode": "none",
+          "postgres": false,
+          "redis": false,
+          "storage": false,
+          "databaseBindings": [],
+          "redisBindings": [],
+          "storageBindings": [],
+          "generatedKeys": []
+        }
+      }
+    },
+    "source": {
+      "status": "PASS",
+      "startedAt": "2026-10-09T17:44:37.772Z",
+      "finishedAt": "2026-10-09T17:44:53.634Z",
+      "durationMs": 15862,
+      "detail": null,
+      "evidence": {
+        "commit": "206201c84855ff4b5b6499e135b04a86e2ce0580",
+        "archiveCached": false,
+        "archiveBytes": 20657564
+      }
+    },
+    "build": {
+      "status": "FAIL",
+      "startedAt": "2026-10-09T17:44:53.637Z",
+      "finishedAt": "2026-10-09T17:44:54.907Z",
+      "durationMs": 1270,
+      "detail": "docker build exited 1",
+      "evidence": {
+        "dockerfilePath": "Dockerfile",
+        "buildContext": ".",
+        "platform": "linux/amd64",
+        "image": "deployz-campaign/repo-596:206201c84855",
+        "exitCode": 1,
+        "durationMs": 1266,
+        "buildArgNames": [],
+        "logTail": "#0 building with \"desktop-linux\" instance using docker driver\n\n#1 [internal] load build definition from Dockerfile\n#1 transferring dockerfile: 2B done\n#1 DONE 0.1s\nERROR: failed to build: failed to solve: failed to read dockerfile: open Dockerfile: no such file or directory\n\nView build details: docker-desktop://dashboard/build/desktop-linux/desktop-linux/79m9kqa9lmfwxvkwlr46vf3u4",
+        "failure": "build",
+        "rebuilt": false
+      }
+    },
+    "run": {
+      "status": "SKIPPED",
+      "startedAt": "2026-10-09T17:44:58.064Z",
+      "finishedAt": "2026-10-09T17:44:58.067Z",
+      "durationMs": 3,
+      "detail": "the build did not pass",
+      "evidence": {}
+    },
+    "probes": {
+      "status": "SKIPPED",
+      "startedAt": "2026-10-09T17:44:58.070Z",
+      "finishedAt": "2026-10-09T17:44:58.073Z",
+      "durationMs": 3,
+      "detail": "the build did not pass",
+      "evidence": {}
+    },
+    "cleanup": {
+      "status": "PASS",
+      "startedAt": "2026-10-09T17:44:58.075Z",
+      "finishedAt": "2026-10-09T17:44:59.290Z",
+      "durationMs": 1215,
+      "detail": null,
+      "evidence": {
+        "removed": {
+          "containers": 0,
+          "networks": 0,
+          "volumes": 0
+        },
+        "imageRemoved": false,
+        "buildCachePruned": true,
+        "keepImage": false,
+        "leaks": {
+          "containers": [],
+          "networks": [],
+          "volumes": []
+        }
+      }
+    }
+  },
+  "classification": "gate",
+  "remediation": null
+}

@@ -1,0 +1,120 @@
+{
+  "schemaVersion": 1,
+  "id": "repo-599",
+  "repository": "opensearch-project/OpenSearch-Dashboards",
+  "commit": "c860eedf96d8f34f2240bae1c6c67bdebd2ede55",
+  "set": "improvement",
+  "cohort": "boundary",
+  "deployzCommit": "5483fa4ec5168e8e627b192b5aab0912ce0d3d88",
+  "analysisVersion": 45,
+  "ai": {
+    "mode": "live",
+    "model": "workers-ai/@cf/deepseek-ai/deepseek-v4-flash-0731",
+    "requests": 1,
+    "outcome": "completed",
+    "error": null
+  },
+  "inputsHash": "c31a6ff48127236ddb6ec34004e30e0ee9c81b57b0eb2e971859adeb1d8c8593",
+  "stages": {
+    "gate": {
+      "status": "FAIL",
+      "startedAt": "2026-10-09T17:45:17.002Z",
+      "finishedAt": "2026-10-09T17:45:17.005Z",
+      "durationMs": 3,
+      "detail": null,
+      "evidence": {
+        "verdict": "NEEDS_CONFIGURATION",
+        "outcome": "false-acceptance",
+        "configuredVerdict": "NEEDS_CONFIGURATION",
+        "manifest": {
+          "dockerfilePath": "src/dev/build/tasks/os_packages/docker_generator/templates/Dockerfile",
+          "buildContext": ".",
+          "appRoot": ".",
+          "port": 5601,
+          "healthPath": "/health",
+          "healthMode": "explicit",
+          "migrationCommand": null,
+          "migrationMode": "none",
+          "postgres": false,
+          "redis": false,
+          "storage": false,
+          "databaseBindings": [],
+          "redisBindings": [],
+          "storageBindings": [],
+          "generatedKeys": []
+        }
+      }
+    },
+    "source": {
+      "status": "PASS",
+      "startedAt": "2026-10-09T17:45:17.009Z",
+      "finishedAt": "2026-10-09T17:48:36.375Z",
+      "durationMs": 199366,
+      "detail": null,
+      "evidence": {
+        "commit": "c860eedf96d8f34f2240bae1c6c67bdebd2ede55",
+        "archiveCached": false,
+        "archiveBytes": 892177229
+      }
+    },
+    "build": {
+      "status": "FAIL",
+      "startedAt": "2026-10-09T17:48:36.418Z",
+      "finishedAt": "2026-10-09T17:48:41.155Z",
+      "durationMs": 4737,
+      "detail": "docker build exited 1",
+      "evidence": {
+        "dockerfilePath": "src/dev/build/tasks/os_packages/docker_generator/templates/Dockerfile",
+        "buildContext": ".",
+        "platform": "linux/amd64",
+        "image": "deployz-campaign/repo-599:c860eedf96d8",
+        "exitCode": 1,
+        "durationMs": 4708,
+        "buildArgNames": [],
+        "logTail": "#0 building with \"desktop-linux\" instance using docker driver\n\n#1 [internal] load build definition from Dockerfile\n#1 transferring dockerfile: 30B 0.0s\n#1 transferring dockerfile: 5.88kB 0.2s done\n#1 DONE 0.3s\nDockerfile:14\n--------------------\n  12 |     FROM {{{baseOSImage}}} AS builder\n  13 |     \n  14 | >>> {{#ubi}}\n  15 |     RUN {{packageManager}} install -y findutils tar gzip\n  16 |     {{/ubi}}\n--------------------\nERROR: failed to build: failed to solve: dockerfile parse error on line 14: unknown instruction: {{#ubi}}\n\nView build details: docker-desktop://dashboard/build/desktop-linux/desktop-linux/8cj1m9qapzb2fkhkqu4elzu2d",
+        "failure": "build",
+        "rebuilt": false
+      }
+    },
+    "run": {
+      "status": "SKIPPED",
+      "startedAt": "2026-10-09T17:48:45.487Z",
+      "finishedAt": "2026-10-09T17:48:45.490Z",
+      "durationMs": 3,
+      "detail": "the build did not pass",
+      "evidence": {}
+    },
+    "probes": {
+      "status": "SKIPPED",
+      "startedAt": "2026-10-09T17:48:45.492Z",
+      "finishedAt": "2026-10-09T17:48:45.495Z",
+      "durationMs": 3,
+      "detail": "the build did not pass",
+      "evidence": {}
+    },
+    "cleanup": {
+      "status": "PASS",
+      "startedAt": "2026-10-09T17:48:45.497Z",
+      "finishedAt": "2026-10-09T17:48:46.877Z",
+      "durationMs": 1380,
+      "detail": null,
+      "evidence": {
+        "removed": {
+          "containers": 0,
+          "networks": 0,
+          "volumes": 0
+        },
+        "imageRemoved": false,
+        "buildCachePruned": true,
+        "keepImage": false,
+        "leaks": {
+          "containers": [],
+          "networks": [],
+          "volumes": []
+        }
+      }
+    }
+  },
+  "classification": "gate",
+  "remediation": null
+}

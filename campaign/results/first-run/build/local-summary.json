@@ -1,63 +1,63 @@
 {
   "schemaVersion": 1,
-  "repositories": 54,
+  "repositories": 56,
   "classifications": {
     "source": 2,
     "probes": 10,
-    "gate": 33,
+    "gate": 35,
     "run": 3,
     "build": 5,
     "local-success": 1
   },
   "aiModes": {
-    "live": 54
+    "live": 56
   },
   "stages": {
     "gate": {
-      "attempted": 54,
+      "attempted": 56,
       "NOT_ATTEMPTED": 0,
       "IN_PROGRESS": 0,
       "PASS": 21,
-      "FAIL": 33,
+      "FAIL": 35,
       "SKIPPED": 0
     },
     "source": {
-      "attempted": 54,
+      "attempted": 56,
       "NOT_ATTEMPTED": 0,
       "IN_PROGRESS": 0,
-      "PASS": 41,
+      "PASS": 43,
       "FAIL": 6,
       "SKIPPED": 7
     },
     "build": {
-      "attempted": 54,
+      "attempted": 56,
       "NOT_ATTEMPTED": 0,
       "IN_PROGRESS": 0,
       "PASS": 19,
-      "FAIL": 22,
+      "FAIL": 24,
       "SKIPPED": 13
     },
     "run": {
-      "attempted": 54,
+      "attempted": 56,
       "NOT_ATTEMPTED": 0,
       "IN_PROGRESS": 0,
       "PASS": 15,
       "FAIL": 4,
-      "SKIPPED": 35
+      "SKIPPED": 37
     },
     "probes": {
-      "attempted": 54,
+      "attempted": 56,
       "NOT_ATTEMPTED": 0,
       "IN_PROGRESS": 0,
       "PASS": 2,
       "FAIL": 13,
-      "SKIPPED": 39
+      "SKIPPED": 41
     },
     "cleanup": {
-      "attempted": 54,
+      "attempted": 56,
       "NOT_ATTEMPTED": 0,
       "IN_PROGRESS": 0,
-      "PASS": 41,
+      "PASS": 43,
       "FAIL": 0,
       "SKIPPED": 13
     }
@@ -861,6 +861,34 @@
         "run": 3,
         "probes": 3,
         "cleanup": 1187
+      }
+    },
+    {
+      "id": "repo-596",
+      "repository": "dnnsoftware/Dnn.Platform",
+      "classification": "gate",
+      "totalMs": 18357,
+      "stages": {
+        "gate": 4,
+        "source": 15862,
+        "build": 1270,
+        "run": 3,
+        "probes": 3,
+        "cleanup": 1215
+      }
+    },
+    {
+      "id": "repo-599",
+      "repository": "opensearch-project/OpenSearch-Dashboards",
+      "classification": "gate",
+      "totalMs": 205492,
+      "stages": {
+        "gate": 3,
+        "source": 199366,
+        "build": 4737,
+        "run": 3,
+        "probes": 3,
+        "cleanup": 1380
       }
     }
   ]

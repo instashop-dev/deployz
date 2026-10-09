@@ -1,11 +1,11 @@
 # Local Docker run summary
 
-Repositories: 54
+Repositories: 56
 
 ## Classification
 
 - build: 5
-- gate: 33
+- gate: 35
 - local-success: 1
 - probes: 10
 - run: 3
@@ -15,12 +15,12 @@ Repositories: 54
 
 | Stage | Attempted | PASS | FAIL | SKIPPED | IN_PROGRESS |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| gate | 54 | 21 | 33 | 0 | 0 |
-| source | 54 | 41 | 6 | 7 | 0 |
-| build | 54 | 19 | 22 | 13 | 0 |
-| run | 54 | 15 | 4 | 35 | 0 |
-| probes | 54 | 2 | 13 | 39 | 0 |
-| cleanup | 54 | 41 | 0 | 13 | 0 |
+| gate | 56 | 21 | 35 | 0 | 0 |
+| source | 56 | 43 | 6 | 7 | 0 |
+| build | 56 | 19 | 24 | 13 | 0 |
+| run | 56 | 15 | 4 | 37 | 0 |
+| probes | 56 | 2 | 13 | 41 | 0 |
+| cleanup | 56 | 43 | 0 | 13 | 0 |
 
 ## Probes
 
@@ -91,3 +91,5 @@ Repositories: 54
 | repo-588 | mautic/mautic | gate | 20.4 |
 | repo-590 | grocy/grocy | gate | 4.1 |
 | repo-593 | glanceapp/glance | gate | 7.1 |
+| repo-596 | dnnsoftware/Dnn.Platform | gate | 18.4 |
+| repo-599 | opensearch-project/OpenSearch-Dashboards | gate | 205.5 |
