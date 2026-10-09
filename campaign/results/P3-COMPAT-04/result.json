@@ -1,0 +1,33 @@
+{
+  "taskId": "P3-COMPAT-04",
+  "testedCommit": "e6a3b58ee2363923fef21faca86611fa3bf84538",
+  "executor": "campaign-worker",
+  "model": "sonnet",
+  "startedAt": "2026-10-09T00:49:54Z",
+  "finishedAt": "2026-10-09T00:53:56Z",
+  "proposedStatus": "COMPLETE",
+  "commands": [
+    {
+      "command": "node --env-file=.env node_modules/tsx/dist/cli.mjs scripts/repository-compatibility/index.ts --ai live --benchmark campaign/corpus/benchmark.yaml --runs-dir campaign/results/first-run/compat/ --repo repo-541 ... repo-551 (10 repos)",
+      "exitCode": 0,
+      "summary": "10/10 analysed; 5/10 verdict match; no AI HTTP 5xx; AI parse-error on 541, 545, 548"
+    }
+  ],
+  "evidence": [
+    "campaign/results/first-run/compat/repo-541.json",
+    "campaign/results/first-run/compat/repo-542.json",
+    "campaign/results/first-run/compat/repo-543.json",
+    "campaign/results/first-run/compat/repo-544.json",
+    "campaign/results/first-run/compat/repo-545.json",
+    "campaign/results/first-run/compat/repo-547.json",
+    "campaign/results/first-run/compat/repo-548.json",
+    "campaign/results/first-run/compat/repo-549.json",
+    "campaign/results/first-run/compat/repo-550.json",
+    "campaign/results/first-run/compat/repo-551.json",
+    "campaign/logs/P3-COMPAT-04/run.log"
+  ],
+  "notes": [
+    "HEAD at run time was bf1e43813b61dc799c378d5a33090c0e9b888dbd (descendant); testedCommit set as instructed.",
+    "repo-544 and repo-551 had ai.outcome not-requested (0 requests)."
+  ]
+}

@@ -1,0 +1,142 @@
+{
+  "id": "repo-551",
+  "repository": "spliit-app/spliit",
+  "commit": "b73d551a6dea3a27f3d5d42a805b86edcb1ee651",
+  "set": "improvement",
+  "cohort": "realistic",
+  "customerRealism": "high",
+  "difficulty": 2,
+  "deployzSha": "bf1e43813b61dc799c378d5a33090c0e9b888dbd",
+  "analysisVersion": 45,
+  "ai": {
+    "mode": "live",
+    "model": "workers-ai/@cf/deepseek-ai/deepseek-v4-flash-0731",
+    "requests": 0,
+    "outcome": "not-requested",
+    "error": null
+  },
+  "tree": {
+    "files": 201,
+    "entries": 441,
+    "truncated": false
+  },
+  "expected": {
+    "compatibility": "READY",
+    "runtime": [
+      "node"
+    ],
+    "monorepo": false,
+    "postgres": true,
+    "redis": false,
+    "worker": false,
+    "migration": true,
+    "appRoot": ".",
+    "dockerfilePath": "Dockerfile",
+    "port": 3000,
+    "healthPath": "/api/health"
+  },
+  "status": "analysed",
+  "failure": null,
+  "actual": {
+    "compatibility": "NEEDS_CONFIGURATION",
+    "analysisVerdict": "READY",
+    "readinessState": "READY",
+    "runtime": "node",
+    "appRoot": ".",
+    "dockerfilePath": "Dockerfile",
+    "port": 3000,
+    "startCommand": "ENTRYPOINT: [\"/bin/sh\", \"/usr/app/scripts/container-entrypoint.sh\"]",
+    "healthDetected": true,
+    "healthPath": "/api/health",
+    "postgres": true,
+    "postgresDetected": true,
+    "redis": false,
+    "redisDetected": false,
+    "redisConfidence": "low",
+    "storage": false,
+    "worker": false,
+    "workerCommand": null,
+    "migration": true,
+    "migrationCommand": "npx prisma migrate deploy && prisma generate",
+    "externalServices": [
+      "openai"
+    ],
+    "requiredEnvVars": [
+      "POSTGRES_PRISMA_URL",
+      "POSTGRES_URL_NON_POOLING"
+    ],
+    "unsupported": [],
+    "readinessFindings": [],
+    "gateFindings": [
+      "required-env-vars-missing"
+    ],
+    "unresolvedQuestions": []
+  },
+  "comparisons": [
+    {
+      "fact": "compatibility",
+      "expected": "READY",
+      "actual": "NEEDS_CONFIGURATION",
+      "match": false,
+      "kind": "configuration-detection"
+    },
+    {
+      "fact": "postgres",
+      "expected": true,
+      "actual": true,
+      "match": true
+    },
+    {
+      "fact": "redis",
+      "expected": false,
+      "actual": false,
+      "match": true
+    },
+    {
+      "fact": "worker",
+      "expected": false,
+      "actual": false,
+      "match": true
+    },
+    {
+      "fact": "migration",
+      "expected": true,
+      "actual": true,
+      "match": true
+    },
+    {
+      "fact": "appRoot",
+      "expected": ".",
+      "actual": ".",
+      "match": true
+    },
+    {
+      "fact": "dockerfilePath",
+      "expected": "Dockerfile",
+      "actual": "Dockerfile",
+      "match": true
+    },
+    {
+      "fact": "port",
+      "expected": 3000,
+      "actual": 3000,
+      "match": true
+    },
+    {
+      "fact": "healthPath",
+      "expected": "/api/health",
+      "actual": "/api/health",
+      "match": true
+    }
+  ],
+  "mismatches": [
+    {
+      "fact": "compatibility",
+      "kind": "configuration-detection",
+      "expected": "READY",
+      "actual": "NEEDS_CONFIGURATION",
+      "finding": null
+    }
+  ],
+  "match": false
+}
