@@ -1,0 +1,207 @@
+{
+  "id": "repo-580",
+  "repository": "ridafkih/keeper.sh",
+  "commit": "06ffc53df8634c47272710c4cbf5a5148eeee08b",
+  "set": "improvement",
+  "cohort": "messy",
+  "customerRealism": "medium",
+  "difficulty": 5,
+  "deployzSha": "4f1c4630f456886f670389f61eb6f84fdd65a862",
+  "analysisVersion": 45,
+  "ai": {
+    "mode": "live",
+    "model": "workers-ai/@cf/deepseek-ai/deepseek-v4-flash-0731",
+    "requests": 1,
+    "outcome": "completed",
+    "error": null
+  },
+  "tree": {
+    "files": 204,
+    "entries": 2131,
+    "truncated": false
+  },
+  "expected": {
+    "compatibility": "NOT_COMPATIBLE",
+    "runtime": [
+      "node"
+    ],
+    "monorepo": true,
+    "postgres": true,
+    "redis": true,
+    "worker": true,
+    "migration": true,
+    "appRoot": ".",
+    "dockerfilePath": "docker/services/Dockerfile",
+    "port": 3000,
+    "healthPath": "/",
+    "unsupported": [
+      "background-worker"
+    ]
+  },
+  "status": "analysed",
+  "failure": null,
+  "actual": {
+    "compatibility": "NEEDS_CONFIGURATION",
+    "analysisVerdict": "NEEDS_ATTENTION",
+    "readinessState": "ALMOST_READY",
+    "runtime": "node",
+    "appRoot": "applications/web",
+    "dockerfilePath": "applications/web/Dockerfile",
+    "port": 3000,
+    "startCommand": "ENTRYPOINT: [\"./entrypoint.sh\"]",
+    "healthDetected": false,
+    "healthPath": null,
+    "postgres": true,
+    "postgresDetected": true,
+    "redis": false,
+    "redisDetected": true,
+    "redisConfidence": "medium",
+    "storage": false,
+    "worker": true,
+    "workerCommand": null,
+    "migration": false,
+    "migrationCommand": null,
+    "externalServices": [
+      "resend"
+    ],
+    "requiredEnvVars": [],
+    "unsupported": [],
+    "readinessFindings": [
+      "health-check",
+      "worker-command"
+    ],
+    "gateFindings": [
+      "health-path-required",
+      "migration-command-missing"
+    ],
+    "unresolvedQuestions": [
+      "multiple-dockerfiles",
+      "redis-requirement-unclear"
+    ]
+  },
+  "comparisons": [
+    {
+      "fact": "compatibility",
+      "expected": "NOT_COMPATIBLE",
+      "actual": "NEEDS_CONFIGURATION",
+      "match": false,
+      "kind": "false-acceptance"
+    },
+    {
+      "fact": "postgres",
+      "expected": true,
+      "actual": true,
+      "match": true
+    },
+    {
+      "fact": "redis",
+      "expected": true,
+      "actual": false,
+      "match": false,
+      "kind": "fact"
+    },
+    {
+      "fact": "worker",
+      "expected": true,
+      "actual": true,
+      "match": true
+    },
+    {
+      "fact": "migration",
+      "expected": true,
+      "actual": false,
+      "match": false,
+      "kind": "fact"
+    },
+    {
+      "fact": "appRoot",
+      "expected": ".",
+      "actual": "applications/web",
+      "match": false,
+      "kind": "fact"
+    },
+    {
+      "fact": "dockerfilePath",
+      "expected": "docker/services/Dockerfile",
+      "actual": "applications/web/Dockerfile",
+      "match": false,
+      "kind": "fact"
+    },
+    {
+      "fact": "port",
+      "expected": 3000,
+      "actual": 3000,
+      "match": true
+    },
+    {
+      "fact": "healthPath",
+      "expected": "/",
+      "actual": null,
+      "match": false,
+      "kind": "fact"
+    },
+    {
+      "fact": "unsupported",
+      "expected": [
+        "background-worker"
+      ],
+      "actual": [],
+      "match": false,
+      "kind": "fact"
+    }
+  ],
+  "mismatches": [
+    {
+      "fact": "compatibility",
+      "kind": "false-acceptance",
+      "expected": "NOT_COMPATIBLE",
+      "actual": "NEEDS_CONFIGURATION",
+      "finding": null
+    },
+    {
+      "fact": "redis",
+      "kind": "fact",
+      "expected": true,
+      "actual": false,
+      "finding": null
+    },
+    {
+      "fact": "migration",
+      "kind": "fact",
+      "expected": true,
+      "actual": false,
+      "finding": null
+    },
+    {
+      "fact": "appRoot",
+      "kind": "fact",
+      "expected": ".",
+      "actual": "applications/web",
+      "finding": null
+    },
+    {
+      "fact": "dockerfilePath",
+      "kind": "fact",
+      "expected": "docker/services/Dockerfile",
+      "actual": "applications/web/Dockerfile",
+      "finding": null
+    },
+    {
+      "fact": "healthPath",
+      "kind": "fact",
+      "expected": "/",
+      "actual": null,
+      "finding": null
+    },
+    {
+      "fact": "unsupported",
+      "kind": "fact",
+      "expected": [
+        "background-worker"
+      ],
+      "actual": [],
+      "finding": null
+    }
+  ],
+  "match": false
+}

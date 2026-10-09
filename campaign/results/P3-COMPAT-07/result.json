@@ -3,16 +3,29 @@
   "testedCommit": "e6a3b58ee2363923fef21faca86611fa3bf84538",
   "executor": "campaign-worker",
   "model": "sonnet",
-  "startedAt": "2026-10-09T01:03:51Z",
-  "finishedAt": "2026-10-09T01:40:00Z",
-  "proposedStatus": "RETRYABLE",
+  "startedAt": "2026-10-09T01:44:00Z",
+  "finishedAt": "2026-10-09T01:55:00Z",
+  "proposedStatus": "COMPLETE",
   "commands": [
-    { "command": "node --env-file=.env node_modules/tsx/dist/cli.mjs scripts/repository-compatibility/index.ts --ai live --benchmark campaign/corpus/benchmark.yaml --runs-dir campaign/results/first-run/compat/ --repo repo-576 ... --repo repo-588", "exitCode": 1, "summary": "repo-576 analysed (NOT_COMPATIBLE, 5 mismatches, AI ok) then run hung on repo-577 snapshot for about 28 min with no output; process killed by worker; no result files written for this batch" }
+    { "command": "timeout 900 node --env-file=.env node_modules/tsx/dist/cli.mjs scripts/repository-compatibility/index.ts --ai live --benchmark campaign/corpus/benchmark.yaml --runs-dir campaign/results/first-run/compat/ --repo repo-576 --repo repo-577 --repo repo-579 --repo repo-580 --repo repo-582 --repo repo-583 --repo repo-585 --repo repo-586 --repo repo-587 --repo repo-588", "exitCode": 0, "summary": "10 apps analysed in about 9 min, no stall on repo-577, 10 result files written" }
   ],
-  "evidence": ["campaign/logs/P3-COMPAT-07/run.log"],
+  "evidence": [
+    "campaign/results/first-run/compat/repo-576.json",
+    "campaign/results/first-run/compat/repo-577.json",
+    "campaign/results/first-run/compat/repo-579.json",
+    "campaign/results/first-run/compat/repo-580.json",
+    "campaign/results/first-run/compat/repo-582.json",
+    "campaign/results/first-run/compat/repo-583.json",
+    "campaign/results/first-run/compat/repo-585.json",
+    "campaign/results/first-run/compat/repo-586.json",
+    "campaign/results/first-run/compat/repo-587.json",
+    "campaign/results/first-run/compat/repo-588.json"
+  ],
   "notes": [
-    "Harness hang on repo-577 (woodpecker-ci/woodpecker@5e87e8a), no AI 5xx seen. Harness adds no timeout. Likely network stall in repository snapshot fetch.",
-    "Result files are written at end of run; none written for repo-576..588 (no files in compat/). Retry the full batch.",
-    "No containers used. git status clean."
+    "Batch ids: repo-576, 577, 579, 580, 582, 583, 585, 586, 587, 588 (10 apps; the ids 578, 581, 584 are not in this batch).",
+    "Verdict vs label: 5/10 match. Match: repo-576, 582, 583, 586, 587 (all NOT_COMPATIBLE). Mismatch (label NOT_COMPATIBLE, actual NEEDS_CONFIGURATION): repo-577, 579, 580, 585, 588.",
+    "AI outcomes (mode live in all 10, equal to baseline): completed 7, timeout 2, parse-error 1, not-requested 0, 5xx 0. repo-576 AI outcome is timeout.",
+    "Attempt 1 fact: harness hung about 28 min on the repo-577 snapshot with no files written. Attempt 2: no stall; repo-577 analysed normally. The stall is transient. Phase 4 harness candidate remains: no per-repository fetch timeout.",
+    "Raw log (ignored): campaign/logs/P3-COMPAT-07/run-attempt-2.log. Result files carry deployzSha 4f1c4630 (checkout HEAD); the task testedCommit is the state.json baseline. No containers used. No process left running."
   ]
 }

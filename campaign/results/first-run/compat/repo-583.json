@@ -1,0 +1,162 @@
+{
+  "id": "repo-583",
+  "repository": "TryGhost/Ghost",
+  "commit": "1867c8aa836eee9cc1e7bdea994f32d8461d3c46",
+  "set": "improvement",
+  "cohort": "messy",
+  "customerRealism": "medium",
+  "difficulty": 5,
+  "deployzSha": "4f1c4630f456886f670389f61eb6f84fdd65a862",
+  "analysisVersion": 45,
+  "ai": {
+    "mode": "live",
+    "model": "workers-ai/@cf/deepseek-ai/deepseek-v4-flash-0731",
+    "requests": 1,
+    "outcome": "parse-error",
+    "error": "AI_NoObjectGeneratedError: No object generated: response did not match schema."
+  },
+  "tree": {
+    "files": 202,
+    "entries": 11395,
+    "truncated": false
+  },
+  "expected": {
+    "compatibility": "NOT_COMPATIBLE",
+    "runtime": [
+      "node"
+    ],
+    "monorepo": true,
+    "postgres": false,
+    "redis": false,
+    "worker": false,
+    "migration": true,
+    "appRoot": "ghost/core",
+    "dockerfilePath": "Dockerfile.production",
+    "port": 2368,
+    "unsupported": [
+      "local-filesystem"
+    ]
+  },
+  "status": "analysed",
+  "failure": null,
+  "actual": {
+    "compatibility": "NOT_COMPATIBLE",
+    "analysisVerdict": "NEEDS_ATTENTION",
+    "readinessState": "ALMOST_READY",
+    "runtime": "node",
+    "appRoot": ".",
+    "dockerfilePath": "Dockerfile.production",
+    "port": 2368,
+    "startCommand": "CMD: [\"node\", \"index.js\"]",
+    "healthDetected": false,
+    "healthPath": null,
+    "postgres": false,
+    "postgresDetected": false,
+    "redis": false,
+    "redisDetected": false,
+    "redisConfidence": "low",
+    "storage": true,
+    "worker": false,
+    "workerCommand": null,
+    "migration": true,
+    "migrationCommand": "docker exec --workdir /home/ghost/ghost/core ghost-dev pnpm knex-migrator migrate",
+    "externalServices": [
+      "sentry",
+      "smtp",
+      "stripe"
+    ],
+    "requiredEnvVars": [],
+    "unsupported": [],
+    "readinessFindings": [
+      "health-check"
+    ],
+    "gateFindings": [
+      "unsupported",
+      "dockerfile-missing-sources",
+      "health-path-required"
+    ],
+    "unresolvedQuestions": [
+      "multiple-dockerfiles",
+      "database-requirement-unclear"
+    ]
+  },
+  "comparisons": [
+    {
+      "fact": "compatibility",
+      "expected": "NOT_COMPATIBLE",
+      "actual": "NOT_COMPATIBLE",
+      "match": true
+    },
+    {
+      "fact": "postgres",
+      "expected": false,
+      "actual": false,
+      "match": true
+    },
+    {
+      "fact": "redis",
+      "expected": false,
+      "actual": false,
+      "match": true
+    },
+    {
+      "fact": "worker",
+      "expected": false,
+      "actual": false,
+      "match": true
+    },
+    {
+      "fact": "migration",
+      "expected": true,
+      "actual": true,
+      "match": true
+    },
+    {
+      "fact": "appRoot",
+      "expected": "ghost/core",
+      "actual": ".",
+      "match": false,
+      "kind": "fact"
+    },
+    {
+      "fact": "dockerfilePath",
+      "expected": "Dockerfile.production",
+      "actual": "Dockerfile.production",
+      "match": true
+    },
+    {
+      "fact": "port",
+      "expected": 2368,
+      "actual": 2368,
+      "match": true
+    },
+    {
+      "fact": "unsupported",
+      "expected": [
+        "local-filesystem"
+      ],
+      "actual": [],
+      "match": false,
+      "kind": "fact"
+    }
+  ],
+  "mismatches": [
+    {
+      "fact": "appRoot",
+      "kind": "fact",
+      "expected": "ghost/core",
+      "actual": ".",
+      "finding": null
+    },
+    {
+      "fact": "unsupported",
+      "kind": "fact",
+      "expected": [
+        "local-filesystem"
+      ],
+      "actual": [],
+      "finding": null
+    }
+  ],
+  "match": false
+}

@@ -2,7 +2,7 @@
 
 **Status:** CONTINUE. Phase 3. P0-GATE, P1-GATE and P2-GATE PASS (P2-GATE on 2026-10-09).
 **Checkout:** `C:/Users/Tejas/Desktop/deployz-mvp-test`, branch `campaign/fresh-100`. Baseline commit `e6a3b58e` (ANALYSIS_VERSION 45; origin/main after PR #498, merged into the campaign branch on 2026-10-08).
-**Eligible now:** `P3-COMPAT-07` RETRYABLE (attempt 2 of 3), then `P3-COMPAT-08`. `ai-gateway` AVAILABLE since the 00:44Z probe on 2026-10-09.
+**Eligible now:** `P3-COMPAT-08`. `ai-gateway` AVAILABLE since the 00:44Z probe on 2026-10-09.
 
 ## Done
 
@@ -71,13 +71,14 @@
 - 2026-10-09: `P3-COMPAT-05` COMPLETE (attempt 1, worker sonnet). repo-552..562, about 3.5 min, no 5xx. Verdict = label 6/10; all facts 1/10. AI: 3 completed, 1 timeout, 1 parse-error, 5 not-requested. repo-552 is a false READY (label NOT_COMPATIBLE, AI timeout); Phase 4 candidate. AI failures so far 16 of 40 requests. Evidence: `campaign/results/P3-COMPAT-05/result.json`.
 - 2026-10-09: `P3-COMPAT-06` COMPLETE (attempt 1, worker sonnet). repo-563..575, about 4 min, no 5xx. Verdict = label 6/10; all facts 0/10. AI: 4 completed, 2 parse-error, 1 timeout, 3 not-requested. AI failures so far 19 of 47 requests. Evidence: `campaign/results/P3-COMPAT-06/result.json`.
 - 2026-10-09: `P3-COMPAT-07` RETRYABLE (attempt 1, worker sonnet). repo-576 finished, then the harness hung about 28 min on the repo-577 (woodpecker) snapshot; the worker killed it. No compat files (the harness writes at the end). No AI 5xx. Evidence: `campaign/results/P3-COMPAT-07/result.json`.
+- 2026-10-09: `P3-COMPAT-07` COMPLETE (attempt 2, worker sonnet). All 10 apps (repo-576..588) in one run under `timeout 900`, exit 0, about 9 min; the repo-577 stall did not recur. Verdict = label 5/10 (repo-577, 579, 580, 585, 588: label NOT_COMPATIBLE, actual NEEDS_CONFIGURATION); all facts 0/10. AI: 7 completed, 2 timeout, 1 parse-error, no 5xx. AI failures so far 22 of 57 requests. Evidence: `campaign/results/P3-COMPAT-07/result.json`.
 - 2026-10-09: `P3-COMPAT-03` RETRYABLE (attempt 1). Harness exit 0, but the AI gateway returned HTTP 500/502 for 9/9 requests, so every analysis used fallback. Files kept in `campaign/results/P3-COMPAT-03/attempt-1/`; `first-run/compat/` holds only the 20 files of P3-COMPAT-01..02. Opus one-app probes at 00:19Z and 00:20Z: still 500. The run ended with no eligible work. Next routine run probed again at 00:23Z: still HTTP 500 (AI_APICallError: Internal Server Error); no eligible work.
 
 ## Blockers and pending prerequisites
 
-- AI gateway: HTTP 500/502 on every live repository AI request since about 00:16Z on 2026-10-09 (last probe 00:23Z); `ai-gateway` UNAVAILABLE. Each run first probes one app (command in `state.json` capabilities.ai-gateway.detail). If it persists, the user should check the gateway/provider (production analysis uses the same gateway).
+- AI gateway: 5xx outage from about 00:16Z to before 00:44Z on 2026-10-09; AVAILABLE since. If 5xx returns, probe one app (command in `state.json` capabilities.ai-gateway.detail).
 
-- Disk: 7.1 GiB free on C: at 2026-10-09T00:00Z; `disk>=10GB` is UNAVAILABLE. Stage A tasks do not need it. Before Phase 3 build tasks the user must free disk on C:. Docker holds 2.62 GB reclaimable build cache and 0.49 GB unused images that are not campaign-labelled; the coordinator does not delete them.
+- Disk: 7.1 GiB free on C: at 2026-10-09T00:00Z (6.4 GiB at 01:45Z); `disk>=10GB` is UNAVAILABLE. Stage A tasks do not need it. Before Phase 3 build tasks the user must free disk on C:. Docker holds 2.62 GB reclaimable build cache and 0.49 GB unused images that are not campaign-labelled; the coordinator does not delete them.
 - `ai-gateway` AVAILABLE since `P2-AI-LIVE-VALIDATE` (2026-10-08). The worktree `.env` (ignored) AI values equal the deployed production API Lambda. Run live mode with `--ai live` and `.env` loaded (`node --env-file=.env`). The earlier 30 s timeout was fixed by PR #498 (repository AI reasoning off, ANALYSIS_VERSION 45).
 - Phase 7 needs `deployed-candidate`. New tasks after `P6-GATE`: `P7-DEPLOY-CANDIDATE` (Opus; the only granted route is a merge to `main` that starts Deploy API/Deploy web; if the deployed revision must change without a merge, it is BLOCKED on the missing `workflow_dispatch` authorization) → `P7-VERIFY-CANDIDATE` (read-only AWS: stack `Deployz` update time, API/worker Lambda CodeSha256 and asset keys matched to a local `cdk synth` at the candidate, CodeBuild buildspec, published bootstrap template and relay artifact). The API has no version endpoint, so a checkout, tag or green deploy job is not evidence. `P7-PLAN` and every generated AWS task depend on `P7-VERIFY-CANDIDATE`, require `deployed-candidate`, and re-check the identifiers before they start.
 - Disk: 13.94 GiB free after P0-ENV-SETUP. Prune campaign images after each build batch.
@@ -104,7 +105,7 @@
 
 ## Next action
 
-Retry `P3-COMPAT-07` (attempt 2 of 3) with an outer `timeout 900` on the harness command. If repo-577 stalls again, run the other nine apps and record repo-577 as a snapshot stall (Phase 4 harness candidate). Then `P3-COMPAT-08`. Builds need `disk>=10GB` (user action).
+Run `P3-COMPAT-08` (apps 71-80) with an outer `timeout 900` on the harness command. Builds need `disk>=10GB` (user action).
 
 Caution: every coordinator, scheduled or manual, must hold `campaign/coordinator.lock` (`node campaign/lock.mjs`, see plan.md "Coordinator lock") before it changes campaign files or dispatches a worker. If the lock is held, exit without changes.
 

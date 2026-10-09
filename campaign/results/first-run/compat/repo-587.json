@@ -1,0 +1,215 @@
+{
+  "id": "repo-587",
+  "repository": "rybbit-io/rybbit",
+  "commit": "90e4f85756fe8c6fda7775f3cfb45d0a2d5830da",
+  "set": "improvement",
+  "cohort": "messy",
+  "customerRealism": "medium",
+  "difficulty": 5,
+  "deployzSha": "4f1c4630f456886f670389f61eb6f84fdd65a862",
+  "analysisVersion": 45,
+  "ai": {
+    "mode": "live",
+    "model": "workers-ai/@cf/deepseek-ai/deepseek-v4-flash-0731",
+    "requests": 1,
+    "outcome": "timeout",
+    "error": "AbortError: This operation was aborted"
+  },
+  "tree": {
+    "files": 202,
+    "entries": 3245,
+    "truncated": false
+  },
+  "expected": {
+    "compatibility": "NOT_COMPATIBLE",
+    "runtime": [
+      "node"
+    ],
+    "monorepo": true,
+    "postgres": true,
+    "redis": true,
+    "worker": false,
+    "migration": true,
+    "appRoot": "server",
+    "dockerfilePath": "server/Dockerfile",
+    "port": 3001,
+    "healthPath": "/api/health",
+    "unsupported": [
+      "other-database"
+    ]
+  },
+  "status": "analysed",
+  "failure": null,
+  "actual": {
+    "compatibility": "NOT_COMPATIBLE",
+    "analysisVerdict": "NOT_COMPATIBLE",
+    "readinessState": "NEEDS_CHANGES",
+    "runtime": "node",
+    "appRoot": "client",
+    "dockerfilePath": "client/Dockerfile",
+    "port": 3002,
+    "startCommand": "CMD: [\"node\", \"client/server.js\"]",
+    "healthDetected": true,
+    "healthPath": "/api/health",
+    "postgres": true,
+    "postgresDetected": true,
+    "redis": true,
+    "redisDetected": true,
+    "redisConfidence": "high",
+    "storage": true,
+    "worker": false,
+    "workerCommand": null,
+    "migration": false,
+    "migrationCommand": null,
+    "externalServices": [
+      "resend",
+      "stripe"
+    ],
+    "requiredEnvVars": [
+      "BASE_URL",
+      "BETTER_AUTH_SECRET",
+      "CLICKHOUSE_DB",
+      "CLICKHOUSE_HOST",
+      "CLICKHOUSE_PASSWORD",
+      "CLIENT_URL",
+      "MAPBOX_TOKEN",
+      "OPENROUTER_API_KEY",
+      "POSTGRES_PASSWORD",
+      "SERVER_URL",
+      "STRIPE_SECRET_KEY"
+    ],
+    "unsupported": [
+      "docker-compose-multi-service",
+      "other-database"
+    ],
+    "readinessFindings": [
+      "unsupported-database-other",
+      "unsupported-multi-service"
+    ],
+    "gateFindings": [
+      "unsupported",
+      "unsupported",
+      "required-env-vars-missing",
+      "migration-command-missing"
+    ],
+    "unresolvedQuestions": [
+      "multiple-dockerfiles",
+      "monorepo-target"
+    ]
+  },
+  "comparisons": [
+    {
+      "fact": "compatibility",
+      "expected": "NOT_COMPATIBLE",
+      "actual": "NOT_COMPATIBLE",
+      "match": true
+    },
+    {
+      "fact": "postgres",
+      "expected": true,
+      "actual": true,
+      "match": true
+    },
+    {
+      "fact": "redis",
+      "expected": true,
+      "actual": true,
+      "match": true
+    },
+    {
+      "fact": "worker",
+      "expected": false,
+      "actual": false,
+      "match": true
+    },
+    {
+      "fact": "migration",
+      "expected": true,
+      "actual": false,
+      "match": false,
+      "kind": "fact"
+    },
+    {
+      "fact": "appRoot",
+      "expected": "server",
+      "actual": "client",
+      "match": false,
+      "kind": "fact"
+    },
+    {
+      "fact": "dockerfilePath",
+      "expected": "server/Dockerfile",
+      "actual": "client/Dockerfile",
+      "match": false,
+      "kind": "fact"
+    },
+    {
+      "fact": "port",
+      "expected": 3001,
+      "actual": 3002,
+      "match": false,
+      "kind": "fact"
+    },
+    {
+      "fact": "healthPath",
+      "expected": "/api/health",
+      "actual": "/api/health",
+      "match": true
+    },
+    {
+      "fact": "unsupported",
+      "expected": [
+        "other-database"
+      ],
+      "actual": [
+        "docker-compose-multi-service",
+        "other-database"
+      ],
+      "match": false,
+      "kind": "fact"
+    }
+  ],
+  "mismatches": [
+    {
+      "fact": "migration",
+      "kind": "fact",
+      "expected": true,
+      "actual": false,
+      "finding": null
+    },
+    {
+      "fact": "appRoot",
+      "kind": "fact",
+      "expected": "server",
+      "actual": "client",
+      "finding": null
+    },
+    {
+      "fact": "dockerfilePath",
+      "kind": "fact",
+      "expected": "server/Dockerfile",
+      "actual": "client/Dockerfile",
+      "finding": null
+    },
+    {
+      "fact": "port",
+      "kind": "fact",
+      "expected": 3001,
+      "actual": 3002,
+      "finding": null
+    },
+    {
+      "fact": "unsupported",
+      "kind": "fact",
+      "expected": [
+        "other-database"
+      ],
+      "actual": [
+        "docker-compose-multi-service",
+        "other-database"
+      ],
+      "finding": null
+    }
+  ],
+  "match": false
+}
