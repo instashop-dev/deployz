@@ -1,0 +1,216 @@
+{
+  "taskId": "P3-COMPAT-03",
+  "testedCommit": "e6a3b58ee2363923fef21faca86611fa3bf84538",
+  "executor": "campaign-worker",
+  "model": "sonnet",
+  "startedAt": "2026-10-09T00:16:09Z",
+  "finishedAt": "2026-10-09T00:18:21.198Z",
+  "proposedStatus": "COMPLETE",
+  "summary": "Stage A live AI run of 10 apps (21-30) finished, exit 0, 10 result files written. Verdict matches: 5/10. AI outcome was fallback for 9 apps (AI request failed, e.g. Internal Server Error); repo-534 made no AI request. All analysisVersion 45, ai.mode live.",
+  "commands": [
+    {
+      "command": "node --env-file=.env node_modules/tsx/dist/cli.mjs scripts/repository-compatibility/index.ts --ai live --benchmark campaign/corpus/benchmark.yaml --runs-dir campaign/results/first-run/compat/ --repo repo-525 --repo repo-528 --repo repo-529 --repo repo-530 --repo repo-534 --repo repo-536 --repo repo-537 --repo repo-538 --repo repo-539 --repo repo-540",
+      "exitCode": 0,
+      "summary": "10 result files written in about 2 minutes; raw log in campaign/logs/P3-COMPAT-03/run.log"
+    }
+  ],
+  "apps": [
+    {
+      "id": "repo-525",
+      "expectedVerdict": "NOT_COMPATIBLE",
+      "actualVerdict": "NEEDS_CONFIGURATION",
+      "status": "analysed",
+      "mismatchCount": 4,
+      "gateFindings": [
+        "dockerfile-missing",
+        "start-command-missing"
+      ],
+      "aiMode": "live",
+      "aiRequests": 1,
+      "aiModel": "workers-ai/@cf/deepseek-ai/deepseek-v4-flash-0731",
+      "aiOutcome": "fallback",
+      "aiError": "AI_APICallError: Internal Server Error",
+      "analysisVersion": 45
+    },
+    {
+      "id": "repo-528",
+      "expectedVerdict": "NOT_COMPATIBLE",
+      "actualVerdict": "NEEDS_CONFIGURATION",
+      "status": "analysed",
+      "mismatchCount": 6,
+      "gateFindings": [
+        "health-path-required",
+        "required-env-vars-missing",
+        "migration-command-missing"
+      ],
+      "aiMode": "live",
+      "aiRequests": 1,
+      "aiModel": "workers-ai/@cf/deepseek-ai/deepseek-v4-flash-0731",
+      "aiOutcome": "fallback",
+      "aiError": "AI_APICallError: Bad Gateway",
+      "analysisVersion": 45
+    },
+    {
+      "id": "repo-529",
+      "expectedVerdict": "NOT_COMPATIBLE",
+      "actualVerdict": "NEEDS_CONFIGURATION",
+      "status": "analysed",
+      "mismatchCount": 5,
+      "gateFindings": [
+        "health-path-required",
+        "required-env-vars-missing",
+        "migration-command-missing"
+      ],
+      "aiMode": "live",
+      "aiRequests": 1,
+      "aiModel": "workers-ai/@cf/deepseek-ai/deepseek-v4-flash-0731",
+      "aiOutcome": "fallback",
+      "aiError": "AI_APICallError: Bad Gateway",
+      "analysisVersion": 45
+    },
+    {
+      "id": "repo-530",
+      "expectedVerdict": "READY",
+      "actualVerdict": "NEEDS_CONFIGURATION",
+      "status": "analysed",
+      "mismatchCount": 4,
+      "gateFindings": [
+        "port-missing",
+        "health-path-required"
+      ],
+      "aiMode": "live",
+      "aiRequests": 1,
+      "aiModel": "workers-ai/@cf/deepseek-ai/deepseek-v4-flash-0731",
+      "aiOutcome": "fallback",
+      "aiError": "AI_APICallError: Bad Gateway",
+      "analysisVersion": 45
+    },
+    {
+      "id": "repo-534",
+      "expectedVerdict": "NEEDS_CONFIGURATION",
+      "actualVerdict": "NEEDS_CONFIGURATION",
+      "status": "analysed",
+      "mismatchCount": 1,
+      "gateFindings": [
+        "health-path-required",
+        "migration-command-missing",
+        "deployment-files-ignored"
+      ],
+      "aiMode": "live",
+      "aiRequests": 0,
+      "aiModel": "workers-ai/@cf/deepseek-ai/deepseek-v4-flash-0731",
+      "aiOutcome": "not-requested",
+      "aiError": null,
+      "analysisVersion": 45
+    },
+    {
+      "id": "repo-536",
+      "expectedVerdict": "NEEDS_CONFIGURATION",
+      "actualVerdict": "NEEDS_CONFIGURATION",
+      "status": "analysed",
+      "mismatchCount": 3,
+      "gateFindings": [
+        "start-command-missing",
+        "health-path-required",
+        "required-env-vars-missing",
+        "migration-command-missing"
+      ],
+      "aiMode": "live",
+      "aiRequests": 1,
+      "aiModel": "workers-ai/@cf/deepseek-ai/deepseek-v4-flash-0731",
+      "aiOutcome": "fallback",
+      "aiError": "AI_APICallError: Internal Server Error",
+      "analysisVersion": 45
+    },
+    {
+      "id": "repo-537",
+      "expectedVerdict": "NOT_COMPATIBLE",
+      "actualVerdict": "NOT_COMPATIBLE",
+      "status": "analysed",
+      "mismatchCount": 3,
+      "gateFindings": [
+        "unsupported",
+        "unsupported"
+      ],
+      "aiMode": "live",
+      "aiRequests": 1,
+      "aiModel": "workers-ai/@cf/deepseek-ai/deepseek-v4-flash-0731",
+      "aiOutcome": "fallback",
+      "aiError": "AI_APICallError: Internal Server Error",
+      "analysisVersion": 45
+    },
+    {
+      "id": "repo-538",
+      "expectedVerdict": "NOT_COMPATIBLE",
+      "actualVerdict": "NOT_COMPATIBLE",
+      "status": "analysed",
+      "mismatchCount": 4,
+      "gateFindings": [
+        "unsupported",
+        "dockerfile-missing",
+        "port-missing",
+        "start-command-missing",
+        "health-path-required"
+      ],
+      "aiMode": "live",
+      "aiRequests": 1,
+      "aiModel": "workers-ai/@cf/deepseek-ai/deepseek-v4-flash-0731",
+      "aiOutcome": "fallback",
+      "aiError": "AI_APICallError: Internal Server Error",
+      "analysisVersion": 45
+    },
+    {
+      "id": "repo-539",
+      "expectedVerdict": "NOT_COMPATIBLE",
+      "actualVerdict": "NOT_COMPATIBLE",
+      "status": "analysed",
+      "mismatchCount": 3,
+      "gateFindings": [
+        "unsupported",
+        "unsupported"
+      ],
+      "aiMode": "live",
+      "aiRequests": 1,
+      "aiModel": "workers-ai/@cf/deepseek-ai/deepseek-v4-flash-0731",
+      "aiOutcome": "fallback",
+      "aiError": "AI_APICallError: Internal Server Error",
+      "analysisVersion": 45
+    },
+    {
+      "id": "repo-540",
+      "expectedVerdict": "READY",
+      "actualVerdict": "NEEDS_CONFIGURATION",
+      "status": "analysed",
+      "mismatchCount": 1,
+      "gateFindings": [
+        "start-command-missing"
+      ],
+      "aiMode": "live",
+      "aiRequests": 1,
+      "aiModel": "workers-ai/@cf/deepseek-ai/deepseek-v4-flash-0731",
+      "aiOutcome": "fallback",
+      "aiError": "AI_APICallError: Internal Server Error",
+      "analysisVersion": 45
+    }
+  ],
+  "evidence": [
+    "campaign/results/first-run/compat/repo-525.json",
+    "campaign/results/first-run/compat/repo-528.json",
+    "campaign/results/first-run/compat/repo-529.json",
+    "campaign/results/first-run/compat/repo-530.json",
+    "campaign/results/first-run/compat/repo-534.json",
+    "campaign/results/first-run/compat/repo-536.json",
+    "campaign/results/first-run/compat/repo-537.json",
+    "campaign/results/first-run/compat/repo-538.json",
+    "campaign/results/first-run/compat/repo-539.json",
+    "campaign/results/first-run/compat/repo-540.json",
+    "campaign/results/P3-COMPAT-03/result.json"
+  ],
+  "deviations": [
+    "Result deployzSha is HEAD 7f52eb6a73945d9d513dc344ac2e28c90b2c8ba0, not the baseline commit; harness code is unchanged (expected)."
+  ],
+  "notes": [
+    "Existing 20 files unchanged (git status shows only 10 new untracked files)."
+  ],
+  "secretScan": "Pattern scan of the 10 new files and P3-COMPAT-03 found no token, password, email, AWS key, private key or .env value."
+}

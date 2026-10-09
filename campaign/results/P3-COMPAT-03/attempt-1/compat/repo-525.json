@@ -1,0 +1,165 @@
+{
+  "id": "repo-525",
+  "repository": "gotson/komga",
+  "commit": "519e352aa894b2fdc80660f1dde21b98cf328e3e",
+  "set": "improvement",
+  "cohort": "realistic",
+  "customerRealism": "high",
+  "difficulty": 4,
+  "deployzSha": "7f52eb6a73945d9d513dc344ac2e28c90b2c8ba0",
+  "analysisVersion": 45,
+  "ai": {
+    "mode": "live",
+    "model": "workers-ai/@cf/deepseek-ai/deepseek-v4-flash-0731",
+    "requests": 1,
+    "outcome": "fallback",
+    "error": "AI_APICallError: Internal Server Error"
+  },
+  "tree": {
+    "files": 202,
+    "entries": 2195,
+    "truncated": false
+  },
+  "expected": {
+    "compatibility": "NOT_COMPATIBLE",
+    "runtime": [
+      "java"
+    ],
+    "monorepo": true,
+    "postgres": false,
+    "redis": false,
+    "worker": false,
+    "migration": true,
+    "appRoot": ".",
+    "port": 25600,
+    "unsupported": [
+      "local-filesystem"
+    ]
+  },
+  "status": "analysed",
+  "failure": null,
+  "actual": {
+    "compatibility": "NEEDS_CONFIGURATION",
+    "analysisVerdict": "NEEDS_ATTENTION",
+    "readinessState": "ALMOST_READY",
+    "runtime": "jvm",
+    "appRoot": ".",
+    "dockerfilePath": null,
+    "port": 8080,
+    "startCommand": null,
+    "healthDetected": true,
+    "healthPath": "/actuator/health",
+    "postgres": false,
+    "postgresDetected": false,
+    "redis": false,
+    "redisDetected": false,
+    "redisConfidence": "low",
+    "storage": false,
+    "worker": false,
+    "workerCommand": null,
+    "migration": false,
+    "migrationCommand": null,
+    "externalServices": [],
+    "requiredEnvVars": [],
+    "unsupported": [],
+    "readinessFindings": [
+      "container-setup"
+    ],
+    "gateFindings": [
+      "dockerfile-missing",
+      "start-command-missing"
+    ],
+    "unresolvedQuestions": [
+      "start-command-unknown"
+    ]
+  },
+  "comparisons": [
+    {
+      "fact": "compatibility",
+      "expected": "NOT_COMPATIBLE",
+      "actual": "NEEDS_CONFIGURATION",
+      "match": false,
+      "kind": "false-acceptance"
+    },
+    {
+      "fact": "postgres",
+      "expected": false,
+      "actual": false,
+      "match": true
+    },
+    {
+      "fact": "redis",
+      "expected": false,
+      "actual": false,
+      "match": true
+    },
+    {
+      "fact": "worker",
+      "expected": false,
+      "actual": false,
+      "match": true
+    },
+    {
+      "fact": "migration",
+      "expected": true,
+      "actual": false,
+      "match": false,
+      "kind": "fact"
+    },
+    {
+      "fact": "appRoot",
+      "expected": ".",
+      "actual": ".",
+      "match": true
+    },
+    {
+      "fact": "port",
+      "expected": 25600,
+      "actual": 8080,
+      "match": false,
+      "kind": "fact"
+    },
+    {
+      "fact": "unsupported",
+      "expected": [
+        "local-filesystem"
+      ],
+      "actual": [],
+      "match": false,
+      "kind": "fact"
+    }
+  ],
+  "mismatches": [
+    {
+      "fact": "compatibility",
+      "kind": "false-acceptance",
+      "expected": "NOT_COMPATIBLE",
+      "actual": "NEEDS_CONFIGURATION",
+      "finding": null
+    },
+    {
+      "fact": "migration",
+      "kind": "fact",
+      "expected": true,
+      "actual": false,
+      "finding": null
+    },
+    {
+      "fact": "port",
+      "kind": "fact",
+      "expected": 25600,
+      "actual": 8080,
+      "finding": null
+    },
+    {
+      "fact": "unsupported",
+      "kind": "fact",
+      "expected": [
+        "local-filesystem"
+      ],
+      "actual": [],
+      "finding": null
+    }
+  ],
+  "match": false
+}

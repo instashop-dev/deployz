@@ -4,8 +4,8 @@
   "status": "CONTINUE",
   "phase": 3,
   "currentTask": null,
-  "nextAction": "Run P3-COMPAT-03..08 (timebox 15 each). Phase 4 candidate: repository AI fails 9/18 requests (5 timeout at 30 s, 4 parse-error). Builds need disk>=10GB (user action).",
-  "updatedAt": "2026-10-09T00:15:49.719Z",
+  "nextAction": "Probe the AI gateway (one app, see capabilities.ai-gateway.detail). If it answers without a 5xx: set ai-gateway AVAILABLE and retry P3-COMPAT-03 (attempt 2 of 3), then P3-COMPAT-04..08 (timebox 15). If still 5xx: no eligible work (all remaining Phase 3 Stage A tasks require ai-gateway; builds need disk>=10GB). Phase 4 candidates: repository AI timeout/parse-error 9/18 in P3-COMPAT-01..02.",
+  "updatedAt": "2026-10-09T00:19:59.102Z",
   "checkout": {
     "path": "C:/Users/Tejas/Desktop/deployz-mvp-test",
     "kind": "git worktree of C:/Users/Tejas/Desktop/deployz",
@@ -309,16 +309,16 @@
     "P2-SMOKE-RUN": 1,
     "P2-GATE": 1,
     "P3-COMPAT-01": 1,
-    "P3-COMPAT-02": 1
+    "P3-COMPAT-02": 1,
+    "P3-COMPAT-03": 1
   },
   "lastResult": {
-    "task": "P3-COMPAT-02",
-    "status": "COMPLETE",
-    "at": "2026-10-09T00:15:49.717Z",
-    "summary": "Stage A --ai live on repo-514..524 (10 apps), exit 0, about 4 min. Verdict matches label 3/10 (514, 519, 523). analysisVersion 45 in all files. AI outcomes: 5 completed, 2 timeout, 2 parse-error, 1 not-requested. Running AI total P3-COMPAT-01..02: 9 completed, 5 timeout, 4 parse-error of 18 requests. Opus checks: evidence exists, existing repo-501..513 files unchanged, ai.mode live, secret and .env-value scan 0 hits.",
+    "task": "P3-COMPAT-03",
+    "status": "RETRYABLE",
+    "at": "2026-10-09T00:19:59.087Z",
+    "summary": "Attempt 1: harness exit 0 in 2 min, but the AI gateway returned 500/502 for 9/9 requests (fallback analysis), so the batch is not production-equivalent. Files kept in campaign/results/P3-COMPAT-03/attempt-1/. Opus probe at 00:19Z also 500. ai-gateway marked UNAVAILABLE. Retry after a passing one-app probe (attempts 1 of 3).",
     "evidence": [
-      "campaign/results/P3-COMPAT-02/result.json",
-      "campaign/results/first-run/compat/"
+      "campaign/results/P3-COMPAT-03/attempt-1/result.json"
     ]
   },
   "gates": {
@@ -356,8 +356,8 @@
       "detail": "pnpm install --frozen-lockfile (246 s) and pnpm build (385 s, 10/10) at e164b7af on 2026-10-08; lockfile unchanged."
     },
     "ai-gateway": {
-      "status": "AVAILABLE",
-      "detail": "P2-AI-LIVE-VALIDATE COMPLETE 2026-10-08: ai-live.test.ts 2/2 (worker and Opus re-run); analyseRepositoryWithAi 4/4 content, max 9.6 s < 30 s REPO_AI_TIMEOUT_MS; harness --ai live records requests>0 and model equal to deployed AI_MODEL; invalid key recorded as auth-error. Use --ai live with .env loaded (node --env-file=.env)."
+      "status": "UNAVAILABLE",
+      "detail": "2026-10-09T00:16Z-00:19Z: every live repository AI request returned HTTP 500 or 502 (P3-COMPAT-03 attempt 1, 9/9; Opus probe on repo-540 at 00:19Z). Before P3-COMPAT-03..08, the coordinator re-probes: node --env-file=.env node_modules/tsx/dist/cli.mjs scripts/repository-compatibility/index.ts --ai live --benchmark campaign/corpus/benchmark.yaml --runs-dir campaign/logs/ai-probe-<time>/ --repo repo-540; set AVAILABLE again when ai.outcome is not a 5xx fallback. If the outage persists for a day, the user should check the AI gateway/provider (production analysis uses the same gateway)."
     },
     "aws-test-account": {
       "status": "AVAILABLE",

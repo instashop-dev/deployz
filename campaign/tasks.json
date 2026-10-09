@@ -2087,7 +2087,7 @@
       "phase": 3,
       "title": "First-run Stage A compatibility for improvement apps 21-30",
       "executor": "campaign-worker",
-      "status": "PENDING",
+      "status": "RETRYABLE",
       "prerequisites": [
         "P3-COMPAT-02"
       ],
@@ -2115,8 +2115,10 @@
       "timeboxMinutes": 15,
       "notes": [
         "2026-10-09 P2-GATE: run `node --env-file=.env node_modules/.bin/tsx scripts/repository-compatibility/index.ts --ai live --benchmark campaign/corpus/benchmark.yaml --runs-dir campaign/results/first-run/compat/` (or the equivalent tsx form used in P2-SMOKE-RUN) with this batch's --repo ids; do not pass --cache (the default cache feeds the later --local builds). Measured: about 40 s per app with live AI.",
-        "2026-10-09 Opus: timebox 30 -> 15 from the measured P3-COMPAT-01 duration (10 apps in 5 min with live AI)."
-      ]
+        "2026-10-09 Opus: timebox 30 -> 15 from the measured P3-COMPAT-01 duration (10 apps in 5 min with live AI).",
+        "2026-10-09 attempt 1 RETRYABLE (transient): the AI gateway returned HTTP 500/502 (AI_APICallError Internal Server Error / Bad Gateway) for 9/9 requests between about 00:16Z and 00:18Z, so every analysis used fallback; this is not production-equivalent AI. Opus moved the 10 files and result.json to campaign/results/P3-COMPAT-03/attempt-1/ (kept as evidence) so the retry writes fresh files in campaign/results/first-run/compat/. An Opus one-app probe (repo-540, runs-dir campaign/logs/P3-COMPAT-03-probe/) at 00:19Z also got Internal Server Error. Before the retry: run that one-app probe; retry only when the probe outcome is completed, parse-error or timeout (not a 5xx)."
+      ],
+      "attempts": 1
     },
     {
       "id": "P3-COMPAT-04",

@@ -1,0 +1,184 @@
+{
+  "id": "repo-538",
+  "repository": "pocketbase/pocketbase",
+  "commit": "5cec579da984436a258602a46a96302fbd31f77c",
+  "set": "improvement",
+  "cohort": "realistic",
+  "customerRealism": "high",
+  "difficulty": 3,
+  "deployzSha": "7f52eb6a73945d9d513dc344ac2e28c90b2c8ba0",
+  "analysisVersion": 45,
+  "ai": {
+    "mode": "live",
+    "model": "workers-ai/@cf/deepseek-ai/deepseek-v4-flash-0731",
+    "requests": 1,
+    "outcome": "fallback",
+    "error": "AI_APICallError: Internal Server Error"
+  },
+  "tree": {
+    "files": 201,
+    "entries": 1101,
+    "truncated": false
+  },
+  "expected": {
+    "compatibility": "NOT_COMPATIBLE",
+    "runtime": [
+      "go"
+    ],
+    "monorepo": false,
+    "postgres": false,
+    "redis": false,
+    "worker": false,
+    "migration": true,
+    "appRoot": ".",
+    "port": 8090,
+    "healthPath": "/api/health",
+    "unsupported": [
+      "local-filesystem"
+    ]
+  },
+  "status": "analysed",
+  "failure": null,
+  "actual": {
+    "compatibility": "NOT_COMPATIBLE",
+    "analysisVerdict": "NOT_COMPATIBLE",
+    "readinessState": "NEEDS_CHANGES",
+    "runtime": "go",
+    "appRoot": ".",
+    "dockerfilePath": null,
+    "port": null,
+    "startCommand": null,
+    "healthDetected": false,
+    "healthPath": null,
+    "postgres": false,
+    "postgresDetected": false,
+    "redis": false,
+    "redisDetected": false,
+    "redisConfidence": "low",
+    "storage": false,
+    "worker": false,
+    "workerCommand": null,
+    "migration": false,
+    "migrationCommand": null,
+    "externalServices": [],
+    "requiredEnvVars": [],
+    "unsupported": [
+      "sqlite"
+    ],
+    "readinessFindings": [
+      "unsupported-database-sqlite",
+      "container-setup",
+      "health-check"
+    ],
+    "gateFindings": [
+      "unsupported",
+      "dockerfile-missing",
+      "port-missing",
+      "start-command-missing",
+      "health-path-required"
+    ],
+    "unresolvedQuestions": [
+      "start-command-unknown",
+      "port-unknown"
+    ]
+  },
+  "comparisons": [
+    {
+      "fact": "compatibility",
+      "expected": "NOT_COMPATIBLE",
+      "actual": "NOT_COMPATIBLE",
+      "match": true
+    },
+    {
+      "fact": "postgres",
+      "expected": false,
+      "actual": false,
+      "match": true
+    },
+    {
+      "fact": "redis",
+      "expected": false,
+      "actual": false,
+      "match": true
+    },
+    {
+      "fact": "worker",
+      "expected": false,
+      "actual": false,
+      "match": true
+    },
+    {
+      "fact": "migration",
+      "expected": true,
+      "actual": false,
+      "match": false,
+      "kind": "fact"
+    },
+    {
+      "fact": "appRoot",
+      "expected": ".",
+      "actual": ".",
+      "match": true
+    },
+    {
+      "fact": "port",
+      "expected": 8090,
+      "actual": null,
+      "match": false,
+      "kind": "fact"
+    },
+    {
+      "fact": "healthPath",
+      "expected": "/api/health",
+      "actual": null,
+      "match": false,
+      "kind": "fact"
+    },
+    {
+      "fact": "unsupported",
+      "expected": [
+        "local-filesystem"
+      ],
+      "actual": [
+        "sqlite"
+      ],
+      "match": false,
+      "kind": "fact"
+    }
+  ],
+  "mismatches": [
+    {
+      "fact": "migration",
+      "kind": "fact",
+      "expected": true,
+      "actual": false,
+      "finding": null
+    },
+    {
+      "fact": "port",
+      "kind": "fact",
+      "expected": 8090,
+      "actual": null,
+      "finding": null
+    },
+    {
+      "fact": "healthPath",
+      "kind": "fact",
+      "expected": "/api/health",
+      "actual": null,
+      "finding": null
+    },
+    {
+      "fact": "unsupported",
+      "kind": "fact",
+      "expected": [
+        "local-filesystem"
+      ],
+      "actual": [
+        "sqlite"
+      ],
+      "finding": null
+    }
+  ],
+  "match": false
+}

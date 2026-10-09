@@ -1,0 +1,154 @@
+{
+  "id": "repo-530",
+  "repository": "hibiken/asynqmon",
+  "commit": "d1b889456de3c98c22de24642b6f836a29da3140",
+  "set": "improvement",
+  "cohort": "realistic",
+  "customerRealism": "high",
+  "difficulty": 2,
+  "deployzSha": "7f52eb6a73945d9d513dc344ac2e28c90b2c8ba0",
+  "analysisVersion": 45,
+  "ai": {
+    "mode": "live",
+    "model": "workers-ai/@cf/deepseek-ai/deepseek-v4-flash-0731",
+    "requests": 1,
+    "outcome": "fallback",
+    "error": "AI_APICallError: Bad Gateway"
+  },
+  "tree": {
+    "files": 95,
+    "entries": 157,
+    "truncated": false
+  },
+  "expected": {
+    "compatibility": "READY",
+    "runtime": [
+      "go"
+    ],
+    "monorepo": false,
+    "postgres": false,
+    "redis": true,
+    "worker": false,
+    "appRoot": ".",
+    "dockerfilePath": "Dockerfile",
+    "port": 8080
+  },
+  "status": "analysed",
+  "failure": null,
+  "actual": {
+    "compatibility": "NEEDS_CONFIGURATION",
+    "analysisVerdict": "NEEDS_ATTENTION",
+    "readinessState": "ALMOST_READY",
+    "runtime": "go",
+    "appRoot": ".",
+    "dockerfilePath": "Dockerfile",
+    "port": null,
+    "startCommand": "ENTRYPOINT: [\"/asynqmon\"]",
+    "healthDetected": false,
+    "healthPath": null,
+    "postgres": false,
+    "postgresDetected": false,
+    "redis": false,
+    "redisDetected": true,
+    "redisConfidence": "medium",
+    "storage": false,
+    "worker": true,
+    "workerCommand": null,
+    "migration": false,
+    "migrationCommand": null,
+    "externalServices": [],
+    "requiredEnvVars": [],
+    "unsupported": [],
+    "readinessFindings": [
+      "port-unresolved",
+      "health-check",
+      "worker-command"
+    ],
+    "gateFindings": [
+      "port-missing",
+      "health-path-required"
+    ],
+    "unresolvedQuestions": [
+      "redis-requirement-unclear"
+    ]
+  },
+  "comparisons": [
+    {
+      "fact": "compatibility",
+      "expected": "READY",
+      "actual": "NEEDS_CONFIGURATION",
+      "match": false,
+      "kind": "configuration-detection"
+    },
+    {
+      "fact": "postgres",
+      "expected": false,
+      "actual": false,
+      "match": true
+    },
+    {
+      "fact": "redis",
+      "expected": true,
+      "actual": false,
+      "match": false,
+      "kind": "fact"
+    },
+    {
+      "fact": "worker",
+      "expected": false,
+      "actual": true,
+      "match": false,
+      "kind": "fact"
+    },
+    {
+      "fact": "appRoot",
+      "expected": ".",
+      "actual": ".",
+      "match": true
+    },
+    {
+      "fact": "dockerfilePath",
+      "expected": "Dockerfile",
+      "actual": "Dockerfile",
+      "match": true
+    },
+    {
+      "fact": "port",
+      "expected": 8080,
+      "actual": null,
+      "match": false,
+      "kind": "fact"
+    }
+  ],
+  "mismatches": [
+    {
+      "fact": "compatibility",
+      "kind": "configuration-detection",
+      "expected": "READY",
+      "actual": "NEEDS_CONFIGURATION",
+      "finding": null
+    },
+    {
+      "fact": "redis",
+      "kind": "fact",
+      "expected": true,
+      "actual": false,
+      "finding": null
+    },
+    {
+      "fact": "worker",
+      "kind": "fact",
+      "expected": false,
+      "actual": true,
+      "finding": null
+    },
+    {
+      "fact": "port",
+      "kind": "fact",
+      "expected": 8080,
+      "actual": null,
+      "finding": null
+    }
+  ],
+  "match": false
+}

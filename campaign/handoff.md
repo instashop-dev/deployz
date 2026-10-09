@@ -2,7 +2,7 @@
 
 **Status:** CONTINUE. Phase 3. P0-GATE, P1-GATE and P2-GATE PASS (P2-GATE on 2026-10-09).
 **Checkout:** `C:/Users/Tejas/Desktop/deployz-mvp-test`, branch `campaign/fresh-100`. Baseline commit `e6a3b58e` (ANALYSIS_VERSION 45; origin/main after PR #498, merged into the campaign branch on 2026-10-08).
-**Eligible now:** `P3-COMPAT-03` (worker, timebox 15), then `P3-COMPAT-04..08`.
+**Eligible now:** `P3-COMPAT-03` RETRYABLE (attempt 2 of 3) only after a passing AI gateway probe; then `P3-COMPAT-04..08`. `ai-gateway` is UNAVAILABLE since 00:16Z on 2026-10-09 (HTTP 500/502).
 
 ## Done
 
@@ -66,8 +66,11 @@
 - 2026-10-09: `P2-GATE` PASS (Opus). No new testing framework (only the existing harnesses changed; no package or lockfile change). Sizing: Stage A about 40 s per app with live AI; local 332-697 s per app. Phase 3 decisions: `P3-BUILD-PLAN` creates `campaign/corpus/deploy-config.yaml` (normal vendor config) and every build passes `--deploy-config`; builds use `--local --ai live` and the default cache; 2 apps per build task; one retry for registry network timeouts, then environment failure; one storage app early (first SeaweedFS check). Evidence: `campaign/results/P2-GATE/review.md`.
 - 2026-10-09: `P3-COMPAT-01` COMPLETE (attempt 1, worker sonnet). Stage A `--ai live` on repo-501..513, 5 min. Verdict = label for 4/10; 40 fact mismatches. AI: 4 completed, 3 timeout at 30 s, 2 parse-error, 1 not-requested (Phase 4 candidate). Files stamp analysisVersion 44 because `apps/api/dist` was stale; behavior equals baseline 45 (only the constant differs); Opus rebuilt `apps/api/dist`. Timebox of P3-COMPAT-02..08 set to 15 from the measurement. Evidence: `campaign/results/P3-COMPAT-01/result.json`, `campaign/results/first-run/compat/`.
 - 2026-10-09: `P3-COMPAT-02` COMPLETE (attempt 1, worker sonnet). Stage A `--ai live` on repo-514..524, about 4 min, analysisVersion 45. Verdict = label for 3/10. AI: 5 completed, 2 timeout, 2 parse-error, 1 not-requested. AI total so far 9 failed of 18 requests (Phase 4 candidate). Evidence: `campaign/results/P3-COMPAT-02/result.json`.
+- 2026-10-09: `P3-COMPAT-03` RETRYABLE (attempt 1). Harness exit 0, but the AI gateway returned HTTP 500/502 for 9/9 requests, so every analysis used fallback. Files kept in `campaign/results/P3-COMPAT-03/attempt-1/`; `first-run/compat/` holds only the 20 files of P3-COMPAT-01..02. Opus one-app probe at 00:19Z: still 500.
 
 ## Blockers and pending prerequisites
+
+- AI gateway: HTTP 500/502 on every live repository AI request since about 00:16Z on 2026-10-09; `ai-gateway` UNAVAILABLE. Each run first probes one app (command in `state.json` capabilities.ai-gateway.detail). If it persists, the user should check the gateway/provider (production analysis uses the same gateway).
 
 - Disk: 7.1 GiB free on C: at 2026-10-09T00:00Z; `disk>=10GB` is UNAVAILABLE. Stage A tasks do not need it. Before Phase 3 build tasks the user must free disk on C:. Docker holds 2.62 GB reclaimable build cache and 0.49 GB unused images that are not campaign-labelled; the coordinator does not delete them.
 - `ai-gateway` AVAILABLE since `P2-AI-LIVE-VALIDATE` (2026-10-08). The worktree `.env` (ignored) AI values equal the deployed production API Lambda. Run live mode with `--ai live` and `.env` loaded (`node --env-file=.env`). The earlier 30 s timeout was fixed by PR #498 (repository AI reasoning off, ANALYSIS_VERSION 45).
@@ -96,7 +99,7 @@
 
 ## Next action
 
-Run `P3-COMPAT-01..08` (Stage A, live AI). Then `P3-BUILD-PLAN`. Builds need `disk>=10GB` first (user action).
+Probe the AI gateway with one app. If it answers without a 5xx, set `ai-gateway` AVAILABLE, retry `P3-COMPAT-03` (attempt 2 of 3), then run `P3-COMPAT-04..08`. If it still fails, there is no eligible work. Builds need `disk>=10GB` (user action).
 
 Caution: every coordinator, scheduled or manual, must hold `campaign/coordinator.lock` (`node campaign/lock.mjs`, see plan.md "Coordinator lock") before it changes campaign files or dispatches a worker. If the lock is held, exit without changes.
 

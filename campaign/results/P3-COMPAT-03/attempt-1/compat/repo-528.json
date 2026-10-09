@@ -1,0 +1,196 @@
+{
+  "id": "repo-528",
+  "repository": "electric-sql/electric",
+  "commit": "3f9809fb0bd894cb74470d434749673492ad7acf",
+  "set": "improvement",
+  "cohort": "realistic",
+  "customerRealism": "high",
+  "difficulty": 4,
+  "deployzSha": "7f52eb6a73945d9d513dc344ac2e28c90b2c8ba0",
+  "analysisVersion": 45,
+  "ai": {
+    "mode": "live",
+    "model": "workers-ai/@cf/deepseek-ai/deepseek-v4-flash-0731",
+    "requests": 1,
+    "outcome": "fallback",
+    "error": "AI_APICallError: Bad Gateway"
+  },
+  "tree": {
+    "files": 202,
+    "entries": 4635,
+    "truncated": false
+  },
+  "expected": {
+    "compatibility": "NOT_COMPATIBLE",
+    "runtime": [
+      "elixir"
+    ],
+    "monorepo": true,
+    "postgres": true,
+    "redis": false,
+    "worker": false,
+    "appRoot": "packages/sync-service",
+    "dockerfilePath": "packages/sync-service/Dockerfile",
+    "port": 3000,
+    "healthPath": "/v1/health",
+    "unsupported": [
+      "local-filesystem"
+    ]
+  },
+  "status": "analysed",
+  "failure": null,
+  "actual": {
+    "compatibility": "NEEDS_CONFIGURATION",
+    "analysisVerdict": "NEEDS_ATTENTION",
+    "readinessState": "ALMOST_READY",
+    "runtime": "node",
+    "appRoot": "packages/agents-server",
+    "dockerfilePath": "packages/agents-server/Dockerfile",
+    "port": 4437,
+    "startCommand": "ENTRYPOINT: [\"node\", \"dist/entrypoint.js\"]",
+    "healthDetected": false,
+    "healthPath": null,
+    "postgres": true,
+    "postgresDetected": true,
+    "redis": false,
+    "redisDetected": false,
+    "redisConfidence": "low",
+    "storage": false,
+    "worker": false,
+    "workerCommand": null,
+    "migration": false,
+    "migrationCommand": null,
+    "externalServices": [
+      "anthropic",
+      "openai"
+    ],
+    "requiredEnvVars": [
+      "X_API_KEY"
+    ],
+    "unsupported": [],
+    "readinessFindings": [
+      "health-check",
+      "database-migrations"
+    ],
+    "gateFindings": [
+      "health-path-required",
+      "required-env-vars-missing",
+      "migration-command-missing"
+    ],
+    "unresolvedQuestions": [
+      "multiple-dockerfiles",
+      "monorepo-target"
+    ]
+  },
+  "comparisons": [
+    {
+      "fact": "compatibility",
+      "expected": "NOT_COMPATIBLE",
+      "actual": "NEEDS_CONFIGURATION",
+      "match": false,
+      "kind": "false-acceptance"
+    },
+    {
+      "fact": "postgres",
+      "expected": true,
+      "actual": true,
+      "match": true
+    },
+    {
+      "fact": "redis",
+      "expected": false,
+      "actual": false,
+      "match": true
+    },
+    {
+      "fact": "worker",
+      "expected": false,
+      "actual": false,
+      "match": true
+    },
+    {
+      "fact": "appRoot",
+      "expected": "packages/sync-service",
+      "actual": "packages/agents-server",
+      "match": false,
+      "kind": "fact"
+    },
+    {
+      "fact": "dockerfilePath",
+      "expected": "packages/sync-service/Dockerfile",
+      "actual": "packages/agents-server/Dockerfile",
+      "match": false,
+      "kind": "fact"
+    },
+    {
+      "fact": "port",
+      "expected": 3000,
+      "actual": 4437,
+      "match": false,
+      "kind": "fact"
+    },
+    {
+      "fact": "healthPath",
+      "expected": "/v1/health",
+      "actual": null,
+      "match": false,
+      "kind": "fact"
+    },
+    {
+      "fact": "unsupported",
+      "expected": [
+        "local-filesystem"
+      ],
+      "actual": [],
+      "match": false,
+      "kind": "fact"
+    }
+  ],
+  "mismatches": [
+    {
+      "fact": "compatibility",
+      "kind": "false-acceptance",
+      "expected": "NOT_COMPATIBLE",
+      "actual": "NEEDS_CONFIGURATION",
+      "finding": null
+    },
+    {
+      "fact": "appRoot",
+      "kind": "fact",
+      "expected": "packages/sync-service",
+      "actual": "packages/agents-server",
+      "finding": null
+    },
+    {
+      "fact": "dockerfilePath",
+      "kind": "fact",
+      "expected": "packages/sync-service/Dockerfile",
+      "actual": "packages/agents-server/Dockerfile",
+      "finding": null
+    },
+    {
+      "fact": "port",
+      "kind": "fact",
+      "expected": 3000,
+      "actual": 4437,
+      "finding": null
+    },
+    {
+      "fact": "healthPath",
+      "kind": "fact",
+      "expected": "/v1/health",
+      "actual": null,
+      "finding": null
+    },
+    {
+      "fact": "unsupported",
+      "kind": "fact",
+      "expected": [
+        "local-filesystem"
+      ],
+      "actual": [],
+      "finding": null
+    }
+  ],
+  "match": false
+}
