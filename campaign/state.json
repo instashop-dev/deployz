@@ -4,8 +4,8 @@
   "status": "CONTINUE",
   "phase": 3,
   "currentTask": null,
-  "nextAction": "Next eligible: P3-BUILD-06. Disk: C: 4.2 GB free; unlabelled Docker build cache about 15 GB; USER DECISION still open (docker builder prune or free disk); workers keep the 3 GB stop guard. USER DECISION: the harness source stage uses Windows tar, which cannot create symlinks (repo-501, repo-507, repo-508 source FAIL); decide whether to fix the harness before more first-run builds (changes the tested commit) or keep it as a Phase 4 finding.",
-  "updatedAt": "2026-10-09T06:57:48.396Z",
+  "nextAction": "Next eligible: P3-BUILD-06. Disk: C: 4.2 GB free; build cache pruned 2026-10-09T07:00Z and now pruned after each batch (policy.resources); Docker reuses about 16 GB of free room inside docker_data.vhdx; workers keep the 3 GB stop guard. USER DECISION: the harness source stage uses Windows tar, which cannot create symlinks (repo-501, repo-507, repo-508 source FAIL); decide whether to fix the harness before more first-run builds (changes the tested commit) or keep it as a Phase 4 finding.",
+  "updatedAt": "2026-10-09T06:58:52.239Z",
   "checkout": {
     "path": "C:/Users/Tejas/Desktop/deployz-mvp-test",
     "kind": "git worktree of C:/Users/Tejas/Desktop/deployz",
@@ -411,8 +411,8 @@
     },
     "disk>=3GB": {
       "status": "AVAILABLE",
-      "detail": "2026-10-09T03:39Z: the user lowered the disk requirement from 10 GB to 3 GB (live chat instruction). Check: 6.28 GiB free on C: at 2026-10-09T03:28Z, so AVAILABLE. Each P3-BUILD task still prunes its labelled images after the batch. Earlier history (as disk>=10GB): 7.1 GiB free on C: at 2026-10-09T00:00Z (P2-GATE). Docker: 2.62 GB reclaimable build cache, 0.49 GB unused unlabelled images. The user must free disk before P3-BUILD tasks; Stage A tasks do not need it. 2026-10-09T02:05Z: routine check 6.27 GiB free; still UNAVAILABLE. 2026-10-09T02:28Z: routine check 6.30 GiB free; still UNAVAILABLE. 2026-10-09T02:43Z: routine check 6.26 GiB free; still UNAVAILABLE. 2026-10-09T02:58Z: routine check 6.26 GiB free; still UNAVAILABLE. 2026-10-09T03:45Z: routine check 6.7 GiB free; AVAILABLE. 2026-10-09T04:48Z: P3-BUILD-01 repo-536 build filled C: to 68 MB free; UNAVAILABLE. 3 GB was not enough for one large build. 2026-10-09T06:10Z: 14 GB free on C: after the user freed disk; AVAILABLE. Docker build cache 8.1 GB (unlabelled). 2026-10-09T06:31Z: after P3-BUILD-02, 4.9 GB free on C:; unlabelled Docker build cache 14.6 GB (reclaimable). Still >= 3 GB, but one large build can use more than 6 GB; workers stop a build below 3 GB free. 2026-10-09T06:57Z: after P3-BUILD-05, 4.2 GB free on C: (repo-510 build used about 0.7 GB); AVAILABLE.",
-      "checkedAt": "2026-10-09T06:57:48.396Z"
+      "detail": "2026-10-09T03:39Z: the user lowered the disk requirement from 10 GB to 3 GB (live chat instruction). Check: 6.28 GiB free on C: at 2026-10-09T03:28Z, so AVAILABLE. Each P3-BUILD task still prunes its labelled images after the batch. Earlier history (as disk>=10GB): 7.1 GiB free on C: at 2026-10-09T00:00Z (P2-GATE). Docker: 2.62 GB reclaimable build cache, 0.49 GB unused unlabelled images. The user must free disk before P3-BUILD tasks; Stage A tasks do not need it. 2026-10-09T02:05Z: routine check 6.27 GiB free; still UNAVAILABLE. 2026-10-09T02:28Z: routine check 6.30 GiB free; still UNAVAILABLE. 2026-10-09T02:43Z: routine check 6.26 GiB free; still UNAVAILABLE. 2026-10-09T02:58Z: routine check 6.26 GiB free; still UNAVAILABLE. 2026-10-09T03:45Z: routine check 6.7 GiB free; AVAILABLE. 2026-10-09T04:48Z: P3-BUILD-01 repo-536 build filled C: to 68 MB free; UNAVAILABLE. 3 GB was not enough for one large build. 2026-10-09T06:10Z: 14 GB free on C: after the user freed disk; AVAILABLE. Docker build cache 8.1 GB (unlabelled). 2026-10-09T06:31Z: after P3-BUILD-02, 4.9 GB free on C:; unlabelled Docker build cache 14.6 GB (reclaimable). Still >= 3 GB, but one large build can use more than 6 GB; workers stop a build below 3 GB free. 2026-10-09T06:57Z: after P3-BUILD-05, 4.2 GB free on C: (repo-510 build used about 0.7 GB); AVAILABLE. 2026-10-09T07:00Z (manual session, user-approved): one-time `docker builder prune -f` freed 2.05 GB (BuildKit had already trimmed the cache from about 15 GB to 2.1 GB). C: stays at 4.2 GB free because the Docker Desktop disk file %LOCALAPPDATA%/Docker/wsl/disk/docker_data.vhdx (19.3 GB) does not shrink; freed space inside it is reused by later builds, so Docker has about 16 GB of internal room. Only compacting the vhdx (Docker stopped, admin) returns space to C:.",
+      "checkedAt": "2026-10-09T06:58:52.239Z"
     },
     "dependencies-installed": {
       "status": "AVAILABLE",
@@ -436,7 +436,7 @@
     }
   },
   "policy": {
-    "resources": "TEST-only. Local Docker containers, networks, volumes and images carry the label deployz-campaign=fresh-100 and are removed after each task. No production data, no customer installations.",
+    "resources": "TEST-only. Local Docker containers, networks, volumes and images carry the label deployz-campaign=fresh-100 and are removed after each task. No production data, no customer installations. After each build batch, after the labelled resources are removed, also delete the Docker build cache with `docker builder prune -f` (user instruction 2026-10-09; the build cache is not required, it only makes rebuilds faster).",
     "environment": "Windows 10, Git Bash and PowerShell, Docker Desktop with WSL 2 Linux containers. Untrusted app code runs only in disposable containers with no host mounts and no host credentials.",
     "aws": {
       "allowed": true,
