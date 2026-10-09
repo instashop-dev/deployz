@@ -59,7 +59,7 @@
       "requires": [
         "node",
         "pnpm",
-        "disk>=10GB"
+        "disk>=3GB"
       ],
       "inputs": [],
       "forbiddenInputs": [
@@ -2365,7 +2365,7 @@
       "requires": [
         "docker",
         "dependencies-installed",
-        "disk>=10GB",
+        "disk>=3GB",
         "ai-gateway"
       ],
       "inputs": [
@@ -2408,7 +2408,7 @@
       "requires": [
         "docker",
         "dependencies-installed",
-        "disk>=10GB",
+        "disk>=3GB",
         "ai-gateway"
       ],
       "inputs": [
@@ -2450,7 +2450,7 @@
       "requires": [
         "docker",
         "dependencies-installed",
-        "disk>=10GB",
+        "disk>=3GB",
         "ai-gateway"
       ],
       "inputs": [
@@ -2492,7 +2492,7 @@
       "requires": [
         "docker",
         "dependencies-installed",
-        "disk>=10GB",
+        "disk>=3GB",
         "ai-gateway"
       ],
       "inputs": [
@@ -2534,7 +2534,7 @@
       "requires": [
         "docker",
         "dependencies-installed",
-        "disk>=10GB",
+        "disk>=3GB",
         "ai-gateway"
       ],
       "inputs": [
@@ -2576,7 +2576,7 @@
       "requires": [
         "docker",
         "dependencies-installed",
-        "disk>=10GB",
+        "disk>=3GB",
         "ai-gateway"
       ],
       "inputs": [
@@ -2618,7 +2618,7 @@
       "requires": [
         "docker",
         "dependencies-installed",
-        "disk>=10GB",
+        "disk>=3GB",
         "ai-gateway"
       ],
       "inputs": [
@@ -2660,7 +2660,7 @@
       "requires": [
         "docker",
         "dependencies-installed",
-        "disk>=10GB",
+        "disk>=3GB",
         "ai-gateway"
       ],
       "inputs": [
@@ -2702,7 +2702,7 @@
       "requires": [
         "docker",
         "dependencies-installed",
-        "disk>=10GB",
+        "disk>=3GB",
         "ai-gateway"
       ],
       "inputs": [
@@ -2744,7 +2744,7 @@
       "requires": [
         "docker",
         "dependencies-installed",
-        "disk>=10GB",
+        "disk>=3GB",
         "ai-gateway"
       ],
       "inputs": [
@@ -2786,7 +2786,7 @@
       "requires": [
         "docker",
         "dependencies-installed",
-        "disk>=10GB",
+        "disk>=3GB",
         "ai-gateway"
       ],
       "inputs": [
@@ -2828,7 +2828,7 @@
       "requires": [
         "docker",
         "dependencies-installed",
-        "disk>=10GB",
+        "disk>=3GB",
         "ai-gateway"
       ],
       "inputs": [
@@ -2870,7 +2870,7 @@
       "requires": [
         "docker",
         "dependencies-installed",
-        "disk>=10GB",
+        "disk>=3GB",
         "ai-gateway"
       ],
       "inputs": [
@@ -2912,7 +2912,7 @@
       "requires": [
         "docker",
         "dependencies-installed",
-        "disk>=10GB",
+        "disk>=3GB",
         "ai-gateway"
       ],
       "inputs": [
@@ -2954,7 +2954,7 @@
       "requires": [
         "docker",
         "dependencies-installed",
-        "disk>=10GB",
+        "disk>=3GB",
         "ai-gateway"
       ],
       "inputs": [
@@ -2996,7 +2996,7 @@
       "requires": [
         "docker",
         "dependencies-installed",
-        "disk>=10GB",
+        "disk>=3GB",
         "ai-gateway"
       ],
       "inputs": [
@@ -3038,7 +3038,7 @@
       "requires": [
         "docker",
         "dependencies-installed",
-        "disk>=10GB",
+        "disk>=3GB",
         "ai-gateway"
       ],
       "inputs": [
@@ -3080,7 +3080,7 @@
       "requires": [
         "docker",
         "dependencies-installed",
-        "disk>=10GB",
+        "disk>=3GB",
         "ai-gateway"
       ],
       "inputs": [
@@ -3122,7 +3122,7 @@
       "requires": [
         "docker",
         "dependencies-installed",
-        "disk>=10GB",
+        "disk>=3GB",
         "ai-gateway"
       ],
       "inputs": [
@@ -3164,7 +3164,7 @@
       "requires": [
         "docker",
         "dependencies-installed",
-        "disk>=10GB",
+        "disk>=3GB",
         "ai-gateway"
       ],
       "inputs": [
@@ -3206,7 +3206,7 @@
       "requires": [
         "docker",
         "dependencies-installed",
-        "disk>=10GB",
+        "disk>=3GB",
         "ai-gateway"
       ],
       "inputs": [
@@ -3248,7 +3248,7 @@
       "requires": [
         "docker",
         "dependencies-installed",
-        "disk>=10GB",
+        "disk>=3GB",
         "ai-gateway"
       ],
       "inputs": [
@@ -3290,7 +3290,7 @@
       "requires": [
         "docker",
         "dependencies-installed",
-        "disk>=10GB",
+        "disk>=3GB",
         "ai-gateway"
       ],
       "inputs": [
@@ -3332,7 +3332,7 @@
       "requires": [
         "docker",
         "dependencies-installed",
-        "disk>=10GB",
+        "disk>=3GB",
         "ai-gateway"
       ],
       "inputs": [
@@ -3374,7 +3374,7 @@
       "requires": [
         "docker",
         "dependencies-installed",
-        "disk>=10GB",
+        "disk>=3GB",
         "ai-gateway"
       ],
       "inputs": [
@@ -3416,7 +3416,7 @@
       "requires": [
         "docker",
         "dependencies-installed",
-        "disk>=10GB",
+        "disk>=3GB",
         "ai-gateway"
       ],
       "inputs": [
@@ -3458,7 +3458,7 @@
       "requires": [
         "docker",
         "dependencies-installed",
-        "disk>=10GB",
+        "disk>=3GB",
         "ai-gateway"
       ],
       "inputs": [
@@ -3500,7 +3500,7 @@
       "requires": [
         "docker",
         "dependencies-installed",
-        "disk>=10GB",
+        "disk>=3GB",
         "ai-gateway"
       ],
       "inputs": [

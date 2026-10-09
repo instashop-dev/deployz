@@ -2,7 +2,7 @@
 
 **Status:** CONTINUE. Phase 3. P0-GATE, P1-GATE and P2-GATE PASS (P2-GATE on 2026-10-09).
 **Checkout:** `C:/Users/Tejas/Desktop/deployz-mvp-test`, branch `campaign/fresh-100`. Baseline commit `e6a3b58e` (ANALYSIS_VERSION 45; origin/main after PR #498, merged into the campaign branch on 2026-10-08).
-**Eligible now:** none. `P3-BUILD-01..28` need `disk>=10GB` (UNAVAILABLE; user action). `ai-gateway` AVAILABLE since the 00:44Z probe on 2026-10-09.
+**Eligible now:** `P3-BUILD-01` and later. On 2026-10-09T03:39Z the user lowered the disk requirement from 10 GB to 3 GB; `disk>=3GB` is AVAILABLE (6.28 GiB free). `ai-gateway` AVAILABLE since the 00:44Z probe on 2026-10-09.
 
 ## Done
 
@@ -107,7 +107,7 @@
 
 ## Next action
 
-No eligible work. User action: free at least 3.7 GiB on C: (6.28 GiB free at 2026-10-09T03:28Z routine check; Docker has reclaimable non-campaign build cache and unused images that the coordinator does not delete). Then the next run checks free disk, sets `disk>=10GB` AVAILABLE and starts `P3-BUILD-01` (repo-540, repo-536).
+Start `P3-BUILD-01` (repo-540, repo-536 storage probe). Before each P3-BUILD task, check that C: has at least 3 GB free (`disk>=3GB`; the user lowered the limit from 10 GB on 2026-10-09). Each task prunes its labelled images after the batch.
 
 Caution: every coordinator, scheduled or manual, must hold `campaign/coordinator.lock` (`node campaign/lock.mjs`, see plan.md "Coordinator lock") before it changes campaign files or dispatches a worker. If the lock is held, exit without changes.
 

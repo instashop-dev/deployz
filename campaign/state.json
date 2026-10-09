@@ -4,8 +4,8 @@
   "status": "CONTINUE",
   "phase": 3,
   "currentTask": null,
-  "nextAction": "No eligible work: P3-BUILD-01..28 require disk>=10GB (UNAVAILABLE; 6.28 GiB free on C: at 2026-10-09T03:28Z). User action: free at least 3.7 GiB on C: (Docker reports reclaimable non-campaign build cache and unused images; the coordinator does not delete them). Then the next run sets disk>=10GB AVAILABLE after a check and starts P3-BUILD-01 (repo-540, repo-536 storage probe).",
-  "updatedAt": "2026-10-09T03:29:01.751Z",
+  "nextAction": "Start P3-BUILD-01 (repo-540, repo-536 storage probe). disk>=3GB is AVAILABLE (user lowered the limit from 10 GB on 2026-10-09; 6.28 GiB free). Check free disk >= 3 GB before each P3-BUILD task.",
+  "updatedAt": "2026-10-09T03:39:28.258Z",
   "checkout": {
     "path": "C:/Users/Tejas/Desktop/deployz-mvp-test",
     "kind": "git worktree of C:/Users/Tejas/Desktop/deployz",
@@ -382,9 +382,9 @@
       "status": "AVAILABLE",
       "detail": "Docker Desktop 29.8.2, linux/amd64, context desktop-linux, 4 CPUs, 3.8 GB memory. Docker Desktop must be running during each routine run."
     },
-    "disk>=10GB": {
-      "status": "UNAVAILABLE",
-      "detail": "7.1 GiB free on C: at 2026-10-09T00:00Z (P2-GATE). Docker: 2.62 GB reclaimable build cache, 0.49 GB unused unlabelled images. The user must free disk before P3-BUILD tasks; Stage A tasks do not need it. 2026-10-09T02:05Z: routine check 6.27 GiB free; still UNAVAILABLE. 2026-10-09T02:28Z: routine check 6.30 GiB free; still UNAVAILABLE. 2026-10-09T02:43Z: routine check 6.26 GiB free; still UNAVAILABLE. 2026-10-09T02:58Z: routine check 6.26 GiB free; still UNAVAILABLE."
+    "disk>=3GB": {
+      "status": "AVAILABLE",
+      "detail": "2026-10-09T03:39Z: the user lowered the disk requirement from 10 GB to 3 GB (live chat instruction). Check: 6.28 GiB free on C: at 2026-10-09T03:28Z, so AVAILABLE. Each P3-BUILD task still prunes its labelled images after the batch. Earlier history (as disk>=10GB): 7.1 GiB free on C: at 2026-10-09T00:00Z (P2-GATE). Docker: 2.62 GB reclaimable build cache, 0.49 GB unused unlabelled images. The user must free disk before P3-BUILD tasks; Stage A tasks do not need it. 2026-10-09T02:05Z: routine check 6.27 GiB free; still UNAVAILABLE. 2026-10-09T02:28Z: routine check 6.30 GiB free; still UNAVAILABLE. 2026-10-09T02:43Z: routine check 6.26 GiB free; still UNAVAILABLE. 2026-10-09T02:58Z: routine check 6.26 GiB free; still UNAVAILABLE."
     },
     "dependencies-installed": {
       "status": "AVAILABLE",
