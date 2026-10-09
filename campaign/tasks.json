@@ -2614,7 +2614,7 @@
       "phase": 3,
       "title": "First-run local build/run of improvement apps repo-514, repo-515",
       "executor": "campaign-worker",
-      "status": "PENDING",
+      "status": "COMPLETE",
       "prerequisites": [
         "P3-BUILD-PLAN"
       ],
@@ -2648,7 +2648,8 @@
       "notes": [
         "2026-10-09 P3-BUILD-PLAN (Opus): command `node --env-file=.env node_modules/tsx/dist/cli.mjs scripts/repository-deployment/index.ts --local --ai live --benchmark campaign/corpus/benchmark.yaml --deploy-config campaign/corpus/deploy-config.yaml --runs-dir campaign/results/first-run/build/ --evidence-dir campaign/logs/P3-BUILD-07/evidence/ --repo repo-514 --repo repo-515`; default cache (no --cache). Resumable: on stopBy, interrupt at a safe point and return CONTINUE with progress; the next run adds --resume.",
         "Retry a build once when its log tail shows only registry network timeouts; if it fails again classify it as an environment failure (separate denominator).",
-        "Before the run, the worker may add to deploy-config.yaml, for this task's apps only, the configuration a vendor would enter from the app's own documented env example or install docs (config values without secrets; secrets as generated keys). No repository-specific hacks."
+        "Before the run, the worker may add to deploy-config.yaml, for this task's apps only, the configuration a vendor would enter from the app's own documented env example or install docs (config values without secrets; secrets as generated keys). No repository-specific hacks.",
+        "2026-10-09 Opus: COMPLETE attempt 1. Harness writes <repo>.local.json (same as earlier batches). repo-514 probes FAIL (container exited code 0 before / answered, empty app log); AI live outcome timeout at 30 s (AbortError) - Phase 4 finding: the PR #498 timeout fix does not cover this repo. repo-515 gate false-acceptance and no root Dockerfile."
       ]
     },
     {

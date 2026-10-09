@@ -1,108 +1,108 @@
 {
   "schemaVersion": 1,
-  "repositories": 12,
+  "repositories": 14,
   "classifications": {
     "source": 2,
-    "probes": 1,
-    "gate": 6,
+    "probes": 2,
+    "gate": 7,
     "run": 1,
     "build": 1,
     "local-success": 1
   },
   "aiModes": {
-    "live": 12
+    "live": 14
   },
   "stages": {
     "gate": {
-      "attempted": 12,
+      "attempted": 14,
       "NOT_ATTEMPTED": 0,
       "IN_PROGRESS": 0,
-      "PASS": 6,
-      "FAIL": 6,
+      "PASS": 7,
+      "FAIL": 7,
       "SKIPPED": 0
     },
     "source": {
-      "attempted": 12,
+      "attempted": 14,
       "NOT_ATTEMPTED": 0,
       "IN_PROGRESS": 0,
-      "PASS": 6,
+      "PASS": 8,
       "FAIL": 4,
       "SKIPPED": 2
     },
     "build": {
-      "attempted": 12,
+      "attempted": 14,
       "NOT_ATTEMPTED": 0,
       "IN_PROGRESS": 0,
-      "PASS": 4,
-      "FAIL": 2,
+      "PASS": 5,
+      "FAIL": 3,
       "SKIPPED": 6
     },
     "run": {
-      "attempted": 12,
+      "attempted": 14,
       "NOT_ATTEMPTED": 0,
       "IN_PROGRESS": 0,
-      "PASS": 3,
+      "PASS": 4,
       "FAIL": 1,
-      "SKIPPED": 8
+      "SKIPPED": 9
     },
     "probes": {
-      "attempted": 12,
+      "attempted": 14,
       "NOT_ATTEMPTED": 0,
       "IN_PROGRESS": 0,
       "PASS": 1,
-      "FAIL": 2,
-      "SKIPPED": 9
+      "FAIL": 3,
+      "SKIPPED": 10
     },
     "cleanup": {
-      "attempted": 12,
+      "attempted": 14,
       "NOT_ATTEMPTED": 0,
       "IN_PROGRESS": 0,
-      "PASS": 6,
+      "PASS": 8,
       "FAIL": 0,
       "SKIPPED": 6
     }
   },
   "probes": {
     "start": {
-      "attempted": 3,
+      "attempted": 4,
       "PASS": 1,
-      "FAIL": 2,
+      "FAIL": 3,
       "UNVERIFIED": 0,
       "NOT_APPLICABLE": 0
     },
     "health": {
-      "attempted": 3,
+      "attempted": 4,
       "PASS": 1,
-      "FAIL": 2,
+      "FAIL": 3,
       "UNVERIFIED": 0,
       "NOT_APPLICABLE": 0
     },
     "migration": {
-      "attempted": 3,
+      "attempted": 4,
       "PASS": 0,
       "FAIL": 0,
       "UNVERIFIED": 0,
-      "NOT_APPLICABLE": 3
+      "NOT_APPLICABLE": 4
     },
     "dbWrite": {
-      "attempted": 3,
+      "attempted": 4,
       "PASS": 0,
-      "FAIL": 1,
+      "FAIL": 2,
       "UNVERIFIED": 0,
       "NOT_APPLICABLE": 2
     },
     "redis": {
-      "attempted": 3,
+      "attempted": 4,
       "PASS": 0,
       "FAIL": 2,
       "UNVERIFIED": 0,
-      "NOT_APPLICABLE": 1
+      "NOT_APPLICABLE": 2
     },
     "storage": {
-      "attempted": 3,
+      "attempted": 4,
       "PASS": 0,
       "FAIL": 0,
-      "UNVERIFIED": 0,
+      "UNVERIFIED": 1,
       "NOT_APPLICABLE": 3
     }
   },
@@ -245,6 +245,34 @@
         "run": 90184,
         "probes": 6,
         "cleanup": 6415
+      }
+    },
+    {
+      "id": "repo-514",
+      "repository": "hexpm/hexpm",
+      "classification": "probes",
+      "totalMs": 590372,
+      "stages": {
+        "gate": 4,
+        "source": 5963,
+        "build": 509042,
+        "run": 10588,
+        "probes": 61542,
+        "cleanup": 3233
+      }
+    },
+    {
+      "id": "repo-515",
+      "repository": "dotnet/eShop",
+      "classification": "gate",
+      "totalMs": 6012,
+      "stages": {
+        "gate": 3,
+        "source": 4124,
+        "build": 1088,
+        "run": 4,
+        "probes": 3,
+        "cleanup": 790
       }
     },
     {

@@ -1,0 +1,188 @@
+{
+  "schemaVersion": 1,
+  "id": "repo-514",
+  "repository": "hexpm/hexpm",
+  "commit": "151266fa511769aa56a17df804fe7a55219858a2",
+  "set": "improvement",
+  "cohort": "realistic",
+  "deployzCommit": "d97dadfe416ce80277fbcdf40729cfbd4a26d321",
+  "analysisVersion": 45,
+  "ai": {
+    "mode": "live",
+    "model": "workers-ai/@cf/deepseek-ai/deepseek-v4-flash-0731",
+    "requests": 1,
+    "outcome": "timeout",
+    "error": "AbortError: This operation was aborted"
+  },
+  "inputsHash": "29c213cf4b38e0ce23387bc57ad6c0d5b1991b74170a8886009a63022d6244ef",
+  "stages": {
+    "gate": {
+      "status": "PASS",
+      "startedAt": "2026-10-09T08:30:48.382Z",
+      "finishedAt": "2026-10-09T08:30:48.386Z",
+      "durationMs": 4,
+      "detail": null,
+      "evidence": {
+        "verdict": "NEEDS_CONFIGURATION",
+        "outcome": "correct-accept",
+        "configuredVerdict": "NEEDS_CONFIGURATION",
+        "manifest": {
+          "dockerfilePath": "Dockerfile",
+          "buildContext": ".",
+          "appRoot": ".",
+          "port": 4000,
+          "healthPath": "/",
+          "healthMode": "vendor_required",
+          "migrationCommand": null,
+          "migrationMode": "unknown",
+          "postgres": true,
+          "redis": false,
+          "storage": true,
+          "databaseBindings": [
+            "DATABASE_HOST",
+            "DATABASE_NAME",
+            "DATABASE_PASSWORD",
+            "DATABASE_PORT",
+            "DATABASE_URL",
+            "DATABASE_USER",
+            "DB_HOST",
+            "DB_NAME",
+            "DB_PASSWORD",
+            "DB_PORT",
+            "DB_USER"
+          ],
+          "redisBindings": [],
+          "storageBindings": [
+            "AWS_S3_BUCKET"
+          ],
+          "generatedKeys": []
+        }
+      }
+    },
+    "source": {
+      "status": "PASS",
+      "startedAt": "2026-10-09T08:30:48.391Z",
+      "finishedAt": "2026-10-09T08:30:54.354Z",
+      "durationMs": 5963,
+      "detail": null,
+      "evidence": {
+        "commit": "151266fa511769aa56a17df804fe7a55219858a2",
+        "archiveCached": false,
+        "archiveBytes": 12949385
+      }
+    },
+    "build": {
+      "status": "PASS",
+      "startedAt": "2026-10-09T08:30:54.356Z",
+      "finishedAt": "2026-10-09T08:39:23.398Z",
+      "durationMs": 509042,
+      "detail": null,
+      "evidence": {
+        "dockerfilePath": "Dockerfile",
+        "buildContext": ".",
+        "platform": "linux/amd64",
+        "image": "deployz-campaign/repo-514:151266fa5117",
+        "exitCode": 0,
+        "durationMs": 508674,
+        "buildArgNames": [],
+        "logTail": "#28 8.523 Release created at _build/prod/rel/hexpm\n#28 8.523 \n#28 8.523     # To start your system\n#28 8.523     _build/prod/rel/hexpm/bin/hexpm start\n#28 8.523 \n#28 8.523 Once the release is running:\n#28 8.523 \n#28 8.523     # To connect to it remotely\n#28 8.523     _build/prod/rel/hexpm/bin/hexpm remote\n#28 8.523 \n#28 8.523     # To stop it gracefully (you may also send SIGINT/SIGTERM)\n#28 8.523     _build/prod/rel/hexpm/bin/hexpm stop\n#28 8.523 \n#28 8.523 To list all commands:\n#28 8.523 \n#28 8.523     _build/prod/rel/hexpm/bin/hexpm\n#28 8.523 \n#28 DONE 9.5s\n\n#29 [app 5/6] COPY --from=build /app/_build/prod/rel/hexpm ./\n#29 DONE 4.0s\n\n#30 [app 6/6] RUN chown -R nobody: /app\n#30 DONE 54.5s\n\n#31 exporting to image\n#31 exporting layers\n#31 exporting layers 24.3s done\n#31 exporting manifest sha256:c252544628b7a153ef931c6b962cc8bf48d4105315bc7945c6b618dc95e5a93d 0.0s done\n#31 exporting config sha256:2d346d9b92ea3eaa45a9331a9cadb090d106917d1dfa05d6aae319cb1797f392 0.1s done\n#31 exporting attestation manifest sha256:abc9084a81e1ce203c29994d4845387b194b49ed21968bfe108498bcc5c9dd68\n#31 exporting attestation manifest sha256:abc9084a81e1ce203c29994d4845387b194b49ed21968bfe108498bcc5c9dd68 0.1s done\n#31 exporting manifest list sha256:5d66decd5d9ad524b70ee27578934f00f9264f2bfa2295749211533d01cc61d7 0.0s done\n#31 naming to docker.io/deployz-campaign/repo-514:151266fa5117\n#31 naming to docker.io/deployz-campaign/repo-514:151266fa5117 0.0s done\n#31 unpacking to docker.io/deployz-campaign/repo-514:151266fa5117\n#31 unpacking to docker.io/deployz-campaign/repo-514:151266fa5117 18.2s done\n#31 DONE 42.9s\n\nView build details: docker-desktop://dashboard/build/desktop-linux/desktop-linux/6nwxv2e2j3fpy2o7i6pkngub9",
+        "imageId": "sha256:5d66decd5d9ad524b70ee27578934f00f9264f2bfa2295749211533d01cc61d7",
+        "imageBytes": 774962582,
+        "failure": null,
+        "rebuilt": false
+      }
+    },
+    "run": {
+      "status": "PASS",
+      "startedAt": "2026-10-09T08:39:24.703Z",
+      "finishedAt": "2026-10-09T08:39:35.291Z",
+      "durationMs": 10588,
+      "detail": null,
+      "evidence": {
+        "image": "deployz-campaign/repo-514:151266fa5117",
+        "port": 4000,
+        "healthPath": "/",
+        "dependencies": [
+          "postgres",
+          "s3-stand-in"
+        ],
+        "environmentNames": [
+          "AWS_ACCESS_KEY_ID",
+          "AWS_ENDPOINT_URL_S3",
+          "AWS_REGION",
+          "AWS_S3_BUCKET",
+          "AWS_S3_FORCE_PATH_STYLE",
+          "AWS_SECRET_ACCESS_KEY",
+          "DATABASE_URL",
+          "DB_HOST",
+          "DB_NAME",
+          "DB_PASSWORD",
+          "DB_PORT",
+          "DB_USER",
+          "PORT"
+        ],
+        "migration": null
+      }
+    },
+    "probes": {
+      "status": "FAIL",
+      "startedAt": "2026-10-09T08:39:35.295Z",
+      "finishedAt": "2026-10-09T08:40:36.837Z",
+      "durationMs": 61542,
+      "detail": "failed: health, start, dbWrite",
+      "evidence": {
+        "probes": {
+          "health": {
+            "status": "FAIL",
+            "detail": "the container exited (code 0) before / answered"
+          },
+          "start": {
+            "status": "FAIL",
+            "detail": "the container is not running (exit code 0)"
+          },
+          "migration": {
+            "status": "NOT_APPLICABLE",
+            "detail": "the manifest has no migration command"
+          },
+          "dbWrite": {
+            "status": "FAIL",
+            "detail": "no rows outside migration bookkeeping tables"
+          },
+          "redis": {
+            "status": "NOT_APPLICABLE",
+            "detail": "the manifest needs no Redis"
+          },
+          "storage": {
+            "status": "UNVERIFIED",
+            "detail": "the bucket holds no object; reaching the bucket is not proven"
+          }
+        },
+        "url": "http://app:4000/",
+        "appLogTail": ""
+      }
+    },
+    "cleanup": {
+      "status": "PASS",
+      "startedAt": "2026-10-09T08:40:36.840Z",
+      "finishedAt": "2026-10-09T08:40:40.073Z",
+      "durationMs": 3233,
+      "detail": null,
+      "evidence": {
+        "removed": {
+          "containers": 3,
+          "networks": 1,
+          "volumes": 0
+        },
+        "imageRemoved": true,
+        "keepImage": false,
+        "leaks": {
+          "containers": [],
+          "networks": [],
+          "volumes": []
+        }
+      }
+    }
+  },
+  "classification": "probes",
+  "remediation": null
+}

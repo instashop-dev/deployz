@@ -1,0 +1,31 @@
+{
+  "taskId": "P3-BUILD-07",
+  "testedCommit": "e6a3b58ee2363923fef21faca86611fa3bf84538",
+  "executor": "campaign-worker",
+  "model": "sonnet",
+  "startedAt": "2026-10-09T08:29:55Z",
+  "finishedAt": "2026-10-09T08:47:00Z",
+  "proposedStatus": "COMPLETE",
+  "commands": [
+    { "command": "node --env-file=.env node_modules/tsx/dist/cli.mjs scripts/repository-deployment/index.ts --local --ai live --benchmark campaign/corpus/benchmark.yaml --deploy-config campaign/corpus/deploy-config.yaml --runs-dir campaign/results/first-run/build/ --evidence-dir campaign/logs/P3-BUILD-07/evidence/ --repo repo-514 --repo repo-515", "exitCode": 0, "summary": "repo-514: gate PASS, source PASS, build PASS, run PASS, probes FAIL, cleanup PASS. repo-515: gate FAIL (false-acceptance), source PASS, build FAIL (no Dockerfile), run/probes SKIPPED, cleanup PASS." },
+    { "command": "docker builder prune -f", "exitCode": 0, "summary": "Build cache pruned (1.939GB reclaimed)." },
+    { "command": "docker ps -a / network ls / volume ls / images with label deployz-campaign=fresh-100", "exitCode": 0, "summary": "No labelled container, network, volume or image remains; no deployz-campaign image tag remains." }
+  ],
+  "evidence": [
+    "campaign/results/first-run/build/repo-514.local.json",
+    "campaign/results/first-run/build/repo-515.local.json",
+    "campaign/results/first-run/build/local-summary.json",
+    "campaign/results/first-run/build/local-summary.md"
+  ],
+  "notes": [
+    "No deploy-config.yaml change was made. No vendor configuration was added.",
+    "Artifact names: the harness writes repo-514.local.json and repo-515.local.json, not repo-514.json and repo-515.json (same as earlier P3-BUILD tasks).",
+    "Raw logs: campaign/logs/P3-BUILD-07/run1.log and campaign/logs/P3-BUILD-07/evidence/ (ignored by git).",
+    "AI mode recorded in both results is live (production-equivalent). repo-514 AI call timed out at 30 s (AbortError, outcome timeout, 1 attempt); analysis ran without AI output for that repo. repo-515 AI call completed (8.1 s).",
+    "repo-514 (hexpm/hexpm, expected NEEDS_CONFIGURATION): gate correct-accept NEEDS_CONFIGURATION. Docker build passed in 509 s (image 775 MB, Dockerfile, port 4000). Run stage passed with postgres and S3 stand-in. Probes FAIL: health, start, dbWrite. Reason: container exited with code 0 before / answered; app log tail empty. Storage UNVERIFIED. Migration probe not applicable (manifest has no migration command; migrationMode unknown). Classified as probes failure (app/config), not network.",
+    "repo-515 (dotnet/eShop, expected NOT_COMPATIBLE): gate FAIL false-acceptance (verdict NEEDS_CONFIGURATION). Manifest has dockerfilePath null, port null. Build FAIL: 'failed to read dockerfile: open Dockerfile: no such file or directory' (eShop has no root Dockerfile). Run and probes SKIPPED: the build did not pass. Not a registry network timeout, so no retry. Classified gate.",
+    "No registry network timeout seen in either build log tail; no retry done and no environment-failure classification.",
+    "Tested commit e6a3b58e is an ancestor of the checkout HEAD d97dadfe (harness result files record deployzCommit d97dadfe).",
+    "Free space on C: was 14.9 GB at start; never below 3 GB."
+  ]
+}
