@@ -20,8 +20,7 @@ export default function InstallLayout({ children }: { children: ReactNode }) {
       <main className="mx-auto w-full max-w-2xl flex-1 px-4 py-10">{children}</main>
       <footer className="border-t">
         <div className="mx-auto w-full max-w-2xl px-4 py-6 text-xs text-muted-foreground">
-          This page is public by design: anyone holding this unique link can view it, and no
-          Deployz account is needed. Don&apos;t share the link publicly.
+          Anyone with this link can view this page. Don&apos;t share it publicly.
         </div>
       </footer>
     </div>

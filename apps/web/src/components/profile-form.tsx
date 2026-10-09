@@ -24,7 +24,7 @@ export function ProfileForm({ name }: { name: string }) {
     const { error: failure } = await authClient.updateUser({ name: value });
     setPending(false);
     if (failure) {
-      setError(failure.message ?? 'We could not save this change. Try again in a moment.');
+      setError(failure.message ?? "Couldn't save. Try again.");
       return;
     }
     setSaved(true);

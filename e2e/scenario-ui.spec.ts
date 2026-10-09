@@ -135,7 +135,7 @@ test.describe('scenario-ui browser suite', () => {
       page.getByRole('heading', { name: 'Checking your application' }),
     ).toBeVisible({ timeout: 15_000 });
     await expect(
-      page.getByText(/The last step is a secure address — set up a custom domain below to finish\./),
+      page.getByText(/Set up a custom domain below for a secure address\./),
     ).toBeVisible();
     // The grouped step list reflects real progress, not a percentage: every
     // rung through health is done, https is the one still active. Completed
@@ -544,7 +544,7 @@ test.describe('update-failure then rollback-success (browser)', () => {
     const rollbackAfter = page.getByRole('menuitem', { name: /Rollback/ });
     await expect(rollbackAfter).toBeDisabled();
     await expect(rollbackAfter).toContainText(
-      'The previous successful release is the version running now, so there is nothing to roll back to.',
+      'The previous release is already running.',
     );
     await page.keyboard.press('Escape');
   });

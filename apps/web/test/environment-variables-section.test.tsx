@@ -262,7 +262,7 @@ describe('Environment variables section', () => {
     const stale = byTestId('environment-variables-stale');
     expect(stale?.textContent).toContain('GONE_KEY');
     expect(stale?.textContent).toContain('Variables not found in the latest analysis');
-    expect(stale?.textContent).toContain('Variables you added yourself can stay.');
+    expect(stale?.textContent).toContain('Variables you added can stay.');
     expect(stale?.textContent).not.toContain('DONE_KEY');
 
     await click(byTestId('environment-variables-stale-GONE_KEY'));
@@ -565,7 +565,7 @@ describe('Truthful save feedback', () => {
     await click(saveButton());
 
     expect(byTestId('environment-variables-partial-save')?.textContent).toContain(
-      'Your variable decisions were saved, but the values were not.',
+      'Decisions saved, values not.',
     );
     // The value stays, so saving again retries it.
     expect(document.body.textContent).toContain('Unsaved changes.');

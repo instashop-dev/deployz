@@ -173,7 +173,7 @@ const NO_PREVIOUS_RELEASE_COPY = 'No previous successful release to roll back to
 // carried into the rollback). Offering "Rollback" then would roll back to
 // the version already serving.
 const PREVIOUS_IS_CURRENT_COPY =
-  'The previous successful release is the version running now, so there is nothing to roll back to.';
+  'The previous release is already running.';
 const INSTALL_STAGES = new Set(['WAITING_FOR_AWS', 'CONNECTING', 'PROVISIONING']);
 
 // §24 deployment detail, laid out as a status page rather than a console:
@@ -218,12 +218,12 @@ export default function DeploymentDetailPage() {
           ? {
               status: 'error',
               notFound: true,
-              message: "This deployment doesn't exist or you don't have access to it.",
+              message: "Not found, or you don't have access.",
             }
           : {
               status: 'error',
               notFound: false,
-              message: "We couldn't load this deployment. Try again in a moment.",
+              message: "Couldn't load this deployment. Try again.",
             },
       );
       return;
@@ -472,7 +472,7 @@ function DetailBody({
         </h2>
         {events === null ? (
           <p className="text-sm text-muted-foreground">
-            Activity is unavailable right now. It refreshes automatically.
+            Activity unavailable. Refreshes automatically.
           </p>
         ) : (
           <ActivityFeed events={events} />
@@ -692,8 +692,7 @@ function InfrastructureCheckSection({
           <AlertTitle>No issues found in the latest infrastructure check.</AlertTitle>
           <AlertDescription>
             <p>
-              {checkedLine} This check covers the AWS infrastructure only. Application health is
-              shown above.
+              {checkedLine} AWS infrastructure only. Application health is shown above.
             </p>
           </AlertDescription>
         </Alert>
@@ -705,8 +704,8 @@ function InfrastructureCheckSection({
           <AlertTitle>The latest infrastructure check is out of date.</AlertTitle>
           <AlertDescription>
             <p>
-              {checkedLine} The Deployz connector has not sent a new report since then, so these
-              results may no longer match the customer&apos;s AWS account.
+              {checkedLine} No new connector report since then. Results may not match the
+              customer&apos;s AWS account.
             </p>
           </AlertDescription>
         </Alert>
@@ -735,7 +734,7 @@ function InfrastructureCheckSection({
             </ul>
             <p>
               {checkedLine}
-              {report.stale ? ' The Deployz connector has not reported since then.' : null}
+              {report.stale ? ' No connector report since then.' : null}
             </p>
           </AlertDescription>
         </Alert>
@@ -750,10 +749,10 @@ function InfrastructureCheckSection({
           <AlertDescription>
             <p>
               {notInstalled
-                ? 'This deployment has not been installed yet, so there is nothing to diagnose.'
+                ? 'Not installed yet.'
                 : detail.relayStatus === 'CONNECTED'
-                  ? 'Results appear here after the Deployz connector reports on the infrastructure.'
-                  : 'The Deployz connector is not connected, so it cannot check the infrastructure. The status above shows the connection state.'}
+                  ? 'Results appear after the Deployz connector reports.'
+                  : 'The Deployz connector is not connected, so the infrastructure cannot be checked.'}
             </p>
           </AlertDescription>
         </Alert>
@@ -1180,7 +1179,7 @@ function DeployUpdateDialog({
       toast.success('Update requested');
       onDone();
     } catch (caught) {
-      setError(actionErrorMessage(caught, "We couldn't start this update. Try again in a moment."));
+      setError(actionErrorMessage(caught, "Couldn't start this update. Try again."));
     } finally {
       setPending(false);
     }
@@ -1192,7 +1191,7 @@ function DeployUpdateDialog({
         <DialogHeader>
           <DialogTitle>Deploy update</DialogTitle>
           <DialogDescription>
-            Pick the release to deploy to {applicationName}.
+            Choose a release for {applicationName}.
           </DialogDescription>
         </DialogHeader>
         {loading ? (
@@ -1200,7 +1199,7 @@ function DeployUpdateDialog({
         ) : failed ? (
           <div className="flex flex-col gap-3">
             <p className="text-sm text-muted-foreground">
-              Releases could not be loaded. Try again in a moment.
+              Couldn&apos;t load releases. Try again.
             </p>
             <Button variant="outline" size="sm" className="self-start" onClick={onRetryReleases}>
               Try again
@@ -1223,8 +1222,8 @@ function DeployUpdateDialog({
                 <span className="text-muted-foreground">Infrastructure</span>
                 <span className="font-medium">
                   {requirementDrift.length > 0
-                    ? 'Requirements changed since this deployment was created'
-                    : 'Unchanged for this deployment'}
+                    ? 'Requirements changed'
+                    : 'Unchanged'}
                 </span>
               </div>
             </div>
@@ -1263,8 +1262,7 @@ function DeployUpdateDialog({
               <AlertTriangle aria-hidden />
               <AlertTitle>The application will restart behind the load balancer.</AlertTitle>
               <AlertDescription>
-                Deployz updates the application while preserving existing persistent resources
-                according to current behavior.
+                Existing persistent resources are preserved.
               </AlertDescription>
             </Alert>
             <OperationError error={error} />
@@ -1314,7 +1312,7 @@ function RollbackDialog({
       toast.success('Rollback requested');
       onDone();
     } catch (caught) {
-      setError(actionErrorMessage(caught, "We couldn't start the rollback. Try again in a moment."));
+      setError(actionErrorMessage(caught, "Couldn't start the rollback. Try again."));
     } finally {
       setPending(false);
     }
@@ -1392,7 +1390,7 @@ function RestartDialog({
       toast.success('Restart requested');
       onDone();
     } catch {
-      setError("We couldn't restart this application. Try again in a moment.");
+      setError("Couldn't restart this application. Try again.");
     } finally {
       setPending(false);
     }
@@ -1458,7 +1456,7 @@ function RetryInstallDialog({
       if (caught instanceof DeploymentActionError && caught.code === 'RELAY_DISCONNECTED') {
         setRelayDisconnected(true);
       } else {
-        setError(actionErrorMessage(caught, "We couldn't start the retry. Try again in a moment."));
+        setError(actionErrorMessage(caught, "Couldn't start the retry. Try again."));
       }
     } finally {
       setAction(null);
@@ -1472,7 +1470,7 @@ function RetryInstallDialog({
       await resetRelay(deploymentId);
       window.location.reload();
     } catch {
-      setError("We couldn't issue a new install link. Try again in a moment.");
+      setError("Couldn't issue a new install link. Try again.");
       setAction(null);
     }
   }
@@ -1483,9 +1481,8 @@ function RetryInstallDialog({
         <AlertDialogHeader>
           <AlertDialogTitle>Retry deploying {applicationName}?</AlertDialogTitle>
           <AlertDialogDescription>
-            The failed infrastructure from the previous attempt is removed from the
-            customer&apos;s account first, then the install runs again. Nothing from this
-            deployment was ever in use, so no data is lost.
+            Failed infrastructure from the previous attempt is removed from the customer&apos;s
+            account, then the install runs again. No data is lost.
           </AlertDialogDescription>
         </AlertDialogHeader>
         {relayDisconnected ? (
@@ -1568,7 +1565,7 @@ function DisconnectStatusPanel({
       toast.success('Removal completed');
       onChanged();
     } catch {
-      setError("We couldn't complete this removal. Try again in a moment.");
+      setError("Couldn't complete this removal. Try again.");
     } finally {
       setPending(false);
     }
@@ -1745,7 +1742,7 @@ function PurgeRetainedResources({
       setConfirmText('');
       onChanged();
     } catch (caught) {
-      setError(actionErrorMessage(caught, "We couldn't start the deletion. Try again in a moment."));
+      setError(actionErrorMessage(caught, "Couldn't start the deletion. Try again."));
     } finally {
       setPending(false);
     }
@@ -1879,7 +1876,7 @@ function DisconnectDialog({
       toast.success('Removal requested');
       onDone();
     } catch {
-      setError("We couldn't remove this deployment. Try again in a moment.");
+      setError("Couldn't remove this deployment. Try again.");
     } finally {
       setPending(false);
     }
@@ -1911,8 +1908,8 @@ function DisconnectDialog({
               <AlertTriangle aria-hidden className="size-4" />
               <AlertTitle>Could not load the removal plan</AlertTitle>
               <AlertDescription>
-                The deployment plan could not be loaded. Removing the deployment may leave
-                billable resources in your customer&apos;s AWS account.
+                Removing the deployment may leave billable resources in your customer&apos;s AWS
+                account.
               </AlertDescription>
             </Alert>
           ) : (
@@ -1956,8 +1953,8 @@ function DisconnectDialog({
               bill and keep costing whatever they cost. */}
           {counted ? (
             <p>
-              Removing this deployment reduces your active production deployment count. Your
-              billing adjusts automatically if this changes your billable deployment quantity.
+              Removing this deployment reduces your active production deployment count. Billing
+              adjusts automatically if the billable quantity changes.
             </p>
           ) : null}
         </div>
@@ -2090,8 +2087,7 @@ function InstallLinkCard({ detail }: { detail: FleetDeploymentDetail }) {
       <Card>
         <CardContent className="flex flex-col gap-3">
           <p className="text-sm text-muted-foreground">
-            Send this to {detail.customerName}. They sign in to their own cloud account — their
-            credentials never touch Deployz.
+            Send this to {detail.customerName}. Their AWS credentials never touch Deployz.
           </p>
           <code className="block overflow-x-auto rounded-lg border bg-muted px-3 py-2 font-mono text-xs">
             {url}
@@ -2112,8 +2108,7 @@ function InstallLinkCard({ detail }: { detail: FleetDeploymentDetail }) {
             </Button>
           </div>
           <p className="text-xs text-muted-foreground">
-            Issuing a new link stops the old one working. Use it if the customer needs to install
-            again.
+            A new link invalidates the old one.
           </p>
           {stuck ? (
             <div className="flex flex-col gap-1">

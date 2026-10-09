@@ -18,12 +18,10 @@ import { EnvVarsTable } from '@/components/env-vars-table';
  */
 export function CustomerInstallSections({
   plan,
-  applicationName,
   securityHref,
   envVarInputs,
 }: {
   plan: DeploymentPlan | null;
-  applicationName: string;
   securityHref?: string;
   /** Read-only inputs the customer page already receives — never renders values. */
   envVarInputs?: ReadonlyArray<{
@@ -42,12 +40,11 @@ export function CustomerInstallSections({
         inputs={envVarInputs ?? []}
         emptyState={
           <p className="text-sm text-muted-foreground">
-            The publisher did not declare any environment variables for this deployment.
+            No environment variables declared.
           </p>
         }
       />
       <BeforeYouDeploySection
-        applicationName={applicationName}
         {...(securityHref ? { securityHref } : {})}
       />
     </div>

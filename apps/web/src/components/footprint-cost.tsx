@@ -32,7 +32,7 @@ export function FootprintCost({ estimate }: { estimate: FootprintCostEstimate | 
             {range}
           </p>
           <p className="text-sm text-muted-foreground">
-            Baseline estimate for this deployment configuration. AWS bills your account directly.
+            Baseline estimate. AWS bills your account directly.
           </p>
         </>
       ) : (

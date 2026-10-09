@@ -257,12 +257,12 @@ const CUSTOMERS_NEED_ATTENTION_BADGE = { label: 'Needs attention', variant: 'war
 
 const NOT_ANALYSED_BADGE = { label: 'Not analysed', variant: 'secondary' } as const;
 
-export const STALE_NOTICE = 'Live updates are paused. Deployz keeps trying in the background.';
+export const STALE_NOTICE = 'Live updates paused. Retrying.';
 
-const INSTALL_LINK_LOAD_ERROR = "We couldn't load the customer install link. Try again in a moment.";
+const INSTALL_LINK_LOAD_ERROR = "Couldn't load the install link. Try again.";
 const INSTALL_LINK_UNKNOWN_WARNING =
-  "Deployz doesn't recognise this link's status. Regenerate the link to get a working one.";
-const INSTALL_LINK_REVOKED_NOTE = 'The previous link was revoked. Create a new link to share the application.';
+  "Unknown link status. Regenerate the link.";
+const INSTALL_LINK_REVOKED_NOTE = 'The previous link was revoked. Create a new one to share.';
 
 function changesRequired(count: number): string {
   return `${count} ${count === 1 ? 'change' : 'changes'} required`;
@@ -296,15 +296,15 @@ function newestReleaseOverall(releases: readonly Release[]): Release | null {
 function activeEarlyLinkWarning(releases: Release[] | 'error'): string {
   let outcome: string;
   if (releases === 'error') {
-    outcome = 'Deployz cannot confirm what customers get right now.';
+    outcome = 'Deployz cannot confirm which release customers get.';
   } else {
     const state = installReleaseState(releases);
     outcome =
       state.kind === 'ready'
-        ? `Customers who use it now get release ${releaseLabel(state.release)}.`
-        : 'Customers who use it now are refused: there is no built release yet.';
+        ? `Customers get release ${releaseLabel(state.release)}.`
+        : 'Installs are refused: no built release yet.';
   }
-  return `This link is live. ${outcome} Disable it if you do not want installs right now.`;
+  return `This link is live. ${outcome} Disable it to stop installs.`;
 }
 
 interface ShareReleaseInfo {
@@ -322,7 +322,7 @@ function describeReleaseForShare(releases: Release[] | 'error', applicationId: s
   const state = installReleaseState(releases);
   if (state.kind !== 'ready') {
     return {
-      message: 'Customers cannot install yet: there is no built release.',
+      message: 'Customers cannot install: no built release.',
       notice: null,
       action: action('view-releases', 'View releases', `/dashboard/applications/${applicationId}/releases`),
     };
@@ -330,9 +330,9 @@ function describeReleaseForShare(releases: Release[] | 'error', applicationId: s
   const newest = newestReleaseOverall(releases);
   const notice: ApplicationNotice | null =
     newest && newest.status === 'FAILED' && Date.parse(newest.createdAt) > Date.parse(state.release.createdAt)
-      ? { tone: 'warning', text: `Release ${newest.version} failed to build. Customers still get ${state.release.version}.` }
+      ? { tone: 'warning', text: `Release ${newest.version} failed to build. Customers get ${state.release.version}.` }
       : null;
-  return { message: `Customers who install get release ${releaseLabel(state.release)}.`, notice, action: null };
+  return { message: `Customers get release ${releaseLabel(state.release)}.`, notice, action: null };
 }
 
 /** A short note naming the release a test deployment installs — or, when
@@ -467,8 +467,8 @@ export function deriveApplicationPresentation(input: ApplicationStateInput): App
     return {
       state: 'unavailable',
       badge: BADGES.unavailable,
-      heading: 'This application is temporarily unavailable',
-      message: "We couldn't load this application. Your deployments are not affected.",
+      heading: 'Application unavailable',
+      message: "Couldn't load this application. Your deployments are not affected.",
       busy: false,
       primaryAction: action('retry-load', 'Try again'),
       secondaryActions: [],
@@ -508,12 +508,12 @@ export function deriveApplicationPresentation(input: ApplicationStateInput): App
       const stuck = running && input.analysisTakingLonger;
       return {
         state: 'analysing',
-        heading: running ? 'Analysing your application' : 'Analysis has not started',
+        heading: running ? 'Analysing application' : 'Analysis not started',
         message: stuck
-          ? 'This is taking longer than usual. You can wait, or restart the analysis.'
+          ? 'Taking longer than usual. Wait, or restart the analysis.'
           : running
-            ? 'Deployz is reading your repository to work out how to deploy it. This usually takes a minute.'
-            : 'Analyse the application so Deployz can work out how to deploy it.',
+            ? 'Reading your repository. This usually takes a minute.'
+            : 'Analyse the application to continue.',
         busy: running,
         primaryAction: stuck
           ? action('restart-analysis', 'Re-analyse application')
@@ -523,21 +523,21 @@ export function deriveApplicationPresentation(input: ApplicationStateInput): App
         secondaryActions: [],
         polling: { intervalMs: ANALYSIS_POLL_MS },
         lifecycle: lifecycle('current', 'pending', 'pending'),
-        linkUnavailableReason: 'The customer install link becomes available after the analysis and a successful test deployment.',
+        linkUnavailableReason: 'Install link available after a successful test deployment.',
       };
     }
 
     if (test && phase === 'queued') {
       return {
         state: 'test-queued',
-        heading: 'Your test deployment has not started',
-        message: 'The test deployment is created, but the install has not started in your AWS account yet.',
+        heading: 'Test deployment not started',
+        message: 'Created. The install has not started in your AWS account yet.',
         busy: false,
         primaryAction: action('continue-test', 'View test deployment', deploymentHref(test)),
         secondaryActions: [],
         polling: { intervalMs: TEST_DEPLOYMENT_POLL_MS },
         lifecycle: lifecycle('done', configureStep, 'current'),
-        linkUnavailableReason: 'The customer install link becomes available after a successful test deployment.',
+        linkUnavailableReason: 'Install link available after a successful test deployment.',
       };
     }
 
@@ -554,43 +554,43 @@ export function deriveApplicationPresentation(input: ApplicationStateInput): App
         secondaryActions: [],
         polling: { intervalMs: TEST_DEPLOYMENT_POLL_MS },
         lifecycle: lifecycle('done', configureStep, 'current'),
-        linkUnavailableReason: 'The customer install link becomes available after a successful test deployment.',
+        linkUnavailableReason: 'Install link available after a successful test deployment.',
       };
     }
 
     if (test && phase === 'removing') {
       return {
         state: 'test-removing',
-        heading: 'Removing the test deployment',
-        message: 'You can start a new test deployment when the removal is complete.',
+        heading: 'Removing test deployment',
+        message: 'Start a new test deployment after removal completes.',
         busy: true,
         primaryAction: action('view-progress', 'View test deployment', deploymentHref(test)),
         secondaryActions: [],
         polling: { intervalMs: TEST_DEPLOYMENT_POLL_MS },
         lifecycle: lifecycle('done', configureStep, 'pending'),
-        linkUnavailableReason: 'The customer install link becomes available after a successful test deployment.',
+        linkUnavailableReason: 'Install link available after a successful test deployment.',
       };
     }
 
     if (analysisStatus === 'FAILED') {
       return {
         state: 'analysis-failed',
-        heading: "We couldn't analyse your application",
-        message: readiness.failureReason ?? 'Something went wrong while reading your repository.',
+        heading: 'Analysis failed',
+        message: readiness.failureReason ?? 'Could not read your repository.',
         busy: false,
         primaryAction: action('retry-analysis', 'Re-analyse application'),
         secondaryActions: [],
         polling: null,
         lifecycle: lifecycle('failed', 'pending', 'pending'),
-        linkUnavailableReason: 'The customer install link becomes available after the analysis and a successful test deployment.',
+        linkUnavailableReason: 'Install link available after a successful test deployment.',
       };
     }
 
     if (!analysed) {
       return {
         state: 'unknown',
-        heading: "We can't show this application's status",
-        message: 'Analyse the application again to refresh its status.',
+        heading: 'Status unavailable',
+        message: 'Re-analyse the application to refresh its status.',
         busy: false,
         primaryAction: action('analyse', 'Re-analyse application'),
         secondaryActions: [],
@@ -606,14 +606,14 @@ export function deriveApplicationPresentation(input: ApplicationStateInput): App
         heading: `${changesRequired(required.length)} before you can deploy`,
         message:
           customers.length > 0
-            ? 'New deployments are blocked until these are resolved. Existing customer deployments are not affected.'
-            : 'Analysis finished. Deployz found changes to make before a test deployment.',
+            ? 'New deployments are blocked until resolved. Existing customer deployments are not affected.'
+            : 'Make these changes before a test deployment.',
         busy: false,
         primaryAction: action('review-configuration', 'Review required changes', `${configurationHref}#required-changes`),
         secondaryActions: [],
         polling: null,
         lifecycle: lifecycle('done', 'current', 'pending'),
-        linkUnavailableReason: 'The customer install link becomes available after the required changes and a successful test deployment.',
+        linkUnavailableReason: 'Install link available after a successful test deployment.',
       };
     }
 
@@ -631,7 +631,7 @@ export function deriveApplicationPresentation(input: ApplicationStateInput): App
         secondaryActions: [],
         polling: null,
         lifecycle: lifecycle('done', 'current', 'pending'),
-        linkUnavailableReason: 'The customer install link becomes available after the configuration review and a successful test deployment.',
+        linkUnavailableReason: 'Install link available after a successful test deployment.',
       };
     }
 
@@ -644,7 +644,7 @@ export function deriveApplicationPresentation(input: ApplicationStateInput): App
         message:
           attention > 0
             ? `${countLabel(attention, 'deployment needs', 'deployments need')} attention.`
-            : (shareInfo?.message ?? 'Customers are running this application in their AWS accounts.'),
+            : (shareInfo?.message ?? 'Running in customer AWS accounts.'),
         busy: false,
         primaryAction: action(
           'view-customer-deployments',
@@ -665,14 +665,14 @@ export function deriveApplicationPresentation(input: ApplicationStateInput): App
         state: 'test-failed',
         heading: disconnected ? 'The test deployment is disconnected' : 'Test deployment failed',
         message: disconnected
-          ? 'Deployz lost its connection to the test deployment. Review it before you share the application.'
-          : 'The test deployment did not complete. Review the failure, then try again.',
+          ? 'Connection to the test deployment lost. Review it before sharing.'
+          : 'The test deployment did not complete. Review the failure and try again.',
         busy: false,
         primaryAction: action('review-failure', 'Review failure', deploymentHref(test)),
         secondaryActions: [],
         polling: null,
         lifecycle: lifecycle('done', 'done', 'failed'),
-        linkUnavailableReason: 'The customer install link becomes available after a successful test deployment.',
+        linkUnavailableReason: 'Install link available after a successful test deployment.',
       };
     }
 
@@ -681,10 +681,10 @@ export function deriveApplicationPresentation(input: ApplicationStateInput): App
       const shareInfo = describeReleaseForShare(releases, application.id);
       return {
         state: 'ready-to-share',
-        heading: 'Ready to share with customers',
+        heading: 'Ready to share',
         message: shareInfo.message
           ? `Your test deployment passed. ${shareInfo.message}`
-          : 'Your test deployment passed. Send the install link to your customers.',
+          : 'Test passed. Send the install link to customers.',
         busy: false,
         // The install-link controls render in the card itself (placement
         // 'primary'); these actions name them for surfaces without the link.
@@ -708,24 +708,24 @@ export function deriveApplicationPresentation(input: ApplicationStateInput): App
       return {
         state: 'ready-to-test',
         heading: 'Building a release',
-        message: 'You can start a test deployment when the release build finishes.',
+        message: 'Start a test deployment when the build finishes.',
         busy: true,
         primaryAction: action('view-releases', 'View releases', releasesHref),
         secondaryActions: [],
         polling: { intervalMs: TEST_DEPLOYMENT_POLL_MS },
         lifecycle: lifecycle('done', 'done', 'current'),
-        linkUnavailableReason: 'The customer install link becomes available after a successful test deployment.',
+        linkUnavailableReason: 'Install link available after a successful test deployment.',
       };
     }
 
     if (!test && (release === 'failed' || release === 'unavailable')) {
       return {
         state: 'ready-to-test',
-        heading: 'No release is ready to test',
+        heading: 'No release to test',
         message:
           release === 'failed'
-            ? 'The release build failed. A test deployment needs a release that built successfully.'
-            : 'No release can be deployed. Create a new release to test the application.',
+            ? 'The release build failed. A test needs a built release.'
+            : 'No release can be deployed. Create a release to test.',
         busy: false,
         primaryAction:
           release === 'failed'
@@ -734,7 +734,7 @@ export function deriveApplicationPresentation(input: ApplicationStateInput): App
         secondaryActions: [],
         polling: null,
         lifecycle: lifecycle('done', 'done', 'current'),
-        linkUnavailableReason: 'The customer install link becomes available after a successful test deployment.',
+        linkUnavailableReason: 'Install link available after a successful test deployment.',
       };
     }
 
@@ -742,20 +742,20 @@ export function deriveApplicationPresentation(input: ApplicationStateInput): App
       return {
         state: 'ready-to-test',
         heading: 'Ready for a test deployment',
-        message: `Deploy the application to your own AWS account to check it before customers install it.${testReleaseNote(releases, application.defaultBranch, readiness.analyzedCommitSha)}`,
+        message: `Deploy to your own AWS account before customers install.${testReleaseNote(releases, application.defaultBranch, readiness.analyzedCommitSha)}`,
         busy: false,
         primaryAction: action('start-test', 'Start test deployment', startTestHref),
         secondaryActions: [],
         polling: null,
         lifecycle: lifecycle('done', 'done', 'current'),
-        linkUnavailableReason: 'The customer install link becomes available after a successful test deployment.',
+        linkUnavailableReason: 'Install link available after a successful test deployment.',
       };
     }
 
     return {
       state: 'unknown',
-      heading: "We can't show this application's status",
-      message: 'Open the test deployment to see what it is doing.',
+      heading: 'Status unavailable',
+      message: 'Open the test deployment for details.',
       busy: false,
       primaryAction: action('view-test-deployment', 'View test deployment', deploymentHref(test)),
       secondaryActions: [],
@@ -791,7 +791,7 @@ export function deriveApplicationPresentation(input: ApplicationStateInput): App
   const notices: ApplicationNotice[] = [];
   if (input.stale) notices.push({ tone: 'warning', text: STALE_NOTICE });
   if (core.state === 'customers-active' && phase === 'failed') {
-    notices.push({ tone: 'warning', text: 'The test deployment needs attention.' });
+    notices.push({ tone: 'warning', text: 'Test deployment needs attention.' });
   }
   if (core.state === 'customers-active' && needsEnvReview) {
     notices.push({ tone: 'warning', text: environmentReviewMessage(environmentSetup!) });

@@ -19,11 +19,9 @@ export default async function NewOrganizationPage() {
     <Card className="w-full max-w-sm">
       <CardHeader>
         <h1 className="font-heading text-base leading-snug font-medium">Create organization</h1>
-        <CardDescription>
-          {hasOrganizations
-            ? 'Set up another organization.'
-            : 'You need an organization to use Deployz. Create one to continue.'}
-        </CardDescription>
+        {hasOrganizations ? null : (
+          <CardDescription>Create an organization to continue.</CardDescription>
+        )}
       </CardHeader>
       <CardContent>
         <CreateOrganizationForm />

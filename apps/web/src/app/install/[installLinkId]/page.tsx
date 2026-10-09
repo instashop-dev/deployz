@@ -148,8 +148,8 @@ export default async function InstallPage({
               <div className="flex flex-col gap-2 text-sm text-muted-foreground">
                 <p>{RELAY_STUCK_GUIDANCE}</p>
                 <p>
-                  Check the setup in your AWS account. The link is under Technical details. If it
-                  failed, or you closed it, select Retry connection to get a new setup link.
+                  Check the setup in AWS (link under Technical details). If it failed or you closed
+                  it, select Retry connection.
                 </p>
               </div>
             </div>
@@ -220,8 +220,7 @@ export default async function InstallPage({
             stays out of the primary flow: it must NOT look like a failure
             note, only a de-emphasized footnote about the link itself. */}
         <p className="text-xs text-muted-foreground" data-testid="consumed-link-notice">
-          This installation link has been consumed. A new link is required only for another
-          installation.
+          This install link has been used. Another installation needs a new link.
         </p>
       </div>
     );
@@ -268,7 +267,6 @@ export default async function InstallPage({
 
       <CustomerInstallSections
         plan={data.plan}
-        applicationName={data.applicationName}
         securityHref={securityHref}
       />
 
@@ -280,17 +278,10 @@ export default async function InstallPage({
         <h2 id="connect-aws" className="text-base font-semibold">
           Connect AWS account
         </h2>
-        <p className="text-sm text-muted-foreground">
-          {data.applicationName} runs in your own AWS account. To set it up, you approve the Deployz
-          connector there.
-        </p>
         <ol className="flex list-decimal flex-col gap-2 pl-5 text-sm text-muted-foreground">
           <li>Select Connect AWS account. The AWS console opens in a new tab.</li>
           <li>Check the AWS account and Region, then create the Deployz connector stack.</li>
-          <li>
-            Deployz creates the infrastructure and starts the application. Progress shows on this
-            page.
-          </li>
+          <li>Deployz creates the infrastructure and starts the application. Progress shows here.</li>
         </ol>
         {data.quickCreateUrl ? (
           <InstallLaunchButton
@@ -310,8 +301,8 @@ export default async function InstallPage({
           </>
         )}
         <p className="text-xs text-muted-foreground">
-          You need an AWS identity that can create CloudFormation stacks and the resources listed
-          above. You do not need a Deployz account.
+          Requires an AWS identity that can create CloudFormation stacks and the resources above. No
+          Deployz account needed.
         </p>
       </section>
     </div>
@@ -355,8 +346,8 @@ function RemovedDeployment({
           Removing deployment
         </h2>
         <p className="text-sm text-muted-foreground">
-          {publisherName} is removing this deployment from your AWS account. Contact them if you did
-          not expect this.
+          {publisherName} is removing this deployment from your AWS account. Contact them if
+          unexpected.
         </p>
       </section>
     );
@@ -369,7 +360,7 @@ function RemovedDeployment({
       </h2>
       <p className="text-sm text-muted-foreground">
         {publisherName} removed this deployment. The application no longer runs. Contact them if
-        you did not expect this.
+        unexpected.
       </p>
       <div className="flex flex-col gap-1.5">
         <h3 className="text-sm font-medium">What can remain in your AWS account</h3>
@@ -394,9 +385,9 @@ function RemovedDeployment({
       </div>
       <p className="text-sm text-muted-foreground">{RETENTION_CHARGES_NOTE}</p>
       <p className="text-sm text-muted-foreground">
-        To delete them, ask {publisherName} to delete the retained data, or delete them in the AWS
-        console. Keep the connector stack until the retained data is deleted, because the deletion
-        runs through it. Then delete the connector stack.
+        To delete them, ask {publisherName} or use the AWS console. Keep the connector stack until
+        the retained data is deleted, because deletion runs through it. Then delete the connector
+        stack.
       </p>
       <Button asChild variant="outline" className="w-fit">
         <a

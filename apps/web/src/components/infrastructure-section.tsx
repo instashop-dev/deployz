@@ -76,7 +76,7 @@ export function InfrastructureSection({
           <p className="text-sm text-muted-foreground">
             {deploymentState === 'FAILED'
               ? 'No resources were created before the failure.'
-              : 'Infrastructure details will appear as AWS resources are created.'}
+              : 'Details appear as AWS resources are created.'}
           </p>
         ) : (
           <>
@@ -136,7 +136,7 @@ function ComponentRow({
       if (caught instanceof DeploymentActionError && caught.code === 'NOT_IN_ERROR') {
         setNotice('HTTPS setup is no longer in a failed state.');
       } else {
-        setNotice("Couldn't retry HTTPS setup. Try again in a moment.");
+        setNotice("Couldn't retry HTTPS setup. Try again.");
       }
     } finally {
       setPending(false);

@@ -77,7 +77,7 @@ function ApplicationNameField({
       toast.success('Application renamed.');
       await onRenamed();
     } catch {
-      toast.error("We couldn't rename the application. Try again in a moment.");
+      toast.error("Couldn't rename the application. Try again.");
     } finally {
       setSaving(false);
     }
@@ -139,7 +139,7 @@ function DangerZone({ application, hasDeployments }: { application: Application;
       if ((err as { code?: string }).code === 'APPLICATION_HAS_DEPLOYMENTS') {
         setError((err as Error).message);
       } else {
-        setError("We couldn't remove this application. Try again in a moment.");
+        setError("Couldn't remove the application. Try again.");
       }
       setPending(false);
     }
@@ -155,8 +155,7 @@ function DangerZone({ application, hasDeployments }: { application: Application;
           <CardContent className="flex flex-col gap-2 py-4" data-testid="delete-app-unavailable">
             <p className="text-sm font-medium">Removal unavailable</p>
             <p className="text-sm text-muted-foreground">
-              This application has deployment history, so it can&apos;t be removed. Applications can
-              only be removed before their first deployment.
+              Applications with deployment history can&apos;t be removed.
             </p>
           </CardContent>
         </Card>
@@ -173,9 +172,8 @@ function DangerZone({ application, hasDeployments }: { application: Application;
         <CardContent className="flex flex-col gap-3 py-4">
           <p className="text-sm font-medium text-destructive">Remove this application?</p>
           <p className="text-sm text-muted-foreground">
-            This permanently removes the application, its releases, and its saved environment
-            variables from Deployz. This cannot be undone, and is only possible before the
-            application&apos;s first deployment.
+            Permanently removes the application, its releases, and its saved variables from Deployz.
+            Only possible before the first deployment.
           </p>
           <AlertDialog
             open={open}

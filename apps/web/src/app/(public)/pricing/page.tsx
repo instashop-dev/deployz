@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { DeployzBrand } from '@/components/deployz-brand';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Separator } from '@/components/ui/separator';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 
@@ -61,10 +61,9 @@ export default function PricingPage() {
             $49/month + $19 per deployment
           </h1>
           <p className="max-w-xl text-sm text-muted-foreground">
-            A flat base subscription covers your dashboard, GitHub integration, and readiness
-            checks. Each customer deployment adds $19/month once it is live. Your own test
-            deployment is not charged — the per-deployment fee applies only once a customer's
-            deployment is actually running, and stops when it is removed.
+            The base subscription covers your dashboard, GitHub integration and readiness checks.
+            Test deployments are not charged. Each live customer deployment adds $19/month and
+            stops when it is removed.
           </p>
         </section>
 
@@ -75,9 +74,6 @@ export default function PricingPage() {
           <Card>
             <CardHeader>
               <CardTitle>What you pay</CardTitle>
-              <CardDescription>
-                Base subscription is $49/month. Each live deployment adds $19/month.
-              </CardDescription>
             </CardHeader>
             <CardContent className="overflow-x-auto p-0">
               <Table>
@@ -105,8 +101,8 @@ export default function PricingPage() {
             Your customer pays AWS directly for their infrastructure
           </p>
           <p className="mt-1 text-sm text-muted-foreground">
-            Deployz charges you for the dashboard and deployments. Your customer pays their own cloud
-            provider for the resources their deployment uses — you never resell infrastructure.
+            Deployz charges for the dashboard and deployments. AWS charges your customer for the
+            resources their deployment uses. You never resell infrastructure.
           </p>
         </section>
 

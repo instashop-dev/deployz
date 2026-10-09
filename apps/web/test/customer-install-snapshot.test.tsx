@@ -83,7 +83,6 @@ describe('customer install — after snapshot', () => {
     const html = renderToString(
       <CustomerInstallSections
         plan={plan}
-        applicationName="Acme Notes"
         securityHref="/install/abc/security"
         envVarInputs={envVarInputs}
       />,

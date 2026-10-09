@@ -266,8 +266,7 @@ const AttentionSummary = forwardRef<
         </div>
         {changes.length > 0 ? (
           <p className="text-sm text-muted-foreground">
-            {changes.length} {changes.length === 1 ? 'change' : 'changes'} needed before this application is ready to
-            deploy.
+            {changes.length} {changes.length === 1 ? 'change' : 'changes'} needed before deploy.
           </p>
         ) : null}
         <ul className="flex flex-col gap-2">
@@ -385,8 +384,8 @@ const ServicesSection = forwardRef<
 
       {hasKept ? (
         <p className="text-xs text-muted-foreground">
-          Kept resources stay in the customer&apos;s AWS account after the deployment is removed, and can keep costing
-          money until the retained data is deleted.
+          Kept resources stay in the customer&apos;s AWS account after removal and keep costing money until their data
+          is deleted.
         </p>
       ) : null}
 
@@ -579,8 +578,8 @@ function ServicesTablePlaceholder({ analysisStatus }: { analysisStatus: Analysis
 
   const message =
     analysisStatus === 'FAILED'
-      ? 'The configuration will show here after a successful analysis.'
-      : 'Analyse the application to see its deployment configuration.';
+      ? 'Shown after a successful analysis.'
+      : 'Analyse the application to see its configuration.';
   return (
     <TableRow>
       <TableCell colSpan={COLUMN_COUNT} className="text-muted-foreground" data-testid="readiness-empty">

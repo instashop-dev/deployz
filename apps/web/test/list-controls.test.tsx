@@ -146,7 +146,6 @@ describe('NoMatchesState', () => {
     const onClear = vi.fn();
     const { container } = render(<NoMatchesState heading="No deployments match these filters." onClear={onClear} />);
     expect(container.querySelector('h2')?.textContent).toBe('No deployments match these filters.');
-    expect(container.textContent).toContain('Try changing your search or clearing the filters.');
     act(() => container.querySelector('button')!.click());
     expect(onClear).toHaveBeenCalledOnce();
   });

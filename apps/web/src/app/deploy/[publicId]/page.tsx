@@ -150,7 +150,6 @@ export default async function DeployPage({
 
         <CustomerInstallSections
           plan={data.plan}
-          applicationName={data.application.name}
           securityHref={securityHref}
         />
 
@@ -158,17 +157,10 @@ export default async function DeployPage({
           <h2 id="connect-aws" className="text-base font-semibold">
             Connect AWS account
           </h2>
-          <p className="text-sm text-muted-foreground">
-            {data.application.name} runs in your own AWS account. To set it up, you approve the
-            Deployz connector there.
-          </p>
           <ol className="flex list-decimal flex-col gap-2 pl-5 text-sm text-muted-foreground">
             <li>Select Connect AWS account. The AWS console opens in a new tab.</li>
             <li>Check the AWS account and Region, then create the Deployz connector stack.</li>
-            <li>
-              Deployz creates the infrastructure and starts the application. Progress shows on this
-              page.
-            </li>
+            <li>Deployz creates the infrastructure and starts the application. Progress shows here.</li>
           </ol>
           {data.quickCreateUrl ? (
             <InstallLaunchButton
@@ -183,14 +175,13 @@ export default async function DeployPage({
                 Connect AWS account
               </Button>
               <p className="text-sm text-muted-foreground">
-                The setup template isn&apos;t published for this Region yet. Ask the software provider
-                for a new link.
+                No setup template for this Region yet. Ask the software provider for a new link.
               </p>
             </>
           )}
           <p className="text-xs text-muted-foreground">
-            You need an AWS identity that can create CloudFormation stacks and the resources listed
-            above. You do not need a Deployz account.
+            Requires an AWS identity that can create CloudFormation stacks and the resources above.
+            No Deployz account needed.
           </p>
         </section>
 

@@ -338,7 +338,7 @@ function CurrentStepDetail({
           data-testid="tracker-no-action-needed"
         >
           <span className="font-medium">No action needed.</span>{' '}
-          AWS is still processing the deployment. Deployz is continuing to check.
+          AWS is still processing the deployment.
         </p>
       ) : null}
     </div>

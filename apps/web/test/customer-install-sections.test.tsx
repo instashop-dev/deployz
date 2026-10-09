@@ -194,7 +194,6 @@ describe('buildEnvVarRows / summarizeEnvVars', () => {
     const rendered = renderToString(
       <CustomerInstallSections
         plan={null}
-        applicationName="Acme"
         envVarInputs={[
           { key: 'JWT_SECRET', required: true, secret: true, classification: 'customer_required', purpose: 'Signing secret' },
         ]}
@@ -227,7 +226,6 @@ describe('CustomerInstallSections composition', () => {
     const html = renderToString(
       <CustomerInstallSections
         plan={PLAN}
-        applicationName="Acme"
         securityHref="/install/abc/security"
         envVarInputs={[
           { key: 'DATABASE_URL', required: true, secret: false, classification: 'deployz_managed' },
@@ -251,7 +249,7 @@ describe('CustomerInstallSections composition', () => {
 
   it('renders the canonical cost total under the table, not as a separate card', () => {
     const html = renderToString(
-      <CustomerInstallSections plan={PLAN} applicationName="Acme" />,
+      <CustomerInstallSections plan={PLAN} />,
     );
     expect(html).toContain('Estimated total');
     expect(html).toContain('~$30–60/mo');
@@ -259,10 +257,10 @@ describe('CustomerInstallSections composition', () => {
   });
 
   it('renders nothing for env vars when the inputs list is empty', () => {
-    const html = renderToString(<CustomerInstallSections plan={PLAN} applicationName="Acme" />);
+    const html = renderToString(<CustomerInstallSections plan={PLAN} />);
     const { window } = new JSDOM(html);
     const doc = window.document;
     expect(doc.querySelector('[data-testid="env-vars-table-wrapper"]')).toBeNull();
-    expect(doc.body.textContent).toContain('did not declare any environment variables');
+    expect(doc.body.textContent).toContain('No environment variables declared');
   });
 });

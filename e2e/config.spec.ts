@@ -145,7 +145,7 @@ test('secrets render masked — empty password inputs, never plaintext', async (
   for (const input of await passwordInputs.all()) {
     await expect(input).toHaveValue('');
   }
-  await expect(page.getByText('Secret set — enter a new value to replace it.')).toHaveCount(2);
+  await expect(page.getByText('Secret set. Enter a new value to replace it.')).toHaveCount(2);
 
   // No secret-looking payload exists anywhere in the DOM.
   const text = await page.locator('body').innerText();
@@ -269,7 +269,7 @@ test('the customer overrides group names the customer, never its id', async ({ p
   await page.goto(`/dashboard/applications/${applicationId}/config?customer=${customerId}`);
 
   const overrides = page.getByTestId('config-customer-overrides');
-  await expect(overrides).toContainText(`Apply to ${customerName} only.`);
+  await expect(overrides).toContainText(`For ${customerName} only.`);
 
   // A customer id is an internal identifier — it appears nowhere on the page.
   const text = await page.locator('body').innerText();
@@ -377,7 +377,7 @@ test('saving the defaults keeps the customer scope intact (regression: overrides
   // answer back into the page dropped the customer, so the overrides group
   // lost its name and its Save button. Both must survive the save.
   const overrides = page.getByTestId('config-customer-overrides');
-  await expect(overrides).toContainText(`Apply to ${customerName} only.`);
+  await expect(overrides).toContainText(`For ${customerName} only.`);
   await expect(overrides.getByRole('button', { name: 'Save overrides' })).toBeVisible();
   await expect(overrides.getByLabel('LOG_LEVEL')).toHaveValue('debug');
   // The overrides still shadow the freshly saved default.

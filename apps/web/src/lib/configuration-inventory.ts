@@ -547,7 +547,7 @@ export function deriveServiceInventory(input: {
   const externalServices = (readiness.architecture?.externalServices ?? []).map(externalServiceLabel);
   const integrations = externalServices.map((name, index) =>
     emptyRow(`integration-${index}`, name, {
-      configuration: 'Your application connects to this service directly. Deployz does not create it.',
+      configuration: 'Connected directly. Deployz does not create it.',
       cost: 'billed-separately',
       action: {
         kind: 'link',

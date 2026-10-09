@@ -244,7 +244,7 @@ test.describe('roles and membership management', () => {
     // the same org name text.
     await expect(memberPage.getByRole('main').getByText(orgName, { exact: true })).toBeVisible();
     await expect(
-      memberPage.getByText('Only an owner or admin can rename the organization.'),
+      memberPage.getByText('Only an owner or admin can rename.'),
     ).toBeVisible();
 
     await memberPage.context().close();
