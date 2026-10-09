@@ -1,0 +1,248 @@
+{
+  "id": "repo-594",
+  "repository": "invoke-ai/InvokeAI",
+  "commit": "c7a1b55be06e208fccdd06fa8a9ce9f3ce1ed5c7",
+  "set": "improvement",
+  "cohort": "boundary",
+  "customerRealism": "low",
+  "difficulty": 3,
+  "deployzSha": "75f9a4bf15204f7ee7c7725423b1a290656baae6",
+  "analysisVersion": 45,
+  "ai": {
+    "mode": "live",
+    "model": "workers-ai/@cf/deepseek-ai/deepseek-v4-flash-0731",
+    "requests": 1,
+    "outcome": "completed",
+    "error": null
+  },
+  "tree": {
+    "files": 201,
+    "entries": 8456,
+    "truncated": false
+  },
+  "expected": {
+    "compatibility": "NOT_COMPATIBLE",
+    "runtime": [
+      "python"
+    ],
+    "monorepo": false,
+    "postgres": false,
+    "redis": false,
+    "worker": false,
+    "dockerfilePath": "docker/Dockerfile",
+    "port": 9090,
+    "unsupported": [
+      "local-filesystem"
+    ]
+  },
+  "status": "analysed",
+  "failure": null,
+  "actual": {
+    "compatibility": "NOT_COMPATIBLE",
+    "analysisVerdict": "NOT_COMPATIBLE",
+    "readinessState": "NEEDS_CHANGES",
+    "runtime": "node",
+    "appRoot": ".",
+    "dockerfilePath": "docker/Dockerfile",
+    "port": 8000,
+    "startCommand": "CMD: [\"invokeai-web\"]",
+    "healthDetected": false,
+    "healthPath": null,
+    "postgres": false,
+    "postgresDetected": false,
+    "redis": false,
+    "redisDetected": false,
+    "redisConfidence": "low",
+    "storage": false,
+    "worker": false,
+    "workerCommand": null,
+    "migration": false,
+    "migrationCommand": null,
+    "externalServices": [],
+    "requiredEnvVars": [
+      "ALLOW_CREDENTIALS",
+      "ALLOW_HEADERS",
+      "ALLOW_METHODS",
+      "ALLOW_NODES",
+      "ALLOW_ORIGINS",
+      "ALLOW_PRIVATE_DOWNLOAD_URLS",
+      "ALLOW_UNKNOWN_MODELS",
+      "ARGS",
+      "ATTENTION_TYPE",
+      "ATTRIBUTES",
+      "AUTO_TILED_DECODE",
+      "BASE_URL",
+      "CLEAR_QUEUE_ON_STARTUP",
+      "CLEAR_VRAM_AFTER_SESSION",
+      "CLOBBER",
+      "CONVERT_CACHE_DIR",
+      "CUSTOM_NODES_DIR",
+      "DB_DIR",
+      "DB_SYNCHRONOUS",
+      "DENY_NODES",
+      "DEVICE",
+      "DEVICE_WORKING_MEM_GB",
+      "DEV_RELOAD",
+      "DOTENV_SETTINGS",
+      "DOWNLOAD_CACHE_DIR",
+      "ELSE",
+      "ENABLE_PARTIAL_LOADING",
+      "ENV_SETTINGS",
+      "EXTERNAL_ALIBABACLOUD_API_KEY",
+      "EXTERNAL_ALIBABACLOUD_BASE_URL",
+      "EXTERNAL_ATLASCLOUD_API_KEY",
+      "EXTERNAL_ATLASCLOUD_BASE_URL",
+      "EXTERNAL_GEMINI_API_KEY",
+      "EXTERNAL_GEMINI_BASE_URL",
+      "EXTERNAL_OPENAI_API_KEY",
+      "EXTERNAL_OPENAI_BASE_URL",
+      "EXTERNAL_SEEDREAM_API_KEY",
+      "EXTERNAL_SEEDREAM_BASE_URL",
+      "FILE_SECRET_SETTINGS",
+      "FORCE_TILED_DECODE",
+      "FORWARDED_ALLOW_IPS",
+      "FP8_COMPUTE_FULL_PRECISION_HINTS",
+      "HASHING_ALGORITHM",
+      "HTTP_COMPRESSION_LEVEL",
+      "IMAGE_INDEX_BATCH_SIZE",
+      "IMAGE_INDEX_DEVICE",
+      "IMAGE_INDEX_ENABLED",
+      "IMAGE_INDEX_MODEL",
+      "IMAGE_SUBFOLDER_STRATEGY",
+      "INIT_SETTINGS",
+      "INVOKEAI_ROOT",
+      "KEEP_RAM_COPY_OF_WEIGHTS",
+      "LAZY_OFFLOAD",
+      "LEGACY_CONF_DIR",
+      "LOG_FORMAT",
+      "LOG_LEVEL",
+      "LOG_LEVEL_NETWORK",
+      "LOG_MEMORY_USAGE",
+      "LOG_SQL",
+      "LOG_TOKENIZATION",
+      "MAX_CACHE_RAM_GB",
+      "MAX_CACHE_VRAM_GB",
+      "MAX_QUEUE_HISTORY",
+      "MAX_QUEUE_SIZE",
+      "MODELS_DIR",
+      "MODEL_CACHE_KEEP_ALIVE_MIN",
+      "MULTIUSER",
+      "NODE_CACHE_SIZE",
+      "NOISE_DTYPE",
+      "OFFLOAD_ON_ARCHITECTURE_SWITCH",
+      "OUTPUTS_DIR",
+      "PATCHMATCH",
+      "PID_MEMORY_OPTIMIZATION",
+      "PRECISION",
+      "PROFILES_DIR",
+      "PROFILE_GRAPHS",
+      "PROFILE_PREFIX",
+      "PYTORCH_CUDA_ALLOC_CONF",
+      "RAM",
+      "REMOTE_API_TOKENS",
+      "RETURNS",
+      "SCAN_MODELS_ON_STARTUP",
+      "SEQUENTIAL_GUIDANCE",
+      "SESSION_QUEUE_MODE",
+      "SETTINGS_CLS",
+      "SHOW_DONATION_LINK",
+      "SSL_CERTFILE",
+      "SSL_KEYFILE",
+      "STRICT_PASSWORD_CHECKING",
+      "STYLE_PRESETS_DIR",
+      "TRY",
+      "UNSAFE_DISABLE_PICKLESCAN",
+      "USE_MEMORY_DB",
+      "VRAM",
+      "WAN_MEMORY_OPTIMIZATION",
+      "WORKFLOW_THUMBNAILS_DIR"
+    ],
+    "unsupported": [
+      "gpu"
+    ],
+    "readinessFindings": [
+      "unsupported-gpu",
+      "port-unresolved",
+      "health-check"
+    ],
+    "gateFindings": [
+      "unsupported",
+      "health-path-required",
+      "required-env-vars-missing"
+    ],
+    "unresolvedQuestions": [
+      "monorepo-target"
+    ]
+  },
+  "comparisons": [
+    {
+      "fact": "compatibility",
+      "expected": "NOT_COMPATIBLE",
+      "actual": "NOT_COMPATIBLE",
+      "match": true
+    },
+    {
+      "fact": "postgres",
+      "expected": false,
+      "actual": false,
+      "match": true
+    },
+    {
+      "fact": "redis",
+      "expected": false,
+      "actual": false,
+      "match": true
+    },
+    {
+      "fact": "worker",
+      "expected": false,
+      "actual": false,
+      "match": true
+    },
+    {
+      "fact": "dockerfilePath",
+      "expected": "docker/Dockerfile",
+      "actual": "docker/Dockerfile",
+      "match": true
+    },
+    {
+      "fact": "port",
+      "expected": 9090,
+      "actual": 8000,
+      "match": false,
+      "kind": "fact"
+    },
+    {
+      "fact": "unsupported",
+      "expected": [
+        "local-filesystem"
+      ],
+      "actual": [
+        "gpu"
+      ],
+      "match": false,
+      "kind": "fact"
+    }
+  ],
+  "mismatches": [
+    {
+      "fact": "port",
+      "kind": "fact",
+      "expected": 9090,
+      "actual": 8000,
+      "finding": null
+    },
+    {
+      "fact": "unsupported",
+      "kind": "fact",
+      "expected": [
+        "local-filesystem"
+      ],
+      "actual": [
+        "gpu"
+      ],
+      "finding": null
+    }
+  ],
+  "match": false
+}

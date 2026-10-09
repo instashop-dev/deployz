@@ -1,0 +1,33 @@
+{
+  "taskId": "P3-COMPAT-08",
+  "testedCommit": "e6a3b58ee2363923fef21faca86611fa3bf84538",
+  "executor": "campaign-worker",
+  "model": "sonnet",
+  "startedAt": "2026-10-09T01:55:00Z",
+  "finishedAt": "2026-10-09T01:59:30Z",
+  "proposedStatus": "COMPLETE",
+  "commands": [
+    {
+      "command": "timeout 900 node --env-file=.env node_modules/tsx/dist/cli.mjs scripts/repository-compatibility/index.ts --ai live --benchmark campaign/corpus/benchmark.yaml --runs-dir campaign/results/first-run/compat/ --repo repo-589 --repo repo-590 --repo repo-591 --repo repo-592 --repo repo-593 --repo repo-594 --repo repo-596 --repo repo-597 --repo repo-599 --repo repo-600",
+      "exitCode": 0,
+      "summary": "10/10 analysed, AI mode live, 6/10 verdict matches, 1/10 all facts match, about 4 minutes, no stall"
+    }
+  ],
+  "evidence": [
+    "campaign/results/first-run/compat/repo-589.json",
+    "campaign/results/first-run/compat/repo-590.json",
+    "campaign/results/first-run/compat/repo-591.json",
+    "campaign/results/first-run/compat/repo-592.json",
+    "campaign/results/first-run/compat/repo-593.json",
+    "campaign/results/first-run/compat/repo-594.json",
+    "campaign/results/first-run/compat/repo-596.json",
+    "campaign/results/first-run/compat/repo-597.json",
+    "campaign/results/first-run/compat/repo-599.json",
+    "campaign/results/first-run/compat/repo-600.json"
+  ],
+  "notes": [
+    "Verdict vs label (all labels NOT_COMPATIBLE): repo-589 match; repo-590 NEEDS_CONFIGURATION no; repo-591 match (all facts match); repo-592 match; repo-593 READY no (false READY); repo-594 match; repo-596 NEEDS_CONFIGURATION no; repo-597 match; repo-599 NEEDS_CONFIGURATION no; repo-600 match. Total 6/10.",
+    "AI outcomes (all mode live): completed 9, timeout 1 (repo-589), parse-error 0, not-requested 0, 5xx 0.",
+    "Worktree HEAD was 75f9a4bf at run time; testedCommit field set to the baseline commit given by the coordinator."
+  ]
+}

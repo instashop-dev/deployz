@@ -1,0 +1,170 @@
+{
+  "id": "repo-600",
+  "repository": "rancher/rancher",
+  "commit": "28deadd2bb635bfa42746354a94974a281286e1c",
+  "set": "improvement",
+  "cohort": "boundary",
+  "customerRealism": "low",
+  "difficulty": 3,
+  "deployzSha": "75f9a4bf15204f7ee7c7725423b1a290656baae6",
+  "analysisVersion": 45,
+  "ai": {
+    "mode": "live",
+    "model": "workers-ai/@cf/deepseek-ai/deepseek-v4-flash-0731",
+    "requests": 1,
+    "outcome": "completed",
+    "error": null
+  },
+  "tree": {
+    "files": 200,
+    "entries": 3973,
+    "truncated": false
+  },
+  "expected": {
+    "compatibility": "NOT_COMPATIBLE",
+    "runtime": [
+      "go"
+    ],
+    "monorepo": false,
+    "postgres": false,
+    "redis": false,
+    "worker": false,
+    "dockerfilePath": "package/Dockerfile",
+    "port": 80,
+    "healthPath": "/healthz",
+    "unsupported": [
+      "kubernetes",
+      "local-filesystem"
+    ]
+  },
+  "status": "analysed",
+  "failure": null,
+  "actual": {
+    "compatibility": "NOT_COMPATIBLE",
+    "analysisVerdict": "NOT_COMPATIBLE",
+    "readinessState": "NEEDS_CHANGES",
+    "runtime": "go",
+    "appRoot": ".",
+    "dockerfilePath": "Dockerfile.runtime",
+    "port": 4000,
+    "startCommand": "ENTRYPOINT: [\"scripts/entry\"]",
+    "healthDetected": false,
+    "healthPath": null,
+    "postgres": false,
+    "postgresDetected": true,
+    "redis": false,
+    "redisDetected": false,
+    "redisConfidence": "low",
+    "storage": false,
+    "worker": false,
+    "workerCommand": null,
+    "migration": false,
+    "migrationCommand": null,
+    "externalServices": [],
+    "requiredEnvVars": [],
+    "unsupported": [
+      "kubernetes",
+      "local-filesystem"
+    ],
+    "readinessFindings": [
+      "unsupported-architecture",
+      "local-file-storage",
+      "port-unresolved",
+      "health-check",
+      "localhost-binding",
+      "database-migrations"
+    ],
+    "gateFindings": [
+      "unsupported",
+      "unsupported",
+      "health-path-required"
+    ],
+    "unresolvedQuestions": [
+      "multiple-dockerfiles",
+      "database-requirement-unclear"
+    ]
+  },
+  "comparisons": [
+    {
+      "fact": "compatibility",
+      "expected": "NOT_COMPATIBLE",
+      "actual": "NOT_COMPATIBLE",
+      "match": true
+    },
+    {
+      "fact": "postgres",
+      "expected": false,
+      "actual": false,
+      "match": true
+    },
+    {
+      "fact": "redis",
+      "expected": false,
+      "actual": false,
+      "match": true
+    },
+    {
+      "fact": "worker",
+      "expected": false,
+      "actual": false,
+      "match": true
+    },
+    {
+      "fact": "dockerfilePath",
+      "expected": "package/Dockerfile",
+      "actual": "Dockerfile.runtime",
+      "match": false,
+      "kind": "fact"
+    },
+    {
+      "fact": "port",
+      "expected": 80,
+      "actual": 4000,
+      "match": false,
+      "kind": "fact"
+    },
+    {
+      "fact": "healthPath",
+      "expected": "/healthz",
+      "actual": null,
+      "match": false,
+      "kind": "fact"
+    },
+    {
+      "fact": "unsupported",
+      "expected": [
+        "kubernetes",
+        "local-filesystem"
+      ],
+      "actual": [
+        "kubernetes",
+        "local-filesystem"
+      ],
+      "match": true
+    }
+  ],
+  "mismatches": [
+    {
+      "fact": "dockerfilePath",
+      "kind": "fact",
+      "expected": "package/Dockerfile",
+      "actual": "Dockerfile.runtime",
+      "finding": null
+    },
+    {
+      "fact": "port",
+      "kind": "fact",
+      "expected": 80,
+      "actual": 4000,
+      "finding": null
+    },
+    {
+      "fact": "healthPath",
+      "kind": "fact",
+      "expected": "/healthz",
+      "actual": null,
+      "finding": null
+    }
+  ],
+  "match": false
+}

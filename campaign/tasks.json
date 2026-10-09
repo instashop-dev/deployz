@@ -2280,7 +2280,7 @@
       "phase": 3,
       "title": "First-run Stage A compatibility for improvement apps 71-80",
       "executor": "campaign-worker",
-      "status": "PENDING",
+      "status": "COMPLETE",
       "prerequisites": [
         "P3-COMPAT-07"
       ],
@@ -2308,8 +2308,10 @@
       "timeboxMinutes": 15,
       "notes": [
         "2026-10-09 P2-GATE: run `node --env-file=.env node_modules/.bin/tsx scripts/repository-compatibility/index.ts --ai live --benchmark campaign/corpus/benchmark.yaml --runs-dir campaign/results/first-run/compat/` (or the equivalent tsx form used in P2-SMOKE-RUN) with this batch's --repo ids; do not pass --cache (the default cache feeds the later --local builds). Measured: about 40 s per app with live AI.",
-        "2026-10-09 Opus: timebox 30 -> 15 from the measured P3-COMPAT-01 duration (10 apps in 5 min with live AI)."
-      ]
+        "2026-10-09 Opus: timebox 30 -> 15 from the measured P3-COMPAT-01 duration (10 apps in 5 min with live AI).",
+        "2026-10-09 attempt 1 COMPLETE (Opus verified): repo-589,590,591,592,593,594,596,597,599,600 analysed in one run under `timeout 900`, exit 0, about 4 min. Verdict = label 6/10 (590,596,599 actual NEEDS_CONFIGURATION; repo-593 false READY, label NOT_COMPATIBLE); all facts 1/10 (repo-591). AI live: 9 completed, 1 timeout, no 5xx. All 80 improvement apps now have first-run compat files."
+      ],
+      "attempts": 1
     },
     {
       "id": "P3-BUILD-PLAN",

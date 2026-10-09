@@ -1,0 +1,200 @@
+{
+  "id": "repo-597",
+  "repository": "Openpanel-dev/openpanel",
+  "commit": "7c4d22ae4b6b20fb08eb5c94a0cd3cfebb3d32ca",
+  "set": "improvement",
+  "cohort": "boundary",
+  "customerRealism": "low",
+  "difficulty": 4,
+  "deployzSha": "75f9a4bf15204f7ee7c7725423b1a290656baae6",
+  "analysisVersion": 45,
+  "ai": {
+    "mode": "live",
+    "model": "workers-ai/@cf/deepseek-ai/deepseek-v4-flash-0731",
+    "requests": 1,
+    "outcome": "completed",
+    "error": null
+  },
+  "tree": {
+    "files": 203,
+    "entries": 2535,
+    "truncated": false
+  },
+  "expected": {
+    "compatibility": "NOT_COMPATIBLE",
+    "runtime": [
+      "node"
+    ],
+    "monorepo": true,
+    "postgres": true,
+    "redis": true,
+    "worker": true,
+    "migration": true,
+    "appRoot": "apps/api",
+    "dockerfilePath": "apps/api/Dockerfile",
+    "port": 3000,
+    "healthPath": "/healthcheck",
+    "unsupported": [
+      "other-database"
+    ]
+  },
+  "status": "analysed",
+  "failure": null,
+  "actual": {
+    "compatibility": "NOT_COMPATIBLE",
+    "analysisVerdict": "NOT_COMPATIBLE",
+    "readinessState": "NEEDS_CHANGES",
+    "runtime": "node",
+    "appRoot": "apps/api",
+    "dockerfilePath": "apps/api/Dockerfile",
+    "port": 3000,
+    "startCommand": "CMD: [\"node\", \"dist/index.js\"]",
+    "healthDetected": false,
+    "healthPath": null,
+    "postgres": true,
+    "postgresDetected": true,
+    "redis": true,
+    "redisDetected": true,
+    "redisConfidence": "high",
+    "storage": true,
+    "worker": true,
+    "workerCommand": null,
+    "migration": false,
+    "migrationCommand": null,
+    "externalServices": [
+      "resend",
+      "smtp"
+    ],
+    "requiredEnvVars": [
+      "API_HOST",
+      "COOKIE_SECRET",
+      "DATABASE_URL",
+      "DATABASE_URL_DIRECT",
+      "ENCRYPTION_KEY",
+      "IP_HEADER_ORDER",
+      "NEXTJS_VERSION",
+      "REACT_NATIVE_VERSION",
+      "RESEND_API_KEY"
+    ],
+    "unsupported": [
+      "docker-compose-multi-service",
+      "other-database"
+    ],
+    "readinessFindings": [
+      "unsupported-database-other",
+      "unsupported-multi-service",
+      "health-check",
+      "worker-command"
+    ],
+    "gateFindings": [
+      "unsupported",
+      "unsupported",
+      "health-path-required",
+      "required-env-vars-missing",
+      "migration-command-missing"
+    ],
+    "unresolvedQuestions": [
+      "multiple-dockerfiles",
+      "monorepo-target"
+    ]
+  },
+  "comparisons": [
+    {
+      "fact": "compatibility",
+      "expected": "NOT_COMPATIBLE",
+      "actual": "NOT_COMPATIBLE",
+      "match": true
+    },
+    {
+      "fact": "postgres",
+      "expected": true,
+      "actual": true,
+      "match": true
+    },
+    {
+      "fact": "redis",
+      "expected": true,
+      "actual": true,
+      "match": true
+    },
+    {
+      "fact": "worker",
+      "expected": true,
+      "actual": true,
+      "match": true
+    },
+    {
+      "fact": "migration",
+      "expected": true,
+      "actual": false,
+      "match": false,
+      "kind": "fact"
+    },
+    {
+      "fact": "appRoot",
+      "expected": "apps/api",
+      "actual": "apps/api",
+      "match": true
+    },
+    {
+      "fact": "dockerfilePath",
+      "expected": "apps/api/Dockerfile",
+      "actual": "apps/api/Dockerfile",
+      "match": true
+    },
+    {
+      "fact": "port",
+      "expected": 3000,
+      "actual": 3000,
+      "match": true
+    },
+    {
+      "fact": "healthPath",
+      "expected": "/healthcheck",
+      "actual": null,
+      "match": false,
+      "kind": "fact"
+    },
+    {
+      "fact": "unsupported",
+      "expected": [
+        "other-database"
+      ],
+      "actual": [
+        "docker-compose-multi-service",
+        "other-database"
+      ],
+      "match": false,
+      "kind": "fact"
+    }
+  ],
+  "mismatches": [
+    {
+      "fact": "migration",
+      "kind": "fact",
+      "expected": true,
+      "actual": false,
+      "finding": null
+    },
+    {
+      "fact": "healthPath",
+      "kind": "fact",
+      "expected": "/healthcheck",
+      "actual": null,
+      "finding": null
+    },
+    {
+      "fact": "unsupported",
+      "kind": "fact",
+      "expected": [
+        "other-database"
+      ],
+      "actual": [
+        "docker-compose-multi-service",
+        "other-database"
+      ],
+      "finding": null
+    }
+  ],
+  "match": false
+}
