@@ -1,0 +1,27 @@
+{
+  "taskId": "P3-BUILD-10",
+  "testedCommit": "e6a3b58ee2363923fef21faca86611fa3bf84538",
+  "executor": "campaign-worker",
+  "model": "sonnet",
+  "startedAt": "2026-10-09T08:53:53Z",
+  "finishedAt": "2026-10-09T09:21:00Z",
+  "proposedStatus": "COMPLETE",
+  "commands": [
+    {"command": "node --env-file=.env node_modules/tsx/dist/cli.mjs scripts/repository-deployment/index.ts --local --ai live --benchmark campaign/corpus/benchmark.yaml --deploy-config campaign/corpus/deploy-config.yaml --runs-dir campaign/results/first-run/build/ --evidence-dir campaign/logs/P3-BUILD-10/evidence/ --repo repo-522 --repo repo-523", "exitCode": 0, "summary": "repo-522: gate FAIL (false-acceptance), build/run/probes/cleanup PASS. repo-523: gate PASS, source PASS, build PASS, run PASS, probes FAIL (container exit 128), cleanup PASS; AI timeout"},
+    {"command": "docker ps/network/volume/images --filter label=deployz-campaign=fresh-100 -q", "exitCode": 0, "summary": "no labelled resources remain"},
+    {"command": "docker builder prune -f", "exitCode": 0, "summary": "reclaimed 7.412GB"}
+  ],
+  "evidence": [
+    "campaign/results/first-run/build/repo-522.local.json",
+    "campaign/results/first-run/build/repo-523.local.json",
+    "campaign/results/first-run/build/local-summary.json",
+    "campaign/results/first-run/build/local-summary.md"
+  ],
+  "notes": [
+    "No deploy-config.yaml change; existing repo-522 and repo-523 entries were used.",
+    "repo-522: gate FAIL = false-acceptance (gate verdict NEEDS_CONFIGURATION, configured READY); build 469 s PASS; run PASS; probes PASS (health 200 at /__dufs__/health); cleanup PASS. AI ok.",
+    "repo-523: gate PASS (correct-accept NEEDS_CONFIGURATION); build 786 s PASS; run PASS; probes FAIL: health, start, dbWrite, redis (container exited code 128). AI outcome timeout (AbortError, 2 attempts, 30 s); see local json for app log tail.",
+    "No build network timeout seen; no build retry needed. AI mode live for both = baseline.",
+    "Raw run log: campaign/logs/P3-BUILD-10/run.log (ignored). Run recorded deployzCommit 6d51cd2f (HEAD contains tested commit)."
+  ]
+}

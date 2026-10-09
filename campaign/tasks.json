@@ -2741,7 +2741,7 @@
       "phase": 3,
       "title": "First-run local build/run of improvement apps repo-522, repo-523",
       "executor": "campaign-worker",
-      "status": "PENDING",
+      "status": "COMPLETE",
       "prerequisites": [
         "P3-BUILD-PLAN"
       ],

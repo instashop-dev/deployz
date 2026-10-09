@@ -1,13 +1,13 @@
 # Local Docker run summary
 
-Repositories: 18
+Repositories: 20
 
 ## Classification
 
 - build: 1
-- gate: 11
+- gate: 12
 - local-success: 1
-- probes: 2
+- probes: 3
 - run: 1
 - source: 2
 
@@ -15,23 +15,23 @@ Repositories: 18
 
 | Stage | Attempted | PASS | FAIL | SKIPPED | IN_PROGRESS |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| gate | 18 | 7 | 11 | 0 | 0 |
-| source | 18 | 10 | 4 | 4 | 0 |
-| build | 18 | 5 | 5 | 8 | 0 |
-| run | 18 | 4 | 1 | 13 | 0 |
-| probes | 18 | 1 | 3 | 14 | 0 |
-| cleanup | 18 | 10 | 0 | 8 | 0 |
+| gate | 20 | 8 | 12 | 0 | 0 |
+| source | 20 | 12 | 4 | 4 | 0 |
+| build | 20 | 7 | 5 | 8 | 0 |
+| run | 20 | 6 | 1 | 13 | 0 |
+| probes | 20 | 2 | 4 | 14 | 0 |
+| cleanup | 20 | 12 | 0 | 8 | 0 |
 
 ## Probes
 
 | Probe | Attempted | PASS | FAIL | UNVERIFIED | NOT_APPLICABLE |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| start | 4 | 1 | 3 | 0 | 0 |
-| health | 4 | 1 | 3 | 0 | 0 |
-| migration | 4 | 0 | 0 | 0 | 4 |
-| dbWrite | 4 | 0 | 2 | 0 | 2 |
-| redis | 4 | 0 | 2 | 0 | 2 |
-| storage | 4 | 0 | 0 | 1 | 3 |
+| start | 6 | 2 | 4 | 0 | 0 |
+| health | 6 | 2 | 4 | 0 | 0 |
+| migration | 6 | 0 | 0 | 0 | 6 |
+| dbWrite | 6 | 0 | 3 | 0 | 3 |
+| redis | 6 | 0 | 3 | 0 | 3 |
+| storage | 6 | 0 | 0 | 2 | 4 |
 
 ## Duration per repository
 
@@ -53,5 +53,7 @@ Repositories: 18
 | repo-517 | DependencyTrack/dependency-track | gate | 11.7 |
 | repo-518 | cachethq/cachet | gate | 3.0 |
 | repo-520 | mathesar-foundation/mathesar | gate | 0.0 |
+| repo-522 | sigoden/dufs | gate | 535.0 |
+| repo-523 | Freika/dawarich | probes | 896.1 |
 | repo-536 | InvoiceShelf/InvoiceShelf | build | 47.4 |
 | repo-540 | excalidraw/excalidraw | local-success | 1630.3 |

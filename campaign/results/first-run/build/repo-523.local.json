@@ -1,0 +1,197 @@
+{
+  "schemaVersion": 1,
+  "id": "repo-523",
+  "repository": "Freika/dawarich",
+  "commit": "e32b70701b2467b862d4b5bc27ac428999997c1b",
+  "set": "improvement",
+  "cohort": "realistic",
+  "deployzCommit": "6d51cd2ffd49819045a21dbc56a33aeff1239dc6",
+  "analysisVersion": 45,
+  "ai": {
+    "mode": "live",
+    "model": "workers-ai/@cf/deepseek-ai/deepseek-v4-flash-0731",
+    "requests": 1,
+    "outcome": "timeout",
+    "error": "AbortError: This operation was aborted"
+  },
+  "inputsHash": "339ff695795fb568e47409d7b8e60210ecbcc2393ccdef0b3e761e592610708f",
+  "stages": {
+    "gate": {
+      "status": "PASS",
+      "startedAt": "2026-10-09T09:03:46.459Z",
+      "finishedAt": "2026-10-09T09:03:46.462Z",
+      "durationMs": 3,
+      "detail": null,
+      "evidence": {
+        "verdict": "NEEDS_CONFIGURATION",
+        "outcome": "correct-accept",
+        "configuredVerdict": "NEEDS_CONFIGURATION",
+        "manifest": {
+          "dockerfilePath": "docker/Dockerfile",
+          "buildContext": ".",
+          "appRoot": ".",
+          "port": 3000,
+          "healthPath": "/api/v1/health",
+          "healthMode": "explicit",
+          "migrationCommand": null,
+          "migrationMode": "unknown",
+          "postgres": true,
+          "redis": true,
+          "storage": true,
+          "databaseBindings": [
+            "DATABASE_HOST",
+            "DATABASE_NAME",
+            "DATABASE_PASSWORD",
+            "DATABASE_PORT",
+            "DATABASE_URL",
+            "DATABASE_USER",
+            "DATABASE_USERNAME",
+            "DB_HOST",
+            "DB_NAME",
+            "DB_PASSWORD",
+            "DB_PORT",
+            "DB_USER",
+            "POSTGRES_DB",
+            "POSTGRES_PASSWORD",
+            "POSTGRES_USER"
+          ],
+          "redisBindings": [
+            "REDIS_URL"
+          ],
+          "storageBindings": [
+            "AWS_BUCKET",
+            "AWS_S3_BUCKET"
+          ],
+          "generatedKeys": []
+        }
+      }
+    },
+    "source": {
+      "status": "PASS",
+      "startedAt": "2026-10-09T09:03:46.466Z",
+      "finishedAt": "2026-10-09T09:03:59.896Z",
+      "durationMs": 13430,
+      "detail": null,
+      "evidence": {
+        "commit": "e32b70701b2467b862d4b5bc27ac428999997c1b",
+        "archiveCached": false,
+        "archiveBytes": 38674259
+      }
+    },
+    "build": {
+      "status": "PASS",
+      "startedAt": "2026-10-09T09:03:59.899Z",
+      "finishedAt": "2026-10-09T09:17:05.964Z",
+      "durationMs": 786065,
+      "detail": null,
+      "evidence": {
+        "dockerfilePath": "docker/Dockerfile",
+        "buildContext": ".",
+        "platform": "linux/amd64",
+        "image": "deployz-campaign/repo-523:e32b70701b24",
+        "exitCode": 0,
+        "durationMs": 785530,
+        "buildArgNames": [],
+        "logTail": "#24 DONE 0.5s\n\n#25 [stage-1 16/23] RUN cp -r public /var/app/public_dist\n#25 DONE 0.7s\n\n#26 [stage-1 17/23] COPY ./docker/entrypoint-env-guard.sh /usr/local/bin/entrypoint-env-guard.sh\n#26 DONE 0.2s\n\n#27 [stage-1 18/23] COPY ./docker/web-entrypoint.sh /usr/local/bin/web-entrypoint.sh\n#27 DONE 0.1s\n\n#28 [stage-1 19/23] RUN chmod +x /usr/local/bin/web-entrypoint.sh\n#28 DONE 0.5s\n\n#29 [stage-1 20/23] COPY ./docker/sidekiq-entrypoint.sh /usr/local/bin/sidekiq-entrypoint.sh\n#29 DONE 0.2s\n\n#30 [stage-1 21/23] RUN chmod +x /usr/local/bin/sidekiq-entrypoint.sh\n#30 DONE 0.4s\n\n#31 [stage-1 22/23] COPY ./docker/cloud-entrypoint.sh /usr/local/bin/cloud-entrypoint.sh\n#31 DONE 0.2s\n\n#32 [stage-1 23/23] RUN chmod +x /usr/local/bin/cloud-entrypoint.sh\n#32 DONE 0.5s\n\n#33 exporting to image\n#33 exporting layers\n#33 exporting layers 94.1s done\n#33 exporting manifest sha256:35e7f43847010c0a4dede73abe2dc833f2230bcfe7cb85faf47734b2a2468eb5 0.1s done\n#33 exporting config sha256:a96206271228d4ef9cb6c51e956d25ed595687706114b36807d47115c5ee5d85 0.1s done\n#33 exporting attestation manifest sha256:b350e58c6e85ab6fbe593dac0bfe7340af8f37e616b1834fbbae3c554c2aa1f3 0.1s done\n#33 exporting manifest list sha256:aa867da573293b66d4c2ffcc21862ff5f74001696743eb30465de1c2afaa3201 0.1s done\n#33 naming to docker.io/deployz-campaign/repo-523:e32b70701b24\n#33 naming to docker.io/deployz-campaign/repo-523:e32b70701b24 0.0s done\n#33 unpacking to docker.io/deployz-campaign/repo-523:e32b70701b24\n#33 unpacking to docker.io/deployz-campaign/repo-523:e32b70701b24 60.7s done\n#33 DONE 155.3s\n\nView build details: docker-desktop://dashboard/build/desktop-linux/desktop-linux/3p8oq4l8o6avlblxnmtekphgv",
+        "imageId": "sha256:aa867da573293b66d4c2ffcc21862ff5f74001696743eb30465de1c2afaa3201",
+        "imageBytes": 3012759634,
+        "failure": null,
+        "rebuilt": false
+      }
+    },
+    "run": {
+      "status": "PASS",
+      "startedAt": "2026-10-09T09:17:07.790Z",
+      "finishedAt": "2026-10-09T09:17:32.813Z",
+      "durationMs": 25023,
+      "detail": null,
+      "evidence": {
+        "image": "deployz-campaign/repo-523:e32b70701b24",
+        "port": 3000,
+        "healthPath": "/api/v1/health",
+        "dependencies": [
+          "postgres",
+          "valkey",
+          "s3-stand-in"
+        ],
+        "environmentNames": [
+          "AWS_ACCESS_KEY_ID",
+          "AWS_ENDPOINT_URL_S3",
+          "AWS_REGION",
+          "AWS_S3_BUCKET",
+          "AWS_S3_FORCE_PATH_STYLE",
+          "AWS_SECRET_ACCESS_KEY",
+          "DATABASE_URL",
+          "DB_HOST",
+          "DB_NAME",
+          "DB_PASSWORD",
+          "DB_PORT",
+          "DB_USER",
+          "PORT",
+          "REDIS_URL"
+        ],
+        "migration": null
+      }
+    },
+    "probes": {
+      "status": "FAIL",
+      "startedAt": "2026-10-09T09:17:32.819Z",
+      "finishedAt": "2026-10-09T09:18:36.412Z",
+      "durationMs": 63593,
+      "detail": "failed: health, start, dbWrite, redis",
+      "evidence": {
+        "probes": {
+          "health": {
+            "status": "FAIL",
+            "detail": "the container exited (code 128) before /api/v1/health answered"
+          },
+          "start": {
+            "status": "FAIL",
+            "detail": "the container is not running (exit code 128)"
+          },
+          "migration": {
+            "status": "NOT_APPLICABLE",
+            "detail": "the manifest has no migration command"
+          },
+          "dbWrite": {
+            "status": "FAIL",
+            "detail": "no rows outside migration bookkeeping tables"
+          },
+          "redis": {
+            "status": "FAIL",
+            "detail": "no client connection and no key from the app"
+          },
+          "storage": {
+            "status": "UNVERIFIED",
+            "detail": "the bucket holds no object; reaching the bucket is not proven"
+          }
+        },
+        "url": "http://app:3000/api/v1/health",
+        "appLogTail": "bundler: exec needs a command to run"
+      }
+    },
+    "cleanup": {
+      "status": "PASS",
+      "startedAt": "2026-10-09T09:18:36.415Z",
+      "finishedAt": "2026-10-09T09:18:44.416Z",
+      "durationMs": 8001,
+      "detail": null,
+      "evidence": {
+        "removed": {
+          "containers": 4,
+          "networks": 1,
+          "volumes": 0
+        },
+        "imageRemoved": true,
+        "keepImage": false,
+        "leaks": {
+          "containers": [],
+          "networks": [],
+          "volumes": []
+        }
+      }
+    }
+  },
+  "classification": "probes",
+  "remediation": null
+}
