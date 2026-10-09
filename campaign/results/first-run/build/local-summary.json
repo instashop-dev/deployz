@@ -1,65 +1,65 @@
 {
   "schemaVersion": 1,
-  "repositories": 38,
+  "repositories": 40,
   "classifications": {
     "source": 2,
     "probes": 7,
-    "gate": 22,
-    "run": 2,
+    "gate": 23,
+    "run": 3,
     "build": 4,
     "local-success": 1
   },
   "aiModes": {
-    "live": 38
+    "live": 40
   },
   "stages": {
     "gate": {
-      "attempted": 38,
+      "attempted": 40,
       "NOT_ATTEMPTED": 0,
       "IN_PROGRESS": 0,
-      "PASS": 16,
-      "FAIL": 22,
+      "PASS": 17,
+      "FAIL": 23,
       "SKIPPED": 0
     },
     "source": {
-      "attempted": 38,
+      "attempted": 40,
       "NOT_ATTEMPTED": 0,
       "IN_PROGRESS": 0,
-      "PASS": 28,
+      "PASS": 29,
       "FAIL": 5,
-      "SKIPPED": 5
+      "SKIPPED": 6
     },
     "build": {
-      "attempted": 38,
+      "attempted": 40,
       "NOT_ATTEMPTED": 0,
       "IN_PROGRESS": 0,
-      "PASS": 15,
+      "PASS": 16,
       "FAIL": 13,
-      "SKIPPED": 10
+      "SKIPPED": 11
     },
     "run": {
-      "attempted": 38,
+      "attempted": 40,
       "NOT_ATTEMPTED": 0,
       "IN_PROGRESS": 0,
       "PASS": 12,
-      "FAIL": 3,
-      "SKIPPED": 23
+      "FAIL": 4,
+      "SKIPPED": 24
     },
     "probes": {
-      "attempted": 38,
+      "attempted": 40,
       "NOT_ATTEMPTED": 0,
       "IN_PROGRESS": 0,
       "PASS": 2,
       "FAIL": 10,
-      "SKIPPED": 26
+      "SKIPPED": 28
     },
     "cleanup": {
-      "attempted": 38,
+      "attempted": 40,
       "NOT_ATTEMPTED": 0,
       "IN_PROGRESS": 0,
-      "PASS": 28,
+      "PASS": 29,
       "FAIL": 0,
-      "SKIPPED": 10
+      "SKIPPED": 11
     }
   },
   "probes": {
@@ -637,6 +637,34 @@
         "run": 12,
         "probes": 6,
         "cleanup": 1170
+      }
+    },
+    {
+      "id": "repo-560",
+      "repository": "rajnandan1/kener",
+      "classification": "run",
+      "totalMs": 642871,
+      "stages": {
+        "gate": 10,
+        "source": 3762,
+        "build": 617005,
+        "run": 15122,
+        "probes": 18,
+        "cleanup": 6954
+      }
+    },
+    {
+      "id": "repo-563",
+      "repository": "LycheeOrg/Lychee",
+      "classification": "gate",
+      "totalMs": 13,
+      "stages": {
+        "gate": 2,
+        "source": 2,
+        "build": 2,
+        "run": 2,
+        "probes": 3,
+        "cleanup": 2
       }
     }
   ]

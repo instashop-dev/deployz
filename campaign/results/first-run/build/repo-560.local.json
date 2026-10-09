@@ -1,0 +1,148 @@
+{
+  "schemaVersion": 1,
+  "id": "repo-560",
+  "repository": "rajnandan1/kener",
+  "commit": "74a6228b862f276c4f42177b340ae997fe9dfca2",
+  "set": "improvement",
+  "cohort": "realistic",
+  "deployzCommit": "15224a09e5c5ce0bfed738a17552f15ccad0ef82",
+  "analysisVersion": 45,
+  "ai": {
+    "mode": "live",
+    "model": "workers-ai/@cf/deepseek-ai/deepseek-v4-flash-0731",
+    "requests": 0,
+    "outcome": "not-requested",
+    "error": null
+  },
+  "inputsHash": "55c30c8189d77edf13883df9c5800d646290a329562b8b3e92f30cb07720ea3f",
+  "stages": {
+    "gate": {
+      "status": "PASS",
+      "startedAt": "2026-10-09T12:49:33.016Z",
+      "finishedAt": "2026-10-09T12:49:33.026Z",
+      "durationMs": 10,
+      "detail": null,
+      "evidence": {
+        "verdict": "NEEDS_CONFIGURATION",
+        "outcome": "correct-accept",
+        "configuredVerdict": "READY",
+        "manifest": {
+          "dockerfilePath": "Dockerfile",
+          "buildContext": ".",
+          "appRoot": ".",
+          "port": 3000,
+          "healthPath": "/",
+          "healthMode": "vendor_required",
+          "migrationCommand": "vite-node scripts/fix-migration-ext.ts && npx knex migrate:latest",
+          "migrationMode": "pre_deploy",
+          "postgres": true,
+          "redis": true,
+          "storage": false,
+          "databaseBindings": [
+            "DATABASE_HOST",
+            "DATABASE_NAME",
+            "DATABASE_PASSWORD",
+            "DATABASE_PORT",
+            "DATABASE_URL",
+            "DATABASE_USER",
+            "DB_HOST",
+            "DB_NAME",
+            "DB_PASSWORD",
+            "DB_PORT",
+            "DB_USER"
+          ],
+          "redisBindings": [
+            "REDIS_URL"
+          ],
+          "storageBindings": [],
+          "generatedKeys": []
+        }
+      }
+    },
+    "source": {
+      "status": "PASS",
+      "startedAt": "2026-10-09T12:49:33.034Z",
+      "finishedAt": "2026-10-09T12:49:36.796Z",
+      "durationMs": 3762,
+      "detail": null,
+      "evidence": {
+        "commit": "74a6228b862f276c4f42177b340ae997fe9dfca2",
+        "archiveCached": false,
+        "archiveBytes": 1509605
+      }
+    },
+    "build": {
+      "status": "PASS",
+      "startedAt": "2026-10-09T12:49:36.800Z",
+      "finishedAt": "2026-10-09T12:59:53.805Z",
+      "durationMs": 617005,
+      "detail": null,
+      "evidence": {
+        "dockerfilePath": "Dockerfile",
+        "buildContext": ".",
+        "platform": "linux/amd64",
+        "image": "deployz-campaign/repo-560:74a6228b862f",
+        "exitCode": 0,
+        "durationMs": 616594,
+        "buildArgNames": [],
+        "logTail": "#28 DONE 1.0s\n\n#29 [final  9/16] COPY --chown=node:node --from=builder /app/src/lib/server/db/seedPagesData.ts     ./src/lib/server/db/seedPagesData.ts\n#29 DONE 1.0s\n\n#30 [final 10/16] COPY --chown=node:node --from=builder /app/src/lib/allPerms.ts                   ./src/lib/allPerms.ts\n#30 DONE 0.8s\n\n#31 [final 11/16] COPY --chown=node:node --from=builder /app/src/lib/server/templates/general       ./src/lib/server/templates/general\n#31 DONE 0.9s\n\n#32 [final 12/16] COPY --chown=node:node --from=builder /app/src/lib/locales ./src/lib/locales\n#32 DONE 0.6s\n\n#33 [final 13/16] COPY --chown=node:node --from=builder /app/build ./build\n#33 DONE 1.2s\n\n#34 [final 14/16] COPY --chown=node:node --from=builder /docs-runtime/ ./\n#34 DONE 0.9s\n\n#35 [final 15/16] COPY --chown=node:node docker-entrypoint.sh ./docker-entrypoint.sh\n#35 DONE 0.9s\n\n#36 [final 16/16] RUN chmod +x docker-entrypoint.sh\n#36 DONE 0.7s\n\n#37 exporting to image\n#37 exporting layers\n#37 exporting layers 16.6s done\n#37 exporting manifest sha256:ac5943147103a966085c27285d06a06943662b5ce0f2ced8eaa7e05deb055739 0.1s done\n#37 exporting config sha256:e04e866f3e109b04ca8ae9263ea8934bc240b108f6f6bb5b1470e6c8d181efa6 0.1s done\n#37 exporting attestation manifest sha256:3118f42c4e5dd36b69c48c5b30780770e8499654dc1abc9e7f13bc40b5c0c929 0.1s done\n#37 exporting manifest list sha256:622401387489363a17c4f3c351ca892689e033609bdd4d5ec6117bfcd1515ec4\n#37 exporting manifest list sha256:622401387489363a17c4f3c351ca892689e033609bdd4d5ec6117bfcd1515ec4 0.0s done\n#37 naming to docker.io/deployz-campaign/repo-560:74a6228b862f 0.0s done\n#37 unpacking to docker.io/deployz-campaign/repo-560:74a6228b862f\n#37 unpacking to docker.io/deployz-campaign/repo-560:74a6228b862f 16.3s done\n#37 DONE 33.5s\n\nView build details: docker-desktop://dashboard/build/desktop-linux/desktop-linux/jbedi3oc7w94sicx2yxx9u2k8",
+        "imageId": "sha256:622401387489363a17c4f3c351ca892689e033609bdd4d5ec6117bfcd1515ec4",
+        "imageBytes": 733227118,
+        "failure": null,
+        "rebuilt": false
+      }
+    },
+    "run": {
+      "status": "FAIL",
+      "startedAt": "2026-10-09T12:59:54.514Z",
+      "finishedAt": "2026-10-09T13:00:09.636Z",
+      "durationMs": 15122,
+      "detail": "the migration command exited 127",
+      "evidence": {
+        "dependencies": [
+          "postgres",
+          "valkey"
+        ],
+        "migration": {
+          "exitCode": 127,
+          "tablesBefore": 0,
+          "tablesAfter": 0,
+          "durationMs": 2649,
+          "logTail": "sh: vite-node: not found"
+        },
+        "failure": "migration"
+      }
+    },
+    "probes": {
+      "status": "SKIPPED",
+      "startedAt": "2026-10-09T13:00:09.651Z",
+      "finishedAt": "2026-10-09T13:00:09.669Z",
+      "durationMs": 18,
+      "detail": "the run stage failed",
+      "evidence": {}
+    },
+    "cleanup": {
+      "status": "PASS",
+      "startedAt": "2026-10-09T13:00:09.713Z",
+      "finishedAt": "2026-10-09T13:00:16.667Z",
+      "durationMs": 6954,
+      "detail": null,
+      "evidence": {
+        "removed": {
+          "containers": 3,
+          "networks": 1,
+          "volumes": 0
+        },
+        "imageRemoved": true,
+        "keepImage": false,
+        "leaks": {
+          "containers": [],
+          "networks": [],
+          "volumes": []
+        }
+      }
+    }
+  },
+  "classification": "run",
+  "remediation": null
+}

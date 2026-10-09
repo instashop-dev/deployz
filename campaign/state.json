@@ -4,8 +4,8 @@
   "status": "CONTINUE",
   "phase": 3,
   "currentTask": null,
-  "nextAction": "Next eligible: P3-BUILD-20. USER DECISION still open (harness, not product): (a) source-stage tar symlinks on Windows not deterministic (also repo-528); (b) 90 s dependency readiness window includes first image pull. Phase 4 findings so far include live AI timeouts (repo-514, 520, 523, 528, 543, 548, 549, 550), AI parse-errors (repo-510, 516), a label review for repo-522 (NOT_COMPATIBLE label, but probes PASS), harness Dockerfile selection differs from the manifest (repo-525 dockerfilePath null but ./Dockerfile built; repo-548 manifest .dev/dockerfile but .docker/Dockerfile built), manifest bindings not passed to the local run environment (repo-529 APP_KEY generatedKeys; repo-534 SPRING_DATASOURCE_* bindings, dbWrite FAIL; repo-543 DATABASE_* bindings, container exits), redis probe applicability for a lazy-connect app (repo-530), and required build args not supplied (repo-548 LEAN_VERSION, repo-549 COMMIT_SHA). Builder prune after each batch. Gate misses also: repo-547 false-rejection, repo-548, repo-549, repo-552, repo-557 and repo-559 false-acceptance. New: repo-555 environment failure (builder EOF during vite build, 980 s; possible Docker memory limit 3.8 GB); repo-556 dbWrite FAIL (wakapi; health path /heartbeat in manifest vs /api/health in deploy-config). New run failures: repo-551 migration DATABASE URL empty (bindings family), repo-552 migration config file missing. Live AI timeout also repo-552. New (P3-BUILD-19): repo-557 dbWrite FAIL for an app that creates no tables (probe applicability review); repo-559 build FAIL (Dockerfile needs prebuilt ./out/rauthy_amd64).",
-  "updatedAt": "2026-10-09T12:47:03.377Z",
+  "nextAction": "No eligible work: P3-BUILD-21..28 need disk>=3GB (UNAVAILABLE: 1.8 GB free on C: at 2026-10-09T13:01Z). USER ACTION: free disk on C: (Docker docker_data.vhdx does not shrink by itself), then the coordinator re-checks and runs P3-BUILD-21. USER DECISION still open (harness, not product): (a) source-stage tar symlinks on Windows not deterministic (also repo-528); (b) 90 s dependency readiness window includes first image pull. Phase 4 findings so far include live AI timeouts (repo-514, 520, 523, 528, 543, 548, 549, 550), AI parse-errors (repo-510, 516), a label review for repo-522 (NOT_COMPATIBLE label, but probes PASS), harness Dockerfile selection differs from the manifest (repo-525 dockerfilePath null but ./Dockerfile built; repo-548 manifest .dev/dockerfile but .docker/Dockerfile built), manifest bindings not passed to the local run environment (repo-529 APP_KEY generatedKeys; repo-534 SPRING_DATASOURCE_* bindings, dbWrite FAIL; repo-543 DATABASE_* bindings, container exits), redis probe applicability for a lazy-connect app (repo-530), and required build args not supplied (repo-548 LEAN_VERSION, repo-549 COMMIT_SHA). Builder prune after each batch. Gate misses also: repo-547 false-rejection, repo-548, repo-549, repo-552, repo-557 and repo-559 false-acceptance. New: repo-555 environment failure (builder EOF during vite build, 980 s; possible Docker memory limit 3.8 GB); repo-556 dbWrite FAIL (wakapi; health path /heartbeat in manifest vs /api/health in deploy-config). New run failures: repo-551 migration DATABASE URL empty (bindings family), repo-552 migration config file missing. Live AI timeout also repo-552. New (P3-BUILD-19): repo-557 dbWrite FAIL for an app that creates no tables (probe applicability review); repo-559 build FAIL (Dockerfile needs prebuilt ./out/rauthy_amd64). New (P3-BUILD-20): repo-560 run FAIL (pre-deploy migration uses vite-node, a dev tool absent from the runtime image; migration-command family); repo-563 gate false-rejection.",
+  "updatedAt": "2026-10-09T13:01:59.140Z",
   "checkout": {
     "path": "C:/Users/Tejas/Desktop/deployz-mvp-test",
     "kind": "git worktree of C:/Users/Tejas/Desktop/deployz",
@@ -355,6 +355,10 @@
     {
       "commit": "e6a3b58ee2363923fef21faca86611fa3bf84538",
       "task": "P3-BUILD-19"
+    },
+    {
+      "commit": "e6a3b58ee2363923fef21faca86611fa3bf84538",
+      "task": "P3-BUILD-20"
     }
   ],
   "attempts": {
@@ -439,13 +443,19 @@
     "P3-BUILD-16": 1,
     "P3-BUILD-17": 1,
     "P3-BUILD-18": 1,
-    "P3-BUILD-19": 1
+    "P3-BUILD-19": 1,
+    "P3-BUILD-20": 1
   },
   "lastResult": {
-    "task": "P3-BUILD-19",
+    "task": "P3-BUILD-20",
     "status": "COMPLETE",
-    "at": "2026-10-09T12:47:03.377Z",
-    "summary": "repo-557 (SQLPage): AI live completed; gate FAIL (false-acceptance: label NOT_COMPATIBLE, verdict NEEDS_CONFIGURATION); source, build (1187 s, Rust), run PASS; probes FAIL: dbWrite (no rows outside migration bookkeeping tables; health / 200 and start PASS; migration/redis/storage NOT_APPLICABLE). The app creates no tables by itself, so dbWrite applicability is a Phase 4 review item (like repo-530 redis). repo-559 (rauthy): AI not requested; gate FAIL (false-acceptance: label NOT_COMPATIBLE, verdict NEEDS_CONFIGURATION); source PASS; build FAIL in 6 s: Dockerfile copies ./out/rauthy_amd64, a prebuilt binary not in the repository (app failure, not a registry timeout; no retry); run/probes SKIPPED; cleanup PASS. Worker added repo-559 deploy-config entries (11 config keys from rauthy config.toml, generated secrets HQL_SECRET_RAFT/HQL_SECRET_API; ENC_KEYS not added, its format cannot be generated). Opus check: result.json valid, testedCommit matches, 2 commands exit 0, evidence paths exist; both results have 6 stages and ai.mode live; --deploy-config passed; deploy-config diff touches only repo-559 and holds no secret values; 0 labelled containers/networks/volumes/images; builder prune 2.08 GB; C: 4.2 GB free."
+    "at": "2026-10-09T13:01:59.140Z",
+    "summary": "repo-560 (kener): AI not requested; gate PASS (correct-accept, NEEDS_CONFIGURATION); source PASS; build PASS (617 s); run FAIL: pre-deploy migration `vite-node scripts/fix-migration-ext.ts && npx knex migrate:latest` exited 127 (sh: vite-node: not found; dev tool missing from the runtime image); probes SKIPPED; cleanup PASS. repo-563 (Lychee): AI live completed; gate FAIL (false-rejection: verdict NOT_COMPATIBLE, label NEEDS_CONFIGURATION); source/build/run/probes SKIPPED; cleanup PASS. No deploy-config changes. 0 labelled resources; builder prune 1.66 GB; C: 1.8 GB free after the batch (below the 3 GB limit).",
+    "evidence": [
+      "campaign/results/P3-BUILD-20/result.json",
+      "campaign/results/first-run/build/repo-560.local.json",
+      "campaign/results/first-run/build/repo-563.local.json"
+    ]
   },
   "gates": {
     "smokeReviewed": true,
@@ -475,9 +485,9 @@
       "checkedAt": "2026-10-09T06:10:17.693Z"
     },
     "disk>=3GB": {
-      "status": "AVAILABLE",
-      "detail": "2026-10-09T03:39Z: the user lowered the disk requirement from 10 GB to 3 GB (live chat instruction). Check: 6.28 GiB free on C: at 2026-10-09T03:28Z, so AVAILABLE. Each P3-BUILD task still prunes its labelled images after the batch. Earlier history (as disk>=10GB): 7.1 GiB free on C: at 2026-10-09T00:00Z (P2-GATE). Docker: 2.62 GB reclaimable build cache, 0.49 GB unused unlabelled images. The user must free disk before P3-BUILD tasks; Stage A tasks do not need it. 2026-10-09T02:05Z: routine check 6.27 GiB free; still UNAVAILABLE. 2026-10-09T02:28Z: routine check 6.30 GiB free; still UNAVAILABLE. 2026-10-09T02:43Z: routine check 6.26 GiB free; still UNAVAILABLE. 2026-10-09T02:58Z: routine check 6.26 GiB free; still UNAVAILABLE. 2026-10-09T03:45Z: routine check 6.7 GiB free; AVAILABLE. 2026-10-09T04:48Z: P3-BUILD-01 repo-536 build filled C: to 68 MB free; UNAVAILABLE. 3 GB was not enough for one large build. 2026-10-09T06:10Z: 14 GB free on C: after the user freed disk; AVAILABLE. Docker build cache 8.1 GB (unlabelled). 2026-10-09T06:31Z: after P3-BUILD-02, 4.9 GB free on C:; unlabelled Docker build cache 14.6 GB (reclaimable). Still >= 3 GB, but one large build can use more than 6 GB; workers stop a build below 3 GB free. 2026-10-09T06:57Z: after P3-BUILD-05, 4.2 GB free on C: (repo-510 build used about 0.7 GB); AVAILABLE. 2026-10-09T07:00Z (manual session, user-approved): one-time `docker builder prune -f` freed 2.05 GB (BuildKit had already trimmed the cache from about 15 GB to 2.1 GB). C: stays at 4.2 GB free because the Docker Desktop disk file %LOCALAPPDATA%/Docker/wsl/disk/docker_data.vhdx (19.3 GB) does not shrink; freed space inside it is reused by later builds, so Docker has about 16 GB of internal room. Only compacting the vhdx (Docker stopped, admin) returns space to C:. 2026-10-09T08:07Z: routine check 22 GB free on C:; AVAILABLE. 2026-10-09T08:28Z: after P3-BUILD-06, about 15 GB free on C:. 2026-10-09T08:47Z: after P3-BUILD-07, about 15 GB free on C:. 2026-10-09T11:52Z: after P3-BUILD-17, 5.4 GB free on C:; AVAILABLE. 2026-10-09T12:20Z: after P3-BUILD-18, 4.2 GB free on C:; AVAILABLE (near the 3 GB limit). 2026-10-09T12:47Z: after P3-BUILD-19, 4.2 GB free on C:; AVAILABLE (near the 3 GB limit).",
-      "checkedAt": "2026-10-09T12:47:03.377Z"
+      "status": "UNAVAILABLE",
+      "detail": "2026-10-09T03:39Z: the user lowered the disk requirement from 10 GB to 3 GB (live chat instruction). Check: 6.28 GiB free on C: at 2026-10-09T03:28Z, so AVAILABLE. Each P3-BUILD task still prunes its labelled images after the batch. Earlier history (as disk>=10GB): 7.1 GiB free on C: at 2026-10-09T00:00Z (P2-GATE). Docker: 2.62 GB reclaimable build cache, 0.49 GB unused unlabelled images. The user must free disk before P3-BUILD tasks; Stage A tasks do not need it. 2026-10-09T02:05Z: routine check 6.27 GiB free; still UNAVAILABLE. 2026-10-09T02:28Z: routine check 6.30 GiB free; still UNAVAILABLE. 2026-10-09T02:43Z: routine check 6.26 GiB free; still UNAVAILABLE. 2026-10-09T02:58Z: routine check 6.26 GiB free; still UNAVAILABLE. 2026-10-09T03:45Z: routine check 6.7 GiB free; AVAILABLE. 2026-10-09T04:48Z: P3-BUILD-01 repo-536 build filled C: to 68 MB free; UNAVAILABLE. 3 GB was not enough for one large build. 2026-10-09T06:10Z: 14 GB free on C: after the user freed disk; AVAILABLE. Docker build cache 8.1 GB (unlabelled). 2026-10-09T06:31Z: after P3-BUILD-02, 4.9 GB free on C:; unlabelled Docker build cache 14.6 GB (reclaimable). Still >= 3 GB, but one large build can use more than 6 GB; workers stop a build below 3 GB free. 2026-10-09T06:57Z: after P3-BUILD-05, 4.2 GB free on C: (repo-510 build used about 0.7 GB); AVAILABLE. 2026-10-09T07:00Z (manual session, user-approved): one-time `docker builder prune -f` freed 2.05 GB (BuildKit had already trimmed the cache from about 15 GB to 2.1 GB). C: stays at 4.2 GB free because the Docker Desktop disk file %LOCALAPPDATA%/Docker/wsl/disk/docker_data.vhdx (19.3 GB) does not shrink; freed space inside it is reused by later builds, so Docker has about 16 GB of internal room. Only compacting the vhdx (Docker stopped, admin) returns space to C:. 2026-10-09T08:07Z: routine check 22 GB free on C:; AVAILABLE. 2026-10-09T08:28Z: after P3-BUILD-06, about 15 GB free on C:. 2026-10-09T08:47Z: after P3-BUILD-07, about 15 GB free on C:. 2026-10-09T11:52Z: after P3-BUILD-17, 5.4 GB free on C:; AVAILABLE. 2026-10-09T12:20Z: after P3-BUILD-18, 4.2 GB free on C:; AVAILABLE (near the 3 GB limit). 2026-10-09T12:47Z: after P3-BUILD-19, 4.2 GB free on C:; AVAILABLE (near the 3 GB limit). 2026-10-09T13:01Z: after P3-BUILD-20 (repo-560 build), 1.8 GB free on C: after docker builder prune; UNAVAILABLE. The user must free disk on C: (or compact docker_data.vhdx) before P3-BUILD-21.",
+      "checkedAt": "2026-10-09T13:01:59.140Z"
     },
     "dependencies-installed": {
       "status": "AVAILABLE",

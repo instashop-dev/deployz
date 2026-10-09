@@ -1,26 +1,26 @@
 # Local Docker run summary
 
-Repositories: 38
+Repositories: 40
 
 ## Classification
 
 - build: 4
-- gate: 22
+- gate: 23
 - local-success: 1
 - probes: 7
-- run: 2
+- run: 3
 - source: 2
 
 ## Stages
 
 | Stage | Attempted | PASS | FAIL | SKIPPED | IN_PROGRESS |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| gate | 38 | 16 | 22 | 0 | 0 |
-| source | 38 | 28 | 5 | 5 | 0 |
-| build | 38 | 15 | 13 | 10 | 0 |
-| run | 38 | 12 | 3 | 23 | 0 |
-| probes | 38 | 2 | 10 | 26 | 0 |
-| cleanup | 38 | 28 | 0 | 10 | 0 |
+| gate | 40 | 17 | 23 | 0 | 0 |
+| source | 40 | 29 | 5 | 6 | 0 |
+| build | 40 | 16 | 13 | 11 | 0 |
+| run | 40 | 12 | 4 | 24 | 0 |
+| probes | 40 | 2 | 10 | 28 | 0 |
+| cleanup | 40 | 29 | 0 | 11 | 0 |
 
 ## Probes
 
@@ -75,3 +75,5 @@ Repositories: 38
 | repo-556 | muety/wakapi | probes | 308.9 |
 | repo-557 | sqlpage/SQLPage | gate | 1268.7 |
 | repo-559 | sebadob/rauthy | gate | 11.2 |
+| repo-560 | rajnandan1/kener | run | 642.9 |
+| repo-563 | LycheeOrg/Lychee | gate | 0.0 |

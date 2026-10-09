@@ -1,0 +1,115 @@
+{
+  "schemaVersion": 1,
+  "id": "repo-563",
+  "repository": "LycheeOrg/Lychee",
+  "commit": "5e13568285f938c8852622ca0c4265c9430322ca",
+  "set": "improvement",
+  "cohort": "realistic",
+  "deployzCommit": "15224a09e5c5ce0bfed738a17552f15ccad0ef82",
+  "analysisVersion": 45,
+  "ai": {
+    "mode": "live",
+    "model": "workers-ai/@cf/deepseek-ai/deepseek-v4-flash-0731",
+    "requests": 1,
+    "outcome": "completed",
+    "error": null
+  },
+  "inputsHash": "1ab68753698f9bc2ae32b4aa5095917f82081a3e7e69713b26b009a5df6053c2",
+  "stages": {
+    "gate": {
+      "status": "FAIL",
+      "startedAt": "2026-10-09T13:00:39.805Z",
+      "finishedAt": "2026-10-09T13:00:39.807Z",
+      "durationMs": 2,
+      "detail": null,
+      "evidence": {
+        "verdict": "NOT_COMPATIBLE",
+        "outcome": "false-rejection",
+        "configuredVerdict": "NOT_COMPATIBLE",
+        "manifest": {
+          "dockerfilePath": "Dockerfile",
+          "buildContext": ".",
+          "appRoot": ".",
+          "port": 8000,
+          "healthPath": "/up",
+          "healthMode": "explicit",
+          "migrationCommand": null,
+          "migrationMode": "startup",
+          "postgres": true,
+          "redis": false,
+          "storage": true,
+          "databaseBindings": [
+            "DATABASE_HOST",
+            "DATABASE_NAME",
+            "DATABASE_PASSWORD",
+            "DATABASE_PORT",
+            "DATABASE_URL",
+            "DATABASE_USER",
+            "DB_DATABASE",
+            "DB_HOST",
+            "DB_NAME",
+            "DB_PASSWORD",
+            "DB_PORT",
+            "DB_USER",
+            "DB_USERNAME"
+          ],
+          "redisBindings": [],
+          "storageBindings": [
+            "AWS_BUCKET",
+            "AWS_S3_BUCKET"
+          ],
+          "generatedKeys": [
+            "AMAZON_SIGNIN_SECRET",
+            "APP_KEY",
+            "MASTODON_SECRET",
+            "PUSHER_APP_KEY",
+            "PUSHER_APP_SECRET",
+            "VITE_PUSHER_APP_KEY"
+          ]
+        }
+      }
+    },
+    "source": {
+      "status": "SKIPPED",
+      "startedAt": "2026-10-09T13:00:39.810Z",
+      "finishedAt": "2026-10-09T13:00:39.812Z",
+      "durationMs": 2,
+      "detail": "the gate did not accept the repository",
+      "evidence": {}
+    },
+    "build": {
+      "status": "SKIPPED",
+      "startedAt": "2026-10-09T13:00:39.815Z",
+      "finishedAt": "2026-10-09T13:00:39.817Z",
+      "durationMs": 2,
+      "detail": "the gate did not accept the repository",
+      "evidence": {}
+    },
+    "run": {
+      "status": "SKIPPED",
+      "startedAt": "2026-10-09T13:00:39.820Z",
+      "finishedAt": "2026-10-09T13:00:39.822Z",
+      "durationMs": 2,
+      "detail": "the build did not pass",
+      "evidence": {}
+    },
+    "probes": {
+      "status": "SKIPPED",
+      "startedAt": "2026-10-09T13:00:39.824Z",
+      "finishedAt": "2026-10-09T13:00:39.827Z",
+      "durationMs": 3,
+      "detail": "the build did not pass",
+      "evidence": {}
+    },
+    "cleanup": {
+      "status": "SKIPPED",
+      "startedAt": "2026-10-09T13:00:39.829Z",
+      "finishedAt": "2026-10-09T13:00:39.831Z",
+      "durationMs": 2,
+      "detail": "no build was attempted",
+      "evidence": {}
+    }
+  },
+  "classification": "gate",
+  "remediation": null
+}

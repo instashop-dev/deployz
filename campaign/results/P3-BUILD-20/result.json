@@ -1,0 +1,28 @@
+{
+  "taskId": "P3-BUILD-20",
+  "testedCommit": "e6a3b58ee2363923fef21faca86611fa3bf84538",
+  "executor": "campaign-worker",
+  "model": "sonnet",
+  "startedAt": "2026-10-09T12:49:00Z",
+  "finishedAt": "2026-10-09T13:08:00Z",
+  "proposedStatus": "COMPLETE",
+  "commands": [
+    {"command": "node --env-file=.env node_modules/tsx/dist/cli.mjs scripts/repository-deployment/index.ts --local --ai live --benchmark campaign/corpus/benchmark.yaml --deploy-config campaign/corpus/deploy-config.yaml --runs-dir campaign/results/first-run/build/ --evidence-dir campaign/logs/P3-BUILD-20/evidence/ --repo repo-560 --repo repo-563", "exitCode": 0, "summary": "repo-560 gate PASS, build PASS, run FAIL (migration exit 127), probes SKIPPED, cleanup PASS; repo-563 gate FAIL (false-rejection), rest SKIPPED"},
+    {"command": "docker ps/network/volume/images --filter label=deployz-campaign=fresh-100; docker builder prune -f", "exitCode": 0, "summary": "no labelled resources remain; build cache pruned (1.66GB freed)"}
+  ],
+  "evidence": [
+    "campaign/results/first-run/build/repo-560.local.json",
+    "campaign/results/first-run/build/repo-563.local.json",
+    "campaign/logs/P3-BUILD-20/run.log"
+  ],
+  "notes": [
+    "repo-560 (kener): gate PASS (correct-accept NEEDS_CONFIGURATION), source PASS, build PASS (617 s), run FAIL: migration command 'vite-node scripts/fix-migration-ext.ts && npx knex migrate:latest' exited 127, log tail 'sh: vite-node: not found' (dev dependency missing in runtime image); probes SKIPPED (run stage failed); cleanup PASS. Classification: run.",
+    "repo-563 (Lychee): gate FAIL false-rejection (verdict NOT_COMPATIBLE, expected NEEDS_CONFIGURATION); source, build, run, probes, cleanup SKIPPED (gate did not accept). Classification: gate.",
+    "AI mode live recorded in both results (repo-560 outcome not-requested, repo-563 completed). Frozen baseline mode not re-checked against state.json by worker.",
+    "No deploy-config.yaml changes made; existing entries for repo-560 and repo-563 used unchanged.",
+    "Harness wrote files as repo-560.local.json and repo-563.local.json, not repo-560.json/repo-563.json as named in the task artifacts; local-summary files in the directory were not touched by me beyond the harness.",
+    "testedCommit is the coordinator-given e6a3b58e; the harness recorded deployzCommit 15224a09 (HEAD) in the results.",
+    "Free disk on C: was 1.8 GB after the batch and after docker builder prune (below the 3 GB threshold; the start value was 4.2 GB). Build had already finished when noticed; no build was stopped.",
+    "Cleanup: no container, network, volume or image with label deployz-campaign=fresh-100 remains."
+  ]
+}
