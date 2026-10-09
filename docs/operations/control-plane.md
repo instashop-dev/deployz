@@ -16,21 +16,25 @@ on demand from the Actions tab. A commit that is no longer the tip of `main`
 when its CI finishes is not deployed; the newer commit's run deploys
 instead. One deploy runs at a time. It:
 
-1. supplies the Lambda's **entire** environment from repository secrets and
-   variables (`collectEnvVars()` in `packages/cdk/src/deployz-stack.ts`
-   replaces the deployed environment; a key that is absent is deleted from
-   the running function);
+1. supplies the Lambda's **entire** environment from the deploy job's GitHub
+   Environment and the repository secrets (`collectEnvVars()` in
+   `packages/cdk/src/deployz-stack.ts` replaces the deployed environment; a
+   key that is absent is deleted from the running function);
 2. refuses to deploy when any of the required values is blank
    (`CDK_DEFAULT_ACCOUNT`, `API_CERTIFICATE_ARN`, `BETTER_AUTH_SECRET`, the
-   GitHub OAuth and App keys, the SES keys, the four Cloudflare keys);
-3. refuses when `PADDLE_API_KEY` is set but the other Paddle values are not;
-4. builds, runs `cdk deploy --all` (the app holds one stack, and its id comes
+   GitHub OAuth and App keys, the SES keys, the four Cloudflare keys,
+   `DEPLOYZ_STAGE`, the public URLs, the API domain and the template-bucket
+   prefix);
+3. refuses when a value does not match the stage (see *Environments and the
+   stage gate*);
+4. refuses when `PADDLE_API_KEY` is set but the other Paddle values are not;
+5. builds, runs `cdk deploy --all` (the app holds one stack, and its id comes
    from `DEPLOYZ_STAGE`; production is `Deployz`), then polls
-   `https://api.deployz.dev/health/ready` (database and schema) for up to
+   `<API_URL>/health/ready` (database and schema) for up to
    five minutes. `CREATE_COMPLETE` alone can hide an initialization crash
    (a failed migration, a missing KMS key ARN); the readiness poll is the
    real check;
-5. optionally republishes the bootstrap template to every deployable Region
+6. optionally republishes the bootstrap template to every deployable Region
    (see below).
 
 `packages/cdk/bin/deployz.ts` refuses to run outside GitHub Actions. To
@@ -61,23 +65,28 @@ name the message id.
 
 ## Configuration keys
 
-Names only; values live in GitHub secrets and variables. Everything the API
-reads is validated in `apps/api/src/env.ts`.
+Names only. Every environment-specific value is a variable on the GitHub
+Environment with the same name as the stage (`production`, `staging`); a
+credential stays a repository secret. A key the Environment does not hold
+arrives as a blank value, and a blank value stops the deploy. Everything the
+API reads is validated in `apps/api/src/env.ts`.
 
 | Group | Keys | Notes |
 | --- | --- | --- |
-| Public URLs | `API_URL`, `WEB_URL`, `MARKETING_URL`, `COOKIE_DOMAIN`, `COOKIE_PREFIX`, `BETTER_AUTH_URL`, `EMAIL_FROM` | Hard-coded in the workflow. `COOKIE_PREFIX` is optional. It changes the session-cookie name. A different name keeps a second control plane in the same cookie domain out of this one's session. `deploy-api.yml` does not set it, so production keeps Better Auth's default cookie name. Build the web image with the same value as the `NEXT_PUBLIC_COOKIE_PREFIX` build argument, or the dashboard looks for a cookie name the API never sets. |
+| Stage | `DEPLOYZ_STAGE` (variable) | Selects the stack id and every stage-derived resource name. The stage gate refuses a deploy when it does not equal the Environment's own name. |
+| Public URLs | `API_URL`, `WEB_URL`, `MARKETING_URL`, `COOKIE_DOMAIN`, `COOKIE_PREFIX`, `BETTER_AUTH_URL`, `EMAIL_FROM` | Variables on the GitHub Environment. `COOKIE_PREFIX` is optional. It changes the session-cookie name. A different name keeps a second control plane in the same cookie domain out of this one's session. Production leaves the variable empty, so it keeps Better Auth's default cookie name. Build the web image with the same value as the `NEXT_PUBLIC_COOKIE_PREFIX` build argument, or the dashboard looks for a cookie name the API never sets. |
 | API domain | `API_DOMAIN_NAME`, `API_CERTIFICATE_ARN` | Both required or the `api.deployz.dev` mapping is removed. The certificate is requested out of band; the Cloudflare `api` CNAME must be DNS-only or TLS fails with 525. |
 | Auth and GitHub | `BETTER_AUTH_SECRET`, `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`, `GITHUB_APP_ID`, `GITHUB_APP_PRIVATE_KEY`, `GITHUB_WEBHOOK_SECRET`, `GITHUB_APP_INSTALL_URL` | The GitHub App's **Setup URL** must be `<WEB_URL>/github/setup` with "Redirect on update" enabled; that page binds the installation to the vendor's organisation and offers sign-in when needed. An installation already bound to another organisation is never rebound (the vendor lands on `?github=failed`); restoring a wrong binding is an operator DB edit. |
 | Email | `AWS_SES_ACCESS_KEY_ID`, `AWS_SES_SECRET_ACCESS_KEY` | Organisation membership email only |
 | Default HTTPS | `CLOUDFLARE_ZONE_ID`, `CLOUDFLARE_ZONE_NAME`, `DEPLOYZ_DEFAULT_HOSTNAME_PREFIX`, `CLOUDFLARE_ZONE_EDIT_API_TOKEN` | [`../networking-and-https.md`](../networking-and-https.md) |
 | AI | `AI_GATEWAY_BASE_URL`, `AI_PROVIDER_API_KEY`, `AI_MODEL` (optional), `AI_GATEWAY_TOKEN` (only for an authenticated gateway) | Unset is safe: deterministic copy is served |
 | Fix instructions | `FIX_INSTRUCTIONS_AI_PROVIDER` (repository variable: `openrouter` or `gateway`; the deploy uses `gateway` when unset), `FIX_INSTRUCTIONS_AI_MODEL` (repository variable, optional; OpenRouter only), `OPENROUTER_API_KEY` (secret) | No fallback model: a provider without its credentials answers 503 for fix instructions only, with `details.reason: not_configured`; a local API names the missing setting. `gateway` is the rollback to the shared gateway and `AI_MODEL` |
-| Customer templates | `BOOTSTRAP_TEMPLATE_URL` (variable), `DEPLOYABLE_AWS_REGIONS` (variable), `BOOTSTRAP_REPUBLISH` (variable) | See *Publishing customer templates* |
+| Customer templates | `BOOTSTRAP_TEMPLATE_URL` (variable), `DEPLOYABLE_AWS_REGIONS` (variable), `BOOTSTRAP_REPUBLISH` (variable), `DEPLOYZ_TEMPLATE_BUCKET_PREFIX` (variable) | See *Publishing customer templates*. `DEPLOYZ_TEMPLATE_BUCKET_PREFIX` names this stage's regional buckets for the republish step; the Lambda's own copy comes from CDK. |
+| Web deploy (`deploy-web.yml`) | `LIGHTSAIL_SERVICE_NAME`, `API_URL`, `APP_HOST`, `MARKETING_HOST`, `COOKIE_PREFIX`, `DEPLOYZ_STAGE` | Variables on the same Environment. `APP_HOST` and `MARKETING_HOST` are bare hostnames. The service name is also the local image tag, so a build for one stage cannot be pushed under another stage's name. |
 | Release builds | `DOCKERHUB_SECRET_NAME` (variable) | [`../docker-hub-credentials.md`](../docker-hub-credentials.md). Unresolvable name fails every build; empty means unset. |
 | Billing | `PADDLE_API_KEY`, `PADDLE_WEBHOOK_SECRET`, `PADDLE_CLIENT_TOKEN`, `PADDLE_PRICE_PLATFORM`, `PADDLE_PRICE_DEPLOYMENT`, `PADDLE_ENVIRONMENT` (variable, defaults to `sandbox`), `BILLING_ENFORCEMENT` (variable; `off` pauses the production-deployment subscription gate) | [`../billing/paddle-billing.md`](../billing/paddle-billing.md) |
 | Secrets | `DEPLOYZ_KMS_KEY_ARN` | Set by CDK from the stack's own key; the API fails to start without it |
-| Set by CDK | `DATABASE_URL`, `JOB_QUEUE_URL`, `DEPLOYZ_ECR_REPOSITORY_NAME`, `DEPLOYZ_TEMPLATE_BUCKET_PREFIX`, `BUILD_LOG_GROUP_NAME`, `SOURCE_BUCKET`, `BUILD_PROJECT_NAME` | Not in the workflow. `DEPLOYZ_TEMPLATE_BUCKET_PREFIX` is set only outside production, where the API defaults it to `deployz-templates`. |
+| Set by CDK | `DATABASE_URL`, `JOB_QUEUE_URL`, `DEPLOYZ_ECR_REPOSITORY_NAME`, `BUILD_LOG_GROUP_NAME`, `SOURCE_BUCKET`, `BUILD_PROJECT_NAME` | Not in the workflow. CDK also gives the Lambda `DEPLOYZ_TEMPLATE_BUCKET_PREFIX` outside production; in production the API defaults it to `deployz-templates`. |
 
 `TEAM_ADMIN_EMAILS` and `GITHUB_FIXTURE_MODE` are local-development only and
 are ignored or excluded inside Lambda. Production Team Admin access is
@@ -112,6 +121,43 @@ names. `cdk diff -c local=true -c stage=staging` previews the staging stack.
 Staging shares the `deployz.dev` Cloudflare zone, so it needs its own
 default-hostname prefix (`DEPLOYZ_DEFAULT_HOSTNAME_PREFIX=s-`) and its own
 session-cookie name (`COOKIE_PREFIX`).
+
+### Environments and the stage gate
+
+There are two GitHub Environments, `production` and `staging`. Each one holds
+the variables for its own stage, and both deploy jobs declare the Environment
+they deploy. The `production` Environment allows the `main` branch only and
+needs a reviewer's approval before a run starts. The `staging` Environment
+allows any branch and needs no approval.
+
+The step *Verify the environment values match the stage* then refuses a
+deploy whose values belong to another stage. It reports every violation at
+once. The rules are:
+
+- `DEPLOYZ_STAGE` equals the stage the job is allowed to deploy.
+- `API_URL` is `https://` and `API_DOMAIN_NAME`, and `BETTER_AUTH_URL` equals
+  `API_URL`.
+- `COOKIE_DOMAIN` starts with a dot, and `API_DOMAIN_NAME` ends with it.
+- `DEPLOYZ_DEFAULT_HOSTNAME_PREFIX` is lowercase letters or digits and a
+  trailing dash.
+- In the web deploy, `API_URL` starts with `https://` and carries no path, and
+  `APP_HOST` and `MARKETING_HOST` are bare hostnames.
+- Outside production, every host, cookie and service name the stage owns
+  carries the stage name, and `DEPLOYABLE_AWS_REGIONS` is the control-plane
+  Region only.
+- Outside production, `DEPLOYZ_DEFAULT_HOSTNAME_PREFIX` without its trailing
+  dash starts the stage name (`s-` for `staging`). Every control plane in the
+  shared Cloudflare zone must mint its default hostnames under its own
+  prefix, so a stage that keeps production's `d-` is refused. A later stage
+  whose name starts with `d` fails this rule. That is the intended signal:
+  two control planes in one zone cannot share a prefix.
+- In production, none of those values carries another stage's name, and
+  `COOKIE_PREFIX` is empty.
+
+A non-production stage must carry its own name in every host and name it
+owns. A value without the stage name in it can only belong to another stage,
+so the gate catches a production value in a staging Environment without any
+workflow file naming a production value.
 
 ### Prerequisites an operator must do first
 

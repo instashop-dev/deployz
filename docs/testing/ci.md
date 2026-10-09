@@ -219,7 +219,12 @@ touches that service's runtime dependency closure (a path filter, not
 `deploy-web.yml` and
 [`../operations/control-plane.md`](../operations/control-plane.md)). A
 manual `workflow_dispatch` run always deploys the checked-out ref, skipping
-both checks. When validating a production change, record the SHA and
+both checks. The `deploy` job then runs two fail-closed gates of its own
+before it changes anything: it refuses a blank required value from its GitHub
+Environment, and it refuses a value that belongs to another stage (the rules
+are in
+[`../operations/control-plane.md`](../operations/control-plane.md#environments-and-the-stage-gate)).
+When validating a production change, record the SHA and
 confirm both the CI run and the relevant deploy run finished, rather than
 assuming one implies the other.
 

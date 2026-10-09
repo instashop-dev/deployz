@@ -103,6 +103,10 @@ jobs:
     # contents: write moves the deployed/api tag after a successful deploy.
     permissions:
       contents: write
+    # Every environment-specific value below comes from this GitHub
+    # Environment. A job without this key resolves only repository values, so
+    # the Environment variables would arrive empty.
+    environment: production
     env:
       AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
       AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
@@ -110,34 +114,45 @@ jobs:
       CDK_DEFAULT_REGION: us-east-1
       CDK_DEFAULT_ACCOUNT: ${{ secrets.AWS_ACCOUNT_ID }}
       # Selects the stack id and every stage-derived resource name (KMS alias,
-      # ECR repository, template-bucket prefix; packages/cdk/src/stage.ts). A
-      # literal until the GitHub Environments work gives staging its own
-      # environment and sets this per environment.
-      DEPLOYZ_STAGE: production
+      # ECR repository, template-bucket prefix; packages/cdk/src/stage.ts).
+      DEPLOYZ_STAGE: ${{ vars.DEPLOYZ_STAGE }}
+      # The stage this job is allowed to deploy. It must stay equal to the
+      # job's environment: value above, and a later step makes both the same
+      # workflow input. The stage gate below compares DEPLOYZ_STAGE against
+      # it, so an Environment that carries another stage's values fails.
+      EXPECTED_ENVIRONMENT: production
+      # Prefix of the regional template buckets this stage publishes into.
+      # Read by the republish step below; the Lambda's own copy comes from CDK.
+      DEPLOYZ_TEMPLATE_BUCKET_PREFIX: ${{ vars.DEPLOYZ_TEMPLATE_BUCKET_PREFIX }}
 
       # Everything below is read by packages/cdk collectEnvVars() and becomes
       # the deployed Lambda's environment. That function builds the
       # environment from what is present, so a value missing here is REMOVED
       # from the running function rather than left alone — which is why the
       # verification step below refuses to deploy on a missing one.
-      API_URL: https://api.deployz.dev
-      WEB_URL: https://app.deployz.dev
-      MARKETING_URL: https://deployz.dev
-      COOKIE_DOMAIN: .deployz.dev
-      EMAIL_FROM: info@e.deployz.dev
-      API_DOMAIN_NAME: api.deployz.dev
+      API_URL: ${{ vars.API_URL }}
+      WEB_URL: ${{ vars.WEB_URL }}
+      MARKETING_URL: ${{ vars.MARKETING_URL }}
+      COOKIE_DOMAIN: ${{ vars.COOKIE_DOMAIN }}
+      EMAIL_FROM: ${{ vars.EMAIL_FROM }}
+      API_DOMAIN_NAME: ${{ vars.API_DOMAIN_NAME }}
       API_CERTIFICATE_ARN: ${{ secrets.API_CERTIFICATE_ARN }}
-      # Cloudflare DNS (Phase 1 runtime config). The deployz.dev zone lives on
-      # Cloudflare, so the API needs the zone id/name plus a scoped edit token
-      # before any default-HTTPS DNS flow can write records. Zone id/name and
-      # hostname prefix are public (hardcoded); the edit token is a secret and
-      # required — the completeness gate below fails the deploy if it is missing.
-      CLOUDFLARE_ZONE_ID: bf69c0d8524ef2c5cfbc6e5d33fb7cae
-      CLOUDFLARE_ZONE_NAME: deployz.dev
-      DEPLOYZ_DEFAULT_HOSTNAME_PREFIX: d-
+      # Optional. It changes the session-cookie name, which keeps another
+      # control plane in the same cookie domain out of this one's session.
+      # Production leaves it empty, so Better Auth keeps its default name.
+      COOKIE_PREFIX: ${{ vars.COOKIE_PREFIX }}
+      # Cloudflare DNS (Phase 1 runtime config). The zone lives on Cloudflare,
+      # so the API needs the zone id/name plus a scoped edit token before any
+      # default-HTTPS DNS flow can write records. Zone id/name and hostname
+      # prefix are public values on the Environment; the edit token is a secret.
+      # All four are required — the completeness gate below fails the deploy on
+      # a missing one.
+      CLOUDFLARE_ZONE_ID: ${{ vars.CLOUDFLARE_ZONE_ID }}
+      CLOUDFLARE_ZONE_NAME: ${{ vars.CLOUDFLARE_ZONE_NAME }}
+      DEPLOYZ_DEFAULT_HOSTNAME_PREFIX: ${{ vars.DEPLOYZ_DEFAULT_HOSTNAME_PREFIX }}
       CLOUDFLARE_ZONE_EDIT_API_TOKEN: ${{ secrets.CLOUDFLARE_ZONE_EDIT_API_TOKEN }}
       BETTER_AUTH_SECRET: ${{ secrets.BETTER_AUTH_SECRET }}
-      BETTER_AUTH_URL: https://api.deployz.dev
+      BETTER_AUTH_URL: ${{ vars.BETTER_AUTH_URL }}
       GITHUB_CLIENT_ID: ${{ secrets.OAUTH_GITHUB_CLIENT_ID }}
       GITHUB_CLIENT_SECRET: ${{ secrets.OAUTH_GITHUB_CLIENT_SECRET }}
       GITHUB_APP_ID: ${{ secrets.GH_APP_ID }}
@@ -233,6 +248,8 @@ jobs:
       # EMAIL_FROM stops every invitation being delivered, an unset
       # API_CERTIFICATE_ARN deletes the api.deployz.dev domain mapping and
       # takes the API offline until the Cloudflare CNAME is repointed by hand.
+      # GitHub delivers a variable it does not hold as an empty string, so an
+      # Environment that misses a key fails here.
       - name: Verify the deploy environment is complete
         run: |
           set -euo pipefail
@@ -243,15 +260,110 @@ jobs:
                      GITHUB_APP_INSTALL_URL AWS_SES_ACCESS_KEY_ID \
                      AWS_SES_SECRET_ACCESS_KEY CLOUDFLARE_ZONE_ID \
                      CLOUDFLARE_ZONE_NAME DEPLOYZ_DEFAULT_HOSTNAME_PREFIX \
-                     CLOUDFLARE_ZONE_EDIT_API_TOKEN; do
+                     CLOUDFLARE_ZONE_EDIT_API_TOKEN DEPLOYZ_STAGE API_URL \
+                     WEB_URL MARKETING_URL COOKIE_DOMAIN EMAIL_FROM \
+                     API_DOMAIN_NAME BETTER_AUTH_URL \
+                     DEPLOYZ_TEMPLATE_BUCKET_PREFIX; do
             if [ -z "${!key:-}" ]; then missing+=("$key"); fi
           done
           if [ ${#missing[@]} -ne 0 ]; then
-            echo "Missing repository secrets for: ${missing[*]}" >&2
+            echo "Missing GitHub Environment values for: ${missing[*]}" >&2
             echo "Deploying without them would remove these values from the running API." >&2
             exit 1
           fi
           echo "Every required value is present."
+
+      # A non-production stage must carry its own name in every host, cookie
+      # and bucket name it owns. A value without the stage name in it can only
+      # belong to another stage, so this is what stops a production host, a
+      # production cookie domain or a production hostname prefix reaching a
+      # staging deploy. Every rule compares the values against each other and
+      # against the stage name: no production value is written in this file, so
+      # there is none here to copy into the wrong Environment.
+      - name: Verify the environment values match the stage
+        run: |
+          set -euo pipefail
+          # Every stage other than production. A third stage is one edit here.
+          OTHER_STAGES="staging"
+          STAGE_OWNED="API_DOMAIN_NAME WEB_URL MARKETING_URL COOKIE_DOMAIN COOKIE_PREFIX"
+          problems=()
+
+          if [ "${DEPLOYZ_STAGE}" != "${EXPECTED_ENVIRONMENT}" ]; then
+            problems+=("DEPLOYZ_STAGE is \"${DEPLOYZ_STAGE}\"; this job may deploy only \"${EXPECTED_ENVIRONMENT}\".")
+          fi
+          if [ "${API_URL}" != "https://${API_DOMAIN_NAME}" ]; then
+            problems+=("API_URL must be https:// followed by API_DOMAIN_NAME.")
+          fi
+          if [ "${BETTER_AUTH_URL}" != "${API_URL}" ]; then
+            problems+=("BETTER_AUTH_URL must equal API_URL.")
+          fi
+          case "${API_DOMAIN_NAME}" in
+            *://*|*/*) problems+=("API_DOMAIN_NAME must be a bare hostname, with no scheme and no slash.") ;;
+          esac
+          # WEB_URL and MARKETING_URL reach the Lambda and end up in links sent
+          # to vendors, so a missing scheme or a trailing slash is a live defect.
+          for key in WEB_URL MARKETING_URL; do
+            case "${!key}" in
+              https://*/*) problems+=("$key must carry no path.") ;;
+              https://*) ;;
+              *) problems+=("$key must start with https://.") ;;
+            esac
+          done
+          case "${COOKIE_DOMAIN}" in
+            .*) ;;
+            *) problems+=("COOKIE_DOMAIN must start with a dot.") ;;
+          esac
+          case "${API_DOMAIN_NAME}" in
+            *"${COOKIE_DOMAIN}") ;;
+            *) problems+=("API_DOMAIN_NAME must end with COOKIE_DOMAIN.") ;;
+          esac
+          if ! printf '%s' "${DEPLOYZ_DEFAULT_HOSTNAME_PREFIX}" | grep -Eq '^[a-z0-9]+-$'; then
+            problems+=("DEPLOYZ_DEFAULT_HOSTNAME_PREFIX must be lowercase letters or digits and a trailing dash.")
+          fi
+
+          if [ "${DEPLOYZ_STAGE}" != "production" ]; then
+            for key in $STAGE_OWNED; do
+              case "${!key:-}" in
+                *"${DEPLOYZ_STAGE}"*) ;;
+                *) problems+=("$key must contain the stage name \"${DEPLOYZ_STAGE}\".") ;;
+              esac
+            done
+            # Every control plane in the shared Cloudflare zone must mint its
+            # default hostnames under its own prefix. A stage that keeps
+            # another stage's prefix writes into that stage's DNS namespace.
+            # The rule ties the prefix to the stage name instead of comparing
+            # it with another stage's prefix, so production's prefix stays out
+            # of this file. A later stage whose name starts with the same
+            # letter as production's prefix fails this rule. That is the
+            # intended signal: two control planes in one zone cannot share a
+            # prefix.
+            case "${DEPLOYZ_STAGE}" in
+              "${DEPLOYZ_DEFAULT_HOSTNAME_PREFIX%-}"*) ;;
+              *) problems+=("DEPLOYZ_DEFAULT_HOSTNAME_PREFIX must abbreviate the stage name \"${DEPLOYZ_STAGE}\".") ;;
+            esac
+            if [ "${DEPLOYABLE_AWS_REGIONS:-}" != "${AWS_REGION}" ]; then
+              problems+=("DEPLOYABLE_AWS_REGIONS must be AWS_REGION only outside production.")
+            fi
+          else
+            for key in $STAGE_OWNED; do
+              for stage in $OTHER_STAGES; do
+                case "${!key:-}" in
+                  *"$stage"*) problems+=("$key must not contain the stage name \"$stage\".") ;;
+                esac
+              done
+            done
+            if [ -n "${COOKIE_PREFIX:-}" ]; then
+              problems+=("COOKIE_PREFIX must be empty in production.")
+            fi
+          fi
+
+          if [ ${#problems[@]} -ne 0 ]; then
+            for problem in "${problems[@]}"; do
+              echo "::error::$problem"
+            done
+            exit 1
+          fi
+          echo "Every value matches the stage."
 
       # Paddle is optional (the sandbox/production catalog from Phase 4 does
       # not exist yet), so it is not in the unconditional gate above — an
@@ -319,10 +431,10 @@ jobs:
           set -euo pipefail
           for _ in $(seq 1 20); do
             code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 \
-              https://api.deployz.dev/health/ready || true)
+              "$API_URL/health/ready" || true)
             echo "readiness: $code"
             if [ "$code" = "200" ]; then
-              echo "API ready (DB and schema usable) at https://api.deployz.dev" >> "$GITHUB_STEP_SUMMARY"
+              echo "API ready (DB and schema usable) at $API_URL" >> "$GITHUB_STEP_SUMMARY"
               exit 0
             fi
             sleep 15
@@ -385,9 +497,7 @@ jobs:
           echo "Publishing into bucket: ${bucket}"
           # Every region other than us-east-1 publishes into
           # <prefix>-<region>, so the prefix has to name THIS stage's buckets.
-          # A literal, not a value derived from DEPLOYZ_STAGE: a shell mapping
-          # from stage to prefix is a second copy of the table in
-          # packages/cdk/src/stage.ts, and this workflow deploys production
-          # only.
-          TEMPLATE_BUCKET="${bucket}" TEMPLATE_BUCKET_PREFIX=deployz-templates \
+          # It comes from the Environment, which holds one prefix per stage, so
+          # a staging publish cannot write into production's buckets.
+          TEMPLATE_BUCKET="${bucket}" TEMPLATE_BUCKET_PREFIX="${DEPLOYZ_TEMPLATE_BUCKET_PREFIX}" \
             pnpm --filter @deployz/cdk run publish:bootstrap

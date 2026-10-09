@@ -32,6 +32,7 @@ Three decisions with substantial detail have their own files:
 | 2026-10-02 | A migration correction rides the migration seat as a new revision of the same family | Active |
 | 2026-10-02 | A configuration update settles on its rollout; service mutations never overlap | Active |
 | 2026-10-08 | Staging is a second stack in the same account and Cloudflare zone, with the `s-` hostname prefix, and promotion to production needs an approval | Active |
+| 2026-10-09 | Every environment-specific deploy value is a GitHub Environment variable, and the stage gate derives its rules from the stage name | Active |
 | 2026-10-10 | A repository with no buildable Dockerfile is NOT_COMPATIBLE when the evidence is complete | Active |
 | 2026-10-10 | An image that runs several supervised application processes (s6-overlay, supervisord) is NOT_COMPATIBLE | Active |
 | 2026-10-12 | A deploy fails closed when the application needs a database or cache that the deployment does not have | Active |
@@ -664,4 +665,35 @@ first, and a human approves before the same commit reaches production.
 What would change it: a staging workload heavy enough to contend with
 production for account-level quota, or a compliance requirement to separate
 non-production data, would need a second account.
+
+
+## Environment values are GitHub Environment variables (2026-10-09)
+
+Both deploy workflows carried production's own values as literals: the API
+host, the dashboard host, the cookie domain, the Cloudflare zone id, the
+default-hostname prefix and the Lightsail service name. A second stage could
+then only be added by copying the file, and a literal left behind would
+deploy a production value into staging — or push a staging image under
+production's service name.
+
+- Every environment-specific value is now a variable on the GitHub
+  Environment that carries the stage's name, and each `deploy` job declares
+  that Environment. A job without `environment:` resolves repository values
+  only, so the declaration is what makes an Environment variable resolve.
+  The key names did not change, so the existing secrets keep resolving.
+- GitHub delivers a variable it does not hold as an empty string, and
+  `collectEnvVars()` replaces the Lambda's whole environment, so a blank
+  value deletes a capability from the running API. Both workflows therefore
+  check every required key before `cdk deploy` and before the image build.
+- The stage gate derives its rules from the stage name: outside production
+  every host, cookie and service name the stage owns must carry the stage
+  name, and production must carry no other stage's name. The rules compare
+  the values against each other and against the stage name, so no production
+  value is written in a workflow file. A production literal in a workflow
+  file is what this change removes, and a rule that named production's values
+  would put one back.
+
+What would change it: a stage whose hosts cannot carry the stage name — a
+separate domain per stage, for example — would need the gate to compare each
+value against a per-Environment expected value instead of the stage name.
 
