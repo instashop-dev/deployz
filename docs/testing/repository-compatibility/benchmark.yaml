@@ -49,6 +49,7 @@ findings:
   - { id: COMP-040, type: ANALYSIS_BUG, facts: [unsupported, compatibility] }
   - { id: COMP-041, type: ANALYSIS_MISSING_SIGNAL, facts: [compatibility] }
   - { id: COMP-042, type: ANALYSIS_BUG, facts: [compatibility] }
+  - { id: COMP-043, type: ANALYSIS_BUG, facts: [compatibility] }
 
 repositories:
   - id: repo-001

@@ -8,6 +8,7 @@ import {
   checkKubernetes,
   checkPersistentVolumes,
   checkPulumi,
+  checkRedisUnsupported,
   checkTerraform,
 } from '../src/rejection.js';
 
@@ -584,5 +585,27 @@ describe('compose volumes of a service that builds another Dockerfile', () => {
         'services:\n  main:\n    build:\n      context: .\n      dockerfile: docker/Dockerfile\n    volumes:\n      - app_storage:/app/storage\n  postgres:\n    image: postgres:16\nvolumes:\n  app_storage:\n',
     };
     expect(detectLocalFilesystem(tree).detected).toBe(true);
+  });
+});
+
+describe('an option in a sample or a comment is not the requirement of the app', () => {
+  it('ignores a Pulumi package in a deployment sample directory', () => {
+    const tree = { 'package.json': '{}', 'deploy/pulumi/package.json': JSON.stringify({ dependencies: { '@pulumi/pulumi': '^3.0.0' } }) };
+    expect(checkPulumi(tree).detected).toBe(false);
+  });
+
+  it('keeps rejecting a Pulumi package in the application', () => {
+    const tree = { 'package.json': JSON.stringify({ dependencies: { '@pulumi/pulumi': '^3.0.0' } }) };
+    expect(checkPulumi(tree).detected).toBe(true);
+  });
+
+  it('ignores a rediss:// URL that an env sample only mentions in a comment', () => {
+    const tree = { '.env.example': 'REDIS_URL= # used for jobs: rediss://:password@host:port\n' };
+    expect(checkRedisUnsupported(tree).detected).toBe(false);
+  });
+
+  it('keeps rejecting a rediss:// URL that an env sample sets', () => {
+    const tree = { '.env.example': 'REDIS_URL=rediss://:password@host:6380\n' };
+    expect(checkRedisUnsupported(tree).detected).toBe(true);
   });
 });

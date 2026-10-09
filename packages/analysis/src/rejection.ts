@@ -870,7 +870,10 @@ export function checkTerraform(tree: FileTree): RejectionFinding {
 /** Pulumi IaC. */
 export function checkPulumi(tree: FileTree): RejectionFinding {
   const config = outsideDeploymentSamples(pulumiConfigFiles(tree));
-  const deps = collectDependencyNames(runtimeTree(tree)).filter((d) => d.startsWith('@pulumi/'));
+  // A Pulumi package in a deployment sample directory is the self-hoster's option, not the app.
+  const deps = collectDependencyNames(
+    Object.fromEntries(Object.entries(runtimeTree(tree)).filter(([path]) => !DEPLOYMENT_SAMPLE_DIR_REGEX.test(path))),
+  ).filter((d) => d.startsWith('@pulumi/'));
   if (config.length > 0 || deps.length > 0) {
     const evidence = config.length > 0 ? config[0] : deps[0];
     return {

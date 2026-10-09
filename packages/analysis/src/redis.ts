@@ -816,7 +816,8 @@ function evaluateCompatibility(tree: FileTree): RedisCompatibility {
   // 4. `rediss://` anywhere in env samples or source.
   const candidatePaths = [...findFiles(tree, ENV_SAMPLE_FILE_REGEX), ...Object.keys(tree).filter(isSourceFile)];
   for (const path of candidatePaths) {
-    const content = tree[path];
+    // A comment in an env sample documents a format; it is not a connection.
+    const content = ENV_SAMPLE_FILE_REGEX.test(path) ? tree[path]?.replace(/(?:^|\s)#.*$/gm, '') : tree[path];
     if (content && REDISS_SCHEME_REGEX.test(content)) {
       return { supported: false, reason: TLS_REASON };
     }
