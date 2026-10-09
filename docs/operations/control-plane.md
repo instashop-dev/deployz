@@ -29,9 +29,12 @@ instead. One deploy runs at a time. It:
    stage gate*);
 4. refuses when `PADDLE_API_KEY` is set but the other Paddle values are not;
 5. builds, runs `cdk deploy --all` (the app holds one stack, and its id comes
-   from `DEPLOYZ_STAGE`; production is `Deployz`), then polls
-   `<API_URL>/health/ready` (database and schema) for up to
-   five minutes. `CREATE_COMPLETE` alone can hide an initialization crash
+   from `DEPLOYZ_STAGE`; production is `Deployz`), then checks that
+   `API_DOMAIN_NAME` is a DNS-only CNAME to the regional API domain the stack
+   exports. A missing record, a wrong target or a proxied record fails the
+   deploy here, and names the record to create, instead of as a readiness
+   timeout. It then polls `<API_URL>/health/ready` (database and schema) for
+   up to five minutes. `CREATE_COMPLETE` alone can hide an initialization crash
    (a failed migration, a missing KMS key ARN); the readiness poll is the
    real check;
 6. optionally republishes the bootstrap template to every deployable Region

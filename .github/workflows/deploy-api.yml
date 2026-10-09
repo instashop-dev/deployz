@@ -434,13 +434,123 @@ jobs:
 
       # `--all` instead of a stack name: the app holds exactly one stack, and
       # its id now comes from DEPLOYZ_STAGE.
+      #
+      # The outputs file holds the regional API domain the next step reads. The
+      # CDK CLI reads the outputs through the bootstrap deploy role, so this
+      # needs no new permission, and it writes the file with the real values
+      # even when the stack has no update. An operator who creates the DNS
+      # record and re-runs the same commit therefore still gets the check below.
       - name: Deploy the control-plane stack
         working-directory: packages/cdk
         run: |
           set -euo pipefail
           npx cdk deploy --all \
             --require-approval never \
-            --app "npx tsx bin/deployz.ts"
+            --app "npx tsx bin/deployz.ts" \
+            --outputs-file "$RUNNER_TEMP/cdk-outputs.json"
+
+      # The stack exports the API Gateway regional domain, which is the target
+      # the public API hostname must point at. The output name carries the stack
+      # name, so this matches on the ApiRegionalDomainName suffix instead of a
+      # full key: no stage name and no hostname belongs in this file. The stack
+      # publishes the output only with a custom domain, and a stack with no
+      # output at all is absent from the file, so every unexpected shape fails
+      # here rather than later with a confusing DNS message.
+      - name: Read the API regional domain from the stack outputs
+        id: origin
+        run: |
+          set -euo pipefail
+          OUTPUTS_FILE="$RUNNER_TEMP/cdk-outputs.json" node -e '
+            const fs = require("node:fs");
+            const file = process.env.OUTPUTS_FILE;
+            if (!fs.existsSync(file)) {
+              console.log("::error::The CDK outputs file is missing. The deploy wrote no outputs, so the API origin is unknown.");
+              process.exit(1);
+            }
+            const stacks = JSON.parse(fs.readFileSync(file, "utf8"));
+            const found = [];
+            for (const [stack, outputs] of Object.entries(stacks)) {
+              for (const [key, value] of Object.entries(outputs)) {
+                if (key.endsWith("ApiRegionalDomainName")) found.push([stack + "." + key, value]);
+              }
+            }
+            if (found.length === 0) {
+              console.log("::error::No stack output name ends in ApiRegionalDomainName. The stack publishes this output only when API_DOMAIN_NAME and API_CERTIFICATE_ARN are both set.");
+              process.exit(1);
+            }
+            if (found.length > 1) {
+              console.log("::error::More than one stack output name ends in ApiRegionalDomainName: " + found.map(([key]) => key).join(", ") + ". The deploy cannot select one API origin.");
+              process.exit(1);
+            }
+            const [key, value] = found[0];
+            if (value.trim() === "") {
+              console.log("::error::The stack output " + key + " is empty. The deploy cannot check the DNS record against an empty target.");
+              process.exit(1);
+            }
+            console.log("The API origin comes from " + key + ".");
+            fs.appendFileSync(process.env.GITHUB_OUTPUT, "target=" + value + "\n");
+          '
+
+      # A first deploy of a new stage creates the custom domain, but nothing
+      # creates the DNS record that sends traffic to it. Without this check the
+      # readiness poll below times out and reports the API as broken, which
+      # hides the real cause.
+      #
+      # The record must be a DNS-only CNAME in every stage, so there is no
+      # stage branch here. Cloudflare sends the origin hostname as SNI on a
+      # proxied record, and the API Gateway domain answers 525 to a name it
+      # does not hold.
+      - name: Verify the API hostname resolves to the deployed API
+        env:
+          TARGET: ${{ steps.origin.outputs.target }}
+        run: |
+          set -euo pipefail
+          target="${TARGET%.}"
+          # A host with no record answers nothing, so an empty target would
+          # compare equal to it and pass a missing record.
+          if [ -z "$target" ]; then
+            echo "::error::The API origin is empty, so there is no target to compare $API_DOMAIN_NAME with."
+            exit 1
+          fi
+          problem=""
+          # dig exits 0 with no output for a name that does not exist, and 9
+          # when it reaches no resolver. Keep the exit code, like the curl
+          # polls above, so a broken resolver cannot look like a missing record.
+          status=0
+          answer=$(dig +short +time=5 +tries=2 CNAME "$API_DOMAIN_NAME" | head -1) || status=$?
+          answer="${answer%.}"
+          if [ "$status" -ne 0 ]; then
+            problem="the runner reached no DNS resolver (dig exit code $status). This is a resolver problem, not a missing record. The record must be a DNS-only CNAME to \"$target\"."
+          elif [ "$answer" = "$target" ]; then
+            echo "$API_DOMAIN_NAME is a CNAME to $target."
+          elif [ -n "$answer" ]; then
+            problem="wrong target: the CNAME answers \"$answer\". The record must be a DNS-only CNAME to \"$target\"."
+          else
+            status=0
+            address=$(dig +short +time=5 +tries=2 A "$API_DOMAIN_NAME" | head -1) || status=$?
+            if [ "$status" -ne 0 ]; then
+              problem="the runner reached no DNS resolver (dig exit code $status). This is a resolver problem, not a missing record. The record must be a DNS-only CNAME to \"$target\"."
+            elif [ -z "$address" ]; then
+              problem="the host does not resolve. Make a DNS-only CNAME record to \"$target\"."
+            else
+              problem="the host is proxied, or it is an A record. It must be a DNS-only CNAME to \"$target\"."
+            fi
+          fi
+          if [ -n "$problem" ]; then
+            echo "::error::$API_DOMAIN_NAME: $problem"
+            {
+              echo "### The API hostname does not point at the deployed API"
+              echo
+              echo "| Host | Record type | Target |"
+              echo "| --- | --- | --- |"
+              echo "| \`$API_DOMAIN_NAME\` | CNAME | \`$target\` |"
+              echo
+              echo "$API_DOMAIN_NAME: $problem"
+              echo
+              echo "The record must be DNS only (grey cloud). A proxied record answers 525."
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
 
       # The stack can report CREATE_COMPLETE while the function itself dies at
       # INIT — a migration that cannot apply does exactly that, and it is how
