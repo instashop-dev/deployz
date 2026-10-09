@@ -325,7 +325,11 @@ type ApplicationRow = typeof schema.applications.$inferSelect;
 // no start command, and an image that runs several supervised processes
 // (s6-overlay, supervisord) is NOT_COMPATIBLE. Stored v48 rows answer READY or
 // NEEDS_CONFIGURATION for these repositories.
-export const ANALYSIS_VERSION = 49;
+// Version 50 (fresh-100 F6): a migration script that runs a development-only tool
+// (vite-node, babel-node, ts-node-dev, esno) is not selected for the pre-deploy task
+// when the final image prunes dev dependencies. Stored v49 rows can carry such a
+// command.
+export const ANALYSIS_VERSION = 50;
 
 export interface AnalysisRunnerDeps {
   db: RuntimeDb;

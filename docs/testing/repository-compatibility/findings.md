@@ -1409,3 +1409,15 @@ cleaner verdict signal but a noisier fact signal.
 - Residual (limitation, not fixed because no signal is sound on a second app): repo-549 (`ENTRYPOINT` is a script that dispatches on a mode argument; the script is not in the collected tree and a program ENTRYPOINT with a script cannot be told from a valid one), repo-566 (`ENTRYPOINT ["/openfga"]` is a program that prints its help without a sub-command; the same shape is a valid server in other images).
 - Verification: fixtures only; the effect on the real repositories is for the next compat run (repo-580 depends on the selected Dockerfile being the s6 image).
 - Status: partly fixed (514, 523, 580 fixed; 549, 566 kept)
+
+### COMP-046 — A migration command that needs a development-only tool is selected
+
+- Family: fresh-100 F6 (`ANALYSIS_BUG`), repo-560 (run).
+- Repositories fixed here: repo-560 (the selected pre-deploy command starts with `vite-node`, which the pruned runtime image does not contain; exit 127).
+- Type: ANALYSIS_BUG
+- Expected: no pre-deploy migration command (migration mode is not `pre_deploy`)
+- Actual: the command `vite-node scripts/... && npx knex migrate:latest` was selected
+- Fix: the development-only CLI list in `selectMigrationScript` now includes `vite-node`, `babel-node`, `ts-node-dev` and `esno`. A script that uses one of them is selected only when it is a runtime dependency of the deployed package or the final image keeps development dependencies. `ANALYSIS_VERSION` 50.
+- Regression: `packages/analysis/test/fresh-100-migration-runtime.test.ts` (fixtures only).
+- Verification: fixtures only; the effect on the real repository is for the next compat run.
+- Status: fixed
