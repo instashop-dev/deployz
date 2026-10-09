@@ -6,8 +6,8 @@
   "cohort": "realistic",
   "customerRealism": "high",
   "difficulty": 4,
-  "deployzSha": "5d99c3ec44e19cc4140949253f15cc42e810c431",
-  "analysisVersion": 15,
+  "deployzSha": "fbee536ffe76c3629d03526ba0d542090c48e901",
+  "analysisVersion": 43,
   "tree": {
     "files": 201,
     "entries": 989,
@@ -32,12 +32,12 @@
   "status": "analysed",
   "failure": null,
   "actual": {
-    "compatibility": "NOT_COMPATIBLE",
-    "analysisVerdict": "NOT_COMPATIBLE",
-    "readinessState": "NEEDS_CHANGES",
+    "compatibility": "NEEDS_CONFIGURATION",
+    "analysisVerdict": "NEEDS_ATTENTION",
+    "readinessState": "ALMOST_READY",
     "runtime": "ruby",
     "appRoot": ".",
-    "dockerfilePath": "docker/multi-process/Dockerfile",
+    "dockerfilePath": "docker/single-process/Dockerfile",
     "port": 3000,
     "startCommand": "CMD: [\"/scripts/init\"]",
     "healthDetected": false,
@@ -49,26 +49,28 @@
     "redisConfidence": "low",
     "storage": true,
     "worker": true,
-    "workerCommand": null,
+    "workerCommand": "bundle exec rails runner bin/threaded.rb",
     "migration": false,
     "migrationCommand": null,
     "externalServices": [
       "openai",
       "twilio"
     ],
-    "requiredEnvVars": [],
+    "requiredEnvVars": [
+      "DATABASE_ADAPTER",
+      "DATABASE_PASSWORD"
+    ],
     "unsupported": [
-      "docker-compose-multi-service"
+      "background-worker"
     ],
     "readinessFindings": [
-      "unsupported-multi-service",
       "health-check",
       "database-migrations",
-      "worker-command"
+      "worker-process"
     ],
     "gateFindings": [
-      "unsupported",
       "health-path-required",
+      "required-env-vars-missing",
       "migration-command-missing"
     ],
     "unresolvedQuestions": [
@@ -79,9 +81,8 @@
     {
       "fact": "compatibility",
       "expected": "NEEDS_CONFIGURATION",
-      "actual": "NOT_COMPATIBLE",
-      "match": false,
-      "kind": "false-rejection"
+      "actual": "NEEDS_CONFIGURATION",
+      "match": true
     },
     {
       "fact": "postgres",
@@ -124,8 +125,9 @@
     {
       "fact": "dockerfilePath",
       "expected": "docker/multi-process/Dockerfile",
-      "actual": "docker/multi-process/Dockerfile",
-      "match": true
+      "actual": "docker/single-process/Dockerfile",
+      "match": false,
+      "kind": "fact"
     },
     {
       "fact": "port",
@@ -137,23 +139,13 @@
       "fact": "unsupported",
       "expected": [],
       "actual": [
-        "docker-compose-multi-service"
+        "background-worker"
       ],
       "match": false,
       "kind": "fact"
     }
   ],
   "mismatches": [
-    {
-      "fact": "compatibility",
-      "kind": "false-rejection",
-      "expected": "NEEDS_CONFIGURATION",
-      "actual": "NOT_COMPATIBLE",
-      "finding": {
-        "id": "COMP-010",
-        "type": "ANALYSIS_MISSING_SIGNAL"
-      }
-    },
     {
       "fact": "storage",
       "kind": "fact",
@@ -175,11 +167,18 @@
       }
     },
     {
+      "fact": "dockerfilePath",
+      "kind": "fact",
+      "expected": "docker/multi-process/Dockerfile",
+      "actual": "docker/single-process/Dockerfile",
+      "finding": null
+    },
+    {
       "fact": "unsupported",
       "kind": "fact",
       "expected": [],
       "actual": [
-        "docker-compose-multi-service"
+        "background-worker"
       ],
       "finding": {
         "id": "COMP-010",

@@ -6,8 +6,8 @@
   "cohort": "realistic",
   "customerRealism": "high",
   "difficulty": 3,
-  "deployzSha": "5d99c3ec44e19cc4140949253f15cc42e810c431",
-  "analysisVersion": 15,
+  "deployzSha": "fbee536ffe76c3629d03526ba0d542090c48e901",
+  "analysisVersion": 43,
   "tree": {
     "files": 201,
     "entries": 5303,
@@ -47,14 +47,14 @@
     "healthPath": "/healthz",
     "postgres": true,
     "postgresDetected": false,
-    "redis": true,
+    "redis": false,
     "redisDetected": true,
-    "redisConfidence": "high",
+    "redisConfidence": "medium",
     "storage": false,
     "worker": false,
     "workerCommand": null,
-    "migration": true,
-    "migrationCommand": "tsx scripts/migrate-deploy.ts",
+    "migration": false,
+    "migrationCommand": null,
     "externalServices": [
       "openai",
       "sentry",
@@ -62,26 +62,27 @@
       "stripe"
     ],
     "requiredEnvVars": [
-      "NEXT_PUBLIC_VERCEL_VIEWER_PROJECT_NAME",
-      "VERCEL_BRANCH_URL",
-      "VERCEL_BUILDER_PROJECT_NAME",
-      "VERCEL_LANDING_PROJECT_NAME"
+      "CUSTOM_OAUTH_ISSUER",
+      "DATABASE_URL",
+      "ENCRYPTION_SECRET",
+      "NEXTAUTH_URL",
+      "NEXT_PUBLIC_VIEWER_URL",
+      "VERCEL_BRANCH_URL"
     ],
     "unsupported": [
-      "docker-compose-multi-service",
-      "mysql"
+      "docker-compose-multi-service"
     ],
     "readinessFindings": [
-      "unsupported-database-mysql",
       "unsupported-multi-service"
     ],
     "gateFindings": [
       "unsupported",
-      "unsupported",
-      "required-env-vars-missing"
+      "required-env-vars-missing",
+      "migration-command-missing"
     ],
     "unresolvedQuestions": [
-      "multiple-dockerfiles"
+      "multiple-dockerfiles",
+      "redis-requirement-unclear"
     ]
   },
   "comparisons": [
@@ -100,9 +101,8 @@
     {
       "fact": "redis",
       "expected": false,
-      "actual": true,
-      "match": false,
-      "kind": "fact"
+      "actual": false,
+      "match": true
     },
     {
       "fact": "worker",
@@ -119,8 +119,9 @@
     {
       "fact": "migration",
       "expected": true,
-      "actual": true,
-      "match": true
+      "actual": false,
+      "match": false,
+      "kind": "fact"
     },
     {
       "fact": "appRoot",
@@ -153,23 +154,18 @@
         "docker-compose-multi-service"
       ],
       "actual": [
-        "docker-compose-multi-service",
-        "mysql"
+        "docker-compose-multi-service"
       ],
-      "match": false,
-      "kind": "fact"
+      "match": true
     }
   ],
   "mismatches": [
     {
-      "fact": "redis",
+      "fact": "migration",
       "kind": "fact",
-      "expected": false,
-      "actual": true,
-      "finding": {
-        "id": "COMP-011",
-        "type": "ANALYSIS_BUG"
-      }
+      "expected": true,
+      "actual": false,
+      "finding": null
     },
     {
       "fact": "healthPath",
@@ -179,21 +175,6 @@
       "finding": {
         "id": "COMP-005",
         "type": "ANALYSIS_MISSING_SIGNAL"
-      }
-    },
-    {
-      "fact": "unsupported",
-      "kind": "fact",
-      "expected": [
-        "docker-compose-multi-service"
-      ],
-      "actual": [
-        "docker-compose-multi-service",
-        "mysql"
-      ],
-      "finding": {
-        "id": "COMP-002",
-        "type": "ANALYSIS_BUG"
       }
     }
   ],

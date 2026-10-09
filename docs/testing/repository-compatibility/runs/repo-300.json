@@ -1,49 +1,48 @@
 {
-  "id": "repo-083",
-  "repository": "windmill-labs/windmill",
-  "commit": "0d6bce4a12226adb83fc6050064eb2e80372e36e",
-  "set": "unseen",
+  "id": "repo-300",
+  "repository": "instashop-dev/deployz-phase5-canary",
+  "commit": "6bcc7785f43cc9687dca525f703cb7fe3ef6dc5d",
+  "set": "improvement",
   "cohort": "realistic",
   "customerRealism": "high",
-  "difficulty": 4,
+  "difficulty": 3,
   "deployzSha": "fbee536ffe76c3629d03526ba0d542090c48e901",
   "analysisVersion": 43,
   "tree": {
-    "files": 207,
-    "entries": 10797,
+    "files": 14,
+    "entries": 18,
     "truncated": false
   },
   "expected": {
     "compatibility": "READY",
     "runtime": [
-      "rust",
       "node"
     ],
-    "monorepo": true,
+    "monorepo": false,
     "postgres": true,
     "redis": false,
     "worker": true,
-    "storage": false,
+    "storage": true,
     "migration": true,
     "appRoot": ".",
     "dockerfilePath": "Dockerfile",
-    "port": 8000,
-    "healthPath": "/api/health/status",
+    "port": 3000,
+    "healthPath": "/health",
     "unsupported": []
   },
   "status": "analysed",
   "failure": null,
   "actual": {
-    "compatibility": "NOT_COMPATIBLE",
-    "analysisVerdict": "NOT_COMPATIBLE",
-    "readinessState": "NEEDS_CHANGES",
+    "compatibility": "READY",
+    "analysisVerdict": "READY",
+    "readinessState": "READY",
     "runtime": "node",
     "appRoot": ".",
     "dockerfilePath": "Dockerfile",
-    "port": 8000,
-    "startCommand": "CMD: [\"windmill\"]",
-    "healthDetected": false,
-    "healthPath": null,
+    "port": 3000,
+    "startCommand": "CMD: [\"node\", \"dist/web.js\"]",
+    "healthDetected": true,
+    "healthPath": "/health",
     "postgres": true,
     "postgresDetected": true,
     "redis": false,
@@ -51,42 +50,32 @@
     "redisConfidence": "low",
     "storage": false,
     "worker": true,
-    "workerCommand": null,
+    "workerCommand": "node dist/worker.js",
     "migration": false,
     "migrationCommand": null,
-    "externalServices": [
-      "anthropic",
-      "openai",
-      "stripe"
+    "externalServices": [],
+    "requiredEnvVars": [
+      "DATABASE_URL"
     ],
-    "requiredEnvVars": [],
     "unsupported": [
-      "docker-compose-multi-service"
+      "background-worker"
     ],
     "readinessFindings": [
-      "unsupported-multi-service",
-      "build-context-git-metadata",
-      "health-check",
       "database-migrations",
-      "worker-command"
+      "worker-process",
+      "async-workloads"
     ],
     "gateFindings": [
-      "unsupported",
-      "unsupported",
-      "health-path-required",
       "migration-command-missing"
     ],
-    "unresolvedQuestions": [
-      "multiple-dockerfiles"
-    ]
+    "unresolvedQuestions": []
   },
   "comparisons": [
     {
       "fact": "compatibility",
       "expected": "READY",
-      "actual": "NOT_COMPATIBLE",
-      "match": false,
-      "kind": "false-rejection"
+      "actual": "READY",
+      "match": true
     },
     {
       "fact": "postgres",
@@ -108,9 +97,10 @@
     },
     {
       "fact": "storage",
-      "expected": false,
+      "expected": true,
       "actual": false,
-      "match": true
+      "match": false,
+      "kind": "fact"
     },
     {
       "fact": "migration",
@@ -133,22 +123,21 @@
     },
     {
       "fact": "port",
-      "expected": 8000,
-      "actual": 8000,
+      "expected": 3000,
+      "actual": 3000,
       "match": true
     },
     {
       "fact": "healthPath",
-      "expected": "/api/health/status",
-      "actual": null,
-      "match": false,
-      "kind": "fact"
+      "expected": "/health",
+      "actual": "/health",
+      "match": true
     },
     {
       "fact": "unsupported",
       "expected": [],
       "actual": [
-        "docker-compose-multi-service"
+        "background-worker"
       ],
       "match": false,
       "kind": "fact"
@@ -156,46 +145,27 @@
   ],
   "mismatches": [
     {
-      "fact": "compatibility",
-      "kind": "false-rejection",
-      "expected": "READY",
-      "actual": "NOT_COMPATIBLE",
-      "finding": {
-        "id": "COMP-010",
-        "type": "ANALYSIS_MISSING_SIGNAL"
-      }
+      "fact": "storage",
+      "kind": "fact",
+      "expected": true,
+      "actual": false,
+      "finding": null
     },
     {
       "fact": "migration",
       "kind": "fact",
       "expected": true,
       "actual": false,
-      "finding": {
-        "id": "COMP-014",
-        "type": "ANALYSIS_MISSING_SIGNAL"
-      }
-    },
-    {
-      "fact": "healthPath",
-      "kind": "fact",
-      "expected": "/api/health/status",
-      "actual": null,
-      "finding": {
-        "id": "COMP-005",
-        "type": "ANALYSIS_MISSING_SIGNAL"
-      }
+      "finding": null
     },
     {
       "fact": "unsupported",
       "kind": "fact",
       "expected": [],
       "actual": [
-        "docker-compose-multi-service"
+        "background-worker"
       ],
-      "finding": {
-        "id": "COMP-010",
-        "type": "ANALYSIS_MISSING_SIGNAL"
-      }
+      "finding": null
     }
   ],
   "match": false

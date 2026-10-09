@@ -6,8 +6,8 @@
   "cohort": "realistic",
   "customerRealism": "high",
   "difficulty": 3,
-  "deployzSha": "5d99c3ec44e19cc4140949253f15cc42e810c431",
-  "analysisVersion": 15,
+  "deployzSha": "fbee536ffe76c3629d03526ba0d542090c48e901",
+  "analysisVersion": 43,
   "tree": {
     "files": 201,
     "entries": 2078,
@@ -34,15 +34,15 @@
   "failure": null,
   "actual": {
     "compatibility": "NEEDS_CONFIGURATION",
-    "analysisVerdict": "NEEDS_ATTENTION",
-    "readinessState": "ALMOST_READY",
+    "analysisVerdict": "READY",
+    "readinessState": "READY",
     "runtime": "node",
     "appRoot": ".",
     "dockerfilePath": "Dockerfile",
     "port": 3000,
     "startCommand": "CMD: [\"pnpm\", \"start\"]",
-    "healthDetected": false,
-    "healthPath": null,
+    "healthDetected": true,
+    "healthPath": "/api/health",
     "postgres": true,
     "postgresDetected": true,
     "redis": true,
@@ -51,20 +51,24 @@
     "storage": true,
     "worker": true,
     "workerCommand": null,
-    "migration": true,
-    "migrationCommand": "tsx src/database/migrate.ts create",
+    "migration": false,
+    "migrationCommand": null,
     "externalServices": [
       "smtp",
       "stripe"
     ],
-    "requiredEnvVars": [],
+    "requiredEnvVars": [
+      "APP_URL",
+      "STORAGE_DRIVER"
+    ],
     "unsupported": [],
     "readinessFindings": [
-      "health-check",
+      "database-migrations",
       "worker-command"
     ],
     "gateFindings": [
-      "health-path-required"
+      "required-env-vars-missing",
+      "migration-command-missing"
     ],
     "unresolvedQuestions": []
   },
@@ -102,8 +106,9 @@
     {
       "fact": "migration",
       "expected": true,
-      "actual": true,
-      "match": true
+      "actual": false,
+      "match": false,
+      "kind": "fact"
     },
     {
       "fact": "appRoot",
@@ -126,9 +131,8 @@
     {
       "fact": "healthPath",
       "expected": "/api/health",
-      "actual": null,
-      "match": false,
-      "kind": "fact"
+      "actual": "/api/health",
+      "match": true
     },
     {
       "fact": "unsupported",
@@ -139,14 +143,11 @@
   ],
   "mismatches": [
     {
-      "fact": "healthPath",
+      "fact": "migration",
       "kind": "fact",
-      "expected": "/api/health",
-      "actual": null,
-      "finding": {
-        "id": "COMP-005",
-        "type": "ANALYSIS_MISSING_SIGNAL"
-      }
+      "expected": true,
+      "actual": false,
+      "finding": null
     }
   ],
   "match": false

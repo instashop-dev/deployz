@@ -6,10 +6,10 @@
   "cohort": "boundary",
   "customerRealism": "medium",
   "difficulty": 2,
-  "deployzSha": "5d99c3ec44e19cc4140949253f15cc42e810c431",
-  "analysisVersion": 15,
+  "deployzSha": "fbee536ffe76c3629d03526ba0d542090c48e901",
+  "analysisVersion": 43,
   "tree": {
-    "files": 107,
+    "files": 123,
     "entries": 458,
     "truncated": false
   },
@@ -73,25 +73,22 @@
       "REGION"
     ],
     "unsupported": [
-      "kubernetes",
-      "terraform"
+      "kubernetes"
     ],
     "readinessFindings": [
-      "unsupported-architecture",
       "unsupported-architecture",
       "health-check",
       "database-migrations"
     ],
     "gateFindings": [
       "unsupported",
-      "unsupported",
       "health-path-required",
       "required-env-vars-missing",
-      "migration-command-missing"
+      "migration-command-missing",
+      "deployment-files-ignored"
     ],
     "unresolvedQuestions": [
-      "multiple-dockerfiles",
-      "build-command-unknown"
+      "multiple-dockerfiles"
     ]
   },
   "comparisons": [
@@ -168,10 +165,10 @@
         "terraform"
       ],
       "actual": [
-        "kubernetes",
-        "terraform"
+        "kubernetes"
       ],
-      "match": true
+      "match": false,
+      "kind": "fact"
     }
   ],
   "mismatches": [
@@ -232,6 +229,21 @@
       "actual": null,
       "finding": {
         "id": "COMP-005",
+        "type": "ANALYSIS_MISSING_SIGNAL"
+      }
+    },
+    {
+      "fact": "unsupported",
+      "kind": "fact",
+      "expected": [
+        "kubernetes",
+        "terraform"
+      ],
+      "actual": [
+        "kubernetes"
+      ],
+      "finding": {
+        "id": "COMP-033",
         "type": "ANALYSIS_MISSING_SIGNAL"
       }
     }

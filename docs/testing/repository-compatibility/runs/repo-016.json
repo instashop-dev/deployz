@@ -6,8 +6,8 @@
   "cohort": "realistic",
   "customerRealism": "high",
   "difficulty": 4,
-  "deployzSha": "5d99c3ec44e19cc4140949253f15cc42e810c431",
-  "analysisVersion": 15,
+  "deployzSha": "fbee536ffe76c3629d03526ba0d542090c48e901",
+  "analysisVersion": 43,
   "tree": {
     "files": 201,
     "entries": 3095,
@@ -50,19 +50,24 @@
     "redisConfidence": "high",
     "storage": true,
     "worker": true,
-    "workerCommand": null,
-    "migration": true,
-    "migrationCommand": "npx sequelize db:migrate",
+    "workerCommand": "yarn start --services=worker",
+    "migration": false,
+    "migrationCommand": null,
     "externalServices": [
       "sentry",
       "smtp"
     ],
     "requiredEnvVars": [],
-    "unsupported": [],
-    "readinessFindings": [
-      "worker-command"
+    "unsupported": [
+      "background-worker"
     ],
-    "gateFindings": [],
+    "readinessFindings": [
+      "database-migrations",
+      "worker-process"
+    ],
+    "gateFindings": [
+      "migration-command-missing"
+    ],
     "unresolvedQuestions": [
       "multiple-dockerfiles"
     ]
@@ -102,8 +107,9 @@
     {
       "fact": "migration",
       "expected": true,
-      "actual": true,
-      "match": true
+      "actual": false,
+      "match": false,
+      "kind": "fact"
     },
     {
       "fact": "appRoot",
@@ -132,8 +138,11 @@
     {
       "fact": "unsupported",
       "expected": [],
-      "actual": [],
-      "match": true
+      "actual": [
+        "background-worker"
+      ],
+      "match": false,
+      "kind": "fact"
     }
   ],
   "mismatches": [
@@ -146,6 +155,22 @@
         "id": "COMP-017",
         "type": "ANALYSIS_MISSING_SIGNAL"
       }
+    },
+    {
+      "fact": "migration",
+      "kind": "fact",
+      "expected": true,
+      "actual": false,
+      "finding": null
+    },
+    {
+      "fact": "unsupported",
+      "kind": "fact",
+      "expected": [],
+      "actual": [
+        "background-worker"
+      ],
+      "finding": null
     }
   ],
   "match": false

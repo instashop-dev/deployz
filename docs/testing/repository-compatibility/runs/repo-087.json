@@ -6,8 +6,8 @@
   "cohort": "realistic",
   "customerRealism": "high",
   "difficulty": 3,
-  "deployzSha": "5d99c3ec44e19cc4140949253f15cc42e810c431",
-  "analysisVersion": 15,
+  "deployzSha": "fbee536ffe76c3629d03526ba0d542090c48e901",
+  "analysisVersion": 43,
   "tree": {
     "files": 199,
     "entries": 2064,
@@ -33,16 +33,16 @@
   "status": "analysed",
   "failure": null,
   "actual": {
-    "compatibility": "NOT_COMPATIBLE",
-    "analysisVerdict": "NOT_COMPATIBLE",
-    "readinessState": "NEEDS_CHANGES",
+    "compatibility": "NEEDS_CONFIGURATION",
+    "analysisVerdict": "NEEDS_ATTENTION",
+    "readinessState": "ALMOST_READY",
     "runtime": "python",
     "appRoot": ".",
     "dockerfilePath": "Dockerfile",
     "port": 80,
     "startCommand": "ENTRYPOINT: [\"/sbin/tini\", \"--\", \"/opt/recipes/boot.sh\"]",
-    "healthDetected": true,
-    "healthPath": "/health",
+    "healthDetected": false,
+    "healthPath": null,
     "postgres": true,
     "postgresDetected": true,
     "redis": false,
@@ -57,15 +57,13 @@
       "stripe"
     ],
     "requiredEnvVars": [],
-    "unsupported": [
-      "local-filesystem"
-    ],
+    "unsupported": [],
     "readinessFindings": [
-      "local-file-storage",
+      "health-check",
       "database-migrations"
     ],
     "gateFindings": [
-      "unsupported",
+      "health-path-required",
       "migration-command-missing"
     ],
     "unresolvedQuestions": [
@@ -77,9 +75,8 @@
     {
       "fact": "compatibility",
       "expected": "NEEDS_CONFIGURATION",
-      "actual": "NOT_COMPATIBLE",
-      "match": false,
-      "kind": "false-rejection"
+      "actual": "NEEDS_CONFIGURATION",
+      "match": true
     },
     {
       "fact": "postgres",
@@ -134,24 +131,11 @@
     {
       "fact": "unsupported",
       "expected": [],
-      "actual": [
-        "local-filesystem"
-      ],
-      "match": false,
-      "kind": "fact"
+      "actual": [],
+      "match": true
     }
   ],
   "mismatches": [
-    {
-      "fact": "compatibility",
-      "kind": "false-rejection",
-      "expected": "NEEDS_CONFIGURATION",
-      "actual": "NOT_COMPATIBLE",
-      "finding": {
-        "id": "COMP-024",
-        "type": "ANALYSIS_BUG"
-      }
-    },
     {
       "fact": "storage",
       "kind": "fact",
@@ -170,18 +154,6 @@
       "finding": {
         "id": "COMP-014",
         "type": "ANALYSIS_MISSING_SIGNAL"
-      }
-    },
-    {
-      "fact": "unsupported",
-      "kind": "fact",
-      "expected": [],
-      "actual": [
-        "local-filesystem"
-      ],
-      "finding": {
-        "id": "COMP-024",
-        "type": "ANALYSIS_BUG"
       }
     }
   ],

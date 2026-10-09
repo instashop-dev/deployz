@@ -6,8 +6,8 @@
   "cohort": "boundary",
   "customerRealism": "medium",
   "difficulty": 2,
-  "deployzSha": "5d99c3ec44e19cc4140949253f15cc42e810c431",
-  "analysisVersion": 15,
+  "deployzSha": "fbee536ffe76c3629d03526ba0d542090c48e901",
+  "analysisVersion": 43,
   "tree": {
     "files": 229,
     "entries": 3615,
@@ -36,7 +36,7 @@
     "compatibility": "NOT_COMPATIBLE",
     "analysisVerdict": "NOT_COMPATIBLE",
     "readinessState": "NEEDS_CHANGES",
-    "runtime": "node",
+    "runtime": "go",
     "appRoot": ".",
     "dockerfilePath": "Dockerfile",
     "port": 4466,
@@ -56,13 +56,8 @@
     "externalServices": [],
     "requiredEnvVars": [
       "ELECTRON_START_URL",
-      "HEADLAMP_BACKEND_TOKEN",
-      "HEADLAMP_CONFIG_ALLOW_KUBECONFIG_CHANGES",
-      "HEADLAMP_CONFIG_ENABLE_DYNAMIC_CLUSTERS",
-      "HEADLAMP_CONFIG_ENABLE_HELM",
       "HEADLAMP_WINDOWS_CLIENT_ID",
-      "HEADLAMP_WINDOWS_SIGN_EMAIL",
-      "REACT_APP_HEADLAMP_BACKEND_TOKEN"
+      "HEADLAMP_WINDOWS_SIGN_EMAIL"
     ],
     "unsupported": [
       "kubernetes"

@@ -6,8 +6,8 @@
   "cohort": "realistic",
   "customerRealism": "high",
   "difficulty": 3,
-  "deployzSha": "5d99c3ec44e19cc4140949253f15cc42e810c431",
-  "analysisVersion": 15,
+  "deployzSha": "fbee536ffe76c3629d03526ba0d542090c48e901",
+  "analysisVersion": 43,
   "tree": {
     "files": 201,
     "entries": 987,
@@ -33,9 +33,9 @@
   "status": "analysed",
   "failure": null,
   "actual": {
-    "compatibility": "NEEDS_CONFIGURATION",
-    "analysisVerdict": "NEEDS_ATTENTION",
-    "readinessState": "ALMOST_READY",
+    "compatibility": "NOT_COMPATIBLE",
+    "analysisVerdict": "NOT_COMPATIBLE",
+    "readinessState": "NEEDS_CHANGES",
     "runtime": "node",
     "appRoot": ".",
     "dockerfilePath": "Dockerfile",
@@ -59,20 +59,17 @@
       "smtp"
     ],
     "requiredEnvVars": [
-      "EENGINE_TOKEN_LOG_AGE",
-      "EE_ENV_LOADED",
-      "ENCRYPT_SECRET",
-      "TF_CPP_MIN_LOG_LEVEL",
-      "UV_THREADPOOL_SIZE"
+      "ENCRYPT_SECRET"
     ],
     "unsupported": [],
     "readinessFindings": [
+      "build-context-git-metadata",
       "port-unresolved",
       "worker-command"
     ],
     "gateFindings": [
-      "port-missing",
-      "required-env-vars-missing"
+      "unsupported",
+      "port-missing"
     ],
     "unresolvedQuestions": [
       "build-command-unknown"
@@ -82,8 +79,9 @@
     {
       "fact": "compatibility",
       "expected": "NEEDS_CONFIGURATION",
-      "actual": "NEEDS_CONFIGURATION",
-      "match": true
+      "actual": "NOT_COMPATIBLE",
+      "match": false,
+      "kind": "false-rejection"
     },
     {
       "fact": "postgres",
@@ -148,6 +146,16 @@
     }
   ],
   "mismatches": [
+    {
+      "fact": "compatibility",
+      "kind": "false-rejection",
+      "expected": "NEEDS_CONFIGURATION",
+      "actual": "NOT_COMPATIBLE",
+      "finding": {
+        "id": "COMP-030",
+        "type": "ANALYSIS_MISSING_SIGNAL"
+      }
+    },
     {
       "fact": "port",
       "kind": "fact",

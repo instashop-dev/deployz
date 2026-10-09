@@ -6,8 +6,8 @@
   "cohort": "messy",
   "customerRealism": "high",
   "difficulty": 4,
-  "deployzSha": "5d99c3ec44e19cc4140949253f15cc42e810c431",
-  "analysisVersion": 15,
+  "deployzSha": "fbee536ffe76c3629d03526ba0d542090c48e901",
+  "analysisVersion": 43,
   "tree": {
     "files": 203,
     "entries": 2972,
@@ -33,16 +33,16 @@
   "status": "analysed",
   "failure": null,
   "actual": {
-    "compatibility": "READY",
-    "analysisVerdict": "READY",
-    "readinessState": "READY",
+    "compatibility": "NEEDS_CONFIGURATION",
+    "analysisVerdict": "NEEDS_ATTENTION",
+    "readinessState": "ALMOST_READY",
     "runtime": "node",
     "appRoot": ".",
     "dockerfilePath": "prod.Dockerfile",
-    "port": 8080,
+    "port": 80,
     "startCommand": "CMD: [\"node\", \"prod_run.mjs\"]",
-    "healthDetected": true,
-    "healthPath": "/health",
+    "healthDetected": false,
+    "healthPath": null,
     "postgres": true,
     "postgresDetected": true,
     "redis": false,
@@ -57,12 +57,18 @@
       "auth0",
       "smtp"
     ],
-    "requiredEnvVars": [],
+    "requiredEnvVars": [
+      "DATA_ENCRYPTION_KEY",
+      "VITE_BASE_URL"
+    ],
     "unsupported": [],
     "readinessFindings": [
+      "health-check",
       "database-migrations"
     ],
     "gateFindings": [
+      "health-path-required",
+      "required-env-vars-missing",
       "migration-command-missing"
     ],
     "unresolvedQuestions": [
@@ -73,9 +79,8 @@
     {
       "fact": "compatibility",
       "expected": "NEEDS_CONFIGURATION",
-      "actual": "READY",
-      "match": false,
-      "kind": "configuration-detection"
+      "actual": "NEEDS_CONFIGURATION",
+      "match": true
     },
     {
       "fact": "postgres",
@@ -123,15 +128,15 @@
     {
       "fact": "port",
       "expected": 80,
-      "actual": 8080,
-      "match": false,
-      "kind": "fact"
+      "actual": 80,
+      "match": true
     },
     {
       "fact": "healthPath",
       "expected": "/health",
-      "actual": "/health",
-      "match": true
+      "actual": null,
+      "match": false,
+      "kind": "fact"
     },
     {
       "fact": "unsupported",
@@ -141,16 +146,6 @@
     }
   ],
   "mismatches": [
-    {
-      "fact": "compatibility",
-      "kind": "configuration-detection",
-      "expected": "NEEDS_CONFIGURATION",
-      "actual": "READY",
-      "finding": {
-        "id": "COMP-017",
-        "type": "ANALYSIS_MISSING_SIGNAL"
-      }
-    },
     {
       "fact": "migration",
       "kind": "fact",
@@ -162,14 +157,11 @@
       }
     },
     {
-      "fact": "port",
+      "fact": "healthPath",
       "kind": "fact",
-      "expected": 80,
-      "actual": 8080,
-      "finding": {
-        "id": "COMP-028",
-        "type": "ANALYSIS_BUG"
-      }
+      "expected": "/health",
+      "actual": null,
+      "finding": null
     }
   ],
   "match": false

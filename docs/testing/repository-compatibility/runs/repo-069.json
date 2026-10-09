@@ -6,8 +6,8 @@
   "cohort": "realistic",
   "customerRealism": "high",
   "difficulty": 2,
-  "deployzSha": "5d99c3ec44e19cc4140949253f15cc42e810c431",
-  "analysisVersion": 15,
+  "deployzSha": "fbee536ffe76c3629d03526ba0d542090c48e901",
+  "analysisVersion": 43,
   "tree": {
     "files": 222,
     "entries": 37910,
@@ -36,13 +36,13 @@
   "status": "analysed",
   "failure": null,
   "actual": {
-    "compatibility": "NOT_COMPATIBLE",
-    "analysisVerdict": "NOT_COMPATIBLE",
-    "readinessState": "NEEDS_CHANGES",
+    "compatibility": "NEEDS_CONFIGURATION",
+    "analysisVerdict": "READY",
+    "readinessState": "READY",
     "runtime": "node",
     "appRoot": ".",
     "dockerfilePath": "packages/twenty-docker/twenty/Dockerfile",
-    "port": 2020,
+    "port": 3000,
     "startCommand": "CMD: [\"node\", \"dist/main\"]",
     "healthDetected": true,
     "healthPath": "/healthz",
@@ -53,32 +53,29 @@
     "redisConfidence": "high",
     "storage": true,
     "worker": true,
-    "workerCommand": null,
-    "migration": true,
-    "migrationCommand": "node dist/command/command run-instance-commands",
+    "workerCommand": "yarn worker:prod",
+    "migration": false,
+    "migrationCommand": null,
     "externalServices": [
       "sentry",
       "smtp",
       "stripe"
     ],
     "requiredEnvVars": [
-      "SSL_CERT_PATH",
-      "SSL_KEY_PATH",
+      "STORAGE_TYPE",
       "TWENTY_API_URL"
     ],
     "unsupported": [
-      "docker-compose-multi-service",
-      "terraform"
+      "background-worker"
     ],
     "readinessFindings": [
-      "unsupported-multi-service",
-      "unsupported-architecture",
-      "worker-command"
+      "database-migrations",
+      "worker-process"
     ],
     "gateFindings": [
-      "unsupported",
-      "unsupported",
-      "required-env-vars-missing"
+      "required-env-vars-missing",
+      "migration-command-missing",
+      "deployment-files-ignored"
     ],
     "unresolvedQuestions": [
       "multiple-dockerfiles"
@@ -88,8 +85,9 @@
     {
       "fact": "compatibility",
       "expected": "NOT_COMPATIBLE",
-      "actual": "NOT_COMPATIBLE",
-      "match": true
+      "actual": "NEEDS_CONFIGURATION",
+      "match": false,
+      "kind": "false-acceptance"
     },
     {
       "fact": "postgres",
@@ -118,8 +116,9 @@
     {
       "fact": "migration",
       "expected": true,
-      "actual": true,
-      "match": true
+      "actual": false,
+      "match": false,
+      "kind": "fact"
     },
     {
       "fact": "appRoot",
@@ -136,9 +135,8 @@
     {
       "fact": "port",
       "expected": 3000,
-      "actual": 2020,
-      "match": false,
-      "kind": "fact"
+      "actual": 3000,
+      "match": true
     },
     {
       "fact": "healthPath",
@@ -153,8 +151,7 @@
         "docker-compose-multi-service"
       ],
       "actual": [
-        "docker-compose-multi-service",
-        "terraform"
+        "background-worker"
       ],
       "match": false,
       "kind": "fact"
@@ -162,14 +159,21 @@
   ],
   "mismatches": [
     {
-      "fact": "port",
-      "kind": "fact",
-      "expected": 3000,
-      "actual": 2020,
+      "fact": "compatibility",
+      "kind": "false-acceptance",
+      "expected": "NOT_COMPATIBLE",
+      "actual": "NEEDS_CONFIGURATION",
       "finding": {
-        "id": "COMP-028",
-        "type": "ANALYSIS_BUG"
+        "id": "COMP-015",
+        "type": "ANALYSIS_MISSING_SIGNAL"
       }
+    },
+    {
+      "fact": "migration",
+      "kind": "fact",
+      "expected": true,
+      "actual": false,
+      "finding": null
     },
     {
       "fact": "unsupported",
@@ -179,8 +183,7 @@
         "docker-compose-multi-service"
       ],
       "actual": [
-        "docker-compose-multi-service",
-        "terraform"
+        "background-worker"
       ],
       "finding": {
         "id": "COMP-015",

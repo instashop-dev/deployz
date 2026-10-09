@@ -6,8 +6,8 @@
   "cohort": "messy",
   "customerRealism": "high",
   "difficulty": 3,
-  "deployzSha": "5d99c3ec44e19cc4140949253f15cc42e810c431",
-  "analysisVersion": 15,
+  "deployzSha": "fbee536ffe76c3629d03526ba0d542090c48e901",
+  "analysisVersion": 43,
   "tree": {
     "files": 201,
     "entries": 611,
@@ -33,7 +33,7 @@
   "status": "analysed",
   "failure": null,
   "actual": {
-    "compatibility": "NEEDS_CONFIGURATION",
+    "compatibility": "READY",
     "analysisVerdict": "READY",
     "readinessState": "READY",
     "runtime": "node",
@@ -51,17 +51,16 @@
     "storage": true,
     "worker": false,
     "workerCommand": null,
-    "migration": true,
-    "migrationCommand": "npx drizzle-kit push",
+    "migration": false,
+    "migrationCommand": null,
     "externalServices": [],
-    "requiredEnvVars": [
-      "FFMPEG_PATH",
-      "ZIPLINE_OVERRIDE_DISABLED_WORKER_LOG"
-    ],
+    "requiredEnvVars": [],
     "unsupported": [],
-    "readinessFindings": [],
+    "readinessFindings": [
+      "database-migrations"
+    ],
     "gateFindings": [
-      "required-env-vars-missing"
+      "migration-command-missing"
     ],
     "unresolvedQuestions": []
   },
@@ -69,8 +68,9 @@
     {
       "fact": "compatibility",
       "expected": "NEEDS_CONFIGURATION",
-      "actual": "NEEDS_CONFIGURATION",
-      "match": true
+      "actual": "READY",
+      "match": false,
+      "kind": "configuration-detection"
     },
     {
       "fact": "postgres",
@@ -99,8 +99,9 @@
     {
       "fact": "migration",
       "expected": true,
-      "actual": true,
-      "match": true
+      "actual": false,
+      "match": false,
+      "kind": "fact"
     },
     {
       "fact": "appRoot",
@@ -133,6 +134,21 @@
       "match": true
     }
   ],
-  "mismatches": [],
-  "match": true
+  "mismatches": [
+    {
+      "fact": "compatibility",
+      "kind": "configuration-detection",
+      "expected": "NEEDS_CONFIGURATION",
+      "actual": "READY",
+      "finding": null
+    },
+    {
+      "fact": "migration",
+      "kind": "fact",
+      "expected": true,
+      "actual": false,
+      "finding": null
+    }
+  ],
+  "match": false
 }

@@ -6,8 +6,8 @@
   "cohort": "realistic",
   "customerRealism": "high",
   "difficulty": 1,
-  "deployzSha": "5d99c3ec44e19cc4140949253f15cc42e810c431",
-  "analysisVersion": 15,
+  "deployzSha": "fbee536ffe76c3629d03526ba0d542090c48e901",
+  "analysisVersion": 43,
   "tree": {
     "files": 201,
     "entries": 1216,
@@ -44,9 +44,9 @@
     "healthPath": "/healthz",
     "postgres": false,
     "postgresDetected": false,
-    "redis": true,
+    "redis": false,
     "redisDetected": true,
-    "redisConfidence": "high",
+    "redisConfidence": "medium",
     "storage": false,
     "worker": false,
     "workerCommand": null,
@@ -55,8 +55,7 @@
     "externalServices": [],
     "requiredEnvVars": [
       "GITHUB_REF_NAME",
-      "GITHUB_REPOSITORY",
-      "SEARXNG_DEBUG"
+      "GITHUB_REPOSITORY"
     ],
     "unsupported": [],
     "readinessFindings": [
@@ -69,7 +68,8 @@
     ],
     "unresolvedQuestions": [
       "multiple-dockerfiles",
-      "start-command-unknown"
+      "start-command-unknown",
+      "redis-requirement-unclear"
     ]
   },
   "comparisons": [
@@ -88,9 +88,8 @@
     {
       "fact": "redis",
       "expected": false,
-      "actual": true,
-      "match": false,
-      "kind": "fact"
+      "actual": false,
+      "match": true
     },
     {
       "fact": "worker",
@@ -138,13 +137,6 @@
     }
   ],
   "mismatches": [
-    {
-      "fact": "redis",
-      "kind": "fact",
-      "expected": false,
-      "actual": true,
-      "finding": null
-    },
     {
       "fact": "dockerfilePath",
       "kind": "fact",

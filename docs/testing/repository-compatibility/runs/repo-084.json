@@ -6,8 +6,8 @@
   "cohort": "realistic",
   "customerRealism": "medium",
   "difficulty": 4,
-  "deployzSha": "5d99c3ec44e19cc4140949253f15cc42e810c431",
-  "analysisVersion": 15,
+  "deployzSha": "fbee536ffe76c3629d03526ba0d542090c48e901",
+  "analysisVersion": 43,
   "tree": {
     "files": 206,
     "entries": 12127,
@@ -36,15 +36,15 @@
   "failure": null,
   "actual": {
     "compatibility": "NEEDS_CONFIGURATION",
-    "analysisVerdict": "READY",
-    "readinessState": "READY",
+    "analysisVerdict": "NEEDS_ATTENTION",
+    "readinessState": "ALMOST_READY",
     "runtime": "node",
     "appRoot": ".",
     "dockerfilePath": "Dockerfile",
     "port": 8080,
-    "startCommand": "start: tsc && node dist/app.js",
+    "startCommand": null,
     "healthDetected": true,
-    "healthPath": "/sync/status",
+    "healthPath": "/health",
     "postgres": true,
     "postgresDetected": true,
     "redis": true,
@@ -53,24 +53,26 @@
     "storage": true,
     "worker": false,
     "workerCommand": null,
-    "migration": true,
-    "migrationCommand": "cd packages/database/lib && knex migrate:make $1 --esm --knexfile ./knexfile.cjs",
+    "migration": false,
+    "migrationCommand": null,
     "externalServices": [
       "sentry",
       "smtp",
       "stripe"
     ],
-    "requiredEnvVars": [
-      "LOCAL_NANGO_USER_ID",
-      "NANGO_ADMIN_KEY"
-    ],
+    "requiredEnvVars": [],
     "unsupported": [],
-    "readinessFindings": [],
+    "readinessFindings": [
+      "start-command-missing",
+      "database-migrations"
+    ],
     "gateFindings": [
-      "required-env-vars-missing"
+      "start-command-missing",
+      "migration-command-missing"
     ],
     "unresolvedQuestions": [
-      "multiple-dockerfiles"
+      "multiple-dockerfiles",
+      "start-command-unknown"
     ]
   },
   "comparisons": [
@@ -109,8 +111,9 @@
     {
       "fact": "migration",
       "expected": true,
-      "actual": true,
-      "match": true
+      "actual": false,
+      "match": false,
+      "kind": "fact"
     },
     {
       "fact": "appRoot",
@@ -135,9 +138,8 @@
     {
       "fact": "healthPath",
       "expected": "/health",
-      "actual": "/sync/status",
-      "match": false,
-      "kind": "fact"
+      "actual": "/health",
+      "match": true
     },
     {
       "fact": "unsupported",
@@ -171,6 +173,13 @@
       }
     },
     {
+      "fact": "migration",
+      "kind": "fact",
+      "expected": true,
+      "actual": false,
+      "finding": null
+    },
+    {
       "fact": "dockerfilePath",
       "kind": "fact",
       "expected": "Dockerfile.self_hosted",
@@ -187,16 +196,6 @@
       "actual": 8080,
       "finding": {
         "id": "COMP-027",
-        "type": "ANALYSIS_BUG"
-      }
-    },
-    {
-      "fact": "healthPath",
-      "kind": "fact",
-      "expected": "/health",
-      "actual": "/sync/status",
-      "finding": {
-        "id": "COMP-039",
         "type": "ANALYSIS_BUG"
       }
     },

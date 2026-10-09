@@ -177,6 +177,8 @@ repositories:
     fork: instashop-dev/ghostfolio
     secrets: [ACCESS_TOKEN_SALT, JWT_SECRET_KEY]
     verify: { healthPath: /api/v1/health, appPath: / }
+    smoke:
+      - { path: /api/v1/health, status: 200, jsonPath: status, jsonEquals: OK, exercises: [postgres, redis], graceSeconds: 60 }
     notes:
       - "NestJS + Prisma; reads DATABASE_URL and REDIS_HOST/REDIS_PORT (Redis required: Bull + the health check). Migrations run by docker/entrypoint.sh at boot. Port 3333."
     findings: [DEPLOY-014]
@@ -215,6 +217,9 @@ repositories:
     config:
       - { key: MEMOS_DRIVER, value: postgres }
     verify: { healthPath: /healthz, appPath: / }
+    smoke:
+      - { path: /healthz, status: 200, bodyIncludes: "Service ready" }
+      - { path: /api/v1/instance/profile, status: 200, jsonPath: version, exercises: [postgres], graceSeconds: 30 }
     notes:
       - "Go; PostgreSQL is selected with MEMOS_DRIVER=postgres and read from MEMOS_DSN (a connection string). Migrations run at boot. The Dockerfile ships the backend with a stub frontend page (Stage A note); health and API still answer."
 

@@ -6,8 +6,8 @@
   "cohort": "realistic",
   "customerRealism": "high",
   "difficulty": 4,
-  "deployzSha": "5d99c3ec44e19cc4140949253f15cc42e810c431",
-  "analysisVersion": 15,
+  "deployzSha": "fbee536ffe76c3629d03526ba0d542090c48e901",
+  "analysisVersion": 43,
   "tree": {
     "files": 190,
     "entries": 1850,
@@ -44,12 +44,12 @@
     "port": 8000,
     "startCommand": "ENTRYPOINT: [\"/init\"]",
     "healthDetected": true,
-    "healthPath": "/ws/status",
+    "healthPath": "/",
     "postgres": true,
     "postgresDetected": true,
-    "redis": false,
+    "redis": true,
     "redisDetected": true,
-    "redisConfidence": "medium",
+    "redisConfidence": "high",
     "storage": false,
     "worker": true,
     "workerCommand": null,
@@ -59,7 +59,6 @@
       "openai"
     ],
     "requiredEnvVars": [
-      "OMP_THREAD_LIMIT",
       "PAPERLESS_PROXY_SSL_HEADER",
       "PAPERLESS_SECRET_KEY"
     ],
@@ -77,8 +76,7 @@
       "migration-command-missing"
     ],
     "unresolvedQuestions": [
-      "multiple-dockerfiles",
-      "redis-requirement-unclear"
+      "multiple-dockerfiles"
     ]
   },
   "comparisons": [
@@ -97,9 +95,8 @@
     {
       "fact": "redis",
       "expected": true,
-      "actual": false,
-      "match": false,
-      "kind": "fact"
+      "actual": true,
+      "match": true
     },
     {
       "fact": "worker",
@@ -141,9 +138,8 @@
     {
       "fact": "healthPath",
       "expected": "/",
-      "actual": "/ws/status",
-      "match": false,
-      "kind": "fact"
+      "actual": "/",
+      "match": true
     },
     {
       "fact": "unsupported",
@@ -158,16 +154,6 @@
   ],
   "mismatches": [
     {
-      "fact": "redis",
-      "kind": "fact",
-      "expected": true,
-      "actual": false,
-      "finding": {
-        "id": "COMP-011",
-        "type": "ANALYSIS_BUG"
-      }
-    },
-    {
       "fact": "migration",
       "kind": "fact",
       "expected": true,
@@ -175,16 +161,6 @@
       "finding": {
         "id": "COMP-014",
         "type": "ANALYSIS_MISSING_SIGNAL"
-      }
-    },
-    {
-      "fact": "healthPath",
-      "kind": "fact",
-      "expected": "/",
-      "actual": "/ws/status",
-      "finding": {
-        "id": "COMP-039",
-        "type": "ANALYSIS_BUG"
       }
     }
   ],

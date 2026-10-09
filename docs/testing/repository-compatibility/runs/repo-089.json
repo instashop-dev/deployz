@@ -6,10 +6,10 @@
   "cohort": "realistic",
   "customerRealism": "high",
   "difficulty": 5,
-  "deployzSha": "5d99c3ec44e19cc4140949253f15cc42e810c431",
-  "analysisVersion": 15,
+  "deployzSha": "fbee536ffe76c3629d03526ba0d542090c48e901",
+  "analysisVersion": 43,
   "tree": {
-    "files": 202,
+    "files": 201,
     "entries": 8524,
     "truncated": false
   },
@@ -39,13 +39,13 @@
     "compatibility": "NEEDS_CONFIGURATION",
     "analysisVerdict": "READY",
     "readinessState": "READY",
-    "runtime": "python",
-    "appRoot": "engine",
-    "dockerfilePath": "engine/Dockerfile",
-    "port": 5001,
-    "startCommand": "CMD: [\"sh\", \"-c\", \"exec uvicorn stirling.api.app:app --host 0.0.0.0 --port ${STIRLING_ENGINE_PORT:-5001} --workers ${STIRLING_ENGINE_WORKERS:-4}\"]",
+    "runtime": "jvm",
+    "appRoot": ".",
+    "dockerfilePath": "docker/backend/Dockerfile",
+    "port": 8080,
+    "startCommand": "CMD: []",
     "healthDetected": true,
-    "healthPath": "/api/v1/ai/health",
+    "healthPath": "/health",
     "postgres": true,
     "postgresDetected": true,
     "redis": false,
@@ -102,8 +102,7 @@
     ],
     "unresolvedQuestions": [
       "multiple-dockerfiles",
-      "monorepo-target",
-      "build-command-unknown"
+      "monorepo-target"
     ]
   },
   "comparisons": [
@@ -150,28 +149,26 @@
     {
       "fact": "appRoot",
       "expected": ".",
-      "actual": "engine",
-      "match": false,
-      "kind": "fact"
+      "actual": ".",
+      "match": true
     },
     {
       "fact": "dockerfilePath",
       "expected": "docker/embedded/Dockerfile",
-      "actual": "engine/Dockerfile",
+      "actual": "docker/backend/Dockerfile",
       "match": false,
       "kind": "fact"
     },
     {
       "fact": "port",
       "expected": 8080,
-      "actual": 5001,
-      "match": false,
-      "kind": "fact"
+      "actual": 8080,
+      "match": true
     },
     {
       "fact": "healthPath",
       "expected": "/api/v1/info/status",
-      "actual": "/api/v1/ai/health",
+      "actual": "/health",
       "match": false,
       "kind": "fact"
     },
@@ -227,30 +224,10 @@
       }
     },
     {
-      "fact": "appRoot",
-      "kind": "fact",
-      "expected": ".",
-      "actual": "engine",
-      "finding": {
-        "id": "COMP-020",
-        "type": "ANALYSIS_BUG"
-      }
-    },
-    {
       "fact": "dockerfilePath",
       "kind": "fact",
       "expected": "docker/embedded/Dockerfile",
-      "actual": "engine/Dockerfile",
-      "finding": {
-        "id": "COMP-027",
-        "type": "ANALYSIS_BUG"
-      }
-    },
-    {
-      "fact": "port",
-      "kind": "fact",
-      "expected": 8080,
-      "actual": 5001,
+      "actual": "docker/backend/Dockerfile",
       "finding": {
         "id": "COMP-027",
         "type": "ANALYSIS_BUG"
@@ -260,7 +237,7 @@
       "fact": "healthPath",
       "kind": "fact",
       "expected": "/api/v1/info/status",
-      "actual": "/api/v1/ai/health",
+      "actual": "/health",
       "finding": {
         "id": "COMP-005",
         "type": "ANALYSIS_MISSING_SIGNAL"

@@ -6,8 +6,8 @@
   "cohort": "boundary",
   "customerRealism": "high",
   "difficulty": 2,
-  "deployzSha": "5d99c3ec44e19cc4140949253f15cc42e810c431",
-  "analysisVersion": 15,
+  "deployzSha": "fbee536ffe76c3629d03526ba0d542090c48e901",
+  "analysisVersion": 43,
   "tree": {
     "files": 201,
     "entries": 2972,
@@ -35,17 +35,17 @@
   "status": "analysed",
   "failure": null,
   "actual": {
-    "compatibility": "NOT_COMPATIBLE",
-    "analysisVerdict": "NOT_COMPATIBLE",
-    "readinessState": "NEEDS_CHANGES",
+    "compatibility": "NEEDS_CONFIGURATION",
+    "analysisVerdict": "NEEDS_ATTENTION",
+    "readinessState": "ALMOST_READY",
     "runtime": "php",
     "appRoot": ".",
-    "dockerfilePath": "dev/docker/Dockerfile",
+    "dockerfilePath": null,
     "port": 8000,
     "startCommand": null,
     "healthDetected": false,
     "healthPath": null,
-    "postgres": false,
+    "postgres": true,
     "postgresDetected": false,
     "redis": false,
     "redisDetected": true,
@@ -56,20 +56,25 @@
     "migration": false,
     "migrationCommand": null,
     "externalServices": [],
-    "requiredEnvVars": [],
-    "unsupported": [
-      "docker-compose-multi-service"
+    "requiredEnvVars": [
+      "APP_URL",
+      "GITLAB_APP_SECRET",
+      "OKTA_APP_SECRET",
+      "STORAGE_TYPE",
+      "TWITCH_APP_SECRET"
     ],
+    "unsupported": [],
     "readinessFindings": [
-      "unsupported-multi-service",
-      "port-unresolved",
-      "start-command-missing",
-      "health-check"
+      "container-setup",
+      "health-check",
+      "database-migrations"
     ],
     "gateFindings": [
-      "unsupported",
+      "dockerfile-missing",
       "start-command-missing",
-      "health-path-required"
+      "health-path-required",
+      "required-env-vars-missing",
+      "migration-command-missing"
     ],
     "unresolvedQuestions": [
       "multiple-dockerfiles",
@@ -81,14 +86,16 @@
     {
       "fact": "compatibility",
       "expected": "NOT_COMPATIBLE",
-      "actual": "NOT_COMPATIBLE",
-      "match": true
+      "actual": "NEEDS_CONFIGURATION",
+      "match": false,
+      "kind": "false-acceptance"
     },
     {
       "fact": "postgres",
       "expected": false,
-      "actual": false,
-      "match": true
+      "actual": true,
+      "match": false,
+      "kind": "fact"
     },
     {
       "fact": "redis",
@@ -124,8 +131,9 @@
     {
       "fact": "dockerfilePath",
       "expected": "dev/docker/Dockerfile",
-      "actual": "dev/docker/Dockerfile",
-      "match": true
+      "actual": null,
+      "match": false,
+      "kind": "fact"
     },
     {
       "fact": "port",
@@ -146,14 +154,29 @@
       "expected": [
         "mysql"
       ],
-      "actual": [
-        "docker-compose-multi-service"
-      ],
+      "actual": [],
       "match": false,
       "kind": "fact"
     }
   ],
   "mismatches": [
+    {
+      "fact": "compatibility",
+      "kind": "false-acceptance",
+      "expected": "NOT_COMPATIBLE",
+      "actual": "NEEDS_CONFIGURATION",
+      "finding": {
+        "id": "COMP-037",
+        "type": "ANALYSIS_MISSING_SIGNAL"
+      }
+    },
+    {
+      "fact": "postgres",
+      "kind": "fact",
+      "expected": false,
+      "actual": true,
+      "finding": null
+    },
     {
       "fact": "migration",
       "kind": "fact",
@@ -163,6 +186,13 @@
         "id": "COMP-014",
         "type": "ANALYSIS_MISSING_SIGNAL"
       }
+    },
+    {
+      "fact": "dockerfilePath",
+      "kind": "fact",
+      "expected": "dev/docker/Dockerfile",
+      "actual": null,
+      "finding": null
     },
     {
       "fact": "port",
@@ -190,9 +220,7 @@
       "expected": [
         "mysql"
       ],
-      "actual": [
-        "docker-compose-multi-service"
-      ],
+      "actual": [],
       "finding": {
         "id": "COMP-037",
         "type": "ANALYSIS_MISSING_SIGNAL"

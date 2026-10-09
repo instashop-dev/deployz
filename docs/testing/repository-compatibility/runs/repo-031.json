@@ -6,8 +6,8 @@
   "cohort": "realistic",
   "customerRealism": "high",
   "difficulty": 3,
-  "deployzSha": "5d99c3ec44e19cc4140949253f15cc42e810c431",
-  "analysisVersion": 15,
+  "deployzSha": "fbee536ffe76c3629d03526ba0d542090c48e901",
+  "analysisVersion": 43,
   "tree": {
     "files": 200,
     "entries": 1790,
@@ -57,16 +57,8 @@
     "migrationCommand": null,
     "externalServices": [],
     "requiredEnvVars": [
-      "HOMEPAGE_ALLOWED_HOSTS",
       "HOMEPAGE_AUTH_SECRET",
-      "HOMEPAGE_BUILDTIME",
-      "HOMEPAGE_CONFIG_DIR",
-      "HOMEPAGE_MCP_TOKEN",
-      "NEXTAUTH_SECRET",
-      "NEXTAUTH_URL",
-      "NEXT_PUBLIC_BUILDTIME",
-      "NEXT_PUBLIC_REVISION",
-      "NEXT_PUBLIC_VERSION"
+      "HOMEPAGE_MCP_TOKEN"
     ],
     "unsupported": [
       "local-filesystem"

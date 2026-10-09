@@ -6,8 +6,8 @@
   "cohort": "boundary",
   "customerRealism": "high",
   "difficulty": 2,
-  "deployzSha": "5d99c3ec44e19cc4140949253f15cc42e810c431",
-  "analysisVersion": 15,
+  "deployzSha": "fbee536ffe76c3629d03526ba0d542090c48e901",
+  "analysisVersion": 43,
   "tree": {
     "files": 201,
     "entries": 10792,
@@ -46,7 +46,7 @@
     "port": 3000,
     "startCommand": "ENTRYPOINT: [\"/usr/bin/tini\", \"--\"]",
     "healthDetected": true,
-    "healthPath": "/api/v1/streaming/health",
+    "healthPath": "/health",
     "postgres": true,
     "postgresDetected": true,
     "redis": true,
@@ -61,20 +61,7 @@
     "requiredEnvVars": [
       "LDAP_BASE",
       "LDAP_BIND_DN",
-      "LDAP_PASSWORD",
-      "MAX_THREADS",
-      "PAM_DEFAULT_SERVICE",
-      "PERSISTENT_TIMEOUT",
-      "REDIS_NAMESPACE",
-      "S3_HOSTNAME",
-      "S3_KEY_PREFIX",
-      "S3_PROTOCOL",
-      "S3_REGION",
-      "SOCKET",
-      "STREAMING_API_BASE_URL",
-      "TRUSTED_PROXY_IP",
-      "WEB_CONCURRENCY",
-      "WEB_DOMAIN"
+      "LDAP_PASSWORD"
     ],
     "unsupported": [
       "background-worker",
@@ -82,11 +69,10 @@
     ],
     "readinessFindings": [
       "unsupported-multi-service",
-      "background-worker-unsupported",
-      "database-migrations"
+      "database-migrations",
+      "worker-process"
     ],
     "gateFindings": [
-      "unsupported",
       "unsupported",
       "required-env-vars-missing",
       "migration-command-missing"
@@ -155,9 +141,8 @@
     {
       "fact": "healthPath",
       "expected": "/health",
-      "actual": "/api/v1/streaming/health",
-      "match": false,
-      "kind": "fact"
+      "actual": "/health",
+      "match": true
     },
     {
       "fact": "unsupported",
@@ -180,16 +165,6 @@
       "actual": false,
       "finding": {
         "id": "COMP-014",
-        "type": "ANALYSIS_MISSING_SIGNAL"
-      }
-    },
-    {
-      "fact": "healthPath",
-      "kind": "fact",
-      "expected": "/health",
-      "actual": "/api/v1/streaming/health",
-      "finding": {
-        "id": "COMP-005",
         "type": "ANALYSIS_MISSING_SIGNAL"
       }
     }

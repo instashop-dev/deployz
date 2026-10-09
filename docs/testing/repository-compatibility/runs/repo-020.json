@@ -6,8 +6,8 @@
   "cohort": "realistic",
   "customerRealism": "high",
   "difficulty": 4,
-  "deployzSha": "5d99c3ec44e19cc4140949253f15cc42e810c431",
-  "analysisVersion": 15,
+  "deployzSha": "fbee536ffe76c3629d03526ba0d542090c48e901",
+  "analysisVersion": 43,
   "tree": {
     "files": 201,
     "entries": 2381,
@@ -49,8 +49,8 @@
     "storage": true,
     "worker": false,
     "workerCommand": null,
-    "migration": true,
-    "migrationCommand": "npx prisma migrate deploy && next build --schema prisma/schema/schema.prisma",
+    "migration": false,
+    "migrationCommand": null,
     "externalServices": [
       "openai",
       "resend",
@@ -59,15 +59,13 @@
     ],
     "requiredEnvVars": [
       "INTERNAL_API_KEY",
-      "JITSU_WRITE_KEY",
+      "NEXTAUTH_SECRET",
+      "NEXTAUTH_URL",
+      "NEXT_PUBLIC_BASE_URL",
       "POSTGRES_PRISMA_SHADOW_URL",
       "POSTGRES_PRISMA_URL",
       "POSTGRES_PRISMA_URL_NON_POOLING",
-      "REVALIDATE_TOKEN",
-      "SLACK_APP_INSTALL_URL",
-      "SLACK_CLIENT_ID",
-      "SLACK_CLIENT_SECRET",
-      "SLACK_INTEGRATION_ID"
+      "REVALIDATE_TOKEN"
     ],
     "unsupported": [],
     "readinessFindings": [
@@ -75,7 +73,8 @@
     ],
     "gateFindings": [
       "dockerfile-missing",
-      "required-env-vars-missing"
+      "required-env-vars-missing",
+      "migration-command-missing"
     ],
     "unresolvedQuestions": []
   },
@@ -114,8 +113,9 @@
     {
       "fact": "migration",
       "expected": true,
-      "actual": true,
-      "match": true
+      "actual": false,
+      "match": false,
+      "kind": "fact"
     },
     {
       "fact": "port",
@@ -146,6 +146,13 @@
         "id": "COMP-015",
         "type": "ANALYSIS_MISSING_SIGNAL"
       }
+    },
+    {
+      "fact": "migration",
+      "kind": "fact",
+      "expected": true,
+      "actual": false,
+      "finding": null
     }
   ],
   "match": false

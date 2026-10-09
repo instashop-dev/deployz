@@ -6,8 +6,8 @@
   "cohort": "realistic",
   "customerRealism": "high",
   "difficulty": 4,
-  "deployzSha": "5d99c3ec44e19cc4140949253f15cc42e810c431",
-  "analysisVersion": 15,
+  "deployzSha": "fbee536ffe76c3629d03526ba0d542090c48e901",
+  "analysisVersion": 43,
   "tree": {
     "files": 201,
     "entries": 1803,
@@ -33,7 +33,7 @@
   "status": "analysed",
   "failure": null,
   "actual": {
-    "compatibility": "READY",
+    "compatibility": "NEEDS_CONFIGURATION",
     "analysisVerdict": "READY",
     "readinessState": "READY",
     "runtime": "node",
@@ -45,32 +45,41 @@
     "healthPath": "/api/health",
     "postgres": true,
     "postgresDetected": true,
-    "redis": true,
+    "redis": false,
     "redisDetected": true,
-    "redisConfidence": "high",
+    "redisConfidence": "medium",
     "storage": true,
     "worker": false,
     "workerCommand": null,
-    "migration": true,
-    "migrationCommand": "npx drizzle-kit migrate",
+    "migration": false,
+    "migrationCommand": null,
     "externalServices": [
       "smtp"
     ],
-    "requiredEnvVars": [],
+    "requiredEnvVars": [
+      "APP_URL",
+      "AUTH_SECRET",
+      "DATABASE_URL"
+    ],
     "unsupported": [],
-    "readinessFindings": [],
-    "gateFindings": [],
+    "readinessFindings": [
+      "database-migrations"
+    ],
+    "gateFindings": [
+      "required-env-vars-missing",
+      "migration-command-missing"
+    ],
     "unresolvedQuestions": [
-      "multiple-dockerfiles"
+      "multiple-dockerfiles",
+      "redis-requirement-unclear"
     ]
   },
   "comparisons": [
     {
       "fact": "compatibility",
       "expected": "NEEDS_CONFIGURATION",
-      "actual": "READY",
-      "match": false,
-      "kind": "configuration-detection"
+      "actual": "NEEDS_CONFIGURATION",
+      "match": true
     },
     {
       "fact": "postgres",
@@ -81,9 +90,8 @@
     {
       "fact": "redis",
       "expected": false,
-      "actual": true,
-      "match": false,
-      "kind": "fact"
+      "actual": false,
+      "match": true
     },
     {
       "fact": "worker",
@@ -100,8 +108,9 @@
     {
       "fact": "migration",
       "expected": true,
-      "actual": true,
-      "match": true
+      "actual": false,
+      "match": false,
+      "kind": "fact"
     },
     {
       "fact": "appRoot",
@@ -136,24 +145,11 @@
   ],
   "mismatches": [
     {
-      "fact": "compatibility",
-      "kind": "configuration-detection",
-      "expected": "NEEDS_CONFIGURATION",
-      "actual": "READY",
-      "finding": {
-        "id": "COMP-017",
-        "type": "ANALYSIS_MISSING_SIGNAL"
-      }
-    },
-    {
-      "fact": "redis",
+      "fact": "migration",
       "kind": "fact",
-      "expected": false,
-      "actual": true,
-      "finding": {
-        "id": "COMP-011",
-        "type": "ANALYSIS_BUG"
-      }
+      "expected": true,
+      "actual": false,
+      "finding": null
     }
   ],
   "match": false

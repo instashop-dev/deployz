@@ -6,10 +6,10 @@
   "cohort": "realistic",
   "customerRealism": "high",
   "difficulty": 2,
-  "deployzSha": "5d99c3ec44e19cc4140949253f15cc42e810c431",
-  "analysisVersion": 15,
+  "deployzSha": "fbee536ffe76c3629d03526ba0d542090c48e901",
+  "analysisVersion": 43,
   "tree": {
-    "files": 7,
+    "files": 42,
     "entries": 1042,
     "truncated": false
   },
@@ -33,9 +33,9 @@
   "status": "analysed",
   "failure": null,
   "actual": {
-    "compatibility": "NOT_COMPATIBLE",
-    "analysisVerdict": "NOT_COMPATIBLE",
-    "readinessState": "NEEDS_CHANGES",
+    "compatibility": "NEEDS_CONFIGURATION",
+    "analysisVerdict": "NEEDS_ATTENTION",
+    "readinessState": "ALMOST_READY",
     "runtime": "php",
     "appRoot": ".",
     "dockerfilePath": "Dockerfile",
@@ -45,9 +45,9 @@
     "healthPath": null,
     "postgres": true,
     "postgresDetected": true,
-    "redis": true,
-    "redisDetected": true,
-    "redisConfidence": "high",
+    "redis": false,
+    "redisDetected": false,
+    "redisConfidence": "low",
     "storage": false,
     "worker": false,
     "workerCommand": null,
@@ -55,23 +55,14 @@
     "migrationCommand": null,
     "externalServices": [],
     "requiredEnvVars": [],
-    "unsupported": [
-      "docker-compose-multi-service",
-      "local-filesystem",
-      "rabbitmq"
-    ],
+    "unsupported": [],
     "readinessFindings": [
-      "unsupported-message-queue",
-      "unsupported-multi-service",
-      "local-file-storage",
       "health-check",
       "database-migrations"
     ],
     "gateFindings": [
-      "unsupported",
-      "unsupported",
-      "unsupported",
       "health-path-required",
+      "database-connection-unverified",
       "migration-command-missing"
     ],
     "unresolvedQuestions": [
@@ -82,9 +73,8 @@
     {
       "fact": "compatibility",
       "expected": "NEEDS_CONFIGURATION",
-      "actual": "NOT_COMPATIBLE",
-      "match": false,
-      "kind": "false-rejection"
+      "actual": "NEEDS_CONFIGURATION",
+      "match": true
     },
     {
       "fact": "postgres",
@@ -95,9 +85,8 @@
     {
       "fact": "redis",
       "expected": false,
-      "actual": true,
-      "match": false,
-      "kind": "fact"
+      "actual": false,
+      "match": true
     },
     {
       "fact": "worker",
@@ -146,30 +135,11 @@
     {
       "fact": "unsupported",
       "expected": [],
-      "actual": [
-        "docker-compose-multi-service",
-        "local-filesystem",
-        "rabbitmq"
-      ],
-      "match": false,
-      "kind": "fact"
+      "actual": [],
+      "match": true
     }
   ],
   "mismatches": [
-    {
-      "fact": "compatibility",
-      "kind": "false-rejection",
-      "expected": "NEEDS_CONFIGURATION",
-      "actual": "NOT_COMPATIBLE",
-      "finding": null
-    },
-    {
-      "fact": "redis",
-      "kind": "fact",
-      "expected": false,
-      "actual": true,
-      "finding": null
-    },
     {
       "fact": "migration",
       "kind": "fact",
@@ -182,17 +152,6 @@
       "kind": "fact",
       "expected": "/rest/health",
       "actual": null,
-      "finding": null
-    },
-    {
-      "fact": "unsupported",
-      "kind": "fact",
-      "expected": [],
-      "actual": [
-        "docker-compose-multi-service",
-        "local-filesystem",
-        "rabbitmq"
-      ],
       "finding": null
     }
   ],
