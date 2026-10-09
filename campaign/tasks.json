@@ -3467,7 +3467,7 @@
       "phase": 3,
       "title": "First-run local build/run of improvement apps repo-590, repo-593",
       "executor": "campaign-worker",
-      "status": "PENDING",
+      "status": "COMPLETE",
       "prerequisites": [
         "P3-BUILD-PLAN"
       ],
@@ -3501,8 +3501,10 @@
       "notes": [
         "2026-10-09 P3-BUILD-PLAN (Opus): command `node --env-file=.env node_modules/tsx/dist/cli.mjs scripts/repository-deployment/index.ts --local --ai live --benchmark campaign/corpus/benchmark.yaml --deploy-config campaign/corpus/deploy-config.yaml --runs-dir campaign/results/first-run/build/ --evidence-dir campaign/logs/P3-BUILD-27/evidence/ --repo repo-590 --repo repo-593`; default cache (no --cache). Resumable: on stopBy, interrupt at a safe point and return CONTINUE with progress; the next run adds --resume.",
         "Retry a build once when its log tail shows only registry network timeouts; if it fails again classify it as an environment failure (separate denominator).",
-        "Before the run, the worker may add to deploy-config.yaml, for this task's apps only, the configuration a vendor would enter from the app's own documented env example or install docs (config values without secrets; secrets as generated keys). No repository-specific hacks."
-      ]
+        "Before the run, the worker may add to deploy-config.yaml, for this task's apps only, the configuration a vendor would enter from the app's own documented env example or install docs (config values without secrets; secrets as generated keys). No repository-specific hacks.",
+        "2026-10-09T17:43Z Opus verification: completion checks pass. repo-590 (grocy): AI live completed; gate FAIL (false-acceptance, verdict NEEDS_CONFIGURATION); source PASS; build FAIL (no root Dockerfile; manifest dockerfilePath null, harness built ./Dockerfile); run/probes SKIPPED; cleanup PASS. repo-593 (glance): AI live completed; gate FAIL (false-acceptance, verdict READY); source PASS; build FAIL (Dockerfile:1 base image golang:1.27.1-alpine3.24.1 not found on Docker Hub; not a network timeout, no retry; repository failure); run/probes SKIPPED; cleanup PASS. No deploy-config change. 0 labelled resources; C: 5.6 GB free."
+      ],
+      "attempts": 1
     },
     {
       "id": "P3-BUILD-28",

@@ -1,0 +1,120 @@
+{
+  "schemaVersion": 1,
+  "id": "repo-593",
+  "repository": "glanceapp/glance",
+  "commit": "372466c6d75318670dc66e4e452179350fc50c97",
+  "set": "improvement",
+  "cohort": "boundary",
+  "deployzCommit": "11e079081fb3f9fb508ec79ef240190b75dc468d",
+  "analysisVersion": 45,
+  "ai": {
+    "mode": "live",
+    "model": "workers-ai/@cf/deepseek-ai/deepseek-v4-flash-0731",
+    "requests": 1,
+    "outcome": "completed",
+    "error": null
+  },
+  "inputsHash": "ca0e68d2e4a867e10ca9d7f473f686d0ea2390f91f0a5095e01f92b6dd6d5b24",
+  "stages": {
+    "gate": {
+      "status": "FAIL",
+      "startedAt": "2026-10-09T17:42:59.788Z",
+      "finishedAt": "2026-10-09T17:42:59.790Z",
+      "durationMs": 2,
+      "detail": null,
+      "evidence": {
+        "verdict": "READY",
+        "outcome": "false-acceptance",
+        "configuredVerdict": "READY",
+        "manifest": {
+          "dockerfilePath": "Dockerfile",
+          "buildContext": ".",
+          "appRoot": ".",
+          "port": 8080,
+          "healthPath": "/api/healthz",
+          "healthMode": "explicit",
+          "migrationCommand": null,
+          "migrationMode": "none",
+          "postgres": false,
+          "redis": false,
+          "storage": false,
+          "databaseBindings": [],
+          "redisBindings": [],
+          "storageBindings": [],
+          "generatedKeys": []
+        }
+      }
+    },
+    "source": {
+      "status": "PASS",
+      "startedAt": "2026-10-09T17:42:59.793Z",
+      "finishedAt": "2026-10-09T17:43:03.391Z",
+      "durationMs": 3598,
+      "detail": null,
+      "evidence": {
+        "commit": "372466c6d75318670dc66e4e452179350fc50c97",
+        "archiveCached": false,
+        "archiveBytes": 16812949
+      }
+    },
+    "build": {
+      "status": "FAIL",
+      "startedAt": "2026-10-09T17:43:03.393Z",
+      "finishedAt": "2026-10-09T17:43:05.692Z",
+      "durationMs": 2299,
+      "detail": "docker build exited 1",
+      "evidence": {
+        "dockerfilePath": "Dockerfile",
+        "buildContext": ".",
+        "platform": "linux/amd64",
+        "image": "deployz-campaign/repo-593:372466c6d753",
+        "exitCode": 1,
+        "durationMs": 2295,
+        "buildArgNames": [],
+        "logTail": "#0 building with \"desktop-linux\" instance using docker driver\n\n#1 [internal] load build definition from Dockerfile\n#1 transferring dockerfile: 287B 0.0s done\n#1 DONE 0.1s\n\n#2 [internal] load metadata for docker.io/library/alpine:3.24.1\n#2 ...\n\n#3 [auth] library/alpine:pull token for registry-1.docker.io\n#3 DONE 0.0s\n\n#4 [auth] library/golang:pull token for registry-1.docker.io\n#4 DONE 0.0s\n\n#5 [internal] load metadata for docker.io/library/golang:1.27.1-alpine3.24.1\n#5 ERROR: docker.io/library/golang:1.27.1-alpine3.24.1: not found\n\n#2 [internal] load metadata for docker.io/library/alpine:3.24.1\n#2 CANCELED\n------\n > [internal] load metadata for docker.io/library/golang:1.27.1-alpine3.24.1:\n------\nDockerfile:1\n--------------------\n   1 | >>> FROM golang:1.27.1-alpine3.24.1 AS builder\n   2 |     \n   3 |     WORKDIR /app\n--------------------\nERROR: failed to build: failed to solve: golang:1.27.1-alpine3.24.1: failed to resolve source metadata for docker.io/library/golang:1.27.1-alpine3.24.1: docker.io/library/golang:1.27.1-alpine3.24.1: not found\n\nView build details: docker-desktop://dashboard/build/desktop-linux/desktop-linux/tq2oj3eulan7ihhcqj21zpomt",
+        "failure": "build",
+        "rebuilt": false
+      }
+    },
+    "run": {
+      "status": "SKIPPED",
+      "startedAt": "2026-10-09T17:43:05.748Z",
+      "finishedAt": "2026-10-09T17:43:05.751Z",
+      "durationMs": 3,
+      "detail": "the build did not pass",
+      "evidence": {}
+    },
+    "probes": {
+      "status": "SKIPPED",
+      "startedAt": "2026-10-09T17:43:05.754Z",
+      "finishedAt": "2026-10-09T17:43:05.757Z",
+      "durationMs": 3,
+      "detail": "the build did not pass",
+      "evidence": {}
+    },
+    "cleanup": {
+      "status": "PASS",
+      "startedAt": "2026-10-09T17:43:05.760Z",
+      "finishedAt": "2026-10-09T17:43:06.947Z",
+      "durationMs": 1187,
+      "detail": null,
+      "evidence": {
+        "removed": {
+          "containers": 0,
+          "networks": 0,
+          "volumes": 0
+        },
+        "imageRemoved": false,
+        "buildCachePruned": true,
+        "keepImage": false,
+        "leaks": {
+          "containers": [],
+          "networks": [],
+          "volumes": []
+        }
+      }
+    }
+  },
+  "classification": "gate",
+  "remediation": null
+}

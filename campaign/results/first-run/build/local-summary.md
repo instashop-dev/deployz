@@ -1,11 +1,11 @@
 # Local Docker run summary
 
-Repositories: 52
+Repositories: 54
 
 ## Classification
 
 - build: 5
-- gate: 31
+- gate: 33
 - local-success: 1
 - probes: 10
 - run: 3
@@ -15,12 +15,12 @@ Repositories: 52
 
 | Stage | Attempted | PASS | FAIL | SKIPPED | IN_PROGRESS |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| gate | 52 | 21 | 31 | 0 | 0 |
-| source | 52 | 39 | 6 | 7 | 0 |
-| build | 52 | 19 | 20 | 13 | 0 |
-| run | 52 | 15 | 4 | 33 | 0 |
-| probes | 52 | 2 | 13 | 37 | 0 |
-| cleanup | 52 | 39 | 0 | 13 | 0 |
+| gate | 54 | 21 | 33 | 0 | 0 |
+| source | 54 | 41 | 6 | 7 | 0 |
+| build | 54 | 19 | 22 | 13 | 0 |
+| run | 54 | 15 | 4 | 35 | 0 |
+| probes | 54 | 2 | 13 | 39 | 0 |
+| cleanup | 54 | 41 | 0 | 13 | 0 |
 
 ## Probes
 
@@ -89,3 +89,5 @@ Repositories: 52
 | repo-580 | ridafkih/keeper.sh | gate | 9.1 |
 | repo-585 | janeczku/calibre-web | gate | 6.5 |
 | repo-588 | mautic/mautic | gate | 20.4 |
+| repo-590 | grocy/grocy | gate | 4.1 |
+| repo-593 | glanceapp/glance | gate | 7.1 |

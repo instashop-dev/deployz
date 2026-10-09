@@ -1,63 +1,63 @@
 {
   "schemaVersion": 1,
-  "repositories": 52,
+  "repositories": 54,
   "classifications": {
     "source": 2,
     "probes": 10,
-    "gate": 31,
+    "gate": 33,
     "run": 3,
     "build": 5,
     "local-success": 1
   },
   "aiModes": {
-    "live": 52
+    "live": 54
   },
   "stages": {
     "gate": {
-      "attempted": 52,
+      "attempted": 54,
       "NOT_ATTEMPTED": 0,
       "IN_PROGRESS": 0,
       "PASS": 21,
-      "FAIL": 31,
+      "FAIL": 33,
       "SKIPPED": 0
     },
     "source": {
-      "attempted": 52,
+      "attempted": 54,
       "NOT_ATTEMPTED": 0,
       "IN_PROGRESS": 0,
-      "PASS": 39,
+      "PASS": 41,
       "FAIL": 6,
       "SKIPPED": 7
     },
     "build": {
-      "attempted": 52,
+      "attempted": 54,
       "NOT_ATTEMPTED": 0,
       "IN_PROGRESS": 0,
       "PASS": 19,
-      "FAIL": 20,
+      "FAIL": 22,
       "SKIPPED": 13
     },
     "run": {
-      "attempted": 52,
+      "attempted": 54,
       "NOT_ATTEMPTED": 0,
       "IN_PROGRESS": 0,
       "PASS": 15,
       "FAIL": 4,
-      "SKIPPED": 33
+      "SKIPPED": 35
     },
     "probes": {
-      "attempted": 52,
+      "attempted": 54,
       "NOT_ATTEMPTED": 0,
       "IN_PROGRESS": 0,
       "PASS": 2,
       "FAIL": 13,
-      "SKIPPED": 37
+      "SKIPPED": 39
     },
     "cleanup": {
-      "attempted": 52,
+      "attempted": 54,
       "NOT_ATTEMPTED": 0,
       "IN_PROGRESS": 0,
-      "PASS": 39,
+      "PASS": 41,
       "FAIL": 0,
       "SKIPPED": 13
     }
@@ -833,6 +833,34 @@
         "run": 2,
         "probes": 2,
         "cleanup": 1257
+      }
+    },
+    {
+      "id": "repo-590",
+      "repository": "grocy/grocy",
+      "classification": "gate",
+      "totalMs": 4081,
+      "stages": {
+        "gate": 4,
+        "source": 1977,
+        "build": 801,
+        "run": 2,
+        "probes": 3,
+        "cleanup": 1294
+      }
+    },
+    {
+      "id": "repo-593",
+      "repository": "glanceapp/glance",
+      "classification": "gate",
+      "totalMs": 7092,
+      "stages": {
+        "gate": 2,
+        "source": 3598,
+        "build": 2299,
+        "run": 3,
+        "probes": 3,
+        "cleanup": 1187
       }
     }
   ]
