@@ -1,0 +1,110 @@
+{
+  "schemaVersion": 1,
+  "id": "repo-507",
+  "repository": "payloadcms/payload",
+  "commit": "c66a7bec07dd7f30bdcd98320351c70846da4f0e",
+  "set": "improvement",
+  "cohort": "realistic",
+  "deployzCommit": "c45543e2720c2f80b8e06ea7f48c854dd297f5ae",
+  "analysisVersion": 45,
+  "ai": {
+    "mode": "live",
+    "model": "workers-ai/@cf/deepseek-ai/deepseek-v4-flash-0731",
+    "requests": 1,
+    "outcome": "timeout",
+    "error": "AbortError: This operation was aborted"
+  },
+  "inputsHash": "62f3fc65a98355fd43e7fb90c872497292b053112491cce8f330ca1d60f701e5",
+  "stages": {
+    "gate": {
+      "status": "FAIL",
+      "startedAt": "2026-10-09T06:39:08.197Z",
+      "finishedAt": "2026-10-09T06:39:08.201Z",
+      "durationMs": 4,
+      "detail": null,
+      "evidence": {
+        "verdict": "NEEDS_CONFIGURATION",
+        "outcome": "false-acceptance",
+        "configuredVerdict": "NEEDS_CONFIGURATION",
+        "manifest": {
+          "dockerfilePath": "templates/_template/Dockerfile",
+          "buildContext": ".",
+          "appRoot": "templates/_template",
+          "port": 3000,
+          "healthPath": "/",
+          "healthMode": "vendor_required",
+          "migrationCommand": null,
+          "migrationMode": "unknown",
+          "postgres": true,
+          "redis": true,
+          "storage": true,
+          "databaseBindings": [
+            "DATABASE_HOST",
+            "DATABASE_NAME",
+            "DATABASE_PASSWORD",
+            "DATABASE_PORT",
+            "DATABASE_URL",
+            "DATABASE_USER",
+            "DB_HOST",
+            "DB_NAME",
+            "DB_PASSWORD",
+            "DB_PORT",
+            "DB_USER",
+            "POSTGRES_URL"
+          ],
+          "redisBindings": [
+            "REDIS_URL"
+          ],
+          "storageBindings": [
+            "AWS_S3_BUCKET"
+          ],
+          "generatedKeys": []
+        }
+      }
+    },
+    "source": {
+      "status": "FAIL",
+      "startedAt": "2026-10-09T06:39:08.205Z",
+      "finishedAt": "2026-10-09T06:39:26.851Z",
+      "durationMs": 18646,
+      "detail": "tar failed (exit 1): .claude/skills: Can't create '\\\\\\\\?\\\\C:\\\\Users\\\\Tejas\\\\AppData\\\\Local\\\\Temp\\\\deployz-local-repo-507-n6nDRC\\\\.claude\\\\skills': Invalid argument\r\ntar: Error exit delayed from previous errors.\r\n",
+      "evidence": {
+        "commit": "c66a7bec07dd7f30bdcd98320351c70846da4f0e"
+      }
+    },
+    "build": {
+      "status": "SKIPPED",
+      "startedAt": "2026-10-09T06:39:26.857Z",
+      "finishedAt": "2026-10-09T06:39:26.861Z",
+      "durationMs": 4,
+      "detail": "the source stage failed",
+      "evidence": {}
+    },
+    "run": {
+      "status": "SKIPPED",
+      "startedAt": "2026-10-09T06:39:30.397Z",
+      "finishedAt": "2026-10-09T06:39:30.399Z",
+      "durationMs": 2,
+      "detail": "the build did not pass",
+      "evidence": {}
+    },
+    "probes": {
+      "status": "SKIPPED",
+      "startedAt": "2026-10-09T06:39:30.401Z",
+      "finishedAt": "2026-10-09T06:39:30.407Z",
+      "durationMs": 6,
+      "detail": "the build did not pass",
+      "evidence": {}
+    },
+    "cleanup": {
+      "status": "SKIPPED",
+      "startedAt": "2026-10-09T06:39:30.410Z",
+      "finishedAt": "2026-10-09T06:39:30.414Z",
+      "durationMs": 4,
+      "detail": "no build was attempted",
+      "evidence": {}
+    }
+  },
+  "classification": "gate",
+  "remediation": null
+}

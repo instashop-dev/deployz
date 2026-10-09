@@ -1,0 +1,31 @@
+{
+    "startedAt":  "2026-10-09T06:38:00Z",
+    "finishedAt":  "2026-10-09T06:39:49.5009710Z",
+    "executor":  "campaign-worker",
+    "proposedStatus":  "COMPLETE",
+    "notes":  [
+                  "No deploy-config.yaml changes made.",
+                  "Source stage failed for both apps: Windows tar cannot create symlinks/files in the checkout (repo-507: .claude/skills; repo-508: CLAUDE.md, GEMINI.md; Invalid argument). Not a registry timeout, so no retry. Recorded as repository/source-stage result, same class as repo-501.",
+                  "repo-507 gate: AI call timed out (AbortError, 29998 ms); manifest fell back to templates/_template, outcome false-acceptance.",
+                  "Build, run, probes, cleanup SKIPPED with reasons in each result file.",
+                  "Disk free C: 4.88 GB before, about 4.84 GB after; no disk guard trigger.",
+                  "No labelled container, network, volume or image remains. Evidence dir campaign/logs/P3-BUILD-04/evidence was not created (no build attempted); raw log in campaign/logs/P3-BUILD-04/run1.log.",
+                  "HEAD was c45543e2 (descendant of the given tested commit e6a3b58e); deployzCommit in results is c45543e2."
+              ],
+    "evidence":  [
+                     "campaign/results/first-run/build/repo-507.local.json",
+                     "campaign/results/first-run/build/repo-508.local.json",
+                     "campaign/results/first-run/build/local-summary.json",
+                     "campaign/results/first-run/build/local-summary.md"
+                 ],
+    "commands":  [
+                     {
+                         "summary":  "repo-507 gate FAIL (false-acceptance; AI timeout) and source FAIL; repo-508 gate PASS, source FAIL; later stages SKIPPED",
+                         "exitCode":  0,
+                         "command":  "node --env-file=.env node_modules/tsx/dist/cli.mjs scripts/repository-deployment/index.ts --local --ai live --benchmark campaign/corpus/benchmark.yaml --deploy-config campaign/corpus/deploy-config.yaml --runs-dir campaign/results/first-run/build/ --evidence-dir campaign/logs/P3-BUILD-04/evidence/ --repo repo-507 --repo repo-508"
+                     }
+                 ],
+    "taskId":  "P3-BUILD-04",
+    "model":  "sonnet",
+    "testedCommit":  "e6a3b58ee2363923fef21faca86611fa3bf84538"
+}

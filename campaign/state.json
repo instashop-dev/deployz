@@ -4,8 +4,8 @@
   "status": "CONTINUE",
   "phase": 3,
   "currentTask": null,
-  "nextAction": "Next eligible: P3-BUILD-04. Disk: C: 4.9 GB free; unlabelled Docker build cache 14.6 GB. USER DECISION still open: approve docker builder prune or free disk; workers run with the 3 GB stop guard.",
-  "updatedAt": "2026-10-09T06:37:37.447Z",
+  "nextAction": "Next eligible: P3-BUILD-05. Disk: C: 4.9 GB free; unlabelled Docker build cache 14.6 GB; USER DECISION still open (docker builder prune or free disk). USER DECISION: the harness source stage uses Windows tar, which cannot create symlinks (repo-501, repo-507, repo-508 source FAIL); decide whether to fix the harness before more first-run builds (changes the tested commit) or keep it as a Phase 4 finding.",
+  "updatedAt": "2026-10-09T06:40:43.094Z",
   "checkout": {
     "path": "C:/Users/Tejas/Desktop/deployz-mvp-test",
     "kind": "git worktree of C:/Users/Tejas/Desktop/deployz",
@@ -291,6 +291,10 @@
     {
       "commit": "e6a3b58ee2363923fef21faca86611fa3bf84538",
       "task": "P3-BUILD-03"
+    },
+    {
+      "commit": "e6a3b58ee2363923fef21faca86611fa3bf84538",
+      "task": "P3-BUILD-04"
     }
   ],
   "attempts": {
@@ -359,17 +363,18 @@
     "P3-BUILD-PLAN": 1,
     "P3-BUILD-01": 1,
     "P3-BUILD-02": 1,
-    "P3-BUILD-03": 1
+    "P3-BUILD-03": 1,
+    "P3-BUILD-04": 1
   },
   "lastResult": {
-    "task": "P3-BUILD-03",
+    "task": "P3-BUILD-04",
     "status": "COMPLETE",
-    "at": "2026-10-09T06:37:37.447Z",
-    "summary": "repo-503 gate FAIL (false-rejection, NOT_COMPATIBLE), later stages SKIPPED; repo-505 gate FAIL (false-acceptance, NEEDS_CONFIGURATION), source PASS, build FAIL (repository has no Dockerfile), cleanup PASS; AI live completed for both; no deploy-config change; 0 labelled resources remain; C: 4.9 GB free.",
+    "at": "2026-10-09T06:40:43.094Z",
+    "summary": "repo-507 gate FAIL (false-acceptance; AI live timeout, fallback appRoot templates/_template), source FAIL (Windows tar cannot create .claude/skills symlink); repo-508 gate PASS, source FAIL (Windows tar cannot create CLAUDE.md/GEMINI.md symlinks); later stages SKIPPED with reasons; no deploy-config change; 0 labelled resources remain; C: 4.85 GB free. Opus removed a UTF-8 BOM from result.json.",
     "evidence": [
-      "campaign/results/P3-BUILD-03/result.json",
-      "campaign/results/first-run/build/repo-503.local.json",
-      "campaign/results/first-run/build/repo-505.local.json"
+      "campaign/results/P3-BUILD-04/result.json",
+      "campaign/results/first-run/build/repo-507.local.json",
+      "campaign/results/first-run/build/repo-508.local.json"
     ]
   },
   "gates": {
