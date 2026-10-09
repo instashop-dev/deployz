@@ -1,11 +1,11 @@
 # Local Docker run summary
 
-Repositories: 20
+Repositories: 22
 
 ## Classification
 
-- build: 1
-- gate: 12
+- build: 2
+- gate: 13
 - local-success: 1
 - probes: 3
 - run: 1
@@ -15,12 +15,12 @@ Repositories: 20
 
 | Stage | Attempted | PASS | FAIL | SKIPPED | IN_PROGRESS |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| gate | 20 | 8 | 12 | 0 | 0 |
-| source | 20 | 12 | 4 | 4 | 0 |
-| build | 20 | 7 | 5 | 8 | 0 |
-| run | 20 | 6 | 1 | 13 | 0 |
-| probes | 20 | 2 | 4 | 14 | 0 |
-| cleanup | 20 | 12 | 0 | 8 | 0 |
+| gate | 22 | 9 | 13 | 0 | 0 |
+| source | 22 | 14 | 4 | 4 | 0 |
+| build | 22 | 7 | 7 | 8 | 0 |
+| run | 22 | 6 | 1 | 15 | 0 |
+| probes | 22 | 2 | 4 | 16 | 0 |
+| cleanup | 22 | 14 | 0 | 8 | 0 |
 
 ## Probes
 
@@ -55,5 +55,7 @@ Repositories: 20
 | repo-520 | mathesar-foundation/mathesar | gate | 0.0 |
 | repo-522 | sigoden/dufs | gate | 535.0 |
 | repo-523 | Freika/dawarich | probes | 896.1 |
+| repo-524 | miguelgrinberg/microblog | build | 42.1 |
+| repo-525 | gotson/komga | gate | 11.7 |
 | repo-536 | InvoiceShelf/InvoiceShelf | build | 47.4 |
 | repo-540 | excalidraw/excalidraw | local-success | 1630.3 |

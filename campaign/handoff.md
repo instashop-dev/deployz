@@ -1,8 +1,8 @@
 # Fresh-100 campaign handoff
 
-**Status:** CONTINUE. Phase 3. P0-GATE, P1-GATE and P2-GATE PASS. C: about 11 GB free after P3-BUILD-10 (2026-10-09T09:19Z); Docker Desktop running.
+**Status:** CONTINUE. Phase 3. P0-GATE, P1-GATE and P2-GATE PASS. C: about 11 GB free after P3-BUILD-11 (2026-10-09T09:26Z); Docker Desktop running.
 **Checkout:** `C:/Users/Tejas/Desktop/deployz-mvp-test`, branch `campaign/fresh-100`. Baseline commit `e6a3b58e` (ANALYSIS_VERSION 45; origin/main after PR #498, merged into the campaign branch on 2026-10-08).
-**Eligible now:** `P3-BUILD-11`. `docker`, `disk>=3GB` and `ai-gateway` AVAILABLE.
+**Eligible now:** `P3-BUILD-12`. `docker`, `disk>=3GB` and `ai-gateway` AVAILABLE.
 
 ## Done
 
@@ -91,6 +91,7 @@
 - 2026-10-09T08:50Z run: `P3-BUILD-08` COMPLETE (attempt 1). repo-516 (ente): AI live parse-error (AI_NoObjectGeneratedError); gate FAIL (false-rejection: NOT_COMPATIBLE, label NEEDS_CONFIGURATION; the manifest picked `cli/Dockerfile`, port 2112); later stages SKIPPED. repo-517 (dependency-track): AI completed; gate FAIL (false-acceptance: NEEDS_CONFIGURATION, label NOT_COMPATIBLE); source PASS; build FAIL (`COPY ./target/...` needs a Maven build first; build context `apiserver/src/main/docker` while the manifest buildContext is `.`); run/probes SKIPPED; cleanup PASS. No deploy-config change. 0 labelled resources; builder prune done. Evidence: `campaign/results/P3-BUILD-08/result.json`, `campaign/results/first-run/build/repo-51{6,7}.local.json`.
 - 2026-10-09T08:53Z run: `P3-BUILD-09` COMPLETE (attempt 1). repo-518 (cachet): AI completed; gate FAIL (false-acceptance: NEEDS_CONFIGURATION, label NOT_COMPATIBLE); source PASS; build FAIL (no Dockerfile); run/probes SKIPPED; cleanup PASS. repo-520 (mathesar): live AI timeout (30 s AbortError, 2 attempts); gate FAIL (false-rejection: NOT_COMPATIBLE, label NEEDS_CONFIGURATION); later stages SKIPPED. No deploy-config change. 0 labelled resources; builder prune done. Evidence: `campaign/results/P3-BUILD-09/result.json`, `campaign/results/first-run/build/repo-5{18,20}.local.json`.
 - 2026-10-09T09:19Z run: `P3-BUILD-10` COMPLETE (attempt 1). repo-522 (dufs): AI completed; gate FAIL (false-acceptance: NEEDS_CONFIGURATION, label NOT_COMPATIBLE); source, build (469 s), run and probes PASS (health 200); cleanup PASS. The app works locally against a NOT_COMPATIBLE label: Phase 4 reviews the label reason in `labels/final-03.yaml` under the label policy (no edit to fit outputs). repo-523 (dawarich): live AI timeout; gate PASS (correct-accept); source, build (786 s), run PASS; probes FAIL (container exited code 128, log tail `bundler: exec needs a command to run`; dbWrite, redis FAIL); cleanup PASS. No deploy-config change. 0 labelled resources; builder prune freed 7.4 GB; C: 11 GB free. Evidence: `campaign/results/P3-BUILD-10/result.json`, `campaign/results/first-run/build/repo-52{2,3}.local.json`.
+- 2026-10-09T09:26Z run: `P3-BUILD-11` COMPLETE (attempt 1). repo-524 (microblog): AI not requested (deterministic); gate PASS (correct-accept, NEEDS_CONFIGURATION); source PASS; build FAIL (41 s: pip install -r requirements.txt builds psycopg2-binary from source, pg_config missing in the base image; not a registry timeout, no retry); run/probes SKIPPED; cleanup PASS. repo-525 (komga): AI completed; gate FAIL (false-acceptance: NEEDS_CONFIGURATION, label NOT_COMPATIBLE); source PASS; build FAIL (no Dockerfile in repository; manifest dockerfilePath null but the harness built ./Dockerfile); run/probes SKIPPED; cleanup PASS. No deploy-config change. 0 labelled resources; builder prune 178.5 MB; C: 11 GB free. Evidence: `campaign/results/P3-BUILD-11/result.json`, `campaign/results/first-run/build/repo-52{4,5}.local.json`.
 
 ## Blockers and pending prerequisites
 
@@ -123,7 +124,7 @@
 
 ## Next action
 
-Run `P3-BUILD-11`. USER DECISION still open (harness, not product): (a) the source stage tar cannot create symlinks on Windows and is not deterministic (repo-501, 507, 508, 511 source FAIL; repo-513 passed once, failed once); (b) the 90 s dependency readiness window includes the first image pull (repo-513 SeaweedFS timeout). Phase 4 findings: live repository AI timed out at 30 s on repo-514, 520 and 523; repo-522 label review (NOT_COMPATIBLE label, probes PASS); AI parse-errors on repo-510 and repo-516. Fix the harness before more first-run builds, or keep these as Phase 4 findings and count those apps as UNVERIFIED. Disk: C: about 11 GB free; prune the build cache after each batch.
+Run `P3-BUILD-12`. USER DECISION still open (harness, not product): (a) the source stage tar cannot create symlinks on Windows and is not deterministic (repo-501, 507, 508, 511 source FAIL; repo-513 passed once, failed once); (b) the 90 s dependency readiness window includes the first image pull (repo-513 SeaweedFS timeout). Phase 4 findings: live repository AI timed out at 30 s on repo-514, 520 and 523; repo-522 label review (NOT_COMPATIBLE label, probes PASS); AI parse-errors on repo-510 and repo-516; repo-525 manifest dockerfilePath null while the harness still builds ./Dockerfile. Fix the harness before more first-run builds, or keep these as Phase 4 findings and count those apps as UNVERIFIED. Disk: C: about 11 GB free; prune the build cache after each batch.
 
 Caution: every coordinator, scheduled or manual, must hold `campaign/coordinator.lock` (`node campaign/lock.mjs`, see plan.md "Coordinator lock") before it changes campaign files or dispatches a worker. If the lock is held, exit without changes.
 

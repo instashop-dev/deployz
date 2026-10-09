@@ -1,0 +1,27 @@
+{
+  "taskId": "P3-BUILD-11",
+  "testedCommit": "e6a3b58ee2363923fef21faca86611fa3bf84538",
+  "executor": "campaign-worker",
+  "model": "sonnet",
+  "startedAt": "2026-10-09T09:24:00Z",
+  "finishedAt": "2026-10-09T09:28:00Z",
+  "proposedStatus": "COMPLETE",
+  "commands": [
+    { "command": "node --env-file=.env node_modules/tsx/dist/cli.mjs scripts/repository-deployment/index.ts --local --ai live --benchmark campaign/corpus/benchmark.yaml --deploy-config campaign/corpus/deploy-config.yaml --runs-dir campaign/results/first-run/build/ --evidence-dir campaign/logs/P3-BUILD-11/evidence/ --repo repo-524 --repo repo-525", "exitCode": 0, "summary": "repo-524 gate PASS (correct-accept), build FAIL (pip psycopg2-binary build from source), run/probes SKIPPED; repo-525 gate FAIL (false-acceptance, NEEDS_CONFIGURATION vs NOT_COMPATIBLE), build FAIL (no Dockerfile), run/probes SKIPPED; cleanup PASS for both" },
+    { "command": "docker ps -a / network ls / volume ls / images --filter label=deployz-campaign=fresh-100", "exitCode": 0, "summary": "no labelled resource remained after the batch" },
+    { "command": "docker builder prune -f", "exitCode": 0, "summary": "reclaimed 178.5MB" },
+    { "command": "df -h /c", "exitCode": 0, "summary": "C: free about 11 GB after cleanup (96% used)" }
+  ],
+  "evidence": [
+    "campaign/results/first-run/build/repo-524.local.json",
+    "campaign/results/first-run/build/repo-525.local.json",
+    "campaign/results/first-run/build/local-summary.json"
+  ],
+  "notes": [
+    "No deploy-config.yaml change made; existing repo-524 and repo-525 entries were used as is.",
+    "AI mode live in both results. repo-524 AI not requested; repo-525 AI completed (1 request).",
+    "repo-524 build failure is a source/Dockerfile failure, not a registry timeout: pip install of psycopg2-binary tried to build from source (pg_config missing in the base image). No retry was done because the log tail shows no network timeout. Classify as repository build failure.",
+    "repo-525 build failure: no Dockerfile in repository (open Dockerfile: no such file or directory); the manifest had dockerfilePath null. Gate outcome false-acceptance: label NOT_COMPATIBLE, gate verdict NEEDS_CONFIGURATION.",
+    "Raw log: campaign/logs/P3-BUILD-11/run1.log (ignored)."
+  ]
+}

@@ -1,63 +1,63 @@
 {
   "schemaVersion": 1,
-  "repositories": 20,
+  "repositories": 22,
   "classifications": {
     "source": 2,
     "probes": 3,
-    "gate": 12,
+    "gate": 13,
     "run": 1,
-    "build": 1,
+    "build": 2,
     "local-success": 1
   },
   "aiModes": {
-    "live": 20
+    "live": 22
   },
   "stages": {
     "gate": {
-      "attempted": 20,
+      "attempted": 22,
       "NOT_ATTEMPTED": 0,
       "IN_PROGRESS": 0,
-      "PASS": 8,
-      "FAIL": 12,
+      "PASS": 9,
+      "FAIL": 13,
       "SKIPPED": 0
     },
     "source": {
-      "attempted": 20,
+      "attempted": 22,
       "NOT_ATTEMPTED": 0,
       "IN_PROGRESS": 0,
-      "PASS": 12,
+      "PASS": 14,
       "FAIL": 4,
       "SKIPPED": 4
     },
     "build": {
-      "attempted": 20,
+      "attempted": 22,
       "NOT_ATTEMPTED": 0,
       "IN_PROGRESS": 0,
       "PASS": 7,
-      "FAIL": 5,
+      "FAIL": 7,
       "SKIPPED": 8
     },
     "run": {
-      "attempted": 20,
+      "attempted": 22,
       "NOT_ATTEMPTED": 0,
       "IN_PROGRESS": 0,
       "PASS": 6,
       "FAIL": 1,
-      "SKIPPED": 13
+      "SKIPPED": 15
     },
     "probes": {
-      "attempted": 20,
+      "attempted": 22,
       "NOT_ATTEMPTED": 0,
       "IN_PROGRESS": 0,
       "PASS": 2,
       "FAIL": 4,
-      "SKIPPED": 14
+      "SKIPPED": 16
     },
     "cleanup": {
-      "attempted": 20,
+      "attempted": 22,
       "NOT_ATTEMPTED": 0,
       "IN_PROGRESS": 0,
-      "PASS": 12,
+      "PASS": 14,
       "FAIL": 0,
       "SKIPPED": 8
     }
@@ -357,6 +357,34 @@
         "run": 25023,
         "probes": 63593,
         "cleanup": 8001
+      }
+    },
+    {
+      "id": "repo-524",
+      "repository": "miguelgrinberg/microblog",
+      "classification": "build",
+      "totalMs": 42128,
+      "stages": {
+        "gate": 4,
+        "source": 224,
+        "build": 40889,
+        "run": 4,
+        "probes": 3,
+        "cleanup": 1004
+      }
+    },
+    {
+      "id": "repo-525",
+      "repository": "gotson/komga",
+      "classification": "gate",
+      "totalMs": 11668,
+      "stages": {
+        "gate": 2,
+        "source": 9763,
+        "build": 1006,
+        "run": 2,
+        "probes": 2,
+        "cleanup": 893
       }
     },
     {

@@ -4,8 +4,8 @@
   "status": "CONTINUE",
   "phase": 3,
   "currentTask": null,
-  "nextAction": "Next eligible: P3-BUILD-11. USER DECISION still open (harness, not product): (a) source-stage tar symlinks on Windows not deterministic; (b) 90 s dependency readiness window includes first image pull. Phase 4 findings so far include live AI timeouts (repo-514, 520, 523), AI parse-errors (repo-510, 516), and a label review for repo-522 (NOT_COMPATIBLE label, but probes PASS). Builder prune after each batch.",
-  "updatedAt": "2026-10-09T09:20:04.598Z",
+  "nextAction": "Next eligible: P3-BUILD-12. USER DECISION still open (harness, not product): (a) source-stage tar symlinks on Windows not deterministic; (b) 90 s dependency readiness window includes first image pull. Phase 4 findings so far include live AI timeouts (repo-514, 520, 523), AI parse-errors (repo-510, 516), a label review for repo-522 (NOT_COMPATIBLE label, but probes PASS), and repo-525 manifest dockerfilePath null while the harness still builds ./Dockerfile. Builder prune after each batch.",
+  "updatedAt": "2026-10-09T09:26:46.477Z",
   "checkout": {
     "path": "C:/Users/Tejas/Desktop/deployz-mvp-test",
     "kind": "git worktree of C:/Users/Tejas/Desktop/deployz",
@@ -319,6 +319,10 @@
     {
       "commit": "e6a3b58ee2363923fef21faca86611fa3bf84538",
       "task": "P3-BUILD-10"
+    },
+    {
+      "commit": "e6a3b58ee2363923fef21faca86611fa3bf84538",
+      "task": "P3-BUILD-11"
     }
   ],
   "attempts": {
@@ -394,17 +398,18 @@
     "P3-BUILD-07": 1,
     "P3-BUILD-08": 1,
     "P3-BUILD-09": 1,
-    "P3-BUILD-10": 1
+    "P3-BUILD-10": 1,
+    "P3-BUILD-11": 1
   },
   "lastResult": {
-    "task": "P3-BUILD-10",
+    "task": "P3-BUILD-11",
     "status": "COMPLETE",
-    "at": "2026-10-09T09:20:04.598Z",
-    "summary": "repo-522 (dufs): AI completed; gate FAIL (false-acceptance: verdict NEEDS_CONFIGURATION, label NOT_COMPATIBLE); source, build (469 s), run and probes PASS (health 200 /__dufs__/health); cleanup PASS. Opus note: the app ran and passed probes against a NOT_COMPATIBLE label; Phase 4 must review the label reason (final-03.yaml) under the label policy, never edit it to fit. repo-523 (dawarich): live AI timeout (2 attempts); gate PASS (correct-accept); source, build (786 s), run PASS; probes FAIL (health/start: container exited code 128, log tail 'bundler: exec needs a command to run'; dbWrite, redis FAIL); cleanup PASS. No deploy-config change. 0 labelled resources; builder prune freed 7.4 GB; C: 11 GB free.",
+    "at": "2026-10-09T09:26:46.477Z",
+    "summary": "repo-524 (microblog): AI not requested (deterministic); gate PASS (correct-accept, NEEDS_CONFIGURATION); source PASS; build FAIL (41 s: pip install -r requirements.txt builds psycopg2-binary from source, pg_config missing in the base image; not a registry timeout, no retry); run/probes SKIPPED; cleanup PASS. repo-525 (komga): AI completed; gate FAIL (false-acceptance: NEEDS_CONFIGURATION, label NOT_COMPATIBLE); source PASS; build FAIL (no Dockerfile in repository; manifest dockerfilePath null but the harness built ./Dockerfile); run/probes SKIPPED; cleanup PASS. No deploy-config change. 0 labelled resources; builder prune 178.5 MB; C: 11 GB free.",
     "evidence": [
-      "campaign/results/P3-BUILD-10/result.json",
-      "campaign/results/first-run/build/repo-522.local.json",
-      "campaign/results/first-run/build/repo-523.local.json"
+      "campaign/results/P3-BUILD-11/result.json",
+      "campaign/results/first-run/build/repo-524.local.json",
+      "campaign/results/first-run/build/repo-525.local.json"
     ]
   },
   "gates": {
