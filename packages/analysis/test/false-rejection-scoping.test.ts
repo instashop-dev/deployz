@@ -609,3 +609,98 @@ describe('an option in a sample or a comment is not the requirement of the app',
     expect(checkRedisUnsupported(tree).detected).toBe(true);
   });
 });
+
+describe('an S3 backend that a settings file switches on by environment', () => {
+  const settings = [
+    'import os',
+    'if "AWS_STORAGE_BUCKET_NAME" in os.environ:',
+    '    STORAGES["default"]["BACKEND"] = "storages.backends.s3boto3.S3Boto3Storage"',
+    '',
+  ].join('\n');
+
+  it('accepts a media VOLUME when the settings select the S3 backend and no requirements file is collected', () => {
+    const tree: FileTree = { Dockerfile: `${APP}VOLUME /code/app/media/images/\n`, 'app/settings/production.py': settings };
+    expect(detectLocalFilesystem(tree).detected).toBe(false);
+  });
+
+  it('keeps rejecting a media VOLUME when the settings name no bucket variable', () => {
+    const tree: FileTree = {
+      Dockerfile: `${APP}VOLUME /code/app/media/images/\n`,
+      'app/settings/production.py': 'STORAGES["default"]["BACKEND"] = "storages.backends.s3boto3.S3Boto3Storage"\n',
+    };
+    expect(detectLocalFilesystem(tree).detected).toBe(true);
+  });
+
+  it('keeps rejecting a media VOLUME when only a bucket variable exists', () => {
+    const tree: FileTree = {
+      Dockerfile: `${APP}VOLUME /code/app/media/images/\n`,
+      'app/settings/production.py': 'BUCKET = os.environ.get("AWS_STORAGE_BUCKET_NAME")\n',
+    };
+    expect(detectLocalFilesystem(tree).detected).toBe(true);
+  });
+});
+
+describe('an image-only sidecar that only calls the app', () => {
+  const app = ['  api:', '    image: ghcr.io/acme/app:latest', '    ports:', '      - "8000:8000"'];
+  const db = ['  db:', '    image: mariadb:11'];
+
+  it('does not count a port-less sidecar that waits on the app and that the app never names', () => {
+    const tree: FileTree = {
+      'docker-compose.yml': compose(
+        'services:',
+        ...app,
+        ...db,
+        '  vision:',
+        '    image: ghcr.io/acme/app-vision:latest',
+        '    depends_on:',
+        '      api:',
+        '        condition: service_healthy',
+      ),
+    };
+    expect(multiService(tree)).toBe(false);
+  });
+
+  it('still counts a second image that publishes a port', () => {
+    const tree: FileTree = {
+      'docker-compose.yml': compose(
+        'services:',
+        ...app,
+        '  vision:',
+        '    image: ghcr.io/acme/app-vision:latest',
+        '    ports:',
+        '      - "8001:8000"',
+        '    depends_on:',
+        '      - api',
+      ),
+    };
+    expect(multiService(tree)).toBe(true);
+  });
+
+  it('still counts a second image that the app names', () => {
+    const tree: FileTree = {
+      'docker-compose.yml': compose(
+        'services:',
+        ...app,
+        '    environment:',
+        '      VISION_URL: http://vision:8000',
+        '  vision:',
+        '    image: ghcr.io/acme/app-vision:latest',
+        '    depends_on:',
+        '      - api',
+      ),
+    };
+    expect(multiService(tree)).toBe(true);
+  });
+
+  it('still counts a second image that does not wait on the app', () => {
+    const tree: FileTree = {
+      'docker-compose.yml': compose(
+        'services:',
+        ...app,
+        '  frontend:',
+        '    image: ghcr.io/acme/app-frontend:latest',
+      ),
+    };
+    expect(multiService(tree)).toBe(true);
+  });
+});

@@ -2101,12 +2101,19 @@ const S3_SDK_TOKENS = ['boto3', 'django-storages', 'aws-sdk', '@aws-sdk/client-s
 const OBJECT_STORAGE_SELECTOR_REGEX =
   /\b(?:UPLOAD_PROVIDER|(?:FILE|MEDIA|UPLOAD|ATTACHMENTS?)_STORAGE(?:_TYPE|_PROVIDER|_BACKEND|_DRIVER)?|STORAGE_(?:TYPE|PROVIDER|DRIVER|BACKEND)|ACTIVE_STORAGE_SERVICE|FILESYSTEM_(?:DISK|DRIVER)|[A-Z][A-Z0-9_]*S3[A-Z0-9_]*BUCKET[A-Z0-9_]*|AWS_STORAGE_BUCKET_NAME)\b/;
 
+// A settings file that names the S3 storage backend is SDK evidence when the
+// requirements file is not part of the collected tree.
+const S3_STORAGE_BACKEND_REGEX = /\bstorages\.backends\.s3(?:boto3)?\b|\bS3(?:Boto3)?Storage\b/;
+
 /** The app ships an S3 SDK and a variable that switches uploads to it. */
 function offersObjectStorageOption(tree: FileTree): boolean {
-  if (!S3_SDK_TOKENS.some((token) => findDependencyEvidence(tree, token).length > 0)) return false;
-  return Object.entries(tree).some(
-    ([path, content]) => content && isRuntimeSourcePath(path) && !/\.(?:md|txt|lock)$/i.test(path) && OBJECT_STORAGE_SELECTOR_REGEX.test(content),
+  const sourceFiles = Object.entries(tree).filter(
+    ([path, content]) => content && isRuntimeSourcePath(path) && !/\.(?:md|txt|lock)$/i.test(path),
   );
+  const hasSdk =
+    S3_SDK_TOKENS.some((token) => findDependencyEvidence(tree, token).length > 0) ||
+    sourceFiles.some(([, content]) => S3_STORAGE_BACKEND_REGEX.test(content));
+  return hasSdk && sourceFiles.some(([, content]) => OBJECT_STORAGE_SELECTOR_REGEX.test(content));
 }
 
 /** Every value under `volume` is a SQLite/DB file path: the volume only holds the embedded database. */
