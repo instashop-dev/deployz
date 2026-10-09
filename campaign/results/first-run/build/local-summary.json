@@ -1,63 +1,64 @@
 {
   "schemaVersion": 1,
-  "repositories": 4,
+  "repositories": 6,
   "classifications": {
     "source": 1,
     "probes": 1,
+    "gate": 2,
     "build": 1,
     "local-success": 1
   },
   "aiModes": {
-    "live": 4
+    "live": 6
   },
   "stages": {
     "gate": {
-      "attempted": 4,
+      "attempted": 6,
       "NOT_ATTEMPTED": 0,
       "IN_PROGRESS": 0,
       "PASS": 4,
-      "FAIL": 0,
+      "FAIL": 2,
       "SKIPPED": 0
     },
     "source": {
-      "attempted": 4,
+      "attempted": 6,
       "NOT_ATTEMPTED": 0,
       "IN_PROGRESS": 0,
-      "PASS": 3,
-      "FAIL": 1,
-      "SKIPPED": 0
-    },
-    "build": {
-      "attempted": 4,
-      "NOT_ATTEMPTED": 0,
-      "IN_PROGRESS": 0,
-      "PASS": 2,
+      "PASS": 4,
       "FAIL": 1,
       "SKIPPED": 1
     },
+    "build": {
+      "attempted": 6,
+      "NOT_ATTEMPTED": 0,
+      "IN_PROGRESS": 0,
+      "PASS": 2,
+      "FAIL": 2,
+      "SKIPPED": 2
+    },
     "run": {
-      "attempted": 4,
+      "attempted": 6,
       "NOT_ATTEMPTED": 0,
       "IN_PROGRESS": 0,
       "PASS": 2,
       "FAIL": 0,
-      "SKIPPED": 2
+      "SKIPPED": 4
     },
     "probes": {
-      "attempted": 4,
+      "attempted": 6,
       "NOT_ATTEMPTED": 0,
       "IN_PROGRESS": 0,
       "PASS": 1,
       "FAIL": 1,
-      "SKIPPED": 2
+      "SKIPPED": 4
     },
     "cleanup": {
-      "attempted": 4,
+      "attempted": 6,
       "NOT_ATTEMPTED": 0,
       "IN_PROGRESS": 0,
-      "PASS": 3,
+      "PASS": 4,
       "FAIL": 0,
-      "SKIPPED": 1
+      "SKIPPED": 2
     }
   },
   "probes": {
@@ -131,6 +132,34 @@
         "run": 10119,
         "probes": 61984,
         "cleanup": 10057
+      }
+    },
+    {
+      "id": "repo-503",
+      "repository": "HumanSignal/label-studio",
+      "classification": "gate",
+      "totalMs": 35,
+      "stages": {
+        "gate": 14,
+        "source": 5,
+        "build": 4,
+        "run": 4,
+        "probes": 4,
+        "cleanup": 4
+      }
+    },
+    {
+      "id": "repo-505",
+      "repository": "spring-projects/spring-petclinic",
+      "classification": "gate",
+      "totalMs": 4853,
+      "stages": {
+        "gate": 3,
+        "source": 1322,
+        "build": 1951,
+        "run": 3,
+        "probes": 3,
+        "cleanup": 1571
       }
     },
     {

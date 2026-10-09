@@ -1,0 +1,107 @@
+{
+  "schemaVersion": 1,
+  "id": "repo-503",
+  "repository": "HumanSignal/label-studio",
+  "commit": "766b7ce5c60fb6c7a601493e7bf8860cdd73c841",
+  "set": "improvement",
+  "cohort": "realistic",
+  "deployzCommit": "03a1c4430330a538a01c01554e88a168cd8dffbb",
+  "analysisVersion": 45,
+  "ai": {
+    "mode": "live",
+    "model": "workers-ai/@cf/deepseek-ai/deepseek-v4-flash-0731",
+    "requests": 1,
+    "outcome": "completed",
+    "error": null
+  },
+  "inputsHash": "ea620ac76250adde1930a0fd070ccbea6eaedc219db0611ff7b7e4e4fc516c6b",
+  "stages": {
+    "gate": {
+      "status": "FAIL",
+      "startedAt": "2026-10-09T06:36:03.988Z",
+      "finishedAt": "2026-10-09T06:36:04.002Z",
+      "durationMs": 14,
+      "detail": null,
+      "evidence": {
+        "verdict": "NOT_COMPATIBLE",
+        "outcome": "false-rejection",
+        "configuredVerdict": "NOT_COMPATIBLE",
+        "manifest": {
+          "dockerfilePath": "Dockerfile",
+          "buildContext": ".",
+          "appRoot": ".",
+          "port": 8080,
+          "healthPath": "/",
+          "healthMode": "vendor_required",
+          "migrationCommand": null,
+          "migrationMode": "startup",
+          "postgres": true,
+          "redis": true,
+          "storage": false,
+          "databaseBindings": [
+            "DATABASE_HOST",
+            "DATABASE_NAME",
+            "DATABASE_PASSWORD",
+            "DATABASE_PORT",
+            "DATABASE_URL",
+            "DATABASE_USER",
+            "DB_HOST",
+            "DB_NAME",
+            "DB_PASSWORD",
+            "DB_PORT",
+            "DB_USER"
+          ],
+          "redisBindings": [
+            "REDIS_HOST",
+            "REDIS_PORT",
+            "REDIS_URL"
+          ],
+          "storageBindings": [],
+          "generatedKeys": []
+        }
+      }
+    },
+    "source": {
+      "status": "SKIPPED",
+      "startedAt": "2026-10-09T06:36:04.008Z",
+      "finishedAt": "2026-10-09T06:36:04.013Z",
+      "durationMs": 5,
+      "detail": "the gate did not accept the repository",
+      "evidence": {}
+    },
+    "build": {
+      "status": "SKIPPED",
+      "startedAt": "2026-10-09T06:36:04.017Z",
+      "finishedAt": "2026-10-09T06:36:04.021Z",
+      "durationMs": 4,
+      "detail": "the gate did not accept the repository",
+      "evidence": {}
+    },
+    "run": {
+      "status": "SKIPPED",
+      "startedAt": "2026-10-09T06:36:04.024Z",
+      "finishedAt": "2026-10-09T06:36:04.028Z",
+      "durationMs": 4,
+      "detail": "the build did not pass",
+      "evidence": {}
+    },
+    "probes": {
+      "status": "SKIPPED",
+      "startedAt": "2026-10-09T06:36:04.032Z",
+      "finishedAt": "2026-10-09T06:36:04.036Z",
+      "durationMs": 4,
+      "detail": "the build did not pass",
+      "evidence": {}
+    },
+    "cleanup": {
+      "status": "SKIPPED",
+      "startedAt": "2026-10-09T06:36:04.040Z",
+      "finishedAt": "2026-10-09T06:36:04.044Z",
+      "durationMs": 4,
+      "detail": "no build was attempted",
+      "evidence": {}
+    }
+  },
+  "classification": "gate",
+  "remediation": null
+}

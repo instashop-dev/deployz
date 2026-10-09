@@ -1,10 +1,11 @@
 # Local Docker run summary
 
-Repositories: 4
+Repositories: 6
 
 ## Classification
 
 - build: 1
+- gate: 2
 - local-success: 1
 - probes: 1
 - source: 1
@@ -13,12 +14,12 @@ Repositories: 4
 
 | Stage | Attempted | PASS | FAIL | SKIPPED | IN_PROGRESS |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| gate | 4 | 4 | 0 | 0 | 0 |
-| source | 4 | 3 | 1 | 0 | 0 |
-| build | 4 | 2 | 1 | 1 | 0 |
-| run | 4 | 2 | 0 | 2 | 0 |
-| probes | 4 | 1 | 1 | 2 | 0 |
-| cleanup | 4 | 3 | 0 | 1 | 0 |
+| gate | 6 | 4 | 2 | 0 | 0 |
+| source | 6 | 4 | 1 | 1 | 0 |
+| build | 6 | 2 | 2 | 2 | 0 |
+| run | 6 | 2 | 0 | 4 | 0 |
+| probes | 6 | 1 | 1 | 4 | 0 |
+| cleanup | 6 | 4 | 0 | 2 | 0 |
 
 ## Probes
 
@@ -37,5 +38,7 @@ Repositories: 4
 | --- | --- | --- | ---: |
 | repo-501 | fastapi/full-stack-fastapi-template | source | 1.6 |
 | repo-502 | getredash/redash | probes | 1089.5 |
+| repo-503 | HumanSignal/label-studio | gate | 0.0 |
+| repo-505 | spring-projects/spring-petclinic | gate | 4.9 |
 | repo-536 | InvoiceShelf/InvoiceShelf | build | 47.4 |
 | repo-540 | excalidraw/excalidraw | local-success | 1630.3 |
