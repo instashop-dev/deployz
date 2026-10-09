@@ -4,8 +4,8 @@
   "status": "CONTINUE",
   "phase": 3,
   "currentTask": null,
-  "nextAction": "No eligible work: P3-BUILD-01..28 require disk>=10GB (UNAVAILABLE; 6.27 GiB free on C: at 2026-10-09T02:05Z). User action: free at least 3.8 GiB on C: (Docker reports reclaimable non-campaign build cache and unused images; the coordinator does not delete them). Then the next run sets disk>=10GB AVAILABLE after a check and starts P3-BUILD-01 (repo-540, repo-536 storage probe).",
-  "updatedAt": "2026-10-09T02:06:00Z",
+  "nextAction": "No eligible work: P3-BUILD-01..28 require disk>=10GB (UNAVAILABLE; 6.30 GiB free on C: at 2026-10-09T02:28Z). User action: free at least 3.7 GiB on C: (Docker reports reclaimable non-campaign build cache and unused images; the coordinator does not delete them). Then the next run sets disk>=10GB AVAILABLE after a check and starts P3-BUILD-01 (repo-540, repo-536 storage probe).",
+  "updatedAt": "2026-10-09T02:29:06.419Z",
   "checkout": {
     "path": "C:/Users/Tejas/Desktop/deployz-mvp-test",
     "kind": "git worktree of C:/Users/Tejas/Desktop/deployz",
@@ -384,7 +384,7 @@
     },
     "disk>=10GB": {
       "status": "UNAVAILABLE",
-      "detail": "7.1 GiB free on C: at 2026-10-09T00:00Z (P2-GATE). Docker: 2.62 GB reclaimable build cache, 0.49 GB unused unlabelled images. The user must free disk before P3-BUILD tasks; Stage A tasks do not need it. 2026-10-09T02:05Z: routine check 6.27 GiB free; still UNAVAILABLE."
+      "detail": "7.1 GiB free on C: at 2026-10-09T00:00Z (P2-GATE). Docker: 2.62 GB reclaimable build cache, 0.49 GB unused unlabelled images. The user must free disk before P3-BUILD tasks; Stage A tasks do not need it. 2026-10-09T02:05Z: routine check 6.27 GiB free; still UNAVAILABLE. 2026-10-09T02:28Z: routine check 6.30 GiB free; still UNAVAILABLE."
     },
     "dependencies-installed": {
       "status": "AVAILABLE",

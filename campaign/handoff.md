@@ -107,7 +107,7 @@
 
 ## Next action
 
-No eligible work. User action: free at least 3.8 GiB on C: (6.27 GiB free at 2026-10-09T02:05Z routine check; Docker has reclaimable non-campaign build cache and unused images that the coordinator does not delete). Then the next run checks free disk, sets `disk>=10GB` AVAILABLE and starts `P3-BUILD-01` (repo-540, repo-536).
+No eligible work. User action: free at least 3.7 GiB on C: (6.30 GiB free at 2026-10-09T02:28Z routine check; Docker has reclaimable non-campaign build cache and unused images that the coordinator does not delete). Then the next run checks free disk, sets `disk>=10GB` AVAILABLE and starts `P3-BUILD-01` (repo-540, repo-536).
 
 Caution: every coordinator, scheduled or manual, must hold `campaign/coordinator.lock` (`node campaign/lock.mjs`, see plan.md "Coordinator lock") before it changes campaign files or dispatches a worker. If the lock is held, exit without changes.
 
