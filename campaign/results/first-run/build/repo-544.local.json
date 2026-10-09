@@ -1,0 +1,119 @@
+{
+  "schemaVersion": 1,
+  "id": "repo-544",
+  "repository": "Kareadita/Kavita",
+  "commit": "f75863cb77c0f6aa26e0794a1848294e63c9d07d",
+  "set": "improvement",
+  "cohort": "realistic",
+  "deployzCommit": "f7a0ca606df26cc39cecab7b3091168eb1764c5d",
+  "analysisVersion": 45,
+  "ai": {
+    "mode": "live",
+    "model": "workers-ai/@cf/deepseek-ai/deepseek-v4-flash-0731",
+    "requests": 0,
+    "outcome": "not-requested",
+    "error": null
+  },
+  "inputsHash": "b549affbdebd030e05a83648c1534a21db0b49d76bbd3431095923445fe86dcd",
+  "stages": {
+    "gate": {
+      "status": "FAIL",
+      "startedAt": "2026-10-09T10:18:18.809Z",
+      "finishedAt": "2026-10-09T10:18:18.813Z",
+      "durationMs": 4,
+      "detail": null,
+      "evidence": {
+        "verdict": "NEEDS_CONFIGURATION",
+        "outcome": "false-acceptance",
+        "configuredVerdict": "READY",
+        "manifest": {
+          "dockerfilePath": "Dockerfile",
+          "buildContext": ".",
+          "appRoot": ".",
+          "port": 5000,
+          "healthPath": "/api/health",
+          "healthMode": "explicit",
+          "migrationCommand": null,
+          "migrationMode": "none",
+          "postgres": false,
+          "redis": false,
+          "storage": false,
+          "databaseBindings": [],
+          "redisBindings": [],
+          "storageBindings": [],
+          "generatedKeys": []
+        }
+      }
+    },
+    "source": {
+      "status": "PASS",
+      "startedAt": "2026-10-09T10:18:18.817Z",
+      "finishedAt": "2026-10-09T10:18:39.020Z",
+      "durationMs": 20203,
+      "detail": null,
+      "evidence": {
+        "commit": "f75863cb77c0f6aa26e0794a1848294e63c9d07d",
+        "archiveCached": false,
+        "archiveBytes": 67066625
+      }
+    },
+    "build": {
+      "status": "FAIL",
+      "startedAt": "2026-10-09T10:18:39.022Z",
+      "finishedAt": "2026-10-09T10:18:44.734Z",
+      "durationMs": 5712,
+      "detail": "docker build exited 1",
+      "evidence": {
+        "dockerfilePath": "Dockerfile",
+        "buildContext": ".",
+        "platform": "linux/amd64",
+        "image": "deployz-campaign/repo-544:f75863cb77c0",
+        "exitCode": 1,
+        "durationMs": 5707,
+        "buildArgNames": [],
+        "logTail": "#6 transferring context: 2.92kB 0.2s done\n#6 DONE 0.4s\n\n#7 [copytask 3/8] COPY _output/*.tar.gz /files/\n#7 CACHED\n\n#8 [copytask 4/8] COPY UI/Web/dist/browser /files/wwwroot\n#8 ERROR: failed to calculate checksum of ref 12cfkxfrx28t4g2mqmjcwmb4j::yxi6c5c38qeyuu8vnkrf6uidu: \"/UI/Web/dist/browser\": not found\n\n#9 [copytask 2/8] RUN mkdir /files\n#9 CANCELED\n\n#10 [copytask 5/8] COPY copy_runtime.sh /copy_runtime.sh\n#10 CACHED\n\n#11 [copytask 6/8] RUN chmod +x /copy_runtime.sh\n#11 CACHED\n\n#12 [copytask 7/8] RUN /copy_runtime.sh\n#12 CACHED\n\n#13 [copytask 8/8] RUN chmod +x /Kavita/Kavita\n#13 CACHED\n\n#14 [stage-1 2/8] COPY --from=copytask /Kavita /kavita\n#14 CANCELED\n------\n > [copytask 4/8] COPY UI/Web/dist/browser /files/wwwroot:\n------\nDockerfile:11\n--------------------\n   9 |     RUN mkdir /files\n  10 |     COPY _output/*.tar.gz /files/\n  11 | >>> COPY UI/Web/dist/browser /files/wwwroot\n  12 |     COPY copy_runtime.sh /copy_runtime.sh\n  13 |     \n--------------------\nERROR: failed to build: failed to solve: failed to compute cache key: failed to calculate checksum of ref 12cfkxfrx28t4g2mqmjcwmb4j::yxi6c5c38qeyuu8vnkrf6uidu: \"/UI/Web/dist/browser\": not found\n\nView build details: docker-desktop://dashboard/build/desktop-linux/desktop-linux/k675epr73llwpko22lmyt4yqm",
+        "failure": "build",
+        "rebuilt": false
+      }
+    },
+    "run": {
+      "status": "SKIPPED",
+      "startedAt": "2026-10-09T10:18:46.149Z",
+      "finishedAt": "2026-10-09T10:18:46.154Z",
+      "durationMs": 5,
+      "detail": "the build did not pass",
+      "evidence": {}
+    },
+    "probes": {
+      "status": "SKIPPED",
+      "startedAt": "2026-10-09T10:18:46.157Z",
+      "finishedAt": "2026-10-09T10:18:46.160Z",
+      "durationMs": 3,
+      "detail": "the build did not pass",
+      "evidence": {}
+    },
+    "cleanup": {
+      "status": "PASS",
+      "startedAt": "2026-10-09T10:18:46.164Z",
+      "finishedAt": "2026-10-09T10:18:47.478Z",
+      "durationMs": 1314,
+      "detail": null,
+      "evidence": {
+        "removed": {
+          "containers": 0,
+          "networks": 0,
+          "volumes": 0
+        },
+        "imageRemoved": false,
+        "keepImage": false,
+        "leaks": {
+          "containers": [],
+          "networks": [],
+          "volumes": []
+        }
+      }
+    }
+  },
+  "classification": "gate",
+  "remediation": null
+}

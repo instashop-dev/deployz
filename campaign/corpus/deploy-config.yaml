@@ -265,6 +265,11 @@ repositories:
       healthPath: "/health_check"
       databaseRequired: true
       redisRequired: false
+    config:
+      - key: DISABLE_MQTT
+        value: "true"
+    secrets:
+      - ENCRYPTION_KEY
     notes:
       - "teslamate-org/teslamate; label NEEDS_CONFIGURATION, first-run gate NEEDS_CONFIGURATION"
   - id: repo-544

@@ -4,8 +4,8 @@
   "status": "CONTINUE",
   "phase": 3,
   "currentTask": null,
-  "nextAction": "Next eligible: P3-BUILD-14 (repo-543, repo-544). USER DECISION still open (harness, not product): (a) source-stage tar symlinks on Windows not deterministic (also repo-528); (b) 90 s dependency readiness window includes first image pull. Phase 4 findings so far include live AI timeouts (repo-514, 520, 523, 528), AI parse-errors (repo-510, 516), a label review for repo-522 (NOT_COMPATIBLE label, but probes PASS), repo-525 manifest dockerfilePath null while the harness still builds ./Dockerfile, manifest bindings not passed to the local run environment (repo-529 APP_KEY generatedKeys; repo-534 SPRING_DATASOURCE_* bindings, dbWrite FAIL), and redis probe applicability for a lazy-connect app (repo-530). Builder prune after each batch.",
-  "updatedAt": "2026-10-09T10:04:02.793Z",
+  "nextAction": "Next eligible: P3-BUILD-15 (repo-547, repo-548). USER DECISION still open (harness, not product): (a) source-stage tar symlinks on Windows not deterministic (also repo-528); (b) 90 s dependency readiness window includes first image pull. Phase 4 findings so far include live AI timeouts (repo-514, 520, 523, 528, 543), AI parse-errors (repo-510, 516), a label review for repo-522 (NOT_COMPATIBLE label, but probes PASS), repo-525 manifest dockerfilePath null while the harness still builds ./Dockerfile, manifest bindings not passed to the local run environment (repo-529 APP_KEY generatedKeys; repo-534 SPRING_DATASOURCE_* bindings, dbWrite FAIL; repo-543 DATABASE_* bindings, container exits), and redis probe applicability for a lazy-connect app (repo-530). Builder prune after each batch.",
+  "updatedAt": "2026-10-09T10:20:30.692Z",
   "checkout": {
     "path": "C:/Users/Tejas/Desktop/deployz-mvp-test",
     "kind": "git worktree of C:/Users/Tejas/Desktop/deployz",
@@ -331,6 +331,10 @@
     {
       "commit": "e6a3b58ee2363923fef21faca86611fa3bf84538",
       "task": "P3-BUILD-13"
+    },
+    {
+      "commit": "e6a3b58ee2363923fef21faca86611fa3bf84538",
+      "task": "P3-BUILD-14"
     }
   ],
   "attempts": {
@@ -409,17 +413,18 @@
     "P3-BUILD-10": 1,
     "P3-BUILD-11": 1,
     "P3-BUILD-12": 1,
-    "P3-BUILD-13": 1
+    "P3-BUILD-13": 1,
+    "P3-BUILD-14": 1
   },
   "lastResult": {
-    "task": "P3-BUILD-13",
+    "task": "P3-BUILD-14",
     "status": "COMPLETE",
-    "at": "2026-10-09T10:04:02.792Z",
-    "summary": "repo-530 (asynqmon): AI live completed (1 request); gate PASS (correct-accept, NEEDS_CONFIGURATION); source PASS; build PASS (419 s); run PASS (deps valkey; env PORT, REDIS_URL); probes FAIL: redis (no client connection and no key from the app; health / 200 and 60 s start PASS; manifest redis false, Valkey comes from deploy-config; asynqmon may connect to Redis only on a UI/API request, so this is a probe-applicability question for Phase 4). repo-534 (hapi-fhir-jpaserver-starter): AI not requested (0 requests); gate PASS (correct-accept, NEEDS_CONFIGURATION); source PASS; build PASS (392 s); run PASS (deps postgres); probes FAIL: dbWrite (no rows outside migration bookkeeping tables; health /actuator/health 200, start PASS). Opus check: manifest databaseBindings list SPRING_DATASOURCE_URL/USERNAME/PASSWORD, but the local run environmentNames hold only DATABASE_URL, DB_* and PORT, so the Spring app probably used its default embedded database (same family as repo-529 APP_KEY: manifest values not passed to the local run; Phase 4). Cleanup PASS both, no leaks. No deploy-config change. 0 labelled resources; builder prune 6.33 GB; C: 11 GB free.",
+    "at": "2026-10-09T10:20:30.692Z",
+    "summary": "repo-543 (teslamate): AI live, 1 request, timeout (30 s); gate PASS (correct-accept, NEEDS_CONFIGURATION); source PASS; build PASS (509 s); run PASS (deps postgres); probes FAIL: health, start, dbWrite (container exit 1: System.EnvError DATABASE_USER not set). Opus check: manifest databaseBindings list DATABASE_HOST/NAME/PASSWORD/PORT/URL/USER, but the local run environmentNames hold only DATABASE_URL, DB_*, DISABLE_MQTT, ENCRYPTION_KEY and PORT (same family as repo-529 and repo-534: manifest bindings not passed to the local run; Phase 4). Worker also reports the app reads DATABASE_PASS, which the manifest does not list (Phase 4 analysis check). repo-544 (Kavita): AI not requested; gate FAIL (false-acceptance vs NOT_COMPATIBLE label); source PASS; build FAIL (Dockerfile:11 COPY UI/Web/dist/browser not found: needs a prebuilt frontend; not a network error, no retry); run/probes SKIPPED; cleanup PASS. deploy-config: repo-543 config DISABLE_MQTT=true and generated secret ENCRYPTION_KEY (source website/docs/configuration/environment_variables.md); repo-544 none. 0 labelled resources; builder prune 3.5 GB; C: 11 GB free.",
     "evidence": [
-      "campaign/results/P3-BUILD-13/result.json",
-      "campaign/results/first-run/build/repo-530.local.json",
-      "campaign/results/first-run/build/repo-534.local.json"
+      "campaign/results/P3-BUILD-14/result.json",
+      "campaign/results/first-run/build/repo-543.local.json",
+      "campaign/results/first-run/build/repo-544.local.json"
     ]
   },
   "gates": {

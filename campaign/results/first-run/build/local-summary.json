@@ -1,109 +1,109 @@
 {
   "schemaVersion": 1,
-  "repositories": 26,
+  "repositories": 28,
   "classifications": {
     "source": 2,
-    "probes": 5,
-    "gate": 15,
+    "probes": 6,
+    "gate": 16,
     "run": 1,
     "build": 2,
     "local-success": 1
   },
   "aiModes": {
-    "live": 26
+    "live": 28
   },
   "stages": {
     "gate": {
-      "attempted": 26,
+      "attempted": 28,
       "NOT_ATTEMPTED": 0,
       "IN_PROGRESS": 0,
-      "PASS": 11,
-      "FAIL": 15,
+      "PASS": 12,
+      "FAIL": 16,
       "SKIPPED": 0
     },
     "source": {
-      "attempted": 26,
+      "attempted": 28,
       "NOT_ATTEMPTED": 0,
       "IN_PROGRESS": 0,
-      "PASS": 17,
+      "PASS": 19,
       "FAIL": 5,
       "SKIPPED": 4
     },
     "build": {
-      "attempted": 26,
+      "attempted": 28,
       "NOT_ATTEMPTED": 0,
       "IN_PROGRESS": 0,
-      "PASS": 10,
-      "FAIL": 7,
+      "PASS": 11,
+      "FAIL": 8,
       "SKIPPED": 9
     },
     "run": {
-      "attempted": 26,
+      "attempted": 28,
       "NOT_ATTEMPTED": 0,
       "IN_PROGRESS": 0,
-      "PASS": 9,
+      "PASS": 10,
       "FAIL": 1,
-      "SKIPPED": 16
+      "SKIPPED": 17
     },
     "probes": {
-      "attempted": 26,
+      "attempted": 28,
       "NOT_ATTEMPTED": 0,
       "IN_PROGRESS": 0,
       "PASS": 2,
-      "FAIL": 7,
-      "SKIPPED": 17
+      "FAIL": 8,
+      "SKIPPED": 18
     },
     "cleanup": {
-      "attempted": 26,
+      "attempted": 28,
       "NOT_ATTEMPTED": 0,
       "IN_PROGRESS": 0,
-      "PASS": 17,
+      "PASS": 19,
       "FAIL": 0,
       "SKIPPED": 9
     }
   },
   "probes": {
     "start": {
-      "attempted": 9,
+      "attempted": 10,
       "PASS": 4,
-      "FAIL": 5,
+      "FAIL": 6,
       "UNVERIFIED": 0,
       "NOT_APPLICABLE": 0
     },
     "health": {
-      "attempted": 9,
+      "attempted": 10,
       "PASS": 4,
-      "FAIL": 5,
+      "FAIL": 6,
       "UNVERIFIED": 0,
       "NOT_APPLICABLE": 0
     },
     "migration": {
-      "attempted": 9,
+      "attempted": 10,
       "PASS": 0,
       "FAIL": 0,
       "UNVERIFIED": 0,
-      "NOT_APPLICABLE": 9
+      "NOT_APPLICABLE": 10
     },
     "dbWrite": {
-      "attempted": 9,
+      "attempted": 10,
       "PASS": 0,
-      "FAIL": 4,
+      "FAIL": 5,
       "UNVERIFIED": 0,
       "NOT_APPLICABLE": 5
     },
     "redis": {
-      "attempted": 9,
+      "attempted": 10,
       "PASS": 0,
       "FAIL": 4,
       "UNVERIFIED": 0,
-      "NOT_APPLICABLE": 5
+      "NOT_APPLICABLE": 6
     },
     "storage": {
-      "attempted": 9,
+      "attempted": 10,
       "PASS": 0,
       "FAIL": 0,
       "UNVERIFIED": 3,
-      "NOT_APPLICABLE": 6
+      "NOT_APPLICABLE": 7
     }
   },
   "durations": [
@@ -469,6 +469,34 @@
         "run": 9008,
         "probes": 60666,
         "cleanup": 2370
+      }
+    },
+    {
+      "id": "repo-543",
+      "repository": "teslamate-org/teslamate",
+      "classification": "probes",
+      "totalMs": 592570,
+      "stages": {
+        "gate": 5,
+        "source": 7216,
+        "build": 509884,
+        "run": 11728,
+        "probes": 60574,
+        "cleanup": 3163
+      }
+    },
+    {
+      "id": "repo-544",
+      "repository": "Kareadita/Kavita",
+      "classification": "gate",
+      "totalMs": 27241,
+      "stages": {
+        "gate": 4,
+        "source": 20203,
+        "build": 5712,
+        "run": 5,
+        "probes": 3,
+        "cleanup": 1314
       }
     }
   ]

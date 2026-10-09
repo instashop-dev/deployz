@@ -1,13 +1,13 @@
 # Local Docker run summary
 
-Repositories: 26
+Repositories: 28
 
 ## Classification
 
 - build: 2
-- gate: 15
+- gate: 16
 - local-success: 1
-- probes: 5
+- probes: 6
 - run: 1
 - source: 2
 
@@ -15,23 +15,23 @@ Repositories: 26
 
 | Stage | Attempted | PASS | FAIL | SKIPPED | IN_PROGRESS |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| gate | 26 | 11 | 15 | 0 | 0 |
-| source | 26 | 17 | 5 | 4 | 0 |
-| build | 26 | 10 | 7 | 9 | 0 |
-| run | 26 | 9 | 1 | 16 | 0 |
-| probes | 26 | 2 | 7 | 17 | 0 |
-| cleanup | 26 | 17 | 0 | 9 | 0 |
+| gate | 28 | 12 | 16 | 0 | 0 |
+| source | 28 | 19 | 5 | 4 | 0 |
+| build | 28 | 11 | 8 | 9 | 0 |
+| run | 28 | 10 | 1 | 17 | 0 |
+| probes | 28 | 2 | 8 | 18 | 0 |
+| cleanup | 28 | 19 | 0 | 9 | 0 |
 
 ## Probes
 
 | Probe | Attempted | PASS | FAIL | UNVERIFIED | NOT_APPLICABLE |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| start | 9 | 4 | 5 | 0 | 0 |
-| health | 9 | 4 | 5 | 0 | 0 |
-| migration | 9 | 0 | 0 | 0 | 9 |
-| dbWrite | 9 | 0 | 4 | 0 | 5 |
-| redis | 9 | 0 | 4 | 0 | 5 |
-| storage | 9 | 0 | 0 | 3 | 6 |
+| start | 10 | 4 | 6 | 0 | 0 |
+| health | 10 | 4 | 6 | 0 | 0 |
+| migration | 10 | 0 | 0 | 0 | 10 |
+| dbWrite | 10 | 0 | 5 | 0 | 5 |
+| redis | 10 | 0 | 4 | 0 | 6 |
+| storage | 10 | 0 | 0 | 3 | 7 |
 
 ## Duration per repository
 
@@ -63,3 +63,5 @@ Repositories: 26
 | repo-534 | hapifhir/hapi-fhir-jpaserver-starter | probes | 637.8 |
 | repo-536 | InvoiceShelf/InvoiceShelf | build | 47.4 |
 | repo-540 | excalidraw/excalidraw | local-success | 1630.3 |
+| repo-543 | teslamate-org/teslamate | probes | 592.6 |
+| repo-544 | Kareadita/Kavita | gate | 27.2 |

@@ -1,0 +1,55 @@
+{
+  "taskId": "P3-BUILD-14",
+  "testedCommit": "e6a3b58ee2363923fef21faca86611fa3bf84538",
+  "executor": "campaign-worker",
+  "model": "sonnet",
+  "startedAt": "2026-10-09T10:06:41Z",
+  "finishedAt": "2026-10-09T10:20:00Z",
+  "proposedStatus": "COMPLETE",
+  "commands": [
+    { "command": "node --env-file=.env node_modules/tsx/dist/cli.mjs scripts/repository-deployment/index.ts --local --ai live --benchmark campaign/corpus/benchmark.yaml --deploy-config campaign/corpus/deploy-config.yaml --runs-dir campaign/results/first-run/build/ --evidence-dir campaign/logs/P3-BUILD-14/evidence/ --repo repo-543 --repo repo-544", "exitCode": 0, "summary": "repo-543 probes FAIL; repo-544 gate FAIL + build FAIL; 2 local results written" },
+    { "command": "docker ps/network/volume/images filter label=deployz-campaign=fresh-100", "exitCode": 0, "summary": "no labelled resource remains" },
+    { "command": "docker builder prune -f", "exitCode": 0, "summary": "reclaimed 3.516GB" }
+  ],
+  "evidence": [
+    "campaign/results/first-run/build/repo-543.local.json",
+    "campaign/results/first-run/build/repo-544.local.json",
+    "campaign/logs/P3-BUILD-14/run.log",
+    "campaign/logs/P3-BUILD-14/evidence/repo-543-build.log",
+    "campaign/logs/P3-BUILD-14/evidence/repo-543-run.log",
+    "campaign/logs/P3-BUILD-14/evidence/repo-544-build.log"
+  ],
+  "apps": {
+    "repo-543": {
+      "ai": { "mode": "live (production-equivalent)", "requests": 1, "outcome": "timeout (AbortError, 2 attempts, 30 s)" },
+      "gate": "PASS (verdict NEEDS_CONFIGURATION, correct-accept)",
+      "source": "PASS (archive 30 MB, commit 96119f6)",
+      "build": "PASS (docker build exit 0, 509 s, no retry needed)",
+      "run": "PASS (container started with postgres; env names DATABASE_URL, DB_HOST, DB_NAME, DB_PASSWORD, DB_PORT, DB_USER, DISABLE_MQTT, ENCRYPTION_KEY, PORT)",
+      "probes": "FAIL (health, start, dbWrite). Container exited 1: System.EnvError could not fetch environment variable DATABASE_USER, runtime.exs:118. The harness passed DB_USER but not DATABASE_USER, DATABASE_HOST, DATABASE_PASS, DATABASE_NAME although the app reads those names (analysis listed DATABASE_USER etc. as database bindings but the run env did not include them). Migration, redis, storage NOT_APPLICABLE.",
+      "cleanup": "PASS (2 containers, 1 network removed, image removed, no leaks)"
+    },
+    "repo-544": {
+      "ai": { "mode": "live (production-equivalent)", "requests": 0, "outcome": "not-requested" },
+      "gate": "FAIL (verdict NEEDS_CONFIGURATION with vendor overrides, label NOT_COMPATIBLE: false-acceptance)",
+      "source": "PASS (archive 67 MB, commit f75863c)",
+      "build": "FAIL (docker build exit 1, 5.7 s, not a network error, no retry). Dockerfile:11 COPY UI/Web/dist/browser: not found (needs a prebuilt frontend and _output, not built by the Dockerfile).",
+      "run": "SKIPPED (the build did not pass)",
+      "probes": "SKIPPED (the build did not pass)",
+      "cleanup": "PASS (nothing to remove, no leaks)"
+    }
+  },
+  "deployConfigChanges": [
+    "repo-543: config DISABLE_MQTT=true. Source: teslamate-org/teslamate website/docs/configuration/environment_variables.md (MQTT_HOST required unless DISABLE_MQTT is true; no MQTT broker in the harness).",
+    "repo-543: secrets ENCRYPTION_KEY (generated at run time, no value stored). Source: same file (ENCRYPTION_KEY required, encrypts Tesla API tokens).",
+    "repo-544: no change (no required env in the repository docs)."
+  ],
+  "leftoverResourceCheck": "no container, network, volume or image with label deployz-campaign=fresh-100 remains",
+  "prune": "docker builder prune -f reclaimed 3.516GB",
+  "diskFree": "C: 11G free (222G total, 96% used) before and after prune as reported by df",
+  "notes": [
+    "Both deploy-config additions are for repo-543 only; no secret values.",
+    "Finding: repo-543 probe failure is a harness env-binding gap (DATABASE_USER/HOST/PASS/NAME not passed) or missing vendor config; classify as Deployz or harness issue for the coordinator.",
+    "AI analysis timed out for repo-543 (30 s, 2 attempts); gate still ran on deterministic analysis."
+  ]
+}

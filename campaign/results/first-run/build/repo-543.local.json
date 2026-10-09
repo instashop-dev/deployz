@@ -1,0 +1,181 @@
+{
+  "schemaVersion": 1,
+  "id": "repo-543",
+  "repository": "teslamate-org/teslamate",
+  "commit": "96119f65a98ecc2f6d3584c07af4d0b952326daa",
+  "set": "improvement",
+  "cohort": "realistic",
+  "deployzCommit": "f7a0ca606df26cc39cecab7b3091168eb1764c5d",
+  "analysisVersion": 45,
+  "ai": {
+    "mode": "live",
+    "model": "workers-ai/@cf/deepseek-ai/deepseek-v4-flash-0731",
+    "requests": 1,
+    "outcome": "timeout",
+    "error": "AbortError: This operation was aborted"
+  },
+  "inputsHash": "642f9400d24a7aca7ae2d5b4218229b534926b71b52be6d9fe1eba32c1e2de9d",
+  "stages": {
+    "gate": {
+      "status": "PASS",
+      "startedAt": "2026-10-09T10:08:22.786Z",
+      "finishedAt": "2026-10-09T10:08:22.791Z",
+      "durationMs": 5,
+      "detail": null,
+      "evidence": {
+        "verdict": "NEEDS_CONFIGURATION",
+        "outcome": "correct-accept",
+        "configuredVerdict": "READY",
+        "manifest": {
+          "dockerfilePath": "Dockerfile",
+          "buildContext": ".",
+          "appRoot": ".",
+          "port": 4000,
+          "healthPath": "/",
+          "healthMode": "vendor_required",
+          "migrationCommand": null,
+          "migrationMode": "unknown",
+          "postgres": true,
+          "redis": false,
+          "storage": false,
+          "databaseBindings": [
+            "DATABASE_HOST",
+            "DATABASE_NAME",
+            "DATABASE_PASSWORD",
+            "DATABASE_PORT",
+            "DATABASE_URL",
+            "DATABASE_USER",
+            "DB_HOST",
+            "DB_NAME",
+            "DB_PASSWORD",
+            "DB_PORT",
+            "DB_USER"
+          ],
+          "redisBindings": [],
+          "storageBindings": [],
+          "generatedKeys": []
+        }
+      }
+    },
+    "source": {
+      "status": "PASS",
+      "startedAt": "2026-10-09T10:08:22.794Z",
+      "finishedAt": "2026-10-09T10:08:30.010Z",
+      "durationMs": 7216,
+      "detail": null,
+      "evidence": {
+        "commit": "96119f65a98ecc2f6d3584c07af4d0b952326daa",
+        "archiveCached": false,
+        "archiveBytes": 30047620
+      }
+    },
+    "build": {
+      "status": "PASS",
+      "startedAt": "2026-10-09T10:08:30.014Z",
+      "finishedAt": "2026-10-09T10:16:59.898Z",
+      "durationMs": 509884,
+      "detail": null,
+      "evidence": {
+        "dockerfilePath": "Dockerfile",
+        "buildContext": ".",
+        "platform": "linux/amd64",
+        "image": "deployz-campaign/repo-543:96119f65a98e",
+        "exitCode": 0,
+        "durationMs": 509406,
+        "buildArgNames": [],
+        "logTail": "#33 6.078 \n#33 6.078     # To stop it gracefully (you may also send SIGINT/SIGTERM)\n#33 6.078     /opt/built/bin/teslamate stop\n#33 6.078 \n#33 6.078 To list all commands:\n#33 6.078 \n#33 6.078     /opt/built/bin/teslamate\n#33 6.078 \n#33 DONE 6.4s\n\n#34 [builder 24/24] COPY --chmod=444 NOTICE LICENSE /opt/legal/\n#34 DONE 0.8s\n\n#35 [app 4/7] COPY --from=builder /opt/legal/ /usr/share/doc/teslamate/\n#35 DONE 0.3s\n\n#36 [app 5/7] COPY --chown=nonroot:nonroot --chmod=555 entrypoint.sh /\n#36 DONE 0.2s\n\n#37 [app 6/7] COPY --from=builder --chown=nonroot:nonroot --chmod=555 /opt/built .\n#37 DONE 1.8s\n\n#38 [app 7/7] RUN mkdir /opt/app/.srtm_cache\n#38 DONE 0.6s\n\n#39 exporting to image\n#39 exporting layers\n#39 exporting layers 9.7s done\n#39 exporting manifest sha256:4294a141105b9057dbf8d92e1fe8351a1df63b128928e49e1b4073fb09d8c89b 0.1s done\n#39 exporting config sha256:dcbf1487ad120753aba5280e723f68a339d23296806b5e55cbb26f28e37e1a47\n#39 exporting config sha256:dcbf1487ad120753aba5280e723f68a339d23296806b5e55cbb26f28e37e1a47 0.1s done\n#39 exporting attestation manifest sha256:e05ace3b09d26a6da71963190bb616fff205a9e76417f5e1b3f918d052bfd08b\n#39 exporting attestation manifest sha256:e05ace3b09d26a6da71963190bb616fff205a9e76417f5e1b3f918d052bfd08b 0.1s done\n#39 exporting manifest list sha256:292ce208874e4463b3db696bb41538fdef2c867cd5491e4b4bf6a58c298adc92 0.1s done\n#39 naming to docker.io/deployz-campaign/repo-543:96119f65a98e 0.0s done\n#39 unpacking to docker.io/deployz-campaign/repo-543:96119f65a98e\n#39 unpacking to docker.io/deployz-campaign/repo-543:96119f65a98e 6.4s done\n#39 DONE 16.8s\n\nView build details: docker-desktop://dashboard/build/desktop-linux/desktop-linux/ib2yqkr8uvqf3ry9a85um4e70",
+        "imageId": "sha256:292ce208874e4463b3db696bb41538fdef2c867cd5491e4b4bf6a58c298adc92",
+        "imageBytes": 292203523,
+        "failure": null,
+        "rebuilt": false
+      }
+    },
+    "run": {
+      "status": "PASS",
+      "startedAt": "2026-10-09T10:17:00.941Z",
+      "finishedAt": "2026-10-09T10:17:12.669Z",
+      "durationMs": 11728,
+      "detail": null,
+      "evidence": {
+        "image": "deployz-campaign/repo-543:96119f65a98e",
+        "port": 4000,
+        "healthPath": "/health_check",
+        "dependencies": [
+          "postgres"
+        ],
+        "environmentNames": [
+          "DATABASE_URL",
+          "DB_HOST",
+          "DB_NAME",
+          "DB_PASSWORD",
+          "DB_PORT",
+          "DB_USER",
+          "DISABLE_MQTT",
+          "ENCRYPTION_KEY",
+          "PORT"
+        ],
+        "migration": null
+      }
+    },
+    "probes": {
+      "status": "FAIL",
+      "startedAt": "2026-10-09T10:17:12.677Z",
+      "finishedAt": "2026-10-09T10:18:13.251Z",
+      "durationMs": 60574,
+      "detail": "failed: health, start, dbWrite",
+      "evidence": {
+        "probes": {
+          "health": {
+            "status": "FAIL",
+            "detail": "the container exited (code 1) before /health_check answered"
+          },
+          "start": {
+            "status": "FAIL",
+            "detail": "the container is not running (exit code 1)"
+          },
+          "migration": {
+            "status": "NOT_APPLICABLE",
+            "detail": "the manifest has no migration command"
+          },
+          "dbWrite": {
+            "status": "FAIL",
+            "detail": "no rows outside migration bookkeeping tables"
+          },
+          "redis": {
+            "status": "NOT_APPLICABLE",
+            "detail": "the manifest needs no Redis"
+          },
+          "storage": {
+            "status": "NOT_APPLICABLE",
+            "detail": "the manifest needs no storage"
+          }
+        },
+        "url": "http://app:4000/health_check",
+        "appLogTail": "ERROR! Config provider Config.Reader failed with:\n** (System.EnvError) could not fetch environment variable \"DATABASE_USER\" because it is not set\n    (elixir 1.20.3) lib/system.ex:731: System.fetch_env!/1\n    releases/4.4.0-dev/runtime.exs:118: (file)\n    (elixir 1.20.3) src/elixir.erl:382: :elixir.eval_external_handler/3\n    (stdlib 8.0.3) erl_eval.erl:1048: :erl_eval.do_apply/7\n    (stdlib 8.0.3) erl_eval.erl:1664: :erl_eval.expr_list/7\n    (stdlib 8.0.3) erl_eval.erl:1660: :erl_eval.expr_list/5\n    (stdlib 8.0.3) erl_eval.erl:451: :erl_eval.expr/6\n    (stdlib 8.0.3) erl_eval.erl:441: :erl_eval.expr/6\n\nRuntime terminating during boot ({#{env=><<\"DATABASE_USER\">>,'__struct__'=>'Elixir.System.EnvError','__exception__'=>***},[{'Elixir.System','fetch_env!',1,[{file,\"lib/system.ex\"},{line,731}]},{elixir_compiler,'__FILE__',1,[{file,\"releases/4.4.0-dev/runtime.exs\"},{line,118}]},{elixir,eval_external_handler,3,[{file,\"src/elixir.erl\"},{line,382}]},{erl_eval,do_apply,7,[{file,\"erl_eval.erl\"},{line,1048}]},{erl_eval,expr_list,7,[{file,\"erl_eval.erl\"},{line,1664}]},{erl_eval,expr_list,5,[{file,\"erl_eval.erl\"},{line,1660}]},{erl_eval,expr,6,[{file,\"erl_eval.erl\"},{line,451}]},{erl_eval,expr,6,[{file,\"erl_eval.erl\"},{line,441}]}]})\n\nCrash dump is being written to: erl_crash.dump...done"
+      }
+    },
+    "cleanup": {
+      "status": "PASS",
+      "startedAt": "2026-10-09T10:18:13.257Z",
+      "finishedAt": "2026-10-09T10:18:16.420Z",
+      "durationMs": 3163,
+      "detail": null,
+      "evidence": {
+        "removed": {
+          "containers": 2,
+          "networks": 1,
+          "volumes": 0
+        },
+        "imageRemoved": true,
+        "keepImage": false,
+        "leaks": {
+          "containers": [],
+          "networks": [],
+          "volumes": []
+        }
+      }
+    }
+  },
+  "classification": "probes",
+  "remediation": null
+}
