@@ -320,7 +320,12 @@ type ApplicationRow = typeof schema.applications.$inferSelect;
 // sqlite3 adapter, and an image started with a --config file that no
 // instruction creates, are NOT_COMPATIBLE. Stored v47 rows answer
 // NEEDS_CONFIGURATION or READY for these repositories.
-export const ANALYSIS_VERSION = 48;
+// Version 49 (fresh-100 F3): an image with no default server command (a bare OS
+// base with no CMD or ENTRYPOINT, or a launcher-only ENTRYPOINT with no CMD) has
+// no start command, and an image that runs several supervised processes
+// (s6-overlay, supervisord) is NOT_COMPATIBLE. Stored v48 rows answer READY or
+// NEEDS_CONFIGURATION for these repositories.
+export const ANALYSIS_VERSION = 49;
 
 export interface AnalysisRunnerDeps {
   db: RuntimeDb;

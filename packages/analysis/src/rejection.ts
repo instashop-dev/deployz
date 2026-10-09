@@ -8,6 +8,7 @@
 
 import type { ComposeService, FileTree } from './detectors.js';
 import {
+  TREE_PATHS,
   collectDependencyNames,
   composeApplicationServices,
   composeServices,
@@ -1161,6 +1162,45 @@ function isLocalDirValue(value: string): boolean {
   // Reject flags/booleans that merely share a variable name (`DATA_DIR=1`).
   if (/^(?:true|false|0|1|yes|no)$/i.test(value)) return false;
   return true;
+}
+
+/**
+ * An image that starts several long-running processes under a supervisor (s6-overlay or
+ * supervisord) runs web, API and worker processes in one container. Deployz runs one web
+ * process plus declared workers, each as its own service from the same image.
+ */
+export function checkMultiProcessImage(tree: FileTree): RejectionFinding {
+  const selected = listDockerfileCandidates(tree)[0];
+  const dockerfile = selected === undefined ? '' : (tree[selected] ?? '').replace(/^\s*#.*$/gm, '');
+  const paths = (tree as FileTree & { [TREE_PATHS]?: readonly string[] })[TREE_PATHS] ?? Object.keys(tree);
+  if (/s6-overlay|S6_OVERLAY|\bs6-svscan\b/i.test(dockerfile)) {
+    const services = new Set<string>();
+    for (const path of paths) {
+      const name = /(?:^|\/)(?:s6-rc\.d|services\.d)\/([\w.-]+)\/run$/.exec(path)?.[1];
+      if (name !== undefined) services.add(name);
+    }
+    if (services.size >= 2) {
+      return {
+        detected: true,
+        dependency: 'multi-process-image',
+        reason: `Unsupported container setup: ${selected} runs s6-overlay with ${services.size} long-running services (${[...services].slice(0, 4).join(', ')}) in one container. Deployz runs one web process and declared workers as separate services.`,
+      };
+    }
+  }
+  if (/\bsupervisord\b/i.test(dockerfile)) {
+    for (const [path, content] of Object.entries(tree)) {
+      if (!/supervisor[\w.-]*\.(?:conf|ini)$/i.test(path) || !content) continue;
+      const programs = content.match(/^\s*\[program:[^\]]+\]/gm) ?? [];
+      if (programs.length >= 2) {
+        return {
+          detected: true,
+          dependency: 'multi-process-image',
+          reason: `Unsupported container setup: ${selected} runs supervisord with ${programs.length} programs (${path}) in one container. Deployz runs one web process and declared workers as separate services.`,
+        };
+      }
+    }
+  }
+  return { detected: false, dependency: 'none', reason: 'The image does not run several supervised processes' };
 }
 
 /**

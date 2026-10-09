@@ -62,6 +62,7 @@ import {
   checkNoBuildableDockerfile,
   checkExplicitPersistentDataDir,
   checkRequiredConfigFileMount,
+  checkMultiProcessImage,
   checkRequiredThirdPartyService,
   listIgnoredDeploymentFiles,
 } from './rejection.js';
@@ -147,6 +148,7 @@ const REJECTION_CHECKS = [
   checkNoBuildableDockerfile,
   checkExplicitPersistentDataDir,
   checkRequiredConfigFileMount,
+  checkMultiProcessImage,
   checkRequiredThirdPartyService,
 ] as const;
 

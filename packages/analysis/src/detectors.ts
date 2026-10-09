@@ -668,6 +668,44 @@ function productionStageText(content: string): string {
   return `${firstFrom > 0 ? clean.slice(0, firstFrom) : ''}\n${textOf(selected)}`;
 }
 
+// A base image whose default command is a shell, and an interpreter or launcher that
+// exits (or waits on a terminal) when it receives no script or sub-command.
+const BARE_OS_IMAGE_REGEX = /^(?:docker\.io\/)?(?:library\/)?(?:debian|ubuntu|alpine|busybox|fedora|centos|rockylinux|almalinux|amazonlinux)(?:[:@]|$)/i;
+const LAUNCHER_ONLY_ENTRYPOINT_REGEX =
+  /^\s*ENTRYPOINT\s+\[\s*"(?:bundle"\s*,\s*"exec|uv"\s*,\s*"run|poetry"\s*,\s*"run|pipenv"\s*,\s*"run|npx|node|python3?|ruby)"\s*\]\s*$/im;
+
+/**
+ * Why the image `docker build` produces has no default command that starts a server, or
+ * null. Two sound cases: a final-stage lineage with no `CMD` and no `ENTRYPOINT` on a
+ * bare OS base (its default command is a shell that exits at once), and an `ENTRYPOINT`
+ * that is only a launcher (`["bundle", "exec"]`) with no `CMD` to give it a command.
+ */
+export function detectNoDefaultServerCommand(content: string): string | null {
+  const stages = parseDockerfileStages(normalizeDockerfile(content));
+  const last = stages[stages.length - 1];
+  if (last === undefined || (last.name !== null && NON_RUNTIME_STAGE_NAME_REGEX.test(last.name))) return null;
+  const chain = [last];
+  for (let current = last; ; ) {
+    const parent = stages.find((stage, index) => stage.name !== null && stage.name === current.image.toLowerCase() && stages[index] !== current);
+    if (parent === undefined || chain.includes(parent)) break;
+    chain.unshift(parent);
+    current = parent;
+  }
+  const lines = chain.map((stage) => stage.body).join('\n');
+  const hasCmd = /^\s*CMD\b/im.test(lines);
+  const hasEntrypoint = /^\s*ENTRYPOINT\b/im.test(lines);
+  const root = chain[0]!.image;
+  if (!hasCmd && !hasEntrypoint && BARE_OS_IMAGE_REGEX.test(root)) {
+    return `the final image is built from ${root} and has no CMD or ENTRYPOINT, so it starts a shell that exits at once`;
+  }
+  const entrypoints = lines.match(/^\s*ENTRYPOINT\b.*$/gim);
+  const launcher = entrypoints === null ? undefined : entrypoints[entrypoints.length - 1]!.trim();
+  if (!hasCmd && launcher !== undefined && LAUNCHER_ONLY_ENTRYPOINT_REGEX.test(launcher)) {
+    return `${launcher} has no CMD, so the launcher starts with no command`;
+  }
+  return null;
+}
+
 // Directories whose Dockerfiles build a test image, a dev container or an
 // example, never the application (a `dev/` build directory still can).
 const NON_APP_DOCKERFILE_DIR_REGEX =
@@ -2956,6 +2994,11 @@ export function detectStartupCommand(tree: FileTree): DetectorFinding {
   //    not every scaffold or sibling image in the repository.
   const dockerfile = selectedDockerfile(tree);
   if (dockerfile) {
+    // The container runs the image command only; a package.json script is not run.
+    const noDefault = detectNoDefaultServerCommand(dockerfile.content);
+    if (noDefault !== null) {
+      return { detector: 'startup-command', detected: false, details: `${dockerfile.path}: ${noDefault}` };
+    }
     const cmdMatch = CMD_REGEX.exec(dockerfile.content);
     if (cmdMatch && cmdMatch[1]) {
       sources.push(`CMD: ${cmdMatch[1].trim()}`);

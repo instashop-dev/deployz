@@ -295,6 +295,14 @@ const NO_DOCKERFILE_COPY: RejectionCopy = {
     'Add a production Dockerfile to the repository that builds and starts the app from source.',
 };
 
+const MULTI_PROCESS_COPY: RejectionCopy = {
+  ...MULTI_SERVICE_COPY,
+  plainEnglishExplanation:
+    "This app's image starts several long-running processes (web, API, worker) under a supervisor, but Deployz runs one process per container.",
+  suggestedOutcome:
+    'Build an image that runs only the web process, and declare each other process as a worker.',
+};
+
 /** Maps a §10/§11 rejection `dependency` to its blocking-finding copy. */
 function rejectionCopy(dependency: string): RejectionCopy {
   if (dependency === 'redis-unsupported') return REDIS_COPY;
@@ -312,6 +320,7 @@ function rejectionCopy(dependency: string): RejectionCopy {
     return MESSAGE_QUEUE_COPY;
   }
   if (dependency === 'docker-compose-multi-service') return MULTI_SERVICE_COPY;
+  if (dependency === 'multi-process-image') return MULTI_PROCESS_COPY;
   if (dependency === 'persistent-volume' || dependency === 'local-filesystem') return STORAGE_COPY;
   if (dependency === 'gpu') return GPU_COPY;
   if (dependency === 'no-buildable-dockerfile') return NO_DOCKERFILE_COPY;
