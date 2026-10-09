@@ -3808,7 +3808,7 @@
       "phase": 4,
       "title": "Fix F1: Gate accepts an app with no buildable Dockerfile (focused PR)",
       "executor": "campaign-worker",
-      "status": "CONTINUE",
+      "status": "COMPLETE",
       "prerequisites": [
         "P4-GROUP"
       ],
@@ -3850,7 +3850,8 @@
       "timeboxMinutes": 38,
       "notes": [
         "2026-10-09 P4-GROUP (Opus): resumable (stopBy). On CONTINUE record the branch, last pushed SHA and remaining steps. Do not merge; P4-MERGE-UNBUILDABLE-DOCKERFILE merges. Respect COMP-021: reject only when the evidence is complete (tree not truncated, no other candidate Dockerfile; never for COPY --from= or generated directories). Template Dockerfiles ({{ ... }}) and development-only Dockerfiles count as not buildable. The verdict meaning changes: update docs/product/mvp-scope.md and docs/decisions/README.md, and the vendor-facing copy (copy-map parity) if a finding message changes.",
-        "2026-10-09T19:20Z run (Opus): attempt 1 CONTINUE. PR #502 open, head e26d1bcb, branch campaign/fix-unbuildable-dockerfile from origin/main 8f14fddf, worktree C:/Users/Tejas/Desktop/deployz-fix-ai-timeout. Opus re-ran the regression test on the branch: 10/10 pass; on-main fail log present (4/10 fail). Remaining: pnpm test:affected (risk critical, full suites) was only planned, not run; full @deployz/api vitest timed out at 600 s locally. Resume: accept PR #502 CI on head e26d1bcb (Test and build + Simulated E2E + PR Gate SUCCESS) as the full-suite evidence, or run test:affected in the worktree; then complete. ANALYSIS_VERSION 45 -> 46; COMP-042 number may collide at merge."
+        "2026-10-09T19:20Z run (Opus): attempt 1 CONTINUE. PR #502 open, head e26d1bcb, branch campaign/fix-unbuildable-dockerfile from origin/main 8f14fddf, worktree C:/Users/Tejas/Desktop/deployz-fix-ai-timeout. Opus re-ran the regression test on the branch: 10/10 pass; on-main fail log present (4/10 fail). Remaining: pnpm test:affected (risk critical, full suites) was only planned, not run; full @deployz/api vitest timed out at 600 s locally. Resume: accept PR #502 CI on head e26d1bcb (Test and build + Simulated E2E + PR Gate SUCCESS) as the full-suite evidence, or run test:affected in the worktree; then complete. ANALYSIS_VERSION 45 -> 46; COMP-042 number may collide at merge.",
+        "2026-10-09T19:18Z run (Opus): continuation 1. PR CI run 37979103418 on e26d1bcb had 1 failure (repository-compatibility harness: COMP-042 in findings.md but not in the benchmark.yaml finding registry). Worker added the registry line (4de9cc79). Opus re-ran harness.test.ts in the worktree: 19/19. CI run 37980181617 on head 4de9cc79: Plan tests, Test and build (full vitest), Simulated E2E fixture-1/2/3 and scenarios, PR Gate all SUCCESS; accepted as the test:affected full-suite evidence. COMP-042 not used on origin/main 8f14fddf. COMPLETE."
       ]
     },
     {

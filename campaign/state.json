@@ -4,8 +4,8 @@
   "status": "CONTINUE",
   "phase": 4,
   "currentTask": null,
-  "nextAction": "Resume P4-FIX-UNBUILDABLE-DOCKERFILE (continuation): check PR #502 CI on head e26d1bcb; if Plan tests, Test and build, Simulated E2E x4 and PR Gate are SUCCESS, record them as the full-suite evidence and complete; a CI failure is fixed on the branch. Then P4-MERGE-UNBUILDABLE-DOCKERFILE, then the rest of the Phase 4 queue (FALSE-REJECTION, LOCAL-STATE, START-COMMAND, MIGRATION-RUNTIME, AI-RELIABILITY, HARNESS-TAR, HARNESS-READINESS, SYNC-CANDIDATE, RERUN-COMPAT-01..08, RERUN-BUILD-PLAN, P4-GATE).",
-  "updatedAt": "2026-10-09T19:17:47.909Z",
+  "nextAction": "P4-MERGE-UNBUILDABLE-DOCKERFILE (mergeProcedure on PR #502 head 4de9cc79), then the rest of the Phase 4 queue.",
+  "updatedAt": "2026-10-09T19:33:53Z",
   "checkout": {
     "path": "C:/Users/Tejas/Desktop/deployz-mvp-test",
     "kind": "git worktree of C:/Users/Tejas/Desktop/deployz",
@@ -423,6 +423,11 @@
     {
       "commit": "e26d1bcbdac709c57c9bc8ff97ed5e84db773829",
       "task": "P4-FIX-UNBUILDABLE-DOCKERFILE"
+    },
+    {
+      "commit": "4de9cc796776fdf5ab931ceced415d618b4a41fb",
+      "task": "P4-FIX-UNBUILDABLE-DOCKERFILE",
+      "note": "PR #502 head; CI run 37980181617 green"
     }
   ],
   "attempts": {
@@ -527,9 +532,9 @@
   },
   "lastResult": {
     "task": "P4-FIX-UNBUILDABLE-DOCKERFILE",
-    "status": "CONTINUE",
-    "at": "2026-10-09T19:17:47.909Z",
-    "summary": "F1 fix PR #502 opened (head e26d1bcb, base origin/main 8f14fddf): no-buildable-dockerfile rejection only with complete evidence, ANALYSIS_VERSION 46, docs (mvp-scope, decisions, findings COMP-042). Regression 10/10 on branch, 4/10 fail on main. Missing: local pnpm test:affected (full suites); PR CI pending.",
+    "status": "COMPLETE",
+    "at": "2026-10-09T19:33:53Z",
+    "summary": "PR #502 head 4de9cc79: COMP-042 registered in benchmark.yaml after CI run 37979103418 failed the finding-registry test; CI run 37980181617 all 7 required checks SUCCESS (full vitest + simulated E2E) = test:affected evidence. Regression 10/10 on branch, 4/10 fail on main.",
     "evidence": [
       "campaign/results/P4-FIX-UNBUILDABLE-DOCKERFILE/result.json",
       "https://github.com/instashop-dev/deployz/pull/502"
@@ -663,11 +668,13 @@
       "number": 502,
       "url": "https://github.com/instashop-dev/deployz/pull/502",
       "branch": "campaign/fix-unbuildable-dockerfile",
-      "headSha": "e26d1bcbdac709c57c9bc8ff97ed5e84db773829",
+      "headSha": "4de9cc796776fdf5ab931ceced415d618b4a41fb",
       "baseSha": "8f14fddf496de3cb0223842c614a1286cf2b1d45",
       "worktree": "C:/Users/Tejas/Desktop/deployz-fix-ai-timeout",
       "openedAt": "2026-10-09T19:17:47.909Z",
-      "state": "OPEN"
+      "state": "OPEN",
+      "ciRun": 37980181617,
+      "ciConclusion": "all 7 required checks SUCCESS"
     }
   ],
   "previousBaselines": [
@@ -716,22 +723,10 @@
   ],
   "continuations": {
     "P3-BUILD-06": 1,
-    "P3-BUILD-21": 1
+    "P3-BUILD-21": 1,
+    "P4-FIX-UNBUILDABLE-DOCKERFILE": 1
   },
-  "progress": {
-    "P4-FIX-UNBUILDABLE-DOCKERFILE": {
-      "completed": [
-        "code fix",
-        "regression fail/pass",
-        "docs",
-        "ANALYSIS_VERSION 46",
-        "push",
-        "PR #502"
-      ],
-      "next": "Confirm PR #502 CI on head e26d1bcb (full vitest + simulated E2E) as the test:affected evidence, or run pnpm test:affected in the worktree",
-      "resume": "worktree C:/Users/Tejas/Desktop/deployz-fix-ai-timeout, branch campaign/fix-unbuildable-dockerfile at e26d1bcb; gh pr checks 502"
-    }
-  },
+  "progress": {},
   "runExceptions": [
     {
       "task": "P1-SELECT-MESSY-02",

@@ -2,7 +2,7 @@
 
 **Status:** CONTINUE. Phase 4. P0-GATE, P1-GATE, P2-GATE and P3-GATE PASS; P4-GROUP COMPLETE. C: 15.1 GB free at 2026-10-09T18:54Z (after fstrim); Docker Desktop running.
 **Checkout:** `C:/Users/Tejas/Desktop/deployz-mvp-test`, branch `campaign/fresh-100`. Baseline commit `e6a3b58e` (ANALYSIS_VERSION 45; origin/main after PR #498, merged into the campaign branch on 2026-10-08).
-**Eligible now:** `P4-FIX-UNBUILDABLE-DOCKERFILE` continuation (PR #502 CI), then the Phase 4 queue in order. `docker`, `disk>=3GB` and `ai-gateway` AVAILABLE.
+**Eligible now:** `P4-MERGE-UNBUILDABLE-DOCKERFILE` (PR #502 head 4de9cc79, all required checks SUCCESS), then the Phase 4 queue in order. `docker`, `disk>=3GB` and `ai-gateway` AVAILABLE.
 
 ## Done
 
@@ -120,6 +120,7 @@
 - 2026-10-09T18:41Z run: `P4-DIAG-START` COMPLETE (attempt 1, worker sonnet). repo-573 -> F8 (`RuntimeError: JWT_SECRET is required`; manifest generatedKeys not set before the F8 fix). repo-514 (no CMD/ENTRYPOINT) and repo-523 (`ENTRYPOINT ["bundle","exec"]`, no CMD) -> F3 (Opus mapping; worker proposed a new F11); added to `P4-FIX-START-COMMAND` notes. repo-502 UNDIAGNOSED: the 40-line log tail holds only gunicorn `HaltServer` frames; the P4 rerun decides. Evidence: `campaign/results/P4-DIAG-START/diagnosis.md`.
 
 - 2026-10-09T19:20Z run: `P4-FIX-UNBUILDABLE-DOCKERFILE` CONTINUE (attempt 1, worker sonnet). PR #502 (https://github.com/instashop-dev/deployz/pull/502), branch `campaign/fix-unbuildable-dockerfile` head `e26d1bcb` from origin/main `8f14fddf`, worktree `C:/Users/Tejas/Desktop/deployz-fix-ai-timeout`. New rejection `no-buildable-dockerfile` (NOT_COMPATIBLE only with complete evidence; COMP-021 exclusions kept), ANALYSIS_VERSION 46, docs mvp-scope/decisions/ai-analysis/findings COMP-042. Opus re-ran the regression test on the branch: 10/10 pass (on-main log: 4/10 fail). Missing: local `pnpm test:affected` (risk critical; full @deployz/api vitest timed out at 600 s); PR CI was pending at checkpoint. Evidence: `campaign/results/P4-FIX-UNBUILDABLE-DOCKERFILE/result.json`.
+- 2026-10-09T19:18Z run: `P4-FIX-UNBUILDABLE-DOCKERFILE` COMPLETE (attempt 1, continuation 1, worker sonnet). PR CI run 37979103418 on e26d1bcb failed 1 test (COMP-042 missing from the benchmark.yaml finding registry); worker added it (head `4de9cc79`); Opus re-ran harness.test.ts 19/19. CI run 37980181617 on `4de9cc79`: all 7 required checks SUCCESS (full vitest 6000+ tests, simulated E2E x4, PR Gate) = test:affected evidence. Evidence: `campaign/results/P4-FIX-UNBUILDABLE-DOCKERFILE/result.json`.
 
 ## Blockers and pending prerequisites
 
@@ -154,7 +155,7 @@
 
 ## Next action
 
-First: resume P4-FIX-UNBUILDABLE-DOCKERFILE. Check PR #502 CI on head e26d1bcb; all required checks SUCCESS = full-suite evidence, then COMPLETE and run P4-MERGE-UNBUILDABLE-DOCKERFILE (mergeProcedure; check the COMP-042 number for a collision). A CI failure is fixed on the branch.
+First: P4-MERGE-UNBUILDABLE-DOCKERFILE on PR #502 head 4de9cc79 (mergeProcedure; Opus review of mvp-scope.md and decisions/README.md changes), then watch CI on main and Deploy API/Deploy web.
 
 Run the Phase 4 queue in tasks.json order: P4-FIX/MERGE-UNBUILDABLE-DOCKERFILE, -FALSE-REJECTION, -LOCAL-STATE, -START-COMMAND, -MIGRATION-RUNTIME, -AI-RELIABILITY, P4-SYNC-CANDIDATE, P4-RERUN-COMPAT-01..08, P4-RERUN-BUILD-PLAN, P4-GATE. Harness fix tasks leave changes uncommitted; Opus verifies and commits them on campaign/fresh-100. Product fixes go through focused PRs; P4-MERGE-x follows policy.publication.mergeProcedure and watches CI on main and Deploy API/Deploy web. Family F1 changes the gate meaning of a missing or unbuildable Dockerfile (NEEDS_CONFIGURATION -> NOT_COMPATIBLE only with complete evidence); the Opus review of that PR must check mvp-scope.md and decisions/README.md. User decisions 2026-10-09: P4-FIX-HARNESS-TAR READY (option B: replace symlinks with copies of in-snapshot targets, skip others, count both in evidence); P4-FIX-HARNESS-READINESS READY (option A: pull stand-in images before the 90 s readiness window).
 
