@@ -1,13 +1,13 @@
 # Local Docker run summary
 
-Repositories: 42
+Repositories: 44
 
 ## Classification
 
 - build: 5
-- gate: 23
+- gate: 24
 - local-success: 1
-- probes: 8
+- probes: 9
 - run: 3
 - source: 2
 
@@ -15,23 +15,23 @@ Repositories: 42
 
 | Stage | Attempted | PASS | FAIL | SKIPPED | IN_PROGRESS |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| gate | 42 | 19 | 23 | 0 | 0 |
-| source | 42 | 31 | 5 | 6 | 0 |
-| build | 42 | 17 | 14 | 11 | 0 |
-| run | 42 | 13 | 4 | 25 | 0 |
-| probes | 42 | 2 | 11 | 29 | 0 |
-| cleanup | 42 | 31 | 0 | 11 | 0 |
+| gate | 44 | 20 | 24 | 0 | 0 |
+| source | 44 | 32 | 5 | 7 | 0 |
+| build | 44 | 18 | 14 | 12 | 0 |
+| run | 44 | 14 | 4 | 26 | 0 |
+| probes | 44 | 2 | 12 | 30 | 0 |
+| cleanup | 44 | 32 | 0 | 12 | 0 |
 
 ## Probes
 
 | Probe | Attempted | PASS | FAIL | UNVERIFIED | NOT_APPLICABLE |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| start | 13 | 6 | 7 | 0 | 0 |
-| health | 13 | 6 | 7 | 0 | 0 |
-| migration | 13 | 0 | 0 | 0 | 13 |
-| dbWrite | 13 | 0 | 8 | 0 | 5 |
-| redis | 13 | 0 | 5 | 0 | 8 |
-| storage | 13 | 0 | 0 | 4 | 9 |
+| start | 14 | 6 | 8 | 0 | 0 |
+| health | 14 | 6 | 8 | 0 | 0 |
+| migration | 14 | 0 | 0 | 0 | 14 |
+| dbWrite | 14 | 0 | 9 | 0 | 5 |
+| redis | 14 | 0 | 5 | 0 | 9 |
+| storage | 14 | 0 | 0 | 4 | 10 |
 
 ## Duration per repository
 
@@ -79,3 +79,5 @@ Repositories: 42
 | repo-563 | LycheeOrg/Lychee | gate | 0.0 |
 | repo-564 | getlago/lago-api | probes | 588.7 |
 | repo-565 | open-webui/open-webui | build | 1162.7 |
+| repo-566 | openfga/openfga | probes | 546.8 |
+| repo-569 | activepieces/activepieces | gate | 0.0 |

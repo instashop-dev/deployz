@@ -1,109 +1,109 @@
 {
   "schemaVersion": 1,
-  "repositories": 42,
+  "repositories": 44,
   "classifications": {
     "source": 2,
-    "probes": 8,
-    "gate": 23,
+    "probes": 9,
+    "gate": 24,
     "run": 3,
     "build": 5,
     "local-success": 1
   },
   "aiModes": {
-    "live": 42
+    "live": 44
   },
   "stages": {
     "gate": {
-      "attempted": 42,
+      "attempted": 44,
       "NOT_ATTEMPTED": 0,
       "IN_PROGRESS": 0,
-      "PASS": 19,
-      "FAIL": 23,
+      "PASS": 20,
+      "FAIL": 24,
       "SKIPPED": 0
     },
     "source": {
-      "attempted": 42,
+      "attempted": 44,
       "NOT_ATTEMPTED": 0,
       "IN_PROGRESS": 0,
-      "PASS": 31,
+      "PASS": 32,
       "FAIL": 5,
-      "SKIPPED": 6
+      "SKIPPED": 7
     },
     "build": {
-      "attempted": 42,
+      "attempted": 44,
       "NOT_ATTEMPTED": 0,
       "IN_PROGRESS": 0,
-      "PASS": 17,
+      "PASS": 18,
       "FAIL": 14,
-      "SKIPPED": 11
+      "SKIPPED": 12
     },
     "run": {
-      "attempted": 42,
+      "attempted": 44,
       "NOT_ATTEMPTED": 0,
       "IN_PROGRESS": 0,
-      "PASS": 13,
+      "PASS": 14,
       "FAIL": 4,
-      "SKIPPED": 25
+      "SKIPPED": 26
     },
     "probes": {
-      "attempted": 42,
+      "attempted": 44,
       "NOT_ATTEMPTED": 0,
       "IN_PROGRESS": 0,
       "PASS": 2,
-      "FAIL": 11,
-      "SKIPPED": 29
+      "FAIL": 12,
+      "SKIPPED": 30
     },
     "cleanup": {
-      "attempted": 42,
+      "attempted": 44,
       "NOT_ATTEMPTED": 0,
       "IN_PROGRESS": 0,
-      "PASS": 31,
+      "PASS": 32,
       "FAIL": 0,
-      "SKIPPED": 11
+      "SKIPPED": 12
     }
   },
   "probes": {
     "start": {
-      "attempted": 13,
+      "attempted": 14,
       "PASS": 6,
-      "FAIL": 7,
+      "FAIL": 8,
       "UNVERIFIED": 0,
       "NOT_APPLICABLE": 0
     },
     "health": {
-      "attempted": 13,
+      "attempted": 14,
       "PASS": 6,
-      "FAIL": 7,
+      "FAIL": 8,
       "UNVERIFIED": 0,
       "NOT_APPLICABLE": 0
     },
     "migration": {
-      "attempted": 13,
+      "attempted": 14,
       "PASS": 0,
       "FAIL": 0,
       "UNVERIFIED": 0,
-      "NOT_APPLICABLE": 13
+      "NOT_APPLICABLE": 14
     },
     "dbWrite": {
-      "attempted": 13,
+      "attempted": 14,
       "PASS": 0,
-      "FAIL": 8,
+      "FAIL": 9,
       "UNVERIFIED": 0,
       "NOT_APPLICABLE": 5
     },
     "redis": {
-      "attempted": 13,
+      "attempted": 14,
       "PASS": 0,
       "FAIL": 5,
       "UNVERIFIED": 0,
-      "NOT_APPLICABLE": 8
+      "NOT_APPLICABLE": 9
     },
     "storage": {
-      "attempted": 13,
+      "attempted": 14,
       "PASS": 0,
       "FAIL": 0,
       "UNVERIFIED": 4,
-      "NOT_APPLICABLE": 9
+      "NOT_APPLICABLE": 10
     }
   },
   "durations": [
@@ -693,6 +693,34 @@
         "run": 5,
         "probes": 4,
         "cleanup": 14780
+      }
+    },
+    {
+      "id": "repo-566",
+      "repository": "openfga/openfga",
+      "classification": "probes",
+      "totalMs": 546766,
+      "stages": {
+        "gate": 6,
+        "source": 2147,
+        "build": 472142,
+        "run": 7462,
+        "probes": 60555,
+        "cleanup": 4454
+      }
+    },
+    {
+      "id": "repo-569",
+      "repository": "activepieces/activepieces",
+      "classification": "gate",
+      "totalMs": 23,
+      "stages": {
+        "gate": 4,
+        "source": 5,
+        "build": 6,
+        "run": 3,
+        "probes": 3,
+        "cleanup": 2
       }
     }
   ]

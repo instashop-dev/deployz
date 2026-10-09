@@ -3247,7 +3247,7 @@
       "phase": 3,
       "title": "First-run local build/run of improvement apps repo-566, repo-569",
       "executor": "campaign-worker",
-      "status": "PENDING",
+      "status": "COMPLETE",
       "prerequisites": [
         "P3-BUILD-PLAN"
       ],
@@ -3281,8 +3281,10 @@
       "notes": [
         "2026-10-09 P3-BUILD-PLAN (Opus): command `node --env-file=.env node_modules/tsx/dist/cli.mjs scripts/repository-deployment/index.ts --local --ai live --benchmark campaign/corpus/benchmark.yaml --deploy-config campaign/corpus/deploy-config.yaml --runs-dir campaign/results/first-run/build/ --evidence-dir campaign/logs/P3-BUILD-22/evidence/ --repo repo-566 --repo repo-569`; default cache (no --cache). Resumable: on stopBy, interrupt at a safe point and return CONTINUE with progress; the next run adds --resume.",
         "Retry a build once when its log tail shows only registry network timeouts; if it fails again classify it as an environment failure (separate denominator).",
-        "Before the run, the worker may add to deploy-config.yaml, for this task's apps only, the configuration a vendor would enter from the app's own documented env example or install docs (config values without secrets; secrets as generated keys). No repository-specific hacks."
-      ]
+        "Before the run, the worker may add to deploy-config.yaml, for this task's apps only, the configuration a vendor would enter from the app's own documented env example or install docs (config values without secrets; secrets as generated keys). No repository-specific hacks.",
+        "2026-10-09T17:12Z Opus verification: completion checks pass. repo-566 probes FAIL (image has no default server command; container exits 0 with CLI help); repo-569 gate FAIL (NOT_COMPATIBLE vs configured NEEDS_CONFIGURATION, false-rejection). Worker run 1 hit its own 590 s wrapper timeout (exit 124) after repo-566 build; run 2 with --resume exit 0. No deploy-config changes. 0 labelled resources; C: 5.8 GB free."
+      ],
+      "attempts": 1
     },
     {
       "id": "P3-BUILD-23",

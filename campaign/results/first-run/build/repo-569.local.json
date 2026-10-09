@@ -1,0 +1,96 @@
+{
+  "schemaVersion": 1,
+  "id": "repo-569",
+  "repository": "activepieces/activepieces",
+  "commit": "6f408036fdc92752506815df43c21a96b4e75a46",
+  "set": "improvement",
+  "cohort": "realistic",
+  "deployzCommit": "c1af767b9445d14a2a773a4131c7029f6b5f8494",
+  "analysisVersion": 45,
+  "ai": {
+    "mode": "live",
+    "model": "workers-ai/@cf/deepseek-ai/deepseek-v4-flash-0731",
+    "requests": 1,
+    "outcome": "completed",
+    "error": null
+  },
+  "inputsHash": "b1c216bcfe32ac0d9db56c1121911707880fae05d368285c214e2783adb3d8e7",
+  "stages": {
+    "gate": {
+      "status": "FAIL",
+      "startedAt": "2026-10-09T17:11:50.106Z",
+      "finishedAt": "2026-10-09T17:11:50.110Z",
+      "durationMs": 4,
+      "detail": null,
+      "evidence": {
+        "verdict": "NOT_COMPATIBLE",
+        "outcome": "false-rejection",
+        "configuredVerdict": "NOT_COMPATIBLE",
+        "manifest": {
+          "dockerfilePath": "Dockerfile",
+          "buildContext": ".",
+          "appRoot": ".",
+          "port": 80,
+          "healthPath": "/api/v1/health",
+          "healthMode": "explicit",
+          "migrationCommand": null,
+          "migrationMode": "none",
+          "postgres": false,
+          "redis": false,
+          "storage": true,
+          "databaseBindings": [],
+          "redisBindings": [],
+          "storageBindings": [
+            "AWS_S3_BUCKET"
+          ],
+          "generatedKeys": [
+            "AP_ENCRYPTION_KEY",
+            "AP_JWT_SECRET"
+          ]
+        }
+      }
+    },
+    "source": {
+      "status": "SKIPPED",
+      "startedAt": "2026-10-09T17:11:50.116Z",
+      "finishedAt": "2026-10-09T17:11:50.121Z",
+      "durationMs": 5,
+      "detail": "the gate did not accept the repository",
+      "evidence": {}
+    },
+    "build": {
+      "status": "SKIPPED",
+      "startedAt": "2026-10-09T17:11:50.125Z",
+      "finishedAt": "2026-10-09T17:11:50.131Z",
+      "durationMs": 6,
+      "detail": "the gate did not accept the repository",
+      "evidence": {}
+    },
+    "run": {
+      "status": "SKIPPED",
+      "startedAt": "2026-10-09T17:11:50.133Z",
+      "finishedAt": "2026-10-09T17:11:50.136Z",
+      "durationMs": 3,
+      "detail": "the build did not pass",
+      "evidence": {}
+    },
+    "probes": {
+      "status": "SKIPPED",
+      "startedAt": "2026-10-09T17:11:50.139Z",
+      "finishedAt": "2026-10-09T17:11:50.142Z",
+      "durationMs": 3,
+      "detail": "the build did not pass",
+      "evidence": {}
+    },
+    "cleanup": {
+      "status": "SKIPPED",
+      "startedAt": "2026-10-09T17:11:50.146Z",
+      "finishedAt": "2026-10-09T17:11:50.148Z",
+      "durationMs": 2,
+      "detail": "no build was attempted",
+      "evidence": {}
+    }
+  },
+  "classification": "gate",
+  "remediation": null
+}

@@ -1,0 +1,30 @@
+{
+  "taskId": "P3-BUILD-22",
+  "testedCommit": "e6a3b58ee2363923fef21faca86611fa3bf84538",
+  "executor": "campaign-worker",
+  "model": "sonnet",
+  "startedAt": "2026-10-09T16:59:00Z",
+  "finishedAt": "2026-10-09T17:13:00Z",
+  "proposedStatus": "COMPLETE",
+  "commands": [
+    { "command": "node --env-file=.env node_modules/tsx/dist/cli.mjs scripts/repository-deployment/index.ts --local --ai live --benchmark campaign/corpus/benchmark.yaml --deploy-config campaign/corpus/deploy-config.yaml --runs-dir campaign/results/first-run/build/ --evidence-dir campaign/logs/P3-BUILD-22/evidence/ --repo repo-566 --repo repo-569", "exitCode": 124, "summary": "Hit my 590 s wrapper timeout during the repo-566 run step; build had passed (472 s), run was in progress; leftovers removed by the resume" },
+    { "command": "same command plus --resume", "exitCode": 0, "summary": "repo-566: gate/build/run PASS, probes FAIL, cleanup PASS; repo-569: gate FAIL (false-rejection), other stages SKIPPED" }
+  ],
+  "evidence": [
+    "campaign/results/first-run/build/repo-566.local.json",
+    "campaign/results/first-run/build/repo-569.local.json",
+    "campaign/results/first-run/build/local-summary.json",
+    "campaign/results/first-run/build/local-summary.md",
+    "campaign/logs/P3-BUILD-22/run1.log",
+    "campaign/logs/P3-BUILD-22/run2.log"
+  ],
+  "notes": [
+    "repo-566 (openfga): gate PASS (NEEDS_CONFIGURATION, correct-accept), source PASS, build PASS, run PASS, probes FAIL (health, start, dbWrite): container exited code 0 and printed the CLI help, because the image has no default server command (needs 'run'); cleanup PASS. Repository/config failure, not environment.",
+    "repo-569 (activepieces): gate FAIL, verdict NOT_COMPATIBLE vs configured NEEDS_CONFIGURATION (false-rejection); source, build, run, probes and cleanup SKIPPED (gate did not accept / no build attempted).",
+    "AI mode live in both results (model workers-ai/@cf/deepseek-ai/deepseek-v4-flash-0731, outcome completed). Both commands passed --deploy-config campaign/corpus/deploy-config.yaml.",
+    "No deploy-config.yaml changes made.",
+    "No registry-timeout retry needed. Lowest C: free disk seen 5.8 GB (above 3 GB limit).",
+    "Checkout HEAD was c1af767b9445d14a2a773a4131c7029f6b5f8494 (results record this as deployzCommit); testedCommit set to the coordinator-given baseline e6a3b58e as instructed.",
+    "No container, network, volume or image with label deployz-campaign=fresh-100 remains."
+  ]
+}
