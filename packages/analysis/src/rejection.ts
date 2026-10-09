@@ -1164,20 +1164,57 @@ function isLocalDirValue(value: string): boolean {
   return true;
 }
 
+/** A web-server front end or php-fpm: part of one web service, not an extra application. */
+const WEB_FRONT_END = /(?<![a-z])(?:nginx|apache2?|httpd|caddy)(?![a-z])|fpm/i;
+
+/** True when a COPY or ADD source of the selected Dockerfile brings the tree path into the image. */
+function dockerfileCopiesPath(dockerfileLines: string[], dockerfilePath: string, path: string): boolean {
+  const directory = dockerfilePath.includes('/') ? dockerfilePath.slice(0, dockerfilePath.lastIndexOf('/')) : '';
+  const contexts = directory === '' ? [''] : ['', directory];
+  for (const line of dockerfileLines) {
+    const match = /^\s*(?:COPY|ADD)\s+(.+)$/i.exec(line);
+    if (!match?.[1] || /--from=/i.test(match[1])) continue;
+    const words = match[1]
+      .replace(/[[\]",]/g, ' ')
+      .split(/\s+/)
+      .filter((word) => word !== '' && !word.startsWith('--'));
+    for (const source of words.slice(0, -1)) {
+      if (source.includes('://')) continue;
+      const wanted = source.replace(/^\.\//, '').replace(/\/+$/, '');
+      for (const context of contexts) {
+        const relative = context === '' ? path : path.startsWith(`${context}/`) ? path.slice(context.length + 1) : null;
+        if (relative === null) continue;
+        if (wanted === '' || wanted === '.') return true;
+        if (/[*?]/.test(wanted)) {
+          const pattern = wanted.replace(/[.+^${}()|\\]/g, '\\$&').replace(/\*/g, '[^/]*').replace(/\?/g, '[^/]');
+          if (new RegExp(`^${pattern}(?:/|$)`).test(relative)) return true;
+        } else if (relative === wanted || relative.startsWith(`${wanted}/`)) {
+          return true;
+        }
+      }
+    }
+  }
+  return false;
+}
+
 /**
  * An image that starts several long-running processes under a supervisor (s6-overlay or
  * supervisord) runs web, API and worker processes in one container. Deployz runs one web
- * process plus declared workers, each as its own service from the same image.
+ * process plus declared workers, each as its own service from the same image. A web-server
+ * front end (nginx, apache, caddy) and php-fpm count as one web service, and only service
+ * files that the selected Dockerfile copies into the image count.
  */
 export function checkMultiProcessImage(tree: FileTree): RejectionFinding {
   const selected = listDockerfileCandidates(tree)[0];
   const dockerfile = selected === undefined ? '' : (tree[selected] ?? '').replace(/^\s*#.*$/gm, '');
+  const lines = dockerfile.replace(/\\\s*\r?\n\s*/g, ' ').split('\n');
   const paths = (tree as FileTree & { [TREE_PATHS]?: readonly string[] })[TREE_PATHS] ?? Object.keys(tree);
+  const copied = (path: string): boolean => selected !== undefined && dockerfileCopiesPath(lines, selected, path);
   if (/s6-overlay|S6_OVERLAY|\bs6-svscan\b/i.test(dockerfile)) {
     const services = new Set<string>();
     for (const path of paths) {
       const name = /(?:^|\/)(?:s6-rc\.d|services\.d)\/([\w.-]+)\/run$/.exec(path)?.[1];
-      if (name !== undefined) services.add(name);
+      if (name !== undefined && copied(path) && !WEB_FRONT_END.test(`${name} ${tree[path] ?? ''}`)) services.add(name);
     }
     if (services.size >= 2) {
       return {
@@ -1189,8 +1226,10 @@ export function checkMultiProcessImage(tree: FileTree): RejectionFinding {
   }
   if (/\bsupervisord\b/i.test(dockerfile)) {
     for (const [path, content] of Object.entries(tree)) {
-      if (!/supervisor[\w.-]*\.(?:conf|ini)$/i.test(path) || !content) continue;
-      const programs = content.match(/^\s*\[program:[^\]]+\]/gm) ?? [];
+      if (!/supervisor[\w.-]*\.(?:conf|ini)$/i.test(path) || !content || !copied(path)) continue;
+      const programs = content
+        .split(/^\s*(?=\[program:[^\]]+\])/m)
+        .filter((section) => section.startsWith('[program:') && !WEB_FRONT_END.test(section));
       if (programs.length >= 2) {
         return {
           detected: true,

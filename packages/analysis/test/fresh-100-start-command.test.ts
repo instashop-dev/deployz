@@ -92,6 +92,41 @@ describe('an image that runs several supervised processes is not supported', () 
     expect(gate(supervised).multiProcess).toBeUndefined();
   });
 
+  it('accepts nginx and php-fpm under supervisord as one web service', () => {
+    const tree = withPaths({
+      ...APP,
+      Dockerfile: 'FROM php:8.3-fpm\nRUN apt-get install -y nginx supervisor\nCOPY supervisord.conf /etc/supervisord.conf\nEXPOSE 80\nCMD ["supervisord", "-c", "/etc/supervisord.conf"]\n',
+      'supervisord.conf': '[program:nginx]\ncommand=nginx -g "daemon off;"\n[program:php-fpm]\ncommand=php-fpm -F\n',
+    });
+    expect(gate(tree).multiProcess).toBeUndefined();
+  });
+
+  it('accepts nginx and php-fpm under s6-overlay as one web service', () => {
+    const tree = withPaths({ ...APP, Dockerfile: s6Dockerfile }, [
+      'rootfs/etc/s6-overlay/s6-rc.d/nginx/run',
+      'rootfs/etc/s6-overlay/s6-rc.d/php-fpm/run',
+    ]);
+    expect(gate(tree).multiProcess).toBeUndefined();
+  });
+
+  it('rejects a supervisor that runs api, cron, web and worker', () => {
+    const tree = withPaths({
+      ...APP,
+      Dockerfile: 'FROM python:3.12\nRUN pip install supervisor\nCOPY supervisord.conf /etc/supervisord.conf\nEXPOSE 3000\nCMD ["supervisord"]\n',
+      'supervisord.conf': '[program:api]\ncommand=uvicorn api\n[program:nginx]\ncommand=nginx\n[program:cron]\ncommand=cron -f\n[program:worker]\ncommand=celery worker\n',
+    });
+    expect(gate(tree).multiProcess?.reason).toContain('3 programs');
+  });
+
+  it('ignores a supervisord example that the Dockerfile does not copy', () => {
+    const tree = withPaths({
+      ...APP,
+      Dockerfile: 'FROM python:3.12\nRUN pip install supervisor\nCOPY app/ /app/\nEXPOSE 3000\nCMD ["supervisord"]\n',
+      'docs/examples/supervisord.conf': '[program:web]\ncommand=gunicorn app\n[program:worker]\ncommand=celery worker\n',
+    });
+    expect(gate(tree).multiProcess).toBeUndefined();
+  });
+
   it('accepts a Dockerfile with no supervisor even when service directories exist', () => {
     const tree = withPaths({ ...APP, Dockerfile: 'FROM node:20\nCOPY . .\nEXPOSE 3000\nCMD ["node", "index.js"]\n' }, [
       'services.d/api/run',

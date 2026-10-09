@@ -30,6 +30,7 @@ Three decisions with substantial detail have their own files:
 | 2026-09-29 | The MVP boundary expands to SQS queues and scheduled jobs | Active |
 | 2026-10-02 | A pending INSTALL carries command authority; only authorized recovery may recreate a stack ([`pending-command-authority.md`](pending-command-authority.md)) | Active |
 | 2026-10-10 | A repository with no buildable Dockerfile is NOT_COMPATIBLE when the evidence is complete | Active |
+| 2026-10-10 | An image that runs several supervised application processes (s6-overlay, supervisord) is NOT_COMPATIBLE | Active |
 
 ## AI explanations are on-demand and never change state (2026-08-25)
 
@@ -438,3 +439,22 @@ shows one blocking finding, "Has no Dockerfile that builds the app".
 
 What would change it: a Deployz setting to supply a prebuilt image or a
 Dockerfile path would turn the verdict back into configuration.
+
+## A multi-process supervised image is NOT_COMPATIBLE (2026-10-10)
+
+The gate accepted an image that runs several application processes under a
+supervisor (s6-overlay or supervisord), for example api, cron, web and worker
+in one container. The container starts and serves HTTP, but Deployz runs one web
+process plus declared workers, each as its own service from the same image, and
+it cannot split or scale the processes of one supervised container. The
+analyser now rejects (`multi-process-image`) when the selected Dockerfile
+installs s6-overlay or supervisord and copies two or more service definitions
+(s6 `run` paths, supervisord `[program:]` sections) into the image.
+
+A web-server front end (nginx, apache, httpd, caddy) and php-fpm count as one web
+service, not as extra processes. Service files that the Dockerfile does not copy
+(docs, examples, other images) do not count. A single supervised service stays
+accepted.
+
+What would change it: running several processes of one image as one Deployz
+service, or a declared-workers import from a supervisor configuration.
