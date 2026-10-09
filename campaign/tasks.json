@@ -3203,7 +3203,7 @@
       "phase": 3,
       "title": "First-run local build/run of improvement apps repo-564, repo-565",
       "executor": "campaign-worker",
-      "status": "PENDING",
+      "status": "CONTINUE",
       "prerequisites": [
         "P3-BUILD-PLAN"
       ],
@@ -3237,7 +3237,8 @@
       "notes": [
         "2026-10-09 P3-BUILD-PLAN (Opus): command `node --env-file=.env node_modules/tsx/dist/cli.mjs scripts/repository-deployment/index.ts --local --ai live --benchmark campaign/corpus/benchmark.yaml --deploy-config campaign/corpus/deploy-config.yaml --runs-dir campaign/results/first-run/build/ --evidence-dir campaign/logs/P3-BUILD-21/evidence/ --repo repo-564 --repo repo-565`; default cache (no --cache). Resumable: on stopBy, interrupt at a safe point and return CONTINUE with progress; the next run adds --resume.",
         "Retry a build once when its log tail shows only registry network timeouts; if it fails again classify it as an environment failure (separate denominator).",
-        "Before the run, the worker may add to deploy-config.yaml, for this task's apps only, the configuration a vendor would enter from the app's own documented env example or install docs (config values without secrets; secrets as generated keys). No repository-specific hacks."
+        "Before the run, the worker may add to deploy-config.yaml, for this task's apps only, the configuration a vendor would enter from the app's own documented env example or install docs (config values without secrets; secrets as generated keys). No repository-specific hacks.",
+        "2026-10-09 attempt 1 (CONTINUE): repo-564 done (gate PASS correct-accept, source/build/run PASS, probes FAIL: container exits, LoadError annotate_rb in bin/rails, a dev gem loaded in production; cleanup PASS). repo-565: gate PASS, source PASS, build interrupted (npm run build JS heap out of memory, exit 134, then ENOSPC on C: while the harness wrote the result; result shows build IN_PROGRESS). Resume: same command with --resume and --repo repo-565 only, after disk>=3GB. Result files are named <id>.local.json."
       ]
     },
     {

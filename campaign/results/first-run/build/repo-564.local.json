@@ -1,0 +1,192 @@
+{
+  "schemaVersion": 1,
+  "id": "repo-564",
+  "repository": "getlago/lago-api",
+  "commit": "7df8e11e481a60cdeca171a05e3fb4538208de5a",
+  "set": "improvement",
+  "cohort": "realistic",
+  "deployzCommit": "070dbe96b005747440f76484e7b68ef4784c0601",
+  "analysisVersion": 45,
+  "ai": {
+    "mode": "live",
+    "model": "workers-ai/@cf/deepseek-ai/deepseek-v4-flash-0731",
+    "requests": 1,
+    "outcome": "completed",
+    "error": null
+  },
+  "inputsHash": "98370b1c29687a3a5944c290d70543c3c490fec4bcec64719b11325dfac6eefa",
+  "stages": {
+    "gate": {
+      "status": "PASS",
+      "startedAt": "2026-10-09T13:29:59.153Z",
+      "finishedAt": "2026-10-09T13:29:59.158Z",
+      "durationMs": 5,
+      "detail": null,
+      "evidence": {
+        "verdict": "NEEDS_CONFIGURATION",
+        "outcome": "correct-accept",
+        "configuredVerdict": "NEEDS_CONFIGURATION",
+        "manifest": {
+          "dockerfilePath": "Dockerfile",
+          "buildContext": ".",
+          "appRoot": ".",
+          "port": 3000,
+          "healthPath": "/health",
+          "healthMode": "explicit",
+          "migrationCommand": null,
+          "migrationMode": "startup",
+          "postgres": true,
+          "redis": false,
+          "storage": true,
+          "databaseBindings": [
+            "DATABASE_HOST",
+            "DATABASE_NAME",
+            "DATABASE_PASSWORD",
+            "DATABASE_PORT",
+            "DATABASE_URL",
+            "DATABASE_USER",
+            "DB_HOST",
+            "DB_NAME",
+            "DB_PASSWORD",
+            "DB_PORT",
+            "DB_USER"
+          ],
+          "redisBindings": [],
+          "storageBindings": [
+            "AWS_S3_BUCKET",
+            "LAGO_AWS_S3_BUCKET",
+            "LAGO_GCS_BUCKET"
+          ],
+          "generatedKeys": []
+        }
+      }
+    },
+    "source": {
+      "status": "PASS",
+      "startedAt": "2026-10-09T13:29:59.163Z",
+      "finishedAt": "2026-10-09T13:30:09.200Z",
+      "durationMs": 10037,
+      "detail": null,
+      "evidence": {
+        "commit": "7df8e11e481a60cdeca171a05e3fb4538208de5a",
+        "archiveCached": false,
+        "archiveBytes": 5296906
+      }
+    },
+    "build": {
+      "status": "PASS",
+      "startedAt": "2026-10-09T13:30:09.203Z",
+      "finishedAt": "2026-10-09T13:38:27.361Z",
+      "durationMs": 498158,
+      "detail": null,
+      "evidence": {
+        "dockerfilePath": "Dockerfile",
+        "buildContext": ".",
+        "platform": "linux/amd64",
+        "image": "deployz-campaign/repo-564:7df8e11e481a",
+        "exitCode": 0,
+        "durationMs": 497886,
+        "buildArgNames": [],
+        "logTail": "#15 115.6 Installing yabeda-puma-plugin 0.9.0\n#15 115.6 Installing yabeda-rails 0.11.0\n#15 115.7 Installing datadog 2.33.0 with native extensions\n#15 243.1 Bundle complete! 115 Gemfile dependencies, 264 gems now installed.\n#15 243.1 Gems in the groups 'development' and 'test' were not installed.\n#15 243.1 Bundled gems are installed into `/usr/local/bundle`\n#15 243.1 Post-install message from datadog:\n#15 243.1 JRuby support in the datadog gem is deprecated. Details: https://dtdg.co/jruby-deprecation\n#15 243.1 5 installed gems you directly depend on are looking for funding.\n#15 243.1   Run `bundle fund` for details\n#15 DONE 243.3s\n\n#16 [stage-1 3/4] COPY --from=build --chown=nonroot:nonroot /usr/local/bundle /usr/local/bundle\n#16 DONE 6.3s\n\n#17 [stage-1 4/4] COPY --chown=nonroot:nonroot . .\n#17 DONE 5.2s\n\n#18 exporting to image\n#18 exporting layers\n#18 exporting layers 12.3s done\n#18 exporting manifest sha256:5bdbdd5e74272c958aa4f444065cce268935ff0338cf53752f3a7b49b0c35062\n#18 exporting manifest sha256:5bdbdd5e74272c958aa4f444065cce268935ff0338cf53752f3a7b49b0c35062 0.2s done\n#18 exporting config sha256:3c8cbe14585f165124f358deafe06baef5ac6f742cd96601e25528ceb7f700e4\n#18 exporting config sha256:3c8cbe14585f165124f358deafe06baef5ac6f742cd96601e25528ceb7f700e4 0.2s done\n#18 exporting attestation manifest sha256:714c3070b15354670e2235277a92b840a2ad4ae4ad8f6bc9707d94ac257aaca4 0.1s done\n#18 exporting manifest list sha256:c68414b40404ececdca6f4dd551bbd7e97c9bfbe81e97d7ed8cd6db81aa5ca6e\n#18 exporting manifest list sha256:c68414b40404ececdca6f4dd551bbd7e97c9bfbe81e97d7ed8cd6db81aa5ca6e 0.1s done\n#18 naming to docker.io/deployz-campaign/repo-564:7df8e11e481a done\n#18 unpacking to docker.io/deployz-campaign/repo-564:7df8e11e481a\n#18 unpacking to docker.io/deployz-campaign/repo-564:7df8e11e481a 14.6s done\n#18 DONE 27.6s\n\n \u001b[33m4 warnings found (use docker --debug to expand):\n\u001b[0m - SecretsUsedInArgOrEnv: Do not use ARG or ENV instructions for sensitive data (ARG \"GOCARDLESS_CLIENT_SECRET\") (line 46)\n - SecretsUsedInArgOrEnv: Do not use ARG or ENV instructions for sensitive data (ENV \"SEGMENT_WRITE_KEY\") (line 48)\n - SecretsUsedInArgOrEnv: Do not use ARG or ENV instructions for sensitive data (ENV \"GOCARDLESS_CLIENT_SECRET\") (line 50)\n - SecretsUsedInArgOrEnv: Do not use ARG or ENV instructions for sensitive data (ARG \"SEGMENT_WRITE_KEY\") (line 44)\n\nView build details: docker-desktop://dashboard/build/desktop-linux/desktop-linux/g7gowd1k4gioda4xvyrm4iz15",
+        "imageId": "sha256:c68414b40404ececdca6f4dd551bbd7e97c9bfbe81e97d7ed8cd6db81aa5ca6e",
+        "imageBytes": 691968159,
+        "failure": null,
+        "rebuilt": false
+      }
+    },
+    "run": {
+      "status": "PASS",
+      "startedAt": "2026-10-09T13:38:30.702Z",
+      "finishedAt": "2026-10-09T13:38:46.525Z",
+      "durationMs": 15823,
+      "detail": null,
+      "evidence": {
+        "image": "deployz-campaign/repo-564:7df8e11e481a",
+        "port": 3000,
+        "healthPath": "/health",
+        "dependencies": [
+          "postgres",
+          "valkey",
+          "s3-stand-in"
+        ],
+        "environmentNames": [
+          "AWS_ACCESS_KEY_ID",
+          "AWS_ENDPOINT_URL_S3",
+          "AWS_REGION",
+          "AWS_S3_BUCKET",
+          "AWS_S3_FORCE_PATH_STYLE",
+          "AWS_SECRET_ACCESS_KEY",
+          "DATABASE_URL",
+          "DB_HOST",
+          "DB_NAME",
+          "DB_PASSWORD",
+          "DB_PORT",
+          "DB_USER",
+          "PORT",
+          "REDIS_URL"
+        ],
+        "migration": null
+      }
+    },
+    "probes": {
+      "status": "FAIL",
+      "startedAt": "2026-10-09T13:38:46.528Z",
+      "finishedAt": "2026-10-09T13:39:48.131Z",
+      "durationMs": 61603,
+      "detail": "failed: health, start, dbWrite, redis",
+      "evidence": {
+        "probes": {
+          "health": {
+            "status": "FAIL",
+            "detail": "the container exited (code 1) before /health answered"
+          },
+          "start": {
+            "status": "FAIL",
+            "detail": "the container is not running (exit code 1)"
+          },
+          "migration": {
+            "status": "NOT_APPLICABLE",
+            "detail": "the manifest has no migration command"
+          },
+          "dbWrite": {
+            "status": "FAIL",
+            "detail": "no rows outside migration bookkeeping tables"
+          },
+          "redis": {
+            "status": "FAIL",
+            "detail": "no client connection and no key from the app"
+          },
+          "storage": {
+            "status": "UNVERIFIED",
+            "detail": "the bucket holds no object; reaching the bucket is not proven"
+          }
+        },
+        "url": "http://app:3000/health",
+        "appLogTail": "bin/rails aborted!\nLoadError: cannot load such file -- annotate_rb (LoadError)\n/usr/local/bundle/ruby/4.0.0/gems/bootsnap-1.21.1/lib/bootsnap/load_path_cache/core_ext/kernel_require.rb:17:in 'Kernel#require'\n/usr/local/bundle/ruby/4.0.0/gems/zeitwerk-2.8.0/lib/zeitwerk/core_ext/kernel.rb:34:in 'Kernel#require'\n/app/lib/tasks/annotate_rb.rake:7:in '<main>'\n/usr/local/bundle/ruby/4.0.0/gems/railties-8.0.5.1/lib/rails/engine.rb:687:in 'Kernel#load'\n/usr/local/bundle/ruby/4.0.0/gems/railties-8.0.5.1/lib/rails/engine.rb:687:in 'block in Rails::Engine#run_tasks_blocks'\n/usr/local/bundle/ruby/4.0.0/gems/railties-8.0.5.1/lib/rails/engine.rb:687:in 'Array#each'\n/usr/local/bundle/ruby/4.0.0/gems/railties-8.0.5.1/lib/rails/engine.rb:687:in 'Rails::Engine#run_tasks_blocks'\n/usr/local/bundle/ruby/4.0.0/gems/railties-8.0.5.1/lib/rails/application.rb:566:in 'Rails::Application#run_tasks_blocks'\n/usr/local/bundle/ruby/4.0.0/gems/railties-8.0.5.1/lib/rails/engine.rb:470:in 'Rails::Engine#load_tasks'\n/app/Rakefile:9:in '<main>'\n/usr/local/bundle/ruby/4.0.0/gems/railties-8.0.5.1/lib/rails/commands/rake/rake_command.rb:43:in 'block in Rails::Command::RakeCommand.with_rake'\n/usr/local/bundle/ruby/4.0.0/gems/railties-8.0.5.1/lib/rails/commands/rake/rake_command.rb:41:in 'Rails::Command::RakeCommand.with_rake'\n/usr/local/bundle/ruby/4.0.0/gems/railties-8.0.5.1/lib/rails/commands/rake/rake_command.rb:20:in 'Rails::Command::RakeCommand.perform'\n/usr/local/bundle/ruby/4.0.0/gems/railties-8.0.5.1/lib/rails/command.rb:150:in 'Rails::Command.invoke_rake'\n/usr/local/bundle/ruby/4.0.0/gems/railties-8.0.5.1/lib/rails/command.rb:67:in 'block in Rails::Command.invoke'\n/usr/local/bundle/ruby/4.0.0/gems/railties-8.0.5.1/lib/rails/command.rb:143:in 'Rails::Command.with_argv'\n/usr/local/bundle/ruby/4.0.0/gems/railties-8.0.5.1/lib/rails/command.rb:63:in 'Rails::Command.invoke'\n/usr/local/bundle/ruby/4.0.0/gems/railties-8.0.5.1/lib/rails/commands.rb:18:in '<main>'\n/usr/local/bundle/ruby/4.0.0/gems/bootsnap-1.21.1/lib/bootsnap/load_path_cache/core_ext/kernel_require.rb:33:in 'Kernel#require'\nbin/rails:4:in '<main>'\n(See full trace by running task with --trace)"
+      }
+    },
+    "cleanup": {
+      "status": "PASS",
+      "startedAt": "2026-10-09T13:39:48.134Z",
+      "finishedAt": "2026-10-09T13:39:51.200Z",
+      "durationMs": 3066,
+      "detail": null,
+      "evidence": {
+        "removed": {
+          "containers": 4,
+          "networks": 1,
+          "volumes": 0
+        },
+        "imageRemoved": true,
+        "keepImage": false,
+        "leaks": {
+          "containers": [],
+          "networks": [],
+          "volumes": []
+        }
+      }
+    }
+  },
+  "classification": "probes",
+  "remediation": null
+}
