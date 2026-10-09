@@ -3555,7 +3555,7 @@
       "phase": 3,
       "title": "Phase 3 review: evidence for every attempt; unsupported/unverified reported honestly",
       "executor": "opus",
-      "status": "PENDING",
+      "status": "COMPLETE",
       "prerequisites": [
         "P3-BUILD-PLAN",
         "P3-BUILD-01",
@@ -3604,8 +3604,10 @@
       ],
       "timeboxMinutes": 15,
       "notes": [
-        "Opus adds the generated P3-BUILD-nn ids to this task's prerequisites when it queues them."
-      ]
+        "Opus adds the generated P3-BUILD-nn ids to this task's prerequisites when it queues them.",
+        "2026-10-09T17:52Z Opus: Phase 3 gate PASS. 80/80 apps have Stage A evidence; 56 have local build/run evidence with all six stage outcomes; 24 ineligible apps have recorded label reasons (ids checked against Stage A). Summary with per-stage denominators: campaign/results/first-run/summary.md. Review: campaign/results/P3-GATE/review.md."
+      ],
+      "attempts": 1
     },
     {
       "id": "P4-GROUP",

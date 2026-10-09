@@ -2,10 +2,10 @@
   "schemaVersion": 1,
   "campaign": "deployz-fresh-100",
   "status": "CONTINUE",
-  "phase": 3,
+  "phase": 4,
   "currentTask": null,
-  "nextAction": "Run P3-GATE (Opus review of all Phase 3 evidence). Open findings and user decisions: see handoff.md.",
-  "updatedAt": "2026-10-09T17:49:55.682Z",
+  "nextAction": "Phase 4: run P4-GROUP (Opus, timebox 25) as the first task of the next run: group first-run failures by root cause (inputs: campaign/results/first-run/summary.md, P3-GATE/review.md, handoff.md open findings) and queue P4-FIX/P4-RERUN tasks. USER DECISION still open on harness defects (a) Windows tar symlinks and (b) dependency readiness window.",
+  "updatedAt": "2026-10-09T17:52:02.233Z",
   "checkout": {
     "path": "C:/Users/Tejas/Desktop/deployz-mvp-test",
     "kind": "git worktree of C:/Users/Tejas/Desktop/deployz",
@@ -395,6 +395,10 @@
     {
       "commit": "e6a3b58ee2363923fef21faca86611fa3bf84538",
       "task": "P3-BUILD-28"
+    },
+    {
+      "commit": "e6a3b58ee2363923fef21faca86611fa3bf84538",
+      "task": "P3-GATE"
     }
   ],
   "attempts": {
@@ -488,11 +492,18 @@
     "P3-BUILD-25": 1,
     "P3-BUILD-26": 1,
     "P3-BUILD-27": 1,
-    "P3-BUILD-28": 1
+    "P3-BUILD-28": 1,
+    "P3-GATE": 1
   },
   "lastResult": {
-    "at": "2026-10-09T17:49:55.682Z",
-    "summary": "repo-596 (Dnn.Platform): AI live completed; gate FAIL (false-acceptance, verdict NEEDS_CONFIGURATION); source PASS; build FAIL (no root Dockerfile; manifest dockerfilePath null, harness built ./Dockerfile); run/probes SKIPPED; cleanup PASS. repo-599 (OpenSearch-Dashboards): AI live completed; gate FAIL (false-acceptance, verdict NEEDS_CONFIGURATION); source PASS; build FAIL (manifest dockerfilePath is a mustache template src/dev/build/tasks/os_packages/docker_generator/templates/Dockerfile; parse error on line 14 {{#ubi}}; analysis finding); run/probes SKIPPED; cleanup PASS. No deploy-config change. 0 labelled resources; C: 4.8 GB free."
+    "task": "P3-GATE",
+    "status": "COMPLETE",
+    "at": "2026-10-09T17:52:02.233Z",
+    "summary": "Phase 3 gate PASS. 80/80 Stage A evidence; 56 eligible apps with local build/run evidence (gate 21 correct accept, 28 false acceptance, 7 false rejection; source 43/49 with 6 harness tar failures; build 19/43 with 2 environment failures; run 15/19; probes 2/15; cleanup 43/43, 0 leaks); 24 ineligible with label reasons. Remediated/rerun results kept apart. Phase advanced to 4.",
+    "evidence": [
+      "campaign/results/P3-GATE/review.md",
+      "campaign/results/first-run/summary.md"
+    ]
   },
   "gates": {
     "smokeReviewed": true,
