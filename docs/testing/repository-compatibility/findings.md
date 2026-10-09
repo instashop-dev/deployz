@@ -813,6 +813,7 @@ cleaner verdict signal but a noisier fact signal.
   configuration-detection mismatch — the benchmark still expects
   NEEDS_CONFIGURATION for a Dockerfile that cannot build from the snapshot,
   while the analyser deliberately does not reject.
+- Superseded by COMP-042: the rejection returns, limited to complete evidence.
 - Status: accepted (documented limitation)
 
 ### COMP-022 — A database engine selected by an environment value is READY without the value
@@ -1359,3 +1360,15 @@ cleaner verdict signal but a noisier fact signal.
   container-level health evidence with no HTTP path requirement, and keep
   `vendor_required` for the truly probe-less case.
 - Status: open
+
+### COMP-042 — A repository with no buildable Dockerfile is accepted as NEEDS_CONFIGURATION
+
+- Family: fresh-100 F1 (`ANALYSIS_BUG`), 19 gate false acceptances and 7 build failures.
+- Repositories: no Dockerfile (repo-505, 511, 515, 518, 525, 579, 585, 588, 590, 596); a Dockerfile that copies sources the repository lacks (repo-517, 544, 559); a template Dockerfile (repo-599); a development-only Dockerfile (repo-574).
+- Type: ANALYSIS_BUG
+- Expected: NOT_COMPATIBLE (no Deployz setting adds a Dockerfile that builds a production image)
+- Actual: NEEDS_CONFIGURATION (`dockerfile-missing`, `dockerfile-missing-sources`)
+- Fix: `detectUnbuildableDockerfile` and the `checkNoBuildableDockerfile` rejection (`no-buildable-dockerfile`). It rejects only on complete evidence: the full tracked path list is known, every Dockerfile in it was fetched, there is no `.gitmodules`, and either no Dockerfile is buildable (none, development-only or template) or the single Dockerfile copies a source that is absent and not a generated directory. `COPY --from=`, a second candidate Dockerfile and a capped file list never reject (COMP-021). `ANALYSIS_VERSION` 46.
+- Regression: `packages/analysis/test/fresh-100-unbuildable-dockerfile.test.ts` (fixtures only).
+- Residual: repo-575, 577 and 548 copy or download a release artifact the detector does not flag, and repo-507 fails on the pinned source (no lockfile, no `output: standalone`); they stay accepted and are recorded as limitations.
+- Status: fixed

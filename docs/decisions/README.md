@@ -29,6 +29,7 @@ Three decisions with substantial detail have their own files:
 | 2026-09-28 | The MVP boundary expands to background workers, RDS MySQL and first-class migrations; one build artifact and no private services stay | Active |
 | 2026-09-29 | The MVP boundary expands to SQS queues and scheduled jobs | Active |
 | 2026-10-02 | A pending INSTALL carries command authority; only authorized recovery may recreate a stack ([`pending-command-authority.md`](pending-command-authority.md)) | Active |
+| 2026-10-10 | A repository with no buildable Dockerfile is NOT_COMPATIBLE when the evidence is complete | Active |
 
 ## AI explanations are on-demand and never change state (2026-08-25)
 
@@ -416,3 +417,24 @@ Multi-AZ database or a different instance class is the only way through would
 need a product decision, not a placement change — Multi-AZ roughly doubles the
 database charge.
 
+
+## A repository with no buildable Dockerfile is NOT_COMPATIBLE (2026-10-10)
+
+The gate answered NEEDS_CONFIGURATION for a repository with no Dockerfile that
+builds a production image. No Deployz setting adds a Dockerfile, so the answer
+told the vendor something false: 19 of 28 gate false acceptances in the
+fresh-100 run had this cause. The analyser now rejects (`no-buildable-dockerfile`)
+when the full tracked path list shows no Dockerfile, only development-only or
+template Dockerfiles, or a single Dockerfile that copies sources the repository
+does not contain.
+
+COMP-021 removed an earlier version of this check because the 200-file tree
+cap made an absent `COPY` source prove nothing. The new check reads the full
+tracked path list the fetch layer attaches, and it stays silent when that list
+is missing, a Dockerfile in it was not fetched, a second candidate Dockerfile
+exists, the repository has git submodules, or the source is a `COPY --from=` or
+a generated directory (`dist`, `build`, `target`, …). The vendor-facing report
+shows one blocking finding, "Has no Dockerfile that builds the app".
+
+What would change it: a Deployz setting to supply a prebuilt image or a
+Dockerfile path would turn the verdict back into configuration.

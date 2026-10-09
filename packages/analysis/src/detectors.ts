@@ -673,15 +673,19 @@ function productionStageText(content: string): string {
 const NON_APP_DOCKERFILE_DIR_REGEX =
   /(?:^|\/)(?:\.devcontainer|\.cursor|\.github|\.vscode|\.idea|\.gitpod|[\w-]*tests?(?:ing)?|e2e|ci|cypress|examples?|samples?|docs?|benchmarks?|playwright)(?:\/|$)/i;
 
+// A template (mustache or jinja block tag, or a templated FROM) is not a Dockerfile Docker can build.
+const DOCKERFILE_TEMPLATE_REGEX = /^\s*(?:\{\{[#^/>!]|\{%)|^\s*FROM\s[^\n]*\{\{/im;
+
 /**
  * A Dockerfile that cannot be the production image: one in a test, example or
  * dev-container directory, one that builds a base layer (installs system
- * packages, but has no CMD, ENTRYPOINT or EXPOSE and copies nothing in), or
- * one that starts a development server.
+ * packages, but has no CMD, ENTRYPOINT or EXPOSE and copies nothing in),
+ * one that starts a development server, or a template.
  */
 function isUnusableDockerfile(path: string, content: string): boolean {
   if (NON_APP_DOCKERFILE_DIR_REGEX.test(path)) return true;
   if (content.length === 0) return false;
+  if (DOCKERFILE_TEMPLATE_REGEX.test(content)) return true;
   const runtime = productionStageText(content);
   const lines = runtime.split('\n');
   if (lines.some((line) => /^\s*(?:CMD|ENTRYPOINT)\b/i.test(line) && DEV_RUNTIME_REGEX.test(line))) return true;
@@ -4997,6 +5001,44 @@ export function detectDockerfileMissingCopySources(tree: FileTree): string[] {
     }
   }
   return missing;
+}
+
+// Directories a build step writes. A missing one proves nothing: the vendor's
+// own build may make it, so it never counts as an unbuildable Dockerfile.
+const GENERATED_DIRECTORY_REGEX = /^(?:dist|build|out|target|bin|obj|\.next|\.output|node_modules|vendor|public|static|assets|generated|coverage)$/i;
+// A Dockerfile that exists only for development or tests (never the production image).
+const DEV_ONLY_DOCKERFILE_REGEX =
+  /(?:^|\/)(?:\.devcontainer|dev|development|\.gitpod)\/|(?:^|\/)dockerfile(?:[.-]\w+)*[.-](?:dev|development|test|e2e|ci|gitpod)(?:[.-]\w+)*$|(?:^|\/)[\w-]*(?:dev|test|ci)[\w-]*\.dockerfile$/i;
+
+/**
+ * Why the repository has no Dockerfile that builds a production image, or
+ * null when it has one or the evidence is incomplete (COMP-021). Complete
+ * evidence needs the full tracked path list, every Dockerfile in it fetched,
+ * and no git submodule. It rejects when every Dockerfile is a development-only
+ * file or a template, or when the single Dockerfile copies sources the
+ * repository does not contain (a prebuilt binary or archive). A generated
+ * directory, `COPY --from=` and a second candidate Dockerfile never reject.
+ */
+export function detectUnbuildableDockerfile(tree: FileTree): string | null {
+  const paths = (tree as FileTree & { [TREE_PATHS]?: readonly string[] })[TREE_PATHS];
+  if (!paths || paths.includes('.gitmodules')) return null;
+  const tracked = paths.filter(isDockerfilePath);
+  if (tracked.some((path) => tree[path] === undefined)) return null;
+  if (tracked.length === 0) return 'No Dockerfile exists in the repository.';
+
+  const buildable = tracked.filter(
+    (path) => !DEV_ONLY_DOCKERFILE_REGEX.test(path) && !isUnusableDockerfile(path, tree[path] ?? ''),
+  );
+  if (buildable.length === 0) {
+    return `The only Dockerfile${tracked.length > 1 ? 's are' : ' is'} for development or a template (${tracked.slice(0, 3).join(', ')}).`;
+  }
+  if (tracked.length > 1) return null;
+
+  const missing = detectDockerfileMissingCopySources(tree).filter(
+    (source) => !GENERATED_DIRECTORY_REGEX.test(source.split('/')[0] ?? ''),
+  );
+  if (missing.length === 0) return null;
+  return `The only Dockerfile (${tracked[0]}) copies ${missing.slice(0, 3).join(', ')}, which the repository does not contain.`;
 }
 
 // 18. Dockerfile build context
