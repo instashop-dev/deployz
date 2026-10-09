@@ -1,65 +1,65 @@
 {
   "schemaVersion": 1,
-  "repositories": 16,
+  "repositories": 18,
   "classifications": {
     "source": 2,
     "probes": 2,
-    "gate": 9,
+    "gate": 11,
     "run": 1,
     "build": 1,
     "local-success": 1
   },
   "aiModes": {
-    "live": 16
+    "live": 18
   },
   "stages": {
     "gate": {
-      "attempted": 16,
+      "attempted": 18,
       "NOT_ATTEMPTED": 0,
       "IN_PROGRESS": 0,
       "PASS": 7,
-      "FAIL": 9,
+      "FAIL": 11,
       "SKIPPED": 0
     },
     "source": {
-      "attempted": 16,
+      "attempted": 18,
       "NOT_ATTEMPTED": 0,
       "IN_PROGRESS": 0,
-      "PASS": 9,
+      "PASS": 10,
       "FAIL": 4,
-      "SKIPPED": 3
+      "SKIPPED": 4
     },
     "build": {
-      "attempted": 16,
+      "attempted": 18,
       "NOT_ATTEMPTED": 0,
       "IN_PROGRESS": 0,
       "PASS": 5,
-      "FAIL": 4,
-      "SKIPPED": 7
+      "FAIL": 5,
+      "SKIPPED": 8
     },
     "run": {
-      "attempted": 16,
+      "attempted": 18,
       "NOT_ATTEMPTED": 0,
       "IN_PROGRESS": 0,
       "PASS": 4,
       "FAIL": 1,
-      "SKIPPED": 11
+      "SKIPPED": 13
     },
     "probes": {
-      "attempted": 16,
+      "attempted": 18,
       "NOT_ATTEMPTED": 0,
       "IN_PROGRESS": 0,
       "PASS": 1,
       "FAIL": 3,
-      "SKIPPED": 12
+      "SKIPPED": 14
     },
     "cleanup": {
-      "attempted": 16,
+      "attempted": 18,
       "NOT_ATTEMPTED": 0,
       "IN_PROGRESS": 0,
-      "PASS": 9,
+      "PASS": 10,
       "FAIL": 0,
-      "SKIPPED": 7
+      "SKIPPED": 8
     }
   },
   "probes": {
@@ -301,6 +301,34 @@
         "run": 2,
         "probes": 2,
         "cleanup": 829
+      }
+    },
+    {
+      "id": "repo-518",
+      "repository": "cachethq/cachet",
+      "classification": "gate",
+      "totalMs": 3007,
+      "stages": {
+        "gate": 5,
+        "source": 1140,
+        "build": 937,
+        "run": 2,
+        "probes": 2,
+        "cleanup": 921
+      }
+    },
+    {
+      "id": "repo-520",
+      "repository": "mathesar-foundation/mathesar",
+      "classification": "gate",
+      "totalMs": 16,
+      "stages": {
+        "gate": 2,
+        "source": 3,
+        "build": 3,
+        "run": 3,
+        "probes": 2,
+        "cleanup": 3
       }
     },
     {
