@@ -377,6 +377,32 @@ repositories:
       healthPath: "/auth/v1/health"
       databaseRequired: true
       redisRequired: false
+    config:
+      - key: HQL_NODE_ID
+        value: "1"
+      - key: HQL_NODES
+        value: "1 localhost:8100 localhost:8200"
+      - key: PUB_URL
+        value: "localhost:8080"
+      - key: HIQLITE
+        value: "true"
+      - key: ENC_KEY_ACTIVE
+        value: "k1"
+      - key: COOKIE_MODE
+        value: "danger-insecure"
+      - key: LISTEN_SCHEME
+        value: "http"
+      - key: LISTEN_ADDRESS
+        value: "0.0.0.0"
+      - key: LISTEN_PORT_HTTP
+        value: "8080"
+      - key: SMTP_URL
+        value: "localhost"
+      - key: SMTP_TLS_MODE
+        value: "danger-insecure"
+    secrets:
+      - HQL_SECRET_RAFT
+      - HQL_SECRET_API
     notes:
       - "sebadob/rauthy; label NOT_COMPATIBLE, first-run gate NEEDS_CONFIGURATION"
   - id: repo-560

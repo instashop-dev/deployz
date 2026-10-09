@@ -1,0 +1,131 @@
+{
+  "schemaVersion": 1,
+  "id": "repo-559",
+  "repository": "sebadob/rauthy",
+  "commit": "79bdf2eb6fb01d1f86f2e99ee718036d04201204",
+  "set": "improvement",
+  "cohort": "realistic",
+  "deployzCommit": "cd568e47bbb0192b22cdbd3bcc7b4350b1e7e8b5",
+  "analysisVersion": 45,
+  "ai": {
+    "mode": "live",
+    "model": "workers-ai/@cf/deepseek-ai/deepseek-v4-flash-0731",
+    "requests": 0,
+    "outcome": "not-requested",
+    "error": null
+  },
+  "inputsHash": "455aa44f0a89f43caa877614f1856de28e237e59d27a3d5eb9d08c392b1ab0fa",
+  "stages": {
+    "gate": {
+      "status": "FAIL",
+      "startedAt": "2026-10-09T12:43:44.897Z",
+      "finishedAt": "2026-10-09T12:43:44.900Z",
+      "durationMs": 3,
+      "detail": null,
+      "evidence": {
+        "verdict": "NEEDS_CONFIGURATION",
+        "outcome": "false-acceptance",
+        "configuredVerdict": "NEEDS_CONFIGURATION",
+        "manifest": {
+          "dockerfilePath": "Dockerfile",
+          "buildContext": ".",
+          "appRoot": ".",
+          "port": null,
+          "healthPath": "/",
+          "healthMode": "vendor_required",
+          "migrationCommand": null,
+          "migrationMode": "unknown",
+          "postgres": true,
+          "redis": false,
+          "storage": false,
+          "databaseBindings": [
+            "DATABASE_HOST",
+            "DATABASE_NAME",
+            "DATABASE_PASSWORD",
+            "DATABASE_PORT",
+            "DATABASE_URL",
+            "DATABASE_USER",
+            "DB_HOST",
+            "DB_NAME",
+            "DB_PASSWORD",
+            "DB_PORT",
+            "DB_USER"
+          ],
+          "redisBindings": [],
+          "storageBindings": [],
+          "generatedKeys": []
+        }
+      }
+    },
+    "source": {
+      "status": "PASS",
+      "startedAt": "2026-10-09T12:43:44.904Z",
+      "finishedAt": "2026-10-09T12:43:48.917Z",
+      "durationMs": 4013,
+      "detail": null,
+      "evidence": {
+        "commit": "79bdf2eb6fb01d1f86f2e99ee718036d04201204",
+        "archiveCached": false,
+        "archiveBytes": 8822673
+      }
+    },
+    "build": {
+      "status": "FAIL",
+      "startedAt": "2026-10-09T12:43:48.920Z",
+      "finishedAt": "2026-10-09T12:43:54.947Z",
+      "durationMs": 6027,
+      "detail": "docker build exited 1",
+      "evidence": {
+        "dockerfilePath": "Dockerfile",
+        "buildContext": ".",
+        "platform": "linux/amd64",
+        "image": "deployz-campaign/repo-559:79bdf2eb6fb0",
+        "exitCode": 1,
+        "durationMs": 6022,
+        "buildArgNames": [],
+        "logTail": "#5 resolve gcr.io/distroless/cc-debian12:nonroot@sha256:9dac0a79194e45a7da0158a9c6da57b217585af0786db3845d1f0ec1a0dd182f 0.1s done\n#5 CANCELED\n\n#6 [2/6] WORKDIR /app\n#6 CACHED\n\n#7 [3/6] COPY --chown=10001:10001 ./out/rauthy_amd64 ./rauthy\n#7 ERROR: failed to calculate checksum of ref 12cfkxfrx28t4g2mqmjcwmb4j::ut06740156ihokuqhykn9fwkw: \"/out/rauthy_amd64\": not found\n\n#8 [4/6] COPY --chown=10001:10001 ./config-local-test.toml ./config-local-test.toml\n#8 CACHED\n\n#9 [6/6] COPY --chown=10001:10001 ./out/empty/ ./tls\n#9 ERROR: failed to calculate checksum of ref 12cfkxfrx28t4g2mqmjcwmb4j::ut06740156ihokuqhykn9fwkw: \"/out/empty\": not found\n\n#10 [5/6] COPY --chown=10001:10001 ./out/empty/ ./data\n#10 ERROR: failed to calculate checksum of ref 12cfkxfrx28t4g2mqmjcwmb4j::ut06740156ihokuqhykn9fwkw: \"/out/empty\": not found\n------\n > [3/6] COPY --chown=10001:10001 ./out/rauthy_amd64 ./rauthy:\n------\n------\n > [5/6] COPY --chown=10001:10001 ./out/empty/ ./data:\n------\n------\n > [6/6] COPY --chown=10001:10001 ./out/empty/ ./tls:\n------\n\n \u001b[33m1 warning found (use docker --debug to expand):\n\u001b[0m - RedundantTargetPlatform: Setting platform to predefined $TARGETPLATFORM in FROM is redundant as this is the default behavior (line 1)\nDockerfile:38\n--------------------\n  36 |     # we are copying the empty dirs for proper access rights upfront\n  37 |     COPY --chown=$TARGET_USER ./out/empty/ ./data\n  38 | >>> COPY --chown=$TARGET_USER ./out/empty/ ./tls\n  39 |     \n  40 |     ENTRYPOINT [\"/app/rauthy\"]\n--------------------\nERROR: failed to build: failed to solve: failed to compute cache key: failed to calculate checksum of ref 12cfkxfrx28t4g2mqmjcwmb4j::ut06740156ihokuqhykn9fwkw: \"/out/empty\": not found\n\nView build details: docker-desktop://dashboard/build/desktop-linux/desktop-linux/qkdn0jc22r8otbpmqi6mj31pe",
+        "failure": "build",
+        "rebuilt": false
+      }
+    },
+    "run": {
+      "status": "SKIPPED",
+      "startedAt": "2026-10-09T12:43:55.371Z",
+      "finishedAt": "2026-10-09T12:43:55.383Z",
+      "durationMs": 12,
+      "detail": "the build did not pass",
+      "evidence": {}
+    },
+    "probes": {
+      "status": "SKIPPED",
+      "startedAt": "2026-10-09T12:43:55.389Z",
+      "finishedAt": "2026-10-09T12:43:55.395Z",
+      "durationMs": 6,
+      "detail": "the build did not pass",
+      "evidence": {}
+    },
+    "cleanup": {
+      "status": "PASS",
+      "startedAt": "2026-10-09T12:43:55.403Z",
+      "finishedAt": "2026-10-09T12:43:56.573Z",
+      "durationMs": 1170,
+      "detail": null,
+      "evidence": {
+        "removed": {
+          "containers": 0,
+          "networks": 0,
+          "volumes": 0
+        },
+        "imageRemoved": false,
+        "keepImage": false,
+        "leaks": {
+          "containers": [],
+          "networks": [],
+          "volumes": []
+        }
+      }
+    }
+  },
+  "classification": "gate",
+  "remediation": null
+}

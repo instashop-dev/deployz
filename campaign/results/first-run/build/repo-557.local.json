@@ -1,0 +1,179 @@
+{
+  "schemaVersion": 1,
+  "id": "repo-557",
+  "repository": "sqlpage/SQLPage",
+  "commit": "78f310a0194fb809ffb27e4fa0e29d81d814badb",
+  "set": "improvement",
+  "cohort": "realistic",
+  "deployzCommit": "cd568e47bbb0192b22cdbd3bcc7b4350b1e7e8b5",
+  "analysisVersion": 45,
+  "ai": {
+    "mode": "live",
+    "model": "workers-ai/@cf/deepseek-ai/deepseek-v4-flash-0731",
+    "requests": 1,
+    "outcome": "completed",
+    "error": null
+  },
+  "inputsHash": "d1947553d2787b35036379f564e4663689bb652581a54228dca3888f939aa8f8",
+  "stages": {
+    "gate": {
+      "status": "FAIL",
+      "startedAt": "2026-10-09T12:22:32.854Z",
+      "finishedAt": "2026-10-09T12:22:32.859Z",
+      "durationMs": 5,
+      "detail": null,
+      "evidence": {
+        "verdict": "NEEDS_CONFIGURATION",
+        "outcome": "false-acceptance",
+        "configuredVerdict": "NEEDS_CONFIGURATION",
+        "manifest": {
+          "dockerfilePath": "Dockerfile",
+          "buildContext": ".",
+          "appRoot": ".",
+          "port": 8080,
+          "healthPath": "/",
+          "healthMode": "vendor_required",
+          "migrationCommand": null,
+          "migrationMode": "unknown",
+          "postgres": true,
+          "redis": false,
+          "storage": false,
+          "databaseBindings": [
+            "DATABASE_HOST",
+            "DATABASE_NAME",
+            "DATABASE_PASSWORD",
+            "DATABASE_PORT",
+            "DATABASE_URL",
+            "DATABASE_USER",
+            "DB_HOST",
+            "DB_NAME",
+            "DB_PASSWORD",
+            "DB_PORT",
+            "DB_USER"
+          ],
+          "redisBindings": [],
+          "storageBindings": [],
+          "generatedKeys": []
+        }
+      }
+    },
+    "source": {
+      "status": "PASS",
+      "startedAt": "2026-10-09T12:22:32.865Z",
+      "finishedAt": "2026-10-09T12:22:40.911Z",
+      "durationMs": 8046,
+      "detail": null,
+      "evidence": {
+        "commit": "78f310a0194fb809ffb27e4fa0e29d81d814badb",
+        "archiveCached": false,
+        "archiveBytes": 34529525
+      }
+    },
+    "build": {
+      "status": "PASS",
+      "startedAt": "2026-10-09T12:22:40.915Z",
+      "finishedAt": "2026-10-09T12:42:28.212Z",
+      "durationMs": 1187297,
+      "detail": null,
+      "evidence": {
+        "dockerfilePath": "Dockerfile",
+        "buildContext": ".",
+        "platform": "linux/amd64",
+        "image": "deployz-campaign/repo-557:78f310a0194f",
+        "exitCode": 0,
+        "durationMs": 1186886,
+        "buildArgNames": [],
+        "logTail": "#29 DONE 565.6s\n\n#30 [builder 11/12] COPY . .\n#30 DONE 3.1s\n\n#31 [builder 12/12] RUN /usr/local/bin/build-project.sh\n#31 0.498 Building project for target: x86_64-unknown-linux-gnu (profile: superoptimized)\n#31 0.613 info: syncing channel updates for 1.98.1-x86_64-unknown-linux-gnu\n#31 1.006 info: latest update on 2026-09-03 for version 1.98.1 (48a229cea 2026-09-01)\n#31 1.030 info: downloading 4 components\n#31 10.69    Compiling sqlpage v0.46.3 (/usr/src/sqlpage)\n#31 475.4     Finished `superoptimized` profile [optimized] target(s) in 7m 47s\n#31 DONE 478.7s\n\n#32 [minimal 4/6] COPY --from=builder /usr/src/sqlpage/sqlpage.bin /usr/local/bin/sqlpage\n#32 DONE 0.6s\n\n#33 [minimal 5/6] COPY --from=builder /tmp/sqlpage-libs/* /lib/\n#33 DONE 0.6s\n\n#34 [minimal 6/6] COPY --from=builder --chown=sqlpage:sqlpage /usr/src/sqlpage/sqlpage/sqlpage.db sqlpage/sqlpage.db\n#34 DONE 0.2s\n\n#35 exporting to image\n#35 exporting layers\n#35 exporting layers 3.3s done\n#35 exporting manifest sha256:83566151222bc472f6bdeec17f6c2e9e3a636d03a0220f1b05f8e597e3c75c40\n#35 exporting manifest sha256:83566151222bc472f6bdeec17f6c2e9e3a636d03a0220f1b05f8e597e3c75c40 0.2s done\n#35 exporting config sha256:268d0d14d2f811be79f15a1a5576002b28d5143092eaa6b85dc0aaa74a0ea6fe\n#35 exporting config sha256:268d0d14d2f811be79f15a1a5576002b28d5143092eaa6b85dc0aaa74a0ea6fe 0.0s done\n#35 exporting attestation manifest sha256:550d24350e4bea9a2d0db86fe03ec5da92c5351c884c96660cdeabc988abe4b3\n#35 exporting attestation manifest sha256:550d24350e4bea9a2d0db86fe03ec5da92c5351c884c96660cdeabc988abe4b3 0.1s done\n#35 exporting manifest list sha256:69b2688eafcf819921edfeb28000ed56d6e52651433a804f3d57bb21ec982bcf 0.0s done\n#35 naming to docker.io/deployz-campaign/repo-557:78f310a0194f\n#35 naming to docker.io/deployz-campaign/repo-557:78f310a0194f 0.0s done\n#35 unpacking to docker.io/deployz-campaign/repo-557:78f310a0194f\n#35 unpacking to docker.io/deployz-campaign/repo-557:78f310a0194f 0.8s done\n#35 DONE 4.7s\n\nView build details: docker-desktop://dashboard/build/desktop-linux/desktop-linux/4om009qmxu4d8s5es4pndwt65",
+        "imageId": "sha256:69b2688eafcf819921edfeb28000ed56d6e52651433a804f3d57bb21ec982bcf",
+        "imageBytes": 54578468,
+        "failure": null,
+        "rebuilt": false
+      }
+    },
+    "run": {
+      "status": "PASS",
+      "startedAt": "2026-10-09T12:42:29.029Z",
+      "finishedAt": "2026-10-09T12:42:39.559Z",
+      "durationMs": 10530,
+      "detail": null,
+      "evidence": {
+        "image": "deployz-campaign/repo-557:78f310a0194f",
+        "port": 8080,
+        "healthPath": "/",
+        "dependencies": [
+          "postgres"
+        ],
+        "environmentNames": [
+          "DATABASE_URL",
+          "DB_HOST",
+          "DB_NAME",
+          "DB_PASSWORD",
+          "DB_PORT",
+          "DB_USER",
+          "PORT"
+        ],
+        "migration": null
+      }
+    },
+    "probes": {
+      "status": "FAIL",
+      "startedAt": "2026-10-09T12:42:39.566Z",
+      "finishedAt": "2026-10-09T12:43:40.099Z",
+      "durationMs": 60533,
+      "detail": "failed: dbWrite",
+      "evidence": {
+        "probes": {
+          "health": {
+            "status": "PASS",
+            "detail": "/ answered 200"
+          },
+          "start": {
+            "status": "PASS",
+            "detail": "still running 60 s after start"
+          },
+          "migration": {
+            "status": "NOT_APPLICABLE",
+            "detail": "the manifest has no migration command"
+          },
+          "dbWrite": {
+            "status": "FAIL",
+            "detail": "no rows outside migration bookkeeping tables"
+          },
+          "redis": {
+            "status": "NOT_APPLICABLE",
+            "detail": "the manifest needs no Redis"
+          },
+          "storage": {
+            "status": "NOT_APPLICABLE",
+            "detail": "the manifest needs no storage"
+          }
+        },
+        "url": "http://app:8080/",
+        "appLogTail": "ts=2026-10-09T12:42:39.500Z level=info msg=\"Configuration loaded from /etc/sqlpage\" target=sqlpage::app_config\nts=2026-10-09T12:42:39.564Z level=info msg=\"Not applying database migrations because '/etc/sqlpage/migrations' does not exist\" target=sqlpage::webserver::database::migrations\nts=2026-10-09T12:42:40.750Z level=info msg=\"200 OK\" target=sqlpage::access http.request.method=GET url.path=/ client.address=172.18.0.4\nts=2026-10-09T12:42:39.634Z level=info msg=\" ✨ SQLPage v0.46.3 started successfully! ✨  View your website at: 🔗 http://localhost:8080 (also accessible from other devices using your IP address)  Create your pages with SQL files in: 💻 /var/www  Happy coding! 🚀\" target=sqlpage::webserver::http"
+      }
+    },
+    "cleanup": {
+      "status": "PASS",
+      "startedAt": "2026-10-09T12:43:40.105Z",
+      "finishedAt": "2026-10-09T12:43:42.436Z",
+      "durationMs": 2331,
+      "detail": null,
+      "evidence": {
+        "removed": {
+          "containers": 2,
+          "networks": 1,
+          "volumes": 0
+        },
+        "imageRemoved": true,
+        "keepImage": false,
+        "leaks": {
+          "containers": [],
+          "networks": [],
+          "volumes": []
+        }
+      }
+    }
+  },
+  "classification": "gate",
+  "remediation": null
+}

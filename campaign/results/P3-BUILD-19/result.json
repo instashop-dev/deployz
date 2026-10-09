@@ -1,0 +1,26 @@
+{
+  "taskId": "P3-BUILD-19",
+  "testedCommit": "e6a3b58ee2363923fef21faca86611fa3bf84538",
+  "executor": "campaign-worker",
+  "model": "sonnet",
+  "startedAt": "2026-10-09T12:21:00Z",
+  "finishedAt": "2026-10-09T12:47:00Z",
+  "proposedStatus": "COMPLETE",
+  "commands": [
+    { "command": "node --env-file=.env node_modules/tsx/dist/cli.mjs scripts/repository-deployment/index.ts --local --ai live --benchmark campaign/corpus/benchmark.yaml --deploy-config campaign/corpus/deploy-config.yaml --runs-dir campaign/results/first-run/build/ --evidence-dir campaign/logs/P3-BUILD-19/evidence/ --repo repo-557 --repo repo-559", "exitCode": 0, "summary": "repo-557 gate FAIL(false-acceptance) build PASS run PASS probes FAIL(dbWrite) cleanup PASS; repo-559 gate FAIL(false-acceptance) build FAIL(prebuilt out/rauthy_amd64 missing) run/probes SKIPPED cleanup PASS" },
+    { "command": "docker rm/network rm/volume rm/rmi for label deployz-campaign=fresh-100; docker builder prune -f", "exitCode": 0, "summary": "no labelled resources remain; builder cache pruned (2.084GB); C: free 4.13 GB after" }
+  ],
+  "evidence": [
+    "campaign/results/first-run/build/repo-557.local.json",
+    "campaign/results/first-run/build/repo-559.local.json",
+    "campaign/logs/P3-BUILD-19/run1.log"
+  ],
+  "notes": [
+    "repo-557 (sqlpage/SQLPage): no deploy-config addition; app needs no config (DATABASE_URL bound by harness, defaults documented in its README).",
+    "repo-559 (sebadob/rauthy): added config HQL_NODE_ID, HQL_NODES, PUB_URL, HIQLITE, ENC_KEY_ACTIVE, COOKIE_MODE, LISTEN_SCHEME, LISTEN_ADDRESS, LISTEN_PORT_HTTP, SMTP_URL, SMTP_TLS_MODE and generated secrets HQL_SECRET_RAFT, HQL_SECRET_API. Source: config.toml in the rauthy repository (documented example values; no secret values). ENC_KEYS not added: it needs the format <key_id>/<base64 32 bytes>, which the harness secret formats cannot generate.",
+    "repo-559 build failed because the Dockerfile copies ./out/rauthy_amd64, a prebuilt binary absent from the repository (product failure, not a registry timeout; no retry).",
+    "Both gates are false-acceptance: label NOT_COMPATIBLE, Deployz verdict NEEDS_CONFIGURATION.",
+    "repo-557 probes failed on dbWrite (see local result for log tail).",
+    "C: free after batch and prune: 4.13 GB. A dangling-looking builder cache of 2.084GB was reclaimed."
+  ]
+}
