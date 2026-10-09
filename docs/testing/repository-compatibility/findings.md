@@ -1372,3 +1372,15 @@ cleaner verdict signal but a noisier fact signal.
 - Regression: `packages/analysis/test/fresh-100-unbuildable-dockerfile.test.ts` (fixtures only).
 - Residual: repo-575, 577 and 548 copy or download a release artifact the detector does not flag, and repo-507 fails on the pinned source (no lockfile, no `output: standalone`); they stay accepted and are recorded as limitations.
 - Status: fixed
+
+### COMP-043 — A deployment sample or a comment rejects an app that a supported configuration fits
+
+- Family: fresh-100 F4 (`ANALYSIS_BUG`), 7 gate false rejections (repo-503, 509, 516, 520, 547, 563, 569).
+- Repositories fixed here: repo-547 (a settings file that selects `storages.backends.s3boto3` when `AWS_STORAGE_BUCKET_NAME` is set, with no requirements file in the collected tree), repo-563 (an image-only Compose sidecar with no published port that waits on the app), repo-569 (a `@pulumi/pulumi` package under `deploy/pulumi/` rejected as `pulumi`) and repo-509 (a `rediss://` URL in a comment of `.env.example` rejected as `redis-unsupported`).
+- Type: ANALYSIS_BUG
+- Expected: NEEDS_CONFIGURATION (the Pulumi package is a self-hoster option; the Redis URL is documentation, the connection is optional)
+- Actual: NOT_COMPATIBLE
+- Fix: `checkPulumi` ignores a Pulumi dependency in a deployment sample directory, the same rule as the Pulumi file check; the `rediss://` check strips comments from env sample files; the object-storage option also accepts a settings file that names the S3 storage backend as SDK evidence; the multi-service check ignores a port-less image-only service that depends on the app, when the app publishes a port and does not name the service. A Pulumi package in the application and a `rediss://` value that an env sample sets still reject. `ANALYSIS_VERSION` 47.
+- Regression: `packages/analysis/test/false-rejection-scoping.test.ts` (fixtures only).
+- Residual (rejection kept): repo-503 (the collected tree has no storage-type or S3 selector for the data directory, and the app and nginx pair stays a multi-service finding), repo-520 (the default image embeds PostgreSQL with a volume, plus media and secrets volumes and a db built from `Dockerfile.devdb`; the minimal target needs a target-selection signal), repo-516 (the gate is not the cause: Deployz selects `cli/Dockerfile`; a Dockerfile selection change).
+- Status: partly fixed (509, 547, 563, 569 fixed; 503, 516, 520 kept)

@@ -811,7 +811,28 @@ export function checkDockerComposeMultiService(tree: FileTree): RejectionFinding
       )
     );
   };
-  const required = apps.filter((entry) => !isOptionalBuild(entry));
+  // An image-only service with no published port that waits on the app, which
+  // publishes a port and does not name it, is a satellite client of the app
+  // (an optional vision or analytics sidecar), not a required component.
+  const dependsOn = (from: ComposeService, to: ComposeService): boolean => {
+    const lines = from.body.split('\n');
+    const start = lines.findIndex((l) => /^\s*depends_on:/.test(l));
+    if (start === -1) return false;
+    const indent = lines[start]!.search(/\S/);
+    const end = lines.findIndex((l, i) => i > start && l.trim() !== '' && l.search(/\S/) <= indent);
+    return lines
+      .slice(start + 1, end === -1 ? undefined : end)
+      .some((l) => l.trim().replace(/^-\s*/, '').replace(/:$/, '') === to.name);
+  };
+  const isSatellite = ([key, members]: [string, ComposeService[]]): boolean => {
+    const others = apps.filter(([otherKey]) => otherKey !== key);
+    return (
+      others.length === 1 &&
+      members.every((s) => s.image && !s.build && s.ports.length === 0) &&
+      others[0]![1].some((a) => a.ports.length > 0 && members.every((s) => dependsOn(s, a)) && !mentions([a], members))
+    );
+  };
+  const required = apps.filter((entry) => !isOptionalBuild(entry) && !isSatellite(entry));
   if (required.length >= 2) {
     return {
       detected: true,
@@ -870,7 +891,10 @@ export function checkTerraform(tree: FileTree): RejectionFinding {
 /** Pulumi IaC. */
 export function checkPulumi(tree: FileTree): RejectionFinding {
   const config = outsideDeploymentSamples(pulumiConfigFiles(tree));
-  const deps = collectDependencyNames(runtimeTree(tree)).filter((d) => d.startsWith('@pulumi/'));
+  // A Pulumi package in a deployment sample directory is the self-hoster's option, not the app.
+  const deps = collectDependencyNames(
+    Object.fromEntries(Object.entries(runtimeTree(tree)).filter(([path]) => !DEPLOYMENT_SAMPLE_DIR_REGEX.test(path))),
+  ).filter((d) => d.startsWith('@pulumi/'));
   if (config.length > 0 || deps.length > 0) {
     const evidence = config.length > 0 ? config[0] : deps[0];
     return {

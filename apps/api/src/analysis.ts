@@ -312,7 +312,11 @@ type ApplicationRow = typeof schema.applications.$inferSelect;
 // single Dockerfile copies sources the repository lacks is NOT_COMPATIBLE when
 // the full tracked path list proves it. Stored v45 rows answer
 // NEEDS_CONFIGURATION for these repositories.
-export const ANALYSIS_VERSION = 46;
+// Version 47 (fresh-100 F4): a Pulumi package in a deployment sample
+// directory and a rediss:// URL that an env sample only mentions in a comment
+// no longer reject the repository. Stored v46 rows answer NOT_COMPATIBLE for
+// these repositories.
+export const ANALYSIS_VERSION = 47;
 
 export interface AnalysisRunnerDeps {
   db: RuntimeDb;
