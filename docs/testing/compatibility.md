@@ -243,10 +243,17 @@ Dependencies start only when the gate manifest needs them, pinned by digest in
 `local-run.ts`: `postgres:16-alpine` (the engine major version the compiler
 plans), `valkey/valkey:8-alpine` and a SeaweedFS S3 stand-in (MinIO images are no
 longer published). Passwords are generated per run. The app environment has the
-deploy-config values and secrets (`${DEPLOYZ_APP_URL}` becomes `http://app`),
-`PORT`, and the binding names of `packages/contracts/src/capability-registry.ts`
-(`DATABASE_URL`, `DB_*`, `REDIS_URL`, `S3_BUCKET`, …) with local endpoints; a test
-guards the names. A manifest `migrationCommand` runs once with `sh -c` in a
+deploy-config values and secrets (`${DEPLOYZ_APP_URL}` becomes `http://app`) and the
+env of `appEnvironment` in `packages/infrastructure-compiler/src/compile.ts` with local
+endpoints: `NODE_ENV`, `PORT`, `APP_API_KEY`, `APP_SIGNING_SECRET`, `DATABASE_URL` and
+`DATABASE_HOST|PORT|NAME|USER|PASSWORD`, `REDIS_URL|HOST|PORT`, `STORAGE_BUCKET`,
+`S3_BUCKET`, `AWS_S3_BUCKET`. The manifest binding names follow, each with its kind
+(`url`, `jdbc_url`, `host`, `port`, `database`, `username`, `password`, `bucket`) and
+never replacing a standard name. Every manifest key classified `deployz_generated` that
+the deploy-config does not set gets a random base64url value, as the relay mints it. The
+migration container and the app container get the same env. The health path is the
+manifest path after the deploy-config `overrides.healthPath`. A test guards the names.
+A manifest `migrationCommand` runs once with `sh -c` in a
 one-off container of the same image before the app starts.
 
 Probes, each `PASS`, `FAIL`, `NOT_APPLICABLE` or `UNVERIFIED` (UNVERIFIED is never

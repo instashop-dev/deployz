@@ -1,0 +1,13 @@
+   [33m[2m✓[22m[39m deploy-config[2m > [22mparses the committed deploy-config and references only Stage A ids [33m 859[2mms[22m[39m
+ [32m✓[39m [30m[43m repository-deployment [49m[39m ai-mode.test.ts [2m([22m[2m1 test[22m[2m)[22m[32m 5[2mms[22m[39m
+
+[2m Test Files [22m [1m[32m4 passed[39m[22m[90m (4)[39m
+[2m      Tests [22m [1m[32m208 passed[39m[22m[90m (208)[39m
+[2m   Start at [22m 00:02:43
+[2m   Duration [22m 11.42s[2m (transform 3.94s, setup 0ms, collect 19.96s, tests 6.29s, environment 2ms, prepare 1.71s)[22m
+
+---
+
+> deployz@0.0.0 typecheck:scripts C:\Users\Tejas\Desktop\deployz-mvp-test
+> tsc --noEmit -p scripts/customer-reset/tsconfig.json && tsc --noEmit -p scripts/repository-compatibility/tsconfig.json && tsc --noEmit -p scripts/repository-deployment/tsconfig.json && tsc --noEmit -p scripts/version-canary/tsconfig.json && tsc --noEmit -p scripts/jev-eval/tsconfig.json
+

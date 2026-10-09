@@ -1,0 +1,32 @@
+{
+  "taskId": "P4-FIX-HARNESS-RUN-ENV",
+  "testedCommit": "e6a3b58ee2363923fef21faca86611fa3bf84538",
+  "executor": "campaign-worker",
+  "model": "sonnet",
+  "startedAt": "2026-10-09T18:29:00Z",
+  "finishedAt": "2026-10-09T18:34:00Z",
+  "proposedStatus": "COMPLETE",
+  "commands": [
+    { "command": "pnpm exec vitest run scripts/repository-deployment/local-run.test.ts (old local-run.ts)", "exitCode": 1, "summary": "7 new tests fail without the change (env names, binding kinds, generated keys, runManifest, migration/app env)" },
+    { "command": "pnpm exec vitest run scripts/repository-deployment/local-run.test.ts (new local-run.ts)", "exitCode": 0, "summary": "37 tests pass" },
+    { "command": "pnpm vitest run --project repository-deployment", "exitCode": 0, "summary": "4 files, 208 tests pass" },
+    { "command": "pnpm typecheck:scripts", "exitCode": 0, "summary": "all script tsconfigs pass" }
+  ],
+  "evidence": [
+    "campaign/results/P4-FIX-HARNESS-RUN-ENV/test-before-change.txt",
+    "campaign/results/P4-FIX-HARNESS-RUN-ENV/test-after-change.txt",
+    "campaign/results/P4-FIX-HARNESS-RUN-ENV/checks.txt",
+    "scripts/repository-deployment/local-run.ts",
+    "scripts/repository-deployment/local-run.test.ts",
+    "scripts/repository-deployment/index.ts",
+    "docs/testing/compatibility.md"
+  ],
+  "notes": [
+    "Cause: harness injected a fixed DB_*/CACHE_URL set from the capability registry and used binding names only. Production (compile.ts appEnvironment) injects DATABASE_URL/HOST/PORT/NAME/USER/PASSWORD, REDIS_URL/HOST/PORT, STORAGE_BUCKET/S3_BUCKET/AWS_S3_BUCKET, NODE_ENV, APP_API_KEY, APP_SIGNING_SECRET, then the manifest alias names by kind (incl. jdbc_url), then relay-minted deployz_generated keys (base64url 32).",
+    "Fix: buildAppEnvironment copies that rule; RunManifest carries binding {name, kind} and generatedKeys (new runManifest in local-run.ts); index.ts uses it; ctx.generateKey added; minted keys are redacted. Migration and app containers share the env.",
+    "Health path: harness already used the configured manifest (deploy-config overrides.healthPath wins over the manifest value), same as production; repo-556 probed /api/health and health PASSED. Its dbWrite FAIL came from the missing WAKAPI_DB_* alias names, fixed by the alias rule. No deploy-config change needed for repo-556.",
+    "Mapping: repo-529 APP_KEY via generatedKeys; 534 SPRING_DATASOURCE_* via kind aliases (jdbc_url); 543 DATABASE_* standard names; 551 app-specific URL alias names at migration; 556 WAKAPI_DB_* aliases. Not verified against real containers (no Docker run in this task); the rerun task must confirm.",
+    "Possible REPO_CONFIGURATION to check by rerun: repo-529 deploy-config has databaseRequired false while the app is a Laravel app that may need a database. Not edited.",
+    "Behavior change: DB_* and CACHE_URL are no longer injected unless the manifest binds them; NODE_ENV=production is now set as in production. Previous runs/ files unchanged; no product code touched."
+  ]
+}

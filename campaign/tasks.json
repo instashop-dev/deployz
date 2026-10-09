@@ -3688,7 +3688,7 @@
       "phase": 4,
       "title": "Harness run environment equals production injection (F8): generated keys, database bindings, health-path precedence",
       "executor": "campaign-worker",
-      "status": "PENDING",
+      "status": "COMPLETE",
       "prerequisites": [
         "P4-GROUP"
       ],
@@ -3721,7 +3721,8 @@
       ],
       "timeboxMinutes": 38,
       "notes": [
-        "2026-10-09 P4-GROUP (Opus): resumable. On stopBy return CONTINUE with progress (files changed, tests run). Scope: the local run and the migration task get the same env names that production injects (packages/cdk application stack: generated keys, DATABASE_* parts and URL, manifest database/redis/storage envBindings), and health path precedence follows production (deploy-config vs manifest). Apps that show the defect: repo-529, 534, 543, 551, 556. If a deploy-config.yaml entry is wrong, record it as REPO_CONFIGURATION in notes; do not edit deploy-config.yaml in this task."
+        "2026-10-09 P4-GROUP (Opus): resumable. On stopBy return CONTINUE with progress (files changed, tests run). Scope: the local run and the migration task get the same env names that production injects (packages/cdk application stack: generated keys, DATABASE_* parts and URL, manifest database/redis/storage envBindings), and health path precedence follows production (deploy-config vs manifest). Apps that show the defect: repo-529, 534, 543, 551, 556. If a deploy-config.yaml entry is wrong, record it as REPO_CONFIGURATION in notes; do not edit deploy-config.yaml in this task.",
+        "2026-10-09 Opus verify: env order copies appEnvironment in packages/infrastructure-compiler/src/compile.ts (NODE_ENV, PORT, APP_API_KEY/APP_SIGNING_SECRET, DATABASE_*, REDIS_*, aliases by kind incl. jdbc_url never replacing a standard name, deployz_generated keys minted base64url). Opus re-ran: local-run.test.ts 7/37 fail with HEAD local-run.ts; repository-deployment 208/208; typecheck:scripts 0. Remaining differences (accepted for local runs): production injects STORAGE_BUCKET/S3_BUCKET/AWS_S3_BUCKET always, the harness only when storage is required; local jdbc_url has no sslmode=require (no TLS locally). Docker reruns of repo-529/534/543/551/556 are left to P4-RERUN tasks. REPO_CONFIGURATION to check: repo-529 deploy-config databaseRequired false."
       ]
     },
     {

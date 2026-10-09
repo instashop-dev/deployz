@@ -1,0 +1,12 @@
+[31m   [31m×[31m buildAppEnvironment[2m > [22minjects the standard names of the production compiler with local endpoints[39m[32m 23[2mms[22m[39m
+[31m   [31m×[31m buildAppEnvironment[2m > [22minjects the standard set and nothing for an absent dependency when the manifest names no bindings[39m[32m 5[2mms[22m[39m
+[31m   [31m×[31m buildAppEnvironment[2m > [22mgives the app its own binding names, by kind, as the compiler aliases do[39m[32m 3[2mms[22m[39m
+[31m   [31m×[31m buildAppEnvironment[2m > [22mmints a deployz_generated key the vendor did not set, and keeps a vendor value[39m[32m 2[2mms[22m[39m
+[31m   [31m×[31m buildAppEnvironment[2m > [22mkeeps the env names in step with appEnvironment in packages/infrastructure-compiler/src/compile.ts[39m[32m 2[2mms[22m[39m
+[31m   [31m×[31m runManifest[2m > [22mcarries the binding kinds, the generated keys and the configured health path[39m[32m 1[2mms[22m[39m
+[31m   [31m×[31m local run stage[2m > [22mgives the migration task and the app the production env: generated key, own binding names, no key on the command line[39m[32m 41[2mms[22m[39m
+   [32m✓[39m local run stage[2m > [22mrecords a migration that leaves the schema unchanged as a FAIL probe[32m 40[2mms[22m[39m
+   [32m✓[39m local run stage[2m > [22mpolls health until 200-399 and records a timeout window failure as health FAIL[32m 68[2mms[22m[39m
+   [32m✓[39m local run stage[2m > [22mrecords start FAIL and health FAIL when the app container exits[32m 38[2mms[22m[39m
+   [32m✓[39m --resume[2m > [22mkeeps a recorded run FAIL and does not run it again[32m 43[2mms[22m[39m
+   [32m✓[39m local summary[2m > [22mcounts attempted, PASS, FAIL, UNVERIFIED and NOT_APPLICABLE per stage and probe, with durations[32m 2[2mms[22m[39m

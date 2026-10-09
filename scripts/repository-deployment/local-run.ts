@@ -10,6 +10,8 @@
 import { appendFileSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 
+import type { DeploymentManifest } from '@deployz/contracts';
+
 import { BUILD_PLATFORM, CAMPAIGN_LABEL, childEnvironment, imageTag, runLocalBuild, type LocalBuildContext, type RunProcess } from './local-build.js';
 import { isOpenStage, recordStage, sanitizeLocal, type LocalResult, type StageOutcome } from './local-results.js';
 
@@ -32,10 +34,12 @@ const DB = { host: 'db', port: 5432, name: 'app', user: 'app' } as const;
 const CACHE = { host: 'cache', port: 6379 } as const;
 const S3 = { host: 's3', port: 8333, region: 'us-east-1' } as const;
 
-/** Env names the production compiler injects, copied from packages/contracts/src/capability-registry.ts (a test guards the copy). */
-export const DATABASE_ENV = { DATABASE_URL: 'url', DB_HOST: 'host', DB_PORT: 'port', DB_NAME: 'database', DB_USER: 'username', DB_PASSWORD: 'password' } as const;
-export const REDIS_ENV = { REDIS_URL: 'url', CACHE_URL: 'url' } as const;
-export const STORAGE_ENV = { S3_BUCKET: 'bucket', AWS_S3_BUCKET: 'bucket' } as const;
+/** Standard env names the production compiler injects, copied from `appEnvironment` in packages/infrastructure-compiler/src/compile.ts (a test guards the copy). */
+export const DATABASE_ENV = { DATABASE_URL: 'url', DATABASE_HOST: 'host', DATABASE_PORT: 'port', DATABASE_NAME: 'database', DATABASE_USER: 'username', DATABASE_PASSWORD: 'password' } as const;
+export const REDIS_ENV = { REDIS_URL: 'url', REDIS_HOST: 'host', REDIS_PORT: 'port' } as const;
+export const STORAGE_ENV = { STORAGE_BUCKET: 'bucket', S3_BUCKET: 'bucket', AWS_S3_BUCKET: 'bucket' } as const;
+/** Names the compiler always injects: `NODE_ENV`, `PORT`, and two generated secrets. */
+export const PLATFORM_SECRET_ENV = ['APP_API_KEY', 'APP_SIGNING_SECRET'] as const;
 
 /** Tables that record migrations; their rows are not application writes. */
 const BOOKKEEPING_TABLES = [
@@ -76,9 +80,34 @@ export interface RunManifest {
   postgres: boolean;
   redis: boolean;
   storage: boolean;
-  databaseBindings: readonly string[];
-  redisBindings: readonly string[];
-  storageBindings: readonly string[];
+  /** The app's own names for the managed values (`aliasEntry` in compile.ts). */
+  databaseBindings: readonly EnvBinding[];
+  redisBindings: readonly EnvBinding[];
+  storageBindings: readonly EnvBinding[];
+  /** Keys with classification `deployz_generated`; the relay mints them in production. */
+  generatedKeys: readonly string[];
+}
+
+export interface EnvBinding {
+  name: string;
+  kind: string;
+}
+
+/** The run facts of a configured manifest: the health path is the manifest value after the deploy-config override, as in production. */
+export function runManifest(manifest: DeploymentManifest): RunManifest {
+  const bindings = (list: readonly EnvBinding[] | undefined): EnvBinding[] => (list ?? []).map(({ name, kind }) => ({ name, kind }));
+  return {
+    port: manifest.web.port,
+    healthPath: manifest.health.path,
+    migrationCommand: manifest.migration.command,
+    postgres: manifest.database.postgres,
+    redis: manifest.redis.required,
+    storage: manifest.storage.required,
+    databaseBindings: bindings(manifest.database.envBindings),
+    redisBindings: bindings(manifest.redis.envBindings),
+    storageBindings: bindings(manifest.storage.envBindings),
+    generatedKeys: manifest.environment.variables.filter((variable) => variable.classification === 'deployz_generated').map((variable) => variable.key).sort(),
+  };
 }
 
 export interface Clock {
@@ -96,6 +125,8 @@ export interface LocalRepositoryContext extends LocalBuildContext {
   runId: string;
   /** A random per-run password for the database and the S3 stand-in. */
   generatePassword(): string;
+  /** A generated key value, in the format the relay mints (base64url, 32 bytes). */
+  generateKey(): string;
   clock: Clock;
 }
 
@@ -114,16 +145,23 @@ function repoFilters(id: string): string[] {
 
 // ── Environment ─────────────────────────────────────────────────────────────
 
-function bindingNames(table: Record<string, string>, declared: readonly string[]): string[] {
-  const known = Object.keys(table);
-  const chosen = declared.filter((name) => known.includes(name));
-  return chosen.length > 0 ? chosen : known;
+interface EndpointParts {
+  url: string;
+  jdbcUrl: string;
+  host: string;
+  port: number;
+  database: string;
+  user: string;
+  password: string;
+  bucket: string;
 }
 
-function bindingValue(kind: string, parts: { url: string; host: string; port: number; database: string; user: string; password: string; bucket: string }): string {
+function partValue(kind: string, parts: EndpointParts): string | null {
   switch (kind) {
     case 'url':
       return parts.url;
+    case 'jdbc_url':
+      return parts.jdbcUrl;
     case 'host':
       return parts.host;
     case 'port':
@@ -134,40 +172,74 @@ function bindingValue(kind: string, parts: { url: string; host: string; port: nu
       return parts.user;
     case 'password':
       return parts.password;
-    default:
+    case 'bucket':
       return parts.bucket;
+    default:
+      return null;
   }
 }
 
-/** The runtime environment of the app: the deploy-config values, then the capability bindings with local endpoints. */
+/**
+ * The runtime environment of the app, in the order of `appEnvironment` in the production compiler:
+ * the deploy-config values, the standard names, then the app's own binding names for the same
+ * values (never replacing a standard name), then the keys the relay mints. Endpoints are local.
+ */
 export function buildAppEnvironment(
   manifest: RunManifest,
   appEnv: readonly { name: string; value: string }[],
   password: string,
   bucket: string,
+  generateKey: () => string,
 ): { name: string; value: string }[] {
   const env = new Map<string, string>();
   for (const { name, value } of appEnv) env.set(name, value);
-  if (manifest.port !== null) env.set('PORT', String(manifest.port));
-  if (manifest.postgres) {
-    const base = { host: DB.host, port: DB.port, database: DB.name, user: DB.user, password, bucket };
-    const url = `postgresql://${DB.user}:${password}@${DB.host}:${DB.port}/${DB.name}`;
-    for (const name of bindingNames(DATABASE_ENV, manifest.databaseBindings)) env.set(name, bindingValue(DATABASE_ENV[name as keyof typeof DATABASE_ENV], { ...base, url }));
+  const taken = new Set<string>();
+  const set = (name: string, value: string) => {
+    env.set(name, value);
+    taken.add(name);
+  };
+  set('NODE_ENV', 'production');
+  if (manifest.port !== null) set('PORT', String(manifest.port));
+  for (const name of PLATFORM_SECRET_ENV) set(name, generateKey());
+  const blank = { url: '', jdbcUrl: '', host: '', port: 0, database: '', user: '', password: '', bucket };
+  const groups: { present: boolean; table: Record<string, string>; bindings: readonly EnvBinding[]; parts: EndpointParts }[] = [
+    {
+      present: manifest.postgres,
+      table: DATABASE_ENV,
+      bindings: manifest.databaseBindings,
+      parts: {
+        ...blank,
+        url: `postgresql://${DB.user}:${password}@${DB.host}:${DB.port}/${DB.name}`,
+        jdbcUrl: `jdbc:postgresql://${DB.host}:${DB.port}/${DB.name}`,
+        host: DB.host,
+        port: DB.port,
+        database: DB.name,
+        user: DB.user,
+        password,
+      },
+    },
+    { present: manifest.redis, table: REDIS_ENV, bindings: manifest.redisBindings, parts: { ...blank, url: `redis://${CACHE.host}:${CACHE.port}`, host: CACHE.host, port: CACHE.port } },
+    { present: manifest.storage, table: STORAGE_ENV, bindings: manifest.storageBindings, parts: { ...blank, host: S3.host, port: S3.port } },
+  ];
+  for (const { present, table, parts } of groups) {
+    if (!present) continue;
+    for (const [name, kind] of Object.entries(table)) set(name, partValue(kind, parts) ?? '');
   }
-  if (manifest.redis) {
-    const url = `redis://${CACHE.host}:${CACHE.port}`;
-    const base = { host: CACHE.host, port: CACHE.port, database: '', user: '', password: '', bucket };
-    for (const name of bindingNames(REDIS_ENV, manifest.redisBindings)) env.set(name, bindingValue(REDIS_ENV[name as keyof typeof REDIS_ENV], { ...base, url }));
+  for (const { present, bindings, parts } of groups) {
+    if (!present) continue;
+    for (const { name, kind } of bindings) {
+      const value = taken.has(name) ? null : partValue(kind, parts);
+      if (value !== null) set(name, value);
+    }
   }
   if (manifest.storage) {
-    const base = { url: '', host: S3.host, port: S3.port, database: '', user: '', password: '', bucket };
-    for (const name of bindingNames(STORAGE_ENV, manifest.storageBindings)) env.set(name, bindingValue(STORAGE_ENV[name as keyof typeof STORAGE_ENV], base));
     env.set('AWS_ENDPOINT_URL_S3', `http://${S3.host}:${S3.port}`);
     env.set('AWS_REGION', S3.region);
     env.set('AWS_ACCESS_KEY_ID', `local${password.slice(0, 12)}`);
     env.set('AWS_SECRET_ACCESS_KEY', password);
     env.set('AWS_S3_FORCE_PATH_STYLE', 'true');
   }
+  for (const key of manifest.generatedKeys) if (!env.has(key)) env.set(key, generateKey());
   return [...env].map(([name, value]) => ({ name, value }));
 }
 
@@ -304,7 +376,11 @@ export async function runApp(session: Session, manifest: RunManifest): Promise<S
     if (needed && !(await waitFor(session, until, check))) return runFail(clock.now() >= session.deadline ? 'timeout' : 'dependency', `${label} was not ready in time`, { dependencies });
   }
 
-  const environment = buildAppEnvironment(manifest, ctx.appEnv, session.password, session.bucket);
+  const environment = buildAppEnvironment(manifest, ctx.appEnv, session.password, session.bucket, () => {
+    const key = ctx.generateKey();
+    session.secrets.push(key);
+    return key;
+  });
   const { args: envArgs, env: appProcessEnv } = envArguments(ctx.hostEnv, environment);
   const limits = ['--memory', '1g', '--cpus', '1', '--platform', BUILD_PLATFORM];
   const common = ['--network', names.network, ...labelArgs(ctx.identity.id), ...limits, ...envArgs];

@@ -2,6 +2,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
+import type { DeploymentManifest } from '@deployz/contracts';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { parseRunArgs, localAppEnvironment } from './index.js';
@@ -14,11 +15,13 @@ import {
   RUN_IMAGES,
   START_WINDOW_MS,
   STORAGE_ENV,
+  PLATFORM_SECRET_ENV,
   buildAppEnvironment,
   envArguments,
   reconcileLeftovers,
   resourceNames,
   runLocalRepository,
+  runManifest,
   type LocalRepositoryContext,
   type RunManifest,
 } from './local-run.js';
@@ -26,6 +29,7 @@ import {
 const REPO_ROOT = resolve(import.meta.dirname, '..', '..');
 const COMMIT = 'c'.repeat(40);
 const PASSWORD = 'pw-secret-value-123';
+const GENERATED_KEY = 'minted-key-value-456';
 
 let dir: string;
 beforeEach(() => {
@@ -162,9 +166,10 @@ const FULL: RunManifest = {
   postgres: true,
   redis: true,
   storage: true,
-  databaseBindings: ['DATABASE_URL', 'DB_HOST'],
-  redisBindings: ['REDIS_URL'],
-  storageBindings: ['S3_BUCKET'],
+  databaseBindings: [{ name: 'DATABASE_URL', kind: 'url' }, { name: 'DB_HOST', kind: 'host' }],
+  redisBindings: [{ name: 'REDIS_URL', kind: 'url' }],
+  storageBindings: [{ name: 'S3_BUCKET', kind: 'bucket' }],
+  generatedKeys: [],
 };
 
 function identity(hash = 'hash-1'): LocalIdentity {
@@ -193,6 +198,7 @@ function context(fake: ReturnType<typeof fakeDocker>, overrides: Partial<LocalRe
     keepImage: false,
     runId: 'abcd1234',
     generatePassword: () => PASSWORD,
+    generateKey: () => GENERATED_KEY,
     clock: fake.clock,
     ...overrides,
   };
@@ -203,36 +209,94 @@ function dockerCalls(fake: { calls: Call[] }, first: string): Call[] {
 }
 
 describe('buildAppEnvironment', () => {
-  it('uses the env names of the capability registry, with local endpoints', () => {
-    const env = Object.fromEntries(buildAppEnvironment(FULL, [{ name: 'SESSION_SECRET', value: 's' }], PASSWORD, 'bucket-1').map((entry) => [entry.name, entry.value]));
+  const build = (manifest: RunManifest, appEnv: { name: string; value: string }[] = []) =>
+    Object.fromEntries(buildAppEnvironment(manifest, appEnv, PASSWORD, 'bucket-1', () => GENERATED_KEY).map((entry) => [entry.name, entry.value]));
+
+  it('injects the standard names of the production compiler with local endpoints', () => {
+    const env = build(FULL, [{ name: 'SESSION_SECRET', value: 's' }]);
     expect(env).toMatchObject({
+      NODE_ENV: 'production',
       PORT: '3000',
       SESSION_SECRET: 's',
+      APP_API_KEY: GENERATED_KEY,
+      APP_SIGNING_SECRET: GENERATED_KEY,
       DATABASE_URL: `postgresql://app:${PASSWORD}@db:5432/app`,
+      DATABASE_HOST: 'db',
+      DATABASE_PORT: '5432',
+      DATABASE_NAME: 'app',
+      DATABASE_USER: 'app',
+      DATABASE_PASSWORD: PASSWORD,
       DB_HOST: 'db',
       REDIS_URL: 'redis://cache:6379',
+      REDIS_HOST: 'cache',
+      REDIS_PORT: '6379',
+      STORAGE_BUCKET: 'bucket-1',
       S3_BUCKET: 'bucket-1',
+      AWS_S3_BUCKET: 'bucket-1',
       AWS_ENDPOINT_URL_S3: 'http://s3:8333',
     });
-    expect(env['DB_PORT']).toBeUndefined();
-    expect(env['CACHE_URL']).toBeUndefined();
   });
 
-  it('injects the whole registry set when the manifest names no bindings, and nothing for an absent dependency', () => {
-    const names = buildAppEnvironment({ ...FULL, redis: false, storage: false, databaseBindings: [], redisBindings: [], storageBindings: [] }, [], PASSWORD, 'b').map((entry) => entry.name);
-    expect(names.sort()).toEqual(['PORT', ...Object.keys(DATABASE_ENV)].sort());
+  it('injects the standard set and nothing for an absent dependency when the manifest names no bindings', () => {
+    const names = Object.keys(build({ ...FULL, redis: false, storage: false, databaseBindings: [], redisBindings: [], storageBindings: [] }));
+    expect(names.sort()).toEqual(['NODE_ENV', 'PORT', 'APP_API_KEY', 'APP_SIGNING_SECRET', ...Object.keys(DATABASE_ENV)].sort());
+  });
+
+  it('gives the app its own binding names, by kind, as the compiler aliases do', () => {
+    const env = build({
+      ...FULL,
+      redis: false,
+      storage: false,
+      databaseBindings: [
+        { name: 'SPRING_DATASOURCE_URL', kind: 'jdbc_url' },
+        { name: 'SPRING_DATASOURCE_USERNAME', kind: 'username' },
+        { name: 'SPRING_DATASOURCE_PASSWORD', kind: 'password' },
+        { name: 'POSTGRES_PRISMA_URL', kind: 'url' },
+        { name: 'DATABASE_HOST', kind: 'port' },
+        { name: 'ODD', kind: 'arn' },
+      ],
+    });
+    expect(env).toMatchObject({
+      SPRING_DATASOURCE_URL: 'jdbc:postgresql://db:5432/app',
+      SPRING_DATASOURCE_USERNAME: 'app',
+      SPRING_DATASOURCE_PASSWORD: PASSWORD,
+      POSTGRES_PRISMA_URL: `postgresql://app:${PASSWORD}@db:5432/app`,
+      DATABASE_HOST: 'db',
+    });
+    expect(env['ODD']).toBeUndefined();
+  });
+
+  it('mints a deployz_generated key the vendor did not set, and keeps a vendor value', () => {
+    const env = build({ ...FULL, generatedKeys: ['APP_KEY', 'SESSION_SECRET'] }, [{ name: 'SESSION_SECRET', value: 'vendor' }]);
+    expect(env['APP_KEY']).toBe(GENERATED_KEY);
+    expect(env['SESSION_SECRET']).toBe('vendor');
   });
 
   it('lets a capability binding win over a deploy-config value', () => {
-    const env = buildAppEnvironment(FULL, [{ name: 'DATABASE_URL', value: 'postgres://elsewhere' }], PASSWORD, 'b');
-    expect(env.find((entry) => entry.name === 'DATABASE_URL')?.value).toContain('@db:5432');
+    const env = build(FULL, [{ name: 'DATABASE_URL', value: 'postgres://elsewhere' }]);
+    expect(env['DATABASE_URL']).toContain('@db:5432');
   });
 
-  it('keeps the env names in step with packages/contracts/src/capability-registry.ts', () => {
-    const registry = readFileSync(join(REPO_ROOT, 'packages', 'contracts', 'src', 'capability-registry.ts'), 'utf8');
-    for (const table of [DATABASE_ENV, REDIS_ENV, STORAGE_ENV]) {
-      for (const [name, kind] of Object.entries(table)) expect(registry).toContain(`{ name: '${name}', kind: '${kind}' }`);
-    }
+  it('keeps the env names in step with appEnvironment in packages/infrastructure-compiler/src/compile.ts', () => {
+    const compiler = readFileSync(join(REPO_ROOT, 'packages', 'infrastructure-compiler', 'src', 'compile.ts'), 'utf8');
+    for (const name of [...Object.keys(DATABASE_ENV), ...Object.keys(REDIS_ENV), ...Object.keys(STORAGE_ENV), ...PLATFORM_SECRET_ENV, 'NODE_ENV']) expect(compiler).toContain(`Name: '${name}'`);
+  });
+});
+
+describe('runManifest', () => {
+  it('carries the binding kinds, the generated keys and the configured health path', () => {
+    const facts = runManifest({
+      web: { port: 3000 },
+      health: { path: '/api/health' },
+      migration: { command: null },
+      database: { postgres: true, envBindings: [{ name: 'WAKAPI_DB_DSN', kind: 'url' }] },
+      redis: { required: false, envBindings: [] },
+      storage: { required: false, envBindings: [] },
+      environment: { variables: [{ key: 'WAKAPI_COOKIE_KEY', classification: 'deployz_generated' }, { key: 'PLAIN', classification: 'optional' }] },
+    } as unknown as DeploymentManifest);
+    expect(facts.healthPath).toBe('/api/health');
+    expect(facts.databaseBindings).toEqual([{ name: 'WAKAPI_DB_DSN', kind: 'url' }]);
+    expect(facts.generatedKeys).toEqual(['WAKAPI_COOKIE_KEY']);
   });
 });
 
@@ -306,6 +370,21 @@ describe('local run stage', () => {
     expect(migrate).toBeLessThan(app);
     expect(runs[migrate]!.args.slice(-3)).toEqual(['sh', '-c', 'npx prisma migrate deploy']);
     expect(runs[migrate]!.args).toContain(`deployz-campaign/repo-001:${COMMIT.slice(0, 12)}`);
+  });
+
+  it('gives the migration task and the app the production env: generated key, own binding names, no key on the command line', async () => {
+    const fake = fakeDocker(world());
+    const manifest = { ...FULL, generatedKeys: ['APP_KEY'], databaseBindings: [{ name: 'SPRING_DATASOURCE_USERNAME', kind: 'username' }] };
+    const result = await runLocalRepository(context(fake, { manifest }));
+    const names = resourceNames('repo-001', 'abcd1234');
+    for (const container of [names.migrate, names.app]) {
+      const call = fake.calls.find((entry) => entry.args[0] === 'run' && entry.args.includes(container))!;
+      expect(call.options.env['APP_KEY']).toBe(GENERATED_KEY);
+      expect(call.options.env['SPRING_DATASOURCE_USERNAME']).toBe('app');
+      expect(call.options.env['DATABASE_HOST']).toBe('db');
+      expect(call.args.join(' ')).not.toContain(GENERATED_KEY);
+    }
+    expect(JSON.stringify(result)).not.toContain(GENERATED_KEY);
   });
 
   it('starts no dependency the manifest does not need and marks its probes NOT_APPLICABLE', async () => {

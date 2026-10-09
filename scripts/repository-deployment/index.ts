@@ -55,9 +55,9 @@ import { applyCleanupToClassification, cleanupAttempt } from './cleanup.js';
 import { APP_URL_TOKEN, configFor, deploymentClassFor, loadDeployConfig, providedKeys, requireSmokeContract, secretKey, secretValue, type DeployConfig, type DeploymentClass, type RepositoryConfig } from './config.js';
 import { generateSecret, runRepositoryAttempt, DEFAULT_TIMEOUTS, type DeployDeps } from './deploy.js';
 import { describeDependencies, describeStoppedTasks, describeTaskDefinitionEnv, resourceStillExists, tailApplicationLogs } from './evidence.js';
-import { gateSection, manifestFacts } from './gate.js';
+import { gateSection } from './gate.js';
 import { runProcess } from './local-build.js';
-import { RUN_IMAGES, reconcileLeftovers, runLocalRepository, systemClock } from './local-run.js';
+import { RUN_IMAGES, reconcileLeftovers, runLocalRepository, runManifest, systemClock } from './local-run.js';
 import { inputsHash, writeLocalSummary, type LocalIdentity } from './local-results.js';
 import { activeRunsBlock, listUnfinishedLedgers, openLedger, readSeries, stageBRun, stageBRunId, writeSeries, type StageBRunRecord } from './ledger.js';
 import {
@@ -424,11 +424,12 @@ export async function runLocalAudit(
         run: runProcess,
         hostEnv: process.env,
         tmpRoot: tmpdir(),
-        manifest: configuredManifest ? manifestFacts(configuredManifest) : null,
+        manifest: configuredManifest ? runManifest(configuredManifest) : null,
         appEnv: localAppEnvironment(repoConfig),
         keepImage: options.keepImage,
         runId: randomBytes(4).toString('hex'),
         generatePassword: () => generateSecret('hex32'),
+        generateKey: () => generateSecret('base64url'),
         clock: systemClock,
       });
       console.log(`gate ${result.stages.gate.status}, build ${result.stages.build.status}, run ${result.stages.run.status}, probes ${result.stages.probes.status}, cleanup ${result.stages.cleanup.status} -> ${result.classification ?? 'incomplete'}`);
