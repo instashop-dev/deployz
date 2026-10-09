@@ -1,0 +1,25 @@
+{
+  "taskId": "P3-BUILD-16",
+  "testedCommit": "e6a3b58ee2363923fef21faca86611fa3bf84538",
+  "executor": "campaign-worker",
+  "model": "sonnet",
+  "startedAt": "2026-10-09T10:50:20Z",
+  "finishedAt": "2026-10-09T11:17:30Z",
+  "proposedStatus": "COMPLETE",
+  "commands": [
+    { "command": "node --env-file=.env node_modules/tsx/dist/cli.mjs scripts/repository-deployment/index.ts --local --ai live --benchmark campaign/corpus/benchmark.yaml --deploy-config campaign/corpus/deploy-config.yaml --runs-dir campaign/results/first-run/build/ --evidence-dir campaign/logs/P3-BUILD-16/evidence/ --repo repo-549 --repo repo-550", "exitCode": 0, "summary": "repo-549 gate FAIL (false-acceptance), build FAIL; repo-550 gate PASS, build FAIL; run/probes SKIPPED; cleanup PASS" },
+    { "command": "docker builder prune -f", "exitCode": 0, "summary": "reclaimed 3.956GB; no labelled containers, networks, volumes or images remained" }
+  ],
+  "evidence": [
+    "campaign/results/first-run/build/repo-549.local.json",
+    "campaign/results/first-run/build/repo-550.local.json"
+  ],
+  "notes": [
+    "repo-549 zammad/zammad: gate FAIL (configured NEEDS_CONFIGURATION, Deployz false-acceptance); source PASS; build FAIL after 799 s: Dockerfile step 'build 10/14' requires build arg COMMIT_SHA (8-40 hex), not provided. Repository/config failure, not a network failure; no retry.",
+    "repo-550 binwiederhier/ntfy: gate PASS (correct-accept NEEDS_CONFIGURATION); source PASS; build FAIL after 245 s: Dockerfile-build 'make cli-linux-server' fails because go.mod requires go >= 1.26.0 but the golang base image has go 1.25.14 (GOTOOLCHAIN=local). Repository failure, not a network failure; no retry.",
+    "run, probes: SKIPPED for both apps because build failed. Cleanup PASS for both (no leaks).",
+    "AI mode live in both results (production-equivalent). The AI analysis call timed out in both runs (AbortError, model workers-ai/@cf/deepseek-ai/deepseek-v4-flash-0731); analysis used the deterministic result.",
+    "deploy-config.yaml: no changes made.",
+    "Free disk on C: about 11 GB before and after the batch (minimum never below 3 GB). Final labelled-resource check: no containers, networks, volumes or images; docker builder prune -f done."
+  ]
+}

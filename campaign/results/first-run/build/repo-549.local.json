@@ -1,0 +1,133 @@
+{
+  "schemaVersion": 1,
+  "id": "repo-549",
+  "repository": "zammad/zammad",
+  "commit": "abbd632a08bf6468467ce1a093c3b50744008f95",
+  "set": "improvement",
+  "cohort": "realistic",
+  "deployzCommit": "09b1e016ee4ae86c0211f62e3e8142515f52568a",
+  "analysisVersion": 45,
+  "ai": {
+    "mode": "live",
+    "model": "workers-ai/@cf/deepseek-ai/deepseek-v4-flash-0731",
+    "requests": 1,
+    "outcome": "timeout",
+    "error": "AbortError: This operation was aborted"
+  },
+  "inputsHash": "faffec80c8264b6089347b46555c59b4ee62e60e0159cce4e43c12facf911490",
+  "stages": {
+    "gate": {
+      "status": "FAIL",
+      "startedAt": "2026-10-09T10:51:09.196Z",
+      "finishedAt": "2026-10-09T10:51:09.204Z",
+      "durationMs": 8,
+      "detail": null,
+      "evidence": {
+        "verdict": "NEEDS_CONFIGURATION",
+        "outcome": "false-acceptance",
+        "configuredVerdict": "NEEDS_CONFIGURATION",
+        "manifest": {
+          "dockerfilePath": "Dockerfile",
+          "buildContext": ".",
+          "appRoot": ".",
+          "port": 3000,
+          "healthPath": "/",
+          "healthMode": "vendor_required",
+          "migrationCommand": null,
+          "migrationMode": "unknown",
+          "postgres": true,
+          "redis": false,
+          "storage": true,
+          "databaseBindings": [
+            "DATABASE_HOST",
+            "DATABASE_NAME",
+            "DATABASE_PASSWORD",
+            "DATABASE_PORT",
+            "DATABASE_URL",
+            "DATABASE_USER",
+            "DB_HOST",
+            "DB_NAME",
+            "DB_PASSWORD",
+            "DB_PORT",
+            "DB_USER"
+          ],
+          "redisBindings": [],
+          "storageBindings": [
+            "AWS_S3_BUCKET"
+          ],
+          "generatedKeys": []
+        }
+      }
+    },
+    "source": {
+      "status": "PASS",
+      "startedAt": "2026-10-09T10:51:09.213Z",
+      "finishedAt": "2026-10-09T10:51:37.675Z",
+      "durationMs": 28462,
+      "detail": null,
+      "evidence": {
+        "commit": "abbd632a08bf6468467ce1a093c3b50744008f95",
+        "archiveCached": false,
+        "archiveBytes": 39164366
+      }
+    },
+    "build": {
+      "status": "FAIL",
+      "startedAt": "2026-10-09T10:51:37.677Z",
+      "finishedAt": "2026-10-09T11:04:56.591Z",
+      "durationMs": 798914,
+      "detail": "docker build exited 1",
+      "evidence": {
+        "dockerfilePath": "Dockerfile",
+        "buildContext": ".",
+        "platform": "linux/amd64",
+        "image": "deployz-campaign/repo-549:abbd632a08bf",
+        "exitCode": 1,
+        "durationMs": 798891,
+        "buildArgNames": [],
+        "logTail": "#27 98.87 + vitest 5.0.3\n#27 98.87 + vue-tsc 3.3.11\n#27 98.87 \n#27 99.31 Done in 1m 35.4s using pnpm v11.28.4\n#27 DONE 100.9s\n\n#28 [build  9/14] COPY . .\n#28 DONE 18.3s\n\n#29 [build 10/14] RUN if [ -z \"${COMMIT_SHA}\" ]; then     echo \"Error: the required build argument $COMMIT_SHA is missing.\";     exit 1;   fi;   if ! [[ \"${COMMIT_SHA}\" =~ ^[0-9a-fA-F]{8,40}$ ]]; then     echo \"Error: the build argument $COMMIT_SHA must match [0-9a-fA-F]{8,40}, got '${COMMIT_SHA}'.\";     exit 1;   fi;   if [ -n \"${BUILD_LABEL}\" ] && ! [[ \"${BUILD_LABEL}\" =~ ^[0-9a-zA-Z_.-]{1,35}$ ]]; then     echo \"Error: the build argument $BUILD_LABEL must match [0-9a-zA-Z_.-]{1,35}, got '${BUILD_LABEL}'.\";     exit 1;   fi;   COMMIT_SHA_SHORT=$(echo \"${COMMIT_SHA}\" | cut -c 1-8);   echo \"$(tr -d '\\n' < VERSION)-${COMMIT_SHA_SHORT}${BUILD_LABEL:+.${BUILD_LABEL}}.docker\" > VERSION;   echo 'Updated build information in VERSION:';   cat VERSION\n#29 1.064 Error: the required build argument $COMMIT_SHA is missing.\n#29 ERROR: process \"/bin/bash -o errexit -o pipefail -c if [ -z \\\"${COMMIT_SHA}\\\" ]; then     echo \\\"Error: the required build argument \\\\$COMMIT_SHA is missing.\\\";     exit 1;   fi;   if ! [[ \\\"${COMMIT_SHA}\\\" =~ ^[0-9a-fA-F]{8,40}$ ]]; then     echo \\\"Error: the build argument \\\\$COMMIT_SHA must match [0-9a-fA-F]{8,40}, got '${COMMIT_SHA}'.\\\";     exit 1;   fi;   if [ -n \\\"${BUILD_LABEL}\\\" ] && ! [[ \\\"${BUILD_LABEL}\\\" =~ ^[0-9a-zA-Z_.-]{1,35}$ ]]; then     echo \\\"Error: the build argument \\\\$BUILD_LABEL must match [0-9a-zA-Z_.-]{1,35}, got '${BUILD_LABEL}'.\\\";     exit 1;   fi;   COMMIT_SHA_SHORT=$(echo \\\"${COMMIT_SHA}\\\" | cut -c 1-8);   echo \\\"$(tr -d '\\\\n' < VERSION)-${COMMIT_SHA_SHORT}${BUILD_LABEL:+.${BUILD_LABEL}}.docker\\\" > VERSION;   echo 'Updated build information in VERSION:';   cat VERSION\" did not complete successfully: exit code: 1\n------\n > [build 10/14] RUN if [ -z \"${COMMIT_SHA}\" ]; then     echo \"Error: the required build argument $COMMIT_SHA is missing.\";     exit 1;   fi;   if ! [[ \"${COMMIT_SHA}\" =~ ^[0-9a-fA-F]{8,40}$ ]]; then     echo \"Error: the build argument $COMMIT_SHA must match [0-9a-fA-F]{8,40}, got '${COMMIT_SHA}'.\";     exit 1;   fi;   if [ -n \"${BUILD_LABEL}\" ] && ! [[ \"${BUILD_LABEL}\" =~ ^[0-9a-zA-Z_.-]{1,35}$ ]]; then     echo \"Error: the build argument $BUILD_LABEL must match [0-9a-zA-Z_.-]{1,35}, got '${BUILD_LABEL}'.\";     exit 1;   fi;   COMMIT_SHA_SHORT=$(echo \"${COMMIT_SHA}\" | cut -c 1-8);   echo \"$(tr -d '\\n' < VERSION)-${COMMIT_SHA_SHORT}${BUILD_LABEL:+.${BUILD_LABEL}}.docker\" > VERSION;   echo 'Updated build information in VERSION:';   cat VERSION:\n1.064 Error: the required build argument $COMMIT_SHA is missing.\n------\nDockerfile:73\n--------------------\n  72 |     # Append build information to the Zammad VERSION.\n  73 | >>> RUN if [ -z \"${COMMIT_SHA}\" ]; then \\\n  74 | >>>     echo \"Error: the required build argument \\$COMMIT_SHA is missing.\"; \\\n  75 | >>>     exit 1; \\\n  76 | >>>   fi; \\\n  77 | >>>   if ! [[ \"${COMMIT_SHA}\" =~ ^[0-9a-fA-F]{8,40}$ ]]; then \\\n  78 | >>>     echo \"Error: the build argument \\$COMMIT_SHA must match [0-9a-fA-F]{8,40}, got '${COMMIT_SHA}'.\"; \\\n  79 | >>>     exit 1; \\\n  80 | >>>   fi; \\\n  81 | >>>   if [ -n \"${BUILD_LABEL}\" ] && ! [[ \"${BUILD_LABEL}\" =~ ^[0-9a-zA-Z_.-]{1,35}$ ]]; then \\\n  82 | >>>     echo \"Error: the build argument \\$BUILD_LABEL must match [0-9a-zA-Z_.-]{1,35}, got '${BUILD_LABEL}'.\"; \\\n  83 | >>>     exit 1; \\\n  84 | >>>   fi; \\\n  85 | >>>   COMMIT_SHA_SHORT=$(echo \"${COMMIT_SHA}\" | cut -c 1-8); \\\n  86 | >>>   echo \"$(tr -d '\\n' < VERSION)-${COMMIT_SHA_SHORT}${BUILD_LABEL:+.${BUILD_LABEL}}.docker\" > VERSION; \\\n  87 | >>>   echo 'Updated build information in VERSION:'; \\\n  88 | >>>   cat VERSION\n  89 |     \n--------------------\nERROR: failed to build: failed to solve: process \"/bin/bash -o errexit -o pipefail -c if [ -z \\\"${COMMIT_SHA}\\\" ]; then     echo \\\"Error: the required build argument \\\\$COMMIT_SHA is missing.\\\";     exit 1;   fi;   if ! [[ \\\"${COMMIT_SHA}\\\" =~ ^[0-9a-fA-F]{8,40}$ ]]; then     echo \\\"Error: the build argument \\\\$COMMIT_SHA must match [0-9a-fA-F]{8,40}, got '${COMMIT_SHA}'.\\\";     exit 1;   fi;   if [ -n \\\"${BUILD_LABEL}\\\" ] && ! [[ \\\"${BUILD_LABEL}\\\" =~ ^[0-9a-zA-Z_.-]{1,35}$ ]]; then     echo \\\"Error: the build argument \\\\$BUILD_LABEL must match [0-9a-zA-Z_.-]{1,35}, got '${BUILD_LABEL}'.\\\";     exit 1;   fi;   COMMIT_SHA_SHORT=$(echo \\\"${COMMIT_SHA}\\\" | cut -c 1-8);   echo \\\"$(tr -d '\\\\n' < VERSION)-${COMMIT_SHA_SHORT}${BUILD_LABEL:+.${BUILD_LABEL}}.docker\\\" > VERSION;   echo 'Updated build information in VERSION:';   cat VERSION\" did not complete successfully: exit code: 1\n\nView build details: docker-desktop://dashboard/build/desktop-linux/desktop-linux/pw7uceetm9xh6cwxo663hovq8",
+        "failure": "build",
+        "rebuilt": false
+      }
+    },
+    "run": {
+      "status": "SKIPPED",
+      "startedAt": "2026-10-09T11:05:03.170Z",
+      "finishedAt": "2026-10-09T11:05:03.172Z",
+      "durationMs": 2,
+      "detail": "the build did not pass",
+      "evidence": {}
+    },
+    "probes": {
+      "status": "SKIPPED",
+      "startedAt": "2026-10-09T11:05:03.175Z",
+      "finishedAt": "2026-10-09T11:05:03.178Z",
+      "durationMs": 3,
+      "detail": "the build did not pass",
+      "evidence": {}
+    },
+    "cleanup": {
+      "status": "PASS",
+      "startedAt": "2026-10-09T11:05:03.180Z",
+      "finishedAt": "2026-10-09T11:05:04.356Z",
+      "durationMs": 1176,
+      "detail": null,
+      "evidence": {
+        "removed": {
+          "containers": 0,
+          "networks": 0,
+          "volumes": 0
+        },
+        "imageRemoved": false,
+        "keepImage": false,
+        "leaks": {
+          "containers": [],
+          "networks": [],
+          "volumes": []
+        }
+      }
+    }
+  },
+  "classification": "gate",
+  "remediation": null
+}

@@ -1,11 +1,11 @@
 # Local Docker run summary
 
-Repositories: 30
+Repositories: 32
 
 ## Classification
 
-- build: 2
-- gate: 18
+- build: 3
+- gate: 19
 - local-success: 1
 - probes: 6
 - run: 1
@@ -15,12 +15,12 @@ Repositories: 30
 
 | Stage | Attempted | PASS | FAIL | SKIPPED | IN_PROGRESS |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| gate | 30 | 12 | 18 | 0 | 0 |
-| source | 30 | 20 | 5 | 5 | 0 |
-| build | 30 | 11 | 9 | 10 | 0 |
-| run | 30 | 10 | 1 | 19 | 0 |
-| probes | 30 | 2 | 8 | 20 | 0 |
-| cleanup | 30 | 20 | 0 | 10 | 0 |
+| gate | 32 | 13 | 19 | 0 | 0 |
+| source | 32 | 22 | 5 | 5 | 0 |
+| build | 32 | 11 | 11 | 10 | 0 |
+| run | 32 | 10 | 1 | 21 | 0 |
+| probes | 32 | 2 | 8 | 22 | 0 |
+| cleanup | 32 | 22 | 0 | 10 | 0 |
 
 ## Probes
 
@@ -67,3 +67,5 @@ Repositories: 30
 | repo-544 | Kareadita/Kavita | gate | 27.2 |
 | repo-547 | wagtail/bakerydemo | gate | 0.0 |
 | repo-548 | Leantime/leantime | gate | 807.1 |
+| repo-549 | zammad/zammad | gate | 828.6 |
+| repo-550 | binwiederhier/ntfy | build | 250.6 |

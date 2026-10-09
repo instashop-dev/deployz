@@ -1,0 +1,133 @@
+{
+  "schemaVersion": 1,
+  "id": "repo-550",
+  "repository": "binwiederhier/ntfy",
+  "commit": "b475ae8851f4d1519d150091a446debf6f24b11b",
+  "set": "improvement",
+  "cohort": "realistic",
+  "deployzCommit": "09b1e016ee4ae86c0211f62e3e8142515f52568a",
+  "analysisVersion": 45,
+  "ai": {
+    "mode": "live",
+    "model": "workers-ai/@cf/deepseek-ai/deepseek-v4-flash-0731",
+    "requests": 1,
+    "outcome": "timeout",
+    "error": "AbortError: This operation was aborted"
+  },
+  "inputsHash": "db799e2704880a4bd2e82e97daf8ba05070250e1c14d35a3f99ccb6e554b956b",
+  "stages": {
+    "gate": {
+      "status": "PASS",
+      "startedAt": "2026-10-09T11:05:36.269Z",
+      "finishedAt": "2026-10-09T11:05:36.271Z",
+      "durationMs": 2,
+      "detail": null,
+      "evidence": {
+        "verdict": "NEEDS_CONFIGURATION",
+        "outcome": "correct-accept",
+        "configuredVerdict": "NEEDS_CONFIGURATION",
+        "manifest": {
+          "dockerfilePath": "Dockerfile",
+          "buildContext": ".",
+          "appRoot": ".",
+          "port": 80,
+          "healthPath": "/",
+          "healthMode": "vendor_required",
+          "migrationCommand": null,
+          "migrationMode": "unknown",
+          "postgres": true,
+          "redis": false,
+          "storage": true,
+          "databaseBindings": [
+            "DATABASE_HOST",
+            "DATABASE_NAME",
+            "DATABASE_PASSWORD",
+            "DATABASE_PORT",
+            "DATABASE_URL",
+            "DATABASE_USER",
+            "DB_HOST",
+            "DB_NAME",
+            "DB_PASSWORD",
+            "DB_PORT",
+            "DB_USER"
+          ],
+          "redisBindings": [],
+          "storageBindings": [
+            "AWS_S3_BUCKET"
+          ],
+          "generatedKeys": []
+        }
+      }
+    },
+    "source": {
+      "status": "PASS",
+      "startedAt": "2026-10-09T11:05:36.274Z",
+      "finishedAt": "2026-10-09T11:05:40.709Z",
+      "durationMs": 4435,
+      "detail": null,
+      "evidence": {
+        "commit": "b475ae8851f4d1519d150091a446debf6f24b11b",
+        "archiveCached": false,
+        "archiveBytes": 16102120
+      }
+    },
+    "build": {
+      "status": "FAIL",
+      "startedAt": "2026-10-09T11:05:40.711Z",
+      "finishedAt": "2026-10-09T11:09:45.578Z",
+      "durationMs": 244867,
+      "detail": "docker build exited 1",
+      "evidence": {
+        "dockerfilePath": "Dockerfile-build",
+        "buildContext": ".",
+        "platform": "linux/amd64",
+        "image": "deployz-campaign/repo-550:b475ae8851f4",
+        "exitCode": 1,
+        "durationMs": 244862,
+        "buildArgNames": [],
+        "logTail": "#42 [builder 34/34] RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build make VERSION=dev COMMIT=unknown cli-linux-server\n#42 0.457 fatal: not a git repository (or any of the parent directories): .git\n#42 0.460 fatal: not a git repository (or any of the parent directories): .git\n#42 0.467 mkdir -p server/docs server/site\n#42 0.469 touch server/docs/index.html server/site/app.html\n#42 0.489 # This is a target to build the CLI (including the server) manually.\n#42 0.491 # Use this for development, if you really don't want to install GoReleaser ...\n#42 0.493 mkdir -p dist/ntfy_linux_server server/docs\n#42 0.497 CGO_ENABLED=1 go build \\\n#42 0.497 \t-o dist/ntfy_linux_server/ntfy \\\n#42 0.497 \t-tags sqlite_omit_load_extension,osusergo,netgo \\\n#42 0.497 \t-ldflags \\\n#42 0.497 \t\"-linkmode=external -extldflags=-static -s -w -X main.version=dev -X main.commit=unknown -X main.date=1791544185\"\n#42 0.541 go: go.mod requires go >= 1.26.0 (running go 1.25.14; GOTOOLCHAIN=local)\n#42 0.544 make: *** [Makefile:208: cli-linux-server] Error 1\n#42 ERROR: process \"/bin/sh -c make VERSION=$VERSION COMMIT=$COMMIT cli-linux-server\" did not complete successfully: exit code: 2\n------\n > [builder 34/34] RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build make VERSION=dev COMMIT=unknown cli-linux-server:\n0.489 # This is a target to build the CLI (including the server) manually.\n0.491 # Use this for development, if you really don't want to install GoReleaser ...\n0.493 mkdir -p dist/ntfy_linux_server server/docs\n0.497 CGO_ENABLED=1 go build \\\n0.497 \t-o dist/ntfy_linux_server/ntfy \\\n0.497 \t-tags sqlite_omit_load_extension,osusergo,netgo \\\n0.497 \t-ldflags \\\n0.497 \t\"-linkmode=external -extldflags=-static -s -w -X main.version=dev -X main.commit=unknown -X main.date=1791544185\"\n0.541 go: go.mod requires go >= 1.26.0 (running go 1.25.14; GOTOOLCHAIN=local)\n0.544 make: *** [Makefile:208: cli-linux-server] Error 1\n------\nDockerfile-build:57\n--------------------\n  55 |     ADD ./template/gotext ./template/gotext\n  56 |     \n  57 | >>> RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build make VERSION=$VERSION COMMIT=$COMMIT cli-linux-server\n  58 |     \n  59 |     FROM alpine\n--------------------\nERROR: failed to build: failed to solve: process \"/bin/sh -c make VERSION=$VERSION COMMIT=$COMMIT cli-linux-server\" did not complete successfully: exit code: 2\n\nView build details: docker-desktop://dashboard/build/desktop-linux/desktop-linux/ec38nshkpay5cgil3wqlql6lv",
+        "failure": "build",
+        "rebuilt": false
+      }
+    },
+    "run": {
+      "status": "SKIPPED",
+      "startedAt": "2026-10-09T11:09:45.822Z",
+      "finishedAt": "2026-10-09T11:09:45.828Z",
+      "durationMs": 6,
+      "detail": "the build did not pass",
+      "evidence": {}
+    },
+    "probes": {
+      "status": "SKIPPED",
+      "startedAt": "2026-10-09T11:09:45.830Z",
+      "finishedAt": "2026-10-09T11:09:45.833Z",
+      "durationMs": 3,
+      "detail": "the build did not pass",
+      "evidence": {}
+    },
+    "cleanup": {
+      "status": "PASS",
+      "startedAt": "2026-10-09T11:09:45.837Z",
+      "finishedAt": "2026-10-09T11:09:47.169Z",
+      "durationMs": 1332,
+      "detail": null,
+      "evidence": {
+        "removed": {
+          "containers": 0,
+          "networks": 0,
+          "volumes": 0
+        },
+        "imageRemoved": false,
+        "keepImage": false,
+        "leaks": {
+          "containers": [],
+          "networks": [],
+          "volumes": []
+        }
+      }
+    }
+  },
+  "classification": "build",
+  "remediation": null
+}
