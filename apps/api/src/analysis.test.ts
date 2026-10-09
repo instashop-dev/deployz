@@ -826,6 +826,7 @@ describe('analysis — migration/worker command resolution (deploy-safe, workspa
         scripts: { start: 'node index.js', 'worker:start': 'node worker.js' },
         dependencies: { express: '^4.18.0', bullmq: '^5.7.0' },
       }),
+      'Dockerfile': ['FROM node:20', 'COPY . .', 'CMD ["node", "index.js"]', ''].join('\n'),
     };
 
     await runApplicationAnalysis(makeDeps(buildTreeFetch(files)), application.id);
@@ -836,7 +837,7 @@ describe('analysis — migration/worker command resolution (deploy-safe, workspa
     // a declared worker process is a supported, non-blocking second process
     // (Phase 4A — one ECS service per workload), never a readiness blocker.
     // The verdict stays NEEDS_ATTENTION only because this minimal fixture has
-    // no Dockerfile (container-setup) — the worker itself adds nothing
+    // no port or health evidence — the worker itself adds nothing
     // blocking.
     expect(row.workerCommand).toBe('node worker.js');
     expect(row.compatibilityStatus).toBe('NEEDS_ATTENTION');

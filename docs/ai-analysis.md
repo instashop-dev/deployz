@@ -101,7 +101,13 @@ Repository (GitHub tree, bounded)
   directory that the repository does not contain (a build output that a CI
   step makes before `docker build`), the gate blocks with
   `dockerfile-missing-sources`. The vendor adds a Dockerfile that builds the
-  app from source, or selects another one. A package.json `start` script is
+  app from source, or selects another one. When the full repository path
+  list proves there is no Dockerfile that builds a production image (none,
+  only development or template files, or a single Dockerfile that copies
+  sources the repository lacks), the repository is NOT_COMPATIBLE
+  (`no-buildable-dockerfile`) instead. A capped or partial file list, a
+  second candidate Dockerfile, a git submodule, `COPY --from=` and a
+  generated directory never reject. A package.json `start` script is
   the container command only when it belongs to a package that the image
   runs (the root, the Dockerfile directory or the runtime WORKDIR), the
   package is not a workspace root, and the script does not build first

@@ -307,7 +307,12 @@ type ApplicationRow = typeof schema.applications.$inferSelect;
 // REPO_AI_TIMEOUT_MS. Stored v44 rows never received an AI answer (every
 // attempt spent its output budget on reasoning and timed out), so an open
 // question was left to deterministic metadata only.
-export const ANALYSIS_VERSION = 45;
+// Version 46 (fresh-100 F1): a repository whose only Dockerfiles are
+// development-only files or templates, that has no Dockerfile at all, or whose
+// single Dockerfile copies sources the repository lacks is NOT_COMPATIBLE when
+// the full tracked path list proves it. Stored v45 rows answer
+// NEEDS_CONFIGURATION for these repositories.
+export const ANALYSIS_VERSION = 46;
 
 export interface AnalysisRunnerDeps {
   db: RuntimeDb;

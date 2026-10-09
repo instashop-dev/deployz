@@ -77,6 +77,7 @@ export {
   checkAzure,
   checkGcp,
   checkGpu,
+  checkNoBuildableDockerfile,
 } from './rejection.js';
 
 export type {

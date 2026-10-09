@@ -12,6 +12,7 @@ import {
   composeApplicationServices,
   composeServices,
   detectEnvVarModel,
+  detectUnbuildableDockerfile,
   detectPostgresql,
   DIALECT_AGNOSTIC_DRIVERS,
   findDependencyEvidence,
@@ -961,6 +962,24 @@ export function checkGpu(tree: FileTree): RejectionFinding {
     };
   }
   return { detected: false, dependency: 'none', reason: 'No GPU requirement detected' };
+}
+
+/**
+ * A repository with no Dockerfile that builds a production image cannot be
+ * deployed: no Deployz setting adds one. Rejects only on complete evidence
+ * (`detectUnbuildableDockerfile`), never on a capped or partial file list
+ * (COMP-021).
+ */
+export function checkNoBuildableDockerfile(tree: FileTree): RejectionFinding {
+  const reason = detectUnbuildableDockerfile(tree);
+  if (reason === null) {
+    return { detected: false, dependency: 'none', reason: 'A Dockerfile that can build the app exists, or the file list is incomplete' };
+  }
+  return {
+    detected: true,
+    dependency: 'no-buildable-dockerfile',
+    reason: `Unsupported container setup: ${reason} Deployz builds the app from a Dockerfile in the repository.`,
+  };
 }
 
 // ── Stage B final batch (COMP-021 / COMP-025 / COMP-031) ─────────────────────

@@ -282,6 +282,19 @@ const GPU_COPY: RejectionCopy = {
     'Use a processor-only configuration, or move the graphics processing to a service that provides it.',
 };
 
+const NO_DOCKERFILE_COPY: RejectionCopy = {
+  ...ARCHITECTURE_COPY,
+  id: 'unsupported-no-dockerfile',
+  category: 'container',
+  title: 'Has no Dockerfile that builds the app',
+  plainEnglishExplanation:
+    'This repository has no Dockerfile that builds a production image from the source code.',
+  whyItMatters:
+    'Deployz builds the image from the repository for every deployment. It cannot build a Dockerfile that is only for development, is a template, or copies files the repository does not contain.',
+  suggestedOutcome:
+    'Add a production Dockerfile to the repository that builds and starts the app from source.',
+};
+
 /** Maps a §10/§11 rejection `dependency` to its blocking-finding copy. */
 function rejectionCopy(dependency: string): RejectionCopy {
   if (dependency === 'redis-unsupported') return REDIS_COPY;
@@ -301,6 +314,7 @@ function rejectionCopy(dependency: string): RejectionCopy {
   if (dependency === 'docker-compose-multi-service') return MULTI_SERVICE_COPY;
   if (dependency === 'persistent-volume' || dependency === 'local-filesystem') return STORAGE_COPY;
   if (dependency === 'gpu') return GPU_COPY;
+  if (dependency === 'no-buildable-dockerfile') return NO_DOCKERFILE_COPY;
   if (
     dependency === 'kubernetes' ||
     dependency === 'serverless' ||
@@ -400,7 +414,10 @@ export function buildReadinessReport(
   }
 
   // ── Required (fixable) findings ───────────────────────────────────────────
-  if (metadata['hasDockerfile'] !== true) {
+  if (
+    metadata['hasDockerfile'] !== true &&
+    !result.rejections.some((r) => r.detected && r.dependency === 'no-buildable-dockerfile')
+  ) {
     findings.push({
       id: 'container-setup',
       category: 'container',
