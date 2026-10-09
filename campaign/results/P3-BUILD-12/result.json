@@ -1,0 +1,38 @@
+{
+    "taskId":  "P3-BUILD-12",
+    "testedCommit":  "e6a3b58ee2363923fef21faca86611fa3bf84538",
+    "executor":  "campaign-worker",
+    "model":  "sonnet",
+    "startedAt":  "2026-10-09T09:27:09Z",
+    "finishedAt":  "2026-10-09T09:39:39.7267096Z",
+    "proposedStatus":  "COMPLETE",
+    "commands":  [
+                     {
+                         "summary":  "2 local results written. repo-528: gate FAIL (false-acceptance), source FAIL (Windows tar), rest SKIPPED. repo-529: gate FAIL (false-acceptance), source/build/run PASS, probes FAIL (APP_KEY missing, container exit 0), cleanup PASS.",
+                         "exitCode":  0,
+                         "command":  "node --env-file=.env node_modules/tsx/dist/cli.mjs scripts/repository-deployment/index.ts --local --ai live --benchmark campaign/corpus/benchmark.yaml --deploy-config campaign/corpus/deploy-config.yaml --runs-dir campaign/results/first-run/build/ --evidence-dir campaign/logs/P3-BUILD-12/evidence/ --repo repo-528 --repo repo-529"
+                     },
+                     {
+                         "summary":  "no labelled resource remained",
+                         "exitCode":  0,
+                         "command":  "docker ps/network/volume/image ls --filter label=deployz-campaign=fresh-100"
+                     },
+                     {
+                         "summary":  "reclaimed 1.881GB",
+                         "exitCode":  0,
+                         "command":  "docker builder prune -f"
+                     }
+                 ],
+    "evidence":  [
+                     "campaign/results/first-run/build/repo-528.local.json",
+                     "campaign/results/first-run/build/repo-529.local.json"
+                 ],
+    "notes":  [
+                  "No deploy-config.yaml changes made; existing entries for repo-528 and repo-529 used.",
+                  "repo-528 AI analysis timed out (30s AbortError); gate false-acceptance (NOT_COMPATIBLE label, verdict NEEDS_CONFIGURATION). Source stage FAIL: harness tar extraction on Windows failed with \u0027Invalid argument\u0027 on paths (packages/sync-service/CLAUDE.md, dev/reset_wal.sh); build never attempted. Likely environment/harness failure on Windows, not retried (not a registry timeout).",
+                  "repo-529 build PASS (482s), run PASS, probes FAIL: health and start fail, container exited 0; app log: \u0027Please re-run this container with an environment variable APP_KEY\u0027. APP_KEY not in the run env. Generated key APP_KEY was in the manifest but not passed to the container. Storage probe UNVERIFIED.",
+                  "No build retry needed (no registry timeout).",
+                  "Free disk on C: after cleanup 10.59 GB (min seen 10.59 GB, above 3 GB limit).",
+                  "testedCommit recorded as the frozen baseline; checkout HEAD is 93465a6685a7accda3727b02ec294ab34badd030."
+              ]
+}

@@ -1,108 +1,108 @@
 {
   "schemaVersion": 1,
-  "repositories": 22,
+  "repositories": 24,
   "classifications": {
     "source": 2,
     "probes": 3,
-    "gate": 13,
+    "gate": 15,
     "run": 1,
     "build": 2,
     "local-success": 1
   },
   "aiModes": {
-    "live": 22
+    "live": 24
   },
   "stages": {
     "gate": {
-      "attempted": 22,
+      "attempted": 24,
       "NOT_ATTEMPTED": 0,
       "IN_PROGRESS": 0,
       "PASS": 9,
-      "FAIL": 13,
+      "FAIL": 15,
       "SKIPPED": 0
     },
     "source": {
-      "attempted": 22,
+      "attempted": 24,
       "NOT_ATTEMPTED": 0,
       "IN_PROGRESS": 0,
-      "PASS": 14,
-      "FAIL": 4,
+      "PASS": 15,
+      "FAIL": 5,
       "SKIPPED": 4
     },
     "build": {
-      "attempted": 22,
+      "attempted": 24,
+      "NOT_ATTEMPTED": 0,
+      "IN_PROGRESS": 0,
+      "PASS": 8,
+      "FAIL": 7,
+      "SKIPPED": 9
+    },
+    "run": {
+      "attempted": 24,
       "NOT_ATTEMPTED": 0,
       "IN_PROGRESS": 0,
       "PASS": 7,
-      "FAIL": 7,
-      "SKIPPED": 8
-    },
-    "run": {
-      "attempted": 22,
-      "NOT_ATTEMPTED": 0,
-      "IN_PROGRESS": 0,
-      "PASS": 6,
       "FAIL": 1,
-      "SKIPPED": 15
+      "SKIPPED": 16
     },
     "probes": {
-      "attempted": 22,
+      "attempted": 24,
       "NOT_ATTEMPTED": 0,
       "IN_PROGRESS": 0,
       "PASS": 2,
-      "FAIL": 4,
-      "SKIPPED": 16
+      "FAIL": 5,
+      "SKIPPED": 17
     },
     "cleanup": {
-      "attempted": 22,
+      "attempted": 24,
       "NOT_ATTEMPTED": 0,
       "IN_PROGRESS": 0,
-      "PASS": 14,
+      "PASS": 15,
       "FAIL": 0,
-      "SKIPPED": 8
+      "SKIPPED": 9
     }
   },
   "probes": {
     "start": {
-      "attempted": 6,
+      "attempted": 7,
       "PASS": 2,
-      "FAIL": 4,
+      "FAIL": 5,
       "UNVERIFIED": 0,
       "NOT_APPLICABLE": 0
     },
     "health": {
-      "attempted": 6,
+      "attempted": 7,
       "PASS": 2,
-      "FAIL": 4,
+      "FAIL": 5,
       "UNVERIFIED": 0,
       "NOT_APPLICABLE": 0
     },
     "migration": {
-      "attempted": 6,
+      "attempted": 7,
       "PASS": 0,
       "FAIL": 0,
       "UNVERIFIED": 0,
-      "NOT_APPLICABLE": 6
+      "NOT_APPLICABLE": 7
     },
     "dbWrite": {
-      "attempted": 6,
+      "attempted": 7,
       "PASS": 0,
       "FAIL": 3,
       "UNVERIFIED": 0,
-      "NOT_APPLICABLE": 3
+      "NOT_APPLICABLE": 4
     },
     "redis": {
-      "attempted": 6,
+      "attempted": 7,
       "PASS": 0,
       "FAIL": 3,
       "UNVERIFIED": 0,
-      "NOT_APPLICABLE": 3
+      "NOT_APPLICABLE": 4
     },
     "storage": {
-      "attempted": 6,
+      "attempted": 7,
       "PASS": 0,
       "FAIL": 0,
-      "UNVERIFIED": 2,
+      "UNVERIFIED": 3,
       "NOT_APPLICABLE": 4
     }
   },
@@ -385,6 +385,34 @@
         "run": 2,
         "probes": 2,
         "cleanup": 893
+      }
+    },
+    {
+      "id": "repo-528",
+      "repository": "electric-sql/electric",
+      "classification": "gate",
+      "totalMs": 41752,
+      "stages": {
+        "gate": 5,
+        "source": 41737,
+        "build": 3,
+        "run": 2,
+        "probes": 2,
+        "cleanup": 3
+      }
+    },
+    {
+      "id": "repo-529",
+      "repository": "grokability/snipe-it",
+      "classification": "gate",
+      "totalMs": 578190,
+      "stages": {
+        "gate": 3,
+        "source": 15322,
+        "build": 482628,
+        "run": 14537,
+        "probes": 61436,
+        "cleanup": 4264
       }
     },
     {

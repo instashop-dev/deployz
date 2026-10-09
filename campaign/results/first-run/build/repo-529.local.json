@@ -1,0 +1,190 @@
+{
+  "schemaVersion": 1,
+  "id": "repo-529",
+  "repository": "grokability/snipe-it",
+  "commit": "18fb61ab50d2d87489bb90723a8e9611f5fe1f58",
+  "set": "improvement",
+  "cohort": "realistic",
+  "deployzCommit": "93465a6685a7accda3727b02ec294ab34badd030",
+  "analysisVersion": 45,
+  "ai": {
+    "mode": "live",
+    "model": "workers-ai/@cf/deepseek-ai/deepseek-v4-flash-0731",
+    "requests": 1,
+    "outcome": "completed",
+    "error": null
+  },
+  "inputsHash": "d0744ba961b76bf6bd659714667c4b66e530fcd356c3da9986dcf685419897ea",
+  "stages": {
+    "gate": {
+      "status": "FAIL",
+      "startedAt": "2026-10-09T09:28:56.286Z",
+      "finishedAt": "2026-10-09T09:28:56.289Z",
+      "durationMs": 3,
+      "detail": null,
+      "evidence": {
+        "verdict": "NEEDS_CONFIGURATION",
+        "outcome": "false-acceptance",
+        "configuredVerdict": "NEEDS_CONFIGURATION",
+        "manifest": {
+          "dockerfilePath": "Dockerfile",
+          "buildContext": ".",
+          "appRoot": ".",
+          "port": 80,
+          "healthPath": "/",
+          "healthMode": "vendor_required",
+          "migrationCommand": null,
+          "migrationMode": "startup",
+          "postgres": true,
+          "redis": false,
+          "storage": true,
+          "databaseBindings": [
+            "DATABASE_HOST",
+            "DATABASE_NAME",
+            "DATABASE_PASSWORD",
+            "DATABASE_PORT",
+            "DATABASE_URL",
+            "DATABASE_USER",
+            "DB_DATABASE",
+            "DB_HOST",
+            "DB_NAME",
+            "DB_PASSWORD",
+            "DB_PORT",
+            "DB_USER",
+            "DB_USERNAME"
+          ],
+          "redisBindings": [],
+          "storageBindings": [
+            "AWS_S3_BUCKET",
+            "PRIVATE_AWS_BUCKET",
+            "PUBLIC_AWS_BUCKET"
+          ],
+          "generatedKeys": [
+            "APP_KEY",
+            "MANDRILL_SECRET",
+            "PUSHER_APP_KEY",
+            "PUSHER_APP_SECRET"
+          ]
+        }
+      }
+    },
+    "source": {
+      "status": "PASS",
+      "startedAt": "2026-10-09T09:28:56.292Z",
+      "finishedAt": "2026-10-09T09:29:11.614Z",
+      "durationMs": 15322,
+      "detail": null,
+      "evidence": {
+        "commit": "18fb61ab50d2d87489bb90723a8e9611f5fe1f58",
+        "archiveCached": false,
+        "archiveBytes": 25309410
+      }
+    },
+    "build": {
+      "status": "PASS",
+      "startedAt": "2026-10-09T09:29:11.618Z",
+      "finishedAt": "2026-10-09T09:37:14.246Z",
+      "durationMs": 482628,
+      "detail": null,
+      "evidence": {
+        "dockerfilePath": "Dockerfile",
+        "buildContext": ".",
+        "platform": "linux/amd64",
+        "image": "deployz-campaign/repo-529:18fb61ab50d2",
+        "exitCode": 0,
+        "durationMs": 482139,
+        "buildArgNames": [],
+        "logTail": "#35 21.95   spatie/laravel-backup \u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m \u001b[32;1mDONE\u001b[39;22m\n#35 21.96   spatie/laravel-ignition \u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m \u001b[32;1mDONE\u001b[39;22m\n#35 21.96   spatie/laravel-signal-aware-command \u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m \u001b[32;1mDONE\u001b[39;22m\n#35 21.96   tabuna/breadcrumbs \u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m \u001b[32;1mDONE\u001b[39;22m\n#35 21.97   unicodeveloper/laravel-password \u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m\u001b[90m.\u001b[39m \u001b[32;1mDONE\u001b[39;22m\n#35 21.97 \n#35 21.99 > @php artisan vendor:publish --force --tag=livewire:assets --ansi\n#35 22.62 \n#35 22.62   \u001b[37;44m INFO \u001b[39;49m Publishing \u001b[1m[livewire:assets]\u001b[22m assets.  \n#35 22.62 \n#35 22.87   Copying directory \u001b[1m[vendor/livewire/livewire/dist]\u001b[22m to \u001b[1m[public/vendor/livewire]\u001b[22m  \u001b[32;1mDONE\u001b[39;22m\n#35 22.87 \n#35 22.88 93 packages you are using are looking for funding.\n#35 22.88 Use the `composer fund` command to find out more!\n#35 DONE 24.7s\n\n#36 [stage-0 28/30] COPY docker/startup.sh docker/supervisord.conf /\n#36 DONE 0.9s\n\n#37 [stage-0 29/30] COPY docker/supervisor-exit-event-listener /usr/bin/supervisor-exit-event-listener\n#37 DONE 0.7s\n\n#38 [stage-0 30/30] RUN chmod +x /startup.sh /usr/bin/supervisor-exit-event-listener\n#38 DONE 1.0s\n\n#39 exporting to image\n#39 exporting layers\n#39 exporting layers 46.3s done\n#39 exporting manifest sha256:bf06bb99e006f8422dd245da3c9eb27953f0ce3aab0698a91dd51f407e11f246 0.1s done\n#39 exporting config sha256:63647a4ccc5dbc1c5f367b2c0bed819e455cf065aaf1c15225ef9ce74ab1fad9 0.0s done\n#39 exporting attestation manifest sha256:bff69edaa9ccc73f090b7c117f0a9e3d53eb9a8b31a903521e2807d8250ce3d9\n#39 exporting attestation manifest sha256:bff69edaa9ccc73f090b7c117f0a9e3d53eb9a8b31a903521e2807d8250ce3d9 0.1s done\n#39 exporting manifest list sha256:8ce914665c772a7036d6401cd23ce280f1c52089df75a49c954fcbebe1cb468b 0.1s done\n#39 naming to docker.io/deployz-campaign/repo-529:18fb61ab50d2\n#39 naming to docker.io/deployz-campaign/repo-529:18fb61ab50d2 0.0s done\n#39 unpacking to docker.io/deployz-campaign/repo-529:18fb61ab50d2\n#39 unpacking to docker.io/deployz-campaign/repo-529:18fb61ab50d2 43.4s done\n#39 DONE 90.3s\n\nView build details: docker-desktop://dashboard/build/desktop-linux/desktop-linux/5xac4li1ktvmcd0d0dmvxn4t0",
+        "imageId": "sha256:8ce914665c772a7036d6401cd23ce280f1c52089df75a49c954fcbebe1cb468b",
+        "imageBytes": 1446817704,
+        "failure": null,
+        "rebuilt": false
+      }
+    },
+    "run": {
+      "status": "PASS",
+      "startedAt": "2026-10-09T09:37:19.947Z",
+      "finishedAt": "2026-10-09T09:37:34.484Z",
+      "durationMs": 14537,
+      "detail": null,
+      "evidence": {
+        "image": "deployz-campaign/repo-529:18fb61ab50d2",
+        "port": 80,
+        "healthPath": "/health",
+        "dependencies": [
+          "s3-stand-in"
+        ],
+        "environmentNames": [
+          "AWS_ACCESS_KEY_ID",
+          "AWS_ENDPOINT_URL_S3",
+          "AWS_REGION",
+          "AWS_S3_BUCKET",
+          "AWS_S3_FORCE_PATH_STYLE",
+          "AWS_SECRET_ACCESS_KEY",
+          "PORT"
+        ],
+        "migration": null
+      }
+    },
+    "probes": {
+      "status": "FAIL",
+      "startedAt": "2026-10-09T09:37:34.489Z",
+      "finishedAt": "2026-10-09T09:38:35.925Z",
+      "durationMs": 61436,
+      "detail": "failed: health, start",
+      "evidence": {
+        "probes": {
+          "health": {
+            "status": "FAIL",
+            "detail": "the container exited (code 0) before /health answered"
+          },
+          "start": {
+            "status": "FAIL",
+            "detail": "the container is not running (exit code 0)"
+          },
+          "migration": {
+            "status": "NOT_APPLICABLE",
+            "detail": "the manifest has no migration command"
+          },
+          "dbWrite": {
+            "status": "NOT_APPLICABLE",
+            "detail": "the manifest needs no database"
+          },
+          "redis": {
+            "status": "NOT_APPLICABLE",
+            "detail": "the manifest needs no Redis"
+          },
+          "storage": {
+            "status": "UNVERIFIED",
+            "detail": "the bucket holds no object; reaching the bucket is not proven"
+          }
+        },
+        "url": "http://app:80/health",
+        "appLogTail": "Please re-run this container with an environment variable $APP_KEY\nAn example APP_KEY you could use is: \nbase64:cHY/g9mvmXXSAmUBB3H0deav0beEoD0tL2zLYIOVaQA="
+      }
+    },
+    "cleanup": {
+      "status": "PASS",
+      "startedAt": "2026-10-09T09:38:35.928Z",
+      "finishedAt": "2026-10-09T09:38:40.192Z",
+      "durationMs": 4264,
+      "detail": null,
+      "evidence": {
+        "removed": {
+          "containers": 2,
+          "networks": 1,
+          "volumes": 1
+        },
+        "imageRemoved": true,
+        "keepImage": false,
+        "leaks": {
+          "containers": [],
+          "networks": [],
+          "volumes": []
+        }
+      }
+    }
+  },
+  "classification": "gate",
+  "remediation": null
+}

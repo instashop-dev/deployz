@@ -1,11 +1,11 @@
 # Local Docker run summary
 
-Repositories: 22
+Repositories: 24
 
 ## Classification
 
 - build: 2
-- gate: 13
+- gate: 15
 - local-success: 1
 - probes: 3
 - run: 1
@@ -15,23 +15,23 @@ Repositories: 22
 
 | Stage | Attempted | PASS | FAIL | SKIPPED | IN_PROGRESS |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| gate | 22 | 9 | 13 | 0 | 0 |
-| source | 22 | 14 | 4 | 4 | 0 |
-| build | 22 | 7 | 7 | 8 | 0 |
-| run | 22 | 6 | 1 | 15 | 0 |
-| probes | 22 | 2 | 4 | 16 | 0 |
-| cleanup | 22 | 14 | 0 | 8 | 0 |
+| gate | 24 | 9 | 15 | 0 | 0 |
+| source | 24 | 15 | 5 | 4 | 0 |
+| build | 24 | 8 | 7 | 9 | 0 |
+| run | 24 | 7 | 1 | 16 | 0 |
+| probes | 24 | 2 | 5 | 17 | 0 |
+| cleanup | 24 | 15 | 0 | 9 | 0 |
 
 ## Probes
 
 | Probe | Attempted | PASS | FAIL | UNVERIFIED | NOT_APPLICABLE |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| start | 6 | 2 | 4 | 0 | 0 |
-| health | 6 | 2 | 4 | 0 | 0 |
-| migration | 6 | 0 | 0 | 0 | 6 |
-| dbWrite | 6 | 0 | 3 | 0 | 3 |
-| redis | 6 | 0 | 3 | 0 | 3 |
-| storage | 6 | 0 | 0 | 2 | 4 |
+| start | 7 | 2 | 5 | 0 | 0 |
+| health | 7 | 2 | 5 | 0 | 0 |
+| migration | 7 | 0 | 0 | 0 | 7 |
+| dbWrite | 7 | 0 | 3 | 0 | 4 |
+| redis | 7 | 0 | 3 | 0 | 4 |
+| storage | 7 | 0 | 0 | 3 | 4 |
 
 ## Duration per repository
 
@@ -57,5 +57,7 @@ Repositories: 22
 | repo-523 | Freika/dawarich | probes | 896.1 |
 | repo-524 | miguelgrinberg/microblog | build | 42.1 |
 | repo-525 | gotson/komga | gate | 11.7 |
+| repo-528 | electric-sql/electric | gate | 41.8 |
+| repo-529 | grokability/snipe-it | gate | 578.2 |
 | repo-536 | InvoiceShelf/InvoiceShelf | build | 47.4 |
 | repo-540 | excalidraw/excalidraw | local-success | 1630.3 |
