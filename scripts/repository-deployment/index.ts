@@ -6,7 +6,7 @@
  *   pnpm benchmark:deploy --dry-run --wave wave-1      print the plan, touch nothing
  *   pnpm benchmark:deploy --local --repo repo-001      gate, source and Docker build on this machine, no AWS
  *   pnpm benchmark:deploy --local --resume             remove labelled leftovers, keep finished stages with unchanged inputs
- *   pnpm benchmark:deploy --local --keep-image         keep the built image after the run
+ *   pnpm benchmark:deploy --local --keep-image         keep the built image and build cache after the run
  *   pnpm benchmark:deploy --real-aws --repo repo-001   the whole funnel (needs DEPLOYZ_E2E_ALLOW_REAL_AWS=1)
  *   pnpm benchmark:deploy --real-aws --wave wave-1
  *   pnpm benchmark:deploy --real-aws --resume          finish unfinished cleanups, then continue the selection
@@ -97,7 +97,7 @@ export interface RunOptions {
   audit: boolean;
   force: boolean;
   keep: boolean;
-  /** `--local` keeps the built image after the run (default: removed in the cleanup stage). */
+  /** `--local` keeps the built image and build cache after the run (default: removed in the cleanup stage). */
   keepImage: boolean;
   /** Retries reuse the repository's application (and any release it already built). */
   reuseApplication: boolean;

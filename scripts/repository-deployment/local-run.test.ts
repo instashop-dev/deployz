@@ -397,16 +397,18 @@ describe('local run stage', () => {
     expect(text).not.toContain('abcdef');
   });
 
-  it('cleanup removes the labelled resources and the image, and keeps the image with keepImage', async () => {
+  it('cleanup removes the labelled resources, the image and the build cache, and keeps both with keepImage', async () => {
     const fake = fakeDocker(world());
     const result = await runLocalRepository(context(fake));
-    expect(result.stages.cleanup.evidence).toMatchObject({ imageRemoved: true, keepImage: false });
+    expect(result.stages.cleanup.evidence).toMatchObject({ imageRemoved: true, buildCachePruned: true, keepImage: false });
     expect(fake.calls.some((call) => call.args[0] === 'image' && call.args[1] === 'rm')).toBe(true);
+    expect(fake.calls.some((call) => call.args[0] === 'builder' && call.args[1] === 'prune')).toBe(true);
 
     const keep = fakeDocker(world());
     const kept = await runLocalRepository(context(keep, { keepImage: true, runsDir: join(dir, 'runs2') }));
-    expect(kept.stages.cleanup.evidence).toMatchObject({ imageRemoved: false, keepImage: true });
+    expect(kept.stages.cleanup.evidence).toMatchObject({ imageRemoved: false, buildCachePruned: false, keepImage: true });
     expect(keep.calls.some((call) => call.args[0] === 'image' && call.args[1] === 'rm')).toBe(false);
+    expect(keep.calls.some((call) => call.args[0] === 'builder' && call.args[1] === 'prune')).toBe(false);
   });
 
   it('fails the cleanup stage when a labelled resource remains', async () => {

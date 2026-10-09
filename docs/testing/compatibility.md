@@ -253,9 +253,10 @@ the public schema), `dbWrite` (rows above 0 outside migration bookkeeping tables
 counted with `psql`), `redis` (a client or a key from the app) and `storage` (an
 object in the bucket; otherwise UNVERIFIED). The run stage has a 10-minute
 timeout. Cleanup runs in `finally` after any build attempt: it removes the labelled
-containers (`rm -f -v`), networks and volumes and the image, then lists the three
-resource types by label; a leftover fails the cleanup stage. `--keep-image` keeps
-the image. A failed run stage (migration, dependency, start, timeout) skips the
+containers (`rm -f -v`), networks and volumes, the image and the Docker build
+cache (`docker builder prune -f`), then lists the three resource types by label;
+a leftover fails the cleanup stage. `--keep-image` keeps the image and the build
+cache. A failed run stage (migration, dependency, start, timeout) skips the
 probes. A non-zero migration is a run-stage failure, not a probe.
 
 `<runs-dir>/<id>.local.json` records the stages `gate`, `source`, `build`,

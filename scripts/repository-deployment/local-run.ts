@@ -453,7 +453,11 @@ export async function cleanupResources(
   const env = childEnvironment(hostEnv);
   const removed = await removeLabelledResources(run, env, id);
   let imageRemoved = false;
-  if (!keepImage) imageRemoved = (await run('docker', ['image', 'rm', imageTag(id, commit)], { env, timeoutMs: 120_000 })).exitCode === 0;
+  let buildCachePruned = false;
+  if (!keepImage) {
+    imageRemoved = (await run('docker', ['image', 'rm', imageTag(id, commit)], { env, timeoutMs: 120_000 })).exitCode === 0;
+    buildCachePruned = (await run('docker', ['builder', 'prune', '-f'], { env, timeoutMs: 300_000 })).exitCode === 0;
+  }
   const call = (args: readonly string[]) => run('docker', args, { env, timeoutMs: 60_000 });
   const leaks = {
     containers: lines((await call(['ps', '-a', '-q', ...repoFilters(id)])).output),
@@ -464,7 +468,7 @@ export async function cleanupResources(
   return {
     status: leaked === 0 ? 'PASS' : 'FAIL',
     detail: leaked === 0 ? null : `${leaked} labelled resource(s) remain`,
-    evidence: { removed, imageRemoved, keepImage, leaks },
+    evidence: { removed, imageRemoved, buildCachePruned, keepImage, leaks },
   };
 }
 
