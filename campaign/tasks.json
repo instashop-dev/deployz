@@ -2241,7 +2241,7 @@
       "phase": 3,
       "title": "First-run Stage A compatibility for improvement apps 61-70",
       "executor": "campaign-worker",
-      "status": "IN_PROGRESS",
+      "status": "RETRYABLE",
       "prerequisites": [
         "P3-COMPAT-06"
       ],
@@ -2269,7 +2269,8 @@
       "timeboxMinutes": 15,
       "notes": [
         "2026-10-09 P2-GATE: run `node --env-file=.env node_modules/.bin/tsx scripts/repository-compatibility/index.ts --ai live --benchmark campaign/corpus/benchmark.yaml --runs-dir campaign/results/first-run/compat/` (or the equivalent tsx form used in P2-SMOKE-RUN) with this batch's --repo ids; do not pass --cache (the default cache feeds the later --local builds). Measured: about 40 s per app with live AI.",
-        "2026-10-09 Opus: timebox 30 -> 15 from the measured P3-COMPAT-01 duration (10 apps in 5 min with live AI)."
+        "2026-10-09 Opus: timebox 30 -> 15 from the measured P3-COMPAT-01 duration (10 apps in 5 min with live AI).",
+        "2026-10-09 attempt 1 RETRYABLE (Opus verified): repo-576 analysed (NOT_COMPATIBLE, AI ok), then the harness hung on the repo-577 (woodpecker-ci/woodpecker@5e87e8a) snapshot for about 28 min with no output; the worker killed it (exit 1). The harness writes files only at the end, so no compat files exist for this batch. No AI 5xx. Opus found no leftover harness/git process and no campaign container. Retry: wrap the command in an outer timeout (for example `timeout 900`) so a stall cannot take the whole run; if repo-577 stalls again, run the other nine apps and record repo-577 as a harness snapshot stall (Phase 4 harness candidate: no per-repository fetch timeout). A partial repo-577 snapshot cache may exist; the harness must refetch, do not delete other caches."
       ],
       "attempts": 1
     },

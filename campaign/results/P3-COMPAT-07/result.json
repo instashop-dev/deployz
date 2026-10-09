@@ -1,0 +1,18 @@
+{
+  "taskId": "P3-COMPAT-07",
+  "testedCommit": "e6a3b58ee2363923fef21faca86611fa3bf84538",
+  "executor": "campaign-worker",
+  "model": "sonnet",
+  "startedAt": "2026-10-09T01:03:51Z",
+  "finishedAt": "2026-10-09T01:40:00Z",
+  "proposedStatus": "RETRYABLE",
+  "commands": [
+    { "command": "node --env-file=.env node_modules/tsx/dist/cli.mjs scripts/repository-compatibility/index.ts --ai live --benchmark campaign/corpus/benchmark.yaml --runs-dir campaign/results/first-run/compat/ --repo repo-576 ... --repo repo-588", "exitCode": 1, "summary": "repo-576 analysed (NOT_COMPATIBLE, 5 mismatches, AI ok) then run hung on repo-577 snapshot for about 28 min with no output; process killed by worker; no result files written for this batch" }
+  ],
+  "evidence": ["campaign/logs/P3-COMPAT-07/run.log"],
+  "notes": [
+    "Harness hang on repo-577 (woodpecker-ci/woodpecker@5e87e8a), no AI 5xx seen. Harness adds no timeout. Likely network stall in repository snapshot fetch.",
+    "Result files are written at end of run; none written for repo-576..588 (no files in compat/). Retry the full batch.",
+    "No containers used. git status clean."
+  ]
+}

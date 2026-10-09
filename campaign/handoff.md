@@ -2,7 +2,7 @@
 
 **Status:** CONTINUE. Phase 3. P0-GATE, P1-GATE and P2-GATE PASS (P2-GATE on 2026-10-09).
 **Checkout:** `C:/Users/Tejas/Desktop/deployz-mvp-test`, branch `campaign/fresh-100`. Baseline commit `e6a3b58e` (ANALYSIS_VERSION 45; origin/main after PR #498, merged into the campaign branch on 2026-10-08).
-**Eligible now:** `P3-COMPAT-07..08` (in order). `ai-gateway` AVAILABLE again since the 00:44Z probe on 2026-10-09.
+**Eligible now:** `P3-COMPAT-07` RETRYABLE (attempt 2 of 3), then `P3-COMPAT-08`. `ai-gateway` AVAILABLE since the 00:44Z probe on 2026-10-09.
 
 ## Done
 
@@ -70,6 +70,7 @@
 - 2026-10-09: `P3-COMPAT-04` COMPLETE (attempt 1, worker sonnet). repo-541..551, about 4 min, no 5xx. Verdict = label 5/10; all facts 1/10. AI: 5 completed, 3 parse-error, 2 not-requested. AI failures so far 14 of 35 requests. Evidence: `campaign/results/P3-COMPAT-04/result.json`.
 - 2026-10-09: `P3-COMPAT-05` COMPLETE (attempt 1, worker sonnet). repo-552..562, about 3.5 min, no 5xx. Verdict = label 6/10; all facts 1/10. AI: 3 completed, 1 timeout, 1 parse-error, 5 not-requested. repo-552 is a false READY (label NOT_COMPATIBLE, AI timeout); Phase 4 candidate. AI failures so far 16 of 40 requests. Evidence: `campaign/results/P3-COMPAT-05/result.json`.
 - 2026-10-09: `P3-COMPAT-06` COMPLETE (attempt 1, worker sonnet). repo-563..575, about 4 min, no 5xx. Verdict = label 6/10; all facts 0/10. AI: 4 completed, 2 parse-error, 1 timeout, 3 not-requested. AI failures so far 19 of 47 requests. Evidence: `campaign/results/P3-COMPAT-06/result.json`.
+- 2026-10-09: `P3-COMPAT-07` RETRYABLE (attempt 1, worker sonnet). repo-576 finished, then the harness hung about 28 min on the repo-577 (woodpecker) snapshot; the worker killed it. No compat files (the harness writes at the end). No AI 5xx. Evidence: `campaign/results/P3-COMPAT-07/result.json`.
 - 2026-10-09: `P3-COMPAT-03` RETRYABLE (attempt 1). Harness exit 0, but the AI gateway returned HTTP 500/502 for 9/9 requests, so every analysis used fallback. Files kept in `campaign/results/P3-COMPAT-03/attempt-1/`; `first-run/compat/` holds only the 20 files of P3-COMPAT-01..02. Opus one-app probes at 00:19Z and 00:20Z: still 500. The run ended with no eligible work. Next routine run probed again at 00:23Z: still HTTP 500 (AI_APICallError: Internal Server Error); no eligible work.
 
 ## Blockers and pending prerequisites
@@ -103,7 +104,7 @@
 
 ## Next action
 
-Run `P3-COMPAT-07` (improvement apps 61-70), then `P3-COMPAT-08`. If a batch gets AI HTTP 5xx, mark it RETRYABLE and probe repo-540 before the retry. Builds need `disk>=10GB` (user action).
+Retry `P3-COMPAT-07` (attempt 2 of 3) with an outer `timeout 900` on the harness command. If repo-577 stalls again, run the other nine apps and record repo-577 as a snapshot stall (Phase 4 harness candidate). Then `P3-COMPAT-08`. Builds need `disk>=10GB` (user action).
 
 Caution: every coordinator, scheduled or manual, must hold `campaign/coordinator.lock` (`node campaign/lock.mjs`, see plan.md "Coordinator lock") before it changes campaign files or dispatches a worker. If the lock is held, exit without changes.
 

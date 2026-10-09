@@ -3,9 +3,9 @@
   "campaign": "deployz-fresh-100",
   "status": "CONTINUE",
   "phase": 3,
-  "currentTask": "P3-COMPAT-07",
-  "nextAction": "P3-COMPAT-07 (improvement apps 61-70) in progress; then P3-COMPAT-08. Builds need disk>=10GB (user action). Phase 4 candidates: repository AI timeout/parse-error 19/47 in P3-COMPAT-01..06; repo-552 false READY.",
-  "updatedAt": "2026-10-09T01:03:38.127Z",
+  "currentTask": null,
+  "nextAction": "Retry P3-COMPAT-07 (attempt 2 of 3; apps repo-576..588) with an outer timeout (timeout 900); if repo-577 stalls again, run the other nine and record repo-577 as a snapshot stall. Then P3-COMPAT-08. Builds need disk>=10GB (user action). Phase 4 candidates: repository AI timeout/parse-error 19/47 in P3-COMPAT-01..06; repo-552 false READY; harness has no per-repository fetch timeout.",
+  "updatedAt": "2026-10-09T01:29:55.643Z",
   "checkout": {
     "path": "C:/Users/Tejas/Desktop/deployz-mvp-test",
     "kind": "git worktree of C:/Users/Tejas/Desktop/deployz",
@@ -333,13 +333,12 @@
     "P3-COMPAT-07": 1
   },
   "lastResult": {
-    "task": "P3-COMPAT-06",
-    "status": "COMPLETE",
-    "at": "2026-10-09T01:03:38.127Z",
-    "summary": "Stage A --ai live on repo-563..575 (10 apps), about 4 min, no AI 5xx. Verdict = label 6/10; all facts 0/10. AI: 4 completed, 2 parse-error, 1 timeout, 3 not-requested. AI failures so far 19 of 47 requests in P3-COMPAT-01..06 (Phase 4 candidate).",
+    "task": "P3-COMPAT-07",
+    "status": "RETRYABLE",
+    "at": "2026-10-09T01:29:55.643Z",
+    "summary": "Attempt 1: harness hung about 28 min on the repo-577 snapshot (network stall suspected, not confirmed) after repo-576 finished; worker killed it; no result files. No AI 5xx. Retry with an outer timeout (attempts 1 of 3).",
     "evidence": [
-      "campaign/results/P3-COMPAT-06/result.json",
-      "campaign/results/first-run/compat/"
+      "campaign/results/P3-COMPAT-07/result.json"
     ]
   },
   "gates": {
