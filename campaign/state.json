@@ -4,8 +4,8 @@
   "status": "CONTINUE",
   "phase": 4,
   "currentTask": null,
-  "nextAction": "Phase 4: run the product FIX/MERGE pairs in order (UNBUILDABLE-DOCKERFILE, FALSE-REJECTION, LOCAL-STATE, START-COMMAND, MIGRATION-RUNTIME, AI-RELIABILITY), P4-SYNC-CANDIDATE, P4-RERUN-COMPAT-01..08, P4-RERUN-BUILD-PLAN. USER DECISION open: P4-FIX-HARNESS-TAR and P4-FIX-HARNESS-READINESS are BLOCKED until the user marks them READY.",
-  "updatedAt": "2026-10-09T18:45:59.152Z",
+  "nextAction": "Phase 4: run the product FIX/MERGE pairs in order (UNBUILDABLE-DOCKERFILE, FALSE-REJECTION, LOCAL-STATE, START-COMMAND, MIGRATION-RUNTIME, AI-RELIABILITY), P4-SYNC-CANDIDATE, P4-RERUN-COMPAT-01..08, P4-RERUN-BUILD-PLAN. P4-FIX-HARNESS-TAR (user option B: symlinks replaced by copies or skipped, counted in evidence) and P4-FIX-HARNESS-READINESS (user option A: pull stand-in images before the 90 s window) are READY (user decision 2026-10-09).",
+  "updatedAt": "2026-10-09T18:49:43.887Z",
   "checkout": {
     "path": "C:/Users/Tejas/Desktop/deployz-mvp-test",
     "kind": "git worktree of C:/Users/Tejas/Desktop/deployz",
@@ -584,7 +584,7 @@
     }
   },
   "policy": {
-    "resources": "TEST-only. Local Docker containers, networks, volumes and images carry the label deployz-campaign=fresh-100 and are removed after each task. No production data, no customer installations. After each app build, the harness cleanup stage removes the app image and runs `docker builder prune -f` (user instruction 2026-10-09; never pass --keep-image in campaign tasks). After each build batch the coordinator checks that no labelled resource remains and that `docker system df` shows no build cache; if build cache remains, it runs `docker builder prune -f`.",
+    "resources": "TEST-only. Local Docker containers, networks, volumes and images carry the label deployz-campaign=fresh-100 and are removed after each task. No production data, no customer installations. After each app build, the harness cleanup stage removes the app image and runs `docker builder prune -f` (user instruction 2026-10-09; never pass --keep-image in campaign tasks). After each build batch the coordinator checks that no labelled resource remains and that `docker system df` shows no build cache; if build cache remains, it runs `docker builder prune -f`. Disk (user instruction 2026-10-09): at the start of each run and after each Docker build or run task, the coordinator runs `wsl -d docker-desktop -u root fstrim -a` (safe while Docker runs) and records C: free space; below 3 GB it marks disk>=3GB UNAVAILABLE and starts no Docker task. The Windows scheduled task DeployzDockerCompact (C:/Users/Tejas/DeployzDockerCompact/compact.ps1, every 30 minutes, elevated) compacts docker_data.vhdx: it skips when campaign/coordinator.lock exists or a container runs, and holds the lock (role manual, note \"DeployzDockerCompact scheduled task\") while Docker is stopped. A lock with that note is that task; wait for it, do not recover it while its PowerShell process lives. Trim alone does not free C: (tested: sparse vhdx flag does not release trimmed space).",
     "environment": "Windows 10, Git Bash and PowerShell, Docker Desktop with WSL 2 Linux containers. Untrusted app code runs only in disposable containers with no host mounts and no host credentials.",
     "aws": {
       "allowed": true,

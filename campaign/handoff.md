@@ -1,6 +1,6 @@
 # Fresh-100 campaign handoff
 
-**Status:** CONTINUE. Phase 4. P0-GATE, P1-GATE, P2-GATE and P3-GATE PASS; P4-GROUP COMPLETE. C: 5.0 GB free at 2026-10-09T18:28Z; Docker Desktop running.
+**Status:** CONTINUE. Phase 4. P0-GATE, P1-GATE, P2-GATE and P3-GATE PASS; P4-GROUP COMPLETE. C: 13.1 GB free at 2026-10-09T18:55Z (vhdx compacted); Docker Desktop running.
 **Checkout:** `C:/Users/Tejas/Desktop/deployz-mvp-test`, branch `campaign/fresh-100`. Baseline commit `e6a3b58e` (ANALYSIS_VERSION 45; origin/main after PR #498, merged into the campaign branch on 2026-10-08).
 **Eligible now:** `P4-FIX-UNBUILDABLE-DOCKERFILE` (then the Phase 4 queue in order). `docker`, `disk>=3GB` and `ai-gateway` AVAILABLE.
 
@@ -128,6 +128,8 @@
 - Phase 7 needs `deployed-candidate`. New tasks after `P6-GATE`: `P7-DEPLOY-CANDIDATE` (Opus; the only granted route is a merge to `main` that starts Deploy API/Deploy web; if the deployed revision must change without a merge, it is BLOCKED on the missing `workflow_dispatch` authorization) → `P7-VERIFY-CANDIDATE` (read-only AWS: stack `Deployz` update time, API/worker Lambda CodeSha256 and asset keys matched to a local `cdk synth` at the candidate, CodeBuild buildspec, published bootstrap template and relay artifact). The API has no version endpoint, so a checkout, tag or green deploy job is not evidence. `P7-PLAN` and every generated AWS task depend on `P7-VERIFY-CANDIDATE`, require `deployed-candidate`, and re-check the identifiers before they start.
 - Disk: 13.94 GiB free after P0-ENV-SETUP. Prune campaign images after each build batch.
 
+- Disk automation (user, 2026-10-09): Windows scheduled task `DeployzDockerCompact` runs `C:/Users/Tejas/DeployzDockerCompact/compact.ps1` every 30 minutes, elevated. It skips when the campaign lock is held or a container runs; otherwise it takes the lock (note "DeployzDockerCompact scheduled task"), trims, stops Docker, compacts docker_data.vhdx, restarts Docker and releases the lock. Log: `C:/Users/Tejas/DeployzDockerCompact/compact.log`. Each routine run also trims and checks C: free (policy.resources).
+
 ## Publication scope (user authorization, 2026-10-08)
 
 `gates.publicationPolicyConfirmed` is true. Full text: `state.json` `policy.publication`.
@@ -150,7 +152,7 @@
 
 ## Next action
 
-Run the Phase 4 queue in tasks.json order: P4-FIX/MERGE-UNBUILDABLE-DOCKERFILE, -FALSE-REJECTION, -LOCAL-STATE, -START-COMMAND, -MIGRATION-RUNTIME, -AI-RELIABILITY, P4-SYNC-CANDIDATE, P4-RERUN-COMPAT-01..08, P4-RERUN-BUILD-PLAN, P4-GATE. Harness fix tasks leave changes uncommitted; Opus verifies and commits them on campaign/fresh-100. Product fixes go through focused PRs; P4-MERGE-x follows policy.publication.mergeProcedure and watches CI on main and Deploy API/Deploy web. Family F1 changes the gate meaning of a missing or unbuildable Dockerfile (NEEDS_CONFIGURATION -> NOT_COMPATIBLE only with complete evidence); the Opus review of that PR must check mvp-scope.md and decisions/README.md. USER DECISION still open: (a) Windows tar symlinks in the source stage (P4-FIX-HARNESS-TAR, BLOCKED); (b) the 90 s dependency readiness window includes the first image pull (P4-FIX-HARNESS-READINESS, BLOCKED). The user marks either task READY to unblock it.
+Run the Phase 4 queue in tasks.json order: P4-FIX/MERGE-UNBUILDABLE-DOCKERFILE, -FALSE-REJECTION, -LOCAL-STATE, -START-COMMAND, -MIGRATION-RUNTIME, -AI-RELIABILITY, P4-SYNC-CANDIDATE, P4-RERUN-COMPAT-01..08, P4-RERUN-BUILD-PLAN, P4-GATE. Harness fix tasks leave changes uncommitted; Opus verifies and commits them on campaign/fresh-100. Product fixes go through focused PRs; P4-MERGE-x follows policy.publication.mergeProcedure and watches CI on main and Deploy API/Deploy web. Family F1 changes the gate meaning of a missing or unbuildable Dockerfile (NEEDS_CONFIGURATION -> NOT_COMPATIBLE only with complete evidence); the Opus review of that PR must check mvp-scope.md and decisions/README.md. User decisions 2026-10-09: P4-FIX-HARNESS-TAR READY (option B: replace symlinks with copies of in-snapshot targets, skip others, count both in evidence); P4-FIX-HARNESS-READINESS READY (option A: pull stand-in images before the 90 s readiness window).
 
 Caution: every coordinator, scheduled or manual, must hold `campaign/coordinator.lock` (`node campaign/lock.mjs`, see plan.md "Coordinator lock") before it changes campaign files or dispatches a worker. If the lock is held, exit without changes.
 

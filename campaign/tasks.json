@@ -4314,7 +4314,7 @@
       "phase": 4,
       "title": "Harness source stage on Windows (H-a): symlinks and deterministic extraction",
       "executor": "campaign-worker",
-      "status": "BLOCKED",
+      "status": "READY",
       "prerequisites": [
         "P4-GROUP"
       ],
@@ -4347,7 +4347,8 @@
       ],
       "timeboxMinutes": 38,
       "notes": [
-        "2026-10-09 P4-GROUP (Opus): BLOCKED: USER DECISION open since Phase 3: how the source stage should extract snapshots with symlinks on Windows (repo-501, 507, 508, 511, 528, 574; repo-513 flaky). Do not start until the user decides (state READY)."
+        "2026-10-09 P4-GROUP (Opus): BLOCKED: USER DECISION open since Phase 3: how the source stage should extract snapshots with symlinks on Windows (repo-501, 507, 508, 511, 528, 574; repo-513 flaky). Do not start until the user decides (state READY).",
+        "2026-10-09 USER DECISION (live chat, manual Opus session): option B. On Windows the source stage does not create symlinks: it replaces each symlink with a copy of its target when the target is inside the snapshot, and skips it otherwise (target outside the snapshot or missing). Record the counts of replaced and skipped symlinks in the source-stage evidence. Extraction must be deterministic (same snapshot -> same tree). Regression test that fails without the change. Affected: repo-501, 507, 508, 511, 528, 574; repo-513 flaky. Update docs/testing/compatibility.md."
       ]
     },
     {
@@ -4355,7 +4356,7 @@
       "phase": 4,
       "title": "Harness dependency readiness window (H-b): image pull outside the 90 s window",
       "executor": "campaign-worker",
-      "status": "BLOCKED",
+      "status": "READY",
       "prerequisites": [
         "P4-GROUP"
       ],
@@ -4388,7 +4389,8 @@
       ],
       "timeboxMinutes": 38,
       "notes": [
-        "2026-10-09 P4-GROUP (Opus): BLOCKED: USER DECISION open since Phase 3: whether the readiness window excludes the first image pull (repo-513 SeaweedFS). Do not start until the user decides (state READY)."
+        "2026-10-09 P4-GROUP (Opus): BLOCKED: USER DECISION open since Phase 3: whether the readiness window excludes the first image pull (repo-513 SeaweedFS). Do not start until the user decides (state READY).",
+        "2026-10-09 USER DECISION (live chat, manual Opus session): option A. Pull every dependency stand-in image (database, cache, S3 stand-in) before the 90 s readiness window starts; the window then measures only start and readiness. A pull failure is recorded as a dependency failure with its own reason, not as an app timeout. The 90 s value does not change. Regression test in scripts/repository-deployment/local-run.test.ts that fails without the change. Affected: repo-513 (SeaweedFS). Update docs/testing/compatibility.md."
       ]
     },
     {
