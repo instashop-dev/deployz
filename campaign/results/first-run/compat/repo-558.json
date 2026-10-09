@@ -1,0 +1,133 @@
+{
+  "id": "repo-558",
+  "repository": "orhun/rustypaste",
+  "commit": "161a104c618889ddd2b17acbe124d593d97e47c4",
+  "set": "improvement",
+  "cohort": "realistic",
+  "customerRealism": "high",
+  "difficulty": 3,
+  "deployzSha": "b4b5002f8d13cdefd3388e8fe2dd79c118a77c7a",
+  "analysisVersion": 45,
+  "ai": {
+    "mode": "live",
+    "model": "workers-ai/@cf/deepseek-ai/deepseek-v4-flash-0731",
+    "requests": 0,
+    "outcome": "not-requested",
+    "error": null
+  },
+  "tree": {
+    "files": 45,
+    "entries": 184,
+    "truncated": false
+  },
+  "expected": {
+    "compatibility": "NOT_COMPATIBLE",
+    "runtime": [
+      "rust"
+    ],
+    "monorepo": false,
+    "postgres": false,
+    "redis": false,
+    "worker": false,
+    "appRoot": ".",
+    "dockerfilePath": "Dockerfile",
+    "port": 8000,
+    "unsupported": [
+      "local-filesystem"
+    ]
+  },
+  "status": "analysed",
+  "failure": null,
+  "actual": {
+    "compatibility": "NOT_COMPATIBLE",
+    "analysisVerdict": "NOT_COMPATIBLE",
+    "readinessState": "NEEDS_CHANGES",
+    "runtime": "rust",
+    "appRoot": ".",
+    "dockerfilePath": "Dockerfile",
+    "port": 8000,
+    "startCommand": "CMD: [\"./rustypaste\"]",
+    "healthDetected": false,
+    "healthPath": null,
+    "postgres": false,
+    "postgresDetected": false,
+    "redis": false,
+    "redisDetected": false,
+    "redisConfidence": "low",
+    "storage": false,
+    "worker": false,
+    "workerCommand": null,
+    "migration": false,
+    "migrationCommand": null,
+    "externalServices": [],
+    "requiredEnvVars": [],
+    "unsupported": [
+      "local-filesystem"
+    ],
+    "readinessFindings": [
+      "local-file-storage",
+      "health-check"
+    ],
+    "gateFindings": [
+      "unsupported",
+      "health-path-required"
+    ],
+    "unresolvedQuestions": []
+  },
+  "comparisons": [
+    {
+      "fact": "compatibility",
+      "expected": "NOT_COMPATIBLE",
+      "actual": "NOT_COMPATIBLE",
+      "match": true
+    },
+    {
+      "fact": "postgres",
+      "expected": false,
+      "actual": false,
+      "match": true
+    },
+    {
+      "fact": "redis",
+      "expected": false,
+      "actual": false,
+      "match": true
+    },
+    {
+      "fact": "worker",
+      "expected": false,
+      "actual": false,
+      "match": true
+    },
+    {
+      "fact": "appRoot",
+      "expected": ".",
+      "actual": ".",
+      "match": true
+    },
+    {
+      "fact": "dockerfilePath",
+      "expected": "Dockerfile",
+      "actual": "Dockerfile",
+      "match": true
+    },
+    {
+      "fact": "port",
+      "expected": 8000,
+      "actual": 8000,
+      "match": true
+    },
+    {
+      "fact": "unsupported",
+      "expected": [
+        "local-filesystem"
+      ],
+      "actual": [
+        "local-filesystem"
+      ],
+      "match": true
+    }
+  ],
+  "mismatches": [],
+  "match": true
+}

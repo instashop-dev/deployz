@@ -1,0 +1,154 @@
+{
+  "id": "repo-559",
+  "repository": "sebadob/rauthy",
+  "commit": "79bdf2eb6fb01d1f86f2e99ee718036d04201204",
+  "set": "improvement",
+  "cohort": "realistic",
+  "customerRealism": "high",
+  "difficulty": 4,
+  "deployzSha": "b4b5002f8d13cdefd3388e8fe2dd79c118a77c7a",
+  "analysisVersion": 45,
+  "ai": {
+    "mode": "live",
+    "model": "workers-ai/@cf/deepseek-ai/deepseek-v4-flash-0731",
+    "requests": 0,
+    "outcome": "not-requested",
+    "error": null
+  },
+  "tree": {
+    "files": 138,
+    "entries": 1314,
+    "truncated": false
+  },
+  "expected": {
+    "compatibility": "NOT_COMPATIBLE",
+    "runtime": [
+      "rust"
+    ],
+    "monorepo": true,
+    "postgres": true,
+    "redis": false,
+    "worker": false,
+    "appRoot": ".",
+    "dockerfilePath": "Dockerfile",
+    "port": 8080,
+    "healthPath": "/auth/v1/health"
+  },
+  "status": "analysed",
+  "failure": null,
+  "actual": {
+    "compatibility": "NEEDS_CONFIGURATION",
+    "analysisVerdict": "NEEDS_ATTENTION",
+    "readinessState": "ALMOST_READY",
+    "runtime": "rust",
+    "appRoot": ".",
+    "dockerfilePath": "Dockerfile",
+    "port": null,
+    "startCommand": "CMD: [\"serve\"]",
+    "healthDetected": false,
+    "healthPath": null,
+    "postgres": true,
+    "postgresDetected": true,
+    "redis": false,
+    "redisDetected": false,
+    "redisConfidence": "low",
+    "storage": false,
+    "worker": false,
+    "workerCommand": null,
+    "migration": false,
+    "migrationCommand": null,
+    "externalServices": [],
+    "requiredEnvVars": [],
+    "unsupported": [],
+    "readinessFindings": [
+      "port-unresolved",
+      "health-check",
+      "database-migrations"
+    ],
+    "gateFindings": [
+      "dockerfile-missing-sources",
+      "port-missing",
+      "health-path-required",
+      "database-connection-unverified",
+      "migration-command-missing"
+    ],
+    "unresolvedQuestions": []
+  },
+  "comparisons": [
+    {
+      "fact": "compatibility",
+      "expected": "NOT_COMPATIBLE",
+      "actual": "NEEDS_CONFIGURATION",
+      "match": false,
+      "kind": "false-acceptance"
+    },
+    {
+      "fact": "postgres",
+      "expected": true,
+      "actual": true,
+      "match": true
+    },
+    {
+      "fact": "redis",
+      "expected": false,
+      "actual": false,
+      "match": true
+    },
+    {
+      "fact": "worker",
+      "expected": false,
+      "actual": false,
+      "match": true
+    },
+    {
+      "fact": "appRoot",
+      "expected": ".",
+      "actual": ".",
+      "match": true
+    },
+    {
+      "fact": "dockerfilePath",
+      "expected": "Dockerfile",
+      "actual": "Dockerfile",
+      "match": true
+    },
+    {
+      "fact": "port",
+      "expected": 8080,
+      "actual": null,
+      "match": false,
+      "kind": "fact"
+    },
+    {
+      "fact": "healthPath",
+      "expected": "/auth/v1/health",
+      "actual": null,
+      "match": false,
+      "kind": "fact"
+    }
+  ],
+  "mismatches": [
+    {
+      "fact": "compatibility",
+      "kind": "false-acceptance",
+      "expected": "NOT_COMPATIBLE",
+      "actual": "NEEDS_CONFIGURATION",
+      "finding": null
+    },
+    {
+      "fact": "port",
+      "kind": "fact",
+      "expected": 8080,
+      "actual": null,
+      "finding": null
+    },
+    {
+      "fact": "healthPath",
+      "kind": "fact",
+      "expected": "/auth/v1/health",
+      "actual": null,
+      "finding": null
+    }
+  ],
+  "match": false
+}

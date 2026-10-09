@@ -3,9 +3,9 @@
   "campaign": "deployz-fresh-100",
   "status": "CONTINUE",
   "phase": 3,
-  "currentTask": null,
-  "nextAction": "Run P3-COMPAT-05 (improvement apps 41-50), then P3-COMPAT-06..08. If a batch gets AI 5xx, mark it RETRYABLE and probe repo-540 before the retry. Builds need disk>=10GB (user action). Phase 4 candidates: repository AI timeout/parse-error 14/35 in P3-COMPAT-01..04.",
-  "updatedAt": "2026-10-09T00:54:45.336Z",
+  "currentTask": "P3-COMPAT-06",
+  "nextAction": "P3-COMPAT-06 (improvement apps 51-60) in progress; then P3-COMPAT-07..08. Builds need disk>=10GB (user action). Phase 4 candidates: repository AI timeout/parse-error 16/40 in P3-COMPAT-01..05; repo-552 false READY.",
+  "updatedAt": "2026-10-09T00:58:44.826Z",
   "checkout": {
     "path": "C:/Users/Tejas/Desktop/deployz-mvp-test",
     "kind": "git worktree of C:/Users/Tejas/Desktop/deployz",
@@ -259,6 +259,10 @@
     {
       "commit": "e6a3b58ee2363923fef21faca86611fa3bf84538",
       "task": "P3-COMPAT-04"
+    },
+    {
+      "commit": "e6a3b58ee2363923fef21faca86611fa3bf84538",
+      "task": "P3-COMPAT-05"
     }
   ],
   "attempts": {
@@ -319,15 +323,17 @@
     "P3-COMPAT-01": 1,
     "P3-COMPAT-02": 1,
     "P3-COMPAT-03": 2,
-    "P3-COMPAT-04": 1
+    "P3-COMPAT-04": 1,
+    "P3-COMPAT-05": 1,
+    "P3-COMPAT-06": 1
   },
   "lastResult": {
-    "task": "P3-COMPAT-04",
+    "task": "P3-COMPAT-05",
     "status": "COMPLETE",
-    "at": "2026-10-09T00:54:45.336Z",
-    "summary": "Stage A --ai live on repo-541..551 (10 apps), about 4 min, no AI 5xx. Verdict = label 5/10; all facts 1/10. AI: 5 completed, 3 parse-error, 2 not-requested. AI failures so far 14 of 35 requests in P3-COMPAT-01..04 (Phase 4 candidate).",
+    "at": "2026-10-09T00:58:44.826Z",
+    "summary": "Stage A --ai live on repo-552..562 (10 apps), about 3.5 min, no AI 5xx. Verdict = label 6/10; all facts 1/10. AI: 3 completed, 1 timeout, 1 parse-error, 5 not-requested. repo-552 false READY (label NOT_COMPATIBLE). AI failures so far 16 of 40 requests in P3-COMPAT-01..05 (Phase 4 candidate).",
     "evidence": [
-      "campaign/results/P3-COMPAT-04/result.json",
+      "campaign/results/P3-COMPAT-05/result.json",
       "campaign/results/first-run/compat/"
     ]
   },

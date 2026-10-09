@@ -1,0 +1,178 @@
+{
+  "id": "repo-555",
+  "repository": "msgbyte/tianji",
+  "commit": "45578dd32121319c28d3bc5abffa70c225631eb2",
+  "set": "improvement",
+  "cohort": "realistic",
+  "customerRealism": "high",
+  "difficulty": 3,
+  "deployzSha": "b4b5002f8d13cdefd3388e8fe2dd79c118a77c7a",
+  "analysisVersion": 45,
+  "ai": {
+    "mode": "live",
+    "model": "workers-ai/@cf/deepseek-ai/deepseek-v4-flash-0731",
+    "requests": 1,
+    "outcome": "parse-error",
+    "error": "AI_NoObjectGeneratedError: No object generated: response did not match schema."
+  },
+  "tree": {
+    "files": 201,
+    "entries": 2357,
+    "truncated": false
+  },
+  "expected": {
+    "compatibility": "READY",
+    "runtime": [
+      "node"
+    ],
+    "monorepo": true,
+    "postgres": true,
+    "redis": false,
+    "worker": false,
+    "migration": true,
+    "appRoot": ".",
+    "dockerfilePath": "Dockerfile",
+    "port": 12345,
+    "healthPath": "/health"
+  },
+  "status": "analysed",
+  "failure": null,
+  "actual": {
+    "compatibility": "NEEDS_CONFIGURATION",
+    "analysisVerdict": "READY",
+    "readinessState": "READY",
+    "runtime": "node",
+    "appRoot": ".",
+    "dockerfilePath": "Dockerfile",
+    "port": 12345,
+    "startCommand": "CMD: [\"sh\", \"-c\", \"(cd /app/tianji/src/server && ./node_modules/.bin/prisma migrate deploy && ./node_modules/.bin/tsx ./clickhouse/scripts/apply.ts && NODE_ENV=production node ./dist/src/server/main.js) & sleep 10; /usr/local/bin/tianji-reporter --url \\\"http://localhost:12345\\\" --workspace \\\"clnzoxcy10001vy2ohi4obbi0\\\" --name \\\"tianji-container\\\" --silent > /dev/null & wait -n\"]",
+    "healthDetected": true,
+    "healthPath": "/health",
+    "postgres": true,
+    "postgresDetected": true,
+    "redis": true,
+    "redisDetected": true,
+    "redisConfidence": "high",
+    "storage": false,
+    "worker": false,
+    "workerCommand": null,
+    "migration": false,
+    "migrationCommand": null,
+    "externalServices": [
+      "anthropic",
+      "openai",
+      "smtp"
+    ],
+    "requiredEnvVars": [
+      "ALPHA_MODE",
+      "AMAP_TOKEN",
+      "AUDIT_LOG_RETENTION_DAYS",
+      "AUTH_CUSTOM_SECRET",
+      "AUTH_GITHUB_SECRET",
+      "AUTH_GOOGLE_SECRET",
+      "CACHE_MEMORY_ONLY",
+      "CLICKHOUSE_DISABLE_SYNC",
+      "CLICKHOUSE_PASSWORD",
+      "DATABASE_URL",
+      "JWT_SECRET",
+      "MAPBOX_TOKEN",
+      "TIANJI_API_KEY",
+      "TIANJI_BASE_URL",
+      "TIANJI_WORKSPACE_ID"
+    ],
+    "unsupported": [],
+    "readinessFindings": [
+      "database-migrations"
+    ],
+    "gateFindings": [
+      "required-env-vars-missing",
+      "migration-command-missing"
+    ],
+    "unresolvedQuestions": [
+      "multiple-dockerfiles"
+    ]
+  },
+  "comparisons": [
+    {
+      "fact": "compatibility",
+      "expected": "READY",
+      "actual": "NEEDS_CONFIGURATION",
+      "match": false,
+      "kind": "configuration-detection"
+    },
+    {
+      "fact": "postgres",
+      "expected": true,
+      "actual": true,
+      "match": true
+    },
+    {
+      "fact": "redis",
+      "expected": false,
+      "actual": true,
+      "match": false,
+      "kind": "fact"
+    },
+    {
+      "fact": "worker",
+      "expected": false,
+      "actual": false,
+      "match": true
+    },
+    {
+      "fact": "migration",
+      "expected": true,
+      "actual": false,
+      "match": false,
+      "kind": "fact"
+    },
+    {
+      "fact": "appRoot",
+      "expected": ".",
+      "actual": ".",
+      "match": true
+    },
+    {
+      "fact": "dockerfilePath",
+      "expected": "Dockerfile",
+      "actual": "Dockerfile",
+      "match": true
+    },
+    {
+      "fact": "port",
+      "expected": 12345,
+      "actual": 12345,
+      "match": true
+    },
+    {
+      "fact": "healthPath",
+      "expected": "/health",
+      "actual": "/health",
+      "match": true
+    }
+  ],
+  "mismatches": [
+    {
+      "fact": "compatibility",
+      "kind": "configuration-detection",
+      "expected": "READY",
+      "actual": "NEEDS_CONFIGURATION",
+      "finding": null
+    },
+    {
+      "fact": "redis",
+      "kind": "fact",
+      "expected": false,
+      "actual": true,
+      "finding": null
+    },
+    {
+      "fact": "migration",
+      "kind": "fact",
+      "expected": true,
+      "actual": false,
+      "finding": null
+    }
+  ],
+  "match": false
+}

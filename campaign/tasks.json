@@ -2165,7 +2165,7 @@
       "phase": 3,
       "title": "First-run Stage A compatibility for improvement apps 41-50",
       "executor": "campaign-worker",
-      "status": "PENDING",
+      "status": "COMPLETE",
       "prerequisites": [
         "P3-COMPAT-04"
       ],
@@ -2193,15 +2193,17 @@
       "timeboxMinutes": 15,
       "notes": [
         "2026-10-09 P2-GATE: run `node --env-file=.env node_modules/.bin/tsx scripts/repository-compatibility/index.ts --ai live --benchmark campaign/corpus/benchmark.yaml --runs-dir campaign/results/first-run/compat/` (or the equivalent tsx form used in P2-SMOKE-RUN) with this batch's --repo ids; do not pass --cache (the default cache feeds the later --local builds). Measured: about 40 s per app with live AI.",
-        "2026-10-09 Opus: timebox 30 -> 15 from the measured P3-COMPAT-01 duration (10 apps in 5 min with live AI)."
-      ]
+        "2026-10-09 Opus: timebox 30 -> 15 from the measured P3-COMPAT-01 duration (10 apps in 5 min with live AI).",
+        "2026-10-09 attempt 1 COMPLETE (Opus verified): repo-552..562 (10 apps), about 3.5 min, exit 0, no 5xx; verdict = label 6/10; all facts 1/10 (repo-558); AI 3 completed, 1 timeout (repo-552), 1 parse-error (repo-555), 5 not-requested; ai.mode live. repo-552 is a false READY (label NOT_COMPATIBLE; AI timed out) - Phase 4 candidate."
+      ],
+      "attempts": 1
     },
     {
       "id": "P3-COMPAT-06",
       "phase": 3,
       "title": "First-run Stage A compatibility for improvement apps 51-60",
       "executor": "campaign-worker",
-      "status": "PENDING",
+      "status": "IN_PROGRESS",
       "prerequisites": [
         "P3-COMPAT-05"
       ],
@@ -2230,7 +2232,8 @@
       "notes": [
         "2026-10-09 P2-GATE: run `node --env-file=.env node_modules/.bin/tsx scripts/repository-compatibility/index.ts --ai live --benchmark campaign/corpus/benchmark.yaml --runs-dir campaign/results/first-run/compat/` (or the equivalent tsx form used in P2-SMOKE-RUN) with this batch's --repo ids; do not pass --cache (the default cache feeds the later --local builds). Measured: about 40 s per app with live AI.",
         "2026-10-09 Opus: timebox 30 -> 15 from the measured P3-COMPAT-01 duration (10 apps in 5 min with live AI)."
-      ]
+      ],
+      "attempts": 1
     },
     {
       "id": "P3-COMPAT-07",
