@@ -9,12 +9,14 @@ rule: [`../decisions/deploy-gate.md`](../decisions/deploy-gate.md).
 
 `.github/workflows/deploy-api.yml` deploys the `Deployz` CDK stack (VPC, RDS,
 API Lambda, SQS queue and worker Lambda, the CodeBuild/ECR release pipeline,
-the KMS key, the public template bucket) after the CI workflow succeeds for
-a push to `main` that touches `apps/api`,
-`packages/{cdk,db,contracts,analysis,relay,copy-map}` or the lockfile, and
-on demand from the Actions tab. A commit that is no longer the tip of `main`
-when its CI finishes is not deployed; the newer commit's run deploys
-instead. One deploy runs at a time. It:
+the KMS key, the public template bucket) for a push to `main` that touches
+`apps/api`, `packages/{cdk,db,contracts,analysis,relay,copy-map}` or the
+lockfile. `.github/workflows/release.yml` calls it after the CI workflow
+succeeds, once for each stage it releases, and it can also be dispatched on
+its own from the Actions tab for one service (see *Promotion, approval and
+rollback*). A commit that is no longer the tip of `main` when its CI finishes
+is not deployed; the newer commit's run deploys instead. One deploy runs at a
+time for each environment. It:
 
 1. supplies the Lambda's **entire** environment from the deploy job's GitHub
    Environment and the repository secrets (`collectEnvVars()` in
@@ -51,16 +53,16 @@ The `local` context flag also re-enables `deploy`; it exists for previewing,
 not shipping.
 
 `deploy-web.yml` builds `apps/web` into a container and ships it to the
-Lightsail container service behind `app.deployz.dev`, after the CI workflow
-succeeds for a push to `main` that touches `apps/web`,
-`packages/{copy-map,contracts}` or the lockfile, then checks that `APP_HOST`
-and `MARKETING_HOST` resolve to the container service, and then checks
-`https://app.deployz.dev/healthz`. Each push stores a new image in the
-container service, and Lightsail refuses a push when the service holds 150
-images. Before each push, the workflow deletes all images except the newest
-10 and the image that a current or pending deployment runs. Both deploy workflows wait for CI; a red
-CI run on `main` deploys nothing. When validating a production change,
-record the SHA and confirm both deploy runs finished.
+Lightsail container service behind `app.deployz.dev`, for a push to `main`
+that touches `apps/web`, `packages/{copy-map,contracts}` or the lockfile,
+then checks that `APP_HOST` and `MARKETING_HOST` resolve to the container
+service, and then checks `https://app.deployz.dev/healthz`. Each push stores
+a new image in the container service, and Lightsail refuses a push when the
+service holds 150 images. Before each push, the workflow deletes all images
+except the newest 10 and the image that a current or pending deployment runs.
+`release.yml` waits for CI; a red CI run on `main` deploys nothing. When
+validating a production change, record the SHA and confirm the release run
+finished.
 
 There are no CloudWatch alarms and no paging on the control plane. The SQS
 dead-letter queue (three delivery attempts, three-day retention) is
@@ -104,6 +106,47 @@ the service id and not the service name and the services carry no tag, so the
 staging role could also deploy production's container service. The live
 control is the stage gate and the protection rules on the `production`
 Environment. A second AWS account is the post-MVP fix.
+
+### Promotion, approval and rollback
+
+`.github/workflows/release.yml` is the one entry point for a release. It runs
+after a successful CI run for a push to `main` and releases in this order:
+the staging API and the staging web app in parallel, then `staging-verify`,
+then the production API and the production web app in parallel.
+`staging-verify` polls staging's `<API_URL>/health/ready`,
+`https://<APP_HOST>/healthz` and `https://<MARKETING_HOST>/`. It is the only
+check of the marketing host, because `deploy-web.yml` polls the dashboard
+host alone.
+
+The approval gates the two production deploy jobs, and nothing else. It comes
+from the required reviewers on the `production` Environment, which both called
+deploy jobs declare, so both jobs wait together and one approval releases both
+services. Staging needs no approval.
+
+Each deploy records the commit it shipped in its own tag: `deployed/api` and
+`deployed/web` for production, `deployed/staging/api` and
+`deployed/staging/web` for staging. The next `gate` run for that environment
+compares against its own tag, so a staging deploy can never decide what
+production deploys next. Each deploy job also holds its own concurrency group,
+`deploy-<environment>-api` and `deploy-<environment>-web`, so a staging deploy
+never waits for a production deploy, and no group ever cancels a running
+deploy.
+
+An approval can arrive after a newer merge. The production deploy job
+therefore re-reads the tip of `main` after the approval and fails when the
+commit has moved, instead of deploying a stale commit. The run then names the
+newer commit: approve the pending run for it, or dispatch the deploy with that
+SHA.
+
+Either deploy workflow can also be dispatched on its own, for one service.
+That is the rollback path, and it skips both `gate` checks:
+
+```bash
+gh workflow run deploy-api.yml --ref main -f environment=production -f sha=<commit>
+```
+
+The `environment` input defaults to `staging`, so a dispatch that names no
+environment deploys staging.
 
 ## Configuration keys
 
@@ -168,10 +211,13 @@ session-cookie name (`COOKIE_PREFIX`).
 ### Environments and the stage gate
 
 There are two GitHub Environments, `production` and `staging`. Each one holds
-the variables for its own stage, and both deploy jobs declare the Environment
-they deploy. The `production` Environment allows the `main` branch only and
-needs a reviewer's approval before a run starts. The `staging` Environment
-allows any branch and needs no approval.
+the variables for its own stage. Both deploy jobs declare the Environment
+they deploy, and the caller chooses it with the `environment` input. The
+`production` Environment allows the `main` branch only and needs a reviewer's
+approval. That approval gates the two production deploy jobs inside the
+release run, after the staging verification (see *Promotion, approval and
+rollback*). The `staging` Environment allows any branch and needs no
+approval.
 
 The step *Verify the environment values match the stage* then refuses a
 deploy whose values belong to another stage. It reports every violation at

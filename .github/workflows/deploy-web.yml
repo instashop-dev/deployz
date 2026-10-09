@@ -5,54 +5,87 @@
 # must be linux/amd64 and because `aws lightsail push-container-image` needs
 # the lightsailctl plugin, which is trivial to install on a runner and
 # annoying everywhere else.
+#
+# .github/workflows/release.yml calls this workflow and gives it the
+# environment and the commit to deploy. A direct workflow_dispatch run is the
+# per-service path: a rollback, or a new staging deploy of this service alone.
 name: Deploy web
 
 on:
-  # After the CI workflow succeeds for a push to main (a pull-request CI run
-  # has the PR branch as head_branch and is filtered out). The gate job
-  # below checks the commit is still the tip of main and touches a runtime
+  # release.yml calls this workflow once for each stage it releases. The gate
+  # job below checks the commit is still the tip of main and touches a runtime
   # dependency of the web app before anything deploys.
-  workflow_run:
-    workflows: [CI]
-    types: [completed]
-    branches: [main]
+  workflow_call:
+    inputs:
+      environment:
+        description: The GitHub Environment to deploy
+        type: string
+        required: true
+      sha:
+        description: The commit to deploy
+        type: string
+        required: true
+  # The per-service path. staging is the default on purpose: an operator who
+  # forgets the flag must get staging, not production.
   workflow_dispatch:
-
-# One deployment at a time. Lightsail replaces the running container in place,
-# and two overlapping deployments race each other's health checks.
-concurrency:
-  group: deploy-web
-  cancel-in-progress: false
+    inputs:
+      environment:
+        description: The GitHub Environment to deploy
+        type: choice
+        default: staging
+        options: [staging, production]
+      sha:
+        description: The commit to deploy. Empty deploys the tip of the chosen ref.
+        type: string
+        required: false
+        default: ''
 
 jobs:
   # Deploys only a commit that CI has proven on main, and only while it is
   # still the tip of main (an older run must not deploy over a newer one).
   # The path filter is the runtime dependency closure of the service, so a
   # change to a package it bundles redeploys it even when nothing under its
-  # own directory changed. A manual run always deploys the checked-out ref.
+  # own directory changed. A manual run always deploys the requested commit.
   gate:
     name: Check the commit
     runs-on: ubuntu-latest
-    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
     outputs:
       deploy: ${{ steps.decide.outputs.deploy }}
       sha: ${{ steps.decide.outputs.sha }}
+      tag: ${{ steps.decide.outputs.tag }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+          ref: ${{ inputs.sha || github.sha }}
           fetch-depth: 0
 
       - name: Decide
         id: decide
         env:
-          SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+          # workflow_call declares sha as required, so the fallback fires only
+          # on a dispatch with no sha. There github.sha is the tip of the
+          # chosen ref, which is what that input promises.
+          SHA: ${{ inputs.sha || github.sha }}
+          ENVIRONMENT: ${{ inputs.environment }}
+          # A release.yml dispatch is still a manual run: the github context
+          # inside a called workflow is the caller's.
           MANUAL: ${{ github.event_name == 'workflow_dispatch' }}
           PATHS: apps/web/* packages/copy-map/* packages/contracts/* pnpm-lock.yaml .github/workflows/deploy-web.yml
         run: |
           set -euo pipefail
+          # Production keeps the original repository-wide tag name. Every other
+          # stage carries its own name. Both refs can exist together, because
+          # `deployed/staging/web` adds a directory beside the file
+          # `deployed/web`. The reverse shape `deployed/web/staging` is not
+          # possible.
+          if [ "$ENVIRONMENT" = "production" ]; then
+            tag="deployed/web"
+          else
+            tag="deployed/$ENVIRONMENT/web"
+          fi
           echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
           if [ "$MANUAL" = "true" ]; then
             echo "deploy=true" >> "$GITHUB_OUTPUT"
             exit 0
@@ -63,13 +96,14 @@ jobs:
             echo "deploy=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          # Compare against the last successful deploy (the deployed/web tag),
-          # so a change whose own run was skipped is picked up by the next
-          # one. Without the tag (first run) the commit's own diff decides.
-          if git fetch -q origin "refs/tags/deployed/web:refs/tags/deployed/web" 2>/dev/null; then
-            base=$(git rev-parse "refs/tags/deployed/web")
+          # Compare against the last successful deploy of this environment
+          # (the tag above), so a change whose own run was skipped is picked up
+          # by the next one. Without the tag (first run) the commit's own diff
+          # decides.
+          if git fetch -q origin "refs/tags/$tag:refs/tags/$tag" 2>/dev/null; then
+            base=$(git rev-parse "refs/tags/$tag")
           else
-            echo "::notice::No deployed/web tag yet; deploying this commit."
+            echo "::notice::No $tag tag yet; deploying this commit."
             echo "deploy=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
@@ -97,7 +131,16 @@ jobs:
     needs: gate
     if: needs.gate.outputs.deploy == 'true'
     runs-on: ubuntu-latest
-    # contents: write moves the deployed/web tag after a successful deploy.
+    # One deployment at a time for each environment. Lightsail replaces the
+    # running container in place, and two overlapping deployments race each
+    # other's health checks. The group carries the environment, so a staging
+    # deploy no longer waits for a production deploy. cancel-in-progress stays
+    # false: GitHub cancels the RUNNING member of the group, which is the one
+    # thing that must never happen in the middle of a deploy.
+    concurrency:
+      group: deploy-${{ inputs.environment }}-web
+      cancel-in-progress: false
+    # contents: write moves the deploy tag after a successful deploy.
     # id-token: write lets the job ask GitHub for the OIDC token it assumes
     # the AWS deploy role with.
     permissions:
@@ -106,7 +149,7 @@ jobs:
     # Every environment-specific value below comes from this GitHub
     # Environment. A job without this key resolves only repository values, so
     # the Environment variables would arrive empty.
-    environment: production
+    environment: ${{ inputs.environment }}
     env:
       # The role this job assumes with OIDC (.github/aws/github-oidc.yaml).
       # A variable and not a secret: a role ARN is no credential, and a masked
@@ -124,13 +167,48 @@ jobs:
       COOKIE_PREFIX: ${{ vars.COOKIE_PREFIX }}
       DEPLOYZ_STAGE: ${{ vars.DEPLOYZ_STAGE }}
       # The stage this job is allowed to deploy. It must stay equal to the
-      # job's environment: value above.
-      EXPECTED_ENVIRONMENT: production
+      # job's environment: value above, and both come from the same workflow
+      # input.
+      EXPECTED_ENVIRONMENT: ${{ inputs.environment }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
           ref: ${{ needs.gate.outputs.sha }}
+
+      # The gate checked this before the approval, because the gate declares
+      # no environment. An approval can arrive after a newer merge, so a stale
+      # commit must not deploy. A manual run deploys the sha the operator
+      # chose, so it is not checked.
+      - name: Check the commit is still the tip of main
+        env:
+          MANUAL: ${{ github.event_name == 'workflow_dispatch' }}
+        run: |
+          set -euo pipefail
+          if [ "$MANUAL" = "true" ]; then
+            echo "A manual run deploys the chosen commit; the tip of main is not checked."
+            exit 0
+          fi
+          # The checkout is shallow and pinned to the commit, so there is no
+          # origin/main to read. ls-remote needs no fetch.
+          tip=$(git ls-remote origin refs/heads/main | cut -f1) || tip=""
+          # An empty answer must not compare equal to a missing tip: a failed
+          # read is no proof that the commit is current.
+          if [ -z "$tip" ]; then
+            problem="the tip of main could not be read, so this run cannot prove the commit is current. Re-run this job."
+          elif [ "$tip" != "$DEPLOY_SHA" ]; then
+            problem="main is now at $tip. Approve the pending run for the newer commit, or dispatch this workflow with sha=$tip."
+          else
+            echo "$DEPLOY_SHA is still the tip of main."
+            exit 0
+          fi
+          echo "::error::$DEPLOY_SHA is not deployed: $problem"
+          {
+            echo "### The commit is no longer the tip of main"
+            echo
+            echo "$DEPLOY_SHA is not deployed: $problem"
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit 1
 
       # GitHub delivers a variable it does not hold as an empty string, so an
       # Environment that misses a key fails here rather than building an image
@@ -509,12 +587,13 @@ jobs:
           echo "https://$APP_HOST/healthz did not return 200 after deploying" >&2
           exit 1
 
-      # The gate job compares the next commit against this tag.
+      # The gate job compares the next commit against this tag, which is the
+      # tag for this environment.
       - name: Record the deployed commit
         run: |
           set -euo pipefail
-          git tag -f deployed/web "$DEPLOY_SHA"
-          git push -f origin refs/tags/deployed/web
+          git tag -f "${{ needs.gate.outputs.tag }}" "$DEPLOY_SHA"
+          git push -f origin "refs/tags/${{ needs.gate.outputs.tag }}"
 
       - name: Report the service URL
         run: |

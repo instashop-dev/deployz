@@ -209,24 +209,34 @@ the same set a `critical` pull request runs. `pr-gate` does not run either
 (it is `if: github.event_name == 'pull_request'`).
 
 Deploying is a separate concern from testing, but it does gate on CI now:
-`deploy-api.yml` and `deploy-web.yml` each trigger on `workflow_run` of a
-successful `CI` run for `main` (a pull-request CI run has the PR branch as
-`head_branch` and is filtered out). Each workflow's own `gate` job then
-checks two things before anything deploys: the commit is still the tip of
-`main` (an older run must not deploy over a newer one), and the commit
-touches that service's runtime dependency closure (a path filter, not
-`ci.yml`'s risk classification — see `.github/workflows/deploy-api.yml` /
-`deploy-web.yml` and
-[`../operations/control-plane.md`](../operations/control-plane.md)). A
-manual `workflow_dispatch` run always deploys the checked-out ref, skipping
-both checks. The `deploy` job then runs two fail-closed gates of its own
-before it changes anything: it refuses a blank required value from its GitHub
-Environment, and it refuses a value that belongs to another stage (the rules
-are in
+`release.yml` triggers on `workflow_run` of a successful `CI` run for `main`
+(a pull-request CI run has the PR branch as `head_branch` and is filtered
+out). It calls `deploy-api.yml` and `deploy-web.yml`, which are reusable
+workflows that take an environment and a commit. Each one keeps its own
+`gate` job, which checks two things before anything deploys: the commit is
+still the tip of `main` (an older run must not deploy over a newer one), and
+the commit touches that service's runtime dependency closure (a path filter,
+not `ci.yml`'s risk classification — see
+`.github/workflows/deploy-api.yml` / `deploy-web.yml` and
+[`../operations/control-plane.md`](../operations/control-plane.md)).
+
+Staging deploys first. `staging-verify` then polls the staging hosts, and the
+two production jobs wait for a reviewer's approval on the `production`
+Environment. The deploy job re-checks the tip of `main` after the approval, so
+a commit that is no longer current fails instead of deploying. Each deploy
+holds a concurrency group for its own environment and service, so a staging
+deploy never waits for a production deploy. The deploy tag is `deployed/api`
+and `deployed/web` for production, and `deployed/staging/api` and
+`deployed/staging/web` for staging.
+
+The `deploy` job also runs two fail-closed gates of its own before it changes
+anything: it refuses a blank required value from its GitHub Environment, and
+it refuses a value that belongs to another stage (the rules are in
 [`../operations/control-plane.md`](../operations/control-plane.md#environments-and-the-stage-gate)).
-When validating a production change, record the SHA and
-confirm both the CI run and the relevant deploy run finished, rather than
-assuming one implies the other.
+A direct `workflow_dispatch` run on one deploy workflow is the per-service
+path, and it still skips both `gate` checks. When validating a production
+change, record the SHA and confirm both the CI run and the release run
+finished, rather than assuming one implies the other.
 
 ## Timing expectations
 

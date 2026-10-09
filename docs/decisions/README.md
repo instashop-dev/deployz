@@ -34,6 +34,7 @@ Three decisions with substantial detail have their own files:
 | 2026-10-08 | Staging is a second stack in the same account and Cloudflare zone, with the `s-` hostname prefix, and promotion to production needs an approval | Active |
 | 2026-10-09 | Every environment-specific deploy value is a GitHub Environment variable, and the stage gate derives its rules from the stage name | Active |
 | 2026-10-09 | GitHub Actions authenticates to AWS with OIDC and one IAM role for each Environment | Active |
+| 2026-10-09 | One release workflow promotes a commit through staging to production, and the production deploy jobs wait for an approval | Active |
 | 2026-10-10 | A repository with no buildable Dockerfile is NOT_COMPATIBLE when the evidence is complete | Active |
 | 2026-10-10 | An image that runs several supervised application processes (s6-overlay, supervisord) is NOT_COMPATIBLE | Active |
 | 2026-10-12 | A deploy fails closed when the application needs a database or cache that the deployment does not have | Active |
@@ -734,3 +735,54 @@ stage's role by account. A cheaper partial fix is to tag each container
 service and add an `aws:ResourceTag` condition to the three taggable Lightsail
 actions; that needs the owner to tag the existing production service by hand.
 
+
+## One release workflow promotes a commit through staging to production (2026-10-09)
+
+Both deploy workflows started from the same successful CI run on `main` and
+deployed production directly. There was no promotion rule, and nothing in the
+repository could add one: the `deployed/api` and `deployed/web` tags and the
+`deploy-api` and `deploy-web` concurrency groups were repository-wide. A
+staging deploy would move production's tag, so the next production gate would
+compare against the staging commit, see no change and skip. A shared group
+would make a staging deploy wait for a production deploy for no reason.
+
+- `.github/workflows/release.yml` is the one entry point. It triggers on a
+  successful CI run for `main` and releases the staging API and web app, then
+  `staging-verify`, then the production API and web app. `staging-verify`
+  polls staging's API, dashboard and marketing hosts. It is the single node
+  both production jobs depend on, and the only check of the marketing host.
+- The two deploy workflows are reusable workflows that take an `environment`
+  and a `sha`. They keep their own `workflow_dispatch` path for one service, a
+  rollback or a second staging deploy, and that input defaults to `staging`:
+  an operator who forgets the flag must get staging, not production.
+- The approval is the required reviewers on the `production` Environment,
+  which both called deploy jobs declare. A calling job may not declare
+  `environment:`, so the orchestrator cannot hold the approval itself. Both
+  production jobs therefore wait together, and one approval releases both.
+- The deploy tag comes from the environment: `deployed/api` and
+  `deployed/web` for production, `deployed/staging/api` and
+  `deployed/staging/web` for staging. The stage goes before the service in the
+  name, because `refs/tags/deployed/api` is a file and `deployed/api/staging`
+  cannot exist beside it. Each environment's gate compares against its own
+  tag.
+- The concurrency group moved from the workflow to the deploy job and carries
+  the environment. A production job waiting for an approval must not hold a
+  lock that stops the next staging deploy, and workflow-level `concurrency`
+  cannot read `inputs`. `cancel-in-progress` stays `false`: GitHub cancels the
+  running member of a group, which is the one thing that must never happen in
+  the middle of a deploy.
+- Every calling job passes `secrets: inherit` and declares `contents: write`
+  and `id-token: write`. Inherit is needed because an explicit secrets mapping
+  in a job that cannot declare an Environment would resolve every value at the
+  repository level and pass production's secrets into the staging deploy. The
+  permissions are a ceiling, never an elevation: a calling job that declares
+  none hands the called workflow the default token, and both the OIDC step and
+  the tag push fail.
+- The gate's tip-of-`main` check runs before the approval, because the gate
+  declares no Environment. The deploy job therefore re-reads the tip after the
+  approval and fails a commit that has moved, instead of deploying a stale
+  commit.
+
+What would change it: a third stage, or a stage that must be released on its
+own schedule, would need the release order to come from a list of stages
+instead of the two pairs of jobs written out here.
