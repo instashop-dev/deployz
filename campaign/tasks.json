@@ -3614,7 +3614,7 @@
       "phase": 4,
       "title": "Group first-run failures by root cause; queue one fix task per systemic MVP defect family",
       "executor": "opus",
-      "status": "PENDING",
+      "status": "COMPLETE",
       "prerequisites": [
         "P3-GATE"
       ],
@@ -3636,7 +3636,1113 @@
         "Every generated task that needs push, PR, merge or publication lists gate \"publicationPolicyConfirmed\"; every merge follows state.json policy.publication.mergeProcedure"
       ],
       "timeboxMinutes": 25,
-      "notes": []
+      "notes": [
+        "2026-10-09T18:00:02.769Z Opus: COMPLETE. families.md maps every first-run failure (28 gate FA, 7 FR, 6 source, 24 build, 4 run, 13 probes, 23 AI) to one family (F1-F10, H-a, H-b, U, G, E) with compatibility.md vocabulary. Queued 28 tasks before P4-GATE: 3 harness fixes, P4-DIAG-START, 6 product FIX/MERGE pairs, 2 BLOCKED harness fixes (USER DECISION), P4-SYNC-CANDIDATE, P4-RERUN-COMPAT-01..08, P4-RERUN-BUILD-PLAN."
+      ],
+      "attempts": 1
+    },
+    {
+      "id": "P4-FIX-HARNESS-BUILD-INPUTS",
+      "phase": 4,
+      "title": "Harness build inputs equal production (F7): stop when preflight blocks; use manifest dockerfilePath and buildContext",
+      "executor": "campaign-worker",
+      "status": "PENDING",
+      "prerequisites": [
+        "P4-GROUP"
+      ],
+      "gates": [],
+      "requires": [
+        "dependencies-installed"
+      ],
+      "inputs": [
+        "campaign/results/P4-GROUP/families.md",
+        "campaign/results/first-run/build/",
+        "scripts/repository-deployment/",
+        "docs/testing/compatibility.md",
+        "campaign/results/P2-DESIGN/design.md"
+      ],
+      "forbiddenInputs": [
+        "campaign/corpus/holdout.yaml",
+        "campaign/results/holdout/"
+      ],
+      "artifacts": [
+        "campaign/results/P4-FIX-HARNESS-BUILD-INPUTS/result.json",
+        "harness source changes on campaign/fresh-100 (uncommitted; Opus commits after verification)"
+      ],
+      "completionChecks": [
+        "campaign/results/P4-FIX-HARNESS-BUILD-INPUTS/result.json is valid JSON with taskId \"P4-FIX-HARNESS-BUILD-INPUTS\", testedCommit equal to the commit recorded in state.json, a non-empty commands list with exit codes, and every listed evidence path exists",
+        "Change covers family F7 in families.md and touches no product code (only scripts/repository-deployment/ and its docs)",
+        "A deterministic regression test in scripts/repository-deployment/local-build.test.ts fails without the change and passes with it (both runs recorded in result.json)",
+        "`pnpm vitest run --project repository-deployment` passes; `pnpm typecheck:scripts` passes",
+        "No repository-name special case; docs/testing/compatibility.md updated if harness behavior changes",
+        "Existing docs/testing/*/runs/ files are unchanged"
+      ],
+      "timeboxMinutes": 38,
+      "notes": [
+        "2026-10-09 P4-GROUP (Opus): resumable. On stopBy return CONTINUE with progress (files changed, tests run). Scope: (1) when the final manifest has no dockerfilePath (production preflight blocks dockerfile-missing) the build stage records FAIL with reason 'production preflight blocks: dockerfile-missing' and does not build ./Dockerfile; (2) the build uses exactly the manifest dockerfilePath and buildContext that production CodeBuild uses (read the production build pipeline source for the rule); explain the repo-517, 536, 548, 577, 580 differences in result.json notes."
+      ]
+    },
+    {
+      "id": "P4-FIX-HARNESS-RUN-ENV",
+      "phase": 4,
+      "title": "Harness run environment equals production injection (F8): generated keys, database bindings, health-path precedence",
+      "executor": "campaign-worker",
+      "status": "PENDING",
+      "prerequisites": [
+        "P4-GROUP"
+      ],
+      "gates": [],
+      "requires": [
+        "dependencies-installed"
+      ],
+      "inputs": [
+        "campaign/results/P4-GROUP/families.md",
+        "campaign/results/first-run/build/",
+        "scripts/repository-deployment/",
+        "docs/testing/compatibility.md",
+        "campaign/results/P2-DESIGN/design.md"
+      ],
+      "forbiddenInputs": [
+        "campaign/corpus/holdout.yaml",
+        "campaign/results/holdout/"
+      ],
+      "artifacts": [
+        "campaign/results/P4-FIX-HARNESS-RUN-ENV/result.json",
+        "harness source changes on campaign/fresh-100 (uncommitted; Opus commits after verification)"
+      ],
+      "completionChecks": [
+        "campaign/results/P4-FIX-HARNESS-RUN-ENV/result.json is valid JSON with taskId \"P4-FIX-HARNESS-RUN-ENV\", testedCommit equal to the commit recorded in state.json, a non-empty commands list with exit codes, and every listed evidence path exists",
+        "Change covers family F8 in families.md and touches no product code (only scripts/repository-deployment/ and its docs)",
+        "A deterministic regression test in scripts/repository-deployment/local-run.test.ts fails without the change and passes with it (both runs recorded in result.json)",
+        "`pnpm vitest run --project repository-deployment` passes; `pnpm typecheck:scripts` passes",
+        "No repository-name special case; docs/testing/compatibility.md updated if harness behavior changes",
+        "Existing docs/testing/*/runs/ files are unchanged"
+      ],
+      "timeboxMinutes": 38,
+      "notes": [
+        "2026-10-09 P4-GROUP (Opus): resumable. On stopBy return CONTINUE with progress (files changed, tests run). Scope: the local run and the migration task get the same env names that production injects (packages/cdk application stack: generated keys, DATABASE_* parts and URL, manifest database/redis/storage envBindings), and health path precedence follows production (deploy-config vs manifest). Apps that show the defect: repo-529, 534, 543, 551, 556. If a deploy-config.yaml entry is wrong, record it as REPO_CONFIGURATION in notes; do not edit deploy-config.yaml in this task."
+      ]
+    },
+    {
+      "id": "P4-FIX-HARNESS-PROBES",
+      "phase": 4,
+      "title": "Harness probe applicability (F9): a probe that cannot apply reports NOT_APPLICABLE/UNVERIFIED with a reason",
+      "executor": "campaign-worker",
+      "status": "PENDING",
+      "prerequisites": [
+        "P4-GROUP"
+      ],
+      "gates": [],
+      "requires": [
+        "dependencies-installed"
+      ],
+      "inputs": [
+        "campaign/results/P4-GROUP/families.md",
+        "campaign/results/first-run/build/",
+        "scripts/repository-deployment/",
+        "docs/testing/compatibility.md",
+        "campaign/results/P2-DESIGN/design.md"
+      ],
+      "forbiddenInputs": [
+        "campaign/corpus/holdout.yaml",
+        "campaign/results/holdout/"
+      ],
+      "artifacts": [
+        "campaign/results/P4-FIX-HARNESS-PROBES/result.json",
+        "harness source changes on campaign/fresh-100 (uncommitted; Opus commits after verification)"
+      ],
+      "completionChecks": [
+        "campaign/results/P4-FIX-HARNESS-PROBES/result.json is valid JSON with taskId \"P4-FIX-HARNESS-PROBES\", testedCommit equal to the commit recorded in state.json, a non-empty commands list with exit codes, and every listed evidence path exists",
+        "Change covers family F9 in families.md and touches no product code (only scripts/repository-deployment/ and its docs)",
+        "A deterministic regression test in scripts/repository-deployment/local-run.test.ts fails without the change and passes with it (both runs recorded in result.json)",
+        "`pnpm vitest run --project repository-deployment` passes; `pnpm typecheck:scripts` passes",
+        "No repository-name special case; docs/testing/compatibility.md updated if harness behavior changes",
+        "Existing docs/testing/*/runs/ files are unchanged"
+      ],
+      "timeboxMinutes": 38,
+      "notes": [
+        "2026-10-09 P4-GROUP (Opus): resumable. On stopBy return CONTINUE with progress (files changed, tests run). Scope: repo-530 (redis probe on a lazy-connect app), repo-557 (dbWrite on an app that creates no tables). A probe never reports PASS without evidence and never FAIL when its precondition is absent; the reason is recorded."
+      ]
+    },
+    {
+      "id": "P4-DIAG-START",
+      "phase": 4,
+      "title": "Diagnose start/health failures with no recorded cause (F10): repo-502, 514, 523, 573",
+      "executor": "campaign-worker",
+      "status": "PENDING",
+      "prerequisites": [
+        "P4-GROUP"
+      ],
+      "gates": [],
+      "requires": [],
+      "inputs": [
+        "campaign/results/P4-GROUP/families.md",
+        "campaign/results/first-run/build/",
+        "campaign/logs/ (raw logs of the P3-BUILD tasks for these apps; ignored, read-only)",
+        "campaign/corpus/deploy-config.yaml"
+      ],
+      "forbiddenInputs": [
+        "campaign/corpus/holdout.yaml",
+        "campaign/results/holdout/"
+      ],
+      "artifacts": [
+        "campaign/results/P4-DIAG-START/result.json",
+        "campaign/results/P4-DIAG-START/diagnosis.md"
+      ],
+      "completionChecks": [
+        "campaign/results/P4-DIAG-START/result.json is valid JSON with taskId \"P4-DIAG-START\", testedCommit equal to the commit recorded in state.json, a non-empty commands list with exit codes, and every listed evidence path exists",
+        "diagnosis.md maps each of repo-502, 514, 523, 573 to one family in families.md (F8, U, REPO_CONFIGURATION) or a new named systemic family, with the redacted log line or source file that proves it",
+        "No code change, no Docker run, no deploy-config change"
+      ],
+      "timeboxMinutes": 25,
+      "notes": [
+        "2026-10-09 P4-GROUP (Opus): read-only diagnosis. If the evidence does not prove a cause, record UNDIAGNOSED with what is missing. Opus queues a fix only for a systemic MVP defect."
+      ]
+    },
+    {
+      "id": "P4-FIX-UNBUILDABLE-DOCKERFILE",
+      "phase": 4,
+      "title": "Fix F1: Gate accepts an app with no buildable Dockerfile (focused PR)",
+      "executor": "campaign-worker",
+      "status": "PENDING",
+      "prerequisites": [
+        "P4-GROUP"
+      ],
+      "gates": [
+        "publicationPolicyConfirmed"
+      ],
+      "requires": [
+        "github-auth",
+        "dependencies-installed"
+      ],
+      "inputs": [
+        "campaign/results/P4-GROUP/families.md",
+        "campaign/results/first-run/compat/",
+        "campaign/results/first-run/build/",
+        "campaign/corpus/label-rules.md",
+        "docs/testing/compatibility.md",
+        "docs/testing/repository-compatibility/findings.md",
+        "docs/product/mvp-scope.md",
+        "packages/analysis/",
+        "apps/api/src/"
+      ],
+      "forbiddenInputs": [
+        "campaign/corpus/holdout.yaml",
+        "campaign/results/holdout/"
+      ],
+      "artifacts": [
+        "campaign/results/P4-FIX-UNBUILDABLE-DOCKERFILE/result.json",
+        "branch campaign/fix-unbuildable-dockerfile pushed; PR against main"
+      ],
+      "completionChecks": [
+        "campaign/results/P4-FIX-UNBUILDABLE-DOCKERFILE/result.json is valid JSON with taskId \"P4-FIX-UNBUILDABLE-DOCKERFILE\", testedCommit equal to the commit recorded in state.json, a non-empty commands list with exit codes, and every listed evidence path exists",
+        "Branch campaign/fix-unbuildable-dockerfile starts from the current origin/main and contains only the F1 fix, its regression test, docs and the ANALYSIS_VERSION bump if analysis output changes",
+        "The regression test in packages/analysis/test/fresh-100-unbuildable-dockerfile.test.ts fails on origin/main and passes on the branch (both recorded); it uses fixtures, not repository names",
+        "Targeted vitest projects, `pnpm typecheck` and `pnpm test:affected` pass locally; results recorded",
+        "A findings.md COMP entry records the family, apps, fix and regression",
+        "PR opened against main (policy.publication.openPullRequests); PR number and head SHA recorded; the staged diff passed a secret/redaction grep",
+        "No repository-name special case"
+      ],
+      "timeboxMinutes": 38,
+      "notes": [
+        "2026-10-09 P4-GROUP (Opus): resumable (stopBy). On CONTINUE record the branch, last pushed SHA and remaining steps. Do not merge; P4-MERGE-UNBUILDABLE-DOCKERFILE merges. Respect COMP-021: reject only when the evidence is complete (tree not truncated, no other candidate Dockerfile; never for COPY --from= or generated directories). Template Dockerfiles ({{ ... }}) and development-only Dockerfiles count as not buildable. The verdict meaning changes: update docs/product/mvp-scope.md and docs/decisions/README.md, and the vendor-facing copy (copy-map parity) if a finding message changes."
+      ]
+    },
+    {
+      "id": "P4-MERGE-UNBUILDABLE-DOCKERFILE",
+      "phase": 4,
+      "title": "Review and merge the F1 fix PR (mergeProcedure); watch CI on main and deploys",
+      "executor": "opus",
+      "status": "PENDING",
+      "prerequisites": [
+        "P4-FIX-UNBUILDABLE-DOCKERFILE"
+      ],
+      "gates": [
+        "publicationPolicyConfirmed"
+      ],
+      "requires": [
+        "github-auth"
+      ],
+      "inputs": [
+        "campaign/results/P4-FIX-UNBUILDABLE-DOCKERFILE/result.json"
+      ],
+      "forbiddenInputs": [
+        "campaign/corpus/holdout.yaml",
+        "campaign/results/holdout/"
+      ],
+      "artifacts": [
+        "campaign/results/P4-MERGE-UNBUILDABLE-DOCKERFILE/review.md"
+      ],
+      "completionChecks": [
+        "Every step of state.json policy.publication.mergeProcedure is recorded in review.md with the reviewed headRefOid",
+        "Merged with gh api -X PUT .../merge -f sha=<headRefOid>; merge commit recorded in state.json mergedPullRequests",
+        "CI on main and any triggered Deploy API / Deploy web run finished SUCCESS (recorded); a failure stops merges and is recorded as a release blocker"
+      ],
+      "timeboxMinutes": 20,
+      "notes": [
+        "2026-10-09 P4-GROUP (Opus): checks still running = CONTINUE (not a failure). A review finding sends the task back to P4-FIX-UNBUILDABLE-DOCKERFILE (READY with the finding in its notes)."
+      ]
+    },
+    {
+      "id": "P4-FIX-FALSE-REJECTION",
+      "phase": 4,
+      "title": "Fix F4: Gate rejects an app whose blocker a supported configuration removes (focused PR)",
+      "executor": "campaign-worker",
+      "status": "PENDING",
+      "prerequisites": [
+        "P4-MERGE-UNBUILDABLE-DOCKERFILE"
+      ],
+      "gates": [
+        "publicationPolicyConfirmed"
+      ],
+      "requires": [
+        "github-auth",
+        "dependencies-installed"
+      ],
+      "inputs": [
+        "campaign/results/P4-GROUP/families.md",
+        "campaign/results/first-run/compat/",
+        "campaign/results/first-run/build/",
+        "campaign/corpus/label-rules.md",
+        "docs/testing/compatibility.md",
+        "docs/testing/repository-compatibility/findings.md",
+        "docs/product/mvp-scope.md",
+        "packages/analysis/",
+        "apps/api/src/"
+      ],
+      "forbiddenInputs": [
+        "campaign/corpus/holdout.yaml",
+        "campaign/results/holdout/"
+      ],
+      "artifacts": [
+        "campaign/results/P4-FIX-FALSE-REJECTION/result.json",
+        "branch campaign/fix-false-rejection pushed; PR against main"
+      ],
+      "completionChecks": [
+        "campaign/results/P4-FIX-FALSE-REJECTION/result.json is valid JSON with taskId \"P4-FIX-FALSE-REJECTION\", testedCommit equal to the commit recorded in state.json, a non-empty commands list with exit codes, and every listed evidence path exists",
+        "Branch campaign/fix-false-rejection starts from the current origin/main and contains only the F4 fix, its regression test, docs and the ANALYSIS_VERSION bump if analysis output changes",
+        "The regression test in packages/analysis/test/false-rejection-scoping.test.ts fails on origin/main and passes on the branch (both recorded); it uses fixtures, not repository names",
+        "Targeted vitest projects, `pnpm typecheck` and `pnpm test:affected` pass locally; results recorded",
+        "A findings.md COMP entry records the family, apps, fix and regression",
+        "PR opened against main (policy.publication.openPullRequests); PR number and head SHA recorded; the staged diff passed a secret/redaction grep",
+        "No repository-name special case"
+      ],
+      "timeboxMinutes": 38,
+      "notes": [
+        "2026-10-09 P4-GROUP (Opus): resumable (stopBy). On CONTINUE record the branch, last pushed SHA and remaining steps. Do not merge; P4-MERGE-FALSE-REJECTION merges. Apps: repo-503, 509, 516, 520, 547, 563, 569. Keep the rejection when no supported configuration removes the blocker (label-rules.md R1). Do not weaken a rejection that another regression test protects."
+      ]
+    },
+    {
+      "id": "P4-MERGE-FALSE-REJECTION",
+      "phase": 4,
+      "title": "Review and merge the F4 fix PR (mergeProcedure); watch CI on main and deploys",
+      "executor": "opus",
+      "status": "PENDING",
+      "prerequisites": [
+        "P4-FIX-FALSE-REJECTION"
+      ],
+      "gates": [
+        "publicationPolicyConfirmed"
+      ],
+      "requires": [
+        "github-auth"
+      ],
+      "inputs": [
+        "campaign/results/P4-FIX-FALSE-REJECTION/result.json"
+      ],
+      "forbiddenInputs": [
+        "campaign/corpus/holdout.yaml",
+        "campaign/results/holdout/"
+      ],
+      "artifacts": [
+        "campaign/results/P4-MERGE-FALSE-REJECTION/review.md"
+      ],
+      "completionChecks": [
+        "Every step of state.json policy.publication.mergeProcedure is recorded in review.md with the reviewed headRefOid",
+        "Merged with gh api -X PUT .../merge -f sha=<headRefOid>; merge commit recorded in state.json mergedPullRequests",
+        "CI on main and any triggered Deploy API / Deploy web run finished SUCCESS (recorded); a failure stops merges and is recorded as a release blocker"
+      ],
+      "timeboxMinutes": 20,
+      "notes": [
+        "2026-10-09 P4-GROUP (Opus): checks still running = CONTINUE (not a failure). A review finding sends the task back to P4-FIX-FALSE-REJECTION (READY with the finding in its notes)."
+      ]
+    },
+    {
+      "id": "P4-FIX-LOCAL-STATE",
+      "phase": 4,
+      "title": "Fix F2: Local state or mounted configuration not detected (focused PR)",
+      "executor": "campaign-worker",
+      "status": "PENDING",
+      "prerequisites": [
+        "P4-MERGE-FALSE-REJECTION"
+      ],
+      "gates": [
+        "publicationPolicyConfirmed"
+      ],
+      "requires": [
+        "github-auth",
+        "dependencies-installed"
+      ],
+      "inputs": [
+        "campaign/results/P4-GROUP/families.md",
+        "campaign/results/first-run/compat/",
+        "campaign/results/first-run/build/",
+        "campaign/corpus/label-rules.md",
+        "docs/testing/compatibility.md",
+        "docs/testing/repository-compatibility/findings.md",
+        "docs/product/mvp-scope.md",
+        "packages/analysis/",
+        "apps/api/src/"
+      ],
+      "forbiddenInputs": [
+        "campaign/corpus/holdout.yaml",
+        "campaign/results/holdout/"
+      ],
+      "artifacts": [
+        "campaign/results/P4-FIX-LOCAL-STATE/result.json",
+        "branch campaign/fix-local-state pushed; PR against main"
+      ],
+      "completionChecks": [
+        "campaign/results/P4-FIX-LOCAL-STATE/result.json is valid JSON with taskId \"P4-FIX-LOCAL-STATE\", testedCommit equal to the commit recorded in state.json, a non-empty commands list with exit codes, and every listed evidence path exists",
+        "Branch campaign/fix-local-state starts from the current origin/main and contains only the F2 fix, its regression test, docs and the ANALYSIS_VERSION bump if analysis output changes",
+        "The regression test in packages/analysis/test/fresh-100-local-state.test.ts fails on origin/main and passes on the branch (both recorded); it uses fixtures, not repository names",
+        "Targeted vitest projects, `pnpm typecheck` and `pnpm test:affected` pass locally; results recorded",
+        "A findings.md COMP entry records the family, apps, fix and regression",
+        "PR opened against main (policy.publication.openPullRequests); PR number and head SHA recorded; the staged diff passed a secret/redaction grep",
+        "No repository-name special case"
+      ],
+      "timeboxMinutes": 38,
+      "notes": [
+        "2026-10-09 P4-GROUP (Opus): resumable (stopBy). On CONTINUE record the branch, last pushed SHA and remaining steps. Do not merge; P4-MERGE-LOCAL-STATE merges. Apps: repo-510, 522, 528, 529, 552, 557, 593. Add only signals that are sound on more than one app and do not break existing regression tests; record the rest as a limitation (COMP entry) in docs/testing/repository-compatibility/findings.md."
+      ]
+    },
+    {
+      "id": "P4-MERGE-LOCAL-STATE",
+      "phase": 4,
+      "title": "Review and merge the F2 fix PR (mergeProcedure); watch CI on main and deploys",
+      "executor": "opus",
+      "status": "PENDING",
+      "prerequisites": [
+        "P4-FIX-LOCAL-STATE"
+      ],
+      "gates": [
+        "publicationPolicyConfirmed"
+      ],
+      "requires": [
+        "github-auth"
+      ],
+      "inputs": [
+        "campaign/results/P4-FIX-LOCAL-STATE/result.json"
+      ],
+      "forbiddenInputs": [
+        "campaign/corpus/holdout.yaml",
+        "campaign/results/holdout/"
+      ],
+      "artifacts": [
+        "campaign/results/P4-MERGE-LOCAL-STATE/review.md"
+      ],
+      "completionChecks": [
+        "Every step of state.json policy.publication.mergeProcedure is recorded in review.md with the reviewed headRefOid",
+        "Merged with gh api -X PUT .../merge -f sha=<headRefOid>; merge commit recorded in state.json mergedPullRequests",
+        "CI on main and any triggered Deploy API / Deploy web run finished SUCCESS (recorded); a failure stops merges and is recorded as a release blocker"
+      ],
+      "timeboxMinutes": 20,
+      "notes": [
+        "2026-10-09 P4-GROUP (Opus): checks still running = CONTINUE (not a failure). A review finding sends the task back to P4-FIX-LOCAL-STATE (READY with the finding in its notes)."
+      ]
+    },
+    {
+      "id": "P4-FIX-START-COMMAND",
+      "phase": 4,
+      "title": "Fix F3: Multi-process image or no default server command not detected (focused PR)",
+      "executor": "campaign-worker",
+      "status": "PENDING",
+      "prerequisites": [
+        "P4-MERGE-LOCAL-STATE"
+      ],
+      "gates": [
+        "publicationPolicyConfirmed"
+      ],
+      "requires": [
+        "github-auth",
+        "dependencies-installed"
+      ],
+      "inputs": [
+        "campaign/results/P4-GROUP/families.md",
+        "campaign/results/first-run/compat/",
+        "campaign/results/first-run/build/",
+        "campaign/corpus/label-rules.md",
+        "docs/testing/compatibility.md",
+        "docs/testing/repository-compatibility/findings.md",
+        "docs/product/mvp-scope.md",
+        "packages/analysis/",
+        "apps/api/src/"
+      ],
+      "forbiddenInputs": [
+        "campaign/corpus/holdout.yaml",
+        "campaign/results/holdout/"
+      ],
+      "artifacts": [
+        "campaign/results/P4-FIX-START-COMMAND/result.json",
+        "branch campaign/fix-start-command pushed; PR against main"
+      ],
+      "completionChecks": [
+        "campaign/results/P4-FIX-START-COMMAND/result.json is valid JSON with taskId \"P4-FIX-START-COMMAND\", testedCommit equal to the commit recorded in state.json, a non-empty commands list with exit codes, and every listed evidence path exists",
+        "Branch campaign/fix-start-command starts from the current origin/main and contains only the F3 fix, its regression test, docs and the ANALYSIS_VERSION bump if analysis output changes",
+        "The regression test in packages/analysis/test/fresh-100-start-command.test.ts fails on origin/main and passes on the branch (both recorded); it uses fixtures, not repository names",
+        "Targeted vitest projects, `pnpm typecheck` and `pnpm test:affected` pass locally; results recorded",
+        "A findings.md COMP entry records the family, apps, fix and regression",
+        "PR opened against main (policy.publication.openPullRequests); PR number and head SHA recorded; the staged diff passed a secret/redaction grep",
+        "No repository-name special case"
+      ],
+      "timeboxMinutes": 38,
+      "notes": [
+        "2026-10-09 P4-GROUP (Opus): resumable (stopBy). On CONTINUE record the branch, last pushed SHA and remaining steps. Do not merge; P4-MERGE-START-COMMAND merges. Apps: repo-549, 566, 580. ENTRYPOINT without CMD and an image whose default command is a CLI help must raise start-command-missing; a multi-process supervisor (s6, supervisord) running separate web/api/worker processes must be flagged per mvp-scope.md."
+      ]
+    },
+    {
+      "id": "P4-MERGE-START-COMMAND",
+      "phase": 4,
+      "title": "Review and merge the F3 fix PR (mergeProcedure); watch CI on main and deploys",
+      "executor": "opus",
+      "status": "PENDING",
+      "prerequisites": [
+        "P4-FIX-START-COMMAND"
+      ],
+      "gates": [
+        "publicationPolicyConfirmed"
+      ],
+      "requires": [
+        "github-auth"
+      ],
+      "inputs": [
+        "campaign/results/P4-FIX-START-COMMAND/result.json"
+      ],
+      "forbiddenInputs": [
+        "campaign/corpus/holdout.yaml",
+        "campaign/results/holdout/"
+      ],
+      "artifacts": [
+        "campaign/results/P4-MERGE-START-COMMAND/review.md"
+      ],
+      "completionChecks": [
+        "Every step of state.json policy.publication.mergeProcedure is recorded in review.md with the reviewed headRefOid",
+        "Merged with gh api -X PUT .../merge -f sha=<headRefOid>; merge commit recorded in state.json mergedPullRequests",
+        "CI on main and any triggered Deploy API / Deploy web run finished SUCCESS (recorded); a failure stops merges and is recorded as a release blocker"
+      ],
+      "timeboxMinutes": 20,
+      "notes": [
+        "2026-10-09 P4-GROUP (Opus): checks still running = CONTINUE (not a failure). A review finding sends the task back to P4-FIX-START-COMMAND (READY with the finding in its notes)."
+      ]
+    },
+    {
+      "id": "P4-FIX-MIGRATION-RUNTIME",
+      "phase": 4,
+      "title": "Fix F6: Migration command not runnable in the runtime image (focused PR)",
+      "executor": "campaign-worker",
+      "status": "PENDING",
+      "prerequisites": [
+        "P4-MERGE-START-COMMAND"
+      ],
+      "gates": [
+        "publicationPolicyConfirmed"
+      ],
+      "requires": [
+        "github-auth",
+        "dependencies-installed"
+      ],
+      "inputs": [
+        "campaign/results/P4-GROUP/families.md",
+        "campaign/results/first-run/compat/",
+        "campaign/results/first-run/build/",
+        "campaign/corpus/label-rules.md",
+        "docs/testing/compatibility.md",
+        "docs/testing/repository-compatibility/findings.md",
+        "docs/product/mvp-scope.md",
+        "packages/analysis/",
+        "apps/api/src/"
+      ],
+      "forbiddenInputs": [
+        "campaign/corpus/holdout.yaml",
+        "campaign/results/holdout/"
+      ],
+      "artifacts": [
+        "campaign/results/P4-FIX-MIGRATION-RUNTIME/result.json",
+        "branch campaign/fix-migration-runtime pushed; PR against main"
+      ],
+      "completionChecks": [
+        "campaign/results/P4-FIX-MIGRATION-RUNTIME/result.json is valid JSON with taskId \"P4-FIX-MIGRATION-RUNTIME\", testedCommit equal to the commit recorded in state.json, a non-empty commands list with exit codes, and every listed evidence path exists",
+        "Branch campaign/fix-migration-runtime starts from the current origin/main and contains only the F6 fix, its regression test, docs and the ANALYSIS_VERSION bump if analysis output changes",
+        "The regression test in packages/analysis/test/fresh-100-migration-runtime.test.ts fails on origin/main and passes on the branch (both recorded); it uses fixtures, not repository names",
+        "Targeted vitest projects, `pnpm typecheck` and `pnpm test:affected` pass locally; results recorded",
+        "A findings.md COMP entry records the family, apps, fix and regression",
+        "PR opened against main (policy.publication.openPullRequests); PR number and head SHA recorded; the staged diff passed a secret/redaction grep",
+        "No repository-name special case"
+      ],
+      "timeboxMinutes": 38,
+      "notes": [
+        "2026-10-09 P4-GROUP (Opus): resumable (stopBy). On CONTINUE record the branch, last pushed SHA and remaining steps. Do not merge; P4-MERGE-MIGRATION-RUNTIME merges. App: repo-560 (vite-node not in the runtime image, exit 127). Read docs/deployment-resilience.md before a change that affects the migration task."
+      ]
+    },
+    {
+      "id": "P4-MERGE-MIGRATION-RUNTIME",
+      "phase": 4,
+      "title": "Review and merge the F6 fix PR (mergeProcedure); watch CI on main and deploys",
+      "executor": "opus",
+      "status": "PENDING",
+      "prerequisites": [
+        "P4-FIX-MIGRATION-RUNTIME"
+      ],
+      "gates": [
+        "publicationPolicyConfirmed"
+      ],
+      "requires": [
+        "github-auth"
+      ],
+      "inputs": [
+        "campaign/results/P4-FIX-MIGRATION-RUNTIME/result.json"
+      ],
+      "forbiddenInputs": [
+        "campaign/corpus/holdout.yaml",
+        "campaign/results/holdout/"
+      ],
+      "artifacts": [
+        "campaign/results/P4-MERGE-MIGRATION-RUNTIME/review.md"
+      ],
+      "completionChecks": [
+        "Every step of state.json policy.publication.mergeProcedure is recorded in review.md with the reviewed headRefOid",
+        "Merged with gh api -X PUT .../merge -f sha=<headRefOid>; merge commit recorded in state.json mergedPullRequests",
+        "CI on main and any triggered Deploy API / Deploy web run finished SUCCESS (recorded); a failure stops merges and is recorded as a release blocker"
+      ],
+      "timeboxMinutes": 20,
+      "notes": [
+        "2026-10-09 P4-GROUP (Opus): checks still running = CONTINUE (not a failure). A review finding sends the task back to P4-FIX-MIGRATION-RUNTIME (READY with the finding in its notes)."
+      ]
+    },
+    {
+      "id": "P4-FIX-AI-RELIABILITY",
+      "phase": 4,
+      "title": "Fix F5: Live repository AI gives no usable result (timeouts and parse errors) (focused PR)",
+      "executor": "campaign-worker",
+      "status": "PENDING",
+      "prerequisites": [
+        "P4-MERGE-MIGRATION-RUNTIME"
+      ],
+      "gates": [
+        "publicationPolicyConfirmed"
+      ],
+      "requires": [
+        "github-auth",
+        "dependencies-installed",
+        "ai-gateway"
+      ],
+      "inputs": [
+        "campaign/results/P4-GROUP/families.md",
+        "campaign/results/first-run/compat/",
+        "campaign/results/first-run/build/",
+        "campaign/corpus/label-rules.md",
+        "docs/testing/compatibility.md",
+        "docs/testing/repository-compatibility/findings.md",
+        "docs/product/mvp-scope.md",
+        "packages/analysis/",
+        "apps/api/src/"
+      ],
+      "forbiddenInputs": [
+        "campaign/corpus/holdout.yaml",
+        "campaign/results/holdout/"
+      ],
+      "artifacts": [
+        "campaign/results/P4-FIX-AI-RELIABILITY/result.json",
+        "branch campaign/fix-ai-reliability pushed; PR against main"
+      ],
+      "completionChecks": [
+        "campaign/results/P4-FIX-AI-RELIABILITY/result.json is valid JSON with taskId \"P4-FIX-AI-RELIABILITY\", testedCommit equal to the commit recorded in state.json, a non-empty commands list with exit codes, and every listed evidence path exists",
+        "Branch campaign/fix-ai-reliability starts from the current origin/main and contains only the F5 fix, its regression test, docs and the ANALYSIS_VERSION bump if analysis output changes",
+        "The regression test in packages/analysis/test/repository-ai.test.ts fails on origin/main and passes on the branch (both recorded); it uses fixtures, not repository names",
+        "Targeted vitest projects, `pnpm typecheck` and `pnpm test:affected` pass locally; results recorded",
+        "A findings.md COMP entry records the family, apps, fix and regression",
+        "PR opened against main (policy.publication.openPullRequests); PR number and head SHA recorded; the staged diff passed a secret/redaction grep",
+        "No repository-name special case"
+      ],
+      "timeboxMinutes": 38,
+      "notes": [
+        "2026-10-09 P4-GROUP (Opus): resumable (stopBy). On CONTINUE record the branch, last pushed SHA and remaining steps. Do not merge; P4-MERGE-AI-RELIABILITY merges. First diagnose the 13 parse errors from redacted evidence (campaign/results/first-run/compat/ ai.error) and fix the parser deterministically. Change the 30 s timeout only with measured evidence and record the latency numbers. A live AI probe needs ai-gateway (node --env-file=.env); never print .env values."
+      ]
+    },
+    {
+      "id": "P4-MERGE-AI-RELIABILITY",
+      "phase": 4,
+      "title": "Review and merge the F5 fix PR (mergeProcedure); watch CI on main and deploys",
+      "executor": "opus",
+      "status": "PENDING",
+      "prerequisites": [
+        "P4-FIX-AI-RELIABILITY"
+      ],
+      "gates": [
+        "publicationPolicyConfirmed"
+      ],
+      "requires": [
+        "github-auth"
+      ],
+      "inputs": [
+        "campaign/results/P4-FIX-AI-RELIABILITY/result.json"
+      ],
+      "forbiddenInputs": [
+        "campaign/corpus/holdout.yaml",
+        "campaign/results/holdout/"
+      ],
+      "artifacts": [
+        "campaign/results/P4-MERGE-AI-RELIABILITY/review.md"
+      ],
+      "completionChecks": [
+        "Every step of state.json policy.publication.mergeProcedure is recorded in review.md with the reviewed headRefOid",
+        "Merged with gh api -X PUT .../merge -f sha=<headRefOid>; merge commit recorded in state.json mergedPullRequests",
+        "CI on main and any triggered Deploy API / Deploy web run finished SUCCESS (recorded); a failure stops merges and is recorded as a release blocker"
+      ],
+      "timeboxMinutes": 20,
+      "notes": [
+        "2026-10-09 P4-GROUP (Opus): checks still running = CONTINUE (not a failure). A review finding sends the task back to P4-FIX-AI-RELIABILITY (READY with the finding in its notes)."
+      ]
+    },
+    {
+      "id": "P4-FIX-HARNESS-TAR",
+      "phase": 4,
+      "title": "Harness source stage on Windows (H-a): symlinks and deterministic extraction",
+      "executor": "campaign-worker",
+      "status": "BLOCKED",
+      "prerequisites": [
+        "P4-GROUP"
+      ],
+      "gates": [],
+      "requires": [
+        "dependencies-installed"
+      ],
+      "inputs": [
+        "campaign/results/P4-GROUP/families.md",
+        "campaign/results/first-run/build/",
+        "scripts/repository-deployment/",
+        "docs/testing/compatibility.md",
+        "campaign/results/P2-DESIGN/design.md"
+      ],
+      "forbiddenInputs": [
+        "campaign/corpus/holdout.yaml",
+        "campaign/results/holdout/"
+      ],
+      "artifacts": [
+        "campaign/results/P4-FIX-HARNESS-TAR/result.json",
+        "harness source changes on campaign/fresh-100 (uncommitted; Opus commits after verification)"
+      ],
+      "completionChecks": [
+        "campaign/results/P4-FIX-HARNESS-TAR/result.json is valid JSON with taskId \"P4-FIX-HARNESS-TAR\", testedCommit equal to the commit recorded in state.json, a non-empty commands list with exit codes, and every listed evidence path exists",
+        "Change covers family H-a in families.md and touches no product code (only scripts/repository-deployment/ and its docs)",
+        "A deterministic regression test in scripts/repository-deployment/local-build.test.ts fails without the change and passes with it (both runs recorded in result.json)",
+        "`pnpm vitest run --project repository-deployment` passes; `pnpm typecheck:scripts` passes",
+        "No repository-name special case; docs/testing/compatibility.md updated if harness behavior changes",
+        "Existing docs/testing/*/runs/ files are unchanged"
+      ],
+      "timeboxMinutes": 38,
+      "notes": [
+        "2026-10-09 P4-GROUP (Opus): BLOCKED: USER DECISION open since Phase 3: how the source stage should extract snapshots with symlinks on Windows (repo-501, 507, 508, 511, 528, 574; repo-513 flaky). Do not start until the user decides (state READY)."
+      ]
+    },
+    {
+      "id": "P4-FIX-HARNESS-READINESS",
+      "phase": 4,
+      "title": "Harness dependency readiness window (H-b): image pull outside the 90 s window",
+      "executor": "campaign-worker",
+      "status": "BLOCKED",
+      "prerequisites": [
+        "P4-GROUP"
+      ],
+      "gates": [],
+      "requires": [
+        "dependencies-installed"
+      ],
+      "inputs": [
+        "campaign/results/P4-GROUP/families.md",
+        "campaign/results/first-run/build/",
+        "scripts/repository-deployment/",
+        "docs/testing/compatibility.md",
+        "campaign/results/P2-DESIGN/design.md"
+      ],
+      "forbiddenInputs": [
+        "campaign/corpus/holdout.yaml",
+        "campaign/results/holdout/"
+      ],
+      "artifacts": [
+        "campaign/results/P4-FIX-HARNESS-READINESS/result.json",
+        "harness source changes on campaign/fresh-100 (uncommitted; Opus commits after verification)"
+      ],
+      "completionChecks": [
+        "campaign/results/P4-FIX-HARNESS-READINESS/result.json is valid JSON with taskId \"P4-FIX-HARNESS-READINESS\", testedCommit equal to the commit recorded in state.json, a non-empty commands list with exit codes, and every listed evidence path exists",
+        "Change covers family H-b in families.md and touches no product code (only scripts/repository-deployment/ and its docs)",
+        "A deterministic regression test in scripts/repository-deployment/local-run.test.ts fails without the change and passes with it (both runs recorded in result.json)",
+        "`pnpm vitest run --project repository-deployment` passes; `pnpm typecheck:scripts` passes",
+        "No repository-name special case; docs/testing/compatibility.md updated if harness behavior changes",
+        "Existing docs/testing/*/runs/ files are unchanged"
+      ],
+      "timeboxMinutes": 38,
+      "notes": [
+        "2026-10-09 P4-GROUP (Opus): BLOCKED: USER DECISION open since Phase 3: whether the readiness window excludes the first image pull (repo-513 SeaweedFS). Do not start until the user decides (state READY)."
+      ]
+    },
+    {
+      "id": "P4-SYNC-CANDIDATE",
+      "phase": 4,
+      "title": "Merge origin/main (merged fixes) into campaign/fresh-100, rebuild, record the rerun tested commit",
+      "executor": "opus",
+      "status": "PENDING",
+      "prerequisites": [
+        "P4-FIX-HARNESS-BUILD-INPUTS",
+        "P4-FIX-HARNESS-RUN-ENV",
+        "P4-FIX-HARNESS-PROBES",
+        "P4-DIAG-START",
+        "P4-MERGE-AI-RELIABILITY"
+      ],
+      "gates": [
+        "publicationPolicyConfirmed"
+      ],
+      "requires": [
+        "github-auth",
+        "dependencies-installed"
+      ],
+      "inputs": [],
+      "forbiddenInputs": [
+        "campaign/corpus/holdout.yaml",
+        "campaign/results/holdout/"
+      ],
+      "artifacts": [
+        "campaign/results/P4-SYNC-CANDIDATE/result.md"
+      ],
+      "completionChecks": [
+        "campaign/fresh-100 contains every merged P4 fix commit; pnpm install --frozen-lockfile and pnpm build pass; apps/api/dist and packages/*/dist rebuilt",
+        "state.json records the rerun tested commit and ANALYSIS_VERSION; baseline stays unchanged (first-run results keep the baseline)",
+        "pnpm vitest run --project repository-compatibility and --project repository-deployment pass"
+      ],
+      "timeboxMinutes": 25,
+      "notes": [
+        "2026-10-09 P4-GROUP (Opus): if P4-FIX-HARNESS-TAR/READINESS are still BLOCKED, the reruns record those stages as harness failures; record that in result.md."
+      ]
+    },
+    {
+      "id": "P4-RERUN-COMPAT-01",
+      "phase": 4,
+      "title": "Final Stage A compatibility rerun for improvement apps 1-10",
+      "executor": "campaign-worker",
+      "status": "PENDING",
+      "prerequisites": [
+        "P4-SYNC-CANDIDATE"
+      ],
+      "gates": [],
+      "requires": [
+        "github-auth",
+        "ai-gateway"
+      ],
+      "inputs": [
+        "campaign/corpus/benchmark.yaml"
+      ],
+      "forbiddenInputs": [
+        "campaign/corpus/holdout.yaml",
+        "campaign/results/holdout/"
+      ],
+      "artifacts": [
+        "campaign/results/final/compat/ (10 files)",
+        "campaign/results/P4-RERUN-COMPAT-01/result.json"
+      ],
+      "completionChecks": [
+        "campaign/results/P4-RERUN-COMPAT-01/result.json is valid JSON with taskId \"P4-RERUN-COMPAT-01\", testedCommit equal to the commit recorded in state.json, a non-empty commands list with exit codes, and every listed evidence path exists",
+        "One result per app with analysis outcome, gate state, compared facts and mismatches; a failed analysis is recorded, not skipped",
+        "AI mode equals the baseline AI mode; testedCommit and analysisVersion equal the P4-SYNC-CANDIDATE values",
+        "campaign/results/first-run/ is unchanged"
+      ],
+      "timeboxMinutes": 15,
+      "notes": [
+        "2026-10-09 P4-GROUP (Opus): apps repo-501, repo-502, repo-503, repo-505, repo-507, repo-508, repo-509, repo-510, repo-511, repo-513. Command: node --env-file=.env node_modules/.bin/tsx scripts/repository-compatibility/index.ts --ai live --benchmark campaign/corpus/benchmark.yaml --runs-dir campaign/results/final/compat/ --repo repo-501 --repo repo-502 --repo repo-503 --repo repo-505 --repo repo-507 --repo repo-508 --repo repo-509 --repo repo-510 --repo repo-511 --repo repo-513 (no --cache)."
+      ]
+    },
+    {
+      "id": "P4-RERUN-COMPAT-02",
+      "phase": 4,
+      "title": "Final Stage A compatibility rerun for improvement apps 11-20",
+      "executor": "campaign-worker",
+      "status": "PENDING",
+      "prerequisites": [
+        "P4-RERUN-COMPAT-01"
+      ],
+      "gates": [],
+      "requires": [
+        "github-auth",
+        "ai-gateway"
+      ],
+      "inputs": [
+        "campaign/corpus/benchmark.yaml"
+      ],
+      "forbiddenInputs": [
+        "campaign/corpus/holdout.yaml",
+        "campaign/results/holdout/"
+      ],
+      "artifacts": [
+        "campaign/results/final/compat/ (10 files)",
+        "campaign/results/P4-RERUN-COMPAT-02/result.json"
+      ],
+      "completionChecks": [
+        "campaign/results/P4-RERUN-COMPAT-02/result.json is valid JSON with taskId \"P4-RERUN-COMPAT-02\", testedCommit equal to the commit recorded in state.json, a non-empty commands list with exit codes, and every listed evidence path exists",
+        "One result per app with analysis outcome, gate state, compared facts and mismatches; a failed analysis is recorded, not skipped",
+        "AI mode equals the baseline AI mode; testedCommit and analysisVersion equal the P4-SYNC-CANDIDATE values",
+        "campaign/results/first-run/ is unchanged"
+      ],
+      "timeboxMinutes": 15,
+      "notes": [
+        "2026-10-09 P4-GROUP (Opus): apps repo-514, repo-515, repo-516, repo-517, repo-518, repo-519, repo-520, repo-522, repo-523, repo-524. Command: node --env-file=.env node_modules/.bin/tsx scripts/repository-compatibility/index.ts --ai live --benchmark campaign/corpus/benchmark.yaml --runs-dir campaign/results/final/compat/ --repo repo-514 --repo repo-515 --repo repo-516 --repo repo-517 --repo repo-518 --repo repo-519 --repo repo-520 --repo repo-522 --repo repo-523 --repo repo-524 (no --cache)."
+      ]
+    },
+    {
+      "id": "P4-RERUN-COMPAT-03",
+      "phase": 4,
+      "title": "Final Stage A compatibility rerun for improvement apps 21-30",
+      "executor": "campaign-worker",
+      "status": "PENDING",
+      "prerequisites": [
+        "P4-RERUN-COMPAT-02"
+      ],
+      "gates": [],
+      "requires": [
+        "github-auth",
+        "ai-gateway"
+      ],
+      "inputs": [
+        "campaign/corpus/benchmark.yaml"
+      ],
+      "forbiddenInputs": [
+        "campaign/corpus/holdout.yaml",
+        "campaign/results/holdout/"
+      ],
+      "artifacts": [
+        "campaign/results/final/compat/ (10 files)",
+        "campaign/results/P4-RERUN-COMPAT-03/result.json"
+      ],
+      "completionChecks": [
+        "campaign/results/P4-RERUN-COMPAT-03/result.json is valid JSON with taskId \"P4-RERUN-COMPAT-03\", testedCommit equal to the commit recorded in state.json, a non-empty commands list with exit codes, and every listed evidence path exists",
+        "One result per app with analysis outcome, gate state, compared facts and mismatches; a failed analysis is recorded, not skipped",
+        "AI mode equals the baseline AI mode; testedCommit and analysisVersion equal the P4-SYNC-CANDIDATE values",
+        "campaign/results/first-run/ is unchanged"
+      ],
+      "timeboxMinutes": 15,
+      "notes": [
+        "2026-10-09 P4-GROUP (Opus): apps repo-525, repo-528, repo-529, repo-530, repo-534, repo-536, repo-537, repo-538, repo-539, repo-540. Command: node --env-file=.env node_modules/.bin/tsx scripts/repository-compatibility/index.ts --ai live --benchmark campaign/corpus/benchmark.yaml --runs-dir campaign/results/final/compat/ --repo repo-525 --repo repo-528 --repo repo-529 --repo repo-530 --repo repo-534 --repo repo-536 --repo repo-537 --repo repo-538 --repo repo-539 --repo repo-540 (no --cache)."
+      ]
+    },
+    {
+      "id": "P4-RERUN-COMPAT-04",
+      "phase": 4,
+      "title": "Final Stage A compatibility rerun for improvement apps 31-40",
+      "executor": "campaign-worker",
+      "status": "PENDING",
+      "prerequisites": [
+        "P4-RERUN-COMPAT-03"
+      ],
+      "gates": [],
+      "requires": [
+        "github-auth",
+        "ai-gateway"
+      ],
+      "inputs": [
+        "campaign/corpus/benchmark.yaml"
+      ],
+      "forbiddenInputs": [
+        "campaign/corpus/holdout.yaml",
+        "campaign/results/holdout/"
+      ],
+      "artifacts": [
+        "campaign/results/final/compat/ (10 files)",
+        "campaign/results/P4-RERUN-COMPAT-04/result.json"
+      ],
+      "completionChecks": [
+        "campaign/results/P4-RERUN-COMPAT-04/result.json is valid JSON with taskId \"P4-RERUN-COMPAT-04\", testedCommit equal to the commit recorded in state.json, a non-empty commands list with exit codes, and every listed evidence path exists",
+        "One result per app with analysis outcome, gate state, compared facts and mismatches; a failed analysis is recorded, not skipped",
+        "AI mode equals the baseline AI mode; testedCommit and analysisVersion equal the P4-SYNC-CANDIDATE values",
+        "campaign/results/first-run/ is unchanged"
+      ],
+      "timeboxMinutes": 15,
+      "notes": [
+        "2026-10-09 P4-GROUP (Opus): apps repo-541, repo-542, repo-543, repo-544, repo-545, repo-547, repo-548, repo-549, repo-550, repo-551. Command: node --env-file=.env node_modules/.bin/tsx scripts/repository-compatibility/index.ts --ai live --benchmark campaign/corpus/benchmark.yaml --runs-dir campaign/results/final/compat/ --repo repo-541 --repo repo-542 --repo repo-543 --repo repo-544 --repo repo-545 --repo repo-547 --repo repo-548 --repo repo-549 --repo repo-550 --repo repo-551 (no --cache)."
+      ]
+    },
+    {
+      "id": "P4-RERUN-COMPAT-05",
+      "phase": 4,
+      "title": "Final Stage A compatibility rerun for improvement apps 41-50",
+      "executor": "campaign-worker",
+      "status": "PENDING",
+      "prerequisites": [
+        "P4-RERUN-COMPAT-04"
+      ],
+      "gates": [],
+      "requires": [
+        "github-auth",
+        "ai-gateway"
+      ],
+      "inputs": [
+        "campaign/corpus/benchmark.yaml"
+      ],
+      "forbiddenInputs": [
+        "campaign/corpus/holdout.yaml",
+        "campaign/results/holdout/"
+      ],
+      "artifacts": [
+        "campaign/results/final/compat/ (10 files)",
+        "campaign/results/P4-RERUN-COMPAT-05/result.json"
+      ],
+      "completionChecks": [
+        "campaign/results/P4-RERUN-COMPAT-05/result.json is valid JSON with taskId \"P4-RERUN-COMPAT-05\", testedCommit equal to the commit recorded in state.json, a non-empty commands list with exit codes, and every listed evidence path exists",
+        "One result per app with analysis outcome, gate state, compared facts and mismatches; a failed analysis is recorded, not skipped",
+        "AI mode equals the baseline AI mode; testedCommit and analysisVersion equal the P4-SYNC-CANDIDATE values",
+        "campaign/results/first-run/ is unchanged"
+      ],
+      "timeboxMinutes": 15,
+      "notes": [
+        "2026-10-09 P4-GROUP (Opus): apps repo-552, repo-554, repo-555, repo-556, repo-557, repo-558, repo-559, repo-560, repo-561, repo-562. Command: node --env-file=.env node_modules/.bin/tsx scripts/repository-compatibility/index.ts --ai live --benchmark campaign/corpus/benchmark.yaml --runs-dir campaign/results/final/compat/ --repo repo-552 --repo repo-554 --repo repo-555 --repo repo-556 --repo repo-557 --repo repo-558 --repo repo-559 --repo repo-560 --repo repo-561 --repo repo-562 (no --cache)."
+      ]
+    },
+    {
+      "id": "P4-RERUN-COMPAT-06",
+      "phase": 4,
+      "title": "Final Stage A compatibility rerun for improvement apps 51-60",
+      "executor": "campaign-worker",
+      "status": "PENDING",
+      "prerequisites": [
+        "P4-RERUN-COMPAT-05"
+      ],
+      "gates": [],
+      "requires": [
+        "github-auth",
+        "ai-gateway"
+      ],
+      "inputs": [
+        "campaign/corpus/benchmark.yaml"
+      ],
+      "forbiddenInputs": [
+        "campaign/corpus/holdout.yaml",
+        "campaign/results/holdout/"
+      ],
+      "artifacts": [
+        "campaign/results/final/compat/ (10 files)",
+        "campaign/results/P4-RERUN-COMPAT-06/result.json"
+      ],
+      "completionChecks": [
+        "campaign/results/P4-RERUN-COMPAT-06/result.json is valid JSON with taskId \"P4-RERUN-COMPAT-06\", testedCommit equal to the commit recorded in state.json, a non-empty commands list with exit codes, and every listed evidence path exists",
+        "One result per app with analysis outcome, gate state, compared facts and mismatches; a failed analysis is recorded, not skipped",
+        "AI mode equals the baseline AI mode; testedCommit and analysisVersion equal the P4-SYNC-CANDIDATE values",
+        "campaign/results/first-run/ is unchanged"
+      ],
+      "timeboxMinutes": 15,
+      "notes": [
+        "2026-10-09 P4-GROUP (Opus): apps repo-563, repo-564, repo-565, repo-566, repo-569, repo-570, repo-572, repo-573, repo-574, repo-575. Command: node --env-file=.env node_modules/.bin/tsx scripts/repository-compatibility/index.ts --ai live --benchmark campaign/corpus/benchmark.yaml --runs-dir campaign/results/final/compat/ --repo repo-563 --repo repo-564 --repo repo-565 --repo repo-566 --repo repo-569 --repo repo-570 --repo repo-572 --repo repo-573 --repo repo-574 --repo repo-575 (no --cache)."
+      ]
+    },
+    {
+      "id": "P4-RERUN-COMPAT-07",
+      "phase": 4,
+      "title": "Final Stage A compatibility rerun for improvement apps 61-70",
+      "executor": "campaign-worker",
+      "status": "PENDING",
+      "prerequisites": [
+        "P4-RERUN-COMPAT-06"
+      ],
+      "gates": [],
+      "requires": [
+        "github-auth",
+        "ai-gateway"
+      ],
+      "inputs": [
+        "campaign/corpus/benchmark.yaml"
+      ],
+      "forbiddenInputs": [
+        "campaign/corpus/holdout.yaml",
+        "campaign/results/holdout/"
+      ],
+      "artifacts": [
+        "campaign/results/final/compat/ (10 files)",
+        "campaign/results/P4-RERUN-COMPAT-07/result.json"
+      ],
+      "completionChecks": [
+        "campaign/results/P4-RERUN-COMPAT-07/result.json is valid JSON with taskId \"P4-RERUN-COMPAT-07\", testedCommit equal to the commit recorded in state.json, a non-empty commands list with exit codes, and every listed evidence path exists",
+        "One result per app with analysis outcome, gate state, compared facts and mismatches; a failed analysis is recorded, not skipped",
+        "AI mode equals the baseline AI mode; testedCommit and analysisVersion equal the P4-SYNC-CANDIDATE values",
+        "campaign/results/first-run/ is unchanged"
+      ],
+      "timeboxMinutes": 15,
+      "notes": [
+        "2026-10-09 P4-GROUP (Opus): apps repo-576, repo-577, repo-579, repo-580, repo-582, repo-583, repo-585, repo-586, repo-587, repo-588. Command: node --env-file=.env node_modules/.bin/tsx scripts/repository-compatibility/index.ts --ai live --benchmark campaign/corpus/benchmark.yaml --runs-dir campaign/results/final/compat/ --repo repo-576 --repo repo-577 --repo repo-579 --repo repo-580 --repo repo-582 --repo repo-583 --repo repo-585 --repo repo-586 --repo repo-587 --repo repo-588 (no --cache)."
+      ]
+    },
+    {
+      "id": "P4-RERUN-COMPAT-08",
+      "phase": 4,
+      "title": "Final Stage A compatibility rerun for improvement apps 71-80",
+      "executor": "campaign-worker",
+      "status": "PENDING",
+      "prerequisites": [
+        "P4-RERUN-COMPAT-07"
+      ],
+      "gates": [],
+      "requires": [
+        "github-auth",
+        "ai-gateway"
+      ],
+      "inputs": [
+        "campaign/corpus/benchmark.yaml"
+      ],
+      "forbiddenInputs": [
+        "campaign/corpus/holdout.yaml",
+        "campaign/results/holdout/"
+      ],
+      "artifacts": [
+        "campaign/results/final/compat/ (10 files)",
+        "campaign/results/P4-RERUN-COMPAT-08/result.json"
+      ],
+      "completionChecks": [
+        "campaign/results/P4-RERUN-COMPAT-08/result.json is valid JSON with taskId \"P4-RERUN-COMPAT-08\", testedCommit equal to the commit recorded in state.json, a non-empty commands list with exit codes, and every listed evidence path exists",
+        "One result per app with analysis outcome, gate state, compared facts and mismatches; a failed analysis is recorded, not skipped",
+        "AI mode equals the baseline AI mode; testedCommit and analysisVersion equal the P4-SYNC-CANDIDATE values",
+        "campaign/results/first-run/ is unchanged"
+      ],
+      "timeboxMinutes": 15,
+      "notes": [
+        "2026-10-09 P4-GROUP (Opus): apps repo-589, repo-590, repo-591, repo-592, repo-593, repo-594, repo-596, repo-597, repo-599, repo-600. Command: node --env-file=.env node_modules/.bin/tsx scripts/repository-compatibility/index.ts --ai live --benchmark campaign/corpus/benchmark.yaml --runs-dir campaign/results/final/compat/ --repo repo-589 --repo repo-590 --repo repo-591 --repo repo-592 --repo repo-593 --repo repo-594 --repo repo-596 --repo repo-597 --repo repo-599 --repo repo-600 (no --cache)."
+      ]
+    },
+    {
+      "id": "P4-RERUN-BUILD-PLAN",
+      "phase": 4,
+      "title": "Queue final local build/run batches (2-3 apps) for every build-eligible app after the rerun",
+      "executor": "opus",
+      "status": "PENDING",
+      "prerequisites": [
+        "P4-RERUN-COMPAT-08"
+      ],
+      "gates": [],
+      "requires": [],
+      "inputs": [
+        "campaign/results/final/compat/",
+        "campaign/results/P3-BUILD-PLAN/plan.md"
+      ],
+      "forbiddenInputs": [
+        "campaign/corpus/holdout.yaml",
+        "campaign/results/holdout/"
+      ],
+      "artifacts": [
+        "campaign/results/P4-RERUN-BUILD-PLAN/plan.md",
+        "tasks.json: P4-RERUN-BUILD-nn tasks before P4-GATE (results in campaign/results/final/build/)"
+      ],
+      "completionChecks": [
+        "Every app with label or final gate READY/NEEDS_CONFIGURATION is in exactly one batch of 2-3 apps; every other app has a recorded ineligibility reason; together they cover all 80",
+        "Each batch uses the P3-BUILD command form with --runs-dir campaign/results/final/build/ and the policy.resources cleanup"
+      ],
+      "timeboxMinutes": 15,
+      "notes": [
+        "2026-10-09 P4-GROUP (Opus): P4-GATE needs the generated P4-RERUN-BUILD ids as prerequisites; add them when queuing."
+      ]
     },
     {
       "id": "P4-GATE",
@@ -3645,7 +4751,33 @@
       "executor": "opus",
       "status": "PENDING",
       "prerequisites": [
-        "P4-GROUP"
+        "P4-GROUP",
+        "P4-FIX-HARNESS-BUILD-INPUTS",
+        "P4-FIX-HARNESS-RUN-ENV",
+        "P4-FIX-HARNESS-PROBES",
+        "P4-DIAG-START",
+        "P4-FIX-UNBUILDABLE-DOCKERFILE",
+        "P4-MERGE-UNBUILDABLE-DOCKERFILE",
+        "P4-FIX-FALSE-REJECTION",
+        "P4-MERGE-FALSE-REJECTION",
+        "P4-FIX-LOCAL-STATE",
+        "P4-MERGE-LOCAL-STATE",
+        "P4-FIX-START-COMMAND",
+        "P4-MERGE-START-COMMAND",
+        "P4-FIX-MIGRATION-RUNTIME",
+        "P4-MERGE-MIGRATION-RUNTIME",
+        "P4-FIX-AI-RELIABILITY",
+        "P4-MERGE-AI-RELIABILITY",
+        "P4-SYNC-CANDIDATE",
+        "P4-RERUN-COMPAT-01",
+        "P4-RERUN-COMPAT-02",
+        "P4-RERUN-COMPAT-03",
+        "P4-RERUN-COMPAT-04",
+        "P4-RERUN-COMPAT-05",
+        "P4-RERUN-COMPAT-06",
+        "P4-RERUN-COMPAT-07",
+        "P4-RERUN-COMPAT-08",
+        "P4-RERUN-BUILD-PLAN"
       ],
       "gates": [
         "publicationPolicyConfirmed"
@@ -3665,7 +4797,8 @@
       ],
       "timeboxMinutes": 15,
       "notes": [
-        "Opus adds the generated P4 task ids to this task's prerequisites."
+        "Opus adds the generated P4 task ids to this task's prerequisites.",
+        "2026-10-09 P4-GROUP (Opus): P4-FIX-HARNESS-TAR and P4-FIX-HARNESS-READINESS are BLOCKED (USER DECISION) and not prerequisites; the gate review reports them as open harness defects."
       ]
     },
     {
