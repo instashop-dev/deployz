@@ -29,8 +29,7 @@ export default async function AcceptInvitationPage({
     return (
       <InvitationCard title="This invitation link is not valid">
         <p className="text-sm text-muted-foreground">
-          This link doesn&apos;t match a known invitation. It may have been mistyped, or the
-          invitation may no longer exist.
+          This link does not match an invitation. Check the link or ask for a new one.
         </p>
       </InvitationCard>
     );

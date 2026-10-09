@@ -40,7 +40,7 @@ export function PasswordForm() {
     });
     setPending(false);
     if (failure) {
-      setError(failure.message ?? 'We could not change your password. Try again in a moment.');
+      setError(failure.message ?? "Couldn't change your password. Try again.");
       return;
     }
     setCurrentPassword('');

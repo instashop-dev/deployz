@@ -199,8 +199,8 @@ describe('InstallProgress — success flow', () => {
     // The tracker headline mirrors the server-derived stage. At READY that
     // is "Your application is ready" (the legacy STAGE_HEADLINE copy the
     // E2E scenario-ui suite asserts on the customer install page); the
-    // access section beneath keeps the customer-facing sentence "Your
-    // deployment is available securely at ...".
+    // access section beneath keeps the customer-facing sentence
+    // "Available securely at ...".
     expect(text()).toContain('Your application is ready');
     expect(text()).toContain('Access');
     const callsAtReady = mocks.fetchInstallStatus.mock.calls.length;
@@ -328,7 +328,7 @@ describe('InstallProgress — long-running flow', () => {
     // The redesigned tracker keeps the domain-waiting explanation in the
     // Access section ("set up a custom domain below to finish") rather than
     // as a wire-substep label inside the tracker.
-    expect(text).toContain('set up a custom domain below to finish');
+    expect(text).toContain('Set up a custom domain below for a secure address');
     expect(text).not.toContain('elapsed');
     expect(text).not.toMatch(/still working/);
   });
@@ -343,8 +343,8 @@ describe('InstallProgress — long-running flow', () => {
     await flush();
 
     const text = container!.textContent ?? '';
-    expect(text).toContain('The address appears here once your application passes its health checks.');
-    expect(text).not.toContain('does not have a public address configured');
+    expect(text).toContain('The address appears here after health checks pass.');
+    expect(text).not.toContain('No public address configured');
   });
 
   it('renders the starting-application step through the same live detail', async () => {
@@ -481,7 +481,7 @@ describe('InstallProgress — failure flow', () => {
     });
     expect(text()).toContain('AWS account connected');
     // Default next steps: the vendor owns the retry.
-    expect(text()).toContain('No action is required right now.');
+    expect(text()).toContain('No action is required.');
     expect(text()).not.toContain('ROLLBACK_COMPLETE');
     expect(text()).not.toContain('is not a valid password');
 
@@ -517,11 +517,11 @@ describe('InstallProgress — failure flow', () => {
     const text = () => container!.textContent ?? '';
     expect(text()).toContain('Deployment failed');
     expect(text()).toContain('Starting application failed');
-    expect(text()).toContain('Deployz has stopped the deployment and is cleaning up resources created during this attempt.');
+    expect(text()).toContain('Deployz stopped the deployment and is cleaning up resources from this attempt.');
     expect(text()).toContain(
-      'Something in the AWS account or setup must change before a retry can succeed. Contact your software provider; they can retry the deployment after that change.',
+      'Something in the AWS account or setup must change before a retry can succeed. Contact your software provider to retry after that change.',
     );
-    expect(text()).not.toContain('No action is required right now.');
+    expect(text()).not.toContain('No action is required.');
   });
 
   it('a FAILED payload whose resources may remain shows the retained-resources cleanup sentence', async () => {
@@ -547,7 +547,7 @@ describe('InstallProgress — failure flow', () => {
 
     const text = () => container!.textContent ?? '';
     expect(text()).toContain('Some data or resources may remain in your AWS account.');
-    expect(text()).toContain('No action is required right now.');
+    expect(text()).toContain('No action is required.');
   });
 });
 

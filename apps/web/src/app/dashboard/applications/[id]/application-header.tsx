@@ -68,9 +68,9 @@ export function ApplicationHeader() {
       {readiness.analysisOutdated && !analysing ? (
         <Alert className="mt-2 pr-28" data-testid="application-analysis-outdated">
           <RefreshCw aria-hidden />
-          <AlertTitle>Checks have been updated</AlertTitle>
+          <AlertTitle>Checks updated</AlertTitle>
           <AlertDescription>
-            Deployz has improved its checks since this application was last analysed. Re-analyse to apply them.
+            Re-analyse to apply the latest checks.
           </AlertDescription>
           <AlertAction>
             <Button

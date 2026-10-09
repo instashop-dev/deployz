@@ -53,7 +53,7 @@ test('a freshly-analysed application shows the real §19 COMPLETE verdict', asyn
   // the real verdict, not the pending state. The single state card carries
   // the verdict; the detected facts live in the Configuration tab's table.
   await expect(page.getByTestId('application-state-heading')).toHaveText('Ready for a test deployment');
-  await expect(page.getByText('Analysing your application')).toHaveCount(0);
+  await expect(page.getByText('Analysing application')).toHaveCount(0);
 
   await page.getByRole('tab', { name: 'Configuration' }).click();
   await page.waitForURL('**/config');

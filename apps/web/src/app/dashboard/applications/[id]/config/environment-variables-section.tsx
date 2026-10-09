@@ -478,9 +478,6 @@ function EnvironmentVariablesTable({
       <CardHeader>
         <CardTitle>Environment variables</CardTitle>
         {summary ? <CardDescription data-testid="environment-variables-summary">{summary}</CardDescription> : null}
-        <p className="text-xs text-muted-foreground">
-          Every detected variable is listed. Detected names are a draft. Nothing is required until you decide.
-        </p>
         <CardAction className="flex flex-wrap gap-2">
           {undecidedKeys.length > 0 ? (
             <Button
@@ -527,8 +524,7 @@ function EnvironmentVariablesTable({
         {loadState === 'error' ? (
           <Alert data-testid="environment-variables-error">
             <AlertDescription>
-              We couldn&apos;t load the detected environment variables. Your saved values are shown below. Reload the
-              page to try again.
+              Couldn&apos;t load detected variables. Saved values are shown below. Reload to retry.
             </AlertDescription>
           </Alert>
         ) : null}
@@ -538,8 +534,7 @@ function EnvironmentVariablesTable({
             <AlertTitle>Variables not found in the latest analysis</AlertTitle>
             <AlertDescription className="flex flex-col gap-2">
               <span>
-                The latest analysis did not find these variables. If your application no longer reads one, mark it not
-                needed. Variables you added yourself can stay.
+                Mark variables your application no longer reads as not needed. Variables you added can stay.
               </span>
               <ul className="flex flex-col gap-1">
                 {staleSettings.map((setting) => (
@@ -674,8 +669,7 @@ function EnvironmentVariablesTable({
             {loadState !== 'loading' && groups.length === 0 ? (
               <TableRow>
                 <TableCell colSpan={COLUMN_COUNT} className="text-muted-foreground" data-testid="environment-variables-empty">
-                  No environment variables yet. Detected variables show here after an analysis. Use Add value or Add
-                  secret to set your own.
+                  No variables yet. Analyse to detect them, or add your own.
                 </TableCell>
               </TableRow>
             ) : null}
@@ -712,18 +706,18 @@ function EnvironmentVariablesTable({
           ) : null}
           {saveState === 'partial' ? (
             <p role="alert" className="text-sm text-destructive" data-testid="environment-variables-partial-save">
-              Your variable decisions were saved, but the values were not. Save again to retry the values.
+              Decisions saved, values not. Save again to retry the values.
             </p>
           ) : null}
           {saveState === 'error' && problems.length === 0 ? (
             <p role="alert" className="text-sm text-destructive">
-              We couldn&apos;t save these changes. Nothing was saved. Try again in a moment.
+              Couldn&apos;t save. Nothing was saved. Try again.
             </p>
           ) : null}
           {dirty && saveState !== 'saving' ? <p className="text-xs text-muted-foreground">Unsaved changes.</p> : null}
         </div>
         <p className="text-xs text-muted-foreground">
-          Build values apply to new release builds. Runtime values reach running customer deployments within a few minutes.
+          Build values apply to new builds. Runtime values reach running deployments within minutes.
         </p>
       </CardContent>
     </Card>
@@ -961,7 +955,7 @@ function RowDetail({
                 placeholder="••••••••"
               />
               {vendorEntry?.isSecret ? (
-                <p className="text-xs text-muted-foreground">A value is saved. Enter a new value to replace it.</p>
+                <p className="text-xs text-muted-foreground">Value saved. Enter a new value to replace it.</p>
               ) : null}
               {vendorEntry?.needsReentry ? (
                 <p className={cn('text-xs', TONE_TEXT.attention)} data-testid={`environment-variable-reentry-${row.key}`}>
@@ -1116,8 +1110,8 @@ function CustomRow({
       {removed ? (
         <TableRow className="hover:bg-transparent">
           <TableCell colSpan={COLUMN_COUNT} className="text-xs text-muted-foreground">
-            {entry.key} is removed when you save.
-            {entry.isSecret ? ' The value is deleted from the customer’s own secret store too.' : ''}
+            {entry.key} is removed on save.
+            {entry.isSecret ? ' Also deleted from the customer’s secret store.' : ''}
           </TableCell>
         </TableRow>
       ) : expanded ? (
@@ -1135,7 +1129,7 @@ function CustomRow({
                     onChange={(event) => onValueDraft(event.target.value)}
                     placeholder="••••••••"
                   />
-                  <p className="text-xs text-muted-foreground">Secret set — enter a new value to replace it.</p>
+                  <p className="text-xs text-muted-foreground">Secret set. Enter a new value to replace it.</p>
                   {entry.needsReentry ? <p className={cn('text-xs', TONE_TEXT.attention)}>Re-enter this secret.</p> : null}
                 </>
               ) : (

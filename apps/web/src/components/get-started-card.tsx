@@ -13,14 +13,9 @@ const SETUP_STEPS = ['Connect repository', 'Analyse and configure', 'Test and sh
 export function GetStartedCard() {
   return (
     <section aria-labelledby="get-started" className="flex max-w-xl flex-col gap-6">
-      <div>
-        <h1 id="get-started" className="text-2xl font-semibold tracking-tight">
-          Get your first customer deployed
-        </h1>
-        <p className="mt-2 max-w-md text-sm text-muted-foreground">
-          Connect your application and Deployz will prepare it for private deployment on AWS.
-        </p>
-      </div>
+      <h1 id="get-started" className="text-2xl font-semibold tracking-tight">
+        Get your first customer deployed
+      </h1>
 
       <div>
         <Button asChild>

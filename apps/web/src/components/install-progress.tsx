@@ -187,7 +187,7 @@ export function InstallProgress({
                 Deployment failed
               </h2>
               <p className="mt-1 text-sm text-muted-foreground">
-                Deployz stopped the deployment before it finished.
+                Deployz stopped the deployment.
               </p>
             </div>
             <CustomerFailurePanel
@@ -213,7 +213,7 @@ export function InstallProgress({
 
       {stale ? (
         <p className="text-xs text-muted-foreground">
-          Status updates are temporarily unavailable — showing the last confirmed state.
+          Status updates unavailable. Showing the last confirmed state.
         </p>
       ) : null}
 
@@ -238,8 +238,7 @@ export function InstallProgress({
 
       {status.stage === 'VERIFYING' && status.needsDomainSetup ? (
         <p className="text-sm text-muted-foreground" data-testid="awaiting-domain-copy">
-          Your application is healthy. The last step is a secure address — set up a custom
-          domain below to finish.
+          Your application is healthy. Set up a custom domain below for a secure address.
         </p>
       ) : null}
 
@@ -273,7 +272,7 @@ export function InstallProgress({
             {status.url ? (
               status.url.startsWith('https://') ? (
                 <p className="text-sm">
-                  Your deployment is available securely at{' '}
+                  Your deployment is available at{' '}
                   <a className="font-medium underline underline-offset-4" href={status.url}>
                     {status.url}
                   </a>
@@ -287,16 +286,16 @@ export function InstallProgress({
                     {status.url}
                   </a>
                   {' '}
-                  — not secure, and this address may change.
+                  — not secure. This address may change.
                 </p>
               )
             ) : (
               <p className="text-sm text-muted-foreground">
                 {routingTarget
-                  ? 'Set up a custom domain below to give this deployment a permanent address.'
+                  ? 'Set up a custom domain below for a permanent address.'
                   : status.stage === 'VERIFYING'
-                    ? 'The address appears here once your application passes its health checks.'
-                    : 'This deployment does not have a public address configured yet.'}
+                    ? 'The address appears here after health checks pass.'
+                    : 'No public address configured yet.'}
               </p>
             )}
             {ready ? <p className="text-xs text-muted-foreground">{OWNERSHIP_NOTE}</p> : null}
@@ -399,7 +398,7 @@ type CustomerFailure = NonNullable<CustomerDeploymentStatus['failure']> & {
  *  derived server-side from the live stack status and cleanupState; the
  *  page never guesses. */
 const CLEANUP_COPY: Record<NonNullable<CustomerDeploymentStatus['cleanup']>, string> = {
-  IN_PROGRESS: 'Deployz has stopped the deployment and is cleaning up resources created during this attempt.',
+  IN_PROGRESS: 'Deployz stopped the deployment and is cleaning up resources from this attempt.',
   COMPLETE: 'The failed deployment has been cleaned up.',
   RETAINED: 'Some data or resources may remain in your AWS account. The technical details below have more information.',
 };
@@ -407,7 +406,7 @@ const CLEANUP_COPY: Record<NonNullable<CustomerDeploymentStatus['cleanup']>, str
 /** The default customer next step after a failed install: the vendor owns
  *  the retry, and the customer is explicitly told no action is needed. */
 const DEFAULT_NEXT_STEPS =
-  'No action is required right now. Your software provider has been notified and can retry the deployment after reviewing the issue.';
+  'No action is required. Your software provider has been notified and can retry the deployment.';
 
 /**
  * The customer's failure in the one recovery pattern (ux-guidelines §6):
@@ -445,7 +444,7 @@ function CustomerFailurePanel({
       impact={cleanup ? CLEANUP_COPY[cleanup] : undefined}
       whoActs={
         actionRequired
-          ? 'Something in the AWS account or setup must change before a retry can succeed. Contact your software provider; they can retry the deployment after that change.'
+          ? 'Something in the AWS account or setup must change before a retry can succeed. Contact your software provider to retry after that change.'
           : DEFAULT_NEXT_STEPS
       }
       technical={

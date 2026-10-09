@@ -340,7 +340,7 @@ test('happy path: WAITING_FOR_AWS -> CONNECTING -> PROVISIONING -> VERIFYING -> 
   const healthyHttpOnlyStatus = await fetchStatus(page, installLinkId);
   expect(healthyHttpOnlyStatus.needsDomainSetup).toBe(true);
   await page.goto(`/install/${installLinkId}`);
-  await expect(page.getByText(/The last step is a secure address/)).toBeVisible();
+  await expect(page.getByText(/Set up a custom domain below for a secure address/)).toBeVisible();
 
   // ── 6. Drive a custom domain to ACTIVE (the fixture DNS/HTTPS flow — see
   // custom-domain.spec.ts). READY requires an https:// URL, and the base

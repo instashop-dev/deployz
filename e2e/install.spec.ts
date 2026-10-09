@@ -122,7 +122,7 @@ test('install page renders the real application/publisher and the Connect AWS ac
   expect(href).not.toMatch(/installationId/i);
 
   // §44 framing: the customer authenticates at their own cloud provider.
-  await expect(page.getByText(/You do not need a Deployz account/)).toBeVisible();
+  await expect(page.getByText(/No Deployz account needed/)).toBeVisible();
   // The unique installation reference is shown, under Technical details.
   await page.getByRole('button', { name: 'Technical details' }).click();
   await expect(page.getByText(installLinkId)).toBeVisible();

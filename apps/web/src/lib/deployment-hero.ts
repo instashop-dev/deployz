@@ -333,7 +333,7 @@ export function deriveHero(detail: HeroInput): HeroModel {
       kind: 'not-installed',
       tone: 'neutral',
       title: 'Waiting for your customer to install',
-      description: `Send ${detail.customerName} the install link below. Progress appears here as soon as they start.`,
+      description: `Send ${detail.customerName} the install link below.`,
       liveReleaseNote: null,
       showSteps: false,
     };

@@ -188,7 +188,7 @@ describe('InstallPage per-deployment flow', () => {
     expect(doc.body.textContent).toContain('Acme App');
     expect(doc.body.textContent).toContain('setting up inside your AWS account');
     expect(doc.body.textContent).toContain('Still connecting');
-    expect(doc.body.textContent).toContain('select Retry connection to get a new setup link');
+    expect(doc.body.textContent).toContain('select Retry connection');
     expect(Array.from(doc.querySelectorAll('button')).some((b) => b.textContent === 'Retry connection')).toBe(true);
   });
 

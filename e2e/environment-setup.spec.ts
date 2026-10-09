@@ -137,7 +137,7 @@ test('vendor configures a customer-provided secret, publishes an install link, a
   // explicit "customer" decision, so it no longer counts as needing one.
   await page.goto(`/dashboard/applications/${application.id}`);
   await expect(page.getByTestId('application-state-heading')).not.toHaveText('Configuration needs review');
-  await expect(page.getByTestId('application-state-heading')).not.toHaveText("We couldn't analyse your application");
+  await expect(page.getByTestId('application-state-heading')).not.toHaveText('Analysis failed');
 
   // ── 3. Publish the public install link — succeeds although the customer
   // value is still pending. Fixture build mode (BUILD_FIXTURE_MODE) marks a

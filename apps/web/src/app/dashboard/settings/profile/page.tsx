@@ -20,22 +20,18 @@ export default async function ProfilePage() {
 
   return (
     <div className="flex flex-col gap-6">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Profile settings</h1>
-        <p className="mt-1 text-sm text-muted-foreground">Your account details.</p>
-      </div>
+      <h1 className="text-2xl font-semibold tracking-tight">Profile settings</h1>
 
       <Card>
         <CardHeader>
           <CardTitle>Account</CardTitle>
-          <CardDescription>Your name and sign-in email.</CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-6">
           <div className="flex flex-col gap-2">
             <p className="text-sm font-medium">Email</p>
             <p className="text-sm text-muted-foreground">{me.user.email}</p>
             <p className="text-xs text-muted-foreground">
-              This is the address you sign in with. It cannot be changed here.
+              Your sign-in address. It cannot be changed here.
             </p>
           </div>
           <ProfileForm name={me.user.name} />
@@ -45,9 +41,7 @@ export default async function ProfilePage() {
       <Card>
         <CardHeader>
           <CardTitle>Password</CardTitle>
-          <CardDescription>
-            Change your password. This signs you out of every other session.
-          </CardDescription>
+          <CardDescription>Changing your password signs you out of other sessions.</CardDescription>
         </CardHeader>
         <CardContent>
           <PasswordForm />

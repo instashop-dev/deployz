@@ -406,8 +406,8 @@ function NewDeploymentScreen() {
         </h1>
         <p className="mt-1 text-sm text-muted-foreground">
           {isTestDeployment
-            ? 'Deploy your own app as a free test deployment. It does not affect billing.'
-            : 'Select a customer or add a new one, then create their invitation. Your customer opens the install link, chooses the AWS region, and confirms — a deployment is created only after their confirmation.'}
+            ? 'Free. Does not affect billing.'
+            : 'The customer picks the AWS region and confirms. A deployment is created only after they confirm.'}
         </p>
       </div>
 
@@ -418,16 +418,14 @@ function NewDeploymentScreen() {
           <CardHeader>
             <CardTitle>Start your subscription</CardTitle>
             <CardDescription>
-              Invitations you send can only be confirmed by customers once your subscription is
-              active. Billing starts with your subscription — see What it costs for details.
-              Test deployments stay free.
+              Customers can confirm invitations only with an active subscription. Billing starts
+              with your subscription — see What it costs. Test deployments stay free.
             </CardDescription>
           </CardHeader>
           <CardContent className="flex flex-wrap items-center gap-3">
             {checkoutState === 'paid' ? (
               <p className="text-sm text-muted-foreground">
-                Payment received. Your subscription is starting — your customers can now confirm
-                installations.
+                Payment received. Customers can now confirm installations.
               </p>
             ) : (
               <Button
@@ -457,8 +455,8 @@ function NewDeploymentScreen() {
             </CardTitle>
             <CardDescription>
               {subscriptionStatus === 'PAST_DUE'
-                ? 'Your last payment did not go through. Once it is sorted, your customers can confirm their installations.'
-                : 'Your subscription is paused. Resume it on the billing portal, then your customers can confirm their installations.'}
+                ? 'Your last payment failed. Customers can confirm installations once it is resolved.'
+                : 'Subscription paused. Resume it in the billing portal so customers can confirm installations.'}
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -494,13 +492,13 @@ function NewDeploymentScreen() {
         />
       ) : appsState.status === 'loading' ? (
         <p className="text-sm text-muted-foreground" role="status">
-          Loading your applications…
+          Loading applications…
         </p>
       ) : appsState.status === 'empty' ? (
         <section className="rounded-xl border border-dashed px-6 py-16 text-center">
           <h2 className="text-lg font-semibold">Connect an application first</h2>
           <p className="mt-1 text-sm text-muted-foreground">
-            You need at least one application before you can create a deployment.
+            A deployment needs at least one application.
           </p>
           <Button asChild className="mt-4">
             <Link href="/dashboard/applications">Connect GitHub</Link>
@@ -508,17 +506,18 @@ function NewDeploymentScreen() {
         </section>
       ) : appsState.status === 'error' ? (
         <p className="text-sm text-destructive">
-          We couldn&apos;t load your applications. Try again in a moment.
+          Couldn&apos;t load applications. Try again.
         </p>
       ) : (
         <Card>
           <CardHeader>
             <CardTitle>{isTestDeployment ? 'Test deployment details' : 'Customer details'}</CardTitle>
-            <CardDescription>
-              {isTestDeployment
-                ? 'The customer and application for this test deployment.'
-                : 'The customer and application for this installation. Application secrets can be configured for the customer afterward, from the application’s Configuration page.'}
-            </CardDescription>
+            {isTestDeployment ? null : (
+              <CardDescription>
+                Set application secrets for the customer afterward on the application’s
+                Configuration page.
+              </CardDescription>
+            )}
           </CardHeader>
           <CardContent>
             <form onSubmit={onSubmit} className="flex flex-col gap-5">
@@ -532,7 +531,7 @@ function NewDeploymentScreen() {
                 />
                 {customersState.status === 'error' ? (
                   <p className="text-sm text-muted-foreground">
-                    We couldn&apos;t load your customers. You can still create a new customer.
+                    Couldn&apos;t load customers. You can still add a new one.
                   </p>
                 ) : null}
               </div>
@@ -601,11 +600,11 @@ function NewDeploymentScreen() {
                   </Label>
                   {regionsError ? (
                     <p className="text-sm text-destructive">
-                      We couldn&apos;t load the available regions. Try again in a moment.
+                      Couldn&apos;t load regions. Try again.
                     </p>
                   ) : regions.length === 0 ? (
                     <p className="text-sm text-muted-foreground">
-                      No regions are available for installation yet.
+                      No regions available yet.
                     </p>
                   ) : (
                     <>
@@ -624,7 +623,7 @@ function NewDeploymentScreen() {
                       </select>
                       {isTestDeployment ? null : (
                         <p className="text-xs text-muted-foreground">
-                          Optional. Your customer makes the final region choice before deployment.
+                          Optional. The customer chooses the final region.
                         </p>
                       )}
                     </>
@@ -637,8 +636,8 @@ function NewDeploymentScreen() {
                   result={preflight}
                   title={
                     usingExistingCustomer
-                      ? "Deployment preflight — with this customer's configuration"
-                      : 'Deployment preflight — with your default configuration'
+                      ? "Preflight — this customer's configuration"
+                      : 'Preflight — default configuration'
                   }
                 />
               ) : null}
@@ -777,7 +776,7 @@ function ReleaseRequirement({
   if (state.kind === 'ready') {
     return (
       <p className="text-sm text-muted-foreground" data-testid="install-release">
-        Installs release {state.release.version}, the newest built release of {application.name}.
+        Installs release {state.release.version} (newest built).
       </p>
     );
   }
@@ -788,7 +787,7 @@ function ReleaseRequirement({
         <Spinner aria-hidden />
         <AlertTitle>Release {state.release.version} is building</AlertTitle>
         <AlertDescription>
-          You can create the deployment when the build is ready. This page updates automatically.
+          You can create the deployment when the build finishes. This page updates automatically.
         </AlertDescription>
       </Alert>
     );
@@ -801,12 +800,12 @@ function ReleaseRequirement({
       <AlertDescription>
         <p>
           {lastFailed
-            ? 'The last build failed. A deployment installs a built release of the application, so build a new one first.'
-            : 'A deployment installs a built release of the application, so build one first.'}
+            ? 'The last build failed. Build a new release first.'
+            : 'Build a release first.'}
         </p>
         {buildError ? (
           <p className="text-destructive">
-            We couldn&apos;t start the build. Try again, or create the release from the Releases page.
+            Couldn&apos;t start the build. Try again or use the Releases page.
           </p>
         ) : null}
         {missingBuildKeys ? (
@@ -865,10 +864,8 @@ function InvitationLinkCard({
           <CardTitle>Invitation created</CardTitle>
         </div>
         <CardDescription>
-          Send this install link to your customer — it carries the one-time token, so nothing
-          else is needed. The customer chooses the final AWS region and confirms; a deployment is
-          created only after their confirmation. The token is shown only once and cannot be
-          retrieved again.
+          Send this link to your customer. It includes the one-time token, which is shown only
+          once and cannot be retrieved again.
         </CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-4">
@@ -924,8 +921,7 @@ function InstallLinkCard({
           <CardTitle>Deployment created</CardTitle>
         </div>
         <CardDescription>
-          Send this install link to your customer. They will sign in to their own cloud account —
-          their credentials never touch Deployz.
+          Send this install link to your customer. Their AWS credentials never touch Deployz.
         </CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-4">

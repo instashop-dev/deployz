@@ -38,9 +38,6 @@ export function AwsResourcesTable({ plan }: { plan: DeploymentPlan | null }) {
       <h2 id="aws-resources" className="text-base font-semibold">
         AWS resources
       </h2>
-      <p className="text-sm text-muted-foreground">
-        All AWS resources Deployz will create in your account.
-      </p>
       <div className="overflow-x-auto rounded-md border" data-testid="aws-resources-table-wrapper">
         <Table data-testid="aws-resources-table">
           <TableHeader>

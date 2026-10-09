@@ -498,8 +498,8 @@ test('waiting for the customer: the hero says what to do next and offers no day-
   await expect(actions.getByRole('button', { name: 'Deploy Update' })).toHaveCount(0);
   await expect(actions.getByRole('button', { name: 'Configuration' })).toHaveCount(0);
   await expect(actions.getByRole('link', { name: 'View Diagnostics' })).toHaveCount(0);
-  await expect(infrastructure).toContainText('This deployment has not been installed yet.');
-  await expect(activity).toContainText('No activity yet for this deployment.');
+  await expect(infrastructure).toContainText('Not installed yet.');
+  await expect(activity).toContainText('No activity yet.');
   await shoot(page, 'not-installed');
 });
 
@@ -599,7 +599,7 @@ test('deploy-update dialog: Infrastructure reads unchanged and no drift alert fo
   await actions.getByRole('button', { name: 'Deploy Update' }).click();
   const panel = page.getByTestId('deploy-update-panel');
   await expect(panel.getByText('Infrastructure', { exact: true })).toBeVisible();
-  await expect(panel.getByText('Unchanged for this deployment', { exact: true })).toBeVisible();
+  await expect(panel.getByText('Unchanged', { exact: true })).toBeVisible();
   await expect(page.getByTestId('requirement-drift-alert')).toHaveCount(0);
   await page.keyboard.press('Escape');
 });
@@ -616,7 +616,7 @@ test('deploy-update dialog: drift replaces the unchanged copy with a warning', a
   await actions.getByRole('button', { name: 'Deploy Update' }).click();
   const panel = page.getByTestId('deploy-update-panel');
   await expect(page.getByTestId('requirement-drift-alert')).toBeVisible();
-  await expect(panel.getByText('Unchanged for this deployment', { exact: true })).toHaveCount(0);
+  await expect(panel.getByText('Unchanged', { exact: true })).toHaveCount(0);
   await page.keyboard.press('Escape');
 });
 
@@ -749,7 +749,7 @@ test('failed first install: retry is the primary action and the raw AWS reason s
   await expect(page.getByText('DEP-AAAAAAAA')).toBeVisible();
   await expect(actions.getByRole('button', { name: 'Retry deployment' })).toBeEnabled();
   await expect(infrastructure).toContainText(
-    "This deployment isn't running, so there's nothing to report.",
+    "This deployment isn't running.",
   );
 
   // The activity feed's top level carries the classified, jargon-free
@@ -929,7 +929,7 @@ test('relay gone quiet: lost contact, not failure, with the last confirmed state
 
   await expect(headline).toHaveText('Lost contact with this deployment');
   await expect(hero).toContainText('Your application may still be running');
-  await expect(hero).toContainText('Status updates are temporarily unavailable');
+  await expect(hero).toContainText('Status updates unavailable');
   await expect(infrastructure).toContainText('Showing the last verified state');
   await shoot(page, 'lost-contact');
 });
@@ -966,8 +966,8 @@ test('a failed infrastructure fetch warns in its own section and never becomes "
 
   await expect(headline).toHaveText('Your application is live');
   await expect(page.getByRole('heading', { name: 'Deployment not found' })).toHaveCount(0);
-  await expect(infrastructure).toContainText('Infrastructure details are unavailable right now');
-  await expect(infrastructure).toContainText('The deployment itself is unaffected.');
+  await expect(infrastructure).toContainText('Infrastructure details unavailable');
+  await expect(infrastructure).toContainText('The deployment is unaffected.');
   // The connector's own connectivity is known without the inventory.
   await expect(infrastructure.getByText('Deployz connector')).toBeVisible();
   await shoot(page, 'infrastructure-error');
@@ -980,7 +980,7 @@ test('a failed activity fetch degrades only the activity section', async ({ page
   });
 
   await expect(headline).toHaveText('Your application is live');
-  await expect(activity).toContainText('Activity is unavailable right now.');
+  await expect(activity).toContainText('Activity unavailable.');
   await expect(infrastructure).toContainText('All required services are ready.');
   await shoot(page, 'activity-error');
 });

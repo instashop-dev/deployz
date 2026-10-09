@@ -111,7 +111,6 @@ describe('DeployPage', () => {
 
     expect(doc.body.textContent).toContain('Acme Analytics');
     expect(doc.body.textContent).toContain('Deploy Acme Analytics to your AWS account');
-    expect(doc.body.textContent).toContain('runs in your own AWS account');
     // Plan-driven table content, not a hand-rolled resource-name list.
     expect(doc.body.textContent).toContain('RDS PostgreSQL database');
     expect(doc.body.textContent).toContain('Stores persistent application data');
