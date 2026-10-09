@@ -1,0 +1,182 @@
+{
+  "schemaVersion": 1,
+  "id": "repo-534",
+  "repository": "hapifhir/hapi-fhir-jpaserver-starter",
+  "commit": "377e6eba316920082e6a90551b488e4599a71eb8",
+  "set": "improvement",
+  "cohort": "realistic",
+  "deployzCommit": "12dd4e4e776bef2bfe7e55f5fe15b031e7b32426",
+  "analysisVersion": 45,
+  "ai": {
+    "mode": "live",
+    "model": "workers-ai/@cf/deepseek-ai/deepseek-v4-flash-0731",
+    "requests": 0,
+    "outcome": "not-requested",
+    "error": null
+  },
+  "inputsHash": "3c338e70f7cf5e42d37035e248dbc016ef2fb9efeabb110aec2e58bb23b96494",
+  "stages": {
+    "gate": {
+      "status": "PASS",
+      "startedAt": "2026-10-09T09:51:43.040Z",
+      "finishedAt": "2026-10-09T09:51:43.043Z",
+      "durationMs": 3,
+      "detail": null,
+      "evidence": {
+        "verdict": "NEEDS_CONFIGURATION",
+        "outcome": "correct-accept",
+        "configuredVerdict": "READY",
+        "manifest": {
+          "dockerfilePath": "Dockerfile",
+          "buildContext": ".",
+          "appRoot": ".",
+          "port": 8080,
+          "healthPath": "/",
+          "healthMode": "vendor_required",
+          "migrationCommand": null,
+          "migrationMode": "unknown",
+          "postgres": true,
+          "redis": false,
+          "storage": false,
+          "databaseBindings": [
+            "DATABASE_HOST",
+            "DATABASE_NAME",
+            "DATABASE_PASSWORD",
+            "DATABASE_PORT",
+            "DATABASE_URL",
+            "DATABASE_USER",
+            "DB_HOST",
+            "DB_NAME",
+            "DB_PASSWORD",
+            "DB_PORT",
+            "DB_USER",
+            "SPRING_DATASOURCE_PASSWORD",
+            "SPRING_DATASOURCE_URL",
+            "SPRING_DATASOURCE_USERNAME"
+          ],
+          "redisBindings": [],
+          "storageBindings": [],
+          "generatedKeys": []
+        }
+      }
+    },
+    "source": {
+      "status": "PASS",
+      "startedAt": "2026-10-09T09:51:43.047Z",
+      "finishedAt": "2026-10-09T09:51:45.359Z",
+      "durationMs": 2312,
+      "detail": null,
+      "evidence": {
+        "commit": "377e6eba316920082e6a90551b488e4599a71eb8",
+        "archiveCached": false,
+        "archiveBytes": 3857155
+      }
+    },
+    "build": {
+      "status": "PASS",
+      "startedAt": "2026-10-09T09:51:45.372Z",
+      "finishedAt": "2026-10-09T09:58:18.137Z",
+      "durationMs": 392765,
+      "detail": null,
+      "evidence": {
+        "dockerfilePath": "Dockerfile",
+        "buildContext": ".",
+        "platform": "linux/amd64",
+        "image": "deployz-campaign/repo-534:377e6eba3169",
+        "exitCode": 0,
+        "durationMs": 392402,
+        "buildArgNames": [],
+        "logTail": "#17 42.81 [INFO] --- spring-boot:3.5.14:repackage (default-cli) @ hapi-fhir-jpaserver-starter ---\n#17 42.97 [INFO] Replacing main artifact /tmp/hapi-fhir-jpaserver-starter/target/ROOT.war with repackaged archive, adding nested dependencies in BOOT-INF/.\n#17 42.97 [INFO] The original artifact has been renamed to /tmp/hapi-fhir-jpaserver-starter/target/ROOT.war.original\n#17 42.97 [INFO] ------------------------------------------------------------------------\n#17 42.97 [INFO] BUILD SUCCESS\n#17 42.97 [INFO] ------------------------------------------------------------------------\n#17 42.97 [INFO] Total time:  36.594 s\n#17 42.97 [INFO] Finished at: 2026-10-09T09:57:26Z\n#17 42.97 [INFO] ------------------------------------------------------------------------\n#17 DONE 43.6s\n\n#18 [build-distroless 2/4] RUN mkdir /app && cp /tmp/hapi-fhir-jpaserver-starter/target/ROOT.war /app/main.war\n#18 DONE 3.2s\n\n#19 [build-distroless 3/4] COPY src/main/java/HealthCheck.java /app/HealthCheck.java\n#19 DONE 0.8s\n\n#20 [build-distroless 4/4] RUN javac /app/HealthCheck.java\n#20 DONE 1.7s\n\n#21 [default 3/4] COPY --chown=nonroot:nonroot --from=build-distroless /app /app\n#21 DONE 4.3s\n\n#22 [default 4/4] COPY --chown=nonroot:nonroot --from=build-hapi /tmp/hapi-fhir-jpaserver-starter/opentelemetry-javaagent.jar /app\n#22 DONE 1.0s\n\n#23 exporting to image\n#23 exporting layers\n#23 exporting layers 23.2s done\n#23 exporting manifest sha256:60648000fa9c374a9c4c53c93378ec01488cfd0a8498b9b7ef44122ca4f3ea7e 0.1s done\n#23 exporting config sha256:9b44cc7e3d3297a995b5ce7720cd1b99fd6609d4e19f75f150b9abe23da5b0e9 0.1s done\n#23 exporting attestation manifest sha256:93829d01133682fa1e8cd61069879130e3b30ee9e2063e2b952e3c7540e145de 0.1s done\n#23 exporting manifest list sha256:f7f27a6f3d47713dad4fb649ffa4309129988cb0162daf51564441de32e4cd15\n#23 exporting manifest list sha256:f7f27a6f3d47713dad4fb649ffa4309129988cb0162daf51564441de32e4cd15 0.1s done\n#23 naming to docker.io/deployz-campaign/repo-534:377e6eba3169 done\n#23 unpacking to docker.io/deployz-campaign/repo-534:377e6eba3169\n#23 unpacking to docker.io/deployz-campaign/repo-534:377e6eba3169 10.5s done\n#23 DONE 34.2s\n\nView build details: docker-desktop://dashboard/build/desktop-linux/desktop-linux/rsjcnji5f8382z4gbzlvin5nx",
+        "imageId": "sha256:f7f27a6f3d47713dad4fb649ffa4309129988cb0162daf51564441de32e4cd15",
+        "imageBytes": 1055986104,
+        "failure": null,
+        "rebuilt": false
+      }
+    },
+    "run": {
+      "status": "PASS",
+      "startedAt": "2026-10-09T09:58:18.228Z",
+      "finishedAt": "2026-10-09T09:58:26.813Z",
+      "durationMs": 8585,
+      "detail": null,
+      "evidence": {
+        "image": "deployz-campaign/repo-534:377e6eba3169",
+        "port": 8080,
+        "healthPath": "/actuator/health",
+        "dependencies": [
+          "postgres"
+        ],
+        "environmentNames": [
+          "DATABASE_URL",
+          "DB_HOST",
+          "DB_NAME",
+          "DB_PASSWORD",
+          "DB_PORT",
+          "DB_USER",
+          "PORT"
+        ],
+        "migration": null
+      }
+    },
+    "probes": {
+      "status": "FAIL",
+      "startedAt": "2026-10-09T09:58:26.816Z",
+      "finishedAt": "2026-10-09T10:02:11.395Z",
+      "durationMs": 224579,
+      "detail": "failed: dbWrite",
+      "evidence": {
+        "probes": {
+          "health": {
+            "status": "PASS",
+            "detail": "/actuator/health answered 200"
+          },
+          "start": {
+            "status": "PASS",
+            "detail": "still running 60 s after start"
+          },
+          "migration": {
+            "status": "NOT_APPLICABLE",
+            "detail": "the manifest has no migration command"
+          },
+          "dbWrite": {
+            "status": "FAIL",
+            "detail": "no rows outside migration bookkeeping tables"
+          },
+          "redis": {
+            "status": "NOT_APPLICABLE",
+            "detail": "the manifest needs no Redis"
+          },
+          "storage": {
+            "status": "NOT_APPLICABLE",
+            "detail": "the manifest needs no storage"
+          }
+        },
+        "url": "http://app:8080/actuator/health",
+        "appLogTail": "2026-10-09T10:02:04.510Z  INFO 1 --- [hapi-fhir-jpaserver-starter] [           main] ca.uhn.fhir.log.batch_troubleshooting    : Registering Batch2 Job Definition: BULK_IMPORT_PULL / 1\n2026-10-09T10:02:04.512Z  INFO 1 --- [hapi-fhir-jpaserver-starter] [           main] ca.uhn.fhir.log.batch_troubleshooting    : Registering Batch2 Job Definition: BULK_IMPORT_PULL / 2\n2026-10-09T10:02:04.513Z  INFO 1 --- [hapi-fhir-jpaserver-starter] [           main] ca.uhn.fhir.log.batch_troubleshooting    : Registering Batch2 Job Definition: REINDEX / 2\n2026-10-09T10:02:04.516Z  INFO 1 --- [hapi-fhir-jpaserver-starter] [           main] ca.uhn.fhir.log.batch_troubleshooting    : Registering Batch2 Job Definition: REINDEX / 3\n2026-10-09T10:02:04.517Z  INFO 1 --- [hapi-fhir-jpaserver-starter] [           main] ca.uhn.fhir.log.batch_troubleshooting    : Registering Batch2 Job Definition: DELETE_EXPUNGE / 1\n2026-10-09T10:02:04.517Z  INFO 1 --- [hapi-fhir-jpaserver-starter] [           main] ca.uhn.fhir.log.batch_troubleshooting    : Registering Batch2 Job Definition: BULK_EXPORT / 2\n2026-10-09T10:02:04.518Z  INFO 1 --- [hapi-fhir-jpaserver-starter] [           main] ca.uhn.fhir.log.batch_troubleshooting    : Registering Batch2 Job Definition: BULK_EXPORT / 3\n2026-10-09T10:02:04.520Z  INFO 1 --- [hapi-fhir-jpaserver-starter] [           main] ca.uhn.fhir.log.batch_troubleshooting    : Registering Batch2 Job Definition: termCodeSystemVersionDeleteJob / 1\n2026-10-09T10:02:04.521Z  INFO 1 --- [hapi-fhir-jpaserver-starter] [           main] ca.uhn.fhir.log.batch_troubleshooting    : Registering Batch2 Job Definition: termCodeSystemDeleteJob / 1\n2026-10-09T10:02:04.521Z  INFO 1 --- [hapi-fhir-jpaserver-starter] [           main] ca.uhn.fhir.log.batch_troubleshooting    : Registering Batch2 Job Definition: bulkImportJob / 1\n2026-10-09T10:02:04.521Z  INFO 1 --- [hapi-fhir-jpaserver-starter] [           main] ca.uhn.fhir.log.batch_troubleshooting    : Registering Batch2 Job Definition: INSTALL_PACKAGE / 1\n2026-10-09T10:02:04.524Z  INFO 1 --- [hapi-fhir-jpaserver-starter] [           main] .j.s.m.m.s.MatchingQueueSubscriberLoader : Starting SubscriptionTopic Matching Subscriber\n2026-10-09T10:02:04.526Z  INFO 1 --- [hapi-fhir-jpaserver-starter] [           main] .j.s.m.m.s.MatchingQueueSubscriberLoader : Subscription Matching Subscriber subscribed to Matching Channel ca.uhn.fhir.broker.jms.SpringMessagingReceiverAdapter with name subscription-matching\n2026-10-09T10:02:04.996Z  INFO 1 --- [hapi-fhir-jpaserver-starter] [           main] c.u.f.log.terminology_troubleshooting    : Performing initial retrieval for non-expiring cache: org.hl7.fhir.common.hapi.validation.support.ValidationSupportChain$FetchAllKey@359bb6f6\n2026-10-09T10:02:06.692Z  INFO 1 --- [hapi-fhir-jpaserver-starter] [           main] c.u.f.log.terminology_troubleshooting    : Initial retrieval for non-expiring cache org.hl7.fhir.common.hapi.validation.support.ValidationSupportChain$FetchAllKey@359bb6f6 succeeded in 1696ms\n2026-10-09T10:02:08.472Z  INFO 1 --- [hapi-fhir-jpaserver-starter] [           main] c.u.f.j.sched.BaseSchedulerServiceImpl   : Scheduling 14 jobs in hapi-fhir-jpaserver-starter\n2026-10-09T10:02:08.476Z  INFO 1 --- [hapi-fhir-jpaserver-starter] [           main] c.u.f.j.sched.BaseSchedulerServiceImpl   : Scheduling local job ca.uhn.fhir.jpa.term.TermDeferredStorageSvcImpl$Job with interval 5000ms\n2026-10-09T10:02:08.488Z  INFO 1 --- [hapi-fhir-jpaserver-starter] [           main] c.u.f.j.sched.BaseSchedulerServiceImpl   : Scheduling local job ca.uhn.fhir.jpa.cache.ResourceChangeListenerCacheRefresherImpl with interval 00:00:10.000\n2026-10-09T10:02:08.494Z  INFO 1 --- [hapi-fhir-jpaserver-starter] [           main] c.u.f.j.sched.BaseSchedulerServiceImpl   : Scheduling clustered job ca.uhn.fhir.jpa.search.reindex.ResourceReindexingSvcImpl with interval 00:00:10.000\n2026-10-09T10:02:08.565Z  INFO 1 --- [hapi-fhir-jpaserver-starter] [           main] c.u.f.j.sched.BaseSchedulerServiceImpl   : Scheduling clustered job ca.uhn.fhir.jpa.bulk.export.svc.BulkDataExportJobSchedulingHelperImpl$PurgeExpiredFilesJob with interval 01:00:00\n2026-10-09T10:02:08.567Z  INFO 1 --- [hapi-fhir-jpaserver-starter] [           main] c.u.f.j.sched.BaseSchedulerServiceImpl   : Scheduling local job ca.uhn.fhir.jpa.bulk.imprt.svc.BulkDataImportSvcImpl$ActivationJob with interval 00:00:10.000\n2026-10-09T10:02:08.568Z  INFO 1 --- [hapi-fhir-jpaserver-starter] [           main] c.u.f.j.sched.BaseSchedulerServiceImpl   : Scheduling clustered job ca.uhn.fhir.jpa.search.warm.CacheWarmingSvcImpl with interval 00:00:10.000\n2026-10-09T10:02:08.570Z  INFO 1 --- [hapi-fhir-jpaserver-starter] [           main] c.u.f.j.sched.BaseSchedulerServiceImpl   : Scheduling local job ca.uhn.fhir.jpa.term.TermReindexingSvcImpl with interval 00:01:00.000\n2026-10-09T10:02:08.571Z  INFO 1 --- [hapi-fhir-jpaserver-starter] [           main] c.u.f.j.sched.BaseSchedulerServiceImpl   : Scheduling clustered job ca.uhn.fhir.jpa.search.SearchUrlJobMaintenanceSvcImpl$SearchUrlMaintenanceJob with interval 00:10:00\n2026-10-09T10:02:08.573Z  INFO 1 --- [hapi-fhir-jpaserver-starter] [           main] c.u.f.j.sched.BaseSchedulerServiceImpl   : Scheduling clustered job ca.uhn.fhir.jpa.search.StaleSearchDeletingSvcImpl with interval 00:01:00.000\n2026-10-09T10:02:08.574Z  INFO 1 --- [hapi-fhir-jpaserver-starter] [           main] c.u.f.j.sched.BaseSchedulerServiceImpl   : Scheduling local job ca.uhn.fhir.jpa.util.ResourceCountCache with interval 00:10:00\n2026-10-09T10:02:08.576Z  INFO 1 --- [hapi-fhir-jpaserver-starter] [           main] c.u.f.j.sched.BaseSchedulerServiceImpl   : Scheduling local job ca.uhn.fhir.jpa.subscription.triggering.SubscriptionTriggeringSvcImpl with interval 5000ms\n2026-10-09T10:02:08.577Z  INFO 1 --- [hapi-fhir-jpaserver-starter] [           main] c.u.f.j.sched.BaseSchedulerServiceImpl   : Scheduling clustered job ca.uhn.fhir.jpa.subscription.async.AsyncResourceModifiedProcessingSchedulerSvc with interval 5000ms\n2026-10-09T10:02:08.578Z  INFO 1 --- [hapi-fhir-jpaserver-starter] [           main] c.u.f.j.sched.BaseSchedulerServiceImpl   : Scheduling clustered job ca.uhn.fhir.batch2.coordinator.ReductionStepExecutorServiceImpl$ReductionStepExecutorScheduledJob with interval 00:00:10.000\n2026-10-09T10:02:08.583Z  INFO 1 --- [hapi-fhir-jpaserver-starter] [           main] ca.uhn.fhir.log.batch_troubleshooting    : Scheduling Batch2 maintenance with frequency: Active=5000ms, Ended=300000ms\n2026-10-09T10:02:08.583Z  INFO 1 --- [hapi-fhir-jpaserver-starter] [           main] c.u.f.j.sched.BaseSchedulerServiceImpl   : Scheduling clustered job ca.uhn.fhir.batch2.maintenance.JobMaintenanceServiceImpl$JobMaintenanceScheduledJob with interval 5000ms\n2026-10-09T10:02:08.584Z  INFO 1 --- [hapi-fhir-jpaserver-starter] [           main] c.u.f.j.sched.BaseSchedulerServiceImpl   : Scheduling clustered job ca.uhn.fhir.batch2.maintenance.JobMaintenanceServiceImpl$EndedJobMaintenanceScheduledJob with interval 00:05:00\n2026-10-09T10:02:08.585Z  INFO 1 --- [hapi-fhir-jpaserver-starter] [           main] c.u.f.j.sched.BaseSchedulerServiceImpl   : Starting task schedulers for context hapi-fhir-jpaserver-starter\n2026-10-09T10:02:08.585Z  INFO 1 --- [hapi-fhir-jpaserver-starter] [           main] c.uhn.fhir.jpa.sched.BaseHapiScheduler   : Starting scheduler hapi-fhir-jpa-scheduler-local\n2026-10-09T10:02:08.586Z  INFO 1 --- [hapi-fhir-jpaserver-starter] [           main] org.quartz.core.QuartzScheduler          : Scheduler hapi-fhir-jpa-scheduler_$_NON_CLUSTERED started.\n2026-10-09T10:02:08.586Z  INFO 1 --- [hapi-fhir-jpaserver-starter] [           main] c.uhn.fhir.jpa.sched.BaseHapiScheduler   : Starting scheduler hapi-fhir-jpa-scheduler-clustered\n2026-10-09T10:02:08.586Z  INFO 1 --- [hapi-fhir-jpaserver-starter] [           main] org.quartz.core.QuartzScheduler          : Scheduler hapi-fhir-jpa-scheduler_$_NON_CLUSTERED started.\n2026-10-09T10:02:08.681Z  INFO 1 --- [hapi-fhir-jpaserver-starter] [           main] ca.uhn.fhir.jpa.starter.Application      : Started Application in 212.36 seconds (process running for 221.811)\n2026-10-09T10:02:09.087Z  WARN 1 --- [hapi-fhir-jpaserver-starter] [           main] o.s.core.events.SpringDocAppInitializer  : SpringDoc /v3/api-docs endpoint is enabled by default. To disable it in production, set the property 'springdoc.api-docs.enabled=false'\n2026-10-09T10:02:09.164Z  WARN 1 --- [hapi-fhir-jpaserver-starter] [           main] o.s.core.events.SpringDocAppInitializer  : SpringDoc /swagger-ui.html endpoint is enabled by default. To disable it in production, set the property 'springdoc.swagger-ui.enabled=false'"
+      }
+    },
+    "cleanup": {
+      "status": "PASS",
+      "startedAt": "2026-10-09T10:02:11.399Z",
+      "finishedAt": "2026-10-09T10:02:20.962Z",
+      "durationMs": 9563,
+      "detail": null,
+      "evidence": {
+        "removed": {
+          "containers": 2,
+          "networks": 1,
+          "volumes": 0
+        },
+        "imageRemoved": true,
+        "keepImage": false,
+        "leaks": {
+          "containers": [],
+          "networks": [],
+          "volumes": []
+        }
+      }
+    }
+  },
+  "classification": "probes",
+  "remediation": null
+}

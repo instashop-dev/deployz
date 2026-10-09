@@ -1,13 +1,13 @@
 # Local Docker run summary
 
-Repositories: 24
+Repositories: 26
 
 ## Classification
 
 - build: 2
 - gate: 15
 - local-success: 1
-- probes: 3
+- probes: 5
 - run: 1
 - source: 2
 
@@ -15,23 +15,23 @@ Repositories: 24
 
 | Stage | Attempted | PASS | FAIL | SKIPPED | IN_PROGRESS |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| gate | 24 | 9 | 15 | 0 | 0 |
-| source | 24 | 15 | 5 | 4 | 0 |
-| build | 24 | 8 | 7 | 9 | 0 |
-| run | 24 | 7 | 1 | 16 | 0 |
-| probes | 24 | 2 | 5 | 17 | 0 |
-| cleanup | 24 | 15 | 0 | 9 | 0 |
+| gate | 26 | 11 | 15 | 0 | 0 |
+| source | 26 | 17 | 5 | 4 | 0 |
+| build | 26 | 10 | 7 | 9 | 0 |
+| run | 26 | 9 | 1 | 16 | 0 |
+| probes | 26 | 2 | 7 | 17 | 0 |
+| cleanup | 26 | 17 | 0 | 9 | 0 |
 
 ## Probes
 
 | Probe | Attempted | PASS | FAIL | UNVERIFIED | NOT_APPLICABLE |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| start | 7 | 2 | 5 | 0 | 0 |
-| health | 7 | 2 | 5 | 0 | 0 |
-| migration | 7 | 0 | 0 | 0 | 7 |
-| dbWrite | 7 | 0 | 3 | 0 | 4 |
-| redis | 7 | 0 | 3 | 0 | 4 |
-| storage | 7 | 0 | 0 | 3 | 4 |
+| start | 9 | 4 | 5 | 0 | 0 |
+| health | 9 | 4 | 5 | 0 | 0 |
+| migration | 9 | 0 | 0 | 0 | 9 |
+| dbWrite | 9 | 0 | 4 | 0 | 5 |
+| redis | 9 | 0 | 4 | 0 | 5 |
+| storage | 9 | 0 | 0 | 3 | 6 |
 
 ## Duration per repository
 
@@ -59,5 +59,7 @@ Repositories: 24
 | repo-525 | gotson/komga | gate | 11.7 |
 | repo-528 | electric-sql/electric | gate | 41.8 |
 | repo-529 | grokability/snipe-it | gate | 578.2 |
+| repo-530 | hibiken/asynqmon | probes | 486.8 |
+| repo-534 | hapifhir/hapi-fhir-jpaserver-starter | probes | 637.8 |
 | repo-536 | InvoiceShelf/InvoiceShelf | build | 47.4 |
 | repo-540 | excalidraw/excalidraw | local-success | 1630.3 |

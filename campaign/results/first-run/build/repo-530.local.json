@@ -1,0 +1,162 @@
+{
+  "schemaVersion": 1,
+  "id": "repo-530",
+  "repository": "hibiken/asynqmon",
+  "commit": "d1b889456de3c98c22de24642b6f836a29da3140",
+  "set": "improvement",
+  "cohort": "realistic",
+  "deployzCommit": "12dd4e4e776bef2bfe7e55f5fe15b031e7b32426",
+  "analysisVersion": 45,
+  "ai": {
+    "mode": "live",
+    "model": "workers-ai/@cf/deepseek-ai/deepseek-v4-flash-0731",
+    "requests": 1,
+    "outcome": "completed",
+    "error": null
+  },
+  "inputsHash": "19937a7bff03f91685b25557f43069cb9fe6d8134195ab3a6e28bbdb07b05f1a",
+  "stages": {
+    "gate": {
+      "status": "PASS",
+      "startedAt": "2026-10-09T09:43:35.697Z",
+      "finishedAt": "2026-10-09T09:43:35.704Z",
+      "durationMs": 7,
+      "detail": null,
+      "evidence": {
+        "verdict": "NEEDS_CONFIGURATION",
+        "outcome": "correct-accept",
+        "configuredVerdict": "NEEDS_CONFIGURATION",
+        "manifest": {
+          "dockerfilePath": "Dockerfile",
+          "buildContext": ".",
+          "appRoot": ".",
+          "port": null,
+          "healthPath": "/",
+          "healthMode": "vendor_required",
+          "migrationCommand": null,
+          "migrationMode": "none",
+          "postgres": false,
+          "redis": false,
+          "storage": false,
+          "databaseBindings": [],
+          "redisBindings": [],
+          "storageBindings": [],
+          "generatedKeys": []
+        }
+      }
+    },
+    "source": {
+      "status": "PASS",
+      "startedAt": "2026-10-09T09:43:35.710Z",
+      "finishedAt": "2026-10-09T09:43:36.131Z",
+      "durationMs": 421,
+      "detail": null,
+      "evidence": {
+        "commit": "d1b889456de3c98c22de24642b6f836a29da3140",
+        "archiveCached": true,
+        "archiveBytes": null
+      }
+    },
+    "build": {
+      "status": "PASS",
+      "startedAt": "2026-10-09T09:43:36.134Z",
+      "finishedAt": "2026-10-09T09:50:36.078Z",
+      "durationMs": 419944,
+      "detail": null,
+      "evidence": {
+        "dockerfilePath": "Dockerfile",
+        "buildContext": ".",
+        "platform": "linux/amd64",
+        "image": "deployz-campaign/repo-530:d1b889456de3",
+        "exitCode": 0,
+        "durationMs": 419612,
+        "buildArgNames": [],
+        "logTail": "#13 352.4 File sizes after gzip:\n#13 352.4 \n#13 352.6   317.97 kB (+280.8 kB)  build/static/js/main.01fc6971.js\n#13 352.6 \n#13 352.6 The project was built assuming it is hosted at /[[.RootPath]]/.\n#13 352.6 You can control this with the homepage field in your package.json.\n#13 352.6 \n#13 352.6 The build folder is ready to be deployed.\n#13 352.6 \n#13 352.6 Find out more about deployment here:\n#13 352.6 \n#13 352.6   https://cra.link/deployment\n#13 352.6 \n#13 352.8 Done in 86.93s.\n#13 DONE 353.2s\n\n#18 [backend 6/7] COPY --from=frontend [/static/build, ui/build]\n#18 DONE 0.2s\n\n#19 [backend 7/7] RUN go build -ldflags=\"-s -w\" -o asynqmon ./cmd/asynqmon\n#19 DONE 29.1s\n\n#20 [stage-2 1/1] COPY --from=backend [/build/asynqmon, /]\n#20 DONE 0.1s\n\n#21 exporting to image\n#21 exporting layers\n#21 exporting layers 2.2s done\n#21 exporting manifest sha256:09c5ad5f1a5363e78dcc1f9013e6d5cbed5d86c21218246892eaf2deeea602a4 0.0s done\n#21 exporting config sha256:33d83b7115432c064c1f20239d720972059d27776d619badf1ed1264dcec61ba 0.0s done\n#21 exporting attestation manifest sha256:91aba3e69cfd943c0c4df3f3de0488249825c35f8911bbcca8f572062aa883f0\n#21 exporting attestation manifest sha256:91aba3e69cfd943c0c4df3f3de0488249825c35f8911bbcca8f572062aa883f0 0.1s done\n#21 exporting manifest list sha256:be16c9131c4e89046da1cb7eedcaee1217b406414e6e9982d96eb82704807554 0.0s done\n#21 naming to docker.io/deployz-campaign/repo-530:d1b889456de3\n#21 naming to docker.io/deployz-campaign/repo-530:d1b889456de3 done\n#21 unpacking to docker.io/deployz-campaign/repo-530:d1b889456de3\n#21 unpacking to docker.io/deployz-campaign/repo-530:d1b889456de3 0.4s done\n#21 DONE 3.0s\n\nView build details: docker-desktop://dashboard/build/desktop-linux/desktop-linux/nolr2x1d8mja18aespo1tsfzv",
+        "imageId": "sha256:be16c9131c4e89046da1cb7eedcaee1217b406414e6e9982d96eb82704807554",
+        "imageBytes": 32918913,
+        "failure": null,
+        "rebuilt": false
+      }
+    },
+    "run": {
+      "status": "PASS",
+      "startedAt": "2026-10-09T09:50:36.135Z",
+      "finishedAt": "2026-10-09T09:50:39.569Z",
+      "durationMs": 3434,
+      "detail": null,
+      "evidence": {
+        "image": "deployz-campaign/repo-530:d1b889456de3",
+        "port": 8080,
+        "healthPath": "/",
+        "dependencies": [
+          "valkey"
+        ],
+        "environmentNames": [
+          "PORT",
+          "REDIS_URL"
+        ],
+        "migration": null
+      }
+    },
+    "probes": {
+      "status": "FAIL",
+      "startedAt": "2026-10-09T09:50:39.574Z",
+      "finishedAt": "2026-10-09T09:51:40.295Z",
+      "durationMs": 60721,
+      "detail": "failed: redis",
+      "evidence": {
+        "probes": {
+          "health": {
+            "status": "PASS",
+            "detail": "/ answered 200"
+          },
+          "start": {
+            "status": "PASS",
+            "detail": "still running 60 s after start"
+          },
+          "migration": {
+            "status": "NOT_APPLICABLE",
+            "detail": "the manifest has no migration command"
+          },
+          "dbWrite": {
+            "status": "NOT_APPLICABLE",
+            "detail": "the manifest needs no database"
+          },
+          "redis": {
+            "status": "FAIL",
+            "detail": "no client connection and no key from the app"
+          },
+          "storage": {
+            "status": "NOT_APPLICABLE",
+            "detail": "the manifest needs no storage"
+          }
+        },
+        "url": "http://app:8080/",
+        "appLogTail": "Asynq Monitoring WebUI server is listening on port 8080"
+      }
+    },
+    "cleanup": {
+      "status": "PASS",
+      "startedAt": "2026-10-09T09:51:40.300Z",
+      "finishedAt": "2026-10-09T09:51:42.618Z",
+      "durationMs": 2318,
+      "detail": null,
+      "evidence": {
+        "removed": {
+          "containers": 2,
+          "networks": 1,
+          "volumes": 0
+        },
+        "imageRemoved": true,
+        "keepImage": false,
+        "leaks": {
+          "containers": [],
+          "networks": [],
+          "volumes": []
+        }
+      }
+    }
+  },
+  "classification": "probes",
+  "remediation": null
+}

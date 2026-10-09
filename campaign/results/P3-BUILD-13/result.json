@@ -1,0 +1,27 @@
+{
+  "taskId": "P3-BUILD-13",
+  "testedCommit": "e6a3b58ee2363923fef21faca86611fa3bf84538",
+  "executor": "campaign-worker",
+  "model": "sonnet",
+  "startedAt": "2026-10-09T09:43:01Z",
+  "finishedAt": "2026-10-09T10:05:00Z",
+  "proposedStatus": "COMPLETE",
+  "commands": [
+    { "command": "node --env-file=.env node_modules/tsx/dist/cli.mjs scripts/repository-deployment/index.ts --local --ai live --benchmark campaign/corpus/benchmark.yaml --deploy-config campaign/corpus/deploy-config.yaml --runs-dir campaign/results/first-run/build/ --evidence-dir campaign/logs/P3-BUILD-13/evidence/ --repo repo-530 --repo repo-534", "exitCode": 0, "summary": "2 local results written; both apps gate/source/build/run/cleanup PASS, probes FAIL" },
+    { "command": "docker builder prune -f", "exitCode": 0, "summary": "Total reclaimed space 6.332GB" }
+  ],
+  "evidence": [
+    "campaign/results/first-run/build/repo-530.local.json",
+    "campaign/results/first-run/build/repo-534.local.json",
+    "campaign/results/first-run/build/local-summary.json",
+    "campaign/logs/P3-BUILD-13/run.log"
+  ],
+  "notes": [
+    "repo-530 (hibiken/asynqmon): AI mode live, model workers-ai/@cf/deepseek-ai/deepseek-v4-flash-0731, 1 request, completed. gate PASS (verdict NEEDS_CONFIGURATION, correct-accept). source PASS. build PASS (419 s, no retry needed). run PASS (deps valkey; env PORT, REDIS_URL). probes FAIL: redis - no client connection and no key from the app (health / 200 and 60 s start PASS; app log: listening on port 8080). cleanup PASS, no leaks.",
+    "repo-534 (hapifhir/hapi-fhir-jpaserver-starter): AI mode live, 0 requests (not-requested). gate PASS (verdict NEEDS_CONFIGURATION, correct-accept). source PASS. build PASS (392 s, no retry needed). run PASS (deps postgres; env DATABASE_URL, DB_*, PORT). probes FAIL: dbWrite - no rows outside migration bookkeeping tables (health /actuator/health 200 and 60 s start PASS). cleanup PASS, no leaks.",
+    "No environment failures and no retries.",
+    "No deploy-config.yaml changes made; existing repo-530 and repo-534 entries used as they were.",
+    "After the batch: no labelled container, network, volume or image remained. docker builder prune -f freed 6.332GB.",
+    "Checkout HEAD was 12dd4e4e (baseline plus campaign commits); result JSON deployzCommit field shows 12dd4e4e."
+  ]
+}

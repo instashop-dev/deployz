@@ -1,109 +1,109 @@
 {
   "schemaVersion": 1,
-  "repositories": 24,
+  "repositories": 26,
   "classifications": {
     "source": 2,
-    "probes": 3,
+    "probes": 5,
     "gate": 15,
     "run": 1,
     "build": 2,
     "local-success": 1
   },
   "aiModes": {
-    "live": 24
+    "live": 26
   },
   "stages": {
     "gate": {
-      "attempted": 24,
+      "attempted": 26,
       "NOT_ATTEMPTED": 0,
       "IN_PROGRESS": 0,
-      "PASS": 9,
+      "PASS": 11,
       "FAIL": 15,
       "SKIPPED": 0
     },
     "source": {
-      "attempted": 24,
+      "attempted": 26,
       "NOT_ATTEMPTED": 0,
       "IN_PROGRESS": 0,
-      "PASS": 15,
+      "PASS": 17,
       "FAIL": 5,
       "SKIPPED": 4
     },
     "build": {
-      "attempted": 24,
+      "attempted": 26,
       "NOT_ATTEMPTED": 0,
       "IN_PROGRESS": 0,
-      "PASS": 8,
+      "PASS": 10,
       "FAIL": 7,
       "SKIPPED": 9
     },
     "run": {
-      "attempted": 24,
+      "attempted": 26,
       "NOT_ATTEMPTED": 0,
       "IN_PROGRESS": 0,
-      "PASS": 7,
+      "PASS": 9,
       "FAIL": 1,
       "SKIPPED": 16
     },
     "probes": {
-      "attempted": 24,
+      "attempted": 26,
       "NOT_ATTEMPTED": 0,
       "IN_PROGRESS": 0,
       "PASS": 2,
-      "FAIL": 5,
+      "FAIL": 7,
       "SKIPPED": 17
     },
     "cleanup": {
-      "attempted": 24,
+      "attempted": 26,
       "NOT_ATTEMPTED": 0,
       "IN_PROGRESS": 0,
-      "PASS": 15,
+      "PASS": 17,
       "FAIL": 0,
       "SKIPPED": 9
     }
   },
   "probes": {
     "start": {
-      "attempted": 7,
-      "PASS": 2,
+      "attempted": 9,
+      "PASS": 4,
       "FAIL": 5,
       "UNVERIFIED": 0,
       "NOT_APPLICABLE": 0
     },
     "health": {
-      "attempted": 7,
-      "PASS": 2,
+      "attempted": 9,
+      "PASS": 4,
       "FAIL": 5,
       "UNVERIFIED": 0,
       "NOT_APPLICABLE": 0
     },
     "migration": {
-      "attempted": 7,
+      "attempted": 9,
       "PASS": 0,
       "FAIL": 0,
       "UNVERIFIED": 0,
-      "NOT_APPLICABLE": 7
+      "NOT_APPLICABLE": 9
     },
     "dbWrite": {
-      "attempted": 7,
+      "attempted": 9,
       "PASS": 0,
-      "FAIL": 3,
+      "FAIL": 4,
       "UNVERIFIED": 0,
-      "NOT_APPLICABLE": 4
+      "NOT_APPLICABLE": 5
     },
     "redis": {
-      "attempted": 7,
+      "attempted": 9,
       "PASS": 0,
-      "FAIL": 3,
+      "FAIL": 4,
       "UNVERIFIED": 0,
-      "NOT_APPLICABLE": 4
+      "NOT_APPLICABLE": 5
     },
     "storage": {
-      "attempted": 7,
+      "attempted": 9,
       "PASS": 0,
       "FAIL": 0,
       "UNVERIFIED": 3,
-      "NOT_APPLICABLE": 4
+      "NOT_APPLICABLE": 6
     }
   },
   "durations": [
@@ -413,6 +413,34 @@
         "run": 14537,
         "probes": 61436,
         "cleanup": 4264
+      }
+    },
+    {
+      "id": "repo-530",
+      "repository": "hibiken/asynqmon",
+      "classification": "probes",
+      "totalMs": 486845,
+      "stages": {
+        "gate": 7,
+        "source": 421,
+        "build": 419944,
+        "run": 3434,
+        "probes": 60721,
+        "cleanup": 2318
+      }
+    },
+    {
+      "id": "repo-534",
+      "repository": "hapifhir/hapi-fhir-jpaserver-starter",
+      "classification": "probes",
+      "totalMs": 637807,
+      "stages": {
+        "gate": 3,
+        "source": 2312,
+        "build": 392765,
+        "run": 8585,
+        "probes": 224579,
+        "cleanup": 9563
       }
     },
     {
