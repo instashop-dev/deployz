@@ -7,7 +7,6 @@ import { DeployLinkInvalidState, PoweredBy } from '@/components/deploy-link-inva
 import { InstallLaunchButton } from '@/components/install-launch-button';
 import { InstallProgress } from '@/components/install-progress';
 import { InstallRetryButton } from '@/components/install-retry-button';
-import { TechnicalDetails } from '@/components/technical-details';
 import { Button } from '@/components/ui/button';
 import {
   fetchDeployLinkData,
@@ -91,41 +90,43 @@ export default async function DeployPage({
           plan={data.plan}
           preinstall
           deployLink={deployLink}
+          notice={
+            data.relayStuck ? (
+              <section aria-labelledby="deploy-waiting" className="flex flex-col gap-3">
+                <h2 id="deploy-waiting" className="text-base font-semibold">
+                  Still connecting
+                </h2>
+                <div className="flex items-start gap-3">
+                  <Loader2 aria-hidden className="mt-0.5 size-4 shrink-0 animate-spin text-muted-foreground" />
+                  <p className="text-sm text-muted-foreground">{RELAY_STUCK_GUIDANCE}</p>
+                </div>
+                <InstallRetryButton installLinkId={publicId} deployLink={deployLink} />
+              </section>
+            ) : null
+          }
+          details={
+            <div className="flex flex-col gap-2">
+              {data.bootstrapStackName ? (
+                <p className="text-xs text-muted-foreground">
+                  Expected stack name:{' '}
+                  <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-xs">
+                    {data.bootstrapStackName}
+                  </code>
+                </p>
+              ) : null}
+              <a
+                className="w-fit text-sm font-medium underline underline-offset-4"
+                href={cloudFormationStacksUrl(data.region)}
+                target="_blank"
+                rel="noreferrer"
+              >
+                Open AWS CloudFormation
+              </a>
+            </div>
+          }
         />
 
-        {data.relayStuck ? (
-          <section aria-labelledby="deploy-waiting" className="flex flex-col gap-3">
-            <h2 id="deploy-waiting" className="text-base font-semibold">
-              Still connecting
-            </h2>
-            <div className="flex items-start gap-3">
-              <Loader2 aria-hidden className="mt-0.5 size-4 shrink-0 animate-spin text-muted-foreground" />
-              <p className="text-sm text-muted-foreground">{RELAY_STUCK_GUIDANCE}</p>
-            </div>
-            <InstallRetryButton installLinkId={publicId} deployLink={deployLink} />
-          </section>
-        ) : null}
-
         {securityLink}
-
-        <TechnicalDetails>
-          {data.bootstrapStackName ? (
-            <p className="text-xs text-muted-foreground">
-              Expected stack name:{' '}
-              <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-xs">
-                {data.bootstrapStackName}
-              </code>
-            </p>
-          ) : null}
-          <a
-            className="w-fit text-sm font-medium underline underline-offset-4"
-            href={cloudFormationStacksUrl(data.region)}
-            target="_blank"
-            rel="noreferrer"
-          >
-            Open AWS CloudFormation
-          </a>
-        </TechnicalDetails>
 
         <PoweredBy />
       </div>

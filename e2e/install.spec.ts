@@ -92,9 +92,9 @@ test('install page renders the real application/publisher and the Connect AWS ac
   await expect(
     page.getByRole('heading', { name: `Deploy ${applicationName} to your AWS account` }),
   ).toBeVisible();
-  // The canonical AWS resources table replaces the prior "What Deployz creates"
-  // surface; its heading carries the new wording.
-  await expect(page.getByRole('heading', { name: 'AWS resources' })).toBeVisible();
+  // The compact "What will be deployed" summary replaces the prior "AWS
+  // resources" heading; the full resource table sits behind a disclosure.
+  await expect(page.getByRole('heading', { name: 'What will be deployed' })).toBeVisible();
   // The consolidated "Before you deploy" section carries the prior scattered
   // data-boundary facts.
   await expect(page.getByRole('heading', { name: 'Before you deploy' })).toBeVisible();
@@ -214,13 +214,14 @@ test('security page reveals the actual permissions only after expanding', async 
 test('install page links to security details and back', async ({ page, request }) => {
   const { installLinkId } = await seedInstall(request);
   await page.goto(`/install/${installLinkId}`);
+  await page.getByRole('button', { name: 'Technical details' }).click();
   await page.getByRole('link', { name: 'Security & permissions details' }).click();
   await page.waitForURL(`**/install/${installLinkId}/security`);
   await expect(page.getByRole('heading', { name: 'Security details' })).toBeVisible();
 
   await page.getByRole('link', { name: 'Back to install' }).click();
   await page.waitForURL(`**/install/${installLinkId}`);
-  await expect(page.getByRole('heading', { name: 'AWS resources' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'What will be deployed' })).toBeVisible();
 });
 
 test('a setup link that has already been used says so instead of leading to a dead end', async ({
@@ -327,8 +328,8 @@ test('pressing Deploy to AWS reports the launch and the page then waits for the 
   await expect(
     page.getByRole('heading', { name: 'Setting up your AWS connection' }),
   ).toBeVisible();
-  // The console link and expected stack name sit under Technical details now.
-  await page.getByRole('button', { name: 'Technical details' }).click();
+  // The console link and expected stack name sit under Deployment details now.
+  await page.getByRole('button', { name: 'Deployment details' }).click();
   await expect(page.getByRole('link', { name: 'Open AWS CloudFormation' })).toBeVisible();
   await expect(page.getByText(deploymentId.slice(0, 8))).toBeVisible();
 

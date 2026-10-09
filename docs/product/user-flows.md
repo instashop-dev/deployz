@@ -66,17 +66,18 @@ behind each step is in [`../architecture.md`](../architecture.md).
    A vendor-created deployment skips this step; the vendor enters customer
    values on the deployment's configuration page instead.
 3. **Pre-launch page** (`/install/<installLinkId>`): application,
-   publisher, Region, release, then the one shared customer review (also
-   used by the public link and the hosted deploy page): what Deployz creates
-   (grouped under generic headings — Application, Data, Storage, … — never
-   AWS resource names, each with Kept / Removed after removal), the
-   retention and charges note, the estimated monthly AWS cost, what Deployz
-   can access, and a Security details link (`/install/<id>/security`, which
-   also opens for a public link or an invitation before a deployment
-   exists). Sizing and the AWS resource inventory are under Technical
-   details. "Connect your AWS account" explains the next three steps;
-   "Review setup in AWS" marks the deployment WAITING_FOR_RELAY and opens
-   the CloudFormation **Quick Create** URL for the frozen Region.
+   publisher, Region, release and invitation expiry, then the one shared
+   customer review (also used by the hosted deploy page): the estimated
+   monthly AWS cost; what will be deployed, as a compact summary under
+   generic headings (Application hosting, Database, File storage, Network &
+   security — only the ones the plan creates), with the complete AWS resource
+   table under "View AWS resources"; environment variables, only when any
+   exist; and the data and retention note. "Connect AWS account" marks the
+   deployment WAITING_FOR_RELAY and opens the CloudFormation **Quick Create**
+   URL for the frozen Region in a new tab. The next three steps, the AWS
+   identity requirement, the Security details link (`/install/<id>/security`,
+   which also opens for a public link or an invitation before a deployment
+   exists) and the installation reference are under Technical details.
 4. **Quick Create** in the customer's own AWS console creates the
    `deployz-bootstrap-…` stack: the relay Lambda on a 5-minute schedule, its
    IAM role with a permissions boundary, the CloudFormation execution role,
@@ -85,17 +86,19 @@ behind each step is in [`../architecture.md`](../architecture.md).
    code; preflight runs again; the INSTALL job is created. While waiting, the
    page has no primary action. Past the staleness window it shows "Still
    connecting" guidance and "Retry connection", which mints a new code. The
-   expected stack name and a CloudFormation link are under Technical details.
+   expected stack name and a CloudFormation link are under Deployment details.
 6. **Install progress**: the page polls `GET /api/install/:id/status` and
    shows one step list: Connect your AWS account → Create infrastructure
    (network, database and storage, cache as sub-rows) → Start application
    (migrations as a sub-row) → Check application → Set up HTTPS → Ready.
-   The current step is in present tense with elapsed time; completed steps
-   collapse; the next step is named. A failed step names what failed and
-   shows no next step. Live AWS activity appears only after AWS reports
-   activity; component rows start after the connection. Raw CloudFormation
-   events, identifiers and the resource inventory are in the one Technical
-   details disclosure. At Ready the step list is gone and "Open application"
+   Next to the heading are the completed-step count and the time on the
+   current step. The current step shows the active operation, what AWS is
+   doing and its typical duration; the latest AWS event is one row below the
+   list. A failed step names what failed and shows no next step. One
+   collapsed "Deployment details" disclosure holds the detailed step list,
+   the full live AWS activity feed, the component rows (after the
+   connection), raw CloudFormation events, identifiers and the resource
+   inventory. At Ready "Open application"
    is the one primary action. INSTALL success auto-deploys the newest READY
    release.
 7. **Permanent HTTPS URL**: `https://d-<deployment-id>.deployz.dev`, with no

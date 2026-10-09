@@ -153,6 +153,74 @@ export function buildAwsResourceSections(
   return sections;
 }
 
+export type ResourceCategory = 'application' | 'database' | 'storage' | 'network_security';
+
+/** One card of the customer's compact "What will be deployed" summary. */
+export interface ResourceCategorySummary {
+  category: ResourceCategory;
+  label: string;
+  /** The plan's own resource names in this category, in plan order. */
+  names: string[];
+}
+
+const RESOURCE_CATEGORY_ORDER: readonly ResourceCategory[] = [
+  'application',
+  'database',
+  'storage',
+  'network_security',
+];
+
+function resourceCategory(resource: DeploymentPlanAwsResource): ResourceCategory {
+  if (resource.group === 'connector' || resource.group === 'security_operations') {
+    return 'network_security';
+  }
+  switch (resource.componentKind) {
+    case 'database':
+    case 'cache':
+      return 'database';
+    case 'storage':
+      return 'storage';
+    case 'network':
+      return 'network_security';
+    default:
+      return 'application';
+  }
+}
+
+function databaseCategoryLabel(resources: DeploymentPlanAwsResource[]): string {
+  const hasDatabase = resources.some((resource) => resource.componentKind === 'database');
+  const hasCache = resources.some((resource) => resource.componentKind === 'cache');
+  if (hasDatabase && hasCache) return 'Database & cache';
+  return hasCache ? 'Cache' : 'Database';
+}
+
+/**
+ * The plan's AWS resources folded into the four customer categories. Only
+ * categories the plan actually creates appear, so a stateless application
+ * shows no database or storage card.
+ */
+export function buildResourceCategories(plan: DeploymentPlan | null): ResourceCategorySummary[] {
+  if (!plan) return [];
+  const byCategory = new Map<ResourceCategory, DeploymentPlanAwsResource[]>();
+  for (const resource of plan.awsResources) {
+    const category = resourceCategory(resource);
+    byCategory.set(category, [...(byCategory.get(category) ?? []), resource]);
+  }
+  return RESOURCE_CATEGORY_ORDER.flatMap((category) => {
+    const resources = byCategory.get(category);
+    if (!resources) return [];
+    const label =
+      category === 'application'
+        ? 'Application hosting'
+        : category === 'database'
+          ? databaseCategoryLabel(resources)
+          : category === 'storage'
+            ? 'File storage'
+            : 'Network & security';
+    return [{ category, label, names: resources.map((resource) => resource.name) }];
+  });
+}
+
 /**
  * Compact lifecycle summary the page renders below the table — "Database
  * and S3 bucket stay in your AWS account." Null when nothing is retained.

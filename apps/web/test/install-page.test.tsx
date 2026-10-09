@@ -80,6 +80,24 @@ function resolvedData(overrides: Record<string, unknown> = {}): Record<string, u
   };
 }
 
+function waitingStatus(): Record<string, unknown> {
+  return {
+    stage: 'WAITING_FOR_AWS',
+    updatedAt: '2026-09-18T00:00:00.000Z',
+    currentActivity: 'AWS is creating the Deployz connector in your account.',
+    step: 'AWS_SETUP',
+    steps: [],
+    typicalDurationSeconds: { min: 180, max: 600 },
+    takingLongerThanUsual: false,
+    removed: false,
+    statusUpdatesUnavailable: false,
+    needsDomainSetup: false,
+    components: [],
+    url: null,
+    failure: null,
+  };
+}
+
 async function renderPage(linkId: string = LINK_ID): Promise<Document> {
   const element = await InstallPage({
     params: Promise.resolve({ installLinkId: linkId }),
@@ -182,12 +200,16 @@ describe('InstallPage per-deployment flow', () => {
         deploymentState: 'WAITING_FOR_RELAY',
       }),
     });
+    mocks.fetchInstallStatusServer.mockResolvedValue(waitingStatus());
 
     const doc = await renderPage();
 
     expect(doc.body.textContent).toContain('Acme App');
     expect(doc.body.textContent).toContain('setting up inside your AWS account');
     expect(doc.body.textContent).toContain('Still connecting');
+    expect(doc.body.textContent).toContain('link under Deployment details');
+    expect(doc.body.textContent).toContain('Deployment details');
+    expect(doc.body.textContent).not.toContain('Technical details');
     expect(doc.body.textContent).toContain('select Retry connection');
     expect(Array.from(doc.querySelectorAll('button')).some((b) => b.textContent === 'Retry connection')).toBe(true);
   });

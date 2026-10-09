@@ -148,6 +148,7 @@ test.describe('scenario-ui browser suite', () => {
     // The legacy wire-step list shares labels with the redesigned rung text
     // (same source: STEP_LABEL.done), so the assertions are scoped to its
     // own testid to keep Playwright strict mode from matching both.
+    await page.getByRole('button', { name: 'Deployment details' }).click();
     await page.getByTestId('step-list-done-toggle').click();
     const doneList = page.getByTestId('step-list-done-list');
     await expect(doneList.getByText(/^Network created/)).toBeVisible();
@@ -160,8 +161,11 @@ test.describe('scenario-ui browser suite', () => {
     // by construction — the done-list only contains steps the deployment
     // has finished. The awaiting-domain detail is the customer-facing
     // proof that the TLS step is the one still active.
-    await expect(page.getByText('Waiting for a custom domain to be added.')).toBeVisible();
+    await expect(
+      page.getByTestId('tracker-current-detail').getByText('Waiting for a custom domain to be added.'),
+    ).toBeVisible();
     await expect(page.getByRole('heading', { name: 'Access' })).toBeVisible();
+    await page.getByRole('button', { name: 'Deployment details' }).click();
     const customerBodyText = await page.locator('body').innerText();
     expect(customerBodyText).not.toMatch(JARGON);
 

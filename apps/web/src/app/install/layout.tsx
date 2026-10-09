@@ -12,15 +12,15 @@ export default function InstallLayout({ children }: { children: ReactNode }) {
   return (
     <div className="flex min-h-screen flex-col">
       <header className="border-b">
-        <div className="mx-auto flex h-14 w-full max-w-2xl items-center justify-between px-4">
+        <div className="mx-auto flex h-14 w-full max-w-3xl items-center justify-between px-4">
           <DeployzBrand size="sm" />
           <span className="text-xs text-muted-foreground">Private install link</span>
         </div>
       </header>
-      <main className="mx-auto w-full max-w-2xl flex-1 px-4 py-10">{children}</main>
+      <main className="mx-auto w-full max-w-3xl flex-1 px-4 py-10">{children}</main>
       <footer className="border-t">
-        <div className="mx-auto w-full max-w-2xl px-4 py-6 text-xs text-muted-foreground">
-          Anyone with this link can view this page. Don&apos;t share it publicly.
+        <div className="mx-auto w-full max-w-3xl px-4 py-6 text-xs text-muted-foreground">
+          Anyone with this link can view this page. Don&apos;t share it.
         </div>
       </footer>
     </div>

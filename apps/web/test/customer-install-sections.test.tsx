@@ -7,6 +7,7 @@ import type { DeploymentPlan, DeploymentPlanAwsResource } from '@deployz/contrac
 import { CustomerInstallSections } from '../src/components/customer-install-sections';
 import {
   buildAwsResourceSections,
+  buildResourceCategories,
   buildEnvVarRows,
   retentionSummary,
   rowCost,
@@ -221,8 +222,107 @@ describe('buildEnvVarRows / summarizeEnvVars', () => {
   });
 });
 
+describe('buildResourceCategories', () => {
+  function planWith(awsResources: DeploymentPlanAwsResource[]): DeploymentPlan {
+    return { ...PLAN, awsResources };
+  }
+
+  const appResource: DeploymentPlanAwsResource = {
+    id: 'ecs_service',
+    name: 'ECS Fargate service',
+    purpose: 'Runs the application container',
+    group: 'compute_networking',
+    componentKind: 'application',
+    lifecycle: 'delete',
+  };
+  const databaseResource: DeploymentPlanAwsResource = {
+    id: 'database',
+    name: 'RDS PostgreSQL database',
+    purpose: 'Stores persistent application data',
+    group: 'data',
+    componentKind: 'database',
+    lifecycle: 'retain',
+  };
+  const cacheResource: DeploymentPlanAwsResource = {
+    id: 'cache',
+    name: 'ElastiCache Valkey',
+    purpose: 'Caches application data',
+    group: 'data',
+    componentKind: 'cache',
+    lifecycle: 'delete',
+  };
+  const storageResource: DeploymentPlanAwsResource = {
+    id: 'storage_bucket',
+    name: 'S3 bucket',
+    purpose: 'Stores uploaded files',
+    group: 'data',
+    componentKind: 'storage',
+    lifecycle: 'retain',
+  };
+
+  it('returns nothing without a plan', () => {
+    expect(buildResourceCategories(null)).toEqual([]);
+  });
+
+  it('lists only the categories the plan creates', () => {
+    const categories = buildResourceCategories(planWith([appResource]));
+    expect(categories.map((category) => category.category)).toEqual(['application']);
+    expect(categories[0]).toMatchObject({ label: 'Application hosting', names: ['ECS Fargate service'] });
+  });
+
+  it('labels the database card Database & cache when the plan has both', () => {
+    const categories = buildResourceCategories(planWith([databaseResource, cacheResource]));
+    expect(categories).toHaveLength(1);
+    expect(categories[0]).toMatchObject({
+      category: 'database',
+      label: 'Database & cache',
+      names: ['RDS PostgreSQL database', 'ElastiCache Valkey'],
+    });
+  });
+
+  it('labels the database card by what it holds when only one exists', () => {
+    expect(buildResourceCategories(planWith([databaseResource]))[0]?.label).toBe('Database');
+    expect(buildResourceCategories(planWith([cacheResource]))[0]?.label).toBe('Cache');
+  });
+
+  it('puts connector, security_operations and network resources under Network & security', () => {
+    const categories = buildResourceCategories(
+      planWith([
+        { ...appResource, id: 'connector_lambda', name: 'Deployz connector', group: 'connector', componentKind: 'other' },
+        { ...appResource, id: 'iam_roles', name: 'IAM roles', group: 'security_operations', componentKind: 'application' },
+        { ...appResource, id: 'vpc', name: 'Private network', componentKind: 'network' },
+      ]),
+    );
+    expect(categories).toEqual([
+      {
+        category: 'network_security',
+        label: 'Network & security',
+        names: ['Deployz connector', 'IAM roles', 'Private network'],
+      },
+    ]);
+  });
+
+  it('orders categories application, database, storage, network_security regardless of plan order', () => {
+    const categories = buildResourceCategories(
+      planWith([
+        { ...appResource, id: 'vpc', name: 'Private network', componentKind: 'network' },
+        storageResource,
+        databaseResource,
+        appResource,
+      ]),
+    );
+    expect(categories.map((category) => category.category)).toEqual([
+      'application',
+      'database',
+      'storage',
+      'network_security',
+    ]);
+    expect(categories[2]?.label).toBe('File storage');
+  });
+});
+
 describe('CustomerInstallSections composition', () => {
-  it('renders the three canonical sections in the customer-facing order', async () => {
+  it('renders the sections in the customer-facing order', async () => {
     const html = renderToString(
       <CustomerInstallSections
         plan={PLAN}
@@ -235,25 +335,36 @@ describe('CustomerInstallSections composition', () => {
     const { window } = new JSDOM(html);
     const doc = window.document;
     expect(doc.querySelector('[data-testid="customer-install-sections"]')).not.toBeNull();
-    expect(doc.querySelector('[data-testid="aws-resources-table"]')).not.toBeNull();
+    expect(doc.querySelector('[data-testid="aws-resources-total"]')).not.toBeNull();
+    expect(doc.querySelector('[data-testid="aws-resource-categories"]')).not.toBeNull();
     expect(doc.querySelector('[data-testid="env-vars-table-wrapper"]')).not.toBeNull();
     expect(doc.querySelector('[data-testid="before-you-deploy-security"]')).not.toBeNull();
-    // Order: AWS resources -> env vars -> Before you deploy.
+    // Order: cost -> what will be deployed -> env vars -> Before you deploy.
     const headings = Array.from(doc.querySelectorAll('h2')).map((node) => node.textContent?.trim());
     expect(headings).toEqual([
-      'AWS resources',
+      'Estimated AWS cost',
+      'What will be deployed',
       'Environment variables',
       'Before you deploy',
     ]);
   });
 
-  it('renders the canonical cost total under the table, not as a separate card', () => {
+  it('keeps the full resource table behind the closed View AWS resources disclosure', () => {
+    const html = renderToString(<CustomerInstallSections plan={PLAN} />);
+    const { window } = new JSDOM(html);
+    const doc = window.document;
+    expect(html).toContain('View AWS resources');
+    expect(doc.querySelector('[data-testid="aws-resources-table"]')).toBeNull();
+  });
+
+  it('renders the canonical cost estimate before the resource summary', () => {
     const html = renderToString(
       <CustomerInstallSections plan={PLAN} />,
     );
-    expect(html).toContain('Estimated total');
-    expect(html).toContain('~$30–60/mo');
-    expect(html).toContain('AWS bills your account directly');
+    expect(html).toContain('Estimated AWS cost');
+    expect(html).toContain('~$30–60/month');
+    expect(html).toContain('AWS bills your account directly; actual charges depend on usage.');
+    expect(html.indexOf('Estimated AWS cost')).toBeLessThan(html.indexOf('What will be deployed'));
   });
 
   it('renders nothing for env vars when the inputs list is empty', () => {
@@ -261,6 +372,16 @@ describe('CustomerInstallSections composition', () => {
     const { window } = new JSDOM(html);
     const doc = window.document;
     expect(doc.querySelector('[data-testid="env-vars-table-wrapper"]')).toBeNull();
-    expect(doc.body.textContent).toContain('No environment variables declared');
+    expect(doc.body.textContent).not.toContain('Environment variables');
+    expect(doc.body.textContent).not.toContain('No environment variables declared');
+  });
+
+  it('skips the cost and deployed summaries when the plan has no AWS resources', () => {
+    const html = renderToString(<CustomerInstallSections plan={{ ...PLAN, awsResources: [] }} />);
+    const { window } = new JSDOM(html);
+    const doc = window.document;
+    expect(doc.querySelector('[data-testid="aws-resources-total"]')).toBeNull();
+    expect(doc.querySelector('[data-testid="aws-resource-categories"]')).toBeNull();
+    expect(doc.body.textContent).toContain('Before you deploy');
   });
 });

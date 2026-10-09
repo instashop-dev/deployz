@@ -12,6 +12,7 @@ import { PublicInstallFlow } from '@/components/public-install-flow';
 import { TechnicalDetails } from '@/components/technical-details';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
+import { Card, CardContent } from '@/components/ui/card';
 import { RELAY_STUCK_GUIDANCE } from '@/lib/deployment-vocabulary';
 import { cloudFormationStacksUrl } from '@/lib/aws-console';
 import { fetchInstallData } from '@/lib/install-data';
@@ -117,10 +118,10 @@ export default async function InstallPage({
   // state needs no "already used" warning.
   if (data.waitingForRelay) {
     return (
-      <div className="flex flex-col gap-8">
+      <div className="flex flex-col gap-6">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">{data.applicationName}</h1>
-          <p className="mt-2 text-sm text-muted-foreground">
+          <p className="mt-1 text-sm text-muted-foreground">
             {data.publisherName} is setting up inside your AWS account
           </p>
         </div>
@@ -136,43 +137,45 @@ export default async function InstallPage({
           initialDomain={data.domain}
           routingTarget={data.routingTarget}
           preinstall
-        />
-
-        {data.relayStuck ? (
-          <section aria-labelledby="install-waiting" className="flex flex-col gap-3">
-            <h2 id="install-waiting" className="text-base font-semibold">
-              Still connecting
-            </h2>
-            <div className="flex items-start gap-3">
-              <Loader2 aria-hidden className="mt-0.5 size-4 shrink-0 animate-spin text-muted-foreground" />
-              <div className="flex flex-col gap-2 text-sm text-muted-foreground">
-                <p>{RELAY_STUCK_GUIDANCE}</p>
-                <p>
-                  Check the setup in AWS (link under Technical details). If it failed or you closed
-                  it, select Retry connection.
-                </p>
-              </div>
+          notice={
+            data.relayStuck ? (
+              <section aria-labelledby="install-waiting" className="flex flex-col gap-3">
+                <h2 id="install-waiting" className="text-base font-semibold">
+                  Still connecting
+                </h2>
+                <div className="flex items-start gap-3">
+                  <Loader2 aria-hidden className="mt-0.5 size-4 shrink-0 animate-spin text-muted-foreground" />
+                  <div className="flex flex-col gap-2 text-sm text-muted-foreground">
+                    <p>{RELAY_STUCK_GUIDANCE}</p>
+                    <p>
+                      Check the setup in AWS (link under Deployment details). If it failed or you
+                      closed it, select Retry connection.
+                    </p>
+                  </div>
+                </div>
+                <InstallRetryButton installLinkId={installLinkId} />
+              </section>
+            ) : null
+          }
+          details={
+            <div className="flex flex-col gap-2">
+              <ReferenceRow label="Expected stack name" value={data.bootstrapStackName} />
+              <ReferenceRow label="Installation reference" value={installLinkId} />
+              <a
+                className="w-fit text-sm font-medium underline underline-offset-4"
+                href={cloudFormationStacksUrl(data.region)}
+                target="_blank"
+                rel="noreferrer"
+              >
+                Open AWS CloudFormation
+              </a>
             </div>
-            <InstallRetryButton installLinkId={installLinkId} />
-          </section>
-        ) : null}
+          }
+        />
 
         <Button asChild variant="link" className="h-auto w-fit px-0">
           <Link href={securityHref}>Security details</Link>
         </Button>
-
-        <TechnicalDetails>
-          <ReferenceRow label="Expected stack name" value={data.bootstrapStackName} />
-          <ReferenceRow label="Installation reference" value={installLinkId} />
-          <a
-            className="w-fit text-sm font-medium underline underline-offset-4"
-            href={cloudFormationStacksUrl(data.region)}
-            target="_blank"
-            rel="noreferrer"
-          >
-            Open AWS CloudFormation
-          </a>
-        </TechnicalDetails>
       </div>
     );
   }
@@ -183,10 +186,10 @@ export default async function InstallPage({
   if (data.alreadyInstalled) {
     const removed = data.deploymentState === 'DELETING' || data.deploymentState === 'DELETED';
     return (
-      <div className="flex flex-col gap-8">
+      <div className="flex flex-col gap-6">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">{data.applicationName}</h1>
-          <p className="mt-2 text-sm text-muted-foreground">
+          <p className="mt-1 text-sm text-muted-foreground">
             {removed ? `Published by ${data.publisherName}` : `Deployed by ${data.publisherName}`}
           </p>
         </div>
@@ -232,79 +235,85 @@ export default async function InstallPage({
     : null;
 
   // Not launched yet: the one review surface (ux-guidelines §1) — what, where,
-  // what is created, cost, access, retained data — then the AWS connection
-  // step with its single primary action.
+  // cost, what is created, retained data — then the AWS connection step with
+  // its single primary action, and the access detail behind one disclosure.
   return (
-    <div className="mx-auto flex w-full max-w-3xl flex-col gap-10">
-      <header className="flex flex-col gap-4">
-        <div className="flex flex-col gap-2">
-          <h1 className="text-3xl font-semibold tracking-tight">
-            Deploy {data.applicationName} to your AWS account
-          </h1>
-          <p className="text-sm text-muted-foreground">Published by {data.publisherName}</p>
-        </div>
-        <dl className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-          <div>
-            <dt className="text-xs font-medium uppercase text-muted-foreground">Region</dt>
-            <dd className="mt-1 text-sm font-medium">{regionLabel ?? data.region}</dd>
-          </div>
-          {data.releaseVersion ? (
-            <div>
-              <dt className="text-xs font-medium uppercase text-muted-foreground">Release</dt>
-              <dd className="mt-1 text-sm font-medium">{data.releaseVersion}</dd>
-            </div>
-          ) : null}
-          {expiryLabel ? (
-            <div>
-              <dt className="text-xs font-medium uppercase text-muted-foreground">
-                Invitation expires
-              </dt>
-              <dd className="mt-1 text-sm font-medium">{expiryLabel}</dd>
-            </div>
-          ) : null}
-        </dl>
+    <div className="flex flex-col gap-6">
+      <header className="flex flex-col gap-1">
+        <h1 className="text-2xl font-semibold tracking-tight">
+          Deploy {data.applicationName} to your AWS account
+        </h1>
+        <p className="text-sm text-muted-foreground">Published by {data.publisherName}</p>
       </header>
 
-      <CustomerInstallSections
-        plan={data.plan}
-        securityHref={securityHref}
-      />
+      <Card>
+        <CardContent className="flex flex-col gap-8 py-2">
+          <dl className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+            <div>
+              <dt className="text-xs text-muted-foreground">AWS Region</dt>
+              <dd className="mt-1 text-sm font-medium">{regionLabel ?? data.region}</dd>
+            </div>
+            {data.releaseVersion ? (
+              <div>
+                <dt className="text-xs text-muted-foreground">Release</dt>
+                <dd className="mt-1 text-sm font-medium">{data.releaseVersion}</dd>
+              </div>
+            ) : null}
+            {expiryLabel ? (
+              <div>
+                <dt className="text-xs text-muted-foreground">Invitation expires</dt>
+                <dd className="mt-1 text-sm font-medium">{expiryLabel}</dd>
+              </div>
+            ) : null}
+          </dl>
 
-      <TechnicalDetails>
-        <ReferenceRow label="Installation reference" value={installLinkId} />
-      </TechnicalDetails>
+          <CustomerInstallSections plan={data.plan} />
 
-      <section aria-labelledby="connect-aws" className="flex flex-col gap-3">
-        <h2 id="connect-aws" className="text-base font-semibold">
-          Connect AWS account
-        </h2>
-        <ol className="flex list-decimal flex-col gap-2 pl-5 text-sm text-muted-foreground">
-          <li>Select Connect AWS account. The AWS console opens in a new tab.</li>
-          <li>Check the AWS account and Region, then create the Deployz connector stack.</li>
-          <li>Deployz creates the infrastructure and starts the application. Progress shows here.</li>
-        </ol>
-        {data.quickCreateUrl ? (
-          <InstallLaunchButton
-            installLinkId={installLinkId}
-            quickCreateUrl={data.quickCreateUrl}
-            label="Connect AWS account"
-          />
-        ) : (
-          <>
-            <Button size="lg" className="w-fit" disabled>
+          <section aria-labelledby="connect-aws" className="flex flex-col gap-2">
+            <h2 id="connect-aws" className="sr-only">
               Connect AWS account
-            </Button>
-            <p className="text-sm text-muted-foreground">
-              {data.publisherName} hasn&apos;t published a setup template yet. Contact them for a
-              working link.
+            </h2>
+            {data.quickCreateUrl ? (
+              <InstallLaunchButton
+                installLinkId={installLinkId}
+                quickCreateUrl={data.quickCreateUrl}
+                label="Connect AWS account"
+                className="w-full"
+              />
+            ) : (
+              <>
+                <Button size="lg" className="w-full" disabled>
+                  Connect AWS account
+                </Button>
+                <p className="text-sm text-muted-foreground">
+                  {data.publisherName} hasn&apos;t published a setup template yet. Contact them for a
+                  working link.
+                </p>
+              </>
+            )}
+            <p className="text-center text-xs text-muted-foreground">
+              Opens the AWS console in a new tab. Nothing is created until you approve it there. No
+              Deployz account needed.
             </p>
-          </>
-        )}
-        <p className="text-xs text-muted-foreground">
-          Requires an AWS identity that can create CloudFormation stacks and the resources above. No
-          Deployz account needed.
-        </p>
-      </section>
+          </section>
+
+          <TechnicalDetails className="border-t pt-4">
+            <ol className="flex list-decimal flex-col gap-1 pl-5 text-sm text-muted-foreground">
+              <li>In the AWS console, check the AWS account and Region.</li>
+              <li>Create the Deployz connector stack.</li>
+              <li>Deployz creates the infrastructure and starts the application. Progress shows here.</li>
+            </ol>
+            <p className="text-sm text-muted-foreground">
+              Requires an AWS identity that can create CloudFormation stacks and the resources listed
+              above.
+            </p>
+            <Button asChild variant="link" size="sm" className="h-auto w-fit px-0">
+              <Link href={securityHref}>Security &amp; permissions details</Link>
+            </Button>
+            <ReferenceRow label="Installation reference" value={installLinkId} />
+          </TechnicalDetails>
+        </CardContent>
+      </Card>
     </div>
   );
 }
