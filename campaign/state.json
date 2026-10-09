@@ -2,10 +2,10 @@
   "schemaVersion": 1,
   "campaign": "deployz-fresh-100",
   "status": "CONTINUE",
-  "phase": 2,
+  "phase": 3,
   "currentTask": null,
-  "nextAction": "Run P2-GATE (Opus, timebox 10) as the first task of the next run; this run did not start it (elapsed 31 min + 10 > 38). Review P2-SMOKE-RUN gaps first: Stage B needs --deploy-config with a non-default --benchmark (scripts/repository-deployment/index.ts 769-772; guard 169-171) - fix or make it a required flag before Phase 3; --local needs a Stage A cache; SeaweedFS storage path is still only fake-tested. Size Phase 3 batches from the measured durations (Stage A ~40 s/app with live AI; local build 321-375 s, run+probes ~5 min when health fails).",
-  "updatedAt": "2026-10-08T23:57:07.620Z",
+  "nextAction": "Phase 3: run P3-COMPAT-01..08 (Stage A, live AI, ~7 min each). Before P3-BUILD tasks the user must free disk on C: (7.1 GiB free; need 10 GiB).",
+  "updatedAt": "2026-10-09T00:00:57.839Z",
   "checkout": {
     "path": "C:/Users/Tejas/Desktop/deployz-mvp-test",
     "kind": "git worktree of C:/Users/Tejas/Desktop/deployz",
@@ -239,6 +239,10 @@
     {
       "commit": "e6a3b58ee2363923fef21faca86611fa3bf84538",
       "task": "P2-SMOKE-RUN"
+    },
+    {
+      "commit": "e6a3b58ee2363923fef21faca86611fa3bf84538",
+      "task": "P2-GATE"
     }
   ],
   "attempts": {
@@ -294,15 +298,16 @@
     "P2-AI-LIVE-VALIDATE": 1,
     "P2-IMPL-LOCAL-BUILD": 1,
     "P2-IMPL-LOCAL-RUN": 1,
-    "P2-SMOKE-RUN": 1
+    "P2-SMOKE-RUN": 1,
+    "P2-GATE": 1
   },
   "lastResult": {
-    "task": "P2-SMOKE-RUN",
+    "task": "P2-GATE",
     "status": "COMPLETE",
-    "at": "2026-10-08T23:57:07.620Z",
-    "summary": "Harness smoke at harness HEAD 3ba32b38. Stage A --ai live on repo-530 and repo-540 (both NEEDS_CONFIGURATION vs label READY; 1 live AI request each, model workers-ai/@cf/deepseek-ai/deepseek-v4-flash-0731); Stage A --resume kept both with no AI call. Local: repo-530 build FAIL (yarn network errors, kept as evidence); repo-556 gate/source/build PASS (build 375 s), run PASS, probes FAIL (health 404 on /heartbeat, dbWrite no rows) - repository results. Interrupt during probes; --resume reconciled 3 containers + 1 network, skipped gate/source/build (unchanged timings), redid run+probes; second --resume byte-identical. Opus checked: evidence paths exist, 0 labelled containers/networks/volumes/images, secret scan 0 hits, campaign/logs ignored, only campaign files changed. Gaps: Stage B needs --deploy-config with a non-default --benchmark (index.ts 769-772, guard 169-171 misses it; worked around with a minimal config under campaign/logs); --local needs a Stage A snapshot cache first; local run done without --ai live; SeaweedFS path not exercised; equality vs a re-resume, not an uninterrupted run.",
+    "at": "2026-10-09T00:00:57.838Z",
+    "summary": "Phase 2 gate PASS. Smoke run evidence verified; no new testing framework (only existing harnesses, no package/lockfile change). Measured sizing: Stage A ~40 s/app live AI; local 332-697 s/app. Decisions for Phase 3: deploy-config.yaml created by P3-BUILD-PLAN, --local --ai live, default cache, 2 apps per build task, one network-timeout retry, early storage app. New: disk 7.1 GiB < 10 GiB, disk>=10GB UNAVAILABLE (blocks builds only).",
     "evidence": [
-      "campaign/results/P2-SMOKE-RUN/result.json"
+      "campaign/results/P2-GATE/review.md"
     ]
   },
   "gates": {
@@ -332,8 +337,8 @@
       "detail": "Docker Desktop 29.8.2, linux/amd64, context desktop-linux, 4 CPUs, 3.8 GB memory. Docker Desktop must be running during each routine run."
     },
     "disk>=10GB": {
-      "status": "AVAILABLE",
-      "detail": "13.94 GiB free on C: after P0-ENV-SETUP (2026-10-08). Prune campaign images after each build batch."
+      "status": "UNAVAILABLE",
+      "detail": "7.1 GiB free on C: at 2026-10-09T00:00Z (P2-GATE). Docker: 2.62 GB reclaimable build cache, 0.49 GB unused unlabelled images. The user must free disk before P3-BUILD tasks; Stage A tasks do not need it."
     },
     "dependencies-installed": {
       "status": "AVAILABLE",

@@ -1987,7 +1987,7 @@
       "phase": 2,
       "title": "Phase 2 review: smoke run works; no new testing framework",
       "executor": "opus",
-      "status": "PENDING",
+      "status": "COMPLETE",
       "prerequisites": [
         "P2-SMOKE-RUN"
       ],
@@ -2005,7 +2005,8 @@
         "review.md records the verdict and the measured per-app durations used to size Phase 3 batches"
       ],
       "timeboxMinutes": 10,
-      "notes": []
+      "notes": [],
+      "attempts": 1
     },
     {
       "id": "P3-COMPAT-01",
@@ -2038,7 +2039,9 @@
         "AI mode recorded in each result equals the frozen baseline AI mode"
       ],
       "timeboxMinutes": 30,
-      "notes": []
+      "notes": [
+        "2026-10-09 P2-GATE: run `node --env-file=.env node_modules/.bin/tsx scripts/repository-compatibility/index.ts --ai live --benchmark campaign/corpus/benchmark.yaml --runs-dir campaign/results/first-run/compat/` (or the equivalent tsx form used in P2-SMOKE-RUN) with this batch's --repo ids; do not pass --cache (the default cache feeds the later --local builds). Measured: about 40 s per app with live AI."
+      ]
     },
     {
       "id": "P3-COMPAT-02",
@@ -2071,7 +2074,9 @@
         "AI mode recorded in each result equals the frozen baseline AI mode"
       ],
       "timeboxMinutes": 30,
-      "notes": []
+      "notes": [
+        "2026-10-09 P2-GATE: run `node --env-file=.env node_modules/.bin/tsx scripts/repository-compatibility/index.ts --ai live --benchmark campaign/corpus/benchmark.yaml --runs-dir campaign/results/first-run/compat/` (or the equivalent tsx form used in P2-SMOKE-RUN) with this batch's --repo ids; do not pass --cache (the default cache feeds the later --local builds). Measured: about 40 s per app with live AI."
+      ]
     },
     {
       "id": "P3-COMPAT-03",
@@ -2104,7 +2109,9 @@
         "AI mode recorded in each result equals the frozen baseline AI mode"
       ],
       "timeboxMinutes": 30,
-      "notes": []
+      "notes": [
+        "2026-10-09 P2-GATE: run `node --env-file=.env node_modules/.bin/tsx scripts/repository-compatibility/index.ts --ai live --benchmark campaign/corpus/benchmark.yaml --runs-dir campaign/results/first-run/compat/` (or the equivalent tsx form used in P2-SMOKE-RUN) with this batch's --repo ids; do not pass --cache (the default cache feeds the later --local builds). Measured: about 40 s per app with live AI."
+      ]
     },
     {
       "id": "P3-COMPAT-04",
@@ -2137,7 +2144,9 @@
         "AI mode recorded in each result equals the frozen baseline AI mode"
       ],
       "timeboxMinutes": 30,
-      "notes": []
+      "notes": [
+        "2026-10-09 P2-GATE: run `node --env-file=.env node_modules/.bin/tsx scripts/repository-compatibility/index.ts --ai live --benchmark campaign/corpus/benchmark.yaml --runs-dir campaign/results/first-run/compat/` (or the equivalent tsx form used in P2-SMOKE-RUN) with this batch's --repo ids; do not pass --cache (the default cache feeds the later --local builds). Measured: about 40 s per app with live AI."
+      ]
     },
     {
       "id": "P3-COMPAT-05",
@@ -2170,7 +2179,9 @@
         "AI mode recorded in each result equals the frozen baseline AI mode"
       ],
       "timeboxMinutes": 30,
-      "notes": []
+      "notes": [
+        "2026-10-09 P2-GATE: run `node --env-file=.env node_modules/.bin/tsx scripts/repository-compatibility/index.ts --ai live --benchmark campaign/corpus/benchmark.yaml --runs-dir campaign/results/first-run/compat/` (or the equivalent tsx form used in P2-SMOKE-RUN) with this batch's --repo ids; do not pass --cache (the default cache feeds the later --local builds). Measured: about 40 s per app with live AI."
+      ]
     },
     {
       "id": "P3-COMPAT-06",
@@ -2203,7 +2214,9 @@
         "AI mode recorded in each result equals the frozen baseline AI mode"
       ],
       "timeboxMinutes": 30,
-      "notes": []
+      "notes": [
+        "2026-10-09 P2-GATE: run `node --env-file=.env node_modules/.bin/tsx scripts/repository-compatibility/index.ts --ai live --benchmark campaign/corpus/benchmark.yaml --runs-dir campaign/results/first-run/compat/` (or the equivalent tsx form used in P2-SMOKE-RUN) with this batch's --repo ids; do not pass --cache (the default cache feeds the later --local builds). Measured: about 40 s per app with live AI."
+      ]
     },
     {
       "id": "P3-COMPAT-07",
@@ -2236,7 +2249,9 @@
         "AI mode recorded in each result equals the frozen baseline AI mode"
       ],
       "timeboxMinutes": 30,
-      "notes": []
+      "notes": [
+        "2026-10-09 P2-GATE: run `node --env-file=.env node_modules/.bin/tsx scripts/repository-compatibility/index.ts --ai live --benchmark campaign/corpus/benchmark.yaml --runs-dir campaign/results/first-run/compat/` (or the equivalent tsx form used in P2-SMOKE-RUN) with this batch's --repo ids; do not pass --cache (the default cache feeds the later --local builds). Measured: about 40 s per app with live AI."
+      ]
     },
     {
       "id": "P3-COMPAT-08",
@@ -2269,7 +2284,9 @@
         "AI mode recorded in each result equals the frozen baseline AI mode"
       ],
       "timeboxMinutes": 30,
-      "notes": []
+      "notes": [
+        "2026-10-09 P2-GATE: run `node --env-file=.env node_modules/.bin/tsx scripts/repository-compatibility/index.ts --ai live --benchmark campaign/corpus/benchmark.yaml --runs-dir campaign/results/first-run/compat/` (or the equivalent tsx form used in P2-SMOKE-RUN) with this batch's --repo ids; do not pass --cache (the default cache feeds the later --local builds). Measured: about 40 s per app with live AI."
+      ]
     },
     {
       "id": "P3-BUILD-PLAN",
@@ -2304,7 +2321,9 @@
         "Every generated task that needs push, PR, merge or publication lists gate \"publicationPolicyConfirmed\"; every merge follows state.json policy.publication.mergeProcedure"
       ],
       "timeboxMinutes": 15,
-      "notes": []
+      "notes": [
+        "2026-10-09 P2-GATE decisions (campaign/results/P2-GATE/review.md): (1) create campaign/corpus/deploy-config.yaml with the normal vendor config per eligible app (no secret values); every P3-BUILD-nn passes --deploy-config with it. (2) Every P3-BUILD-nn uses `node --env-file=.env ... scripts/repository-deployment/index.ts --local --ai live` and the default cache. (3) 2 apps per task (3 only for small builds with no database), timebox 30, resumable via --resume with stopBy; measured 332-697 s per app. (4) Retry a build once when the log shows only registry network timeouts; if it fails again classify it as an environment failure (separate denominator). (5) Put one storage-probe app in an early task (first real SeaweedFS check). (6) Every P3-BUILD-nn requires capability disk>=10GB and prunes its labelled images after the batch."
+      ]
     },
     {
       "id": "P3-GATE",

@@ -1,8 +1,8 @@
 # Fresh-100 campaign handoff
 
-**Status:** CONTINUE. Phase 2. P0-GATE PASS and P1-GATE PASS on 2026-10-08.
+**Status:** CONTINUE. Phase 3. P0-GATE, P1-GATE and P2-GATE PASS (P2-GATE on 2026-10-09).
 **Checkout:** `C:/Users/Tejas/Desktop/deployz-mvp-test`, branch `campaign/fresh-100`. Baseline commit `e6a3b58e` (ANALYSIS_VERSION 45; origin/main after PR #498, merged into the campaign branch on 2026-10-08).
-**Eligible now:** `P2-GATE` (Opus, timebox 10). `P2-SMOKE-RUN` is COMPLETE.
+**Eligible now:** `P3-COMPAT-01` (worker, timebox 30), then `P3-COMPAT-02..08`.
 
 ## Done
 
@@ -63,9 +63,11 @@
 - Phase 3–7 execution tasks are queued by the planning tasks `P3-BUILD-PLAN`, `P4-GROUP`, `P5-PLAN`, `P6-HOLDOUT-BUILD-PLAN` and `P7-PLAN` from measured results.
 
 - 2026-10-08: `P1-RECONCILE-04` COMPLETE (attempt 1, worker sonnet, testedCommit `e6a3b58e`; long-run exception recorded, timebox 40; run 20:51Z, worker 20:54Z-21:13Z). `campaign/corpus/labels/final-07.yaml` and `final-08.yaml` (rules R1, final-01 shape): 0 READY, 7 NEEDS_CONFIGURATION (563 Lychee, 564 lago-api, 565 open-webui, 566 openfga, 569 activepieces, 571 firezone, 573 mem0), 13 NOT_COMPATIBLE (561 kestra, 575 traccar, 579 akaunting: no entry; 562, 567, 570, 572, 574, 578: `local-filesystem`; 568 Dokploy: `docker`, `local-filesystem`; 576 BTCPay: `local-filesystem`, `background-worker`; 577 woodpecker, 580 keeper.sh: `background-worker`), 0 REPO_INVALID. Opus validator `v-07.mts` exit 0 for both files; Opus difference check: 56 field differences (storage/migration omitted = false, unsupported omitted = empty, appRoot excluded), 0 unrecorded. Opus spot-checked repo-565 at the pinned commit: `DATABASE_URL`, `STORAGE_PROVIDER` (s3 option) and `VECTOR_DB` (pgvector option) are environment switches, so the R1 text supports NEEDS_CONFIGURATION. Deviation (minor): the worker ran `grep -c` on `campaign/corpus/labels/final-0*.yaml` to count YAML anchors; counts only, no content used. Items for `P1-GATE` (no rule change made): (a) 565 open-webui and 563 Lychee are NEEDS_CONFIGURATION because env switches remove all local state; both input labels said NOT_COMPATIBLE and the P1-LABEL-07 convention said a local-disk default is NOT_COMPATIBLE even with optional S3/Postgres; check the same reading against final-01..06 (for example 531 linkding, 532 pretix, Ghost/Mautic/OpenProject in batch 9); (b) Bun runtime: 580 keeper.sh `node` here but 542 ConvertX `bun` in final-05; (c) monorepo still has no rule (576, 578 false; 577 true by the initial-07 header convention); (d) R5 opaque in-app migration vs migration tool; (e) R6 with two independent causes; (f) 573 mem0 SQLite history DB set by env value (`:memory:` accepted).
+- 2026-10-09: `P2-GATE` PASS (Opus). No new testing framework (only the existing harnesses changed; no package or lockfile change). Sizing: Stage A about 40 s per app with live AI; local 332-697 s per app. Phase 3 decisions: `P3-BUILD-PLAN` creates `campaign/corpus/deploy-config.yaml` (normal vendor config) and every build passes `--deploy-config`; builds use `--local --ai live` and the default cache; 2 apps per build task; one retry for registry network timeouts, then environment failure; one storage app early (first SeaweedFS check). Evidence: `campaign/results/P2-GATE/review.md`.
 
 ## Blockers and pending prerequisites
 
+- Disk: 7.1 GiB free on C: at 2026-10-09T00:00Z; `disk>=10GB` is UNAVAILABLE. Stage A tasks do not need it. Before Phase 3 build tasks the user must free disk on C:. Docker holds 2.62 GB reclaimable build cache and 0.49 GB unused images that are not campaign-labelled; the coordinator does not delete them.
 - `ai-gateway` AVAILABLE since `P2-AI-LIVE-VALIDATE` (2026-10-08). The worktree `.env` (ignored) AI values equal the deployed production API Lambda. Run live mode with `--ai live` and `.env` loaded (`node --env-file=.env`). The earlier 30 s timeout was fixed by PR #498 (repository AI reasoning off, ANALYSIS_VERSION 45).
 - Phase 7 needs `deployed-candidate`. New tasks after `P6-GATE`: `P7-DEPLOY-CANDIDATE` (Opus; the only granted route is a merge to `main` that starts Deploy API/Deploy web; if the deployed revision must change without a merge, it is BLOCKED on the missing `workflow_dispatch` authorization) → `P7-VERIFY-CANDIDATE` (read-only AWS: stack `Deployz` update time, API/worker Lambda CodeSha256 and asset keys matched to a local `cdk synth` at the candidate, CodeBuild buildspec, published bootstrap template and relay artifact). The API has no version endpoint, so a checkout, tag or green deploy job is not evidence. `P7-PLAN` and every generated AWS task depend on `P7-VERIFY-CANDIDATE`, require `deployed-candidate`, and re-check the identifiers before they start.
 - Disk: 13.94 GiB free after P0-ENV-SETUP. Prune campaign images after each build batch.
@@ -92,9 +94,9 @@
 
 ## Next action
 
-The 23:28Z run completed `P2-SMOKE-RUN` (COMPLETE). It did not start `P2-GATE`: elapsed 29 min + timebox 10 is more than 38. Next: `P2-GATE` (Opus, timebox 10). Decide on the P2-SMOKE-RUN gaps: the `--deploy-config` requirement for a non-default `--benchmark` (fix the harness guard, or make `campaign/corpus/deploy-config.yaml` a Phase 3 prerequisite), Stage A before `--local`, and the untested SeaweedFS path. Size Phase 3 batches from the measured durations: Stage A about 40 s per app with live AI; local build 321-375 s; run+probes up to about 5 min when health fails.
+Run `P3-COMPAT-01..08` (Stage A, live AI). Then `P3-BUILD-PLAN`. Builds need `disk>=10GB` first (user action).
 
-Caution: on 2026-10-08 a user-directed session and the routine run worked on the same checkout at the same time. Since 2026-10-08 every coordinator, scheduled or manual, must hold `campaign/coordinator.lock` (`node campaign/lock.mjs`, see plan.md "Coordinator lock") before it changes campaign files or dispatches a worker. If the lock is held, exit without changes.
+Caution: every coordinator, scheduled or manual, must hold `campaign/coordinator.lock` (`node campaign/lock.mjs`, see plan.md "Coordinator lock") before it changes campaign files or dispatches a worker. If the lock is held, exit without changes.
 
 ## Run model (configured 2026-10-08)
 
