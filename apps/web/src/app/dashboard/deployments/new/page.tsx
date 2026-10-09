@@ -1,6 +1,6 @@
 'use client';
 
-import { ArrowLeft, CheckCircle2, Copy, ExternalLink, PackageX } from 'lucide-react';
+import { ArrowLeft, Check, CheckCircle2, CircleAlert, CircleX, Copy, ExternalLink, PackageX } from 'lucide-react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { Suspense, useEffect, useRef, useState, type FormEvent } from 'react';
@@ -8,7 +8,6 @@ import { Suspense, useEffect, useRef, useState, type FormEvent } from 'react';
 import { copyInstallLink } from '@/components/copy-install-link';
 import { CustomerPicker } from '@/components/customer-picker';
 import { ManageBillingButton } from '@/components/manage-billing-button';
-import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -56,6 +55,8 @@ import {
   installReleaseState,
   type InstallReleaseState,
 } from '@/lib/releases';
+import { TONE_TEXT } from '@/lib/status-tone';
+import { cn } from '@/lib/utils';
 import { PreflightSummary } from '@/components/preflight-summary';
 
 /** Readiness rejection codes the "Review the application's readiness
@@ -137,8 +138,9 @@ function NewDeploymentScreen() {
   const [conflictingTestDeploymentId, setConflictingTestDeploymentId] = useState<string | null>(null);
   const [selectedApplicationId, setSelectedApplicationId] = useState<string | null>(preselectedApplicationId);
   const [preflight, setPreflight] = useState<PreflightResult | null>(null);
-  // Null while unknown (or unloadable): the API stays the authority then.
-  const [releaseState, setReleaseState] = useState<InstallReleaseState | null>(null);
+  const [preflightError, setPreflightError] = useState(false);
+  // Null while no application is selected.
+  const [releaseState, setReleaseState] = useState<ReleaseCheck | null>(null);
   // Customer mode: the vendor's subscription status. An evaluation or
   // canceled vendor needs a self-serve way to start a subscription before
   // customers can confirm installations; past-due/paused vendors need the
@@ -205,6 +207,7 @@ function NewDeploymentScreen() {
     if (!selectedApplicationId) return;
     let cancelled = false;
     setPreflight(null);
+    setPreflightError(false);
     fetchApplicationPreflight(
       selectedApplicationId,
       selectedCustomerId !== NEW_CUSTOMER_VALUE ? selectedCustomerId : undefined,
@@ -214,6 +217,7 @@ function NewDeploymentScreen() {
       })
       .catch(() => {
         // The form still works without the preview; the API enforces the gate.
+        if (!cancelled) setPreflightError(true);
       });
     return () => {
       cancelled = true;
@@ -273,6 +277,34 @@ function NewDeploymentScreen() {
     !usingExistingCustomer && customersState.status === 'loaded'
       ? matchingCustomerByEmail(customersState.customers, customerEmailInput)
       : null;
+
+  // A test deployment is created only when its preflight passes — the API
+  // runs the same gate. An invitation is not gated here: the customer
+  // supplies their own values before they confirm.
+  const preflightLoading = selectedApplicationId !== null && preflight === null && !preflightError;
+  const preflightBlocked = isTestDeployment && preflight !== null && !preflight.ready;
+  const submitHint = preflightBlocked
+    ? 'Fix the issues above to continue'
+    : releaseState?.kind === 'none'
+      ? 'Available after a release is built'
+      : releaseState?.kind === 'building'
+        ? 'Available when the build completes'
+        : (isTestDeployment && preflightLoading) || releaseState?.kind === 'loading'
+          ? 'Available when checks complete'
+          : null;
+
+  // A submit error describes the previous selection; a new selection clears it.
+  function clearSubmitError(): void {
+    setError(null);
+    setReadinessApplicationId(null);
+    setReadinessFindings([]);
+    setConflictingTestDeploymentId(null);
+  }
+
+  function selectCustomer(customerId: string): void {
+    clearSubmitError();
+    setSelectedCustomerId(customerId);
+  }
 
   function resetCustomerSelection(): void {
     setSelectedCustomerId(
@@ -390,7 +422,7 @@ function NewDeploymentScreen() {
   }
 
   return (
-    <div className="flex flex-col gap-6">
+    <div className="flex w-full max-w-240 flex-col gap-6">
       <div className="flex items-center gap-2">
         <Button asChild variant="ghost" size="sm" className="-ml-2">
           <Link href="/dashboard/deployments">
@@ -404,11 +436,11 @@ function NewDeploymentScreen() {
         <h1 className="text-2xl font-semibold tracking-tight">
           {isTestDeployment ? 'Create test deployment' : 'Invite customer'}
         </h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          {isTestDeployment
-            ? 'Free. Does not affect billing.'
-            : 'The customer picks the AWS region and confirms. A deployment is created only after they confirm.'}
-        </p>
+        {isTestDeployment ? null : (
+          <p className="mt-1 text-sm text-muted-foreground">
+            The customer picks the AWS region and confirms. A deployment is created only after they confirm.
+          </p>
+        )}
       </div>
 
       {/* Customer mode: an evaluation or canceled vendor needs a self-serve
@@ -509,192 +541,198 @@ function NewDeploymentScreen() {
           Couldn&apos;t load applications. Try again.
         </p>
       ) : (
-        <Card>
-          <CardHeader>
-            <CardTitle>{isTestDeployment ? 'Test deployment details' : 'Customer details'}</CardTitle>
-            {isTestDeployment ? null : (
-              <CardDescription>
-                Set application secrets for the customer afterward on the application’s
-                Configuration page.
-              </CardDescription>
-            )}
-          </CardHeader>
-          <CardContent>
-            <form onSubmit={onSubmit} className="flex flex-col gap-5">
-              <div className="flex flex-col gap-2">
-                <CustomerPicker
-                  customers={customersState.status === 'loaded' ? customersState.customers : []}
-                  value={selectedCustomerId}
-                  onChange={setSelectedCustomerId}
-                  disabled={pending}
-                  loading={customersState.status === 'loading'}
-                />
-                {customersState.status === 'error' ? (
-                  <p className="text-sm text-muted-foreground">
-                    Couldn&apos;t load customers. You can still add a new one.
-                  </p>
-                ) : null}
-              </div>
+        <form onSubmit={onSubmit} className="flex flex-col gap-6">
+          <div className="flex flex-col gap-4">
+            <div className="flex flex-col gap-2">
+              <CustomerPicker
+                customers={customersState.status === 'loaded' ? customersState.customers : []}
+                value={selectedCustomerId}
+                onChange={selectCustomer}
+                disabled={pending}
+                loading={customersState.status === 'loading'}
+              />
+              {customersState.status === 'error' ? (
+                <p className="text-sm text-muted-foreground">
+                  Couldn&apos;t load customers. You can still add a new one.
+                </p>
+              ) : null}
+            </div>
 
-              {usingExistingCustomer || awaitingPreselection ? null : (
-                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                  <div className="flex flex-col gap-2">
-                    <Label htmlFor="customerName">Customer name</Label>
-                    <Input id="customerName" name="customerName" required />
-                  </div>
-                  <div className="flex flex-col gap-2">
-                    <Label htmlFor="customerEmail">Customer email</Label>
-                    <Input
-                      id="customerEmail"
-                      name="customerEmail"
-                      type="email"
-                      required
-                      value={customerEmailInput}
-                      onChange={(event) => setCustomerEmailInput(event.currentTarget.value)}
-                    />
-                    {duplicateCustomer ? (
-                      <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
-                        <span>A customer with this email already exists.</span>
-                        <Button
-                          type="button"
-                          variant="link"
-                          size="sm"
-                          className="h-auto p-0"
-                          onClick={() => setSelectedCustomerId(duplicateCustomer.id)}
-                        >
-                          Use existing customer
-                        </Button>
-                      </div>
-                    ) : null}
-                  </div>
-                  <div className="flex flex-col gap-2">
-                    <Label htmlFor="customerCompany">Company (optional)</Label>
-                    <Input id="customerCompany" name="customerCompany" />
-                  </div>
-                </div>
-              )}
-
-              <Separator />
-
+            {usingExistingCustomer || awaitingPreselection ? null : (
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <div className="flex flex-col gap-2">
-                  <Label htmlFor="application">Application</Label>
-                  <select
-                    id="application"
-                    name="application"
-                    className={selectClass}
-                    required
-                    defaultValue={preselectedApplicationId ?? defaultInviteApplication(appsState.applications)?.id}
-                    onChange={(event) => setSelectedApplicationId(event.currentTarget.value)}
-                  >
-                    {appsState.applications.map((app) => (
-                      <option key={app.id} value={app.id}>
-                        {inviteApplicationLabel(app)}
-                      </option>
-                    ))}
-                  </select>
+                  <Label htmlFor="customerName">Customer name</Label>
+                  <Input id="customerName" name="customerName" required />
                 </div>
                 <div className="flex flex-col gap-2">
-                  <Label htmlFor="region">
-                    {isTestDeployment ? 'AWS region' : 'Recommended AWS region'}
-                  </Label>
-                  {regionsError ? (
-                    <p className="text-sm text-destructive">
-                      Couldn&apos;t load regions. Try again.
-                    </p>
-                  ) : regions.length === 0 ? (
-                    <p className="text-sm text-muted-foreground">
-                      No regions available yet.
-                    </p>
-                  ) : (
-                    <>
-                      <select
-                        id="region"
-                        name="region"
-                        className={selectClass}
-                        {...(isTestDeployment ? { required: true, defaultValue: regions[0]?.value } : { defaultValue: '' })}
+                  <Label htmlFor="customerEmail">Customer email</Label>
+                  <Input
+                    id="customerEmail"
+                    name="customerEmail"
+                    type="email"
+                    required
+                    value={customerEmailInput}
+                    onChange={(event) => setCustomerEmailInput(event.currentTarget.value)}
+                  />
+                  {duplicateCustomer ? (
+                    <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
+                      <span>A customer with this email already exists.</span>
+                      <Button
+                        type="button"
+                        variant="link"
+                        size="sm"
+                        className="h-auto p-0"
+                        onClick={() => selectCustomer(duplicateCustomer.id)}
                       >
-                        {isTestDeployment ? null : <option value="">No recommendation</option>}
-                        {regions.map((region) => (
-                          <option key={region.value} value={region.value}>
-                            {region.label}
-                          </option>
-                        ))}
-                      </select>
-                      {isTestDeployment ? null : (
-                        <p className="text-xs text-muted-foreground">
-                          Optional. The customer chooses the final region.
-                        </p>
-                      )}
-                    </>
-                  )}
+                        Use existing customer
+                      </Button>
+                    </div>
+                  ) : null}
+                </div>
+                <div className="flex flex-col gap-2">
+                  <Label htmlFor="customerCompany">Company (optional)</Label>
+                  <Input id="customerCompany" name="customerCompany" />
                 </div>
               </div>
+            )}
 
-              {preflight ? (
-                <PreflightSummary
-                  result={preflight}
-                  title={
-                    usingExistingCustomer
-                      ? "Preflight — this customer's configuration"
-                      : 'Preflight — default configuration'
-                  }
-                />
-              ) : null}
-
-              {selectedApplication ? (
-                <ReleaseRequirement
-                  key={selectedApplication.id}
-                  application={selectedApplication}
-                  onStateChange={setReleaseState}
-                />
-              ) : null}
-
-              <div className="flex items-center gap-3">
-                <Button
-                  type="submit"
-                  disabled={
-                    (isTestDeployment && (regionsError || regions.length === 0)) ||
-                    awaitingPreselection ||
-                    (releaseState !== null && releaseState.kind !== 'ready')
-                  }
-                  loading={pending}
-                  loadingText={isTestDeployment ? 'Creating deployment…' : 'Creating invitation…'}
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <div className="flex min-w-0 flex-col gap-2">
+                <Label htmlFor="application">Application</Label>
+                <select
+                  id="application"
+                  name="application"
+                  className={selectClass}
+                  required
+                  defaultValue={preselectedApplicationId ?? defaultInviteApplication(appsState.applications)?.id}
+                  onChange={(event) => {
+                    clearSubmitError();
+                    setSelectedApplicationId(event.currentTarget.value);
+                  }}
                 >
-                  {isTestDeployment ? 'Run free test deployment' : 'Invite customer'}
-                </Button>
-                {error ? (
-                  <div role="alert" className="flex flex-col gap-1 text-sm text-destructive">
-                    <p>{error}</p>
-                    {readinessFindings.length > 0 ? (
-                      <ul className="list-disc pl-5">
-                        {readinessFindings.map((finding) => (
-                          <li key={finding}>{finding}</li>
-                        ))}
-                      </ul>
-                    ) : null}
-                    {readinessApplicationId ? (
-                      <Link
-                        href={`/dashboard/applications/${readinessApplicationId}`}
-                        className="underline underline-offset-4"
-                      >
-                        Review the application&apos;s readiness findings
-                      </Link>
-                    ) : null}
-                    {conflictingTestDeploymentId ? (
-                      <Link
-                        href={`/dashboard/deployments/${conflictingTestDeploymentId}`}
-                        className="underline underline-offset-4"
-                      >
-                        View the existing test deployment
-                      </Link>
-                    ) : null}
-                  </div>
+                  {appsState.applications.map((app) => (
+                    <option key={app.id} value={app.id}>
+                      {inviteApplicationLabel(app)}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="flex min-w-0 flex-col gap-2">
+                <Label htmlFor="region">
+                  {isTestDeployment ? 'AWS region' : 'Recommended AWS region'}
+                </Label>
+                {regionsError ? (
+                  <p className="text-sm text-destructive">
+                    Couldn&apos;t load regions. Try again.
+                  </p>
+                ) : regions.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">
+                    No regions available yet.
+                  </p>
+                ) : (
+                  <>
+                    <select
+                      id="region"
+                      name="region"
+                      className={selectClass}
+                      onChange={clearSubmitError}
+                      {...(isTestDeployment ? { required: true, defaultValue: regions[0]?.value } : { defaultValue: '' })}
+                    >
+                      {isTestDeployment ? null : <option value="">No recommendation</option>}
+                      {regions.map((region) => (
+                        <option key={region.value} value={region.value}>
+                          {region.label}
+                        </option>
+                      ))}
+                    </select>
+                    {isTestDeployment ? null : (
+                      <p className="text-xs text-muted-foreground">
+                        Optional. The customer chooses the final region.
+                      </p>
+                    )}
+                  </>
+                )}
+              </div>
+            </div>
+          </div>
+
+          <Separator />
+
+          <div className="flex flex-col gap-3">
+            {preflight ? (
+              <PreflightSummary result={preflight} />
+            ) : preflightLoading ? (
+              <p className="flex items-center gap-2 text-sm text-muted-foreground" role="status">
+                <Spinner aria-hidden />
+                Running deployment checks…
+              </p>
+            ) : preflightError ? (
+              <p className="flex items-center gap-2 text-sm text-muted-foreground">
+                <CircleAlert aria-hidden className="size-4 shrink-0" />
+                Couldn&apos;t run the checks. They run again when you deploy.
+              </p>
+            ) : null}
+
+            {selectedApplication ? (
+              <ReleaseRequirement
+                key={selectedApplication.id}
+                application={selectedApplication}
+                onStateChange={setReleaseState}
+              />
+            ) : null}
+          </div>
+
+          <div className="flex flex-col gap-2">
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+              <Button
+                type="submit"
+                disabled={
+                  (isTestDeployment && (regionsError || regions.length === 0)) ||
+                  awaitingPreselection ||
+                  submitHint !== null
+                }
+                loading={pending}
+                loadingText={isTestDeployment ? 'Creating deployment…' : 'Creating invitation…'}
+                aria-describedby={submitHint ? 'submit-hint' : undefined}
+              >
+                {isTestDeployment ? 'Run free test deployment' : 'Invite customer'}
+              </Button>
+              {submitHint ? (
+                <p id="submit-hint" className="text-sm text-muted-foreground">
+                  {submitHint}
+                </p>
+              ) : null}
+            </div>
+            {error ? (
+              <div role="alert" className="flex flex-col gap-1 text-sm text-destructive">
+                <p>{error}</p>
+                {readinessFindings.length > 0 ? (
+                  <ul className="list-disc pl-5">
+                    {readinessFindings.map((finding) => (
+                      <li key={finding}>{finding}</li>
+                    ))}
+                  </ul>
+                ) : null}
+                {readinessApplicationId ? (
+                  <Link
+                    href={`/dashboard/applications/${readinessApplicationId}`}
+                    className="underline underline-offset-4"
+                  >
+                    Review the application&apos;s readiness findings
+                  </Link>
+                ) : null}
+                {conflictingTestDeploymentId ? (
+                  <Link
+                    href={`/dashboard/deployments/${conflictingTestDeploymentId}`}
+                    className="underline underline-offset-4"
+                  >
+                    View the existing test deployment
+                  </Link>
                 ) : null}
               </div>
-            </form>
-          </CardContent>
-        </Card>
+            ) : null}
+          </div>
+        </form>
       )}
     </div>
   );
@@ -703,20 +741,24 @@ function NewDeploymentScreen() {
 /** How often a building release is re-checked. */
 const RELEASE_POLL_MS = 10_000;
 
+/** The release check: loading, unavailable (the releases did not load — the
+ *  API stays the authority then), or the install release state. */
+type ReleaseCheck = { kind: 'loading' } | { kind: 'unavailable' } | InstallReleaseState;
+
 /**
- * The release a new deployment installs. The install runs the application's
- * newest built release, so an application with none cannot be deployed yet:
- * say which release will run, or offer to build the first one and follow the
- * build until it is ready.
+ * The release a new deployment installs, as one status line. The install
+ * runs the application's newest built release, so an application with none
+ * cannot be deployed yet: say which release will run, or offer to build the
+ * first one and follow the build until it is ready.
  */
 function ReleaseRequirement({
   application,
   onStateChange,
 }: {
   application: Application;
-  onStateChange: (state: InstallReleaseState | null) => void;
+  onStateChange: (state: ReleaseCheck) => void;
 }) {
-  const [state, setState] = useState<InstallReleaseState | null>(null);
+  const [state, setState] = useState<ReleaseCheck>({ kind: 'loading' });
   const [lastFailed, setLastFailed] = useState(false);
   const [building, setBuilding] = useState(false);
   const [buildError, setBuildError] = useState(false);
@@ -739,7 +781,7 @@ function ReleaseRequirement({
       })
       .catch(() => {
         // Unknown is not "none": the API still refuses a deployment without a release.
-        if (!cancelled) setState(null);
+        if (!cancelled) setState({ kind: 'unavailable' });
       });
     return () => {
       cancelled = true;
@@ -747,7 +789,7 @@ function ReleaseRequirement({
   }, [application.id, reloadTick]);
 
   useEffect(() => {
-    if (state?.kind !== 'building') return;
+    if (state.kind !== 'building') return;
     const timer = setTimeout(() => setReloadTick((tick) => tick + 1), RELEASE_POLL_MS);
     return () => clearTimeout(timer);
   }, [state]);
@@ -771,72 +813,100 @@ function ReleaseRequirement({
     }
   }
 
-  if (state === null) return null;
+  if (state.kind === 'loading') {
+    return (
+      <p className="flex items-center gap-2 text-sm text-muted-foreground" role="status">
+        <Spinner aria-hidden />
+        Checking the release…
+      </p>
+    );
+  }
+
+  if (state.kind === 'unavailable') {
+    return (
+      <div className="flex flex-wrap items-center gap-x-3 text-sm text-muted-foreground" data-testid="install-release-unavailable">
+        <p className="flex items-center gap-2">
+          <CircleAlert aria-hidden className="size-4 shrink-0" />
+          Couldn&apos;t check the release. It is checked again when you deploy.
+        </p>
+        <Button
+          type="button"
+          variant="link"
+          size="sm"
+          className="h-auto p-0"
+          onClick={() => {
+            setState({ kind: 'loading' });
+            setReloadTick((tick) => tick + 1);
+          }}
+        >
+          Try again
+        </Button>
+      </div>
+    );
+  }
 
   if (state.kind === 'ready') {
     return (
-      <p className="text-sm text-muted-foreground" data-testid="install-release">
-        Installs release {state.release.version} (newest built).
+      <p className="flex items-center gap-2 text-sm" data-testid="install-release">
+        <Check aria-hidden className={cn('size-4 shrink-0', TONE_TEXT.positive)} />
+        Release {state.release.version} is ready
       </p>
     );
   }
 
   if (state.kind === 'building') {
     return (
-      <Alert data-testid="install-release-building">
+      <p className="flex items-center gap-2 text-sm" role="status" data-testid="install-release-building">
         <Spinner aria-hidden />
-        <AlertTitle>Release {state.release.version} is building</AlertTitle>
-        <AlertDescription>
-          You can create the deployment when the build finishes. This page updates automatically.
-        </AlertDescription>
-      </Alert>
+        Building release {state.release.version}…
+      </p>
     );
   }
 
   return (
-    <Alert data-testid="install-release-missing">
-      <PackageX aria-hidden />
-      <AlertTitle>{application.name} has no built release</AlertTitle>
-      <AlertDescription>
-        <p>
-          {lastFailed
-            ? 'The last build failed. Build a new release first.'
-            : 'Build a release first.'}
+    <div className="flex flex-col gap-2 text-sm" data-testid="install-release-missing">
+      <p className="flex items-center gap-2">
+        {lastFailed ? (
+          <CircleX aria-hidden className="size-4 shrink-0 text-destructive" />
+        ) : (
+          <PackageX aria-hidden className="size-4 shrink-0 text-muted-foreground" />
+        )}
+        {lastFailed ? 'The last release build failed' : `${application.name} has no built release`}
+      </p>
+      {buildError ? (
+        <p className="text-destructive">
+          Couldn&apos;t start the build. Try again or use the Releases page.
         </p>
-        {buildError ? (
-          <p className="text-destructive">
-            Couldn&apos;t start the build. Try again or use the Releases page.
-          </p>
-        ) : null}
-        {missingBuildKeys ? (
-          <p className="text-destructive">
-            Set these build values before you build a release: {missingBuildKeys.join(', ')}.{' '}
-            <Link
-              href={`/dashboard/applications/${application.id}/config#environment-variables`}
-              className="underline underline-offset-4"
-            >
-              Review configuration
-            </Link>
-          </p>
-        ) : null}
-        <div className="mt-2 flex flex-wrap items-center gap-3">
-          {firstRelease ? (
-            <Button
-              type="button"
-              size="sm"
-              onClick={() => void onBuild()}
-              loading={building}
-              loadingText="Starting build…"
-            >
-              Build release from commit {firstRelease.gitSha.slice(0, 7)}
-            </Button>
-          ) : null}
-          <Button asChild type="button" size="sm" variant={firstRelease ? 'ghost' : 'default'}>
-            <Link href={releasesHref}>Go to Releases</Link>
+      ) : null}
+      {missingBuildKeys ? (
+        <p className="text-destructive">
+          Set these build values before you build a release: {missingBuildKeys.join(', ')}.{' '}
+          <Link
+            href={`/dashboard/applications/${application.id}/config#environment-variables`}
+            className="underline underline-offset-4"
+          >
+            Review configuration
+          </Link>
+        </p>
+      ) : null}
+      <div className="flex flex-wrap items-center gap-2">
+        {firstRelease ? (
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            onClick={() => void onBuild()}
+            loading={building}
+            loadingText="Starting build…"
+          >
+            Build release from commit {firstRelease.gitSha.slice(0, 7)}
           </Button>
-        </div>
-      </AlertDescription>
-    </Alert>
+        ) : null}
+        <Button asChild size="sm" variant={firstRelease ? 'ghost' : 'outline'}>
+          <Link href={releasesHref}>{lastFailed ? 'Review build failure' : 'Go to Releases'}</Link>
+        </Button>
+      </div>
+    </div>
   );
 }
 
