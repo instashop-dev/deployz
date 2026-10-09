@@ -2318,7 +2318,7 @@
       "phase": 3,
       "title": "Queue local build/run tasks of 2-3 eligible apps each from measured durations",
       "executor": "opus",
-      "status": "PENDING",
+      "status": "COMPLETE",
       "prerequisites": [
         "P3-COMPAT-01",
         "P3-COMPAT-02",
@@ -2347,7 +2347,1186 @@
       ],
       "timeboxMinutes": 15,
       "notes": [
-        "2026-10-09 P2-GATE decisions (campaign/results/P2-GATE/review.md): (1) create campaign/corpus/deploy-config.yaml with the normal vendor config per eligible app (no secret values); every P3-BUILD-nn passes --deploy-config with it. (2) Every P3-BUILD-nn uses `node --env-file=.env ... scripts/repository-deployment/index.ts --local --ai live` and the default cache. (3) 2 apps per task (3 only for small builds with no database), timebox 30, resumable via --resume with stopBy; measured 332-697 s per app. (4) Retry a build once when the log shows only registry network timeouts; if it fails again classify it as an environment failure (separate denominator). (5) Put one storage-probe app in an early task (first real SeaweedFS check). (6) Every P3-BUILD-nn requires capability disk>=10GB and prunes its labelled images after the batch."
+        "2026-10-09 P2-GATE decisions (campaign/results/P2-GATE/review.md): (1) create campaign/corpus/deploy-config.yaml with the normal vendor config per eligible app (no secret values); every P3-BUILD-nn passes --deploy-config with it. (2) Every P3-BUILD-nn uses `node --env-file=.env ... scripts/repository-deployment/index.ts --local --ai live` and the default cache. (3) 2 apps per task (3 only for small builds with no database), timebox 30, resumable via --resume with stopBy; measured 332-697 s per app. (4) Retry a build once when the log shows only registry network timeouts; if it fails again classify it as an environment failure (separate denominator). (5) Put one storage-probe app in an early task (first real SeaweedFS check). (6) Every P3-BUILD-nn requires capability disk>=10GB and prunes its labelled images after the batch.",
+        "2026-10-09 COMPLETE (Opus): 56 of 80 apps eligible (label or first-run gate READY/NEEDS_CONFIGURATION); 24 ineligible (label and gate NOT_COMPATIBLE), listed in campaign/results/P3-BUILD-PLAN/plan.md. Created campaign/corpus/deploy-config.yaml (56 entries, labelled overrides, no secrets; harness parser valid). Queued P3-BUILD-01..P3-BUILD-28 (28 tasks, 2 apps each; P3-BUILD-01 has the storage probe app repo-536). Every P3-BUILD-nn requires disk>=10GB, which is UNAVAILABLE."
+      ],
+      "attempts": 1
+    },
+    {
+      "id": "P3-BUILD-01",
+      "phase": 3,
+      "title": "First-run local build/run of improvement apps repo-540, repo-536",
+      "executor": "campaign-worker",
+      "status": "PENDING",
+      "prerequisites": [
+        "P3-BUILD-PLAN"
+      ],
+      "gates": [],
+      "requires": [
+        "docker",
+        "dependencies-installed",
+        "disk>=10GB",
+        "ai-gateway"
+      ],
+      "inputs": [
+        "campaign/corpus/benchmark.yaml",
+        "campaign/corpus/deploy-config.yaml"
+      ],
+      "forbiddenInputs": [
+        "campaign/corpus/holdout.yaml",
+        "campaign/results/holdout/"
+      ],
+      "artifacts": [
+        "campaign/results/first-run/build/ (2 files: repo-540.json, repo-536.json)",
+        "campaign/results/P3-BUILD-01/result.json"
+      ],
+      "completionChecks": [
+        "campaign/results/P3-BUILD-01/result.json is valid JSON with taskId \"P3-BUILD-01\", testedCommit equal to the commit recorded in state.json, a non-empty commands list with exit codes, and every listed evidence path exists",
+        "One local result per app with gate, source, build, run, probes and cleanup stage outcomes; a failed or skipped stage is recorded with its reason and log tail, not omitted",
+        "AI mode recorded in each result equals the frozen baseline AI mode; every command passed --deploy-config campaign/corpus/deploy-config.yaml",
+        "deploy-config.yaml changes, if any, touch only this task's apps, add no secret values, and each addition is listed in result.json notes with its source file in the app repository",
+        "No container, network, volume or image with label deployz-campaign=fresh-100 remains after the batch"
+      ],
+      "timeboxMinutes": 30,
+      "notes": [
+        "2026-10-09 P3-BUILD-PLAN (Opus): command `node --env-file=.env node_modules/tsx/dist/cli.mjs scripts/repository-deployment/index.ts --local --ai live --benchmark campaign/corpus/benchmark.yaml --deploy-config campaign/corpus/deploy-config.yaml --runs-dir campaign/results/first-run/build/ --evidence-dir campaign/logs/P3-BUILD-01/evidence/ --repo repo-540 --repo repo-536`; default cache (no --cache). Resumable: on stopBy, interrupt at a safe point and return CONTINUE with progress; the next run adds --resume.",
+        "Retry a build once when its log tail shows only registry network timeouts; if it fails again classify it as an environment failure (separate denominator).",
+        "Before the run, the worker may add to deploy-config.yaml, for this task's apps only, the configuration a vendor would enter from the app's own documented env example or install docs (config values without secrets; secrets as generated keys). No repository-specific hacks.",
+        "Storage probe: repo-536 (InvoiceShelf, storage label true) is the first real SeaweedFS check. Record the storage probe result; a harness-caused storage failure is a Phase 4 harness defect."
+      ]
+    },
+    {
+      "id": "P3-BUILD-02",
+      "phase": 3,
+      "title": "First-run local build/run of improvement apps repo-501, repo-502",
+      "executor": "campaign-worker",
+      "status": "PENDING",
+      "prerequisites": [
+        "P3-BUILD-PLAN"
+      ],
+      "gates": [],
+      "requires": [
+        "docker",
+        "dependencies-installed",
+        "disk>=10GB",
+        "ai-gateway"
+      ],
+      "inputs": [
+        "campaign/corpus/benchmark.yaml",
+        "campaign/corpus/deploy-config.yaml"
+      ],
+      "forbiddenInputs": [
+        "campaign/corpus/holdout.yaml",
+        "campaign/results/holdout/"
+      ],
+      "artifacts": [
+        "campaign/results/first-run/build/ (2 files: repo-501.json, repo-502.json)",
+        "campaign/results/P3-BUILD-02/result.json"
+      ],
+      "completionChecks": [
+        "campaign/results/P3-BUILD-02/result.json is valid JSON with taskId \"P3-BUILD-02\", testedCommit equal to the commit recorded in state.json, a non-empty commands list with exit codes, and every listed evidence path exists",
+        "One local result per app with gate, source, build, run, probes and cleanup stage outcomes; a failed or skipped stage is recorded with its reason and log tail, not omitted",
+        "AI mode recorded in each result equals the frozen baseline AI mode; every command passed --deploy-config campaign/corpus/deploy-config.yaml",
+        "deploy-config.yaml changes, if any, touch only this task's apps, add no secret values, and each addition is listed in result.json notes with its source file in the app repository",
+        "No container, network, volume or image with label deployz-campaign=fresh-100 remains after the batch"
+      ],
+      "timeboxMinutes": 30,
+      "notes": [
+        "2026-10-09 P3-BUILD-PLAN (Opus): command `node --env-file=.env node_modules/tsx/dist/cli.mjs scripts/repository-deployment/index.ts --local --ai live --benchmark campaign/corpus/benchmark.yaml --deploy-config campaign/corpus/deploy-config.yaml --runs-dir campaign/results/first-run/build/ --evidence-dir campaign/logs/P3-BUILD-02/evidence/ --repo repo-501 --repo repo-502`; default cache (no --cache). Resumable: on stopBy, interrupt at a safe point and return CONTINUE with progress; the next run adds --resume.",
+        "Retry a build once when its log tail shows only registry network timeouts; if it fails again classify it as an environment failure (separate denominator).",
+        "Before the run, the worker may add to deploy-config.yaml, for this task's apps only, the configuration a vendor would enter from the app's own documented env example or install docs (config values without secrets; secrets as generated keys). No repository-specific hacks."
+      ]
+    },
+    {
+      "id": "P3-BUILD-03",
+      "phase": 3,
+      "title": "First-run local build/run of improvement apps repo-503, repo-505",
+      "executor": "campaign-worker",
+      "status": "PENDING",
+      "prerequisites": [
+        "P3-BUILD-PLAN"
+      ],
+      "gates": [],
+      "requires": [
+        "docker",
+        "dependencies-installed",
+        "disk>=10GB",
+        "ai-gateway"
+      ],
+      "inputs": [
+        "campaign/corpus/benchmark.yaml",
+        "campaign/corpus/deploy-config.yaml"
+      ],
+      "forbiddenInputs": [
+        "campaign/corpus/holdout.yaml",
+        "campaign/results/holdout/"
+      ],
+      "artifacts": [
+        "campaign/results/first-run/build/ (2 files: repo-503.json, repo-505.json)",
+        "campaign/results/P3-BUILD-03/result.json"
+      ],
+      "completionChecks": [
+        "campaign/results/P3-BUILD-03/result.json is valid JSON with taskId \"P3-BUILD-03\", testedCommit equal to the commit recorded in state.json, a non-empty commands list with exit codes, and every listed evidence path exists",
+        "One local result per app with gate, source, build, run, probes and cleanup stage outcomes; a failed or skipped stage is recorded with its reason and log tail, not omitted",
+        "AI mode recorded in each result equals the frozen baseline AI mode; every command passed --deploy-config campaign/corpus/deploy-config.yaml",
+        "deploy-config.yaml changes, if any, touch only this task's apps, add no secret values, and each addition is listed in result.json notes with its source file in the app repository",
+        "No container, network, volume or image with label deployz-campaign=fresh-100 remains after the batch"
+      ],
+      "timeboxMinutes": 30,
+      "notes": [
+        "2026-10-09 P3-BUILD-PLAN (Opus): command `node --env-file=.env node_modules/tsx/dist/cli.mjs scripts/repository-deployment/index.ts --local --ai live --benchmark campaign/corpus/benchmark.yaml --deploy-config campaign/corpus/deploy-config.yaml --runs-dir campaign/results/first-run/build/ --evidence-dir campaign/logs/P3-BUILD-03/evidence/ --repo repo-503 --repo repo-505`; default cache (no --cache). Resumable: on stopBy, interrupt at a safe point and return CONTINUE with progress; the next run adds --resume.",
+        "Retry a build once when its log tail shows only registry network timeouts; if it fails again classify it as an environment failure (separate denominator).",
+        "Before the run, the worker may add to deploy-config.yaml, for this task's apps only, the configuration a vendor would enter from the app's own documented env example or install docs (config values without secrets; secrets as generated keys). No repository-specific hacks."
+      ]
+    },
+    {
+      "id": "P3-BUILD-04",
+      "phase": 3,
+      "title": "First-run local build/run of improvement apps repo-507, repo-508",
+      "executor": "campaign-worker",
+      "status": "PENDING",
+      "prerequisites": [
+        "P3-BUILD-PLAN"
+      ],
+      "gates": [],
+      "requires": [
+        "docker",
+        "dependencies-installed",
+        "disk>=10GB",
+        "ai-gateway"
+      ],
+      "inputs": [
+        "campaign/corpus/benchmark.yaml",
+        "campaign/corpus/deploy-config.yaml"
+      ],
+      "forbiddenInputs": [
+        "campaign/corpus/holdout.yaml",
+        "campaign/results/holdout/"
+      ],
+      "artifacts": [
+        "campaign/results/first-run/build/ (2 files: repo-507.json, repo-508.json)",
+        "campaign/results/P3-BUILD-04/result.json"
+      ],
+      "completionChecks": [
+        "campaign/results/P3-BUILD-04/result.json is valid JSON with taskId \"P3-BUILD-04\", testedCommit equal to the commit recorded in state.json, a non-empty commands list with exit codes, and every listed evidence path exists",
+        "One local result per app with gate, source, build, run, probes and cleanup stage outcomes; a failed or skipped stage is recorded with its reason and log tail, not omitted",
+        "AI mode recorded in each result equals the frozen baseline AI mode; every command passed --deploy-config campaign/corpus/deploy-config.yaml",
+        "deploy-config.yaml changes, if any, touch only this task's apps, add no secret values, and each addition is listed in result.json notes with its source file in the app repository",
+        "No container, network, volume or image with label deployz-campaign=fresh-100 remains after the batch"
+      ],
+      "timeboxMinutes": 30,
+      "notes": [
+        "2026-10-09 P3-BUILD-PLAN (Opus): command `node --env-file=.env node_modules/tsx/dist/cli.mjs scripts/repository-deployment/index.ts --local --ai live --benchmark campaign/corpus/benchmark.yaml --deploy-config campaign/corpus/deploy-config.yaml --runs-dir campaign/results/first-run/build/ --evidence-dir campaign/logs/P3-BUILD-04/evidence/ --repo repo-507 --repo repo-508`; default cache (no --cache). Resumable: on stopBy, interrupt at a safe point and return CONTINUE with progress; the next run adds --resume.",
+        "Retry a build once when its log tail shows only registry network timeouts; if it fails again classify it as an environment failure (separate denominator).",
+        "Before the run, the worker may add to deploy-config.yaml, for this task's apps only, the configuration a vendor would enter from the app's own documented env example or install docs (config values without secrets; secrets as generated keys). No repository-specific hacks."
+      ]
+    },
+    {
+      "id": "P3-BUILD-05",
+      "phase": 3,
+      "title": "First-run local build/run of improvement apps repo-509, repo-510",
+      "executor": "campaign-worker",
+      "status": "PENDING",
+      "prerequisites": [
+        "P3-BUILD-PLAN"
+      ],
+      "gates": [],
+      "requires": [
+        "docker",
+        "dependencies-installed",
+        "disk>=10GB",
+        "ai-gateway"
+      ],
+      "inputs": [
+        "campaign/corpus/benchmark.yaml",
+        "campaign/corpus/deploy-config.yaml"
+      ],
+      "forbiddenInputs": [
+        "campaign/corpus/holdout.yaml",
+        "campaign/results/holdout/"
+      ],
+      "artifacts": [
+        "campaign/results/first-run/build/ (2 files: repo-509.json, repo-510.json)",
+        "campaign/results/P3-BUILD-05/result.json"
+      ],
+      "completionChecks": [
+        "campaign/results/P3-BUILD-05/result.json is valid JSON with taskId \"P3-BUILD-05\", testedCommit equal to the commit recorded in state.json, a non-empty commands list with exit codes, and every listed evidence path exists",
+        "One local result per app with gate, source, build, run, probes and cleanup stage outcomes; a failed or skipped stage is recorded with its reason and log tail, not omitted",
+        "AI mode recorded in each result equals the frozen baseline AI mode; every command passed --deploy-config campaign/corpus/deploy-config.yaml",
+        "deploy-config.yaml changes, if any, touch only this task's apps, add no secret values, and each addition is listed in result.json notes with its source file in the app repository",
+        "No container, network, volume or image with label deployz-campaign=fresh-100 remains after the batch"
+      ],
+      "timeboxMinutes": 30,
+      "notes": [
+        "2026-10-09 P3-BUILD-PLAN (Opus): command `node --env-file=.env node_modules/tsx/dist/cli.mjs scripts/repository-deployment/index.ts --local --ai live --benchmark campaign/corpus/benchmark.yaml --deploy-config campaign/corpus/deploy-config.yaml --runs-dir campaign/results/first-run/build/ --evidence-dir campaign/logs/P3-BUILD-05/evidence/ --repo repo-509 --repo repo-510`; default cache (no --cache). Resumable: on stopBy, interrupt at a safe point and return CONTINUE with progress; the next run adds --resume.",
+        "Retry a build once when its log tail shows only registry network timeouts; if it fails again classify it as an environment failure (separate denominator).",
+        "Before the run, the worker may add to deploy-config.yaml, for this task's apps only, the configuration a vendor would enter from the app's own documented env example or install docs (config values without secrets; secrets as generated keys). No repository-specific hacks."
+      ]
+    },
+    {
+      "id": "P3-BUILD-06",
+      "phase": 3,
+      "title": "First-run local build/run of improvement apps repo-511, repo-513",
+      "executor": "campaign-worker",
+      "status": "PENDING",
+      "prerequisites": [
+        "P3-BUILD-PLAN"
+      ],
+      "gates": [],
+      "requires": [
+        "docker",
+        "dependencies-installed",
+        "disk>=10GB",
+        "ai-gateway"
+      ],
+      "inputs": [
+        "campaign/corpus/benchmark.yaml",
+        "campaign/corpus/deploy-config.yaml"
+      ],
+      "forbiddenInputs": [
+        "campaign/corpus/holdout.yaml",
+        "campaign/results/holdout/"
+      ],
+      "artifacts": [
+        "campaign/results/first-run/build/ (2 files: repo-511.json, repo-513.json)",
+        "campaign/results/P3-BUILD-06/result.json"
+      ],
+      "completionChecks": [
+        "campaign/results/P3-BUILD-06/result.json is valid JSON with taskId \"P3-BUILD-06\", testedCommit equal to the commit recorded in state.json, a non-empty commands list with exit codes, and every listed evidence path exists",
+        "One local result per app with gate, source, build, run, probes and cleanup stage outcomes; a failed or skipped stage is recorded with its reason and log tail, not omitted",
+        "AI mode recorded in each result equals the frozen baseline AI mode; every command passed --deploy-config campaign/corpus/deploy-config.yaml",
+        "deploy-config.yaml changes, if any, touch only this task's apps, add no secret values, and each addition is listed in result.json notes with its source file in the app repository",
+        "No container, network, volume or image with label deployz-campaign=fresh-100 remains after the batch"
+      ],
+      "timeboxMinutes": 30,
+      "notes": [
+        "2026-10-09 P3-BUILD-PLAN (Opus): command `node --env-file=.env node_modules/tsx/dist/cli.mjs scripts/repository-deployment/index.ts --local --ai live --benchmark campaign/corpus/benchmark.yaml --deploy-config campaign/corpus/deploy-config.yaml --runs-dir campaign/results/first-run/build/ --evidence-dir campaign/logs/P3-BUILD-06/evidence/ --repo repo-511 --repo repo-513`; default cache (no --cache). Resumable: on stopBy, interrupt at a safe point and return CONTINUE with progress; the next run adds --resume.",
+        "Retry a build once when its log tail shows only registry network timeouts; if it fails again classify it as an environment failure (separate denominator).",
+        "Before the run, the worker may add to deploy-config.yaml, for this task's apps only, the configuration a vendor would enter from the app's own documented env example or install docs (config values without secrets; secrets as generated keys). No repository-specific hacks."
+      ]
+    },
+    {
+      "id": "P3-BUILD-07",
+      "phase": 3,
+      "title": "First-run local build/run of improvement apps repo-514, repo-515",
+      "executor": "campaign-worker",
+      "status": "PENDING",
+      "prerequisites": [
+        "P3-BUILD-PLAN"
+      ],
+      "gates": [],
+      "requires": [
+        "docker",
+        "dependencies-installed",
+        "disk>=10GB",
+        "ai-gateway"
+      ],
+      "inputs": [
+        "campaign/corpus/benchmark.yaml",
+        "campaign/corpus/deploy-config.yaml"
+      ],
+      "forbiddenInputs": [
+        "campaign/corpus/holdout.yaml",
+        "campaign/results/holdout/"
+      ],
+      "artifacts": [
+        "campaign/results/first-run/build/ (2 files: repo-514.json, repo-515.json)",
+        "campaign/results/P3-BUILD-07/result.json"
+      ],
+      "completionChecks": [
+        "campaign/results/P3-BUILD-07/result.json is valid JSON with taskId \"P3-BUILD-07\", testedCommit equal to the commit recorded in state.json, a non-empty commands list with exit codes, and every listed evidence path exists",
+        "One local result per app with gate, source, build, run, probes and cleanup stage outcomes; a failed or skipped stage is recorded with its reason and log tail, not omitted",
+        "AI mode recorded in each result equals the frozen baseline AI mode; every command passed --deploy-config campaign/corpus/deploy-config.yaml",
+        "deploy-config.yaml changes, if any, touch only this task's apps, add no secret values, and each addition is listed in result.json notes with its source file in the app repository",
+        "No container, network, volume or image with label deployz-campaign=fresh-100 remains after the batch"
+      ],
+      "timeboxMinutes": 30,
+      "notes": [
+        "2026-10-09 P3-BUILD-PLAN (Opus): command `node --env-file=.env node_modules/tsx/dist/cli.mjs scripts/repository-deployment/index.ts --local --ai live --benchmark campaign/corpus/benchmark.yaml --deploy-config campaign/corpus/deploy-config.yaml --runs-dir campaign/results/first-run/build/ --evidence-dir campaign/logs/P3-BUILD-07/evidence/ --repo repo-514 --repo repo-515`; default cache (no --cache). Resumable: on stopBy, interrupt at a safe point and return CONTINUE with progress; the next run adds --resume.",
+        "Retry a build once when its log tail shows only registry network timeouts; if it fails again classify it as an environment failure (separate denominator).",
+        "Before the run, the worker may add to deploy-config.yaml, for this task's apps only, the configuration a vendor would enter from the app's own documented env example or install docs (config values without secrets; secrets as generated keys). No repository-specific hacks."
+      ]
+    },
+    {
+      "id": "P3-BUILD-08",
+      "phase": 3,
+      "title": "First-run local build/run of improvement apps repo-516, repo-517",
+      "executor": "campaign-worker",
+      "status": "PENDING",
+      "prerequisites": [
+        "P3-BUILD-PLAN"
+      ],
+      "gates": [],
+      "requires": [
+        "docker",
+        "dependencies-installed",
+        "disk>=10GB",
+        "ai-gateway"
+      ],
+      "inputs": [
+        "campaign/corpus/benchmark.yaml",
+        "campaign/corpus/deploy-config.yaml"
+      ],
+      "forbiddenInputs": [
+        "campaign/corpus/holdout.yaml",
+        "campaign/results/holdout/"
+      ],
+      "artifacts": [
+        "campaign/results/first-run/build/ (2 files: repo-516.json, repo-517.json)",
+        "campaign/results/P3-BUILD-08/result.json"
+      ],
+      "completionChecks": [
+        "campaign/results/P3-BUILD-08/result.json is valid JSON with taskId \"P3-BUILD-08\", testedCommit equal to the commit recorded in state.json, a non-empty commands list with exit codes, and every listed evidence path exists",
+        "One local result per app with gate, source, build, run, probes and cleanup stage outcomes; a failed or skipped stage is recorded with its reason and log tail, not omitted",
+        "AI mode recorded in each result equals the frozen baseline AI mode; every command passed --deploy-config campaign/corpus/deploy-config.yaml",
+        "deploy-config.yaml changes, if any, touch only this task's apps, add no secret values, and each addition is listed in result.json notes with its source file in the app repository",
+        "No container, network, volume or image with label deployz-campaign=fresh-100 remains after the batch"
+      ],
+      "timeboxMinutes": 30,
+      "notes": [
+        "2026-10-09 P3-BUILD-PLAN (Opus): command `node --env-file=.env node_modules/tsx/dist/cli.mjs scripts/repository-deployment/index.ts --local --ai live --benchmark campaign/corpus/benchmark.yaml --deploy-config campaign/corpus/deploy-config.yaml --runs-dir campaign/results/first-run/build/ --evidence-dir campaign/logs/P3-BUILD-08/evidence/ --repo repo-516 --repo repo-517`; default cache (no --cache). Resumable: on stopBy, interrupt at a safe point and return CONTINUE with progress; the next run adds --resume.",
+        "Retry a build once when its log tail shows only registry network timeouts; if it fails again classify it as an environment failure (separate denominator).",
+        "Before the run, the worker may add to deploy-config.yaml, for this task's apps only, the configuration a vendor would enter from the app's own documented env example or install docs (config values without secrets; secrets as generated keys). No repository-specific hacks."
+      ]
+    },
+    {
+      "id": "P3-BUILD-09",
+      "phase": 3,
+      "title": "First-run local build/run of improvement apps repo-518, repo-520",
+      "executor": "campaign-worker",
+      "status": "PENDING",
+      "prerequisites": [
+        "P3-BUILD-PLAN"
+      ],
+      "gates": [],
+      "requires": [
+        "docker",
+        "dependencies-installed",
+        "disk>=10GB",
+        "ai-gateway"
+      ],
+      "inputs": [
+        "campaign/corpus/benchmark.yaml",
+        "campaign/corpus/deploy-config.yaml"
+      ],
+      "forbiddenInputs": [
+        "campaign/corpus/holdout.yaml",
+        "campaign/results/holdout/"
+      ],
+      "artifacts": [
+        "campaign/results/first-run/build/ (2 files: repo-518.json, repo-520.json)",
+        "campaign/results/P3-BUILD-09/result.json"
+      ],
+      "completionChecks": [
+        "campaign/results/P3-BUILD-09/result.json is valid JSON with taskId \"P3-BUILD-09\", testedCommit equal to the commit recorded in state.json, a non-empty commands list with exit codes, and every listed evidence path exists",
+        "One local result per app with gate, source, build, run, probes and cleanup stage outcomes; a failed or skipped stage is recorded with its reason and log tail, not omitted",
+        "AI mode recorded in each result equals the frozen baseline AI mode; every command passed --deploy-config campaign/corpus/deploy-config.yaml",
+        "deploy-config.yaml changes, if any, touch only this task's apps, add no secret values, and each addition is listed in result.json notes with its source file in the app repository",
+        "No container, network, volume or image with label deployz-campaign=fresh-100 remains after the batch"
+      ],
+      "timeboxMinutes": 30,
+      "notes": [
+        "2026-10-09 P3-BUILD-PLAN (Opus): command `node --env-file=.env node_modules/tsx/dist/cli.mjs scripts/repository-deployment/index.ts --local --ai live --benchmark campaign/corpus/benchmark.yaml --deploy-config campaign/corpus/deploy-config.yaml --runs-dir campaign/results/first-run/build/ --evidence-dir campaign/logs/P3-BUILD-09/evidence/ --repo repo-518 --repo repo-520`; default cache (no --cache). Resumable: on stopBy, interrupt at a safe point and return CONTINUE with progress; the next run adds --resume.",
+        "Retry a build once when its log tail shows only registry network timeouts; if it fails again classify it as an environment failure (separate denominator).",
+        "Before the run, the worker may add to deploy-config.yaml, for this task's apps only, the configuration a vendor would enter from the app's own documented env example or install docs (config values without secrets; secrets as generated keys). No repository-specific hacks."
+      ]
+    },
+    {
+      "id": "P3-BUILD-10",
+      "phase": 3,
+      "title": "First-run local build/run of improvement apps repo-522, repo-523",
+      "executor": "campaign-worker",
+      "status": "PENDING",
+      "prerequisites": [
+        "P3-BUILD-PLAN"
+      ],
+      "gates": [],
+      "requires": [
+        "docker",
+        "dependencies-installed",
+        "disk>=10GB",
+        "ai-gateway"
+      ],
+      "inputs": [
+        "campaign/corpus/benchmark.yaml",
+        "campaign/corpus/deploy-config.yaml"
+      ],
+      "forbiddenInputs": [
+        "campaign/corpus/holdout.yaml",
+        "campaign/results/holdout/"
+      ],
+      "artifacts": [
+        "campaign/results/first-run/build/ (2 files: repo-522.json, repo-523.json)",
+        "campaign/results/P3-BUILD-10/result.json"
+      ],
+      "completionChecks": [
+        "campaign/results/P3-BUILD-10/result.json is valid JSON with taskId \"P3-BUILD-10\", testedCommit equal to the commit recorded in state.json, a non-empty commands list with exit codes, and every listed evidence path exists",
+        "One local result per app with gate, source, build, run, probes and cleanup stage outcomes; a failed or skipped stage is recorded with its reason and log tail, not omitted",
+        "AI mode recorded in each result equals the frozen baseline AI mode; every command passed --deploy-config campaign/corpus/deploy-config.yaml",
+        "deploy-config.yaml changes, if any, touch only this task's apps, add no secret values, and each addition is listed in result.json notes with its source file in the app repository",
+        "No container, network, volume or image with label deployz-campaign=fresh-100 remains after the batch"
+      ],
+      "timeboxMinutes": 30,
+      "notes": [
+        "2026-10-09 P3-BUILD-PLAN (Opus): command `node --env-file=.env node_modules/tsx/dist/cli.mjs scripts/repository-deployment/index.ts --local --ai live --benchmark campaign/corpus/benchmark.yaml --deploy-config campaign/corpus/deploy-config.yaml --runs-dir campaign/results/first-run/build/ --evidence-dir campaign/logs/P3-BUILD-10/evidence/ --repo repo-522 --repo repo-523`; default cache (no --cache). Resumable: on stopBy, interrupt at a safe point and return CONTINUE with progress; the next run adds --resume.",
+        "Retry a build once when its log tail shows only registry network timeouts; if it fails again classify it as an environment failure (separate denominator).",
+        "Before the run, the worker may add to deploy-config.yaml, for this task's apps only, the configuration a vendor would enter from the app's own documented env example or install docs (config values without secrets; secrets as generated keys). No repository-specific hacks."
+      ]
+    },
+    {
+      "id": "P3-BUILD-11",
+      "phase": 3,
+      "title": "First-run local build/run of improvement apps repo-524, repo-525",
+      "executor": "campaign-worker",
+      "status": "PENDING",
+      "prerequisites": [
+        "P3-BUILD-PLAN"
+      ],
+      "gates": [],
+      "requires": [
+        "docker",
+        "dependencies-installed",
+        "disk>=10GB",
+        "ai-gateway"
+      ],
+      "inputs": [
+        "campaign/corpus/benchmark.yaml",
+        "campaign/corpus/deploy-config.yaml"
+      ],
+      "forbiddenInputs": [
+        "campaign/corpus/holdout.yaml",
+        "campaign/results/holdout/"
+      ],
+      "artifacts": [
+        "campaign/results/first-run/build/ (2 files: repo-524.json, repo-525.json)",
+        "campaign/results/P3-BUILD-11/result.json"
+      ],
+      "completionChecks": [
+        "campaign/results/P3-BUILD-11/result.json is valid JSON with taskId \"P3-BUILD-11\", testedCommit equal to the commit recorded in state.json, a non-empty commands list with exit codes, and every listed evidence path exists",
+        "One local result per app with gate, source, build, run, probes and cleanup stage outcomes; a failed or skipped stage is recorded with its reason and log tail, not omitted",
+        "AI mode recorded in each result equals the frozen baseline AI mode; every command passed --deploy-config campaign/corpus/deploy-config.yaml",
+        "deploy-config.yaml changes, if any, touch only this task's apps, add no secret values, and each addition is listed in result.json notes with its source file in the app repository",
+        "No container, network, volume or image with label deployz-campaign=fresh-100 remains after the batch"
+      ],
+      "timeboxMinutes": 30,
+      "notes": [
+        "2026-10-09 P3-BUILD-PLAN (Opus): command `node --env-file=.env node_modules/tsx/dist/cli.mjs scripts/repository-deployment/index.ts --local --ai live --benchmark campaign/corpus/benchmark.yaml --deploy-config campaign/corpus/deploy-config.yaml --runs-dir campaign/results/first-run/build/ --evidence-dir campaign/logs/P3-BUILD-11/evidence/ --repo repo-524 --repo repo-525`; default cache (no --cache). Resumable: on stopBy, interrupt at a safe point and return CONTINUE with progress; the next run adds --resume.",
+        "Retry a build once when its log tail shows only registry network timeouts; if it fails again classify it as an environment failure (separate denominator).",
+        "Before the run, the worker may add to deploy-config.yaml, for this task's apps only, the configuration a vendor would enter from the app's own documented env example or install docs (config values without secrets; secrets as generated keys). No repository-specific hacks."
+      ]
+    },
+    {
+      "id": "P3-BUILD-12",
+      "phase": 3,
+      "title": "First-run local build/run of improvement apps repo-528, repo-529",
+      "executor": "campaign-worker",
+      "status": "PENDING",
+      "prerequisites": [
+        "P3-BUILD-PLAN"
+      ],
+      "gates": [],
+      "requires": [
+        "docker",
+        "dependencies-installed",
+        "disk>=10GB",
+        "ai-gateway"
+      ],
+      "inputs": [
+        "campaign/corpus/benchmark.yaml",
+        "campaign/corpus/deploy-config.yaml"
+      ],
+      "forbiddenInputs": [
+        "campaign/corpus/holdout.yaml",
+        "campaign/results/holdout/"
+      ],
+      "artifacts": [
+        "campaign/results/first-run/build/ (2 files: repo-528.json, repo-529.json)",
+        "campaign/results/P3-BUILD-12/result.json"
+      ],
+      "completionChecks": [
+        "campaign/results/P3-BUILD-12/result.json is valid JSON with taskId \"P3-BUILD-12\", testedCommit equal to the commit recorded in state.json, a non-empty commands list with exit codes, and every listed evidence path exists",
+        "One local result per app with gate, source, build, run, probes and cleanup stage outcomes; a failed or skipped stage is recorded with its reason and log tail, not omitted",
+        "AI mode recorded in each result equals the frozen baseline AI mode; every command passed --deploy-config campaign/corpus/deploy-config.yaml",
+        "deploy-config.yaml changes, if any, touch only this task's apps, add no secret values, and each addition is listed in result.json notes with its source file in the app repository",
+        "No container, network, volume or image with label deployz-campaign=fresh-100 remains after the batch"
+      ],
+      "timeboxMinutes": 30,
+      "notes": [
+        "2026-10-09 P3-BUILD-PLAN (Opus): command `node --env-file=.env node_modules/tsx/dist/cli.mjs scripts/repository-deployment/index.ts --local --ai live --benchmark campaign/corpus/benchmark.yaml --deploy-config campaign/corpus/deploy-config.yaml --runs-dir campaign/results/first-run/build/ --evidence-dir campaign/logs/P3-BUILD-12/evidence/ --repo repo-528 --repo repo-529`; default cache (no --cache). Resumable: on stopBy, interrupt at a safe point and return CONTINUE with progress; the next run adds --resume.",
+        "Retry a build once when its log tail shows only registry network timeouts; if it fails again classify it as an environment failure (separate denominator).",
+        "Before the run, the worker may add to deploy-config.yaml, for this task's apps only, the configuration a vendor would enter from the app's own documented env example or install docs (config values without secrets; secrets as generated keys). No repository-specific hacks."
+      ]
+    },
+    {
+      "id": "P3-BUILD-13",
+      "phase": 3,
+      "title": "First-run local build/run of improvement apps repo-530, repo-534",
+      "executor": "campaign-worker",
+      "status": "PENDING",
+      "prerequisites": [
+        "P3-BUILD-PLAN"
+      ],
+      "gates": [],
+      "requires": [
+        "docker",
+        "dependencies-installed",
+        "disk>=10GB",
+        "ai-gateway"
+      ],
+      "inputs": [
+        "campaign/corpus/benchmark.yaml",
+        "campaign/corpus/deploy-config.yaml"
+      ],
+      "forbiddenInputs": [
+        "campaign/corpus/holdout.yaml",
+        "campaign/results/holdout/"
+      ],
+      "artifacts": [
+        "campaign/results/first-run/build/ (2 files: repo-530.json, repo-534.json)",
+        "campaign/results/P3-BUILD-13/result.json"
+      ],
+      "completionChecks": [
+        "campaign/results/P3-BUILD-13/result.json is valid JSON with taskId \"P3-BUILD-13\", testedCommit equal to the commit recorded in state.json, a non-empty commands list with exit codes, and every listed evidence path exists",
+        "One local result per app with gate, source, build, run, probes and cleanup stage outcomes; a failed or skipped stage is recorded with its reason and log tail, not omitted",
+        "AI mode recorded in each result equals the frozen baseline AI mode; every command passed --deploy-config campaign/corpus/deploy-config.yaml",
+        "deploy-config.yaml changes, if any, touch only this task's apps, add no secret values, and each addition is listed in result.json notes with its source file in the app repository",
+        "No container, network, volume or image with label deployz-campaign=fresh-100 remains after the batch"
+      ],
+      "timeboxMinutes": 30,
+      "notes": [
+        "2026-10-09 P3-BUILD-PLAN (Opus): command `node --env-file=.env node_modules/tsx/dist/cli.mjs scripts/repository-deployment/index.ts --local --ai live --benchmark campaign/corpus/benchmark.yaml --deploy-config campaign/corpus/deploy-config.yaml --runs-dir campaign/results/first-run/build/ --evidence-dir campaign/logs/P3-BUILD-13/evidence/ --repo repo-530 --repo repo-534`; default cache (no --cache). Resumable: on stopBy, interrupt at a safe point and return CONTINUE with progress; the next run adds --resume.",
+        "Retry a build once when its log tail shows only registry network timeouts; if it fails again classify it as an environment failure (separate denominator).",
+        "Before the run, the worker may add to deploy-config.yaml, for this task's apps only, the configuration a vendor would enter from the app's own documented env example or install docs (config values without secrets; secrets as generated keys). No repository-specific hacks."
+      ]
+    },
+    {
+      "id": "P3-BUILD-14",
+      "phase": 3,
+      "title": "First-run local build/run of improvement apps repo-543, repo-544",
+      "executor": "campaign-worker",
+      "status": "PENDING",
+      "prerequisites": [
+        "P3-BUILD-PLAN"
+      ],
+      "gates": [],
+      "requires": [
+        "docker",
+        "dependencies-installed",
+        "disk>=10GB",
+        "ai-gateway"
+      ],
+      "inputs": [
+        "campaign/corpus/benchmark.yaml",
+        "campaign/corpus/deploy-config.yaml"
+      ],
+      "forbiddenInputs": [
+        "campaign/corpus/holdout.yaml",
+        "campaign/results/holdout/"
+      ],
+      "artifacts": [
+        "campaign/results/first-run/build/ (2 files: repo-543.json, repo-544.json)",
+        "campaign/results/P3-BUILD-14/result.json"
+      ],
+      "completionChecks": [
+        "campaign/results/P3-BUILD-14/result.json is valid JSON with taskId \"P3-BUILD-14\", testedCommit equal to the commit recorded in state.json, a non-empty commands list with exit codes, and every listed evidence path exists",
+        "One local result per app with gate, source, build, run, probes and cleanup stage outcomes; a failed or skipped stage is recorded with its reason and log tail, not omitted",
+        "AI mode recorded in each result equals the frozen baseline AI mode; every command passed --deploy-config campaign/corpus/deploy-config.yaml",
+        "deploy-config.yaml changes, if any, touch only this task's apps, add no secret values, and each addition is listed in result.json notes with its source file in the app repository",
+        "No container, network, volume or image with label deployz-campaign=fresh-100 remains after the batch"
+      ],
+      "timeboxMinutes": 30,
+      "notes": [
+        "2026-10-09 P3-BUILD-PLAN (Opus): command `node --env-file=.env node_modules/tsx/dist/cli.mjs scripts/repository-deployment/index.ts --local --ai live --benchmark campaign/corpus/benchmark.yaml --deploy-config campaign/corpus/deploy-config.yaml --runs-dir campaign/results/first-run/build/ --evidence-dir campaign/logs/P3-BUILD-14/evidence/ --repo repo-543 --repo repo-544`; default cache (no --cache). Resumable: on stopBy, interrupt at a safe point and return CONTINUE with progress; the next run adds --resume.",
+        "Retry a build once when its log tail shows only registry network timeouts; if it fails again classify it as an environment failure (separate denominator).",
+        "Before the run, the worker may add to deploy-config.yaml, for this task's apps only, the configuration a vendor would enter from the app's own documented env example or install docs (config values without secrets; secrets as generated keys). No repository-specific hacks."
+      ]
+    },
+    {
+      "id": "P3-BUILD-15",
+      "phase": 3,
+      "title": "First-run local build/run of improvement apps repo-547, repo-548",
+      "executor": "campaign-worker",
+      "status": "PENDING",
+      "prerequisites": [
+        "P3-BUILD-PLAN"
+      ],
+      "gates": [],
+      "requires": [
+        "docker",
+        "dependencies-installed",
+        "disk>=10GB",
+        "ai-gateway"
+      ],
+      "inputs": [
+        "campaign/corpus/benchmark.yaml",
+        "campaign/corpus/deploy-config.yaml"
+      ],
+      "forbiddenInputs": [
+        "campaign/corpus/holdout.yaml",
+        "campaign/results/holdout/"
+      ],
+      "artifacts": [
+        "campaign/results/first-run/build/ (2 files: repo-547.json, repo-548.json)",
+        "campaign/results/P3-BUILD-15/result.json"
+      ],
+      "completionChecks": [
+        "campaign/results/P3-BUILD-15/result.json is valid JSON with taskId \"P3-BUILD-15\", testedCommit equal to the commit recorded in state.json, a non-empty commands list with exit codes, and every listed evidence path exists",
+        "One local result per app with gate, source, build, run, probes and cleanup stage outcomes; a failed or skipped stage is recorded with its reason and log tail, not omitted",
+        "AI mode recorded in each result equals the frozen baseline AI mode; every command passed --deploy-config campaign/corpus/deploy-config.yaml",
+        "deploy-config.yaml changes, if any, touch only this task's apps, add no secret values, and each addition is listed in result.json notes with its source file in the app repository",
+        "No container, network, volume or image with label deployz-campaign=fresh-100 remains after the batch"
+      ],
+      "timeboxMinutes": 30,
+      "notes": [
+        "2026-10-09 P3-BUILD-PLAN (Opus): command `node --env-file=.env node_modules/tsx/dist/cli.mjs scripts/repository-deployment/index.ts --local --ai live --benchmark campaign/corpus/benchmark.yaml --deploy-config campaign/corpus/deploy-config.yaml --runs-dir campaign/results/first-run/build/ --evidence-dir campaign/logs/P3-BUILD-15/evidence/ --repo repo-547 --repo repo-548`; default cache (no --cache). Resumable: on stopBy, interrupt at a safe point and return CONTINUE with progress; the next run adds --resume.",
+        "Retry a build once when its log tail shows only registry network timeouts; if it fails again classify it as an environment failure (separate denominator).",
+        "Before the run, the worker may add to deploy-config.yaml, for this task's apps only, the configuration a vendor would enter from the app's own documented env example or install docs (config values without secrets; secrets as generated keys). No repository-specific hacks."
+      ]
+    },
+    {
+      "id": "P3-BUILD-16",
+      "phase": 3,
+      "title": "First-run local build/run of improvement apps repo-549, repo-550",
+      "executor": "campaign-worker",
+      "status": "PENDING",
+      "prerequisites": [
+        "P3-BUILD-PLAN"
+      ],
+      "gates": [],
+      "requires": [
+        "docker",
+        "dependencies-installed",
+        "disk>=10GB",
+        "ai-gateway"
+      ],
+      "inputs": [
+        "campaign/corpus/benchmark.yaml",
+        "campaign/corpus/deploy-config.yaml"
+      ],
+      "forbiddenInputs": [
+        "campaign/corpus/holdout.yaml",
+        "campaign/results/holdout/"
+      ],
+      "artifacts": [
+        "campaign/results/first-run/build/ (2 files: repo-549.json, repo-550.json)",
+        "campaign/results/P3-BUILD-16/result.json"
+      ],
+      "completionChecks": [
+        "campaign/results/P3-BUILD-16/result.json is valid JSON with taskId \"P3-BUILD-16\", testedCommit equal to the commit recorded in state.json, a non-empty commands list with exit codes, and every listed evidence path exists",
+        "One local result per app with gate, source, build, run, probes and cleanup stage outcomes; a failed or skipped stage is recorded with its reason and log tail, not omitted",
+        "AI mode recorded in each result equals the frozen baseline AI mode; every command passed --deploy-config campaign/corpus/deploy-config.yaml",
+        "deploy-config.yaml changes, if any, touch only this task's apps, add no secret values, and each addition is listed in result.json notes with its source file in the app repository",
+        "No container, network, volume or image with label deployz-campaign=fresh-100 remains after the batch"
+      ],
+      "timeboxMinutes": 30,
+      "notes": [
+        "2026-10-09 P3-BUILD-PLAN (Opus): command `node --env-file=.env node_modules/tsx/dist/cli.mjs scripts/repository-deployment/index.ts --local --ai live --benchmark campaign/corpus/benchmark.yaml --deploy-config campaign/corpus/deploy-config.yaml --runs-dir campaign/results/first-run/build/ --evidence-dir campaign/logs/P3-BUILD-16/evidence/ --repo repo-549 --repo repo-550`; default cache (no --cache). Resumable: on stopBy, interrupt at a safe point and return CONTINUE with progress; the next run adds --resume.",
+        "Retry a build once when its log tail shows only registry network timeouts; if it fails again classify it as an environment failure (separate denominator).",
+        "Before the run, the worker may add to deploy-config.yaml, for this task's apps only, the configuration a vendor would enter from the app's own documented env example or install docs (config values without secrets; secrets as generated keys). No repository-specific hacks."
+      ]
+    },
+    {
+      "id": "P3-BUILD-17",
+      "phase": 3,
+      "title": "First-run local build/run of improvement apps repo-551, repo-552",
+      "executor": "campaign-worker",
+      "status": "PENDING",
+      "prerequisites": [
+        "P3-BUILD-PLAN"
+      ],
+      "gates": [],
+      "requires": [
+        "docker",
+        "dependencies-installed",
+        "disk>=10GB",
+        "ai-gateway"
+      ],
+      "inputs": [
+        "campaign/corpus/benchmark.yaml",
+        "campaign/corpus/deploy-config.yaml"
+      ],
+      "forbiddenInputs": [
+        "campaign/corpus/holdout.yaml",
+        "campaign/results/holdout/"
+      ],
+      "artifacts": [
+        "campaign/results/first-run/build/ (2 files: repo-551.json, repo-552.json)",
+        "campaign/results/P3-BUILD-17/result.json"
+      ],
+      "completionChecks": [
+        "campaign/results/P3-BUILD-17/result.json is valid JSON with taskId \"P3-BUILD-17\", testedCommit equal to the commit recorded in state.json, a non-empty commands list with exit codes, and every listed evidence path exists",
+        "One local result per app with gate, source, build, run, probes and cleanup stage outcomes; a failed or skipped stage is recorded with its reason and log tail, not omitted",
+        "AI mode recorded in each result equals the frozen baseline AI mode; every command passed --deploy-config campaign/corpus/deploy-config.yaml",
+        "deploy-config.yaml changes, if any, touch only this task's apps, add no secret values, and each addition is listed in result.json notes with its source file in the app repository",
+        "No container, network, volume or image with label deployz-campaign=fresh-100 remains after the batch"
+      ],
+      "timeboxMinutes": 30,
+      "notes": [
+        "2026-10-09 P3-BUILD-PLAN (Opus): command `node --env-file=.env node_modules/tsx/dist/cli.mjs scripts/repository-deployment/index.ts --local --ai live --benchmark campaign/corpus/benchmark.yaml --deploy-config campaign/corpus/deploy-config.yaml --runs-dir campaign/results/first-run/build/ --evidence-dir campaign/logs/P3-BUILD-17/evidence/ --repo repo-551 --repo repo-552`; default cache (no --cache). Resumable: on stopBy, interrupt at a safe point and return CONTINUE with progress; the next run adds --resume.",
+        "Retry a build once when its log tail shows only registry network timeouts; if it fails again classify it as an environment failure (separate denominator).",
+        "Before the run, the worker may add to deploy-config.yaml, for this task's apps only, the configuration a vendor would enter from the app's own documented env example or install docs (config values without secrets; secrets as generated keys). No repository-specific hacks."
+      ]
+    },
+    {
+      "id": "P3-BUILD-18",
+      "phase": 3,
+      "title": "First-run local build/run of improvement apps repo-555, repo-556",
+      "executor": "campaign-worker",
+      "status": "PENDING",
+      "prerequisites": [
+        "P3-BUILD-PLAN"
+      ],
+      "gates": [],
+      "requires": [
+        "docker",
+        "dependencies-installed",
+        "disk>=10GB",
+        "ai-gateway"
+      ],
+      "inputs": [
+        "campaign/corpus/benchmark.yaml",
+        "campaign/corpus/deploy-config.yaml"
+      ],
+      "forbiddenInputs": [
+        "campaign/corpus/holdout.yaml",
+        "campaign/results/holdout/"
+      ],
+      "artifacts": [
+        "campaign/results/first-run/build/ (2 files: repo-555.json, repo-556.json)",
+        "campaign/results/P3-BUILD-18/result.json"
+      ],
+      "completionChecks": [
+        "campaign/results/P3-BUILD-18/result.json is valid JSON with taskId \"P3-BUILD-18\", testedCommit equal to the commit recorded in state.json, a non-empty commands list with exit codes, and every listed evidence path exists",
+        "One local result per app with gate, source, build, run, probes and cleanup stage outcomes; a failed or skipped stage is recorded with its reason and log tail, not omitted",
+        "AI mode recorded in each result equals the frozen baseline AI mode; every command passed --deploy-config campaign/corpus/deploy-config.yaml",
+        "deploy-config.yaml changes, if any, touch only this task's apps, add no secret values, and each addition is listed in result.json notes with its source file in the app repository",
+        "No container, network, volume or image with label deployz-campaign=fresh-100 remains after the batch"
+      ],
+      "timeboxMinutes": 30,
+      "notes": [
+        "2026-10-09 P3-BUILD-PLAN (Opus): command `node --env-file=.env node_modules/tsx/dist/cli.mjs scripts/repository-deployment/index.ts --local --ai live --benchmark campaign/corpus/benchmark.yaml --deploy-config campaign/corpus/deploy-config.yaml --runs-dir campaign/results/first-run/build/ --evidence-dir campaign/logs/P3-BUILD-18/evidence/ --repo repo-555 --repo repo-556`; default cache (no --cache). Resumable: on stopBy, interrupt at a safe point and return CONTINUE with progress; the next run adds --resume.",
+        "Retry a build once when its log tail shows only registry network timeouts; if it fails again classify it as an environment failure (separate denominator).",
+        "Before the run, the worker may add to deploy-config.yaml, for this task's apps only, the configuration a vendor would enter from the app's own documented env example or install docs (config values without secrets; secrets as generated keys). No repository-specific hacks."
+      ]
+    },
+    {
+      "id": "P3-BUILD-19",
+      "phase": 3,
+      "title": "First-run local build/run of improvement apps repo-557, repo-559",
+      "executor": "campaign-worker",
+      "status": "PENDING",
+      "prerequisites": [
+        "P3-BUILD-PLAN"
+      ],
+      "gates": [],
+      "requires": [
+        "docker",
+        "dependencies-installed",
+        "disk>=10GB",
+        "ai-gateway"
+      ],
+      "inputs": [
+        "campaign/corpus/benchmark.yaml",
+        "campaign/corpus/deploy-config.yaml"
+      ],
+      "forbiddenInputs": [
+        "campaign/corpus/holdout.yaml",
+        "campaign/results/holdout/"
+      ],
+      "artifacts": [
+        "campaign/results/first-run/build/ (2 files: repo-557.json, repo-559.json)",
+        "campaign/results/P3-BUILD-19/result.json"
+      ],
+      "completionChecks": [
+        "campaign/results/P3-BUILD-19/result.json is valid JSON with taskId \"P3-BUILD-19\", testedCommit equal to the commit recorded in state.json, a non-empty commands list with exit codes, and every listed evidence path exists",
+        "One local result per app with gate, source, build, run, probes and cleanup stage outcomes; a failed or skipped stage is recorded with its reason and log tail, not omitted",
+        "AI mode recorded in each result equals the frozen baseline AI mode; every command passed --deploy-config campaign/corpus/deploy-config.yaml",
+        "deploy-config.yaml changes, if any, touch only this task's apps, add no secret values, and each addition is listed in result.json notes with its source file in the app repository",
+        "No container, network, volume or image with label deployz-campaign=fresh-100 remains after the batch"
+      ],
+      "timeboxMinutes": 30,
+      "notes": [
+        "2026-10-09 P3-BUILD-PLAN (Opus): command `node --env-file=.env node_modules/tsx/dist/cli.mjs scripts/repository-deployment/index.ts --local --ai live --benchmark campaign/corpus/benchmark.yaml --deploy-config campaign/corpus/deploy-config.yaml --runs-dir campaign/results/first-run/build/ --evidence-dir campaign/logs/P3-BUILD-19/evidence/ --repo repo-557 --repo repo-559`; default cache (no --cache). Resumable: on stopBy, interrupt at a safe point and return CONTINUE with progress; the next run adds --resume.",
+        "Retry a build once when its log tail shows only registry network timeouts; if it fails again classify it as an environment failure (separate denominator).",
+        "Before the run, the worker may add to deploy-config.yaml, for this task's apps only, the configuration a vendor would enter from the app's own documented env example or install docs (config values without secrets; secrets as generated keys). No repository-specific hacks."
+      ]
+    },
+    {
+      "id": "P3-BUILD-20",
+      "phase": 3,
+      "title": "First-run local build/run of improvement apps repo-560, repo-563",
+      "executor": "campaign-worker",
+      "status": "PENDING",
+      "prerequisites": [
+        "P3-BUILD-PLAN"
+      ],
+      "gates": [],
+      "requires": [
+        "docker",
+        "dependencies-installed",
+        "disk>=10GB",
+        "ai-gateway"
+      ],
+      "inputs": [
+        "campaign/corpus/benchmark.yaml",
+        "campaign/corpus/deploy-config.yaml"
+      ],
+      "forbiddenInputs": [
+        "campaign/corpus/holdout.yaml",
+        "campaign/results/holdout/"
+      ],
+      "artifacts": [
+        "campaign/results/first-run/build/ (2 files: repo-560.json, repo-563.json)",
+        "campaign/results/P3-BUILD-20/result.json"
+      ],
+      "completionChecks": [
+        "campaign/results/P3-BUILD-20/result.json is valid JSON with taskId \"P3-BUILD-20\", testedCommit equal to the commit recorded in state.json, a non-empty commands list with exit codes, and every listed evidence path exists",
+        "One local result per app with gate, source, build, run, probes and cleanup stage outcomes; a failed or skipped stage is recorded with its reason and log tail, not omitted",
+        "AI mode recorded in each result equals the frozen baseline AI mode; every command passed --deploy-config campaign/corpus/deploy-config.yaml",
+        "deploy-config.yaml changes, if any, touch only this task's apps, add no secret values, and each addition is listed in result.json notes with its source file in the app repository",
+        "No container, network, volume or image with label deployz-campaign=fresh-100 remains after the batch"
+      ],
+      "timeboxMinutes": 30,
+      "notes": [
+        "2026-10-09 P3-BUILD-PLAN (Opus): command `node --env-file=.env node_modules/tsx/dist/cli.mjs scripts/repository-deployment/index.ts --local --ai live --benchmark campaign/corpus/benchmark.yaml --deploy-config campaign/corpus/deploy-config.yaml --runs-dir campaign/results/first-run/build/ --evidence-dir campaign/logs/P3-BUILD-20/evidence/ --repo repo-560 --repo repo-563`; default cache (no --cache). Resumable: on stopBy, interrupt at a safe point and return CONTINUE with progress; the next run adds --resume.",
+        "Retry a build once when its log tail shows only registry network timeouts; if it fails again classify it as an environment failure (separate denominator).",
+        "Before the run, the worker may add to deploy-config.yaml, for this task's apps only, the configuration a vendor would enter from the app's own documented env example or install docs (config values without secrets; secrets as generated keys). No repository-specific hacks."
+      ]
+    },
+    {
+      "id": "P3-BUILD-21",
+      "phase": 3,
+      "title": "First-run local build/run of improvement apps repo-564, repo-565",
+      "executor": "campaign-worker",
+      "status": "PENDING",
+      "prerequisites": [
+        "P3-BUILD-PLAN"
+      ],
+      "gates": [],
+      "requires": [
+        "docker",
+        "dependencies-installed",
+        "disk>=10GB",
+        "ai-gateway"
+      ],
+      "inputs": [
+        "campaign/corpus/benchmark.yaml",
+        "campaign/corpus/deploy-config.yaml"
+      ],
+      "forbiddenInputs": [
+        "campaign/corpus/holdout.yaml",
+        "campaign/results/holdout/"
+      ],
+      "artifacts": [
+        "campaign/results/first-run/build/ (2 files: repo-564.json, repo-565.json)",
+        "campaign/results/P3-BUILD-21/result.json"
+      ],
+      "completionChecks": [
+        "campaign/results/P3-BUILD-21/result.json is valid JSON with taskId \"P3-BUILD-21\", testedCommit equal to the commit recorded in state.json, a non-empty commands list with exit codes, and every listed evidence path exists",
+        "One local result per app with gate, source, build, run, probes and cleanup stage outcomes; a failed or skipped stage is recorded with its reason and log tail, not omitted",
+        "AI mode recorded in each result equals the frozen baseline AI mode; every command passed --deploy-config campaign/corpus/deploy-config.yaml",
+        "deploy-config.yaml changes, if any, touch only this task's apps, add no secret values, and each addition is listed in result.json notes with its source file in the app repository",
+        "No container, network, volume or image with label deployz-campaign=fresh-100 remains after the batch"
+      ],
+      "timeboxMinutes": 30,
+      "notes": [
+        "2026-10-09 P3-BUILD-PLAN (Opus): command `node --env-file=.env node_modules/tsx/dist/cli.mjs scripts/repository-deployment/index.ts --local --ai live --benchmark campaign/corpus/benchmark.yaml --deploy-config campaign/corpus/deploy-config.yaml --runs-dir campaign/results/first-run/build/ --evidence-dir campaign/logs/P3-BUILD-21/evidence/ --repo repo-564 --repo repo-565`; default cache (no --cache). Resumable: on stopBy, interrupt at a safe point and return CONTINUE with progress; the next run adds --resume.",
+        "Retry a build once when its log tail shows only registry network timeouts; if it fails again classify it as an environment failure (separate denominator).",
+        "Before the run, the worker may add to deploy-config.yaml, for this task's apps only, the configuration a vendor would enter from the app's own documented env example or install docs (config values without secrets; secrets as generated keys). No repository-specific hacks."
+      ]
+    },
+    {
+      "id": "P3-BUILD-22",
+      "phase": 3,
+      "title": "First-run local build/run of improvement apps repo-566, repo-569",
+      "executor": "campaign-worker",
+      "status": "PENDING",
+      "prerequisites": [
+        "P3-BUILD-PLAN"
+      ],
+      "gates": [],
+      "requires": [
+        "docker",
+        "dependencies-installed",
+        "disk>=10GB",
+        "ai-gateway"
+      ],
+      "inputs": [
+        "campaign/corpus/benchmark.yaml",
+        "campaign/corpus/deploy-config.yaml"
+      ],
+      "forbiddenInputs": [
+        "campaign/corpus/holdout.yaml",
+        "campaign/results/holdout/"
+      ],
+      "artifacts": [
+        "campaign/results/first-run/build/ (2 files: repo-566.json, repo-569.json)",
+        "campaign/results/P3-BUILD-22/result.json"
+      ],
+      "completionChecks": [
+        "campaign/results/P3-BUILD-22/result.json is valid JSON with taskId \"P3-BUILD-22\", testedCommit equal to the commit recorded in state.json, a non-empty commands list with exit codes, and every listed evidence path exists",
+        "One local result per app with gate, source, build, run, probes and cleanup stage outcomes; a failed or skipped stage is recorded with its reason and log tail, not omitted",
+        "AI mode recorded in each result equals the frozen baseline AI mode; every command passed --deploy-config campaign/corpus/deploy-config.yaml",
+        "deploy-config.yaml changes, if any, touch only this task's apps, add no secret values, and each addition is listed in result.json notes with its source file in the app repository",
+        "No container, network, volume or image with label deployz-campaign=fresh-100 remains after the batch"
+      ],
+      "timeboxMinutes": 30,
+      "notes": [
+        "2026-10-09 P3-BUILD-PLAN (Opus): command `node --env-file=.env node_modules/tsx/dist/cli.mjs scripts/repository-deployment/index.ts --local --ai live --benchmark campaign/corpus/benchmark.yaml --deploy-config campaign/corpus/deploy-config.yaml --runs-dir campaign/results/first-run/build/ --evidence-dir campaign/logs/P3-BUILD-22/evidence/ --repo repo-566 --repo repo-569`; default cache (no --cache). Resumable: on stopBy, interrupt at a safe point and return CONTINUE with progress; the next run adds --resume.",
+        "Retry a build once when its log tail shows only registry network timeouts; if it fails again classify it as an environment failure (separate denominator).",
+        "Before the run, the worker may add to deploy-config.yaml, for this task's apps only, the configuration a vendor would enter from the app's own documented env example or install docs (config values without secrets; secrets as generated keys). No repository-specific hacks."
+      ]
+    },
+    {
+      "id": "P3-BUILD-23",
+      "phase": 3,
+      "title": "First-run local build/run of improvement apps repo-573, repo-574",
+      "executor": "campaign-worker",
+      "status": "PENDING",
+      "prerequisites": [
+        "P3-BUILD-PLAN"
+      ],
+      "gates": [],
+      "requires": [
+        "docker",
+        "dependencies-installed",
+        "disk>=10GB",
+        "ai-gateway"
+      ],
+      "inputs": [
+        "campaign/corpus/benchmark.yaml",
+        "campaign/corpus/deploy-config.yaml"
+      ],
+      "forbiddenInputs": [
+        "campaign/corpus/holdout.yaml",
+        "campaign/results/holdout/"
+      ],
+      "artifacts": [
+        "campaign/results/first-run/build/ (2 files: repo-573.json, repo-574.json)",
+        "campaign/results/P3-BUILD-23/result.json"
+      ],
+      "completionChecks": [
+        "campaign/results/P3-BUILD-23/result.json is valid JSON with taskId \"P3-BUILD-23\", testedCommit equal to the commit recorded in state.json, a non-empty commands list with exit codes, and every listed evidence path exists",
+        "One local result per app with gate, source, build, run, probes and cleanup stage outcomes; a failed or skipped stage is recorded with its reason and log tail, not omitted",
+        "AI mode recorded in each result equals the frozen baseline AI mode; every command passed --deploy-config campaign/corpus/deploy-config.yaml",
+        "deploy-config.yaml changes, if any, touch only this task's apps, add no secret values, and each addition is listed in result.json notes with its source file in the app repository",
+        "No container, network, volume or image with label deployz-campaign=fresh-100 remains after the batch"
+      ],
+      "timeboxMinutes": 30,
+      "notes": [
+        "2026-10-09 P3-BUILD-PLAN (Opus): command `node --env-file=.env node_modules/tsx/dist/cli.mjs scripts/repository-deployment/index.ts --local --ai live --benchmark campaign/corpus/benchmark.yaml --deploy-config campaign/corpus/deploy-config.yaml --runs-dir campaign/results/first-run/build/ --evidence-dir campaign/logs/P3-BUILD-23/evidence/ --repo repo-573 --repo repo-574`; default cache (no --cache). Resumable: on stopBy, interrupt at a safe point and return CONTINUE with progress; the next run adds --resume.",
+        "Retry a build once when its log tail shows only registry network timeouts; if it fails again classify it as an environment failure (separate denominator).",
+        "Before the run, the worker may add to deploy-config.yaml, for this task's apps only, the configuration a vendor would enter from the app's own documented env example or install docs (config values without secrets; secrets as generated keys). No repository-specific hacks."
+      ]
+    },
+    {
+      "id": "P3-BUILD-24",
+      "phase": 3,
+      "title": "First-run local build/run of improvement apps repo-575, repo-577",
+      "executor": "campaign-worker",
+      "status": "PENDING",
+      "prerequisites": [
+        "P3-BUILD-PLAN"
+      ],
+      "gates": [],
+      "requires": [
+        "docker",
+        "dependencies-installed",
+        "disk>=10GB",
+        "ai-gateway"
+      ],
+      "inputs": [
+        "campaign/corpus/benchmark.yaml",
+        "campaign/corpus/deploy-config.yaml"
+      ],
+      "forbiddenInputs": [
+        "campaign/corpus/holdout.yaml",
+        "campaign/results/holdout/"
+      ],
+      "artifacts": [
+        "campaign/results/first-run/build/ (2 files: repo-575.json, repo-577.json)",
+        "campaign/results/P3-BUILD-24/result.json"
+      ],
+      "completionChecks": [
+        "campaign/results/P3-BUILD-24/result.json is valid JSON with taskId \"P3-BUILD-24\", testedCommit equal to the commit recorded in state.json, a non-empty commands list with exit codes, and every listed evidence path exists",
+        "One local result per app with gate, source, build, run, probes and cleanup stage outcomes; a failed or skipped stage is recorded with its reason and log tail, not omitted",
+        "AI mode recorded in each result equals the frozen baseline AI mode; every command passed --deploy-config campaign/corpus/deploy-config.yaml",
+        "deploy-config.yaml changes, if any, touch only this task's apps, add no secret values, and each addition is listed in result.json notes with its source file in the app repository",
+        "No container, network, volume or image with label deployz-campaign=fresh-100 remains after the batch"
+      ],
+      "timeboxMinutes": 30,
+      "notes": [
+        "2026-10-09 P3-BUILD-PLAN (Opus): command `node --env-file=.env node_modules/tsx/dist/cli.mjs scripts/repository-deployment/index.ts --local --ai live --benchmark campaign/corpus/benchmark.yaml --deploy-config campaign/corpus/deploy-config.yaml --runs-dir campaign/results/first-run/build/ --evidence-dir campaign/logs/P3-BUILD-24/evidence/ --repo repo-575 --repo repo-577`; default cache (no --cache). Resumable: on stopBy, interrupt at a safe point and return CONTINUE with progress; the next run adds --resume.",
+        "Retry a build once when its log tail shows only registry network timeouts; if it fails again classify it as an environment failure (separate denominator).",
+        "Before the run, the worker may add to deploy-config.yaml, for this task's apps only, the configuration a vendor would enter from the app's own documented env example or install docs (config values without secrets; secrets as generated keys). No repository-specific hacks."
+      ]
+    },
+    {
+      "id": "P3-BUILD-25",
+      "phase": 3,
+      "title": "First-run local build/run of improvement apps repo-579, repo-580",
+      "executor": "campaign-worker",
+      "status": "PENDING",
+      "prerequisites": [
+        "P3-BUILD-PLAN"
+      ],
+      "gates": [],
+      "requires": [
+        "docker",
+        "dependencies-installed",
+        "disk>=10GB",
+        "ai-gateway"
+      ],
+      "inputs": [
+        "campaign/corpus/benchmark.yaml",
+        "campaign/corpus/deploy-config.yaml"
+      ],
+      "forbiddenInputs": [
+        "campaign/corpus/holdout.yaml",
+        "campaign/results/holdout/"
+      ],
+      "artifacts": [
+        "campaign/results/first-run/build/ (2 files: repo-579.json, repo-580.json)",
+        "campaign/results/P3-BUILD-25/result.json"
+      ],
+      "completionChecks": [
+        "campaign/results/P3-BUILD-25/result.json is valid JSON with taskId \"P3-BUILD-25\", testedCommit equal to the commit recorded in state.json, a non-empty commands list with exit codes, and every listed evidence path exists",
+        "One local result per app with gate, source, build, run, probes and cleanup stage outcomes; a failed or skipped stage is recorded with its reason and log tail, not omitted",
+        "AI mode recorded in each result equals the frozen baseline AI mode; every command passed --deploy-config campaign/corpus/deploy-config.yaml",
+        "deploy-config.yaml changes, if any, touch only this task's apps, add no secret values, and each addition is listed in result.json notes with its source file in the app repository",
+        "No container, network, volume or image with label deployz-campaign=fresh-100 remains after the batch"
+      ],
+      "timeboxMinutes": 30,
+      "notes": [
+        "2026-10-09 P3-BUILD-PLAN (Opus): command `node --env-file=.env node_modules/tsx/dist/cli.mjs scripts/repository-deployment/index.ts --local --ai live --benchmark campaign/corpus/benchmark.yaml --deploy-config campaign/corpus/deploy-config.yaml --runs-dir campaign/results/first-run/build/ --evidence-dir campaign/logs/P3-BUILD-25/evidence/ --repo repo-579 --repo repo-580`; default cache (no --cache). Resumable: on stopBy, interrupt at a safe point and return CONTINUE with progress; the next run adds --resume.",
+        "Retry a build once when its log tail shows only registry network timeouts; if it fails again classify it as an environment failure (separate denominator).",
+        "Before the run, the worker may add to deploy-config.yaml, for this task's apps only, the configuration a vendor would enter from the app's own documented env example or install docs (config values without secrets; secrets as generated keys). No repository-specific hacks."
+      ]
+    },
+    {
+      "id": "P3-BUILD-26",
+      "phase": 3,
+      "title": "First-run local build/run of improvement apps repo-585, repo-588",
+      "executor": "campaign-worker",
+      "status": "PENDING",
+      "prerequisites": [
+        "P3-BUILD-PLAN"
+      ],
+      "gates": [],
+      "requires": [
+        "docker",
+        "dependencies-installed",
+        "disk>=10GB",
+        "ai-gateway"
+      ],
+      "inputs": [
+        "campaign/corpus/benchmark.yaml",
+        "campaign/corpus/deploy-config.yaml"
+      ],
+      "forbiddenInputs": [
+        "campaign/corpus/holdout.yaml",
+        "campaign/results/holdout/"
+      ],
+      "artifacts": [
+        "campaign/results/first-run/build/ (2 files: repo-585.json, repo-588.json)",
+        "campaign/results/P3-BUILD-26/result.json"
+      ],
+      "completionChecks": [
+        "campaign/results/P3-BUILD-26/result.json is valid JSON with taskId \"P3-BUILD-26\", testedCommit equal to the commit recorded in state.json, a non-empty commands list with exit codes, and every listed evidence path exists",
+        "One local result per app with gate, source, build, run, probes and cleanup stage outcomes; a failed or skipped stage is recorded with its reason and log tail, not omitted",
+        "AI mode recorded in each result equals the frozen baseline AI mode; every command passed --deploy-config campaign/corpus/deploy-config.yaml",
+        "deploy-config.yaml changes, if any, touch only this task's apps, add no secret values, and each addition is listed in result.json notes with its source file in the app repository",
+        "No container, network, volume or image with label deployz-campaign=fresh-100 remains after the batch"
+      ],
+      "timeboxMinutes": 30,
+      "notes": [
+        "2026-10-09 P3-BUILD-PLAN (Opus): command `node --env-file=.env node_modules/tsx/dist/cli.mjs scripts/repository-deployment/index.ts --local --ai live --benchmark campaign/corpus/benchmark.yaml --deploy-config campaign/corpus/deploy-config.yaml --runs-dir campaign/results/first-run/build/ --evidence-dir campaign/logs/P3-BUILD-26/evidence/ --repo repo-585 --repo repo-588`; default cache (no --cache). Resumable: on stopBy, interrupt at a safe point and return CONTINUE with progress; the next run adds --resume.",
+        "Retry a build once when its log tail shows only registry network timeouts; if it fails again classify it as an environment failure (separate denominator).",
+        "Before the run, the worker may add to deploy-config.yaml, for this task's apps only, the configuration a vendor would enter from the app's own documented env example or install docs (config values without secrets; secrets as generated keys). No repository-specific hacks."
+      ]
+    },
+    {
+      "id": "P3-BUILD-27",
+      "phase": 3,
+      "title": "First-run local build/run of improvement apps repo-590, repo-593",
+      "executor": "campaign-worker",
+      "status": "PENDING",
+      "prerequisites": [
+        "P3-BUILD-PLAN"
+      ],
+      "gates": [],
+      "requires": [
+        "docker",
+        "dependencies-installed",
+        "disk>=10GB",
+        "ai-gateway"
+      ],
+      "inputs": [
+        "campaign/corpus/benchmark.yaml",
+        "campaign/corpus/deploy-config.yaml"
+      ],
+      "forbiddenInputs": [
+        "campaign/corpus/holdout.yaml",
+        "campaign/results/holdout/"
+      ],
+      "artifacts": [
+        "campaign/results/first-run/build/ (2 files: repo-590.json, repo-593.json)",
+        "campaign/results/P3-BUILD-27/result.json"
+      ],
+      "completionChecks": [
+        "campaign/results/P3-BUILD-27/result.json is valid JSON with taskId \"P3-BUILD-27\", testedCommit equal to the commit recorded in state.json, a non-empty commands list with exit codes, and every listed evidence path exists",
+        "One local result per app with gate, source, build, run, probes and cleanup stage outcomes; a failed or skipped stage is recorded with its reason and log tail, not omitted",
+        "AI mode recorded in each result equals the frozen baseline AI mode; every command passed --deploy-config campaign/corpus/deploy-config.yaml",
+        "deploy-config.yaml changes, if any, touch only this task's apps, add no secret values, and each addition is listed in result.json notes with its source file in the app repository",
+        "No container, network, volume or image with label deployz-campaign=fresh-100 remains after the batch"
+      ],
+      "timeboxMinutes": 30,
+      "notes": [
+        "2026-10-09 P3-BUILD-PLAN (Opus): command `node --env-file=.env node_modules/tsx/dist/cli.mjs scripts/repository-deployment/index.ts --local --ai live --benchmark campaign/corpus/benchmark.yaml --deploy-config campaign/corpus/deploy-config.yaml --runs-dir campaign/results/first-run/build/ --evidence-dir campaign/logs/P3-BUILD-27/evidence/ --repo repo-590 --repo repo-593`; default cache (no --cache). Resumable: on stopBy, interrupt at a safe point and return CONTINUE with progress; the next run adds --resume.",
+        "Retry a build once when its log tail shows only registry network timeouts; if it fails again classify it as an environment failure (separate denominator).",
+        "Before the run, the worker may add to deploy-config.yaml, for this task's apps only, the configuration a vendor would enter from the app's own documented env example or install docs (config values without secrets; secrets as generated keys). No repository-specific hacks."
+      ]
+    },
+    {
+      "id": "P3-BUILD-28",
+      "phase": 3,
+      "title": "First-run local build/run of improvement apps repo-596, repo-599",
+      "executor": "campaign-worker",
+      "status": "PENDING",
+      "prerequisites": [
+        "P3-BUILD-PLAN"
+      ],
+      "gates": [],
+      "requires": [
+        "docker",
+        "dependencies-installed",
+        "disk>=10GB",
+        "ai-gateway"
+      ],
+      "inputs": [
+        "campaign/corpus/benchmark.yaml",
+        "campaign/corpus/deploy-config.yaml"
+      ],
+      "forbiddenInputs": [
+        "campaign/corpus/holdout.yaml",
+        "campaign/results/holdout/"
+      ],
+      "artifacts": [
+        "campaign/results/first-run/build/ (2 files: repo-596.json, repo-599.json)",
+        "campaign/results/P3-BUILD-28/result.json"
+      ],
+      "completionChecks": [
+        "campaign/results/P3-BUILD-28/result.json is valid JSON with taskId \"P3-BUILD-28\", testedCommit equal to the commit recorded in state.json, a non-empty commands list with exit codes, and every listed evidence path exists",
+        "One local result per app with gate, source, build, run, probes and cleanup stage outcomes; a failed or skipped stage is recorded with its reason and log tail, not omitted",
+        "AI mode recorded in each result equals the frozen baseline AI mode; every command passed --deploy-config campaign/corpus/deploy-config.yaml",
+        "deploy-config.yaml changes, if any, touch only this task's apps, add no secret values, and each addition is listed in result.json notes with its source file in the app repository",
+        "No container, network, volume or image with label deployz-campaign=fresh-100 remains after the batch"
+      ],
+      "timeboxMinutes": 30,
+      "notes": [
+        "2026-10-09 P3-BUILD-PLAN (Opus): command `node --env-file=.env node_modules/tsx/dist/cli.mjs scripts/repository-deployment/index.ts --local --ai live --benchmark campaign/corpus/benchmark.yaml --deploy-config campaign/corpus/deploy-config.yaml --runs-dir campaign/results/first-run/build/ --evidence-dir campaign/logs/P3-BUILD-28/evidence/ --repo repo-596 --repo repo-599`; default cache (no --cache). Resumable: on stopBy, interrupt at a safe point and return CONTINUE with progress; the next run adds --resume.",
+        "Retry a build once when its log tail shows only registry network timeouts; if it fails again classify it as an environment failure (separate denominator).",
+        "Before the run, the worker may add to deploy-config.yaml, for this task's apps only, the configuration a vendor would enter from the app's own documented env example or install docs (config values without secrets; secrets as generated keys). No repository-specific hacks."
       ]
     },
     {
@@ -2357,7 +3536,35 @@
       "executor": "opus",
       "status": "PENDING",
       "prerequisites": [
-        "P3-BUILD-PLAN"
+        "P3-BUILD-PLAN",
+        "P3-BUILD-01",
+        "P3-BUILD-02",
+        "P3-BUILD-03",
+        "P3-BUILD-04",
+        "P3-BUILD-05",
+        "P3-BUILD-06",
+        "P3-BUILD-07",
+        "P3-BUILD-08",
+        "P3-BUILD-09",
+        "P3-BUILD-10",
+        "P3-BUILD-11",
+        "P3-BUILD-12",
+        "P3-BUILD-13",
+        "P3-BUILD-14",
+        "P3-BUILD-15",
+        "P3-BUILD-16",
+        "P3-BUILD-17",
+        "P3-BUILD-18",
+        "P3-BUILD-19",
+        "P3-BUILD-20",
+        "P3-BUILD-21",
+        "P3-BUILD-22",
+        "P3-BUILD-23",
+        "P3-BUILD-24",
+        "P3-BUILD-25",
+        "P3-BUILD-26",
+        "P3-BUILD-27",
+        "P3-BUILD-28"
       ],
       "gates": [],
       "requires": [],

@@ -1,0 +1,536 @@
+# Normal vendor configuration for the Phase 3 local builds (P3-BUILD-PLAN, Opus, 2026-10-09).
+# Overrides are the readiness answers a vendor gives for its own app: the labelled
+# appRoot, Dockerfile, port, health path and managed services. No secret values.
+# A P3-BUILD-nn worker may add documented config keys and generated secret keys
+# for its own apps only, and records the source of each addition.
+version: 1
+repositories:
+  - id: repo-501
+    overrides:
+      appRoot: "backend"
+      dockerfilePath: "backend/Dockerfile"
+      containerPort: 8000
+      healthPath: "/api/v1/utils/health-check/"
+      databaseRequired: true
+      redisRequired: false
+    notes:
+      - "fastapi/full-stack-fastapi-template; label NEEDS_CONFIGURATION, first-run gate NEEDS_CONFIGURATION"
+  - id: repo-502
+    overrides:
+      appRoot: "."
+      dockerfilePath: "Dockerfile"
+      containerPort: 5000
+      healthPath: "/ping"
+      databaseRequired: true
+      redisRequired: true
+    notes:
+      - "getredash/redash; label NEEDS_CONFIGURATION, first-run gate NEEDS_CONFIGURATION"
+  - id: repo-503
+    overrides:
+      appRoot: "."
+      dockerfilePath: "Dockerfile"
+      containerPort: 8080
+      healthPath: "/health"
+      databaseRequired: true
+      redisRequired: false
+      storageRequired: true
+    notes:
+      - "HumanSignal/label-studio; label NEEDS_CONFIGURATION, first-run gate NOT_COMPATIBLE"
+  - id: repo-505
+    overrides:
+      appRoot: "."
+      containerPort: 8080
+      healthPath: "/actuator/health"
+      databaseRequired: true
+      redisRequired: false
+    notes:
+      - "spring-projects/spring-petclinic; label NOT_COMPATIBLE, first-run gate NEEDS_CONFIGURATION"
+  - id: repo-507
+    overrides:
+      appRoot: "templates/with-postgres"
+      dockerfilePath: "templates/with-postgres/Dockerfile"
+      containerPort: 3000
+      databaseRequired: true
+      redisRequired: false
+    notes:
+      - "payloadcms/payload; label NOT_COMPATIBLE, first-run gate NEEDS_CONFIGURATION"
+  - id: repo-508
+    overrides:
+      appRoot: "."
+      dockerfilePath: "build/Dockerfile"
+      containerPort: 3000
+      healthPath: "/health"
+      databaseRequired: false
+      redisRequired: false
+    notes:
+      - "gotenberg/gotenberg; label NEEDS_CONFIGURATION, first-run gate NEEDS_CONFIGURATION"
+  - id: repo-509
+    overrides:
+      appRoot: "."
+      dockerfilePath: "docker/Dockerfile.prod"
+      containerPort: 3000
+      healthPath: "/api/health"
+      databaseRequired: true
+      redisRequired: false
+    notes:
+      - "elie222/inbox-zero; label NEEDS_CONFIGURATION, first-run gate NOT_COMPATIBLE"
+  - id: repo-510
+    overrides:
+      appRoot: "."
+      dockerfilePath: "Dockerfile"
+      containerPort: 80
+      healthPath: "/up"
+      databaseRequired: false
+      redisRequired: true
+    notes:
+      - "basecamp/once-campfire; label NOT_COMPATIBLE, first-run gate NEEDS_CONFIGURATION"
+  - id: repo-511
+    overrides:
+      appRoot: "."
+      containerPort: 3000
+      healthPath: "/srv/status"
+      databaseRequired: true
+      redisRequired: true
+    notes:
+      - "discourse/discourse; label NOT_COMPATIBLE, first-run gate NEEDS_CONFIGURATION"
+  - id: repo-513
+    overrides:
+      appRoot: "."
+      dockerfilePath: "Dockerfile"
+      containerPort: 8000
+      healthPath: "/health/"
+      databaseRequired: true
+      redisRequired: false
+      storageRequired: true
+    notes:
+      - "saleor/saleor; label NEEDS_CONFIGURATION, first-run gate NEEDS_CONFIGURATION"
+  - id: repo-514
+    overrides:
+      appRoot: "."
+      dockerfilePath: "Dockerfile"
+      databaseRequired: true
+      redisRequired: false
+      storageRequired: true
+    notes:
+      - "hexpm/hexpm; label NEEDS_CONFIGURATION, first-run gate NEEDS_CONFIGURATION"
+  - id: repo-515
+    overrides:
+      appRoot: "."
+      databaseRequired: true
+      redisRequired: true
+    notes:
+      - "dotnet/eShop; label NOT_COMPATIBLE, first-run gate NEEDS_CONFIGURATION"
+  - id: repo-516
+    overrides:
+      appRoot: "server"
+      dockerfilePath: "server/Dockerfile"
+      containerPort: 8080
+      healthPath: "/ping"
+      databaseRequired: true
+      redisRequired: false
+      storageRequired: true
+    notes:
+      - "ente/ente; label NEEDS_CONFIGURATION, first-run gate NOT_COMPATIBLE"
+  - id: repo-517
+    overrides:
+      appRoot: "apiserver"
+      dockerfilePath: "apiserver/src/main/docker/Dockerfile"
+      containerPort: 8080
+      databaseRequired: true
+      redisRequired: false
+    notes:
+      - "DependencyTrack/dependency-track; label NOT_COMPATIBLE, first-run gate NEEDS_CONFIGURATION"
+  - id: repo-518
+    overrides:
+      appRoot: "."
+      healthPath: "/up"
+      databaseRequired: true
+      redisRequired: false
+    notes:
+      - "cachethq/cachet; label NOT_COMPATIBLE, first-run gate NEEDS_CONFIGURATION"
+  - id: repo-520
+    overrides:
+      appRoot: "."
+      dockerfilePath: "Dockerfile"
+      containerPort: 8000
+      healthPath: "/healthz/ready/"
+      databaseRequired: true
+      redisRequired: false
+      storageRequired: true
+    notes:
+      - "mathesar-foundation/mathesar; label NEEDS_CONFIGURATION, first-run gate NOT_COMPATIBLE"
+  - id: repo-522
+    overrides:
+      appRoot: "."
+      dockerfilePath: "Dockerfile"
+      containerPort: 5000
+      healthPath: "/__dufs__/health"
+      databaseRequired: false
+      redisRequired: false
+    notes:
+      - "sigoden/dufs; label NOT_COMPATIBLE, first-run gate NEEDS_CONFIGURATION"
+  - id: repo-523
+    overrides:
+      appRoot: "."
+      dockerfilePath: "docker/Dockerfile"
+      containerPort: 3000
+      healthPath: "/api/v1/health"
+      databaseRequired: true
+      redisRequired: true
+      storageRequired: true
+    notes:
+      - "Freika/dawarich; label NEEDS_CONFIGURATION, first-run gate NEEDS_CONFIGURATION"
+  - id: repo-524
+    overrides:
+      appRoot: "."
+      dockerfilePath: "Dockerfile"
+      containerPort: 5000
+      databaseRequired: true
+      redisRequired: false
+    notes:
+      - "miguelgrinberg/microblog; label READY, first-run gate NEEDS_CONFIGURATION"
+  - id: repo-525
+    overrides:
+      appRoot: "."
+      containerPort: 25600
+      databaseRequired: false
+      redisRequired: false
+    notes:
+      - "gotson/komga; label NOT_COMPATIBLE, first-run gate NEEDS_CONFIGURATION"
+  - id: repo-528
+    overrides:
+      appRoot: "packages/sync-service"
+      dockerfilePath: "packages/sync-service/Dockerfile"
+      containerPort: 3000
+      healthPath: "/v1/health"
+      databaseRequired: true
+      redisRequired: false
+    notes:
+      - "electric-sql/electric; label NOT_COMPATIBLE, first-run gate NEEDS_CONFIGURATION"
+  - id: repo-529
+    overrides:
+      appRoot: "."
+      dockerfilePath: "Dockerfile"
+      containerPort: 80
+      healthPath: "/health"
+      databaseRequired: false
+      redisRequired: false
+    notes:
+      - "grokability/snipe-it; label NOT_COMPATIBLE, first-run gate NEEDS_CONFIGURATION"
+  - id: repo-530
+    overrides:
+      appRoot: "."
+      dockerfilePath: "Dockerfile"
+      containerPort: 8080
+      databaseRequired: false
+      redisRequired: true
+    notes:
+      - "hibiken/asynqmon; label READY, first-run gate NEEDS_CONFIGURATION"
+  - id: repo-534
+    overrides:
+      appRoot: "."
+      dockerfilePath: "Dockerfile"
+      containerPort: 8080
+      healthPath: "/actuator/health"
+      databaseRequired: true
+      redisRequired: false
+    notes:
+      - "hapifhir/hapi-fhir-jpaserver-starter; label NEEDS_CONFIGURATION, first-run gate NEEDS_CONFIGURATION"
+  - id: repo-536
+    overrides:
+      appRoot: "."
+      dockerfilePath: "docker/production/Dockerfile"
+      containerPort: 8080
+      healthPath: "/up"
+      databaseRequired: true
+      redisRequired: false
+      storageRequired: true
+    notes:
+      - "InvoiceShelf/InvoiceShelf; label NEEDS_CONFIGURATION, first-run gate NEEDS_CONFIGURATION"
+  - id: repo-540
+    overrides:
+      appRoot: "."
+      dockerfilePath: "Dockerfile"
+      containerPort: 80
+      healthPath: "/"
+      databaseRequired: false
+      redisRequired: false
+    notes:
+      - "excalidraw/excalidraw; label READY, first-run gate READY"
+  - id: repo-543
+    overrides:
+      appRoot: "."
+      dockerfilePath: "Dockerfile"
+      containerPort: 4000
+      healthPath: "/health_check"
+      databaseRequired: true
+      redisRequired: false
+    notes:
+      - "teslamate-org/teslamate; label NEEDS_CONFIGURATION, first-run gate NEEDS_CONFIGURATION"
+  - id: repo-544
+    overrides:
+      appRoot: "."
+      dockerfilePath: "Dockerfile"
+      containerPort: 5000
+      healthPath: "/api/health"
+      databaseRequired: false
+      redisRequired: false
+    notes:
+      - "Kareadita/Kavita; label NOT_COMPATIBLE, first-run gate NEEDS_CONFIGURATION"
+  - id: repo-547
+    overrides:
+      appRoot: "."
+      dockerfilePath: "Dockerfile"
+      containerPort: 8000
+      databaseRequired: true
+      redisRequired: false
+      storageRequired: true
+    notes:
+      - "wagtail/bakerydemo; label NEEDS_CONFIGURATION, first-run gate NOT_COMPATIBLE"
+  - id: repo-548
+    overrides:
+      appRoot: "."
+      dockerfilePath: ".docker/Dockerfile"
+      containerPort: 8080
+      healthPath: "/health"
+      databaseRequired: true
+      redisRequired: false
+    notes:
+      - "Leantime/leantime; label NOT_COMPATIBLE, first-run gate NEEDS_CONFIGURATION"
+  - id: repo-549
+    overrides:
+      appRoot: "."
+      dockerfilePath: "Dockerfile"
+      databaseRequired: true
+      redisRequired: false
+    notes:
+      - "zammad/zammad; label NOT_COMPATIBLE, first-run gate NEEDS_CONFIGURATION"
+  - id: repo-550
+    overrides:
+      appRoot: "."
+      dockerfilePath: "Dockerfile-build"
+      containerPort: 80
+      healthPath: "/v1/health"
+      databaseRequired: true
+      redisRequired: false
+    notes:
+      - "binwiederhier/ntfy; label NEEDS_CONFIGURATION, first-run gate NEEDS_CONFIGURATION"
+  - id: repo-551
+    overrides:
+      appRoot: "."
+      dockerfilePath: "Dockerfile"
+      containerPort: 3000
+      healthPath: "/api/health"
+      databaseRequired: true
+      redisRequired: false
+    notes:
+      - "spliit-app/spliit; label READY, first-run gate NEEDS_CONFIGURATION"
+  - id: repo-552
+    overrides:
+      appRoot: "."
+      dockerfilePath: "Dockerfile"
+      containerPort: 3000
+      healthPath: "/healthz"
+      databaseRequired: true
+      redisRequired: true
+    notes:
+      - "misskey-dev/misskey; label NOT_COMPATIBLE, first-run gate READY"
+  - id: repo-555
+    overrides:
+      appRoot: "."
+      dockerfilePath: "Dockerfile"
+      containerPort: 12345
+      healthPath: "/health"
+      databaseRequired: true
+      redisRequired: false
+    notes:
+      - "msgbyte/tianji; label READY, first-run gate NEEDS_CONFIGURATION"
+  - id: repo-556
+    overrides:
+      appRoot: "."
+      dockerfilePath: "Dockerfile"
+      containerPort: 3000
+      healthPath: "/api/health"
+      databaseRequired: true
+      redisRequired: false
+    notes:
+      - "muety/wakapi; label NEEDS_CONFIGURATION, first-run gate NEEDS_CONFIGURATION"
+  - id: repo-557
+    overrides:
+      appRoot: "."
+      dockerfilePath: "Dockerfile"
+      containerPort: 8080
+      databaseRequired: true
+      redisRequired: false
+    notes:
+      - "sqlpage/SQLPage; label NOT_COMPATIBLE, first-run gate NEEDS_CONFIGURATION"
+  - id: repo-559
+    overrides:
+      appRoot: "."
+      dockerfilePath: "Dockerfile"
+      containerPort: 8080
+      healthPath: "/auth/v1/health"
+      databaseRequired: true
+      redisRequired: false
+    notes:
+      - "sebadob/rauthy; label NOT_COMPATIBLE, first-run gate NEEDS_CONFIGURATION"
+  - id: repo-560
+    overrides:
+      appRoot: "."
+      dockerfilePath: "Dockerfile"
+      containerPort: 3000
+      healthPath: "/healthcheck"
+      databaseRequired: true
+      redisRequired: true
+    notes:
+      - "rajnandan1/kener; label NEEDS_CONFIGURATION, first-run gate NEEDS_CONFIGURATION"
+  - id: repo-563
+    overrides:
+      appRoot: "."
+      dockerfilePath: "Dockerfile"
+      containerPort: 8000
+      healthPath: "/up"
+      databaseRequired: true
+      redisRequired: false
+      storageRequired: true
+    notes:
+      - "LycheeOrg/Lychee; label NEEDS_CONFIGURATION, first-run gate NOT_COMPATIBLE"
+  - id: repo-564
+    overrides:
+      appRoot: "."
+      dockerfilePath: "Dockerfile"
+      containerPort: 3000
+      healthPath: "/health"
+      databaseRequired: true
+      redisRequired: true
+      storageRequired: true
+    notes:
+      - "getlago/lago-api; label NEEDS_CONFIGURATION, first-run gate NEEDS_CONFIGURATION"
+  - id: repo-565
+    overrides:
+      appRoot: "."
+      dockerfilePath: "Dockerfile"
+      containerPort: 8080
+      healthPath: "/health"
+      databaseRequired: true
+      redisRequired: false
+      storageRequired: true
+    notes:
+      - "open-webui/open-webui; label NEEDS_CONFIGURATION, first-run gate NEEDS_CONFIGURATION"
+  - id: repo-566
+    overrides:
+      appRoot: "."
+      dockerfilePath: "Dockerfile"
+      containerPort: 8080
+      healthPath: "/healthz"
+      databaseRequired: true
+      redisRequired: false
+    notes:
+      - "openfga/openfga; label NEEDS_CONFIGURATION, first-run gate NEEDS_CONFIGURATION"
+  - id: repo-569
+    overrides:
+      appRoot: "."
+      dockerfilePath: "Dockerfile"
+      containerPort: 80
+      healthPath: "/api/v1/health"
+      databaseRequired: true
+      redisRequired: true
+    notes:
+      - "activepieces/activepieces; label NEEDS_CONFIGURATION, first-run gate NOT_COMPATIBLE"
+  - id: repo-573
+    overrides:
+      appRoot: "server"
+      dockerfilePath: "server/Dockerfile"
+      containerPort: 8000
+      healthPath: "/auth/setup-status"
+      databaseRequired: true
+      redisRequired: false
+    notes:
+      - "mem0ai/mem0; label NEEDS_CONFIGURATION, first-run gate NEEDS_CONFIGURATION"
+  - id: repo-574
+    overrides:
+      appRoot: "."
+      containerPort: 3000
+      databaseRequired: false
+      redisRequired: false
+    notes:
+      - "lobsters/lobsters; label NOT_COMPATIBLE, first-run gate NEEDS_CONFIGURATION"
+  - id: repo-575
+    overrides:
+      appRoot: "."
+      containerPort: 8082
+      healthPath: "/api/health"
+      databaseRequired: true
+      redisRequired: false
+    notes:
+      - "traccar/traccar; label NOT_COMPATIBLE, first-run gate NEEDS_CONFIGURATION"
+  - id: repo-577
+    overrides:
+      appRoot: "."
+      dockerfilePath: "docker/Dockerfile.server.multiarch.rootless"
+      containerPort: 8000
+      healthPath: "/api/healthz"
+      databaseRequired: true
+      redisRequired: false
+    notes:
+      - "woodpecker-ci/woodpecker; label NOT_COMPATIBLE, first-run gate NEEDS_CONFIGURATION"
+  - id: repo-579
+    overrides:
+      appRoot: "."
+      databaseRequired: true
+      redisRequired: false
+    notes:
+      - "akaunting/akaunting; label NOT_COMPATIBLE, first-run gate NEEDS_CONFIGURATION"
+  - id: repo-580
+    overrides:
+      appRoot: "."
+      dockerfilePath: "docker/services/Dockerfile"
+      containerPort: 3000
+      healthPath: "/"
+      databaseRequired: true
+      redisRequired: true
+    notes:
+      - "ridafkih/keeper.sh; label NOT_COMPATIBLE, first-run gate NEEDS_CONFIGURATION"
+  - id: repo-585
+    overrides:
+      containerPort: 8083
+      databaseRequired: false
+      redisRequired: false
+    notes:
+      - "janeczku/calibre-web; label NOT_COMPATIBLE, first-run gate NEEDS_CONFIGURATION"
+  - id: repo-588
+    overrides:
+      databaseRequired: false
+      redisRequired: false
+    notes:
+      - "mautic/mautic; label NOT_COMPATIBLE, first-run gate NEEDS_CONFIGURATION"
+  - id: repo-590
+    overrides:
+      databaseRequired: false
+      redisRequired: false
+    notes:
+      - "grocy/grocy; label NOT_COMPATIBLE, first-run gate NEEDS_CONFIGURATION"
+  - id: repo-593
+    overrides:
+      dockerfilePath: "Dockerfile"
+      containerPort: 8080
+      healthPath: "/api/healthz"
+      databaseRequired: false
+      redisRequired: false
+    notes:
+      - "glanceapp/glance; label NOT_COMPATIBLE, first-run gate READY"
+  - id: repo-596
+    overrides:
+      appRoot: "DNN Platform/Website"
+      databaseRequired: false
+      redisRequired: false
+    notes:
+      - "dnnsoftware/Dnn.Platform; label NOT_COMPATIBLE, first-run gate NEEDS_CONFIGURATION"
+  - id: repo-599
+    overrides:
+      containerPort: 5601
+      healthPath: "/api/status"
+      databaseRequired: false
+      redisRequired: false
+    notes:
+      - "opensearch-project/OpenSearch-Dashboards; label NOT_COMPATIBLE, first-run gate NEEDS_CONFIGURATION"
