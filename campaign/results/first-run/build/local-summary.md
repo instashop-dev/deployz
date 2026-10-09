@@ -1,13 +1,13 @@
 # Local Docker run summary
 
-Repositories: 34
+Repositories: 36
 
 ## Classification
 
-- build: 3
+- build: 4
 - gate: 20
 - local-success: 1
-- probes: 6
+- probes: 7
 - run: 2
 - source: 2
 
@@ -15,23 +15,23 @@ Repositories: 34
 
 | Stage | Attempted | PASS | FAIL | SKIPPED | IN_PROGRESS |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| gate | 34 | 14 | 20 | 0 | 0 |
-| source | 34 | 24 | 5 | 5 | 0 |
-| build | 34 | 13 | 11 | 10 | 0 |
-| run | 34 | 10 | 3 | 21 | 0 |
-| probes | 34 | 2 | 8 | 24 | 0 |
-| cleanup | 34 | 24 | 0 | 10 | 0 |
+| gate | 36 | 16 | 20 | 0 | 0 |
+| source | 36 | 26 | 5 | 5 | 0 |
+| build | 36 | 14 | 12 | 10 | 0 |
+| run | 36 | 11 | 3 | 22 | 0 |
+| probes | 36 | 2 | 9 | 25 | 0 |
+| cleanup | 36 | 26 | 0 | 10 | 0 |
 
 ## Probes
 
 | Probe | Attempted | PASS | FAIL | UNVERIFIED | NOT_APPLICABLE |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| start | 10 | 4 | 6 | 0 | 0 |
-| health | 10 | 4 | 6 | 0 | 0 |
-| migration | 10 | 0 | 0 | 0 | 10 |
-| dbWrite | 10 | 0 | 5 | 0 | 5 |
-| redis | 10 | 0 | 4 | 0 | 6 |
-| storage | 10 | 0 | 0 | 3 | 7 |
+| start | 11 | 5 | 6 | 0 | 0 |
+| health | 11 | 5 | 6 | 0 | 0 |
+| migration | 11 | 0 | 0 | 0 | 11 |
+| dbWrite | 11 | 0 | 6 | 0 | 5 |
+| redis | 11 | 0 | 4 | 0 | 7 |
+| storage | 11 | 0 | 0 | 3 | 8 |
 
 ## Duration per repository
 
@@ -71,3 +71,5 @@ Repositories: 34
 | repo-550 | binwiederhier/ntfy | build | 250.6 |
 | repo-551 | spliit-app/spliit | run | 392.3 |
 | repo-552 | misskey-dev/misskey | gate | 1060.2 |
+| repo-555 | msgbyte/tianji | build | 986.9 |
+| repo-556 | muety/wakapi | probes | 308.9 |

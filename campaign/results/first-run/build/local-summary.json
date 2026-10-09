@@ -1,109 +1,109 @@
 {
   "schemaVersion": 1,
-  "repositories": 34,
+  "repositories": 36,
   "classifications": {
     "source": 2,
-    "probes": 6,
+    "probes": 7,
     "gate": 20,
     "run": 2,
-    "build": 3,
+    "build": 4,
     "local-success": 1
   },
   "aiModes": {
-    "live": 34
+    "live": 36
   },
   "stages": {
     "gate": {
-      "attempted": 34,
+      "attempted": 36,
       "NOT_ATTEMPTED": 0,
       "IN_PROGRESS": 0,
-      "PASS": 14,
+      "PASS": 16,
       "FAIL": 20,
       "SKIPPED": 0
     },
     "source": {
-      "attempted": 34,
+      "attempted": 36,
       "NOT_ATTEMPTED": 0,
       "IN_PROGRESS": 0,
-      "PASS": 24,
+      "PASS": 26,
       "FAIL": 5,
       "SKIPPED": 5
     },
     "build": {
-      "attempted": 34,
+      "attempted": 36,
       "NOT_ATTEMPTED": 0,
       "IN_PROGRESS": 0,
-      "PASS": 13,
-      "FAIL": 11,
+      "PASS": 14,
+      "FAIL": 12,
       "SKIPPED": 10
     },
     "run": {
-      "attempted": 34,
+      "attempted": 36,
       "NOT_ATTEMPTED": 0,
       "IN_PROGRESS": 0,
-      "PASS": 10,
+      "PASS": 11,
       "FAIL": 3,
-      "SKIPPED": 21
+      "SKIPPED": 22
     },
     "probes": {
-      "attempted": 34,
+      "attempted": 36,
       "NOT_ATTEMPTED": 0,
       "IN_PROGRESS": 0,
       "PASS": 2,
-      "FAIL": 8,
-      "SKIPPED": 24
+      "FAIL": 9,
+      "SKIPPED": 25
     },
     "cleanup": {
-      "attempted": 34,
+      "attempted": 36,
       "NOT_ATTEMPTED": 0,
       "IN_PROGRESS": 0,
-      "PASS": 24,
+      "PASS": 26,
       "FAIL": 0,
       "SKIPPED": 10
     }
   },
   "probes": {
     "start": {
-      "attempted": 10,
-      "PASS": 4,
+      "attempted": 11,
+      "PASS": 5,
       "FAIL": 6,
       "UNVERIFIED": 0,
       "NOT_APPLICABLE": 0
     },
     "health": {
-      "attempted": 10,
-      "PASS": 4,
+      "attempted": 11,
+      "PASS": 5,
       "FAIL": 6,
       "UNVERIFIED": 0,
       "NOT_APPLICABLE": 0
     },
     "migration": {
-      "attempted": 10,
+      "attempted": 11,
       "PASS": 0,
       "FAIL": 0,
       "UNVERIFIED": 0,
-      "NOT_APPLICABLE": 10
+      "NOT_APPLICABLE": 11
     },
     "dbWrite": {
-      "attempted": 10,
+      "attempted": 11,
       "PASS": 0,
-      "FAIL": 5,
+      "FAIL": 6,
       "UNVERIFIED": 0,
       "NOT_APPLICABLE": 5
     },
     "redis": {
-      "attempted": 10,
+      "attempted": 11,
       "PASS": 0,
       "FAIL": 4,
       "UNVERIFIED": 0,
-      "NOT_APPLICABLE": 6
+      "NOT_APPLICABLE": 7
     },
     "storage": {
-      "attempted": 10,
+      "attempted": 11,
       "PASS": 0,
       "FAIL": 0,
       "UNVERIFIED": 3,
-      "NOT_APPLICABLE": 7
+      "NOT_APPLICABLE": 8
     }
   },
   "durations": [
@@ -581,6 +581,34 @@
         "run": 37452,
         "probes": 4,
         "cleanup": 7550
+      }
+    },
+    {
+      "id": "repo-555",
+      "repository": "msgbyte/tianji",
+      "classification": "build",
+      "totalMs": 986852,
+      "stages": {
+        "gate": 6,
+        "source": 4092,
+        "build": 980820,
+        "run": 10,
+        "probes": 11,
+        "cleanup": 1913
+      }
+    },
+    {
+      "id": "repo-556",
+      "repository": "muety/wakapi",
+      "classification": "probes",
+      "totalMs": 308950,
+      "stages": {
+        "gate": 2,
+        "source": 1226,
+        "build": 234509,
+        "run": 10347,
+        "probes": 60551,
+        "cleanup": 2315
       }
     }
   ]

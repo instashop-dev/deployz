@@ -4,8 +4,8 @@
   "status": "CONTINUE",
   "phase": 3,
   "currentTask": null,
-  "nextAction": "Next eligible: P3-BUILD-18. USER DECISION still open (harness, not product): (a) source-stage tar symlinks on Windows not deterministic (also repo-528); (b) 90 s dependency readiness window includes first image pull. Phase 4 findings so far include live AI timeouts (repo-514, 520, 523, 528, 543, 548, 549, 550), AI parse-errors (repo-510, 516), a label review for repo-522 (NOT_COMPATIBLE label, but probes PASS), harness Dockerfile selection differs from the manifest (repo-525 dockerfilePath null but ./Dockerfile built; repo-548 manifest .dev/dockerfile but .docker/Dockerfile built), manifest bindings not passed to the local run environment (repo-529 APP_KEY generatedKeys; repo-534 SPRING_DATASOURCE_* bindings, dbWrite FAIL; repo-543 DATABASE_* bindings, container exits), redis probe applicability for a lazy-connect app (repo-530), and required build args not supplied (repo-548 LEAN_VERSION, repo-549 COMMIT_SHA). Builder prune after each batch. Gate misses also: repo-547 false-rejection, repo-548, repo-549 and repo-552 false-acceptance. New run failures: repo-551 migration DATABASE URL empty (bindings family), repo-552 migration config file missing. Live AI timeout also repo-552.",
-  "updatedAt": "2026-10-09T11:52:11.969Z",
+  "nextAction": "Next eligible: P3-BUILD-19. USER DECISION still open (harness, not product): (a) source-stage tar symlinks on Windows not deterministic (also repo-528); (b) 90 s dependency readiness window includes first image pull. Phase 4 findings so far include live AI timeouts (repo-514, 520, 523, 528, 543, 548, 549, 550), AI parse-errors (repo-510, 516), a label review for repo-522 (NOT_COMPATIBLE label, but probes PASS), harness Dockerfile selection differs from the manifest (repo-525 dockerfilePath null but ./Dockerfile built; repo-548 manifest .dev/dockerfile but .docker/Dockerfile built), manifest bindings not passed to the local run environment (repo-529 APP_KEY generatedKeys; repo-534 SPRING_DATASOURCE_* bindings, dbWrite FAIL; repo-543 DATABASE_* bindings, container exits), redis probe applicability for a lazy-connect app (repo-530), and required build args not supplied (repo-548 LEAN_VERSION, repo-549 COMMIT_SHA). Builder prune after each batch. Gate misses also: repo-547 false-rejection, repo-548, repo-549 and repo-552 false-acceptance. New: repo-555 environment failure (builder EOF during vite build, 980 s; possible Docker memory limit 3.8 GB); repo-556 dbWrite FAIL (wakapi; health path /heartbeat in manifest vs /api/health in deploy-config). New run failures: repo-551 migration DATABASE URL empty (bindings family), repo-552 migration config file missing. Live AI timeout also repo-552.",
+  "updatedAt": "2026-10-09T12:18:58.753Z",
   "checkout": {
     "path": "C:/Users/Tejas/Desktop/deployz-mvp-test",
     "kind": "git worktree of C:/Users/Tejas/Desktop/deployz",
@@ -347,6 +347,10 @@
     {
       "commit": "e6a3b58ee2363923fef21faca86611fa3bf84538",
       "task": "P3-BUILD-17"
+    },
+    {
+      "commit": "e6a3b58ee2363923fef21faca86611fa3bf84538",
+      "task": "P3-BUILD-18"
     }
   ],
   "attempts": {
@@ -429,13 +433,14 @@
     "P3-BUILD-14": 1,
     "P3-BUILD-15": 1,
     "P3-BUILD-16": 1,
-    "P3-BUILD-17": 1
+    "P3-BUILD-17": 1,
+    "P3-BUILD-18": 1
   },
   "lastResult": {
-    "task": "P3-BUILD-17",
+    "task": "P3-BUILD-18",
     "status": "COMPLETE",
-    "at": "2026-10-09T11:52:11.969Z",
-    "summary": "repo-551 (spliit): AI not requested; gate PASS (correct-accept, NEEDS_CONFIGURATION); source PASS; build PASS; run FAIL (pre-deploy migration `prisma migrate deploy` exit 1: 'Connection url is empty'; manifest lists DATABASE_URL and DATABASE_* bindings, but the URL did not reach the migration: Phase 4 candidate, same family as repo-534/543 bindings or a prisma.config.ts env name); probes SKIPPED; cleanup PASS. repo-552 (misskey): live AI timeout (30 s, 2 attempts); gate FAIL (false-acceptance: READY vs NOT_COMPATIBLE label); source PASS; build PASS; run FAIL (migration exit 1: /misskey/.config/default.yml missing, compiled ormconfig.js not found); probes SKIPPED; cleanup PASS. Opus check: result.json valid, testedCommit matches, 3 commands exit 0, all evidence paths exist; both results have 6 stages and ai.mode live (production-equivalent); --deploy-config passed; deploy-config.yaml unchanged; 0 labelled containers/networks/volumes/images; builder prune 7.67 GB; C: 5.4 GB free (vhdx does not shrink)."
+    "at": "2026-10-09T12:18:58.753Z",
+    "summary": "repo-555 (tianji): AI live completed; gate PASS (correct-accept, NEEDS_CONFIGURATION); source PASS; build FAIL after 980 s: docker build lost the builder connection ('rpc error: code = Unavailable ... error reading from server: EOF') during the vite 'rendering chunks' step; no registry timeout in the tail, so no retry; classified as environment failure (separate denominator), not an app verdict; run/probes SKIPPED; cleanup PASS. repo-556 (wakapi): AI not requested; gate PASS (correct-accept, NEEDS_CONFIGURATION); source, build, run PASS; probes FAIL: dbWrite (no rows outside migration bookkeeping tables; health and start PASS; migration/redis/storage NOT_APPLICABLE); the gate manifest health path is /heartbeat, the run used /api/health from deploy-config. Opus check: result.json valid, testedCommit matches, 3 commands exit 0, evidence paths exist; both results have 6 stages and ai.mode live; --deploy-config passed; deploy-config.yaml unchanged; 0 labelled containers/networks/volumes/images; builder prune 1.5 GB; C: 4.2 GB free. Opus removed worker duplicate copies repo-555.json/repo-556.json (only <repo>.local.json is kept, as in earlier tasks)."
   },
   "gates": {
     "smokeReviewed": true,
@@ -466,8 +471,8 @@
     },
     "disk>=3GB": {
       "status": "AVAILABLE",
-      "detail": "2026-10-09T03:39Z: the user lowered the disk requirement from 10 GB to 3 GB (live chat instruction). Check: 6.28 GiB free on C: at 2026-10-09T03:28Z, so AVAILABLE. Each P3-BUILD task still prunes its labelled images after the batch. Earlier history (as disk>=10GB): 7.1 GiB free on C: at 2026-10-09T00:00Z (P2-GATE). Docker: 2.62 GB reclaimable build cache, 0.49 GB unused unlabelled images. The user must free disk before P3-BUILD tasks; Stage A tasks do not need it. 2026-10-09T02:05Z: routine check 6.27 GiB free; still UNAVAILABLE. 2026-10-09T02:28Z: routine check 6.30 GiB free; still UNAVAILABLE. 2026-10-09T02:43Z: routine check 6.26 GiB free; still UNAVAILABLE. 2026-10-09T02:58Z: routine check 6.26 GiB free; still UNAVAILABLE. 2026-10-09T03:45Z: routine check 6.7 GiB free; AVAILABLE. 2026-10-09T04:48Z: P3-BUILD-01 repo-536 build filled C: to 68 MB free; UNAVAILABLE. 3 GB was not enough for one large build. 2026-10-09T06:10Z: 14 GB free on C: after the user freed disk; AVAILABLE. Docker build cache 8.1 GB (unlabelled). 2026-10-09T06:31Z: after P3-BUILD-02, 4.9 GB free on C:; unlabelled Docker build cache 14.6 GB (reclaimable). Still >= 3 GB, but one large build can use more than 6 GB; workers stop a build below 3 GB free. 2026-10-09T06:57Z: after P3-BUILD-05, 4.2 GB free on C: (repo-510 build used about 0.7 GB); AVAILABLE. 2026-10-09T07:00Z (manual session, user-approved): one-time `docker builder prune -f` freed 2.05 GB (BuildKit had already trimmed the cache from about 15 GB to 2.1 GB). C: stays at 4.2 GB free because the Docker Desktop disk file %LOCALAPPDATA%/Docker/wsl/disk/docker_data.vhdx (19.3 GB) does not shrink; freed space inside it is reused by later builds, so Docker has about 16 GB of internal room. Only compacting the vhdx (Docker stopped, admin) returns space to C:. 2026-10-09T08:07Z: routine check 22 GB free on C:; AVAILABLE. 2026-10-09T08:28Z: after P3-BUILD-06, about 15 GB free on C:. 2026-10-09T08:47Z: after P3-BUILD-07, about 15 GB free on C:. 2026-10-09T11:52Z: after P3-BUILD-17, 5.4 GB free on C:; AVAILABLE.",
-      "checkedAt": "2026-10-09T11:52:11.969Z"
+      "detail": "2026-10-09T03:39Z: the user lowered the disk requirement from 10 GB to 3 GB (live chat instruction). Check: 6.28 GiB free on C: at 2026-10-09T03:28Z, so AVAILABLE. Each P3-BUILD task still prunes its labelled images after the batch. Earlier history (as disk>=10GB): 7.1 GiB free on C: at 2026-10-09T00:00Z (P2-GATE). Docker: 2.62 GB reclaimable build cache, 0.49 GB unused unlabelled images. The user must free disk before P3-BUILD tasks; Stage A tasks do not need it. 2026-10-09T02:05Z: routine check 6.27 GiB free; still UNAVAILABLE. 2026-10-09T02:28Z: routine check 6.30 GiB free; still UNAVAILABLE. 2026-10-09T02:43Z: routine check 6.26 GiB free; still UNAVAILABLE. 2026-10-09T02:58Z: routine check 6.26 GiB free; still UNAVAILABLE. 2026-10-09T03:45Z: routine check 6.7 GiB free; AVAILABLE. 2026-10-09T04:48Z: P3-BUILD-01 repo-536 build filled C: to 68 MB free; UNAVAILABLE. 3 GB was not enough for one large build. 2026-10-09T06:10Z: 14 GB free on C: after the user freed disk; AVAILABLE. Docker build cache 8.1 GB (unlabelled). 2026-10-09T06:31Z: after P3-BUILD-02, 4.9 GB free on C:; unlabelled Docker build cache 14.6 GB (reclaimable). Still >= 3 GB, but one large build can use more than 6 GB; workers stop a build below 3 GB free. 2026-10-09T06:57Z: after P3-BUILD-05, 4.2 GB free on C: (repo-510 build used about 0.7 GB); AVAILABLE. 2026-10-09T07:00Z (manual session, user-approved): one-time `docker builder prune -f` freed 2.05 GB (BuildKit had already trimmed the cache from about 15 GB to 2.1 GB). C: stays at 4.2 GB free because the Docker Desktop disk file %LOCALAPPDATA%/Docker/wsl/disk/docker_data.vhdx (19.3 GB) does not shrink; freed space inside it is reused by later builds, so Docker has about 16 GB of internal room. Only compacting the vhdx (Docker stopped, admin) returns space to C:. 2026-10-09T08:07Z: routine check 22 GB free on C:; AVAILABLE. 2026-10-09T08:28Z: after P3-BUILD-06, about 15 GB free on C:. 2026-10-09T08:47Z: after P3-BUILD-07, about 15 GB free on C:. 2026-10-09T11:52Z: after P3-BUILD-17, 5.4 GB free on C:; AVAILABLE. 2026-10-09T12:20Z: after P3-BUILD-18, 4.2 GB free on C:; AVAILABLE (near the 3 GB limit).",
+      "checkedAt": "2026-10-09T12:18:58.753Z"
     },
     "dependencies-installed": {
       "status": "AVAILABLE",

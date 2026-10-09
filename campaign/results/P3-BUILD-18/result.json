@@ -1,0 +1,40 @@
+{
+  "taskId": "P3-BUILD-18",
+  "testedCommit": "e6a3b58ee2363923fef21faca86611fa3bf84538",
+  "executor": "campaign-worker",
+  "model": "sonnet",
+  "startedAt": "2026-10-09T11:54:50Z",
+  "finishedAt": "2026-10-09T12:25:00Z",
+  "proposedStatus": "COMPLETE",
+  "commands": [
+    {
+      "command": "node --env-file=.env node_modules/tsx/dist/cli.mjs scripts/repository-deployment/index.ts --local --ai live --benchmark campaign/corpus/benchmark.yaml --deploy-config campaign/corpus/deploy-config.yaml --runs-dir campaign/results/first-run/build/ --evidence-dir campaign/logs/P3-BUILD-18/evidence/ --repo repo-555 --repo repo-556",
+      "exitCode": 0,
+      "summary": "repo-555: gate PASS, source PASS, build FAIL, run/probes SKIPPED, cleanup PASS. repo-556: gate PASS, source PASS, build PASS, run PASS, probes FAIL (dbWrite), cleanup PASS."
+    },
+    {
+      "command": "docker ps/network/volume/image ls --filter label=deployz-campaign=fresh-100",
+      "exitCode": 0,
+      "summary": "no labelled resource remains"
+    },
+    {
+      "command": "docker builder prune -f",
+      "exitCode": 0,
+      "summary": "reclaimed 1.499GB; C: free 4.2G after"
+    }
+  ],
+  "evidence": [
+    "campaign/results/first-run/build/repo-555.local.json",
+    "campaign/results/first-run/build/repo-556.local.json"
+  ],
+  "notes": [
+    "repo-555 (msgbyte/tianji) build FAIL: vite build in the static stage ran 'rendering chunks...' then docker build died with 'failed to receive status: rpc error: code = Unavailable desc = error reading from server: EOF' after 980 s (builder/daemon connection lost, likely memory or daemon crash; docker CLI was slow during the build). Log tail shows no registry timeout, so the single retry rule was not applied; a retry did not fit before stopBy. Classify as environment failure (builder EOF), not an app verdict. Gate: NEEDS_CONFIGURATION, correct-accept.",
+    "repo-556 (muety/wakapi) build PASS, run PASS, probes FAIL: health PASS, start PASS, dbWrite FAIL 'no rows outside migration bookkeeping tables'; migration NOT_APPLICABLE. Gate NEEDS_CONFIGURATION, correct-accept. Note: the gate manifest shows healthPath /heartbeat while the run used /api/health from deploy-config.",
+    "AI mode live in both results (repo-555 1 request completed; repo-556 not-requested). Every command passed --deploy-config.",
+    "No deploy-config.yaml changes made; no secret values added.",
+    "The coordinator-given tested commit e6a3b58e is an ancestor of HEAD (4ef85123); the worktree HEAD has later campaign-only commits.",
+    "repo-555.json and repo-556.json are copies of the harness output repo-555.local.json and repo-556.local.json. Raw build logs: campaign/logs/P3-BUILD-18/ (ignored).",
+    "Cleanup verified: no container, network, volume or image with label deployz-campaign=fresh-100 remains. C: free disk was 5.4G before, 4.2G after; the lowest seen was 4.2G.",
+    "Opus (coordinator) 2026-10-09: removed the worker copies repo-555.json and repo-556.json; earlier P3-BUILD tasks keep only the harness output <repo>.local.json, and duplicates could be counted twice in aggregation."
+  ]
+}

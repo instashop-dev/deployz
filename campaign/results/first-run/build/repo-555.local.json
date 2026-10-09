@@ -1,0 +1,139 @@
+{
+  "schemaVersion": 1,
+  "id": "repo-555",
+  "repository": "msgbyte/tianji",
+  "commit": "45578dd32121319c28d3bc5abffa70c225631eb2",
+  "set": "improvement",
+  "cohort": "realistic",
+  "deployzCommit": "4ef8512376c39584b61b136a3e4b9e2cf5dbca01",
+  "analysisVersion": 45,
+  "ai": {
+    "mode": "live",
+    "model": "workers-ai/@cf/deepseek-ai/deepseek-v4-flash-0731",
+    "requests": 1,
+    "outcome": "completed",
+    "error": null
+  },
+  "inputsHash": "09ae35c5940974306ed4dfde97bf3d8577cc8e6f60adf5c20748ce8159130f3b",
+  "stages": {
+    "gate": {
+      "status": "PASS",
+      "startedAt": "2026-10-09T11:55:38.157Z",
+      "finishedAt": "2026-10-09T11:55:38.163Z",
+      "durationMs": 6,
+      "detail": null,
+      "evidence": {
+        "verdict": "NEEDS_CONFIGURATION",
+        "outcome": "correct-accept",
+        "configuredVerdict": "NEEDS_CONFIGURATION",
+        "manifest": {
+          "dockerfilePath": "Dockerfile",
+          "buildContext": ".",
+          "appRoot": ".",
+          "port": 12345,
+          "healthPath": "/health",
+          "healthMode": "explicit",
+          "migrationCommand": null,
+          "migrationMode": "startup",
+          "postgres": true,
+          "redis": true,
+          "storage": false,
+          "databaseBindings": [
+            "DATABASE_HOST",
+            "DATABASE_NAME",
+            "DATABASE_PASSWORD",
+            "DATABASE_PORT",
+            "DATABASE_URL",
+            "DATABASE_USER",
+            "DB_HOST",
+            "DB_NAME",
+            "DB_PASSWORD",
+            "DB_PORT",
+            "DB_USER"
+          ],
+          "redisBindings": [
+            "REDIS_URL"
+          ],
+          "storageBindings": [],
+          "generatedKeys": [
+            "AUTH_CUSTOM_SECRET",
+            "AUTH_GITHUB_SECRET",
+            "AUTH_GOOGLE_SECRET",
+            "AUTH_SECRET",
+            "JWT_SECRET"
+          ]
+        }
+      }
+    },
+    "source": {
+      "status": "PASS",
+      "startedAt": "2026-10-09T11:55:38.168Z",
+      "finishedAt": "2026-10-09T11:55:42.260Z",
+      "durationMs": 4092,
+      "detail": null,
+      "evidence": {
+        "commit": "45578dd32121319c28d3bc5abffa70c225631eb2",
+        "archiveCached": false,
+        "archiveBytes": 6662673
+      }
+    },
+    "build": {
+      "status": "FAIL",
+      "startedAt": "2026-10-09T11:55:42.264Z",
+      "finishedAt": "2026-10-09T12:12:03.084Z",
+      "durationMs": 980820,
+      "detail": "docker build exited 1",
+      "evidence": {
+        "dockerfilePath": "Dockerfile",
+        "buildContext": ".",
+        "platform": "linux/amd64",
+        "image": "deployz-campaign/repo-555:45578dd32121",
+        "exitCode": 1,
+        "durationMs": 980770,
+        "buildArgNames": [],
+        "logTail": "#26 28.82 \n#26 28.82 > @tianji/client@ build /app/tianji/src/client\n#26 28.82 > vite build\n#26 28.82 \n#26 ...\n\n#27 [build  4/10] RUN mkdir -p ./src/server/public\n#27 DONE 8.0s\n\n#26 [static 4/4] RUN pnpm build:static\n#26 32.76 \n#26 32.76 ♻️  Generating routes...\n#26 34.88 No story files found for the specified pattern: stories/**/*.mdx\n#26 38.31 info Using tsconfig paths for react-docgen\n#26 38.43 ✅ Processed routes in 5674ms\n#26 38.44 vite v5.4.14 building for production...\n#26 38.44 \n#26 38.44 (!) outDir /app/tianji/src/server/public is not inside project root and will not be emptied.\n#26 38.44 Use --emptyOutDir to override.\n#26 38.44 \n#26 38.56 transforming...\n#26 45.06 Browserslist: browsers data (caniuse-lite) is 20 months old. Please run:\n#26 45.06   npx update-browserslist-db@latest\n#26 45.06   Why you should do it regularly: https://github.com/browserslist/update-db#readme\n#26 52.81 ../../node_modules/.pnpm/******_@***_@***_react-dom@18._de4ebae64483cc8a1cd6e661d7090a67/node_modules/next-themes/dist/index.module.js (1:1576): A comment\n#26 52.81 \n#26 52.81 \"/*#__PURE__*/\"\n#26 52.81 \n#26 52.81 in \"../../node_modules/.pnpm/******_@***_@***_react-dom@18._de4ebae64483cc8a1cd6e661d7090a67/node_modules/next-themes/dist/index.module.js\" contains an annotation that Rollup cannot interpret due to the position of the comment. The comment will be removed to avoid issues.\n#26 52.81 ../../node_modules/.pnpm/******_@***_@***_react-dom@18._de4ebae64483cc8a1cd6e661d7090a67/node_modules/next-themes/dist/index.module.js (1:2992): A comment\n#26 52.81 \n#26 52.81 \"/*#__PURE__*/\"\n#26 52.81 \n#26 52.81 in \"../../node_modules/.pnpm/******_@***_@***_react-dom@18._de4ebae64483cc8a1cd6e661d7090a67/node_modules/next-themes/dist/index.module.js\" contains an annotation that Rollup cannot interpret due to the position of the comment. The comment will be removed to avoid issues.\n#26 158.2 ../../node_modules/.pnpm/***/node_modules/lottie-web/build/player/lottie.js (17010:32): Use of eval in \"../../node_modules/.pnpm/***/node_modules/lottie-web/build/player/lottie.js\" is strongly discouraged as it poses security risks and may cause issues with minification.\n#26 216.3 ✓ 15404 modules transformed.\n#26 232.4 rendering chunks...\nERROR: failed to build: failed to receive status: rpc error: code = Unavailable desc = error reading from server: EOF\n\nView build details: docker-desktop://dashboard/build/desktop-linux/desktop-linux/cz6401w9yeqwrdzg0ez8j8gb4",
+        "failure": "build",
+        "rebuilt": false
+      }
+    },
+    "run": {
+      "status": "SKIPPED",
+      "startedAt": "2026-10-09T12:12:04.334Z",
+      "finishedAt": "2026-10-09T12:12:04.344Z",
+      "durationMs": 10,
+      "detail": "the build did not pass",
+      "evidence": {}
+    },
+    "probes": {
+      "status": "SKIPPED",
+      "startedAt": "2026-10-09T12:12:04.348Z",
+      "finishedAt": "2026-10-09T12:12:04.359Z",
+      "durationMs": 11,
+      "detail": "the build did not pass",
+      "evidence": {}
+    },
+    "cleanup": {
+      "status": "PASS",
+      "startedAt": "2026-10-09T12:12:04.365Z",
+      "finishedAt": "2026-10-09T12:12:06.278Z",
+      "durationMs": 1913,
+      "detail": null,
+      "evidence": {
+        "removed": {
+          "containers": 0,
+          "networks": 0,
+          "volumes": 0
+        },
+        "imageRemoved": false,
+        "keepImage": false,
+        "leaks": {
+          "containers": [],
+          "networks": [],
+          "volumes": []
+        }
+      }
+    }
+  },
+  "classification": "build",
+  "remediation": null
+}

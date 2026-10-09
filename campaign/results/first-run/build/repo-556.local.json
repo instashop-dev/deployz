@@ -1,0 +1,188 @@
+{
+  "schemaVersion": 1,
+  "id": "repo-556",
+  "repository": "muety/wakapi",
+  "commit": "a8d88056932881329845609a749025a1513564db",
+  "set": "improvement",
+  "cohort": "realistic",
+  "deployzCommit": "4ef8512376c39584b61b136a3e4b9e2cf5dbca01",
+  "analysisVersion": 45,
+  "ai": {
+    "mode": "live",
+    "model": "workers-ai/@cf/deepseek-ai/deepseek-v4-flash-0731",
+    "requests": 0,
+    "outcome": "not-requested",
+    "error": null
+  },
+  "inputsHash": "e3b123a444b13523e85e9371af45b73bef71e7a62683233cc73a0a0de8a3098e",
+  "stages": {
+    "gate": {
+      "status": "PASS",
+      "startedAt": "2026-10-09T12:12:08.786Z",
+      "finishedAt": "2026-10-09T12:12:08.788Z",
+      "durationMs": 2,
+      "detail": null,
+      "evidence": {
+        "verdict": "NEEDS_CONFIGURATION",
+        "outcome": "correct-accept",
+        "configuredVerdict": "NEEDS_CONFIGURATION",
+        "manifest": {
+          "dockerfilePath": "Dockerfile",
+          "buildContext": ".",
+          "appRoot": ".",
+          "port": 3000,
+          "healthPath": "/heartbeat",
+          "healthMode": "explicit",
+          "migrationCommand": null,
+          "migrationMode": "unknown",
+          "postgres": true,
+          "redis": false,
+          "storage": false,
+          "databaseBindings": [
+            "DATABASE_HOST",
+            "DATABASE_NAME",
+            "DATABASE_PASSWORD",
+            "DATABASE_PORT",
+            "DATABASE_URL",
+            "DATABASE_USER",
+            "DB_HOST",
+            "DB_NAME",
+            "DB_PASSWORD",
+            "DB_PORT",
+            "DB_USER",
+            "WAKAPI_DB_DSN",
+            "WAKAPI_DB_HOST",
+            "WAKAPI_DB_NAME",
+            "WAKAPI_DB_PASSWORD",
+            "WAKAPI_DB_PORT",
+            "WAKAPI_DB_USER"
+          ],
+          "redisBindings": [],
+          "storageBindings": [],
+          "generatedKeys": [
+            "WAKAPI_COOKIE_KEY",
+            "WAKAPI_PASSWORD_SALT"
+          ]
+        }
+      }
+    },
+    "source": {
+      "status": "PASS",
+      "startedAt": "2026-10-09T12:12:08.793Z",
+      "finishedAt": "2026-10-09T12:12:10.019Z",
+      "durationMs": 1226,
+      "detail": null,
+      "evidence": {
+        "commit": "a8d88056932881329845609a749025a1513564db",
+        "archiveCached": true,
+        "archiveBytes": null
+      }
+    },
+    "build": {
+      "status": "PASS",
+      "startedAt": "2026-10-09T12:12:10.022Z",
+      "finishedAt": "2026-10-09T12:16:04.531Z",
+      "durationMs": 234509,
+      "detail": null,
+      "evidence": {
+        "dockerfilePath": "Dockerfile",
+        "buildContext": ".",
+        "platform": "linux/amd64",
+        "image": "deployz-campaign/repo-556:a8d880569328",
+        "exitCode": 0,
+        "durationMs": 233955,
+        "buildArgNames": [],
+        "logTail": "#14 129.1 command-line-arguments\n#14 DONE 132.8s\n\n#15 [build-env 7/9] RUN GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -ldflags \"-s -w\" -v -o healthcheck scripts/healthcheck.go\n#15 2.309 command-line-arguments\n#15 DONE 3.0s\n\n#16 [build-env 8/9] WORKDIR /staging\n#16 DONE 0.1s\n\n#17 [build-env 9/9] RUN mkdir ./data ./app &&     cp /src/wakapi app/ &&     cp /src/healthcheck app/ &&     cp /src/config.default.yml app/config.yml &&     sed -i 's/listen_ipv6: ::1/listen_ipv6: \"-\"/g' app/config.yml\n#17 DONE 0.7s\n\n#18 [stage-1 3/4] COPY --from=build-env --chown=root:root /staging/app /app\n#18 DONE 0.4s\n\n#19 [stage-1 4/4] COPY --from=build-env --chown=nonroot:nonroot /staging/data /data\n#19 DONE 0.2s\n\n#20 exporting to image\n#20 exporting layers\n#20 exporting layers 4.4s done\n#20 exporting manifest sha256:1a25d1d491a2073e9edf70f7e352e7565847ebf6e405a263218386666df07287\n#20 exporting manifest sha256:1a25d1d491a2073e9edf70f7e352e7565847ebf6e405a263218386666df07287 0.3s done\n#20 exporting config sha256:5671f8bf762a6bb6ba08f03f9456409044219f258fa105d614bc2fa8c8775b96\n#20 exporting config sha256:5671f8bf762a6bb6ba08f03f9456409044219f258fa105d614bc2fa8c8775b96 0.2s done\n#20 exporting attestation manifest sha256:726af974cb9aea9904e0635e61afab17502e6f9bb57e222e14c0a6fec39cb018\n#20 exporting attestation manifest sha256:726af974cb9aea9904e0635e61afab17502e6f9bb57e222e14c0a6fec39cb018 0.2s done\n#20 exporting manifest list sha256:f712c666f90c95ec33983c615ed39f123a36e738934b63e6e7290c668d44de67\n#20 exporting manifest list sha256:f712c666f90c95ec33983c615ed39f123a36e738934b63e6e7290c668d44de67 0.1s done\n#20 naming to docker.io/deployz-campaign/repo-556:a8d880569328 done\n#20 unpacking to docker.io/deployz-campaign/repo-556:a8d880569328\n#20 unpacking to docker.io/deployz-campaign/repo-556:a8d880569328 1.7s done\n#20 DONE 7.3s\n\n \u001b[33m2 warnings found (use docker --debug to expand):\n\u001b[0m - SecretsUsedInArgOrEnv: Do not use ARG or ENV instructions for sensitive data (ENV \"WAKAPI_DB_PASSWORD\") (line 35)\n - SecretsUsedInArgOrEnv: Do not use ARG or ENV instructions for sensitive data (ENV \"WAKAPI_PASSWORD_SALT\") (line 35)\n\nView build details: docker-desktop://dashboard/build/desktop-linux/desktop-linux/owbeqaxl7il317m3ksni9mmbd",
+        "imageId": "sha256:f712c666f90c95ec33983c615ed39f123a36e738934b63e6e7290c668d44de67",
+        "imageBytes": 71431214,
+        "failure": null,
+        "rebuilt": false
+      }
+    },
+    "run": {
+      "status": "PASS",
+      "startedAt": "2026-10-09T12:16:04.727Z",
+      "finishedAt": "2026-10-09T12:16:15.074Z",
+      "durationMs": 10347,
+      "detail": null,
+      "evidence": {
+        "image": "deployz-campaign/repo-556:a8d880569328",
+        "port": 3000,
+        "healthPath": "/api/health",
+        "dependencies": [
+          "postgres"
+        ],
+        "environmentNames": [
+          "DATABASE_URL",
+          "DB_HOST",
+          "DB_NAME",
+          "DB_PASSWORD",
+          "DB_PORT",
+          "DB_USER",
+          "PORT"
+        ],
+        "migration": null
+      }
+    },
+    "probes": {
+      "status": "FAIL",
+      "startedAt": "2026-10-09T12:16:15.078Z",
+      "finishedAt": "2026-10-09T12:17:15.629Z",
+      "durationMs": 60551,
+      "detail": "failed: dbWrite",
+      "evidence": {
+        "probes": {
+          "health": {
+            "status": "PASS",
+            "detail": "/api/health answered 200"
+          },
+          "start": {
+            "status": "PASS",
+            "detail": "still running 60 s after start"
+          },
+          "migration": {
+            "status": "NOT_APPLICABLE",
+            "detail": "the manifest has no migration command"
+          },
+          "dbWrite": {
+            "status": "FAIL",
+            "detail": "no rows outside migration bookkeeping tables"
+          },
+          "redis": {
+            "status": "NOT_APPLICABLE",
+            "detail": "the manifest needs no Redis"
+          },
+          "storage": {
+            "status": "NOT_APPLICABLE",
+            "detail": "the manifest needs no storage"
+          }
+        },
+        "url": "http://app:3000/api/health",
+        "appLogTail": "\u001b[37m2026-10-09 12:16:19.491\u001b[0m \u001b[96mINFO\u001b[0m \u001b[97mthis may take a while!\u001b[0m\n\u001b[37m2026-10-09 12:16:19.494\u001b[0m \u001b[96mINFO\u001b[0m \u001b[97mcorrected heartbeats counter of summaries\u001b[0m \u001b[95mcount\u001b[0m=\u001b[94m\"0\"\u001b[0m\n\u001b[37m2026-10-09 12:16:19.618\u001b[0m \u001b[96mINFO\u001b[0m \u001b[97mpotentially running migration\u001b[0m \u001b[95mname\u001b[0m=\u001b[94m\"20220318-mysql_timestamp_precision\"\u001b[0m\n\u001b[37m2026-10-09 12:16:19.767\u001b[0m \u001b[96mINFO\u001b[0m \u001b[97mpotentially running migration\u001b[0m \u001b[95mname\u001b[0m=\u001b[94m\"202203191-drop_diagnostics_user\"\u001b[0m\n\u001b[37m2026-10-09 12:16:19.901\u001b[0m \u001b[96mINFO\u001b[0m \u001b[97mpotentially running migration\u001b[0m \u001b[95mname\u001b[0m=\u001b[94m\"20221016-drop_rank_column\"\u001b[0m\n\u001b[37m2026-10-09 12:16:19.942\u001b[0m \u001b[96mINFO\u001b[0m \u001b[97mpotentially running migration\u001b[0m \u001b[95mname\u001b[0m=\u001b[94m\"20230219-add_astro_language\"\u001b[0m\n\u001b[37m2026-10-09 12:16:19.942\u001b[0m \u001b[96mINFO\u001b[0m \u001b[97mrunning migration\u001b[0m \u001b[95mname\u001b[0m=\u001b[94m\"20230219-add_astro_language\"\u001b[0m\n\u001b[37m2026-10-09 12:16:19.980\u001b[0m \u001b[96mINFO\u001b[0m \u001b[97mpotentially running migration\u001b[0m \u001b[95mname\u001b[0m=\u001b[94m\"20230219-add_subscription_renewal\"\u001b[0m\n\u001b[37m2026-10-09 12:16:19.980\u001b[0m \u001b[96mINFO\u001b[0m \u001b[97mrunning migration\u001b[0m \u001b[95mname\u001b[0m=\u001b[94m\"20230219-add_subscription_renewal\"\u001b[0m\n\u001b[37m2026-10-09 12:16:20.033\u001b[0m \u001b[96mINFO\u001b[0m \u001b[97mpotentially running migration\u001b[0m \u001b[95mname\u001b[0m=\u001b[94m\"20231023-fill_last_branch\"\u001b[0m\n\u001b[37m2026-10-09 12:16:20.080\u001b[0m \u001b[96mINFO\u001b[0m \u001b[97mpotentially running migration\u001b[0m \u001b[95mname\u001b[0m=\u001b[94m\"20241220-share_activity_chart_flag\"\u001b[0m\n\u001b[37m2026-10-09 12:16:20.122\u001b[0m \u001b[96mINFO\u001b[0m \u001b[97mpotentially running migration\u001b[0m \u001b[95mname\u001b[0m=\u001b[94m\"20250219-update_heartbeats_timeout\"\u001b[0m\n\u001b[37m2026-10-09 12:16:20.170\u001b[0m \u001b[96mINFO\u001b[0m \u001b[97mpotentially running migration\u001b[0m \u001b[95mname\u001b[0m=\u001b[94m\"20250313-fix_browsing_category\"\u001b[0m\n\u001b[37m2026-10-09 12:16:20.170\u001b[0m \u001b[96mINFO\u001b[0m \u001b[97mpotentially running migration\u001b[0m \u001b[95mname\u001b[0m=\u001b[94m\"20250802-fix_wsl_os\"\u001b[0m\n\u001b[37m2026-10-09 12:16:20.170\u001b[0m \u001b[96mINFO\u001b[0m \u001b[97mpotentially running migration\u001b[0m \u001b[95mname\u001b[0m=\u001b[94m\"20250802_fix_default_coding_category\"\u001b[0m\n\u001b[37m2026-10-09 12:16:20.170\u001b[0m \u001b[96mINFO\u001b[0m \u001b[97mpotentially running migration\u001b[0m \u001b[95mname\u001b[0m=\u001b[94m\"20250907-add_user_heartbeats_range_view\"\u001b[0m\n\u001b[37m2026-10-09 12:16:20.251\u001b[0m \u001b[96mINFO\u001b[0m \u001b[97mpotentially running migration\u001b[0m \u001b[95mname\u001b[0m=\u001b[94m\"20251005-drop_duplicate_emails\"\u001b[0m\n\u001b[37m2026-10-09 12:16:20.465\u001b[0m \u001b[96mINFO\u001b[0m \u001b[97mpotentially running migration\u001b[0m \u001b[95mname\u001b[0m=\u001b[94m\"20260103-add_webauthn_fields\"\u001b[0m\n\u001b[37m2026-10-09 12:16:20.518\u001b[0m \u001b[96mINFO\u001b[0m \u001b[97mpotentially running migration\u001b[0m \u001b[95mname\u001b[0m=\u001b[94m\"202601214-sqlite_recreate_views-post\"\u001b[0m\n\u001b[37m2026-10-09 12:16:20.555\u001b[0m \u001b[96mINFO\u001b[0m \u001b[97mpotentially running migration\u001b[0m \u001b[95mname\u001b[0m=\u001b[94m\"20260722-sqlite_recreate_view_post\"\u001b[0m\n\u001b[37m2026-10-09 12:16:20.599\u001b[0m \u001b[96mINFO\u001b[0m \u001b[97mpotentially running migration\u001b[0m \u001b[95mname\u001b[0m=\u001b[94m\"20260820-fix_ai_model_as_editor\"\u001b[0m\n\u001b[37m2026-10-09 12:16:20.599\u001b[0m \u001b[96mINFO\u001b[0m \u001b[97mpotentially running migration\u001b[0m \u001b[95mname\u001b[0m=\u001b[94m\"20260831-lowercase_oidc_provider_names\"\u001b[0m\n\u001b[37m2026-10-09 12:16:20.690\u001b[0m \u001b[96mINFO\u001b[0m \u001b[97mpotentially running migration\u001b[0m \u001b[95mname\u001b[0m=\u001b[94m\"20260929-drop_durations_time_index\"\u001b[0m\n\u001b[37m2026-10-09 12:16:20.690\u001b[0m \u001b[96mINFO\u001b[0m \u001b[97mpotentially running migration\u001b[0m \u001b[95mname\u001b[0m=\u001b[94m\"20261002-fix_neovim_wakatime_editor\"\u001b[0m\n\u001b[37m2026-10-09 12:16:20.691\u001b[0m \u001b[96mINFO\u001b[0m \u001b[97mcreating job queue\u001b[0m \u001b[95mname\u001b[0m=\u001b[94m\"wakapi.processing\"\u001b[0m \u001b[95mworkers\u001b[0m=\u001b[94m\"1\"\u001b[0m\n\u001b[37m2026-10-09 12:16:20.691\u001b[0m \u001b[96mINFO\u001b[0m \u001b[97mcreating job queue\u001b[0m \u001b[95mname\u001b[0m=\u001b[94m\"wakapi.default\"\u001b[0m \u001b[95mworkers\u001b[0m=\u001b[94m\"1\"\u001b[0m\n\u001b[37m2026-10-09 12:16:20.691\u001b[0m \u001b[96mINFO\u001b[0m \u001b[97mcreating job queue\u001b[0m \u001b[95mname\u001b[0m=\u001b[94m\"wakapi.processing_2\"\u001b[0m \u001b[95mworkers\u001b[0m=\u001b[94m\"1\"\u001b[0m\n\u001b[37m2026-10-09 12:16:20.692\u001b[0m \u001b[96mINFO\u001b[0m \u001b[97mcreating job queue\u001b[0m \u001b[95mname\u001b[0m=\u001b[94m\"wakapi.reports\"\u001b[0m \u001b[95mworkers\u001b[0m=\u001b[94m\"1\"\u001b[0m\n\u001b[37m2026-10-09 12:16:20.692\u001b[0m \u001b[96mINFO\u001b[0m \u001b[97mcreating job queue\u001b[0m \u001b[95mname\u001b[0m=\u001b[94m\"wakapi.housekeeping\"\u001b[0m \u001b[95mworkers\u001b[0m=\u001b[94m\"1\"\u001b[0m\n\u001b[37m2026-10-09 12:16:20.692\u001b[0m \u001b[96mINFO\u001b[0m \u001b[97mcreating job queue\u001b[0m \u001b[95mname\u001b[0m=\u001b[94m\"wakapi.mail\"\u001b[0m \u001b[95mworkers\u001b[0m=\u001b[94m\"1\"\u001b[0m\n\u001b[37m2026-10-09 12:16:20.694\u001b[0m \u001b[96mINFO\u001b[0m \u001b[97mscheduling report generation\u001b[0m\n\u001b[37m2026-10-09 12:16:20.694\u001b[0m \u001b[96mINFO\u001b[0m \u001b[97mcreating job queue\u001b[0m \u001b[95mname\u001b[0m=\u001b[94m\"wakapi.imports\"\u001b[0m \u001b[95mworkers\u001b[0m=\u001b[94m\"1\"\u001b[0m\n\u001b[37m2026-10-09 12:16:20.694\u001b[0m \u001b[96mINFO\u001b[0m \u001b[97mscheduling summary aggregation\u001b[0m\n\u001b[37m2026-10-09 12:16:20.694\u001b[0m \u001b[96mINFO\u001b[0m \u001b[97mscheduling inactive users cleanup\u001b[0m\n\u001b[37m2026-10-09 12:16:20.700\u001b[0m \u001b[96mINFO\u001b[0m \u001b[97mscheduling project stats cache pre-warming\u001b[0m\n\u001b[37m2026-10-09 12:16:20.695\u001b[0m \u001b[96mINFO\u001b[0m \u001b[97mscheduling total time counting\u001b[0m\n\u001b[37m2026-10-09 12:16:20.695\u001b[0m \u001b[96mINFO\u001b[0m \u001b[97mscheduling leaderboard generation\u001b[0m\n\u001b[37m2026-10-09 12:16:20.699\u001b[0m \u001b[96mINFO\u001b[0m \u001b[97m👉 Listening for HTTP... ✅\u001b[0m \u001b[95maddress\u001b[0m=\u001b[94m\"0.0.0.0:3000\"\u001b[0m\n\u001b[37m2026-10-09 12:16:20.701\u001b[0m \u001b[96mINFO\u001b[0m \u001b[97mscheduling database vacuuming or optimization\u001b[0m\n\u001b[37m2026-10-09 12:16:20.748\u001b[0m \u001b[96mINFO\u001b[0m \u001b[97mcounting users total time\u001b[0m"
+      }
+    },
+    "cleanup": {
+      "status": "PASS",
+      "startedAt": "2026-10-09T12:17:15.633Z",
+      "finishedAt": "2026-10-09T12:17:17.948Z",
+      "durationMs": 2315,
+      "detail": null,
+      "evidence": {
+        "removed": {
+          "containers": 2,
+          "networks": 1,
+          "volumes": 0
+        },
+        "imageRemoved": true,
+        "keepImage": false,
+        "leaks": {
+          "containers": [],
+          "networks": [],
+          "volumes": []
+        }
+      }
+    }
+  },
+  "classification": "probes",
+  "remediation": null
+}
