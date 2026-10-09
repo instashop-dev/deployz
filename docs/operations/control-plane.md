@@ -63,6 +63,44 @@ dead-letter queue (three delivery attempts, three-day retention) is
 inspected by hand when a job goes missing; the worker's structured logs
 name the message id.
 
+### Deploy identity
+
+GitHub Actions assumes one IAM role for each GitHub Environment with OIDC.
+Neither deploy workflow holds an AWS access key. Each role trusts only the
+subject `repo:instashop-dev/deployz:environment:<name>` with the audience
+`sts.amazonaws.com`. A job in another repository, or a job that declares no
+Environment, therefore gets no credentials.
+
+Each role may read the CDK bootstrap version parameter, assume the
+`cdk-hnb659fds-*` bootstrap roles that make every stack change, locate and
+write objects in its own stage's template buckets (`s3:GetBucketLocation`,
+`s3:PutObject`, `s3:GetObject`), call `cloudformation:ValidateTemplate`, and
+make the nine Lightsail container-service calls the web deploy needs. It holds
+no other service permission.
+
+[`../../.github/aws/github-oidc.yaml`](../../.github/aws/github-oidc.yaml)
+creates both roles. The account owner deploys it by hand, with an admin
+identity:
+
+```bash
+aws cloudformation deploy \
+  --template-file .github/aws/github-oidc.yaml \
+  --stack-name deployz-github-oidc \
+  --capabilities CAPABILITY_NAMED_IAM
+```
+
+The stack outputs both role ARNs. Set each one as the variable
+`AWS_DEPLOY_ROLE_ARN` on the Environment with the same name. A run without it
+fails in the completeness gate, before any AWS call.
+
+Two limits are known. Both roles may assume the shared `cdk-hnb659fds-*`
+bootstrap roles, so the staging role could deploy the production stack. The
+Lightsail statement is account-wide, because a container-service ARN carries
+the service id and not the service name and the services carry no tag, so the
+staging role could also deploy production's container service. The live
+control is the stage gate and the protection rules on the `production`
+Environment. A second AWS account is the post-MVP fix.
+
 ## Configuration keys
 
 Names only. Every environment-specific value is a variable on the GitHub
@@ -74,6 +112,7 @@ API reads is validated in `apps/api/src/env.ts`.
 | Group | Keys | Notes |
 | --- | --- | --- |
 | Stage | `DEPLOYZ_STAGE` (variable) | Selects the stack id and every stage-derived resource name. The stage gate refuses a deploy when it does not equal the Environment's own name. |
+| Deploy identity | `AWS_DEPLOY_ROLE_ARN` (variable) | The IAM role GitHub Actions assumes with OIDC; one role for each Environment (see *Deploy identity*). A variable and not a secret: a role ARN is no credential, and a masked value would hide which role a run assumed. |
 | Public URLs | `API_URL`, `WEB_URL`, `MARKETING_URL`, `COOKIE_DOMAIN`, `COOKIE_PREFIX`, `BETTER_AUTH_URL`, `EMAIL_FROM` | Variables on the GitHub Environment. `COOKIE_PREFIX` is optional. It changes the session-cookie name. A different name keeps a second control plane in the same cookie domain out of this one's session. Production leaves the variable empty, so it keeps Better Auth's default cookie name. Build the web image with the same value as the `NEXT_PUBLIC_COOKIE_PREFIX` build argument, or the dashboard looks for a cookie name the API never sets. |
 | API domain | `API_DOMAIN_NAME`, `API_CERTIFICATE_ARN` | Both required or the `api.deployz.dev` mapping is removed. The certificate is requested out of band; the Cloudflare `api` CNAME must be DNS-only or TLS fails with 525. |
 | Auth and GitHub | `BETTER_AUTH_SECRET`, `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`, `GITHUB_APP_ID`, `GITHUB_APP_PRIVATE_KEY`, `GITHUB_WEBHOOK_SECRET`, `GITHUB_APP_INSTALL_URL` | The GitHub App's **Setup URL** must be `<WEB_URL>/github/setup` with "Redirect on update" enabled; that page binds the installation to the vendor's organisation and offers sign-in when needed. An installation already bound to another organisation is never rebound (the vendor lands on `?github=failed`); restoring a wrong binding is an operator DB edit. |
@@ -235,9 +274,12 @@ template's assets. A relay fix reaches a customer only after
 `publish:bootstrap` for that Region **and** a bootstrap stack update (a new
 Quick Create) on the customer side. With the repository variable
 `BOOTSTRAP_REPUBLISH=on`, the deploy workflow republishes to every Region in
-`DEPLOYABLE_AWS_REGIONS` after each successful API deploy; the deploying
-identity needs `s3:GetBucketLocation`, `s3:PutObject` and
-`cloudformation:ValidateTemplate` on every bucket for that step to succeed.
+`DEPLOYABLE_AWS_REGIONS` after each successful API deploy. That step needs
+`s3:GetBucketLocation`, `s3:PutObject`, `s3:GetObject` (the Region verifier
+reads each object back) and `cloudformation:ValidateTemplate` on every
+bucket; the deploy role in
+[`../../.github/aws/github-oidc.yaml`](../../.github/aws/github-oidc.yaml)
+grants them.
 
 An IAM change in the bootstrap template follows the same rule. An existing
 connector keeps its old permissions until its stack is updated or

@@ -24,11 +24,6 @@ concurrency:
   group: deploy-web
   cancel-in-progress: false
 
-env:
-  AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-  AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-  AWS_REGION: us-east-1
-
 jobs:
   # Deploys only a commit that CI has proven on main, and only while it is
   # still the tip of main (an older run must not deploy over a newer one).
@@ -103,13 +98,21 @@ jobs:
     if: needs.gate.outputs.deploy == 'true'
     runs-on: ubuntu-latest
     # contents: write moves the deployed/web tag after a successful deploy.
+    # id-token: write lets the job ask GitHub for the OIDC token it assumes
+    # the AWS deploy role with.
     permissions:
       contents: write
+      id-token: write
     # Every environment-specific value below comes from this GitHub
     # Environment. A job without this key resolves only repository values, so
     # the Environment variables would arrive empty.
     environment: production
     env:
+      # The role this job assumes with OIDC (.github/aws/github-oidc.yaml).
+      # A variable and not a secret: a role ARN is no credential, and a masked
+      # value would hide which role the run assumed.
+      AWS_DEPLOY_ROLE_ARN: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+      AWS_REGION: us-east-1
       DEPLOY_SHA: ${{ needs.gate.outputs.sha }}
       LIGHTSAIL_SERVICE_NAME: ${{ vars.LIGHTSAIL_SERVICE_NAME }}
       API_URL: ${{ vars.API_URL }}
@@ -137,7 +140,7 @@ jobs:
           set -euo pipefail
           missing=()
           for key in LIGHTSAIL_SERVICE_NAME API_URL APP_HOST MARKETING_HOST \
-                     DEPLOYZ_STAGE; do
+                     DEPLOYZ_STAGE AWS_DEPLOY_ROLE_ARN; do
             if [ -z "${!key:-}" ]; then missing+=("$key"); fi
           done
           if [ ${#missing[@]} -ne 0 ]; then
@@ -213,6 +216,18 @@ jobs:
             "https://s3.us-west-2.amazonaws.com/lightsailctl/latest/linux-amd64/lightsailctl" \
             -o /usr/local/bin/lightsailctl
           sudo chmod +x /usr/local/bin/lightsailctl
+
+      # The deploy holds no long-lived AWS key any more. This step trades the
+      # job's OIDC token for a session on the role the Environment names. The
+      # session lasts two hours, because a long deploy must not lose its
+      # credentials in the middle; MaxSessionDuration on the role is the same
+      # value. It runs directly before the first AWS call.
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ env.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+          role-duration-seconds: 7200
 
       - name: Ensure the container service exists and is ready
         run: |

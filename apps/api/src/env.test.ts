@@ -500,11 +500,12 @@ describe('the deploy republishes bootstrap artifacts to every deployable region'
     expect(steps).toMatch(/run:[\s\S]*?publish:bootstrap/);
   });
 
-  // The publisher needs s3:GetBucketLocation, s3:PutObject and
+  // The publisher needs s3:GetBucketLocation, s3:PutObject, s3:GetObject and
   // cloudformation:ValidateTemplate across every regional bucket, and the
-  // deploy user has none of them yet. Ungated, the step failed every deploy
-  // after the stack had already gone out. The switch is what lets the
-  // permissions land first and the invariant be turned on deliberately.
+  // deploy role grants them (.github/aws/github-oidc.yaml). Ungated, the step
+  // failed every deploy after the stack had already gone out. The switch is
+  // what lets the permissions land first and the invariant be turned on
+  // deliberately.
   it('runs only when BOOTSTRAP_REPUBLISH is switched on', () => {
     const steps = workflow.slice(workflow.indexOf('\n    steps:\n'));
     const start = steps.indexOf('- name: Republish the bootstrap template');

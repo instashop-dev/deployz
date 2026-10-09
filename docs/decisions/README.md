@@ -33,6 +33,7 @@ Three decisions with substantial detail have their own files:
 | 2026-10-02 | A configuration update settles on its rollout; service mutations never overlap | Active |
 | 2026-10-08 | Staging is a second stack in the same account and Cloudflare zone, with the `s-` hostname prefix, and promotion to production needs an approval | Active |
 | 2026-10-09 | Every environment-specific deploy value is a GitHub Environment variable, and the stage gate derives its rules from the stage name | Active |
+| 2026-10-09 | GitHub Actions authenticates to AWS with OIDC and one IAM role for each Environment | Active |
 | 2026-10-10 | A repository with no buildable Dockerfile is NOT_COMPATIBLE when the evidence is complete | Active |
 | 2026-10-10 | An image that runs several supervised application processes (s6-overlay, supervisord) is NOT_COMPATIBLE | Active |
 | 2026-10-12 | A deploy fails closed when the application needs a database or cache that the deployment does not have | Active |
@@ -696,4 +697,40 @@ production's service name.
 What would change it: a stage whose hosts cannot carry the stage name — a
 separate domain per stage, for example — would need the gate to compare each
 value against a per-Environment expected value instead of the stage name.
+
+
+## GitHub Actions authenticates to AWS with OIDC (2026-10-09)
+
+Both deploy workflows signed in to AWS with one long-lived access key, held as
+a repository secret. The same key deployed every stage, a key that leaks does
+not expire, and one key cannot separate staging from production.
+
+- Each GitHub Environment has its own IAM role, and the `deploy` job assumes
+  it with OIDC (`id-token: write`). The trust policy holds one statement, with
+  `StringEquals` only: the subject must be
+  `repo:instashop-dev/deployz:environment:<name>` and the audience must be
+  `sts.amazonaws.com`. A `StringLike` would also match another Environment.
+- The role ARN is the Environment variable `AWS_DEPLOY_ROLE_ARN`, not a
+  secret. A role ARN is no credential, and a masked value would hide which
+  role a run assumed. The completeness gate fails a run that misses the value,
+  before any AWS call.
+- `.github/aws/github-oidc.yaml` creates both roles, so the grant is reviewed
+  in this repository instead of edited in the console. The account owner
+  deploys that template by hand, with an admin identity: CI must not be able
+  to widen its own permissions.
+- Each role still holds no raw service permission on the stack. It assumes the
+  CDK bootstrap roles, publishes the template objects of its own stage, and
+  makes the Lightsail calls the web deploy needs.
+
+Two limits stay. Both roles may assume the shared `cdk-hnb659fds-*` bootstrap
+roles, so the staging role could deploy the production stack. The Lightsail
+statement is account-wide, because a container-service ARN carries the service
+id and not the service name and the services carry no tag, so no condition can
+scope it. The live control is the stage gate and the protection rules on the
+`production` Environment. IAM is the second layer here, and it is partial.
+
+What would change it: a second AWS account, the post-MVP fix, would scope each
+stage's role by account. A cheaper partial fix is to tag each container
+service and add an `aws:ResourceTag` condition to the three taggable Lightsail
+actions; that needs the owner to tag the existing production service by hand.
 
