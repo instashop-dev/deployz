@@ -425,11 +425,18 @@ describe('local run stage', () => {
     expect((result.stages.probes.evidence['probes'] as Record<string, { status: string }>)['dbWrite']!.status).toBe('FAIL');
   });
 
-  it('fails redis without a client or key, and keeps UNVERIFIED storage out of local-success', async () => {
+  it('marks dbWrite NOT_APPLICABLE when the app created no table, with the reason', async () => {
+    const fake = fakeDocker(world({ rows: 0, tablesBefore: 0, tablesAfter: 0 }));
+    const result = await runLocalRepository(context(fake, { manifest: { ...FULL, migrationCommand: null } }));
+    const probes = result.stages.probes.evidence['probes'] as Record<string, { status: string; detail: string }>;
+    expect(probes['dbWrite']).toMatchObject({ status: 'NOT_APPLICABLE', detail: expect.stringContaining('no table') });
+  });
+
+  it('reports redis UNVERIFIED, never FAIL, when the app opened no connection and wrote no key', async () => {
     const fake = fakeDocker(world({ redisClients: 0, bucketObjects: false }));
     const result = await runLocalRepository(context(fake));
-    const probes = result.stages.probes.evidence['probes'] as Record<string, { status: string }>;
-    expect(probes['redis']!.status).toBe('FAIL');
+    const probes = result.stages.probes.evidence['probes'] as Record<string, { status: string; detail: string }>;
+    expect(probes['redis']).toMatchObject({ status: 'UNVERIFIED', detail: expect.stringContaining('lazily') });
     expect(probes['storage']!.status).toBe('UNVERIFIED');
 
     const fake2 = fakeDocker(world({ bucketObjects: false }));

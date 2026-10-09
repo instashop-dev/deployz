@@ -1,0 +1,20 @@
+{
+  "taskId": "P4-FIX-HARNESS-PROBES",
+  "testedCommit": "e6a3b58ee2363923fef21faca86611fa3bf84538",
+  "executor": "campaign-worker",
+  "model": "sonnet",
+  "startedAt": "2026-10-09T18:50:00Z",
+  "finishedAt": "2026-10-09T19:05:00Z",
+  "proposedStatus": "COMPLETE",
+  "commands": [
+    { "command": "pnpm vitest run --project repository-deployment local-run (local-run.ts reverted to HEAD, new tests kept)", "exitCode": 1, "summary": "2 new tests fail without the change (dbWrite NOT_APPLICABLE, redis UNVERIFIED)" },
+    { "command": "pnpm vitest run --project repository-deployment", "exitCode": 0, "summary": "4 files, 209 tests passed with the change" },
+    { "command": "pnpm typecheck:scripts", "exitCode": 0, "summary": "all script projects typecheck" }
+  ],
+  "evidence": ["scripts/repository-deployment/local-run.ts", "scripts/repository-deployment/local-run.test.ts", "docs/testing/compatibility.md"],
+  "notes": [
+    "F9 rule (generic, no repository names): dbWrite with 0 rows and 0 application tables is NOT_APPLICABLE with reason; if tables cannot be counted it is UNVERIFIED; 0 rows with tables stays FAIL.",
+    "redis with no client and no key is UNVERIFIED (app may connect lazily), no longer FAIL. UNVERIFIED gives local-unverified, never local-success.",
+    "Changes are uncommitted. Only scripts/repository-deployment and docs/testing/compatibility.md changed; no runs/ files touched."
+  ]
+}

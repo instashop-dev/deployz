@@ -62,6 +62,7 @@ const BOOKKEEPING_TABLES = [
   'seaql_migrations',
 ];
 const TABLE_COUNT_SQL = "select count(*) from information_schema.tables where table_schema='public' and table_type='BASE TABLE'";
+const APP_TABLE_COUNT_SQL = `${TABLE_COUNT_SQL} and table_name not in (${BOOKKEEPING_TABLES.map((name) => `'${name}'`).join(',')})`;
 const ROW_COUNT_SQL =
   "select coalesce(sum((xpath('/row/c/text()', query_to_xml(format('select count(*) as c from %I.%I', table_schema, table_name), false, true, '')))[1]::text::int), 0) " +
   `from information_schema.tables where table_schema='public' and table_type='BASE TABLE' and table_name not in (${BOOKKEEPING_TABLES.map((name) => `'${name}'`).join(',')})`;
@@ -454,12 +455,17 @@ export async function runProbes(session: Session, manifest: RunManifest): Promis
   if (!manifest.postgres) probes['dbWrite'] = { status: 'NOT_APPLICABLE', detail: 'the manifest needs no database' };
   else {
     const rows = await psql(session, ROW_COUNT_SQL);
+    const appTables = rows === 0 ? await psql(session, APP_TABLE_COUNT_SQL) : null;
     probes['dbWrite'] =
       rows === null
         ? { status: 'UNVERIFIED', detail: 'the row count could not be read' }
         : rows > 0
           ? { status: 'PASS', detail: `${rows} row(s) outside migration bookkeeping tables` }
-          : { status: 'FAIL', detail: 'no rows outside migration bookkeeping tables' };
+          : appTables === null
+            ? { status: 'UNVERIFIED', detail: 'no rows, and the application tables could not be counted' }
+            : appTables === 0
+              ? { status: 'NOT_APPLICABLE', detail: 'the app created no table outside migration bookkeeping tables, so there is nothing to write to' }
+              : { status: 'FAIL', detail: 'no rows outside migration bookkeeping tables' };
   }
 
   if (!manifest.redis) probes['redis'] = { status: 'NOT_APPLICABLE', detail: 'the manifest needs no Redis' };
@@ -473,7 +479,7 @@ export async function runProbes(session: Session, manifest: RunManifest): Promis
         ? { status: 'UNVERIFIED', detail: 'CLIENT LIST failed' }
         : others > 0 || keys > 0
           ? { status: 'PASS', detail: `${others} other client(s), ${keys} key(s)` }
-          : { status: 'FAIL', detail: 'no client connection and no key from the app' };
+          : { status: 'UNVERIFIED', detail: 'no client connection and no key from the app; the app may connect lazily, so Redis use is not proven' };
   }
 
   if (!manifest.storage) probes['storage'] = { status: 'NOT_APPLICABLE', detail: 'the manifest needs no storage' };

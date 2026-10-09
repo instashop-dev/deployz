@@ -3730,7 +3730,7 @@
       "phase": 4,
       "title": "Harness probe applicability (F9): a probe that cannot apply reports NOT_APPLICABLE/UNVERIFIED with a reason",
       "executor": "campaign-worker",
-      "status": "PENDING",
+      "status": "COMPLETE",
       "prerequisites": [
         "P4-GROUP"
       ],
@@ -3763,7 +3763,8 @@
       ],
       "timeboxMinutes": 38,
       "notes": [
-        "2026-10-09 P4-GROUP (Opus): resumable. On stopBy return CONTINUE with progress (files changed, tests run). Scope: repo-530 (redis probe on a lazy-connect app), repo-557 (dbWrite on an app that creates no tables). A probe never reports PASS without evidence and never FAIL when its precondition is absent; the reason is recorded."
+        "2026-10-09 P4-GROUP (Opus): resumable. On stopBy return CONTINUE with progress (files changed, tests run). Scope: repo-530 (redis probe on a lazy-connect app), repo-557 (dbWrite on an app that creates no tables). A probe never reports PASS without evidence and never FAIL when its precondition is absent; the reason is recorded.",
+        "2026-10-09 Opus verification: worker sonnet attempt 1. dbWrite with 0 rows and 0 application tables -> NOT_APPLICABLE (tables uncountable -> UNVERIFIED; tables but no rows stays FAIL); redis with no client and no key -> UNVERIFIED (lazy connect), never FAIL. Opus re-ran: 2 new tests fail with local-run.ts at HEAD, 209/209 repository-deployment pass with the change, typecheck:scripts 0. Only scripts/repository-deployment/ and docs/testing/compatibility.md changed; no runs/ files."
       ]
     },
     {

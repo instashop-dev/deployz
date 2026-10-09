@@ -4,8 +4,8 @@
   "status": "CONTINUE",
   "phase": 4,
   "currentTask": null,
-  "nextAction": "Phase 4: run P4-FIX-HARNESS-PROBES (worker), then P4-DIAG-START, the product FIX/MERGE pairs in order (UNBUILDABLE-DOCKERFILE, FALSE-REJECTION, LOCAL-STATE, START-COMMAND, MIGRATION-RUNTIME, AI-RELIABILITY), P4-SYNC-CANDIDATE, P4-RERUN-COMPAT-01..08, P4-RERUN-BUILD-PLAN. USER DECISION open: P4-FIX-HARNESS-TAR and P4-FIX-HARNESS-READINESS are BLOCKED until the user marks them READY.",
-  "updatedAt": "2026-10-09T18:35:28.614Z",
+  "nextAction": "Phase 4: run P4-DIAG-START (worker), then the product FIX/MERGE pairs in order (UNBUILDABLE-DOCKERFILE, FALSE-REJECTION, LOCAL-STATE, START-COMMAND, MIGRATION-RUNTIME, AI-RELIABILITY), P4-SYNC-CANDIDATE, P4-RERUN-COMPAT-01..08, P4-RERUN-BUILD-PLAN. USER DECISION open: P4-FIX-HARNESS-TAR and P4-FIX-HARNESS-READINESS are BLOCKED until the user marks them READY.",
+  "updatedAt": "2026-10-09T18:40:58.838Z",
   "checkout": {
     "path": "C:/Users/Tejas/Desktop/deployz-mvp-test",
     "kind": "git worktree of C:/Users/Tejas/Desktop/deployz",
@@ -411,6 +411,10 @@
     {
       "commit": "e6a3b58ee2363923fef21faca86611fa3bf84538",
       "task": "P4-FIX-HARNESS-RUN-ENV"
+    },
+    {
+      "commit": "e6a3b58ee2363923fef21faca86611fa3bf84538",
+      "task": "P4-FIX-HARNESS-PROBES"
     }
   ],
   "attempts": {
@@ -508,18 +512,18 @@
     "P3-GATE": 1,
     "P4-GROUP": 1,
     "P4-FIX-HARNESS-BUILD-INPUTS": 1,
-    "P4-FIX-HARNESS-RUN-ENV": 1
+    "P4-FIX-HARNESS-RUN-ENV": 1,
+    "P4-FIX-HARNESS-PROBES": 1
   },
   "lastResult": {
-    "task": "P4-FIX-HARNESS-RUN-ENV",
+    "task": "P4-FIX-HARNESS-PROBES",
     "status": "COMPLETE",
-    "at": "2026-10-09T18:35:28.614Z",
-    "summary": "F8 harness fix: local run and migration env follow production appEnvironment (standard DATABASE_*/REDIS_*/STORAGE names, NODE_ENV, APP_API_KEY/APP_SIGNING_SECRET, kind-based alias bindings incl. jdbc_url, minted deployz_generated keys, redacted). Health path already followed production (overrides.healthPath wins). 7 new/changed tests fail without the change; 208/208 repository-deployment, typecheck:scripts 0 (Opus re-ran all three). No Docker rerun yet.",
+    "at": "2026-10-09T18:40:58.838Z",
+    "summary": "F9 harness fix: dbWrite reports NOT_APPLICABLE when the app created no table outside migration bookkeeping tables (UNVERIFIED if uncountable; FAIL kept when tables exist but are empty); redis reports UNVERIFIED instead of FAIL when the app opened no client and wrote no key. 2 regression tests fail without the change; 209/209 repository-deployment and typecheck:scripts pass (Opus re-ran all three). No Docker rerun yet.",
     "evidence": [
-      "campaign/results/P4-FIX-HARNESS-RUN-ENV/result.json",
+      "campaign/results/P4-FIX-HARNESS-PROBES/result.json",
       "scripts/repository-deployment/local-run.ts",
       "scripts/repository-deployment/local-run.test.ts",
-      "scripts/repository-deployment/index.ts",
       "docs/testing/compatibility.md"
     ]
   },

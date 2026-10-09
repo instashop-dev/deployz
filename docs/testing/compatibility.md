@@ -261,8 +261,11 @@ success; a run whose probes all pass but one is UNVERIFIED is `local-unverified`
 `health` (200–399 from the manifest health path within 5 minutes), `start` (the
 container still runs 60 s after start), `migration` (exit 0 and more tables in
 the public schema), `dbWrite` (rows above 0 outside migration bookkeeping tables,
-counted with `psql`), `redis` (a client or a key from the app) and `storage` (an
-object in the bucket; otherwise UNVERIFIED). The run stage has a 10-minute
+counted with `psql`; NOT_APPLICABLE when the app created no table outside those
+tables), `redis` (a client or a key from the app; otherwise UNVERIFIED, because the
+app may connect lazily) and `storage` (an object in the bucket; otherwise
+UNVERIFIED). A probe whose precondition is absent never reports FAIL and always
+records its reason. The run stage has a 10-minute
 timeout. Cleanup runs in `finally` after any build attempt: it removes the labelled
 containers (`rm -f -v`), networks and volumes, the image and the Docker build
 cache (`docker builder prune -f`), then lists the three resource types by label;
