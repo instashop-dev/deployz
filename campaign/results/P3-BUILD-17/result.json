@@ -1,0 +1,28 @@
+{
+  "taskId": "P3-BUILD-17",
+  "testedCommit": "e6a3b58ee2363923fef21faca86611fa3bf84538",
+  "executor": "campaign-worker",
+  "model": "sonnet",
+  "startedAt": "2026-10-09T11:20:40Z",
+  "finishedAt": "2026-10-09T11:51:00Z",
+  "proposedStatus": "COMPLETE",
+  "commands": [
+    { "command": "node --env-file=.env node_modules/tsx/dist/cli.mjs scripts/repository-deployment/index.ts --local --ai live --benchmark campaign/corpus/benchmark.yaml --deploy-config campaign/corpus/deploy-config.yaml --runs-dir campaign/results/first-run/build/ --evidence-dir campaign/logs/P3-BUILD-17/evidence/ --repo repo-551 --repo repo-552", "exitCode": 0, "summary": "repo-551 gate PASS source PASS build PASS run FAIL probes SKIPPED cleanup PASS; repo-552 gate FAIL (false-acceptance) source PASS build PASS run FAIL probes SKIPPED cleanup PASS" },
+    { "command": "docker ps/network/volume/image ls --filter label=deployz-campaign=fresh-100", "exitCode": 0, "summary": "no labelled resource remains" },
+    { "command": "docker builder prune -f", "exitCode": 0, "summary": "reclaimed 7.665GB" }
+  ],
+  "evidence": [
+    "campaign/results/first-run/build/repo-551.local.json",
+    "campaign/results/first-run/build/repo-552.local.json",
+    "campaign/results/first-run/build/local-summary.json",
+    "campaign/results/first-run/build/local-summary.md",
+    "campaign/logs/P3-BUILD-17/run1.log"
+  ],
+  "notes": [
+    "No deploy-config.yaml change; repo-551 and repo-552 entries already existed.",
+    "repo-551 run FAIL: migration exit 1, prisma 'Connection url is empty' (database URL not passed to migration). Build PASS.",
+    "repo-552 gate FAIL: false-acceptance (label NOT_COMPATIBLE, gate READY). AI repository-analysis timed out (30 s, 2 attempts), outcome timeout. Build PASS. Run FAIL: migration exit 1, ormconfig.js / compiled config not found (/misskey/.config/default.yml missing).",
+    "No registry network timeout occurred; no build retry.",
+    "Raw build/run logs in campaign/logs/P3-BUILD-17/evidence/ (ignored)."
+  ]
+}

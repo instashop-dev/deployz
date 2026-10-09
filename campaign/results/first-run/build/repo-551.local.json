@@ -1,0 +1,147 @@
+{
+  "schemaVersion": 1,
+  "id": "repo-551",
+  "repository": "spliit-app/spliit",
+  "commit": "b73d551a6dea3a27f3d5d42a805b86edcb1ee651",
+  "set": "improvement",
+  "cohort": "realistic",
+  "deployzCommit": "ef8fb1fbd39519ac0547775a109cd06bd963f07e",
+  "analysisVersion": 45,
+  "ai": {
+    "mode": "live",
+    "model": "workers-ai/@cf/deepseek-ai/deepseek-v4-flash-0731",
+    "requests": 0,
+    "outcome": "not-requested",
+    "error": null
+  },
+  "inputsHash": "bf3cc50e1b3f5883a03898f489474ce60b3f9d5846d90678dca4fe371f66d2e4",
+  "stages": {
+    "gate": {
+      "status": "PASS",
+      "startedAt": "2026-10-09T11:21:17.779Z",
+      "finishedAt": "2026-10-09T11:21:17.784Z",
+      "durationMs": 5,
+      "detail": null,
+      "evidence": {
+        "verdict": "NEEDS_CONFIGURATION",
+        "outcome": "correct-accept",
+        "configuredVerdict": "NEEDS_CONFIGURATION",
+        "manifest": {
+          "dockerfilePath": "Dockerfile",
+          "buildContext": ".",
+          "appRoot": ".",
+          "port": 3000,
+          "healthPath": "/api/health",
+          "healthMode": "explicit",
+          "migrationCommand": "npx prisma migrate deploy && prisma generate",
+          "migrationMode": "pre_deploy",
+          "postgres": true,
+          "redis": false,
+          "storage": false,
+          "databaseBindings": [
+            "DATABASE_HOST",
+            "DATABASE_NAME",
+            "DATABASE_PASSWORD",
+            "DATABASE_PORT",
+            "DATABASE_URL",
+            "DATABASE_USER",
+            "DB_HOST",
+            "DB_NAME",
+            "DB_PASSWORD",
+            "DB_PORT",
+            "DB_USER",
+            "PERF_DATABASE_URL",
+            "PERF_DB_PORT"
+          ],
+          "redisBindings": [],
+          "storageBindings": [],
+          "generatedKeys": []
+        }
+      }
+    },
+    "source": {
+      "status": "PASS",
+      "startedAt": "2026-10-09T11:21:17.790Z",
+      "finishedAt": "2026-10-09T11:21:19.592Z",
+      "durationMs": 1802,
+      "detail": null,
+      "evidence": {
+        "commit": "b73d551a6dea3a27f3d5d42a805b86edcb1ee651",
+        "archiveCached": false,
+        "archiveBytes": 796092
+      }
+    },
+    "build": {
+      "status": "PASS",
+      "startedAt": "2026-10-09T11:21:19.595Z",
+      "finishedAt": "2026-10-09T11:27:31.261Z",
+      "durationMs": 371666,
+      "detail": null,
+      "evidence": {
+        "dockerfilePath": "Dockerfile",
+        "buildContext": ".",
+        "platform": "linux/amd64",
+        "image": "deployz-campaign/repo-551:b73d551a6dea",
+        "exitCode": 0,
+        "durationMs": 370846,
+        "buildArgNames": [],
+        "logTail": "#24 ...\n\n#25 [prisma-cli 4/5] COPY --from=base /usr/app/node_modules/prisma/package.json ./_prisma.json\n#25 DONE 0.4s\n\n#24 [runner  7/10] COPY --from=base /usr/app/prisma ./prisma\n#24 DONE 0.4s\n\n#26 [runner  8/10] COPY --from=base /usr/app/prisma.config.ts ./\n#26 DONE 0.3s\n\n#27 [prisma-cli 5/5] RUN PRISMA_VERSION=\"$(node -p \"require('./_prisma.json').version\")\" &&     rm -f ./_prisma.json &&     npm init -y > /dev/null &&     for i in 1 2 3 4 5; do       npm install --no-audit --no-fund --fetch-retries=5         --fetch-timeout=600000 \"prisma@${PRISMA_VERSION}\" && exit 0;       echo \"prisma install failed (attempt $i of 5), retrying in 10s...\";       sleep 10;     done;     exit 1\n#27 44.78 \n#27 44.78 added 136 packages in 42s\n#27 44.80 npm warn install-scripts 2 packages have install scripts not yet covered by allowScripts:\n#27 44.80 npm warn install-scripts   *** (preinstall: node scripts/preinstall-entry.js)\n#27 44.80 npm warn install-scripts   @prisma/*** (postinstall: node scripts/postinstall.js)\n#27 44.80 npm warn install-scripts\n#27 44.80 npm warn install-scripts Run `npm install-scripts ls` to review, or `npm install-scripts approve <pkg>` to allow.\n#27 DONE 45.6s\n\n#28 [runner  9/10] COPY --from=prisma-cli /opt/prisma-cli/node_modules ./node_modules\n#28 DONE 3.9s\n\n#29 [runner 10/10] COPY ./scripts ./scripts\n#29 DONE 0.8s\n\n#30 exporting to image\n#30 exporting layers\n#30 exporting layers 20.7s done\n#30 exporting manifest sha256:ee1fbf68331b1cced7431f1877e3254d790443e742bd06b155afe2c7e1b924c9 0.0s done\n#30 exporting config sha256:7625fea15a507959c4dc3a5598eba1bc25a46846b1e48f80e737ff168c76abe1 0.1s done\n#30 exporting attestation manifest sha256:6f41b0d36d765c565d27c0a9f6703a2d9eaa4074cd0ecf858c369695e3778d3e 0.1s done\n#30 exporting manifest list sha256:1587361e9008b0f1f959e4c1b723dc8068e7b65510b5278be7384ef2aaf9648d 0.0s done\n#30 naming to docker.io/deployz-campaign/repo-551:b73d551a6dea 0.0s done\n#30 unpacking to docker.io/deployz-campaign/repo-551:b73d551a6dea\n#30 unpacking to docker.io/deployz-campaign/repo-551:b73d551a6dea 17.3s done\n#30 DONE 38.5s\n\nView build details: docker-desktop://dashboard/build/desktop-linux/desktop-linux/s41yr7e10dzu156p67e1lj4p2",
+        "imageId": "sha256:1587361e9008b0f1f959e4c1b723dc8068e7b65510b5278be7384ef2aaf9648d",
+        "imageBytes": 697355374,
+        "failure": null,
+        "rebuilt": false
+      }
+    },
+    "run": {
+      "status": "FAIL",
+      "startedAt": "2026-10-09T11:27:31.773Z",
+      "finishedAt": "2026-10-09T11:27:47.092Z",
+      "durationMs": 15319,
+      "detail": "the migration command exited 1",
+      "evidence": {
+        "dependencies": [
+          "postgres"
+        ],
+        "migration": {
+          "exitCode": 1,
+          "tablesBefore": 0,
+          "tablesAfter": 0,
+          "durationMs": 5478,
+          "logTail": "+ node node_modules/prisma/build/index.js migrate deploy\n◇ injected env (0) from .env // tip: ⌁ auth for agents [www.vestauth.com]\nDatasource \"db\": PostgreSQL database\n\nLoaded Prisma config from prisma.config.ts.\n\nPrisma schema loaded from prisma/schema.prisma.\nError: Connection url is empty. See https://pris.ly/d/config-url"
+        },
+        "failure": "migration"
+      }
+    },
+    "probes": {
+      "status": "SKIPPED",
+      "startedAt": "2026-10-09T11:27:47.096Z",
+      "finishedAt": "2026-10-09T11:27:47.101Z",
+      "durationMs": 5,
+      "detail": "the run stage failed",
+      "evidence": {}
+    },
+    "cleanup": {
+      "status": "PASS",
+      "startedAt": "2026-10-09T11:27:47.105Z",
+      "finishedAt": "2026-10-09T11:27:50.643Z",
+      "durationMs": 3538,
+      "detail": null,
+      "evidence": {
+        "removed": {
+          "containers": 2,
+          "networks": 1,
+          "volumes": 0
+        },
+        "imageRemoved": true,
+        "keepImage": false,
+        "leaks": {
+          "containers": [],
+          "networks": [],
+          "volumes": []
+        }
+      }
+    }
+  },
+  "classification": "run",
+  "remediation": null
+}

@@ -1,26 +1,26 @@
 # Local Docker run summary
 
-Repositories: 32
+Repositories: 34
 
 ## Classification
 
 - build: 3
-- gate: 19
+- gate: 20
 - local-success: 1
 - probes: 6
-- run: 1
+- run: 2
 - source: 2
 
 ## Stages
 
 | Stage | Attempted | PASS | FAIL | SKIPPED | IN_PROGRESS |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| gate | 32 | 13 | 19 | 0 | 0 |
-| source | 32 | 22 | 5 | 5 | 0 |
-| build | 32 | 11 | 11 | 10 | 0 |
-| run | 32 | 10 | 1 | 21 | 0 |
-| probes | 32 | 2 | 8 | 22 | 0 |
-| cleanup | 32 | 22 | 0 | 10 | 0 |
+| gate | 34 | 14 | 20 | 0 | 0 |
+| source | 34 | 24 | 5 | 5 | 0 |
+| build | 34 | 13 | 11 | 10 | 0 |
+| run | 34 | 10 | 3 | 21 | 0 |
+| probes | 34 | 2 | 8 | 24 | 0 |
+| cleanup | 34 | 24 | 0 | 10 | 0 |
 
 ## Probes
 
@@ -69,3 +69,5 @@ Repositories: 32
 | repo-548 | Leantime/leantime | gate | 807.1 |
 | repo-549 | zammad/zammad | gate | 828.6 |
 | repo-550 | binwiederhier/ntfy | build | 250.6 |
+| repo-551 | spliit-app/spliit | run | 392.3 |
+| repo-552 | misskey-dev/misskey | gate | 1060.2 |

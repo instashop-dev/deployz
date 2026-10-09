@@ -1,0 +1,153 @@
+{
+  "schemaVersion": 1,
+  "id": "repo-552",
+  "repository": "misskey-dev/misskey",
+  "commit": "5f501341d49d2bc3fa7e817ce7548a82174326eb",
+  "set": "improvement",
+  "cohort": "realistic",
+  "deployzCommit": "ef8fb1fbd39519ac0547775a109cd06bd963f07e",
+  "analysisVersion": 45,
+  "ai": {
+    "mode": "live",
+    "model": "workers-ai/@cf/deepseek-ai/deepseek-v4-flash-0731",
+    "requests": 1,
+    "outcome": "timeout",
+    "error": "AbortError: This operation was aborted"
+  },
+  "inputsHash": "f19551f01ebb891a8e65e290ce41ca7a0ff1d6d2b61d462f129657f944575526",
+  "stages": {
+    "gate": {
+      "status": "FAIL",
+      "startedAt": "2026-10-09T11:28:23.921Z",
+      "finishedAt": "2026-10-09T11:28:23.926Z",
+      "durationMs": 5,
+      "detail": null,
+      "evidence": {
+        "verdict": "READY",
+        "outcome": "false-acceptance",
+        "configuredVerdict": "READY",
+        "manifest": {
+          "dockerfilePath": "Dockerfile",
+          "buildContext": ".",
+          "appRoot": ".",
+          "port": 3000,
+          "healthPath": "/healthz",
+          "healthMode": "explicit",
+          "migrationCommand": "cd packages/backend && pnpm migrate",
+          "migrationMode": "pre_deploy",
+          "postgres": true,
+          "redis": true,
+          "storage": true,
+          "databaseBindings": [
+            "DATABASE_HOST",
+            "DATABASE_NAME",
+            "DATABASE_PASSWORD",
+            "DATABASE_PORT",
+            "DATABASE_URL",
+            "DATABASE_USER",
+            "DB_HOST",
+            "DB_NAME",
+            "DB_PASSWORD",
+            "DB_PORT",
+            "DB_USER"
+          ],
+          "redisBindings": [
+            "REDIS_HOST",
+            "REDIS_PORT",
+            "REDIS_URL"
+          ],
+          "storageBindings": [
+            "AWS_S3_BUCKET"
+          ],
+          "generatedKeys": []
+        }
+      }
+    },
+    "source": {
+      "status": "PASS",
+      "startedAt": "2026-10-09T11:28:23.940Z",
+      "finishedAt": "2026-10-09T11:28:30.769Z",
+      "durationMs": 6829,
+      "detail": null,
+      "evidence": {
+        "commit": "5f501341d49d2bc3fa7e817ce7548a82174326eb",
+        "archiveCached": false,
+        "archiveBytes": 11721202
+      }
+    },
+    "build": {
+      "status": "PASS",
+      "startedAt": "2026-10-09T11:28:30.772Z",
+      "finishedAt": "2026-10-09T11:45:19.082Z",
+      "durationMs": 1008310,
+      "detail": null,
+      "evidence": {
+        "dockerfilePath": "Dockerfile",
+        "buildContext": ".",
+        "platform": "linux/amd64",
+        "image": "deployz-campaign/repo-552:5f501341d49d",
+        "exitCode": 0,
+        "durationMs": 1007999,
+        "buildArgNames": [],
+        "logTail": "\n#53 [runner 11/17] COPY --chown=misskey:misskey --from=native-builder /misskey/built ./built\n#53 DONE 13.7s\n\n#54 [runner 12/17] COPY --chown=misskey:misskey --from=native-builder /misskey/packages/misskey-js/built ./packages/misskey-js/built\n#54 DONE 1.0s\n\n#55 [runner 13/17] COPY --chown=misskey:misskey --from=native-builder /misskey/packages/misskey-reversi/built ./packages/misskey-reversi/built\n#55 DONE 0.9s\n\n#56 [runner 14/17] COPY --chown=misskey:misskey --from=native-builder /misskey/packages/misskey-bubble-game/built ./packages/misskey-bubble-game/built\n#56 DONE 0.7s\n\n#57 [runner 15/17] COPY --chown=misskey:misskey --from=native-builder /misskey/packages/backend/built ./packages/backend/built\n#57 DONE 0.4s\n\n#58 [runner 16/17] COPY --chown=misskey:misskey --from=native-builder /misskey/packages/i18n/built ./packages/i18n/built\n#58 DONE 0.3s\n\n#59 [runner 17/17] COPY --chown=misskey:misskey . ./\n#59 DONE 3.0s\n\n#60 exporting to image\n#60 exporting layers\n#60 exporting layers 119.8s done\n#60 exporting manifest sha256:c2fbe632f79200df7e6fa116302c328c239ea5d180d0e464c23d8220b8917e06 0.1s done\n#60 exporting config sha256:47f696dff57ec2b2a892e0f4093f43c7f2ca58d2caf8e6689c0296835bb8cf84 0.0s done\n#60 exporting attestation manifest sha256:1b21172f218c09042117ab59ef8efd6e58b981420b852e2af141de9af8db8b2b 0.1s done\n#60 exporting manifest list sha256:eafc570168a326247306d1b8db9bb3fcdcaa8f684cb3c621b2964979a95e3b1d\n#60 exporting manifest list sha256:eafc570168a326247306d1b8db9bb3fcdcaa8f684cb3c621b2964979a95e3b1d 0.0s done\n#60 naming to docker.io/deployz-campaign/repo-552:5f501341d49d 0.0s done\n#60 unpacking to docker.io/deployz-campaign/repo-552:5f501341d49d\n#60 unpacking to docker.io/deployz-campaign/repo-552:5f501341d49d 72.2s done\n#60 DONE 193.1s\n\n \u001b[33m2 warnings found (use docker --debug to expand):\n\u001b[0m - RedundantTargetPlatform: Setting platform to predefined $TARGETPLATFORM in FROM is redundant as this is the default behavior (line 71)\n - RedundantTargetPlatform: Setting platform to predefined $TARGETPLATFORM in FROM is redundant as this is the default behavior (line 48)\n\nView build details: docker-desktop://dashboard/build/desktop-linux/desktop-linux/jfrjzq3119dmga5kkn870l5kp",
+        "imageId": "sha256:eafc570168a326247306d1b8db9bb3fcdcaa8f684cb3c621b2964979a95e3b1d",
+        "imageBytes": 2575638055,
+        "failure": null,
+        "rebuilt": false
+      }
+    },
+    "run": {
+      "status": "FAIL",
+      "startedAt": "2026-10-09T11:45:20.427Z",
+      "finishedAt": "2026-10-09T11:45:57.879Z",
+      "durationMs": 37452,
+      "detail": "the migration command exited 1",
+      "evidence": {
+        "dependencies": [
+          "postgres",
+          "valkey",
+          "s3-stand-in"
+        ],
+        "migration": {
+          "exitCode": 1,
+          "tablesBefore": 0,
+          "tablesAfter": 0,
+          "durationMs": 8271,
+          "logTail": "$ pnpm compile-config && pnpm typeorm migration:run -d ormconfig.js\n$ node ./scripts/compile_config.js\nYAML file not found: /misskey/.config/default.yml\nError: Unable to open file: \"/misskey/packages/backend/ormconfig.js\". Compiled configuration file not found. Try running 'pnpm compile-config'.\n    at CommandUtils.loadDataSource (/misskey/node_modules/.pnpm/***************/node_modules/typeorm/commands/CommandUtils.js:22:19)\n    at async Object.handler (/misskey/node_modules/.pnpm/***************/node_modules/typeorm/commands/MigrationRunCommand.js:40:26) {\n  [cause]: Error: Compiled configuration file not found. Try running 'pnpm compile-config'.\n      at loadConfig (file:///misskey/packages/backend/built/config-BK76wqnX.js:1:446)\n      at file:///misskey/packages/backend/ormconfig.js:7:16\nConfiguration compiled ✓\nError during migration run:\n      at ModuleJob.run (node:internal/modules/esm/module_job:447:25)\n      at async node:internal/modules/esm/loader:646:26\n      at async tryToImport (/misskey/node_modules/.pnpm/***************/node_modules/typeorm/util/ImportUtils.js:18:13)\n      at async CommandUtils.loadDataSource (/misskey/node_modules/.pnpm/***************/node_modules/typeorm/commands/CommandUtils.js:19:17)\n      at async Object.handler (/misskey/node_modules/.pnpm/***************/node_modules/typeorm/commands/MigrationRunCommand.js:40:26)\n}\n[ELIFECYCLE] Command failed with exit code 1."
+        },
+        "failure": "migration"
+      }
+    },
+    "probes": {
+      "status": "SKIPPED",
+      "startedAt": "2026-10-09T11:45:57.882Z",
+      "finishedAt": "2026-10-09T11:45:57.886Z",
+      "durationMs": 4,
+      "detail": "the run stage failed",
+      "evidence": {}
+    },
+    "cleanup": {
+      "status": "PASS",
+      "startedAt": "2026-10-09T11:45:57.889Z",
+      "finishedAt": "2026-10-09T11:46:05.439Z",
+      "durationMs": 7550,
+      "detail": null,
+      "evidence": {
+        "removed": {
+          "containers": 4,
+          "networks": 1,
+          "volumes": 0
+        },
+        "imageRemoved": true,
+        "keepImage": false,
+        "leaks": {
+          "containers": [],
+          "networks": [],
+          "volumes": []
+        }
+      }
+    }
+  },
+  "classification": "gate",
+  "remediation": null
+}
