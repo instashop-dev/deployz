@@ -4,8 +4,8 @@
   "status": "CONTINUE",
   "phase": 4,
   "currentTask": null,
-  "nextAction": "Phase 4: run P4-FIX-HARNESS-BUILD-INPUTS (worker), then P4-FIX-HARNESS-RUN-ENV, P4-FIX-HARNESS-PROBES, P4-DIAG-START, then the product FIX/MERGE pairs in order (UNBUILDABLE-DOCKERFILE, FALSE-REJECTION, LOCAL-STATE, START-COMMAND, MIGRATION-RUNTIME, AI-RELIABILITY), P4-SYNC-CANDIDATE, P4-RERUN-COMPAT-01..08, P4-RERUN-BUILD-PLAN. USER DECISION open: P4-FIX-HARNESS-TAR (Windows tar symlinks) and P4-FIX-HARNESS-READINESS (readiness window) are BLOCKED until the user marks them READY.",
-  "updatedAt": "2026-10-09T18:00:02.770Z",
+  "nextAction": "Phase 4: run P4-FIX-HARNESS-RUN-ENV (worker), then P4-FIX-HARNESS-PROBES, P4-DIAG-START, the product FIX/MERGE pairs in order (UNBUILDABLE-DOCKERFILE, FALSE-REJECTION, LOCAL-STATE, START-COMMAND, MIGRATION-RUNTIME, AI-RELIABILITY), P4-SYNC-CANDIDATE, P4-RERUN-COMPAT-01..08, P4-RERUN-BUILD-PLAN. USER DECISION open: P4-FIX-HARNESS-TAR and P4-FIX-HARNESS-READINESS are BLOCKED until the user marks them READY.",
+  "updatedAt": "2026-10-09T18:09:00.338Z",
   "checkout": {
     "path": "C:/Users/Tejas/Desktop/deployz-mvp-test",
     "kind": "git worktree of C:/Users/Tejas/Desktop/deployz",
@@ -403,6 +403,10 @@
     {
       "commit": "e6a3b58ee2363923fef21faca86611fa3bf84538",
       "task": "P4-GROUP"
+    },
+    {
+      "commit": "e6a3b58ee2363923fef21faca86611fa3bf84538",
+      "task": "P4-FIX-HARNESS-BUILD-INPUTS"
     }
   ],
   "attempts": {
@@ -498,15 +502,19 @@
     "P3-BUILD-27": 1,
     "P3-BUILD-28": 1,
     "P3-GATE": 1,
-    "P4-GROUP": 1
+    "P4-GROUP": 1,
+    "P4-FIX-HARNESS-BUILD-INPUTS": 1
   },
   "lastResult": {
-    "task": "P4-GROUP",
+    "task": "P4-FIX-HARNESS-BUILD-INPUTS",
     "status": "COMPLETE",
-    "at": "2026-10-09T18:00:02.770Z",
-    "summary": "First-run failures grouped into F1-F10 plus H-a/H-b (user decision), U (upstream, 4), G (build args, post-MVP), E (environment, 2). Queued 28 P4 tasks.",
+    "at": "2026-10-09T18:09:00.338Z",
+    "summary": "F7 harness fix: selectBuildInputs returns null without override or detected dockerfilePath; build stage records FAIL 'production preflight blocks: dockerfile-missing' and runs no docker build (9 F7 no-Dockerfile repos). Context rule already matched production (drift test). 204/204 repository-deployment, typecheck:scripts 0, 2 new tests fail without the change (Opus re-ran all three).",
     "evidence": [
-      "campaign/results/P4-GROUP/families.md"
+      "campaign/results/P4-FIX-HARNESS-BUILD-INPUTS/result.json",
+      "scripts/repository-deployment/local-build.ts",
+      "scripts/repository-deployment/local-build.test.ts",
+      "docs/testing/compatibility.md"
     ]
   },
   "gates": {

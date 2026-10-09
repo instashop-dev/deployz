@@ -219,7 +219,11 @@ as the buildspec does. The Dockerfile and the build context follow
 `buildRelease` in `packages/cdk/src/lambda/worker.ts`: a vendor override
 (`overrides.dockerfilePath`, `overrides.buildContext`) wins, then the detected
 Dockerfile and context, then the top-level `docker/` rule, then the Dockerfile's
-directory; a test fails when those product lines change. The build runs with
+directory; a test fails when those product lines change. When neither an override
+nor the analysis gives a Dockerfile, production preflight blocks
+`dockerfile-missing` and never builds: the build stage records FAIL with
+`production preflight blocks: dockerfile-missing` and runs no `docker build`
+(there is no `Dockerfile` default). The build runs with
 `--platform linux/amd64`, the labels `deployz-campaign=fresh-100` and
 `deployz-campaign-repo=<id>`, the tag `deployz-campaign/<id>:<commit12>` and a
 30-minute timeout. The child environment is an allowlist (`PATH`, `SYSTEMROOT`,

@@ -16,6 +16,8 @@ export const BUILD_TIMEOUT_MS = 30 * 60_000;
 export const CAMPAIGN_LABEL = 'deployz-campaign=fresh-100';
 /** Copy of `DOCKER_HUB_RATE_LIMIT_PATTERN` in packages/cdk/src/pipeline/build-pipeline.ts; a test guards the copy. */
 export const DOCKER_HUB_RATE_LIMIT_PATTERN = 'toomanyrequests|429 Too Many Requests|pull rate limit|manifests[^ ]*: 429';
+/** The build detail when the manifest has no Dockerfile: the production preflight check `dockerfile-missing` blocks the deployment. */
+export const PREFLIGHT_BLOCKED_DETAIL = 'production preflight blocks: dockerfile-missing';
 const LOG_TAIL_LINES = 40;
 const OUTPUT_KEEP_CHARS = 200_000;
 
@@ -130,14 +132,17 @@ function nonEmpty(value: unknown): string | undefined {
  * The precedence of `buildRelease` in worker.ts: a vendor override wins over
  * detection; a detected context follows the detected Dockerfile only; then the
  * top-level `docker/` rule (`resolveBuildContext`); then the buildspec fallback
- * `dirname "$DOCKERFILE_PATH"`.
+ * `dirname "$DOCKERFILE_PATH"`. With neither an override nor a detected Dockerfile the
+ * manifest has no `dockerfilePath`: production preflight blocks `dockerfile-missing` and
+ * never builds, so there are no inputs (null) and no `Dockerfile` default.
  */
 export function selectBuildInputs(
   detectedMetadata: Record<string, unknown>,
   overrides: { dockerfilePath?: string | undefined; buildContext?: string | undefined } = {},
-): BuildInputs {
+): BuildInputs | null {
   const overrideDockerfile = nonEmpty(overrides.dockerfilePath);
-  const dockerfilePath = overrideDockerfile ?? nonEmpty(detectedMetadata['dockerfilePath']) ?? 'Dockerfile';
+  const dockerfilePath = overrideDockerfile ?? nonEmpty(detectedMetadata['dockerfilePath']);
+  if (dockerfilePath === undefined) return null;
   const detectedContext = detectedMetadata['dockerfileBuildContext'];
   const dir = dirnameOf(dockerfilePath);
   const buildContext =
@@ -325,11 +330,13 @@ export async function runLocalBuild(ctx: LocalBuildContext): Promise<LocalResult
       result,
       'build',
       async () => {
+        const inputs = selectBuildInputs(ctx.detectedMetadata, ctx.overrides);
+        if (inputs === null) return { status: 'FAIL', detail: PREFLIGHT_BLOCKED_DETAIL, evidence: { failure: 'preflight', rebuilt } };
         const build = await buildImage({
           id: identity.id,
           commit: identity.commit,
           sourceDir,
-          inputs: selectBuildInputs(ctx.detectedMetadata, ctx.overrides),
+          inputs,
           buildArgs: ctx.buildArgs,
           logPath: join(ctx.logsDir, `${identity.id}-build.log`),
           hostEnv: ctx.hostEnv,

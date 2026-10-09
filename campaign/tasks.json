@@ -3646,7 +3646,7 @@
       "phase": 4,
       "title": "Harness build inputs equal production (F7): stop when preflight blocks; use manifest dockerfilePath and buildContext",
       "executor": "campaign-worker",
-      "status": "PENDING",
+      "status": "COMPLETE",
       "prerequisites": [
         "P4-GROUP"
       ],
@@ -3679,7 +3679,8 @@
       ],
       "timeboxMinutes": 38,
       "notes": [
-        "2026-10-09 P4-GROUP (Opus): resumable. On stopBy return CONTINUE with progress (files changed, tests run). Scope: (1) when the final manifest has no dockerfilePath (production preflight blocks dockerfile-missing) the build stage records FAIL with reason 'production preflight blocks: dockerfile-missing' and does not build ./Dockerfile; (2) the build uses exactly the manifest dockerfilePath and buildContext that production CodeBuild uses (read the production build pipeline source for the rule); explain the repo-517, 536, 548, 577, 580 differences in result.json notes."
+        "2026-10-09 P4-GROUP (Opus): resumable. On stopBy return CONTINUE with progress (files changed, tests run). Scope: (1) when the final manifest has no dockerfilePath (production preflight blocks dockerfile-missing) the build stage records FAIL with reason 'production preflight blocks: dockerfile-missing' and does not build ./Dockerfile; (2) the build uses exactly the manifest dockerfilePath and buildContext that production CodeBuild uses (read the production build pipeline source for the rule); explain the repo-517, 536, 548, 577, 580 differences in result.json notes.",
+        "2026-10-09 Opus verify: 536 and 580 build only with deploy-config buildContext '.' (production directory rule gives the Dockerfile directory); 517/548/577 are F1. Worker observation for P4-GATE review: manifest build.context default '.' is never read by production buildRelease (directory rule instead), so a nested Dockerfile without a context override can make gate and build disagree; possible product decision, not changed."
       ]
     },
     {

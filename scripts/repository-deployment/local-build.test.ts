@@ -8,6 +8,7 @@ import { parseRunArgs, requireRealAws } from './index.js';
 import {
   BUILD_PLATFORM,
   DOCKER_HUB_RATE_LIMIT_PATTERN,
+  PREFLIGHT_BLOCKED_DETAIL,
   buildImage,
   childEnvironment,
   dockerBuildCommand,
@@ -53,7 +54,6 @@ function fakeRunner(handler: (call: Call) => Partial<ProcessResult>): { run: Run
 
 describe('selectBuildInputs', () => {
   const cases: { name: string; detected: Record<string, unknown>; overrides?: { dockerfilePath?: string; buildContext?: string }; expected: [string, string] }[] = [
-    { name: 'nothing detected', detected: {}, expected: ['Dockerfile', '.'] },
     { name: 'root Dockerfile', detected: { dockerfilePath: 'Dockerfile' }, expected: ['Dockerfile', '.'] },
     { name: 'backend/Dockerfile builds from backend', detected: { dockerfilePath: 'backend/Dockerfile' }, expected: ['backend/Dockerfile', 'backend'] },
     { name: 'docker/Dockerfile builds from the root', detected: { dockerfilePath: 'docker/Dockerfile' }, expected: ['docker/Dockerfile', '.'] },
@@ -65,6 +65,12 @@ describe('selectBuildInputs', () => {
   ];
   it.each(cases)('$name', ({ detected, overrides, expected }) => {
     expect(selectBuildInputs(detected, overrides)).toEqual({ dockerfilePath: expected[0], buildContext: expected[1] });
+  });
+
+  it('has no inputs when the manifest has no Dockerfile: no `Dockerfile` default', () => {
+    expect(selectBuildInputs({})).toBeNull();
+    expect(selectBuildInputs({ dockerfilePath: '' }, { dockerfilePath: '' })).toBeNull();
+    expect(selectBuildInputs({ dockerfileBuildContext: 'x' }, { buildContext: 'y' })).toBeNull();
   });
 });
 
@@ -326,6 +332,23 @@ describe('runLocalBuild', () => {
     expect(result.stages.source).toMatchObject({ status: 'FAIL', detail: expect.stringContaining('HTTP 404') });
     expect(result.stages.build.status).toBe('SKIPPED');
     expect(builds).toBe(0);
+  });
+
+  it('records FAIL without a docker build when production preflight blocks dockerfile-missing', async () => {
+    const result = await runLocalBuild(context({ detectedMetadata: {}, overrides: {} }));
+    expect(result.stages.source.status).toBe('PASS');
+    expect(result.stages.build).toMatchObject({ status: 'FAIL', detail: PREFLIGHT_BLOCKED_DETAIL, evidence: { failure: 'preflight' } });
+    expect(PREFLIGHT_BLOCKED_DETAIL).toBe('production preflight blocks: dockerfile-missing');
+    expect(result.classification).toBe('build');
+    expect(builds).toBe(0);
+  });
+
+  it('builds the vendor override Dockerfile with the production context rule, not the detected one', async () => {
+    const { run, calls } = runner();
+    await runLocalBuild(context({ run, detectedMetadata: {}, overrides: { dockerfilePath: 'docker/services/Dockerfile' } }));
+    const args = calls.find((call) => call.args[0] === 'build')!.args;
+    expect(args[args.indexOf('-f') + 1]).toMatch(/docker[\\/]services[\\/]Dockerfile$/);
+    expect(args.at(-1)).toMatch(/docker[\\/]services$/);
   });
 
   it('records a failed build as FAIL with the classification build', async () => {
