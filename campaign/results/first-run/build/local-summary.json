@@ -1,63 +1,63 @@
 {
   "schemaVersion": 1,
-  "repositories": 46,
+  "repositories": 48,
   "classifications": {
     "source": 2,
     "probes": 10,
-    "gate": 25,
+    "gate": 27,
     "run": 3,
     "build": 5,
     "local-success": 1
   },
   "aiModes": {
-    "live": 46
+    "live": 48
   },
   "stages": {
     "gate": {
-      "attempted": 46,
+      "attempted": 48,
       "NOT_ATTEMPTED": 0,
       "IN_PROGRESS": 0,
       "PASS": 21,
-      "FAIL": 25,
+      "FAIL": 27,
       "SKIPPED": 0
     },
     "source": {
-      "attempted": 46,
+      "attempted": 48,
       "NOT_ATTEMPTED": 0,
       "IN_PROGRESS": 0,
-      "PASS": 33,
+      "PASS": 35,
       "FAIL": 6,
       "SKIPPED": 7
     },
     "build": {
-      "attempted": 46,
+      "attempted": 48,
       "NOT_ATTEMPTED": 0,
       "IN_PROGRESS": 0,
       "PASS": 19,
-      "FAIL": 14,
+      "FAIL": 16,
       "SKIPPED": 13
     },
     "run": {
-      "attempted": 46,
+      "attempted": 48,
       "NOT_ATTEMPTED": 0,
       "IN_PROGRESS": 0,
       "PASS": 15,
       "FAIL": 4,
-      "SKIPPED": 27
+      "SKIPPED": 29
     },
     "probes": {
-      "attempted": 46,
+      "attempted": 48,
       "NOT_ATTEMPTED": 0,
       "IN_PROGRESS": 0,
       "PASS": 2,
       "FAIL": 13,
-      "SKIPPED": 31
+      "SKIPPED": 33
     },
     "cleanup": {
-      "attempted": 46,
+      "attempted": 48,
       "NOT_ATTEMPTED": 0,
       "IN_PROGRESS": 0,
-      "PASS": 33,
+      "PASS": 35,
       "FAIL": 0,
       "SKIPPED": 13
     }
@@ -749,6 +749,34 @@
         "run": 3,
         "probes": 2,
         "cleanup": 3
+      }
+    },
+    {
+      "id": "repo-575",
+      "repository": "traccar/traccar",
+      "classification": "gate",
+      "totalMs": 9409,
+      "stages": {
+        "gate": 5,
+        "source": 2730,
+        "build": 5291,
+        "run": 3,
+        "probes": 2,
+        "cleanup": 1378
+      }
+    },
+    {
+      "id": "repo-577",
+      "repository": "woodpecker-ci/woodpecker",
+      "classification": "gate",
+      "totalMs": 9634,
+      "stages": {
+        "gate": 2,
+        "source": 4619,
+        "build": 3794,
+        "run": 2,
+        "probes": 2,
+        "cleanup": 1215
       }
     }
   ]

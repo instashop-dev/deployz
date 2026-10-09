@@ -3335,7 +3335,7 @@
       "phase": 3,
       "title": "First-run local build/run of improvement apps repo-575, repo-577",
       "executor": "campaign-worker",
-      "status": "PENDING",
+      "status": "COMPLETE",
       "prerequisites": [
         "P3-BUILD-PLAN"
       ],
@@ -3369,8 +3369,10 @@
       "notes": [
         "2026-10-09 P3-BUILD-PLAN (Opus): command `node --env-file=.env node_modules/tsx/dist/cli.mjs scripts/repository-deployment/index.ts --local --ai live --benchmark campaign/corpus/benchmark.yaml --deploy-config campaign/corpus/deploy-config.yaml --runs-dir campaign/results/first-run/build/ --evidence-dir campaign/logs/P3-BUILD-24/evidence/ --repo repo-575 --repo repo-577`; default cache (no --cache). Resumable: on stopBy, interrupt at a safe point and return CONTINUE with progress; the next run adds --resume.",
         "Retry a build once when its log tail shows only registry network timeouts; if it fails again classify it as an environment failure (separate denominator).",
-        "Before the run, the worker may add to deploy-config.yaml, for this task's apps only, the configuration a vendor would enter from the app's own documented env example or install docs (config values without secrets; secrets as generated keys). No repository-specific hacks."
-      ]
+        "Before the run, the worker may add to deploy-config.yaml, for this task's apps only, the configuration a vendor would enter from the app's own documented env example or install docs (config values without secrets; secrets as generated keys). No repository-specific hacks.",
+        "2026-10-09T17:27Z Opus verification: completion checks pass. repo-575 (traccar) gate FAIL (false-acceptance; manifest port null) and build FAIL (docker/Dockerfile.alpine COPY traccar-other-$VERSION.zip needs a prebuilt release zip and VERSION build arg); repo-577 (woodpecker) gate FAIL (false-acceptance; port null) and build FAIL (harness built docker/Dockerfile.server.multiarch.rootless, manifest says docker/Dockerfile.make; COPY dist/server/linux_amd64/woodpecker-server needs a prebuilt binary). Command exit 0, no retry (repository failures), no deploy-config changes. Result files are repo-<id>.local.json (harness naming, same as earlier batches). 0 labelled resources; C: 5.7 GB free."
+      ],
+      "attempts": 1
     },
     {
       "id": "P3-BUILD-25",

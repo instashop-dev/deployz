@@ -1,11 +1,11 @@
 # Local Docker run summary
 
-Repositories: 46
+Repositories: 48
 
 ## Classification
 
 - build: 5
-- gate: 25
+- gate: 27
 - local-success: 1
 - probes: 10
 - run: 3
@@ -15,12 +15,12 @@ Repositories: 46
 
 | Stage | Attempted | PASS | FAIL | SKIPPED | IN_PROGRESS |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| gate | 46 | 21 | 25 | 0 | 0 |
-| source | 46 | 33 | 6 | 7 | 0 |
-| build | 46 | 19 | 14 | 13 | 0 |
-| run | 46 | 15 | 4 | 27 | 0 |
-| probes | 46 | 2 | 13 | 31 | 0 |
-| cleanup | 46 | 33 | 0 | 13 | 0 |
+| gate | 48 | 21 | 27 | 0 | 0 |
+| source | 48 | 35 | 6 | 7 | 0 |
+| build | 48 | 19 | 16 | 13 | 0 |
+| run | 48 | 15 | 4 | 29 | 0 |
+| probes | 48 | 2 | 13 | 33 | 0 |
+| cleanup | 48 | 35 | 0 | 13 | 0 |
 
 ## Probes
 
@@ -83,3 +83,5 @@ Repositories: 46
 | repo-569 | activepieces/activepieces | gate | 0.0 |
 | repo-573 | mem0ai/mem0 | probes | 422.8 |
 | repo-574 | lobsters/lobsters | gate | 4.0 |
+| repo-575 | traccar/traccar | gate | 9.4 |
+| repo-577 | woodpecker-ci/woodpecker | gate | 9.6 |

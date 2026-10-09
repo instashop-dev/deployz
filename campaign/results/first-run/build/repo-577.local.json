@@ -1,0 +1,132 @@
+{
+  "schemaVersion": 1,
+  "id": "repo-577",
+  "repository": "woodpecker-ci/woodpecker",
+  "commit": "5e87e8acf9f2458a1667268468afbbf3a546d111",
+  "set": "improvement",
+  "cohort": "messy",
+  "deployzCommit": "8832c235d0e38b081d2b67ff96fb59e21d9d7124",
+  "analysisVersion": 45,
+  "ai": {
+    "mode": "live",
+    "model": "workers-ai/@cf/deepseek-ai/deepseek-v4-flash-0731",
+    "requests": 1,
+    "outcome": "completed",
+    "error": null
+  },
+  "inputsHash": "2fa0076afbe8ea4522202b0e6ceea3595e6c7e78060394b41001fc0095d86927",
+  "stages": {
+    "gate": {
+      "status": "FAIL",
+      "startedAt": "2026-10-09T17:26:32.938Z",
+      "finishedAt": "2026-10-09T17:26:32.940Z",
+      "durationMs": 2,
+      "detail": null,
+      "evidence": {
+        "verdict": "NEEDS_CONFIGURATION",
+        "outcome": "false-acceptance",
+        "configuredVerdict": "NEEDS_CONFIGURATION",
+        "manifest": {
+          "dockerfilePath": "docker/Dockerfile.make",
+          "buildContext": ".",
+          "appRoot": ".",
+          "port": null,
+          "healthPath": "/healthz",
+          "healthMode": "explicit",
+          "migrationCommand": null,
+          "migrationMode": "unknown",
+          "postgres": true,
+          "redis": false,
+          "storage": false,
+          "databaseBindings": [
+            "DATABASE_HOST",
+            "DATABASE_NAME",
+            "DATABASE_PASSWORD",
+            "DATABASE_PORT",
+            "DATABASE_URL",
+            "DATABASE_USER",
+            "DB_HOST",
+            "DB_NAME",
+            "DB_PASSWORD",
+            "DB_PORT",
+            "DB_USER"
+          ],
+          "redisBindings": [],
+          "storageBindings": [],
+          "generatedKeys": []
+        }
+      }
+    },
+    "source": {
+      "status": "PASS",
+      "startedAt": "2026-10-09T17:26:32.945Z",
+      "finishedAt": "2026-10-09T17:26:37.564Z",
+      "durationMs": 4619,
+      "detail": null,
+      "evidence": {
+        "commit": "5e87e8acf9f2458a1667268468afbbf3a546d111",
+        "archiveCached": false,
+        "archiveBytes": 13572425
+      }
+    },
+    "build": {
+      "status": "FAIL",
+      "startedAt": "2026-10-09T17:26:37.566Z",
+      "finishedAt": "2026-10-09T17:26:41.360Z",
+      "durationMs": 3794,
+      "detail": "docker build exited 1",
+      "evidence": {
+        "dockerfilePath": "docker/Dockerfile.server.multiarch.rootless",
+        "buildContext": ".",
+        "platform": "linux/amd64",
+        "image": "deployz-campaign/repo-577:5e87e8acf9f2",
+        "exitCode": 1,
+        "durationMs": 3790,
+        "buildArgNames": [],
+        "logTail": "#7 [stage-2 1/2] COPY --from=stage / /\n#7 CACHED\n\n#8 [build 2/3] RUN groupadd -g 1000 woodpecker &&   useradd -u 1000 -g 1000 woodpecker &&   mkdir -p /var/lib/woodpecker\n#8 CACHED\n\n#9 [stage 1/5] COPY --from=build /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt\n#9 CACHED\n\n#10 [build 3/3] RUN apt update &&   apt install -y --no-install-recommends tzdata-legacy &&   rm -rf /usr/share/zoneinfo/right\n#10 CACHED\n\n#11 [stage 2/5] COPY --from=build /usr/share/zoneinfo /usr/share/zoneinfo\n#11 CACHED\n\n#12 [stage 3/5] COPY --from=build /etc/passwd /etc/passwd\n#12 CACHED\n\n#13 [stage 4/5] COPY --from=build /etc/group /etc/group\n#13 CACHED\n\n#14 [stage 5/5] COPY --from=build --chown=woodpecker:woodpecker /var/lib/woodpecker /var/lib/woodpecker\n#14 CACHED\n\n#15 [stage-2 2/2] COPY dist/server/linux_amd64/woodpecker-server /bin/\n#15 ERROR: failed to calculate checksum of ref 12cfkxfrx28t4g2mqmjcwmb4j::6gjm1qg9k56l2e33po17wrhqt: \"/dist/server/linux_amd64/woodpecker-server\": not found\n------\n > [stage-2 2/2] COPY dist/server/linux_amd64/woodpecker-server /bin/:\n------\nDockerfile.server.multiarch.rootless:34\n--------------------\n  32 |     COPY --from=stage / /\n  33 |     # copy server binary\n  34 | >>> COPY dist/server/${TARGETOS}_${TARGETARCH}/woodpecker-server /bin/\n  35 |     \n  36 |     USER woodpecker\n--------------------\nERROR: failed to build: failed to solve: failed to compute cache key: failed to calculate checksum of ref 12cfkxfrx28t4g2mqmjcwmb4j::6gjm1qg9k56l2e33po17wrhqt: \"/dist/server/linux_amd64/woodpecker-server\": not found\n\nView build details: docker-desktop://dashboard/build/desktop-linux/desktop-linux/kndtlbucvryi23vsultg7ftr3",
+        "failure": "build",
+        "rebuilt": false
+      }
+    },
+    "run": {
+      "status": "SKIPPED",
+      "startedAt": "2026-10-09T17:26:41.685Z",
+      "finishedAt": "2026-10-09T17:26:41.687Z",
+      "durationMs": 2,
+      "detail": "the build did not pass",
+      "evidence": {}
+    },
+    "probes": {
+      "status": "SKIPPED",
+      "startedAt": "2026-10-09T17:26:41.690Z",
+      "finishedAt": "2026-10-09T17:26:41.692Z",
+      "durationMs": 2,
+      "detail": "the build did not pass",
+      "evidence": {}
+    },
+    "cleanup": {
+      "status": "PASS",
+      "startedAt": "2026-10-09T17:26:41.694Z",
+      "finishedAt": "2026-10-09T17:26:42.909Z",
+      "durationMs": 1215,
+      "detail": null,
+      "evidence": {
+        "removed": {
+          "containers": 0,
+          "networks": 0,
+          "volumes": 0
+        },
+        "imageRemoved": false,
+        "buildCachePruned": true,
+        "keepImage": false,
+        "leaks": {
+          "containers": [],
+          "networks": [],
+          "volumes": []
+        }
+      }
+    }
+  },
+  "classification": "gate",
+  "remediation": null
+}

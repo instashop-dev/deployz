@@ -1,0 +1,27 @@
+{
+  "taskId": "P3-BUILD-24",
+  "testedCommit": "e6a3b58ee2363923fef21faca86611fa3bf84538",
+  "executor": "campaign-worker",
+  "model": "sonnet",
+  "startedAt": "2026-10-09T17:25:43Z",
+  "finishedAt": "2026-10-09T17:30:00Z",
+  "proposedStatus": "COMPLETE",
+  "commands": [
+    { "command": "node --env-file=.env node_modules/tsx/dist/cli.mjs scripts/repository-deployment/index.ts --local --ai live --benchmark campaign/corpus/benchmark.yaml --deploy-config campaign/corpus/deploy-config.yaml --runs-dir campaign/results/first-run/build/ --evidence-dir campaign/logs/P3-BUILD-24/evidence/ --repo repo-575 --repo repo-577", "exitCode": 0, "summary": "both apps: gate FAIL (false-acceptance), source PASS, build FAIL, run/probes SKIPPED, cleanup PASS" },
+    { "command": "docker ps -a / images / network ls / volume ls --filter label=deployz-campaign=fresh-100", "exitCode": 0, "summary": "no labelled resources remain" }
+  ],
+  "evidence": [
+    "campaign/results/first-run/build/repo-575.local.json",
+    "campaign/results/first-run/build/repo-577.local.json",
+    "campaign/results/first-run/build/local-summary.json",
+    "campaign/logs/P3-BUILD-24/run1.log"
+  ],
+  "notes": [
+    "repo-575 (traccar): gate FAIL false-acceptance (configured NEEDS_CONFIGURATION, Deployz accepted; port null). Build FAIL: docker/Dockerfile.alpine does 'COPY traccar-other-$VERSION.zip' and needs a prebuilt release zip and VERSION build arg; not found. Real repository build failure, not a network timeout, no retry.",
+    "repo-577 (woodpecker): gate FAIL false-acceptance (port null). Build FAIL: docker/Dockerfile.server.multiarch.rootless does 'COPY dist/server/linux_amd64/woodpecker-server'; needs a prebuilt binary from make. Real repository build failure, not a network timeout, no retry.",
+    "AI mode live in both results (model workers-ai/@cf/deepseek-ai/deepseek-v4-flash-0731, outcome completed). Note: the harness writes repo-<id>.local.json, not repo-<id>.json as the task artifact list says.",
+    "No deploy-config.yaml change made; existing entries for repo-575 and repo-577 were used as is.",
+    "The checkout HEAD is 8832c235 (harness deployzCommit in results); testedCommit above is the baseline commit given by the coordinator.",
+    "C: had 5.7 GB free at the end; harness pruned the build cache."
+  ]
+}
