@@ -1,108 +1,108 @@
 {
   "schemaVersion": 1,
-  "repositories": 8,
+  "repositories": 10,
   "classifications": {
     "source": 2,
     "probes": 1,
-    "gate": 3,
+    "gate": 5,
     "build": 1,
     "local-success": 1
   },
   "aiModes": {
-    "live": 8
+    "live": 10
   },
   "stages": {
     "gate": {
-      "attempted": 8,
+      "attempted": 10,
+      "NOT_ATTEMPTED": 0,
+      "IN_PROGRESS": 0,
+      "PASS": 5,
+      "FAIL": 5,
+      "SKIPPED": 0
+    },
+    "source": {
+      "attempted": 10,
       "NOT_ATTEMPTED": 0,
       "IN_PROGRESS": 0,
       "PASS": 5,
       "FAIL": 3,
-      "SKIPPED": 0
-    },
-    "source": {
-      "attempted": 8,
-      "NOT_ATTEMPTED": 0,
-      "IN_PROGRESS": 0,
-      "PASS": 4,
-      "FAIL": 3,
-      "SKIPPED": 1
+      "SKIPPED": 2
     },
     "build": {
-      "attempted": 8,
+      "attempted": 10,
       "NOT_ATTEMPTED": 0,
       "IN_PROGRESS": 0,
-      "PASS": 2,
+      "PASS": 3,
       "FAIL": 2,
-      "SKIPPED": 4
+      "SKIPPED": 5
     },
     "run": {
-      "attempted": 8,
+      "attempted": 10,
       "NOT_ATTEMPTED": 0,
       "IN_PROGRESS": 0,
-      "PASS": 2,
+      "PASS": 3,
       "FAIL": 0,
-      "SKIPPED": 6
+      "SKIPPED": 7
     },
     "probes": {
-      "attempted": 8,
+      "attempted": 10,
       "NOT_ATTEMPTED": 0,
       "IN_PROGRESS": 0,
       "PASS": 1,
-      "FAIL": 1,
-      "SKIPPED": 6
+      "FAIL": 2,
+      "SKIPPED": 7
     },
     "cleanup": {
-      "attempted": 8,
+      "attempted": 10,
       "NOT_ATTEMPTED": 0,
       "IN_PROGRESS": 0,
-      "PASS": 4,
+      "PASS": 5,
       "FAIL": 0,
-      "SKIPPED": 4
+      "SKIPPED": 5
     }
   },
   "probes": {
     "start": {
-      "attempted": 2,
+      "attempted": 3,
       "PASS": 1,
-      "FAIL": 1,
+      "FAIL": 2,
       "UNVERIFIED": 0,
       "NOT_APPLICABLE": 0
     },
     "health": {
-      "attempted": 2,
+      "attempted": 3,
       "PASS": 1,
-      "FAIL": 1,
+      "FAIL": 2,
       "UNVERIFIED": 0,
       "NOT_APPLICABLE": 0
     },
     "migration": {
-      "attempted": 2,
+      "attempted": 3,
       "PASS": 0,
       "FAIL": 0,
       "UNVERIFIED": 0,
-      "NOT_APPLICABLE": 2
+      "NOT_APPLICABLE": 3
     },
     "dbWrite": {
-      "attempted": 2,
+      "attempted": 3,
       "PASS": 0,
       "FAIL": 1,
       "UNVERIFIED": 0,
-      "NOT_APPLICABLE": 1
+      "NOT_APPLICABLE": 2
     },
     "redis": {
-      "attempted": 2,
+      "attempted": 3,
       "PASS": 0,
-      "FAIL": 1,
+      "FAIL": 2,
       "UNVERIFIED": 0,
       "NOT_APPLICABLE": 1
     },
     "storage": {
-      "attempted": 2,
+      "attempted": 3,
       "PASS": 0,
       "FAIL": 0,
       "UNVERIFIED": 0,
-      "NOT_APPLICABLE": 2
+      "NOT_APPLICABLE": 3
     }
   },
   "durations": [
@@ -188,6 +188,34 @@
         "run": 3,
         "probes": 3,
         "cleanup": 2
+      }
+    },
+    {
+      "id": "repo-509",
+      "repository": "elie222/inbox-zero",
+      "classification": "gate",
+      "totalMs": 16,
+      "stages": {
+        "gate": 4,
+        "source": 2,
+        "build": 3,
+        "run": 2,
+        "probes": 3,
+        "cleanup": 2
+      }
+    },
+    {
+      "id": "repo-510",
+      "repository": "basecamp/once-campfire",
+      "classification": "gate",
+      "totalMs": 851969,
+      "stages": {
+        "gate": 8,
+        "source": 11914,
+        "build": 771379,
+        "run": 3671,
+        "probes": 60834,
+        "cleanup": 4163
       }
     },
     {

@@ -1,0 +1,121 @@
+{
+  "schemaVersion": 1,
+  "id": "repo-509",
+  "repository": "elie222/inbox-zero",
+  "commit": "84fd613d3dc1b3dbe8c3f46f9ec85d9e8681621c",
+  "set": "improvement",
+  "cohort": "realistic",
+  "deployzCommit": "6d00da1f7c0352701651eccc5ef6c787901ef494",
+  "analysisVersion": 45,
+  "ai": {
+    "mode": "live",
+    "model": "workers-ai/@cf/deepseek-ai/deepseek-v4-flash-0731",
+    "requests": 1,
+    "outcome": "completed",
+    "error": null
+  },
+  "inputsHash": "0959de8805d6a9a618fbc80af9229005f888bce70efd82f4ae907b6ed1ebe531",
+  "stages": {
+    "gate": {
+      "status": "FAIL",
+      "startedAt": "2026-10-09T06:41:49.289Z",
+      "finishedAt": "2026-10-09T06:41:49.293Z",
+      "durationMs": 4,
+      "detail": null,
+      "evidence": {
+        "verdict": "NOT_COMPATIBLE",
+        "outcome": "false-rejection",
+        "configuredVerdict": "NOT_COMPATIBLE",
+        "manifest": {
+          "dockerfilePath": "docker/Dockerfile.prod",
+          "buildContext": ".",
+          "appRoot": ".",
+          "port": 3000,
+          "healthPath": "/api/health",
+          "healthMode": "explicit",
+          "migrationCommand": null,
+          "migrationMode": "startup",
+          "postgres": true,
+          "redis": false,
+          "storage": false,
+          "databaseBindings": [
+            "DATABASE_HOST",
+            "DATABASE_NAME",
+            "DATABASE_PASSWORD",
+            "DATABASE_PORT",
+            "DATABASE_URL",
+            "DATABASE_USER",
+            "DB_HOST",
+            "DB_NAME",
+            "DB_PASSWORD",
+            "DB_PORT",
+            "DB_USER",
+            "POSTGRES_DB",
+            "POSTGRES_PASSWORD",
+            "POSTGRES_PORT",
+            "POSTGRES_USER",
+            "PREVIEW_DATABASE_URL"
+          ],
+          "redisBindings": [],
+          "storageBindings": [],
+          "generatedKeys": [
+            "API_KEY_SALT",
+            "AUTH_SECRET",
+            "CONVERSION_ANALYTICS_SERVER_SECRET",
+            "CRON_SECRET",
+            "EMAIL_ENCRYPT_SECRET",
+            "IMAGE_PROXY_SIGNING_SECRET",
+            "LEMON_SQUEEZY_SIGNING_SECRET",
+            "NEXTAUTH_SECRET",
+            "QSTASH_CURRENT_SIGNING_KEY",
+            "QSTASH_NEXT_SIGNING_KEY",
+            "SCIM_CREDENTIAL_HASH_SECRET",
+            "UNSUBSCRIBE_WORKER_SECRET"
+          ]
+        }
+      }
+    },
+    "source": {
+      "status": "SKIPPED",
+      "startedAt": "2026-10-09T06:41:49.297Z",
+      "finishedAt": "2026-10-09T06:41:49.299Z",
+      "durationMs": 2,
+      "detail": "the gate did not accept the repository",
+      "evidence": {}
+    },
+    "build": {
+      "status": "SKIPPED",
+      "startedAt": "2026-10-09T06:41:49.301Z",
+      "finishedAt": "2026-10-09T06:41:49.304Z",
+      "durationMs": 3,
+      "detail": "the gate did not accept the repository",
+      "evidence": {}
+    },
+    "run": {
+      "status": "SKIPPED",
+      "startedAt": "2026-10-09T06:41:49.306Z",
+      "finishedAt": "2026-10-09T06:41:49.308Z",
+      "durationMs": 2,
+      "detail": "the build did not pass",
+      "evidence": {}
+    },
+    "probes": {
+      "status": "SKIPPED",
+      "startedAt": "2026-10-09T06:41:49.311Z",
+      "finishedAt": "2026-10-09T06:41:49.314Z",
+      "durationMs": 3,
+      "detail": "the build did not pass",
+      "evidence": {}
+    },
+    "cleanup": {
+      "status": "SKIPPED",
+      "startedAt": "2026-10-09T06:41:49.316Z",
+      "finishedAt": "2026-10-09T06:41:49.318Z",
+      "durationMs": 2,
+      "detail": "no build was attempted",
+      "evidence": {}
+    }
+  },
+  "classification": "gate",
+  "remediation": null
+}

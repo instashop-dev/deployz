@@ -1,0 +1,162 @@
+{
+  "schemaVersion": 1,
+  "id": "repo-510",
+  "repository": "basecamp/once-campfire",
+  "commit": "008ea1ab2af0f84021e25047c67b64d30a601339",
+  "set": "improvement",
+  "cohort": "realistic",
+  "deployzCommit": "6d00da1f7c0352701651eccc5ef6c787901ef494",
+  "analysisVersion": 45,
+  "ai": {
+    "mode": "live",
+    "model": "workers-ai/@cf/deepseek-ai/deepseek-v4-flash-0731",
+    "requests": 1,
+    "outcome": "parse-error",
+    "error": "AI_NoObjectGeneratedError: No object generated: response did not match schema."
+  },
+  "inputsHash": "344a54b138a3fd47a9e3942d830da6b27abb2a08a4e1456ff144ef6645bcc4d9",
+  "stages": {
+    "gate": {
+      "status": "FAIL",
+      "startedAt": "2026-10-09T06:42:17.021Z",
+      "finishedAt": "2026-10-09T06:42:17.029Z",
+      "durationMs": 8,
+      "detail": null,
+      "evidence": {
+        "verdict": "NEEDS_CONFIGURATION",
+        "outcome": "false-acceptance",
+        "configuredVerdict": "NEEDS_CONFIGURATION",
+        "manifest": {
+          "dockerfilePath": "Dockerfile",
+          "buildContext": ".",
+          "appRoot": ".",
+          "port": 80,
+          "healthPath": "/up",
+          "healthMode": "explicit",
+          "migrationCommand": null,
+          "migrationMode": "none",
+          "postgres": false,
+          "redis": false,
+          "storage": false,
+          "databaseBindings": [],
+          "redisBindings": [],
+          "storageBindings": [],
+          "generatedKeys": []
+        }
+      }
+    },
+    "source": {
+      "status": "PASS",
+      "startedAt": "2026-10-09T06:42:17.036Z",
+      "finishedAt": "2026-10-09T06:42:28.950Z",
+      "durationMs": 11914,
+      "detail": null,
+      "evidence": {
+        "commit": "008ea1ab2af0f84021e25047c67b64d30a601339",
+        "archiveCached": false,
+        "archiveBytes": 61037408
+      }
+    },
+    "build": {
+      "status": "PASS",
+      "startedAt": "2026-10-09T06:42:28.952Z",
+      "finishedAt": "2026-10-09T06:55:20.331Z",
+      "durationMs": 771379,
+      "detail": null,
+      "evidence": {
+        "dockerfilePath": "Dockerfile",
+        "buildContext": ".",
+        "platform": "linux/amd64",
+        "image": "deployz-campaign/repo-510:008ea1ab2af0",
+        "exitCode": 0,
+        "durationMs": 769902,
+        "buildArgNames": [],
+        "logTail": "#17 6.138 I, [2026-10-09T06:53:07.841616 #7]  INFO -- : Writing stimulus.min-2395e199.js.map\n#17 6.138 I, [2026-10-09T06:53:07.841891 #7]  INFO -- : Writing stimulus-autoloader-9d447422.js\n#17 6.138 I, [2026-10-09T06:53:07.842541 #7]  INFO -- : Writing stimulus-importmap-autoloader-64cc03e1.js\n#17 6.166 I, [2026-10-09T06:53:07.842963 #7]  INFO -- : Writing turbo-a1e3a50a.js\n#17 6.166 I, [2026-10-09T06:53:07.843887 #7]  INFO -- : Writing turbo.min-3a2e143f.js\n#17 6.166 I, [2026-10-09T06:53:07.845179 #7]  INFO -- : Writing turbo.min-5f3b7fda.js.map\n#17 6.166 I, [2026-10-09T06:53:07.846332 #7]  INFO -- : Writing actiontext-171f1d19.js\n#17 6.166 I, [2026-10-09T06:53:07.847126 #7]  INFO -- : Writing actiontext.esm-504be732.js\n#17 6.166 I, [2026-10-09T06:53:07.847851 #7]  INFO -- : Writing trix-4bf79781.js\n#17 6.166 I, [2026-10-09T06:53:07.849533 #7]  INFO -- : Writing trix-65afdb1d.css\n#17 6.166 I, [2026-10-09T06:53:07.850506 #7]  INFO -- : Writing action_cable-5212cfee.js\n#17 6.166 I, [2026-10-09T06:53:07.851039 #7]  INFO -- : Writing actioncable.esm-e0ec9819.js\n#17 6.166 I, [2026-10-09T06:53:07.851324 #7]  INFO -- : Writing actioncable-ac25813f.js\n#17 6.166 I, [2026-10-09T06:53:07.852970 #7]  INFO -- : Writing activestorage.esm-3eda9444.js\n#17 6.166 I, [2026-10-09T06:53:07.853428 #7]  INFO -- : Writing activestorage-c726ce1f.js\n#17 DONE 6.4s\n\n#18 [stage-2 2/4] COPY --from=build --chown=rails:rails /usr/local/bundle /usr/local/bundle\n#18 DONE 8.0s\n\n#19 [stage-2 3/4] COPY --from=build --chown=rails:rails /rails /rails\n#19 DONE 1.1s\n\n#20 [stage-2 4/4] COPY --chmod=755 hooks /hooks\n#20 DONE 0.6s\n\n#21 exporting to image\n#21 exporting layers\n#21 exporting layers 75.9s done\n#21 exporting manifest sha256:3afa877d807c5c30f9b498fd1c380dec1623f3e1bc3e57caf2035798ebb3c279 0.1s done\n#21 exporting config sha256:dc3438d8c4efb089037d1d773939089db5ad4f6dd53c109f303cc2c3de1aadc9 0.0s done\n#21 exporting attestation manifest sha256:968dd9be98570c9f6c4cc6e7fa2db60c516fff55ac6d99e9554e06029865f85f 0.1s done\n#21 exporting manifest list sha256:33340d8db4e046796419301a03ccd80e7e47d7cdd8955ba1d7762f01ca033b95\n#21 exporting manifest list sha256:33340d8db4e046796419301a03ccd80e7e47d7cdd8955ba1d7762f01ca033b95 0.1s done\n#21 naming to docker.io/deployz-campaign/repo-510:008ea1ab2af0 done\n#21 unpacking to docker.io/deployz-campaign/repo-510:008ea1ab2af0\n#21 unpacking to docker.io/deployz-campaign/repo-510:008ea1ab2af0 36.8s done\n#21 DONE 113.2s\n\nView build details: docker-desktop://dashboard/build/desktop-linux/desktop-linux/k2269uvikamuibm3cvx988f6s",
+        "imageId": "sha256:33340d8db4e046796419301a03ccd80e7e47d7cdd8955ba1d7762f01ca033b95",
+        "imageBytes": 1353431285,
+        "failure": null,
+        "rebuilt": false
+      }
+    },
+    "run": {
+      "status": "PASS",
+      "startedAt": "2026-10-09T06:55:20.885Z",
+      "finishedAt": "2026-10-09T06:55:24.556Z",
+      "durationMs": 3671,
+      "detail": null,
+      "evidence": {
+        "image": "deployz-campaign/repo-510:008ea1ab2af0",
+        "port": 80,
+        "healthPath": "/up",
+        "dependencies": [
+          "valkey"
+        ],
+        "environmentNames": [
+          "PORT",
+          "REDIS_URL"
+        ],
+        "migration": null
+      }
+    },
+    "probes": {
+      "status": "FAIL",
+      "startedAt": "2026-10-09T06:55:24.560Z",
+      "finishedAt": "2026-10-09T06:56:25.394Z",
+      "durationMs": 60834,
+      "detail": "failed: health, start, redis",
+      "evidence": {
+        "probes": {
+          "health": {
+            "status": "FAIL",
+            "detail": "the container exited (code 0) before /up answered"
+          },
+          "start": {
+            "status": "FAIL",
+            "detail": "the container is not running (exit code 0)"
+          },
+          "migration": {
+            "status": "NOT_APPLICABLE",
+            "detail": "the manifest has no migration command"
+          },
+          "dbWrite": {
+            "status": "NOT_APPLICABLE",
+            "detail": "the manifest needs no database"
+          },
+          "redis": {
+            "status": "FAIL",
+            "detail": "no client connection and no key from the app"
+          },
+          "storage": {
+            "status": "NOT_APPLICABLE",
+            "detail": "the manifest needs no storage"
+          }
+        },
+        "url": "http://app:80/up",
+        "appLogTail": "/usr/local/bundle/ruby/3.4.0/gems/rake-13.4.2/lib/rake/application.rb:139:in 'block (2 levels) in Rake::Application#top_level'\n/usr/local/bundle/ruby/3.4.0/gems/rake-13.4.2/lib/rake/application.rb:139:in 'Array#each'\n/usr/local/bundle/ruby/3.4.0/gems/rake-13.4.2/lib/rake/application.rb:139:in 'block in Rake::Application#top_level'\n/usr/local/bundle/ruby/3.4.0/gems/rake-13.4.2/lib/rake/application.rb:148:in 'Rake::Application#run_with_threads'\nbin/rails aborted!\nArgumentError: Missing `secret_key_base` for 'production' environment, set this string with `bin/rails credentials:edit` (ArgumentError)\n\n          raise ArgumentError, \"Missing `secret_key_base` for '#{Rails.env}' environment, set this string with `bin/rails credentials:edit`\"\n                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n/rails/app/models/application_record.rb:1:in '<top (required)>'\n/rails/app/models/room.rb:1:in '<top (required)>'\n/rails/config/initializers/room_messages_count.rb:3:in 'block in <top (required)>'\n/rails/config/environment.rb:5:in '<top (required)>'\nTasks: TOP => db:prepare => db:load_config => environment\n(See full trace by running task with --trace)\n/usr/local/bundle/ruby/3.4.0/gems/rake-13.4.2/lib/rake/application.rb:133:in 'Rake::Application#top_level'\n/usr/local/bundle/ruby/3.4.0/bundler/gems/rails-e3d5c569d217/railties/lib/rails/commands/rake/rake_command.rb:30:in 'block (3 levels) in Rails::Command::RakeCommand.perform'\n/usr/local/bundle/ruby/3.4.0/bundler/gems/rails-e3d5c569d217/activesupport/lib/active_support/error_reporter.rb:119:in 'ActiveSupport::ErrorReporter#record'\n/usr/local/bundle/ruby/3.4.0/bundler/gems/rails-e3d5c569d217/railties/lib/rails/commands/rake/rake_command.rb:29:in 'block (2 levels) in Rails::Command::RakeCommand.perform'\n/usr/local/bundle/ruby/3.4.0/gems/rake-13.4.2/lib/rake/application.rb:209:in 'Rake::Application#standard_exception_handling'\n/usr/local/bundle/ruby/3.4.0/bundler/gems/rails-e3d5c569d217/railties/lib/rails/commands/rake/rake_command.rb:28:in 'block in Rails::Command::RakeCommand.perform'\n/usr/local/bundle/ruby/3.4.0/bundler/gems/rails-e3d5c569d217/railties/lib/rails/commands/rake/rake_command.rb:49:in 'block in Rails::Command::RakeCommand.with_rake'\n/usr/local/bundle/ruby/3.4.0/gems/rake-13.4.2/lib/rake/rake_module.rb:59:in 'Rake.with_application'\n/usr/local/bundle/ruby/3.4.0/bundler/gems/rails-e3d5c569d217/railties/lib/rails/commands/rake/rake_command.rb:46:in 'Rails::Command::RakeCommand.with_rake'\n/usr/local/bundle/ruby/3.4.0/bundler/gems/rails-e3d5c569d217/railties/lib/rails/commands/rake/rake_command.rb:20:in 'Rails::Command::RakeCommand.perform'\n/usr/local/bundle/ruby/3.4.0/bundler/gems/rails-e3d5c569d217/railties/lib/rails/command.rb:150:in 'Rails::Command.invoke_rake'\n/usr/local/bundle/ruby/3.4.0/bundler/gems/rails-e3d5c569d217/railties/lib/rails/command.rb:67:in 'block in Rails::Command.invoke'\n/usr/local/bundle/ruby/3.4.0/bundler/gems/rails-e3d5c569d217/railties/lib/rails/command.rb:143:in 'Rails::Command.with_argv'\n/usr/local/bundle/ruby/3.4.0/bundler/gems/rails-e3d5c569d217/railties/lib/rails/command.rb:63:in 'Rails::Command.invoke'\n/usr/local/bundle/ruby/3.4.0/bundler/gems/rails-e3d5c569d217/railties/lib/rails/commands.rb:18:in '<top (required)>'\n/usr/local/lib/ruby/3.4.0/bundled_gems.rb:82:in 'Kernel.require'\n/usr/local/lib/ruby/3.4.0/bundled_gems.rb:82:in 'block (2 levels) in Kernel#replace_require'\n./bin/rails:4:in '<main>'\n\n{\"time\":\"2026-10-09T06:55:45.886324971Z\",\"level\":\"INFO\",\"msg\":\"Server stopping\"}\n{\"time\":\"2026-10-09T06:55:45.886749741Z\",\"level\":\"INFO\",\"msg\":\"Server stopped\"}\n9:signal-handler (1791528945) Received SIGTERM scheduling shutdown...\n9:signal-handler (1791528945) Received SIGTERM scheduling shutdown...\n9:M 09 Oct 2026 06:55:45.963 * User requested shutdown...\n9:M 09 Oct 2026 06:55:45.963 # Redis is now ready to exit, bye bye..."
+      }
+    },
+    "cleanup": {
+      "status": "PASS",
+      "startedAt": "2026-10-09T06:56:25.398Z",
+      "finishedAt": "2026-10-09T06:56:29.561Z",
+      "durationMs": 4163,
+      "detail": null,
+      "evidence": {
+        "removed": {
+          "containers": 2,
+          "networks": 1,
+          "volumes": 0
+        },
+        "imageRemoved": true,
+        "keepImage": false,
+        "leaks": {
+          "containers": [],
+          "networks": [],
+          "volumes": []
+        }
+      }
+    }
+  },
+  "classification": "gate",
+  "remediation": null
+}
