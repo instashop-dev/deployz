@@ -1,8 +1,8 @@
 # Fresh-100 campaign handoff
 
-**Status:** CONTINUE. Phase 4. P0-GATE, P1-GATE, P2-GATE and P3-GATE PASS; P4-GROUP COMPLETE. C: 13.1 GB free at 2026-10-09T18:55Z (vhdx compacted); Docker Desktop running.
+**Status:** CONTINUE. Phase 4. P0-GATE, P1-GATE, P2-GATE and P3-GATE PASS; P4-GROUP COMPLETE. C: 15.1 GB free at 2026-10-09T18:54Z (after fstrim); Docker Desktop running.
 **Checkout:** `C:/Users/Tejas/Desktop/deployz-mvp-test`, branch `campaign/fresh-100`. Baseline commit `e6a3b58e` (ANALYSIS_VERSION 45; origin/main after PR #498, merged into the campaign branch on 2026-10-08).
-**Eligible now:** `P4-FIX-UNBUILDABLE-DOCKERFILE` (then the Phase 4 queue in order). `docker`, `disk>=3GB` and `ai-gateway` AVAILABLE.
+**Eligible now:** `P4-FIX-UNBUILDABLE-DOCKERFILE` continuation (PR #502 CI), then the Phase 4 queue in order. `docker`, `disk>=3GB` and `ai-gateway` AVAILABLE.
 
 ## Done
 
@@ -119,6 +119,8 @@
 - 2026-10-09T18:37Z run: `P4-FIX-HARNESS-PROBES` COMPLETE (attempt 1, worker sonnet). F9: dbWrite with 0 rows and no application table -> NOT_APPLICABLE (uncountable -> UNVERIFIED; empty existing tables stay FAIL); redis with no client and no key -> UNVERIFIED (lazy connect), never FAIL. Opus re-ran: 2 new tests in `local-run.test.ts` fail with `local-run.ts` at HEAD; 209/209 repository-deployment and `typecheck:scripts` pass. `docs/testing/compatibility.md` updated. Evidence: `campaign/results/P4-FIX-HARNESS-PROBES/result.json`.
 - 2026-10-09T18:41Z run: `P4-DIAG-START` COMPLETE (attempt 1, worker sonnet). repo-573 -> F8 (`RuntimeError: JWT_SECRET is required`; manifest generatedKeys not set before the F8 fix). repo-514 (no CMD/ENTRYPOINT) and repo-523 (`ENTRYPOINT ["bundle","exec"]`, no CMD) -> F3 (Opus mapping; worker proposed a new F11); added to `P4-FIX-START-COMMAND` notes. repo-502 UNDIAGNOSED: the 40-line log tail holds only gunicorn `HaltServer` frames; the P4 rerun decides. Evidence: `campaign/results/P4-DIAG-START/diagnosis.md`.
 
+- 2026-10-09T19:20Z run: `P4-FIX-UNBUILDABLE-DOCKERFILE` CONTINUE (attempt 1, worker sonnet). PR #502 (https://github.com/instashop-dev/deployz/pull/502), branch `campaign/fix-unbuildable-dockerfile` head `e26d1bcb` from origin/main `8f14fddf`, worktree `C:/Users/Tejas/Desktop/deployz-fix-ai-timeout`. New rejection `no-buildable-dockerfile` (NOT_COMPATIBLE only with complete evidence; COMP-021 exclusions kept), ANALYSIS_VERSION 46, docs mvp-scope/decisions/ai-analysis/findings COMP-042. Opus re-ran the regression test on the branch: 10/10 pass (on-main log: 4/10 fail). Missing: local `pnpm test:affected` (risk critical; full @deployz/api vitest timed out at 600 s); PR CI was pending at checkpoint. Evidence: `campaign/results/P4-FIX-UNBUILDABLE-DOCKERFILE/result.json`.
+
 ## Blockers and pending prerequisites
 
 - AI gateway: 5xx outage from about 00:16Z to before 00:44Z on 2026-10-09; AVAILABLE since. If 5xx returns, probe one app (command in `state.json` capabilities.ai-gateway.detail).
@@ -151,6 +153,8 @@
 - Never publish credentials, `.env` values, evidence ledgers, cached corpus source or raw logs. Check the staged diff before each push.
 
 ## Next action
+
+First: resume P4-FIX-UNBUILDABLE-DOCKERFILE. Check PR #502 CI on head e26d1bcb; all required checks SUCCESS = full-suite evidence, then COMPLETE and run P4-MERGE-UNBUILDABLE-DOCKERFILE (mergeProcedure; check the COMP-042 number for a collision). A CI failure is fixed on the branch.
 
 Run the Phase 4 queue in tasks.json order: P4-FIX/MERGE-UNBUILDABLE-DOCKERFILE, -FALSE-REJECTION, -LOCAL-STATE, -START-COMMAND, -MIGRATION-RUNTIME, -AI-RELIABILITY, P4-SYNC-CANDIDATE, P4-RERUN-COMPAT-01..08, P4-RERUN-BUILD-PLAN, P4-GATE. Harness fix tasks leave changes uncommitted; Opus verifies and commits them on campaign/fresh-100. Product fixes go through focused PRs; P4-MERGE-x follows policy.publication.mergeProcedure and watches CI on main and Deploy API/Deploy web. Family F1 changes the gate meaning of a missing or unbuildable Dockerfile (NEEDS_CONFIGURATION -> NOT_COMPATIBLE only with complete evidence); the Opus review of that PR must check mvp-scope.md and decisions/README.md. User decisions 2026-10-09: P4-FIX-HARNESS-TAR READY (option B: replace symlinks with copies of in-snapshot targets, skip others, count both in evidence); P4-FIX-HARNESS-READINESS READY (option A: pull stand-in images before the 90 s readiness window).
 
