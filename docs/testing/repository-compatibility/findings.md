@@ -1382,5 +1382,5 @@ cleaner verdict signal but a noisier fact signal.
 - Actual: NOT_COMPATIBLE
 - Fix: `checkPulumi` ignores a Pulumi dependency in a deployment sample directory, the same rule as the Pulumi file check; the `rediss://` check strips comments from env sample files. A Pulumi package in the application and a `rediss://` value that an env sample sets still reject. `ANALYSIS_VERSION` 47.
 - Regression: `packages/analysis/test/false-rejection-scoping.test.ts` (fixtures only).
-- Residual: repo-503, 516, 520, 547 (`local-filesystem`) and 563 (`docker-compose-multi-service`) stay rejected. Each needs its own signal: an S3 or PostgreSQL option that removes the volume, the Dockerfile that Deployz selects (repo-516), and an optional image-only Compose service (repo-563).
+- Residual (rejection kept, no safe signal in this PR): repo-503 (app and nginx pair with a `./mydata` volume, no S3 option in the tree), repo-547 (the cached tree has no S3 SDK or bucket setting), repo-520 (media and secrets volumes plus a database built from `Dockerfile.devdb`) and repo-563 (an always-started image-only Compose service that calls the app, with no published port; no structure separates it from a required second image, and the stays-rejected fixtures protect that case). repo-516 needs a change to Dockerfile selection (`cli/Dockerfile`), not to the gate.
 - Status: partly fixed
