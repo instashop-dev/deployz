@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { describe, it, expect } from 'vitest';
 
 import { resolveStage, stageNames } from '../src/stage.js';
@@ -49,5 +50,32 @@ describe('resolveStage', () => {
   // Fails closed: a typo must never deploy production's names.
   it('throws on an unknown stage', () => {
     expect(() => resolveStage('stagin')).toThrow(/stagin/);
+  });
+});
+
+describe('customer-reset protected inventory', () => {
+  const declarations = readFileSync(
+    new URL('../../../scripts/customer-reset/safety.ts', import.meta.url),
+    'utf8',
+  )
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/^\s*\/\/.*$/gm, '');
+
+  // scripts/customer-reset cannot import this package, so it repeats these
+  // names as literals and they can drift. This test reads the script as text
+  // to catch the drift. It reads the declarations with the comments removed,
+  // so a name that only a comment holds cannot satisfy it. `kmsAlias` is left
+  // out on purpose: the tool has no KMS client and protects no alias.
+  it('names every stage resource the operator tool must never delete', () => {
+    for (const stage of ['production', 'staging'] as const) {
+      const names = stageNames(stage);
+
+      expect(declarations).toContain(names.stackId);
+      expect(declarations).toContain(names.ecrRepositoryName);
+      expect(declarations).toContain(names.templateBucketPrefix);
+      // CloudFormation derives the stack's own bucket names from the stack id.
+      expect(declarations).toContain(`^${names.stackId.toLowerCase()}-buildsourcebucket`);
+      expect(declarations).toContain(`^${names.stackId.toLowerCase()}-templatebucket`);
+    }
   });
 });
