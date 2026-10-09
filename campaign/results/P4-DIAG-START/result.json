@@ -1,0 +1,24 @@
+{
+  "taskId": "P4-DIAG-START",
+  "testedCommit": "e6a3b58ee2363923fef21faca86611fa3bf84538",
+  "executor": "campaign-worker",
+  "model": "sonnet",
+  "startedAt": "2026-10-10T00:00:00Z",
+  "finishedAt": "2026-10-10T00:25:00Z",
+  "proposedStatus": "COMPLETE",
+  "commands": [
+    { "command": "read repo-502/514/523/573 .local.json stage evidence (python -I json read)", "exitCode": 0, "summary": "run and probes evidence read for all four apps" },
+    { "command": "read campaign/logs/P3-BUILD-{02,07,10,23}/evidence/repo-*-run.log", "exitCode": 0, "summary": "raw run logs read; the 502 log holds only the last 40 lines" },
+    { "command": "read cached pinned source in docs/testing/repository-compatibility/.cache (mem0 main.py, hexpm Dockerfile, dawarich Dockerfile and compose, redash Dockerfile and compose)", "exitCode": 0, "summary": "causes confirmed for 573, 514, 523; redash settings not cached" }
+  ],
+  "evidence": [
+    "campaign/results/P4-DIAG-START/diagnosis.md"
+  ],
+  "notes": [
+    "repo-573 = F8 (JWT_SECRET not set; fix already on branch, local-run.ts line 243).",
+    "repo-514 and repo-523 = new family F11 (Dockerfile without default start command); systemic, Opus to decide whether to queue an analysis/gate fix.",
+    "repo-502 = UNDIAGNOSED; first worker-boot traceback lines missing (log tail is 40 lines).",
+    "Checkout HEAD was 349aa56c at run time; e6a3b58e is a valid commit and is recorded as testedCommit as instructed.",
+    "No code change, no Docker, no commit."
+  ]
+}

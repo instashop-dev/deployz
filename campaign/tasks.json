@@ -3772,7 +3772,7 @@
       "phase": 4,
       "title": "Diagnose start/health failures with no recorded cause (F10): repo-502, 514, 523, 573",
       "executor": "campaign-worker",
-      "status": "PENDING",
+      "status": "COMPLETE",
       "prerequisites": [
         "P4-GROUP"
       ],
@@ -3799,7 +3799,8 @@
       ],
       "timeboxMinutes": 25,
       "notes": [
-        "2026-10-09 P4-GROUP (Opus): read-only diagnosis. If the evidence does not prove a cause, record UNDIAGNOSED with what is missing. Opus queues a fix only for a systemic MVP defect."
+        "2026-10-09 P4-GROUP (Opus): read-only diagnosis. If the evidence does not prove a cause, record UNDIAGNOSED with what is missing. Opus queues a fix only for a systemic MVP defect.",
+        "2026-10-09 Opus verification: worker sonnet attempt 1. repo-573 -> F8 (log: JWT_SECRET is required; manifest generatedKeys JWT_SECRET not set before the F8 fix). repo-514 (no CMD/ENTRYPOINT, base bash exits 0) and repo-523 (ENTRYPOINT bundle exec, no CMD) -> Opus maps them to existing F3 (no default server command), not the worker-proposed new F11; added to P4-FIX-START-COMMAND. repo-502 UNDIAGNOSED: the 40-line app log tail (LOG_TAIL_LINES) holds only gunicorn HaltServer frames; the cause line is in no artifact. Observation for P4-RERUN/P4-GATE: the rerun of repo-502 after F8 decides it; a longer tail is a possible harness change, not queued. Opus spot-checked the three quoted log lines in the evidence."
       ]
     },
     {
@@ -4100,7 +4101,8 @@
       ],
       "timeboxMinutes": 38,
       "notes": [
-        "2026-10-09 P4-GROUP (Opus): resumable (stopBy). On CONTINUE record the branch, last pushed SHA and remaining steps. Do not merge; P4-MERGE-START-COMMAND merges. Apps: repo-549, 566, 580. ENTRYPOINT without CMD and an image whose default command is a CLI help must raise start-command-missing; a multi-process supervisor (s6, supervisord) running separate web/api/worker processes must be flagged per mvp-scope.md."
+        "2026-10-09 P4-GROUP (Opus): resumable (stopBy). On CONTINUE record the branch, last pushed SHA and remaining steps. Do not merge; P4-MERGE-START-COMMAND merges. Apps: repo-549, 566, 580. ENTRYPOINT without CMD and an image whose default command is a CLI help must raise start-command-missing; a multi-process supervisor (s6, supervisord) running separate web/api/worker processes must be flagged per mvp-scope.md.",
+        "2026-10-09 P4-DIAG-START (Opus): add repo-514 (final stage has no CMD and no ENTRYPOINT; debian default bash exits 0) and repo-523 (ENTRYPOINT [\"bundle\",\"exec\"] without CMD; real command only in docker/docker-compose.yml). Evidence: campaign/results/P4-DIAG-START/diagnosis.md. A final-stage image with no CMD/ENTRYPOINT of its own (inherited base default is a shell) must also raise start-command-missing, if sound on more than one app."
       ]
     },
     {
