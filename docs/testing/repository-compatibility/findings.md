@@ -1384,3 +1384,15 @@ cleaner verdict signal but a noisier fact signal.
 - Regression: `packages/analysis/test/false-rejection-scoping.test.ts` (fixtures only).
 - Residual (rejection kept): repo-503 (the collected tree has no storage-type or S3 selector for the data directory, and the app and nginx pair stays a multi-service finding), repo-520 (the default image embeds PostgreSQL with a volume, plus media and secrets volumes and a db built from `Dockerfile.devdb`; the minimal target needs a target-selection signal), repo-516 (the gate is not the cause: Deployz selects `cli/Dockerfile`; a Dockerfile selection change).
 - Status: partly fixed (509, 547, 563, 569 fixed; 503, 516, 520 kept)
+
+### COMP-044 — Local state or a required configuration file is not detected
+
+- Family: fresh-100 F2 (`ANALYSIS_MISSING_SIGNAL`), 7 gate false acceptances (repo-510, 522, 528, 529, 552, 557, 593).
+- Repositories fixed here: repo-510 (Rails `config/database.yml` whose only adapter is `sqlite3`, Gemfile without a PostgreSQL gem) and repo-593 (the image `ENTRYPOINT` passes `--config /app/config/glance.yml`; no instruction creates that file and the repository ships none at that path).
+- Type: ANALYSIS_MISSING_SIGNAL
+- Expected: NOT_COMPATIBLE (`local-filesystem` or `sqlite`)
+- Actual: NEEDS_CONFIGURATION or READY
+- Fix: `checkSqlite` rejects a Rails `database.yml` that names only the sqlite3 adapter when no PostgreSQL driver is declared. `checkRequiredConfigFileMount` also reads a configuration file passed as `--config`, `--config-file` or `-c` in `ENTRYPOINT` or `CMD`, with the same rule as for an `ENV` path. A Rails app that also names a PostgreSQL adapter or gem, a Dockerfile that creates the directory, and a repository that ships the file all stay accepted. `ANALYSIS_VERSION` 48.
+- Regression: `packages/analysis/test/fresh-100-local-state.test.ts` (fixtures only).
+- Residual (limitation, not fixed because no signal is sound on a second app): repo-522 (the file server serves a host directory given as an argument at run time; the image declares no path), repo-528 (`ELECTRIC_STORAGE_DIR` default `./persistent` is set in Elixir runtime configuration; a relative default is not a durable-directory signal elsewhere), repo-529 (`VOLUME /var/lib/snipeit` holds uploads and keys; the upload rule treats the S3 option as a replacement and the keys cannot be told apart), repo-552 (the app reads `.config/default.yml` from its own source, not from an image instruction), repo-557 (an empty web root plus a local SQLite default; the app also accepts PostgreSQL).
+- Status: partly fixed (510, 593 fixed; 522, 528, 529, 552, 557 kept)

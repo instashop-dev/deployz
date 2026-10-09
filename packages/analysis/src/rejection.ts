@@ -589,6 +589,21 @@ export function checkSqlite(tree: FileTree): RejectionFinding {
       reason: 'Unsupported database: a Go SQLite driver is declared in go.mod. Deployz hosts PostgreSQL only.',
     };
   }
+  // A Rails `config/database.yml` whose only adapter is sqlite3 keeps the whole
+  // database in a file under `storage/`; the Gemfile names no PostgreSQL gem
+  // (`configurable`), so no setting moves it to the database Deployz hosts.
+  if (!configurable) {
+    for (const [path, content] of Object.entries(tree)) {
+      if (!content || !/(?:^|\/)config\/database\.yml$/.test(path)) continue;
+      if (/^\s*adapter:\s*["']?sqlite3\b/m.test(content) && !/^\s*adapter:\s*["']?(?!sqlite3)\w/m.test(content)) {
+        return {
+          detected: true,
+          dependency: 'sqlite',
+          reason: `Unsupported database: ${path} configures only the sqlite3 adapter. Deployz hosts PostgreSQL only.`,
+        };
+      }
+    }
+  }
   // A SQLite connection URL next to a PostgreSQL driver is the default of a
   // configurable engine (wallabag's `DATABASE_URL=sqlite://…` sample).
   for (const [path, content] of Object.entries(tree)) {
@@ -1149,6 +1164,23 @@ function isLocalDirValue(value: string): boolean {
 }
 
 /**
+ * An image `ENTRYPOINT` or `CMD` that passes a configuration FILE (`--config /app/config/app.yml`)
+ * that no instruction of the Dockerfile creates and the repository does not ship at that path.
+ */
+function requiredConfigFileArgument(tree: FileTree, selected: string | undefined, lines: string[]): { file: string; instruction: string } | null {
+  for (const line of lines.filter((entry) => /^\s*(?:ENTRYPOINT|CMD)\b/.test(entry))) {
+    const argument = /(?:--config(?:-file)?|-c)(?:=|"?\s*,\s*"|\s+)"?(\/[\w./-]+\/[\w.-]+\.(?:ya?ml|toml|json|conf|ini))\b/.exec(line);
+    if (!argument?.[1]) continue;
+    const file = argument[1];
+    const directory = file.slice(0, file.lastIndexOf('/'));
+    const created = lines.some((entry) => !/^\s*(?:ENV|ENTRYPOINT|CMD)\b/.test(entry) && entry.includes(directory));
+    const shipped = Object.keys(tree).some((path) => file.endsWith(`/${path}`));
+    if (!created && !shipped) return { file, instruction: selected ?? 'Dockerfile' };
+  }
+  return null;
+}
+
+/**
  * An image `ENV` that points the app at a configuration FILE no instruction of the
  * Dockerfile creates (authelia `X_AUTHELIA_CONFIG=/config/configuration.yml`): the
  * container exits until that file is mounted, and Deployz mounts no files.
@@ -1167,6 +1199,14 @@ export function checkRequiredConfigFileMount(tree: FileTree): RejectionFinding {
         };
       }
     }
+  }
+  const argument = requiredConfigFileArgument(tree, selected, lines);
+  if (argument !== null) {
+    return {
+      detected: true,
+      dependency: 'local-filesystem',
+      reason: `Unsupported storage: the image starts with the configuration file ${argument.file} (ENTRYPOINT or CMD in ${argument.instruction}), and no Dockerfile instruction creates that file. Deployz does not mount configuration files.`,
+    };
   }
   return { detected: false, dependency: 'none', reason: 'No required configuration file mount detected' };
 }

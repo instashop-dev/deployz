@@ -316,7 +316,11 @@ type ApplicationRow = typeof schema.applications.$inferSelect;
 // directory and a rediss:// URL that an env sample only mentions in a comment
 // no longer reject the repository. Stored v46 rows answer NOT_COMPATIBLE for
 // these repositories.
-export const ANALYSIS_VERSION = 47;
+// Version 48 (fresh-100 F2): a Rails app whose database.yml names only the
+// sqlite3 adapter, and an image started with a --config file that no
+// instruction creates, are NOT_COMPATIBLE. Stored v47 rows answer
+// NEEDS_CONFIGURATION or READY for these repositories.
+export const ANALYSIS_VERSION = 48;
 
 export interface AnalysisRunnerDeps {
   db: RuntimeDb;

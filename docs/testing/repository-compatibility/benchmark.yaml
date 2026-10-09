@@ -50,6 +50,7 @@ findings:
   - { id: COMP-041, type: ANALYSIS_MISSING_SIGNAL, facts: [compatibility] }
   - { id: COMP-042, type: ANALYSIS_BUG, facts: [compatibility] }
   - { id: COMP-043, type: ANALYSIS_BUG, facts: [compatibility] }
+  - { id: COMP-044, type: ANALYSIS_MISSING_SIGNAL, facts: [compatibility, unsupported] }
 
 repositories:
   - id: repo-001
