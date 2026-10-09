@@ -1,0 +1,132 @@
+{
+  "schemaVersion": 1,
+  "id": "repo-580",
+  "repository": "ridafkih/keeper.sh",
+  "commit": "06ffc53df8634c47272710c4cbf5a5148eeee08b",
+  "set": "improvement",
+  "cohort": "messy",
+  "deployzCommit": "7b94b2ced1841d758976fb0e8e40f1f8b724dcf0",
+  "analysisVersion": 45,
+  "ai": {
+    "mode": "live",
+    "model": "workers-ai/@cf/deepseek-ai/deepseek-v4-flash-0731",
+    "requests": 1,
+    "outcome": "timeout",
+    "error": "AbortError: This operation was aborted"
+  },
+  "inputsHash": "ebe247d1ff76ac1d5b074fffc178703934e161b024b471cd54b3a62c94f87acb",
+  "stages": {
+    "gate": {
+      "status": "FAIL",
+      "startedAt": "2026-10-09T17:37:07.973Z",
+      "finishedAt": "2026-10-09T17:37:07.977Z",
+      "durationMs": 4,
+      "detail": null,
+      "evidence": {
+        "verdict": "NEEDS_CONFIGURATION",
+        "outcome": "false-acceptance",
+        "configuredVerdict": "READY",
+        "manifest": {
+          "dockerfilePath": "applications/web/Dockerfile",
+          "buildContext": ".",
+          "appRoot": "applications/web",
+          "port": 3000,
+          "healthPath": "/",
+          "healthMode": "vendor_required",
+          "migrationCommand": null,
+          "migrationMode": "unknown",
+          "postgres": true,
+          "redis": false,
+          "storage": false,
+          "databaseBindings": [
+            "DATABASE_HOST",
+            "DATABASE_NAME",
+            "DATABASE_PASSWORD",
+            "DATABASE_PORT",
+            "DATABASE_URL",
+            "DATABASE_USER",
+            "DB_HOST",
+            "DB_NAME",
+            "DB_PASSWORD",
+            "DB_PORT",
+            "DB_USER"
+          ],
+          "redisBindings": [],
+          "storageBindings": [],
+          "generatedKeys": []
+        }
+      }
+    },
+    "source": {
+      "status": "PASS",
+      "startedAt": "2026-10-09T17:37:07.982Z",
+      "finishedAt": "2026-10-09T17:37:10.252Z",
+      "durationMs": 2270,
+      "detail": null,
+      "evidence": {
+        "commit": "06ffc53df8634c47272710c4cbf5a5148eeee08b",
+        "archiveCached": true,
+        "archiveBytes": null
+      }
+    },
+    "build": {
+      "status": "FAIL",
+      "startedAt": "2026-10-09T17:37:10.254Z",
+      "finishedAt": "2026-10-09T17:37:15.700Z",
+      "durationMs": 5446,
+      "detail": "docker build exited 1",
+      "evidence": {
+        "dockerfilePath": "docker/services/Dockerfile",
+        "buildContext": "docker/services",
+        "platform": "linux/amd64",
+        "image": "deployz-campaign/repo-580:06ffc53df863",
+        "exitCode": 1,
+        "durationMs": 5441,
+        "buildArgNames": [],
+        "logTail": "#26 [prune 2/3] COPY --from=source /app .\n#26 CACHED\n\n#27 [build 4/4] RUN bun run --cwd services/api build &&     bun run --cwd services/cron build &&     bun run --cwd services/worker build &&     bun run --cwd applications/web build\n#27 CACHED\n\n#28 [runtime  7/17] RUN bun install --frozen-lockfile --production\n#28 CACHED\n\n#29 [build 3/4] COPY --from=prune /app/out/full/ .\n#29 CACHED\n\n#30 [runtime  4/17] RUN case \"amd64\" in   amd64) S6_ARCH=\"x86_64\" ;;   arm64) S6_ARCH=\"aarch64\" ;;   *) echo \"Unsupported architecture: amd64\" && exit 1 ;;   esac   && curl -fsSL \"https://github.com/just-containers/s6-overlay/releases/download/v3.2.0.2/s6-overlay-noarch.tar.xz\" -o /tmp/s6-overlay-noarch.tar.xz   && curl -fsSL \"https://github.com/just-containers/s6-overlay/releases/download/v3.2.0.2/s6-overlay-${S6_ARCH}.tar.xz\" -o /tmp/s6-overlay-arch.tar.xz   && tar -C / -Jxpf /tmp/s6-overlay-noarch.tar.xz   && tar -C / -Jxpf /tmp/s6-overlay-arch.tar.xz   && rm /tmp/s6-overlay-*.tar.xz\n#30 CACHED\n\n#31 [runtime  6/17] COPY --from=prune /app/out/json/ .\n#31 CACHED\n\n#32 [runtime 16/17] COPY docker/services/rootfs /\n#32 ERROR: failed to calculate checksum of ref 12cfkxfrx28t4g2mqmjcwmb4j::fo0fpjbtp520aoh1tlsm2ee2e: \"/docker/services/rootfs\": not found\n\n#9 [base 1/2] FROM docker.io/oven/bun:1@sha256:9114c058aeae42162ee16dd5084b95fe9473970bb6bcb5b232ab1630f0546895\n#9 CANCELED\n\n#33 [runtime  2/17] RUN apt-get update && apt-get install -y --no-install-recommends   ca-certificates   curl   xz-utils   unzip   && rm -rf /var/lib/apt/lists/*\n#33 CANCELED\n------\n > [runtime 16/17] COPY docker/services/rootfs /:\n------\nDockerfile:64\n--------------------\n  62 |     COPY --from=build /app/applications/web/dist ./applications/web/dist\n  63 |     \n  64 | >>> COPY docker/services/rootfs /\n  65 |     \n  66 |     RUN chmod +x /etc/s6-overlay/s6-rc.d/*/run /etc/s6-overlay/scripts/*\n--------------------\nERROR: failed to build: failed to solve: failed to compute cache key: failed to calculate checksum of ref 12cfkxfrx28t4g2mqmjcwmb4j::fo0fpjbtp520aoh1tlsm2ee2e: \"/docker/services/rootfs\": not found\n\nView build details: docker-desktop://dashboard/build/desktop-linux/desktop-linux/m0ontzl3s6atx92abht21f0gi",
+        "failure": "build",
+        "rebuilt": false
+      }
+    },
+    "run": {
+      "status": "SKIPPED",
+      "startedAt": "2026-10-09T17:37:16.125Z",
+      "finishedAt": "2026-10-09T17:37:16.127Z",
+      "durationMs": 2,
+      "detail": "the build did not pass",
+      "evidence": {}
+    },
+    "probes": {
+      "status": "SKIPPED",
+      "startedAt": "2026-10-09T17:37:16.130Z",
+      "finishedAt": "2026-10-09T17:37:16.132Z",
+      "durationMs": 2,
+      "detail": "the build did not pass",
+      "evidence": {}
+    },
+    "cleanup": {
+      "status": "PASS",
+      "startedAt": "2026-10-09T17:37:16.134Z",
+      "finishedAt": "2026-10-09T17:37:17.511Z",
+      "durationMs": 1377,
+      "detail": null,
+      "evidence": {
+        "removed": {
+          "containers": 0,
+          "networks": 0,
+          "volumes": 0
+        },
+        "imageRemoved": false,
+        "buildCachePruned": true,
+        "keepImage": false,
+        "leaks": {
+          "containers": [],
+          "networks": [],
+          "volumes": []
+        }
+      }
+    }
+  },
+  "classification": "gate",
+  "remediation": null
+}

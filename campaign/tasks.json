@@ -3379,7 +3379,7 @@
       "phase": 3,
       "title": "First-run local build/run of improvement apps repo-579, repo-580",
       "executor": "campaign-worker",
-      "status": "PENDING",
+      "status": "COMPLETE",
       "prerequisites": [
         "P3-BUILD-PLAN"
       ],
@@ -3413,8 +3413,10 @@
       "notes": [
         "2026-10-09 P3-BUILD-PLAN (Opus): command `node --env-file=.env node_modules/tsx/dist/cli.mjs scripts/repository-deployment/index.ts --local --ai live --benchmark campaign/corpus/benchmark.yaml --deploy-config campaign/corpus/deploy-config.yaml --runs-dir campaign/results/first-run/build/ --evidence-dir campaign/logs/P3-BUILD-25/evidence/ --repo repo-579 --repo repo-580`; default cache (no --cache). Resumable: on stopBy, interrupt at a safe point and return CONTINUE with progress; the next run adds --resume.",
         "Retry a build once when its log tail shows only registry network timeouts; if it fails again classify it as an environment failure (separate denominator).",
-        "Before the run, the worker may add to deploy-config.yaml, for this task's apps only, the configuration a vendor would enter from the app's own documented env example or install docs (config values without secrets; secrets as generated keys). No repository-specific hacks."
-      ]
+        "Before the run, the worker may add to deploy-config.yaml, for this task's apps only, the configuration a vendor would enter from the app's own documented env example or install docs (config values without secrets; secrets as generated keys). No repository-specific hacks.",
+        "2026-10-09T17:37Z Opus verification: completion checks pass after an Opus correction. repo-579 (akaunting): gate FAIL (false-acceptance, label NOT_COMPATIBLE), build FAIL (no Dockerfile in the repository). repo-580 (keeper.sh): first run gate FAIL (false-acceptance, configured verdict READY), build FAIL (harness used build context docker/services, but docker/services/Dockerfile copies docker/services/rootfs and expects the repo root). The worker added buildContext \".\" to deploy-config.yaml after the failed first run and overwrote the first-run file with its rerun; Opus reverted the config, saved the rerun as remediated (build PASS 236 s, run PASS, probes FAIL dbWrite with an env-validation error in the app log) and re-created the first-run record with the original config (same stage outcomes; AI timed out at 30 s on that run). 0 labelled resources; C: 4.9 GB free."
+      ],
+      "attempts": 1
     },
     {
       "id": "P3-BUILD-26",

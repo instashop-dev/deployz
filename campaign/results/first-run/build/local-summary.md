@@ -1,11 +1,11 @@
 # Local Docker run summary
 
-Repositories: 48
+Repositories: 50
 
 ## Classification
 
 - build: 5
-- gate: 27
+- gate: 29
 - local-success: 1
 - probes: 10
 - run: 3
@@ -15,12 +15,12 @@ Repositories: 48
 
 | Stage | Attempted | PASS | FAIL | SKIPPED | IN_PROGRESS |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| gate | 48 | 21 | 27 | 0 | 0 |
-| source | 48 | 35 | 6 | 7 | 0 |
-| build | 48 | 19 | 16 | 13 | 0 |
-| run | 48 | 15 | 4 | 29 | 0 |
-| probes | 48 | 2 | 13 | 33 | 0 |
-| cleanup | 48 | 35 | 0 | 13 | 0 |
+| gate | 50 | 21 | 29 | 0 | 0 |
+| source | 50 | 37 | 6 | 7 | 0 |
+| build | 50 | 19 | 18 | 13 | 0 |
+| run | 50 | 15 | 4 | 31 | 0 |
+| probes | 50 | 2 | 13 | 35 | 0 |
+| cleanup | 50 | 37 | 0 | 13 | 0 |
 
 ## Probes
 
@@ -85,3 +85,5 @@ Repositories: 48
 | repo-574 | lobsters/lobsters | gate | 4.0 |
 | repo-575 | traccar/traccar | gate | 9.4 |
 | repo-577 | woodpecker-ci/woodpecker | gate | 9.6 |
+| repo-579 | akaunting/akaunting | gate | 11.5 |
+| repo-580 | ridafkih/keeper.sh | gate | 9.1 |

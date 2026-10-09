@@ -1,0 +1,182 @@
+{
+  "schemaVersion": 1,
+  "id": "repo-580",
+  "repository": "ridafkih/keeper.sh",
+  "commit": "06ffc53df8634c47272710c4cbf5a5148eeee08b",
+  "set": "improvement",
+  "cohort": "messy",
+  "deployzCommit": "7b94b2ced1841d758976fb0e8e40f1f8b724dcf0",
+  "analysisVersion": 45,
+  "ai": {
+    "mode": "live",
+    "model": "workers-ai/@cf/deepseek-ai/deepseek-v4-flash-0731",
+    "requests": 1,
+    "outcome": "completed",
+    "error": null
+  },
+  "inputsHash": "92d83b83b0d03548b7bf19343fc4a59673013ae718bfa493bcb6a18d34130f1d",
+  "stages": {
+    "gate": {
+      "status": "FAIL",
+      "startedAt": "2026-10-09T17:29:53.504Z",
+      "finishedAt": "2026-10-09T17:29:53.508Z",
+      "durationMs": 4,
+      "detail": null,
+      "evidence": {
+        "verdict": "NEEDS_CONFIGURATION",
+        "outcome": "false-acceptance",
+        "configuredVerdict": "READY",
+        "manifest": {
+          "dockerfilePath": "applications/web/Dockerfile",
+          "buildContext": ".",
+          "appRoot": "applications/web",
+          "port": 3000,
+          "healthPath": "/",
+          "healthMode": "vendor_required",
+          "migrationCommand": null,
+          "migrationMode": "unknown",
+          "postgres": true,
+          "redis": false,
+          "storage": false,
+          "databaseBindings": [
+            "DATABASE_HOST",
+            "DATABASE_NAME",
+            "DATABASE_PASSWORD",
+            "DATABASE_PORT",
+            "DATABASE_URL",
+            "DATABASE_USER",
+            "DB_HOST",
+            "DB_NAME",
+            "DB_PASSWORD",
+            "DB_PORT",
+            "DB_USER"
+          ],
+          "redisBindings": [],
+          "storageBindings": [],
+          "generatedKeys": []
+        }
+      }
+    },
+    "source": {
+      "status": "PASS",
+      "startedAt": "2026-10-09T17:29:53.512Z",
+      "finishedAt": "2026-10-09T17:29:55.302Z",
+      "durationMs": 1790,
+      "detail": null,
+      "evidence": {
+        "commit": "06ffc53df8634c47272710c4cbf5a5148eeee08b",
+        "archiveCached": true,
+        "archiveBytes": null
+      }
+    },
+    "build": {
+      "status": "PASS",
+      "startedAt": "2026-10-09T17:29:55.305Z",
+      "finishedAt": "2026-10-09T17:33:52.120Z",
+      "durationMs": 236815,
+      "detail": null,
+      "evidence": {
+        "dockerfilePath": "docker/services/Dockerfile",
+        "buildContext": ".",
+        "platform": "linux/amd64",
+        "image": "deployz-campaign/repo-580:06ffc53df863",
+        "exitCode": 0,
+        "durationMs": 236293,
+        "buildArgNames": [],
+        "logTail": "\n#26 [runtime 11/17] COPY --from=build /app/packages/database/src ./packages/database/src\n#26 DONE 0.1s\n\n#27 [runtime 12/17] COPY --from=build /app/packages/data-schemas/src ./packages/data-schemas/src\n#27 DONE 0.2s\n\n#28 [runtime 13/17] COPY --from=source /app/packages/database/scripts ./packages/database/scripts\n#28 DONE 0.2s\n\n#29 [runtime 14/17] COPY --from=source /app/packages/database/drizzle ./packages/database/drizzle\n#29 DONE 0.4s\n\n#30 [runtime 15/17] COPY --from=build /app/applications/web/dist ./applications/web/dist\n#30 DONE 0.4s\n\n#31 [runtime 16/17] COPY docker/services/rootfs /\n#31 DONE 0.2s\n\n#32 [runtime 17/17] RUN chmod +x /etc/s6-overlay/s6-rc.d/*/run /etc/s6-overlay/scripts/*\n#32 DONE 0.5s\n\n#33 exporting to image\n#33 exporting layers\n#33 exporting layers 37.4s done\n#33 exporting manifest sha256:8f97aeb32448b7d07889291a3fce841db31084f7bb29a216587481a817fb49c8\n#33 exporting manifest sha256:8f97aeb32448b7d07889291a3fce841db31084f7bb29a216587481a817fb49c8 0.2s done\n#33 exporting config sha256:5387787313a563c573f8eed55efc8b02595d75ea22160a91b68410ff64e76dac\n#33 exporting config sha256:5387787313a563c573f8eed55efc8b02595d75ea22160a91b68410ff64e76dac 0.2s done\n#33 exporting attestation manifest sha256:617dea33c73a8bfc1dd6f15071d4dabb89fe3739be4edff8af1fe02658d7b64b\n#33 exporting attestation manifest sha256:617dea33c73a8bfc1dd6f15071d4dabb89fe3739be4edff8af1fe02658d7b64b 0.2s done\n#33 exporting manifest list sha256:54885c8bac7229222df27e0f6349604ed862cfecec05c2e8738f1866c76c6ffb\n#33 exporting manifest list sha256:54885c8bac7229222df27e0f6349604ed862cfecec05c2e8738f1866c76c6ffb 0.3s done\n#33 naming to docker.io/deployz-campaign/repo-580:06ffc53df863\n#33 naming to docker.io/deployz-campaign/repo-580:06ffc53df863 0.0s done\n#33 unpacking to docker.io/deployz-campaign/repo-580:06ffc53df863\n#33 unpacking to docker.io/deployz-campaign/repo-580:06ffc53df863 49.8s done\n#33 DONE 88.8s\n\nView build details: docker-desktop://dashboard/build/desktop-linux/desktop-linux/nlyi2gt2lhlqasp32757wjzc6",
+        "imageId": "sha256:54885c8bac7229222df27e0f6349604ed862cfecec05c2e8738f1866c76c6ffb",
+        "imageBytes": 1030627313,
+        "failure": null,
+        "rebuilt": false
+      }
+    },
+    "run": {
+      "status": "PASS",
+      "startedAt": "2026-10-09T17:33:53.243Z",
+      "finishedAt": "2026-10-09T17:34:07.612Z",
+      "durationMs": 14369,
+      "detail": null,
+      "evidence": {
+        "image": "deployz-campaign/repo-580:06ffc53df863",
+        "port": 3000,
+        "healthPath": "/",
+        "dependencies": [
+          "postgres",
+          "valkey"
+        ],
+        "environmentNames": [
+          "DATABASE_URL",
+          "DB_HOST",
+          "DB_NAME",
+          "DB_PASSWORD",
+          "DB_PORT",
+          "DB_USER",
+          "PORT",
+          "REDIS_URL"
+        ],
+        "migration": null
+      }
+    },
+    "probes": {
+      "status": "FAIL",
+      "startedAt": "2026-10-09T17:34:07.624Z",
+      "finishedAt": "2026-10-09T17:35:08.598Z",
+      "durationMs": 60974,
+      "detail": "failed: dbWrite",
+      "evidence": {
+        "probes": {
+          "health": {
+            "status": "PASS",
+            "detail": "/ answered 307"
+          },
+          "start": {
+            "status": "PASS",
+            "detail": "still running 60 s after start"
+          },
+          "migration": {
+            "status": "NOT_APPLICABLE",
+            "detail": "the manifest has no migration command"
+          },
+          "dbWrite": {
+            "status": "FAIL",
+            "detail": "no rows outside migration bookkeeping tables"
+          },
+          "redis": {
+            "status": "PASS",
+            "detail": "2 other client(s), 1 key(s)"
+          },
+          "storage": {
+            "status": "NOT_APPLICABLE",
+            "detail": "the manifest needs no storage"
+          }
+        },
+        "url": "http://app:3000/",
+        "appLogTail": "      at h (/app/services/api/dist/chunk-0dm4khet.js:22109:11)\n      at /app/services/api/dist/chunk-0dm4khet.js:22148:20\nnote: missing sourcemaps for /app/services/api/dist/chunk-0dm4khet.js\nnote: consider bundling with '--sourcemap' to get unminified traces\n\nBun v1.4.2 (Linux x64)\n22104 | }\n22105 | function h(e, r) {\n22106 |   let { env: i = process.env, coerce: a = true, onUndeclaredKey: o2 = `delete`, arrayFormat: c = `comma` } = r, l = (typeof e == `function` && `assert` in e ? e : s.type.raw(e)).onUndeclaredKey(o2), u = l;\n22107 |   a && (u = p(s.type, l, { arrayFormat: c }));\n22108 |   let d = u(i);\n22109 |     throw new o(m(d));\n                  ^\nArkEnvError: Errors found while validating environment variables\n  BETTER_AUTH_SECRET must be a string (was missing)\n  BETTER_AUTH_URL must be a string (was missing)\n\n      at h (/app/services/api/dist/chunk-0dm4khet.js:22109:11)\n      at /app/services/api/dist/chunk-0dm4khet.js:22148:20\nnote: missing sourcemaps for /app/services/api/dist/chunk-0dm4khet.js\nnote: consider bundling with '--sourcemap' to get unminified traces\n\nBun v1.4.2 (Linux x64)\n22104 | }\n22105 | function h(e, r) {\n22106 |   let { env: i = process.env, coerce: a = true, onUndeclaredKey: o2 = `delete`, arrayFormat: c = `comma` } = r, l = (typeof e == `function` && `assert` in e ? e : s.type.raw(e)).onUndeclaredKey(o2), u = l;\n22107 |   a && (u = p(s.type, l, { arrayFormat: c }));\n22108 |   let d = u(i);\n22109 |     throw new o(m(d));\n                  ^\nArkEnvError: Errors found while validating environment variables\n  BETTER_AUTH_SECRET must be a string (was missing)\n  BETTER_AUTH_URL must be a string (was missing)\n\n      at h (/app/services/api/dist/chunk-0dm4khet.js:22109:11)\n      at /app/services/api/dist/chunk-0dm4khet.js:22148:20\nnote: missing sourcemaps for /app/services/api/dist/chunk-0dm4khet.js\nnote: consider bundling with '--sourcemap' to get unminified traces\n\nBun v1.4.2 (Linux x64)"
+      }
+    },
+    "cleanup": {
+      "status": "PASS",
+      "startedAt": "2026-10-09T17:35:08.608Z",
+      "finishedAt": "2026-10-09T17:35:14.981Z",
+      "durationMs": 6373,
+      "detail": null,
+      "evidence": {
+        "removed": {
+          "containers": 3,
+          "networks": 1,
+          "volumes": 0
+        },
+        "imageRemoved": true,
+        "buildCachePruned": true,
+        "keepImage": false,
+        "leaks": {
+          "containers": [],
+          "networks": [],
+          "volumes": []
+        }
+      }
+    }
+  },
+  "classification": "gate",
+  "remediation": null
+}
