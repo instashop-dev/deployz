@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, type ReactNode } from 'react';
 
 import type {
   CustomerDeploymentStatus,
@@ -13,7 +13,11 @@ import { useRouter } from 'next/navigation';
 import { StepList, type StepListItem } from '@/components/step-list';
 import { AwsInfrastructureDetails } from '@/components/aws-infrastructure-details';
 import { CustomDomainCard } from '@/components/custom-domain-card';
-import { DeploymentTracker, type DeploymentTrackerLiveDetail } from '@/components/deployment-tracker';
+import {
+  DeploymentTracker,
+  WireStepList,
+  type DeploymentTrackerLiveDetail,
+} from '@/components/deployment-tracker';
 import { FailurePanel } from '@/components/failure-panel';
 import { LiveAwsActivity } from '@/components/live-aws-activity';
 import { ResourcesTable } from '@/components/resources-table';
@@ -72,10 +76,12 @@ function customerStepListSteps(status: CustomerDeploymentStatus): StepListItem[]
  * stays on the page never needs to reload it to see their app come up.
  *
  * Layout, top to bottom: the dominant progress card (headline, the step list
- * or the failure panel, the one action), the live AWS activity once AWS has
- * reported any, the per-component status, Access at VERIFYING/READY, and one
- * collapsed "Technical details" holding every identifier, raw AWS event and
- * the AWS resource inventory (ux-guidelines §8, §9).
+ * with the current operation and the latest AWS event, or the failure
+ * panel), any problem AWS reported, the one action, Access at
+ * VERIFYING/READY, and one collapsed "Deployment details" holding the
+ * detailed step list, the full AWS activity feed, the per-component status,
+ * every identifier, raw AWS event and the AWS resource inventory
+ * (ux-guidelines §8, §9).
  */
 export function InstallProgress({
   installLinkId,
@@ -87,6 +93,8 @@ export function InstallProgress({
   plan = null,
   preinstall = false,
   deployLink = null,
+  notice,
+  details,
 }: {
   installLinkId: string;
   deploymentId: string;
@@ -103,6 +111,12 @@ export function InstallProgress({
   /** Set on the /deploy page: status and domain calls resolve through the
    *  deploy link (token header) instead of the install link. */
   deployLink?: DeployLinkToken | null;
+  /** Page-level guidance that needs the customer's attention, shown above
+   *  "Deployment details". */
+  notice?: ReactNode;
+  /** Page-level references (expected stack name, CloudFormation link) shown
+   *  first inside "Deployment details". */
+  details?: ReactNode;
 }) {
   const router = useRouter();
   const poll = useStatusPoll({
@@ -136,13 +150,16 @@ export function InstallProgress({
   }, [advanced, router]);
   if (!status) {
     return (
-      <Card aria-busy="true">
-        <CardContent className="flex flex-col gap-3 py-4">
-          <Skeleton className="h-4 w-48" />
-          <Skeleton className="h-4 w-full" />
-          <Skeleton className="h-4 w-2/3" />
-        </CardContent>
-      </Card>
+      <div className="flex flex-col gap-6">
+        <Card aria-busy="true">
+          <CardContent className="flex flex-col gap-3 py-4">
+            <Skeleton className="h-4 w-48" />
+            <Skeleton className="h-4 w-full" />
+            <Skeleton className="h-4 w-2/3" />
+          </CardContent>
+        </Card>
+        {notice}
+      </div>
     );
   }
 
@@ -156,9 +173,8 @@ export function InstallProgress({
   const ready = status.stage === 'READY';
   const activity = status.recentActivity ?? [];
 
-  const trackerSteps = customerStepperSteps(
-    stepsFromStatus({ steps: status.steps, step: status.step, stage: status.stage }),
-  );
+  const wireSteps = stepsFromStatus({ steps: status.steps, step: status.step, stage: status.stage });
+  const trackerSteps = customerStepperSteps(wireSteps);
   const waitingOnInput = stepWaitingOnInput({
     step: status.step,
     needsDomainSetup: status.needsDomainSetup,
@@ -179,11 +195,11 @@ export function InstallProgress({
     <div className="flex flex-col gap-6">
       {failed ? (
         <Card>
-          <CardContent className="flex flex-col gap-4 py-4">
+          <CardContent className="flex flex-col gap-4 sm:px-6">
             {/* The only aria-live region in this component — every other
                 update (steps, components, access) rides along with it. */}
             <div>
-              <h2 aria-live="polite" className="text-base font-semibold">
+              <h2 aria-live="polite" className="text-lg font-semibold">
                 Deployment failed
               </h2>
               <p className="mt-1 text-sm text-muted-foreground">
@@ -206,7 +222,12 @@ export function InstallProgress({
         <DeploymentTracker
           stage={status.stage}
           steps={trackerSteps}
-          wireSteps={stepsFromStatus({ steps: status.steps, step: status.step, stage: status.stage })}
+          currentStepLabel={
+            wireSteps.find((step) => step.state === 'current' || step.state === 'attention')?.label
+          }
+          waitingOnInput={waitingOnInput}
+          latestActivity={active ? activity[0] : undefined}
+          stale={stale}
           {...(liveDetail ? { liveDetail } : {})}
         />
       )}
@@ -227,6 +248,8 @@ export function InstallProgress({
           <AlertDescription>{status.provisioningIssue.message}</AlertDescription>
         </Alert>
       ) : null}
+
+      {notice}
 
       {status.stage === 'WAITING_FOR_AWS' && quickCreateUrl ? (
         <Button asChild variant="outline" size="sm" className="self-start">
@@ -249,18 +272,6 @@ export function InstallProgress({
             <ExternalLink aria-hidden className="size-3.5" />
           </a>
         </Button>
-      ) : null}
-
-      {active && activity.length > 0 ? <LiveAwsActivity items={activity} stale={stale} /> : null}
-
-      {/* Resources start with infrastructure work (ux-guidelines §8):
-          while AWS is still connecting, every row would only say Waiting. */}
-      {!failed && status.stage !== 'WAITING_FOR_AWS' && status.stage !== 'CONNECTING' ? (
-        <ResourcesTable
-          specComponents={status.specComponents}
-          components={status.components}
-          showState={!ready}
-        />
       ) : null}
 
       {canAccess ? (
@@ -311,26 +322,40 @@ export function InstallProgress({
       ) : null}
 
       {!failed ? (
-        <DeploymentTechnicalDetails
-          technicalDetails={status.technicalDetails ?? null}
-          awsSummary={ready ? (status.awsSummary ?? null) : null}
-          updatedAt={status.updatedAt}
-          routingTarget={canAccess ? routingTarget : null}
-          plan={plan}
-        />
+        <TechnicalDetails label="Deployment details" className="border-t pt-4 text-sm">
+          {details}
+          <WireStepList wireSteps={wireSteps} stage={status.stage} />
+          {active && activity.length > 0 ? <LiveAwsActivity items={activity} stale={stale} /> : null}
+          {/* Resources start with infrastructure work (ux-guidelines §8):
+              while AWS is still connecting, every row would only say Waiting. */}
+          {status.stage !== 'WAITING_FOR_AWS' && status.stage !== 'CONNECTING' ? (
+            <ResourcesTable
+              specComponents={status.specComponents}
+              components={status.components}
+              showState={!ready}
+            />
+          ) : null}
+          <DeploymentDiagnostics
+            technicalDetails={status.technicalDetails ?? null}
+            awsSummary={ready ? (status.awsSummary ?? null) : null}
+            updatedAt={status.updatedAt}
+            routingTarget={canAccess ? routingTarget : null}
+            plan={plan}
+          />
+        </TechnicalDetails>
       ) : null}
     </div>
   );
 }
 
 /**
- * The one "Technical details" disclosure for a deployment that has not failed
- * (the failure panel carries its own): the deployment reference and facts,
- * the READY-only stored AWS summary with its CloudFormation link, the
+ * The diagnostics inside "Deployment details" for a deployment that has not
+ * failed (the failure panel carries its own): the deployment reference and
+ * facts, the READY-only stored AWS summary with its CloudFormation link, the
  * load-balancer endpoint, the raw AWS events, and the plan's AWS resource
  * inventory. Renders nothing until one of them exists.
  */
-function DeploymentTechnicalDetails({
+function DeploymentDiagnostics({
   technicalDetails,
   awsSummary,
   updatedAt,
@@ -346,7 +371,7 @@ function DeploymentTechnicalDetails({
   const hasInventory = (plan?.awsResources.length ?? 0) > 0;
   if (!technicalDetails && !awsSummary && !routingTarget && !hasInventory) return null;
   return (
-    <TechnicalDetails className="text-sm">
+    <div className="flex flex-col gap-3 border-t pt-3">
       {technicalDetails ? (
         <>
           <DetailRow label="Reference" value={technicalDetails.reference} />
@@ -378,7 +403,7 @@ function DeploymentTechnicalDetails({
       ) : null}
       {technicalDetails ? <TechnicalEvents events={technicalDetails.events} /> : null}
       {hasInventory ? <AwsInfrastructureDetails plan={plan} /> : null}
-    </TechnicalDetails>
+    </div>
   );
 }
 

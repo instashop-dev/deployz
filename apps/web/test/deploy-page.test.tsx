@@ -113,7 +113,8 @@ describe('DeployPage', () => {
     expect(doc.body.textContent).toContain('Deploy Acme Analytics to your AWS account');
     // Plan-driven table content, not a hand-rolled resource-name list.
     expect(doc.body.textContent).toContain('RDS PostgreSQL database');
-    expect(doc.body.textContent).toContain('Stores persistent application data');
+    expect(doc.body.textContent).toContain('What will be deployed');
+    expect(doc.body.textContent).toContain('Database');
     expect(doc.body.textContent).toContain('US East (N. Virginia)');
     // No estimate in the fixture: the fallback stays explicit, never invented.
     expect(doc.body.textContent).toContain('AWS cost estimate unavailable.');
@@ -137,11 +138,27 @@ describe('DeployPage', () => {
         }),
       }),
     );
+    mocks.fetchDeployLinkStatusServer.mockResolvedValue({
+      stage: 'WAITING_FOR_AWS',
+      updatedAt: '2026-09-18T00:00:00.000Z',
+      currentActivity: 'AWS is creating the Deployz connector in your account.',
+      step: 'AWS_SETUP',
+      steps: [],
+      typicalDurationSeconds: { min: 180, max: 600 },
+      takingLongerThanUsual: false,
+      removed: false,
+      statusUpdatesUnavailable: false,
+      needsDomainSetup: false,
+      components: [],
+      url: null,
+      failure: null,
+    });
     const doc = await renderPage();
 
     expect(doc.body.textContent).toContain('setting up inside your AWS account');
-    // The expected stack name now sits collapsed under Technical details.
-    expect(doc.body.textContent).toContain('Technical details');
+    // The expected stack name now sits collapsed under Deployment details.
+    expect(doc.body.textContent).toContain('Deployment details');
+    expect(doc.body.textContent).not.toContain('Technical details');
     expect(doc.body.textContent).toContain('Still connecting');
     expect(doc.body.textContent).toContain('Retry connection');
     expect(securityLink(doc)?.getAttribute('href')).toBe(SECURITY_HREF);

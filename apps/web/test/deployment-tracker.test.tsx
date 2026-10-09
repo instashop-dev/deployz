@@ -10,9 +10,10 @@ import type { CustomerDeploymentStatus, DeploymentStep } from '@deployz/contract
 //   1. One authoritative X-of-Y stepper replacing the prior top status card.
 //   2. Compact resource table with honest states (Ready / Starting / Creating
 //      / Failed), no "In progress" for resources the data proves are ready.
-//   3. Live AWS activity kept visible but secondary.
-//   4. Technical details collapsed by default; existing diagnostic data
-//      remains accessible behind it.
+//   3. The newest AWS activity shown in the tracker; the full feed kept
+//      secondary.
+//   4. Deployment details collapsed by default; resources, the step list,
+//      the full feed, and existing diagnostic data remain accessible behind it.
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -94,6 +95,16 @@ function findTestId(testId: string): HTMLElement {
   const element = container!.querySelector(`[data-testid="${testId}"]`);
   expect(element).toBeDefined();
   return element as HTMLElement;
+}
+
+async function openDeploymentDetails(): Promise<void> {
+  const trigger = Array.from(container!.querySelectorAll('[data-slot="collapsible-trigger"]')).find((element) =>
+    element.textContent?.includes('Deployment details'),
+  ) as HTMLElement;
+  expect(trigger).toBeDefined();
+  await act(async () => {
+    trigger.click();
+  });
 }
 
 async function flush(): Promise<void> {
@@ -189,7 +200,8 @@ describe('Customer deployment progress — normal vs delayed messaging', () => {
     const text = container!.textContent ?? '';
     expect(text).not.toContain('No action needed');
     expect(text).toContain('Usually takes 3–10 minutes');
-    expect(text).toContain('0s elapsed');
+    expect(findTestId('tracker-current-detail').textContent).toContain('Usually takes 3–10 minutes');
+    expect(findTestId('tracker-step-elapsed').textContent).toBe('0s on this step');
   });
 
   it('shows the "No action needed" reassurance only when the server flag says so', async () => {
@@ -248,6 +260,9 @@ describe('Customer deployment progress — resource statuses', () => {
     mount(baseProps({ initialStatus: status }));
     await flush();
 
+    expect(container!.querySelector('[data-testid="deployment-resources"]')).toBeNull();
+    await openDeploymentDetails();
+
     const text = container!.textContent ?? '';
     expect(text).toContain('Resources');
     expect(text).toContain('Application runtime');
@@ -274,6 +289,9 @@ describe('Customer deployment progress — resource statuses', () => {
     mount(baseProps({ initialStatus: status }));
     await flush();
 
+    expect(container!.textContent ?? '').not.toContain('Private network');
+    await openDeploymentDetails();
+
     const text = container!.textContent ?? '';
     expect(text).toContain('Private network');
     expect(text).toContain('Complete');
@@ -286,19 +304,27 @@ describe('Customer deployment progress — resource statuses', () => {
 });
 
 describe('Customer deployment progress — live AWS activity', () => {
-  it('renders the latest activity items by default and hides raw CloudFormation events', async () => {
+  it('shows the newest activity in the tracker and the full feed only inside Deployment details', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-09-18T00:00:00.000Z'));
     const status = baseStatus({
       recentActivity: [
-        { key: 'a1', at: new Date().toISOString(), message: 'Network created.', state: 'COMPLETE' },
         { key: 'a2', at: new Date().toISOString(), message: 'Creating the database.', state: 'IN_PROGRESS' },
+        { key: 'a1', at: new Date().toISOString(), message: 'Network created.', state: 'COMPLETE' },
       ],
     });
     mocks.fetchInstallStatus.mockResolvedValue(status);
 
     mount(baseProps({ initialStatus: status }));
     await flush();
+
+    const latest = findTestId('latest-aws-activity');
+    expect(latest.textContent).toContain('Latest AWS activity');
+    expect(latest.textContent).toContain('Creating the database.');
+    expect(container!.textContent ?? '').not.toContain('Network created.');
+    expect(container!.querySelector('[data-testid="live-aws-activity-list"]')).toBeNull();
+
+    await openDeploymentDetails();
 
     expect(findTestId('live-aws-activity-list')).toBeTruthy();
     const text = container!.textContent ?? '';
@@ -316,11 +342,12 @@ describe('Customer deployment progress — live AWS activity', () => {
     mount(baseProps({ initialStatus: status }));
     await flush();
 
+    expect(container!.querySelector('[data-testid="latest-aws-activity"]')).toBeNull();
     expect(container!.querySelector('[data-testid="live-aws-activity-list"]')).toBeNull();
   });
 });
 
-describe('Customer deployment progress — Technical details', () => {
+describe('Customer deployment progress — Deployment details', () => {
   it('is collapsed by default — no raw CloudFormation events in the visible text', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-09-18T00:00:00.000Z'));
@@ -373,13 +400,7 @@ describe('Customer deployment progress — Technical details', () => {
     mount(baseProps({ initialStatus: status }));
     await flush();
 
-    const trigger = Array.from(container!.querySelectorAll('[data-slot="collapsible-trigger"]')).find(
-      (element) => element.textContent?.includes('Technical details'),
-    ) as HTMLElement;
-    expect(trigger).toBeDefined();
-    await act(async () => {
-      trigger.click();
-    });
+    await openDeploymentDetails();
 
     const text = container!.textContent ?? '';
     expect(text).toContain('REF-123');

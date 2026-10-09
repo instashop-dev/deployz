@@ -9,74 +9,38 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { buildAwsResourceSections, retentionSummary } from '@/lib/customer-install-resources';
-import { formatMonthlyRange } from '@/lib/footprint';
+import { buildAwsResourceSections } from '@/lib/customer-install-resources';
 
 /**
- * The canonical customer AWS resources table — replaces the prior
- * "What Deployz creates" / "AWS infrastructure details" / "Planned
- * infrastructure" / "Estimated AWS infrastructure" surfaces with one
- * visible table. Every detailed AWS resource the plan carries is shown
- * by default (no accordion). Cost per row is only rendered when the
- * existing cost model already supplies it. Total cost lives inside this
- * section, below the table.
+ * The complete customer AWS resources table: every resource the plan
+ * carries, grouped, with its purpose, configuration and per-row cost when
+ * the cost model supplies one. The customer review shows it inside the
+ * "View AWS resources" disclosure, under the compact category summary.
  */
 export function AwsResourcesTable({ plan }: { plan: DeploymentPlan | null }) {
   const sections = buildAwsResourceSections(plan);
   if (sections.length === 0) {
     return null;
   }
-  const totalRange = formatMonthlyRange(
-    plan?.costEstimate?.monthlyMin ?? null,
-    plan?.costEstimate?.monthlyMax ?? null,
-  );
-  const estimateIncomplete = plan?.costEstimate ? !plan.costEstimate.complete : false;
-  const retention = retentionSummary(plan);
 
   return (
-    <section aria-labelledby="aws-resources" className="flex flex-col gap-3">
-      <h2 id="aws-resources" className="text-base font-semibold">
-        AWS resources
-      </h2>
-      <div className="overflow-x-auto rounded-md border" data-testid="aws-resources-table-wrapper">
-        <Table data-testid="aws-resources-table">
-          <TableHeader>
-            <TableRow>
-              <TableHead>AWS resource</TableHead>
-              <TableHead>Purpose</TableHead>
-              <TableHead>Configuration</TableHead>
-              <TableHead className="text-right">Est. cost / month</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {sections.map((section) => (
-              <TableSection key={section.group} group={section.group} label={section.label} rows={section.rows} />
-            ))}
-          </TableBody>
-        </Table>
-      </div>
-      {retention ? (
-        <p className="text-sm text-muted-foreground" data-testid="aws-resources-retention">
-          {retention}
-        </p>
-      ) : null}
-      <div className="flex flex-col gap-1" data-testid="aws-resources-total">
-        <p className="text-sm font-medium">Estimated total</p>
-        {totalRange ? (
-          <p className="text-2xl font-semibold tracking-tight">{totalRange}</p>
-        ) : (
-          <p className="text-sm text-muted-foreground">AWS cost estimate unavailable.</p>
-        )}
-        {estimateIncomplete ? (
-          <p className="text-xs text-muted-foreground">
-            Estimate is incomplete — some resources could not be priced.
-          </p>
-        ) : null}
-        <p className="text-xs text-muted-foreground">
-          Estimated AWS cost. AWS bills your account directly; actual charges depend on usage.
-        </p>
-      </div>
-    </section>
+    <div className="overflow-x-auto rounded-md border" data-testid="aws-resources-table-wrapper">
+      <Table data-testid="aws-resources-table">
+        <TableHeader>
+          <TableRow>
+            <TableHead>AWS resource</TableHead>
+            <TableHead>Purpose</TableHead>
+            <TableHead>Configuration</TableHead>
+            <TableHead className="text-right">Est. cost / month</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {sections.map((section) => (
+            <TableSection key={section.group} group={section.group} label={section.label} rows={section.rows} />
+          ))}
+        </TableBody>
+      </Table>
+    </div>
   );
 }
 

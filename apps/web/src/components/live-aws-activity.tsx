@@ -74,6 +74,33 @@ export function LiveAwsActivity({ items, stale }: LiveAwsActivityProps) {
   );
 }
 
+/** The newest meaningful AWS event as one concise row — the tracker's
+ *  summary of the full feed under "Deployment details". */
+export function LatestAwsActivity({
+  item,
+  stale,
+  now,
+}: {
+  item: CustomerActivityItem;
+  stale: boolean;
+  now: number;
+}) {
+  return (
+    <div className="flex flex-col gap-1.5 border-t pt-4" data-testid="latest-aws-activity">
+      <p className="text-xs font-medium text-muted-foreground">
+        {stale ? 'Last confirmed AWS activity' : 'Latest AWS activity'}
+      </p>
+      <p className="flex items-start gap-2 text-sm">
+        <ActivityIcon state={item.state} />
+        <span className="min-w-0 flex-1">{item.message}</span>
+        <span className="shrink-0 text-xs text-muted-foreground tabular-nums" suppressHydrationWarning>
+          {recentActivityTimeLabel(item.at, now)}
+        </span>
+      </p>
+    </div>
+  );
+}
+
 function ActivityRow({ item, now }: { item: CustomerActivityItem; now: number }) {
   return (
     <li className="flex items-start gap-2 text-xs text-muted-foreground" data-testid={`activity-${item.key}`}>

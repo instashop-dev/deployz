@@ -5,6 +5,7 @@ import { describe, expect, it } from 'vitest';
 
 import type { DeploymentPlan } from '@deployz/contracts';
 
+import { AwsResourcesTable } from '../src/components/aws-resources-table';
 import { CustomerInstallSections } from '../src/components/customer-install-sections';
 
 export function buildSnapshotFixture(): { plan: DeploymentPlan; envVarInputs: ReadonlyArray<{
@@ -90,6 +91,36 @@ describe('customer install — after snapshot', () => {
     const { window } = new JSDOM(html);
     const doc = window.document;
 
+    const headings = Array.from(doc.querySelectorAll('h2')).map((node) => node.textContent?.trim());
+    expect(headings).toEqual([
+      'Estimated AWS cost',
+      'What will be deployed',
+      'Environment variables',
+      'Before you deploy',
+    ]);
+    expect(html).toContain('~$38–56/month');
+    expect(html).toContain('AWS bills your account directly');
+
+    const categories = Array.from(
+      doc.querySelectorAll('[data-testid^="aws-resource-category-"]'),
+    ).map((node) => node.getAttribute('data-testid'));
+    expect(categories).toEqual([
+      'aws-resource-category-application',
+      'aws-resource-category-database',
+      'aws-resource-category-storage',
+      'aws-resource-category-network_security',
+    ]);
+    expect(doc.querySelector('[data-testid="aws-resource-category-application"]')?.textContent).toContain(
+      'ECS cluster · ECS Fargate service · +1 more',
+    );
+
+    // The full table sits behind the collapsed "View AWS resources" disclosure.
+    expect(html).toContain('View AWS resources');
+    expect(doc.querySelector('[data-testid="aws-resources-table"]')).toBeNull();
+    expect(html).toContain('Most resources are removed with the deployment');
+    expect(html).toContain('RDS PostgreSQL database, S3 bucket');
+
+    const tableDoc = new JSDOM(renderToString(<AwsResourcesTable plan={plan} />)).window.document;
     const ids = [
       'connector_lambda',
       'connector_role',
@@ -110,13 +141,9 @@ describe('customer install — after snapshot', () => {
       'health_alarm',
     ];
     for (const id of ids) {
-      expect(doc.querySelector(`[data-testid="aws-resource-row-${id}"]`)).not.toBeNull();
+      expect(tableDoc.querySelector(`[data-testid="aws-resource-row-${id}"]`)).not.toBeNull();
     }
-
-    expect(doc.querySelectorAll('[data-testid="aws-resources-table"]')).toHaveLength(1);
-    expect(html).toContain('Most resources are removed with the deployment');
-    expect(html).toContain('Estimated total');
-    expect(html).toContain('AWS bills your account directly');
+    expect(tableDoc.querySelectorAll('[data-testid="aws-resources-table"]')).toHaveLength(1);
 
     expect(doc.querySelectorAll('[data-testid="env-vars-table"]')).toHaveLength(1);
     expect(html).toContain('2 need your input');
@@ -126,9 +153,9 @@ describe('customer install — after snapshot', () => {
     expect(html).toContain('Before you deploy');
     expect(html).toContain('Security &amp; permissions details');
 
-    const headings = Array.from(doc.querySelectorAll('thead th')).map((th) => th.textContent?.trim());
-    expect(headings).not.toContain('When removed');
-    expect(headings).not.toContain('On removal');
+    const columns = Array.from(tableDoc.querySelectorAll('thead th')).map((th) => th.textContent?.trim());
+    expect(columns).not.toContain('When removed');
+    expect(columns).not.toContain('On removal');
 
     // Persist the rendered HTML for visual review.
     const outPath = process.env['SNIPSHOT_OUT'];

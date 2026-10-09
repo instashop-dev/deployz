@@ -1,10 +1,12 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 
-import type { CustomerDeploymentStatus } from '@deployz/contracts';
+import type { CustomerActivityItem, CustomerDeploymentStatus } from '@deployz/contracts';
 import { AlertCircle, CheckCircle2, ChevronDown, Circle, Loader2 } from 'lucide-react';
 
+import { LatestAwsActivity } from '@/components/live-aws-activity';
+import { Card, CardContent } from '@/components/ui/card';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { cn } from '@/lib/utils';
 import {
@@ -45,20 +47,27 @@ export interface DeploymentTrackerProps {
   steps: StepperStep[];
   /** Live detail for the current step (omitted at terminal stages). */
   liveDetail?: DeploymentTrackerLiveDetail | undefined;
-  /**
-   * The wire steps the server reported as applicable to this deployment, in
-   * wire order, with per-step state. Renders below the redesigned stepper
-   * as the legacy done-toggle + active-step detail so the existing wire-step
-   * labels (Network created, Database & storage created, Application
-   * started, Health checks passed, HTTPS set up) stay reachable from the
-   * primary flow.
-   */
-  wireSteps?: ProgressStep[] | undefined;
+  /** The server's own label for the active step ("Creating database &
+   *  storage"), more specific than the rung it folds into. */
+  currentStepLabel?: string | undefined;
+  /** The current step waits on a custom domain instead of making progress. */
+  waitingOnInput?: boolean;
+  /** The newest meaningful AWS event, shown as one concise row. */
+  latestActivity?: CustomerActivityItem | undefined;
+  /** No recent server confirmation: the activity row says so. */
+  stale?: boolean;
 }
 
-export function DeploymentTracker({ stage, steps, liveDetail, wireSteps }: DeploymentTrackerProps) {
+export function DeploymentTracker({
+  stage,
+  steps,
+  liveDetail,
+  currentStepLabel,
+  waitingOnInput = false,
+  latestActivity,
+  stale = false,
+}: DeploymentTrackerProps) {
   const { completed, total } = stepperProgressCount(steps);
-  const current = steps.find((step) => step.state === 'current' || step.state === 'attention') ?? null;
   // The primary headline mirrors the server-derived stage (the legacy
   // `STAGE_HEADLINE` map): one line, no jargon, no current-step duplication.
   // The X-of-Y secondary line carries the granular progress.
@@ -69,72 +78,87 @@ export function DeploymentTracker({ stage, steps, liveDetail, wireSteps }: Deplo
       ? 'Deployz stopped the deployment before it finished.'
       : `${completed} of ${total} ${total === 1 ? 'step' : 'steps'} complete`;
 
+  const active = liveDetail?.active ?? false;
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!active) return;
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, [active]);
+  const elapsed = liveDetail ? elapsedLabel(liveDetail.stepStartedAt, now) : null;
+
   return (
-    <section
-      aria-labelledby="deployment-tracker"
-      className="flex flex-col gap-4 rounded-xl border bg-card p-4"
-      data-testid="deployment-tracker"
-    >
-      <header className="flex flex-col gap-1">
-        <h2 id="deployment-tracker" aria-live="polite" className="text-base font-semibold">
-          {headline.title}
-        </h2>
-        <p className="text-sm text-muted-foreground">{headlineBody}</p>
-      </header>
+    <Card role="region" aria-labelledby="deployment-tracker" data-testid="deployment-tracker">
+      <CardContent className="flex flex-col gap-5 sm:px-6">
+        <header className="flex flex-col gap-1">
+          <h2 id="deployment-tracker" aria-live="polite" className="text-lg font-semibold">
+            {headline.title}
+          </h2>
+          <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 text-sm text-muted-foreground">
+            <p>{headlineBody}</p>
+            {elapsed ? (
+              <p className="tabular-nums" data-testid="tracker-step-elapsed" suppressHydrationWarning>
+                {elapsed} on this step
+              </p>
+            ) : null}
+          </div>
+        </header>
 
-      <ol className="flex flex-col" data-testid="deployment-tracker-steps">
-        {steps.map((step, index) => (
-          <TrackerStepRow
-            key={step.key}
-            step={step}
-            liveDetail={
-              liveDetail && (step.state === 'current' || step.state === 'attention')
-                ? liveDetail
-                : undefined
-            }
-            isLast={index === steps.length - 1}
-          />
-        ))}
-      </ol>
+        <ol className="flex flex-col border-t pt-4" data-testid="deployment-tracker-steps">
+          {steps.map((step, index) => (
+            <TrackerStepRow
+              key={step.key}
+              step={step}
+              isLast={index === steps.length - 1}
+              detail={
+                step.state === 'current' || step.state === 'attention' ? (
+                  liveDetail ? (
+                    <CurrentStepDetail
+                      title={currentStepLabel !== step.label ? currentStepLabel : undefined}
+                      liveDetail={liveDetail}
+                    />
+                  ) : waitingOnInput ? (
+                    <p className="rounded-lg bg-muted/50 px-3 py-2 text-sm" data-testid="tracker-current-detail">
+                      {AWAITING_DOMAIN_STEP_DETAIL}
+                    </p>
+                  ) : null
+                ) : null
+              }
+            />
+          ))}
+        </ol>
 
-      {current && liveDetail ? (
-        <CurrentStepDetail
-          current={current}
-          liveDetail={liveDetail}
-          takingLongerThanUsual={liveDetail.takingLongerThanUsual}
-        />
-      ) : null}
-
-      {wireSteps && wireSteps.length > 0 ? (
-        <WireStepList wireSteps={wireSteps} stage={stage} />
-      ) : null}
-    </section>
+        {latestActivity ? <LatestAwsActivity item={latestActivity} stale={stale} now={now} /> : null}
+      </CardContent>
+    </Card>
   );
 }
 
 function TrackerStepRow({
   step,
   isLast,
+  detail,
 }: {
   step: StepperStep;
-  liveDetail?: DeploymentTrackerLiveDetail | undefined;
   isLast: boolean;
+  /** The current step's live detail, rendered under its label. */
+  detail: ReactNode;
 }) {
   return (
-    <li className="flex items-start gap-3 py-2" data-testid={`tracker-step-${step.key}`}>
+    <li className="flex items-start gap-3" data-testid={`tracker-step-${step.key}`}>
       <div className="flex flex-col items-center self-stretch pt-0.5">
         <StepMarker state={step.state} />
         {!isLast ? (
           <span
             aria-hidden
             className={cn(
-              'mt-1 w-px flex-1',
+              'my-1 w-px flex-1',
               step.state === 'done' ? 'bg-primary/40' : 'bg-border',
             )}
           />
         ) : null}
       </div>
-      <div className="flex min-w-0 flex-1 flex-col gap-0.5 pb-1">
+      <div className={cn('flex min-w-0 flex-1 flex-col gap-0.5', !isLast && 'pb-4')}>
         <span
           className={cn(
             'text-sm',
@@ -155,6 +179,7 @@ function TrackerStepRow({
           </span>
         </span>
         <span className="text-xs text-muted-foreground">{stepperRungDescription(step.key)}</span>
+        {detail ? <div className="pt-2">{detail}</div> : null}
       </div>
     </li>
   );
@@ -186,15 +211,15 @@ function StepMarker({ state }: { state: StepperStep['state'] }) {
 }
 
 /**
- * The legacy wire-step list, kept reachable inside the redesigned tracker so
- * the per-step labels the server emits (Network created, Database & storage
+ * The detailed wire-step list, shown under "Deployment details" so the
+ * per-step labels the server emits (Network created, Database & storage
  * created, Application started, Health checks passed, HTTPS set up, …) stay
- * visible alongside the new rung markers. Completed steps collapse into an
+ * reachable alongside the tracker's rungs. Completed steps collapse into an
  * "N steps done" disclosure (ux-guidelines §9); the active step carries its
  * live detail, including the awaiting-domain line when the deployment is
  * paused on TLS waiting for a custom domain.
  */
-function WireStepList({
+export function WireStepList({
   wireSteps,
   stage,
 }: {
@@ -210,7 +235,7 @@ function WireStepList({
   const isReady = stage === 'READY';
   const flatList = current === null;
   return (
-    <div className="flex flex-col gap-2 border-t pt-3">
+    <div className="flex flex-col gap-2">
       {!flatList && doneSteps.length > 0 ? (
         <Collapsible>
           <CollapsibleTrigger
@@ -297,46 +322,31 @@ function NextStepHint({ steps, currentIndex }: { steps: ProgressStep[]; currentI
   );
 }
 
-/** The current rung's live detail line — what AWS is doing right now, the
- *  elapsed time and typical range, and the freshness stamp. Reassurance
- *  ("No action needed") is a thin amber band reserved for the slow-step
- *  state — never displayed when the server says progress is normal. */
+/** The current rung's live detail: the active step when it is more specific
+ *  than the rung, what is happening right now, and the typical range. Reassurance ("No action needed") is reserved for the
+ *  slow-step state — never displayed when the server says progress is
+ *  normal. The elapsed time sits next to the headline, so it is not
+ *  repeated here. */
 function CurrentStepDetail({
-  current,
+  title,
   liveDetail,
-  takingLongerThanUsual,
 }: {
-  current: StepperStep;
+  title: string | undefined;
   liveDetail: DeploymentTrackerLiveDetail;
-  takingLongerThanUsual: boolean;
 }) {
-  const [now, setNow] = useState(() => Date.now());
-  useEffect(() => {
-    if (!liveDetail.active) return;
-    const id = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(id);
-  }, [liveDetail.active]);
-
-  const elapsed = elapsedLabel(liveDetail.stepStartedAt, now);
   const durationLine = liveDurationLine({
-    takingLongerThanUsual,
+    takingLongerThanUsual: liveDetail.takingLongerThanUsual,
     typicalDurationSeconds: liveDetail.typicalDurationSeconds,
-    elapsed,
+    elapsed: null,
   });
 
   return (
-    <div
-      className="flex flex-col gap-1 border-t pt-3"
-      data-testid="tracker-current-detail"
-    >
-      <p className="text-sm font-medium">{current.label}</p>
-      <p className="text-sm text-muted-foreground">{liveDetail.currentActivity}</p>
+    <div className="flex flex-col gap-1 rounded-lg bg-muted/50 px-3 py-2" data-testid="tracker-current-detail">
+      {title ? <p className="text-sm font-medium">{title}</p> : null}
+      <p className="text-sm">{liveDetail.currentActivity}</p>
       {durationLine ? <p className="text-xs text-muted-foreground">{durationLine}</p> : null}
-      {takingLongerThanUsual ? (
-        <p
-          className={cn('mt-1 rounded-md border bg-muted px-3 py-2 text-xs', TONE_TEXT.attention)}
-          data-testid="tracker-no-action-needed"
-        >
+      {liveDetail.takingLongerThanUsual ? (
+        <p className={cn('text-xs', TONE_TEXT.attention)} data-testid="tracker-no-action-needed">
           <span className="font-medium">No action needed.</span>{' '}
           AWS is still processing the deployment.
         </p>
