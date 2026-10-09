@@ -4,8 +4,8 @@
   "status": "CONTINUE",
   "phase": 3,
   "currentTask": null,
-  "nextAction": "Start P3-BUILD-01 (repo-540, repo-536 storage probe). disk>=3GB is AVAILABLE (user lowered the limit from 10 GB on 2026-10-09; 6.28 GiB free). Check free disk >= 3 GB before each P3-BUILD task.",
-  "updatedAt": "2026-10-09T03:39:28.258Z",
+  "nextAction": "USER ACTION REQUIRED: free disk on C: (68 MB free now; plan for at least 10-15 GB because one InvoiceShelf build used more than 6 GB), restart Docker Desktop, then mark P3-BUILD-01 READY and set capabilities docker and disk>=3GB AVAILABLE (or re-run the routine to re-check). Then: prune label deployz-campaign=fresh-100 (3 resources), finish P3-BUILD-01 cleanup, continue P3-BUILD-02.",
+  "updatedAt": "2026-10-09T04:47:47.606Z",
   "checkout": {
     "path": "C:/Users/Tejas/Desktop/deployz-mvp-test",
     "kind": "git worktree of C:/Users/Tejas/Desktop/deployz",
@@ -279,6 +279,10 @@
     {
       "commit": "e6a3b58ee2363923fef21faca86611fa3bf84538",
       "task": "P3-BUILD-PLAN"
+    },
+    {
+      "commit": "e6a3b58ee2363923fef21faca86611fa3bf84538",
+      "task": "P3-BUILD-01"
     }
   ],
   "attempts": {
@@ -344,16 +348,19 @@
     "P3-COMPAT-06": 1,
     "P3-COMPAT-07": 2,
     "P3-COMPAT-08": 1,
-    "P3-BUILD-PLAN": 1
+    "P3-BUILD-PLAN": 1,
+    "P3-BUILD-01": 1
   },
   "lastResult": {
-    "task": "P3-BUILD-PLAN",
-    "status": "COMPLETE",
-    "at": "2026-10-09T02:01:24.155Z",
-    "summary": "56 of 80 apps build-eligible; 24 ineligible with reasons. deploy-config.yaml created (56 entries). Queued 28 P3-BUILD tasks (P3-BUILD-01..P3-BUILD-28), all require disk>=10GB (UNAVAILABLE).",
+    "task": "P3-BUILD-01",
+    "status": "BLOCKED",
+    "at": "2026-10-09T04:47:47.606Z",
+    "summary": "Environment: during the repo-536 retry build (remediated buildContext \".\") C: filled to 68 MB free and Docker Desktop is unable to start. 3 resources labelled deployz-campaign=fresh-100 remain and cannot be pruned until Docker runs. repo-540 COMPLETE (local-success). repo-536 first-run: build FAIL (build context detected as docker/production; COPY paths not found) and AI parse error (AI_NoObjectGeneratedError) - Phase 4 findings. SeaweedFS storage probe not run.",
     "evidence": [
-      "campaign/results/P3-BUILD-PLAN/plan.md",
-      "campaign/corpus/deploy-config.yaml"
+      "campaign/results/P3-BUILD-01/result.json",
+      "campaign/results/first-run/build/repo-540.local.json",
+      "campaign/results/first-run/build/repo-536.local.json",
+      "campaign/results/P3-BUILD-01/repo-536.remediated-buildcontext.local.json"
     ]
   },
   "gates": {
@@ -379,12 +386,12 @@
       "detail": "gh logged in as instashop-dev; scopes repo, workflow, read:org, gist"
     },
     "docker": {
-      "status": "AVAILABLE",
-      "detail": "Docker Desktop 29.8.2, linux/amd64, context desktop-linux, 4 CPUs, 3.8 GB memory. Docker Desktop must be running during each routine run."
+      "status": "UNAVAILABLE",
+      "detail": "Docker Desktop 29.8.2, linux/amd64, context desktop-linux, 4 CPUs, 3.8 GB memory. Docker Desktop must be running during each routine run. 2026-10-09T04:48Z: Docker Desktop is unable to start (disk full). User must free disk and restart it."
     },
     "disk>=3GB": {
-      "status": "AVAILABLE",
-      "detail": "2026-10-09T03:39Z: the user lowered the disk requirement from 10 GB to 3 GB (live chat instruction). Check: 6.28 GiB free on C: at 2026-10-09T03:28Z, so AVAILABLE. Each P3-BUILD task still prunes its labelled images after the batch. Earlier history (as disk>=10GB): 7.1 GiB free on C: at 2026-10-09T00:00Z (P2-GATE). Docker: 2.62 GB reclaimable build cache, 0.49 GB unused unlabelled images. The user must free disk before P3-BUILD tasks; Stage A tasks do not need it. 2026-10-09T02:05Z: routine check 6.27 GiB free; still UNAVAILABLE. 2026-10-09T02:28Z: routine check 6.30 GiB free; still UNAVAILABLE. 2026-10-09T02:43Z: routine check 6.26 GiB free; still UNAVAILABLE. 2026-10-09T02:58Z: routine check 6.26 GiB free; still UNAVAILABLE."
+      "status": "UNAVAILABLE",
+      "detail": "2026-10-09T03:39Z: the user lowered the disk requirement from 10 GB to 3 GB (live chat instruction). Check: 6.28 GiB free on C: at 2026-10-09T03:28Z, so AVAILABLE. Each P3-BUILD task still prunes its labelled images after the batch. Earlier history (as disk>=10GB): 7.1 GiB free on C: at 2026-10-09T00:00Z (P2-GATE). Docker: 2.62 GB reclaimable build cache, 0.49 GB unused unlabelled images. The user must free disk before P3-BUILD tasks; Stage A tasks do not need it. 2026-10-09T02:05Z: routine check 6.27 GiB free; still UNAVAILABLE. 2026-10-09T02:28Z: routine check 6.30 GiB free; still UNAVAILABLE. 2026-10-09T02:43Z: routine check 6.26 GiB free; still UNAVAILABLE. 2026-10-09T02:58Z: routine check 6.26 GiB free; still UNAVAILABLE. 2026-10-09T03:45Z: routine check 6.7 GiB free; AVAILABLE. 2026-10-09T04:48Z: P3-BUILD-01 repo-536 build filled C: to 68 MB free; UNAVAILABLE. 3 GB was not enough for one large build."
     },
     "dependencies-installed": {
       "status": "AVAILABLE",

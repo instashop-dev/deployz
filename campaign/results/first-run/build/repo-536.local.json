@@ -1,0 +1,144 @@
+{
+  "schemaVersion": 1,
+  "id": "repo-536",
+  "repository": "InvoiceShelf/InvoiceShelf",
+  "commit": "ef9e9cbc9987fe5083867374cc46637029eff868",
+  "set": "improvement",
+  "cohort": "realistic",
+  "deployzCommit": "eccaf6cd22c376c1b62ddd9a9b0a44fcf4601b38",
+  "analysisVersion": 45,
+  "ai": {
+    "mode": "live",
+    "model": "workers-ai/@cf/deepseek-ai/deepseek-v4-flash-0731",
+    "requests": 1,
+    "outcome": "parse-error",
+    "error": "AI_NoObjectGeneratedError: No object generated: response did not match schema."
+  },
+  "inputsHash": "64370882ae791e2272cb7630877c7e963a3f7c578b531aef355edb45358a45d4",
+  "stages": {
+    "gate": {
+      "status": "PASS",
+      "startedAt": "2026-10-09T03:46:27.359Z",
+      "finishedAt": "2026-10-09T03:46:27.367Z",
+      "durationMs": 8,
+      "detail": null,
+      "evidence": {
+        "verdict": "NEEDS_CONFIGURATION",
+        "outcome": "correct-accept",
+        "configuredVerdict": "NEEDS_CONFIGURATION",
+        "manifest": {
+          "dockerfilePath": "docker/production/Dockerfile",
+          "buildContext": ".",
+          "appRoot": ".",
+          "port": 80,
+          "healthPath": "/",
+          "healthMode": "vendor_required",
+          "migrationCommand": null,
+          "migrationMode": "unknown",
+          "postgres": true,
+          "redis": false,
+          "storage": true,
+          "databaseBindings": [
+            "DATABASE_HOST",
+            "DATABASE_NAME",
+            "DATABASE_PASSWORD",
+            "DATABASE_PORT",
+            "DATABASE_URL",
+            "DATABASE_USER",
+            "DB_DATABASE",
+            "DB_HOST",
+            "DB_NAME",
+            "DB_PASSWORD",
+            "DB_PORT",
+            "DB_URL",
+            "DB_USER",
+            "DB_USERNAME"
+          ],
+          "redisBindings": [],
+          "storageBindings": [
+            "AWS_BUCKET",
+            "AWS_S3_BUCKET",
+            "DO_SPACES_BUCKET",
+            "S3_COMPAT_BUCKET"
+          ],
+          "generatedKeys": [
+            "APP_KEY",
+            "DO_SPACES_SECRET",
+            "DROPBOX_SECRET",
+            "SPARKPOST_SECRET"
+          ]
+        }
+      }
+    },
+    "source": {
+      "status": "PASS",
+      "startedAt": "2026-10-09T03:46:27.376Z",
+      "finishedAt": "2026-10-09T03:46:38.919Z",
+      "durationMs": 11543,
+      "detail": null,
+      "evidence": {
+        "commit": "ef9e9cbc9987fe5083867374cc46637029eff868",
+        "archiveCached": false,
+        "archiveBytes": 5801296
+      }
+    },
+    "build": {
+      "status": "FAIL",
+      "startedAt": "2026-10-09T03:46:38.925Z",
+      "finishedAt": "2026-10-09T03:47:12.496Z",
+      "durationMs": 33571,
+      "detail": "docker build exited 1",
+      "evidence": {
+        "dockerfilePath": "docker/production/Dockerfile",
+        "buildContext": "docker/production",
+        "platform": "linux/amd64",
+        "image": "deployz-campaign/repo-536:ef9e9cbc9987",
+        "exitCode": 1,
+        "durationMs": 33555,
+        "buildArgNames": [],
+        "logTail": "\n#22 [base 3/3] RUN install-php-extensions         bcmath         curl         exif         gd         imagick         intl         mbstring         pgsql         redis         sqlite3         xml         zip\n#22 CACHED\n\n#23 [production 5/9] RUN ln -sfn /var/www/html/storage/app/public /var/www/html/public/storage\n#23 CACHED\n\n#24 [production 7/9] COPY --chmod=755 docker/production/inject.sh /inject.sh\n#24 ERROR: failed to calculate checksum of ref 12cfkxfrx28t4g2mqmjcwmb4j::y2q6ibmotab1txtx13bqgewmb: \"/docker/production/inject.sh\": not found\n\n#25 [production 9/9] COPY --chmod=755 docker/production/s6-overlay/ /etc/s6-overlay/\n#25 ERROR: failed to calculate checksum of ref 12cfkxfrx28t4g2mqmjcwmb4j::y2q6ibmotab1txtx13bqgewmb: \"/docker/production/s6-overlay\": not found\n\n#26 [production 8/9] COPY --chmod=755 docker/production/entrypoint.d/ /etc/entrypoint.d/\n#26 ERROR: failed to calculate checksum of ref 12cfkxfrx28t4g2mqmjcwmb4j::y2q6ibmotab1txtx13bqgewmb: \"/docker/production/entrypoint.d\": not found\n\n#11 [base 1/3] FROM docker.io/serversideup/php:8.4-fpm-nginx-alpine@sha256:4f26c4359615b4acaa552912c0153332c4344ab91a3a1f28a912581939432cf5\n#11 CANCELED\n\n#10 [static_builder 1/4] FROM docker.io/library/node:24@sha256:3d27e5c11e5786e309ec3e03f93ae536eb36e6e5eb3714d5eb3300a36157add0\n#10 CANCELED\n------\n > [production 7/9] COPY --chmod=755 docker/production/inject.sh /inject.sh:\n------\n------\n > [production 8/9] COPY --chmod=755 docker/production/entrypoint.d/ /etc/entrypoint.d/:\n------\n------\n > [production 9/9] COPY --chmod=755 docker/production/s6-overlay/ /etc/s6-overlay/:\n------\nDockerfile:74\n--------------------\n  72 |         # overdue flagging, no estimate expiry. Set SCHEDULER_ENABLED=false to run\n  73 |         # the schedule from somewhere else instead.\n  74 | >>>     COPY --chmod=755 docker/production/s6-overlay/ /etc/s6-overlay/\n  75 |     \n--------------------\nERROR: failed to build: failed to solve: failed to compute cache key: failed to calculate checksum of ref 12cfkxfrx28t4g2mqmjcwmb4j::y2q6ibmotab1txtx13bqgewmb: \"/docker/production/s6-overlay\": not found\n\nView build details: docker-desktop://dashboard/build/desktop-linux/desktop-linux/8rupge1lgpw15wp3kgd7wto88",
+        "failure": "build",
+        "rebuilt": false
+      }
+    },
+    "run": {
+      "status": "SKIPPED",
+      "startedAt": "2026-10-09T03:47:13.963Z",
+      "finishedAt": "2026-10-09T03:47:13.967Z",
+      "durationMs": 4,
+      "detail": "the build did not pass",
+      "evidence": {}
+    },
+    "probes": {
+      "status": "SKIPPED",
+      "startedAt": "2026-10-09T03:47:13.971Z",
+      "finishedAt": "2026-10-09T03:47:13.979Z",
+      "durationMs": 8,
+      "detail": "the build did not pass",
+      "evidence": {}
+    },
+    "cleanup": {
+      "status": "PASS",
+      "startedAt": "2026-10-09T03:47:13.983Z",
+      "finishedAt": "2026-10-09T03:47:16.204Z",
+      "durationMs": 2221,
+      "detail": null,
+      "evidence": {
+        "removed": {
+          "containers": 0,
+          "networks": 0,
+          "volumes": 0
+        },
+        "imageRemoved": false,
+        "keepImage": false,
+        "leaks": {
+          "containers": [],
+          "networks": [],
+          "volumes": []
+        }
+      }
+    }
+  },
+  "classification": "build",
+  "remediation": null
+}

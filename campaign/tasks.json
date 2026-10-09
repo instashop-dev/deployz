@@ -2357,7 +2357,7 @@
       "phase": 3,
       "title": "First-run local build/run of improvement apps repo-540, repo-536",
       "executor": "campaign-worker",
-      "status": "PENDING",
+      "status": "BLOCKED",
       "prerequisites": [
         "P3-BUILD-PLAN"
       ],
@@ -2392,7 +2392,8 @@
         "2026-10-09 P3-BUILD-PLAN (Opus): command `node --env-file=.env node_modules/tsx/dist/cli.mjs scripts/repository-deployment/index.ts --local --ai live --benchmark campaign/corpus/benchmark.yaml --deploy-config campaign/corpus/deploy-config.yaml --runs-dir campaign/results/first-run/build/ --evidence-dir campaign/logs/P3-BUILD-01/evidence/ --repo repo-540 --repo repo-536`; default cache (no --cache). Resumable: on stopBy, interrupt at a safe point and return CONTINUE with progress; the next run adds --resume.",
         "Retry a build once when its log tail shows only registry network timeouts; if it fails again classify it as an environment failure (separate denominator).",
         "Before the run, the worker may add to deploy-config.yaml, for this task's apps only, the configuration a vendor would enter from the app's own documented env example or install docs (config values without secrets; secrets as generated keys). No repository-specific hacks.",
-        "Storage probe: repo-536 (InvoiceShelf, storage label true) is the first real SeaweedFS check. Record the storage probe result; a harness-caused storage failure is a Phase 4 harness defect."
+        "Storage probe: repo-536 (InvoiceShelf, storage label true) is the first real SeaweedFS check. Record the storage probe result; a harness-caused storage failure is a Phase 4 harness defect.",
+        "2026-10-09 run T0 03:42Z (Opus): BLOCKED. Environment: during the repo-536 retry build (remediated buildContext \".\") C: filled to 68 MB free and Docker Desktop is unable to start. 3 resources labelled deployz-campaign=fresh-100 remain and cannot be pruned until Docker runs. repo-540 COMPLETE (local-success). repo-536 first-run: build FAIL (build context detected as docker/production; COPY paths not found) and AI parse error (AI_NoObjectGeneratedError) - Phase 4 findings. SeaweedFS storage probe not run. User action: free disk on C: (the 3 GB threshold was not enough for this build), restart Docker Desktop, then mark READY. On resume: prune label deployz-campaign=fresh-100 first; the first-run result for repo-536 is recorded (pristine, build FAIL); the remaining work is cleanup and the repo-536 storage probe, which needs a remediated build and belongs with the Phase 4 build-context finding. Opus reverted the worker buildContext override in deploy-config.yaml (remediation, not first-run config) and moved the remediated attempt result to campaign/results/P3-BUILD-01/repo-536.remediated-buildcontext.local.json."
       ]
     },
     {

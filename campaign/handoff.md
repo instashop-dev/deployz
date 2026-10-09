@@ -1,8 +1,8 @@
 # Fresh-100 campaign handoff
 
-**Status:** CONTINUE. Phase 3. P0-GATE, P1-GATE and P2-GATE PASS (P2-GATE on 2026-10-09).
+**Status:** CONTINUE, but BLOCKED on the environment. Phase 3. P0-GATE, P1-GATE and P2-GATE PASS. C: is full (68 MB free) and Docker Desktop cannot start since 2026-10-09T04:46Z.
 **Checkout:** `C:/Users/Tejas/Desktop/deployz-mvp-test`, branch `campaign/fresh-100`. Baseline commit `e6a3b58e` (ANALYSIS_VERSION 45; origin/main after PR #498, merged into the campaign branch on 2026-10-08).
-**Eligible now:** `P3-BUILD-01` and later. On 2026-10-09T03:39Z the user lowered the disk requirement from 10 GB to 3 GB; `disk>=3GB` is AVAILABLE (6.28 GiB free). `ai-gateway` AVAILABLE since the 00:44Z probe on 2026-10-09.
+**Eligible now:** nothing. `docker` and `disk>=3GB` are UNAVAILABLE. `ai-gateway` AVAILABLE.
 
 ## Done
 
@@ -75,6 +75,7 @@
 - 2026-10-09: `P3-COMPAT-08` COMPLETE (attempt 1, worker sonnet). repo-589..600 under `timeout 900`, exit 0, about 4 min. Verdict = label 6/10; all facts 1/10. repo-593 is a false READY (label NOT_COMPATIBLE); Phase 4 candidate. AI: 9 completed, 1 timeout, no 5xx. AI failures so far 23 of 67 requests. Evidence: `campaign/results/P3-COMPAT-08/result.json`.
 - 2026-10-09: `P3-BUILD-PLAN` COMPLETE (Opus). 56 of 80 apps are build-eligible (label or first-run gate READY/NEEDS_CONFIGURATION); the 24 ineligible apps are listed with label reasons. Created `campaign/corpus/deploy-config.yaml` (56 entries: labelled appRoot, Dockerfile, port, health path and managed services; no secrets; `loadDeployConfig` accepts it). Queued `P3-BUILD-01..28` (2 apps each, timebox 30, resumable with `--resume`), inserted before `P3-GATE`; `P3-GATE` lists them as prerequisites. `P3-BUILD-01` = repo-540 + repo-536 (first SeaweedFS storage probe). Evidence: `campaign/results/P3-BUILD-PLAN/plan.md`.
 - 2026-10-09: `P3-COMPAT-03` RETRYABLE (attempt 1). Harness exit 0, but the AI gateway returned HTTP 500/502 for 9/9 requests, so every analysis used fallback. Files kept in `campaign/results/P3-COMPAT-03/attempt-1/`; `first-run/compat/` holds only the 20 files of P3-COMPAT-01..02. Opus one-app probes at 00:19Z and 00:20Z: still 500. The run ended with no eligible work. Next routine run probed again at 00:23Z: still HTTP 500 (AI_APICallError: Internal Server Error); no eligible work.
+- 2026-10-09: `P3-BUILD-01` BLOCKED (attempt 1). repo-540 (excalidraw): gate, source, build, run, probes, cleanup PASS (local-success, AI live completed). repo-536 (InvoiceShelf) first run: AI parse error (AI_NoObjectGeneratedError) and build FAIL because Deployz chose build context `docker/production` while the Dockerfile COPY paths are relative to the repo root (Phase 4 finding). A remediated retry with `buildContext: "."` ran more than 30 min, filled C: and stopped Docker Desktop. Opus reverted the override in deploy-config.yaml and kept the remediated result apart (`campaign/results/P3-BUILD-01/repo-536.remediated-buildcontext.local.json`). 3 labelled Docker resources remain. Storage probe not run.
 
 ## Blockers and pending prerequisites
 
@@ -107,7 +108,7 @@
 
 ## Next action
 
-Start `P3-BUILD-01` (repo-540, repo-536 storage probe). Before each P3-BUILD task, check that C: has at least 3 GB free (`disk>=3GB`; the user lowered the limit from 10 GB on 2026-10-09). Each task prunes its labelled images after the batch.
+USER ACTION REQUIRED: free disk on C: (68 MB free; one InvoiceShelf build used more than 6 GB, so 3 GB is not a safe limit; plan for 10-15 GB), restart Docker Desktop, then mark `P3-BUILD-01` READY and set capabilities `docker` and `disk>=3GB` AVAILABLE. The next run then prunes label `deployz-campaign=fresh-100` (3 resources), finishes P3-BUILD-01 cleanup and continues with `P3-BUILD-02`.
 
 Caution: every coordinator, scheduled or manual, must hold `campaign/coordinator.lock` (`node campaign/lock.mjs`, see plan.md "Coordinator lock") before it changes campaign files or dispatches a worker. If the lock is held, exit without changes.
 

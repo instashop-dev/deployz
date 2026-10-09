@@ -1,0 +1,135 @@
+{
+  "schemaVersion": 1,
+  "repositories": 2,
+  "classifications": {
+    "build": 1,
+    "local-success": 1
+  },
+  "aiModes": {
+    "live": 2
+  },
+  "stages": {
+    "gate": {
+      "attempted": 2,
+      "NOT_ATTEMPTED": 0,
+      "IN_PROGRESS": 0,
+      "PASS": 2,
+      "FAIL": 0,
+      "SKIPPED": 0
+    },
+    "source": {
+      "attempted": 2,
+      "NOT_ATTEMPTED": 0,
+      "IN_PROGRESS": 0,
+      "PASS": 2,
+      "FAIL": 0,
+      "SKIPPED": 0
+    },
+    "build": {
+      "attempted": 2,
+      "NOT_ATTEMPTED": 0,
+      "IN_PROGRESS": 0,
+      "PASS": 1,
+      "FAIL": 1,
+      "SKIPPED": 0
+    },
+    "run": {
+      "attempted": 2,
+      "NOT_ATTEMPTED": 0,
+      "IN_PROGRESS": 0,
+      "PASS": 1,
+      "FAIL": 0,
+      "SKIPPED": 1
+    },
+    "probes": {
+      "attempted": 2,
+      "NOT_ATTEMPTED": 0,
+      "IN_PROGRESS": 0,
+      "PASS": 1,
+      "FAIL": 0,
+      "SKIPPED": 1
+    },
+    "cleanup": {
+      "attempted": 2,
+      "NOT_ATTEMPTED": 0,
+      "IN_PROGRESS": 0,
+      "PASS": 1,
+      "FAIL": 1,
+      "SKIPPED": 0
+    }
+  },
+  "probes": {
+    "start": {
+      "attempted": 1,
+      "PASS": 1,
+      "FAIL": 0,
+      "UNVERIFIED": 0,
+      "NOT_APPLICABLE": 0
+    },
+    "health": {
+      "attempted": 1,
+      "PASS": 1,
+      "FAIL": 0,
+      "UNVERIFIED": 0,
+      "NOT_APPLICABLE": 0
+    },
+    "migration": {
+      "attempted": 1,
+      "PASS": 0,
+      "FAIL": 0,
+      "UNVERIFIED": 0,
+      "NOT_APPLICABLE": 1
+    },
+    "dbWrite": {
+      "attempted": 1,
+      "PASS": 0,
+      "FAIL": 0,
+      "UNVERIFIED": 0,
+      "NOT_APPLICABLE": 1
+    },
+    "redis": {
+      "attempted": 1,
+      "PASS": 0,
+      "FAIL": 0,
+      "UNVERIFIED": 0,
+      "NOT_APPLICABLE": 1
+    },
+    "storage": {
+      "attempted": 1,
+      "PASS": 0,
+      "FAIL": 0,
+      "UNVERIFIED": 0,
+      "NOT_APPLICABLE": 1
+    }
+  },
+  "durations": [
+    {
+      "id": "repo-536",
+      "repository": "InvoiceShelf/InvoiceShelf",
+      "classification": "build",
+      "totalMs": 1808629,
+      "stages": {
+        "gate": 5,
+        "source": 4410,
+        "build": 1800503,
+        "run": 4,
+        "probes": 4,
+        "cleanup": 3703
+      }
+    },
+    {
+      "id": "repo-540",
+      "repository": "excalidraw/excalidraw",
+      "classification": "local-success",
+      "totalMs": 1630294,
+      "stages": {
+        "gate": 2,
+        "source": 13369,
+        "build": 1544879,
+        "run": 9008,
+        "probes": 60666,
+        "cleanup": 2370
+      }
+    }
+  ]
+}

@@ -1,0 +1,159 @@
+{
+  "schemaVersion": 1,
+  "id": "repo-540",
+  "repository": "excalidraw/excalidraw",
+  "commit": "4c00f31ddcc20086bac1020428819fe0b9a30bce",
+  "set": "improvement",
+  "cohort": "realistic",
+  "deployzCommit": "eccaf6cd22c376c1b62ddd9a9b0a44fcf4601b38",
+  "analysisVersion": 45,
+  "ai": {
+    "mode": "live",
+    "model": "workers-ai/@cf/deepseek-ai/deepseek-v4-flash-0731",
+    "requests": 1,
+    "outcome": "completed",
+    "error": null
+  },
+  "inputsHash": "f8d0e56d9bdf042a5b2078208689695005598dfb1c4de4eb9d09bca927721649",
+  "stages": {
+    "gate": {
+      "status": "PASS",
+      "startedAt": "2026-10-09T03:47:33.403Z",
+      "finishedAt": "2026-10-09T03:47:33.405Z",
+      "durationMs": 2,
+      "detail": null,
+      "evidence": {
+        "verdict": "NEEDS_CONFIGURATION",
+        "outcome": "correct-accept",
+        "configuredVerdict": "NEEDS_CONFIGURATION",
+        "manifest": {
+          "dockerfilePath": "Dockerfile",
+          "buildContext": ".",
+          "appRoot": ".",
+          "port": 80,
+          "healthPath": "/",
+          "healthMode": "explicit",
+          "migrationCommand": null,
+          "migrationMode": "none",
+          "postgres": false,
+          "redis": false,
+          "storage": false,
+          "databaseBindings": [],
+          "redisBindings": [],
+          "storageBindings": [],
+          "generatedKeys": []
+        }
+      }
+    },
+    "source": {
+      "status": "PASS",
+      "startedAt": "2026-10-09T03:47:33.412Z",
+      "finishedAt": "2026-10-09T03:47:46.781Z",
+      "durationMs": 13369,
+      "detail": null,
+      "evidence": {
+        "commit": "4c00f31ddcc20086bac1020428819fe0b9a30bce",
+        "archiveCached": false,
+        "archiveBytes": 36411678
+      }
+    },
+    "build": {
+      "status": "PASS",
+      "startedAt": "2026-10-09T03:47:46.787Z",
+      "finishedAt": "2026-10-09T04:13:31.666Z",
+      "durationMs": 1544879,
+      "detail": null,
+      "evidence": {
+        "dockerfilePath": "Dockerfile",
+        "buildContext": ".",
+        "platform": "linux/amd64",
+        "image": "deployz-campaign/repo-540:4c00f31ddcc2",
+        "exitCode": 0,
+        "durationMs": 1543682,
+        "buildArgNames": [],
+        "logTail": "#12 571.4 - Use build.rollupOptions.output.manualChunks to improve chunking: https://rollupjs.org/configuration-options/#output-manualchunks\n#12 571.4 - Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.\n#12 571.4 \n#12 576.0 \n#12 576.0  WARN  Browserslist: browsers data (caniuse-lite) is 20 months old. Please run:\n#12 576.0   npx update-browserslist-db@latest\n#12 576.0   Why you should do it regularly: https://github.com/browserslist/update-db#readme\n#12 576.0 \n#12 586.9 ℹ\n#12 586.9 PWA v0.21.1\n#12 586.9 mode      generateSW\n#12 586.9 precache  59 entries (5124.20 KiB)\n#12 586.9 files generated\n#12 586.9   build/sw.js.map\n#12 586.9   build/sw.js\n#12 586.9   build/workbox-3631b453.js.map\n#12 586.9   build/workbox-3631b453.js\n#12 586.9 ✓ built in 9m 25s\n#12 589.8 Done in 575.12s.\n#12 DONE 604.0s\n\n#13 [stage-1 2/2] COPY --from=build /opt/node_app/excalidraw-app/build /usr/share/nginx/html\n#13 DONE 2.8s\n\n#14 exporting to image\n#14 exporting layers\n#14 exporting layers 13.3s done\n#14 exporting manifest sha256:8f7965f78c95c8734eb71c5cac8da794db6773f5c829701b895bc45faac967d6 0.1s done\n#14 exporting config sha256:e3bb4f5449eced1e3907064d41454131d4cbbfaa9da84bf1463231ab9d60a5dc\n#14 exporting config sha256:e3bb4f5449eced1e3907064d41454131d4cbbfaa9da84bf1463231ab9d60a5dc 0.1s done\n#14 exporting attestation manifest sha256:2cdc0c9587dfae631d99c0ae1b22026589e3f3e7bfb066aeb06591232b73606a\n#14 exporting attestation manifest sha256:2cdc0c9587dfae631d99c0ae1b22026589e3f3e7bfb066aeb06591232b73606a 0.1s done\n#14 exporting manifest list sha256:b76c66b52c9123b0bc85cfffe5e64176452e19222251efd2b22d36de49372f80\n#14 exporting manifest list sha256:b76c66b52c9123b0bc85cfffe5e64176452e19222251efd2b22d36de49372f80 0.1s done\n#14 naming to docker.io/deployz-campaign/repo-540:4c00f31ddcc2 0.1s done\n#14 unpacking to docker.io/deployz-campaign/repo-540:4c00f31ddcc2\n#14 unpacking to docker.io/deployz-campaign/repo-540:4c00f31ddcc2 4.4s done\n#14 DONE 19.1s\n\nView build details: docker-desktop://dashboard/build/desktop-linux/desktop-linux/ih39qaaxbg7yn0epfy87a9avz",
+        "imageId": "sha256:b76c66b52c9123b0bc85cfffe5e64176452e19222251efd2b22d36de49372f80",
+        "imageBytes": 92161495,
+        "failure": null,
+        "rebuilt": false
+      }
+    },
+    "run": {
+      "status": "PASS",
+      "startedAt": "2026-10-09T04:13:36.998Z",
+      "finishedAt": "2026-10-09T04:13:46.006Z",
+      "durationMs": 9008,
+      "detail": null,
+      "evidence": {
+        "image": "deployz-campaign/repo-540:4c00f31ddcc2",
+        "port": 80,
+        "healthPath": "/",
+        "dependencies": [],
+        "environmentNames": [
+          "PORT"
+        ],
+        "migration": null
+      }
+    },
+    "probes": {
+      "status": "PASS",
+      "startedAt": "2026-10-09T04:13:46.016Z",
+      "finishedAt": "2026-10-09T04:14:46.682Z",
+      "durationMs": 60666,
+      "detail": null,
+      "evidence": {
+        "probes": {
+          "health": {
+            "status": "PASS",
+            "detail": "/ answered 200"
+          },
+          "start": {
+            "status": "PASS",
+            "detail": "still running 60 s after start"
+          },
+          "migration": {
+            "status": "NOT_APPLICABLE",
+            "detail": "the manifest has no migration command"
+          },
+          "dbWrite": {
+            "status": "NOT_APPLICABLE",
+            "detail": "the manifest needs no database"
+          },
+          "redis": {
+            "status": "NOT_APPLICABLE",
+            "detail": "the manifest needs no Redis"
+          },
+          "storage": {
+            "status": "NOT_APPLICABLE",
+            "detail": "the manifest needs no storage"
+          }
+        },
+        "url": "http://app:80/",
+        "appLogTail": "/docker-entrypoint.sh: /docker-entrypoint.d/ is not empty, will attempt to perform configuration\n/docker-entrypoint.sh: Looking for shell scripts in /docker-entrypoint.d/\n/docker-entrypoint.sh: Launching /docker-entrypoint.d/10-listen-on-ipv6-by-default.sh\n10-listen-on-ipv6-by-default.sh: info: Getting the checksum of /etc/nginx/conf.d/default.conf\n10-listen-on-ipv6-by-default.sh: info: Enabled listen on IPv6 in /etc/nginx/conf.d/default.conf\n/docker-entrypoint.sh: Sourcing /docker-entrypoint.d/15-local-resolvers.envsh\n/docker-entrypoint.sh: Launching /docker-entrypoint.d/20-envsubst-on-templates.sh\n/docker-entrypoint.sh: Launching /docker-entrypoint.d/30-tune-worker-processes.sh\n/docker-entrypoint.sh: Configuration complete; ready for start up\n2026/10/09 04:13:45 [notice] 1#1: using the \"epoll\" event method\n2026/10/09 04:13:45 [notice] 1#1: nginx/1.30.2\n2026/10/09 04:13:45 [notice] 1#1: built by gcc 15.2.0 (Alpine 15.2.0) \n2026/10/09 04:13:45 [notice] 1#1: OS: Linux 6.18.40.1-microsoft-standard-WSL2\n2026/10/09 04:13:45 [notice] 1#1: getrlimit(RLIMIT_NOFILE): 1048576:1048576\n2026/10/09 04:13:45 [notice] 1#1: start worker processes\n2026/10/09 04:13:45 [notice] 1#1: start worker process 30\n2026/10/09 04:13:45 [notice] 1#1: start worker process 31\n2026/10/09 04:13:45 [notice] 1#1: start worker process 32\n172.18.0.3 - - [09/Oct/2026:04:13:48 +0000] \"GET / HTTP/1.1\" 200 6843 \"-\" \"curl/8.10.1\" \"-\"\n::1 - - [09/Oct/2026:04:14:15 +0000] \"GET / HTTP/1.1\" 200 6843 \"-\" \"Wget\" \"-\"\n::1 - - [09/Oct/2026:04:14:46 +0000] \"GET / HTTP/1.1\" 200 6843 \"-\" \"Wget\" \"-\"\n2026/10/09 04:13:45 [notice] 1#1: start worker process 33"
+      }
+    },
+    "cleanup": {
+      "status": "PASS",
+      "startedAt": "2026-10-09T04:14:46.689Z",
+      "finishedAt": "2026-10-09T04:14:49.059Z",
+      "durationMs": 2370,
+      "detail": null,
+      "evidence": {
+        "removed": {
+          "containers": 1,
+          "networks": 1,
+          "volumes": 0
+        },
+        "imageRemoved": true,
+        "keepImage": false,
+        "leaks": {
+          "containers": [],
+          "networks": [],
+          "volumes": []
+        }
+      }
+    }
+  },
+  "classification": "local-success",
+  "remediation": null
+}

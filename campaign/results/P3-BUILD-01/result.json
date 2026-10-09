@@ -1,0 +1,29 @@
+{
+  "taskId": "P3-BUILD-01",
+  "testedCommit": "e6a3b58ee2363923fef21faca86611fa3bf84538",
+  "executor": "campaign-worker",
+  "model": "sonnet",
+  "startedAt": "2026-10-09T03:45:00Z",
+  "finishedAt": "2026-10-09T04:50:00Z",
+  "proposedStatus": "RETRYABLE",
+  "commands": [
+    {"command": "node --env-file=.env node_modules/tsx/dist/cli.mjs scripts/repository-deployment/index.ts --local --ai live --benchmark campaign/corpus/benchmark.yaml --deploy-config campaign/corpus/deploy-config.yaml --runs-dir campaign/results/first-run/build/ --evidence-dir campaign/logs/P3-BUILD-01/evidence/ --repo repo-540 --repo repo-536", "exitCode": 0, "summary": "repo-540 gate/build/run/probes/cleanup all PASS (local-success); repo-536 build FAIL (wrong build context docker/production)"},
+    {"command": "same command, --repo repo-536 only, after adding buildContext \".\" to deploy-config", "exitCode": 0, "summary": "repo-536 build FAIL: exceeded 30 min, log tail shows tar Read-only file system; C: had 0.06 GB free, Docker Desktop unable to start; cleanup FAIL (3 labelled resources remain)"}
+  ],
+  "evidence": [
+    "campaign/results/first-run/build/repo-540.local.json",
+    "campaign/results/first-run/build/repo-536.local.json",
+    "campaign/logs/P3-BUILD-01/run1.log",
+    "campaign/logs/P3-BUILD-01/run2.log",
+    "campaign/logs/P3-BUILD-01/repo-536.attempt1-no-context.json"
+  ],
+  "notes": [
+    "Disk at start: 6.67 GB free on C: (>= 3 GB). At end: 0.06 GB free; Docker Desktop cannot start (environment failure, disk exhausted). Cannot prune labelled resources: 3 deployz-campaign=fresh-100 resources remain, completion check 5 NOT met. Coordinator must free disk, restart Docker, prune label deployz-campaign=fresh-100, then rerun repo-536 only.",
+    "repo-540 (excalidraw): AI live completed; all stages PASS, outcome local-success. Result file reflects only the first run.",
+    "repo-536 attempt 1: AI live parse-error (AI_NoObjectGeneratedError, 2 attempts), so detected build context was docker/production; Dockerfile COPY paths docker/production/... need repo root; build failed 'not found' (kept in campaign/logs/P3-BUILD-01/repo-536.attempt1-no-context.json). This is a detection defect for Phase 4 triage.",
+    "deploy-config.yaml change: added buildContext: \".\" to repo-536 overrides only. No secrets. Source: InvoiceShelf docker/production/Dockerfile (COPY docker/production/inject.sh, entrypoint.d, s6-overlay relative to repo root).",
+    "repo-536 attempt 2 build ran > 30 min (php extension compile, tar read-only filesystem errors when Docker VM disk filled). Classify as environment failure, not repository failure. Storage (SeaweedFS) probe for repo-536 NOT run; no result.",
+    "run1 result for repo-536 was overwritten by run 2 in campaign/results/first-run/build/repo-536.local.json (backup of run 1 in logs).",
+    "Run started on branch HEAD eccaf6cd; stopBy 04:20Z was passed during the repo-536 retry (started 04:15Z, before stopBy)."
+  ]
+}
