@@ -1,65 +1,65 @@
 {
   "schemaVersion": 1,
-  "repositories": 28,
+  "repositories": 30,
   "classifications": {
     "source": 2,
     "probes": 6,
-    "gate": 16,
+    "gate": 18,
     "run": 1,
     "build": 2,
     "local-success": 1
   },
   "aiModes": {
-    "live": 28
+    "live": 30
   },
   "stages": {
     "gate": {
-      "attempted": 28,
+      "attempted": 30,
       "NOT_ATTEMPTED": 0,
       "IN_PROGRESS": 0,
       "PASS": 12,
-      "FAIL": 16,
+      "FAIL": 18,
       "SKIPPED": 0
     },
     "source": {
-      "attempted": 28,
+      "attempted": 30,
       "NOT_ATTEMPTED": 0,
       "IN_PROGRESS": 0,
-      "PASS": 19,
+      "PASS": 20,
       "FAIL": 5,
-      "SKIPPED": 4
+      "SKIPPED": 5
     },
     "build": {
-      "attempted": 28,
+      "attempted": 30,
       "NOT_ATTEMPTED": 0,
       "IN_PROGRESS": 0,
       "PASS": 11,
-      "FAIL": 8,
-      "SKIPPED": 9
+      "FAIL": 9,
+      "SKIPPED": 10
     },
     "run": {
-      "attempted": 28,
+      "attempted": 30,
       "NOT_ATTEMPTED": 0,
       "IN_PROGRESS": 0,
       "PASS": 10,
       "FAIL": 1,
-      "SKIPPED": 17
+      "SKIPPED": 19
     },
     "probes": {
-      "attempted": 28,
+      "attempted": 30,
       "NOT_ATTEMPTED": 0,
       "IN_PROGRESS": 0,
       "PASS": 2,
       "FAIL": 8,
-      "SKIPPED": 18
+      "SKIPPED": 20
     },
     "cleanup": {
-      "attempted": 28,
+      "attempted": 30,
       "NOT_ATTEMPTED": 0,
       "IN_PROGRESS": 0,
-      "PASS": 19,
+      "PASS": 20,
       "FAIL": 0,
-      "SKIPPED": 9
+      "SKIPPED": 10
     }
   },
   "probes": {
@@ -497,6 +497,34 @@
         "run": 5,
         "probes": 3,
         "cleanup": 1314
+      }
+    },
+    {
+      "id": "repo-547",
+      "repository": "wagtail/bakerydemo",
+      "classification": "gate",
+      "totalMs": 39,
+      "stages": {
+        "gate": 24,
+        "source": 3,
+        "build": 2,
+        "run": 4,
+        "probes": 3,
+        "cleanup": 3
+      }
+    },
+    {
+      "id": "repo-548",
+      "repository": "Leantime/leantime",
+      "classification": "gate",
+      "totalMs": 807060,
+      "stages": {
+        "gate": 3,
+        "source": 9522,
+        "build": 796314,
+        "run": 3,
+        "probes": 3,
+        "cleanup": 1215
       }
     }
   ]

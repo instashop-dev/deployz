@@ -1,0 +1,133 @@
+{
+  "schemaVersion": 1,
+  "id": "repo-548",
+  "repository": "Leantime/leantime",
+  "commit": "dab5daae888b2148b6af80453402a5ae88cf6b56",
+  "set": "improvement",
+  "cohort": "realistic",
+  "deployzCommit": "d216bf023e2dbefedad6261a23c9160c3651dd0d",
+  "analysisVersion": 45,
+  "ai": {
+    "mode": "live",
+    "model": "workers-ai/@cf/deepseek-ai/deepseek-v4-flash-0731",
+    "requests": 1,
+    "outcome": "timeout",
+    "error": "AbortError: This operation was aborted"
+  },
+  "inputsHash": "2eb660846cd6eaadfb2f072fd27802adf8ecbfcaea7bc51a5aa208bba7b9fd2c",
+  "stages": {
+    "gate": {
+      "status": "FAIL",
+      "startedAt": "2026-10-09T10:24:21.681Z",
+      "finishedAt": "2026-10-09T10:24:21.684Z",
+      "durationMs": 3,
+      "detail": null,
+      "evidence": {
+        "verdict": "NEEDS_CONFIGURATION",
+        "outcome": "false-acceptance",
+        "configuredVerdict": "NEEDS_CONFIGURATION",
+        "manifest": {
+          "dockerfilePath": ".dev/dockerfile",
+          "buildContext": ".",
+          "appRoot": ".dev",
+          "port": 80,
+          "healthPath": "/",
+          "healthMode": "vendor_required",
+          "migrationCommand": null,
+          "migrationMode": "unknown",
+          "postgres": true,
+          "redis": false,
+          "storage": true,
+          "databaseBindings": [
+            "DATABASE_HOST",
+            "DATABASE_NAME",
+            "DATABASE_PASSWORD",
+            "DATABASE_PORT",
+            "DATABASE_URL",
+            "DATABASE_USER",
+            "DB_HOST",
+            "DB_NAME",
+            "DB_PASSWORD",
+            "DB_PORT",
+            "DB_USER"
+          ],
+          "redisBindings": [],
+          "storageBindings": [
+            "AWS_S3_BUCKET"
+          ],
+          "generatedKeys": []
+        }
+      }
+    },
+    "source": {
+      "status": "PASS",
+      "startedAt": "2026-10-09T10:24:21.688Z",
+      "finishedAt": "2026-10-09T10:24:31.210Z",
+      "durationMs": 9522,
+      "detail": null,
+      "evidence": {
+        "commit": "dab5daae888b2148b6af80453402a5ae88cf6b56",
+        "archiveCached": false,
+        "archiveBytes": 29592595
+      }
+    },
+    "build": {
+      "status": "FAIL",
+      "startedAt": "2026-10-09T10:24:31.212Z",
+      "finishedAt": "2026-10-09T10:37:47.526Z",
+      "durationMs": 796314,
+      "detail": "docker build exited 1",
+      "evidence": {
+        "dockerfilePath": ".docker/Dockerfile",
+        "buildContext": ".docker",
+        "platform": "linux/amd64",
+        "image": "deployz-campaign/repo-548:dab5daae888b",
+        "exitCode": 1,
+        "durationMs": 796289,
+        "buildArgNames": [],
+        "logTail": "#14 640.4 (1/1) Purging .phpize-deps (20261009.103645)\n#14 640.4 OK: 818.7 MiB in 139 packages\n#14 641.4 + rm -rf /tmp/pear '/var/cache/apk/*'\n#14 DONE 641.5s\n\n#15 [stage-1  3/12] COPY --from=builder /usr/local/lib/php/extensions/ /usr/local/lib/php/extensions/\n#15 DONE 0.2s\n\n#16 [stage-1  4/12] COPY --from=builder /usr/local/etc/php/conf.d/ /usr/local/etc/php/conf.d/\n#16 DONE 0.2s\n\n#17 [stage-1  5/12] WORKDIR /var/www/html\n#17 DONE 0.2s\n\n#18 [stage-1  6/12] RUN set -ex;     curl -fsSL --retry 3 https://github.com/Leantime/leantime/releases/download/v${LEAN_VERSION}/Leantime-v${LEAN_VERSION}.tar.gz -o leantime.tar.gz &&     tar xzf leantime.tar.gz --strip-components 1 &&     rm leantime.tar.gz &&     chown -R www-data:www-data .\n#18 0.433 + curl -fsSL --retry 3 https://github.com/Leantime/leantime/releases/download/v/Leantime-v.tar.gz -o leantime.tar.gz\n#18 0.914 curl: (22) The requested URL returned error: 404\n#18 ERROR: process \"/bin/sh -c set -ex;     curl -fsSL --retry 3 https://github.com/Leantime/leantime/releases/download/v${LEAN_VERSION}/Leantime-v${LEAN_VERSION}.tar.gz -o leantime.tar.gz &&     tar xzf leantime.tar.gz --strip-components 1 &&     rm leantime.tar.gz &&     chown -R www-data:www-data .\" did not complete successfully: exit code: 22\n------\n > [stage-1  6/12] RUN set -ex;     curl -fsSL --retry 3 https://github.com/Leantime/leantime/releases/download/v${LEAN_VERSION}/Leantime-v${LEAN_VERSION}.tar.gz -o leantime.tar.gz &&     tar xzf leantime.tar.gz --strip-components 1 &&     rm leantime.tar.gz &&     chown -R www-data:www-data .:\n0.433 + curl -fsSL --retry 3 https://github.com/Leantime/leantime/releases/download/v/Leantime-v.tar.gz -o leantime.tar.gz\n0.914 curl: (22) The requested URL returned error: 404\n------\n\n \u001b[33m2 warnings found (use docker --debug to expand):\n\u001b[0m - RedundantTargetPlatform: Setting platform to predefined $TARGETPLATFORM in FROM is redundant as this is the default behavior (line 2)\n - RedundantTargetPlatform: Setting platform to predefined $TARGETPLATFORM in FROM is redundant as this is the default behavior (line 54)\nDockerfile:86\n--------------------\n  85 |     ARG LEAN_VERSION\n  86 | >>> RUN set -ex; \\\n  87 | >>>     curl -fsSL --retry 3 https://github.com/Leantime/leantime/releases/download/v${LEAN_VERSION}/Leantime-v${LEAN_VERSION}.tar.gz -o leantime.tar.gz && \\\n  88 | >>>     tar xzf leantime.tar.gz --strip-components 1 && \\\n  89 | >>>     rm leantime.tar.gz && \\\n  90 | >>>     chown -R www-data:www-data .\n  91 |     \n--------------------\nERROR: failed to build: failed to solve: process \"/bin/sh -c set -ex;     curl -fsSL --retry 3 https://github.com/Leantime/leantime/releases/download/v${LEAN_VERSION}/Leantime-v${LEAN_VERSION}.tar.gz -o leantime.tar.gz &&     tar xzf leantime.tar.gz --strip-components 1 &&     rm leantime.tar.gz &&     chown -R www-data:www-data .\" did not complete successfully: exit code: 22\n\nView build details: docker-desktop://dashboard/build/desktop-linux/desktop-linux/557v67jztkjyn18qonj8jdsre",
+        "failure": "build",
+        "rebuilt": false
+      }
+    },
+    "run": {
+      "status": "SKIPPED",
+      "startedAt": "2026-10-09T10:37:48.772Z",
+      "finishedAt": "2026-10-09T10:37:48.775Z",
+      "durationMs": 3,
+      "detail": "the build did not pass",
+      "evidence": {}
+    },
+    "probes": {
+      "status": "SKIPPED",
+      "startedAt": "2026-10-09T10:37:48.780Z",
+      "finishedAt": "2026-10-09T10:37:48.783Z",
+      "durationMs": 3,
+      "detail": "the build did not pass",
+      "evidence": {}
+    },
+    "cleanup": {
+      "status": "PASS",
+      "startedAt": "2026-10-09T10:37:48.786Z",
+      "finishedAt": "2026-10-09T10:37:50.001Z",
+      "durationMs": 1215,
+      "detail": null,
+      "evidence": {
+        "removed": {
+          "containers": 0,
+          "networks": 0,
+          "volumes": 0
+        },
+        "imageRemoved": false,
+        "keepImage": false,
+        "leaks": {
+          "containers": [],
+          "networks": [],
+          "volumes": []
+        }
+      }
+    }
+  },
+  "classification": "gate",
+  "remediation": null
+}

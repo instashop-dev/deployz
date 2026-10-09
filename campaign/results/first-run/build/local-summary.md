@@ -1,11 +1,11 @@
 # Local Docker run summary
 
-Repositories: 28
+Repositories: 30
 
 ## Classification
 
 - build: 2
-- gate: 16
+- gate: 18
 - local-success: 1
 - probes: 6
 - run: 1
@@ -15,12 +15,12 @@ Repositories: 28
 
 | Stage | Attempted | PASS | FAIL | SKIPPED | IN_PROGRESS |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| gate | 28 | 12 | 16 | 0 | 0 |
-| source | 28 | 19 | 5 | 4 | 0 |
-| build | 28 | 11 | 8 | 9 | 0 |
-| run | 28 | 10 | 1 | 17 | 0 |
-| probes | 28 | 2 | 8 | 18 | 0 |
-| cleanup | 28 | 19 | 0 | 9 | 0 |
+| gate | 30 | 12 | 18 | 0 | 0 |
+| source | 30 | 20 | 5 | 5 | 0 |
+| build | 30 | 11 | 9 | 10 | 0 |
+| run | 30 | 10 | 1 | 19 | 0 |
+| probes | 30 | 2 | 8 | 20 | 0 |
+| cleanup | 30 | 20 | 0 | 10 | 0 |
 
 ## Probes
 
@@ -65,3 +65,5 @@ Repositories: 28
 | repo-540 | excalidraw/excalidraw | local-success | 1630.3 |
 | repo-543 | teslamate-org/teslamate | probes | 592.6 |
 | repo-544 | Kareadita/Kavita | gate | 27.2 |
+| repo-547 | wagtail/bakerydemo | gate | 0.0 |
+| repo-548 | Leantime/leantime | gate | 807.1 |
