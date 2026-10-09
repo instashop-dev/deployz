@@ -1,65 +1,65 @@
 {
   "schemaVersion": 1,
-  "repositories": 14,
+  "repositories": 16,
   "classifications": {
     "source": 2,
     "probes": 2,
-    "gate": 7,
+    "gate": 9,
     "run": 1,
     "build": 1,
     "local-success": 1
   },
   "aiModes": {
-    "live": 14
+    "live": 16
   },
   "stages": {
     "gate": {
-      "attempted": 14,
+      "attempted": 16,
       "NOT_ATTEMPTED": 0,
       "IN_PROGRESS": 0,
       "PASS": 7,
-      "FAIL": 7,
+      "FAIL": 9,
       "SKIPPED": 0
     },
     "source": {
-      "attempted": 14,
+      "attempted": 16,
       "NOT_ATTEMPTED": 0,
       "IN_PROGRESS": 0,
-      "PASS": 8,
+      "PASS": 9,
       "FAIL": 4,
-      "SKIPPED": 2
+      "SKIPPED": 3
     },
     "build": {
-      "attempted": 14,
+      "attempted": 16,
       "NOT_ATTEMPTED": 0,
       "IN_PROGRESS": 0,
       "PASS": 5,
-      "FAIL": 3,
-      "SKIPPED": 6
+      "FAIL": 4,
+      "SKIPPED": 7
     },
     "run": {
-      "attempted": 14,
+      "attempted": 16,
       "NOT_ATTEMPTED": 0,
       "IN_PROGRESS": 0,
       "PASS": 4,
       "FAIL": 1,
-      "SKIPPED": 9
+      "SKIPPED": 11
     },
     "probes": {
-      "attempted": 14,
+      "attempted": 16,
       "NOT_ATTEMPTED": 0,
       "IN_PROGRESS": 0,
       "PASS": 1,
       "FAIL": 3,
-      "SKIPPED": 10
+      "SKIPPED": 12
     },
     "cleanup": {
-      "attempted": 14,
+      "attempted": 16,
       "NOT_ATTEMPTED": 0,
       "IN_PROGRESS": 0,
-      "PASS": 8,
+      "PASS": 9,
       "FAIL": 0,
-      "SKIPPED": 6
+      "SKIPPED": 7
     }
   },
   "probes": {
@@ -273,6 +273,34 @@
         "run": 4,
         "probes": 3,
         "cleanup": 790
+      }
+    },
+    {
+      "id": "repo-516",
+      "repository": "ente/ente",
+      "classification": "gate",
+      "totalMs": 20,
+      "stages": {
+        "gate": 5,
+        "source": 2,
+        "build": 2,
+        "run": 4,
+        "probes": 3,
+        "cleanup": 4
+      }
+    },
+    {
+      "id": "repo-517",
+      "repository": "DependencyTrack/dependency-track",
+      "classification": "gate",
+      "totalMs": 11747,
+      "stages": {
+        "gate": 2,
+        "source": 6313,
+        "build": 4599,
+        "run": 2,
+        "probes": 2,
+        "cleanup": 829
       }
     },
     {

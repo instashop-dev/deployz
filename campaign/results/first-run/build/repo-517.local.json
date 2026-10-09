@@ -1,0 +1,131 @@
+{
+  "schemaVersion": 1,
+  "id": "repo-517",
+  "repository": "DependencyTrack/dependency-track",
+  "commit": "cd2f225f431c21d980f5b5cda86512e8a7bef79c",
+  "set": "improvement",
+  "cohort": "realistic",
+  "deployzCommit": "3a911221271d65c1544b6889e50a1ab5b3f41c53",
+  "analysisVersion": 45,
+  "ai": {
+    "mode": "live",
+    "model": "workers-ai/@cf/deepseek-ai/deepseek-v4-flash-0731",
+    "requests": 1,
+    "outcome": "completed",
+    "error": null
+  },
+  "inputsHash": "2614d91ffb283dabdfc2aa1c63c69f5162f23c1cfeb97068f4c41e98d7de559a",
+  "stages": {
+    "gate": {
+      "status": "FAIL",
+      "startedAt": "2026-10-09T08:49:35.073Z",
+      "finishedAt": "2026-10-09T08:49:35.075Z",
+      "durationMs": 2,
+      "detail": null,
+      "evidence": {
+        "verdict": "NEEDS_CONFIGURATION",
+        "outcome": "false-acceptance",
+        "configuredVerdict": "NEEDS_CONFIGURATION",
+        "manifest": {
+          "dockerfilePath": "apiserver/src/main/docker/Dockerfile",
+          "buildContext": ".",
+          "appRoot": ".",
+          "port": 8080,
+          "healthPath": "/health",
+          "healthMode": "explicit",
+          "migrationCommand": null,
+          "migrationMode": "unknown",
+          "postgres": true,
+          "redis": false,
+          "storage": false,
+          "databaseBindings": [
+            "DATABASE_HOST",
+            "DATABASE_NAME",
+            "DATABASE_PASSWORD",
+            "DATABASE_PORT",
+            "DATABASE_URL",
+            "DATABASE_USER",
+            "DB_HOST",
+            "DB_NAME",
+            "DB_PASSWORD",
+            "DB_PORT",
+            "DB_USER"
+          ],
+          "redisBindings": [],
+          "storageBindings": [],
+          "generatedKeys": []
+        }
+      }
+    },
+    "source": {
+      "status": "PASS",
+      "startedAt": "2026-10-09T08:49:35.078Z",
+      "finishedAt": "2026-10-09T08:49:41.391Z",
+      "durationMs": 6313,
+      "detail": null,
+      "evidence": {
+        "commit": "cd2f225f431c21d980f5b5cda86512e8a7bef79c",
+        "archiveCached": false,
+        "archiveBytes": 8393686
+      }
+    },
+    "build": {
+      "status": "FAIL",
+      "startedAt": "2026-10-09T08:49:41.394Z",
+      "finishedAt": "2026-10-09T08:49:45.993Z",
+      "durationMs": 4599,
+      "detail": "docker build exited 1",
+      "evidence": {
+        "dockerfilePath": "apiserver/src/main/docker/Dockerfile",
+        "buildContext": "apiserver/src/main/docker",
+        "platform": "linux/amd64",
+        "image": "deployz-campaign/repo-517:cd2f225f431c",
+        "exitCode": 1,
+        "durationMs": 4593,
+        "buildArgNames": [],
+        "logTail": "#17 ERROR: failed to calculate checksum of ref 12cfkxfrx28t4g2mqmjcwmb4j::m2lhm3ec3w3hdq3qy12t14a21: \"/target/lib-internal\": not found\n\n#18 [jre-build 5/6] COPY ./target/dependency-track-apiserver.jar ./\n#18 ERROR: failed to calculate checksum of ref 12cfkxfrx28t4g2mqmjcwmb4j::m2lhm3ec3w3hdq3qy12t14a21: \"/target/dependency-track-apiserver.jar\": not found\n\n#19 [stage-1 5/7] COPY ./target/lib/ ./lib/\n#19 ERROR: failed to calculate checksum of ref 12cfkxfrx28t4g2mqmjcwmb4j::m2lhm3ec3w3hdq3qy12t14a21: \"/target/lib\": not found\n\n#20 [stage-1 1/7] FROM docker.io/library/alpine:3.24.2@sha256:294b683cb724975bec92580e1e685676bd4b50bda910ddb8c51d4cabeaec77e6\n#20 resolve docker.io/library/alpine:3.24.2@sha256:294b683cb724975bec92580e1e685676bd4b50bda910ddb8c51d4cabeaec77e6 0.1s done\n#20 CANCELED\n------\n > [jre-build 3/6] COPY --chmod=755 ./src/main/docker/create-jre.sh ./:\n------\n------\n > [jre-build 4/6] COPY ./target/lib/ ./target/lib-internal/ ./lib/:\n------\n------\n > [jre-build 5/6] COPY ./target/dependency-track-apiserver.jar ./:\n------\n------\n > [stage-1 5/7] COPY ./target/lib/ ./lib/:\n------\n------\n > [stage-1 6/7] COPY ./target/lib-internal/ ./lib/:\n------\n------\n > [stage-1 7/7] COPY ./target/dependency-track-apiserver.jar ./src/main/docker/logback-json.xml ./:\n------\nDockerfile:85\n--------------------\n  83 |     COPY ./target/lib/ ./lib/\n  84 |     COPY ./target/lib-internal/ ./lib/\n  85 | >>> COPY ./target/dependency-track-apiserver.jar ./src/main/docker/logback-json.xml ./\n  86 |     \n  87 |     ENTRYPOINT [\"/sbin/tini\", \"--\"]\n--------------------\nERROR: failed to build: failed to solve: failed to compute cache key: failed to calculate checksum of ref 12cfkxfrx28t4g2mqmjcwmb4j::m2lhm3ec3w3hdq3qy12t14a21: \"/target/dependency-track-apiserver.jar\": not found\n\nView build details: docker-desktop://dashboard/build/desktop-linux/desktop-linux/p3j8xzx7qzpf7v7j8skmydoes",
+        "failure": "build",
+        "rebuilt": false
+      }
+    },
+    "run": {
+      "status": "SKIPPED",
+      "startedAt": "2026-10-09T08:49:46.933Z",
+      "finishedAt": "2026-10-09T08:49:46.935Z",
+      "durationMs": 2,
+      "detail": "the build did not pass",
+      "evidence": {}
+    },
+    "probes": {
+      "status": "SKIPPED",
+      "startedAt": "2026-10-09T08:49:46.937Z",
+      "finishedAt": "2026-10-09T08:49:46.939Z",
+      "durationMs": 2,
+      "detail": "the build did not pass",
+      "evidence": {}
+    },
+    "cleanup": {
+      "status": "PASS",
+      "startedAt": "2026-10-09T08:49:46.941Z",
+      "finishedAt": "2026-10-09T08:49:47.770Z",
+      "durationMs": 829,
+      "detail": null,
+      "evidence": {
+        "removed": {
+          "containers": 0,
+          "networks": 0,
+          "volumes": 0
+        },
+        "imageRemoved": false,
+        "keepImage": false,
+        "leaks": {
+          "containers": [],
+          "networks": [],
+          "volumes": []
+        }
+      }
+    }
+  },
+  "classification": "gate",
+  "remediation": null
+}

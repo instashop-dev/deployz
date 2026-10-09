@@ -1,11 +1,11 @@
 # Local Docker run summary
 
-Repositories: 14
+Repositories: 16
 
 ## Classification
 
 - build: 1
-- gate: 7
+- gate: 9
 - local-success: 1
 - probes: 2
 - run: 1
@@ -15,12 +15,12 @@ Repositories: 14
 
 | Stage | Attempted | PASS | FAIL | SKIPPED | IN_PROGRESS |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| gate | 14 | 7 | 7 | 0 | 0 |
-| source | 14 | 8 | 4 | 2 | 0 |
-| build | 14 | 5 | 3 | 6 | 0 |
-| run | 14 | 4 | 1 | 9 | 0 |
-| probes | 14 | 1 | 3 | 10 | 0 |
-| cleanup | 14 | 8 | 0 | 6 | 0 |
+| gate | 16 | 7 | 9 | 0 | 0 |
+| source | 16 | 9 | 4 | 3 | 0 |
+| build | 16 | 5 | 4 | 7 | 0 |
+| run | 16 | 4 | 1 | 11 | 0 |
+| probes | 16 | 1 | 3 | 12 | 0 |
+| cleanup | 16 | 9 | 0 | 7 | 0 |
 
 ## Probes
 
@@ -49,5 +49,7 @@ Repositories: 14
 | repo-513 | saleor/saleor | run | 547.4 |
 | repo-514 | hexpm/hexpm | probes | 590.4 |
 | repo-515 | dotnet/eShop | gate | 6.0 |
+| repo-516 | ente/ente | gate | 0.0 |
+| repo-517 | DependencyTrack/dependency-track | gate | 11.7 |
 | repo-536 | InvoiceShelf/InvoiceShelf | build | 47.4 |
 | repo-540 | excalidraw/excalidraw | local-success | 1630.3 |

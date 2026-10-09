@@ -1,0 +1,106 @@
+{
+  "schemaVersion": 1,
+  "id": "repo-516",
+  "repository": "ente/ente",
+  "commit": "56f4e7b45d4101ef8d3ed1bf5764542c5ae3d37a",
+  "set": "improvement",
+  "cohort": "realistic",
+  "deployzCommit": "3a911221271d65c1544b6889e50a1ab5b3f41c53",
+  "analysisVersion": 45,
+  "ai": {
+    "mode": "live",
+    "model": "workers-ai/@cf/deepseek-ai/deepseek-v4-flash-0731",
+    "requests": 1,
+    "outcome": "parse-error",
+    "error": "AI_NoObjectGeneratedError: No object generated: response did not match schema."
+  },
+  "inputsHash": "0cb0610f78685b5a3169d2a88bce641ad08aa09112f574c1bec1ad0b2b39669b",
+  "stages": {
+    "gate": {
+      "status": "FAIL",
+      "startedAt": "2026-10-09T08:49:23.302Z",
+      "finishedAt": "2026-10-09T08:49:23.307Z",
+      "durationMs": 5,
+      "detail": null,
+      "evidence": {
+        "verdict": "NOT_COMPATIBLE",
+        "outcome": "false-rejection",
+        "configuredVerdict": "NOT_COMPATIBLE",
+        "manifest": {
+          "dockerfilePath": "cli/Dockerfile",
+          "buildContext": ".",
+          "appRoot": "cli",
+          "port": 2112,
+          "healthPath": "/ping",
+          "healthMode": "explicit",
+          "migrationCommand": null,
+          "migrationMode": "startup",
+          "postgres": true,
+          "redis": false,
+          "storage": false,
+          "databaseBindings": [
+            "DATABASE_HOST",
+            "DATABASE_NAME",
+            "DATABASE_PASSWORD",
+            "DATABASE_PORT",
+            "DATABASE_URL",
+            "DATABASE_USER",
+            "DB_HOST",
+            "DB_NAME",
+            "DB_PASSWORD",
+            "DB_PORT",
+            "DB_USER",
+            "PGDATABASE",
+            "POSTGRES_DB",
+            "POSTGRES_USER"
+          ],
+          "redisBindings": [],
+          "storageBindings": [],
+          "generatedKeys": []
+        }
+      }
+    },
+    "source": {
+      "status": "SKIPPED",
+      "startedAt": "2026-10-09T08:49:23.313Z",
+      "finishedAt": "2026-10-09T08:49:23.315Z",
+      "durationMs": 2,
+      "detail": "the gate did not accept the repository",
+      "evidence": {}
+    },
+    "build": {
+      "status": "SKIPPED",
+      "startedAt": "2026-10-09T08:49:23.319Z",
+      "finishedAt": "2026-10-09T08:49:23.321Z",
+      "durationMs": 2,
+      "detail": "the gate did not accept the repository",
+      "evidence": {}
+    },
+    "run": {
+      "status": "SKIPPED",
+      "startedAt": "2026-10-09T08:49:23.325Z",
+      "finishedAt": "2026-10-09T08:49:23.329Z",
+      "durationMs": 4,
+      "detail": "the build did not pass",
+      "evidence": {}
+    },
+    "probes": {
+      "status": "SKIPPED",
+      "startedAt": "2026-10-09T08:49:23.333Z",
+      "finishedAt": "2026-10-09T08:49:23.336Z",
+      "durationMs": 3,
+      "detail": "the build did not pass",
+      "evidence": {}
+    },
+    "cleanup": {
+      "status": "SKIPPED",
+      "startedAt": "2026-10-09T08:49:23.341Z",
+      "finishedAt": "2026-10-09T08:49:23.345Z",
+      "durationMs": 4,
+      "detail": "no build was attempted",
+      "evidence": {}
+    }
+  },
+  "classification": "gate",
+  "remediation": null
+}
