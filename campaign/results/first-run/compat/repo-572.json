@@ -1,0 +1,299 @@
+{
+  "id": "repo-572",
+  "repository": "Mintplex-Labs/anything-llm",
+  "commit": "3c7e73b8104e25327b9db3c4a8eeaf3ac4af237f",
+  "set": "improvement",
+  "cohort": "messy",
+  "customerRealism": "medium",
+  "difficulty": 5,
+  "deployzSha": "b130ac1abef06bc9f7330368ddcaf264ba47d826",
+  "analysisVersion": 45,
+  "ai": {
+    "mode": "live",
+    "model": "workers-ai/@cf/deepseek-ai/deepseek-v4-flash-0731",
+    "requests": 1,
+    "outcome": "completed",
+    "error": null
+  },
+  "tree": {
+    "files": 206,
+    "entries": 6629,
+    "truncated": false
+  },
+  "expected": {
+    "compatibility": "NOT_COMPATIBLE",
+    "runtime": [
+      "node"
+    ],
+    "monorepo": true,
+    "postgres": false,
+    "redis": false,
+    "worker": false,
+    "migration": true,
+    "appRoot": ".",
+    "dockerfilePath": "docker/Dockerfile",
+    "port": 3001,
+    "healthPath": "/api/ping",
+    "unsupported": [
+      "local-filesystem"
+    ]
+  },
+  "status": "analysed",
+  "failure": null,
+  "actual": {
+    "compatibility": "NOT_COMPATIBLE",
+    "analysisVerdict": "NOT_COMPATIBLE",
+    "readinessState": "NEEDS_CHANGES",
+    "runtime": "node",
+    "appRoot": ".",
+    "dockerfilePath": "docker/Dockerfile",
+    "port": 8080,
+    "startCommand": "ENTRYPOINT: [\"/bin/bash\", \"/usr/local/bin/docker-entrypoint.sh\"]",
+    "healthDetected": true,
+    "healthPath": "/ping",
+    "postgres": true,
+    "postgresDetected": true,
+    "redis": false,
+    "redisDetected": false,
+    "redisConfidence": "low",
+    "storage": false,
+    "worker": true,
+    "workerCommand": null,
+    "migration": false,
+    "migrationCommand": null,
+    "externalServices": [
+      "anthropic",
+      "openai"
+    ],
+    "requiredEnvVars": [
+      "AGENT_AUTO_APPROVED_SKILLS",
+      "ANTHROPIC_API_KEY",
+      "ANTHROPIC_MODEL_PREF",
+      "APIPIE_LLM_API_KEY",
+      "APIPIE_LLM_MODEL_PREF",
+      "AWS_BEDROCK_LLM_MODEL_PREFERENCE",
+      "CEREBRAS_API_KEY",
+      "CEREBRAS_MODEL_PREF",
+      "COHERE_API_KEY",
+      "COHERE_MODEL_PREF",
+      "COLLECTOR_PORT",
+      "COMETAPI_LLM_API_KEY",
+      "COMETAPI_LLM_MODEL_PREF",
+      "DATABASE_URL",
+      "DEEPSEEK_API_KEY",
+      "DEEPSEEK_MODEL_PREF",
+      "FIREWORKS_AI_LLM_API_KEY",
+      "FIREWORKS_AI_LLM_MODEL_PREF",
+      "FOUNDRY_BASE_PATH",
+      "FOUNDRY_MODEL_PREF",
+      "GEMINI_API_KEY",
+      "GEMINI_LLM_MODEL_PREF",
+      "GENERIC_OPEN_AI_BASE_PATH",
+      "GENERIC_OPEN_AI_MODEL_PREF",
+      "GITEE_AI_API_KEY",
+      "GITEE_AI_MODEL_PREF",
+      "GROQ_API_KEY",
+      "GROQ_MODEL_PREF",
+      "HTTPS_CERT_PATH",
+      "HTTPS_KEY_PATH",
+      "JWT_SECRET",
+      "KOBOLD_CPP_BASE_PATH",
+      "KOBOLD_CPP_MODEL_PREF",
+      "LEMONADE_LLM_BASE_PATH",
+      "LEMONADE_LLM_MODEL_PREF",
+      "LITE_LLM_BASE_PATH",
+      "LITE_LLM_MODEL_PREF",
+      "LLMMAN_BASE_PATH",
+      "LLMMAN_MODEL_PREF",
+      "LLM_PROVIDER",
+      "LMSTUDIO_AUTH_TOKEN",
+      "LMSTUDIO_BASE_PATH",
+      "LMSTUDIO_MODEL_PREF",
+      "LOCAL_AI_BASE_PATH",
+      "LOCAL_AI_MODEL_PREF",
+      "MEMORY_DIR",
+      "MINIMAX_API_KEY",
+      "MINIMAX_MODEL_PREF",
+      "MISTRAL_API_KEY",
+      "MISTRAL_MODEL_PREF",
+      "MOONSHOT_AI_MODEL_PREF",
+      "NOVITA_LLM_API_KEY",
+      "NOVITA_LLM_MODEL_PREF",
+      "NVIDIA_NIM_LLM_BASE_PATH",
+      "NVIDIA_NIM_LLM_MODEL_PREF",
+      "OLLAMA_BASE_PATH",
+      "OLLAMA_MODEL_PREF",
+      "OMLX_LLM_API_KEY",
+      "OMLX_LLM_BASE_PATH",
+      "OMLX_LLM_MODEL_PREF",
+      "OPENROUTER_API_KEY",
+      "OPENROUTER_MODEL_PREF",
+      "OPEN_AI_KEY",
+      "OPEN_MODEL_PREF",
+      "PERPLEXITY_API_KEY",
+      "PERPLEXITY_MODEL_PREF",
+      "PPIO_API_KEY",
+      "PPIO_MODEL_PREF",
+      "PRIVATEMODE_LLM_BASE_PATH",
+      "PRIVATEMODE_LLM_MODEL_PREF",
+      "SAMBANOVA_LLM_API_KEY",
+      "SAMBANOVA_LLM_MODEL_PREF",
+      "SIMPLE_SSO_NO_LOGIN_REDIRECT",
+      "STT_GROQ_API_KEY",
+      "TEXT_GEN_WEB_UI_BASE_PATH",
+      "TOGETHER_AI_API_KEY",
+      "TOGETHER_AI_MODEL_PREF",
+      "VECTOR_DB",
+      "VERTEX_AI_LLM_MODEL_PREF",
+      "VERTEX_AI_LLM_PROJECT_ID",
+      "XAI_LLM_API_KEY",
+      "XAI_LLM_MODEL_PREF",
+      "ZAI_API_KEY",
+      "ZAI_MODEL_PREF"
+    ],
+    "unsupported": [
+      "local-filesystem",
+      "sqlite"
+    ],
+    "readinessFindings": [
+      "unsupported-database-sqlite",
+      "local-file-storage",
+      "database-migrations",
+      "worker-command"
+    ],
+    "gateFindings": [
+      "unsupported",
+      "unsupported",
+      "required-env-vars-missing",
+      "migration-command-missing",
+      "deployment-files-ignored"
+    ],
+    "unresolvedQuestions": [
+      "multiple-dockerfiles",
+      "monorepo-target"
+    ]
+  },
+  "comparisons": [
+    {
+      "fact": "compatibility",
+      "expected": "NOT_COMPATIBLE",
+      "actual": "NOT_COMPATIBLE",
+      "match": true
+    },
+    {
+      "fact": "postgres",
+      "expected": false,
+      "actual": true,
+      "match": false,
+      "kind": "fact"
+    },
+    {
+      "fact": "redis",
+      "expected": false,
+      "actual": false,
+      "match": true
+    },
+    {
+      "fact": "worker",
+      "expected": false,
+      "actual": true,
+      "match": false,
+      "kind": "fact"
+    },
+    {
+      "fact": "migration",
+      "expected": true,
+      "actual": false,
+      "match": false,
+      "kind": "fact"
+    },
+    {
+      "fact": "appRoot",
+      "expected": ".",
+      "actual": ".",
+      "match": true
+    },
+    {
+      "fact": "dockerfilePath",
+      "expected": "docker/Dockerfile",
+      "actual": "docker/Dockerfile",
+      "match": true
+    },
+    {
+      "fact": "port",
+      "expected": 3001,
+      "actual": 8080,
+      "match": false,
+      "kind": "fact"
+    },
+    {
+      "fact": "healthPath",
+      "expected": "/api/ping",
+      "actual": "/ping",
+      "match": false,
+      "kind": "fact"
+    },
+    {
+      "fact": "unsupported",
+      "expected": [
+        "local-filesystem"
+      ],
+      "actual": [
+        "local-filesystem",
+        "sqlite"
+      ],
+      "match": false,
+      "kind": "fact"
+    }
+  ],
+  "mismatches": [
+    {
+      "fact": "postgres",
+      "kind": "fact",
+      "expected": false,
+      "actual": true,
+      "finding": null
+    },
+    {
+      "fact": "worker",
+      "kind": "fact",
+      "expected": false,
+      "actual": true,
+      "finding": null
+    },
+    {
+      "fact": "migration",
+      "kind": "fact",
+      "expected": true,
+      "actual": false,
+      "finding": null
+    },
+    {
+      "fact": "port",
+      "kind": "fact",
+      "expected": 3001,
+      "actual": 8080,
+      "finding": null
+    },
+    {
+      "fact": "healthPath",
+      "kind": "fact",
+      "expected": "/api/ping",
+      "actual": "/ping",
+      "finding": null
+    },
+    {
+      "fact": "unsupported",
+      "kind": "fact",
+      "expected": [
+        "local-filesystem"
+      ],
+      "actual": [
+        "local-filesystem",
+        "sqlite"
+      ],
+      "finding": null
+    }
+  ],
+  "match": false
+}

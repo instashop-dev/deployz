@@ -1,0 +1,163 @@
+{
+  "id": "repo-573",
+  "repository": "mem0ai/mem0",
+  "commit": "b7ad69afda6b6ed030347c66d48a13e4de9dec08",
+  "set": "improvement",
+  "cohort": "messy",
+  "customerRealism": "medium",
+  "difficulty": 5,
+  "deployzSha": "b130ac1abef06bc9f7330368ddcaf264ba47d826",
+  "analysisVersion": 45,
+  "ai": {
+    "mode": "live",
+    "model": "workers-ai/@cf/deepseek-ai/deepseek-v4-flash-0731",
+    "requests": 1,
+    "outcome": "parse-error",
+    "error": "AI_NoObjectGeneratedError: No object generated: response did not match schema."
+  },
+  "tree": {
+    "files": 210,
+    "entries": 2211,
+    "truncated": false
+  },
+  "expected": {
+    "compatibility": "NEEDS_CONFIGURATION",
+    "runtime": [
+      "python"
+    ],
+    "monorepo": true,
+    "postgres": true,
+    "redis": false,
+    "worker": false,
+    "migration": true,
+    "appRoot": "server",
+    "dockerfilePath": "server/Dockerfile",
+    "port": 8000,
+    "healthPath": "/auth/setup-status"
+  },
+  "status": "analysed",
+  "failure": null,
+  "actual": {
+    "compatibility": "NEEDS_CONFIGURATION",
+    "analysisVerdict": "READY",
+    "readinessState": "READY",
+    "runtime": "python",
+    "appRoot": "server",
+    "dockerfilePath": "server/Dockerfile",
+    "port": 8000,
+    "startCommand": "CMD: [\"uvicorn\", \"main:app\", \"--host\", \"0.0.0.0\", \"--port\", \"8000\", \"--reload\"]",
+    "healthDetected": true,
+    "healthPath": "/v1/ping",
+    "postgres": true,
+    "postgresDetected": true,
+    "redis": false,
+    "redisDetected": true,
+    "redisConfidence": "medium",
+    "storage": false,
+    "worker": false,
+    "workerCommand": null,
+    "migration": false,
+    "migrationCommand": null,
+    "externalServices": [
+      "anthropic",
+      "openai"
+    ],
+    "requiredEnvVars": [
+      "ANTHROPIC_API_KEY",
+      "API_INTERNAL_URL",
+      "COHERE_API_KEY",
+      "GROQ_API_KEY",
+      "MEM0_API_KEY",
+      "MEM0_HOST",
+      "OPENAI_API_KEY"
+    ],
+    "unsupported": [],
+    "readinessFindings": [
+      "database-migrations"
+    ],
+    "gateFindings": [
+      "required-env-vars-missing",
+      "migration-command-missing"
+    ],
+    "unresolvedQuestions": [
+      "multiple-dockerfiles",
+      "monorepo-target",
+      "redis-requirement-unclear"
+    ]
+  },
+  "comparisons": [
+    {
+      "fact": "compatibility",
+      "expected": "NEEDS_CONFIGURATION",
+      "actual": "NEEDS_CONFIGURATION",
+      "match": true
+    },
+    {
+      "fact": "postgres",
+      "expected": true,
+      "actual": true,
+      "match": true
+    },
+    {
+      "fact": "redis",
+      "expected": false,
+      "actual": false,
+      "match": true
+    },
+    {
+      "fact": "worker",
+      "expected": false,
+      "actual": false,
+      "match": true
+    },
+    {
+      "fact": "migration",
+      "expected": true,
+      "actual": false,
+      "match": false,
+      "kind": "fact"
+    },
+    {
+      "fact": "appRoot",
+      "expected": "server",
+      "actual": "server",
+      "match": true
+    },
+    {
+      "fact": "dockerfilePath",
+      "expected": "server/Dockerfile",
+      "actual": "server/Dockerfile",
+      "match": true
+    },
+    {
+      "fact": "port",
+      "expected": 8000,
+      "actual": 8000,
+      "match": true
+    },
+    {
+      "fact": "healthPath",
+      "expected": "/auth/setup-status",
+      "actual": "/v1/ping",
+      "match": false,
+      "kind": "fact"
+    }
+  ],
+  "mismatches": [
+    {
+      "fact": "migration",
+      "kind": "fact",
+      "expected": true,
+      "actual": false,
+      "finding": null
+    },
+    {
+      "fact": "healthPath",
+      "kind": "fact",
+      "expected": "/auth/setup-status",
+      "actual": "/v1/ping",
+      "finding": null
+    }
+  ],
+  "match": false
+}
