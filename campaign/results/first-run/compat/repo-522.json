@@ -1,0 +1,173 @@
+{
+  "id": "repo-522",
+  "repository": "sigoden/dufs",
+  "commit": "fe7fd564f80dfbac361c8e0589c3845638149d38",
+  "set": "improvement",
+  "cohort": "realistic",
+  "customerRealism": "high",
+  "difficulty": 3,
+  "deployzSha": "263fba32ae376ad98600b3533be5a554dce199fc",
+  "analysisVersion": 45,
+  "ai": {
+    "mode": "live",
+    "model": "workers-ai/@cf/deepseek-ai/deepseek-v4-flash-0731",
+    "requests": 1,
+    "outcome": "completed",
+    "error": null
+  },
+  "tree": {
+    "files": 6,
+    "entries": 65,
+    "truncated": false
+  },
+  "expected": {
+    "compatibility": "NOT_COMPATIBLE",
+    "runtime": [
+      "rust"
+    ],
+    "monorepo": false,
+    "postgres": false,
+    "redis": false,
+    "worker": false,
+    "appRoot": ".",
+    "dockerfilePath": "Dockerfile",
+    "port": 5000,
+    "healthPath": "/__dufs__/health",
+    "unsupported": [
+      "local-filesystem"
+    ]
+  },
+  "status": "analysed",
+  "failure": null,
+  "actual": {
+    "compatibility": "NEEDS_CONFIGURATION",
+    "analysisVerdict": "NEEDS_ATTENTION",
+    "readinessState": "ALMOST_READY",
+    "runtime": "rust",
+    "appRoot": ".",
+    "dockerfilePath": "Dockerfile",
+    "port": null,
+    "startCommand": "ENTRYPOINT: [\"/bin/dufs\"]",
+    "healthDetected": false,
+    "healthPath": null,
+    "postgres": false,
+    "postgresDetected": false,
+    "redis": false,
+    "redisDetected": false,
+    "redisConfidence": "low",
+    "storage": false,
+    "worker": false,
+    "workerCommand": null,
+    "migration": false,
+    "migrationCommand": null,
+    "externalServices": [],
+    "requiredEnvVars": [],
+    "unsupported": [],
+    "readinessFindings": [
+      "port-unresolved",
+      "health-check"
+    ],
+    "gateFindings": [
+      "port-missing",
+      "health-path-required"
+    ],
+    "unresolvedQuestions": [
+      "multiple-dockerfiles"
+    ]
+  },
+  "comparisons": [
+    {
+      "fact": "compatibility",
+      "expected": "NOT_COMPATIBLE",
+      "actual": "NEEDS_CONFIGURATION",
+      "match": false,
+      "kind": "false-acceptance"
+    },
+    {
+      "fact": "postgres",
+      "expected": false,
+      "actual": false,
+      "match": true
+    },
+    {
+      "fact": "redis",
+      "expected": false,
+      "actual": false,
+      "match": true
+    },
+    {
+      "fact": "worker",
+      "expected": false,
+      "actual": false,
+      "match": true
+    },
+    {
+      "fact": "appRoot",
+      "expected": ".",
+      "actual": ".",
+      "match": true
+    },
+    {
+      "fact": "dockerfilePath",
+      "expected": "Dockerfile",
+      "actual": "Dockerfile",
+      "match": true
+    },
+    {
+      "fact": "port",
+      "expected": 5000,
+      "actual": null,
+      "match": false,
+      "kind": "fact"
+    },
+    {
+      "fact": "healthPath",
+      "expected": "/__dufs__/health",
+      "actual": null,
+      "match": false,
+      "kind": "fact"
+    },
+    {
+      "fact": "unsupported",
+      "expected": [
+        "local-filesystem"
+      ],
+      "actual": [],
+      "match": false,
+      "kind": "fact"
+    }
+  ],
+  "mismatches": [
+    {
+      "fact": "compatibility",
+      "kind": "false-acceptance",
+      "expected": "NOT_COMPATIBLE",
+      "actual": "NEEDS_CONFIGURATION",
+      "finding": null
+    },
+    {
+      "fact": "port",
+      "kind": "fact",
+      "expected": 5000,
+      "actual": null,
+      "finding": null
+    },
+    {
+      "fact": "healthPath",
+      "kind": "fact",
+      "expected": "/__dufs__/health",
+      "actual": null,
+      "finding": null
+    },
+    {
+      "fact": "unsupported",
+      "kind": "fact",
+      "expected": [
+        "local-filesystem"
+      ],
+      "actual": [],
+      "finding": null
+    }
+  ],
+  "match": false
+}

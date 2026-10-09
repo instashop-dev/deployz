@@ -1,0 +1,197 @@
+{
+  "id": "repo-516",
+  "repository": "ente/ente",
+  "commit": "56f4e7b45d4101ef8d3ed1bf5764542c5ae3d37a",
+  "set": "improvement",
+  "cohort": "realistic",
+  "customerRealism": "high",
+  "difficulty": 4,
+  "deployzSha": "263fba32ae376ad98600b3533be5a554dce199fc",
+  "analysisVersion": 45,
+  "ai": {
+    "mode": "live",
+    "model": "workers-ai/@cf/deepseek-ai/deepseek-v4-flash-0731",
+    "requests": 1,
+    "outcome": "parse-error",
+    "error": "AI_NoObjectGeneratedError: No object generated: response did not match schema."
+  },
+  "tree": {
+    "files": 206,
+    "entries": 10172,
+    "truncated": false
+  },
+  "expected": {
+    "compatibility": "NEEDS_CONFIGURATION",
+    "runtime": [
+      "go"
+    ],
+    "monorepo": true,
+    "postgres": true,
+    "redis": false,
+    "worker": false,
+    "storage": true,
+    "migration": true,
+    "appRoot": "server",
+    "dockerfilePath": "server/Dockerfile",
+    "port": 8080,
+    "healthPath": "/ping"
+  },
+  "status": "analysed",
+  "failure": null,
+  "actual": {
+    "compatibility": "NOT_COMPATIBLE",
+    "analysisVerdict": "NOT_COMPATIBLE",
+    "readinessState": "NEEDS_CHANGES",
+    "runtime": "go",
+    "appRoot": "cli",
+    "dockerfilePath": "cli/Dockerfile",
+    "port": 2112,
+    "startCommand": "CMD: [\"./ente-cli\"]",
+    "healthDetected": true,
+    "healthPath": "/ping",
+    "postgres": true,
+    "postgresDetected": true,
+    "redis": false,
+    "redisDetected": false,
+    "redisConfidence": "low",
+    "storage": false,
+    "worker": false,
+    "workerCommand": null,
+    "migration": false,
+    "migrationCommand": null,
+    "externalServices": [],
+    "requiredEnvVars": [
+      "GIT_COMMIT",
+      "MINIO_ROOT_PASSWORD"
+    ],
+    "unsupported": [
+      "local-filesystem"
+    ],
+    "readinessFindings": [
+      "local-file-storage",
+      "database-migrations"
+    ],
+    "gateFindings": [
+      "unsupported",
+      "required-env-vars-missing",
+      "migration-command-missing"
+    ],
+    "unresolvedQuestions": [
+      "multiple-dockerfiles",
+      "monorepo-target"
+    ]
+  },
+  "comparisons": [
+    {
+      "fact": "compatibility",
+      "expected": "NEEDS_CONFIGURATION",
+      "actual": "NOT_COMPATIBLE",
+      "match": false,
+      "kind": "false-rejection"
+    },
+    {
+      "fact": "postgres",
+      "expected": true,
+      "actual": true,
+      "match": true
+    },
+    {
+      "fact": "redis",
+      "expected": false,
+      "actual": false,
+      "match": true
+    },
+    {
+      "fact": "worker",
+      "expected": false,
+      "actual": false,
+      "match": true
+    },
+    {
+      "fact": "storage",
+      "expected": true,
+      "actual": false,
+      "match": false,
+      "kind": "fact"
+    },
+    {
+      "fact": "migration",
+      "expected": true,
+      "actual": false,
+      "match": false,
+      "kind": "fact"
+    },
+    {
+      "fact": "appRoot",
+      "expected": "server",
+      "actual": "cli",
+      "match": false,
+      "kind": "fact"
+    },
+    {
+      "fact": "dockerfilePath",
+      "expected": "server/Dockerfile",
+      "actual": "cli/Dockerfile",
+      "match": false,
+      "kind": "fact"
+    },
+    {
+      "fact": "port",
+      "expected": 8080,
+      "actual": 2112,
+      "match": false,
+      "kind": "fact"
+    },
+    {
+      "fact": "healthPath",
+      "expected": "/ping",
+      "actual": "/ping",
+      "match": true
+    }
+  ],
+  "mismatches": [
+    {
+      "fact": "compatibility",
+      "kind": "false-rejection",
+      "expected": "NEEDS_CONFIGURATION",
+      "actual": "NOT_COMPATIBLE",
+      "finding": null
+    },
+    {
+      "fact": "storage",
+      "kind": "fact",
+      "expected": true,
+      "actual": false,
+      "finding": null
+    },
+    {
+      "fact": "migration",
+      "kind": "fact",
+      "expected": true,
+      "actual": false,
+      "finding": null
+    },
+    {
+      "fact": "appRoot",
+      "kind": "fact",
+      "expected": "server",
+      "actual": "cli",
+      "finding": null
+    },
+    {
+      "fact": "dockerfilePath",
+      "kind": "fact",
+      "expected": "server/Dockerfile",
+      "actual": "cli/Dockerfile",
+      "finding": null
+    },
+    {
+      "fact": "port",
+      "kind": "fact",
+      "expected": 8080,
+      "actual": 2112,
+      "finding": null
+    }
+  ],
+  "match": false
+}

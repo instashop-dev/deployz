@@ -1,0 +1,171 @@
+{
+  "id": "repo-520",
+  "repository": "mathesar-foundation/mathesar",
+  "commit": "0c05987885c93cdbe5bf9f7fa49b833d02a312cc",
+  "set": "improvement",
+  "cohort": "realistic",
+  "customerRealism": "high",
+  "difficulty": 3,
+  "deployzSha": "263fba32ae376ad98600b3533be5a554dce199fc",
+  "analysisVersion": 45,
+  "ai": {
+    "mode": "live",
+    "model": "workers-ai/@cf/deepseek-ai/deepseek-v4-flash-0731",
+    "requests": 1,
+    "outcome": "completed",
+    "error": null
+  },
+  "tree": {
+    "files": 188,
+    "entries": 2204,
+    "truncated": false
+  },
+  "expected": {
+    "compatibility": "NEEDS_CONFIGURATION",
+    "runtime": [
+      "python"
+    ],
+    "monorepo": false,
+    "postgres": true,
+    "redis": false,
+    "worker": false,
+    "storage": true,
+    "migration": true,
+    "appRoot": ".",
+    "dockerfilePath": "Dockerfile",
+    "port": 8000,
+    "healthPath": "/healthz/ready/"
+  },
+  "status": "analysed",
+  "failure": null,
+  "actual": {
+    "compatibility": "NOT_COMPATIBLE",
+    "analysisVerdict": "NOT_COMPATIBLE",
+    "readinessState": "NEEDS_CHANGES",
+    "runtime": "python",
+    "appRoot": ".",
+    "dockerfilePath": "Dockerfile",
+    "port": 8000,
+    "startCommand": "CMD: [\"bash\", \"./bin/mathesar_dev\"]",
+    "healthDetected": true,
+    "healthPath": "/healthz/ready/",
+    "postgres": true,
+    "postgresDetected": true,
+    "redis": false,
+    "redisDetected": false,
+    "redisConfidence": "low",
+    "storage": false,
+    "worker": false,
+    "workerCommand": null,
+    "migration": false,
+    "migrationCommand": null,
+    "externalServices": [],
+    "requiredEnvVars": [],
+    "unsupported": [
+      "docker-compose-multi-service",
+      "local-filesystem"
+    ],
+    "readinessFindings": [
+      "unsupported-multi-service",
+      "local-file-storage",
+      "database-migrations"
+    ],
+    "gateFindings": [
+      "unsupported",
+      "unsupported",
+      "migration-command-missing"
+    ],
+    "unresolvedQuestions": [
+      "multiple-dockerfiles"
+    ]
+  },
+  "comparisons": [
+    {
+      "fact": "compatibility",
+      "expected": "NEEDS_CONFIGURATION",
+      "actual": "NOT_COMPATIBLE",
+      "match": false,
+      "kind": "false-rejection"
+    },
+    {
+      "fact": "postgres",
+      "expected": true,
+      "actual": true,
+      "match": true
+    },
+    {
+      "fact": "redis",
+      "expected": false,
+      "actual": false,
+      "match": true
+    },
+    {
+      "fact": "worker",
+      "expected": false,
+      "actual": false,
+      "match": true
+    },
+    {
+      "fact": "storage",
+      "expected": true,
+      "actual": false,
+      "match": false,
+      "kind": "fact"
+    },
+    {
+      "fact": "migration",
+      "expected": true,
+      "actual": false,
+      "match": false,
+      "kind": "fact"
+    },
+    {
+      "fact": "appRoot",
+      "expected": ".",
+      "actual": ".",
+      "match": true
+    },
+    {
+      "fact": "dockerfilePath",
+      "expected": "Dockerfile",
+      "actual": "Dockerfile",
+      "match": true
+    },
+    {
+      "fact": "port",
+      "expected": 8000,
+      "actual": 8000,
+      "match": true
+    },
+    {
+      "fact": "healthPath",
+      "expected": "/healthz/ready/",
+      "actual": "/healthz/ready/",
+      "match": true
+    }
+  ],
+  "mismatches": [
+    {
+      "fact": "compatibility",
+      "kind": "false-rejection",
+      "expected": "NEEDS_CONFIGURATION",
+      "actual": "NOT_COMPATIBLE",
+      "finding": null
+    },
+    {
+      "fact": "storage",
+      "kind": "fact",
+      "expected": true,
+      "actual": false,
+      "finding": null
+    },
+    {
+      "fact": "migration",
+      "kind": "fact",
+      "expected": true,
+      "actual": false,
+      "finding": null
+    }
+  ],
+  "match": false
+}

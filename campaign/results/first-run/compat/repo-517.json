@@ -1,0 +1,152 @@
+{
+  "id": "repo-517",
+  "repository": "DependencyTrack/dependency-track",
+  "commit": "cd2f225f431c21d980f5b5cda86512e8a7bef79c",
+  "set": "improvement",
+  "cohort": "realistic",
+  "customerRealism": "high",
+  "difficulty": 4,
+  "deployzSha": "263fba32ae376ad98600b3533be5a554dce199fc",
+  "analysisVersion": 45,
+  "ai": {
+    "mode": "live",
+    "model": "workers-ai/@cf/deepseek-ai/deepseek-v4-flash-0731",
+    "requests": 1,
+    "outcome": "timeout",
+    "error": "AbortError: This operation was aborted"
+  },
+  "tree": {
+    "files": 100,
+    "entries": 3918,
+    "truncated": false
+  },
+  "expected": {
+    "compatibility": "NOT_COMPATIBLE",
+    "runtime": [
+      "java"
+    ],
+    "monorepo": true,
+    "postgres": true,
+    "redis": false,
+    "worker": false,
+    "migration": true,
+    "appRoot": "apiserver",
+    "dockerfilePath": "apiserver/src/main/docker/Dockerfile",
+    "port": 8080
+  },
+  "status": "analysed",
+  "failure": null,
+  "actual": {
+    "compatibility": "NEEDS_CONFIGURATION",
+    "analysisVerdict": "READY",
+    "readinessState": "READY",
+    "runtime": "jvm",
+    "appRoot": ".",
+    "dockerfilePath": "apiserver/src/main/docker/Dockerfile",
+    "port": 8080,
+    "startCommand": "CMD: [ \\",
+    "healthDetected": true,
+    "healthPath": "/health",
+    "postgres": true,
+    "postgresDetected": true,
+    "redis": false,
+    "redisDetected": false,
+    "redisConfidence": "low",
+    "storage": false,
+    "worker": false,
+    "workerCommand": null,
+    "migration": false,
+    "migrationCommand": null,
+    "externalServices": [],
+    "requiredEnvVars": [],
+    "unsupported": [],
+    "readinessFindings": [
+      "database-migrations"
+    ],
+    "gateFindings": [
+      "dockerfile-missing-sources",
+      "database-connection-unverified",
+      "migration-command-missing"
+    ],
+    "unresolvedQuestions": [
+      "multiple-dockerfiles"
+    ]
+  },
+  "comparisons": [
+    {
+      "fact": "compatibility",
+      "expected": "NOT_COMPATIBLE",
+      "actual": "NEEDS_CONFIGURATION",
+      "match": false,
+      "kind": "false-acceptance"
+    },
+    {
+      "fact": "postgres",
+      "expected": true,
+      "actual": true,
+      "match": true
+    },
+    {
+      "fact": "redis",
+      "expected": false,
+      "actual": false,
+      "match": true
+    },
+    {
+      "fact": "worker",
+      "expected": false,
+      "actual": false,
+      "match": true
+    },
+    {
+      "fact": "migration",
+      "expected": true,
+      "actual": false,
+      "match": false,
+      "kind": "fact"
+    },
+    {
+      "fact": "appRoot",
+      "expected": "apiserver",
+      "actual": ".",
+      "match": false,
+      "kind": "fact"
+    },
+    {
+      "fact": "dockerfilePath",
+      "expected": "apiserver/src/main/docker/Dockerfile",
+      "actual": "apiserver/src/main/docker/Dockerfile",
+      "match": true
+    },
+    {
+      "fact": "port",
+      "expected": 8080,
+      "actual": 8080,
+      "match": true
+    }
+  ],
+  "mismatches": [
+    {
+      "fact": "compatibility",
+      "kind": "false-acceptance",
+      "expected": "NOT_COMPATIBLE",
+      "actual": "NEEDS_CONFIGURATION",
+      "finding": null
+    },
+    {
+      "fact": "migration",
+      "kind": "fact",
+      "expected": true,
+      "actual": false,
+      "finding": null
+    },
+    {
+      "fact": "appRoot",
+      "kind": "fact",
+      "expected": "apiserver",
+      "actual": ".",
+      "finding": null
+    }
+  ],
+  "match": false
+}

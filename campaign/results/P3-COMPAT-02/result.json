@@ -1,0 +1,240 @@
+{
+  "taskId": "P3-COMPAT-02",
+  "testedCommit": "e6a3b58ee2363923fef21faca86611fa3bf84538",
+  "deployzSha": "263fba32ae376ad98600b3533be5a554dce199fc",
+  "executor": "campaign-worker",
+  "model": "sonnet",
+  "startedAt": "2026-10-09T00:10:00Z",
+  "finishedAt": "2026-10-09T00:14:12.358Z",
+  "proposedStatus": "COMPLETE",
+  "summary": "10 apps analysed with --ai live, 0 failed analyses. Verdict matches: 3/10. No app has all facts matching.",
+  "apps": [
+    {
+      "id": "repo-514",
+      "expectedVerdict": "NEEDS_CONFIGURATION",
+      "actualVerdict": "NEEDS_CONFIGURATION",
+      "status": "analysed",
+      "mismatches": 1,
+      "ai": {
+        "mode": "live",
+        "model": "workers-ai/@cf/deepseek-ai/deepseek-v4-flash-0731",
+        "requests": 1,
+        "outcome": "parse-error"
+      },
+      "analysisVersion": 45,
+      "gateFindings": [
+        "start-command-missing",
+        "health-path-required",
+        "database-connection-unverified",
+        "migration-command-missing"
+      ]
+    },
+    {
+      "id": "repo-515",
+      "expectedVerdict": "NOT_COMPATIBLE",
+      "actualVerdict": "NEEDS_CONFIGURATION",
+      "status": "analysed",
+      "mismatches": 5,
+      "ai": {
+        "mode": "live",
+        "model": "workers-ai/@cf/deepseek-ai/deepseek-v4-flash-0731",
+        "requests": 1,
+        "outcome": "completed"
+      },
+      "analysisVersion": 45,
+      "gateFindings": [
+        "dockerfile-missing",
+        "port-missing",
+        "start-command-missing",
+        "health-path-required",
+        "database-connection-unverified",
+        "migration-command-missing"
+      ]
+    },
+    {
+      "id": "repo-516",
+      "expectedVerdict": "NEEDS_CONFIGURATION",
+      "actualVerdict": "NOT_COMPATIBLE",
+      "status": "analysed",
+      "mismatches": 6,
+      "ai": {
+        "mode": "live",
+        "model": "workers-ai/@cf/deepseek-ai/deepseek-v4-flash-0731",
+        "requests": 1,
+        "outcome": "parse-error"
+      },
+      "analysisVersion": 45,
+      "gateFindings": [
+        "unsupported",
+        "required-env-vars-missing",
+        "migration-command-missing"
+      ]
+    },
+    {
+      "id": "repo-517",
+      "expectedVerdict": "NOT_COMPATIBLE",
+      "actualVerdict": "NEEDS_CONFIGURATION",
+      "status": "analysed",
+      "mismatches": 3,
+      "ai": {
+        "mode": "live",
+        "model": "workers-ai/@cf/deepseek-ai/deepseek-v4-flash-0731",
+        "requests": 1,
+        "outcome": "timeout"
+      },
+      "analysisVersion": 45,
+      "gateFindings": [
+        "dockerfile-missing-sources",
+        "database-connection-unverified",
+        "migration-command-missing"
+      ]
+    },
+    {
+      "id": "repo-518",
+      "expectedVerdict": "NOT_COMPATIBLE",
+      "actualVerdict": "NEEDS_CONFIGURATION",
+      "status": "analysed",
+      "mismatches": 3,
+      "ai": {
+        "mode": "live",
+        "model": "workers-ai/@cf/deepseek-ai/deepseek-v4-flash-0731",
+        "requests": 1,
+        "outcome": "timeout"
+      },
+      "analysisVersion": 45,
+      "gateFindings": [
+        "dockerfile-missing",
+        "start-command-missing",
+        "health-path-required",
+        "required-env-vars-missing",
+        "migration-command-missing"
+      ]
+    },
+    {
+      "id": "repo-519",
+      "expectedVerdict": "NOT_COMPATIBLE",
+      "actualVerdict": "NOT_COMPATIBLE",
+      "status": "analysed",
+      "mismatches": 3,
+      "ai": {
+        "mode": "live",
+        "model": "workers-ai/@cf/deepseek-ai/deepseek-v4-flash-0731",
+        "requests": 1,
+        "outcome": "completed"
+      },
+      "analysisVersion": 45,
+      "gateFindings": [
+        "unsupported",
+        "unsupported",
+        "health-path-required",
+        "required-env-vars-missing",
+        "migration-command-missing"
+      ]
+    },
+    {
+      "id": "repo-520",
+      "expectedVerdict": "NEEDS_CONFIGURATION",
+      "actualVerdict": "NOT_COMPATIBLE",
+      "status": "analysed",
+      "mismatches": 3,
+      "ai": {
+        "mode": "live",
+        "model": "workers-ai/@cf/deepseek-ai/deepseek-v4-flash-0731",
+        "requests": 1,
+        "outcome": "completed"
+      },
+      "analysisVersion": 45,
+      "gateFindings": [
+        "unsupported",
+        "unsupported",
+        "migration-command-missing"
+      ]
+    },
+    {
+      "id": "repo-522",
+      "expectedVerdict": "NOT_COMPATIBLE",
+      "actualVerdict": "NEEDS_CONFIGURATION",
+      "status": "analysed",
+      "mismatches": 4,
+      "ai": {
+        "mode": "live",
+        "model": "workers-ai/@cf/deepseek-ai/deepseek-v4-flash-0731",
+        "requests": 1,
+        "outcome": "completed"
+      },
+      "analysisVersion": 45,
+      "gateFindings": [
+        "port-missing",
+        "health-path-required"
+      ]
+    },
+    {
+      "id": "repo-523",
+      "expectedVerdict": "NEEDS_CONFIGURATION",
+      "actualVerdict": "NEEDS_CONFIGURATION",
+      "status": "analysed",
+      "mismatches": 1,
+      "ai": {
+        "mode": "live",
+        "model": "workers-ai/@cf/deepseek-ai/deepseek-v4-flash-0731",
+        "requests": 1,
+        "outcome": "completed"
+      },
+      "analysisVersion": 45,
+      "gateFindings": [
+        "dockerfile-missing-sources",
+        "required-env-vars-missing",
+        "migration-command-missing"
+      ]
+    },
+    {
+      "id": "repo-524",
+      "expectedVerdict": "READY",
+      "actualVerdict": "NEEDS_CONFIGURATION",
+      "status": "analysed",
+      "mismatches": 4,
+      "ai": {
+        "mode": "live",
+        "model": "workers-ai/@cf/deepseek-ai/deepseek-v4-flash-0731",
+        "requests": 0,
+        "outcome": "not-requested"
+      },
+      "analysisVersion": 45,
+      "gateFindings": [
+        "health-path-required",
+        "migration-command-missing"
+      ]
+    }
+  ],
+  "commands": [
+    {
+      "command": "node --env-file=.env node_modules/tsx/dist/cli.mjs scripts/repository-compatibility/index.ts --ai live --benchmark campaign/corpus/benchmark.yaml --runs-dir campaign/results/first-run/compat/ --repo repo-514 ... --repo repo-524 (10 repos)",
+      "exitCode": 0,
+      "summary": "10 result files written, about 4 min"
+    }
+  ],
+  "evidence": [
+    "campaign/results/first-run/compat/repo-514.json",
+    "campaign/results/first-run/compat/repo-515.json",
+    "campaign/results/first-run/compat/repo-516.json",
+    "campaign/results/first-run/compat/repo-517.json",
+    "campaign/results/first-run/compat/repo-518.json",
+    "campaign/results/first-run/compat/repo-519.json",
+    "campaign/results/first-run/compat/repo-520.json",
+    "campaign/results/first-run/compat/repo-522.json",
+    "campaign/results/first-run/compat/repo-523.json",
+    "campaign/results/first-run/compat/repo-524.json"
+  ],
+  "deviations": [],
+  "notes": [
+    "HEAD sha 263fba32 differs from baseline testedCommit as expected; harness unchanged.",
+    "Existing repo-501..513 files unchanged (git status shows only new files).",
+    "No labelled Docker containers left (this task started none).",
+    "AI outcomes: completed 5 (515,519,520,522,523), parse-error 2 (514,516), timeout 2 (517,518), not-requested 1 (524, 0 requests)."
+  ],
+  "secretScan": {
+    "files": "10 new compat files and campaign/results/P3-COMPAT-02",
+    "result": "clean",
+    "note": "only .env value found is public AI_MODEL id; no token, email, AWS key or private key pattern"
+  }
+}
