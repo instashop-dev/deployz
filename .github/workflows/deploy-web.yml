@@ -404,6 +404,9 @@ jobs:
           echo "service host: $service_host"
           problems=()
           rows=()
+          # The two hosts share one read of the proxy ranges below.
+          ranges=""
+          ranges_read="no"
           for key in APP_HOST MARKETING_HOST; do
             host="${!key}"
             problem=""
@@ -430,7 +433,39 @@ jobs:
               elif [ "${DEPLOYZ_STAGE}" = "production" ]; then
                 echo "::notice::$host answers with an address and no CNAME. Production proxies this host on purpose."
               else
-                problem="the host is proxied, or it is an A record. Outside production it must be a DNS-only CNAME to \"$service_host\"."
+                # Cloudflare publishes the addresses that its proxy answers
+                # from. An address in those ranges shows a proxied record.
+                # This block only names what the host answers. The record is
+                # already wrong, so a failed fetch keeps the general wording
+                # and the same exit code.
+                kind="proxied, or it is an A record"
+                if [ "$ranges_read" = "no" ]; then
+                  ranges_read="yes"
+                  ranges=$(curl -fsS --max-time 10 https://www.cloudflare.com/ips-v4) || ranges=""
+                  # A 200 answer that is not a list of ranges must not reach
+                  # the arithmetic below.
+                  ranges=$(printf '%s\n' "$ranges" | grep -E '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+/[0-9]+$') || ranges=""
+                fi
+                case "$address" in
+                  ""|*[!0-9.]*|.*|*.|*..*|*.*.*.*.*) ;;
+                  *.*.*.*)
+                    if [ -n "$ranges" ]; then
+                      kind="an A record to $address, which is in none of the proxy ranges Cloudflare publishes"
+                      IFS=. read -r o1 o2 o3 o4 <<< "$address"
+                      value=$(( (10#$o1 << 24) + (10#$o2 << 16) + (10#$o3 << 8) + 10#$o4 ))
+                      for cidr in $ranges; do
+                        IFS=. read -r b1 b2 b3 b4 <<< "${cidr%/*}"
+                        base=$(( (10#$b1 << 24) + (10#$b2 << 16) + (10#$b3 << 8) + 10#$b4 ))
+                        mask=$(( (0xFFFFFFFF << (32 - 10#${cidr#*/})) & 0xFFFFFFFF ))
+                        if [ $(( value & mask )) -eq $(( base & mask )) ]; then
+                          kind="proxied: $address is in $cidr, which Cloudflare publishes as a proxy range"
+                          break
+                        fi
+                      done
+                    fi
+                    ;;
+                esac
+                problem="the host is $kind. Outside production it must be a DNS-only CNAME to \"$service_host\"."
               fi
             fi
             if [ -n "$problem" ]; then

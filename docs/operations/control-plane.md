@@ -53,7 +53,8 @@ not shipping.
 `deploy-web.yml` builds `apps/web` into a container and ships it to the
 Lightsail container service behind `app.deployz.dev`, after the CI workflow
 succeeds for a push to `main` that touches `apps/web`,
-`packages/{copy-map,contracts}` or the lockfile, and then checks
+`packages/{copy-map,contracts}` or the lockfile, then checks that `APP_HOST`
+and `MARKETING_HOST` resolve to the container service, and then checks
 `https://app.deployz.dev/healthz`. Each push stores a new image in the
 container service, and Lightsail refuses a push when the service holds 150
 images. Before each push, the workflow deletes all images except the newest
@@ -216,6 +217,11 @@ without them.
 5. A new `BETTER_AUTH_SECRET` and a separate Cloudflare zone-edit token.
 6. Enough `us-east-1` VPC and Elastic IP quota. The default is five of each,
    and staging adds one of each.
+
+The three staging DNS records are not in that list, because the first deploy
+of each service makes their targets. Each deploy prints the record to make,
+and fails until the record exists. Every one of the three must be DNS only;
+see [`../networking-and-https.md`](../networking-and-https.md).
 
 ## Database migrations
 
