@@ -2,7 +2,7 @@
 
 **Status:** CONTINUE. Phase 3. P0-GATE, P1-GATE and P2-GATE PASS (P2-GATE on 2026-10-09).
 **Checkout:** `C:/Users/Tejas/Desktop/deployz-mvp-test`, branch `campaign/fresh-100`. Baseline commit `e6a3b58e` (ANALYSIS_VERSION 45; origin/main after PR #498, merged into the campaign branch on 2026-10-08).
-**Eligible now:** `P3-COMPAT-03` RETRYABLE (attempt 2 of 3) only after a passing AI gateway probe; then `P3-COMPAT-04..08`. `ai-gateway` is UNAVAILABLE since 00:16Z on 2026-10-09 (HTTP 500/502).
+**Eligible now:** `P3-COMPAT-04..08` (in order). `ai-gateway` AVAILABLE again since the 00:44Z probe on 2026-10-09.
 
 ## Done
 
@@ -66,6 +66,7 @@
 - 2026-10-09: `P2-GATE` PASS (Opus). No new testing framework (only the existing harnesses changed; no package or lockfile change). Sizing: Stage A about 40 s per app with live AI; local 332-697 s per app. Phase 3 decisions: `P3-BUILD-PLAN` creates `campaign/corpus/deploy-config.yaml` (normal vendor config) and every build passes `--deploy-config`; builds use `--local --ai live` and the default cache; 2 apps per build task; one retry for registry network timeouts, then environment failure; one storage app early (first SeaweedFS check). Evidence: `campaign/results/P2-GATE/review.md`.
 - 2026-10-09: `P3-COMPAT-01` COMPLETE (attempt 1, worker sonnet). Stage A `--ai live` on repo-501..513, 5 min. Verdict = label for 4/10; 40 fact mismatches. AI: 4 completed, 3 timeout at 30 s, 2 parse-error, 1 not-requested (Phase 4 candidate). Files stamp analysisVersion 44 because `apps/api/dist` was stale; behavior equals baseline 45 (only the constant differs); Opus rebuilt `apps/api/dist`. Timebox of P3-COMPAT-02..08 set to 15 from the measurement. Evidence: `campaign/results/P3-COMPAT-01/result.json`, `campaign/results/first-run/compat/`.
 - 2026-10-09: `P3-COMPAT-02` COMPLETE (attempt 1, worker sonnet). Stage A `--ai live` on repo-514..524, about 4 min, analysisVersion 45. Verdict = label for 3/10. AI: 5 completed, 2 timeout, 2 parse-error, 1 not-requested. AI total so far 9 failed of 18 requests (Phase 4 candidate). Evidence: `campaign/results/P3-COMPAT-02/result.json`.
+- 2026-10-09: `P3-COMPAT-03` COMPLETE (attempt 2, worker sonnet). Attempt 1 (00:16Z) got AI HTTP 500/502 on 9/9 requests; files kept in `campaign/results/P3-COMPAT-03/attempt-1/`. Opus probe at 00:44Z passed (repo-540, ai.outcome completed), so `ai-gateway` is AVAILABLE. Attempt 2: repo-525..540, about 3 min, no 5xx. Verdict = label 6/10; all facts 1/10. AI: 7 completed, 2 parse-error, 1 not-requested. AI failures so far 11 of 27 requests (Phase 4 candidate). Evidence: `campaign/results/P3-COMPAT-03/result.json`.
 - 2026-10-09: `P3-COMPAT-03` RETRYABLE (attempt 1). Harness exit 0, but the AI gateway returned HTTP 500/502 for 9/9 requests, so every analysis used fallback. Files kept in `campaign/results/P3-COMPAT-03/attempt-1/`; `first-run/compat/` holds only the 20 files of P3-COMPAT-01..02. Opus one-app probes at 00:19Z and 00:20Z: still 500. The run ended with no eligible work. Next routine run probed again at 00:23Z: still HTTP 500 (AI_APICallError: Internal Server Error); no eligible work.
 
 ## Blockers and pending prerequisites
@@ -99,7 +100,7 @@
 
 ## Next action
 
-Probe the AI gateway with one app. If it answers without a 5xx, set `ai-gateway` AVAILABLE, retry `P3-COMPAT-03` (attempt 2 of 3), then run `P3-COMPAT-04..08`. If it still fails, there is no eligible work. Builds need `disk>=10GB` (user action).
+Run `P3-COMPAT-04` (improvement apps 31-40), then `P3-COMPAT-05..08`. If a batch gets AI HTTP 5xx, mark it RETRYABLE and probe repo-540 before the retry. Builds need `disk>=10GB` (user action).
 
 Caution: every coordinator, scheduled or manual, must hold `campaign/coordinator.lock` (`node campaign/lock.mjs`, see plan.md "Coordinator lock") before it changes campaign files or dispatches a worker. If the lock is held, exit without changes.
 

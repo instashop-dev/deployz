@@ -1,0 +1,35 @@
+{
+  "taskId": "P3-COMPAT-03",
+  "testedCommit": "e6a3b58ee2363923fef21faca86611fa3bf84538",
+  "executor": "campaign-worker",
+  "model": "sonnet",
+  "startedAt": "2026-10-09T00:45:29Z",
+  "finishedAt": "2026-10-09T00:48:10Z",
+  "proposedStatus": "COMPLETE",
+  "commands": [
+    {
+      "command": "node --env-file=.env node_modules/tsx/dist/cli.mjs scripts/repository-compatibility/index.ts --ai live --benchmark campaign/corpus/benchmark.yaml --runs-dir campaign/results/first-run/compat/ --repo repo-525 ... --repo repo-540",
+      "exitCode": 0,
+      "summary": "10/10 analysed, 0 failed; verdict match 6/10; AI completed 7, parse-error 2 (repo-528, repo-536), not-requested 1 (repo-534); no HTTP 5xx"
+    }
+  ],
+  "evidence": [
+    "campaign/results/first-run/compat/repo-525.json",
+    "campaign/results/first-run/compat/repo-528.json",
+    "campaign/results/first-run/compat/repo-529.json",
+    "campaign/results/first-run/compat/repo-530.json",
+    "campaign/results/first-run/compat/repo-534.json",
+    "campaign/results/first-run/compat/repo-536.json",
+    "campaign/results/first-run/compat/repo-537.json",
+    "campaign/results/first-run/compat/repo-538.json",
+    "campaign/results/first-run/compat/repo-539.json",
+    "campaign/results/first-run/compat/repo-540.json",
+    "campaign/logs/P3-COMPAT-03/run-attempt-2.log"
+  ],
+  "notes": [
+    "Working tree HEAD was 01bc7785 (descendant of tested commit e6a3b58e); harness stamped deployzSha 01bc7785, analysis version 45.",
+    "No HTTP 5xx from the AI gateway in this attempt. repo-528 and repo-536 had AI parse-error (no object matched schema), analysis fell back to deterministic result.",
+    "repo-534 made no AI request (not-requested).",
+    "Attempt-1 directory was not read."
+  ]
+}
