@@ -1,109 +1,109 @@
 {
   "schemaVersion": 1,
-  "repositories": 44,
+  "repositories": 46,
   "classifications": {
     "source": 2,
-    "probes": 9,
-    "gate": 24,
+    "probes": 10,
+    "gate": 25,
     "run": 3,
     "build": 5,
     "local-success": 1
   },
   "aiModes": {
-    "live": 44
+    "live": 46
   },
   "stages": {
     "gate": {
-      "attempted": 44,
+      "attempted": 46,
       "NOT_ATTEMPTED": 0,
       "IN_PROGRESS": 0,
-      "PASS": 20,
-      "FAIL": 24,
+      "PASS": 21,
+      "FAIL": 25,
       "SKIPPED": 0
     },
     "source": {
-      "attempted": 44,
+      "attempted": 46,
       "NOT_ATTEMPTED": 0,
       "IN_PROGRESS": 0,
-      "PASS": 32,
-      "FAIL": 5,
+      "PASS": 33,
+      "FAIL": 6,
       "SKIPPED": 7
     },
     "build": {
-      "attempted": 44,
+      "attempted": 46,
       "NOT_ATTEMPTED": 0,
       "IN_PROGRESS": 0,
-      "PASS": 18,
+      "PASS": 19,
       "FAIL": 14,
-      "SKIPPED": 12
+      "SKIPPED": 13
     },
     "run": {
-      "attempted": 44,
+      "attempted": 46,
       "NOT_ATTEMPTED": 0,
       "IN_PROGRESS": 0,
-      "PASS": 14,
+      "PASS": 15,
       "FAIL": 4,
-      "SKIPPED": 26
+      "SKIPPED": 27
     },
     "probes": {
-      "attempted": 44,
+      "attempted": 46,
       "NOT_ATTEMPTED": 0,
       "IN_PROGRESS": 0,
       "PASS": 2,
-      "FAIL": 12,
-      "SKIPPED": 30
+      "FAIL": 13,
+      "SKIPPED": 31
     },
     "cleanup": {
-      "attempted": 44,
+      "attempted": 46,
       "NOT_ATTEMPTED": 0,
       "IN_PROGRESS": 0,
-      "PASS": 32,
+      "PASS": 33,
       "FAIL": 0,
-      "SKIPPED": 12
+      "SKIPPED": 13
     }
   },
   "probes": {
     "start": {
-      "attempted": 14,
-      "PASS": 6,
+      "attempted": 15,
+      "PASS": 7,
       "FAIL": 8,
       "UNVERIFIED": 0,
       "NOT_APPLICABLE": 0
     },
     "health": {
-      "attempted": 14,
+      "attempted": 15,
       "PASS": 6,
-      "FAIL": 8,
+      "FAIL": 9,
       "UNVERIFIED": 0,
       "NOT_APPLICABLE": 0
     },
     "migration": {
-      "attempted": 14,
+      "attempted": 15,
       "PASS": 0,
       "FAIL": 0,
       "UNVERIFIED": 0,
-      "NOT_APPLICABLE": 14
+      "NOT_APPLICABLE": 15
     },
     "dbWrite": {
-      "attempted": 14,
+      "attempted": 15,
       "PASS": 0,
-      "FAIL": 9,
+      "FAIL": 10,
       "UNVERIFIED": 0,
       "NOT_APPLICABLE": 5
     },
     "redis": {
-      "attempted": 14,
+      "attempted": 15,
       "PASS": 0,
       "FAIL": 5,
       "UNVERIFIED": 0,
-      "NOT_APPLICABLE": 9
+      "NOT_APPLICABLE": 10
     },
     "storage": {
-      "attempted": 14,
+      "attempted": 15,
       "PASS": 0,
       "FAIL": 0,
       "UNVERIFIED": 4,
-      "NOT_APPLICABLE": 10
+      "NOT_APPLICABLE": 11
     }
   },
   "durations": [
@@ -721,6 +721,34 @@
         "run": 3,
         "probes": 3,
         "cleanup": 2
+      }
+    },
+    {
+      "id": "repo-573",
+      "repository": "mem0ai/mem0",
+      "classification": "probes",
+      "totalMs": 422828,
+      "stages": {
+        "gate": 5,
+        "source": 6527,
+        "build": 103543,
+        "run": 11064,
+        "probes": 297761,
+        "cleanup": 3928
+      }
+    },
+    {
+      "id": "repo-574",
+      "repository": "lobsters/lobsters",
+      "classification": "gate",
+      "totalMs": 4031,
+      "stages": {
+        "gate": 2,
+        "source": 4018,
+        "build": 3,
+        "run": 3,
+        "probes": 2,
+        "cleanup": 3
       }
     }
   ]

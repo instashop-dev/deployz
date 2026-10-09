@@ -1,13 +1,13 @@
 # Local Docker run summary
 
-Repositories: 44
+Repositories: 46
 
 ## Classification
 
 - build: 5
-- gate: 24
+- gate: 25
 - local-success: 1
-- probes: 9
+- probes: 10
 - run: 3
 - source: 2
 
@@ -15,23 +15,23 @@ Repositories: 44
 
 | Stage | Attempted | PASS | FAIL | SKIPPED | IN_PROGRESS |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| gate | 44 | 20 | 24 | 0 | 0 |
-| source | 44 | 32 | 5 | 7 | 0 |
-| build | 44 | 18 | 14 | 12 | 0 |
-| run | 44 | 14 | 4 | 26 | 0 |
-| probes | 44 | 2 | 12 | 30 | 0 |
-| cleanup | 44 | 32 | 0 | 12 | 0 |
+| gate | 46 | 21 | 25 | 0 | 0 |
+| source | 46 | 33 | 6 | 7 | 0 |
+| build | 46 | 19 | 14 | 13 | 0 |
+| run | 46 | 15 | 4 | 27 | 0 |
+| probes | 46 | 2 | 13 | 31 | 0 |
+| cleanup | 46 | 33 | 0 | 13 | 0 |
 
 ## Probes
 
 | Probe | Attempted | PASS | FAIL | UNVERIFIED | NOT_APPLICABLE |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| start | 14 | 6 | 8 | 0 | 0 |
-| health | 14 | 6 | 8 | 0 | 0 |
-| migration | 14 | 0 | 0 | 0 | 14 |
-| dbWrite | 14 | 0 | 9 | 0 | 5 |
-| redis | 14 | 0 | 5 | 0 | 9 |
-| storage | 14 | 0 | 0 | 4 | 10 |
+| start | 15 | 7 | 8 | 0 | 0 |
+| health | 15 | 6 | 9 | 0 | 0 |
+| migration | 15 | 0 | 0 | 0 | 15 |
+| dbWrite | 15 | 0 | 10 | 0 | 5 |
+| redis | 15 | 0 | 5 | 0 | 10 |
+| storage | 15 | 0 | 0 | 4 | 11 |
 
 ## Duration per repository
 
@@ -81,3 +81,5 @@ Repositories: 44
 | repo-565 | open-webui/open-webui | build | 1162.7 |
 | repo-566 | openfga/openfga | probes | 546.8 |
 | repo-569 | activepieces/activepieces | gate | 0.0 |
+| repo-573 | mem0ai/mem0 | probes | 422.8 |
+| repo-574 | lobsters/lobsters | gate | 4.0 |

@@ -1,0 +1,25 @@
+{
+  "taskId": "P3-BUILD-23",
+  "testedCommit": "e6a3b58ee2363923fef21faca86611fa3bf84538",
+  "executor": "campaign-worker",
+  "model": "sonnet",
+  "startedAt": "2026-10-09T17:15:08Z",
+  "finishedAt": "2026-10-09T17:23:12Z",
+  "proposedStatus": "COMPLETE",
+  "commands": [
+    { "command": "node --env-file=.env node_modules/tsx/dist/cli.mjs scripts/repository-deployment/index.ts --local --ai live --benchmark campaign/corpus/benchmark.yaml --deploy-config campaign/corpus/deploy-config.yaml --runs-dir campaign/results/first-run/build/ --evidence-dir campaign/logs/P3-BUILD-23/evidence/ --repo repo-573 --repo repo-574", "exitCode": 0, "summary": "Two local results written; repo-573 failed at probes, repo-574 failed at gate" }
+  ],
+  "evidence": [
+    "campaign/results/first-run/build/repo-573.local.json",
+    "campaign/results/first-run/build/repo-574.local.json"
+  ],
+  "notes": [
+    "repo-573 (mem0ai/mem0): gate PASS (NEEDS_CONFIGURATION, correct-accept), source PASS, build PASS (104 s), run PASS, probes FAIL (health, dbWrite; start PASS): /auth/setup-status gave no answer in 300 s; app log shows an uvicorn Python traceback at startup. cleanup PASS. Repository/config failure, not environment.",
+    "repo-574 (lobsters/lobsters): gate FAIL (false-acceptance: label NOT_COMPATIBLE, Deployz verdict NEEDS_CONFIGURATION), source FAIL (host tar on Windows cannot create symlinks public/apple-touch-icon*.png; host limitation), build/run/probes/cleanup SKIPPED with reasons recorded. Source failure is an environment failure for the build denominator.",
+    "No deploy-config.yaml changes made.",
+    "No registry network timeouts; no retry needed.",
+    "The working tree HEAD was 38ab4ee3; testedCommit is the baseline commit given by the coordinator.",
+    "AI mode live in both results (frozen mode production-equivalent as given).",
+    "Zero containers, networks, volumes and images with label deployz-campaign=fresh-100 remain after the run."
+  ]
+}
