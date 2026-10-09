@@ -1,108 +1,108 @@
 {
   "schemaVersion": 1,
-  "repositories": 40,
+  "repositories": 42,
   "classifications": {
     "source": 2,
-    "probes": 7,
+    "probes": 8,
     "gate": 23,
     "run": 3,
-    "build": 4,
+    "build": 5,
     "local-success": 1
   },
   "aiModes": {
-    "live": 40
+    "live": 42
   },
   "stages": {
     "gate": {
-      "attempted": 40,
+      "attempted": 42,
       "NOT_ATTEMPTED": 0,
       "IN_PROGRESS": 0,
-      "PASS": 17,
+      "PASS": 19,
       "FAIL": 23,
       "SKIPPED": 0
     },
     "source": {
-      "attempted": 40,
+      "attempted": 42,
       "NOT_ATTEMPTED": 0,
       "IN_PROGRESS": 0,
-      "PASS": 29,
+      "PASS": 31,
       "FAIL": 5,
       "SKIPPED": 6
     },
     "build": {
-      "attempted": 40,
+      "attempted": 42,
       "NOT_ATTEMPTED": 0,
       "IN_PROGRESS": 0,
-      "PASS": 16,
-      "FAIL": 13,
+      "PASS": 17,
+      "FAIL": 14,
       "SKIPPED": 11
     },
     "run": {
-      "attempted": 40,
+      "attempted": 42,
       "NOT_ATTEMPTED": 0,
       "IN_PROGRESS": 0,
-      "PASS": 12,
+      "PASS": 13,
       "FAIL": 4,
-      "SKIPPED": 24
+      "SKIPPED": 25
     },
     "probes": {
-      "attempted": 40,
+      "attempted": 42,
       "NOT_ATTEMPTED": 0,
       "IN_PROGRESS": 0,
       "PASS": 2,
-      "FAIL": 10,
-      "SKIPPED": 28
+      "FAIL": 11,
+      "SKIPPED": 29
     },
     "cleanup": {
-      "attempted": 40,
+      "attempted": 42,
       "NOT_ATTEMPTED": 0,
       "IN_PROGRESS": 0,
-      "PASS": 29,
+      "PASS": 31,
       "FAIL": 0,
       "SKIPPED": 11
     }
   },
   "probes": {
     "start": {
-      "attempted": 12,
+      "attempted": 13,
       "PASS": 6,
-      "FAIL": 6,
+      "FAIL": 7,
       "UNVERIFIED": 0,
       "NOT_APPLICABLE": 0
     },
     "health": {
-      "attempted": 12,
+      "attempted": 13,
       "PASS": 6,
-      "FAIL": 6,
+      "FAIL": 7,
       "UNVERIFIED": 0,
       "NOT_APPLICABLE": 0
     },
     "migration": {
-      "attempted": 12,
+      "attempted": 13,
       "PASS": 0,
       "FAIL": 0,
       "UNVERIFIED": 0,
-      "NOT_APPLICABLE": 12
+      "NOT_APPLICABLE": 13
     },
     "dbWrite": {
-      "attempted": 12,
+      "attempted": 13,
       "PASS": 0,
-      "FAIL": 7,
+      "FAIL": 8,
       "UNVERIFIED": 0,
       "NOT_APPLICABLE": 5
     },
     "redis": {
-      "attempted": 12,
+      "attempted": 13,
       "PASS": 0,
-      "FAIL": 4,
+      "FAIL": 5,
       "UNVERIFIED": 0,
       "NOT_APPLICABLE": 8
     },
     "storage": {
-      "attempted": 12,
+      "attempted": 13,
       "PASS": 0,
       "FAIL": 0,
-      "UNVERIFIED": 3,
+      "UNVERIFIED": 4,
       "NOT_APPLICABLE": 9
     }
   },
@@ -665,6 +665,34 @@
         "run": 2,
         "probes": 3,
         "cleanup": 2
+      }
+    },
+    {
+      "id": "repo-564",
+      "repository": "getlago/lago-api",
+      "classification": "probes",
+      "totalMs": 588692,
+      "stages": {
+        "gate": 5,
+        "source": 10037,
+        "build": 498158,
+        "run": 15823,
+        "probes": 61603,
+        "cleanup": 3066
+      }
+    },
+    {
+      "id": "repo-565",
+      "repository": "open-webui/open-webui",
+      "classification": "build",
+      "totalMs": 1162742,
+      "stages": {
+        "gate": 15,
+        "source": 20996,
+        "build": 1126942,
+        "run": 5,
+        "probes": 4,
+        "cleanup": 14780
       }
     }
   ]

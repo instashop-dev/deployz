@@ -5,7 +5,7 @@
   "commit": "8bd8b4fac5e059578ac0c74b3c18d11139f88b7d",
   "set": "improvement",
   "cohort": "realistic",
-  "deployzCommit": "070dbe96b005747440f76484e7b68ef4784c0601",
+  "deployzCommit": "aa0761275fc7a09b5361cfeea3d8e94a96cbb541",
   "analysisVersion": 45,
   "ai": {
     "mode": "live",
@@ -14,13 +14,13 @@
     "outcome": "not-requested",
     "error": null
   },
-  "inputsHash": "63da80ecd214d14d8ba9091880fff34fb8833a0ce7eacb10b504c83ebeca532a",
+  "inputsHash": "bafeb6b50312327fb9857e02a07425a649b19c3682011d42a464901d68a3abb1",
   "stages": {
     "gate": {
       "status": "PASS",
-      "startedAt": "2026-10-09T13:39:55.968Z",
-      "finishedAt": "2026-10-09T13:39:55.970Z",
-      "durationMs": 2,
+      "startedAt": "2026-10-09T16:35:54.909Z",
+      "finishedAt": "2026-10-09T16:35:54.924Z",
+      "durationMs": 15,
       "detail": null,
       "evidence": {
         "verdict": "NEEDS_CONFIGURATION",
@@ -74,49 +74,74 @@
     },
     "source": {
       "status": "PASS",
-      "startedAt": "2026-10-09T13:39:55.972Z",
-      "finishedAt": "2026-10-09T13:40:05.584Z",
-      "durationMs": 9612,
+      "startedAt": "2026-10-09T16:35:54.950Z",
+      "finishedAt": "2026-10-09T16:36:15.946Z",
+      "durationMs": 20996,
       "detail": null,
       "evidence": {
         "commit": "8bd8b4fac5e059578ac0c74b3c18d11139f88b7d",
-        "archiveCached": false,
-        "archiveBytes": 12538519
+        "archiveCached": true,
+        "archiveBytes": null
       }
     },
     "build": {
-      "status": "IN_PROGRESS",
-      "startedAt": "2026-10-09T13:40:05.586Z",
-      "finishedAt": null,
-      "durationMs": null,
-      "detail": null,
-      "evidence": {}
+      "status": "FAIL",
+      "startedAt": "2026-10-09T16:36:15.959Z",
+      "finishedAt": "2026-10-09T16:55:02.901Z",
+      "durationMs": 1126942,
+      "detail": "docker build exited 1",
+      "evidence": {
+        "dockerfilePath": "Dockerfile",
+        "buildContext": ".",
+        "platform": "linux/amd64",
+        "image": "deployz-campaign/repo-565:8bd8b4fac5e0",
+        "exitCode": 1,
+        "durationMs": 1126891,
+        "buildArgNames": [],
+        "logTail": "#29 502.6  + xlsxwriter==3.2.9\n#29 502.6  + xxhash==4.0.1\n#29 502.6  + yarl==1.25.1\n#29 502.6  + youtube-transcript-api==1.2.4\n#29 502.6  + zstandard==0.25.0\n#29 ...\n\n#27 [build 7/8] RUN npm run build &&     if [ \"false\" = \"true\" ]; then find build -type f -name '*.map' -delete; fi\n#27 559.0 Aborted (core dumped)\n#27 ERROR: process \"/bin/sh -c npm run build &&     if [ \\\"$USE_SLIM\\\" = \\\"true\\\" ]; then find build -type f -name '*.map' -delete; fi\" did not complete successfully: exit code: 134\n\n#29 [base 10/16] RUN --mount=from=ghcr.io/astral-sh/uv:0.12.10,source=/uv,target=/bin/uv     set -e;     if [ \"false\" = \"true\" ]; then     uv pip install --system -r requirements-slim.txt --no-cache-dir;     elif [ \"false\" = \"true\" ]; then     pip3 install 'torch<=2.9.1' torchvision torchaudio --index-url https://download.pytorch.org/whl/cu128 --no-cache-dir;     uv pip install --system -r requirements.txt --no-cache-dir;     python -c \"import os; from sentence_transformers import SentenceTransformer; SentenceTransformer(os.environ['RAG_EMBEDDING_MODEL'], device='cpu')\";     python -c \"import os; from sentence_transformers import SentenceTransformer; SentenceTransformer(os.environ.get('AUXILIARY_EMBEDDING_MODEL', 'TaylorAI/bge-micro-v2'), device='cpu')\";     python -c \"import os; from faster_whisper import WhisperModel; WhisperModel(os.environ['WHISPER_MODEL'], device='cpu', compute_type='int8', download_root=os.environ['WHISPER_MODEL_DIR'])\";     python -c \"import os; import tiktoken; tiktoken.get_encoding(os.environ['TIKTOKEN_ENCODING_NAME'])\";     else     pip3 install 'torch<=2.9.1' torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu --no-cache-dir;     uv pip install --system -r requirements.txt --no-cache-dir;     if [ \"false\" != \"true\" ]; then     python -c \"import os; from sentence_transformers import SentenceTransformer; SentenceTransformer(os.environ['RAG_EMBEDDING_MODEL'], device='cpu')\";     python -c \"import os; from sentence_transformers import SentenceTransformer; SentenceTransformer(os.environ.get('AUXILIARY_EMBEDDING_MODEL', 'TaylorAI/bge-micro-v2'), device='cpu')\";     python -c \"import os; from faster_whisper import WhisperModel; WhisperModel(os.environ['WHISPER_MODEL'], device='cpu', compute_type='int8', download_root=os.environ['WHISPER_MODEL_DIR'])\";     python -c \"import os; import tiktoken; tiktoken.get_encoding(os.environ['TIKTOKEN_ENCODING_NAME'])\";     fi;     fi;     mkdir -p /app/backend/data; chown -R 0:0 /app/backend/data/;     if [ -d /app/backend/data/cache ]; then chmod -R a+rX /app/backend/data/cache; fi;     rm -rf /var/lib/apt/lists/*;\n#29 CANCELED\n------\n > [build 7/8] RUN npm run build &&     if [ \"false\" = \"true\" ]; then find build -type f -name '*.map' -delete; fi:\n439.2 \n439.2 [19:0x72f8633d7000]   349496 ms: Mark-Compact 1916.7 (1959.7) -> 1914.8 (1962.2) MB, pooled: 3 MB, 3235.33 / 0.02 ms  (average mu = 0.111, current mu = 0.025) allocation failure; scavenge might not succeed\n439.2 [19:0x72f8633d7000]   353097 ms: Mark-Compact (reduce) 1918.9 (1962.5) -> 1916.8 (1957.2) MB, pooled: 0 MB, 2814.61 / 0.02 ms  (+ 226.8 ms in 0 steps since start of marking, biggest step 0.0 ms, walltime since start of marking 3188 ms) (average mu = 0.133\n439.2 \n439.2 <--- JS stacktrace --->\n439.2 \n439.2 FATAL ERROR: Ineffective mark-compacts near heap limit Allocation failed - JavaScript heap out of memory\n439.2 ----- Native stack trace -----\n439.2 \n559.0 Aborted (core dumped)\n------\n\n \u001b[33m2 warnings found (use docker --debug to expand):\n\u001b[0m - SecretsUsedInArgOrEnv: Do not use ARG or ENV instructions for sensitive data (ENV \"OPENAI_API_KEY\") (line 90)\n - SecretsUsedInArgOrEnv: Do not use ARG or ENV instructions for sensitive data (ENV \"WEBUI_SECRET_KEY\") (line 90)\nDockerfile:46\n--------------------\n  45 |     ENV APP_BUILD_HASH=${BUILD_HASH}\n  46 | >>> RUN npm run build && \\\n  47 | >>>     if [ \"$USE_SLIM\" = \"true\" ]; then find build -type f -name '*.map' -delete; fi\n  48 |     \n--------------------\nERROR: failed to build: failed to solve: process \"/bin/sh -c npm run build &&     if [ \\\"$USE_SLIM\\\" = \\\"true\\\" ]; then find build -type f -name '*.map' -delete; fi\" did not complete successfully: exit code: 134\n\nView build details: docker-desktop://dashboard/build/desktop-linux/desktop-linux/mx6ajhkg3zhzodg68x7qbsbky",
+        "failure": "build",
+        "rebuilt": false
+      }
     },
     "run": {
-      "status": "NOT_ATTEMPTED",
-      "startedAt": null,
-      "finishedAt": null,
-      "durationMs": null,
-      "detail": null,
+      "status": "SKIPPED",
+      "startedAt": "2026-10-09T16:55:11.587Z",
+      "finishedAt": "2026-10-09T16:55:11.592Z",
+      "durationMs": 5,
+      "detail": "the build did not pass",
       "evidence": {}
     },
     "probes": {
-      "status": "NOT_ATTEMPTED",
-      "startedAt": null,
-      "finishedAt": null,
-      "durationMs": null,
-      "detail": null,
+      "status": "SKIPPED",
+      "startedAt": "2026-10-09T16:55:11.598Z",
+      "finishedAt": "2026-10-09T16:55:11.602Z",
+      "durationMs": 4,
+      "detail": "the build did not pass",
       "evidence": {}
     },
     "cleanup": {
-      "status": "NOT_ATTEMPTED",
-      "startedAt": null,
-      "finishedAt": null,
-      "durationMs": null,
+      "status": "PASS",
+      "startedAt": "2026-10-09T16:55:11.607Z",
+      "finishedAt": "2026-10-09T16:55:26.387Z",
+      "durationMs": 14780,
       "detail": null,
-      "evidence": {}
+      "evidence": {
+        "removed": {
+          "containers": 0,
+          "networks": 0,
+          "volumes": 0
+        },
+        "imageRemoved": false,
+        "buildCachePruned": true,
+        "keepImage": false,
+        "leaks": {
+          "containers": [],
+          "networks": [],
+          "volumes": []
+        }
+      }
     }
   },
-  "classification": null,
+  "classification": "build",
   "remediation": null
 }

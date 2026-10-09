@@ -4,11 +4,29 @@
   "executor": "campaign-worker",
   "model": "sonnet",
   "startedAt": "2026-10-09T13:29:21Z",
-  "finishedAt": "2026-10-09T13:56:00Z",
-  "proposedStatus": "CONTINUE",
+  "finishedAt": "2026-10-09T16:56:14.138Z",
+  "proposedStatus": "COMPLETE",
   "commands": [
-    { "command": "node --env-file=.env node_modules/tsx/dist/cli.mjs scripts/repository-deployment/index.ts --local --ai live --benchmark campaign/corpus/benchmark.yaml --deploy-config campaign/corpus/deploy-config.yaml --runs-dir campaign/results/first-run/build/ --evidence-dir campaign/logs/P3-BUILD-21/evidence/ --repo repo-564 --repo repo-565", "exitCode": 1, "summary": "repo-564 complete (gate PASS, build PASS, run PASS, probes FAIL, cleanup PASS); repo-565 build died (JS heap OOM in npm run build, exit 134), then ENOSPC on C: while writing the result; result file left with build IN_PROGRESS" },
-    { "command": "docker cleanup of label deployz-campaign=fresh-100 containers, networks, volumes, images; docker builder prune -f", "exitCode": 0, "summary": "no labelled resource remains; builder cache pruned (682.7 MB)" }
+    {
+      "command": "node --env-file=.env node_modules/tsx/dist/cli.mjs scripts/repository-deployment/index.ts --local --ai live --benchmark campaign/corpus/benchmark.yaml --deploy-config campaign/corpus/deploy-config.yaml --runs-dir campaign/results/first-run/build/ --evidence-dir campaign/logs/P3-BUILD-21/evidence/ --repo repo-564 --repo repo-565",
+      "exitCode": 1,
+      "summary": "repo-564 complete (gate PASS, build PASS, run PASS, probes FAIL, cleanup PASS); repo-565 build died (JS heap OOM in npm run build, exit 134), then ENOSPC on C: while writing the result; result file left with build IN_PROGRESS"
+    },
+    {
+      "command": "docker cleanup of label deployz-campaign=fresh-100 containers, networks, volumes, images; docker builder prune -f",
+      "exitCode": 0,
+      "summary": "no labelled resource remains; builder cache pruned (682.7 MB)"
+    },
+    {
+      "command": "node --env-file=.env node_modules/tsx/dist/cli.mjs scripts/repository-deployment/index.ts --local --ai live --benchmark campaign/corpus/benchmark.yaml --deploy-config campaign/corpus/deploy-config.yaml --runs-dir campaign/results/first-run/build/ --evidence-dir campaign/logs/P3-BUILD-21/evidence/ --resume --repo repo-565",
+      "exitCode": 0,
+      "summary": "repo-565 gate PASS, source PASS, build FAIL (docker build exit 1; npm run build aborted exit 134, JS heap OOM), run/probes SKIPPED, cleanup PASS"
+    },
+    {
+      "command": "docker ps -a / images / network ls / volume ls --filter label=deployz-campaign=fresh-100",
+      "exitCode": 0,
+      "summary": "no labelled resource remains"
+    }
   ],
   "evidence": [
     "campaign/results/first-run/build/repo-564.local.json",
@@ -16,18 +34,14 @@
     "campaign/logs/P3-BUILD-21/run1.log",
     "campaign/logs/P3-BUILD-21/evidence/repo-564-build.log",
     "campaign/logs/P3-BUILD-21/evidence/repo-564-run.log",
-    "campaign/logs/P3-BUILD-21/evidence/repo-565-build.log"
+    "campaign/logs/P3-BUILD-21/evidence/repo-565-build.log",
+    "campaign/logs/P3-BUILD-21/run2.log"
   ],
   "notes": [
-    "Environment condition: C: free space fell from 3.07 GB to 0.05 GB during the repo-565 build (below the 1.5 GB limit). Run stopped with ENOSPC. Docker labelled resources and builder cache were removed, but C: free space stayed at 0.05 GB after cleanup (Docker disk image does not shrink). Free space on C: must be restored (at least 3 GB) before resume.",
-    "repo-564 is complete: AI mode live (equals baseline), gate PASS (NEEDS_CONFIGURATION, correct-accept), source PASS, build PASS, run PASS, probes FAIL, cleanup PASS. See repo-564.local.json for the probe reason.",
-    "repo-565 is NOT complete: result file shows gate PASS, source PASS, build IN_PROGRESS, other stages NOT_ATTEMPTED. Build log in repo-565-build.log shows 'JavaScript heap out of memory' (exit code 134) in 'npm run build' (Dockerfile line 46). That is a probable repository build failure, but the harness did not record it because of ENOSPC. Run repo-565 again with --resume (or without, as the build stage is not final).",
-    "No deploy-config.yaml change was made by this attempt.",
-    "Harness named result files <id>.local.json, not <id>.json as in the task artifact list."
-  ],
-  "progress": {
-    "completed": ["repo-564"],
-    "next": "repo-565 (build, run, probes, cleanup)",
-    "resume": "After at least 3 GB is free on C:, run the same command with --resume and --repo repo-565 only."
-  }
+    "repo-564: gate PASS (NEEDS_CONFIGURATION, correct-accept), source PASS, build PASS, run PASS, probes FAIL (container exits, LoadError annotate_rb), cleanup PASS. See repo-564.local.json.",
+    "repo-565 (open-webui): gate PASS, source PASS, build FAIL on resume (second attempt; first attempt had same JS heap OOM, exit 134 in npm run build, Dockerfile line 46). Not a network timeout, so no further retry. Recorded as environment limit (Docker memory ~3.8 GB); repository not modified. Run, probes SKIPPED because build failed; cleanup PASS. Log tail in repo-565.local.json and campaign/logs/P3-BUILD-21/evidence/repo-565-build.log.",
+    "C: free space stayed above 7 GB (low point about 7.5 GB); no ENOSPC on resume.",
+    "No deploy-config.yaml change was made.",
+    "Harness names result files <id>.local.json."
+  ]
 }
