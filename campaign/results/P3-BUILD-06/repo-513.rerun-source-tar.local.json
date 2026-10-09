@@ -1,0 +1,107 @@
+{
+  "schemaVersion": 1,
+  "id": "repo-513",
+  "repository": "saleor/saleor",
+  "commit": "bb75f87973abe24056a5d0dff1708ca097e95599",
+  "set": "improvement",
+  "cohort": "realistic",
+  "deployzCommit": "6ac06ccc1353a0b39cba671a801bac1c683f7f16",
+  "analysisVersion": 45,
+  "ai": {
+    "mode": "live",
+    "model": "workers-ai/@cf/deepseek-ai/deepseek-v4-flash-0731",
+    "requests": 1,
+    "outcome": "parse-error",
+    "error": "AI_NoObjectGeneratedError: No object generated: response did not match schema."
+  },
+  "inputsHash": "f6f2352e891d051eeabdc34ec3d1686d42b7c44d40d21400a1ce64dd7731f0b4",
+  "stages": {
+    "gate": {
+      "status": "PASS",
+      "startedAt": "2026-10-09T08:26:14.389Z",
+      "finishedAt": "2026-10-09T08:26:14.395Z",
+      "durationMs": 6,
+      "detail": null,
+      "evidence": {
+        "verdict": "NEEDS_CONFIGURATION",
+        "outcome": "correct-accept",
+        "configuredVerdict": "NEEDS_CONFIGURATION",
+        "manifest": {
+          "dockerfilePath": "Dockerfile",
+          "buildContext": ".",
+          "appRoot": ".",
+          "port": 8000,
+          "healthPath": "/",
+          "healthMode": "vendor_required",
+          "migrationCommand": null,
+          "migrationMode": "unknown",
+          "postgres": true,
+          "redis": false,
+          "storage": false,
+          "databaseBindings": [
+            "DATABASE_HOST",
+            "DATABASE_NAME",
+            "DATABASE_PASSWORD",
+            "DATABASE_PORT",
+            "DATABASE_URL",
+            "DATABASE_USER",
+            "DB_HOST",
+            "DB_NAME",
+            "DB_PASSWORD",
+            "DB_PORT",
+            "DB_USER"
+          ],
+          "redisBindings": [],
+          "storageBindings": [],
+          "generatedKeys": [
+            "SECRET_KEY"
+          ]
+        }
+      }
+    },
+    "source": {
+      "status": "FAIL",
+      "startedAt": "2026-10-09T08:26:14.400Z",
+      "finishedAt": "2026-10-09T08:26:19.099Z",
+      "durationMs": 4699,
+      "detail": "tar failed (exit 1): jas\\\\AppData\\\\Local\\\\Temp\\\\deployz-local-repo-513-TzSznu\\\\CLAUDE.md': Invalid argument\r\nsaleor/graphql/CLAUDE.md: Can't create '\\\\\\\\?\\\\C:\\\\Users\\\\Tejas\\\\AppData\\\\Local\\\\Temp\\\\deployz-local-repo-513-TzSznu\\\\saleor\\\\graphql\\\\CLAUDE.md': Invalid argument\r\ntar: Error exit delayed from previous errors.\r\n",
+      "evidence": {
+        "commit": "bb75f87973abe24056a5d0dff1708ca097e95599"
+      }
+    },
+    "build": {
+      "status": "SKIPPED",
+      "startedAt": "2026-10-09T08:26:19.102Z",
+      "finishedAt": "2026-10-09T08:26:19.105Z",
+      "durationMs": 3,
+      "detail": "the source stage failed",
+      "evidence": {}
+    },
+    "run": {
+      "status": "SKIPPED",
+      "startedAt": "2026-10-09T08:26:20.257Z",
+      "finishedAt": "2026-10-09T08:26:20.259Z",
+      "durationMs": 2,
+      "detail": "the build did not pass",
+      "evidence": {}
+    },
+    "probes": {
+      "status": "SKIPPED",
+      "startedAt": "2026-10-09T08:26:20.261Z",
+      "finishedAt": "2026-10-09T08:26:20.263Z",
+      "durationMs": 2,
+      "detail": "the build did not pass",
+      "evidence": {}
+    },
+    "cleanup": {
+      "status": "SKIPPED",
+      "startedAt": "2026-10-09T08:26:20.268Z",
+      "finishedAt": "2026-10-09T08:26:20.271Z",
+      "durationMs": 3,
+      "detail": "no build was attempted",
+      "evidence": {}
+    }
+  },
+  "classification": "source",
+  "remediation": null
+}

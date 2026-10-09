@@ -1,0 +1,141 @@
+{
+  "schemaVersion": 1,
+  "id": "repo-513",
+  "repository": "saleor/saleor",
+  "commit": "bb75f87973abe24056a5d0dff1708ca097e95599",
+  "set": "improvement",
+  "cohort": "realistic",
+  "deployzCommit": "6ac06ccc1353a0b39cba671a801bac1c683f7f16",
+  "analysisVersion": 45,
+  "ai": {
+    "mode": "live",
+    "model": "workers-ai/@cf/deepseek-ai/deepseek-v4-flash-0731",
+    "requests": 1,
+    "outcome": "parse-error",
+    "error": "AI_NoObjectGeneratedError: No object generated: response did not match schema."
+  },
+  "inputsHash": "f6f2352e891d051eeabdc34ec3d1686d42b7c44d40d21400a1ce64dd7731f0b4",
+  "stages": {
+    "gate": {
+      "status": "PASS",
+      "startedAt": "2026-10-09T08:09:26.993Z",
+      "finishedAt": "2026-10-09T08:09:26.995Z",
+      "durationMs": 2,
+      "detail": null,
+      "evidence": {
+        "verdict": "NEEDS_CONFIGURATION",
+        "outcome": "correct-accept",
+        "configuredVerdict": "NEEDS_CONFIGURATION",
+        "manifest": {
+          "dockerfilePath": "Dockerfile",
+          "buildContext": ".",
+          "appRoot": ".",
+          "port": 8000,
+          "healthPath": "/",
+          "healthMode": "vendor_required",
+          "migrationCommand": null,
+          "migrationMode": "unknown",
+          "postgres": true,
+          "redis": false,
+          "storage": false,
+          "databaseBindings": [
+            "DATABASE_HOST",
+            "DATABASE_NAME",
+            "DATABASE_PASSWORD",
+            "DATABASE_PORT",
+            "DATABASE_URL",
+            "DATABASE_USER",
+            "DB_HOST",
+            "DB_NAME",
+            "DB_PASSWORD",
+            "DB_PORT",
+            "DB_USER"
+          ],
+          "redisBindings": [],
+          "storageBindings": [],
+          "generatedKeys": [
+            "SECRET_KEY"
+          ]
+        }
+      }
+    },
+    "source": {
+      "status": "PASS",
+      "startedAt": "2026-10-09T08:09:27.003Z",
+      "finishedAt": "2026-10-09T08:09:38.437Z",
+      "durationMs": 11434,
+      "detail": null,
+      "evidence": {
+        "commit": "bb75f87973abe24056a5d0dff1708ca097e95599",
+        "archiveCached": false,
+        "archiveBytes": 28093493
+      }
+    },
+    "build": {
+      "status": "PASS",
+      "startedAt": "2026-10-09T08:09:38.439Z",
+      "finishedAt": "2026-10-09T08:16:57.775Z",
+      "durationMs": 439336,
+      "detail": null,
+      "evidence": {
+        "dockerfilePath": "Dockerfile",
+        "buildContext": ".",
+        "platform": "linux/amd64",
+        "image": "deployz-campaign/repo-513:bb75f87973ab",
+        "exitCode": 0,
+        "durationMs": 439022,
+        "buildArgNames": [],
+        "logTail": "#17 86.92  + wrapt==1.17.3\n#17 86.92  + zipp==3.23.0\n#17 DONE 88.1s\n\n#18 [stage-1 5/9] COPY --from=build-python /usr/local/lib/python3.12/site-packages/ /usr/local/lib/python3.12/site-packages/\n#18 DONE 27.6s\n\n#19 [stage-1 6/9] COPY --from=build-python /usr/local/bin/ /usr/local/bin/\n#19 DONE 1.1s\n\n#20 [stage-1 7/9] COPY . /app\n#20 DONE 4.5s\n\n#21 [stage-1 8/9] WORKDIR /app\n#21 DONE 0.2s\n\n#22 [stage-1 9/9] RUN SECRET_KEY=dummy STATIC_URL=/static/ python3 manage.py collectstatic --no-input\n#22 5.283 2026-10-09 08:15:06,552 WARNING py.warnings /app/saleor/core/jwt_manager.py:8: AuthlibDeprecationWarning: authlib.jose module is deprecated, please use joserfc instead.\n#22 5.283 It will be compatible before version 2.0.0.\n#22 5.283   from authlib.jose import JsonWebKey\n#22 5.283  [PID:7:MainThread]\n#22 10.11 2026-10-09 08:15:11,383 WARNING saleor.core.jwt_manager RSA_PRIVATE_KEY is missing. Using temporary key for local development with DEBUG mode. [PID:7:MainThread]\n#22 10.29 \n#22 10.29 274 static files copied to '/app/static'.\n#22 DONE 11.4s\n\n#23 exporting to image\n#23 exporting layers\n#23 exporting layers 58.9s done\n#23 exporting manifest sha256:422ad0ac16c85d5d69b219d1d4945478b25028747879bd614cd3cf146e1252a8 0.1s done\n#23 exporting config sha256:813662e1c20768070cee0b1e22b874ea2510afb4039071d86b5e914d20c4874d 0.1s done\n#23 exporting attestation manifest sha256:92004ed24987ba30612de1620e7c5827da8581555419829eb1e5387eac664962 0.1s done\n#23 exporting manifest list sha256:7502df0ecea5e07a6a248a051a1492c374aad1c7d23476feea13337ba513a12c\n#23 exporting manifest list sha256:7502df0ecea5e07a6a248a051a1492c374aad1c7d23476feea13337ba513a12c 0.1s done\n#23 naming to docker.io/deployz-campaign/repo-513:bb75f87973ab 0.1s done\n#23 unpacking to docker.io/deployz-campaign/repo-513:bb75f87973ab\n#23 unpacking to docker.io/deployz-campaign/repo-513:bb75f87973ab 43.6s done\n#23 DONE 103.0s\n\nView build details: docker-desktop://dashboard/build/desktop-linux/desktop-linux/w6j1zm06q88uq1qp2z2rpojjh",
+        "imageId": "sha256:7502df0ecea5e07a6a248a051a1492c374aad1c7d23476feea13337ba513a12c",
+        "imageBytes": 1309184998,
+        "failure": null,
+        "rebuilt": false
+      }
+    },
+    "run": {
+      "status": "FAIL",
+      "startedAt": "2026-10-09T08:17:00.520Z",
+      "finishedAt": "2026-10-09T08:18:30.704Z",
+      "durationMs": 90184,
+      "detail": "s3-stand-in was not ready in time",
+      "evidence": {
+        "dependencies": [
+          "postgres",
+          "s3-stand-in"
+        ],
+        "failure": "dependency"
+      }
+    },
+    "probes": {
+      "status": "SKIPPED",
+      "startedAt": "2026-10-09T08:18:30.717Z",
+      "finishedAt": "2026-10-09T08:18:30.723Z",
+      "durationMs": 6,
+      "detail": "the run stage failed",
+      "evidence": {}
+    },
+    "cleanup": {
+      "status": "PASS",
+      "startedAt": "2026-10-09T08:18:30.731Z",
+      "finishedAt": "2026-10-09T08:18:37.146Z",
+      "durationMs": 6415,
+      "detail": null,
+      "evidence": {
+        "removed": {
+          "containers": 2,
+          "networks": 1,
+          "volumes": 0
+        },
+        "imageRemoved": true,
+        "keepImage": false,
+        "leaks": {
+          "containers": [],
+          "networks": [],
+          "volumes": []
+        }
+      }
+    }
+  },
+  "classification": "run",
+  "remediation": null
+}

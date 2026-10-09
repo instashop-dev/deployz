@@ -1,25 +1,26 @@
 # Local Docker run summary
 
-Repositories: 10
+Repositories: 12
 
 ## Classification
 
 - build: 1
-- gate: 5
+- gate: 6
 - local-success: 1
 - probes: 1
+- run: 1
 - source: 2
 
 ## Stages
 
 | Stage | Attempted | PASS | FAIL | SKIPPED | IN_PROGRESS |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| gate | 10 | 5 | 5 | 0 | 0 |
-| source | 10 | 5 | 3 | 2 | 0 |
-| build | 10 | 3 | 2 | 5 | 0 |
-| run | 10 | 3 | 0 | 7 | 0 |
-| probes | 10 | 1 | 2 | 7 | 0 |
-| cleanup | 10 | 5 | 0 | 5 | 0 |
+| gate | 12 | 6 | 6 | 0 | 0 |
+| source | 12 | 6 | 4 | 2 | 0 |
+| build | 12 | 4 | 2 | 6 | 0 |
+| run | 12 | 3 | 1 | 8 | 0 |
+| probes | 12 | 1 | 2 | 9 | 0 |
+| cleanup | 12 | 6 | 0 | 6 | 0 |
 
 ## Probes
 
@@ -44,5 +45,7 @@ Repositories: 10
 | repo-508 | gotenberg/gotenberg | source | 1.6 |
 | repo-509 | elie222/inbox-zero | gate | 0.0 |
 | repo-510 | basecamp/once-campfire | gate | 852.0 |
+| repo-511 | discourse/discourse | gate | 71.3 |
+| repo-513 | saleor/saleor | run | 547.4 |
 | repo-536 | InvoiceShelf/InvoiceShelf | build | 47.4 |
 | repo-540 | excalidraw/excalidraw | local-success | 1630.3 |

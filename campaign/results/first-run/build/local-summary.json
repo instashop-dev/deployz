@@ -1,64 +1,65 @@
 {
   "schemaVersion": 1,
-  "repositories": 10,
+  "repositories": 12,
   "classifications": {
     "source": 2,
     "probes": 1,
-    "gate": 5,
+    "gate": 6,
+    "run": 1,
     "build": 1,
     "local-success": 1
   },
   "aiModes": {
-    "live": 10
+    "live": 12
   },
   "stages": {
     "gate": {
-      "attempted": 10,
+      "attempted": 12,
       "NOT_ATTEMPTED": 0,
       "IN_PROGRESS": 0,
-      "PASS": 5,
-      "FAIL": 5,
+      "PASS": 6,
+      "FAIL": 6,
       "SKIPPED": 0
     },
     "source": {
-      "attempted": 10,
+      "attempted": 12,
       "NOT_ATTEMPTED": 0,
       "IN_PROGRESS": 0,
-      "PASS": 5,
-      "FAIL": 3,
+      "PASS": 6,
+      "FAIL": 4,
       "SKIPPED": 2
     },
     "build": {
-      "attempted": 10,
+      "attempted": 12,
       "NOT_ATTEMPTED": 0,
       "IN_PROGRESS": 0,
-      "PASS": 3,
+      "PASS": 4,
       "FAIL": 2,
-      "SKIPPED": 5
+      "SKIPPED": 6
     },
     "run": {
-      "attempted": 10,
+      "attempted": 12,
       "NOT_ATTEMPTED": 0,
       "IN_PROGRESS": 0,
       "PASS": 3,
-      "FAIL": 0,
-      "SKIPPED": 7
+      "FAIL": 1,
+      "SKIPPED": 8
     },
     "probes": {
-      "attempted": 10,
+      "attempted": 12,
       "NOT_ATTEMPTED": 0,
       "IN_PROGRESS": 0,
       "PASS": 1,
       "FAIL": 2,
-      "SKIPPED": 7
+      "SKIPPED": 9
     },
     "cleanup": {
-      "attempted": 10,
+      "attempted": 12,
       "NOT_ATTEMPTED": 0,
       "IN_PROGRESS": 0,
-      "PASS": 5,
+      "PASS": 6,
       "FAIL": 0,
-      "SKIPPED": 5
+      "SKIPPED": 6
     }
   },
   "probes": {
@@ -216,6 +217,34 @@
         "run": 3671,
         "probes": 60834,
         "cleanup": 4163
+      }
+    },
+    {
+      "id": "repo-511",
+      "repository": "discourse/discourse",
+      "classification": "gate",
+      "totalMs": 71329,
+      "stages": {
+        "gate": 7,
+        "source": 71309,
+        "build": 4,
+        "run": 3,
+        "probes": 3,
+        "cleanup": 3
+      }
+    },
+    {
+      "id": "repo-513",
+      "repository": "saleor/saleor",
+      "classification": "run",
+      "totalMs": 547377,
+      "stages": {
+        "gate": 2,
+        "source": 11434,
+        "build": 439336,
+        "run": 90184,
+        "probes": 6,
+        "cleanup": 6415
       }
     },
     {

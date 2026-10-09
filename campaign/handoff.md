@@ -1,8 +1,8 @@
 # Fresh-100 campaign handoff
 
-**Status:** CONTINUE. Phase 3. P0-GATE, P1-GATE and P2-GATE PASS. C: 4.2 GB free after P3-BUILD-05 (2026-10-09T06:57Z); Docker Desktop running.
+**Status:** CONTINUE. Phase 3. P0-GATE, P1-GATE and P2-GATE PASS. C: about 15 GB free after P3-BUILD-06 (2026-10-09T08:28Z); Docker Desktop running.
 **Checkout:** `C:/Users/Tejas/Desktop/deployz-mvp-test`, branch `campaign/fresh-100`. Baseline commit `e6a3b58e` (ANALYSIS_VERSION 45; origin/main after PR #498, merged into the campaign branch on 2026-10-08).
-**Eligible now:** `P3-BUILD-06`. `docker`, `disk>=3GB` and `ai-gateway` AVAILABLE.
+**Eligible now:** `P3-BUILD-07`. `docker`, `disk>=3GB` and `ai-gateway` AVAILABLE.
 
 ## Done
 
@@ -86,6 +86,7 @@
 - 2026-10-09T06:34Z run: `P3-BUILD-04` COMPLETE (attempt 1). repo-507 (payload) gate FAIL: false-acceptance (AI live timeout, fallback appRoot `templates/_template`); source FAIL (Windows tar cannot create the `.claude/skills` symlink). repo-508 (gotenberg) gate PASS; source FAIL (Windows tar cannot create `CLAUDE.md`/`GEMINI.md` symlinks). Later stages SKIPPED with reasons. No deploy-config change. 0 labelled resources remain. C: 4.85 GB free. Coordinator finding: the Windows tar symlink defect in the harness source stage now affects 3 of 6 apps (501, 507, 508); it is a harness/environment defect, not Deployz behavior on CodeBuild. Workers must write JSON without a BOM (Opus removed one from result.json). Evidence: `campaign/results/P3-BUILD-04/result.json`, `campaign/results/first-run/build/repo-50{7,8}.local.json`.
 - 2026-10-09T06:34Z run: `P3-BUILD-05` COMPLETE (attempt 1). repo-509 (inbox-zero) gate FAIL: false-rejection (Deployz NOT_COMPATIBLE, label NEEDS_CONFIGURATION), later stages SKIPPED. repo-510 (once-campfire) AI live parse-error (AI_NoObjectGeneratedError); gate FAIL: false-acceptance (label NOT_COMPATIBLE); source, build (770 s, 1.35 GB) and run PASS; probes FAIL (health, start, redis): `db:prepare` aborted with missing `secret_key_base` because the fallback manifest has no generated keys; cleanup PASS. No deploy-config change. 0 labelled resources remain. C: 4.2 GB free. Evidence: `campaign/results/P3-BUILD-05/result.json`, `campaign/results/first-run/build/repo-5{09,10}.local.json`.
 - 2026-10-09T07:00Z manual session (user instruction): new resource rule in `state.json` `policy.resources`: after each build batch, after the labelled resources are removed, run `docker builder prune -f`. One-time prune freed 2.05 GB (the cache was 2.1 GB, not 15 GB; BuildKit had trimmed it). C: stays at 4.2 GB free: `docker_data.vhdx` (19.3 GB) does not shrink, but Docker reuses the free room inside it (about 16 GB). Only compacting the vhdx returns space to C:.
+- 2026-10-09T08:05Z run: `P3-BUILD-06` COMPLETE (attempt 1 + continuation 1). repo-511 gate FAIL (false-acceptance: NEEDS_CONFIGURATION, label NOT_COMPATIBLE), source FAIL (Windows tar cannot create symlink `AGENTS.md`), later stages SKIPPED; AI live completed. repo-513 (saleor) first run: gate PASS (correct-accept), source PASS, build PASS (439 s), run FAIL `s3-stand-in was not ready in time`, probes SKIPPED, cleanup PASS; AI parse-error. Opus diagnosis: harness timing defect, the 90 s `DEPENDENCY_READY_MS` window in `scripts/repository-deployment/local-run.ts` starts before the first SeaweedFS image pull; a labelled manual check had the stand-in ready in 9 s with the image cached. Rerun of repo-513 (continuation): source FAIL (bsdtar `Invalid argument` on the `saleor/graphql/CLAUDE.md` symlink), so the source stage is not deterministic between runs; kept apart in `campaign/results/P3-BUILD-06/repo-513.rerun-source-tar.local.json`. `first-run/build/repo-513.local.json` is attempt 1; local-summary regenerated. No deploy-config change. 0 labelled resources; `docker builder prune -f` done. Evidence: `campaign/results/P3-BUILD-06/result.json`.
 
 ## Blockers and pending prerequisites
 
@@ -118,7 +119,7 @@
 
 ## Next action
 
-Run `P3-BUILD-06`. USER DECISION: the harness source stage uses Windows tar, which cannot create symlinks (repo-501, 507, 508 source FAIL). Decide whether to fix the harness before more first-run builds (this changes the tested commit) or keep it as a Phase 4 finding. Disk risk: C: has 4.2 GB free and the unlabelled Docker build cache holds about 15 GB (mostly from campaign builds). USER DECISION: approve `docker builder prune` or free disk before the next batch. Without it, give the worker the 3 GB stop guard (stop the build, prune the label, record an environment failure).
+Run `P3-BUILD-07`. USER DECISION (harness, not product): (a) the source stage tar cannot create symlinks on Windows and is not deterministic (repo-501, 507, 508, 511 source FAIL; repo-513 passed once, failed once); (b) the 90 s dependency readiness window includes the first image pull (repo-513 SeaweedFS timeout; the images are now cached). Fix the harness before more first-run builds, or keep both as Phase 4 findings and count those apps as UNVERIFIED. Disk: C: about 15 GB free; prune the build cache after each batch.
 
 Caution: every coordinator, scheduled or manual, must hold `campaign/coordinator.lock` (`node campaign/lock.mjs`, see plan.md "Coordinator lock") before it changes campaign files or dispatches a worker. If the lock is held, exit without changes.
 
