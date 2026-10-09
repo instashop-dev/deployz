@@ -1,120 +1,150 @@
 {
   "schemaVersion": 1,
-  "repositories": 2,
+  "repositories": 4,
   "classifications": {
+    "source": 1,
+    "probes": 1,
     "build": 1,
     "local-success": 1
   },
   "aiModes": {
-    "live": 2
+    "live": 4
   },
   "stages": {
     "gate": {
-      "attempted": 2,
+      "attempted": 4,
       "NOT_ATTEMPTED": 0,
       "IN_PROGRESS": 0,
-      "PASS": 2,
+      "PASS": 4,
       "FAIL": 0,
       "SKIPPED": 0
     },
     "source": {
-      "attempted": 2,
+      "attempted": 4,
+      "NOT_ATTEMPTED": 0,
+      "IN_PROGRESS": 0,
+      "PASS": 3,
+      "FAIL": 1,
+      "SKIPPED": 0
+    },
+    "build": {
+      "attempted": 4,
+      "NOT_ATTEMPTED": 0,
+      "IN_PROGRESS": 0,
+      "PASS": 2,
+      "FAIL": 1,
+      "SKIPPED": 1
+    },
+    "run": {
+      "attempted": 4,
       "NOT_ATTEMPTED": 0,
       "IN_PROGRESS": 0,
       "PASS": 2,
       "FAIL": 0,
-      "SKIPPED": 0
-    },
-    "build": {
-      "attempted": 2,
-      "NOT_ATTEMPTED": 0,
-      "IN_PROGRESS": 0,
-      "PASS": 1,
-      "FAIL": 1,
-      "SKIPPED": 0
-    },
-    "run": {
-      "attempted": 2,
-      "NOT_ATTEMPTED": 0,
-      "IN_PROGRESS": 0,
-      "PASS": 1,
-      "FAIL": 0,
-      "SKIPPED": 1
+      "SKIPPED": 2
     },
     "probes": {
-      "attempted": 2,
-      "NOT_ATTEMPTED": 0,
-      "IN_PROGRESS": 0,
-      "PASS": 1,
-      "FAIL": 0,
-      "SKIPPED": 1
-    },
-    "cleanup": {
-      "attempted": 2,
+      "attempted": 4,
       "NOT_ATTEMPTED": 0,
       "IN_PROGRESS": 0,
       "PASS": 1,
       "FAIL": 1,
-      "SKIPPED": 0
+      "SKIPPED": 2
+    },
+    "cleanup": {
+      "attempted": 4,
+      "NOT_ATTEMPTED": 0,
+      "IN_PROGRESS": 0,
+      "PASS": 3,
+      "FAIL": 0,
+      "SKIPPED": 1
     }
   },
   "probes": {
     "start": {
-      "attempted": 1,
+      "attempted": 2,
       "PASS": 1,
-      "FAIL": 0,
+      "FAIL": 1,
       "UNVERIFIED": 0,
       "NOT_APPLICABLE": 0
     },
     "health": {
-      "attempted": 1,
+      "attempted": 2,
       "PASS": 1,
-      "FAIL": 0,
+      "FAIL": 1,
       "UNVERIFIED": 0,
       "NOT_APPLICABLE": 0
     },
     "migration": {
-      "attempted": 1,
+      "attempted": 2,
       "PASS": 0,
       "FAIL": 0,
       "UNVERIFIED": 0,
-      "NOT_APPLICABLE": 1
+      "NOT_APPLICABLE": 2
     },
     "dbWrite": {
-      "attempted": 1,
+      "attempted": 2,
       "PASS": 0,
-      "FAIL": 0,
+      "FAIL": 1,
       "UNVERIFIED": 0,
       "NOT_APPLICABLE": 1
     },
     "redis": {
-      "attempted": 1,
+      "attempted": 2,
       "PASS": 0,
-      "FAIL": 0,
+      "FAIL": 1,
       "UNVERIFIED": 0,
       "NOT_APPLICABLE": 1
     },
     "storage": {
-      "attempted": 1,
+      "attempted": 2,
       "PASS": 0,
       "FAIL": 0,
       "UNVERIFIED": 0,
-      "NOT_APPLICABLE": 1
+      "NOT_APPLICABLE": 2
     }
   },
   "durations": [
     {
+      "id": "repo-501",
+      "repository": "fastapi/full-stack-fastapi-template",
+      "classification": "source",
+      "totalMs": 1552,
+      "stages": {
+        "gate": 5,
+        "source": 1533,
+        "build": 5,
+        "run": 2,
+        "probes": 3,
+        "cleanup": 4
+      }
+    },
+    {
+      "id": "repo-502",
+      "repository": "getredash/redash",
+      "classification": "probes",
+      "totalMs": 1089515,
+      "stages": {
+        "gate": 2,
+        "source": 3983,
+        "build": 1003370,
+        "run": 10119,
+        "probes": 61984,
+        "cleanup": 10057
+      }
+    },
+    {
       "id": "repo-536",
       "repository": "InvoiceShelf/InvoiceShelf",
       "classification": "build",
-      "totalMs": 1808629,
+      "totalMs": 47355,
       "stages": {
-        "gate": 5,
-        "source": 4410,
-        "build": 1800503,
+        "gate": 8,
+        "source": 11543,
+        "build": 33571,
         "run": 4,
-        "probes": 4,
-        "cleanup": 3703
+        "probes": 8,
+        "cleanup": 2221
       }
     },
     {

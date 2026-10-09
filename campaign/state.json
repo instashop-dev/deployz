@@ -4,8 +4,8 @@
   "status": "CONTINUE",
   "phase": 3,
   "currentTask": null,
-  "nextAction": "Run P3-BUILD-02 (repo-501, repo-502).",
-  "updatedAt": "2026-10-09T06:10:17.693Z",
+  "nextAction": "Next eligible: P3-BUILD-03. Disk risk: C: has 4.9 GB free and unlabelled Docker build cache holds 14.6 GB. USER DECISION: approve `docker builder prune` (campaign builds made most of this cache) or free disk on C: before the next build batch; otherwise the next batch runs with the 3 GB worker stop guard and may end as an environment failure.",
+  "updatedAt": "2026-10-09T06:32:31.461Z",
   "checkout": {
     "path": "C:/Users/Tejas/Desktop/deployz-mvp-test",
     "kind": "git worktree of C:/Users/Tejas/Desktop/deployz",
@@ -283,6 +283,10 @@
     {
       "commit": "e6a3b58ee2363923fef21faca86611fa3bf84538",
       "task": "P3-BUILD-01"
+    },
+    {
+      "commit": "e6a3b58ee2363923fef21faca86611fa3bf84538",
+      "task": "P3-BUILD-02"
     }
   ],
   "attempts": {
@@ -349,18 +353,18 @@
     "P3-COMPAT-07": 2,
     "P3-COMPAT-08": 1,
     "P3-BUILD-PLAN": 1,
-    "P3-BUILD-01": 1
+    "P3-BUILD-01": 1,
+    "P3-BUILD-02": 1
   },
   "lastResult": {
-    "task": "P3-BUILD-01",
+    "task": "P3-BUILD-02",
     "status": "COMPLETE",
-    "at": "2026-10-09T06:10:17.693Z",
-    "summary": "Prerequisite changed (14 GB free, Docker running); 0 labelled resources remain. First-run evidence complete: repo-540 local-success; repo-536 build FAIL (wrong build context docker/production) and AI parse-error, storage probe not run - Phase 4 findings.",
+    "at": "2026-10-09T06:32:31.461Z",
+    "summary": "repo-501 source FAIL (Windows tar symlink extraction; probable harness defect); repo-502 build/run PASS, probes FAIL (gunicorn worker failed to boot); AI live (501 completed, 502 timeout); 0 labelled resources remain; C: 4.9 GB free, build cache 14.6 GB.",
     "evidence": [
-      "campaign/results/P3-BUILD-01/result.json",
-      "campaign/results/first-run/build/repo-540.local.json",
-      "campaign/results/first-run/build/repo-536.local.json",
-      "campaign/results/P3-BUILD-01/repo-536.remediated-buildcontext.local.json"
+      "campaign/results/P3-BUILD-02/result.json",
+      "campaign/results/first-run/build/repo-501.local.json",
+      "campaign/results/first-run/build/repo-502.local.json"
     ]
   },
   "gates": {
@@ -392,8 +396,8 @@
     },
     "disk>=3GB": {
       "status": "AVAILABLE",
-      "detail": "2026-10-09T03:39Z: the user lowered the disk requirement from 10 GB to 3 GB (live chat instruction). Check: 6.28 GiB free on C: at 2026-10-09T03:28Z, so AVAILABLE. Each P3-BUILD task still prunes its labelled images after the batch. Earlier history (as disk>=10GB): 7.1 GiB free on C: at 2026-10-09T00:00Z (P2-GATE). Docker: 2.62 GB reclaimable build cache, 0.49 GB unused unlabelled images. The user must free disk before P3-BUILD tasks; Stage A tasks do not need it. 2026-10-09T02:05Z: routine check 6.27 GiB free; still UNAVAILABLE. 2026-10-09T02:28Z: routine check 6.30 GiB free; still UNAVAILABLE. 2026-10-09T02:43Z: routine check 6.26 GiB free; still UNAVAILABLE. 2026-10-09T02:58Z: routine check 6.26 GiB free; still UNAVAILABLE. 2026-10-09T03:45Z: routine check 6.7 GiB free; AVAILABLE. 2026-10-09T04:48Z: P3-BUILD-01 repo-536 build filled C: to 68 MB free; UNAVAILABLE. 3 GB was not enough for one large build. 2026-10-09T06:10Z: 14 GB free on C: after the user freed disk; AVAILABLE. Docker build cache 8.1 GB (unlabelled).",
-      "checkedAt": "2026-10-09T06:10:17.693Z"
+      "detail": "2026-10-09T03:39Z: the user lowered the disk requirement from 10 GB to 3 GB (live chat instruction). Check: 6.28 GiB free on C: at 2026-10-09T03:28Z, so AVAILABLE. Each P3-BUILD task still prunes its labelled images after the batch. Earlier history (as disk>=10GB): 7.1 GiB free on C: at 2026-10-09T00:00Z (P2-GATE). Docker: 2.62 GB reclaimable build cache, 0.49 GB unused unlabelled images. The user must free disk before P3-BUILD tasks; Stage A tasks do not need it. 2026-10-09T02:05Z: routine check 6.27 GiB free; still UNAVAILABLE. 2026-10-09T02:28Z: routine check 6.30 GiB free; still UNAVAILABLE. 2026-10-09T02:43Z: routine check 6.26 GiB free; still UNAVAILABLE. 2026-10-09T02:58Z: routine check 6.26 GiB free; still UNAVAILABLE. 2026-10-09T03:45Z: routine check 6.7 GiB free; AVAILABLE. 2026-10-09T04:48Z: P3-BUILD-01 repo-536 build filled C: to 68 MB free; UNAVAILABLE. 3 GB was not enough for one large build. 2026-10-09T06:10Z: 14 GB free on C: after the user freed disk; AVAILABLE. Docker build cache 8.1 GB (unlabelled). 2026-10-09T06:31Z: after P3-BUILD-02, 4.9 GB free on C:; unlabelled Docker build cache 14.6 GB (reclaimable). Still >= 3 GB, but one large build can use more than 6 GB; workers stop a build below 3 GB free.",
+      "checkedAt": "2026-10-09T06:32:31.461Z"
     },
     "dependencies-installed": {
       "status": "AVAILABLE",

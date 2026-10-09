@@ -2402,7 +2402,7 @@
       "phase": 3,
       "title": "First-run local build/run of improvement apps repo-501, repo-502",
       "executor": "campaign-worker",
-      "status": "PENDING",
+      "status": "COMPLETE",
       "prerequisites": [
         "P3-BUILD-PLAN"
       ],
@@ -2436,7 +2436,8 @@
       "notes": [
         "2026-10-09 P3-BUILD-PLAN (Opus): command `node --env-file=.env node_modules/tsx/dist/cli.mjs scripts/repository-deployment/index.ts --local --ai live --benchmark campaign/corpus/benchmark.yaml --deploy-config campaign/corpus/deploy-config.yaml --runs-dir campaign/results/first-run/build/ --evidence-dir campaign/logs/P3-BUILD-02/evidence/ --repo repo-501 --repo repo-502`; default cache (no --cache). Resumable: on stopBy, interrupt at a safe point and return CONTINUE with progress; the next run adds --resume.",
         "Retry a build once when its log tail shows only registry network timeouts; if it fails again classify it as an environment failure (separate denominator).",
-        "Before the run, the worker may add to deploy-config.yaml, for this task's apps only, the configuration a vendor would enter from the app's own documented env example or install docs (config values without secrets; secrets as generated keys). No repository-specific hacks."
+        "Before the run, the worker may add to deploy-config.yaml, for this task's apps only, the configuration a vendor would enter from the app's own documented env example or install docs (config values without secrets; secrets as generated keys). No repository-specific hacks.",
+        "2026-10-09 run T0 06:07Z (Opus): COMPLETE, attempt 1 (worker sonnet, about 20 min). Opus verified the 5 completionChecks: result.json valid (testedCommit e6a3b58e, run on HEAD 1bc06b1f, harness exit 0, evidence paths exist); repo-501 gate PASS, source FAIL (Windows tar cannot create the repository's .claude/skills/* symlinks to ../../.venv/...; exit 2), build/run/probes/cleanup SKIPPED with reasons; repo-502 gate/source/build (1003 s)/run PASS, probes FAIL (health, start, dbWrite, redis; gunicorn 'Worker failed to boot', container exit 1), cleanup PASS; AI live (repo-501 completed, repo-502 timeout); no deploy-config change; 0 labelled resources remain. Phase 4 triage: repo-501 source failure is probably a harness extraction defect on Windows (production packaging does not run here), not an app result; repo-502 boot failure needs root cause. Disk: C: 14 GB -> 4.9 GB free; unlabelled Docker build cache grew to 14.6 GB."
       ]
     },
     {

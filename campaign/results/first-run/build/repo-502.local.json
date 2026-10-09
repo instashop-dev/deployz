@@ -1,0 +1,185 @@
+{
+  "schemaVersion": 1,
+  "id": "repo-502",
+  "repository": "getredash/redash",
+  "commit": "e170795256ae028930e4760192e5dc3f59bb420c",
+  "set": "improvement",
+  "cohort": "realistic",
+  "deployzCommit": "1bc06b1fdb0f196d2eb3054c7026b1a94ba03945",
+  "analysisVersion": 45,
+  "ai": {
+    "mode": "live",
+    "model": "workers-ai/@cf/deepseek-ai/deepseek-v4-flash-0731",
+    "requests": 1,
+    "outcome": "timeout",
+    "error": "AbortError: This operation was aborted"
+  },
+  "inputsHash": "d793959e8872d521481414b88a3ce52999b2a295f9d29bfd95e6a76916a26aae",
+  "stages": {
+    "gate": {
+      "status": "PASS",
+      "startedAt": "2026-10-09T06:12:23.214Z",
+      "finishedAt": "2026-10-09T06:12:23.216Z",
+      "durationMs": 2,
+      "detail": null,
+      "evidence": {
+        "verdict": "NEEDS_CONFIGURATION",
+        "outcome": "correct-accept",
+        "configuredVerdict": "NEEDS_CONFIGURATION",
+        "manifest": {
+          "dockerfilePath": "Dockerfile",
+          "buildContext": ".",
+          "appRoot": ".",
+          "port": 5000,
+          "healthPath": "/ping",
+          "healthMode": "explicit",
+          "migrationCommand": null,
+          "migrationMode": "unknown",
+          "postgres": true,
+          "redis": true,
+          "storage": false,
+          "databaseBindings": [
+            "DATABASE_HOST",
+            "DATABASE_NAME",
+            "DATABASE_PASSWORD",
+            "DATABASE_PORT",
+            "DATABASE_URL",
+            "DATABASE_USER",
+            "DB_HOST",
+            "DB_NAME",
+            "DB_PASSWORD",
+            "DB_PORT",
+            "DB_USER"
+          ],
+          "redisBindings": [
+            "REDIS_HOST",
+            "REDIS_PORT",
+            "REDIS_URL"
+          ],
+          "storageBindings": [],
+          "generatedKeys": []
+        }
+      }
+    },
+    "source": {
+      "status": "PASS",
+      "startedAt": "2026-10-09T06:12:23.219Z",
+      "finishedAt": "2026-10-09T06:12:27.202Z",
+      "durationMs": 3983,
+      "detail": null,
+      "evidence": {
+        "commit": "e170795256ae028930e4760192e5dc3f59bb420c",
+        "archiveCached": false,
+        "archiveBytes": 9287346
+      }
+    },
+    "build": {
+      "status": "PASS",
+      "startedAt": "2026-10-09T06:12:27.205Z",
+      "finishedAt": "2026-10-09T06:29:10.575Z",
+      "durationMs": 1003370,
+      "detail": null,
+      "evidence": {
+        "dockerfilePath": "Dockerfile",
+        "buildContext": ".",
+        "platform": "linux/amd64",
+        "image": "deployz-campaign/repo-502:e170795256ae",
+        "exitCode": 0,
+        "durationMs": 1002370,
+        "buildArgNames": [],
+        "logTail": "#29 348.4 assets by chunk 4.38 MiB (auxiliary name: app) 121 assets\n#29 348.4 assets by path fonts/roboto/ 805 KiB 20 assets\n#29 348.4 assets by chunk 7.05 KiB (auxiliary id hint: vendors)\n#29 348.4   asset images/marker-icon-2x.png 2.41 KiB [emitted] [from: node_modules/.pnpm/***/node_modules/leaflet/dist/images/marker-icon-2x.png] (auxiliary id hint: vendors)\n#29 348.4   + 6 assets\n#29 348.4 assets by path *.js 8.19 MiB\n#29 348.4   assets by status 8.19 MiB [big] 2 assets\n#29 348.4   + 2 assets\n#29 348.4 assets by path *.css 1.42 MiB\n#29 348.4   asset app.b7a91633adddedf50348.css 1000 KiB [emitted] [immutable] [big] (name: app) 1 related asset\n#29 348.4   + 2 assets\n#29 348.4 assets by path *.html 3.7 KiB\n#29 348.4   asset unsupported.html 1.5 KiB [emitted] [from: client/app/unsupported.html] [copied]\n#29 348.4   + 2 assets\n#29 348.4 + 4 assets\n#29 348.4 Entrypoint app [big] 9.34 MiB (37.7 MiB) = 11.d079e975f9c44182c0c7.css 173 KiB 11.d079e975f9c44182c0c7.js 7.3 MiB app.b7a91633adddedf50348.css 1000 KiB app.b7a91633adddedf50348.js 910 KiB 132 auxiliary assets\n#29 348.4 Entrypoint server [big] 274 KiB (798 KiB) = server.42eb073c146499b9b8e1.css 274 KiB server.42eb073c146499b9b8e1.js 0 bytes 9 auxiliary assets\n#29 348.4 webpack 5.105.3 compiled successfully in 301638 ms\n#29 DONE 350.7s\n\n#31 [stage-1 10/11] COPY --from=frontend-builder --chown=redash /frontend/client/dist /app/client/dist\n#31 DONE 1.2s\n\n#32 [stage-1 11/11] RUN chown redash /app\n#32 DONE 0.7s\n\n#33 exporting to image\n#33 exporting layers\n#33 exporting layers 111.7s done\n#33 exporting manifest sha256:6e245b610101f22f53bdbf1560e39147978a5cb6d142465a1e1c015939936b4d 0.1s done\n#33 exporting config sha256:391531086e499b95fae4a29138c5ab73b1e16b52fd2b334f81f6e17bcf08d407 0.0s done\n#33 exporting attestation manifest sha256:60a33ecc61838db8772f5bd63eab64c5ff8cd2fa01755f2f6723363f6b5f7150 0.1s done\n#33 exporting manifest list sha256:171172854bb1ffabf107dacd5f1602703a15bbfaaaf20292d9d9f1efa7b38c40\n#33 exporting manifest list sha256:171172854bb1ffabf107dacd5f1602703a15bbfaaaf20292d9d9f1efa7b38c40 0.1s done\n#33 naming to docker.io/deployz-campaign/repo-502:e170795256ae 0.1s done\n#33 unpacking to docker.io/deployz-campaign/repo-502:e170795256ae\n#33 unpacking to docker.io/deployz-campaign/repo-502:e170795256ae 39.4s done\n#33 DONE 151.7s\n\nView build details: docker-desktop://dashboard/build/desktop-linux/desktop-linux/njg8kchv1gevwkyx6jomv15u9",
+        "imageId": "sha256:171172854bb1ffabf107dacd5f1602703a15bbfaaaf20292d9d9f1efa7b38c40",
+        "imageBytes": 2358162841,
+        "failure": null,
+        "rebuilt": false
+      }
+    },
+    "run": {
+      "status": "PASS",
+      "startedAt": "2026-10-09T06:29:11.780Z",
+      "finishedAt": "2026-10-09T06:29:21.899Z",
+      "durationMs": 10119,
+      "detail": null,
+      "evidence": {
+        "image": "deployz-campaign/repo-502:e170795256ae",
+        "port": 5000,
+        "healthPath": "/ping",
+        "dependencies": [
+          "postgres",
+          "valkey"
+        ],
+        "environmentNames": [
+          "DATABASE_URL",
+          "DB_HOST",
+          "DB_NAME",
+          "DB_PASSWORD",
+          "DB_PORT",
+          "DB_USER",
+          "PORT",
+          "REDIS_URL"
+        ],
+        "migration": null
+      }
+    },
+    "probes": {
+      "status": "FAIL",
+      "startedAt": "2026-10-09T06:29:21.908Z",
+      "finishedAt": "2026-10-09T06:30:23.892Z",
+      "durationMs": 61984,
+      "detail": "failed: health, start, dbWrite, redis",
+      "evidence": {
+        "probes": {
+          "health": {
+            "status": "FAIL",
+            "detail": "the container exited (code 1) before /ping answered"
+          },
+          "start": {
+            "status": "FAIL",
+            "detail": "the container is not running (exit code 1)"
+          },
+          "migration": {
+            "status": "NOT_APPLICABLE",
+            "detail": "the manifest has no migration command"
+          },
+          "dbWrite": {
+            "status": "FAIL",
+            "detail": "no rows outside migration bookkeeping tables"
+          },
+          "redis": {
+            "status": "FAIL",
+            "detail": "no client connection and no key from the app"
+          },
+          "storage": {
+            "status": "NOT_APPLICABLE",
+            "detail": "the manifest needs no storage"
+          }
+        },
+        "url": "http://app:5000/ping",
+        "appLogTail": "    ~~~~~~~~~~^^\n  File \"/usr/local/lib/python3.13/site-packages/gunicorn/arbiter.py\", line 360, in sleep\n    ready = select.select([self.PIPE[0]], [], [], 1.0)\n  File \"/usr/local/lib/python3.13/site-packages/gunicorn/arbiter.py\", line 242, in handle_chld\n    self.reap_workers()\n    ~~~~~~~~~~~~~~~~~^^\n  File \"/usr/local/lib/python3.13/site-packages/gunicorn/arbiter.py\", line 530, in reap_workers\n    raise HaltServer(reason, self.WORKER_BOOT_ERROR)\ngunicorn.errors.HaltServer: <HaltServer 'Worker failed to boot.' 3>\n\nDuring handling of the above exception, another exception occurred:\n\nTraceback (most recent call last):\n  File \"/usr/local/bin/gunicorn\", line 10, in <module>\n    sys.exit(run())\n             ~~~^^\n  File \"/usr/local/lib/python3.13/site-packages/gunicorn/app/wsgiapp.py\", line 67, in run\n    WSGIApplication(\"%(prog)s [OPTIONS] [APP_MODULE]\", prog=prog).run()\n    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^\n  File \"/usr/local/lib/python3.13/site-packages/gunicorn/app/base.py\", line 236, in run\n    super().run()\n    ~~~~~~~~~~~^^\n  File \"/usr/local/lib/python3.13/site-packages/gunicorn/app/base.py\", line 72, in run\n    Arbiter(self).run()\n    ~~~~~~~~~~~~~~~~~^^\n  File \"/usr/local/lib/python3.13/site-packages/gunicorn/arbiter.py\", line 229, in run\n    self.halt(reason=inst.reason, exit_status=inst.exit_status)\n    ~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.13/site-packages/gunicorn/arbiter.py\", line 342, in halt\n    self.stop()\n    ~~~~~~~~~^^\n  File \"/usr/local/lib/python3.13/site-packages/gunicorn/arbiter.py\", line 396, in stop\n    time.sleep(0.1)\n    ~~~~~~~~~~^^^^^\n  File \"/usr/local/lib/python3.13/site-packages/gunicorn/arbiter.py\", line 242, in handle_chld\n    self.reap_workers()\n    ~~~~~~~~~~~~~~~~~^^\n  File \"/usr/local/lib/python3.13/site-packages/gunicorn/arbiter.py\", line 530, in reap_workers\n    raise HaltServer(reason, self.WORKER_BOOT_ERROR)\ngunicorn.errors.HaltServer: <HaltServer 'Worker failed to boot.' 3>"
+      }
+    },
+    "cleanup": {
+      "status": "PASS",
+      "startedAt": "2026-10-09T06:30:23.900Z",
+      "finishedAt": "2026-10-09T06:30:33.957Z",
+      "durationMs": 10057,
+      "detail": null,
+      "evidence": {
+        "removed": {
+          "containers": 3,
+          "networks": 1,
+          "volumes": 0
+        },
+        "imageRemoved": true,
+        "keepImage": false,
+        "leaks": {
+          "containers": [],
+          "networks": [],
+          "volumes": []
+        }
+      }
+    }
+  },
+  "classification": "probes",
+  "remediation": null
+}

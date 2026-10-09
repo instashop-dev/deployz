@@ -1,0 +1,108 @@
+{
+  "schemaVersion": 1,
+  "id": "repo-501",
+  "repository": "fastapi/full-stack-fastapi-template",
+  "commit": "f27b4721507824e57ebd0286ff1a84d82e83bf59",
+  "set": "improvement",
+  "cohort": "realistic",
+  "deployzCommit": "1bc06b1fdb0f196d2eb3054c7026b1a94ba03945",
+  "analysisVersion": 45,
+  "ai": {
+    "mode": "live",
+    "model": "workers-ai/@cf/deepseek-ai/deepseek-v4-flash-0731",
+    "requests": 1,
+    "outcome": "completed",
+    "error": null
+  },
+  "inputsHash": "be65d4b11844c1fc7112af596261df749d50f155b490573e43a0f6e9049b8fd5",
+  "stages": {
+    "gate": {
+      "status": "PASS",
+      "startedAt": "2026-10-09T06:11:49.830Z",
+      "finishedAt": "2026-10-09T06:11:49.835Z",
+      "durationMs": 5,
+      "detail": null,
+      "evidence": {
+        "verdict": "NEEDS_CONFIGURATION",
+        "outcome": "correct-accept",
+        "configuredVerdict": "NEEDS_CONFIGURATION",
+        "manifest": {
+          "dockerfilePath": "backend/Dockerfile",
+          "buildContext": ".",
+          "appRoot": "backend",
+          "port": 8000,
+          "healthPath": "/api/v1/utils/health-check/",
+          "healthMode": "explicit",
+          "migrationCommand": null,
+          "migrationMode": "unknown",
+          "postgres": true,
+          "redis": false,
+          "storage": false,
+          "databaseBindings": [
+            "DATABASE_HOST",
+            "DATABASE_NAME",
+            "DATABASE_PASSWORD",
+            "DATABASE_PORT",
+            "DATABASE_URL",
+            "DATABASE_USER",
+            "DB_HOST",
+            "DB_NAME",
+            "DB_PASSWORD",
+            "DB_PORT",
+            "DB_USER",
+            "POSTGRES_PASSWORD"
+          ],
+          "redisBindings": [],
+          "storageBindings": [],
+          "generatedKeys": [
+            "SECRET_KEY"
+          ]
+        }
+      }
+    },
+    "source": {
+      "status": "FAIL",
+      "startedAt": "2026-10-09T06:11:49.843Z",
+      "finishedAt": "2026-10-09T06:11:51.376Z",
+      "durationMs": 1533,
+      "detail": "tar failed (exit 2): b/python3.14/site-packages/fastapi/.agents/skills/fastapi': No such file or directory\ntar: .claude/skills/sqlmodel: Cannot create symlink to '../../.venv/lib/python3.14/site-packages/sqlmodel/.agents/skills/sqlmodel': No such file or directory\ntar: Exiting with failure status due to previous errors\n",
+      "evidence": {
+        "commit": "f27b4721507824e57ebd0286ff1a84d82e83bf59"
+      }
+    },
+    "build": {
+      "status": "SKIPPED",
+      "startedAt": "2026-10-09T06:11:51.379Z",
+      "finishedAt": "2026-10-09T06:11:51.384Z",
+      "durationMs": 5,
+      "detail": "the source stage failed",
+      "evidence": {}
+    },
+    "run": {
+      "status": "SKIPPED",
+      "startedAt": "2026-10-09T06:11:51.452Z",
+      "finishedAt": "2026-10-09T06:11:51.454Z",
+      "durationMs": 2,
+      "detail": "the build did not pass",
+      "evidence": {}
+    },
+    "probes": {
+      "status": "SKIPPED",
+      "startedAt": "2026-10-09T06:11:51.456Z",
+      "finishedAt": "2026-10-09T06:11:51.459Z",
+      "durationMs": 3,
+      "detail": "the build did not pass",
+      "evidence": {}
+    },
+    "cleanup": {
+      "status": "SKIPPED",
+      "startedAt": "2026-10-09T06:11:51.461Z",
+      "finishedAt": "2026-10-09T06:11:51.465Z",
+      "durationMs": 4,
+      "detail": "no build was attempted",
+      "evidence": {}
+    }
+  },
+  "classification": "source",
+  "remediation": null
+}

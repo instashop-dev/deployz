@@ -1,0 +1,36 @@
+{
+  "taskId": "P3-BUILD-02",
+  "testedCommit": "e6a3b58ee2363923fef21faca86611fa3bf84538",
+  "actualHead": "1bc06b1fdb0f196d2eb3054c7026b1a94ba03945",
+  "executor": "campaign-worker",
+  "model": "sonnet",
+  "startedAt": "2026-10-09T06:10:30Z",
+  "finishedAt": "2026-10-09T06:31:21.790Z",
+  "proposedStatus": "COMPLETE",
+  "commands": [
+    {
+      "command": "node --env-file=.env node_modules/tsx/dist/cli.mjs scripts/repository-deployment/index.ts --local --ai live --benchmark campaign/corpus/benchmark.yaml --deploy-config campaign/corpus/deploy-config.yaml --runs-dir campaign/results/first-run/build/ --evidence-dir campaign/logs/P3-BUILD-02/evidence/ --repo repo-501 --repo repo-502",
+      "exitCode": 0,
+      "summary": "repo-501: gate PASS, source FAIL (tar symlink error), rest SKIPPED; repo-502: gate/build/run PASS, probes FAIL, cleanup PASS"
+    },
+    {
+      "command": "docker container/network/volume/image ls --filter label=deployz-campaign=fresh-100 -q (after batch)",
+      "exitCode": 0,
+      "summary": "0 resources of each type remain"
+    }
+  ],
+  "evidence": [
+    "campaign/results/first-run/build/repo-501.local.json",
+    "campaign/results/first-run/build/repo-502.local.json",
+    "campaign/results/first-run/build/local-summary.json",
+    "campaign/results/first-run/build/local-summary.md",
+    "campaign/logs/P3-BUILD-02/run1.log"
+  ],
+  "notes": [
+    "repo-501 (classification source): source stage FAIL: tar extraction of the repo archive failed (exit 2) - symlinks .claude/skills/* point to ../../.venv/... that do not exist in the archive (Cannot create symlink). Build, run, probes, cleanup SKIPPED with reasons. Likely a harness source-extraction defect on Windows tar, not an app build failure; remediation not part of this task.",
+    "repo-502: AI call timed out (30s AbortError), gate PASS, source PASS, build PASS (1003 s), run PASS, probes FAIL (health, start, dbWrite, redis): gunicorn Worker failed to boot, container exited code 1; cleanup PASS (3 containers, 1 network removed, image removed, no leaks). Classification probes.",
+    "No registry-timeout retry was needed. No deploy-config.yaml changes were made (no additions); no secrets added.",
+    "Disk C: free 14 GB before, 4.9 GB after (above 3 GB floor; no unlabelled Docker data deleted).",
+    "local-summary.json/md also contain earlier repo-536/repo-540 entries from prior runs in the same runs-dir."
+  ]
+}
