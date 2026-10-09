@@ -78,6 +78,7 @@
 - 2026-10-09: `P3-BUILD-01` BLOCKED (attempt 1). repo-540 (excalidraw): gate, source, build, run, probes, cleanup PASS (local-success, AI live completed). repo-536 (InvoiceShelf) first run: AI parse error (AI_NoObjectGeneratedError) and build FAIL because Deployz chose build context `docker/production` while the Dockerfile COPY paths are relative to the repo root (Phase 4 finding). A remediated retry with `buildContext: "."` ran more than 30 min, filled C: and stopped Docker Desktop. Opus reverted the override in deploy-config.yaml and kept the remediated result apart (`campaign/results/P3-BUILD-01/repo-536.remediated-buildcontext.local.json`). 3 labelled Docker resources remain. Storage probe not run.
 - 2026-10-09T04:49Z routine run: no eligible work. C: has 66 MB free; `docker info` returns "Docker Desktop is unable to start". No change to tasks; 3 labelled resources cannot be pruned until Docker runs.
 - 2026-10-09T05:13Z routine run: no eligible work. C: has 65 MB free; Docker Desktop is still unable to start. No change to tasks.
+- 2026-10-09T05:28Z routine run: no eligible work. C: has 63 MB free; Docker Desktop is still unable to start. No change to tasks.
 
 ## Blockers and pending prerequisites
 
