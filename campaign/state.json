@@ -4,8 +4,8 @@
   "status": "CONTINUE",
   "phase": 4,
   "currentTask": null,
-  "nextAction": "P4-MERGE-UNBUILDABLE-DOCKERFILE (mergeProcedure on PR #502 head 4de9cc79), then the rest of the Phase 4 queue.",
-  "updatedAt": "2026-10-09T19:33:53Z",
+  "nextAction": "Next Phase 4 task in tasks.json order (P4-FIX-FALSE-REJECTION), then LOCAL-STATE, START-COMMAND, MIGRATION-RUNTIME, AI-RELIABILITY, HARNESS-TAR, HARNESS-READINESS, SYNC-CANDIDATE, RERUN-COMPAT-01..08, RERUN-BUILD-PLAN, P4-GATE. Fix branches start from origin/main a1970323.",
+  "updatedAt": "2026-10-09T19:45:38Z",
   "checkout": {
     "path": "C:/Users/Tejas/Desktop/deployz-mvp-test",
     "kind": "git worktree of C:/Users/Tejas/Desktop/deployz",
@@ -528,16 +528,16 @@
     "P4-FIX-HARNESS-RUN-ENV": 1,
     "P4-FIX-HARNESS-PROBES": 1,
     "P4-DIAG-START": 1,
-    "P4-FIX-UNBUILDABLE-DOCKERFILE": 1
+    "P4-FIX-UNBUILDABLE-DOCKERFILE": 1,
+    "P4-MERGE-UNBUILDABLE-DOCKERFILE": 1
   },
   "lastResult": {
-    "task": "P4-FIX-UNBUILDABLE-DOCKERFILE",
+    "task": "P4-MERGE-UNBUILDABLE-DOCKERFILE",
     "status": "COMPLETE",
-    "at": "2026-10-09T19:33:53Z",
-    "summary": "PR #502 head 4de9cc79: COMP-042 registered in benchmark.yaml after CI run 37979103418 failed the finding-registry test; CI run 37980181617 all 7 required checks SUCCESS (full vitest + simulated E2E) = test:affected evidence. Regression 10/10 on branch, 4/10 fail on main.",
+    "at": "2026-10-09T19:45:38Z",
+    "summary": "PR #502 reviewed at 4de9cc79 (APPROVE, 2 non-blocking notes) and merged as a1970323; CI on main, Deploy API and Deploy web success. origin/main now ANALYSIS_VERSION 46.",
     "evidence": [
-      "campaign/results/P4-FIX-UNBUILDABLE-DOCKERFILE/result.json",
-      "https://github.com/instashop-dev/deployz/pull/502"
+      "campaign/results/P4-MERGE-UNBUILDABLE-DOCKERFILE/review.md"
     ]
   },
   "gates": {
@@ -662,21 +662,7 @@
     "harnessIntegration": "DONE: --ai live (d19dac55) proven on repo-501: mode live, 1 request, outcome completed, model equal to deployed AI_MODEL.",
     "baselineNote": "baseline.aiMode is production-equivalent since P2-AI-LIVE-VALIDATE. Phase 3 first-run and Phase 6 holdout runs use --ai live."
   },
-  "openPullRequests": [
-    {
-      "task": "P4-FIX-UNBUILDABLE-DOCKERFILE",
-      "number": 502,
-      "url": "https://github.com/instashop-dev/deployz/pull/502",
-      "branch": "campaign/fix-unbuildable-dockerfile",
-      "headSha": "4de9cc796776fdf5ab931ceced415d618b4a41fb",
-      "baseSha": "8f14fddf496de3cb0223842c614a1286cf2b1d45",
-      "worktree": "C:/Users/Tejas/Desktop/deployz-fix-ai-timeout",
-      "openedAt": "2026-10-09T19:17:47.909Z",
-      "state": "OPEN",
-      "ciRun": 37980181617,
-      "ciConclusion": "all 7 required checks SUCCESS"
-    }
-  ],
+  "openPullRequests": [],
   "previousBaselines": [
     {
       "commit": "e164b7af445636447e27a62c81ed6b542f0029c7",
@@ -717,6 +703,35 @@
       },
       "deployWeb": {
         "run": 37760970049,
+        "conclusion": "success (deploy job skipped)"
+      }
+    },
+    {
+      "task": "P4-FIX-UNBUILDABLE-DOCKERFILE",
+      "number": 502,
+      "url": "https://github.com/instashop-dev/deployz/pull/502",
+      "branch": "campaign/fix-unbuildable-dockerfile",
+      "headSha": "4de9cc796776fdf5ab931ceced415d618b4a41fb",
+      "baseSha": "8f14fddf496de3cb0223842c614a1286cf2b1d45",
+      "worktree": "C:/Users/Tejas/Desktop/deployz-fix-ai-timeout",
+      "openedAt": "2026-10-09T19:17:47.909Z",
+      "state": "MERGED",
+      "ciRun": 37980181617,
+      "ciConclusion": "all 7 required checks SUCCESS",
+      "mergedAt": "2026-10-09T19:35:00Z",
+      "mergedBy": "Opus coordinator (gh api merge with sha guard, squash)",
+      "mergeCommit": "a197032313e315414a28e1269e4946233dcd5604",
+      "review": "campaign/results/P4-MERGE-UNBUILDABLE-DOCKERFILE/review.md",
+      "ciOnMain": {
+        "run": 37981209431,
+        "conclusion": "success"
+      },
+      "deployApi": {
+        "run": 37981932220,
+        "conclusion": "success"
+      },
+      "deployWeb": {
+        "run": 37981932365,
         "conclusion": "success (deploy job skipped)"
       }
     }

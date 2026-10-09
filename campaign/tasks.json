@@ -3859,7 +3859,7 @@
       "phase": 4,
       "title": "Review and merge the F1 fix PR (mergeProcedure); watch CI on main and deploys",
       "executor": "opus",
-      "status": "PENDING",
+      "status": "COMPLETE",
       "prerequisites": [
         "P4-FIX-UNBUILDABLE-DOCKERFILE"
       ],
@@ -3886,7 +3886,8 @@
       ],
       "timeboxMinutes": 20,
       "notes": [
-        "2026-10-09 P4-GROUP (Opus): checks still running = CONTINUE (not a failure). A review finding sends the task back to P4-FIX-UNBUILDABLE-DOCKERFILE (READY with the finding in its notes)."
+        "2026-10-09 P4-GROUP (Opus): checks still running = CONTINUE (not a failure). A review finding sends the task back to P4-FIX-UNBUILDABLE-DOCKERFILE (READY with the finding in its notes).",
+        "2026-10-09T19:18Z run (Opus): attempt 1 COMPLETE. mergeProcedure on head 4de9cc79 (7/7 checks SUCCESS), review APPROVE with 2 non-blocking notes (loose dev-only *.dockerfile basename regex; no dedicated fix-instructions entry). Merged as a1970323. CI on main 37981209431 success; Deploy web 37981932365 success (deploy skipped); Deploy API 37981932220 success."
       ]
     },
     {
