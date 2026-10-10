@@ -329,7 +329,10 @@ type ApplicationRow = typeof schema.applications.$inferSelect;
 // (vite-node, babel-node, ts-node-dev, esno) is not selected for the pre-deploy task
 // when the final image prunes dev dependencies. Stored v49 rows can carry such a
 // command.
-export const ANALYSIS_VERSION = 50;
+// Version 51 (fresh-100 F5): the repository AI answer is no longer rejected when an
+// architecture requirement carries an `explanation`. Stored v50 rows can lack the AI
+// signal because that answer was discarded.
+export const ANALYSIS_VERSION = 51;
 
 export interface AnalysisRunnerDeps {
   db: RuntimeDb;

@@ -1421,3 +1421,16 @@ cleaner verdict signal but a noisier fact signal.
 - Regression: `packages/analysis/test/fresh-100-migration-runtime.test.ts` (fixtures only).
 - Verification: fixtures only; the effect on the real repository is for the next compat run.
 - Status: fixed
+
+### COMP-047 — The live repository AI answer is discarded when an architecture requirement has an explanation
+
+- Family: fresh-100 F5 (`DEPLOYZ_BUG`), 13 parse-error requests: repo-502, 503, 514, 516, 528, 536, 541, 545, 548, 555, 564, 573, 583. (The 10 timeouts of this family are not changed, see below.)
+- Repositories fixed here: all 13 (same schema rejection; the first-run evidence only holds the error `AI_NoObjectGeneratedError: response did not match schema`).
+- Type: DEPLOYZ_BUG (the benchmark registry has no such type; it holds ANALYSIS_MISSING_SIGNAL, the closest valid type, because the AI signal is missing from the stored analysis)
+- Expected: a well-formed model answer is used
+- Actual: the strict response schema rejected `architectureRequirements.<service>.explanation`. The model adds that key (as it does for every other field) although the prompt does not ask for it. The whole answer was lost. The failure was reproduced against the live gateway with a fixture repository: 1 of 5 requests; the validation issue was `unrecognized_keys: explanation` on the postgres and redis entries.
+- Fix: the architecture requirement schema accepts an optional `explanation` (max 200 characters). All other fields stay strict. `ANALYSIS_VERSION` 51.
+- Timeout: `REPO_AI_TIMEOUT_MS` (30 s) is unchanged. A live probe with thinking off answered in 6.3 to 16.4 s (fixture prompt, 9 requests). The 10 first-run timeouts are not explained by these numbers, so no new value is justified without a measurement on a real large prompt.
+- Regression: `packages/analysis/test/repository-ai.test.ts` (fixtures only).
+- Verification: fixtures and one live gateway probe on a fixture; the effect on the real repositories is for the next compat run.
+- Status: fixed (parse errors); timeouts open

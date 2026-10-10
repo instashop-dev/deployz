@@ -145,6 +145,9 @@ export const repositoryAiSchema = z
             requirement: z.enum(['required', 'optional', 'integration_only', 'development_only', 'unknown']),
             confidence: z.number().min(0).max(1),
             evidencePaths: z.array(z.string()),
+            // Models echo the per-field `explanation` here although the prompt
+            // does not ask for it; rejecting it discarded the whole answer.
+            explanation: z.string().max(200).optional(),
           })
           .strict(),
       )
