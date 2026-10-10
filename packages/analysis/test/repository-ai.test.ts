@@ -334,6 +334,24 @@ describe('analyseRepositoryWithAi', () => {
     expect(result).toEqual(validAiObject);
   });
 
+  it('accepts an explanation on an architecture requirement', async () => {
+    const withExplanation = structuredAi({
+      architectureRequirements: {
+        postgres: {
+          requirement: 'required',
+          confidence: 0.9,
+          evidencePaths: ['package.json'],
+          explanation: 'pg is a runtime dependency',
+        },
+      },
+    });
+    const result = await analyseRepositoryWithAi(
+      baseAiInput,
+      fixtureGateway({ object: withExplanation, usage: { promptTokens: 500, completionTokens: 100 } }),
+    );
+    expect(result.architectureRequirements?.['postgres']?.explanation).toBe('pg is a runtime dependency');
+  });
+
   it('rejects a response with an extra field (strict schema)', async () => {
     await expect(
       analyseRepositoryWithAi(

@@ -53,6 +53,7 @@ findings:
   - { id: COMP-044, type: ANALYSIS_MISSING_SIGNAL, facts: [compatibility, unsupported] }
   - { id: COMP-045, type: ANALYSIS_MISSING_SIGNAL, facts: [compatibility, unsupported] }
   - { id: COMP-046, type: ANALYSIS_BUG, facts: [compatibility] }
+  - { id: COMP-047, type: ANALYSIS_MISSING_SIGNAL, facts: [compatibility] }
 
 repositories:
   - id: repo-001
