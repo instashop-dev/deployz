@@ -37,7 +37,9 @@ known state, and provides a deterministic path forward.
 - **Release** (`releases` row) — an immutable version/build.
   `currentReleaseId` points at the release that is really running, and only
   the heartbeat's digest reconciliation advances it — and only when that
-  heartbeat shows the new digest running, rollout COMPLETED, full task
+  heartbeat shows the new digest running (every ECS service that has a
+  running task must run the same digest; if they differ, no digest is
+  reported), rollout COMPLETED, full task
   counts, healthy ALB targets and a successful HTTP probe.
   A SUCCEEDED DEPLOY_RELEASE/ROLLBACK job result alone never advances the
   pointer, so after any failure it still names what is really running. There
@@ -439,6 +441,11 @@ which retry eligibility respects.
 The uncertain-result rule: nothing ever assumes a timed-out external call
 failed. The relay's resumers re-describe AWS before acting; the control
 plane re-offers rather than failing; a duplicate result is a no-op.
+
+This includes stack-resource reads. The relay reads the stack in full (all
+pages). If it cannot read the stack, it does not fail the deploy: a started
+rollout stays in progress, and a RESTART is deferred and re-offered. Only a
+stack that was read and has no ECS service fails.
 
 ### Progress reporting
 

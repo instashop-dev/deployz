@@ -409,6 +409,11 @@ export async function settleEcsDeploy(
   context: DeploySettleContext = { allowMigration: false },
 ): Promise<EcsDeployOutcome> {
   const views = await findServiceViews(deps);
+  if (views === null) {
+    // An unreadable inventory says nothing about the rollout: never a verdict.
+    console.log(JSON.stringify({ event: 'relay:stack-resources-unreadable', stackName: deps.stackName }));
+    return { state: 'in-progress', ...(context.migration ? { migration: context.migration } : {}) };
+  }
   if (views.length === 0) {
     return { state: 'failed', reason: `No ECS service found in stack "${deps.stackName}"` };
   }
@@ -1056,8 +1061,8 @@ const COMPLETE_RESOURCE_STATUSES: ReadonlySet<string> = new Set(['CREATE_COMPLET
  * healthy — the deploy keeps waiting rather than guessing.
  */
 async function deploymentTargetsHealthy(deps: EcsDeployDeps): Promise<boolean> {
-  const resources = await deps.cfn.describeStackResources(deps.stackName);
-  const targetGroup = resources.find(
+  const inventory = await listAllStackResources(deps.cfn, deps.stackName);
+  const targetGroup = inventory?.resources.find(
     (resource) => resource.type === TARGET_GROUP_TYPE && COMPLETE_RESOURCE_STATUSES.has(resource.status),
   );
   if (!targetGroup?.physicalId) return false;
@@ -1130,10 +1135,14 @@ interface ServiceView {
   runningDigest?: string | null | undefined;
 }
 
-/** The stack's ECS services, in CloudFormation resource order (web first). */
-async function findServiceViews(deps: EcsDeployDeps): Promise<ServiceView[]> {
-  const resources = await deps.cfn.describeStackResources(deps.stackName);
-  return resources
+/**
+ * The stack's ECS services, in CloudFormation resource order (web first), or
+ * null when the inventory cannot be read — which is not "no services".
+ */
+async function findServiceViews(deps: EcsDeployDeps): Promise<ServiceView[] | null> {
+  const inventory = await listAllStackResources(deps.cfn, deps.stackName);
+  if (inventory === null) return null;
+  return inventory.resources
     .filter((resource) => resource.type === 'AWS::ECS::Service' && resource.physicalId !== undefined)
     .map((resource) => ({ logicalId: resource.logicalId, arn: resource.physicalId! }));
 }
@@ -1716,6 +1725,11 @@ export function createRestartExecutor(deps: EcsDeployDeps): CommandExecutor {
     );
 
     const views = await findServiceViews(deps);
+    if (views === null) {
+      // Nothing is mutated yet and nothing is known: not a failure. The
+      // control plane re-offers the command (uncertain-result rule).
+      return { commandId: command.id, idempotencyKey: command.idempotencyKey, success: false, deferred: true };
+    }
     if (views.length === 0) {
       return result(command, false, {
         error: `No ECS service found in stack "${deps.stackName}"`,

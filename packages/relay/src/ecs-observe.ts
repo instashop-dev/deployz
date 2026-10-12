@@ -8,6 +8,7 @@
  * the digest at pull time.
  */
 
+import { listAllStackResources } from './stack-resources.js';
 import type { CloudFormationReader } from './verify.js';
 
 /** The ECS surface this module needs (injectable seam for testing). */
@@ -97,15 +98,30 @@ const SERVICE_RESOURCE_TYPE = 'AWS::ECS::Service';
 /**
  * The sha256 digest currently running for this installation's application,
  * or null when it cannot be resolved (no stack, no service, no running
- * task). Health reporting must continue even when this fails.
+ * task, unreadable inventory). Health reporting must continue even when this
+ * fails.
+ *
+ * Every ECS service counts, so a half-applied multi-service rollout never
+ * reads as the new release: a service with no running task is ignored (the
+ * others supply the digest), and two services on different digests give null.
  */
 export async function observeRunningImageDigest(
   deps: ObserveDigestDeps,
   stackName: string,
 ): Promise<string | null> {
-  const serviceArn = await findServiceArn(deps, stackName);
-  if (!serviceArn) return null;
+  const inventory = await listAllStackResources(deps.cfn, stackName);
+  if (inventory === null) return null;
 
+  const digests = new Set<string>();
+  for (const resource of inventory.resources) {
+    if (resource.type !== SERVICE_RESOURCE_TYPE || !resource.physicalId) continue;
+    const digest = await observeServiceDigest(deps, resource.physicalId);
+    if (digest !== null) digests.add(digest);
+  }
+  return digests.size === 1 ? [...digests][0]! : null;
+}
+
+async function observeServiceDigest(deps: ObserveDigestDeps, serviceArn: string): Promise<string | null> {
   // arn:aws:ecs:REGION:ACCOUNT:service/CLUSTER/SERVICE
   const parts = serviceArn.split('/');
   const cluster = parts[1];
@@ -136,11 +152,4 @@ export async function observeRunningImageDigest(
     if (digest) return digest;
   }
   return null;
-}
-
-async function findServiceArn(deps: ObserveDigestDeps, stackName: string): Promise<string | null> {
-  const resources = await deps.cfn.describeStackResources(stackName);
-  return (
-    resources.find((resource) => resource.type === SERVICE_RESOURCE_TYPE)?.physicalId ?? null
-  );
 }

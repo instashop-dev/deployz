@@ -8,16 +8,21 @@ const DIGEST = 'sha256:' + 'a'.repeat(64);
 function cfnWith(resources: StackResource[]): CloudFormationReader {
   return {
     async describeStack() {
-      return { found: true, stack: { stackName: 'deployz-app', status: 'CREATE_COMPLETE', tags: {} } };
+      return { found: true, stack: { stackName: 'deployz-app', status: 'CREATE_COMPLETE', tags: {}, stackId: 'stack-id-deployz-app' } };
     },
     async describeStackResources() {
       return resources;
+    },
+    async listStackResources() {
+      return { resources };
     },
   };
 }
 
 function ecsWith(options: {
   taskArns?: string[];
+  /** Per-service answers, keyed by the service name in the ARN. */
+  byService?: Record<string, { taskArns: string[]; digest: string }>;
   tasks?: {
     lastStatus?: string;
     taskDefinitionArn?: string;
@@ -27,12 +32,15 @@ function ecsWith(options: {
   failAt?: 'list' | 'describe';
 }): EcsTaskReader {
   return {
-    async listTasks() {
+    async listTasks(input) {
       if (options.failAt === 'list') throw new Error('AccessDenied');
-      return { taskArns: options.taskArns ?? ['task-1'] };
+      const perService = options.byService?.[input.serviceName];
+      return { taskArns: perService?.taskArns ?? options.taskArns ?? ['task-1'] };
     },
-    async describeTasks() {
+    async describeTasks(input) {
       if (options.failAt === 'describe') throw new Error('AccessDenied');
+      const perService = Object.values(options.byService ?? {}).find((entry) => entry.taskArns[0] === input.tasks[0]);
+      if (perService) return { tasks: [{ containers: [{ imageDigest: perService.digest }] }] };
       return { tasks: options.tasks ?? [{ containers: [{ imageDigest: DIGEST }] }] };
     },
     async describeTaskDefinition() {
@@ -46,6 +54,16 @@ const SERVICE_ARN = 'arn:aws:ecs:us-east-1:151955775369:service/deployz-cluster/
 function serviceStack(): StackResource[] {
   return [
     { logicalId: 'Service', type: 'AWS::ECS::Service', status: 'CREATE_COMPLETE', physicalId: SERVICE_ARN },
+  ];
+}
+
+const WORKER_ARN = 'arn:aws:ecs:us-east-1:151955775369:service/deployz-cluster/deployz-worker-service';
+const OLD_DIGEST = 'sha256:' + 'c'.repeat(64);
+
+function twoServiceStack(): StackResource[] {
+  return [
+    ...serviceStack(),
+    { logicalId: 'WorkerService', type: 'AWS::ECS::Service', status: 'CREATE_COMPLETE', physicalId: WORKER_ARN },
   ];
 }
 
@@ -125,5 +143,68 @@ describe('observeRunningImageDigest', () => {
         'deployz-app',
       ),
     ).rejects.toThrow('AccessDenied');
+  });
+
+  it('returns the digest when every service runs it', async () => {
+    const digest = await observeRunningImageDigest(
+      {
+        cfn: cfnWith(twoServiceStack()),
+        ecs: ecsWith({
+          byService: {
+            'deployz-app-service': { taskArns: ['web-1'], digest: DIGEST },
+            'deployz-worker-service': { taskArns: ['worker-1'], digest: DIGEST },
+          },
+        }),
+        installationId: 'inst-1',
+      },
+      'deployz-app',
+    );
+    expect(digest).toBe(DIGEST);
+  });
+
+  it('returns null when a worker was rolled back to another digest', async () => {
+    const digest = await observeRunningImageDigest(
+      {
+        cfn: cfnWith(twoServiceStack()),
+        ecs: ecsWith({
+          byService: {
+            'deployz-app-service': { taskArns: ['web-1'], digest: DIGEST },
+            'deployz-worker-service': { taskArns: ['worker-1'], digest: OLD_DIGEST },
+          },
+        }),
+        installationId: 'inst-1',
+      },
+      'deployz-app',
+    );
+    expect(digest).toBeNull();
+  });
+
+  it('ignores a service with no running task when another supplies the digest', async () => {
+    const digest = await observeRunningImageDigest(
+      {
+        cfn: cfnWith(twoServiceStack()),
+        ecs: ecsWith({
+          byService: {
+            'deployz-app-service': { taskArns: ['web-1'], digest: DIGEST },
+            'deployz-worker-service': { taskArns: [], digest: OLD_DIGEST },
+          },
+        }),
+        installationId: 'inst-1',
+      },
+      'deployz-app',
+    );
+    expect(digest).toBe(DIGEST);
+  });
+
+  it('returns null when the stack resources cannot be read', async () => {
+    const digest = await observeRunningImageDigest(
+      {
+        cfn: { ...cfnWith(serviceStack()), listStackResources: async () => null },
+        ecs: ecsWith({}),
+        installationId: 'inst-1',
+      },
+      'deployz-app',
+    );
+    expect(digest).toBeNull();
   });
 });
