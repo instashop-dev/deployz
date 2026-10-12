@@ -291,9 +291,9 @@ The last sentence is verified: API responses and events carry the mask
 `apps/api/src/secret-delivery.integration.test.ts`). The 7-day figure is the
 control-plane database backup retention (`packages/cdk/src/deployz-stack.ts:101`).
 
-Remove "Your application secrets" from the "not sent to Deployz" list
-(`lib/security-details.ts:178-184`) and from the "only operational metadata"
-claim (`components/security-details-content.tsx:259-261`).
+The Security Details page does not list application secrets as data that
+stays in the account (`DATA_NOT_SENT_TO_DEPLOYZ` in `lib/security-details.ts`),
+and it states that secrets pass through Deployz.
 
 ## 9. Long operations
 

@@ -1,177 +1,187 @@
+'use client';
+
 import Link from 'next/link';
-import { ChevronDown } from 'lucide-react';
-import type { ReactNode } from 'react';
+import { ArrowLeft, ArrowUpRight, Cloud, KeyRound } from 'lucide-react';
+import { useState, type ReactNode } from 'react';
 
 import type { DeploymentPlan } from '@deployz/contracts';
 
 import { ArchitectureDiagram } from '@/components/architecture-diagram';
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from '@/components/ui/accordion';
 import { Button } from '@/components/ui/button';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import {
+  CONNECTOR_ROLE,
+  distinctActionCount,
+  EXECUTION_ROLE,
+  INSTALL_HELPER_ROLES,
+  isGrantedToConnector,
+  type PermissionRole,
+  type PermissionStatement,
+} from '@/lib/bootstrap-permissions';
 import { awsResourceGroups } from '@/lib/install-plan';
 import {
+  CONNECTOR_STACK_RESOURCES,
   DATA_NOT_SENT_TO_DEPLOYZ,
   DATA_SENT_TO_DEPLOYZ,
   DELETION_STEPS,
   DENIED_LOG_READ_ACTIONS,
   OWNERSHIP_NOTE,
-  PASS_ROLE_RESOURCE_ARN,
-  PASSED_TO_SERVICE,
-  PHASE_1_LOG_WRITE_ACTIONS,
-  PHASE_1_SECRET_ACTIONS,
-  PHASE_2_ACM_MANAGE_ACTIONS,
-  PHASE_2_ACM_REQUEST_ACTIONS,
-  PHASE_2_APP_RESOURCE_ACTIONS,
-  PHASE_2_CACHE_ACTIONS,
-  PHASE_2_CREATE_STACK_ACTIONS,
-  PHASE_2_DOMAIN_INGRESS_ACTIONS,
-  PHASE_2_MANAGE_STACK_ACTIONS,
-  PHASE_2_PASS_ROLE_ACTION,
   RAW_LOGS_GUARANTEE,
-  REQUEST_TAG_CONDITION,
-  RESOURCE_TAG_CONDITION,
+  REVOKE_ORDER_NOTE,
   REVOKE_STEPS,
-  TAG_BOUNDARY_KEY,
+  SECRET_HANDLING_STATEMENT,
 } from '@/lib/security-details';
 
-// PHASE_2_DOMAIN_INGRESS_ACTIONS mixes read-only ELB `Describe*` lookups
-// (which AWS does not allow scoping by tag) with tag-scoped listener writes.
-// Split for disclosure so each group can be labeled with its actual
-// condition — mirrors the split bootstrap-stack.ts makes when building the
-// two IAM statements.
-const domainIngressReadActions = PHASE_2_DOMAIN_INGRESS_ACTIONS.filter((action) =>
-  action.startsWith('elasticloadbalancing:Describe'),
-);
-const domainIngressWriteActions = PHASE_2_DOMAIN_INGRESS_ACTIONS.filter(
-  (action) => !action.startsWith('elasticloadbalancing:Describe'),
-);
+type TabValue = 'overview' | 'permissions' | 'data';
 
-// PHASE_2_CACHE_ACTIONS splits the same way, but three ways instead of two:
-// Create needs the request tag (the cache doesn't exist yet), Delete/Modify/
-// read-tags needs the resource tag (the cache already carries it), and
-// Describe carries no condition — ElastiCache, like the load balancer above,
-// does not support resource-level permissions on those calls. Mirrors the
-// three IAM statements bootstrap-stack.ts builds.
-//
-// elasticache:AddTagsToResource is grouped with CREATE, not manage, even
-// though its name suggests "manage" — a resource-tag condition can never
-// authorize the FIRST call that tags a brand-new, untagged cache, so it has
-// to ride along with the request-tag-conditioned create actions (same
-// reasoning bootstrap-stack.ts applies to acm:AddTagsToCertificate).
-const cacheDescribeActions = PHASE_2_CACHE_ACTIONS.filter((action) =>
-  action.startsWith('elasticache:Describe'),
-);
-const cacheCreateActions = PHASE_2_CACHE_ACTIONS.filter(
-  (action) =>
-    action.startsWith('elasticache:Create') || action === 'elasticache:AddTagsToResource',
-);
-const cacheManageActions = PHASE_2_CACHE_ACTIONS.filter(
-  (action) => !cacheCreateActions.includes(action) && !cacheDescribeActions.includes(action),
-);
+const HIGHLIGHTS = [
+  { icon: Cloud, title: 'Your AWS account', text: 'Infrastructure runs in your AWS account.' },
+  {
+    icon: ArrowUpRight,
+    title: 'Outbound connection',
+    text: 'The connector starts HTTPS requests to Deployz. No inbound connection is required.',
+  },
+  { icon: KeyRound, title: 'IAM permissions', text: 'Review the exact access Deployz requires.' },
+] as const;
+
+/** Why a statement that is not limited to this installation is still contained. */
+const EXCEPTION_NOTES: Record<string, string> = {
+  RelayAccessCredential:
+    'The connector uses this for its own credential secret, but the statement is not limited to that secret.',
+  RelayPurgeStorage:
+    "S3 does not support tag conditions on these actions. The connector checks each bucket's deployz:installation tag before it deletes anything.",
+  ProvisionApplicationStorage:
+    'S3 does not support tag conditions on these actions. Only CloudFormation can use this role.',
+};
+
+const listClass = 'flex list-disc flex-col gap-1.5 pl-5 text-sm text-muted-foreground';
+const orderedListClass = 'flex list-decimal flex-col gap-2 pl-5 text-sm text-muted-foreground';
+// The accordion spaces its content with gap, so the default paragraph margin is removed.
+const sectionClass = 'flex flex-col gap-4 text-muted-foreground [&_p:not(:last-child)]:mb-0';
+const codeClass = 'rounded bg-muted px-1.5 py-0.5 font-mono text-xs break-words text-foreground';
+
+function roleGrants(role: PermissionRole, action: string): boolean {
+  return role.statements.some((statement) => statement.actions.includes(action));
+}
+
+function scopeText(statement: PermissionStatement): string {
+  if (statement.scope === 'installation') {
+    if (statement.conditions.some((condition) => condition.includes('aws:RequestTag/'))) {
+      return "Only when the request carries this installation's tag.";
+    }
+    if (statement.conditions.some((condition) => condition.includes('aws:ResourceTag/'))) {
+      return 'Only on resources tagged for this installation.';
+    }
+    return "Only on this installation's named resources.";
+  }
+  if (statement.scope === 'limited') {
+    return 'Limited by resource name or service, not to this installation.';
+  }
+  return 'Any resource in the account.';
+}
 
 function ActionList({ actions }: { actions: readonly string[] }) {
   return (
-    <ul className="flex flex-col gap-1">
+    <ul className="flex flex-wrap gap-1.5">
       {actions.map((action) => (
         <li key={action}>
-          <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-xs">{action}</code>
+          <code className={codeClass}>{action}</code>
         </li>
       ))}
     </ul>
   );
 }
 
-function DetailSection({ title, children }: { title: string; children: ReactNode }) {
+function StatementBlock({ statement }: { statement: PermissionStatement }) {
+  const note = statement.sid ? EXCEPTION_NOTES[statement.sid] : undefined;
   return (
-    <details className="group rounded-xl border">
-      <summary className="flex cursor-pointer list-none items-center justify-between px-4 py-3 text-sm font-medium [&::-webkit-details-marker]:hidden">
-        {title}
-        <ChevronDown aria-hidden className="size-4 transition-transform group-open:rotate-180" />
-      </summary>
-      <div className="flex flex-col gap-3 border-t px-4 py-3 text-sm text-muted-foreground">
-        {children}
+    <li className="flex flex-col gap-2 py-3">
+      <div className="flex flex-col gap-0.5">
+        <p className="font-medium text-foreground">{statement.label}</p>
+        <p className="text-xs">{scopeText(statement)}</p>
+        {note ? <p className="text-xs">{note}</p> : null}
       </div>
-    </details>
+      <ActionList actions={statement.actions} />
+      <dl className="grid grid-cols-[auto_1fr] gap-x-2 gap-y-1 text-xs">
+        <dt>Resource</dt>
+        <dd className="flex flex-wrap gap-1.5">
+          {statement.resources.map((resource) => (
+            <code key={resource} className={codeClass}>
+              {resource}
+            </code>
+          ))}
+        </dd>
+        {statement.conditions.length > 0 ? (
+          <>
+            <dt>Condition</dt>
+            <dd className="flex flex-col items-start gap-1">
+              {statement.conditions.map((condition) => (
+                <code key={condition} className={codeClass}>
+                  {condition}
+                </code>
+              ))}
+            </dd>
+          </>
+        ) : null}
+        {statement.sid ? (
+          <>
+            <dt>Sid</dt>
+            <dd>
+              <code className={codeClass}>{statement.sid}</code>
+            </dd>
+          </>
+        ) : null}
+      </dl>
+    </li>
+  );
+}
+
+function StatementList({ statements }: { statements: PermissionStatement[] }) {
+  return (
+    <ul className="flex flex-col divide-y">
+      {statements.map((statement, index) => (
+        <StatementBlock key={statement.sid ?? index} statement={statement} />
+      ))}
+    </ul>
+  );
+}
+
+function RoleHeading({ role, children }: { role: PermissionRole; children?: ReactNode }) {
+  return (
+    <div className="flex flex-col gap-1">
+      <h4 className="text-sm font-semibold text-foreground">{role.label}</h4>
+      <p>
+        {distinctActionCount(role)} actions in {role.statements.length} statements.{' '}
+        {children}
+      </p>
+    </div>
   );
 }
 
 function Unavailable({ note }: { note: string }) {
   return (
-    <div className="flex flex-col gap-2">
-      <h3 className="text-base font-semibold">Infrastructure details are unavailable</h3>
+    <div className="flex flex-col gap-1">
+      <p className="text-sm font-medium">Infrastructure details are unavailable</p>
       <p className="text-sm text-muted-foreground">{note}</p>
     </div>
   );
 }
 
-// §45 Security Details — the HONEST trust story, rendered from the
-// deployment's saved plan. The resource list and the architecture diagram
-// show only what the plan says (docs/ui-system.md "Plan-driven surfaces"); a
-// missing plan shows honest unavailable states, never a guessed static
-// catalogue. The top level is §65 jargon-free; every exact permission name
-// and catalog resource name lives inside expandable detail rendered from
-// @/lib/security-details and the plan (locked against the actual bootstrap
-// template by apps/web/test/security-details.test.ts). We deliberately do
-// NOT claim "tightly scoped" permissions: phase 2 is substantial, and the
-// page says so.
-export function SecurityDetailsContent({
+function OverviewTab({
   plan,
-  backHref,
-  backLabel = 'Back to install',
+  onShowPermissions,
 }: {
   plan: DeploymentPlan | null;
-  backHref: string;
-  backLabel?: string;
+  onShowPermissions: () => void;
 }) {
-  const groups = awsResourceGroups(plan);
-
   return (
-    <div className="flex flex-col gap-10">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Security details</h1>
-        <p className="mt-2 text-sm text-muted-foreground">
-          Plain-English summary first. Exact permissions are at the bottom.
-        </p>
-      </div>
-
-      <section aria-labelledby="resources-created" className="flex flex-col gap-3">
-        <h2 id="resources-created" className="text-base font-semibold">
-          Exact AWS resources created
-        </h2>
-        {plan ? (
-          <>
-            <p className="text-sm text-muted-foreground">
-              The actual AWS resources provisioned in your account — not permission names. Expand
-              for the full list.
-            </p>
-            {/* Catalog resource names (VPC, ECS, IAM) are technical vocabulary,
-                so the list itself stays collapsed like the permission
-                disclosures below — the §65 jargon-free rule applies to the
-                visible top level only. */}
-            <DetailSection title="Full resource list">
-              <ul className="flex flex-col gap-3">
-                {groups.map((group) => (
-                  <li key={group.group}>
-                    <p className="text-xs font-medium uppercase tracking-wide">{group.label}</p>
-                    <ul className="mt-1 flex list-disc flex-col gap-1.5 pl-5">
-                      {group.resources.map((resource) => (
-                        <li key={resource.id}>
-                          {resource.name} — {resource.purpose}
-                        </li>
-                      ))}
-                    </ul>
-                  </li>
-                ))}
-              </ul>
-              <p>
-                The Deployz connector (a small scheduled job), its limited execution role, and its
-                own credential secret are also created.
-              </p>
-            </DetailSection>
-          </>
-        ) : (
-          <Unavailable note="The deployment's saved configuration could not be read, so no resource list is shown." />
-        )}
-      </section>
-
+    <div className="flex flex-col gap-6">
       <section aria-labelledby="architecture" className="flex flex-col gap-3">
         <h2 id="architecture" className="text-base font-semibold">
           How it fits together
@@ -183,98 +193,193 @@ export function SecurityDetailsContent({
         )}
       </section>
 
-      <section aria-labelledby="can-do" className="flex flex-col gap-3">
-        <h2 id="can-do" className="text-base font-semibold">
-          What the Deployz connector can do
+      <section aria-labelledby="how-it-works" className="flex flex-col gap-3">
+        <h2 id="how-it-works" className="text-base font-semibold">
+          How it works
         </h2>
-        <ul className="flex list-disc flex-col gap-3 pl-5 text-sm text-muted-foreground">
+        <ol className={orderedListClass}>
+          <li>You create the Deployz connector in your AWS account from a standard AWS stack template.</li>
           <li>
-            <strong className="font-medium text-foreground">At install time: almost nothing.</strong>{' '}
-            It can write its own activity log, and it can read and refresh its own access key.
-            That&apos;s the complete list.
+            Every 5 minutes, the connector calls Deployz over HTTPS and collects commands, such as
+            install, update or remove.
           </li>
           <li>
-            <strong className="font-medium text-foreground">
-              After it checks in with Deployz: set up and maintain your app.
-            </strong>{' '}
-            It can create, update, and remove the resources that make up your application. Where AWS
-            supports it, actions that change resources are restricted to Deployz-managed resources —
-            the resources tagged for your installation. Some read-only lookup and Describe actions
-            cannot be restricted by tag.
+            The connector applies each command with roles in your account and reports the result to
+            Deployz.
           </li>
-        </ul>
+        </ol>
       </section>
 
-      <section aria-labelledby="cant-do" className="flex flex-col gap-3">
-        <h2 id="cant-do" className="text-base font-semibold">
-          What the Deployz connector can never do
-        </h2>
-        <ul className="flex list-disc flex-col gap-3 pl-5 text-sm text-muted-foreground">
-          <li>
-            <strong className="font-medium text-foreground">Reach into your account.</strong> The
-            connector only calls out to Deployz. Nothing — including Deployz — can connect inward.
-          </li>
-          <li>
-            <strong className="font-medium text-foreground">Read your logs.</strong> It can write
-            its own activity log, but it has no permission to read any logs back — yours or its
-            own.
-          </li>
-          <li>
-            <strong className="font-medium text-foreground">Grow its own permissions.</strong> A
-            ceiling is fixed at install time. Even after check-in, the connector can never exceed
-            what you see on this page.
-          </li>
-          <li>
-            <strong className="font-medium text-foreground">Act as anyone else.</strong> The
-            connector acts only as itself — it never takes over other identities in your account,
-            and it never touches another customer&apos;s account.
-          </li>
-          <li>
-            <strong className="font-medium text-foreground">Hold your credentials.</strong> Deployz
-            never asks for or stores your AWS password, access keys, or account credentials.
-          </li>
-        </ul>
-      </section>
-
-      <section aria-labelledby="honest-version" className="flex flex-col gap-3">
-        <h2 id="honest-version" className="text-base font-semibold">
-          The honest version
+      <section aria-labelledby="stays-in-account" className="flex flex-col gap-3">
+        <h2 id="stays-in-account" className="text-base font-semibold">
+          What stays in your account
         </h2>
         <p className="text-sm text-muted-foreground">
-          We won&apos;t claim these permissions are tiny. After check-in, the connector holds
-          substantial permissions — enough to install and update your app without asking you to
-          click through setup screens. The boundary keeps that safe. Where AWS supports it, actions
-          that change resources are restricted to Deployz-managed resources — the resources tagged
-          for your installation. Some read-only lookup and Describe actions cannot be restricted by
-          tag. The ceiling fixed at install time caps it forever, and the connector can never read
-          your data back. The exact permissions remain listed in the technical details below.
+          Your application, databases, stored files and logs stay in your AWS account. Deployz
+          receives status and diagnostic information about the deployment. If you delete the
+          connector, Deployz has no access to your account.
         </p>
+        <Button variant="outline" size="sm" className="w-fit" onClick={onShowPermissions}>
+          Review AWS permissions
+        </Button>
       </section>
+    </div>
+  );
+}
 
-      <section aria-labelledby="data-sent" className="flex flex-col gap-3">
-        <h2 id="data-sent" className="text-base font-semibold">
-          Data sent to Deployz
-        </h2>
-        <p className="text-sm text-muted-foreground">
-          Operational metadata about the deployment — never your application data:
-        </p>
-        <ul className="flex list-disc flex-col gap-1.5 pl-5 text-sm text-muted-foreground">
-          {DATA_SENT_TO_DEPLOYZ.map((item) => (
-            <li key={item}>{item}</li>
-          ))}
-        </ul>
-        <p className="text-sm text-muted-foreground">
-          Secrets you enter during setup are the one exception: they pass through Deployz encrypted
-          and are stored only until your AWS account connects, then deleted. See Secrets below.
-        </p>
-      </section>
+function PermissionsTab({ plan }: { plan: DeploymentPlan | null }) {
+  const groups = awsResourceGroups(plan);
+  const roles = [CONNECTOR_ROLE, EXECUTION_ROLE];
+  const unscoped = roles.flatMap((role) =>
+    role.statements.filter((statement) => statement.scope !== 'installation'),
+  );
+  const unscopedReads = [
+    ...new Set(unscoped.filter((statement) => statement.readOnly).flatMap((s) => s.actions)),
+  ].sort();
+  const unscopedWrites = unscoped.filter((statement) => !statement.readOnly);
+  const notGranted = DENIED_LOG_READ_ACTIONS.filter((action) => !isGrantedToConnector(action));
+  const executionRoleManagesRoles =
+    roleGrants(EXECUTION_ROLE, 'iam:CreateRole') && roleGrants(EXECUTION_ROLE, 'iam:AttachRolePolicy');
 
-      <section aria-labelledby="data-not-sent" className="flex flex-col gap-3">
-        <h2 id="data-not-sent" className="text-base font-semibold">
-          Data not sent to Deployz
+  return (
+    <div className="flex flex-col gap-4">
+      <h2 className="sr-only">AWS permissions</h2>
+      <p className="text-sm text-muted-foreground">
+        Every action below is read from the connector template you deploy. Where AWS supports it,
+        actions are limited to resources tagged{' '}
+        <code className={codeClass}>deployz:installation</code> for this installation.
+      </p>
+
+      <Accordion type="multiple" className="rounded-xl border px-4">
+        <AccordionItem value="resources">
+          <AccordionTrigger>AWS resources created</AccordionTrigger>
+          <AccordionContent className={sectionClass}>
+            <p>Your application stack and the connector stack create these resources.</p>
+            {plan ? (
+              <div className="flex flex-col gap-3">
+                <h4 className="text-sm font-semibold text-foreground">Application stack</h4>
+                {groups.map((group) => (
+                  <div key={group.group} className="flex flex-col gap-1">
+                    <p className="text-xs font-medium uppercase tracking-wide">{group.label}</p>
+                    <ul className={listClass}>
+                      {group.resources.map((resource) => (
+                        <li key={resource.id}>
+                          {resource.name} — {resource.purpose}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <Unavailable note="The deployment's saved configuration could not be read, so no application resource list is shown." />
+            )}
+            <div className="flex flex-col gap-1">
+              <h4 className="text-sm font-semibold text-foreground">Connector stack</h4>
+              <ul className={listClass}>
+                {CONNECTOR_STACK_RESOURCES.map((resource) => (
+                  <li key={resource}>{resource}</li>
+                ))}
+              </ul>
+            </div>
+          </AccordionContent>
+        </AccordionItem>
+
+        <AccordionItem value="installation">
+          <AccordionTrigger>Initial installation permissions</AccordionTrigger>
+          <AccordionContent className={sectionClass}>
+            <p>
+              Helper functions use these roles only while CloudFormation creates, updates or deletes
+              the connector stack. The connector does not use them. Your own AWS user needs
+              permission to create the stack, including its IAM roles.
+            </p>
+            {INSTALL_HELPER_ROLES.map((role) => (
+              <div key={role.logicalId} className="flex flex-col gap-1">
+                <h4 className="text-sm font-semibold text-foreground">{role.label}</h4>
+                {role.awsManagedPolicies.length > 0 ? (
+                  <p className="flex flex-wrap items-center gap-1.5">
+                    AWS managed policy:
+                    {role.awsManagedPolicies.map((policy) => (
+                      <code key={policy} className={codeClass}>
+                        {policy}
+                      </code>
+                    ))}
+                  </p>
+                ) : null}
+                {role.statements.length > 0 ? <StatementList statements={role.statements} /> : null}
+              </div>
+            ))}
+          </AccordionContent>
+        </AccordionItem>
+
+        <AccordionItem value="ongoing">
+          <AccordionTrigger>Ongoing connector permissions</AccordionTrigger>
+          <AccordionContent className={sectionClass}>
+            <p>
+              Both roles get all of these permissions when you install the connector, not after its
+              first check-in. Deployz chooses the commands and the application template that the
+              connector applies.
+            </p>
+            <div className="flex flex-col gap-1">
+              <RoleHeading role={CONNECTOR_ROLE}>
+                {CONNECTOR_ROLE.hasPermissionsBoundary
+                  ? 'A permissions boundary caps the role at these permissions.'
+                  : null}
+              </RoleHeading>
+              <StatementList statements={CONNECTOR_ROLE.statements} />
+            </div>
+            <div className="flex flex-col gap-1">
+              <RoleHeading role={EXECUTION_ROLE}>
+                Only CloudFormation can use this role, for this account. It builds your application
+                stack.
+                {executionRoleManagesRoles
+                  ? ' It can create IAM roles for your application and attach policies to them.'
+                  : null}
+                {EXECUTION_ROLE.hasPermissionsBoundary ? null : ' It has no permissions boundary.'}
+              </RoleHeading>
+              <StatementList statements={EXECUTION_ROLE.statements} />
+            </div>
+          </AccordionContent>
+        </AccordionItem>
+
+        <AccordionItem value="exceptions">
+          <AccordionTrigger>Read-only permissions and exceptions</AccordionTrigger>
+          <AccordionContent className={sectionClass}>
+            <p>
+              AWS does not support tag limits on some actions. These actions are not limited to this
+              installation.
+            </p>
+            <div className="flex flex-col gap-2">
+              <h4 className="text-sm font-semibold text-foreground">Read-only actions</h4>
+              <ActionList actions={unscopedReads} />
+            </div>
+            <div className="flex flex-col gap-1">
+              <h4 className="text-sm font-semibold text-foreground">Other actions</h4>
+              <StatementList statements={unscopedWrites} />
+            </div>
+            {notGranted.length > 0 ? (
+              <div className="flex flex-col gap-2">
+                <h4 className="text-sm font-semibold text-foreground">Not granted</h4>
+                <p>The connector writes its own activity log. It cannot read any logs:</p>
+                <ActionList actions={notGranted} />
+              </div>
+            ) : null}
+          </AccordionContent>
+        </AccordionItem>
+      </Accordion>
+    </div>
+  );
+}
+
+function DataTab() {
+  return (
+    <div className="flex flex-col gap-6">
+      <section aria-labelledby="application-data" className="flex flex-col gap-2">
+        <h2 id="application-data" className="text-base font-semibold">
+          Application data
         </h2>
-        <p className="text-sm text-muted-foreground">These stay inside your AWS account:</p>
-        <ul className="flex list-disc flex-col gap-1.5 pl-5 text-sm text-muted-foreground">
+        <p className="text-sm text-muted-foreground">These stay in your AWS account:</p>
+        <ul className={listClass}>
           {DATA_NOT_SENT_TO_DEPLOYZ.map((item) => (
             <li key={item}>{item}</li>
           ))}
@@ -282,131 +387,132 @@ export function SecurityDetailsContent({
         <p className="text-sm text-muted-foreground">{RAW_LOGS_GUARANTEE}</p>
       </section>
 
-      <section aria-labelledby="revoke" className="flex flex-col gap-3">
+      <section aria-labelledby="secrets" className="flex flex-col gap-2">
+        <h2 id="secrets" className="text-base font-semibold">
+          Secrets &amp; credentials
+        </h2>
+        <p className="text-sm text-muted-foreground">{SECRET_HANDLING_STATEMENT}</p>
+        <p className="text-sm text-muted-foreground">
+          Values changed after your account connects stay in the update job until the connector
+          collects it. Deployz then removes them from the job.
+        </p>
+        <p className="text-sm text-muted-foreground">
+          Deployz does not ask for or store your AWS credentials. The connector signs in to Deployz
+          with a token in a Secrets Manager secret in your account.
+        </p>
+      </section>
+
+      <section aria-labelledby="data-sent" className="flex flex-col gap-2">
+        <h2 id="data-sent" className="text-base font-semibold">
+          Data shared with Deployz
+        </h2>
+        <p className="text-sm text-muted-foreground">
+          The connector sends this information. Configuration values and secrets that you or your
+          software provider enter also pass through Deployz.
+        </p>
+        <ul className={listClass}>
+          {DATA_SENT_TO_DEPLOYZ.map((item) => (
+            <li key={item}>{item}</li>
+          ))}
+        </ul>
+      </section>
+
+      <section aria-labelledby="revoke" className="flex flex-col gap-2">
         <h2 id="revoke" className="text-base font-semibold">
-          How to revoke Deployz
+          Revoke access
         </h2>
         <p className="text-sm text-muted-foreground">{OWNERSHIP_NOTE}</p>
-        <ol className="flex list-decimal flex-col gap-2 pl-5 text-sm text-muted-foreground">
+        <ol className={orderedListClass}>
           {REVOKE_STEPS.map((step) => (
             <li key={step}>{step}</li>
           ))}
         </ol>
+        <p className="text-sm font-medium">{REVOKE_ORDER_NOTE}</p>
       </section>
 
-      <section aria-labelledby="deletion" className="flex flex-col gap-3">
+      <section aria-labelledby="deletion" className="flex flex-col gap-2">
         <h2 id="deletion" className="text-base font-semibold">
-          How deletion works
+          Deletion &amp; retained resources
         </h2>
-        <ol className="flex list-decimal flex-col gap-2 pl-5 text-sm text-muted-foreground">
+        <ol className={orderedListClass}>
           {DELETION_STEPS.map((step) => (
             <li key={step}>{step}</li>
           ))}
         </ol>
       </section>
+    </div>
+  );
+}
 
-      <section aria-labelledby="technical-detail" className="flex flex-col gap-3">
-        <h2 id="technical-detail" className="text-base font-semibold">
-          Technical details
-        </h2>
+// §45 Security Details. The application resources and the diagram come from
+// the deployment's saved plan (docs/ui-system.md "Plan-driven surfaces"); a
+// missing plan shows unavailable states. Every IAM action comes from the
+// deployed bootstrap template through @/lib/bootstrap-permissions.
+export function SecurityDetailsContent({
+  plan,
+  backHref,
+  backLabel = 'Back to installation',
+}: {
+  plan: DeploymentPlan | null;
+  backHref: string;
+  backLabel?: string;
+}) {
+  const [tab, setTab] = useState<TabValue>('overview');
+
+  return (
+    <div className="flex flex-col gap-6">
+      <Button asChild variant="ghost" size="sm" className="-ml-2 w-fit">
+        <Link href={backHref}>
+          <ArrowLeft data-icon="inline-start" />
+          {backLabel}
+        </Link>
+      </Button>
+
+      <div className="flex flex-col gap-2">
+        <h1 className="text-2xl font-semibold tracking-tight">Security &amp; AWS access</h1>
         <p className="text-sm text-muted-foreground">
-          Exact permissions, as they appear in the template you deploy.
+          Review what Deployz installs, what it can access, and how you stay in control.
         </p>
+      </div>
 
-        <div className="flex flex-col gap-3">
-          <DetailSection title="Phase 1 — granted at install time">
-            <p>Write its own activity log:</p>
-            <ActionList actions={PHASE_1_LOG_WRITE_ACTIONS} />
-            <p>Read and refresh its own access key (scoped to that one secret, nothing else):</p>
-            <ActionList actions={PHASE_1_SECRET_ACTIONS} />
-          </DetailSection>
+      <ul aria-label="Security highlights" className="grid gap-4 sm:grid-cols-3">
+        {HIGHLIGHTS.map(({ icon: Icon, title, text }) => (
+          <li key={title} className="flex gap-3">
+            <Icon aria-hidden className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
+            <div className="flex flex-col gap-0.5">
+              <p className="text-sm font-medium">{title}</p>
+              <p className="text-sm text-muted-foreground">{text}</p>
+            </div>
+          </li>
+        ))}
+      </ul>
 
-          <DetailSection title="Phase 2 — granted only after the connector's first check-in">
-            <p>
-              Create and update your app&apos;s resources — only when the request carries your
-              installation tag (<code className="rounded bg-muted px-1 py-0.5 font-mono text-xs">{REQUEST_TAG_CONDITION}</code>):
-            </p>
-            <ActionList actions={PHASE_2_CREATE_STACK_ACTIONS} />
-            <p>
-              Manage and remove them — only on resources already carrying your tag (
-              <code className="rounded bg-muted px-1 py-0.5 font-mono text-xs">{RESOURCE_TAG_CONDITION}</code>):
-            </p>
-            <ActionList actions={PHASE_2_MANAGE_STACK_ACTIONS} />
-            <p>Reconcile your app&apos;s running resources — same tag boundary:</p>
-            <ActionList actions={PHASE_2_APP_RESOURCE_ACTIONS} />
-            <p>
-              Create your app&apos;s managed cache, and tag it as belonging to your installation
-              — only when the request carries your installation tag (
-              <code className="rounded bg-muted px-1 py-0.5 font-mono text-xs">{REQUEST_TAG_CONDITION}</code>):
-            </p>
-            <ActionList actions={cacheCreateActions} />
-            <p>
-              Modify, remove, or read the tags on it — only on a cache already carrying your tag (
-              <code className="rounded bg-muted px-1 py-0.5 font-mono text-xs">{RESOURCE_TAG_CONDITION}</code>):
-            </p>
-            <ActionList actions={cacheManageActions} />
-            <p>
-              Look up its cache clusters and subnet groups — these are read-only lookups that AWS
-              does not let us restrict by tag, so they are not limited to your installation:
-            </p>
-            <ActionList actions={cacheDescribeActions} />
-            <p>
-              Request the TLS certificate for a custom domain you configure — only when the
-              request carries your installation tag (
-              <code className="rounded bg-muted px-1 py-0.5 font-mono text-xs">{REQUEST_TAG_CONDITION}</code>):
-            </p>
-            <ActionList actions={PHASE_2_ACM_REQUEST_ACTIONS} />
-            <p>
-              Look up and remove that certificate — only on a certificate already carrying your
-              tag (
-              <code className="rounded bg-muted px-1 py-0.5 font-mono text-xs">{RESOURCE_TAG_CONDITION}</code>):
-            </p>
-            <ActionList actions={PHASE_2_ACM_MANAGE_ACTIONS} />
-            <p>
-              Read your load balancer&apos;s listeners, certificates, tags, and routing rules —
-              these are read-only lookups that AWS does not let us restrict by tag, so they are
-              not limited to your installation:
-            </p>
-            <ActionList actions={domainIngressReadActions} />
-            <p>
-              Attach that certificate to your load balancer and manage the HTTPS listener it
-              serves — only on load-balancer resources already carrying your tag (
-              <code className="rounded bg-muted px-1 py-0.5 font-mono text-xs">{RESOURCE_TAG_CONDITION}</code>):
-            </p>
-            <ActionList actions={domainIngressWriteActions} />
-            <p>
-              Hand your app&apos;s own service role to the deployment service — limited to{' '}
-              <code className="rounded bg-muted px-1 py-0.5 font-mono text-xs">{PASS_ROLE_RESOURCE_ARN}</code>{' '}
-              and only to{' '}
-              <code className="rounded bg-muted px-1 py-0.5 font-mono text-xs">{PASSED_TO_SERVICE}</code>:
-            </p>
-            <ActionList actions={[PHASE_2_PASS_ROLE_ACTION]} />
-          </DetailSection>
-
-          <DetailSection title="Explicitly not granted — anywhere">
-            <p>
-              These permissions appear nowhere in what you deploy. The connector writes its own
-              activity log; it can never read any logs back:
-            </p>
-            <ActionList actions={DENIED_LOG_READ_ACTIONS} />
-            <p>
-              The install-time ceiling (a permissions boundary) is the union of phases 1 and 2 —
-              the connector&apos;s permissions can never grow beyond this page. Almost every phase-2
-              action is constrained by the{' '}
-              <code className="rounded bg-muted px-1 py-0.5 font-mono text-xs">{TAG_BOUNDARY_KEY}</code>{' '}
-              tag boundary. The exceptions are read-only lookups on the load balancer and the
-              cache — AWS does not support scoping those — and the service-role handoff, which is
-              limited by a role path and a service condition instead.
-            </p>
-          </DetailSection>
-        </div>
-      </section>
-
-      <section aria-label="Back" className="flex flex-col gap-3 sm:flex-row sm:items-center">
-        <Button asChild variant="ghost" size="lg">
-          <Link href={backHref}>{backLabel}</Link>
-        </Button>
-      </section>
+      <Tabs value={tab} onValueChange={(value) => setTab(value as TabValue)}>
+        <TabsList
+          variant="line"
+          aria-label="Security sections"
+          className="w-full justify-start gap-1 overflow-x-auto border-b sm:gap-4"
+        >
+          <TabsTrigger value="overview" className="flex-none">
+            Overview
+          </TabsTrigger>
+          <TabsTrigger value="permissions" className="flex-none">
+            AWS permissions
+          </TabsTrigger>
+          <TabsTrigger value="data" className="flex-none">
+            Data &amp; control
+          </TabsTrigger>
+        </TabsList>
+        <TabsContent value="overview" className="pt-4">
+          <OverviewTab plan={plan} onShowPermissions={() => setTab('permissions')} />
+        </TabsContent>
+        <TabsContent value="permissions" className="pt-4">
+          <PermissionsTab plan={plan} />
+        </TabsContent>
+        <TabsContent value="data" className="pt-4">
+          <DataTab />
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }

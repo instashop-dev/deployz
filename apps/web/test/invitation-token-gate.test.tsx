@@ -178,7 +178,7 @@ describe('InvitationTokenGate', () => {
     expect(document.body.textContent).toContain("This link isn't valid");
   });
 
-  it('view="security" renders the Security details heading once the token resolves', async () => {
+  it('view="security" renders the Security & AWS access heading once the token resolves', async () => {
     window.location.hash = '#' + TOKEN;
     dataMocks.fetchPublicInstallData.mockResolvedValue({ status: 'ok', data: resolveFixture() });
 
@@ -186,7 +186,7 @@ describe('InvitationTokenGate', () => {
     await flush();
 
     expect(dataMocks.fetchPublicInstallData).toHaveBeenCalledWith(LINK_ID, TOKEN);
-    expect(document.body.textContent).toContain('Security details');
+    expect(document.querySelector('h1')?.textContent).toBe('Security & AWS access');
     // The install confirm flow itself never renders on the security view.
     expect(document.querySelector('[data-slot="select-trigger"]')).toBeNull();
   });

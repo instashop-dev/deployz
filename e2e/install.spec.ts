@@ -144,7 +144,7 @@ test('install page top-level copy is jargon-free', async ({ page, request }) => 
   expect(prose).not.toMatch(/\b(IAM|ECS|ALB|Lambda|VPC)\b/);
 });
 
-test('security page top level is jargon-free and tells the honest story', async ({
+test('security page overview is jargon-free and shows the access summary', async ({
   page,
   request,
 }) => {
@@ -154,26 +154,19 @@ test('security page top level is jargon-free and tells the honest story', async 
   const response = await page.goto(`/install/${installLinkId}/security`);
   expect(response?.status()).toBe(200);
 
-  await expect(page.getByRole('heading', { name: 'Security details' })).toBeVisible();
-  await expect(page.getByRole('heading', { name: 'Exact AWS resources created' })).toBeVisible();
+  await expect(page.getByRole('heading', { level: 1, name: 'Security & AWS access' })).toBeVisible();
+  for (const highlight of ['Your AWS account', 'Outbound connection', 'IAM permissions']) {
+    await expect(
+      page.getByLabel('Security highlights').getByText(highlight, { exact: true }),
+    ).toBeVisible();
+  }
+  await expect(page.getByRole('tab', { name: 'Overview' })).toHaveAttribute('aria-selected', 'true');
   await expect(page.getByRole('heading', { name: 'How it fits together' })).toBeVisible();
-  await expect(page.getByRole('heading', { name: 'What the Deployz connector can do' })).toBeVisible();
-  await expect(
-    page.getByRole('heading', { name: 'What the Deployz connector can never do' }),
-  ).toBeVisible();
-  await expect(page.getByRole('heading', { name: 'The honest version' })).toBeVisible();
-  await expect(page.getByRole('heading', { name: 'Data sent to Deployz' })).toBeVisible();
-  await expect(page.getByRole('heading', { name: 'Data not sent to Deployz' })).toBeVisible();
-  await expect(page.getByRole('heading', { name: 'How to revoke Deployz' })).toBeVisible();
-  await expect(page.getByRole('heading', { name: 'How deletion works' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'How it works' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'The honest version' })).toHaveCount(0);
 
-  // §45 honesty: no overclaiming "tightly scoped" — the page says the
-  // post-check-in permissions are substantial but bounded.
-  await expect(page.getByText(/won.t claim these permissions are tiny/)).toBeVisible();
-  await expect(page.getByText(/substantial permissions/)).toBeVisible();
-
-  const text = await page.locator('body').innerText();
-  expect(text).not.toMatch(JARGON);
+  const overview = await page.getByRole('tabpanel').innerText();
+  expect(overview).not.toMatch(JARGON);
 });
 
 test('security page reveals the actual permissions only after expanding', async ({
@@ -183,22 +176,25 @@ test('security page reveals the actual permissions only after expanding', async 
   const { installLinkId } = await seedInstall(request);
   await page.goto(`/install/${installLinkId}/security`);
 
+  await page.getByRole('tab', { name: 'AWS permissions' }).click();
   // Collapsed: no technical permission names in the rendered text.
   let text = await page.locator('body').innerText();
   expect(text).not.toContain('cloudformation:CreateStack');
   expect(text).not.toContain('logs:PutLogEvents');
   expect(text).not.toContain('iam:PassRole');
 
-  // Expand every technical-detail section.
-  for (const summary of await page.locator('summary').all()) {
-    await summary.click();
+  for (const name of [
+    'AWS resources created',
+    'Initial installation permissions',
+    'Ongoing connector permissions',
+    'Read-only permissions and exceptions',
+  ]) {
+    await page.getByRole('button', { name }).click();
   }
 
   text = await page.locator('body').innerText();
-  // Phase 1 (install-time) permissions.
   expect(text).toContain('logs:PutLogEvents');
   expect(text).toContain('secretsmanager:GetSecretValue');
-  // Phase 2 (post-first-contact) permissions + the tag boundary.
   expect(text).toContain('cloudformation:CreateStack');
   expect(text).toContain('cloudformation:DeleteStack');
   expect(text).toContain('ecs:UpdateService');
@@ -209,6 +205,10 @@ test('security page reveals the actual permissions only after expanding', async 
   // §16 data boundary: the denied log-read actions are disclosed as NOT granted.
   expect(text).toContain('logs:GetLogEvents');
   expect(text).toContain('logs:FilterLogEvents');
+
+  await page.getByRole('tab', { name: 'Data & control' }).click();
+  await expect(page.getByRole('heading', { name: 'Revoke access' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Deletion & retained resources' })).toBeVisible();
 });
 
 test('install page links to security details and back', async ({ page, request }) => {
@@ -217,9 +217,9 @@ test('install page links to security details and back', async ({ page, request }
   await page.getByRole('button', { name: 'Technical details' }).click();
   await page.getByRole('link', { name: 'Security & permissions details' }).click();
   await page.waitForURL(`**/install/${installLinkId}/security`);
-  await expect(page.getByRole('heading', { name: 'Security details' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Security & AWS access' })).toBeVisible();
 
-  await page.getByRole('link', { name: 'Back to install' }).click();
+  await page.getByRole('link', { name: 'Back to installation' }).click();
   await page.waitForURL(`**/install/${installLinkId}`);
   await expect(page.getByRole('heading', { name: 'What will be deployed' })).toBeVisible();
 });

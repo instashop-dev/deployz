@@ -1,3 +1,4 @@
+import { ArrowDown, ArrowRight } from 'lucide-react';
 import type { ReactNode } from 'react';
 
 import type { DeploymentPlan, FootprintWorkload } from '@deployz/contracts';
@@ -16,48 +17,59 @@ export function ArchitectureDiagram({ plan }: { plan: DeploymentPlan }) {
   const resourceBoxes = footprint
     ? footprint.resources
         // Networking (the load balancer, the NAT gateway) is drawn by the
-        // diagram itself — the public box and the account boundary.
+        // diagram itself — the application caption and the account boundary.
         .filter((resource) => resource.category !== 'network')
         .map((resource) => ({ id: resource.id, label: resource.label }))
     : legacyResourceBoxes(plan);
 
   return (
-    <figure aria-label="Deployz standard customer architecture diagram" className="not-prose">
-      <div className="rounded-xl border-2 border-dashed p-4">
-        <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-          Your AWS account
-        </p>
-        <div className="mt-3 flex flex-col items-center gap-2">
-          <DiagramBox>Load Balancer</DiagramBox>
-          <Arrow />
-          <div className="flex flex-wrap items-stretch justify-center gap-2" data-testid="diagram-workloads">
-            {workloads ? (
-              workloads.map((workload) => <WorkloadBox key={workload.id} workload={workload} />)
-            ) : (
-              <DiagramBox>Application container</DiagramBox>
-            )}
+    <figure aria-label="Deployz architecture diagram" className="not-prose flex flex-col gap-3">
+      <div className="flex flex-col items-stretch gap-2 md:flex-row md:items-center">
+        <div className="flex flex-1 flex-col gap-4 rounded-xl border border-dashed p-4">
+          <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+            Your AWS account
+          </p>
+          <div className="flex flex-col gap-2">
+            <p className="text-xs text-muted-foreground">Your application, behind a load balancer</p>
+            <div className="flex flex-wrap gap-2" data-testid="diagram-workloads">
+              {workloads ? (
+                workloads.map((workload) => <WorkloadBox key={workload.id} workload={workload} />)
+              ) : (
+                <DiagramBox>Application container</DiagramBox>
+              )}
+            </div>
+            <div className="flex flex-wrap gap-2" data-testid="diagram-resources">
+              {resourceBoxes.map((box) => (
+                <DiagramBox key={box.id} small>
+                  {box.label}
+                </DiagramBox>
+              ))}
+              <DiagramBox small>Secrets</DiagramBox>
+              <DiagramBox small>Monitoring</DiagramBox>
+            </div>
           </div>
-          <Arrow />
-          <div className="flex flex-wrap items-center justify-center gap-3" data-testid="diagram-resources">
-            {resourceBoxes.map((box) => (
-              <DiagramBox key={box.id} small>
-                {box.label}
+          <div className="flex flex-col gap-2 border-t pt-4">
+            <p className="text-xs text-muted-foreground">Applies changes to your application</p>
+            <div className="flex">
+              <DiagramBox emphasis detail="Runs every 5 minutes">
+                Deployz connector
               </DiagramBox>
-            ))}
-            <DiagramBox small>Secrets</DiagramBox>
-            <DiagramBox small>Monitoring</DiagramBox>
+            </div>
           </div>
-          <Arrow />
-          <DiagramBox emphasis>Deployz connector</DiagramBox>
+        </div>
+        <div className="flex items-center justify-center gap-1 px-2 text-xs text-muted-foreground md:flex-col">
+          <ArrowDown aria-hidden className="size-4 md:hidden" />
+          <ArrowRight aria-hidden className="hidden size-4 md:block" />
+          <span>Outbound HTTPS</span>
+        </div>
+        <div className="flex justify-center md:w-48">
+          <DiagramBox emphasis detail="Sends commands when the connector asks">
+            Deployz control plane
+          </DiagramBox>
         </div>
       </div>
-      <div className="mt-2 flex flex-col items-center gap-1 text-center">
-        <p className="text-xs text-muted-foreground">HTTPS outbound only — nothing calls in</p>
-        <Arrow />
-        <DiagramBox emphasis>Deployz Control Plane</DiagramBox>
-      </div>
-      <figcaption className="mt-3 text-center text-xs text-muted-foreground">
-        The relay only calls out. Nothing — including Deployz — connects inward.
+      <figcaption className="text-xs text-muted-foreground">
+        The connector starts every connection. Deployz cannot connect into your account.
       </figcaption>
     </figure>
   );
@@ -111,13 +123,5 @@ function DiagramBox({
       <span>{children}</span>
       {detail ? <span className="text-xs font-normal text-muted-foreground">{detail}</span> : null}
     </div>
-  );
-}
-
-function Arrow() {
-  return (
-    <span aria-hidden className="text-muted-foreground">
-      ↓
-    </span>
   );
 }

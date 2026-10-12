@@ -1,152 +1,13 @@
 /**
- * Canonical trust-story data for the Security Details page (§45).
- *
- * Every permission claim the page makes is rendered from THIS module, and
- * `apps/web/test/security-details.test.ts` locks each list against the actual
- * policy statements in `packages/cdk/src/bootstrap/bootstrap-stack.ts` — so
- * the copy can never drift from what the customer actually deploys. Do not
- * paraphrase these lists in JSX; render them from here.
- *
- * The design being disclosed (todo 8, two-phase):
- *   - Phase 1 (install-time): write relay logs + read/write the relay's own
- *     bootstrap-generated credential secret. Nothing else.
- *   - Phase 2 (post-first-contact): provisioner permissions to apply the
- *     versioned application stack. Write actions are constrained by the
- *     `deployz:installation` tag boundary, with one exception: `iam:PassRole`
- *     instead uses a path-restricted role ARN (`arn:aws:iam::*:role/deployz/*`)
- *     plus an `iam:PassedToService` condition, since PassRole has no tag to
- *     scope. Separately, the load balancer's `Describe*` reads (listeners,
- *     listener certificates, tags, rules) carry no condition at all — AWS
- *     does not support resource-level or condition-key restrictions on those
- *     API calls. Defined at install time but NOT attached until the control
- *     plane attaches it after the relay's first contact. Includes requesting
- *     and managing the TLS certificate for a custom domain you configure, and
- *     attaching it to the deployment's load balancer (custom-domains MVP).
- *     Also includes creating and reconciling a managed cache for applications
- *     that need one (Redis MVP) — cache creation, including the first call
- *     that tags a brand-new cache, requires the request tag (a resource tag
- *     condition can never authorize tagging an untagged resource for the
- *     first time — same reasoning as `acm:AddTagsToCertificate` above);
- *     deleting/modifying it or reading its tags back requires the resource
- *     tag; and its `Describe*` reads carry no condition for the same reason
- *     the load balancer's `Describe*` reads don't: AWS does not support
- *     resource-level permissions on those API calls.
- *   - A permissions boundary (union of phase 1 + phase 2) caps the relay role
- *     forever — its permissions can never grow beyond what is listed here.
- *   - Data boundary (§16): the relay writes logs but is never granted
- *     `logs:GetLogEvents` / `logs:FilterLogEvents` — it cannot read logs back.
+ * Trust-story copy for the Security Details page (§45). The IAM actions the
+ * page shows are not listed here: they are read from the deployed bootstrap
+ * template by `@/lib/bootstrap-permissions`.
  */
 
-/** Phase 1 — write the relay's own activity log. */
-export const PHASE_1_LOG_WRITE_ACTIONS = [
-  'logs:CreateLogGroup',
-  'logs:CreateLogStream',
-  'logs:PutLogEvents',
-] as const;
-
-/** Phase 1 — read/write the relay's own credential secret (scoped to that secret only). */
-export const PHASE_1_SECRET_ACTIONS = [
-  'secretsmanager:GetSecretValue',
-  'secretsmanager:PutSecretValue',
-  'secretsmanager:UpdateSecret',
-  'secretsmanager:DescribeSecret',
-] as const;
-
-/** Phase 2 — create/update the application stack (requires the request tag). */
-export const PHASE_2_CREATE_STACK_ACTIONS = [
-  'cloudformation:CreateStack',
-  'cloudformation:UpdateStack',
-  'cloudformation:CreateChangeSet',
-  'cloudformation:ExecuteChangeSet',
-] as const;
-
-/** Phase 2 — manage/remove the application stack (requires the resource tag). */
-export const PHASE_2_MANAGE_STACK_ACTIONS = [
-  'cloudformation:DeleteStack',
-  'cloudformation:DeleteChangeSet',
-  'cloudformation:DescribeStacks',
-  'cloudformation:DescribeStackEvents',
-  'cloudformation:DescribeStackResources',
-  'cloudformation:ListStackResources',
-] as const;
-
-/** Phase 2 — reconcile the application's own resources (requires the resource tag). */
-export const PHASE_2_APP_RESOURCE_ACTIONS = [
-  'ecs:UpdateService',
-  'ecs:DeleteService',
-  'ecs:DescribeServices',
-  'rds:ModifyDBInstance',
-  'rds:DeleteDBInstance',
-  'rds:DescribeDBInstances',
-] as const;
-
-/** Phase 2 — request and manage the TLS certificate for a custom domain you configure (requires the request tag). */
-export const PHASE_2_ACM_REQUEST_ACTIONS = [
-  'acm:RequestCertificate',
-  'acm:AddTagsToCertificate',
-] as const;
-
-/** Phase 2 — read and remove that certificate (requires the resource tag). */
-export const PHASE_2_ACM_MANAGE_ACTIONS = [
-  'acm:DescribeCertificate',
-  'acm:DeleteCertificate',
-  'acm:ListTagsForCertificate',
-] as const;
-
-/** Phase 2 — attach the certificate to the deployment's load balancer (custom-domains MVP). */
-export const PHASE_2_DOMAIN_INGRESS_ACTIONS = [
-  'elasticloadbalancing:DescribeLoadBalancers',
-  'elasticloadbalancing:DescribeTargetGroups',
-  'elasticloadbalancing:DescribeTargetHealth',
-  'elasticloadbalancing:DescribeListeners',
-  'elasticloadbalancing:DescribeListenerCertificates',
-  'elasticloadbalancing:DescribeTags',
-  'elasticloadbalancing:DescribeRules',
-  'elasticloadbalancing:CreateListener',
-  'elasticloadbalancing:ModifyListener',
-  'elasticloadbalancing:DeleteListener',
-  'elasticloadbalancing:AddListenerCertificates',
-  'elasticloadbalancing:RemoveListenerCertificates',
-] as const;
-
 /**
- * Phase 2 — provision and reconcile the application's managed cache. The
- * create actions require the request tag — AddTagsToResource is grouped with
- * them, not with delete/modify, because a resource-tag condition can never
- * authorize the FIRST tagging of a brand-new, untagged cache (same reasoning
- * as acm:AddTagsToCertificate in PHASE_2_ACM_REQUEST_ACTIONS above). The
- * delete, modify, and list-tags actions require the resource tag (the cache
- * already carries it by then). The describe actions carry no condition: AWS
- * does not support resource-level permissions on ElastiCache describe calls,
- * mirroring the ELB describe exception above.
- */
-export const PHASE_2_CACHE_ACTIONS = [
-  'elasticache:CreateCacheCluster',
-  'elasticache:DeleteCacheCluster',
-  'elasticache:DescribeCacheClusters',
-  'elasticache:ModifyCacheCluster',
-  'elasticache:DeleteReplicationGroup',
-  'elasticache:DescribeReplicationGroups',
-  'elasticache:CreateCacheSubnetGroup',
-  'elasticache:DeleteCacheSubnetGroup',
-  'elasticache:DescribeCacheSubnetGroups',
-  'elasticache:AddTagsToResource',
-  'elasticache:ListTagsForResource',
-] as const;
-
-/** Phase 2 — hand the application stack's own service role to the deployment service. */
-export const PHASE_2_PASS_ROLE_ACTION = 'iam:PassRole';
-export const PASS_ROLE_RESOURCE_ARN = 'arn:aws:iam::*:role/deployz/*';
-export const PASSED_TO_SERVICE = 'cloudformation.amazonaws.com';
-
-/** The tag boundary every phase-2 action is constrained by. */
-export const TAG_BOUNDARY_KEY = 'deployz:installation';
-export const REQUEST_TAG_CONDITION = 'aws:RequestTag/deployz:installation';
-export const RESOURCE_TAG_CONDITION = 'aws:ResourceTag/deployz:installation';
-
-/**
- * §16 data boundary — these are NEVER granted to the relay, anywhere in the
- * template. It writes its own activity log; it cannot read any logs back.
+ * §16 data boundary — log reads the connector must never hold. The page
+ * states only the ones the template does not grant
+ * (`isGrantedToConnector` in `@/lib/bootstrap-permissions`).
  */
 export const DENIED_LOG_READ_ACTIONS = [
   'logs:GetLogEvents',
@@ -154,20 +15,31 @@ export const DENIED_LOG_READ_ACTIONS = [
 ] as const;
 
 /**
- * §16/§45 "data sent to Deployz" — operational metadata only. Mirrors §16's
- * list verbatim.
+ * What the connector (bootstrap) stack creates — packages/cdk/src/bootstrap/
+ * bootstrap-stack.ts. apps/web/test/security-details.test.ts checks each
+ * entry against the resource types in the deployed template.
+ */
+export const CONNECTOR_STACK_RESOURCES = [
+  'Connector function (AWS Lambda) and its EventBridge schedule, which runs it every 5 minutes',
+  'Connector role, with a permissions boundary and the provisioner policy',
+  'CloudFormation execution role for your application stack',
+  "Secrets Manager secret that holds the connector's Deployz credential",
+  "Helper functions that create the installation ID and set the connector log's 1-week retention",
+  'At run time, the connector writes SSM parameters under /deployz/<installation ID>/ to track unfinished commands',
+] as const;
+
+/**
+ * §16/§45 "data sent to Deployz" — what the relay reports on its polls:
+ * operational metadata plus the AWS diagnostic messages it forwards
+ * (packages/relay/src/stack-events.ts, deploy.ts, http-probe.ts, poll.ts).
  */
 export const DATA_SENT_TO_DEPLOYZ = [
-  'Installation ID',
-  'AWS account ID',
-  'AWS region',
-  'Release version',
-  'Deployment state',
-  'Infrastructure status',
+  'Installation ID, AWS account ID and AWS Region',
+  'Connector version and the release and image version that runs',
+  'Deployment state, infrastructure status, health state and timestamps',
   'Resource identifiers',
-  'Deployment timestamps',
-  'Health state',
-  'Structured AWS deployment errors',
+  'AWS error messages: stack events, stopped-task reasons and exit codes',
+  'Health-check status code and response time (not the response body)',
 ] as const;
 
 /**
@@ -188,10 +60,18 @@ export const RAW_LOGS_GUARANTEE =
 
 /** §45 "how to revoke Deployz". */
 export const REVOKE_STEPS = [
-  'Delete the Deployz connector stack from your AWS account (or delete the connector’s execution role directly).',
-  'The connector immediately loses the ability to call out to Deployz — there is no inbound path for Deployz to re-establish contact.',
-  'Deployz shows that it lost contact with the connector once it stops hearing from it.',
+  'Delete the Deployz connector stack in your AWS account. This deletes the connector function, its schedule and its roles.',
+  'The connector stops. Deployz has no inbound path into your account, so it cannot reconnect.',
+  'Deployz shows the connector as disconnected when it stops receiving check-ins.',
 ] as const;
+
+/**
+ * The connector stack holds the CloudFormation execution role the
+ * application stack was created with (bootstrap-stack.ts
+ * ApplicationExecutionRole; relay install.ts passes it as RoleARN).
+ */
+export const REVOKE_ORDER_NOTE =
+  'Remove the deployment and delete its retained data first. The connector stack also holds the role that CloudFormation uses for your application. After you delete the connector, Deployz cannot change or remove your application, and you must remove those resources yourself.';
 
 /**
  * Ownership clarification — the software provider operates the deployment
@@ -215,10 +95,10 @@ export const SECRET_HANDLING_STATEMENT =
 
 /** §45 "how deletion works" — mirrors §63's distinctions. */
 export const DELETION_STEPS = [
-  'From the Deployz dashboard, your software provider starts "Remove deployment" for your deployment.',
-  'Deployz removes the application and most of the networking around it through the Deployz connector — only resources tagged for this deployment.',
-  'Removal keeps your database (deletion protection on, with AWS automated backups continuing), its credentials, the storage bucket, and the network parts the database uses in your account — plus the Deployz connector. These retained resources can keep costing money.',
+  'Your software provider starts "Remove deployment" from the Deployz dashboard.',
+  'The connector removes the application and most of its networking. It removes only resources tagged for this deployment.',
+  'Removal keeps your database (deletion protection on, AWS automated backups continue), its credentials, the storage bucket, the network parts the database uses, and the connector. These retained resources can continue to cost money.',
   '"Delete retained data" is a separate, explicitly confirmed step your software provider runs while the connector is online. It deletes the database without a final snapshot, the bucket, application secrets, certificates, and the remaining network.',
-  'The connector stack is yours to delete at any time (see "How to revoke Deployz" above) — keep it until retained data is deleted, since deletion runs through it.',
-  'Deployz’s own operational metadata for the deployment (§16: IDs, state, timestamps — never your application data) is retained for your records and billing history.',
+  'The connector stack is yours to delete at any time. Keep it until retained data is deleted, because deletion runs through it.',
+  'Deployz keeps its operational metadata for the deployment (IDs, states, timestamps) for your records and billing history.',
 ] as const;

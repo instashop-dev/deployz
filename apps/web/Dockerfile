@@ -43,6 +43,9 @@ RUN pnpm install --frozen-lockfile --filter @deployz/web...
 
 COPY packages/contracts ./packages/contracts
 COPY packages/copy-map ./packages/copy-map
+# The Security Details page reads its IAM permissions from the committed
+# bootstrap template (apps/web/src/lib/bootstrap-permissions.ts).
+COPY packages/cdk/artifacts/bootstrap-template-v1.json ./packages/cdk/artifacts/bootstrap-template-v1.json
 COPY apps/web ./apps/web
 
 # apps/web has value imports from @deployz/contracts and @deployz/copy-map,
